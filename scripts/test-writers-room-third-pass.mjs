@@ -219,7 +219,7 @@ await test("J1 Frances knows the pass, names no vendor for the dock; keys", ()=>
   assert.ok(/numbers each scene once/.test(by("Export (screenplay / story)")));
   assert.ok(/last five deleted scenes/.test(by("Script view")));
   for(const f of ["app", "ai", "script", "agents", "agents-ui", "inspector", "spine", "export", "aiwriter"])
-    assert.ok(["20261009-wr3","20261009-art3"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
+    assert.ok(["20261009-wr3","20261009-art3", "20261009-home3"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

@@ -48,6 +48,38 @@
 
   const initials = (t)=> (t||"Untitled").trim().split(/\s+/).slice(0,2).map(w=>w[0]||"").join("").toUpperCase() || "·";
 
+  /* A POSTER'S FILE NAME keeps the title's letters in any language (2026-10-09 — "東京物語" came out "-poster.jpg") */
+  function posterFileName(title){
+    const raw = String(title||"").trim();
+    let slug = "";
+    try{ slug = raw.normalize("NFC").replace(new RegExp("[^\\p{L}\\p{M}\\p{N}\\-]+","gu"),"-"); }catch(e){ slug = raw.replace(/[^\w-]+/g,"-"); }
+    slug = slug.replace(/-+/g,"-").replace(/^-+|-+$/g,"").slice(0,80);
+    return (slug || "poster")+"-poster.jpg";
+  }
+  /* the poster is FETCHED, then saved: a cloud poster lives on another address, where the browser ignores the
+     download name and opens the image in a tab instead (2026-10-09) */
+  async function downloadPoster(url, title){
+    const name = posterFileName(title);
+    try{
+      const blob = await (await fetch(url)).blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = href; a.download = name; document.body.appendChild(a); a.click();
+      setTimeout(()=>{ try{ document.body.removeChild(a); URL.revokeObjectURL(href); }catch(e){} }, 1000);
+    }catch(e){
+      const a = document.createElement("a"); a.href = url; a.download = name; a.target = "_blank"; a.rel = "noopener"; a.click();
+    }
+  }
+  window.turnPosterFileName = posterFileName;
+  // the owner's name, never their email address (the Team rule: names, not emails — 2026-10-09)
+  const ownerName = (email)=>{ const e = String(email||""); if(!e) return "";
+    if(typeof cloudHandleName==="function"){ try{ const n = cloudHandleName(e); if(n) return n; }catch(_e){} }
+    return e.split("@")[0].split("+")[0]; };
+  // a poster's price: GPT Image 2, high quality, 2K (what generatePoster paints), per poster
+  const posterCost = (n)=> (typeof window.nbImageCostText==="function")
+    ? window.nbImageCostText(Math.max(1, n||1), { model:"gpt-image-2", quality:"high", res:"2K" }) : "";
+  const POSTER_SKIP_KEY = "turn_home_poster_skip";
+  const readSkip = ()=>{ try{ return JSON.parse(localStorage.getItem(POSTER_SKIP_KEY)||"[]")||[]; }catch(e){ return []; } };
+
   // Honest pipeline phase from the cheap list-row probes (cloudListProjects):
   // a shot list means the film is shooting; location cards mean the Art Room
   // has begun; otherwise it's still being written.
@@ -63,7 +95,7 @@
 
   const FEATURES = [
     { icon:"sparkles", title:"Cinematic Generation", body:"Film-grade video with native audio — every take arrives with its sound." },
-    { icon:"layers",   title:"Multi-Modal Inputs",   body:"Frames, storyboards, voices and character sheets — up to 12 references steer each render." },
+    { icon:"layers",   title:"Multi-Modal Inputs",   body:"Frames, storyboards, voices and character sheets — up to 50 references steer each render (the limit follows the video model)." },
     { icon:"camera",   title:"Director-Level Control",body:"Camera, lighting and performance, specified shot by shot — never left to chance." },
     { icon:"film",     title:"From Shot to Sequence", body:"Shots pack into clips, clips into scenes — extend and refine take by take." },
   ];
@@ -102,42 +134,47 @@
     const hero = current || films.find(p=> p.cover) || films[0] || null;
     const activeRoom = room || "writers";
 
-    // ----- auto-poster: any recent film without key art gets one minted for it -------
-    // Generated covers are persisted (onGeneratePoster writes doc.cover) so a film is
-    // only ever painted ONCE — on the next open it already has p.cover and is skipped.
+    /* ----- POSTERS ASK FIRST (2026-10-09, owner — Home review) -------------------------------
+       Home used to paint a poster for every owned film without one the moment it opened (a paid
+       GPT Image 2 image at high quality, 2K, with reference images) — and four more on each page.
+       Now it OFFERS: "N films have no poster — Paint posters · price", and paints nothing until you
+       say yes; "Not now" is remembered on this device for those films. A film without a logline is
+       never offered (no story, no poster). Trial / no-plan accounts aren't offered a batch. */
     const [genBusy, setGenBusy] = React.useState({});   // id -> true while its poster renders
-    const attempted = React.useRef({});                 // id -> true once tried this mount (no retry loops)
-    const missing = recent.filter(p=> !p.cover).map(p=> p.id).join(",");
-    const ledgerKey = window.turnCreditBalance ? String(window.turnCreditBalance.plan||"none") : "";
-    React.useEffect(()=>{
-      if(typeof onGeneratePoster!=="function") return;
-      // a free-trial / no-plan account's credits are theirs to spend: no automatic posters
-      // (billing fixes, 2026-09-30) — they can still paint one by hand. A signed-in account
-      // waits for its ledger first (the effect re-runs when it loads: ledgerKey).
-      if(window.turnUserId && !window.turnCreditBalance && !window.turnIsAdmin) return;
-      if(typeof window.turnDraftImagesOnly==="function" && window.turnDraftImagesOnly()) return;
-      let cancelled = false;
-      (async ()=>{
-        for(const p of recent){
-          if(cancelled) break;
-          if(p.cover || attempted.current[p.id]) continue;   // already has art, or already tried
-          // no story yet → nothing to ground a poster in (a blank "Untitled film"
-          // would get generic junk art and burn credits) — wait for a logline
-          if(!String(p.logline||"").trim()) continue;
-          attempted.current[p.id] = true;
+    const [skip, setSkip] = React.useState(readSkip);
+    const [painting, setPainting] = React.useState(false);
+    // no offer for a trial / no-plan account, nor before the credit ledger has loaded (it can't know yet)
+    const draftOnly = (typeof window.turnDraftImagesOnly==="function" && window.turnDraftImagesOnly())
+      || !!(window.turnUserId && !window.turnCreditBalance && !window.turnIsAdmin);
+    const noPoster = mine.filter(p=> !p.cover && String(p.logline||"").trim());
+    const offer = (typeof onGeneratePoster==="function" && !draftOnly) ? noPoster.filter(p=> skip.indexOf(p.id)<0) : [];
+    const notNow = ()=>{ const ids = Array.from(new Set(skip.concat(offer.map(p=>p.id))));
+      setSkip(ids); try{ localStorage.setItem(POSTER_SKIP_KEY, JSON.stringify(ids.slice(-500))); }catch(e){} };
+    const paintAll = async ()=>{
+      if(painting || !offer.length) return;
+      const n = offer.length, price = posterCost(n);
+      if(typeof window.appConfirm==="function"){
+        const ok = await window.appConfirm({ title:"Paint "+n+" poster"+(n!==1?"s":"")+"?",
+          body:"Each poster is painted from the film's own cast, world and look, at high quality and 2K"
+            +(price ? " \u2014 about "+price+" credits in all, plus about 1 credit for each reference image a poster uses." : ".")
+            +" A poster that fails isn't charged.",
+          confirmLabel:"Paint "+n+" poster"+(n!==1?"s":""), cancelLabel:"Not now" });
+        if(!ok) return;
+      }
+      setPainting(true);
+      try{
+        for(const p of offer){
           setGenBusy(b=> ({ ...b, [p.id]:true }));
           try{ await onGeneratePoster(p); }
           catch(err){
-            // stop the batch on failure (e.g. out of image credits) so we don't burn attempts
+            // stop the batch on failure (e.g. out of image credits) so nothing more is spent
             if(window.appToast) window.appToast(String((err&&err.message)||"Couldn't paint a poster."),"error");
-            if(!cancelled) setGenBusy(b=>{ const n={ ...b }; delete n[p.id]; return n; });
             break;
           }
-          finally{ if(!cancelled) setGenBusy(b=>{ const n={ ...b }; delete n[p.id]; return n; }); }
+          finally{ setGenBusy(b=>{ const n2={ ...b }; delete n2[p.id]; return n2; }); }
         }
-      })();
-      return ()=>{ cancelled = true; };
-    }, [missing, ledgerKey]);   // re-run when the set of cover-less films changes (or the ledger loads)
+      } finally { setPainting(false); }
+    };
 
     // ----- full-screen poster preview (the app's shared immersive lightbox) --
     const [viewer, setViewer] = React.useState(null);   // {url, title} | null
@@ -153,10 +190,18 @@
       if(p.cover) setViewer({ url:p.cover, title:p.title||"Untitled film" }); };
     const doDownload = (p,e)=>{ e.stopPropagation();
       if(!p.cover) return;
-      const a = document.createElement("a"); a.href = p.cover;
-      a.download = (p.title||"poster").replace(/[^\w-]+/g,"-")+"-poster.jpg"; a.click(); };
+      downloadPoster(p.cover, p.title); };
+    // a new poster asks first, with its price (2026-10-09 — one hover click painted a paid image)
     const doRegen = async (p,e)=>{ e.stopPropagation();
       if(genBusy[p.id] || typeof onRegenPoster!=="function") return;
+      if(typeof window.appConfirm==="function"){
+        const price = posterCost(1);
+        const ok = await window.appConfirm({ title:(p.cover?"Paint a new poster":"Paint a poster")+" for \u201c"+(p.title||"Untitled film")+"\u201d?",
+          body:(price ? "About "+price+" credits, plus about 1 credit for each reference image it uses. " : "")
+            +(p.cover ? "The current poster stays restorable (Restore previous poster)." : "It's painted from the film's own cast, world and look."),
+          confirmLabel:p.cover?"Paint a new poster":"Paint the poster", cancelLabel:"Cancel" });
+        if(!ok) return;
+      }
       setGenBusy(b=>({ ...b, [p.id]:true }));
       try{ await onRegenPoster(p); }
       catch(err){ if(window.appToast) window.appToast(String((err&&err.message)||"Couldn't paint a poster."),"error"); }
@@ -182,7 +227,8 @@
     const stepper = h("div",{className:"hd-steps"},
       STEPS.map(st=> h("button",{ key:st.id,
         className:"hd-step"+(st.id===activeRoom?" on":"")+(st.live?"":" soon"),
-        disabled:!st.live,
+        disabled:!st.live, "aria-label":st.no+" "+st.phase+" \u2014 "+(st.live ? st.name : "coming soon"),
+        "aria-current":st.id===activeRoom ? "step" : undefined,
         onClick:()=> st.live && onGoRoom && onGoRoom(st.id)},
         h("span",{className:"hd-step-no"}, st.no),
         h("span",{className:"hd-step-phase"}, st.phase),
@@ -210,24 +256,32 @@
         h("div",{className:"hd-hero-cta"},
           h("button",{className:"hd-btn hd-btn-accent", onClick:()=> onGoRoom && onGoRoom(activeStep.live?activeStep.id:"stage")},
             "Go to "+(activeStep.live?activeStep.name:"The Stage"), Ic("arrowR",16)),
-          h("button",{className:"hd-btn hd-btn-ghost", onClick:onClose}, "Open Project"))),
+          // back to the film that's open — named, and only when there is one (2026-10-09: "Open Project" only closed Home)
+          current && h("button",{className:"hd-btn hd-btn-ghost", onClick:onClose}, "Back to "+(current.title||"Untitled film")))),
       h("div",{className:"hd-hero-right"}, hero_panel));
 
     // ----- recent projects --------------------------------------------------
     const recentSection = h("section",{className:"hd-recent"},
       h("div",{className:"hd-sec-head"},
         h("h2",{className:"hd-sec-title"},"Recent Projects"),
+        // the poster offer (nothing is painted until you say yes)
+        offer.length>0 && h("div",{className:"hd-poster-offer",role:"status"},
+          h("span",null, offer.length+" film"+(offer.length!==1?"s have":" has")+" no poster"),
+          h("button",{className:"hd-tbtn hd-accent",type:"button",disabled:painting,onClick:paintAll},
+            painting ? "Painting\u2026" : ("Paint poster"+(offer.length!==1?"s":"")+(posterCost(offer.length) ? " \u00b7 \u2248"+posterCost(offer.length)+" credits" : ""))),
+          !painting && h("button",{className:"hd-tbtn",type:"button",onClick:notNow},"Not now")),
         mine.length > PER && h("div",{className:"hd-nav"},
           h("button",{className:"hd-navbtn", disabled:from<=0, title:"Previous", "aria-label":"Previous projects",
             onClick:()=> setStart(Math.max(0, from - PER))}, Ic("chevL",15)),
           h("button",{className:"hd-navbtn", disabled:from>=maxStart, title:"Next", "aria-label":"Next projects",
             onClick:()=> setStart(Math.min(maxStart, from + PER))}, Ic("chevR",15)))),
       h("div",{className:"hd-recent-row"},
-        recent.map(p=> h("div",{ key:p.id, className:"hd-card"+(p.id===currentId?" current":""),
-            role:"button", tabIndex:0, onClick:()=> onOpen && onOpen(p.id),
-            onKeyDown:(e)=>{ if(e.key==="Enter") onOpen && onOpen(p.id); }},
+        recent.map(p=> h("div",{ key:p.id, className:"hd-card"+(p.id===currentId?" current":"")},
+          // a real button opens the film (Enter and Space; the poster buttons beside it are their own) — 2026-10-09
           h("div",{className:"hd-card-art",
               style: p.cover ? { backgroundImage:'url("'+p.cover+'")' } : null},
+            h("button",{className:"hd-card-open",type:"button","aria-label":"Open "+(p.title||"Untitled film"),
+              onClick:()=> onOpen && onOpen(p.id)}),
             !p.cover && h("span",{className:"hd-card-initials"}, initials(p.title)),
             genBusy[p.id] && h("div",{className:"hd-card-gen"},
               h("span",{className:"hd-card-spin"}),
@@ -269,18 +323,18 @@
             onClick:()=> setSStart(Math.min(sMax, sFrom + SPER))}, Ic("chevR",15)))),
       h("div",{className:"hd-recent-row"},
         sharedPage.map(p=> h("div",{ key:p.id, className:"hd-card hd-card-shared"+(p.id===currentId?" current":""),
-            role:"button", tabIndex:0, onClick:()=> onOpen && onOpen(p.id),
-            onKeyDown:(e)=>{ if(e.key==="Enter") onOpen && onOpen(p.id); },
             title: roleBlurb(p.shareRole)},
           h("div",{className:"hd-card-art",
               style: p.cover ? { backgroundImage:'url("'+p.cover+'")' } : null},
+            h("button",{className:"hd-card-open",type:"button","aria-label":"Open "+(p.title||"Untitled film")+", shared with you as "+roleLabel(p.shareRole),
+              onClick:()=> onOpen && onOpen(p.id)}),
             !p.cover && h("span",{className:"hd-card-initials"}, initials(p.title)),
             h("span",{className:"hd-card-pill hd-pill-shared"},
               ("SHARED · "+roleLabel(p.shareRole)).toUpperCase()),
             h("div",{className:"hd-card-shade"},
               h("div",{className:"hd-card-name"}, p.title||"Untitled film"),
               h("div",{className:"hd-card-sub hd-card-owner"},
-                p.ownerEmail ? ("Shared by "+p.ownerEmail) : "Shared with you"),
+                p.ownerEmail ? ("Shared by "+ownerName(p.ownerEmail)) : "Shared with you"),
               h("div",{className:"hd-card-meta"}, Ic("history",12), updatedAgo(p.updated_at||p.created_at)))))))) : null;
 
     // ----- feature strip ----------------------------------------------------
@@ -302,19 +356,18 @@
 
     // full-screen poster preview — the app's shared immersive lightbox chrome
     // (.lb-overlay/.lb-panel, same as the Art Room's sheet viewer)
-    const posterViewer = viewer && h("div",{className:"lb-overlay",
+    const posterViewer = viewer && h("div",{className:"lb-overlay",role:"dialog","aria-modal":"true","aria-label":viewer.title+" \u2014 poster",
         onMouseDown:(e)=>{ if(e.target===e.currentTarget) setViewer(null); }},
       h("div",{className:"lb-panel"},
         h("div",{className:"lb-head"},
           h("span",{className:"lb-title"}, viewer.title),
-          h("button",{className:"ag-x", onClick:()=>setViewer(null), title:"Close (Esc)", "aria-label":"Close"}, Ic("x",17))),
+          h("button",{className:"ag-x", onClick:()=>setViewer(null), title:"Close (Esc)", "aria-label":"Close",
+            ref:(el)=>{ if(el && !el.__focused){ el.__focused = true; try{ el.focus(); }catch(e){} } }}, Ic("x",17))),
         h("div",{className:"lb-imgwrap",
             onMouseDown:(e)=>{ if(e.target===e.currentTarget) setViewer(null); }},
           h("img",{className:"lb-img", src:viewer.url, alt:viewer.title+" — poster"})),
         h("div",{className:"lb-foot"},
-          h("button",{className:"lb-dl", onClick:()=>{
-              const a=document.createElement("a"); a.href=viewer.url;
-              a.download=(viewer.title||"poster").replace(/[^\w-]+/g,"-")+"-poster.jpg"; a.click(); }},
+          h("button",{className:"lb-dl", onClick:()=>downloadPoster(viewer.url, viewer.title)},
             Ic("download",14), "Download poster"))));
 
     return h("div",{className:"hd-root"},

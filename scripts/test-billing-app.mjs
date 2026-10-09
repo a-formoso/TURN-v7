@@ -1550,9 +1550,11 @@ await test("M app.jsx: trial isn't a paid plan; notices mounted; welcome waits f
 });
 await test("M Home: no automatic posters for a trial / no-plan account, and none before the ledger loads", () => {
   const src = read("app/home-dashboard.jsx");
-  assert.ok(src.includes('if(typeof window.turnDraftImagesOnly==="function" && window.turnDraftImagesOnly()) return;'));
-  assert.ok(src.includes("if(window.turnUserId && !window.turnCreditBalance && !window.turnIsAdmin) return;"));
-  assert.ok(src.includes("}, [missing, ledgerKey]);"));
+  // (Home review 2026-10-09) Home paints nothing on its own any more: it OFFERS, and no offer is made to a
+  // trial / no-plan account or before the ledger loads
+  assert.ok(src.includes('const draftOnly = (typeof window.turnDraftImagesOnly==="function" && window.turnDraftImagesOnly())'));
+  assert.ok(src.includes("|| !!(window.turnUserId && !window.turnCreditBalance && !window.turnIsAdmin);"));
+  assert.ok(src.includes('(typeof onGeneratePoster==="function" && !draftOnly) ? noPoster.filter('));
 });
 await test("M CSS: banners, Plans window lines, welcome note and the landing line are styled (theme tokens only)", () => {
   const css = read("app/styles.css");

@@ -3216,6 +3216,29 @@ APP_FEATURES.forEach(f=>{
   add("Art Room", "ART ROOM REVIEW, THIRD PASS (owner 2026-10-09): RECENTLY DELETED \u2014 every bin (Characters, Props, Locations, Shots, the Lookbook) checks your role itself; 'Delete forever' names everything it removes and never touches a card that's back on the board with the same id; Restore on a card that's already back says so and keeps the binned copy. THE IMAGES DOCK \u2014 its chips name Nano Banana 2 Lite apart from Nano Banana 2 and show GPT Image's quality; Escape closes it; a pick made in another window of this browser shows here too. PRICE CHIPS include what the server adds: web grounding (Nano Banana 2 only \u2014 it's never sent with another engine) and, on GPT Image, about 1 credit per reference image the render attaches; they name the engine and size your plan really uses (a trial's draft engine, a Writer's 4K capped to 2K). A request that never left (no connection) is sent again once; anything that may have reached the server is never re-sent on its own. RUN PRE-PRODUCTION shows the price of the images it makes (at least that many \u2014 it can find more), and the Lookbook's render style fills only cards with no style yet. A role that can't change the Art Room can't open a Department Head, and one that changes mid-run closes it.");
   add("Story Editors (Writers' Room agents)", "DEPARTMENT HEADS, THIRD PASS (owner 2026-10-09): each says before it runs what it uses (writing calls, images) and, when it finishes or you Stop, what it used \u2014 writing calls and images with their credits; it never says 'it cost nothing' after making images. Stop means no new image is started (one already on its way finishes, is charged and is kept); a 'no image' answer is asked once more only while the run is live, and the trace says so. A role that loses the Art Room mid-run writes nothing more, and the trace says why. Nothing reads 'generated' or 'applied' unless it was: a prop sheet that failed, a look that couldn't be drafted (and why), staging that couldn't be designed, research that failed (the Lookbook stays as it was) are all named; Run pre-production names a step that stopped instead of calling it complete. The Production check's prop, location and cast changes stay in the film it started in, follow your role, and can be undone from the Art Room's undo.");
 }
+/* HOME REVIEW (owner 2026-10-09): posters are painted only when you say so; the card pill is the phase; the owner's
+   name (never their email); a room button never makes a blank film */
+{ const hf = APP_FEATURES.find(x=>x && /^Home/.test(x.name||""));
+  if(hf){
+    hf.what = String(hf.what||"")
+      .replace("MOVIE POSTERS are generated AUTOMATICALLY: any recent film that has a LOGLINE but no key art gets one minted on the spot (a blank film is never painted — no story, no poster, no spend; a 'Painting poster…' spinner shows on the card),",
+        "MOVIE POSTERS ARE PAINTED WHEN YOU SAY SO (2026-10-09): when films you own have a LOGLINE but no key art, the Recent Projects heading says 'N films have no poster' with 'Paint posters · ≈ credits' (it asks first, with the price) and 'Not now' (remembered on this device) — nothing is painted on its own; a 'Painting poster…' spinner shows on each card while it runs, and a failure stops the batch. Each poster is")
+      .replace("Regenerate (paints a fresh poster — the outgoing one is kept as one-deep history)",
+        "Regenerate (asks first with its price, then paints a fresh poster — the outgoing one is kept as one-deep history)")
+      .replace("Download (saves the poster as a JPG)", "Download (saves the poster as a JPG named after the film, in any language)")
+      .replace("'Shared by owner@email' when the backing SQL is installed, otherwise 'Shared with you'",
+        "'Shared by' and the owner's name (never their email address), otherwise 'Shared with you'")
+      .replace("a format pill showing the film's format name from the lineup (Feature Film, TV Series, Short Film, Micro Short, Micro-drama, Music Video, Documentary, Commercial), the title",
+        "a phase pill (Development / Pre-Production / In Production), the title, the film's format name from the lineup (Feature Film, TV Series, Short Film, Micro Short, Micro-drama, Music Video, Documentary, Commercial)")
+      .replace("up to five of your films, newest-UPDATED first", "four of your films a page, newest-UPDATED first, with '+ New Project' as the fifth card");
+    hf.what = hf.what
+      .replace("shared cards never auto-paint posters or offer poster actions", "shared cards are never offered for painting and show no poster actions")
+      .replace(" When you own more than five films, the strip shows FOUR film cards per page and the fifth card is always '+ New Project'; when you own five or more films,", " When you own five or more films,")
+      .replace("it skips that film WITHOUT spending and retries on the next visit rather than baking in wrong art", "it skips that film WITHOUT spending rather than baking in wrong art")
+      .replace("gets no automatic posters on Home — its credits are its own to spend; it can still paint a poster by hand", "isn't offered the poster batch on Home — its credits are its own to spend; it can still paint a poster by hand");
+    hf.what += " (2026-10-09) The hero's pipeline steps and 'Go to…' open your most recent film when none is open (or the New Story window when you have no film) — they never create a blank film. 'Back to ‹film›' returns to the film that's open (shown only when one is). The feature strip says up to 50 references steer a render (the limit follows the video model). Each card is a real button (Enter or Space opens it) and the poster viewer is a dialog.";
+  }
+}
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;

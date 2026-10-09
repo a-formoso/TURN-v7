@@ -7928,7 +7928,17 @@ function App(){
           onGeneratePoster: generatePoster,
           onRegenPoster: (p)=>generatePoster(p, { keepPrev:true }),
           onRestorePoster: restorePoster,
-          onGoRoom: async (rid)=>{ if(!currentProjectId){ await createProject(); } setHomeOpen(false); if(rid==="writers") setView("spine"); guardedSetRoom(rid); },
+          /* NO BLANK FILM FROM A ROOM BUTTON (2026-10-09, owner — Home review): with no film open, a pipeline step
+             created an "Untitled film" (the stranding "New Project" was fixed to avoid). It opens your most recent
+             film now, or the New Story window when you have none. */
+          onGoRoom: async (rid)=>{
+            if(!currentProjectId){
+              const recentFilm = (projects||[]).find(p=>p && !p.isShared && !(window.turnSeries && typeof window.turnSeries.isShowDoc==="function" && window.turnSeries.isShowDoc(p))
+                && !(typeof window.turnFilmIsBlank==="function" && window.turnFilmIsBlank(p)));
+              if(!recentFilm){ setHomeOpen(false); setRoom("writers"); setView("spine"); startNewStory(); return; }
+              setHomeOpen(false); await switchProject(recentFilm.id);
+            } else setHomeOpen(false);
+            if(rid==="writers") setView("spine"); guardedSetRoom(rid); },
           onClose: ()=>setHomeOpen(false),
           accountSlot: React.createElement(AccountChip,{ session, cloudActive:cloudMode, connectionState:cloudConnectionState, saveState, shareRole,roleUnavailable:unknownSharedRole,
             onSignIn:()=>setAuthOpen(true), onSignOut:signOut }),

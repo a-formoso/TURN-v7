@@ -166,8 +166,8 @@ await test("F1 Frances: no ducking, 'told to put', the third pass; keys", ()=>{
   for(const re of [/MIX REVIEW, THIRD PASS/, /placed from the video's own time/, /re-voiced since/, /native performance/, /one estimate for action shots/, /on this device only/, /a scene at a time/])
     assert.ok(re.test(w), String(re));
   // (later passes re-key some of these files again)
-  for(const f of ["stage.jsx", "ai.jsx", "script.jsx", "voicegen.jsx"]) assert.ok(["20261009-mix3","20261009-wr3", "20261009-art3"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);
-  assert.ok(html.includes('href="app/styles.css?v=20261009-mix3"'));
+  for(const f of ["stage.jsx", "ai.jsx", "script.jsx", "voicegen.jsx"]) assert.ok(["20261009-mix3","20261009-wr3", "20261009-art3", "20261009-home3"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);
+  assert.ok(html.includes('href="app/styles.css?v=20261009-mix3"') || html.includes('href="app/styles.css?v=20261009-home3"'));
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

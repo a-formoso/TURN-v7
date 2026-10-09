@@ -177,7 +177,7 @@ await test("E1 Frances: tabs open, the bins, the dock, the chips, the Department
   assert.ok(/ART ROOM REVIEW, THIRD PASS/.test(ar) && /Every tab is open/.test(ar) && /web grounding/.test(ar));
   assert.ok(/DEPARTMENT HEADS, THIRD PASS/.test((fb.__F.find(f=>f.name==="Story Editors (Writers' Room agents)")||{}).what || ""));
   for(const f of ["app", "ai", "script", "agents", "agents-ui", "artroom", "imagegen", "plans", "shots-ui", "chrome"])
-    assert.ok(html.includes('src="app/'+f+'.jsx?v=20261009-art3"'), f);
+    assert.ok(["20261009-art3", "20261009-home3"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");
