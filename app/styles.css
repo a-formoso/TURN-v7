@@ -8678,7 +8678,7 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .bd-strip-ie{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.06em;color:var(--txt-2);text-transform:uppercase;line-height:1.35;overflow-wrap:anywhere}
 .bd-strip-body{padding:10px 14px 12px;min-width:0}
 .bd-strip-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
-.bd-strip-title{font-size:14px;font-weight:600;color:var(--txt-0)}
+.bd-strip-title{font-size:14px;font-weight:600;color:var(--txt-0);margin:0;line-height:inherit}
 .bd-strip-set{font-size:12px;color:var(--txt-2)}
 .bd-rows{display:flex;flex-direction:column;gap:6px}
 .bd-row{display:flex;align-items:flex-start;gap:10px}
@@ -8693,6 +8693,14 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 /* in no frame of the scene (not missing, not needed) and the strip's notes (2026-10-05) */
 .bd-dot.unused{border-color:var(--txt-3);border-style:dashed}
 .bd-chip.unused{color:var(--txt-2)}
+/* a worn item on its owner's sheet, which isn't made yet (2026-10-09): amber, dashed — made with that sheet */
+.bd-dot.owner{border-color:var(--pos);border-style:dashed}
+.bd-chip.owner{color:var(--txt-2)}
+.bd-chip.more:hover{color:var(--txt-0)}
+/* the legend's "No time of day" swatch is the plain strip's edge colour */
+.bd-k-none{--bd-c:var(--txt-3)}
+/* a run from another tab on this scene (2026-10-09): the strip shows its progress, with nothing to press */
+.bd-act.is-run{cursor:default;opacity:.85}
 .bd-chip:disabled{cursor:default;opacity:.7}
 .bd-notes{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .bd-note{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--txt-2);font:600 11.5px var(--f-ui);padding:0;cursor:pointer}
@@ -8704,8 +8712,9 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .bd-need-list{display:flex;flex-direction:column;gap:2px;margin-top:4px;min-width:0;width:100%}
 .bd-need{border:0;background:none;padding:0;text-align:left;color:var(--txt-1);font-family:var(--f-ui);font-size:11px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .bd-need:hover{color:var(--txt-0);text-decoration:underline}
-.bd-need.more{color:var(--txt-3);cursor:default}
-.bd-need.more:hover{text-decoration:none}
+/* "+N more" opens the rest — it is a button and looks like one (2026-10-09, owner — Breakdown review) */
+.bd-need.more{color:var(--txt-3);cursor:pointer}
+.bd-need.more:hover{color:var(--txt-0);text-decoration:underline}
 .bd-none{padding:28px;text-align:center;color:var(--txt-2);font-size:13px;border:1px dashed var(--line-2);border-radius:var(--r-l)}
 @media (max-width:760px){
   .bd-strip{grid-template-columns:70px minmax(0,1fr)}
@@ -8716,6 +8725,9 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 html[data-theme="light"] .bd-k-int-day{--bd-c:#d9d6cc}
 .bd-chip-t{min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bd-chip.more{border-style:dashed;color:var(--txt-2)}
+/* the Characters and Props tabs' scene count, the Breakdown's way (2026-10-09, owner decision B) */
+.bd-scene-needs{display:flex;flex-wrap:wrap;align-items:center;gap:5px 6px;margin:-4px 0 14px}
+.bd-scene-needs-lab{font-size:11.5px;color:var(--txt-2);margin-right:4px}
 /* Run pre-production preview: the writing model the run will use (follows the Writing dock) */
 .cc-model{display:flex;align-items:flex-start;gap:7px;padding:9px 11px;border-radius:9px;background:var(--bg-2);border:1px solid var(--line);font-size:11.5px;line-height:1.45;color:var(--txt-2)}
 .cc-model svg{flex:0 0 auto;margin-top:2px;color:var(--pos-ink)}

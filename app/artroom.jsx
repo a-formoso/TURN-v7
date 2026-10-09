@@ -5698,6 +5698,10 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
           onClick:()=>onCast({ sceneId:sceneFilter, sceneNo:sceneNoOf(sceneFilter), sceneIds:sceneCast.map(c=>c.id) }),
           title:"Casting Director for this scene only \u2014 drafts, generates and adds appearance variants for the characters in it. Shows what it will make and the price before it starts."},
           React.createElement(Icon.robot,{s:14}),"Design this scene's cast"))),
+    // B13 (2026-10-09, owner decision B — Breakdown review): the focused scene counted the Breakdown's way — the variant its
+    // frames use counts — each item a chip that says which card to open (the button above makes the missing master sheets)
+    (sceneFilter && window.BdSceneNeedsLine) && React.createElement(window.BdSceneNeedsLine,{sceneId:sceneFilter,sceneNo:sceneNoOf(sceneFilter),kind:"characters",
+      film:{ scenes, characters, props, drafts, shots, project }, list, onFind:(n)=>{ setQuery(n||""); setSearchOpen(true); }}),
     BatchBar && React.createElement(BatchBar,{batch,noun:"character"}),
     React.createElement("div",{className:"sheet-grid"},
       charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,readOnly,wardrobeStale:(wardrobeIds||[]).indexOf(c.id)>=0,project,scenes,props,drafts,cast:characters,speaks:speakingSet.has(c.id),onUpdate,onDraft,
@@ -6000,7 +6004,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   shots, beatsMap, onMakeSceneNeeds, onOpenStage, wardrobeIds, colorRefsOwned, onUseLookbookColorRefs, onKeepColorRefs, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch,
   onResearchFresh, onRestoreLookbook, onPurgeLookbook, onSuggestLookbookNote, suggestingLookbookId,
-  staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false }){
+  staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false, projectLoading=false }){
   const _stale = staleTabs || {};
   const PropSheets = window.PropSheets;
   const LocationSheets = window.LocationSheets;
@@ -6047,8 +6051,10 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   /* VIEW-ONLY ROLES SEE THE STORYBOARDS (2026-10-09, owner — Storyboards review): a read-only role and a Stage
      editor page, view and export the board. On the Storyboards tab the boundary moves onto the tools wrapper (as
      on a locked tab) and StoryboardView disables or hides every changing control itself (its readOnly prop),
-     keeping only its engine settings inert; every other tab stays inside the boundary. */
-  const viewableTab = !lockedView && artView==="storyboard" && !!window.StoryboardView;
+     keeping only its engine settings inert; every other tab stays inside the boundary.
+     ...AND USE THE BREAKDOWN (2026-10-09, owner — Breakdown review): filter it, open "+N more", read its tip, open
+     other tabs from its chips and export both documents; BreakdownView hides Make and Render for them (readOnly). */
+  const viewableTab = !lockedView && ((artView==="storyboard" && !!window.StoryboardView) || (artView==="breakdown" && !!window.BreakdownView));
   const rootInert = readOnly && !lockedView && !viewableTab;
   return React.createElement("div",{
     className:"artroom"+(readOnly?" is-readonly":"")+(lockedView?" is-locked":""),
@@ -6116,7 +6122,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       : artView==="storyboard" && window.StoryboardView
       ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot,readOnly})
       : artView==="breakdown" && window.BreakdownView
-      ? React.createElement(window.BreakdownView,{project,scenes,characters,props,locations,shots,drafts,setArtView,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,onOpenStage,readOnly})
+      ? React.createElement(window.BreakdownView,{loading:!!projectLoading,project,scenes,characters,props,locations,shots,drafts,setArtView,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,onOpenStage,readOnly})
       : React.createElement(ArtComingSoon,{tab:artView}));
 }
 window.ArtRoom = ArtRoom;

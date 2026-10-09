@@ -3582,16 +3582,20 @@ async function cloudAssetLoadMany(projectId, entityIds, strict){
 /* Load EVERY current asset in a project in one lean query + batched signing. Format-agnostic
    (covers characters, props, locations, shots, variants — whatever has a generation), so the
    whole Art Room can be pre-warmed at once. Returns { entityId: { url, meta } }. */
-async function cloudAssetLoadAll(projectId){
+/* opts.strict (2026-10-09, owner — Breakdown review): a failed query, or a batch of stored images none of whose links
+   could be signed, THROWS instead of reading as "no images" — nbPrefetchAll tells the Breakdown its check failed */
+async function cloudAssetLoadAll(projectId, opts){
+  const strict = !!(opts && opts.strict);
   const sb = sbClient();
-  if(!sb || !projectId) return {};
+  if(!sb || !projectId){ if(strict && !sb && projectId) throw new Error("not connected"); return {}; }
   try{ await cloudSweepPurgeReferences(projectId); }catch(e){}
   let rows = [];
   try{
-    const { data } = await sb.from("turn_generations")
+    const { data, error } = await sb.from("turn_generations")
       .select("entity_id, storage_path, meta").eq("project_id", projectId);
+    if(error && strict) throw (error instanceof Error ? error : new Error(String(error.message||"asset query failed")));
     rows = data || [];
-  }catch(e){ return {}; }
+  }catch(e){ if(strict) throw e; return {}; }
   /* A cleared asset's tombstone has no card to trigger a later entity-specific read.
      Project prewarm is the bounded, one-shot recovery point: inspect only tracked
      cleanup markers (never sweep storage), and retry at most 20 with concurrency 3.
@@ -3615,6 +3619,7 @@ async function cloudAssetLoadAll(projectId){
     await Promise.all(workers);
   }
   const urlByPath = await cloudSignedUrlsBatch(rows.filter(r=>r.storage_path).map(r=>r.storage_path));
+  if(strict && rows.some(r=>r && r.storage_path) && !Object.keys(urlByPath||{}).length) throw new Error("image links could not be signed");
   const out = {};
   for(const r of rows){ const u = r.storage_path && urlByPath[r.storage_path]; if(u) out[r.entity_id] = { url:u, path:r.storage_path, meta:r.meta||null }; }
   return out;

@@ -154,7 +154,8 @@ await test("B7 Save halves, restore, delete and Clear capture the film at the cl
 
 /* ═══ B8 ═══ */
 await test("B8 the Storyboards tab is outside the inert boundary; its changing controls are off for read-only", ()=>{
-  assert.ok(art.includes('const viewableTab = !lockedView && artView==="storyboard" && !!window.StoryboardView;'));
+  // (2026-10-09, owner — Breakdown review) the Breakdown is viewable by read-only roles too
+  assert.ok(art.includes('const viewableTab = !lockedView && ((artView==="storyboard" && !!window.StoryboardView) || (artView==="breakdown" && !!window.BreakdownView));'));
   assert.ok(art.includes('inert:rootInert?"":undefined') && art.includes('inert:(readOnly && (lockedView || viewableTab))?"":undefined'));
   assert.ok(view.includes('_sbEl("div",{inert:readOnly?"":undefined,"aria-disabled":readOnly?"true":undefined}, _sbEl(NbKeyBar,null), _sbEl(NbControls,null)),'));
   for(const s of ['!readOnly && _sbEl("button",{className:"sheet-tools-item",onClick:()=>{ setDetailsOpen(true);',
@@ -308,7 +309,7 @@ await test("F Frances knows the pass (the Stage finds panels by beat); keys", ()
   assert.ok(!w.includes("The Stage finds a clip's panels by its shots, so a clip with an alternative uses its own frames."));
   for(const now of ["The Stage finds a clip's panels by its BEATS", "A FRAME THAT WON'T LOAD", "A RESTORED VERSION STAYS", "READ-ONLY ROLES AND STAGE EDITORS can page",
     "Halves aren't made from this upload", "THE EXPORT prints each sheet at its own shape"]) assert.ok(w.includes(now), now);
-  for(const f of ["storyboard", "artroom", "stage", "ai", "script"]) assert.ok(html.includes('src="app/'+f+'.jsx?v=20261009-sb4"'), f);
+  for(const f of ["storyboard", "artroom", "stage", "ai", "script"]) assert.ok(["20261009-sb4", "20261009-bd4"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);
 });
 
 console.log(checks+" checks passed"+(failed ? ", "+failed+" FAILED" : ""));

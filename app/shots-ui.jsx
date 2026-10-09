@@ -1950,6 +1950,13 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
   const needsMounted = React.useRef(true);
   React.useEffect(()=>()=>{ needsMounted.current = false; },[]);
   const makeableNeeds = sceneNeeds.filter(n=>n.makeable);
+  // the chip counts as the question does (a missing master counts with its variant — 2026-10-09, Breakdown review)
+  const makeImageN = typeof window.turnSceneNeedsImageCount==="function" ? window.turnSceneNeedsImageCount(makeableNeeds) : makeableNeeds.length;
+  // a run on THIS scene started anywhere (Breakdown, Stage, another Shots card) shows here; any run disables the button
+  const [anyRun, setAnyRun] = React.useState(()=> typeof window.turnSceneNeedsProgress==="function" ? window.turnSceneNeedsProgress() : null);
+  React.useEffect(()=>{ const h = (e)=>setAnyRun((e && e.detail) || null);
+    window.addEventListener("turn-scene-needs-progress", h); return ()=>window.removeEventListener("turn-scene-needs-progress", h); },[]);
+  const runHere = needsRun || (anyRun && String(anyRun.sceneId)===String(scene.id) ? anyRun : null);
   const makeNeeds = async ()=>{
     if(!onMakeSceneNeeds || needsRun || !makeableNeeds.length) return;
     // busy only once the run starts (after its question)
@@ -2163,11 +2170,11 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
       _el("div",{className:"shot-needs-txt"},
         _el("b",null,"Needs: "),
         sceneNeeds.map(n=>n.label+(n.makeable?"":" (make it in "+(n.kind==="location"?"Locations":n.kind==="prop"?"Props":"Characters")+")")).join(" \u00b7 "),
-        needsRun && _el("span",{className:"shot-needs-run"}," \u2014 making "+needsRun.i+" of "+needsRun.total+(needsRun.label?" \u00b7 "+needsRun.label:"")+"\u2026")),
-      (onMakeSceneNeeds && makeableNeeds.length>0) && _el("button",{className:"char-draft-btn",disabled:!!needsRun||!!renderBusy,onClick:makeNeeds,
-          title:"Make the "+makeableNeeds.length+" missing reference image"+(makeableNeeds.length!==1?"s":"")+" this scene's frames use (a location before its rooms, a character's sheet before their variant; a look that isn't written yet is drafted first, writing credits)"},
-        _el(Icon.sparkles,{s:12}), needsRun?"Making\u2026":"Make what this scene needs",
-        typeof window.nbCostChip==="function" && window.nbCostChip(makeableNeeds.length))),
+        runHere && _el("span",{className:"shot-needs-run",role:"status"}," \u2014 making "+runHere.i+" of "+runHere.total+(runHere.label?" \u00b7 "+runHere.label:"")+"\u2026")),
+      (onMakeSceneNeeds && makeableNeeds.length>0) && _el("button",{className:"char-draft-btn",disabled:!!needsRun||!!anyRun||!!renderBusy,onClick:makeNeeds,
+          title:"Make the "+makeImageN+" missing reference image"+(makeImageN!==1?"s":"")+" this scene's frames use (a location before its rooms, a character's sheet before their variant; a look that isn't written yet is drafted first, writing credits)"},
+        _el(Icon.sparkles,{s:12}), runHere?"Making\u2026":"Make what this scene needs",
+        typeof window.nbCostChip==="function" && window.nbCostChip(makeImageN))),
     open && _el("div",{className:"shot-scene-ctx"},
       scene.summary && _el("div",{className:"ssx-desc"},scene.summary),
       _el("div",{className:"ssx-grid"},

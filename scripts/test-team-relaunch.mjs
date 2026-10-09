@@ -453,7 +453,8 @@ await test("E7 a role change reaches an open film: re-read about once a minute a
   // (2026-10-09, owner — Storyboards review) except the Storyboards tab, which a read-only role may page, view and
   // export: there the tools wrapper is inert and StoryboardView disables its changing controls itself
   assert.ok(art.includes('const rootInert = readOnly && !lockedView && !viewableTab;') && art.includes('inert:rootInert?"":undefined'));
-  assert.ok(art.includes('const viewableTab = !lockedView && artView==="storyboard" && !!window.StoryboardView;'));
+  // (2026-10-09, owner — Breakdown review) the Breakdown is viewable by read-only roles too
+  assert.ok(art.includes('const viewableTab = !lockedView && ((artView==="storyboard" && !!window.StoryboardView) || (artView==="breakdown" && !!window.BreakdownView));'));
   assert.ok(appSrc.includes("readOnly:roomReadOnly,canReview:!roomReadOnly,onSourceClick:openArtSource"), "the Art Room gets the room's read-only flag");
   assert.equal(cb.teamCanWriteRoom("writer", "art"), false); assert.equal(cb.teamCanWriteRoom("writer", "writers"), true);
   assert.equal(cb.teamCanWriteRoom("art_director", "writers"), false); assert.equal(cb.teamCanWriteRoom("art_director", "art"), true);

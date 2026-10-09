@@ -869,9 +869,19 @@ function buildPropFittingPrompt(p, hasOwner){
 }
 window.buildPropFittingPrompt = buildPropFittingPrompt;
 
-async function generatePropSheet(p, project){
+/* opts (2026-10-09, owner — Breakdown review), for "Make what this scene needs":
+   cancelled() — the caller's stop (a film switch, a role that lost the Art Room): checked at the last await
+     before the image is sent (the owner's sheet is loaded) and again before it is saved — nothing is sent or
+     written once it says stop;
+   onRetry() — the run asked again (the simpler prompt, or another engine after a content refusal): a second
+     paid image the caller says out loud;
+   onError(message) — the failure, for the caller's own report (no toast of its own then). */
+async function generatePropSheet(p, project, opts){
   if(!p || typeof window.nbRunSheetGeneration!=="function") return false;
+  const o=opts||{};
   const noop=()=>{};
+  const stopNow=()=>typeof o.cancelled==="function" && !!o.cancelled();
+  const stopped=()=>({__cancelled:true,requiredReference:true});   // the run discards it: nothing is sent or saved
   let ownerMeta=null, ownerUrl="";
   const build=()=>typeof combinedPropPrompt==="function"?combinedPropPrompt(p,project):(p.name||"prop reference");
   return !!(await window.nbRunSheetGeneration({
@@ -883,16 +893,23 @@ async function generatePropSheet(p, project){
       buildSimple:()=>typeof buildSimplePropPrompt==="function"?buildSimplePropPrompt(p):build(),
       attachments:async()=>{
         ownerUrl=await propOwnerSheetUrl(p);
+        if(stopNow()) throw stopped();
         // Capture the source version alongside the pixels, not after generation.
         ownerMeta=typeof nbGetMeta==="function"?nbGetMeta(p.ownerId):null;
         return ownerUrl?[{url:ownerUrl,kind:"owner",note:p.ownerName||"Owner character",
           refId:p.ownerId,refVersion:ownerMeta&&ownerMeta.version,refGenerated:ownerMeta&&ownerMeta.iso}]:[];
       },
       attachmentsText:()=>ownerUrl?propOwnerNote(p):"",
+      // the second try is sent right after this: said only when it really goes out
+      assertFreshBeforeFallback:async()=>{ if(stopNow()) throw stopped();
+        if(typeof o.onRetry==="function"){ try{ o.onRetry(); }catch(e){} } },
+      assertPostGenerate:async()=>{ if(stopNow()) throw stopped(); },
       metaExtra:()=>({specPrompt:build(),anchorOwnerId:ownerUrl?p.ownerId:undefined,
         anchorOwnerName:ownerUrl?p.ownerName:undefined,anchorIso:ownerMeta&&ownerMeta.iso})
     },
-    ui:{setGenErr:message=>{if(message&&typeof window.appToast==="function")window.appToast(message,"error");},
+    ui:{setGenErr:message=>{ if(!message) return;
+        if(typeof o.onError==="function"){ try{ o.onError(message); }catch(e){} return; }
+        if(typeof window.appToast==="function")window.appToast(message,"error"); },
       setGening:noop,setRetrying:noop,setGenUrl:noop,setGenTier:noop,setGenMeta:noop}
   },{batch:true}));
 }
@@ -1968,6 +1985,10 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
         title:"Regenerate this scene's prop images \u2014 you'll be asked before anything is redone, with the price"},
         React.createElement(Icon.sparkles,{s:14}),
         batchActiveId?"Generating\u2026":("Regenerate Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"\u2026")))),
+    // B13 (2026-10-09, owner decision B — Breakdown review): the focused scene counted the Breakdown's way — an undrafted
+    // prop counts; one with no owner or not in the screenplay is listed as needing that — each a chip naming its card
+    (sceneFilter && window.BdSceneNeedsLine) && React.createElement(window.BdSceneNeedsLine,{sceneId:sceneFilter,sceneNo:sceneNoOf(sceneFilter),kind:"props",
+      film:{ scenes, characters, props:list, drafts, project }, list, onFind:(n)=>{ setInventoryGroup("all"); setQuery(n||""); setSearchOpen(true); }}),
     list.length
       ? (shown.length
           ? React.createElement(React.Fragment,null,

@@ -32,7 +32,7 @@ vm.runInContext(transformSync(bd, { presets:[["@babel/preset-react",{ runtime:"c
 const made = new Set(["ana", "house", "a1", "a2", "sbsheet-sbpage-s1-2x2-0"]);
 const film = ()=>({ scenes:[{ id:"s1", no:1, title:"Kitchen", loc:"INT. HOUSE - NIGHT" }],
   characters:[{ id:"ana", name:"Ana" }, { id:"ben", name:"Ben" }],
-  props:[{ id:"cup", name:"Cup", kind:"carried", scenes:["s1"] }, { id:"hat", name:"Hat", kind:"worn", scenes:["s1"] }],
+  props:[{ id:"cup", name:"Cup", kind:"carried", ownerId:"ana", scenes:["s1"] }, { id:"hat", name:"Hat", kind:"worn", scenes:["s1"] }],
   locations:[{ id:"house", name:"House" }],
   shots:[{ id:"a1", sceneId:"s1", beatN:1, locked:true }, { id:"a2", sceneId:"s1", beatN:2, locked:true }], drafts:{}, project:{} });
 const setup = ()=>{
@@ -89,7 +89,8 @@ await test("A4 the cost line names what it covers", ()=>{
 const strip = between(bd, "function BreakdownStrip({", "\n}\n");
 await test("B1 Shots chip green only when every frame is approved and current; Boards and Clips rows; notes", ()=>{
   assert.ok(strip.includes("const allDone = (shots.toRender||0)===0 && shots.rendered===shots.total;"));
-  assert.ok(strip.includes('"Boards"') && strip.includes('" sheet"+(row.boards.total===1?"":"s")+" up to date"'));
+  // (2026-10-09, fourth pass) the Boards words live in bdBoardsText, shared with the exported stripboard
+  assert.ok(strip.includes('"Boards"') && strip.includes("bdBoardsText(row.boards)") && bd.includes('" sheet"+(b.total===1?"":"s")+" up to date"'));
   assert.ok(strip.includes('shots.total>0 && _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Clips"),'));
   assert.ok(strip.includes("as of your last visit to the Stage") && strip.includes("onClick:()=>onOpenStage&&onOpenStage()"));
   assert.ok(strip.includes('(row.notes||[]).length>0 && _bdEl("div",{className:"bd-notes"}'));
@@ -122,6 +123,8 @@ await test("D1 the Stage saves each scene's clip counts per film — before its 
   const save = view.indexOf('localStorage.setItem("turn_stage_scene_status:"+stageFilmKey(project), JSON.stringify(out));');
   assert.ok(save > 0 && save < view.indexOf("if(!scenesWithShots.length){"));
   assert.ok(view.includes("o.total++; if(vids[c.id]) o.rendered++; if(staleVids[c.id]) o.stale++; if(oldLookVids[c.id]) o.oldLook++; if(noteVids[c.id]) o.notes++;"));
+  // (2026-10-09, Breakdown review) clips left out after an identity change
+  assert.ok(view.includes("if(identityVids[c.id] && !vids[c.id]) o.identity++;") && view.includes('(identityVids[c.id]?"i":"")'));
 });
 
 /* ═══ E ═══ */

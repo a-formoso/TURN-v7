@@ -2522,11 +2522,18 @@ async function generateLocationPlate(l, project, opts){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;   // asset scope at generation start
   if(typeof nbGenerate!=="function" || typeof nbCommit!=="function") return false;
   const o = opts || {};
+  /* A CALLER'S STOP (2026-10-09, owner — Breakdown review): "Make what this scene needs" passes its own check
+     (a film switch, a role that lost the Art Room) — nothing is sent or written once it says stop; a retry
+     with the simpler prompt is a second paid image, so the caller is told (onRetry) */
+  const _stale = (id, tok, ep)=> _nbLocStale(id, tok, ep) || !!(typeof o.cancelled==="function" && o.cancelled());
   if(o.draftStaging && typeof stagingHasContent==="function" && !stagingHasContent(l)
     && typeof aiDraftStaging==="function" && typeof aiAvailable==="function" && aiAvailable()){
     try{ const st = await aiDraftStaging(l, (window.turnContinuity||{}).scenes||[], project);
+      // (2026-10-09) a switch while the composition was written: nothing is saved, nothing is sent
+      if((typeof nbEpoch==="function" && nbEpoch()!==_ep) || (typeof o.cancelled==="function" && o.cancelled())) return false;
       if(st){ l = { ...l, staging:st }; if(typeof o.onStaged==="function") o.onStaged(l.id, st); } }catch(e){}   // fail-open: prose only
     if(typeof nbEpoch==="function" && nbEpoch()!==_ep) return false;
+    if(typeof o.cancelled==="function" && o.cancelled()) return false;
   }
   const runSnapshot = _nbLocRunSnapshot(l);
   // no set-dressing refs here — the clean plate anchors the look; fixtures are
@@ -2539,7 +2546,7 @@ async function generateLocationPlate(l, project, opts){
   if(!_runToken) return false;
   try{
     const parentRefs=await locationParentReferences(l);
-    if(_nbLocStale(l.id,_runToken,_ep)){_nbLocCancelEvent(l.id,_runToken);return false;}
+    if(_stale(l.id,_runToken,_ep)){_nbLocCancelEvent(l.id,_runToken);return false;}
     let refs=mergeLocationReferences(parentRefs,await locationSpatialReferences(l));
     if(o.scriptRefs!==false){
       const pages=locationScriptPageRefs(l, null, null, 6).filter(r=>r.url);
@@ -2555,39 +2562,40 @@ async function generateLocationPlate(l, project, opts){
       +"do not make one panel per page or per scene, and never copy screenplay typography, page borders, text or captions.";
     prompt+=referenceText;
     if(refs.length)gopts.extraImages=refs.map(r=>r.url);
-    if(_nbLocStale(l.id,_runToken,_ep)){_nbLocCancelEvent(l.id,_runToken);return false;}
+    if(_stale(l.id,_runToken,_ep)){_nbLocCancelEvent(l.id,_runToken);return false;}
     if(runSnapshot.quality && typeof window.nbRequireImageQuality==="function"){
       try{ await window.nbRequireImageQuality(runSnapshot.model, runSnapshot.quality); }
-      catch(e){ if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; } throw e; }
+      catch(e){ if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; } throw e; }
     }
     /* Capability validation may await an OPTIONS response while the director
        switches films or stops this headless run.  Never spend after that await
        against a stale asset scope/ownership marker. */
-    if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+    if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
     let url;
     try{
       url = await nbGenerate(prompt, { ...gopts, assetId:l.id });
-      if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+      if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
     }catch(e){
-      if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+      if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
       if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){
+        if(typeof o.onRetry==="function"){ try{ o.onRetry(); }catch(_e){} }   // a second paid image — the caller says so
         try{ prompt=buildSimpleLocationPrompt(l)+referenceText;url = await nbGenerate(prompt, { ...gopts, assetId:l.id }); }
         catch(fallbackError){
-          if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+          if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
           throw fallbackError;
         }
-        if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+        if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
       }else throw e;
     }
     let saved;
     try{
       saved = await nbCommit(l.id, url, {..._nbLocMeta(prompt,l,runSnapshot),...lineage}, refs, "location", _ep,
-        ()=>_nbLocStale(l.id,_runToken,_ep));
+        ()=>_stale(l.id,_runToken,_ep));
     }catch(e){
-      if(_nbLocStale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
+      if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
       throw e;
     }
-    if(_nbLocStale(l.id,_runToken,_ep) || (saved&&/^(cancelled|stale)$/.test(saved.tier||""))){
+    if(_stale(l.id,_runToken,_ep) || (saved&&/^(cancelled|stale)$/.test(saved.tier||""))){
       _nbLocCancelEvent(l.id,_runToken); return false;
     }
     if(!saved || saved.tier==="error") return false;
@@ -2665,10 +2673,13 @@ window.generateLocationVariant = generateLocationVariant;
    missing in Scene NN" (2026-10-03, owner — Locations review). The same references and prompt as
    the card's own Generate: the owning location's plate (required), its parent's plate when it is a
    room, the scene's screenplay pages, and the reviewed spatial references. */
-async function generateSluglineUnitPlate(l, u, project){
+async function generateSluglineUnitPlate(l, u, project, opts){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;
   if(typeof nbGenerate!=="function" || typeof nbCommit!=="function" || typeof sluglineUnitImageId!=="function") return false;
   if(!l || !u || !u.key || u.orphan) return false;
+  // a caller's stop and its retry notice, as generateLocationPlate (2026-10-09, owner — Breakdown review)
+  const o = opts || {};
+  const _stale = (sid, tok, ep)=> _nbLocStale(sid, tok, ep) || !!(typeof o.cancelled==="function" && o.cancelled());
   const id = sluglineUnitImageId(u.key);
   const runSnapshot = _nbLocRunSnapshot(l);
   const C = window.turnContinuity || {};
@@ -2685,8 +2696,7 @@ async function generateSluglineUnitPlate(l, u, project){
     const own = await grab(l.id);
     if(!own) throw new Error("Generate "+(l.name||"the location")+"'s plate first — this room needs it as a reference.");
     const role = String(u.intExt||"INT").toUpperCase();
-    const pseudo = { id, name:u.name, role, sceneNos:(u.sceneNos||[]).filter(n=>n!=null),
-      scriptExcerpt:String(u.scriptText||"").slice(0,720), summary:"Slugline Unit: "+(u.sluglines||[]).join(" · ") };
+    const pseudo = sluglineUnitPseudoSheet(id, u, role);
     const scriptImgs = (typeof locationScreenplayReferenceImages==="function")
       ? locationScreenplayReferenceImages(l, pseudo, C.scenes||[], C.drafts||{}) : [];
     const base = scriptImgs.map((url,i)=>({ url, kind:"script", refId:"script-"+id+"-"+i,
@@ -2694,7 +2704,7 @@ async function generateSluglineUnitPlate(l, u, project){
     base.push({ url:own, kind:"location", refId:l.id,
       note:(l.name||"parent location")+" child/master plate — preserve this exact subspace geometry, materials and scale" });
     if(l.parentLocation){ const root = locationParentReference(l, await grab(l.parentLocation.id)); if(root && root.url) base.push(root); }
-    if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     const refs = mergeLocationReferences(base, await locationSpatialReferences(l));
     const lineage = locationAssetDependencySnapshot(l.id,(typeof locationRootIds==="function")?locationRootIds(l):[],"slugline-unit");
     const referenceText = locationReferenceInstructions(refs)
@@ -2703,28 +2713,65 @@ async function generateSluglineUnitPlate(l, u, project){
     gopts.extraImages = refs.map(r=>r.url);
     if(runSnapshot.quality && typeof window.nbRequireImageQuality==="function"){
       try{ await window.nbRequireImageQuality(runSnapshot.model, runSnapshot.quality); }
-      catch(e){ if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; } throw e; }
+      catch(e){ if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; } throw e; }
     }
-    if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     let url;
     try{ url = await nbGenerate(prompt, { ...gopts, assetId:id }); }
     catch(e){
-      if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+      if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
       // the same simplified retry the card uses, keeping this plate's room, side, time and state (2026-10-08)
       if(!(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function")) throw e;
+      if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+      if(typeof o.onRetry==="function"){ try{ o.onRetry(); }catch(_e){} }   // a second paid image — the caller says so
       prompt = buildSimpleLocationPrompt(l,{ name:u.name||l.name, side:u.intExt, time:u.time, state:u.appearance||u.environment||"" })+referenceText;
       url = await nbGenerate(prompt, { ...gopts, assetId:id });
     }
-    if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     const saved = await nbCommit(id, url, Object.assign(_nbLocMeta(prompt,{...l,appearanceState:u},runSnapshot),lineage), refs, "location", _ep,
-      ()=>_nbLocStale(id,_runToken,_ep));
-    if(_nbLocStale(id,_runToken,_ep) || (saved&&/^(cancelled|stale)$/.test(saved.tier||""))){ _nbLocCancelEvent(id,_runToken); return false; }
+      ()=>_stale(id,_runToken,_ep));
+    if(_stale(id,_runToken,_ep) || (saved&&/^(cancelled|stale)$/.test(saved.tier||""))){ _nbLocCancelEvent(id,_runToken); return false; }
     if(!saved || saved.tier==="error") return false;
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
     return true;
   } finally { _nbLocCleanup(id,_runToken); }
 }
 window.generateSluglineUnitPlate = generateSluglineUnitPlate;
+/* the screenplay "sheet" a room & time plate reads its pages from — one definition for the plate and its count */
+function sluglineUnitPseudoSheet(id, u, role){
+  return { id, name:u.name, role:role||String(u.intExt||"INT").toUpperCase(), sceneNos:(u.sceneNos||[]).filter(n=>n!=null),
+    scriptExcerpt:String(u.scriptText||"").slice(0,720), summary:"Slugline Unit: "+(u.sluglines||[]).join(" · ") };
+}
+/* HOW MANY REFERENCE IMAGES A PLATE ATTACHES (2026-10-09, owner — Breakdown review): GPT Image charges about one
+   credit a reference (billing-pricing.mjs GPT_IMAGE_REFERENCE_USD), so "Make what this scene needs" prices each
+   plate with the references the generator above will attach — the parent's plate, the reviewed layout's plate
+   (one image when it is the same plate) and the screenplay pages, at most 6. { n, exact }: exact false = n is
+   the most it can be. */
+function locationPlateRefCount(l){
+  const ids = new Set();
+  try{ const parent = locationParentOf(l); if(parent) ids.add(parent.id); }catch(e){}
+  try{ const st = requireLocationSpatialPlan(l); if(st.source.iso || st.plan.source.iso) ids.add(st.owner.id); }
+  catch(e){ return { n:6, exact:false }; }
+  let pages = 0;
+  try{ pages = locationScriptPageRefs(l, null, null, 6).filter(r=>r.url).length; }catch(e){ return { n:6, exact:false }; }
+  return { n:Math.min(6, ids.size+pages), exact:true };
+}
+/* a room & time plate: its screenplay pages, its location's plate, the root's plate when it has one
+   (opts.rootPlate: false = the root has none, so it isn't attached) and the reviewed layout's plate */
+function sluglineUnitPlateRefCount(l, u, opts){
+  const o = opts || {};
+  const C = window.turnContinuity || {};
+  let pages = 0, exact = true;
+  try{ const id = sluglineUnitImageId(u.key);
+    pages = locationScreenplayReferenceImages(l, sluglineUnitPseudoSheet(id, u), C.scenes||[], C.drafts||{}).length; }
+  catch(e){ exact = false; }
+  const ids = new Set([l.id]);
+  if(l.parentLocation && l.parentLocation.id && o.rootPlate!==false){ ids.add(l.parentLocation.id); if(o.rootPlate!==true) exact = false; }
+  try{ const st = requireLocationSpatialPlan(l); if(st.source.iso || st.plan.source.iso) ids.add(st.owner.id); }catch(e){}
+  return { n:pages+ids.size, exact };
+}
+window.locationPlateRefCount = locationPlateRefCount;
+window.sluglineUnitPlateRefCount = sluglineUnitPlateRefCount;
 
 /* coverage audit — scenes whose heading names a place that isn't linked to any Location
    card yet (e.g. an unparseable or brand-new heading). After a pull every parseable scene

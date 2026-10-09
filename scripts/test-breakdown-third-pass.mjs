@@ -95,13 +95,14 @@ await test("B1 checking: boards and masters looked up, never interrupted, cleare
 
 /* ═══ C ═══ */
 await test("C1 Make what this scene needs: art rights from any room, one run at a time, busy after yes, honest result", ()=>{
-  const mn = between(app, "  const makeSceneNeeds = async (scene, needs, onProgress)=>{", "  const wornBuildRef");
+  const mn = between(app, "  const makeSceneNeeds = async (scene, needs, onProgress, opts)=>{", "  const wornBuildRef");
   assert.ok(mn.includes('if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return { status:"refused" }; }'));
-  assert.ok(mn.includes("if(sceneNeedsBusyRef.current){") && mn.includes("sceneNeedsBusyRef.current = true;") && mn.includes("finally { sceneNeedsBusyRef.current = false; }"));
-  assert.ok(mn.includes('if(onProgress) onProgress(0, steps.length, "");') && mn.indexOf("if(!ok) return { status:\"cancelled\" };") < mn.indexOf("onProgress(0, steps.length"));
-  assert.ok(mn.includes(": stopped \\u2014 \"+made+\" of \"+steps.length+\" made\"") && mn.includes("Nothing here can be made from the Breakdown"));
-  assert.ok(mn.includes("const stale = ()=> (typeof nbEpoch===\"function\" ? nbEpoch() : null)!==epoch0 || !!artRoomReadOnlyRef.current;"));
-  assert.ok(mn.includes("Math.max(steps.length, window.sceneNeedsImageCount(needs))"));
+  assert.ok(mn.includes("if(sceneNeedsBusyRef.current){") && mn.includes("sceneNeedsBusyRef.current = true;") && mn.includes("} finally {\n      sceneNeedsBusyRef.current = false;"));
+  assert.ok(mn.includes('if(onProgress) onProgress(0, total, "");') && mn.indexOf("if(!ok) return { status:\"cancelled\" };") < mn.indexOf("onProgress(0, total"));
+  assert.ok(mn.includes(": stopped \\u2014 \"+made.length+\" of \"+total+\" made\"") && mn.includes("Nothing here can be made from the Breakdown"));
+  assert.ok(mn.includes("const stale = ()=> (typeof nbEpoch===\"function\" ? nbEpoch() : null)!==epoch0 || !!artRoomReadOnlyRef.current || _film()!==film0;"));
+  // (2026-10-09) the question counts the plan itself: one image a step, each priced with its references
+  assert.ok(mn.includes("const total = steps.length;") && mn.includes("const c = each(s.refs);"));
   assert.ok(app.includes("onMakeSceneNeeds:artRoomReadOnly?null:makeSceneNeeds,"));
   assert.ok(!bd.includes("setNeedsBusy({ sceneId:scene.id, i:0, total:makeable.length });") && !ui.includes('setNeedsRun({ i:0, total:makeableNeeds.length, label:"" });'));
 });
@@ -113,17 +114,20 @@ await test("C2 Render tells the truth; Boards open Storyboards on the scene; rea
 
 /* ═══ D ═══ */
 await test("D1 exports: the tab's status, approved frames, notes, no price; the bible loads every sheet and states", ()=>{
-  const ex = between(bd, "function exportStripboard(rows, project){", "\n}\n");
-  assert.ok(ex.includes('const owed = (x)=> x.status ? x.status==="missing" : !x.ready;') && ex.includes("' approved · '") && ex.includes("const notes = (r.notes||[]).map(n=>n.text).join(\"; \");"));
+  // (2026-10-09, fourth pass) exportStripboard takes opts ({ checkFailed }); "approved" is the tab's count, its out-of-date
+  // ones noted; a worn item on a missing owner's sheet ("owner") is owed too; the bible is built by _bdBuildBible
+  const ex = between(bd, "function exportStripboard(rows, project, opts){", "\n}\n");
+  assert.ok(ex.includes('const owed = (x)=> x.status ? (x.status==="missing" || x.status==="owner") : !x.ready;') && ex.includes("' approved'+(old ? ' ('+old+' out of date)' : '')+' · '") && ex.includes("const notes = (r.notes||[]).map(n=>n.text).join(\"; \");"));
   assert.ok(ex.includes("bdSummaryLine(sum, true)") && ex.includes('<span class="k-none">No time of day</span>'));
   assert.ok(!box.bdSummaryLine({ total:1, ready:0, castSheets:1, plates:0, propSheets:0, frames:0, noShots:0, noLoc:0, images:1 }, true).includes("credit"));
-  const bib = between(bd, "async function exportArtBible({", "const castHtml");
+  const bib = between(bd, "async function _bdBuildBible({", "const castHtml");
   assert.ok(bib.includes("if(!u && typeof nbLoadImage===\"function\"){ try{ u = await nbLoadImage(id)") && bib.includes('_ids.push(c.id+":"+st.id)'));
-  assert.ok(bd.includes('bibleBusy?"Preparing\\u2026":"Art department bible"'));
+  assert.ok(bd.includes('bibleBusy?(bible.total ? "Preparing "+bible.i+" of "+bible.total+"\\u2026" : "Preparing\\u2026"):"Art department bible"'));
 });
 await test("D2 copy and accessibility", ()=>{
   assert.ok(!bd.includes("Design this scene's coverage") && bd.includes("Design this scene's shots (one keyframe per beat)"));
-  assert.ok(bd.includes('"aria-label":String(t||label)+(ok===true?" (ready)":ok==="unused"?"":" (missing)")'));
+  // (2026-10-09, fourth pass) "owner" (a worn item on a missing owner's sheet) is read without "(missing)" too
+  assert.ok(bd.includes('"aria-label":String(title||label)+(ok===true?" (ready)":(ok==="unused"||ok==="owner")?"":" (missing)")'));
   assert.ok(bd.includes('allMissing ? "Show fewer" : "+"+(missing.length-4)+" more"') && bd.includes('role:"group","aria-label":"Strip colours"'));
   assert.ok(bd.includes('_bdEl("span",{className:"sb-sr-only"},"Checking which sheets and frames exist\\u2026")'));
 });

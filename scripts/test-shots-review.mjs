@@ -117,19 +117,19 @@ await test("F1 the scene lists what its frames need, from the render plan; only 
   assert.ok(needsFn.includes("(plan.propSpec||[]).forEach(x=>add(x,\"prop\"));") && needsFn.includes("(plan.carrySpec||[]).forEach(x=>add(x,\"prop\"));"));
   // (2026-10-08) with what really exists on this device, looked up after a reload (needsHas)
   assert.ok(group.includes('const sceneNeeds = (typeof sceneReferenceNeeds==="function") ? sceneReferenceNeeds(shots||[], ctx, needsHas) : [];'));
-  assert.ok(group.includes("window.nbCostChip(makeableNeeds.length)") && group.includes('"Make what this scene needs"'));
+  assert.ok(group.includes("window.nbCostChip(makeImageN)") && group.includes("window.turnSceneNeedsImageCount(makeableNeeds)") && group.includes('"Make what this scene needs"'));
   assert.ok(group.includes('(make it in "+(n.kind==="location"?"Locations":n.kind==="prop"?"Props":"Characters")+")"'));
 });
 await test("F2 the app makes them in order: location plates (parent first), rooms & times, characters (master before variant), props", async ()=>{
-  const fx = between(app, "  const makeSceneNeeds = async (scene, needs, onProgress)=>{", "  const wornBuildRef = React.useRef(null);");
+  const fx = between(app, "  const sceneNeedsBusyRef = React.useRef(false);", "  const wornBuildRef = React.useRef(null);");   // (2026-10-09) the run's helpers come with it
   const order = [];
   const sb = { console, Object, Array, String, Promise, JSON };
   sb.window = sb; vm.createContext(sb);
   Object.assign(sb, {
-    nbEpoch:()=>1, appToast:(m)=>{ sb.__toast = m; }, canMutateSharedFilm:()=>true, project:{}, projectLoadingRef:{ current:false }, sceneNeedsBusyRef:{ current:false }, artRoomReadOnlyRef:{ current:false }, _mutationNotice:()=>false, _projectLoadingNotice:()=>false,
+    React:{ useRef:(v)=>({ current:v }) }, nbEpoch:()=>1, appToast:(m)=>{ sb.__toast = m; }, canMutateSharedFilm:()=>true, project:{}, projectLoadingRef:{ current:false }, sceneNeedsBusyRef:{ current:false }, artRoomReadOnlyRef:{ current:false }, _mutationNotice:()=>false, _projectLoadingNotice:()=>false,
     locations:[ { id:"house", key:"house", name:"House" }, { id:"kitchen", key:"kitchen", name:"Kitchen", parentKey:"house" } ],
     characters:[ { id:"ana", name:"Ana", coreBody:"x", wardrobeMask:"y", states:[{ id:"wet", label:"Wet" }] } ],
-    props:[ { id:"pen", name:"Pen", form:"f", material:"m" } ],
+    props:[ { id:"pen", name:"Pen", form:"f", material:"m", ownerId:"ana" } ],   // (2026-10-09) a carried prop with an owner — an ownerless one is left to Props
     turnContinuity:{ sluglineUnits:[ { key:"kitchen-night", subspaceKey:"kitchen", name:"Kitchen", time:"NIGHT" } ] },
     sluglineUnitImageId:(k)=>"locunit-"+k, locationGenerationOrder:(ls)=>ls.slice().sort((a,b)=>(a.parentKey?1:0)-(b.parentKey?1:0)),
     generateLocationPlate:async (l)=>{ order.push("plate:"+l.id); return true; },
@@ -138,7 +138,7 @@ await test("F2 the app makes them in order: location plates (parent first), room
     charVisualsDrafted:()=>true, _imgOf:async ()=>"", lbProject:()=>({}), keepPickedStyle:(a,b)=>b, setProps:()=>{},
     artAgentCtxFactoryRef:{ current:()=>({ art:{ locscout:{ list:null }, cast:{
       draftSpec:async ()=>null, generateMaster:async (c)=>{ order.push("master:"+c.id); return "blob:m"; },
-      generateState:async (c, st)=>{ order.push("state:"+c.id+":"+st.id); } } } }) } });
+      generateState:async (c, st)=>{ order.push("state:"+c.id+":"+st.id); return "blob:s"; } } } }) } });
   vm.runInContext(fx.replace("const makeSceneNeeds = async", "this.makeSceneNeeds = async"), sb);
   const progress = [];
   await sb.makeSceneNeeds({ no:3 }, [

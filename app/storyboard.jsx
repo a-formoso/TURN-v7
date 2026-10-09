@@ -279,20 +279,35 @@ window.sbHalfShotIds = sbHalfShotIds;
 /* (2026-10-09, owner — Storyboards review) an OUT-OF-DATE sheet (its page's shots or frames changed since it
    was drawn — sbSheetStale) is counted on its own, never as complete: the Stage won't use it until it is
    recomposed. `stale` is only reported when there is one, so older callers' shapes stay as they were. */
-function sbStoryboardReadiness(pagesByScene, frames, metaOf){
+/* decision D (2026-10-09, owner — Breakdown review): ONE rule for "drawn from frames with an EARLIER LOOK", shared by the
+   Storyboards tab and the Breakdown — a COMPOSED sheet (an upload wasn't drawn from frames) any of whose frames was made
+   before the scene's look or the film stock changed is not up to date */
+function sbSheetFromEarlierLook(meta, frameIds, project, sceneId){
+  if(!meta || !meta.composed || !project || typeof shotLookIsEarlier!=="function") return false;
+  return (frameIds||[]).some(fid=>{ const fm = (fid && typeof nbGetMeta==="function") ? nbGetMeta(fid) : null;
+    return !!(fm && shotLookIsEarlier(fm.lookSig, project, sceneId)); });
+}
+window.sbSheetFromEarlierLook = sbSheetFromEarlierLook;
+/* a sheet drawn from frames with an earlier look counts as OUT OF DATE (stale), and is counted apart too (oldLook) */
+function sbStoryboardReadiness(pagesByScene, frames, metaOf, project){
   const out = { complete:0, partial:0, missing:0, total:0 };
-  let stale = 0;
+  let stale = 0, oldLook = 0;
   const getMeta = typeof metaOf==="function" ? metaOf : ()=>null;
+  const proj = project || window.turnProject || null;
   (pagesByScene||[]).forEach(g=>(g.pages||[]).forEach(page=>{
     out.total++;
     const id = "sbsheet-"+page.id;
     if(!(frames&&frames[id])){ out.missing++; return; }
     const meta = getMeta(id)||{};
-    if(sbSheetStale(meta, (page.shots||[]).map(x=>x && x.id))){ stale++; return; }
+    const ids = (page.shots||[]).map(x=>x && x.id);
+    if(sbSheetStale(meta, ids)){ stale++; return; }
+    const sceneId = (g.scene && g.scene.id) || ((page.shots||[]).find(x=>x && x.sceneId)||{}).sceneId;
+    if(sbSheetFromEarlierLook(meta, ids, proj, sceneId)){ stale++; oldLook++; return; }
     const missing = Math.max(0, Number(meta.missing)||0);
     if(meta.composed && missing>0) out.partial++; else out.complete++;
   }));
   if(stale) out.stale = stale;
+  if(oldLook) out.oldLook = oldLook;
   return out;
 }
 window.sbStoryboardReadiness = sbStoryboardReadiness;

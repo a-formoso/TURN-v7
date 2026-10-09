@@ -178,9 +178,10 @@ await test("D1 the Shot Designer: checked before applying, a running draft, snap
 
 /* ═══ E ═══ */
 await test("E1 spending and copy: priced scene needs, priced edits, guarded frame-check repairs, honest wording", ()=>{
-  const mn = between(app, "  const makeSceneNeeds = async (scene, needs, onProgress)=>{", "  const wornBuildRef");
-  assert.ok(mn.includes('title:"Make what Scene "') && mn.includes("plus writing credits to draft") && mn.includes('else if(ok==="exists") already++;'));
-  assert.equal((mn.match(/return "exists";/g)||[]).length, 3);
+  const mn = between(app, "  const makeSceneNeeds = async (scene, needs, onProgress, opts)=>{", "  const wornBuildRef");
+  // (2026-10-09, owner — Breakdown review) the plan's steps: plate, room, master, variant, prop (scripts/test-scene-needs-make.mjs)
+  assert.ok(mn.includes('title: isClip ? "Make what this clip needs?" : "Make what "+tag+" needs?"') && mn.includes("plus writing credits to draft") && mn.includes('else if(r==="exists") existed++;'));
+  assert.equal((mn.match(/return "exists";/g)||[]).length, 5);
   assert.ok(art.includes('"Apply region edit",\n              typeof window.nbCostChip==="function" && window.nbCostChip(1)'));
   assert.ok(art.includes('"Remaster \\u2014 clean re-render",\n            typeof window.nbCostChip==="function" && window.nbCostChip(1)'));
   assert.ok(art.includes('"Edit current image", typeof window.nbCostChip==="function" && window.nbCostChip(1))'));

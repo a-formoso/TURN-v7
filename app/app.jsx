@@ -4441,99 +4441,414 @@ function App(){
   // (2026-10-09, owner — Breakdown review) THE ART ROOM'S RIGHT, whichever room calls it (a Stage editor could
   // pay for plates and sheets it couldn't save); ONE RUN AT A TIME across the Shots tab, the Breakdown and the
   // Stage; the role is checked again before each image; the result says what really happened
+  /* (2026-10-09, owner — Breakdown review) PLAN ONCE, ASK ONCE, RUN THAT PLAN. The plan is built before the
+     question — what already exists (storage, not the list's cache), each image's reference count (GPT Image
+     charges about a credit a reference), one look per character, the rooms whose layout is reviewed, the owners
+     present — the question prices exactly that plan, and the run makes exactly those steps:
+       · a look is drafted ONCE per character and reused by its variant; an empty draft is a failed step, never a
+         generic sheet (the same for a prop's design);
+       · a master that couldn't be made is never made again by its variant: the variant says it needs that sheet;
+       · a billing or role refusal stops the run ("Stopped — …"), other errors go on with the next step;
+       · a retry (a "no image" answer asked once more) is said in the result — a refused image isn't charged
+         (image-proxy releases the hold), its second try is;
+       · a film switch stops it after every await, and nothing is sent or written after one;
+       · another window making the same scene is told so (a lock with a heartbeat);
+       · on a film shared with you the question says the owner pays, within your monthly budget.
+     Items the plan can't make are not priced, and are named — in the question and in the result: a carried prop
+     with no owner or one the screenplay doesn't establish (owner decision C, as the Props tab's batch), a room
+     without a reviewed layout, a place whose location card is gone. */
   const sceneNeedsBusyRef = React.useRef(false);   // one run at a time, every tab
-  const makeSceneNeeds = async (scene, needs, onProgress)=>{
+  const sceneNeedsAskingRef = React.useRef(false); // its question (and the plan before it) is open
+  /* ONE MAKE PROGRESS FOR THE WHOLE APP: {sceneId, sceneNo, scope, i, total, label, filmId, filmTitle} while a run
+     makes images (null otherwise) — the Breakdown, Shots and the Stage show the running state from it, whichever
+     of them started the run. Read it with window.turnSceneNeedsProgress(); "turn-scene-needs-progress" says when
+     it changes (detail = the same object). */
+  const sceneNeedsProgressRef = React.useRef(null);
+  const setSceneNeedsProgress = (p)=>{
+    sceneNeedsProgressRef.current = p ? { ...p } : null;
+    try{ window.dispatchEvent(new CustomEvent("turn-scene-needs-progress",{ detail:sceneNeedsProgressRef.current ? { ...sceneNeedsProgressRef.current } : null })); }catch(e){}
+  };
+  window.turnSceneNeedsProgress = ()=> sceneNeedsProgressRef.current ? { ...sceneNeedsProgressRef.current } : null;
+  // ANOTHER WINDOW (2026-10-09): a lock per film + scene, with a heartbeat — a window closed mid-run frees it after 20 s
+  const SCENE_NEEDS_LOCK_MS = 20000;
+  const sceneNeedsLockKey = (filmId, sceneKey)=> "turn_scene_needs_lock:"+String(filmId||"local")+":"+String(sceneKey==null?"":sceneKey);
+  const sceneNeedsWindowId = ()=> (window.__turnWindowId = window.__turnWindowId || (Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,10)));
+  const sceneNeedsLockHeld = (key)=>{ try{ const v = JSON.parse(localStorage.getItem(key)||"null");
+    return !!(v && v.owner!==sceneNeedsWindowId() && Date.now()-Number(v.at||0) < SCENE_NEEDS_LOCK_MS); }catch(e){ return false; } };
+  const sceneNeedsLockTake = (key)=>{ try{ localStorage.setItem(key, JSON.stringify({ owner:sceneNeedsWindowId(), at:Date.now() })); }catch(e){} };
+  const sceneNeedsLockFree = (key)=>{ try{ const v = JSON.parse(localStorage.getItem(key)||"null");
+    if(v && v.owner===sceneNeedsWindowId()) localStorage.removeItem(key); }catch(e){} };
+  // A REFUSAL STOPS THE RUN (owner decision F): every billing or role answer (app/plans.jsx turnBillingError codes —
+  // insufficient, no_plan, budget_reached, owner_insufficient, owner_plan, film_role, film_access, team_paused,
+  // account_frozen…); a bad request or an engine the server doesn't allow isn't one, so the next step still runs
+  const SCENE_NEEDS_GO_ON = ["model_not_allowed","bad_request"];
+  const sceneNeedsRefusal = (e, seen)=>{
+    const code = String((e && e.billing) || (seen && seen.code) || "").toLowerCase().trim();
+    if(!code || SCENE_NEEDS_GO_ON.indexOf(code)>=0) return null;
+    const known = (typeof window.turnBillingError==="function") ? window.turnBillingError({ code }, 0) : null;
+    const msg = (e && e.billing && e.message) || (known && known.message) || "This couldn't be charged right now.";
+    return { code, message:String(msg).trim() };
+  };
+  /* WHAT THE PLAN CAN'T MAKE, AND WHY ("" = it can) — the plan and the Stage's count (turnSceneNeedsImageCount)
+     share it, so the button, its price chip and the question agree */
+  const sceneNeedsWhyNot = (n, L)=>{
+    const id = String(n.id);
+    if(n.kind==="location"){
+      const reviewed = (l)=>{ try{ if(typeof requireLocationSpatialPlan==="function") requireLocationSpatialPlan(l); return true; }catch(e){ return false; } };
+      if(/^locunit-/.test(id)){
+        const u = L.units.find(x=> typeof sluglineUnitImageId==="function" && sluglineUnitImageId(x.key)===id);
+        const owner = u && L.locByKey(u.subspaceKey||u.locationKey||"");
+        if(!u || !owner) return "needs its location card \u2014 the place it belongs to is gone (Locations)";
+        if(!reviewed(owner)) return "needs "+(owner.name||"its location")+"'s set layout reviewed (Locations)";
+        return "";
+      }
+      const l = L.locById(id);
+      if(!l) return "its location card is gone (Locations)";
+      if(l.parentKey && typeof locationParentOf==="function" && !locationParentOf(l, L.locList)) return "needs its parent location restored (Locations)";
+      if(!reviewed(l)) return "needs its set layout reviewed (Locations)";
+      return "";
+    }
+    if(n.kind==="character"){
+      const [cid, sid] = id.split(":");
+      const c = L.chars.find(x=>x && x.id===cid);
+      if(!c) return "isn't in the cast any more (Characters)";
+      if(sid && !(c.states||[]).some(x=>x && x.id===sid)) return "its appearance state is gone (Characters)";
+      return "";
+    }
+    if(n.kind==="prop"){
+      const p = L.props.find(x=>x && x.id===(n.baseId||n.id));
+      if(!p) return "its prop card is gone (Props)";
+      if((p.kind||"carried")==="carried" && !p.ownerId) return "needs an owner (Props)";
+      const PS = window.PropScreenplay;
+      if(PS && typeof PS.notInScreenplay==="function" && L.extracted && PS.notInScreenplay(p)) return "isn't in the screenplay (Props)";
+      return "";
+    }
+    return "can't be made here";
+  };
+  const sceneNeedsLookup = ()=>{
+    const C = window.turnContinuity || {};
+    const live = (ref, v)=> (ref && Array.isArray(ref.current) && ref.current.length) ? ref.current : (v||[]);
+    const locs = live(typeof locationsRef!=="undefined" ? locationsRef : null, locations);
+    const chars = live(typeof charactersRef!=="undefined" ? charactersRef : null, characters);
+    const prs = live(typeof propsRef!=="undefined" ? propsRef : null, props);
+    return { units:C.sluglineUnits||[], locList:locs, chars, props:prs,
+      locById:(id)=> locs.find(l=>l && l.id===id) || null,
+      locByKey:(k)=> locs.find(l=>l && String(l.key||"")===String(k||"")) || null,
+      extracted: prs.some(p=> p && (p.screenplaySources||[]).length) };
+  };
+  // the number of images a run of these needs makes, as the question will count it (the storage check aside)
+  window.turnSceneNeedsImageCount = (needs)=>{
+    const L = sceneNeedsLookup();
+    const ok = (needs||[]).filter(n=> n && n.makeable!==false && !sceneNeedsWhyNot(n, L));
+    return (typeof window.sceneNeedsImageCount==="function") ? window.sceneNeedsImageCount(ok) : ok.length;
+  };
+  const makeSceneNeeds = async (scene, needs, onProgress, opts)=>{
+    const o = opts || {};
     if(!Array.isArray(needs) || !needs.length) return { status:"nothing" };
     if(projectLoadingRef.current){ _projectLoadingNotice(); return { status:"refused" }; }
     if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return { status:"refused" }; }
-    if(sceneNeedsBusyRef.current){ if(typeof window.appToast==="function") window.appToast("Another scene is making its images \u2014 one at a time.","info"); return { status:"busy" }; }
+    const toast = (m, k)=>{ if(typeof window.appToast==="function") window.appToast(m, k); };
+    if(sceneNeedsBusyRef.current){ toast("Another scene is making its images \u2014 one at a time.","info"); return { status:"busy" }; }
+    if(sceneNeedsAskingRef.current) return { status:"busy" };   // its question is already open
+    const _film = ()=> String((typeof projIdRef!=="undefined" && projIdRef && projIdRef.current) || "");
+    const film0 = _film();
+    const filmTitle0 = ((typeof projectsRef!=="undefined" && projectsRef && (projectsRef.current||[]).find(p=>p && p.id===film0)) || {}).title
+      || (project && project.title) || "";
+    const sceneKey = scene && (scene.id!=null ? scene.id : scene.no);
+    const lockKey = sceneNeedsLockKey(film0, sceneKey);
+    if(sceneNeedsLockHeld(lockKey)){ toast("This scene's needs are already being made in another window.","info"); return { status:"busy" }; }
+    const isClip = o.scope==="clip";
+    const tag = isClip ? "This clip" : "Scene "+String((scene&&scene.no)||"").padStart(2,"0");
     const epoch0 = (typeof nbEpoch==="function") ? nbEpoch() : null;
-    const stale = ()=> (typeof nbEpoch==="function" ? nbEpoch() : null)!==epoch0 || !!artRoomReadOnlyRef.current;
+    // a film switch, a new asset scope or a role that lost the Art Room: the run stops, nothing more is sent or written
+    const stale = ()=> (typeof nbEpoch==="function" ? nbEpoch() : null)!==epoch0 || !!artRoomReadOnlyRef.current || _film()!==film0;
+    const retried = [];   // images that needed a second (paid) try — said in the result
+    let cur = null;       // the step running now
+    const emit = (m)=>{ if(m && m.k==="observe" && /once more/i.test(String(m.t||"")) && cur) retried.push(cur.label); };
     const mk = (artAgentCtxFactoryRef && artAgentCtxFactoryRef.current) || artAgentCtxFactory;
-    const ctx0 = mk({ input:"", emit:()=>{}, propose:null, agentName:"Scene needs", force:false, cancelled:stale });
+    const ctx0 = mk({ input:"", emit, propose:null, agentName:"Scene needs", force:false, cancelled:stale });
     const cast = ctx0 && ctx0.art && ctx0.art.cast;
-    const C = window.turnContinuity || {};
-    const units = C.sluglineUnits || [];
-    const locList = (ctx0 && ctx0.art && ctx0.art.locscout && Array.isArray(ctx0.art.locscout.list)) ? ctx0.art.locscout.list : (locations||[]);
-    const locById = (id)=> locList.find(l=>l && l.id===id) || (locations||[]).find(l=>l && l.id===id);
-    const steps = [];
-    const masters = needs.filter(n=>n.kind==="location" && locById(n.id)).map(n=>locById(n.id));
-    const ordered = (typeof locationGenerationOrder==="function") ? locationGenerationOrder(masters) : masters;
-    // the card's path (2026-10-08): the view composition is drafted first when missing, the pages ride along;
-    // and a plate that exists after all (a cold cache when the list was made) is never paid for again
-    const plateOpts = { draftStaging:true, onStaged:(id, st)=>{ if(!artRoomReadOnlyRef.current) setLocations(ls=>ls.map(x=>x.id===id ? { ...x, staging:st } : x)); } };
-    ordered.forEach(l=> steps.push({ label:l.name||"Location", run:async ()=>{
-      if(await _imgOf(l.id)) return "exists";
-      return window.generateLocationPlate(l, project, plateOpts); } }));
-    needs.filter(n=>n.kind==="location" && /^locunit-/.test(String(n.id))).forEach(n=>{
-      const u = units.find(x=> typeof sluglineUnitImageId==="function" && sluglineUnitImageId(x.key)===n.id);
-      const owner = u && (locList.find(l=>String(l.key||"")===String(u.subspaceKey||u.locationKey||"")) || (locations||[]).find(l=>String(l.key||"")===String(u.subspaceKey||u.locationKey||"")));
-      if(u && owner) steps.push({ label:(u.name||owner.name||"Room")+(u.time?" \u00b7 "+u.time:""), run:async ()=>{
-        if(await _imgOf(n.id)) return "exists";
-        return window.generateSluglineUnitPlate(owner, u, project); } });
-    });
-    const charNeeds = needs.filter(n=>n.kind==="character").sort((a,b)=> (String(a.id).indexOf(":")>=0?1:0)-(String(b.id).indexOf(":")>=0?1:0));
-    const madeMaster = {};   // a master made in this run — its variant never makes it again while storage catches up
-    charNeeds.forEach(n=>{
-      const [cid, sid] = String(n.id).split(":");
-      steps.push({ label:n.label, run:async ()=>{
-        if(!cast) throw new Error("character tools unavailable");
-        let c = (characters||[]).find(x=>x.id===cid); if(!c) throw new Error("character not found");
-        if(typeof window.charVisualsDrafted==="function" && !window.charVisualsDrafted(c)){
-          const patch = await cast.draftSpec(c); if(patch) c = { ...c, ...patch }; }
-        let base = madeMaster[c.id] || await _imgOf(c.id);
-        if(!base){ base = await cast.generateMaster(c); if(base) madeMaster[c.id] = base; }
-        if(sid){ const st = (c.states||[]).find(x=>x.id===sid); if(!st) throw new Error("appearance state not found");
-          if(!(await _imgOf(c.id+":"+sid))) await cast.generateState(c, st, base); }
-        return true; } });
-    });
-    needs.filter(n=>n.kind==="prop").forEach(n=>{
-      const p0 = (props||[]).find(x=>x.id===(n.baseId||n.id)); if(!p0) return;
-      steps.push({ label:p0.name||"Prop", run:async ()=>{
-        if(await _imgOf(p0.id)) return "exists";   // made already (the list may have read a cold cache)
-        let p = p0;
-        if(!(String(p.form||"").trim() && String(p.material||"").trim()) && typeof aiPropVisuals==="function"){
-          const patch = await aiPropVisuals(p, characters, lbProject("props"));
-          if(patch){ const kept = keepPickedStyle(p, patch); p = { ...p, ...kept }; setProps(ps=>ps.map(x=>x.id===p.id ? { ...x, ...kept } : x)); } }
-        return window.generatePropSheet(p, lbProject("props")); } });
-    });
-    // ASKS FIRST, WITH THE PRICE AND THE WRITING (2026-10-09, owner — Shots review), from Shots and the Breakdown
-    if(!steps.length){
-      if(typeof window.appToast==="function") window.appToast("Nothing here can be made from the Breakdown \u2014 open its tab (Locations, Characters or Props) to make it.","info");
-      return { status:"nothing" };
+    // the run's film-guarded setters (artAgentCtxFactory's inFilm: refused after a film switch or a lost role)
+    const W = (ctx0 && ctx0.art && ctx0.art.writes) || {};
+    const save = (name, fn)=>{ if(!stale() && typeof W[name]==="function") W[name](fn); };
+    const L = sceneNeedsLookup();
+    if(ctx0 && ctx0.art && ctx0.art.locscout && Array.isArray(ctx0.art.locscout.list) && ctx0.art.locscout.list.length){
+      const ls = ctx0.art.locscout.list; L.locList = ls;
+      L.locById = (id)=> ls.find(l=>l && l.id===id) || (locations||[]).find(l=>l && l.id===id) || null;
+      L.locByKey = (k)=> ls.find(l=>l && String(l.key||"")===String(k||"")) || (locations||[]).find(l=>l && String(l.key||"")===String(k||"")) || null;
     }
-    // a variant whose master doesn't exist yet makes the master first: count both
-    const imageN = (typeof window.sceneNeedsImageCount==="function") ? Math.max(steps.length, window.sceneNeedsImageCount(needs)) : steps.length;
+    const has = async (id)=> !!(await _imgOf(id));
+    const cameoCount = async (cid)=>{ let a = [];
+      if(typeof nbGetCameoAngles==="function"){ try{ a = nbGetCameoAngles(cid)||[]; }catch(e){} }
+      if(!a.length && typeof nbLoadCameoAngles==="function"){ try{ a = (await nbLoadCameoAngles(cid))||[]; }catch(e){} }
+      return a.length; };
+    const fail = (why)=>({ fail:why }), skip = (why)=>({ skip:why });
+
+    // ---- THE PLAN ----
+    sceneNeedsAskingRef.current = true;
+    const steps = [], blocked = [], already = [];
+    const planned = new Set();   // ids this run makes
+    const writing = { looks:0, specs:0, views:0 };
+    try{
+      const needNo = (n, why)=> blocked.push((n.label||n.name||n.id)+" \u2014 "+why);
+      // location plates, a parent first
+      const locNeeds = needs.filter(n=>n.kind==="location" && !/^locunit-/.test(String(n.id)));
+      const masters = [];
+      locNeeds.forEach(n=>{ const why = sceneNeedsWhyNot(n, L); if(why) needNo(n, why); else masters.push(L.locById(n.id)); });
+      const ordered = (typeof locationGenerationOrder==="function") ? locationGenerationOrder(masters) : masters;
+      for(const l of ordered){
+        const label = l.name||"Location";
+        if(await has(l.id)){ already.push(label); continue; }
+        const parent = (typeof locationParentOf==="function") ? locationParentOf(l, L.locList) : null;
+        if(parent && !planned.has(parent.id) && !(await has(parent.id))){ needNo({ label }, "needs "+(parent.name||"its parent location")+"'s plate first (Locations)"); continue; }
+        const rc = (typeof window.locationPlateRefCount==="function") ? window.locationPlateRefCount(l) : { n:6, exact:false };
+        const view = !(typeof stagingHasContent==="function" ? stagingHasContent(l) : true);
+        if(view) writing.views++;
+        planned.add(l.id);
+        steps.push({ id:l.id, kind:"location", label, refs:rc.n, refsExact:rc.exact, run:async ()=>{
+          if(await has(l.id)) return "exists";   // made meanwhile (another tab): never paid for twice
+          if(stale()) return "stopped";
+          const ok = await window.generateLocationPlate(l, project, { draftStaging:true, cancelled:stale,
+            onRetry:()=>retried.push(label),
+            // the view composition is saved to the film it was written for, or not at all
+            onStaged:(id, st)=>{ save("setLocations", ls=>ls.map(x=>x.id===id ? { ...x, staging:st } : x)); } });
+          if(stale()) return "stopped";
+          return ok ? "made" : fail("the plate couldn't be made"); } });
+      }
+      // room & time plates, after their location's plate
+      for(const n of needs.filter(n=>n.kind==="location" && /^locunit-/.test(String(n.id)))){
+        const why = sceneNeedsWhyNot(n, L); if(why){ needNo(n, why); continue; }
+        const u = L.units.find(x=> sluglineUnitImageId(x.key)===n.id);
+        const owner = L.locByKey(u.subspaceKey||u.locationKey||"");
+        const label = (u.name||owner.name||"Room")+(u.time?" \u00b7 "+u.time:"");
+        if(await has(n.id)){ already.push(label); continue; }
+        if(!planned.has(owner.id) && !(await has(owner.id))){ needNo({ label }, "needs "+(owner.name||"its location")+"'s plate first (Locations)"); continue; }
+        const rootId = owner.parentLocation && owner.parentLocation.id;
+        const rootPlate = rootId ? (planned.has(rootId) || await has(rootId)) : undefined;
+        const rc = (typeof window.sluglineUnitPlateRefCount==="function") ? window.sluglineUnitPlateRefCount(owner, u, { rootPlate }) : { n:6, exact:false };
+        planned.add(n.id);
+        steps.push({ id:n.id, kind:"location", label, refs:rc.n, refsExact:rc.exact, run:async ()=>{
+          if(await has(n.id)) return "exists";
+          if(stale()) return "stopped";
+          const ok = await window.generateSluglineUnitPlate(owner, u, project, { cancelled:stale, onRetry:()=>retried.push(label) });
+          if(stale()) return "stopped";
+          return ok ? "made" : fail("the plate couldn't be made"); } });
+      }
+      // character sheets: one look per character, a master before its variants
+      const byChar = {}, charOrder = [];
+      needs.filter(n=>n.kind==="character").forEach(n=>{
+        const why = sceneNeedsWhyNot(n, L); if(why){ needNo(n, why); return; }
+        const [cid, sid] = String(n.id).split(":");
+        if(!byChar[cid]){ byChar[cid] = { c:L.chars.find(x=>x && x.id===cid), master:null, variants:[] }; charOrder.push(cid); }
+        if(sid) byChar[cid].variants.push({ sid, label:n.label||n.id }); else byChar[cid].master = n.label||n.id;
+      });
+      const drafted = {}, lookFailed = {}, masterUrl = {}, masterFailed = {};
+      const needLook = {};
+      const STOP = {};
+      // the look, drafted ONCE per character in this run and reused by every step after it (bug 1)
+      const lookOf = async (cid)=>{
+        if(drafted[cid]) return drafted[cid];
+        if(lookFailed[cid]) return null;   // never a second paid draft
+        let c = sceneNeedsLookup().chars.find(x=>x && x.id===cid) || (byChar[cid] && byChar[cid].c);
+        if(!c) return null;
+        if(needLook[cid]){
+          let patch = null;
+          try{ patch = await cast.draftSpec(c); }catch(e){ lookFailed[cid] = true; throw e; }
+          if(stale()) return STOP;
+          if(!patch){ lookFailed[cid] = true; return null; }   // an empty draft is a failed step, never a generic sheet
+          c = { ...c, ...patch };
+        }
+        drafted[cid] = c; return c;
+      };
+      const variantSteps = [];
+      for(const cid of charOrder){
+        const e = byChar[cid], c = e.c, name = c.name||"the character";
+        const masterHas = await has(cid);
+        const vars = [];
+        for(const v of e.variants){ if(await has(cid+":"+v.sid)) already.push(v.label); else vars.push(v); }
+        if(e.master && masterHas) already.push(e.master);
+        const masterNeeded = !masterHas && (!!e.master || vars.length>0);
+        if(!masterNeeded && !vars.length) continue;
+        needLook[cid] = typeof window.charVisualsDrafted==="function" && !window.charVisualsDrafted(c);
+        if(needLook[cid]) writing.looks++;
+        const cameos = await cameoCount(cid);
+        if(masterNeeded){
+          const excluded = new Set(Array.isArray(c.wornReferenceExclusions)?c.wornReferenceExclusions:[]);
+          let worn = 0;
+          for(const p of L.props.filter(p=>p && p.ownerId===cid && p.kind!=="carried" && !excluded.has(p.id))) if(await has(p.id)) worn++;
+          planned.add(cid);
+          const label = e.master || name;
+          steps.push({ id:cid, kind:"character", label, refs:worn+cameos, refsExact:true, run:async ()=>{
+            if(!cast) throw new Error("character tools unavailable");
+            if(await has(cid)) return "exists";
+            if(stale()) return "stopped";
+            const ch = await lookOf(cid);
+            if(ch===STOP || stale()) return "stopped";
+            if(!ch){ masterFailed[cid] = true; return fail("couldn't draft the look"); }
+            let url = "";
+            try{ url = await cast.generateMaster(ch); }catch(err){ masterFailed[cid] = true; throw err; }
+            if(url) masterUrl[cid] = url;
+            if(stale()) return url ? "made" : "stopped";
+            if(!url){ masterFailed[cid] = true; return fail("the sheet couldn't be made"); }
+            return "made"; } });
+        }
+        vars.forEach(v=>{ planned.add(cid+":"+v.sid);
+          variantSteps.push({ id:cid+":"+v.sid, kind:"character", label:v.label, refs:1+cameos, refsExact:true, run:async ()=>{
+            if(!cast) throw new Error("character tools unavailable");
+            if(await has(cid+":"+v.sid)) return "exists";
+            // (owner decision E) a master that couldn't be made is never made again here
+            if(masterFailed[cid]) return skip("needs "+name+"'s sheet, which couldn't be made");
+            if(lookFailed[cid]) return skip("needs "+name+"'s look, which couldn't be drafted");
+            if(stale()) return "stopped";
+            const ch = await lookOf(cid);
+            if(ch===STOP || stale()) return "stopped";
+            if(!ch) return fail("couldn't draft the look");
+            const st = (ch.states||[]).find(x=>x && x.id===v.sid);
+            if(!st) return fail("its appearance state is gone");
+            const base = masterUrl[cid] || await _imgOf(cid);
+            if(stale()) return "stopped";
+            if(!base) return skip("needs "+name+"'s sheet first");   // the plan didn't make it, so it isn't made here
+            const url = await cast.generateState(ch, st, base);
+            if(stale()) return url ? "made" : "stopped";
+            return url ? "made" : fail("the sheet couldn't be made"); } }); });
+      }
+      variantSteps.forEach(s=>steps.push(s));
+      // prop sheets, after their owners (owner decision C: ownerless carried props and props the screenplay
+      // doesn't establish are left to the Props tab, as its batch does)
+      const seenProps = new Set();
+      for(const n of needs.filter(n=>n.kind==="prop")){
+        const why = sceneNeedsWhyNot(n, L); if(why){ needNo(n, why); continue; }
+        const p0 = L.props.find(x=>x && x.id===(n.baseId||n.id));
+        if(seenProps.has(p0.id)) continue; seenProps.add(p0.id);
+        const label = p0.name||"Prop";
+        if(await has(p0.id)){ already.push(label); continue; }
+        const design = !(String(p0.form||"").trim() && String(p0.material||"").trim()) && typeof aiPropVisuals==="function";
+        if(design) writing.specs++;
+        const ownerSheet = !!p0.ownerId && (planned.has(p0.ownerId) || await has(p0.ownerId));
+        const ownerName = (L.chars.find(c=>c && c.id===p0.ownerId)||{}).name || p0.ownerName || "its owner";
+        planned.add(p0.id);
+        steps.push({ id:p0.id, kind:"prop", label, refs:ownerSheet?1:0, refsExact:true, run:async ()=>{
+          if(await has(p0.id)) return "exists";   // made already (the list may have read a cold cache)
+          if(p0.ownerId && masterFailed[p0.ownerId]) return skip("needs "+ownerName+"'s sheet, which couldn't be made");
+          if(stale()) return "stopped";
+          let p = sceneNeedsLookup().props.find(x=>x && x.id===p0.id) || p0;
+          if(design){
+            const patch = await aiPropVisuals(p, sceneNeedsLookup().chars, lbProject("props"));
+            if(stale()) return "stopped";
+            if(!patch) return fail("couldn't design the prop");   // an empty design is a failed step, never a generic sheet
+            const kept = keepPickedStyle(p, patch); p = { ...p, ...kept };
+            save("setProps", ps=>ps.map(x=>x.id===p.id ? { ...x, ...kept } : x));
+          }
+          let err = "";
+          const ok = await window.generatePropSheet(p, lbProject("props"), { cancelled:stale,
+            onRetry:()=>retried.push(label), onError:(m)=>{ err = String(m||""); } });
+          if(stale()) return ok ? "made" : "stopped";
+          return ok ? "made" : fail(err || "the sheet couldn't be made"); } });
+      }
+    }catch(e){ sceneNeedsAskingRef.current = false; throw e; }   // (the question below keeps it until it is answered)
+    const where = o.from==="breakdown" ? "from the Breakdown" : "here";
+    const blockedNote = blocked.length ? " Not made "+where+": "+blocked.join("; ")+"." : "";
+    if(!steps.length){
+      sceneNeedsAskingRef.current = false;
+      toast(blocked.length
+        ? (o.from==="breakdown" ? "Nothing here can be made from the Breakdown" : "None of these can be made here")
+          +" \u2014 "+blocked.join("; ")+". Open its tab (Locations, Characters or Props) to make it."
+        : tag+" already has what it needs \u2014 "+already.length+" already there.", "info");
+      return { status:"nothing", made:0, already:already.length, failed:0, blocked:blocked.length };
+    }
+    // ---- THE QUESTION: that plan, at that price ----
+    const total = steps.length;
+    const each = (refs)=> (typeof window.nbImageCostText==="function") ? Number(window.nbImageCostText(1, { refs })) || 0 : 0;
+    let credits = 0, priced = typeof window.nbImageCostText==="function", upTo = false;
+    steps.forEach(s=>{ const c = each(s.refs); if(!c) priced = false; credits += c;
+      if(!s.refsExact && c!==each(0)) upTo = true; });   // a count only known as a maximum
     if(typeof window.appConfirm==="function"){
-      const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(imageN) : "";
-      const looks = charNeeds.filter(n=>{ const c=(characters||[]).find(x=>x.id===String(n.id).split(":")[0]); return c && typeof window.charVisualsDrafted==="function" && !window.charVisualsDrafted(c); }).length;
-      const specs = needs.filter(n=>n.kind==="prop").filter(n=>{ const p=(props||[]).find(x=>x.id===(n.baseId||n.id)); return p && !(String(p.form||"").trim() && String(p.material||"").trim()); }).length;
-      const views = ordered.filter(l=> !(typeof stagingHasContent==="function" ? stagingHasContent(l) : true)).length;
-      const writing = [looks && (looks+" character look"+(looks!==1?"s":"")), specs && (specs+" prop design"+(specs!==1?"s":"")), views && (views+" view composition"+(views!==1?"s":""))].filter(Boolean);
-      const ok = await window.appConfirm({ title:"Make what Scene "+String((scene&&scene.no)||"").padStart(2,"0")+" needs?",
-        body:"Up to "+imageN+" reference image"+(imageN!==1?"s":"")+(price?" \u2014 about "+price+" credit"+(price==="1"?"":"s"):"")
-          +(writing.length ? ", plus writing credits to draft "+writing.join(", ")+" first" : "")+". Anything that already exists is skipped.",
-        items:steps.map(x=>x.label), confirmLabel:"Make "+steps.length, cancelLabel:"Cancel" });
+      const price = priced && credits ? (upTo ? " \u2014 up to " : " \u2014 about ")+credits+" credit"+(credits===1?"":"s") : "";
+      const shared = !!(typeof window.turnFilmPaidByOwner==="function" && window.turnFilmPaidByOwner());
+      const B = window.turnFilmBudget;
+      const left = (shared && B && B.limit!=null) ? Math.max(0, Math.floor(Number(B.limit)-(Number(B.spent)||0))) : null;
+      const payer = shared ? " from the film owner's credits, within your monthly budget on this film"
+        +(left!=null ? " ("+left.toLocaleString("en-US")+" left this month)" : "") : "";
+      const w = [writing.looks && (writing.looks+" character look"+(writing.looks!==1?"s":"")),
+        writing.specs && (writing.specs+" prop design"+(writing.specs!==1?"s":"")),
+        writing.views && (writing.views+" view composition"+(writing.views!==1?"s":""))].filter(Boolean);
+      let ok = false;
+      try{ ok = await window.appConfirm({ title: isClip ? "Make what this clip needs?" : "Make what "+tag+" needs?",
+        body: total+" reference image"+(total!==1?"s":"")+price+payer
+          +(w.length ? ", plus writing credits to draft "+w.join(", ")+" first" : "")+"."
+          +(already.length ? " "+already.length+" already there "+(already.length===1?"is":"are")+" skipped." : "")
+          +" An image that comes back empty is asked once more \u2014 only that second try is charged.",
+        items:steps.map(x=>x.label), note: blocked.length ? "Not made "+where+": "+blocked.join("; ")+"." : undefined,
+        confirmLabel:"Make "+total, cancelLabel:"Cancel" }); }
+      finally { sceneNeedsAskingRef.current = false; }
       if(!ok) return { status:"cancelled" };
     }
+    sceneNeedsAskingRef.current = false;
+    // the answer may come after a switch, a lost role, or another window starting the same scene
+    if(stale()){ toast(tag+": nothing was made \u2014 the film or your role changed before it started.","info"); return { status:"stopped", made:0 }; }
+    if(sceneNeedsBusyRef.current){ toast("Another scene is making its images \u2014 one at a time.","info"); return { status:"busy" }; }
+    if(sceneNeedsLockHeld(lockKey)){ toast("This scene's needs are already being made in another window.","info"); return { status:"busy" }; }
+    // ---- THE RUN: exactly those steps ----
     sceneNeedsBusyRef.current = true;
-    const failed = []; let already = 0, made = 0, stopped = false;
+    sceneNeedsLockTake(lockKey);
+    const beat = (typeof setInterval==="function") ? setInterval(()=>sceneNeedsLockTake(lockKey), 5000) : null;
+    let seenRefusal = null;
+    const onCredits = (e)=>{ const d = e && e.detail; if(d && d.reason==="billing-refusal" && d.code && !seenRefusal) seenRefusal = { code:String(d.code) }; };
+    try{ if(typeof window.addEventListener==="function") window.addEventListener("turn-credits-changed", onCredits); }catch(e){}
+    const made = [], failed = [], notMade = [];
+    let existed = 0, stopped = false, refusal = null, ranTo = 0;
+    const progress = { sceneId:scene && scene.id, sceneNo:scene && scene.no, scope:isClip ? "clip" : "scene", filmId:film0, filmTitle:filmTitle0 };
     try{
-      if(onProgress) onProgress(0, steps.length, "");   // busy only once you've said yes
+      setSceneNeedsProgress({ ...progress, i:0, total, label:"" });
+      if(onProgress) onProgress(0, total, "");   // busy only once you've said yes
       for(let i=0;i<steps.length;i++){
         if(stale()){ stopped = true; break; }
-        if(onProgress) onProgress(i+1, steps.length, steps[i].label);
-        try{ const ok = await steps[i].run(); if(ok===false) failed.push(steps[i].label); else if(ok==="exists") already++; else made++; }
-        catch(e){ failed.push(steps[i].label+" \u2014 "+((e&&e.message)||"error")); }
+        cur = steps[i]; ranTo = i+1;
+        setSceneNeedsProgress({ ...progress, i:i+1, total, label:cur.label });
+        if(onProgress) onProgress(i+1, total, cur.label);
+        let r;
+        try{ r = await cur.run(); }
+        catch(e){
+          refusal = sceneNeedsRefusal(e, seenRefusal);
+          r = refusal ? fail(refusal.message) : fail((e&&e.message)||"error");
+        }
+        if(!refusal && seenRefusal) refusal = sceneNeedsRefusal(null, seenRefusal);   // a refusal the generator kept to itself
+        if(r==="made") made.push(cur.label);
+        else if(r==="exists") existed++;
+        else if(r && r.skip){ notMade.push(cur.label); failed.push(cur.label+" \u2014 "+r.skip); }
+        else if(r && r.fail){ notMade.push(cur.label); if(!refusal) failed.push(cur.label+" \u2014 "+r.fail); }
+        else if(r!=="stopped"){ notMade.push(cur.label); failed.push(cur.label+" \u2014 couldn't be made"); }
+        if(refusal) break;
+        if(r==="stopped" || stale()){ if(r==="stopped") notMade.push(cur.label); stopped = true; break; }
       }
-    } finally { sceneNeedsBusyRef.current = false; }
-    const tag = "Scene "+String((scene&&scene.no)||"").padStart(2,"0");
-    if(typeof window.appToast==="function") window.appToast(
-      stopped ? (tag+": stopped \u2014 "+made+" of "+steps.length+" made"+(failed.length?", "+failed.length+" couldn't be":"")+".")
-      : failed.length ? (failed.length+" of "+steps.length+" couldn't be made: "+failed.join("; "))
-      : (tag+" has what it needs \u2014 "+made+" reference image"+(made!==1?"s":"")+" made"+(already?", "+already+" already there":"")+"."),
-      (failed.length||stopped)?"error":"info");
-    return { status: stopped ? "stopped" : failed.length ? "partial" : "done", made, already, failed:failed.length };
+    } finally {
+      sceneNeedsBusyRef.current = false;
+      if(beat) clearInterval(beat);
+      sceneNeedsLockFree(lockKey);
+      try{ if(typeof window.removeEventListener==="function") window.removeEventListener("turn-credits-changed", onCredits); }catch(e){}
+      setSceneNeedsProgress(null);
+    }
+    steps.slice(ranTo).forEach(s=>notMade.push(s.label));
+    // the film it was made for, when another one is open now
+    const filmTag = (_film()!==film0) ? "\u201c"+(filmTitle0||"The other film")+"\u201d \u2014 " : "";
+    const retryNote = retried.length ? " "+retried.length+" image"+(retried.length!==1?"s":"")+" needed a second try." : "";
+    const list = (a)=> a.length ? a.join(", ") : "nothing";
+    if(refusal){
+      const sentence = /[.!?]$/.test(refusal.message) ? refusal.message.slice(0,-1) : refusal.message;
+      toast(filmTag+tag+": stopped \u2014 "+sentence+". Made: "+list(made)+"; not made: "+list(notMade)+"."+retryNote+blockedNote, "error");
+    } else if(stopped){
+      toast(filmTag+tag+": stopped \u2014 "+made.length+" of "+total+" made"+(failed.length?", "+failed.length+" couldn't be":"")+"; not made: "+list(notMade)+"."+retryNote+blockedNote, "error");
+    } else if(failed.length){
+      toast(filmTag+tag+": "+failed.length+" of "+total+" couldn't be made: "+failed.join("; ")+"."+(made.length?" Made: "+list(made)+".":"")+retryNote+blockedNote, "error");
+    } else {
+      toast(filmTag+(blocked.length
+        ? tag+": "+made.length+" reference image"+(made.length!==1?"s":"")+" made"+(existed?", "+existed+" already there":"")+"."
+        : tag+" has what it needs \u2014 "+made.length+" reference image"+(made.length!==1?"s":"")+" made"+(existed?", "+existed+" already there":"")+".")
+        +retryNote+blockedNote, "info");
+    }
+    return { status: refusal ? "refused" : stopped ? "stopped" : failed.length ? "partial" : "done",
+      made:made.length, already:existed+already.length, failed:failed.length, blocked:blocked.length,
+      retried:retried.length, refusal: refusal ? refusal.code : null };
   };
   const wornBuildRef = React.useRef(null);   // the card's "Make N worn-item sheets" (the build below, on demand)
   /* INITIAL CHARACTER -> WORN PROP BOOTSTRAP
@@ -7598,6 +7913,9 @@ function App(){
         cast,
         propmaster,
         locscout,
+        // the run's film-guarded setters (inFilm): "Make what this scene needs" saves a drafted design or view
+        // composition through these, so nothing lands in another film or after the role is lost (2026-10-09)
+        writes:_w,
         lookbook: lookbookSurface,
         // Color follows the Lookbook only while its references field isn't your own text: approving a
         // palette lit from YOUR text doesn't mean the Lookbook change was applied (2026-10-06)
@@ -8291,7 +8609,7 @@ function App(){
           // hard gate: the Art Room is downstream of the story, so with no scenes
           // show the onboarding instead of empty (and partly broken) tabs.
           ? React.createElement("div",{className:"canvas"}, emptyCanvas())
-          : React.createElement(ArtRoom,{key:(cloudMode?currentProjectId:"local"),artView,setArtView,project,characters,scenes,props,drafts,trash,
+          : React.createElement(ArtRoom,{key:(cloudMode?currentProjectId:"local"),artView,setArtView,project,projectLoading,characters,scenes,props,drafts,trash,
             readOnly:roomReadOnly,canReview:!roomReadOnly,onSourceClick:openArtSource,tabLocks:artTabLocks,
             noPropsConfirmed:!!(project && project.noPropsConfirmed),onSetNoProps:roomReadOnly?null:setNoPropsConfirmed,
             onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,

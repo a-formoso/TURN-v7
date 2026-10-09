@@ -3236,10 +3236,22 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const readiness = stageClipReadiness(clip, ctx, imgs, drafts, { loading:imageLoadState, sourceMode });
   const [needsRun, setNeedsRun] = React.useState(null);   // {i,total} while making what this clip needs
   const makeableNeeds = (readiness.needs||[]).filter(x=>x.makeable);
+  /* (2026-10-09, owner — Breakdown review) "Making…" only once you've said yes (the run reports 0 of N after its
+     question); the chip and the title count the images the question will (a variant whose master is missing makes
+     both; what the run can't make here isn't counted); the question asks about THIS clip; and a run started
+     anywhere else (Shots, the Breakdown, another clip) shows here too — one Make at a time, app-wide */
+  const needsImages = (typeof window.turnSceneNeedsImageCount==="function") ? window.turnSceneNeedsImageCount(makeableNeeds)
+    : (typeof window.sceneNeedsImageCount==="function") ? window.sceneNeedsImageCount(makeableNeeds) : makeableNeeds.length;
+  const [needsApp, setNeedsApp] = React.useState(()=> (typeof window.turnSceneNeedsProgress==="function" ? window.turnSceneNeedsProgress() : null));
+  React.useEffect(()=>{
+    const h = (e)=> setNeedsApp((e && e.detail) || null);
+    window.addEventListener("turn-scene-needs-progress", h);
+    return ()=> window.removeEventListener("turn-scene-needs-progress", h);
+  },[]);
+  const needsShown = needsRun || (needsApp && String(needsApp.sceneId)===String(scene && scene.id) ? needsApp : null);
   const makeClipNeeds = async ()=>{
-    if(!onMakeSceneNeeds || needsRun || readOnly || !makeableNeeds.length) return;
-    setNeedsRun({ i:0, total:makeableNeeds.length });
-    try{ await onMakeSceneNeeds(scene, makeableNeeds, (i,total)=>setNeedsRun({ i, total })); }
+    if(!onMakeSceneNeeds || needsRun || needsApp || readOnly || !makeableNeeds.length) return;
+    try{ await onMakeSceneNeeds(scene, makeableNeeds, (i,total)=>setNeedsRun({ i, total }), { scope:"clip", from:"stage" }); }
     finally{ setNeedsRun(null); }
   };
   const sourceMeta = STAGE_SOURCE_MODES[sourceMode] || STAGE_SOURCE_MODES.frame;
@@ -6057,11 +6069,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const coverageNotice=(d.screenplayDirectionIssues||[]).find(x=>x&&!x.blocking&&x.code==="screenplay-coverage-beat-level");
   const readinessNotice = readiness.issues.length>0 && _stEl("div",{key:"readiness",className:"stage2-warn stage2-readiness","data-testid":"stage-clip-readiness"},
     Icon.alert&&_stEl(Icon.alert,{s:12}),
-    _stEl("span",{className:"stage2-warn-text"}, "Inputs not ready: "+readiness.text+"."+(needsRun ? " Making "+needsRun.i+" of "+needsRun.total+"\u2026" : "")),
-    (onMakeSceneNeeds && !readOnly && makeableNeeds.length>0) && _stEl("button",{type:"button",className:"stage2-warn-act",disabled:!!needsRun||gening,onClick:makeClipNeeds,
-        title:"Make the "+makeableNeeds.length+" missing reference image"+(makeableNeeds.length!==1?"s":"")+" this clip's shots use"},
-      needsRun ? "Making\u2026" : "Make what this clip needs",
-      !needsRun && typeof window.nbCostChip==="function" && window.nbCostChip(makeableNeeds.length)),
+    _stEl("span",{className:"stage2-warn-text"}, "Inputs not ready: "+readiness.text+"."+(needsShown ? " Making "+needsShown.i+" of "+needsShown.total+"\u2026" : "")),
+    (onMakeSceneNeeds && !readOnly && makeableNeeds.length>0) && _stEl("button",{type:"button",className:"stage2-warn-act",disabled:!!needsRun||!!needsApp||gening,onClick:makeClipNeeds,
+        title: needsApp && !needsShown ? "Another scene is making its images \u2014 one at a time."
+          : "Make the "+needsImages+" missing reference image"+(needsImages!==1?"s":"")+" this clip's shots use"},
+      needsShown ? "Making\u2026" : "Make what this clip needs",
+      !needsShown && needsImages>0 && typeof window.nbCostChip==="function" && window.nbCostChip(needsImages)),
     (onStageNav && (readiness.frames.missing||readiness.frames.unapproved||readiness.frames.stale||readiness.frames.oldLook)>0)
       // a role that can't change the Art Room (a Stage editor) is told who can, instead of being sent to a read-only
       // room (2026-10-09, Stage editor review)
@@ -8338,21 +8351,24 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     if(notes.length) noteVids[c.id] = notes.map(x=>x.label); });
   // EACH SCENE'S CLIPS, FOR THE BREAKDOWN (2026-10-05, owner — Breakdown review): the clip grouping follows
   // this room's model and settings, so the counts are saved per film on this device on each visit
-  const stageStatusSig = (allClips||[]).map(c=>c.id+":"+(vids[c.id]?1:0)+(staleVids[c.id]?"s":"")+(oldLookVids[c.id]?"l":"")+(noteVids[c.id]?"n":"")).join(",");
+  // clips whose current take finished after a character's identity changed: left out until checked in Takes
+  const [identityVids, setIdentityVids] = React.useState({});
+  // (2026-10-09, Breakdown review) clips left out after an identity change are counted too, so the Breakdown's
+  // Clips chip never reads "all rendered" while the Stage leaves one out
+  const stageStatusSig = (allClips||[]).map(c=>c.id+":"+(vids[c.id]?1:0)+(staleVids[c.id]?"s":"")+(oldLookVids[c.id]?"l":"")+(noteVids[c.id]?"n":"")+(identityVids[c.id]?"i":"")).join(",");
   // saved only once the takes have LOADED (2026-10-09 — leaving the Stage quickly saved "0 rendered", or nothing)
   const [vidsLoaded, setVidsLoaded] = React.useState(false);
   React.useEffect(()=>{
     if(!vidsLoaded || !(allClips||[]).length) return;
     const out = {};
-    (allClips||[]).forEach(c=>{ if(!c || !c.scene) return; const o = out[c.scene.id] = out[c.scene.id] || { total:0, rendered:0, stale:0, oldLook:0, notes:0 };
-      o.total++; if(vids[c.id]) o.rendered++; if(staleVids[c.id]) o.stale++; if(oldLookVids[c.id]) o.oldLook++; if(noteVids[c.id]) o.notes++; });
+    (allClips||[]).forEach(c=>{ if(!c || !c.scene) return; const o = out[c.scene.id] = out[c.scene.id] || { total:0, rendered:0, stale:0, oldLook:0, notes:0, identity:0 };
+      o.total++; if(vids[c.id]) o.rendered++; if(staleVids[c.id]) o.stale++; if(oldLookVids[c.id]) o.oldLook++; if(noteVids[c.id]) o.notes++;
+      if(identityVids[c.id] && !vids[c.id]) o.identity++; });
     out.__at = new Date().toISOString();
     // keyed by the OPEN FILM (2026-10-09, owner — Stage review): films carry no project.id, so every
     // film wrote "local" and one film's Stage overwrote another's Breakdown counts
     try{ localStorage.setItem("turn_stage_scene_status:"+stageFilmKey(project), JSON.stringify(out)); }catch(e){}
   },[stageStatusSig, stageFilmKey(project), vidsLoaded]);
-  // clips whose current take finished after a character's identity changed: left out until checked in Takes
-  const [identityVids, setIdentityVids] = React.useState({});
   React.useEffect(()=>{ let alive=true;
     (async()=>{ const out={}, stale={}, ident={};
        // read in parallel (2026-10-09: one at a time, the Timeline said "0 rendered" for seconds)

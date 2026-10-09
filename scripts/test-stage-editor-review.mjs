@@ -160,7 +160,7 @@ await test("F2 Frances: what the role saves, who pays in the Stage, voiced lines
 });
 await test("F3 keys", ()=>{
   for(const f of ["app", "stage", "team", "cloud", "plans", "ai", "script", "videogen", "voicegen"])
-    assert.ok(["20261009-stageed1", "20261009-sb4"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
+    assert.ok(["20261009-stageed1", "20261009-sb4", "20261009-bd4"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

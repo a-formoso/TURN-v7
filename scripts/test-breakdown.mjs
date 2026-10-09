@@ -30,7 +30,7 @@ const film=()=>({
   scenes:[{id:"s2",no:2,act:1,title:"The Road",loc:"EXT. ROAD - CONTINUOUS",driver:"marcus"},
           {id:"s1",no:1,act:1,title:"Closing",loc:"INT. CHAPEL - NIGHT",driver:"marcus"}],
   characters:[{id:"marcus",name:"Marcus",states:[{id:"wet",label:"Wet suit",sceneId:"s2"}]},{id:"ana",name:"Ana"}],
-  props:[{id:"p-card",name:"Eulogy card",kind:"carried",scenes:["s1"]},{id:"p-coin",name:"Coin",kind:"carried",scenes:["s2"]},
+  props:[{id:"p-card",name:"Eulogy card",kind:"carried",scenes:["s1"]},{id:"p-coin",name:"Coin",kind:"carried",ownerId:"ana",scenes:["s2"]},
          {id:"p-rain",name:"Rain",kind:"dressing",scenes:["s2"]},{id:"p-watch",name:"Watch",kind:"worn",ownerName:"Marcus",scenes:["s2"]}],
   locations:[{id:"loc-chapel",name:"Chapel",scenes:["s1"]},{id:"loc-road",name:"Road",scenes:["s2"]}],
   shots:[{id:"sh1",sceneId:"s1"},{id:"sh2",sceneId:"s1",approved:true},{id:"sh3",sceneId:"s2"},{id:"sh4",sceneId:"s2"}],
@@ -46,7 +46,8 @@ await test("each strip lists the cast in their look, the location, props and sho
   assert.deepEqual(rows.map(r=>r.scene.no),[1,2],"story order");
   const [a,b]=rows;
   assert.ok(a.ready && !a.missing.length,"scene 1 has everything: "+JSON.stringify(plain(a.missing)));
-  assert.deepEqual(plain(a.shots),{total:2,rendered:2,approved:1,toRender:0});
+  // (2026-10-09, fourth pass) toApprove and approvedOld are counted apart (the summary and the export)
+  assert.deepEqual(plain(a.shots),{total:2,rendered:2,approved:1,toRender:0,toApprove:0,approvedOld:0});
   assert.equal(b.slug.todKind,"night","CONTINUOUS keeps the previous scene's clock");
   const m=b.cast.find(c=>c.id==="marcus");
   assert.ok(m.state==="Wet suit" && m.sheetId==="marcus:wet" && !m.ready,"the variant this scene calls for");

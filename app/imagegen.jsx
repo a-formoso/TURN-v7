@@ -992,28 +992,43 @@ function nbPreloadBytes(urls){
    bytes are loaded on render (or via nbPreloadFor for the active tab). */
 let _prefetchAllProj = null, _prefetchAllPromise = null;
 function nbResetPrefetchAll(){ _prefetchAllProj = null; _prefetchAllPromise = null; }
+/* A FAILED CHECK IS SAID (2026-10-09, owner — Breakdown review): the promise resolves { ok:true } or { ok:false } (never
+   rejects — every caller fires and forgets it, or chains .then); a failed or timed-out query is FORGOTTEN, so the next
+   call (reopening a tab) checks again; and the query has a time limit, so "Checking…" can't hang */
+const NB_PREFETCH_ALL_MS = 20000;
 async function nbPrefetchAll(){
-  if(_nbBackend!=="cloud") return;
+  if(_nbBackend!=="cloud") return { ok:true };
   if(_prefetchAllPromise && _prefetchAllProj===_nbProject) return _prefetchAllPromise;
   _prefetchAllProj = _nbProject;
-  _prefetchAllPromise = (async()=>{
-    if(typeof window.cloudAssetLoadAll!=="function") return;
+  const proj = _nbProject, shared = _nbShared;
+  const mine = (async()=>{
+    if(typeof window.cloudAssetLoadAll!=="function") return { ok:true };
     let map = {};
     try{
       // episode scope + (for series) the show's shared bible scope, in one pass.
       // The SHOW's entries win on collision — matching _scopeFor's read routing
       // (a bible sheet regenerated post-conversion supersedes the episode copy).
-      const batches = await Promise.all([
-        window.cloudAssetLoadAll(_nbProject),
-        _nbShared ? window.cloudAssetLoadAll(_nbShared) : {},
-      ]);
+      // { strict:true }: a failed query THROWS instead of reading as "no images" (cloudAssetLoadAll)
+      let timer = null;
+      const timeout = new Promise((_, rej)=>{ timer = setTimeout(()=>rej(new Error("asset check timed out")), NB_PREFETCH_ALL_MS); });
+      const batches = await Promise.race([Promise.all([
+        window.cloudAssetLoadAll(proj, { strict:true }),
+        shared ? window.cloudAssetLoadAll(shared, { strict:true }) : {},
+      ]), timeout]).finally(()=>clearTimeout(timer));
       map = Object.assign({}, batches[0]||{}, batches[1]||{});
-    }catch(e){ return; }
+    }catch(e){
+      if(_prefetchAllPromise===mine) nbResetPrefetchAll();   // the next call checks again
+      return { ok:false, error:(e && e.message) || "asset check failed" };
+    }
+    // a film switched mid-check: its urls aren't this film's
+    if(proj!==_nbProject) return { ok:false, error:"film changed" };
     const got = [];
     for(const id in map){ const u = await cloudHydrate(id, map[id]); if(u) got.push(id); }
     if(got.length) window.dispatchEvent(new CustomEvent("nb-prefetched",{ detail:{ ids:got } }));
+    return { ok:true };
   })();
-  return _prefetchAllPromise;
+  _prefetchAllPromise = mine;
+  return mine;
 }
 window.nbPrefetchAll = nbPrefetchAll;
 
