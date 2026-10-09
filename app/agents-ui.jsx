@@ -240,6 +240,14 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
   const cardRef = React.useRef(null);
   React.useEffect(()=>{ if(pending && cardRef.current){ try{ cardRef.current.focus(); }catch(e){} } },[pending]);
   const spendRef = React.useRef(null);   // the meter when the run started — Stop says what the run used so far
+  // the images this run made, and what they cost (nb-image-made) — an Art Room run spends mostly on images,
+  // and its line used to say "no writing calls — it cost nothing" (2026-10-09)
+  const imgRef = React.useRef({ n:0, credits:0, unknown:0, on:false });
+  React.useEffect(()=>{ const h=(e)=>{ const r = imgRef.current; if(!r.on) return; r.n++;
+      const c = Number(e && e.detail && e.detail.credits); if(c>0) r.credits += c; else r.unknown++; };
+    window.addEventListener("nb-image-made", h); return ()=>window.removeEventListener("nb-image-made", h); },[]);
+  const imageUsedText = ()=>{ const r = imgRef.current; if(!r.n) return "";
+    return r.n+" image"+(r.n!==1?"s":"")+(r.credits>0 ? " \u00b7 \u2248"+Math.round(r.credits)+" credit"+(Math.round(r.credits)===1?"":"s") : "")+(r.unknown ? " (some without a price)" : ""); };
   React.useEffect(()=>()=>{ cancelled.current = true; if(resolver.current) resolver.current(false); },[]);
   // while this panel is open, ERROR toasts land HERE (bottom of the modal, links
   // clickable) instead of as a detached corner toast
@@ -275,7 +283,8 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
   const _mid = _mid0 || "claude-opus-5-5";
   const _midLabel = ((_MODELS.find(m=>m.id===_mid)||{}).label) || "the default writing engine";   // never a raw id
   // what a run uses, said BEFORE it starts (2026-10-09, owner — Writers' Room review): free, or up to N writing calls
-  const costLine = agent.maxCalls===0 ? "It makes no writing calls \u2014 running it is free."
+  const costLine = agent.costLine ? agent.costLine
+    : agent.maxCalls===0 ? "It makes no writing calls \u2014 running it is free."
     : (agent.maxCalls>0 ? "Running it uses "+((typeof window.turnWritingCallsText==="function") ? window.turnWritingCallsText(agent.maxCalls, isArt?"specs":"story").replace(/^about /,"up to ") : ("up to "+agent.maxCalls+" writing calls"))
         +" (writing credits; each is charged for what it uses) \u2014 what it used shows when it finishes."
       : "Running it uses writing credits; what it used shows when it finishes.");
@@ -316,6 +325,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
     // meter snapshot — the delta shows what THIS run cost in writing-model use
     spend0 = (typeof window.turnTextSpend==="function") ? window.turnTextSpend() : null;
     spendRef.current = spend0;
+    imgRef.current = { n:0, credits:0, unknown:0, on:true };
     // the writing layer skips its cut-off retry once this run is stopped, and tells the trace when it retries
     window.__turnAgentRunCancelled = ()=> cancelled.current || runIdRef.current!==myRun;
     const onRetry = ()=>{ if(runIdRef.current===myRun && !cancelled.current)
@@ -335,17 +345,23 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
       try{ window.dispatchEvent(new CustomEvent("turn-agent-running",{ detail:{ id:agent.id, running:false } })); }catch(e){}
     }
     if(runIdRef.current!==myRun) return;   // superseded by "Run again": its tail never touches the new run's panel
+    imgRef.current.on = false;
     if(spend0 && typeof window.turnTextSpend==="function"){
       const s1 = window.turnTextSpend();
       const calls = s1.calls - spend0.calls;
+      const imgs = imageUsedText();
       if(calls>0){ const cr = Math.round((s1.credits - spend0.credits)*100)/100;
-        setTrace(tr=>[...tr,{k:"observe",t:"This run used "+calls+" writing-model call"+(calls===1?"":"s")+" · ≈"+cr+" credit"+(cr===1?"":"s")+" (estimate — see your account menu for the running total)."}]); }
-      else setTrace(tr=>[...tr,{k:"observe",t:"This run made no writing-model calls — it cost nothing."}]);
+        setTrace(tr=>[...tr,{k:"observe",t:"This run used "+calls+" writing-model call"+(calls===1?"":"s")+" · ≈"+cr+" credit"+(cr===1?"":"s")+(imgs ? ", and made "+imgs : "")+" (estimate — see your account menu for the running total)."}]); }
+      else if(imgs) setTrace(tr=>[...tr,{k:"observe",t:"This run made "+imgs+" and no writing-model calls (estimate — see your account menu for the running total)."}]);
+      else setTrace(tr=>[...tr,{k:"observe",t:"This run made no writing-model calls and no images — it cost nothing."}]);
     }
     // a film switch mid-run cancels the run silently at its next check — say so,
     // and never save a report from it (partial, and it belongs to the other film)
     const swapped = !!ctx && typeof ctx.switchedFilms==="function" && ctx.switchedFilms();
     if(swapped) setTrace(tr=>[...tr,{k:"flag",t:"You switched films, so this run stopped \u2014 nothing was changed or saved. Reopen the film it started in to run it there."}]);
+    // a role change mid-run is said too (2026-10-09 — the run just ended, "Finished")
+    else if(ctx && typeof ctx.roleLost==="function" && ctx.roleLost())
+      setTrace(tr=>[...tr,{k:"flag",t:"Your role can no longer change "+(isArt ? "the Art Room" : "the story")+", so this run stopped \u2014 nothing more was written."}]);
     if(!cancelled.current) setStatus("done");
     // keep a read-only agent's report for next time the panel opens
     if(agent.kind==="report" && !cancelled.current && !swapped){
@@ -392,7 +408,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
         introExtra,
         React.createElement("div",{className:"ag-intro-note"},
           React.createElement(Icon.eye,{s:14}),
-          agent.autonomous?"Runs on its own \u2014 you'll see each step as it works. Press Stop anytime. "+costLine:
+          (agent.autonomous && !agent.asksApproval)?"Runs on its own \u2014 you'll see each step as it works. Press Stop anytime. "+costLine:
           agent.kind==="report"?"Read-only \u2014 it reports, it won't change anything. "+costLine:
           "Every change is shown for your approval before it's applied \u2014 nothing is applied without your OK. "+costLine)),
       status==="idle" && saved && React.createElement(React.Fragment,null,
@@ -425,7 +441,10 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
           try{ const s0 = spendRef.current, s1 = (typeof window.turnTextSpend==="function") ? window.turnTextSpend() : null;
             const n = s0 && s1 ? s1.calls - s0.calls : 0;
             if(n>0){ const cr = Math.round((s1.credits - s0.credits)*100)/100; used = " So far it used "+n+" writing call"+(n!==1?"s":"")+" \u00b7 \u2248"+cr+" credit"+(cr===1?"":"s")+"."; } }catch(e){}
-          setTrace(tr=>[...tr,{k:"flag",t:"Stopped by you."+used+" A writing call already on its way still finishes (and is charged); nothing more is changed."}]); }},
+          const imgs = imageUsedText(); if(imgs) used += " It made "+imgs+".";
+          setTrace(tr=>[...tr,{k:"flag",t:"Stopped by you."+used+(isArt
+            ? " A writing call or image already on its way still finishes \u2014 it's charged, and an image is kept; nothing new is started."
+            : " A writing call already on its way still finishes (and is charged); nothing more is changed.")}]); }},
         React.createElement(Icon.x,{s:16}),"Stop"),
       status==="done" && React.createElement(React.Fragment,null,
         React.createElement("button",{className:"ag-run ghost",onClick: single?onClose:onBack}, single?"Close":"\u2190 All Story Editors"),
@@ -491,7 +510,8 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
     window.addEventListener("keydown", onKey);
     return ()=>{ window.removeEventListener("keydown", onKey); try{ back && back.focus && back.focus(); }catch(e){} }; },[]);
   return React.createElement("div",{className:"ag-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) close(); }},
-    React.createElement("div",{className:"ag-panel",ref:panelRef,tabIndex:-1,role:"dialog","aria-modal":"true","aria-label":"Story Editors",style:{outline:"none"}},
+    React.createElement("div",{className:"ag-panel",ref:panelRef,tabIndex:-1,role:"dialog","aria-modal":"true",
+      "aria-label":(active && typeof window.turnAgentUmbrella==="function") ? window.turnAgentUmbrella(active) : "Story Editors",style:{outline:"none"}},
       active
         ? React.createElement(AgentRunner,{agent:active,ctxFactory,onClose:close,onView,single,viewLabel,
             introExtra: finishing ? finishNote : introExtra,

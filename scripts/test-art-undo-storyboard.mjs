@@ -105,7 +105,8 @@ await test("5c every Art Room agent panel offers Undo; the Production check (Wri
     assert.ok(app.slice(i, i + 900).includes("issues:{}, ...artUndoProps,"), id);
   }
   const p = app.indexOf('initialAgentId:"production"');
-  assert.ok(app.slice(p, p + 400).includes("issues:{}, undoCount:0,"));
+  // (2026-10-09, Art Room third pass) its Art Room changes (cast, props, locations) can be undone too
+  assert.ok(app.slice(p, p + 500).includes("issues:{}, ...artUndoProps,"));
 });
 await test("5d a film switch drops other films' steps; the Art Room shows its own Undo notice", () => {
   assert.match(app, /const k = agentFilmKey\(\);\s*setArtUndo\(st=> st\.some\(x=>!x \|\| x\.filmKey!==k\) \? st\.filter\(x=>x && x\.filmKey===k\) : st\);\s*\},\[currentProjectId\]\);/);

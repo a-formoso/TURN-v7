@@ -141,18 +141,19 @@ await test("the app launches it from the Art Room with a role-aware context",()=
   assert.ok(/const artOnly = production && writersRoomReadOnlyRef\.current && !artRoomReadOnlyRef\.current;/.test(app));
   // an Art director's commit writes only the cast fields this run changed — a collaborator's
   // mid-run edit to another field (or another character) survives
-  const a0=app.indexOf("      if(artOnly){"), a1=app.indexOf("        return;\n      }",a0);
+  // (2026-10-09, Art Room third pass) it reports success (return true) and takes an Art Room undo step
+  const a0=app.indexOf("      if(artOnly){"), a1=app.indexOf("        return true;\n      }",a0);
   assert.ok(a0>0&&a1>a0);
-  const commit=new Function("castBase","model","setCharacters","artOnly",app.slice(a0,a1)+"}");
+  const commit=new Function("castBase","model","setCharacters","artOnly","_prodArtSnap",app.slice(a0,a1)+"}");
   const was={id:"m",name:"Marcus",pronouns:"",coreBody:"tall"}, other={id:"d",name:"Daniel"};
   const castBase={m:was,d:other};
   const model={characters:[{...was,pronouns:"he/him"},other]};
   let live=[{id:"m",name:"Marcus",pronouns:"",coreBody:"tall, grey coat"},{id:"d",name:"Danny"}];
-  commit(castBase,model,f=>{ live=f(live); },true);
+  commit(castBase,model,f=>{ live=f(live); },true,()=>{});
   assert.deepEqual(live,[{id:"m",name:"Marcus",pronouns:"he/him",coreBody:"tall, grey coat"},{id:"d",name:"Danny"}]);
   // a later commit doesn't re-apply what it already wrote over a newer manual edit
   live[0].pronouns="she/her";
-  commit(castBase,model,f=>{ live=f(live); },true);
+  commit(castBase,model,f=>{ live=f(live); },true,()=>{});
   assert.equal(live[0].pronouns,"she/her");
   assert.ok(app.includes("can:{ script:()=> !writersRoomReadOnlyRef.current, art:()=> !artRoomReadOnlyRef.current },"));
   assert.ok(app.includes('window.addEventListener("turn-open-production-check",openProduction);')&&!app.includes("turn-open-consistency-check"));

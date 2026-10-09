@@ -511,7 +511,15 @@ window.turnTextModelAllowed = function(modelId, balance){
 };
 /* the image engine + resolution this account may actually use for a request */
 function planImageChoice(model, res, balance){
-  if(!draftImagesOnly(balance)) return { model, res, limited:false };
+  if(!draftImagesOnly(balance)){
+    /* WRITER UP TO 2K (2026-10-09, owner — Art Room review; billing-policy.mjs checkImage): the server refuses a
+       Writer's 4K image — the app caps it to 2K first, as it caps a trial's (unless the film's owner plan decides) */
+    const ownerTier = window.turnFilmOwnerTier;
+    const b = balance!==undefined ? balance : window.turnCreditBalance;
+    const plan = (balance===undefined && ownerTier) ? ownerTier : (b && b.plan);
+    if(!window.turnIsAdmin && plan==="writer" && String(res||"")==="4K") return { model, res:"2K", limited:true };
+    return { model, res, limited:false };
+  }
   const r = String(res||"2K");
   const capped = (IMG_RES_RANK[r]!=null && IMG_RES_RANK[r] > IMG_RES_RANK[DRAFT_IMAGE.maxRes]) ? DRAFT_IMAGE.maxRes : (IMG_RES_RANK[r]!=null ? r : "1K");
   return { model:DRAFT_IMAGE.model, res:capped, limited: model!==DRAFT_IMAGE.model || capped!==r };

@@ -50,7 +50,8 @@ await test("C2 the callers name their items", () => {
   const app = read("app/app.jsx");
   assert.ok(app.includes('{ ...genOpts, projectId:proj.id, assetId:"cover", assetPurpose:"poster" }'), "a Home poster names ITS film");
   assert.equal((app.match(/\{ \.\.\.gopts, assetId:c\.id \}/g) || []).length, 2, "the wardrobe re-bake");
-  assert.equal((app.match(/\{ \.\.\.gopts, assetId:slotId \}/g) || []).length, 2, "the Casting Director's sheets");
+  // (2026-10-09, Art Room third pass) the sheets also carry a last-moment Stop check
+  assert.equal((app.match(/\{ \.\.\.gopts, assetId:slotId, beforeSubmit \}/g) || []).length, 2, "the Casting Director's sheets");
   assert.ok(read("app/cameo.jsx").includes('assetPurpose:"cameo-guide"'));
 });
 

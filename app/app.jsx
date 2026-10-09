@@ -55,7 +55,10 @@ function loadNav(){ try{ return JSON.parse(localStorage.getItem(NAV_KEY)||"null"
    mode, the moments before a film loads). The Writers' Room view memory is unchanged. */
 const NAV_ARTVIEW_CAP = 50;
 // Voices is no longer a tab — it lives on the character card
-function turnNavArtTab(v){ const s = String(v||"").trim(); return s==="voices" ? "characters" : s; }
+// a stale or unknown tab id opens the Lookbook (2026-10-09 — it showed "still loading… Reload" forever)
+function turnNavArtTab(v){ const s0 = String(v||"").trim(); const s = s0==="voices" ? "characters" : s0;
+  const known = (typeof window!=="undefined" && Array.isArray(window.ART_TABS)) ? window.ART_TABS.map(t=>t && t.id) : null;
+  return (s && known && known.length && known.indexOf(s)<0) ? "lookbook" : s; }
 function turnNavCapArtViews(map, cap){
   const lim = Math.max(1, Number(cap)||NAV_ARTVIEW_CAP);
   const keys = Object.keys(map||{});
@@ -1014,7 +1017,8 @@ function App(){
     const noteTier = ()=>{ if(typeof window.turnNoteWritingDefault==="function"){ try{ window.turnNoteWritingDefault(); }catch(e){} } };
     setFilmOwnerTier(null); window.turnFilmOwnerTier = null; noteTier();
     if(!_sharedFilmId || typeof window.cloudFilmOwnerTier!=="function") return;
-    window.cloudFilmOwnerTier(_sharedFilmId).then(t=>{ if(!live) return; setFilmOwnerTier(t); window.turnFilmOwnerTier = t || null; noteTier(); });
+    window.cloudFilmOwnerTier(_sharedFilmId).then(t=>{ if(!live) return; setFilmOwnerTier(t); window.turnFilmOwnerTier = t || null; noteTier();
+      try{ window.dispatchEvent(new CustomEvent("nb-settings-changed")); }catch(e){} });
     return ()=>{ live = false; };
   },[_sharedFilmId]);
   const ownerPlanLapsed = !!_sharedFilmId && filmOwnerTier==="none";
@@ -1121,7 +1125,11 @@ function App(){
   try{ window.turnCanMutateShots = ()=> !projectLoadingRef.current && !shotsReadOnlyRef.current; }catch(e){}   // a silent check for shared code (Storyboards' panel edit)
   // a role that can't change the Art Room closes the Colorist and pre-production panels (2026-10-08 — they
   // stayed open and could still apply after a role change)
-  React.useEffect(()=>{ if(artRoomReadOnly){ setColoristOpen(false); setCoordOpen(false); coloristRedoManualRef.current = false; } },[artRoomReadOnly]);
+  // a role that can no longer change the Art Room closes every Art Room run and its previews (2026-10-09: the
+  // previews and the other Department Heads stayed open)
+  React.useEffect(()=>{ if(artRoomReadOnly){ setColoristOpen(false); setCoordOpen(false); coloristRedoManualRef.current = false;
+    setCoordConfirm(false); setCastConfirm(null); setCastingOpen(false); setPropsMasterOpen(false); setLocScoutOpen(false);
+    setResearchOpen(false); setShotDesignerOpen(false); } },[artRoomReadOnly]);
   React.useEffect(()=>{
     if(!writersRoomBlocked) return;
     setAgentsOpen(false); setAgentLaunch(null); setNewStoryOpen(false);
@@ -1328,6 +1336,8 @@ function App(){
       const b = await cloudGetCreditBalance();
       setCreditBalance(b || null);
       window.turnCreditBalance = b || null;
+      // price chips re-read when the plan is known (a trial's draft engine, a Writer's 2K) — 2026-10-09
+      try{ window.dispatchEvent(new CustomEvent("nb-settings-changed")); }catch(e){}
       // a free-tier account's writing default is the lighter engine (app/ai.jsx): pickers on "Auto"
       // follow once the ledger says which tier this is
       if(typeof window.turnNoteWritingDefault==="function"){ try{ window.turnNoteWritingDefault(); }catch(e){} }
@@ -3532,12 +3542,14 @@ function App(){
     }
     requirePlan("open "+(id==="art"?"the Art Room":id==="stage"?"the Stage":"this room"));
   };
+  // returns whether the room opened (a hand-off sets the tab and the scene only when it did — 2026-10-09)
   const guardedSetRoom = (id)=>{
     const sharedProject = !!(_projRow && _projRow.isShared);
-    if(id!=="writers" && !sharedProject && !planActive()){ requirePlan("open "+(id==="art"?"the Art Room":id==="stage"?"the Stage":"this room")); return; }
-    if(id!=="writers" && !canAccessRoom(id)){ requireRoomEntitlement(id); return; }
-    if(id!=="writers" && !scenes.length){ requireStory(id==="stage" ? "The Stage" : "The Art Room"); return; }
+    if(id!=="writers" && !sharedProject && !planActive()){ requirePlan("open "+(id==="art"?"the Art Room":id==="stage"?"the Stage":"this room")); return false; }
+    if(id!=="writers" && !canAccessRoom(id)){ requireRoomEntitlement(id); return false; }
+    if(id!=="writers" && !scenes.length){ requireStory(id==="stage" ? "The Stage" : "The Art Room"); return false; }
     setRoom(id);
+    return true;
   };
   React.useEffect(()=>{
     if(room==="writers") return;
@@ -3628,6 +3640,11 @@ function App(){
   const restoreCharacter = (id)=>{
     if(!canMutateSharedFilm()) return;
     const item = (trash.characters||[]).find(x=>x.id===id); if(!item) return;
+    // a live card with the same id: say so and keep the binned copy (it used to vanish silently — 2026-10-09)
+    if((characters||[]).some(c=>c && c.id===id)){
+      if(typeof window.appToast==="function") window.appToast("\u201c"+(item.name||"This character")+"\u201d is already in the cast, so the copy in Recently deleted stays there.","info");
+      return;
+    }
     const { _deletedAt, ...clean } = item;
     setCharacters(cs=> cs.some(c=>c.id===id) ? cs : [...cs, clean]);
     setTrash(t=>({ ...t, characters:(t.characters||[]).filter(x=>x.id!==id) }));
@@ -3636,19 +3653,28 @@ function App(){
     if(!canMutateSharedFilm()) return;
     const item = (trash.characters||[]).find(x=>x.id===id);
     if(!item) return;
+    const film0 = projIdRef.current;
+    /* NEVER A LIVE CHARACTER'S FILES (2026-10-09, owner — Art Room review): a character back in the cast with the same
+       id (an Undo restored the cast, not the bin) lost its sheets, likeness photos and voice to "Delete forever".
+       With a live twin only the binned copy goes; its files stay with the live card. */
+    const live = (characters||[]).some(c=>c && c.id===id);
     try{
-      if(typeof nbClearAsset==="function"){
-        // (2026-10-06) the scale sheet too — it used to stay behind
-        const ids = [id, ...(item.states||[]).map(st=>id+":"+st.id), "charscale-"+id];
-        for(const assetId of ids) await nbClearAsset(assetId);
+      if(!live){
+        if(typeof nbClearAsset==="function"){
+          // (2026-10-06) the scale sheet too — it used to stay behind
+          const ids = [id, ...(item.states||[]).map(st=>id+":"+st.id), "charscale-"+id];
+          for(const assetId of ids) await nbClearAsset(assetId);
+        }
+        // …and the likeness photos (on this device and the cloud copy), and the voice file
+        if(typeof nbClearCameo==="function"){ try{ await nbClearCameo(id); }catch(e){} }
+        if(typeof window.vgClearAudio==="function" && typeof window.vgVoiceMasterAssetId==="function"){ try{ await window.vgClearAudio(window.vgVoiceMasterAssetId(id)); }catch(e){} }
       }
-      // …and the likeness photos (on this device and the cloud copy), and the voice file
-      if(typeof nbClearCameo==="function"){ try{ await nbClearCameo(id); }catch(e){} }
-      if(typeof window.vgClearAudio==="function" && typeof window.vgVoiceMasterAssetId==="function"){ try{ await window.vgClearAudio(window.vgVoiceMasterAssetId(id)); }catch(e){} }
-      // its props no longer name a deleted owner
-      setProps(ps=>ps.map(p=> p && p.ownerId===id ? { ...p, ownerId:null } : p));
+      // the film it was deleted from, still open (a switch during the deletes must not touch the next film)
+      if(projIdRef.current!==film0) return;
+      // its props no longer name a deleted owner (unless the character is live again)
+      if(!live) setProps(ps=>ps.map(p=> p && p.ownerId===id ? { ...p, ownerId:null } : p));
       setTrash(t=>({ ...t, characters:(t.characters||[]).filter(x=>x.id!==id) }));
-    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this character's assets. It remains in Trash so you can retry.","error"); }
+    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this character's files. It stays in Recently deleted so you can try again.","error"); }
   };
   const [charDrafting, setCharDrafting] = React.useState(null);
   const draftCharacter = async (ch)=>{
@@ -3842,7 +3868,8 @@ function App(){
   };
 
   // ---- Art Room: LOOKBOOK (References) ----
-  const updateLookbookCard = (id,patch)=>setLookbook(ls=>ls.map(c=>{
+  // every Lookbook card change checks the role itself, not only the room's inert (2026-10-09, owner — Art Room review)
+  const updateLookbookCard = (id,patch)=> canMutateSharedFilm() && setLookbook(ls=>ls.map(c=>{
     if(c.id!==id) return c;
     const next={...c,...patch};
     if(c.autoNamed && !Object.prototype.hasOwnProperty.call(patch,"source")
@@ -3869,6 +3896,7 @@ function App(){
     return card;
   };
   const addLookbookCard = ()=>{
+    if(!canMutateSharedFilm()) return null;
     const id = "look-"+Date.now().toString(36);
     setLookbook(ls=>[...ls, { id, source:"Palette study", category:"Palette", note:"", negativePrompt:"", manual:true, autoNamed:true }]);
     return id;
@@ -3876,9 +3904,11 @@ function App(){
   /* RECENTLY DELETED (2026-10-03): a deleted reference keeps its card and mood frame, marked
      deletedAt (lookbook.jsx lookbookLive), until you restore it or delete it forever */
   const deleteLookbookCard = (id)=>{
+    if(!canMutateSharedFilm()) return;
     setLookbook(ls=>ls.map(c=>c.id===id ? { ...c, deletedAt:new Date().toISOString() } : c));
   };
   const restoreLookbookCard = (id)=>{
+    if(!canMutateSharedFilm()) return;
     setLookbook(ls=>ls.map(c=>{ if(c.id!==id) return c; const { deletedAt, ...live } = c; return live; }));
   };
   /* RESEARCH FROM SCRATCH (2026-10-03): a new statement and new references — the hand-added cards
@@ -3897,10 +3927,15 @@ function App(){
     setResearchOpen(true);
   };
   const purgeLookbookCard = async (id)=>{
+    if(!canMutateSharedFilm()) return;
+    const film0 = projIdRef.current;
+    // a live card with the same id keeps its mood frame — only the binned copy goes
+    const liveTwin = (lookbook||[]).some(c=>c && c.id===id && !c.deletedAt);
     // a failed delete says so and keeps the card in Recently deleted, so it can be retried (2026-10-06)
-    try{ if(typeof nbClearAsset==="function") await nbClearAsset(id); }
+    try{ if(!liveTwin && typeof nbClearAsset==="function") await nbClearAsset(id); }
     catch(e){ if(typeof window.appToast==="function") window.appToast("Couldn't delete that mood frame just now \u2014 it stays in Recently deleted; try again in a moment.","error"); return; }
-    setLookbook(ls=>ls.filter(c=>c.id!==id));
+    if(projIdRef.current!==film0) return;   // never touches the film opened meanwhile
+    setLookbook(ls=>ls.filter(c=>!(c.id===id && c.deletedAt)));
   };
   /* SUGGEST A NOTE (2026-10-03): one writing call drafts a card's "what to borrow" note from the
      story — and its touchstone when you added the card by hand and haven't named one */
@@ -3991,7 +4026,7 @@ function App(){
         for(const assetId of ids) await nbClearAsset(assetId);
       }
       setTrash(t=>({ ...t, props:(t.props||[]).filter(x=>x.id!==id) }));
-    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this prop's assets. It remains in Trash so you can retry.","error"); }
+    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this prop's assets. It stays in Recently deleted so you can try again.","error"); }
   };
   // merge a set of duplicate prop cards (same owner + same object) into ONE: keep the
   // richest card (most scenes, then one with a generated sheet, then longest name),
@@ -4670,7 +4705,7 @@ function App(){
       if(item.key && typeof deriveLocations==="function" && deriveLocations(scenes, [], drafts).some(f=>f.key===item.key)
         && typeof window.appToast==="function")
         window.appToast("\u201c"+(item.name||"This location")+"\u201d is still in the screenplay, so it comes back as an empty card.","info");
-    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this location's descendant assets. It remains in Trash so you can retry.","error"); }
+    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this location's descendant assets. It stays in Recently deleted so you can try again.","error"); }
   };
   const draftLocationVisuals = async (l)=>{
     if(!(typeof aiLocationVisuals==="function")) return;
@@ -4905,7 +4940,7 @@ function App(){
       const parts = [];
       if(moved.length) parts.push(moved.join(", ")+" (plate moved onto its slugline unit)");
       if(folded.length) parts.push(folded.join(", "));
-      window.appToast("Folded "+parts.join(" and ")+" into its parent location — card"+(finalTrash.length>1?"s are":" is")+" in trash (recoverable)");
+      window.appToast("Folded "+parts.join(" and ")+" into its parent location — card"+(finalTrash.length>1?"s are":" is")+" in Recently deleted (recoverable)");
     } }catch(e){}
   };
   // derive master locations from screenplay scene headings; coverage sheets handle
@@ -5182,7 +5217,7 @@ function App(){
       const live = (shotsRef.current||shots||[]).some(s=>s && s.id===id);
       if(!live && typeof nbClearAsset==="function") await nbClearAsset(id);
       setTrash(t=>({ ...t, shots:(t.shots||[]).filter(x=>x.id!==id) }));
-    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this shot's asset. It remains in Trash so you can retry.","error"); }
+    }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this shot's asset. It stays in Recently deleted so you can try again.","error"); }
   };
 
   // ── Phase 2: line audio = the cut clock ──────────────────────────────────────
@@ -5354,7 +5389,7 @@ function App(){
         return "Scene "+(sc?sc.no:sh.sceneId)+" · Beat "+(sh.beatN||"—")+" · "+(sh.size||"Shot")
           +(sh.action?" — "+String(sh.action).replace(/\s+/g," ").slice(0,90):"");
       });
-      const body="Move "+plan.removable.length+" identified micro-beat shot(s) across "+affected.size+" scene(s) in this film to Shots Trash?"
+      const body="Move "+plan.removable.length+" identified micro-beat shot(s) across "+affected.size+" scene(s) in this film to Recently deleted in Shots?"
         +" This includes an old primary shot if it still has its original micro-beat mapping. New beat-opening keyframes and manually added shots are kept."
         +" Removed shots stop being active continuity references. Images, version histories and takes are preserved and can be recovered by restoring the shots."
         +" Some beats may be left without a shot. No replacement specifications or images will be generated, and no credits will be spent."
@@ -5363,7 +5398,7 @@ function App(){
       // Without a confirmation surface, fail closed rather than remove on click.
       if(typeof window.appConfirm!=="function") throw new Error("Cleanup needs a confirmation dialog. Nothing was removed.");
       const confirmed=await window.appConfirm({title:"Remove old micro-beat shots?",body,
-        confirmLabel:"Move to Shots Trash",cancelLabel:"Cancel",danger:true});
+        confirmLabel:"Move to Recently deleted",cancelLabel:"Cancel",danger:true});
       if(!confirmed) return;
       assertCurrent();
       const ids=new Set(plan.removable.map(sh=>sh.id));
@@ -5372,7 +5407,7 @@ function App(){
       setTrash(t=>({...t,shots:[...archived,...(t.shots||[]).filter(sh=>!ids.has(sh.id))]}));
       shotsLiveRef.current=remaining;
       setShots(remaining);
-      if(window.appToast) window.appToast(archived.length+" micro-beat shot(s) moved to Shots Trash. Images and takes were kept; no replacements were generated.","ok");
+      if(window.appToast) window.appToast(archived.length+" micro-beat shot(s) moved to Recently deleted. Images and takes were kept; no replacements were generated.","ok");
     }catch(e){
       if(window.appToast) window.appToast(String((e&&e.message)||"Cleanup failed. Nothing was removed."),"error");
     }finally{ microCleanupBusyRef.current=false; }
@@ -5434,7 +5469,7 @@ function App(){
       const confirmed=await window.appConfirm({title:target.pending?"Finish deleting this reference image?":"Permanently delete this reference image?",
         body:label+(target.pending
           ? ". This retries the unfinished permanent deletion of the previously selected image and its identifiable saved reference copies. It does not select a different image or a newer version."
-          : ". This deletes the exact image shown, plus identifiable saved reference copies of it, from this film's image storage. It cannot be restored from Shots Trash.")
+          : ". This deletes the exact image shown, plus identifiable saved reference copies of it, from this film's image storage. It cannot be restored from Recently deleted.")
           +" The "+dependents.size+" shot(s) that use it directly will stop using a previous-frame reference and use their selected location, character and prop references instead."
           +" Other image versions, written specifications and video takes are kept. Older versions will NOT automatically replace this image. No new images are generated.",
         confirmLabel:target.pending?"Retry image deletion":"Delete image permanently",cancelLabel:"Cancel",danger:true});
@@ -5534,7 +5569,7 @@ function App(){
       assertCurrent();
       if(existing.length){
         const body="Draft the specification for one opening keyframe from this beat's screenplay. The primary shot keeps its ID and image history; its previous frame may need regeneration."
-          +(existing.length>1?" The "+(existing.length-1)+" additional shot(s) move to Shots Trash, where you can restore them.":"")
+          +(existing.length>1?" The "+(existing.length-1)+" additional shot(s) move to Recently deleted in Shots, where you can restore them.":"")
           +" No images or takes are deleted. Writing-model credits only; frame generation is separate.";
         const body2=body+redraftReplaces(existing);
         const ok=typeof window.appConfirm==="function"
@@ -5555,7 +5590,7 @@ function App(){
       const next={...normalizeShot({...row,keyframeMode:"beat-opening",covers:[],beatPlan:null},scene,order,locations,props,characters,beatsMap,drafts),
         order,sourceScreenplayRev:source.sourceRev,beatScript:source.text};
       const result=commitBeatKeyframes([next],assertCurrent);
-      if(window.appToast) window.appToast("Specification ready for Beat "+beatN+". "+(result.archived.length?"Additional shots were kept in Shots Trash. ":"")+"No image was generated. Generate the frame when you're ready.","ok");
+      if(window.appToast) window.appToast("Specification ready for Beat "+beatN+". "+(result.archived.length?"Additional shots were kept in Recently deleted. ":"")+"No image was generated. Generate the frame when you're ready.","ok");
     }catch(e){ if(window.appToast) window.appToast(String((e&&e.message)||"Opening-keyframe draft failed."),"error"); }
     finally{ keyframeBusyRef.current.delete(scene.id); setRefiningBeat(null); }
   };
@@ -5667,7 +5702,7 @@ function App(){
     try{
       const assertCurrent=keyframeScope(scene);
       if(shotsLiveRef.current.some(sh=>sh.sceneId===scene.id)){
-        const body="Draft one opening keyframe per screenplay beat. Each primary keeps its shot ID and image history. Additional shots move to Shots Trash and can be restored. No images or takes are deleted; changed frames need regeneration. Writing-model credits only.";
+        const body="Draft one opening keyframe per screenplay beat. Each primary keeps its shot ID and image history. Additional shots move to Recently deleted in Shots and can be restored. No images or takes are deleted; changed frames need regeneration. Writing-model credits only.";
         const live=shotsLiveRef.current.filter(sh=>sh && sh.sceneId===scene.id);
         const body2=body+redraftReplaces(live);
         const ok=typeof window.appConfirm==="function"
@@ -6596,6 +6631,17 @@ function App(){
   // WHICH FILM an agent-undo snapshot belongs to (2026-09-28): the same key long cast drafts use —
   // the cloud film's id, or the signed-out slot plus its generation (New Story reuses that slot)
   const agentFilmKey = ()=> (typeof castDraftFilmKey==="function") ? castDraftFilmKey() : String(projIdRef.current||"");
+  // one Art Room undo step: the art-side state as it is now (shared by the Department Heads and the Production check)
+  const artSnapOf = (label)=>{
+    const L = artUndoLiveRef.current; if(!L) return null;
+    const items = (a)=> (Array.isArray(a) ? a : []).map(x=> (x && typeof x==="object") ? { ...x } : x);
+    const sb = L.project && L.project.styleBible;
+    return { filmKey: agentFilmKey(), label, at: Date.now(),
+      characters: items(L.characters), props: items(L.props), locations: items(L.locations),
+      lookbook: items(L.lookbook), lookbookNote: L.lookbookNote || "", lookbookApplied: { ...(L.lookbookApplied||{}) },
+      shots: items(L.shots), propsSeeded: L.propsSeeded, locsSeeded: L.locsSeeded,
+      styleBible: sb ? JSON.parse(JSON.stringify(sb)) : undefined, hadStyleBible: !!sb };
+  };
   const agentCtxFactory = ({ input, emit, propose, cancelled, agentName, scope })=>{
     // scope "production" = the Art Room's Production check: it edits the script AND the
     // Art Room, so it runs for anyone who can save either — each card is gated on the
@@ -6649,6 +6695,12 @@ function App(){
     };
     // the film this run belongs to — captured when the agent starts
     const ownerProjectId = currentProjectId;
+    /* THE PRODUCTION CHECK'S ART-SIDE CHANGES (2026-10-09, owner — Art Room review): only in the film it started in,
+       only while the role may change that section, and one Art Room undo step for the run (they had none) */
+    const _prodArtOk = (section)=> String(ownerProjectId||"")===String(projIdRef.current||"") && !artRoomReadOnlyRef.current
+      && (!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function" && window.teamCanWriteSection(writeRole, section)));
+    let _prodSnap = null;
+    const _prodArtSnap = ()=>{ if(_prodSnap) return; _prodSnap = artSnapOf(agentName || "Production check"); if(_prodSnap){ const snap = _prodSnap; setArtUndo(st=> [...st, snap].slice(-8)); } };
     // every state signature this run has written (seeded with the run-start state);
     // a live state outside this set = someone edited while the agent ran
     const writtenSigs = new Set([sigOf(shapeOf(model))]);
@@ -6699,8 +6751,8 @@ function App(){
           if(Object.keys(p).length) patches[c.id] = p;
           castBase[c.id] = c;
         });
-        if(Object.keys(patches).length) setCharacters(cs=>cs.map(c=> patches[c.id] ? {...c, ...patches[c.id]} : c));
-        return;
+        if(Object.keys(patches).length){ _prodArtSnap(); setCharacters(cs=>cs.map(c=> patches[c.id] ? {...c, ...patches[c.id]} : c)); }
+        return true;
       }
       // MID-RUN EDIT GUARD: if the film changed under the run (an edit of the user's
       // or a collaborator's), snapshot THAT state onto the undo stack before this
@@ -6778,6 +6830,7 @@ function App(){
       // after the guard has already decided its result can never be applied
       cancelled: ()=> cancelled() || ownerProjectId !== projIdRef.current || (production ? (writersRoomReadOnlyRef.current && artRoomReadOnlyRef.current) : writersRoomReadOnlyRef.current),
       switchedFilms: ()=> ownerProjectId !== projIdRef.current,
+      roleLost: ()=> scope==="production" ? (!!writersRoomReadOnlyRef.current && !!artRoomReadOnlyRef.current) : !!writersRoomReadOnlyRef.current,
       // live write access per area — the Production check notes (not shows) a card whose
       // area this role can't save
       can:{ script:()=> !writersRoomReadOnlyRef.current, art:()=> !artRoomReadOnlyRef.current },
@@ -6789,8 +6842,11 @@ function App(){
         props: props.map(p=>({...p})),
         locations: locations.map(l=>({...l})),
         shots: (shots||[]).map(s=>({...s})),
-        patchProp:(id,patch)=>{ if(!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function"&&window.teamCanWriteSection(writeRole,"props"))) setProps(ps=>ps.map(p=>p.id===id?{...p,...patch}:p)); },
-        patchLocation:(id,patch)=>{ if(!(_projRow&&_projRow.isShared) || (typeof window.teamCanWriteSection==="function"&&window.teamCanWriteSection(writeRole,"locations"))) setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l)); },
+        /* (2026-10-09, owner — Art Room review) the film it started in, the role NOW, and an undo step: an
+           approval after a film switch patched the newly open film, and art-side changes had no undo.
+           Each returns whether it applied. */
+        patchProp:(id,patch)=>{ if(!_prodArtOk("props")) return false; _prodArtSnap(); setProps(ps=>ps.map(p=>p.id===id?{...p,...patch}:p)); return true; },
+        patchLocation:(id,patch)=>{ if(!_prodArtOk("locations")) return false; _prodArtSnap(); setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l)); return true; },
       },
       ai:{ available: (typeof aiAvailable==="function" && aiAvailable()),
         suggestTurn:(s,p,r)=>window.aiSuggestTurn(s,p,model.project,r),
@@ -6825,21 +6881,24 @@ function App(){
     const run = runIn || { snap:null };
     const takeArtSnap = ()=>{
       if(run.snap || typeof propose!=="function") return;
-      const L = artUndoLiveRef.current; if(!L) return;
-      const items = (a)=> (Array.isArray(a) ? a : []).map(x=> (x && typeof x==="object") ? { ...x } : x);
-      const sb = L.project && L.project.styleBible;
-      run.snap = { filmKey: agentFilmKey(), label: agentName || "An Art Room agent", at: Date.now(),
-        characters: items(L.characters), props: items(L.props), locations: items(L.locations),
-        lookbook: items(L.lookbook), lookbookNote: L.lookbookNote || "", lookbookApplied: { ...(L.lookbookApplied||{}) },
-        shots: items(L.shots), propsSeeded: L.propsSeeded, locsSeeded: L.locsSeeded,
-        styleBible: sb ? JSON.parse(JSON.stringify(sb)) : undefined, hadStyleBible: !!sb };
-      const snap = run.snap;
+      const snap = artSnapOf(agentName || "An Art Room agent"); if(!snap) return;
+      run.snap = snap;
       setArtUndo(st=> [...st, snap].slice(-8));
     };
+    /* A ROLE THAT CAN'T CHANGE THE ART ROOM ANY MORE WRITES NOTHING (2026-10-09, owner — Art Room review): writes
+       landing after a paid model call only checked for a film switch — a role changed to view-only meanwhile
+       still wrote its result. Said once per run. */
+    let _roleFlagged = false;
+    const roleLost = ()=> !!artRoomReadOnlyRef.current;
     const inFilm = (fn)=> (...args)=>{
       if(switchedFilms()){
         if(!_switchFlagged){ _switchFlagged = true;
           try{ emit && emit({k:"flag", t:"You switched films while this ran, so it stopped \u2014 nothing more was written to either film. Reopen the film it started in and run it again."}); }catch(e){} }
+        return undefined;
+      }
+      if(roleLost()){
+        if(!_roleFlagged){ _roleFlagged = true;
+          try{ emit && emit({k:"flag", t:"Your role can no longer change the Art Room, so this run stopped \u2014 nothing more was written."}); }catch(e){} }
         return undefined;
       }
       takeArtSnap();
@@ -6935,8 +6994,15 @@ function App(){
       // lands after the user opened ANOTHER film must be dropped, not written there
       const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;
       let url;
-      try{ url = await window.nbGenerate(prompt, { ...gopts, assetId:slotId }); }
-      catch(e){ if(/no image/i.test(String((e&&e.message)||e))){ url = await window.nbGenerate(prompt, { ...gopts, assetId:slotId }); } else throw e; }
+      /* STOP MEANS NO NEW IMAGE (2026-10-09, owner — Art Room review): the last check came before an await, so a
+         sheet could still be started after Stop; the "no image" retry was a silent second paid call. Now the
+         request is refused at the last moment before it's sent, and a retry is said in the trace. An image
+         already on its way finishes, is charged and is kept. */
+      const beforeSubmit = ()=>{ if(cancelled && cancelled()) throw new Error("Stopped \u2014 no new image was started."); };
+      try{ url = await window.nbGenerate(prompt, { ...gopts, assetId:slotId, beforeSubmit }); }
+      catch(e){ if(/no image/i.test(String((e&&e.message)||e)) && !(cancelled && cancelled())){
+          try{ emit && emit({k:"observe", t:"The image service returned no image, so it asked once more (one more image)."}); }catch(_e){}
+          url = await window.nbGenerate(prompt, { ...gopts, assetId:slotId, beforeSubmit }); } else throw e; }
       let priorVersion = 0;
       if(typeof nbLoadDetailsAsset==="function"){
         try{ const d=await nbLoadDetailsAsset(slotId); priorVersion=Number(d&&d.meta&&d.meta.version)||0; }catch(e){}
@@ -7062,7 +7128,7 @@ function App(){
         const todo = _propWork.filter(p=>force || !_propDrafted(p));
         if(!todo.length) return 0;
         const map = await aiDesignPropBible(todo, characters, lbProject("props"));
-        if(!map) return 0;
+        if(!map) throw new Error("no specs came back");   // said out loud — it read "Specs already complete" (2026-10-09)
         // a render style you PICKED survives a forced re-draft, as in the Props tab's own Draft (2026-10-06)
         const patch = (ps)=> ps.map(p=> map[p.id] ? {...p, ...keepPickedStyle(p, map[p.id])} : p);
         _propWork = patch(_propWork); _w.setProps(patch);
@@ -7100,9 +7166,11 @@ function App(){
 
     // ---- Location Scout surface (Locations tab agent): pull → coverage → spec → staging → variants → generate ----
     let _locWork = (locations||[]).slice();
+    let stagingFailed = [];   // places whose staging couldn't be drafted in the last pass
     const _locDrafted = (l)=> (typeof locVisualsDrafted==="function") ? locVisualsDrafted(l)
       : !!((l.architecture||"").trim() && (l.lighting||"").trim());
     const locscout = {
+      stagingFailed: ()=> stagingFailed.slice(),
       // pull master places from screenplay headings (new cards), and refresh scene lists / times on existing
       pull: ()=>{
         if(typeof deriveLocations!=="function") return 0;
@@ -7138,7 +7206,9 @@ function App(){
         // still stages any one location on demand).
         const todo = _locWork.filter(l=>_locDrafted(l) && !l.staging && (l.scenes||[]).length>=2);
         if(!todo.length) return 0;
-        const res = await Promise.all(todo.map(async l=>{ try{ return {id:l.id, staging: await aiDraftStaging(l, scenes, project)}; }catch(e){ return {id:l.id, staging:null}; } }));
+        const res = await Promise.all(todo.map(async l=>{ try{ return {id:l.id, staging: await aiDraftStaging(l, scenes, project)}; }catch(e){ return {id:l.id, staging:null, err:e}; } }));
+        // the places whose staging couldn't be drafted are named by the agent (2026-10-09 — they were dropped silently)
+        stagingFailed = res.filter(x=>!x.staging).map(x=>((_locWork.find(l=>l.id===x.id)||{}).name)||"a location");
         const sMap={}; res.forEach(x=>{ if(x.staging) sMap[x.id]=x.staging; });
         if(!Object.keys(sMap).length) return 0;
         const patch = (ls)=> ls.map(l=> sMap[l.id] ? {...l, staging:sMap[l.id]} : l);
@@ -7233,7 +7303,8 @@ function App(){
         const mine = (c)=> !!(c && (c.manual || c.autoNamed));
         const base = fresh ? _lbWork.filter(mine) : _lbWork;
         const r = await window.aiResearchLookbook(scenes, project, base, { fresh });
-        if(!r || (!r.statement && !(r.refs||[]).length)) return { statement:"", added:0, failed:fresh };
+        // an empty answer is a failure on any run (2026-10-09 — a gap-filling run called it a success)
+        if(!r || (!r.statement && !(r.refs||[]).length)) return { statement:"", added:0, failed:true };
         if(fresh){
           // the swap: the researched cards move to Recently deleted (with their frames), the new statement goes in
           const at = new Date().toISOString();
@@ -7291,13 +7362,20 @@ function App(){
       // APPROVED render-style proposal → set the style dropdown on EVERY character,
       // prop and location in one pass (the same write shapes the per-card pickers use);
       // per-card dropdowns remain the override afterwards.
-      applyRenderStyle: (key)=>{
+      /* opts.onlyUnset (Run pre-production, 2026-10-09 — owner, Art Room review): applied automatically, the film's
+         style fills only the cards with no style yet; a style already set on a card stays (it used to reset every
+         dropdown, including ones picked by hand). Approved on its own card, it sets every card, as the card says. */
+      applyRenderStyle: (key, opts)=>{
+        const onlyUnset = !!(opts && opts.onlyUnset);
+        const take = (x)=> !onlyUnset || !(x && x.renderStyleKey);
         const locText = (typeof window.renderStyleText==="function") ? window.renderStyleText("loc", key) : "";
         const propText = (typeof window.renderStyleText==="function") ? window.renderStyleText("prop", key) : "";
-        _w.setCharacters(cs=>cs.map(c=>({ ...c, renderStyleKey:key })));
-        _w.setProps(ps=>ps.map(p=>({ ...p, renderStyleKey:key, ...(propText?{renderStyle:propText}:{}) })));
-        _w.setLocations(ls=>ls.map(l=>({ ...l, renderStyleKey:key, ...(locText?{renderStyle:locText}:{}) })));
-        return { characters:(characters||[]).length, props:(props||[]).length, locations:(locations||[]).length };
+        const n = { characters:(characters||[]).filter(take).length, props:(props||[]).filter(take).length, locations:(locations||[]).filter(take).length,
+          kept:onlyUnset ? [characters,props,locations].reduce((t,a)=>t+(a||[]).filter(x=>!take(x)).length,0) : 0 };
+        _w.setCharacters(cs=>cs.map(c=> take(c) ? ({ ...c, renderStyleKey:key }) : c));
+        _w.setProps(ps=>ps.map(p=> take(p) ? ({ ...p, renderStyleKey:key, ...(propText?{renderStyle:propText}:{}) }) : p));
+        _w.setLocations(ls=>ls.map(l=> take(l) ? ({ ...l, renderStyleKey:key, ...(locText?{renderStyle:locText}:{}) }) : l));
+        return n;
       },
       toGenerate: async ()=>{
         const out=[];
@@ -7342,7 +7420,7 @@ function App(){
     return { input, emit, propose, project, force: forceImages,
       // a run stops if the role can no longer change the Art Room, too (2026-10-09)
       cancelled: ()=> cancelled() || switchedFilms() || !!artRoomReadOnlyRef.current,
-      switchedFilms,
+      switchedFilms, roleLost,
       // A FRESH CONTEXT for the next step of a multi-step run (2026-10-02): this context's reads
       // (the Lookbook brief, the cast list, the props, the Colorist's references) are the film as
       // it was when it was built. The Art Coordinator asks for a new one before each step, once
@@ -8004,6 +8082,7 @@ function App(){
       hiddenTabs:(typeof tabHidden==="function") ? Object.fromEntries((window.ART_TABS||[]).map(t=>[t.id, tabHidden(project, t.id)])) : null,
       railOpen,inspOpen,onToggleRail:toggleRail,onToggleInsp:toggleInsp,
       onCoordinate:async ()=>{
+        if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; }
         if(turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Run pre-production")) return;
         if(await requireStory("Art Coordinator")) setCoordConfirm(true); },
       onProductionCheck:async ()=>{ if(productionCheckBlocked) return; if(await requireStory("The Production check")) setProductionOpen(true); },
@@ -8036,9 +8115,10 @@ function App(){
                   if(stageTab){ guardedSetRoom("stage");
                     setTimeout(()=>{ try{ window.dispatchEvent(new CustomEvent("turn-stage-view",{ detail:{ view:stageTab } })); }catch(e){} }, 0); return; }
                   // a scene hand-off opens Shots on it (the Breakdown's turnFocusArtScene)
-                  if(tab==="shots"){ if(sceneId && typeof window.turnFocusArtScene==="function") window.turnFocusArtScene("shots", sceneId);
-                    setArtView("shots"); guardedSetRoom("art"); return; }
-                  if(tab==="assets"){ setArtView("lookbook"); guardedSetRoom("art"); return; }
+                  if(tab==="shots"){ if(!guardedSetRoom("art")) return;
+                    if(sceneId && typeof window.turnFocusArtScene==="function") window.turnFocusArtScene("shots", sceneId);
+                    setArtView("shots"); return; }
+                  if(tab==="assets"){ if(guardedSetRoom("art")) setArtView("lookbook"); return; }
                   guardedSetRoom("stage");
                 }}))
       : room==="art"
@@ -8054,8 +8134,9 @@ function App(){
             onColorist:(refs, opts)=>{ if(!canMutateSharedFilm()) return; if(typeof refs==="string") setStyleRefs(refs.trim());
               coloristRedoManualRef.current = !!(opts && opts.redoManual); setColoristOpen(true); },
             // "Design the cast" opens its preview first (what it makes + the price, 2026-10-03)
-            onCast:(opts)=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },
-            onResearch:()=>setResearchOpen(true),
+            // a role that can't change the Art Room is told, and nothing opens (2026-10-09)
+            onCast:(opts)=>{ if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; } if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },
+            onResearch:()=>{ if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; } setResearchOpen(true); },
             onResearchFresh:roomReadOnly ? null : researchLookbookFresh,
             lookbook,lookbookNote,onUpdateLookbook:updateLookbookCard,onAddLookbook:addLookbookCard,
             onDeleteLookbook:deleteLookbookCard,onSetLookbookNote:setLookbookNote,
@@ -8243,7 +8324,7 @@ function App(){
 
     // Shot Designer — gated coverage agent (proposes per-scene coverage for approval),
     // launched from the Shot List header; hands off rendering to "Generate all shots".
-    shotDesignerOpen && React.createElement(AgentsPanel,{
+    shotDesignerOpen && !artRoomReadOnly && React.createElement(AgentsPanel,{
       initialAgentId:"shotdesigner", autoStart:true, single:true, viewLabel:"View Shots",
       ctxFactory:artAgentCtxFactory,
       onClose:()=>setShotDesignerOpen(false),
@@ -8258,11 +8339,12 @@ function App(){
       initialAgentId:"production", single:true,
       ctxFactory:(args)=>agentCtxFactory({ ...args, scope:"production" }),
       onClose:()=>setProductionOpen(false),
-      issues:{}, undoCount:0,
+      // its Art Room changes (cast sheets, props, locations) can be undone like any Department Head's (2026-10-09)
+      issues:{}, ...artUndoProps,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 
     // Casting Director — autonomous cast-design agent, launched from the Characters header.
-    castingOpen && React.createElement(AgentsPanel,{
+    castingOpen && !artRoomReadOnly && React.createElement(AgentsPanel,{
       initialAgentId:"casting", autoStart:true, single:true, viewLabel:"View Characters", force:castingForce,
       // from Design the cast's preview the run starts at once (its button was the go-ahead)
       runOnOpen: !!(castingForce && typeof castingForce==="object"),
@@ -8276,7 +8358,7 @@ function App(){
     // Props Master — autonomous props agent (proposals → draft → generate), launched from
     // the Props header; in Run pre-production it runs after the cast, so each worn or
     // owned prop can reference its owner's sheet (then the Wardrobe step re-renders them).
-    propsMasterOpen && React.createElement(AgentsPanel,{
+    propsMasterOpen && !artRoomReadOnly && React.createElement(AgentsPanel,{
       initialAgentId:"propsmaster", autoStart:true, single:true, viewLabel:"View Props", force:propsMasterForce,
       ctxFactory:artAgentCtxFactory,
       onClose:()=>{ setPropsMasterOpen(false); setPropsMasterForce(false); },
@@ -8286,7 +8368,7 @@ function App(){
 
     // Production Designer / Location Scout — autonomous locations agent (pull → spec → staging
     // → variants → generate, + coverage check), launched from the Locations header.
-    locScoutOpen && React.createElement(AgentsPanel,{
+    locScoutOpen && !artRoomReadOnly && React.createElement(AgentsPanel,{
       initialAgentId:"locscout", autoStart:true, single:true, viewLabel:"View Locations", force:locScoutForce,
       ctxFactory:artAgentCtxFactory,
       onClose:()=>{ setLocScoutOpen(false); setLocScoutForce(false); },
@@ -8296,7 +8378,7 @@ function App(){
 
     // Visual Researcher — autonomous lookbook agent (research the look + render mood frames),
     // launched from the Lookbook header. Writes references through to the Colorist (Presets).
-    researchOpen && React.createElement(AgentsPanel,{
+    researchOpen && !artRoomReadOnly && React.createElement(AgentsPanel,{
       initialAgentId:"researcher", autoStart:true, single:true, viewLabel:"View Lookbook",
       ctxFactory:artAgentCtxFactory,
       onClose:()=>setResearchOpen(false),
@@ -8314,6 +8396,7 @@ function App(){
       characters, sceneId:castConfirm.sceneId, sceneNo:castConfirm.sceneNo, sceneIds:castConfirm.sceneIds,
       onCancel:()=>setCastConfirm(null),
       onConfirm:(scope)=>{ setCastConfirm(null);
+        if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; }
         if(turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) return;
         setCastingForce({ only:(scope&&scope.only)||null, variants:!(scope && scope.variants===false) });
         setCastingOpen(true); }}),
@@ -8321,9 +8404,10 @@ function App(){
       project, characters, props, locations, shots, scenes, drafts, wardrobeCount,
       onCancel:()=>setCoordConfirm(false),
       onConfirm:()=>{ setCoordConfirm(false);
+        if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; }
         if(turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Run pre-production")) return;
         setCoordOpen(true); }}),
-    coordOpen && React.createElement(AgentsPanel,{
+    coordOpen && !artRoomReadOnly && React.createElement(AgentsPanel,{
       initialAgentId:"coordinator", autoStart:true, runOnOpen:true, single:true, viewLabel:"View Shots",
       ctxFactory:artAgentCtxFactory,
       onClose:()=>setCoordOpen(false),

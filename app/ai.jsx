@@ -3194,6 +3194,28 @@ APP_FEATURES.forEach(f=>{
   add("Export (screenplay / story)", "(2026-10-09) The PDF numbers each scene once, with its own number (a scene's extra sluglines aren't numbered); file names keep the title's letters in any language; in the .fountain file transitions read as transitions, action lines that would be mistaken for headings or names are forced to action, and a scene not drafted yet (or a rough stand-in) carries a note saying so.");
   add("Script view", "(2026-10-09) While you type in a field, a collaborator's newer version waits until you leave it; a line that changed while you edited it says so and shows what you typed. Building the beat map from the script says when it fails (the beats stay), a rebuild can be undone, and the fields wait while it reads. Deleting scenes: the last five deleted scenes can be brought back, newest first; the only scene can't be deleted. Cast cards in the Writers' Room follow the cast's own right: a Co-writer can read them but not change or draft them.");
 }
+/* ART ROOM REVIEW, THIRD PASS (owner 2026-10-09): older sentences said the tabs unlock in order (the locks are off),
+   gave the old timeouts and three of the six aspects, and the old research-from-scratch path */
+APP_FEATURES.forEach(f=>{
+  if(!f || !f.what) return;
+  f.what = String(f.what)
+    .replace("The tabs UNLOCK IN THAT ORDER (Lookbook → Characters → Props → Locations → Color → Shots → Storyboards; Breakdown, Production check and Blender Studio are always open) — every tab stays visible, a locked one wears a padlock, and opening it shows what it is waiting for with a button to the step that unlocks it (see 'Art Room tab locks').",
+      "Every tab is open \u2014 nothing is locked; the order is the suggested workflow.")
+    .replace("'Delete forever' (confirm-gated) is the only thing that permanently removes it and clears its sheet.",
+      "'Delete forever' (confirm-gated, and it names everything that goes) is the only thing that permanently removes it and its images: a character's master, variant and scale sheets, the likeness photos you uploaded and its voice; a prop's sheet and state sheets; a location's plates. A card that's back on the board with the same id is never touched by it.")
+    .replace("the server cancels a provider call after 2 minutes and the app abandons the wait at 3,",
+      "the app abandons the wait after about 6\u00bd minutes (a batch watchdog at 7),")
+    .replace("Pick a model, aspect (16:9, 21:9, 9:16) and resolution (1K/2K/4K),",
+      "Pick a model, aspect (16:9, 21:9, 9:16, 1:1, 3:4, 4:3) and resolution (1K/2K/4K),")
+    .replace(" To research from scratch, clear the look statement in the Lookbook and run again.",
+      " To research from scratch, use Research again \u25b8 Research from scratch on the Lookbook tab.")
+    .replace("mood frames are rendered separately with 'Generate all frames' — and the Styles (colour) tab reads those references",
+      "mood frames are rendered separately with 'Generate missing frames' — and the Color tab reads those references");
+});
+{ const add = (name, note)=>{ const f = APP_FEATURES.find(x=>x && x.name===name); if(f) f.what = String(f.what||"")+" "+note; };
+  add("Art Room", "ART ROOM REVIEW, THIRD PASS (owner 2026-10-09): RECENTLY DELETED \u2014 every bin (Characters, Props, Locations, Shots, the Lookbook) checks your role itself; 'Delete forever' names everything it removes and never touches a card that's back on the board with the same id; Restore on a card that's already back says so and keeps the binned copy. THE IMAGES DOCK \u2014 its chips name Nano Banana 2 Lite apart from Nano Banana 2 and show GPT Image's quality; Escape closes it; a pick made in another window of this browser shows here too. PRICE CHIPS include what the server adds: web grounding (Nano Banana 2 only \u2014 it's never sent with another engine) and, on GPT Image, about 1 credit per reference image the render attaches; they name the engine and size your plan really uses (a trial's draft engine, a Writer's 4K capped to 2K). A request that never left (no connection) is sent again once; anything that may have reached the server is never re-sent on its own. RUN PRE-PRODUCTION shows the price of the images it makes (at least that many \u2014 it can find more), and the Lookbook's render style fills only cards with no style yet. A role that can't change the Art Room can't open a Department Head, and one that changes mid-run closes it.");
+  add("Story Editors (Writers' Room agents)", "DEPARTMENT HEADS, THIRD PASS (owner 2026-10-09): each says before it runs what it uses (writing calls, images) and, when it finishes or you Stop, what it used \u2014 writing calls and images with their credits; it never says 'it cost nothing' after making images. Stop means no new image is started (one already on its way finishes, is charged and is kept); a 'no image' answer is asked once more only while the run is live, and the trace says so. A role that loses the Art Room mid-run writes nothing more, and the trace says why. Nothing reads 'generated' or 'applied' unless it was: a prop sheet that failed, a look that couldn't be drafted (and why), staging that couldn't be designed, research that failed (the Lookbook stays as it was) are all named; Run pre-production names a step that stopped instead of calling it complete. The Production check's prop, location and cast changes stay in the film it started in, follow your role, and can be undone from the Art Room's undo.");
+}
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;

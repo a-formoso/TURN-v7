@@ -1,0 +1,184 @@
+#!/usr/bin/env node
+/* The Art Room, third pass (owner 2026-10-09: "go ahead with all of it") — the room around its tabs, and the
+   Department Heads.
+   A  Department Heads: rights after every model answer, Stop starts no new image, honest traces (nothing reads
+      "generated" or "applied" unless it was), the Coordinator names a step that stopped, plain errors, the
+      render style keeps cards' own styles, what each run uses said before and after
+   B  Recently deleted: never a live card's files, everything named, role checks, film checks
+   C  the image engine: chips include what the server adds, grounding only on Nano Banana 2, only a request that
+      never left is re-sent, every window shows the same engine, plain errors, a Writer's 4K capped
+   D  the room: read-only roles can't open a run, previews are dialogs, a stale tab opens the Lookbook, hand-offs
+      only when the room opens and only in their film, the dock's labels and pressed states
+   E  Frances and keys
+     node scripts/test-art-room-third-pass.mjs */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+const ROOT = new URL("../", import.meta.url);
+const read = (f)=>readFileSync(new URL(f, ROOT), "utf8");
+const between = (src, a, b)=>{ const i = src.indexOf(a); assert.ok(i>=0, "missing: "+a); const j = src.indexOf(b, i+a.length); assert.ok(j>i, "missing end: "+b); return src.slice(i, j); };
+const fn = (src, name)=>{ const i = src.indexOf("function "+name+"("); assert.ok(i>=0, name); const k = src.lastIndexOf("\n", i)+1; return src.slice(k, src.indexOf("\n}\n", i)+3); };
+let checks = 0, failed = 0;
+const test = async (name, f)=>{ try{ await f(); checks++; console.log("PASS", name); }
+  catch(e){ failed++; console.log("FAIL", name, "\n   ", String((e && e.stack) || e).split("\n").slice(0, 5).join("\n    ")); } };
+
+const app = read("app/app.jsx"), agents = read("app/agents.jsx"), agUi = read("app/agents-ui.jsx"), art = read("app/artroom.jsx"),
+  img = read("app/imagegen.jsx"), plans = read("app/plans.jsx"), chrome = read("app/chrome.jsx"), shotsUi = read("app/shots-ui.jsx"),
+  ai = read("app/ai.jsx"), html = read("TURN.html");
+
+/* ═══ A ═══ */
+await test("A1 a role that loses the Art Room writes nothing more, and the run says why", ()=>{
+  const f = between(app, "    const inFilm = (fn)=> (...args)=>{", "    const _w = {");
+  assert.ok(f.includes("if(roleLost()){") && f.includes("Your role can no longer change the Art Room, so this run stopped"));
+  assert.ok(app.includes("      switchedFilms, roleLost,"));
+  assert.ok(agUi.includes("else if(ctx && typeof ctx.roleLost===\"function\" && ctx.roleLost())"));
+});
+await test("A2 Stop starts no new image; a 'no image' retry only while live, and said", ()=>{
+  const g = between(app, "    const _genCharImage = async (slotId, prompt, opts)=>{", "    const cast = {");
+  assert.ok(g.includes('const beforeSubmit = ()=>{ if(cancelled && cancelled()) throw new Error("Stopped \\u2014 no new image was started."); };'));
+  assert.ok(g.includes("{ ...gopts, assetId:slotId, beforeSubmit }"));
+  assert.ok(g.includes("&& !(cancelled && cancelled())){") && g.includes("so it asked once more (one more image)"));
+});
+await test("A3 the Production check's art changes: its film, the role now, an undo step, and never 'applied' unless saved", ()=>{
+  assert.ok(app.includes("patchProp:(id,patch)=>{ if(!_prodArtOk(\"props\")) return false; _prodArtSnap();"));
+  assert.ok(app.includes("patchLocation:(id,patch)=>{ if(!_prodArtOk(\"locations\")) return false; _prodArtSnap();"));
+  assert.ok(app.includes("const _prodArtOk = (section)=> String(ownerProjectId||\"\")===String(projIdRef.current||\"\") && !artRoomReadOnlyRef.current"));
+  assert.ok(app.includes("if(Object.keys(patches).length){ _prodArtSnap();") && app.includes("        return true;\n      }"));
+  assert.ok(between(app, 'initialAgentId:"production", single:true,', "aiOn:").includes("...artUndoProps,"));
+  assert.ok(!/ctx\.sync\(\); fixes\+\+; refresh\(\);/.test(agents) && agents.includes("if(ctx.sync()===false) return; fixes++; refresh();"));
+  assert.equal((agents.match(/Not applied \\u2014 the film changed or your role can't change it now\./g)||[]).length >= 4, true);
+  assert.ok(agents.includes('const ok = ctx.cancelled() ? false : await ctx.propose({ writes:"art",'));
+});
+await test("A4 honest traces: failed prop sheets, empty specs, failed looks, staging, research, prop briefs", ()=>{
+  assert.ok(agents.includes('if(r===false){ ctx.emit({k:"flag", t:"Couldn\'t generate "+(p.name||"the prop")+"\'s sheet. Moving on."}); continue; }'));
+  assert.ok(app.includes('if(!map) throw new Error("no specs came back");   // said out loud — it read "Specs already complete" (2026-10-09)'));
+  assert.ok(agents.includes("'s look couldn't be drafted (\"+specErr+\") — skipping.") && agents.includes("Couldn't find \"+(c.name||\"the character\")+\"'s appearance changes"));
+  assert.ok(app.includes("stagingFailed = res.filter(x=>!x.staging)") && agents.includes("Couldn't stage \"+failedS.join(\", \")"));
+  assert.ok(agents.includes('ctx.emit({k:"done", t:"Nothing changed.", status:"failed"}); return { failed:true }; }'));
+  assert.ok(app.includes("return { statement:\"\", added:0, failed:true };"));
+  assert.ok(agents.includes("Couldn't read the cast's briefs for their props"));
+});
+await test("A5 Run pre-production names a step that stopped, and keeps the styles cards already have", ()=>{
+  const co = between(agents, "async function agentDepartmentCoordinator(ctx){", "/* ---- Consistency Check");
+  assert.ok(co.includes('if(e && e.k==="done" && e.status==="failed") stepFailed = true;') && co.includes("if(stepFailed || (r && r.failed)) errored.push(step[0]);"));
+  assert.ok(agents.includes('ctx.emit({k:"done", t:"Aborted \\u2014 nothing changed.", status:"failed"}); return;'));
+  assert.ok(agents.includes("lb.applyRenderStyle(rs.key, { onlyUnset:!!ctx.autoApprove })"));
+  // the rule, run for real
+  const b = {}; vm.createContext(b);
+  vm.runInContext(`const onlyUnset = true; const take = (x)=> !onlyUnset || !(x && x.renderStyleKey);
+    this.out = [{ id:"a", renderStyleKey:"anime" }, { id:"b" }].map(c=> take(c) ? ({ ...c, renderStyleKey:"photoreal" }) : c);`, b);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.out)), [{ id:"a", renderStyleKey:"anime" }, { id:"b", renderStyleKey:"photoreal" }]);
+  assert.ok(app.includes("const take = (x)=> !onlyUnset || !(x && x.renderStyleKey);"));
+});
+await test("A6 plain words for service plumbing errors", ()=>{
+  const b = { window:{}, String }; b.window = b; vm.createContext(b); vm.runInContext(fn(agents, "agentErrText"), b);
+  assert.equal(b.agentErrText(new Error("The image server didn't answer — fal.ai may be rate-limited or the image-proxy needs a redeploy.")), "the image service took too long to answer — try again in a moment");
+  assert.equal(b.agentErrText(new Error("Discarded — the film changed while this sheet rendered (stale scope)")), "the film changed while it was being made, so it wasn't saved");
+  assert.equal(b.agentErrText(new Error("Couldn't reach the image proxy: x")), "the service didn't answer — try again in a moment");
+  assert.ok(!/String\(\(e && e\.message\) \|\| "the writing model/.test(agents) && agents.includes("failure = agentErrText(e) || \"the writing model couldn't be reached\";"));
+});
+await test("A7 what a run uses: said before (per Department Head) and after (writing calls AND images)", ()=>{
+  assert.ok(agUi.includes("const costLine = agent.costLine ? agent.costLine"));
+  assert.ok(agUi.includes('window.addEventListener("nb-image-made", h);') && agUi.includes("This run made \"+imgs+\" and no writing-model calls"));
+  assert.ok(agUi.includes('"This run made no writing-model calls and no images — it cost nothing."'));
+  assert.ok(agUi.includes("A writing call or image already on its way still finishes \\u2014 it's charged, and an image is kept; nothing new is started."));
+  assert.ok(img.includes('window.dispatchEvent(new CustomEvent("nb-image-made",{ detail:{ credits:(cr>0 ? cr : null), model } }));'));
+  const reg = between(agents, "const AGENTS = [", "window.AGENTS = AGENTS;");
+  for(const id of ["production","colorist","shotdesigner","casting","propsmaster","locscout","researcher","coordinator"]){
+    const i = reg.indexOf('id:"'+id+'"'); const j = reg.indexOf("{ id:", i+5);
+    assert.ok(reg.slice(i, j<0 ? undefined : j).includes("costLine:"), id);
+  }
+  assert.ok(reg.includes("asksApproval:true,") && agUi.includes("(agent.autonomous && !agent.asksApproval)?"));
+  assert.ok(agUi.includes('"aria-label":(active && typeof window.turnAgentUmbrella==="function") ? window.turnAgentUmbrella(active) : "Story Editors"'));
+});
+
+/* ═══ B ═══ */
+await test("B1 'Delete forever' never touches a live character's files; Restore on a live twin says so", ()=>{
+  const pc = between(app, "  const purgeCharacter = async (id)=>{", "  const [charDrafting, setCharDrafting]");
+  assert.ok(pc.includes("const live = (characters||[]).some(c=>c && c.id===id);") && pc.includes("if(!live){"));
+  assert.ok(pc.includes("if(projIdRef.current!==film0) return;"));
+  assert.ok(app.includes("is already in the cast, so the copy in Recently deleted stays there."));
+});
+await test("B2 the warning names everything that goes; bins are labelled", ()=>{
+  assert.ok(art.includes('kind==="character" ? "master sheet, appearance-variant sheets and scale sheet, the likeness photos you uploaded (on this device and in the cloud) and its voice"'));
+  assert.ok(art.includes('kind==="prop" ? "reference sheet and its state sheets"'));
+  assert.ok(art.includes('"aria-label":"Restore "+labelFor(it),') && art.includes('className:"rd-head",onClick:()=>setOpen(o=>!o),"aria-expanded":open?"true":"false"'));
+});
+await test("B3 the Lookbook bin checks the role and the film; a live twin keeps its mood frame", ()=>{
+  for(const k of ["updateLookbookCard = (id,patch)=> canMutateSharedFilm() &&", "const addLookbookCard = ()=>{\n    if(!canMutateSharedFilm()) return null;",
+    "const deleteLookbookCard = (id)=>{\n    if(!canMutateSharedFilm()) return;", "const restoreLookbookCard = (id)=>{\n    if(!canMutateSharedFilm()) return;"])
+    assert.ok(app.includes(k), k);
+  const pl = between(app, "  const purgeLookbookCard = async (id)=>{", "  /* SUGGEST A NOTE");
+  assert.ok(pl.includes("if(!canMutateSharedFilm()) return;") && pl.includes("if(!liveTwin && typeof nbClearAsset===\"function\")") && pl.includes("if(projIdRef.current!==film0) return;"));
+  // user-facing copy says "Recently deleted" (comments may still say Trash)
+  assert.ok(!app.split("\n").some(l=>!l.trim().startsWith("//") && /remains in Trash|Shots Trash/.test(l)));
+});
+
+/* ═══ C ═══ */
+await test("C1 price chips include grounding and GPT reference images; grounding is sent only on Nano Banana 2", ()=>{
+  const c = fn(img, "nbImageCredits");
+  assert.ok(c.includes('if(ground && model==="gemini-3.1-flash-image") usd += 0.015;') && c.includes("usd += 0.012 * Number(opts.refs);"));
+  assert.ok(art.includes("if(groundEnabled && isFlash){ genOpts.groundSearch = true; genOpts.groundImageSearch = true; }"));
+  assert.ok(img.includes('" · each reference image the render attaches adds about 1 credit"'));
+});
+await test("C2 only a request that never left is re-sent; a pick in another window shows here; plain errors, no provider names", ()=>{
+  assert.ok(img.includes("&& /failed to send|name_not_resolved|internet_disconnected|network changed/i.test("));
+  assert.ok(img.includes('window.addEventListener("storage", (e)=>{'));
+  for(const bad of ["fal.ai may be rate-limited", "Deploy supabase/functions/image-proxy", "Couldn't reach the image proxy", "Image generation now runs through fal.ai", 'note:"fal.ai', "Update image-proxy to enable"])
+    assert.ok(!img.includes(bad), bad);
+  assert.ok(!art.includes("(top of this tab)") && !shotsUi.includes("at the top of this tab"));
+});
+await test("C3 a Writer's 4K image is capped to 2K before it's sent, and the chip says what's really used", ()=>{
+  const b = { window:{ turnIsAdmin:false }, String }; b.window.window = b.window; vm.createContext(b);
+  vm.runInContext("const window=this.window;\nconst _isPaidTier=(p)=>p==='writer'||p==='director'||p==='studio';\nconst IMG_RES_RANK={'1K':1,'2K':2,'4K':3};const DRAFT_IMAGE={model:'lite',maxRes:'1K'};\n"
+    +fn(plans, "draftImagesOnly")+fn(plans, "planImageChoice"), b);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.planImageChoice("nb2", "4K", { plan:"writer" }))), { model:"nb2", res:"2K", limited:true });
+  assert.deepEqual(JSON.parse(JSON.stringify(b.planImageChoice("nb2", "4K", { plan:"director" }))), { model:"nb2", res:"4K", limited:false });
+  assert.ok(img.includes('+ (choice.limited ? " (your plan\'s limit)" : "")'));
+});
+
+/* ═══ D ═══ */
+await test("D1 read-only roles can't open a Department Head; a role change closes runs and previews", ()=>{
+  for(const k of ["shotDesignerOpen && !artRoomReadOnly &&", "castingOpen && !artRoomReadOnly &&", "propsMasterOpen && !artRoomReadOnly &&",
+    "locScoutOpen && !artRoomReadOnly &&", "researchOpen && !artRoomReadOnly &&", "coordOpen && !artRoomReadOnly &&"]) assert.ok(app.includes(k), k);
+  assert.ok(app.includes('onResearch:()=>{ if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; } setResearchOpen(true); },'));
+  assert.ok(app.includes("setCoordConfirm(false); setCastConfirm(null); setCastingOpen(false);"));
+  assert.ok(chrome.includes("Your role can't change the Art Room here, so pre-production can't run"));
+});
+await test("D2 the run previews are dialogs (Escape, focus); the Run pre-production preview shows a price and 'at least'", ()=>{
+  assert.equal((art.match(/usePreviewDialog\(onCancel\);/g)||[]).length, 2);
+  assert.ok(art.includes('role:"dialog","aria-modal":"true",tabIndex:-1,ref:_previewFocus,'));
+  assert.ok(art.includes('"at least "+totalGen') && art.includes('typeof window.nbCostChip==="function" && window.nbCostChip(totalGen)'));
+  assert.ok(art.includes('p.kind!=="worn" && !((p.kind||"carried")==="carried" && !p.ownerId)'));
+});
+await test("D3 a stale tab opens the Lookbook; hand-offs only when the room opens, and only in their film", ()=>{
+  const b = { window:{ ART_TABS:[{ id:"lookbook" }, { id:"shots" }] }, String, Array }; vm.createContext(b);
+  vm.runInContext("const window=this.window;\n"+fn(app, "turnNavArtTab"), b);
+  assert.equal(b.turnNavArtTab("gone"), "lookbook"); assert.equal(b.turnNavArtTab("shots"), "shots"); assert.equal(b.turnNavArtTab("voices"), "lookbook");
+  assert.ok(app.includes('if(tab==="shots"){ if(!guardedSetRoom("art")) return;') && app.includes("    setRoom(id);\n    return true;\n  };"));
+  assert.ok(art.includes("(f.film||null)===(window.turnOpenFilmId||null)) ? f : null; };"));
+});
+await test("D4 the dock: Lite and GPT quality shown, Escape, pressed states, a region", ()=>{
+  assert.ok(art.includes(': /lite/i.test(model) ? "NB2 Lite"') && art.includes("isGpt && qual ? qual : resv"));
+  assert.ok(art.includes('role:"region","aria-label":"Image engine settings"') && art.includes('"aria-controls":"nb-dock-panel"'));
+  assert.ok((art.match(/"aria-pressed":/g)||[]).length >= 7);
+});
+
+/* ═══ E ═══ */
+await test("E1 Frances: tabs open, the bins, the dock, the chips, the Department Heads; keys", ()=>{
+  const s = between(ai, "const APP_FEATURES = [", "let _museFactsMemo = null;");
+  const fb = { console, Object, Array, String }; fb.window = fb; vm.createContext(fb);
+  vm.runInContext(s + "\n;this.__F = APP_FEATURES;", fb);
+  const all = fb.__F.map(f=>f.what||"").join(" ");
+  for(const gone of ["UNLOCK IN THAT ORDER", "clears its sheet.", "after 2 minutes", "clear the look statement in the Lookbook", "'Generate all frames'", "Styles (colour) tab"])
+    assert.ok(!all.includes(gone), gone);
+  const ar = (fb.__F.find(f=>f.name==="Art Room")||{}).what || "";
+  assert.ok(/ART ROOM REVIEW, THIRD PASS/.test(ar) && /Every tab is open/.test(ar) && /web grounding/.test(ar));
+  assert.ok(/DEPARTMENT HEADS, THIRD PASS/.test((fb.__F.find(f=>f.name==="Story Editors (Writers' Room agents)")||{}).what || ""));
+  for(const f of ["app", "ai", "script", "agents", "agents-ui", "artroom", "imagegen", "plans", "shots-ui", "chrome"])
+    assert.ok(html.includes('src="app/'+f+'.jsx?v=20261009-art3"'), f);
+});
+
+console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");
+if(failed) process.exit(1);

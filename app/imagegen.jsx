@@ -64,7 +64,7 @@ function nbImageQualitySupport(model){
   const message=expanded?"":loading?"Checking image-server quality support…":
     caps.state==="error"?"Could not check image-server support. Retry to enable the additional quality levels.":
     caps.state==="unknown"?"Check image-server support to enable the additional quality levels.":
-    "Update image-proxy to enable Default, Auto, Extra high and Max. Low, Medium and High remain available.";
+    "Default, Auto, Extra high and Max aren't available yet \u2014 they're waiting on a server update. Low, Medium and High remain available.";
   return {loading,expanded,qualities,message};
 }
 function nbCanUseImageQuality(model,q){
@@ -130,12 +130,12 @@ window.nbRequireImageQuality=nbRequireImageQuality;
    proxy; the proxy then maps this UI id to fal.ai's provider route. */
 const _imageProxyOn = !!(window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxy);
 const NB_MODELS = [
-  { id:"gemini-3.1-flash-image",      label:"Nano Banana 2",      provider:"fal", family:"nano",   falModel:"fal-ai/nano-banana-2",      note:"fal.ai \u00b7 fast \u00b7 high quality" },
-  { id:"gemini-3.1-flash-lite-image", label:"Nano Banana 2 Lite", provider:"fal", family:"nano",   falModel:"google/nano-banana-2-lite", note:"fal.ai \u00b7 fastest \u00b7 lowest cost" },
-  { id:"gemini-3-pro-image",          label:"Nano Banana Pro",    provider:"fal", family:"nano",   falModel:"fal-ai/nano-banana-pro",    note:"fal.ai \u00b7 highest fidelity" },
-  { id:"gpt-image-2",                 label:"GPT Image 2",        provider:"fal", family:"openai", falModel:"openai/gpt-image-2", falEditModel:"openai/gpt-image-2/edit", note:"fal.ai \u00b7 in-image text" },
-  { id:"gpt-image-2.5-flare",         label:"GPT Image 2.5 Flare", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/flare/text-to-image", falEditModel:"openai/gpt-image-2.5/flare/edit", note:"fal.ai \u00b7 fastest GPT Image 2.5" },
-  { id:"gpt-image-2.5-sunburst",      label:"GPT Image 2.5 Sunburst", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/sunburst/text-to-image", falEditModel:"openai/gpt-image-2.5/sunburst/edit", note:"fal.ai \u00b7 maximum precision and fidelity" },
+  { id:"gemini-3.1-flash-image",      label:"Nano Banana 2",      provider:"fal", family:"nano",   falModel:"fal-ai/nano-banana-2",      note:"fast \u00b7 high quality" },
+  { id:"gemini-3.1-flash-lite-image", label:"Nano Banana 2 Lite", provider:"fal", family:"nano",   falModel:"google/nano-banana-2-lite", note:"fastest \u00b7 lowest cost" },
+  { id:"gemini-3-pro-image",          label:"Nano Banana Pro",    provider:"fal", family:"nano",   falModel:"fal-ai/nano-banana-pro",    note:"highest fidelity" },
+  { id:"gpt-image-2",                 label:"GPT Image 2",        provider:"fal", family:"openai", falModel:"openai/gpt-image-2", falEditModel:"openai/gpt-image-2/edit", note:"in-image text" },
+  { id:"gpt-image-2.5-flare",         label:"GPT Image 2.5 Flare", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/flare/text-to-image", falEditModel:"openai/gpt-image-2.5/flare/edit", note:"fastest GPT Image 2.5" },
+  { id:"gpt-image-2.5-sunburst",      label:"GPT Image 2.5 Sunburst", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/sunburst/text-to-image", falEditModel:"openai/gpt-image-2.5/sunburst/edit", note:"maximum precision and fidelity" },
 ];
 const NB_ASPECTS = ["16:9","21:9","9:16","1:1","3:4","4:3"];
 const NB_RESOLUTIONS = ["1K","2K","4K"];
@@ -352,6 +352,11 @@ function nbImageCredits(opts){
     const r = choice.res || nbGetRes();
     usd = (t[r]!=null) ? t[r] : t["2K"];
   }
+  /* WHAT THE SERVER ADDS (2026-10-09, owner — Art Room review; billing-pricing.mjs): web grounding ($0.015 an image,
+     sent only on Nano Banana 2) and, on GPT Image, each reference image ($0.012) — the chips left both out */
+  const ground = opts.ground!=null ? !!opts.ground : (model==="gemini-3.1-flash-image" && nbGetGroundSearch());
+  if(ground && model==="gemini-3.1-flash-image") usd += 0.015;
+  if(isGptImageModel(model) && Number(opts.refs)>0) usd += 0.012 * Number(opts.refs);
   // ×CREDIT_SCALE so image costs read in the same generous denomination as plan
   // allowances. Anchor (Option A, 2026-09-30): 1 visible credit = $0.01 of provider cost
   // — the same $0.10 base anchor as app/pricing.jsx and the image-proxy server.
@@ -384,16 +389,21 @@ function NbCostChipInner({ count, opts }){
   },[]);
   const txt = nbImageCostText(count, opts);
   if(!txt) return null;
-  const model = (opts&&opts.model) || nbGetModel();
+  // the engine and size the server will really use (a trial's draft engine, a Writer's 2K) — 2026-10-09
+  const picked = (opts&&opts.model) || nbGetModel();
+  const choice = nbPlanImageChoice(picked, (opts&&opts.res)||nbGetRes());
+  const model = choice.model || picked;
   const m = (window.NB_MODELS||NB_MODELS).find(x=>x.id===model);
   const detail = isGptImageModel(model)
     ? nbOaiQualityLabel(opts&&opts.quality!=null?opts.quality:nbGetOaiQuality(model))+" quality"
-    : ((opts&&opts.res)||nbGetRes());
+    : (choice.res || (opts&&opts.res) || nbGetRes()) + (choice.limited ? " (your plan's limit)" : "");
   const n = Math.max(1, Number(count)||1);
   return window.React.createElement("span",{className:"nb-cost",
     title:"≈ "+txt+" generation credit"+(txt==="1"?"":"s")+" — "+((m&&m.label)||model)+" at "+detail
       +(n>1 ? " × "+n+" images" : " per image")
-      +(isGptImage25Model(model)?" (baseline estimate; prompt/reference tokens and size affect provider cost; Auto uses the Max estimate)":"")},
+      +(isGptImage25Model(model)?" (baseline estimate; prompt/reference tokens and size affect provider cost; Auto uses the Max estimate)":"")
+      +(model==="gemini-3.1-flash-image" && nbGetGroundSearch() ? " · includes web grounding" : "")
+      +(isGptImageModel(model) && !(opts && opts.refs) ? " · each reference image the render attaches adds about 1 credit" : "")},
     txt);
 }
 function nbCostChip(count, opts){
@@ -405,6 +415,15 @@ window.nbImageCredits = nbImageCredits; window.nbImageCostText = nbImageCostText
 /* grounding with web search — Nano Banana 2 (gemini-3.1-flash-image) only */
 const NB_GROUND_KEY = "turn-nb-ground";
 function nbGetGroundSearch(){ try{ return localStorage.getItem(NB_GROUND_KEY)==="1"; }catch(e){ return false; } }
+/* ONE ENGINE IN EVERY WINDOW (2026-10-09, owner — Art Room review): a pick made in another window of this browser
+   changes what this one renders and charges (the settings are shared), but its dock and price chips kept showing
+   the old engine — they re-read now */
+try{ window.addEventListener("storage", (e)=>{
+  const k = String((e && e.key) || "");
+  if(k===NB_MODEL_KEY){ try{ window.dispatchEvent(new CustomEvent("nb-model-changed")); }catch(_e){} }
+  if(k===NB_MODEL_KEY || k===NB_AR_KEY || k===NB_RES_KEY || k===NB_GROUND_KEY || k.indexOf(OAI_Q_KEY)===0){
+    try{ window.dispatchEvent(new CustomEvent("nb-settings-changed")); }catch(_e){} }
+}); }catch(e){}
 function nbSetGroundSearch(v){ try{ v ? localStorage.setItem(NB_GROUND_KEY,"1") : localStorage.removeItem(NB_GROUND_KEY); }catch(e){} }
 window.nbGetGroundSearch = nbGetGroundSearch; window.nbSetGroundSearch = nbSetGroundSearch;
 
@@ -1854,8 +1873,11 @@ async function proxyGenerate(prompt, opts, provider){
   // be running the expensive generation, so retrying just multiplies the wait and the cost.
   // 504s are surfaced immediately (the real mitigation is the downscaled refs above).
   const statusOf = (err)=> (err && err.context && err.context.status) || (err && err.status) || 0;
+  /* ONLY A REQUEST THAT NEVER LEFT IS SENT AGAIN (2026-10-09, owner — Art Room review): a dropped connection or a
+     timeout can come after the server started (and charged) the image, so re-sending those was a silent second
+     paid call. A request that couldn't be sent at all (no connection, no address) is the only one retried. */
   const isNetworkBlip = (err)=> !statusOf(err)
-    && /failed to send|name_not_resolved|network|fetch|timeout|load failed/i.test(((err&&err.message)||"")+"");
+    && /failed to send|name_not_resolved|internet_disconnected|network changed/i.test(((err&&err.message)||"")+"");
   let data, error;
   // HARD CLIENT CAP: functions.invoke has no timeout of its own, so a hung provider
   // connection used to spin "Generating…" forever with no error ever surfacing.
@@ -1863,7 +1885,7 @@ async function proxyGenerate(prompt, opts, provider){
   // and say so. (Wording deliberately avoids isNetworkBlip's trigger words so an
   // abandoned wait is never auto-retried.)
   const _capped = (pr)=> Promise.race([ pr,
-    new Promise((_,rej)=> setTimeout(()=>{ const e=new Error("The image server didn't answer within 6\u00bd minutes — the request was abandoned. If this keeps happening, fal.ai may be rate-limited or the image-proxy needs a redeploy."); e.__timedOut=true; rej(e); }, 390000)) ]);
+    new Promise((_,rej)=> setTimeout(()=>{ const e=new Error("The image server didn't answer within 6\u00bd minutes — the request was abandoned. If this keeps happening, wait a few minutes before trying again \u2014 the image service may be busy."); e.__timedOut=true; rej(e); }, 390000)) ]);
   for(let attempt=0; attempt<(opts.noRetry ? 1 : 2); attempt++){
     error = null;
     /* Reference conversion above and a network retry are both awaits.  Re-check
@@ -1904,7 +1926,7 @@ async function proxyGenerate(prompt, opts, provider){
     }
     if(status===401) throw new Error("Sign in to use server-side image generation \u2014 it runs on your server, not in the browser.");
     const _safe = window.turnSafeError || (x=>x);
-    if(status===404) throw new Error(_safe("The image proxy isn't deployed yet. Deploy supabase/functions/image-proxy and set imageProxy:true in supabase-config.js."));
+    if(status===404) throw new Error(_safe("Image generation isn't available right now \u2014 it's waiting on a server update."));
     if(status===504) throw new Error("The image took longer than the server allows. Your chosen quality and resolution were kept \u2014 try again, or pick a faster setting if you prefer.");
     if(status===502 || status===503){
       // the function relays the SPECIFIC upstream reason in its JSON body ("Proxy
@@ -1916,7 +1938,7 @@ async function proxyGenerate(prompt, opts, provider){
     }
     if(relayed) throw new Error(_safe("The image server rejected this request"
       +(status?" ("+status+")":"")+": "+relayed));
-    throw new Error(_safe("Couldn't reach the image proxy: "+((error && error.message) || "unknown error")+"."));
+    throw new Error(_safe("Couldn't reach the image service: "+((error && error.message) || "unknown error")+"."));
   }
   if(data && data.error){
     const _raw = String(data.error);
@@ -1939,6 +1961,13 @@ async function proxyGenerate(prompt, opts, provider){
   if(opts.metaOut && data && typeof data.grounded!=="undefined") opts.metaOut.grounded = !!data.grounded;
   if(data && data.usage && typeof window.dispatchEvent==="function")
     window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:data.usage }));
+  // every image the server made, with what it cost (the server's own count when it sends one, else the
+  // price table) — a Department Heads run adds these up for its "this run used" line (2026-10-09)
+  if(data && (data.b64 || data.url) && typeof window.dispatchEvent==="function"){
+    let cr = data.usage && Number(data.usage.credits);
+    if(!(cr>0)){ try{ cr = nbImageCredits({ model, res:opts.res||opts.resolution, quality:opts.quality }); }catch(e){ cr = null; } }
+    try{ window.dispatchEvent(new CustomEvent("nb-image-made",{ detail:{ credits:(cr>0 ? cr : null), model } })); }catch(e){}
+  }
   // Provider-native landscape/portrait canvases are not always Kinolot's selected
   // ratio (GPT Image landscape is 3:2). Normalize BEFORE returning, so callers
   // can only commit a frame whose pixels match its 16:9 / 9:16 / 21:9 label.
@@ -1976,7 +2005,7 @@ async function nbGenerate(prompt, opts){
   if(provider==="fal") return proxyGenerate(prompt, { ...opts, model }, "fal");
   if(provider==="openai") return proxyGenerate(prompt, { ...opts, model }, "openai");
   if(imageProxyOn()) return proxyGenerate(prompt, { ...opts, model }, provider);
-  throw new Error("Image generation now runs through fal.ai on the server. Sign in and make sure the image proxy is enabled.");
+  throw new Error("Image generation runs on the studio's servers \u2014 sign in to generate images.");
 }
 window.nbGenerate = nbGenerate;
 

@@ -59,6 +59,7 @@ const box = { console, React:R, Icon:icon, Set, Map, Object, Array, String, Numb
   scenesWhereCharacterAppears:(id, name, scenes, drafts)=> (scenes||[]).filter(s=> new RegExp("\\b"+name+"\\b","i").test((drafts||{})[s.id]||"")).map(s=>s.id),
 };
 box.window = box; vm.createContext(box);
+box.usePreviewDialog = ()=>{}; box._previewFocus = ()=>{};   // (2026-10-09) the preview is a dialog (Escape, focus)
 vm.runInContext(art.split("\n").find(l => l.startsWith("function vfield(")), box);
 vm.runInContext(transform(between(art, "function charVisualsDrafted(c){", "/* prompt for image-to-image"), "a.jsx"), box);
 vm.runInContext(transform(between(art, "function charLookbookFirstHint(", "/* ---- pre-production readiness"), "a.jsx"), box);
@@ -136,7 +137,7 @@ await test("B4 nothing to make → says so and the button is off", ()=>{
   assert.ok(buttons(tree).find(b=>/Design 1 character/.test(textOf(b))).props.disabled);
 });
 await test("B5 the app: Design the cast opens the preview; its button starts the run with the scope", ()=>{
-  assert.ok(app.includes('onCast:(opts)=>{ if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },'));
+  assert.ok(app.includes('if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },'));
   assert.ok(app.includes("setCastingForce({ only:(scope&&scope.only)||null, variants:!(scope && scope.variants===false) });"));
   assert.ok(app.includes('runOnOpen: !!(castingForce && typeof castingForce==="object"),'));
   assert.ok(app.includes("castOnly: castScope && Array.isArray(castScope.only) ? castScope.only.slice() : null,"));

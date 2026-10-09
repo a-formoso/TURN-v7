@@ -96,8 +96,10 @@ await test("4b after a switch every write is refused, and said once", () => {
   const flags = [], calls = [];
   const proj = { current: "film-a" };
   // (no propose function: a background-style context, so the Art undo snapshot stays out of it)
+  // (2026-10-09, Art Room third pass) the guard also refuses once the role can't change the Art Room; it builds
+  // its undo step through artSnapOf
   const make = new Function("emit", "projIdRef", "ownerProjectId", "runIn", "propose", "artUndoLiveRef", "agentFilmKey", "agentName", "setArtUndo",
-    "const switchedFilms = ()=> String(ownerProjectId||\"\") !== String(projIdRef.current||\"\");\n" + g + "\nreturn inFilm;");
+    "const artRoomReadOnlyRef = { current:false }; const artSnapOf = ()=>null;\nconst switchedFilms = ()=> String(ownerProjectId||\"\") !== String(projIdRef.current||\"\");\n" + g + "\nreturn inFilm;");
   const inFilm = make((e) => flags.push(e), proj, "film-a", undefined, undefined, { current: null }, () => "film-a", "Test", () => {});
   const setProps = inFilm((v) => calls.push(v));
   setProps(1);

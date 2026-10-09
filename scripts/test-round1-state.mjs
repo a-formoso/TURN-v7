@@ -715,7 +715,7 @@ await test("10 overlapping runs: the newest live run's model is pinned; when non
     const env = { runIdRef:{ current:0 }, cancelled:{ current:false }, setTrace:noop, setPending:noop, setStatus:noop,
       agentReportProjectId:()=>"p", _mid:mid, agent:{ id:"doctor", kind:"fix", run:()=>new Promise(r=>{ gates[id] = r; }) },
       ctxFactory:()=>({ switchedFilms:()=>false }), inputRef:{ current:"" }, force:false, resolver:{ current:null }, saveAgentReport:noop,
-      spendRef:{ current:null } };   // (2026-10-09) Stop reports what the run used so far
+      spendRef:{ current:null }, imgRef:{ current:{ n:0, credits:0, unknown:0, on:false } }, imageUsedText:()=>"", isArt:false };   // (2026-10-09) Stop and the end of a run report writing calls and images
     return compile(startSrc, env, ["start"]).start;
   };
   box.__forceWritingModel = undefined; box.__turnWritingPins = [];

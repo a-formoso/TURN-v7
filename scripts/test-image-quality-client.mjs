@@ -317,7 +317,7 @@ await oldProxy.nbRefreshImageQualityCapabilities({ force: true });
 const oldSupport = oldProxy.nbImageQualitySupport(FLARE);
 assert.deepEqual(Array.from(oldSupport.qualities), LEGACY);
 assert.equal(oldSupport.expanded, false);
-assert.match(oldSupport.message, /Update image-proxy|enable the additional quality levels/);
+assert.match(oldSupport.message, /waiting on a server update|Update image-proxy|enable the additional quality levels/);
 await assertRejects(
   oldProxy.nbGenerate("extended quality should not submit", { model: FLARE, quality: "xhigh" }),
   /No image generation was submitted|support/,

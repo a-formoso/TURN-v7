@@ -242,10 +242,10 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
   // Art Room → Run pre-production only; Writers' Room → the Story Editors panel.
   const cta = inArt
     ? (onCoordinate && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onCoordinate,disabled:readOnly,
-          title:readOnly?"View-only access — pre-production cannot be changed":"Art Coordinator — runs pre-production in dependency order: lookbook → cast → props → wardrobe → locations → colour → shot coverage, in one click (shot frames and storyboards stay in their tabs)"},
+          title:readOnly?"Your role can't change the Art Room here, so pre-production can't run":"Art Coordinator — runs pre-production in dependency order: lookbook → cast → props → wardrobe → locations → colour → shot coverage, in one click (shot frames and storyboards stay in their tabs)"},
           React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Run pre-production")))
     : (onAgents && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onAgents,disabled:readOnly,
-        title:readOnly?"View-only access — Story Editors cannot change this film":"Story Editors — AI editors that refine your story: Story Doctor, Script Supervisor, Setups & Payoffs, Final Read"},
+        title:readOnly?"Your role can't change the story here, so the Story Editors can't run":"Story Editors — AI editors that refine your story: Story Doctor, Script Supervisor, Setups & Payoffs, Final Read"},
         React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Story Editors")));
   // viewnav-art: the Art Room's eight tabs + three actions need their own narrow-width rule (styles.css)
   return React.createElement("nav",{className:"viewnav"+(inArt?" viewnav-art":""),"aria-label":inArt?"Art Room views":"Writers' Room views"},
@@ -286,7 +286,7 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
       // held to the script. Open to a Writer too (its script cards are theirs to apply).
       inArt && onProductionCheck && React.createElement("button",{type:"button",className:"tb-btn vn-studio",
         onClick:onProductionCheck,disabled:!!productionReadOnly,"aria-label":"Production check",
-        title:productionReadOnly?"View-only access — the Production check cannot change this film"
+        title:productionReadOnly?"Your role can't change this film's script or Art Room here, so the Production check can't run"
           :"Production check — reads the script into the cast sheets (pronouns, scale, details, voice), then holds props, locations, render styles, wardrobe and shots to the script. Every change asks for your approval."},
         React.createElement(Icon.clipboard||Icon.check,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Production check")),
       cta),

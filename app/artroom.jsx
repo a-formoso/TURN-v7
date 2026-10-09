@@ -1661,7 +1661,9 @@ async function nbRunSheetGeneration(env, gopts){
     // web grounding is a GEMINI-only feature — GPT Image has no such mode, so never
     // request it there (the proxy used to echo grounded:true off the bare request
     // flag, mis-badging GPT Image renders "Grounded" when nothing had grounded)
-    if(groundEnabled && !(typeof isGptImageModel==="function" && isGptImageModel(usedModel)) && usedModel!=="gemini-3.1-flash-lite-image"){ genOpts.groundSearch = true; if(isFlash) genOpts.groundImageSearch = true; }
+    // (2026-10-09, owner — Art Room review) only on Nano Banana 2, where the toggle shows — a toggle left on there was
+    // sent with Nano Banana Pro too, charging the grounding surcharge with no visible control
+    if(groundEnabled && isFlash){ genOpts.groundSearch = true; genOpts.groundImageSearch = true; }
 
     /* attachments: extra reference images (e.g. generated prop sheets the character
        carries) so the model SEES the object, not just its name. Resolved async. */
@@ -2312,7 +2314,7 @@ function useBatchGen(){
     const token = ++tokenRef.current;
     const mine = ()=> tokenRef.current===token;
     const stop = (m)=>{ setMsg(m); setPreparing(false); busyRef.current = false; };
-    if(typeof nbHasKeyForCurrent==="function" && !nbHasKeyForCurrent()) return stop("Set your image-model API key first (top of this tab).");
+    if(typeof nbHasKeyForCurrent==="function" && !nbHasKeyForCurrent()) return stop("The chosen image model isn't available right now \u2014 pick another one in the Images dock on the right edge.");
     if(!ids.length) return stop(undraftedSkipped ? "Draft the cards first \u2014 nothing is ready to generate yet." : "Nothing to generate yet.");
     setPrompt(null); setPreparing(true);
     setMsg("Checking which already have a sheet\u2026");
@@ -4158,12 +4160,19 @@ function RecentlyDeleted({ items, kind, onRestore, onPurge, compact }){
     items.map(it=>React.createElement("div",{key:it.id,className:"rd-row"},
       React.createElement("span",{className:"rd-name",title:labelFor(it)}, labelFor(it)),
       it._deletedAt && React.createElement("span",{className:"rd-when"}, rel(it._deletedAt)),
-      onRestore && React.createElement("button",{className:"rd-restore",onClick:()=>onRestore(it.id),
+      onRestore && React.createElement("button",{className:"rd-restore",onClick:()=>onRestore(it.id),"aria-label":"Restore "+labelFor(it),
         title: kind==="reference" ? "Restore this reference with its mood frame" : "Restore this "+noun+" with its scenes & spec"},
         React.createElement(Icon.undo,{s:12}),"Restore"),
       onPurge && React.createElement("button",{className:"rd-purge",title:"Delete forever","aria-label":"Delete "+labelFor(it)+" forever",
         onClick:async ()=>{ const ok=await window.appConfirm({ title:"Delete “"+labelFor(it)+"” forever?",
-          body:"This permanently removes it and its "+(kind==="reference" ? "mood frame" : kind==="shot" ? "frame and its earlier versions" : kind==="location" ? "plates" : "reference sheet")+" from the project. This can't be undone.",
+          // EVERYTHING THAT GOES, NAMED (2026-10-09, owner — Art Room review): a character also loses its variant and
+          // scale sheets, the likeness photos you uploaded and its voice; a prop its state sheets
+          body:"This permanently removes it and its "+(kind==="reference" ? "mood frame"
+            : kind==="shot" ? "frame and its earlier versions"
+            : kind==="location" ? "plates (its time-of-day and camera-view plates, and its own rooms & times plates)"
+            : kind==="character" ? "master sheet, appearance-variant sheets and scale sheet, the likeness photos you uploaded (on this device and in the cloud) and its voice"
+            : kind==="prop" ? "reference sheet and its state sheets"
+            : "reference sheet")+" from the project. This can't be undone.",
           confirmLabel:"Delete forever", danger:true });
           if(ok && onPurge) onPurge(it.id); }},
         React.createElement(Icon.x,{s:12})))));
@@ -4178,7 +4187,7 @@ function RecentlyDeleted({ items, kind, onRestore, onPurge, compact }){
         React.createElement("span",{className:"rd-count"},itemCount)),
       rows));
   return React.createElement("div",{ref:rootRef,className:"recently-deleted"+(open?" open":"")},
-    React.createElement("button",{className:"rd-head",onClick:()=>setOpen(o=>!o)},
+    React.createElement("button",{className:"rd-head",onClick:()=>setOpen(o=>!o),"aria-expanded":open?"true":"false"},
       React.createElement(Icon.trash,{s:12}),
       React.createElement("span",null,"Recently deleted"),
       React.createElement("span",{className:"rd-count"},itemCount),
@@ -5082,7 +5091,7 @@ function NbControls(){
       React.createElement("span",{className:"nb-ctl-lab"},"Model"),
       React.createElement("div",{className:"nb-ctl-row"},
         React.createElement("div",{className:"nb-seg"},
-          models.map(m=>React.createElement("button",{key:m.id,className:"nb-seg-btn "+(model===m.id?"on":""),
+          models.map(m=>React.createElement("button",{key:m.id,className:"nb-seg-btn "+((model===m.id)?"on":""),"aria-pressed":(model===m.id)?"true":"false",
              title:m.note,onClick:()=>{ setModel(m.id); setOaiQ(typeof nbGetOaiQuality==="function" ? nbGetOaiQuality(m.id) : "medium"); nbSetModel(m.id); window.dispatchEvent(new CustomEvent("nb-model-changed")); }},m.label))),
         /* grounding toolkit — only when Nano Banana 2 is selected */
         isFlash && React.createElement("div",{className:"nb-ground-wrap",ref:tipRef},
@@ -5111,10 +5120,10 @@ function NbControls(){
               "When on, the model searches the web to anchor generation to real-world ",
               "references \u2014 period costumes, locations, props."),
             React.createElement("div",{className:"nb-seg nb-ground-seg"},
-              React.createElement("button",{className:"nb-seg-btn "+(!ground?"on":""),
+              React.createElement("button",{className:"nb-seg-btn "+((!ground)?"on":""),"aria-pressed":(!ground)?"true":"false",
                 onClick:()=>{ setGround(false); nbSetGroundSearch&&nbSetGroundSearch(false); }},
                 "Off"),
-              React.createElement("button",{className:"nb-seg-btn "+(ground?"on":""),
+              React.createElement("button",{className:"nb-seg-btn "+((ground)?"on":""),"aria-pressed":(ground)?"true":"false",
                 onClick:()=>{ setGround(true); nbSetGroundSearch&&nbSetGroundSearch(true); }},
                 "Web + images"))), document.body)))),
      /* GPT Image quality — its own labelled control.  2.5's Default is a
@@ -5127,7 +5136,7 @@ function NbControls(){
            qualityChoices.map(q=>{
              const usable = qualityCanUse(q);
              return React.createElement("button",{key:q,
-               className:"nb-seg-btn "+(oaiQ===q?"on":"")+(usable?"":" disabled"),
+               className:"nb-seg-btn "+(oaiQ===q?"on":"")+(usable?"":" disabled"),"aria-pressed":oaiQ===q?"true":"false",
                disabled:!usable,
                "aria-disabled":usable?"false":"true",
                title: usable ? qualityLabel(q) : ((qualitySupport.message||"Quality is not available yet.")+" Try refreshing."),
@@ -5144,19 +5153,19 @@ function NbControls(){
       React.createElement("span",{className:"nb-ctl-lab"},"Aspect"),
       React.createElement("div",{className:"nb-seg-rows"},
         React.createElement("div",{className:"nb-seg"},
-          aspects.slice(0,3).map(a=>React.createElement("button",{key:a,className:"nb-seg-btn nb-aspect-btn "+(aspect===a?"on":""),
+          aspects.slice(0,3).map(a=>React.createElement("button",{key:a,className:"nb-seg-btn nb-aspect-btn "+(aspect===a?"on":""),"aria-pressed":aspect===a?"true":"false",
             onClick:()=>{ setAspect(a); nbSetAspect(a); }},
             React.createElement("span",{className:"sdbar-ratio-ico ratio-"+String(a).replace(":","x")}),
             React.createElement("span",null,a)))),
         aspects.length>3 && React.createElement("div",{className:"nb-seg"},
-          aspects.slice(3).map(a=>React.createElement("button",{key:a,className:"nb-seg-btn nb-aspect-btn "+(aspect===a?"on":""),
+          aspects.slice(3).map(a=>React.createElement("button",{key:a,className:"nb-seg-btn nb-aspect-btn "+(aspect===a?"on":""),"aria-pressed":aspect===a?"true":"false",
             onClick:()=>{ setAspect(a); nbSetAspect(a); }},
             React.createElement("span",{className:"sdbar-ratio-ico ratio-"+String(a).replace(":","x")}),
             React.createElement("span",null,a)))))),
     React.createElement("div",{className:"nb-ctl"},
       React.createElement("span",{className:"nb-ctl-lab"},"Resolution"),
       React.createElement("div",{className:"nb-seg"},
-        (window.NB_RESOLUTIONS||["1K","2K","4K"]).map(r=>React.createElement("button",{key:r,className:"nb-seg-btn "+(resv===r?"on":""),
+        (window.NB_RESOLUTIONS||["1K","2K","4K"]).map(r=>React.createElement("button",{key:r,className:"nb-seg-btn "+((resv===r)?"on":""),"aria-pressed":(resv===r)?"true":"false",
           onClick:()=>{ setResv(r); nbSetRes(r); window.dispatchEvent(new CustomEvent("nb-settings-changed")); }},r))))));
 }
 
@@ -5186,19 +5195,26 @@ function NbDock(){
   const model  = (typeof nbGetModel==="function") ? nbGetModel() : "";
   const aspect = (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9";
   const resv   = (typeof nbGetRes==="function") ? nbGetRes() : "2K";
+  // (2026-10-09) Lite is its own engine (a different price), and GPT Image shows its quality — what the price follows
   const short  = model==="gpt-image-2.5-flare" ? "GPT F"
     : model==="gpt-image-2.5-sunburst" ? "GPT S"
+    : /lite/i.test(model) ? "NB2 Lite"
     : /pro/i.test(model) ? "PRO" : /gpt/i.test(model) ? "GPT" : "NB2";
+  const isGpt = typeof isGptImageModel==="function" && isGptImageModel(model);
+  const qual = isGpt && typeof nbGetOaiQuality==="function" && typeof nbOaiQualityLabel==="function" ? nbOaiQualityLabel(nbGetOaiQuality(model)) : "";
+  // Escape closes the open dock (2026-10-09)
+  React.useEffect(()=>{ if(!open) return undefined; const k=(e)=>{ if(e.key==="Escape") setOpen(false); };
+    window.addEventListener("keydown", k); return ()=>window.removeEventListener("keydown", k); },[open]);
   // NOTE: the TEXT (writing) engine is shown by the separate WritingDock (rendered in
   // both rooms) — this dock is the IMAGE engine only, so the two aren't redundant.
-  return React.createElement("div",{className:"nb-dock"+(open?" open":""),ref:ref,"aria-label":"Image engine settings"},
-    React.createElement("button",{className:"nb-dock-toggle","aria-expanded":open?"true":"false",
+  return React.createElement("div",{className:"nb-dock"+(open?" open":""),ref:ref,role:"region","aria-label":"Image engine settings"},
+    React.createElement("button",{className:"nb-dock-toggle","aria-expanded":open?"true":"false","aria-controls":"nb-dock-panel",
       title:"Image engine — model, aspect & resolution",onClick:()=>setOpen(o=>!o)},
       React.createElement("span",{className:"nb-dock-label"},"Images"),
       React.createElement("span",{className:"nb-dock-chip model"},short),
       React.createElement("span",{className:"nb-dock-chip"},aspect),
-      React.createElement("span",{className:"nb-dock-chip"},resv)),
-    open && React.createElement("div",{className:"nb-dock-panel",onClick:()=>force(x=>x+1)},
+      React.createElement("span",{className:"nb-dock-chip"},isGpt && qual ? qual : resv)),
+    open && React.createElement("div",{className:"nb-dock-panel",id:"nb-dock-panel",onClick:()=>force(x=>x+1)},
       React.createElement(NbControls,null)));
 }
 
@@ -5396,7 +5412,7 @@ function ImageLightbox({ url, character, onClose, siblings, startIndex }){
           resolutions.map(r=>{
             const ord = { "1K":1, "2K":2, "4K":3 };
             const over = !!(nativeRes && ord[r] > ord[nativeRes]);
-            return React.createElement("button",{key:r,className:"nb-seg-btn "+(res===r?"on":""),
+            return React.createElement("button",{key:r,className:"nb-seg-btn "+((res===r)?"on":""),"aria-pressed":(res===r)?"true":"false",
               disabled:over,
               title: over ? ("This image is "+nativeRes+" — downloads never upscale") : ("Download at "+r),
               onClick:()=>setRes(r)},r);
@@ -5422,8 +5438,9 @@ window.charLookbookFirstHint = charLookbookFirstHint;
 /* OPEN A TAB ON A SCENE (2026-10-03, owner — Breakdown review): the Breakdown's missing items and
    one-scene actions hand the next tab a scene to focus (and, for Shots, an optional action). Read at
    mount (peek), cleared once used; a hand-off older than 15 s is ignored. */
-window.turnFocusArtScene = (tab, sceneId, action)=>{ window.turnArtFocus = { tab, sceneId, action:action||"", at:Date.now() }; };
-window.turnPeekArtFocus = (tab)=>{ const f = window.turnArtFocus; return (f && f.tab===tab && Date.now()-f.at<15000) ? f : null; };
+// a hand-off belongs to the film it was made in — scene ids repeat across films (2026-10-09)
+window.turnFocusArtScene = (tab, sceneId, action)=>{ window.turnArtFocus = { tab, sceneId, action:action||"", at:Date.now(), film:window.turnOpenFilmId||null }; };
+window.turnPeekArtFocus = (tab)=>{ const f = window.turnArtFocus; return (f && f.tab===tab && Date.now()-f.at<15000 && (f.film||null)===(window.turnOpenFilmId||null)) ? f : null; };
 window.turnClearArtFocus = (tab)=>{ const f = window.turnArtFocus; if(f && f.tab===tab) window.turnArtFocus = null; };
 function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook }){
   const [view, setView] = React.useState(null);   // {url, character}
@@ -5763,6 +5780,14 @@ window.ScenePager = ScenePager;
 /* #2 — cost/scope preview before the Coordinator runs the whole pipeline (it
    generates a lot, end to end, with no per-step gate). Shows roughly how many
    images it will produce so a paid user isn't surprised. */
+/* the two run previews (Run pre-production, Design the cast) are dialogs: Escape cancels, focus moves in */
+function usePreviewDialog(onCancel){
+  React.useEffect(()=>{ const back = document.activeElement;
+    const h = (e)=>{ if(e.key==="Escape" && !document.querySelector(".appconfirm")){ e.stopPropagation(); onCancel && onCancel(); } };
+    window.addEventListener("keydown", h, true);
+    return ()=>{ window.removeEventListener("keydown", h, true); try{ back && back.focus && back.focus(); }catch(e){} }; },[]);
+}
+function _previewFocus(el){ if(el && !el.__focused){ el.__focused = true; try{ el.focus(); }catch(e){} } }
 function CoordConfirm({ project, characters, props, locations, shots, scenes, drafts, wardrobeCount, onCancel, onConfirm }){
   // HONEST ESTIMATE (fixed 2026-09-26): only the images Run pre-production really renders —
   // cast sheets and their appearance variants, prop sheets (not text-only objects, which
@@ -5774,7 +5799,9 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
   const lines = [
     { id:"cast",     label:"Cast sheets",         unit:"sheet",   n:C.filter(c=>c && !img(c.id)).length },
     { id:"variants", label:"Appearance variants", unit:"variant", n:C.reduce((a,c)=> a + ((c&&c.states)||[]).filter(st=>st && st.sceneId && !img(c.id+":"+st.id)).length, 0) },
-    { id:"props",    label:"Prop sheets",         unit:"sheet",   n:P.filter(p=>p && !img(p.id) && (p.kind==="worn" || tierOf(p)!=="text")).length },
+    // the props the run really makes (2026-10-09): a worn item gets no sheet of its own (it shows on its owner's),
+    // and a carried prop with no owner isn't made either
+    { id:"props",    label:"Prop sheets",         unit:"sheet",   n:P.filter(p=>p && !img(p.id) && p.kind!=="worn" && !((p.kind||"carried")==="carried" && !p.ownerId) && tierOf(p)!=="text").length },
     { id:"wardrobe", label:"Wardrobe updates",    unit:"re-rendered sheet", n:Math.max(0, Number(wardrobeCount)||0) },
     { id:"plates",   label:"Location plates",     unit:"plate",   n:L.filter(l=>l && !img(l.id)).length },
   ];
@@ -5792,7 +5819,10 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
   const hasWork = totalGen>0;
   const note = (icon, text, cls)=> React.createElement("div",{className:"cc-note"+(cls?" "+cls:"")},
     React.createElement(Icon[icon]||Icon.alert,{s:12}), React.createElement("span",null,text));
-  return React.createElement("div",{className:"ns-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onCancel(); }},
+  // a real dialog: Escape cancels, focus moves in, and the scene pager behind it keeps still (2026-10-09)
+  usePreviewDialog(onCancel);
+  return React.createElement("div",{className:"ns-overlay",role:"dialog","aria-modal":"true",tabIndex:-1,ref:_previewFocus,
+      onMouseDown:e=>{ if(e.target===e.currentTarget) onCancel(); }},
     React.createElement("div",{className:"cc-modal"},
       React.createElement("div",{className:"cc-head"},
         React.createElement("span",{className:"cc-orb"}, React.createElement(Icon.robot,{s:18})),
@@ -5801,16 +5831,18 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
           React.createElement("div",{className:"cc-sub"},"Runs the pre-production chain in one pass — Lookbook → Cast → Props → Wardrobe → Locations → Colour → Shot coverage."))),
       hasWork
         ? React.createElement(React.Fragment,null,
+            // the price, not only a count (2026-10-09 — Design the cast shows one); "at least": the run can find more
             React.createElement("div",{className:"cc-est"},
-              React.createElement("span",{className:"cc-est-n"}, "≈ "+totalGen),
-              React.createElement("span",{className:"cc-est-l"}, "image"+(totalGen===1?"":"s")+" to generate")),
+              React.createElement("span",{className:"cc-est-n"}, "at least "+totalGen),
+              React.createElement("span",{className:"cc-est-l"}, "image"+(totalGen===1?"":"s")+" to generate"),
+              typeof window.nbCostChip==="function" && window.nbCostChip(totalGen)),
             React.createElement("ul",{className:"cc-list"},
               pending.map(l=>React.createElement("li",{key:l.id},
                 React.createElement("span",{className:"cc-list-lab"}, l.label),
                 React.createElement("span",{className:"cc-list-n"}, l.n+" "+l.unit+(l.n===1?"":"s"))))),
-            note("alert","Plus any missing time-of-day variants for the locations, and a wardrobe update for anyone whose worn prop is made in this run. Each image uses credits."))
+            note("alert","It can make more than this: missing time-of-day variants for the locations, places and appearance changes it finds in the script, and a wardrobe update for anyone whose worn prop is made in this run. Each image uses credits; what it made shows when it finishes."))
         : note("check","Every sheet and plate already exists — running again refreshes the lookbook, colour and shot coverage (writing credits only) and fills any gaps.","ok"),
-      note("info","It also researches the Lookbook, sets the colour grade and designs shot coverage where it's missing or weak (writing credits). Scenes whose shots you approved or locked keep them.","info"),
+      note("info","It also researches the Lookbook, sets the colour grade and designs shot coverage where it's missing or weak (writing credits). Scenes whose shots you approved or locked keep them. The Lookbook's render style fills every card that has no style yet \u2014 a style already set on a card stays.","info"),
       note("info","Not included: shot frames and storyboards. Render the frames from the Shots tab, then compose the boards in Storyboards.","info"),
       React.createElement("div",{className:"cc-model"},
         React.createElement(Icon.sparkles,{s:12}),
@@ -5862,7 +5894,10 @@ function CastConfirm({ characters, sceneId, sceneNo, sceneIds, onCancel, onConfi
     { id:"variants", label:"Appearance variants", unit:"variant", n:plan.variants },
   ].filter(l=>l.n>0);
   const nothing = !plan.n || (!plan.specs && !plan.images && !plan.noStates);
-  return React.createElement("div",{className:"ns-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onCancel(); }},
+  // a real dialog: Escape cancels, focus moves in, and the scene pager behind it keeps still (2026-10-09)
+  usePreviewDialog(onCancel);
+  return React.createElement("div",{className:"ns-overlay",role:"dialog","aria-modal":"true",tabIndex:-1,ref:_previewFocus,
+      onMouseDown:e=>{ if(e.target===e.currentTarget) onCancel(); }},
     React.createElement("div",{className:"cc-modal","data-testid":"cast-confirm"},
       React.createElement("div",{className:"cc-head"},
         React.createElement("span",{className:"cc-orb"}, React.createElement(Icon.robot,{s:18})),
@@ -5890,7 +5925,7 @@ function CastConfirm({ characters, sceneId, sceneNo, sceneIds, onCancel, onConfi
                 React.createElement("span",{className:"cc-list-lab"}, l.label),
                 React.createElement("span",{className:"cc-list-n"}, l.n+" "+l.unit+(l.n===1?"":"s")+(l.writing?" \u00b7 writing credits":""))))),
             plan.noStates>0 && note("alert", plan.noStates+" character"+(plan.noStates!==1?"s have":" has")+" no appearance changes listed yet \u2014 each one it finds adds one image."),
-            note("info","Each image uses credits at the engine and resolution set at the top of this tab.","info")),
+            note("info","Each image uses credits at the engine and resolution set in the Images dock on the right edge.","info")),
       React.createElement("div",{className:"cc-foot"},
         React.createElement("button",{className:"ns-btn ghost",onClick:onCancel},"Cancel"),
         React.createElement("button",{className:"ns-btn primary",disabled:nothing,

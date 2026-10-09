@@ -188,8 +188,8 @@ await test("H5 plain errors; old names mapped in saved reports; what each run us
 
 /* ═══ I ═══ */
 await test("I1 the run panel: what a run uses, a real dialog, focus on the card, the trace stays put, Stop says what was used", ()=>{
-  assert.ok(agUi.includes('const costLine = agent.maxCalls===0 ? "It makes no writing calls \\u2014 running it is free."'));
-  assert.ok(agUi.includes('role:"dialog","aria-modal":"true","aria-label":"Story Editors"') && agUi.includes('if(e.key==="Escape" && !document.querySelector(".appconfirm-overlay, .appconfirm"))'));
+  assert.ok(agUi.includes(': agent.maxCalls===0 ? "It makes no writing calls \\u2014 running it is free."'));
+  assert.ok(agUi.includes('role:"dialog","aria-modal":"true",') && agUi.includes(': "Story Editors",style:{outline:"none"}},') && agUi.includes('if(e.key==="Escape" && !document.querySelector(".appconfirm-overlay, .appconfirm"))'));
   assert.ok(agUi.includes("React.useEffect(()=>{ if(pending && cardRef.current){ try{ cardRef.current.focus(); }catch(e){} } },[pending]);"));
   assert.ok(agUi.includes("if(bodyRef.current && (nearBottomRef.current || pending))"));
   assert.ok(agUi.includes(" So far it used ") && agUi.includes("A writing call already on its way still finishes (and is charged)"));
@@ -219,7 +219,7 @@ await test("J1 Frances knows the pass, names no vendor for the dock; keys", ()=>
   assert.ok(/numbers each scene once/.test(by("Export (screenplay / story)")));
   assert.ok(/last five deleted scenes/.test(by("Script view")));
   for(const f of ["app", "ai", "script", "agents", "agents-ui", "inspector", "spine", "export", "aiwriter"])
-    assert.ok(html.includes('src="app/'+f+'.jsx?v=20261009-wr3"'), f);
+    assert.ok(["20261009-wr3","20261009-art3"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

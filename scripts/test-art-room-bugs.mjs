@@ -94,7 +94,7 @@ await test("a redesign merges like the Shots tab: IDs and frames kept, extras to
   assert.ok(m.shots.some(s=>s.id==="k9")&&m.shots.some(s=>s.id==="x"));
   const app=read("app/app.jsx"), a0=app.indexOf("applyCoverage: (sceneId, newShots, anchorId)=>{"), cov=app.slice(a0,app.indexOf("\n    };",a0));
   assert.ok(cov.includes("commitBeatKeyframes(fresh, _coverageChecks[sceneId] || (()=>{}))")&&!cov.includes("ss.filter(s=>s.sceneId!==sceneId)"),"the agent path uses the Shots tab's merge");
-  assert.ok(read("app/agents.jsx").includes("any extra shots on a re-planned beat move to Shots Trash"));
+  assert.ok(read("app/agents.jsx").includes("any extra shots on a re-planned beat move to Recently deleted in Shots"));
 });
 
 // ---- bug 3: the Coordinator promises only what it does ----

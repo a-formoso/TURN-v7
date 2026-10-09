@@ -123,7 +123,8 @@ await test("D1 deleting asks first; the card goes to Recently deleted with its f
   const del = app.slice(app.indexOf("const deleteLookbookCard = (id)=>{"), app.indexOf("const restoreLookbookCard"));
   assert.ok(del.includes('{ ...c, deletedAt:new Date().toISOString() }') && !del.includes("nbClearAsset"), "a soft delete that keeps the frame");
   const purge = app.slice(app.indexOf("const purgeLookbookCard = async (id)=>{"), app.indexOf("/* SUGGEST A NOTE"));
-  assert.ok(purge.includes("await nbClearAsset(id)") && purge.includes("ls.filter(c=>c.id!==id)"), "delete forever clears the frame");
+  // (2026-10-09, Art Room third pass) it removes the binned card only, and never a live twin's frame
+  assert.ok(purge.includes("await nbClearAsset(id)") && purge.includes("ls.filter(c=>!(c.id===id && c.deletedAt))"), "delete forever clears the frame");
   assert.ok(app.includes("const { deletedAt, ...live } = c; return live;"), "restore");
   // the card's delete asks
   let asked = null, deleted = null;

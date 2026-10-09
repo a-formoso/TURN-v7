@@ -136,14 +136,16 @@ await test("E3 from scratch replaces only on success; ids never reuse a deleted 
   assert.ok(app.includes('id:"look-"+slug(e.source).slice(0,24)+"-"+i+"-"+Date.now().toString(36)'));
   assert.ok(ag.includes("if(res && res.failed){") && ag.includes("your Lookbook is unchanged"));
   assert.ok(ag.includes("if(plan && plan.drop && plan.drop.length && ctx.autoApprove){") && ag.includes("Run pre-production doesn't trim it"));
-  assert.ok(ag.includes("the Lookbook's render-style pick (it sets the style on every character, prop and location)"));
+  // (2026-10-09, Art Room third pass) it fills only the cards with no style yet
+  assert.ok(ag.includes("the Lookbook's render-style pick (it fills the style on every character, prop and location that has none yet; a style you set stays)"));
 });
 
 /* ═══ F ═══ */
 await test("F1 copy, purge, Shots notice, dead comment; Frances", ()=>{
   assert.ok(!/Generate all frames/.test(ag) && !/clear the look statement in the Lookbook and run again/.test(ag));
   const art = read("app/artroom.jsx");
-  assert.ok(art.includes('(kind==="reference" ? "mood frame" : kind==="shot" ? "frame and its earlier versions" : kind==="location" ? "plates" : "reference sheet")'));
+  // (2026-10-09, Art Room third pass) the warning names everything that goes, per kind
+  assert.ok(art.includes('(kind==="reference" ? "mood frame"') && art.includes(': kind==="shot" ? "frame and its earlier versions"'));
   assert.ok(app.includes("Couldn't delete that mood frame just now"));
   assert.ok(read("app/shots-ui.jsx").includes("its visual statement or its Lens & format, Composition or Lighting notes changed"));
   assert.ok(!app.includes("// Remove the whole Lookbook (references + statement + their mood frames)."));

@@ -2619,7 +2619,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   React.useEffect(()=>{ if(!chain) window.__turnShotRunPropChoice = null; },[chain]);
   const chainBusyNotice = ()=> setNotice("A render is already in progress \u2014 wait for it to finish, or press Stop on the running shot first.");
   // opts.always: started from ANOTHER tab (the Breakdown's "Render Scene NN") — always ask first, with the price (2026-10-05)
-  const startScene = async (scene, opts)=>{ if(batchActiveId||chain||chainStartingRef.current){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("The chosen image model needs your own API key \u2014 add it in the image settings at the top of this tab, or pick another model."); return; }
+  const startScene = async (scene, opts)=>{ if(batchActiveId||chain||chainStartingRef.current){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("The chosen image model isn't available right now \u2014 pick another one in the Images dock on the right edge."); return; }
     const ids = chainOrderIds(shotsByScene[scene.id]); if(!ids.length) return;
     chainStartingRef.current = true;
     // a scene run ALWAYS asks first, with the price (2026-10-09 — it asked only when it would redo frames)
@@ -2627,7 +2627,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     finally{ chainStartingRef.current = false; }
     setCollapsed(c=>({ ...c, [scene.id]:false }));   // keep the scene's cards mounted through the run
     stepChain(ids, 0, false); };
-  const startAll = async ()=>{ if(batchActiveId||chain||chainStartingRef.current){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("The chosen image model needs your own API key \u2014 add it in the image settings at the top of this tab, or pick another model."); return; }
+  const startAll = async ()=>{ if(batchActiveId||chain||chainStartingRef.current){ chainBusyNotice(); return; } if(!chainKeyOk()){ batch.setMsg("The chosen image model isn't available right now \u2014 pick another one in the Images dock on the right edge."); return; }
     const ids = scenesWithShots.flatMap(s=>chainOrderIds(shotsByScene[s.id]));
     if(!ids.length){ batch.setMsg("Draft the shots first \u2014 nothing to generate yet."); return; }
     chainStartingRef.current = true;
@@ -2691,7 +2691,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       setNotice("A render is already in progress \u2014 wait for it to finish, or press Stop on the running shot first.");
       return;
     }
-    if(!chainKeyOk()){ batch.setMsg("The chosen image model needs your own API key \u2014 add it in the image settings at the top of this tab, or pick another model."); return; }
+    if(!chainKeyOk()){ batch.setMsg("The chosen image model isn't available right now \u2014 pick another one in the Images dock on the right edge."); return; }
     chainStartingRef.current=true;
     try{
       const target=shotById[id];

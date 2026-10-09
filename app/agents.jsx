@@ -723,8 +723,15 @@ function agentErrText(e){
   const msg = String((e && e.message) || e || "").trim();
   const raw = !msg || /^(TypeError|ReferenceError|SyntaxError|RangeError)\b|Cannot read propert|is not a function|is not defined|undefined|null\b|\[object /.test(msg)
     || (e && /^(TypeError|ReferenceError|SyntaxError|RangeError)$/.test(String(e.name||"")));
+  const admin = (typeof window!=="undefined" && window.turnIsAdmin) ? " [admin: "+msg+"]" : "";
+  // service plumbing (provider, proxy, deploy notes) reads as plain words too (2026-10-09, owner — Art Room review)
+  if(!raw && /fal\.ai|\bfal\b|image-proxy|\bproxy\b|supabase|edge function|redeploy|deploy |stale scope/i.test(msg)){
+    if(/stale scope|film changed/i.test(msg)) return "the film changed while it was being made, so it wasn't saved"+admin;
+    if(/took too long|timed? ?out|rate-limited/i.test(msg)) return "the image service took too long to answer \u2014 try again in a moment"+admin;
+    return "the service didn't answer \u2014 try again in a moment"+admin;
+  }
   if(!raw) return msg.replace(/[.\s]+$/,"");
-  return "an unexpected error"+((typeof window!=="undefined" && window.turnIsAdmin) ? " [admin: "+msg+"]" : "");
+  return "an unexpected error"+admin;
 }
 window.agentErrText = agentErrText;
 function standInDraft(d){
@@ -1683,17 +1690,17 @@ async function agentColorist(ctx){
   ctx.emit({k:"plan", t:"Designing this film's colour system — a bespoke palette + film stock from the story and your references — then color-scripting every scene along the value-charge spine."});
   ctx.emit({k:"act", t:"Reading the spine + visual references, designing the looks…"});
   let res = null, failure = "";
-  try{ res = await art.designStyles(); }catch(e){ failure = String((e && e.message) || "the writing model couldn't be reached"); }
+  try{ res = await art.designStyles(); }catch(e){ failure = agentErrText(e) || "the writing model couldn't be reached"; }
   if(ctx.cancelled()) return;
   // the real reason, and "try again" only when trying again can help (2026-10-08)
   if(failure){
     const hopeless = /sign in|credit|budget|allowance|plan doesn|limit reached|not allowed/i.test(failure);
     ctx.emit({k:"flag", t:"The Colorist couldn't run: "+failure+(hopeless ? "" : " — try again in a moment.")});
-    ctx.emit({k:"done", t:"Aborted \u2014 nothing changed."}); return;
+    ctx.emit({k:"done", t:"Aborted \u2014 nothing changed.", status:"failed"}); return;
   }
   if(!res || !(res.presets||[]).length){
     ctx.emit({k:"flag", t:"The model's answer couldn't be read as a palette. Run it again to try once more \u2014 that is another writing call."});
-    ctx.emit({k:"done", t:"Aborted \u2014 nothing changed."}); return;
+    ctx.emit({k:"done", t:"Aborted \u2014 nothing changed.", status:"failed"}); return;
   }
   if(res.visionSkipped) ctx.emit({k:"flag", t:"Couldn't look at your reference stills ("+res.visionSkipped+") \u2014 the Colorist worked from their sampled colours instead."});
   // scenes the user set by hand keep their look (unless this run redoes them) — say so, and show it
@@ -1799,7 +1806,7 @@ async function agentShotDesigner(ctx){
     const turnAt = cov.turnAtOf(issue.sceneId);
     if(!ctx.ai || !ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available to design coverage — skipping Scene "+issue.sceneNo+"."}); skip.add(issue.sceneId); continue; }
     ctx.emit({k:"act", t:"Designing coverage for Scene "+issue.sceneNo+" — establishing, tightening, landing "+(fwTurnWord()||"the turn")+"…"});
-    let made=null, why=""; try{ made = await cov.draftCoverage(scene); }catch(e){ why = String((e&&e.message)||e||""); }
+    let made=null, why=""; try{ made = await cov.draftCoverage(scene); }catch(e){ why = agentErrText(e); }
     if(ctx.cancelled()) return;
     if(!made || !made.length){ ctx.emit({k:"flag", t:"Couldn't design coverage for Scene "+issue.sceneNo+(why ? " ("+why+")" : " \u2014 the answer couldn't be read")+". Moving on."}); skip.add(issue.sceneId); continue; }
     // guarantee the turn LANDS tight: if the model left the turning beat wide, push it to a CU
@@ -1812,7 +1819,7 @@ async function agentShotDesigner(ctx){
     const curCount = cov.shotsOf(issue.sceneId).length;
     const ok = await ctx.propose({
       title:"Shot coverage — Scene "+issue.sceneNo+" “"+((scene&&scene.title)||"Untitled")+"”",
-      reason:issue.msg + (curCount?(" Each beat's current shot keeps its ID and frames (an image may need re-rendering if its shot changes); any extra shots on a re-planned beat move to Shots Trash, where you can restore them."):""),
+      reason:issue.msg + (curCount?(" Each beat's current shot keeps its ID and frames (an image may need re-rendering if its shot changes); any extra shots on a re-planned beat move to Recently deleted in Shots, where you can restore them."):""),
       rationale:fix.rationale,
       list:fix.list,
     });
@@ -1862,7 +1869,7 @@ async function agentCastingDirector(ctx){
   ctx.emit({k:"plan", t: ctx.draftOnly
     ? "Re-drafting the cast from the updated Lookbook — for each of the "+N+" character"+(N!==1?"s":"")+": re-draft the look and appearance states. Specs only — every master sheet and variant stays untouched."
     : "Designing the cast — for each of the "+N+" character"+(N!==1?"s":"")+": draft the look"+(withVariants?", find their appearance changes":"")+", generate the master sheet (with prop + likeness references)"+(withVariants?", then each state variant":"")+". Only what's missing is made."});
-  let specs=0, sheets=0, variants=0;
+  let specs=0, sheets=0, variants=0, specErr="";
   for(const ch of castList){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+sheets+" sheet"+(sheets!==1?"s":"")+" generated."}); return; }
     let c = ch;
@@ -1872,15 +1879,22 @@ async function agentCastingDirector(ctx){
     const redraftSpecs = ctx.force || ctx.draftOnly;
     if((redraftSpecs || !cast.isDrafted(c)) && ctx.ai && ctx.ai.available){
       ctx.emit({k:"act", t:(redraftSpecs?"Re-drafting ":"Drafting ")+(c.name||"the character")+"'s look from the script…"});
-      try{ const patch = await cast.draftSpec(c); if(patch){ c = {...c, ...patch}; specs++; } }catch(e){}
+      // (2026-10-09, owner — Art Room review) a failed draft says why — it used to read "add a look" as if it were yours to do
+      try{ const patch = await cast.draftSpec(c); if(patch){ c = {...c, ...patch}; specs++; } }
+      catch(e){ specErr = agentErrText(e); }
     }
     if(ctx.cancelled()) return;
-    if(!cast.isDrafted(c)){ ctx.emit({k:"flag", t:(c.name||"This character")+" has no spec yet (add a look in the Characters tab) — skipping."}); continue; }
+    if(!cast.isDrafted(c)){ ctx.emit({k:"flag", t:(c.name||"This character")+(specErr
+        ? "'s look couldn't be drafted ("+specErr+") — skipping."
+        : (!(ctx.ai && ctx.ai.available) ? " has no spec yet, and the writing model isn't available to draft one — skipping."
+          : " has no spec yet (add a look in the Characters tab) — skipping."))}); specErr = ""; continue; }
+    specErr = "";
 
     // 2) suggest appearance states if none
     if(withVariants && !(c.states && c.states.length) && ctx.ai && ctx.ai.available){
       ctx.emit({k:"act", t:"Finding "+(c.name||"the character")+"'s appearance changes…"});
-      try{ const sts = await cast.suggestStates(c); if(sts && sts.length){ c = {...c, states:sts}; } }catch(e){}
+      try{ const sts = await cast.suggestStates(c); if(sts && sts.length){ c = {...c, states:sts}; } }
+      catch(e){ ctx.emit({k:"flag", t:"Couldn't find "+(c.name||"the character")+"'s appearance changes ("+agentErrText(e)+") — their master sheet still comes next."}); }
     }
     if(ctx.cancelled()) return;
 
@@ -1976,7 +1990,7 @@ async function agentPropsMaster(ctx){
   // 1) character-brief design proposals (screenplay props come from the review flow)
   ctx.emit({k:"act", t:"Synchronizing character-brief design proposals…"});
   let castN=0;
-  try{ castN = pm.deriveCast(); }catch(e){}
+  try{ castN = pm.deriveCast(); }catch(e){ ctx.emit({k:"flag", t:"Couldn't read the cast's briefs for their props ("+agentErrText(e)+") — continuing with the props already on the board."}); }
   if(ctx.cancelled()) return;
   ctx.emit({k:"observe", t:"Added "+castN+" character-brief proposal(s). Use Props → Extract screenplay props to review script-established objects and link them to this inventory."});
   if(ctx.cancelled()) return;
@@ -1985,9 +1999,10 @@ async function agentPropsMaster(ctx){
   const redraftSpecs = ctx.force || ctx.draftOnly;
   ctx.emit({k:"act", t:redraftSpecs?"Re-drafting every prop spec from the story…":"Drafting prop specs from the story…"});
   let drafted=0;
+  let specsFailedP = false;
   try{ drafted = await pm.draftSpecs(redraftSpecs); }
-  catch(e){ ctx.emit({k:"flag", t:"Spec drafting hit an error: "+agentErrText(e)}); }
-  ctx.emit({k:"observe", t:drafted?("Drafted "+drafted+" spec"+(drafted!==1?"s":"")+"."):"Specs already complete."});
+  catch(e){ specsFailedP = true; ctx.emit({k:"flag", t:"Spec drafting hit an error: "+agentErrText(e)+". The specs stay as they were."}); }
+  if(!specsFailedP) ctx.emit({k:"observe", t:drafted?("Drafted "+drafted+" spec"+(drafted!==1?"s":"")+"."):"Specs already complete."});
   if(ctx.cancelled()) return;
 
   // Similar names are not object identity: no automatic dedup. Only an explicit user
@@ -2003,7 +2018,8 @@ async function agentPropsMaster(ctx){
 
   // 3) generate sheets (force = regenerate ALL drafted props that need their own image)
   let todo=[];
-  try{ todo = await pm.toGenerate(ctx.force); }catch(e){}
+  try{ todo = await pm.toGenerate(ctx.force); }
+  catch(e){ ctx.emit({k:"flag", t:"Couldn't list the props that still need a sheet ("+agentErrText(e)+") — nothing was generated."}); ctx.emit({k:"done", t:"Props stopped before generating."}); return; }
   if(!todo.length){
     if(ctx.art.markApplied && ctx.force && drafted>0) ctx.art.markApplied("props");
     ctx.emit({k:"done", t:"Props ready — "+castN+" brief proposal"+(castN!==1?"s":"")+", "+drafted+" drafted; every drafted prop that needs its own image already has one."}); return;
@@ -2013,7 +2029,10 @@ async function agentPropsMaster(ctx){
   for(const p of todo){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+sheets+" sheet"+(sheets!==1?"s":"")+" generated."}); return; }
     ctx.emit({k:"act", t:"Generating "+(p.name||"a prop")+"'s sheet…"});
-    try{ await pm.generateSheet(p); sheets++;
+    // a sheet that didn't generate returns false (2026-10-09 — it was counted and called "generated")
+    try{ const r = await pm.generateSheet(p);
+      if(r===false){ ctx.emit({k:"flag", t:"Couldn't generate "+(p.name||"the prop")+"'s sheet. Moving on."}); continue; }
+      sheets++;
       ctx.emit({k:"ok", t:(p.name||"Prop")+" — sheet generated."}); }
     catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(p.name||"the prop")+"'s sheet: "+agentErrText(e)+". Moving on."}); }
   }
@@ -2063,8 +2082,11 @@ async function agentLocationScout(ctx){
   // 4) design the depth-grid staging
   ctx.emit({k:"act", t:"Designing the depth-grid staging…"});
   let staged=0;
-  try{ staged = await ls.draftStaging(); }catch(e){}
+  try{ staged = await ls.draftStaging(); }
+  catch(e){ ctx.emit({k:"flag", t:"Couldn't design the staging ("+agentErrText(e)+") — the plates render from their prose specs."}); }
   if(staged) ctx.emit({k:"observe", t:"Staged "+staged+" location"+(staged!==1?"s":"")+"."});
+  { const failedS = (typeof ls.stagingFailed==="function") ? ls.stagingFailed() : [];
+    if(failedS.length) ctx.emit({k:"flag", t:"Couldn't stage "+failedS.join(", ")+" \u2014 "+(failedS.length!==1?"they render":"it renders")+" from the prose spec; stage "+(failedS.length!==1?"them":"it")+" from the card later."}); }
   if(ctx.cancelled()) return;
 
   // 5) add the time-of-day variants the script calls for (a place seen at >1 time)
@@ -2170,9 +2192,10 @@ async function agentVisualResearcher(ctx){
   ctx.emit({k:"act", t:"Reading the story, writing the look statement, gathering references…"});
   let res;
   try{ res = await lb.research(); }
-  catch(e){ ctx.emit({k:"flag", t:"Research hit an error: "+agentErrText(e)}); }
+  catch(e){ ctx.emit({k:"flag", t:"Research hit an error: "+agentErrText(e)+" \u2014 your Lookbook is unchanged."});
+    ctx.emit({k:"done", t:"Nothing changed.", status:"failed"}); return { failed:true }; }
   if(res && res.failed){ ctx.emit({k:"flag", t:"The research came back empty \u2014 your Lookbook is unchanged (nothing was moved to Recently deleted). Try again in a moment."});
-    ctx.emit({k:"done", t:"Nothing changed."}); return; }
+    ctx.emit({k:"done", t:"Nothing changed.", status:"failed"}); return { failed:true }; }
   if(res && res.statement) ctx.emit({k:"observe", t:"Look statement — "+res.statement.slice(0,150)});
   ctx.emit({k:"observe", t:(res&&res.added ? ("Gathered "+res.added+" reference"+(res.added!==1?"s":"")) : "References already gathered")+" — the colour system (the Color tab) reads these directly when it designs the palette."});
   if(ctx.cancelled()) return;
@@ -2194,8 +2217,9 @@ async function agentVisualResearcher(ctx){
     });
     if(ctx.cancelled()) return;
     if(ok){
-      const n = lb.applyRenderStyle(rs.key) || {};
-      ctx.emit({k:"ok", t:"Render style “"+rs.label+"” applied — "+(n.characters||0)+" character"+((n.characters||0)!==1?"s":"")+", "+(n.props||0)+" prop"+((n.props||0)!==1?"s":"")+", "+(n.locations||0)+" location"+((n.locations||0)!==1?"s":"")+". Regenerate sheets and plates to see it."});
+      const n = lb.applyRenderStyle(rs.key, { onlyUnset:!!ctx.autoApprove }) || {};
+      ctx.emit({k:"ok", t:"Render style “"+rs.label+"” applied — "+(n.characters||0)+" character"+((n.characters||0)!==1?"s":"")+", "+(n.props||0)+" prop"+((n.props||0)!==1?"s":"")+", "+(n.locations||0)+" location"+((n.locations||0)!==1?"s":"")
+        +(n.kept ? " (cards that already had a style keep it: "+n.kept+")" : "")+". Regenerate sheets and plates to see it."});
     } else {
       ctx.emit({k:"flag", t:"Render style proposal declined — every style dropdown stays as it is."});
     }
@@ -2220,12 +2244,16 @@ async function agentDepartmentCoordinator(ctx){
     ["Colour",     agentColorist],
     ["Shots",      agentShotDesigner],
   ];
-  ctx.emit({k:"plan", t:"Running the whole pre-production pipeline in dependency order — the lookbook first (it steers the look), then the CAST, then the PROPS (each worn/owned prop references its owner's sheet so it matches that character), then DRESSING the cast in their finalized worn props, then locations, then the colour system, then shot coverage. It runs end to end WITHOUT stopping — the Lookbook's render-style pick (it sets the style on every character, prop and location), the colour system and the shot coverage are applied automatically, no approval needed. Press Stop anytime."});
+  ctx.emit({k:"plan", t:"Running the whole pre-production pipeline in dependency order — the lookbook first (it steers the look), then the CAST, then the PROPS (each worn/owned prop references its owner's sheet so it matches that character), then DRESSING the cast in their finalized worn props, then locations, then the colour system, then shot coverage. It runs end to end WITHOUT stopping — the Lookbook's render-style pick (it fills the style on every character, prop and location that has none yet; a style you set stays), the colour system and the shot coverage are applied automatically, no approval needed. Press Stop anytime."});
   // each sub-agent emits its own k:"done" when its stage finishes — relabel those to k:"ok"
   // so each stage reads as one completed step and only THIS coordinator emits the final done.
   // propose() is auto-approved so the two gated steps (Colour, Shots) apply without pausing.
+  /* A STEP THAT STOPPED IS NAMED (2026-10-09, owner — Art Room review): only thrown errors counted, so a step
+     that ended "Aborted — nothing changed" (the Colorist, the Researcher) read as done in "Pre-production complete" */
+  let stepFailed = false;
   const subOf = (base)=> Object.assign({}, base, {
-    emit:(e)=> ctx.emit((e && e.k==="done") ? Object.assign({}, e, {k:"ok"}) : e),
+    emit:(e)=>{ if(e && e.k==="done" && e.status==="failed") stepFailed = true;
+      ctx.emit((e && e.k==="done") ? Object.assign({}, e, {k:(e.status==="failed" ? "flag" : "ok")}) : e); },
     propose:()=> Promise.resolve(true),
     cancelled:()=> ctx.cancelled() || (typeof base.cancelled==="function" && base.cancelled()),
     autoApprove:true,   // steps that would change your approved work hold back (Shot Designer)
@@ -2245,7 +2273,8 @@ async function agentDepartmentCoordinator(ctx){
     }
     n++;
     ctx.emit({k:"act", t:"▸ Step "+n+"/"+steps.length+" — "+step[0]+"…"});
-    try{ await step[1](subOf(live)); }
+    stepFailed = false;
+    try{ const r = await step[1](subOf(live)); if(stepFailed || (r && r.failed)) errored.push(step[0]); }
     catch(e){ errored.push(step[0]); ctx.emit({k:"flag", t:step[0]+" step hit an error: "+agentErrText(e)+". Continuing with the next."}); }
   }
   if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — completed "+n+" of "+steps.length+" steps."}); return; }
@@ -2458,7 +2487,7 @@ async function agentConsistency(ctx, opts){
             rows:(nb.rows||[]).map(r=>({ ...r,
               drive:{ ...(r.drive||{}), a:fix(r.drive&&r.drive.a), d:fix(r.drive&&r.drive.d) },
               react:{ ...(r.react||{}), a:fix(r.react&&r.react.a), d:fix(r.react&&r.react.d) } })) }; }
-          ctx.sync(); fixes++; refresh();
+          if(ctx.sync()===false) return; fixes++; refresh();
           ctx.emit({k:"ok", t:"Sc "+scene.no+": \u201c"+t.tok+"\u201d \u2192 \u201c"+rep+"\u201d \u2014 "+count+" occurrence"+(count===1?"":"s")+" fixed."});
         }
       }
@@ -2482,7 +2511,7 @@ async function agentConsistency(ctx, opts){
           before:"beat tags: "+blocks.map(b=> b.beat==null ? "—" : b.beat).join(" · "),
           after:"beat tags: "+fixed.map(b=>b.beat).join(" · ") });
         if(ctx.cancelled()) return;
-        if(ok){ ctx.model.drafts[scene.id] = { ...draft, blocks:fixed }; ctx.sync(); fixes++; refresh();
+        if(ok){ ctx.model.drafts[scene.id] = { ...draft, blocks:fixed }; if(ctx.sync()===false) return; fixes++; refresh();
           ctx.emit({k:"ok", t:"Sc "+scene.no+": beat mapping re-aligned — "+moved+" block"+(moved===1?"":"s")+" re-tagged."}); }
       }
     }
@@ -2522,7 +2551,7 @@ async function agentConsistency(ctx, opts){
             nb.splice(at, 0, { beat:(nb[at]&&nb[at].beat)||1, type:"scene", text:window.impliedSpaceSlugline(sp) });
           });
           ctx.model.drafts[scene.id] = {...draft, blocks:nb, edited:true};
-          ctx.sync(); fixes++; refresh();   // the insert was never synced, so it was lost unless a later fix committed it
+          if(ctx.sync()===false) return; fixes++; refresh();   // the insert was never synced, so it was lost unless a later fix committed it
           ctx.emit({k:"ok", t:"Scene "+scene.no+" \u2014 slugged "+implied.map(sp=>sp.name).join(", ")+". Run \u201cDesign all locations\u201d to build the new set."});
         } else sceneIssues.push("implied space left unslugged");
       }
@@ -2549,7 +2578,7 @@ async function agentConsistency(ctx, opts){
       if(ok){
         const nb = blocks.map((b,i)=>{ const p = pronounBlocks.find(x=>x.i===i); return p ? {...b, text:p.after} : b; });
         ctx.model.drafts[scene.id] = {...draft, blocks:nb, edited:true};
-        ctx.sync(); fixes++; refresh();
+        if(ctx.sync()===false) return; fixes++; refresh();
         ctx.emit({k:"ok", t:"Scene "+scene.no+": pronouns now match the cast bible."});
       }
     }
@@ -2581,35 +2610,37 @@ async function agentConsistency(ctx, opts){
       if(carrier && fixture){ flags++; ctx.emit({k:"flag", t:"Sc "+scene.no+" · \""+p.name+"\": the script shows it both handled and fixed in place — decide its home yourself."}); }
       else if(carrier && (p.kind!=="carried" || p.ownerId!==carrier.id) && cards<MAX_CARDS){
         cards++;
-        const ok = await ctx.propose({ writes:"art",
+        const ok = ctx.cancelled() ? false : await ctx.propose({ writes:"art",
           title:"Scene "+scene.no+" — \""+p.name+"\" is carried by "+carrier.name,
           reason:"The script shows "+carrier.name+" handling it (“"+sentences.find(s=>_CONS_CARRY.test(s)).trim().slice(0,110)+"”) but the card says "+(p.kind==="dressing"?"set dressing":(p.kind||"carried")+(p.ownerName?" · "+p.ownerName:" · unassigned"))+".",
           rationale:"An object a character handles is a prop with an owner — never part of the location. Its sheet will reference "+carrier.name+"'s look.",
           before:(p.kind==="dressing"?"Set dressing":_consCap(p.kind||"carried"))+(p.ownerName?" · "+p.ownerName:p.kind==="dressing"?"":" · unassigned"),
           after:"Carried · "+carrier.name });
-        if(ok){ bible.patchProp(p.id, { kind:"carried", kindSet:true, ownerId:carrier.id, ownerName:carrier.name, locationId:"" }); fixes++;
-          ctx.emit({k:"ok", t:"\""+p.name+"\" → carried · "+carrier.name+"."}); }
+        if(ok){ if(bible.patchProp(p.id, { kind:"carried", kindSet:true, ownerId:carrier.id, ownerName:carrier.name, locationId:"" })===false)
+            ctx.emit({k:"flag", t:"Not applied \u2014 the film changed or your role can't change it now."});
+          else { fixes++; ctx.emit({k:"ok", t:"\""+p.name+"\" → carried · "+carrier.name+"."}); } }
       }
       else if(!carrier && fixture && p.kind!=="dressing" && cards<MAX_CARDS){
         cards++;
-        const ok = await ctx.propose({ writes:"art",
+        const ok = ctx.cancelled() ? false : await ctx.propose({ writes:"art",
           title:"Scene "+scene.no+" — \""+p.name+"\" is part of the set",
           reason:"The script shows it fixed in place, but the card says "+(p.kind||"carried")+(p.ownerName?" · "+p.ownerName:"")+".",
           rationale:"Fixtures render into the location plate and inherit its style — they don't need a hand or an owner.",
           before:_consCap(p.kind||"carried")+(p.ownerName?" · "+p.ownerName:""),
           after:"Set dressing"+(loc?(" · fixture of "+loc.name):"") });
-        if(ok){ bible.patchProp(p.id, { kind:"dressing", kindSet:true, ownerId:"", ownerName:"", locationId:(loc&&loc.id)||"" }); fixes++;
-          ctx.emit({k:"ok", t:"\""+p.name+"\" → set dressing"+(loc?(" at "+loc.name):"")+"."}); }
+        if(ok){ if(bible.patchProp(p.id, { kind:"dressing", kindSet:true, ownerId:"", ownerName:"", locationId:(loc&&loc.id)||"" })===false)
+            ctx.emit({k:"flag", t:"Not applied \u2014 the film changed or your role can't change it now."});
+          else { fixes++; ctx.emit({k:"ok", t:"\""+p.name+"\" → set dressing"+(loc?(" at "+loc.name):"")+"."}); } }
       }
       /* dressing prop with no home, in a scene that resolves to one location */
       if(p.kind==="dressing" && !p.locationId && loc && cards<MAX_CARDS){
         cards++;
-        const ok = await ctx.propose({ writes:"art",
+        const ok = ctx.cancelled() ? false : await ctx.propose({ writes:"art",
           title:"\""+p.name+"\" — pin its location",
           reason:"It's set dressing with no place to live, so it can't bake into any plate.",
           rationale:"Scene "+scene.no+" resolves to "+loc.name+" — the obvious home.",
           before:"Set dressing · no location", after:"Set dressing · fixture of "+loc.name });
-        if(ok){ bible.patchProp(p.id, { locationId:loc.id }); fixes++; ctx.emit({k:"ok", t:"\""+p.name+"\" pinned to "+loc.name+"."}); }
+        if(ok){ if(bible.patchProp(p.id, { locationId:loc.id })===false){ ctx.emit({k:"flag", t:"Not applied \u2014 the film changed or your role can't change it now."}); } else { fixes++; ctx.emit({k:"ok", t:"\""+p.name+"\" pinned to "+loc.name+"."}); } }
       }
       /* owner not in the scene */
       if((p.kind==="carried"||p.kind==="worn") && p.ownerId && rosterIds.length && rosterIds.indexOf(p.ownerId)<0){
@@ -2648,21 +2679,23 @@ async function agentConsistency(ctx, opts){
     if(majority && odd.length && cards<MAX_CARDS){
       cards++;
       const lab = (k)=>{ const o=(window.CHAR_RENDER_STYLE_OPTIONS||[]).find(x=>x.key===k); return o?o.label.replace(/^[🔒🌐]\s*/,""):k; };
-      const ok = await ctx.propose({ writes:"art",
+      const ok = ctx.cancelled() ? false : await ctx.propose({ writes:"art",
         title:"Scene "+scene.no+" — "+odd.length+" card"+(odd.length===1?"":"s")+" speak a different render style",
         reason:"Most of this scene renders as \""+lab(majority)+"\", but "+odd.map(e=>e.name).join(", ")+" "+(odd.length===1?"is":"are")+" set to something else — frames will clash.",
         rationale:"Align the odd ones to the scene's majority. Pick a different style anytime from any card's dropdown.",
         before:odd.map(e=>e.name+" · "+lab(e.key)).join("\n"),
         after:odd.map(e=>e.name+" · "+lab(majority)).join("\n") });
       if(ok){
+        let notSaved = false;
         odd.forEach(e=>{
           const styleText = (typeof window.renderStyleText==="function") ? window.renderStyleText(e.kind==="loc"?"loc":e.kind==="prop"?"prop":"char", majority) : "";
-          if(e.kind==="prop") bible.patchProp(e.id, { renderStyleKey:majority, renderStyle:styleText });
-          else if(e.kind==="loc") bible.patchLocation(e.id, { renderStyleKey:majority, renderStyle:styleText });
+          if(e.kind==="prop"){ if(bible.patchProp(e.id, { renderStyleKey:majority, renderStyle:styleText })===false) notSaved = true; }
+          else if(e.kind==="loc"){ if(bible.patchLocation(e.id, { renderStyleKey:majority, renderStyle:styleText })===false) notSaved = true; }
           else { const ch = ctx.model.characters.find(c=>c.id===e.id); if(ch){ ch.renderStyleKey=majority; ch.renderStyle=styleText; } }
         });
-        if(odd.some(e=>e.kind==="char")) ctx.sync();
-        fixes++; ctx.emit({k:"ok", t:"Scene "+scene.no+" now renders in one style."});
+        if(odd.some(e=>e.kind==="char") && ctx.sync()===false) return;
+        if(notSaved) ctx.emit({k:"flag", t:"Not applied \u2014 the film changed or your role can't change it now."});
+        else { fixes++; ctx.emit({k:"ok", t:"Scene "+scene.no+" now renders in one style."}); }
       }
     }
 
@@ -2709,7 +2742,7 @@ async function agentConsistency(ctx, opts){
         if(cards>=MAX_CARDS) break;
         cards++;
         const excerpt = scriptText.slice(Math.max(0,m2.index-60), m2.index+m2[0].length+20).trim();
-        const ok = await ctx.propose({ writes:"art",
+        const ok = ctx.cancelled() ? false : await ctx.propose({ writes:"art",
           title:"Wardrobe drift — "+ch.name+" has no "+stem,
           reason:"Sc "+scene.no+" puts a "+stem+" on "+ch.name+" (\u201c\u2026"+excerpt.slice(0,110)+"\u2026\u201d) but their sheet's wardrobe doesn't carry one — the sheet renders the script's continuity home missing.",
           rationale:"Approve to append \u201ca worn "+stem+"\u201d to "+ch.name+"'s wardrobe so every future sheet and shot includes it. Regenerate the sheet when ready (not done automatically — it spends credits). Reject if the "+stem+" is scene-specific — then add it as an APPEARANCE STATE on the card instead.",
@@ -2726,7 +2759,7 @@ async function agentConsistency(ctx, opts){
             else patch.wardrobe = "a worn "+stem;
             if((cur.wardrobeMask||"").trim()) patch.wardrobeMask = cur.wardrobeMask.replace(/\.?\s*$/,"") + add;
             ctx.model.characters[i] = { ...cur, ...patch };
-            ctx.sync(); fixes++;
+            if(ctx.sync()===false) return; fixes++;
             ctx.emit({k:"ok", t:ch.name+"'s wardrobe now carries the "+stem+" — regenerate their sheet to see it."});
           }
         }
@@ -2916,27 +2949,35 @@ const AGENTS = [
     maxCalls:2, run:agentTableRead },   // the read + the voice check
   { id:"production", name:"Production check", icon:"clipboard", kind:"fix", room:"art",
     blurb:"The 1st-AD pass before you render: reads every written scene into the cast sheets (pronouns, scale, physical details, voice, signature expressions), then holds props, locations, render styles, wardrobe and shots to the script \u2014 and offers to rewrite they/them lines to the cast's real pronouns and to slug the spaces the action plays inside. Every change is an approval card. The script read uses the writing model; the checks after it are free.",
+    // (2026-10-09) one writing call per written scene (the script read); the checks after it are free
+    costLine:"It makes one writing call per written scene (the script read, writing credits); the checks after it are free. What it used shows when it finishes.",
     run:agentProductionCheck },
   { id:"colorist", name:"Colorist", icon:"palette", kind:"build", room:"art",
     blurb:"Designs your film's colour system \u2014 a bespoke palette + film stock from the story and your visual references \u2014 then color-scripts every scene along the value-charge spine and shows you why, for your approval.",
+    costLine:"It makes a writing call to design the palette (and reads your reference stills); it makes no images. What it used shows when it finishes.",
     run:agentColorist },
   { id:"shotdesigner", name:"Shot Designer", icon:"film", kind:"build", room:"art",
     blurb:"Audits your coverage scene by scene \u2014 does each scene establish wide, tighten, and land its turn on its most expressive size? \u2014 and proposes the shots to fix it, for your approval. Then hand off to \u2018Generate all shots\u2019.",
+    costLine:"It makes one writing call per scene whose coverage it designs; it renders no frames. What it used shows when it finishes.",
     run:agentShotDesigner },
   { id:"casting", name:"Casting Director", icon:"userScan", kind:"build", room:"art", autonomous:true,
     blurb:"Designs your whole cast on its own \u2014 drafts each character's look, finds their appearance changes, then generates the master sheet (with prop + cameo references) and every state variant. Runs autonomously; press Stop anytime.",
-    run:agentCastingDirector },
+    costLine:"It uses writing credits for its specs and image credits for each sheet or plate it makes \u2014 only what's missing is made, and what it used (writing calls and images) shows when it finishes.", run:agentCastingDirector },
   { id:"propsmaster", name:"Props Master", icon:"box", kind:"build", room:"art", autonomous:true,
     blurb:"Adds the worn/carried items listed in the cast's character briefs as proposals, drafts every prop's spec, and generates the reference images for the props that need their own (text-only objects are described in shots instead), each owned prop referencing its owner's character sheet so it matches that character's look (runs after the cast). It never adds or merges screenplay props \u2014 use Props \u2192 Extract screenplay props for that. Runs autonomously; press Stop anytime.",
-    run:agentPropsMaster },
+    costLine:"It uses writing credits for its specs and image credits for each sheet or plate it makes \u2014 only what's missing is made, and what it used (writing calls and images) shows when it finishes.", run:agentPropsMaster },
   { id:"researcher", name:"Visual Researcher", icon:"image", kind:"build", room:"art", autonomous:true,
     blurb:"Builds the film's lookbook brief — writes the visual statement, gathers/dedupes reference touchstones (palette, lighting, lens, texture), and proposes the film's RENDER STYLE from the story (your approval sets every character/prop/location style dropdown in one pass). Use Generate missing frames afterwards to render the mood frames. The colour system (the Color tab) reads these references when it designs the palette.",
+    // it asks before the render style and a trim (approval cards), so it isn't "on its own"
+    asksApproval:true,
+    costLine:"It makes a writing call to research the look; mood frames are made from the Lookbook tab (image credits). What it used shows when it finishes.",
     run:agentVisualResearcher },
   { id:"locscout", name:"Location Scout", icon:"globe", kind:"build", room:"art", autonomous:true,
     blurb:"Scouts your film's locations on its own \u2014 pulls every place from the sluglines, drafts each one's staging + depth-grid spec, generates the plate, and adds the time-of-day variants the script calls for. Also flags any scene whose slugline location has no card yet. Runs autonomously; press Stop anytime.",
-    run:agentLocationScout },
+    costLine:"It uses writing credits for its specs and image credits for each sheet or plate it makes \u2014 only what's missing is made, and what it used (writing calls and images) shows when it finishes.", run:agentLocationScout },
   { id:"coordinator", name:"Art Coordinator", icon:"robot", kind:"build", room:"art", autonomous:true,
     blurb:"Runs your pre-production in the right order, on its own \u2014 the lookbook, the cast, the props (worn ones reference their owner's sheet), the cast dressed in those props, the locations, the colour system and shot coverage. One click, no stops: its proposals are applied automatically, but scenes whose shots you approved or locked are left alone. It doesn't render shot frames or storyboards \u2014 do those from the Shots and Storyboards tabs. Press Stop anytime.",
+    costLine:"It uses writing credits for the research, specs, palette and coverage, and image credits for every sheet and plate it makes (Run pre-production shows the estimate first). What it used shows when it finishes.",
     run:agentDepartmentCoordinator },
 ];
 window.AGENTS = AGENTS;
