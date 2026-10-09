@@ -105,8 +105,9 @@ await test("C2 Dialogue on a screenplay beat is the screenplay's line, read-only
 await test("C3 an approved frame that went out of date says so; the run question counts them; dead code gone", ()=>{
   assert.ok(card.includes("const approvedButStale = !!(sh.locked && gen.genUrl && frameSourceStatus===\"stale\""));
   assert.ok(card.includes("Approved, but out of date \\u2014 this shot changed after you approved its frame"));
-  assert.ok(ui.includes("approvedRedo:redo.filter(id=>{ const s=shotById[id]; return s && s.locked; })"));
-  assert.ok(ui.includes('" you approved whose shot changed since."'));
+  // (2026-10-09, third pass) approved frames that went out of date — the cascade is counted apart
+  assert.ok(ui.includes("approvedRedo:redo.filter(id=>{ const s=shotById[id]; return s && s.locked && !shotIsDone(s); })"));
+  assert.ok(ui.includes('" you approved that went out of date."'));
   assert.ok(!/const toggleIn\b/.test(ui));
 });
 

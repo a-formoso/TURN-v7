@@ -134,7 +134,26 @@ function shotSeedStamp(prevSh, prevMeta){
     seedVersion: (prevMeta && prevMeta.version!=null) ? Number(prevMeta.version) : null,
     seedIso: (prevMeta && prevMeta.iso) || "" };
 }
+/* APPROVED ACROSS A CHANGED CHAIN (2026-10-09, owner — Shots review): approving a frame whose continuity
+   needs refresh records the seed it was approved against (sh.seedOverride); while the seed is still exactly
+   that frame, the chain counts as current — runs keep it. A newer seed frame makes it stale again. */
 function shotChainStatus(sh, sceneShots, getMeta){
+  const st = _shotChainStatusRaw(sh, sceneShots, getMeta);
+  if(st!=="stale" || !sh || !sh.seedOverride) return st;
+  const o = sh.seedOverride;
+  const seedFn = (typeof window!=="undefined" && typeof window.seedShotOf==="function") ? window.seedShotOf : null;
+  const prevFn = (typeof window!=="undefined" && typeof window.prevShotOf==="function") ? window.prevShotOf : null;
+  const cur = seedFn ? seedFn(sh, sceneShots) : (prevFn ? prevFn(sh, sceneShots) : null);
+  const curId = cur ? (cur.id||"") : "";
+  if((o.seedShotId||"")!==curId) return st;
+  if(!curId) return "current";
+  const sm = (typeof getMeta==="function") ? getMeta(curId) : null;
+  if(!sm) return st;
+  const vOk = o.seedVersion==null || Number(sm.version||0)===Number(o.seedVersion);
+  const tOk = !o.seedIso || (sm.iso||"")===o.seedIso;
+  return (vOk && tOk) ? "current" : st;
+}
+function _shotChainStatusRaw(sh, sceneShots, getMeta){
   const meta = (typeof getMeta==="function") ? getMeta(sh && sh.id) : null;
   if(!meta) return "";                          // no frame / meta not loaded — nothing to judge
   const src = meta.seedSource;

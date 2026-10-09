@@ -528,7 +528,7 @@ const appSource=readFileSync("app/app.jsx","utf8");
 const writerSource=appSource.slice(appSource.indexOf("  const updateShot = "),appSource.indexOf("  const deleteShot = "));
 let guardAllowed=false,guardWrites=0,guardShots=[{id:"guard-shot",dur:4}];
 const guardBox={
-  canMutateSharedFilm:()=>guardAllowed,
+  canMutateSharedFilm:()=>guardAllowed, canMutateShots:()=>guardAllowed,
   setShots:fn=>{guardWrites++;guardShots=fn(guardShots);},
 };
 vm.createContext(guardBox);

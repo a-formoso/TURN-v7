@@ -94,7 +94,7 @@ await test("A4 a Stage take records each shot's in-frame props, and an old take 
 await test("A5 Shots records and compares the v2 record; the Stage stores and reads it", ()=>{
   const fn = between(shots, "function shotPropDependencies(sh, sceneShots, ctx){", "window.shotPropDependencies = shotPropDependencies;");
   assert.ok(fn.includes("plan.propSpec") && fn.includes("plan.carrySpec") && fn.includes("off.indexOf(base)<0") && fn.includes("inFrameProps("));
-  assert.ok(shotsUi.includes("propDependencies:(typeof shotPropDependencies===\"function\") ? shotPropDependencies(sh, sceneShots, ctx)"));
+  assert.ok(shotsUi.includes("propDependencies:_keep(\"propDependencies\", (typeof shotPropDependencies===\"function\") ? shotPropDependencies(sh, sceneShots, ctx)"));
   assert.ok(shotsUi.includes("propDependenciesChanged(gen.genMeta.propDependencies,"));
   assert.ok(stage.includes("propDependencies:(typeof stageClipPropDependenciesV2===\"function\")"));
   assert.ok(stage.includes("stageClipPropDependenciesChanged(t.meta.propDependencies,"));

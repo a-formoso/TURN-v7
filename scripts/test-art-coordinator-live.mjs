@@ -85,7 +85,7 @@ await test("4a the run keeps the film it started in, and a refreshed context kee
   assert.ok(factory.includes("const ownerProjectId = owner!==undefined ? owner : currentProjectId;"));
   assert.ok(factory.includes('const switchedFilms = ()=> String(ownerProjectId||"") !== String(projIdRef.current||"");'));
   assert.ok(factory.includes("const ctxArgs = { input, emit, propose, cancelled, agentName, force, owner:ownerProjectId, run };"));
-  assert.ok(factory.includes("cancelled: ()=> cancelled() || switchedFilms(),"));
+  assert.ok(factory.includes("cancelled: ()=> cancelled() || switchedFilms() || !!artRoomReadOnlyRef.current,"));
   assert.match(factory, /refresh: async \(\)=>\{\s*if\(switchedFilms\(\)\) return null;\s*await artNextCommit\(\);\s*const mk = artAgentCtxFactoryRef\.current \|\| artAgentCtxFactory;\s*return switchedFilms\(\) \? null : mk\(ctxArgs\);/);
 });
 

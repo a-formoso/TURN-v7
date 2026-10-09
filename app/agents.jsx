@@ -1717,7 +1717,10 @@ async function agentShotDesigner(ctx){
   const MAX=Math.max(12, (Number(cov.sceneCount)||0)+1), skip=new Set();
   // Run pre-production auto-approves, so there it never re-plans a scene whose shots you
   // approved or locked; the Shot Designer run on its own still asks, scene by scene
-  const protectedScene = (sid)=> !!ctx.autoApprove && cov.shotsOf(sid).some(s=>s && (s.approved || s.locked));
+  // (2026-10-09, owner — Shots review) work you did by hand counts too: a shot you added, an Action you wrote,
+  // characters you picked, or a frame already made — pre-production leaves that scene for you to re-draft
+  const _hasFrame = (id)=> (typeof nbGetImage==="function") && !!nbGetImage(id);
+  const protectedScene = (sid)=> !!ctx.autoApprove && cov.shotsOf(sid).some(s=>s && (s.approved || s.locked || s.manual || s.actionByHand || s.referenceCharactersSet || _hasFrame(s.id)));
   let protectedN=0, capped=false;
   ctx.emit({k:"plan", t:"Auditing coverage scene by scene — does each scene establish wide, tighten through the middle, and LAND "+(fwTurnWord()||"its turn")+" on its most expressive size?"});
   let fixes=0;
@@ -1731,16 +1734,16 @@ async function agentShotDesigner(ctx){
     const issue=issues[0]; const scene=cov.sceneById(issue.sceneId);
     if(protectedScene(issue.sceneId)){
       protectedN++; skip.add(issue.sceneId);
-      ctx.emit({k:"observe", t:"Scene "+issue.sceneNo+" has approved or locked shots — left as it is. To re-plan it, use Re-draft on that scene in the Shots tab."});
+      ctx.emit({k:"observe", t:"Scene "+issue.sceneNo+" has frames, approvals or shots you edited by hand — left as it is. To re-plan it, use Re-draft on that scene in the Shots tab."});
       continue;
     }
     ctx.emit({k:"observe", t:issues.length+" coverage issue"+(issues.length>1?"s":"")+" — weakest link: Scene "+issue.sceneNo+" — "+issue.msg});
     const turnAt = cov.turnAtOf(issue.sceneId);
     if(!ctx.ai || !ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available to design coverage — skipping Scene "+issue.sceneNo+"."}); skip.add(issue.sceneId); continue; }
     ctx.emit({k:"act", t:"Designing coverage for Scene "+issue.sceneNo+" — establishing, tightening, landing "+(fwTurnWord()||"the turn")+"…"});
-    let made=null; try{ made = await cov.draftCoverage(scene); }catch(e){}
+    let made=null, why=""; try{ made = await cov.draftCoverage(scene); }catch(e){ why = String((e&&e.message)||e||""); }
     if(ctx.cancelled()) return;
-    if(!made || !made.length){ ctx.emit({k:"flag", t:"Couldn't design coverage for Scene "+issue.sceneNo+". Moving on."}); skip.add(issue.sceneId); continue; }
+    if(!made || !made.length){ ctx.emit({k:"flag", t:"Couldn't design coverage for Scene "+issue.sceneNo+(why ? " ("+why+")" : " \u2014 the answer couldn't be read")+". Moving on."}); skip.add(issue.sceneId); continue; }
     // guarantee the turn LANDS tight: if the model left the turning beat wide, push it to a CU
     // push-in (also what resolves the weakturn audit so the loop converges, never re-proposes).
     if(turnAt){ const ti = made.findIndex(s=>s.beatN===turnAt);
@@ -1757,9 +1760,12 @@ async function agentShotDesigner(ctx){
     });
     if(ctx.cancelled()) return;
     if(ok){
-      cov.applyCoverage(issue.sceneId, fix.shots, fix.anchorId);
-      fixes++; skip.add(issue.sceneId);   // one design per scene per run — the loop always ends
-      ctx.emit({k:"ok", t:"Applied to Scene "+issue.sceneNo+". Re-auditing…"});
+      // the scene is checked again here: changed while the proposal waited → not applied, said why
+      let applied = true;
+      try{ cov.applyCoverage(issue.sceneId, fix.shots, fix.anchorId); }
+      catch(e){ applied = false; ctx.emit({k:"flag", t:"Scene "+issue.sceneNo+" wasn't changed: "+String((e&&e.message)||e)+"."}); }
+      skip.add(issue.sceneId);   // one design per scene per run — the loop always ends
+      if(applied){ fixes++; ctx.emit({k:"ok", t:"Applied to Scene "+issue.sceneNo+". Re-auditing…"}); }
     } else {
       ctx.emit({k:"flag", t:"Skipped Scene "+issue.sceneNo+"."});
       skip.add(issue.sceneId);
@@ -2166,7 +2172,7 @@ async function agentDepartmentCoordinator(ctx){
     cancelled:()=> ctx.cancelled() || (typeof base.cancelled==="function" && base.cancelled()),
     autoApprove:true,   // steps that would change your approved work hold back (Shot Designer)
   });
-  let n=0;
+  let n=0, errored=[];
   for(const step of steps){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — completed "+n+" of "+steps.length+" steps."}); return; }
     // EACH STEP WORKS FROM THE FILM AS IT IS NOW (2026-10-02): the run's context was the film when
@@ -2182,10 +2188,12 @@ async function agentDepartmentCoordinator(ctx){
     n++;
     ctx.emit({k:"act", t:"▸ Step "+n+"/"+steps.length+" — "+step[0]+"…"});
     try{ await step[1](subOf(live)); }
-    catch(e){ ctx.emit({k:"flag", t:step[0]+" step hit an error: "+((e&&e.message)||e)+". Continuing with the next."}); }
+    catch(e){ errored.push(step[0]); ctx.emit({k:"flag", t:step[0]+" step hit an error: "+((e&&e.message)||e)+". Continuing with the next."}); }
   }
   if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — completed "+n+" of "+steps.length+" steps."}); return; }
-  ctx.emit({k:"done", t:"Pre-production complete — lookbook, cast, props, wardrobe, locations, colour and shot coverage, built in order. Shot frames and storyboards aren't rendered by this run: render the frames from the Shots tab (Generate all shots, or Render Scene in order), then compose the boards in Storyboards."});
+  // honest about what didn't finish (2026-10-09): steps that hit an error are named; each step's own notes above say what it did
+  if(errored.length) ctx.emit({k:"flag", t:errored.length+" step"+(errored.length!==1?"s":"")+" didn't finish: "+errored.join(", ")+" \u2014 see the notes above, then run "+(errored.length!==1?"those steps":"that step")+" again from its tab."});
+  ctx.emit({k:"done", t:(errored.length ? "Pre-production finished with "+errored.length+" step"+(errored.length!==1?"s":"")+" to redo" : "Pre-production complete")+" — lookbook, cast, props, wardrobe, locations, colour and shot coverage, in order. Shot frames and storyboards aren't rendered by this run: render the frames from the Shots tab (Generate all shots, or Render Scene in order), then compose the boards in Storyboards."});
 }
 
 

@@ -74,7 +74,7 @@ await test("under Run pre-production, scenes with approved or locked shots are l
   const msgs=[];
   await box.agentShotDesigner({art:{coverage:cov},ai:{available:true},autoApprove:true,emit:e=>msgs.push(e),cancelled:()=>false,propose:async()=>true});
   assert.deepEqual(plain(cov.applied),["b"]);
-  assert.ok(msgs.some(e=>/Scene 1 has approved or locked shots — left as it is/.test(e.t)));
+  assert.ok(msgs.some(e=>/Scene 1 has frames, approvals or shots you edited by hand — left as it is/.test(e.t)));
   assert.ok(/1 scene with approved or locked shots was left as it is/.test(msgs.at(-1).t),msgs.at(-1).t);
   // run on its own (not auto-approved) it still proposes the approved scene
   const cov2=mkCov(scenes,{a:flat("a").map((s,i)=>i===0?{...s,approved:true}:s), b:flat("b")});
@@ -93,7 +93,7 @@ await test("a redesign merges like the Shots tab: IDs and frames kept, extras to
   assert.deepEqual(plain(m.archived.map(s=>s.id)),["alt1"],"the extra shot goes to Trash, restorable");
   assert.ok(m.shots.some(s=>s.id==="k9")&&m.shots.some(s=>s.id==="x"));
   const app=read("app/app.jsx"), a0=app.indexOf("applyCoverage: (sceneId, newShots, anchorId)=>{"), cov=app.slice(a0,app.indexOf("\n    };",a0));
-  assert.ok(cov.includes("commitBeatKeyframes(fresh, ()=>{})")&&!cov.includes("ss.filter(s=>s.sceneId!==sceneId)"),"the agent path uses the Shots tab's merge");
+  assert.ok(cov.includes("commitBeatKeyframes(fresh, _coverageChecks[sceneId] || (()=>{}))")&&!cov.includes("ss.filter(s=>s.sceneId!==sceneId)"),"the agent path uses the Shots tab's merge");
   assert.ok(read("app/agents.jsx").includes("any extra shots on a re-planned beat move to Shots Trash"));
 });
 

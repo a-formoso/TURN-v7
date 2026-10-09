@@ -92,12 +92,15 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     let toRender = 0, oldLook = 0, done = 0;
     if(!sceneShots.length) missing.push({ tab:"shots", text:"shots" });
     else if(typeof shotFrameState==="function"){
-      let locChanged = 0;
+      let locChanged = 0, charChanged = 0, propChanged = 0;
       // every RENDERED frame counts for the notes, as Shots, Storyboards and the Stage count them (2026-10-08)
       sceneShots.forEach(sh=>{ const st = shotFrameState(sh, sceneShots, drafts, project, img); if(!st.done) toRender++; else done++;
-        if(st.rendered || st.done){ if(st.oldLook) oldLook++; if(st.locChanged) locChanged++; } });
+        if(st.rendered || st.done){ if(st.oldLook) oldLook++; if(st.locChanged) locChanged++; if(st.charChanged) charChanged++; if(st.propChanged) propChanged++; } });
       // a changed location plate is a note, like an earlier look (2026-10-08)
       if(locChanged>0) notes.push({ tab:"shots", text:locChanged+" frame"+(locChanged===1?"":"s")+" made before its location changed \u2014 re-render to apply it" });
+      // the same notes the Shots card shows (2026-10-09)
+      if(charChanged>0) notes.push({ tab:"shots", text:charChanged+" frame"+(charChanged===1?"":"s")+" made before a character sheet changed \u2014 re-render to apply it" });
+      if(propChanged>0) notes.push({ tab:"shots", text:propChanged+" frame"+(propChanged===1?"":"s")+" made before a prop changed \u2014 re-render to apply it" });
       const unrendered = sceneShots.length-rendered, notDone = toRender-unrendered;
       if(unrendered>0) missing.push({ tab:"shots", text:unrendered+" frame"+(unrendered===1?"":"s") });
       if(notDone>0) missing.push({ tab:"shots", text:notDone+" frame"+(notDone===1?"":"s")+" to approve or refresh" });

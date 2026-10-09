@@ -143,7 +143,7 @@ await test("E3 from scratch replaces only on success; ids never reuse a deleted 
 await test("F1 copy, purge, Shots notice, dead comment; Frances", ()=>{
   assert.ok(!/Generate all frames/.test(ag) && !/clear the look statement in the Lookbook and run again/.test(ag));
   const art = read("app/artroom.jsx");
-  assert.ok(art.includes('(kind==="reference" ? "mood frame" : "reference sheet")'));
+  assert.ok(art.includes('(kind==="reference" ? "mood frame" : kind==="shot" ? "frame and its earlier versions" : kind==="location" ? "plates" : "reference sheet")'));
   assert.ok(app.includes("Couldn't delete that mood frame just now"));
   assert.ok(read("app/shots-ui.jsx").includes("its visual statement or its Lens & format, Composition or Lighting notes changed"));
   assert.ok(!app.includes("// Remove the whole Lookbook (references + statement + their mood frames)."));

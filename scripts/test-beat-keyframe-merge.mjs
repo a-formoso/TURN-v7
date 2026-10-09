@@ -50,7 +50,7 @@ function harness({existing=old,confirm=true,response=[{...raw,beat:1}],provider}
   let stateIndex=0;
   Object.assign(h,{
     React:{useRef:v=>({current:v}),useState:v=>[v,()=>{}]},
-    canMutateSharedFilm:()=>h.allowed,
+    canMutateSharedFilm:()=>h.allowed, canMutateShots:()=>h.allowed,
     nbEpoch:()=>h.epoch,
     setShots:v=>{h.shots=typeof v==="function"?v(h.shots):v;},
     setTrash:fn=>{h.trash=fn(h.trash);},
@@ -93,7 +93,7 @@ function harness({existing=old,confirm=true,response=[{...raw,beat:1}],provider}
     "archived alternatives retain their image URL");
   assert.deepEqual(plain(h.trash.shots.find(sh=>sh.id==="b").takes),plain(old[1].takes),
     "archived alternatives retain their take history");
-  assert.equal(h.events.find(e=>e[0]==="confirm")[1].title,"Draft specification for Beat 1?",
+  assert.equal(h.events.find(e=>e[0]==="confirm")[1].title,"Draft Beat 1's specification again (writing credits)?",
     "the existing confirmation dialog receives the updated specification wording");
   assert.match(h.events.find(e=>e[0]==="confirm")[1].body,/No images or takes are deleted/,
     "the confirmation explains that drafting a specification is separate from frame generation");

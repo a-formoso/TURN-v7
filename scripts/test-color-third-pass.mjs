@@ -179,7 +179,7 @@ await test("D3 Stage: hand-edited prompts are kept per film on this device; a li
   assert.ok(stage.includes("setLighting(cur=> (prev.key===key && cur!==prev.from) ? cur : d.lighting);"));
 });
 await test("D4 the counts agree: Breakdown counts every rendered frame and earlier-look sheets; Takes read the live project", ()=>{
-  assert.ok(bd.includes("if(st.rendered || st.done){ if(st.oldLook) oldLook++; if(st.locChanged) locChanged++; }"));
+  assert.ok(bd.includes("if(st.rendered || st.done){ if(st.oldLook) oldLook++; if(st.locChanged) locChanged++;"));
   assert.ok(bd.includes("boards = { total:0, current:0, stale:0, oldLook:0 };") && bd.includes('" from frames with an earlier look"'));
   assert.ok(bd.includes('" (at your last Stage visit)"'));
   assert.ok(stage.includes("shotLookIsEarlier(m.lookSig, project || window.turnProject, clip.scene.id))") && stage.includes("StageVersionsView,{ key:\"vers-\"+clip.id, clip, stageModel, readOnly, project,"));

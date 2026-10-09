@@ -47,9 +47,9 @@ await test("A2 a regenerated sheet = changed; a cold cache never is; a sheet mad
   assert.equal(box.shotCharacterRefsChanged(undefined), false, "frames from before this was recorded");
 });
 await test("A3 recorded on new frames; the card badge, the frame state and the Stage readiness use it", ()=>{
-  assert.ok(ui.includes("characterRefVersions:(typeof shotCharacterRefVersions===\"function\" && renderPlan) ? shotCharacterRefVersions(renderPlan.castSpec, sh.refOff) : [],"));
+  assert.ok(ui.includes("characterRefVersions:_keep(\"characterRefVersions\", (typeof shotCharacterRefVersions===\"function\" && renderPlan) ? shotCharacterRefVersions(renderPlan.castSpec, sh.refOff) : []),"));
   assert.ok(ui.includes('"Character sheet changed"') && ui.includes("shotCharacterRefsChanged(gen.genMeta.characterRefVersions)"));
-  assert.ok(shots.includes("const charChanged = !!(m && shotCharacterRefsChanged(m.characterRefVersions));") && shots.includes("oldLook, charChanged, locChanged, done:"));
+  assert.ok(shots.includes("const charChanged = !!(m && shotCharacterRefsChanged(m.characterRefVersions));") && shots.includes("oldLook, charChanged, locChanged, propChanged, done:"));
   assert.ok(stage.includes("if(st.charChanged) frames.charChanged++;") && stage.includes('"frame made with an older character sheet"'));
 });
 

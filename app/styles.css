@@ -4481,6 +4481,10 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .turn-toast-x{flex:0 0 auto;appearance:none;border:0;background:transparent;color:inherit;opacity:.6;cursor:pointer;font-size:12px;padding:0 2px}
 .turn-toast-x:hover{opacity:1}
 .turn-toast-act{flex:0 0 auto;appearance:none;border:1px solid currentColor;border-radius:6px;background:transparent;color:inherit;cursor:pointer;font:inherit;font-size:12px;font-weight:600;padding:2px 9px}
+.shot-check-thumb-btn{appearance:none;border:0;background:transparent;padding:0;margin:0;cursor:zoom-in;line-height:0;border-radius:6px}
+.shot-check-thumb-btn:focus-visible{outline:2px solid var(--pos);outline-offset:2px}
+.scene-pager-btn{appearance:none;border:0;background:transparent;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.scene-pager-btn:focus-visible{outline:2px solid var(--pos);outline-offset:2px;border-radius:4px}
 .turn-toast-act:hover,.turn-toast-act:focus-visible{background:rgba(255,255,255,.12)}
 @keyframes turn-toast-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 /* model badges — the agent panel header + the New Story window (Writers' Room = Claude) */

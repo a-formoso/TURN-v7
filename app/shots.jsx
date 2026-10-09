@@ -2524,6 +2524,22 @@ function shotLocationChanged(stored){
   return !!(stored.text && Array.isArray(stored.ids) && shotLocationTextSig(stored.ids)!==stored.text);
 }
 window.shotLocationDependencies = shotLocationDependencies;
+/* the card's "Prop reference changed", for counts outside the card (2026-10-09, owner — Shots review): the frame
+   state, the Breakdown and the Stage now note the same changes the card shows */
+function shotPropChanged(sh, sceneShots, meta){
+  if(!sh || !meta || meta.propDependencies==null || typeof propDependenciesChanged!=="function" || typeof shotPropDependencies!=="function") return false;
+  try{
+    const C = window.turnContinuity || {};
+    const scene = (C.scenes||[]).find(x=>x && x.id===sh.sceneId) || { id:sh.sceneId };
+    const charById = {}, propById = {};
+    (C.characters||[]).forEach(c=>{ if(c && c.id) charById[c.id]=c; }); (C.props||[]).forEach(p=>{ if(p && p.id) propById[p.id]=p; });
+    const loc = (typeof locationForScene==="function") ? locationForScene(C.locations||[], sh.sceneId) : null;
+    const ctx = { scene, scenes:C.scenes||[], charById, propById, location:loc, locations:C.locations||[], project:window.turnProject||{}, drafts:C.drafts||{} };
+    const legacy = (typeof propDependencySignature==="function") ? propDependencySignature(C.props||[], sh.sceneId, sh.beatN, sh.microBeatId, sh.id, C) : null;
+    return !!propDependenciesChanged(meta.propDependencies, shotPropDependencies(sh, sceneShots||[], ctx), legacy);
+  }catch(e){ return false; }
+}
+window.shotPropChanged = shotPropChanged;
 window.shotLocationChanged = shotLocationChanged;
 window.shotLocationTextSig = shotLocationTextSig;
 window.shotLookSig = shotLookSig;
@@ -2603,13 +2619,15 @@ function shotFrameState(sh, sceneShots, drafts, project, has){
     const st = (typeof shotAssetProvenanceStatus==="function") ? shotAssetProvenanceStatus(sh, (drafts||{})[sh.sceneId], meta(sh.id)) : "current";
     const ov = (typeof shotSourceOverrideCurrent==="function") && shotSourceOverrideCurrent(sh, (drafts||{})[sh.sceneId]);
     const chainStale = (typeof shotChainStatus==="function") && shotChainStatus(sh, sceneShots||[], meta)==="stale";
-    current = (st==="current" || !!ov) && !chainStale;
+    // no recorded source (made before stamps, or an upload) is unknown — never counted as out of date (2026-10-09)
+    current = (st==="current" || st==="unverified" || !!ov) && !chainStale;
   }
   const m = rendered ? meta(sh.id) : null;
   const oldLook = !!(m && project && sh && shotLookIsEarlier(m.lookSig, project, sh.sceneId));
   const charChanged = !!(m && shotCharacterRefsChanged(m.characterRefVersions));   // a note, like an earlier look
   const locChanged = !!(m && shotLocationChanged(m.locationDependencies));           // a note too (2026-10-08)
-  return { rendered, approved, current, oldLook, charChanged, locChanged, done: rendered && approved && current };
+  const propChanged = !!(m && shotPropChanged(sh, sceneShots, m));                    // a note too (2026-10-09)
+  return { rendered, approved, current, oldLook, charChanged, locChanged, propChanged, done: rendered && approved && current };
 }
 window.shotFrameState = shotFrameState;
 

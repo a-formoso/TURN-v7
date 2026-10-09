@@ -98,7 +98,7 @@ await test("B2 one 'Make what this scene needs' at a time across the board; Rend
   assert.ok(strip.includes("if(!onMakeSceneNeeds || needsBusy || !makeable.length) return;") && strip.includes("disabled:!!needsBusy"));
   assert.ok(strip.includes("const canRender = !readOnly && shots.total>0"));
   const ui = read("app/shots-ui.jsx");
-  assert.ok(ui.includes("startSceneRef.current(scenesWithShots[i], { always:true })") && ui.includes("!!(opts && opts.always)"));
+  assert.ok(ui.includes("startSceneRef.current(scenesWithShots[i], { always:true })") && ui.includes('confirmRun(ids, "in Scene "+String(scene.no).padStart(2,"0"), true)'));
   assert.ok(strip.includes("Shots asks first, with the price"));
 });
 

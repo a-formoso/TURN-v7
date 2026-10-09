@@ -33,15 +33,16 @@ function sceneHarness({ artReadOnly = false } = {}) {
     props: [{ id: "key", scenes: ["s1", "s2", "s3"] }, { id: "gun", scenes: ["s3"] }, { id: "hat" }],
     locations: [{ id: "vault", scenes: ["s2"] }, { id: "street", scenes: ["s1", "s3"] }],
     deletedScene: null, selId: "s2", confirms: [],
+    trash: { shots: [] },   // (2026-10-09) a deleted scene's shots also go to Recently deleted
   };
   const setter = (k) => (v) => { S[k] = typeof v === "function" ? v(S[k]) : v; };
   const env = {
-    S, currentProjectId: "film-1", canMutateWritersRoom: () => true,
+    S, currentProjectId: "film-1", canMutateWritersRoom: () => true, _trashStamp: (x) => ({ ...x, _deletedAt: "t" }),
     artRoomReadOnlyRef: { current: artReadOnly },
     renum: (ss) => ss.map((s, i) => ({ ...s, no: i + 1 })),
     window: { appConfirm: async (o) => { S.confirms.push(o); return true; } },
   };
-  ["scenes", "beatsMap", "drafts", "history", "continuityMap", "shots", "project", "props", "locations", "deletedScene", "selId"]
+  ["scenes", "beatsMap", "drafts", "history", "continuityMap", "shots", "project", "props", "locations", "deletedScene", "selId", "trash"]
     .forEach((k) => { env["set" + k[0].toUpperCase() + k.slice(1)] = setter(k); });
   // every render reads the latest state, as App's closures do
   const run = (body) => new Function(...Object.keys(env),

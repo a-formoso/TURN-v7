@@ -28,8 +28,9 @@ const card = between(ui, "function ShotCard({", "function SceneCtxItem(");
 
 /* ═══ A ═══ */
 await test("A1 the run's reach is what isn't approved and current; re-renders are the ones with a frame", ()=>{
-  assert.ok(list.includes("const toRender = (ids||[]).filter(id=>{ const s=shotById[id]; return s && !shotIsDone(s); });"));
-  assert.ok(list.includes("const redo = toRender.filter(id=>shotHasFrame(id));") && list.includes("return { toRender, redo, approvedRedo:"));
+  // (2026-10-09, third pass) + the cascade: an approved frame that follows a re-rendered one re-renders too
+  assert.ok(list.includes("if(!shotIsDone(s)){ will.add(id); return; }") && list.includes("const toRender = (ids||[]).filter(id=> will.has(id));"));
+  assert.ok(list.includes("const redo = toRender.filter(id=>shotHasFrame(id));") && list.includes("return { toRender, redo, cascade, approvedRedo:"));
 });
 await test("A2 'Generate N shots' shows the count and price and always asks; nothing left → 'Every shot approved'", ()=>{
   assert.ok(list.includes('("Generate "+filmPlan.toRender.length+" shot"+(filmPlan.toRender.length!==1?"s":""))'));
@@ -37,8 +38,8 @@ await test("A2 'Generate N shots' shows the count and price and always asks; not
   assert.ok(list.includes('if(!(await confirmRun(ids, "across the film", true))) return;'));
   assert.ok(list.includes('"Every shot approved"') && !list.includes('"Generate all shots", typeof window.nbCostChip==="function" && window.nbCostChip(1)'));
 });
-await test("A3 a scene run shows its price, and asks only when it would redo frames", ()=>{
-  assert.ok(list.includes('if(!(await confirmRun(ids, "in Scene "+String(scene.no).padStart(2,"0"), !!(opts && opts.always)))) return;'));
+await test("A3 a scene run shows its price, and (since 2026-10-09) always asks", ()=>{
+  assert.ok(list.includes('if(!(await confirmRun(ids, "in Scene "+String(scene.no).padStart(2,"0"), true))) return;'));
   assert.ok(list.includes("if((always || plan.redo.length) && typeof window.appConfirm===\"function\"){"));
   assert.ok(group.includes("window.nbCostChip(scenePlan.toRender.length)") && group.includes('"Scene approved"'));
   assert.ok(list.includes("scenePlan:scenePlanFor(scene)") && list.includes("scenePlan:scenePlanFor(runnerScene)"));
@@ -80,7 +81,7 @@ await test("C1 'Check each frame' is on by default, remembered, and pauses a mul
   assert.ok(list.includes("if(!chain || batchActiveId || chain.paused) return;"), "a paused run isn't 'stuck'");
 });
 await test("C2 the pause bar: Approve & continue / Regenerate this one / Stop", ()=>{
-  assert.ok(list.includes("onUpdateShot(c.ids[c.idx], { locked:true }); stepChain(c.ids, c.idx+1, c.force); };"));
+  assert.ok(list.includes("onUpdateShot(c.ids[c.idx], { locked:true }); stepChain(c.ids, c.idx+1, c.force, c.unlock); };"));
   assert.ok(list.includes("setChain({ ...c, paused:false, preFrame:"));
   assert.ok(list.includes('"Approve & continue"') && list.includes('"Regenerate this one"') && list.includes("stopPaused"));
   assert.ok(list.includes('"Check each frame"'));

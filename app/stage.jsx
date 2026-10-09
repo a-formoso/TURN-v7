@@ -1731,7 +1731,7 @@ function stageClipReadiness(clip, ctx, imgs, drafts){
   const plan = stageClipSourcePlan(clip, imgs||{});
   const has = (id)=> !!((imgs||{})[id]) || (typeof nbGetImage==="function" && !!nbGetImage(id));
   const sceneShotsAll = (((window.turnContinuity||{}).shots)||[]).filter(x=>x && x.sceneId===scene.id);
-  const frames = { missing:0, unapproved:0, stale:0, oldLook:0, charChanged:0 };
+  const frames = { missing:0, unapproved:0, stale:0, oldLook:0, charChanged:0, locChanged:0, propChanged:0 };
   shots.forEach(sh=>{
     if(typeof shotFrameState==="function"){
       const st = shotFrameState(sh, sceneShotsAll.length ? sceneShotsAll : shots, drafts||{}, (ctx||{}).project, has);
@@ -1740,6 +1740,8 @@ function stageClipReadiness(clip, ctx, imgs, drafts){
       if(!st.current) frames.stale++;
       if(st.oldLook) frames.oldLook++;
       if(st.charChanged) frames.charChanged++;
+      if(st.locChanged) frames.locChanged++;   // the Shots card's notes, counted the same way (2026-10-09)
+      if(st.propChanged) frames.propChanged++;
     } else if(!has(sh.id)) frames.missing++;
   });
   let needs = [];
@@ -1754,6 +1756,8 @@ function stageClipReadiness(clip, ctx, imgs, drafts){
   if(frames.stale) issues.push(n(frames.stale, "frame out of date", "frames out of date"));
   if(frames.oldLook) issues.push(n(frames.oldLook, "frame made with an earlier look", "frames made with an earlier look"));
   if(frames.charChanged) issues.push(n(frames.charChanged, "frame made with an older character sheet", "frames made with an older character sheet"));
+  if(frames.locChanged) issues.push(n(frames.locChanged, "frame made before its location changed", "frames made before their location changed"));
+  if(frames.propChanged) issues.push(n(frames.propChanged, "frame made before a prop changed", "frames made before a prop changed"));
   if(needs.length) issues.push("missing: "+needs.slice(0,3).map(x=>x.label).join(", ")+(needs.length>3?" +"+(needs.length-3)+" more":""));
   return { plan, frames, needs, issues, text:issues.join(" \u00b7 ") };
 }

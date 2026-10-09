@@ -141,7 +141,7 @@ await test("B4 a frame records its location plates and text; 'Location changed' 
   const cold = { refs:["locunit-x@1#1"], ids:[], text:"" };
   assert.equal(b.shotLocationChanged(cold), false, "not loaded yet");
   assert.equal(b.shotLocationChanged({ refs:["locunit-k-night@#"] }), true, "missing then, made since");
-  assert.ok(shotsUi.includes("locationDependencies:(typeof shotLocationDependencies===\"function\" && renderPlan) ? shotLocationDependencies(sh, renderPlan, ctx) : null,"));
+  assert.ok(shotsUi.includes("locationDependencies:_keep(\"locationDependencies\", (typeof shotLocationDependencies===\"function\" && renderPlan) ? shotLocationDependencies(sh, renderPlan, ctx) : null),"));
   assert.ok(shotsUi.includes('"Location changed"') && shots.includes("const locChanged = !!(m && shotLocationChanged(m.locationDependencies));"));
   assert.ok(bd.includes("made before its location changed"));
 });
@@ -169,7 +169,7 @@ await test("C1 a room's plate lists its location (and that one's parent) first w
 await test("C2 'Make what this scene needs' makes the card's plate and never pays for one that exists; Shots looks up what's real", ()=>{
   const m = between(app, "  const makeSceneNeeds = async (scene, needs, onProgress)=>{", "  const wornBuildRef");
   assert.ok(m.includes("const plateOpts = { draftStaging:true,") && m.includes("window.generateLocationPlate(l, project, plateOpts)"));
-  assert.equal((m.match(/if\(await _imgOf\((l\.id|n\.id|p0\.id)\)\) return true;/g)||[]).length, 3);
+  assert.equal((m.match(/if\(await _imgOf\((l\.id|n\.id|p0\.id)\)\) return "exists";/g)||[]).length, 3);   // (2026-10-09: "exists" — not counted as made)
   assert.ok(shotsUi.includes("sceneReferenceNeeds(shots||[], ctx, needsHas)") && shotsUi.includes('window.addEventListener("nb-prefetched", h);'));
   assert.ok(locs.includes("async function generateLocationPlate(l, project, opts){") && locs.includes("if(o.draftStaging && typeof stagingHasContent===\"function\" && !stagingHasContent(l)"));
   assert.ok(locs.includes("const pages=locationScriptPageRefs(l, null, null, 6).filter(r=>r.url);"));

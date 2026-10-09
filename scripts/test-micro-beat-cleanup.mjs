@@ -237,6 +237,9 @@ function harness({
     React: { useRef: value => ({ current: value }), useState: value => [value, () => {}] },
     shots: plain(shots),
     trash: { shots: plain(trashShots) },
+    // (2026-10-09) the restore path reads the live bin and shots through refs
+    get trashRef(){ return { current:this.trash }; },
+    get shotsRef(){ return { current:this.shots }; },
     scenes: [scene],
     scenesRef: { current: [scene] },
     projIdRef: { current: "film-1" },
@@ -251,7 +254,7 @@ function harness({
       return typeof confirm === "function" ? confirm(h, options) : confirm;
     },
     appToast: (message, type) => h.toastCalls.push({ message, type }),
-    canMutateSharedFilm: () => h.allowed,
+    canMutateSharedFilm: () => h.allowed, canMutateShots: () => h.allowed,
     nbEpoch: () => h.epoch,
     _trashStamp: shot => ({ ...shot, _deletedAt: "test-stamp-" + shot.id }),
     setShots: next => {

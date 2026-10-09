@@ -498,6 +498,7 @@ function App(){
   // per-department: the lookbook brief in effect the last time that dept was fully drafted (for staleness)
   const [lookbookApplied, setLookbookApplied] = React.useState(()=> (saved && saved.lookbookApplied) || {});
   const [shots, setShots] = React.useState(()=> (saved && saved.shots) || []);
+  const shotsRef = React.useRef(shots); shotsRef.current = shots;   // the live list, for callbacks that run later (Undo)
   const [project, setProject] = React.useState(()=> (saved && saved.project) || ({ title:"Untitled film", genre:"", logline:"", controllingIdea:{} }));
   // Live world snapshot for lifecycle operations that await a save/confirmation.
   // Reading the ref after the await avoids converting an older render's Bible.
@@ -1050,6 +1051,10 @@ function App(){
   const currentFilmBlank = !!_projRow && typeof window.turnFilmIsBlank==="function" && window.turnFilmIsBlank(_projRow)
     && !scenes.length && !(characters||[]).length;
   const artRoomReadOnly = !_sharedCanWriteRoom("art");
+  // SHOTS are saved by the Art Room AND the Stage (a Stage editor voices lines into them): their handlers
+  // check the role's right to save shots, whichever room is open (2026-10-09, owner — Shots review: the
+  // check followed the open room, so an art-only collaborator's "Design all shots" failed in the Writers' Room)
+  const shotsReadOnly = !!(_projRow && _projRow.isShared) && !(typeof window.teamCanWriteSection==="function" && window.teamCanWriteSection(writeRole, "shots"));
   const writersRoomBlocked = projectLoading || writersRoomReadOnly;
   // the Production check edits the script AND the Art Room: open to anyone who can save either
   const productionCheckBlocked = projectLoading || (writersRoomReadOnly && artRoomReadOnly);
@@ -1103,6 +1108,9 @@ function App(){
     : writersRoomReadOnlyRef.current ? _mutationNotice("writers") : true;
   const canMutateSharedFilm = ()=> projectLoadingRef.current ? _projectLoadingNotice()
     : roomReadOnlyRef.current ? _mutationNotice(room) : true;
+  const shotsReadOnlyRef = React.useRef(false); shotsReadOnlyRef.current = shotsReadOnly;
+  const canMutateShots = ()=> projectLoadingRef.current ? _projectLoadingNotice()
+    : shotsReadOnlyRef.current ? _mutationNotice("art") : true;
   // a role that can't change the Art Room closes the Colorist and pre-production panels (2026-10-08 — they
   // stayed open and could still apply after a role change)
   React.useEffect(()=>{ if(artRoomReadOnly){ setColoristOpen(false); setCoordOpen(false); coloristRedoManualRef.current = false; } },[artRoomReadOnly]);
@@ -4244,13 +4252,13 @@ function App(){
     // and a plate that exists after all (a cold cache when the list was made) is never paid for again
     const plateOpts = { draftStaging:true, onStaged:(id, st)=>{ if(!artRoomReadOnlyRef.current) setLocations(ls=>ls.map(x=>x.id===id ? { ...x, staging:st } : x)); } };
     ordered.forEach(l=> steps.push({ label:l.name||"Location", run:async ()=>{
-      if(await _imgOf(l.id)) return true;
+      if(await _imgOf(l.id)) return "exists";
       return window.generateLocationPlate(l, project, plateOpts); } }));
     needs.filter(n=>n.kind==="location" && /^locunit-/.test(String(n.id))).forEach(n=>{
       const u = units.find(x=> typeof sluglineUnitImageId==="function" && sluglineUnitImageId(x.key)===n.id);
       const owner = u && (locList.find(l=>String(l.key||"")===String(u.subspaceKey||u.locationKey||"")) || (locations||[]).find(l=>String(l.key||"")===String(u.subspaceKey||u.locationKey||"")));
       if(u && owner) steps.push({ label:(u.name||owner.name||"Room")+(u.time?" \u00b7 "+u.time:""), run:async ()=>{
-        if(await _imgOf(n.id)) return true;
+        if(await _imgOf(n.id)) return "exists";
         return window.generateSluglineUnitPlate(owner, u, project); } });
     });
     const charNeeds = needs.filter(n=>n.kind==="character").sort((a,b)=> (String(a.id).indexOf(":")>=0?1:0)-(String(b.id).indexOf(":")>=0?1:0));
@@ -4271,23 +4279,37 @@ function App(){
     needs.filter(n=>n.kind==="prop").forEach(n=>{
       const p0 = (props||[]).find(x=>x.id===(n.baseId||n.id)); if(!p0) return;
       steps.push({ label:p0.name||"Prop", run:async ()=>{
-        if(await _imgOf(p0.id)) return true;   // made already (the list may have read a cold cache)
+        if(await _imgOf(p0.id)) return "exists";   // made already (the list may have read a cold cache)
         let p = p0;
         if(!(String(p.form||"").trim() && String(p.material||"").trim()) && typeof aiPropVisuals==="function"){
           const patch = await aiPropVisuals(p, characters, lbProject("props"));
           if(patch){ const kept = keepPickedStyle(p, patch); p = { ...p, ...kept }; setProps(ps=>ps.map(x=>x.id===p.id ? { ...x, ...kept } : x)); } }
         return window.generatePropSheet(p, lbProject("props")); } });
     });
-    const failed = [];
+    // ASKS FIRST, WITH THE PRICE AND THE WRITING (2026-10-09, owner — Shots review), from Shots and the Breakdown
+    if(steps.length && typeof window.appConfirm==="function"){
+      const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(steps.length) : "";
+      const looks = charNeeds.filter(n=>{ const c=(characters||[]).find(x=>x.id===String(n.id).split(":")[0]); return c && typeof window.charVisualsDrafted==="function" && !window.charVisualsDrafted(c); }).length;
+      const specs = needs.filter(n=>n.kind==="prop").filter(n=>{ const p=(props||[]).find(x=>x.id===(n.baseId||n.id)); return p && !(String(p.form||"").trim() && String(p.material||"").trim()); }).length;
+      const views = ordered.filter(l=> !(typeof stagingHasContent==="function" ? stagingHasContent(l) : true)).length;
+      const writing = [looks && (looks+" character look"+(looks!==1?"s":"")), specs && (specs+" prop design"+(specs!==1?"s":"")), views && (views+" view composition"+(views!==1?"s":""))].filter(Boolean);
+      const ok = await window.appConfirm({ title:"Make what Scene "+String((scene&&scene.no)||"").padStart(2,"0")+" needs?",
+        body:"Up to "+steps.length+" reference image"+(steps.length!==1?"s":"")+(price?" \u2014 about "+price+" credit"+(price==="1"?"":"s"):"")
+          +(writing.length ? ", plus writing credits to draft "+writing.join(", ")+" first" : "")+". Anything that already exists is skipped.",
+        items:steps.map(x=>x.label), confirmLabel:"Make "+steps.length, cancelLabel:"Cancel" });
+      if(!ok) return;
+    }
+    const failed = []; let already = 0, made = 0;
     for(let i=0;i<steps.length;i++){
       if(stale()) break;
       if(onProgress) onProgress(i+1, steps.length, steps[i].label);
-      try{ const ok = await steps[i].run(); if(ok===false) failed.push(steps[i].label); }
+      try{ const ok = await steps[i].run(); if(ok===false) failed.push(steps[i].label); else if(ok==="exists") already++; else made++; }
       catch(e){ failed.push(steps[i].label+" \u2014 "+((e&&e.message)||"error")); }
     }
+    // what it really made (2026-10-09 — items that already existed were counted as made)
     if(typeof window.appToast==="function") window.appToast(failed.length
       ? (failed.length+" of "+steps.length+" couldn't be made: "+failed.join("; "))
-      : ("Scene "+String((scene&&scene.no)||"").padStart(2,"0")+" has what it needs \u2014 "+steps.length+" reference image"+(steps.length!==1?"s":"")+" made."), failed.length?"error":"info");
+      : ("Scene "+String((scene&&scene.no)||"").padStart(2,"0")+" has what it needs \u2014 "+made+" reference image"+(made!==1?"s":"")+" made"+(already?", "+already+" already there":"")+"."), failed.length?"error":"info");
   };
   const wornBuildRef = React.useRef(null);   // the card's "Make N worn-item sheets" (the build below, on demand)
   /* INITIAL CHARACTER -> WORN PROP BOOTSTRAP
@@ -5075,26 +5097,42 @@ function App(){
   // ---- Art Room: SHOT LIST ----
   // Default: one screenplay opening keyframe per beat. Saved alternatives are
   // preserved until an explicit conversion archives them in restorable Trash.
-  const updateShot = (id,patch)=>{
-    if(!canMutateSharedFilm()) return;
+  // opts.migration: a tidy-up that doesn't change what the frame was made from (it keeps the revision, so
+  // approved frames stay current) and stays SILENT for a role that can't save shots (2026-10-09)
+  const updateShot = (id,patch,opts)=>{
+    const migration = !!(opts && opts.migration);
+    if(migration ? (projectLoadingRef.current || shotsReadOnlyRef.current) : !canMutateShots()) return;
     setShots(ss=>ss.map(s=>{
     if(s.id!==id) return s;
     const next={...s,...patch};
     const before=(typeof shotSpecFingerprint==="function")?shotSpecFingerprint(s):"";
     const after=(typeof shotSpecFingerprint==="function")?shotSpecFingerprint(next):"";
     next.specRev=(typeof shotSpecRevision==="function")?shotSpecRevision(s):(Math.max(1,Number(s.specRev)||1));
-    if(before!==after) next.specRev++;
+    if(before!==after && !migration) next.specRev++;
     next.specHash=after;
     return next;
     }));
   };
+  try{ window.turnUpdateShot = updateShot; }catch(e){}   // for shared frame code outside the card (an upload's approval)
+  // deleting a shot can be undone right away (it also sits in Recently deleted)
   const deleteShot = (id)=>{
+    if(!canMutateShots()) return;
     const sh = (shots||[]).find(x=>x.id===id); if(!sh) return;
     setShots(ss=>ss.filter(s=>s.id!==id));
     setTrash(t=>({ ...t, shots:[ _trashStamp(sh), ...(t.shots||[]).filter(x=>x.id!==id) ] }));
+    const film0 = projIdRef.current;
+    if(typeof window.appToast==="function") window.appToast("Shot deleted \u2014 it's in Recently deleted.","info",{ action:{ label:"Undo", onClick:()=>{
+      if(String(film0||"")!==String(projIdRef.current||"")) return; restoreShot(id); } } });
   };
   const restoreShot = (id)=>{
-    const item = (trash.shots||[]).find(x=>x.id===id); if(!item) return;
+    if(!canMutateShots()) return;
+    const item = (trashRef.current.shots||[]).find(x=>x.id===id); if(!item) return;
+    // a live shot with the same id is already there: say so and keep the binned copy (2026-10-09 — it was
+    // dropped silently); a shot whose scene is gone can't come back on its own
+    if((shotsRef.current||shots||[]).some(s=>s && s.id===id)){
+      if(typeof window.appToast==="function") window.appToast("That shot is already in the scene, so the copy in Recently deleted stays there.","info"); return; }
+    if(item.sceneId && !(scenesRef.current||scenes||[]).some(sc=>sc && sc.id===item.sceneId)){
+      if(typeof window.appToast==="function") window.appToast("Its scene was deleted \u2014 restore the scene first (Undo on the scene), then the shot.","info"); return; }
     const { _deletedAt, ...clean } = item;
     setShots(ss=> ss.some(s=>s.id===id) ? ss : [...ss, clean].sort((a,b)=>
       String(a.sceneId||"").localeCompare(String(b.sceneId||"")) ||
@@ -5103,10 +5141,13 @@ function App(){
     setTrash(t=>({ ...t, shots:(t.shots||[]).filter(x=>x.id!==id) }));
   };
   const purgeShot = async (id)=>{
+    if(!canMutateShots()) return;
     const item = (trash.shots||[]).find(x=>x.id===id);
     if(!item) return;
     try{
-      if(typeof nbClearAsset==="function") await nbClearAsset(id);
+      // never the frame of a LIVE shot with the same id (2026-10-09 — an Art Room undo can bring a binned shot back)
+      const live = (shotsRef.current||shots||[]).some(s=>s && s.id===id);
+      if(!live && typeof nbClearAsset==="function") await nbClearAsset(id);
       setTrash(t=>({ ...t, shots:(t.shots||[]).filter(x=>x.id!==id) }));
     }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this shot's asset. It remains in Trash so you can retry.","error"); }
   };
@@ -5181,11 +5222,14 @@ function App(){
       hash:r.hash||"",voiceMasterAssetId,voiceMasterFileName,stale:false } });
     return { ok:true, durSec, cached:r.cached };
   };
+  // the right to save the line's audio is checked BEFORE the paid voice call (2026-10-09)
   const voiceLine = async (shot)=>{
+    if(!canMutateShots()) return;
     try{ const r = await voiceOneLine(shot); if(r && r.ok && !r.cached && typeof window.appToast==="function") window.appToast("Voiced — "+r.durSec+"s","success"); }
     catch(e){ if(typeof window.appToast==="function") window.appToast(String((e&&e.message)||"Voice render failed."),"error"); }
   };
   const voiceAllLines = async ()=>{
+    if(!canMutateShots()) return;
     const lines = shots.filter(s=>String(s.dialogue||"").trim());
     if(!lines.length){ if(typeof window.appToast==="function") window.appToast("No dialogue lines to voice yet."); return; }
     voicingCancel.current=false; setVoicingLines({ done:0, total:lines.length });
@@ -5199,6 +5243,7 @@ function App(){
     if(failed && typeof window.appToast==="function") window.appToast(failed+" line"+(failed>1?"s":"")+" couldn't be voiced — check those characters have a locked voice.","error");
   };
   const addShot = (sceneId, beatN, seed)=>{
+    if(!canMutateShots()) return;
     const loc = (typeof locationForScene==="function") ? locationForScene(locations, sceneId) : null;
     const sc = scenes.find(s=>s.id===sceneId);
     const peers = shots.filter(s=>s.sceneId===sceneId);
@@ -5420,7 +5465,7 @@ function App(){
     };
     const signedInputs=inputSignature();
     return ()=>{
-      if(!canMutateSharedFilm()) throw new Error("You no longer have permission to change this film.");
+      if(!canMutateShots()) throw new Error("You no longer have permission to change this film's shots.");
       if(shotReferenceDeleteBusyRef.current) throw new Error("Wait for reference image deletion to finish before drafting a specification.");
       if(projIdRef.current!==projectId
         || (epoch!==null && (typeof nbEpoch!=="function" || nbEpoch()!==epoch))
@@ -5473,9 +5518,10 @@ function App(){
         const body="Draft the specification for one opening keyframe from this beat's screenplay. The primary shot keeps its ID and image history; its previous frame may need regeneration."
           +(existing.length>1?" The "+(existing.length-1)+" additional shot(s) move to Shots Trash, where you can restore them.":"")
           +" No images or takes are deleted. Writing-model credits only; frame generation is separate.";
+        const body2=body+redraftReplaces(existing);
         const ok=typeof window.appConfirm==="function"
-          ? await window.appConfirm({title:"Draft specification for Beat "+beatN+"?",body,confirmLabel:"Draft specification",cancelLabel:"Cancel"})
-          : window.confirm(body);
+          ? await window.appConfirm({title:"Draft Beat "+beatN+"'s specification again (writing credits)?",body:body2,confirmLabel:"Draft specification",cancelLabel:"Cancel"})
+          : window.confirm(body2);
         if(!ok) return;
         assertCurrent();
       }
@@ -5500,6 +5546,41 @@ function App(){
   // Returns a STRUCTURED OUTCOME ({status:"designed"|"fallback"|"failed", sceneId, label,
   // error?}) — review finding: a thrown provider error used to vanish silently, leaving
   // the scene shotless with no explanation. Callers surface failures truthfully.
+  // VERBATIM ENFORCEMENT (the script is canon): models paraphrase scripted lines no matter the instruction —
+  // snap each shot's dialogue to the closest line in the scene's screenplay when they clearly match. Exact
+  // lines matter downstream: the Stage voices and clocks clips with them. (Shared by the Shots re-draft and
+  // the Shot Designer since 2026-10-09 — the agent's path used to skip it.)
+  const snapShotDialogue = (scene, made)=>{
+    const D = draftsRef.current||drafts;
+    const _dlines = ((D[scene.id]&&D[scene.id].blocks)||[])
+      .filter(b=>b.type==="dia").map(b=>String(b.text||"").replace(/\s+/g," ").trim()).filter(Boolean);
+    if(!_dlines.length) return made;
+    const _toks=(t)=>String(t||"").toLowerCase().replace(/[^a-z0-9' ]/g," ").split(/\s+/).filter(w=>w.length>2);
+    (made||[]).forEach(sh=>{
+      if(!sh.dialogue) return;
+      // strip a leading speaker cue ("OLIVIA:", "REECE (O.S.):") and curly
+      // quotes — the field holds ONLY the spoken words (the Stage voices it)
+      sh.dialogue = String(sh.dialogue).replace(/^[A-Z][A-Z .''()\-]{1,34}:\s*/,"").replace(/^["\u201c]|["\u201d]$/g,"").trim();
+      const st=new Set(_toks(sh.dialogue)); if(!st.size) return;
+      let best=null, bestScore=0;
+      _dlines.forEach(l=>{ const lt=_toks(l); if(!lt.length) return;
+        const overlap=lt.filter(w=>st.has(w)).length/Math.max(lt.length,st.size);
+        if(overlap>bestScore){ bestScore=overlap; best=l; } });
+      if(best && bestScore>=0.35) sh.dialogue=best;
+    });
+    return made;
+  };
+  // only beats the model ANSWERED replace saved work; an unanswered beat that already has a shot keeps it
+  const keepUnansweredBeats = (scene, raw, made)=>{
+    const leftAlone = [];
+    if(!Array.isArray(raw)) return { made, leftAlone };
+    const answered = new Set(raw.filter(r=>r && r.fromModel!==false).map(r=>Number(r.beat)));
+    const live = shotsLiveRef.current.filter(sh=>sh && sh.sceneId===scene.id);
+    const kept = (made||[]).filter(sh=>{ const n = Number(sh.beatN);
+      if(answered.has(n) || !live.some(x=>Number(x.beatN)===n)) return true;
+      if(leftAlone.indexOf(n)<0) leftAlone.push(n); return false; });
+    return { made:kept, leftAlone:leftAlone.sort((a,b)=>a-b) };
+  };
   const draftOneSceneShots = async (scene, replace)=>{
     const label = "Scene "+String(scene.no||"").padStart(2,"0")+(scene.title?(" \u2014 "+scene.title):"");
     if(keyframeBusyRef.current.has(scene.id)) return {status:"failed",sceneId:scene.id,label,error:"This scene already has a keyframe draft running."};
@@ -5508,10 +5589,12 @@ function App(){
     keyframeBusyRef.current.add(scene.id);
     try{
     assertCurrent();
-    let made = null; let usedFallback = false;
+    let made = null; let usedFallback = false; let raw = null;
     if(typeof aiDraftShots==="function"){
-      let raw = null;
-      try{ raw = await aiDraftShots(scene, beatsMap, drafts, locations, props, characters, lbProject("shots")); }
+      // the CURRENT inputs (2026-10-09): a film run drafts later scenes after earlier ones finish, and the
+      // closure's copies were the ones from when the run started
+      const L = keyframeInputsRef.current || {};
+      try{ raw = await aiDraftShots(scene, L.beatsMap||beatsMap, draftsRef.current||drafts, L.locations||locations, L.props||props, charactersRef.current||characters, lbProject("shots")); }
       catch(e){
         // a THROWN failure (provider/network/key) is reported as a failure — the heuristic
         // stopgap only stands in for a response that arrived but wasn't usable
@@ -5519,28 +5602,13 @@ function App(){
       }
       assertCurrent();
       if(raw && raw.length && typeof normalizeShot==="function"){
-        made = raw.map((r,i)=>normalizeShot(r, scene, i, locations, props, characters, beatsMap));
+        { const L2 = keyframeInputsRef.current || {};
+          made = raw.map((r,i)=>normalizeShot(r, scene, i, L2.locations||locations, L2.props||props, charactersRef.current||characters, L2.beatsMap||beatsMap)); }
         // VERBATIM ENFORCEMENT (the script is canon): models paraphrase scripted
         // lines no matter the instruction — snap each shot's dialogue to the
         // closest line in the scene's screenplay when they clearly match. Exact
         // lines matter downstream: the Stage voices and clocks clips with them.
-        const _dlines = ((drafts[scene.id]&&drafts[scene.id].blocks)||[])
-          .filter(b=>b.type==="dia").map(b=>String(b.text||"").replace(/\s+/g," ").trim()).filter(Boolean);
-        if(_dlines.length){
-          const _toks=(t)=>String(t||"").toLowerCase().replace(/[^a-z0-9' ]/g," ").split(/\s+/).filter(w=>w.length>2);
-          made.forEach(sh=>{
-            if(!sh.dialogue) return;
-            // strip a leading speaker cue ("OLIVIA:", "REECE (O.S.):") and curly
-            // quotes — the field holds ONLY the spoken words (the Stage voices it)
-            sh.dialogue = String(sh.dialogue).replace(/^[A-Z][A-Z .''()\-]{1,34}:\s*/,"").replace(/^["\u201c]|["\u201d]$/g,"").trim();
-            const st=new Set(_toks(sh.dialogue)); if(!st.size) return;
-            let best=null, bestScore=0;
-            _dlines.forEach(l=>{ const lt=_toks(l); if(!lt.length) return;
-              const overlap=lt.filter(w=>st.has(w)).length/Math.max(lt.length,st.size);
-              if(overlap>bestScore){ bestScore=overlap; best=l; } });
-            if(best && bestScore>=0.35) sh.dialogue=best;
-          });
-        }
+        snapShotDialogue(scene, made);
         made = completeDraftedShotCoverage(scene, made);
       }
     }
@@ -5553,10 +5621,25 @@ function App(){
     }
     if(!made || !made.length) return { status:"failed", sceneId:scene.id, label, error:"Write the scene's beat-tagged screenplay before drafting its opening keyframes." };
     made=completeDraftedShotCoverage(scene,made);
-    commitBeatKeyframes(made,assertCurrent);
-    return { status:usedFallback?"fallback":"designed", sceneId:scene.id, label };
+    // A BEAT THE MODEL DIDN'T ANSWER KEEPS ITS SHOT (2026-10-09, owner — Shots review): only beats it answered
+    // replace saved work; an unanswered beat with no shot yet is filled, and the beats left alone are named
+    let leftAlone = [];
+    if(!usedFallback){ const k = keepUnansweredBeats(scene, raw, made); made = k.made; leftAlone = k.leftAlone; }
+    if(made.length) commitBeatKeyframes(made,assertCurrent);
+    return { status:usedFallback?"fallback":"designed", sceneId:scene.id, label, leftAlone };
     }catch(e){ return {status:"failed",sceneId:scene.id,label,error:String(e&&e.message||e)}; }
     finally{ keyframeBusyRef.current.delete(scene.id); }
+  };
+  // WHAT A RE-DRAFT REPLACES, said up front (2026-10-09, owner — Shots review): approvals on changed beats,
+  // Actions written by hand, hand-picked characters
+  const redraftReplaces = (list)=>{
+    const L = list||[], n = (f)=> L.filter(f).length;
+    const approved = n(x=>x && (x.locked||x.approved)), byHand = n(x=>x && x.actionByHand), picks = n(x=>x && x.referenceCharactersSet);
+    const bits = [];
+    if(approved) bits.push(approved+" approved frame"+(approved!==1?"s":"")+" (unapproved where the shot changes)");
+    if(byHand) bits.push(byHand+" Action"+(byHand!==1?"s":"")+" you wrote by hand");
+    if(picks) bits.push(picks+" hand-picked character choice"+(picks!==1?"s":""));
+    return bits.length ? " It replaces "+bits.join(", ")+"." : "";
   };
   const [draftingSceneShots, setDraftingSceneShots] = React.useState(null);
   const draftSceneShots = async (scene)=>{
@@ -5567,9 +5650,11 @@ function App(){
       const assertCurrent=keyframeScope(scene);
       if(shotsLiveRef.current.some(sh=>sh.sceneId===scene.id)){
         const body="Draft one opening keyframe per screenplay beat. Each primary keeps its shot ID and image history. Additional shots move to Shots Trash and can be restored. No images or takes are deleted; changed frames need regeneration. Writing-model credits only.";
+        const live=shotsLiveRef.current.filter(sh=>sh && sh.sceneId===scene.id);
+        const body2=body+redraftReplaces(live);
         const ok=typeof window.appConfirm==="function"
-          ? await window.appConfirm({title:"Update this scene's opening keyframes?",body,confirmLabel:"Update keyframes",cancelLabel:"Cancel"})
-          : window.confirm(body);
+          ? await window.appConfirm({title:"Re-draft Scene "+String(scene.no||"").padStart(2,"0")+"'s keyframes (writing credits)?",body:body2,confirmLabel:"Re-draft keyframes",cancelLabel:"Cancel"})
+          : window.confirm(body2);
         if(!ok){ setDraftingSceneShots(null); return; }
         assertCurrent();
       }
@@ -5580,19 +5665,34 @@ function App(){
     // say what happened — a failed draft must never look like a quiet no-op
     if(out && typeof window.appToast==="function"){
       if(out.status==="failed") window.appToast("Keyframe design failed for this scene \u2014 "+(out.error||"unknown error"),"error");
-      else if(out.status==="fallback") window.appToast("The coverage AI returned nothing usable \u2014 laid out simple one-shot-per-beat coverage as a stopgap. Re-draft to try again.","error");
-      else if(out.status==="designed") window.appToast("Opening keyframes updated. Previous images are retained; additional shots are restorable in Shots Trash.","success");
+      else if(out.status==="fallback") window.appToast("The answer couldn't be read, so this scene got simple keyframes from its screenplay. Re-draft to try again.","error");
+      else if(out.status==="designed") window.appToast((out.leftAlone && out.leftAlone.length
+          ? "Opening keyframes updated \u2014 except Beat"+(out.leftAlone.length!==1?"s ":" ")+out.leftAlone.join(", ")+": the answer stopped before "+(out.leftAlone.length!==1?"them":"it")+", so "+(out.leftAlone.length!==1?"they keep their":"it keeps its")+" shot. Re-draft to try again."
+          : "Opening keyframes updated.")+" Previous images are retained; additional shots are restorable in Recently deleted.", out.leftAlone && out.leftAlone.length ? "info" : "success");
     }
   };
   const [draftingAllShots, setDraftingAllShots] = React.useState(false);
   const draftAllShots = async ()=>{
     if(draftingAllShots) return;
+    if(!canMutateShots()) return;
+    const ordered0 = scenesInStoryOrder(scenes);
+    const have0 = new Set(shots.map(s=>s.sceneId));
+    const todo0 = ordered0.filter(s=>!have0.has(s.id));
+    if(!todo0.length){ if(typeof window.appToast==="function") window.appToast("Every scene already has its keyframes \u2014 re-draft a scene from its own header.","info"); return; }
+    // ASKS FIRST, WITH WHAT IT SPENDS (2026-10-09, owner — Shots review): one writing call per scene
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Draft keyframes for "+todo0.length+" scene"+(todo0.length!==1?"s":"")+" (writing credits)?",
+        body:"One writing call per scene that has no shots yet \u2014 "+todo0.length+" call"+(todo0.length!==1?"s":"")+", three at a time. Scenes that already have shots are left as they are. No images are made.",
+        items:todo0.slice(0,12).map(sc=>"Scene "+String(sc.no||"").padStart(2,"0")+(sc.title?" \u00b7 "+sc.title:"")),
+        confirmLabel:"Draft "+todo0.length, cancelLabel:"Cancel" });
+      if(!ok) return;
+    }
     setDraftingAllShots(true);
     const results = [];
     const epoch=typeof nbEpoch==="function"?nbEpoch():null;
     try{
-      const ordered = scenesInStoryOrder(scenes);
-      const have = new Set(shots.map(s=>s.sceneId));
+      const ordered = scenesInStoryOrder(scenesRef.current||scenes);
+      const have = new Set((shotsLiveRef.current||shots).map(s=>s.sceneId));
       const todo = ordered.filter(s=>!have.has(s.id));   // non-destructive: skip scenes already broken down
       for(let i=0;i<todo.length;i+=3){
         if(epoch!==null && (typeof nbEpoch!=="function" || nbEpoch()!==epoch)) break;
@@ -5613,11 +5713,11 @@ function App(){
         const names = failed.slice(0,3).map(r=>r.label).join(", ");
         window.appToast("Shot design finished, but "+failed.length+" scene"+(failed.length>1?"s":"")+" failed: "
           +names+(failed.length>3?", \u2026":"")+". Those scenes have no shots yet \u2014 click 'Design all shots' again to retry just them."
-          +(fb?(" "+fb+" scene"+(fb>1?"s":"")+" used stopgap one-shot-per-beat coverage \u2014 re-draft those to try again."):""),"error");
+          +(fb?(" "+fb+" scene"+(fb>1?"s":"")+" got simple keyframes from the screenplay because the answer couldn't be read \u2014 re-draft those to try again."):""),"error");
       } else if(fb){
-        window.appToast("All scenes designed, but "+fb+" scene"+(fb>1?"s":"")+" used stopgap one-shot-per-beat coverage \u2014 re-draft those to try again.","error");
+        window.appToast("All scenes drafted, but "+fb+" scene"+(fb>1?"s":"")+" got simple keyframes from the screenplay because the answer couldn't be read \u2014 re-draft those to try again.","error");
       } else {
-        window.appToast("Shot design complete \u2014 all "+results.length+" scene"+(results.length>1?"s have":" has")+" coverage.","success");
+        window.appToast("Keyframes drafted \u2014 "+results.length+" scene"+(results.length>1?"s":"")+" now "+(results.length>1?"have":"has")+" one opening keyframe per beat.","success");
       }
     }
   };
@@ -6319,6 +6419,10 @@ function App(){
     setHistory(h=>{ if(!h[id]) return h; const n={...h}; delete n[id]; return n; });
     setContinuityMap(c=>{ if(!c || !c[id]) return c; const n={...c}; delete n[id]; return n; });
     if(goneShots.length) setShots(ss=>ss.filter(sh=>!(sh && sh.sceneId===id)));
+    // ...and into Recently deleted (2026-10-09, owner — Shots review): the one-slot Undo was their only way
+    // back, so a second scene deletion lost the first scene's shots for good (their frames stayed in storage)
+    if(goneShots.length){ const goneIds = new Set(goneShots.map(sh=>sh.id));
+      setTrash(t=>({ ...t, shots:[ ...goneShots.map(sh=>({ ..._trashStamp(sh), deletedWithScene:id })), ...(t.shots||[]).filter(x=>!(x && goneIds.has(x.id))) ] })); }
     // the scene's look, its hand-pick mark and its Colorist reason all go (2026-10-08 — the mark and the
     // reason used to stay in the saved film forever); Undo puts all three back
     if(goneStyle!==undefined) setProject(p=>{
@@ -6352,6 +6456,8 @@ function App(){
       const back=d.shots.filter(sh=>!have.has(sh.id));
       return back.length ? ss.concat(back) : ss;
     });
+    if(d.shots && d.shots.length){ const backIds = new Set(d.shots.map(sh=>sh.id));
+      setTrash(t=>({ ...t, shots:(t.shots||[]).filter(x=>!(x && backIds.has(x.id))) })); }
     if(d.style!==undefined) setProject(p=>{
       const b=(p&&p.styleBible)||{}; if(b.sceneStyles && id in b.sceneStyles) return p;
       return {...p, styleBible:{...b, sceneStyles:{...(b.sceneStyles||{}), [id]:d.style},
@@ -6694,6 +6800,7 @@ function App(){
     // ---- Shot Designer (Shot List agent) — coverage audit/design on a per-run WORKING
     // copy of shots (like Story Doctor's ctx.model); each approval also pushes to real state.
     let _workShots = (shots||[]).map(s=>({...s}));
+    const _coverageChecks = {};   // sceneId → the current-state check signed before its coverage was drafted
     const _WIDE = new Set(["EWS","WS","FS","MWS"]);
     const _shotsOf = (sid)=> _workShots.filter(s=>s.sceneId===sid).slice().sort((a,b)=>(a.order||0)-(b.order||0)||(a.beatN||0)-(b.beatN||0));
     const coverage = {
@@ -6705,10 +6812,25 @@ function App(){
       grammarList: (arr, anchorId, turnAt)=> (arr||[]).map((s,i)=> (i+1)+". "+((typeof shotGrammarLabel==="function")?shotGrammarLabel(s):s.size)
         + (i===0?"  ◆ chain head":"") + ((turnAt&&s.beatN===turnAt)?"  ← lands the turn":"")),
       turnAtOf: (sid)=> ((beatsMap||{})[sid]||{}).turnAt,
+      // (2026-10-09, owner — Shots review) the Shot Designer gets the Shots tab's own guarantees: the scene is
+      // signed before the model call and checked again when the coverage is applied (edits made while the
+      // proposal waited are never overwritten), it counts as the scene's running draft, the dialogue is
+      // snapped to the screenplay's lines, and beats the model didn't answer keep their shots
       draftCoverage: async (scene)=>{ if(typeof aiDraftShots!=="function" || typeof normalizeShot!=="function") return null;
-        const raw = await aiDraftShots(scene, beatsMap, drafts, locations, props, characters, lbProject("shots"));
-        if(!raw || !raw.length) return null;
-        return completeDraftedShotCoverage(scene, raw.map((r,i)=>normalizeShot(r, scene, i, locations, props, characters, beatsMap))); },
+        if(keyframeBusyRef.current.has(scene.id)) throw new Error("this scene already has a keyframe draft running");
+        const check = keyframeScope(scene);
+        keyframeBusyRef.current.add(scene.id);
+        try{
+          const L = keyframeInputsRef.current || {};
+          const raw = await aiDraftShots(scene, L.beatsMap||beatsMap, draftsRef.current||drafts, L.locations||locations, L.props||props, charactersRef.current||characters, lbProject("shots"));
+          if(!raw || !raw.length) return null;
+          check();
+          let made = completeDraftedShotCoverage(scene, raw.map((r,i)=>normalizeShot(r, scene, i, L.locations||locations, L.props||props, charactersRef.current||characters, L.beatsMap||beatsMap)));
+          snapShotDialogue(scene, made);
+          made = keepUnansweredBeats(scene, raw, made).made;
+          _coverageChecks[scene.id] = check;
+          return made;
+        } finally { keyframeBusyRef.current.delete(scene.id); } },
       applyCoverage: (sceneId, newShots, anchorId)=>{
         // chain model: the head is the FIRST shot in order, so coverage shots carry no
         // explicit .anchor (that flag now means a manual fresh-start / chain break).
@@ -6720,7 +6842,7 @@ function App(){
         // the scene's shots outright — hand-made shots and alternatives vanished with no
         // Trash entry and rendered frames lost their link.
         if(typeof window.mergeBeatKeyframes==="function"){
-          const merged = _w.commitBeatKeyframes(fresh, ()=>{});
+          const merged = _w.commitBeatKeyframes(fresh, _coverageChecks[sceneId] || (()=>{}));
           _workShots = window.mergeBeatKeyframes(_workShots, fresh).shots;
           return merged;
         }
@@ -7154,7 +7276,8 @@ function App(){
     const castScope = (force && typeof force==="object") ? force : null;
     const ctxArgs = { input, emit, propose, cancelled, agentName, force, owner:ownerProjectId, run };
     return { input, emit, propose, project, force: forceImages,
-      cancelled: ()=> cancelled() || switchedFilms(),
+      // a run stops if the role can no longer change the Art Room, too (2026-10-09)
+      cancelled: ()=> cancelled() || switchedFilms() || !!artRoomReadOnlyRef.current,
       switchedFilms,
       // A FRESH CONTEXT for the next step of a multi-step run (2026-10-02): this context's reads
       // (the Lookbook brief, the cast list, the props, the Colorist's references) are the film as
@@ -7255,6 +7378,9 @@ function App(){
     setLookbookNote(snap.lookbookNote);
     setLookbookApplied({ ...snap.lookbookApplied });
     setShots(snap.shots.map(x=>({ ...x })));
+    // shots it brings back leave Recently deleted (2026-10-09 — they were live AND binned, and "Delete
+    // forever" on the binned copy wiped the live shot's frame)
+    { const back = new Set(snap.shots.map(x=>x && x.id)); setTrash(t=>({ ...t, shots:(t.shots||[]).filter(x=>!(x && back.has(x.id))) })); }
     if(snap.propsSeeded!==undefined) setPropsSeeded(snap.propsSeeded);
     if(snap.locsSeeded!==undefined) setLocsSeeded(snap.locsSeeded);
     setProject(p=>{ const n = { ...p };

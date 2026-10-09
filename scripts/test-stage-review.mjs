@@ -74,7 +74,7 @@ await test("C1 one status per clip: frames and references in one sentence", ()=>
   b.shotFrameState = (sh)=>states[sh.id];
   b.sceneReferenceNeeds = ()=>[{ label:"NEO sheet" }];
   const r = b.stageClipReadiness({ scene:{ id:"sc" }, data:{ shots:[{ id:"s1" },{ id:"s2" },{ id:"s3" }] } }, {}, {}, {});
-  assert.deepEqual(J(r.frames), { missing:1, unapproved:1, stale:1, oldLook:1, charChanged:0 });
+  assert.deepEqual(J(r.frames), { missing:1, unapproved:1, stale:1, oldLook:1, charChanged:0, locChanged:0, propChanged:0 });
   assert.equal(r.text, "1 frame not made yet · 1 frame not approved · 1 frame out of date · 1 frame made with an earlier look · missing: NEO sheet");
   assert.ok(st.includes('title:"Render with these inputs?"') && st.includes('"Make what this clip needs"'));
 });

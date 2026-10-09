@@ -2179,6 +2179,7 @@ function useImageGen(opts){
         setGenUrl(url); setGenTier(saveResult.tier || "local"); setGenMeta(meta);
         setSlotHasRef(false);
         try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
+        if(typeof opts.onImported==="function"){ try{ opts.onImported(meta); }catch(e){} }   // the card's own follow-up (Shots: approval)
       }
     }catch(e){ setGenErr((e && e.message) || "Couldn't import the image."); }
     setGening(false);
@@ -2908,7 +2909,7 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
     ? React.createElement("button",{className:"ns-btn ghost qa-apply-btn",disabled:gening,
         title:"Make a TARGETED EDIT to the current image that fixes the findings above — one generation; this exact framing is kept and the current version stays in history. (Apply to spec & regenerate is the deeper fix when the drift is systemic.)",
         onClick:()=>{ onRunEdit(r.editInstruction || _qaDerivedEditInstruction(r)); onClose(); }},
-        React.createElement(Icon.wand,{s:12}),"Edit current image")
+        React.createElement(Icon.wand,{s:12}),"Edit current image", typeof window.nbCostChip==="function" && window.nbCostChip(1))
     : null;
   const finding = (d,i,invented)=> React.createElement("div",{key:i,className:"qa-item"},
     React.createElement("span",{className:"qa-dot "+(invented?"invent":(d.severity==="major"?"major":"minor")),
@@ -2958,7 +2959,7 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
             title:"Fold this advice into the card's drafted spec fields (one writing-model call, previewed first), then REGENERATE immediately so the sheet always matches its spec — the current image stays in version history",
             onClick:applyAdvice},
             applying ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
-            applying ? "Folding into the spec…" : "Apply to spec & regenerate"),
+            applying ? "Folding into the spec…" : "Apply to spec & regenerate", !applying && typeof window.nbCostChip==="function" && window.nbCostChip(1)),
           _editBtn)),
       React.createElement("div",{className:"qa-foot"},
         React.createElement("span",{className:"qa-foot-note"},"1 vision read · no image credits spent"),
@@ -2966,7 +2967,7 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
         (r.action==="edit" && r.editInstruction) && React.createElement("button",{className:"ns-btn primary",disabled:gening,
           title:"Apply the suggested edit to this image now — one generation; the current version stays in history",
           onClick:()=>{ onRunEdit(r.editInstruction); onClose(); }},
-          React.createElement(Icon.wand,{s:14}),"Run suggested edit"),
+          React.createElement(Icon.wand,{s:14}),"Run suggested edit", typeof window.nbCostChip==="function" && window.nbCostChip(1)),
         // ("Regenerate now" removed, user ruling 2026-07-21: it duplicated the card's
         // own Regenerate button and re-rolled the SAME spec the report just faulted —
         // the modal offers only the two INFORMED repairs: amend the spec, or edit.)
@@ -3025,7 +3026,7 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
       setBusy(false);
     }
     if(!rep){ if(window.appToast) window.appToast("The QA read failed — try again.","info"); return; }
-    if(rep.unsupported){ if(window.appToast) window.appToast("Your server proxy is text-only — redeploy it to enable vision QA.","info"); return; }
+    if(rep.unsupported){ if(window.appToast) window.appToast("The frame check isn't available right now \u2014 the writing engine couldn't look at the image. Try again later; nothing was charged for an image.","info"); return; }
     setReport({ ...rep, judgedSpec });
   };
   return React.createElement(React.Fragment,null,
@@ -3227,7 +3228,8 @@ function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApp
           React.createElement("div",{className:"region-edit-acts"},
             React.createElement("button",{className:"sheet-edit-cancel",onClick:onClose},"Cancel"),
             React.createElement("button",{className:"sheet-edit-apply",disabled:!text.trim(),onClick:apply},
-              React.createElement(Icon.wand,{s:12}),"Apply region edit"))))),
+              React.createElement(Icon.wand,{s:12}),"Apply region edit",
+              typeof window.nbCostChip==="function" && window.nbCostChip(1)))))),
     );
   return portalTarget ? ReactDOM.createPortal(modal, portalTarget) : modal;
 }
@@ -3612,7 +3614,8 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
           (genUrl && (forceRemaster || remasterEligible(genMeta))) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Re-render the CURRENT image as a fresh, clean, full-quality version \u2014 same design, artifacts and noise removed (stacked edits degrade like a photocopy of a photocopy). Lands as a new version; the old one stays in history.",
             onClick:()=>{ setMenuOpen(false); generate({ editInstruction: (typeof remasterInstruction==="function")?remasterInstruction(noun):"Reproduce this image exactly, clean and artifact-free." }); }},
-            React.createElement(Icon.sparkles,{s:14}),"Remaster \u2014 clean re-render"),
+            React.createElement(Icon.sparkles,{s:14}),"Remaster \u2014 clean re-render",
+            typeof window.nbCostChip==="function" && window.nbCostChip(1)),
           ...(menuItemsBeforeEdit||[]).map((m,i)=>
             React.createElement("button",{key:"mb"+i,className:"sheet-tools-item",disabled:gening||m.disabled,title:m.title,
               onClick:()=>{ setMenuOpen(false); m.onClick&&m.onClick(); }},
@@ -3735,7 +3738,8 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
         React.createElement("button",{className:"sheet-edit-apply",
           onClick:runEdit,disabled:!editText.trim()||gening,
           title: editRefs.length ? ("Runs the edit with "+editRefs.length+" attached image"+(editRefs.length>1?"s":"")+" as reference"+(editRefs.length>1?"s":"")) : "Runs the edit from the instruction"},
-          React.createElement(Icon.wand,{s:12}),"Apply edit"),
+          React.createElement(Icon.wand,{s:12}),"Apply edit",
+          typeof window.nbCostChip==="function" && window.nbCostChip(1)),
         // Undo only when the CURRENT image is the product of an edit — a fresh
         // generation or an upload has no "before my last edit" to restore, even
         // when older versions exist in history (those live in Details / the viewer)
@@ -4145,12 +4149,12 @@ function RecentlyDeleted({ items, kind, onRestore, onPurge, compact }){
     items.map(it=>React.createElement("div",{key:it.id,className:"rd-row"},
       React.createElement("span",{className:"rd-name",title:labelFor(it)}, labelFor(it)),
       it._deletedAt && React.createElement("span",{className:"rd-when"}, rel(it._deletedAt)),
-      React.createElement("button",{className:"rd-restore",onClick:()=>onRestore&&onRestore(it.id),
+      onRestore && React.createElement("button",{className:"rd-restore",onClick:()=>onRestore(it.id),
         title: kind==="reference" ? "Restore this reference with its mood frame" : "Restore this "+noun+" with its scenes & spec"},
         React.createElement(Icon.undo,{s:12}),"Restore"),
-      React.createElement("button",{className:"rd-purge",title:"Delete forever",
+      onPurge && React.createElement("button",{className:"rd-purge",title:"Delete forever","aria-label":"Delete "+labelFor(it)+" forever",
         onClick:async ()=>{ const ok=await window.appConfirm({ title:"Delete “"+labelFor(it)+"” forever?",
-          body:"This permanently removes it and its "+(kind==="reference" ? "mood frame" : "reference sheet")+" from the project. This can't be undone.",
+          body:"This permanently removes it and its "+(kind==="reference" ? "mood frame" : kind==="shot" ? "frame and its earlier versions" : kind==="location" ? "plates" : "reference sheet")+" from the project. This can't be undone.",
           confirmLabel:"Delete forever", danger:true });
           if(ok && onPurge) onPurge(it.id); }},
         React.createElement(Icon.x,{s:12})))));
@@ -6051,7 +6055,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
            onUpdateShot,onAddShot,onDeleteShot,onDeleteShotReference:readOnly?null:onDeleteShotReference,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,
           onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,readOnly,
           onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,
-          trashItems:(trash&&trash.shots)||[],onRestore:onRestoreShot,onPurge:onPurgeShot,
+          trashItems:(trash&&trash.shots)||[],onRestore:readOnly?null:onRestoreShot,onPurge:readOnly?null:onPurgeShot,
           lookbookStale:!!_stale.shots,
           onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("shots"):null})
       : artView==="storyboard" && window.StoryboardView
