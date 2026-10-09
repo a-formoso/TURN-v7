@@ -139,10 +139,11 @@ await (async () => {
   ok("dirty: marked in ledger", (dirtyLedger().p1 || {})["clip-dirty"] === "put", JSON.stringify(dirtyLedger()));
   ok("dirty: user told (no silent catch)", toastsWith(/Couldn't save this clip's takes/).length === 1, JSON.stringify(V.__toasts));
 
-  /* ---- 4. hydrate: cloud wins EXCEPT dirty; vid-done announced ---- */
-  loadRows = { "clip-a": { url: "http://cdn/a.mp4", meta: null }, "clip-dirty": { url: "http://cdn/STALE.mp4", meta: null } };
+  /* ---- 4. hydrate: cloud wins EXCEPT dirty; vid-done announced ----
+     (a cloud take plays only from a provider host — fal.media here: Stage editor review, 2026-10-09) */
+  loadRows = { "clip-a": { url: "https://v3.fal.media/a.mp4", meta: null }, "clip-dirty": { url: "http://cdn/STALE.mp4", meta: null } };
   const n = await V.vidCloudHydrate();
-  ok("hydrate: cloud row landed", V.vidGetVideo("clip-a") === "http://cdn/a.mp4");
+  ok("hydrate: cloud row landed", V.vidGetVideo("clip-a") === "https://v3.fal.media/a.mp4");
   ok("hydrate: dirty clip NOT clobbered by stale cloud row", V.vidGetVideo("clip-dirty") === "http://local/v.mp4");
   ok("hydrate: count + vid-done event", n === 1 && V.__events.some(e => e.type === "vid-done" && e.detail && (e.detail.ids || []).includes("clip-a")), "n=" + n);
 
@@ -234,7 +235,7 @@ await (async () => {
   /* ---- 12. hydrate reconciles REMOTE deletions, never other films' caches ---- */
   ok("reconcile precondition: clip-dirty is clean + local", V.vidGetVideo("clip-dirty") === "http://local/v.mp4");
   V.__events.length = 0;
-  loadRows = { "clip-a": { url: "http://cdn/a.mp4", meta: null } };   // clip-dirty vanished remotely
+  loadRows = { "clip-a": { url: "https://v3.fal.media/a.mp4", meta: null } };   // clip-dirty vanished remotely
   await V.vidCloudHydrate();
   ok("reconcile: remotely-deleted clip dropped locally", V.vidGetVideo("clip-dirty") === "");
   ok("reconcile: deletion announced", V.__events.some(e => e.type === "vid-done" && (e.detail.ids || []).includes("clip-dirty")), JSON.stringify(V.__events.map(e => e.detail && e.detail.ids)));

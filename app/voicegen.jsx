@@ -2,8 +2,8 @@
    Structural twin of imagegen.jsx's nb* layer, for ElevenLabs audio instead of images.
    Every call goes through the SAME server-side Supabase proxy (the `image-proxy`
    Edge Function, task:"voice"), using the proxy's ELEVENLABS_API_KEY server secret,
-   with admin API Keys able to override for testing. Local-first persistence (IndexedDB); cloud is a
-   guarded extension hook (window.cloudCommitAudio) wired in a later turn.
+   with admin API Keys able to override for testing. Local-first persistence (IndexedDB); in a cloud
+   film every voiced line is also a film asset (window.cloudCommitAudio, 2026-10-09).
 
    Public surface (mirrors the plan):
      elGenerate(id, text, {voiceId, settings, modelId, force}) -> {audioUrl, durationMs, alignment, cached}
@@ -92,22 +92,180 @@ function vgKey(id,projectId){ return "a:"+vgProjectScope(projectId)+":"+id; }
 
 function vgGetAudio(id,projectId){ const e=_vgMem.get(vgMemKey(id,projectId)); return (e&&e.url)||""; }
 function vgGetMeta(id,projectId){ const e=_vgMem.get(vgMemKey(id,projectId)); return (e&&e.meta)||null; }
-async function vgLoadAudio(id,projectId){
+
+/* ---- VOICED LINES LIVE WITH THE FILM (Stage editor review, 2026-10-09, decision B) -------------
+   A voiced line used to stay in the browser that voiced it: every collaborator (and the owner on
+   another device) saw "missing-bytes" and paid to voice it again. elCommit now also saves the bytes
+   to the film (cloud.jsx cloudCommitAudio: one 'aud-<line id>-<who+render>' row per voicing + a Storage
+   file in the voicer's own folder), and a line whose bytes aren't on this device is fetched from the
+   film: the film's audio rows load ONCE per film open (cloudAudioLoadAll, one query; the voicing whose
+   hash matches the line's render record is used), the bytes only for a line that needs them (a signed URL; size and
+   SHA-256 checked), then cached in IndexedDB. The usual lineage checks (vgLineAudioStatus: words,
+   voice, render fingerprint, film) still decide whether the bytes may ride a render. Local mode and
+   a film opened without the cloud keep the device-only behaviour. */
+function _vgCloudScope(projectScope){
+  if(typeof window.nbCloudScope!=="function") return null;
+  const sc = window.nbCloudScope();
+  if(!sc || sc.projectId==null || sc.uid==null) return null;
+  return String(sc.projectId)===String(projectScope) ? sc : null;
+}
+const _vgCloudIdx = new Map();        // projectId -> Promise<{ 'aud-…': {path, meta, owner} } | null>
+function vgCloudIndex(projectId){
+  const pid = String(projectId);
+  if(typeof window.cloudAudioLoadAll!=="function") return Promise.resolve(null);
+  if(!_vgCloudIdx.has(pid)){
+    const p = Promise.resolve().then(()=>window.cloudAudioLoadAll(pid)).catch(()=>null).then(r=>{
+      if(!r && _vgCloudIdx.get(pid)===p) _vgCloudIdx.delete(pid);   // a failed read is asked again later
+      if(r) _vgCloudFlushUnsynced(pid);
+      return r || null;
+    });
+    _vgCloudIdx.set(pid, p);
+  }
+  return _vgCloudIdx.get(pid);
+}
+function _vgCloudKey(id){ return typeof window.cloudAudioEntityId==="function" ? window.cloudAudioEntityId(id) : "aud-"+id; }
+/* a line's voicings in the film (one row per person + render): [{ key, path, meta, owner }] */
+function _vgCloudRecs(idx, id){
+  const out=[], base=_vgCloudKey(id);
+  Object.keys(idx||{}).forEach(key=>{
+    const rec=idx[key], m=(rec&&rec.meta)||{};
+    if(rec && (String(m.lineId==null ? "" : m.lineId)===String(id) || (m.lineId==null && key===base))) out.push({ key, ...rec });
+  });
+  return out;
+}
+/* the voicing to use: the one whose hash matches the line's render record when it is known (others
+   are ignored), else the newest */
+function _vgCloudPick(recs, hash){
+  if(hash) return recs.find(r=>r.meta && r.meta.hash===hash) || null;
+  return recs.slice().sort((a,b)=>String((b.meta||{}).renderedAt||"").localeCompare(String((a.meta||{}).renderedAt||"")))[0] || null;
+}
+// the film's copy is the one to use when this device has none, or an older render of another take on it
+function _vgCloudNewer(remoteMeta, localMeta){
+  const rm = remoteMeta||{}, lm = localMeta||{};
+  if(rm.hash && lm.hash && rm.hash===lm.hash) return false;
+  const r = String(rm.renderedAt||""), l = String(lm.renderedAt||"");
+  return !!r && (!l || r>l);
+}
+async function _vgBlobToDataUrl(blob){
+  if(typeof FileReader!=="undefined") return new Promise((res,rej)=>{
+    const r = new FileReader(); r.onload = ()=>res(String(r.result||"")); r.onerror = ()=>rej(r.error); r.readAsDataURL(blob); });
+  const u8 = new Uint8Array(await blob.arrayBuffer()); let bin = "";
+  for(let i=0;i<u8.length;i+=0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i+0x8000));
+  return "data:"+(blob.type||"audio/mpeg")+";base64,"+btoa(bin);
+}
+const _vgCloudFetching = new Map();   // project:id -> promise (one download per line at a time)
+function _vgCloudFetch(id, scope, rec){
+  const memKey = vgMemKey(id,scope);
+  if(_vgCloudFetching.has(memKey)) return _vgCloudFetching.get(memKey);
+  const p = (async ()=>{
+    if(typeof window.cloudAudioDownload!=="function") return "";
+    const m = rec.meta || {};
+    if(m.projectId && String(m.projectId)!==String(scope)) return "";   // another film's line: never
+    const blob = await window.cloudAudioDownload(scope, rec);
+    if(!blob || !_vgCloudScope(scope)) return "";
+    const url = await _vgBlobToDataUrl(blob);
+    if(!/^data:audio\//i.test(url) || !_vgCloudScope(scope)) return "";
+    const meta = { ...m, cloudPath:rec.path };
+    _vgMem.set(memKey, { url, meta });
+    try{ await vgIdbSet(vgKey(id,scope), { url, meta }); }catch(e){}
+    return url;
+  })().catch(()=>"").then(u=>{ _vgCloudFetching.delete(memKey); return u; });
+  _vgCloudFetching.set(memKey, p);
+  return p;
+}
+/* lines voiced on this device that didn't reach the film yet (a network failure): saved again the next
+   time the film's audio loads. A refusal is never retried. */
+const VG_UNSYNCED_KEY = "turn_vg_unsynced";
+function _vgUnsyncedAll(){ try{ return JSON.parse(localStorage.getItem(VG_UNSYNCED_KEY)||"{}")||{}; }catch(e){ return {}; } }
+function _vgUnsyncedMark(projectId, id, on){
+  try{
+    const m = _vgUnsyncedAll(), l = new Set(m[projectId]||[]);
+    if(on) l.add(String(id)); else l.delete(String(id));
+    if(l.size) m[projectId] = Array.from(l).slice(-200); else delete m[projectId];
+    localStorage.setItem(VG_UNSYNCED_KEY, JSON.stringify(m));
+  }catch(e){}
+}
+let _vgFlushing = false;
+async function _vgCloudFlushUnsynced(projectId){
+  if(_vgFlushing) return;
+  const ids = (_vgUnsyncedAll()[projectId]||[]).slice();
+  if(!ids.length) return;
+  _vgFlushing = true;
+  try{
+    for(const id of ids){
+      const sc = _vgCloudScope(projectId); if(!sc) break;
+      let v = null; try{ v = await vgIdbGet(vgKey(id,projectId)); }catch(e){}
+      if(!v || !/^data:audio\//i.test(String(v.url||""))){ _vgUnsyncedMark(projectId, id, false); continue; }
+      await _vgCloudSave(id, v.url, v.meta||null, projectId, sc, true);
+    }
+  }finally{ _vgFlushing = false; }
+}
+let _vgCloudToastAt = 0;
+async function _vgCloudSave(id, dataUrl, meta, scope, sc, quiet){
+  try{
+    const r = await window.cloudCommitAudio(id, dataUrl, meta, { projectId:sc.projectId, uid:sc.uid });
+    _vgUnsyncedMark(scope, id, false);
+    if(r && r.path){
+      const memKey = vgMemKey(id,scope), merged = { ...(meta||{}), ...(r.meta||{}), cloudPath:r.path };
+      const cur = _vgMem.get(memKey);
+      if(cur && cur.url===dataUrl) _vgMem.set(memKey, { url:dataUrl, meta:merged });
+      try{ const v = await vgIdbGet(vgKey(id,scope)); if(v && v.url===dataUrl) await vgIdbSet(vgKey(id,scope), { url:dataUrl, meta:merged }); }catch(e){}
+      const idx = _vgCloudIdx.has(String(scope)) ? await _vgCloudIdx.get(String(scope)) : null;
+      if(idx && r.entityId){
+        // this person's older voicings of the line are gone from the film now (cloudCommitAudio)
+        _vgCloudRecs(idx, id).forEach(x=>{ if(x.key!==r.entityId && String(x.path||"").indexOf(String(sc.uid)+"/")===0) delete idx[x.key]; });
+        idx[r.entityId] = { path:r.path, meta:r.meta||merged, owner:sc.uid };
+      }
+    }
+    return true;
+  }catch(e){
+    const refused = typeof window.cloudPermissionRefused==="function" ? window.cloudPermissionRefused(e)
+      : /42501|row-level security|permission denied|TURN_TEAM:|TURN_ROLE_SCOPE/i.test(String((e&&e.code)||"")+" "+String((e&&e.message)||""));
+    _vgUnsyncedMark(scope, id, !refused);
+    if(!quiet && Date.now()-_vgCloudToastAt > 30000 && typeof window.appToast==="function"){
+      _vgCloudToastAt = Date.now();
+      window.appToast(refused
+        ? "This line's voice couldn't be saved to the film — your access to it changed. It stays on this device."
+        : "Couldn't save this line's voice to the film — it's safe on this device and will be saved again when the film reopens.",
+        refused ? "error" : "info");
+    }
+    return false;
+  }
+}
+/* opts.hash (Stage editor review, 2026-10-09): the line's render record (lineAudio.hash) — the film's
+   voicing with that hash is the one fetched; without it, the newest voicing of the line */
+async function vgLoadAudio(id,projectId,opts){
   const scope=vgProjectScope(projectId),memKey=vgMemKey(id,scope);
-  const sync=vgGetAudio(id,scope); if(sync) return sync;
+  const want=opts && opts.hash ? String(opts.hash) : "";
+  const sync=vgGetAudio(id,scope);
+  if(sync && (!want || (vgGetMeta(id,scope)||{}).hash===want)) return sync;
+  let local=null;
   try{
     let v=await vgIdbGet(vgKey(id,scope));
     // One-time read compatibility for audio created before film-scoped keys. The
     // Stage lineage guard still validates its text/voice/hash before attachment.
     if(!v)v=await vgIdbGet("a:"+id);
     if(v&&v.meta&&v.meta.projectId&&String(v.meta.projectId)!==scope)return "";
-    if(v && v.url){ _vgMem.set(memKey,{url:v.url,meta:v.meta||null}); return v.url; }
+    if(v && v.url) local=v;
   }catch(e){}
-  return "";
+  // the film's copy, when this device has none (or an older render) — Stage editor review, 2026-10-09
+  if(_vgCloudScope(scope)){
+    try{
+      const idx=await vgCloudIndex(scope), rec=idx && _vgCloudPick(_vgCloudRecs(idx, id), want);
+      const localHash=local && local.meta && local.meta.hash;
+      if(rec && (!local || (want ? localHash!==want : _vgCloudNewer(rec.meta, local.meta)))){
+        const u=await _vgCloudFetch(id, scope, rec);
+        if(u) return u;
+      }
+    }catch(e){}
+  }
+  if(local){ _vgMem.set(memKey,{url:local.url,meta:local.meta||null}); return local.url; }
+  return sync || "";
 }
 window.vgGetAudio=vgGetAudio; window.vgGetMeta=vgGetMeta; window.vgLoadAudio=vgLoadAudio;
+window.vgCloudIndex=vgCloudIndex;
 // drop the in-memory line-audio cache (call on project switch so no audio leaks across films)
-function vgResetAll(){ _vgMem.clear(); }
+function vgResetAll(){ _vgMem.clear(); _vgCloudIdx.clear(); }
 window.vgResetAll=vgResetAll;
 
 // ---- hash for skip-if-unchanged (text + voice + resolved settings) -----------
@@ -195,12 +353,14 @@ window.vgLineAudioStatus=vgLineAudioStatus;
 // ---- persist one rendered line ----------------------------------------------
 async function elCommit(id, dataUrl, meta){
   const scope=vgProjectScope(meta&&meta.projectId),memKey=vgMemKey(id,scope);
+  /* the device copy first; then the film's (Stage editor review, 2026-10-09): the bytes stay a data URL
+     here — a signed link expires — and the film's file path rides the meta (cloudPath) */
   _vgMem.set(memKey, { url:dataUrl, meta:meta||null });
-  // cloud extension hook (the turn_audios table) — guarded; defaults to local IDB until wired
-  if(typeof window.cloudCommitAudio==="function" && typeof window.nbBackend==="function" && window.nbBackend()==="cloud"){
-    try{ const r=await window.cloudCommitAudio(id, dataUrl, meta); if(r && r.url){ _vgMem.set(memKey,{url:r.url,meta:meta||null}); } }catch(e){}
-  }
   try{ await vgIdbSet(vgKey(id,scope), { url:dataUrl, meta:meta||null }); }catch(e){}
+  if(typeof window.cloudCommitAudio==="function" && typeof window.nbBackend==="function" && window.nbBackend()==="cloud"){
+    const sc=_vgCloudScope(scope);
+    if(sc) await _vgCloudSave(id, dataUrl, meta, scope, sc, false);
+  }
   try{ window.dispatchEvent(new CustomEvent("vg-audio-done",{ detail:{ ids:[id] } })); }catch(e){}
   return { url:dataUrl };
 }
@@ -208,6 +368,20 @@ async function vgClearAudio(id){
   const scope=vgProjectScope();
   _vgMem.delete(vgMemKey(id,scope));
   try{ await vgIdbDel(vgKey(id,scope)); }catch(e){}
+  _vgUnsyncedMark(scope, id, false);
+  /* the film's copies go too — only this person's own voicings (files in their own folder), never
+     someone else's, the owner's included; a refusal is ignored quietly (Stage editor review, 2026-10-09) */
+  const sc=_vgCloudScope(scope);
+  if(sc && typeof window.cloudDeleteAudio==="function"){
+    try{
+      const idx=await vgCloudIndex(scope), own=String(sc.uid)+"/"+String(sc.projectId)+"/stage-audio/";
+      for(const rec of _vgCloudRecs(idx, id)){
+        if(String(rec.path||"").indexOf(own)!==0) continue;
+        const r=await window.cloudDeleteAudio(sc.projectId, rec.key, sc.uid);
+        if(r && r.ok && idx) delete idx[rec.key];
+      }
+    }catch(e){}
+  }
   try{ window.dispatchEvent(new CustomEvent("vg-audio-done",{ detail:{ ids:[id] } })); }catch(e){}
 }
 window.elCommit=elCommit; window.vgClearAudio=vgClearAudio;

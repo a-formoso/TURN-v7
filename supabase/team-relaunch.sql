@@ -64,6 +64,38 @@
 --     shared-owners.sql, enforce-role-scopes.sql) refuse to run once this file
 --     is installed; migrate-remove-producer-admin.sql becomes a no-op.
 --
+-- (Stage editor review, 2026-10-09) What changed in this pass, by the owner's decisions:
+--   * S1 A Stage slot is checked by its whole shape, not its id and kind alone: a
+--     take record ('clip-…', kind 'video': no file, no refs, no history, meta only
+--     kind / updatedAt / video) or a voiced line ('aud-…', kind 'audio': its file
+--     and every cleanup path under the writer's own '<uid>/<film>/stage-audio/').
+--     And for EVERY collaborator's write to turn_generations, each path in the
+--     row's cleanup ledger (cleanupPending, cleanupPurgeTarget / -Receipts,
+--     deletedStoragePath — the paths the OWNER's app later deletes) must be one
+--     the old row already referenced, one in the writer's own folder, or one the
+--     writer may delete themselves ('TURN_TEAM:cleanup_path'). A Stage editor can
+--     no longer make the owner's browser delete the Art Room's files.
+--   * S2 (decision E) Writing needs a LINKED membership (the account claimed the
+--     invite); an invited address that hasn't claimed reads only.
+--   * S3 (decision F) A Stage editor saves only the Stage's part of a film: the
+--     'stage' key of `project`, and on `shots` only the Stage's fields (same shots,
+--     same order). A save the role can't make RAISES 'TURN_TEAM:<code>' — never a
+--     silent zero-row update: stage_scope, role_paused (a Stage editor on a film
+--     that dropped to Director), paused (the switch off), owner_plan (the owner's
+--     plan lapsed).
+--   * S4 What each kind of paid call needs: images the Art director only; voice
+--     (text-to-speech) the Art director or the Stage editor; designing a voice
+--     ('voice_design') the Art director only; video the Stage editor; 3D the Art
+--     director; writing any editing role.
+--   * S5 (decision D) A render already running when someone is removed, sharing
+--     pauses or the owner's plan changes is still paid, and its take lands in the
+--     film: holds carry `take`, and the owner's app collects finished takes
+--     (turn_film_pending_takes / turn_film_mark_takes_collected).
+--   * S6 turn_team_spend is family-aware for a collaborator (a Show row's spend
+--     on an Episode) and shows the owner people removed this month who spent; a
+--     Stage slot a collaborator creates belongs to the film's owner.
+--   * S7 (decision C) A collaborator can't remove a take someone else made.
+--
 -- RUN ORDER: after series-production.sql (and storage-readable-folders.sql),
 -- and AGAIN after any re-run of series-production.sql (it puts back older
 -- access helpers). Once this file is installed, enforce-role-scopes.sql,
@@ -89,6 +121,10 @@ begin
   end if;
   if to_regclass('public.turn_app_config') is null then
     problems := array_append(problems, 'missing public.turn_app_config (run app-config.sql first)');
+  end if;
+  -- (Stage editor review, 2026-10-09) the cleanup-path check asks it
+  if to_regprocedure('public.turn_can_delete_asset_path(text)') is null then
+    problems := array_append(problems, 'missing public.turn_can_delete_asset_path(text) (run series-production.sql first)');
   end if;
   if exists (select 1 from public.turn_project_members where role = 'producer_admin') then
     problems := array_append(problems, 'members still hold producer_admin (run migrate-remove-producer-admin.sql first)');
@@ -182,6 +218,8 @@ as $$
     when 'art_director' then
       array['characters','props','locations','sluglineUnits','lookbook','lookbookNote','lookbookApplied',
             'shots','trash','project','propsSeeded','locsSeeded','visualsSeeded','bible']
+    -- (Stage editor review, 2026-10-09) within these two, only the Stage's part:
+    -- `project`'s 'stage' key and the Stage's fields of each shot (turn__stage_shots_ok)
     when 'stage_editor' then
       array['shots','project']
     else array[]::text[]   -- view_only, unknown and legacy roles: nothing
@@ -343,6 +381,33 @@ as $$
   select distinct r.role from public.turn_effective_project_roles_for(auth.uid(), p_project_id) r;
 $$;
 
+-- (Stage editor review, 2026-10-09; owner decision E) The roles that may WRITE: only
+-- from memberships LINKED to the account (member_user = it). An invited address
+-- that hasn't claimed its invite yet reads the film (above) but writes nothing —
+-- and isn't billed to the owner (turn_film_payer already asked for a linked row).
+create or replace function public.turn__linked_roles_for(p_uid uuid, p_project_id uuid)
+returns table(role text, member_id uuid)
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select r.role, r.member_id
+    from public.turn_effective_project_roles_for(p_uid, p_project_id) r
+    join public.turn_project_members m on m.id = r.member_id
+   where m.member_user = p_uid;
+$$;
+
+create or replace function public.turn__film_owner(pid uuid)
+returns uuid
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select p.owner from public.turn_projects p where p.id = pid;
+$$;
+
 -- A role writes only while the owner's plan carries it: the three writing roles
 -- need Director or Producer; the Stage editor needs Producer.
 create or replace function public.turn_team_role_writes(p_role text, p_tier text)
@@ -367,6 +432,25 @@ as $$
      and public.turn_team_role_writes(p_role, public.turn_team_owner_tier(p_owner));
 $$;
 
+-- (Stage editor review, 2026-10-09) The signed-in account writes on film pid as p_role:
+-- a LINKED membership holds that role (decision E) and it writes now (switch, plan).
+create or replace function public.turn__writes_as(pid uuid, p_role text)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select exists (
+    select 1
+      from public.turn__linked_roles_for(auth.uid(), pid) r
+     where r.role = p_role
+       and public.turn__collab_writes(r.role, public.turn__film_owner(pid))
+  );
+$$;
+
+-- (Stage editor review, 2026-10-09) reads: any role, an unclaimed invite too; writes: a
+-- LINKED membership whose role writes now (decision E)
 create or replace function public.turn_can_access_project(pid uuid, write_access boolean default false)
 returns boolean
 language sql
@@ -377,14 +461,58 @@ as $$
   select exists (
     select 1 from public.turn_projects p
      where p.id = pid and p.owner = auth.uid()
-  ) or exists (
-    select 1
-      from public.turn_effective_project_roles(pid) r
-     where not write_access
-        or public.turn__collab_writes(r.role,
-             (select p.owner from public.turn_projects p where p.id = pid))
+  ) or (
+    not write_access and exists (select 1 from public.turn_effective_project_roles(pid))
+  ) or (
+    write_access and exists (
+      select 1
+        from public.turn__linked_roles_for(auth.uid(), pid) r
+       where public.turn__collab_writes(r.role, public.turn__film_owner(pid)))
   );
 $$;
+
+-- (Stage editor review, 2026-10-09) The film row's UPDATE rule. A collaborator whose
+-- editing role is PAUSED used to get a silent zero-row update (the rule filtered the
+-- row), which the app read as another window's newer version. Now the refusal is an
+-- error the app can show, with its reason:
+--   'TURN_TEAM:paused'      the switch is off (owner decision B)
+--   'TURN_TEAM:owner_plan'  the owner's plan no longer carries shared editing (decision A)
+--   'TURN_TEAM:role_paused' the role needs a plan the owner dropped (a Stage editor on
+--                           a film that moved from Producer to Director, decision F)
+-- Each message also carries 'TURN_ROLE_SCOPE: <words>', which older app builds show.
+-- View-only, an unclaimed invite and an outsider still match no row (nothing to say).
+create or replace function public.turn__project_write_or_raise(pid uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+declare
+  v_owner uuid;
+begin
+  if public.turn_can_access_project(pid, true) then return true; end if;
+  if not exists (select 1 from public.turn__linked_roles_for(auth.uid(), pid) r
+                  where r.role in ('writer', 'art_director', 'stage_editor')) then
+    return false;
+  end if;
+  v_owner := public.turn__film_owner(pid);
+  if not public.turn_team_sharing_on() then
+    raise exception 'TURN_TEAM:paused: TURN_ROLE_SCOPE: team sharing is paused right now, so this film is read-only';
+  end if;
+  if public.turn_team_owner_tier(v_owner) = 'none' then
+    raise exception 'TURN_TEAM:owner_plan: TURN_ROLE_SCOPE: the film''s owner plan doesn''t include shared editing right now, so this film is read-only';
+  end if;
+  raise exception 'TURN_TEAM:role_paused: TURN_ROLE_SCOPE: your role on this film is paused: the film''s plan doesn''t include it right now, so changes aren''t saved';
+end;
+$$;
+grant execute on function public.turn__project_write_or_raise(uuid) to anon, authenticated;
+
+-- (team-collaboration.sql's text, with the reason above; series-production.sql doesn't touch it)
+drop policy if exists "turn_projects_update_collab" on public.turn_projects;
+create policy "turn_projects_update_collab" on public.turn_projects
+  for update using (public.turn__project_write_or_raise(id))
+  with check (public.turn_can_access_project(id, true));
 
 -- The Art Room's images and files (every turn-assets key under a project folder,
 -- upload reservations, cameos): the owner and the Art director.
@@ -402,31 +530,85 @@ as $$
   select exists (
     select 1 from public.turn_projects p
      where p.id = pid and p.owner = auth.uid()
-  ) or exists (
-    select 1
-      from public.turn_effective_project_roles(pid) r
-     where r.role = 'art_director'
-       and public.turn__collab_writes(r.role,
-             (select p.owner from public.turn_projects p where p.id = pid))
-  );
+  ) or public.turn__writes_as(pid, 'art_director');   -- (Stage editor review, 2026-10-09) a linked membership
 $$;
 
--- A Stage slot in turn_generations: a clip's take record (app/cloud.jsx
--- cloudCommitVideo: entity_id 'clip-…', meta.kind 'video', no storage path).
--- Everything else in the table is the Art Room's.
+-- The Stage's rows in turn_generations; everything else in the table is the Art Room's.
+--   a take record  (app/cloud.jsx cloudCommitVideo): entity_id 'clip-…', meta.kind 'video'
+--   a voiced line  (Stage editor review, 2026-10-09): entity_id 'aud-…', meta.kind 'audio'
+-- This says which ROOM a row belongs to; turn__stage_slot_ok says whether a
+-- collaborator's row has the slot's exact shape.
 create or replace function public.turn_is_stage_slot(p_entity_id text, p_meta jsonb)
 returns boolean
 language sql
 immutable
 as $$
-  select coalesce(p_entity_id, '') like 'clip-%' and coalesce(p_meta ->> 'kind', '') = 'video';
+  select (coalesce(p_entity_id, '') like 'clip-%' and coalesce(p_meta ->> 'kind', '') = 'video')
+      or (coalesce(p_entity_id, '') like 'aud-%' and coalesce(p_meta ->> 'kind', '') = 'audio');
+$$;
+
+-- (Stage editor review, 2026-10-09) A voiced line's file: exactly
+-- '<p_writer>/<p_project>/stage-audio/<file>' (either folder bare or 'name--id').
+create or replace function public.turn__stage_audio_path_ok(p_path text, p_writer uuid, p_project uuid)
+returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select coalesce(
+    p_path is not null and p_writer is not null and p_project is not null
+    and array_length(string_to_array(p_path, '/'), 1) = 4
+    and public.turn_storage_uid(p_path) = p_writer
+    and public.turn_storage_project_id(p_path) = p_project
+    and split_part(p_path, '/', 3) = 'stage-audio'
+    and split_part(p_path, '/', 4) not in ('', '.', '..'), false);
+$$;
+
+-- (Stage editor review, 2026-10-09; S1) The exact shape of a Stage slot a COLLABORATOR
+-- may write (the owner writes any row of their film). The slot used to be recognised
+-- by its id and kind alone, so a Stage editor could save a 'clip-…' row carrying a
+-- cleanup list — and the OWNER's app deletes whatever such a list names (app/cloud.jsx
+-- cloudFinishPending), the Art Room's sheets included.
+--   'clip-…', kind 'video': no file, refs and history empty, meta only kind / updatedAt / video
+--   'aud-<id>' (id [A-Za-z0-9_:.-]{1,120}), kind 'audio': its file under
+--       '<p_writer>/<film>/stage-audio/', refs and history empty, meta only
+--       kind / updatedAt / audio / cleanupPending, every pending path under that same folder
+create or replace function public.turn__stage_slot_ok(p_project uuid, p_writer uuid, p_entity_id text,
+  p_path text, p_meta jsonb, p_refs jsonb, p_history jsonb)
+returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select coalesce(case
+    when jsonb_typeof(p_meta) is distinct from 'object' then false
+    when coalesce(p_refs, '[]'::jsonb) not in ('[]'::jsonb, 'null'::jsonb)
+      or coalesce(p_history, '[]'::jsonb) not in ('[]'::jsonb, 'null'::jsonb) then false
+    when p_entity_id like 'clip-%' and p_meta ->> 'kind' = 'video' then
+      p_path is null
+      and not exists (select 1 from jsonb_object_keys(p_meta) k
+                       where k <> all (array['kind', 'updatedAt', 'video']))
+    when p_entity_id ~ '^aud-[A-Za-z0-9_:.-]{1,120}$' and p_meta ->> 'kind' = 'audio' then
+      public.turn__stage_audio_path_ok(p_path, p_writer, p_project)
+      and not exists (select 1 from jsonb_object_keys(p_meta) k
+                       where k <> all (array['kind', 'updatedAt', 'audio', 'cleanupPending']))
+      and (not (p_meta ? 'cleanupPending')
+           or (jsonb_typeof(p_meta -> 'cleanupPending') = 'array'
+               and not exists (select 1 from jsonb_array_elements(p_meta -> 'cleanupPending') e
+                                where jsonb_typeof(e) <> 'string'
+                                   or not public.turn__stage_audio_path_ok(e #>> '{}', p_writer, p_project))))
+    else false end, false);
 $$;
 
 -- (Team review, 2026-10-09) Who may create, change or clear one turn_generations
 -- row: the owner; the Art director for the Art Room's rows; the Stage editor for
 -- the Stage's rows (on a Producer film). The policies check the OLD row (update,
 -- delete) and the NEW row (insert, update), so a row can't change room either.
-create or replace function public.turn_can_write_generation(pid uuid, p_entity_id text, p_meta jsonb)
+-- (Stage editor review, 2026-10-09) The whole row is checked now (S1: a Stage slot's
+-- exact shape, with the writer's own folder for a voiced line), and only a LINKED
+-- membership writes (S2). The three-argument version is dropped below.
+create or replace function public.turn_can_write_generation(pid uuid, p_entity_id text, p_storage_path text,
+  p_meta jsonb, p_refs jsonb, p_history jsonb)
 returns boolean
 language sql
 security definer
@@ -436,36 +618,376 @@ as $$
   select exists (
     select 1 from public.turn_projects p
      where p.id = pid and p.owner = auth.uid()
-  ) or exists (
-    select 1
-      from public.turn_effective_project_roles(pid) r
-     where r.role = case when public.turn_is_stage_slot(p_entity_id, p_meta)
-                         then 'stage_editor' else 'art_director' end
-       and public.turn__collab_writes(r.role,
-             (select p.owner from public.turn_projects p where p.id = pid))
-  );
+  ) or case
+    when public.turn_is_stage_slot(p_entity_id, p_meta) then
+      public.turn__writes_as(pid, 'stage_editor')
+      and public.turn__stage_slot_ok(pid, auth.uid(), p_entity_id, p_storage_path, p_meta, p_refs, p_history)
+    else public.turn__writes_as(pid, 'art_director')
+  end;
 $$;
 
 -- These run inside RLS policies, evaluated as the calling role: both API roles keep EXECUTE.
 grant execute on function public.turn_can_access_project(uuid, boolean) to anon, authenticated;
 grant execute on function public.turn_can_write_assets(uuid) to anon, authenticated;
-grant execute on function public.turn_can_write_generation(uuid, text, jsonb) to anon, authenticated;
+grant execute on function public.turn_can_write_generation(uuid, text, text, jsonb, jsonb, jsonb) to anon, authenticated;
 
+-- (Stage editor review, 2026-10-09) A Stage slot a collaborator creates belongs to the
+-- film's OWNER (the attribution trigger below sets it), so the insert rule accepts that.
 drop policy if exists "turn_generations_insert_collab" on public.turn_generations;
 drop policy if exists "turn_generations_update_collab" on public.turn_generations;
 drop policy if exists "turn_generations_delete_collab" on public.turn_generations;
 create policy "turn_generations_insert_collab" on public.turn_generations
   for insert with check (
-    owner = auth.uid()
-    and public.turn_can_write_generation(project_id, entity_id, meta)
+    (owner = auth.uid()
+     or (public.turn_is_stage_slot(entity_id, meta)
+         and owner = (select p.owner from public.turn_projects p where p.id = project_id)))
+    and public.turn_can_write_generation(project_id, entity_id, storage_path, meta, refs, history)
   );
 create policy "turn_generations_update_collab" on public.turn_generations
-  for update using (public.turn_can_write_generation(project_id, entity_id, meta))
-  with check (public.turn_can_write_generation(project_id, entity_id, meta));
+  for update using (public.turn_can_write_generation(project_id, entity_id, storage_path, meta, refs, history))
+  with check (public.turn_can_write_generation(project_id, entity_id, storage_path, meta, refs, history));
 create policy "turn_generations_delete_collab" on public.turn_generations
-  for delete using (public.turn_can_write_generation(project_id, entity_id, meta));
+  for delete using (public.turn_can_write_generation(project_id, entity_id, storage_path, meta, refs, history));
+-- the 2026-10-09 Team review's three-argument check (no policy reads it any more)
+drop function if exists public.turn_can_write_generation(uuid, text, jsonb);
+
+-- ── 3b. what a collaborator's turn_generations write may carry (Stage editor review, 2026-10-09) ──
+-- The paths a row's cleanup ledger names — what the OWNER's app deletes later
+-- (app/cloud.jsx: cloudFinishPending deletes meta.cleanupPending; an image purge also
+-- deletes the paths its tombstone and receipts name, cleanupPurgeTarget /
+-- cleanupPurgeReceipts[].storagePath, and the deletedStoragePath evidence on refs and
+-- history items; history items carry the same keys in their own meta). A value that
+-- isn't a string is listed as its JSON text (it then matches no path, so it's refused).
+create or replace function public.turn__meta_ledger_paths(p_meta jsonb)
+returns text[]
+language sql
+immutable
+as $$
+  select coalesce(array_agg(p), array[]::text[]) from (
+    select case when jsonb_typeof(e) = 'string' then e #>> '{}' else e::text end as p
+      from jsonb_array_elements(case when jsonb_typeof(p_meta -> 'cleanupPending') = 'array'
+                                     then p_meta -> 'cleanupPending' else '[]'::jsonb end) e
+    union all
+    select case when jsonb_typeof(p_meta -> 'cleanupPending') not in ('array', 'null')
+                then (p_meta -> 'cleanupPending')::text end
+    union all
+    select p_meta -> 'cleanupPurgeTarget' ->> 'storagePath'
+     where jsonb_typeof(p_meta -> 'cleanupPurgeTarget') = 'object'
+    union all
+    select r ->> 'storagePath'
+      from jsonb_array_elements(case when jsonb_typeof(p_meta -> 'cleanupPurgeReceipts') = 'array'
+                                     then p_meta -> 'cleanupPurgeReceipts' else '[]'::jsonb end) r
+     where jsonb_typeof(r) = 'object'
+    union all
+    select p_meta ->> 'deletedStoragePath' where jsonb_typeof(p_meta) = 'object'
+  ) x
+  where p is not null and p <> '';
+$$;
+
+create or replace function public.turn__gen_ledger_paths(p_meta jsonb, p_refs jsonb, p_history jsonb)
+returns text[]
+language sql
+immutable
+as $$
+  with refs as (
+    select r from jsonb_array_elements(case when jsonb_typeof(p_refs) = 'array' then p_refs else '[]'::jsonb end) r
+  ), hist as (
+    select h from jsonb_array_elements(case when jsonb_typeof(p_history) = 'array' then p_history else '[]'::jsonb end) h
+     where jsonb_typeof(h) = 'object'
+  )
+  select coalesce(array_agg(p), array[]::text[]) from (
+    select unnest(public.turn__meta_ledger_paths(p_meta)) as p
+    union all
+    select r ->> 'deletedStoragePath' from refs where jsonb_typeof(r) = 'object'
+    union all
+    select h ->> 'deletedStoragePath' from hist
+    union all
+    select unnest(public.turn__meta_ledger_paths(h -> 'meta')) from hist
+    union all
+    select hr ->> 'deletedStoragePath'
+      from hist
+      cross join lateral jsonb_array_elements(case when jsonb_typeof(h -> 'refs') = 'array'
+                                                   then h -> 'refs' else '[]'::jsonb end) hr
+     where jsonb_typeof(hr) = 'object'
+  ) x
+  where p is not null and p <> '';
+$$;
+
+-- Every path a row already references: its file, its refs', its history's (and their
+-- refs'), and its own cleanup ledger.
+create or replace function public.turn__gen_known_paths(p_path text, p_meta jsonb, p_refs jsonb, p_history jsonb)
+returns text[]
+language sql
+immutable
+as $$
+  with refs as (
+    select r from jsonb_array_elements(case when jsonb_typeof(p_refs) = 'array' then p_refs else '[]'::jsonb end) r
+     where jsonb_typeof(r) = 'object'
+  ), hist as (
+    select h from jsonb_array_elements(case when jsonb_typeof(p_history) = 'array' then p_history else '[]'::jsonb end) h
+     where jsonb_typeof(h) = 'object'
+  )
+  select coalesce(array_agg(p), array[]::text[]) from (
+    select p_path as p
+    union all select r ->> 'storage_path' from refs
+    union all select h ->> 'storage_path' from hist
+    union all
+    select hr ->> 'storage_path'
+      from hist
+      cross join lateral jsonb_array_elements(case when jsonb_typeof(h -> 'refs') = 'array'
+                                                   then h -> 'refs' else '[]'::jsonb end) hr
+     where jsonb_typeof(hr) = 'object'
+    union all select unnest(public.turn__gen_ledger_paths(p_meta, p_refs, p_history))
+  ) x
+  where p is not null and p <> '';
+$$;
+
+-- A clip row's takes (app/videogen.jsx: the current take is meta.video {url, meta},
+-- the others meta.video.meta.takes[] {url, meta, savedAt}); `by` is who made it (none
+-- = the film's owner), `approved` its status.
+create or replace function public.turn__clip_takes(p_meta jsonb)
+returns table(url text, made_by text, approved boolean, is_current boolean)
+language sql
+immutable
+as $$
+  select v ->> 'url', v -> 'meta' ->> 'by', coalesce(v -> 'meta' ->> 'status', '') = 'approved', true
+    from (select p_meta -> 'video' as v) c
+   where jsonb_typeof(v) = 'object' and coalesce(v ->> 'url', '') <> ''
+  union all
+  select t ->> 'url', t -> 'meta' ->> 'by', coalesce(t -> 'meta' ->> 'status', '') = 'approved', false
+    from jsonb_array_elements(case when jsonb_typeof(p_meta -> 'video' -> 'meta' -> 'takes') = 'array'
+                                   then p_meta -> 'video' -> 'meta' -> 'takes' else '[]'::jsonb end) t
+   where jsonb_typeof(t) = 'object' and coalesce(t ->> 'url', '') <> '';
+$$;
+
+-- The guard on every collaborator's turn_generations write (the owner and the service
+-- role pass untouched). Each refusal is 'TURN_TEAM:<code>':
+--   stage_slot    (S1) a Stage slot whose shape isn't the slot's (see turn__stage_slot_ok)
+--   cleanup_path  (S1) a cleanup-ledger path that the old row didn't reference, that isn't
+--                 in the writer's own folder and that the writer couldn't delete themselves
+--                 (the last one keeps an Art director's own image purge working: it lists
+--                 the copies other rows hold of the image, all in the film's folders)
+--   take_owner    (S7, decision C) removing a take someone else made — from the clip
+--                 (except the app's rollover: a clip keeps its approved takes and its
+--                 newest 20 others, app/videogen.jsx capTakes) or by deleting the clip;
+--                 rewriting a take's maker counts as removing it
+-- And (S6) a Stage slot a collaborator creates is the film OWNER's row, so deleting the
+-- collaborator's account never takes the film's takes with it (turn_generations.owner
+-- cascades from auth.users).
+create or replace function public.turn_guard_generation_write()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  caller  uuid := auth.uid();
+  v_owner uuid;
+  v_known text[];
+  v_path  text;
+  t       record;
+  v_new_loose integer;
+begin
+  if caller is null then
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  end if;
+  v_owner := public.turn__film_owner(case when tg_op = 'DELETE' then old.project_id else new.project_id end);
+  if v_owner = caller then
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  end if;
+
+  if tg_op = 'DELETE' then
+    if coalesce(old.entity_id, '') like 'clip-%' and coalesce(old.meta ->> 'kind', '') = 'video'
+       and exists (select 1 from public.turn__clip_takes(old.meta) k
+                    where coalesce(k.made_by, v_owner::text) <> caller::text) then
+      raise exception 'TURN_TEAM:take_owner: this clip holds takes someone else made, so only the film''s owner can delete it';
+    end if;
+    return old;
+  end if;
+
+  if tg_op = 'INSERT' and v_owner is not null and public.turn_is_stage_slot(new.entity_id, new.meta) then
+    new.owner := v_owner;
+  end if;
+
+  if public.turn_is_stage_slot(new.entity_id, new.meta)
+     and not public.turn__stage_slot_ok(new.project_id, caller, new.entity_id, new.storage_path,
+                                         new.meta, new.refs, new.history) then
+    raise exception 'TURN_TEAM:stage_slot: a Stage record can hold only its own takes or its own voiced line';
+  end if;
+
+  v_known := case when tg_op = 'UPDATE'
+                  then public.turn__gen_known_paths(old.storage_path, old.meta, old.refs, old.history)
+                  else array[]::text[] end;
+  for v_path in select distinct unnest(public.turn__gen_ledger_paths(new.meta, new.refs, new.history)) loop
+    continue when v_path = any(v_known);
+    continue when public.turn_storage_uid(v_path) is not distinct from caller;
+    continue when public.turn_can_delete_asset_path(v_path);
+    raise exception 'TURN_TEAM:cleanup_path: this change names a file outside what you can remove, so it wasn''t saved';
+  end loop;
+
+  if tg_op = 'UPDATE' and coalesce(old.entity_id, '') like 'clip-%' and coalesce(old.meta ->> 'kind', '') = 'video' then
+    select count(*) into v_new_loose
+      from public.turn__clip_takes(new.meta) k where not k.is_current and not k.approved;
+    for t in select * from public.turn__clip_takes(old.meta) k
+              where coalesce(k.made_by, v_owner::text) <> caller::text loop
+      if not exists (select 1 from public.turn__clip_takes(new.meta) n where n.url = t.url) then
+        -- the rollover: an older loose take goes once the clip holds 20 newer ones
+        continue when not t.approved and not t.is_current and v_new_loose >= 20;
+        raise exception 'TURN_TEAM:take_owner: a take someone else made can only be removed by them or the film''s owner';
+      end if;
+      if exists (select 1 from public.turn__clip_takes(new.meta) n
+                  where n.url = t.url and n.made_by is distinct from t.made_by) then
+        raise exception 'TURN_TEAM:take_owner: who made a take can''t be changed';
+      end if;
+    end loop;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists turn_guard_generation_write on public.turn_generations;
+create trigger turn_guard_generation_write
+  before insert or update or delete on public.turn_generations
+  for each row execute function public.turn_guard_generation_write();
+
+-- The Stage slots collaborators created before this pass: the film owner's rows too
+-- (turn_generations_keep_owner keeps a row's owner on every update, so it steps aside
+-- for this one statement).
+do $$
+declare
+  keep boolean := exists (select 1 from pg_trigger where tgrelid = 'public.turn_generations'::regclass
+                            and tgname = 'turn_generations_keep_owner' and not tgisinternal);
+begin
+  if not exists (select 1 from public.turn_generations g join public.turn_projects p on p.id = g.project_id
+                  where g.owner <> p.owner and public.turn_is_stage_slot(g.entity_id, g.meta)) then
+    return;
+  end if;
+  if keep then execute 'alter table public.turn_generations disable trigger turn_generations_keep_owner'; end if;
+  update public.turn_generations g
+     set owner = p.owner
+    from public.turn_projects p
+   where p.id = g.project_id
+     and g.owner <> p.owner
+     and public.turn_is_stage_slot(g.entity_id, g.meta);
+  if keep then execute 'alter table public.turn_generations enable trigger turn_generations_keep_owner'; end if;
+end;
+$$;
+
+-- ── 3c. the Stage's voiced-line files (Stage editor review, 2026-10-09) ─────────
+-- The app uploads a voiced line from the browser as the signed-in user, to
+-- '<their id>/<film>/stage-audio/<file>' (either folder bare or 'name--id'). The Art
+-- Room's rules ("turn assets write / update / delete collab") need Art Room write
+-- access, which a Stage editor doesn't have. These three add exactly that folder for
+-- a collaborator whose LINKED role on the film includes the Stage editor and whose
+-- writes are live (the switch on, the owner on Producer): upload, replace, delete —
+-- their own files only, of that film only. Reading stays as it was ("turn assets read
+-- collab": anyone who can open the film). The owner and the Art director keep their
+-- rules; nothing else opens.
+create or replace function public.turn_can_write_stage_audio(path text)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select coalesce(
+    auth.uid() is not null
+    and public.turn__stage_audio_path_ok($1, auth.uid(), public.turn_storage_project_id($1))
+    and public.turn__writes_as(public.turn_storage_project_id($1), 'stage_editor'), false);
+$$;
+-- evaluated by the Storage rules as the calling role: both API roles keep EXECUTE (false for anon)
+revoke all on function public.turn_can_write_stage_audio(text) from public;
+grant execute on function public.turn_can_write_stage_audio(text) to anon, authenticated;
+
+drop policy if exists "turn assets stage audio write"  on storage.objects;
+drop policy if exists "turn assets stage audio update" on storage.objects;
+drop policy if exists "turn assets stage audio delete" on storage.objects;
+create policy "turn assets stage audio write" on storage.objects for insert
+  with check (
+    bucket_id = 'turn-assets'
+    and public.turn_can_write_stage_audio(name)
+  );
+create policy "turn assets stage audio update" on storage.objects for update
+  using (
+    bucket_id = 'turn-assets'
+    and public.turn_can_write_stage_audio(name)
+  )
+  with check (
+    bucket_id = 'turn-assets'
+    and public.turn_can_write_stage_audio(name)
+  );
+create policy "turn assets stage audio delete" on storage.objects for delete
+  using (
+    bucket_id = 'turn-assets'
+    and public.turn_can_write_stage_audio(name)
+  );
+
+-- (Stage editor review, 2026-10-09; owner decision F) What a Stage editor may change
+-- on a shot: which screenplay line it speaks and its voicing (app/app.jsx voiceOneLine,
+-- app/stage.jsx stageDialogueAssignmentPatches: lineAudio, dur, dialogue, dialogueLines,
+-- screenplayDialogueIndex, screenplayDialogueIndexes), the Stage's own video text and
+-- character-reference overrides (vidText, stageCharacterReferenceOverrides), and the two
+-- fields app/app.jsx updateShot derives on every shot change (specRev, specHash).
+-- app/app.jsx STAGE_SHOT_FIELDS mirrors the Stage's own fields.
+create or replace function public.turn__stage_shot_fields()
+returns text[]
+language sql
+immutable
+as $$
+  select array['lineAudio', 'dur', 'dialogue', 'dialogueLines', 'screenplayDialogueIndex',
+               'screenplayDialogueIndexes', 'vidText', 'stageCharacterReferenceOverrides',
+               'specRev', 'specHash'];
+$$;
+
+-- The shots list changed only in the Stage's fields: the same shots (same ids), in the
+-- same order, none added or removed, every other field as it was.
+create or replace function public.turn__stage_shots_ok(p_old jsonb, p_new jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select case
+    when p_old is not distinct from p_new then true
+    when jsonb_typeof(coalesce(p_old, '[]'::jsonb)) <> 'array'
+      or jsonb_typeof(coalesce(p_new, '[]'::jsonb)) <> 'array' then false
+    when jsonb_array_length(coalesce(p_old, '[]'::jsonb)) <> jsonb_array_length(coalesce(p_new, '[]'::jsonb)) then false
+    else not exists (
+      select 1
+        from generate_series(0, jsonb_array_length(coalesce(p_old, '[]'::jsonb)) - 1) i
+       cross join lateral (select coalesce(p_old, '[]'::jsonb) -> i as o, coalesce(p_new, '[]'::jsonb) -> i as n) s
+       where case
+               when jsonb_typeof(s.o) = 'object' and jsonb_typeof(s.n) = 'object'
+                 then (s.o - public.turn__stage_shot_fields()) is distinct from (s.n - public.turn__stage_shot_fields())
+                   or (s.o -> 'id') is distinct from (s.n -> 'id')
+               else s.o is distinct from s.n
+             end)
+  end;
+$$;
+
+-- `project` changed only under its 'stage' key (the Stage's own settings).
+create or replace function public.turn__stage_project_ok(p_old jsonb, p_new jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select case
+    when jsonb_typeof(coalesce(p_old, '{}'::jsonb)) = 'object' and jsonb_typeof(coalesce(p_new, '{}'::jsonb)) = 'object'
+      then (coalesce(p_old, '{}'::jsonb) - 'stage') = (coalesce(p_new, '{}'::jsonb) - 'stage')
+    else p_old is not distinct from p_new
+  end;
+$$;
 
 -- The section trigger (series-production.sql's, plus the owner's plan).
+-- (Stage editor review, 2026-10-09) Roles come from LINKED memberships only (decision E).
+-- A Stage editor changes `project` only under 'stage' and `shots` only in the Stage's
+-- fields (decision F); a person with several roles gets the union of what each may do
+-- (a Co-writer keeps all of `project`, an Art director all of `shots`). Every refusal
+-- RAISES 'TURN_TEAM:<code>: TURN_ROLE_SCOPE: <words>' (the app shows the code's words;
+-- older builds the words after TURN_ROLE_SCOPE) — paused, owner_plan, role_paused (the
+-- change belongs to a role the owner's plan no longer carries), stage_scope — or, for
+-- any other section outside the roles, the plain 'TURN_ROLE_SCOPE: …' as before.
 create or replace function public.turn_enforce_role_sections()
 returns trigger
 language plpgsql
@@ -473,9 +995,10 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  caller uuid := auth.uid();
-  allowed text[];
-  tier text;
+  caller  uuid := auth.uid();
+  full_ok text[];     -- sections a writing role may change outright
+  paused  text[];     -- sections of roles the film holds but the owner's plan doesn't carry now
+  stage_w boolean;    -- a Stage editor role that writes now
   k text;
 begin
   if caller is null then return new; end if;
@@ -485,13 +1008,13 @@ begin
     raise exception 'TURN_ROLE_SCOPE: only the owner can transfer a film''s ownership';
   end if;
 
-  tier := public.turn_team_owner_tier(old.owner);
-  select coalesce(array_agg(distinct section_name), array[]::text[])
-    into allowed
-    from public.turn_effective_project_roles(old.id) r
-    cross join lateral unnest(public.turn_role_allowed_sections(r.role))
-      as permitted(section_name)
-   where public.turn__collab_writes(r.role, old.owner);
+  select coalesce(array_agg(distinct s.section_name) filter (where w.writes and r.role <> 'stage_editor'), array[]::text[]),
+         coalesce(array_agg(distinct s.section_name) filter (where not w.writes), array[]::text[]),
+         coalesce(bool_or(r.role = 'stage_editor' and w.writes), false)
+    into full_ok, paused, stage_w
+    from public.turn__linked_roles_for(caller, old.id) r
+    cross join lateral (select public.turn__collab_writes(r.role, old.owner) as writes) w
+    left join lateral unnest(public.turn_role_allowed_sections(r.role)) as s(section_name) on true;
 
   for k in
     select key from (
@@ -501,16 +1024,23 @@ begin
     ) keys
   loop
     if k = '_rev' then continue; end if;
-    if (old.doc -> k) is distinct from (new.doc -> k)
-       and not (k = any(allowed)) then
-      if not public.turn_team_sharing_on() then
-        raise exception 'TURN_ROLE_SCOPE: team sharing is paused right now, so this film is read-only';
-      end if;
-      if tier = 'none' then
-        raise exception 'TURN_ROLE_SCOPE: the film''s owner plan doesn''t include shared editing right now, so this film is read-only';
-      end if;
-      raise exception 'TURN_ROLE_SCOPE: your role does not cover the "%" section of this film', k;
+    continue when (old.doc -> k) is not distinct from (new.doc -> k);
+    continue when k = any(full_ok);
+    continue when stage_w and k = 'project' and public.turn__stage_project_ok(old.doc -> k, new.doc -> k);
+    continue when stage_w and k = 'shots' and public.turn__stage_shots_ok(old.doc -> k, new.doc -> k);
+    if not public.turn_team_sharing_on() then
+      raise exception 'TURN_TEAM:paused: TURN_ROLE_SCOPE: team sharing is paused right now, so this film is read-only';
     end if;
+    if public.turn_team_owner_tier(old.owner) = 'none' then
+      raise exception 'TURN_TEAM:owner_plan: TURN_ROLE_SCOPE: the film''s owner plan doesn''t include shared editing right now, so this film is read-only';
+    end if;
+    if k = any(paused) then
+      raise exception 'TURN_TEAM:role_paused: TURN_ROLE_SCOPE: your role on this film is paused: the film''s plan doesn''t include it right now, so changes aren''t saved';
+    end if;
+    if stage_w and (k in ('project', 'shots') or cardinality(full_ok) = 0) then
+      raise exception 'TURN_TEAM:stage_scope: TURN_ROLE_SCOPE: a Stage editor saves the Stage''s part of the film only (a shot''s dialogue, voicing and timing, and the Stage''s settings), not this change to "%"', k;
+    end if;
+    raise exception 'TURN_ROLE_SCOPE: your role does not cover the "%" section of this film', k;
   end loop;
 
   return new;
@@ -966,8 +1496,12 @@ as $$
 $$;
 
 -- The roles that may charge a kind of call to the film's owner: 'text' (any writing
--- role: every room drafts), 'image' and 'voice' (Art director, Stage editor), 'video'
--- (Stage editor), '3d' (Art director). No kind = any writing role.
+-- role: every room drafts), 'image' (Art director), 'voice' (text-to-speech: Art
+-- director, Stage editor), 'voice_design' (designing, cloning or saving a character's
+-- voice, which writes `characters`: Art director), 'video' (Stage editor), '3d' (Art
+-- director). No kind = any writing role; an unknown kind = nobody.
+-- (Stage editor review, 2026-10-09) 'image' no longer lists the Stage editor (the Stage
+-- makes no images and the role can't save them); 'voice_design' is new.
 create or replace function public.turn_team_kind_roles(p_kind text)
 returns text[]
 language sql
@@ -975,8 +1509,9 @@ immutable
 as $$
   select case p_kind
     when 'text'  then array['writer', 'art_director', 'stage_editor']
-    when 'image' then array['art_director', 'stage_editor']
+    when 'image' then array['art_director']
     when 'voice' then array['art_director', 'stage_editor']
+    when 'voice_design' then array['art_director']
     when 'video' then array['stage_editor']
     when '3d'    then array['art_director']
     else case when p_kind is null then array['writer', 'art_director', 'stage_editor']
@@ -988,7 +1523,11 @@ $$;
 --   {ok:true, payer, own:true}                      the caller owns the film
 --   {ok:true, payer:owner, actor, member_id, budget, spent, tier}   a collaborator
 --   {ok:false, code:'owner_plan' | 'budget_reached' | 'paused' | 'role'}   REFUSE the call
---   {ok:false, code:'not_member' | 'no_film'}   not film work: bill the caller, as before
+--   {ok:false, code:'not_member'}   the film exists, and the caller neither owns it nor holds
+--                                   an active LINKED membership on it: REFUSE the call
+--                                   ((Stage editor review, 2026-10-09; decision E) it used to
+--                                   be billed to the caller; an unclaimed invite is not a member)
+--   {ok:false, code:'no_film'}      no film named, or no such film: bill the caller, as before
 -- (Team review, 2026-10-09) 'paused' replaces 'off' (owner decision B): with the switch
 -- off a linked, active collaborator is read-only and nobody is charged, so the server
 -- refuses the call (it is not billed to the collaborator either); someone who isn't a
@@ -1090,6 +1629,25 @@ begin
     return public.turn_hold_credits(v_owner, v_amount, v_ref, reason);   -- a repeat: the first answer
   end if;
   select * into m from public.turn_project_members x where x.id = p_member;   -- as it is now, under the lock
+  -- (Stage editor review, 2026-10-09; owner decision D) A RE-HOLD for work that already ran:
+  -- blender-bridge re-holds a 3D job whose hold housekeeping released although the work
+  -- finished, under '<original ref>:rehold' (':rehold2', ':rehold3', …). When the ORIGINAL
+  -- hold exists and was a film hold of this same owner, membership, film and actor, the
+  -- work is paid like any finished work — even if the person was removed, sharing paused
+  -- or the plan changed since — so the membership, role, switch, plan and budget checks
+  -- are skipped; only turn_hold_credits' own balance check applies.
+  if v_ref ~ ':rehold[0-9]*$'
+     and exists (select 1 from public.turn_credit_holds b
+                  where b.ref = regexp_replace(v_ref, ':rehold[0-9]*$', '')
+                    and b.owner = v_owner and b.member_id = m.id
+                    and b.project_id = p_project and b.actor = p_actor) then
+    v_res := public.turn_hold_credits(v_owner, v_amount, v_ref, reason);
+    if coalesce((v_res ->> 'ok')::boolean, false) and not coalesce((v_res ->> 'duplicate')::boolean, false) then
+      update public.turn_credit_holds h set actor = p_actor, project_id = p_project, member_id = m.id
+       where h.ref = v_ref;
+    end if;
+    return v_res || jsonb_build_object('rehold', true);
+  end if;
   if not public.turn_team_sharing_on() then
     return jsonb_build_object('ok', false, 'code', 'paused', 'held', 0);
   end if;
@@ -1135,18 +1693,112 @@ end $$;
 
 -- This month's use per collaborator, for the film's owner (the Team window) or,
 -- for their own row, the collaborator.
+-- (Stage editor review, 2026-10-09) Returns (member_id, spent, budget, removed,
+-- member_email, project_id):
+--   * the OWNER: every active row of the film, plus the rows REMOVED (or left) that
+--     spent something this month (removed = true), so a month's spend doesn't vanish
+--     from the Team window when someone goes;
+--   * a COLLABORATOR: their own active rows that apply to the film — the film's own and
+--     (family-aware) its Show's: a poll on an Episode passes the Episode's id while a
+--     Show-wide member's hold names the Show's row. The film's own row comes first.
+-- The column list changed, so the old function is dropped first (its grants are
+-- restated in section 8).
+drop function if exists public.turn_team_spend(uuid);
 create or replace function public.turn_team_spend(pid uuid)
-returns table(member_id uuid, spent integer, budget integer)
+returns table(member_id uuid, spent integer, budget integer, removed boolean, member_email text, project_id uuid)
 language sql
 security definer
 set search_path = public, pg_temp
 stable
 as $$
-  select m.id, public.turn__member_spent(m.id), m.budget_credits
-    from public.turn_project_members m
-   where m.project_id = pid and m.status = 'active'
-     and (exists (select 1 from public.turn_projects p where p.id = pid and p.owner = auth.uid())
-          or m.member_user = auth.uid());
+  select x.id, x.spent, x.budget_credits, x.status <> 'active', x.member_email, x.project_id
+    from (
+      select m.id, m.status, m.budget_credits, m.member_email, m.project_id, m.member_user,
+             public.turn__member_spent(m.id) as spent
+        from public.turn_project_members m
+       where m.project_id in (select s.project_id from public.turn_series_membership_scope(pid) s)
+         and m.status in ('active', 'removed')
+    ) x
+   where (exists (select 1 from public.turn_projects p where p.id = pid and p.owner = auth.uid())
+          and x.project_id = pid
+          and (x.status = 'active' or x.spent > 0))
+      or (x.member_user = auth.uid() and x.status = 'active')
+   order by (x.project_id = pid) desc, x.status = 'active' desc, x.id;
+$$;
+
+-- ── 7a. renders that finish after the team changed (Stage editor review, 2026-10-09) ──
+-- Owner decision D: a render already running when its maker is removed, sharing pauses
+-- or the owner's plan changes is still paid (its hold settles as usual), and its take
+-- lands in the film. The server (service role) records the take on the hold —
+-- {clipId, meta} at submit, {url, settledAt} added at settle — and the OWNER's app
+-- collects the finished ones into the clip, then marks them collected.
+alter table public.turn_credit_holds add column if not exists take jsonb;
+create index if not exists turn_credit_holds_take_idx on public.turn_credit_holds(project_id)
+  where take is not null;
+
+-- settledAt as the server wrote it: an ISO time or epoch milliseconds (anything else: null)
+create or replace function public.turn__take_time(p text)
+returns timestamptz
+language plpgsql
+stable
+as $$
+begin
+  if p is null or btrim(p) = '' then return null; end if;
+  if btrim(p) ~ '^[0-9]+(\.[0-9]+)?$' then return to_timestamp(btrim(p)::numeric / 1000); end if;
+  return btrim(p)::timestamptz;
+exception when others then
+  return null;
+end;
+$$;
+
+-- The film's finished, uncollected takes (owner only; anyone else gets no rows): SETTLED
+-- holds on this film, paid by its owner, whose take has a clip, a URL and no collectedAt.
+create or replace function public.turn_film_pending_takes(pid uuid)
+returns table(ref text, clip_id text, url text, take_meta jsonb, settled_at timestamptz, actor uuid)
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select h.ref, h.take ->> 'clipId', h.take ->> 'url', h.take -> 'meta',
+         coalesce(public.turn__take_time(h.take ->> 'settledAt'), h.finished_at), h.actor
+    from public.turn_credit_holds h
+    join public.turn_projects p on p.id = h.project_id
+   where h.project_id = pid
+     and p.owner = auth.uid()
+     and h.owner = p.owner
+     and h.status = 'settled'
+     and jsonb_typeof(h.take) = 'object'
+     and coalesce(h.take ->> 'clipId', '') <> ''
+     and coalesce(h.take ->> 'url', '') <> ''
+     and not (h.take ? 'collectedAt')
+   order by 5 nulls last, h.ref;
+$$;
+
+-- The owner's app took these into the film: each gets take.collectedAt (owner only;
+-- returns how many were marked; a ref already collected or not this film's counts 0).
+create or replace function public.turn_film_mark_takes_collected(pid uuid, refs text[])
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare n integer;
+begin
+  if auth.uid() is null
+     or not exists (select 1 from public.turn_projects p where p.id = pid and p.owner = auth.uid()) then
+    return 0;
+  end if;
+  update public.turn_credit_holds h
+     set take = h.take || jsonb_build_object('collectedAt', now())
+   where h.ref = any(coalesce(refs, array[]::text[]))
+     and h.project_id = pid
+     and h.owner = auth.uid()
+     and jsonb_typeof(h.take) = 'object'
+     and not (h.take ? 'collectedAt');
+  get diagnostics n = row_count;
+  return n;
+end;
 $$;
 
 -- ── 7b. the owner's notifications: who joined which of your films ──────────
@@ -1268,7 +1920,9 @@ revoke all on function public.turn_team_canonical_roles(text[]) from public, ano
 revoke all on function public.turn_team_roles_text(text[], text) from public, anon, authenticated;
 revoke all on function public.turn_team_role_writes(text, text) from public, anon, authenticated;
 revoke all on function public.turn_team_kind_roles(text) from public, anon, authenticated;
-revoke all on function public.turn_is_stage_slot(text, jsonb) from public, anon, authenticated;
+revoke all on function public.turn_is_stage_slot(text, jsonb) from public;
+-- (Stage editor review, 2026-10-09) the generations insert rule reads it as the calling role
+grant execute on function public.turn_is_stage_slot(text, jsonb) to anon, authenticated;
 revoke all on function public.turn_role_allowed_sections(text) from public, anon, authenticated;
 revoke all on function public.turn_confirmed_email() from public, anon;
 grant execute on function public.turn_confirmed_email() to authenticated;
@@ -1286,5 +1940,28 @@ revoke all on function public.turn_team_notifications_seen() from public, anon;
 grant execute on function public.turn_team_notifications_seen() to authenticated;
 revoke all on function public.turn_team_spend(uuid) from public, anon;
 grant execute on function public.turn_team_spend(uuid) to authenticated;
+-- (Stage editor review, 2026-10-09) the internal helpers of this pass: not on the API
+revoke all on function public.turn__linked_roles_for(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.turn__writes_as(uuid, text) from public, anon, authenticated;
+revoke all on function public.turn__stage_audio_path_ok(text, uuid, uuid) from public, anon, authenticated;
+revoke all on function public.turn__stage_slot_ok(uuid, uuid, text, text, jsonb, jsonb, jsonb) from public, anon, authenticated;
+revoke all on function public.turn__meta_ledger_paths(jsonb) from public, anon, authenticated;
+revoke all on function public.turn__gen_ledger_paths(jsonb, jsonb, jsonb) from public, anon, authenticated;
+revoke all on function public.turn__gen_known_paths(text, jsonb, jsonb, jsonb) from public, anon, authenticated;
+revoke all on function public.turn__clip_takes(jsonb) from public, anon, authenticated;
+revoke all on function public.turn_guard_generation_write() from public, anon, authenticated;
+revoke all on function public.turn__stage_shot_fields() from public, anon, authenticated;
+revoke all on function public.turn__stage_shots_ok(jsonb, jsonb) from public, anon, authenticated;
+revoke all on function public.turn__stage_project_ok(jsonb, jsonb) from public, anon, authenticated;
+revoke all on function public.turn__take_time(text) from public, anon, authenticated;
+revoke all on function public.turn__film_owner(uuid) from public, anon, authenticated;
+-- it runs inside an RLS policy (as the calling role), so both API roles keep EXECUTE
+revoke all on function public.turn__project_write_or_raise(uuid) from public;
+grant execute on function public.turn__project_write_or_raise(uuid) to anon, authenticated;
+-- the owner's app collects finished takes (decision D)
+revoke all on function public.turn_film_pending_takes(uuid) from public, anon;
+grant execute on function public.turn_film_pending_takes(uuid) to authenticated;
+revoke all on function public.turn_film_mark_takes_collected(uuid, text[]) from public, anon;
+grant execute on function public.turn_film_mark_takes_collected(uuid, text[]) to authenticated;
 
 commit;

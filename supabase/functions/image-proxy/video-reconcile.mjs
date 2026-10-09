@@ -37,7 +37,11 @@
    platform's key: it is left to the poll (and the database's last-resort rule).
    ROUND 5 (S3): a render billed by video length may have server-only COPIES of its videos
    (video-snapshots.mjs): they are deleted when its hold settles or is released here, and each run
-   that isn't throttled also removes copies older than two days (bounded, best effort). */
+   that isn't throttled also removes copies older than two days (bounded, best effort).
+   (Stage editor review, 2026-10-09; owner decision D) a settled render's output is handed to
+   `onSettled({ ref, videoUrl })` — index.ts records it on the hold's take (film-payer.mjs
+   recordTakeUrl), so a render the film's owner paid lands in the film even when nobody polled it
+   (the person who started it removed, say). Best effort: it never breaks or undoes the settle. */
 import { VIDEO_HOLD_TTL_MS, canonicalRequestId, createHoldClient, parseVideoHoldReason } from "./billing-holds.mjs";
 import { lengthBilledFacts, lengthBilledVideoSettle } from "./billing-pricing.mjs";
 import { isFalMediaUrl, probeMp4Duration } from "./media-length.mjs";
@@ -115,9 +119,11 @@ function rpcBoolean(data, name) {
  *                                                 (video-snapshots.mjs createVideoSnapshots): drop(ref)
  *                                                 after a length-billed hold settles or is released,
  *                                                 sweep() once per run
+ *   onSettled({ ref, videoUrl })                  (Stage editor review, 2026-10-09) after a hold
+ *                                                 settles: the render's output, for the hold's take
  */
 export async function reconcileVideoHolds({ rpc, falKey, fetchImpl = fetch, unitNow = async () => null, probe = probeMp4Duration,
-  now = () => Date.now(), budgetMs = RECONCILE_BUDGET_MS, log = () => {}, record = null, snapshots = null } = {}) {
+  now = () => Date.now(), budgetMs = RECONCILE_BUDGET_MS, log = () => {}, record = null, snapshots = null, onSettled = null } = {}) {
   const say = (m) => { try { log(m); } catch (_e) { /* logging never breaks billing */ } };
   if (!falKey) return { status: 503, body: { ok: false, error: "The video service isn't configured." } };
   let claim;
@@ -199,7 +205,12 @@ export async function reconcileVideoHolds({ rpc, falKey, fetchImpl = fetch, unit
     const { amount } = await finishedVideoCharge({ held: row.held, facts, videoUrl, unit: facts ? await liveUnit() : null, ref: row.ref, probe, log: say,
       record: typeof record === "function" ? (m) => record({ ...m, owner: String(row.owner || ""), requestId: rid }) : null });
     const s = await hold.settle(amount);
-    if (s && s.ok) { counts.settled++; say(`[billing] reconcile ${row.ref}: settled at ${s.charged} of ${row.held} (the render finished; nobody collected it).`); await dropCopies(); }
+    if (s && s.ok) {
+      counts.settled++; say(`[billing] reconcile ${row.ref}: settled at ${s.charged} of ${row.held} (the render finished; nobody collected it).`); await dropCopies();
+      if (typeof onSettled === "function") {
+        try { await onSettled({ ref: row.ref, videoUrl }); } catch (e) { say(`[billing] reconcile ${row.ref}: the take couldn't be updated (${String((e && e.message) || e).slice(0, 120)}).`); }
+      }
+    }
   };
 
   let next = 0;

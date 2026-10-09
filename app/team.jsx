@@ -149,7 +149,8 @@ function teamRoleScopeNote(role){
     return "Your roles on this film ("+parts.map(x=>NAMES[x]).join(" + ")+") don't cover that change, so it wasn't saved.";
   if(role==="writer") return "Your Co-writer role covers the story, script and beats — Art Room changes (cast, props, locations, lookbook, shots) aren't saved.";
   if(role==="art_director") return "Your Art director role covers the Art Room — story and script changes aren't saved.";
-  if(role==="stage_editor") return "Your Stage editor role covers the Stage — story and the rest of the Art Room aren't saved.";
+  // (2026-10-09) the Stage's takes, dialogue and voicing — nothing in the Art Room ("the rest of" read as if part of it were)
+  if(role==="stage_editor") return "Your Stage editor role covers the Stage's takes, dialogue and voicing — story and Art Room changes aren't saved.";
   if(role==="" || (role && role!=="view_only" && !TEAM_ROLES.find(r=>r.id===role)))
     return "Your role on this film is missing or from an older version of the app, so changes aren't saved. Ask the film's owner to check your role in the Team window.";
   return "";
@@ -514,7 +515,10 @@ function TeamWindow({ projectId, projectTitle, projectMeta, series, onClose, onC
                 React.createElement("div",{className:"team-member-main"},
                   React.createElement("div",{className:"team-member-email"},m.member_email),
                   React.createElement("div",{className:"team-member-role",title:scopedRoleBlurb(mKey)},
-                    teamRoleLabel(mKey)+(legacy?" — pick a current role to restore access":"")+" · "+st.text),
+                    teamRoleLabel(mKey)+(legacy?" — pick a current role to restore access":"")
+                    // on a Director film the Stage editor role is kept but does nothing until the Producer plan (2026-10-09)
+                    +(tier && tier!=="studio" && String(mKey||"").split("+").indexOf("stage_editor")>=0 ? " (Stage editor paused: Producer plan)" : "")
+                    +" · "+st.text),
                   React.createElement("div",{className:"team-member-budget"}, budgetLine(m, used)),
                   canManage && React.createElement(TeamRolePicker,{value:legacy?"":mKey, onChange:(next)=>updateRole(m, next), tier,
                     disabled:!!busy || !canInvite, compact:true, label:"Roles for "+m.member_email})),

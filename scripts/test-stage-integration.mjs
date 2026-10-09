@@ -529,6 +529,8 @@ const writerSource=appSource.slice(appSource.indexOf("  const updateShot = "),ap
 let guardAllowed=false,guardWrites=0,guardShots=[{id:"guard-shot",dur:4}];
 const guardBox={
   canMutateSharedFilm:()=>guardAllowed, canMutateShots:()=>guardAllowed,
+  // (2026-10-09, Stage editor review) a Stage editor's shot patch is limited to the Stage's fields
+  shotsStageOnlyRef:{current:false}, STAGE_SHOT_FIELDS:["lineAudio","dur","dialogue","dialogueLines","screenplayDialogueIndex","screenplayDialogueIndexes","vidText","stageCharacterReferenceOverrides"], _stageScopeNotice:()=>false,
   setShots:fn=>{guardWrites++;guardShots=fn(guardShots);},
 };
 vm.createContext(guardBox);

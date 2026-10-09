@@ -157,7 +157,7 @@ const app = read("app/app.jsx");
 const stableJson = vm.runInNewContext("(" + between(app, "function stableJson(v){", "/* ---- persistence").trim() + ")");
 const conflictSrc = between(app, "const _docConflictCheck = (r)=>{", "// persist the editable story");
 const saveResultSrc = between(app, "const _docSaveResult = (r, ctx)=>{", "React.useEffect(()=>{");
-const adoptSrc = between(app, "const _adoptTheirs = (cloudDoc, mineKeys, mergedProject)=>{", "const _adoptBibleTheirs");
+const adoptSrc = between(app, "const _adoptTheirs = (cloudDoc, mineKeys, mergedProject, mergedShots)=>{", "const _adoptBibleTheirs");
 const replaySrc = between(app, "const _replaySeriesPairOutbox=async(episodeId,showId)=>{", "const loadProjectIntoState = async");
 
 const SECTIONS = ["scenes", "characters", "props", "locations", "sluglineUnits", "lookbook", "lookbookNote", "lookbookApplied", "shots",
@@ -1088,8 +1088,9 @@ async function lostResponseCase({ changeAgain = false, remoteAfter = false, reac
   ok("contract: the baseline is JSON.parse(lastSentRef) (stableJson, alphabetical)", /baseline\[k\]=JSON\.parse\(lastSentRef\.current\[k\]\)/.test(saveBlock));
   ok("contract: _rememberSent writes stableJson", /lastSentRef\.current\[k\]=stableJson\(_sectionsNow\[k\]\)/.test(app));
   ok("contract: both save branches hand the merged project to _adoptTheirs, newest generation only",
-    /if\(_saveGenerationLatest\(ctx\)\) _adoptTheirs\(result\.doc,_mineKeys,result\.project\);/.test(app)
-    && /if\(_saveGenerationLatest\(ctx\) && ep\) _adoptTheirs\(ep\.r\.doc,_mineKeys,ep\.r\.project\);/.test(app));
+    // (2026-10-09, Stage editor review) the per-shot merged shots ride along
+    /if\(_saveGenerationLatest\(ctx\)\) _adoptTheirs\(result\.doc,_mineKeys,result\.project,result\.shots\);/.test(app)
+    && /if\(_saveGenerationLatest\(ctx\) && ep\) _adoptTheirs\(ep\.r\.doc,_mineKeys,ep\.r\.project,ep\.r\.shots\);/.test(app));
   ok("contract: conflict marks Not saved before the one-dialog guard",
     conflictSrc.indexOf('setSaveState("failed")') >= 0 && conflictSrc.indexOf('setSaveState("failed")') < conflictSrc.indexOf("if(_conflictBusy.current) return;"));
   ok("contract: stale generations never reach the conflict dialog",

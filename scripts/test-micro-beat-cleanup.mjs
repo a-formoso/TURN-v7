@@ -254,7 +254,7 @@ function harness({
       return typeof confirm === "function" ? confirm(h, options) : confirm;
     },
     appToast: (message, type) => h.toastCalls.push({ message, type }),
-    canMutateSharedFilm: () => h.allowed, canMutateShots: () => h.allowed,
+    canMutateSharedFilm: () => h.allowed, canMutateShots: () => h.allowed, canDesignShots: () => h.allowed,
     nbEpoch: () => h.epoch,
     _trashStamp: shot => ({ ...shot, _deletedAt: "test-stamp-" + shot.id }),
     setShots: next => {

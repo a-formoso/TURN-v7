@@ -295,16 +295,31 @@ export function createSupabaseAdapter({
   // database without turn_film_payer (before team-relaunch.sql), bills the caller. A film the ADMIN
   // owns is gated as the admin's (no plan needed; its holds still come from that balance). The same
   // words as image-proxy/film-payer.mjs.
+  // Stage editor review (2026-10-09; owner decision E): a real film the caller isn't on
+  // ('not_member') is refused too (film_access, 403), never billed to the caller — only a film id
+  // that names no film ('no_film') is; and one 3D job bigger than what's left of the budget says so
+  // (budgetMessage with `needed`), "You've used…" only when the budget is used up.
   const FILM_REFUSALS = {
     owner_plan: "The film's owner's plan doesn't include shared work right now, so generating on this film is paused.",
     owner_insufficient: "The film's owner doesn't have enough credits for this right now.",
     film_role: "Your role on this film doesn't include this.",
     film_unverified: "Couldn't confirm who pays for work on this film. Try again in a moment.",
     team_paused: "Sharing is paused on this film right now, so it's read-only for collaborators.",
+    film_access: "You're not on this film's team right now, so work on it can't be charged to it.",
   };
   const ADMIN_EMAILS = ["admin@infinitestudioai.com"];
-  const budgetMessage = (budget, spent) =>
-    `You've used this month's credit budget on this film (${formatCredits(spent)} of ${formatCredits(budget)}). The film's owner can raise it.`;
+  const budgetMessage = (budget, spent, needed = null) => {
+    const b = Math.max(0, Math.floor(Number(budget) || 0)), s = Math.max(0, Math.floor(Number(spent) || 0));
+    const n = needed == null || !Number.isFinite(Number(needed)) ? 0 : Math.floor(Number(needed));
+    return n > 0 && s < b
+      ? `This needs about ${formatCredits(n)} credits, and your budget on this film has ${formatCredits(b - s)} left this month. The film's owner can raise it.`
+      : `You've used this month's credit budget on this film (${formatCredits(s)} of ${formatCredits(b)}). The film's owner can raise it.`;
+  };
+  const budgetRefusal = (d, needed) => {
+    const b = Math.max(0, Math.floor(Number(d && d.budget) || 0)), s = Math.max(0, Math.floor(Number(d && d.spent) || 0));
+    const n = d && d.needed != null && Number.isFinite(Number(d.needed)) ? Math.floor(Number(d.needed)) : needed;
+    return { ok: false, code: "budget_reached", budget: b, spent: s, ...(n > 0 ? { needed: n } : {}), message: budgetMessage(b, s, n) };
+  };
   const filmRefusal = (code) => ({ ok: false, code, message: FILM_REFUSALS[code] });
   /** The answer of turn_film_payer for 3D: { film } (parsed, or null when unreadable), { error, missing }. */
   async function filmPayerAnswer(actorId, projectId) {
@@ -320,12 +335,14 @@ export function createSupabaseAdapter({
     if (!projectId || !ownerId || ownerId === actorId) return null;
     return filmPayerAnswer(actorId, projectId);
   }
-  /** A film hold's refusal (turn_hold_credits_for_film codes), in the collaborator's words. */
-  function filmHoldRefusal(h) {
+  /** A film hold's refusal (turn_hold_credits_for_film codes), in the collaborator's words.
+      `amount`: what the hold asked for (the budget's `needed` when the database doesn't say). */
+  function filmHoldRefusal(h, amount = null) {
     const code = String((h && h.code) || "insufficient").toLowerCase();
-    if (code === "budget_reached") return { ok: false, code, message: budgetMessage(h.budget, h.spent) };
+    if (code === "budget_reached") return budgetRefusal(h, amount);
     if (code === "paused" || code === "off") return filmRefusal("team_paused");
     if (code === "role") return filmRefusal("film_role");
+    if (code === "not_member") return filmRefusal("film_access");
     if (code === "owner_plan" || code === "frozen") return filmRefusal("owner_plan");
     if (code === "insufficient") return filmRefusal("owner_insufficient");
     return filmRefusal("film_unverified");
@@ -360,11 +377,12 @@ export function createSupabaseAdapter({
     if (fp && (fp.ok === false || fp.ok === "false")) {
       const code = String(fp.code || "");
       if (code === "owner_plan") return filmRefusal("owner_plan");
-      if (code === "budget_reached") return { ok: false, code: "budget_reached", message: budgetMessage(fp.budget, fp.spent) };
+      if (code === "budget_reached") return budgetRefusal(fp, required);
       if (code === "paused" || code === "off") return filmRefusal("team_paused");
       if (code === "role") return filmRefusal("film_role");
-      if (code !== "not_member" && code !== "no_film") return filmRefusal("film_unverified");
-      // not a member / no such film: the caller's own spend, below
+      if (code === "not_member") return filmRefusal("film_access");   // (Stage editor review, 2026-10-09)
+      if (code !== "no_film") return filmRefusal("film_unverified");
+      // no such film: the caller's own spend, below
     }
     if (fp && (fp.ok === true || fp.ok === "true") && !(fp.own === true || fp.own === "true")) {
       if (!fp.payer || !fp.member_id) return filmRefusal("film_unverified");
@@ -381,7 +399,7 @@ export function createSupabaseAdapter({
       const ref = `studio:${eventId}`;
       const h = await holdForFilm({ owner: fp.payer, actor: user.id, memberId: fp.member_id, projectId, amount: required, ref, reason: "blender-studio" });
       if (!h) return { ok: false, code: "billing_unavailable", message: "Credits can't be checked right now. Please try again in a minute." };
-      if (h.ok === false || h.ok === "false") return filmHoldRefusal(h);
+      if (h.ok === false || h.ok === "false") return filmHoldRefusal(h, required);
       return { ok: true, remaining: null, holdRef: ref };   // the owner's balance is never shown to a collaborator
     }
     // turn_credit_balance() (billing-v2.sql) carries frozen / trial; the older row is the fallback.
@@ -533,7 +551,7 @@ export function createSupabaseAdapter({
           if (!fh) return { ok: false, message: "Could not settle Studio credits." };
           if (fh.ok === false || fh.ok === "false") {
             if (String(fh.code || "").toLowerCase() === "released") continue;
-            const why = filmHoldRefusal(fh);
+            const why = filmHoldRefusal(fh, cost);
             return { ok: false, code: why.code, message: why.message };
           }
           const again = await settleRef(ref, cost);

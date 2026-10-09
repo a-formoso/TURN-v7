@@ -109,14 +109,16 @@ function reset(next=null){
   lastMutationFilters=[];
 }
 const png="data:image/png;base64,QQ==";
+/* fixture keys live in this film's folders ("user/film/…"): cleanup only ever removes keys inside the
+   film it runs for (Stage editor review, 2026-10-09 — cloudPathInFilm) */
 const commit=()=>sandbox.cloudCommit("film","user","asset",png,
   {iso:"2026-09-01T00:00:00.000Z",version:2,approval:{approved:true}},
   [],"character",()=>cancelled);
 const old={
-  project_id:"film",entity_id:"asset",owner:"user",storage_path:"old-sheet",
+  project_id:"film",entity_id:"asset",owner:"user",storage_path:"user/film/asset/old-sheet",
   updated_at:"2026-09-01T00:00:00.000Z",
-  meta:{iso:"2026-08-01T00:00:00.000Z"},refs:[{storage_path:"old-ref"}],
-  history:[{storage_path:"older-sheet",refs:[{storage_path:"older-ref"}]}],
+  meta:{iso:"2026-08-01T00:00:00.000Z"},refs:[{storage_path:"user/film/asset/old-ref"}],
+  history:[{storage_path:"user/film/asset/older-sheet",refs:[{storage_path:"user/film/asset/older-ref"}]}],
 };
 
 reset(); failUpsert=true;
@@ -131,10 +133,10 @@ ok("uncertain write plus failed readback is reported without deleting possibly-l
     && !removed.includes(uploads[0].path));
 
 reset();
-insertRaceRow={...old,storage_path:"first-client-sheet"};
+insertRaceRow={...old,storage_path:"user/film/asset/first-client-sheet"};
 result=await commit();
 ok("simultaneous first insert preserves the winner and requests an explicit retry",
-  result.tier==="error" && result.retry===true && row.storage_path==="first-client-sheet"
+  result.tier==="error" && result.retry===true && row.storage_path==="user/film/asset/first-client-sheet"
     && removed.includes(uploads[0].path));
 
 reset(); cancelled=true;
@@ -151,16 +153,16 @@ let firstMutation=true;
 mutationHook=()=>{ if(firstMutation){ firstMutation=false; cancelled=true; } };
 result=await commit();
 ok("cancellation during row write conditionally restores previous row",
-  result.tier==="cancelled" && row.storage_path==="old-sheet"
-    && row.history[0].storage_path==="older-sheet");
+  result.tier==="cancelled" && row.storage_path==="user/film/asset/old-sheet"
+    && row.history[0].storage_path==="user/film/asset/older-sheet");
 ok("compensation preserves old current, history, and references",
-  !removed.includes("old-sheet") && !removed.includes("older-sheet")
-    && !removed.includes("old-ref") && !removed.includes("older-ref"));
+  !removed.includes("user/film/asset/old-sheet") && !removed.includes("user/film/asset/older-sheet")
+    && !removed.includes("user/film/asset/old-ref") && !removed.includes("user/film/asset/older-ref"));
 
 reset(old);
 result=await commit();
 ok("successful commit requires and returns the verified row",
-  result.tier==="cloud" && row.storage_path===result.path && row.history[0].storage_path==="old-sheet");
+  result.tier==="cloud" && row.storage_path===result.path && row.history[0].storage_path==="user/film/asset/old-sheet");
 ok("existing-generation CAS uses only the compact updated-at token",
   lastMutationFilters.some(([k,v])=>k==="updated_at"&&v===old.updated_at)
     && !lastMutationFilters.some(([k])=>["meta","refs","history","storage_path"].includes(k)));
@@ -171,53 +173,53 @@ reset(old);
 beforeMutationHook=()=>{ row.meta={...row.meta,approval:{iso:row.meta.iso,approved:true}}; row.updated_at="2026-09-01T00:00:01.000Z"; };
 result=await commit();
 ok("same-path concurrent metadata change refuses updated-at CAS",
-  result.tier==="error" && row.storage_path==="old-sheet" && row.meta.approval.approved===true);
+  result.tier==="error" && row.storage_path==="user/film/asset/old-sheet" && row.meta.approval.approved===true);
 
 reset(old);
-beforeMutationHook=()=>{ row.history=[...row.history,{storage_path:"concurrent-history"}]; row.updated_at="2026-09-01T00:00:01.000Z"; };
+beforeMutationHook=()=>{ row.history=[...row.history,{storage_path:"user/film/asset/concurrent-history"}]; row.updated_at="2026-09-01T00:00:01.000Z"; };
 result=await commit();
 ok("same-path concurrent history change is preserved and commit refused",
-  result.tier==="error" && row.storage_path==="old-sheet"
-    && row.history.some(h=>h.storage_path==="concurrent-history"));
+  result.tier==="error" && row.storage_path==="user/film/asset/old-sheet"
+    && row.history.some(h=>h.storage_path==="user/film/asset/concurrent-history"));
 
 reset({
   ...old,
-  storage_path:"current",
-  refs:[{storage_path:"shared-ref"}],
+  storage_path:"user/film/asset/current",
+  refs:[{storage_path:"user/film/asset/shared-ref"}],
   history:[
-    {storage_path:"promoted",refs:[{storage_path:"shared-ref"}]},
-    {storage_path:"remaining",refs:[{storage_path:"remaining-ref"}]},
+    {storage_path:"user/film/asset/promoted",refs:[{storage_path:"user/film/asset/shared-ref"}]},
+    {storage_path:"user/film/asset/remaining",refs:[{storage_path:"user/film/asset/remaining-ref"}]},
   ],
 });
 await sandbox.cloudDeleteCurrentAndPromote("film","user","asset");
 ok("delete-current retains a reference shared by the resulting row",
-  !removed.includes("shared-ref") && removed.includes("current"));
+  !removed.includes("user/film/asset/shared-ref") && removed.includes("user/film/asset/current"));
 
 reset({
   ...old,
-  storage_path:"current",
-  refs:[{storage_path:"shared-ref"}],
+  storage_path:"user/film/asset/current",
+  refs:[{storage_path:"user/film/asset/shared-ref"}],
   history:[
-    {storage_path:"historical",refs:[{storage_path:"historical-ref"},{storage_path:"shared-ref"}]},
-    {storage_path:"remaining",refs:[]},
+    {storage_path:"user/film/asset/historical",refs:[{storage_path:"user/film/asset/historical-ref"},{storage_path:"user/film/asset/shared-ref"}]},
+    {storage_path:"user/film/asset/remaining",refs:[]},
   ],
 });
 const deleted=await sandbox.cloudDeleteHistoryEntry("film","user","asset",0);
 ok("history deletion occurs only after its row mutation succeeds",
-  deleted===true && row.history.length===1 && row.history[0].storage_path==="remaining");
+  deleted===true && row.history.length===1 && row.history[0].storage_path==="user/film/asset/remaining");
 ok("history deletion removes historical refs but keeps retained shared refs",
-  removed.includes("historical") && removed.includes("historical-ref") && !removed.includes("shared-ref"));
+  removed.includes("user/film/asset/historical") && removed.includes("user/film/asset/historical-ref") && !removed.includes("user/film/asset/shared-ref"));
 
-const longHistory=Array.from({length:12},(_,i)=>({storage_path:"history-"+i,refs:[]}));
+const longHistory=Array.from({length:12},(_,i)=>({storage_path:"user/film/asset/history-"+i,refs:[]}));
 reset({...old,history:longHistory}); cleanupFailures=2;
 result=await commit();
 ok("successful save remains cloud success when trim cleanup fails",
   result.tier==="cloud" && !!result.cleanupWarning && row.storage_path===result.path
-    && row.meta.cleanupPending.includes("history-11"));
+    && row.meta.cleanupPending.includes("user/film/asset/history-11"));
 cleanupFailures=0;
 await sandbox.cloudGetGen("film","asset");
 ok("later load retries durable trim cleanup and clears its marker",
-  removed.includes("history-11") && !row.meta.cleanupPending);
+  removed.includes("user/film/asset/history-11") && !row.meta.cleanupPending);
 
 reset({...old,history:longHistory}); cleanupFailures=2;
 removeHook=()=>{ cancelled=true; };
@@ -226,21 +228,21 @@ ok("stop during final cleanup with unsafe rollback is surfaced, not discarded",
   result.tier==="cancellation-error" && result.persisted===true
     && row.storage_path===result.path && !!result.cleanupWarning);
 
-reset({...old,storage_path:"clear-current"}); cleanupFailures=2;
+reset({...old,storage_path:"user/film/asset/clear-current"}); cleanupFailures=2;
 const cleared=await sandbox.cloudClear("film","asset");
 ok("clear writes a durable tombstone before failed cleanup",
   cleared.ok && !!cleared.cleanupWarning && row.storage_path===null
-    && row.meta.cleanupTombstone===true && row.meta.cleanupPending.includes("clear-current"));
+    && row.meta.cleanupTombstone===true && row.meta.cleanupPending.includes("user/film/asset/clear-current"));
 cleanupFailures=0;
 await sandbox.cloudAssetLoadAll("film");
 ok("project prewarm discovers and retries a tombstone without a card-specific read",
-  row===null && removed.includes("clear-current"));
+  row===null && removed.includes("user/film/asset/clear-current"));
 
 reset({...old,meta:{iso:"2026-09-10T10:00:00.000Z"}});
 let approval=await sandbox.cloudSetAssetApproval("film","user","asset",
   "2026-09-10T10:00:00.000Z",true,"spec-and-refs-v3");
 ok("approval updates the same generation without changing image or history",
-  approval.ok && row.storage_path==="old-sheet" && row.history[0].storage_path==="older-sheet"
+  approval.ok && row.storage_path==="user/film/asset/old-sheet" && row.history[0].storage_path==="user/film/asset/older-sheet"
     && row.meta.approval.iso===row.meta.iso && row.meta.approval.approved===true);
 ok("approval saves the reviewed spec/reference context",
   row.meta.approval.reviewKey==="spec-and-refs-v3");

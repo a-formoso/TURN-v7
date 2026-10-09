@@ -340,7 +340,7 @@ await test("E1 app.jsx: rooms follow the owner's plan; a lapsed owner → read-o
   assert.ok(appSrc.includes('if(filmOwnerTier==="studio") return { writers_room:true, art_room:true, stage:true, shared:true };'));
   assert.ok(appSrc.includes('if(filmOwnerTier==="director") return { writers_room:true, art_room:true, stage:false, shared:true };'));
   // (Team review 2026-10-09) also read-only while sharing is paused, and while the film is off the list
-  assert.ok(appSrc.includes('const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : shareRole;'));
+  assert.ok(appSrc.includes('const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : (_rolesNow || "view_only");'));
   assert.ok(appSrc.includes("window.teamCanWriteRoom(writeRole,id)") && appSrc.includes("window.teamCanWriteSection(writeRole,k)"));
   assert.ok(appSrc.includes('room==="stage" ? stageReadOnly : readOnlyShare'), "the Stage is read-only for every role but the Stage editor");
   assert.ok(appSrc.includes('{ uid:(session && session.user && session.user.id) || "", name, role:'), "presence: account id + name");
@@ -418,7 +418,10 @@ await test("E6 every paid call names the open film (the server bills its owner o
   assert.ok(aiSrc.includes('{ body:{ ...('+ctx+'), task:"text", usageKind:"writing"'), "writing");
   assert.ok(aiSrc.includes('{ body:{ ...('+ctx+'), task:"text", usageKind:"vision"'), "vision");
   assert.ok(!aiSrc.includes('...('+ctx+'), task:"text", usageKind:"muse"'), "Frances stays the caller's own");
-  assert.ok(read("app/videogen.jsx").includes('{ body:{ ...('+ctx+'), task:"video", op'), "video");
+  // video merges the film context with the submit's clip + take, the film's projectId winning (Stage editor review, 2026-10-09)
+  assert.ok(read("app/videogen.jsx").includes('const filmContext = (typeof window.turnFilmContext==="function" && window.turnFilmContext()) || null;')
+    && read("app/videogen.jsx").includes('const context = (filmContext || callContext) ? { ...(callContext||{}), ...(filmContext||{}) } : null;')
+    && read("app/videogen.jsx").includes('{ body:{ ...(context ? { context } : {}), task:"video", op'), "video");
   assert.ok(read("app/voicegen.jsx").includes('{ body:{ ...('+ctx+'), task:"voice", op'), "voice");
   assert.ok(read("app/imagegen.jsx").includes("const _pid = opts.projectId || window.__turnCurrentProjectId;"), "images already did");
   const pb = { console, window:null, React, Icon:iconProxy, addEventListener:noop, dispatchEvent:()=>true, CustomEvent:class {},

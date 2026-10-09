@@ -8,6 +8,10 @@
    (200 Director / 500 Producer). Uses the harness of scripts/test-series-production-sql.mjs.
    Q (Team review, 2026-10-09): every fix of that pass on two fresh databases — the 2026-10-03 file
    (from git) shows each bug, today's file the fix — then today's file installed over the old one.
+   S (Stage editor review, 2026-10-09): the same pattern against production's file (151175c): Stage slots
+   checked by shape and cleanup paths (the P1/P1b probes), linked memberships write, the Stage editor's
+   shot/project scope with coded refusals, the kinds of paid calls, takes protected, finished renders
+   collected, spend views, re-holds; then today's file over production's, and series-production.sql re-run.
      node scripts/test-team-relaunch-db.mjs */
 import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -188,8 +192,10 @@ r = await saveSection(U.cara, F.dora1, "scenes", [{ id: "s1", title: "Cara" }]);
 ok("F1 a Co-writer saves the story", r.ok && r.rows.length === 1, r.error);
 r = await saveSection(U.cara, F.dora1, "characters", [{ id: "x" }]);
 ok("F2 but not the Art Room", !r.ok && /TURN_ROLE_SCOPE/.test(r.error), r.error);
-r = await saveSection(U.sam, F.pat1, "shots", [{ id: "sh1" }]);
-ok("F3 a Stage editor saves shots on a Producer film", r.ok && r.rows.length === 1, r.error);
+// (Stage editor review 2026-10-09) the owner designs the shot; the Stage editor changes its Stage fields only
+await q(`update public.turn_projects set doc = jsonb_set(doc, '{shots}', '[{"id":"sh1","size":"MS"}]') where id = $1`, [F.pat1]);
+r = await saveSection(U.sam, F.pat1, "shots", [{ id: "sh1", size: "MS", dialogue: "Hello." }]);
+ok("F3 a Stage editor saves a shot's dialogue on a Producer film", r.ok && r.rows.length === 1, r.error);
 r = await saveSection(U.sam, F.pat1, "scenes", []);
 ok("F4 but not the story", !r.ok && /TURN_ROLE_SCOPE/.test(r.error), r.error);
 r = await as(U.sam, "select public.turn_can_write_assets($1) w", [F.pat1]);
@@ -458,7 +464,8 @@ async function review(E, isNew) {
   await E.q(`insert into public.turn_generations(project_id, owner, entity_id, storage_path, meta) values
                ($1, $2, 'neo', $3, '{"kind":"image"}'), ($1, $2, 'clip-s1-sabc', null, '{"kind":"video","video":{"url":"https://v3.fal.media/files/a.mp4"}}')`,
     [fp, U.pat.id, artPath]);
-  const upd = (who, entity) => E.as(who, `update public.turn_generations set meta = meta || '{"touched":true}' where project_id = $1 and entity_id = $2 returning entity_id`, [fp, entity]);
+  // (Stage editor review 2026-10-09: a take record's meta holds only kind / updatedAt / video, so the touch is updatedAt)
+  const upd = (who, entity) => E.as(who, `update public.turn_generations set meta = meta || '{"updatedAt":2}' where project_id = $1 and entity_id = $2 returning entity_id`, [fp, entity]);
   x = await upd(U.sam, "neo");
   t("4a a Stage editor can't change an Art Room image row", x.ok && x.rows.length === 0, x.ok && x.rows.length === 1, x);
   x = await upd(U.sam, "clip-s1-sabc");
@@ -479,12 +486,14 @@ async function review(E, isNew) {
   /* 4s. every Stage flow still works for the Stage editor, end to end (as the app writes it) */
   if (isNew) {
     // (1) a take is committed exactly as app/cloud.jsx cloudCommitVideo does: an upsert of the clip row
-    const commitTake = (who, entity, url) => E.as(who, `insert into public.turn_generations(project_id, owner, entity_id, meta)
-        values ($1, $2, $3, jsonb_build_object('kind', 'video', 'updatedAt', 1, 'video', jsonb_build_object('url', $4::text, 'meta', null)))
-        on conflict (project_id, entity_id) do update set meta = excluded.meta returning entity_id, owner, meta`, [fp, who.id, entity, url]);
+    // (Stage editor review 2026-10-09) as the app now writes it: the maker in video.meta.by, the takes it keeps in takes[]
+    const commitTake = (who, entity, url, takes = []) => E.as(who, `insert into public.turn_generations(project_id, owner, entity_id, meta)
+        values ($1, $2, $3, jsonb_build_object('kind', 'video', 'updatedAt', 1, 'video', jsonb_build_object('url', $4::text, 'meta', jsonb_build_object('by', $6::text, 'takes', $5::jsonb))))
+        on conflict (project_id, entity_id) do update set meta = excluded.meta returning entity_id, owner, meta`, [fp, who.id, entity, url, JSON.stringify(takes), who.id]);
     x = await commitTake(U.sam, "clip-s3-sxyz", "https://v3.fal.media/files/t1.mp4");
-    t("4s1 a Stage editor commits a new take (cloudCommitVideo's upsert)", x.ok && x.rows.length === 1 && x.row.owner === U.sam.id, undefined, x);
-    x = await commitTake(U.sam, "clip-s1-sabc", "https://v3.fal.media/files/t2.mp4");
+    // (Stage editor review 2026-10-09, S6) the new row is the film OWNER's, so deleting Sam's account can't take it away
+    t("4s1 a Stage editor commits a new take (cloudCommitVideo's upsert); the row is the owner's", x.ok && x.rows.length === 1 && x.row.owner === U.pat.id, undefined, x);
+    x = await commitTake(U.sam, "clip-s1-sabc", "https://v3.fal.media/files/t2.mp4", [{ url: "https://v3.fal.media/files/a.mp4", meta: null }]);
     t("4s2 and replaces the take of a clip the owner shot first (the row stays the owner's)",
       x.ok && x.rows.length === 1 && x.row.owner === U.pat.id && x.row.meta.video.url.endsWith("t2.mp4"), undefined, x);
     x = await commitTake(U.sam, "neo", "https://v3.fal.media/files/t3.mp4");
@@ -497,7 +506,8 @@ async function review(E, isNew) {
     x = await E.as(U.sam, "select public.turn_storage_project_id($1) p", [`${U.sam.id}/stage-tmp/20261009-video-abcd1234.mp4`]);
     t("4s5 a Stage device upload's key names no film (stage-tmp): turn_can_write_assets never decides it", x.ok && x.row.p === null, undefined, x);
     // (3) voicing a line: the audio stays on the device (IndexedDB); the shot records it (doc section 'shots')
-    x = await E.as(U.sam, `update public.turn_projects set doc = jsonb_set(doc, '{shots}', '[{"id":"sh1","lineAudio":{"durationMs":1200,"voiceId":"v1"}}]') where id = $1 returning id`, [fp]);
+    await E.q(`update public.turn_projects set doc = jsonb_set(doc, '{shots}', '[{"id":"sh1","size":"MS"}]') where id = $1`, [fp]);
+    x = await E.as(U.sam, `update public.turn_projects set doc = jsonb_set(doc, '{shots}', '[{"id":"sh1","size":"MS","lineAudio":{"durationMs":1200,"voiceId":"v1"}}]') where id = $1 returning id`, [fp]);
     t("4s6 a Stage editor voices a line into a shot (the shots section saves)", x.ok && x.rows.length === 1, undefined, x);
     // and none of it on a Director film, or with the switch off
     const fdir = await E.film(U.dora, "Director Stage");
@@ -743,6 +753,376 @@ async function review(E, isNew) {
   x = S2 && await E.row(S2, U.cara.email);
   ok("Q 19 series-production.sql re-run, then team-relaunch.sql again: both succeed, the Show's team is intact",
     eR === null && !!x && x.member_user === U.cara.id && x.status === "active", eR || x);
+}
+
+/* ── S. the Stage editor review (2026-10-09) ─────────────────────────────────
+   Same pattern as Q: the file production runs today (commit PROD_REV, 2026-10-09 Team review) shows
+   each bug, today's file the fix; then today's file installed over production's (with its data, twice),
+   and series-production.sql re-run followed by this file again. */
+const PROD_REV = "151175c";
+async function stageReview(E, isNew) {
+  const tag = isNew ? "S" : "S-old";
+  const t = (name, fixed, bug, detail) => {
+    if (isNew) ok(`${tag} ${name}`, fixed, detail);
+    else if (bug !== undefined) ok(`${tag} bug reproduced: ${name}`, bug, detail);
+  };
+  const codeOf = (x) => (/TURN_TEAM:([a-z_]+)/.exec((x && x.error) || "") || [])[1];
+  const zeroRows = (x) => x.ok && x.rows.length === 0;
+  let x, r;
+  const fp = await E.film(U.pat, "Stage review"), fo2 = await E.film(U.pat, "Pat's other film");
+  await E.invite(U.pat, fp, U.sam.email, "stage_editor"); await E.claim(U.sam);
+  const ariRow = (await E.invite(U.pat, fp, X.ari.email, "art_director")).row.id; await E.claim(X.ari);
+  const samRow = (await E.row(fp, U.sam.email)).id;
+  const artPath = `${U.pat.id}/${fp}/character/neo/20261009-100000-sheet-aaaa1111.png`;
+  const copyPath = `${U.pat.id}/${fp}/ref/20261009-100000-copy-bbbb2222.png`;
+  const otherFilmPath = `${U.pat.id}/${fo2}/character/neo/20261009-100000-sheet-cccc3333.png`;
+  await E.q(`insert into public.turn_generations(project_id, owner, entity_id, storage_path, meta, refs) values
+      ($1, $2, 'neo', $3, '{"kind":"image"}', '[]'),
+      ($1, $2, 'holder', null, '{"kind":"image"}', $4::jsonb),
+      ($1, $2, 'clip-s1', null, '{"kind":"video","updatedAt":1,"video":{"url":"https://v3.fal.media/files/o1.mp4","meta":null}}', '[]')`,
+    [fp, U.pat.id, artPath, JSON.stringify([{ storage_path: copyPath, refId: "neo" }])]);
+  const ins = (who, entity, path, meta) => E.as(who, `insert into public.turn_generations(project_id, owner, entity_id, storage_path, meta)
+      values ($1, $2, $3, $4, $5::jsonb) returning entity_id, owner`, [fp, who.id, entity, path, JSON.stringify(meta)]);
+  const setMeta = (who, entity, meta, extra = "") => E.as(who, `update public.turn_generations set meta = $3::jsonb${extra}
+      where project_id = $1 and entity_id = $2 returning entity_id`, [fp, entity, JSON.stringify(meta)]);
+  const vid = (url, metaExtra = {}) => ({ kind: "video", updatedAt: 2, video: { url, meta: metaExtra } });
+
+  /* S1. the review's probes P1 / P1b: plant an Art Room sheet in a Stage row's cleanup list */
+  x = await ins(U.sam, "clip-p1", null, { ...vid("https://v3.fal.media/files/p1.mp4"), cleanupPending: [artPath] });
+  t("1a (P1) a Stage editor can't save a take record that lists the Art Room's sheet for cleanup",
+    !x.ok && codeOf(x) === "stage_slot", x.ok, x);
+  x = await setMeta(U.sam, "clip-s1", { ...vid("https://v3.fal.media/files/o1.mp4"), cleanupPending: [artPath], cleanupTombstone: true });
+  t("1b (P1b) nor add one to the owner's take record", !x.ok && codeOf(x) === "stage_slot", x.ok && x.rows.length === 1, x);
+  x = await ins(U.sam, "clip-p2", null, { ...vid("https://v3.fal.media/files/p2.mp4"), cleanupPurgeTarget: { id: "neo", storagePath: artPath } });
+  t("1c nor a purge receipt naming it (the owner's sweep deletes what receipts name)", !x.ok && codeOf(x) === "stage_slot", x.ok, x);
+  x = await ins(U.sam, "clip-p3", `${U.sam.id}/${fp}/stage-audio/x.mp3`, vid("https://v3.fal.media/files/p3.mp4"));
+  t("1d a take record has no file", !x.ok, x.ok, x);
+  x = await E.as(U.sam, `insert into public.turn_generations(project_id, owner, entity_id, meta, history) values ($1, $2, 'clip-p4', $3::jsonb, $4::jsonb) returning entity_id`,
+    [fp, U.sam.id, JSON.stringify(vid("https://v3.fal.media/files/p4.mp4")), JSON.stringify([{ storage_path: artPath, meta: { cleanupPending: [artPath] } }])]);
+  t("1e nor a history", !x.ok, x.ok, x);
+  // (b) any collaborator: the Art director too
+  x = await setMeta(X.ari, "neo", { kind: "image", cleanupPending: [otherFilmPath] });
+  t("1f an Art director can't list a file of the owner's OTHER film for cleanup", !x.ok && codeOf(x) === "cleanup_path", x.ok && x.rows.length === 1, x);
+  x = await E.as(X.ari, `update public.turn_generations set refs = $2::jsonb where project_id = $1 and entity_id = 'holder' returning entity_id`,
+    [fp, JSON.stringify([{ storage_path: null, deleted: true, deletedStoragePath: otherFilmPath, refId: "neo", refGenerated: "" }])]);
+  t("1g nor plant one as a deleted reference (deletedStoragePath)", !x.ok && codeOf(x) === "cleanup_path", x.ok && x.rows.length === 1, x);
+  x = await E.as(X.ari, `update public.turn_generations set history = $2::jsonb where project_id = $1 and entity_id = 'holder' returning entity_id`,
+    [fp, JSON.stringify([{ storage_path: null, meta: { cleanupPurgeReceipts: [{ id: "x", storagePath: otherFilmPath }] } }])]);
+  t("1h nor in a history item's receipts", !x.ok && codeOf(x) === "cleanup_path", x.ok && x.rows.length === 1, x);
+  x = await setMeta(X.ari, "holder", { kind: "image", cleanupPending: [`${X.ari.id}/${fp}/character/x/own.png`] });
+  t("1i a path in the writer's own folder is fine", x.ok && x.rows.length === 1, undefined, x);
+  // the Art director's own purge of an image (app/cloud.jsx cloudPurgeImageVersion): the tombstone lists the image and
+  // the copy another row holds — a path this row never referenced, but one the Art director may delete
+  x = await E.as(X.ari, `update public.turn_generations set storage_path = null, refs = '[]', history = '[]', meta = $2::jsonb
+      where project_id = $1 and entity_id = 'neo' returning entity_id`,
+    [fp, JSON.stringify({ kind: "image", cleanupPurge: true, cleanupTombstone: true, cleanupPurgeTarget: { id: "neo", storagePath: artPath },
+      deleted: true, deletedStoragePath: artPath, cleanupPending: [artPath, copyPath] })]);
+  t("1j an Art director's image purge still saves (its copies are in the film's folders)", x.ok && x.rows.length === 1, undefined, x);
+  x = await setMeta(X.ari, "neo", { kind: "image", cleanupPurge: true, cleanupPurgeTarget: { id: "neo", storagePath: artPath } });
+  t("1k and the cleanup that follows clears the list", x.ok && x.rows.length === 1, undefined, x);
+  // the new voiced-line rows ('aud-…')
+  const audPath = `${U.sam.id}/${fp}/stage-audio/l1-20261009.mp3`;
+  const aud = (extra = {}) => ({ kind: "audio", updatedAt: 1, audio: { meta: { durationMs: 1200 } }, ...extra });
+  x = await ins(U.sam, "aud-l1", audPath, aud());
+  t("1l a Stage editor saves a voiced line under their own stage-audio folder; the row is the owner's",
+    x.ok && x.row.owner === U.pat.id, !x.ok, x);
+  if (isNew) {
+    x = await ins(U.sam, "aud-l2", `${U.pat.id}/${fp}/stage-audio/l2.mp3`, aud());
+    t("1m not under someone else's folder", !x.ok, undefined, x);
+    x = await ins(U.sam, "aud-l3", `${U.sam.id}/${fo2}/stage-audio/l3.mp3`, aud());
+    t("1n nor under another film", !x.ok, undefined, x);
+    x = await ins(U.sam, "aud-l4", `${U.sam.id}/${fp}/stage-audio/l4.mp3`, aud({ cleanupPending: [artPath] }));
+    t("1o a voiced line's cleanup list names only its own stage-audio files", !x.ok && codeOf(x) === "stage_slot", undefined, x);
+    x = await ins(U.sam, "aud-l5", `${U.sam.id}/${fp}/stage-audio/l5.mp3`, aud({ cleanupPending: [`${U.sam.id}/${fp}/stage-audio/old.mp3`] }));
+    t("1p (its own old file is fine)", x.ok, undefined, x);
+    x = await ins(U.sam, "aud-l6", `${U.sam.id}/${fp}/stage-audio/l6.mp3`, aud({ note: "x" }));
+    t("1q nor any other meta key", !x.ok, undefined, x);
+    x = await ins(U.sam, "aud-../x", `${U.sam.id}/${fp}/stage-audio/l7.mp3`, aud());
+    t("1r nor a malformed id", !x.ok, undefined, x);
+    x = await setMeta(X.ari, "aud-l1", aud({ updatedAt: 9 }));
+    t("1s the Art director doesn't write the Stage's voiced lines", zeroRows(x), undefined, x);
+    x = await setMeta(U.sam, "aud-l1", aud({ updatedAt: 9 }));
+    t("1t the Stage editor changes their own", x.ok && x.rows.length === 1, undefined, x);
+    x = await E.as(U.pat, `insert into public.turn_generations(project_id, owner, entity_id, storage_path, meta) values ($1, $2, 'aud-o1', $3, $4::jsonb) returning entity_id`,
+      [fp, U.pat.id, `${U.cara.id}/${fp}/stage-audio/any.mp3`, JSON.stringify(aud({ anything: true }))]);
+    t("1u the owner writes any voiced-line row of the film", x.ok, undefined, x);
+  }
+
+  /* S9. the Stage's voiced-line files in Storage (the app uploads them as the signed-in user) */
+  await E.q("insert into storage.buckets(id, name, public) values ('turn-assets', 'turn-assets', false) on conflict do nothing");
+  await E.q("insert into storage.objects(bucket_id, name) values ('turn-assets', $1)", [artPath]);
+  const sIns = (who, name) => E.as(who, "insert into storage.objects(bucket_id, name, owner) values ('turn-assets', $1, $2) returning name", [name, who.id]);
+  const sUpd = (who, name) => E.as(who, "update storage.objects set metadata = '{\"v\":2}' where bucket_id = 'turn-assets' and name = $1 returning name", [name]);
+  const sDel = (who, name) => E.as(who, "delete from storage.objects where bucket_id = 'turn-assets' and name = $1 returning name", [name]);
+  const lineFile = `${U.sam.id}/${fp}/stage-audio/line-a.mp3`;
+  x = await sIns(U.sam, lineFile);
+  t("9a a Stage editor uploads a voiced line to their own <uid>/<film>/stage-audio/", x.ok && x.rows.length === 1, !x.ok, x);
+  x = await sUpd(U.sam, lineFile);
+  const xr = await E.as(U.sam, "select count(*)::int n from storage.objects where name = $1", [lineFile]);
+  t("9b replaces it, and still reads it", x.ok && x.rows.length === 1 && xr.ok && xr.row.n === 1, zeroRows(x), { x, xr });
+  x = await sDel(U.sam, lineFile);
+  t("9c and deletes it", x.ok && x.rows.length === 1, zeroRows(x), x);
+  const refused = async (name) => { const a = await sIns(U.sam, name); return !a.ok; };
+  x = { ok: true, checks: {
+    art: await refused(`${U.pat.id}/${fp}/stage-audio/x.mp3`),           // someone else's folder
+    kind: await refused(`${U.sam.id}/${fp}/character/x.png`),            // an Art Room folder of the film
+    film: await refused(`${U.sam.id}/${fo2}/stage-audio/x.mp3`),         // a film they aren't on
+    deep: await refused(`${U.sam.id}/${fp}/stage-audio/a/b.mp3`),        // nested
+    bare: await refused(`${U.sam.id}/${fp}/stage-audio/`) } };
+  t("9d nothing else: another person's folder, an Art Room folder, another film, a nested or empty name",
+    Object.values(x.checks).every(Boolean), undefined, x);
+  x = await sDel(U.sam, artPath);
+  const xu = await sUpd(U.sam, artPath);
+  t("9e and the Art Room's sheet can't be deleted or replaced (P1 by Storage)", zeroRows(x) && zeroRows(xu), undefined, { x, xu });
+  await E.q("update public.turn_credits set plan = 'director' where owner = $1", [U.pat.id]);
+  const xdir = await sIns(U.sam, `${U.sam.id}/${fp}/stage-audio/line-dir.mp3`);
+  await E.q("update public.turn_credits set plan = 'studio' where owner = $1", [U.pat.id]);
+  await E.sw(false);
+  const xoff = await sIns(U.sam, `${U.sam.id}/${fp}/stage-audio/line-off.mp3`);
+  await E.sw(true);
+  t("9f none of it once the owner drops to Director, or with the switch off", !xdir.ok && !xoff.ok, undefined, { xdir, xoff });
+  x = await sIns(X.vo, `${X.vo.id}/${fp}/stage-audio/vo.mp3`);
+  t("9g nor for someone without the Stage editor role", !x.ok, undefined, x);
+
+  /* S2. writing needs a LINKED membership (decision E) */
+  await E.invite(U.pat, fp, X.pen.email, "art_director");   // invited, never claimed
+  x = await E.as(X.pen, "select count(*)::int n from public.turn_projects where id = $1", [fp]);
+  t("2a an unclaimed invite still opens the film (read)", x.ok && x.row.n === 1, undefined, x);
+  x = await setMeta(X.pen, "holder", { kind: "image", t: 1 });
+  t("2b but writes no Art Room row", zeroRows(x), x.ok && x.rows.length === 1, x);
+  x = await E.as(X.pen, `update public.turn_projects set doc = jsonb_set(doc, '{characters}', '[{"id":"pen"}]') where id = $1 returning id`, [fp]);
+  t("2c and saves no section", zeroRows(x), x.ok && x.rows.length === 1, x);
+  x = await E.as(X.pen, "select public.turn_can_write_assets($1) w, public.turn_can_access_project($1, true) aw", [fp]);
+  t("2d and uploads no file", x.ok && x.row.w === false && x.row.aw === false, x.ok && x.row.w === true, x);
+  x = await E.payer(X.pen, fp, "image");
+  t("2e the payer check: not a member ('not_member' — the server now refuses it)", x.code === "not_member", undefined, x);
+  x = await E.payer(U.eve, fp, "text");
+  const xn = await E.payer(U.eve, "f2000000-0000-4000-8000-0000000fffff", "text");
+  t("2f an outsider: 'not_member'; a film that doesn't exist: 'no_film'", x.code === "not_member" && xn.code === "no_film", undefined, { x, xn });
+
+  /* S3. a Stage editor saves only the Stage's part (decision F); refusals are errors */
+  await E.q(`update public.turn_projects set doc = doc || $2::jsonb where id = $1`, [fp, JSON.stringify({
+    project: { title: "Stage review", logline: "x", stage: { model: "a" } },
+    shots: [{ id: "a", size: "MS", action: "run", specRev: 1, specHash: "h1" }, { id: "b", size: "WS", specRev: 1, specHash: "h2" }] })]);
+  const save = (who, film, key, value) => E.as(who, `update public.turn_projects set doc = jsonb_set(doc, $2::text[], $3::jsonb) where id = $1 returning id`,
+    [film, `{${key}}`, JSON.stringify(value)]);
+  const shotsNow = async (film) => (await E.q("select doc -> 'shots' s from public.turn_projects where id = $1", [film]))[0].s;
+  let sh = await shotsNow(fp);
+  x = await save(U.sam, fp, "shots", [{ ...sh[0], dialogue: "Hi.", dur: 2.4, specRev: 2, specHash: "h1b", lineAudio: { durationMs: 2000 },
+    dialogueLines: [{ text: "Hi." }], screenplayDialogueIndex: 0, screenplayDialogueIndexes: [0], vidText: "v",
+    stageCharacterReferenceOverrides: { neo: "master" } }, sh[1]]);
+  t("3a a Stage editor saves a shot's line, voicing, timing and the Stage's overrides (specRev/specHash follow)", x.ok && x.rows.length === 1, undefined, x);
+  sh = await shotsNow(fp);
+  x = await save(U.sam, fp, "shots", [{ ...sh[0], size: "CU" }, sh[1]]);
+  t("3b but not the shot's design (size)", !x.ok && codeOf(x) === "stage_scope", x.ok && x.rows.length === 1, x);
+  sh = await shotsNow(fp);
+  x = await save(U.sam, fp, "shots", [...sh, { id: "c", size: "MS" }]);
+  t("3c nor add a shot", !x.ok && codeOf(x) === "stage_scope", x.ok && x.rows.length === 1, x);
+  sh = await shotsNow(fp);
+  x = await save(U.sam, fp, "shots", [sh[1], sh[0]]);
+  t("3d nor reorder them", !x.ok && codeOf(x) === "stage_scope", x.ok && x.rows.length === 1, x);
+  sh = await shotsNow(fp);
+  x = await save(U.sam, fp, "shots", [sh[0]]);
+  t("3e nor remove one", !x.ok && codeOf(x) === "stage_scope", x.ok && x.rows.length === 1, x);
+  x = await save(U.sam, fp, "project", { title: "Renamed", logline: "x", stage: { model: "a" } });
+  t("3f nor the film's settings outside the Stage's", !x.ok && codeOf(x) === "stage_scope", x.ok && x.rows.length === 1, x);
+  const proj = (await E.q("select doc -> 'project' p from public.turn_projects where id = $1", [fp]))[0].p;
+  x = await save(U.sam, fp, "project", { ...proj, stage: { model: "b" } });
+  t("3g but saves the Stage's own settings (project.stage)", x.ok && x.rows.length === 1, undefined, x);
+  // several roles: the union (a Co-writer keeps all of `project`; the Stage part still only the Stage's fields of a shot)
+  const fc = await E.film(U.pat, "Stage + writer");
+  await E.q(`update public.turn_projects set doc = doc || '{"shots":[{"id":"a","size":"MS"}]}' where id = $1`, [fc]);
+  const caraC = (await E.invite(U.pat, fc, U.cara.email, "writer")).row.id;
+  await E.as(U.pat, "update public.turn_project_members set roles = array['writer','stage_editor'] where id = $1", [caraC]);
+  await E.claim(U.cara);
+  x = await save(U.cara, fc, "project", { title: "Retitled by the Co-writer" });
+  const xs = await save(U.cara, fc, "shots", [{ id: "a", size: "MS", dialogue: "Yes." }]);
+  t("3h Co-writer + Stage editor: all of `project`, and a shot's dialogue", x.ok && x.rows.length === 1 && xs.ok && xs.rows.length === 1, undefined, { x, xs });
+  x = await save(U.cara, fc, "shots", [{ id: "a", size: "WS", dialogue: "Yes." }]);
+  t("3i but not a shot's design", !x.ok && codeOf(x) === "stage_scope", x.ok && x.rows.length === 1, x);
+  // paused roles: an ERROR the app can show, never a silent zero-row save (read as a version race)
+  await E.q("update public.turn_credits set plan = 'director' where owner = $1", [U.pat.id]);
+  sh = await shotsNow(fp);
+  x = await save(U.sam, fp, "shots", [{ ...sh[0], dialogue: "Paused?" }, sh[1]]);
+  t("3j owner dropped to Director: a Stage editor's save is refused 'role_paused' (it was a silent zero-row update)",
+    !x.ok && codeOf(x) === "role_paused" && /TURN_ROLE_SCOPE/.test(x.error), zeroRows(x), x);
+  x = await save(U.cara, fc, "shots", [{ id: "a", size: "MS", dialogue: "Paused?" }]);
+  const xw = await save(U.cara, fc, "project", { title: "Still a Co-writer" });
+  t("3k Co-writer + Stage editor there: the Stage part is 'role_paused', the Co-writer part still saves",
+    !x.ok && codeOf(x) === "role_paused" && xw.ok && xw.rows.length === 1, undefined, { x, xw });
+  await E.q("update public.turn_credits set plan = 'studio' where owner = $1", [U.pat.id]);
+  await E.sw(false);
+  x = await save(U.sam, fp, "shots", [{ ...sh[0], dialogue: "Off?" }, sh[1]]);
+  await E.sw(true);
+  t("3l switch off: 'paused'", !x.ok && codeOf(x) === "paused", zeroRows(x), x);
+  await E.q("update public.turn_credits set payment_status = 'past_due' where owner = $1", [U.pat.id]);
+  x = await save(U.sam, fp, "shots", [{ ...sh[0], dialogue: "Lapsed?" }, sh[1]]);
+  const xa = await save(X.ari, fp, "characters", [{ id: "lapsed" }]);
+  await E.q("update public.turn_credits set payment_status = 'active' where owner = $1", [U.pat.id]);
+  t("3m owner's plan lapsed: 'owner_plan', for every role", !x.ok && codeOf(x) === "owner_plan" && !xa.ok && codeOf(xa) === "owner_plan",
+    zeroRows(x), { x, xa });
+  x = await E.as(U.vic, `update public.turn_projects set doc = jsonb_set(doc, '{scenes}', '[]') where id = $1 returning id`, [fp]);
+  t("3n an outsider still matches no row (nothing to say)", zeroRows(x), undefined, x);
+
+  /* S4. what each kind of paid call needs */
+  x = await E.payer(U.sam, fp, "image");
+  t("4a a Stage editor's image call is refused ('role'): the Stage makes no images", x.code === "role", x.ok === true, x);
+  x = await E.payer(U.sam, fp, "voice");
+  const xd = await E.payer(U.sam, fp, "voice_design"), xad = await E.payer(X.ari, fp, "voice_design");
+  t("4b voice (text-to-speech): the Stage editor pays through the owner; designing a voice: the Art director only",
+    x.ok === true && xd.code === "role" && xad.ok === true, undefined, { x, xd, xad });
+  x = await E.hold(U.pat, U.sam, samRow, fp, 5, "s4:img", "image");
+  t("4c and the film hold refuses an image for the Stage editor", !x.ok && x.code === "role", x.ok === true, x);
+  x = await E.hold(U.pat, X.ari, ariRow, fp, 5, "s4:vd", "voice_design");
+  t("4d but holds a voice design for the Art director", x.ok === true, undefined, x);
+
+  /* S7. a collaborator can't remove someone else's take (decision C) */
+  const T = (n) => `https://v3.fal.media/files/${n}.mp4`;
+  const take = (url, by, extra = {}) => ({ url, meta: { ...(by ? { by } : {}), ...extra }, savedAt: 1 });
+  const clip = (cur, curBy, takes, curExtra = {}) => ({ kind: "video", updatedAt: 3, video: { url: cur, meta: { ...(curBy ? { by: curBy } : {}), ...curExtra, takes } } });
+  await E.q("insert into public.turn_generations(project_id, owner, entity_id, meta) values ($1, $2, 'clip-t', $3::jsonb)",
+    [fp, U.pat.id, JSON.stringify(clip(T("u1"), null, [take(T("u0"), null)]))]);
+  x = await setMeta(U.sam, "clip-t", clip(T("s1"), U.sam.id, [take(T("u1"), null)]));
+  t("7a a Stage editor's new take can't drop the owner's older take", !x.ok && codeOf(x) === "take_owner", x.ok && x.rows.length === 1, x);
+  x = await setMeta(U.sam, "clip-t", clip(T("s1"), U.sam.id, [take(T("u1"), null), take(T("u0"), null)]));
+  t("7b keeping it, the new take saves", x.ok && x.rows.length === 1, undefined, x);
+  x = await setMeta(U.sam, "clip-t", clip(T("u0"), null, [take(T("s1"), U.sam.id), take(T("u1"), null)]));
+  t("7c choosing another take as current is fine (the old current stays in the takes)", x.ok && x.rows.length === 1, undefined, x);
+  x = await setMeta(U.sam, "clip-t", clip(T("u0"), null, [take(T("s1"), U.sam.id), take(T("u1"), U.sam.id)]));
+  t("7d rewriting who made a take is refused", !x.ok && codeOf(x) === "take_owner", x.ok && x.rows.length === 1, x);
+  x = await setMeta(U.sam, "clip-t", clip(T("u0"), null, [take(T("u1"), null)]));
+  t("7e removing their OWN take is fine", x.ok && x.rows.length === 1, undefined, x);
+  x = await E.as(U.sam, "delete from public.turn_generations where project_id = $1 and entity_id = 'clip-t' returning entity_id", [fp]);
+  t("7f deleting a clip that holds the owner's takes is refused", !x.ok && codeOf(x) === "take_owner", x.ok && x.rows.length === 1, x);
+  if (isNew) {
+    x = await ins(U.sam, "clip-own", null, clip(T("o1"), U.sam.id, [take(T("o0"), U.sam.id)]));
+    const xdel = await E.as(U.sam, "delete from public.turn_generations where project_id = $1 and entity_id = 'clip-own' returning entity_id", [fp]);
+    t("7g a clip holding only their own takes they delete", x.ok && xdel.ok && xdel.rows.length === 1, undefined, { x, xdel });
+    // the app's rollover (app/videogen.jsx capTakes): approved takes stay, plus the newest 20 others
+    const loose = Array.from({ length: 20 }, (_, i) => take(T("r" + i), null));
+    await E.q("insert into public.turn_generations(project_id, owner, entity_id, meta) values ($1, $2, 'clip-roll', $3::jsonb)",
+      [fp, U.pat.id, JSON.stringify(clip(T("rc"), null, [...loose, take(T("ra"), null, { status: "approved" })]))]);
+    x = await setMeta(U.sam, "clip-roll", clip(T("n1"), U.sam.id, [take(T("rc"), null), ...loose.slice(0, 19), take(T("ra"), null, { status: "approved" })]));
+    t("7h the rollover drops the owner's oldest loose take when 20 newer ones stay", x.ok && x.rows.length === 1, undefined, x);
+    x = await setMeta(U.sam, "clip-roll", clip(T("n2"), U.sam.id, [take(T("n1"), U.sam.id), take(T("rc"), null), ...loose.slice(0, 17), take(T("ra"), null, { status: "approved" })]));
+    t("7i but not two (only 19 others would stay)", !x.ok && codeOf(x) === "take_owner", undefined, x);
+    x = await setMeta(U.sam, "clip-roll", clip(T("n2"), U.sam.id, [take(T("n1"), U.sam.id), take(T("rc"), null), ...loose.slice(0, 18)]));
+    t("7j and never an approved take", !x.ok && codeOf(x) === "take_owner", undefined, x);
+  }
+
+  /* S5. a render running when the team changes still lands (decision D) */
+  x = await E.hold(U.pat, U.sam, samRow, fp, 30, "s5:vid", "video");
+  const held = x.ok === true;
+  let rpc = await E.as(U.pat, "select * from public.turn_film_pending_takes($1)", [fp]);
+  t("5a the pending-takes call exists", rpc.ok, !rpc.ok, rpc);
+  if (isNew && held) {
+    await E.svc(`update public.turn_credit_holds set take = '{"clipId":"clip-s1","meta":{"by":"${U.sam.id}","vno":3}}' where ref = 's5:vid'`);
+    await E.as(U.pat, "update public.turn_project_members set status = 'removed' where id = $1", [samRow]);   // removed mid-render
+    rpc = await E.as(U.pat, "select * from public.turn_film_pending_takes($1)", [fp]);
+    t("5b nothing while the render runs", rpc.ok && rpc.rows.length === 0, undefined, rpc);
+    await E.svc("select public.turn_settle_hold('s5:vid', 24)");
+    await E.svc(`update public.turn_credit_holds set take = take || '{"url":"https://v3.fal.media/files/late.mp4","settledAt":"2026-10-09T10:00:00Z"}' where ref = 's5:vid'`);
+    rpc = await E.as(U.pat, "select * from public.turn_film_pending_takes($1)", [fp]);
+    const pt = rpc.rows && rpc.rows[0];
+    t("5c settled after Sam was removed: the owner gets the take (ref, clip, url, meta, settled time, who made it)",
+      rpc.ok && rpc.rows.length === 1 && pt.ref === "s5:vid" && pt.clip_id === "clip-s1" && pt.url.endsWith("late.mp4")
+      && pt.take_meta.vno === 3 && new Date(pt.settled_at).toISOString() === "2026-10-09T10:00:00.000Z" && pt.actor === U.sam.id, undefined, rpc);
+    x = await E.as(U.sam, "select * from public.turn_film_pending_takes($1)", [fp]);
+    const xm = await E.as(X.ari, "select public.turn_film_mark_takes_collected($1, array['s5:vid']) n", [fp]);
+    const xanon = await E.as("anon", "select * from public.turn_film_pending_takes($1)", [fp]);
+    t("5d nobody else sees or marks them (anon can't call)", x.ok && x.rows.length === 0 && xm.ok && xm.row.n === 0 && !xanon.ok, undefined, { x, xm, xanon });
+    x = await E.as(U.pat, "select public.turn_film_mark_takes_collected($1, array['s5:vid', 'nope']) n", [fp]);
+    rpc = await E.as(U.pat, "select * from public.turn_film_pending_takes($1)", [fp]);
+    const again = await E.as(U.pat, "select public.turn_film_mark_takes_collected($1, array['s5:vid']) n", [fp]);
+    t("5e the owner marks it collected: gone from the list, and marking again changes nothing",
+      x.ok && x.row.n === 1 && rpc.ok && rpc.rows.length === 0 && again.ok && again.row.n === 0, undefined, { x, rpc, again });
+    // S6b: Sam was removed this month after spending: the owner still sees it
+    x = await E.as(U.pat, "select * from public.turn_team_spend($1)", [fp]);
+    const sRow = x.rows && x.rows.find((s) => s.member_id === samRow);
+    const vRow = x.rows && x.rows.find((s) => s.member_email === X.pen.email);
+    t("6b the owner's spend view keeps someone removed this month who spent (removed: true); active rows stay",
+      x.ok && sRow && sRow.removed === true && sRow.spent === 24 && sRow.member_email === U.sam.email && vRow && vRow.removed === false, undefined, x);
+    await E.as(U.pat, "update public.turn_project_members set status = 'removed' where project_id = $1 and member_email = $2", [fp, X.pen.email]);
+    x = await E.as(U.pat, "select * from public.turn_team_spend($1)", [fp]);
+    t("6b' someone removed who spent nothing doesn't show", x.ok && !x.rows.some((s) => s.member_email === X.pen.email), undefined, x);
+    x = await E.as(U.sam, "select * from public.turn_team_spend($1)", [fp]);
+    t("6b'' and the removed person sees nothing", x.ok && x.rows.length === 0, undefined, x);
+  }
+
+  /* S6a. a Show-wide member's spend on an Episode */
+  const bibleJ = JSON.stringify({ characters: [], locations: [], props: [], lookbook: [], lookbookNote: "", trash: { characters: [], locations: [], props: [] } });
+  const fe = await E.film(U.pat, "Becomes Episode 1");
+  r = await E.as(U.pat, "select public.turn_convert_project_to_show($1, 'Show', $2::jsonb, 'series') r", [fe, bibleJ]);
+  if (r.ok) {
+    const S = r.row.r.show.id;
+    await E.invite(U.pat, S, X.vo.email, "art_director"); await E.claim(X.vo);
+    const showRow = (await E.row(S, X.vo.email)).id;
+    x = await E.hold(U.pat, X.vo, showRow, fe, 7, "s6:ep", "image");
+    const sp = await E.as(X.vo, "select * from public.turn_team_spend($1)", [fe]);
+    const mine = sp.rows && sp.rows.find((s) => s.member_id === showRow);
+    t("6a a Show-wide member polling on an Episode gets their Show row's spend there", x.ok && mine && mine.spent === 7 && mine.removed === false,
+      sp.ok && !mine, { x, sp });
+  }
+
+  /* S6c. a Stage slot a collaborator creates is the owner's: 1l above (and S-up for rows made before) */
+
+  /* S8. a RE-HOLD for finished work (decision D): blender-bridge re-holds a 3D job housekeeping released */
+  x = await E.hold(U.pat, X.ari, ariRow, fp, 6, "s8:3d", "3d");
+  await E.svc("select public.turn_release_hold('s8:3d')");
+  await E.as(U.pat, "update public.turn_project_members set budget_credits = 0 where id = $1", [ariRow]);
+  await E.as(U.pat, "update public.turn_project_members set status = 'removed' where id = $1", [ariRow]);
+  await E.sw(false);
+  const rh = await E.hold(U.pat, X.ari, ariRow, fp, 6, "s8:3d:rehold", "3d");
+  const rh2 = await E.hold(U.pat, X.ari, ariRow, fp, 6, "s8:3d:rehold2", "3d");
+  const rhRow = (await E.q("select owner, actor, member_id, project_id, status from public.turn_credit_holds where ref = 's8:3d:rehold'"))[0];
+  t("8a Ari removed, sharing off, budget 0: the re-hold of her finished 3D job still holds on the owner's balance",
+    x.ok === true && rh.ok === true && rh2.ok === true && rhRow && rhRow.owner === U.pat.id && rhRow.actor === X.ari.id && rhRow.member_id === ariRow,
+    x.ok === true && rh.ok !== true, { x, rh, rh2, rhRow });
+  const rhx = await E.hold(U.pat, X.ari, ariRow, fp, 6, "s8:none:rehold", "3d");
+  const rhs = await E.hold(U.pat, X.ari, ariRow, fp, 6, "4c-not-a-base:rehold", "3d");
+  const rhSam = await E.hold(U.pat, X.ari, ariRow, fp, 6, "s5:vid:rehold", "3d");   // the base is Sam's hold, not Ari's
+  t("8b without an original hold of this same person and film, the usual checks apply",
+    rhx.ok !== true && rhs.ok !== true && rhSam.ok !== true, undefined, { rhx, rhs, rhSam });
+  await E.sw(true);
+}
+
+{
+  const PROD = gitShow(PROD_REV, "supabase/team-relaunch.sql");
+  if (PROD === null) console.log("SKIP S-old: git (or the production file) isn't available");
+  else {
+    const PE = await reviewEnv(PROD);
+    await stageReview(PE, false);
+    // production's path: a Stage editor's take row made under the production file (owned by them), then today's file twice
+    const fx = await PE.film(U.pat, "Upgrade");
+    await PE.invite(U.pat, fx, U.sam.email, "stage_editor"); await PE.claim(U.sam);
+    const made = await PE.as(U.sam, `insert into public.turn_generations(project_id, owner, entity_id, meta) values ($1, $2, 'clip-up', '{"kind":"video","video":{"url":"https://v3.fal.media/files/up.mp4"}}') returning owner`, [fx, U.sam.id]);
+    let eUp = null;
+    try { await PE.db.exec(RELAUNCH); await PE.db.exec(RELAUNCH); } catch (err) { eUp = err.message; }
+    ok("S-up today's file installs over production's (151175c), with its data, and again", eUp === null && made.ok && made.row.owner === U.sam.id, eUp || made);
+    const own = (await PE.q("select owner from public.turn_generations where project_id = $1 and entity_id = 'clip-up'", [fx]))[0];
+    ok("S-up the Stage editor's existing take row now belongs to the film's owner", own && own.owner === U.pat.id, own);
+    const fns = await PE.q("select pg_get_function_identity_arguments(oid) a from pg_proc where proname = 'turn_can_write_generation'");
+    ok("S-up one turn_can_write_generation is left, the whole-row one", fns.length === 1 && /p_history/.test(fns[0].a), fns);
+    const cols = await PE.q("select column_name from information_schema.columns where table_name = 'turn_credit_holds' and column_name = 'take'");
+    ok("S-up turn_credit_holds has `take`", cols.length === 1, cols);
+    let eR = null;
+    try { await PE.db.exec(read("supabase/series-production.sql")); await PE.db.exec(RELAUNCH); } catch (err) { eR = err.message; }
+    const fdef = (await PE.q("select pg_get_functiondef('public.turn_enforce_role_sections()'::regprocedure) d"))[0].d;
+    ok("S-up series-production.sql re-run, then this file again: both succeed, the Stage scope is back", eR === null && /stage_scope/.test(fdef), eR);
+    await PE.db.close();
+  }
+  const SE = await reviewEnv(RELAUNCH);
+  await stageReview(SE, true);
+  // and the whole review again after series-production.sql re-runs and this file follows (the documented order)
+  let eR = null;
+  try { await SE.db.exec(read("supabase/series-production.sql")); await SE.db.exec(RELAUNCH); } catch (err) { eR = err.message; }
+  ok("S-rerun series-production.sql, then this file: both succeed", eR === null, eR);
+  if (eR === null) {
+    const x = await SE.as(U.sam, `insert into public.turn_generations(project_id, owner, entity_id, meta) values ((select id from public.turn_projects where title = 'Stage review' limit 1), $1, 'clip-p9', $2::jsonb) returning entity_id`,
+      [U.sam.id, JSON.stringify({ kind: "video", video: { url: "https://v3.fal.media/files/p9.mp4" }, cleanupPending: ["x/y/z"] })]);
+    ok("S-rerun and the P1 probe is still refused", !x.ok && /stage_slot/.test(x.error), x);
+  }
+  await SE.db.close();
 }
 
 {

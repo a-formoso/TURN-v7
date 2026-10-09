@@ -82,7 +82,10 @@ const int = (x) => (Number.isFinite(Number(x)) ? Math.floor(Number(x)) : null);
             p_kind yet (PGRST202) is asked once more without it. A film hold's refusal keeps the
             database's own code (paused, role, owner_plan, not_member, budget_reached, frozen,
             insufficient — film-payer.mjs filmHoldRefusal words them), and a taken hold carries the
-            budget and the month's spend (this hold included) when the database sends them. */
+            budget and the month's spend (this hold included) when the database sends them.
+            (Stage editor review, 2026-10-09) `kind` may be voice_design (designing, saving or
+            cloning a character voice: the Art director's); 'not_member' (the person is no longer
+            on the film) reads as film_access (film-payer.mjs). */
 export const FILM_HOLD_RPC = "turn_hold_credits_for_film";
 export function createHoldClient({ rpc, uid, film = null, log = () => {}, newId = () => crypto.randomUUID() } = {}) {
   const call = async (name, args) => {
@@ -160,7 +163,9 @@ export function createHoldClient({ rpc, uid, film = null, log = () => {}, newId 
       const d = r.data;
       if (d.ok === false || d.ok === "false") {
         const code = String(d.code || "insufficient").toLowerCase();
-        if (code === "budget_reached") return { ok: false, code, budget: int(d.budget), spent: int(d.spent), remaining: int(d.remaining) };
+        // (Stage editor review, 2026-10-09) `needed`: what this call needs (the database's, else the
+        // amount asked) — so one call bigger than what's left isn't told the budget is used up
+        if (code === "budget_reached") return { ok: false, code, budget: int(d.budget), spent: int(d.spent), needed: int(d.needed) ?? want, remaining: int(d.remaining) };
         if (film && /^(paused|off|role|owner_plan|not_member|no_film)$/.test(code)) return { ok: false, code, remaining: null };
         return { ok: false, code: code === "frozen" ? "frozen" : code === "insufficient" ? "insufficient" : "unavailable", remaining: int(d.remaining) };
       }

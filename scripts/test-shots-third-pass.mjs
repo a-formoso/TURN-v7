@@ -121,7 +121,8 @@ await test("C2 the re-draft question names what it replaces, with the cost in it
 });
 await test("C3 Design all asks with the cost, drafts from the current inputs; voicing checks rights before paying", ()=>{
   const da = between(app, "  const draftAllShots = async ()=>{", "  // Art Room: suggest a character's appearance states");
-  assert.ok(da.includes("if(!canMutateShots()) return;") && da.includes('(writing credits)?"') && da.indexOf("if(!ok) return;") < da.indexOf("setDraftingAllShots(true);"));
+  // (2026-10-09, Stage editor review) designing is canDesignShots: the right to save shots, and not a Stage editor alone
+  assert.ok(da.includes("if(!canDesignShots()) return;") && da.includes('(writing credits)?"') && da.indexOf("if(!ok) return;") < da.indexOf("setDraftingAllShots(true);"));
   const one = between(app, "  const draftOneSceneShots = async (scene, replace)=>{", "  const [draftingSceneShots");
   assert.ok(one.includes("const L = keyframeInputsRef.current || {};") && one.includes("draftsRef.current||drafts"));
   assert.ok(app.includes("  const voiceLine = async (shot)=>{\n    if(!canMutateShots()) return;") && !app.includes("const voiceAllLines"));
@@ -129,8 +130,9 @@ await test("C3 Design all asks with the cost, drafts from the current inputs; vo
 await test("C4 rights follow the role's right to save shots, whatever room is open", ()=>{
   assert.ok(app.includes('window.teamCanWriteSection(writeRole, "shots")') && app.includes("const canMutateShots = ()=> projectLoadingRef.current ? _projectLoadingNotice()"));
   for(const fn of ["  const deleteShot = (id)=>{", "  const restoreShot = (id)=>{", "  const purgeShot = async (id)=>{", "  const addShot = (sceneId, beatN, seed)=>{"]){
-    const i = app.indexOf(fn); assert.ok(i>0, fn); assert.ok(app.slice(i, i+200).includes("if(!canMutateShots()) return;"), fn); }
-  assert.ok(app.includes('if(!canMutateShots()) throw new Error("You no longer have permission to change this film\'s shots.");'));
+    const i = app.indexOf(fn); assert.ok(i>0, fn); assert.ok(app.slice(i, i+200).includes("if(!canDesignShots()) return;"), fn); }
+  assert.ok(app.includes("const canDesignShots = ()=> !canMutateShots() ? false : shotsStageOnlyRef.current ? _stageScopeNotice() : true;"));
+  assert.ok(app.includes('if(!canDesignShots()) throw new Error("You no longer have permission to change this film\'s shots.");'));
   assert.ok(art.includes("onRestore:readOnly?null:onRestoreShot,onPurge:readOnly?null:onPurgeShot,"));
   assert.ok(art.includes("onRestore && React.createElement(\"button\",{className:\"rd-restore\"") && art.includes("onPurge && React.createElement(\"button\",{className:\"rd-purge\""));
   assert.ok(ui.includes('!readOnly && _el("button",{className:"art-draftall",disabled:draftingAllShots||!ordered.length,onClick:handleDesignAll,'));
@@ -150,6 +152,7 @@ await test("C5 restore / purge / undo / scene delete keep work; the background t
   let shotsState = [{ id:"x", sceneId:"sc", beatN:1, specRev:3, referenceLocationIds:["l1","l2"] }];
   b.setShots = (f)=>{ shotsState = f(shotsState); };
   b.projectLoadingRef = { current:false }; b.shotsReadOnlyRef = { current:false }; b.canMutateShots = ()=>true;
+  b.shotsStageOnlyRef = { current:false }; b.STAGE_SHOT_FIELDS = []; b._stageScopeNotice = ()=>false;   // (2026-10-09) not a Stage editor
   vm.runInContext(up+";this.__u=updateShot;", b);
   b.__u("x", { referenceLocationIds:["l1"] }, { migration:true });
   assert.equal(shotsState[0].specRev, 3, "a migration keeps the revision");

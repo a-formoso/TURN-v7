@@ -1028,7 +1028,10 @@ function App(){
     const noteTier = ()=>{ if(typeof window.turnNoteWritingDefault==="function"){ try{ window.turnNoteWritingDefault(); }catch(e){} } };
     setFilmOwnerTier(null); window.turnFilmOwnerTier = null; noteTier(); ownerTierReloadRef.current = null;
     if(!_sharedFilmId || typeof window.cloudFilmOwnerTier!=="function") return;
+    let retry = null;
     const load = ()=> window.cloudFilmOwnerTier(_sharedFilmId).then(t=>{ if(!live) return;
+      // a failed read (undefined) keeps the tier we had; the first one tries again shortly (2026-10-09)
+      if(t===undefined){ if(!filmOwnerTierSeenRef.current){ clearTimeout(retry); retry = setTimeout(()=>{ if(live) load(); }, 15000); } return; }
       if(filmOwnerTierSeenRef.current && window.turnFilmOwnerTier===(t || null)) return;   // unchanged
       filmOwnerTierSeenRef.current = true;
       setFilmOwnerTier(t); window.turnFilmOwnerTier = t || null; noteTier();
@@ -1036,7 +1039,7 @@ function App(){
     filmOwnerTierSeenRef.current = false;
     ownerTierReloadRef.current = load;
     load();
-    return ()=>{ live = false; ownerTierReloadRef.current = null; };
+    return ()=>{ live = false; clearTimeout(retry); ownerTierReloadRef.current = null; };
   },[_sharedFilmId]);
   const ownerPlanLapsed = !!_sharedFilmId && filmOwnerTier==="none";
   // sharing switched off: a film shared WITH you is read-only (nobody is charged)
@@ -1058,8 +1061,28 @@ function App(){
   },[currentProjectId, shareRole, _projRow && _projRow.isShared]);
   // what a collaborator may WRITE: their role — or nothing while the owner's plan has lapsed, while
   // sharing is switched off, or while the film has dropped off your list (until the server says)
-  const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : shareRole;
+  /* THE STAGE EDITOR ROLE NEEDS A PRODUCER FILM (2026-10-09, owner — Stage editor review): after the owner moves
+     to Director the database saves nothing for it, and the app kept sending (a "version conflict"). The role is
+     paused here too — what's left of the person's roles still works; nothing left = View-only. */
+  const stageRolePaused = isSharedFilm && filmOwnerTier==="director" && String(shareRole||"").split("+").includes("stage_editor");
+  const _rolesNow = stageRolePaused ? String(shareRole).split("+").filter(r=>r!=="stage_editor").join("+") : shareRole;
+  const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : (_rolesNow || "view_only");
   const readOnlyShare = writeRole === "view_only";
+  /* why this shared film is read-only, in one sentence (the notices and the banner use it — 2026-10-09: while
+     sharing was paused they said "Your Stage editor role covers the Stage…") */
+  const sharedReadOnlyWhy = ownerPlanLapsed ? "This film is read-only for now: its owner's plan doesn't include shared work, so changes aren't saved."
+    : sharingPaused ? "Team sharing is paused right now: this film is read-only for collaborators, and nothing is charged."
+    : sharedOffList ? "Checking your access to this film \u2014 changes wait until it's confirmed."
+    : stageRolePaused && writeRole==="view_only" ? "Your Stage editor role is paused on this film: its owner's plan doesn't include the Stage right now, so changes aren't saved."
+    : "";
+  // the role paused on a Director film: said once per film (renders already running still finish and land in the film)
+  const stagePausedToldRef = React.useRef("");
+  React.useEffect(()=>{
+    if(!stageRolePaused || stagePausedToldRef.current===currentProjectId) return;
+    stagePausedToldRef.current = currentProjectId;
+    if(typeof window.appToast==="function") window.appToast("Your Stage editor role is paused on \u201c"+(sharedTitleRef.current||"this film")
+      +"\u201d: its owner's plan doesn't include the Stage right now. Renders that were already running still finish and land in the film.","info");
+  },[stageRolePaused, currentProjectId]);
   // the four roles, alone or combined ("writer+art_director", 2026-10-03); anything else fails closed
   const unknownSharedRole = !!(isSharedFilm
     && !(typeof window.teamRoleKnown==="function" ? window.teamRoleKnown(shareRole)
@@ -1114,7 +1137,7 @@ function App(){
     if(now-(readOnlyNoticeRef.current||0)>2500){
       readOnlyNoticeRef.current = now;
       if(typeof window.appToast==="function"){
-        const note=ownerPlanLapsed ? "This film is read-only for now: its owner's plan doesn't include shared work, so changes aren't saved." : (typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(shareRole):"";
+        const note=sharedReadOnlyWhy || ((typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(writeRole):"");
         window.appToast(note || (roomId==="writers"
           ? "This role can read the Writers' Room but cannot change story or script."
           : roomId==="characters" ? "This role can read the cast but cannot change it."
@@ -1144,7 +1167,22 @@ function App(){
   const shotsReadOnlyRef = React.useRef(false); shotsReadOnlyRef.current = shotsReadOnly;
   const canMutateShots = ()=> projectLoadingRef.current ? _projectLoadingNotice()
     : shotsReadOnlyRef.current ? _mutationNotice("art") : true;
-  try{ window.turnCanMutateShots = ()=> !projectLoadingRef.current && !shotsReadOnlyRef.current; }catch(e){}   // a silent check for shared code (Storyboards' panel edit)
+  /* A STAGE EDITOR SAVES THE STAGE'S PART OF A SHOT ONLY (2026-10-09, owner — Stage editor review, decision F):
+     takes are separate; on a shot, which line it speaks, its voicing, its timing and the Stage's own overrides.
+     Designing, adding, splitting, deleting shots and their frames stay with the owner and the Art director
+     (the database refuses the rest: supabase/team-relaunch.sql, TURN_TEAM:stage_scope). */
+  // (the database's list: team-relaunch.sql turn__stage_shot_fields; specRev / specHash are derived by updateShot)
+  const STAGE_SHOT_FIELDS = ["lineAudio","dur","dialogue","dialogueLines","screenplayDialogueIndex","screenplayDialogueIndexes","vidText","stageCharacterReferenceOverrides"];
+  const shotsStageOnly = isSharedFilm && !shotsReadOnly && String(writeRole||"").split("+").indexOf("art_director")<0
+    && String(writeRole||"").split("+").indexOf("stage_editor")>=0;
+  const shotsStageOnlyRef = React.useRef(false); shotsStageOnlyRef.current = shotsStageOnly;
+  const _stageScopeNotice = ()=>{ const now = Date.now();
+    if(now-(readOnlyNoticeRef.current||0)>2500){ readOnlyNoticeRef.current = now;
+      if(typeof window.appToast==="function") window.appToast("A Stage editor saves the Stage's takes, dialogue and voicing \u2014 the film's owner or Art director designs, adds and splits shots.","info"); }
+    return false; };
+  const canDesignShots = ()=> !canMutateShots() ? false : shotsStageOnlyRef.current ? _stageScopeNotice() : true;
+  try{ window.turnCanMutateShots = ()=> !projectLoadingRef.current && !shotsReadOnlyRef.current && !shotsStageOnlyRef.current; }catch(e){}
+  try{ window.turnArtRoomWritable = ()=> !artRoomReadOnlyRef.current; }catch(e){}   // the Stage's "Open in Shots" (2026-10-09)   // a silent check for shared code (Storyboards' panel edit)
   // a role that can't change the Art Room closes the Colorist and pre-production panels (2026-10-08 — they
   // stayed open and could still apply after a role change)
   // a role that can no longer change the Art Room closes every Art Room run and its previews (2026-10-09: the
@@ -1299,7 +1337,11 @@ function App(){
      when it's used up, the collaborator is told once (per film, per month, per level). Read from the
      database after a generation lands (throttled), whatever made it — writing, images, video, voice or 3D.
      The owner sees the same flags in the Team window. */
+  // on a film shared WITH you the owner pays: the Stage's price labels read this, and your budget below
+  // (2026-10-09, Stage editor review — the Stage checked your own balance and sent you to Plans)
+  window.turnFilmPaidByOwner = ()=> isSharedFilm;
   React.useEffect(()=>{
+    window.turnFilmBudget = null;
     if(!cloudMode || !currentProjectId || !isSharedFilm || typeof window.cloudTeamSpend!=="function") return;
     let alive = true, at = 0, timer = null;
     const pid = currentProjectId;
@@ -1307,6 +1349,9 @@ function App(){
       if(!alive || Date.now()-at < 20000) return; at = Date.now();
       let rows = [];
       try{ rows = await window.cloudTeamSpend(pid); }catch(e){ return; }
+      // a collaborator reads only their own row: what the Stage shows as "your budget left"
+      const own = (rows||[]).find(r=>r && !r.removed) || null;
+      if(alive && own) window.turnFilmBudget = { limit:own.budget==null ? null : Number(own.budget), spent:Number(own.spent)||0 };
       const mine = (rows||[]).find(r=>r && r.budget!=null && Number(r.budget)>0);
       if(!alive || !mine) return;
       const spent = Number(mine.spent)||0, budget = Number(mine.budget)||0;
@@ -1326,7 +1371,7 @@ function App(){
     const evs = ["turn-credits-changed","vid-done","nb-gen-done","vg-audio-done"];
     evs.forEach(n=>window.addEventListener(n, soon));
     check();
-    return ()=>{ alive = false; clearTimeout(timer); evs.forEach(n=>window.removeEventListener(n, soon)); };
+    return ()=>{ alive = false; clearTimeout(timer); evs.forEach(n=>window.removeEventListener(n, soon)); window.turnFilmBudget = null; };
   },[cloudMode, currentProjectId, isSharedFilm]);
   // ADMIN — demo upkeep account. The Matrix sample story (and "Reset to sample story")
   // is admin-only: every other user (and signed-out local mode) never sees Matrix data.
@@ -1958,6 +2003,13 @@ function App(){
       setTimeout(()=>{ try{ window.vidCloudHydrate().then(()=>{
         if(typeof window.videoProxyReady==="function" && window.videoProxyReady()
           && typeof window.vidRecoverPending==="function") window.vidRecoverPending();
+        /* RENDERS THAT FINISHED WHILE YOU WERE AWAY (2026-10-09, owner — Stage editor review, decision D): a
+           collaborator's render paid by you lands in the film even if they were removed, sharing paused or
+           the plan changed before it finished — the server keeps it, and your app adds it here (owner only). */
+        if(typeof window.vidCollectPendingTakes==="function")
+          Promise.resolve(window.vidCollectPendingTakes(id)).then(n=>{
+            if(n>0 && typeof window.appToast==="function") window.appToast(n+" render"+(n!==1?"s":"")+" finished while you were away "+(n!==1?"were":"was")+" added to the film.","success");
+          }).catch(()=>{});
       }); }catch(e){} }, 0);
     /* A conversion may have completed while copying legacy Episode 1 sheets was
        interrupted. Owners resume that idempotent promotion on the next load;
@@ -3047,8 +3099,16 @@ function App(){
      did not touch in the same save, so it can never stomp on what the user is typing;
      lastSentRef is updated in step so the adoption doesn't look like a local edit and
      bounce straight back out as another write. */
-  const _adoptTheirs = (cloudDoc, mineKeys, mergedProject)=>{
+  const _adoptTheirs = (cloudDoc, mineKeys, mergedProject, mergedShots)=>{
     let adopted = 0;
+    // `shots` is merged shot by shot on save (2026-10-09): what came back may hold another person's shot changes
+    if(mineKeys.indexOf("shots")>=0 && Array.isArray(mergedShots)){
+      const merged = stableJson(mergedShots);
+      if(merged !== lastSentRef.current.shots){
+        lastSentRef.current.shots = merged;
+        try{ setShots(mergedShots); adopted++; }catch(e){}
+      }
+    }
     /* `project` is three-way merged on the server, so a save that sent it can
        come back holding keys ANOTHER window changed (e.g. setting.location).
        The loop below skips sections this window wrote, and _docRevSeen already
@@ -3315,7 +3375,7 @@ function App(){
           const now=Date.now();
           if(_saveScopeActive(ctx) && now-(roleNoticeRef.current||0)>60000){
             roleNoticeRef.current=now;
-            const note=ownerPlanLapsed ? "This film is read-only for now: its owner's plan doesn't include shared work, so changes aren't saved." : (typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(shareRole):"";
+            const note=sharedReadOnlyWhy || ((typeof window.teamRoleScopeNote==="function")?window.teamRoleScopeNote(writeRole):"");
             if(typeof window.appToast==="function"&&note) window.appToast(note,"error");
           }
         }
@@ -3329,7 +3389,17 @@ function App(){
           if(lastSentRef.current[k]===undefined) return;
           try{ baseline[k]=JSON.parse(lastSentRef.current[k]); }catch(e){}
         });
-        return Object.keys(baseline).length?{baseline}:undefined;
+        /* SHOTS MERGE PER SHOT (2026-10-09, owner — Stage editor review): the Art director and the Stage editor both
+           save `shots`, and a stale save overwrote the other's approvals or voicing. The last shots this window
+           saw from the cloud go along as `shotsBase`, so cloudSaveSections merges shot by shot. */
+        let shotsBase;
+        if(!fullRecoveryBaseline && sections && Object.prototype.hasOwnProperty.call(sections,"shots") && lastSentRef.current.shots!==undefined){
+          try{ const b=JSON.parse(lastSentRef.current.shots); if(Array.isArray(b)) shotsBase=b; }catch(e){}
+        }
+        const out={};
+        if(Object.keys(baseline).length) out.baseline=baseline;
+        if(shotsBase) out.shotsBase=shotsBase;
+        return Object.keys(out).length?out:undefined;
       };
       const _episodeSectionSaveOpts=(sections,fullRecoveryBaseline)=>{
         const opts=_sectionSaveOpts(sections,fullRecoveryBaseline);
@@ -3439,7 +3509,7 @@ function App(){
           // those departments would leave a collaborator's same-department addition
           // invisible here; on the next edit, its absence could then be interpreted
           // as an explicit deletion against the newly advanced Bible baseline.
-          if(_saveGenerationLatest(ctx) && ep) _adoptTheirs(ep.r.doc,_mineKeys,ep.r.project);
+          if(_saveGenerationLatest(ctx) && ep) _adoptTheirs(ep.r.doc,_mineKeys,ep.r.project,ep.r.shots);
           if(bs){
             const merged=bs.r.bible||_bibleStored;
             if(_saveGenerationLatest(ctx)){
@@ -3474,7 +3544,7 @@ function App(){
         const result=await cloudSaveSections(ctx.projectId,_changed,_sectionSaveOpts(_changed));
         if(result&&result.ok&&_saveScopeActive(ctx)){
           _rememberSent();
-          if(_saveGenerationLatest(ctx)) _adoptTheirs(result.doc,_mineKeys,result.project);
+          if(_saveGenerationLatest(ctx)) _adoptTheirs(result.doc,_mineKeys,result.project,result.shots);
         }
         return result&&result.ok ? _finishSuccess() : _docSaveResult(result,ctx);
       }catch(e){
@@ -5255,7 +5325,8 @@ function App(){
   // approved frames stay current) and stays SILENT for a role that can't save shots (2026-10-09)
   const updateShot = (id,patch,opts)=>{
     const migration = !!(opts && opts.migration);
-    if(migration ? (projectLoadingRef.current || shotsReadOnlyRef.current) : !canMutateShots()) return;
+    if(migration ? (projectLoadingRef.current || shotsReadOnlyRef.current || shotsStageOnlyRef.current) : !canMutateShots()) return;
+    if(!migration && shotsStageOnlyRef.current && Object.keys(patch||{}).some(k=>STAGE_SHOT_FIELDS.indexOf(k)<0)){ _stageScopeNotice(); return; }
     setShots(ss=>ss.map(s=>{
     if(s.id!==id) return s;
     const next={...s,...patch};
@@ -5270,7 +5341,7 @@ function App(){
   try{ window.turnUpdateShot = updateShot; }catch(e){}   // for shared frame code outside the card (an upload's approval)
   // deleting a shot can be undone right away (it also sits in Recently deleted)
   const deleteShot = (id)=>{
-    if(!canMutateShots()) return;
+    if(!canDesignShots()) return;
     const sh = (shots||[]).find(x=>x.id===id); if(!sh) return;
     setShots(ss=>ss.filter(s=>s.id!==id));
     setTrash(t=>({ ...t, shots:[ _trashStamp(sh), ...(t.shots||[]).filter(x=>x.id!==id) ] }));
@@ -5279,7 +5350,7 @@ function App(){
       if(String(film0||"")!==String(projIdRef.current||"")) return; restoreShot(id); } } });
   };
   const restoreShot = (id)=>{
-    if(!canMutateShots()) return;
+    if(!canDesignShots()) return;
     const item = (trashRef.current.shots||[]).find(x=>x.id===id); if(!item) return;
     // a live shot with the same id is already there: say so and keep the binned copy (2026-10-09 — it was
     // dropped silently); a shot whose scene is gone can't come back on its own
@@ -5295,7 +5366,7 @@ function App(){
     setTrash(t=>({ ...t, shots:(t.shots||[]).filter(x=>x.id!==id) }));
   };
   const purgeShot = async (id)=>{
-    if(!canMutateShots()) return;
+    if(!canDesignShots()) return;
     const item = (trash.shots||[]).find(x=>x.id===id);
     if(!item) return;
     try{
@@ -5382,7 +5453,7 @@ function App(){
     catch(e){ if(typeof window.appToast==="function") window.appToast(String((e&&e.message)||"Voice render failed."),"error"); }
   };
   const addShot = (sceneId, beatN, seed)=>{
-    if(!canMutateShots()) return;
+    if(!canDesignShots()) return;
     const loc = (typeof locationForScene==="function") ? locationForScene(locations, sceneId) : null;
     const sc = scenes.find(s=>s.id===sceneId);
     const peers = shots.filter(s=>s.sceneId===sceneId);
@@ -5604,7 +5675,7 @@ function App(){
     };
     const signedInputs=inputSignature();
     return ()=>{
-      if(!canMutateShots()) throw new Error("You no longer have permission to change this film's shots.");
+      if(!canDesignShots()) throw new Error("You no longer have permission to change this film's shots.");
       if(shotReferenceDeleteBusyRef.current) throw new Error("Wait for reference image deletion to finish before drafting a specification.");
       if(projIdRef.current!==projectId
         || (epoch!==null && (typeof nbEpoch!=="function" || nbEpoch()!==epoch))
@@ -5813,7 +5884,7 @@ function App(){
   const [draftingAllShots, setDraftingAllShots] = React.useState(false);
   const draftAllShots = async ()=>{
     if(draftingAllShots) return;
-    if(!canMutateShots()) return;
+    if(!canDesignShots()) return;
     const ordered0 = scenesInStoryOrder(scenes);
     const have0 = new Set(shots.map(s=>s.sceneId));
     const todo0 = ordered0.filter(s=>!have0.has(s.id));
@@ -7920,9 +7991,12 @@ function App(){
     readOnlyShare && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
-        React.createElement("b",null,ownerPlanLapsed ? "Read-only for now — " : "View-only access — "),
+        React.createElement("b",null,(ownerPlanLapsed || sharingPaused || sharedOffList || stageRolePaused) ? "Read-only for now — " : "View-only access — "),
         ownerPlanLapsed
           ? "this film's owner's plan doesn't include shared work right now, so editing and generating are paused. Nothing is lost: it all comes back when their plan does."
+          : sharingPaused ? "team sharing is paused right now, so collaborators can read this film but not change it, and nothing is charged. You can still leave it from the Team window."
+          : sharedOffList ? "checking your access to this film. Changes wait until it's confirmed."
+          : stageRolePaused ? "your Stage editor role is paused: this film's owner's plan doesn't include the Stage right now. Nothing is lost."
           : "you can navigate, inspect, export and play this film. Editing and AI-write actions are disabled. Only the film's owner can change your role.")),
     unknownSharedRole && React.createElement("div",{className:"readonly-banner",role:"status"},
       React.createElement(Icon.warn||Icon.eye,{s:14}),

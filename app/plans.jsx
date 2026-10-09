@@ -598,6 +598,7 @@ const BILLING_CODES = {
   film_role:            { message:"Your role on this film doesn't include this.", openPlans:false },
   film_unverified:      { message:"Couldn't confirm who pays for work on this film. Try again in a moment.", openPlans:false },
   team_paused:          { message:"Sharing is paused on this film right now, so it's read-only for collaborators.", openPlans:false },
+  film_access:          { message:"You're not on this film's team right now, so work on it can't be charged to it.", openPlans:false },
 };
 function billingError(body, status){
   const b = (body && typeof body==="object") ? body : {};

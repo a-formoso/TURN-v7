@@ -50,7 +50,7 @@ function harness({existing=old,confirm=true,response=[{...raw,beat:1}],provider}
   let stateIndex=0;
   Object.assign(h,{
     React:{useRef:v=>({current:v}),useState:v=>[v,()=>{}]},
-    canMutateSharedFilm:()=>h.allowed, canMutateShots:()=>h.allowed,
+    canMutateSharedFilm:()=>h.allowed, canMutateShots:()=>h.allowed, canDesignShots:()=>h.allowed,   // (2026-10-09) designing shots: not a Stage editor's
     nbEpoch:()=>h.epoch,
     setShots:v=>{h.shots=typeof v==="function"?v(h.shots):v;},
     setTrash:fn=>{h.trash=fn(h.trash);},

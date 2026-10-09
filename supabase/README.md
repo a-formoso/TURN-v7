@@ -177,6 +177,29 @@ cross-device access, and multiple projects all work.
    `film:<id>` and `doc:<id>` channels (the block is skipped where Realtime isn't
    installed). Deploy order: this SQL first, then `image-proxy` (it knows
    `paused` and `p_kind`), then the app (it joins the channels as private).
+   *Stage editor review (2026-10-09):* a Stage row is checked by its whole shape
+   (a take record `clip-…` holds no file, refs, history or cleanup list; a voiced
+   line `aud-…` keeps its file under the writer's own `<uid>/<film>/stage-audio/`),
+   and every collaborator's cleanup list may name only paths the row already
+   held, their own folder's or ones they may delete themselves
+   (`TURN_TEAM:stage_slot` / `cleanup_path`) — so nobody can make the owner's
+   app delete the Art Room's files; writing needs a CLAIMED invite (an unclaimed
+   one reads only; `turn_film_payer`'s `not_member` is now refused by the
+   server); a Stage editor saves only the Stage's fields of a shot and
+   `project.stage`, and every refused save is an error
+   (`TURN_TEAM:stage_scope` / `role_paused` / `paused` / `owner_plan`), never a
+   silent zero-row save; images need the Art director, `voice_design` too;
+   nobody but the maker or the owner removes a take (`TURN_TEAM:take_owner`);
+   a Stage editor uploads, replaces and deletes their own voiced-line files under
+   `<uid>/<film>/stage-audio/` (Storage rules "turn assets stage audio write /
+   update / delete");
+   Stage rows a collaborator creates belong to the film's owner (existing ones
+   are moved over once); holds carry `take` and the owner's app collects renders
+   that finished after the team changed (`turn_film_pending_takes`,
+   `turn_film_mark_takes_collected`); a blender-bridge re-hold
+   (`<ref>:rehold…`) of a film hold skips the team checks; `turn_team_spend`
+   returns `removed`, `member_email`, `project_id` too. Deploy order: this SQL,
+   then `image-proxy` and `blender-bridge`, then the app.
 4. **SQL Editor → run `cameos.sql`** — creates the `turn_cameos` table (RLS).
    If you enable Cameos, re-run `series-production.sql` once afterward so its
    project-scoped Cameo add/edit rules are installed too (deleting a Cameo

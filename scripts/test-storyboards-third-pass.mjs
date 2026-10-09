@@ -127,7 +127,7 @@ await test("D1 the panel edit: asks for an approved frame, never re-sent, rights
   assert.ok(pe.includes('title:"Edit an approved frame?"') && pe.includes("noRetry:true });"));
   assert.ok(pe.includes("if(!canEditFrames()){ setPanelErr(") && pe.includes("if(!canEditFrames()) throw new Error(\"Your role changed while the edit ran"));
   assert.ok(pe.includes("if(sheetOutOfDate){ setPanelErr("));
-  assert.ok(sb.includes("disabled:!isComposed||sheetOutOfDate||!canEditFrames(),") && app.includes("window.turnCanMutateShots = ()=> !projectLoadingRef.current && !shotsReadOnlyRef.current;"));
+  assert.ok(sb.includes("disabled:!isComposed||sheetOutOfDate||!canEditFrames(),") && app.includes("window.turnCanMutateShots = ()=> !projectLoadingRef.current && !shotsReadOnlyRef.current && !shotsStageOnlyRef.current;"));
 });
 await test("D2 'Edit' on a panel and 'Edit shots' open that scene in Shots", ()=>{
   assert.ok(between(sb, "  const jumpToShot = (sh)=>{", "requestAnimationFrame(tick);\n  };").includes('window.turnFocusArtScene("shots", sh.sceneId);'));

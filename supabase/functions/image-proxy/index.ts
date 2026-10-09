@@ -106,9 +106,11 @@ import {
 // speech-to-text is held.
 import { AUDIO_CONTAINERS, audioDurationFromBytes } from "./audio-length.mjs";
 import { requestContext } from "./request-context.mjs";
+// (Stage editor review, 2026-10-09) the take an owner-paid render lands in (context.clipId + context.take)
+import { requestTake } from "./request-context.mjs";
 import {
   budgetReached, collaboratorUsage, filmCallKind, filmHoldRefusal, filmPaidMetadata, filmPaidMetadataFromHold, loadHoldPayer, loadOwnerAccountRow,
-  ownerPlanPaused, ownerShortOfCredits, resolveFilmPayer,
+  ownerPlanPaused, ownerShortOfCredits, pollBudget, recordTakeUrl, resolveFilmPayer, writeHoldTake,
 } from "./film-payer.mjs";
 /* The pages a searching Claude reply relied on: every page a text block CITES first (the claims
    rest on those), then the other results the searches returned; one entry per URL, at most 12,
@@ -319,6 +321,9 @@ async function reconcileHoldsNow(): Promise<Response> {
       record: (m: any) => recordLengthMismatch(svc, m),
       // round 5 (S3): a settled / released render's video copies, and copies older than two days
       snapshots: createVideoSnapshots({ storage: () => svc.storage.from(Deno.env.get("TURN_BUCKET") || "turn-assets"), log: (m: string) => console.warn("[image-proxy] " + m) }),
+      // Stage editor review (2026-10-09; owner decision D): a settled owner-paid render's output on its take
+      onSettled: ({ ref, videoUrl }: { ref: string; videoUrl: string }) =>
+        recordTakeUrl((t: string) => svc.from(t), ref, videoUrl, { log: (m: string) => console.warn("[image-proxy] " + m) }),
     });
     return json(r.body, r.status);
   } catch (e) {
@@ -429,6 +434,10 @@ Deno.serve(async (req) => {
   //   balance (turn_hold_credits_for_film). Team review (2026-10-09): a role that doesn't cover the
   //   call, sharing switched off, or a check that can't be confirmed is REFUSED (film_role /
   //   team_paused / film_unverified); only a non-member (their own spend) is billed to the caller.
+  //   Stage editor review (2026-10-09; owner decision E): a real film the caller isn't on is refused
+  //   too (film_access, 403) — only a film id that names no film is billed to the caller. The kind
+  //   the database confirmed (film.kind: voice_design falls back to voice on an older database) is
+  //   the one the hold names.
   //   Frances's caps stay the caller's (francesCap, above).
   const filmKind = isAdmin ? "" : filmCallKind(task, body);
   const film: any = filmKind
@@ -454,10 +463,11 @@ Deno.serve(async (req) => {
   }
   // what's left of the collaborator's monthly budget on this film (Infinity: no limit, or not a shared call)
   const filmBudgetLeft = ownerPays && film.budget != null ? Math.max(0, film.budget - (film.spent || 0)) : Infinity;
-  // short of credits: the caller's own message, or — on a shared film — the budget's, or one about
-  // the owner's balance that names no figures
+  // short of credits: the caller's own message, or — on a shared film — the budget's (with what this
+  // call needs: "You've used…" only when the budget really is used up; Stage editor review,
+  // 2026-10-09), or one about the owner's balance that names no figures
   const shortOf = (need: number, have: number) => (!ownerPays ? shortOfCredits(account, need, have)
-    : need > filmBudgetLeft ? budgetReached(film.budget, film.spent || 0) : ownerShortOfCredits());
+    : need > filmBudgetLeft ? budgetReached(film.budget, film.spent || 0, need) : ownerShortOfCredits());
   // A plan gate on the OWNER's account: their frozen account reads as the owner's plan, never as
   // "your account is on hold" (Team review, 2026-10-09)
   const refuseGate = (gate: { status: number; body: Record<string, unknown> }) =>
@@ -658,7 +668,7 @@ Deno.serve(async (req) => {
   const holdClient = () => holdClientOnce || (holdClientOnce = createHoldClient({
     rpc: (name: string, args: Record<string, unknown>) => createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!).rpc(name, args),
     uid: ownerPays ? film.payer : authUser.id,
-    film: ownerPays ? { actor: authUser.id, memberId: film.memberId, projectId: film.projectId, kind: filmKind } : null,
+    film: ownerPays ? { actor: authUser.id, memberId: film.memberId, projectId: film.projectId, kind: film.kind || filmKind } : null,
     log: (m: string) => console.warn("[image-proxy] " + m),
   }));
   /* Hold `credits` before a paid provider call. { hold } (null for admins, who are never charged)
@@ -675,7 +685,7 @@ Deno.serve(async (req) => {
       return { hold: h, block: null };
     }
     if (h.code === "insufficient") return { hold: null, block: refuse(shortOf(need, h.remaining ?? accountRemaining)) };
-    if (h.code === "budget_reached") return { hold: null, block: refuse(budgetReached(h.budget ?? 0, h.spent ?? 0)) };
+    if (h.code === "budget_reached") return { hold: null, block: refuse(budgetReached(h.budget ?? 0, h.spent ?? 0, h.needed ?? need)) };
     if (h.code === "unavailable") return { hold: null, block: refuse(billingUnavailable()) };
     // the owner's hold refused by the database's re-check: the switch, the role, the owner's plan
     // (a frozen owner too), a membership gone — in plain words, no figures of the owner's
@@ -1935,6 +1945,16 @@ Deno.serve(async (req) => {
             token = await signVideoHold(holdSecret, { ref: videoHold.ref, uid: authUser.id, rid: requestId, held: videoHold.held, exp: Date.now() + VIDEO_HOLD_TTL_MS, u: videoUnit,
               ...(lengthFacts ? { s: lengthFacts } : {}) });
             videoHold.keep();
+            // THE TAKE (Stage editor review, 2026-10-09; owner decision D): a render the film's OWNER
+            // pays is paid even if this person is removed, sharing pauses or the owner's plan changes
+            // before it finishes — and it must land in the film. The app's take (context.clipId +
+            // context.take: request-context.mjs requestTake) is written on the hold row (service
+            // role); the settle adds the output's url. Best effort: a failed write is logged only.
+            const take = ownerPays ? requestTake(body.context) : null;
+            if (take) {
+              const svcTake = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+              await writeHoldTake((t: string) => svcTake.from(t), videoHold.ref, take, { log: (m: string) => console.warn("[image-proxy] " + m) });
+            }
           }
           snapshotsInUse = true;   // fal has the job: its video copies stay until the hold settles or is released
           return json({ requestId: data.request_id, statusUrl: withHoldParam(data.status_url, token), responseUrl: withHoldParam(data.response_url, token),
@@ -2139,16 +2159,19 @@ Deno.serve(async (req) => {
         }
         const jobHold = found ? holdClient().byRef(found.ref, found.held) : null;
         // the collaborator's budget on the film after this poll (turn_team_spend: their own row), or
-        // none when it can't be read; the owner's balance and plan are dropped either way
+        // none when it can't be read; the owner's balance and plan are dropped either way. Stage
+        // editor review (2026-10-09): a Show-wide member's row is found on the Show too
+        // (film-payer.mjs pollBudget); a person removed meanwhile still collects the render (no budget sent)
         const pollUsage = async (u: Record<string, unknown>) => {
           if (!paidHold) return u;
-          let budget: any = null;
-          try {
-            const r = await sbAuth.rpc("turn_team_spend", { pid: paidHold.projectId });
-            const row = !r.error && Array.isArray(r.data) ? r.data.find((x: any) => x && String(x.member_id) === paidHold.memberId) : null;
-            if (row) budget = { limit: row.budget ?? null, spent: Number(row.spent) || 0 };
-          } catch (_e) { budget = null; }
+          const budget = await pollBudget((n: string, a: Record<string, unknown>) => sbAuth.rpc(n, a), paidHold);
           return collaboratorUsage(u, budget);
+        };
+        // the render's output on the hold's take (owner decision D; film-payer.mjs recordTakeUrl:
+        // only a hold that carries a take — an owner-paid render — is changed). Best effort.
+        const recordTake = async (ref: string, videoUrl: string) => {
+          const svcTake = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+          await recordTakeUrl((t: string) => svcTake.from(t), ref, videoUrl, { log: (m: string) => console.warn("[image-proxy] " + m) });
         };
         const refunded = async (message: string, stStr: string) => {
           let released = false;
@@ -2258,11 +2281,13 @@ Deno.serve(async (req) => {
             requestId: job.rid, ...(settleNote.providerCostUsd != null ? { providerCostUsd: Number(settleNote.providerCostUsd) } : {}),
             metadata: { holdRef: found.ref, credits_held: found.held, ...settleNote, ...filmPaidMetadataFromHold(paidHold) } });
           usage = await pollUsage(usage);
+          await recordTake(found.ref, vurl);
           // round 5 (S3): the render is settled — its server-only video copies go
           if (reasonFacts) await videoSnapshots.drop(found.ref);
         } else if (jobHold) {
           // already settled by an earlier poll (another tab, a reload): the video again, no second charge
           usage = await pollUsage({ credits: 0, alreadyCharged: Number(found.kept) || 0, remaining: accountRemaining, plan: accountPlan });
+          if (found.status === "settled") await recordTake(found.ref, vurl);   // fills a url an earlier write missed
         }
         return json({ status: "COMPLETED", videoUrl: vurl, seed: rd.seed, contentType: (rd?.video?.content_type) || "video/mp4", ...(usage ? { usage } : {}) });
       }

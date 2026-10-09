@@ -179,4 +179,9 @@ deploy`, or you overwrite fixes made elsewhere.
   (`app/team.jsx` `TEAM_SOON_TEXT`; a film that already has a team stays manageable — remove, budgets,
   Leave — and is read-only for collaborators with nobody charged, owner 2026-10-09). The server REFUSES (never bills the
   collaborator) when it can't confirm who pays or the role doesn't fit (`film_role` / `film_unverified` / `team_paused`).
-  Tests: `test-team-relaunch`, `test-team-relaunch-db`, `test-film-payer`, `test-invite-collaborator`, `test-team-review`.
+  The Stage editor (owner 2026-10-09) saves the Stage's part only — take rows, a shot's dialogue / voicing / timing
+  fields and `project.stage` (`turn__stage_shot_fields` = app.jsx `STAGE_SHOT_FIELDS`); voiced lines are film assets
+  (`aud-…` rows, `<uid>/<film>/stage-audio/`); a take is deleted only by its maker or the owner; renders that finish
+  after someone's access changed are kept on the hold (`take`) and added when the owner opens the film.
+  Tests: `test-team-relaunch`, `test-team-relaunch-db`, `test-film-payer`, `test-invite-collaborator`, `test-team-review`,
+  `test-stage-editor-review`, `test-stage-editor-takes`.

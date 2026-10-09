@@ -281,17 +281,52 @@ function _vidCacheEntryOwnedBy(entry, scope){
       && (owner.epoch==null || scope.epoch==null || owner.epoch===scope.epoch);
   return _vidCacheEntryVisible(entry,scope);
 }
+/* ONLY PROVIDER URLS PLAY (Stage editor review, 2026-10-09): a take's url is shared film data a
+   collaborator can write, and every viewer's browser loads it (player, export, Mix, references).
+   A take plays only from fal's media CDN (https fal.media / *.fal.media — where renders land), this
+   project's Storage (https, /storage/v1/object/…), a data: URL or a blob: URL of this page — or a
+   url this device itself received from the video service (vidCommit). Anything else is listed as
+   UNAVAILABLE: url "" plus { unavailable:true, rawUrl } (rawUrl lets the owner delete it). */
+const _vidOwnUrls = new Set();
+function vidTakeUrlTrusted(url){
+  const s = String(url||"");
+  if(!s) return false;
+  if(/^data:/i.test(s)) return true;
+  if(/^blob:/i.test(s)){
+    const origin = String((window.location && window.location.origin) || "");
+    return !!origin && origin!=="null" && s.slice(5).indexOf(origin+"/")===0;
+  }
+  const u = _vidHttpsParts(s);
+  if(!u) return false;
+  if(u.host==="fal.media" || u.host.endsWith(".fal.media")) return true;
+  const storage = _vidHttpsParts(String((window.TURN_SUPABASE&&window.TURN_SUPABASE.url)||""));
+  return !!storage && u.host===storage.host && /^\/storage\/v1\/object\//.test(u.path);
+}
+// { host, path } of an https URL with no user info, or null (no URL global needed)
+function _vidHttpsParts(s){
+  const m = /^https:\/\/([^/?#\\]*)([^?#]*)/i.exec(String(s||""));
+  if(!m || !m[1] || m[1].indexOf("@")>=0) return null;
+  const host = m[1].replace(/:\d+$/,"").toLowerCase();
+  if(!host || !/^[a-z0-9.-]+$/.test(host)) return null;
+  return { host, path:m[2]||"/" };
+}
+function _vidPlayable(url){ return !!url && (_vidOwnUrls.has(String(url)) || vidTakeUrlTrusted(url)); }
+window.vidTakeUrlTrusted = vidTakeUrlTrusted;
 function vidGetVideo(id){
-  const e=_vidMem.get(id); return _vidCacheEntryVisible(e) ? e.url : "";
+  const e=_vidMem.get(id); return _vidCacheEntryVisible(e) && _vidPlayable(e.url) ? e.url : "";
 }
 function vidGetMeta(id){
   const e=_vidMem.get(id); return _vidCacheEntryVisible(e) ? (e.meta||null) : null;
 }
+function _vidTakeView(id, url, meta, current){
+  return _vidPlayable(url) ? { id, url, meta:meta||null, current }
+    : { id, url:"", rawUrl:url, unavailable:true, meta:meta||null, current };
+}
 function vidGetTakes(id){
   const e=_vidMem.get(id), out=[];
   if(!_vidCacheEntryVisible(e)) return out;
-  if(e&&e.url) out.push({ id:id+":current", url:e.url, meta:e.meta||null, current:true });
-  (((e&&e.meta&&e.meta.takes)||[])).forEach((t,i)=>{ if(t&&t.url) out.push({ id:id+":take-"+i, url:t.url, meta:t.meta||null, current:false }); });
+  if(e&&e.url) out.push(_vidTakeView(id+":current", e.url, e.meta, true));
+  (((e&&e.meta&&e.meta.takes)||[])).forEach((t,i)=>{ if(t&&t.url) out.push(_vidTakeView(id+":take-"+i, t.url, t.meta, false)); });
   return out;
 }
 async function vidLoadVideo(id){
@@ -300,7 +335,7 @@ async function vidLoadVideo(id){
   try{
     const v=await vidIdbGet(vidKey(id));
     if(!_vidScopeMatches(scope0)) return "";
-    if(v && _vidCacheEntryVisible(v,scope0)){ _vidMem.set(id,v); return v.url; }
+    if(v && _vidCacheEntryVisible(v,scope0)){ _vidMem.set(id,v); return _vidPlayable(v.url) ? v.url : ""; }
   }catch(e){}
   return "";
 }
@@ -359,23 +394,74 @@ function _vidIdsMark(projectId, id, del){
     localStorage.setItem(VID_IDS_KEY, JSON.stringify(m));
   }catch(e){}
 }
-let _vidSyncToastAt = 0;
-async function _vidCloudPush(id, entry, scope){
+/* the takes a write deliberately DROPS (a deleted or rolled-over take) — kept per clip until the
+   write reaches the cloud, so a retried push never lets the merge bring them back
+   (Stage editor review, 2026-10-09) */
+const VID_REMOVED_KEY = "turn_vid_removed";
+function _vidRemovedAll(){ try{ return JSON.parse(localStorage.getItem(VID_REMOVED_KEY)||"{}")||{}; }catch(e){ return {}; } }
+function _vidRemovedGet(projectId, id){ const p=_vidRemovedAll()[projectId]; return (p && Array.isArray(p[id])) ? p[id] : []; }
+function _vidRemovedSet(projectId, id, urls){
+  try{
+    const m=_vidRemovedAll(), p=m[projectId]||(m[projectId]={});
+    const list=Array.from(new Set((urls||[]).filter(Boolean))).slice(-60);
+    if(list.length) p[id]=list; else delete p[id];
+    if(!Object.keys(p).length) delete m[projectId];
+    localStorage.setItem(VID_REMOVED_KEY, JSON.stringify(m));
+  }catch(e){}
+}
+/* a write the film REFUSED for access (Postgres 42501, row-level security, permission denied, a Team
+   rule): retrying never helps (Stage editor review, 2026-10-09) */
+function _vidPermissionRefused(e){
+  if(typeof window.cloudPermissionRefused==="function") return !!window.cloudPermissionRefused(e);
+  const code=String((e&&e.code)||""), msg=String((e&&e.message)||e||"");
+  return code==="42501" || /row-level security|permission denied|TURN_TEAM:|TURN_ROLE_SCOPE/i.test(msg);
+}
+const VID_REFUSED_SAVE_TEXT = "This take couldn't be saved to the film — your access to it changed. The film's owner will still find it in the film.";
+const VID_REFUSED_REMOVE_TEXT = "This change couldn't be saved to the film — your access to it changed.";
+let _vidSyncToastAt = 0, _vidRefusedToastAt = 0;
+async function _vidCloudPush(id, entry, scope, opts){
   if(scope && !_vidScopeMatches(scope)) return { skipped:true };
   const sc = scope || vidScope(); if(!sc || sc.projectId==null) return;  // local mode: IDB only
-  _vidIdsMark(sc.projectId, id, !(entry && entry.url));         // intended membership, even if the push fails
+  const put = !!(entry && entry.url);
+  _vidIdsMark(sc.projectId, id, !put);         // intended membership, even if the push fails
+  const removed = put ? Array.from(new Set(_vidRemovedGet(sc.projectId, id).concat((opts&&opts.removed)||[]))).filter(u=>u && u!==entry.url) : [];
   try{
-    if(entry && entry.url){
+    let result = null;
+    if(put){
       if(typeof window.cloudCommitVideo!=="function") throw new Error("cloud unavailable");
-      await window.cloudCommitVideo(sc.projectId, sc.uid, id, entry);
+      result = await window.cloudCommitVideo(sc.projectId, sc.uid, id, entry, removed.length ? { removed } : undefined);
     } else {
       if(typeof window.cloudVideoDelete!=="function") throw new Error("cloud unavailable");
       await window.cloudVideoDelete(sc.projectId, id);
     }
     if(scope && !_vidScopeMatches(scope)) return { skipped:true };
     _vidDirtyClear(sc.projectId, id);
+    _vidRemovedSet(sc.projectId, id, []);
+    /* the device keeps what the cloud now holds: takes someone else added join the local cache */
+    const merged = result && result.entry;
+    if(put && merged && merged.url && _vidScopeMatches(scope || _vidScopeSnapshot(sc))
+      && (merged.url!==entry.url || JSON.stringify(merged.meta||null)!==JSON.stringify(entry.meta||null))){
+      const stored = _vidStoreEntry(merged.url, merged.meta||null, sc);
+      _vidMem.set(id, stored);
+      try{ await vidIdbSet(vidKey(id), stored); }catch(e){}
+      try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(e){}
+    }
   }catch(e){
-    _vidDirtyMark(sc.projectId, id, !(entry && entry.url));
+    if(_vidPermissionRefused(e)){
+      /* REFUSED (Stage editor review, 2026-10-09): never "will re-sync" — it won't. Stop retrying, keep
+         the local copy (and out of the remote-deletion sweep), and say what happened. A take that
+         finished on the owner's credits still reaches the film: the owner collects it. */
+      _vidDirtyClear(sc.projectId, id);
+      _vidRemovedSet(sc.projectId, id, []);
+      if(put) _vidIdsMark(sc.projectId, id, true);
+      if(Date.now()-_vidRefusedToastAt > 30000 && typeof window.appToast==="function"){
+        _vidRefusedToastAt = Date.now();
+        window.appToast(put ? VID_REFUSED_SAVE_TEXT : VID_REFUSED_REMOVE_TEXT,"error");
+      }
+      return { refused:true };
+    }
+    _vidDirtyMark(sc.projectId, id, !put);
+    if(removed.length) _vidRemovedSet(sc.projectId, id, removed);
     if(Date.now()-_vidSyncToastAt > 30000 && typeof window.appToast==="function"){
       _vidSyncToastAt = Date.now();
       window.appToast("Couldn't save this clip's takes to the cloud — they're safe on this device and will re-sync automatically.","info");
@@ -570,6 +656,7 @@ function _vidQueued(run){
   return p;
 }
 function vidCommitQueued(id, url, meta, scope, opts){
+  if(url) _vidOwnUrls.add(String(url));   // a url this device received from the video service plays (2026-10-09)
   return _vidQueued(()=>_vidCommitRaw(id, url, meta, scope, opts));
 }
 /* WHICH TAKE STAYS CURRENT (2026-10-09, owner — Stage review): a NEW take (opts.newTake: a render or a
@@ -607,6 +694,10 @@ async function _vidCommitRaw(id, url, meta, scope, opts){
   if(old&&old.url&&old.url!==url&&!keepCurrent) takes.push({ url:old.url, meta:oldMeta, savedAt:(oldMeta&&oldMeta.createdAt)||Date.now() });
   ((oldMeta&&oldMeta.takes)||[]).forEach(t=>{ if(t&&t.url&&t.url!==url&&!takes.some(x=>x.url===t.url)) takes.push(t); });
   meta = { ...(meta||{}) };
+  /* WHO MADE IT (Stage editor review, 2026-10-09): every new take carries the signed-in user's id, so a
+     collaborator's Stage offers Delete only on their own takes (vidTakeDeletable); a take without one is
+     the owner's. A take collected for the owner keeps the maker's id. */
+  if(opts && opts.newTake && meta.by==null && commitScope && commitScope.uid!=null) meta.by = String(commitScope.uid);
   if(typeof window.nbWithAssetProvenance==="function") meta = window.nbWithAssetProvenance(id, meta, "video");
   else if(!meta.assetRole){ meta.assetRole = "final_take"; meta.assetRoleLabel = "Final take"; meta.assetRolePriority = 100; }
   /* STABLE version number: assigned once on first commit, carried by the take forever
@@ -616,8 +707,9 @@ async function _vidCommitRaw(id, url, meta, scope, opts){
     meta.vno = (nums.length ? Math.max.apply(null, nums) : 0) + 1;
   }
   meta = { ...meta, createdAt:meta.createdAt||Date.now() };
+  const rolled = [];   // takes this commit rolls over: the cloud merge must not bring them back (2026-10-09)
   const capTakes = (list)=>{ const capped = [];
-    list.forEach(t=>{ const ap = t&&t.meta&&t.meta.status==="approved"; if(ap || capped.filter(x=>!(x&&x.meta&&x.meta.status==="approved")).length<20) capped.push(t); });
+    list.forEach(t=>{ const ap = t&&t.meta&&t.meta.status==="approved"; if(ap || capped.filter(x=>!(x&&x.meta&&x.meta.status==="approved")).length<20) capped.push(t); else if(t&&t.url) rolled.push(t.url); });
     return capped; };
   if(keepCurrent){
     // the new take goes first among the others; the current (approved / chosen) take stays
@@ -627,7 +719,7 @@ async function _vidCommitRaw(id, url, meta, scope, opts){
     _vidMem.set(id, keptEntry);
     try{ await vidIdbSet(vidKey(id), keptEntry); }catch(e){}
     if(!_vidScopeMatches(commitScope)) return { skipped:true };
-    const cloudKept = await _vidCloudPush(id, { url:keptEntry.url, meta:keptEntry.meta||null }, commitScope);
+    const cloudKept = await _vidCloudPush(id, { url:keptEntry.url, meta:keptEntry.meta||null }, commitScope, { removed:rolled });
     if(cloudKept && cloudKept.skipped) return cloudKept;
     if(!_vidScopeMatches(commitScope)) return { skipped:true };
     try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(e){}
@@ -639,7 +731,7 @@ async function _vidCommitRaw(id, url, meta, scope, opts){
   _vidMem.set(id, stored);
   try{ await vidIdbSet(vidKey(id), stored); }catch(e){}
   if(!_vidScopeMatches(commitScope)) return { skipped:true };
-  const cloudResult = await _vidCloudPush(id, { url, meta:meta||null }, commitScope);
+  const cloudResult = await _vidCloudPush(id, { url, meta:meta||null }, commitScope, { removed:rolled });
   if(cloudResult && cloudResult.skipped) return cloudResult;
   if(!_vidScopeMatches(commitScope)) return { skipped:true };
   try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(e){}
@@ -656,6 +748,13 @@ function _vidScopeSame(a){
   return a.projectId===b.projectId && (a.epoch==null || b.epoch==null || a.epoch===b.epoch);
 }
 function vidClear(id){
+  /* (Stage editor review, 2026-10-09) a collaborator can't clear a clip holding takes other people
+     made — the film refuses it, and the cleared device would only get them back */
+  const held = _vidMem.get(id);
+  if(held && _vidCacheEntryVisible(held) && [{ meta:held.meta }].concat((held.meta&&held.meta.takes)||[]).some(t=>!vidTakeDeletable(t))){
+    if(typeof window.appToast==="function") window.appToast("This clip has takes other people made — only the film's owner can clear it. You can delete your own takes in Takes.","info");
+    return Promise.resolve({ refused:true });
+  }
   vidRunBump(id);                 // synchronously disown any in-flight render first —
   _vidPendingRemoveByClip(id);    // it must never commit or be "recovered" back
   const scope0 = vidScope();      // the clear targets THIS film's cloud row, even if queued past a switch
@@ -702,14 +801,14 @@ async function _vidDeleteStoredEntry(id, scope){
   try{ await vidIdbDel(vidKey(id)); }catch(e){}
   return _vidScopeMatches(scope0);
 }
-async function _vidWriteEntry(id, e, scope){
+async function _vidWriteEntry(id, e, scope, pushOpts){
   const scope0 = scope && typeof scope==="object" ? scope : _vidScopeSnapshot(vidScope());
   if(!_vidScopeMatches(scope0)) return null;
   const stored = _vidStoreEntry(e&&e.url, e&&e.meta, scope0);
   _vidMem.set(id, stored);
   try{ await vidIdbSet(vidKey(id), stored); }catch(err){}
   if(!_vidScopeMatches(scope0)) return null;
-  const cloudResult = await _vidCloudPush(id, { url:stored.url, meta:stored.meta }, scope0);   // approvals/notes/restores/deletes are project records too
+  const cloudResult = await _vidCloudPush(id, { url:stored.url, meta:stored.meta }, scope0, pushOpts);   // approvals/notes/restores/deletes are project records too
   if(cloudResult && cloudResult.skipped) return null;
   if(!_vidScopeMatches(scope0)) return null;
   try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(err){}
@@ -749,6 +848,21 @@ function vidRestoreTake(id, url){
     return _vidCommitRaw(id, t.url, m, scope0);   // commitRaw re-checks scope0 at execution too
   });
 }
+/* WHO MAY DELETE A TAKE (Stage editor review, 2026-10-09, decision C): the film's owner, or the person
+   who made it (meta.by = their user id). A take without `by` is the owner's. Local mode: always.
+   take: a vidGetTakes item or { meta }. stage.jsx shows Delete only where this is true. */
+function _vidFilmShared(){
+  try{ if(typeof window.turnFilmPaidByOwner==="function") return !!window.turnFilmPaidByOwner(); }catch(e){}
+  return !!(window.turnOpenFilmCredit && window.turnOpenFilmCredit.shared);
+}
+function vidTakeDeletable(take){
+  const sc = vidScope();
+  if(!sc || sc.projectId==null || !_vidFilmShared()) return true;
+  const by = take && take.meta && take.meta.by;
+  return by!=null && sc.uid!=null && String(by)===String(sc.uid);
+}
+window.vidTakeDeletable = vidTakeDeletable;
+const VID_DELETE_REFUSED_TEXT = "Only the person who made this take, or the film's owner, can delete it.";
 // delete one take; deleting the current promotes the newest remaining take
 function vidDeleteTake(id, url){
   const scope0 = vidScope();
@@ -756,6 +870,11 @@ function vidDeleteTake(id, url){
     if(!_vidScopeSame(scope0)) return null;   // film switched while queued — drop, never cross-write
     const e = await _vidLoadEntry(id, scope0); if(!e || !e.url) return null;
     const takes = ((e.meta&&e.meta.takes)||[]);
+    const target = e.url===url ? { meta:e.meta } : takes.find(t=>t&&t.url===url);
+    if(target && !vidTakeDeletable(target)){
+      if(typeof window.appToast==="function") window.appToast(VID_DELETE_REFUSED_TEXT,"info");
+      return { refused:true };
+    }
     if(e.url===url){
       const next = takes[0];
       if(!next){
@@ -766,9 +885,9 @@ function vidDeleteTake(id, url){
         if(!_vidScopeSame(scope0)) return null;
         try{ window.dispatchEvent(new CustomEvent("vid-done",{ detail:{ ids:[id] } })); }catch(err){}
         return { cleared:true }; }
-      return _vidWriteEntry(id, { url:next.url, meta:{ ...(next.meta||{}), takes:takes.slice(1) } }, scope0);
+      return _vidWriteEntry(id, { url:next.url, meta:{ ...(next.meta||{}), takes:takes.slice(1) } }, scope0, { removed:[url] });
     }
-    return _vidWriteEntry(id, { url:e.url, meta:{ ...(e.meta||{}), takes:takes.filter(t=>!(t&&t.url===url)) } }, scope0);
+    return _vidWriteEntry(id, { url:e.url, meta:{ ...(e.meta||{}), takes:takes.filter(t=>!(t&&t.url===url)) } }, scope0, { removed:[url] });
   });
 }
 window.vidUpdateTake=vidUpdateTake; window.vidApproveTake=vidApproveTake;
@@ -785,10 +904,16 @@ async function vidProxy(op, payload){
   // here — if the request did reach the server before the connection dropped, a blind
   // retry would start (and charge) a second render.
   const netRetries = op==="submit" ? 0 : 2;
+  /* the film context, plus what the caller adds to it (a submit's clip + take: Stage editor review,
+     2026-10-09) — merged, never replacing the film the server bills */
+  const filmContext = (typeof window.turnFilmContext==="function" && window.turnFilmContext()) || null;
+  const callContext = payload && payload.context && typeof payload.context==="object" ? payload.context : null;
+  const context = (filmContext || callContext) ? { ...(callContext||{}), ...(filmContext||{}) } : null;
+  const fields = { ...(payload||{}) }; delete fields.context;
   let data, error;
   for(let a=0;; a++){
     data=undefined; error=undefined;
-    try{ ({ data, error } = await sb.functions.invoke(fnName, { body:{ ...(typeof window.turnFilmContext==="function" && window.turnFilmContext() ? { context:window.turnFilmContext() } : {}), task:"video", op, ...(payload||{}),
+    try{ ({ data, error } = await sb.functions.invoke(fnName, { body:{ ...(context ? { context } : {}), task:"video", op, ...fields,
       userApiKeys: window.turnApiKeysForProxy ? window.turnApiKeysForProxy(["fal"]) : undefined } })); }
     catch(e){ error=e; }
     const netFail = !!error && !((error&&error.context&&error.context.status)||error.status||0);
@@ -1415,6 +1540,37 @@ const _vidPollLease = new Set();   // requestIds actively polled by THIS tab's g
 function _vidBalanceChanged(reason){
   try{ window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:{ reason:reason||"stage-video" } })); }catch(e){}
 }
+/* A SUBMIT NAMES ITS CLIP AND TAKE (Stage editor review, 2026-10-09): body.context.clipId (a "clip-…" id)
+   and body.context.take — small plain facts the owner's app needs to collect the take (model, length,
+   a prompt summary, who made it, when), at most 4000 characters of JSON. A clip id of another shape
+   sends neither. */
+const VID_CLIP_ID_RE = /^clip-[A-Za-z0-9_-]{1,100}$/;
+const VID_TAKE_CONTEXT_MAX = 4000;
+const VID_TAKE_CONTEXT_FIRST = ["model","durationMs","duration","aspectRatio","resolution","hash","by","createdAt",
+  "videoTask","tier","source","audioMode","batchIndex","batchCount","shotSources"];
+const VID_TAKE_CONTEXT_SKIP = /^(takes|actualPrompt|screenplay|identity|referenceMetadata|cleanup)/;
+function _vidTakeContext(clipId, meta){
+  if(!VID_CLIP_ID_RE.test(String(clipId||""))) return null;
+  const src = meta || {}, take = {};
+  const size = ()=>JSON.stringify(take).length;
+  const put = (k, v)=>{
+    if(v===undefined || v===null || typeof v==="function") return;
+    if(typeof v==="number" && !Number.isFinite(v)) return;
+    let json; try{ json = JSON.stringify(v); }catch(e){ return; }
+    if(!json || json.length>600) return;
+    take[k] = v;
+    if(size()>VID_TAKE_CONTEXT_MAX) delete take[k];
+  };
+  if(src.prompt) put("prompt", String(src.prompt).slice(0,300));
+  VID_TAKE_CONTEXT_FIRST.forEach(k=>put(k, src[k]));
+  // too big as it is: the shots it covers still travel (they keep a take with its clip)
+  if(!("shotSources" in take) && Array.isArray(src.shotSources))
+    put("shotSources", src.shotSources.map(x=>x&&x.shotId!=null ? { shotId:String(x.shotId) } : null).filter(Boolean));
+  Object.keys(src).forEach(k=>{ if(!(k in take) && k!=="prompt" && k!=="vno" && !VID_TAKE_CONTEXT_SKIP.test(k)) put(k, src[k]); });
+  return { clipId:String(clipId), take };
+}
+function _vidWithTakeContext(context, body){ return context ? { ...body, context } : body; }
+window.vidTakeContext = _vidTakeContext;
 async function vidRecoverPending(opts){
   opts = opts||{};
   const recoveryScope = _vidScopeSnapshot(vidScope());
@@ -1503,6 +1659,74 @@ window.vidRecoverPending = vidRecoverPending;
 // patrol while anything is still pending (quiet: no repeat "still processing")
 setTimeout(()=>{ try{ if(videoProxyReady()) vidRecoverPending(); }catch(e){} }, 4000);
 setInterval(()=>{ try{ if(videoProxyReady() && _vidPendingAll().length) vidRecoverPending({ quiet:true }); }catch(e){} }, 5*60*1000);
+
+/* RENDERS THAT FINISHED WHILE THE OWNER WAS AWAY (Stage editor review, 2026-10-09, decision D): a
+   collaborator's render the owner paid for is kept by the server with its clip and take when its hold
+   settles — even when the collaborator never collected it (closed tab, access removed). The film's
+   OWNER collects them here, each through the normal queued commit as a recovered NEW take (so it never
+   replaces an approved current take), skipping a url the clip already has, then marks them collected.
+   app.jsx calls it when the owner opens a film. Returns how many takes were added; 0 for anyone else,
+   when the server has none, or when the RPC is missing. */
+const _vidCollecting = new Map();   // projectId -> promise (one pass at a time per film)
+function vidCollectPendingTakes(projectId){
+  const key = String(projectId==null ? "" : projectId);
+  if(_vidCollecting.has(key)) return _vidCollecting.get(key);
+  const run = _vidCollectPendingTakesRun(projectId).catch(()=>0)
+    .then(n=>{ _vidCollecting.delete(key); return n; });
+  _vidCollecting.set(key, run);
+  return run;
+}
+async function _vidCollectPendingTakesRun(projectId){
+  const sc = vidScope();
+  if(!sc || sc.projectId==null || projectId==null || String(sc.projectId)!==String(projectId)) return 0;
+  if(_vidFilmShared() || typeof window.cloudFilmPendingTakes!=="function") return 0;   // the owner collects
+  const scope0 = _vidScopeSnapshot(sc);
+  const rows = await window.cloudFilmPendingTakes(scope0.projectId);
+  if(!Array.isArray(rows) || !rows.length || !_vidScopeMatches(scope0)) return 0;
+  // the film's take rows once, so a take already in a clip this device hasn't loaded is still skipped
+  const cloud = (typeof window.cloudVideoLoadAll==="function") ? await window.cloudVideoLoadAll(scope0.projectId) : null;
+  if(!_vidScopeMatches(scope0)) return 0;
+  const collected = [];
+  let added = 0;
+  for(const r of rows){
+    if(!_vidScopeMatches(scope0)) break;
+    const ref = r && r.ref!=null ? String(r.ref) : "";
+    const clipId = String((r && r.clip_id) || ""), url = String((r && r.url) || "");
+    if(!ref || !VID_CLIP_ID_RE.test(clipId) || !url || !vidTakeUrlTrusted(url)) continue;
+    const tm = (r.take_meta && typeof r.take_meta==="object" && !Array.isArray(r.take_meta)) ? r.take_meta : {};
+    const res = await _vidQueued(async ()=>{
+      if(!_vidScopeMatches(scope0)) return { skipped:true };
+      let local = await _vidLoadEntry(clipId, scope0);
+      if(!_vidScopeMatches(scope0)) return { skipped:true };
+      const remote = cloud && cloud[clipId];
+      const have = new Set();
+      [local, remote].forEach(e=>{ if(e && e.url){ have.add(e.url); ((e.meta&&e.meta.takes)||[]).forEach(t=>{ if(t&&t.url) have.add(t.url); }); } });
+      if(have.has(url)) return { already:true };
+      if(!(local && local.url) && remote && remote.url){
+        // the clip's cloud takes first, so the collected take joins them instead of becoming current
+        local = _vidStoreEntry(remote.url, remote.meta||null, scope0);
+        _vidMem.set(clipId, local);
+        try{ await vidIdbSet(vidKey(clipId), local); }catch(e){}
+        if(!_vidScopeMatches(scope0)) return { skipped:true };
+      }
+      const meta = { ...tm };
+      delete meta.vno; delete meta.takes; delete meta.status;   // its number is given here; approval is the owner's
+      if(meta.by==null && r.actor!=null) meta.by = String(r.actor);
+      meta.recovered = true;
+      if(r.settled_at) meta.settledAt = r.settled_at;
+      return _vidCommitRaw(clipId, url, meta, scope0, { newTake:true, recovered:true });
+    });
+    if(!res || res.skipped || res.refused) continue;
+    // collected once it is in the film's cloud row, not only on this device (a dirty clip is retried first)
+    const dirty = !!(_vidDirtyAll()[scope0.projectId]||{})[clipId];
+    if(!dirty) collected.push(ref);
+    if(!res.already) added++;
+  }
+  if(collected.length && typeof window.cloudMarkTakesCollected==="function" && _vidScopeMatches(scope0))
+    await window.cloudMarkTakesCollected(scope0.projectId, collected);
+  return added;
+}
+window.vidCollectPendingTakes = vidCollectPendingTakes;
 
 /* Provider policy classification is informational only. A policy/moderation refusal
    is terminal for this job: never alter its prompt or launch another paid render. */
@@ -1868,8 +2092,14 @@ async function seedanceGenerate(id, opts){
           : "This screenplay image package is too large to retain safely for crash recovery; reduce the page images or render fewer pages. No render was submitted.");
     }
     let sub;
+    /* the clip + take this render is for (Stage editor review, 2026-10-09): the server keeps the take
+       with its output url when the hold settles, so a render nobody collects still reaches the film */
+    const takeContext = id ? _vidTakeContext(id, { hash, model, durationMs:opts.durationMs||0, aspectRatio, prompt:pText,
+      ...persistedTakeMeta, ...(videoTask ? { videoTask } : {}),
+      ...(isKlingMotion ? { characterOrientation, keepOriginalSound } : {}),
+      ...(scope0 && scope0.uid!=null ? { by:String(scope0.uid) } : {}), createdAt:Date.now() }) : null;
     try{
-      sub = await vidProxy("submit", isKlingMotion
+      sub = await vidProxy("submit", _vidWithTakeContext(takeContext, isKlingMotion
         ? { model, prompt:pText,
             image_url:proxyImages[0], video_url:proxyVideos[0],
             characterOrientation, keepOriginalSound,
@@ -1895,7 +2125,7 @@ async function seedanceGenerate(id, opts){
         ...(quoteRec ? { quotedCredits:quoteRec.cost } : {}),   // the price the user saw; the server charges its own
         // the takes this Generate starts, so the server's plan limit on batches applies (2026-10-09)
         batchSize:Math.max(1, Number(persistedTakeMeta&&persistedTakeMeta.batchCount)||1),
-      });
+      }));
     }catch(e){
       _vidPendingRelease(pendingReservation);
       /* the server couldn't tie the job to its credit hold, so it stopped the job and returned the

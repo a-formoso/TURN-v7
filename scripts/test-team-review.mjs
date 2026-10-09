@@ -76,7 +76,7 @@ await test("A1 a shared film that drops off the refreshed list stays shared, rea
   assert.ok(a.includes("const sharedOffList = !_projRow && !!currentProjectId && !!sharedSeenRef.current[currentProjectId];"));
   assert.ok(a.includes("const isSharedFilm = !!(_projRow && _projRow.isShared) || sharedOffList;"));
   assert.ok(a.includes('(sharedOffList ? "view_only" : "")'));
-  assert.ok(app.includes('const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : shareRole;'));
+  assert.ok(app.includes('const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : (_rolesNow || "view_only");'));
   assert.ok(app.includes('if(sharedOffList && typeof window.cloudCheckAccess==="function"){'));
   assert.ok(app.includes('window.cloudCheckAccess(currentProjectId).then(s=>{ if(alive && s==="gone") accessEnded(); })'));
   for(const s of ["const _sharedCanWriteRoom = id=>!isSharedFilm", "const _sharedCanWriteSection = k=>!isSharedFilm",
@@ -285,7 +285,7 @@ await test("E3 Frances: who pays, paused, lapsed, invites, private presence; pla
 });
 await test("E4 keys", ()=>{
   for(const f of ["app.jsx", "team.jsx", "cloud.jsx", "ai.jsx", "script.jsx", "plans.jsx", "confirm.jsx", "auth-ui.jsx"])
-    assert.ok(html.includes('src="app/'+f+'?v=20261009-teamrv1"'), f);
+    assert.ok(["20261009-teamrv1", "20261009-stageed1"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);   // (later passes re-key some)
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

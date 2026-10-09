@@ -3258,6 +3258,20 @@ APP_FEATURES.forEach(f=>{
   const hf = APP_FEATURES.find(x=>x && /^Home/.test(x.name||""));
   if(hf) hf.what = String(hf.what||"").replace("(View-only / Co-writer / Art director \u2014 hover the card", "(View-only / Co-writer / Art director / Stage editor \u2014 hover the card");
 }
+/* STAGE EDITOR REVIEW (owner 2026-10-09): what the role saves, who pays in the Stage, renders that land anyway,
+   voiced lines saved to the film, takes only their maker deletes */
+{ const tf = APP_FEATURES.find(x=>x && x.name==="Team collaboration");
+  if(tf){
+    tf.what = String(tf.what||"")
+      .replace("Stage editor (Producer films only) saves Stage work \u2014 shots' takes, voices and the Stage's settings.",
+        "Stage editor (Producer films only) saves the Stage's work \u2014 takes, which shot speaks which line, voicing and timing on shots, and the Stage's own settings; adding or splitting shots, and the shots' designs and frames, stay with the owner and the Art director.")
+      .replace("The film's own settings (logline, style bible) are writable by the Co-writer, the Art director and the Stage editor.",
+        "The film's own settings (logline, style bible) are writable by the Co-writer and the Art director; the Stage editor saves only the Stage's own settings.")
+      .replace("only the film's owner, its Art director or (for the Stage's files, on a Producer film) its Stage editor can create, replace or clear generated assets for a shared film",
+        "only the film's owner or its Art director can create, replace or clear generated images for a shared film (a Stage editor saves the Stage's take records and voiced lines only)");
+    tf.what += " (Stage editor review, 2026-10-09) IN THE STAGE ON SOMEONE ELSE'S FILM the price labels say the render is paid by the film's owner and show how much of your monthly budget on the film is left; you don't need credits or a plan of your own, and if a render needs more than your budget has left the Stage says so (the owner can raise it) instead of sending you to the Plans window. VOICED LINES are saved to the film, so everyone on it hears them and nobody pays to voice the same line twice. TAKES: anyone who can work in the Stage can choose which take is current, but only the person who made a take, or the film's owner, can delete it; two people rendering the same clip keep each other's takes. RENDERS THAT WERE ALREADY RUNNING when someone was removed, sharing paused or the owner's plan changed still finish, are paid by the owner, and land in the film the next time the owner opens it. If the owner moves from Producer to Director, a Stage editor's role is paused on that film (it's kept, and works again on Producer); the Team window marks it 'Stage editor paused'. Someone who isn't on a film's team (removed, or not yet accepted) can't charge work to it.";
+  }
+}
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;

@@ -508,6 +508,13 @@ const TEAM_REFUSALS = {
   daily_cap:"You can send up to 20 new invites a day. Please try again tomorrow.",
   owner_only:"Only the film's owner manages its team.",
   no_role:"Choose at least one role.",
+  // what a save on a shared film can be refused with (team-relaunch.sql, 2026-10-09 — Stage editor review)
+  role_paused:"Your role on this film is paused: the film's plan doesn't include it right now, so changes aren't saved.",
+  owner_plan:"This film is read-only right now: its owner's plan doesn't include shared work, so changes aren't saved.",
+  stage_scope:"A Stage editor saves the Stage's takes, dialogue and voicing only \u2014 that change wasn't saved.",
+  stage_slot:"That take or voiced line didn't have the shape the film accepts, so it wasn't saved.",
+  cleanup_path:"That change named files outside your part of the film, so it wasn't saved.",
+  take_owner:"Only the person who made a take, or the film's owner, can remove it.",
 };
 function _teamRefusal(err){
   const msg = String((err && err.message) || err || "");
@@ -723,7 +730,9 @@ async function cloudTeamSpend(projectId){
   try{
     const { data, error } = await sb.rpc("turn_team_spend", { pid:projectId });
     if(error) return [];
-    return (Array.isArray(data) ? data : []).map(r=>({ member_id:r.member_id, spent:Number(r.spent)||0, budget:r.budget==null?null:Number(r.budget) }));
+    // (2026-10-09) the owner also gets people removed this month who spent something (removed:true)
+    return (Array.isArray(data) ? data : []).map(r=>({ member_id:r.member_id, spent:Number(r.spent)||0, budget:r.budget==null?null:Number(r.budget),
+      removed:!!r.removed, member_email:r.member_email ? String(r.member_email) : "" }));
   }catch(e){ return []; }
 }
 /* a collaborator leaves a film (or a Show) — access ends at once */
@@ -739,14 +748,20 @@ async function cloudLeaveFilm(projectId){
 /* the OWNER's sharing tier for a shared film — its rooms follow it: "studio" | "director" |
    "none" (the owner's plan lapsed: read-only), or "" when the server can't say (before
    team-relaunch.sql: the older role-only rooms) */
+/* A FAILED READ IS NOT AN ANSWER (2026-10-09, Stage editor review): "" (the older role-only rooms) only when
+   the function doesn't exist; a network or server error returns undefined, and the app keeps the tier it
+   had — one blip threw a Stage editor out of the Stage ("This film's plan doesn't include the Stage") */
 async function cloudFilmOwnerTier(projectId){
-  const sb = sbClient(); if(!sb || !projectId) return "";
+  const sb = sbClient(); if(!sb || !projectId) return undefined;
   try{
     const { data, error } = await sb.rpc("turn_film_owner_tier", { pid:projectId });
-    if(error) return "";
+    if(error){
+      const code = String(error.code||""), msg = String(error.message||"");
+      return (code==="PGRST202" || code==="42883" || /could not find the function|does not exist/i.test(msg)) ? "" : undefined;
+    }
     const t = String(data==null ? "" : data);
     return ["studio","director","none"].includes(t) ? t : "";
-  }catch(e){ return ""; }
+  }catch(e){ return undefined; }
 }
 /* the owner's notifications: who joined which of your films (last 30 days; the top bar's bell) */
 async function cloudTeamNotifications(){
@@ -1655,6 +1670,50 @@ function _seriesOwnUnacked(latestValue, key, list, field){
   }
   return { hit:false };
 }
+/* SHOTS MERGE PER SHOT (2026-10-09, owner — Stage editor review): the Art director and the Stage editor both save
+   `shots`, and the save replaced the whole list — a stale window's save erased the other person's approvals or
+   voicing. Three-way, shot by shot, against the shots this window last saw (`base`):
+   - a shot only one side changed takes that side's version; both changed → field by field, this window's
+     field wins only where it changed it;
+   - added on either side → kept; deleted on one side and untouched on the other → deleted; deleted on one side
+     but edited on the other → the edited one is kept (nothing paid for or approved disappears quietly);
+   - order: the cloud's order, with this window's new shots placed after the shot they follow here. */
+function _shotsJson(v){ try{ return JSON.stringify(v===undefined?null:v); }catch(e){ return String(Math.random()); } }
+function _shotsMergePerShot(base, local, remote){
+  if(!Array.isArray(base) || !Array.isArray(local) || !Array.isArray(remote)) return local;
+  const idOf = s=> s && s.id!=null ? String(s.id) : null;
+  if([base, local, remote].some(list=>list.some(s=>idOf(s)==null))) return local;   // no ids: the old whole-list save
+  const B = new Map(base.map(s=>[idOf(s), s])), L = new Map(local.map(s=>[idOf(s), s])), R = new Map(remote.map(s=>[idOf(s), s]));
+  const same = (a,b)=> _shotsJson(a)===_shotsJson(b);
+  const pick = (id)=>{
+    const b = B.get(id), l = L.get(id), r = R.get(id);
+    if(l && r){
+      if(!b || same(l, b)) return r;
+      if(same(r, b) || same(l, r)) return l;
+      const out = { ...r };
+      new Set([...Object.keys(l), ...Object.keys(b)]).forEach(k=>{
+        if(!same(l[k], b[k])){ if(l[k]===undefined) delete out[k]; else out[k] = l[k]; }
+      });
+      return out;
+    }
+    if(l && !r) return (b && same(l, b)) ? null : l;     // deleted there: gone, unless edited here
+    if(r && !l) return (b && same(r, b)) ? null : r;     // deleted here: gone, unless edited there
+    return null;
+  };
+  const out = [], placed = new Set();
+  remote.forEach(s=>{ const id = idOf(s), v = pick(id); placed.add(id); if(v) out.push(v); });
+  local.forEach((s, i)=>{
+    const id = idOf(s); if(placed.has(id)) return;
+    placed.add(id);
+    const v = pick(id); if(!v) return;
+    // after the shot it follows in this window (or first)
+    let at = 0;
+    for(let j=i-1; j>=0; j--){ const k = out.findIndex(x=>idOf(x)===idOf(local[j])); if(k>=0){ at = k+1; break; } }
+    out.splice(at, 0, v);
+  });
+  return out;
+}
+window.turnShotsMergePerShot = _shotsMergePerShot;
 async function cloudSaveSections(id, sections, opts){
   const sb = sbClient(); if(!sb || !id) return { ok:false };
   const keys = Object.keys(sections||{});
@@ -1674,7 +1733,7 @@ async function cloudSaveSections(id, sections, opts){
       const unacked = _seriesUnackedWrites[id] || [];
       const record = { project:null, sections:null };
       const settledSections = [];
-      let mergedProject;
+      let mergedProject, mergedShots;
       if(keys.indexOf("project")>=0){
         let baseline=sectionBaseline.project;
         const latestProject=cloudDoc.project||{};
@@ -1722,6 +1781,12 @@ async function cloudSaveSections(id, sections, opts){
           next[k]=localChanged?incoming:latest;
           return;
         }
+        // shots: merged shot by shot against what this window last saw (opts.shotsBase)
+        if(k==="shots" && opts && Array.isArray(opts.shotsBase) && Array.isArray(sections.shots) && Array.isArray(cloudDoc.shots)){
+          next.shots=_shotsMergePerShot(opts.shotsBase, sections.shots, cloudDoc.shots);
+          mergedShots=next.shots;
+          return;
+        }
         next[k]=sections[k];
       });
       if(sectionConflicts.length) return {ok:false,conflict:true,conflicts:sectionConflicts,
@@ -1738,7 +1803,9 @@ async function cloudSaveSections(id, sections, opts){
         _seriesSettleUnacked(id, keys.indexOf("project")>=0, settledSections);
         _docRevSeen[id] = cur + 1;      // we merged onto the freshest doc, so we ARE current
         _pushDocRev(id, cur + 1);       // wake collaborators' windows right away
-        return mergedProject!==undefined ? { ok:true, doc:cloudDoc, project:mergedProject } : { ok:true, doc:cloudDoc };
+        const done = mergedProject!==undefined ? { ok:true, doc:cloudDoc, project:mergedProject } : { ok:true, doc:cloudDoc };
+        if(mergedShots!==undefined) done.shots = mergedShots;
+        return done;
       }
       zeroRowRev = cur;
       // someone wrote between our read and our write — re-read and merge again
@@ -3147,11 +3214,24 @@ function cloudPendingMeta(meta,paths,tombstone){
   if(tombstone) next.cleanupTombstone=true; else delete next.cleanupTombstone;
   return next;
 }
+/* ONLY THIS FILM'S FILES (Stage editor review, 2026-10-09): a row's cleanupPending is written by
+   whoever may write the row — a collaborator too — and the owner's browser removes what it lists.
+   Only a key inside THIS film's folders ('<any uid>/<projectId>/…', the project folder legacy or
+   readable) is ever removed; anything else is dropped from the ledger, never deleted. */
+function cloudPathInFilm(path, projectId){
+  const value=String(path||""), pid=String(projectId||"");
+  if(!value || !pid || value[0]==="/" || value.indexOf("\\")>=0 || value.indexOf("\0")>=0) return false;
+  const parts=value.split("/");
+  if(parts.length<3 || parts.some(part=>!part || part==="." || part==="..")) return false;
+  if(parts[1]===pid) return true;
+  const keys=_turnStorageKeys(), seg=keys&&typeof keys.segmentId==="function" ? keys.segmentId(parts[1]) : null;
+  return !!seg && seg===pid;
+}
 async function cloudFinishPending(projectId,uid,entityId,row,options){
   options=options||{};
   const pending=row&&row.meta&&Array.isArray(row.meta.cleanupPending)?row.meta.cleanupPending:[];
   if(!pending.length) return {row,warning:null};
-  const retained=cloudRowPaths(row), remove=pending.filter(p=>!retained.has(p));
+  const retained=cloudRowPaths(row), remove=pending.filter(p=>!retained.has(p)&&cloudPathInFilm(p,projectId));
   let failed=[];
   if(options.perPath){
     /* Storage.remove is an exact-key operation, but a provider adapter can
@@ -3165,7 +3245,7 @@ async function cloudFinishPending(projectId,uid,entityId,row,options){
     }
   }else{
     try{ await cloudRemovePaths(remove); }
-    catch(e){ failed=pending.slice(); }
+    catch(e){ failed=pending.filter(p=>cloudPathInFilm(p,projectId)); }
   }
   if(failed.length){
     const warning="Cloud cleanup is incomplete; "+failed.length+" exact object"+(failed.length===1?" remains":"s remain")+" pending.";
@@ -3516,7 +3596,9 @@ async function cloudAssetLoadAll(projectId){
      Project prewarm is the bounded, one-shot recovery point: inspect only tracked
      cleanup markers (never sweep storage), and retry at most 20 with concurrency 3.
      Failures leave cleanupPending intact for a future prewarm. */
-  const pending=rows.filter(r=>r&&r.meta&&Array.isArray(r.meta.cleanupPending)
+  // a clip's take row never has files (Stage editor review, 2026-10-09): its cleanup marker is never acted on
+  const pending=rows.filter(r=>r&&!/^clip-/.test(String(r.entity_id||""))
+    && r.meta&&Array.isArray(r.meta.cleanupPending)
     && r.meta.cleanupPending.length).slice(0,20);
   if(pending.length){
     let cursor=0;
@@ -4142,22 +4224,109 @@ async function cloudSweepPurgeReferences(projectId){
    table → the same collaboration RLS as every other asset, no new migration.
    These THROW on failure — the video store keeps a dirty ledger and retries;
    a silent null here is how paid takes used to die with a browser profile. */
-async function cloudCommitVideo(projectId, uid, clipId, entry){
+/* ONE CLIP, SEVERAL PEOPLE (Stage editor review, 2026-10-09): two people rendering the same clip
+   erased each other's paid takes — the write upserted the whole meta from THIS device's cache.
+   It is now a compare-and-set MERGE, like cloudCasGen: read the row, add the remote takes this
+   device doesn't know (union by url), keep the local current take unless the remote current is
+   unknown here (then it joins the takes), roll over to 20 the way _vidCommitRaw does (approved
+   takes never roll over), and write only while the row is still the one read (updated_at); an
+   absent row is inserted (a lost race re-reads and merges). Up to 3 tries.
+   opts.removed: urls this write deliberately drops (a deleted or rolled-over take) — the merge
+   never brings those back. Returns { ok, entry } — the merged entry the device should keep. */
+const CLOUD_VIDEO_TAKE_CAP = 20;
+const CLOUD_VIDEO_TRIES = 3;
+function _cloudVideoTakeTime(t){
+  const m=(t&&t.meta)||{};
+  return Number(t&&t.savedAt)||Number(m.createdAt)||0;
+}
+function _cloudVideoCapTakes(list, dropped){
+  const capped=[];
+  for(const t of list){
+    const approved=!!(t&&t.meta&&t.meta.status==="approved");
+    if(approved || capped.filter(x=>!(x&&x.meta&&x.meta.status==="approved")).length<CLOUD_VIDEO_TAKE_CAP) capped.push(t);
+    else if(dropped && t && t.url) dropped.push(t.url);
+  }
+  return capped;
+}
+function cloudMergeVideoEntry(local, remote, removed){
+  const drop=removed instanceof Set ? removed : new Set((removed||[]).filter(Boolean));
+  const loc=local&&local.url ? local : null, rem=remote&&remote.url ? remote : null;
+  if(!loc) return rem ? { url:rem.url, meta:rem.meta||null } : null;
+  if(!rem) return { url:loc.url, meta:loc.meta||null };
+  const lm=loc.meta||{}, rm=rem.meta||{};
+  const ltakes=(Array.isArray(lm.takes)?lm.takes:[]).filter(t=>t&&t.url);
+  const known=new Set([loc.url].concat(ltakes.map(t=>t.url)));
+  const extra=[];
+  if(!known.has(rem.url) && !drop.has(rem.url)){
+    const cm={ ...rm }; delete cm.takes;
+    extra.push({ url:rem.url, meta:cm, savedAt:Number(cm.createdAt)||Date.now() });
+    known.add(rem.url);
+  }
+  for(const t of (Array.isArray(rm.takes)?rm.takes:[])){
+    if(t && t.url && !known.has(t.url) && !drop.has(t.url)){ extra.push(t); known.add(t.url); }
+  }
+  if(!extra.length) return { url:loc.url, meta:loc.meta||null };
+  // one approved take per clip: this device's choice stands
+  const localApproved=lm.status==="approved" || ltakes.some(t=>t.meta&&t.meta.status==="approved");
+  const merged=ltakes.slice();
+  for(const raw of extra){
+    let t=raw;
+    if(localApproved && t.meta && t.meta.status==="approved"){ const m={ ...t.meta }; delete m.status; t={ ...t, meta:m }; }
+    // newest first: a remote take goes in before the first local take that is older than it
+    const at=merged.findIndex(x=>_cloudVideoTakeTime(x)<_cloudVideoTakeTime(t));
+    if(at<0) merged.push(t); else merged.splice(at,0,t);
+  }
+  return { url:loc.url, meta:{ ...lm, takes:_cloudVideoCapTakes(merged) } };
+}
+function _cloudVideoError(error, fallback){
+  const e=new Error((error&&error.message)||fallback);
+  if(error&&error.code) e.code=String(error.code);
+  if(error&&(error.status||error.statusCode)) e.status=error.status||error.statusCode;
+  return e;
+}
+function _cloudUniqueConflict(error){
+  return !!error && (String(error.code||"")==="23505" || /duplicate key|already exists/i.test(String(error.message||"")));
+}
+async function cloudCommitVideo(projectId, uid, clipId, entry, opts){
   const sb = sbClient();
   if(!sb || !projectId || !clipId) throw new Error("cloud unavailable");
-  const meta = { kind:"video", updatedAt:Date.now(),
-    video:{ url:(entry&&entry.url)||"", meta:(entry&&entry.meta)||null } };
-  const { error } = await sb.from("turn_generations")
-    .upsert({ project_id:projectId, owner:uid, entity_id:clipId, meta }, { onConflict:"project_id,entity_id" });
-  if(error) throw new Error(error.message||"cloud save failed");
-  return { ok:true };
+  if(!entry || !entry.url) throw new Error("nothing to save");
+  const removed=new Set(((opts&&opts.removed)||[]).filter(Boolean));
+  for(let attempt=0; attempt<CLOUD_VIDEO_TRIES; attempt++){
+    const { data:row, error:readErr } = await sb.from("turn_generations")
+      .select("entity_id, owner, storage_path, meta, refs, history, updated_at")
+      .eq("project_id", projectId).eq("entity_id", clipId).maybeSingle();
+    if(readErr) throw _cloudVideoError(readErr, "cloud read failed");
+    const v=row && row.meta && row.meta.kind==="video" && row.meta.video;
+    const remote=v && v.url ? { url:v.url, meta:v.meta||null } : null;
+    const merged=cloudMergeVideoEntry({ url:entry.url, meta:entry.meta||null }, remote, removed);
+    /* a clip row holds no files and no history: only these three keys (the database refuses others
+       from a collaborator) */
+    const meta = { kind:"video", updatedAt:Date.now(), video:{ url:merged.url, meta:merged.meta||null } };
+    if(!row){
+      const { error } = await sb.from("turn_generations")
+        .insert({ project_id:projectId, owner:uid, entity_id:clipId, storage_path:null, meta, refs:[], history:[] })
+        .select("entity_id").maybeSingle();
+      if(!error) return { ok:true, entry:merged };
+      if(_cloudUniqueConflict(error)) continue;           // someone else created it first — re-read and merge
+      throw _cloudVideoError(error, "cloud save failed");
+    }
+    let q = sb.from("turn_generations").update({ storage_path:null, meta, refs:[], history:[] })
+      .eq("project_id", projectId).eq("entity_id", clipId);
+    q = cloudApplySnapshot(q, row);
+    const { data, error } = await q.select("entity_id").maybeSingle();
+    if(error) throw _cloudVideoError(error, "cloud save failed");
+    if(data) return { ok:true, entry:merged };
+    // the row changed after the read — another write landed: read it again and merge
+  }
+  throw new Error("cloud save conflict — the clip kept changing; will retry");
 }
 async function cloudVideoDelete(projectId, clipId){
   const sb = sbClient();
   if(!sb || !projectId || !clipId) throw new Error("cloud unavailable");
   const { error } = await sb.from("turn_generations").delete()
     .eq("project_id", projectId).eq("entity_id", clipId);
-  if(error) throw new Error(error.message||"cloud delete failed");
+  if(error) throw _cloudVideoError(error, "cloud delete failed");   // keeps the code: a refusal is told apart (2026-10-09)
   return { ok:true };
 }
 /* all of one film's take records in one query. Returns { clipId:{url,meta} },
@@ -4180,6 +4349,206 @@ async function cloudVideoLoadAll(projectId){
 window.cloudCommitVideo = cloudCommitVideo;
 window.cloudVideoDelete = cloudVideoDelete;
 window.cloudVideoLoadAll = cloudVideoLoadAll;
+window.cloudMergeVideoEntry = cloudMergeVideoEntry;
+window.cloudPathInFilm = cloudPathInFilm;
+/* a write the database or Storage REFUSED for access (Stage editor review, 2026-10-09): Postgres
+   42501, a row-level-security / permission message or a Team rule ('TURN_TEAM:' code). Retrying
+   never helps — the caller says so plainly instead of promising a re-sync. */
+function cloudPermissionRefused(e){
+  if(!e) return false;
+  const code=String(e.code||""), msg=String((e&&e.message)||e||"");
+  return code==="42501" || /row-level security|permission denied|TURN_TEAM:|TURN_ROLE_SCOPE/i.test(msg);
+}
+window.cloudPermissionRefused = cloudPermissionRefused;
+
+/* ── renders that finished while the owner was away (Stage editor review, 2026-10-09) ──────────
+   A collaborator's video submit names its clip and take (body.context.clipId/take); when the hold
+   settles the server keeps the take with its output url. The film's OWNER collects those into the
+   clips (videogen.jsx vidCollectPendingTakes) and marks them collected. Both return NULL / false
+   when the RPC is missing or refuses — the caller then does nothing. */
+async function cloudFilmPendingTakes(projectId){
+  const sb=sbClient(); if(!sb || !projectId || typeof sb.rpc!=="function") return null;
+  try{
+    const { data, error } = await sb.rpc("turn_film_pending_takes", { pid:projectId });
+    if(error) return null;
+    return Array.isArray(data) ? data : [];
+  }catch(e){ return null; }
+}
+async function cloudMarkTakesCollected(projectId, refs){
+  const list=Array.from(new Set((refs||[]).filter(Boolean).map(String)));
+  const sb=sbClient(); if(!sb || !projectId || !list.length || typeof sb.rpc!=="function") return false;
+  try{
+    const { error } = await sb.rpc("turn_film_mark_takes_collected", { pid:projectId, refs:list });
+    return !error;
+  }catch(e){ return false; }
+}
+window.cloudFilmPendingTakes = cloudFilmPendingTakes;
+window.cloudMarkTakesCollected = cloudMarkTakesCollected;
+
+/* ── voiced lines are FILM assets (Stage editor review, 2026-10-09) ───────────────────────────
+   A voiced line used to live only in the browser that voiced it: everyone else saw "missing-bytes"
+   and paid to voice it again. The bytes now go to Storage as the signed-in user
+   ('<uid>/<projectId>/stage-audio/<file>') and the film gets a row PER VOICING:
+   entity_id 'aud-<line id>-<short hash of who voiced it + the render hash>', meta { kind:"audio",
+   updatedAt, audio:{ meta:<the line's audio meta + lineId> } }, no refs or history. A collaborator
+   may write or delete only rows whose file is in their OWN folder, so nobody's voicing overwrites
+   another's: the loader picks the row whose hash matches the line's render record (voicegen.jsx).
+   The same person voicing the same render again replaces their own file (cleanupPending, then
+   removed); their older voicings of that line are removed after a new one is saved.
+   voicegen.jsx loads a film's rows once (cloudAudioLoadAll) and fetches a line's bytes only when
+   this device doesn't have them (cloudAudioDownload). */
+const CLOUD_AUDIO_FOLDER = "stage-audio";
+const CLOUD_AUDIO_ID_RE = /^[A-Za-z0-9_:.-]{1,120}$/;
+/* (lineId[, uid, hash]) → 'aud-…' (the part after 'aud-' matches [A-Za-z0-9_:.-]{1,120}). Without
+   uid/hash: the line's base id (rows from before per-voicing ids). Long or unusual ids are hashed. */
+function cloudAudioEntityId(lineId, uid, hash){
+  const s=String(lineId==null ? "" : lineId);
+  const suffix=(uid!=null && uid!=="") ? "-"+_seriesStableHash(String(uid)+"|"+String(hash||"")) : "";
+  const base=CLOUD_AUDIO_ID_RE.test(s) && (s.length+suffix.length)<=120 ? s
+    : "h."+_seriesStableHash(s)+"."+s.length.toString(36);
+  return "aud-"+base+suffix;
+}
+function _cloudAudioExt(mime){
+  const m=String(mime||"").toLowerCase();
+  return /mpeg|mp3/.test(m) ? "mp3" : /wav/.test(m) ? "wav" : /ogg/.test(m) ? "ogg"
+    : /webm/.test(m) ? "webm" : /mp4|m4a|aac/.test(m) ? "m4a" : "audio";
+}
+function _cloudAudioPrefix(uid, projectId){ return String(uid)+"/"+String(projectId)+"/"+CLOUD_AUDIO_FOLDER+"/"; }
+function _cloudAudioPathOk(path, projectId){
+  return cloudPathInFilm(path, projectId) && String(path).split("/")[2]===CLOUD_AUDIO_FOLDER;
+}
+async function _cloudSha256Hex(blob){
+  try{
+    const c=(typeof crypto!=="undefined" && crypto) || window.crypto;
+    if(!c || !c.subtle || !blob || typeof blob.arrayBuffer!=="function") return "";
+    const d=await c.subtle.digest("SHA-256", await blob.arrayBuffer());
+    return Array.from(new Uint8Array(d)).map(b=>b.toString(16).padStart(2,"0")).join("");
+  }catch(e){ return ""; }
+}
+const _AUDIO_ROW_COLUMNS = "entity_id, owner, storage_path, meta, refs, history, updated_at";
+/* (id, dataUrl, meta[, scope {projectId, uid}]) → { url:<signed url>, path, meta, entityId }. Throws
+   (with the database's code) when the upload or the row write fails; the uploaded file is then removed. */
+async function cloudCommitAudio(id, dataUrl, meta, scope){
+  const sb=sbClient(); if(!sb) throw new Error("cloud unavailable");
+  const sc=scope || (typeof window.nbCloudScope==="function" ? window.nbCloudScope() : null);
+  const projectId=sc && sc.projectId, uid=sc && sc.uid;
+  if(!projectId || !uid || id==null || id==="") throw new Error("cloud unavailable");
+  if(meta && meta.projectId && String(meta.projectId)!==String(projectId))
+    throw new Error("This line's audio belongs to a different film.");
+  const blob=dataUrlToBlob(dataUrl);
+  if(!blob || !blob.size || !/^audio\//i.test(blob.type||"")) throw new Error("The line's audio couldn't be read.");
+  const entityId=cloudAudioEntityId(id, uid, meta && meta.hash), prefix=_cloudAudioPrefix(uid, projectId);
+  const path=prefix+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,10)+"."+_cloudAudioExt(blob.type);
+  const sha256=await _cloudSha256Hex(blob);
+  const lineMeta={ ...(meta||{}), lineId:String(id), projectId:String(projectId), by:String(uid), bytes:blob.size, mime:blob.type,
+    ...(sha256 ? { sha256 } : {}) };
+  const { error:upErr } = await sb.storage.from(turnBucket()).upload(path, blob, { contentType:blob.type, upsert:false });
+  if(upErr) throw _cloudVideoError(upErr, "audio upload failed");
+  let written=null, lastErr=null;
+  for(let attempt=0; attempt<CLOUD_VIDEO_TRIES && !written; attempt++){
+    const { data:row, error:readErr } = await sb.from("turn_generations").select(_AUDIO_ROW_COLUMNS)
+      .eq("project_id", projectId).eq("entity_id", entityId).maybeSingle();
+    if(readErr){ lastErr=readErr; break; }
+    // the file this voicing had — always this person's own (only their own folder is ever listed)
+    const cleanup=Array.from(new Set([row && row.storage_path].concat((row && row.meta && row.meta.cleanupPending) || [])
+      .filter(p=>p && p!==path && String(p).indexOf(prefix)===0)));
+    const fields={ storage_path:path, refs:[], history:[],
+      meta:{ kind:"audio", updatedAt:Date.now(), audio:{ meta:lineMeta }, ...(cleanup.length ? { cleanupPending:cleanup } : {}) } };
+    if(!row){
+      const { data, error } = await sb.from("turn_generations")
+        .insert({ project_id:projectId, owner:uid, entity_id:entityId, ...fields }).select().maybeSingle();
+      if(!error){ written=data || { project_id:projectId, owner:uid, entity_id:entityId, ...fields }; break; }
+      lastErr=error;
+      if(_cloudUniqueConflict(error)) continue;
+      break;
+    }
+    let q=sb.from("turn_generations").update(fields).eq("project_id", projectId).eq("entity_id", entityId);
+    q=cloudApplySnapshot(q, row);
+    const { data, error } = await q.select().maybeSingle();
+    if(error){ lastErr=error; break; }
+    if(data) written=data;
+  }
+  if(!written){
+    try{ await sb.storage.from(turnBucket()).remove([path]); }catch(e){}   // no row points at it
+    throw _cloudVideoError(lastErr, "audio save failed");
+  }
+  if(written.meta && Array.isArray(written.meta.cleanupPending) && written.meta.cleanupPending.length){
+    try{ await cloudFinishPending(projectId, uid, entityId, written); }catch(e){}   // best effort; the marker stays
+  }
+  // this person's OLDER voicings of the line go (their own folder only; best effort)
+  try{
+    const { data:mine } = await sb.from("turn_generations").select(_AUDIO_ROW_COLUMNS)
+      .eq("project_id", projectId).like("entity_id", "aud-%");
+    for(const r of (mine||[])){
+      const a=r && r.meta && r.meta.audio && r.meta.audio.meta;
+      if(!a || r.entity_id===entityId || String(a.lineId||"")!==String(id)
+        || String(r.storage_path||"").indexOf(prefix)!==0) continue;
+      await cloudDeleteAudio(projectId, r.entity_id, uid);
+    }
+  }catch(e){}
+  let url="";
+  try{ url=await cloudSignedUrl(path); }catch(e){}
+  return url ? { url, path, meta:lineMeta, entityId } : { path, meta:lineMeta, entityId };
+}
+/* every voiced line of a film in ONE query: { 'aud-…': { path, meta, owner, updatedAt } }, or NULL
+   when the query failed (≠ "no lines"). Only files inside this film's stage-audio folders count. */
+async function cloudAudioLoadAll(projectId){
+  const sb=sbClient(); if(!sb || !projectId) return null;
+  try{
+    const { data, error } = await sb.from("turn_generations")
+      .select("entity_id, owner, storage_path, meta, updated_at").eq("project_id", projectId).like("entity_id", "aud-%");
+    if(error) return null;
+    const out={};
+    for(const r of (data||[])){
+      const a=r && r.meta && r.meta.kind==="audio" && r.meta.audio;
+      if(!a || !r.storage_path || !_cloudAudioPathOk(r.storage_path, projectId)) continue;
+      out[r.entity_id]={ path:r.storage_path, meta:a.meta||null, owner:r.owner||null, updatedAt:r.updated_at||null };
+    }
+    return out;
+  }catch(e){ return null; }
+}
+/* one line's bytes from the film (a record from cloudAudioLoadAll): a Blob, or null when the file
+   is gone, isn't audio, or doesn't match the size / SHA-256 its row recorded */
+async function cloudAudioDownload(projectId, rec){
+  if(!rec || !rec.path || !_cloudAudioPathOk(rec.path, projectId)) return null;
+  try{
+    const url=await cloudSignedUrl(rec.path); if(!url) return null;
+    const res=await fetch(url); if(!res || !res.ok) return null;
+    const blob=await res.blob();
+    if(!blob || !blob.size) return null;
+    const m=rec.meta||{};
+    const type=String(blob.type||m.mime||"");
+    if(type && !/^audio\//i.test(type) && !/octet-stream/i.test(type)) return null;
+    if(m.bytes && Number(m.bytes)!==blob.size) return null;
+    if(m.sha256){ const h=await _cloudSha256Hex(blob); if(h && h!==m.sha256) return null; }
+    return (!blob.type || /octet-stream/i.test(blob.type)) && m.mime ? new Blob([blob], { type:m.mime }) : blob;
+  }catch(e){ return null; }
+}
+/* remove ONE voicing row ('aud-…' entity id) and its file. With uid, only a row whose file is in
+   that person's own folder is touched (never another person's voicing); the database decides the
+   rest. { ok, refused? }; never throws */
+async function cloudDeleteAudio(projectId, entityId, uid){
+  const sb=sbClient(); if(!sb || !projectId || !/^aud-/.test(String(entityId||""))) return { ok:false };
+  try{
+    const { data:row, error } = await sb.from("turn_generations").select(_AUDIO_ROW_COLUMNS)
+      .eq("project_id", projectId).eq("entity_id", entityId).maybeSingle();
+    if(error) return { ok:false, refused:cloudPermissionRefused(error) };
+    if(!row) return { ok:true };
+    if(uid!=null && String(row.storage_path||"").indexOf(_cloudAudioPrefix(uid, projectId))!==0) return { ok:false, refused:true };
+    let q=sb.from("turn_generations").delete().eq("project_id", projectId).eq("entity_id", entityId);
+    q=cloudApplySnapshot(q, row);
+    const { data, error:delErr } = await q.select().maybeSingle();
+    if(delErr || !data) return { ok:false, refused:cloudPermissionRefused(delErr) };
+    const paths=[row.storage_path].concat((row.meta && row.meta.cleanupPending) || []).filter(p=>p && _cloudAudioPathOk(p, projectId));
+    if(paths.length){ try{ await sb.storage.from(turnBucket()).remove(Array.from(new Set(paths))); }catch(e){} }
+    return { ok:true };
+  }catch(e){ return { ok:false }; }
+}
+window.cloudAudioEntityId = cloudAudioEntityId;
+window.cloudCommitAudio = cloudCommitAudio;
+window.cloudAudioLoadAll = cloudAudioLoadAll;
+window.cloudAudioDownload = cloudAudioDownload;
+window.cloudDeleteAudio = cloudDeleteAudio;
 async function cloudRevert(projectId, uid, entityId, index){
   const row = await cloudGetGenStrict(projectId, entityId);
   if(!row) return null;

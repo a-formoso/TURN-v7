@@ -241,8 +241,33 @@ function stageLengthBilledEstimate(kind, o){
    on screen (the composer's red outline, its warning, the right panel's error, the red footer) —
    never for a hold sized at the longest length only because no measured video is chosen yet
    (billing round 5: a short clip may well fit; the footer still says what is held and why). */
+/* ON SOMEONE ELSE'S FILM THE OWNER PAYS (2026-10-09, owner — Stage editor review): the Stage checked the
+   collaborator's OWN balance, blocked every render of an invitee without a plan ("Not enough generation
+   credits… Choose a plan") and showed their own money. On a shared film the check is the person's monthly
+   budget on the film (app.jsx keeps window.turnFilmBudget = {limit, spent}; limit null = no limit), the
+   labels say who pays, and nothing opens the Plans window — the server decides. */
+/* can this person change the Art Room (Shots, frames)? false for a Stage editor or a read-only share */
+function stageArtWritable(){
+  return !(typeof window!=="undefined" && typeof window.turnArtRoomWritable==="function") || !!window.turnArtRoomWritable();
+}
+function stageOwnerPaysInfo(cost, opts){
+  const fmt = (n)=> (Number(n)||0).toLocaleString("en-US");
+  const hold = !!(opts && opts.hold), floor = !hold && !!(opts && opts.floor);
+  const b = (typeof window!=="undefined" && window.turnFilmBudget) || null;
+  const limit = b && b.limit!=null && Number.isFinite(Number(b.limit)) ? Number(b.limit) : null;
+  const left = limit!=null ? Math.max(0, limit - (Number(b.spent)||0)) : null;
+  const short = left!=null && left < cost;
+  const what = hold ? "Holds up to "+fmt(cost)+" credits while it runs" : (floor ? "Uses at least " : "Uses about ")+fmt(cost)+" credit"+(cost!==1?"s":"");
+  return { known:left!=null, remaining:left, after:left!=null ? Math.max(0, left-cost) : null, frozen:false, hold, floor,
+    basis:String((opts && opts.basis) || ""), cost, ownerPays:true, empty:short, short,
+    label: what+" · paid by the film's owner"+(left!=null ? " · "+fmt(left)+" of your budget left this month" : ""),
+    title: "Work on this film is paid from its owner's credits"+(limit!=null ? ", within your monthly budget on it ("+fmt(Number(b.spent)||0)+" of "+fmt(limit)+" used)." : ".")
+      +(hold ? " The render holds credits while it runs; the rest is returned when it finishes, and a render that fails is refunded." : "") };
+}
 function stageCreditInfo(balance, cost, opts){
   cost = Number(cost)||1;
+  if(typeof window!=="undefined" && typeof window.turnFilmPaidByOwner==="function" && window.turnFilmPaidByOwner())
+    return stageOwnerPaysInfo(cost, opts);
   const hold = !!(opts && opts.hold);
   const floor = !hold && !!(opts && opts.floor);
   const estimate = (opts && Number(opts.estimate)>0) ? Math.ceil(Number(opts.estimate)) : null;
@@ -308,6 +333,7 @@ function stageCreditInfo(balance, cost, opts){
 function stageCreditShortText(info){
   if(!info || !info.short || info.frozen) return "";
   const fmt = (n)=> (Number(n)||0).toLocaleString("en-US");
+  if(info.ownerPays) return "This needs about "+fmt(info.cost)+" credits, and your budget on this film has "+fmt(info.remaining)+" left this month. The film's owner can raise it.";
   const left = info.known ? ", "+fmt(info.remaining)+" remaining" : "";
   return info.hold
     ? "Not enough generation credits — this render holds up to "+fmt(info.cost)+" while it runs"+left+"."
@@ -317,6 +343,7 @@ function stageCreditShortText(info){
    shortfall to flag (stageCreditInfo's `short`) */
 function stageCreditPanelText(info){
   if(!info || !info.short) return "";
+  if(info.ownerPays) return "Your budget on this film doesn't cover this render.";
   return info.frozen ? "Account on hold — spending credits is paused."
     : info.hold ? "Not enough generation credits to cover what this render holds."
     : "Not enough generation credits for this render.";
@@ -4928,12 +4955,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const modeCreditBlock = (cost, what)=>{
     const ci = modeCreditInfo(cost);
     if(!ci.empty) return "";
+    if(ci.ownerPays) return stageCreditShortText(ci);
     return ci.frozen ? "Your account is on hold while a payment is disputed, so spending credits is paused."
       : "Not enough generation credits for this "+what+".";
   };
   // the same check against what the server HOLDS (Motion Control, editing)
   const modeHoldBlock = (info, what)=>{
     if(!info || !info.empty) return "";
+    if(info.ownerPays) return stageCreditShortText(info);
     return info.frozen ? "Your account is on hold while a payment is disputed, so spending credits is paused."
       : "Not enough generation credits for this "+what+": it holds up to "+_fmtN(info.cost)+" credits while it runs (charged for the finished video’s length), and "+_fmtN(info.remaining)+" remain.";
   };
@@ -5457,7 +5486,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     text:"Too many inputs selected — exclude "+budgetOverBy+" optional asset"+(budgetOverBy!==1?"s":"")+" before rendering." });
   if(imageOver) blockers.push({key:"image-budget",
     text:"This render has "+onImages.length+" selected images; the chosen model allows "+imageLimit+". Exclude optional references or choose a higher-capacity model."});
-  if(creditInfo.empty) blockers.push({ key:"credits",
+  if(creditInfo.empty) blockers.push(creditInfo.ownerPays ? { key:"credits", text:stageCreditShortText(creditInfo) }   // the owner raises it — no Plans
+    : { key:"credits",
     text:"Not enough generation credits — this render needs "+totalCost.toLocaleString("en-US")+(creditInfo.known?(", "+Number(creditInfo.remaining).toLocaleString("en-US")+" remaining"):"")+".",
     actionLabel:"Choose a plan", action:()=>{ if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); } });
   if(!prompt.trim()) blockers.push({ key:"prompt", text:"Write a prompt — describe the motion you want." });
@@ -5993,7 +6023,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       needsRun ? "Making\u2026" : "Make what this clip needs",
       !needsRun && typeof window.nbCostChip==="function" && window.nbCostChip(makeableNeeds.length)),
     (onStageNav && (readiness.frames.missing||readiness.frames.unapproved||readiness.frames.stale||readiness.frames.oldLook)>0)
-      && _stEl("button",{type:"button",className:"stage2-warn-act",onClick:()=>onStageNav("shots", scene.id)},"Open in Shots"));
+      // a role that can't change the Art Room (a Stage editor) is told who can, instead of being sent to a read-only
+      // room (2026-10-09, Stage editor review)
+      && (stageArtWritable()
+        ? _stEl("button",{type:"button",className:"stage2-warn-act",onClick:()=>onStageNav("shots", scene.id)},"Open in Shots")
+        : _stEl("span",{className:"stage2-warn-text"}," The film's owner or Art director can fix the frames in Shots.")));
   const takeStaleNotice = takeStale && _stEl("div",{key:"take-stale",className:"stage2-warn"},
     Icon.alert&&_stEl(Icon.alert,{s:12}),
     _stEl("span",{className:"stage2-warn-text"}, takeIdentity
@@ -6088,7 +6122,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
                     }))); }),
               !dialogueAssignmentCapacity && _stEl("div",{className:"stage2-dialogue-assign-cap"},
                 "This beat needs at least one unassigned shot per line for timed lip-sync.",
-                onStageNav&&_stEl("button",{type:"button",onClick:()=>onStageNav("shots")},"Add or split shots")),
+                onStageNav&&(stageArtWritable()
+                  ? _stEl("button",{type:"button",onClick:()=>onStageNav("shots")},"Add or split shots")
+                  : _stEl("span",null," Ask the film's owner or Art director to add or split shots."))),
               dialogueAssignError && _stEl("div",{className:"stage2-dialogue-assign-error",role:"alert"},dialogueAssignError),
               _stEl("div",{className:"stage2-dialogue-assign-foot"},
                 _stEl("button",{type:"button",className:"stage2-dialogue-cancel",onClick:()=>{setDialogueAssignOpen(false);setDialogueAssignError("");}},"Cancel"),
@@ -6429,7 +6465,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             onClick:()=>{ if(typeof window.turnOpenManagePlan==="function") window.turnOpenManagePlan(); else if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); }}, "Manage plan"))
         : _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}),
           _stEl("span",{className:"stage2-warn-text"}, stageCreditShortText(footerCredit)),
-          _stEl("button",{type:"button",className:"stage2-warn-act",
+          !footerCredit.ownerPays && _stEl("button",{type:"button",className:"stage2-warn-act",
             title:"Top up with a credit pack (any account; pack credits last 12 months), or upgrade your plan",
             onClick:()=>{ if(typeof window.turnOpenPlans==="function") window.turnOpenPlans(); }}, "Get credits"))),
       genErr && _stEl("div",{className:"stage2-warn"}, Icon.alert&&_stEl(Icon.alert,{s:12}), genErr))
@@ -6818,12 +6854,17 @@ function stageTakeNotes(clip, meta, project){
   return out;
 }
 window.stageTakeNotes = stageTakeNotes;
+/* a take whose address isn't one the app trusts (videogen.jsx vidTakeUrlTrusted — 2026-10-09, Stage editor review)
+   comes back with url "" and the stored address in rawUrl: it's listed (and the owner can delete it) but never played */
+function _stageTakeRows(list){
+  return (list||[]).map(t=> t && t.unavailable && !t.url ? { ...t, url:String(t.rawUrl||""), unavailable:true } : t).filter(t=>t && t.url);
+}
 function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, project }){
   const clipId = clip && clip.id;
-  const [takes, setTakes] = React.useState(()=> (clipId && typeof vidGetTakes==="function") ? vidGetTakes(clipId) : []);
+  const [takes, setTakes] = React.useState(()=> (clipId && typeof vidGetTakes==="function") ? _stageTakeRows(vidGetTakes(clipId)) : []);
   React.useEffect(()=>{ let alive=true;
-    if(clipId && typeof vidLoadTakes==="function") vidLoadTakes(clipId).then(t=>{ if(alive) setTakes(t||[]); });
-    const onDone=(e)=>{ if(alive && e.detail && e.detail.ids && e.detail.ids.indexOf(clipId)>=0 && typeof vidGetTakes==="function") setTakes(vidGetTakes(clipId)); };
+    if(clipId && typeof vidLoadTakes==="function") vidLoadTakes(clipId).then(t=>{ if(alive) setTakes(_stageTakeRows(t)); });
+    const onDone=(e)=>{ if(alive && e.detail && e.detail.ids && e.detail.ids.indexOf(clipId)>=0 && typeof vidGetTakes==="function") setTakes(_stageTakeRows(vidGetTakes(clipId))); };
     window.addEventListener("vid-done", onDone);
     return ()=>{ alive=false; window.removeEventListener("vid-done", onDone); };
   }, [clipId]);
@@ -6970,7 +7011,8 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
             return _stEl("button",{key:t.url,type:"button",
               className:"stage2-vcard"+(sel&&sel.url===t.url?" sel":""),
               onClick:()=>setSelUrl(t.url)},
-              _stEl("video",{className:"stage2-vcard-thumb",src:t.url+"#t=0.1",preload:"metadata",muted:true,playsInline:true,"aria-hidden":"true",tabIndex:-1}),
+              t.unavailable ? _stEl("div",{className:"stage2-vcard-thumb","aria-hidden":"true"})
+                : _stEl("video",{className:"stage2-vcard-thumb",src:t.url+"#t=0.1",preload:"metadata",muted:true,playsInline:true,"aria-hidden":"true",tabIndex:-1}),
               _stEl("div",{className:"stage2-vcard-main"},
                 _stEl("div",{className:"stage2-vcard-row"},
                   _stEl("span",{className:"stage2-vcard-vno"}, _stageTakeVno(t, takes, takes.indexOf(t))),
@@ -6986,7 +7028,8 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
           }) : _stEl("div",{className:"stage2-versions-empty"},"No versions match these filters.")),
         // center — player + details
         _stEl("div",{className:"stage2-versions-viewer"},
-          sel ? _stEl("video",{key:sel.url,className:"stage2-versions-video",src:sel.url,controls:true,playsInline:true,
+          sel && sel.unavailable ? _stEl("div",{className:"stage2-source-warning stale",role:"status"},"This take's video comes from an address the app doesn't play. The film's owner can delete it.")
+          : sel ? _stEl("video",{key:sel.url,className:"stage2-versions-video",src:sel.url,controls:true,playsInline:true,
             "aria-label":"Selected take"+((sel.meta&&sel.meta.vno)?" v"+sel.meta.vno:""),
             title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget)}) : null,
           sel && _stEl("div",{className:"stage2-versions-details"},
@@ -7053,10 +7096,14 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
           _stEl("button",{className:"stage2-vtool",disabled:!sel||selMeta.seed==null,
             title:"Reuse settings AND pin this take's seed — Generate renders a controlled variation",
             onClick:async()=>{ if(sel&&await confirmSourceOverride(sel,"Branch",false)) onReuse(selMeta,true); }}, "Branch from version"),
-          sel && _stEl("a",{className:"stage2-vtool link",href:sel.url,target:"_blank",rel:"noreferrer",download:""},"Download / open"),
-          _stEl("button",{className:"stage2-vtool danger",disabled:readOnly||!sel,
-            title:readOnly?"View-only access \u2014 deleting a take requires edit access":"Delete this take from the clip",
-            onClick:()=>sel&&act.del(sel.url)}, "Delete take"),
+          sel && !sel.unavailable && _stEl("a",{className:"stage2-vtool link",href:sel.url,target:"_blank",rel:"noreferrer",download:""},"Download / open"),
+          // (2026-10-09, owner — Stage editor review, decision C) a collaborator deletes only takes they made; the
+          // owner deletes any (window.vidTakeDeletable: no `by` on a take = the owner's)
+          (()=>{ const mine = !sel || typeof window.vidTakeDeletable!=="function" || window.vidTakeDeletable(sel);
+            return _stEl("button",{className:"stage2-vtool danger",disabled:readOnly||!sel||!mine,
+              title:readOnly?"View-only access \u2014 deleting a take requires edit access"
+                : !mine ? "Only the person who made this take, or the film's owner, can delete it" : "Delete this take from the clip",
+              onClick:()=>sel&&mine&&act.del(sel.url)}, "Delete take"); })(),
           _stEl("div",{className:"stage2-versions-dhead filters"},"Filters"),
           _stEl("label",{className:"stage2-vfilter"},"Status",
             _stEl("select",{value:fStatus,onChange:(e)=>setFStatus(e.target.value)},
@@ -8221,7 +8268,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     (async()=>{ const out={};
       for(const sh of (shots||[])){ if(!String(sh.dialogue||"").trim()) continue;
         let u=(typeof vgGetAudio==="function")?vgGetAudio(sh.id):"";
-        if(!u && typeof vgLoadAudio==="function"){ try{ u=await vgLoadAudio(sh.id); }catch(e){} } if(u) out[sh.id]=u; }
+        if(!u && typeof vgLoadAudio==="function"){ try{ u=await vgLoadAudio(sh.id, undefined, { hash:sh.lineAudio && sh.lineAudio.hash }); }catch(e){} } if(u) out[sh.id]=u; }   // the matching voicing from the film (2026-10-09)
       if(alive) setAuds(out); })();
     return ()=>{ alive=false; }; }, [(shots||[]).map(s=>s.id+":"+(s.lineAudio?1:0)).join(","), audTick]);
 
