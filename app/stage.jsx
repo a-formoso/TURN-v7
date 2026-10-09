@@ -7709,13 +7709,16 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // EACH SCENE'S CLIPS, FOR THE BREAKDOWN (2026-10-05, owner — Breakdown review): the clip grouping follows
   // this room's model and settings, so the counts are saved per film on this device on each visit
   const stageStatusSig = (allClips||[]).map(c=>c.id+":"+(vids[c.id]?1:0)+(staleVids[c.id]?"s":"")+(oldLookVids[c.id]?"l":"")).join(",");
+  // saved only once the takes have LOADED (2026-10-09 — leaving the Stage quickly saved "0 rendered", or nothing)
+  const [vidsLoaded, setVidsLoaded] = React.useState(false);
   React.useEffect(()=>{
+    if(!vidsLoaded || !(allClips||[]).length) return;
     const out = {};
     (allClips||[]).forEach(c=>{ if(!c || !c.scene) return; const o = out[c.scene.id] = out[c.scene.id] || { total:0, rendered:0, stale:0, oldLook:0 };
       o.total++; if(vids[c.id]) o.rendered++; if(staleVids[c.id]) o.stale++; if(oldLookVids[c.id]) o.oldLook++; });
     out.__at = new Date().toISOString();
     try{ localStorage.setItem("turn_stage_scene_status:"+((project && project.id)||"local"), JSON.stringify(out)); }catch(e){}
-  },[stageStatusSig, project && project.id]);
+  },[stageStatusSig, project && project.id, vidsLoaded]);
   React.useEffect(()=>{ let alive=true;
     (async()=>{ const out={}, stale={};
        for(const id of videoIds){ let u=(typeof vidGetVideo==="function")?vidGetVideo(id):"";
@@ -7726,7 +7729,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
            || ["current","override"].includes(shotSourcesEditorialStatus(
              ((clip.data||{}).shots)||[],drafts,meta));
          if(u&&usable) out[id]=u; else if(u) stale[id]=true; }
-      if(alive){ setVids(out); setStaleVids(stale); } })();
+      if(alive){ setVids(out); setStaleVids(stale); setVidsLoaded(true); } })();
     return ()=>{ alive=false; }; }, [clipIdsKey, vidTick, draftSig, shotIdsKey]);
 
   // the Scenes rail collapses to the same vertical strip the Writers' Room panels use. ABOVE the

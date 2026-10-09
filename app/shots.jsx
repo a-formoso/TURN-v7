@@ -2595,6 +2595,8 @@ function sceneReferenceNeeds(sceneShots, ctx, has){
         : kind==="prop" ? (!spec.baseId || spec.baseId===spec.id)
         : (locIds.has(spec.id) || /^locunit-/.test(String(spec.id)));
       out.push({ id:spec.id, baseId:spec.baseId||spec.id, kind, makeable,
+        // a character VARIANT whose master sheet doesn't exist yet: making it makes the master first (2026-10-09)
+        ...(kind==="character" && spec.baseId && String(spec.baseId)!==String(spec.id) ? { masterMissing:!exists(spec.baseId) } : {}),
         label:String(spec.label||spec.name||spec.note||spec.id).replace(/\s*\(identity only[\s\S]*$/,"").slice(0,60) });
     };
     (plan.activeLocSpec||[]).forEach(x=>add(x,"location"));
@@ -2605,6 +2607,21 @@ function sceneReferenceNeeds(sceneShots, ctx, has){
   return out;
 }
 window.sceneReferenceNeeds = sceneReferenceNeeds;
+/* HOW MANY IMAGES "Make what this scene needs" really makes (2026-10-09, owner — Breakdown review): a character
+   VARIANT whose master sheet doesn't exist yet makes the master first — two images, not one. The Breakdown's
+   chip, its summary and the run's question all count with this. */
+function sceneNeedsImageCount(needs, has){
+  const L = (needs||[]).filter(n=>n && n.makeable);
+  const ids = new Set(L.map(n=>String(n.id)));
+  const exists = typeof has==="function" ? has : ((id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : true);
+  let n = 0;
+  L.forEach(x=>{ n++;
+    const sid = String(x.id);
+    if(x.kind==="character" && sid.indexOf(":")>0){ const m = sid.split(":")[0];
+      if(!ids.has(m) && (x.masterMissing!==undefined ? x.masterMissing : !exists(m))){ ids.add(m); n++; } } });
+  return n;
+}
+window.sceneNeedsImageCount = sceneNeedsImageCount;
 
 /* A shot frame's state, by the rules the Shots tab's ordered runs use: DONE = rendered, approved,
    and current (its shot spec / screenplay source unchanged, or overridden on purpose, and its seed

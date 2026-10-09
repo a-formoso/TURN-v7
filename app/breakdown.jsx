@@ -56,7 +56,11 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
       const needs = p.kind==="worn" || tierOf(p)!=="text";
       // WORN = the Shots rule (2026-10-08): it rides on its owner's character sheet; its own macro sheet
       // is optional (close-ups only), so the owner's sheet is enough to be ready
-      const macro = img(p.id), onOwner = p.kind==="worn" && !macro && !!(p.ownerId && img(p.ownerId));
+      // (2026-10-09) the owner's sheet THIS scene's frames attach — its appearance variant when there is one
+      const ownerC = p.ownerId ? (C||[]).find(c=>c && c.id===p.ownerId) : null;
+      const ownerSpec = (ownerC && typeof shotCharacterReferenceSpec==="function") ? (()=>{ try{ return shotCharacterReferenceSpec(ownerC, scene, ordered); }catch(e){ return null; } })() : null;
+      const ownerSheet = (ownerSpec && ownerSpec.id) || p.ownerId;
+      const macro = img(p.id), onOwner = p.kind==="worn" && !macro && !!(ownerSheet && img(ownerSheet));
       return { id:p.id, name:p.name||"Prop", kind:p.kind||"carried", owner:p.ownerName||"", ownerId:p.ownerId||"", needs, onOwner,
         ready:!needs || !!macro || onOwner };
     });
@@ -94,16 +98,27 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     else if(typeof shotFrameState==="function"){
       let locChanged = 0, charChanged = 0, propChanged = 0;
       // every RENDERED frame counts for the notes, as Shots, Storyboards and the Stage count them (2026-10-08)
-      sceneShots.forEach(sh=>{ const st = shotFrameState(sh, sceneShots, drafts, project, img); if(!st.done) toRender++; else done++;
+      // (2026-10-09, owner — Breakdown review) the same reach as Shots' Render: an approved frame that follows one
+      // being re-rendered in the chain re-renders too; and a frame that's only waiting for approval is said apart
+      let toApprove = 0, cascade = 0;
+      const chain = (typeof sceneShotsOrdered==="function") ? sceneShotsOrdered(sceneShots) : sceneShots;
+      const will = new Set();
+      chain.forEach(sh=>{ const st = shotFrameState(sh, sceneShots, drafts, project, img);
+        if(!st.done){ toRender++; will.add(sh.id); if(st.rendered && st.current && !st.approved) toApprove++; }
+        else { const seed = (typeof seedShotOf==="function") ? seedShotOf(sh, chain) : null;
+          if(seed && will.has(seed.id)){ will.add(sh.id); cascade++; } else done++; }
         if(st.rendered || st.done){ if(st.oldLook) oldLook++; if(st.locChanged) locChanged++; if(st.charChanged) charChanged++; if(st.propChanged) propChanged++; } });
       // a changed location plate is a note, like an earlier look (2026-10-08)
       if(locChanged>0) notes.push({ tab:"shots", text:locChanged+" frame"+(locChanged===1?"":"s")+" made before its location changed \u2014 re-render to apply it" });
       // the same notes the Shots card shows (2026-10-09)
       if(charChanged>0) notes.push({ tab:"shots", text:charChanged+" frame"+(charChanged===1?"":"s")+" made before a character sheet changed \u2014 re-render to apply it" });
       if(propChanged>0) notes.push({ tab:"shots", text:propChanged+" frame"+(propChanged===1?"":"s")+" made before a prop changed \u2014 re-render to apply it" });
-      const unrendered = sceneShots.length-rendered, notDone = toRender-unrendered;
+      const unrendered = sceneShots.length-rendered, notDone = toRender-unrendered, toRefresh = notDone-toApprove;
       if(unrendered>0) missing.push({ tab:"shots", text:unrendered+" frame"+(unrendered===1?"":"s") });
-      if(notDone>0) missing.push({ tab:"shots", text:notDone+" frame"+(notDone===1?"":"s")+" to approve or refresh" });
+      if(toApprove>0) missing.push({ tab:"shots", text:toApprove+" frame"+(toApprove===1?"":"s")+" to approve" });
+      if(toRefresh>0) missing.push({ tab:"shots", text:toRefresh+" frame"+(toRefresh===1?"":"s")+" to refresh" });
+      if(cascade>0) notes.push({ tab:"shots", text:cascade+" approved frame"+(cascade===1?"":"s")+" after "+(cascade===1?"it":"them")+" in the chain re-render"+(cascade===1?"s":"")+" with "+(toRender===1?"it":"them") });
+      toRender += cascade;
       // a NOTE, not a block (2026-10-05, owner — Breakdown review): Shots and the Stage treat an earlier
       // colour look the same way; the scene stays ready, and the strip says so
       if(oldLook>0) notes.push({ tab:"shots", text:oldLook+" frame"+(oldLook===1?"":"s")+" with an earlier look \u2014 re-render to apply it" });
@@ -127,19 +142,21 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
       if(location) location.status = location.ready ? "ready" : "missing";
     }
     // the scene's storyboard sheets, by the Storyboards tab's own rules (sbSheetStale: other shots or re-rendered frames)
-    let boards = null;
+    let boards = null; const boardIds = [];
     if(sceneShots.length && typeof window.sbPageRanges==="function"){
       const ordered2 = sceneShots.slice().sort((a,b)=>(a.order||0)-(b.order||0) || (a.beatN||0)-(b.beatN||0));
-      boards = { total:0, current:0, stale:0, oldLook:0, partial:0 };
+      boards = { total:0, current:0, stale:0, oldLook:0, partial:0, none:0 };
       const board = (typeof window.sbBoardShots==="function") ? window.sbBoardShots(ordered2) : ordered2;   // one keyframe per beat, as the tab boards it
       (window.sbPageRanges(board)||[]).forEach((rg,i)=>{
         boards.total++;
         const id = "sbsheet-sbpage-"+scene.id+"-2x2-"+i;
-        if(!img(id)) return;
+        boardIds.push(id);   // looked up on a cold cache like everything else (2026-10-09)
+        if(!img(id)){ boards.none++; return; }
         const m = (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
         const ids = board.slice(rg.start, rg.start+rg.count).map(x=>x.id);
         // a sheet drawn from frames made with an earlier look isn't up to date either (2026-10-08)
-        const earlier = typeof shotLookIsEarlier==="function" && ids.some(fid=>{ const fm = (typeof nbGetMeta==="function") ? nbGetMeta(fid) : null;
+        // an uploaded board wasn't drawn from frames — the frames' look doesn't date it
+        const earlier = !!(m && m.composed) && typeof shotLookIsEarlier==="function" && ids.some(fid=>{ const fm = (typeof nbGetMeta==="function") ? nbGetMeta(fid) : null;
           return !!(fm && shotLookIsEarlier(fm.lookSig, project, scene.id)); });
         if(typeof window.sbSheetStale==="function" && m && window.sbSheetStale(m, ids)) boards.stale++;
         else if(m && m.composed && Number(m.missing)>0) boards.partial++;   // drawn with frames missing (2026-10-09)
@@ -149,7 +166,7 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     const clips = (stageStatus && stageStatus[scene.id]) || null;
     return { scene, slug:{ ...slug, todKind }, cast, location, wardrobe, props:sceneProps,
       shots:{ total:sceneShots.length, rendered, approved, toRender }, framesDone:done, missing, notes, ready:!missing.length,
-      needs: needs||[], boards, clips };
+      needs: needs||[], boards, clips, boardIds };
   });
 }
 
@@ -160,12 +177,16 @@ function breakdownSummary(rows){
   (rows||[]).forEach(r=>{
     if(r.needs && r.needs.length){
       // the render-plan needs (deduped across scenes by asset id)
-      r.needs.forEach(n=>{ (n.kind==="character" ? castSheets : n.kind==="location" ? plates : propSheets).add(n.id); });
+      r.needs.forEach(n=>{ if(n.kind==="character"){ castSheets.add(n.id);
+          // a variant whose master doesn't exist yet makes the master first (2026-10-09)
+          const sid = String(n.id); if(sid.indexOf(":")>0 && n.masterMissing) castSheets.add(sid.split(":")[0]); }
+        else if(n.kind==="location") plates.add(n.id); else propSheets.add(n.baseId||n.id); });
       if(!r.location) noLoc++;
     } else {
       r.cast.forEach(c=>{ if(!c.ready) castSheets.add(c.sheetId); });
       if(!r.location) noLoc++; else if(!r.location.ready) plates.add(r.location.id);
-      r.wardrobe.concat(r.props).forEach(p=>{ if(!p.ready) propSheets.add(p.id); });
+      // a worn item needs only its owner's sheet, which the cast line counts (2026-10-09 — it was counted twice)
+      r.props.forEach(p=>{ if(!p.ready) propSheets.add(p.id); });
     }
     if(!r.shots.total) noShots++; else frames += (r.shots.toRender!=null ? r.shots.toRender : r.shots.total - r.shots.rendered);
   });
@@ -191,7 +212,8 @@ function bdStripKind(slug){
   return (ext?"ext-":"int-")+slug.todKind;
 }
 
-function bdSummaryLine(sum){
+// noPrice: the exported stripboard is for the crew — no credit estimate on it (2026-10-09)
+function bdSummaryLine(sum, noPrice){
   const todo = [];
   if(sum.castSheets) todo.push(sum.castSheets+" cast sheet"+(sum.castSheets===1?"":"s"));
   if(sum.plates) todo.push(sum.plates+" plate"+(sum.plates===1?"":"s"));
@@ -200,9 +222,9 @@ function bdSummaryLine(sum){
   if(sum.noShots) todo.push(sum.noShots+" scene"+(sum.noShots===1?"":"s")+" without shots");
   if(sum.noLoc) todo.push(sum.noLoc+" without a location card");
   // what's left to spend, from the current engine's price for one image
-  const cost = (sum.images && typeof window.nbImageCostText==="function") ? window.nbImageCostText(sum.images) : "";
+  const cost = (!noPrice && sum.images && typeof window.nbImageCostText==="function") ? window.nbImageCostText(sum.images) : "";
   return sum.ready+" of "+sum.total+" scene"+(sum.total===1?"":"s")+" ready to shoot"+(todo.length ? " · to go: "+todo.join(", ") : "")
-    +(cost ? " \u00b7 \u2248 "+cost+" credit"+(cost==="1"?"":"s")+" to finish (image credits; drafting adds a little writing; video is priced on the Stage)" : "");
+    +(cost ? " \u00b7 \u2248 "+cost+" credit"+(cost==="1"?"":"s")+" for the images still to make (scenes without shots cost more to design; drafting adds a little writing; Shots gives each run's exact price; video is priced on the Stage)" : "");
 }
 
 function BreakdownView({ project, scenes, characters, props, locations, shots, drafts, setArtView, onMakeSceneNeeds, onOpenStage, readOnly=false }){
@@ -224,9 +246,16 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
   React.useEffect(()=>{
     let t = null;
     const bump = ()=>{ clearTimeout(t); t = setTimeout(()=>setTick(x=>x+1), 250); };
-    window.addEventListener("nb-prefetched", bump); window.addEventListener("nb-gen-done", bump);
-    return ()=>{ clearTimeout(t); window.removeEventListener("nb-prefetched", bump); window.removeEventListener("nb-gen-done", bump); };
+    // a CLEARED image (a done event with no url) leaves the found set, and may be looked up again (2026-10-09 —
+    // a deleted sheet or frame stayed "ready")
+    const gone = (e)=>{ const d=(e&&e.detail)||{}; if(d.id && !d.url){ checkedRef.current.delete(d.id);
+      setFound(f=>{ if(!f.has(d.id)) return f; const n=new Set(f); n.delete(d.id); return n; }); } bump(); };
+    window.addEventListener("nb-prefetched", bump); window.addEventListener("nb-gen-done", gone);
+    return ()=>{ clearTimeout(t); window.removeEventListener("nb-prefetched", bump); window.removeEventListener("nb-gen-done", gone); };
   },[]);
+  const mountedRef = React.useRef(true);
+  React.useEffect(()=>()=>{ mountedRef.current = false; },[]);
+  const [checkFailed, setCheckFailed] = React.useState(false);
   const img = (id)=> found.has(id) || ((typeof nbGetImage==="function") ? !!nbGetImage(id) : false);
   const tierOf = (p)=>{ try{ return (window.PropScreenplay && window.PropScreenplay.sheetTier) ? window.PropScreenplay.sheetTier(p, drafts||{}).tier : "own"; }catch(e){ return "own"; } };
   const stageStatus = bdStageStatus(project && project.id);
@@ -237,8 +266,9 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
   React.useEffect(()=>{
     if(!cloud) return;
     let alive = true;
-    Promise.resolve(typeof nbPrefetchAll==="function" ? nbPrefetchAll() : null).catch(()=>{})
-      .then(()=>{ if(alive){ setChecking(false); setTick(t=>t+1); } });
+    // a prefetch that FAILS says so (2026-10-09 — everything read as missing, with export enabled)
+    Promise.resolve(typeof nbPrefetchAll==="function" ? nbPrefetchAll() : null).then(()=>({ ok:true }), ()=>({ ok:false }))
+      .then((r)=>{ if(alive){ setCheckFailed(!(r && r.ok)); setChecking(false); setTick(t=>t+1); } });
     return ()=>{ alive=false; };
   },[project && project.id]);
   // a film stored on this device keeps large sheets in IndexedDB (async): look up what the
@@ -246,26 +276,28 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
   React.useEffect(()=>{
     if(cloud) return;
     if(typeof nbLoadImage!=="function"){ setChecking(false); return; }
-    let alive = true;
     const want = new Set();
-    // every id a strip or its frames' needs name — wardrobe, rooms & times and variants too (2026-10-05)
-    rows.forEach(r=>{ r.cast.forEach(c=>{ if(!c.ready) want.add(c.sheetId); });
+    // every id a strip or its frames' needs name — wardrobe, rooms & times and variants too (2026-10-05), and
+    // (2026-10-09) the scene's storyboard sheets and each cast member's / worn item owner's master sheet
+    rows.forEach(r=>{ r.cast.forEach(c=>{ if(!c.ready) want.add(c.sheetId); if(c.id && !img(c.id)) want.add(c.id); });
       if(r.location && !r.location.ready) want.add(r.location.id);
-      r.props.concat(r.wardrobe||[]).forEach(p=>{ if(!p.ready) want.add(p.id); });
+      r.props.concat(r.wardrobe||[]).forEach(p=>{ if(!p.ready) want.add(p.id); if(p.ownerId && !img(p.ownerId)) want.add(p.ownerId); });
       (r.needs||[]).forEach(n=>{ if(n && n.id) want.add(n.id); });
+      (r.boardIds||[]).forEach(id=>{ if(!img(id)) want.add(id); });
       (shots||[]).forEach(s=>{ if(s && s.sceneId===r.scene.id && !img(s.id)) want.add(s.id); }); });
     // each id is looked up once (a later render lands in the synchronous cache anyway)
     const ids = [...want].filter(id=> !found.has(id) && !checkedRef.current.has(id));
     ids.forEach(id=>checkedRef.current.add(id));
     if(!ids.length){ setChecking(false); return; }
+    // NOT cancelled by a re-render (2026-10-09): a pass interrupted by the next tick left its ids marked as
+    // checked but never looked up, so finished sheets stayed missing — only leaving the tab stops it
     (async ()=>{
       const hit = [];
-      for(const id of ids){ try{ if(await nbLoadImage(id)) hit.push(id); }catch(e){} if(!alive) return; }
-      if(!alive) return;
+      for(const id of ids){ try{ if(await nbLoadImage(id)) hit.push(id); }catch(e){} if(!mountedRef.current) return; }
+      if(!mountedRef.current) return;
       if(hit.length) setFound(f=>{ const n=new Set(f); hit.forEach(x=>n.add(x)); return n; });
       setChecking(false);
     })();
-    return ()=>{ alive=false; };
   },[rows.length, (shots||[]).length, tick]);
   // the ⋮ menu's "Export stripboard" while this tab is open
   // (not while "Checking…": every sheet would print as missing — 2026-10-05)
@@ -281,23 +313,30 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
     if(sceneId && typeof window.turnFocusArtScene==="function") window.turnFocusArtScene(tab, sceneId, action);
     setArtView(tab);
   };
-  const exportBible = ()=> exportArtBible({ project, characters, props, locations, scenes, drafts, shots });
+  // one at a time, with a busy label — it loads and embeds every sheet (2026-10-09: a second click built it twice)
+  const [bibleBusy, setBibleBusy] = React.useState(false);
+  const exportBible = async ()=>{ if(bibleBusy) return; setBibleBusy(true);
+    try{ await exportArtBible({ project, characters, props, locations, scenes, drafts, shots }); } finally { setBibleBusy(false); } };
   const shown = rows.filter(r=> filter==="all" || (filter==="ready" ? r.ready : !r.ready));
   const header = _bdEl("div",{className:"art-intro"},
     _bdEl("div",{className:"art-intro-row"},
       _bdEl("div",null,
         _bdEl("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"First Assistant Director",
           window.InfoTip && _bdEl(window.InfoTip,{label:"About the Breakdown",
-            text:"The Breakdown is your stripboard: one strip per scene, in story order, coloured the way film crews colour them — white for INT day, yellow for EXT day, blue for INT night, green for EXT night, pink for dawn and dusk. Each strip lists who is in the scene (in the look they wear there), its location, the props it needs and its shots, and says what is still missing before the scene can be shot: a cast sheet or appearance variant, a location plate, a prop sheet, or shot frames. Click a missing item to open its tab. Two buttons on a strip spend credits, and both show their price: \u201cMake what this scene needs\u201d makes the missing reference images, and \u201cRender Scene NN\u201d opens Shots on that scene and asks before rendering its frames. Each strip also shows its storyboard sheets and, as of your last visit to the Stage, its video clips. Export the stripboard, or the whole art department bible, from the ⋮ menu."})),
-        _bdEl("div",{className:"bd-sum"}, !rows.length ? "No scenes yet" : checking ? "Checking which sheets and frames exist\u2026" : bdSummaryLine(sum))),
+            text:"The Breakdown is your stripboard: one strip per scene, in story order, coloured the way film crews colour them — white for INT day, yellow for EXT day, blue for INT night, green for EXT night, pink for dawn and dusk. Each strip lists who is in the scene (in the look they wear there), its location, the props it needs and its shots, and says what is still missing before the scene can be shot: a cast sheet or appearance variant, a location plate (a room's location plate comes first), a prop sheet, shot frames, frames to approve or to refresh \u2014 and notes for frames made before a look, sheet, location or prop changed. A worn item is ready when it's on its owner's character sheet. Click a missing item to open its tab on this scene. Two buttons on a strip spend credits: \u201cMake what this scene needs\u201d makes the missing reference images (it asks first, with the price, and drafts any look that isn't written yet), and \u201cRender Scene NN\u201d opens Shots on that scene, which asks with the exact price. Each strip also shows its storyboard sheets and, as of your last visit to the Stage, its video clips. Export the stripboard or the whole art department bible with the buttons beside this tip."})),
+        _bdEl("div",{className:"bd-sum"}, !rows.length ? "No scenes yet" : checking ? "Checking which sheets and frames exist\u2026"
+          : checkFailed ? "Couldn't check which sheets and frames exist (no connection?) \u2014 the counts below may be too high. Reopen the tab to check again."
+          : bdSummaryLine(sum)),
+        // say why the spending buttons aren't there (2026-10-09)
+        readOnly && rows.length>0 && _bdEl("div",{className:"bd-sum bd-readonly"},"View only \u2014 your role can't make images or render here.")),
       rows.length>0 && !checking && _bdEl("div",{className:"art-intro-actions"},
         // the two exports, here too (they also stay in the top bar's ⋮ menu)
         _bdEl("button",{type:"button",className:"art-draftall ghost",onClick:()=>exportStripboard(rows, project),
           title:"Preview the stripboard as a printable document, then print / save as PDF or download it"},
           _bdEl(Icon.download,{s:14}),"Export stripboard"),
-        _bdEl("button",{type:"button",className:"art-draftall ghost",onClick:exportBible,
-          title:"The cast, props and locations as one printable document, with their current sheets embedded"},
-          _bdEl(Icon.download,{s:14}),"Art department bible"),
+        _bdEl("button",{type:"button",className:"art-draftall ghost",onClick:exportBible,disabled:bibleBusy,"aria-busy":bibleBusy?"true":undefined,
+          title:"The cast, props and locations as one printable document, with their current sheets (and appearance states) embedded"},
+          _bdEl(Icon.download,{s:14}),bibleBusy?"Preparing\u2026":"Art department bible"),
         _bdEl("div",{className:"bd-filter",role:"group","aria-label":"Show scenes"},
           [["all","All"],["todo","Needs work"],["ready","Ready"]].map(([id,lab])=>
             _bdEl("button",{key:id,type:"button",className:"bd-filter-btn"+(filter===id?" on":""),"aria-pressed":filter===id?"true":"false",
@@ -313,10 +352,11 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
   }
   if(checking){
     return _bdEl("div",{className:"art-scroll"}, header,
-      _bdEl("div",{className:"bd-none",role:"status"}, _bdEl("span",{className:"ai-typing"},_bdEl("i",null),_bdEl("i",null),_bdEl("i",null))));
+      _bdEl("div",{className:"bd-none",role:"status"}, _bdEl("span",{className:"ai-typing","aria-hidden":"true"},_bdEl("i",null),_bdEl("i",null),_bdEl("i",null)),
+        _bdEl("span",{className:"sb-sr-only"},"Checking which sheets and frames exist\u2026")));
   }
   return _bdEl("div",{className:"art-scroll"}, header,
-    _bdEl("div",{className:"bd-legend","aria-label":"Strip colours"},
+    _bdEl("div",{className:"bd-legend",role:"group","aria-label":"Strip colours"},
       Object.keys(BD_STRIP_LABEL).map(k=> _bdEl("span",{key:k,className:"bd-legend-i"}, _bdEl("span",{className:"bd-sw bd-k-"+k}), BD_STRIP_LABEL[k]))),
     _bdEl("div",{className:"bd-board"},
       shown.length ? shown.map(r=> _bdEl(BreakdownStrip,{key:r.scene.id, row:r, go, onMakeSceneNeeds, needsBusy, setNeedsBusy, onOpenStage, readOnly}))
@@ -330,9 +370,12 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
   const go = (tab, action)=> goTab(tab, scene.id, action);   // every link opens on THIS scene
   const needsRun = (needsBusy && needsBusy.sceneId===scene.id) ? needsBusy : null;
   const makeable = (row.needs||[]).filter(n=>n.makeable);
+  // the images it really makes — a variant whose master is missing makes the master too (2026-10-09)
+  const makeImages = (typeof window.sceneNeedsImageCount==="function") ? window.sceneNeedsImageCount(makeable) : makeable.length;
+  const [allMissing, setAllMissing] = React.useState(false);   // the status column's "+N more" opens the rest
   const makeNeeds = async ()=>{
     if(!onMakeSceneNeeds || needsBusy || !makeable.length) return;
-    setNeedsBusy({ sceneId:scene.id, i:0, total:makeable.length });
+    // busy only once the run starts (after its question) — the strip read "Making 0 of N" while you decided
     try{ await onMakeSceneNeeds(scene, makeable, (i,total)=>setNeedsBusy({ sceneId:scene.id, i, total })); }
     finally{ setNeedsBusy(null); }
   };
@@ -341,12 +384,13 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
   const sceneActs = (onMakeSceneNeeds && makeable.length>0) || canRender ? _bdEl("div",{className:"bd-strip-acts"},
     (onMakeSceneNeeds && makeable.length>0) && _bdEl("button",{type:"button",className:"bd-act",disabled:!!needsBusy,onClick:makeNeeds,
         "aria-busy":needsRun?"true":undefined,
+        "aria-label": (needsBusy && !needsRun) ? "Make what this scene needs (wait: another scene is making its images)" : undefined,
         title: (needsBusy && !needsRun) ? "Another scene is making its images \u2014 one at a time"
-          : "Make the "+makeable.length+" missing reference image"+(makeable.length!==1?"s":"")+" this scene's frames use (location plates, rooms & times, character sheets, prop sheets — in that order)"},
+          : "Make the "+makeImages+" missing reference image"+(makeImages!==1?"s":"")+" this scene's frames use (location plates, rooms & times, character sheets, prop sheets \u2014 in that order). Asks first, with the price; a look that isn't written yet is drafted first (writing credits)."},
       needsRun ? ("Making "+needsRun.i+" of "+needsRun.total+"\u2026") : "Make what this scene needs",
-      !needsRun && typeof window.nbCostChip==="function" && window.nbCostChip(makeable.length)),
+      !needsRun && typeof window.nbCostChip==="function" && window.nbCostChip(makeImages)),
     canRender && _bdEl("button",{type:"button",className:"bd-act",onClick:()=>go("shots","render"),
-        title:"Open Shots on this scene and render its "+shots.toRender+" frame"+(shots.toRender!==1?"s":"")+" that aren't approved and current \u2014 Shots asks first, with the price"},
+        title:"Open Shots on this scene and render its "+shots.toRender+" frame"+(shots.toRender!==1?"s":"")+" that aren't approved and current (a frame only waiting for approval is re-rendered too \u2014 approve it in Shots instead, free) \u2014 Shots asks first, with the exact price"},
       "Render Scene "+String(scene.no!=null?scene.no:"").padStart(2,"0"),
       typeof window.nbCostChip==="function" && window.nbCostChip(shots.toRender))) : null;
   const [allProps, setAllProps] = React.useState(false);
@@ -354,8 +398,10 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
   const kind = bdStripKind(slug);
   const dot = (ok)=> _bdEl("span",{className:"bd-dot"+(ok===true?" ok":ok==="unused"?" unused":""),"aria-hidden":"true"});
   // ok: true (ready) | false (missing) | "unused" (no frame of this scene attaches it — never red)
-  const chip = (key, label, ok, tab, title)=> _bdEl("button",{key, type:"button", className:"bd-chip"+(ok===true?" ok":ok==="unused"?" unused":""), onClick:()=>go(tab),
-    title: ok==="unused" ? (String(title||"").split(" \u2014 ")[0].replace(/ needs .*$/,"")+" \u2014 not in any of this scene's frames") : title}, dot(ok), _bdEl("span",{className:"bd-chip-t"},label));
+  // the status is READ too, not only shown by the dot's colour or on hover (2026-10-09)
+  const chip = (key, label, ok, tab, title)=>{ const t = ok==="unused" ? (String(title||"").split(" \u2014 ")[0].replace(/ needs .*$/,"")+" \u2014 not in any of this scene's frames") : title;
+    return _bdEl("button",{key, type:"button", className:"bd-chip"+(ok===true?" ok":ok==="unused"?" unused":""), onClick:()=>go(tab),
+      title:t, "aria-label":String(t||label)+(ok===true?" (ready)":ok==="unused"?"":" (missing)")}, dot(ok), _bdEl("span",{className:"bd-chip-t"},label)); };
   const okOf = (x)=> !x ? false : x.status==="unused" ? "unused" : x.status ? x.status==="ready" : !!x.ready;
   const propsShown = allProps ? props : props.slice(0, BD_PROPS_SHOWN);
   const wornShown = allWorn ? wardrobe : wardrobe.slice(0, BD_PROPS_SHOWN);
@@ -396,7 +442,7 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
                 return _bdEl("button",{type:"button",className:"bd-chip"+(allDone?" ok":""),onClick:()=>go("shots"),
                   title: allDone ? "Every frame is approved and up to date \u2014 open the Shots tab" : (shots.toRender+" frame"+(shots.toRender===1?"":"s")+" still to render, approve or refresh \u2014 open the Shots tab")},
                   dot(allDone), shots.total+" shot"+(shots.total===1?"":"s")+" · "+shots.rendered+" rendered"+(shots.approved?" · "+shots.approved+" approved":"")); })()
-            : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>go("shots"),title:"Design this scene's coverage in the Shots tab"}, dot(false), "No shots yet"))),
+            : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>go("shots"),title:"Design this scene's shots (one keyframe per beat) in the Shots tab"}, dot(false), "No shots yet"))),
         // STORYBOARDS + THE STAGE on the strip (2026-10-05, owner — Breakdown review), read-only
         row.boards && row.boards.total>0 && _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Boards"),
           _bdEl("div",{className:"bd-chips"},
@@ -405,7 +451,8 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
               dot(row.boards.current===row.boards.total),
               row.boards.current+" of "+row.boards.total+" sheet"+(row.boards.total===1?"":"s")+" up to date"+(row.boards.stale?" \u00b7 "+row.boards.stale+" out of date":"")
                 +(row.boards.oldLook?" \u00b7 "+row.boards.oldLook+" from frames with an earlier look":"")
-                +(row.boards.partial?" \u00b7 "+row.boards.partial+" with frames still missing":"")))),
+                +(row.boards.partial?" \u00b7 "+row.boards.partial+" with frames still missing":"")
+                +(row.boards.none?" \u00b7 "+row.boards.none+" not composed yet":"")))),
         shots.total>0 && _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Clips"),
           _bdEl("div",{className:"bd-chips"}, row.clips && row.clips.total
             ? _bdEl("button",{type:"button",className:"bd-chip"+(row.clips.rendered===row.clips.total && !row.clips.stale?" ok":""),
@@ -423,8 +470,9 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
     _bdEl("div",{className:"bd-strip-status"+(ready?" ok":"")},
       ready ? _bdEl(React.Fragment,null, _bdEl(Icon.check,{s:14}), "Ready")
         : _bdEl(React.Fragment,null, _bdEl("span",{className:"bd-need-n"}, missing.length), _bdEl("span",null,"to go"),
-            _bdEl("div",{className:"bd-need-list"}, missing.slice(0,4).map((m,i)=> _bdEl("button",{key:i,type:"button",className:"bd-need",title:m.text,onClick:()=>go(m.tab)}, m.text)),
-              missing.length>4 && _bdEl("span",{className:"bd-need more"},"+"+(missing.length-4)+" more")))));
+            _bdEl("div",{className:"bd-need-list"}, (allMissing ? missing : missing.slice(0,4)).map((m,i)=> _bdEl("button",{key:i,type:"button",className:"bd-need",title:m.text,onClick:()=>go(m.tab)}, m.text)),
+              missing.length>4 && _bdEl("button",{type:"button",className:"bd-need more","aria-expanded":allMissing?"true":"false",onClick:()=>setAllMissing(v=>!v)},
+                allMissing ? "Show fewer" : "+"+(missing.length-4)+" more")))));
 }
 
 const _bdEsc = (s)=> String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -442,9 +490,12 @@ function exportStripboard(rows, project){
   const sum = breakdownSummary(rows);
   const body = (rows||[]).map(r=>{
     const k = bdStripKind(r.slug);
-    const cast = r.cast.map(c=> _bdEsc(c.name)+(c.state?' <i>('+_bdEsc(c.state)+')</i>':"")+(c.ready?"":" ○")).join(", ");
-    const props = r.props.map(p=> _bdEsc(p.name)+(p.needs&&!p.ready?" ○":"")).join(", ");
-    const worn = r.wardrobe.map(p=> _bdEsc(p.name)+(p.owner?' <i>('+_bdEsc(p.owner)+')</i>':"")+(!p.ready?" ○":"")).join(", ");
+    // "○ not made yet" follows the chip's status, as the tab shows it (2026-10-09): an item no frame uses isn't owed
+    const owed = (x)=> x.status ? x.status==="missing" : !x.ready;
+    const cast = r.cast.map(c=> _bdEsc(c.name)+(c.state?' <i>('+_bdEsc(c.state)+')</i>':"")+(owed(c)?" ○":"")).join(", ");
+    const props = r.props.map(p=> _bdEsc(p.name)+(p.needs&&owed(p)?" ○":"")).join(", ");
+    const worn = r.wardrobe.map(p=> _bdEsc(p.name)+(p.owner?' <i>('+_bdEsc(p.owner)+')</i>':"")+(owed(p)?" ○":"")).join(", ");
+    const notes = (r.notes||[]).map(n=>n.text).join("; ");
     return '<tr class="k-'+(k||"none")+'">'
       +'<td class="no">'+_bdEsc(String(r.scene.no!=null?r.scene.no:"").padStart(2,"0"))+'</td>'
       +'<td>'+_bdEsc(r.slug.ie||"")+'</td>'
@@ -453,8 +504,8 @@ function exportStripboard(rows, project){
       +'<td>'+cast+'</td>'
       +'<td class="w">'+worn+'</td>'
       +'<td>'+props+'</td>'
-      +'<td class="num">'+(r.shots.total ? r.shots.rendered+'/'+r.shots.total : "—")+'</td>'
-      +'<td>'+(r.ready ? '<b class="ok">Ready</b>' : _bdEsc(r.missing.map(m=>m.text).join(", ")))+'</td></tr>';
+      +'<td class="num">'+(r.shots.total ? (r.framesDone!=null ? r.framesDone : r.shots.approved)+' approved · '+r.shots.rendered+'/'+r.shots.total : "—")+'</td>'
+      +'<td>'+(r.ready ? '<b class="ok">Ready</b>' : _bdEsc(r.missing.map(m=>m.text).join(", ")))+(notes ? '<div class="t">'+_bdEsc(notes)+'</div>' : "")+'</td></tr>';
   }).join("");
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>'+_bdEsc(title)+' — Stripboard</title><style>'
     +'body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#16181d;margin:36px;}'
@@ -468,8 +519,8 @@ function exportStripboard(rows, project){
     +'*{-webkit-print-color-adjust:exact;print-color-adjust:exact;} @media print{body{margin:10mm;} tr{break-inside:avoid;}}'
     +'</style></head><body>'
     +'<h1>'+_bdEsc(title)+' &mdash; Stripboard</h1>'
-    +'<div class="sub">'+(_bdFormatLabel(project)?_bdEsc(_bdFormatLabel(project))+' &middot; ':'')+_bdEsc(bdSummaryLine(sum))+' &middot; Made with Kinolot</div>'
-    +'<div class="legend"><span class="k-int-day">INT day</span><span class="k-ext-day">EXT day</span><span class="k-int-night">INT night</span><span class="k-ext-night">EXT night</span><span class="k-dusk">Dawn / dusk</span> &nbsp;○ = not made yet</div>'
+    +'<div class="sub">'+(_bdFormatLabel(project)?_bdEsc(_bdFormatLabel(project))+' &middot; ':'')+_bdEsc(bdSummaryLine(sum, true))+' &middot; Made with Kinolot</div>'
+    +'<div class="legend"><span class="k-int-day">INT day</span><span class="k-ext-day">EXT day</span><span class="k-int-night">INT night</span><span class="k-ext-night">EXT night</span><span class="k-none">No time of day</span><span class="k-dusk">Dawn / dusk</span> &nbsp;○ = not made yet</div>'
     +'<table><thead><tr><th>Sc</th><th>I/E</th><th>Set · scene</th><th>Time</th><th>Cast</th><th>Wardrobe</th><th>Props</th><th>Frames</th><th>Status</th></tr></thead><tbody>'+body+'</tbody></table>'
     +'</body></html>';
   _bdPreview("Stripboard preview", title, _bdFileBase(project)+"_STRIPBOARD.html", html,
@@ -496,8 +547,13 @@ async function exportArtBible({ project, characters, props, locations, scenes, d
   const ordered = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes||[]) : (scenes||[]);
   const _raw = (id)=>{ try{ return (typeof nbGetImage==="function" && nbGetImage(id)) || ""; }catch(e){ return ""; } };
   const _inlined = {};
-  for(const x of [...(characters||[]), ...(props||[]), ...(locations||[])]){
-    const u = x && x.id ? _raw(x.id) : ""; if(u && !(x.id in _inlined)) _inlined[x.id] = await _bdInline(u); }
+  // each sheet is LOADED, not only read from the cache (2026-10-09 — after a reload, sheets the Breakdown hadn't
+  // looked up printed "No sheet yet"), and each character's appearance-state sheets come too
+  const _load = async (id)=>{ let u = _raw(id); if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(id) || ""; }catch(e){ u = ""; } } return u; };
+  const _ids = [];
+  [...(characters||[]), ...(props||[]), ...(locations||[])].forEach(x=>{ if(x && x.id) _ids.push(x.id); });
+  (characters||[]).forEach(c=>{ (c && Array.isArray(c.states) ? c.states : []).forEach(st=>{ if(st && st.id) _ids.push(c.id+":"+st.id); }); });
+  for(const id of _ids){ if(id in _inlined) continue; const u = await _load(id); if(u) _inlined[id] = await _bdInline(u); }
   const imgUrl = (id)=> _inlined[id] || _raw(id);
   const scNos = (ids)=> ordered.filter(s=> ids.indexOf(s.id)>=0).map(s=> s.no);
   const scLine = (nos)=> nos.length ? "Sc "+nos.join(", ") : "";
@@ -515,7 +571,9 @@ async function exportArtBible({ project, characters, props, locations, scenes, d
       .some(x=> body.indexOf(String(x).toLowerCase().trim().slice(0,24))>=0);
     const v = c.voice || {};
     const states = (c.states||[]).map(st=>{ const at = st.sceneId ? ordered.find(s=>s.id===st.sceneId) : null;
-      return '<li><b>'+_bdEsc(st.label||"State")+'</b>'+(st.change?' — '+_bdEsc(st.change):"")+(at?' <span class="m">(from Sc '+_bdEsc(at.no)+')</span>':"")+'</li>'; }).join("");
+      const su = imgUrl(c.id+":"+st.id);
+      return '<li><b>'+_bdEsc(st.label||"State")+'</b>'+(st.change?' — '+_bdEsc(st.change):"")+(at?' <span class="m">(from Sc '+_bdEsc(at.no)+')</span>':"")
+        +(su?'<br><img class="stimg" src="'+_bdEsc(su)+'" alt="'+_bdEsc((c.name||"")+" — "+(st.label||"state"))+'">':"")+'</li>'; }).join("");
     const swatches = (Array.isArray(c.palette)?c.palette:[]).filter(x=>typeof x==="string" && /^#|^rgb|^oklch|^hsl/.test(x)).slice(0,8)
       .map(x=>'<span class="sw" style="background:'+_bdEsc(x)+'"></span>').join("");
     return '<section class="card"><div class="pic">'+pic(c.id, c.name)+'</div><div class="txt">'
@@ -561,6 +619,7 @@ async function exportArtBible({ project, characters, props, locations, scenes, d
     +'h2{font-size:15px;letter-spacing:.08em;text-transform:uppercase;border-bottom:2px solid #1b1e26;padding-bottom:4px;margin:28px 0 12px;}'
     +'.card{display:flex;gap:16px;padding:12px 0;border-bottom:1px solid #e3e5ea;break-inside:avoid;}'
     +'.pic{flex:0 0 240px;} .card.wide .pic{flex-basis:300px;} .pic img{width:100%;border-radius:4px;border:1px solid #d7dae0;display:block;}'
+    +'.stimg{height:72px;width:auto;margin-top:4px;border-radius:4px;border:1px solid #e5e7eb}'
     +'.noimg{height:90px;display:flex;align-items:center;justify-content:center;background:#f3f4f6;border:1px dashed #cfd2d8;border-radius:4px;color:#888;font-size:11px;text-align:center;padding:6px;}'
     +'.txt{flex:1;min-width:0;font-size:11.5px;} h3{font-size:15px;margin:0 0 2px;} .m{color:#666;font-size:11px;margin-bottom:6px;}'
     +'.f{margin:3px 0;} .l{display:inline-block;min-width:118px;color:#888;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;vertical-align:top;}'

@@ -1952,7 +1952,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
   const makeableNeeds = sceneNeeds.filter(n=>n.makeable);
   const makeNeeds = async ()=>{
     if(!onMakeSceneNeeds || needsRun || !makeableNeeds.length) return;
-    setNeedsRun({ i:0, total:makeableNeeds.length, label:"" });
+    // busy only once the run starts (after its question)
     try{ await onMakeSceneNeeds(scene, makeableNeeds, (i,total,label)=>setNeedsRun({ i, total, label })); }
     finally{ setNeedsRun(null); }
   };

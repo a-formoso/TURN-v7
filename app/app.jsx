@@ -4235,10 +4235,17 @@ function App(){
      time plates, then character sheets (a look that isn't written yet is drafted first; a variant
      after its master), then prop sheets (they reference their owner). The Shots scene strip lists
      them and shows the price; anything that can't be made here is named and left to its tab. */
+  // (2026-10-09, owner — Breakdown review) THE ART ROOM'S RIGHT, whichever room calls it (a Stage editor could
+  // pay for plates and sheets it couldn't save); ONE RUN AT A TIME across the Shots tab, the Breakdown and the
+  // Stage; the role is checked again before each image; the result says what really happened
+  const sceneNeedsBusyRef = React.useRef(false);   // one run at a time, every tab
   const makeSceneNeeds = async (scene, needs, onProgress)=>{
-    if(!canMutateSharedFilm() || !Array.isArray(needs) || !needs.length) return;
+    if(!Array.isArray(needs) || !needs.length) return { status:"nothing" };
+    if(projectLoadingRef.current){ _projectLoadingNotice(); return { status:"refused" }; }
+    if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return { status:"refused" }; }
+    if(sceneNeedsBusyRef.current){ if(typeof window.appToast==="function") window.appToast("Another scene is making its images \u2014 one at a time.","info"); return { status:"busy" }; }
     const epoch0 = (typeof nbEpoch==="function") ? nbEpoch() : null;
-    const stale = ()=> (typeof nbEpoch==="function" ? nbEpoch() : null)!==epoch0;
+    const stale = ()=> (typeof nbEpoch==="function" ? nbEpoch() : null)!==epoch0 || !!artRoomReadOnlyRef.current;
     const mk = (artAgentCtxFactoryRef && artAgentCtxFactoryRef.current) || artAgentCtxFactory;
     const ctx0 = mk({ input:"", emit:()=>{}, propose:null, agentName:"Scene needs", force:false, cancelled:stale });
     const cast = ctx0 && ctx0.art && ctx0.art.cast;
@@ -4288,29 +4295,42 @@ function App(){
         return window.generatePropSheet(p, lbProject("props")); } });
     });
     // ASKS FIRST, WITH THE PRICE AND THE WRITING (2026-10-09, owner — Shots review), from Shots and the Breakdown
-    if(steps.length && typeof window.appConfirm==="function"){
-      const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(steps.length) : "";
+    if(!steps.length){
+      if(typeof window.appToast==="function") window.appToast("Nothing here can be made from the Breakdown \u2014 open its tab (Locations, Characters or Props) to make it.","info");
+      return { status:"nothing" };
+    }
+    // a variant whose master doesn't exist yet makes the master first: count both
+    const imageN = (typeof window.sceneNeedsImageCount==="function") ? Math.max(steps.length, window.sceneNeedsImageCount(needs)) : steps.length;
+    if(typeof window.appConfirm==="function"){
+      const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(imageN) : "";
       const looks = charNeeds.filter(n=>{ const c=(characters||[]).find(x=>x.id===String(n.id).split(":")[0]); return c && typeof window.charVisualsDrafted==="function" && !window.charVisualsDrafted(c); }).length;
       const specs = needs.filter(n=>n.kind==="prop").filter(n=>{ const p=(props||[]).find(x=>x.id===(n.baseId||n.id)); return p && !(String(p.form||"").trim() && String(p.material||"").trim()); }).length;
       const views = ordered.filter(l=> !(typeof stagingHasContent==="function" ? stagingHasContent(l) : true)).length;
       const writing = [looks && (looks+" character look"+(looks!==1?"s":"")), specs && (specs+" prop design"+(specs!==1?"s":"")), views && (views+" view composition"+(views!==1?"s":""))].filter(Boolean);
       const ok = await window.appConfirm({ title:"Make what Scene "+String((scene&&scene.no)||"").padStart(2,"0")+" needs?",
-        body:"Up to "+steps.length+" reference image"+(steps.length!==1?"s":"")+(price?" \u2014 about "+price+" credit"+(price==="1"?"":"s"):"")
+        body:"Up to "+imageN+" reference image"+(imageN!==1?"s":"")+(price?" \u2014 about "+price+" credit"+(price==="1"?"":"s"):"")
           +(writing.length ? ", plus writing credits to draft "+writing.join(", ")+" first" : "")+". Anything that already exists is skipped.",
         items:steps.map(x=>x.label), confirmLabel:"Make "+steps.length, cancelLabel:"Cancel" });
-      if(!ok) return;
+      if(!ok) return { status:"cancelled" };
     }
-    const failed = []; let already = 0, made = 0;
-    for(let i=0;i<steps.length;i++){
-      if(stale()) break;
-      if(onProgress) onProgress(i+1, steps.length, steps[i].label);
-      try{ const ok = await steps[i].run(); if(ok===false) failed.push(steps[i].label); else if(ok==="exists") already++; else made++; }
-      catch(e){ failed.push(steps[i].label+" \u2014 "+((e&&e.message)||"error")); }
-    }
-    // what it really made (2026-10-09 — items that already existed were counted as made)
-    if(typeof window.appToast==="function") window.appToast(failed.length
-      ? (failed.length+" of "+steps.length+" couldn't be made: "+failed.join("; "))
-      : ("Scene "+String((scene&&scene.no)||"").padStart(2,"0")+" has what it needs \u2014 "+made+" reference image"+(made!==1?"s":"")+" made"+(already?", "+already+" already there":"")+"."), failed.length?"error":"info");
+    sceneNeedsBusyRef.current = true;
+    const failed = []; let already = 0, made = 0, stopped = false;
+    try{
+      if(onProgress) onProgress(0, steps.length, "");   // busy only once you've said yes
+      for(let i=0;i<steps.length;i++){
+        if(stale()){ stopped = true; break; }
+        if(onProgress) onProgress(i+1, steps.length, steps[i].label);
+        try{ const ok = await steps[i].run(); if(ok===false) failed.push(steps[i].label); else if(ok==="exists") already++; else made++; }
+        catch(e){ failed.push(steps[i].label+" \u2014 "+((e&&e.message)||"error")); }
+      }
+    } finally { sceneNeedsBusyRef.current = false; }
+    const tag = "Scene "+String((scene&&scene.no)||"").padStart(2,"0");
+    if(typeof window.appToast==="function") window.appToast(
+      stopped ? (tag+": stopped \u2014 "+made+" of "+steps.length+" made"+(failed.length?", "+failed.length+" couldn't be":"")+".")
+      : failed.length ? (failed.length+" of "+steps.length+" couldn't be made: "+failed.join("; "))
+      : (tag+" has what it needs \u2014 "+made+" reference image"+(made!==1?"s":"")+" made"+(already?", "+already+" already there":"")+"."),
+      (failed.length||stopped)?"error":"info");
+    return { status: stopped ? "stopped" : failed.length ? "partial" : "done", made, already, failed:failed.length };
   };
   const wornBuildRef = React.useRef(null);   // the card's "Make N worn-item sheets" (the build below, on demand)
   /* INITIAL CHARACTER -> WORN PROP BOOTSTRAP
@@ -7960,7 +7980,7 @@ function App(){
                 readOnly:roomReadOnly,
                 onVoiceAll:voiceAllLines,voicingLines,onCancelVoiceAll:cancelVoiceAll,
                 onVoiceLine:voiceLine,
-                onMakeSceneNeeds:makeSceneNeeds,
+                onMakeSceneNeeds:artRoomReadOnly?null:makeSceneNeeds,   // it makes Art Room images (2026-10-09)
                 onUpdateShot:updateShot,
                 // the Stage's model, clip scope and visual source belong to the FILM (2026-10-02)
                 onStageSettings:(patch)=>{ if(!canMutateSharedFilm()) return;

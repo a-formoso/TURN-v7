@@ -1249,6 +1249,17 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
 
   // one scene at a time — ← / → pager instead of one long scroll
   const [pIdx, setPIdx] = useScenePager(pagesByScene.length);
+  // OPEN ON THE SCENE another tab asked for (the Breakdown's Boards chip) — 2026-10-09
+  const sbFocusDone = React.useRef(false);
+  React.useEffect(()=>{
+    if(sbFocusDone.current || !pagesByScene.length) return;
+    sbFocusDone.current = true;
+    const f = window.turnPeekArtFocus && window.turnPeekArtFocus("storyboard");
+    if(window.turnClearArtFocus) window.turnClearArtFocus("storyboard");
+    if(!f) return;
+    const i = pagesByScene.findIndex(g=>g.scene && g.scene.id===f.sceneId);
+    if(i>=0) setPIdx(i);
+  },[pagesByScene.length]);
 
   // load sheet image urls (for the X-of-Y progress) + adopt freshly composed ones
   React.useEffect(()=>{

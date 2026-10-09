@@ -68,7 +68,7 @@ await test("the film-wide totals count each missing sheet once",()=>{
   assert.equal(sum.noShots,1); assert.equal(sum.frames,2);
   assert.equal(sum.noLoc,1,"scene 3 resolves to no location card in this fixture");
   assert.match(box.bdSummaryLine ? box.bdSummaryLine(sum) : vm.runInContext("bdSummaryLine("+JSON.stringify(sum)+")",box),
-    /^1 of 3 scenes ready to shoot · to go: 2 cast sheets, 2 prop sheets, 2 frames, 1 scene without shots, 1 without a location card$/);
+    /^1 of 3 scenes ready to shoot · to go: 2 cast sheets, 1 prop sheet, 2 frames, 1 scene without shots, 1 without a location card$/);
   box.sceneRoster=(scene)=> scene.id==="s2" ? ["marcus","ana"] : ["marcus"];
 });
 

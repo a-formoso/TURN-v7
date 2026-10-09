@@ -126,7 +126,7 @@ await test("F2 the app makes them in order: location plates (parent first), room
   const sb = { console, Object, Array, String, Promise, JSON };
   sb.window = sb; vm.createContext(sb);
   Object.assign(sb, {
-    nbEpoch:()=>1, appToast:(m)=>{ sb.__toast = m; }, canMutateSharedFilm:()=>true, project:{},
+    nbEpoch:()=>1, appToast:(m)=>{ sb.__toast = m; }, canMutateSharedFilm:()=>true, project:{}, projectLoadingRef:{ current:false }, sceneNeedsBusyRef:{ current:false }, artRoomReadOnlyRef:{ current:false }, _mutationNotice:()=>false, _projectLoadingNotice:()=>false,
     locations:[ { id:"house", key:"house", name:"House" }, { id:"kitchen", key:"kitchen", name:"Kitchen", parentKey:"house" } ],
     characters:[ { id:"ana", name:"Ana", coreBody:"x", wardrobeMask:"y", states:[{ id:"wet", label:"Wet" }] } ],
     props:[ { id:"pen", name:"Pen", form:"f", material:"m" } ],
@@ -145,7 +145,7 @@ await test("F2 the app makes them in order: location plates (parent first), room
     { id:"pen", baseId:"pen", kind:"prop" }, { id:"ana:wet", kind:"character", label:"Ana — Wet" }, { id:"locunit-kitchen-night", kind:"location" },
     { id:"kitchen", kind:"location" }, { id:"ana", kind:"character", label:"Ana" }, { id:"house", kind:"location" } ], (i,t,l)=>progress.push(i+"/"+t));
   assert.deepEqual(order, ["plate:house", "plate:kitchen", "unit:kitchen-night", "master:ana", "state:ana:wet", "prop:pen"], JSON.stringify(order)+" "+sb.__toast);
-  assert.deepEqual(progress, ["1/6","2/6","3/6","4/6","5/6","6/6"]);
+  assert.deepEqual(progress, ["0/6","1/6","2/6","3/6","4/6","5/6","6/6"]);   // 0/6: the run started (after its question) — 2026-10-09
   assert.match(sb.__toast, /Scene 03 has what it needs — 6 reference images made/);
 });
 await test("F3 wired from the app through the Art Room to every scene (not for read-only roles)", ()=>{

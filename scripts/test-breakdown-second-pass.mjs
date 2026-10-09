@@ -71,9 +71,9 @@ await test("A3 'approved' counts frames; boards follow the Storyboards rules; cl
   box.shotFrameState = (sh)=>({ a1:{ done:true }, a2:{ done:true }, a3:{ done:false } })[sh.id];
   const [r] = rowsOf({ shots, stageStatus:{ s1:{ total:2, rendered:1, stale:1, oldLook:0 } } });
   assert.equal(r.shots.approved, 2, "the frameless locked shot isn't an approved frame");
-  assert.deepEqual(J(r.boards), { total:1, current:1, stale:0, oldLook:0, partial:0 });
+  assert.deepEqual(J(r.boards), { total:1, current:1, stale:0, oldLook:0, partial:0, none:0 });
   box.sbSheetStale = ()=>true;
-  assert.deepEqual(J(rowsOf({ shots })[0].boards), { total:1, current:0, stale:1, oldLook:0, partial:0 });
+  assert.deepEqual(J(rowsOf({ shots })[0].boards), { total:1, current:0, stale:1, oldLook:0, partial:0, none:0 });
   assert.deepEqual(J(r.clips), { total:2, rendered:1, stale:1, oldLook:0 });
   box.localStorage = { getItem:(k)=> k==="turn_stage_scene_status:film-1" ? JSON.stringify({ s1:{ total:3 } }) : null };
   assert.deepEqual(J(box.bdStageStatus("film-1")), { s1:{ total:3 } });
@@ -82,7 +82,7 @@ await test("A3 'approved' counts frames; boards follow the Storyboards rules; cl
 await test("A4 the cost line names what it covers", ()=>{
   box.nbImageCostText = (n)=>String(n*7);
   const line = box.bdSummaryLine({ total:2, ready:1, castSheets:1, plates:0, propSheets:0, frames:2, noShots:0, noLoc:0, images:3 });
-  assert.match(line, /≈ 21 credits to finish \(image credits; drafting adds a little writing; video is priced on the Stage\)/);
+  assert.match(line, /≈ 21 credits for the images still to make \(scenes without shots cost more to design; drafting adds a little writing; Shots gives each run's exact price; video is priced on the Stage\)/);
 });
 
 /* ═══ B ═══ */
@@ -99,7 +99,7 @@ await test("B2 one 'Make what this scene needs' at a time across the board; Rend
   assert.ok(strip.includes("const canRender = !readOnly && shots.total>0"));
   const ui = read("app/shots-ui.jsx");
   assert.ok(ui.includes("startSceneRef.current(scenesWithShots[i], { always:true })") && ui.includes('confirmRun(ids, "in Scene "+String(scene.no).padStart(2,"0"), true)'));
-  assert.ok(strip.includes("Shots asks first, with the price"));
+  assert.ok(strip.includes("Shots asks first, with the exact price"));
 });
 
 /* ═══ C ═══ */
@@ -110,7 +110,7 @@ await test("C1 the view: batched recounts, live price, every id looked up once, 
   assert.ok(view.includes("r.props.concat(r.wardrobe||[])") && view.includes("(r.needs||[]).forEach(n=>{ if(n && n.id) want.add(n.id); });"));
   assert.ok(view.includes("!checkedRef.current.has(id)"));
   assert.ok(view.includes("window.turnExportBreakdown = checking") && view.includes("still checking which sheets and frames exist"));
-  assert.ok(view.includes("Two buttons on a strip spend credits, and both show their price") && !/Nothing here generates or spends/.test(bd));
+  assert.ok(view.includes("Two buttons on a strip spend credits:") && !/Nothing here generates or spends/.test(bd));
   assert.ok(!/it never generates or spends/.test(bd));
   assert.ok(read("app/artroom.jsx").includes("onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,onOpenStage,readOnly})"));
   assert.ok(read("app/app.jsx").includes('onOpenStage:()=>guardedSetRoom("stage"),'));

@@ -54,7 +54,7 @@ await test("A1 with shots, missing = the frames' needs (the room & time plate co
   box.sceneReferenceNeeds = (shots, ctx)=> ctx.scene.id==="s1" ? [{ id:"locunit-house-night", kind:"location", label:"House · Night", makeable:true }] : [];
   box.shotFrameState = (sh)=>({ a1:{ done:true, oldLook:true }, a2:{ done:false }, b1:{ done:true } })[sh.id];
   const [r1, r2] = rowsOf(film());
-  assert.deepEqual(J(r1.missing.map(m=>m.text)), ["House · Night plate", "1 frame to approve or refresh"]);
+  assert.deepEqual(J(r1.missing.map(m=>m.text)), ["House · Night plate", "1 frame to refresh"]);
   assert.deepEqual(J(r1.missing.map(m=>m.tab)), ["locations", "shots"]);
   // (2026-10-05, second pass) an earlier look is a NOTE, as in Shots and the Stage — never "to go"
   assert.deepEqual(J(r1.notes.map(m=>m.text)), ["1 frame with an earlier look \u2014 re-render to apply it"]);
@@ -76,7 +76,7 @@ await test("B1 each missing image counts once, frames count what's to render, an
   const sum = box.breakdownSummary(rowsOf(film()));
   assert.equal(sum.castSheets, 1, "Ana once across both scenes"); assert.equal(sum.plates, 1); assert.equal(sum.frames, 2);
   assert.equal(sum.images, 4);
-  assert.match(box.bdSummaryLine(sum), /≈ 48 credits to finish \(image credits; drafting adds a little writing; video is priced on the Stage\)/);
+  assert.match(box.bdSummaryLine(sum), /≈ 48 credits for the images still to make \(scenes without shots cost more to design; drafting adds a little writing; Shots gives each run's exact price; video is priced on the Stage\)/);
 });
 
 /* ═══ C ═══ */
