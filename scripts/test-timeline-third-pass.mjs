@@ -1,0 +1,196 @@
+#!/usr/bin/env node
+/* The Stage's Timeline, third pass (owner 2026-10-09: "go ahead with all of it") — does the film play and
+   export the way it says?
+   A  export, run for real against fake browser media: a clip that never loads times out with its name,
+      Cancel works while a clip loads, a hidden tab pauses the recording, MP4-only browsers get .mp4,
+      missing features are said plainly, a recorder error is never a success
+   B  the Timeline: selection follows the rail, Play film from the first and a Stop, skips a broken take,
+      leaving stops an export, one export at a time, the dialog always says what goes in and how to keep it
+      going, out-of-date vs not rendered, thumbnails for every scene, loading state
+   C  "Identity changed" takes can be checked and put back; the rail agrees with the Timeline
+   D  routes, the recipe rename, accessibility, Frances, keys
+     node scripts/test-timeline-third-pass.mjs */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+const ROOT = new URL("../", import.meta.url);
+const read = (f)=>readFileSync(new URL(f, ROOT), "utf8");
+const between = (src, a, b)=>{ const i = src.indexOf(a); assert.ok(i>=0, "missing: "+a); const j = src.indexOf(b, i+a.length); assert.ok(j>i, "missing end: "+b); return src.slice(i, j); };
+const fn = (src, name)=>{ const i = src.indexOf("function "+name+"("); assert.ok(i>=0, name); const k = src.lastIndexOf("\n", i)+1; return src.slice(k, src.indexOf("\n}\n", i)+3); };
+let checks = 0, failed = 0;
+const test = async (name, f)=>{ try{ await f(); checks++; console.log("PASS", name); }
+  catch(e){ failed++; console.log("FAIL", name, "\n   ", String((e && e.stack) || e).split("\n").slice(0, 5).join("\n    ")); } };
+const J = (x)=>JSON.parse(JSON.stringify(x));
+
+const stage = read("app/stage.jsx"), app = read("app/app.jsx"), ai = read("app/ai.jsx"), css = read("app/styles.css"), html = read("TURN.html");
+const tl = between(stage, "function StageTimelineView({", "/* ---- AUDIO tab");
+
+/* the real export function with fake media: o.load: "ok" | "never" | "error"; o.mime: the one type supported */
+function exportBox(o){
+  o = o||{};
+  const log = { recPaused:0, recResumed:0, acSuspended:0 };
+  const listeners = {};
+  const doc = { visibilityState:"visible",
+    addEventListener:(t,f)=>{ listeners[t]=f; }, removeEventListener:(t)=>{ delete listeners[t]; },
+    createElement:(tag)=>{
+      if(tag==="canvas") return o.noCapture ? {} : { width:0, height:0, getContext:()=>({ fillRect(){}, drawImage(){}, getImageData(){ return {}; }, set fillStyle(v){} }),
+        captureStream:()=>({ addTrack(){}, getTracks:()=>[] }) };
+      if(tag==="video"){ const v = { videoWidth:640, videoHeight:360, readyState:4, currentTime:0, ended:false,
+        load(){ if(o.load==="ok") setTimeout(()=>v.onloadedmetadata && v.onloadedmetadata(), 5);
+          else if(o.load==="error") setTimeout(()=>v.onerror && v.onerror(), 5); },
+        play(){ v.ended=false; let t=0; const iv=setInterval(()=>{ t+=0.1; v.currentTime=t; if(t>=0.3){ clearInterval(iv); v.ended=true; v.onended && v.onended(); } }, 10); return Promise.resolve(); },
+        pause(){}, removeAttribute(){} }; return v; }
+      if(tag==="a") return { click(){} };
+      return {};
+    } };
+  class MR { constructor(){ this.state="inactive"; this.mimeType = o.mime||""; }
+    static isTypeSupported(m){ return m===o.mime; }
+    start(){ this.state="recording"; setTimeout(()=>this.ondataavailable && this.ondataavailable({ data:{ size:10 } }), 1); if(o.recError) setTimeout(()=>this.onerror && this.onerror(new Error("x")), 2); }
+    pause(){ this.state="paused"; log.recPaused++; } resume(){ this.state="recording"; log.recResumed++; }
+    stop(){ this.state="inactive"; setTimeout(()=>this.onstop && this.onstop(), 1); } }
+  class AC { constructor(){ this.currentTime=0; }
+    createMediaElementSource(){ return { connect(){}, disconnect(){} }; } createMediaStreamDestination(){ return { stream:{ getAudioTracks:()=>[] } }; }
+    createGain(){ return { gain:{ value:1 }, connect(){} }; } resume(){ return Promise.resolve(); } suspend(){ log.acSuspended++; return Promise.resolve(); } close(){} }
+  const box = { console, Object, Array, String, Number, Math, JSON, Promise, Date, Error, setTimeout, clearTimeout, setInterval, clearInterval,
+    Blob:class{ constructor(parts, opts){ this.type=(opts&&opts.type)||""; } },
+    document:doc, MediaRecorder:o.noRecorder ? undefined : MR, AudioContext:o.noAudio ? undefined : AC, requestAnimationFrame:(f)=>setTimeout(f,16), cancelAnimationFrame:clearTimeout };
+  box.window = box; vm.createContext(box);
+  vm.runInContext(fn(stage, "stageClipBeatName")+fn(stage, "stageExportPlaylist")+fn(stage, "stageExportFilm"), box);
+  box.__log = log; box.__hide = (h)=>{ doc.visibilityState = h ? "hidden" : "visible"; listeners.visibilitychange && listeners.visibilitychange(); };
+  return box;
+}
+const PL = [{ id:"c1", label:"01A", name:"01A · Beat 1", url:"u1" }, { id:"c2", label:"01B", name:"01B · Beat 2", url:"u2" }];
+
+/* ═══ A ═══ */
+await test("A1 a clip that never loads times out naming the clip; one that errors names it too; Cancel works while loading", async ()=>{
+  let b = exportBox({ load:"never", mime:"video/webm" });
+  await assert.rejects(b.stageExportFilm(PL, { loadTimeoutMs:60 }), /The take for 01A · Beat 1 didn't load/);
+  b = exportBox({ load:"error", mime:"video/webm" });
+  await assert.rejects(b.stageExportFilm(PL, {}), /The take for 01A · Beat 1 couldn't be loaded/);
+  b = exportBox({ load:"never", mime:"video/webm" });
+  let cancel = false; setTimeout(()=>{ cancel = true; }, 40);
+  await assert.rejects(b.stageExportFilm(PL, { loadTimeoutMs:5000, shouldCancel:()=>cancel }), /Export cancelled/);
+});
+await test("A2 the whole film records; MP4-only browsers get an MP4 blob; a recorder error is never a success", async ()=>{
+  let b = exportBox({ load:"ok", mime:"video/webm;codecs=vp9,opus" });
+  const prog = [];
+  let blob = await b.stageExportFilm(PL, { onProgress:(i,n,name,phase)=>prog.push([i,name,phase]) });
+  assert.match(blob.type, /webm/);
+  assert.deepEqual(J(prog), [[1,"01A · Beat 1","recording"],[2,"01B · Beat 2","recording"]]);
+  b = exportBox({ load:"ok", mime:"video/mp4" });
+  blob = await b.stageExportFilm(PL, {});
+  assert.match(blob.type, /mp4/);
+  b = exportBox({ load:"ok", mime:"video/webm", recError:true });
+  await assert.rejects(b.stageExportFilm(PL, {}), /The recording stopped with an error/);
+});
+await test("A3 missing browser features are said plainly", async ()=>{
+  await assert.rejects(exportBox({ noRecorder:true }).stageExportFilm(PL, {}), /can't record video/);
+  await assert.rejects(exportBox({ noAudio:true, mime:"video/webm" }).stageExportFilm(PL, {}), /can't mix audio/);
+  await assert.rejects(exportBox({ noCapture:true, mime:"video/webm" }).stageExportFilm(PL, {}), /can't record a canvas/);
+});
+await test("A4 a hidden tab pauses the picture, the sound, the recorder and the mix clock; they pick up when it's back", async ()=>{
+  const b = exportBox({ load:"ok", mime:"video/webm" });
+  const paused = [];
+  const run = b.stageExportFilm(PL, { onPaused:(p)=>paused.push(p) });
+  await new Promise(r=>setTimeout(r, 12));
+  b.__hide(true);
+  await new Promise(r=>setTimeout(r, 30));
+  b.__hide(false);
+  await run;
+  assert.deepEqual(paused, [true, false]);
+  assert.ok(b.__log.recPaused===1 && b.__log.recResumed===1 && b.__log.acSuspended===1, JSON.stringify(b.__log));
+  assert.ok(!stage.slice(stage.indexOf("async function stageExportFilm("), stage.indexOf("window.stageExportFilm = stageExportFilm;")).includes("raf = requestAnimationFrame(draw);"));
+});
+await test("A5 the file's name follows its type; the playlist names each clip; left-out reasons include identity", ()=>{
+  const b = { window:{}, String, Array }; vm.createContext(b);
+  vm.runInContext(fn(stage, "stageFilmFileName")+fn(stage, "stageFilmExt")+fn(stage, "stageClipBeatName")+fn(stage, "stageExportSkipped"), b);
+  assert.equal(b.stageFilmFileName("The Matrix", "2026-10-09", b.stageFilmExt("video/mp4")), "The_Matrix-2026-10-09.mp4");
+  assert.equal(b.stageFilmFileName("", "2026-10-09", "webm"), "Kinolot-film-2026-10-09.webm");
+  assert.equal(b.stageFilmFileName("The Matrix", "2026-10-09"), "The_Matrix-2026-10-09.webm");
+  const clips = [{ id:"a", label:"01A", g:{ shots:[{ beatN:1 }] } }, { id:"b", label:"01B", g:{ shots:[] } }, { id:"c", label:"01C", g:{ shots:[] } }];
+  assert.deepEqual(J(b.stageExportSkipped(clips, {}, { a:true, b:true }, { a:true })).map(x=>x.why),
+    ["identity changed — check it in Takes", "out of date", "not rendered"]);
+});
+
+/* ═══ B ═══ */
+await test("B1 the selection is the rail's, found by id on every render; Play film from the first, with a Stop", ()=>{
+  assert.ok(tl.includes("const idx = Math.max(0, ordered.findIndex(c=>c.id===pickId));") && !tl.includes("const [idx, setIdx]"));
+  assert.ok(tl.includes("const playFilm = ()=>{ const first = nextPlayable(-1);"));
+  assert.ok(tl.includes('playAll?"■ Stop film":"▶ Play film"') && tl.includes("onClick:playAll ? stopFilm : playFilm"));
+  assert.ok(tl.includes("onClick:()=>{ if(playAll) stopFilm(); select(i); }"), "picking a clip stops the film");
+  assert.ok(tl.includes("if(playAll && v && !v.ended && !autoPlayIdRef.current) setPlayAll(false);"), "pausing stops it");
+  // each clip starts when its video can play — never on a fixed timer
+  assert.ok(tl.includes("onCanPlay") && !tl.includes("}, 60); };"));
+  assert.ok(tl.includes("const pr = e.currentTarget.play(); if(pr && pr.catch) pr.catch(()=>{});"));
+});
+await test("B2 a take that can't play is said and skipped; the player names it", ()=>{
+  assert.ok(tl.includes("onError:onVideoError") && tl.includes("'s take couldn't be played \u2014 skipped."));
+  assert.ok(tl.includes("'s take couldn't be played \u2014 its link may have expired."));
+});
+await test("B3 one export at a time; leaving the Timeline stops it and nothing downloads elsewhere", ()=>{
+  assert.ok(tl.includes("if(exportBusyRef.current) return;   // a double-click never starts two recordings"));
+  assert.ok(tl.includes("Film export stopped \u2014 leaving the Timeline stops the recording."));
+  assert.ok(tl.includes("if(!mountedRef.current) return;   // left mid-export: nothing downloads into another tab or film"));
+});
+await test("B4 the export always asks: what's left out, earlier-look and noted takes going in, real time, keep the tab in front", ()=>{
+  assert.ok(tl.includes("if(typeof window.appConfirm===\"function\"){") && !tl.includes("if((mix || skipped.length) && typeof window.appConfirm"));
+  assert.ok(tl.includes("made with an earlier look (included).") && tl.includes("take notes in Takes (included)."));
+  assert.ok(tl.includes("keep this tab open and in front \u2014 the recording pauses while the tab is hidden, and leaving the Timeline stops it."));
+  assert.ok(tl.includes("about 60 MB a minute"));
+  assert.ok(tl.includes('"■ Preparing the sound…"') && tl.includes('" (tab hidden)"'));
+});
+await test("B5 out of date apart from not rendered; real take lengths; every scene's thumbnails; 'Loading takes…'", ()=>{
+  assert.ok(tl.includes('(staleN ? " · "+staleN+" out of date" : "")'));
+  assert.ok(tl.includes("const doneSec = ordered.reduce((t,c)=>t+(vids[c.id]?takeSecs(c):0),0);"));
+  assert.ok(tl.includes("const thumbs = stageImgsWithCache(imgs);") && tl.includes("clipPrimaryFrame(c, thumbs, visualSource)"));
+  assert.ok(tl.includes('!vidsLoaded ? "Loading takes\u2026"'));
+  assert.ok(css.includes(".stage2-tl-dot.stale{") && css.includes(".stage2-tl-clip.noted .stage2-tl-dot.ok{"));
+  assert.ok(stage.includes("const urls = await Promise.all(videoIds.map(async id=>{") && !stage.includes("stageBeatVidId"));
+});
+
+/* ═══ C ═══ */
+await test("C1 an 'Identity changed' take can be checked and put back; Choose / Approve ask first, then clear the flag", ()=>{
+  assert.ok(stage.includes('title:"Have you checked this take?",'));
+  assert.ok(stage.includes("{ identityChanged:false, identityCheckedAt:new Date().toISOString() }"));
+  assert.ok(stage.includes('flagged ? "Check and use this take"'));
+  assert.ok(stage.includes('if(on && !(await confirmIdentity(t,"Approve"))) return;') && stage.includes('!(await confirmIdentity(t,"Choose"))'));
+  assert.ok(stage.includes("'s take finished after a character's identity changed"));
+});
+await test("C2 the rail counts a clip rendered exactly when the Timeline plays it", ()=>{
+  const b = { window:{} }; vm.createContext(b); vm.runInContext(fn(stage, "clipVideoReady"), b);
+  b.vidGetVideo = ()=>"u"; b.vidGetMeta = ()=>({ identityChanged:true }); b.shotSourcesEditorialStatus = ()=>"current";
+  assert.equal(b.clipVideoReady({ id:"c" }, {}), false, "not in the vetted list → not rendered");
+  assert.equal(b.clipVideoReady({ id:"c" }, { c:"u" }), true);
+});
+
+/* ═══ D ═══ */
+await test("D1 routes: the app's Stage tabs open in the Stage; the tab bar marks the current tab", ()=>{
+  assert.ok(app.includes('const stageTab = { timeline:"timeline", audio:"audio", versions:"versions", shoot:"stage" }[tab];') && !app.includes('if(tab==="timeline"){ setRoom("writers"); setView("script"); return; }'));
+  assert.ok(stage.includes('window.addEventListener("turn-stage-view", h);'));
+  assert.ok(stage.includes('"aria-pressed":on?"true":"false",') && !stage.includes('title: on ? "Current workspace" : tip'));
+});
+await test("D2 the prompt recipe is 'Time-coded' (the tab keeps 'Timeline'); the strip says click selects", ()=>{
+  assert.ok(stage.includes('["timeline",   "Time-coded",') && !stage.includes('["timeline",   "Timeline",'));
+  assert.ok(!tl.includes('" — click to play"') && tl.includes("click to select, double-click to open it in Shoot"));
+  assert.ok(tl.includes('"aria-pressed":i===idx ? "true" : "false"') && tl.includes('role:"status","aria-live":"polite"'));
+});
+await test("D3 view-only people are told they can export and download; Frances knows the Timeline's third pass", ()=>{
+  assert.ok(app.includes("you can watch the takes and the timeline, and export the film or download a take, here;"));
+  const s = between(ai, "const APP_FEATURES = [", "let _museFactsMemo = null;");
+  const fb = { console, Object, Array, String }; fb.window = fb; vm.createContext(fb);
+  vm.runInContext(s + "\n;this.__F = APP_FEATURES;", fb);
+  const all = fb.__F.map(f=>f.what||"").join(" ");
+  const w = (fb.__F.find(f=>f.name==="The Stage (Production)")||{}).what || "";
+  for(const gone of ["(Timeline, Shots, Assets, Audio, Versions, Stage)", "Timeline and Audio view players", "the Timeline recipe", "open on Timeline", "Timeline on a one-shot clip", "use 'Open in Shoot', to render it there", "isn't used on the timeline until you check it"])
+    assert.ok(!all.includes(gone), gone);
+  for(const re of [/TIMELINE REVIEW, THIRD PASS/, /FROM THE FIRST/, /'Stop film'/, /PAUSES while the tab is hidden/, /'Check and use this take'/, /export the film and download takes/, /'Time-coded'/])
+    assert.ok(re.test(w), String(re));
+});
+await test("D4 cache keys", ()=>{
+  for(const f of ["stage.jsx", "ai.jsx", "script.jsx", "app.jsx"]) assert.ok(html.includes('src="app/'+f+'?v=20261009-tl3"'), f);
+  assert.ok(html.includes('href="app/styles.css?v=20261009-tl3"'));
+});
+
+console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");
+if(failed) process.exit(1);

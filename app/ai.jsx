@@ -3123,13 +3123,37 @@ APP_FEATURES.forEach(f=>{
         "(double-click one, or select it and use 'Open in Shoot', to render it there). Read-only by design — the story defines the order, Takes decides which take plays.")
       .replace("the newest render is always the current one",
         "a new render becomes the current one unless the clip's current take is approved (then it joins the takes and your approved take stays current)");
-    st.what += " STAGE REVIEW, THIRD PASS (owner 2026-10-09): TAKES STAY FINDABLE \u2014 Extend, Edit and Motion Control takes record the shots and the look they were made from, so they're checked like any render (they used to read 'Can't be checked' and drop out of the film). When a clip's shots change (a shot added or removed, the model or clip scope switched, a beat split by a longer line) its earlier takes aren't lost: Shoot says 'N takes from an earlier grouping of these shots' and 'Bring them into this clip' moves them in when you say so. A new take never replaces an APPROVED current take, and a render collected later (after a reload) never replaces the take you chose \u2014 it joins the takes. A take that finished after a character's identity changed is kept, marked 'Identity changed', and isn't used on the timeline until you check it. "
+    st.what += " STAGE REVIEW, THIRD PASS (owner 2026-10-09): TAKES STAY FINDABLE \u2014 Extend, Edit and Motion Control takes record the shots and the look they were made from, so they're checked like any render (they used to read 'Can't be checked' and drop out of the film). When a clip's shots change (a shot added or removed, the model or clip scope switched, a beat split by a longer line) its earlier takes aren't lost: Shoot says 'N takes from an earlier grouping of these shots' and 'Bring them into this clip' moves them in when you say so. A new take never replaces an APPROVED current take, and a render collected later (after a reload) never replaces the take you chose \u2014 it joins the takes. A take that finished after a character's identity changed is kept, marked 'Identity changed', and stays out of the timeline until you check it in Takes ('Check and use this take'). "
       +"STILL RENDERING \u2014 a render you stopped waiting for, or one that took too long, keeps going on the server: Shoot says 'still running on the server', asks before you render the clip again, and a batch counts such takes as still rendering, not failed. A failed render says no credits were charged. "
       +"HONEST INPUTS \u2014 a frame still loading is never treated as missing (Generate waits for it); the 'Render with these inputs?' question and the Scenes rail judge only the frames the render really sends (a storyboard render sends no frames; a one-frame render, the first); the rail's other scenes say their images load when you open them instead of 'no frame yet'. A prop's state sheet (e.g. 'damaged') is loaded and used even when the film opens straight into the Stage. "
       +"WHAT A TAKE RECORDS \u2014 only the references the render really sent (not ones you excluded); the frames, boards and end frame it used, so re-rendering one marks the take 'Frame changed'; and the prop sheets it attached. 'Prop reference changed', 'References need review', 'Voice changed', 'Frame changed' and 'Identity changed' show in Takes, on the Timeline, on the Scenes rail and in the Breakdown's clip counts, not only in Takes. "
       +"PROMPTS & PRICES \u2014 a hand-edited prompt comes back when you open the Stage on that clip, only for exactly the same shots, and the most recently edited ones are kept. A reference video the server can't size by its length is shown as a hold (the most it can cost), not just the estimate. A render that would push the oldest unapproved take past the 20 kept asks first. "
       +"RIGHTS \u2014 in a view-only Stage nothing writes or spends: no 'Voice clip now', no per-shot text edits, no take notes, approvals or restores, no device uploads; rights are checked again right before a render is sent. The Timeline has an 'Open in Shoot' button, the Mix's 'Import audio' works from the keyboard, and Remove on a Mix bed can be undone.";
   }
+}
+/* TIMELINE REVIEW, THIRD PASS (owner 2026-10-09): older sentences named the Stage's old tabs, a 'Timeline'
+   prompt recipe (now 'Time-coded', so it no longer shares the tab's name) and the Open in Shoot button for
+   clips it doesn't show on — brought up to date, then the pass's note is appended to the Stage entry. */
+APP_FEATURES.forEach(f=>{
+  if(!f || !f.what) return;
+  f.what = String(f.what)
+    .replace("a slim Stage-native nav across the top (Timeline, Shots, Assets, Audio, Versions, Stage)",
+      "a slim Stage-native nav across the top (Shoot, Takes, Timeline, Mix)")
+    .replace("the selected beat's player, timeline strip and compact dark Seedance composer",
+      "the selected beat's player, the scene's take strip and compact dark Seedance composer")
+    .replace("the Versions view's take player, and the Timeline and Audio view players",
+      "the Takes view's take player, and the Timeline and Mix players")
+    .replace(/the Timeline recipe places each line/g, "the Time-coded recipe places each line")
+    .replace(/multi-shot clips open on Timeline\b/g, "multi-shot clips open on Time-coded")
+    .replace(/\bTimeline on a one-shot clip/g, "Time-coded on a one-shot clip")
+    .replace("(double-click one, or select it and use 'Open in Shoot', to render it there)",
+      "(select one and use 'Render it in Shoot', or double-click it)");
+});
+{ const st = APP_FEATURES.find(x=>x && x.name==="The Stage (Production)");
+  if(st) st.what += " TIMELINE REVIEW, THIRD PASS (owner 2026-10-09): PLAY FILM plays every rendered clip in story order FROM THE FIRST (like the export); its button becomes 'Stop film' while it plays, pausing or picking a clip stops it, and a take that can't be played is skipped and named. The Timeline shows the clip selected in the Scenes rail, thumbnails for every scene, 'Loading takes…' until the takes are read, and counts out-of-date clips apart from unrendered ones (a dashed edge and a hollow dot); its runtime is the takes' real length. "
+    +"EXPORT FILM always asks first: what's left out and why, the takes going in with an earlier look or take notes, and that it records in real time \u2014 keep the tab open and in front: the recording PAUSES while the tab is hidden and picks up when it's back, and leaving the Timeline (another Stage tab, room or film) stops it. A clip that won't load or stops playing ends the export with the clip's name instead of hanging; Cancel works at any point. A browser that records MP4 only gets an .mp4 file; one that can't record at all is told so. "
+    +"IDENTITY CHANGED \u2014 a take that finished after a character's identity changed stays out of the film until you check it in Takes: 'Check and use this take' (on the current take), Choose for timeline or Approve asks 'Have you checked this take?' and then puts it back. "
+    +"View-only collaborators can watch the takes and the Timeline, Play film, export the film and download takes. The Shoot prompt recipe once called 'Timeline' is now 'Time-coded'.";
 }
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */

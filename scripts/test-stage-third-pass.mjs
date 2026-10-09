@@ -283,8 +283,9 @@ await test("E4 Frances: the Stage entry tells today's truth (no 'Voice all lines
   assert.ok(!/Claude|Anthropic|McKee|TURN\b|MUSE/.test(between(ai, "STAGE REVIEW, THIRD PASS (owner 2026-10-09)", "/* the public view of every entry")));
 });
 await test("E5 cache keys: every changed file loads with the new key (script.jsx shares ai.jsx's)", ()=>{
+  // (later passes re-key some of these files again)
   for(const f of ["stage.jsx", "ai.jsx", "script.jsx", "app.jsx", "breakdown.jsx", "videogen.jsx", "stage-plan.jsx", "stage-references.jsx"])
-    assert.ok(html.includes('src="app/'+f+'?v=20261009-stage3"'), f);
+    assert.ok(["20261009-stage3", "20261009-tl3"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

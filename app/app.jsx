@@ -7721,7 +7721,7 @@ function App(){
       React.createElement(Icon.eye||Icon.warn,{s:14}),
       React.createElement("span",null,
         React.createElement("b",null,"The Stage is read-only for your role ("+(typeof window.teamRoleLabel==="function" ? window.teamRoleLabel(shareRole) : shareRole)+") — "),
-        "you can watch the takes and the timeline here; the film's Stage editor or owner makes changes.")),
+        "you can watch the takes and the timeline, and export the film or download a take, here; the film's Stage editor or owner makes changes.")),
     // BILLING NOTICES (2026-09-30): "Payment failed — update your card" while past_due,
     // "Account on hold" while frozen, and the 20% / 5% low-balance notices (app/plans.jsx)
     session && !isAdmin && creditBalance && window.BillingNotices && React.createElement(window.BillingNotices,{ balance:creditBalance }),
@@ -7971,13 +7971,15 @@ function App(){
                 onStageSettings:(patch)=>{ if(!canMutateSharedFilm()) return;
                   setProject(p=>({ ...p, stage:{ ...((p&&p.stage)||{}), ...patch } })); },
                 onStageNav:(tab, sceneId)=>{
-                  if(tab==="timeline"){ setRoom("writers"); setView("script"); return; }
+                  // the Stage's own tabs open in the Stage (2026-10-09 — "timeline" used to leave for the
+                  // Writers' Room script, and "audio" / "versions" didn't switch the tab)
+                  const stageTab = { timeline:"timeline", audio:"audio", versions:"versions", shoot:"stage" }[tab];
+                  if(stageTab){ guardedSetRoom("stage");
+                    setTimeout(()=>{ try{ window.dispatchEvent(new CustomEvent("turn-stage-view",{ detail:{ view:stageTab } })); }catch(e){} }, 0); return; }
                   // a scene hand-off opens Shots on it (the Breakdown's turnFocusArtScene)
                   if(tab==="shots"){ if(sceneId && typeof window.turnFocusArtScene==="function") window.turnFocusArtScene("shots", sceneId);
                     setArtView("shots"); guardedSetRoom("art"); return; }
                   if(tab==="assets"){ setArtView("lookbook"); guardedSetRoom("art"); return; }
-                  if(tab==="audio"){ guardedSetRoom("stage"); return; }
-                  if(tab==="versions"){ guardedSetRoom("stage"); return; }
                   guardedSetRoom("stage");
                 }}))
       : room==="art"

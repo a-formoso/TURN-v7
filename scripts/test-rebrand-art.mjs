@@ -153,7 +153,7 @@ function loadFns(f, names, sandbox){
   ok("D without a date it still names today's export", /^Kinolot-film-\d{4}-\d{2}-\d{2}\.webm$/.test(String(stageFilmFileName("", undefined))));
   const st = asts["app/stage.jsx"].src;
   ok("D the Timeline export downloads under that name",
-    st.includes("a.download = stageFilmFileName(filmTitle, new Date().toISOString().slice(0,10));") && !st.includes('"TURN-film-"'));
+    st.includes("a.download = stageFilmFileName(filmTitle, new Date().toISOString().slice(0,10), ext);") && !st.includes('"TURN-film-"'));
   ok("D the Stage passes the film's title to the Timeline",
     /_stEl\(StageTimelineView,\{ key:"tl", allClips, vids, (?:staleVids, )?imgs, visualSource, selId, onSelectClip,\s*filmTitle:\(project&&project\.title\)\|\|"",/.test(st)
       && /function StageTimelineView\(\{[^}]*\bfilmTitle\b[^}]*\}\)/.test(st));

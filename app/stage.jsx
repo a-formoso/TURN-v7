@@ -1838,7 +1838,7 @@ function stageSmartRecipe(clip, sourceMode, modelId){
 const SEEDANCE_RECIPES = [
   ["narrative",  "Narrative",        "One flowing paragraph — the default."],
   ["panels",     "Panel-by-panel",   "Explicit SHOT 1 / SHOT 2 cut points tied to the screenplay, storyboard panel, camera, motion and dialogue."],
-  ["timeline",   "Timeline",         "Time-coded windows (0–4s, 4–9s…) scripted from each shot's measured runtime — paces motion across the clip."],
+  ["timeline",   "Time-coded",       "Time-coded windows (0–4s, 4–9s…) scripted from each shot's measured runtime — paces motion across the clip."],
   ["structured", "Structured",       "Labelled fields: Subject / Action / Setting / Camera / Lighting / Style."],
   ["lipsync",    "Dialogue / lip-sync","Phrased around the spoken lines — each speaker paired with their own audio reference for accurate lip-sync."],
 ];
@@ -3105,7 +3105,7 @@ function StageMentionEditor({ value, mentionables, includeMention, maxLen, place
         m.t===swap.tok && _stEl("span",{className:"stage2-mention-kind"},"Current")))));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeIdentity=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the scene's look + film stock when this console renders — stamped on each take it makes, so a later
   // change on the Color tab shows the take as "made with an earlier look" (2026-10-05, owner — Color review)
@@ -5986,7 +5986,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       && _stEl("button",{type:"button",className:"stage2-warn-act",onClick:()=>onStageNav("shots", scene.id)},"Open in Shots"));
   const takeStaleNotice = takeStale && _stEl("div",{key:"take-stale",className:"stage2-warn"},
     Icon.alert&&_stEl(Icon.alert,{s:12}),
-    _stEl("span",{className:"stage2-warn-text"}, "The take in the player is out of date \u2014 this clip's shots changed since it was rendered, so the Timeline and the export leave it out until you regenerate."));
+    _stEl("span",{className:"stage2-warn-text"}, takeIdentity
+      ? "The take in the player finished after a character's identity changed \u2014 the Timeline and the export leave it out until you check it in Takes (\u201cCheck and use this take\u201d)."
+      : "The take in the player is out of date \u2014 this clip's shots changed since it was rendered, so the Timeline and the export leave it out until you regenerate."));
   // a note, not a block (2026-10-05, owner — Color review): the take stays in the film
   const takeOldLookNotice = !takeStale && takeOldLook && _stEl("div",{key:"take-old-look",className:"stage2-hint"},
     Icon.info&&_stEl(Icon.info,{s:12}),
@@ -6857,14 +6859,27 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
     if(recordOverride&&window.vidUpdateTake) await window.vidUpdateTake(clipId,t.url,{sourceOverride:sourceOverrideSnapshot()});
     return true;
   };
+  /* CHECKING AN "IDENTITY CHANGED" TAKE (2026-10-09, owner — Timeline review): the flag kept the take out of
+     the film with nothing to clear it. Choosing or approving it asks you to check it, then clears the flag. */
+  const confirmIdentity = async (t, verb)=>{
+    if(!(t && t.meta && t.meta.identityChanged)) return true;
+    const ok = typeof window.appConfirm!=="function" ? window.confirm("Use this take?") : await window.appConfirm({
+      title:"Have you checked this take?",
+      body:"A character's identity changed while it rendered, so they may not look or sound as they do now. "+verb+" it only if they look right \u2014 the take then goes back into the film.",
+      confirmLabel:verb+" it", cancelLabel:"Not yet" });
+    if(!ok) return false;
+    if(window.vidUpdateTake) await window.vidUpdateTake(clipId, t.url, { identityChanged:false, identityCheckedAt:new Date().toISOString() });
+    return true;
+  };
   const act = {
     approve:async(t,on)=>{
       if(!window.vidApproveTake || readOnly) return;
+      if(on && !(await confirmIdentity(t,"Approve"))) return;
       if(on && !(await confirmSourceOverride(t,"Approve"))) return;
       await window.vidApproveTake(clipId,t.url,on);
     },
     restore:async(t)=>{
-      if(!window.vidRestoreTake || readOnly || !(await confirmSourceOverride(t,"Restore"))) return;
+      if(!window.vidRestoreTake || readOnly || !(await confirmIdentity(t,"Choose")) || !(await confirmSourceOverride(t,"Restore"))) return;
       await window.vidRestoreTake(clipId,t.url);
       if(typeof window.appToast==="function") window.appToast(
         versionSourceStatus(t)==="current"
@@ -7008,11 +7023,17 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
         _stEl("div",{className:"stage2-versions-tools"},
           modelCard,
           _stEl("div",{className:"stage2-versions-dhead"},"Iteration tools"),
-          _stEl("button",{className:"stage2-vtool",disabled:readOnly||!sel||!!(sel&&sel.current),
-            title:sel&&sel.current
+          // a CURRENT take flagged "identity changed" is out of the film until checked: this button checks it
+          (()=>{ const flagged = !!(sel && sel.current && sel.meta && sel.meta.identityChanged);
+            return _stEl("button",{className:"stage2-vtool",disabled:readOnly||!sel||(!!(sel&&sel.current)&&!flagged),
+            title:flagged
+              ? "A character's identity changed while this take rendered, so it's left out of the film \u2014 check it, then use it"
+              : sel&&sel.current
               ? "This is the chosen take used by the scene strip, Timeline, Mix and export"
               : "Choose this take for the scene strip, Timeline, Mix and export",
-             onClick:()=>sel&&act.restore(sel)}, sel&&sel.current ? "Chosen for timeline" : "Choose for timeline"),
+             onClick:async()=>{ if(!sel) return;
+               if(flagged){ if(await confirmIdentity(sel,"Use") && typeof window.appToast==="function") window.appToast("Checked \u2014 the take is back in the film.","ok"); return; }
+               act.restore(sel); }}, flagged ? "Check and use this take" : sel&&sel.current ? "Chosen for timeline" : "Choose for timeline"); })(),
           _stEl("button",{className:"stage2-vtool"+(selApproved?" on":""),disabled:readOnly||!sel,
             title:selApproved?"Remove the approval star":"Star this take as the clip's approved version — it never rolls off the version list",
              onClick:()=>sel&&act.approve(sel, !selApproved)}, selApproved?"★ Approved — unstar":"☆ Approve this take"),
@@ -7073,7 +7094,9 @@ window.stageClipLinePlacements=clipLinePlacements;
    (localStorage), each scene's imported beds in the film's audio store (vgSaveMixBed). ---- */
 const STAGE_MIX_DEFAULTS = { native:0.35, dialogue:1, amb:0.7, music:0.5 };
 function stageMixKey(projectId){
-  if(projectId==null){ const sc = (typeof window.nbCloudScope==="function") ? window.nbCloudScope() : null; projectId = sc && sc.projectId; }
+  if(projectId==null){ const sc = (typeof window.nbCloudScope==="function") ? window.nbCloudScope() : null;
+    // the open film's id while the cloud scope is still being set (2026-10-09, Timeline review)
+    projectId = (sc && sc.projectId) || window.turnOpenFilmId || null; }
   return "turn_stage_mix_"+(projectId||"local");
 }
 function stageMixSettings(projectId){
@@ -7094,9 +7117,11 @@ async function stageLoadMixBeds(clips){
   return out;
 }
 /* the clips a film export leaves out, and why — named the way the Timeline names them */
-function stageExportSkipped(ordered, vids, staleVids){
+function stageExportSkipped(ordered, vids, staleVids, identityVids){
   return (ordered||[]).filter(c=>c && !(vids && vids[c.id]))
-    .map(c=>({ id:c.id, name:stageClipBeatName(c), why:(staleVids && staleVids[c.id]) ? "out of date" : "not rendered" }));
+    .map(c=>({ id:c.id, name:stageClipBeatName(c),
+      why:(identityVids && identityVids[c.id]) ? "identity changed \u2014 check it in Takes"
+        : (staleVids && staleVids[c.id]) ? "out of date" : "not rendered" }));
 }
 function stageExportSkippedText(skipped){
   const list = skipped||[]; if(!list.length) return "";
@@ -7131,7 +7156,7 @@ window.stageExportSkippedText = stageExportSkippedText; window.stageExportMixPla
    reads (fal.media sends CORS headers); a blocked read aborts with a plain
    explanation instead of a corrupt file. ---- */
 function stageExportPlaylist(ordered, vids){
-  return (ordered||[]).filter(c=>c && vids && vids[c.id]).map(c=>({ id:c.id, label:c.label||"", url:vids[c.id] }));
+  return (ordered||[]).filter(c=>c && vids && vids[c.id]).map(c=>({ id:c.id, label:c.label||"", name:stageClipBeatName(c), url:vids[c.id] }));
 }
 window.stageExportPlaylist = stageExportPlaylist;   // pure — covered by the vm suite
 /* The exported film's file name: the film's title when it has one
@@ -7139,25 +7164,34 @@ window.stageExportPlaylist = stageExportPlaylist;   // pure — covered by the v
    default "Untitled film"). Letters in any script are kept, with their combining marks
    (Hindi, Thai: "नमस्ते" stays whole); everything else collapses to "_". Never the
    internal codename. */
-function stageFilmFileName(title, date){
+function stageFilmFileName(title, date, ext){
   const day = String(date || new Date().toISOString().slice(0,10));
+  // the file's real type: a browser that records MP4 only (older Safari) gets .mp4 (2026-10-09)
+  const x = "."+(String(ext||"webm").replace(/^\./,"").toLowerCase()==="mp4" ? "mp4" : "webm");
   const raw = String(title||"").trim();
-  if(!raw || /^untitled(?:\s+film)?$/i.test(raw)) return "Kinolot-film-"+day+".webm";
+  if(!raw || /^untitled(?:\s+film)?$/i.test(raw)) return "Kinolot-film-"+day+x;
   let slug = "";
   try{ slug = raw.normalize("NFC").replace(new RegExp("[^\\p{L}\\p{M}\\p{N}\\-]+","gu"),"_"); }
   catch(e){ slug = raw.replace(/[^\w\-]+/g,"_"); }
   slug = Array.from(slug.replace(/_+/g,"_").replace(/^[_\-]+|[_\-]+$/g,"")).slice(0,80).join("")
     .replace(/[_\-]+$/,"");
-  return slug ? (slug+"-"+day+".webm") : ("Kinolot-film-"+day+".webm");
+  return slug ? (slug+"-"+day+x) : ("Kinolot-film-"+day+x);
 }
+/* the extension for a recorded blob's type */
+function stageFilmExt(type){ return /mp4/i.test(String(type||"")) ? "mp4" : "webm"; }
+window.stageFilmExt = stageFilmExt;
 window.stageFilmFileName = stageFilmFileName;   // pure — covered by test-rebrand-art
 async function stageExportFilm(playlist, opts){
   opts = opts||{};
   if(!playlist || !playlist.length) throw new Error("No rendered clips to export yet — render takes in the Shoot tab first.");
-  if(typeof MediaRecorder==="undefined") throw new Error("This browser can't record video (MediaRecorder missing) — try Chrome or Edge.");
+  // what the browser can't do, said plainly (a raw "is not a function" used to surface — 2026-10-09)
+  if(typeof MediaRecorder==="undefined") throw new Error("This browser can't record video, so the film can't be exported here \u2014 try Chrome or Edge.");
+  const AC = window.AudioContext||window.webkitAudioContext;
+  if(typeof AC!=="function") throw new Error("This browser can't mix audio for a recording, so the film can't be exported here \u2014 try Chrome or Edge.");
+  { const probe = document.createElement("canvas");
+    if(!probe || typeof probe.captureStream!=="function") throw new Error("This browser can't record a canvas, so the film can't be exported here \u2014 try Chrome or Edge."); }
   const video = document.createElement("video");
   video.crossOrigin = "anonymous"; video.playsInline = true; video.preload = "auto";
-  const AC = window.AudioContext||window.webkitAudioContext;
   const ac = new AC();
   /* the element's sound goes into the RECORDING only, not the speakers: a
      MediaElementSource takes over the element's output, and the graph never
@@ -7191,16 +7225,26 @@ async function stageExportFilm(playlist, opts){
     }
     (item.lines||[]).forEach(l=>playBuf(l.url, dialogueGain, now+Math.max(0, Number(l.at)||0), false));
   };
-  const loadClip = (url)=> new Promise((res,rej)=>{
-    video.onloadedmetadata = ()=>res();
-    video.onerror = ()=>rej(new Error("A take couldn't be loaded for export — its video URL may have expired. Re-render that clip and try again."));
-    video.src = url; video.load();
+  const cancelled = ()=> !!(opts.shouldCancel && opts.shouldCancel());
+  const LOAD_TIMEOUT_MS = Number(opts.loadTimeoutMs)||30000, STALL_MS = Number(opts.stallMs)||20000;
+  /* A CLIP THAT NEVER LOADS NO LONGER HANGS THE EXPORT (2026-10-09, Timeline review): it times out, Cancel
+     works while it loads, and the message names the clip */
+  const loadClip = (item)=> new Promise((res,rej)=>{
+    const name = (item && item.name) || (item && item.label) || "a clip";
+    let done = false;
+    const end = (fn, v)=>{ if(done) return; done = true; clearInterval(poll); clearTimeout(timer); fn(v); };
+    const poll = setInterval(()=>{ if(cancelled()) end(rej, new Error("Export cancelled.")); }, 250);
+    const timer = setTimeout(()=>end(rej, new Error("The take for "+name+" didn't load (its link may have expired) \u2014 re-render that clip or try again.")), LOAD_TIMEOUT_MS);
+    video.onloadedmetadata = ()=>end(res);
+    video.onerror = ()=>end(rej, new Error("The take for "+name+" couldn't be loaded for export \u2014 its video link may have expired. Re-render that clip and try again."));
+    video.src = item && item.url; video.load();
   });
-  let raf = 0, failed = null, taintChecked = false, rec = null, stream = null;
+  let raf = 0, failed = null, taintChecked = false, rec = null, stream = null, hidden = false, onVis = null;
   // ONE finalization path — every exit (success, cancel, load failure, CORS
   // taint) lands in `finally`, which must also stop the recorder and capture
   // tracks or a cancelled export leaks a live recorder + camera-style tracks.
-  const cleanup = ()=>{ try{ cancelAnimationFrame(raf); }catch(e){}
+  const cleanup = ()=>{ try{ cancelAnimationFrame(raf); }catch(e){} try{ clearTimeout(raf); }catch(e){}
+    try{ if(onVis) document.removeEventListener("visibilitychange", onVis); }catch(e){}
     try{ if(rec && rec.state!=="inactive") rec.stop(); }catch(e){}
     try{ if(stream) stream.getTracks().forEach(t=>t.stop()); }catch(e){}
     try{ video.pause(); video.removeAttribute("src"); video.load(); }catch(e){}
@@ -7211,22 +7255,26 @@ async function stageExportFilm(playlist, opts){
     if(mix){   // read every line and bed up front, so nothing stalls once recording runs
       const urls = [];
       (mix.items||[]).forEach(it=>{ (it.lines||[]).forEach(l=>urls.push(l.url)); const b = mix.beds[it.sceneId]||{}; urls.push(b.amb, b.music); });
-      for(const u of urls){ if(opts.shouldCancel && opts.shouldCancel()) throw new Error("Export cancelled."); await decode(u); }
+      if(opts.onProgress) opts.onProgress(0, playlist.length, "", "preparing");
+      for(const u of urls){ if(cancelled()) throw new Error("Export cancelled."); await decode(u); }
     }
-    await loadClip(playlist[0].url);
+    await loadClip(playlist[0]);
     const vw = video.videoWidth||1280, vh = video.videoHeight||720;
     const scale = Math.min(1, 1920/Math.max(vw,vh));
     const cv = document.createElement("canvas");
     cv.width = Math.max(2, Math.round(vw*scale/2)*2); cv.height = Math.max(2, Math.round(vh*scale/2)*2);
     const cx = cv.getContext("2d");
     cx.fillStyle = "#000"; cx.fillRect(0,0,cv.width,cv.height);
-    const mime = ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"]
+    // WebM where the browser records it, else MP4 (older Safari) — the file is typed and named by what it is
+    const mime = ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm","video/mp4;codecs=avc1,mp4a","video/mp4"]
       .find(m=>{ try{ return MediaRecorder.isTypeSupported(m); }catch(e){ return false; } }) || "";
     stream = cv.captureStream(30);
     dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
     rec = new MediaRecorder(stream, mime ? { mimeType:mime, videoBitsPerSecond:8000000 } : undefined);
     const chunks = [];
     rec.ondataavailable = (e)=>{ if(e.data && e.data.size) chunks.push(e.data); };
+    // a recorder that fails partway never hands back a cut-short file as a success
+    rec.onerror = ()=>{ if(!failed) failed = new Error("The recording stopped with an error, so the film wasn't saved \u2014 try again."); };
     const recStopped = new Promise(res=>{ rec.onstop = ()=>res(); });
     const draw = ()=>{
       if(failed) return;
@@ -7244,21 +7292,47 @@ async function stageExportFilm(playlist, opts){
         failed = new Error("The video provider blocked cross-site reading of a take, so the browser can't record it into one file. Download takes individually from the Takes tab instead.");
         return;
       }
-      raf = requestAnimationFrame(draw);
+      // a timer, not requestAnimationFrame alone: frames keep being drawn while the page is busy
+      raf = setTimeout(draw, 33);
     };
+    /* A HIDDEN TAB PAUSES THE RECORDING (2026-10-09, Timeline review): browsers stop drawing a hidden page,
+       so the film froze while its sound ran on. Now the picture, the sound, the recorder and the mix's
+       clock all pause together while the tab is hidden, and pick up where they were when it's back. */
+    onVis = ()=>{
+      const h = document.visibilityState==="hidden";
+      if(h===hidden) return; hidden = h;
+      try{
+        if(h){ video.pause(); if(rec && rec.state==="recording") rec.pause(); ac.suspend(); }
+        else { ac.resume(); if(rec && rec.state==="paused") rec.resume(); if(!video.ended) video.play().catch(()=>{}); }
+      }catch(e){}
+      if(opts.onPaused) opts.onPaused(h);
+    };
+    try{ document.addEventListener("visibilitychange", onVis); }catch(e){}
     try{ await ac.resume(); }catch(e){}
     rec.start(1000);
     draw();
     for(let i=0;i<playlist.length;i++){
       if(failed) break;
-      if(opts.shouldCancel && opts.shouldCancel()) throw new Error("Export cancelled.");
-      if(i>0) await loadClip(playlist[i].url);
-      if(opts.onProgress) opts.onProgress(i+1, playlist.length, playlist[i].label);
+      if(cancelled()) throw new Error("Export cancelled.");
+      if(i>0) await loadClip(playlist[i]);
+      if(opts.onProgress) opts.onProgress(i+1, playlist.length, playlist[i].name||playlist[i].label, "recording");
+      while(hidden && !cancelled()) await new Promise(r=>setTimeout(r, 250));   // wait for the tab to come back
       await video.play();
       startClipAudio(mixById[playlist[i].id]);
-      await new Promise((res)=>{
-        const tick = setInterval(()=>{ if(failed || (opts.shouldCancel && opts.shouldCancel())){ clearInterval(tick); res(); } }, 250);
+      const name = playlist[i].name || playlist[i].label || "a clip";
+      /* the clip plays to its end; an error or a stall (no progress for a while, tab visible) stops the
+         export with the clip's name instead of recording frozen frames until you cancel */
+      await new Promise((res, rej)=>{
+        let lastT = -1, lastMove = Date.now();
+        const tick = setInterval(()=>{
+          if(failed || cancelled()){ clearInterval(tick); res(); return; }
+          if(hidden){ lastMove = Date.now(); return; }
+          const t = Number(video.currentTime)||0;
+          if(t!==lastT){ lastT = t; lastMove = Date.now(); }
+          else if(Date.now()-lastMove > STALL_MS){ clearInterval(tick); rej(new Error("The take for "+name+" stopped playing partway, so the export was stopped \u2014 try again, or re-render that clip.")); }
+        }, 250);
         video.onended = ()=>{ clearInterval(tick); res(); };
+        video.onerror = ()=>{ clearInterval(tick); rej(new Error("The take for "+name+" failed while recording \u2014 its link may have expired. Re-render that clip and try again.")); };
       });
     }
     if(!failed && opts.shouldCancel && opts.shouldCancel()) failed = new Error("Export cancelled.");
@@ -7267,7 +7341,7 @@ async function stageExportFilm(playlist, opts){
     if(failed) throw failed;
     if(!chunks.length) throw new Error("The recording came out empty — try again, or use a Chromium browser (Chrome/Edge).");
     if(opts.report) opts.report.audioMissed = audioMissed;
-    return new Blob(chunks, { type: mime || "video/webm" });
+    return new Blob(chunks, { type: (rec && rec.mimeType) || mime || "video/webm" });
   } finally { cleanup(); }
 }
 window.stageExportFilm = stageExportFilm;
@@ -7284,121 +7358,190 @@ function stageClipBeatName(c){
   return (c && c.label || "") + (beats ? " \u00b7 "+beats : "");
 }
 window.stageClipBeatName = stageClipBeatName;
-function StageTimelineView({ allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip, onOpenStage, filmTitle, auds, characters, oldLookVids, noteVids }){
+function StageTimelineView({ allClips, vids, staleVids, identityVids, imgs, visualSource, selId, onSelectClip, onOpenStage, filmTitle, auds, characters, oldLookVids, noteVids, vidsLoaded=true }){
   const ordered = allClips||[];
-  const startIdx = Math.max(0, ordered.findIndex(c=>c.id===selId));
-  const [idx, setIdx] = React.useState(startIdx);
+  /* THE SELECTION IS THE RAIL'S (2026-10-09, Timeline review): the clip shown is found by its id on every
+     render — a stored position drifted to another clip (or past the end: "No clips yet.") when shot edits
+     changed the clip list */
+  const [localId, setLocalId] = React.useState(selId||null);
+  const pickId = (selId && ordered.some(c=>c.id===selId)) ? selId : localId;
+  const idx = Math.max(0, ordered.findIndex(c=>c.id===pickId));
   const [playAll, setPlayAll] = React.useState(false);
+  const [playErr, setPlayErr] = React.useState("");   // the selected take couldn't be played
   const videoRef = React.useRef(null);
-  // follow the rail selection while this tab is open (it used to freeze on the
-  // selection captured at mount — picking another clip in the rail did nothing here)
-  React.useEffect(()=>{ const i = (allClips||[]).findIndex(c=>c.id===selId); if(i>=0) setIdx(x=> x===i ? x : i); },[selId]);
-  const [exporting, setExporting] = React.useState(null);   // { i, n } while recording
+  const autoPlayIdRef = React.useRef("");              // play this clip as soon as its video can play
+  const [exporting, setExporting] = React.useState(null);   // { i, n, phase, name, paused } while recording
   const exportCancelRef = React.useRef(false);
+  const exportBusyRef = React.useRef(false);
+  const mountedRef = React.useRef(true);
+  /* LEAVING THE TIMELINE STOPS AN EXPORT (2026-10-09, owner — Timeline review): a recording left running
+     after a tab or film switch had no progress or Cancel, could run twice, and downloaded into the next film */
+  React.useEffect(()=>{ mountedRef.current = true; return ()=>{ mountedRef.current = false;
+    if(exportBusyRef.current){ exportCancelRef.current = true;
+      if(typeof window.appToast==="function") window.appToast("Film export stopped — leaving the Timeline stops the recording. Start it again from the Timeline.","info"); } }; }, []);
+  const takeSecs = (c)=>{ const m = (typeof vidGetMeta==="function") ? vidGetMeta(c.id) : null;
+    const v = m ? (Number(m.durationSec) || Number(m.durationMs)/1000) : 0; return v>0 ? v : (Number(c.data&&c.data.dur)||0); };
   const doExport = async ()=>{
+    if(exportBusyRef.current) return;   // a double-click never starts two recordings
     const pl = stageExportPlaylist(ordered, vids);
     if(!pl.length) return;
-    // the Mix (levels, voiced lines, each scene's beds) and the clips left out are said BEFORE recording
-    const skipped = stageExportSkipped(ordered, vids, staleVids);
+    exportBusyRef.current = true;
+    try{
+    // the Mix, the clips left out, the takes going in with notes, and how to keep it going — said BEFORE recording
+    const skipped = stageExportSkipped(ordered, vids, staleVids, identityVids);
     let mix = null;
     try{ const st = stageMixSettings();
       const plan = stageExportMixPlan(ordered, vids, { auds, characters, beds:await stageLoadMixBeds(ordered), gain:st.gain, mute:st.mute });
       if(plan.has) mix = plan; }catch(e){}
-    if((mix || skipped.length) && typeof window.appConfirm==="function"){
+    if(!mountedRef.current) return;
+    const lookN = pl.filter(x=>(oldLookVids||{})[x.id]).length, notedN = pl.filter(x=>(noteVids||{})[x.id]).length;
+    const filmSec = pl.reduce((t,x)=>{ const c = ordered.find(y=>y.id===x.id); return t+(c ? takeSecs(c) : 0); }, 0);
+    const notes = [];
+    if(skipped.length) notes.push((skipped.length>12 ? "…and "+(skipped.length-12)+" more left out. " : "")+"The film is stitched from the "+pl.length+" clip"+(pl.length!==1?"s":"")+" that have a current take.");
+    if(lookN) notes.push(lookN+" clip"+(lookN!==1?"s use takes":" uses a take")+" made with an earlier look (included).");
+    if(notedN) notes.push(notedN+" clip"+(notedN!==1?"s have":" has")+" take notes in Takes (included).");
+    notes.push("It records in real time (about "+_fmtSecs(Math.round(filmSec))+"): keep this tab open and in front — the recording pauses while the tab is hidden, and leaving the Timeline stops it.");
+    if(filmSec>600) notes.push("A long film is held in memory while it records (about 60 MB a minute).");
+    if(typeof window.appConfirm==="function"){
       const what = mix ? [mix.lineN ? mix.lineN+" voiced line"+(mix.lineN!==1?"s":"") : "", mix.bedN ? mix.bedN+" imported bed"+(mix.bedN!==1?"s":"") : ""].filter(Boolean).join(" and ") : "";
       const ans = await window.appConfirm({
         title: mix ? "Export the film with the Mix?" : "Export the film?",
         body: mix ? "With the Mix, each take's own sound plays at the Picture volume, with "+what+" on top at the Mix tab's levels — what \"Play scene mix\" plays. \"Picture sound only\" keeps each take's sound as it was rendered." : "",
-        items: skipped.length ? skipped.slice(0,12).map(x=>x.name+" \u2014 "+x.why+", left out") : undefined,
-        note: skipped.length ? (skipped.length>12 ? "…and "+(skipped.length-12)+" more. " : "")+"The film is stitched from the "+pl.length+" clip"+(pl.length!==1?"s":"")+" that have a current take." : "",
+        items: skipped.length ? skipped.slice(0,12).map(x=>x.name+" — "+x.why+", left out") : undefined,
+        note: notes.join(" "),
         confirmLabel: mix ? "Export with the Mix" : "Export", altLabel: mix ? "Picture sound only" : undefined, cancelLabel:"Cancel" });
       if(!ans) return;
       if(ans==="alt") mix = null;
     }
+    if(!mountedRef.current) return;
     exportCancelRef.current = false;
-    setExporting({ i:0, n:pl.length });
+    setExporting({ i:0, n:pl.length, phase:"preparing" });
     const report = {};
     try{
       const blob = await stageExportFilm(pl, {
         mix, report,
-        onProgress:(i,n)=>setExporting({ i, n }),
+        onProgress:(i,n,name,phase)=>{ if(mountedRef.current) setExporting(x=>({ ...(x||{}), i, n, name:name||"", phase:phase||"recording" })); },
+        onPaused:(p)=>{ if(mountedRef.current) setExporting(x=>x ? ({ ...x, paused:!!p }) : x); },
         shouldCancel:()=>exportCancelRef.current });
+      if(!mountedRef.current) return;   // left mid-export: nothing downloads into another tab or film
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = stageFilmFileName(filmTitle, new Date().toISOString().slice(0,10));
+      const ext = stageFilmExt(blob.type);
+      a.download = stageFilmFileName(filmTitle, new Date().toISOString().slice(0,10), ext);
       a.click();
       setTimeout(()=>{ try{ URL.revokeObjectURL(a.href); }catch(e){} }, 60000);
       const left = stageExportSkippedText(skipped);
-      if(typeof window.appToast==="function") window.appToast("Film exported"+(mix?" with the Mix":"")+" — "+pl.length+" clip"+(pl.length!==1?"s":"")+" stitched into one WebM file."
+      if(typeof window.appToast==="function") window.appToast("Film exported"+(mix?" with the Mix":"")+" — "+pl.length+" clip"+(pl.length!==1?"s":"")+" stitched into one "+ext.toUpperCase()+" file."
         +(left ? " "+left+"." : "")
         +(report.audioMissed ? " "+report.audioMissed+" audio file"+(report.audioMissed!==1?"s":"")+" couldn't be read and "+(report.audioMissed!==1?"were":"was")+" left out of the mix." : ""), (left||report.audioMissed)?"info":"success");
     }catch(e){
-      if(!/cancelled/i.test(String(e&&e.message)) && typeof window.appToast==="function")
+      if(mountedRef.current && !/cancelled/i.test(String(e&&e.message)) && typeof window.appToast==="function")
         window.appToast(String((e&&e.message)||"Export failed."),"error");
-    }finally{ setExporting(null); exportCancelRef.current = false; }
+    }finally{ if(mountedRef.current) setExporting(null); exportCancelRef.current = false; }
+    } finally { exportBusyRef.current = false; }
   };
   const cur = ordered[idx] || null;
   const curUrl = cur ? (vids[cur.id]||"") : "";
+  React.useEffect(()=>{ setPlayErr(""); }, [curUrl]);
   const renderedN = ordered.filter(c=>vids[c.id]).length;
+  const staleN = ordered.filter(c=>!vids[c.id] && ((staleVids||{})[c.id] || (identityVids||{})[c.id])).length;
+  // the runtime of the takes that play (their real length), against the planned length of the film
   const totalSec = ordered.reduce((t,c)=>t+(Number(c.data&&c.data.dur)||0),0);
-  const doneSec = ordered.reduce((t,c)=>t+(vids[c.id]?(Number(c.data&&c.data.dur)||0):0),0);
-  const jump = (i, autoplay)=>{ setIdx(i); const c=ordered[i]; if(c && onSelectClip) onSelectClip(c.id);
-    if(autoplay) setTimeout(()=>{ try{ videoRef.current && videoRef.current.play(); }catch(e){} }, 60); };
+  const doneSec = ordered.reduce((t,c)=>t+(vids[c.id]?takeSecs(c):0),0);
+  const thumbs = stageImgsWithCache(imgs);   // every scene's thumbnails, not only the open one's (2026-10-09)
+  /* PLAY FILM (2026-10-09, Timeline review): from the first rendered clip, like the export; each clip starts
+     as soon as its video can play (a fixed 60 ms wait could hit the old player and stop the film); a take
+     that can't play is skipped and named; pausing or picking a clip stops it; the button is a Stop */
+  const select = (i)=>{ const c = ordered[i]; if(!c) return; setLocalId(c.id); if(onSelectClip) onSelectClip(c.id); };
+  const jump = (i, autoplay)=>{ const c = ordered[i]; if(!c) return;
+    autoPlayIdRef.current = autoplay ? c.id : "";
+    select(i);
+    if(autoplay && c.id===(cur&&cur.id) && videoRef.current){ try{ videoRef.current.currentTime = 0; const pr = videoRef.current.play(); if(pr && pr.catch) pr.catch(()=>{}); }catch(e){} autoPlayIdRef.current = ""; } };
   const nextPlayable = (from)=>{ for(let i=from+1;i<ordered.length;i++){ if(vids[ordered[i].id]) return i; } return -1; };
+  const stopFilm = ()=>{ setPlayAll(false); autoPlayIdRef.current = ""; try{ videoRef.current && videoRef.current.pause(); }catch(e){} };
   const onEnded = ()=>{ if(!playAll) return; const n = nextPlayable(idx); if(n>=0) jump(n, true); else setPlayAll(false); };
-  const playFilm = ()=>{ const first = vids[ordered[idx]&&ordered[idx].id] ? idx : nextPlayable(-1);
-    if(first<0) return; setPlayAll(true); jump(first, true); };
+  const onCanPlay = (e)=>{ if(cur && autoPlayIdRef.current===cur.id){ autoPlayIdRef.current = "";
+    try{ const pr = e.currentTarget.play(); if(pr && pr.catch) pr.catch(()=>{}); }catch(err){} } };
+  const onPause = (e)=>{ const v = e.currentTarget; if(playAll && v && !v.ended && !autoPlayIdRef.current) setPlayAll(false); };
+  const onVideoError = ()=>{
+    const name = cur ? stageClipBeatName(cur) : "This clip";
+    setPlayErr(name+"'s take couldn't be played — its link may have expired. Reload the film, or re-render the clip in Shoot.");
+    if(playAll){ const n = nextPlayable(idx);
+      if(typeof window.appToast==="function") window.appToast(name+"'s take couldn't be played — skipped.","info");
+      if(n>=0) jump(n, true); else setPlayAll(false); } };
+  const playFilm = ()=>{ const first = nextPlayable(-1); if(first<0) return; setPlayAll(true); jump(first, true); };
+  const statusOf = (c)=> vids[c.id] ? "" : (identityVids||{})[c.id] ? "identity" : (staleVids||{})[c.id] ? "stale" : "missing";
   // scene grouping for the strip
   const groups = []; ordered.forEach((c,i)=>{ const last=groups[groups.length-1];
     if(last && last.scene.id===c.scene.id) last.items.push({c,i});
     else groups.push({ scene:c.scene, items:[{c,i}] }); });
+  const exportLabel = !exporting ? "⬇ Export film"
+    : exporting.phase==="preparing" ? "■ Preparing the sound…"
+    : exporting.paused ? ("■ Paused "+exporting.i+"/"+exporting.n+" (tab hidden)")
+    : ("■ Recording "+exporting.i+"/"+exporting.n+"…");
+  const liveText = exporting
+    ? (exporting.phase==="preparing" ? "Preparing the film's sound" : exporting.paused ? "Recording paused while the tab is hidden"
+      : "Recording clip "+exporting.i+" of "+exporting.n+(exporting.name ? ", "+exporting.name : ""))
+    : (playAll && cur ? "Playing the film: "+stageClipBeatName(cur) : "");
   return _stEl("div",{className:"stage2-tl"},
     _stEl("div",{className:"stage2-versions-head"},
       _stEl("div",{className:"stage2-versions-title"}, Icon.grid&&_stEl(Icon.grid,{s:14}), "Timeline",
         _stEl("span",{className:"stage2-versions-sub"},"the film, assembled from each clip's current take")),
       _stEl("span",{className:"stage2-versions-count"},
-        renderedN+" / "+ordered.length+" clips rendered · "+_fmtSecs(doneSec)+" of ~"+_fmtSecs(totalSec)
+        !vidsLoaded ? "Loading takes…"
+        : renderedN+" / "+ordered.length+" clips rendered · "+_fmtSecs(Math.round(doneSec))+" of ~"+_fmtSecs(totalSec)
+          +(staleN ? " · "+staleN+" out of date" : "")
           +(()=>{ const n = ordered.filter(c=>(oldLookVids||{})[c.id]).length; return n ? " · "+n+" with an earlier look" : ""; })()
           +(()=>{ const n = ordered.filter(c=>(noteVids||{})[c.id]).length; return n ? " · "+n+" with take notes" : ""; })()),
-      _stEl("button",{className:"stage2-vtool",style:{width:"auto"},disabled:!renderedN,
-        title:renderedN?"Play every rendered clip in story order":"Render clips in the Shoot tab first",
-        onClick:playFilm}, playAll?"Playing…":"▶ Play film"),
-      _stEl("button",{className:"stage2-vtool",style:{width:"auto"},disabled:!renderedN && !exporting,
+      _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",disabled:!renderedN && !playAll,
+        title:playAll ? "Stop playing the film" : (renderedN?"Play every rendered clip in story order, from the first":"Render clips in the Shoot tab first"),
+        onClick:playAll ? stopFilm : playFilm}, playAll?"■ Stop film":"▶ Play film"),
+      _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",disabled:(!renderedN || !vidsLoaded) && !exporting,
         title: exporting ? "Recording in real time — click to cancel the export"
-          : (renderedN ? "Record every rendered clip into ONE downloadable movie (WebM), with the Mix tab's voices, beds and levels if you like. Runs in real time — a 3-minute film takes about 3 minutes." : "Render clips in the Shoot tab first"),
+          : (renderedN ? "Record every rendered clip into ONE downloadable movie, with the Mix tab's voices, beds and levels if you like. Runs in real time — a 3-minute film takes about 3 minutes; keep this tab open and in front." : "Render clips in the Shoot tab first"),
         onClick: exporting ? ()=>{ exportCancelRef.current = true; } : doExport},
-        exporting ? ("■ Recording "+exporting.i+"/"+exporting.n+"…") : "⬇ Export film"),
+        exportLabel),
       // the selected clip opens in Shoot from a button too — double-click was the only way (2026-10-09)
       cur && vids[cur.id] && _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",
         title:"Open "+stageClipBeatName(cur)+" in Shoot"+(((oldLookVids||{})[cur.id] || (noteVids||{})[cur.id]) ? " to regenerate it" : ""),
         onClick:()=>onOpenStage&&onOpenStage(cur.id)}, "Open in Shoot")),
+    _stEl("div",{className:"sb-sr-only",role:"status","aria-live":"polite"}, liveText),
     _stEl("div",{className:"stage2-tl-player"},
-      curUrl
-        ? _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,onEnded,
+      curUrl && !playErr
+        ? _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,onEnded,onCanPlay,onPause,onError:onVideoError,
             "aria-label":cur ? ("Timeline — "+stageClipBeatName(cur)) : "Timeline",
             title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget),
-            poster:cur?clipPrimaryFrame(cur, imgs, visualSource)||undefined:undefined})
+            poster:cur?clipPrimaryFrame(cur, thumbs, visualSource)||undefined:undefined})
         : _stEl("div",{className:"stage2-tl-empty"},
-            _stEl("div",null,(!cur ? "No clips yet." : (staleVids||{})[cur.id]
-              ? stageClipBeatName(cur)+"'s take is out of date \u2014 its shots changed since it was rendered, so it's left out of the film."
+            _stEl("div",null,(!cur ? "No clips yet."
+              : playErr ? playErr
+              : !vidsLoaded ? "Loading takes…"
+              : (identityVids||{})[cur.id]
+              ? stageClipBeatName(cur)+"'s take finished after a character's identity changed — check it in Takes (\u201cCheck and use this take\u201d) to put it back in the film."
+              : (staleVids||{})[cur.id]
+              ? stageClipBeatName(cur)+"'s take is out of date — its shots changed since it was rendered, so it's left out of the film."
               : stageClipBeatName(cur)+" isn't rendered yet.")),
-            cur && _stEl("button",{className:"stage2-vtool",style:{width:"auto"},onClick:()=>onOpenStage&&onOpenStage(cur.id)},
-              (staleVids||{})[cur.id] ? "Regenerate it in Shoot" : "Render it in Shoot"))),
+            cur && vidsLoaded && _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",onClick:()=>onOpenStage&&onOpenStage(cur.id)},
+              ((staleVids||{})[cur.id] || playErr) ? "Regenerate it in Shoot" : "Render it in Shoot"))),
     _stEl("div",{className:"stage2-tl-strip"},
-      groups.map(g=>_stEl("div",{key:g.scene.id,className:"stage2-tl-scene"},
+      groups.map(g=>_stEl("div",{key:g.scene.id,className:"stage2-tl-scene",role:"group","aria-label":"Scene "+_pad2(g.scene.no)},
         _stEl("div",{className:"stage2-tl-scene-lab"},_pad2(g.scene.no)+" · "+(g.scene.title||g.scene.loc||"Scene")),
         _stEl("div",{className:"stage2-tl-clips"},
           g.items.map(({c,i})=>{
-            const has = !!vids[c.id];
-            const thumb = clipPrimaryFrame(c, imgs, visualSource);
-            return _stEl("button",{key:c.id,type:"button",
-              className:"stage2-tl-clip"+(i===idx?" on":"")+(has?"":" missing")+(has && ((oldLookVids||{})[c.id] || (noteVids||{})[c.id])?" old-look":""),
-              title:stageClipBeatName(c)+(has?((oldLookVids||{})[c.id]?" — made with an earlier look (still in the film; double-click to regenerate it in Shoot)":" — click to play"):((staleVids||{})[c.id]?" — out of date (double-click to open it in Shoot)":" — not rendered yet (double-click to open in Shoot)"))
-                +(has && (noteVids||{})[c.id] ? " · "+(noteVids||{})[c.id].join(", ") : ""),
-              onClick:()=>jump(i,false), onDoubleClick:()=>onOpenStage&&onOpenStage(c.id)},
+            const has = !!vids[c.id], st = statusOf(c);
+            const look = has && (oldLookVids||{})[c.id], noted = has && (noteVids||{})[c.id];
+            const thumb = clipPrimaryFrame(c, thumbs, visualSource);
+            const state = has ? (look ? "made with an earlier look (still in the film)" : "in the film")
+              : st==="identity" ? "identity changed — check it in Takes" : st==="stale" ? "out of date (left out)" : "not rendered yet";
+            return _stEl("button",{key:c.id,type:"button","aria-pressed":i===idx ? "true" : "false",
+              "aria-label":stageClipBeatName(c)+", "+state+(noted ? ", take notes: "+noted.join(", ") : ""),
+              className:"stage2-tl-clip"+(i===idx?" on":"")+(has?"":" missing")+(st==="stale"||st==="identity"?" stale":"")+(look?" old-look":"")+(noted?" noted":""),
+              title:stageClipBeatName(c)+" — "+state+" · click to select, double-click to open it in Shoot"
+                +(noted ? " · "+noted.join(", ") : ""),
+              onClick:()=>{ if(playAll) stopFilm(); select(i); }, onDoubleClick:()=>onOpenStage&&onOpenStage(c.id)},
               thumb ? _stEl("img",{src:thumb,alt:""}) : _stEl("span",{className:"stage2-tl-clip-blank"}),
-              _stEl("span",{className:"stage2-tl-clip-lab"}, stageClipBeatName(c)+" · "+_fmtSecs(Number(c.data&&c.data.dur)||0)),
-              _stEl("span",{className:"stage2-tl-dot"+(has?" ok":"")})); }))))));
+              _stEl("span",{className:"stage2-tl-clip-lab"}, stageClipBeatName(c)+" · "+_fmtSecs(Math.round(has ? takeSecs(c) : (Number(c.data&&c.data.dur)||0)))),
+              _stEl("span",{className:"stage2-tl-dot"+(has?" ok":"")+(st==="stale"||st==="identity"?" stale":"")})); }))))));
 }
 
 /* ---- AUDIO tab — the POST MIX. Generation audio is a scratch track; this is where the
@@ -7638,7 +7781,9 @@ function clipVoiceState(clip,auds,characters){
 }
 function clipVideoReady(clip, vids){
   if(!clip) return false;
-  if(vids&&vids[clip.id]) return true;
+  // the Stage's vetted list (usable current takes) is the one answer — the rail used to call a take
+  // flagged "identity changed" rendered while the Timeline left it out (2026-10-09)
+  if(vids) return !!vids[clip.id];
   const url=(typeof vidGetVideo==="function")&&vidGetVideo(clip.id);
   if(!url) return false;
   const meta=(typeof vidGetMeta==="function")?vidGetMeta(clip.id):null;
@@ -7681,7 +7826,6 @@ function stageSceneBeatTakeSlots(sceneClips,drafts,takeLookup,sceneId,statusLook
   });
 }
 window.stageSceneBeatTakeSlots=stageSceneBeatTakeSlots;
-function stageBeatVidId(sh){ return sh && sh.id ? ("beat-"+sh.id) : ""; }
 function stageShotRuntime(sh){
   const ms = sh && sh.lineAudio && sh.lineAudio.durationMs;
   if(ms) return Math.max(1, Math.round((Number(ms)/1000)*10)/10);
@@ -7760,6 +7904,10 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // in-room view: the director console ("stage") or the take browser ("versions");
   // pendingReuse carries a Versions-tab "Reuse/Branch" pick back into the composer
   const [stageView, setStageView] = React.useState("stage");
+  // another room can open one of the Stage's tabs (the app's onStageNav "timeline" / "audio" / "versions")
+  React.useEffect(()=>{ const h=(e)=>{ const v = e && e.detail && e.detail.view;
+      if(["stage","versions","timeline","audio"].indexOf(v)>=0) setStageView(v); };
+    window.addEventListener("turn-stage-view", h); return ()=>window.removeEventListener("turn-stage-view", h); }, []);
   const [pendingReuse, setPendingReuse] = React.useState(null);
   const clipsByScene = React.useMemo(()=>{ const m={};
     // the packing budget follows the MODEL's ceiling upward — a 30s model (Seedance
@@ -7940,7 +8088,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       if(alive) setAuds(out); })();
     return ()=>{ alive=false; }; }, [(shots||[]).map(s=>s.id+":"+(s.lineAudio?1:0)).join(","), audTick]);
 
-  const videoIds = React.useMemo(()=>Array.from(new Set([].concat(allClips.map(c=>c.id), (shots||[]).map(stageBeatVidId).filter(Boolean)))), [allClips.map(c=>c.id).join(","), shotIdsKey]);
+  // the clips' takes (the per-shot "beat-" ids were never written or read — dropped 2026-10-09)
+  const videoIds = React.useMemo(()=>Array.from(new Set(allClips.map(c=>c.id))), [allClips.map(c=>c.id).join(",")]);
   const clipIdsKey = videoIds.join(",");
   const [vids, setVids] = React.useState({});
   // clips whose current take exists but is OUT OF DATE (its shots changed since) — said as such,
@@ -7976,18 +8125,22 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     // film wrote "local" and one film's Stage overwrote another's Breakdown counts
     try{ localStorage.setItem("turn_stage_scene_status:"+stageFilmKey(project), JSON.stringify(out)); }catch(e){}
   },[stageStatusSig, stageFilmKey(project), vidsLoaded]);
+  // clips whose current take finished after a character's identity changed: left out until checked in Takes
+  const [identityVids, setIdentityVids] = React.useState({});
   React.useEffect(()=>{ let alive=true;
-    (async()=>{ const out={}, stale={};
-       for(const id of videoIds){ let u=(typeof vidGetVideo==="function")?vidGetVideo(id):"";
-         if(!u && typeof vidLoadVideo==="function"){ try{ u=await vidLoadVideo(id); }catch(e){} }
+    (async()=>{ const out={}, stale={}, ident={};
+       // read in parallel (2026-10-09: one at a time, the Timeline said "0 rendered" for seconds)
+       const urls = await Promise.all(videoIds.map(async id=>{ let u=(typeof vidGetVideo==="function")?vidGetVideo(id):"";
+         if(!u && typeof vidLoadVideo==="function"){ try{ u=await vidLoadVideo(id); }catch(e){} } return u; }));
+       videoIds.forEach((id,k)=>{ const u = urls[k];
          const clip=allClips.find(c=>c.id===id);
          const meta=(typeof vidGetMeta==="function")?vidGetMeta(id):null;
          // a take flagged "identity changed" (it finished after a character changed) is never used as is
          const usable=!(meta && meta.identityChanged) && (!clip || typeof shotSourcesEditorialStatus!=="function"
            || ["current","override"].includes(shotSourcesEditorialStatus(
              ((clip.data||{}).shots)||[],drafts,meta)));
-         if(u&&usable) out[id]=u; else if(u) stale[id]=true; }
-      if(alive){ setVids(out); setStaleVids(stale); setVidsLoaded(true); } })();
+         if(u&&usable) out[id]=u; else if(u){ stale[id]=true; if(meta && meta.identityChanged) ident[id]=true; } });
+      if(alive){ setVids(out); setStaleVids(stale); setIdentityVids(ident); setVidsLoaded(true); } })();
     return ()=>{ alive=false; }; }, [clipIdsKey, vidTick, draftSig, shotIdsKey]);
 
   /* TAKES FROM AN EARLIER GROUPING (2026-10-09, owner — Stage review): takes kept under a clip id that no
@@ -8144,9 +8297,10 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
         _stEl("div",{className:"segmented"},
           stageTabs.map(([label,id,Ic,tip])=>{
             const on = stageView===id;
-            return _stEl("button",{key:id,type:"button",className:"seg"+(on?" on":""),
+            // the current tab is marked for assistive tech, and keeps its own description (2026-10-09)
+            return _stEl("button",{key:id,type:"button",className:"seg"+(on?" on":""),"aria-pressed":on?"true":"false",
               onClick:()=>setStageView(id),
-              title: on ? "Current workspace" : tip},
+              title: tip},
               Ic&&_stEl(Ic,{s:14}),_stEl("span",{className:"seg-lab"},label)); }))),
       _stEl("div",{className:"vn-side vn-right"}));
     // the view tabs span the FULL app width above the rail+console split — the same
@@ -8161,7 +8315,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
                 onReuse:(meta,pin)=>{ setPendingReuse({ clipId:clip.id, meta, pin }); setStageView("stage"); } })
             : stageView==="timeline"
             ? _stEl(StageTimelineView,{ key:"tl", allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip,
-                filmTitle:(project&&project.title)||"", auds, characters, oldLookVids, noteVids,
+                filmTitle:(project&&project.title)||"", auds, characters, oldLookVids, noteVids, identityVids, vidsLoaded,
                 onOpenStage:(id)=>{ onSelectClip(id); setStageView("stage"); } })
             : stageView==="audio"
             ? _stEl(StageAudioView,{ key:"au", allClips, vids, auds, characters, selId, onSelectClip })
@@ -8169,7 +8323,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
             // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
+            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeIdentity:!!identityVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
                 onSelectClip,
                 onFirstVideo:()=>setStageView("versions"),
                 pendingReuse, onReuseConsumed:()=>setPendingReuse(null) }))));

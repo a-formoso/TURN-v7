@@ -104,8 +104,9 @@ await test("C2 an earlier-look take: 'Earlier look' in Takes, a ring + count in 
   assert.ok(view.includes("takeOldLook:!!oldLookVids[clip.id]") && view.includes("auds, characters, oldLookVids,"));
   assert.ok(stage.includes('"Earlier look"') && stage.includes("shotLookIsEarlier(m.lookSig, project || window.turnProject, clip.scene.id)"));
   const tl = between(stage, "function StageTimelineView({", "\n}\n");
-  assert.ok(tl.includes('(has && ((oldLookVids||{})[c.id] || (noteVids||{})[c.id])?" old-look":"")') && tl.includes('" with an earlier look"'));
-  assert.ok(tl.includes("made with an earlier look (still in the film;"));
+  // (2026-10-09, Timeline third pass) take notes get their own class; the state is in the label and tooltip
+  assert.ok(tl.includes('(look?" old-look":"")') && tl.includes('" with an earlier look"'));
+  assert.ok(tl.includes('"made with an earlier look (still in the film)"'));
   assert.ok(css.includes(".stage2-tl-clip.old-look .stage2-tl-dot.ok{background:transparent;box-shadow:inset 0 0 0 2px var(--accent)}"));
   assert.ok(stage.includes('const takeOldLookNotice = !takeStale && takeOldLook && _stEl("div",{key:"take-old-look",className:"stage2-hint"},'));
   assert.ok(stage.includes("readinessNotice, takeStaleNotice, takeOldLookNotice,"));

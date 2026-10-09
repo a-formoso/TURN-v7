@@ -90,7 +90,7 @@ await test("B1 checking: boards and masters looked up, never interrupted, cleare
   assert.ok(view.includes("if(!mountedRef.current) return;") && !view.includes("if(!alive) return; }"));
   assert.ok(view.includes("if(d.id && !d.url){ checkedRef.current.delete(d.id);"));
   assert.ok(view.includes("Couldn't check which sheets and frames exist"));
-  assert.ok(stage.includes("if(!vidsLoaded || !(allClips||[]).length) return;") && stage.includes("setVids(out); setStaleVids(stale); setVidsLoaded(true);"));
+  assert.ok(stage.includes("if(!vidsLoaded || !(allClips||[]).length) return;") && stage.includes("setVids(out); setStaleVids(stale); setIdentityVids(ident); setVidsLoaded(true);"));
 });
 
 /* ═══ C ═══ */
