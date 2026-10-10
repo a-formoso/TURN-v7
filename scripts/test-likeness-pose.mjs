@@ -20,6 +20,11 @@
               pose check can't start, Capture now asking (and saving the frame it checked), unmount,
               local voices only, the strip, the saved-photo check, the flipped-camera check, uploads,
               holds that a hidden tab / a dialog / a restart can't complete, a second face
+     V1…V4    (2026-10-10, owner — Likeness voice guidance) the VOICE_LINES manifest covers every instruction; the
+              player's rules (4 s, the countdown, interrupts, reminders, close) and its fallbacks (the device voice,
+              then the caption), on scripts/fixtures/likeness-voice/fake-audio.mjs
+     I20…I22  a clean picture (no instruction text over it; the caption under it only when nothing is spoken),
+              Capture now only when the photo doesn't take itself, the recorded clips in the real window
 
    node scripts/test-likeness-pose.mjs */
 import assert from "node:assert/strict";
@@ -28,6 +33,7 @@ import { createHash } from "node:crypto";
 import vm from "node:vm";
 import { transformSync, parseSync, traverse } from "@babel/core";
 import { createRequire } from "node:module";
+import { makeAudioEnv } from "./fixtures/likeness-voice/fake-audio.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = new URL("../", import.meta.url);
@@ -166,21 +172,33 @@ await test("P-b the landmark yaw has the matrix's sign and is within 6° up to �
 await test("P-c classifyPose: front / partial / side / far with hysteresis; tilt by family (stay limits only when the last frame was in the class AND level)", () => {
   const C = (yaw, prev, x) => FP.classifyPose(P0({ yaw, ...(x || {}) }), prev);
   const rows = [
-    [0, null, "front"], [9, "none", "partial-left"], [9, "front", "front"], [26, null, "partial-left"], [28, null, "left"],
+    [0, null, "front"], [9, "none", "partial-left"], [9, "front", "front"], [24, null, "partial-left"], [25, null, "left"], [28, null, "left"],
     [23, "left", "left"], [21, "left", "partial-left"], [47, null, "left"], [50, "left", "left"], [50, "partial-left", "far-left"],
     [-30, null, "right"], [-9, "front", "front"], [-50, "partial-right", "far-right"],
   ];
   for (const [y, prev, want] of rows) assert.equal(C(y, prev).cls, want, y + " (" + prev + ")");
-  // (2026-10-10) pitch limits widened for a webcam above the screen: front enter 15 / stay 18, side enter 18 / stay 21
+  // (2026-10-10) pitch limits widened for a webcam above the screen: front enter 15 / stay 18; (2026-10-10, owner — Likeness
+  // voice guidance) side enter 22 / stay 25, roll 14 / 16, the band from 25° (front unchanged)
   let c = C(0, null, { pitch: 17 }); assert.deepEqual([c.cls, c.base, c.tilt], ["tilted", "front", "chin-down"]);
   c = C(0, null, { pitch: -17 }); assert.equal(c.tilt, "chin-up");
   c = FP.classifyPose(P0({ pitch: 17 }), "front", true); assert.equal(c.tilt, null, "the front stay limit (18) holds a 17° pitch once the head was level");
   c = C(0, "front", { pitch: 17 }); assert.equal(c.tilt, "chin-down", "…but a head that was never level enough gets the enter limit (15)");
   c = C(0, null, { pitch: 11 }); assert.equal(c.tilt, null, "a laptop-camera 11° (the real model read a straight-on face at +9.5–10.8°) is level");
-  c = FP.classifyPose(P0({ yaw: 35, roll: 11 }), "left", false); assert.equal(c.tilt, "roll", "the same for a side: 11° roll against the enter limit (10)");
-  c = C(0, null, { roll: 12 }); assert.equal(c.tilt, "roll");
-  c = C(35, null, { roll: 11 }); assert.deepEqual([c.cls, c.base, c.tilt], ["tilted", "left", "roll"]);
-  c = FP.classifyPose(P0({ yaw: 35, roll: 11 }), "left", true); assert.equal(c.cls, "left", "the side stay limit (12)");
+  c = FP.classifyPose(P0({ yaw: 35, roll: 15 }), "left", false); assert.equal(c.tilt, "roll", "the same for a side: 15° roll against the enter limit (14)");
+  c = C(0, null, { roll: 12 }); assert.equal(c.tilt, "roll", "Front's roll limit is unchanged (8)");
+  c = C(35, null, { roll: 15 }); assert.deepEqual([c.cls, c.base, c.tilt], ["tilted", "left", "roll"]);
+  c = FP.classifyPose(P0({ yaw: 35, roll: 15 }), "left", true); assert.equal(c.cls, "left", "the side stay limit (16)");
+  c = FP.classifyPose(P0({ yaw: 35, roll: 17 }), "left", true); assert.equal(c.tilt, "roll", "…and past it");
+  c = C(35, null, { roll: 13 }); assert.equal(c.cls, "left", "13° roll enters a side now (people tilt a little while turned)");
+  c = C(35, null, { pitch: 21 }); assert.equal(c.cls, "left", "21° pitch enters a side (enter 22)");
+  c = C(35, null, { pitch: 23 }); assert.equal(c.tilt, "chin-down", "23° doesn't enter…");
+  c = FP.classifyPose(P0({ yaw: 35, pitch: 23 }), "left", true); assert.equal(c.cls, "left", "…but stays once in and level (stay 25)");
+  c = FP.classifyPose(P0({ yaw: 35, pitch: -24 }), "left", true); assert.equal(c.cls, "left", "chin up the same way");
+  c = FP.classifyPose(P0({ yaw: 35, pitch: 26 }), "left", true); assert.equal(c.tilt, "chin-down", "past 25: out");
+  c = C(0, null, { pitch: 16 }); assert.equal(c.tilt, "chin-down", "Front's pitch limit is unchanged (15)");
+  assert.deepEqual(plainify(FP.T.front), { enter: { yaw: 8, pitch: 15, roll: 8 }, stay: { yaw: 10, pitch: 18, roll: 10 } }, "Front unchanged");
+  assert.deepEqual(plainify(FP.T.side), { enter: { min: 25, max: 48, pitch: 22, roll: 14 }, stay: { min: 22, max: 52, pitch: 25, roll: 16 }, target: 35 });
+  assert.deepEqual(plainify(FP.HOLD_MS), { front: 3000, left: 5000, right: 5000 }, "the holds are unchanged");
   c = FP.classifyPose({ yaw: -29.5, pitch: 9.4, roll: -8.8 }, null);
   assert.deepEqual([c.cls, c.base, c.tilt], ["right", "right", null], "Girl with a Pearl Earring's measured pose: turned to her own right, not tilted");
   assert.deepEqual(plainify(FP.classifyPose(null)), { cls: "none", base: "none", tilt: null });
@@ -196,8 +214,11 @@ await test("P-d evaluateFrame: the first failing check names the reason", () => 
   assert.equal(evalOnce({ yaw: -12 }, "left").reason, "not-turned", "a small turn the other way is just not turned");
   assert.equal(evalOnce({ yaw: 18 }, "left").reason, "more");
   assert.equal(evalOnce({ yaw: 55 }, "left").reason, "too-far");
-  assert.equal(evalOnce({ yaw: 35, roll: 11 }, "left").reason, "roll");
-  assert.equal(evalOnce({ yaw: 35, pitch: 20 }, "left").reason, "chin-down");
+  assert.equal(evalOnce({ yaw: 35, roll: 15 }, "left").reason, "roll");
+  assert.equal(evalOnce({ yaw: 35, pitch: 23 }, "left").reason, "chin-down");
+  assert.equal(evalOnce({ yaw: 25 }, "left").ok, true, "25° fits the person's own left (the band starts at 25)");
+  assert.equal(evalOnce({ yaw: 24 }, "left").reason, "more", "24° is a little short");
+  assert.equal(evalOnce({ yaw: 35, pitch: 21, roll: 13 }, "left").ok, true, "a turned head that dips 21° and tilts 13° fits");
   assert.equal(evalOnce({ yaw: 20 }, "front").reason, "turned");
   assert.equal(evalOnce({ yaw: 0, pitch: -17 }, "front").reason, "chin-up");
   assert.equal(evalOnce({ yaw: 0 }, "front", { faces: [{ pose: { yaw: 0 }, dx: 22 }] }).reason, "two-faces", "two equal faces");
@@ -231,8 +252,9 @@ await test("P-d evaluateFrame: the first failing check names the reason", () => 
   assert.deepEqual(plainify(many.fails), ["two-faces", "dark", "eyes-closed"]); assert.equal(many.reason, "two-faces"); assert.equal(many.measured, "left");
   assert.deepEqual(plainify(evalOnce({ yaw: 0 }, "front").fails), []);
   assert.deepEqual(plainify(evalOnce({ yaw: 0 }, "left", { luma: 30 }).fails), ["not-turned", "dark"]);
-  // a head never level enough is never let in by the looser "stay" tilt limits (held at pitch 17 / roll 11.5 — 2026-10-10 limits)
-  for (const [pose, target] of [[{ yaw: 0, pitch: 17 }, "front"], [{ yaw: 0, roll: 9.5 }, "front"], [{ yaw: 35, roll: 11.5 }, "left"], [{ yaw: 35, pitch: 20 }, "left"]]){
+  // a head never level enough is never let in by the looser "stay" tilt limits (held at pitch 17 / roll 9.5 on Front,
+  // roll 15 / pitch 23 on a side, between the enter and stay limits) — and 24° never enters a side
+  for (const [pose, target] of [[{ yaw: 0, pitch: 17 }, "front"], [{ yaw: 0, roll: 9.5 }, "front"], [{ yaw: 35, roll: 15 }, "left"], [{ yaw: 35, pitch: 23 }, "left"], [{ yaw: 24 }, "left"], [{ yaw: -24 }, "right"]]){
     const P = pipeline(target);
     const rows = P.run(pose, 8000);
     assert.ok(rows.every((x) => !x.ev.ok && !x.st.fire), JSON.stringify(pose) + " " + [...new Set(rows.map((x) => x.ev.reason))].join(" "));
@@ -495,7 +517,7 @@ await test("P-k a camera that flips its picture: mirroredSource swaps the sides 
   assert.ok(FP.meterPos(35) < 50 && 50 < FP.meterPos(-35));
   assert.equal(FP.meterPos(0), 50); assert.equal(FP.meterPos(90), 0); assert.equal(FP.meterPos(-90), 100);
   const L = FP.bandFor("left"), R = FP.bandFor("right"), F = FP.bandFor("front");
-  near(L.from, 10, 1e-9); near(L.to, 27.5, 1e-9); near(R.from, 72.5, 1e-9); near(R.to, 90, 1e-9);
+  near(L.from, 10, 1e-9); near(L.to, 50 - 25 / 60 * 50, 1e-9); near(R.from, 50 + 25 / 60 * 50, 1e-9); near(R.to, 90, 1e-9);
   near(F.from, 43.33, 0.01); near(F.to, 56.67, 0.01);
   assert.ok(L.to < 50 && R.from > 50);
 });
@@ -504,15 +526,16 @@ const VENDOR_RE = /mediapipe|google|tensorflow|wasm|webgl|landmarker|vision/i;
 await test("P-l the copy: one person's left, both ways said; no library, engine or vendor named anywhere the person reads", () => {
   const ww = FP.cueFor({ phase: "wait", reason: "wrong-way" }, null, "left", {});
   assert.equal(ww.text, "That's your right — turn the other way, to your left"); assert.equal(ww.k, "warn");
-  assert.equal(ww.say, "That's your right. Turn the other way, to your left.");
+  assert.deepEqual(plainify(ww.voice), ["wrong-way-left"], "said: " + FP.VOICE_LINES.find((l) => l.id === "wrong-way-left").text);
   const nt = FP.cueFor({ phase: "wait", reason: "not-turned" }, null, "left", {});
   assert.ok(nt.text.includes("your left") && nt.text.includes("left edge of the screen"), nt.text);
-  assert.equal(nt.say, "Turn your head slowly to your left, toward the left edge of the screen.");
+  assert.deepEqual(plainify(nt.voice), ["turn-left"]);
   const ntR = FP.cueFor({ phase: "wait", reason: "not-turned" }, null, "right", {});
   assert.equal(ntR.text, "Turn your head to your right — toward the right edge of the screen");
   assert.equal(FP.cueFor({ phase: "holding", secsLeft: 4 }, null, "left", {}).text, "Hold still — 4");
-  assert.equal(FP.cueFor({ phase: "settle" }, null, "front", { next: "left" }).say,
-    "Got it. Now turn your head slowly to your left, toward the left edge of the screen, and hold it there for five seconds.");
+  assert.deepEqual(plainify(FP.cueFor({ phase: "settle" }, null, "front", { next: "left" }).voice), ["got-it", "turn-left"]);
+  assert.deepEqual(plainify(FP.cueFor({ phase: "settle" }, null, "left", { next: "right", engine: "unavailable" }).voice), ["got-it", "turn-right-capture"]);
+  assert.deepEqual(plainify(FP.cueFor({ phase: "settle" }, null, "right", { next: null }).voice), ["got-it", "all-done"]);
   assert.equal(FP.nextStepLine("front"), "Look straight at the camera.");
   assert.equal(FP.nextStepLine(null), "All three done. Say whose likeness it is, tick the box, and lock it.");
   assert.equal(FP.nextStepLine("right", "unavailable"), "Turn your head to your right, then press Capture now.");
@@ -542,7 +565,8 @@ await test("P-l the copy: one person's left, both ways said; no library, engine 
   assert.equal(FP.cueFor({ phase: "wait", reason: "wrong-way", hint: "wrong-way" }, null, "right", {}).hint, "You're turning to your left; turn the other way — or press Capture now.");
   // every string the person can read or hear
   const strings = [];
-  for (const [k, c] of Object.entries(FP.CUES)){ strings.push(c.text); if (c.say) strings.push(c.say); assert.ok(["wait", "go", "done", "off", "warn"].includes(c.k), k); }
+  for (const [k, c] of Object.entries(FP.CUES)){ strings.push(c.text); assert.ok(["wait", "go", "done", "off", "warn"].includes(c.k), k); }
+  strings.push(...FP.VOICE_LINES.map((l) => l.text));
   strings.push(...Object.values(FP.HINTS));
   for (const v of Object.values(FP.LINES)) typeof v === "string" ? strings.push(v) : strings.push(...Object.values(v));
   for (const kind of ["C1", "C2", "C3", "C4", "C5", "flip", "unflip", "lock"]) for (const t of ["front", "left", "right"])
@@ -551,7 +575,7 @@ await test("P-l the copy: one person's left, both ways said; no library, engine 
     }
   for (const k of ["front", "left", "right"]) for (const n of [null, "front", "left", "right"]) for (const e of ["ready", "unavailable"]) strings.push(FP.srCapturedLine(k, n, e));
   for (const r of Object.keys(FP.CUES)) for (const t of ["front", "left", "right"]){
-    const c = FP.cueFor({ phase: "wait", reason: r, hint: r, secsLeft: 3 }, null, t, { next: "left" }); strings.push(c.text, c.say || "", c.hint || "", c.hintSay || "");
+    const c = FP.cueFor({ phase: "wait", reason: r, hint: r, secsLeft: 3 }, null, t, { next: "left" }); strings.push(c.text, c.hint || "");
   }
   const bad = strings.filter((s) => VENDOR_RE.test(String(s)));
   assert.deepEqual(bad, [], "no vendor / library / engine names");
@@ -827,14 +851,26 @@ function mountWindow(opts = {}){
       body: { appendChild: noop, removeChild: noop }, head: { appendChild: noop }, addEventListener: noop, removeEventListener: noop },
     navigator: { userAgent: "node-test" },
     Image: class { set src(v){ this._src = v; this.width = this.naturalWidth = 640; this.height = this.naturalHeight = 640; Promise.resolve().then(() => this.onload && this.onload()); } get src(){ return this._src; } },
-    speechSynthesis: { getVoices: () => W.voices, speak: (u) => W.utter.push(u), cancel: noop, speaking: false, addEventListener: noop, removeEventListener: noop },
+    // the device voice "speaks" for 50 ms a character on the test's clock, then ends (W.speechMode "fail": not allowed)
+    speechSynthesis: { getVoices: () => W.voices, speaking: false, addEventListener: noop, removeEventListener: noop,
+      speak: (u) => { W.utter.push(u); if (W.speechMode === "fail"){ Promise.resolve().then(() => u.onerror && u.onerror({ error: "not-allowed" })); return; }
+        const n = W.utter.length; W.speakingN = n; box.setTimeout(() => { if (W.speakingN === n){ W.speakingN = 0; u.onend && u.onend({}); } }, 50 * String(u.text).length); },
+      cancel: () => { W.cancels = (W.cancels || 0) + 1; W.speakingN = 0; } },
     SpeechSynthesisUtterance: class { constructor(text){ this.text = text; } },
     FileReader: class { readAsDataURL(f){ this.result = f.dataUrl; Promise.resolve().then(() => this.onload && this.onload()); } },
     appConfirm: (o) => { W.confirms.push(o); if (W.defer) return new Promise((r) => { W.pendingAnswer = (v) => { W.pendingAnswer = null; r(v); }; });
       return Promise.resolve(W.answers.length ? W.answers.shift() : true); },
     nbSetCameo: async (id, rec) => { W.saves.push(rec); return { sync: false }; },
-    fetch: async (u) => { throw new Error("network disabled in this test: " + u); },
+    fetch: async (u) => {
+      W.fetches.push(String(u));
+      if (opts.manifest && /\/app\/vendor\/voice\/frances-guide\/v1\/manifest\.json$/.test(String(u))) return { ok: true, json: async () => JSON.parse(JSON.stringify(opts.manifest)) };
+      if (W.audio && /\/app\/vendor\/voice\/frances-guide\/v1\/[a-z0-9-]+\.mp3$/.test(String(u))) return W.audio.exists(u) ? { ok: true, blob: async () => ({ fake: u }) } : { ok: false, status: 404 };
+      throw new Error("network disabled in this test: " + u);
+    },
   };
+  W.fetches = [];
+  if (opts.audio){ W.audio = makeAudioEnv({ ...opts.audio, setTimeout: (fn, ms) => box.setTimeout(fn, ms), now: () => W.simT }); box.Audio = W.audio.Audio; }
+  if (opts.voiceOff) box.localStorage.setItem("turn_cameo_voice", "0");
   if (opts.denied) box.navigator.mediaDevices = { getUserMedia: () => Promise.reject(Object.assign(new Error("no"), { name: "NotAllowedError" })) };
   else if (opts.camera !== false){
     box.navigator.mediaDevices = { getUserMedia: () => {
@@ -884,10 +920,14 @@ function mountWindow(opts = {}){
   W.nodes = () => nodesOf(root.tree);
   W.slot = (k) => W.nodes().find((n) => n.props && n.props["data-angle"] === k);
   W.img = (k) => { const s = W.slot(k); return s ? nodesOf(s).find((n) => n.type === "img") : null; };
-  W.cue = () => W.nodes().find((n) => n.props && n.props["data-cue"]);
+  /* the instruction lives in the one-line caption UNDER the picture (hidden while it's spoken) */
+  W.cue = () => W.nodes().find((n) => n.props && /^cameo-caption /.test(n.props.className || ""));
   W.cueKey = () => { const c = W.cue(); return c ? c.props["data-cue"] : null; };
-  W.cueText = () => { const c = W.cue(); return c ? textOf(nodesOf(c).find((n) => n.props && n.props.className === "cameo-cue-t")) : ""; };
-  W.hint = () => { const c = W.cue(); const h = c && nodesOf(c).find((n) => n.props && n.props.className === "cameo-cue-hint"); return h ? textOf(h) : ""; };
+  W.cueText = () => { const c = W.cue(); return c ? textOf(nodesOf(c).find((n) => n.props && n.props.className === "cameo-caption-t")) : ""; };
+  W.hint = () => { const c = W.cue(); const h = c && nodesOf(c).find((n) => n.props && n.props.className === "cameo-caption-hint"); return h ? textOf(h) : ""; };
+  W.captionShown = () => { const c = W.cue(); return !!c && !c.props.hidden; };
+  W.stage = () => W.nodes().find((n) => n.props && n.props.className === "cameo-stage");
+  W.sr = () => textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-sr"));
   W.said = () => W.utter.map((u) => u.text);
   W.shots = () => W.inst().h[4].v;
   W.sources = () => W.inst().h[5].v;
@@ -917,8 +957,13 @@ await test("I1 the owner's flow, part 1: Front fills after 3.0–3.2 s held (onc
   assert.equal(W.cueText(), "Turn your head to your left — toward the left edge of the screen");
   assert.ok(W.said().some((s) => /to your left/.test(s)), W.said().join(" | "));
   assert.equal(W.hint(), "Turn your whole head until the dot reaches the green band — or press Capture now.");
-  assert.ok(W.said().some((s) => /green band/.test(s)), "the hint is spoken once");
-  assert.equal(W.said().filter((s) => /green band/.test(s)).length, 1);
+  assert.ok(W.said().some((s) => /You don't need to see the screen/.test(s)), "the tip is spoken once: " + W.said().join(" | "));
+  assert.equal(W.said().filter((s) => /You don't need to see the screen/.test(s)).length, 1);
+  assert.ok(W.said().includes("Or press Capture now."));
+  // the same instruction again only as a reminder, ever further apart (6, 9, 12, 15 s), never a stream
+  const turns = W.said().filter((s) => s === "Now turn your head slowly to your left, and hold it there.").length;
+  assert.ok(turns >= 3 && turns <= 6, "reminders: " + turns);
+  assert.equal(W.captionShown(), false, "spoken (the device voice): no caption");
   const badge = W.nodes().find((n) => n.props && n.props.className === "cameo-anglebadge");
   assert.equal(textOf(badge), "Now: Your left · optional");
   const arrow = W.nodes().find((n) => n.props && /^cameo-turn-arrow left/.test(n.props.className || ""));
@@ -944,12 +989,13 @@ await test("I2 + I3 the owner's flow, part 2: +35 fills the left slot after ≥ 
   assert.ok(tLeft - turned >= 5000 && tLeft - turned <= 6500, "left after " + (tLeft - turned) + " ms");
   assert.equal(W.sources().left, "webcam");
   assert.ok(W.said().some((s) => s === "Hold it there."), "hold start is said");
-  assert.ok(W.said().includes("three") && W.said().includes("two") && W.said().includes("one"), W.said().join(" | "));
+  const fromHold = W.said().slice(W.said().lastIndexOf("Hold it there."));
+  assert.deepEqual(fromHold.slice(0, 7), ["Hold it there.", "Five.", "Four.", "Three.", "Two.", "One.", "Got it."], "the whole count, in order, then the photo: " + W.said().join(" | "));
   await W.pump(30000);
   assert.equal(W.shots().right, undefined, "still at +35: the right slot stays empty");
   assert.equal(W.cueKey(), "wrong-way");
   assert.equal(W.cueText(), "That's your left — turn the other way, to your right");
-  assert.equal(W.cue().props.className, "cameo-cue warn");
+  assert.equal(W.cue().props["data-k"], "warn");
   assert.ok(!byRole(W.root.tree, "flip-fix"), "holding the pose just photographed is not a flipped camera: no offer (30 s)");
   assert.ok(!W.said().some((s) => /mirror/i.test(s)));
   W.scene.pose = P0({ yaw: -35 });
@@ -1049,12 +1095,13 @@ await test("I1b the owner's symptom, whatever the pose check's state: a still, l
   }
 });
 
-await test("I6 Capture now with the pose check ready: a frame that doesn't fit asks first, titled by what it shows; the photo is the frame from the press (not from when it's answered) and is marked '!'; a fitting frame — even one only too dark — is taken at once", async () => {
+await test("I6 Capture now (the C key while the button is hidden) with the pose check ready: a frame that doesn't fit asks first, titled by what it shows; the photo is the frame from the press (not from when it's answered) and is marked '!'; a fitting frame — even one only too dark — is taken at once", async () => {
   const W = mountWindow();
   await W.settle();
   click(W.slot("left")); await W.pump(1000);
+  assert.equal(byRole(W.root.tree, "capture-now"), undefined, "Auto on and the pose check running: the photo takes itself, no Capture now button");
   W.answers.push(false);
-  await byRole(W.root.tree, "capture-now").props.onClick(); await W.pump(100);
+  W.key("c"); await W.settle(); await W.pump(100);
   assert.equal(W.confirms.length, 1);
   assert.equal(W.confirms[0].title, "This doesn't look turned to your left");
   assert.equal(W.confirms[0].body, "It shows a front view. Use it for “Your left” anyway?");
@@ -1063,11 +1110,11 @@ await test("I6 Capture now with the pose check ready: a frame that doesn't fit a
   // only a little turned; while the question is open the person looks back at the screen
   W.scene.pose = P0({ yaw: 18 }); await W.pump(800);
   W.defer = true;
-  const pr = byRole(W.root.tree, "capture-now").props.onClick(); await W.pump(100);
+  W.key("c"); await W.pump(100);
   assert.equal(W.confirms[1].title, "Not turned far enough");
   assert.equal(W.confirms[1].body, "It shows your head only a little turned. Use it for “Your left” anyway?");
   W.scene.pose = P0(); await W.pump(3000);
-  W.pendingAnswer(true); await pr; await W.pump(400); W.defer = false;
+  W.pendingAnswer(true); await W.settle(); await W.pump(400); W.defer = false;
   assert.equal(W.crops.get(W.shots().left).pose.yaw, 18, "the frame that was checked and asked about");
   assert.equal(W.slot("left").props["data-check"], "mismatch", "kept anyway: marked '!'");
   assert.equal(W.slot("left").props.title, "This photo shows the head only a little turned — click × to take it again");
@@ -1081,7 +1128,8 @@ await test("I6 Capture now with the pose check ready: a frame that doesn't fit a
   assert.equal(W.confirms.length, 2, "a fitting pose that's only too dark is taken at once");
   assert.ok(W.shots().left, "the C key captured it"); assert.equal(W.slot("left").props["data-check"], undefined);
   W.luma = 128;
-  assert.equal(byRole(W.root.tree, "capture-now").props.title, "Take this photo now (C)");
+  click(byRole(W.root.tree, "auto")); await W.pump(100);
+  assert.equal(byRole(W.root.tree, "capture-now").props.title, "Take this photo now (C)", "Auto off: the button is back");
   assert.equal(byRole(W.root.tree, "capture-now").props["aria-keyshortcuts"], "C");
   W.key("Escape");
   assert.equal(W.onCloseCalls, 1, "Escape closes the window");
@@ -1111,7 +1159,7 @@ await test("I7 closing the window closes the detector once, stops the loop and t
   assert.equal(slow.eng.closes, 1, "a late engine is closed");
 });
 
-await test("I8 spoken directions use only a voice built into the device; with network voices only, nothing is said and Voice is disabled", async () => {
+await test("I8 with no recorded clips, the lines are said only by a voice built into the device; with network voices only (and no clips), nothing is said and Voice is disabled", async () => {
   const W = mountWindow();
   await W.settle();
   await W.until(() => W.shots().front, 6000, "Front");
@@ -1189,7 +1237,7 @@ await test("I14 the owner's saved likeness (all three slots, both sides really f
   await W.settle(); await W.pump(500);
   assert.deepEqual(["front", "left", "right"].map((k) => W.slot(k).props["data-check"]), ["ok", "mismatch", "mismatch"]);
   assert.equal(W.inst().h[6].v, 1, "moved to the first photo marked as the wrong angle");
-  assert.equal(W.cueKey(), "filled-mismatch"); assert.equal(W.cue().props.className, "cameo-cue warn");
+  assert.equal(W.cueKey(), "filled-mismatch"); assert.equal(W.cue().props["data-k"], "warn");
   assert.equal(W.cueText(), "This photo shows a front view — click × on it to take it again");
   click(W.slot("front")); await W.pump(200);
   assert.equal(W.cueKey(), "check-marked");
@@ -1387,10 +1435,10 @@ await test("I18 a hold can't be completed by time nobody saw: a hidden tab, an o
   await W.settle(); await hold(W); await W.pump(2000);
   W.scene.pose = null; await W.pump(100);
   W.defer = true;
-  const pr = byRole(W.root.tree, "capture-now").props.onClick(); await W.pump(100);
+  W.key("c"); await W.pump(100);
   assert.equal(W.confirms[0].title, "No face found");
   W.scene.pose = P0({ yaw: 35 }); await W.pump(4000);
-  W.pendingAnswer(false); await pr; W.defer = false;
+  W.pendingAnswer(false); await W.settle(); W.defer = false;
   back = W.simT;
   t = await W.until(() => W.shots().left, 9000, "left after the question");
   assert.ok(t - back >= 5000, "question: " + (t - back) + " ms after it closed");
@@ -1420,6 +1468,344 @@ await test("I19 a second face the detector sees only every other frame never let
   const t = await W.until(() => W.shots().left, 9000, "left");
   assert.ok(t - gone >= 6400 && t - gone <= 6800, "after " + (t - gone));
   W.root.unmount();
+});
+
+/* ═══ V. spoken guidance (2026-10-10, owner — Likeness voice guidance: "once the head is turned you can't read the
+   screen … every instruction spoken in a natural voice") ═══ */
+const FULL_MANIFEST = { voice: "test", clips: Object.fromEntries(FP.VOICE_LINES.map((l) => [l.id, { text: l.text }])) };
+const CLIP_BASE = "http://127.0.0.1:1/app/vendor/voice/frances-guide/v1/";
+const textFor = (id) => FP.VOICE_LINES.find((l) => l.id === id).text;
+
+await test("V1 VOICE_LINES covers every instruction the window can give (every cue × target × engine × flag, every tip, the count, the next steps): unique kebab ids, short spoken lines, no names; every clip is used", () => {
+  const ids = FP.VOICE_LINES.map((l) => l.id), known = new Set(ids), used = new Set();
+  assert.equal(known.size, ids.length, "unique ids");
+  for (const l of FP.VOICE_LINES){
+    assert.match(l.id, /^[a-z0-9]+(-[a-z0-9]+)*$/, "kebab-case: " + l.id);
+    assert.ok(l.text.length >= 3 && l.text.length <= 110 && /[.?!]$/.test(l.text), "a short sentence: " + l.text);
+    assert.ok(!/[—…×!]|\{/.test(l.text.replace(/!$/, "")), "plain spoken words (no dashes, symbols or placeholders): " + l.text);
+  }
+  assert.equal(FP.VOICE_DIR, "app/vendor/voice/frances-guide/v1/");
+  const use = (list, what) => { assert.ok(Array.isArray(list) && list.length, what + ": nothing to say"); for (const id of list){ assert.ok(known.has(id), what + ": no clip " + id); used.add(id); } };
+  const T3 = ["front", "left", "right"], ENG = ["ready", "unavailable", "loading"];
+  for (const key of Object.keys(FP.CUES)) for (const t of T3) for (const engine of ENG) for (const next of [null, "front", "left", "right"])
+    use(FP.voiceCueIds(key, t, { engine, next, secsLeft: t === "front" ? 3 : 5 }), key + "/" + t + "/" + engine);
+  const flagsList = [{}, { allDone: true }, { allDone: true, mismatchCount: 2 }, { allDone: true, mismatchCount: 1 }, { mismatch: true, measured: "front" }, { slow: true }];
+  for (const phase of ["camera", "loading", "wait", "holding", "settle", "filled", "manual", "arming"]) for (const reason of [null, ...Object.keys(FP.CUES)])
+    for (const t of T3) for (const engine of ENG) for (const flags of flagsList){
+      const c = FP.cueFor({ phase, reason, secsLeft: 4, hint: reason }, null, t, { engine, next: "left", ...flags });
+      use(c.voice, "cue " + c.key);
+      if (c.hint) use(c.hintVoice, "tip " + c.key);
+      assert.equal(typeof c.once, "boolean");
+    }
+  for (const g of Object.keys(FP.HINTS)) for (const t of T3){ const h = FP.voiceHintIds(g, t); use(h, "tip " + g); assert.equal(h[h.length - 1], "or-capture-now"); }
+  for (const n of [1, 2, 3, 4, 5]) use([FP.voiceCountId(n)], "count " + n);
+  for (const t of T3) for (const r of [false, true]) use(FP.voiceHoldIds(t, t === "front" ? 3 : 5, r), "hold " + t);
+  for (const next of [null, "front", "left", "right"]) for (const e of ENG) use(FP.voiceNextIds(next, e), "next " + next);
+  use(["no-pose-check"], "the pose check can't start (said once)"); use(["check-mirror"], "the mirror check is offered");
+  assert.deepEqual(plainify(ids.filter((id) => !used.has(id))), [], "every clip is said somewhere");
+  // the words fit the screen: the same side, the same count
+  assert.deepEqual(plainify(FP.voiceCueIds("wrong-way", "right")), ["wrong-way-right"]); assert.match(textFor("wrong-way-right"), /That's your left/);
+  assert.deepEqual(plainify(FP.voiceHoldIds("left", 5)), ["hold-it-there", "five"]); assert.deepEqual(plainify(FP.voiceHoldIds("front", 3)), ["hold-still", "three"]);
+  assert.deepEqual(plainify(FP.voiceHoldIds("left", 5, true)), ["hold-still", "five"], "a count restarted after a small move");
+  assert.deepEqual(plainify(FP.voiceCueIds("chin-down", "left")), ["chin-level"], "a side: keep your chin level");
+  assert.deepEqual(plainify(FP.voiceCueIds("chin-down", "front")), ["lift-chin"]);
+  assert.equal(textFor("no-pose-check"), "I can't check your pose here. Turn as the sketch shows, then press Capture now.");
+  const all = FP.VOICE_LINES.map((l) => l.text).join("\n");
+  assert.ok(!VENDOR_RE.test(all) && !/\bTURN\b|\bMUSE\b/.test(all) && !/Cinema ?Machine|Frances|McKee|Claude|Anthropic|OpenAI/i.test(all), "no names in what is said");
+  assert.deepEqual(JSON.parse(JSON.stringify(FP.VOICE_LINES)).map((l) => Object.keys(l).join(",")), plainify(ids).map(() => "id,text"), "plain { id, text } data for the recorder");
+});
+
+/* a guide on a fake clock: recorded clips (fake-audio), the device voice (spoken for 400 ms) */
+function guideRig(o = {}){
+  const R = { t: 0, timers: [], spoken: [], cancels: 0, status: [], loaded: [], released: [], speechOk: o.speech !== false };
+  R.setTimeout = (fn, ms) => { R.timers.push({ at: R.t + (ms || 0), fn, done: false }); return R.timers.length; };
+  R.clearTimeout = (id) => { const x = R.timers[id - 1]; if (x) x.done = true; };
+  R.audio = o.audio === false ? null : makeAudioEnv({ files: o.files, autoplay: o.autoplay, playMs: o.playMs || 600, setTimeout: R.setTimeout, now: () => R.t });
+  R.g = fpBox.turnFacePose.createVoiceGuide({ base: CLIP_BASE, now: () => R.t, setTimeout: R.setTimeout, clearTimeout: R.clearTimeout,
+    makeAudio: R.audio ? () => new R.audio.Audio() : null,
+    loadClip: (url) => { R.loaded.push(url); return Promise.resolve(R.audio && R.audio.exists(url) ? url : null); },
+    releaseClip: (u) => R.released.push(u),
+    loadManifest: () => o.manifestPromise || Promise.resolve(o.manifest === undefined ? FULL_MANIFEST : o.manifest),
+    speak: (text, done) => { if (!R.speechOk) return false; R.spoken.push(text); R.setTimeout(() => done(true), 400); return true; },
+    cancelSpeech: () => { R.cancels++; }, canSpeak: () => R.speechOk, onStatus: (st) => R.status.push(st) });
+  R.flush = async () => { for (let i = 0; i < 4; i++) await macro(); };
+  R.advance = async (ms) => {
+    const end = R.t + ms;
+    for (;;){
+      const due = R.timers.filter((x) => !x.done && x.at <= end).sort((a, b) => a.at - b.at)[0];
+      if (!due) break;
+      R.t = Math.max(R.t, due.at); due.done = true; due.fn(); await R.flush();
+    }
+    R.t = end; await R.flush();
+  };
+  R.clips = () => R.audio ? R.audio.audible() : [];
+  R.rows = () => plainify(R.g.state.played);
+  return R;
+}
+
+await test("V2 the player's rules: one clip at a time; the same words not again within 4 s; a new instruction interrupts a stale one; the countdown plays in order and a 'hold still' never cuts it; 'Got it' interrupts everything; reminders after 6 s, then further apart", async () => {
+  const R = guideRig({ playMs: 2000 });
+  R.g.preload(); await R.flush();
+  assert.deepEqual(R.loaded, plainify(FP.VOICE_LINES.map((l) => CLIP_BASE + l.id + ".mp3")), "every clip preloaded when the window opens, from the clips folder");
+  assert.equal(R.audio.created.length, 1, "one audio element plays them all");
+  assert.ok(R.audio.created[0].preload === "auto" && R.audio.created[0].volume === 0.7, "a moderate volume");
+  assert.equal(R.g.say(["move-closer"]), true); await R.flush();
+  assert.deepEqual(R.clips(), ["move-closer"]); assert.equal(R.g.state.via, "clip");
+  await R.advance(1000);
+  assert.equal(R.g.say(["move-closer"]), false, "the same words 1 s later: not again");
+  await R.advance(3100);
+  assert.equal(R.g.say(["move-closer"]), true, "after 4 s it may be said again"); await R.flush();
+  // a new instruction interrupts the stale one
+  await R.advance(300);
+  R.g.say(["move-back"]); await R.flush();
+  assert.equal(R.g.state.playing, "move-back"); assert.equal(R.rows().filter((r) => r.id === "move-closer").pop().cut, true, "the stale line was cut");
+  assert.deepEqual(R.audio.playing(), ["move-back"], "one clip at a time");
+  // the countdown interrupts a stale line, plays in order, and isn't cut by "hold still"
+  await R.advance(500);
+  R.g.say(FP.voiceHoldIds("left", 5), { kind: "count" }); await R.flush();
+  assert.equal(R.g.state.playing, "hold-it-there"); assert.deepEqual(plainify(R.g.state.queue), ["five"]);
+  await R.advance(1000); R.g.say(["four"], { kind: "count" });
+  assert.equal(R.g.say(["hold-still"]), false, "a 'hold still' during the count is dropped"); await R.flush();
+  assert.equal(R.g.state.playing, "hold-it-there", "…and the count isn't cut");
+  await R.advance(1000); R.g.say(["three"], { kind: "count" }); await R.flush();
+  await R.advance(10000);
+  // (2026-10-10) a number that's already late is skipped for the newest one, so the voice stays on the real count:
+  // with 2 s clips "five" was still waiting when "four" came, so it was skipped; the order never goes backwards
+  assert.deepEqual(R.clips().slice(-4), ["move-back", "hold-it-there", "four", "three"], "in order, late numbers skipped: " + R.clips().join(" "));
+  assert.ok(R.audio.created[0].playbackRate === 1.3 || R.audio.created[0].playbackRate == null, "numbers play a little faster to keep up");
+  // "Got it" interrupts everything, the queue included
+  R.g.say(["two"], { kind: "count" }); R.g.say(["one"], { kind: "count" }); await R.flush();
+  R.g.say(["got-it", "turn-right"], { kind: "now" }); await R.flush();
+  assert.equal(R.g.state.playing, "got-it"); assert.deepEqual(plainify(R.g.state.queue), ["turn-right"], "the numbers still waiting are gone");
+  await R.advance(5000);
+  assert.deepEqual(R.clips().slice(-3), ["two", "got-it", "turn-right"]);
+  // the hold broke: numbers still waiting are dropped, the one being said finishes
+  R.g.say(["hold-still", "three"], { kind: "count" }); await R.flush(); R.g.dropCount();
+  assert.deepEqual(plainify(R.g.state.queue), []); await R.advance(3000);
+  // cue(): said on a change; the same instruction only as a reminder — 6 s, then 9, 12, 15 s — while nothing else is said
+  const at = [];
+  R.g.cue("not-turned|left", ["turn-left"]); await R.flush(); at.push(R.t);
+  for (let i = 0; i < 600; i++){ await R.advance(100); if (R.g.cue("not-turned|left", ["turn-left"])) at.push(R.t); }
+  const gaps = at.slice(1).map((x, i) => x - at[i]);
+  assert.ok(gaps.length >= 4, "reminders: " + gaps);
+  assert.ok(gaps[0] >= 6000 && gaps[0] < 6300 && gaps[1] >= 9000 && gaps[2] >= 12000 && gaps.slice(3).every((g) => g >= 15000 && g < 15300), "6, 9, 12, 15 s: " + gaps);
+  // a cue said once (the person acts on it) is never repeated
+  const n0 = R.clips().length;
+  R.g.cue("complete|front", ["all-done"], { remind: false }); await R.advance(30000);
+  for (let i = 0; i < 20; i++){ R.g.cue("complete|front", ["all-done"], { remind: false }); await R.advance(1000); }
+  assert.equal(R.clips().length - n0, 1, "said once");
+  // a change back to a line said a moment ago in "Got it …" isn't said twice
+  R.g.say(["got-it", "turn-left"], { kind: "now" }); await R.advance(300);
+  assert.equal(R.g.cue("not-turned|left#2", ["turn-left"]), false, "just said inside 'Got it. Now turn …'");
+  R.g.close();
+});
+
+await test("V3 close() stops and releases every clip; setEnabled(false) silences; nothing plays afterwards", async () => {
+  const R = guideRig({ playMs: 3000 });
+  R.g.preload(); await R.flush();
+  R.g.say(["turn-left"]); await R.flush();
+  assert.deepEqual(R.audio.playing(), ["turn-left"]);
+  assert.equal(R.audio.plays[0].volume, 0.7);
+  R.g.setEnabled(false);
+  assert.deepEqual(R.audio.playing(), [], "Voice off: stopped at once"); assert.equal(R.g.say(["move-back"]), false);
+  R.g.setEnabled(true); R.g.say(["move-back"]); await R.flush();
+  R.g.close();
+  assert.deepEqual(R.audio.playing(), [], "closed: nothing playing");
+  assert.ok(R.audio.created.every((a) => a.released), "the element let go (src removed)");
+  assert.equal(R.released.length, FP.VOICE_LINES.length, "every preloaded clip released");
+  const n = R.audio.plays.length;
+  assert.equal(R.g.say(["move-back"], { kind: "now" }), false); await R.advance(10000);
+  assert.equal(R.audio.plays.length, n, "nothing after close"); assert.equal(R.g.state.closed, true);
+});
+
+await test("V4 fallbacks: a clip that's missing, errors or can't autoplay is said by the device voice; with neither the line is 'silent' (the window shows its caption); a recorded clip whose words changed is never played", async () => {
+  // no manifest yet (nothing recorded): every line by the device voice, no audio file is requested
+  let R = guideRig({ manifest: null });
+  R.g.preload(); await R.flush();
+  assert.equal(R.audio.created.length, 0, "no audio element without a manifest"); assert.equal(R.loaded.length, 0, "no clip requested");
+  assert.equal(R.status.pop().clips, 0);
+  R.g.say(["hold-it-there", "five"], { kind: "count" }); await R.advance(2000);
+  assert.deepEqual(R.spoken, ["Hold it there.", "Five."]); assert.deepEqual(R.rows().map((r) => r.via), ["speech", "speech"]);
+  R.g.close();
+  // one clip missing on the server; one that errors when played
+  R = guideRig({ files: new Set(FP.VOICE_LINES.map((l) => l.id).filter((id) => id !== "a-little-further")) });
+  R.g.preload(); await R.flush();
+  R.audio.failAt("too-far");
+  R.g.say(["a-little-further"]); await R.advance(1000);
+  R.g.say(["too-far"]); await R.advance(1000);
+  R.g.say(["move-back"]); await R.advance(1000);
+  assert.deepEqual(R.spoken, ["A little further.", "Not so far. Come back a little."]); assert.deepEqual(R.clips(), ["move-back"]);
+  assert.equal(R.g.state.silent, false);
+  R.g.close();
+  // autoplay refused: the device voice, until a click lets the clips play
+  R = guideRig({ autoplay: "blocked" });
+  R.g.preload(); await R.flush();
+  R.g.say(["look-straight"]); await R.advance(1000);
+  assert.deepEqual(R.spoken, ["Look straight at the camera."]); assert.equal(R.g.state.blocked, true);
+  R.g.say(["move-closer"]); await R.advance(1000);
+  assert.deepEqual(R.spoken.slice(-1), ["Move a little closer."], "still blocked: the device voice, without trying the clip");
+  R.audio.unblock(); R.g.unlock(); await R.flush();
+  assert.equal(R.audio.plays.length, 1, "the click plays the element once…"); assert.equal(R.audio.plays[0].muted, true, "…muted");
+  assert.equal(R.g.state.primed, true); assert.equal(R.audio.created[0].muted, false);
+  R.g.say(["move-back"]); await R.advance(1000);
+  assert.deepEqual(R.clips(), ["move-back"], "after the click: the clip");
+  R.g.close();
+  // neither: silent → the status says so (once)
+  R = guideRig({ manifest: null, speech: false });
+  R.g.preload(); await R.flush();
+  assert.equal(R.g.say(["turn-left"]), true); await R.flush();
+  assert.equal(R.g.state.silent, true); assert.equal(R.status.filter((s) => s.silent).length >= 1, true);
+  assert.deepEqual(R.rows().map((r) => r.via), ["none"]);
+  R.g.close();
+  // a clip recorded with other words is never played
+  const man = JSON.parse(JSON.stringify(FULL_MANIFEST)); man.clips["move-closer"].text = "Come closer.";
+  R = guideRig({ manifest: man });
+  R.g.preload(); await R.flush();
+  assert.ok(!R.loaded.some((u) => /move-closer/.test(u)), "not even loaded");
+  R.g.say(["move-closer"]); await R.advance(1000);
+  assert.deepEqual(R.spoken, ["Move a little closer."]);
+  R.g.close();
+  // lines wait for the manifest (up to 1.5 s) so the first line is in the recorded voice too
+  let answer; R = guideRig({ manifestPromise: new Promise((r) => { answer = r; }) });
+  R.g.preload(); R.g.say(["getting-ready"]); await R.advance(500);
+  assert.deepEqual(R.spoken, []); answer(FULL_MANIFEST); await R.advance(100);
+  assert.deepEqual(R.clips(), ["getting-ready"]);
+  R.g.close();
+  R = guideRig({ manifestPromise: new Promise(() => {}) });
+  R.g.preload(); R.g.say(["getting-ready"]); await R.advance(1600);
+  assert.deepEqual(R.spoken, ["One moment, getting ready."], "a manifest that never answers: the device voice after 1.5 s");
+  R.g.close();
+});
+
+await test("I20 a clean picture: over the camera only the arrow, the meter, the sketch, the ring and the badge — no instruction text; the caption UNDER the picture shows only with Voice off or when nothing can speak; the screen reader hears every instruction either way", async () => {
+  const W = mountWindow();
+  await W.settle();
+  await W.until(() => W.shots().front, 6000, "Front");
+  await W.pump(3000);
+  const stage = W.stage();
+  const allowed = /^(cameo-video|cameo-guide|cameo-pose cameo-guide-ghost|cameo-ring|cameo-turn-arrow|cameo-flash|cameo-anglebadge|cameo-meter)/;
+  const tops = [];
+  const walk = (n) => { if (n == null || typeof n !== "object") return; if (Array.isArray(n)) return n.forEach(walk);
+    if (typeof n.type === "string" && n.type !== "#frag" && n.props && (n.props.className || n.type === "video")) { tops.push(n); return; } walk(n.children); };
+  walk(stage.children);
+  assert.ok(tops.length >= 6, tops.length);
+  for (const kid of tops) assert.match(kid.props.className || kid.type, allowed, "only these on the picture: " + (kid.props.className || kid.type));
+  assert.ok(!nodesOf(stage).some((n) => n.type === "button"), "no button on the picture");
+  assert.ok(!nodesOf(stage).some((n) => n.props && /cue|caption|hint|capnow|fix|cameo-note/.test(n.props.className || "")));
+  const badge = nodesOf(stage).find((n) => n.props && n.props.className === "cameo-anglebadge");
+  const meter = nodesOf(stage).find((n) => n.props && n.props.className === "cameo-meter");
+  assert.equal(textOf(stage), textOf(badge) + textOf(meter), "the only words on the picture: the badge and the meter's labels");
+  assert.equal(textOf(badge), "Now: Your left · optional");
+  assert.ok(nodesOf(stage).some((n) => n.props && /^cameo-turn-arrow left/.test(n.props.className || "")), "the arrow stays");
+  assert.ok(nodesOf(stage).some((n) => n.props && n.props["data-pose"] === "left"), "the sketch stays");
+  // the caption is below the picture, not inside it; hidden while the voice speaks
+  const modal = W.nodes().find((n) => n.props && n.props.className === "cameo-modal");
+  const kids = modal.children.flat(Infinity).filter((n) => n && typeof n === "object");
+  const iStage = kids.findIndex((n) => n.props.className === "cameo-stage"), iUnder = kids.findIndex((n) => n.props.className === "cameo-under");
+  assert.ok(iStage >= 0 && iUnder === iStage + 1, "the line sits right under the picture");
+  assert.ok(!nodesOf(stage).includes(W.cue()) && nodesOf(kids[iUnder]).includes(W.cue()));
+  assert.equal(W.cueKey(), "not-turned"); assert.equal(W.captionShown(), false, "spoken: no caption");
+  assert.equal(W.cue().props["aria-hidden"], "true", "the caption isn't read twice");
+  assert.match(W.sr(), /^Turn your head to your left — toward the left edge of the screen/, "the screen reader hears it");
+  assert.equal(W.nodes().find((n) => n.props && n.props.className === "cameo-sr").props["aria-live"], "polite");
+  // Voice off: silent at once, and the caption shows
+  const n = W.utter.length, c0 = W.cancels || 0;
+  click(byRole(W.root.tree, "voice")); await W.pump(100);
+  assert.equal(W.captionShown(), true, "Voice off: the caption shows"); assert.ok((W.cancels || 0) > c0, "speech stopped");
+  assert.equal(W.cueText(), "Turn your head to your left — toward the left edge of the screen");
+  assert.equal(W.box.localStorage.getItem("turn_cameo_voice"), "0");
+  W.scene.pose = P0({ yaw: 18 }); await W.pump(8000);
+  assert.equal(W.utter.length, n, "nothing said with Voice off");
+  assert.equal(W.cueText(), "A little further to your left");
+  click(byRole(W.root.tree, "voice")); await W.pump(1500);
+  assert.equal(W.captionShown(), false); assert.ok(W.said().slice(n).includes("A little further."), "on again: the current instruction is said");
+  W.root.unmount();
+  // remembered off: silent from the start, the caption shown
+  const Q = mountWindow({ voiceOff: true });
+  await Q.settle(); await Q.until(() => Q.shots().front, 6000, "Front"); await Q.pump(3000);
+  assert.equal(Q.utter.length, 0); assert.equal(Q.captionShown(), true); assert.equal(byRole(Q.root.tree, "voice").props["aria-pressed"], "false");
+  Q.root.unmount();
+  // nothing can speak (no recorded clips, no device voice): the caption shows
+  const N = mountWindow({ voices: [{ localService: false, lang: "en-US" }] });
+  await N.settle(); await N.pump(500);
+  assert.equal(N.captionShown(), true); assert.equal(byRole(N.root.tree, "voice").props.disabled, true);
+  N.root.unmount();
+  // the device voice refuses (not allowed) and there are no clips: after the first line the caption shows
+  const F = mountWindow(); F.speechMode = "fail";
+  await F.settle(); await F.until(() => F.utter.length > 0, 6000, "a line tried"); await F.pump(300);
+  assert.equal(F.captionShown(), true, "the voice can't play: the caption shows");
+  F.root.unmount();
+});
+
+await test("I21 Capture now: hidden while the photo takes itself (Auto on, pose check running); shown while the check loads or can't start, with Auto off, and once the 20-second tip says 'or press Capture now'; the C key works throughout", async () => {
+  const W = mountWindow();
+  await W.settle(); await W.pump(300);
+  assert.equal(W.stage().props["data-engine"], "ready");
+  assert.equal(byRole(W.root.tree, "capture-now"), undefined, "Front, auto: hidden");
+  click(W.slot("left")); await W.pump(500);
+  assert.equal(byRole(W.root.tree, "capture-now"), undefined, "a side, auto: hidden");
+  await W.pump(21000);
+  assert.ok(W.hint(), "the tip after 20 s");
+  const b = byRole(W.root.tree, "capture-now");
+  assert.ok(b, "with the tip: shown"); assert.equal(textOf(b), "Capture now");
+  assert.ok(!nodesOf(W.stage()).includes(b) && nodesOf(W.nodes().find((n) => n.props && n.props.className === "cameo-under")).includes(b), "under the picture");
+  click(W.slot("right")); await W.pump(300);
+  assert.equal(byRole(W.root.tree, "capture-now"), undefined, "another angle: hidden again");
+  click(byRole(W.root.tree, "auto")); await W.pump(100);
+  assert.ok(byRole(W.root.tree, "capture-now"), "Auto off: shown");
+  click(byRole(W.root.tree, "auto")); await W.pump(100);
+  assert.equal(byRole(W.root.tree, "capture-now"), undefined);
+  W.scene.pose = P0({ yaw: -35 }); await W.pump(800);
+  W.key("c"); await W.pump(200);
+  assert.ok(W.shots().right, "the C key with the button hidden");
+  W.root.unmount();
+  const L = mountWindow({ load: () => new Promise(() => {}) });
+  await L.settle(); await L.pump(300);
+  assert.equal(L.stage().props["data-engine"], "loading"); assert.ok(byRole(L.root.tree, "capture-now"), "still loading: shown");
+  L.root.unmount();
+  const U = mountWindow({ load: async () => { const e = new Error("x"); e.code = "unsupported"; throw e; } });
+  await U.settle(); await U.pump(300);
+  assert.ok(byRole(U.root.tree, "capture-now"), "the check can't start: shown");
+  U.root.unmount();
+});
+
+await test("I22 with the recorded clips: every line is played from app/vendor/voice/frances-guide/v1/<id>.mp3 (no device voice needed), the countdown in order; a missing clip is said by the device voice; autoplay held back → the device voice until a click; closing the window stops and releases them", async () => {
+  const W = mountWindow({ audio: { files: null, playMs: 500 }, manifest: FULL_MANIFEST, voices: [{ localService: false, lang: "en-US" }] });
+  await W.settle(); await W.pump(100);
+  assert.ok(W.fetches.includes(CLIP_BASE + "manifest.json"), "the manifest is read from the clips folder: " + W.fetches.join(" "));
+  assert.deepEqual(W.fetches.filter((u) => /\.mp3$/.test(u)), plainify(FP.VOICE_LINES.map((l) => CLIP_BASE + l.id + ".mp3")), "every clip preloaded when the window opens");
+  assert.equal(W.audio.created.length, 1, "one audio element");
+  assert.equal(byRole(W.root.tree, "voice").props.disabled, false, "clips: Voice works without a device voice");
+  await W.until(() => W.shots().front, 6000, "Front");
+  await W.pump(3000);
+  const ids = W.audio.audible();
+  const from = ids.indexOf("hold-still");
+  assert.deepEqual(ids.slice(from, from + 6), ["hold-still", "three", "two", "one", "got-it", "turn-left"], ids.join(" "));
+  assert.ok(W.audio.plays.every((p) => p.volume === 0.7)); assert.equal(W.utter.length, 0, "no device voice");
+  assert.equal(W.captionShown(), false);
+  W.scene.pose = P0({ yaw: 35 });
+  await W.until(() => W.shots().left, 9000, "left");
+  const ids2 = W.audio.audible();
+  const h = ids2.lastIndexOf("hold-it-there");
+  assert.deepEqual(ids2.slice(h, h + 7), ["hold-it-there", "five", "four", "three", "two", "one", "got-it"], ids2.join(" "));
+  W.root.unmount();
+  assert.deepEqual(W.audio.playing(), [], "closed: silent"); assert.ok(W.audio.created.every((a) => a.released), "…and the element let go");
+  const n = W.audio.plays.length; await W.pump(3000); assert.equal(W.audio.plays.length, n);
+  // one clip missing: that line by the device voice
+  const M = mountWindow({ audio: { files: new Set(FP.VOICE_LINES.map((l) => l.id).filter((id) => id !== "turn-left")), playMs: 500 }, manifest: FULL_MANIFEST });
+  await M.settle(); await M.until(() => M.shots().front, 6000, "Front"); await M.pump(3000);
+  assert.ok(M.said().includes(textFor("turn-left")), "the missing clip's line: " + M.said().join(" | "));
+  assert.ok(M.audio.plays.some((p) => p.id === "got-it"));
+  M.root.unmount();
+  // autoplay held back: the device voice; a click in the window lets the clips play again
+  const B = mountWindow({ audio: { files: null, autoplay: "blocked", playMs: 500 }, manifest: FULL_MANIFEST });
+  await B.settle(); await B.until(() => B.shots().front, 6000, "Front"); await B.pump(1000);
+  assert.ok(B.said().includes("Got it."), "blocked: the device voice says it"); assert.equal(B.audio.plays.length, 0);
+  B.audio.unblock();
+  B.nodes().find((n) => n.props && n.props.className === "cameo-modal").props.onPointerDown();
+  B.scene.pose = P0({ yaw: 18 }); await B.pump(2000);
+  assert.ok(B.audio.audible().includes("a-little-further"), "after the click, clips again: " + B.audio.audible().join(" "));
+  B.root.unmount();
 });
 
 console.log(`${checks} passed, ${failed} failed`);

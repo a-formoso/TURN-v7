@@ -20,6 +20,7 @@ const TYPES = {
   ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml",
   ".woff2": "font/woff2", ".ico": "image/x-icon", ".zip": "application/zip",
   ".wasm": "application/wasm", ".task": "application/octet-stream",   // the Likeness pose check (app/vendor/face/)
+  ".mp3": "audio/mpeg",   // the Likeness window's spoken guidance (app/vendor/voice/frances-guide/)
 };
 
 // Block any path segment beginning with a dot (.git, .env, .replit, ., .., hidden files at any depth)

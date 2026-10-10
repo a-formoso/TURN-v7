@@ -1,0 +1,251 @@
+{
+  "voice": "marin",
+  "model": "gpt-4o-mini-tts",
+  "clips": {
+    "allow-camera": {
+      "text": "Allow the camera to start, or upload a photo.",
+      "bytes": 56832,
+      "sha256": "80b29a1453f5d9dcf067b95eda9a75a9fea10cdc80b2f5c6abdee063365b55f3"
+    },
+    "getting-ready": {
+      "text": "One moment, getting ready.",
+      "bytes": 28800,
+      "sha256": "a3d16499ea62de13d2d34c8bb9b8d2200e3b833668cec1fc8b480375641dd804"
+    },
+    "still-getting-ready": {
+      "text": "Still getting ready. You can press Capture now.",
+      "bytes": 60288,
+      "sha256": "238967b4d91a0524fe9a0ccf26f766a47bb6f08fbe356e0643f7e75da5696f56"
+    },
+    "look-straight": {
+      "text": "Look straight at the camera.",
+      "bytes": 42624,
+      "sha256": "80564d43e6e0e1d2e6f417bf5f18d1dc5ad38d4111a6e6552adf7106552481d0"
+    },
+    "no-face": {
+      "text": "I can't see your face. Come into the middle of the picture.",
+      "bytes": 61824,
+      "sha256": "41f7fa260fae1cda9c4b1645bc682ab146f6b8ff657a0ba7969e06df7ce67e63"
+    },
+    "center-face": {
+      "text": "Move your face to the middle of the picture.",
+      "bytes": 52224,
+      "sha256": "fdf7184b66995139d84e14a85b2df0a6105562618163213fa50df683ebacbdbf"
+    },
+    "move-closer": {
+      "text": "Move a little closer.",
+      "bytes": 35328,
+      "sha256": "8f3aae03745cf93b2609fff6499ccf2fe10a3b533fc34264034ba945867a8cb6"
+    },
+    "move-back": {
+      "text": "Move back a little.",
+      "bytes": 37632,
+      "sha256": "caa153be937198acb677af993cb4a4c3e43497686050128ceaeeae72e073a260"
+    },
+    "one-person": {
+      "text": "Only one person in the picture, please.",
+      "bytes": 55296,
+      "sha256": "522b936ab8c406934e57156a212ad27e15a0332c231cfc615f3c1d646637b16f"
+    },
+    "more-light": {
+      "text": "It's a bit dark. Face a lamp or a window.",
+      "bytes": 48768,
+      "sha256": "1032f03d7e07310089e6cf27be7d9501e23e1f9b491b9b0e097440a71a2dee07"
+    },
+    "too-bright": {
+      "text": "It's too bright. Try softer light.",
+      "bytes": 46464,
+      "sha256": "aab078dc8be79f6d4f6d304e945b71b88ee841edf759cd518d46d2bf8cd6a2f7"
+    },
+    "eyes-open": {
+      "text": "Keep your eyes open.",
+      "bytes": 23424,
+      "sha256": "af66c9f8a6d5eb5ba6b5048c3f9757fdf497d1e466ee3e2700b31326c57f1c06"
+    },
+    "hold-still": {
+      "text": "Hold still.",
+      "bytes": 23424,
+      "sha256": "8ec6f82a612b1cc373b90e2fe627404c214fd06b7c5c5f9e023b77b82ca6fcd9"
+    },
+    "hold-it-there": {
+      "text": "Hold it there.",
+      "bytes": 21888,
+      "sha256": "e8459bed66a0a0ba25a691c121fd615f4d3a10522c2183c27db30e749c21a4e3"
+    },
+    "five": {
+      "text": "Five.",
+      "bytes": 19968,
+      "sha256": "61accba8f121c7d224df2f86adb19e5c97e50bdc4bdf06b8e26b247fc75d225b"
+    },
+    "four": {
+      "text": "Four.",
+      "bytes": 31488,
+      "sha256": "37a55775cf029a127a83658b575810ea90a8dd21303212bccf52b8f4faebf729"
+    },
+    "three": {
+      "text": "Three.",
+      "bytes": 28032,
+      "sha256": "4243eb37d5830906f86a8e903ddf6e8fcdace8eac6d62d55c0e154b0c06a5d8a"
+    },
+    "two": {
+      "text": "Two.",
+      "bytes": 5760,
+      "sha256": "f1012627aa067c44b58a1da08e9828324a6c4b47164557c5c7263cb17ada009a"
+    },
+    "one": {
+      "text": "One.",
+      "bytes": 15360,
+      "sha256": "37248119fc7a7dcd31ffa01e44b2ee14459ddf9dd4b13bf7c2f9190229cc9dc9"
+    },
+    "got-it": {
+      "text": "Got it.",
+      "bytes": 21888,
+      "sha256": "0a323a56dd6483f0e2e0decd90e270236825a5b0a82a2b9ef40e160f4f3412ed"
+    },
+    "turn-left": {
+      "text": "Now turn your head slowly to your left, and hold it there.",
+      "bytes": 69120,
+      "sha256": "9726b9801364a02171fdc5170da7e65eb870361f27037761fb73f9fcff458cff"
+    },
+    "turn-right": {
+      "text": "Now turn your head slowly to your right, and hold it there.",
+      "bytes": 60288,
+      "sha256": "9544131a29d015e931f5a10672c0ac93a4cdd5097dccc63f12ff11750fed6fb2"
+    },
+    "a-little-further": {
+      "text": "A little further.",
+      "bytes": 27264,
+      "sha256": "d41d003b8f1b751715b480ab06b2b422d29f4e7401147b7e7123be65de54691d"
+    },
+    "too-far": {
+      "text": "Not so far. Come back a little.",
+      "bytes": 47232,
+      "sha256": "a7eef3d3233bd692916eae4dbd255cbe10c07a84a10e79016aee41b51ed2ac40"
+    },
+    "wrong-way-left": {
+      "text": "That's your right. Turn the other way, to your left.",
+      "bytes": 60288,
+      "sha256": "7d9bc043fcc7d906f51623e717f46b81887e3ecd5af6781114e08180c8f73647"
+    },
+    "wrong-way-right": {
+      "text": "That's your left. Turn the other way, to your right.",
+      "bytes": 56832,
+      "sha256": "3f2128d2a21972be10b7e8edff6f99ed9deacf6aaa05503c385e834eaa099f52"
+    },
+    "whole-head": {
+      "text": "Turn your whole head, not just your eyes.",
+      "bytes": 55296,
+      "sha256": "67e5865615488237f17b095285827889acaa490802abc370e55fff0c977d0137"
+    },
+    "chin-level": {
+      "text": "Keep your chin level.",
+      "bytes": 30720,
+      "sha256": "d11af0ddee12bfd38acfdfb853f6b6cd2d36b8515e02baa32b877ae1295d16ca"
+    },
+    "lift-chin": {
+      "text": "Lift your chin a little.",
+      "bytes": 31488,
+      "sha256": "88c4deaa2b327c563268b28b0b3b879019464bc72415862a5bcafa19f75a9c69"
+    },
+    "lower-chin": {
+      "text": "Lower your chin a little.",
+      "bytes": 38400,
+      "sha256": "179dcc11ae6595ae85f7aa7e284eb04862f72b42dfc89de574bc3c87ee0297a6"
+    },
+    "head-straight": {
+      "text": "Keep your head straight. Don't tilt it.",
+      "bytes": 42624,
+      "sha256": "a73abe79d4c011cff2832622665227f4a1d1080400d96ff049ff232bd6fb6ee6"
+    },
+    "change-pose": {
+      "text": "Move your head a little, then hold the pose again.",
+      "bytes": 61056,
+      "sha256": "caa4c31a45580a3bd7da35d56e19dd1797bc52c72e8578d8dafe949a5db4fd3a"
+    },
+    "all-done": {
+      "text": "All three done. Say whose likeness it is, tick the box, and you can lock it.",
+      "bytes": 99456,
+      "sha256": "dea44972d1d2d926d246a55d13fa7dc41867f7b9c238fd0198917643c1d65d81"
+    },
+    "photo-wrong": {
+      "text": "That photo doesn't look right. Tap the cross on it to take it again.",
+      "bytes": 72960,
+      "sha256": "a68ffff36118866478ddc91aadeeee18b84510d972e4c5a65908b7bf0005d80f"
+    },
+    "photos-wrong": {
+      "text": "Some photos don't look like the right angle. Tap the cross on each marked one to take it again.",
+      "bytes": 93696,
+      "sha256": "786784b4a00eb2f42dbd4735ee03ff32bf34666c2b8b73bec0ce286add8e75ab"
+    },
+    "slot-done": {
+      "text": "This one's done. Pick another photo, or lock the likeness.",
+      "bytes": 64128,
+      "sha256": "c20baae32897b1b343017da54f71604219129a31dd4715db27649b615d82c9f0"
+    },
+    "auto-off": {
+      "text": "Automatic capture is off. Press Capture now when you're in position.",
+      "bytes": 79488,
+      "sha256": "27879261aab5bdf69975e7dfbc6812e62773b350e0c592587d03da6a1dd60957"
+    },
+    "no-pose-check": {
+      "text": "I can't check your pose here. Turn as the sketch shows, then press Capture now.",
+      "bytes": 91392,
+      "sha256": "6cba9c44db7263e5c4de15c5ccd5aa8ec14a1b903b7205677b6f58056a9e9622"
+    },
+    "turn-left-capture": {
+      "text": "Turn your head to your left, then press Capture now.",
+      "bytes": 69120,
+      "sha256": "67c39ed22833fef642b6bb5aa1736d7e8365830c876d14ebb6a436af01ff3b1e"
+    },
+    "turn-right-capture": {
+      "text": "Turn your head to your right, then press Capture now.",
+      "bytes": 64128,
+      "sha256": "22b99d8b502c282dde20837461106a9ea9bf3a289d1e5d7c31fd8e1e95778cd0"
+    },
+    "look-straight-hold": {
+      "text": "Look straight at the camera, and hold still.",
+      "bytes": 53760,
+      "sha256": "07d5911844dfc7da5788b9d1a509f6c0c83702a90c157b0ac7cda6ab89415586"
+    },
+    "tip-turn": {
+      "text": "Turn your whole head a little further, and keep your chin level. You don't need to see the screen.",
+      "bytes": 110592,
+      "sha256": "f0df97a6a7ef770c3019f68f4800ef806b53be71c0284c3010607f21b805727e"
+    },
+    "tip-tilt": {
+      "text": "Keep your head and chin level. Don't look down at the screen.",
+      "bytes": 72192,
+      "sha256": "75ff3311313238794acd8e50f42b4ddbc877f7a5cbf3f832ed7c642157f1c565"
+    },
+    "tip-frame": {
+      "text": "Keep your whole face inside the ring, not too close.",
+      "bytes": 72192,
+      "sha256": "da586a844ceb8a79e43a291fe9808d65575977dce9183ab1353af7edc68f1bb2"
+    },
+    "tip-light": {
+      "text": "The light makes your face hard to see. Face a window or a lamp.",
+      "bytes": 77568,
+      "sha256": "fc91aa74ca5e404444a8aa930f06bf9c68d9e296805db6ee86b979d6ecfec44a"
+    },
+    "tip-moving": {
+      "text": "Rest your elbows on something, so you can hold still.",
+      "bytes": 55296,
+      "sha256": "80e6957522bdcbfe09be7f1b52f9c58f8a21279db3f5891c77116410f01fc8d6"
+    },
+    "tip-no-face": {
+      "text": "I still can't see a face. Center your face in the ring, or upload a photo.",
+      "bytes": 81792,
+      "sha256": "142280390de4e3901e3df3124be785574e0b5a50ca1a25f08765612145d92748"
+    },
+    "or-capture-now": {
+      "text": "Or press Capture now.",
+      "bytes": 56064,
+      "sha256": "fe668de06e22fe78e64769f6f0f8b587210e09e33b9e985b0a3fd998efd45fd8"
+    },
+    "check-mirror": {
+      "text": "Still the wrong way? Look below the picture: there's a check in case your camera flips the picture.",
+      "bytes": 89088,
+      "sha256": "177d139d429e8bde0eb80d00bed49f12415118d19ff34965ef3ad648e55f8862"
+    }
+  }
+}

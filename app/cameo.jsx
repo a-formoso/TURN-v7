@@ -24,7 +24,11 @@
    so their left is the LEFT edge of the screen — every direction says both. The stored labels stay
    "Front" / "¾ Left" / "¾ Right" (label, what save() writes); the window SHOWS show / strip / long.
    The head's pose is checked ON THE DEVICE by app/face-pose.js (window.turnFacePose): a side photo is
-   taken only when the head is turned the right way, far enough, and held for 5 s (Front: 3 s). */
+   taken only when the head is turned the right way, far enough, and held for 5 s (Front: 3 s).
+   (2026-10-10, owner — Likeness voice guidance) a CLEAN PICTURE: over the camera only the arrow, the turn meter,
+   the pose sketch, the hold ring and the "Now: …" badge; every instruction is SPOKEN (recorded clips, the device's
+   voice as the fallback), and shown as one line under the picture only when the voice is off or can't play.
+   Capture now sits under the picture too, shown only when the photo doesn't take itself. */
 const CAMEO_ANGLES = [
   { key:"front", label:"Front",   show:"Front",      strip:"Front",        long:"Front",                side:null,    req:true  },
   { key:"left",  label:"¾ Left",  show:"Your left",  strip:"← Your left",  long:"Turned to your left",  side:"left",  req:false },
@@ -329,34 +333,31 @@ function CameoModal({ character, onClose, onSaved }){
   const [auto, setAuto] = React.useState(true);
   const [det, setDet] = React.useState(null);
 
-  /* ── spoken directions — only a voice built into the device (nothing leaves it): which way to turn,
-     the countdown, each photo. Toggleable; off (and the pill disabled) with no local voice. ── */
+  /* ── SPOKEN GUIDANCE (2026-10-10, owner — Likeness voice guidance: "once the head is turned you can't read the
+     screen"): every instruction is said in Frances's recorded voice (FP.VOICE_LINES clips, played by
+     FP.createVoiceGuide); a clip that can't play is said by a voice built into the device (nothing leaves it); when
+     neither can, or Voice is off, the one-line caption under the picture shows the instruction. ── */
   const [voiceOn, setVoiceOn] = React.useState(()=>{ try{ return localStorage.getItem("turn_cameo_voice")!=="0"; }catch(e){ return true; } });
   const voiceOnRef = React.useRef(voiceOn); voiceOnRef.current = voiceOn;
-  const toggleVoice = ()=>setVoiceOn(v=>{ const n=!v; try{ localStorage.setItem("turn_cameo_voice", n?"1":"0"); }catch(e){} if(!n){ try{ window.speechSynthesis&&window.speechSynthesis.cancel(); }catch(e){} } return n; });
-  const lastSpeakRef = React.useRef({ key:"", target:"", at:-1e9 });
-  /* o.force: hold start, the countdown, a reset, a capture — cancels what's being said. Otherwise at
-     least 2.5 s between lines and the same line not again within 6 s for the same angle. */
-  const speak = React.useCallback((msg, o)=>{
-    o = o || {};
+  const guideRef = React.useRef(null);
+  const toggleVoice = ()=>setVoiceOn(v=>{ const n=!v; try{ localStorage.setItem("turn_cameo_voice", n?"1":"0"); }catch(e){}
+    if(guideRef.current) guideRef.current.setEnabled(n); return n; });
+  const [voiceStatus, setVoiceStatus] = React.useState({ clips:null, silent:false });   // from the guide
+  /* the device's own voice, for a line whose clip can't play: done(ok) when it ends */
+  const speakDevice = (text, done)=>{
     try{
       const ss = window.speechSynthesis, voice = voiceListRef.current;
-      if(!voiceOnRef.current || !ss || !msg || !voice || typeof SpeechSynthesisUtterance!=="function") return false;
-      const now = nowRef.current, last = lastSpeakRef.current;
-      if(!o.force){
-        if(ss.speaking || now - last.at < 2500) return false;
-        if(last.key===(o.key||msg) && last.target===(o.target||"") && now - last.at < 6000) return false;
-      }
-      lastSpeakRef.current = { key:o.key||msg, target:o.target||"", at:now };
-      if(o.force) ss.cancel();
-      const u = new SpeechSynthesisUtterance(msg);
+      if(!ss || !voice || typeof SpeechSynthesisUtterance!=="function" || !text) return false;
+      const u = new SpeechSynthesisUtterance(text);
       u.voice = voice; if(voice.lang) u.lang = voice.lang;
-      u.rate = 1.05; u.volume = 0.9;
+      u.rate = 1; u.volume = 0.8;
+      u.onend = ()=>done(true);
+      u.onerror = (e)=>{ const er = e && e.error; done(er==="interrupted" || er==="canceled"); };
       ss.speak(u);
       return true;
     }catch(e){ return false; }
-  },[]);
-  React.useEffect(()=>()=>{ try{ window.speechSynthesis&&window.speechSynthesis.cancel(); }catch(e){} },[]);
+  };
+  const cancelSpeech = ()=>{ try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){} };
   const [flash, setFlash] = React.useState(false);
   const activeIdxRef = React.useRef(activeIdx); activeIdxRef.current = activeIdx;
   const shotsRef = React.useRef(shots); shotsRef.current = shots;
@@ -381,7 +382,7 @@ function CameoModal({ character, onClose, onSaved }){
   const [camFlipped, setCamFlipped] = React.useState(false);
   const voiceListRef = React.useRef(null);                        // the device's own voice, or null
   const [announce, setAnnounce] = React.useState("");             // the screen-reader line
-  const [voiceOk, setVoiceOk] = React.useState(false);
+  const [voiceDev, setVoiceDev] = React.useState(false);          // a voice built into the device (the clips' fallback)
   const [camSeq, setCamSeq] = React.useState(0);                  // a camera stream arrived
   const [prefillN, setPrefillN] = React.useState(0);
   const [flipFix, setFlipFix] = React.useState(false);            // P2: offer "Preview not like a mirror? Check it"
@@ -430,13 +431,44 @@ function CameoModal({ character, onClose, onSaved }){
         const local = vs.filter(v=>v && v.localService===true);
         voiceListRef.current = local.find(v=>/^en/i.test(String(v.lang||""))) || local[0] || null;
       }catch(e){ voiceListRef.current = null; }
-      setVoiceOk(!!voiceListRef.current);
+      setVoiceDev(!!voiceListRef.current);
     };
     pick();
     if(!ss) return undefined;
     if(typeof ss.addEventListener==="function"){ ss.addEventListener("voiceschanged", pick); return ()=>{ try{ ss.removeEventListener("voiceschanged", pick); }catch(e){} }; }
     ss.onvoiceschanged = pick;
     return ()=>{ if(ss.onvoiceschanged===pick) ss.onvoiceschanged = null; };
+  },[]);
+  /* the voice guide: one per window, its clips preloaded when the window opens (opening it was a click, so the
+     browser lets it play); everything stops when the window closes */
+  React.useEffect(()=>{
+    const FP = cameoFP();
+    if(!FP || typeof FP.createVoiceGuide!=="function") return undefined;
+    let base = FP.VOICE_DIR;
+    try{ base = new URL(FP.VOICE_DIR, document.baseURI).href; }catch(e){}
+    const g = FP.createVoiceGuide({
+      base, enabled: !!voiceOnRef.current,
+      now: ()=>nowRef.current,
+      setTimeout: (fn, ms)=>setTimeout(fn, ms), clearTimeout: (id)=>clearTimeout(id),
+      // one audio element plays every clip, one at a time
+      makeAudio: ()=> (typeof Audio==="function") ? new Audio() : null,
+      // the manifest says which clips were recorded, and with which words (a missing one: the device voice)
+      loadManifest: ()=> (typeof fetch==="function")
+        ? Promise.resolve().then(()=>fetch(base+"manifest.json", { cache:"no-cache", credentials:"same-origin" }))
+            .then(r=> r && r.ok ? r.json() : null).catch(()=>null)
+        : null,
+      // each clip is read once when the window opens (small files, cached) and played from memory
+      loadClip: (url)=> Promise.resolve().then(()=>fetch(url, { credentials:"same-origin" }))
+        .then(r=> r && r.ok ? r.blob() : null)
+        .then(b=>{ if(!b) return null; try{ return URL.createObjectURL(b); }catch(e){ return url; } })
+        .catch(()=>null),
+      releaseClip: (u)=>{ try{ if(/^blob:/.test(String(u))) URL.revokeObjectURL(u); }catch(e){} },
+      speak: speakDevice, cancelSpeech, canSpeak: ()=>!!voiceListRef.current,
+      onStatus: (st)=>{ if(aliveRef.current) setVoiceStatus(cur=> (cur.clips===st.clips && cur.silent===st.silent) ? cur : { clips:st.clips, silent:!!st.silent }); },
+    });
+    guideRef.current = g;
+    g.preload();
+    return ()=>{ if(guideRef.current===g) guideRef.current = null; g.close(); cancelSpeech(); };
   },[]);
 
   /* a break in what the loop saw (a dialog closed, the tab hidden, the check restarted): a hold in
@@ -537,7 +569,13 @@ function CameoModal({ character, onClose, onSaved }){
     const eng = FP ? engineStateRef.current : "unavailable";
     const nextLine = FP ? FP.nextStepLine(nextA ? nextA.key : null, eng)
       : (nextA ? (nextA.side ? "Turn your head to your "+nextA.side+", then press Capture now." : "Look straight at the camera.") : "All three done. Say whose likeness it is, tick the box, and lock it.");
-    speak("Got it. "+nextLine, { force:true, key:"settle", target:key });
+    // "Got it." interrupts everything, then the next step (the first time the sides are manual, why)
+    const G = guideRef.current;
+    if(G && FP){
+      let ids = ["got-it"].concat(FP.voiceNextIds(nextA ? nextA.key : null, eng));
+      if(eng==="unavailable" && nextA && nextA.side && !loopRef.current.noCheckSaid){ ids = ["got-it", "no-pose-check"].concat(ids.slice(1)); loopRef.current.noCheckSaid = true; }
+      G.say(ids, { kind:"now" });
+    }
     try{ if(navigator.vibrate) navigator.vibrate(40); }catch(e){}
     setAnnounce(FP && typeof FP.srCapturedLine==="function" ? FP.srCapturedLine(key, nextA ? nextA.key : null, eng) : "Photo taken. "+nextLine);
     const allDone = CAMEO_KEYS.every(k=>next[k]);
@@ -684,7 +722,10 @@ function CameoModal({ character, onClose, onSaved }){
     if(a.side && st.phase==="wait" && cue.key==="wrong-way" && flipCanBeOffered()){
       if(L.wrongSince==null) L.wrongSince = t;
       L.wrongBad = null;
-      if(t-L.wrongSince >= 6000) setFlipFix(true);
+      if(t-L.wrongSince >= 6000){
+        setFlipFix(true);
+        if(!L.fixSaid && guideRef.current && guideRef.current.say(["check-mirror"], { kind:"line" })) L.fixSaid = true;
+      }
     } else if(L.wrongSince!=null){
       if(L.wrongBad==null) L.wrongBad = t;
       if(t-L.wrongBad >= 400){ L.wrongSince = null; L.wrongBad = null; }
@@ -697,30 +738,36 @@ function CameoModal({ character, onClose, onSaved }){
       setDet({ key, cue, phase:st.phase, progress:prog/50, yaw:yawR, inBand, filled:!!info.filled, allDone:!!info.allDone,
         auto:!!autoRef.current, eng:info.eng, mismatch, marked, cam:!!info.cam });
     }
-    // what is said, and what a screen reader hears
+    // what is said (the voice guide), and what a screen reader hears
     if(cue.key!==L.cueKey || key!==L.cueTarget){ L.cueKey = cue.key; L.cueTarget = key; L.cueSince = t; L.srAt = t; L.srDone = false; }
-    const lines = FP && FP.LINES;
+    const G = guideRef.current;
     if(st.started){
       L.lastCount = st.secsLeft;
-      speak(lines ? (a.side ? lines.holdStartSide : lines.holdStartFront) : "Hold still.", { force:true, key:"hold-start", target:key });
+      // "Hold it there. Five." — after a small move that restarted the count, "Hold still. Five."
+      if(G && FP) G.say(FP.voiceHoldIds(key, st.secsLeft, !!st.reset), { kind:"count" });
       setAnnounce("Hold still for "+(a.side ? 5 : 3)+" seconds");
     } else if(st.phase==="holding" && st.secsLeft!=null && st.secsLeft!==L.lastCount){
       L.lastCount = st.secsLeft;
-      const word = lines && lines.count[st.secsLeft];
-      if(word) speak(word, { force:true, key:"count-"+st.secsLeft, target:key });
+      const id = FP && FP.voiceCountId(st.secsLeft);
+      if(G && id) G.say([id], { kind:"count" });
     }
-    if(st.reset && FP){
+    if(st.phase!=="holding" && L.lastCount!=null){ L.lastCount = null; if(G) G.dropCount(); }
+    if(st.reset && !st.started && FP && G){
       const r = FP.cueFor({ phase:"wait", reason:st.reset }, null, key, { engine:info.eng });
-      if(r.say) speak(r.say, { force:true, key:r.key, target:key });
+      if(r.voice) G.say(r.voice, { kind:"line" });
     }
-    const quietKeys = { settle:1, complete:1, filled:1, "filled-mismatch":1, holding:1, manual:1, loading:1, "loading-slow":1 };
-    if(cue.say && !quietKeys[cue.key] && t-L.cueSince >= 700){
-      if(cue.key==="unavailable-side"){
-        if(!L.spokenOnce["u|"+key] && speak(cue.say, { key:cue.key, target:key })) L.spokenOnce["u|"+key] = true;
-      } else speak(cue.say, { key:cue.key, target:key });
-    }
-    if(cue.hintSay && !L.spokenOnce["h|"+key] && t-L.cueSince >= 700){
-      if(speak(cue.hintSay, { key:"hint", target:key })) L.spokenOnce["h|"+key] = true;
+    if(G){
+      // a line is said once it has held for 0.7 s (no chatter while the pose flickers between two cues); "allow the
+      // camera" and "getting ready" only when they really take a while
+      const dwell = cue.key==="camera" ? 2500 : (cue.key==="loading" ? 1500 : 700);
+      if(cue.key==="holding" || cue.key==="settle") G.cue(cue.key+"|"+key, null);
+      else if(t-L.cueSince >= dwell){
+        // a tip after 20 s without a photo: once per angle
+        if(cue.hint && cue.hintVoice && !L.spokenOnce["h|"+key] && G.say(cue.hintVoice, { kind:"line" })) L.spokenOnce["h|"+key] = true;
+        let ids = cue.voice;
+        if(cue.key==="unavailable-side" && !L.noCheckSaid && ids){ ids = ["no-pose-check"].concat(ids); }
+        if(G.cue(cue.key+"|"+key, ids, { remind:!cue.once }) && cue.key==="unavailable-side") L.noCheckSaid = true;
+      }
     }
     if(!L.srDone && t-L.srAt >= 800 && cue.key!=="holding" && cue.key!=="settle"){
       L.srDone = true; setAnnounce(cue.text+(cue.hint ? " "+cue.hint : ""));
@@ -795,7 +842,7 @@ function CameoModal({ character, onClose, onSaved }){
   React.useEffect(()=>{
     if(machineRef.current) machineRef.current.retarget(nowRef.current);
     const L = loopRef.current;
-    L.spokenOnce = {}; L.wrongSince = null; L.wrongBad = null; L.lastCount = null; L.legacy = { start:null, bad:null, at:null };
+    L.spokenOnce = {}; L.wrongSince = null; L.wrongBad = null; L.lastCount = null; L.fixSaid = false; L.legacy = { start:null, bad:null, at:null };
     setFlipFix(false);
   },[activeIdx]);
 
@@ -1010,6 +1057,13 @@ function CameoModal({ character, onClose, onSaved }){
   const yawNow = live ? det.yaw : null;
   const band = FPr ? FPr.bandFor(activeAngle.key) : null;
   const showFix = flipFix && !camFlipped && cue.key==="wrong-way";
+  /* the voice: recorded clips (known once the manifest answered) or a voice built into the device */
+  const canVoice = !!FPr && (voiceDev || voiceStatus.clips==null || voiceStatus.clips > 0);
+  const captionOn = !voiceOn || !canVoice || !!voiceStatus.silent;
+  /* Capture now: hidden while the photo takes itself (Auto on, the pose check running), shown when it doesn't — the
+     check can't start or is still loading, Auto is off, or the 20-second tip says "or press Capture now". The C key
+     works either way. */
+  const capNowOn = camOn && (!auto || engUi!=="ready" || !!cue.hint);
   const why = engineWhyRef.current || "unsupported";
   const describe = (m, who)=> FPr ? FPr.describeClass(m, who) : "another angle";
   /* which photo to pick for the slot: a true-orientation photo of an own-left turn has the nose pointing
@@ -1021,7 +1075,9 @@ function CameoModal({ character, onClose, onSaved }){
     + ". Click another slot above to change the target.";
 
   return React.createElement("div",{className:"cameo-overlay",onClick:onClose},
-    React.createElement("div",{className:"cameo-modal",onClick:stop},
+    React.createElement("div",{className:"cameo-modal",onClick:stop,
+        // a click lets clips the browser held back play again (they were said by the device voice meanwhile)
+        onPointerDown:()=>{ if(guideRef.current) guideRef.current.unlock(); }},
       React.createElement("div",{className:"cameo-head"},
         React.createElement("div",null,
           React.createElement("div",{className:"cameo-title"},
@@ -1031,7 +1087,7 @@ function CameoModal({ character, onClose, onSaved }){
           React.createElement(Icon.x,{s:16}))),
 
       /* stage: live camera with the active angle's guide, ring, arrow, meter and cue — or fallbacks */
-      React.createElement("div",{className:"cameo-stage","data-engine":liveOk ? engUi : phase},
+      React.createElement("div",{className:"cameo-stage","data-engine":liveOk ? engUi : phase,...(liveOk ? { "data-cue":cue.key } : {})},
         liveOk && React.createElement(React.Fragment,null,
           React.createElement("video",{ref:videoRef,className:"cameo-video"+(camFlipped?" unmirror":""),playsInline:true,muted:true}),
           React.createElement("div",{className:"cameo-guide"+(holding?" go":"")}),
@@ -1049,19 +1105,12 @@ function CameoModal({ character, onClose, onSaved }){
           flash && React.createElement("div",{className:"cameo-flash"}),
           React.createElement("div",{className:"cameo-anglebadge"},
             "Now: ",React.createElement("b",null,activeAngle.show),activeAngle.req?" · required":" · optional"),
-          React.createElement("div",{className:"cameo-cue "+cue.k,"data-cue":cue.key},
-            React.createElement("span",{className:"cameo-cue-dot"}),
-            React.createElement("span",{className:"cameo-cue-t"},cue.text),
-            cue.hint && React.createElement("span",{className:"cameo-cue-hint"},cue.hint),
-            showFix && React.createElement("button",{className:"cameo-cue-fix","data-role":"flip-fix",onClick:checkFlip},"Preview not like a mirror? Check it")),
           engUi==="ready" && band && React.createElement("div",{className:"cameo-meter","aria-hidden":"true"},
             React.createElement("span",{className:"cameo-meter-lab"},"your left"),
             React.createElement("div",{className:"cameo-meter-track"},
               React.createElement("div",{className:"cameo-meter-band",style:{left:band.from+"%",width:(band.to-band.from)+"%"}}),
               yawNow!=null && React.createElement("div",{className:"cameo-meter-dot"+(inBand?" in-band":""),style:{left:FPr.meterPos(yawNow)+"%"}})),
-            React.createElement("span",{className:"cameo-meter-lab"},"your right")),
-          React.createElement("button",{className:"cameo-capnow","data-role":"capture-now",onClick:captureNow,
-            title:"Take this photo now (C)","aria-keyshortcuts":"C"},"Capture now")),
+            React.createElement("span",{className:"cameo-meter-lab"},"your right"))),
         phase==="denied" && React.createElement("div",{className:"cameo-msg"},
           React.createElement(Icon.warn,{s:26}),
           React.createElement("div",{className:"cameo-msg-t"},"Camera access blocked"),
@@ -1079,6 +1128,17 @@ function CameoModal({ character, onClose, onSaved }){
           React.createElement("div",{className:"cameo-msg-s"},"Upload clear photos instead: Front first, then, if you like, the head turned to the person's own left and to their own right. Click a slot below to choose where each one goes."),
           React.createElement("button",{className:"cameo-btn ghost",onClick:()=>fileRef.current&&fileRef.current.click(),title:uploadTitle},
             React.createElement(Icon.image,{s:14}),"Choose a photo for “"+activeAngle.show+"”"))),
+      /* under the picture (never over it): the instruction as one line when it isn't spoken, the mirror check, and
+         Capture now when the photo doesn't take itself */
+      liveOk && React.createElement("div",{className:"cameo-under"},
+        React.createElement("div",{className:"cameo-caption "+cue.k,"data-cue":cue.key,"data-k":cue.k,hidden:!captionOn,"aria-hidden":"true",
+            title:cue.text+(cue.hint ? " "+cue.hint : "")},
+          React.createElement("span",{className:"cameo-caption-dot"}),
+          React.createElement("span",{className:"cameo-caption-t"},cue.text),
+          cue.hint && React.createElement("span",{className:"cameo-caption-hint"},cue.hint)),
+        showFix && React.createElement("button",{className:"cameo-fix-link","data-role":"flip-fix",onClick:checkFlip},"Preview not like a mirror? Check it"),
+        capNowOn && React.createElement("button",{className:"cameo-capnow","data-role":"capture-now",onClick:captureNow,
+          title:"Take this photo now (C)","aria-keyshortcuts":"C"},"Capture now")),
       liveOk && camOn && React.createElement("div",{className:"cameo-note"+(engUi==="unavailable"?" warn":"")},
         engUi==="unavailable" ? cameoNoteOff(why) : CAMEO_NOTE_OK),
       liveOk && React.createElement("div",{className:"cameo-sr",role:"status","aria-live":"polite","aria-atomic":"true"},announce),
@@ -1137,10 +1197,10 @@ function CameoModal({ character, onClose, onSaved }){
             : engUi==="unavailable" ? "Automatic capture works for Front only on this device"
             : "Automatic capture on — takes the photo after you hold the pose (3 s for Front, 5 s for each side)"},
           React.createElement(Icon.bolt,{s:14}),"Auto"),
-        liveOk && React.createElement("button",{className:"cameo-autopill"+(voiceOn&&voiceOk?" on":""),"data-role":"voice",
-          onClick:toggleVoice, disabled:!voiceOk,
-          title: !voiceOk ? "Spoken directions aren't available in this browser"
-            : voiceOn ? "Spoken directions on — says which way to turn, counts down, and announces each photo" : "Spoken directions off"},
+        liveOk && React.createElement("button",{className:"cameo-autopill"+(voiceOn&&canVoice?" on":""),"data-role":"voice",
+          onClick:toggleVoice, disabled:!canVoice, "aria-pressed":voiceOn&&canVoice?"true":"false",
+          title: !canVoice ? "Spoken directions aren't available in this browser"
+            : voiceOn ? "Spoken directions on — says every step out loud, so you don't need to read the screen while you turn" : "Spoken directions off — the steps are shown under the picture"},
           React.createElement(Icon.mic,{s:14}),"Voice"),
         liveOk && camFlipped && React.createElement("button",{className:"cameo-autopill on","data-role":"cam-flipped",
           onClick:()=>setFlip(false), title:"Your camera already flips the picture — click to undo"},"Flipped camera"),

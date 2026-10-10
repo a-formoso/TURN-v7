@@ -2580,24 +2580,26 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
 /* while a pose is held the ring (.cameo-ring) fills in green; the guide only glows, so the fill reads */
 .cameo-guide.go::before{border-color:oklch(0.78 0.16 150 / .3);border-style:solid;
   box-shadow:0 0 24px oklch(0.78 0.16 150 / .3)}
-.cameo-cue{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);display:flex;flex-wrap:wrap;align-items:center;justify-content:center;
-  column-gap:7px;row-gap:3px;font-family:var(--f-mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#fff;
-  background:oklch(0.2 0.02 280 / .68);padding:5px 12px;border-radius:var(--r-l);text-shadow:0 1px 3px rgba(0,0,0,.6);
-  width:max-content;max-width:calc(100% - 24px);white-space:normal;text-align:center;line-height:1.45;z-index:2}
-.cameo-cue-t{flex:1 1 0;min-width:0}
-.cameo-cue-dot{width:7px;height:7px;border-radius:50%;background:oklch(0.72 0.16 45);flex:0 0 auto}
-/* GO state — unmistakable: the pill itself turns green while the countdown runs */
-.cameo-cue.go{background:oklch(0.36 0.1 150 / .88);box-shadow:0 0 0 1px oklch(0.78 0.16 150 / .5)}
-.cameo-cue.go .cameo-cue-dot{background:oklch(0.82 0.17 150);animation:cameo-pulse .8s ease-in-out infinite}
-.cameo-cue.done .cameo-cue-dot{background:oklch(0.78 0.16 150)}
-.cameo-cue.off .cameo-cue-dot{background:var(--txt-3)}
-/* a turn the wrong way, a saved photo that looks like another angle */
-.cameo-cue.warn{background:oklch(0.42 0.11 70 / .9);box-shadow:0 0 0 1px oklch(0.82 0.15 75 / .6)}
-.cameo-cue.warn .cameo-cue-dot{background:oklch(0.88 0.16 85)}
-/* the timeout hint: a second line, in sentence case */
-.cameo-cue-hint{flex-basis:100%;font-family:var(--f-ui);font-size:11px;letter-spacing:0;text-transform:none;opacity:.9}
-.cameo-cue-fix{flex-basis:100%;margin-top:2px;background:none;border:0;padding:0;cursor:pointer;color:oklch(0.9 0.1 85);
-  font-family:var(--f-ui);font-size:11px;letter-spacing:0;text-transform:none;text-decoration:underline}
+/* (2026-10-10, owner — Likeness voice guidance) nothing written over the picture: the instruction is spoken, and shown
+   here, UNDER the picture, as one line only when the voice is off or can't play; then the mirror check and Capture now */
+.cameo-under{display:flex;align-items:center;gap:10px;margin:8px 18px 0;min-height:28px}
+.cameo-under:not(:has(> :not([hidden]))){display:none}
+.cameo-caption{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:7px;font-family:var(--f-ui);font-size:12px;line-height:1.4;
+  color:var(--txt-1);white-space:nowrap;overflow:hidden}
+.cameo-caption[hidden]{display:none}
+.cameo-caption-dot{width:7px;height:7px;border-radius:50%;background:oklch(0.72 0.16 45);flex:0 0 auto}
+.cameo-caption-t{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cameo-caption-hint{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--txt-2)}
+.cameo-caption-hint::before{content:"· ";color:var(--txt-3)}
+.cameo-caption.go .cameo-caption-dot{background:oklch(0.78 0.17 150);animation:cameo-pulse .8s ease-in-out infinite}
+.cameo-caption.done .cameo-caption-dot{background:oklch(0.78 0.16 150)}
+.cameo-caption.off .cameo-caption-dot{background:var(--txt-3)}
+.cameo-caption.warn .cameo-caption-dot{background:oklch(0.8 0.16 75)}
+.cameo-caption.warn .cameo-caption-t{color:oklch(0.82 0.13 75)}
+html[data-theme="light"] .cameo-caption.warn .cameo-caption-t{color:oklch(0.5 0.13 65)}
+.cameo-fix-link{flex:0 0 auto;background:none;border:0;padding:0;cursor:pointer;color:var(--txt-2);font-family:var(--f-ui);font-size:11px;
+  text-decoration:underline;white-space:nowrap}
+.cameo-fix-link:hover{color:var(--txt-0)}
 @keyframes cameo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 /* (2026-10-10, owner — "it can't tell left from right") the hold ring over the guide ellipse, the turn
    arrow on the edge the person turns toward (their own left = the screen's left: the preview is a
@@ -2621,7 +2623,6 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
   z-index:2;pointer-events:none;padding:5px 10px 3px;border-radius:var(--r-l);background:oklch(0.2 0.02 280 / .55)}
 .cameo-meter-track{grid-area:t;position:relative;height:8px;border-radius:4px;background:oklch(0.3 0.02 280 / .7)}
 /* the cue sits above the meter while the meter shows */
-.cameo-stage[data-engine="ready"] .cameo-cue{bottom:48px}
 .cameo-meter-band{position:absolute;top:0;bottom:0;border-radius:4px;background:oklch(0.78 0.16 150 / .7)}
 .cameo-meter-dot{position:absolute;top:50%;width:13px;height:13px;margin-left:-6.5px;border-radius:50%;transform:translateY(-50%);
   background:#fff;box-shadow:0 0 0 2px oklch(0.84 0.15 75),0 1px 3px rgba(0,0,0,.6);transition:left .1s linear}
@@ -2636,9 +2637,9 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
 html[data-theme="light"] .cameo-note.warn{color:oklch(0.5 0.13 65)}
 /* the screen-reader line (same rules as .sb-sr-only) */
 .cameo-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.cameo-capnow{position:absolute;top:10px;right:10px;background:oklch(0.2 0.02 280 / .66);color:#fff;border:1px solid rgba(255,255,255,.2);
-  font-family:var(--f-ui);font-size:11px;font-weight:600;padding:4px 10px;border-radius:var(--r-m);cursor:pointer;transition:.12s}
-.cameo-capnow:hover{background:oklch(0.62 0.18 295)}
+.cameo-capnow{flex:0 0 auto;margin-left:auto;background:var(--bg-2);color:var(--txt-0);border:1px solid var(--line-2);
+  font-family:var(--f-ui);font-size:11.5px;font-weight:600;height:28px;padding:0 11px;border-radius:var(--r-m);cursor:pointer;transition:.12s}
+.cameo-capnow:hover{background:oklch(0.62 0.18 295);border-color:oklch(0.62 0.18 295);color:#fff}
 .cameo-flash{position:absolute;inset:0;background:#fff;animation:cameo-flash .28s ease-out;pointer-events:none;z-index:3}
 @keyframes cameo-flash{0%{opacity:.9}100%{opacity:0}}
 .cameo-autopill{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 13px;border-radius:9px;cursor:pointer;
