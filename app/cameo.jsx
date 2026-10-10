@@ -759,7 +759,8 @@ function CameoModal({ character, onClose, onSaved }){
     if(G){
       // a line is said once it has held for 0.7 s (no chatter while the pose flickers between two cues); "allow the
       // camera" and "getting ready" only when they really take a while
-      const dwell = cue.key==="camera" ? 2500 : (cue.key==="loading" ? 1500 : 700);
+      // (2026-10-10, owner: "a bit slow catching up") a correction is said after 0.25 s, not 0.7
+      const dwell = cue.key==="camera" ? 2500 : (cue.key==="loading" ? 1500 : 250);
       if(cue.key==="holding" || cue.key==="settle") G.cue(cue.key+"|"+key, null);
       else if(t-L.cueSince >= dwell){
         // a tip after 20 s without a photo: once per angle
@@ -867,8 +868,17 @@ function CameoModal({ character, onClose, onSaved }){
         auditedRef.current[k+"|"+url] = true;
         if(!obs || (shotsRef.current||{})[k]!==url) continue;
         const measured = obs.primary ? FP.classifyPose(obs.primary.pose, null).base : "none";
-        poseRef.current[k] = { measured, yaw:obs.primary ? obs.primary.pose.yaw : null, checked:true };
-        found[k] = measured===k ? "ok" : "mismatch";
+        const yaw = obs.primary && obs.primary.pose ? obs.primary.pose.yaw : null;
+        poseRef.current[k] = { measured, yaw, checked:true };
+        /* ONLY A REAL MISTAKE IS MARKED (2026-10-10, owner: a right-side photo the live check had taken was marked "!"
+           only after reopening): a still photo reads a few degrees differently from the live picture, so a side photo
+           a little short of or past the live band is fine. Marked: a side slot holding a front view (under ~15°) or a
+           turn the other way; a Front slot turned more than ~15°; no face at all. */
+        const ay = (typeof yaw==="number" && isFinite(yaw)) ? Math.abs(yaw) : null;
+        const mistake = ay==null ? true
+          : k==="front" ? ay > 15
+          : (ay < 15 || (k==="left" ? yaw < 0 : yaw > 0));
+        found[k] = mistake ? "mismatch" : "ok";
       }
       if(smootherRef.current) smootherRef.current.reset();
       if(!aliveRef.current || !Object.keys(found).length) return;
@@ -1190,7 +1200,7 @@ function CameoModal({ character, onClose, onSaved }){
         (liveOk || phase==="denied" || phase==="nocam") && React.createElement("button",
           {className:"cameo-btn ghost","data-role":"upload",onClick:()=>fileRef.current&&fileRef.current.click(),
            title:uploadTitle},
-          React.createElement(Icon.image,{s:14}),liveOk ? "Upload photo" : uploadFor),
+          React.createElement(Icon.image,{s:14}),uploadFor),   // always says which slot it fills (2026-10-10)
         liveOk && React.createElement("button",{className:"cameo-autopill"+(auto?" on":""),"data-role":"auto",
           onClick:()=>setAuto(a=>!a),
           title: !auto ? "Automatic capture off — use Capture now"

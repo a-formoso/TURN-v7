@@ -507,7 +507,7 @@
   /* the countdown numbers: recorded at ~1.25 s each, played a little faster so a number a second keeps up with the
      real hold, and a number that's already late is skipped for the newest one (2026-10-10) */
   const COUNT_CLIP = { "five":1, "four":1, "three":1, "two":1, "one":1 };
-  const COUNT_RATE = 1.3;
+  const COUNT_RATE = 1.3, LINE_RATE = 1.15;
   /* a cue key → the clip ids said for it ({side} = the target's side). Tilt on a side target is "keep your chin
      level" (a head turned toward the screen dips, either way); on Front it says which way. */
   const VOICE_CUE = {
@@ -710,7 +710,8 @@
         tok.via = "clip";
         try{
           el.src = clip.url || (base + it.id + ".mp3");     // still loading: straight from the folder
-          try{ el.playbackRate = COUNT_CLIP[it.id] ? COUNT_RATE : 1; if("preservesPitch" in el) el.preservesPitch = true; }catch(e){}
+          // a touch brisker everywhere (2026-10-10, owner: the voice felt slow to catch up); numbers faster still
+          try{ el.playbackRate = COUNT_CLIP[it.id] ? COUNT_RATE : LINE_RATE; if("preservesPitch" in el) el.preservesPitch = true; }catch(e){}
           tok.src = el.src;
           el.currentTime = 0; el.volume = R.volume; el.muted = false;
         }catch(e){}

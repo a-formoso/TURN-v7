@@ -1232,6 +1232,17 @@ const SAVED3 = { angles: [{ key: "front", label: "Front", url: "data:image/jpeg;
   { key: "left", label: "¾ Left", url: "data:image/jpeg;base64,TEVGVA==", source: "webcam" },
   { key: "right", label: "¾ Right", url: "data:image/jpeg;base64,UklHSFQ=", source: "webcam" }],
   consent: { subject: "self", name: "", adult: true, textVersion: "2026-10-10" }, sync: false, w: 1024, h: 1024 };
+await test("I11b the saved-photo check marks only a real mistake (owner 2026-10-10: a right photo the live check had taken was marked '!' on reopening)", async () => {
+  const L = "data:image/jpeg;base64,TEVGVA==", R = "data:image/jpeg;base64,UklHSFQ=", F = "data:image/jpeg;base64,RlJPTlQ=";
+  const run = async (poses) => { const W = mountWindow({ saved: SAVED3, auditPoses: { [F]: P0(), ...poses } }); await W.settle(); await W.pump(500);
+    const out = { front: W.slot("front").props["data-check"], left: W.slot("left").props["data-check"], right: W.slot("right").props["data-check"] }; W.root.unmount(); return out; };
+  // turned further than the live band (50–55°) or a little short of it (20°): still the right side — not marked
+  assert.deepEqual(await run({ [L]: P0({ yaw: 52 }), [R]: P0({ yaw: -55 }) }), { front: "ok", left: "ok", right: "ok" });
+  assert.deepEqual(await run({ [L]: P0({ yaw: 20 }), [R]: P0({ yaw: -19 }) }), { front: "ok", left: "ok", right: "ok" });
+  // real mistakes: a front view in a side slot, a turn the other way, a turned "front"
+  assert.deepEqual(await run({ [L]: P0({ yaw: 4 }), [R]: P0({ yaw: 30 }) }), { front: "ok", left: "mismatch", right: "mismatch" });
+  assert.equal((await run({ [F]: P0({ yaw: 25 }), [L]: P0({ yaw: 35 }), [R]: P0({ yaw: -35 }) })).front, "mismatch");
+});
 await test("I14 the owner's saved likeness (all three slots, both sides really front views): the window opens on the first marked photo and says so; the set is not 'all three done'; Lock asks first", async () => {
   const W = mountWindow({ saved: SAVED3, auditPoses: { "data:image/jpeg;base64,RlJPTlQ=": P0(), "data:image/jpeg;base64,TEVGVA==": P0({ yaw: 1 }), "data:image/jpeg;base64,UklHSFQ=": P0({ yaw: -1 }) } });
   await W.settle(); await W.pump(500);
@@ -1368,7 +1379,7 @@ await test("I13 uploads with the camera on: a photo that doesn't look like its s
   assert.equal(W.img("left").props.className, "mirror");
   assert.equal(W.inst().h[6].v, 1, "with the camera on, the slot stays where the upload landed");
   const up = byRole(W.root.tree, "upload");
-  assert.equal(textOf(up), "Upload photo");
+  assert.match(textOf(up), /^Upload for “/, "the button always names the slot it fills (2026-10-10)");
   assert.equal(up.props.title, "Upload a photo into the “Your left” slot — the person turned to their own left (in the photo, their nose points to the right). Click another slot above to change the target.");
   // a front-looking photo kept in the left slot anyway: marked "!"; and it is no live pose — Front then takes itself
   nodesOf(W.slot("left")).find((n) => n.props && n.props.className === "cameo-slot-x").props.onClick({ stopPropagation: noop });
