@@ -213,6 +213,19 @@ function makeBackend(){
       const uid = getUid();
       if (name === "turn_begin_asset_upload") return { data: "2099-01-01T00:00:00.000Z", error: null };
       if (name === "turn_finish_asset_upload" || name === "turn_finish_asset_cleanup") return { data: 1, error: null };
+      // (2026-10-10, owner — Show/Episode delete files) team-relaunch.sql §7e: every file the film's rows
+      // name under its own folder, less what the owner's other films name; B.noFilmDeleteCleanup = before that SQL
+      if (name === "turn_film_delete_cleanup" && !B.noFilmDeleteCleanup){
+        if (ownerOf(args.p_project_id) !== uid) return { data: null, error: { code: "42501", message: "TURN_FILES: only the film's owner can do this" } };
+        const named = (g) => [g.storage_path, ...((g.refs || []).map((r) => r && r.storage_path))].filter(Boolean);
+        const other = new Set(B.gens.filter((g) => g.project_id !== args.p_project_id && ownerOf(g.project_id) === uid).flatMap(named));
+        const mine = [...B.gens.filter((g) => g.project_id === args.p_project_id).flatMap(named),
+          ...B.cameos.filter((c) => c.project_id === args.p_project_id).flatMap((c) => c.angles.map((a) => a && a.storage_path))];
+        const paths = Array.from(new Set(mine.filter((p) => p && parts(p).pid === args.p_project_id && !other.has(p)))).sort();
+        for (const p of paths) B.grants.add(uid + "|" + p);
+        B.log.push("rpc:turn_film_delete_cleanup");
+        return { data: { paths, kept: [], expires_at: "2099-01-01T00:00:00.000Z" }, error: null };
+      }
       if (name === "turn_film_cameo_cleanup"){
         if (ownerOf(args.p_project_id) !== uid) return { data: null, error: { code: "42501", message: "TURN_LIKENESS: only the film's owner can do this" } };
         const paths = [];
@@ -766,6 +779,32 @@ await test("G5 deleting a plain film removes every capturer's likeness photos (t
   assert.equal(owner.box.nbListOtherCameos().length, 0);
 });
 
+await test("G6 (2026-10-10, owner — Show/Episode delete files) deleting a plain film removes its generated files too, never one another of the owner's films still names; before that SQL, the likeness photos only", async () => {
+  const run = async (installed) => {
+    const B = freshBackend(), owner = device(B);
+    B.noFilmDeleteCleanup = !installed;
+    await owner.open(U1, FA); await owner.lock("neo", { sync: true });
+    const sheet = U1 + "/" + FA + "/character/neo/20261010-100000-sheet-aaaa0001.png";
+    const ref = U1 + "/" + FA + "/character/neo/20261010-100000-ref-aaaa0002.png";
+    const shared = U1 + "/" + FA + "/character/trin/20261010-100000-sheet-aaaa0003.png";
+    const elsewhere = U1 + "/" + FB + "/character/neo/20261010-100000-sheet-bbbb0001.png";
+    for (const p of [sheet, ref, shared, elsewhere]) B.files.set(p, { bytes: new Uint8Array([1]), type: "image/png" });
+    B.gens.push({ project_id: FA, entity_id: "neo", storage_path: sheet, refs: [{ storage_path: ref }, { storage_path: elsewhere }], meta: {} },
+      { project_id: FA, entity_id: "trin", storage_path: shared, refs: [], meta: {} },
+      { project_id: FB, entity_id: "trin", storage_path: elsewhere, refs: [{ storage_path: shared }], meta: {} });
+    const r = await owner.box.cloudDeleteProject(FA);
+    assert.equal(r.ok, true);
+    return { B, left: Array.from(B.files.keys()).sort() };
+  };
+  const now = await run(true);
+  assert.deepEqual(now.left, [U1 + "/" + FA + "/character/trin/20261010-100000-sheet-aaaa0003.png",
+    U1 + "/" + FB + "/character/neo/20261010-100000-sheet-bbbb0001.png"].sort(), "the film's own files and photos went; the shared one and the other film's stayed");
+  assert.ok(now.B.log.indexOf("rpc:turn_film_delete_cleanup") >= 0);
+  const before = await run(false);
+  assert.equal(before.left.length, 4, "without the SQL: the likeness photos go, the generated files stay (as before): " + before.left.join(" "));
+  assert.ok(!before.left.some((p) => p.includes("/cameo/")));
+});
+
 await test("H1 the Likenesses window: this film / your other films / earlier; a teammate's photos only for the film's owner; 'Use for Maya in this film'", async () => {
   const B = freshBackend(), owner = device(B), ad = device(B);
   await ad.open(U2, FA); await ad.lock("maya", { sync: true });
@@ -809,8 +848,8 @@ await test("Z the card's Remove revokes where it lives; the manager gets the cas
   const all = fb.__F.map(x => x.what).join(" ");
   assert.ok(!/\bcameo\b/i.test(all), "no 'cameo' left in what Frances is told");
   for (const file of ["cameo.jsx", "imagegen.jsx", "cloud.jsx", "artroom.jsx", "app.jsx", "agents.jsx", "stage.jsx", "ai.jsx", "script.jsx", "image-slot.js"])
-    assert.ok(["20261010-like1", "20261010-pron1"].some(k=>html.includes('app/' + file + '?v=' + k + '"')), file);
-  assert.ok(html.includes('href="app/styles.css?v=20261010-like1"') || html.includes('href="app/styles.css?v=20261010-pron1"'));
+    assert.ok(["20261010-like1", "20261010-pron1", "20261010-del1"].some(k=>html.includes('app/' + file + '?v=' + k + '"')), file);
+  assert.ok(html.includes('href="app/styles.css?v=20261010-like1"') || html.includes('href="app/styles.css?v=20261010-del1"') || html.includes('href="app/styles.css?v=20261010-pron1"') || html.includes('href="app/styles.css?v=20261010-del1"'));
 });
 
 console.log(`${checks} passed, ${failed} failed`);

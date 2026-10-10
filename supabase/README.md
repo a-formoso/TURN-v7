@@ -115,11 +115,16 @@ cross-device access, and multiple projects all work.
    stays manual: once the `admin-storage` Edge Function is deployed (see
    **Admin Storage page** below), the admin drains the queue on demand with
    **Run cleanup now**. Until then, and between those clicks,
-   nothing removes a queued upload's bytes. The files of a deleted Show or
-   Episode stay in Storage too: once the project row is gone, Storage's read
-   rule (`turn assets read collab`, which needs the project) hides its files
-   from every signed-in user, so neither the uploader's client nor the owner's
-   one-hour cleanup grants can delete them. `admin-inventory.sql` lists them
+   nothing removes a queued upload's bytes. A deleted Show's, Episode's or
+   plain film's files: since `team-relaunch.sql` (2026-10-10, owner —
+   Show/Episode delete files) Storage's read rule (`turn assets read collab`)
+   also passes the owner's exact-path, one-hour cleanup grant, so the owner's
+   app removes them right after the delete (a plain film's through
+   `turn_film_delete_cleanup`). Before that (and still for an uploader's
+   uncommitted upload, a file no row names, a file a surviving project still
+   named at the delete, or a delete from an older app build) the files stay:
+   once the project row is gone the read rule hides them from every signed-in
+   user. `admin-inventory.sql` lists them
    as `queued-for-cleanup` or `orphan: project deleted`; the Admin Storage
    page's **Review & delete** removes a deleted project's safe files by exact
    path (until that function is deployed, remove them from the Storage

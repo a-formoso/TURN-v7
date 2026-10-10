@@ -734,6 +734,8 @@ section("A: README chain + legacy data");
   // Storage DELETE with a WHERE clause must also pass the SELECT policy ("turn
   // assets read collab"), which needs the now-deleted project, so the grant alone
   // cannot remove the bytes. If this starts removing the file, update the README.
+  // (2026-10-10, owner — Show/Episode delete files) team-relaunch.sql, which runs after this
+  // file, lets the read rule pass the grant too (test-team-relaunch-db.mjs section W).
   const rm = await affected(db, U.alice, `delete from storage.objects where bucket_id = 'turn-assets' and name = $1`, [path.f1neoOld]);
   ok("A: (README, known limitation) the owner's Storage delete of a granted file after the Show is gone removes nothing",
     rm.ok && rm.value === 0, rm);

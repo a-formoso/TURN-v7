@@ -103,6 +103,13 @@
 -- the capturer and the owner delete; turn_film_cameo_cleanup() for a plain film's delete.
 -- The two Storage blocks skip a database without the storage schema.
 --
+-- (2026-10-10, owner — Show/Episode delete files) "turn assets read collab" also passes the
+-- owner's exact-path, one-hour cleanup grant (turn_can_read_cleanup_object): Storage's
+-- remove() needs the read rule too, so the grants of turn_delete_show /
+-- turn_delete_show_episode removed nothing and every deleted Show's / Episode's files stayed.
+-- §7e turn_film_delete_cleanup(): the same grant for a plain film's generated files (and its
+-- likeness photos), less what the owner's other projects still name.
+--
 -- RUN ORDER: after series-production.sql (and storage-readable-folders.sql),
 -- and AGAIN after any re-run of series-production.sql (it puts back older
 -- access helpers). Once this file is installed, enforce-role-scopes.sql,
@@ -1982,6 +1989,27 @@ as $$
                   and g.owner = auth.uid() and g.expires_at > statement_timestamp())), false);
 $$;
 
+-- (2026-10-10, owner — Show/Episode delete files) Every other file of a deleted film, Show or
+-- Episode: for one hour, its owner's exact-path cleanup grant (series-production.sql's
+-- turn_asset_cleanup_grants, written only by the owner-only turn_delete_show /
+-- turn_delete_show_episode and turn_film_delete_cleanup below). Storage's remove() deletes
+-- with RETURNING, so the read rule must pass as well as the delete rule; until now the grant
+-- passed only the delete rule, so every Show / Episode delete left its files in Storage. It
+-- opens nothing the owner couldn't read the moment before the delete (she reads every file
+-- of her film), and nothing of a project that still stands to anyone else.
+create or replace function public.turn_can_read_cleanup_object(path text)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select coalesce(auth.uid() is not null and exists (
+    select 1 from public.turn_asset_cleanup_grants g
+     where g.path = $1 and g.project_id = public.turn_storage_project_id($1)
+       and g.owner = auth.uid() and g.expires_at > statement_timestamp()), false);
+$$;
+
 -- deleting a likeness photo: the person in folder 1, the film's owner, or the owner's
 -- exact-path cleanup grant (a film delete, a Show / Episode delete)
 create or replace function public.turn_can_delete_cameo_object(path text)
@@ -2125,11 +2153,13 @@ begin
   execute 'drop policy if exists "turn assets read collab" on storage.objects';
   execute 'drop policy if exists "turn assets cameo read" on storage.objects';
   execute 'drop policy if exists "turn assets delete collab" on storage.objects';
+  -- (2026-10-10, owner — Show/Episode delete files) + the owner's cleanup grant (above)
   execute $p$create policy "turn assets read collab" on storage.objects for select
     using (
       bucket_id = 'turn-assets'
       and not public.turn__is_cameo_path(name)
-      and public.turn_can_access_project(public.turn_storage_project_id(name), false)
+      and (public.turn_can_access_project(public.turn_storage_project_id(name), false)
+           or public.turn_can_read_cleanup_object(name))
     )$p$;
   execute $p$create policy "turn assets cameo read" on storage.objects for select
     using (
@@ -2189,6 +2219,93 @@ begin
         created_at = excluded.created_at,
         expires_at = excluded.expires_at;
   return jsonb_build_object('paths', v_paths, 'expires_at', v_exp);
+end;
+$$;
+
+-- ── 7e. a deleted film's files (2026-10-10, owner — Show/Episode delete files) ───────────
+-- A plain film's delete (app/cloud.jsx cloudDeleteProject) removed its likeness photos only:
+-- every generated file stayed in Storage until an admin's orphan sweep. The owner, just
+-- before deleting it, now gets an exact, one-hour cleanup grant for every file the film's
+-- rows name under the film's own folder — each generation's file, refs, history (and their
+-- refs) and cleanup ledger (turn__gen_known_paths), and every likeness photo — less any path
+-- a row of one of the owner's OTHER projects still names (a Show, an Episode, a copy). With
+-- the read rule above (turn_can_read_cleanup_object) the app removes them once the film row
+-- is gone. A file no row names (an upload that never got its row) is left to the admin's
+-- orphan sweep. Returns { paths, kept, expires_at }. turn_film_cameo_cleanup stays for app
+-- builds from before this; a Show and an Episode have their own delete RPCs.
+create or replace function public.turn_film_delete_cleanup(p_project_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  caller  uuid := auth.uid();
+  v_named text[];
+  v_cameo text[] := array[]::text[];
+  v_other text[];
+  v_paths jsonb;
+  v_kept  jsonb;
+  v_exp   timestamptz := statement_timestamp() + interval '1 hour';
+begin
+  if caller is null then
+    raise exception using errcode = '42501', message = 'TURN_FILES: sign in first';
+  end if;
+  if not exists (select 1 from public.turn_projects p where p.id = p_project_id and p.owner = caller) then
+    raise exception using errcode = '42501', message = 'TURN_FILES: only the film''s owner can do this';
+  end if;
+  -- what the film's rows name, under the film's own folder only
+  select coalesce(array_agg(distinct x.p), array[]::text[]) into v_named
+    from public.turn_generations g
+    cross join lateral unnest(public.turn__gen_known_paths(g.storage_path, g.meta, g.refs, g.history)) x(p)
+   where g.project_id = p_project_id
+     and public.turn_storage_project_id(x.p) = p_project_id;
+  if to_regclass('public.turn_cameos') is not null then
+    execute $q$
+      select coalesce(array_agg(distinct a ->> 'storage_path'), array[]::text[])
+        from public.turn_cameos c
+        cross join lateral jsonb_array_elements(
+          case when jsonb_typeof(c.angles) = 'array' then c.angles else '[]'::jsonb end) a
+       where c.project_id = $1 and jsonb_typeof(a) = 'object'
+         and public.turn_storage_project_id(a ->> 'storage_path') = $1
+    $q$ into v_cameo using p_project_id;
+  end if;
+  v_named := v_named || coalesce(v_cameo, array[]::text[]);
+  -- which of those a row of the owner's other projects still names
+  select coalesce(array_agg(distinct x.p), array[]::text[]) into v_other
+    from public.turn_projects o
+    join public.turn_generations g on g.project_id = o.id
+    cross join lateral unnest(public.turn__gen_known_paths(g.storage_path, g.meta, g.refs, g.history)) x(p)
+   where o.owner = caller and o.id <> p_project_id
+     and x.p = any(v_named);
+  if to_regclass('public.turn_cameos') is not null then
+    execute $q$
+      select coalesce(array_agg(distinct a ->> 'storage_path'), array[]::text[])
+        from public.turn_projects o
+        join public.turn_cameos c on c.project_id = o.id
+        cross join lateral jsonb_array_elements(
+          case when jsonb_typeof(c.angles) = 'array' then c.angles else '[]'::jsonb end) a
+       where o.owner = $2 and o.id <> $1 and jsonb_typeof(a) = 'object'
+         and (a ->> 'storage_path') = any($3)
+    $q$ into v_cameo using p_project_id, caller, v_named;
+    v_other := v_other || coalesce(v_cameo, array[]::text[]);
+  end if;
+  select coalesce(jsonb_agg(distinct n.p), '[]'::jsonb) into v_paths
+    from unnest(v_named) n(p)
+   where n.p <> all(v_other);
+  select coalesce(jsonb_agg(distinct n.p), '[]'::jsonb) into v_kept
+    from unnest(v_named) n(p)
+   where n.p = any(v_other);
+  delete from public.turn_asset_cleanup_grants where expires_at <= statement_timestamp();
+  insert into public.turn_asset_cleanup_grants(path, project_id, owner, created_at, expires_at)
+  select e.path, p_project_id, caller, statement_timestamp(), v_exp
+    from jsonb_array_elements_text(v_paths) e(path)
+  on conflict (path) do update
+    set project_id = excluded.project_id,
+        owner = excluded.owner,
+        created_at = excluded.created_at,
+        expires_at = excluded.expires_at;
+  return jsonb_build_object('paths', v_paths, 'kept', v_kept, 'expires_at', v_exp);
 end;
 $$;
 
@@ -2286,5 +2403,11 @@ revoke all on function public.turn__cameo_row_ok(uuid, uuid, jsonb, jsonb) from 
 grant execute on function public.turn__cameo_row_ok(uuid, uuid, jsonb, jsonb) to anon, authenticated;
 revoke all on function public.turn_film_cameo_cleanup(uuid) from public, anon;
 grant execute on function public.turn_film_cameo_cleanup(uuid) to authenticated;
+-- (2026-10-10, owner — Show/Episode delete files) the read rule's grant check runs inside the
+-- policy as the calling role (false for anon); the film-delete grant is the owner's
+revoke all on function public.turn_can_read_cleanup_object(text) from public;
+grant execute on function public.turn_can_read_cleanup_object(text) to anon, authenticated;
+revoke all on function public.turn_film_delete_cleanup(uuid) from public, anon;
+grant execute on function public.turn_film_delete_cleanup(uuid) to authenticated;
 
 commit;

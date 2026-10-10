@@ -17,6 +17,10 @@
    (the cameo/ folder left the collab read rule); a row needs its consent record and its own photos; the capturer and the
    owner delete; the owner's cleanup grant for a plain film's delete; a Show's likeness under the Show's id; today's file
    over the old one, the documented re-run order, and a database without the storage schema.
+   W (2026-10-10, owner — Show/Episode delete files): the same pattern against the file before that pass
+   (9a3af9f): after a plain film's, an Episode's or a Show's delete the owner's app removes its files (the
+   read rule passes the owner's cleanup grant; a plain film gets one from turn_film_delete_cleanup), never
+   a file a surviving project names, someone else's film's or an unnamed upload; nobody else reads them.
      node scripts/test-team-relaunch-db.mjs */
 import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -1354,6 +1358,153 @@ async function likenessReview(E, isNew) {
   ok("L-guard without storage.objects the file still runs (both Storage blocks skip) and the likeness row rules stand",
     eG === null && JSON.stringify(rowPol.map((p) => p.policyname)) === JSON.stringify(["cameos delete own", "cameos read", "cameos update own", "cameos write own"]), eG || rowPol);
   await NE.db.close();
+}
+
+/* ── W. a deleted film's, Episode's and Show's files (2026-10-10, owner — Show/Episode delete files) ──
+   Storage's remove() deletes with RETURNING, so a file must pass the READ rule as well as the delete
+   rule (the `del` below does the same). Same pattern as L: the file before this pass (FILES_BASE_REV)
+   shows each bug — the owner's cleanup grant from turn_delete_show / turn_delete_show_episode passed
+   the delete rule only, so once the rows were gone nothing was removed; a plain film's generated files
+   got no grant at all — today's file the fix; then today's file over the old one and the re-run order. */
+const FILES_BASE_REV = "9a3af9f";
+async function filesReview(E, isNew) {
+  const tag = isNew ? "W" : "W-old";
+  const t = (name, fixed, bug, detail) => {
+    if (isNew) ok(`${tag} ${name}`, fixed, detail);
+    else if (bug !== undefined) ok(`${tag} bug reproduced: ${name}`, bug, detail);
+  };
+  const ari = X.ari;
+  const put = (path) => E.q("insert into storage.objects(bucket_id, name) values ('turn-assets', $1) on conflict do nothing", [path]);
+  const there = async (path) => (await E.q("select count(*)::int n from storage.objects where name = $1", [path]))[0].n === 1;
+  const sees = async (who, path) => (await E.as(who, "select count(*)::int n from storage.objects where bucket_id = 'turn-assets' and name = $1", [path])).row?.n === 1;
+  const del = async (who, path) => { const r = await E.as(who, "delete from storage.objects where bucket_id = 'turn-assets' and name = $1 returning name", [path]); return r.ok && r.rows.length === 1; };
+  const gen = (film, owner, entity, path, refs = [], history = [], meta = {}) => E.q(`insert into public.turn_generations(project_id, owner, entity_id, storage_path, refs, history, meta)
+      values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)`, [film, owner.id, entity, path, JSON.stringify(refs), JSON.stringify(history), JSON.stringify(meta)]);
+  const K = (who, film, rest) => `${who.id}/${film}/${rest}`;
+  const same = (a, b) => JSON.stringify([...(a || [])].sort()) === JSON.stringify([...b].sort());
+  let x;
+
+  /* 1. a plain film */
+  const fp = await E.film(U.pat, "Files film"), fo = await E.film(U.pat, "Files other"), fx = await E.film(U.eve, "Eve's film");
+  await E.invite(U.pat, fp, ari.email, "art_director"); await E.claim(ari);
+  const f = {
+    sheet: K(U.pat, fp, "character/maya/20261010-100000-sheet-aaaa0001.png"),
+    ref: K(U.pat, fp, "character/maya/20261010-100000-ref-aaaa0002.png"),
+    old: K(U.pat, fp, "character/maya/20261009-100000-sheet-aaaa0003.png"),
+    oldRef: K(U.pat, fp, "character/maya/20261009-100000-ref-aaaa0004.png"),
+    pend: K(U.pat, fp, "character/maya/20261008-100000-sheet-aaaa0005.png"),
+    ariFile: K(ari, fp, "prop/lamp/20261010-100000-sheet-aaaa0006.png"),
+    photo: K(U.pat, fp, "cameo/maya/20261010-100000-front-aaaa0007.jpg"),
+    shared: K(U.pat, fp, "character/neo/20261010-100000-sheet-aaaa0008.png"),   // her other film names it too
+    foreign: K(U.eve, fx, "character/eve/20261010-100000-sheet-aaaa0009.png"),  // someone else's film's file
+    stray: K(U.pat, fp, "character/zed/20261010-100000-sheet-aaaa0010.png"),    // no row names it
+  };
+  for (const p of Object.values(f)) await put(p);
+  await gen(fp, U.pat, "maya", f.sheet, [{ storage_path: f.ref }, { storage_path: f.foreign }],
+    [{ storage_path: f.old, refs: [{ storage_path: f.oldRef }] }], { cleanupPending: [f.pend] });
+  await gen(fp, ari, "lamp", f.ariFile);
+  await gen(fp, U.pat, "neo", f.shared);
+  await gen(fo, U.pat, "neo", K(U.pat, fo, "character/neo/20261010-100000-sheet-bbbb0001.png"), [{ storage_path: f.shared }]);
+  await E.q("insert into public.turn_cameos(project_id, owner, char_id, angles, prov) values ($1, $2, 'maya', $3::jsonb, $4::jsonb)",
+    [fp, U.pat.id, JSON.stringify([{ key: "front", label: "Front", storage_path: f.photo }]),
+      JSON.stringify({ consent: { subject: "self", name: "", adult: true, textVersion: "2026-10-10" } })]);
+  const removable = [f.sheet, f.ref, f.old, f.oldRef, f.pend, f.ariFile, f.photo];
+  if (isNew) {
+    x = await E.as(ari, "select public.turn_film_delete_cleanup($1) j", [fp]);
+    t("1a only the film's owner gets the delete grant", !x.ok && /TURN_FILES/.test(x.error || ""), undefined, x);
+    x = await E.as(U.pat, "select public.turn_film_delete_cleanup($1) j", [fp]);
+    t("1b it names every file the film's rows name under its own folder (file, refs, history and its refs, cleanup list, a teammate's, the likeness photo)",
+      x.ok && same(x.row.j.paths, removable), undefined, x.row || x);
+    t("1c but not a file another of her films still names, another person's film's file, or a file no row names",
+      x.ok && same(x.row.j.kept, [f.shared]) && !x.row.j.paths.includes(f.foreign) && !x.row.j.paths.includes(f.stray), undefined, x.row || x);
+  } else {
+    x = await E.as(U.pat, "select public.turn_film_cameo_cleanup($1) j", [fp]);   // what the app did: the likeness photos only
+  }
+  x = await E.as(U.pat, "delete from public.turn_projects where id = $1 returning id", [fp]);
+  if (!x.ok) ok(`${tag} 1 the film delete ran`, false, x);
+  t("1d an outsider and the film's former Art director read none of them through the owner's grant",
+    !(await sees(U.eve, f.sheet)) && !(await sees(ari, f.sheet)) && !(await del(ari, f.ariFile)), undefined);
+  const sheetGone = await del(U.pat, f.sheet);
+  let all = sheetGone;
+  for (const p of removable.slice(1)) all = (await del(U.pat, p)) && all;
+  t("1e after the film row is gone the owner's app removes every generated file and the likeness photo",
+    all && !(await there(f.sheet)), !sheetGone && (await there(f.sheet)), { sheetGone, all });
+  t("1f the shared file, the other person's file and the unnamed upload stay",
+    (await there(f.shared)) && (await there(f.foreign)) && (await there(f.stray)) && !(await del(U.pat, f.shared)) && !(await del(U.pat, f.stray)), undefined);
+
+  /* 2. an Episode, then 3. its Show */
+  const bibleJ = JSON.stringify({ characters: [], locations: [], props: [], lookbook: [], lookbookNote: "", trash: { characters: [], locations: [], props: [] } });
+  const e1 = await E.film(U.pat, "Files episode");
+  const conv = await E.as(U.pat, "select public.turn_convert_project_to_show($1, 'Files Show', $2::jsonb, 'series') r", [e1, bibleJ]);
+  if (!conv.ok) { ok(`${tag} 2 the Show conversion ran`, false, conv.error); return; }
+  const S = conv.row.r.show.id;
+  const mk = await E.as(U.pat, "select public.turn_create_show_episode($1, '{}'::jsonb, gen_random_uuid()) r", [S]);
+  if (!mk.ok) { ok(`${tag} 2 the second Episode was made`, false, mk.error); return; }
+  const e2 = mk.row.r.episode.id;
+  await E.invite(U.pat, S, ari.email, "art_director"); await E.claim(ari);
+  const s = {
+    e2shot: K(U.pat, e2, "shot/s1/20261010-100000-frame-cccc0001.png"),
+    e2ari: K(ari, e2, "prop/cup/20261010-100000-sheet-cccc0002.png"),
+    e2kept: K(U.pat, e2, "character/mara/20261010-100000-sheet-cccc0003.png"),   // the Show's bible names it
+    e1shot: K(U.pat, e1, "shot/s1/20261010-100000-frame-cccc0004.png"),
+    bible: K(U.pat, S, "character/mara/20261010-100000-sheet-cccc0005.png"),
+    bibleAri: K(ari, S, "location/dock/20261010-100000-sheet-cccc0006.png"),
+    late: K(U.pat, S, "prop/oar/20261010-100000-sheet-cccc0007.png"),
+  };
+  for (const p of Object.values(s)) await put(p);
+  await gen(e2, U.pat, "shot-1", s.e2shot);
+  await gen(e2, ari, "cup", s.e2ari);
+  await gen(e2, U.pat, "mara-e2", s.e2kept);
+  await gen(e1, U.pat, "shot-1", s.e1shot);
+  await gen(S, U.pat, "mara", s.bible, [{ storage_path: s.e2kept }]);
+  await gen(S, ari, "dock", s.bibleAri);
+  await gen(S, U.pat, "oar", s.late);
+  x = await E.as(U.pat, "select public.turn_delete_show_episode($1) r", [e2]);
+  if (!x.ok) { ok(`${tag} 2 the Episode delete ran`, false, x.error); return; }
+  t("2a the Episode's delete grants its own files only, never the one the Show's bible names",
+    same(x.row.r.authorized_cleanup_paths, [s.e2shot, s.e2ari]), undefined, x.row.r);
+  t("2b an outsider and the Art director read none of the deleted Episode's files", !(await sees(U.eve, s.e2shot)) && !(await sees(ari, s.e2ari)), undefined);
+  const delRule = (await E.as(U.pat, "select public.turn_can_delete_storage_object($1) r", [s.e2shot])).row?.r === true;
+  const readRule = await sees(U.pat, s.e2shot);
+  t("2c the owner's grant passes the delete rule AND the read rule (the root cause: it passed the delete rule only)",
+    delRule && readRule, delRule && !readRule, { delRule, readRule });
+  const e2Gone = await del(U.pat, s.e2shot);
+  t("2d after an Episode delete the owner's app removes its files (a teammate's too)",
+    e2Gone && (await del(U.pat, s.e2ari)) && !(await there(s.e2shot)), !e2Gone && (await there(s.e2shot)), e2Gone);
+  t("2e the file the Show still names stays", (await there(s.e2kept)) && !(await del(U.pat, s.e2kept)), undefined);
+  t("2f the sibling Episode's and the Show's files stay readable as before", (await sees(U.pat, s.e1shot)) && (await sees(ari, s.bible)), undefined);
+  x = await E.as(U.pat, "select public.turn_delete_show($1) r", [S]);
+  if (!x.ok) { ok(`${tag} 3 the Show delete ran`, false, x.error); return; }
+  const bibleGone = await del(U.pat, s.bible);
+  t("3a after a Show delete the owner's app removes the Show's and its Episodes' files (a teammate's too)",
+    bibleGone && (await del(U.pat, s.bibleAri)) && (await del(U.pat, s.e1shot)), !bibleGone && (await there(s.bible)), bibleGone);
+  t("3b the former Art director reads none of them", !(await sees(ari, s.late)), undefined);
+  await E.q("update public.turn_asset_cleanup_grants set created_at = now() - interval '2 hours', expires_at = now() - interval '1 hour' where path = $1", [s.late]);
+  t("3c the grant ends after its hour", !(await sees(U.pat, s.late)) && !(await del(U.pat, s.late)), undefined);
+  await E.q("update public.turn_asset_cleanup_grants set created_at = now(), expires_at = now() + interval '1 hour' where path = $1", [s.late]);
+  x = await E.as(U.pat, "select public.turn_finish_asset_cleanup($1::uuid[]) n", [[S, e1]]);
+  t("3d and when the app says it's done (turn_finish_asset_cleanup)", x.ok && !(await sees(U.pat, s.late)), undefined, x);
+}
+
+{
+  const BASE = gitShow(FILES_BASE_REV, "supabase/team-relaunch.sql");
+  if (BASE === null) console.log("SKIP W-old: git (or the base file) isn't available");
+  else {
+    const WE = await reviewEnv(BASE);
+    await filesReview(WE, false);
+    let eUp = null;
+    try { await WE.db.exec(RELAUNCH); await WE.db.exec(RELAUNCH); } catch (err) { eUp = err.message; }
+    ok("W-up today's file installs over the old one, twice", eUp === null, eUp);
+    await WE.db.close();
+  }
+  const WN = await reviewEnv(RELAUNCH);
+  await filesReview(WN, true);
+  let eR = null;
+  try { await WN.db.exec(read("supabase/series-production.sql")); await WN.db.exec(RELAUNCH); } catch (err) { eR = err.message; }
+  const pol = await WN.q("select qual from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'turn assets read collab'");
+  ok("W-rerun series-production.sql, then this file: the read rule passes the cleanup grant again",
+    eR === null && pol.length === 1 && /turn_can_read_cleanup_object/.test(pol[0].qual) && /turn_storage_project_id\(name\)/.test(pol[0].qual), eR || pol);
+  await WN.db.close();
 }
 
 console.log(`\n${passes} passed, ${failures} failed`);

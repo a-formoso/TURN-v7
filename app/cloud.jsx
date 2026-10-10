@@ -2392,12 +2392,13 @@ async function cloudDeleteProject(id){
   const sb = sbClient();
   if(!sb || !id) return { ok:false, message:"Cloud storage is unavailable." };
   // (2026-10-10, owner — Likeness review) the film's likeness photos, listed before its row goes
-  const cameoPhotos = await _cameoFilmPhotosBeforeDelete(sb, id);
+  // (2026-10-10, owner — Show/Episode delete files) and its generated files with them
+  const files = await _filmFilesBeforeDelete(sb, id);
   try{
     const {data,error}=await sb.from("turn_projects").delete().eq("id",id).select("id");
     if(error) return {ok:false,message:error.message||"The project could not be deleted."};
     if(!data||!data.length) return {ok:false,message:"The project is unavailable or you no longer have permission to delete it."};
-    await _cameoFilmPhotosAfterDelete(id, cameoPhotos);
+    await _cameoFilmPhotosAfterDelete(id, files);
     return {ok:true,id};
   }catch(e){ return {ok:false,message:(e&&e.message)||"The project could not be deleted."}; }
 }
@@ -4981,6 +4982,28 @@ async function _cameoFilmPhotosBeforeDelete(sb, id){
     for(const r of (data||[])) for(const a of (Array.isArray(r.angles) ? r.angles : [])) if(a && a.storage_path) paths.push(a.storage_path);
     return { paths:keep(paths), granted:false };
   }catch(e){ return { paths:[], granted:false }; }
+}
+/* (2026-10-10, owner — Show/Episode delete files) cloudDeleteProject's files: every file the
+   film's rows name under its own folder (generations and likeness photos), less what the owner's
+   other projects still name, with the same one-hour grant (team-relaunch.sql
+   turn_film_delete_cleanup; the read rule passes it, so remove() works once the row is gone).
+   Before that SQL is installed: the likeness photos only, as before. Never throws. */
+async function _filmFilesBeforeDelete(sb, id){
+  try{
+    if(typeof sb.rpc==="function"){
+      const { data, error } = await sb.rpc("turn_film_delete_cleanup", { p_project_id:id });
+      if(!error){
+        const allowed = new Set([String(id)]);
+        const paths = Array.from(new Set(((data && data.paths) || []).map(String).filter(p=>{
+          const c = _seriesScopedStoragePath(p, allowed);
+          return !!(c && c.safe && c.inScope);
+        })));
+        return { paths, granted:true };
+      }
+      if(!_seriesRpcMissing(error, "turn_film_delete_cleanup")) return { paths:[], granted:false };
+    }
+  }catch(e){ return { paths:[], granted:false }; }
+  return _cameoFilmPhotosBeforeDelete(sb, id);
 }
 async function _cameoFilmPhotosAfterDelete(id, photos){
   try{
