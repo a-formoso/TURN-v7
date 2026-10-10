@@ -5,7 +5,7 @@
 
    PLANS (tier ids as stored; "studio" is shown as Producer; legacy "pro" reads as Director):
      no plan  (none / free / cancelled / a trial account) — writing on the DEFAULT engines and
-              DRAFT images only (Nano Banana 2 Lite up to 2K, app/plans.jsx DRAFT_IMAGE). No video,
+              DRAFT images only (Nano Banana 2.1 at 1K, app/plans.jsx DRAFT_IMAGE). No video,
               no voice, no 3D, no premium or formerly mispriced engines. Credits (a trial's 50, or
               pack credits) are spent on those.
      writer   Writers' Room: every writing engine; voice for the New Story interview (speech and
@@ -20,7 +20,11 @@
    FRANCES (the free help chat and New Story voice) — daily questions by plan: 5 for no plan /
    trial / cancelled, 15 Writer, 30 Director, 50 Producer; admins are exempt (the limiter). */
 
-export const DRAFT_IMAGE = Object.freeze({ model: "gemini-3.1-flash-lite-image", maxRes: "2K" });
+/* The draft engine (owner 2026-10-10): Nano Banana 2.1 at 1K — it replaced Nano Banana 2 Lite, which
+   always rendered at 1K, so a draft's real output is unchanged. A no-plan 2K or 4K request is refused
+   (the app caps it to 1K first: app/plans.jsx turnPlanImageChoice). index.ts maps Lite's old id to this
+   one before asking (billing-pricing.mjs canonicalImageModel). */
+export const DRAFT_IMAGE = Object.freeze({ model: "gemini-nano-banana-2.1", maxRes: "1K" });
 
 /* The DEFAULT writing engines — what a trial or no-plan account may write with. Premium engines
    (Fable 5 / 5.1, GPT-6 Astra, Kimi K3) and the formerly mispriced ones (GPT-5.5, Gemini 3.5

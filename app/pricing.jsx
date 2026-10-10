@@ -79,11 +79,14 @@
     image: {
       note: "Provider cost per generated image on fal (the route the app uses) — the SAME table as supabase/functions/image-proxy/billing-pricing.mjs IMAGE_PROVIDER_USD, so a cost chip quotes what the server holds and settles.",
       // fal prices (checked 2026-09-29): Nano Banana 2 $0.08, 2K x1.5, 4K x2; Nano Banana Pro
-      // $0.15, 4K x2; Nano Banana 2 Lite ~$0.05 at its fixed 1K output. GPT Image rows are the
+      // $0.15, 4K x2; Nano Banana 2.1 (2026-10-10, owner: replaces Nano Banana 2 Lite) $0.05 / $0.07 /
+      // $0.15 at 1K / 2K / 4K — fal bills it per token (representative $0.040 / $0.059 / $0.134 for a short
+      // prompt at medium thinking), so the table adds an allowance for long prompts and references and
+      // charges no extra per reference image. GPT Image rows are the
       // price at the model's BASELINE size and scale with output size (turnGptImageSizeFactor):
       // GPT Image 2 high is $0.158 at 1080p, $0.401 at 4K.
       providerUsd: {
-        "gemini-3.1-flash-lite-image": { "1K":0.05, "2K":0.05, "4K":0.05 },
+        "gemini-nano-banana-2.1":      { "1K":0.05, "2K":0.07, "4K":0.15 },
         "gemini-3.1-flash-image":      { "1K":0.08, "2K":0.12, "4K":0.16 },
         "gemini-3-pro-image":          { "1K":0.15, "2K":0.15, "4K":0.30 },
         "gpt-image-2":                 { low:0.012, medium:0.044, high:0.158 },

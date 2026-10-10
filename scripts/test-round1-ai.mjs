@@ -254,7 +254,7 @@ await test("C2 the entries whose how-to lived in vendor sentences keep a vendor-
   assert.ok(F("Provider keys (no key needed)").what.startsWith("You never need a key or any setup"));
   assert.ok(F("Writing model (drafting & agents)").what.includes("default to the recommended engine (rich screen prose, strong long-form reasoning)"));
   assert.ok(F("The Stage (Production)").what.includes("lip-syncs to your line audio"), "the audio modes survive without the vendor");
-  assert.ok(F("Generating images (Art Room)").what.includes("'Nano Banana 2 Lite'") && F("Generating images (Art Room)").what.includes("Sunburst (maximum precision and fidelity)"));
+  assert.ok(F("Generating images (Art Room)").what.includes("'Nano Banana 2.1'") && F("Generating images (Art Room)").what.includes("Sunburst (maximum precision and fidelity)"));
   assert.ok(F("Stage render package (timed plan, references, and take snapshots)"), "a 'timed plan' is not a billing plan");
   assert.equal(F("Plans & subscription (Writer / Director / Studio)"), undefined);
   assert.equal(F("A plan is required (no free tier)"), undefined);

@@ -364,11 +364,13 @@ await test("A5 the text HOLD covers input + the whole output cap; a small balanc
   assert.equal(P.affordableOutputCap({ model: "claude-opus-5-5", messages: msgs, wantedCap: 16000, minCap: 16000, availableCredits: 12, unit: 0.03 }), 16000);
 });
 
-await test("A6 images: Nano Banana 2 / Pro at fal's prices incl. 4K, Lite, web search, GPT Image 2 by output size", () => {
+await test("A6 images: Nano Banana 2 / Pro at fal's prices incl. 4K, Nano Banana 2.1, web search, GPT Image 2 by output size", () => {
   const c = (o) => P.imageCost({ route: "fal", aspect: "16:9", ...o });
   assert.deepEqual(["1K", "2K", "4K"].map((s) => c({ model: "gemini-3.1-flash-image", imageSize: s }).credits), [8, 12, 16], "NB2 $0.08 / $0.12 / $0.16");
   assert.deepEqual(["1K", "2K", "4K"].map((s) => c({ model: "gemini-3-pro-image", imageSize: s }).credits), [15, 15, 30], "NB Pro $0.15 / $0.15 / $0.30 (4K was charged below cost)");
-  assert.equal(c({ model: "gemini-3.1-flash-lite-image", imageSize: "2K" }).credits, 5, "the draft engine");
+  assert.deepEqual(["1K", "2K", "4K"].map((s) => c({ model: "gemini-nano-banana-2.1", imageSize: s }).credits), [5, 7, 15], "Nano Banana 2.1 $0.05 / $0.07 / $0.15 (the draft engine at 1K)");
+  assert.equal(c({ model: "gemini-nano-banana-2.1", imageSize: "1K", webSearch: true }).credits, 7, "+ $0.015 web search, as Nano Banana 2");
+  assert.equal(c({ model: "gemini-3.1-flash-lite-image", imageSize: "1K" }), null, "Lite is no longer priced (the proxy maps its id first)");
   assert.equal(c({ model: "gemini-3.1-flash-image", imageSize: "2K", webSearch: true }).credits, 14, "+ $0.015 web search");
   // GPT Image 2 high: $0.158 at fal's 1080p canonical size, $0.401 at 4K — scaled by output pixels
   const at = (size, aspect) => P.imageCost({ route: "fal", model: "gpt-image-2", imageSize: size, aspect, pricingKey: "high" });
@@ -384,7 +386,8 @@ await test("A6 images: Nano Banana 2 / Pro at fal's prices incl. 4K, Lite, web s
 });
 
 await test("A7 the direct Google image route serves ONLY its three known models, at Google's own prices", () => {
-  assert.deepEqual(Object.keys(P.GOOGLE_IMAGE_USD).sort(), ["gemini-3-pro-image", "gemini-3.1-flash-image", "gemini-3.1-flash-lite-image"]);
+  assert.deepEqual(Object.keys(P.GOOGLE_IMAGE_USD).sort(), ["gemini-3-pro-image", "gemini-3.1-flash-image", "gemini-nano-banana-2.1"]);
+  assert.deepEqual(["1K", "2K", "4K"].map((s) => P.imageCost({ route: "google", model: "gemini-nano-banana-2.1", imageSize: s }).providerCostUsd), [0.0336, 0.0504, 0.113]);
   const g = (m, s) => P.imageCost({ route: "google", model: m, imageSize: s });
   assert.deepEqual(["1K", "2K", "4K"].map((s) => g("gemini-3.1-flash-image", s).providerCostUsd), [0.067, 0.101, 0.151]);
   assert.equal(g("gemini-3-pro-image", "4K").providerCostUsd, 0.24);
@@ -786,9 +789,10 @@ await test("B2 TRIAL / no plan: writing on the default engines and draft images 
   for (const m of ["claude-fable-5", "claude-fable-5-1", "gpt-6-astra", "kimi-k3", "gpt-5.5", "gemini-3.5-flash", "claude-opus-5"]) {
     const r = POL.checkText(none, m); assert.equal(r.status, 402, m); assert.equal(code(r), "plan_required", m);
   }
-  assert.equal(POL.checkImage(none, { model: "gemini-3.1-flash-lite-image", imageSize: "2K" }), null);
-  assert.equal(POL.checkImage(none, { model: "gemini-3.1-flash-lite-image", imageSize: "1K" }), null);
-  assert.equal(code(POL.checkImage(none, { model: "gemini-3.1-flash-lite-image", imageSize: "4K" })), "plan_required");
+  assert.equal(POL.checkImage(none, { model: "gemini-nano-banana-2.1", imageSize: "1K" }), null);
+  for (const s of ["2K", "4K"]) assert.equal(code(POL.checkImage(none, { model: "gemini-nano-banana-2.1", imageSize: s })), "plan_required", "a draft is 1K: " + s);
+  assert.equal(code(POL.checkImage(none, { model: "gemini-3.1-flash-lite-image", imageSize: "1K" })), "plan_required", "the old id only passes once index.ts maps it");
+  assert.equal(POL.checkImage(none, { model: P.canonicalImageModel("gemini-3.1-flash-lite-image"), imageSize: "1K" }), null);
   for (const m of ["gemini-3.1-flash-image", "gemini-3-pro-image", "gpt-image-2"]) assert.equal(code(POL.checkImage(none, { model: m, imageSize: "1K" })), "plan_required", m);
   assert.equal(code(POL.checkVideo(none, { appModel: "kling-3.0", resolution: "720p" })), "plan_required");
   for (const op of ["tts", "stt", "listVoices", "design", "saveVoice", "clone"]) assert.equal(code(POL.checkVoice(none, op)), "plan_required", op);
@@ -1920,11 +1924,27 @@ async function proxySection() {
       assert.equal(await bal(U.other), 2, "only one render charged (12 - 10)");
     });
 
-    await test("F7 IMAGE gates: trial → draft engine up to 2K only; Writer up to 2K; the Google route refuses unknown models before any call", async () => {
+    await test("F7 IMAGE gates: trial → draft engine at 1K only; Writer up to 2K; the Google route refuses unknown models before any call", async () => {
       reset();
-      let r = await post("tok-none", IMAGE("gemini-3.1-flash-lite-image", "2K"));
-      assert.equal(r.status, 200, j(r.json)); assert.equal((await lastHold(U.none)).held, 2, "Lite $0.05 → 2 credits at $0.03");
-      for (const [m, s] of [["gemini-3.1-flash-image", "1K"], ["gemini-3.1-flash-lite-image", "4K"], ["gpt-image-2", "1K"]]) {
+      let r = await post("tok-none", IMAGE("gemini-nano-banana-2.1", "1K"));
+      assert.equal(r.status, 200, j(r.json)); assert.equal((await lastHold(U.none)).held, 2, "Nano Banana 2.1 1K $0.05 → 2 credits at $0.03");
+      // an older app's Lite pick: served (and priced) as Nano Banana 2.1 on its google/ route
+      W.calls = [];
+      r = await post("tok-none", IMAGE("gemini-3.1-flash-lite-image", "1K"));
+      assert.equal(r.status, 200, j(r.json)); assert.equal((await lastHold(U.none)).held, 2);
+      assert.ok(W.calls.some((c) => c.method === "POST" && c.url === "https://queue.fal.run/google/nano-banana-2.1"), j(W.calls.map((c) => c.url)));
+      // with reference images Nano Banana 2.1 goes to its /edit route, at the real resolution asked for
+      W.calls = [];
+      r = await post("tok-director", IMAGE("gemini-nano-banana-2.1", "2K", "fal", { images: ["https://v3.fal.media/files/ref-a.png", "https://v3.fal.media/files/ref-b.png"] }));
+      assert.equal(r.status, 200, j(r.json)); assert.equal(r.json.falModel, "google/nano-banana-2.1/edit");
+      const editJob = Object.values(W.fal).find((x) => x.endpoint === "google/nano-banana-2.1/edit");
+      assert.ok(editJob, j(Object.values(W.fal).map((x) => x.endpoint)));
+      assert.deepEqual([editJob.input.image_urls, editJob.input.resolution], [["https://v3.fal.media/files/ref-a.png", "https://v3.fal.media/files/ref-b.png"], "2K"]);
+      assert.equal((await lastHold(U.director)).held, P.creditsFromUsd(0.07, 0.03), "2K $0.07, no extra per reference");
+      // Nano Banana 2 keeps its base route with references
+      r = await post("tok-director", IMAGE("gemini-3.1-flash-image", "1K", "fal", { images: ["https://v3.fal.media/files/ref-a.png"] }));
+      assert.equal(r.status, 200, j(r.json)); assert.equal(r.json.falModel, "fal-ai/nano-banana-2");
+      for (const [m, s] of [["gemini-3.1-flash-image", "1K"], ["gemini-nano-banana-2.1", "2K"], ["gemini-3.1-flash-lite-image", "4K"], ["gpt-image-2", "1K"]]) {
         W.calls = [];
         r = await post("tok-none", IMAGE(m, s, "fal", /gpt/.test(m) ? { quality: "high" } : {}));
         assert.equal(r.status, 402, m + s); assert.equal(r.json.code, "plan_required"); assert.equal(W.calls.length, 0);
@@ -3115,7 +3135,7 @@ async function proxySection() {
       assert.equal(r.status, 200, j(r.json));
       const [row] = (await as(U.trial, "select * from public.turn_credit_balance()")).rows;
       assert.equal(row.trial, true); assert.equal(row.plan, "none"); assert.equal(Number(row.remaining), 50 - r.json.usage.credits);
-      assert.equal((await post("tok-trial", IMAGE("gemini-3.1-flash-lite-image", "1K"), after)).status, 200, "a draft image");
+      assert.equal((await post("tok-trial", IMAGE("gemini-nano-banana-2.1", "1K"), after)).status, 200, "a draft image");
       for (const body of [TEXT("claude-fable-5"), IMAGE("gemini-3.1-flash-image", "1K"), KLING(), { task: "voice", op: "stt", audioB64: "AAAA" }]) {
         const x = await post("tok-trial", body, after);
         assert.equal(x.status, 402, j(body)); assert.equal(x.json.code, "plan_required");

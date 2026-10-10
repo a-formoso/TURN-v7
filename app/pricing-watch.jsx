@@ -25,7 +25,7 @@
   const CHECK_EVERY_MS = 12 * 60 * 60 * 1000;   // auto-check at most twice a day
 
   const MODEL_LABELS = {
-    "gemini-3.1-flash-lite-image": "Nano Banana 2 Lite",
+    "gemini-nano-banana-2.1": "Nano Banana 2.1",
     "gemini-3.1-flash-image": "Nano Banana 2",
     "gemini-3-pro-image": "Nano Banana Pro",
     "gpt-image-2": "GPT Image 2",
@@ -86,7 +86,7 @@
           const next = Math.round(cur*factor*10000)/10000;
           if(differs(cur,next)) rows.push({ path:p, cur, next, label:friendly(p),
             derived:true, rateId:it.id, rate:Number(it.rate),
-            note:"token rate "+fmt(ref)+" → "+fmt(it.rate)+" ("+(it.unit||"")+")" });
+            note:(/token/i.test(it.unit||"") ? "token rate " : "rate ")+fmt(ref)+" → "+fmt(it.rate)+" ("+(it.unit||"")+")" });
         });
       }
     });

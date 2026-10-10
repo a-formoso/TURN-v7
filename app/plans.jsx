@@ -100,7 +100,9 @@ window.TURN_LEGACY_ALLOWANCES = LEGACY_ALLOWANCES;
    default engines and DRAFT images only — no video, voice, 3D or premium engines. The server
    enforces it; the client mirrors it so nobody is offered what the server will refuse. */
 const TRIAL_CREDITS = 50;
-const DRAFT_IMAGE = { model:"gemini-3.1-flash-lite-image", label:"Nano Banana 2 Lite", maxRes:"2K" };
+/* the draft engine (owner 2026-10-10): Nano Banana 2.1 at 1K, replacing Nano Banana 2 Lite (which always
+   rendered at 1K, so a draft's real output is unchanged) — the same as image-proxy billing-policy.mjs DRAFT_IMAGE */
+const DRAFT_IMAGE = { model:"gemini-nano-banana-2.1", label:"Nano Banana 2.1", maxRes:"1K" };
 window.TURN_TRIAL_CREDITS = TRIAL_CREDITS;
 window.TURN_DRAFT_IMAGE = DRAFT_IMAGE;
 /* WHAT 50 CREDITS REALLY BUY (repair 2026-09-30, measured with the server's own pricing module,
@@ -109,8 +111,10 @@ window.TURN_DRAFT_IMAGE = DRAFT_IMAGE;
    (Gemini 3.8 Flash — "Auto" picks it for free-tier accounts, see app/ai.jsx
    recommendedWritingModelId) and about 380 on Opus 5.5, whose every call also HOLDS about 35
    credits up front. So 50 credits cover a logline, a synopsis, the spine and roughly its first ten
-   scenes on the lighter engine — on Opus 5.5 they run out before the spine is finished. The copy
-   promises no more than that. */
+   scenes on the lighter engine — on Opus 5.5 they run out before the spine is finished. A draft
+   image (Nano Banana 2.1 at 1K, $0.05 — 2026-10-10) is 5 credits, the same as Lite's was, so the
+   50 credits would buy 10 drafts and nothing else; the copy names no count. The copy promises no
+   more than that. */
 const TRIAL_COPY = "New accounts get 50 free credits after confirming their email — enough to try the Writers' Room on the lighter writing engine (a logline, a synopsis, the spine and its first scenes), plus draft images.";
 window.TURN_TRIAL_COPY = TRIAL_COPY;
 /* what each plan adds over the trial — checked against TIER_GATES / ROOM_ENTITLEMENTS below and the
@@ -511,6 +515,8 @@ window.turnTextModelAllowed = function(modelId, balance){
 };
 /* the image engine + resolution this account may actually use for a request */
 function planImageChoice(model, res, balance){
+  // a retired engine's id (Nano Banana 2 Lite) is its successor here too (app/imagegen.jsx nbCanonicalModelId)
+  if(typeof window.nbCanonicalModelId==="function") model = window.nbCanonicalModelId(model);
   if(!draftImagesOnly(balance)){
     /* WRITER UP TO 2K (2026-10-09, owner — Art Room review; billing-policy.mjs checkImage): the server refuses a
        Writer's 4K image — the app caps it to 2K first, as it caps a trial's (unless the film's owner plan decides) */

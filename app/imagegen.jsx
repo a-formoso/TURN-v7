@@ -131,12 +131,31 @@ window.nbRequireImageQuality=nbRequireImageQuality;
 const _imageProxyOn = !!(window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxy);
 const NB_MODELS = [
   { id:"gemini-3.1-flash-image",      label:"Nano Banana 2",      provider:"fal", family:"nano",   falModel:"fal-ai/nano-banana-2",      note:"fast \u00b7 high quality" },
-  { id:"gemini-3.1-flash-lite-image", label:"Nano Banana 2 Lite", provider:"fal", family:"nano",   falModel:"google/nano-banana-2-lite", note:"fastest \u00b7 lowest cost" },
+  { id:"gemini-nano-banana-2.1",      label:"Nano Banana 2.1",    provider:"fal", family:"nano",   falModel:"google/nano-banana-2.1", falEditModel:"google/nano-banana-2.1/edit", note:"fast \u00b7 lowest cost" },
   { id:"gemini-3-pro-image",          label:"Nano Banana Pro",    provider:"fal", family:"nano",   falModel:"fal-ai/nano-banana-pro",    note:"highest fidelity" },
   { id:"gpt-image-2",                 label:"GPT Image 2",        provider:"fal", family:"openai", falModel:"openai/gpt-image-2", falEditModel:"openai/gpt-image-2/edit", note:"in-image text" },
   { id:"gpt-image-2.5-flare",         label:"GPT Image 2.5 Flare", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/flare/text-to-image", falEditModel:"openai/gpt-image-2.5/flare/edit", note:"fastest GPT Image 2.5" },
   { id:"gpt-image-2.5-sunburst",      label:"GPT Image 2.5 Sunburst", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/sunburst/text-to-image", falEditModel:"openai/gpt-image-2.5/sunburst/edit", note:"maximum precision and fidelity" },
 ];
+/* RETIRED IMAGE ENGINES (2026-10-10, owner): Nano Banana 2 Lite was replaced by Nano Banana 2.1. A saved pick, a
+   dock choice, a per-device preference or an agent / batch option that still names the old id renders on its
+   successor (the server maps it too: image-proxy billing-pricing.mjs canonicalImageModel). Old assets keep their
+   saved meta; where one is DISPLAYED, nbModelLabel shows the engine it was really made with. Never offered. */
+const NB_LEGACY_MODEL_IDS = { "gemini-3.1-flash-lite-image":"gemini-nano-banana-2.1" };
+const NB_HISTORICAL_MODEL_LABELS = { "gemini-3.1-flash-lite-image":"Nano Banana 2 Lite" };
+function nbCanonicalModelId(id){
+  return (typeof id==="string" && Object.prototype.hasOwnProperty.call(NB_LEGACY_MODEL_IDS, id)) ? NB_LEGACY_MODEL_IDS[id] : id;
+}
+/* the name an image's engine is SHOWN by (an old asset's id included) — display only */
+function nbModelLabel(id){
+  const m = (window.NB_MODELS||NB_MODELS).find(x=>x.id===id);
+  if(m) return m.label;
+  return (typeof id==="string" && Object.prototype.hasOwnProperty.call(NB_HISTORICAL_MODEL_LABELS, id)) ? NB_HISTORICAL_MODEL_LABELS[id] : (id || "");
+}
+/* web grounding: the Nano Banana engines that search the web, priced like Nano Banana 2 (billing-pricing.mjs) */
+const NB_GROUND_MODELS = ["gemini-3.1-flash-image","gemini-nano-banana-2.1"];
+function nbModelGrounds(model){ return NB_GROUND_MODELS.indexOf(nbCanonicalModelId(model))>=0; }
+window.nbCanonicalModelId = nbCanonicalModelId; window.nbModelLabel = nbModelLabel; window.nbModelGrounds = nbModelGrounds;
 const NB_ASPECTS = ["16:9","21:9","9:16","1:1","3:4","4:3"];
 const NB_RESOLUTIONS = ["1K","2K","4K"];
 window.NB_MODELS = NB_MODELS; window.NB_ASPECTS = NB_ASPECTS; window.NB_RESOLUTIONS = NB_RESOLUTIONS;
@@ -162,11 +181,13 @@ function nbGetModel(){ try{
     s="gpt-image-2";
     localStorage.setItem(NB_MODEL_KEY,s);
   }
+  // a retired engine's saved pick (Nano Banana 2 Lite) moves to its successor, once
+  if(s && nbCanonicalModelId(s)!==s){ s=nbCanonicalModelId(s); try{ localStorage.setItem(NB_MODEL_KEY,s); }catch(e){} }
   if(s && NB_MODELS.find(m=>m.id===s)) return s;
   if(s){ try{ localStorage.setItem(NB_MODEL_KEY, NB_MODELS[0].id); }catch(e){} }
   return NB_MODELS[0].id;
 }catch(e){ return NB_MODELS[0].id; } }
-function nbSetModel(m){ try{ localStorage.setItem(NB_MODEL_KEY,m); }catch(e){} _nbAnnounce("nb-model-changed"); }
+function nbSetModel(m){ m=nbCanonicalModelId(m); try{ localStorage.setItem(NB_MODEL_KEY,m); }catch(e){} _nbAnnounce("nb-model-changed"); }
 function nbGetAspect(){ try{ const a=localStorage.getItem(NB_AR_KEY)||"16:9"; return (NB_ASPECTS.indexOf(a)>=0)?a:"16:9"; }catch(e){ return "16:9"; } }
 function nbSetAspect(a){ try{ localStorage.setItem(NB_AR_KEY,a); }catch(e){} _nbAnnounce("nb-settings-changed"); }
 function nbGetRes(){ try{ return localStorage.getItem(NB_RES_KEY)||"2K"; }catch(e){ return "2K"; } }
@@ -316,7 +337,7 @@ window.nbHasKeyForModel = nbHasKeyForModel; window.nbHasKeyForCurrent = nbHasKey
    the server deducts whole credits after a successful image generation. */
 const NB_IMG_USD = (window.turnImageProviderUsdTable && window.turnImageProviderUsdTable()) || {
   // fallback copy of app/pricing.jsx (fal prices, 2026-09-29 — the server's table)
-  "gemini-3.1-flash-lite-image": { "1K":0.05, "2K":0.05, "4K":0.05 },
+  "gemini-nano-banana-2.1":      { "1K":0.05, "2K":0.07, "4K":0.15 },
   "gemini-3.1-flash-image":      { "1K":0.08, "2K":0.12, "4K":0.16 },
   "gemini-3-pro-image":          { "1K":0.15, "2K":0.15, "4K":0.30 },
   "gpt-image-2":                 { low:0.012, medium:0.044, high:0.158 },
@@ -324,7 +345,7 @@ const NB_IMG_USD = (window.turnImageProviderUsdTable && window.turnImageProvider
   "gpt-image-2.5-sunburst":      { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
 };
 /* DRAFT IMAGES (owner decision 2026-09-30): a trial / no-plan account may generate draft
-   images only — Nano Banana 2 Lite up to 2K (app/plans.jsx turnPlanImageChoice). Every
+   images only — Nano Banana 2.1 at 1K (app/plans.jsx turnPlanImageChoice). Every
    request and every cost chip goes through this, so the price shown is the engine that
    will really run. Paid plans, admin and an unloaded ledger pass through unchanged. */
 function nbPlanImageChoice(model, res){
@@ -335,7 +356,7 @@ function nbPlanImageChoice(model, res){
 window.nbPlanImageChoice = nbPlanImageChoice;
 function nbImageCredits(opts){
   opts = opts||{};
-  const choice = nbPlanImageChoice(opts.model || nbGetModel(), opts.res || nbGetRes());
+  const choice = nbPlanImageChoice(nbCanonicalModelId(opts.model || nbGetModel()), opts.res || nbGetRes());
   const model = choice.model;
   const t = NB_IMG_USD[model]; if(!t) return null;
   let usd;
@@ -353,9 +374,10 @@ function nbImageCredits(opts){
     usd = (t[r]!=null) ? t[r] : t["2K"];
   }
   /* WHAT THE SERVER ADDS (2026-10-09, owner — Art Room review; billing-pricing.mjs): web grounding ($0.015 an image,
-     sent only on Nano Banana 2) and, on GPT Image, each reference image ($0.012) — the chips left both out */
-  const ground = opts.ground!=null ? !!opts.ground : (model==="gemini-3.1-flash-image" && nbGetGroundSearch());
-  if(ground && model==="gemini-3.1-flash-image") usd += 0.015;
+     sent only on Nano Banana 2 and Nano Banana 2.1 — nbModelGrounds) and, on GPT Image, each reference image
+     ($0.012) — the chips left both out */
+  const ground = opts.ground!=null ? !!opts.ground : (nbModelGrounds(model) && nbGetGroundSearch());
+  if(ground && nbModelGrounds(model)) usd += 0.015;
   if(isGptImageModel(model) && Number(opts.refs)>0) usd += 0.012 * Number(opts.refs);
   // ×CREDIT_SCALE so image costs read in the same generous denomination as plan
   // allowances. Anchor (Option A, 2026-09-30): 1 visible credit = $0.01 of provider cost
@@ -390,7 +412,7 @@ function NbCostChipInner({ count, opts }){
   const txt = nbImageCostText(count, opts);
   if(!txt) return null;
   // the engine and size the server will really use (a trial's draft engine, a Writer's 2K) — 2026-10-09
-  const picked = (opts&&opts.model) || nbGetModel();
+  const picked = nbCanonicalModelId((opts&&opts.model) || nbGetModel());
   const choice = nbPlanImageChoice(picked, (opts&&opts.res)||nbGetRes());
   const model = choice.model || picked;
   const m = (window.NB_MODELS||NB_MODELS).find(x=>x.id===model);
@@ -402,7 +424,7 @@ function NbCostChipInner({ count, opts }){
     title:"≈ "+txt+" generation credit"+(txt==="1"?"":"s")+" — "+((m&&m.label)||model)+" at "+detail
       +(n>1 ? " × "+n+" images" : " per image")
       +(isGptImage25Model(model)?" (baseline estimate; prompt/reference tokens and size affect provider cost; Auto uses the Max estimate)":"")
-      +(model==="gemini-3.1-flash-image" && nbGetGroundSearch() ? " · includes web grounding" : "")
+      +(nbModelGrounds(model) && nbGetGroundSearch() ? " · includes web grounding" : "")
       +(isGptImageModel(model) && !(opts && opts.refs) ? " · each reference image the render attaches adds about 1 credit" : "")},
     txt);
 }
@@ -412,7 +434,7 @@ function nbCostChip(count, opts){
 }
 window.nbImageCredits = nbImageCredits; window.nbImageCostText = nbImageCostText; window.nbCostChip = nbCostChip;
 
-/* grounding with web search — Nano Banana 2 (gemini-3.1-flash-image) only */
+/* grounding with web search — Nano Banana 2 and Nano Banana 2.1 only (nbModelGrounds) */
 const NB_GROUND_KEY = "turn-nb-ground";
 function nbGetGroundSearch(){ try{ return localStorage.getItem(NB_GROUND_KEY)==="1"; }catch(e){ return false; } }
 /* ONE ENGINE IN EVERY WINDOW (2026-10-09, owner — Art Room review): a pick made in another window of this browser
@@ -1836,7 +1858,7 @@ async function proxyGenerate(prompt, opts, provider){
      converge here, so no paid request can skip the identity gate. */
   nbAssertMediaIdentity(opts, "image-provider-start");
   prompt = nbCanonicalMediaPrompt(prompt, opts);
-  const model = opts.model || nbGetModel();
+  const model = nbCanonicalModelId(opts.model || nbGetModel());
   const aspect = opts.aspectRatio || nbGetAspect();
   const imageSize = opts.imageSize || nbGetRes();
   const quality = opts.quality == null ? nbGetOaiQuality(model) : opts.quality;
@@ -1968,7 +1990,7 @@ async function proxyGenerate(prompt, opts, provider){
       }
     }
     // provider error relayed by the proxy — attributed to the image model that asked
-    const _mLbl = (((window.NB_MODELS||[]).find(m=>m.id===model))||{}).label || model || "";
+    const _mLbl = nbModelLabel(model);
     throw new Error(window.turnAttrError
       ? window.turnAttrError("Image model", _mLbl, _raw)
       : (window.turnSafeError||(x=>x))(_raw));
@@ -1997,7 +2019,8 @@ let _nbDraftToastShown = false;
 async function nbGenerate(prompt, opts){
   opts = opts || {};
   nbAssertMediaIdentity(opts, "image-submit");
-  let model = opts.model || nbGetModel();
+  let model = nbCanonicalModelId(opts.model || nbGetModel());
+  if(opts.model && opts.model!==model) opts = { ...opts, model };   // a retired engine's id (an old option) → its successor
   /* trial / no-plan accounts: draft images only — swap in the draft engine (and drop the
      GPT-only quality knob) rather than send a request the server will refuse */
   const choice = nbPlanImageChoice(model, opts.imageSize || nbGetRes());
@@ -2007,7 +2030,7 @@ async function nbGenerate(prompt, opts){
     model = choice.model;
     if(!_nbDraftToastShown && typeof window.appToast==="function"){
       _nbDraftToastShown = true;
-      window.appToast("Without a plan, images are drafts (Nano Banana 2 Lite, up to 2K). Choose a plan for every image engine.","info");
+      window.appToast("Without a plan, images are drafts (Nano Banana 2.1 at 1K). Choose a plan for every image engine.","info");
     }
   }
   // Snapshot before any async reference conversion/capability check. A change

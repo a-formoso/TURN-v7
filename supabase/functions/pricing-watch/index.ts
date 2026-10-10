@@ -17,7 +17,7 @@
 //   • a price is only emitted when its specific regex matches AND the number
 //     passes sanity bounds; anything else lands in `failures` and produces NO
 //     diff — never a zero/garbage price.
-//   • token-priced models (GPT Image 2, Nano Banana 2 Lite, Seedance's
+//   • token-priced models (GPT Image 2, Nano Banana 2.1, Seedance's
 //     token-formula resolutions) don't state a flat per-image/per-second price,
 //     so we emit the parsed TOKEN RATE as a "rate" item. The client scales the
 //     existing table value by rate/referenceRate — a rate that halves halves
@@ -160,20 +160,28 @@ const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = 
     },
   },
   {
-    // Nano Banana 2 Lite → gemini-3.1-flash-lite-image. Token-priced (per-1M
-    // image output tokens); scale the whole tier column by the rate change.
-    slug: "google/nano-banana-2-lite",
+    // Nano Banana 2.1 → gemini-nano-banana-2.1 (2026-10-10, owner: it replaced
+    // Nano Banana 2 Lite). fal bills it PER TOKEN (no per-image fee, no
+    // resolution / search / thinking surcharge), and the table is NOT fal's
+    // cost: it is the owner's $0.05 / $0.07 / $0.15, fal's representative cost
+    // ($0.040 / $0.059 / $0.134 for a short prompt at medium thinking) plus an
+    // allowance for long prompts and references. fal's catalog states only TOKEN rates for it
+    // (checked 2026-10-10: "Image tokens (per 1M): $1.764 input, $35.294 output", no per-image
+    // figure), so — like GPT Image 2 — this watches the IMAGE OUTPUT TOKEN rate and the whole column
+    // scales by (new rate / $35.294), keeping the allowance in proportion; never an absolute
+    // overwrite of the owner's prices.
+    slug: "google/nano-banana-2.1",
     run(t, c) {
       const rate = firstMatch(t, /Image tokens \(per 1M\):[^\n]*?\$\s*([\d.,]+)\s*output/i);
       c.rate(
-        "nb2-lite-image-output-tokens",
+        "nb21-image-output-tokens",
         rate,
         "$/1M image output tokens",
-        37.5, // rate in force when the 07-25 table was written
+        35.294, // fal's rate when the 2026-10-10 table was written
         [
-          "image.providerUsd.gemini-3.1-flash-lite-image.1K",
-          "image.providerUsd.gemini-3.1-flash-lite-image.2K",
-          "image.providerUsd.gemini-3.1-flash-lite-image.4K",
+          "image.providerUsd.gemini-nano-banana-2.1.1K",
+          "image.providerUsd.gemini-nano-banana-2.1.2K",
+          "image.providerUsd.gemini-nano-banana-2.1.4K",
         ],
         "derived: table × (new rate / reference rate)",
       );

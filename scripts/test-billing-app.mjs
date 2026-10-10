@@ -127,8 +127,8 @@ await test("A the free-trial copy says only what 50 credits buy (F20) and names 
   assert.equal(P.TURN_TRIAL_CREDITS, 50);
   assert.equal(P.TURN_TRIAL_COPY, "New accounts get 50 free credits after confirming their email — enough to try the Writers' Room on the lighter writing engine (a logline, a synopsis, the spine and its first scenes), plus draft images.");
   assert.equal(P.TURN_TIER_ADDS, "Writer adds every writing engine and every image engine up to 2K; Director adds the Art Room and 4K images; Producer adds the Stage and video.");
-  assert.equal(P.TURN_DRAFT_IMAGE.model, "gemini-3.1-flash-lite-image");
-  assert.equal(P.TURN_DRAFT_IMAGE.maxRes, "2K");
+  assert.equal(P.TURN_DRAFT_IMAGE.model, "gemini-nano-banana-2.1");
+  assert.equal(P.TURN_DRAFT_IMAGE.maxRes, "1K");
 });
 
 const renderPlans = (opts = {}) => {
@@ -474,7 +474,7 @@ await test("I the client's tables ARE the server's (image-proxy billing-pricing.
   for (const usd of [0.005, 0.012, 0.034, 0.05, 0.08, 0.101, 0.12, 0.15, 0.158, 0.3, 1.517, 3.034, 23.25]) assert.equal(R.turnCreditCost(usd), srv.creditsFromUsd(usd), String(usd));
   for (const m of ["gpt-image-2", "gpt-image-2.5-flare"]) for (const a of ["16:9", "9:16", "21:9", "1:1", "3:4", "4:3"]) for (const z of ["1K", "2K", "4K"])
     assert.ok(Math.abs(R.turnGptImageSizeFactor(m, a, z) - srv.gptImageSizeFactor(m, a, z)) < 1e-12, m + " " + a + " " + z);
-  assert.deepEqual(plain(P.TURN_DRAFT_IMAGE), { ...plain(pol.DRAFT_IMAGE), label: "Nano Banana 2 Lite" });
+  assert.deepEqual(plain(P.TURN_DRAFT_IMAGE), { ...plain(pol.DRAFT_IMAGE), label: "Nano Banana 2.1" });
   assert.deepEqual(plain(P.TURN_TRIAL_TEXT_MODELS), plain(pol.DEFAULT_TEXT_MODELS), "the default writing engines");
   P.turnIsAdmin = false; P.turnIsPaidPlan = paidFn;
   assert.equal(P.turnTextModelAllowed("claude-fable-5-1", { remaining: 50, plan: "none", trial: true }), false);
@@ -527,28 +527,33 @@ await test("I with pricing.jsx loaded, GPT Image cost follows the output size (a
   vm.runInContext(read("app/imagegen.jsx"), J, { filename: "app/imagegen.jsx" });
   assert.equal(J.nbImageCostText(1, { model: "gpt-image-2", quality: "high", res: "2K", aspect: "16:9" }), "18", "$0.158 × (2048×1152 / 1920×1080)^0.672 = $0.172");
   assert.equal(J.nbImageCostText(1, { model: "gpt-image-2", quality: "high", res: "4K", aspect: "16:9" }), "41", "≈ fal's $0.401 at 4K");
-  assert.equal(J.nbImageCostText(2, { model: "gemini-3.1-flash-lite-image", res: "1K" }), "10");
+  assert.equal(J.nbImageCostText(2, { model: "gemini-nano-banana-2.1", res: "1K" }), "10");
+  assert.equal(J.nbImageCostText(1, { model: "gemini-nano-banana-2.1", res: "2K" }), "7");
+  assert.equal(J.nbImageCostText(1, { model: "gemini-nano-banana-2.1", res: "4K" }), "15");
+  assert.equal(J.nbImageCostText(2, { model: "gemini-3.1-flash-lite-image", res: "1K" }), "10", "Lite's old id is priced as Nano Banana 2.1");
   assert.equal(J.turnCreditCost(0.3), 30); assert.equal(J.turnCreditCost(0.034), 4); assert.equal(J.turnCreditCost(0), 1);
 });
-await test("I trial / no-plan accounts: the cost chip and the request use the draft engine (Nano Banana 2 Lite, ≤2K, no GPT quality)", async () => {
+await test("I trial / no-plan accounts: the cost chip and the request use the draft engine (Nano Banana 2.1, 1K, no GPT quality)", async () => {
   run(I, "app/plans.jsx");
   I.turnIsPaidPlan = paidFn; I.turnIsAdmin = false;
   I.turnCreditBalance = { remaining: 50, plan: "none", trial: true };
-  assert.deepEqual({ ...I.turnPlanImageChoice("gpt-image-2", "4K") }, { model: "gemini-3.1-flash-lite-image", res: "2K", limited: true });
-  assert.equal(I.nbImageCostText(1, { model: "gpt-image-2", quality: "high" }), "5", "Lite at 2K = $0.05");
+  assert.deepEqual({ ...I.turnPlanImageChoice("gpt-image-2", "4K") }, { model: "gemini-nano-banana-2.1", res: "1K", limited: true });
+  assert.deepEqual({ ...I.turnPlanImageChoice("gemini-nano-banana-2.1", "2K") }, { model: "gemini-nano-banana-2.1", res: "1K", limited: true });
+  assert.deepEqual({ ...I.turnPlanImageChoice("gemini-3.1-flash-lite-image", "1K") }, { model: "gemini-nano-banana-2.1", res: "1K", limited: false }, "Lite's old id is the draft engine");
+  assert.equal(I.nbImageCostText(1, { model: "gpt-image-2", quality: "high" }), "5", "Nano Banana 2.1 at 1K = $0.05");
   const calls = [];
   I.proxyGenerate = async (prompt, opts, provider) => { calls.push({ prompt, opts: { ...opts }, provider }); return "data:image/png;base64,X"; };
   I.nbAssertMediaIdentity = noop;
   await I.nbGenerate("poster", { model: "gpt-image-2", quality: "high", imageSize: "4K", aspectRatio: "9:16" });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].opts.model, "gemini-3.1-flash-lite-image");
-  assert.equal(calls[0].opts.imageSize, "2K");
+  assert.equal(calls[0].opts.model, "gemini-nano-banana-2.1");
+  assert.equal(calls[0].opts.imageSize, "1K");
   assert.equal("quality" in calls[0].opts, false);
   assert.equal(calls[0].opts.aspectRatio, "9:16");
-  assert.equal(I.toasts.filter((t) => /^Without a plan, images are drafts \(Nano Banana 2 Lite, up to 2K\)\. Choose a plan for every image engine\.$/.test(t.m)).length, 1);
+  assert.equal(I.toasts.filter((t) => /^Without a plan, images are drafts \(Nano Banana 2\.1 at 1K\)\. Choose a plan for every image engine\.$/.test(t.m)).length, 1);
   await I.nbGenerate("again", { model: "gpt-image-2", imageSize: "1K" });
   assert.equal(calls[1].opts.imageSize, "1K");
-  assert.equal(I.toasts.filter((t) => /^Without a plan, images are drafts \(Nano Banana 2 Lite, up to 2K\)\. Choose a plan for every image engine\.$/.test(t.m)).length, 1, "told once");
+  assert.equal(I.toasts.filter((t) => /^Without a plan, images are drafts \(Nano Banana 2\.1 at 1K\)\. Choose a plan for every image engine\.$/.test(t.m)).length, 1, "told once");
   I.turnCreditBalance = { remaining: 900, plan: "director" };
   await I.nbGenerate("paid", { model: "gpt-image-2", quality: "high", imageSize: "4K" });
   assert.equal(calls[2].opts.model, "gpt-image-2"); assert.equal(calls[2].opts.quality, "high");

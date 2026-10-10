@@ -26,8 +26,9 @@
 
    Sources (checked 2026-09-29 unless noted): platform.claude.com/docs/en/about-claude/pricing,
    developers.openai.com/api/docs/pricing, ai.google.dev/gemini-api/docs/pricing,
-   platform.kimi.ai/docs/pricing/chat, fal.ai/models/* (Nano Banana 2 / Pro / 2 Lite, GPT Image 2,
-   Seedance 2.0 / 2.5, Kling v3), elevenlabs.io/pricing/api. */
+   platform.kimi.ai/docs/pricing/chat, fal.ai/models/* (Nano Banana 2 / Pro, GPT Image 2,
+   Seedance 2.0 / 2.5, Kling v3), elevenlabs.io/pricing/api; Nano Banana 2.1 (fal.ai/models/google/
+   nano-banana-2.1 and Google's Gemini API pricing) checked 2026-10-10. */
 
 export const PROVIDER_USD_PER_CREDIT = 0.01;
 /* The unit BEFORE the switch day (1 credit = $0.03). Balances are in this unit until
@@ -431,13 +432,16 @@ export function textActualCost(model, tokens, { vision = false, free = false, no
 export const IMAGE_SIZES = Object.freeze(["1K", "2K", "4K"]);
 
 /* fal's prices per image — the route the app uses (fal.ai/models, 2026-09-29). Nano Banana 2:
-   $0.08, 2K x1.5, 4K x2. Nano Banana Pro: $0.15, 4K x2. Nano Banana 2 Lite: $37.50 per 1M image
-   output tokens at a fixed 1K output (~$0.05). The GPT Image rows are the price at the MODEL'S
+   $0.08, 2K x1.5, 4K x2. Nano Banana Pro: $0.15, 4K x2. Nano Banana 2.1 (2026-10-10, owner — it
+   replaces Nano Banana 2 Lite): fal bills it per token with no per-image fee and no surcharge for
+   resolution, web search or thinking (representative $0.040 / $0.059 / $0.134 at 1K / 2K / 4K for a
+   short prompt at medium thinking); the app charges $0.05 / $0.07 / $0.15 — that plus an allowance
+   for long prompts and references (no extra per reference image). The GPT Image rows are the price at the MODEL'S
    BASELINE SIZE (GPT_IMAGE_BASELINE_MP) and scale with output size (gptImageSizeFactor): GPT Image
    2 high is $0.158 at 1080p and $0.401 at 4K on fal. Keys match app/pricing.jsx
    TURN_PRICING.image.providerUsd so the admin's reviewed "pricing-overrides" apply to both. */
 export const IMAGE_PROVIDER_USD = Object.freeze({
-  "gemini-3.1-flash-lite-image": { "1K": 0.05, "2K": 0.05, "4K": 0.05 },
+  "gemini-nano-banana-2.1": { "1K": 0.05, "2K": 0.07, "4K": 0.15 },
   "gemini-3.1-flash-image": { "1K": 0.08, "2K": 0.12, "4K": 0.16 },
   "gemini-3-pro-image": { "1K": 0.15, "2K": 0.15, "4K": 0.30 },
   "gpt-image-2": { low: 0.012, medium: 0.044, high: 0.158 },
@@ -448,15 +452,28 @@ export const IMAGE_PROVIDER_USD = Object.freeze({
 });
 
 /* The DIRECT Google route (provider "google"): Google's own, lower prices. Only these models
-   may be sent there — any other name is refused (it used to cost 1 credit and ride into the URL). */
+   may be sent there — any other name is refused (it used to cost 1 credit and ride into the URL).
+   Nano Banana 2.1 (gemini-nano-banana-2.1): Google's standard price, $0.0336 / $0.0504 / $0.113. */
 export const GOOGLE_IMAGE_USD = Object.freeze({
-  "gemini-3.1-flash-lite-image": { "1K": 0.034, "2K": 0.05, "4K": 0.076 },
+  "gemini-nano-banana-2.1": { "1K": 0.0336, "2K": 0.0504, "4K": 0.113 },
   "gemini-3.1-flash-image": { "1K": 0.067, "2K": 0.101, "4K": 0.151 },
   "gemini-3-pro-image": { "1K": 0.134, "2K": 0.134, "4K": 0.24 },
 });
 /* The DIRECT OpenAI route (provider "openai") serves GPT Image 2 only. */
 export const OPENAI_DIRECT_IMAGE_MODELS = Object.freeze(["gpt-image-2"]);
 
+/* RETIRED IMAGE ENGINES (2026-10-10, owner): an older app (a saved pick, a batch option) may still send
+   Nano Banana 2 Lite's id — the proxy renders and prices it as its successor, Nano Banana 2.1, before
+   the plan gate, the price and the route (index.ts). Lite itself is never served. Mirrors app/imagegen.jsx
+   NB_LEGACY_MODEL_IDS. */
+export const LEGACY_IMAGE_MODEL_IDS = Object.freeze({ "gemini-3.1-flash-lite-image": "gemini-nano-banana-2.1" });
+/** The image model id to serve: a retired engine's id → its successor; anything else unchanged. */
+export function canonicalImageModel(id) {
+  return typeof id === "string" && Object.prototype.hasOwnProperty.call(LEGACY_IMAGE_MODEL_IDS, id) ? LEGACY_IMAGE_MODEL_IDS[id] : id;
+}
+
+/* web search on a fal Nano Banana render (Nano Banana 2 and 2.1, and Pro if one is ever sent): fal adds no
+   fee for it, but the search results count as input tokens — this is that allowance */
 export const IMAGE_WEB_SEARCH_USD = 0.015;          // fal Nano Banana web search
 export const GOOGLE_GROUNDING_USD = 0.035;          // direct Google search grounding, per request (conservative)
 export const GPT_IMAGE_REFERENCE_USD = 0.012;       // per reference image (~1,500 image input tokens at $8 / 1M)
@@ -526,7 +543,7 @@ export function imageCost({ route = "fal", model, imageSize = "2K", aspect = "16
     } else {
       usd = Number(row[size]);
       if (!(usd > 0)) return null;
-      if (webSearch && id !== "gemini-3.1-flash-lite-image") usd += IMAGE_WEB_SEARCH_USD;
+      if (webSearch) usd += IMAGE_WEB_SEARCH_USD;
     }
   }
   if (!(usd > 0)) return null;

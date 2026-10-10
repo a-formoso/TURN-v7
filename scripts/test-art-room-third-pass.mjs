@@ -116,10 +116,11 @@ await test("B3 the Lookbook bin checks the role and the film; a live twin keeps 
 });
 
 /* ═══ C ═══ */
-await test("C1 price chips include grounding and GPT reference images; grounding is sent only on Nano Banana 2", ()=>{
+await test("C1 price chips include grounding and GPT reference images; grounding is sent only on Nano Banana 2 / 2.1", ()=>{
   const c = fn(img, "nbImageCredits");
-  assert.ok(c.includes('if(ground && model==="gemini-3.1-flash-image") usd += 0.015;') && c.includes("usd += 0.012 * Number(opts.refs);"));
-  assert.ok(art.includes("if(groundEnabled && isFlash){ genOpts.groundSearch = true; genOpts.groundImageSearch = true; }"));
+  assert.ok(c.includes('if(ground && nbModelGrounds(model)) usd += 0.015;') && c.includes("usd += 0.012 * Number(opts.refs);"));
+  assert.ok(img.includes('const NB_GROUND_MODELS = ["gemini-3.1-flash-image","gemini-nano-banana-2.1"];'));
+  assert.ok(art.includes("if(groundEnabled && groundsWeb){ genOpts.groundSearch = true; genOpts.groundImageSearch = true; }"));
   assert.ok(img.includes('" · each reference image the render attaches adds about 1 credit"'));
 });
 await test("C2 only a request that never left is re-sent; a pick in another window shows here; plain errors, no provider names", ()=>{
@@ -159,8 +160,8 @@ await test("D3 a stale tab opens the Lookbook; hand-offs only when the room open
   assert.ok(app.includes('if(tab==="shots"){ if(!guardedSetRoom("art")) return;') && app.includes("    setRoom(id);\n    return true;\n  };"));
   assert.ok(art.includes("(f.film||null)===(window.turnOpenFilmId||null)) ? f : null; };"));
 });
-await test("D4 the dock: Lite and GPT quality shown, Escape, pressed states, a region", ()=>{
-  assert.ok(art.includes(': /lite/i.test(model) ? "NB2 Lite"') && art.includes("isGpt && qual ? qual : resv"));
+await test("D4 the dock: Nano Banana 2.1 and GPT quality shown, Escape, pressed states, a region", ()=>{
+  assert.ok(art.includes(': model==="gemini-nano-banana-2.1" ? "NB2.1"') && art.includes("isGpt && qual ? qual : resv"));
   assert.ok(art.includes('role:"region","aria-label":"Image engine settings"') && art.includes('"aria-controls":"nb-dock-panel"'));
   assert.ok((art.match(/"aria-pressed":/g)||[]).length >= 7);
 });
@@ -177,7 +178,7 @@ await test("E1 Frances: tabs open, the bins, the dock, the chips, the Department
   assert.ok(/ART ROOM REVIEW, THIRD PASS/.test(ar) && /Every tab is open/.test(ar) && /web grounding/.test(ar));
   assert.ok(/DEPARTMENT HEADS, THIRD PASS/.test((fb.__F.find(f=>f.name==="Story Editors (Writers' Room agents)")||{}).what || ""));
   for(const f of ["app", "ai", "script", "agents", "agents-ui", "artroom", "imagegen", "plans", "shots-ui", "chrome"])
-    assert.ok(["20261009-art3", "20261009-home3", "20261009-teamrv1", "20261009-stageed1", "20261009-sb4", "20261009-bd4"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
+    assert.ok(["20261009-art3", "20261009-home3", "20261009-teamrv1", "20261009-stageed1", "20261009-sb4", "20261009-bd4", "20261010-nb21"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

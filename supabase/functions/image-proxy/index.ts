@@ -100,7 +100,7 @@ import {
   GOOGLE_IMAGE_USD, IMAGE_PROVIDER_USD, OPENAI_DIRECT_IMAGE_MODELS, PROVIDER_USD_PER_CREDIT, VIDEO_PROVIDER_USD_PER_SECOND, affordableOutputCap,
   cheapestTextHold, creditUnitFromRegime, flatVoiceCost, imageCost, lengthBilledFacts, lengthBilledVideoHold, mergeVideoPricingOverrides,
   IMAGE_PROMPT_MAX_CHARS, STT_MAX_SECONDS, TEXT_WEB_SEARCH_MAX_USES, textWebSearchTool, messageText, normaliseTextUsage, sttHoldCost, sttModel, sttReportedSeconds, sttSettleCost, textActualCost,
-  textHoldEstimate, textPriceKey, ttsCost, videoAppModel, videoCost, visionImagesProblem,
+  textHoldEstimate, textPriceKey, ttsCost, videoAppModel, videoCost, visionImagesProblem, canonicalImageModel,
 } from "./billing-pricing.mjs";
 // Round 5 (S1): a recording's real length, read from its container (WebM / Ogg / MP4 / WAV) before
 // speech-to-text is held.
@@ -207,11 +207,15 @@ const DEFAULT_TEXT_OUTPUT_CAP = 16000;
    still runs and RELEASES the credits held for it (repair F11). A worker killed by the platform
    runs no finally at all — then the housekeeping job (turn_release_stale_holds) returns it. */
 const TEXT_PROVIDER_TIMEOUT_MS = 380000;
+/* a retired image model's id was served as its successor (logged once per instance) */
+let legacyImageModelLogged = false;
 /* The fal image models this proxy serves, and the fal routes they map to. */
 const FAL_IMAGE_MODELS: Record<string, { base: string; edit?: string; family: "nano" | "openai"; moderation?: boolean }> = {
-  // NOTE the namespace: Lite is published under google/, not fal-ai/. Pointing it at
-  // fal-ai/nano-banana-2-lite 404s ("Application not found") — that is why it was dead.
-  "gemini-3.1-flash-lite-image": { base: "google/nano-banana-2-lite", family: "nano" },
+  // NOTE the namespace: Nano Banana 2.1 (2026-10-10, owner — it replaced Nano Banana 2 Lite) is published
+  // under google/, not fal-ai/, like Lite was. Its text-to-image route takes no image_urls; a render WITH
+  // references goes to its /edit route (up to 14 reference images). Lite's old id is mapped to this one
+  // before routing (canonicalImageModel), so an older app keeps working.
+  "gemini-nano-banana-2.1":      { base: "google/nano-banana-2.1", edit: "google/nano-banana-2.1/edit", family: "nano" },
   "gemini-3.1-flash-image":      { base: "fal-ai/nano-banana-2",      family: "nano" },
   "gemini-3-pro-image":          { base: "fal-ai/nano-banana-pro",    family: "nano" },
   "gpt-image-2":                 { base: "openai/gpt-image-2", edit: "openai/gpt-image-2/edit", family: "openai", moderation: true },
@@ -411,7 +415,13 @@ Deno.serve(async (req) => {
   const body: any = parsedBody;
   if (body === undefined) return json({ error: "Bad request body." }, 400);
   const provider = body.provider || "openai";
-  const model = body.model || "gpt-image-2";
+  // a retired image engine's id (Nano Banana 2 Lite, from an older app) → its successor, before the plan
+  // gate, the price and the route (billing-pricing.mjs canonicalImageModel); logged once per instance
+  const model = canonicalImageModel(body.model || "gpt-image-2");
+  if (model !== (body.model || "gpt-image-2") && !legacyImageModelLogged) {
+    legacyImageModelLogged = true;
+    console.warn(`[image-proxy] retired image model "${String(body.model).slice(0, 60)}" served as "${model}" (an older app version).`);
+  }
   const prompt = (body.prompt || "").toString();
   const aspect = body.aspect || "16:9";
   const imageSize = body.imageSize || "2K";
@@ -2327,7 +2337,7 @@ Deno.serve(async (req) => {
     const refProblem = visionImagesProblem(images);
     if (refProblem) return json({ error: refProblem.error, code: "bad_image" }, 400);
   }
-  // PLAN GATE: no plan / trial → draft images (Nano Banana 2 Lite up to 2K); Writer → up to 2K;
+  // PLAN GATE: no plan / trial → draft images (Nano Banana 2.1 at 1K); Writer → up to 2K;
   // Director and Producer → every engine at 4K (billing-policy.mjs checkImage).
   if (!accountKnown) return refuse(billingUnavailable());
   const imageGate = checkImage(account, { model, imageSize });
@@ -2416,7 +2426,9 @@ Deno.serve(async (req) => {
 
     try {
       const imageUrls = await videoInputUrls(images, "image");
-      const endpoint = cfg.family === "openai" && imageUrls.length && cfg.edit ? cfg.edit : cfg.base;
+      // a render with references uses the model's edit route when it has one (GPT Image, Nano Banana 2.1);
+      // Nano Banana 2 / Pro take image_urls on their base route
+      const endpoint = imageUrls.length && cfg.edit ? cfg.edit : cfg.base;
       const input: any = { prompt };
 
       if (cfg.family === "openai") {
@@ -2526,6 +2538,8 @@ Deno.serve(async (req) => {
       generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: aspect, imageSize } },
     };
     if (groundSearch) {
+      // image search too only on Nano Banana 2 (gemini-3.1-flash-image); Nano Banana 2.1 grounds with web
+      // search (Google bills its searches; GOOGLE_GROUNDING_USD covers them)
       const isFlash = model === "gemini-3.1-flash-image";
       reqBody.tools = [{ googleSearch: (isFlash && groundImageSearch)
         ? { searchTypes: { webSearch: {}, imageSearch: {} } } : {} }];

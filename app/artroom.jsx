@@ -1416,9 +1416,10 @@ async function nbRunSheetGeneration(env, gopts){
        than the request that actually spent the credit.  A caller-supplied quality
        is intentional (batch/surface defaults); otherwise the model-family setting
        is the source of truth. */
-    const _requestedModel = gopts.model
+    // a retired engine's id in an option (Nano Banana 2 Lite) runs — and is recorded — as its successor
+    const _requestedModel = (typeof nbCanonicalModelId==="function" ? nbCanonicalModelId : (x=>x))(gopts.model
       || (opts && opts.model)
-      || (typeof nbGetModel==="function" ? nbGetModel() : "");
+      || (typeof nbGetModel==="function" ? nbGetModel() : ""));
     const _requestedIsGpt = typeof isGptImageModel==="function"
       ? isGptImageModel(_requestedModel) : /^gpt-image/i.test(String(_requestedModel||""));
     const _hasRequestedQuality = Object.prototype.hasOwnProperty.call(gopts,"quality");
@@ -1561,7 +1562,7 @@ async function nbRunSheetGeneration(env, gopts){
         if(!startMeta || typeof startMeta!=="object") startMeta=null; }catch(e){ startMeta=null; }
     if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-meta");
     }
-    const overrideModel = gopts.model || null;
+    const overrideModel = (gopts.model && typeof nbCanonicalModelId==="function") ? nbCanonicalModelId(gopts.model) : (gopts.model || null);
     const usedModel = overrideModel || _requestedModel;
     /* a model chosen via a fallback button ("Try <model>" / "Switch to <model>"
        after a failed generation) becomes the ACTIVE selection, so the model picker
@@ -1637,9 +1638,10 @@ async function nbRunSheetGeneration(env, gopts){
     };
     genPrompt = withIdentity(genPrompt);
 
-    /* grounding (Nano Banana 2 only) */
+    /* grounding (Nano Banana 2 and Nano Banana 2.1 — nbModelGrounds; image search is Nano Banana 2's) */
     const groundEnabled = typeof nbGetGroundSearch==="function" && nbGetGroundSearch();
     const isFlash = usedModel === "gemini-3.1-flash-image";
+    const groundsWeb = typeof nbModelGrounds==="function" ? nbModelGrounds(usedModel) : isFlash;
     if(abortCtl) genOpts.signal = abortCtl.signal;
     genOpts.assetId = slotId || id;   // the item this sheet is saved as (recorded with its credit hold)
      /* Pin the provider request to the model selected when this run started.
@@ -1657,13 +1659,13 @@ async function nbRunSheetGeneration(env, gopts){
     // fidelity (identity sheets keep the smaller cap); 640px bases were visibly
     // softening edited frames
     if(isEditMode) genOpts.baseMaxDim = 1536;
-    // Lite has no documented search-grounding support — never attach the tool to it
     // web grounding is a GEMINI-only feature — GPT Image has no such mode, so never
     // request it there (the proxy used to echo grounded:true off the bare request
     // flag, mis-badging GPT Image renders "Grounded" when nothing had grounded)
     // (2026-10-09, owner — Art Room review) only on Nano Banana 2, where the toggle shows — a toggle left on there was
-    // sent with Nano Banana Pro too, charging the grounding surcharge with no visible control
-    if(groundEnabled && isFlash){ genOpts.groundSearch = true; genOpts.groundImageSearch = true; }
+    // sent with Nano Banana Pro too, charging the grounding surcharge with no visible control. (2026-10-10) Nano
+    // Banana 2.1 grounds the same way, its toggle shows too
+    if(groundEnabled && groundsWeb){ genOpts.groundSearch = true; genOpts.groundImageSearch = true; }
 
     /* attachments: extra reference images (e.g. generated prop sheets the character
        carries) so the model SEES the object, not just its name. Resolved async. */
@@ -2488,7 +2490,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
   })();
   const aspectDetail = meta.aspect || ((pixelW && pixelH) ? nbAspectLabel(pixelW,pixelH) : "");
   const modelDetail = meta.modelLabel
-    || ((window.NB_MODELS||[]).find(m=>m.id===meta.modelId)||{}).label
+    || (typeof nbModelLabel==="function" ? nbModelLabel(meta.modelId) : ((window.NB_MODELS||[]).find(m=>m.id===meta.modelId)||{}).label)
     || meta.modelId;
   const generatedDetail = (()=>{
     let date=meta.date||"", time=meta.time||"";
@@ -3894,7 +3896,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               /* show the commercial name (e.g. "GPT Image 2"), not the raw model id.
                  prefer the stored label, else look it up by id, else fall back to id. */
               React.createElement("span",{className:"sheet-meta-model-name"},
-                genMeta.modelLabel || ((window.NB_MODELS||[]).find(m=>m.id===genMeta.modelId)||{}).label || genMeta.modelId)),
+                genMeta.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(genMeta.modelId) : ((window.NB_MODELS||[]).find(m=>m.id===genMeta.modelId)||{}).label) || genMeta.modelId)),
             React.createElement("span",{className:"sheet-meta-item",title:"Aspect ratio"},
               React.createElement(Icon.image,{s:10,sw:1.8}),genMeta.aspect),
             React.createElement("span",{className:"sheet-meta-item",title:"Resolution"},
@@ -5006,7 +5008,8 @@ function NbControls(){
   const wrapRef = React.useRef(null);
   const models = window.NB_MODELS || [];
   const aspects = window.NB_ASPECTS || ["16:9","21:9"];
-  const isFlash = model === "gemini-3.1-flash-image";
+  // the grounding toolkit shows for the engines that ground (Nano Banana 2 and 2.1 — nbModelGrounds)
+  const isFlash = typeof nbModelGrounds==="function" ? nbModelGrounds(model) : model === "gemini-3.1-flash-image";
   const isGpt = (typeof isGptImageModel==="function") ? isGptImageModel(model) : /^gpt-image/.test(model||"");
   const [oaiQ, setOaiQ] = React.useState(()=> (typeof nbGetOaiQuality==="function") ? nbGetOaiQuality(model) : "medium");
   /* Quality choices are provider metadata, not UI constants.  GPT Image 2.5
@@ -5095,7 +5098,7 @@ function NbControls(){
         React.createElement("div",{className:"nb-seg"},
           models.map(m=>React.createElement("button",{key:m.id,className:"nb-seg-btn "+((model===m.id)?"on":""),"aria-pressed":(model===m.id)?"true":"false",
              title:m.note,onClick:()=>{ setModel(m.id); setOaiQ(typeof nbGetOaiQuality==="function" ? nbGetOaiQuality(m.id) : "medium"); nbSetModel(m.id); window.dispatchEvent(new CustomEvent("nb-model-changed")); }},m.label))),
-        /* grounding toolkit — only when Nano Banana 2 is selected */
+        /* grounding toolkit — only when Nano Banana 2 or 2.1 is selected */
         isFlash && React.createElement("div",{className:"nb-ground-wrap",ref:tipRef},
           React.createElement("button",{
             className:"nb-ground-btn "+(ground?"on":"")+(groundTip?" open":""),
@@ -5116,7 +5119,7 @@ function NbControls(){
             React.createElement("div",{className:"nb-ground-tip-head"},
               React.createElement(Icon.bolt,{s:12,sw:2.2}),
               "Grounding",
-              React.createElement("span",{className:"nb-ground-tip-badge"},"Nano Banana 2"),
+              React.createElement("span",{className:"nb-ground-tip-badge"},modelLabel),
               React.createElement("span",{className:"nb-ground-tip-sub"},"web references")),
             React.createElement("div",{className:"nb-ground-tip-body"},
               "When on, the model searches the web to anchor generation to real-world ",
@@ -5197,10 +5200,11 @@ function NbDock(){
   const model  = (typeof nbGetModel==="function") ? nbGetModel() : "";
   const aspect = (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9";
   const resv   = (typeof nbGetRes==="function") ? nbGetRes() : "2K";
-  // (2026-10-09) Lite is its own engine (a different price), and GPT Image shows its quality — what the price follows
+  // (2026-10-09) each engine has its own chip (a different price) — Nano Banana 2.1 apart from Nano Banana 2 — and
+  // GPT Image shows its quality — what the price follows
   const short  = model==="gpt-image-2.5-flare" ? "GPT F"
     : model==="gpt-image-2.5-sunburst" ? "GPT S"
-    : /lite/i.test(model) ? "NB2 Lite"
+    : model==="gemini-nano-banana-2.1" ? "NB2.1"
     : /pro/i.test(model) ? "PRO" : /gpt/i.test(model) ? "GPT" : "NB2";
   const isGpt = typeof isGptImageModel==="function" && isGptImageModel(model);
   const qual = isGpt && typeof nbGetOaiQuality==="function" && typeof nbOaiQualityLabel==="function" ? nbOaiQualityLabel(nbGetOaiQuality(model)) : "";
