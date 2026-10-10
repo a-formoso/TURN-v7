@@ -1871,10 +1871,21 @@ async function agentCastingDirector(ctx){
     ? "Re-drafting the cast from the updated Lookbook — for each of the "+N+" character"+(N!==1?"s":"")+": re-draft the look and appearance states. Specs only — every master sheet and variant stays untouched."
     : "Designing the cast — for each of the "+N+" character"+(N!==1?"s":"")+": draft the look"+(withVariants?", find their appearance changes":"")+", generate the master sheet (with prop + likeness references)"+(withVariants?", then each state variant":"")+". Only what's missing is made."});
   let specs=0, sheets=0, variants=0, specErr="";
+  const needPronouns = [], failedSheets = [];
   for(const ch of castList){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+sheets+" sheet"+(sheets!==1?"s":"")+" generated."}); return; }
     let c = ch;
     ctx.emit({k:"act", t:"Casting "+(c.name||"a character")+"…"});
+    /* NO PRONOUNS, NO SHEET (2026-10-10, owner): a character's images are refused until its pronouns are set, so it's
+       skipped BEFORE anything is drafted or paid for (it used to draft, find appearance changes, then fail the sheet) */
+    if(!ctx.draftOnly && typeof window.turnIdentityBlock==="function"){
+      const b = window.turnIdentityBlock(c, cast.list);
+      if(b){ needPronouns.push(c.name||"a character");
+        ctx.emit({k:"flag", t: b.kind==="conflict"
+          ? (c.name||"This character")+"'s screenplay and card disagree about who they are — check it on their card. Skipped."
+          : (c.name||"This character")+" needs pronouns before a sheet can be made"+(b.suggest ? " (the screenplay uses "+b.suggest+")" : "")+" — set them on their card. Skipped."});
+        continue; }
+    }
 
     // 1) draft the visual spec (force = re-draft even if already drafted, applying the Lookbook)
     const redraftSpecs = ctx.force || ctx.draftOnly;
@@ -1909,7 +1920,7 @@ async function agentCastingDirector(ctx){
       ctx.emit({k:"act", t:"Generating "+(c.name||"the character")+"'s master sheet…"});
       try{ baseUrl = await cast.generateMaster(c); sheets++;
         ctx.emit({k:"ok", t:(c.name||"Character")+" — master sheet generated."}); }
-      catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(c.name||"the character")+"'s sheet: "+agentErrText(e)+". Moving on."}); continue; }
+      catch(e){ failedSheets.push(c.name||"a character"); ctx.emit({k:"flag", t:"Couldn't generate "+(c.name||"the character")+"'s sheet: "+agentErrText(e)+". Moving on."}); continue; }
     }
     if(ctx.cancelled()) return;
 
@@ -1930,7 +1941,12 @@ async function agentCastingDirector(ctx){
   // (2026-10-06) only a forced run that re-drafted specs marks the department — each drafted card records its own
   // Lookbook anyway; a run where every draft failed never marks it
   if(ctx.art.markApplied && ctx.force && specs>0) ctx.art.markApplied("characters");
-  ctx.emit({k:"done", t: ctx.draftOnly
+  // what didn't get made is said plainly before the summary (2026-10-10 — it ended "Cast designed" with nothing made)
+  if(needPronouns.length) ctx.emit({k:"flag", t:needPronouns.length+" character"+(needPronouns.length!==1?"s":"")+" still need"+(needPronouns.length!==1?"":"s")+" pronouns: "+needPronouns.join(", ")+". Set them on the cards (or in Design the cast's preview) and run it again."});
+  if(failedSheets.length) ctx.emit({k:"flag", t:failedSheets.length+" master sheet"+(failedSheets.length!==1?"s":"")+" couldn't be made: "+failedSheets.join(", ")+"."});
+  const nothingMade = !ctx.draftOnly && !specs && !sheets && !variants && (needPronouns.length || failedSheets.length);
+  ctx.emit({k:"done", t: nothingMade ? "Finished \u2014 nothing was made. See the notes above."
+    : ctx.draftOnly
     ? "Cast re-drafted — "+specs+" spec"+(specs!==1?"s":"")+" updated from the Lookbook. Sheets left untouched — regenerate them from the Characters tab when ready."
     : "Cast designed — "+specs+" spec"+(specs!==1?"s":"")+" drafted, "+sheets+" master sheet"+(sheets!==1?"s":"")+", "+variants+" appearance variant"+(variants!==1?"s":"")+". Review and tweak any in the Characters tab."});
 }

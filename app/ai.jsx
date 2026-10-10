@@ -3313,6 +3313,10 @@ APP_FEATURES.forEach(f=>{
   const sf = APP_FEATURES.find(x=>x && x.name==="The Stage (Production)");
   if(sf) sf.what += " (Likeness review, 2026-10-10) A clip whose cast includes a character with a locked likeness shows 'This clip shows a real person's likeness. Video engines may refuse it.' before rendering, and the Stage never adds 'fictional context' text for such a clip. Motion Control asks the same consent question as Likeness before a face or body photo is uploaded.";
 }
+/* DESIGN THE CAST AND PRONOUNS (owner 2026-10-10) */
+{ const chf = APP_FEATURES.find(x=>x && x.name==="Character Sheets (Art Room)");
+  if(chf) chf.what += " (2026-10-10) A character's sheets can only be made once its pronouns are set on its card. Design the cast's preview lists any character in the selection without them \u2014 with 'Use he/him (from the screenplay)' when the screenplay introduces them that way, a pronoun picker otherwise, and 'Use the screenplay's pronouns for all' \u2014 and leaves them out of the run until they're set, so nothing is drafted or paid for them. A run that skips or can't make something says so plainly at the end ('Finished \u2014 nothing was made' when nothing was).";
+}
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;

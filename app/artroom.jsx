@@ -6405,7 +6405,22 @@ function castDesignPlan(characters, scope, sceneIds, withVariants){
   return { ids:list.map(c=>c.id), n:list.length, specs, sheets, variants, noStates, images:sheets+variants };
 }
 window.castDesignPlan = castDesignPlan;
-function CastConfirm({ characters, props, sceneId, sceneNo, sceneIds, onCancel, onConfirm }){
+/* A CHARACTER'S IDENTITY BEFORE ITS SHEETS (2026-10-10, owner): every character image is refused until the character's
+   pronouns are set (character-identity.js turnAssertCharacterIdentity — the house rule is explicit pronouns only).
+   Design the cast ran anyway, drafted and paid for writing, then failed every sheet and reported "Cast designed".
+   null = fine; { kind:"unset"|"conflict", suggest:"he/him"|"", message } otherwise. suggest is the one set of pronouns
+   the screenplay itself uses for them, when it's unambiguous. */
+function turnIdentityBlock(c, cast){
+  if(!c || typeof window.turnAssertCharacterIdentity!=="function") return null;
+  try{ window.turnAssertCharacterIdentity(c, cast ? { cast } : {}); return null; }
+  catch(e){
+    const r = (e && e.identityReport) || (typeof window.turnIdentityReport==="function" ? window.turnIdentityReport(c, cast ? { cast } : {}) : null) || {};
+    const kind = r.status==="conflict" ? "conflict" : "unset";
+    return { kind, suggest:kind==="unset" ? String(r.scriptPronouns||"") : "", message:String((e && e.message) || "") };
+  }
+}
+window.turnIdentityBlock = turnIdentityBlock;
+function CastConfirm({ characters, props, sceneId, sceneNo, sceneIds, onCancel, onConfirm, onSetPronouns }){
   const C = characters||[];
   const [scope, setScope] = React.useState(sceneId ? "scene" : "missing");
   const [withVariants, setWithVariants] = React.useState(true);
@@ -6425,6 +6440,11 @@ function CastConfirm({ characters, props, sceneId, sceneNo, sceneIds, onCancel, 
     if(withVariants) ((c.states)||[]).filter(st=>st && st.sceneId && !_img(c.id+":"+st.id)).forEach(()=> lkRefs.push(lk + 1));
   });
   const lkUnavailable = planChars.map(c=> (window.turnLikenessUnavailableText||(()=>""))(c.id, c.name)).filter(Boolean);
+  // characters whose sheets would be refused: they're named here with a one-click fix, and left out of the run
+  const blocked = planChars.map(c=>({ c, b:turnIdentityBlock(c, C) })).filter(x=>x.b);
+  const blockedIds = new Set(blocked.map(x=>x.c.id));
+  const suggestable = blocked.filter(x=>x.b.suggest && typeof onSetPronouns==="function");
+  const runIds = plan.ids.filter(id=>!blockedIds.has(id));
   const count = (sc)=> castDesignPlan(C, sc, sceneIds, false).n;
   const scNo = String(sceneNo!=null ? sceneNo : "").padStart(2,"0");
   const scopes = [
@@ -6477,11 +6497,34 @@ function CastConfirm({ characters, props, sceneId, sceneNo, sceneIds, onCancel, 
             ...lkUnavailable.map((t,i)=> React.createElement("div",{key:"lku"+i,className:"cc-note"},
               React.createElement(Icon.alert,{s:12}), React.createElement("span",null,t))),
             note("info","Each image uses credits at the engine and resolution set in the Images dock on the right edge.","info")),
+      blocked.length>0 && React.createElement("div",{className:"cc-pronouns",role:"group","aria-label":"Pronouns needed"},
+        React.createElement("div",{className:"cc-note"},
+          React.createElement(Icon.alert,{s:12}),
+          React.createElement("span",null, blocked.length+" character"+(blocked.length!==1?"s need":" needs")+" pronouns before their sheets can be made "
+            +"— "+(blocked.length!==1?"they're":"it's")+" left out of this run until then.")),
+        suggestable.length>1 && React.createElement("button",{type:"button",className:"ns-btn ghost cc-pron-all",
+          onClick:()=>suggestable.forEach(x=>onSetPronouns(x.c.id, x.b.suggest))},"Use the screenplay's pronouns for all "+suggestable.length),
+        React.createElement("ul",{className:"cc-list"},
+          blocked.map(({c,b})=>React.createElement("li",{key:c.id},
+            React.createElement("span",{className:"cc-list-lab"}, c.name||"Character"),
+            b.kind==="conflict"
+              ? React.createElement("span",{className:"cc-list-n"},"the screenplay and the card disagree — check it on the card")
+              : (typeof onSetPronouns==="function"
+                ? React.createElement("span",{className:"cc-pron-pick"},
+                    b.suggest && React.createElement("button",{type:"button",className:"ns-btn ghost",
+                      title:"The screenplay refers to "+(c.name||"them")+" as "+b.suggest,
+                      onClick:()=>onSetPronouns(c.id, b.suggest)},"Use "+b.suggest+" (from the screenplay)"),
+                    React.createElement("select",{className:"char-pronoun-sel","aria-label":"Pronouns for "+(c.name||"this character"),value:"",
+                      onChange:e=>{ if(e.target.value) onSetPronouns(c.id, e.target.value); }},
+                      [["", b.suggest ? "or choose…" : "choose…"],["he/him","he/him"],["she/her","she/her"],["they/them","they/them"]]
+                        .map(o=>React.createElement("option",{key:o[0]||"x",value:o[0],disabled:!o[0]},o[1]))))
+                : React.createElement("span",{className:"cc-list-n"},"set them on the card")))))),
       React.createElement("div",{className:"cc-foot"},
         React.createElement("button",{className:"ns-btn ghost",onClick:onCancel},"Cancel"),
-        React.createElement("button",{className:"ns-btn primary",disabled:nothing,
-          onClick:()=>onConfirm({ only: scope==="all" ? null : plan.ids, variants:withVariants })},
-          React.createElement(Icon.robot,{s:16}), "Design "+plan.n+" character"+(plan.n!==1?"s":"")))));
+        React.createElement("button",{className:"ns-btn primary",disabled:nothing || !runIds.length,
+          title:!runIds.length && blocked.length ? "Set the pronouns above first" : undefined,
+          onClick:()=>onConfirm({ only: (scope==="all" && !blocked.length) ? null : runIds, variants:withVariants })},
+          React.createElement(Icon.robot,{s:16}), "Design "+runIds.length+" character"+(runIds.length!==1?"s":"")))));
 }
 window.CastConfirm = CastConfirm;
 

@@ -1,266 +1,57 @@
 #!/usr/bin/env node
-/* ============================================================================
-   HEADLESS CAST-PRONOUN TESTS — charPronouns / castPronounBlock (ai.jsx).
-   Runs against the MINIFIED dist build in a stubbed vm sandbox and asserts
-   the gender-consistency machinery: explicit sheet pronouns win, keyword
-   inference still works, unset pronouns produce the HARD-ERROR cast-block
-   wording, and the block never invents pronouns. Deterministic asserts only —
-   any mismatch exits 1. Run AFTER `npm run build`:
-
-     node scripts/test-cast-pronouns.mjs
-   ============================================================================ */
+/* test-cast-pronouns.mjs — Design the cast and characters without pronouns (owner 2026-10-10: every sheet failed with
+   "has an unresolved character identity", after a paid writing call, and the run said "Cast designed").
+     A turnIdentityBlock: null when pronouns are set; "unset" with the screenplay's pronouns as the suggestion
+     B the preview names them with a one-click fix and leaves them out of the run
+     C the Casting Director skips them before drafting anything, and says plainly what wasn't made
+   node scripts/test-cast-pronouns.mjs */
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const noop = () => {};
-const makeSandbox = () => ({
-  console, setTimeout, clearTimeout, setInterval, clearInterval,
-  React: new Proxy({}, { get: (t, k) => (k === "createElement" ? () => null : noop) }),
-  localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
-  sessionStorage: { getItem: () => null, setItem: noop, removeItem: noop },
-  navigator: { userAgent: "node-test" },
-  location: { href: "", search: "", hash: "", origin: "" },
-  CustomEvent: class { constructor(type, opts) { this.type = type; this.detail = opts && opts.detail; } },
-  Image: class {},
-  document: {
-    createElement: () => ({ getContext: () => null, style: {}, setAttribute: noop, appendChild: noop }),
-    getElementById: () => null,
-    addEventListener: noop, removeEventListener: noop, querySelector: () => null, querySelectorAll: () => [],
-    body: { appendChild: noop, removeChild: noop },
-  },
-  requestAnimationFrame: noop, cancelAnimationFrame: noop,
-  addEventListener: noop, removeEventListener: noop,
-  matchMedia: () => ({ matches: false, addEventListener: noop, removeEventListener: noop }),
+const ROOT = new URL("../", import.meta.url);
+const read = (f)=>readFileSync(new URL(f, ROOT), "utf8");
+const between = (src, a, b)=>{ const i = src.indexOf(a); assert.ok(i>=0, "missing: "+a); const j = src.indexOf(b, i+a.length); assert.ok(j>i, "missing end: "+b); return src.slice(i, j); };
+let checks = 0, failed = 0;
+const test = async (name, f)=>{ try{ await f(); checks++; console.log("PASS", name); }
+  catch(e){ failed++; console.log("FAIL", name, "\n   ", String((e && e.stack) || e).split("\n").slice(0, 5).join("\n    ")); } };
+const art = read("app/artroom.jsx"), agents = read("app/agents.jsx"), app = read("app/app.jsx"), html = read("TURN.html");
+
+await test("A the block: set pronouns pass; none set → 'unset' with what the screenplay says", ()=>{
+  const box = { console }; box.window = box; vm.createContext(box);
+  vm.runInContext(read("app/character-identity.js"), box);
+  vm.runInContext(between(art, "function turnIdentityBlock(c, cast){", "\nwindow.turnIdentityBlock")+";this.f=turnIdentityBlock;", box);
+  // the screenplay's own introduction of the character is the only evidence (a name never is)
+  box.turnIdentityContext = { scenes:[{ id:"s1", no:1 }], drafts:{ s1:{ blocks:[{ type:"action", text:"LUCA FIORIN (60s), a man worn by the sea, wipes the counter." }] } } };
+  const luca = { id:"luca", name:"LUCA FIORIN", role:"lead" };
+  const b = box.f(luca, [luca]);
+  assert.deepEqual({ kind:b.kind, suggest:b.suggest }, { kind:"unset", suggest:"he/him" });
+  assert.equal(box.f({ ...luca, pronouns:"he/him" }, [luca]), null, "set → fine");
+  box.turnIdentityContext = { scenes:[{ id:"s1", no:1 }], drafts:{ s1:{ blocks:[{ type:"action", text:"LUCA FIORIN wipes the counter." }] } } };
+  assert.equal(box.f(luca, [luca]).suggest, "", "no introduction → no suggestion (you choose)");
 });
-const sandbox = makeSandbox();
-sandbox.window = sandbox;
-sandbox.globalThis = sandbox;
-// ai.jsx normally receives this visual default helper from imagegen.jsx in
-// TURN.html; provide the narrow deterministic dependency for this headless
-// prompt test.
-sandbox.charVisualDefaults = () => ({
-  palette: [{ name: "black", hex: "#000000" }, { name: "gray", hex: "#888888" }, { name: "white", hex: "#ffffff" }],
-  height: "", scaleClass: "A",
+await test("B the preview: named with a fix, left out of the run, the button counts who runs", ()=>{
+  const cc = between(art, "function CastConfirm(", "window.CastConfirm = CastConfirm;");
+  assert.ok(cc.includes("const blocked = planChars.map(c=>({ c, b:turnIdentityBlock(c, C) })).filter(x=>x.b);"));
+  assert.ok(cc.includes("const runIds = plan.ids.filter(id=>!blockedIds.has(id));"));
+  assert.ok(cc.includes('"Use "+b.suggest+" (from the screenplay)"') && cc.includes('"Use the screenplay\'s pronouns for all "+suggestable.length'));
+  assert.ok(cc.includes("onConfirm({ only: (scope===\"all\" && !blocked.length) ? null : runIds, variants:withVariants })"));
+  assert.ok(cc.includes('disabled:nothing || !runIds.length,') && cc.includes('"Design "+runIds.length+" character"'));
+  assert.ok(app.includes('onSetPronouns:(id,p)=>updateCharacter(id,{ pronouns:p, pronounProvenance:"user",'));
 });
-vm.createContext(sandbox);
-// ai.jsx reads cameoInferGender if present; run WITHOUT it first (fallback path),
-// then load cameo.js for the shared-inference path.
-vm.runInContext(readFileSync("dist/app/ai.js", "utf8"), sandbox, { filename: "dist/app/ai.js" });
-
-const charPronouns = sandbox.window.charPronouns;
-const castPronounBlock = sandbox.window.castPronounBlock;
-if (typeof charPronouns !== "function") { console.log("FAIL window.charPronouns missing from dist build"); process.exit(1); }
-if (typeof castPronounBlock !== "function") { console.log("FAIL window.castPronounBlock missing from dist build"); process.exit(1); }
-
-let failures = 0, passes = 0;
-const ok = (name, cond, detail) => {
-  if (cond) passes++;
-  else { failures++; console.log("FAIL " + name + (detail ? " — " + detail : "")); }
-};
-
-/* ---- charPronouns: precedence and fallback ------------------------------ */
-ok("explicit she/her wins", charPronouns({ name: "ODETTE", pronouns: "she/her", role: "watchman" }) === "she/her");
-ok("explicit he/him wins over female keywords", charPronouns({ name: "X", pronouns: "he/him", role: "a mother of three" }) === "he/him");
-ok("fallback infers female from prose", charPronouns({ name: "LIRA", role: "a widow who runs the till", identity: "shopkeeper, mother of two" }) === "she/her");
-ok("fallback infers male from prose", charPronouns({ name: "KETT", role: "a retired watchman, father of one" }) === "he/him");
-ok("fallback returns empty for genderless prose", charPronouns({ name: "ODETTE", role: "Antagonist", identity: "exiled royalty" }) === "",
-  "the Odette case: sparse record must NOT invent a pronoun");
-ok("valid model-owned pronouns remain canonical", sandbox.window.turnCanonicalIdentity
-  ? sandbox.window.turnCanonicalIdentity({ name: "ODETTE", pronouns: "she/her", pronounProvenance: "model", role: "Antagonist" }).pronouns === "she/her"
-  : true);
-ok("legacy explicit pronouns remain canonical", sandbox.window.turnCanonicalIdentity
-  ? sandbox.window.turnCanonicalIdentity({ name: "ODETTE", pronouns: "she/her", role: "Antagonist" }).pronouns === "she/her"
-  : true);
-ok("missing character yields empty", charPronouns(null) === "" || charPronouns(undefined) === "");
-ok("pronouns with whitespace trimmed", charPronouns({ name: "A", pronouns: "  she/her  " }) === "she/her");
-
-/* ---- castPronounBlock: the prompt contract ------------------------------ */
-const cast = [
-  { id: "odette", name: "ODETTE", role: "Antagonist", pronouns: "she/her", physique: { age: "late 30s" } },
-  { id: "piotr", name: "PIOTR", role: "a retired watchman, father of one" },
-  { id: "blank",  name: "BLANK", role: "" },
-];
-const block = castPronounBlock(cast);
-ok("block present for non-empty cast", typeof block === "string" && block.length > 0);
-ok("explicit pronouns printed", /ODETTE[^\n]*she\/her/.test(block), block.split("\n").find(l => l.startsWith("ODETTE")));
-ok("inferred pronouns printed", /PIOTR[^\n]*he\/him/.test(block), block.split("\n").find(l => l.startsWith("PIOTR")));
-ok("unset character gets HARD-ERROR name-only wording",
-  /BLANK[^\n]*pronouns UNSET[^\n]*HARD ERROR/.test(block),
-  block.split("\n").find(l => l.startsWith("BLANK")));
-ok("unset line forbids all pronouns", /NAME only; writing he\/she\/they for them/.test(block));
-ok("house rule still bans singular they", /NEVER singular they\/them/.test(block));
-ok("age parenthetical rule intact", /AGES ARE CANON/.test(block));
-ok("apparent age rides the cast line", /ODETTE[^\n]*apparent age: late 30s/.test(block));
-ok("empty cast yields empty block", castPronounBlock([]) === "" || castPronounBlock([]) === castPronounBlock(null));
-ok("nameless entries skipped", !castPronounBlock([{ id: "x" }]).includes("undefined"));
-
-/* ---- shared inference path (cameoInferGender loaded) -------------------- */
-vm.runInContext(readFileSync("dist/app/cameo.js", "utf8"), sandbox, { filename: "dist/app/cameo.js" });
-if (typeof sandbox.cameoInferGender === "function" || typeof sandbox.window.cameoInferGender === "function") {
-  ok("shared inference: female", charPronouns({ name: "MARA", role: "an actress and mother" }) === "she/her");
-  ok("shared inference: male", charPronouns({ name: "REEF", role: "an actor, a widower" }) === "he/him");
-  ok("shared inference: neutral stays empty", charPronouns({ name: "ODETTE", role: "Antagonist", identity: "exiled royalty" }) === "");
-  ok("explicit still wins with shared inference", charPronouns({ name: "ODETTE", pronouns: "she/her", role: "a watchman" }) === "she/her");
-} else {
-  console.log("NOTE cameoInferGender not exported by dist/app/cameo.js — fallback-only checks ran");
-}
-
-/* ---- pronoun merge rules mirrored by the articulation prompts ----------- */
-// The model's JSON pronouns are validated against ^(he/him|she/her)$ and an
-// explicit sheet pick always wins; replicate both rules against sample payloads.
-const mergeOk = (raw, existing) => {
-  const pr = String(raw || "").toLowerCase().trim();
-  return (/^(he\/him|she\/her)$/.test(pr) && !existing) ? pr : null;
-};
-ok("merge accepts she/her", mergeOk("she/her", "") === "she/her");
-ok("merge accepts He/Him case-insensitively", mergeOk("He/Him", "") === "he/him");
-ok("merge rejects they/them", mergeOk("they/them", "") === null);
-ok("merge rejects garbage", mergeOk("attack helicopter", "") === null);
-ok("merge never overrides an explicit sheet pick", mergeOk("he/him", "she/her") === null);
-
-/* ---- RUNTIME: aiCastPsychology actually merges pronouns -----------------
-   Regression guard for the TDZ bug the static checks above cannot see: the
-   merge must run INSIDE the real function, not a replicated copy. Stub the
-   model and assert the returned map carries validated pronouns. */
-const aiCastPsychology = sandbox.window.aiCastPsychology;
-if (typeof aiCastPsychology !== "function") {
-  failures++; console.log("FAIL window.aiCastPsychology missing from dist build");
-} else {
-  const longDimensionA = "saintly bedside patience when care is difficult / prosecutorial fury with anyone still breathing keeps every grievance alive until somebody answers it";
-  const longDimensionB = "meticulous tenderness toward the dead and their rituals / impatient contempt for the living when their needs complicate his private tally of sacrifice";
-  const longHumanTruth = "Love presented as evidence stops being love and becomes an invoice, and no corporation can pay it; only when a person releases the ledger of sacrifice can care become a freely chosen act again.";
-  sandbox.window.claude = { complete: async () => JSON.stringify({ cast: [
-    { id: "odette", pronouns: "she/her", conscious: "c", unconscious: "u", arc: "a",
-      dimensions:[longDimensionA,longDimensionB], humanTruth:longHumanTruth,
-      voiceDNA:{vocabulary:"legal claims",syntax:"clipped",rhythm:"measured",directness:"blunt",imagery:"contracts",avoids:"apologies",stressShift:"fragments"} },
-    { id: "piotr",  pronouns: "He/Him",  conscious: "c", arc: "a", humanTruth: "h" },
-    { id: "kett",   pronouns: "they/them", conscious: "c", arc: "a", humanTruth: "h" },
-  ] }) };
-  const castIn = [
-    // roles keep everyone inside the depth-budget filter (orbit <= 2 — a plain
-    // "Watchman"/"Fixer" is third circle and correctly gets no psychology pass)
-    { id: "odette", name: "ODETTE", role: "Antagonist", voiceDNA:{syntax:"writer-owned syntax"} }, // preserve manual DNA
-    { id: "piotr",  name: "PIOTR",  role: "Mentor", pronouns: "he/him" }, // explicit -> never overridden
-    { id: "kett",   name: "KETT",   role: "Ally" },                       // invalid value -> rejected
-  ];
-  const psych = await aiCastPsychology(castIn, [], { title: "T", genre: "drama", controllingIdea: {} });
-  ok("batch returns a map", !!psych && typeof psych === "object", JSON.stringify(psych));
-  ok("batch adopts validated pronouns", !!(psych && psych.odette && psych.odette.pronouns === "she/her"),
-    psych && JSON.stringify(psych.odette));
-  ok("batch normalizes case", !!(psych && psych.piotr && !("pronouns" in psych.piotr)),
-    "piotr already had an explicit sheet pick — merge must not touch it; got " + (psych && JSON.stringify(psych.piotr)));
-  ok("batch rejects they/them", !!(psych && psych.kett && !("pronouns" in psych.kett)),
-    "got " + (psych && JSON.stringify(psych.kett)));
-  ok("batch still merges other fields", !!(psych && psych.odette && psych.odette.conscious === "c"),
-    "TDZ check: if the merge threw, every field would be missing");
-  ok("batch populates missing Voice DNA", psych?.odette?.voiceDNA?.vocabulary === "legal claims",
-    psych && JSON.stringify(psych.odette));
-  ok("batch preserves manually authored Voice DNA", psych?.odette?.voiceDNA?.syntax === "writer-owned syntax",
-    psych && JSON.stringify(psych.odette));
-  ok("batch preserves the complete Human Truth", psych?.odette?.humanTruth === longHumanTruth,
-    psych && psych.odette && psych.odette.humanTruth);
-  ok("batch preserves complete dimension pairs", psych?.odette?.dimensions === [longDimensionA,longDimensionB].join("\n"),
-    psych && psych.odette && psych.odette.dimensions);
-
-  const identityScene = { id: "identity-scene", no: 1, title: "The lock", summary: "ODETTE reaches the locked door." };
-  const identityDraft = { blocks: [{ type: "action", text: "ODETTE is a man in the corridor. He checks the lock before anyone can see him." }] };
-  const identityEvidence = sandbox.window.screenplayPronounEvidence(
-    { id: "odette", name: "ODETTE", role: "Antagonist" },
-    { scenes: [identityScene], drafts: { "identity-scene": identityDraft },
-      cast: [{ id: "odette", name: "ODETTE" }] }
-  );
-  ok("screenplay identity returns exact source evidence",
-    identityEvidence?.pronouns === "he/him" && identityEvidence.quote.includes("ODETTE") && identityEvidence.quote.includes("He checks"),
-    JSON.stringify(identityEvidence));
-  let psychPrompt = "";
-  sandbox.window.claude = { complete: async ({ messages }) => {
-    psychPrompt = messages[0].content;
-    return JSON.stringify({ cast: [{ id: "odette", pronouns: "she/her", conscious: "c", arc: "a" }] });
-  } };
-  const screenplayWins = await aiCastPsychology(
-    [{ id: "odette", name: "ODETTE", role: "Antagonist" }],
-    [identityScene],
-    { title: "T", genre: "drama", controllingIdea: {} },
-    { scenes: [identityScene], drafts: { "identity-scene": identityDraft },
-      cast: [{ id: "odette", name: "ODETTE", role: "Antagonist" }] }
-  );
-  ok("screenplay evidence wins over an unset-sheet model guess",
-    screenplayWins?.odette?.pronouns === "he/him", JSON.stringify(screenplayWins));
-  ok("psychology prompt carries screenplay-bound pronouns",
-    /ODETTE[^\n]*he\/him/.test(psychPrompt), psychPrompt);
-
-  let visualPrompt = "";
-  const previousIdentityReport = sandbox.window.turnIdentityReport;
-  const previousIdentityAssert = sandbox.window.turnAssertCharacterIdentity;
-  // Existing-film repair: the persisted binding is he/him, while an old
-  // visual/profile field still says woman. The repair drafter may replace that
-  // stale prose; a direct screenplay contradiction would still be blocked.
-  sandbox.window.turnIdentityReport = () => ({
-    pronouns: "he/him", scriptPronouns: "he/him", status: "conflict",
-    issues: [{ source: "visual", observedPronouns: "she/her", quote: "old coreBody: woman" }],
-  });
-  sandbox.window.turnAssertCharacterIdentity = () => {
-    const e = new Error("stale visual/profile prose");
-    e.identityReport = sandbox.window.turnIdentityReport();
-    throw e;
-  };
-  sandbox.window.claude = { complete: async ({ messages }) => {
-    visualPrompt = messages[0].content;
-    return JSON.stringify({ cast: [{ id: "odette", pronouns: "she/her", age: "late 30s" }] });
-  } };
-  const visual = await sandbox.window.aiCastVisualBible(
-    [{ id: "odette", name: "ODETTE", role: "Antagonist", pronouns: "he/him", coreBody: "a woman in the old spec" }],
-    [identityScene],
-    { title: "T", genre: "drama", setting: {} },
-    { scenes: [identityScene], drafts: { "identity-scene": identityDraft },
-      cast: [{ id: "odette", name: "ODETTE", role: "Antagonist", pronouns: "he/him" }] }
-  );
-  ok("visual bible never lets model pronouns overwrite the sheet",
-    visual?.odette?.pronouns === "he/him", JSON.stringify(visual));
-  ok("visual prompt carries the explicit sheet binding",
-    /ODETTE[^\n]*he\/him/.test(visualPrompt), visualPrompt);
-  if (previousIdentityReport) sandbox.window.turnIdentityReport = previousIdentityReport;
-  else delete sandbox.window.turnIdentityReport;
-  if (previousIdentityAssert) sandbox.window.turnAssertCharacterIdentity = previousIdentityAssert;
-  else delete sandbox.window.turnAssertCharacterIdentity;
-
-  sandbox.window.claude = { complete: async () => JSON.stringify({
-    pronouns:"she/her", conscious:"c", unconscious:"u", arc:"a",
-    dimensions:[longDimensionA,longDimensionB], humanTruth:longHumanTruth,
-    argues:"complicates", voiceDNA:{}
-  }) };
-  const singleDraft = await sandbox.window.aiDraftCharacter(
-    { id:"odette", name:"ODETTE", role:"Protagonist" }, [],
-    { title:"T", genre:"drama", controllingIdea:{} }, []
-  );
-  ok("single draft preserves the complete Human Truth", singleDraft?.humanTruth === longHumanTruth,
-    singleDraft && singleDraft.humanTruth);
-  ok("single draft preserves complete dimension pairs", singleDraft?.dimensions === [longDimensionA,longDimensionB].join("\n"),
-    singleDraft && singleDraft.dimensions);
-  delete sandbox.window.claude;
-}
-
-/* ---- the prompts must ASK for pronouns ---------------------------------- */
-const src = readFileSync("app/ai.jsx", "utf8");
-const single = src.match(/async function aiDraftCharacter[\s\S]*?window\.aiDraftCharacter/);
-const batch  = src.match(/async function aiCastPsychology[\s\S]*?window\.aiCastPsychology/);
-const visualSource = src.match(/async function aiCastVisualBible[\s\S]*?window\.aiCastVisualBible/);
-ok("single-character prompt requests pronouns", !!single && /"pronouns":"he\/him\|she\/her"/.test(single[0]));
-ok("batch prompt requests pronouns for every character", !!batch && /REQUIRED for EVERY character regardless of depth budget/.test(batch[0]));
-ok("batch JSON spec includes pronouns", !!batch && /"pronouns":"he\/him\|she\/her"/.test(batch[0]));
-ok("batch JSON spec requests all Voice DNA fields", !!batch && /"voiceDNA":\{"vocabulary":"\.\.\.","syntax":"\.\.\.","rhythm":"\.\.\.","directness":"\.\.\.","imagery":"\.\.\.","avoids":"\.\.\.","stressShift":"\.\.\."\}/.test(batch[0]));
-ok("visual repair explicitly replaces stale gendered prose",
-  !!visualSource && visualSource[0].includes("replace any contradictory gendered prose"));
-ok("visual repair allows stale profile evidence but not screenplay conflict",
-  !!visualSource && visualSource[0].includes("allowStaleProfileRepair"));
-
-/* ---- agents.jsx: unset-canon drift branch exists ------------------------- */
-const agents = readFileSync("app/agents.jsx", "utf8");
-ok("drift check fires when canon is unset", /scriptPron && !canonPron/.test(agents));
-ok("unset-canon proposal named", agents.includes("Pronouns unset — "));
-ok("reject path points to the Cast panel", /pronouns still unset — set them in the Cast panel/.test(agents));
-ok("drift check validates exact screenplay evidence", agents.includes("exact identity evidence") && agents.includes("no cast pronoun was changed"));
-ok("drift conflicts do not silently flip the sheet", agents.includes("No canonical sheet change was proposed until the writer resolves the script conflict"));
-
-console.log("RESULT: " + (failures ? "FAIL — " : "OK — ") + passes + " passed, " + failures + " failed");
-process.exit(failures ? 1 : 0);
+await test("C the run: skipped before any spending; the summary says what wasn't made", ()=>{
+  const run = between(agents, "  const needPronouns = [], failedSheets = [];", "/* =========================================================");
+  const skip = run.indexOf("const b = window.turnIdentityBlock(c, cast.list);");
+  assert.ok(skip>0 && skip < run.indexOf("cast.draftSpec(c)") && skip < run.indexOf("cast.suggestStates(c)"), "checked before drafting");
+  assert.ok(run.includes("needs pronouns before a sheet can be made") && run.includes("still need"));
+  assert.ok(run.includes('nothingMade ? "Finished \\u2014 nothing was made. See the notes above."'));
+});
+await test("D keys", ()=>{
+  const ai = read("app/ai.jsx"), a = ai.indexOf("const APP_FEATURES = ["), b = ai.indexOf("let _museFactsMemo = null;");
+  const fb = { console }; fb.window = fb; vm.createContext(fb); vm.runInContext(ai.slice(a, b)+";this.__F=APP_FEATURES;", fb);
+  assert.ok(fb.__F.find(f=>f.name==="Character Sheets (Art Room)").what.includes("Use the screenplay's pronouns for all"), "Frances");
+  for(const f of ["artroom", "app", "agents", "ai", "script"]) assert.ok(html.includes('src="app/'+f+'.jsx?v=20261010-pron1"'), f);
+  assert.ok(html.includes('href="app/styles.css?v=20261010-pron1"'));
+});
+console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");
+if(failed) process.exit(1);

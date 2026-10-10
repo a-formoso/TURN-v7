@@ -8934,6 +8934,9 @@ function App(){
     // its Run button starts the run (the panel opens running — no second Run press).
     castConfirm && window.CastConfirm && React.createElement(window.CastConfirm,{
       characters, props, sceneId:castConfirm.sceneId, sceneNo:castConfirm.sceneNo, sceneIds:castConfirm.sceneIds,
+      // the preview's one-click pronoun fix (2026-10-10): the same patch the card's Pronouns selector writes
+      onSetPronouns:(id,p)=>updateCharacter(id,{ pronouns:p, pronounProvenance:"user",
+        identityProvenance:{ ...(((characters||[]).find(x=>x && x.id===id)||{}).identityProvenance||{}), pronouns:"user" } }),
       onCancel:()=>setCastConfirm(null),
       onConfirm:(scope)=>{ setCastConfirm(null);
         if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; }

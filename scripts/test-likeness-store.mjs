@@ -809,8 +809,8 @@ await test("Z the card's Remove revokes where it lives; the manager gets the cas
   const all = fb.__F.map(x => x.what).join(" ");
   assert.ok(!/\bcameo\b/i.test(all), "no 'cameo' left in what Frances is told");
   for (const file of ["cameo.jsx", "imagegen.jsx", "cloud.jsx", "artroom.jsx", "app.jsx", "agents.jsx", "stage.jsx", "ai.jsx", "script.jsx", "image-slot.js"])
-    assert.ok(html.includes('app/' + file + '?v=20261010-like1"'), file);
-  assert.ok(html.includes('href="app/styles.css?v=20261010-like1"'));
+    assert.ok(["20261010-like1", "20261010-pron1"].some(k=>html.includes('app/' + file + '?v=' + k + '"')), file);
+  assert.ok(html.includes('href="app/styles.css?v=20261010-like1"') || html.includes('href="app/styles.css?v=20261010-pron1"'));
 });
 
 console.log(`${checks} passed, ${failed} failed`);
