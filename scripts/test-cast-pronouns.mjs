@@ -50,8 +50,8 @@ await test("D keys", ()=>{
   const ai = read("app/ai.jsx"), a = ai.indexOf("const APP_FEATURES = ["), b = ai.indexOf("let _museFactsMemo = null;");
   const fb = { console }; fb.window = fb; vm.createContext(fb); vm.runInContext(ai.slice(a, b)+";this.__F=APP_FEATURES;", fb);
   assert.ok(fb.__F.find(f=>f.name==="Character Sheets (Art Room)").what.includes("Use the screenplay's pronouns for all"), "Frances");
-  for(const f of ["artroom", "app", "agents", "ai", "script"]) assert.ok(html.includes('src="app/'+f+'.jsx?v=20261010-pron1"'), f);
-  assert.ok(html.includes('href="app/styles.css?v=20261010-pron1"') || html.includes('href="app/styles.css?v=20261010-del1"'));
+  for(const f of ["artroom", "app", "agents", "ai", "script"]) assert.ok(["20261010-pron1", "20261010-pose2"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
+  assert.ok(html.includes('href="app/styles.css?v=20261010-pron1"') || html.includes('href="app/styles.css?v=20261010-pose2"') || html.includes('href="app/styles.css?v=20261010-del1"') || html.includes('href="app/styles.css?v=20261010-pose2"'));
 });
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");
 if(failed) process.exit(1);

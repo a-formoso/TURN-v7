@@ -2534,10 +2534,12 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
 .cameo-x{flex:0 0 auto;width:30px;height:30px;display:grid;place-items:center;border-radius:var(--r-m);border:1px solid var(--line-2);
   background:var(--bg-2);color:var(--txt-2);cursor:pointer;transition:.12s}
 .cameo-x:hover{background:var(--bg-3);color:var(--txt-0)}
-.cameo-stage{position:relative;margin:0 18px;aspect-ratio:1;border-radius:var(--r-m);overflow:hidden;background:#0c0d12;
+/* flex:0 0 auto — on a short screen the window scrolls; the camera square is never squashed to a sliver */
+.cameo-stage{position:relative;flex:0 0 auto;margin:0 18px;aspect-ratio:1;border-radius:var(--r-m);overflow:hidden;background:#0c0d12;
   display:grid;place-items:center;border:1px solid var(--line-2)}
 .cameo-video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-.cameo-shot{width:100%;height:100%;object-fit:cover}
+/* P2: a camera that already flips its picture is shown as it comes */
+.cameo-video.unmirror{transform:none}
 .cameo-guide{position:absolute;inset:0;pointer-events:none}
 /* the pose sketch ghosted into the ring (2026-10-10, Likeness review): a static line drawing, drawn as
    the person sees themselves in the mirrored preview — so it is NOT flipped again */
@@ -2546,8 +2548,6 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
   filter:drop-shadow(0 0 1.5px rgba(0,0,0,.65))}
 .cameo-guide::before{content:"";position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);
   width:54%;height:70%;border:2px dashed oklch(0.85 0.08 296 / .6);border-radius:50%}
-.cameo-hint{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-family:var(--f-mono);font-size:9.5px;
-  letter-spacing:.04em;text-transform:uppercase;color:oklch(0.92 0.02 280 / .82);text-shadow:0 1px 4px rgba(0,0,0,.8)}
 .cameo-msg{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:24px;color:var(--txt-2)}
 .cameo-msg>svg{color:oklch(0.72 0.16 45)}
 .cameo-msg-t{font-family:var(--f-display);font-size:15px;font-weight:600;color:var(--txt-0)}
@@ -2568,7 +2568,6 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
 .cameo-btn.primary{flex:1 1 auto;min-width:190px;background:oklch(0.62 0.18 295);color:#fff}
 .cameo-btn.primary:hover:not(:disabled){background:oklch(0.66 0.18 295)}
 .cameo-btn.primary:disabled{opacity:.45;cursor:default}
-.cameo-btn.cap{flex:1}
 
 /* B: multi-angle strip */
 /* left-anchored so it can never collide with the "Capture now" button top-right;
@@ -2578,21 +2577,65 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
   padding:3px 9px;border-radius:20px;white-space:nowrap;max-width:calc(100% - 128px);overflow:hidden;text-overflow:ellipsis}
 .cameo-anglebadge b{color:oklch(0.86 0.1 296)}
 /* auto-capture: readiness ring, cue, progress, flash, manual + toggle */
-.cameo-guide.go::before{border-color:oklch(0.78 0.16 150 / .9);border-style:solid;
-  box-shadow:0 0 0 3px oklch(0.78 0.16 150 / .25),0 0 24px oklch(0.78 0.16 150 / .35)}
-.cameo-cue{position:absolute;left:50%;bottom:32px;transform:translateX(-50%);display:flex;align-items:center;gap:7px;
-  font-family:var(--f-mono);font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:#fff;
+/* while a pose is held the ring (.cameo-ring) fills in green; the guide only glows, so the fill reads */
+.cameo-guide.go::before{border-color:oklch(0.78 0.16 150 / .3);border-style:solid;
+  box-shadow:0 0 24px oklch(0.78 0.16 150 / .3)}
+.cameo-cue{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);display:flex;flex-wrap:wrap;align-items:center;justify-content:center;
+  column-gap:7px;row-gap:3px;font-family:var(--f-mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#fff;
   background:oklch(0.2 0.02 280 / .68);padding:5px 12px;border-radius:var(--r-l);text-shadow:0 1px 3px rgba(0,0,0,.6);
-  max-width:calc(100% - 24px);white-space:normal;text-align:center;line-height:1.45}
+  width:max-content;max-width:calc(100% - 24px);white-space:normal;text-align:center;line-height:1.45;z-index:2}
+.cameo-cue-t{flex:1 1 0;min-width:0}
 .cameo-cue-dot{width:7px;height:7px;border-radius:50%;background:oklch(0.72 0.16 45);flex:0 0 auto}
 /* GO state — unmistakable: the pill itself turns green while the countdown runs */
 .cameo-cue.go{background:oklch(0.36 0.1 150 / .88);box-shadow:0 0 0 1px oklch(0.78 0.16 150 / .5)}
 .cameo-cue.go .cameo-cue-dot{background:oklch(0.82 0.17 150);animation:cameo-pulse .8s ease-in-out infinite}
 .cameo-cue.done .cameo-cue-dot{background:oklch(0.78 0.16 150)}
 .cameo-cue.off .cameo-cue-dot{background:var(--txt-3)}
+/* a turn the wrong way, a saved photo that looks like another angle */
+.cameo-cue.warn{background:oklch(0.42 0.11 70 / .9);box-shadow:0 0 0 1px oklch(0.82 0.15 75 / .6)}
+.cameo-cue.warn .cameo-cue-dot{background:oklch(0.88 0.16 85)}
+/* the timeout hint: a second line, in sentence case */
+.cameo-cue-hint{flex-basis:100%;font-family:var(--f-ui);font-size:11px;letter-spacing:0;text-transform:none;opacity:.9}
+.cameo-cue-fix{flex-basis:100%;margin-top:2px;background:none;border:0;padding:0;cursor:pointer;color:oklch(0.9 0.1 85);
+  font-family:var(--f-ui);font-size:11px;letter-spacing:0;text-transform:none;text-decoration:underline}
 @keyframes cameo-pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.cameo-prog{position:absolute;left:14px;right:14px;bottom:14px;height:6px;border-radius:4px;background:oklch(0.3 0.02 280 / .6);overflow:hidden}
-.cameo-prog-fill{height:100%;border-radius:4px;background:oklch(0.78 0.16 150);transition:width .14s linear}
+/* (2026-10-10, owner — "it can't tell left from right") the hold ring over the guide ellipse, the turn
+   arrow on the edge the person turns toward (their own left = the screen's left: the preview is a
+   mirror), and the turn meter with the target band */
+.cameo-ring{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:visible}
+/* stroke widths in the 100-unit box (about 4 px on a 420 px stage) */
+.cameo-ring-track{fill:none;stroke:oklch(0.95 0.02 290 / .16);stroke-width:1}
+.cameo-ring-fill{fill:none;stroke:oklch(0.86 0.08 296 / .85);stroke-width:1;stroke-linecap:round;transition:stroke-dasharray .15s linear}
+.cameo-ring.holding .cameo-ring-fill{stroke:oklch(0.8 0.17 150)}
+.cameo-turn-arrow{position:absolute;top:46%;transform:translateY(-50%);width:34px;height:34px;z-index:2;pointer-events:none;
+  color:oklch(0.84 0.15 75);filter:drop-shadow(0 1px 3px rgba(0,0,0,.7));transition:color .15s}
+.cameo-turn-arrow svg{width:100%;height:100%;display:block}
+.cameo-turn-arrow.left{left:8px;animation:cameo-nudge-l 1.2s ease-in-out infinite}
+.cameo-turn-arrow.right{right:8px;animation:cameo-nudge-r 1.2s ease-in-out infinite}
+.cameo-turn-arrow.in-band{color:oklch(0.82 0.17 150)}
+@keyframes cameo-nudge-l{0%,100%{transform:translate(0,-50%)}50%{transform:translate(-6px,-50%)}}
+@keyframes cameo-nudge-r{0%,100%{transform:translate(0,-50%)}50%{transform:translate(6px,-50%)}}
+/* the meter: the track across, its two ends named underneath ("your left" under the left end) */
+.cameo-meter{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);width:70%;display:grid;grid-template-columns:1fr 1fr;
+  grid-template-areas:"t t" "l r";align-items:center;row-gap:3px;
+  z-index:2;pointer-events:none;padding:5px 10px 3px;border-radius:var(--r-l);background:oklch(0.2 0.02 280 / .55)}
+.cameo-meter-track{grid-area:t;position:relative;height:8px;border-radius:4px;background:oklch(0.3 0.02 280 / .7)}
+/* the cue sits above the meter while the meter shows */
+.cameo-stage[data-engine="ready"] .cameo-cue{bottom:48px}
+.cameo-meter-band{position:absolute;top:0;bottom:0;border-radius:4px;background:oklch(0.78 0.16 150 / .7)}
+.cameo-meter-dot{position:absolute;top:50%;width:13px;height:13px;margin-left:-6.5px;border-radius:50%;transform:translateY(-50%);
+  background:#fff;box-shadow:0 0 0 2px oklch(0.84 0.15 75),0 1px 3px rgba(0,0,0,.6);transition:left .1s linear}
+.cameo-meter-dot.in-band{box-shadow:0 0 0 2px oklch(0.8 0.17 150),0 1px 3px rgba(0,0,0,.6)}
+.cameo-meter-lab{font-family:var(--f-mono);font-size:10px;letter-spacing:.04em;text-transform:uppercase;line-height:1.2;
+  color:oklch(0.95 0.02 280 / .85);text-shadow:0 1px 3px rgba(0,0,0,.8);white-space:nowrap}
+.cameo-meter-lab:first-child{grid-area:l;justify-self:start}
+.cameo-meter-lab:last-child{grid-area:r;justify-self:end}
+/* under the stage: the pose check runs on this device (or why the side photos are manual) */
+.cameo-note{margin:8px 18px 0;font-family:var(--f-ui);font-size:11px;line-height:1.45;color:var(--txt-3)}
+.cameo-note.warn{color:oklch(0.72 0.14 70)}
+html[data-theme="light"] .cameo-note.warn{color:oklch(0.5 0.13 65)}
+/* the screen-reader line (same rules as .sb-sr-only) */
+.cameo-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .cameo-capnow{position:absolute;top:10px;right:10px;background:oklch(0.2 0.02 280 / .66);color:#fff;border:1px solid rgba(255,255,255,.2);
   font-family:var(--f-ui);font-size:11px;font-weight:600;padding:4px 10px;border-radius:var(--r-m);cursor:pointer;transition:.12s}
 .cameo-capnow:hover{background:oklch(0.62 0.18 295)}
@@ -2604,7 +2647,7 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
 .cameo-autopill svg{opacity:.6}
 .cameo-autopill.on{border-color:oklch(0.78 0.16 150 / .5);background:oklch(0.78 0.16 150 / .12);color:oklch(0.82 0.13 152)}
 .cameo-autopill.on svg{opacity:1}
-.cameo-strip{display:flex;gap:9px;padding:14px 18px 0}
+.cameo-strip{display:flex;flex:0 0 auto;gap:9px;padding:14px 18px 0}
 .cameo-slot{position:relative;flex:1;aspect-ratio:1;border-radius:var(--r-l);border:1.5px dashed var(--line-3);
   background:var(--bg-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
   cursor:pointer;transition:.12s;overflow:hidden;padding:0}
@@ -2612,7 +2655,11 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
 .cameo-slot.active{border-style:solid;border-color:oklch(0.62 0.18 295);box-shadow:0 0 0 3px oklch(0.62 0.18 295 / .16)}
 .cameo-slot.filled{border-style:solid;border-color:var(--line-2)}
 .cameo-slot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.cameo-slot-empty{color:var(--txt-3);display:grid;place-items:center}
+/* webcam photos are SAVED in true orientation; here they're shown as the mirrored preview showed them */
+.cameo-slot img.mirror{transform:scaleX(-1)}
+.cameo-slot.warn{border-color:oklch(0.78 0.15 75)}
+.cameo-slot-warn{position:absolute;top:4px;left:4px;z-index:2;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;
+  background:oklch(0.8 0.16 78);color:#1b1305;font-family:var(--f-ui);font-size:12px;font-weight:800;line-height:1}
 .cameo-slot-guide{position:absolute;inset:10% 14% 18%;width:72%;height:72%;color:var(--txt-3);opacity:.85;pointer-events:none}
 .cameo-slot.active .cameo-slot-guide{color:oklch(0.78 0.13 296)}
 .cameo-slot-lab{position:absolute;bottom:0;left:0;right:0;font-family:var(--f-mono);font-size:9px;
@@ -2638,6 +2685,13 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
 .cameo-team-note{margin:12px 18px 0;padding:8px 11px;border-radius:var(--r-m);background:var(--bg-2);border:1px solid var(--line-2);
   font-family:var(--f-ui);font-size:11.5px;line-height:1.45;color:var(--txt-2)}
 .cameo-btn.danger{flex:1 1 auto;background:oklch(0.62 0.2 25);color:#fff}
+@media (prefers-reduced-motion: reduce){
+  .cameo-turn-arrow.left,.cameo-turn-arrow.right{animation:none}
+  .cameo-flash{animation:cameo-blink .28s steps(1,end) forwards}
+  .cameo-ring-fill,.cameo-meter-dot{transition:none}
+}
+@keyframes cameo-blink{0%{opacity:.35}100%{opacity:0}}
+@media (max-width:520px){ .cameo-meter{width:80%} .cameo-turn-arrow{width:26px;height:26px} }
 .cameo-btn.danger:hover{filter:brightness(1.08)}
 .cameo-dialog-host .cameo-overlay{z-index:140}
 .cameo-modal.cameo-gate,.cameo-modal.cameo-revoke{width:min(440px,100%)}

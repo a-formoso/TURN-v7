@@ -19,6 +19,7 @@ const TYPES = {
   ".css": "text/css", ".json": "application/json", ".png": "image/png",
   ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml",
   ".woff2": "font/woff2", ".ico": "image/x-icon", ".zip": "application/zip",
+  ".wasm": "application/wasm", ".task": "application/octet-stream",   // the Likeness pose check (app/vendor/face/)
 };
 
 // Block any path segment beginning with a dot (.git, .env, .replit, ., .., hidden files at any depth)
@@ -51,7 +52,8 @@ http.createServer((req, res) => {
     if (err) { res.writeHead(404); return res.end("not found"); }
     const headers = {
       "Content-Type": TYPES[path.extname(filePath)] || "application/octet-stream",
-      "Cache-Control": "no-cache",
+      // app/vendor/<lib>/v<version>/ never changes under the same name: cache it for a year
+      "Cache-Control": urlPath.startsWith("/app/vendor/") ? "public, max-age=31536000, immutable" : "no-cache",
     };
     if (urlPath === "/app/downloads/cinema-machine-blender.zip") {
       headers["Content-Disposition"] = 'attachment; filename="kinolot-blender.zip"';   // saved under the product name

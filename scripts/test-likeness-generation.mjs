@@ -118,7 +118,7 @@ await test("A1 master: front first, the other angles, then the worn item; a numb
   assert.equal(genCalls.length, 1);
   const g = genCalls[0];
   assert.deepEqual(imgs(g), ["data:FRONT","data:LEFT","data:RIGHT","data:BELT"]);
-  assert.match(g.prompt, /REFERENCE IMAGES, in the order attached: Image 1 = the person's face, front\. Images 2–3 = the same face from ¾ left and ¾ right\. Image 4 = worn item: Leather belt — lock it onto the character exactly/);
+  assert.match(g.prompt, /REFERENCE IMAGES, in the order attached: Image 1 = the person's face, front\. Images 2–3 = the same face with the head turned to the person's own left and to their own right \(three-quarter views\)\. Image 4 = worn item: Leather belt — lock it onto the character exactly/);
   assert.match(g.prompt, /this character is played by the real person in images 1–3\. Match that face exactly/);
   assert.ok(!FACE_TEXT.test(g.prompt), "no written face: "+(g.prompt.match(FACE_TEXT)||[])[0]);
   assert.match(g.prompt, /wiry, athletic/, "the build stays");
@@ -357,7 +357,7 @@ await test("B1 the Casting Director's master (also Scene needs): the ONE RULE, f
   await cast.generateMaster(CHAR);
   const g = genCalls[0];
   assert.deepEqual(imgs(g), ["data:FRONT","data:LEFT","data:RIGHT","data:BELT"]);
-  assert.match(g.prompt, /Image 1 = the person's face, front\. Images 2–3 = the same face from ¾ left and ¾ right\. Image 4 = worn item: Leather belt/);
+  assert.match(g.prompt, /Image 1 = the person's face, front\. Images 2–3 = the same face with the head turned to the person's own left and to their own right \(three-quarter views\)\. Image 4 = worn item: Leather belt/);
   assert.ok(!FACE_TEXT.test(g.prompt), "no written face: "+(g.prompt.match(FACE_TEXT)||[])[0]);
   assert.ok(!/additional prop reference image/i.test(g.prompt));
   assert.equal(g.opts.referencesNumbered, true);

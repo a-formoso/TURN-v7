@@ -19,25 +19,81 @@
 
    Exports: CameoModal (capture) + CameoManager (the Likenesses window). */
 
-/* The preview is MIRRORED (like a mirror), so "your left" always reads as the LEFT
-   side of the frame — every direction cue states both to kill the ambiguity. */
+/* (2026-10-10, owner — "it can't tell left from right") ONE person's left everywhere: the slot key
+   "left" is the head turned to the person's OWN left (as it always meant), and the preview is MIRRORED,
+   so their left is the LEFT edge of the screen — every direction says both. The stored labels stay
+   "Front" / "¾ Left" / "¾ Right" (label, what save() writes); the window SHOWS show / strip / long.
+   The head's pose is checked ON THE DEVICE by app/face-pose.js (window.turnFacePose): a side photo is
+   taken only when the head is turned the right way, far enough, and held for 5 s (Front: 3 s). */
 const CAMEO_ANGLES = [
-  { key:"front", label:"Front",   hint:"Look straight at the camera", say:"Look straight at the camera.", req:true  },
-  { key:"left",  label:"¾ Left",  hint:"Turn toward your LEFT shoulder — face swings to the LEFT side of the frame",
-    say:"Turn toward your left shoulder — your face should swing to the left side of the frame.", req:false },
-  { key:"right", label:"¾ Right", hint:"Turn toward your RIGHT shoulder — face swings to the RIGHT side of the frame",
-    say:"Turn toward your right shoulder — your face should swing to the right side of the frame.", req:false },
+  { key:"front", label:"Front",   show:"Front",      strip:"Front",        long:"Front",                side:null,    req:true  },
+  { key:"left",  label:"¾ Left",  show:"Your left",  strip:"← Your left",  long:"Turned to your left",  side:"left",  req:false },
+  { key:"right", label:"¾ Right", show:"Your right", strip:"Your right →", long:"Turned to your right", side:"right", req:false },
 ];
 const CAMEO_KEYS = CAMEO_ANGLES.map(a=>a.key);
+/* a stored angle (its key, or a label an older version saved) → front | left | right */
+function cameoAngleKey(a){
+  const k = String((a && typeof a==="object") ? (a.key||"") : (a||"")).toLowerCase();
+  if(CAMEO_KEYS.indexOf(k)>=0) return k;
+  const l = String((a && typeof a==="object") ? (a.label||"") : (a||"")).toLowerCase();
+  return /left/.test(l) ? "left" : /right/.test(l) ? "right" : "front";
+}
+/* how a saved angle reads outside the capture window (the Likenesses window, whose thumbnails are in
+   true orientation — an own-left turn's nose points to the photo's right — so it says whose left) */
+function cameoAngleShow(a){
+  const k = cameoAngleKey(a);
+  return k==="left" ? "Turned to their own left" : k==="right" ? "Turned to their own right" : "Front";
+}
 
-/* shared: square centre-crop a video frame or image to <=1024 jpeg data URL */
-function cameoCropToDataUrl(src, sw, sh){
+/* shared: square centre-crop a video frame or image to <=1024 jpeg data URL. flip: the camera already
+   flips its picture (P2), so the photo is flipped back — saved photos are always in true orientation. */
+function cameoCropToDataUrl(src, sw, sh, flip){
   const side = Math.min(sw, sh), out = Math.min(side, 1024);
   const cv = document.createElement("canvas"); cv.width=out; cv.height=out;
   const ctx = cv.getContext("2d");
+  if(flip){ ctx.translate(out, 0); ctx.scale(-1, 1); }
   ctx.drawImage(src, (sw-side)/2, (sh-side)/2, side, side, 0, 0, out, out);
-  return { url: cv.toDataURL("image/jpeg", 0.92), out };
+  return { url: cv.toDataURL("image/jpeg", 0.92), out, canvas: cv };
 }
+function cameoLoadImage(url){
+  return new Promise((resolve, reject)=>{
+    const im = new Image();
+    im.onload = ()=>resolve(im); im.onerror = ()=>reject(new Error("image"));
+    im.src = url;
+  });
+}
+/* a photo flipped left-to-right (a Front taken before / after the camera setting changed) */
+async function cameoFlipDataUrl(url){
+  const im = await cameoLoadImage(url);
+  const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  const ctx = cv.getContext("2d");
+  ctx.translate(w, 0); ctx.scale(-1, 1);
+  ctx.drawImage(im, 0, 0, w, h);
+  return cv.toDataURL("image/jpeg", 0.92);
+}
+/* the pose module, when it's on the page (a missing one behaves as "the pose check couldn't start") */
+const cameoFP = ()=> (typeof window.turnFacePose==="object" && window.turnFacePose) ? window.turnFacePose : null;
+const cameoPerfNow = ()=> (typeof performance!=="undefined" && performance && typeof performance.now==="function") ? performance.now() : Date.now();
+/* (only the pose check and the live picture: the photos the person LOCKS are kept, and are sent as face
+   references when this character's images are made) */
+const CAMEO_NOTE_OK = "The pose check runs on this device — the camera picture isn't sent anywhere while you pose. Only the photos you lock are kept, as face references for this character's images.";
+const CAMEO_NOTE_WHY = { unsupported:"in this browser", offline:"(check your connection, then reopen this window)",
+  timeout:"(check your connection, then reopen this window)", failed:"on this device" };
+function cameoNoteOff(why){
+  return "Automatic side photos are off — the pose check couldn't start "+(CAMEO_NOTE_WHY[why]||CAMEO_NOTE_WHY.failed)+". Turn as the sketch shows, then press Capture now.";
+}
+/* the cue without the pose module (it failed to load): Front keeps its simple automatic capture */
+function cameoFallbackCue(a, filled, auto, allDone, st){
+  if(allDone) return { key:"complete", k:"done", text:"All three done — say whose likeness it is, tick the box and lock it", say:null };
+  if(st && st.phase==="camera") return { key:"camera", k:"wait", text:"Allow the camera to start — or upload a photo", say:null };
+  if(filled) return { key:"filled", k:"done", text:"Done — pick another photo or lock the likeness", say:null };
+  if(!auto) return { key:"manual", k:"off", text:"Automatic capture is off — press Capture now when you're in position", say:null };
+  if(a.side) return { key:"unavailable-side", k:"off", text:"Turn your head to your "+a.side+", then press Capture now", say:null };
+  if(st && st.phase==="holding") return { key:"holding", k:"go", text:"Hold still — "+(st.secsLeft||1), say:null };
+  return { key:"unavailable-front", k:"wait", text:"Look straight at the camera and hold still", say:null };
+}
+const CAMEO_RING_D = "M50 11 A27 35 0 1 1 49.999 11";
 
 /* ── pose sketches (decision H) ────────────────────────────────────────────
    Three neutral line drawings — front, ¾ left, ¾ right — drawn as the person SEES themselves in
@@ -243,7 +299,8 @@ function CameoModal({ character, onClose, onSaved }){
 
   /* RECAPTURE STARTS FROM THE SAVED LIKENESS (finding 6): its angles, whose face it is, its
      consent and its sync setting — so locking again never drops a cloud copy or a note by accident.
-     Anything captured in this session before it arrives wins. */
+     Anything captured in this session before it arrives wins. The saved photos are checked on this
+     device once the pose check is ready (a side slot holding a front view is marked, never changed). */
   React.useEffect(()=>{
     let alive = true;
     (async()=>{
@@ -256,54 +313,98 @@ function CameoModal({ character, onClose, onSaved }){
       const s = {}, src = {};
       for(const a of (mine.angles||[])) if(a && a.url && CAMEO_KEYS.indexOf(a.key)>=0){ s[a.key] = a.url; src[a.key] = a.source==="upload" ? "upload" : "webcam"; }
       const next = { ...s, ...(shotsRef.current||{}) };
+      for(const k of Object.keys(s)) if(next[k]===s[k]) prefillRef.current[k] = s[k];
+      shotsRef.current = next;
       setShots(next); setActiveIdx(firstEmptyOf(next));
       setSources(cur=>({ ...src, ...cur }));
       if(!consentTouchedRef.current) setConsentV(cameoConsentFromRecord(mine));
       setSync(!!mine.sync); setWasSynced(!!mine.sync);
       if(mine.w) setDims({ w:mine.w, h:mine.h||mine.w });
+      setPrefillN(n=>n+1);
     })();
     return ()=>{ alive = false; };
   },[character && character.id]);
 
-  /* auto-capture engine state */
+  /* the capture loop's view: the cue, the ring, the turn meter (set by the loop, only on a change) */
   const [auto, setAuto] = React.useState(true);
-  const [det, setDet] = React.useState({ face:false, bright:true, still:false, prog:0, size:null, pose:null, same:null, secs:null });
+  const [det, setDet] = React.useState(null);
 
-  /* ── spoken feedback (Web Speech, local, no API) — the user is posing, not reading:
-     key moments are announced aloud: shot-is-good ("hold still"), each capture + the
-     next pose to strike, the same-pose warning, and all-angles-done. Toggleable. ── */
+  /* ── spoken directions — only a voice built into the device (nothing leaves it): which way to turn,
+     the countdown, each photo. Toggleable; off (and the pill disabled) with no local voice. ── */
   const [voiceOn, setVoiceOn] = React.useState(()=>{ try{ return localStorage.getItem("turn_cameo_voice")!=="0"; }catch(e){ return true; } });
   const voiceOnRef = React.useRef(voiceOn); voiceOnRef.current = voiceOn;
   const toggleVoice = ()=>setVoiceOn(v=>{ const n=!v; try{ localStorage.setItem("turn_cameo_voice", n?"1":"0"); }catch(e){} if(!n){ try{ window.speechSynthesis&&window.speechSynthesis.cancel(); }catch(e){} } return n; });
-  const lastSpeakRef = React.useRef({ msg:"", at:0 });
-  const speak = React.useCallback((msg, force)=>{
+  const lastSpeakRef = React.useRef({ key:"", target:"", at:-1e9 });
+  /* o.force: hold start, the countdown, a reset, a capture — cancels what's being said. Otherwise at
+     least 2.5 s between lines and the same line not again within 6 s for the same angle. */
+  const speak = React.useCallback((msg, o)=>{
+    o = o || {};
     try{
-      if(!voiceOnRef.current || !window.speechSynthesis || !msg) return;
-      const now = Date.now(), last = lastSpeakRef.current;
-      if(!force && (msg===last.msg || now-last.at < 2200)) return;   // no chatter
-      lastSpeakRef.current = { msg, at:now };
-      window.speechSynthesis.cancel();
+      const ss = window.speechSynthesis, voice = voiceListRef.current;
+      if(!voiceOnRef.current || !ss || !msg || !voice || typeof SpeechSynthesisUtterance!=="function") return false;
+      const now = nowRef.current, last = lastSpeakRef.current;
+      if(!o.force){
+        if(ss.speaking || now - last.at < 2500) return false;
+        if(last.key===(o.key||msg) && last.target===(o.target||"") && now - last.at < 6000) return false;
+      }
+      lastSpeakRef.current = { key:o.key||msg, target:o.target||"", at:now };
+      if(o.force) ss.cancel();
       const u = new SpeechSynthesisUtterance(msg);
+      u.voice = voice; if(voice.lang) u.lang = voice.lang;
       u.rate = 1.05; u.volume = 0.9;
-      window.speechSynthesis.speak(u);
-    }catch(e){}
+      ss.speak(u);
+      return true;
+    }catch(e){ return false; }
   },[]);
   React.useEffect(()=>()=>{ try{ window.speechSynthesis&&window.speechSynthesis.cancel(); }catch(e){} },[]);
   const [flash, setFlash] = React.useState(false);
   const activeIdxRef = React.useRef(activeIdx); activeIdxRef.current = activeIdx;
   const shotsRef = React.useRef(shots); shotsRef.current = shots;
   const autoRef = React.useRef(auto); autoRef.current = auto;
-  const analyRef = React.useRef(null);
-  const faceAnalyRef = React.useRef(null);    // face-box-only sample canvas
+  const analyRef = React.useRef(null);        // the simple Front check's 64px sample canvas
   const prevLumaRef = React.useRef(null);
-  const sigRef = React.useRef({});            // key -> 64px luma signature at capture time —
-                                              // blocks auto-capturing the SAME pose into two angles
-  const steadyRef = React.useRef(0);
-  const busyRef = React.useRef(false);
-  const faceDetRef = React.useRef(undefined);   // FaceDetector instance | null
-  const faceOkRef = React.useRef(null);         // last detector verdict
-  const faceBoxRef = React.useRef(null);        // last detector bounding box (video px)
-  const detectingRef = React.useRef(false);
+  const busyRef = React.useRef(false);        // a capture's flash, or a confirmation open: the loop waits
+
+  /* ── the pose check (app/face-pose.js) — appended state ── */
+  const aliveRef = React.useRef(true);
+  const [engineState, setEngineState] = React.useState("idle");   // idle | loading | ready | unavailable
+  const engineRef = React.useRef(null);
+  const engineWhyRef = React.useRef(null);                        // unsupported | offline | timeout | failed
+  const smootherRef = React.useRef(null);
+  const machineRef = React.useRef(null);
+  const lastEvRef = React.useRef(null);                           // { ev, key, at } — the last frame checked
+  const poseRef = React.useRef({});                               // key -> { measured, yaw, checked } — memory only
+  const [checkState, setCheckState] = React.useState({});         // key -> "ok" | "mismatch" (saved photos)
+  /* P2: a camera that already flips its picture — set for THIS window only, after the person checked it
+     ("Preview not like a mirror? Check it"); never remembered, so another camera or a later window starts
+     as a mirror again */
+  const [camFlipped, setCamFlipped] = React.useState(false);
+  const voiceListRef = React.useRef(null);                        // the device's own voice, or null
+  const [announce, setAnnounce] = React.useState("");             // the screen-reader line
+  const [voiceOk, setVoiceOk] = React.useState(false);
+  const [camSeq, setCamSeq] = React.useState(0);                  // a camera stream arrived
+  const [prefillN, setPrefillN] = React.useState(0);
+  const [flipFix, setFlipFix] = React.useState(false);            // P2: offer "Preview not like a mirror? Check it"
+  const nowRef = React.useRef(0);                                 // the loop's clock (the frame time)
+  const engineStateRef = React.useRef(engineState); engineStateRef.current = engineState;
+  const camFlippedRef = React.useRef(camFlipped); camFlippedRef.current = camFlipped;
+  const checkStateRef = React.useRef(checkState); checkStateRef.current = checkState;
+  const phaseRef = React.useRef(phase); phaseRef.current = phase;
+  const savingRef = React.useRef(saving); savingRef.current = saving;
+  const onCloseRef = React.useRef(onClose); onCloseRef.current = onClose;
+  const prefillRef = React.useRef({});                            // key -> the saved photo's url (to check)
+  const auditedRef = React.useRef({});
+  const recreatedRef = React.useRef(false);
+  const confirmOpenRef = React.useRef(false);
+  const loopRef = React.useRef({ times:[], evPrev:{}, legacy:{ start:null, bad:null, at:null }, sig:"", cueKey:"", cueTarget:"",
+    cueSince:0, srAt:0, srDone:true, spokenOnce:{}, lastCount:null, wrongSince:null, wrongBad:null, loadSince:null, bootSeq:0 });
+  const captureNowRef = React.useRef(null);
+  const [engineWanted, setEngineWanted] = React.useState(false);  // the camera runs, or a photo was uploaded to check
+  const loadCtlRef = React.useRef(null);                          // aborts the download when the window closes
+  const modeRef = React.useRef({});                               // key -> camera setting (flipped?) of a webcam photo taken in this window
+  const lastObsRef = React.useRef(null);                          // { sobs, luma, at } — the loop's last frame
+  const camSeqRef = React.useRef(camSeq); camSeqRef.current = camSeq;
+  React.useEffect(()=>{ aliveRef.current = true; return ()=>{ aliveRef.current = false; }; },[]);
 
   const stopStream = ()=>{ try{ (streamRef.current&&streamRef.current.getTracks()||[]).forEach(t=>t.stop()); }catch(e){} streamRef.current=null; };
   const startCam = React.useCallback(async ()=>{
@@ -312,208 +413,560 @@ function CameoModal({ character, onClose, onSaved }){
     try{
       const stream = await navigator.mediaDevices.getUserMedia({
         video:{ facingMode:"user", width:{ideal:1280}, height:{ideal:1280} }, audio:false });
-      streamRef.current = stream; setPhase("live");
+      // the window closed while the browser asked: this camera must not stay on
+      if(!aliveRef.current){ try{ stream.getTracks().forEach(t=>t.stop()); }catch(e){} return; }
+      streamRef.current = stream; setPhase("live"); setCamSeq(n=>n+1);
       requestAnimationFrame(()=>{ if(videoRef.current){ videoRef.current.srcObject=stream; videoRef.current.play().catch(()=>{}); } });
-    }catch(e){ setPhase((e && (e.name==="NotAllowedError"||e.name==="SecurityError")) ? "denied" : "nocam"); }
+    }catch(e){ if(aliveRef.current) setPhase((e && (e.name==="NotAllowedError"||e.name==="SecurityError")) ? "denied" : "nocam"); }
   },[]);
   React.useEffect(()=>{ startCam(); return stopStream; },[startCam]);
 
-  function firstEmptyOf(next){ for(let i=0;i<CAMEO_ANGLES.length;i++){ if(!next[CAMEO_ANGLES[i].key]) return i; } return activeIdxRef.current||0; }
-  const nextEmpty = (next)=> firstEmptyOf(next);
+  /* the device's own voices only */
+  React.useEffect(()=>{
+    const ss = window.speechSynthesis;
+    const pick = ()=>{
+      try{
+        const vs = (ss && typeof ss.getVoices==="function" ? ss.getVoices() : []) || [];
+        const local = vs.filter(v=>v && v.localService===true);
+        voiceListRef.current = local.find(v=>/^en/i.test(String(v.lang||""))) || local[0] || null;
+      }catch(e){ voiceListRef.current = null; }
+      setVoiceOk(!!voiceListRef.current);
+    };
+    pick();
+    if(!ss) return undefined;
+    if(typeof ss.addEventListener==="function"){ ss.addEventListener("voiceschanged", pick); return ()=>{ try{ ss.removeEventListener("voiceschanged", pick); }catch(e){} }; }
+    ss.onvoiceschanged = pick;
+    return ()=>{ if(ss.onvoiceschanged===pick) ss.onvoiceschanged = null; };
+  },[]);
 
-  /* commit a frame for a specific angle, flash, then advance to the next empty */
-  const doCapture = (key)=>{
-    const v = videoRef.current; if(!v || !v.videoWidth || busyRef.current) return;
-    const { url, out } = cameoCropToDataUrl(v, v.videoWidth, v.videoHeight);
+  /* a break in what the loop saw (a dialog closed, the tab hidden, the check restarted): a hold in
+     progress starts over — time nobody watched never counts */
+  const holdBreak = ()=>{
+    if(machineRef.current) machineRef.current.retarget(nowRef.current);
+    loopRef.current.legacy = { start:null, bad:null, at:null };
+  };
+  /* the pose check loads only once the camera runs, or a photo is uploaded to be checked (neither →
+     nothing is downloaded); one engine per window, closed (and its download stopped) when the window closes */
+  const bootEngine = ()=>{
+    const FP = cameoFP();
+    if(!FP || typeof FP.load!=="function"){ engineWhyRef.current = "unsupported"; setEngineState("unavailable"); return; }
+    const L = loopRef.current, my = ++L.bootSeq;
+    let ctl = null; try{ ctl = (typeof AbortController==="function") ? new AbortController() : null; }catch(e){ ctl = null; }
+    loadCtlRef.current = ctl;
+    setEngineState("loading");
+    let p; try{ p = FP.load(ctl ? { signal:ctl.signal } : {}); }catch(e){ p = Promise.reject(e); }
+    Promise.resolve(p).then((eng)=>{
+      if(!aliveRef.current || my!==loopRef.current.bootSeq){ try{ if(eng) eng.close(); }catch(e){} return; }
+      engineRef.current = eng;
+      if(smootherRef.current) smootherRef.current.reset();
+      holdBreak();
+      setEngineState("ready");
+    }, (e)=>{
+      if(!aliveRef.current || my!==loopRef.current.bootSeq) return;
+      engineWhyRef.current = (typeof FP.mapLoadError==="function") ? FP.mapLoadError(e) : "failed";
+      setEngineState("unavailable");
+    });
+  };
+  React.useEffect(()=>{ if(phase==="live" && camSeq) setEngineWanted(true); },[phase, camSeq]);
+  React.useEffect(()=>{
+    if(!engineWanted) return undefined;
+    bootEngine();
+    return ()=>{
+      loopRef.current.bootSeq++;
+      const c = loadCtlRef.current; loadCtlRef.current = null;
+      if(c){ try{ c.abort(); }catch(x){} }
+      const e = engineRef.current; engineRef.current = null;
+      if(e){ try{ e.close(); }catch(x){} }
+      if(aliveRef.current) setEngineState("idle");
+    };
+  },[engineWanted]);
+  /* the tab hidden: whatever was being held starts over when it's back */
+  React.useEffect(()=>{
+    if(typeof document==="undefined" || typeof document.addEventListener!=="function") return undefined;
+    const onVis = ()=>{ if(document.hidden) holdBreak(); };
+    document.addEventListener("visibilitychange", onVis);
+    return ()=>{ try{ document.removeEventListener("visibilitychange", onVis); }catch(e){} };
+  },[]);
+  /* a detector error mid-session: close it and try once more, quietly; a second failure → manual */
+  const engineFailed = ()=>{
+    const e = engineRef.current; engineRef.current = null;
+    if(e){ try{ e.close(); }catch(x){} }
+    if(!recreatedRef.current){ recreatedRef.current = true; bootEngine(); }
+    else { engineWhyRef.current = "failed"; setEngineState("unavailable"); }
+  };
+
+  function firstEmptyOf(next){ for(let i=0;i<CAMEO_ANGLES.length;i++){ if(!next[CAMEO_ANGLES[i].key]) return i; } return activeIdxRef.current||0; }
+  /* where to go after a photo: the first empty slot; with none, the first photo marked as the wrong angle */
+  const nextTargetOf = (next, skip)=>{
+    for(let i=0;i<CAMEO_ANGLES.length;i++){ if(!next[CAMEO_ANGLES[i].key]) return i; }
+    for(let i=0;i<CAMEO_ANGLES.length;i++){ const k = CAMEO_ANGLES[i].key; if(k!==skip && checkStateRef.current[k]==="mismatch") return i; }
+    return activeIdxRef.current||0;
+  };
+  const markMismatch = (key)=>{
+    checkStateRef.current = { ...checkStateRef.current, [key]:"mismatch" };
+    setCheckState(s=>{ const n = { ...s, [key]:"mismatch" }; checkStateRef.current = n; return n; });
+  };
+  const dropCheck = (key)=>{
+    delete poseRef.current[key]; delete prefillRef.current[key];
+    if(key in checkStateRef.current){ const c = { ...checkStateRef.current }; delete c[key]; checkStateRef.current = c; }
+    setCheckState(s=>{ if(!(key in s)) return s; const n = { ...s }; delete n[key]; checkStateRef.current = n; return n; });
+  };
+
+  /* commit a frame for a specific angle, flash, then advance to the next empty. o.shot: the frame cropped
+     when the decision was made (Capture now crops BEFORE it asks, so the photo is the frame that was
+     checked — never the one on screen when the question is answered) */
+  const doCapture = (key, o)=>{
+    o = o || {};
+    const v = videoRef.current;
+    if(busyRef.current) return false;
+    if(!o.shot && (!v || !v.videoWidth)) return false;
+    const FP = cameoFP();
+    const t = nowRef.current;
+    const { url, out } = o.shot || cameoCropToDataUrl(v, v.videoWidth, v.videoHeight, !!camFlippedRef.current);
     const next = { ...shotsRef.current, [key]:url };
-    // remember what this angle LOOKED like (latest 64px luma sample) so another angle
-    // can't auto-capture the same pose
-    if(prevLumaRef.current) sigRef.current[key] = Float32Array.from(prevLumaRef.current);
-    busyRef.current = true; steadyRef.current = 0; prevLumaRef.current = null;
+    shotsRef.current = next;
+    busyRef.current = true;
+    if(machineRef.current) machineRef.current.markCaptured(o.measured || key, t);
+    dropCheck(key);
+    poseRef.current[key] = { measured:o.measured || null, yaw:(o.yaw==null ? null : o.yaw), checked:!!o.measured };
+    modeRef.current[key] = o.shot ? !!o.shot.flipped : !!camFlippedRef.current;
+    if(o.measured && o.measured!==key) markMismatch(key);   // taken anyway (Capture now, confirmed): marked "!"
     setFlash(true); setShots(next); setSources(s=>({ ...s, [key]:"webcam" })); setDims({w:out,h:out});
     // announce the capture + the next pose to strike (or that the set is complete)
-    const nextAngle = CAMEO_ANGLES.find(a=>!next[a.key]);
-    speak(nextAngle
-      ? ("Captured. Next: "+nextAngle.label.replace("¾","three-quarter")+". "+(nextAngle.say||""))
-      : "Captured. All angles done — say whose likeness it is, tick the box and lock it.", true);
-    setTimeout(()=>{ setFlash(false); busyRef.current = false; setActiveIdx(nextEmpty(next)); }, 280);
+    const nextA = CAMEO_ANGLES.find(x=>!next[x.key]);
+    const eng = FP ? engineStateRef.current : "unavailable";
+    const nextLine = FP ? FP.nextStepLine(nextA ? nextA.key : null, eng)
+      : (nextA ? (nextA.side ? "Turn your head to your "+nextA.side+", then press Capture now." : "Look straight at the camera.") : "All three done. Say whose likeness it is, tick the box, and lock it.");
+    speak("Got it. "+nextLine, { force:true, key:"settle", target:key });
+    try{ if(navigator.vibrate) navigator.vibrate(40); }catch(e){}
+    setAnnounce(FP && typeof FP.srCapturedLine==="function" ? FP.srCapturedLine(key, nextA ? nextA.key : null, eng) : "Photo taken. "+nextLine);
+    const allDone = CAMEO_KEYS.every(k=>next[k]);
+    const cue = FP ? FP.cueFor({ phase:"settle" }, null, key, {}) : { key:"settle", k:"done", text:"Got it!", say:null };
+    loopRef.current.sig = "";
+    setDet(d=>({ ...(d||{}), key, cue, phase:"settle", progress:0, yaw:null, inBand:false, filled:true, allDone, auto:autoRef.current, eng, mismatch:false, marked:-1 }));
+    setTimeout(()=>{
+      setFlash(false); busyRef.current = false;
+      const ni = nextTargetOf(next, key), nk = CAMEO_ANGLES[ni].key;
+      setActiveIdx(ni);
+      setDet(d=>d ? ({ ...d, key:nk, filled:!!next[nk] }) : d);
+    }, 280);
+    return true;
   };
-  const captureNow = ()=> doCapture(CAMEO_ANGLES[activeIdxRef.current].key);
 
-  /* ── auto-capture loop ───────────────────────────────────────────────────
-     Samples the webcam ~5×/s into a 64px canvas and scores the framed centre:
-       • bright  — mean luma in a usable band (not too dark / blown out)
-       • still   — low frame-to-frame motion (subject holding the pose)
-       • face    — a subject is present (FaceDetector when available, else a
-                   centre-detail/variance heuristic that fires on a face)
-     When all three hold for ~1s it auto-captures and advances. Fail-open: if
-     the FaceDetector API is missing or errors, the heuristic carries it. */
-  React.useEffect(()=>{
-    if(phase!=="live") return;
-    if(faceDetRef.current===undefined){
-      try{ faceDetRef.current = ("FaceDetector" in window) ? new window.FaceDetector({ fastMode:true, maxDetectedFaces:1 }) : null; }
-      catch(e){ faceDetRef.current = null; }
+  /* ask before a photo that doesn't fit (the loop waits while the question is open; the hold starts
+     over afterwards — the time the question was open isn't a held pose) */
+  const cameoAsk = async (opts)=>{
+    if(typeof window.appConfirm!=="function") return true;
+    confirmOpenRef.current = true; busyRef.current = true;
+    try{ return !!(await window.appConfirm(opts)); }
+    catch(e){ return false; }
+    finally{ confirmOpenRef.current = false; busyRef.current = false; holdBreak(); }
+  };
+  /* the frame on screen now, checked: a fresh detection of it, or (it's the frame the loop just checked)
+     the loop's own reading of it, for this angle */
+  const freshEv = (key)=>{
+    const FP = cameoFP(), eng = engineRef.current, v = videoRef.current;
+    if(!FP || !eng || !v || !v.videoWidth) return null;
+    let res = null;
+    try{ res = eng.detect(v, nowRef.current+1); }catch(e){ res = null; }
+    if(res){
+      const obs = FP.observe(res, v.videoWidth, v.videoHeight, { mirroredSource:!!camFlippedRef.current });
+      const luma = obs.primary ? FP.sampleLuma(v, obs.primary.bboxPx) : null;
+      const sm = smootherRef.current || (smootherRef.current = FP.createSmoother());
+      const sobs = sm.push(obs, nowRef.current+1);
+      lastObsRef.current = { sobs, luma, at:nowRef.current };
+      const ev = FP.evaluateFrame(sobs, key, { luma, prev:loopRef.current.evPrev });
+      lastEvRef.current = { ev, key, at:nowRef.current };
+      return ev;
     }
-    let raf=0, stopped=false, last=0, detClock=0;
-    const SAMPLE=180, NEED=5, N=64;
+    const le = lastEvRef.current, lo = lastObsRef.current;
+    if(le && le.key===key && nowRef.current-le.at <= 400) return le.ev;
+    if(lo && nowRef.current-lo.at <= 400) return FP.evaluateFrame(lo.sobs, key, { luma:lo.luma, prev:{ ...loopRef.current.evPrev } });
+    return null;
+  };
+  /* Capture now (or the C key): straight away when the frame fits, or when only the light or holding
+     still failed; otherwise it asks first — the pose, a second face, an uncertain direction, closed
+     eyes, the framing. The frame is cropped at the press, so what's saved is what was checked. */
+  const CAMEO_ASK_FIRST = ["two-faces", "uncertain", "eyes-closed", "far", "close", "offcenter"];
+  const captureNow = async ()=>{
+    if(busyRef.current || confirmOpenRef.current) return;
+    const a = CAMEO_ANGLES[activeIdxRef.current] || CAMEO_ANGLES[0], key = a.key;
+    const v = videoRef.current; if(!v || !v.videoWidth) return;
+    const FP = cameoFP();
+    const eng = FP ? engineStateRef.current : "unavailable";
+    const ev = (eng==="ready" && engineRef.current) ? freshEv(key) : null;
+    const flipped = !!camFlippedRef.current;
+    const shot = { ...cameoCropToDataUrl(v, v.videoWidth, v.videoHeight, flipped), flipped };
+    let measured = null;
+    const asks = [];
+    if(eng==="ready" && engineRef.current){
+      if(!ev || ev.base==="none") asks.push(FP.confirmFor("C4", key, null));
+      else if(!ev.ok){
+        const fails = Array.isArray(ev.fails) ? ev.fails : [ev.reason];
+        if(ev.measured!==key) asks.push(FP.confirmFor("C1", key, ev.measured));
+        const more = fails.filter(r=>CAMEO_ASK_FIRST.indexOf(r)>=0);
+        // a second person is asked about even after the pose question; the rest once is enough
+        if(more.indexOf("two-faces")>=0) asks.push(FP.confirmFor("C5", key, null, { reason:"two-faces" }));
+        else if(!asks.length && more.length) asks.push(FP.confirmFor("C5", key, null, { reason:more[0] }));
+      }
+      if(ev && ev.base!=="none") measured = ev.base;
+    } else if(a.side){
+      asks.push(FP ? FP.confirmFor("C2", key, null)
+        : { title:"The pose couldn't be checked", body:"Make sure your head is turned to your "+a.side+" — toward the "+a.side+" edge of the screen. Use this frame for “"+a.show+"”?", confirmLabel:"Use this frame" });
+    }
+    for(const ask of asks){ if(!(await cameoAsk(ask))) return; }
+    if(!aliveRef.current) return;
+    doCapture(key, { measured, auto:false, shot });
+  };
+  captureNowRef.current = captureNow;
+
+  /* the simple Front check (only when the pose check can't start): steady, well lit, something in
+     the ring — held for 3 s */
+  const legacyFrontStep = (v, t)=>{
+    if(!v || !v.videoWidth) return null;
+    const N = 64;
+    const cv = analyRef.current || (analyRef.current=document.createElement("canvas"));
+    cv.width=N; cv.height=N;
+    const ctx = cv.getContext("2d",{willReadFrequently:true});
+    const side = Math.min(v.videoWidth, v.videoHeight);
+    ctx.drawImage(v,(v.videoWidth-side)/2,(v.videoHeight-side)/2,side,side,0,0,N,N);
+    const img = ctx.getImageData(0,0,N,N).data;
+    const luma = new Float32Array(N*N);
+    let sum=0;
+    for(let i=0,p=0;i<img.length;i+=4,p++){ const l=0.299*img[i]+0.587*img[i+1]+0.114*img[i+2]; luma[p]=l; sum+=l; }
+    const mean = sum/(N*N);
+    const lo=N*0.27, hi=N*0.73;
+    let s=0,s2=0,n=0;
+    for(let y=0;y<N;y++) for(let x=0;x<N;x++) if(y>=lo&&y<=hi&&x>=lo&&x<=hi){ const l=luma[y*N+x]; s+=l; s2+=l*l; n++; }
+    const cstd = n ? Math.sqrt(Math.max(0, s2/n-(s/n)*(s/n))) : 0;
+    let motion=999; const prev=prevLumaRef.current;
+    if(prev && prev.length===luma.length){ let d=0; for(let p=0;p<luma.length;p++) d+=Math.abs(luma[p]-prev[p]); motion=d/luma.length; }
+    prevLumaRef.current = luma;
+    const bright = mean>45 && mean<228, still = motion < 6.5, face = cstd > 15;
+    const ready = bright && still && face;
+    const G = loopRef.current.legacy, HOLD = 3000;
+    // no frame for over 400 ms (a hidden tab, a dialog) breaks the hold, as in the pose check
+    if(G.at!=null && t-G.at>400){ G.start = null; G.bad = null; }
+    G.at = t;
+    let started = false;
+    if(ready){ if(G.start==null){ G.start = t; started = true; } G.bad = null; }
+    else if(G.start!=null){ if(G.bad==null) G.bad = t; if(t-G.bad>=400){ G.start = null; G.bad = null; } }
+    const el = G.start!=null ? t-G.start : 0;
+    const fire = G.start!=null && ready && el>=HOLD;
+    if(fire){ G.start = null; G.bad = null; }
+    return { phase:(G.start!=null||fire) ? "holding" : "wait", progress: fire ? 1 : (G.start!=null ? Math.min(1, el/HOLD) : 0),
+      secsLeft: G.start!=null ? Math.max(1, Math.ceil((HOLD-el)/1000)) : null, fire, started, reset:null, hint:null,
+      reason: ready ? null : !bright ? (mean<=45 ? "dark" : "bright") : !still ? "moving" : "no-face" };
+  };
+
+  /* the loop's output: the cue (with its spoken line), the ring, the meter — set only on a change */
+  /* how many photos are marked as the wrong angle (the saved-photo / upload check) */
+  const markedCount = (cs, sh)=> CAMEO_KEYS.filter(k=>(sh||{})[k] && (cs||{})[k]==="mismatch").length;
+  /* P2 is offered only when it can be a camera that flips its picture and not just someone unsure of
+     their left: no side photo was taken live in this window yet (a camera that flips would have made
+     that impossible), and the "wrong way" is a fresh turn the person is holding — not the pose they were
+     just photographed in (the leave-first wait after a photo never counts) */
+  const flipCanBeOffered = ()=> !camFlippedRef.current && !CAMEO_KEYS.some(k=>k!=="front" && (shotsRef.current||{})[k] && (k in modeRef.current));
+  const publish = (st, ev, a, yaw, t, info)=>{
+    const FP = cameoFP(), L = loopRef.current, key = a.key;
+    const mismatch = !!info.filled && checkStateRef.current[key]==="mismatch";
+    const marked = markedCount(checkStateRef.current, shotsRef.current);
+    if(info.eng==="loading"){ if(L.loadSince==null) L.loadSince = t; } else L.loadSince = null;
+    const slow = L.loadSince!=null && t-L.loadSince > 8000;
+    const nextA = CAMEO_ANGLES.find(x=>!(shotsRef.current||{})[x.key]);
+    const pr = poseRef.current[key];
+    const cue = FP ? FP.cueFor(st, ev, key, { engine:info.eng==="idle" ? "loading" : info.eng, slow, allDone:info.allDone, mismatch,
+        mismatchCount:marked, measured: mismatch && pr ? pr.measured : null, next: nextA ? nextA.key : null })
+      : cameoFallbackCue(a, info.filled, autoRef.current, info.allDone, st);
+    const inBand = !!(ev && ev.base===key);
+    // P2: a side target turned "the wrong way" for 6 s straight while the machine waits for a pose →
+    // offer the check (it asks a question the person can see for themselves; nothing changes without it)
+    if(a.side && st.phase==="wait" && cue.key==="wrong-way" && flipCanBeOffered()){
+      if(L.wrongSince==null) L.wrongSince = t;
+      L.wrongBad = null;
+      if(t-L.wrongSince >= 6000) setFlipFix(true);
+    } else if(L.wrongSince!=null){
+      if(L.wrongBad==null) L.wrongBad = t;
+      if(t-L.wrongBad >= 400){ L.wrongSince = null; L.wrongBad = null; }
+    }
+    const prog = Math.round((st.progress||0)*50);
+    const yawR = (yaw==null || !isFinite(yaw)) ? null : Math.round(yaw);
+    const sig = [key, cue.key, cue.text, cue.hint||"", st.secsLeft, prog, yawR, inBand?1:0, st.phase, info.eng, info.filled?1:0, autoRef.current?1:0, mismatch?1:0, info.allDone?1:0, marked, info.cam?1:0].join("|");
+    if(sig!==L.sig){
+      L.sig = sig;
+      setDet({ key, cue, phase:st.phase, progress:prog/50, yaw:yawR, inBand, filled:!!info.filled, allDone:!!info.allDone,
+        auto:!!autoRef.current, eng:info.eng, mismatch, marked, cam:!!info.cam });
+    }
+    // what is said, and what a screen reader hears
+    if(cue.key!==L.cueKey || key!==L.cueTarget){ L.cueKey = cue.key; L.cueTarget = key; L.cueSince = t; L.srAt = t; L.srDone = false; }
+    const lines = FP && FP.LINES;
+    if(st.started){
+      L.lastCount = st.secsLeft;
+      speak(lines ? (a.side ? lines.holdStartSide : lines.holdStartFront) : "Hold still.", { force:true, key:"hold-start", target:key });
+      setAnnounce("Hold still for "+(a.side ? 5 : 3)+" seconds");
+    } else if(st.phase==="holding" && st.secsLeft!=null && st.secsLeft!==L.lastCount){
+      L.lastCount = st.secsLeft;
+      const word = lines && lines.count[st.secsLeft];
+      if(word) speak(word, { force:true, key:"count-"+st.secsLeft, target:key });
+    }
+    if(st.reset && FP){
+      const r = FP.cueFor({ phase:"wait", reason:st.reset }, null, key, { engine:info.eng });
+      if(r.say) speak(r.say, { force:true, key:r.key, target:key });
+    }
+    const quietKeys = { settle:1, complete:1, filled:1, "filled-mismatch":1, holding:1, manual:1, loading:1, "loading-slow":1 };
+    if(cue.say && !quietKeys[cue.key] && t-L.cueSince >= 700){
+      if(cue.key==="unavailable-side"){
+        if(!L.spokenOnce["u|"+key] && speak(cue.say, { key:cue.key, target:key })) L.spokenOnce["u|"+key] = true;
+      } else speak(cue.say, { key:cue.key, target:key });
+    }
+    if(cue.hintSay && !L.spokenOnce["h|"+key] && t-L.cueSince >= 700){
+      if(speak(cue.hintSay, { key:"hint", target:key })) L.spokenOnce["h|"+key] = true;
+    }
+    if(!L.srDone && t-L.srAt >= 800 && cue.key!=="holding" && cue.key!=="settle"){
+      L.srDone = true; setAnnounce(cue.text+(cue.hint ? " "+cue.hint : ""));
+    }
+  };
+
+  /* one tick of the capture loop (about 10 a second): the frame → the pose → the hold → maybe the photo */
+  const tick = (t)=>{
+    const FP = cameoFP(), L = loopRef.current;
+    const a = CAMEO_ANGLES[activeIdxRef.current] || CAMEO_ANGLES[0], key = a.key;
+    const v = videoRef.current;
+    const sh = shotsRef.current || {};
+    const filled = !!sh[key];
+    const allDone = CAMEO_KEYS.every(k=>sh[k]);
+    const eng = FP ? engineStateRef.current : "unavailable";
+    const autoOn = !!autoRef.current;
+    const cam = !!camSeqRef.current;           // a camera stream arrived (until then the browser is asking)
+    let st = null, ev = null, yaw = null;
+    if(!cam){
+      st = { phase:"camera", progress:0, secsLeft:null, fire:false, reason:null, hint:null, started:false, reset:null };
+    } else if(eng==="ready" && engineRef.current && !filled){
+      if(!v || !v.videoWidth) return;
+      let res = null;
+      const t0 = cameoPerfNow();
+      try{ res = engineRef.current.detect(v, t); }
+      catch(e){ engineFailed(); return; }
+      if(res==null) return;
+      L.times.push(cameoPerfNow()-t0); if(L.times.length>10) L.times.shift();
+      const obs = FP.observe(res, v.videoWidth, v.videoHeight, { mirroredSource:!!camFlippedRef.current });
+      const luma = obs.primary ? FP.sampleLuma(v, obs.primary.bboxPx) : null;
+      const sm = smootherRef.current || (smootherRef.current = FP.createSmoother());
+      const sobs = sm.push(obs, t);
+      lastObsRef.current = { sobs, luma, at:t };
+      ev = FP.evaluateFrame(sobs, key, { luma, prev:L.evPrev });
+      yaw = sobs.pose ? sobs.pose.yaw : null;
+      lastEvRef.current = { ev, key, at:t };
+      const m = machineRef.current || (machineRef.current = FP.createHoldMachine());
+      st = m.step(ev, t, { target:key, filled, auto:autoOn, engine:"ready" });
+      // the photo is the frame that was just checked
+      if(st.fire){ doCapture(key, { measured:ev.base, auto:true, yaw }); return; }
+    } else if(eng==="unavailable" && autoOn && !filled && (FP ? FP.canAutoCapture(key, eng) : key==="front")){
+      // the pose check couldn't start: Front keeps its simple automatic capture, the sides are manual
+      st = legacyFrontStep(v, t);
+      if(!st) return;
+      if(st.fire){ doCapture(key, { measured:null, auto:true }); return; }
+    } else {
+      st = { phase: !autoOn ? "manual" : filled ? "filled" : (eng==="unavailable" ? "wait" : "loading"),
+        progress:0, secsLeft:null, fire:false, reason:null, hint:null, started:false, reset:null };
+    }
+    publish(st, ev, a, yaw, t, { eng, filled, allDone, cam });
+  };
+
+  /* ── the capture loop: one rAF loop, every 100 ms (160 ms on a slow device) ── */
+  React.useEffect(()=>{
+    if(phase!=="live") return undefined;
+    let raf=0, stopped=false, last=-1e9;
     const loop = (t)=>{
       if(stopped) return;
       raf = requestAnimationFrame(loop);
-      if(t-last < SAMPLE) return; last=t;
-      const v = videoRef.current; if(!v || !v.videoWidth) return;
-      const key = CAMEO_ANGLES[activeIdxRef.current].key;
-      if(busyRef.current || !autoRef.current || shotsRef.current[key]){
-        if(steadyRef.current!==0){ steadyRef.current=0; setDet(d=>({...d,prog:0})); }
-        return;
-      }
-      const cv = analyRef.current || (analyRef.current=document.createElement("canvas"));
-      cv.width=N; cv.height=N;
-      const ctx = cv.getContext("2d",{willReadFrequently:true});
-      const side = Math.min(v.videoWidth, v.videoHeight);
-      ctx.drawImage(v,(v.videoWidth-side)/2,(v.videoHeight-side)/2,side,side,0,0,N,N);
-      const img = ctx.getImageData(0,0,N,N).data;
-      const luma = new Float32Array(N*N);
-      let sum=0;
-      for(let i=0,p=0;i<img.length;i+=4,p++){ const l=0.299*img[i]+0.587*img[i+1]+0.114*img[i+2]; luma[p]=l; sum+=l; }
-      const mean = sum/(N*N);
-      /* centre-region detail split LEFT vs RIGHT half (in the unmirrored video
-         frame). When the user turns their head, the cheek facing the camera shows
-         MORE skin/detail than the receding side, so |lStd - rStd| spikes — and
-         the sign of the imbalance tells us which way they're turned. */
-      const lo=N*0.27, hi=N*0.73, mid=N*0.5;
-      let lS=0,lS2=0,lN=0, rS=0,rS2=0,rN=0;
-      for(let y=0;y<N;y++) for(let x=0;x<N;x++){
-        if(y>=lo&&y<=hi){
-          if(x>=lo&&x<mid){ const l=luma[y*N+x]; lS+=l; lS2+=l*l; lN++; }
-          else if(x>=mid&&x<=hi){ const l=luma[y*N+x]; rS+=l; rS2+=l*l; rN++; }
-        }
-      }
-      const lStd = lN ? Math.sqrt(Math.max(0, lS2/lN-(lS/lN)*(lS/lN))) : 0;
-      const rStd = rN ? Math.sqrt(Math.max(0, rS2/rN-(rS/rN)*(rS/rN))) : 0;
-      const cstd = (lStd+rStd)/2;
-      const sym  = Math.min(lStd,rStd)/Math.max(lStd,rStd,1);
-      /* motion vs previous sample */
-      let motion=999; const prev=prevLumaRef.current;
-      if(prev && prev.length===luma.length){ let d=0; for(let p=0;p<luma.length;p++) d+=Math.abs(luma[p]-prev[p]); motion=d/luma.length; }
-      prevLumaRef.current = luma;
-      const bright = mean>45 && mean<228;
-      const still  = motion < 6.5;
-      let face = cstd > 15;
-      /* optional FaceDetector refinement (throttled, non-blocking, fail-open) */
-      if(faceDetRef.current && t-detClock>500 && !detectingRef.current){
-        detClock=t; detectingRef.current=true;
-        faceDetRef.current.detect(v).then(f=>{ const ok=!!(f&&f.length);
-          faceOkRef.current = f ? ok : null;
-          faceBoxRef.current = ok ? (f[0].boundingBox||null) : null; })
-          .catch(()=>{ faceOkRef.current=null; faceBoxRef.current=null; }).finally(()=>{ detectingRef.current=false; });
-      }
-      if(faceOkRef.current===true) face = true;
-      /* positioning (only when the detector gives us a box): too far / too close
-         / off-centre. Fail-open when there's no FaceDetector — the pose guide
-         and the framing ring carry it instead. */
-      let sizeState = null;
-      const box = faceBoxRef.current;
-      if(box && v.videoWidth && v.videoHeight){
-        const sideF = Math.min(v.videoWidth, v.videoHeight);
-        const frac = (box.width||0)/sideF;
-        const cx = (box.x||0)+(box.width||0)/2, cy = (box.y||0)+(box.height||0)/2;
-        const offX = Math.abs(cx - v.videoWidth/2)/sideF, offY = Math.abs(cy - v.videoHeight/2)/sideF;
-        if(frac>0 && frac<0.30) sizeState = "far";
-        else if(frac>0.92) sizeState = "close";
-        else if(offX>0.20 || offY>0.20) sizeState = "offcenter";
-      }
-      /* pose match: measure left/right detail asymmetry INSIDE the face box only
-         (whole-frame asymmetry was too noisy — background, hair on one side, side
-         lighting all read as a "turn"). When the user turns their head, the cheek
-         facing the camera shows noticeably more detail; the sign of the imbalance
-         tells us which way. yawSignal > 0 = turned to their LEFT (image-left has
-         more detail), < 0 = turned to their RIGHT. */
-      let yawSignal = null;
-      if(box && box.width>10 && box.height>10){
-        const fx=Math.max(0,box.x), fy=Math.max(0,box.y);
-        const fw=Math.min(v.videoWidth-fx, box.width), fh=Math.min(v.videoHeight-fy, box.height);
-        if(fw>10 && fh>10){
-          const fc = faceAnalyRef.current || (faceAnalyRef.current=document.createElement("canvas"));
-          fc.width=32; fc.height=32;
-          const fctx = fc.getContext("2d",{willReadFrequently:true});
-          fctx.drawImage(v, fx, fy, fw, fh, 0, 0, 32, 32);
-          const fd = fctx.getImageData(0,0,32,32).data;
-          let flS=0,flS2=0,flN=0, frS=0,frS2=0,frN=0;
-          for(let y=4;y<28;y++) for(let x=2;x<30;x++){
-            const o=(y*32+x)*4; const l=0.299*fd[o]+0.587*fd[o+1]+0.114*fd[o+2];
-            if(x<16){ flS+=l; flS2+=l*l; flN++; } else { frS+=l; frS2+=l*l; frN++; }
-          }
-          const flStd = flN?Math.sqrt(Math.max(0,flS2/flN-(flS/flN)*(flS/flN))):0;
-          const frStd = frN?Math.sqrt(Math.max(0,frS2/frN-(frS/frN)*(frS/frN))):0;
-          const mx = Math.max(flStd, frStd, 1);
-          yawSignal = (flStd - frStd) / mx;     // -1 .. +1
-        }
-      }
-      let poseState = null;
-      let sizeState_ = sizeState;
-      if(yawSignal !== null){
-        if(key==="front"){       if(Math.abs(yawSignal) > 0.20) poseState = "front"; }
-        else if(key==="left"){   if(yawSignal < 0.20)            poseState = "left"; }
-        else if(key==="right"){  if(yawSignal > -0.20)           poseState = "right"; }
-      }
-      // Auto must PROGRESS through all three angles. FRONT insists on a forward-facing
-      // pose (so it's actually frontal). The ¾ angles can't be verified reliably (the yaw
-      // heuristic is noisy and FaceDetector is often absent), so pose there is ADVISORY,
-      // not a hard block — otherwise Auto stalls forever after the first capture. Instead
-      // the ¾ angles use a LONGER steady hold (~1.8s) so there's time to turn into the
-      // pose the on-screen cue asks for; manual "Capture now" is always available too.
-      const poseBlocks = (key==="front") && poseState==="front";
-      /* SAME-POSE GUARD (hard block) — a ¾ angle must actually LOOK different from the
-         other captured angles. Compares the live 64px luma against each captured angle's
-         signature: if the candidate is nearly identical to the OPPOSITE ¾ (or to Front),
-         the user hasn't turned — block auto-capture and say which way to turn. This is
-         what stops one head turn being captured as BOTH ¾ Left and ¾ Right. */
-      let sameAs = null;
-      if(key!=="front"){
-        const dist = (k)=>{ const s=sigRef.current[k];
-          if(!s || s.length!==luma.length) return Infinity;
-          let dd=0; for(let p=0;p<luma.length;p++) dd+=Math.abs(luma[p]-s[p]);
-          return dd/luma.length; };
-        const opp = key==="left" ? "right" : "left";
-        if(dist(opp) < 11) sameAs = opp;
-        else if(dist("front") < 9) sameAs = "front";
-      }
-      const need = (key==="front") ? NEED : NEED*2;
-      const ready = bright && still && face && !sizeState_ && !poseBlocks && !sameAs;
-      steadyRef.current = ready ? steadyRef.current+1 : 0;
-      const prog = Math.min(1, steadyRef.current/need);
-      // countdown to the shutter — shown in the cue so the user KNOWS the shot is good
-      // and holds the pose instead of drifting out of it
-      const secs = ready ? Math.max(1, Math.ceil(((need - steadyRef.current) * SAMPLE) / 1000)) : null;
-      setDet({ face, bright, still, prog, size:sizeState, pose:poseState, same:sameAs, secs });
-      if(steadyRef.current>=need) doCapture(key);
+      const times = loopRef.current.times.slice().sort((x,y)=>x-y);
+      const median = times.length ? times[Math.floor(times.length/2)] : 0;
+      if(t-last < (median > 60 ? 160 : 100)) return;
+      last = t; nowRef.current = t;
+      if(busyRef.current) return;
+      try{ tick(t); }catch(e){}
     };
     raf = requestAnimationFrame(loop);
     return ()=>{ stopped=true; cancelAnimationFrame(raf); };
-  },[phase]);
+  },[phase, engineState]);
+
+  /* a new target (a slot click or the advance after a photo) */
+  React.useEffect(()=>{
+    if(machineRef.current) machineRef.current.retarget(nowRef.current);
+    const L = loopRef.current;
+    L.spokenOnce = {}; L.wrongSince = null; L.wrongBad = null; L.lastCount = null; L.legacy = { start:null, bad:null, at:null };
+    setFlipFix(false);
+  },[activeIdx]);
+
+  /* the saved photos — and photos uploaded before the check was ready — are checked once each, on this
+     device: a side slot that holds a front view (or a front slot that doesn't) is marked "!" — nothing
+     is changed. When the slot on screen is fine, the window moves to the first marked one. */
+  React.useEffect(()=>{
+    const FP = cameoFP(), eng = engineRef.current;
+    if(engineState!=="ready" || !FP || !eng) return undefined;
+    const todo = Object.keys(prefillRef.current).filter(k=>{ const u = prefillRef.current[k]; return u && !auditedRef.current[k+"|"+u] && (shotsRef.current||{})[k]===u; });
+    if(!todo.length) return undefined;
+    let alive = true;
+    (async()=>{
+      const found = {};
+      for(const k of todo){
+        const url = prefillRef.current[k];
+        let img = null;
+        try{ img = await cameoLoadImage(url); }catch(e){ img = null; }
+        if(!alive || engineRef.current!==eng) break;
+        let obs = null;
+        if(img){ try{ obs = eng.audit(img); }catch(e){ obs = null; } }
+        auditedRef.current[k+"|"+url] = true;
+        if(!obs || (shotsRef.current||{})[k]!==url) continue;
+        const measured = obs.primary ? FP.classifyPose(obs.primary.pose, null).base : "none";
+        poseRef.current[k] = { measured, yaw:obs.primary ? obs.primary.pose.yaw : null, checked:true };
+        found[k] = measured===k ? "ok" : "mismatch";
+      }
+      if(smootherRef.current) smootherRef.current.reset();
+      if(!aliveRef.current || !Object.keys(found).length) return;
+      const merged = { ...checkStateRef.current, ...found };
+      checkStateRef.current = merged;
+      setCheckState(s=>{ const n = { ...s, ...found }; checkStateRef.current = n; return n; });
+      const sh = shotsRef.current || {}, cur = CAMEO_ANGLES[activeIdxRef.current] || CAMEO_ANGLES[0];
+      if(sh[cur.key] && merged[cur.key]!=="mismatch"){
+        const i = CAMEO_ANGLES.findIndex(a=>sh[a.key] && merged[a.key]==="mismatch");
+        if(i>=0) setActiveIdx(i);
+      }
+    })();
+    return ()=>{ alive = false; };
+  },[engineState, prefillN]);
+
+  /* C = Capture now (not while typing); Escape closes (not while saving; an open confirmation takes
+     Escape first — it listens in the capture phase and stops it) */
+  React.useEffect(()=>{
+    const onKey = (e)=>{
+      if(!e || e.defaultPrevented || confirmOpenRef.current) return;
+      const el = e.target, tag = (el && el.tagName) ? String(el.tagName).toLowerCase() : "";
+      const typing = tag==="input" || tag==="textarea" || tag==="select" || !!(el && el.isContentEditable);
+      if(e.key==="Escape"){
+        if(savingRef.current) return;
+        if(e.preventDefault) e.preventDefault();
+        if(onCloseRef.current) onCloseRef.current();
+        return;
+      }
+      if((e.key==="c" || e.key==="C") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat && phaseRef.current==="live"){
+        if(e.preventDefault) e.preventDefault();
+        if(captureNowRef.current) captureNowRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return ()=> window.removeEventListener("keydown", onKey);
+  },[]);
 
   // upload lands in the ACTIVE slot (the one highlighted / labelled on the button), so a
-  // profile photo goes to ¾ Left/Right when that slot is selected — not always Front.
-  // After it lands, stay on that slot (don't jump back to an empty Front) so the user sees
-  // their upload took, then picks the next angle themselves.
+  // profile photo goes to a side slot when that slot is selected — not always Front.
+  // With the camera on, it stays on that slot (don't jump back to an empty Front) so the user sees
+  // their upload took; without a camera it moves on to the next empty slot. With the pose check ready,
+  // a photo that doesn't look like its slot's angle (or shows a second person) asks first; before it's
+  // ready the photo goes in and is checked on this device once it is (the check is started for it, so a
+  // blocked camera still gets it) — a photo that doesn't fit is then marked "!".
   const onPickFile = (e)=>{
     const f = e.target.files && e.target.files[0]; if(!f) return;
     const targetKey = CAMEO_ANGLES[activeIdxRef.current].key;
     const rd = new FileReader();
-    rd.onload = ()=>{ const img=new Image(); img.onload=()=>{
-      const { url, out } = cameoCropToDataUrl(img, img.width, img.height);
-      setShots(s=>({ ...s, [targetKey]:url })); setSources(s=>({ ...s, [targetKey]:"upload" })); setDims({w:out,h:out});
+    rd.onload = ()=>{ const img=new Image(); img.onload=async ()=>{
+      const { url, out, canvas } = cameoCropToDataUrl(img, img.width, img.height);
+      const FP = cameoFP(), eng = engineRef.current;
+      let measured = null, checkLater = false;
+      if(FP && eng && engineStateRef.current==="ready"){
+        let obs = null;
+        try{ obs = eng.audit(canvas); }catch(x){ obs = null; }
+        if(smootherRef.current) smootherRef.current.reset();
+        if(obs){
+          measured = obs.primary ? FP.classifyPose(obs.primary.pose, null).base : "none";
+          const asks = [];
+          if(!obs.primary) asks.push(FP.confirmFor("C4", targetKey, null, { photo:true }));
+          else {
+            if(measured!==targetKey) asks.push(FP.confirmFor("C3", targetKey, measured));
+            if(obs.faces > 1) asks.push(FP.confirmFor("C5", targetKey, null, { reason:"two-faces", photo:true }));
+          }
+          for(const ask of asks){ if(!(await cameoAsk(ask))) return; }
+        }
+      } else if(FP && typeof FP.load==="function" && engineStateRef.current!=="unavailable"){
+        checkLater = true;
+      }
+      if(!aliveRef.current) return;
+      const next = { ...shotsRef.current, [targetKey]:url };
+      shotsRef.current = next;
+      dropCheck(targetKey);
+      delete modeRef.current[targetKey];
+      poseRef.current[targetKey] = { measured, yaw:null, checked:!!measured };
+      if(measured && measured!==targetKey) markMismatch(targetKey);   // kept anyway: marked "!" like a saved one
+      // (an upload is no live pose: it doesn't arm the "change your pose" rule — the hold just starts over)
+      holdBreak();
+      setShots(next); setSources(s=>({ ...s, [targetKey]:"upload" })); setDims({w:out,h:out});
+      if(checkLater){ prefillRef.current[targetKey] = url; setPrefillN(n=>n+1); setEngineWanted(true); }
+      if(phaseRef.current!=="live") setActiveIdx(firstEmptyOf(next));
     }; img.src = rd.result; };
     rd.readAsDataURL(f);
     e.target.value = "";
   };
-  const clearShot = (key)=>{ const next={...shots}; delete next[key]; setShots(next);
+  const clearShot = (key)=>{ const next={ ...shotsRef.current }; delete next[key]; shotsRef.current = next; setShots(next);
     setSources(s=>{ const n={ ...s }; delete n[key]; return n; });
-    delete sigRef.current[key];
+    if(machineRef.current) machineRef.current.cleared(nowRef.current);   // a deliberate retake
+    dropCheck(key);
+    delete modeRef.current[key];
     const idx=CAMEO_ANGLES.findIndex(a=>a.key===key); if(idx>=0) setActiveIdx(idx); };
+  /* P2: a camera that already flips its picture — show it as it comes, read its sides swapped back,
+     and flip the photo back to true orientation. For this window only. A Front taken in the other
+     setting is flipped to match; a side photo taken in it was read the wrong way round, so switching
+     back clears it (after asking). */
+  const setFlip = async (on)=>{
+    on = !!on;
+    setFlipFix(false);
+    if(on===!!camFlippedRef.current) return;
+    const FP = cameoFP();
+    const other = CAMEO_KEYS.filter(k=>(shotsRef.current||{})[k] && (k in modeRef.current) && modeRef.current[k]!==on);
+    const sides = other.filter(k=>k!=="front");
+    if(sides.length && !(await cameoAsk(FP ? FP.confirmFor("unflip") : { title:"Switch back to the usual mirror view?", body:"The side photos taken since the switch will be cleared to take again.", confirmLabel:"Switch back" }))) return;
+    if(!aliveRef.current) return;
+    camFlippedRef.current = on; setCamFlipped(on);
+    if(smootherRef.current) smootherRef.current.reset();
+    loopRef.current.evPrev = {}; loopRef.current.wrongSince = null; loopRef.current.wrongBad = null;
+    holdBreak();
+    if(sides.length){
+      const next = { ...shotsRef.current };
+      for(const k of sides){ delete next[k]; delete modeRef.current[k]; dropCheck(k); }
+      shotsRef.current = next; setShots(next);
+      setSources(s=>{ const n={ ...s }; for(const k of sides) delete n[k]; return n; });
+      if(machineRef.current) machineRef.current.cleared(nowRef.current);
+      setActiveIdx(firstEmptyOf(next));
+    }
+    for(const k of other.filter(x=>x==="front")){
+      const url = shotsRef.current[k];
+      let flipped = null;
+      try{ flipped = await cameoFlipDataUrl(url); }catch(e){ flipped = null; }
+      if(!aliveRef.current || !flipped || shotsRef.current[k]!==url) continue;
+      const next = { ...shotsRef.current, [k]:flipped };
+      shotsRef.current = next; setShots(next);
+      modeRef.current[k] = on;
+    }
+  };
+  /* "Preview not like a mirror? Check it": a question the person can answer by looking (writing reads
+     backwards in a mirror) — only a "reads normally" switches anything */
+  const checkFlip = async ()=>{
+    const FP = cameoFP();
+    setFlipFix(false); loopRef.current.wrongSince = null; loopRef.current.wrongBad = null;
+    if(!FP) return;
+    if(await cameoAsk(FP.confirmFor("flip"))) await setFlip(true);
+  };
 
   const save = async ()=>{
-    if(!hasFront || !consentOk) return;
+    if(!hasFront || !consentOk || saving) return;
+    // photos marked as the wrong angle: asked once, the safe answer is to retake them
+    const FP = cameoFP();
+    const marked = CAMEO_ANGLES.filter(a=>shots[a.key] && checkState[a.key]==="mismatch");
+    if(marked.length && FP){
+      const items = marked.map(a=>{ const pr = poseRef.current[a.key]; return "“"+a.show+"” shows "+FP.describeClass(pr && pr.measured, "the person's"); });
+      if(!(await cameoAsk(FP.confirmFor("lock", null, null, { count:marked.length, items })))) return;
+      if(!aliveRef.current) return;
+    }
     setSaving(true); setErr("");
     try{
       const angles = CAMEO_ANGLES.filter(a=>shots[a.key]).map(a=>({ key:a.key, label:a.label, url:shots[a.key], source:sources[a.key]==="upload" ? "upload" : "webcam" }));
@@ -530,29 +983,42 @@ function CameoModal({ character, onClose, onSaved }){
 
   const stop = (e)=>e.stopPropagation();
   const liveOk = phase==="live";
-  /* live readiness cue for the active angle */
+  const FPr = cameoFP();
+  const engUi = FPr ? engineState : "unavailable";
   const targetFilled = !!shots[activeAngle.key];
+  const allDone = CAMEO_KEYS.every(k=>shots[k]);
+  const mismatchNow = targetFilled && checkState[activeAngle.key]==="mismatch";
+  const markedNow = markedCount(checkState, shots);
+  const camOn = camSeq > 0;
+  /* the live cue: the loop's, when it describes this very state; otherwise the resting one */
   let cue;
-  if(targetFilled) cue = { k:"done", t:"Captured — pick another angle or lock the likeness" };
-  else if(!auto)   cue = { k:"off",  t:"Auto-capture paused — use “Capture now”" };
-  else if(!det.face)              cue = { k:"wait", t:"Match the sketch — center your "+activeAngle.label+" in the ring" };
-  else if(det.size==="far")       cue = { k:"wait", t:"Move a little closer" };
-  else if(det.size==="close")     cue = { k:"wait", t:"Move back a little" };
-  else if(det.size==="offcenter") cue = { k:"wait", t:"Center your face in the ring" };
-  else if(det.same==="front")     cue = { k:"wait", t:"You're still facing forward — turn toward your "+(activeAngle.key==="left"?"LEFT":"RIGHT")+" shoulder ("+(activeAngle.key==="left"?"left":"right")+" side of the frame)" };
-  else if(det.same)               cue = { k:"wait", t:"Same pose as your ¾ "+(det.same==="left"?"Left":"Right")+" — turn toward the "+(activeAngle.key==="left"?"LEFT":"RIGHT")+" side of the frame" };
-  else if(det.pose==="front")     cue = { k:"wait", t:"Face the camera straight on" };
-  else if(det.pose==="left")      cue = { k:"wait", t:"Turn toward your LEFT shoulder — face to the LEFT side of the frame" };
-  else if(det.pose==="right")     cue = { k:"wait", t:"Turn toward your RIGHT shoulder — face to the RIGHT side of the frame" };
-  else if(!det.bright) cue = { k:"wait", t:"Find more even light" };
-  else if(!det.still)  cue = { k:"wait", t:"Hold still…" };
-  else cue = { k:"go", t:"Shot looks good — hold still… capturing"+(det.secs?(" in "+det.secs+"s"):"") };
-  /* voice the two moments that matter while posing: "shot is good, hold still" and
-     the same-pose correction (captures announce themselves from doCapture) */
-  const spokenCue = cue.k==="go" ? "Shot looks good. Hold still."
-    : det.same ? ("That's the same pose. Turn toward the "+(activeAngle.key==="left"?"left":"right")+" side of the frame.")
-    : null;
-  React.useEffect(()=>{ if(liveOk && !targetFilled && spokenCue) speak(spokenCue); }, [spokenCue, liveOk, targetFilled, speak]);
+  if(det && det.key===activeAngle.key && det.filled===targetFilled && det.auto===auto && det.eng===engUi && det.allDone===allDone
+    && det.mismatch===mismatchNow && det.marked===markedNow && det.cam===camOn) cue = det.cue;
+  else {
+    const nextA = CAMEO_ANGLES.find(x=>!shots[x.key]);
+    const pr = poseRef.current[activeAngle.key];
+    const restPhase = !camOn ? "camera" : !auto ? "manual" : targetFilled ? "filled" : (engUi==="ready" || engUi==="unavailable") ? "wait" : "loading";
+    cue = FPr ? FPr.cueFor({ phase:restPhase, reason:null },
+        null, activeAngle.key, { engine:engUi==="idle" ? "loading" : engUi, allDone, mismatch:mismatchNow, mismatchCount:markedNow,
+          measured:mismatchNow && pr ? pr.measured : null, next:nextA ? nextA.key : null })
+      : cameoFallbackCue(activeAngle, targetFilled, auto, allDone, { phase:restPhase });
+  }
+  const live = det && det.key===activeAngle.key;
+  const ringPct = live && !targetFilled ? Math.round((det.progress||0)*100) : 0;
+  const holding = cue.k==="go";
+  const inBand = !!(live && det.inBand);
+  const yawNow = live ? det.yaw : null;
+  const band = FPr ? FPr.bandFor(activeAngle.key) : null;
+  const showFix = flipFix && !camFlipped && cue.key==="wrong-way";
+  const why = engineWhyRef.current || "unsupported";
+  const describe = (m, who)=> FPr ? FPr.describeClass(m, who) : "another angle";
+  /* which photo to pick for the slot: a true-orientation photo of an own-left turn has the nose pointing
+     to the photo's RIGHT (the strip shows it mirrored, like the sketch) */
+  const uploadFor = "Upload for “"+activeAngle.show+"”";
+  const uploadTitle = "Upload a photo into the “"+activeAngle.show+"” slot — "
+    + (activeAngle.side ? "the person turned to their own "+activeAngle.side+" (in the photo, their nose points to the "+(activeAngle.side==="left" ? "right" : "left")+")"
+      : "the person looking straight at the camera")
+    + ". Click another slot above to change the target.";
 
   return React.createElement("div",{className:"cameo-overlay",onClick:onClose},
     React.createElement("div",{className:"cameo-modal",onClick:stop},
@@ -560,59 +1026,86 @@ function CameoModal({ character, onClose, onSaved }){
         React.createElement("div",null,
           React.createElement("div",{className:"cameo-title"},
             React.createElement(Icon.userScan,{s:16})," Likeness · ",character.name),
-          React.createElement("div",{className:"cameo-sub"},"Match the pose sketch for each angle — capture ",
-            React.createElement("b",null,"Front"),", and optionally the two ¾ angles, to lock the likeness")),
+          React.createElement("div",{className:"cameo-sub"},"Look straight at the camera for Front, then turn your head to each side. The preview works like a mirror: your left is the left of the screen.")),
         React.createElement("button",{className:"cameo-x",onClick:onClose,"aria-label":"Close"},
           React.createElement(Icon.x,{s:16}))),
 
-      /* stage: live camera with the active angle's guide + hint, or fallbacks */
-      React.createElement("div",{className:"cameo-stage"},
+      /* stage: live camera with the active angle's guide, ring, arrow, meter and cue — or fallbacks */
+      React.createElement("div",{className:"cameo-stage","data-engine":liveOk ? engUi : phase},
         liveOk && React.createElement(React.Fragment,null,
-          React.createElement("video",{ref:videoRef,className:"cameo-video",playsInline:true,muted:true}),
-          React.createElement("div",{className:"cameo-guide"+(cue.k==="go"?" go":"")}),
+          React.createElement("video",{ref:videoRef,className:"cameo-video"+(camFlipped?" unmirror":""),playsInline:true,muted:true}),
+          React.createElement("div",{className:"cameo-guide"+(holding?" go":"")}),
           !targetFilled && React.createElement(CameoPoseSketch,{ angle:activeAngle.key, className:"cameo-guide-ghost" }),
+          !targetFilled && React.createElement("svg",{ className:"cameo-ring"+(holding?" holding":""), viewBox:"0 0 100 100", preserveAspectRatio:"none",
+              "aria-hidden":"true", "data-progress":ringPct },
+            // (no vector-effect:non-scaling-stroke — with it the browser lays the dashes out in screen pixels,
+            // ignoring pathLength, and the fill breaks into pieces; the stage is square, so it scales evenly)
+            React.createElement("path",{ className:"cameo-ring-track", d:CAMEO_RING_D, pathLength:100 }),
+            React.createElement("path",{ className:"cameo-ring-fill", d:CAMEO_RING_D, pathLength:100,
+              strokeDasharray:ringPct+" 100" })),
+          activeAngle.side && !targetFilled && React.createElement("div",{ className:"cameo-turn-arrow "+activeAngle.side+(inBand?" in-band":""), "aria-hidden":"true" },
+            React.createElement("svg",{ viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:2.6, strokeLinecap:"round", strokeLinejoin:"round" },
+              React.createElement("path",{ d: activeAngle.side==="left" ? "M12 5 L5 12 L12 19 M19 5 L12 12 L19 19" : "M12 5 L19 12 L12 19 M5 5 L12 12 L5 19" }))),
           flash && React.createElement("div",{className:"cameo-flash"}),
           React.createElement("div",{className:"cameo-anglebadge"},
-            "Capturing: ",React.createElement("b",null,activeAngle.label),activeAngle.req?" · required":" · optional"),
-          React.createElement("div",{className:"cameo-cue "+cue.k},
+            "Now: ",React.createElement("b",null,activeAngle.show),activeAngle.req?" · required":" · optional"),
+          React.createElement("div",{className:"cameo-cue "+cue.k,"data-cue":cue.key},
             React.createElement("span",{className:"cameo-cue-dot"}),
-            React.createElement("span",null,cue.t)),
-          !targetFilled && auto && React.createElement("div",{className:"cameo-prog"},
-            React.createElement("div",{className:"cameo-prog-fill",style:{width:(Math.round(det.prog*100))+"%"}})),
-          React.createElement("button",{className:"cameo-capnow",onClick:captureNow,
-            title:"Capture this angle manually"},"Capture now")),
+            React.createElement("span",{className:"cameo-cue-t"},cue.text),
+            cue.hint && React.createElement("span",{className:"cameo-cue-hint"},cue.hint),
+            showFix && React.createElement("button",{className:"cameo-cue-fix","data-role":"flip-fix",onClick:checkFlip},"Preview not like a mirror? Check it")),
+          engUi==="ready" && band && React.createElement("div",{className:"cameo-meter","aria-hidden":"true"},
+            React.createElement("span",{className:"cameo-meter-lab"},"your left"),
+            React.createElement("div",{className:"cameo-meter-track"},
+              React.createElement("div",{className:"cameo-meter-band",style:{left:band.from+"%",width:(band.to-band.from)+"%"}}),
+              yawNow!=null && React.createElement("div",{className:"cameo-meter-dot"+(inBand?" in-band":""),style:{left:FPr.meterPos(yawNow)+"%"}})),
+            React.createElement("span",{className:"cameo-meter-lab"},"your right")),
+          React.createElement("button",{className:"cameo-capnow","data-role":"capture-now",onClick:captureNow,
+            title:"Take this photo now (C)","aria-keyshortcuts":"C"},"Capture now")),
         phase==="denied" && React.createElement("div",{className:"cameo-msg"},
           React.createElement(Icon.warn,{s:26}),
           React.createElement("div",{className:"cameo-msg-t"},"Camera access blocked"),
-          React.createElement("div",{className:"cameo-msg-s"},"Allow camera in your browser's address bar, or upload photos instead."),
+          React.createElement("div",{className:"cameo-msg-s"},"Allow camera in your browser's address bar, or upload photos instead — click a slot below to choose where each one goes."),
           React.createElement("div",{className:"cameo-msg-acts"},
             // retry WITHOUT reopening the modal — after the user flips the permission,
             // this re-requests the stream and drops straight into live capture
             React.createElement("button",{className:"cameo-btn ghost",onClick:startCam},
               React.createElement(Icon.undo,{s:14}),"Try camera again"),
-            React.createElement("button",{className:"cameo-btn ghost",onClick:()=>fileRef.current&&fileRef.current.click()},
-              React.createElement(Icon.image,{s:14}),"Upload ",activeAngle.label))),
+            React.createElement("button",{className:"cameo-btn ghost",onClick:()=>fileRef.current&&fileRef.current.click(),title:uploadTitle},
+              React.createElement(Icon.image,{s:14}),uploadFor))),
         phase==="nocam" && React.createElement("div",{className:"cameo-msg"},
           React.createElement(Icon.image,{s:26}),
           React.createElement("div",{className:"cameo-msg-t"},"No camera available"),
-          React.createElement("div",{className:"cameo-msg-s"},"Upload clear, front-facing photos to use as the likeness."),
-          React.createElement("button",{className:"cameo-btn ghost",onClick:()=>fileRef.current&&fileRef.current.click()},
-            React.createElement(Icon.image,{s:14}),"Choose photo"))),
+          React.createElement("div",{className:"cameo-msg-s"},"Upload clear photos instead: Front first, then, if you like, the head turned to the person's own left and to their own right. Click a slot below to choose where each one goes."),
+          React.createElement("button",{className:"cameo-btn ghost",onClick:()=>fileRef.current&&fileRef.current.click(),title:uploadTitle},
+            React.createElement(Icon.image,{s:14}),"Choose a photo for “"+activeAngle.show+"”"))),
+      liveOk && camOn && React.createElement("div",{className:"cameo-note"+(engUi==="unavailable"?" warn":"")},
+        engUi==="unavailable" ? cameoNoteOff(why) : CAMEO_NOTE_OK),
+      liveOk && React.createElement("div",{className:"cameo-sr",role:"status","aria-live":"polite","aria-atomic":"true"},announce),
 
       /* angle strip — captured thumbnails / target slots (an empty slot shows its pose sketch) */
       React.createElement("div",{className:"cameo-strip"},
         CAMEO_ANGLES.map((a,i)=>{
           const filled = !!shots[a.key];
-          return React.createElement("button",{key:a.key,"data-angle":a.key,
-            className:"cameo-slot"+(filled?" filled":"")+(i===activeIdx&&liveOk?" active":""),
-            onClick:()=>setActiveIdx(i),title:filled?("Recapture "+a.label):("Capture "+a.label)},
+          const chk = filled ? checkState[a.key] : null;
+          const mism = chk==="mismatch";
+          const pr = poseRef.current[a.key];
+          const title = !filled ? "Capture: "+a.long
+            : mism ? ("This photo shows "+describe(pr && pr.measured, "the person's")+" — click × to take it again")
+            : "Click × to take this one again";
+          return React.createElement("button",{key:a.key,"data-angle":a.key,...(chk ? { "data-check":chk } : {}),
+            className:"cameo-slot"+(filled?" filled":"")+(i===activeIdx?" active":"")+(mism?" warn":""),
+            onClick:()=>setActiveIdx(i),title},
             filled
               ? React.createElement(React.Fragment,null,
-                  React.createElement("img",{src:shots[a.key],alt:a.label}),
+                  // every photo here is shown like the mirrored preview (webcam and upload alike), so it faces the
+                  // same way as the slot's sketch and its ←/→ label; they're SAVED in true orientation
+                  React.createElement("img",{src:shots[a.key],alt:a.show,className:"mirror"}),
+                  mism && React.createElement("span",{className:"cameo-slot-warn","aria-hidden":"true"},"!"),
                   React.createElement("span",{className:"cameo-slot-x",onClick:(e)=>{ e.stopPropagation(); clearShot(a.key); }},
                     React.createElement(Icon.x,{s:10,sw:2.4})))
               : React.createElement(CameoPoseSketch,{ angle:a.key, className:"cameo-slot-guide" }),
-            React.createElement("span",{className:"cameo-slot-lab"},a.label,a.req?React.createElement("i",null," *"):null));
+            React.createElement("span",{className:"cameo-slot-lab"},a.strip,a.req?React.createElement("i",null," *"):null));
         })),
 
       teamNote && React.createElement("div",{className:"cameo-team-note"},
@@ -635,17 +1128,22 @@ function CameoModal({ character, onClose, onSaved }){
 
       React.createElement("div",{className:"cameo-acts"},
         (liveOk || phase==="denied" || phase==="nocam") && React.createElement("button",
-          {className:"cameo-btn ghost",onClick:()=>fileRef.current&&fileRef.current.click(),
-           title:"Upload a photo into the "+activeAngle.label+" slot (click another slot above to change the target)"},
-          React.createElement(Icon.image,{s:14}),"Upload ",activeAngle.label),
-        liveOk && React.createElement("button",{className:"cameo-autopill"+(auto?" on":""),
+          {className:"cameo-btn ghost","data-role":"upload",onClick:()=>fileRef.current&&fileRef.current.click(),
+           title:uploadTitle},
+          React.createElement(Icon.image,{s:14}),liveOk ? "Upload photo" : uploadFor),
+        liveOk && React.createElement("button",{className:"cameo-autopill"+(auto?" on":""),"data-role":"auto",
           onClick:()=>setAuto(a=>!a),
-          title:auto?"Auto-capture on — snaps when the shot looks good":"Auto-capture off — capture manually"},
+          title: !auto ? "Automatic capture off — use Capture now"
+            : engUi==="unavailable" ? "Automatic capture works for Front only on this device"
+            : "Automatic capture on — takes the photo after you hold the pose (3 s for Front, 5 s for each side)"},
           React.createElement(Icon.bolt,{s:14}),"Auto"),
-        liveOk && React.createElement("button",{className:"cameo-autopill"+(voiceOn?" on":""),
-          onClick:toggleVoice,
-          title:voiceOn?"Spoken directions on — announces when the shot is good, each capture, and the next pose":"Spoken directions off"},
+        liveOk && React.createElement("button",{className:"cameo-autopill"+(voiceOn&&voiceOk?" on":""),"data-role":"voice",
+          onClick:toggleVoice, disabled:!voiceOk,
+          title: !voiceOk ? "Spoken directions aren't available in this browser"
+            : voiceOn ? "Spoken directions on — says which way to turn, counts down, and announces each photo" : "Spoken directions off"},
           React.createElement(Icon.mic,{s:14}),"Voice"),
+        liveOk && camFlipped && React.createElement("button",{className:"cameo-autopill on","data-role":"cam-flipped",
+          onClick:()=>setFlip(false), title:"Your camera already flips the picture — click to undo"},"Flipped camera"),
         React.createElement("button",{className:"cameo-btn primary","data-role":"lock",onClick:save,disabled:!hasFront||!consentOk||saving,
           title:!hasFront?"Capture the Front angle first":(!consentOk?"Say whose likeness this is and tick the box":"")},
           saving ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin dark"}),"Saving…")
@@ -766,7 +1264,7 @@ function CameoManager({ nameOf, onClose, onChanged, characters }){
         if(!canSee(e)) continue;
         try{
           const r = e.kind==="earlier" ? await call("nbLoadEarlierCameo", e.id) : await call("nbLoadCameoEntry", e);
-          out[keyOf(e)] = r ? (r.angles||[]).filter(a=>/^data:image\//i.test(String(a.url||""))).map(a=>({ label:a.label, url:a.url })) : [];
+          out[keyOf(e)] = r ? (r.angles||[]).filter(a=>/^data:image\//i.test(String(a.url||""))).map(a=>({ key:a.key, label:a.label, url:a.url })) : [];
         }catch(err){}
       }
       if(alive) setThumbs(out);
@@ -821,7 +1319,7 @@ function CameoManager({ nameOf, onClose, onChanged, characters }){
     const k = keyOf(e), working = busy===k;
     return React.createElement("div",{ key:k, className:"cameo-mgr-row"+(e.available===false?" off":""), "data-key":k },
       React.createElement("div",{ className:"cameo-mgr-thumbs" },
-        angles.length ? angles.slice(0,3).map((a,i)=>React.createElement("img",{ key:i, src:a.url, alt:a.label, title:a.label }))
+        angles.length ? angles.slice(0,3).map((a,i)=>React.createElement("img",{ key:i, src:a.url, alt:cameoAngleShow(a), title:cameoAngleShow(a) }))
         : React.createElement("div",{ className:"cameo-mgr-noimg", title:canSee(e) ? "" : "Only the film's owner and the person who captured it see the photos" },
             React.createElement(Icon.userScan,{ s:16 }))),
       React.createElement("div",{ className:"cameo-mgr-meta" },

@@ -1,0 +1,2 @@
+app/vendor/** binary
+app/vendor/**/*.js -diff linguist-vendored

@@ -1330,8 +1330,8 @@ async function turnLoadLikeness(charId){
     if(!urls.length && typeof nbLoadCameoAngles==="function"){ try{ urls = (await nbLoadCameoAngles(charId))||[]; }catch(e){} }
     if(!urls.length && typeof nbGetCameo==="function"){ try{ const u = nbGetCameo(charId); if(u) urls = [u]; }catch(e){} }
     if(!urls.length && typeof nbLoadCameo==="function"){ try{ const u = await nbLoadCameo(charId); if(u) urls = [u]; }catch(e){} }
-    const L = ["Front","¾ Left","¾ Right"];
-    angles = urls.filter(Boolean).map((u,i)=>({ label:L[i]||("Angle "+(i+1)), url:u }));
+    const L = ["Front","¾ Left","¾ Right"], K = ["front","left","right"];
+    angles = urls.filter(Boolean).map((u,i)=>({ label:L[i]||("Angle "+(i+1)), key:K[i]||"", url:u }));
   }
   // FRONT first (the primary reference), then the other angles in their captured order
   const fi = angles.findIndex(a=>a.key==="front" || /front/i.test(a.label));
@@ -1379,8 +1379,15 @@ function turnLikenessPlan(parts){
     const rest = angles.slice(1);
     if(rest.length){
       const a = n+1; rest.forEach(x=>{ n++; order.push(x.url); });
-      const labs = rest.map(x=> String(x.label||"another angle").trim().toLowerCase());
-      lines.push(_lkImg(a,n)+" = the same face from "+(labs.length>1 ? labs.slice(0,-1).join(", ")+" and "+labs[labs.length-1] : labs[0])+".");
+      // say which way the head is turned in the person's own terms, not "¾ left" (whose left? — 2026-10-10)
+      const sideOf = (x)=>{ const k = String(x.key||"").toLowerCase(), l = String(x.label||"").toLowerCase();
+        return k==="left" || (!k && /left/.test(l)) ? "left" : k==="right" || (!k && /right/.test(l)) ? "right" : ""; };
+      const sides = rest.map(sideOf);
+      const sideText = sides.every(Boolean)
+        ? (sides.length>1 ? "with the head turned to the person's own "+sides.slice(0,-1).join(", ")+" and to their own "+sides[sides.length-1]+" (three-quarter views)"
+          : "with the head turned to the person's own "+sides[0]+" (a three-quarter view)")
+        : "from "+((labs)=> labs.length>1 ? labs.slice(0,-1).join(", ")+" and "+labs[labs.length-1] : labs[0])(rest.map(x=> String(x.label||"another angle").trim().toLowerCase()));
+      lines.push(_lkImg(a,n)+" = the same face "+sideText+".");
     }
   }
   const faceTo = n;
