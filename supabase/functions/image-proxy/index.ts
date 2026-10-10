@@ -620,6 +620,24 @@ Deno.serve(async (req) => {
     if (!(facts.size > 0)) return await reject(`The staged ${kind} upload is empty or unfinished — upload it again.`);
     if (maxBytes && facts.size > maxBytes) return await reject(`The staged ${kind} upload exceeds ${Math.round(maxBytes / 1024 / 1024)}MB.`);
   };
+  // (2026-10-10, owner — Likeness review) The data-URL references THIS request staged below — a
+  // character's likeness photo is one — are removed as soon as the provider call they were staged
+  // for has returned (dropStagedInputs: the fal image route always, the video route when fal didn't
+  // keep the job — a queued job reads its inputs when it runs). Best effort: a failed removal is
+  // logged and never touches the result. A `stage:` device upload is never in this list (its
+  // lifecycle — op "stage-upload" and its sweep — is unchanged).
+  const stagedByThisRequest: string[] = [];
+  const dropStagedInputs = async (): Promise<void> => {
+    const paths = stagedByThisRequest.splice(0);
+    if (!paths.length) return;
+    try {
+      const bucket = Deno.env.get("TURN_BUCKET") || "turn-assets";
+      const r: any = await createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!).storage.from(bucket).remove(paths);
+      if (r && r.error) console.warn("[image-proxy] staged input cleanup failed: " + String(r.error.message || r.error).slice(0, 160));
+    } catch (e) {
+      console.warn("[image-proxy] staged input cleanup failed: " + String((e as any)?.message || e).slice(0, 160));
+    }
+  };
   const videoInputUrl = async (src: unknown, kind: string, idx: number): Promise<string> => {
     const s = String(src || "");
     const stagedPath = stagedRefPath(s);
@@ -649,6 +667,7 @@ Deno.serve(async (req) => {
       upsert: false,
     });
     if (up.error) throw new Error(`Could not stage ${kind} input for generation: ${up.error.message || "storage upload failed"}`);
+    stagedByThisRequest.push(path);
     const signed = await sbStage.storage.from(bucket).createSignedUrl(path, 3600);
     if (signed.error || !signed.data?.signedUrl) throw new Error(`Could not sign staged ${kind} input for generation.`);
     return signed.data.signedUrl;
@@ -2310,6 +2329,8 @@ Deno.serve(async (req) => {
       if (videoHold) await videoHold.releaseUnlessDone();
       // round 5 (S3): … and deletes the video copies fal was never handed
       if (snapshotPaths.length && !snapshotsInUse) await videoSnapshots.removePaths(snapshotPaths);
+      // (2026-10-10, Likeness review) … and the data-URL inputs it staged for a job fal never kept
+      if (!snapshotsInUse) await dropStagedInputs();
     }
   }
 
@@ -2518,6 +2539,10 @@ Deno.serve(async (req) => {
       if ((e as any)?.name === "TimeoutError")
         return json({ error: "The image service didn't accept the request within 30s — it was cancelled server-side. Try again, or choose a faster quality/resolution." }, 200);
       return json({ error: isAdmin ? "Proxy failed to reach fal: " + ((e as any)?.message || e) : say((e as any)?.message, "Couldn't reach the image service. Please try again.") }, 502);
+    } finally {
+      // (2026-10-10, owner — Likeness review) the render has returned (an image, a refusal, a
+      // timeout): the references this request staged — a likeness photo among them — go now
+      await dropStagedInputs();
     }
   }
 

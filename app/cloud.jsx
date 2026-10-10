@@ -134,7 +134,11 @@ async function cloudSignIn(email, password){
 }
 async function cloudSignOut(){
   const sb = sbClient(); if(!sb) return;
-  try{ await sb.auth.signOut(); }catch(e){} finally{ _cloudRememberSession(null); }
+  try{ await sb.auth.signOut(); }catch(e){} finally{
+    _cloudRememberSession(null);
+    // (2026-10-10, owner — Likeness review) no photo of this account's likenesses stays in memory
+    try{ if(typeof window.nbCameoSignOut==="function") window.nbCameoSignOut(); }catch(e){}
+  }
 }
 async function cloudResetPassword(email){
   const sb = sbClient(); if(!sb) return { error:{ message:"Cloud not configured." } };
@@ -2387,10 +2391,13 @@ async function cloudRenameProject(id, title){
 async function cloudDeleteProject(id){
   const sb = sbClient();
   if(!sb || !id) return { ok:false, message:"Cloud storage is unavailable." };
+  // (2026-10-10, owner — Likeness review) the film's likeness photos, listed before its row goes
+  const cameoPhotos = await _cameoFilmPhotosBeforeDelete(sb, id);
   try{
     const {data,error}=await sb.from("turn_projects").delete().eq("id",id).select("id");
     if(error) return {ok:false,message:error.message||"The project could not be deleted."};
     if(!data||!data.length) return {ok:false,message:"The project is unavailable or you no longer have permission to delete it."};
+    await _cameoFilmPhotosAfterDelete(id, cameoPhotos);
     return {ok:true,id};
   }catch(e){ return {ok:false,message:(e&&e.message)||"The project could not be deleted."}; }
 }
@@ -4716,65 +4723,281 @@ window.cloudLoadDetails = cloudLoadDetails;
 window.cloudGetGen = cloudGetGen;
 window.cloudSignedUrl = cloudSignedUrl;
 
-/* ── cameos (Increment B cloud sync) ─────────────────────────────────────────
-   Opt-in only. Face angles are uploaded as private files (same per-user RLS as
-   generations); the turn_cameos row keeps storage paths + provenance (paths,
-   not blobs). Local IDB remains the source of truth; cloud is for cross-device. */
-async function cloudCameoRow(projectId, charId){
-  const sb = sbClient(); if(!sb) return null;
-  try{ const { data } = await sb.from("turn_cameos").select("*")
-    .eq("project_id",projectId).eq("char_id",charId).maybeSingle(); return data||null; }catch(e){ return null; }
+/* ── likenesses (internal name "cameos") — (2026-10-10, owner — Likeness review) ──────────
+   Opt-in sync of ONE PERSON's likeness of one character of one film (for a Show, of the Show:
+   the app passes the Show's id). The photos are private files under
+   '<uploader>/<film>/cameo/<character>/…'; the turn_cameos row — one per person per character
+   per film (project_id, owner, char_id) — keeps their paths with the provenance and consent
+   record. Who may read / write / delete what: supabase/team-relaunch.sql §7d. The app keeps
+   the BYTES (data URLs) it downloads here — a signed link is never handed back to be stored.
+   Sync order: new photos uploaded first, then the row, then the photos the row no longer names. */
+function _cameoNote(diag, message){ if(diag && typeof diag==="object" && !diag.message) diag.message = message; }
+function _cameoOnConflictMissing(error){
+  const code = String((error && error.code)||""), msg = String((error && error.message)||error||"");
+  return code==="42P10" || /no unique or exclusion constraint matching the ON CONFLICT/i.test(msg);
 }
-async function cloudSyncCameo(projectId, uid, charId, rec){
-  const sb = sbClient(); if(!sb) return null;
-  /* drop any prior cloud copy's files first (replace semantics) */
-  const prev = await cloudCameoRow(projectId, charId);
-  if(prev && prev.angles){ try{ await sb.storage.from(turnBucket()).remove((prev.angles||[]).map(a=>a.storage_path).filter(Boolean)); }catch(e){} }
-  const angleRows = [];
-  // one cameo = one prefix: resolved once, then the folders the first angle really used
-  let cameoFolders = await turnStorageFolders(sb, uid, projectId);
-  for(const a of (rec.angles||[])){
-    const p = await cloudUploadImage(projectId, uid, charId, a.url, "cameo", turnReadableSeg(a.label, "angle"),
-      undefined, undefined, undefined, undefined, cameoFolders);
-    if(p){
-      angleRows.push({ label:a.label, storage_path:p });
-      cameoFolders = _turnFoldersOfPath(p, uid, projectId) || cameoFolders;
-    }
-  }
-  const prov = { consent:!!rec.consent, source:rec.source||"webcam", subject:rec.subject||"",
-    iso:rec.iso, date:rec.date, w:rec.w||0, h:rec.h||0 };
+/* a cloud refusal in plain words (the toast says "…didn't work: <this>.") */
+function _cameoPlainError(e){
+  const code = String((e && e.code)||""), msg = String((e && e.message)||e||"");
+  if(code==="42501" || /row-level security|permission denied/i.test(msg)) return "this film only lets its owner and its Art directors sync a likeness";
+  if(code==="23505" || /duplicate key/i.test(msg)) return "someone else's likeness of this character is already synced here, and the cloud needs an update before a second one can be (tell the studio)";
+  if(_seriesUploadNetworkError(e)) return "the connection dropped";
+  return "the cloud didn't accept it";
+}
+/* this person's row for a character of a film: { ok, row } — ok:false when it couldn't be read */
+async function _cameoRowStrict(sb, projectId, charId, owner){
   try{
-    const {error}=await sb.from("turn_cameos").upsert({ project_id:projectId, owner:uid, char_id:charId,
-      angles:angleRows, prov:prov }, { onConflict:"project_id,char_id" });
+    let q = sb.from("turn_cameos").select("*").eq("project_id",projectId).eq("char_id",charId);
+    if(owner) q = q.eq("owner",owner);
+    const { data, error } = await q.maybeSingle();
+    if(error) return { ok:false, row:null, error };
+    return { ok:true, row:data||null };
+  }catch(e){ return { ok:false, row:null, error:e }; }
+}
+async function cloudCameoRow(projectId, charId, owner){
+  const sb = sbClient(); if(!sb) return null;
+  const r = await _cameoRowStrict(sb, projectId, charId, owner);
+  return r.ok ? r.row : null;
+}
+function _cameoMimeOf(path, type){
+  if(/^image\//i.test(String(type||""))) return String(type);
+  const ext = (/\.([a-z0-9]+)$/i.exec(String(path||""))||[])[1] || "";
+  return /^jpe?g$/i.test(ext) ? "image/jpeg" : /^webp$/i.test(ext) ? "image/webp" : /^png$/i.test(ext) ? "image/png" : "image/jpeg";
+}
+async function _cameoBlobToDataUrl(blob, path){
+  if(!blob) return "";
+  try{
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    if(!buf.length) return "";
+    let bin = "";
+    for(let i=0; i<buf.length; i+=0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i+0x8000));
+    return "data:"+_cameoMimeOf(path, blob.type)+";base64,"+btoa(bin);
+  }catch(e){ return ""; }
+}
+/* a photo's bytes as a data URL ("" when it can't be read). The signed link, when one is
+   needed, is used once right here and never returned. */
+async function _cameoDownload(path){
+  const sb = sbClient(); if(!sb || !path) return "";
+  try{
+    const bucket = sb.storage.from(turnBucket());
+    if(bucket && typeof bucket.download==="function"){
+      const { data, error } = await bucket.download(path);
+      if(!error && data) return await _cameoBlobToDataUrl(data, path);
+    }
+    const url = await cloudSignedUrl(path);
+    if(!url) return "";
+    const res = await fetch(url);
+    if(!res.ok) return "";
+    return await _cameoBlobToDataUrl(await res.blob(), path);
+  }catch(e){ return ""; }
+}
+/* a likeness read by an older app stored this project's SIGNED link in place of the photo: the
+   storage path it names (to read the bytes again), or "" */
+function _cameoPathFromSignedUrl(url){
+  const m = /\/storage\/v1\/object\/sign\/([^/?#]+)\/([^?#]+)/.exec(String(url||""));
+  if(!m) return "";
+  try{
+    if(decodeURIComponent(m[1])!==turnBucket()) return "";
+    const segs = m[2].split("/").map(x=>decodeURIComponent(x));
+    if(segs.some(x=>!x || x==="." || x===".." || x.indexOf("\\")>=0)) return "";
+    return segs.join("/");
+  }catch(e){ return ""; }
+}
+function _cameoAngleKey(a, i){
+  const k = String((a && a.key)||"").toLowerCase();
+  if(k==="front" || k==="left" || k==="right") return k;
+  const l = String((a && a.label)||"").toLowerCase();
+  return /left/.test(l) ? "left" : /right/.test(l) ? "right" : /front/.test(l) ? "front" : (i===0 ? "front" : "angle"+i);
+}
+/* sync one likeness: true only when the row and every photo it names are in the cloud.
+   diag.message says why not (plain words); diag.angles = [{ key, label, source, at, storage_path }] */
+async function cloudSyncCameo(projectId, uid, charId, rec, diag){
+  const sb = sbClient(); if(!sb){ _cameoNote(diag, "cloud storage isn't available right now"); return false; }
+  const angles = (rec && Array.isArray(rec.angles) ? rec.angles : []).filter(a=>a && a.url);
+  if(!angles.length){ _cameoNote(diag, "there's no photo to sync"); return false; }
+  const prevRead = await _cameoRowStrict(sb, projectId, charId, uid);
+  if(!prevRead.ok){ _cameoNote(diag, "its cloud copy couldn't be checked right now"); return false; }
+  const prev = prevRead.row;
+  const prevPaths = new Set(((prev && Array.isArray(prev.angles)) ? prev.angles : []).map(a=>a && a.storage_path).filter(Boolean));
+  const angleRows = [], created = [];
+  // one likeness = one prefix: resolved once, then the folders the first new photo really used
+  let cameoFolders = await turnStorageFolders(sb, uid, projectId);
+  for(const [i,a] of angles.entries()){
+    const meta = { key:_cameoAngleKey(a,i), label:a.label||"Front", source:a.source==="upload"?"upload":"webcam", ...(a.at ? { at:a.at } : {}) };
+    // a photo the cloud already holds (the row names it) is kept, not uploaded again
+    if(a.storage_path && prevPaths.has(a.storage_path)){ angleRows.push({ ...meta, storage_path:a.storage_path }); continue; }
+    let dataUrl = /^data:image\//i.test(String(a.url)) ? a.url : "";
+    if(!dataUrl){ const p = _cameoPathFromSignedUrl(a.url) || a.storage_path || ""; if(p) dataUrl = await _cameoDownload(p); }
+    if(!dataUrl){
+      _cameoNote(diag, "one of its photos couldn't be read — recapture it, then sync again");
+      try{ await cloudRemovePaths(created); }catch(e){}
+      return false;
+    }
+    const up = {};
+    const p = await cloudUploadImage(projectId, uid, charId, dataUrl, "cameo", turnReadableSeg(a.label, "angle"),
+      undefined, undefined, up, undefined, cameoFolders);
+    if(!p){
+      _cameoNote(diag, up.stage==="storage-network" ? "the connection dropped" : "a photo couldn't be uploaded");
+      try{ await cloudRemovePaths(created); }catch(e){}
+      return false;
+    }
+    created.push(p);
+    angleRows.push({ ...meta, storage_path:p });
+    cameoFolders = _turnFoldersOfPath(p, uid, projectId) || cameoFolders;
+  }
+  const consent = (rec.consent && typeof rec.consent==="object") ? rec.consent : null;
+  const prov = { v:2, consent, subject:String(rec.subject||""), charName:String(rec.charName||""),
+    capturedAt:rec.capturedAt||rec.iso||null, iso:rec.capturedAt||rec.iso||null, date:rec.date||"",
+    source:(angleRows.every(a=>a.source==="upload") ? "upload" : "webcam"), w:rec.w||0, h:rec.h||0 };
+  const row = { project_id:projectId, owner:uid, char_id:charId, angles:angleRows, prov };
+  try{
+    // the database's key is (project_id, owner, char_id); before team-relaunch.sql's likeness section
+    // runs it is still (project_id, char_id)
+    const {error}=await sb.from("turn_cameos").upsert(row, { onConflict:"project_id,owner,char_id" })
+      .then(r=>(r && r.error && _cameoOnConflictMissing(r.error)) ? sb.from("turn_cameos").upsert(row, { onConflict:"project_id,char_id" }) : r);
     if(error) throw error;
-    await _seriesFinishAssetUploadIntents(angleRows.map(angle=>angle.storage_path));
-    return true;
+    await _seriesFinishAssetUploadIntents(created);
   }catch(e){
+    _cameoNote(diag, _cameoPlainError(e));
     /* If the owner deleted the project between upload and row commit, the
        per-path intents still authorize this collaborator to remove only their
        just-uploaded uncommitted angles. */
-    try{ await cloudRemovePaths(angleRows.map(angle=>angle.storage_path)); }catch(cleanupError){}
-    return null;
+    try{ await cloudRemovePaths(angleRows.map(angle=>angle.storage_path).filter(path=>created.indexOf(path)>=0)); }catch(cleanupError){}
+    return false;
   }
+  // the row names the new photos now: the earlier ones it no longer names go (best effort)
+  const keep = new Set(angleRows.map(a=>a.storage_path));
+  const stale = Array.from(prevPaths).filter(p=>!keep.has(p));
+  if(stale.length){ try{ await cloudRemovePaths(stale); }catch(e){} }
+  if(diag && typeof diag==="object") diag.angles = angleRows.map(a=>({ ...a }));
+  return true;
 }
-async function cloudLoadCameo(projectId, charId){
-  const row = await cloudCameoRow(projectId, charId);
-  if(!row || !row.angles) return null;
+/* one person's synced likeness, its photos DOWNLOADED (data URLs, with each photo's storage path).
+   All or nothing: null when the row or any photo can't be read. */
+async function cloudLoadCameo(projectId, charId, owner, knownRow){
+  const row = knownRow || await cloudCameoRow(projectId, charId, owner);
+  if(!row || !Array.isArray(row.angles) || !row.angles.length) return null;
   const angles = [];
-  for(const a of row.angles){ const url = a.storage_path ? await cloudSignedUrl(a.storage_path) : ""; if(url) angles.push({ label:a.label, url }); }
+  for(const [i,a] of row.angles.entries()){
+    if(!a || !a.storage_path) continue;
+    const url = await _cameoDownload(a.storage_path);
+    if(!url) return null;
+    angles.push({ key:_cameoAngleKey(a,i), label:a.label||"Front", url, source:a.source==="upload"?"upload":"webcam",
+      ...(a.at ? { at:a.at } : {}), storage_path:a.storage_path });
+  }
+  if(!angles.length) return null;
   const p = row.prov || {};
-  return { angles, url: angles.length?angles[0].url:"", consent:!!p.consent, sync:true,
-    source:p.source||"webcam", subject:p.subject||"", iso:p.iso, date:p.date, w:p.w||0, h:p.h||0 };
+  return { angles, url:angles[0].url, consent:(p.consent===undefined ? null : p.consent), subject:p.subject||"",
+    source:p.source||"webcam", charName:p.charName||"", capturedAt:p.capturedAt||p.iso||null, iso:p.capturedAt||p.iso||null,
+    date:p.date||"", w:p.w||0, h:p.h||0, sync:true, syncedAt:row.updated_at||null, owner:row.owner };
 }
-async function cloudDeleteCameo(projectId, charId){
-  const sb = sbClient(); if(!sb) return;
-  const row = await cloudCameoRow(projectId, charId);
-  if(row && row.angles){ try{ await sb.storage.from(turnBucket()).remove((row.angles||[]).map(a=>a.storage_path).filter(Boolean)); }catch(e){} }
-  try{ await sb.from("turn_cameos").delete().eq("project_id",projectId).eq("char_id",charId); }catch(e){}
+/* remove one person's synced likeness of a character (its photos, then its row). The person who
+   captured it may, and the film's owner. { ok, removed, message } */
+async function cloudDeleteCameo(projectId, charId, owner){
+  const sb = sbClient(); if(!sb) return { ok:false, message:"cloud storage isn't available right now" };
+  let who = owner;
+  if(!who){ const s = await cloudGetSession(); who = s && s.user && s.user.id; }
+  if(!who) return { ok:false, message:"sign in first" };
+  const read = await _cameoRowStrict(sb, projectId, charId, who);
+  if(!read.ok) return { ok:false, message:"its cloud copy couldn't be checked right now" };
+  if(!read.row) return { ok:true, removed:0 };
+  const paths = (Array.isArray(read.row.angles) ? read.row.angles : []).map(a=>a && a.storage_path).filter(Boolean);
+  if(paths.length){
+    try{ await cloudRemovePaths(paths); }
+    catch(e){ return { ok:false, message:"its photos couldn't be removed from the cloud right now" }; }
+  }
+  try{
+    const { data, error } = await sb.from("turn_cameos").delete().eq("project_id",projectId).eq("char_id",charId).eq("owner",who).select("id");
+    if(error) return { ok:false, message:_cameoPlainError(error) };
+    if(!data || !data.length) return { ok:false, message:"only the person who captured it, or the film's owner, can remove it" };
+    return { ok:true, removed:data.length };
+  }catch(e){ return { ok:false, message:_cameoPlainError(e) }; }
+}
+/* every likeness of these films this person may read (their own, and — for the film's owner and its
+   live Art directors — teammates' synced ones), with each film's owner. { ok, rows, owners } */
+async function cloudListCameos(projectIds){
+  const sb = sbClient();
+  const ids = Array.from(new Set((projectIds||[]).filter(Boolean).map(String)));
+  if(!sb || !ids.length) return { ok:false, rows:[], owners:{} };
+  try{
+    const { data, error } = await sb.from("turn_cameos").select("project_id,owner,char_id,angles,prov,updated_at").in("project_id", ids);
+    if(error){
+      if(_seriesOptionalTableMissing(error, "turn_cameos")) return { ok:true, rows:[], owners:{} };
+      return { ok:false, rows:[], owners:{} };
+    }
+    const owners = {};
+    try{
+      const r = await sb.from("turn_projects").select("id,owner").in("id", ids);
+      for(const p of ((r && r.data)||[])) if(p && p.id) owners[String(p.id)] = String(p.owner);
+    }catch(e){}
+    return { ok:true, rows:data||[], owners };
+  }catch(e){ return { ok:false, rows:[], owners:{} }; }
+}
+/* the character's sheets in these films whose CURRENT image was made with a likeness (meta.cameo):
+   its master sheet (charId), appearance variants (charId:stateId) and scale sheet (charscale-charId) */
+async function cloudCameoSheets(projectIds, charId){
+  const sb = sbClient();
+  const ids = Array.from(new Set((projectIds||[]).filter(Boolean).map(String)));
+  if(!sb || !charId || !ids.length) return { ok:false, sheets:[] };
+  const pattern = String(charId).replace(/[\\%_]/g, m=>"\\"+m)+":%";
+  const out = [], seen = new Set();
+  try{
+    for(const pid of ids){
+      const a = await sb.from("turn_generations").select("entity_id,storage_path,meta").eq("project_id",pid).in("entity_id",[String(charId),"charscale-"+charId]);
+      const b = await sb.from("turn_generations").select("entity_id,storage_path,meta").eq("project_id",pid).like("entity_id",pattern);
+      if((a && a.error) || (b && b.error)) return { ok:false, sheets:out };
+      for(const r of [...((a && a.data)||[]), ...((b && b.data)||[])]){
+        if(!r || !r.storage_path || !r.meta || r.meta.cameo!==true) continue;
+        const k = pid+"|"+r.entity_id; if(seen.has(k)) continue; seen.add(k);
+        out.push({ id:String(r.entity_id), scope:pid, meta:r.meta });
+      }
+    }
+    return { ok:true, sheets:out };
+  }catch(e){ return { ok:false, sheets:out }; }
+}
+/* cloudDeleteProject's likeness photos: listed BEFORE the film row goes (the rows cascade with it),
+   with the owner's one-hour exact-path cleanup grant (team-relaunch.sql turn_film_cameo_cleanup) so
+   every capturer's photo can be removed after. Before that SQL is installed: this account's own
+   photos only (its own cameo folder stays deletable). Never throws. */
+async function _cameoFilmPhotosBeforeDelete(sb, id){
+  const keep = (paths)=>{
+    const allowed = new Set([String(id)]);
+    return Array.from(new Set((paths||[]).map(String).filter(p=>{
+      const c = _seriesScopedStoragePath(p, allowed);
+      return !!(c && c.safe && c.inScope) && p.split("/")[2]==="cameo";
+    })));
+  };
+  try{
+    if(typeof sb.rpc==="function"){
+      const { data, error } = await sb.rpc("turn_film_cameo_cleanup", { p_project_id:id });
+      if(!error) return { paths:keep(data && data.paths), granted:true };
+      if(!_seriesRpcMissing(error, "turn_film_cameo_cleanup")) return { paths:[], granted:false };
+    }
+    const s = await cloudGetSession(); const uid = s && s.user && s.user.id;
+    if(!uid) return { paths:[], granted:false };
+    const { data, error } = await sb.from("turn_cameos").select("owner,angles").eq("project_id",id).eq("owner",uid);
+    if(error) return { paths:[], granted:false };
+    const paths = [];
+    for(const r of (data||[])) for(const a of (Array.isArray(r.angles) ? r.angles : [])) if(a && a.storage_path) paths.push(a.storage_path);
+    return { paths:keep(paths), granted:false };
+  }catch(e){ return { paths:[], granted:false }; }
+}
+async function _cameoFilmPhotosAfterDelete(id, photos){
+  try{
+    if(photos && photos.paths && photos.paths.length){
+      const r = await _seriesRemoveExactPaths(photos.paths);
+      const sb = sbClient();
+      if(r.ok && photos.granted && sb && typeof sb.rpc==="function"){ try{ await sb.rpc("turn_finish_asset_cleanup",{ p_project_ids:[id] }); }catch(e){} }
+    }
+  }catch(e){}
+  // this account's copies of the film's likenesses leave this device too
+  try{ if(typeof window.nbCameoForgetScope==="function") await window.nbCameoForgetScope(id); }catch(e){}
 }
 window.cloudSyncCameo = cloudSyncCameo;
 window.cloudLoadCameo = cloudLoadCameo;
 window.cloudDeleteCameo = cloudDeleteCameo;
+window.cloudListCameos = cloudListCameos;
+window.cloudCameoSheets = cloudCameoSheets;
 
 /* ── render styles (locked "Surprise me" styles) ──────────────────────────────
    Two tiers (see supabase/styles.sql):

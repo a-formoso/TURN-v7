@@ -12,6 +12,11 @@
    checked by shape and cleanup paths (the P1/P1b probes), linked memberships write, the Stage editor's
    shot/project scope with coded refusals, the kinds of paid calls, takes protected, finished renders
    collected, spend views, re-holds; then today's file over production's, and series-production.sql re-run.
+   L (Likeness review, 2026-10-10): the same pattern against the file before that pass (6240b07): one likeness per
+   person per character per film; rows and photos read by the capturer, the film's owner and its live Art directors only
+   (the cameo/ folder left the collab read rule); a row needs its consent record and its own photos; the capturer and the
+   owner delete; the owner's cleanup grant for a plain film's delete; a Show's likeness under the Show's id; today's file
+   over the old one, the documented re-run order, and a database without the storage schema.
      node scripts/test-team-relaunch-db.mjs */
 import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -1144,6 +1149,210 @@ async function stageReview(E, isNew) {
   }
   const NE = await reviewEnv(RELAUNCH, { realtime: true });
   await review(NE, true);
+  await NE.db.close();
+}
+
+/* ── L. likenesses on shared films (2026-10-10, owner — Likeness review) ────────
+   Same pattern as Q and S: the file before this pass (LIKENESS_BASE_REV, read with `git show`)
+   shows each bug, today's file the fix; then today's file installed over the old one (with its
+   data), the documented re-run order, and a database without the storage schema. */
+const LIKENESS_BASE_REV = "6240b07";
+async function likenessReview(E, isNew) {
+  const tag = isNew ? "L" : "L-old";
+  const t = (name, fixed, bug, detail) => {
+    if (isNew) ok(`${tag} ${name}`, fixed, detail);
+    else if (bug !== undefined) ok(`${tag} bug reproduced: ${name}`, bug, detail);
+  };
+  let x;
+  const ari = X.ari, vo = X.vo;
+  const fl = await E.film(U.pat, "Likeness film");
+  for (const [who, role] of [[ari, "art_director"], [U.cara, "writer"], [vo, "view_only"], [U.sam, "stage_editor"]]) {
+    await E.invite(U.pat, fl, who.email, role); await E.claim(who);
+  }
+  const P = (who, film, char, file = "20261010-100000-front-aaaa0001.jpg") => `${who.id}/${film}/cameo/${char}/${file}`;
+  const patFront = P(U.pat, fl, "maya"), ariFront = P(ari, fl, "maya", "20261010-100000-front-bbbb0002.jpg");
+  const sheet = `${U.pat.id}/${fl}/character/maya/20261010-100000-sheet-cccc0003.png`;
+  const put = (path) => E.q("insert into storage.objects(bucket_id, name) values ('turn-assets', $1) on conflict do nothing", [path]);
+  for (const p of [patFront, ariFront, sheet]) await put(p);
+  const prov = (o = {}) => JSON.stringify({ consent: { subject: "self", name: "", adult: true, textVersion: "2026-10-10",
+    at: "2026-10-10T10:00:00.000Z", by: "x", ...o }, capturedAt: "2026-10-10T10:00:00.000Z" });
+  const ang = (...paths) => paths.map((p, i) => ({ key: ["front", "left", "right", "extra"][i], label: "Front", storage_path: p }));
+  const insRow = (who, film, char, angles, pv = prov()) => E.as(who, `insert into public.turn_cameos(project_id, owner, char_id, angles, prov)
+      values ($1, $2, $3, $4::jsonb, $5::jsonb) returning id`, [film, who.id, char, JSON.stringify(angles), pv]);
+  const owners = async (who, film = fl) => {
+    const r = await E.as(who, "select distinct owner::text o from public.turn_cameos where project_id = $1 order by o", [film]);
+    return r.ok ? r.rows.map((y) => y.o) : null;
+  };
+  const sees = async (who, path) => (await E.as(who, "select count(*)::int n from storage.objects where bucket_id = 'turn-assets' and name = $1", [path])).row?.n === 1;
+  const lists = async (who, film = fl) => {
+    const r = await E.as(who, "select name from storage.objects where bucket_id = 'turn-assets' and name like $1 order by name", [`%/${film}/cameo/%`]);
+    return r.ok ? r.rows.map((y) => y.name) : null;
+  };
+  const del = async (who, path) => { const r = await E.as(who, "delete from storage.objects where bucket_id = 'turn-assets' and name = $1 returning name", [path]); return r.ok && r.rows.length === 1; };
+  const same = (a, b) => JSON.stringify([...(a || [])].sort()) === JSON.stringify([...b].sort());
+
+  /* 1. one likeness per person per character per film */
+  x = await insRow(U.pat, fl, "maya", ang(patFront));
+  t("1a the owner syncs a likeness for Maya", x.ok, undefined, x);
+  const ariMaya = await insRow(ari, fl, "maya", ang(ariFront));
+  t("1b the Art director syncs her own likeness for the same character: one per person, no collision",
+    ariMaya.ok, !ariMaya.ok && /duplicate key|unique/.test(ariMaya.error || ""), ariMaya);
+  if (!ariMaya.ok) await E.q("insert into public.turn_cameos(project_id, owner, char_id, angles, prov) values ($1, $2, 'maya-2', $3::jsonb, $4::jsonb)",
+    [fl, ari.id, JSON.stringify(ang(ariFront)), prov()]);
+
+  /* 2. who reads the rows */
+  x = await owners(U.pat);
+  t("2a the film's owner reads the Art director's synced likeness (she renders with it)", same(x, [U.pat.id, ari.id]), same(x, [U.pat.id]), x);
+  x = await owners(ari);
+  t("2b the Art director reads the owner's", same(x, [U.pat.id, ari.id]), same(x, [ari.id]), x);
+  for (const [who, label] of [[U.cara, "a Co-writer"], [vo, "View-only"], [U.sam, "a Stage editor"], [U.eve, "an outsider"]]) {
+    x = await owners(who);
+    t(`2c ${label} reads no likeness row`, same(x, []), undefined, x);
+  }
+
+  /* 3. who reads the photos (and lists the cameo/ folder) */
+  for (const [who, label] of [[U.cara, "a Co-writer"], [vo, "View-only"], [U.sam, "a Stage editor"]]) {
+    const a = await sees(who, patFront), b = await sees(who, ariFront), l = await lists(who);
+    t(`3a ${label} can't read or list the film's likeness photos`, !a && !b && same(l, []), a && b && same(l, [patFront, ariFront]), { a, b, l });
+  }
+  t("3b a Co-writer still reads the film's sheets", await sees(U.cara, sheet), undefined);
+  t("3c the owner reads both photos", (await sees(U.pat, patFront)) && (await sees(U.pat, ariFront)), undefined);
+  t("3d the Art director reads both (renders) and lists the folder", (await sees(ari, patFront)) && (await sees(ari, ariFront)) && same(await lists(ari), [patFront, ariFront]), undefined);
+  t("3e an outsider reads none", !(await sees(U.eve, patFront)) && same(await lists(U.eve), []), undefined);
+
+  /* 4. who deletes the photos */
+  x = await del(ari, patFront);
+  t("4a the Art director can't delete the owner's likeness photo", !x, x);
+  if (x) await put(patFront);
+  const ariSpare = P(ari, fl, "spare"); await put(ariSpare);
+  t("4b the owner deletes a teammate's likeness photo on her film", await del(U.pat, ariSpare), undefined);
+  const ariOwn = P(ari, fl, "own"); await put(ariOwn);
+  t("4c the capturer deletes her own", await del(ari, ariOwn), undefined);
+  // a collaborator's generation cleanup list follows the same rule (the owner's app deletes what it names)
+  x = await E.as(ari, `insert into public.turn_generations(project_id, owner, entity_id, storage_path, meta)
+      values ($1, $2, 'ari-sheet', null, $3::jsonb) returning entity_id`, [fl, ari.id, JSON.stringify({ kind: "image", cleanupPending: [patFront] })]);
+  t("4d an Art director can't list the owner's likeness photo in a cleanup list for the owner's app to delete",
+    !x.ok && /cleanup_path/.test(x.error || ""), x.ok, x);
+
+  /* 5. what a row must carry */
+  const own = (c) => P(ari, fl, c);
+  x = await insRow(ari, fl, "n1", ang(own("n1")), JSON.stringify({ consent: true, source: "webcam" }));
+  t("5a a row without the consent record (who, 18 or over, the text's version) is refused", !x.ok, x.ok, x);
+  x = await insRow(ari, fl, "n2", []);
+  t("5b a row with no photo is refused", !x.ok, x.ok, x);
+  x = await insRow(ari, fl, "n3", ang(sheet));
+  t("5c a row naming someone else's file (the owner's sheet) is refused", !x.ok, x.ok, x);
+  x = await insRow(ari, fl, "n4", ang(own("n4")), prov({ subject: "other", name: "  " }));
+  t("5d 'someone else' needs their name", !x.ok, x.ok, x);
+  x = await insRow(ari, fl, "n5", ang(own("n5")), prov({ adult: false }));
+  t("5e and the person must be 18 or over", !x.ok, x.ok, x);
+  x = await insRow(ari, fl, "n6", ang(own("n6a"), own("n6b"), own("n6c"), own("n6d")));
+  t("5f at most three photos", !x.ok, x.ok, x);
+  x = await insRow(ari, fl, "n7", ang(own("n7")), prov({ subject: "other", name: "Jo Actor" }));
+  t("5g a well-formed 'someone else' row is accepted", x.ok, undefined, x);
+  x = await insRow(U.cara, fl, "c1", ang(P(U.cara, fl, "c1")));
+  t("5h a Co-writer can't add one (no Art Room write access)", !x.ok, undefined, x);
+  x = await E.as(ari, "update public.turn_cameos set prov = $3::jsonb where project_id = $1 and owner = $2 and char_id = 'n7' returning id", [fl, ari.id, JSON.stringify({ consent: true })]);
+  t("5i nor can an update drop the consent record", !x.ok, undefined, x);
+
+  /* 6. who deletes the rows */
+  x = await E.as(U.pat, "delete from public.turn_cameos where project_id = $1 and owner = $2 and char_id = 'n7' returning id", [fl, ari.id]);
+  t("6a the film's owner removes a teammate's likeness row on her film", x.ok && x.rows.length === 1, x.ok && x.rows.length === 0, x);
+  x = await E.as(U.cara, "delete from public.turn_cameos where project_id = $1 returning id", [fl]);
+  t("6b a Co-writer removes nothing", x.ok && x.rows.length === 0, undefined, x);
+
+  /* 7. a plain film's delete: the owner's one-hour grant for every likeness photo on it */
+  const fd = await E.film(U.pat, "To delete");
+  await E.invite(U.pat, fd, ari.email, "art_director"); await E.claim(ari);
+  const patD = P(U.pat, fd, "maya"), ariD = P(ari, fd, "maya", "20261010-100000-front-dddd0004.jpg");
+  const sheetD = `${U.pat.id}/${fd}/character/maya/20261010-100000-sheet-eeee0005.png`;
+  for (const p of [patD, ariD, sheetD]) await put(p);
+  await E.q("insert into public.turn_cameos(project_id, owner, char_id, angles, prov) values ($1, $2, 'maya', $3::jsonb, $5::jsonb), ($1, $4, 'maya-ari', $6::jsonb, $5::jsonb)",
+    [fd, U.pat.id, JSON.stringify(ang(patD)), ari.id, prov(), JSON.stringify(ang(ariD))]);
+  const ariGrant = await E.as(ari, "select public.turn_film_cameo_cleanup($1) j", [fd]);
+  const patGrant = await E.as(U.pat, "select public.turn_film_cameo_cleanup($1) j", [fd]);
+  t("7a only the owner gets the cleanup grant, for exactly the film's likeness photos",
+    !ariGrant.ok && patGrant.ok && same(patGrant.row.j.paths, [patD, ariD]), !patGrant.ok, { ariGrant, patGrant });
+  x = await E.as(U.pat, "delete from public.turn_projects where id = $1 returning id", [fd]);
+  const gone = (await E.q("select count(*)::int n from public.turn_cameos where project_id = $1", [fd]))[0].n === 0;
+  const ariGone = await del(U.pat, ariD);
+  t("7b after the film row is gone the owner removes every capturer's likeness photo on it",
+    x.ok && gone && ariGone && (await del(U.pat, patD)), x.ok && gone && !ariGone, { x, gone, ariGone });
+  t("7c the grant opens nothing else (the film's sheet stays the owner's ordinary rules')", !(await del(U.pat, sheetD)), undefined);
+
+  /* 8. the Art director's reads follow her live writes; the capturer always keeps her own */
+  await E.q("update public.turn_credits set plan = 'writer' where owner = $1", [U.pat.id]);
+  x = await owners(ari); const lapsedSees = await sees(ari, patFront);
+  t("8a the owner's plan lapses: the Art director reads only her own likeness (row and photo)",
+    same(x, [ari.id]) && !lapsedSees && (await sees(ari, ariFront)), lapsedSees, { x, lapsedSees });
+  await E.q("update public.turn_credits set plan = 'studio' where owner = $1", [U.pat.id]);
+  await E.sw(false);
+  x = await owners(ari);
+  t("8b sharing paused: the same", same(x, [ari.id]) && !(await sees(ari, patFront)), undefined, x);
+  await E.sw(true);
+  await E.as(U.pat, "update public.turn_project_members set status = 'removed' where project_id = $1 and member_email = $2", [fl, ari.email]);
+  const leftSees = await sees(ari, ariFront);
+  t("8c removed from the film, she still reads her own photo (it's her capture) and nobody else's",
+    leftSees && !(await sees(ari, patFront)), !leftSees, leftSees);
+  x = await E.as(ari, "delete from public.turn_cameos where project_id = $1 and owner = $2 returning id", [fl, ari.id]);
+  t("8d and removes her own row and photo", x.ok && x.rows.length >= 1 && (await del(ari, ariFront)), undefined, x);
+
+  if (!isNew) return;
+
+  /* 9. a Show: the likeness lives under the Show's id (the bible scope) */
+  const bibleJ = JSON.stringify({ characters: [], locations: [], props: [], lookbook: [], lookbookNote: "", trash: { characters: [], locations: [], props: [] } });
+  const fe = await E.film(U.pat, "Likeness episode");
+  const conv = await E.as(U.pat, "select public.turn_convert_project_to_show($1, 'Show', $2::jsonb, 'series') r", [fe, bibleJ]);
+  if (conv.ok) {
+    const S = conv.row.r.show.id;
+    await E.invite(U.pat, S, X.pen.email, "art_director"); await E.claim(X.pen);
+    await E.invite(U.pat, fe, "epwriter@example.com", "writer");
+    const showPath = P(U.pat, S, "mara");
+    await put(showPath);
+    x = await insRow(U.pat, S, "mara", ang(showPath));
+    t("9a the owner syncs a Show character's likeness under the Show's id", x.ok, undefined, x);
+    t("9b the Show's Art director reads it (every Episode finds it)", same(await owners(X.pen, S), [U.pat.id]) && (await sees(X.pen, showPath)), undefined);
+    t("9c the Episode's Co-writer doesn't", same(await owners(U.cara, S), []), undefined);
+  } else ok("L 9 the Show conversion ran", false, conv.error);
+}
+
+{
+  const BASE = gitShow(LIKENESS_BASE_REV, "supabase/team-relaunch.sql");
+  if (BASE === null) console.log("SKIP L-old: git (or the base file) isn't available");
+  else {
+    const LE = await reviewEnv(BASE);
+    await likenessReview(LE, false);
+    // today's file over the old one, with its rows (the two-column unique key goes, the new one comes)
+    let eUp = null;
+    try { await LE.db.exec(RELAUNCH); await LE.db.exec(RELAUNCH); } catch (err) { eUp = err.message; }
+    const uniq = await LE.q(`select pg_get_indexdef(i.indexrelid) d from pg_index i where i.indrelid = 'public.turn_cameos'::regclass and i.indisunique and not i.indisprimary`);
+    ok("L-up today's file installs over the old one, twice: one unique key, (project_id, owner, char_id)",
+      eUp === null && uniq.length === 1 && /\(project_id, owner, char_id\)/.test(uniq[0].d), eUp || uniq);
+    const f = (await LE.q("select id from public.turn_projects where title = 'Likeness film'"))[0].id;
+    await LE.as(U.pat, "update public.turn_project_members set status = 'active' where project_id = $1 and member_email = $2", [f, X.ari.email]);
+    await LE.claim(X.ari);   // adding back someone removed is a fresh invite: she claims it again
+    const p2 = `${X.ari.id}/${f}/cameo/maya/20261011-100000-front-ffff0006.jpg`;
+    const ins = await LE.as(X.ari, `insert into public.turn_cameos(project_id, owner, char_id, angles, prov) values ($1, $2, 'maya', $3::jsonb, $4::jsonb) returning id`,
+      [f, X.ari.id, JSON.stringify([{ key: "front", label: "Front", storage_path: p2 }]),
+       JSON.stringify({ consent: { subject: "self", name: "", adult: true, textVersion: "2026-10-10" } })]);
+    ok("L-up and the Art director's own Maya now syncs beside the owner's", ins.ok, ins);
+    await LE.db.close();
+  }
+  const NE = await reviewEnv(RELAUNCH);
+  await likenessReview(NE, true);
+  // the documented re-run order: series-production.sql puts back its delete rule, this file the likeness one
+  let eR = null;
+  try { await NE.db.exec(read("supabase/series-production.sql")); await NE.db.exec(RELAUNCH); } catch (err) { eR = err.message; }
+  const pol = await NE.q("select policyname, qual from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname in ('turn assets read collab', 'turn assets cameo read', 'turn assets delete collab') order by policyname");
+  ok("L-rerun series-production.sql, then this file: the likeness rules are back",
+    eR === null && pol.length === 3 && /turn__is_cameo_path/.test(pol.find((p) => p.policyname === "turn assets read collab").qual)
+      && /turn_can_delete_storage_object/.test(pol.find((p) => p.policyname === "turn assets delete collab").qual), eR || pol);
+  // a database without the storage schema (an offline copy): the file still runs, the table rules still apply
+  let eG = null;
+  try { await NE.db.exec("drop table storage.objects cascade"); await NE.db.exec(RELAUNCH); } catch (err) { eG = err.message; }
+  const rowPol = await NE.q("select policyname from pg_policies where schemaname = 'public' and tablename = 'turn_cameos' order by policyname");
+  ok("L-guard without storage.objects the file still runs (both Storage blocks skip) and the likeness row rules stand",
+    eG === null && JSON.stringify(rowPol.map((p) => p.policyname)) === JSON.stringify(["cameos delete own", "cameos read", "cameos update own", "cameos write own"]), eG || rowPol);
   await NE.db.close();
 }
 

@@ -1087,11 +1087,15 @@ function compareWornReferenceSnapshots(baked, current){
 }
 window.loadWornReferenceSnapshot = loadWornReferenceSnapshot;
 window.compareWornReferenceSnapshots = compareWornReferenceSnapshots;
-function buildCharRefPrompt(c, project, props){
+function buildCharRefPrompt(c, project, props, o){
   const P = project || {};
   const v = charVisualDefaults(c);
   const clean = (x)=>String(x||"").replace(/\.$/,"").trim();
-  const body = vfield(c,"coreBody","look");
+  /* o.likeness (2026-10-10, owner — Likeness review): a locked likeness gives the FACE from its photos, so the
+     text spec leaves out every face field (age, ethnicity, skin, eyes, hair, face) — a written face could
+     contradict the real one. Body build, height, wardrobe and accessories stay. */
+  const _lk = !!(o && o.likeness);
+  const body = _lk ? turnLikenessStripFace(vfield(c,"coreBody","look")) : vfield(c,"coreBody","look");
   const texture = c.materialTexture || "natural skin pore texture, subsurface scattering, high detail";
   const mask = vfield(c,"wardrobeMask","wardrobe");
   const acc = (c.accessories && !/^none$/i.test(c.accessories.trim())) ? clean(c.accessories) : "";
@@ -1116,9 +1120,9 @@ function buildCharRefPrompt(c, project, props){
   const tone = [P.genre, period].filter(Boolean).join(", ");
   const F = c.physique || {};
   const phys = {
-    apparent_age: clean(F.age)||undefined, ethnicity: clean(F.ethnicity)||undefined,
-    skin: clean(F.skin)||undefined, eyes: clean(F.eyes)||undefined, hair: clean(F.hair)||undefined,
-    face: clean(F.face)||undefined, build: clean(F.build)||undefined,
+    apparent_age: (!_lk && clean(F.age))||undefined, ethnicity: (!_lk && clean(F.ethnicity))||undefined,
+    skin: (!_lk && clean(F.skin))||undefined, eyes: (!_lk && clean(F.eyes))||undefined, hair: (!_lk && clean(F.hair))||undefined,
+    face: (!_lk && clean(F.face))||undefined, build: clean(F.build)||undefined,
     // explicit limbs keep image models from defaulting underspecified legs to high
     // heels and underspecified hands to generic-human
     arms_hands: clean(F.arms)||undefined,
@@ -1157,6 +1161,7 @@ function buildCharRefPrompt(c, project, props){
       wants: clean(c.conscious)||undefined,
       physique: hasPhys ? phys : undefined,
       description: (!hasPhys && body) ? clean(body) : undefined,
+      face_and_hair: _lk ? "from the attached likeness photos (see LIKENESS below) — not described in text" : undefined,
       why_this_look: clean(c.bodyRationale)||undefined,
       height: v.height, scale: v.scaleClass,
       skin_surface_texture: clean(texture),
@@ -1240,6 +1245,333 @@ function buildRefFromPhotoPrompt(c, project){
 }
 window.buildRefFromPhotoPrompt = buildRefFromPhotoPrompt;
 
+/* ============================================================
+   LIKENESS (internal name: cameo) — ONE RULE for every character-sheet path
+   (2026-10-10, owner — Likeness review): the card's Generate / Apply, the post-capture
+   "Generate sheet", appearance-state variants, the simplified retry, and the Casting Director's
+   master and variants (so Scene needs and Wear props too) and the prop owner's pre-generation
+   (app.jsx). When a likeness is locked for the character:
+     · the FRONT angle is image 1, the other angles next, then the master sheet (a variant, or an
+       update of the current sheet), then the worn-item sheets, then a dropped reference photo;
+     · the prompt carries a NUMBERED image map and asks to match the face from the angles;
+     · the text spec leaves the face out (buildCharRefPrompt o.likeness);
+     · the sheet records meta.cameo, meta.cameoAt (the likeness's capture time) and its mode; the
+       angles are counted as private references and never stored as the sheet's references.
+   Editing or remastering a likeness sheet re-attaches the FRONT angle only (owner decision E).
+   A likeness that exists but can't be used here (a shared film — nbCameoInfo().available false)
+   is said before anything is spent, never silently dropped.
+   ============================================================ */
+/* the face sentences of a free-text body description ("Apparent age: 40. Hair: grey. Build: lean.") */
+function turnLikenessStripFace(text){
+  const s = String(text||"").trim();
+  if(!s) return "";
+  const FACE = /^(?:apparent\s+age|age|ethnicity|skin(?:\s+tone)?|eyes?(?:\s+colou?r)?|eye\s+colou?r|hair(?:\s+colou?r)?|face(?:\s+shape)?|facial\s+features?)\s*[:—-]/i;
+  const parts = s.split(/\.\s+/).map(p=>p.trim().replace(/\.$/,"")).filter(p=> p && !FACE.test(p));
+  return parts.length ? parts.join(". ")+"." : "";
+}
+window.turnLikenessStripFace = turnLikenessStripFace;
+/* what the store says about a character's likeness on the open film. nbCameoInfo (the store's) when
+   this build has it, else today's registry (an older build: every locked likeness is usable). */
+function turnLikenessInfo(charId){
+  if(!charId) return null;
+  if(typeof window.nbCameoInfo==="function"){
+    let i = null; try{ i = window.nbCameoInfo(charId); }catch(e){ i = null; }
+    // no likeness → locked:false (the store also says available:false then); one this person can't use here →
+    // locked:true, available:false, why
+    if(!i || i.locked===false) return null;
+    return i;
+  }
+  const m = (typeof nbCameoMeta==="function") ? nbCameoMeta(charId) : null;
+  if(!m) return null;
+  return { locked:true, synced:!!m.sync, angleCount:Number(m.angleCount)||1, capturedAt:m.iso||"",
+    consent:{ subject:m.subject||"" }, mine:true, available:true, why:"" };
+}
+window.turnLikenessInfo = turnLikenessInfo;
+/* a likeness exists for this character on this film but can't be used by this person here */
+function turnLikenessUnavailable(charId){
+  const i = turnLikenessInfo(charId);
+  if(!i || i.available!==false) return null;
+  return { why: String(i.why||"").trim() || "This character's likeness belongs to someone else on this film and can't be used from your account." };
+}
+window.turnLikenessUnavailable = turnLikenessUnavailable;
+/* the sentence a price confirm / preview shows for an unavailable likeness */
+function turnLikenessUnavailableText(charId, name){
+  const u = turnLikenessUnavailable(charId);
+  if(!u) return "";
+  return u.why.replace(/([^.!?])$/,"$1.")+" Renders made here won't include "+(name ? name+"'s" : "the")+" real face — they follow the text spec.";
+}
+window.turnLikenessUnavailableText = turnLikenessUnavailableText;
+/* how many likeness photos a render of this character sends (for prices) — 0 when there's none or it can't be used */
+function turnLikenessRefCount(charId){
+  const i = turnLikenessInfo(charId);
+  if(!i || i.available===false) return 0;
+  if(i.angleCount) return Math.max(1, Number(i.angleCount)||1);
+  try{ const a = (typeof nbGetCameoAngles==="function") ? (nbGetCameoAngles(charId)||[]) : []; if(a.length) return a.length; }catch(e){}
+  return 1;
+}
+window.turnLikenessRefCount = turnLikenessRefCount;
+/* load the angles, FRONT first: { usable, unavailable, why, angles:[{label,url}], urls, capturedAt } */
+async function turnLoadLikeness(charId){
+  const none = { usable:false, unavailable:false, why:"", angles:[], urls:[], capturedAt:"" };
+  if(!charId) return none;
+  const hasInfo = typeof window.nbCameoInfo==="function";
+  const info = turnLikenessInfo(charId);
+  if(info && info.available===false) return { ...none, unavailable:true, why:(turnLikenessUnavailable(charId)||{}).why||"", info };
+  if(hasInfo && !info) return none;   // the store says there's none — no needless read
+  let angles = [], rec = null;
+  if(typeof nbLoadCameoFull==="function"){
+    try{ rec = await nbLoadCameoFull(charId); }catch(e){ rec = null; }
+    if(rec) angles = ((rec.angles&&rec.angles.length) ? rec.angles : (rec.url ? [{ label:"Front", url:rec.url }] : []))
+      .filter(a=>a && a.url).map(a=>({ label:String(a.label||""), key:String(a.key||""), url:a.url }));
+  }
+  if(!angles.length){
+    let urls = [];
+    if(typeof nbGetCameoAngles==="function"){ try{ urls = nbGetCameoAngles(charId)||[]; }catch(e){} }
+    if(!urls.length && typeof nbLoadCameoAngles==="function"){ try{ urls = (await nbLoadCameoAngles(charId))||[]; }catch(e){} }
+    if(!urls.length && typeof nbGetCameo==="function"){ try{ const u = nbGetCameo(charId); if(u) urls = [u]; }catch(e){} }
+    if(!urls.length && typeof nbLoadCameo==="function"){ try{ const u = await nbLoadCameo(charId); if(u) urls = [u]; }catch(e){} }
+    const L = ["Front","¾ Left","¾ Right"];
+    angles = urls.filter(Boolean).map((u,i)=>({ label:L[i]||("Angle "+(i+1)), url:u }));
+  }
+  // FRONT first (the primary reference), then the other angles in their captured order
+  const fi = angles.findIndex(a=>a.key==="front" || /front/i.test(a.label));
+  if(fi>0) angles = [angles[fi], ...angles.filter((_,i)=>i!==fi)];
+  if(!angles.length) return { ...none, info };
+  const capturedAt = String((info && info.capturedAt) || (rec && (rec.capturedAt || rec.iso)) || "");
+  return { usable:true, unavailable:false, why:"", angles, urls:angles.map(a=>a.url), capturedAt, info };
+}
+window.turnLoadLikeness = turnLoadLikeness;
+/* photoreal styles match the face exactly; a stylized style keeps the person recognisable in that style (decision G) */
+function turnLikenessStyle(c){
+  const key = (typeof inferCharacterRenderStyleKey==="function") ? inferCharacterRenderStyleKey(c||{}) : ((c&&c.renderStyleKey)||"photoreal");
+  const rb = (typeof charRenderBlock==="function") ? (charRenderBlock(c||{})||{}) : {};
+  const builtIn = Object.prototype.hasOwnProperty.call(CHAR_RENDER_STYLES, key);
+  const name = (key==="surprise" && c && c.surpriseRender && c.surpriseRender.label) ? c.surpriseRender.label
+    : (renderStylePromptName(key) || String(rb.rendering||"").split(/[;,—]/)[0].trim() || "chosen");
+  let photoreal;
+  if(builtIn && key!=="surprise") photoreal = RENDER_STYLE_GROUP_BY_KEY[key]==="Photoreal" || key==="horror";
+  else{ const r = String(rb.rendering||"");
+    photoreal = /photo|live-action|photograph/i.test(r) && !/illustrat|anime|cartoon|painted|drawn|sketch|clay|paper|pixel/i.test(r); }
+  return { key, photoreal:!!photoreal, name };
+}
+window.turnLikenessStyle = turnLikenessStyle;
+const _lkImg = (a,b)=> a===b ? ("Image "+a) : ("Images "+a+"–"+b);
+const _lkImgLow = (a,b)=> a===b ? ("image "+a) : ("images "+a+"–"+b);
+const _lkNote = (n)=> String(n||"").replace(/\s*\((?:worn|carried)\)\s*$/i,"").trim();
+/* THE ORDER AND THE NUMBERED MAP. parts:
+     likeness  the turnLoadLikeness result (usable)       frontOnly  edits: the front angle only
+     edit      { url } the sheet being edited (image 1)    master     { url, label } the master / current sheet
+     worn      [{ url, note }] worn-item sheets            photo      { url, label } a dropped reference photo
+     others    [{ url, note }] anything else, last (an edit's attached inputs)
+     character the character (its render style)
+   → { primary, extras, images, map, rule, faceImages, masterImage, count } */
+function turnLikenessPlan(parts){
+  const P = parts || {};
+  const L = P.likeness && P.likeness.usable ? P.likeness : null;
+  const angles = L ? (P.frontOnly ? L.angles.slice(0,1) : L.angles.slice()) : [];
+  const order = [], lines = [];
+  let n = 0;
+  if(P.edit && P.edit.url){ n++; order.push(P.edit.url); lines.push(_lkImg(n,n)+" = the sheet being edited."); }
+  const faceFrom = n+1;
+  if(angles.length){
+    n++; order.push(angles[0].url);
+    lines.push(_lkImg(n,n)+" = the person's face, front"+(P.frontOnly ? " — keep it." : "."));
+    const rest = angles.slice(1);
+    if(rest.length){
+      const a = n+1; rest.forEach(x=>{ n++; order.push(x.url); });
+      const labs = rest.map(x=> String(x.label||"another angle").trim().toLowerCase());
+      lines.push(_lkImg(a,n)+" = the same face from "+(labs.length>1 ? labs.slice(0,-1).join(", ")+" and "+labs[labs.length-1] : labs[0])+".");
+    }
+  }
+  const faceTo = n;
+  let masterImage = 0;
+  if(P.master && P.master.url){ n++; order.push(P.master.url); masterImage = n;
+    lines.push(_lkImg(n,n)+" = "+(P.master.label||"this character's master sheet")+"."); }
+  const worn = (P.worn||[]).filter(w=>w && w.url);
+  if(worn.length){ const a = n+1; worn.forEach(w=>{ n++; order.push(w.url); });
+    lines.push(_lkImg(a,n)+" = worn item"+(worn.length>1?"s":"")+": "+worn.map(w=>_lkNote(w.note)||"worn item").join(", ")
+      +" — lock "+(worn.length>1?"each":"it")+" onto the character exactly (shape, material, colour, wear and scale); worn items without an image follow the text."); }
+  let photoImage = 0;
+  if(P.photo && P.photo.url){ n++; order.push(P.photo.url); photoImage = n;
+    lines.push(_lkImg(n,n)+" = a reference photo for "+(String(P.photo.label||"").trim()||"look")+" — use it for that only, never for the face."); }
+  (P.others||[]).filter(o=>o && o.url).forEach(o=>{ n++; order.push(o.url); lines.push(_lkImg(n,n)+" = "+(_lkNote(o.note)||"an attached reference")+"."); });
+  const st = turnLikenessStyle(P.character);
+  const faceImages = angles.length ? _lkImgLow(faceFrom, faceTo) : "";
+  let rule = "";
+  if(angles.length){
+    rule = P.frontOnly
+      ? (st.photoreal
+          ? "LIKENESS (binding): keep the face exactly as in "+faceImages+" — the real person this character is played by; don't idealise or change it."
+          : "LIKENESS (binding): keep the person in "+faceImages+" recognisable — their face shape, features and proportions — drawn in the "+st.name+" style.")
+      : (st.photoreal
+          ? "LIKENESS (binding): this character is played by the real person in "+faceImages+". Match that face exactly — face shape, features, skin tone, eye colour, hair and apparent age — in the portrait and every view that shows the face; don't idealise, age or change it. The face comes from these photos, never from the text. Body build, height, wardrobe and accessories follow the specification."
+          : "LIKENESS (binding): this character is played by the real person in "+faceImages+". Keep the person recognisable — their face shape, features and proportions — drawn in the "+st.name+" style, in the portrait and every view that shows the face. Body build, height, wardrobe and accessories follow the specification.");
+  }
+  const map = lines.length ? ("REFERENCE IMAGES, in the order attached: "+lines.join(" ")) : "";
+  return { primary:order[0]||"", extras:order.slice(1), images:order, map, rule, faceImages, faceCount:angles.length,
+    masterImage, photoImage, count:order.length, photoreal:st.photoreal, styleName:st.name };
+}
+window.turnLikenessPlan = turnLikenessPlan;
+/* the master-sheet prompt in likeness mode: the face-free spec (+ canonical identity, as combinedImagePrompt adds) */
+function charSheetPrompt(c, project, props, o){
+  const base = String(buildCharRefPrompt(c, project, props, o)||"").trim();
+  const identity = (typeof window.turnIdentityPrompt==="function") ? String(window.turnIdentityPrompt([c])||"").trim() : "";
+  return identity ? (base+(base?"\n\n":"")+"CANONICAL CHARACTER IDENTITY (binding): "+identity) : base;
+}
+window.charSheetPrompt = charSheetPrompt;
+/* the two roles a sheet can play after the angles (one wording for the card, the variants and the Casting Director) */
+const LIKENESS_MASTER_LABEL = "this character's master sheet — keep its layout, panels, framing, render style and wardrobe";
+const LIKENESS_CURRENT_LABEL = "this character's current master sheet — the sheet to update (keep its layout, panels, framing and render style)";
+/* ctx for the prompt builders: which images hold the face, which one is the master */
+function turnLikenessCtx(L, o){
+  const n = (L && L.angles && L.angles.length) || 0;
+  const edit = !!(o && o.edit);
+  const f = edit ? 1 : n;
+  const first = edit ? 2 : 1;
+  return { likeness:true, faceCount:f,
+    faceImages: f>1 ? ("images "+first+"–"+(first+f-1)) : ("image "+first),
+    masterImage: (o && o.master) ? (f+1) : 0, deriveFromCurrent: !!(o && o.deriveFromCurrent) };
+}
+window.turnLikenessCtx = turnLikenessCtx;
+/* a master sheet with a likeness: the face-free spec; updating the current master names it (image N) */
+function turnLikenessMasterPrompt(c, project, props, ctx){
+  const spec = charSheetPrompt(c, project, props, { likeness:true });
+  if(!(ctx && ctx.masterImage)) return spec;
+  return "Update this existing master character sheet for "+((c&&c.name)||"the character")+" (image "+ctx.masterImage+"). "
+    +"Preserve its build, body proportions, panel layout, framing and render style; the face comes from "+ctx.faceImages+" (the likeness). "
+    +"Apply the current production specification and worn-reference designs below without re-casting or re-imagining the character. "+spec;
+}
+window.turnLikenessMasterPrompt = turnLikenessMasterPrompt;
+/* an appearance-state variant with a likeness: from the master (only the change differs), or — no master yet —
+   a complete sheet FROM the face in the changed state (it used to get "edit this design sheet… keep its layout"
+   while the only reference was a face photo) */
+function turnLikenessVariantPrompt(c, st, project, props, ctx){
+  const change = String((st&&st.change)||"").replace(/\.$/,"").trim();
+  const label = (st&&st.label)||"variant";
+  if(ctx && ctx.masterImage){
+    const s = "Make the “"+label+"” appearance variant of "+((c&&c.name)||"the character")+"'s character design sheet. "
+      +"Image "+ctx.masterImage+" is the master sheet: keep its layout, panel arrangement, framing, render style, build and wardrobe, "
+      +"and apply only this appearance change: "+(change||"(no specific change given)")+". "
+      +"The face comes from "+ctx.faceImages+" (the likeness) — the same person in every view. Do not re-imagine the character.";
+    const identity = (typeof window.turnIdentityPrompt==="function") ? String(window.turnIdentityPrompt([c])||"").trim() : "";
+    return identity ? (s+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identity) : s;
+  }
+  return charSheetPrompt(c, project, props, { likeness:true })+" APPEARANCE STATE — "+label+": "+change
+    +". There is no master sheet yet: make this a complete character sheet in THIS changed state, consistent across every panel.";
+}
+window.turnLikenessVariantPrompt = turnLikenessVariantPrompt;
+/* THE SHARED REQUEST for the sheet paths that call the image engine directly (app.jsx: the Casting Director's
+   master and variants — so Scene needs and Wear props — and the prop owner's pre-generation). Same order, map,
+   prompt wording and provenance as the card (nbRunSheetGeneration). o: { character, likeness?, state?, master?
+   (url), deriveFromCurrent?, worn:[{url,note}], project, props }.
+   → { usable:false, unavailable, why } | { usable:true, prompt, referenceImage, extraImages, plan, meta } */
+async function turnLikenessSheetRequest(o){
+  const c = (o && o.character) || {};
+  const L = (o && o.likeness) || await turnLoadLikeness(c.id);
+  if(!L || !L.usable) return { usable:false, unavailable:!!(L && L.unavailable), why:(L && L.why) || "" };
+  const ctx = turnLikenessCtx(L, { master:!!o.master, deriveFromCurrent:!!o.deriveFromCurrent });
+  let prompt = o.state ? turnLikenessVariantPrompt(c, o.state, o.project, o.props, ctx) : turnLikenessMasterPrompt(c, o.project, o.props, ctx);
+  const plan = turnLikenessPlan({ likeness:L, character:c, worn:o.worn||[],
+    master: o.master ? { url:o.master, label: o.deriveFromCurrent ? LIKENESS_CURRENT_LABEL : LIKENESS_MASTER_LABEL } : null });
+  const tail = [plan.map, plan.rule].filter(Boolean).join(" ");
+  if(tail) prompt += "\n\n"+tail;
+  return { usable:true, prompt, referenceImage:plan.primary, extraImages:plan.extras, plan, likeness:L,
+    meta:{ cameo:true, cameoAt:L.capturedAt||undefined, mode:o.master ? "base" : "cameo",
+      likenessRefs:plan.faceCount, privateRefs:plan.faceCount } };
+}
+window.turnLikenessSheetRequest = turnLikenessSheetRequest;
+/* the simplified retry, face-free when a likeness is locked (the likeness sentence and the map are added by the caller) */
+function buildSimpleCharPromptFor(c, o){
+  if(!(o && o.likeness)) return (typeof buildSimpleCharPrompt==="function") ? buildSimpleCharPrompt(c) : ("Character reference — "+((c&&c.name)||"character"));
+  const F = (c && c.physique) || {};
+  const v = charVisualDefaults(c||{});
+  const body = [String(F.build||"").replace(/\.$/,"").trim(), v.height ? (v.height+" tall") : ""].filter(Boolean).join(", ")
+    || turnLikenessStripFace((c&&(c.coreBody||c.look))||"").replace(/\.$/,"");
+  const wardrobe = String((c&&(c.wardrobeMask||c.wardrobe))||"").replace(/\.$/,"").trim();
+  const styleLine = String((charRenderBlock(c||{})||{}).rendering||"").split(/[;,]/)[0].trim();
+  const parts = [
+    "Character reference — "+((c&&c.name)||"character"),
+    body || "",
+    wardrobe ? ("wearing "+wardrobe) : "",
+    "4-panel casting reference sheet: large close-up face portrait, full-body front view, full-body three-quarter front view, full-body back view",
+    "plain grey background, studio lighting, "+(styleLine||"photoreal")+", sharp focus, no text or labels"
+  ].filter(Boolean);
+  const identity = (typeof window.turnIdentityPrompt==="function") ? String(window.turnIdentityPrompt([c])||"").trim() : "";
+  const s = parts.join(". ")+".";
+  return identity ? (s+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identity) : s;
+}
+window.buildSimpleCharPromptFor = buildSimpleCharPromptFor;
+/* CONSENT before a person's photo is first used (a dropped reference photo, an uploaded face): the store's
+   dialog ("Me" / "Someone else" + permission + 18 or over) when this build has it, else a confirm with the
+   same wording. A refusal sends nothing. Remembered per photo for this session. */
+const _lkConsented = new Set();
+function _lkPhotoKey(u){ const s = String(u||""); return s.length+":"+s.slice(0,64)+":"+s.slice(-64); }
+async function turnLikenessConsent(purpose, photoUrl){
+  const key = photoUrl ? _lkPhotoKey(photoUrl) : "";
+  if(key && _lkConsented.has(key)) return true;
+  let ok;
+  if(typeof window.cameoConsentGate==="function"){
+    try{ ok = !!(await window.cameoConsentGate({ purpose:purpose||"reference" })); }catch(e){ ok = false; }
+  } else if(typeof window.appConfirm==="function"){
+    try{ ok = !!(await window.appConfirm({ title:"Use a photo of a real person?",
+      body:"Is this you, or someone else? Only use a photo of yourself, or of someone who has given you permission to use their likeness — and they must be 18 or over.",
+      confirmLabel:"I have permission — they're 18 or over", cancelLabel:"Cancel" })); }catch(e){ ok = false; }
+  } else ok = true;   // an older build with neither: today's behaviour
+  if(ok && key) _lkConsented.add(key);
+  return ok;
+}
+window.turnLikenessConsent = turnLikenessConsent;
+/* a likeness this person can't use here (a shared film): asked BEFORE the render is spent — the why, that the
+   render won't include the face, and the price. true = go ahead (or there's nothing to say). */
+async function turnLikenessUnavailableGate(c, refs){
+  const t = turnLikenessUnavailableText(c && c.id, c && c.name);
+  if(!t || typeof window.appConfirm!=="function") return true;
+  const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(1, refs!=null ? { refs } : undefined) : "";
+  return !!(await window.appConfirm({
+    title:"Generate without "+((c && c.name) || "this character")+"'s likeness?",
+    body:t+(price ? " About "+price+" credit"+(price==="1"?"":"s")+"." : ""),
+    confirmLabel:"Generate without the face", cancelLabel:"Cancel" }));
+}
+window.turnLikenessUnavailableGate = turnLikenessUnavailableGate;
+/* a batch's price when its renders send different numbers of images (likeness photos, worn-item sheets): the
+   sum of each image's own price, re-read when the engine / settings / price table change (like nbCostChip) */
+function LikenessBatchCost({ refs }){
+  const [, force] = React.useState(0);
+  React.useEffect(()=>{
+    const h = ()=>force(x=>x+1);
+    ["nb-model-changed","nb-settings-changed","turn-pricing-changed"].forEach(t=>window.addEventListener(t, h));
+    return ()=>["nb-model-changed","nb-settings-changed","turn-pricing-changed"].forEach(t=>window.removeEventListener(t, h));
+  },[]);
+  if(typeof window.nbImageCostText!=="function") return null;
+  const list = (refs||[]).map(r=>Number(r)||0);
+  let total = 0;
+  for(const r of list){ const t = Number(window.nbImageCostText(1, { refs:r })); if(!(t>0)) return null; total += t; }
+  if(!total) return null;
+  const n = list.length;
+  return React.createElement("span",{className:"nb-cost",
+    title:"\u2248 "+total+" generation credit"+(total===1?"":"s")+" for "+n+" image"+(n===1?"":"s")
+      +" \u2014 counting each one's likeness photos and worn-item sheets"}, String(total));
+}
+window.LikenessBatchCost = LikenessBatchCost;
+/* saved labels from before the rename ("Cameo likeness") are shown under today's name; stored data is never rewritten */
+function likenessDisplayLabel(s){
+  const t = String(s==null?"":s);
+  return t.replace(/\bFrom cameo likeness\b/gi,"From the likeness").replace(/\bcameo likeness\b/gi,"Likeness")
+    .replace(/\bCameos\b/g,"Likenesses").replace(/\bcameos\b/g,"likenesses").replace(/\bCameo\b/g,"Likeness").replace(/\bcameo\b/g,"likeness");
+}
+window.likenessDisplayLabel = likenessDisplayLabel;
+/* is this sheet made with an OLDER likeness than the one locked now? (decision: "made with an earlier likeness") */
+function turnLikenessStale(meta, charId){
+  if(!(meta && meta.cameo)) return false;
+  const i = turnLikenessInfo(charId);
+  const now = i && i.capturedAt ? String(i.capturedAt) : "";
+  if(!now) return false;
+  const made = String(meta.cameoAt || "");
+  // a sheet from before cameoAt was recorded: compare with when the sheet itself was made
+  return made ? made < now : !!(meta.iso && String(meta.iso) < now);
+}
+window.turnLikenessStale = turnLikenessStale;
+
 /* Detect resolution tier + aspect from an uploaded image's real pixels — for sheets
    the user generated OUTSIDE the app (e.g. GPT Image 2 in ChatGPT) and imported, so
    we know neither up front. Quality (low/med/high) is a generation-time encoder
@@ -1298,6 +1630,11 @@ if(typeof window.nbCancelGen!=="function"){
 function nbPrivateRefsNote(meta){
   const n = (meta && meta.privateRefs) || 0;
   if(!n) return "";
+  // (2026-10-10, owner — Likeness review) a likeness's photos may be synced to its owner's cloud copy — they're
+  // never saved with this image or the project, which is what this says
+  const lk = Number(meta && meta.likenessRefs) || 0;
+  if(lk && lk>=n) return (n===1 ? "1 private reference image" : n+" private reference images")
+    +" — the likeness's photos — guided this render. They were not saved with this image or to the project.";
   return n===1
     ? "1 private reference image guided this render \u2014 it stayed on this device and was not saved to the project."
     : n+" private reference images guided this render \u2014 they stayed on this device and were not saved to the project.";
@@ -1576,35 +1913,57 @@ async function nbRunSheetGeneration(env, gopts){
     const useSimple = !!gopts.simple;
 
     /* reference image: existing sheet (edit) or dropped reference art.
-       Cameo (locked likeness) sits at the end of the priority chain — an
-       explicit drop or a base sheet still wins, but otherwise the cameo
-       face becomes the primary reference so identity stays locked. */
+       LIKENESS (2026-10-10, owner — Likeness review): a locked likeness no longer waits at the end of the
+       chain. With one, every sheet path follows the ONE RULE (turnLikenessPlan): the front angle is image 1,
+       the other angles next, then the master (a variant / an update of the current sheet), the worn-item
+       sheets and a dropped photo — which is ADDED as a style / wardrobe reference, never replacing the
+       face. An edit or remaster of a likeness sheet re-attaches the front angle only (decision E). */
     let refImage = null;
     let mode = "final";
-    let cameoUrl = "";
-    let cameoAngles = [];
-    if(opts.cameoId && typeof nbLoadCameoAngles==="function"){
-      try{ cameoAngles = (nbGetCameoAngles&&nbGetCameoAngles(opts.cameoId))||[]; }catch(e){}
-      if(!cameoAngles.length){ try{ cameoAngles = await nbLoadCameoAngles(opts.cameoId); }catch(e){} }
-      cameoUrl = cameoAngles[0] || "";
-    } else if(opts.cameoId && typeof nbGetCameo==="function"){
-      cameoUrl = nbGetCameo(opts.cameoId);
-      if(!cameoUrl && typeof nbLoadCameo==="function"){ try{ cameoUrl = await nbLoadCameo(opts.cameoId); }catch(e){} }
-      cameoAngles = cameoUrl ? [cameoUrl] : [];
+    let likeness = null;          // turnLoadLikeness's result, when it can be used here
+    let likenessBlocked = null;   // a likeness that exists but this person can't use here (a shared film)
+    if(opts.cameoId){
+      let L = null;
+      try{ L = await turnLoadLikeness(opts.cameoId); }catch(e){ L = null; }
+      if(L && L.usable) likeness = L;
+      else if(L && L.unavailable) likenessBlocked = L;
     }
+    const editKeepsFace = !!(isEditMode && genMeta && genMeta.cameo);   // the sheet being edited shows the likeness
+    let droppedPhoto = "";   // a dropped reference photo that rides beside the likeness
+    let masterRef = "";      // the master / current sheet a likeness render builds on (after the angles)
     if(isEditMode){ refImage = gopts.editBaseUrl || genUrl; mode = "edit"; }
     else if(useSimple){ mode = "simple"; }
     else if(gopts.deriveFromCurrent && genUrl){ refImage = genUrl; mode = "base"; }
-    else if(slotHasRef && typeof nbGetSlotImage==="function"){ refImage = nbGetSlotImage(slotId); mode = "photo"; }
-    else if(opts.referenceFallback){ const b = await opts.referenceFallback(gopts); if(b){ refImage = b; mode = "base"; } }
-    else if(cameoUrl){ refImage = cameoUrl; mode = "cameo"; }
+    else if(slotHasRef && typeof nbGetSlotImage==="function"){
+      const ph = nbGetSlotImage(slotId);
+      if(likeness && ph){ droppedPhoto = ph; mode = "cameo"; } else { refImage = ph; mode = "photo"; } }
+    else if(opts.referenceFallback){ const b = await opts.referenceFallback(gopts); if(b){ refImage = b; mode = "base"; } else if(likeness) mode = "cameo"; }
+    else if(likeness){ mode = "cameo"; }
     if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-references");
+    const likenessOn = !!likeness && (mode==="cameo" || mode==="base" || mode==="simple" || (mode==="edit" && editKeepsFace));
+    if(likenessOn && mode==="base"){ masterRef = refImage; refImage = null; }
+    /* CONSENT before a person's photo is first used (a dropped reference photo, a device upload in the
+       edit panel) on a character sheet. A refusal sends nothing. */
+    const _isCharSlot = (typeof slotAssetKind==="function") ? slotAssetKind(slotId)==="character" : !!opts.cameoId;
+    if(_isCharSlot){
+      const personal = [droppedPhoto || (mode==="photo" ? refImage : "")]
+        .concat(isEditMode && Array.isArray(gopts.editRefMeta) ? gopts.editRefMeta.filter(r=>r && r.url && !r.refId).map(r=>r.url) : [])
+        .filter(Boolean);
+      for(const u of personal){
+        const ok = await turnLikenessConsent(isEditMode ? "edit" : "reference-photo", u);
+        if(_cancelledNow()) throw { __cancelled:true };
+        if(!ok) throw { __cancelled:true };
+      }
+    }
+    const lkCtx = likenessOn ? turnLikenessCtx(likeness, { edit:mode==="edit", master:!!masterRef, deriveFromCurrent:!!gopts.deriveFromCurrent }) : null;
 
-    /* prompt: edit | simplified fallback | from-photo/cameo | from-base | master */
+    /* prompt: edit | simplified fallback | from-photo | likeness | from-base | master */
     let genPrompt;
     if(mode==="edit") genPrompt = opts.buildEdit ? opts.buildEdit(gopts.editInstruction) : gopts.editInstruction;
-    else if(mode==="simple") genPrompt = opts.buildSimple ? opts.buildSimple() : opts.buildFinal();
-    else if(mode==="photo"||mode==="cameo") genPrompt = opts.buildFromPhoto ? opts.buildFromPhoto() : opts.buildFinal();
+    else if(mode==="simple") genPrompt = opts.buildSimple ? opts.buildSimple(lkCtx||undefined) : opts.buildFinal();
+    else if(mode==="photo") genPrompt = opts.buildFromPhoto ? opts.buildFromPhoto() : opts.buildFinal();
+    else if(likenessOn && typeof opts.buildLikeness==="function") genPrompt = opts.buildLikeness(lkCtx);
+    else if(mode==="cameo") genPrompt = opts.buildFinal();   // a caller without buildLikeness: its spec (the map and the likeness rule follow)
     else if(mode==="base") genPrompt = opts.buildFromBase ? opts.buildFromBase() : opts.buildFinal();
     else genPrompt = opts.buildFinal();
     /* Character identity is appended here, rather than only in a particular
@@ -1689,52 +2048,55 @@ async function nbRunSheetGeneration(env, gopts){
       }
       if(attach.length){
         attachList = attach;
-        genOpts.extraImages = attach.map(a=>a.url);
-        genOpts.extraImageMaxDims = attach.map(a=>
-          a && a.assetRole==="screenplay_context" ? 1536 : (genOpts.referenceMaxDim||1024));
         attachCount = attach.length;
-        const notes = attach.map(a=>a.note).filter(Boolean).join(", ");
-        if(typeof opts.attachmentsText==="function"){
-          const extra = opts.attachmentsText(attach);   // caller supplies the reference sentence
-          if(extra) genPrompt += " "+extra;
-        } else {
-        genPrompt += " The additional reference image"+(attach.length>1?"s":"")+" provided show"
-          +(attach.length>1?"":"s")+" item"+(attach.length>1?"s":"")+" this character carries or wears"
-          +(notes?(": "+notes):"")+". Render the character WITH "+(attach.length>1?"these exact items":"this exact item")
-          +", matching the reference design"+(attach.length>1?"s":"")+" faithfully.";
+        if(!likenessOn){   // with a likeness, the numbered map below orders and names them
+          genOpts.extraImages = attach.map(a=>a.url);
+          genOpts.extraImageMaxDims = attach.map(a=>
+            a && a.assetRole==="screenplay_context" ? 1536 : (genOpts.referenceMaxDim||1024));
+          const notes = attach.map(a=>a.note).filter(Boolean).join(", ");
+          if(typeof opts.attachmentsText==="function"){
+            const extra = opts.attachmentsText(attach);   // caller supplies the reference sentence
+            if(extra) genPrompt += " "+extra;
+          } else {
+          genPrompt += " The additional reference image"+(attach.length>1?"s":"")+" provided show"
+            +(attach.length>1?"":"s")+" item"+(attach.length>1?"s":"")+" this character carries or wears"
+            +(notes?(": "+notes):"")+". Render the character WITH "+(attach.length>1?"these exact items":"this exact item")
+            +", matching the reference design"+(attach.length>1?"s":"")+" faithfully.";
+          }
         }
       }
     }
 
     /* targeted edit references (e.g. "Update prop" chips): specific sheets attached
        to THIS edit only — the instruction text names what to match. */
-    if(isEditMode && Array.isArray(gopts.editRefImages) && gopts.editRefImages.length){
+    if(!likenessOn && isEditMode && Array.isArray(gopts.editRefImages) && gopts.editRefImages.length){
       genOpts.extraImages = (genOpts.extraImages||[]).concat(gopts.editRefImages);
       genOpts.extraImageMaxDims = (genOpts.extraImageMaxDims||[]).concat(
         gopts.editRefImages.map(()=>genOpts.referenceMaxDim||1024));
     }
 
-    /* cameo face-lock: attach EVERY captured angle so the model has the most
-       to anchor identity to. For a base sheet driving a state variant the
-       angles ride along as extra references (the base sheet alone can drift). */
-    let cameoUsed = (mode==="cameo");
-    if(mode==="cameo" && cameoAngles.length>1){
-      /* primary angle is the reference image; the rest are extra views */
-      genOpts.extraImages = (genOpts.extraImages||[]).concat(cameoAngles.slice(1));
-      genOpts.extraImageMaxDims = (genOpts.extraImageMaxDims||[]).concat(
-        cameoAngles.slice(1).map(()=>genOpts.referenceMaxDim||1024));
-      genPrompt += " Additional reference images show the SAME person from other angles \u2014"
-        + " use them to keep the face identical across views.";
-    }
-    if(cameoAngles.length && mode==="base"){
-      genOpts.extraImages = (genOpts.extraImages||[]).concat(cameoAngles);
-      genOpts.extraImageMaxDims = (genOpts.extraImageMaxDims||[]).concat(
-        cameoAngles.map(()=>genOpts.referenceMaxDim||1024));
-      genPrompt += " The additional reference image"+(cameoAngles.length>1?"s show":" shows")
-        + " the character's locked facial likeness (a cameo"+(cameoAngles.length>1?", multiple angles":"")+")."
-        + " Keep the FACE, bone structure and skin tone identical to this likeness; only the wardrobe,"
-        + " styling or condition should change as described.";
-      cameoUsed = true;
+    /* LIKENESS — the ONE RULE's order and NUMBERED map (turnLikenessPlan): face first (for an edit the
+       front angle only, after the sheet being edited), then the master, worn items, a dropped photo and an
+       edit's attached inputs. The map + the likeness sentence close the prompt; the simplified retry
+       re-sends the same images with the same map (likenessTail). */
+    let likenessPlan = null, likenessTail = "";
+    if(likenessOn){
+      const editMeta = (isEditMode && Array.isArray(gopts.editRefMeta)) ? gopts.editRefMeta : [];
+      const editIns = (isEditMode && Array.isArray(gopts.editRefImages)) ? gopts.editRefImages.filter(Boolean)
+        .map(u=>({ url:u, note:((editMeta.find(r=>r && r.url===u)||{}).note)||"an attached edit input" })) : [];
+      likenessPlan = turnLikenessPlan({ likeness, frontOnly: mode==="edit",
+        edit: mode==="edit" ? { url:refImage } : null,
+        master: masterRef ? { url:masterRef, label: gopts.deriveFromCurrent ? LIKENESS_CURRENT_LABEL : LIKENESS_MASTER_LABEL } : null,
+        worn: attachList.map(a=>({ url:a.url, note:a.note })),
+        photo: droppedPhoto ? { url:droppedPhoto, label:(typeof opts.photoLabel==="function" ? opts.photoLabel() : opts.photoLabel) || "look" } : null,
+        others: editIns,
+        character: opts.entity || opts.identityCharacter || null });
+      genOpts.referenceImage = likenessPlan.primary;
+      genOpts.extraImages = likenessPlan.extras.slice();
+      genOpts.extraImageMaxDims = likenessPlan.extras.map(()=>genOpts.referenceMaxDim||1024);
+      genOpts.referencesNumbered = true;   // proxyGenerate: an unreadable image stops the request (the numbers would shift)
+      likenessTail = [likenessPlan.map, likenessPlan.rule].filter(Boolean).join(" ");
+      if(likenessTail) genPrompt += "\n\n"+likenessTail;
     }
 
     /* collect the reference images actually used, for the details view.
@@ -1749,21 +2111,25 @@ async function nbRunSheetGeneration(env, gopts){
        anyway, so the originals are kept for Details. */
     const isCloud = (typeof nbBackend==="function" && nbBackend()==="cloud");
     let privateRefs = 0;   // personal images used for THIS render but kept off the project
-    const refLabel = mode==="edit" ? "Previous sheet (edited)" : (mode==="photo"||mode==="cameo") ? (mode==="cameo"?"Cameo likeness":"Reference photo")
+    const refLabel = mode==="edit" ? "Previous sheet (edited)" : mode==="photo" ? "Reference photo"
       : mode==="base" ? "Base sheet" : null;
+    // the LIKENESS photos are never stored as this sheet's references (in either mode): counted, not kept
+    if(likenessPlan) privateRefs += likenessPlan.faceCount;
     const refVersion = (refId,fallbackMeta)=>{
       let m=fallbackMeta||null;
       if(refId && typeof nbGetMeta==="function"){ try{ m=nbGetMeta(refId)||m; }catch(e){} }
       return m ? { refVersion:m.version||null, refGenerated:m.iso||"" } : {};
     };
     const refsUsed = [];
-    if(refImage && refLabel){
-      if(isCloud && (mode==="cameo" || mode==="photo")) privateRefs++;
+    // a likeness render's master / current sheet moved after the angles — it's still this render's base sheet
+    const _baseRefImage = refImage || masterRef;
+    if(_baseRefImage && refLabel){
+      if(isCloud && mode==="photo") privateRefs++;
       else{
         const baseRefId=mode==="base" && opts.referenceFallbackId
           ? (typeof opts.referenceFallbackId==="function" ? opts.referenceFallbackId(gopts) : opts.referenceFallbackId)
           : undefined;
-        refsUsed.push({ kind:mode, label:refLabel, url:refImage,refId:baseRefId,
+        refsUsed.push({ kind:mode, label:refLabel, url:_baseRefImage,refId:baseRefId,
           ...refVersion(baseRefId,(mode==="edit"||gopts.deriveFromCurrent)?genMeta:null) });
       }
     }
@@ -1791,13 +2157,16 @@ async function nbRunSheetGeneration(env, gopts){
           refGenerated:r.refGenerated||refVersion(r.refId).refGenerated||"" });
       }});
     }
-    if(cameoUrl && mode==="base"){
+    // a dropped photo beside the likeness follows the personal-photo rule
+    if(droppedPhoto){
       if(isCloud) privateRefs++;
-      else refsUsed.push({ kind:"cameo", label:"Cameo likeness", url:cameoUrl });
+      else refsUsed.push({ kind:"photo", label:"Reference photo", url:droppedPhoto });
     }
 
     let actualModel = usedModel;     // may change if we fall back to another provider below
     let policyFellBack = "";
+    let sentPrompt = genPrompt;      // the prompt the image that's kept was made from (a retry changes it)
+    let simplifiedRetry = false;
       // last gate before the paid request: prompt/attachment assembly above awaited —
       // if a Stop or a newer run for this id landed in that window, don't spend at all
       if(_cancelledNow()) throw { __cancelled:true };
@@ -1822,14 +2191,37 @@ async function nbRunSheetGeneration(env, gopts){
            if(typeof opts.assertFreshBeforeFallback==="function")
              await opts.assertFreshBeforeFallback({mode,prompt:genPrompt});
           if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-simple-retry");
-          url = await nbGenerate(withIdentity(opts.buildSimple()), genOpts);
+          // the retry re-sends the same images: with a likeness it keeps the likeness sentence and the
+          // numbered map, and Details records the prompt actually sent (2026-10-10, owner — Likeness review)
+          const retryPrompt = withIdentity(opts.buildSimple(lkCtx||undefined)) + (likenessTail ? "\n\n"+likenessTail : "");
+          url = await nbGenerate(retryPrompt, genOpts);
+          sentPrompt = retryPrompt; simplifiedRetry = true;
           if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-simple-retry");
         } else if(isPolicy && typeof isGptImageModel==="function" && isGptImageModel(usedModel)){
-          // GPT Image refused on CONTENT POLICY — auto-fall back to Nano Banana,
+          // GPT Image refused on CONTENT POLICY — fall back to Nano Banana,
           // which is far more permissive for cinematic content (action, blood, intensity).
           // One-off: the user's SELECTED engine is left unchanged, only this frame switches.
           const gModel = allModels.find(m=> !(typeof isGptImageModel==="function" && isGptImageModel(m.id)));
           if(!gModel) throw e;
+          /* NO SILENT FALLBACK WITH A FACE (2026-10-10, owner — Likeness review): when the references include a
+             likeness or a person's photo (a dropped photo, a device upload), the same photos would go to another
+             engine — that is asked first, with the price, and nothing is sent without a yes. */
+          const _personal = !!likenessPlan || mode==="photo" || !!droppedPhoto
+            || (isEditMode && Array.isArray(gopts.editRefMeta) && gopts.editRefMeta.some(r=>r && r.url && !r.refId));
+          if(_personal){
+            const gLabel = gModel.label || "Nano Banana";
+            const uLabel = ((allModels.find(m=>m.id===usedModel)||{}).label) || "GPT Image";
+            const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(1, { model:gModel.id, quality:null }) : "";
+            let ok = false;
+            if(typeof window.appConfirm==="function"){
+              try{ ok = !!(await window.appConfirm({
+                title: uLabel+" refused this. Try "+gLabel+" with the same photos?"+(price ? " \u00b7 about "+price+" credit"+(price==="1"?"":"s") : ""),
+                body: uLabel+" declined it for its content policy. "+gLabel+" gets the same prompt and the same reference photos \u2014 including the real person's face. Nothing more is sent unless you say so.",
+                confirmLabel:"Try "+gLabel, cancelLabel:"Cancel" })); }catch(_e){ ok = false; }
+            }
+            if(_cancelledNow()) throw { __cancelled:true };
+            if(!ok) throw new Error(uLabel+" refused this image for its content policy. Nothing else was sent \u2014 you can try another engine below.");
+          }
           setRetrying(true);
           policyFellBack = gModel.label || "Nano Banana";
           actualModel = gModel.id;
@@ -1885,13 +2277,20 @@ async function nbRunSheetGeneration(env, gopts){
         // correctly (actualModel flips to the Gemini model in that path).
         grounded: !!(groundEnabled && !(typeof isGptImageModel==="function" && isGptImageModel(actualModel)) && genOpts.metaOut && genOpts.metaOut.grounded),
         groundImages: !!(groundEnabled && isFlash && genOpts.metaOut && genOpts.metaOut.grounded),
-        cameo: !!cameoUsed,
+        // LIKENESS: made with it (or an edit of a sheet that was — the face is still that person's), when it
+        // was captured (a newer capture makes the sheet "made with an earlier likeness"), how many photos rode
+        cameo: !!(likenessPlan || editKeepsFace),
+        cameoAt: likenessPlan ? (likeness.capturedAt || undefined) : (editKeepsFace ? (genMeta.cameoAt || undefined) : undefined),
+        likenessRefs: likenessPlan ? likenessPlan.faceCount : undefined,
+        // a likeness exists but couldn't be used by this person here — the sheet follows the text spec
+        likenessSkipped: (likenessBlocked && !likenessPlan) ? true : undefined,
+        simplifiedRetry: simplifiedRetry || undefined,
         propRefs: attachCount,
         refCount: refsUsed.length,
         // personal images (reference photo / cameo / device uploads) that guided this
         // render but were deliberately NOT stored with the project (cloud mode privacy)
         privateRefs: privateRefs || undefined,
-        prompt: genPrompt,
+        prompt: sentPrompt,
         specPrompt: opts.buildFinal ? opts.buildFinal() : genPrompt,
         writingSources,
         // The final render prompt is assembled deterministically from the stored
@@ -1935,7 +2334,7 @@ async function nbRunSheetGeneration(env, gopts){
       // caller-supplied extra meta (e.g. a prop's owner-sheet anchor version, a
       // character sheet's baked worn-prop signature) — powers the staleness badges
       if(typeof opts.metaExtra==="function"){
-        try{ const extra = await opts.metaExtra({ mode, refsUsed, prompt: genPrompt });
+        try{ const extra = await opts.metaExtra({ mode, refsUsed, prompt: sentPrompt });
           if(extra && typeof extra==="object") Object.assign(meta, extra); }
         catch(e){ if(e && e.sceneContextStale) throw e; }
       }
@@ -2086,6 +2485,19 @@ function useImageGen(opts){
       window.removeEventListener("nb-gen-saving",onSaving);window.removeEventListener("nb-save-pending",onPending);window.removeEventListener("nb-approval-changed",onApproval); };
   },[id]);
 
+  /* the character's LIKENESS as the store reports it (locked / usable here / when captured), kept current
+     by the store's "turn-cameo-changed" event (lock, sync, revoke, load) — 2026-10-10, owner — Likeness review */
+  const cameoId = opts.cameoId || "";
+  const [likeness, setLikeness] = React.useState(()=> cameoId ? (window.turnLikenessInfo||(()=>null))(cameoId) : null);
+  React.useEffect(()=>{
+    if(!cameoId){ setLikeness(null); return; }
+    const refresh = ()=> setLikeness((window.turnLikenessInfo||(()=>null))(cameoId));
+    refresh();
+    const on = (e)=>{ const d = e && e.detail; if(!d || !d.charId || d.charId===cameoId) refresh(); };
+    window.addEventListener("turn-cameo-changed", on);
+    return ()=> window.removeEventListener("turn-cameo-changed", on);
+  },[cameoId]);
+
   /* watch the reference-photo slot for drops */
   React.useEffect(()=>{
     const check = ()=>{ const url=typeof nbGetSlotImage==="function"?nbGetSlotImage(slotId):null; setSlotHasRef(!!url); };
@@ -2224,7 +2636,15 @@ function useImageGen(opts){
     refreshLayers();
   };
 
+  // a usable likeness: how many photos a fresh sheet sends; an edit of a likeness sheet re-attaches the front one
+  const likenessUsable = !!(likeness && likeness.available!==false);
+  const likenessRefs = likenessUsable ? Math.max(1, Number(likeness.angleCount)||1) : 0;
   return { id, genUrl, genMeta, genTier, gening, genErr, retrying, saving, pendingSave, slotHasRef,
+    likeness, likenessUsable, likenessRefs,
+    likenessEditRefs: (likenessUsable && genMeta && genMeta.cameo) ? 1 : 0,
+    likenessStale: !!(cameoId && genMeta && (window.turnLikenessStale||(()=>false))(genMeta, cameoId)),
+    // the caller's reference counts for prices: { generate, attach } (the character card)
+    refCounts: (typeof opts.refCounts==="function") ? opts.refCounts : null,
     retrySave:()=>nbRetrySheetSave(id),
     discardSave:()=>{nbDiscardSheetSave(id);setPendingSave(null);setGenErr("");},
     setApproval:async (approved,reviewKey)=>{
@@ -2334,8 +2754,10 @@ function useBatchGen(){
     if(!existing.length && !(opts && opts.alwaysAsk)){ setMsg(""); run(missing, 0); return; }
     // opts.note: what else the run spends (e.g. Locations' writing calls) — shown on the choice bar
     const note = (opts && typeof opts.note==="function") ? opts.note(missing, existing) : ((opts && opts.note) || "");
-    if(!missing.length){ setMsg(""); setPrompt({ missing:[], existing:ids, note }); return; }
-    setMsg(""); setPrompt({ missing, existing, note });
+    // opts.refsOf (2026-10-10, likeness): each item's reference-image count, so the choice bar's price counts them
+    const refsOf = (opts && typeof opts.refsOf==="function") ? opts.refsOf : null;
+    if(!missing.length){ setMsg(""); setPrompt({ missing:[], existing:ids, note, refsOf }); return; }
+    setMsg(""); setPrompt({ missing, existing, note, refsOf });
   };
   const cancel = ()=>{
     tokenRef.current++;                  // abandon any in-flight partition scan
@@ -2428,12 +2850,14 @@ function BatchBar({ batch, noun }){
         onClick:()=>run(prompt.missing, prompt.existing.length),
         title:"Generate only the "+N+"s that don't have a sheet yet"},
         React.createElement(Icon.sparkles,{s:14}),"Generate "+prompt.missing.length+" missing",
-        typeof window.nbCostChip==="function" && window.nbCostChip(prompt.missing.length)),
+        prompt.refsOf ? React.createElement(window.LikenessBatchCost,{ refs:prompt.missing.map(prompt.refsOf) })
+          : (typeof window.nbCostChip==="function" && window.nbCostChip(prompt.missing.length))),
       prompt.existing.length>0 && React.createElement("button",{className:"art-draftall"+(prompt.missing.length?" ghost":""),
         onClick:()=>run([...prompt.missing, ...prompt.existing], 0),
         title:"Generate every "+N+", regenerating ones that already have a sheet"},
         React.createElement(Icon.sparkles,{s:14}),"Regenerate all "+(prompt.missing.length+prompt.existing.length),
-        typeof window.nbCostChip==="function" && window.nbCostChip(prompt.missing.length+prompt.existing.length)),
+        prompt.refsOf ? React.createElement(window.LikenessBatchCost,{ refs:[...prompt.missing, ...prompt.existing].map(prompt.refsOf) })
+          : (typeof window.nbCostChip==="function" && window.nbCostChip(prompt.missing.length+prompt.existing.length))),
       React.createElement("button",{className:"art-draftall ghost",onClick:cancel},"Cancel")),
     // ACTIVELY GENERATING → the shared progress card (spinner + status + reassurance),
     // matching the shots re-design note; a bare info/error msg stays a plain line.
@@ -2685,6 +3109,11 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
           // even on legacy meta stored before the fix
           field("Grounding", (meta.grounded && !(typeof isGptImageModel==="function" && isGptImageModel(meta.modelId))) ? (meta.groundImages?"Web search (web + images)":"Web search") : null),
           field("Prop references", meta.propRefs ? (meta.propRefs+" prop sheet"+(meta.propRefs>1?"s":"")) : null),
+          // LIKENESS (2026-10-10, owner — Likeness review): whether the face came from the locked likeness
+          field("Likeness", meta.cameo
+            ? ((meta.mode==="cameo" ? "From the likeness" : meta.mode==="edit" ? "Edited from a likeness sheet" : "Face from the likeness")
+              +(meta.likenessRefs ? (" \u00b7 "+meta.likenessRefs+" photo"+(meta.likenessRefs>1?"s":"")+", not saved with this image") : ""))
+            : (meta.likenessSkipped ? "Not used \u2014 the likeness couldn't be used from this account; made from the text spec" : null)),
           field("Image ID", data && data.id)),
         cam && React.createElement("div",{className:"dt-section dt-camera-section"},
           React.createElement("div",{className:"dt-sec-lab"},"Advanced cinematography"),
@@ -2729,7 +3158,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
                     const versionLabel=r.recovered==="current-project-asset"&&r.refVersion&&r.resolvedVersion&&String(r.refVersion)!==String(r.resolvedVersion)
                       ? (" · used v"+r.refVersion+" · showing current v"+r.resolvedVersion)
                       : ((r.refVersion||r.resolvedVersion)?(" · v"+(r.refVersion||r.resolvedVersion)):"");
-                    return r.label+versionLabel
+                    return (window.likenessDisplayLabel||(x=>x))(r.label)+versionLabel
                       +(r.recovered==="current-project-asset"?" · current asset":""); })()))))
             : React.createElement("div",{className:"dt-noref"},
                 privNote || "No reference images for this version \u2014 generated from the prompt alone."),
@@ -2746,7 +3175,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
               const styleLabel = (typeof renderStyleLabelFromMeta==="function") ? renderStyleLabelFromMeta(hm) : "";
               const layerLabel = isEdit
                 ? ("Edit: "+(hm.editInstruction||"adjustment"))
-                : (hm.mode==="photo" ? "From reference photo" : hm.mode==="cameo" ? "From cameo likeness" : styleLabel || "Original generation");
+                : (hm.mode==="photo" ? "From reference photo" : hm.mode==="cameo" ? "From the likeness" : styleLabel || "Original generation");
               const modelName = hm.modelId || hm.modelLabel || "unknown model";
               const active = selVer && selVer.idx===i;
               return React.createElement("div",{key:i,className:"dt-hist-item"+(active?" active":"")},
@@ -2888,7 +3317,7 @@ function _qaDerivedEditInstruction(r){
   return "Targeted correction \u2014 change NOTHING else about the image (framing, faces, lighting and style stay exactly as they are): "
     + parts.slice(0,6).join("; ") + ".";
 }
-function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, specFields, onApplySpec }){
+function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, specFields, onApplySpec, editCost, regenCost }){
   const r = report;
   const [applying, setApplying] = React.useState(false);
   // "Apply to spec": fold the prompt advice into the card's own drafted fields —
@@ -2924,7 +3353,7 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
     ? React.createElement("button",{className:"ns-btn ghost qa-apply-btn",disabled:gening,
         title:"Make a TARGETED EDIT to the current image that fixes the findings above — one generation; this exact framing is kept and the current version stays in history. (Apply to spec & regenerate is the deeper fix when the drift is systemic.)",
         onClick:()=>{ onRunEdit(r.editInstruction || _qaDerivedEditInstruction(r)); onClose(); }},
-        React.createElement(Icon.wand,{s:12}),"Edit current image", typeof window.nbCostChip==="function" && window.nbCostChip(1))
+        React.createElement(Icon.wand,{s:12}),"Edit current image", typeof window.nbCostChip==="function" && window.nbCostChip(1, editCost))
     : null;
   const finding = (d,i,invented)=> React.createElement("div",{key:i,className:"qa-item"},
     React.createElement("span",{className:"qa-dot "+(invented?"invent":(d.severity==="major"?"major":"minor")),
@@ -2974,7 +3403,7 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
             title:"Fold this advice into the card's drafted spec fields (one writing-model call, previewed first), then REGENERATE immediately so the sheet always matches its spec — the current image stays in version history",
             onClick:applyAdvice},
             applying ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
-            applying ? "Folding into the spec…" : "Apply to spec & regenerate", !applying && typeof window.nbCostChip==="function" && window.nbCostChip(1)),
+            applying ? "Folding into the spec…" : "Apply to spec & regenerate", !applying && typeof window.nbCostChip==="function" && window.nbCostChip(1, regenCost)),
           _editBtn)),
       React.createElement("div",{className:"qa-foot"},
         React.createElement("span",{className:"qa-foot-note"},"1 vision read · no image credits spent"),
@@ -2982,7 +3411,7 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
         (r.action==="edit" && r.editInstruction) && React.createElement("button",{className:"ns-btn primary",disabled:gening,
           title:"Apply the suggested edit to this image now — one generation; the current version stays in history",
           onClick:()=>{ onRunEdit(r.editInstruction); onClose(); }},
-          React.createElement(Icon.wand,{s:14}),"Run suggested edit", typeof window.nbCostChip==="function" && window.nbCostChip(1)),
+          React.createElement(Icon.wand,{s:14}),"Run suggested edit", typeof window.nbCostChip==="function" && window.nbCostChip(1, editCost)),
         // ("Regenerate now" removed, user ruling 2026-07-21: it duplicated the card's
         // own Regenerate button and re-rolled the SAME spec the report just faulted —
         // the modal offers only the two INFORMED repairs: amend the spec, or edit.)
@@ -3054,12 +3483,15 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
       specFields,
       onApplySpec: onApplySpec ? (patch)=>{ onApplySpec(patch); setPendingRegen(true); } : undefined,
       onClose:()=>setReport(null),
+      // a likeness sheet's renders send its photos: these prices count every image (2026-10-10, owner — Likeness review)
+      editCost: gen.likenessEditRefs ? { refs: 1 + gen.likenessEditRefs + ((gen.refCounts && gen.refCounts().attach) || 0) } : undefined,
+      regenCost: (gen.likenessRefs && gen.refCounts) ? { refs: gen.refCounts().generate } : undefined,
       onRunEdit:(instr)=>gen.generate({ editInstruction:instr }),
       onRegen:()=>gen.generate() }), document.body));
 }
 window.QaCheckButton = QaCheckButton;
 
-function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApply }){
+function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApply, costOptsFor }){
   const [rect, setRect] = React.useState({ x:24, y:24, w:44, h:36 });
   const [drag, setDrag] = React.useState(null);
   const [text, setText] = React.useState("");
@@ -3244,7 +3676,8 @@ function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApp
             React.createElement("button",{className:"sheet-edit-cancel",onClick:onClose},"Cancel"),
             React.createElement("button",{className:"sheet-edit-apply",disabled:!text.trim(),onClick:apply},
               React.createElement(Icon.wand,{s:12}),"Apply region edit",
-              typeof window.nbCostChip==="function" && window.nbCostChip(1)))))),
+              // a likeness sheet's edit re-attaches the face: the price counts every image it sends (2026-10-10)
+              typeof window.nbCostChip==="function" && window.nbCostChip(1, costOptsFor ? costOptsFor(refs.filter(x=>x && x.url).length) : undefined)))))),
     );
   return portalTarget ? ReactDOM.createPortal(modal, portalTarget) : modal;
 }
@@ -3473,7 +3906,7 @@ function PropSheetReferenceModal({ prop, onClose }){
 }
 
 /* (the sheet-review helpers and their context were never used — removed 2026-10-06) */
-function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions }){
+function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, relatedClearIdsOf, relatedClearLabel, revertPrevious, layers, allModels } = gen;
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
@@ -3494,6 +3927,10 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
   // as editRefImages on the edit generation; cleared on apply, cancel or close.
   const [editRefs, setEditRefs] = React.useState([]);   // [{url, note}]
   const [editDependencyIds, setEditDependencyIds] = React.useState([]);
+  /* an edit / remaster of a LIKENESS sheet re-attaches the front angle (decision E), and GPT Image charges every
+     image it's sent — so that price counts them all: the sheet, the face, the worn items, the attached inputs */
+  const editCostOpts = (extra)=> (gen.likenessEditRefs>0)
+    ? { refs: 1 + gen.likenessEditRefs + (Number(attachRefs)||0) + (Number(extra)||0) } : undefined;
   const [editAddOpen, setEditAddOpen] = React.useState(false);   // the "+" input-source menu
   const [editAddPos, setEditAddPos] = React.useState(null);      // anchor: above the Describe-changes input, centered on it
   const editFileRef = React.useRef(null);
@@ -3630,7 +4067,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
             title:"Re-render the CURRENT image as a fresh, clean, full-quality version \u2014 same design, artifacts and noise removed (stacked edits degrade like a photocopy of a photocopy). Lands as a new version; the old one stays in history.",
             onClick:()=>{ setMenuOpen(false); generate({ editInstruction: (typeof remasterInstruction==="function")?remasterInstruction(noun):"Reproduce this image exactly, clean and artifact-free." }); }},
             React.createElement(Icon.sparkles,{s:14}),"Remaster \u2014 clean re-render",
-            typeof window.nbCostChip==="function" && window.nbCostChip(1)),
+            typeof window.nbCostChip==="function" && window.nbCostChip(1, editCostOpts(0))),
           ...(menuItemsBeforeEdit||[]).map((m,i)=>
             React.createElement("button",{key:"mb"+i,className:"sheet-tools-item",disabled:gening||m.disabled,title:m.title,
               onClick:()=>{ setMenuOpen(false); m.onClick&&m.onClick(); }},
@@ -3675,7 +4112,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               const opts = {
                 title: "Clear "+(name||"this")+"’s "+(noun||"sheet")+"?",
                 body: "This permanently deletes the generated image and ALL earlier versions"+extra+" from cloud storage. The "+(noun||"sheet")+" can be regenerated — the written spec is kept.",
-                note: (vN>0 && !relatedClearLabel) ? "Your cameo and linked props are kept. This can’t be undone."
+                note: (vN>0 && !relatedClearLabel) ? "The likeness and linked props are kept. This can’t be undone."
                            : "This can’t be undone.",
                 confirmLabel: "Clear", cancelLabel: "Cancel", danger: true,
               };
@@ -3754,7 +4191,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
           onClick:runEdit,disabled:!editText.trim()||gening,
           title: editRefs.length ? ("Runs the edit with "+editRefs.length+" attached image"+(editRefs.length>1?"s":"")+" as reference"+(editRefs.length>1?"s":"")) : "Runs the edit from the instruction"},
           React.createElement(Icon.wand,{s:12}),"Apply edit",
-          typeof window.nbCostChip==="function" && window.nbCostChip(1)),
+          typeof window.nbCostChip==="function" && window.nbCostChip(1, editCostOpts(editRefs.length))),
         // Undo only when the CURRENT image is the product of an edit — a fresh
         // generation or an upload has no "before my last edit" to restore, even
         // when older versions exist in history (those live in Details / the viewer)
@@ -3826,7 +4263,8 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
             genUrl ? "Generate new image" :
             (slotHasRef ? "Generate from photo" :
             (!drafted ? "Draft & generate image" : "Generate image")),
-            !specBlocked && !gen.pendingSave && typeof window.nbCostChip==="function" && window.nbCostChip(1))),
+            !specBlocked && !gen.pendingSave && typeof window.nbCostChip==="function"
+              && window.nbCostChip(1, generateRefs!=null ? { refs:Number(generateRefs)||0 } : undefined))),
     // Stop an in-flight generation — discards the result so it won't commit over the frame.
     gening && React.createElement("button",{className:"sheet-gen-stop",onClick:()=> onStop ? onStop() : (cancelGen && cancelGen()),
       title:"Stop this generation — nothing will be saved over the current frame"},
@@ -3885,10 +4323,12 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
         className:"sheet-ground-chip",
         title:genMeta.groundImages ? "Generated with web grounding and image references" : "Generated with web grounding"},
         React.createElement(Icon.globe,{s:10,sw:2}),"Grounded"),
+      // (2026-10-10, owner — Likeness review) the button and the chip say the same word: "Likeness"
       genUrl && genMeta && genMeta.cameo && React.createElement("span",{
-        className:"sheet-cameo-chip",
-        title:"Face-locked to a cameo likeness"},
-        React.createElement(Icon.userScan,{s:10,sw:1.8}),"Cameo"),
+        className:"sheet-cameo-chip"+(gen.likenessStale?" stale":""),
+        title: gen.likenessStale ? "Made with an earlier likeness \u2014 regenerate to update it"
+          : "The face comes from this character's locked likeness"},
+        React.createElement(Icon.userScan,{s:10,sw:1.8}),"Likeness"),
       genUrl && genMeta
         ? React.createElement("span",{className:"sheet-frame-meta"},
             React.createElement("span",{className:"sheet-meta-item sheet-meta-model",title:"Model: "+((genMeta.modelLabel||"")+(genMeta.modelId?(" ("+genMeta.modelId+")"):""))},
@@ -3911,7 +4351,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
        covering the viewport (broken/clipped on small screens). */
      detailsOpen && ReactDOM.createPortal(React.createElement(SheetDetails,{ gen, name, noun, extraMeta,
        onClose:()=>setDetailsOpen(false), onView:(url)=>onView&&onView(url, entity) }), document.body),
-    regionEditOpen && genUrl && React.createElement(RegionEditModal,{url:genUrl,name,noun,entity,editPropRefs,
+    regionEditOpen && genUrl && React.createElement(RegionEditModal,{url:genUrl,name,noun,entity,editPropRefs,costOptsFor:editCostOpts,
       onClose:()=>setRegionEditOpen(false),
       onApply:({ instruction, refs })=> generate({
         editInstruction:instruction,
@@ -4217,8 +4657,8 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
     +"Maintain the reference sheet's EXISTING layout, panel arrangement, render style and framing. Do not re-imagine the character.";
   const buildFinal = ()=> baseFinal + " APPEARANCE STATE \u2014 "+(st.label||"variant")+": "
     + (changeText()||"") + ". Render the character in THIS changed state consistently across every panel.";
-  const buildSimple = ()=> ((typeof buildSimpleCharPrompt==="function") ? buildSimpleCharPrompt(c) : "Character reference")
-    + ". " + (changeText()||"");
+  const buildSimple = (o)=> buildSimpleCharPromptFor(c, o) + " " + (changeText()||"");
+  const buildLikenessVariant = (ctx)=> turnLikenessVariantPrompt(c, st, project, props, ctx);
 
   const gen = useImageGen({
     id: stateId, slotId: "charref-"+stateId,
@@ -4230,10 +4670,18 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
     buildFromBase: baseGenUrl ? buildFromBase : null,
     referenceFallback: baseGenUrl ? (()=>baseGenUrl) : null,
     referenceFallbackId: baseGenUrl ? c.id : null,
-    buildFromPhoto: ()=> buildFromBase(),
+    // a dropped photo with no master: a sheet FROM the photo in this state (it used to say "edit this design
+    // sheet… keep its existing layout" with a photo that is no sheet)
+    buildFromPhoto: ()=> baseGenUrl ? buildFromBase()
+      : buildRefFromPhotoPrompt(c, project)+" APPEARANCE STATE \u2014 "+(st.label||"variant")+": "+(changeText()||"")+". Render the character in THIS changed state consistently across every panel.",
+    /* LIKENESS (2026-10-10, owner — Likeness review): from the master (image after the angles) the variant
+       changes only what the state says; with no master yet it is a proper sheet FROM the face and the
+       face-free spec. The runner adds the numbered map and the likeness sentence. */
+    buildLikeness: buildLikenessVariant,
     // which master this variant was made from — a regenerated master flags it (2026-10-06)
     metaExtra: async ({ mode })=> mode==="base" ? { baseMasterIso: (((typeof nbGetMeta==="function") && nbGetMeta(c.id))||{}).iso||"" } : {},
     buildSimple: buildSimple,
+    beforeGenerate: ()=> (window.turnLikenessUnavailableGate||(async()=>true))(c, (window.turnLikenessRefCount||(()=>0))(c.id) + (baseGenUrl?1:0)),
     buildEdit: (instr)=>
       "Edit this character design sheet for "+(c.name||"the character")+" ("+(st.label||"variant")+" state). "
       +"Apply ONLY this change: "+instr+". Preserve the same face, identity and the "+(st.label||"variant")
@@ -4250,14 +4698,22 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
       React.createElement("button",{className:"state-del",title:"Remove state",onClick:onDelete},React.createElement(Icon.x,{s:14}))),
     React.createElement(SheetFrame,{ gen, slotId:"charref-"+stateId, name:viewEntity.name,
       avatarColor:c.color, initials:vtag, drafted:true, drafting:false, onDraft:()=>{}, entity:viewEntity,
-      onView, slotPlaceholder:"Generate this appearance state", noun:vtag+" sheet", dropToImport:true }),
+      onView, slotPlaceholder:"Generate this appearance state", noun:vtag+" sheet", dropToImport:true,
+      // with a likeness, the price counts its photos (+ the master): GPT Image charges every image sent
+      generateRefs: gen.likenessRefs ? (gen.likenessRefs + (baseGenUrl?1:0)) : undefined }),
     gen.genUrl && React.createElement("div",{className:"card-qa-row"},
       React.createElement(QaCheckButton,{ gen, name:(viewEntity.name||"")+" \u00b7 "+(st.label||vtag), noun:vtag+" sheet",
         specFields:()=>({ what_changed:(st.change||"") }),
         onApplySpec:(patch)=>{ if(patch.what_changed!=null) onChange({ change:patch.what_changed, suggested:false }); } })),
     !baseGenUrl && React.createElement("div",{className:"state-hint"},
       React.createElement(Icon.alert,{s:12}),
-      "Generate the base sheet above for identity-locked results \u2014 until then this uses the text spec."),
+      gen.likenessUsable
+        ? "No master sheet yet \u2014 this variant is made from the locked likeness and the text spec. Generate the base sheet above to keep the wardrobe and layout identical."
+        : "Generate the base sheet above for identity-locked results \u2014 until then this uses the text spec."),
+    gen.genUrl && gen.likenessStale && React.createElement("div",{className:"state-hint stale"},
+      React.createElement(Icon.alert,{s:12}), "Made with an earlier likeness \u2014 regenerate this variant to update it."),
+    (gen.likeness && gen.likeness.available===false) && React.createElement("div",{className:"state-hint"},
+      React.createElement(Icon.alert,{s:12}), (window.turnLikenessUnavailableText||(()=>""))(c.id, c.name)),
     (()=>{ const m = gen.genMeta, masterIso = ((typeof nbGetMeta==="function" && nbGetMeta(c.id))||{}).iso||"";
       return gen.genUrl && m && m.baseMasterIso && masterIso && m.baseMasterIso!==masterIso && React.createElement("div",{className:"state-hint stale"},
         React.createElement(Icon.alert,{s:12}), "Made from an older master sheet \u2014 regenerate this variant so it matches the current one."); })(),
@@ -4393,6 +4849,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
   };
   /* which owned props currently have a generated sheet (for the linked-props indicator) */
   const [ownedSheetMap, setOwnedSheetMap] = React.useState({});
+  // every image a fresh master sends (GPT Image charges each): the likeness photos + the worn-item sheets
+  const wornSheetCount = includedWornProps.filter(p=>ownedSheetMap[p.id]).length;
+  const cardGenerateRefs = ()=> (window.turnLikenessRefCount||(()=>0))(c.id) + wornSheetCount;
   // worn items with no sheet of their own yet (no card, or a card without a sheet)
   const missingWorn = linkedRows.filter(r=> !r.orphan && r.src==="worn" && !(r.prop && ownedSheetMap[r.prop.id])).length;
   const wornBuilding = !!(c.wornPropBootstrap && c.wornPropBootstrap.status==="running"
@@ -4475,14 +4934,24 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     if(!ok) return; const k=c.renderStyleKey; window.turnUnlockRenderStyle(k); onUpdate(c.id,{ renderStyleKey:"" });
   };
   const refreshCameo = ()=>{ if(typeof nbCameoMeta==="function") setCameoMeta(nbCameoMeta(c.id)); };
+  // (2026-10-10, owner — Likeness review) removing a likeness revokes it where it lives (this device, the cloud
+  // copy and its photos) and offers to clear the sheets made with the face (cameo.jsx cameoRevokeFlow)
   const removeCameo = async ()=>{
+    if(typeof window.cameoRevokeFlow==="function"){
+      const stateLabel = (sheetId)=>{ const sid = String(sheetId||"").split(":")[1]; const st = (c.states||[]).find(x=>x && x.id===sid); return st ? st.label : ""; };
+      await window.cameoRevokeFlow(c.id, { name:c.name, stateLabel });
+      refreshCameo(); return;
+    }
     const ok = await window.appConfirm({
-      title: "Remove "+c.name+"'s cameo likeness?",
-      body: "Future generations won't be face-locked to it.",
+      title: "Remove "+c.name+"'s likeness?",
+      body: "New sheets won't use this face. Sheets already made keep it until you regenerate them.",
       confirmLabel: "Remove", danger: true,
     });
     if(!ok) return;
-    if(typeof nbClearCameo==="function") await nbClearCameo(c.id);
+    if(typeof nbClearCameo==="function"){
+      const r = await nbClearCameo(c.id);
+      if(r && r.ok===false && typeof window.appToast==="function") window.appToast(r.message || "Couldn't remove the likeness.","error");
+    }
     refreshCameo();
   };
   // id carries a random suffix: two Adds in the same millisecond must not share one
@@ -4522,7 +4991,13 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       +"Preserve the EXACT same face, hair, skin tone, age, build, body proportions, identity, panel layout, framing and render style from the base sheet. "
       +"Apply the current production specification and worn-reference designs below without re-casting or re-imagining the character. "
       +finalPrompt,
-    buildSimple: ()=> (typeof buildSimpleCharPrompt==="function") ? buildSimpleCharPrompt(c) : finalPrompt,
+    /* LIKENESS (2026-10-10, owner — Likeness review): the face-free spec — the runner adds the numbered
+       image map and the likeness sentence (turnLikenessPlan) */
+    buildLikeness: (ctx)=> turnLikenessMasterPrompt(c, project, props, ctx),
+    buildSimple: (o)=> buildSimpleCharPromptFor(c, o),
+    // a likeness this person can't use here is said before anything is spent (a shared film)
+    beforeGenerate: ()=> (window.turnLikenessUnavailableGate||(async()=>true))(c, cardGenerateRefs()),
+    refCounts: ()=>({ generate:cardGenerateRefs(), attach:wornSheetCount }),
     attachments: wornProps.length ? collectAttachments : null,
     attachmentsText: (attach)=> "The additional reference image"+(attach.length>1?"s are":" is")
       +" APPROVED worn-prop design"+(attach.length>1?"s":"")+". Lock "
@@ -4567,6 +5042,8 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     buildEdit: (instr)=> "Edit this height/scale chart. Apply ONLY this change: "+instr+". Keep the figure, the vertical ruler and its markings otherwise identical.",
   });
   const scaleGenWrapped = Object.assign({}, scaleSheetGen, { generate:(o)=>scaleSheetGen.generate({ aspectRatio:"9:16", ...(o||{}) }) });
+  // the likeness as the store reports it NOW (re-read on every render: cameoMeta / the store's event re-render the card)
+  const lkInfo = (window.turnLikenessInfo||(()=>null))(c.id) || (gen.likeness || null);
   // batch generation: when this card is the active queue member, fire one generate
   // and report back when it settles (mirrors the Props/Locations cards).
   // REMOUNT-SAFE: a card can remount WHILE it is the active member and its generation
@@ -4600,6 +5077,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       // "Update a prop" chips in the sheet-edit panel: THIS character's own props
       // (worn or carried) that already have a locked prop sheet
       editPropRefs: ownedProps.filter(p=>ownedSheetMap[p.id]).map(p=>({id:p.id, name:p.name, kind:p.kind})),
+      // with a likeness, the prices count every image the render sends (its photos, the worn-item sheets)
+      generateRefs: gen.likenessRefs ? cardGenerateRefs() : undefined, attachRefs: wornSheetCount,
+      generateTitle: gen.likenessUsable ? ((gen.genUrl ? "Generate a fresh sheet" : "Generate the sheet")+" from the current spec, with the locked likeness's face") : undefined,
       referenceControls: React.createElement(SheetReferenceStrip,{ gen, loadRefs:collectAttachments, onView,
         refreshKey:[c.id,wornProps.map(p=>p.id).join(","),wornExclusionKey,sheetTick].join("|") }),
       menuExtra:alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the sheet prompt" : "Show the sheet prompt", icon:Icon.eye,
@@ -4610,9 +5090,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement("div",{className:"sheet-head-top"},
           React.createElement("div",{className:"sheet-name",title:c.name||""},c.name),
           React.createElement("div",{className:"sheet-head-acts"},
-            React.createElement("button",{className:"char-cameo-btn"+(cameoMeta?" on":""),disabled:drafting,
+            React.createElement("button",{className:"char-cameo-btn"+(lkInfo?" on":""),disabled:drafting,
               onClick:()=>setCameoOpen(true),
-              title:cameoMeta?"Likeness locked \u2014 recapture or manage it":"Lock a real face as this character's likeness (webcam or photos)"},
+              title:lkInfo?"Likeness locked \u2014 recapture it with the webcam or photos":"Lock a real face as this character's likeness (webcam or photos)"},
               React.createElement(Icon.userScan,{s:12}), "Likeness"),
             React.createElement("button",{className:"char-voice-btn"+(voiceLocked?" on":"")+(voiceOpen?" open":""),type:"button",
               onClick:()=>onOpenVoice&&onOpenVoice(c.id),
@@ -4635,23 +5115,31 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement("span",{className:"scs-meta"},"this sheet doesn't wear its new worn-item sheets yet"),
         React.createElement("button",{className:"scs-act",disabled:gen.gening,onClick:()=>gen.generate(),
           title:"Regenerate the master sheet wearing its worn items (one image)"},
-          gen.gening?"Updating\u2026":"Update sheet with new wardrobe", !gen.gening && typeof window.nbCostChip==="function" && window.nbCostChip(1))),
-      cameoMeta && React.createElement("div",{className:"sheet-cameo-status"},
+          gen.gening?"Updating\u2026":"Update sheet with new wardrobe", !gen.gening && typeof window.nbCostChip==="function"
+            && window.nbCostChip(1, gen.likenessRefs ? { refs:cardGenerateRefs() } : undefined))),
+      // a likeness on this film this person can't use (a shared film): said on the card, before anything is spent
+      (lkInfo && lkInfo.available===false) && React.createElement("div",{className:"sheet-cameo-status unavailable",role:"note"},
+        React.createElement(Icon.userScan,{s:14}),
+        React.createElement("span",{className:"scs-t"},"Likeness not available here"),
+        React.createElement("span",{className:"scs-meta"}, (window.turnLikenessUnavailableText||(()=>""))(c.id, c.name))),
+      (lkInfo && lkInfo.available!==false) && React.createElement("div",{className:"sheet-cameo-status"},
         React.createElement(Icon.userScan,{s:14}),
         React.createElement("span",{className:"scs-t"},"Likeness locked"),
         React.createElement("span",{className:"scs-meta"},
-          ((cameoMeta.angleCount||1)+" angle"+((cameoMeta.angleCount||1)!==1?"s":""))+" \u00b7 "
-          +(cameoMeta.sync?"Synced":"On this device")+" \u00b7 "
-          // (2026-10-06) says whether the sheet on display was made with it — it always said "regenerate to apply"
-          +((gen.genMeta && gen.genMeta.cameo && !(cameoMeta.iso && gen.genMeta.iso && String(cameoMeta.iso)>String(gen.genMeta.iso)))
-            ? "applied to the sheet" : "regenerate to apply it to the sheet")),
+          ((lkInfo.angleCount||1)+" angle"+((lkInfo.angleCount||1)!==1?"s":""))+" \u00b7 "
+          +(lkInfo.synced?"Synced":"On this device")+" \u00b7 "
+          // (2026-10-06) says whether the sheet on display was made with it; (2026-10-10, owner — Likeness review)
+          // a sheet made with an OLDER likeness says so (meta.cameoAt before the current capture)
+          +((gen.genMeta && gen.genMeta.cameo)
+            ? (gen.likenessStale ? "made with an earlier likeness \u2014 regenerate to update" : "applied to the sheet")
+            : "regenerate to apply it to the sheet")),
         // locking stores the face-lock; it does NOT overwrite the sheet \u2014 this regenerates
         // the sheet WITH the locked face so the design matches the real person.
         React.createElement("button",{className:"scs-act",disabled:gen.gening,onClick:()=>gen.generate(),
-          title:"Regenerate the design sheet locked to this face (one image)"}, gen.gening?"Applying\u2026":"Apply to sheet",
-          !gen.gening && typeof window.nbCostChip==="function" && window.nbCostChip(1)),
-        React.createElement("button",{className:"scs-act",onClick:()=>setCameoOpen(true)},"Recapture"),
-        React.createElement("button",{className:"scs-act danger",onClick:removeCameo},"Remove")),
+          title:"Regenerate the character sheet with this face (one image)"}, gen.gening?"Applying\u2026":"Apply to sheet",
+          !gen.gening && typeof window.nbCostChip==="function" && window.nbCostChip(1, { refs:cardGenerateRefs() })),
+        lkInfo.mine!==false && React.createElement("button",{className:"scs-act",onClick:()=>setCameoOpen(true)},"Recapture"),
+        lkInfo.mine!==false && React.createElement("button",{className:"scs-act danger",onClick:removeCameo},"Remove")),
 
       // render-style picker — the visual language the sheet is drawn in (always visible)
       React.createElement("div",{className:"char-style-row"},
@@ -4977,12 +5465,16 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         // locking stores the face-lock reference; turning it INTO the character sheet
         // means regenerating the 4-panel design locked to that face — offer it right
         // away so the likeness doesn't sit unapplied until a manual "Apply to sheet".
-        onSaved: async ()=>{
+        onSaved: async (saved)=>{
           refreshCameo();
+          // the price, counted like the render: every captured angle + the worn-item sheets (GPT Image charges each)
+          const nAngles = (saved && Array.isArray(saved.angles) && saved.angles.length) || (window.turnLikenessRefCount||(()=>0))(c.id) || 1;
+          const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(1, { refs:nAngles+wornSheetCount }) : "";
           const ok = !window.appConfirm || await window.appConfirm({
             title:"Turn the likeness into "+(c.name||"this character")+"'s sheet?",
-            body:"Regenerates the 4-panel character sheet locked to the captured face — the portrait and full-body views will match the real person. You can also do this later with “Apply to sheet”.",
-            confirmLabel:"Generate sheet" });
+            body:"Regenerates the 4-panel character sheet with the captured face — the portrait and full-body views will match the real person"
+              +(price ? " (one image, about "+price+" credit"+(price==="1"?"":"s")+")" : "")+". You can also do this later with “Apply to sheet”.",
+            confirmLabel:"Generate sheet"+(price ? " \u00b7 "+price+" credit"+(price==="1"?"":"s") : "") });
           if(ok && !gen.gening) gen.generate();
         } })),
     voiceOpen && window.VoiceModal && React.createElement(window.VoiceModal,{character:c,project,speaks,onUpdate,
@@ -5574,15 +6066,22 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
     // by a search box never generated anything and hung until Cancel
     if(sceneFilter) setSceneFilter("");
     if(query) setQuery("");
-    batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length);
+    batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length, likenessBatchOpts(eligible));
   };
+  // a batch with a likeness asks first: its price counts the photos, and a likeness that can't be used here is said
+  function likenessBatchOpts(ids){
+    const note = batchLikenessNote(ids);
+    const any = (ids||[]).some(id=> (window.turnLikenessRefCount||(()=>0))(id)>0);
+    if(!note && !any) return undefined;
+    return { alwaysAsk:true, note, refsOf:(id)=> likenessBatchRefs([id])[0] };
+  }
   // generate just the cast in the focused scene (mirrors Props / Locations)
   const startSceneBatch = (onlyMissing)=>{
     if(!sceneFilter || batchActiveId) return;
     const eligible = onlyMissing ? sceneMissing : draftedIds(sceneCast);
     if(!eligible.length){ batch.setMsg(onlyMissing ? "Everyone drafted in this scene already has a sheet." : "Draft the characters in this scene first \u2014 nothing here is ready to generate."); return; }
     if(query) setQuery("");   // the queue advances on mounted cards — a search must not hide one
-    batch.begin(eligible, onlyMissing ? 0 : sceneCast.length - eligible.length);
+    batch.begin(eligible, onlyMissing ? 0 : sceneCast.length - eligible.length, likenessBatchOpts(eligible));
   };
   // when a character is added BY HAND, smooth-scroll it into view (parity with Props)
   const prevIdsRef = React.useRef(null);
@@ -5611,10 +6110,32 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
   },[list]);
   const [cameoCount, setCameoCount] = React.useState(()=> (typeof nbListCameos==="function") ? nbListCameos().length : 0);
   const refreshCount = ()=>{ if(typeof nbListCameos==="function") setCameoCount(nbListCameos().length); };
+  // the count follows every lock / sync / revoke / load (the store's event — 2026-10-10, owner — Likeness review)
+  React.useEffect(()=>{
+    const h = ()=> refreshCount();
+    window.addEventListener("turn-cameo-changed", h);
+    return ()=> window.removeEventListener("turn-cameo-changed", h);
+  },[]);
+  /* PRICES THAT COUNT THE LIKENESS (GPT Image charges every image a render sends): each character's likeness
+     photos + its worn-item sheets. Used only when someone in the batch has a likeness. */
+  const likenessBatchRefs = (ids)=> (ids||[]).map(id=>{
+    const ch = (characters||[]).find(x=>x && x.id===id) || {};
+    const ex = new Set(Array.isArray(ch.wornReferenceExclusions) ? ch.wornReferenceExclusions : []);
+    const worn = (props||[]).filter(p=>p && p.ownerId===id && p.kind!=="carried" && !ex.has(p.id)
+      && typeof nbGetImage==="function" && nbGetImage(p.id)).length;
+    return (window.turnLikenessRefCount||(()=>0))(id) + worn; });
+  const batchChip = (ids)=>{
+    if(typeof window.nbCostChip!=="function") return null;
+    const anyLikeness = (ids||[]).some(id=> (window.turnLikenessRefCount||(()=>0))(id)>0);
+    return anyLikeness ? React.createElement(window.LikenessBatchCost,{ refs:likenessBatchRefs(ids) }) : window.nbCostChip((ids||[]).length);
+  };
+  // a likeness someone in the batch can't use here is said in the batch's question, before it starts
+  const batchLikenessNote = (ids)=> (ids||[]).map(id=>{ const ch=(characters||[]).find(x=>x&&x.id===id); return (window.turnLikenessUnavailableText||(()=>""))(id, ch&&ch.name); })
+    .filter(Boolean).join(" ");
   const nameOf = (id)=>{ const c=(characters||[]).find(x=>x.id===id); return c?c.name:id; };
   return React.createElement("div",{className:"art-scroll"},
     view && React.createElement(ImageLightbox,{url:view.url,character:view.character,onClose:()=>setView(null)}),
-    mgrOpen && React.createElement(CameoManager,{nameOf,onClose:()=>setMgrOpen(false),onChanged:refreshCount}),
+    mgrOpen && React.createElement(CameoManager,{nameOf,characters,onClose:()=>setMgrOpen(false),onChanged:refreshCount}),
     React.createElement(NbKeyBar,null),
     React.createElement(NbControls,null),
     window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,onDraftOnly:onApplyLookbookDraftOnly,label:"these characters",dept:"characters"}),
@@ -5630,8 +6151,8 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"character",onRestore,onPurge,compact:true}),
           cameoCount>0 && React.createElement("button",{className:"art-cameo-mgr",onClick:()=>setMgrOpen(true),
-            title:"Review & manage locked likenesses"},
-            React.createElement(Icon.userScan,{s:14}),"Cameos \u00b7 "+cameoCount),
+            title:"Likeness manager \u2014 review and manage the locked likenesses"},
+            React.createElement(Icon.userScan,{s:14}),"Likenesses \u00b7 "+cameoCount),
           // NO hand-adding: the cast derives from story creation and screenplay
           // development; the Art Room designs only what the story establishes.
           // ONE primary per stage: "Design the cast" leads while specs are missing,
@@ -5646,7 +6167,7 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
             title:"Generate the reference sheet for every drafted character that doesn't have one yet \u2014 existing sheets are left as they are"},
             React.createElement(Icon.sparkles,{s:14}),
             batchActiveId?"Generating\u2026":("Generate "+missingAll.length+" missing sheet"+(missingAll.length!==1?"s":"")),
-            typeof window.nbCostChip==="function" && window.nbCostChip(missingAll.length)),
+            batchChip(missingAll)),
           (castStage!=="draft" && !missingAll.length && eligibleAll>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId,onClick:()=>startAllBatch(false),
             title:"Regenerate the reference sheets of the drafted cast \u2014 you'll be asked before anything is redone, with the price"},
             React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Regenerate sheets\u2026"))),
@@ -5693,7 +6214,7 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
           title:"Generate the reference sheets of the drafted characters in this scene that don't have one yet"},
           React.createElement(Icon.sparkles,{s:14}),
           batchActiveId?"Generating…":("Generate "+sceneMissing.length+" missing in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")),
-          typeof window.nbCostChip==="function" && window.nbCostChip(sceneMissing.length)),
+          batchChip(sceneMissing)),
         (sceneFilter && !sceneMissing.length && sceneDrafted>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId,onClick:()=>startSceneBatch(false),
           title:"Regenerate the reference sheets of the characters in this scene \u2014 you'll be asked before anything is redone, with the price"},
           React.createElement(Icon.sparkles,{s:14}),
@@ -5884,11 +6405,26 @@ function castDesignPlan(characters, scope, sceneIds, withVariants){
   return { ids:list.map(c=>c.id), n:list.length, specs, sheets, variants, noStates, images:sheets+variants };
 }
 window.castDesignPlan = castDesignPlan;
-function CastConfirm({ characters, sceneId, sceneNo, sceneIds, onCancel, onConfirm }){
+function CastConfirm({ characters, props, sceneId, sceneNo, sceneIds, onCancel, onConfirm }){
   const C = characters||[];
   const [scope, setScope] = React.useState(sceneId ? "scene" : "missing");
   const [withVariants, setWithVariants] = React.useState(true);
   const plan = castDesignPlan(C, scope, sceneIds, withVariants);
+  /* LIKENESS (2026-10-10, owner — Likeness review): a character with a likeness sends its photos with each of its
+     sheets (+ the worn-item sheets on a master, + the master on a variant) — GPT Image charges each, so the price
+     counts them; and a likeness this person can't use here is said before the run starts */
+  const _img = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
+  const planChars = C.filter(c=>c && plan.ids.indexOf(c.id)>=0);
+  const lkAny = planChars.some(c=> (window.turnLikenessRefCount||(()=>0))(c.id)>0);
+  const lkRefs = [];
+  if(lkAny) planChars.forEach(c=>{
+    const lk = (window.turnLikenessRefCount||(()=>0))(c.id);
+    const ex = new Set(Array.isArray(c.wornReferenceExclusions) ? c.wornReferenceExclusions : []);
+    const worn = (props||[]).filter(p=>p && p.ownerId===c.id && p.kind!=="carried" && !ex.has(p.id) && _img(p.id)).length;
+    if(!_img(c.id)) lkRefs.push(lk + worn);
+    if(withVariants) ((c.states)||[]).filter(st=>st && st.sceneId && !_img(c.id+":"+st.id)).forEach(()=> lkRefs.push(lk + 1));
+  });
+  const lkUnavailable = planChars.map(c=> (window.turnLikenessUnavailableText||(()=>""))(c.id, c.name)).filter(Boolean);
   const count = (sc)=> castDesignPlan(C, sc, sceneIds, false).n;
   const scNo = String(sceneNo!=null ? sceneNo : "").padStart(2,"0");
   const scopes = [
@@ -5929,12 +6465,17 @@ function CastConfirm({ characters, sceneId, sceneNo, sceneIds, onCancel, onConfi
             React.createElement("div",{className:"cc-est"},
               React.createElement("span",{className:"cc-est-n"}, String(plan.images)),
               React.createElement("span",{className:"cc-est-l"}, "image"+(plan.images===1?"":"s")+" to generate"),
-              plan.images>0 && typeof window.nbCostChip==="function" && window.nbCostChip(plan.images)),
+              plan.images>0 && (lkAny && lkRefs.length===plan.images
+                ? React.createElement(window.LikenessBatchCost,{ refs:lkRefs })
+                : (typeof window.nbCostChip==="function" && window.nbCostChip(plan.images)))),
             lines.length>0 && React.createElement("ul",{className:"cc-list"},
               lines.map(l=>React.createElement("li",{key:l.id},
                 React.createElement("span",{className:"cc-list-lab"}, l.label),
                 React.createElement("span",{className:"cc-list-n"}, l.n+" "+l.unit+(l.n===1?"":"s")+(l.writing?" \u00b7 writing credits":""))))),
             plan.noStates>0 && note("alert", plan.noStates+" character"+(plan.noStates!==1?"s have":" has")+" no appearance changes listed yet \u2014 each one it finds adds one image."),
+            lkAny && note("info","The price counts each likeness's photos \u2014 they go with every sheet of that character.","info"),
+            ...lkUnavailable.map((t,i)=> React.createElement("div",{key:"lku"+i,className:"cc-note"},
+              React.createElement(Icon.alert,{s:12}), React.createElement("span",null,t))),
             note("info","Each image uses credits at the engine and resolution set in the Images dock on the right edge.","info")),
       React.createElement("div",{className:"cc-foot"},
         React.createElement("button",{className:"ns-btn ghost",onClick:onCancel},"Cancel"),

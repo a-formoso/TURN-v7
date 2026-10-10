@@ -52,7 +52,10 @@ await test("C2 the callers name their items", () => {
   assert.equal((app.match(/\{ \.\.\.gopts, assetId:c\.id \}/g) || []).length, 2, "the wardrobe re-bake");
   // (2026-10-09, Art Room third pass) the sheets also carry a last-moment Stop check
   assert.equal((app.match(/\{ \.\.\.gopts, assetId:slotId, beforeSubmit \}/g) || []).length, 2, "the Casting Director's sheets");
-  assert.ok(read("app/cameo.jsx").includes('assetPurpose:"cameo-guide"'));
+  // (2026-10-10, Likeness review) the pose sketches are static line drawings: the capture window makes no image
+  const cameo = read("app/cameo.jsx");
+  assert.ok(!/nbGenerate\s*\(|assetPurpose\s*:\s*"cameo-guide"|cameoGuidePrompt/.test(cameo), "no paid pose-guide generation left");
+  assert.ok(cameo.includes("function CameoPoseSketch"), "the static pose sketches");
 });
 
 console.log(`${checks} passed, ${failed} failed`);

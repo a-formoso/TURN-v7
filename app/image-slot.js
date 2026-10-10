@@ -504,16 +504,6 @@
       }
     }
 
-    // Programmatic ingest from a data URL (used by the Cameo capture flow to
-    // prime a slot without a drag/drop). Mirrors _ingest's commit path.
-    async _ingestDataUrl(url) {
-      if (!url || typeof url !== 'string') return;
-      this._exitReframe(false);
-      const val = { u: url, s: 1, x: 0, y: 0 };
-      setSlot(this.id || '', val);
-      if (!this.id) { this._local = val; this._render(); }
-    }
-
     _setError(msg) {
       if (this._err) { this._err.remove(); this._err = null; }
       if (!msg) return;

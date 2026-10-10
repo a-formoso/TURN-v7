@@ -3106,6 +3106,48 @@ async function proxySection() {
       assert.equal(ok.status, 200, j(ok.json)); assert.ok(!ok.json.error, j(ok.json));
     });
 
+    await test("F40 (2026-10-10, Likeness review) a data-URL reference the proxy staged (a likeness photo) is removed as soon as its render returns — delivered or refused; a video job fal kept keeps its staged inputs (fal reads them when it runs), one fal refused loses them; a stage: device upload is never touched", async () => {
+      const face = "data:image/jpeg;base64," + Buffer.from([255, 216, 255, 224, 0, 16, 74, 70, 73, 70]).toString("base64");
+      const stagedNow = () => Object.keys(W.stored).filter((k) => k.includes("/stage-tmp/"));
+      const stagedRemoved = () => W.removed.filter((k) => k.includes("/stage-tmp/"));
+      // a fal image with the face as a reference: staged, handed to fal, gone once the image is back
+      reset();
+      let r = await post("tok-director", IMAGE("gemini-3.1-flash-image", "1K", "fal", { images: [face] }));
+      assert.equal(r.status, 200, j(r.json)); assert.ok(!r.json.error, j(r.json));
+      const sent = W.calls.find((c) => c.method === "POST" && c.url.startsWith("https://queue.fal.run/"));
+      assert.ok(sent && /\/stage-tmp\//.test(String((sent.body.image_urls || [])[0] || "")), "fal got the staged copy's signed URL");
+      assert.equal(stagedRemoved().length, 1, "the staged copy was removed: " + j(W.removed));
+      assert.deepEqual(stagedNow(), [], "nothing of this render is left in stage-tmp");
+      assert.ok(W.events.lastIndexOf("storage:upload") < W.events.indexOf("fetch:" + sent.url), "staged before the provider call");
+      // the provider refuses the render: removed all the same, and the refusal is unchanged
+      reset();
+      W.providers["https://queue.fal.run/fal-ai/nano-banana-2"] = (u, method) => method === "POST" ? reply(422, { detail: "likeness rejected" }) : null;
+      r = await post("tok-director", IMAGE("gemini-3.1-flash-image", "1K", "fal", { images: [face] }));
+      assert.equal(r.status, 200); assert.match(r.json.error || "", /likeness rejected|refused/i, j(r.json));
+      assert.equal(stagedRemoved().length, 1, "removed after a refusal too"); assert.deepEqual(stagedNow(), []);
+      // a video job fal accepted keeps its staged start image (fal reads it when the job runs)…
+      reset(); W.falNextStatus = "IN_PROGRESS";
+      r = await post("tok-producer", KLING({ image_urls: [face] }));
+      assert.equal(r.status, 200, j(r.json)); assert.ok(r.json.requestId, j(r.json));
+      assert.equal(stagedNow().length, 1, "kept while fal holds the job"); assert.equal(stagedRemoved().length, 0);
+      // …one fal refused loses it
+      reset();
+      W.providers["https://queue.fal.run/fal-ai/kling-video"] = (u, method) => method === "POST" ? reply(422, { detail: "no" }) : null;
+      r = await post("tok-producer", KLING({ image_urls: [face] }));
+      assert.equal(r.status, 200); assert.ok(r.json.error, j(r.json));
+      assert.equal(stagedRemoved().length, 1, "a refused job's staged input goes"); assert.deepEqual(stagedNow(), []);
+      // a device upload (`stage:`) keeps its own lifecycle, accepted or refused
+      for (const refuse of [false, true]) {
+        reset(); W.falNextStatus = "IN_PROGRESS";
+        if (refuse) W.providers["https://queue.fal.run/fal-ai/kling-video"] = (u, method) => method === "POST" ? reply(422, { detail: "no" }) : null;
+        const device = `${U.producer.id}/stage-tmp/${Date.now()}-image-device-face01.png`;
+        W.stored[device] = { bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), type: "image/png" };
+        r = await post("tok-producer", KLING({ image_urls: ["stage:" + device] }));
+        assert.equal(r.status, 200, j(r.json));
+        assert.ok(W.stored[device] && !W.removed.includes(device), "the device upload is untouched (" + (refuse ? "refused" : "accepted") + ")");
+      }
+    });
+
     await test("F16 THE SWITCH DAY: billing-switch.sql triples balances and the proxy prices in $0.01 from then on (no redeploy)", async () => {
       reset();
       const wBefore = await bal(U.writer), dBefore = await bal(U.director);

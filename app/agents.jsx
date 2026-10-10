@@ -1848,7 +1848,8 @@ async function agentShotDesigner(ctx){
    AGENT 8 — CASTING DIRECTOR  (Art Room ▸ Characters, autonomous)
    Designs the whole cast in dependency order: per character it (1) drafts the visual spec
    from the script, (2) suggests appearance states, (3) generates the master sheet (pulling
-   in already-generated prop sheets + any cameo face-lock), then (4) generates each
+   in already-generated prop sheets + any locked likeness — the card's ONE RULE, app.jsx
+   turnLikenessSheetRequest, 2026-10-10), then (4) generates each
    appearance-state variant identity-locked off the master. Runs on its own (no approval);
    cancellable via Stop; idempotent (fills only what's missing). Reads ctx.art.cast — never
    touches ctx.model.
@@ -2961,7 +2962,7 @@ const AGENTS = [
     costLine:"It makes one writing call per scene whose coverage it designs; it renders no frames. What it used shows when it finishes.",
     run:agentShotDesigner },
   { id:"casting", name:"Casting Director", icon:"userScan", kind:"build", room:"art", autonomous:true,
-    blurb:"Designs your whole cast on its own \u2014 drafts each character's look, finds their appearance changes, then generates the master sheet (with prop + cameo references) and every state variant. Runs autonomously; press Stop anytime.",
+    blurb:"Designs your whole cast on its own \u2014 drafts each character's look, finds their appearance changes, then generates the master sheet (with prop + likeness references) and every state variant. Runs autonomously; press Stop anytime.",
     costLine:"It uses writing credits for its specs and image credits for each sheet or plate it makes \u2014 only what's missing is made, and what it used (writing calls and images) shows when it finishes.", run:agentCastingDirector },
   { id:"propsmaster", name:"Props Master", icon:"box", kind:"build", room:"art", autonomous:true,
     blurb:"Adds the worn/carried items listed in the cast's character briefs as proposals, drafts every prop's spec, and generates the reference images for the props that need their own (text-only objects are described in shots instead), each owned prop referencing its owner's character sheet so it matches that character's look (runs after the cast). It never adds or merges screenplay props \u2014 use Props \u2192 Extract screenplay props for that. Runs autonomously; press Stop anytime.",

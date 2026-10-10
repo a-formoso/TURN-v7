@@ -738,8 +738,10 @@ function nbUseCloud(projectId, uid){
     _cloudUrlCache.clear(); _cloudMetaCache.clear();
     if(typeof nbResetPrefetchAll==="function") nbResetPrefetchAll();
   }
+  // (2026-10-10, owner — Likeness review) the likenesses follow the film and the account
+  if(changed) _cameoScopeMoved();
 }
-function nbUseLocal(){ if(_nbProject!==null) _nbEpoch++; _nbBackend="local"; _nbProject=null; _nbUid=null; _nbShared=null; _nbSharedIds=null; _cloudUrlCache.clear(); _cloudMetaCache.clear(); if(typeof nbResetPrefetchAll==="function") nbResetPrefetchAll(); }
+function nbUseLocal(){ if(_nbProject!==null) _nbEpoch++; _nbBackend="local"; _nbProject=null; _nbUid=null; _nbShared=null; _nbSharedIds=null; _cloudUrlCache.clear(); _cloudMetaCache.clear(); if(typeof nbResetPrefetchAll==="function") nbResetPrefetchAll(); _cameoScopeMoved(); }
 
 /* ── SHOW-SCOPED SHARED ASSETS (series) ───────────────────────────────────────
    A show's bible entities (cast / locations / props / lookbook) are shared by
@@ -759,6 +761,7 @@ function nbUseShared(scopeId, ids){
   _nbSharedIds = nextIds;
   _cloudUrlCache.clear(); _cloudMetaCache.clear();
   if(typeof nbResetPrefetchAll==="function") nbResetPrefetchAll();
+  _cameoScopeMoved();   // (2026-10-10, Likeness review) a Show character's likeness lives in the Show's scope
 }
 function _scopeFor(id){
   if(_nbShared && _nbSharedIds){
@@ -1381,103 +1384,735 @@ window.nbLoadPendingImageDeletion=nbLoadPendingImageDeletion;
 window.nbPurgeImageVersion=nbPurgeImageVersion;
 
 /* ============================================================
-   CAMEO — "Cast yourself" identity capture (Increments A + B).
-   A captured face becomes a persistent, reusable likeness token
-   for one character: it is auto-attached as a conditioning
-   reference on EVERY generation of that character (base + states)
-   so the face stays consistent shot-to-shot.
+   LIKENESS (internal name "cameo") — a real face locked to one character.
+   (2026-10-10, owner — Likeness review)
 
-   Increment B: MULTI-ANGLE capture (front + ¾ left/right) for far
-   stronger consistency, full PROVENANCE metadata (source, subject,
-   consent, capture date, angle count), and an explicit opt-in to
-   SYNC the cameo to the cloud for cross-device use.
+   A likeness belongs to ONE FILM's character — in a Show, to the Show's bible scope
+   (_scopeFor, the scope that character's sheets use, so every Episode finds it) — and to
+   the signed-in ACCOUNT ("local" when signed out). The photos stay on this device
+   (IndexedDB) unless the person syncs them; a synced likeness is one turn_cameos row per
+   person per character per film plus private photos, read only by the person who captured
+   it, the film's owner and the film's live Art directors (supabase/team-relaunch.sql §7d).
+   Every captured angle rides as a face reference on every generation of that character.
 
-   Biometric data → LOCAL-ONLY by default (IndexedDB, this device).
-   We only push a cameo to Supabase when sync===true.
+   This device:
+     IndexedDB     "turn-cameo-v2|<account>|<scope>|<charId>"  the full record (photos as data URLs)
+     localStorage  "turn-cameo-registry-v2:<account>"         { "<scope>|<charId>": meta }
+   A teammate's synced likeness is held in MEMORY only — never written to this device.
+   OLD unscoped records (before this pass: "turn-cameo-<charId>" + "turn-cameo-registry") are
+   kept untouched and never used automatically: the Likenesses window lists them under
+   "Earlier likenesses (not tied to a film)" (nbListEarlierCameos / nbAdoptEarlierCameo /
+   nbDeleteEarlierCameo). Stored data is never migrated.
 
-   Record shape (IDB, key turn-cameo-<id>):
-     { url, angles:[{label,url}], consent, sync, source, subject,
-       w, h, iso, date }   — url mirrors angles[0] for back-compat.
-   Registry (localStorage, images stripped): meta only.
+   Record: { v:2, charId, scope, acct, charName,
+     angles:[{ key:"front"|"left"|"right", label, url (a data URL — never a signed link),
+               source:"webcam"|"upload", at (ISO), storage_path? (its synced copy) }],
+     url (= the Front), consent:{ subject:"self"|"other", name, adult, textVersion, at, by }
+     (or an earlier likeness's one tick: true), subject (shown), capturedAt (ISO, = iso — the
+     photos' own time: syncing never changes it), date, sync (in the cloud now), syncedAt, w, h }
+   Every lock / sync / revoke / load dispatches "turn-cameo-changed" { charId, scope, reason }
+   (charId null = several may have changed).
    ============================================================ */
-const _cameoMem = new Map();              // charId -> full record (instant sync reads)
+const CAMEO_CONSENT_TEXT_VERSION = "2026-10-10";
+const CAMEO_ANGLE_LABELS = { front:"Front", left:"¾ Left", right:"¾ Right" };
+const _cameoMem = new Map();      // "<acct>|<scope>|<charId>" -> this person's full record
+const _cameoTeam = new Map();     // "<scope>|<charId>|<owner>" -> a teammate's synced likeness (memory only)
+const _cameoMissing = new Set();  // this person's records whose photos aren't on this device any more
+let _cameoCloudMine = new Set();  // "<scope>|<charId>" of this person's rows the last cloud read found
+let _cameoFilmOwners = {};        // scope -> the film's owner (from the last cloud read)
+let _cameoAcctSeen = null;
+const _cameoHydrate = { sig:"", promise:null, timer:null };
+
+function _cameoAcct(){ return (_nbBackend==="cloud" && _nbUid) ? String(_nbUid) : "local"; }
+function _cameoScopeOf(charId){ return _nbBackend==="cloud" ? String(_scopeFor(charId) || _nbProject || "local") : "local"; }
+/* a character's likeness is looked for in its own scope, then (a Show character) in the open
+   Episode's — _scopeFor's read fallback for sheets made before a film became a Show */
+function _cameoScopesFor(charId){
+  const s = _cameoScopeOf(charId);
+  return (_nbBackend==="cloud" && _nbProject && s!==String(_nbProject)) ? [s, String(_nbProject)] : [s];
+}
+function _cameoOpenScopes(){
+  if(_nbBackend!=="cloud") return ["local"];
+  return Array.from(new Set([_nbProject, _nbShared].filter(Boolean).map(String)));
+}
+function _cameoSig(){ return _nbBackend+"|"+(_nbUid||"")+"|"+_cameoOpenScopes().join(","); }
+function _cameoFullKey(acct, scope, charId){ return acct+"|"+scope+"|"+charId; }
+function _cameoIdbKey(acct, scope, charId){ return "turn-cameo-v2|"+acct+"|"+scope+"|"+encodeURIComponent(String(charId)); }
+function _cameoEntryId(scope, charId){ return scope+"|"+charId; }
+function _cameoRegKey(acct){ return "turn-cameo-registry-v2:"+acct; }
+function _cameoRegRead(acct){
+  try{ const o = JSON.parse(localStorage.getItem(_cameoRegKey(acct))||"{}"); return (o && typeof o==="object" && !Array.isArray(o)) ? o : {}; }
+  catch(e){ return {}; }
+}
+function _cameoRegWrite(acct, o){ try{ localStorage.setItem(_cameoRegKey(acct), JSON.stringify(o||{})); }catch(e){} }
+function _cameoAnnounce(charId, scope, reason){
+  try{ window.dispatchEvent(new CustomEvent("turn-cameo-changed",{ detail:{ charId:charId==null?null:String(charId), scope:scope||null, reason:reason||"" } })); }catch(e){}
+}
+function _cameoToast(msg, kind){ try{ if(typeof window.appToast==="function") window.appToast(msg, kind||"info"); }catch(e){} }
+
+/* the OLD unscoped store (read-only here; deleted only when the person deletes an earlier likeness) */
 function nbCameoKey(id){ return "turn-cameo-"+id; }
 function nbCameoRegKey(){ return "turn-cameo-registry"; }
-function cameoReg(){ try{ return JSON.parse(localStorage.getItem(nbCameoRegKey())||"{}"); }catch(e){ return {}; } }
-function cameoRegWrite(o){ try{ localStorage.setItem(nbCameoRegKey(), JSON.stringify(o)); }catch(e){} }
-function cameoMetaOf(rec){
-  return { consent:!!rec.consent, sync:!!rec.sync, source:rec.source||"webcam",
-    subject:rec.subject||"", angleCount:(rec.angles&&rec.angles.length)||1,
-    w:rec.w||0, h:rec.h||0, iso:rec.iso, date:rec.date };
+function _cameoOldReg(){
+  try{ const o = JSON.parse(localStorage.getItem(nbCameoRegKey())||"{}"); return (o && typeof o==="object" && !Array.isArray(o)) ? o : {}; }
+  catch(e){ return {}; }
 }
-/* normalise any record to the multi-angle shape (handles Increment-A singles) */
+
+function _cameoAngleKeyOf(a, i){
+  const k = String((a && a.key)||"").toLowerCase();
+  if(CAMEO_ANGLE_LABELS[k]) return k;
+  const l = String((a && a.label)||"").toLowerCase();
+  if(/left/.test(l)) return "left";
+  if(/right/.test(l)) return "right";
+  if(/front/.test(l)) return "front";
+  return i===0 ? "front" : "angle"+i;
+}
+/* any record to the multi-angle shape (an Increment-A single "url" included) */
 function cameoNormalize(rec){
   if(!rec) return null;
-  let angles = (rec.angles && rec.angles.length) ? rec.angles.slice()
+  let angles = (Array.isArray(rec.angles) && rec.angles.length) ? rec.angles.slice()
              : (rec.url ? [{ label:"Front", url:rec.url }] : []);
-  angles = angles.filter(a=>a && a.url);
-  return { ...rec, angles, url: angles.length ? angles[0].url : (rec.url||"") };
+  angles = angles.filter(a=>a && a.url).map((a,i)=>{
+    const key = _cameoAngleKeyOf(a, i);
+    const source = a.source==="upload" ? "upload" : a.source==="webcam" ? "webcam" : (rec.source==="upload" ? "upload" : "webcam");
+    return { ...a, key, label:a.label || CAMEO_ANGLE_LABELS[key] || "Angle", source };
+  });
+  const capturedAt = rec.capturedAt || rec.iso || "";
+  return { ...rec, angles, url: angles.length ? angles[0].url : "", capturedAt, iso: capturedAt || rec.iso || "" };
 }
-function nbCameoMeta(id){ const r=cameoReg()[id]; return r||null; }
-/* sync primary url + all angle urls, if already in memory */
-function nbGetCameo(id){ const r=_cameoMem.get(id); return r&&r.url ? r.url : ""; }
-function nbGetCameoAngles(id){ const r=_cameoMem.get(id); return (r&&r.angles)?r.angles.map(a=>a.url).filter(Boolean):[]; }
-/* async load primary url (memory → IDB → cloud-if-synced) */
-async function nbLoadCameo(id){
-  const full = await nbLoadCameoFull(id);
-  return full ? full.url : "";
+/* the consent record; an earlier likeness's single tick reads as { legacy:true } */
+function _cameoConsentOf(rec){
+  const c = rec && rec.consent;
+  if(c && typeof c==="object") return { subject: c.subject==="other" ? "other" : (c.subject==="self" ? "self" : ""),
+    name:String(c.name||"").trim(), adult:c.adult===true, textVersion:String(c.textVersion||""), at:String(c.at||""), by:String(c.by||"") };
+  if(c===true) return { legacy:true, subject:"", name:String((rec && rec.subject)||"").trim(), adult:false, textVersion:"", at:"", by:"" };
+  return null;
 }
-async function nbLoadCameoAngles(id){
-  const full = await nbLoadCameoFull(id);
-  return full ? full.angles.map(a=>a.url).filter(Boolean) : [];
+function _cameoConsentCurrent(c){
+  return !!(c && !c.legacy && c.adult===true && (c.subject==="self" || (c.subject==="other" && !!c.name))
+    && c.textVersion===CAMEO_CONSENT_TEXT_VERSION);
 }
-/* async load the FULL record (for the manager + generation) */
+function _cameoSubjectLabel(c, rec){
+  if(c && c.subject==="self") return "Me";
+  if(c && c.name) return c.name;
+  return String((rec && rec.subject)||"");
+}
+function _cameoDate(iso){
+  try{ return iso ? new Date(iso).toLocaleDateString("en-US",{ month:"short", day:"numeric", year:"numeric" }) : ""; }catch(e){ return ""; }
+}
+function cameoMetaOf(rec){
+  const n = cameoNormalize(rec) || {};
+  const consent = _cameoConsentOf(n);
+  const sources = Array.from(new Set((n.angles||[]).map(a=>a.source)));
+  return { charId:String(n.charId||""), scope:String(n.scope||""), acct:String(n.acct||""), charName:String(n.charName||""),
+    consent, subject:_cameoSubjectLabel(consent, n),
+    angleCount:(n.angles && n.angles.length)||0, angleKeys:(n.angles||[]).map(a=>a.key),
+    source: sources.length===1 ? sources[0] : (sources.length ? "webcam + upload" : "webcam"), sources,
+    sync:!!n.sync, syncedAt:n.syncedAt||null, capturedAt:n.capturedAt||null, iso:n.capturedAt||n.iso||null,
+    date:_cameoDate(n.capturedAt||n.iso), w:n.w||0, h:n.h||0, from:String(n.from||"") };
+}
+function _cameoMetaFromRow(row){
+  const p = (row && row.prov) || {};
+  const angles = Array.isArray(row && row.angles) ? row.angles.filter(a=>a && a.storage_path) : [];
+  const capturedAt = p.capturedAt || p.iso || null;
+  const consent = _cameoConsentOf({ consent:p.consent, subject:p.subject });
+  const sources = Array.from(new Set(angles.map(a=>a.source==="upload" ? "upload" : (a.source==="webcam" ? "webcam" : (p.source==="upload" ? "upload" : "webcam")))));
+  return { charId:String(row.char_id), scope:String(row.project_id), owner:String(row.owner), charName:String(p.charName||""),
+    consent, subject:_cameoSubjectLabel(consent, { subject:p.subject }),
+    angleCount:angles.length, angleKeys:angles.map((a,i)=>_cameoAngleKeyOf(a,i)),
+    source: sources.length===1 ? sources[0] : (sources.length ? "webcam + upload" : "webcam"), sources,
+    sync:true, syncedAt:row.updated_at||null, capturedAt, iso:capturedAt, date:_cameoDate(capturedAt), w:p.w||0, h:p.h||0 };
+}
+
+/* this person's own records */
+async function _cameoReadOwn(acct, scope, charId){
+  const k = _cameoFullKey(acct, scope, charId);
+  const m = _cameoMem.get(k);
+  if(m && m.angles && m.angles.length) return m;
+  try{
+    const v = await idbGet(_cameoIdbKey(acct, scope, charId));
+    const n = v ? cameoNormalize(v) : null;
+    if(n && n.angles.length){ _cameoMem.set(k, n); _cameoMissing.delete(k); return n; }
+  }catch(e){}
+  return null;
+}
+async function _cameoWriteOwn(full){
+  const n = cameoNormalize(full);
+  const k = _cameoFullKey(n.acct, n.scope, n.charId);
+  _cameoMem.set(k, n); _cameoMissing.delete(k);
+  let stored = true;
+  try{ await idbSet(_cameoIdbKey(n.acct, n.scope, n.charId), n); }catch(e){ stored = false; }
+  const reg = _cameoRegRead(n.acct); reg[_cameoEntryId(n.scope, n.charId)] = cameoMetaOf(n); _cameoRegWrite(n.acct, reg);
+  return { rec:n, stored };
+}
+async function _cameoDropOwn(acct, scope, charId){
+  const k = _cameoFullKey(acct, scope, charId);
+  _cameoMem.delete(k); _cameoMissing.delete(k);
+  try{ await idbDel(_cameoIdbKey(acct, scope, charId)); }catch(e){}
+  const reg = _cameoRegRead(acct); delete reg[_cameoEntryId(scope, charId)]; _cameoRegWrite(acct, reg);
+}
+function _cameoMissingWhy(scope, charId){
+  return _cameoCloudMine.has(_cameoEntryId(scope, String(charId)))
+    ? "Its photos are in the cloud but couldn't be loaded onto this device right now. Try again in a moment."
+    : "This likeness was locked on this device, but its photos are no longer here. Recapture it to use it again.";
+}
+function _cameoOwnEntry(acct, meta){
+  const k = _cameoFullKey(acct, meta.scope, meta.charId);
+  const missing = _cameoMissing.has(k);
+  return { kind:"own", key:k, mine:true, charId:String(meta.charId), scope:String(meta.scope), acct,
+    owner: acct==="local" ? null : acct, meta, available:!missing, why: missing ? _cameoMissingWhy(meta.scope, meta.charId) : "" };
+}
+function _cameoTeamEntry(t){
+  const failed = t.state==="failed";
+  return { kind:"team", key:t.key, mine:false, charId:t.charId, scope:t.scope, acct:_cameoAcct(), owner:t.owner, meta:t.meta,
+    available:!failed, why: failed ? "A teammate's likeness is synced for this character, but its photos couldn't be loaded right now. Try again in a moment." : "" };
+}
+/* every likeness of this character this person may use in the open film, best first: their own,
+   then the film owner's synced one, then any other synced one (latest first) */
+function _cameoCandidates(charId){
+  const id = String(charId), acct = _cameoAcct(), scopes = _cameoScopesFor(id), reg = _cameoRegRead(acct), out = [];
+  for(const scope of scopes){
+    const meta = reg[_cameoEntryId(scope, id)];
+    if(meta) out.push(_cameoOwnEntry(acct, { ...meta, scope, charId:id }));
+  }
+  for(const t of _cameoTeam.values()) if(t.charId===id && scopes.indexOf(t.scope)>=0) out.push(_cameoTeamEntry(t));
+  const rank = (c)=> (c.available ? 0 : 10) + (c.mine ? 0 : (c.owner && _cameoFilmOwners[c.scope]===c.owner ? 1 : 2)) + scopes.indexOf(c.scope)*0.5;
+  out.sort((a,b)=> (rank(a)-rank(b)) || String((b.meta && b.meta.syncedAt)||"").localeCompare(String((a.meta && a.meta.syncedAt)||"")));
+  return out;
+}
+function _cameoPick(charId){ return _cameoCandidates(charId)[0] || null; }
+function _cameoFullOf(e){ return !e ? null : e.kind==="own" ? (_cameoMem.get(e.key)||null) : ((_cameoTeam.get(e.key)||{}).full||null); }
+
+/* ── reads (the open film's scope; the names and signatures every caller already uses) ── */
+function nbCameoMeta(id){ const p = _cameoPick(id); return (p && p.available) ? { ...p.meta, mine:p.mine, owner:p.owner } : null; }
+function nbGetCameo(id){ const p = _cameoPick(id); const r = (p && p.available) ? _cameoFullOf(p) : null; return (r && r.url) ? r.url : ""; }
+function nbGetCameoAngles(id){ const p = _cameoPick(id); const r = (p && p.available) ? _cameoFullOf(p) : null; return (r && r.angles) ? r.angles.map(a=>a.url).filter(Boolean) : []; }
+async function nbLoadCameo(id){ const full = await nbLoadCameoFull(id); return full ? full.url : ""; }
+async function nbLoadCameoAngles(id){ const full = await nbLoadCameoFull(id); return full ? full.angles.map(a=>a.url).filter(Boolean) : []; }
+/* the FULL record used for this character in the open film (for generation), or null */
 async function nbLoadCameoFull(id){
-  const m=_cameoMem.get(id); if(m && m.angles && m.angles.length) return m;
-  try{ const v=await idbGet(nbCameoKey(id)); if(v){ const n=cameoNormalize(v); _cameoMem.set(id,n); return n; } }catch(e){}
-  /* cloud hydrate (only if this cameo was synced) */
-  const meta=cameoReg()[id];
-  if(meta && meta.sync && typeof window.cloudLoadCameo==="function" && _nbProject){
-    try{
-      const r = await window.cloudLoadCameo(_nbProject, id);
-      if(r){ const n=cameoNormalize(r); _cameoMem.set(id,n); try{ await idbSet(nbCameoKey(id), n); }catch(e){} return n; }
-    }catch(e){}
+  // best first; one that couldn't be loaded before is tried again (its cloud copy may answer now)
+  for(const e of _cameoCandidates(id)){
+    const full = await nbLoadCameoEntry(e);
+    if(full){ if(!e.available) _cameoAnnounce(e.charId, e.scope, "load"); return full; }
   }
   return null;
 }
-/* save/replace a cameo. rec = { angles:[{label,url}] | url, consent, sync, source, subject, w, h } */
+/* the full record of one entry (nbListCameoEntries / nbListOtherCameos) — this person's own from
+   this device (or its synced copy, downloaded), a teammate's into memory only */
+async function nbLoadCameoEntry(e){
+  if(!e) return null;
+  if(e.kind==="team") return await _cameoLoadTeam(e.key);
+  const r = await _cameoReadOwn(e.acct, e.scope, e.charId);
+  if(r) return r;
+  if(_nbBackend==="cloud" && _nbUid && String(_nbUid)===String(e.acct) && _cameoCloudMine.has(_cameoEntryId(e.scope, e.charId))){
+    const got = await _cameoFetchOwn(e.scope, e.charId, null);
+    if(got){ _cameoAnnounce(e.charId, e.scope, "load"); return got; }
+  }
+  if(!_cameoMissing.has(e.key)){ _cameoMissing.add(e.key); _cameoAnnounce(e.charId, e.scope, "missing"); }
+  return null;
+}
+/* this person's OWN record for a character of the open film (the capture window starts from it) */
+async function nbLoadMyCameo(id){
+  const acct = _cameoAcct();
+  for(const scope of _cameoScopesFor(id)){
+    const r = await _cameoReadOwn(acct, scope, String(id));
+    if(r) return r;
+  }
+  return null;
+}
+/* { locked, synced, angleCount, capturedAt, consent:{subject,name,adult}, mine, available, why } —
+   available:false means a likeness exists for this character here but this person can't use it
+   right now; `why` says why in a plain sentence. An earlier likeness's consent reads
+   { subject:"", name, adult:false, legacy:true }. */
+const _cameoRetryAt = new Map();   // entry key -> when its photos were last tried again
+/* a likeness whose cloud photos couldn't be read is tried again in the background (at most every 30 s);
+   success says "turn-cameo-changed" so the card and its prices catch up */
+function _cameoRetryLater(e){
+  if(!e || e.available) return;
+  const retryable = e.kind==="team" || _cameoCloudMine.has(_cameoEntryId(e.scope, e.charId));
+  if(!retryable) return;
+  const now = Date.now();
+  if(now - (_cameoRetryAt.get(e.key)||0) < 30000) return;
+  _cameoRetryAt.set(e.key, now);
+  Promise.resolve().then(()=>nbLoadCameoEntry(e)).then((full)=>{ if(full) _cameoAnnounce(e.charId, e.scope, "load"); }).catch(()=>{});
+}
+function nbCameoInfo(id){
+  const p = _cameoPick(id);
+  if(!p) return { locked:false, synced:false, angleCount:0, capturedAt:null, consent:null, mine:false, available:false, why:"" };
+  if(!p.available) _cameoRetryLater(p);
+  const m = p.meta || {}, c = m.consent;
+  return { locked:true, synced:!!m.sync, angleCount:m.angleCount||0, capturedAt:m.capturedAt||m.iso||null,
+    consent: c ? { subject:c.subject||"", name:c.name||"", adult:c.adult===true, ...(c.legacy ? { legacy:true } : {}) } : null,
+    mine:!!p.mine, available:!!p.available, why:p.why||"" };
+}
+/* the entry a character's likeness is used from in the open film (for revoke flows) */
+function nbCameoEntryFor(id){ return _cameoPick(id); }
+
+/* ── lists ── */
+/* every likeness this person knows of in the open film (their own + teammates' synced ones) */
+function nbListCameoEntries(){
+  const acct = _cameoAcct(), scopes = _cameoOpenScopes(), reg = _cameoRegRead(acct), out = [];
+  for(const meta of Object.values(reg)){
+    if(!meta || scopes.indexOf(String(meta.scope))<0) continue;
+    out.push(_cameoOwnEntry(acct, meta));
+  }
+  for(const t of _cameoTeam.values()) if(scopes.indexOf(t.scope)>=0) out.push(_cameoTeamEntry(t));
+  for(const e of out){ const p = _cameoPick(e.charId); e.inUse = !!(p && p.key===e.key); }
+  return out;
+}
+/* one per character of the open film — the likeness in use (the Characters header counts these) */
+function nbListCameos(){
+  const seen = new Set(), out = [];
+  for(const e of nbListCameoEntries()){
+    if(seen.has(e.charId)) continue; seen.add(e.charId);
+    const p = _cameoPick(e.charId);
+    if(p) out.push({ id:p.charId, ...p.meta, mine:p.mine, owner:p.owner, scope:p.scope, available:p.available, why:p.why });
+  }
+  return out;
+}
+/* this person's likenesses for OTHER films kept on this device */
+function nbListOtherCameos(){
+  const acct = _cameoAcct(), scopes = _cameoOpenScopes(), reg = _cameoRegRead(acct), out = [];
+  for(const meta of Object.values(reg)) if(meta && scopes.indexOf(String(meta.scope))<0) out.push(_cameoOwnEntry(acct, meta));
+  return out;
+}
+/* likenesses saved before 2026-10-10, not tied to a film or an account (kept as they were) */
+function nbListEarlierCameos(){
+  const reg = _cameoOldReg();
+  return Object.keys(reg).map(id=>{
+    const m = reg[id] || {};
+    return { kind:"earlier", id, charId:id, subject:String(m.subject||""), angleCount:m.angleCount||1, source:m.source||"webcam",
+      capturedAt:m.iso||null, date:m.date||_cameoDate(m.iso), sync:!!m.sync };
+  });
+}
+async function nbLoadEarlierCameo(oldId){
+  try{ const v = await idbGet(nbCameoKey(oldId)); const n = v ? cameoNormalize(v) : null; return (n && n.angles.length) ? n : null; }
+  catch(e){ return null; }
+}
+/* "Use for <character> in this film": a COPY into the open film's scope with its original
+   provenance (its tick, source, subject note and capture date); the earlier record stays */
+async function nbAdoptEarlierCameo(oldId, charId){
+  const n = await nbLoadEarlierCameo(oldId);
+  if(!n) return { ok:false, message:"That earlier likeness's photos are no longer on this device." };
+  const angles = [];
+  for(const a of n.angles){
+    // an old cloud read could leave a signed link where the photo should be: only real photo bytes are copied
+    const url = /^data:image\//i.test(String(a.url)) ? a.url : await _cameoUrlToDataUrl(a.url);
+    if(!url) return { ok:false, message:"That earlier likeness's photos are no longer on this device." };
+    angles.push({ key:a.key, label:a.label, url, source:a.source, at:n.iso||"" });
+  }
+  const target = String(charId||oldId), acct = _cameoAcct(), scope = _cameoScopeOf(target);
+  const capturedAt = n.iso || n.capturedAt || new Date().toISOString();
+  const { rec } = await _cameoWriteOwn({ v:2, charId:target, scope, acct, charName:"", angles,
+    consent: (n.consent && typeof n.consent==="object") ? n.consent : !!n.consent, subject:String(n.subject||""),
+    capturedAt, iso:capturedAt, date:_cameoDate(capturedAt), w:n.w||0, h:n.h||0, sync:false, syncedAt:null,
+    from:"earlier", earlierId:String(oldId) });
+  _cameoAnnounce(target, scope, "lock");
+  return { ok:true, meta:cameoMetaOf(rec) };
+}
+async function nbDeleteEarlierCameo(oldId){
+  try{ await idbDel(nbCameoKey(oldId)); }catch(e){}
+  const reg = _cameoOldReg(); delete reg[oldId];
+  try{ localStorage.setItem(nbCameoRegKey(), JSON.stringify(reg)); }catch(e){}
+  _cameoAnnounce(null, null, "revoke");
+  return { ok:true };
+}
+async function _cameoUrlToDataUrl(url){
+  try{
+    if(!/^https?:/i.test(String(url||""))) return "";
+    const res = await fetch(url); if(!res.ok) return "";
+    const blob = await res.blob(); if(!/^image\//i.test(blob.type||"")) return "";
+    return await new Promise((resolve)=>{ const rd = new FileReader(); rd.onload = ()=>resolve(String(rd.result||"")); rd.onerror = ()=>resolve(""); rd.readAsDataURL(blob); });
+  }catch(e){ return ""; }
+}
+
+/* ── lock (capture / recapture) ── */
+/* save or replace THIS person's likeness of a character in the open film.
+   rec = { angles:[{ key, label, url, source }], consent:{ subject:"self"|"other", name, adult:true },
+           sync, w, h, charName }. The capture time of a photo that didn't change is kept; a changed
+   consent answer is recorded with its own time. sync:true syncs it (only a successful sync marks it
+   synced — a failure keeps it on this device and says so); sync:false on a synced likeness removes
+   its cloud copy. Returns its meta (+ syncError when a sync step failed). */
 async function nbSetCameo(id, rec){
-  const now=new Date();
-  const norm = cameoNormalize({ ...rec,
-    iso: now.toISOString(),
-    date: now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) });
-  _cameoMem.set(id, norm);
-  try{ await idbSet(nbCameoKey(id), norm); }catch(e){}
-  const reg=cameoReg(); reg[id]=cameoMetaOf(norm); cameoRegWrite(reg);
-  /* cloud sync (opt-in) — upload all angles + provenance row */
-  if(norm.sync && typeof window.cloudSyncCameo==="function" && _nbProject && _nbUid){
-    try{ await window.cloudSyncCameo(_nbProject, _nbUid, id, norm); }catch(e){}
-  } else if(!norm.sync && typeof window.cloudDeleteCameo==="function" && _nbProject){
-    /* sync turned off → remove any prior cloud copy */
-    try{ await window.cloudDeleteCameo(_nbProject, id); }catch(e){}
+  rec = rec || {};
+  const charId = String(id), acct = _cameoAcct(), scope = _cameoScopeOf(charId);
+  const prev = await _cameoReadOwn(acct, scope, charId);
+  const now = new Date().toISOString();
+  const incoming = (cameoNormalize({ ...rec, charId }) || { angles:[] }).angles;
+  if(!incoming.length) throw new Error("Capture the Front angle first.");
+  const prevByKey = {}; ((prev && prev.angles)||[]).forEach(a=>{ prevByKey[a.key] = a; });
+  const angles = incoming.map(a=>{
+    const old = prevByKey[a.key], same = !!(old && old.url===a.url);
+    return { key:a.key, label:a.label, url:a.url, source:a.source, at: same ? (old.at || (prev && prev.capturedAt) || now) : now,
+      ...(same && old.storage_path ? { storage_path:old.storage_path } : {}) };
+  });
+  const capturedAt = angles.map(a=>a.at).filter(Boolean).sort().pop() || now;
+  let consent;
+  const c = rec.consent;
+  if(c && typeof c==="object"){
+    const subject = c.subject==="other" ? "other" : (c.subject==="self" ? "self" : "");
+    const name = subject==="other" ? String(c.name||"").trim() : "";
+    if(!subject) throw new Error("Say whose likeness this is first.");
+    if(subject==="other" && !name) throw new Error("Add the name of the person whose likeness this is.");
+    if(c.adult!==true) throw new Error("Confirm the person is 18 or over to lock this likeness.");
+    const pc = prev ? _cameoConsentOf(prev) : null;
+    const same = !!(pc && !pc.legacy && pc.subject===subject && pc.name===name && pc.textVersion===CAMEO_CONSENT_TEXT_VERSION);
+    consent = same ? { subject, name, adult:true, textVersion:pc.textVersion, at:pc.at, by:pc.by }
+                   : { subject, name, adult:true, textVersion:CAMEO_CONSENT_TEXT_VERSION, at:now, by:acct };
+  } else if(c===true){
+    consent = (prev && prev.consent) ? prev.consent : true;   // an earlier likeness's one tick, as it was
+  } else if(prev && prev.consent){
+    consent = prev.consent;
+  } else {
+    throw new Error("Say whose likeness this is and confirm their permission first.");
   }
-  return cameoMetaOf(norm);
+  const consentSame = !!prev && JSON.stringify(prev.consent)===JSON.stringify(consent);
+  const unchanged = !!prev && consentSame && angles.length===prev.angles.length && angles.every(a=>!!a.storage_path);
+  const full = { v:2, charId, scope, acct, charName:String(rec.charName || (prev && prev.charName) || ""), angles, consent,
+    subject:_cameoSubjectLabel(_cameoConsentOf({ consent }), {}),
+    capturedAt, iso:capturedAt, date:_cameoDate(capturedAt), w:rec.w || (prev && prev.w) || 0, h:rec.h || (prev && prev.h) || 0,
+    // the cloud copy matches only an unchanged likeness; a changed one is synced again (or stays local)
+    sync: !!(prev && prev.sync && unchanged), syncedAt: (prev && prev.sync && unchanged) ? (prev.syncedAt||null) : null,
+    from: (prev && prev.from) || "capture", ...(prev && prev.earlierId ? { earlierId:prev.earlierId } : {}) };
+  const { stored } = await _cameoWriteOwn(full);
+  if(!stored) _cameoToast("This likeness is locked for now, but this browser didn't let it be kept on this device — it will be gone after a reload.", "error");
+  let syncError = "";
+  const inCloud = !!(prev && prev.sync) || _cameoCloudMine.has(_cameoEntryId(scope, charId));
+  if(rec.sync){
+    if(!(full.sync && unchanged)){ const r = await _cameoPush(full); if(!r.ok) syncError = r.message; }
+  } else if(inCloud){
+    const r = await _cameoUnpush(full); if(!r.ok) syncError = r.message;
+  }
+  _cameoAnnounce(charId, scope, "lock");
+  const now2 = _cameoMem.get(_cameoFullKey(acct, scope, charId)) || full;
+  return { ...cameoMetaOf(now2), mine:true, ...(syncError ? { syncError } : {}) };
 }
+
+/* ── sync ── */
+async function _cameoPush(full){
+  const n = cameoNormalize(full);
+  const entryId = _cameoEntryId(n.scope, n.charId);
+  const fail = async (message)=>{
+    const cur = (await _cameoReadOwn(n.acct, n.scope, n.charId)) || n;
+    if(cur.sync) await _cameoWriteOwn({ ...cur, sync:false, syncedAt:null });
+    _cameoToast("This likeness is saved on this device, but syncing it to the cloud didn't work"+(message ? ": "+message.replace(/[.\s]+$/,"") : "")+". Try Sync again from Likenesses.", "error");
+    return { ok:false, message };
+  };
+  if(_nbBackend!=="cloud" || !_nbUid || String(_nbUid)!==String(n.acct)) return await fail("sign in to sync it");
+  if(!_cameoConsentCurrent(_cameoConsentOf(n))) return await fail("first say whose likeness it is and confirm their permission");
+  if(typeof window.cloudSyncCameo!=="function") return await fail("cloud sync isn't available right now");
+  const diag = {};
+  let ok = false;
+  try{ ok = (await window.cloudSyncCameo(n.scope, String(n.acct), n.charId, n, diag))===true; }
+  catch(e){ if(!diag.message) diag.message = (e && e.message) || ""; }
+  if(!ok) return await fail(String(diag.message||""));
+  const paths = Array.isArray(diag.angles) ? diag.angles : [];
+  const angles = n.angles.map((a,i)=>{ const p = paths.find(x=>x && x.key===a.key) || paths[i]; return (p && p.storage_path) ? { ...a, storage_path:p.storage_path } : a; });
+  await _cameoWriteOwn({ ...n, angles, sync:true, syncedAt:new Date().toISOString() });
+  _cameoCloudMine.add(entryId);
+  return { ok:true };
+}
+async function _cameoUnpush(full){
+  const n = cameoNormalize(full);
+  const fail = (message)=>{
+    _cameoToast("The cloud copy of this likeness couldn't be removed"+(message ? ": "+message.replace(/[.\s]+$/,"") : "")+". It's still synced — try Unsync again from Likenesses.", "error");
+    return { ok:false, message };
+  };
+  if(_nbBackend!=="cloud" || !_nbUid || String(_nbUid)!==String(n.acct)) return fail("sign in first");
+  if(typeof window.cloudDeleteCameo!=="function") return fail("the cloud isn't available right now");
+  let r = null;
+  try{ r = await window.cloudDeleteCameo(n.scope, n.charId, String(n.acct)); }catch(e){ r = { ok:false, message:(e && e.message)||"" }; }
+  if(!r || !r.ok){
+    const cur = (await _cameoReadOwn(n.acct, n.scope, n.charId)) || n;
+    await _cameoWriteOwn({ ...cur, sync:true });
+    return fail(String((r && r.message)||""));
+  }
+  const cur = (await _cameoReadOwn(n.acct, n.scope, n.charId)) || n;
+  await _cameoWriteOwn({ ...cur, angles:cur.angles.map(a=>{ const b = { ...a }; delete b.storage_path; return b; }), sync:false, syncedAt:null });
+  _cameoCloudMine.delete(_cameoEntryId(n.scope, n.charId));
+  return { ok:true };
+}
+function _cameoResolveOwn(target){
+  if(target && typeof target==="object") return (target.kind==="team" || target.mine===false) ? null
+    : { acct:String(target.acct || _cameoAcct()), scope:String(target.scope), charId:String(target.charId) };
+  const p = _cameoCandidates(target).find(c=>c.mine);
+  return p ? { acct:p.acct, scope:p.scope, charId:p.charId } : null;
+}
+/* sync on / off WHERE the likeness lives (its own film), never changing its capture time.
+   opts.consent: a fresh consent answer (an earlier likeness asks again before its first sync) */
+async function nbSyncCameo(target, on, opts){
+  const e = _cameoResolveOwn(target);
+  if(!e) return { ok:false, message:"This likeness isn't on this device." };
+  let full = await _cameoReadOwn(e.acct, e.scope, e.charId);
+  if(!full) return { ok:false, message:_cameoMissingWhy(e.scope, e.charId) };
+  const c = opts && opts.consent;
+  if(on && c && typeof c==="object" && c.adult===true && (c.subject==="self" || (c.subject==="other" && String(c.name||"").trim()))){
+    const consent = { subject:c.subject, name:c.subject==="other" ? String(c.name).trim() : "", adult:true,
+      textVersion:CAMEO_CONSENT_TEXT_VERSION, at:new Date().toISOString(), by:e.acct,
+      ...(full.consent===true ? { earlier:true } : {}) };
+    full = (await _cameoWriteOwn({ ...full, consent, subject:_cameoSubjectLabel(_cameoConsentOf({ consent }), {}) })).rec;
+  }
+  const r = on ? await _cameoPush(full) : await _cameoUnpush(full);
+  _cameoAnnounce(e.charId, e.scope, "sync");
+  return r;
+}
+/* does this likeness need the consent question before it can sync (an earlier likeness's one tick)? */
+function nbCameoNeedsConsent(entry){ const m = entry && entry.meta; return !(m && _cameoConsentCurrent(m.consent)); }
+
+/* ── revoke: where the likeness lives (its own film and account), never "the open film" ── */
+async function nbRevokeCameo(target){
+  const e = (target && typeof target==="object") ? target : _cameoPick(target);
+  if(!e) return { ok:true, removed:0 };
+  if(e.kind==="team" || e.mine===false){
+    if(!(_nbUid && _cameoFilmOwners[e.scope]===String(_nbUid)))
+      return { ok:false, message:"Only the person who captured this likeness, or the film's owner, can remove it." };
+    if(typeof window.cloudDeleteCameo!=="function") return { ok:false, message:"The cloud isn't available right now." };
+    const r = await window.cloudDeleteCameo(e.scope, e.charId, e.owner);
+    if(!r || !r.ok) return { ok:false, message:(r && r.message) || "It couldn't be removed right now." };
+    _cameoTeam.delete(e.key);
+    _cameoAnnounce(e.charId, e.scope, "revoke");
+    return { ok:true, removed:1 };
+  }
+  const acct = String(e.acct || _cameoAcct()), scope = String(e.scope), charId = String(e.charId);
+  const meta = _cameoRegRead(acct)[_cameoEntryId(scope, charId)] || e.meta || {};
+  const inCloud = !!meta.sync || _cameoCloudMine.has(_cameoEntryId(scope, charId));
+  if(_nbBackend==="cloud" && String(_nbUid)===acct && typeof window.cloudDeleteCameo==="function"){
+    // signed in as its owner: its row and photos go too (asked even when this device doesn't know of a
+    // cloud copy — one synced from another device must not be left behind)
+    let r = null;
+    try{ r = await window.cloudDeleteCameo(scope, charId, acct); }catch(err){ r = { ok:false, message:(err && err.message)||"" }; }
+    if((!r || !r.ok) && inCloud)
+      return { ok:false, message:"Its cloud copy couldn't be removed right now"+((r && r.message) ? ": "+String(r.message).replace(/[.\s]+$/,"") : "")+". Nothing was revoked — try again." };
+  } else if(inCloud){
+    return { ok:false, message:"Sign in to revoke it — its cloud copy has to go too." };
+  }
+  await _cameoDropOwn(acct, scope, charId);
+  _cameoCloudMine.delete(_cameoEntryId(scope, charId));
+  _cameoAnnounce(charId, scope, "revoke");
+  return { ok:true, removed:1 };
+}
+/* the character's likeness in the open film: this person's own (every scope it's looked for in),
+   and — for the film's owner — teammates' synced ones too. Card "Remove" / delete-forever call this. */
 async function nbClearCameo(id){
-  const wasSynced = (cameoReg()[id]||{}).sync;
-  _cameoMem.delete(id);
-  try{ await idbDel(nbCameoKey(id)); }catch(e){}
-  const reg=cameoReg(); delete reg[id]; cameoRegWrite(reg);
-  if(wasSynced && typeof window.cloudDeleteCameo==="function" && _nbProject){
-    try{ await window.cloudDeleteCameo(_nbProject, id); }catch(e){}
+  let removed = 0, message = "";
+  for(const e of _cameoCandidates(id)){
+    if(!e.mine && !(_nbUid && _cameoFilmOwners[e.scope]===String(_nbUid))) continue;
+    const r = await nbRevokeCameo(e);
+    if(r && r.ok) removed += r.removed||0; else if(r && r.message) message = r.message;
   }
+  return message ? { ok:false, removed, message } : { ok:true, removed };
 }
-/* registry listing for the Cameo Manager: [{id, ...meta}] */
-function nbListCameos(){ const reg=cameoReg(); return Object.keys(reg).map(id=>({ id, ...reg[id] })); }
+/* a deleted film: this person's likenesses for it leave this device too */
+async function nbCameoForgetScope(scopeId){
+  const acct = _cameoAcct(), reg = _cameoRegRead(acct);
+  for(const meta of Object.values(reg)) if(meta && String(meta.scope)===String(scopeId)) await _cameoDropOwn(acct, String(meta.scope), String(meta.charId));
+  for(const [k,t] of _cameoTeam) if(t.scope===String(scopeId)) _cameoTeam.delete(k);
+  _cameoAnnounce(null, String(scopeId), "revoke");
+}
+
+/* ── the sheets made with a likeness (meta.cameo on the current image) ── */
+/* [{ id, scope, meta }]: the character's master sheet (charId), appearance variants (charId:stateId)
+   and scale sheet (charscale-charId) in the likeness's film whose current image used a likeness */
+async function nbCameoSheets(target){
+  const e = (target && typeof target==="object") ? target : _cameoPick(target);
+  if(!e) return [];
+  const charId = String(e.charId);
+  if(_nbBackend!=="cloud"){
+    const out = [];
+    try{
+      for(let i=0; i<localStorage.length; i++){
+        const k = localStorage.key(i) || "";
+        if(k.indexOf("turn-charimg-meta-")!==0) continue;
+        const sid = k.slice("turn-charimg-meta-".length);
+        if(!(sid===charId || sid.indexOf(charId+":")===0 || sid==="charscale-"+charId)) continue;
+        const meta = localGetMeta(sid);
+        if(meta && meta.cameo===true) out.push({ id:sid, scope:"local", meta });
+      }
+    }catch(err){}
+    return out.sort((a,b)=>a.id.localeCompare(b.id));
+  }
+  if(typeof window.cloudCameoSheets!=="function") return [];
+  const open = _cameoOpenScopes();
+  const scopes = open.indexOf(String(e.scope))>=0 ? Array.from(new Set([String(e.scope), ...open])) : [String(e.scope)];
+  const r = await window.cloudCameoSheets(scopes, charId);
+  return (r && Array.isArray(r.sheets)) ? r.sheets : [];
+}
+/* clear one such sheet with its versions (the app's own clear: nbClearAsset in the open film) */
+async function nbCameoClearSheet(sheet){
+  const sid = String(sheet && sheet.id || "");
+  if(!sid) return { ok:false };
+  if(_nbBackend!=="cloud"){
+    await nbClearAsset(sid);
+    await localSetHistory(sid, []); await localSetRefs(sid, []);   // the versions too (local keeps them apart)
+    return { ok:true };
+  }
+  if(String(sheet.scope)===String(_scopeFor(sid))){ const r = await nbClearAsset(sid); return { ok:true, ...(r||{}) }; }
+  if(typeof window.cloudClear!=="function") return { ok:false };
+  const r = await window.cloudClear(String(sheet.scope), sid);   // a film that isn't open: its own scope
+  return { ok:true, ...(r||{}) };
+}
+
+/* ── the cloud read: on opening a film and on sign-in ── */
+async function _cameoFetchOwn(scope, charId, row){
+  if(typeof window.cloudLoadCameo!=="function" || !_nbUid) return null;
+  const uid = String(_nbUid);
+  let r = null;
+  try{ r = await window.cloudLoadCameo(scope, charId, uid, row||null); }catch(e){}
+  if(!r || !Array.isArray(r.angles) || !r.angles.length) return null;
+  if(String(_nbUid)!==uid) return null;
+  const capturedAt = r.capturedAt || r.iso || null;
+  const { rec } = await _cameoWriteOwn({ v:2, charId:String(charId), scope:String(scope), acct:uid, charName:String(r.charName||""),
+    angles:r.angles, consent:r.consent==null ? null : r.consent, subject:String(r.subject||""), capturedAt, iso:capturedAt,
+    date:_cameoDate(capturedAt), w:r.w||0, h:r.h||0, sync:true, syncedAt:r.syncedAt||null, from:"cloud" });
+  _cameoCloudMine.add(_cameoEntryId(scope, charId));
+  return rec;
+}
+async function _cameoAdoptOwnRow(row){
+  const uid = String(row.owner), scope = String(row.project_id), charId = String(row.char_id);
+  const cloud = _cameoMetaFromRow(row);
+  const local = await _cameoReadOwn(uid, scope, charId);
+  if(local && local.capturedAt && cloud.capturedAt && local.capturedAt===cloud.capturedAt){
+    // the same likeness: this device's copy is the synced one (each photo keeps its cloud path)
+    const angles = local.angles.map((a,i)=>{
+      const ca = (row.angles||[]).find((x,j)=>x && _cameoAngleKeyOf(x,j)===a.key) || (row.angles||[])[i];
+      return (ca && ca.storage_path) ? { ...a, storage_path:ca.storage_path } : a;
+    });
+    if(!local.sync || angles.some((a,i)=>a.storage_path!==local.angles[i].storage_path)){
+      await _cameoWriteOwn({ ...local, angles, sync:true, syncedAt:local.syncedAt || row.updated_at || null });
+      _cameoAnnounce(charId, scope, "load");
+    }
+    return;
+  }
+  if(local && local.capturedAt && cloud.capturedAt && String(local.capturedAt) > String(cloud.capturedAt)){
+    // a newer capture on this device, not synced yet: it stays as it is (its next sync replaces the cloud's)
+    if(local.sync){ await _cameoWriteOwn({ ...local, sync:false, syncedAt:null }); _cameoAnnounce(charId, scope, "load"); }
+    return;
+  }
+  // the cloud's copy is newer, or this device has none: bring its photos here
+  const got = await _cameoFetchOwn(scope, charId, row);
+  if(!got){
+    // still listed (so it can be seen and revoked), its photos marked as not here
+    const reg = _cameoRegRead(uid), id = _cameoEntryId(scope, charId);
+    if(!reg[id]){ reg[id] = { ...cloud, acct:uid, from:"cloud" }; delete reg[id].owner; _cameoRegWrite(uid, reg); }
+    if(!local) _cameoMissing.add(_cameoFullKey(uid, scope, charId));
+  }
+  _cameoAnnounce(charId, scope, "load");
+}
+async function _cameoLoadTeam(key){
+  const t = _cameoTeam.get(key);
+  if(!t) return null;
+  if(t.full) return t.full;
+  if(t.loading) return await t.loading;
+  t.loading = (async()=>{
+    let r = null;
+    try{ r = (typeof window.cloudLoadCameo==="function") ? await window.cloudLoadCameo(t.scope, t.charId, t.owner, t.row||null) : null; }catch(e){}
+    if(_cameoTeam.get(key)!==t) return null;          // the film changed meanwhile
+    if(r && Array.isArray(r.angles) && r.angles.length){
+      // memory only: a teammate's photos are never written to this device
+      t.full = cameoNormalize({ ...r, charId:t.charId, scope:t.scope, acct:"", sync:true });
+      t.state = "ready";
+    } else t.state = "failed";
+    t.loading = null;
+    return t.full || null;
+  })();
+  return await t.loading;
+}
+async function nbCameoRefresh(){
+  const sig = _cameoSig();
+  if(_cameoHydrate.promise && _cameoHydrate.sig===sig) return _cameoHydrate.promise;
+  const run = (async()=>{
+    const acct = _cameoAcct(), scopes = _cameoOpenScopes();
+    // 1. this device: are the photos of each own likeness in the open film still here?
+    for(const meta of Object.values(_cameoRegRead(acct))){
+      if(!meta || scopes.indexOf(String(meta.scope))<0) continue;
+      const r = await _cameoReadOwn(acct, String(meta.scope), String(meta.charId));
+      if(!r) _cameoMissing.add(_cameoFullKey(acct, String(meta.scope), String(meta.charId)));
+    }
+    if(_cameoSig()!==sig) return { ok:false, stale:true };
+    if(_nbBackend!=="cloud" || !_nbUid || typeof window.cloudListCameos!=="function"){ _cameoAnnounce(null, null, "load"); return { ok:true, local:true }; }
+    // 2. the cloud: every likeness of this film this person may read
+    const uid = String(_nbUid);
+    const listedAt = new Date().toISOString();
+    const res = await window.cloudListCameos(scopes);
+    if(_cameoSig()!==sig) return { ok:false, stale:true };
+    if(!res || !res.ok){ _cameoAnnounce(null, null, "load"); return { ok:false }; }
+    _cameoFilmOwners = { ..._cameoFilmOwners, ...(res.owners||{}) };
+    const mine = new Set(), teamKeys = new Set();
+    for(const row of (res.rows||[])){
+      if(!row || !row.char_id || !row.project_id || scopes.indexOf(String(row.project_id))<0) continue;
+      const scope = String(row.project_id), charId = String(row.char_id), owner = String(row.owner);
+      if(owner===uid){
+        mine.add(_cameoEntryId(scope, charId));
+        _cameoCloudMine.add(_cameoEntryId(scope, charId));
+        await _cameoAdoptOwnRow(row);
+        if(_cameoSig()!==sig) return { ok:false, stale:true };
+        continue;
+      }
+      const key = scope+"|"+charId+"|"+owner;
+      teamKeys.add(key);
+      const old = _cameoTeam.get(key);
+      const meta = _cameoMetaFromRow(row);
+      if(old && old.full && old.meta && old.meta.syncedAt===meta.syncedAt){ old.meta = meta; old.row = row; continue; }
+      _cameoTeam.set(key, { key, charId, scope, owner, meta, row, full:null, state:"loading", loading:null });
+    }
+    for(const [k,t] of _cameoTeam) if(scopes.indexOf(t.scope)>=0 && !teamKeys.has(k)) _cameoTeam.delete(k);
+    // this person's likenesses the cloud no longer has (removed elsewhere — by the film's owner, or
+    // from another device): on this device only now
+    const reg = _cameoRegRead(uid);
+    for(const [id, meta] of Object.entries(reg)){
+      if(!meta || scopes.indexOf(String(meta.scope))<0 || mine.has(id)) continue;
+      if(meta.syncedAt && String(meta.syncedAt) >= listedAt) continue;   // synced while the list was on its way
+      _cameoCloudMine.delete(id);
+      if(!meta.sync) continue;
+      const cur = await _cameoReadOwn(uid, String(meta.scope), String(meta.charId));
+      if(cur) await _cameoWriteOwn({ ...cur, angles:cur.angles.map(a=>{ const b = { ...a }; delete b.storage_path; return b; }), sync:false, syncedAt:null });
+      else { const r2 = _cameoRegRead(uid); if(r2[id]){ r2[id] = { ...r2[id], sync:false, syncedAt:null }; _cameoRegWrite(uid, r2); } }
+      _cameoAnnounce(meta.charId, meta.scope, "load");
+    }
+    _cameoAnnounce(null, null, "load");
+    // 3. teammates' photos, into memory (renders use them; the Likenesses window shows them only to the owner)
+    for(const t of Array.from(_cameoTeam.values())){
+      if(scopes.indexOf(t.scope)<0 || t.full) continue;
+      await _cameoLoadTeam(t.key);
+      if(_cameoSig()!==sig) return { ok:false, stale:true };
+      _cameoAnnounce(t.charId, t.scope, "load");
+    }
+    return { ok:true };
+  })();
+  _cameoHydrate.sig = sig; _cameoHydrate.promise = run;
+  try{ return await run; }
+  finally{ if(_cameoHydrate.promise===run) _cameoHydrate.promise = null; }
+}
+/* called by nbUseCloud / nbUseLocal / nbUseShared: the open film (or the account) changed */
+function _cameoScopeMoved(){
+  const acct = _cameoAcct();
+  if(_cameoAcctSeen!==null && _cameoAcctSeen!==acct) _cameoDropMemory();   // another account: nothing of the last one stays in memory
+  _cameoAcctSeen = acct;
+  const scopes = _cameoOpenScopes();
+  for(const [k,t] of _cameoTeam) if(scopes.indexOf(t.scope)<0) _cameoTeam.delete(k);
+  if(_cameoHydrate.timer) return;
+  try{ _cameoHydrate.timer = setTimeout(()=>{ _cameoHydrate.timer = null; nbCameoRefresh().catch(()=>{}); }, 0); }catch(e){}
+}
+function _cameoDropMemory(){ _cameoMem.clear(); _cameoTeam.clear(); _cameoMissing.clear(); _cameoCloudMine = new Set(); _cameoFilmOwners = {}; }
+/* sign-out: drop every photo held in memory (the next account sees only its own) */
+function nbCameoSignOut(){ _cameoDropMemory(); _cameoAcctSeen = null; _cameoAnnounce(null, null, "signout"); }
+function nbCameoFilmOwner(scope){ return _cameoFilmOwners[String(scope)] || null; }
+function nbCameoAccount(){ return _cameoAcct(); }
+
+window.CAMEO_CONSENT_TEXT_VERSION = CAMEO_CONSENT_TEXT_VERSION;
 window.nbCameoMeta=nbCameoMeta; window.nbGetCameo=nbGetCameo;
 window.nbGetCameoAngles=nbGetCameoAngles; window.nbLoadCameo=nbLoadCameo;
 window.nbLoadCameoAngles=nbLoadCameoAngles; window.nbLoadCameoFull=nbLoadCameoFull;
 window.nbSetCameo=nbSetCameo; window.nbClearCameo=nbClearCameo; window.nbListCameos=nbListCameos;
+window.nbCameoInfo=nbCameoInfo; window.nbCameoEntryFor=nbCameoEntryFor; window.nbLoadMyCameo=nbLoadMyCameo;
+window.nbLoadCameoEntry=nbLoadCameoEntry; window.nbListCameoEntries=nbListCameoEntries; window.nbListOtherCameos=nbListOtherCameos;
+window.nbListEarlierCameos=nbListEarlierCameos; window.nbLoadEarlierCameo=nbLoadEarlierCameo;
+window.nbAdoptEarlierCameo=nbAdoptEarlierCameo; window.nbDeleteEarlierCameo=nbDeleteEarlierCameo;
+window.nbSyncCameo=nbSyncCameo; window.nbCameoNeedsConsent=nbCameoNeedsConsent; window.nbRevokeCameo=nbRevokeCameo;
+window.nbCameoSheets=nbCameoSheets; window.nbCameoClearSheet=nbCameoClearSheet;
+window.nbCameoRefresh=nbCameoRefresh; window.nbCameoSignOut=nbCameoSignOut; window.nbCameoForgetScope=nbCameoForgetScope;
+window.nbCameoFilmOwner=nbCameoFilmOwner; window.nbCameoAccount=nbCameoAccount;
 
 /* ===== backend-agnostic commit / clear / revert / details (used by useImageGen) ===== */
 /* Per-asset write serialization: commit / revert / delete-version / clear all do
@@ -1740,7 +2375,11 @@ async function oaiToBlob(src){
     for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
     return new Blob([arr], { type:p.mimeType });
   }
-  try{ const r = await fetch(src); return await r.blob(); }catch(e){ return null; }
+  /* a failed fetch is NO image (2026-10-10, owner — Likeness review): an expired signed link answered 403 with an
+     error page, and that page's bytes were sent on as a "reference image" */
+  try{ const r = await fetch(src); if(!r || !r.ok) return null;
+    const b = await r.blob();
+    return (b && b.type && !/^image\//i.test(b.type) && !/octet-stream/i.test(b.type)) ? null : b; }catch(e){ return null; }
 }
 /* any image ref (data URL or signed http URL) -> data URL string, for JSON transport
    to the proxy (the Edge Function reconstructs Blobs server-side for /images/edits). */
@@ -1880,7 +2519,11 @@ async function proxyGenerate(prompt, opts, provider){
     const perRefMax = !isBase && extraIndex>=0 && Number.isFinite(Number(extraMaxDims[extraIndex]))
       ? Math.max(512,Math.min(1536,Number(extraMaxDims[extraIndex]))) : referenceMaxDim;
     let du = await oaiToDataUrl(refs[i]); if(du) du = await downscaleRef(du, isBase ? baseMaxDim : perRefMax);
-    if(du) images.push(du); }
+    if(du) images.push(du);
+    /* a NUMBERED reference list (a likeness render's "Image 1 = the face…") can't lose one silently — every
+       number after it would point at the wrong picture. Stop before anything is sent or charged. */
+    else if(opts.referencesNumbered)
+      throw new Error("Reference image "+(i+1)+" couldn't be read, so nothing was sent and nothing was charged. Try again in a moment."); }
 
   const sb = (typeof window.sbClient==="function") ? window.sbClient() : null;
   if(!sb || !sb.functions){

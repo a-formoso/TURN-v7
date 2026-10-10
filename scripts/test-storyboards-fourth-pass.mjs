@@ -309,7 +309,7 @@ await test("F Frances knows the pass (the Stage finds panels by beat); keys", ()
   assert.ok(!w.includes("The Stage finds a clip's panels by its shots, so a clip with an alternative uses its own frames."));
   for(const now of ["The Stage finds a clip's panels by its BEATS", "A FRAME THAT WON'T LOAD", "A RESTORED VERSION STAYS", "READ-ONLY ROLES AND STAGE EDITORS can page",
     "Halves aren't made from this upload", "THE EXPORT prints each sheet at its own shape"]) assert.ok(w.includes(now), now);
-  for(const f of ["storyboard", "artroom", "stage", "ai", "script"]) assert.ok(["20261009-sb4", "20261009-bd4", "20261010-nb21"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);
+  for(const f of ["storyboard", "artroom", "stage", "ai", "script"]) assert.ok(["20261009-sb4", "20261009-bd4", "20261010-nb21", "20261010-like1"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);
 });
 
 console.log(checks+" checks passed"+(failed ? ", "+failed+" FAILED" : ""));

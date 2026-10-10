@@ -114,13 +114,15 @@ await test("E2 delete forever takes the scale sheet, likeness photos and voice f
 
 /* ═══ F ═══ */
 await test("F1 prices: Likeness 'Apply to sheet', the voice buttons, Surprise me", ()=>{
-  assert.ok(art.includes('gen.gening?"Applying\\u2026":"Apply to sheet",\n          !gen.gening && typeof window.nbCostChip==="function" && window.nbCostChip(1)),'));
+  // (2026-10-10, owner — Likeness review) the price counts the likeness photos + worn sheets (GPT Image charges each)
+  assert.ok(art.includes('gen.gening?"Applying\\u2026":"Apply to sheet",\n          !gen.gening && typeof window.nbCostChip==="function" && window.nbCostChip(1, { refs:cardGenerateRefs() })),'));
   assert.ok(voices.includes('"Design voices"+vcDesignPrice') && voices.includes('("Generate voice file"+vcMasterPrice)') && voices.includes('"Regenerate"+vcMasterPrice'));
   assert.ok(voices.includes("window.turnCreditCost(0.10)") && voices.includes("window.vgLineCredits(window.VG_VOICE_MASTER_TEXT"));
   assert.ok(art.includes('label:"Surprise me \\u2728 (one writing call)"') && art.includes('label:"Surprise me ✨ (one writing call)"'));
 });
 await test("F2 copy: the likeness line, the scale hint, no vendor names, no 'Not approved'; dead code gone", ()=>{
-  assert.ok(art.includes('? "applied to the sheet" : "regenerate to apply it to the sheet"'));
+  // (2026-10-10, owner — Likeness review) a sheet made with an OLDER likeness says so too
+  assert.ok(art.includes('(gen.likenessStale ? "made with an earlier likeness \\u2014 regenerate to update" : "applied to the sheet")\n            : "regenerate to apply it to the sheet"'));
   assert.ok(art.includes("for you to check heights. Shots use the heights and scale class written on the card") && !art.includes("Used as the scale reference in shots"));
   const userStrings = (src)=> (src.match(/"(?:[^"\\\n]|\\.)*"/g)||[]).filter(x=>/[a-z] [a-z]/i.test(x));
   for(const [f, src] of [["artroom", art], ["voices-ui", voices]])

@@ -243,7 +243,10 @@ await test("E4 removed / orphaned props go to Recently deleted with their sheets
   assert.ok(insp.includes("Recently Deleted, where it can be restored.") && !insp.includes("This also deletes its prop card"));
 });
 await test("E5 the dead 'linked props have no sheet' warning is gone", ()=>{
-  assert.ok(!/missingPropSheets|preparingRef|setPrepProps|beforeGenerate/.test(card));
+  assert.ok(!/missingPropSheets|preparingRef|setPrepProps/.test(card));
+  // (2026-10-10, owner — Likeness review) the card's only pre-generate step is the likeness one: a likeness this person
+  // can't use here is said before anything is spent
+  assert.deepEqual(card.match(/beforeGenerate:[^\n]*/g), ["beforeGenerate: ()=> (window.turnLikenessUnavailableGate||(async()=>true))(c, cardGenerateRefs()),"]);
 });
 await test("E6 the sheet prompt is behind the card's ⋯ menu", ()=>{
   assert.ok(card.includes('menuExtra:alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the sheet prompt" : "Show the sheet prompt", icon:Icon.eye,'));
@@ -282,7 +285,7 @@ await test("F1 Frances: no silent drafting, the preview and its scopes, missing 
   assert.ok(/moves that item's matching prop card \(with any generated reference sheet\) to the Props tab's Recently Deleted/.test(cs));
   const cards = (F.find(f=>f.name==="Character Sheets (Art Room)")||{}).what || "";
   assert.ok(/ONE RENDER-STYLE CONTROL/.test(cards) && /'Show the sheet prompt'/.test(cards) && /'LIKENESS' \(was 'Cast'\)/.test(cards) && /DELETING A CHARACTER asks first/.test(cards));
-  assert.ok(/click ‘Likeness’ to capture real faces/.test(all));
+  assert.ok(/'Likeness' locks a real person's face/.test(all))   // (2026-10-10, Likeness review: the entry was rewritten);
   assert.ok(!/TURN|McKee|Claude|Anthropic/.test(cards));
 });
 await test("F2 a character set to they/them keeps their pronouns in the writing prompts", ()=>{

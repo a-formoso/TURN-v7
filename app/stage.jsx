@@ -464,6 +464,27 @@ function stagePolicyContextPrompt(prompt){
   if(src.toLowerCase().includes("fictional context:"))return src;
   return STAGE_FICTIONAL_POLICY_CONTEXT+"\n\n"+src;
 }
+/* LIKENESS (2026-10-10, owner — Likeness review). A clip whose cast includes a character with a locked likeness
+   (or whose character sheet was made with one) shows a REAL person: the "Add fictional context" recovery says
+   the characters are invented adults, not real people — untrue here — so it is not offered and its text is
+   never sent for such a clip; the clip says before rendering that video engines may refuse it. Shots and
+   storyboards keep using the face through the sheet only (decision F). */
+const STAGE_LIKENESS_NOTE = "This clip shows a real person's likeness. Video engines may refuse it.";
+function stageCastHasLikeness(cast, refChars){
+  const metaCameo = (id)=>{ try{ const m = (typeof nbGetMeta==="function") ? nbGetMeta(id) : null; return !!(m && m.cameo); }catch(e){ return false; } };
+  const locked = (id)=>{ try{
+    if(typeof window.turnLikenessInfo==="function") return !!window.turnLikenessInfo(id);
+    return !!(typeof nbCameoMeta==="function" && nbCameoMeta(id)); }catch(e){ return false; } };
+  if((cast||[]).some(c=> c && c.id && (locked(c.id) || metaCameo(c.id)))) return true;
+  return (refChars||[]).some(r=> r && ((r.entityId && locked(r.entityId)) || (r.assetId && metaCameo(r.assetId))));
+}
+function stageStripFictionalContext(prompt){
+  const src = String(prompt||"");
+  if(!/fictional context:/i.test(src)) return src;
+  return src.split(STAGE_FICTIONAL_POLICY_CONTEXT).join("")
+    .replace(/^[ \t]*FICTIONAL CONTEXT:[^\n]*(?:\n+|$)/gmi,"")
+    .replace(/\n{3,}/g,"\n\n").trim();
+}
 function stageTextOnlyAssetLabel(asset){
   if(!asset) return "the described subject";
   if(asset.kind==="audio") return "the quoted dialogue";
@@ -524,6 +545,9 @@ function stageGroupReferenceIssues(rows){
 window.stageCanOfferTextOnlyRecovery=stageCanOfferTextOnlyRecovery;
 window.stageIsTextOnlyPolicyFailure=stageIsTextOnlyPolicyFailure;
 window.stagePolicyContextPrompt=stagePolicyContextPrompt;
+window.stageCastHasLikeness=stageCastHasLikeness;
+window.stageStripFictionalContext=stageStripFictionalContext;
+window.STAGE_LIKENESS_NOTE=STAGE_LIKENESS_NOTE;
 window.stageTextOnlyPrompt=stageTextOnlyPrompt;
 window.stageShotRangeLabel=stageShotRangeLabel;
 window.stageGroupReferenceIssues=stageGroupReferenceIssues;
@@ -3347,6 +3371,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     drafts, cast:identityCast };
   const identityPrompt = identityCast.length && typeof window.turnIdentityPrompt==="function"
     ? String(window.turnIdentityPrompt(identityCast)||"").trim() : "";
+  // a real person's likeness in this clip's cast (re-read when a likeness is locked / removed)
+  const [, setLikenessTick] = React.useState(0);
+  React.useEffect(()=>{ const h = ()=>setLikenessTick(t=>t+1);
+    window.addEventListener("turn-cameo-changed", h); return ()=>window.removeEventListener("turn-cameo-changed", h); },[]);
+  const clipHasLikeness = stageCastHasLikeness(identityCast, referencePackage.characters);
   const assertStageIdentityAssets = ()=>{
     if(typeof window.nbAssertIdentityAssetFresh!=="function") return;
     (referencePackage.characters||[]).forEach(r=>{
@@ -4625,7 +4654,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
 	    if(creditInfo.empty){ if(typeof window.appToast==="function") window.appToast(stageCreditPanelText(creditInfo) || "Not enough generation credits for this render.","error"); return; }
 	    const hadTakeBefore = !!((typeof vidGetTakes==="function" && vidGetTakes(beatVideoId).length) || playerUrl || gen.videoUrl);
 	    const seedVal = seedInput.trim() ? Number(seedInput.trim()) : undefined;
-      const assembledPrompt=stageAssembleRenderPrompt(prompt,{
+      // a real likeness in the cast: the "fictional context" note is untrue for it and is never sent
+      const assembledPrompt=stageAssembleRenderPrompt(clipHasLikeness ? stageStripFictionalContext(prompt) : prompt,{
         scopeInstruction,identityPrompt,referenceBlock:refBlock,
         voiceReferenceLines:voiceRefLines,edited:promptEditedRef.current,
         referenceFree
@@ -4941,6 +4971,21 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     const pick = pendingPickRef.current; pendingPickRef.current = null;
     if(!file || !pick) return;
     if(typeof window.vidStageDeviceMedia!=="function"){ setModeErr("Device uploads are unavailable in this build."); return; }
+    /* CONSENT FIRST (2026-10-10, owner — Likeness review): Motion Control's character image is a face, its motion
+       video a person's body — a real person's likeness. The store's consent step ("Me" / "Someone else" +
+       permission + 18 or over) runs before the file leaves this device; a refusal sends nothing. */
+    if(pick.slot==="motion-image" || pick.slot==="motion-video"){
+      const purpose = pick.slot==="motion-image" ? "motion-control-face" : "motion-control-body";
+      let ok = true;
+      try{
+        if(typeof window.cameoConsentGate==="function") ok = !!(await window.cameoConsentGate({ purpose }));
+        else if(typeof window.turnLikenessConsent==="function") ok = !!(await window.turnLikenessConsent(purpose));
+        else if(typeof window.appConfirm==="function") ok = !!(await window.appConfirm({ title:"Use a video or photo of a real person?",
+          body:"Is this you, or someone else? Only use one of yourself, or of someone who has given you permission to use their likeness \u2014 and they must be 18 or over.",
+          confirmLabel:"I have permission \u2014 they're 18 or over", cancelLabel:"Cancel" }));
+      }catch(err){ ok = false; }
+      if(!ok){ setModeErr("Nothing was uploaded \u2014 the file needs your OK first."); return; }
+    }
     setMediaBusy(pick.slot); setModeErr("");
     try{
       const staged = await window.vidStageDeviceMedia(file, pick.kind, {});
@@ -5304,6 +5349,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const PANEL_PROMPT_MAX = 12000;
   const fictionalPolicyContextPresent=/fictional context:/i.test(String(prompt||""));
   const addFictionalPolicyContext=()=>{
+    if(clipHasLikeness) return;   // never for a real person's likeness (owner — Likeness review)
     const next=stagePolicyContextPrompt(prompt);
     if(next.length>PANEL_PROMPT_MAX){
       if(typeof window.appToast==="function") window.appToast("The prompt is too close to the limit to add the context note. Shorten it first; no render was submitted.","error");
@@ -6090,8 +6136,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const takeOldLookNotice = !takeStale && takeOldLook && _stEl("div",{key:"take-old-look",className:"stage2-hint"},
     Icon.info&&_stEl(Icon.info,{s:12}),
     _stEl("span",null, "The take in the player was made with an earlier look \u2014 this scene's look or the film stock changed on the Color tab since. It stays in the film; regenerate to apply the new look."));
+  // before rendering: a real person's likeness in the cast (owner — Likeness review)
+  const likenessNotice = clipHasLikeness && _stEl("div",{key:"likeness",className:"stage2-hint stage2-likeness-note","data-testid":"stage-likeness-note"},
+    Icon.info&&_stEl(Icon.info,{s:12}), _stEl("span",null, STAGE_LIKENESS_NOTE));
   const composerNotices =
-    (blocker || genErr || soundCueMissing || !modelRefs || coverageNotice || readinessNotice || takeStaleNotice || takeOldLookNotice
+    (blocker || genErr || soundCueMissing || !modelRefs || coverageNotice || readinessNotice || takeStaleNotice || takeOldLookNotice || likenessNotice
       || (hasDialogue && (!modelAudioRefs || dialogueAudio==="native"))) && _stEl("div",{className:"stage2-gen-notices"},
       // the PRIMARY blocker — prominent, actionable, and the target of a blocked
       // Generate click (key remount restarts the shake animation on every pulse)
@@ -6127,7 +6176,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         _stEl("summary",null,"Provider details"),
         _stEl("div",{className:"stage2-policy-detail-copy"},providerPolicyDetail),
         gen.err.errorCode && _stEl("small",null,"Code: "+String(gen.err.errorCode))),
-      genErr && textOnlyPolicyFailure && _stEl("div",{
+      genErr && textOnlyPolicyFailure && clipHasLikeness && _stEl("div",{
+          className:"stage2-hint stage2-policy-note","data-testid":"stage-likeness-policy-note"},
+        Icon.info&&_stEl(Icon.info,{s:12}),
+        _stEl("span",{className:"stage2-policy-note-copy"},
+          "That attempt sent no images, video or recorded voice. This clip's cast includes a real person's likeness, so a note calling the characters invented isn't offered \u2014 video engines may refuse a real likeness.")),
+      genErr && textOnlyPolicyFailure && !clipHasLikeness && _stEl("div",{
           className:"stage2-hint stage2-policy-note"},
         Icon.info&&_stEl(Icon.info,{s:12}),
         _stEl("span",{className:"stage2-policy-note-copy"},
@@ -6139,7 +6193,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           className:"stage2-hint stage2-text-only-note"},
         Icon.info&&_stEl(Icon.info,{s:12}), textOnlyRecoveryBlocked.text),
       // the clip's own status follows what stops it or what just failed (a failed render reads first)
-      readinessNotice, takeStaleNotice, takeOldLookNotice,
+      readinessNotice, takeStaleNotice, takeOldLookNotice, likenessNotice,
       coverageNotice && _stEl("div",{className:"stage2-hint stage2-coverage-note","data-code":coverageNotice.code}, Icon.info&&_stEl(Icon.info,{s:12}), coverageNotice.message),
       soundCueMissing && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}), "Native audio is on but the prompt has no sound direction — name the sounds you want (ambience, effects, music) or the soundtrack comes out generic."),
       hasDialogue && !modelAudioRefs && _stEl("div",{className:"stage2-hint"}, Icon.mic&&_stEl(Icon.mic,{s:12}),

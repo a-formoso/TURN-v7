@@ -3925,25 +3925,37 @@ function App(){
     const identityOptions=characterMediaOptions(c);
     if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(identityOptions,"owner-sheet-start");
     let prompt = (typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : (c.name||"character reference sheet");
-    const refs=[]; for(const p of (props||[]).filter(p=>p.ownerId===c.id && p.kind!=="carried")){ const u=await _imgOf(p.id); if(u) refs.push(u); }
-    let cameo=[]; if(typeof nbGetCameoAngles==="function"){ try{ cameo=nbGetCameoAngles(c.id)||[]; }catch(e){} }
-    if(!cameo.length && typeof nbLoadCameoAngles==="function"){ try{ cameo=await nbLoadCameoAngles(c.id)||[]; }catch(e){} }
-    if(refs.length) prompt += " The additional prop reference image(s) show items this character wears/carries — match them EXACTLY.";
-    if(cameo.length) prompt += " Keep the FACE, bone structure and skin tone identical to the locked-likeness reference; only wardrobe and condition change.";
-    const extra=[...refs, ...cameo];
+    const refs=[], wornAttach=[];
+    for(const p of (props||[]).filter(p=>p.ownerId===c.id && p.kind!=="carried")){ const u=await _imgOf(p.id); if(u){ refs.push(u); wornAttach.push({ url:u, note:p.name||"Worn prop" }); } }
+    /* LIKENESS (2026-10-10, owner — Likeness review): the card's ONE RULE (artroom.jsx turnLikenessSheetRequest) —
+       face first, worn items after, numbered; the face left out of the text spec; meta.cameo / cameoAt / mode */
+    const lk = (typeof window.turnLikenessSheetRequest==="function")
+      ? await window.turnLikenessSheetRequest({ character:c, project, props, worn:wornAttach }) : null;
+    let extra = refs, referenceImage = "", likenessMeta = {};
+    if(lk && lk.usable){ prompt = lk.prompt; referenceImage = lk.referenceImage; extra = lk.extraImages; likenessMeta = lk.meta; }
+    else {
+      if(refs.length) prompt += " The additional prop reference image(s) show items this character wears/carries — match them EXACTLY.";
+      if(lk && lk.unavailable) likenessMeta = { likenessSkipped:true };
+      if(!lk){   // an older build without the shared helper: today's behaviour
+        let cameo=[]; if(typeof nbGetCameoAngles==="function"){ try{ cameo=nbGetCameoAngles(c.id)||[]; }catch(e){} }
+        if(!cameo.length && typeof nbLoadCameoAngles==="function"){ try{ cameo=await nbLoadCameoAngles(c.id)||[]; }catch(e){} }
+        if(cameo.length){ prompt += " Keep the FACE, bone structure and skin tone identical to the locked-likeness reference; only wardrobe and condition change."; extra=[...refs, ...cameo]; }
+      }
+    }
     const gpt2 = (window.NB_MODELS||[]).find(m=>/gpt-image/i.test(m.id));
     const m0 = (typeof nbGetMeta==="function")?nbGetMeta(c.id):null;
     // the CURRENT picker leads — reusing the prior sheet's recorded model silently
     // ignored the user's model switch (and kept billing against the old provider)
     const model = ((typeof nbGetModel==="function")&&nbGetModel()) || (m0&&m0.modelId) || (gpt2&&gpt2.id) || undefined;
-    const gopts = { ...identityOptions, aspectRatio:"16:9", ...(model?{model}:{}), ...(extra.length?{extraImages:extra}:{}) };
+    const gopts = { ...identityOptions, aspectRatio:"16:9", ...(model?{model}:{}), ...(referenceImage?{referenceImage}:{}), ...(extra.length?{extraImages:extra}:{}),
+      ...((lk && lk.usable) ? { referencesNumbered:true } : {}) };
     let url; try{ url=await window.nbGenerate(prompt, { ...gopts, assetId:c.id }); }
     catch(e){ if(/no image/i.test(String((e&&e.message)||e))) url=await window.nbGenerate(prompt, { ...gopts, assetId:c.id }); else throw e; }
     if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(gopts,"owner-sheet-commit");
     const meta = { modelId:model, aspect:"16:9", iso:new Date().toISOString(), prompt, agent:"Prop owner pre-gen",
       identitySnapshot:typeof window.nbIdentitySnapshot==="function"?window.nbIdentitySnapshot(c):null,
       writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(c):[],
-      promptCompiler:"Kinolot prompt compiler" };
+      promptCompiler:"Kinolot prompt compiler", ...likenessMeta };
     const kind = (typeof slotAssetKind==="function") ? slotAssetKind("charref-"+c.id) : "character";
     const saved=await window.nbCommit(c.id, url, meta, [], kind, identityOptions.identityEpoch);
     if(saved && saved.tier==="stale") return "";
@@ -4578,7 +4590,18 @@ function App(){
       L.locByKey = (k)=> ls.find(l=>l && String(l.key||"")===String(k||"")) || (locations||[]).find(l=>l && String(l.key||"")===String(k||"")) || null;
     }
     const has = async (id)=> !!(await _imgOf(id));
-    const cameoCount = async (cid)=>{ let a = [];
+    // the likeness photos each character sheet sends (the ONE RULE, 2026-10-10 — Likeness review): the photos that
+    // really go — none when the likeness can't be used here (a shared film), which the question then says
+    const lkUnavailable = [];
+    const cameoCount = async (cid)=>{
+      if(typeof window.turnLoadLikeness==="function"){
+        let lk = null; try{ lk = await window.turnLoadLikeness(cid); }catch(e){ lk = null; }
+        if(lk && lk.unavailable){ const ch = (L.chars||[]).find(x=>x && x.id===cid) || null;
+          const t = (typeof window.turnLikenessUnavailableText==="function") ? window.turnLikenessUnavailableText(cid, ch && ch.name) : "";
+          if(t && lkUnavailable.indexOf(t)<0) lkUnavailable.push(t); }
+        return (lk && lk.usable) ? lk.angles.length : 0;
+      }
+      let a = [];
       if(typeof nbGetCameoAngles==="function"){ try{ a = nbGetCameoAngles(cid)||[]; }catch(e){} }
       if(!a.length && typeof nbLoadCameoAngles==="function"){ try{ a = (await nbLoadCameoAngles(cid))||[]; }catch(e){} }
       return a.length; };
@@ -4778,7 +4801,8 @@ function App(){
           +(w.length ? ", plus writing credits to draft "+w.join(", ")+" first" : "")+"."
           +(already.length ? " "+already.length+" already there "+(already.length===1?"is":"are")+" skipped." : "")
           +" An image that comes back empty is asked once more \u2014 only that second try is charged.",
-        items:steps.map(x=>x.label), note: blocked.length ? "Not made "+where+": "+blocked.join("; ")+"." : undefined,
+        items:steps.map(x=>x.label), note: ([blocked.length ? "Not made "+where+": "+blocked.join("; ")+"." : "", lkUnavailable.join(" ")]
+          .filter(Boolean).join(" ")) || undefined,
         confirmLabel:"Make "+total, cancelLabel:"Cancel" }); }
       finally { sceneNeedsAskingRef.current = false; }
       if(!ok) return { status:"cancelled" };
@@ -7452,6 +7476,19 @@ function App(){
       if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(id); }catch(e){} } return u; };
     const _cameoOf = async (cid)=>{ let a=[]; if(typeof nbGetCameoAngles==="function"){ try{ a=nbGetCameoAngles(cid)||[]; }catch(e){} }
       if(!a.length && typeof nbLoadCameoAngles==="function"){ try{ a=await nbLoadCameoAngles(cid)||[]; }catch(e){} } return a||[]; };
+    /* LIKENESS (2026-10-10, owner — Likeness review): the Casting Director's sheets follow the card's ONE RULE
+       (artroom.jsx turnLikenessSheetRequest): the front angle first, the other angles, then the master, then the
+       worn-item sheets, a numbered image map, the face left out of the text spec, and meta.cameo / cameoAt / mode /
+       privateRefs — so the card no longer says "regenerate to apply" after a likeness sheet. A likeness this person
+       can't use here is said in the trace (Design the cast's preview said it before the run). */
+    const _likenessReq = async (c, o)=> (typeof window.turnLikenessSheetRequest==="function")
+      ? window.turnLikenessSheetRequest({ character:c, project, props, ...(o||{}) }) : null;
+    const _likenessSkipped = (c, req)=>{
+      if(!(req && req.unavailable)) return {};
+      const t = (typeof window.turnLikenessUnavailableText==="function") ? window.turnLikenessUnavailableText(c.id, c.name) : "";
+      try{ if(t) emit && emit({k:"observe", t}); }catch(_e){}
+      return { likenessSkipped:true };
+    };
     // Use the SAME image model the master sheet was made with (from its meta) so a variant matches
     // it; else prefer GPT Image 2 (best identity-lock + what the cast masters use, and it avoids the
     // Google models' "no image" safety refusals on injury/blood states); else the current model.
@@ -7515,47 +7552,67 @@ function App(){
         let prompt = (typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : "";
         const excluded = new Set(Array.isArray(c.wornReferenceExclusions)?c.wornReferenceExclusions:[]);
         const worn = (props||[]).filter(p=>p.ownerId===c.id && p.kind!=="carried");
-        const refs=[]; const commitRefs=[];
+        const refs=[]; const commitRefs=[]; const wornAttach=[];
         for(const p of worn.filter(p=>!excluded.has(p.id))){ const u=await _grabImg(p.id); if(u){
-          refs.push(u); commitRefs.push({kind:"prop",label:p.name||"Worn prop",url:u,refId:p.id});
+          refs.push(u); wornAttach.push({ url:u, note:p.name||"Worn prop" });
+          commitRefs.push({kind:"prop",label:p.name||"Worn prop",url:u,refId:p.id});
         } }
-        const cameo = await _cameoOf(c.id);
-        if(refs.length) prompt += " The additional prop reference image(s) are APPROVED worn-prop designs. Lock their exact shape, material, colour, wear and scale onto the character. Worn items without an attached image remain governed by the textual specification.";
-        if(cameo.length) prompt += " Keep the FACE, bone structure and skin tone identical to the locked-likeness reference; only wardrobe and condition change.";
         let referenceImage="";
         if(generateOpts.deriveFromCurrent){ referenceImage=await _grabImg(c.id);
           if(referenceImage){
             if(typeof window.nbAssertIdentityAssetFresh==="function") window.nbAssertIdentityAssetFresh(c.id,c);
-            prompt = "Update this existing master character sheet. Preserve the EXACT same identity, face, hair, skin tone, age, build, body proportions, panel layout, framing and render style from the base sheet. Apply the current production specification and approved worn-prop designs without re-casting the character. "+prompt;
             commitRefs.unshift({kind:"base",label:"Previous master character sheet",url:referenceImage,refId:c.id});
           }
         }
-        const extra=[...refs, ...cameo];
+        const lk = await _likenessReq(c, { master:referenceImage||"", deriveFromCurrent:!!referenceImage, worn:wornAttach });
+        let extra=refs, likenessMeta=_likenessSkipped(c, lk);
+        if(lk && lk.usable){
+          // the ONE RULE: face first, the current master (an update), worn items — numbered in the prompt
+          prompt = lk.prompt; referenceImage = lk.referenceImage; extra = lk.extraImages; likenessMeta = lk.meta;
+        } else {
+          if(!lk){   // an older build without the shared helper: today's behaviour
+            const cameo = await _cameoOf(c.id);
+            if(cameo.length){ extra = [...refs, ...cameo]; prompt += " Keep the FACE, bone structure and skin tone identical to the locked-likeness reference; only wardrobe and condition change."; }
+          }
+          if(refs.length) prompt += " The additional prop reference image(s) are APPROVED worn-prop designs. Lock their exact shape, material, colour, wear and scale onto the character. Worn items without an attached image remain governed by the textual specification.";
+          if(referenceImage) prompt = "Update this existing master character sheet. Preserve the EXACT same identity, face, hair, skin tone, age, build, body proportions, panel layout, framing and render style from the base sheet. Apply the current production specification and approved worn-prop designs without re-casting the character. "+prompt;
+        }
         const usedIds=new Set(commitRefs.filter(r=>r.kind==="prop").map(r=>r.refId));
         const wornReferences = typeof window.loadWornReferenceSnapshot==="function"
           ? await window.loadWornReferenceSnapshot(c,worn,usedIds) : [];
         const visual=wornReferences.filter(r=>r.mode==="visual").length;
         return _genCharImage(c.id, prompt, { ...identityOptions, model:_modelFor(c),
           ...(referenceImage?{referenceImage}:{}), ...(extra.length?{ extraImages:extra }:{}),
+          ...((lk && lk.usable) ? { referencesNumbered:true } : {}),
           commitRefs, metaExtra:{ specPrompt:(typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : prompt,
             writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(c):[],
             promptCompiler:"Kinolot prompt compiler",
             wornSig:(typeof window.wornPropsSig==="function")?window.wornPropsSig(worn,c.id):"",
-            wornReferences, wornRefSummary:{total:wornReferences.length,visual,text:wornReferences.length-visual} } }); },
+            wornReferences, wornRefSummary:{total:wornReferences.length,visual,text:wornReferences.length-visual},
+            propRefs:refs.length, ...likenessMeta } }); },
       generateState: async (c, st, baseUrl)=>{
         const identityOptions=characterMediaOptions(c);
         if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(identityOptions,"coordinator-state-start");
         if(baseUrl && typeof window.nbAssertIdentityAssetFresh==="function") window.nbAssertIdentityAssetFresh(c.id,c);
         const base = (typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : "";
-        const prompt = base + " APPEARANCE STATE — "+(st.label||"variant")+": "+(st.change||"")
+        let prompt = base + " APPEARANCE STATE — "+(st.label||"variant")+": "+(st.change||"")
           + ". Render the character in THIS changed state consistently across every panel, keeping the EXACT same face, hair, skin tone and body as the reference; only the described change differs.";
-        const cameo = await _cameoOf(c.id);
         const stateEntity={...c,appearanceState:st};
         const opts = { ...identityOptions, model:_modelFor(c), metaExtra:{
           writingSources:(typeof window.nbWritingSourcesFor==="function")?window.nbWritingSourcesFor(stateEntity):[],
           promptCompiler:"Kinolot prompt compiler" } };
-        if(baseUrl) opts.referenceImage = baseUrl;
-        if(cameo.length) opts.extraImages = cameo;
+        // the ONE RULE (owner — Likeness review): face first, then the master; a variant with no master is a
+        // proper sheet FROM the face — never "edit this sheet" with a face photo
+        const lk = await _likenessReq(c, { state:st, master:baseUrl||"" });
+        if(lk && lk.usable){
+          prompt = lk.prompt; opts.referenceImage = lk.referenceImage; opts.referencesNumbered = true;
+          if(lk.extraImages.length) opts.extraImages = lk.extraImages;
+          Object.assign(opts.metaExtra, lk.meta, baseUrl ? { baseMasterIso:(((typeof nbGetMeta==="function") && nbGetMeta(c.id))||{}).iso||"" } : {});
+        } else {
+          if(baseUrl) opts.referenceImage = baseUrl;
+          Object.assign(opts.metaExtra, _likenessSkipped(c, lk));
+          if(!lk){ const cameo = await _cameoOf(c.id); if(cameo.length) opts.extraImages = cameo; }   // an older build: today's behaviour
+        }
         return _genCharImage(c.id+":"+st.id, prompt, opts); },
       // worn props of this character that ALREADY have a generated sheet — the trigger for
       // the Coordinator's "wear props" pass (re-generate the master so it wears them exactly).
@@ -8876,7 +8933,7 @@ function App(){
     // #2 — cost/scope preview before the Coordinator spends. It names the writing model, and
     // its Run button starts the run (the panel opens running — no second Run press).
     castConfirm && window.CastConfirm && React.createElement(window.CastConfirm,{
-      characters, sceneId:castConfirm.sceneId, sceneNo:castConfirm.sceneNo, sceneIds:castConfirm.sceneIds,
+      characters, props, sceneId:castConfirm.sceneId, sceneNo:castConfirm.sceneNo, sceneIds:castConfirm.sceneIds,
       onCancel:()=>setCastConfirm(null),
       onConfirm:(scope)=>{ setCastConfirm(null);
         if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; }

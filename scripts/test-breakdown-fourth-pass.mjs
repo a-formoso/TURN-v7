@@ -466,8 +466,8 @@ await test("Z the Stage saves clips left out after an identity change; Frances k
   for(const now of ["EVERY ROLE CAN USE IT", "A FAILED CHECK SAYS SO", "N frames to approve (free, in Shots)", "needs an owner", "MAKE WHAT THIS SCENE NEEDS plans first", "THE ART DEPARTMENT BIBLE is prepared one at a time"])
     assert.ok(w.includes(now), now);
   for(const f of ["breakdown", "artroom", "imagegen", "props", "storyboard", "cloud", "app", "stage", "shots-ui", "locations", "ai", "script"])
-    assert.ok(["20261009-bd4", "20261010-nb21"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);
-  assert.ok(html.includes('href="app/styles.css?v=20261009-bd4"') || html.includes('href="app/styles.css?v=20261010-nb21"'));
+    assert.ok(["20261009-bd4", "20261010-nb21", "20261010-like1"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);
+  assert.ok(html.includes('href="app/styles.css?v=20261009-bd4"') || html.includes('href="app/styles.css?v=20261010-like1"') || html.includes('href="app/styles.css?v=20261010-nb21"') || html.includes('href="app/styles.css?v=20261010-like1"'));
 });
 
 console.log(checks+" checks passed"+(failed ? ", "+failed+" FAILED" : ""));

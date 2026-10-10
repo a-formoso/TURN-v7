@@ -96,6 +96,13 @@
 --     Stage slot a collaborator creates belongs to the film's owner.
 --   * S7 (decision C) A collaborator can't remove a take someone else made.
 --
+-- (2026-10-10, owner — Likeness review) §7d: a likeness (turn_cameos) is one person's per
+-- character per film (unique (project_id, owner, char_id)); its row and its photos are read
+-- by the capturer, the film's owner and the linked live Art directors only (the cameo/ folder
+-- left "turn assets read collab"); a row carries a consent record and its own photos only;
+-- the capturer and the owner delete; turn_film_cameo_cleanup() for a plain film's delete.
+-- The two Storage blocks skip a database without the storage schema.
+--
 -- RUN ORDER: after series-production.sql (and storage-readable-folders.sql),
 -- and AGAIN after any re-run of series-production.sql (it puts back older
 -- access helpers). Once this file is installed, enforce-role-scopes.sql,
@@ -823,7 +830,9 @@ begin
   for v_path in select distinct unnest(public.turn__gen_ledger_paths(new.meta, new.refs, new.history)) loop
     continue when v_path = any(v_known);
     continue when public.turn_storage_uid(v_path) is not distinct from caller;
-    continue when public.turn_can_delete_asset_path(v_path);
+    -- (2026-10-10, owner — Likeness review) the same answer as the Storage delete rule (§7d): an
+    -- Art director can't list someone's likeness photo for the owner's app to delete
+    continue when public.turn_can_delete_storage_object(v_path);
     raise exception 'TURN_TEAM:cleanup_path: this change names a file outside what you can remove, so it wasn''t saved';
   end loop;
 
@@ -901,28 +910,38 @@ $$;
 revoke all on function public.turn_can_write_stage_audio(text) from public;
 grant execute on function public.turn_can_write_stage_audio(text) to anon, authenticated;
 
-drop policy if exists "turn assets stage audio write"  on storage.objects;
-drop policy if exists "turn assets stage audio update" on storage.objects;
-drop policy if exists "turn assets stage audio delete" on storage.objects;
-create policy "turn assets stage audio write" on storage.objects for insert
-  with check (
-    bucket_id = 'turn-assets'
-    and public.turn_can_write_stage_audio(name)
-  );
-create policy "turn assets stage audio update" on storage.objects for update
-  using (
-    bucket_id = 'turn-assets'
-    and public.turn_can_write_stage_audio(name)
-  )
-  with check (
-    bucket_id = 'turn-assets'
-    and public.turn_can_write_stage_audio(name)
-  );
-create policy "turn assets stage audio delete" on storage.objects for delete
-  using (
-    bucket_id = 'turn-assets'
-    and public.turn_can_write_stage_audio(name)
-  );
+-- (2026-10-10, owner — Likeness review) only where Supabase Storage is installed: a database
+-- without the storage schema (an offline test copy) skips the three rules, as §7c does for realtime.
+do $$
+begin
+  if to_regclass('storage.objects') is null then
+    raise notice 'storage.objects not found: the Stage voiced-line storage rules are not configured here';
+    return;
+  end if;
+  execute 'drop policy if exists "turn assets stage audio write"  on storage.objects';
+  execute 'drop policy if exists "turn assets stage audio update" on storage.objects';
+  execute 'drop policy if exists "turn assets stage audio delete" on storage.objects';
+  execute $p$create policy "turn assets stage audio write" on storage.objects for insert
+    with check (
+      bucket_id = 'turn-assets'
+      and public.turn_can_write_stage_audio(name)
+    )$p$;
+  execute $p$create policy "turn assets stage audio update" on storage.objects for update
+    using (
+      bucket_id = 'turn-assets'
+      and public.turn_can_write_stage_audio(name)
+    )
+    with check (
+      bucket_id = 'turn-assets'
+      and public.turn_can_write_stage_audio(name)
+    )$p$;
+  execute $p$create policy "turn assets stage audio delete" on storage.objects for delete
+    using (
+      bucket_id = 'turn-assets'
+      and public.turn_can_write_stage_audio(name)
+    )$p$;
+end;
+$$;
 
 -- (Stage editor review, 2026-10-09; owner decision F) What a Stage editor may change
 -- on a shot: which screenplay line it speaks and its voicing (app/app.jsx voiceOneLine,
@@ -1889,6 +1908,290 @@ begin
 end;
 $$;
 
+-- ── 7d. likenesses on shared films (2026-10-10, owner — Likeness review) ─────
+-- A likeness (internal name "cameo", table turn_cameos from cameos.sql) is ONE PERSON's
+-- capture of a face for one character of one film. For a Show the app stores it under the
+-- Show's id (the bible scope), so every Episode finds it. The owner's decisions:
+--   * One likeness per person per character per film: the unique key is now
+--     (project_id, owner, char_id). The old unique (project_id, char_id) made the second
+--     person's sync on a shared film fail (or, as an update, try to rewrite the first
+--     person's row).
+--   * ROWS are read by the person who captured it, the film's owner and the film's linked
+--     Art directors whose writes are live (switch on, the owner's plan carries the role) —
+--     the owner and the Art directors render with a synced likeness. View-only, Co-writers,
+--     Stage editors, an unclaimed invite and outsiders read none. Writing stays the
+--     capturer's own, while they may write the film's Art Room; a row must carry the
+--     consent record (prov.consent: subject 'self' — or 'other' with a name — adult true,
+--     the consent text's version) and 1 to 3 photos, every one in the capturer's own
+--     '<uid>/<film>/cameo/' folder. Deleting: the capturer always (even after leaving);
+--     the film's owner too.
+--   * PHOTOS ('<uid>/<film>/cameo/…' in turn-assets; either folder bare or 'name--id'):
+--     read only by that uid, the film's owner and its linked live Art directors.
+--     "turn assets read collab" no longer covers cameo/ paths: it let every member of the
+--     film read and list them. Deleting one: that uid, the film's owner, or the owner's
+--     cleanup grant right after a film delete — no longer every Art director. Uploads keep
+--     "turn assets write collab" (their own folder, Art Room write access). A collaborator's
+--     turn_generations cleanup list is checked by the same delete rule (§3b).
+--   * turn_film_cameo_cleanup(film): the owner, just before deleting a plain film, gets a
+--     one-hour cleanup grant (series-production.sql's turn_asset_cleanup_grants) for every
+--     likeness photo on it, so app/cloud.jsx cloudDeleteProject can remove them once the
+--     film row (and with it every turn_cameos row) is gone.
+-- The table part is skipped where turn_cameos isn't installed, the Storage part where the
+-- storage schema doesn't exist. Tests: scripts/test-team-relaunch-db.mjs, section L.
+
+-- a likeness photo's key: folder 3 is exactly 'cameo' and there is a file under it
+create or replace function public.turn__is_cameo_path(p_path text)
+returns boolean
+language sql
+immutable
+as $$
+  select coalesce(array_length(string_to_array(p_path, '/'), 1) >= 4
+                  and split_part(p_path, '/', 3) = 'cameo'
+                  and split_part(p_path, '/', 4) not in ('', '.', '..'), false);
+$$;
+
+-- may the signed-in account read p_capturer's likeness on film pid (its row, its photos)?
+create or replace function public.turn_can_read_cameo(pid uuid, p_capturer uuid)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select coalesce(auth.uid() is not null and pid is not null and (
+       auth.uid() = p_capturer
+    or public.turn__film_owner(pid) = auth.uid()
+    or public.turn__writes_as(pid, 'art_director')), false);
+$$;
+
+-- A photo: as its row. Plus, for one hour, the owner's exact-path cleanup grant: Storage's
+-- remove() deletes with RETURNING, so a delete also needs the object to be readable, and after
+-- the film row is gone the owner no longer passes as the film's owner. (It opens nothing she
+-- couldn't read the moment before the film was deleted.)
+create or replace function public.turn_can_read_cameo_object(path text)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select coalesce(public.turn__is_cameo_path($1) and (
+       public.turn_can_read_cameo(public.turn_storage_project_id($1), public.turn_storage_uid($1))
+    or exists (select 1 from public.turn_asset_cleanup_grants g
+                where g.path = $1 and g.project_id = public.turn_storage_project_id($1)
+                  and g.owner = auth.uid() and g.expires_at > statement_timestamp())), false);
+$$;
+
+-- deleting a likeness photo: the person in folder 1, the film's owner, or the owner's
+-- exact-path cleanup grant (a film delete, a Show / Episode delete)
+create or replace function public.turn_can_delete_cameo_object(path text)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  with t as (
+    select public.turn_storage_project_id($1) as pid, public.turn_storage_uid($1) as capturer
+  )
+  select coalesce((
+    select public.turn__is_cameo_path($1) and auth.uid() is not null and (
+         t.capturer = auth.uid()
+      or (t.pid is not null and public.turn__film_owner(t.pid) = auth.uid())
+      or exists (select 1 from public.turn_asset_cleanup_grants g
+                  where g.path = $1 and g.project_id = t.pid and g.owner = auth.uid()
+                    and g.expires_at > statement_timestamp()))
+      from t), false);
+$$;
+
+-- the Storage delete rule: likeness photos by the rule above, everything else as before
+create or replace function public.turn_can_delete_storage_object(path text)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select case when public.turn__is_cameo_path($1) then public.turn_can_delete_cameo_object($1)
+              else public.turn_can_delete_asset_path($1) end;
+$$;
+
+-- a likeness row may be deleted by the person who captured it and by the film's owner
+create or replace function public.turn_can_delete_cameo_row(pid uuid, p_capturer uuid)
+returns boolean
+language sql
+security definer
+set search_path = public, pg_temp
+stable
+as $$
+  select coalesce(auth.uid() is not null and (
+       auth.uid() = p_capturer or public.turn__film_owner(pid) = auth.uid()), false);
+$$;
+
+-- the consent record the capture window writes (app/imagegen.jsx, textVersion '2026-10-10')
+create or replace function public.turn__cameo_consent_ok(p_prov jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select coalesce(
+    jsonb_typeof(p_prov -> 'consent') = 'object'
+    and (p_prov -> 'consent' ->> 'adult') = 'true'
+    and (p_prov -> 'consent' ->> 'subject') in ('self', 'other')
+    and ((p_prov -> 'consent' ->> 'subject') = 'self'
+         or btrim(coalesce(p_prov -> 'consent' ->> 'name', '')) <> '')
+    and btrim(coalesce(p_prov -> 'consent' ->> 'textVersion', '')) <> '', false);
+$$;
+
+-- a row's shape: 1-3 photos, each in the capturer's own cameo folder of THIS film, and consent
+create or replace function public.turn__cameo_row_ok(p_project uuid, p_owner uuid, p_angles jsonb, p_prov jsonb)
+returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select coalesce(
+    jsonb_typeof(p_angles) = 'array'
+    and jsonb_array_length(p_angles) between 1 and 3
+    and not exists (
+      select 1 from jsonb_array_elements(p_angles) a
+       where jsonb_typeof(a) <> 'object'
+          or not public.turn__is_cameo_path(a ->> 'storage_path')
+          or public.turn_storage_uid(a ->> 'storage_path') is distinct from p_owner
+          or public.turn_storage_project_id(a ->> 'storage_path') is distinct from p_project)
+    and public.turn__cameo_consent_ok(p_prov), false);
+$$;
+
+do $$
+declare
+  c record;
+begin
+  if to_regclass('public.turn_cameos') is null then
+    raise notice 'public.turn_cameos not found (cameos.sql not run): the likeness rules are not configured here';
+    return;
+  end if;
+  -- one likeness per person per character per film: drop the old two-column unique key
+  -- (cameos.sql's inline constraint, whatever its name) and any hand-made unique index like it
+  for c in
+    select con.conname
+      from pg_constraint con
+     where con.conrelid = 'public.turn_cameos'::regclass and con.contype = 'u'
+       and (select array_agg(a.attname::text order by a.attname::text)
+              from unnest(con.conkey) k(n)
+              join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.n) = array['char_id', 'project_id']
+  loop
+    execute format('alter table public.turn_cameos drop constraint %I', c.conname);
+  end loop;
+  for c in
+    select ic.relname
+      from pg_index i
+      join pg_class ic on ic.oid = i.indexrelid
+     where i.indrelid = 'public.turn_cameos'::regclass and i.indisunique and not i.indisprimary
+       and not exists (select 1 from pg_constraint con where con.conindid = i.indexrelid)
+       and (select array_agg(a.attname::text order by a.attname::text)
+              from unnest(i.indkey::int2[]) k(n)
+              join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.n) = array['char_id', 'project_id']
+  loop
+    execute format('drop index public.%I', c.relname);
+  end loop;
+  execute 'create unique index if not exists turn_cameos_project_owner_char_key
+             on public.turn_cameos(project_id, owner, char_id)';
+
+  execute 'drop policy if exists "cameos read own" on public.turn_cameos';
+  execute 'drop policy if exists "cameos read" on public.turn_cameos';
+  execute 'drop policy if exists "cameos write own" on public.turn_cameos';
+  execute 'drop policy if exists "cameos update own" on public.turn_cameos';
+  execute 'drop policy if exists "cameos delete own" on public.turn_cameos';
+  execute 'create policy "cameos read" on public.turn_cameos for select
+             using (public.turn_can_read_cameo(project_id, owner))';
+  execute 'create policy "cameos write own" on public.turn_cameos for insert
+             with check (auth.uid() = owner and public.turn_can_write_assets(project_id)
+                         and public.turn__cameo_row_ok(project_id, owner, angles, prov))';
+  execute 'create policy "cameos update own" on public.turn_cameos for update
+             using (auth.uid() = owner and public.turn_can_write_assets(project_id))
+             with check (auth.uid() = owner and public.turn_can_write_assets(project_id)
+                         and public.turn__cameo_row_ok(project_id, owner, angles, prov))';
+  execute 'create policy "cameos delete own" on public.turn_cameos for delete
+             using (public.turn_can_delete_cameo_row(project_id, owner))';
+end;
+$$;
+
+do $$
+begin
+  if to_regclass('storage.objects') is null then
+    raise notice 'storage.objects not found: the likeness photo rules are not configured here';
+    return;
+  end if;
+  execute 'drop policy if exists "turn assets read collab" on storage.objects';
+  execute 'drop policy if exists "turn assets cameo read" on storage.objects';
+  execute 'drop policy if exists "turn assets delete collab" on storage.objects';
+  execute $p$create policy "turn assets read collab" on storage.objects for select
+    using (
+      bucket_id = 'turn-assets'
+      and not public.turn__is_cameo_path(name)
+      and public.turn_can_access_project(public.turn_storage_project_id(name), false)
+    )$p$;
+  execute $p$create policy "turn assets cameo read" on storage.objects for select
+    using (
+      bucket_id = 'turn-assets'
+      and public.turn_can_read_cameo_object(name)
+    )$p$;
+  execute $p$create policy "turn assets delete collab" on storage.objects for delete
+    using (
+      bucket_id = 'turn-assets'
+      and public.turn_can_delete_storage_object(name)
+    )$p$;
+end;
+$$;
+
+-- The owner, just before deleting a plain film (app/cloud.jsx cloudDeleteProject): an exact,
+-- one-hour cleanup grant for every likeness photo on the film — every capturer's, which the
+-- owner's app reads anyway (above) — so they can be removed after the film row is gone.
+-- Returns { paths: [...], expires_at }. Show and Episode deletes have their own RPCs.
+create or replace function public.turn_film_cameo_cleanup(p_project_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  caller  uuid := auth.uid();
+  v_raw   jsonb := '[]'::jsonb;
+  v_paths jsonb;
+  v_exp   timestamptz := statement_timestamp() + interval '1 hour';
+begin
+  if caller is null then
+    raise exception using errcode = '42501', message = 'TURN_LIKENESS: sign in first';
+  end if;
+  if not exists (select 1 from public.turn_projects p where p.id = p_project_id and p.owner = caller) then
+    raise exception using errcode = '42501', message = 'TURN_LIKENESS: only the film''s owner can do this';
+  end if;
+  if to_regclass('public.turn_cameos') is not null then
+    execute $q$
+      select coalesce(jsonb_agg(distinct a ->> 'storage_path'), '[]'::jsonb)
+        from public.turn_cameos c
+        cross join lateral jsonb_array_elements(
+          case when jsonb_typeof(c.angles) = 'array' then c.angles else '[]'::jsonb end) a
+       where c.project_id = $1 and jsonb_typeof(a) = 'object'
+    $q$ into v_raw using p_project_id;
+  end if;
+  select coalesce(jsonb_agg(e.path order by e.path), '[]'::jsonb) into v_paths
+    from jsonb_array_elements_text(coalesce(v_raw, '[]'::jsonb)) e(path)
+   where public.turn__is_cameo_path(e.path)
+     and public.turn_storage_project_id(e.path) = p_project_id;
+  delete from public.turn_asset_cleanup_grants where expires_at <= statement_timestamp();
+  insert into public.turn_asset_cleanup_grants(path, project_id, owner, created_at, expires_at)
+  select e.path, p_project_id, caller, statement_timestamp(), v_exp
+    from jsonb_array_elements_text(v_paths) e(path)
+  on conflict (path) do update
+    set project_id = excluded.project_id,
+        owner = excluded.owner,
+        created_at = excluded.created_at,
+        expires_at = excluded.expires_at;
+  return jsonb_build_object('paths', v_paths, 'expires_at', v_exp);
+end;
+$$;
+
 -- ── 8. privileges ───────────────────────────────────────────────────────────
 revoke all on function public.turn_effective_project_roles_for(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.turn_effective_project_roles(uuid) from public, anon, authenticated;
@@ -1963,5 +2266,25 @@ revoke all on function public.turn_film_pending_takes(uuid) from public, anon;
 grant execute on function public.turn_film_pending_takes(uuid) to authenticated;
 revoke all on function public.turn_film_mark_takes_collected(uuid, text[]) from public, anon;
 grant execute on function public.turn_film_mark_takes_collected(uuid, text[]) to authenticated;
+-- (2026-10-10, owner — Likeness review) the likeness rules run inside RLS policies, as the calling
+-- role: both API roles keep EXECUTE (each is false for anon); the film-delete grant is the owner's
+revoke all on function public.turn__is_cameo_path(text) from public;
+grant execute on function public.turn__is_cameo_path(text) to anon, authenticated;
+revoke all on function public.turn_can_read_cameo(uuid, uuid) from public;
+grant execute on function public.turn_can_read_cameo(uuid, uuid) to anon, authenticated;
+revoke all on function public.turn_can_read_cameo_object(text) from public;
+grant execute on function public.turn_can_read_cameo_object(text) to anon, authenticated;
+revoke all on function public.turn_can_delete_cameo_object(text) from public;
+grant execute on function public.turn_can_delete_cameo_object(text) to anon, authenticated;
+revoke all on function public.turn_can_delete_storage_object(text) from public;
+grant execute on function public.turn_can_delete_storage_object(text) to anon, authenticated;
+revoke all on function public.turn_can_delete_cameo_row(uuid, uuid) from public;
+grant execute on function public.turn_can_delete_cameo_row(uuid, uuid) to anon, authenticated;
+revoke all on function public.turn__cameo_consent_ok(jsonb) from public;
+grant execute on function public.turn__cameo_consent_ok(jsonb) to anon, authenticated;
+revoke all on function public.turn__cameo_row_ok(uuid, uuid, jsonb, jsonb) from public;
+grant execute on function public.turn__cameo_row_ok(uuid, uuid, jsonb, jsonb) to anon, authenticated;
+revoke all on function public.turn_film_cameo_cleanup(uuid) from public, anon;
+grant execute on function public.turn_film_cameo_cleanup(uuid) to authenticated;
 
 commit;
