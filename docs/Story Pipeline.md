@@ -203,6 +203,17 @@ palette, sheet prompts) — that is drafted in the Art Room once the Lookbook ha
 > feature enrichment), and **Voice Design** builds its casting description from these fields before
 > any heuristic.
 
+> **Cast pronouns** *(approved 2026-10-11 by owner)*: every cast member is generated with their
+> **pronouns** — he/him or she/her, consistent with their identity; they/them only for a character
+> the story itself makes non-binary (a documentary's real subject: the ones that person uses) —
+> saved on the card as set by the story, so every scene is written from them and the Art Room can
+> make their images (it makes none for a character without pronouns). The writer can change them on
+> the card. At the end of the build, a character still without pronouns (a supporting member made
+> for a scene's unnamed driver) takes the **one** set the finished screenplay uses for them — the
+> same screenplay evidence as the Art Room's one-click fix, no model call — and anyone still unset
+> is named in the build's summary. In an Episode, a character the Show already had is never changed
+> (its canon), only named.
+
 > **Character architecture** *(approved 2026-08-31 by owner)*: every major character is built in
 > **two layers** — characterization is only the *mask* (job, manner, surface traits); **true
 > character is revealed only by choices under pressure**, so the inner life always derives from

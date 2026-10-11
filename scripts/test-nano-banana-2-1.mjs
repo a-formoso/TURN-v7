@@ -282,7 +282,7 @@ await test("H the price-drift watcher follows Nano Banana 2.1's fal page (its im
 await test("keys: the changed app files are re-keyed", () => {
   const html = read("TURN.html");
   for (const f of ["imagegen", "artroom", "plans", "pricing", "pricing-watch", "ai", "script"])
-    assert.ok(["20261010-nb21", "20261010-like1", "20261010-pron1", "20261010-del1", "20261010-pose2", "20261010-voice1", "20261011-voice2", "20261011-eng1"].some(k=>html.includes('src="app/' + f + '.jsx?v=' + k + '"')), f);
+    assert.ok(["20261010-nb21", "20261010-like1", "20261010-pron1", "20261010-del1", "20261010-pose2", "20261010-voice1", "20261011-voice2", "20261011-eng1", "20261011-pron2"].some(k=>html.includes('src="app/' + f + '.jsx?v=' + k + '"')), f);
 });
 
 console.log(`\n${checks} passed, ${failed} failed`);

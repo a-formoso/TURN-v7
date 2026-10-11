@@ -3330,6 +3330,12 @@ APP_FEATURES.forEach(f=>{
     if(a>=0 && b>a) vf.what = w.slice(0,a) + "Capture works as described under 'Likeness'. " + w.slice(b);
   }
 }
+/* CAST PRONOUNS FROM THE START (owner 2026-10-11): a new story's characters are born with their pronouns */
+{ const ns = APP_FEATURES.find(x=>x && String(x.name||"").startsWith("New Story (format"));
+  if(ns) ns.what += " (2026-10-11) PRONOUNS COME WITH THE CAST: every character a new story builds gets their pronouns on their card (he/him or she/her, matching who they are; they/them only for a character the story makes non-binary), so the scenes are written from them and the Art Room can design them straight away. A minor character the build adds for a scene takes the pronouns the finished screenplay uses for them; if the screenplay doesn't make them clear, the build's summary names who still needs pronouns, to set on their card. You can change any character's pronouns on their card. Episodes and 'Rebuild as a new film' work the same way; a character an earlier episode already has is never changed.";
+  const chf = APP_FEATURES.find(x=>x && x.name==="Character Sheets (Art Room)");
+  if(chf) chf.what += " (2026-10-11) Characters from a story built on or after 11 October 2026 already have their pronouns; older films keep the one-click fix in Design the cast.";
+}
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;
@@ -4627,10 +4633,15 @@ async function aiBuildStoryWorld(brief, spine, format, research){
     "Example: 'Antagonist \u00b7 ideology \u2014 a far-right podcaster'. ALWAYS include the FUNCTION and the IDENTITY (every character is someone); the ARCHETYPE is optional. Keep each part concise (identity \u2264 ~8 words). "+
     "CRITICAL: one entry per person. NEVER split a character into multiple entries for different acts or stages (no 'expanded' or 'later version' duplicates) \u2014 a character's growth belongs in their arc, not a second cast member. Each name must be unique.\n"+
     "NAMING \u2014 important: give every character a SPECIFIC full name that fits the story's setting, period and culture. Make names DISTINCTIVE and VARIED across this cast and unlike your usual defaults \u2014 do NOT reach for stock surnames (especially avoid 'Reid', 'Chen', 'Walker', 'Cole', 'Hayes', 'Stone', 'Vance', 'Kane'). Vary first-letter, length, and cultural origin. NEVER name a character after their function (no character literally called 'Antagonist', 'Protagonist', 'Mentor' or 'The Villain'). Naming entropy seed (use it to break ties toward fresh choices, do not output it): "+Math.random().toString(36).slice(2,9)+".\n"+
+    // PRONOUNS COME WITH THE CAST (2026-10-11, owner — "every new story can come with their characters' pronouns
+    // defined"): the Art Room makes no character image until a character's pronouns are set on its card, and the
+    // scenes are written from them (castPronounBlock), so the cast is born with them
+    "PRONOUNS \u2014 give every cast member their pronouns, consistent with their IDENTITY: \"he/him\" or \"she/her\"; \"they/them\" ONLY for a character the story itself makes non-binary"+
+      (/^documentary$/i.test(String(format||"")) ? " (a real subject's pronouns are the ones that person uses)" : "")+". Every scene and every image of them follows these.\n"+
     "VOICE \u2014 give every cast member a voice block describing how they SOUND (this seeds voice casting later): "+
     "accent = the EXPLICIT spoken accent with strength, consistent with their identity, the setting and the period \u2014 name it as SOUND (e.g. 'noticeable Turkish accent, London inflections underneath', 'soft Glasgow accent', 'neutral American'), never just an ethnicity or backstory; "+
     "pitch = pitch/timbre in a few words (e.g. 'low, warm, slightly gravelly'); pace = speaking rhythm (e.g. 'measured, unhurried'); quirks = OPTIONAL audible speech habits (e.g. 'clips sentences when stressed', 'formal, never contracts words'). Keep each field \u2264 ~8 words.\n"+
-    'Return ONLY JSON: {"genre":"1-3 words naming the genre, e.g. psychological thriller","premise":"one vivid sentence as a question","controllingIdea":{"value":"...","cause":"...","polarity":"ironic"},"centerOfGood":"one sentence","setting":{"period":"...","duration":"...","location":"...","conflict":"..."},"cast":[{"id":"...","name":"...","role":"...","voice":{"accent":"...","pitch":"...","pace":"...","quirks":"..."}}]}.';
+    'Return ONLY JSON: {"genre":"1-3 words naming the genre, e.g. psychological thriller","premise":"one vivid sentence as a question","controllingIdea":{"value":"...","cause":"...","polarity":"ironic"},"centerOfGood":"one sentence","setting":{"period":"...","duration":"...","location":"...","conflict":"..."},"cast":[{"id":"...","name":"...","role":"...","pronouns":"he/him","voice":{"accent":"...","pitch":"...","pace":"...","quirks":"..."}}]}.';
   // ONE RETRY (2026-09-28, Round 1): the spine halves and the psychology batches already get
   // one; the world build had none, so a single unreadable reply or service hiccup left the
   // film with no premise, controlling idea, setting or cast identities. Still null after two.
@@ -4649,6 +4660,8 @@ async function aiBuildStoryWorld(brief, spine, format, research){
     const cast = Array.isArray(j.cast) ? j.cast.slice(0,8).map(c=>{
       const v = c.voice || {};
       const voice = { accent:vClean(v.accent), pitch:vClean(v.pitch), pace:vClean(v.pace), quirks:vClean(v.quirks) };
+      // he/him · she/her · they/them only (character-identity.js); anything else is left unset, never guessed
+      const pronouns = typeof window.turnNormalizePronouns==="function" ? window.turnNormalizePronouns(c.pronouns) : "";
       return {
         id:(c.id||c.name||"").toString().toLowerCase().replace(/[^a-z]/g,"").slice(0,12),
         name:scrubBrand((c.name||"Character").toString()).slice(0,40),
@@ -4656,6 +4669,7 @@ async function aiBuildStoryWorld(brief, spine, format, research){
         // voice identity block (accent/pitch/pace/quirks) — seeds voice casting;
         // buildVoiceSpec (voices-ui.jsx) reads these before any heuristic.
         ...( (voice.accent||voice.pitch||voice.pace||voice.quirks) ? { voice } : {} ),
+        ...( pronouns ? { pronouns } : {} ),
       };
     }).filter(c=>c.id) : [];
     return {

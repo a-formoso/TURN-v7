@@ -1123,6 +1123,9 @@ async function agentAdaptation(ctx){
     // the world build's voice identity block (accent / pitch / pace / quirks) seeds
     // voice casting — keep it, never rebuild the member without it
     ...(c.voice && typeof c.voice==="object" ? { voice:{...c.voice} } : {}),
+    // the world build's pronouns (2026-10-11, owner): saved on the card as set BY THE STORY — the scenes are written
+    // from them and the Art Room needs them for every image; the writer can change them on the card
+    ...(c.pronouns ? { pronouns:c.pronouns, pronounProvenance:"story", pronounSource:"story" } : {}),
   }));
   // dedup: the model sometimes splits one person into multiple entries (e.g. an
   // "expanded" later-act version). Merge cast members with the same name into one.
@@ -1137,6 +1140,7 @@ async function agentAdaptation(ctx){
         const lead = (r)=>/protagon|lead|hero/i.test(r||"");
         if(lead(c.role) && !lead(prev.role)) prev.role = c.role;
         else if((c.role||"").length > (prev.role||"").length && !lead(prev.role)) prev.role = c.role;
+        if(!prev.pronouns && c.pronouns){ prev.pronouns = c.pronouns; prev.pronounProvenance = "story"; prev.pronounSource = "story"; }
         // a split entry may carry the voice details the kept one lacks
         if(c.voice){ const pv = prev.voice || {};
           const merged = {...c.voice, ...Object.fromEntries(Object.entries(pv).filter(([,v])=>String(v||"").trim()))};
@@ -1363,6 +1367,13 @@ async function agentAdaptation(ctx){
   // ---- map setups and payoffs so continuity is checkable from the start: the LAST step ----
   await buildContinuityLedgerStep(ctx);
 
+  // ---- PRONOUNS ON EVERY CARD (2026-10-11, owner): the Art Room makes no image of a character whose pronouns aren't
+  // set. The world build gives the principal cast theirs; a character it didn't (a supporting member made for a scene's
+  // unnamed driver, a reply that left one out) takes the ONE set the finished screenplay uses for them — the same
+  // evidence as the Art Room's "Use … (from the screenplay)" — free, no model call. Anyone still unset is named.
+  if(ctx.cancelled()) return;
+  fillPronounsFromScreenplay(ctx);
+
   // ---- THE BUILD STOPS HERE (2026-09-27, owner-approved — docs/Story Pipeline.md): it does NOT
   // draft the cast's visual look (wardrobe, palette, sheet prompts). The Lookbook steers every
   // costume, so the look is drafted in the Art Room once the Lookbook has one (the silent cast
@@ -1373,6 +1384,35 @@ async function agentAdaptation(ctx){
     ? ('\u201c'+spine.title+'\u201d is built \u2014 '+r.written+" of "+ctx.model.scenes.length+" scenes written, "+r.failures.length+" flagged above. To finish just those, "+FINISH_WHERE+".")
     : ('\u201c'+spine.title+'\u201d is fully written. Open the Script view to read it, or the Spine to see the charge graph. Pre-production starts in the Art Room with the Lookbook \u2014 the cast\u2019s look is designed from it.')});
 }
+
+/* The build's pronoun safety net (see agentAdaptation). In an Episode of a Show, a character the Show already had is
+   left exactly as it is (its canon: docs/Story Pipeline.md step 3) but still named when its card has none. A card
+   that already has pronouns, a screenplay that uses two sets for someone or that only says they/them (the house rule
+   writes people as he or she, or by name) is never filled. */
+function fillPronounsFromScreenplay(ctx){
+  const cast = Array.isArray(ctx.model.characters) ? ctx.model.characters : [];
+  const has = (c)=> !!(typeof window.turnNormalizePronouns==="function" ? window.turnNormalizePronouns(c && c.pronouns) : String(c && c.pronouns || "").trim());
+  const canon = (c)=> typeof ctx.castCanon==="function" && !!ctx.castCanon(c);
+  const filled = [];
+  if(typeof window.turnIdentityReport==="function"){
+    ctx.model.characters = cast.map(c=>{
+      if(!c || has(c) || canon(c)) return c;
+      let r = null;
+      try{ r = window.turnIdentityReport(c, { scenes:ctx.model.scenes, drafts:ctx.model.drafts, cast }); }catch(e){}
+      const p = r && r.status!=="conflict" && /^(he\/him|she\/her)$/.test(String(r.scriptPronouns||"")) ? r.scriptPronouns : "";
+      if(!p) return c;
+      filled.push((c.name||"a character")+" ("+p+")");
+      return { ...c, pronouns:p, pronounProvenance:"story", pronounSource:"screenplay" };
+    });
+    if(filled.length) ctx.sync();
+  }
+  if(filled.length) ctx.emit({k:"ok", t:"Pronouns set from the screenplay for "+filled.join(", ")+"."});
+  const missing = (ctx.model.characters||[]).filter(c=>c && !has(c)).map(c=>c.name||"a character");
+  if(missing.length) ctx.emit({k:"flag", t:missing.length+" character"+(missing.length!==1?"s":"")+" still need"+(missing.length!==1?"":"s")+" pronouns: "+missing.join(", ")
+    +" \u2014 set them on "+(missing.length!==1?"their cards":"the card")+" (the Cast panel) before designing them in the Art Room."});
+  return { filled:filled.length, missing };
+}
+window.fillPronounsFromScreenplay = fillPronounsFromScreenplay;
 
 /* =========================================================
    AGENT 4 — TABLE-READ  (whole-script critique, read-only)
