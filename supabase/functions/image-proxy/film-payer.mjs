@@ -49,7 +49,7 @@ const fmt = (n) => Math.max(0, Math.floor(Number(n) || 0)).toLocaleString("en-US
     Routing fields that aren't strings are never film work (Team review, 2026-10-09: index.ts refuses
     them with a 400 first — an array `task` used to be checked as writing here and then fall through
     every route test to the image route). "3d" only for Blender Studio (`{ allow3d: true }`). */
-const VOICE_DESIGN_OPS = new Set(["design", "saveVoice", "clone"]);
+const VOICE_DESIGN_OPS = new Set(["design", "saveVoice", "clone", "attachVoice"]);
 export function filmCallKind(task, body = {}, { allow3d = false } = {}) {
   if (task != null && typeof task !== "string") return "";
   const b = body && typeof body === "object" ? body : {};
@@ -62,7 +62,8 @@ export function filmCallKind(task, body = {}, { allow3d = false } = {}) {
   if (t === "image") return "image";
   if (t === "voice") {   // the New Story interview (speech-to-text) is the caller's own
     const op = str(b.op, "tts");
-    if (op === null || op === "stt") return "";
+    // (2026-10-11) deleting one of your own voices is never film work
+    if (op === null || op === "stt" || op === "deleteVoice") return "";
     // (Stage editor review, 2026-10-09) the character voice tools are the Art director's
     return VOICE_DESIGN_OPS.has(op) ? "voice_design" : "voice";
   }

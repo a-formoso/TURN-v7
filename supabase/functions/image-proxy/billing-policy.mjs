@@ -191,7 +191,9 @@ export function checkImage(account, { model, imageSize }) {
 
 /* Voice ops: "tts" / "stt" / "listVoices" power the New Story interview (Writer and up);
    "design" / "saveVoice" / "clone" are the Art Room's character voice tools (Director and up). */
-const VOICE_LIBRARY_OPS = new Set(["design", "saveVoice", "clone"]);
+// (2026-10-11) linking one of your voices to a film is a character voice tool too; deleting one (deleteVoice) is never
+// gated — index.ts handles it before this check
+const VOICE_LIBRARY_OPS = new Set(["design", "saveVoice", "clone", "attachVoice"]);
 export function checkVoice(account, op) {
   if (!account || account.isAdmin) return null;
   const f = spendable(account); if (f) return f;

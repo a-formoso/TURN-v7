@@ -105,6 +105,7 @@ import {
 // Round 5 (S1): a recording's real length, read from its container (WebM / Ogg / MP4 / WAV) before
 // speech-to-text is held.
 import { AUDIO_CONTAINERS, audioDurationFromBytes } from "./audio-length.mjs";
+import { cloneConsent, cloneSamples, providerVoiceName, voiceLimit, voiceLimitRefusal, voiceUseDecision, voicesForCaller } from "./voice-registry.mjs";
 import { requestContext } from "./request-context.mjs";
 // (Stage editor review, 2026-10-09) the take an owner-paid render lands in (context.clipId + context.take)
 import { requestTake } from "./request-context.mjs";
@@ -209,6 +210,23 @@ const DEFAULT_TEXT_OUTPUT_CAP = 16000;
 const TEXT_PROVIDER_TIMEOUT_MS = 380000;
 /* a retired image model's id was served as its successor (logged once per instance) */
 let legacyWritingModelLogged = false;
+/* a voice id this studio didn't record: its provider category, cached per instance (only "premade" / "professional"
+   stock voices may be spoken with by anyone; voice-registry.mjs STOCK_VOICE_CATEGORIES) */
+const stockVoiceCategories = new Map<string, string>();
+async function stockVoiceCategory(voiceId: string, key: string): Promise<string> {
+  if (stockVoiceCategories.has(voiceId)) return stockVoiceCategories.get(voiceId)!;
+  if (!key) return "";
+  try {
+    const r = await fetch(`https://api.elevenlabs.io/v1/voices/${encodeURIComponent(voiceId)}`, { headers: { "xi-api-key": key }, signal: AbortSignal.timeout(15000) });
+    // the provider unreachable (a 5xx): "?" — the line may then go to the backup route only, which renders stock voices
+    // and nothing else, so no recorded or unrecorded custom voice can slip through
+    if (!r.ok) return r.status >= 500 ? "?" : "";
+    const cat = String((await r.json())?.category || "");
+    if (stockVoiceCategories.size > 500) stockVoiceCategories.clear();
+    stockVoiceCategories.set(voiceId, cat);
+    return cat;
+  } catch (_e) { return "?"; }
+}
 let legacyImageModelLogged = false;
 /* The fal image models this proxy serves, and the fal routes they map to. THE ENGINES (2026-10-11, owner — image
    engines): exactly these four. Nano Banana 2, Nano Banana Pro and GPT Image 2 were removed (a locked likeness
@@ -1169,7 +1187,12 @@ Deno.serve(async (req) => {
   //   "design"     → Voice Design previews from a text descriptor (the "designed" origin).
   //   "saveVoice"  → lock a chosen preview into a permanent voice_id.
   //   "listVoices" → the account's voices (the "picked" origin).
-  //   "clone"      → instant clone from uploaded samples (consent-gated client-side).
+  //   "clone"      → instant clone of a REAL PERSON's voice: consent checked here (voice-registry.mjs), recorded.
+  //   "attachVoice"→ link one of your voices to a film, so everyone on it can voice lines with it (free).
+  //   "deleteVoice"→ delete one of your voices, at the provider too (free, on any plan).
+  // WHOSE VOICE (2026-10-11, owner — voice review): every designed or cloned voice is recorded with its owner
+  // (supabase/voices.sql); a caller is listed the provider's stock voices and their own, and speaks only with those
+  // or with a voice linked to the film they're working on. On the caller's OWN provider key it's their account.
   // ElevenLabs field names/model ids move — confirm against current docs at deploy.
   if (task === "voice") {
     // VOICE IS CHARGED (2026-09-30; it was free): text-to-speech by characters, speech-to-text by
@@ -1177,12 +1200,53 @@ Deno.serve(async (req) => {
     // held and settled on it), voice design and cloning at a flat charge (billing-pricing.mjs);
     // saving a designed voice and listing voices cost nothing. The plan gate comes first: voice
     // needs a paid plan, and the character voice tools (design / save / clone) the Art Room's.
-    const VOICE_OPS = ["tts", "design", "saveVoice", "listVoices", "clone", "stt"];
+    const VOICE_OPS = ["tts", "design", "saveVoice", "listVoices", "clone", "stt", "attachVoice", "deleteVoice"];
     const voiceOp = (body.op || "tts").toString();
     if (!VOICE_OPS.includes(voiceOp)) return json({ error: `Unknown voice op "${voiceOp}".` }, 400);
+    const sbVoice = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const EL_BASE = "https://api.elevenlabs.io/v1";
+    const ownElKey = !!userApiKey("elevenlabs");   // the caller's own provider account: their voices, their business
+    const voiceFilmId = (() => { const c: any = requestContext(body.context); return c && c.projectId ? String(c.projectId) : null; })();
+    // DELETING YOUR VOICE never waits on a plan, a balance or a film: it's yours to remove (owner, 2026-10-11)
+    if (voiceOp === "deleteVoice") {
+      const voiceId = String(body.voiceId || "").trim();
+      if (!voiceId) return json({ error: "Which voice?", code: "bad_request" }, 400);
+      const { data: row, error: rowErr } = await sbVoice.from("turn_voices").select("voice_id, owner, deleted_at").eq("voice_id", voiceId).maybeSingle();
+      if (rowErr) return refuse(billingUnavailable());
+      if (!row || (row.owner !== authUser.id && !isAdmin)) return json({ error: "That voice isn't yours to delete.", code: "voice_not_allowed" }, 403);
+      if (row.deleted_at) return json({ ok: true, deleted: true });
+      const dKey = cleanApiKey(Deno.env.get("ELEVENLABS_API_KEY"));
+      if (!dKey) return json({ error: missingKey("ElevenLabs", "ELEVENLABS_API_KEY") }, 500);
+      const dr = await fetch(`${EL_BASE}/voices/${encodeURIComponent(voiceId)}`, { method: "DELETE", headers: { "xi-api-key": dKey }, signal: AbortSignal.timeout(30000) });
+      // already gone at the provider counts as deleted; anything else is said, and the voice stays as it was
+      if (!dr.ok && dr.status !== 404) return json({ error: "The voice couldn't be deleted right now. Please try again.", status: dr.status }, 200);
+      // the row stays (with its consent record, as the provider's terms ask) — marked deleted; its film links go
+      await sbVoice.from("turn_voices").update({ deleted_at: new Date().toISOString(), deleted_by: authUser.id }).eq("voice_id", voiceId);
+      await sbVoice.from("turn_voice_films").delete().eq("voice_id", voiceId);
+      return json({ ok: true, deleted: true });
+    }
     if (!accountKnown) return refuse(billingUnavailable());
     const voiceGate = checkVoice(account, voiceOp);
     if (voiceGate) return refuseGate(voiceGate);
+    // the account that HOLDS a new voice: the caller's, or on a shared film its owner's (who pays for it)
+    const voiceOwner: string = ownerPays ? String(film.payer) : authUser.id;
+    // A REAL PERSON'S VOICE: whose it is, 18 or over, the attestation, the recordings and the plan's number of real
+    // voices are all checked HERE, before any hold or provider call (voice-registry.mjs)
+    let clonePlan: any = null;
+    if (voiceOp === "clone" && !ownElKey) {
+      const consent = cloneConsent(body.consent, { attestedBy: authUser.id });
+      if (!consent.ok) return json({ error: consent.error, code: consent.code }, consent.status);
+      const samples = await cloneSamples(body.samples);
+      if (!samples.ok) return json({ error: samples.error, code: samples.code }, samples.status);
+      const limit = voiceLimit(account);
+      if (limit !== Infinity) {
+        const { count, error: cErr } = await sbVoice.from("turn_voices").select("voice_id", { count: "exact", head: true })
+          .eq("owner", voiceOwner).eq("kind", "cloned").is("deleted_at", null);
+        if (cErr) return refuse(billingUnavailable());
+        if ((Number(count) || 0) >= limit) { const r = voiceLimitRefusal(limit); return json({ error: r.error, code: r.code }, r.status); }
+      }
+      clonePlan = { consent: consent.consent, files: samples.files, seconds: samples.seconds };
+    }
     const paidVoiceOp = voiceOp === "tts" || voiceOp === "stt" || voiceOp === "design" || voiceOp === "clone";
     const voiceUnit = paidVoiceOp ? await creditUnitNow() : PROVIDER_USD_PER_CREDIT;
     if (voiceUnit == null) return refuse(billingUnavailable());
@@ -1325,7 +1389,28 @@ Deno.serve(async (req) => {
     const voiceProviderError = (msg: string, status: number, opName: string): any =>
       voiceBillingIssue(msg, status)
         ? { error: isAdmin ? (msg || "Voice provider billing issue.") : say(msg, "Voice is paused right now. Please try again later."), code: "VOICE_PROVIDER_BILLING", status, op: opName }
+        // the account's voice slots are full: say what it is, not "billing" (it used to read as a billing issue)
+        : /voice[^.]{0,40}(limit|slots?)|maximum[^.]{0,30}voices|too many voices/i.test(String(msg || ""))
+        ? { error: isAdmin ? msg : "New voices can't be added right now. Please try again later.", code: "VOICE_SLOTS_FULL", status }
         : { error: say(msg, `The voice service returned an error (${status}). Please try again.`), status };
+    // may this caller speak with this voice (the studio's account only; see the tts op)
+    const voiceUseCheck = async (voiceId: string) => {
+      const { data: access, error: aErr } = await sbVoice.rpc("turn_voice_access", { p_voice: voiceId, p_user: authUser.id, p_project: voiceFilmId });
+      if (aErr) return { ok: false, status: 503, code: "billing_unavailable", error: "Voices can't be checked right now. Please try again in a minute." };
+      let category = "";
+      if (access === "unknown") category = await stockVoiceCategory(voiceId, elKey);
+      return voiceUseDecision(String(access || ""), category);
+    };
+    // record a voice this studio made, and link it to the film it was made on (a failure is said, never ignored)
+    const registerVoice = async (row: Record<string, unknown>) => {
+      const { error: insErr } = await sbVoice.from("turn_voices").insert(row);
+      if (insErr) return false;
+      if (voiceFilmId) await sbVoice.rpc("turn_voice_link", { p_voice: row.voice_id, p_user: authUser.id, p_project: voiceFilmId });
+      return true;
+    };
+    const dropProviderVoice = async (voiceId: string) => {
+      try { await fetch(`${EL_BASE}/voices/${encodeURIComponent(voiceId)}`, { method: "DELETE", headers: { "xi-api-key": elKey }, signal: AbortSignal.timeout(20000) }); } catch (_e) { /* best effort */ }
+    };
     try {
       // TTS WITH TIMESTAMPS — one call returns the audio AND per-character timing, so
       // we get the line's duration (the cut clock) and split points for free.
@@ -1333,6 +1418,14 @@ Deno.serve(async (req) => {
         const voiceId = (body.voiceId || "").toString();
         const text = (body.text || "").toString();
         if (!voiceId || !text) return json({ error: "Voice render needs voiceId and text." }, 400);
+        // WHOSE VOICE (2026-10-11): on the studio's account a line is spoken only in a stock voice, the caller's own
+        // voice, or a voice linked to the film in the request (supabase/voices.sql turn_voice_access)
+        let backupOnly = false;
+        if (!ownElKey && !isAdmin) {
+          const use: any = await voiceUseCheck(voiceId);
+          if (!use.ok) return json({ error: use.error, code: use.code }, use.status);
+          backupOnly = !!use.backupOnly;
+        }
         const s = body.settings || {};
         const fmt = (body.outputFormat || "mp3_44100_128").toString();
         const modelId = (body.modelId || "eleven_v3").toString();
@@ -1354,7 +1447,7 @@ Deno.serve(async (req) => {
         // returns per-character alignment. fal's mirror of the same models is the FALLBACK,
         // so a blocked ElevenLabs invoice stops billing, not the film.
         let elWhy = "";
-        if (elKey) {
+        if (elKey && !backupOnly) {
           const r = await fetch(`${EL}/text-to-speech/${encodeURIComponent(voiceId)}/with-timestamps?output_format=${encodeURIComponent(fmt)}`, {
             method: "POST",
             signal: AbortSignal.timeout(120000),
@@ -1431,15 +1524,21 @@ Deno.serve(async (req) => {
       if (op === "saveVoice") {
         const generatedVoiceId = (body.generatedVoiceId || "").toString();
         if (!generatedVoiceId) return json({ error: "Saving a voice needs a generatedVoiceId." }, 400);
-        const name = (body.name || "Voice").toString();
+        const name = (body.name || "Voice").toString().slice(0, 80);
+        // the provider is sent a neutral name and no description: the character's name stays in the studio
         const r = await fetch(`${EL}/text-to-voice`, {
           method: "POST",
           headers: { "xi-api-key": elKey, "Content-Type": "application/json" },
-          body: JSON.stringify({ voice_name: name, voice_description: (body.description || "").toString(), generated_voice_id: generatedVoiceId }),
+          body: JSON.stringify({ voice_name: ownElKey ? name : providerVoiceName("designed", voiceOwner), voice_description: ownElKey ? (body.description || "").toString() : "", generated_voice_id: generatedVoiceId }),
         });
         if (!r.ok) return json(voiceProviderError(await elErr(r), r.status, op), 200);
         const data = await r.json();
-        return json({ voiceId: data.voice_id || (data.voice && data.voice.voice_id) || "", name });
+        const savedId = String(data.voice_id || (data.voice && data.voice.voice_id) || "");
+        if (savedId && !ownElKey && !(await registerVoice({ voice_id: savedId, owner: voiceOwner, created_by: authUser.id, kind: "designed", label: name }))) {
+          await dropProviderVoice(savedId);
+          return json({ error: "The voice couldn't be saved right now. Please try again." }, 200);
+        }
+        return json({ voiceId: savedId, name });
       }
 
       // The account's voices (for the "picked from library" origin).
@@ -1447,29 +1546,85 @@ Deno.serve(async (req) => {
         const r = await fetch(`${EL}/voices`, { headers: { "xi-api-key": elKey } });
         if (!r.ok) return json(voiceProviderError(await elErr(r), r.status, op), 200);
         const data = await r.json();
-        const voices = (data.voices || []).map((v: any) => ({
-          voiceId: v.voice_id, name: v.name, category: v.category || "",
-          previewUrl: v.preview_url || "", labels: v.labels || {},
-        }));
-        return json({ voices });
+        // on the caller's own provider account every voice is theirs; on the studio's, only stock voices, the
+        // caller's own and the film's are listed (never another user's)
+        if (ownElKey) return json({ voices: (data.voices || []).map((v: any) => ({
+          voiceId: v.voice_id, name: v.name, category: v.category || "", previewUrl: v.preview_url || "", labels: v.labels || {} })) });
+        const { data: own, error: oErr } = await sbVoice.from("turn_voices").select("voice_id, kind, person_kind, person_name, label, deleted_at").eq("owner", authUser.id).is("deleted_at", null);
+        if (oErr) return refuse(billingUnavailable());
+        let onFilm: any[] = [];
+        if (voiceFilmId) {
+          const { data: links } = await sbVoice.from("turn_voice_films").select("voice_id").eq("project_id", voiceFilmId);
+          const ids = (links || []).map((l: any) => l.voice_id).filter((id: string) => !(own || []).some((o: any) => o.voice_id === id));
+          if (ids.length) {
+            const { data: fr } = await sbVoice.from("turn_voices").select("voice_id, kind, person_kind, person_name, label, deleted_at").in("voice_id", ids).is("deleted_at", null);
+            // a film-linked voice is listed only to someone the database confirms is on the film
+            const checked = await Promise.all((fr || []).map(async (v: any) => {
+              const { data: a } = await sbVoice.rpc("turn_voice_access", { p_voice: v.voice_id, p_user: authUser.id, p_project: voiceFilmId });
+              return a === "film" ? v : null;
+            }));
+            onFilm = checked.filter(Boolean);
+          }
+        }
+        const used = (own || []).filter((v: any) => v.kind === "cloned").length;
+        const limit = voiceLimit(account);
+        return json({ voices: voicesForCaller(data.voices || [], own || [], onFilm),
+          realVoices: { used, limit: limit === Infinity ? null : limit } });
       }
 
-      // Instant clone from uploaded samples (consent gated on the client, like a cameo).
+      // A REAL PERSON'S VOICE — an instant clone from recordings. On the studio's account the consent, the recordings
+      // and the plan's number of real voices were checked before the hold (clonePlan); the provider is sent the
+      // recordings under a neutral name, with no person's name and no character text; the voice is recorded with
+      // its owner and its consent, and linked to the film it was made on.
       if (op === "clone") {
-        const samples: string[] = Array.isArray(body.samples) ? body.samples : [];
-        if (!samples.length) return json({ error: "Cloning needs at least one audio sample." }, 400);
         const form = new FormData();
-        form.append("name", (body.name || "Cloned voice").toString());
-        if (body.description) form.append("description", String(body.description));
-        let i = 0;
-        for (const src of samples) {
-          const blob = dataUrlToBlob(src);
-          if (blob) form.append("files", blob, `sample${i++}.mp3`);
+        if (clonePlan) {
+          form.append("name", providerVoiceName("cloned", voiceOwner));
+          clonePlan.files.forEach((f: any, i: number) => form.append("files", new Blob([f.bytes], { type: f.mime }), `sample${i + 1}.${f.ext}`));
+        } else {
+          // the caller's own provider account: as before
+          const samples: string[] = Array.isArray(body.samples) ? body.samples : [];
+          if (!samples.length) return json({ error: "Cloning needs at least one audio sample." }, 400);
+          form.append("name", (body.name || "Cloned voice").toString());
+          let i = 0;
+          for (const src of samples) { const blob = dataUrlToBlob(src); if (blob) form.append("files", blob, `sample${i++}.mp3`); }
         }
-        const r = await fetch(`${EL}/voices/add`, { method: "POST", headers: { "xi-api-key": elKey }, body: form });
+        if (body.removeNoise === true) form.append("remove_background_noise", "true");
+        const r = await fetch(`${EL}/voices/add`, { method: "POST", headers: { "xi-api-key": elKey }, body: form, signal: AbortSignal.timeout(120000) });
         if (!r.ok) return json(voiceProviderError(await elErr(r), r.status, op), 200);
         const data = await r.json();
-        return await voiceDone({ voiceId: data.voice_id || "", name: (body.name || "Cloned voice").toString() });
+        const newId = String(data.voice_id || "");
+        if (!newId) return json({ error: "The voice couldn't be cloned. Please try again." }, 200);
+        if (clonePlan) {
+          // a voice the provider holds back for verification (for example one that sounds like a public figure) is
+          // never kept: it's deleted and the person is told
+          if (data.requires_verification === true) {
+            await dropProviderVoice(newId);
+            return json({ error: "This voice couldn't be cloned. The voice service asked to verify the speaker, which can happen when a voice sounds like a public figure. Try another recording of the person's own voice.", code: "voice_verification" }, 200);
+          }
+          const personName = clonePlan.consent.personName;
+          const label = personName || String(body.meName || "").slice(0, 80) || "My voice";
+          if (!(await registerVoice({ voice_id: newId, owner: voiceOwner, created_by: authUser.id, kind: "cloned",
+              person_kind: clonePlan.consent.personKind, person_name: personName || null, label,
+              consent: { ...clonePlan.consent, seconds: clonePlan.seconds, removeNoise: body.removeNoise === true, filmId: voiceFilmId } }))) {
+            await dropProviderVoice(newId);
+            return json({ error: "The voice couldn't be saved right now. Please try again." }, 200);
+          }
+          return await voiceDone({ voiceId: newId, name: label, kind: "cloned", personKind: clonePlan.consent.personKind, personName });
+        }
+        return await voiceDone({ voiceId: newId, name: (body.name || "Cloned voice").toString() });
+      }
+
+      // LINK ONE OF YOUR VOICES TO A FILM (free): everyone on the film may then voice lines with it
+      if (op === "attachVoice") {
+        const voiceId = String(body.voiceId || "").trim();
+        if (!voiceId || !voiceFilmId) return json({ error: "Which voice, on which film?", code: "bad_request" }, 400);
+        if (ownElKey) return json({ ok: true, linked: false });
+        const { data: res, error: lErr } = await sbVoice.rpc("turn_voice_link", { p_voice: voiceId, p_user: authUser.id, p_project: voiceFilmId });
+        if (lErr) return refuse(billingUnavailable());
+        if (res === "linked") return json({ ok: true, linked: true });
+        if (res === "unknown") return json({ ok: true, linked: false });   // a stock voice needs no link
+        return json({ error: res === "deleted" ? "This voice was deleted." : "That voice can't be used on this film.", code: res === "deleted" ? "voice_deleted" : "voice_not_allowed" }, 403);
       }
 
       // Speech-to-text (Scribe) — transcribe a recorded answer (the "Talk it through" intake).

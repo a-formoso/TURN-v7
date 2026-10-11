@@ -225,7 +225,11 @@ cross-device access, and multiple projects all work.
 `app-config.sql`), `admin-inventory.sql`,
 `admin-storage.sql` (see **Admin Storage page** below), and
 `frances-daily-limit.sql` (see **Frances's daily question limit** below; it
-depends on nothing but Supabase Auth, so it can run at any point). Today's `credits.sql`
+depends on nothing but Supabase Auth, so it can run at any point). `voices.sql` (whose voice
+each designed or cloned character voice is, the consent for a real person's voice, and the films it may
+speak in — 2026-10-11) needs only `schema.sql` and `team-collaboration.sql`, so it can run at any point
+after them; run it BEFORE deploying an `image-proxy` that reads it (the proxy refuses voice ops it can't
+check). Offline test: `node scripts/test-voice-registry-db.mjs`. Today's `credits.sql`
 already carries billing v2 and the tax records of `tax-compliance.sql` (see **Tax &
 compliance records** below); run `billing-housekeeping-cron.sql` right after it (required),
 and `billing-switch.sql` once, on the credit switch day (see **Billing v2** below). Offline test of the

@@ -1520,6 +1520,8 @@ async function proxySection() {
   await db.exec(STUB);
   await db.exec(read("supabase/credits.sql"));
   await db.exec(read("supabase/frances-daily-limit.sql"));
+  // (2026-10-11) whose voice it is: the voice registry, on top of the films and team tables it reads
+  for (const f of ["schema.sql", "team-collaboration.sql", "voices.sql"]) await db.exec(read("supabase/" + f));
   // THE F1 CONTRACT (repair, 2026-09-30): billing-v2.sql (= the credits.sql block) owns
   // turn_credit_holds.provider_ref, turn_hold_attach and turn_hold_lookup. A minimal stand-in is
   // installed ONLY when that SQL doesn't have them yet, so these proxy tests pin the contract the
@@ -1655,6 +1657,44 @@ async function proxySection() {
       // round 2: the drain-window marker read (turn_billing_state, service role); round 4: the owner's
       // length_mismatch records (turn_grant_failures)
       from: (table) => {
+        // (2026-10-11) the voice registry: a small PostgREST-like builder over the real tables (service role)
+        if (table === "turn_voices" || table === "turn_voice_films") {
+          const q = { op: "select", cols: "*", where: [], row: null, count: false, head: false };
+          const run = async () => {
+            const params = [], conds = q.where.map(([k, col, v]) => {
+              if (k === "is") return `${col} is null`;
+              if (k === "in") { params.push(v); return `${col} = any($${params.length})`; }
+              params.push(v); return `${col} = $${params.length}`;
+            });
+            const where = conds.length ? " where " + conds.join(" and ") : "";
+            const exec = async (sql, p) => { const r = await as("service", sql, p); if (!r.ok) return { error: { message: r.error } }; return { rows: r.rows }; };
+            if (q.op === "insert") {
+              const keys = Object.keys(q.row), vals = keys.map((k) => (q.row[k] !== null && typeof q.row[k] === "object" ? j(q.row[k]) : q.row[k]));
+              const r = await exec(`insert into public.${table}(${keys.join(",")}) values (${keys.map((_, i) => "$" + (i + 1)).join(",")})`, vals);
+              return { data: null, error: r.error || null };
+            }
+            if (q.op === "update") {
+              const keys = Object.keys(q.row), vals = keys.map((k) => q.row[k]);
+              const set = keys.map((k, i) => `${k} = $${params.length + i + 1}`).join(", ");
+              const r = await exec(`update public.${table} set ${set}${where}`, [...params, ...vals]);
+              return { data: null, error: r.error || null };
+            }
+            if (q.op === "delete") { const r = await exec(`delete from public.${table}${where}`, params); return { data: null, error: r.error || null }; }
+            const r = await exec(`select ${q.cols} from public.${table}${where}`, params);
+            if (r.error) return { data: null, error: r.error, count: null };
+            return q.head ? { data: null, error: null, count: r.rows.length } : { data: r.rows, error: null, count: r.rows.length };
+          };
+          const b = {
+            select: (cols = "*", o = {}) => { if (q.op === "select") { q.cols = cols; q.head = !!o.head; } return b; },
+            eq: (col, v) => { q.where.push(["eq", col, v]); return b; }, is: (col) => { q.where.push(["is", col]); return b; },
+            in: (col, v) => { q.where.push(["in", col, v]); return b; },
+            insert: (row) => { q.op = "insert"; q.row = row; return b; }, update: (row) => { q.op = "update"; q.row = row; return b; },
+            delete: () => { q.op = "delete"; return b; },
+            maybeSingle: async () => { const r = await run(); return { data: r.data && r.data[0] || null, error: r.error }; },
+            then: (ok, bad) => run().then(ok, bad),
+          };
+          return b;
+        }
         const f = { col: null, val: null };
         // Team review (2026-10-09): who paid for a hold (image-proxy's poll, blender-bridge's re-hold) —
         // the hold's row by ref; this database has no Team columns, so actor / member_id read as null
@@ -1763,8 +1803,12 @@ async function proxySection() {
       if (/\/speech-to-text$/.test(u)) return reply(200, { text: "a lighthouse keeper" });
       if (/\/text-to-voice\/design$/.test(u)) return reply(200, { previews: [{ generated_voice_id: "gen-1", audio_base_64: "SUQz" }], text: "hello" });
       if (/\/text-to-voice$/.test(u)) return reply(200, { voice_id: "voice-9" });
-      if (/\/voices$/.test(u)) return reply(200, { voices: [{ voice_id: "v1", name: "Stock" }] });
-      if (/\/voices\/add$/.test(u)) return reply(200, { voice_id: "clone-1" });
+      // (2026-10-11) a stock voice, this test's clone, and someone else's clone nobody recorded
+      if (/\/voices$/.test(u)) return reply(200, { voices: [{ voice_id: "v1", name: "Stock", category: "premade" },
+        { voice_id: "clone-1", name: "rv-x", category: "cloned" }, { voice_id: "x-clone", name: "Someone's voice", category: "cloned" }] });
+      if (/\/voices\/add$/.test(u)) return reply(200, { voice_id: W.nextCloneId || "clone-1" });
+      if (method === "DELETE" && /\/voices\/[^/]+$/.test(u)) return reply(200, { status: "ok" });
+      if (/\/voices\/[^/]+$/.test(u)) return reply(200, { category: /\/voices\/(v1|v|stock-[^/]*)$/.test(u) ? "premade" : "cloned" });
     }
     throw new Error("network disabled in this test: " + u);
   };
@@ -2131,6 +2175,72 @@ async function proxySection() {
       r = await post("tok-writer", { task: "voice", op: "tts", voiceId: "v1", text: "x".repeat(300) });
       assert.doesNotMatch(r.json.error, /invoice|fal|ElevenLabs/i); assert.equal(await bal(U.writer), before);
       assert.equal((await lastHold(U.writer)).status, "released");
+    });
+
+    await test("F11b WHOSE VOICE (2026-10-11): a real voice needs consent and real recordings; it's listed and spoken only by its owner or on its film; deleting removes it at the provider and keeps the consent record", async () => {
+      reset();
+      const film = "f1000000-0000-4000-8000-000000000001";
+      await svc("insert into public.turn_projects(id, owner, title, doc) values ($1, $2, 'Lighthouse', '{}'::jsonb) on conflict do nothing", [film, U.director.id]);
+      const CTX = { context: { projectId: film } };
+      const rec = (sec) => "data:audio/webm;base64," + b64(chromeWebm(sec));
+      const consent = { personKind: "someone", personName: "Sam Reyes", adult: true, attest: true };
+      const cloneCalls = () => W.calls.filter((c) => c.url.endsWith("/v1/voices/add"));
+      let h0 = (await holdsOf(U.director)).length;
+      // no consent, under 18, no name, too short, not audio: refused before any hold or provider call
+      for (const [body, code] of [[{}, "consent_required"], [{ consent: { ...consent, adult: false } }, "consent_required"],
+          [{ consent: { ...consent, personName: " " } }, "consent_required"], [{ consent, samples: [rec(10)] }, "samples_invalid"],
+          [{ consent, samples: ["data:audio/webm;base64," + b64(Buffer.from("not audio at all"))] }, "samples_invalid"]]) {
+        const r = await post("tok-director", { task: "voice", op: "clone", samples: [rec(45)], ...body, ...CTX });
+        assert.equal(r.status, 400, j(body)); assert.equal(r.json.code, code, j(r.json));
+      }
+      assert.equal(cloneCalls().length, 0); assert.equal((await holdsOf(U.director)).length, h0, "no hold");
+      // a real voice: cloned under a neutral name, recorded with its consent, linked to the film
+      let r = await post("tok-director", { task: "voice", op: "clone", consent, samples: [rec(45)], removeNoise: true, ...CTX });
+      assert.equal(r.status, 200, j(r.json)); assert.deepEqual([r.json.voiceId, r.json.personName, r.json.kind], ["clone-1", "Sam Reyes", "cloned"]);
+      const form = cloneCalls()[0].body;
+      assert.match(String(form.get("name")), /^rv-[0-9a-f]{8}-/, "no person's name leaves the studio");
+      assert.equal(form.get("description"), null); assert.equal(form.get("remove_background_noise"), "true");
+      assert.equal(form.getAll("files")[0].name, "sample1.webm");
+      const row = (await as("service", "select * from public.turn_voices where voice_id = 'clone-1'")).rows[0];
+      assert.deepEqual([row.owner, row.created_by, row.kind, row.person_kind, row.person_name], [U.director.id, U.director.id, "cloned", "someone", "Sam Reyes"]);
+      assert.equal(row.consent.adult, true); assert.equal(row.consent.attestedBy, U.director.id); assert.equal(row.consent.version, "voice-consent-1"); assert.equal(row.consent.seconds, 45);
+      assert.equal(await svc("select count(*)::int from public.turn_voice_films where voice_id = 'clone-1' and project_id = $1", [film]), 1);
+      // the list: the owner sees it (and their count); anyone else sees stock voices only — never someone else's
+      const mine = (await post("tok-director", { task: "voice", op: "listVoices" })).json;
+      assert.deepEqual(mine.voices.map((v) => v.voiceId), ["v1", "clone-1"]);
+      assert.deepEqual([mine.voices[1].own, mine.voices[1].personName, mine.voices[1].name], [true, "Sam Reyes", "Sam Reyes"]);
+      assert.deepEqual(mine.realVoices, { used: 1, limit: 5 });
+      assert.deepEqual((await post("tok-producer", { task: "voice", op: "listVoices" })).json.voices.map((v) => v.voiceId), ["v1"]);
+      // speaking: the owner may; someone else may not — not even naming the film — until they're on it
+      const tts = (tok, extra = {}) => post(tok, { task: "voice", op: "tts", voiceId: "clone-1", text: "Hello there", ...extra });
+      assert.equal((await tts("tok-director")).status, 200);
+      W.calls = [];
+      for (const extra of [{}, CTX]) { const t = await tts("tok-producer", extra); assert.equal(t.status, 403); assert.equal(t.json.code, "voice_not_allowed"); }
+      assert.equal(W.calls.filter((c) => /text-to-speech/.test(c.url)).length, 0, "no speech rendered");
+      assert.equal((await post("tok-producer", { task: "voice", op: "tts", voiceId: "x-clone", text: "Hi" })).json.code, "voice_not_allowed", "an unrecorded clone is nobody's to use");
+      await svc("insert into public.turn_project_members(project_id, owner, member_email, member_user, role, status) values ($1, $2, $3, $4, 'art_director', 'active')", [film, U.director.id, U.producer.email, U.producer.id]);
+      assert.equal((await tts("tok-producer", CTX)).status, 200, "on the film: its voices speak");
+      assert.equal((await tts("tok-producer")).json.code, "voice_not_allowed", "…only on that film");
+      assert.deepEqual((await post("tok-producer", { task: "voice", op: "listVoices", ...CTX })).json.voices.map((v) => [v.voiceId, !!v.onFilm]), [["v1", false], ["clone-1", true]]);
+      // only the owner deletes; it goes at the provider; the consent record stays
+      assert.equal((await post("tok-producer", { task: "voice", op: "deleteVoice", voiceId: "clone-1" })).json.code, "voice_not_allowed");
+      W.calls = [];
+      r = await post("tok-director", { task: "voice", op: "deleteVoice", voiceId: "clone-1", ...CTX });
+      assert.deepEqual(r.json, { ok: true, deleted: true });
+      assert.ok(W.calls.some((c) => c.method === "DELETE" && c.url.endsWith("/v1/voices/clone-1")));
+      assert.equal((await tts("tok-director")).json.code, "voice_deleted");
+      assert.ok(await svc("select deleted_at is not null and consent->>'adult' = 'true' from public.turn_voices where voice_id = 'clone-1'"));
+      assert.equal(await svc("select count(*)::int from public.turn_voice_films where voice_id = 'clone-1'"), 0);
+      // the plan's number of real voices: Director 5
+      for (let i = 0; i < 5; i++) await svc("insert into public.turn_voices(voice_id, owner, created_by, kind, person_kind, consent) values ($1, $2, $2, 'cloned', 'me', jsonb_build_object('adult', true, 'attestedAt', now()))", ["cap-" + i, U.director.id]);
+      W.calls = [];
+      r = await post("tok-director", { task: "voice", op: "clone", consent: { personKind: "me", adult: true, attest: true }, samples: [rec(45)] });
+      assert.equal(r.status, 403); assert.equal(r.json.code, "voice_limit"); assert.equal(cloneCalls().length, 0);
+      // a designed voice is recorded too, and listed only to its owner
+      r = await post("tok-producer", { task: "voice", op: "saveVoice", generatedVoiceId: "gen-1", name: "MAREN" });
+      assert.equal(r.json.voiceId, "voice-9");
+      assert.equal(await svc("select owner::text from public.turn_voices where voice_id = 'voice-9'"), U.producer.id);
+      assert.ok(!(await post("tok-writer", { task: "voice", op: "listVoices" })).json.voices.some((v) => v.voiceId === "voice-9"));
     });
 
     await test("F12 a FROZEN account (open dispute) spends nothing; Frances still answers it (5 a day)", async () => {
