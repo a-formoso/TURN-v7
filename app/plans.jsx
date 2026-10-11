@@ -135,7 +135,7 @@ window.turnTrialOffered = trialOffered;
 window.turnTrialCopy = trialCopy;
 /* the DEFAULT writing engines a trial / no-plan account may use (mirrors image-proxy
    billing-policy.mjs DEFAULT_TEXT_MODELS; premium and formerly mispriced engines need a plan) */
-const TRIAL_TEXT_MODELS = ["claude-opus-5-5", "gemini-3.8-flash", "kimi-k2.7-code"];
+const TRIAL_TEXT_MODELS = ["claude-opus-5-5", "gemini-3.8-flash"];
 window.TURN_TRIAL_TEXT_MODELS = TRIAL_TEXT_MODELS;
 
 /* Plan switching for PAYING subscribers never opens a new payment link (that started a
@@ -515,7 +515,10 @@ window.turnTextModelAllowed = function(modelId, balance){
 };
 /* the image engine + resolution this account may actually use for a request */
 function planImageChoice(model, res, balance){
-  // a retired engine's id (Nano Banana 2 Lite) is its successor here too (app/imagegen.jsx nbCanonicalModelId)
+  // a retired engine's id (Nano Banana 2 Lite; Nano Banana 2, Nano Banana Pro, GPT Image 2 — 2026-10-11) is its
+  // successor here too (app/imagegen.jsx nbCanonicalModelId). No engine is plan-only: Seedream 5 Pro has GPT Image
+  // 2.5 Sunburst's access (Writer up to 2K, Director and Producer to the engine's own ceiling — 2K for Seedream,
+  // applied after this by imagegen.jsx nbPlanImageChoice)
   if(typeof window.nbCanonicalModelId==="function") model = window.nbCanonicalModelId(model);
   if(!draftImagesOnly(balance)){
     /* WRITER UP TO 2K (2026-10-09, owner — Art Room review; billing-policy.mjs checkImage): the server refuses a

@@ -285,7 +285,7 @@ await test("E3 Frances: who pays, paused, lapsed, invites, private presence; pla
 });
 await test("E4 keys", ()=>{
   for(const f of ["app.jsx", "team.jsx", "cloud.jsx", "ai.jsx", "script.jsx", "plans.jsx", "confirm.jsx", "auth-ui.jsx"])
-    assert.ok(["20261009-teamrv1", "20261009-stageed1", "20261009-sb4", "20261009-bd4", "20261010-nb21", "20261010-like1", "20261010-pron1", "20261010-del1", "20261010-pose2", "20261010-voice1", "20261011-voice2"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);   // (later passes re-key some)
+    assert.ok(["20261009-teamrv1", "20261009-stageed1", "20261009-sb4", "20261009-bd4", "20261010-nb21", "20261010-like1", "20261010-pron1", "20261010-del1", "20261010-pose2", "20261010-voice1", "20261011-voice2", "20261011-eng1"].some(k=>html.includes('src="app/'+f+'?v='+k+'"')), f);   // (later passes re-key some)
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

@@ -647,7 +647,7 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
     });
     await test("C3 (Team review, 2026-10-09) a Co-writer's image on the film is REFUSED (film_role) — not billed to Cara, nothing taken from the owner", async () => {
       const dora0 = await bal(U.dora), cara0 = await bal(U.cara), holds0 = (await db.query("select count(*)::int n from public.turn_credit_holds")).rows[0].n;
-      const r = await post("tok-cara", IMAGE("gemini-3.1-flash-image", "2K", ctx()));
+      const r = await post("tok-cara", IMAGE("gemini-nano-banana-2.1", "2K", ctx()));
       assert.equal(r.status, 403, j(r.json)); assert.equal(r.json.code, "film_role"); assert.equal(r.json.message, "Your role on this film doesn't include this.");
       assert.equal(await bal(U.dora), dora0); assert.equal(await bal(U.cara), cara0);
       assert.equal((await db.query("select count(*)::int n from public.turn_credit_holds")).rows[0].n, holds0, "nothing held");
@@ -656,7 +656,7 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
       const dora0 = await bal(U.dora);
       const keys0 = sentKeys.length;
       // (Team review, 2026-10-09) Ari's own fal key is ignored: the owner's bill runs on the platform's key
-      const r = await post("tok-ari", IMAGE("gemini-3.1-flash-image", "4K", { ...ctx(), userApiKeys: { fal: "ari-own-fal-key" } }));
+      const r = await post("tok-ari", IMAGE("gemini-nano-banana-2.1", "4K", { ...ctx(), userApiKeys: { fal: "ari-own-fal-key" } }));
       assert.equal(r.status, 200, j(r.json));
       const h = await lastHold();
       assert.deepEqual([h.owner, h.actor, h.member_id], [U.dora.id, U.ari.id, ariRow]); assert.ok(await bal(U.dora) < dora0);
@@ -698,7 +698,7 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
     await test("C7 the budget stops a call: refused with the budget's words, nothing held", async () => {
       await as(U.dora, "update public.turn_project_members set budget_credits = 1 where id = $1", [ariRow]);
       const dora0 = await bal(U.dora);
-      const r = await post("tok-ari", IMAGE("gemini-3.1-flash-image", "2K", ctx()));
+      const r = await post("tok-ari", IMAGE("gemini-nano-banana-2.1", "2K", ctx()));
       assert.equal(r.status, 402); assert.equal(r.json.code, "budget_reached", j(r.json)); assert.equal(await bal(U.dora), dora0);
       await as(U.dora, "update public.turn_project_members set budget_credits = null where id = $1", [ariRow]);
     });
@@ -728,7 +728,7 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
     });
     await test("C11 (Team review, 2026-10-09) routing fields must be strings: task ['text'] is a 400 before anything is held or sent", async () => {
       const dora0 = await bal(U.dora), holds0 = (await db.query("select count(*)::int n from public.turn_credit_holds")).rows[0].n, fetch0 = sentKeys.length;
-      for (const bad of [{ task: ["text"] }, { op: ["submit"], task: "video" }, { usageKind: ["writing"] }, { provider: ["fal"] }, { model: ["gemini-3.1-flash-image"] }])
+      for (const bad of [{ task: ["text"] }, { op: ["submit"], task: "video" }, { usageKind: ["writing"] }, { provider: ["fal"] }, { model: ["gemini-nano-banana-2.1"] }])
         assert.equal((await post("tok-cara", { ...TEXT("claude-fable-5", ctx()), ...bad })).status, 400, j(bad));
       assert.equal((await post("tok-cara", [1, 2])).status, 400, "a body that isn't an object");
       assert.equal(await bal(U.dora), dora0); assert.equal(sentKeys.length, fetch0, "no provider called");
@@ -742,12 +742,12 @@ if (!PGlite || typeof nodeModule.registerHooks !== "function") {
       await db.query("insert into public.turn_projects(id, owner, title, doc) values ($1,$2,'Admin film','{}'::jsonb)", [F3, ADM.id]);
       await invite(ADM, F3, U.eve, "art_director");
       // no credits row at all: the owner's balance can't cover it — never "billing unavailable" or a plan gate
-      let r = await post("tok-eve", IMAGE("gemini-3.1-flash-image", "4K", ctx(F3)));
+      let r = await post("tok-eve", IMAGE("gemini-nano-banana-2.1", "4K", ctx(F3)));
       assert.equal(r.json.code, "owner_insufficient", j(r.json)); assert.doesNotMatch(j(r.json), /@|\d{2,}/);
       // a Writer-plan row (4K is Director's): the admin's gates let it run; the hold is the admin's
       await svc("select public.turn_set_plan_once('e-adm', $1, 'writer', 800, 'sub_a', 'cus_a', $2)", [ADM.id, future]);
       const adm0 = await bal(ADM), eve0 = await bal(U.eve);
-      r = await post("tok-eve", IMAGE("gemini-3.1-flash-image", "4K", ctx(F3)));
+      r = await post("tok-eve", IMAGE("gemini-nano-banana-2.1", "4K", ctx(F3)));
       assert.equal(r.status, 200, j(r.json));
       const h = await lastHold();
       assert.deepEqual([h.owner, h.actor], [ADM.id, U.eve.id]); assert.ok(await bal(ADM) < adm0); assert.equal(await bal(U.eve), eve0);

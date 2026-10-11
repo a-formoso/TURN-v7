@@ -10,7 +10,10 @@
               pack credits) are spent on those.
      writer   Writers' Room: every writing engine; voice for the New Story interview (speech and
               transcription, the voice list); images up to 2K on any engine (dashboard key art —
-              the Art Room itself is Director's).
+              the Art Room itself is Director's). The engines (2026-10-11, owner): Nano Banana 2.1,
+              GPT Image 2.5 Flare / Sunburst and Seedream 5 Pro — no engine is plan-only; Seedream 5
+              Pro has GPT Image 2.5 Sunburst's access and tops out at 2K for every plan (index.ts
+              renders a 4K request at 2K before this gate).
      director Writers' Room + Art Room: every image engine up to 4K, the character voice tools
               (design, save, clone), Blender Studio (3D meshes and the scene assistant).
      studio   + the Stage: video (Stage model / resolution / batch gates as TIER_GATES) and voice.
@@ -22,14 +25,14 @@
 
 /* The draft engine (owner 2026-10-10): Nano Banana 2.1 at 1K — it replaced Nano Banana 2 Lite, which
    always rendered at 1K, so a draft's real output is unchanged. A no-plan 2K or 4K request is refused
-   (the app caps it to 1K first: app/plans.jsx turnPlanImageChoice). index.ts maps Lite's old id to this
-   one before asking (billing-pricing.mjs canonicalImageModel). */
+   (the app caps it to 1K first: app/plans.jsx turnPlanImageChoice). index.ts maps Lite's old id — and, from
+   2026-10-11, Nano Banana 2's and Nano Banana Pro's — to this one before asking (billing-pricing.mjs
+   canonicalImageModel). */
 export const DRAFT_IMAGE = Object.freeze({ model: "gemini-nano-banana-2.1", maxRes: "1K" });
 
-/* The DEFAULT writing engines — what a trial or no-plan account may write with. Premium engines
-   (Fable 5 / 5.1, GPT-6 Astra, Kimi K3) and the formerly mispriced ones (GPT-5.5, Gemini 3.5
-   Flash) need a plan. */
-export const DEFAULT_TEXT_MODELS = Object.freeze(["claude-opus-5-5", "gemini-3.8-flash", "kimi-k2.7-code"]);
+/* The DEFAULT writing engines — what a trial or no-plan account may write with. Fable 5, GPT-6 Astra and
+   GPT-6.1 Sol need a plan. (Kimi K2.7 was a default until the Moonshot engines were removed, 2026-10-11.) */
+export const DEFAULT_TEXT_MODELS = Object.freeze(["claude-opus-5-5", "gemini-3.8-flash"]);
 
 /* Mirrors app/plans.jsx TIER_GATES (the Stage's model picker, resolution ladder, takes per Generate). */
 export const TIER_GATES = Object.freeze({

@@ -47,21 +47,28 @@ for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
   assert.equal(imagePricingQuality(model, "default"), "high");
 }
 
+// GPT Image 2 was removed (2026-10-11): the proxy maps its id to GPT Image 2.5 Sunburst BEFORE validating, so an
+// older app's low / medium / high (or an omitted quality) validates — and is priced — on Sunburst
+const { canonicalImageModel } = await import("../supabase/functions/image-proxy/billing-pricing.mjs");
+assert.equal(Object.prototype.hasOwnProperty.call(IMAGE_QUALITY_CAPABILITIES, "gpt-image-2"), false);
 for (const quality of ["low", "medium", "high"]) {
-  const checked = validateImageQuality("gpt-image-2", quality);
+  const checked = validateImageQuality(canonicalImageModel("gpt-image-2"), quality);
   assert.equal(checked.ok, true);
   assert.deepEqual(providerQualityPayload(checked), { quality });
+  assert.equal(checked.pricingQuality, quality);
 }
-const legacyDefault = validateImageQuality("gpt-image-2", undefined);
+const legacyDefault = validateImageQuality(canonicalImageModel("gpt-image-2"), undefined);
 assert.equal(legacyDefault.ok, true);
-assert.equal(legacyDefault.quality, "high");
+assert.equal(legacyDefault.quality, "default");
+assert.equal(legacyDefault.pricingQuality, "high");
 assert.deepEqual(providerQualityPayload(legacyDefault), {});
-assert.equal(validateImageQuality("gpt-image-2", "xhigh").ok, false);
-assert.equal(validateImageQuality("gpt-image-2", "default").ok, false);
+assert.equal(validateImageQuality("gpt-image-2", "high").ok, false, "the raw retired id is not a schema model");
 
 assert.equal(validateImageQuality("gpt-image-2.6", "high").ok, false);
 assert.equal(validateImageQuality("gpt-image-2.6", undefined).ok, false);
-assert.equal(validateImageQuality("gemini-3.1-flash-image", "xhigh").ok, true);
+assert.equal(validateImageQuality("gemini-nano-banana-2.1", "xhigh").ok, true);
+assert.equal(validateImageQuality("seedream-5-pro", "high").ok, true, "Seedream has no quality: the field is ignored");
+assert.equal(validateImageQuality("seedream-5-pro", "high").providerQuality, undefined);
 
 assert.deepEqual(imageQualityOptions(), {
   imageQualitySchema: 1,

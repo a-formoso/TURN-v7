@@ -33,13 +33,13 @@ function WritingDock({ task }){
   const pick = (typeof window.getWritingPick==="function") ? window.getWritingPick() : null;
   const recStory = (typeof window.recommendedWritingModelId==="function") ? window.recommendedWritingModelId("story") : "";
   const recSpecs = (typeof window.recommendedWritingModelId==="function") ? window.recommendedWritingModelId("specs") : "";
-  const SHORT = { "claude-opus-5-5":"OPUS5.5", "claude-fable-5":"FABLE", "claude-fable-5-1":"FABLE5.1", "gemini-3.8-flash":"GEM3.8", "gemini-3.5-flash":"GEM3.5",
-    "gpt-6-astra":"ASTRA", "gpt-5.5-2026-04-23":"GPT5", "kimi-k3":"K3", "kimi-k2.7-code":"K2.7" };
+  const SHORT = { "claude-opus-5-5":"OPUS5.5", "claude-fable-5":"FABLE", "gemini-3.8-flash":"GEM3.8",
+    "gpt-6-astra":"ASTRA", "gpt-6.1-sol":"SOL" };
   // resolve the engine for THIS room's task (Art Room → specs, Writers' Room → story) so
   // the collapsed pill NAMES the model at a glance — whether Auto-resolved or a manual pick
   // (this is why there's no separate text chip on the Art Room's image dock any more).
   const resolvedId = (typeof window.getWritingModelId==="function") ? window.getWritingModelId(task) : (pick||recStory);
-  const short = SHORT[resolvedId] || String((models.find(m=>m.id===resolvedId)||{}).label||resolvedId||"AUTO").replace(/^(Claude|Gemini|GPT|Kimi)\s+/,"").slice(0,6).toUpperCase();
+  const short = SHORT[resolvedId] || String((models.find(m=>m.id===resolvedId)||{}).label||resolvedId||"AUTO").replace(/^(Claude|Gemini|GPT)\s+/,"").slice(0,6).toUpperCase();
   // second chip flags whether that model came from AUTO (the recommendation) or your pick
   const mode = pick ? "SET" : "AUTO";
   const choose = (id)=>{ if(typeof window.setWritingModelId==="function") window.setWritingModelId(id||""); force(x=>x+1); };
@@ -65,7 +65,7 @@ function WritingDock({ task }){
       (()=>{
         // grouped by what the engines are good at — never by the company that makes them (2026-10-09:
         // the headings named AI vendors, which nothing user-facing may do)
-        const PROV = { anthropic:"Story", google:"Fast", openai:"Alternative", moonshot:"Long context" };
+        const PROV = { anthropic:"Story", google:"Fast", openai:"Alternative" };
         const groups=[]; models.forEach(m=>{ let g=groups.find(x=>x.p===m.provider);
           if(!g){ g={p:m.provider, items:[]}; groups.push(g); } g.items.push(m); });
         return groups.map(g=>React.createElement("div",{key:g.p,className:"nb-ctl"},

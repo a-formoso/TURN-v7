@@ -75,12 +75,15 @@ async function prepare() {
 <script>
 const quality25=["default","auto","low","medium","high","xhigh","max"];
 const legacy=["low","medium","high"];
+// the engines (2026-10-11): GPT Image 2 is gone; Seedream 5 Pro has no quality control and renders up to 2K
 const models=[
-  {id:"gpt-image-2",label:"GPT Image 2",family:"openai"},
+  {id:"seedream-5-pro",label:"Seedream 5 Pro",family:"seedream",maxRes:"2K"},
   {id:"gpt-image-2.5-flare",label:"GPT Image 2.5 Flare",family:"openai"},
   {id:"gpt-image-2.5-sunburst",label:"GPT Image 2.5 Sunburst",family:"openai"},
 ];
-window.NB_MODELS=models; window.NB_ASPECTS=["16:9"]; window.NB_RESOLUTIONS=["2K"];
+window.NB_MODELS=models; window.NB_ASPECTS=["16:9"]; window.NB_RESOLUTIONS=["1K","2K","4K"];
+window.nbModelMaxRes=m=>((models.find(x=>x.id===m)||{}).maxRes)||"4K";
+window.nbModelRes=(m,r)=>(window.nbModelMaxRes(m)==="2K"&&r==="4K")?"2K":r;
 window.__capsExpanded=false; window.__providerCalls=[];
 const is25=m=>String(m||"").indexOf("gpt-image-2.5-")===0;
 window.isGptImageModel=m=>/^gpt-image/.test(String(m||""));
@@ -98,7 +101,7 @@ window.nbCanUseImageQuality=(m,q)=>window.nbOaiQualityChoices(m).includes(q)&&wi
 window.nbRefreshImageQualityCapabilities=async()=>window.nbImageQualitySupport(window.nbGetModel());
 window.nbRequireImageQuality=async()=>{};
 window.nbGetAspect=()=>"16:9"; window.nbSetAspect=()=>{};
-window.nbGetRes=()=>"2K"; window.nbSetRes=()=>{};
+window.nbGetRes=()=>"4K"; window.nbSetRes=()=>{};
 window.nbGetGroundSearch=()=>false; window.nbSetGroundSearch=()=>{};
 window.nbCostChip=()=>null; window.nbGetImage=()=>""; window.shotFrameGenOpts=()=>({
   finalPrompt:"FRAME",chainPrompt:"FRAME",renderPlan:{orderedSpecs:[]},
@@ -188,11 +191,14 @@ try {
   await waitFor(() => c.eval(`window.__mounted && document.querySelectorAll("#dock .nb-ctl").length>=3`), "quality dock");
   const quality = () => c.eval(`(()=>{const x=[...document.querySelectorAll("#dock .nb-ctl")].find(x=>x.querySelector(".nb-ctl-lab")?.textContent==="Quality");const b=[...x.querySelectorAll(".nb-seg-btn")];return {labels:b.map(x=>x.textContent.trim()),disabled:b.map(x=>x.disabled)}})()`);
   const model = label => c.eval(`(()=>{const b=[...document.querySelectorAll("#dock .nb-ctl")][0]&&[...document.querySelectorAll("#dock .nb-ctl")][0].querySelectorAll("button");[...b].find(x=>x.textContent.includes(${JSON.stringify(label)})).click()})()`);
-  await model("GPT Image 2");
-  await waitFor(async () => (await quality()).labels.length === 3, "legacy quality choices");
-  assert.deepEqual((await quality()).labels, ["Low", "Medium", "High"]);
+  await model("Seedream 5 Pro");
+  const ctlLabels = () => c.eval(`[...document.querySelectorAll("#dock .nb-ctl .nb-ctl-lab")].map(x=>x.textContent)`);
+  await waitFor(async () => !(await ctlLabels()).includes("Quality"), "no quality control for Seedream");
+  const resolution = () => c.eval(`(()=>{const x=[...document.querySelectorAll("#dock .nb-ctl")].find(x=>x.querySelector(".nb-ctl-lab")?.textContent==="Resolution");return {labels:[...x.querySelectorAll(".nb-seg-btn")].map(b=>b.textContent.trim()),on:[...x.querySelectorAll(".nb-seg-btn.on")].map(b=>b.textContent.trim()),note:(x.querySelector(".nb-quality-message")||{}).textContent||""}})()`);
+  assert.deepEqual(await resolution(), { labels: ["1K", "2K"], on: ["2K"], note: "Seedream 5 Pro renders up to 2K — your 4K setting renders at 2K here." });
   await model("GPT Image 2.5 Flare");
   await waitFor(async () => (await quality()).labels.length === 7, "2.5 quality choices");
+  assert.deepEqual((await resolution()).labels, ["1K", "2K", "4K"], "GPT Image 2.5 offers 4K");
   let q = await quality();
   assert.equal(q.disabled[0], true, "Default is gated until the 2.5 route is verified");
   assert.deepEqual(q.disabled.slice(2, 5), [false, false, false], "legacy quality levels remain usable");

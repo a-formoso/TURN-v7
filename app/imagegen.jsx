@@ -23,8 +23,8 @@ function nbGetOaiQuality(model){
     const legacy=localStorage.getItem(OAI_Q_KEY);
     const q=family||legacy||"medium";
     if(!nbOaiQualityChoices(model).includes(q)) return "medium";
-    // Seed an existing explicit preference once, so later GPT Image 2 changes
-    // cannot replace the 2.5 family's inherited choice. Leave unset defaults unset.
+    // Seed an existing explicit preference once (the shared key GPT Image 2 used — 2.5 inherits
+    // its low / medium / high). Leave unset defaults unset.
     if(isGptImage25Model(model)&&!family&&legacy){
       try{ localStorage.setItem(OAI_Q_KEY+":2.5",q); }catch(e){}
     }
@@ -129,20 +129,35 @@ window.nbRequireImageQuality=nbRequireImageQuality;
 /* selectable models. provider:"fal" means the browser always calls the Supabase
    proxy; the proxy then maps this UI id to fal.ai's provider route. */
 const _imageProxyOn = !!(window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxy);
+/* THE ENGINES (2026-10-11, owner — image engines): exactly these four, in this order. Nano Banana 2, Nano Banana
+   Pro and GPT Image 2 were removed — a locked likeness rendered the wrong face on them. Seedream 5 Pro renders 1K
+   and 2K only (maxRes: a 4K pick renders at 2K and says so) and takes at most 10 reference images (maxRefs); it
+   has no quality setting and no grounding. */
 const NB_MODELS = [
-  { id:"gemini-3.1-flash-image",      label:"Nano Banana 2",      provider:"fal", family:"nano",   falModel:"fal-ai/nano-banana-2",      note:"fast \u00b7 high quality" },
   { id:"gemini-nano-banana-2.1",      label:"Nano Banana 2.1",    provider:"fal", family:"nano",   falModel:"google/nano-banana-2.1", falEditModel:"google/nano-banana-2.1/edit", note:"fast \u00b7 lowest cost" },
-  { id:"gemini-3-pro-image",          label:"Nano Banana Pro",    provider:"fal", family:"nano",   falModel:"fal-ai/nano-banana-pro",    note:"highest fidelity" },
-  { id:"gpt-image-2",                 label:"GPT Image 2",        provider:"fal", family:"openai", falModel:"openai/gpt-image-2", falEditModel:"openai/gpt-image-2/edit", note:"in-image text" },
   { id:"gpt-image-2.5-flare",         label:"GPT Image 2.5 Flare", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/flare/text-to-image", falEditModel:"openai/gpt-image-2.5/flare/edit", note:"fastest GPT Image 2.5" },
   { id:"gpt-image-2.5-sunburst",      label:"GPT Image 2.5 Sunburst", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/sunburst/text-to-image", falEditModel:"openai/gpt-image-2.5/sunburst/edit", note:"maximum precision and fidelity" },
+  { id:"seedream-5-pro",              label:"Seedream 5 Pro",     provider:"fal", family:"seedream", falModel:"bytedance/seedream/v5/pro/text-to-image", falEditModel:"bytedance/seedream/v5/pro/edit", maxRes:"2K", maxRefs:10, note:"rich detail \u00b7 strong likeness" },
 ];
-/* RETIRED IMAGE ENGINES (2026-10-10, owner): Nano Banana 2 Lite was replaced by Nano Banana 2.1. A saved pick, a
-   dock choice, a per-device preference or an agent / batch option that still names the old id renders on its
-   successor (the server maps it too: image-proxy billing-pricing.mjs canonicalImageModel). Old assets keep their
-   saved meta; where one is DISPLAYED, nbModelLabel shows the engine it was really made with. Never offered. */
-const NB_LEGACY_MODEL_IDS = { "gemini-3.1-flash-lite-image":"gemini-nano-banana-2.1" };
-const NB_HISTORICAL_MODEL_LABELS = { "gemini-3.1-flash-lite-image":"Nano Banana 2 Lite" };
+/* RETIRED IMAGE ENGINES: a saved pick, a dock choice, a per-device preference or an agent / batch option that still
+   names an old id renders on its successor (the server maps it too: image-proxy billing-pricing.mjs
+   canonicalImageModel). Old assets keep their saved meta; where one is DISPLAYED, nbModelLabel shows the engine it
+   was really made with. Never offered.
+     2026-10-10 (owner): Nano Banana 2 Lite → Nano Banana 2.1.
+     2026-10-11 (owner — image engines): Nano Banana 2 and Nano Banana Pro → Nano Banana 2.1; GPT Image 2 →
+       GPT Image 2.5 Sunburst (its low / medium / high quality carries over). */
+const NB_LEGACY_MODEL_IDS = {
+  "gemini-3.1-flash-lite-image":"gemini-nano-banana-2.1",
+  "gemini-3.1-flash-image":"gemini-nano-banana-2.1",
+  "gemini-3-pro-image":"gemini-nano-banana-2.1",
+  "gpt-image-2":"gpt-image-2.5-sunburst",
+};
+const NB_HISTORICAL_MODEL_LABELS = {
+  "gemini-3.1-flash-lite-image":"Nano Banana 2 Lite",
+  "gemini-3.1-flash-image":"Nano Banana 2",
+  "gemini-3-pro-image":"Nano Banana Pro",
+  "gpt-image-2":"GPT Image 2",
+};
 function nbCanonicalModelId(id){
   return (typeof id==="string" && Object.prototype.hasOwnProperty.call(NB_LEGACY_MODEL_IDS, id)) ? NB_LEGACY_MODEL_IDS[id] : id;
 }
@@ -152,9 +167,21 @@ function nbModelLabel(id){
   if(m) return m.label;
   return (typeof id==="string" && Object.prototype.hasOwnProperty.call(NB_HISTORICAL_MODEL_LABELS, id)) ? NB_HISTORICAL_MODEL_LABELS[id] : (id || "");
 }
-/* web grounding: the Nano Banana engines that search the web, priced like Nano Banana 2 (billing-pricing.mjs) */
-const NB_GROUND_MODELS = ["gemini-3.1-flash-image","gemini-nano-banana-2.1"];
+/* web grounding: Nano Banana 2.1 is the only engine that searches the web (2026-10-11; image-search grounding was
+   Nano Banana 2's and went with it) — priced in billing-pricing.mjs IMAGE_WEB_SEARCH_USD */
+const NB_GROUND_MODELS = ["gemini-nano-banana-2.1"];
 function nbModelGrounds(model){ return NB_GROUND_MODELS.indexOf(nbCanonicalModelId(model))>=0; }
+/* the highest resolution an engine renders ("4K" unless its entry says less — Seedream 5 Pro: "2K") and the most
+   reference images it uses (null = no engine-specific cap; Seedream 5 Pro: 10) */
+const NB_RES_RANK = { "1K":0, "2K":1, "4K":2 };
+function nbModelMaxRes(model){ const m = (window.NB_MODELS||NB_MODELS).find(x=>x.id===nbCanonicalModelId(model)); return (m && m.maxRes) || "4K"; }
+function nbModelRes(model, res){
+  const max = nbModelMaxRes(model);
+  return (NB_RES_RANK[res]!=null && NB_RES_RANK[res] > NB_RES_RANK[max]) ? max : res;
+}
+function nbModelMaxRefs(model){ const m = (window.NB_MODELS||NB_MODELS).find(x=>x.id===nbCanonicalModelId(model)); return (m && Number(m.maxRefs)>0) ? Number(m.maxRefs) : null; }
+function isSeedreamModel(model){ return nbCanonicalModelId(model)==="seedream-5-pro"; }
+window.nbModelMaxRes = nbModelMaxRes; window.nbModelRes = nbModelRes; window.nbModelMaxRefs = nbModelMaxRefs; window.isSeedreamModel = isSeedreamModel;
 window.nbCanonicalModelId = nbCanonicalModelId; window.nbModelLabel = nbModelLabel; window.nbModelGrounds = nbModelGrounds;
 const NB_ASPECTS = ["16:9","21:9","9:16","1:1","3:4","4:3"];
 const NB_RESOLUTIONS = ["1K","2K","4K"];
@@ -175,13 +202,11 @@ function nbSetKey(k){ try{
 function nbHasKey(){ return !!nbGetKey(); }
 function nbGetModel(){ try{
   let s=localStorage.getItem(NB_MODEL_KEY);
-  // Preserve GPT Image selection across the move from the dated preview id to
-  // OpenAI's stable public alias instead of silently falling back to Nano Banana.
-  if(/^gpt-image-2-\d{4}-\d{2}-\d{2}$/.test(s||"") && NB_MODELS.find(m=>m.id==="gpt-image-2")){
-    s="gpt-image-2";
-    localStorage.setItem(NB_MODEL_KEY,s);
-  }
-  // a retired engine's saved pick (Nano Banana 2 Lite) moves to its successor, once
+  // Preserve a GPT Image pick saved under the dated preview id (gpt-image-2-YYYY-MM-DD): it is GPT Image 2, whose
+  // successor is GPT Image 2.5 Sunburst — not a silent fall back to the first engine
+  if(/^gpt-image-2-\d{4}-\d{2}-\d{2}$/.test(s||"")) s="gpt-image-2";
+  // a retired engine's saved pick (Nano Banana 2 Lite, Nano Banana 2, Nano Banana Pro, GPT Image 2) moves to its
+  // successor, once
   if(s && nbCanonicalModelId(s)!==s){ s=nbCanonicalModelId(s); try{ localStorage.setItem(NB_MODEL_KEY,s); }catch(e){} }
   if(s && NB_MODELS.find(m=>m.id===s)) return s;
   if(s){ try{ localStorage.setItem(NB_MODEL_KEY, NB_MODELS[0].id); }catch(e){} }
@@ -336,22 +361,36 @@ window.nbHasKeyForModel = nbHasKeyForModel; window.nbHasKeyForCurrent = nbHasKey
    one place. Shown on Generate buttons so cost is visible BEFORE a render —
    the server deducts whole credits after a successful image generation. */
 const NB_IMG_USD = (window.turnImageProviderUsdTable && window.turnImageProviderUsdTable()) || {
-  // fallback copy of app/pricing.jsx (fal prices, 2026-09-29 — the server's table)
+  // fallback copy of app/pricing.jsx (fal prices, 2026-10-11 — the server's table)
   "gemini-nano-banana-2.1":      { "1K":0.05, "2K":0.07, "4K":0.15 },
-  "gemini-3.1-flash-image":      { "1K":0.08, "2K":0.12, "4K":0.16 },
-  "gemini-3-pro-image":          { "1K":0.15, "2K":0.15, "4K":0.30 },
-  "gpt-image-2":                 { low:0.012, medium:0.044, high:0.158 },
-  "gpt-image-2.5-flare":         { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
-  "gpt-image-2.5-sunburst":      { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
+  "gpt-image-2.5-flare":         { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
+  "gpt-image-2.5-sunburst":      { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
+  "seedream-5-pro":              { standard:0.0675, large:0.135, extraRef:0.0045 },
 };
+/* Seedream 5 Pro's price without app/pricing.jsx (the same formula as turnSeedreamProviderUsd / the server's
+   seedreamCostUsd): the area tier of the exact size sent, plus each reference after the first (at most 10) */
+function _nbSeedreamUsd(t, aspect, res, refs){
+  if(typeof window.turnSeedreamProviderUsd==="function") return window.turnSeedreamProviderUsd(aspect, res, refs);
+  const ratios = { "16:9":16/9, "9:16":9/16, "21:9":21/9, "1:1":1, "3:4":3/4, "4:3":4/3 };
+  const r = ratios[aspect] || ratios["16:9"], big = res!=="1K", area = big ? 2048*2048 : 1024*1024;
+  const snap = (v)=> (big ? Math.floor(v/16) : Math.ceil(v/16)) * 16;
+  const px = snap(Math.sqrt(area*r)) * snap(Math.sqrt(area/r));
+  const n = Math.min(10, Math.max(0, Math.floor(Number(refs)||0)));
+  return Number(px <= 1536*1536 ? t.standard : t.large) + Math.max(0, n-1) * (Number(t.extraRef)||0);
+}
 /* DRAFT IMAGES (owner decision 2026-09-30): a trial / no-plan account may generate draft
    images only — Nano Banana 2.1 at 1K (app/plans.jsx turnPlanImageChoice). Every
    request and every cost chip goes through this, so the price shown is the engine that
    will really run. Paid plans, admin and an unloaded ledger pass through unchanged. */
+/* … and then the ENGINE's own ceiling (2026-10-11): Seedream 5 Pro renders at most 2K, so a 4K pick is 2K there —
+   modelLimited says so (the chip and the dock name it), and the server renders a 4K Seedream request at 2K too */
 function nbPlanImageChoice(model, res){
-  if(typeof window.turnPlanImageChoice!=="function") return { model, res, limited:false };
-  try{ return window.turnPlanImageChoice(model, res) || { model, res, limited:false }; }
-  catch(e){ return { model, res, limited:false }; }
+  let c;
+  if(typeof window.turnPlanImageChoice!=="function") c = { model, res, limited:false };
+  else { try{ c = window.turnPlanImageChoice(model, res) || { model, res, limited:false }; }
+         catch(e){ c = { model, res, limited:false }; } }
+  const capped = nbModelRes(c.model, c.res);
+  return capped!==c.res ? { ...c, res:capped, modelLimited:true } : c;
 }
 window.nbPlanImageChoice = nbPlanImageChoice;
 function nbImageCredits(opts){
@@ -369,13 +408,17 @@ function nbImageCredits(opts){
     // GPT Image cost follows the output size, as the server prices it (billing-pricing.mjs)
     if(typeof window.turnGptImageSizeFactor==="function")
       usd = usd * window.turnGptImageSizeFactor(model, opts.aspect || opts.aspectRatio || nbGetAspect(), choice.res || nbGetRes());
+  } else if(isSeedreamModel(model)){
+    // Seedream 5 Pro (2026-10-11): by the output's pixel area, plus $0.0045 for each reference after the first
+    usd = _nbSeedreamUsd(t, opts.aspect || opts.aspectRatio || nbGetAspect(), choice.res || nbGetRes(), opts.refs);
+    if(!(usd>0)) return null;
   } else {
     const r = choice.res || nbGetRes();
     usd = (t[r]!=null) ? t[r] : t["2K"];
   }
   /* WHAT THE SERVER ADDS (2026-10-09, owner — Art Room review; billing-pricing.mjs): web grounding ($0.015 an image,
-     sent only on Nano Banana 2 and Nano Banana 2.1 — nbModelGrounds) and, on GPT Image, each reference image
-     ($0.012) — the chips left both out */
+     sent only on Nano Banana 2.1 — nbModelGrounds) and, on GPT Image, each reference image ($0.012) — the chips
+     left both out (Seedream's reference fee is in its own price above) */
   const ground = opts.ground!=null ? !!opts.ground : (nbModelGrounds(model) && nbGetGroundSearch());
   if(ground && nbModelGrounds(model)) usd += 0.015;
   if(isGptImageModel(model) && Number(opts.refs)>0) usd += 0.012 * Number(opts.refs);
@@ -388,6 +431,13 @@ function nbImageCredits(opts){
 }
 /* the server charges each image in WHOLE credits (at least 1), so a batch costs
    count x the rounded per-image price — never the rounded total of fractions */
+/* Seedream's per-reference fee ($0.0045 after the first) in credits at the live unit, for a tooltip ("0.5") */
+function _nbSeedreamRefCreditText(){
+  const t = NB_IMG_USD["seedream-5-pro"] || {};
+  const usd = Number(t.extraRef) || 0.0045;
+  const cr = (typeof window.turnCreditsFromProviderUsd==="function") ? window.turnCreditsFromProviderUsd(usd) : usd/0.01;
+  return String(Math.round(cr*10)/10);
+}
 function nbImageCostText(count, opts){
   const per = nbImageCredits(opts);
   if(per==null) return "";
@@ -418,14 +468,16 @@ function NbCostChipInner({ count, opts }){
   const m = (window.NB_MODELS||NB_MODELS).find(x=>x.id===model);
   const detail = isGptImageModel(model)
     ? nbOaiQualityLabel(opts&&opts.quality!=null?opts.quality:nbGetOaiQuality(model))+" quality"
-    : (choice.res || (opts&&opts.res) || nbGetRes()) + (choice.limited ? " (your plan's limit)" : "");
+    : (choice.res || (opts&&opts.res) || nbGetRes()) + (choice.limited ? " (your plan's limit)"
+      : choice.modelLimited ? " ("+(((m&&m.label)||model))+" renders up to "+nbModelMaxRes(model)+")" : "");
   const n = Math.max(1, Number(count)||1);
   return window.React.createElement("span",{className:"nb-cost",
     title:"≈ "+txt+" generation credit"+(txt==="1"?"":"s")+" — "+((m&&m.label)||model)+" at "+detail
       +(n>1 ? " × "+n+" images" : " per image")
       +(isGptImage25Model(model)?" (baseline estimate; prompt/reference tokens and size affect provider cost; Auto uses the Max estimate)":"")
       +(nbModelGrounds(model) && nbGetGroundSearch() ? " · includes web grounding" : "")
-      +(isGptImageModel(model) && !(opts && opts.refs) ? " · each reference image the render attaches adds about 1 credit" : "")},
+      +(isGptImageModel(model) && !(opts && opts.refs) ? " · each reference image the render attaches adds about 1 credit" : "")
+      +(isSeedreamModel(model) && !(opts && opts.refs) ? " · each reference image after the first adds a little (about "+_nbSeedreamRefCreditText()+" credit; at most 10 are used)" : "")},
     txt);
 }
 function nbCostChip(count, opts){
@@ -434,7 +486,7 @@ function nbCostChip(count, opts){
 }
 window.nbImageCredits = nbImageCredits; window.nbImageCostText = nbImageCostText; window.nbCostChip = nbCostChip;
 
-/* grounding with web search — Nano Banana 2 and Nano Banana 2.1 only (nbModelGrounds) */
+/* grounding with web search — Nano Banana 2.1 only (nbModelGrounds) */
 const NB_GROUND_KEY = "turn-nb-ground";
 function nbGetGroundSearch(){ try{ return localStorage.getItem(NB_GROUND_KEY)==="1"; }catch(e){ return false; } }
 /* ONE ENGINE IN EVERY WINDOW (2026-10-09, owner — Art Room review): a pick made in another window of this browser
@@ -2490,6 +2542,7 @@ function softenImagePrompt(p){
 }
 window.softenImagePrompt = softenImagePrompt;
 
+let _nbResCapToastShown = false;
 async function proxyGenerate(prompt, opts, provider){
   opts = opts || {};
   /* This is the last shared image-provider boundary.  It intentionally repeats
@@ -2499,7 +2552,15 @@ async function proxyGenerate(prompt, opts, provider){
   prompt = nbCanonicalMediaPrompt(prompt, opts);
   const model = nbCanonicalModelId(opts.model || nbGetModel());
   const aspect = opts.aspectRatio || nbGetAspect();
-  const imageSize = opts.imageSize || nbGetRes();
+  /* the engine's own ceiling (2026-10-11): Seedream 5 Pro renders at most 2K — a 4K pick is sent (and priced) as
+     2K, said once; metaOut.imageSize records the size really rendered */
+  const _wantSize = opts.imageSize || nbGetRes();
+  const imageSize = nbModelRes(model, _wantSize);
+  if(imageSize!==_wantSize && !_nbResCapToastShown && typeof window.appToast==="function"){
+    _nbResCapToastShown = true;
+    window.appToast(nbModelLabel(model)+" renders up to "+nbModelMaxRes(model)+", so this image is "+imageSize+".","info");
+  }
+  if(opts.metaOut) opts.metaOut.imageSize = imageSize;
   const quality = opts.quality == null ? nbGetOaiQuality(model) : opts.quality;
   await nbRequireImageQuality(model,quality);
   nbAssertMediaIdentity(opts,"image-quality-ready");
@@ -2507,6 +2568,16 @@ async function proxyGenerate(prompt, opts, provider){
   const refs = [];
   if(opts.referenceImage) refs.push(opts.referenceImage);
   if(opts.extraImages && opts.extraImages.length) refs.push(...opts.extraImages);
+  /* an engine that uses fewer reference images (Seedream 5 Pro: 10 — fal would use only the LAST 10) gets the
+     FIRST ones, in the caller's priority order (a likeness's front angle is image 1), and the user is told */
+  const _maxRefs = nbModelMaxRefs(model);
+  if(_maxRefs && refs.length > _maxRefs){
+    const dropped = refs.length - _maxRefs;
+    refs.length = _maxRefs;
+    if(opts.metaOut) opts.metaOut.referencesCapped = { sent:_maxRefs, dropped };
+    if(typeof window.appToast==="function")
+      window.appToast(nbModelLabel(model)+" uses at most "+_maxRefs+" reference images, so the first "+_maxRefs+" were sent ("+dropped+" left out).","info");
+  }
   const images = [];
   const referenceMaxDim = Math.max(512, Math.min(1536, Number(opts.referenceMaxDim)||1024));
   // the BASE image (an edit's own frame / the rolling-chain seed) may carry a higher
@@ -2541,10 +2612,9 @@ async function proxyGenerate(prompt, opts, provider){
   const body = { provider, model, prompt, aspect, quality, imageSize, images,
                  ...(Object.keys(reqContext).length ? { context:reqContext } : {}),
                  userApiKeys: window.turnApiKeysForProxy ? window.turnApiKeysForProxy([provider]) : undefined,
-                 groundSearch: !!opts.groundSearch, groundImageSearch: !!opts.groundImageSearch,
-                 // least-restrictive SUPPORTED moderation for gpt-image (fewer false positives on
-                 // legitimate creative content; genuinely prohibited content is still blocked)
-                 ...(isGptImageModel(model) ? { moderation: opts.moderation || "low" } : {}) };
+                 // web grounding is Nano Banana 2.1's only (image-search grounding and GPT Image 2's moderation
+                 // field went with the engines that had them — 2026-10-11)
+                 groundSearch: !!opts.groundSearch && nbModelGrounds(model) };
   // The legacy interactive path retries one status-less transport failure.
   // That does NOT prove the server did no work. Durable batch callers set
   // noRetry and surface an uncertain request for explicit user acknowledgement.

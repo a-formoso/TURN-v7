@@ -74,9 +74,11 @@
   const ownerName = (email)=>{ const e = String(email||""); if(!e) return "";
     if(typeof cloudHandleName==="function"){ try{ const n = cloudHandleName(e); if(n) return n; }catch(_e){} }
     return e.split("@")[0].split("+")[0]; };
-  // a poster's price: GPT Image 2, high quality, 2K (what generatePoster paints), per poster
+  // a poster's price: GPT Image 2.5 Sunburst, high quality, 2K, 9:16 (what generatePoster paints), per poster
+  // (2026-10-11, owner — image engines: it was GPT Image 2). Its reference images aren't known here, so this is the
+  // price without them — the server holds the real cost of each poster
   const posterCost = (n)=> (typeof window.nbImageCostText==="function")
-    ? window.nbImageCostText(Math.max(1, n||1), { model:"gpt-image-2", quality:"high", res:"2K" }) : "";
+    ? window.nbImageCostText(Math.max(1, n||1), { model:"gpt-image-2.5-sunburst", quality:"high", res:"2K", aspect:"9:16" }) : "";
   const POSTER_SKIP_KEY = "turn_home_poster_skip";
   const readSkip = ()=>{ try{ return JSON.parse(localStorage.getItem(POSTER_SKIP_KEY)||"[]")||[]; }catch(e){ return []; } };
 
@@ -136,7 +138,7 @@
 
     /* ----- POSTERS ASK FIRST (2026-10-09, owner — Home review) -------------------------------
        Home used to paint a poster for every owned film without one the moment it opened (a paid
-       GPT Image 2 image at high quality, 2K, with reference images) — and four more on each page.
+       poster image at high quality, 2K, with reference images) — and four more on each page.
        Now it OFFERS: "N films have no poster — Paint posters · price", and paints nothing until you
        say yes; "Not now" is remembered on this device for those films. A film without a logline is
        never offered (no story, no poster). Trial / no-plan accounts aren't offered a batch. */

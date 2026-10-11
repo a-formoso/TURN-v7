@@ -25,12 +25,16 @@ assert.match(proxyPrices, /"claude-opus-5-5":\s*\{\s*input:\s*4,\s*output:\s*20\
 assert.match(dock, /"gemini-3\.8-flash":"GEM3\.8"/);
 assert.match(proxyPrices, /"gpt-6-astra":\s*\{\s*input:\s*10,\s*output:\s*50\s*\}/);
 assert.match(proxyPrices, /"gemini-3\.8-flash":\s*\{\s*input:\s*0\.75,\s*output:\s*3\.75\s*\}/);
-assert.match(proxyPrices, /"gpt-5\.5":\s*\{\s*input:\s*5,\s*output:\s*30\s*\}/);   // the app's gpt-5.5-2026-04-23 prices here
-assert.match(proxyPrices, /"gpt-5\.5-2026-04-23":\s*"gpt-5\.5"/);
+// GPT-6.1 Sol replaced GPT-5.5 (2026-10-11, owner); an older app's GPT-5.5 is served on Sol
+assert.match(ai, /\{\s*id:"gpt-6\.1-sol",\s*label:"GPT-6\.1 Sol",\s*provider:"openai",\s*reasoningEffort:"low"/);
+assert.match(dock, /"gpt-6\.1-sol":"SOL"/);
+assert.match(proxyPrices, /"gpt-6\.1-sol":\s*\{\s*input:\s*2,\s*output:\s*10\s*\}/);
+assert.match(proxyPrices, /"gpt-5\.5-2026-04-23":\s*Object\.freeze\(\{\s*provider:\s*"openai",\s*model:\s*"gpt-6\.1-sol"\s*\}\)/);
 assert.match(proxy, /provider\s*===\s*"openai"[\s\S]*?reqMaxTokens\s*\?\s*\{\s*max_completion_tokens:\s*reqMaxTokens\s*\}/);
 assert.doesNotMatch(proxy, /provider\s*===\s*"openai"[\s\S]{0,1400}?\{\s*max_tokens:\s*reqMaxTokens\s*\}/);
 assert.match(proxy, /body\.maxCompletionTokens\s*\|\|\s*body\.maxTokens/);
 assert.match(proxy, /\{\s*reasoning_effort:\s*reasoningEffort\s*\}/);
+assert.match(proxy, /\^gpt-6\(\?:-astra\|\\\.1-sol\)/);   // both GPT-6 engines get their effort
 assert.match(proxy, /thinkingConfig:\s*\{\s*thinkingLevel\s*\}/);
 // Cache keys are re-bumped on every edit; require one at or after the 2026-09-11 series release.
 const cacheDate=f=>Number((html.match(new RegExp("app/"+f.replace(/\./g,"\\.")+"\\?v=(\\d{8})"))||[])[1]||0);

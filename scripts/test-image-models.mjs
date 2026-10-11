@@ -43,8 +43,9 @@ for (const model of models) {
   assert.ok(muse.includes(model.label), `${model.id} is present in MUSE product knowledge`);
 }
 
-assert.match(proxy, /if \(moderation && cfg\.moderation\) input\.moderation = moderation;/,
-  "unsupported moderation is not forwarded to GPT Image 2.5");
+// GPT Image 2.5 has no moderation field: since GPT Image 2 went (2026-10-11) none is sent at all
+assert.doesNotMatch(proxy, /input\.moderation\s*=/, "unsupported moderation is not forwarded to GPT Image 2.5");
+assert.doesNotMatch(client, /moderation:\s*opts\.moderation/, "the app sends no moderation field");
 assert.match(client, /const j = ctx && await ctx\.json\(\);/,
   "non-2xx proxy responses preserve the Edge Function's explanation");
 assert.match(client, /The image server rejected this request/,

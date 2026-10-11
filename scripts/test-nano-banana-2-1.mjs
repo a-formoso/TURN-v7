@@ -17,6 +17,10 @@
      H  no user-facing literal names "Nano Banana 2 Lite" (except the historical label) or says
         drafts are "up to 2K"; the price-drift watcher follows 2.1, not Lite
 
+   (2026-10-11, owner — image engines: Nano Banana 2, Nano Banana Pro and GPT Image 2 were removed too — their
+   ids map to a successor; scripts/test-image-engines-oct11.mjs covers that change. The checks below keep only
+   what this change itself still promises.)
+
    node scripts/test-nano-banana-2-1.mjs */
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -77,15 +81,15 @@ run(G, "app/imagegen.jsx");
 /* ═══ A ═══ */
 await test("A the engine list: Nano Banana 2.1 where Lite was, Lite never offered", () => {
   const ids = plain(A.NB_MODELS.map((m) => m.id));
-  assert.deepEqual(ids.slice(0, 3), ["gemini-3.1-flash-image", NEW, "gemini-3-pro-image"]);
+  assert.equal(ids[0], NEW, "2.1 is the first (default) engine since 2026-10-11");
   assert.ok(!ids.includes(OLD), "Lite is not selectable");
   const m = A.NB_MODELS.find((x) => x.id === NEW);
   assert.deepEqual(plain(m), { id: NEW, label: "Nano Banana 2.1", provider: "fal", family: "nano", falModel: "google/nano-banana-2.1",
     falEditModel: "google/nano-banana-2.1/edit", note: "fast · lowest cost" });
   assert.equal(A.providerOfModel(NEW), "fal"); assert.equal(A.isGptImageModel(NEW), false);
   assert.deepEqual(plain(A.NB_RESOLUTIONS), ["1K", "2K", "4K"], "2.1 renders at 1K, 2K and 4K");
-  assert.equal(A.nbModelGrounds(NEW), true, "2.1 grounds with web search, like Nano Banana 2");
-  assert.equal(A.nbModelGrounds("gemini-3-pro-image"), false);
+  assert.equal(A.nbModelGrounds(NEW), true, "2.1 grounds with web search");
+  assert.equal(A.nbModelGrounds("gpt-image-2.5-sunburst"), false);
   assert.ok(!/flash-lite-image/.test(read("app/artroom.jsx")) && !/nano-banana-2-lite/.test(read("app/imagegen.jsx")), "no Lite route or id is offered");
 });
 
@@ -105,7 +109,6 @@ await test("B credits at the live unit: 5 / 7 / 15 ($0.01), 2 / 3 / 5 before the
   assert.deepEqual(["1K", "2K", "4K"].map((s) => c({ imageSize: s }).credits), [5, 7, 15]);
   assert.deepEqual(["1K", "2K", "4K"].map((s) => c({ imageSize: s, unit: 0.03 }).credits), [2, 3, 5]);
   assert.equal(c({ imageSize: "1K", webSearch: true }).credits, 7, "$0.065");
-  assert.equal(srv.imageCost({ route: "fal", model: "gemini-3.1-flash-image", imageSize: "1K", webSearch: true }).credits, 10, "Nano Banana 2 the same way");
   assert.equal(c({ imageSize: "2K", referenceImages: 6 }).credits, 7, "no extra per reference image");
   assert.deepEqual(["1K", "2K", "4K"].map((s) => srv.imageCost({ route: "google", model: NEW, imageSize: s }).credits), [4, 6, 12]);
   assert.equal(srv.imageCost({ route: "google", model: NEW, imageSize: "1K", webSearch: true }).credits, srv.creditsFromUsd(0.0336 + srv.GOOGLE_GROUNDING_USD));
@@ -122,8 +125,6 @@ await test("C the fal routes: google/nano-banana-2.1, and its /edit route when r
   assert.ok(proxySrc.includes('"gemini-nano-banana-2.1":      { base: "google/nano-banana-2.1", edit: "google/nano-banana-2.1/edit", family: "nano" },'));
   assert.ok(proxySrc.includes("const endpoint = imageUrls.length && cfg.edit ? cfg.edit : cfg.base;"));
   assert.ok(!/flash-lite-image"\s*:/.test(proxySrc) && !proxySrc.includes('"google/nano-banana-2-lite"'), "Lite has no route");
-  // Nano Banana 2 / Pro keep their base route (no edit entry)
-  assert.ok(proxySrc.includes('"gemini-3.1-flash-image":      { base: "fal-ai/nano-banana-2",      family: "nano" },'));
   // the nano input: the real resolution, web search when asked
   assert.ok(proxySrc.includes('input.resolution = imageSize || "2K";') && proxySrc.includes("if (groundSearch) input.enable_web_search = true;"));
 });
@@ -136,16 +137,16 @@ await test("D drafts = Nano Banana 2.1 at 1K on both sides; a no-plan 2K / 4K is
   const code = (r) => r && r.body && r.body.code;
   assert.equal(pol.checkImage(none, { model: NEW, imageSize: "1K" }), null);
   for (const s of ["2K", "4K"]) assert.equal(code(pol.checkImage(none, { model: NEW, imageSize: s })), "plan_required", s);
-  for (const m of ["gemini-3.1-flash-image", "gemini-3-pro-image", "gpt-image-2"]) assert.equal(code(pol.checkImage(none, { model: m, imageSize: "1K" })), "plan_required", m);
+  for (const m of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "seedream-5-pro"]) assert.equal(code(pol.checkImage(none, { model: m, imageSize: "1K" })), "plan_required", m);
   assert.equal(pol.checkImage({ plan: "writer", remaining: 600 }, { model: NEW, imageSize: "2K" }), null, "Writer: 2.1 up to 2K");
   assert.equal(code(pol.checkImage({ plan: "writer", remaining: 600 }, { model: NEW, imageSize: "4K" })), "tier_required");
   assert.equal(pol.checkImage({ plan: "director", remaining: 600 }, { model: NEW, imageSize: "4K" }), null);
   A.turnIsPaidPlan = paidFn; A.turnIsAdmin = false;
   A.turnCreditBalance = { remaining: 50, plan: "none", trial: true };
-  for (const [m, r] of [["gpt-image-2", "4K"], [NEW, "2K"], [NEW, "4K"], ["gemini-3-pro-image", "1K"]])
+  for (const [m, r] of [["gpt-image-2.5-sunburst", "4K"], [NEW, "2K"], [NEW, "4K"], ["seedream-5-pro", "1K"]])
     assert.deepEqual(plain(A.turnPlanImageChoice(m, r)), { model: NEW, res: "1K", limited: true }, m + " " + r);
   assert.deepEqual(plain(A.turnPlanImageChoice(NEW, "1K")), { model: NEW, res: "1K", limited: false });
-  assert.equal(A.nbImageCostText(1, { model: "gemini-3-pro-image", res: "4K" }), "5", "the trial's chip quotes the draft: 2.1 at 1K");
+  assert.equal(A.nbImageCostText(1, { model: "gpt-image-2.5-sunburst", res: "4K" }), "5", "the trial's chip quotes the draft: 2.1 at 1K");
   A.turnCreditBalance = null;
 });
 await test("D the trial copy stays honest: a draft image is 5 credits (as Lite's was) and no copy promises a count", () => {
@@ -159,11 +160,11 @@ await test("E the app maps Lite's id: a saved pick, nbSetModel, an option and a 
   const B = box();
   run(B, "app/pricing.jsx"); run(B, "app/plans.jsx"); run(B, "app/imagegen.jsx");
   assert.equal(B.nbCanonicalModelId(OLD), NEW);
-  for (const x of [NEW, "gpt-image-2", "", null, undefined, ["x"]]) assert.equal(B.nbCanonicalModelId(x), x);
+  for (const x of [NEW, "gpt-image-2.5-sunburst", "", null, undefined, ["x"]]) assert.equal(B.nbCanonicalModelId(x), x);
   B.localStorage.setItem("turn-nb-model", OLD);
   assert.equal(B.nbGetModel(), NEW); assert.equal(B.localStorage.getItem("turn-nb-model"), NEW, "persisted once");
   B.nbSetModel(OLD); assert.equal(B.localStorage.getItem("turn-nb-model"), NEW);
-  B.localStorage.setItem("turn-nb-model", "no-such-engine"); assert.equal(B.nbGetModel(), "gemini-3.1-flash-image", "an unknown id still falls back to the first engine");
+  B.localStorage.setItem("turn-nb-model", "no-such-engine"); assert.equal(B.nbGetModel(), NEW, "an unknown id still falls back to the first engine");
   assert.equal(B.nbImageCostText(1, { model: OLD, res: "4K", ground: false }), "15");
   // an option naming Lite (an agent / batch run, a saved surface default) renders on 2.1
   B.turnIsPaidPlan = paidFn; B.turnIsAdmin = false; B.turnCreditBalance = { remaining: 900, plan: "director" };
@@ -185,12 +186,12 @@ await test("E the app maps Lite's id: a saved pick, nbSetModel, an option and a 
 });
 await test("E the server maps Lite's id before the plan gate, the price and the route — and logs it once", () => {
   assert.equal(srv.canonicalImageModel(OLD), NEW);
-  for (const x of [NEW, "gpt-image-2", "claude-opus-5-5", "", undefined, ["gemini-3.1-flash-image"]]) assert.equal(srv.canonicalImageModel(x), x);
-  assert.deepEqual(plain(srv.LEGACY_IMAGE_MODEL_IDS), { [OLD]: NEW });
-  const i = proxySrc.indexOf('const model = canonicalImageModel(body.model || "gpt-image-2");');
+  for (const x of [NEW, "gpt-image-2.5-sunburst", "claude-opus-5-5", "", undefined, ["gemini-3.1-flash-image"]]) assert.equal(srv.canonicalImageModel(x), x);
+  assert.equal(plain(srv.LEGACY_IMAGE_MODEL_IDS)[OLD], NEW);
+  const i = proxySrc.indexOf('const model = textLegacy ? textLegacy.model : canonicalImageModel(body.model || "gpt-image-2.5-sunburst");');
   assert.ok(i > 0, "the request's model is mapped where it is read");
   assert.ok(i < proxySrc.indexOf("const imageGate = checkImage(account, { model, imageSize });") && i < proxySrc.indexOf("const imageRouteOk ="));
-  assert.ok(proxySrc.includes("if (model !== (body.model || \"gpt-image-2\") && !legacyImageModelLogged) {") && proxySrc.includes("legacyImageModelLogged = true;"));
+  assert.ok(proxySrc.includes("if (!textLegacy && model !== (body.model || \"gpt-image-2.5-sunburst\") && !legacyImageModelLogged) {") && proxySrc.includes("legacyImageModelLogged = true;"));
   assert.ok(/import \{[^}]*canonicalImageModel,[^}]*\} from "\.\/billing-pricing\.mjs";/.test(proxySrc));
   // what the mapped request is charged and allowed
   const none = { plan: "none", trial: true, remaining: 50 };
@@ -202,7 +203,7 @@ await test("E the server maps Lite's id before the plan gate, the price and the 
 await test("F an old asset made with Lite still shows 'Nano Banana 2 Lite' where its engine is displayed", () => {
   assert.equal(A.nbModelLabel(OLD), "Nano Banana 2 Lite");
   assert.equal(A.nbModelLabel(NEW), "Nano Banana 2.1");
-  assert.equal(A.nbModelLabel("gpt-image-2"), "GPT Image 2");
+  assert.equal(A.nbModelLabel("gpt-image-2"), "GPT Image 2", "the removed engines keep their historical labels too");
   assert.equal(A.nbModelLabel("mystery"), "mystery");
   const art = read("app/artroom.jsx");
   assert.ok(art.includes('|| (typeof nbModelLabel==="function" ? nbModelLabel(meta.modelId) :'), "Details");
@@ -228,8 +229,7 @@ await test("G Frances: the engine list and drafts name Nano Banana 2.1 at 1K; sh
   assert.ok(!/Nano Banana 2 Lite|2 Lite\b/.test(all), "no Lite name in the manifest");
   assert.ok(!/drafts?[^.]{0,60}up to 2K/i.test(all), "drafts are never 'up to 2K'");
   const img = F.APP_FEATURES.find((f) => f.name === "Generating images (Art Room)").what;
-  assert.ok(img.includes("'Nano Banana 2.1' (fast and the lowest cost"));
-  assert.ok(img.includes("Nano Banana Pro, Nano Banana 2, Nano Banana 2.1, GPT Image 2"));
+  assert.ok(img.includes("'Nano Banana 2.1' (the default: fast and the lowest cost"));
   assert.ok(img.includes("images are drafts — Nano Banana 2.1 at 1K"));
   assert.ok(img.includes("replaced the earlier Lite engine"));
   const trial = F.APP_FEATURES.find((f) => /^A plan is required/.test(f.name)).what;
@@ -260,7 +260,7 @@ await test("H no user-facing literal names 'Nano Banana 2 Lite' (but the histori
     }
   }
   assert.deepEqual(hits, ["app/imagegen.jsx: Nano Banana 2 Lite"], "only NB_HISTORICAL_MODEL_LABELS");
-  assert.ok(read("app/imagegen.jsx").includes('const NB_HISTORICAL_MODEL_LABELS = { "gemini-3.1-flash-lite-image":"Nano Banana 2 Lite" };'));
+  assert.ok(read("app/imagegen.jsx").includes('  "gemini-3.1-flash-lite-image":"Nano Banana 2 Lite",'));
   assert.deepEqual(drafts, []);
   assert.ok(read("app/imagegen.jsx").includes('"Without a plan, images are drafts (Nano Banana 2.1 at 1K). Choose a plan for every image engine."'));
   assert.ok(!/NB2 Lite/.test(read("app/artroom.jsx")) && read("app/artroom.jsx").includes('model==="gemini-nano-banana-2.1" ? "NB2.1"'), "the dock chip");
@@ -282,7 +282,7 @@ await test("H the price-drift watcher follows Nano Banana 2.1's fal page (its im
 await test("keys: the changed app files are re-keyed", () => {
   const html = read("TURN.html");
   for (const f of ["imagegen", "artroom", "plans", "pricing", "pricing-watch", "ai", "script"])
-    assert.ok(["20261010-nb21", "20261010-like1", "20261010-pron1", "20261010-del1", "20261010-pose2", "20261010-voice1", "20261011-voice2"].some(k=>html.includes('src="app/' + f + '.jsx?v=' + k + '"')), f);
+    assert.ok(["20261010-nb21", "20261010-like1", "20261010-pron1", "20261010-del1", "20261010-pose2", "20261010-voice1", "20261011-voice2", "20261011-eng1"].some(k=>html.includes('src="app/' + f + '.jsx?v=' + k + '"')), f);
 });
 
 console.log(`\n${checks} passed, ${failed} failed`);

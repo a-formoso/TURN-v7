@@ -436,7 +436,7 @@ await test("I pricing.jsx: 1 visible credit = $0.01 of provider cost (base ancho
   assert.equal(R.TURN_PRICING.credit.baseProviderUsd, 0.10);
   assert.equal(R.TURN_PRICING.credit.visibleProviderUsd, 0.01);
   assert.equal(R.CREDIT_SCALE, 10);
-  assert.equal(Math.ceil(R.turnCreditsFromProviderUsd(0.12)), 12, "Nano Banana 2 at 2K via fal");
+  assert.equal(Math.ceil(R.turnCreditsFromProviderUsd(0.12)), 12, "a $0.12 image");
   assert.equal(Math.ceil(R.turnCreditsFromProviderUsd(0.101)), 11, "today's table value → 11 (the review's number)");
   assert.equal(Math.ceil(R.turnCreditsFromProviderUsd(0.30)), 30);
 });
@@ -472,14 +472,14 @@ await test("I the client's tables ARE the server's (image-proxy billing-pricing.
   assert.deepEqual(plain(R.TURN_PRICING.image.providerUsd), plain(srv.IMAGE_PROVIDER_USD));
   assert.deepEqual(plain(R.TURN_PRICING.video.providerUsdPerSecond), plain(srv.VIDEO_PROVIDER_USD_PER_SECOND));
   for (const usd of [0.005, 0.012, 0.034, 0.05, 0.08, 0.101, 0.12, 0.15, 0.158, 0.3, 1.517, 3.034, 23.25]) assert.equal(R.turnCreditCost(usd), srv.creditsFromUsd(usd), String(usd));
-  for (const m of ["gpt-image-2", "gpt-image-2.5-flare"]) for (const a of ["16:9", "9:16", "21:9", "1:1", "3:4", "4:3"]) for (const z of ["1K", "2K", "4K"])
+  for (const m of ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) for (const a of ["16:9", "9:16", "21:9", "1:1", "3:4", "4:3"]) for (const z of ["1K", "2K", "4K"])
     assert.ok(Math.abs(R.turnGptImageSizeFactor(m, a, z) - srv.gptImageSizeFactor(m, a, z)) < 1e-12, m + " " + a + " " + z);
   assert.deepEqual(plain(P.TURN_DRAFT_IMAGE), { ...plain(pol.DRAFT_IMAGE), label: "Nano Banana 2.1" });
   assert.deepEqual(plain(P.TURN_TRIAL_TEXT_MODELS), plain(pol.DEFAULT_TEXT_MODELS), "the default writing engines");
   P.turnIsAdmin = false; P.turnIsPaidPlan = paidFn;
-  assert.equal(P.turnTextModelAllowed("claude-fable-5-1", { remaining: 50, plan: "none", trial: true }), false);
+  assert.equal(P.turnTextModelAllowed("claude-fable-5", { remaining: 50, plan: "none", trial: true }), false);
   assert.equal(P.turnTextModelAllowed("claude-opus-5-5", { remaining: 50, plan: "none", trial: true }), true);
-  assert.equal(P.turnTextModelAllowed("claude-fable-5-1", { remaining: 500, plan: "writer" }), true);
+  assert.equal(P.turnTextModelAllowed("claude-fable-5", { remaining: 500, plan: "writer" }), true);
   assert.equal(P.turnOnFreeTier({ remaining: 5, plan: "none" }), true);
   assert.equal(P.turnOnFreeTier({ remaining: 5, plan: "director" }), false);
   // video: the Stage's quote for 10 s of Seedance 2.0 720p equals the server's charge
@@ -512,21 +512,24 @@ function imageBox(extra){
 const I = imageBox({ CREDIT_SCALE: 10 });
 vm.runInContext(read("app/imagegen.jsx"), I, { filename: "app/imagegen.jsx" });
 await test("I imagegen: without pricing.jsx the fallback anchor is also $0.01 and the fallback table is fal's; a batch costs count × the whole per-image price", () => {
-  I.localStorage.setItem("turn-nb-model", "gemini-3.1-flash-image");
+  // the engines (2026-10-11, owner — image engines): Nano Banana 2.1, GPT Image 2.5 Flare / Sunburst, Seedream 5 Pro
+  I.localStorage.setItem("turn-nb-model", "gemini-nano-banana-2.1");
   I.localStorage.setItem("turn-nb-res", "2K");
-  assert.ok(Math.abs(I.nbImageCredits({ model: "gemini-3.1-flash-image", res: "2K" }) - 12) < 1e-9);
-  assert.equal(I.nbImageCostText(1, { model: "gemini-3.1-flash-image", res: "2K" }), "12");
-  assert.equal(I.nbImageCostText(1, { model: "gemini-3.1-flash-image", res: "1K" }), "8");
-  assert.equal(I.nbImageCostText(3, { model: "gemini-3-pro-image", res: "2K" }), "45");
-  assert.equal(I.nbImageCostText(1, { model: "gemini-3-pro-image", res: "4K" }), "30", "Nano Banana Pro 4K is no longer charged below cost");
+  assert.ok(Math.abs(I.nbImageCredits({ model: "gemini-nano-banana-2.1", res: "2K" }) - 7) < 1e-9);
+  assert.equal(I.nbImageCostText(1, { model: "gemini-nano-banana-2.1", res: "2K" }), "7");
+  assert.equal(I.nbImageCostText(1, { model: "gemini-nano-banana-2.1", res: "1K" }), "5");
+  assert.equal(I.nbImageCostText(3, { model: "seedream-5-pro", res: "2K", aspect: "16:9" }), "42", "Seedream 5 Pro 2K = $0.135");
+  assert.equal(I.nbImageCostText(1, { model: "seedream-5-pro", res: "1K", aspect: "16:9" }), "7", "Seedream 5 Pro 1K = $0.0675");
+  assert.equal(I.nbImageCostText(1, { model: "gemini-3-pro-image", res: "4K" }), "15", "Nano Banana Pro's old id is priced as Nano Banana 2.1");
   assert.ok(!/\/ 0\.30\)/.test(read("app/imagegen.jsx")), "old $0.30 base anchor gone");
 });
 await test("I with pricing.jsx loaded, GPT Image cost follows the output size (as the server prices it); fractions round per image", () => {
   const J = imageBox({ CREDIT_SCALE: 10 });
   run(J, "app/pricing.jsx");
   vm.runInContext(read("app/imagegen.jsx"), J, { filename: "app/imagegen.jsx" });
-  assert.equal(J.nbImageCostText(1, { model: "gpt-image-2", quality: "high", res: "2K", aspect: "16:9" }), "18", "$0.158 × (2048×1152 / 1920×1080)^0.672 = $0.172");
-  assert.equal(J.nbImageCostText(1, { model: "gpt-image-2", quality: "high", res: "4K", aspect: "16:9" }), "41", "≈ fal's $0.401 at 4K");
+  assert.equal(J.nbImageCostText(1, { model: "gpt-image-2.5-sunburst", quality: "high", res: "2K", aspect: "16:9" }), "10", "$0.05268 × (2048×1152 / 1024×1024)^0.672 = $0.0908");
+  assert.equal(J.nbImageCostText(1, { model: "gpt-image-2.5-sunburst", quality: "high", res: "4K", aspect: "16:9" }), "22", "$0.05268 × (3840×2160 / 1024×1024)^0.672 = $0.2115");
+  assert.equal(J.nbImageCostText(1, { model: "gpt-image-2", quality: "high", res: "2K", aspect: "16:9" }), "10", "GPT Image 2's old id is priced as GPT Image 2.5 Sunburst");
   assert.equal(J.nbImageCostText(2, { model: "gemini-nano-banana-2.1", res: "1K" }), "10");
   assert.equal(J.nbImageCostText(1, { model: "gemini-nano-banana-2.1", res: "2K" }), "7");
   assert.equal(J.nbImageCostText(1, { model: "gemini-nano-banana-2.1", res: "4K" }), "15");
@@ -537,32 +540,35 @@ await test("I trial / no-plan accounts: the cost chip and the request use the dr
   run(I, "app/plans.jsx");
   I.turnIsPaidPlan = paidFn; I.turnIsAdmin = false;
   I.turnCreditBalance = { remaining: 50, plan: "none", trial: true };
-  assert.deepEqual({ ...I.turnPlanImageChoice("gpt-image-2", "4K") }, { model: "gemini-nano-banana-2.1", res: "1K", limited: true });
+  assert.deepEqual({ ...I.turnPlanImageChoice("gpt-image-2.5-sunburst", "4K") }, { model: "gemini-nano-banana-2.1", res: "1K", limited: true });
+  assert.deepEqual({ ...I.turnPlanImageChoice("seedream-5-pro", "2K") }, { model: "gemini-nano-banana-2.1", res: "1K", limited: true });
   assert.deepEqual({ ...I.turnPlanImageChoice("gemini-nano-banana-2.1", "2K") }, { model: "gemini-nano-banana-2.1", res: "1K", limited: true });
   assert.deepEqual({ ...I.turnPlanImageChoice("gemini-3.1-flash-lite-image", "1K") }, { model: "gemini-nano-banana-2.1", res: "1K", limited: false }, "Lite's old id is the draft engine");
-  assert.equal(I.nbImageCostText(1, { model: "gpt-image-2", quality: "high" }), "5", "Nano Banana 2.1 at 1K = $0.05");
+  assert.equal(I.nbImageCostText(1, { model: "gpt-image-2.5-sunburst", quality: "high" }), "5", "Nano Banana 2.1 at 1K = $0.05");
   const calls = [];
   I.proxyGenerate = async (prompt, opts, provider) => { calls.push({ prompt, opts: { ...opts }, provider }); return "data:image/png;base64,X"; };
   I.nbAssertMediaIdentity = noop;
-  await I.nbGenerate("poster", { model: "gpt-image-2", quality: "high", imageSize: "4K", aspectRatio: "9:16" });
+  await I.nbGenerate("poster", { model: "gpt-image-2.5-sunburst", quality: "high", imageSize: "4K", aspectRatio: "9:16" });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].opts.model, "gemini-nano-banana-2.1");
   assert.equal(calls[0].opts.imageSize, "1K");
   assert.equal("quality" in calls[0].opts, false);
   assert.equal(calls[0].opts.aspectRatio, "9:16");
   assert.equal(I.toasts.filter((t) => /^Without a plan, images are drafts \(Nano Banana 2\.1 at 1K\)\. Choose a plan for every image engine\.$/.test(t.m)).length, 1);
-  await I.nbGenerate("again", { model: "gpt-image-2", imageSize: "1K" });
+  await I.nbGenerate("again", { model: "gpt-image-2.5-sunburst", imageSize: "1K" });
   assert.equal(calls[1].opts.imageSize, "1K");
   assert.equal(I.toasts.filter((t) => /^Without a plan, images are drafts \(Nano Banana 2\.1 at 1K\)\. Choose a plan for every image engine\.$/.test(t.m)).length, 1, "told once");
   I.turnCreditBalance = { remaining: 900, plan: "director" };
-  await I.nbGenerate("paid", { model: "gpt-image-2", quality: "high", imageSize: "4K" });
-  assert.equal(calls[2].opts.model, "gpt-image-2"); assert.equal(calls[2].opts.quality, "high");
+  await I.nbGenerate("paid", { model: "gpt-image-2.5-sunburst", quality: "high", imageSize: "4K" });
+  assert.equal(calls[2].opts.model, "gpt-image-2.5-sunburst"); assert.equal(calls[2].opts.quality, "high");
   I.turnCreditBalance = { remaining: 50, plan: "none", trial: true }; I.turnIsAdmin = true;
-  await I.nbGenerate("admin", { model: "gpt-image-2", quality: "high" });
-  assert.equal(calls[3].opts.model, "gpt-image-2", "admin is never limited");
+  await I.nbGenerate("admin", { model: "gpt-image-2.5-sunburst", quality: "high" });
+  assert.equal(calls[3].opts.model, "gpt-image-2.5-sunburst", "admin is never limited");
   I.turnIsAdmin = false; I.turnCreditBalance = null;
-  await I.nbGenerate("dev", { model: "gpt-image-2", quality: "high" });
-  assert.equal(calls[4].opts.model, "gpt-image-2", "no ledger (local/dev): unchanged — the server stays the gate");
+  await I.nbGenerate("dev", { model: "gpt-image-2.5-sunburst", quality: "high" });
+  assert.equal(calls[4].opts.model, "gpt-image-2.5-sunburst", "no ledger (local/dev): unchanged — the server stays the gate");
+  await I.nbGenerate("old", { model: "gpt-image-2", quality: "high" });
+  assert.equal(calls[5].opts.model, "gpt-image-2.5-sunburst", "an old option naming GPT Image 2 renders on Sunburst");
 });
 
 /* ════════ J: videogen — the server charges ════════ */
@@ -1627,8 +1633,8 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     assert.equal(changed, true);
     assert.equal(N.TURN_PRICING.credit.baseProviderUsd, 0.30);
     assert.equal(N.turnCreditCost(3.034), 102, "10 s of 720p = 102, as the server charges before the switch");
-    assert.equal(N.turnCreditCost(0.12), 4, "Nano Banana 2 at 2K");
-    assert.equal(N.TURN_PRICING.text.creditRates["claude-fable-5-1"], 0.11, "the text fallbacks scale too");
+    assert.equal(N.turnCreditCost(0.12), 4, "a $0.12 image");
+    assert.equal(N.TURN_PRICING.text.creditRates["claude-fable-5"], 0.11, "the text fallbacks scale too");
     assert.ok(N.events.some((e) => e.type === "turn-pricing-changed") && N.events.some((e) => e.type === "turn-credit-regime-changed"), "derived copies refresh");
     assert.deepEqual(cards(), [["writer", 800, "800 credits / month"], ["director", 2400, "2,400 credits / month"], ["studio", 9000, "9,000 credits / month"]]);
     assert.equal(N.turnTrialCopy(), "", "no trial before the switch (the database grants none)");
@@ -1708,7 +1714,7 @@ await test("M brand: the new copy names no retired name (TURN, MUSE, Cinema Mach
     N.location.hostname = "kinolot.infinitestudioai.com";
     assert.ok(N.TURN_LEGACY_CREDIT_PACKS.every((p) => !N.turnPackOnSale(p)), "F21: an old pack is never on sale after the switch (it would grant a third of its price)");
     N.location.hostname = "localhost";
-    assert.equal(N.TURN_PRICING.text.creditRates["claude-fable-5-1"], 0.33);
+    assert.equal(N.TURN_PRICING.text.creditRates["claude-fable-5"], 0.33);
     assert.deepEqual(cards(), [["writer", 600, "600 credits / month"], ["director", 1600, "1,600 credits / month"], ["studio", 5000, "5,000 credits / month"]]);
     assert.equal(N.turnTrialCopy(), N.TURN_TRIAL_COPY);
     assert.equal(N.lpPricingNote(), LP_TRIAL+" Need more? Credit packs from $10 for any account — pack credits last 12 months.");
@@ -2357,7 +2363,7 @@ await test("W (F26) APP_FEATURES no longer describes the retired browser spend q
   assert.ok(!ai.includes("Generate/Regenerate (1 image credit"));
   assert.ok(!ai.includes('13 credits — 13s × 720p × Standard'));
   assert.ok(ai.includes("RENDER CREDITS ARE HANDLED ON THE SERVER: the browser records no spend — the server holds a render's credits when it is submitted"));
-  assert.ok(ai.includes("its cost is on the button's chip — about 12 credits for a 2K image on Nano Banana 2, the default engine"));
+  assert.ok(ai.includes("its cost is on the button's chip — about 7 credits for a 2K image on Nano Banana 2.1, the default engine"));
   assert.ok(ai.includes('e.g. \\"304 credits — 10s × 720p × Standard\\"'));
   // the numbers in them are the app's own
   assert.equal(R.turnCreditCost(0.12), 12, "Nano Banana 2 at 2K");

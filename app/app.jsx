@@ -2500,16 +2500,16 @@ function App(){
         "where a title would sit — but render absolutely NO text, NO title, NO lettering, NO logos. "+
         "Dramatic camera angle (low, high or telephoto compression), never a flat eye-level frontal lineup "+
         "of people looking into the camera. Vertical theatrical framing.";
-      // Paint dashboard posters with GPT Image 2 (server-side via the proxy) at
-      // HIGH quality / 2K — key art is a hero surface, not a thumbnail. Fall
-      // back to the default model only if that id isn't available (proxy off).
+      // Paint dashboard posters with GPT Image 2.5 Sunburst (server-side via the proxy) at
+      // HIGH quality / 2K — key art is a hero surface, not a thumbnail (2026-10-11, owner — image engines:
+      // it was GPT Image 2, removed). Fall back to the default model only if that id isn't available.
       const genOpts = { aspectRatio:"9:16", quality:"high", imageSize:"2K" };
       if(canon.identityCast && canon.identityCast.length){
         Object.assign(genOpts,{identityLive:false, identityCast:canon.identityCast,
           identityCharacterIds:canon.identityCast.map(c=>c.id), identityContext:canon.identityContext});
         if(typeof window.turnIdentityPrompt==="function") prompt += "\n"+window.turnIdentityPrompt(canon.identityCast);
       }
-      if((window.NB_MODELS||[]).some(m=>m.id==="gpt-image-2")) genOpts.model = "gpt-image-2";
+      if((window.NB_MODELS||[]).some(m=>m.id==="gpt-image-2.5-sunburst")) genOpts.model = "gpt-image-2.5-sunburst";
       if(refs.length) genOpts.extraImages = refs;
       let url = await window.nbGenerate(prompt, { ...genOpts, projectId:proj.id, assetId:"cover", assetPurpose:"poster" });
       if(!url) throw new Error("The poster came back empty — try again.");
@@ -7490,7 +7490,7 @@ function App(){
       return { likenessSkipped:true };
     };
     // Use the SAME image model the master sheet was made with (from its meta) so a variant matches
-    // it; else prefer GPT Image 2 (best identity-lock + what the cast masters use, and it avoids the
+    // it; else prefer GPT Image (best identity-lock + what the cast masters use, and it avoids the
     // Google models' "no image" safety refusals on injury/blood states); else the current model.
     const _gpt2m = (window.NB_MODELS||[]).find(m=>/gpt-image/i.test(m.id));
     const _modelFor = (c)=>{ const m=(typeof nbGetMeta==="function")?nbGetMeta(c.id):null;

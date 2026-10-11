@@ -11,7 +11,7 @@ window.TURN_SUPABASE = {
   /* Server-side proxy. When TRUE, generation is routed through the `image-proxy`
      Supabase Edge Function. The function normally uses platform keys stored as
      server secrets; the admin-only API Keys modal can override them for testing.
-     Image generation is fal.ai-first (Nano Banana variants, GPT Image 2, and GPT Image 2.5),
+     Image generation is fal.ai-first (Nano Banana 2.1, GPT Image 2.5 and Seedream 5 Pro),
      writing/text stays with the selected text provider, Stage video stays on
      fal.ai, ElevenLabs voice-library operations stay on ElevenLabs, and MUSE's
      live New Story conversation opens a secure WebRTC session through this

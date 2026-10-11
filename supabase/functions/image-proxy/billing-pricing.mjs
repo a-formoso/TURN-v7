@@ -14,11 +14,12 @@
 
    WHAT IS PRICED HERE
      text   per-million-token list prices (input / output / cache read), with dated price changes
-            (Gemini 3.8 Flash doubles on 2027-01-01) and the model-id aliases the app sends
-            (gpt-5.5-2026-04-23 → gpt-5.5). An unknown model has NO price: the proxy refuses it
-            rather than billing it at a guessed rate.
-     images fal's own prices (the app buys Nano Banana through fal), a separate table for the
-            direct Google route, and GPT Image priced by output size.
+            (Gemini 3.8 Flash doubles on 2027-01-01), the writing engines that were removed mapped to
+            a successor (LEGACY_WRITING_MODELS) and OpenAI's prompt-cache writes (GPT-6 family, 1.25x
+            input). An unknown model has NO price: the proxy refuses it rather than billing it at a
+            guessed rate.
+     images fal's own prices (the app buys every image engine through fal), a separate table for the
+            direct Google route, GPT Image priced by output size and Seedream 5 Pro by output area.
      video  per output second, per model / tier / resolution; Seedance with video references is
             billed on input + output seconds at 0.6x (fal's formula).
      voice  text-to-speech by characters, speech-to-text by duration, voice design and cloning
@@ -26,9 +27,11 @@
 
    Sources (checked 2026-09-29 unless noted): platform.claude.com/docs/en/about-claude/pricing,
    developers.openai.com/api/docs/pricing, ai.google.dev/gemini-api/docs/pricing,
-   platform.kimi.ai/docs/pricing/chat, fal.ai/models/* (Nano Banana 2 / Pro, GPT Image 2,
-   Seedance 2.0 / 2.5, Kling v3), elevenlabs.io/pricing/api; Nano Banana 2.1 (fal.ai/models/google/
-   nano-banana-2.1 and Google's Gemini API pricing) checked 2026-10-10. */
+   fal.ai/models/* (Seedance 2.0 / 2.5, Kling v3),
+   elevenlabs.io/pricing/api; Nano Banana 2.1 (fal.ai/models/google/nano-banana-2.1 and Google's Gemini API
+   pricing) checked 2026-10-10; GPT Image 2.5 and Seedream 5 Pro (fal.ai/models/openai/gpt-image-2.5/*,
+   fal.ai/models/bytedance/seedream/v5/pro/*) and GPT-6.1 Sol (developers.openai.com/api/docs/models/gpt-6.1-sol,
+   …/guides/prompt-caching) checked 2026-10-11. */
 
 export const PROVIDER_USD_PER_CREDIT = 0.01;
 /* The unit BEFORE the switch day (1 credit = $0.03). Balances are in this unit until
@@ -74,26 +77,22 @@ export const TEXT_PROVIDER_USD_PER_1M = Object.freeze({
   "claude-opus-5": { input: 5, output: 25 },
   "claude-opus-5-5": { input: 4, output: 20 },
   "claude-fable-5": { input: 10, output: 50 },
-  "claude-fable-5-1": { input: 10, output: 50 },
   // Google introductory Gemini 3.8 Flash pricing through 2026-12-31 (see TEXT_PRICE_CHANGES).
   "gemini-3.8-flash": { input: 0.75, output: 3.75 },
-  // was billed at 0.35 / 1.05 (4-9x too little) until 2026-09-30
-  "gemini-3.5-flash": { input: 1.5, output: 9 },
-  // up to 272K input tokens; above that TEXT_LONG_CONTEXT applies
+  // up to 272K input tokens; above that TEXT_LONG_CONTEXT applies (both GPT-6 engines)
   "gpt-6-astra": { input: 10, output: 50 },
-  // the app sends gpt-5.5-2026-04-23, which missed the old exact lookup and fell to $1 / $4
-  "gpt-5.5": { input: 5, output: 30 },
-  "kimi-k3": { input: 3, output: 15 },
-  "kimi-k2.7-code": { input: 0.95, output: 4 },
+  "gpt-6.1-sol": { input: 2, output: 10 },
 });
 
 /* Cached-input (cache READ) prices per 1M tokens. Writing to Anthropic's 5-minute cache costs
-   1.25x the input price (TEXT_CACHE_WRITE_MULTIPLIER). */
+   1.25x the input price (TEXT_CACHE_WRITE_MULTIPLIER), and so does OpenAI's automatic cache on the
+   GPT-6 family (textCachesByDefault). */
 export const TEXT_CACHE_READ_USD_PER_1M = Object.freeze({
   "claude-opus-5": 0.5,
   "claude-opus-5-5": 0.2,
   "claude-fable-5": 1,
-  "claude-fable-5-1": 0.25,
+  "gpt-6-astra": 1,
+  "gpt-6.1-sol": 0.1,
 });
 export const TEXT_CACHE_WRITE_MULTIPLIER = 1.25;
 
@@ -104,13 +103,38 @@ export const TEXT_PRICE_CHANGES = Object.freeze([
 
 /* Long-context tiers: above `aboveInputTokens` input tokens the whole call costs these rates. */
 export const TEXT_LONG_CONTEXT = Object.freeze({
-  "gpt-6-astra": Object.freeze({ aboveInputTokens: 272000, input: 20, output: 75 }),
+  "gpt-6-astra": Object.freeze({ aboveInputTokens: 272000, input: 20, output: 75, cacheRead: 2 }),
+  "gpt-6.1-sol": Object.freeze({ aboveInputTokens: 272000, input: 4, output: 15, cacheRead: 0.2 }),
 });
 
 /* Model ids the app sends that are dated snapshots of a priced model. */
-export const TEXT_MODEL_ALIASES = Object.freeze({
-  "gpt-5.5-2026-04-23": "gpt-5.5",
+export const TEXT_MODEL_ALIASES = Object.freeze({});
+
+/* THE WRITING ENGINES (2026-10-11, owner — "keep the three main ones"): Claude, Gemini and GPT only. Kimi K3 and
+   K2.7 (the Moonshot route), Fable 5.1, Gemini 3.5 Flash and GPT-5.5 were removed; a request from an older app that
+   names one is served on its successor — the same provider's nearest engine, or a default engine for Kimi — before
+   the plan gate, the price and the route (index.ts). */
+export const LEGACY_WRITING_MODELS = Object.freeze({
+  "claude-fable-5-1": Object.freeze({ provider: "anthropic", model: "claude-fable-5" }),
+  "gemini-3.5-flash": Object.freeze({ provider: "google", model: "gemini-3.8-flash" }),
+  "gpt-5.5": Object.freeze({ provider: "openai", model: "gpt-6.1-sol" }),
+  "gpt-5.5-2026-04-23": Object.freeze({ provider: "openai", model: "gpt-6.1-sol" }),
+  "kimi-k3": Object.freeze({ provider: "anthropic", model: "claude-opus-5-5" }),
+  "kimi-k2.7-code": Object.freeze({ provider: "google", model: "gemini-3.8-flash" }),
 });
+/** A writing request's { provider, model } with a removed engine replaced by its successor (null = unchanged). */
+export function legacyWritingModel(model) {
+  const id = String(model || "").trim();
+  return Object.prototype.hasOwnProperty.call(LEGACY_WRITING_MODELS, id) ? LEGACY_WRITING_MODELS[id] : null;
+}
+
+/* OpenAI caches every prompt of 1,024 tokens or more by itself, and on the GPT-6 family a cache WRITE costs 1.25x the
+   input price (reads are cheaper). The hold therefore prices every input token as a write, like a Claude call with
+   `promptCache`, and the settle bills what the usage reports (normaliseTextUsage). */
+export const OPENAI_CACHE_MIN_TOKENS = 1024;
+export function textCachesByDefault(model) {
+  return /^gpt-6(?:$|[.-])/.test(String(textPriceKey(model) || model || ""));
+}
 
 /* Vision calls (usageKind "vision") keep the proxy's 1.5x policy. */
 export const VISION_MULTIPLIER = 1.5;
@@ -208,8 +232,9 @@ export function textRates(model, { nowMs = Date.now(), inputTokens = 0 } = {}) {
     if (c.model === key && Number(nowMs) >= Date.parse(c.from)) ({ input, output } = c);
   }
   const long = TEXT_LONG_CONTEXT[key];
-  if (long && Number(inputTokens) > long.aboveInputTokens) ({ input, output } = long);
-  const cacheRead = TEXT_CACHE_READ_USD_PER_1M[key] ?? input;
+  const isLong = !!long && Number(inputTokens) > long.aboveInputTokens;
+  if (isLong) ({ input, output } = long);
+  const cacheRead = (isLong && long.cacheRead != null) ? long.cacheRead : (TEXT_CACHE_READ_USD_PER_1M[key] ?? input);
   return { key, input, output, cacheRead, cacheWrite: input * TEXT_CACHE_WRITE_MULTIPLIER };
 }
 
@@ -286,8 +311,7 @@ function textTokenBound(s) {
 
 /**
  * THE TEXT OF ONE CHAT MESSAGE, EXACTLY AS EVERY PROVIDER CALL SENDS IT (round 3, S1). Every
- * writing-provider branch in index.ts sends this string (Google's text part, OpenAI's and Kimi's
- * `content`, Anthropic's turns and system prompt), and the hold's estimate below counts this same
+ * writing-provider branch in index.ts sends this string (Google's text part, OpenAI's `content`, Anthropic's turns and system prompt), and the hold's estimate below counts this same
  * string — one normaliser, so the two can't drift apart. Content that isn't a string is sent as
  * String(content): an array of strings arrives joined, whole (the round-2 verification's case: it
  * used to be estimated at ~0 tokens while the provider read — and billed — all of it). Images are
@@ -338,6 +362,7 @@ export function textHoldEstimate({ model, messages, imageCount = 0, outputCap, v
   const inputTokens = estimateInputTokens(messages, imageCount);
   const rates = textRates(model, { nowMs, inputTokens });
   if (!rates) return null;
+  promptCache = !!promptCache || textCachesByDefault(model);
   const cap = Math.max(0, Math.floor(Number(outputCap) || 0));
   const providerCostUsd = textCostUsd(rates, promptCache
     ? { cacheWriteTokens: inputTokens, outputTokens: cap }
@@ -366,7 +391,7 @@ export function cheapestTextHold({ models, messages, imageCount = 0, vision = fa
   let best = null;
   for (const model of Array.isArray(models) ? models : []) {
     const h = textHoldEstimate({ model, messages, imageCount, outputCap: textMinOutputCap(model), vision,
-      promptCache: !!promptCache && /^claude-/.test(String(model)), nowMs, unit });
+      promptCache: (!!promptCache && /^claude-/.test(String(model))) || textCachesByDefault(model), nowMs, unit });
     if (h && (best == null || h.credits < best)) best = h.credits;
   }
   return best;
@@ -386,7 +411,7 @@ export function affordableOutputCap({ model, messages, imageCount = 0, wantedCap
   const floor = Math.min(Math.max(0, Math.floor(Number(minCap) || 0)), want);
   const rates = textRates(model, { nowMs, inputTokens: full.inputTokens });
   const mult = vision ? VISION_MULTIPLIER : 1;
-  const inputUsd = (full.inputTokens * (promptCache ? rates.cacheWrite : rates.input)) / 1e6;
+  const inputUsd = (full.inputTokens * ((promptCache || textCachesByDefault(model)) ? rates.cacheWrite : rates.input)) / 1e6;
   const budgetUsd = (avail * creditUnit(unit) - webSearchHoldUsd(rates, webSearches)) / mult - inputUsd;
   let cap = Math.min(want, Math.floor((budgetUsd * 1e6) / rates.output));
   // step down past any rounding edge until the hold really fits
@@ -394,8 +419,9 @@ export function affordableOutputCap({ model, messages, imageCount = 0, wantedCap
   return cap >= floor && cap > 0 ? cap : 0;
 }
 
-/** Token usage from a provider's response, including cache and thinking tokens. */
-export function normaliseTextUsage(provider, data) {
+/** Token usage from a provider's response, including cache and thinking tokens. `model` tells an OpenAI call that
+ *  writes the prompt cache (textCachesByDefault) apart from one that doesn't. */
+export function normaliseTextUsage(provider, data, model = "") {
   const u = (data && (data.usage || data.usageMetadata || data.usage_metadata)) || {};
   const num = (x) => Math.max(0, Number(x) || 0);
   if (provider === "anthropic") {
@@ -415,6 +441,19 @@ export function normaliseTextUsage(provider, data) {
       cacheWriteTokens: 0, cacheReadTokens: 0,
     };
   }
+  if (provider === "openai" && textCachesByDefault(model)) {
+    // GPT-6 family: prompt_tokens counts every input token; the cached part is billed as a read and a reported write
+    // part as a write. With no write count reported, every uncached token of a cacheable prompt (1,024+) is billed as
+    // a write — at most what OpenAI charges, and never above the hold, which prices all input as a write.
+    const d = u.prompt_tokens_details || u.input_tokens_details || {};
+    const prompt = num(u.prompt_tokens ?? u.input_tokens);
+    const read = Math.min(prompt, num(d.cached_tokens));
+    const reported = d.cache_write_tokens ?? d.cache_creation_tokens ?? u.cache_write_tokens;
+    const write = reported != null ? Math.min(prompt - read, num(reported))
+      : (prompt >= OPENAI_CACHE_MIN_TOKENS ? prompt - read : 0);
+    return { inputTokens: prompt - read - write, outputTokens: num(u.completion_tokens ?? u.output_tokens),
+      cacheWriteTokens: write, cacheReadTokens: read };
+  }
   return { inputTokens: num(u.prompt_tokens), outputTokens: num(u.completion_tokens), cacheWriteTokens: 0, cacheReadTokens: 0 };
 }
 
@@ -431,24 +470,29 @@ export function textActualCost(model, tokens, { vision = false, free = false, no
 
 export const IMAGE_SIZES = Object.freeze(["1K", "2K", "4K"]);
 
-/* fal's prices per image — the route the app uses (fal.ai/models, 2026-09-29). Nano Banana 2:
-   $0.08, 2K x1.5, 4K x2. Nano Banana Pro: $0.15, 4K x2. Nano Banana 2.1 (2026-10-10, owner — it
-   replaces Nano Banana 2 Lite): fal bills it per token with no per-image fee and no surcharge for
-   resolution, web search or thinking (representative $0.040 / $0.059 / $0.134 at 1K / 2K / 4K for a
-   short prompt at medium thinking); the app charges $0.05 / $0.07 / $0.15 — that plus an allowance
-   for long prompts and references (no extra per reference image). The GPT Image rows are the price at the MODEL'S
-   BASELINE SIZE (GPT_IMAGE_BASELINE_MP) and scale with output size (gptImageSizeFactor): GPT Image
-   2 high is $0.158 at 1080p and $0.401 at 4K on fal. Keys match app/pricing.jsx
-   TURN_PRICING.image.providerUsd so the admin's reviewed "pricing-overrides" apply to both. */
+/* fal's prices per image — the route the app uses (fal.ai/models). THE ENGINES (2026-10-11, owner — image
+   engines): exactly Nano Banana 2.1, GPT Image 2.5 Flare, GPT Image 2.5 Sunburst and Seedream 5 Pro. Nano Banana 2,
+   Nano Banana Pro and GPT Image 2 were removed (a locked likeness rendered the wrong face on them); their ids are
+   mapped to a successor below (LEGACY_IMAGE_MODEL_IDS) and are never priced or served.
+     Nano Banana 2.1 (2026-10-10, owner — it replaced Nano Banana 2 Lite): fal bills it per token with no per-image
+       fee and no surcharge for resolution, web search or thinking (representative $0.040 / $0.059 / $0.134 at
+       1K / 2K / 4K for a short prompt at medium thinking); the app charges $0.05 / $0.07 / $0.15 — that plus an
+       allowance for long prompts and references (no extra per reference image).
+     GPT Image 2.5 Flare / Sunburst: the price at the MODEL'S BASELINE SIZE (GPT_IMAGE_BASELINE_MP, fal's canonical
+       1024x1024 row: low $0.00588, medium $0.01317, high $0.05268, xhigh $0.09366, max $0.21072 — 2026-10-11, the
+       low / medium / high rows were below fal's and are now fal's own), scaled with output size
+       (gptImageSizeFactor); "default" is high, "auto" is estimated at max.
+     Seedream 5 Pro (2026-10-11, owner): fal's tentative per-image price by the OUTPUT'S PIXEL AREA — $0.0675 up to
+       1536x1536 ("standard"), $0.135 above it up to 2048x2048 ("large") — plus, on the edit route (references),
+       $0.0045 for each input image after the first ("extraRef"). The tier comes from the exact width x height the
+       proxy sends (seedreamImageDimensions), never from the tier label.
+   Keys match app/pricing.jsx TURN_PRICING.image.providerUsd so the admin's reviewed "pricing-overrides" apply to
+   both. */
 export const IMAGE_PROVIDER_USD = Object.freeze({
   "gemini-nano-banana-2.1": { "1K": 0.05, "2K": 0.07, "4K": 0.15 },
-  "gemini-3.1-flash-image": { "1K": 0.08, "2K": 0.12, "4K": 0.16 },
-  "gemini-3-pro-image": { "1K": 0.15, "2K": 0.15, "4K": 0.30 },
-  "gpt-image-2": { low: 0.012, medium: 0.044, high: 0.158 },
-  // GPT Image 2.5 xhigh/max use the official canonical 1024-square output-token baseline;
-  // default aliases high; auto is estimated conservatively at max.
-  "gpt-image-2.5-flare": { default: 0.045, auto: 0.21072, low: 0.005, medium: 0.012, high: 0.045, xhigh: 0.09366, max: 0.21072 },
-  "gpt-image-2.5-sunburst": { default: 0.045, auto: 0.21072, low: 0.005, medium: 0.012, high: 0.045, xhigh: 0.09366, max: 0.21072 },
+  "gpt-image-2.5-flare": { default: 0.05268, auto: 0.21072, low: 0.00588, medium: 0.01317, high: 0.05268, xhigh: 0.09366, max: 0.21072 },
+  "gpt-image-2.5-sunburst": { default: 0.05268, auto: 0.21072, low: 0.00588, medium: 0.01317, high: 0.05268, xhigh: 0.09366, max: 0.21072 },
+  "seedream-5-pro": { standard: 0.0675, large: 0.135, extraRef: 0.0045 },
 });
 
 /* The DIRECT Google route (provider "google"): Google's own, lower prices. Only these models
@@ -456,33 +500,39 @@ export const IMAGE_PROVIDER_USD = Object.freeze({
    Nano Banana 2.1 (gemini-nano-banana-2.1): Google's standard price, $0.0336 / $0.0504 / $0.113. */
 export const GOOGLE_IMAGE_USD = Object.freeze({
   "gemini-nano-banana-2.1": { "1K": 0.0336, "2K": 0.0504, "4K": 0.113 },
-  "gemini-3.1-flash-image": { "1K": 0.067, "2K": 0.101, "4K": 0.151 },
-  "gemini-3-pro-image": { "1K": 0.134, "2K": 0.134, "4K": 0.24 },
 });
-/* The DIRECT OpenAI route (provider "openai") serves GPT Image 2 only. */
-export const OPENAI_DIRECT_IMAGE_MODELS = Object.freeze(["gpt-image-2"]);
+/* The DIRECT OpenAI image route is RETIRED (2026-10-11, owner — image engines): it served GPT Image 2 only, which
+   was removed. An older app's image request naming provider "openai" is served on fal (index.ts imageProvider),
+   where GPT Image 2.5 runs; this list stays empty so imageCost never prices the direct route. */
+export const OPENAI_DIRECT_IMAGE_MODELS = Object.freeze([]);
 
-/* RETIRED IMAGE ENGINES (2026-10-10, owner): an older app (a saved pick, a batch option) may still send
-   Nano Banana 2 Lite's id — the proxy renders and prices it as its successor, Nano Banana 2.1, before
-   the plan gate, the price and the route (index.ts). Lite itself is never served. Mirrors app/imagegen.jsx
-   NB_LEGACY_MODEL_IDS. */
-export const LEGACY_IMAGE_MODEL_IDS = Object.freeze({ "gemini-3.1-flash-lite-image": "gemini-nano-banana-2.1" });
+/* RETIRED IMAGE ENGINES: an older app (a saved pick, a batch option) may still send a retired engine's id — the
+   proxy renders and prices it as its successor before the plan gate, the price and the route (index.ts). The
+   retired engines themselves are never served. Mirrors app/imagegen.jsx NB_LEGACY_MODEL_IDS.
+     2026-10-10 (owner): Nano Banana 2 Lite → Nano Banana 2.1.
+     2026-10-11 (owner — image engines): Nano Banana 2 and Nano Banana Pro → Nano Banana 2.1; GPT Image 2 →
+       GPT Image 2.5 Sunburst (its low / medium / high quality is one of Sunburst's, so it is kept). */
+export const LEGACY_IMAGE_MODEL_IDS = Object.freeze({
+  "gemini-3.1-flash-lite-image": "gemini-nano-banana-2.1",
+  "gemini-3.1-flash-image": "gemini-nano-banana-2.1",
+  "gemini-3-pro-image": "gemini-nano-banana-2.1",
+  "gpt-image-2": "gpt-image-2.5-sunburst",
+});
 /** The image model id to serve: a retired engine's id → its successor; anything else unchanged. */
 export function canonicalImageModel(id) {
   return typeof id === "string" && Object.prototype.hasOwnProperty.call(LEGACY_IMAGE_MODEL_IDS, id) ? LEGACY_IMAGE_MODEL_IDS[id] : id;
 }
 
-/* web search on a fal Nano Banana render (Nano Banana 2 and 2.1, and Pro if one is ever sent): fal adds no
-   fee for it, but the search results count as input tokens — this is that allowance */
+/* web search on a fal Nano Banana 2.1 render (the only engine that grounds — 2026-10-11): fal adds no fee for it,
+   but the search results count as input tokens — this is that allowance */
 export const IMAGE_WEB_SEARCH_USD = 0.015;          // fal Nano Banana web search
 export const GOOGLE_GROUNDING_USD = 0.035;          // direct Google search grounding, per request (conservative)
 export const GPT_IMAGE_REFERENCE_USD = 0.012;       // per reference image (~1,500 image input tokens at $8 / 1M)
 export const GPT_IMAGE_BASELINE_MP = Object.freeze({
-  "gpt-image-2": 1920 * 1080 / 1e6,                  // fal's 1080p canonical size
   "gpt-image-2.5-flare": 1024 * 1024 / 1e6,          // canonical 1024-square
   "gpt-image-2.5-sunburst": 1024 * 1024 / 1e6,
 });
-/* fal's two GPT Image 2 points ($0.158 at 2.07 MP, $0.401 at 8.29 MP) fit cost ∝ MP^0.672. */
+/* fal's two GPT Image 2 points ($0.158 at 2.07 MP, $0.401 at 8.29 MP) fit cost ∝ MP^0.672 — kept for 2.5. */
 export const GPT_IMAGE_SIZE_EXPONENT = 0.672;
 
 /** GPT Image output pixels for TURN's aspect + resolution tier (the proxy's sizeForAspect). */
@@ -501,9 +551,43 @@ export function gptImageDimensions(aspect, imageSize) {
 
 /** How much a GPT Image render costs relative to its model's baseline size. */
 export function gptImageSizeFactor(model, aspect, imageSize) {
-  const base = GPT_IMAGE_BASELINE_MP[model] || GPT_IMAGE_BASELINE_MP["gpt-image-2"];
+  const base = GPT_IMAGE_BASELINE_MP[model] || GPT_IMAGE_BASELINE_MP["gpt-image-2.5-sunburst"];
   const [w, h] = gptImageDimensions(aspect, imageSize).split("x").map(Number);
   return Math.pow((w * h / 1e6) / base, GPT_IMAGE_SIZE_EXPONENT);
+}
+
+/* SEEDREAM 5 PRO (2026-10-11, owner — image engines). fal's image_size takes {width, height} with a total pixel
+   area between 1024x1024 and 2048x2048 and an aspect between 1/16 and 16 — no 4K. TURN offers 1K and 2K: 1K is the
+   smallest area at or above 1024x1024 for the aspect (≈1.05 MP → the $0.0675 tier), 2K the largest at or below
+   2048x2048 (≈4.1-4.19 MP → the $0.135 tier); a 4K request renders at 2K (seedreamImageSize). Both sides are
+   multiples of 16. Mirrored by app/pricing.jsx turnSeedreamImageDimensions. */
+export const SEEDREAM_MODEL = "seedream-5-pro";
+export const SEEDREAM_MIN_PIXELS = 1024 * 1024;
+export const SEEDREAM_MAX_PIXELS = 2048 * 2048;
+export const SEEDREAM_STANDARD_MAX_PIXELS = 1536 * 1536;   // fal's price step
+export const SEEDREAM_MAX_REFERENCES = 10;                  // fal's edit route uses at most 10 input images
+const SEEDREAM_ASPECTS = { "16:9": 16 / 9, "9:16": 9 / 16, "21:9": 21 / 9, "1:1": 1, "3:4": 3 / 4, "4:3": 4 / 3 };
+/** The resolution tier Seedream really renders: 1K stays 1K, anything else (2K, 4K) is 2K. */
+export function seedreamImageSize(imageSize) {
+  return imageSize === "1K" ? "1K" : "2K";
+}
+/** Seedream's exact output { width, height } for TURN's aspect + resolution tier (4K → 2K). */
+export function seedreamImageDimensions(aspect, imageSize) {
+  const r = SEEDREAM_ASPECTS[aspect] || SEEDREAM_ASPECTS["16:9"];
+  const big = seedreamImageSize(imageSize) === "2K";
+  const area = big ? SEEDREAM_MAX_PIXELS : SEEDREAM_MIN_PIXELS;
+  const snap = (v) => (big ? Math.floor(v / 16) : Math.ceil(v / 16)) * 16;
+  return { width: snap(Math.sqrt(area * r)), height: snap(Math.sqrt(area / r)) };
+}
+/** Seedream's provider USD for one render: the area tier of what is sent, plus each reference after the first. */
+export function seedreamCostUsd({ aspect = "16:9", imageSize = "2K", referenceImages = 0, table = IMAGE_PROVIDER_USD } = {}) {
+  const row = (table && table[SEEDREAM_MODEL]) || null;
+  if (!row) return null;
+  const { width, height } = seedreamImageDimensions(aspect, imageSize);
+  const tier = Number(width * height <= SEEDREAM_STANDARD_MAX_PIXELS ? row.standard : row.large);
+  if (!(tier > 0)) return null;
+  const refs = Math.min(SEEDREAM_MAX_REFERENCES, Math.max(0, Math.floor(Number(referenceImages) || 0)));
+  return tier + Math.max(0, refs - 1) * Math.max(0, Number(row.extraRef) || 0);
 }
 
 /* THE LONGEST IMAGE PROMPT (round 5, S4). An image is priced flat per render, but the direct Google
@@ -517,7 +601,7 @@ export const IMAGE_PROMPT_MAX_CHARS = 40000;
 
 /**
  * The cost of one image render, or null when the route does not serve the model.
- *   route         "fal" | "google" | "openai"
+ *   route         "fal" | "google" ("openai", the retired direct route, prices nothing)
  *   pricingKey    the validated quality's pricing key for GPT models (imagePricingQuality)
  *   table         the fal table with the admin's reviewed overrides merged in
  */
@@ -536,7 +620,10 @@ export function imageCost({ route = "fal", model, imageSize = "2K", aspect = "16
   } else {
     const row = (table && table[id]) || null;
     if (!row) return null;
-    if (isGpt) {
+    if (id === SEEDREAM_MODEL) {
+      usd = seedreamCostUsd({ aspect, imageSize: size, referenceImages, table });
+      if (!(usd > 0)) return null;
+    } else if (isGpt) {
       const base = Number(row[pricingKey || "high"] ?? row.high);
       if (!(base > 0)) return null;
       usd = base * gptImageSizeFactor(id, aspect, size) + Math.max(0, Number(referenceImages) || 0) * GPT_IMAGE_REFERENCE_USD;

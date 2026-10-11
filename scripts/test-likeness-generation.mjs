@@ -77,7 +77,7 @@ const reset = ()=>{
   W.nbDiscardSheetSave("char-1"); W.nbDiscardSheetSave("char-1:st1");
   W.dispatchEvent = noop;
   W.nbHasKeyForCurrent = ()=>true; W.nbEpoch = ()=>epoch; W.nbBackend = ()=>backend;
-  W.nbGetModel = ()=>"nano"; W.nbSetModel = noop; W.isGptImageModel = (m)=>/^gpt-image/.test(String(m||""));
+  W.nbGetModel = ()=>NB21; W.nbSetModel = noop; W.isGptImageModel = (m)=>/^gpt-image/.test(String(m||""));
   W.nbGetAspect = ()=>"16:9"; W.nbGetRes = ()=>"2K"; W.nbGetOaiQuality = ()=>"medium"; W.nbRequireImageQuality = async ()=>true;
   W.nbGetGroundSearch = ()=>false; W.nbGetSlotImage = ()=>null; W.nbImageDimensions = async ()=>({ w:1024, h:576 });
   W.nbGetHistory = async ()=>[]; W.nbGetMeta = ()=>null; W.slotAssetKind = ()=>"character"; W.nbWithAssetProvenance = ()=>({});
@@ -95,7 +95,10 @@ const reset = ()=>{
 };
 const errs = ()=> uiCalls.filter(c=>c.fn==="setGenErr").map(c=>c.args[0]).filter(Boolean);
 const imgs = (g)=> [g.opts.referenceImage, ...(g.opts.extraImages||[])].filter(Boolean);
-const MODELS = [{ id:"nano", label:"Nano Banana 2" },{ id:"gpt-image-2", label:"GPT Image 2" }];
+/* the engines (2026-10-11, owner — image engines) */
+const NB21 = "gemini-nano-banana-2.1", SUN = "gpt-image-2.5-sunburst", SEED = "seedream-5-pro";
+const MODELS = [{ id:NB21, label:"Nano Banana 2.1" },{ id:"gpt-image-2.5-flare", label:"GPT Image 2.5 Flare" },
+  { id:SUN, label:"GPT Image 2.5 Sunburst" },{ id:SEED, label:"Seedream 5 Pro" }];
 /* the character card's opts, as CharacterSheet builds them (artroom.jsx) */
 const cardOpts = (c, extra)=>({ cameoId:c.id, entity:c, identityCharacter:c,
   buildFinal:()=>W.charSheetPrompt(c, {}, [], null),
@@ -229,28 +232,29 @@ await test("A6b 'Try simplified prompt' (an explicit retry) still sends the face
   assert.match(genCalls[0].prompt, /Image 1 = the person's face, front/);
   assert.equal(commits[0].meta.cameo, true); assert.equal(commits[0].meta.mode, "simple");
 });
-await test("A7 a GPT Image refusal with a face never falls back on its own: it asks, with the price, and only then sends", async ()=>{
-  reset(); W.nbGetModel = ()=>"gpt-image-2"; confirmAnswer = false;
+await test("A7 a GPT Image refusal with a face never falls back on its own: it asks, with the price, and only then sends (to Nano Banana 2.1)", async ()=>{
+  reset(); W.nbGetModel = ()=>SUN; confirmAnswer = false;
   let n = 0; genImpl = async ()=>{ if(n++===0) throw new Error("Your request was rejected by the safety system."); return "data:image/png;base64,R"; };
-  const models = [{ id:"gpt-image-2", label:"GPT Image 2" },{ id:"nano", label:"Nano Banana 2" }];
+  // Seedream listed before Nano Banana 2.1 on purpose: the fallback is Nano Banana 2.1, not the first non-GPT engine
+  const models = [{ id:SUN, label:"GPT Image 2.5 Sunburst" },{ id:SEED, label:"Seedream 5 Pro" },{ id:NB21, label:"Nano Banana 2.1" }];
   await W.nbRunSheetGeneration(env({ allModels:models }), {});
   assert.equal(genCalls.length, 1, "no second request");
   assert.equal(confirms.length, 1);
-  assert.match(confirms[0].title, /^GPT Image 2 refused this\. Try Nano Banana 2 with the same photos\? · about \d+ credits?$/);
+  assert.match(confirms[0].title, /^GPT Image 2\.5 Sunburst refused this\. Try Nano Banana 2\.1 with the same photos\? · about \d+ credits?$/);
   assert.match(errs().join(" "), /Nothing else was sent/);
   assert.equal(commits.length, 0);
   // yes → the same photos go to the other engine, once
-  reset(); W.nbGetModel = ()=>"gpt-image-2"; confirmAnswer = true;
+  reset(); W.nbGetModel = ()=>SUN; confirmAnswer = true;
   n = 0; genImpl = async ()=>{ if(n++===0) throw new Error("Your request was rejected by the safety system."); return "data:image/png;base64,R"; };
   await W.nbRunSheetGeneration(env({ allModels:models }), {});
-  assert.equal(genCalls.length, 2); assert.equal(genCalls[1].opts.model, "nano");
+  assert.equal(genCalls.length, 2); assert.equal(genCalls[1].opts.model, NB21);
   assert.deepEqual(imgs(genCalls[1]), imgs(genCalls[0]));
   assert.equal(commits[0].meta.policyFallback, true);
 });
 await test("A7b without a face or a person's photo the content-policy fallback is unchanged (no question)", async ()=>{
-  reset(); cameoInfo = null; cameoRec = null; W.nbGetModel = ()=>"gpt-image-2";
+  reset(); cameoInfo = null; cameoRec = null; W.nbGetModel = ()=>SUN;
   let n = 0; genImpl = async ()=>{ if(n++===0) throw new Error("Your request was rejected by the safety system."); return "data:image/png;base64,R"; };
-  await W.nbRunSheetGeneration(env({ allModels:[{ id:"gpt-image-2", label:"GPT Image 2" },{ id:"nano", label:"Nano Banana 2" }] }), {});
+  await W.nbRunSheetGeneration(env({ allModels:[{ id:SUN, label:"GPT Image 2.5 Sunburst" },{ id:NB21, label:"Nano Banana 2.1" }] }), {});
   assert.equal(confirms.length, 0); assert.equal(genCalls.length, 2);
 });
 await test("A8 a dropped photo is ADDED beside the likeness (style / look), never replacing the face; consent first", async ()=>{

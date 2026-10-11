@@ -2410,7 +2410,9 @@ function _nbLocMeta(prompt, entity, runSnapshot){
   const snap = runSnapshot || {};
   const model = snap.model || "";
   const aspect = (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9";
-  const size = (typeof nbGetRes==="function") ? nbGetRes() : "2K";
+  // the size really rendered (Seedream 5 Pro renders a 4K pick at 2K — 2026-10-11)
+  const _res = (typeof nbGetRes==="function") ? nbGetRes() : "2K";
+  const size = (typeof window.nbModelRes==="function") ? window.nbModelRes(model, _res) : _res;
   const now = new Date();
   const mEntry = (window.NB_MODELS||[]).find(m=>m.id===model) || {};
   return { modelLabel:mEntry.label||"Image model", modelId:model, aspect, size,

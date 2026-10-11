@@ -1,8 +1,8 @@
 /* pricing-watch.jsx — fal.ai price-drift watcher (admin alert + one-click apply).
 
    The provider-USD table in app/pricing.jsx only stays honest while it matches
-   fal's real prices (found drifting on 2026-07-30: GPT Image 2 halved, Nano
-   Banana Pro rose). This file:
+   fal's real prices (found drifting on 2026-07-30: two image engines' prices
+   moved). This file:
 
    1. loads any saved admin overrides (turn_app_config "pricing-overrides") at
       boot for EVERY user, so applied prices take effect globally;
@@ -25,24 +25,35 @@
   const CHECK_EVERY_MS = 12 * 60 * 60 * 1000;   // auto-check at most twice a day
 
   const MODEL_LABELS = {
+    // the image engines (2026-10-11, owner — image engines)
     "gemini-nano-banana-2.1": "Nano Banana 2.1",
-    "gemini-3.1-flash-image": "Nano Banana 2",
-    "gemini-3-pro-image": "Nano Banana Pro",
-    "gpt-image-2": "GPT Image 2",
     "gpt-image-2.5-flare": "GPT Image 2.5 Flare",
     "gpt-image-2.5-sunburst": "GPT Image 2.5 Sunburst",
+    "seedream-5-pro": "Seedream 5 Pro",
     "seedance-2.0": "Seedance 2.0",
     "seedance-2.5": "Seedance 2.5",
     "kling-3.0": "Kling 3.0",
   };
 
+  /* A watched path is "image.providerUsd.<model>.<key>" or "video.providerUsdPerSecond.<model>.<tier>.<res>" — and
+     a model id may itself hold dots ("gpt-image-2.5-flare", "gemini-nano-banana-2.1", "seedance-2.0"), so the
+     model is everything between the table and the last key(s). (2026-10-11: splitting on every dot read no price
+     for those engines, so their drift never showed.) */
+  function splitPath(path){
+    const p = String(path||"").split(".");
+    if(p[0]==="image" && p.length>=4) return { kind:"image", table:p[1], model:p.slice(2,-1).join("."), keys:[p[p.length-1]] };
+    if(p[0]==="video" && p.length>=5) return { kind:"video", table:p[1], model:p.slice(2,-2).join("."), keys:p.slice(-2) };
+    return null;
+  }
   function pathGet(obj, path){
-    return String(path||"").split(".").reduce((o,k)=> (o && typeof o==="object") ? o[k] : undefined, obj);
+    const sp = splitPath(path);
+    if(!sp) return undefined;
+    return [sp.kind, sp.table, sp.model].concat(sp.keys).reduce((o,k)=> (o && typeof o==="object") ? o[k] : undefined, obj);
   }
   function friendly(path){
-    const p = String(path||"").split(".");
-    if(p[0]==="image") return (MODEL_LABELS[p[2]]||p[2])+" · "+p[3];
-    if(p[0]==="video") return (MODEL_LABELS[p[2]]||p[2])+" "+(p[3]||"")+" · "+p[4]+"/s";
+    const sp = splitPath(path);
+    if(sp && sp.kind==="image") return (MODEL_LABELS[sp.model]||sp.model)+" · "+sp.keys[0];
+    if(sp && sp.kind==="video") return (MODEL_LABELS[sp.model]||sp.model)+" "+(sp.keys[0]||"")+" · "+sp.keys[1]+"/s";
     return path;
   }
   function fmt(v){ return "$"+(Math.round(Number(v)*10000)/10000); }
@@ -98,11 +109,11 @@
     const ov = JSON.parse(JSON.stringify(_savedOverrides || {}));
     ov.image = ov.image || {}; ov.video = ov.video || {}; ov.tokenRefs = ov.tokenRefs || {};
     rows.forEach(r=>{
-      const p = r.path.split(".");
-      if(p[0]==="image"){ (ov.image[p[2]] = ov.image[p[2]] || {})[p[3]] = r.next; }
-      else if(p[0]==="video"){
-        ov.video[p[2]] = ov.video[p[2]] || {};
-        (ov.video[p[2]][p[3]] = ov.video[p[2]][p[3]] || {})[p[4]] = r.next;
+      const sp = splitPath(r.path);
+      if(sp && sp.kind==="image"){ (ov.image[sp.model] = ov.image[sp.model] || {})[sp.keys[0]] = r.next; }
+      else if(sp && sp.kind==="video"){
+        ov.video[sp.model] = ov.video[sp.model] || {};
+        (ov.video[sp.model][sp.keys[0]] = ov.video[sp.model][sp.keys[0]] || {})[sp.keys[1]] = r.next;
       }
       // remember the applied token rate as the new reference so the same rate
       // change is never scaled onto the table twice
@@ -214,6 +225,8 @@
     }finally{ _checking = false; }
   }
   window.turnPricingWatchCheck = turnPricingWatchCheck;
+  // the pure diff (server items → reviewed rows), for the offline tests (scripts/test-image-engines-oct11.mjs)
+  window.turnPricingWatchRows = buildRows;
   /* called from app.jsx once the admin flag is known */
   window.turnPricingWatchStart = function(){ setTimeout(()=>{ turnPricingWatchCheck(false); }, 4000); };
 })();

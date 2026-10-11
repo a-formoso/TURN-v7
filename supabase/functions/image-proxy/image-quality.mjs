@@ -8,12 +8,12 @@
  */
 
 const GPT_IMAGE_25_QUALITIES = ["default", "auto", "low", "medium", "high", "xhigh", "max"];
-const GPT_IMAGE_2_QUALITIES = ["low", "medium", "high"];
 
+/* GPT Image 2 was removed (2026-10-11, owner — image engines): index.ts maps its id to GPT Image 2.5 Sunburst
+   (billing-pricing.mjs canonicalImageModel) BEFORE this validation, so its low / medium / high still validate. */
 export const IMAGE_QUALITY_CAPABILITIES = Object.freeze({
   "gpt-image-2.5-flare": Object.freeze([...GPT_IMAGE_25_QUALITIES]),
   "gpt-image-2.5-sunburst": Object.freeze([...GPT_IMAGE_25_QUALITIES]),
-  "gpt-image-2": Object.freeze([...GPT_IMAGE_2_QUALITIES]),
 });
 
 /*
@@ -44,10 +44,8 @@ function invalid(model, quality, message) {
  * Resolve the request's quality exactly once at the image boundary.
  *
  * For GPT Image 2.5, omission and explicit "default" are represented by the
- * internal sentinel "default", but providerQuality is undefined in both cases.
- * GPT Image 2 retains its existing low/medium/high explicit schema; an omitted
- * field is represented internally as high because that provider default is the
- * existing settlement estimate.
+ * internal sentinel "default", but providerQuality is undefined in both cases;
+ * both are priced as high (the provider's default).
  */
 export function validateImageQuality(model, rawQuality) {
   const modelId = String(model || "");
@@ -59,7 +57,7 @@ export function validateImageQuality(model, rawQuality) {
         `Image model "${modelId}" is not supported by the image-quality schema.`);
     }
     /*
-     * Nano Banana and non-image tasks do not consume this field. Keep their
+     * Nano Banana, Seedream and non-image tasks do not consume this field. Keep their
      * existing behavior instead of expanding unrelated model schemas.
      */
     return {
@@ -74,7 +72,7 @@ export function validateImageQuality(model, rawQuality) {
   }
 
   if (rawQuality === undefined) {
-    const quality = modelId === "gpt-image-2" ? "high" : "default";
+    const quality = "default";
     return {
       ok: true,
       model: modelId,

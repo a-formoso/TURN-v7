@@ -267,8 +267,11 @@ async function assertRejects(promise, pattern, message) {
 
   prefs.nbSetModel(FLARE);
   prefs.nbSetOaiQuality("max");
+  // GPT Image 2 was removed (2026-10-11): picking its id selects GPT Image 2.5 Sunburst, which reads the 2.5
+  // family preference
   prefs.nbSetModel(LEGACY_MODEL);
-  assert.equal(prefs.nbGetOaiQuality(), "low", "legacy GPT Image keeps its shared three-tier preference");
+  assert.equal(prefs.nbGetModel(), SUNBURST, "a retired GPT Image 2 pick is GPT Image 2.5 Sunburst");
+  assert.equal(prefs.nbGetOaiQuality(), "max", "… with the 2.5 family preference");
   prefs.nbSetModel(FLARE);
   assert.equal(prefs.nbGetOaiQuality(), "max", "2.5 family preference survives a legacy-model switch");
   prefs.nbSetModel(SUNBURST);

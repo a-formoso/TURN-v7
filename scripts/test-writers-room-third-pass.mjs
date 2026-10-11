@@ -133,7 +133,7 @@ await test("F3 Fountain: transitions forced, risky action lines forced, undrafte
 
 /* ═══ G ═══ */
 await test("G1 the Writing dock groups engines by what they're good at and names no AI vendor", ()=>{
-  assert.ok(dock.includes('const PROV = { anthropic:"Story", google:"Fast", openai:"Alternative", moonshot:"Long context" };'));
+  assert.ok(dock.includes('const PROV = { anthropic:"Story", google:"Fast", openai:"Alternative" };'));
   const notes = between(ai, "const WRITING_MODELS = [", "];");
   assert.ok(!/Anthropic's|Google's|OpenAI's|Moonshot's/.test(notes));
 });
@@ -212,14 +212,14 @@ await test("J1 Frances knows the pass, names no vendor for the dock; keys", ()=>
   const fb = { console, Object, Array, String }; fb.window = fb; vm.createContext(fb);
   vm.runInContext(s + "\n;this.__F = APP_FEATURES;", fb);
   const by = (n)=> ((fb.__F.find(f=>f.name===n)||{}).what || "");
-  assert.ok(!/Anthropic \/ Google \/ OpenAI \/ Moonshot/.test(by("Writing engine dock")) && /Story \/ Fast \/ Alternative \/ Long context/.test(by("Writing engine dock")));
+  assert.ok(!/Anthropic \/ Google \/ OpenAI \/ Moonshot/.test(by("Writing engine dock")) && /Story \/ Fast \/ Alternative\)/.test(by("Writing engine dock")));
   for(const re of [/WRITERS' ROOM REVIEW, THIRD PASS/, /Script Supervisor is free/, /no line, no card/, /A card never appears after Stop/, /rough stand-ins are skipped/])
     assert.ok(re.test(by("Story Editors (Writers' Room agents)")), String(re));
   assert.ok(/It asks first, with how many scenes and writing calls/.test(by("Auto-draft all (N left)")));
   assert.ok(/numbers each scene once/.test(by("Export (screenplay / story)")));
   assert.ok(/last five deleted scenes/.test(by("Script view")));
   for(const f of ["app", "ai", "script", "agents", "agents-ui", "inspector", "spine", "export", "aiwriter"])
-    assert.ok(["20261009-wr3","20261009-art3", "20261009-home3", "20261009-teamrv1", "20261009-stageed1", "20261009-sb4", "20261009-bd4", "20261010-nb21", "20261010-like1", "20261010-pron1", "20261010-del1", "20261010-pose2", "20261010-voice1", "20261011-voice2"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
+    assert.ok(["20261009-wr3","20261009-art3", "20261009-home3", "20261009-teamrv1", "20261009-stageed1", "20261009-sb4", "20261009-bd4", "20261010-nb21", "20261010-like1", "20261010-pron1", "20261010-del1", "20261010-pose2", "20261010-voice1", "20261011-voice2", "20261011-eng1"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f);   // (later passes re-key some)
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

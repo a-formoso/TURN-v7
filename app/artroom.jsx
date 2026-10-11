@@ -1580,7 +1580,7 @@ function turnLikenessStale(meta, charId){
 window.turnLikenessStale = turnLikenessStale;
 
 /* Detect resolution tier + aspect from an uploaded image's real pixels — for sheets
-   the user generated OUTSIDE the app (e.g. GPT Image 2 in ChatGPT) and imported, so
+   the user generated OUTSIDE the app (e.g. in ChatGPT) and imported, so
    we know neither up front. Quality (low/med/high) is a generation-time encoder
    setting and CANNOT be recovered from a finished image, so it's left unknown. */
 function nbResLabel(w,h){ const lng=Math.max(w||0,h||0); if(!lng) return "—";
@@ -1760,7 +1760,8 @@ async function nbRunSheetGeneration(env, gopts){
        than the request that actually spent the credit.  A caller-supplied quality
        is intentional (batch/surface defaults); otherwise the model-family setting
        is the source of truth. */
-    // a retired engine's id in an option (Nano Banana 2 Lite) runs — and is recorded — as its successor
+    // a retired engine's id in an option (Nano Banana 2 Lite, Nano Banana 2, Nano Banana Pro, GPT Image 2) runs — and
+    // is recorded — as its successor
     const _requestedModel = (typeof nbCanonicalModelId==="function" ? nbCanonicalModelId : (x=>x))(gopts.model
       || (opts && opts.model)
       || (typeof nbGetModel==="function" ? nbGetModel() : ""));
@@ -2004,10 +2005,10 @@ async function nbRunSheetGeneration(env, gopts){
     };
     genPrompt = withIdentity(genPrompt);
 
-    /* grounding (Nano Banana 2 and Nano Banana 2.1 — nbModelGrounds; image search is Nano Banana 2's) */
+    /* grounding (Nano Banana 2.1 only — nbModelGrounds, 2026-10-11; image-search grounding was Nano Banana 2's
+       and went with it) */
     const groundEnabled = typeof nbGetGroundSearch==="function" && nbGetGroundSearch();
-    const isFlash = usedModel === "gemini-3.1-flash-image";
-    const groundsWeb = typeof nbModelGrounds==="function" ? nbModelGrounds(usedModel) : isFlash;
+    const groundsWeb = typeof nbModelGrounds==="function" ? nbModelGrounds(usedModel) : false;
     if(abortCtl) genOpts.signal = abortCtl.signal;
     genOpts.assetId = slotId || id;   // the item this sheet is saved as (recorded with its credit hold)
      /* Pin the provider request to the model selected when this run started.
@@ -2028,10 +2029,10 @@ async function nbRunSheetGeneration(env, gopts){
     // web grounding is a GEMINI-only feature — GPT Image has no such mode, so never
     // request it there (the proxy used to echo grounded:true off the bare request
     // flag, mis-badging GPT Image renders "Grounded" when nothing had grounded)
-    // (2026-10-09, owner — Art Room review) only on Nano Banana 2, where the toggle shows — a toggle left on there was
-    // sent with Nano Banana Pro too, charging the grounding surcharge with no visible control. (2026-10-10) Nano
-    // Banana 2.1 grounds the same way, its toggle shows too
-    if(groundEnabled && groundsWeb){ genOpts.groundSearch = true; genOpts.groundImageSearch = true; }
+    // (2026-10-09, owner — Art Room review) only on the engine where the toggle shows — a toggle left on was once
+    // sent with another engine too, charging the grounding surcharge with no visible control. (2026-10-11) That
+    // engine is Nano Banana 2.1 alone; web search only (image-search grounding went with Nano Banana 2)
+    if(groundEnabled && groundsWeb){ genOpts.groundSearch = true; }
 
     /* attachments: extra reference images (e.g. generated prop sheets the character
        carries) so the model SEES the object, not just its name. Resolved async. */
@@ -2205,10 +2206,11 @@ async function nbRunSheetGeneration(env, gopts){
           sentPrompt = retryPrompt; simplifiedRetry = true;
           if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-simple-retry");
         } else if(isPolicy && typeof isGptImageModel==="function" && isGptImageModel(usedModel)){
-          // GPT Image refused on CONTENT POLICY — fall back to Nano Banana,
-          // which is far more permissive for cinematic content (action, blood, intensity).
+          // GPT Image refused on CONTENT POLICY — fall back to Nano Banana 2.1 (2026-10-11: the one Nano Banana
+          // engine), which is far more permissive for cinematic content (action, blood, intensity).
           // One-off: the user's SELECTED engine is left unchanged, only this frame switches.
-          const gModel = allModels.find(m=> !(typeof isGptImageModel==="function" && isGptImageModel(m.id)));
+          const gModel = allModels.find(m=>m.id==="gemini-nano-banana-2.1")
+            || allModels.find(m=> !(typeof isGptImageModel==="function" && isGptImageModel(m.id)));
           if(!gModel) throw e;
           /* NO SILENT FALLBACK WITH A FACE (2026-10-10, owner — Likeness review): when the references include a
              likeness or a person's photo (a dropped photo, a device upload), the same photos would go to another
@@ -2267,7 +2269,8 @@ async function nbRunSheetGeneration(env, gopts){
         renderStyleKey,
         renderStyleLabel,
         aspect: genOpts.aspectRatio || ((typeof nbGetAspect==="function") ? nbGetAspect() : "16:9"),
-        size: genOpts.imageSize || ((typeof nbGetRes==="function") ? nbGetRes() : "2K"),
+        // the size really rendered (Seedream 5 Pro renders a 4K pick at 2K — proxyGenerate's metaOut.imageSize)
+        size: (genOpts.metaOut && genOpts.metaOut.imageSize) || genOpts.imageSize || ((typeof nbGetRes==="function") ? nbGetRes() : "2K"),
         pixelW: outputDims && outputDims.w,
         pixelH: outputDims && outputDims.h,
          // Preserve the exact quality selected when THIS run began.  In
@@ -2283,7 +2286,8 @@ async function nbRunSheetGeneration(env, gopts){
         // actualModel so the GPT-Image→Nano-Banana policy fallback still records
         // correctly (actualModel flips to the Gemini model in that path).
         grounded: !!(groundEnabled && !(typeof isGptImageModel==="function" && isGptImageModel(actualModel)) && genOpts.metaOut && genOpts.metaOut.grounded),
-        groundImages: !!(groundEnabled && isFlash && genOpts.metaOut && genOpts.metaOut.grounded),
+        // image-search grounding went with Nano Banana 2 (2026-10-11): a new render never has it (old metas keep theirs)
+        groundImages: false,
         // LIKENESS: made with it (or an edit of a sheet that was — the face is still that person's), when it
         // was captured (a newer capture makes the sheet "made with an earlier likeness"), how many photos rode
         cameo: !!(likenessPlan || editKeepsFace),
@@ -4094,7 +4098,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
             title:"Attach an existing character, prop or location sheet as a consistency reference for future prop generations and edits.",
             onClick:()=>{ setSheetRefOpen(true); setMenuOpen(false); }},
             React.createElement(Icon.layers,{s:14}),"Attach reference to prop\u2026"),
-          // import a finished sheet generated outside the app (e.g. GPT Image 2 in ChatGPT)
+          // import a finished sheet generated outside the app (e.g. in ChatGPT)
           importSheet && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Import a finished image you generated elsewhere, at full resolution — it becomes this "+noun,
             onClick:()=>{ setMenuOpen(false); pickUpload(); }},
@@ -4276,12 +4280,12 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     gening && React.createElement("button",{className:"sheet-gen-stop",onClick:()=> onStop ? onStop() : (cancelGen && cancelGen()),
       title:"Stop this generation — nothing will be saved over the current frame"},
       React.createElement(Icon.x,{s:14}),"Stop")),
-    // import a finished, full-res sheet generated outside the app (GPT Image 2, etc.)
+    // import a finished, full-res sheet generated outside the app (ChatGPT, etc.)
     React.createElement("input",{ref:uploadRef,type:"file",accept:"image/png,image/jpeg,image/webp,image/avif",
       style:{display:"none"},onChange:onUploadPicked}),
     // when the empty slot already imports on drop/click (dropToImport), this button is redundant
     !genUrl && importSheet && !dropToImport && !hideUploadButton && noun!=="location plate" && React.createElement("button",{className:"sheet-upload-btn",onClick:pickUpload,disabled:gening,
-      title:"Generated this elsewhere (e.g. GPT Image 2 in ChatGPT)? Upload it at full resolution — it becomes this "+noun+", with zoom, the … menu and clear, just like a generated one."},
+      title:"Generated this elsewhere (e.g. in ChatGPT)? Upload it at full resolution — it becomes this "+noun+", with zoom, the … menu and clear, just like a generated one."},
       React.createElement(Icon.image,{s:12}),"Upload a finished "+noun),
     gen.pendingSave&&React.createElement("div",{className:"sheet-retry-save",role:"status"},
       React.createElement("span",null,"Unsaved image kept in this tab. Retry save makes no generation request."),
@@ -4340,7 +4344,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
         ? React.createElement("span",{className:"sheet-frame-meta"},
             React.createElement("span",{className:"sheet-meta-item sheet-meta-model",title:"Model: "+((genMeta.modelLabel||"")+(genMeta.modelId?(" ("+genMeta.modelId+")"):""))},
               React.createElement(Icon.sparkles,{s:10,sw:1.8}),
-              /* show the commercial name (e.g. "GPT Image 2"), not the raw model id.
+              /* show the commercial name (e.g. "Nano Banana 2.1"), not the raw model id.
                  prefer the stored label, else look it up by id, else fall back to id. */
               React.createElement("span",{className:"sheet-meta-model-name"},
                 genMeta.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(genMeta.modelId) : ((window.NB_MODELS||[]).find(m=>m.id===genMeta.modelId)||{}).label) || genMeta.modelId)),
@@ -5507,8 +5511,13 @@ function NbControls(){
   const wrapRef = React.useRef(null);
   const models = window.NB_MODELS || [];
   const aspects = window.NB_ASPECTS || ["16:9","21:9"];
-  // the grounding toolkit shows for the engines that ground (Nano Banana 2 and 2.1 — nbModelGrounds)
-  const isFlash = typeof nbModelGrounds==="function" ? nbModelGrounds(model) : model === "gemini-3.1-flash-image";
+  // the grounding toolkit shows for the engine that grounds (Nano Banana 2.1 — nbModelGrounds)
+  const isFlash = typeof nbModelGrounds==="function" ? nbModelGrounds(model) : false;
+  // the resolutions this engine renders (Seedream 5 Pro: 1K and 2K — a saved 4K renders at 2K there, and says so)
+  const maxRes = typeof nbModelMaxRes==="function" ? nbModelMaxRes(model) : "4K";
+  const allRes = window.NB_RESOLUTIONS || ["1K","2K","4K"];
+  const resChoices = allRes.slice(0, Math.max(1, allRes.indexOf(maxRes)+1));
+  const shownRes = typeof nbModelRes==="function" ? nbModelRes(model, resv) : resv;
   const isGpt = (typeof isGptImageModel==="function") ? isGptImageModel(model) : /^gpt-image/.test(model||"");
   const [oaiQ, setOaiQ] = React.useState(()=> (typeof nbGetOaiQuality==="function") ? nbGetOaiQuality(model) : "medium");
   /* Quality choices are provider metadata, not UI constants.  GPT Image 2.5
@@ -5588,7 +5597,7 @@ function NbControls(){
     /* mobile-only: collapse all three controls into a dropdown */
     React.createElement("button",{className:"nb-ctl-mtoggle",onClick:()=>setMOpen(o=>!o)},
       React.createElement(Icon.layers,{s:14}),
-      React.createElement("span",{className:"nb-ctl-msum"}, modelLabel+" \u00b7 "+aspect+" \u00b7 "+resv),
+      React.createElement("span",{className:"nb-ctl-msum"}, modelLabel+" \u00b7 "+aspect+" \u00b7 "+shownRes),
       React.createElement(Icon[mOpen?"chevU":"chevD"],{s:12})),
     React.createElement("div",{className:"nb-ctl-body"},
     React.createElement("div",{className:"nb-ctl"},
@@ -5597,7 +5606,7 @@ function NbControls(){
         React.createElement("div",{className:"nb-seg"},
           models.map(m=>React.createElement("button",{key:m.id,className:"nb-seg-btn "+((model===m.id)?"on":""),"aria-pressed":(model===m.id)?"true":"false",
              title:m.note,onClick:()=>{ setModel(m.id); setOaiQ(typeof nbGetOaiQuality==="function" ? nbGetOaiQuality(m.id) : "medium"); nbSetModel(m.id); window.dispatchEvent(new CustomEvent("nb-model-changed")); }},m.label))),
-        /* grounding toolkit — only when Nano Banana 2 or 2.1 is selected */
+        /* grounding toolkit — only when Nano Banana 2.1 is selected */
         isFlash && React.createElement("div",{className:"nb-ground-wrap",ref:tipRef},
           React.createElement("button",{
             className:"nb-ground-btn "+(ground?"on":"")+(groundTip?" open":""),
@@ -5629,7 +5638,7 @@ function NbControls(){
                 "Off"),
               React.createElement("button",{className:"nb-seg-btn "+((ground)?"on":""),"aria-pressed":(ground)?"true":"false",
                 onClick:()=>{ setGround(true); nbSetGroundSearch&&nbSetGroundSearch(true); }},
-                "Web + images"))), document.body)))),
+                "Web"))), document.body)))),
      /* GPT Image quality — its own labelled control.  2.5's Default is a
         separate provider-default choice (not Auto); the client keeps that
         snapshot through the proxy and the server omits the provider field. */
@@ -5668,9 +5677,12 @@ function NbControls(){
             React.createElement("span",null,a)))))),
     React.createElement("div",{className:"nb-ctl"},
       React.createElement("span",{className:"nb-ctl-lab"},"Resolution"),
-      React.createElement("div",{className:"nb-seg"},
-        (window.NB_RESOLUTIONS||["1K","2K","4K"]).map(r=>React.createElement("button",{key:r,className:"nb-seg-btn "+((resv===r)?"on":""),"aria-pressed":(resv===r)?"true":"false",
-          onClick:()=>{ setResv(r); nbSetRes(r); window.dispatchEvent(new CustomEvent("nb-settings-changed")); }},r))))));
+      React.createElement("div",{className:"nb-ctl-row"},
+        React.createElement("div",{className:"nb-seg"},
+          resChoices.map(r=>React.createElement("button",{key:r,className:"nb-seg-btn "+((shownRes===r)?"on":""),"aria-pressed":(shownRes===r)?"true":"false",
+            onClick:()=>{ setResv(r); nbSetRes(r); window.dispatchEvent(new CustomEvent("nb-settings-changed")); }},r))),
+        shownRes!==resv && React.createElement("div",{className:"nb-quality-message"},
+          React.createElement("span",null,modelLabel+" renders up to "+maxRes+" \u2014 your "+resv+" setting renders at "+shownRes+" here."))))));
 }
 
 /* ENGINE DOCK — a compact floating widget in the help bubble's (Frances; code name MUSE) 54px right-edge
@@ -5699,12 +5711,13 @@ function NbDock(){
   const model  = (typeof nbGetModel==="function") ? nbGetModel() : "";
   const aspect = (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9";
   const resv   = (typeof nbGetRes==="function") ? nbGetRes() : "2K";
-  // (2026-10-09) each engine has its own chip (a different price) — Nano Banana 2.1 apart from Nano Banana 2 — and
-  // GPT Image shows its quality — what the price follows
+  // (2026-10-09) each engine has its own chip (a different price) and GPT Image shows its quality — what the price
+  // follows. The engines (2026-10-11): Nano Banana 2.1, GPT Image 2.5 Flare / Sunburst, Seedream 5 Pro
   const short  = model==="gpt-image-2.5-flare" ? "GPT F"
     : model==="gpt-image-2.5-sunburst" ? "GPT S"
+    : model==="seedream-5-pro" ? "SD5"
     : model==="gemini-nano-banana-2.1" ? "NB2.1"
-    : /pro/i.test(model) ? "PRO" : /gpt/i.test(model) ? "GPT" : "NB2";
+    : /gpt/i.test(model) ? "GPT" : "NB2.1";
   const isGpt = typeof isGptImageModel==="function" && isGptImageModel(model);
   const qual = isGpt && typeof nbGetOaiQuality==="function" && typeof nbOaiQualityLabel==="function" ? nbOaiQualityLabel(nbGetOaiQuality(model)) : "";
   // Escape closes the open dock (2026-10-09)
@@ -5718,7 +5731,7 @@ function NbDock(){
       React.createElement("span",{className:"nb-dock-label"},"Images"),
       React.createElement("span",{className:"nb-dock-chip model"},short),
       React.createElement("span",{className:"nb-dock-chip"},aspect),
-      React.createElement("span",{className:"nb-dock-chip"},isGpt && qual ? qual : resv)),
+      React.createElement("span",{className:"nb-dock-chip"},isGpt && qual ? qual : (typeof nbModelRes==="function" ? nbModelRes(model, resv) : resv))),
     open && React.createElement("div",{className:"nb-dock-panel",id:"nb-dock-panel",onClick:()=>force(x=>x+1)},
       React.createElement(NbControls,null)));
 }

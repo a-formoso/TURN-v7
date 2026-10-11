@@ -8,7 +8,7 @@
 //   a signed-in user's per-request key (sent from their local browser store) or
 //   the platform's provider key from SERVER SECRETS. Image generation is fal.ai
 //   first: the client sends provider:"fal" and this function maps TURN model ids
-//   to fal.ai Nano Banana / GPT Image routes. Writing/text providers, Stage video,
+//   to fal.ai Nano Banana / GPT Image / Seedream routes. Writing/text providers, Stage video,
 //   ElevenLabs voice-library operations, and GPT-Live WebRTC session creation keep
 //   their existing routes.
 //
@@ -97,10 +97,10 @@ import { FRANCES_LIMIT_RPC, createFrancesLimiter, francesDailyLimit } from "./fr
 // cost), billing-policy.mjs (who may run what), billing-holds.mjs (the hold / settle / release
 // RPCs and the signed video-hold token) and public-errors.mjs (what an error may tell a user).
 import {
-  GOOGLE_IMAGE_USD, IMAGE_PROVIDER_USD, OPENAI_DIRECT_IMAGE_MODELS, PROVIDER_USD_PER_CREDIT, VIDEO_PROVIDER_USD_PER_SECOND, affordableOutputCap,
+  GOOGLE_IMAGE_USD, IMAGE_PROVIDER_USD, PROVIDER_USD_PER_CREDIT, SEEDREAM_MAX_REFERENCES, SEEDREAM_MODEL, seedreamImageDimensions, seedreamImageSize, VIDEO_PROVIDER_USD_PER_SECOND, affordableOutputCap,
   cheapestTextHold, creditUnitFromRegime, flatVoiceCost, imageCost, lengthBilledFacts, lengthBilledVideoHold, mergeVideoPricingOverrides,
   IMAGE_PROMPT_MAX_CHARS, STT_MAX_SECONDS, TEXT_WEB_SEARCH_MAX_USES, textWebSearchTool, messageText, normaliseTextUsage, sttHoldCost, sttModel, sttReportedSeconds, sttSettleCost, textActualCost,
-  textHoldEstimate, textPriceKey, ttsCost, videoAppModel, videoCost, visionImagesProblem, canonicalImageModel,
+  textHoldEstimate, textPriceKey, legacyWritingModel, ttsCost, videoAppModel, videoCost, visionImagesProblem, canonicalImageModel,
 } from "./billing-pricing.mjs";
 // Round 5 (S1): a recording's real length, read from its container (WebM / Ogg / MP4 / WAV) before
 // speech-to-text is held.
@@ -163,7 +163,7 @@ function json(body: unknown, status = 200) {
   });
 }
 
-// GPT Image 2 accepts custom dimensions (multiples of 16, max edge 3840).
+// GPT Image 2.5 accepts custom dimensions (multiples of 16, max edge 3840).
 // Map TURN's resolution tier + native aspect to exact provider output pixels.
 // These are generated dimensions, not a client-side upscale after the fact.
 function sizeForAspect(aspect: string, imageSize: string): string {
@@ -200,27 +200,30 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
 }
 
 /* The output cap a metered text call gets when the request names none (Anthropic keeps its
-   16k floor: its models think inside max_tokens; Moonshot keeps 4096). The hold covers it. */
+   16k floor: its models think inside max_tokens). The hold covers it. */
 const DEFAULT_TEXT_OUTPUT_CAP = 16000;
-/* Every writing-provider fetch aborts at 380 s, under the paid plan's 400 s Edge wall clock (the
-   Kimi pattern, 2026-07-19): a call that outruns it throws here, so the request's finally block
+/* Every writing-provider fetch aborts at 380 s, under the paid plan's 400 s Edge wall clock (since
+   2026-07-19): a call that outruns it throws here, so the request's finally block
    still runs and RELEASES the credits held for it (repair F11). A worker killed by the platform
    runs no finally at all — then the housekeeping job (turn_release_stale_holds) returns it. */
 const TEXT_PROVIDER_TIMEOUT_MS = 380000;
 /* a retired image model's id was served as its successor (logged once per instance) */
+let legacyWritingModelLogged = false;
 let legacyImageModelLogged = false;
-/* The fal image models this proxy serves, and the fal routes they map to. */
-const FAL_IMAGE_MODELS: Record<string, { base: string; edit?: string; family: "nano" | "openai"; moderation?: boolean }> = {
+/* The fal image models this proxy serves, and the fal routes they map to. THE ENGINES (2026-10-11, owner — image
+   engines): exactly these four. Nano Banana 2, Nano Banana Pro and GPT Image 2 were removed (a locked likeness
+   rendered the wrong face on them); an older app naming one is served on its successor (canonicalImageModel). */
+const FAL_IMAGE_MODELS: Record<string, { base: string; edit?: string; family: "nano" | "openai" | "seedream" }> = {
   // NOTE the namespace: Nano Banana 2.1 (2026-10-10, owner — it replaced Nano Banana 2 Lite) is published
   // under google/, not fal-ai/, like Lite was. Its text-to-image route takes no image_urls; a render WITH
   // references goes to its /edit route (up to 14 reference images). Lite's old id is mapped to this one
   // before routing (canonicalImageModel), so an older app keeps working.
   "gemini-nano-banana-2.1":      { base: "google/nano-banana-2.1", edit: "google/nano-banana-2.1/edit", family: "nano" },
-  "gemini-3.1-flash-image":      { base: "fal-ai/nano-banana-2",      family: "nano" },
-  "gemini-3-pro-image":          { base: "fal-ai/nano-banana-pro",    family: "nano" },
-  "gpt-image-2":                 { base: "openai/gpt-image-2", edit: "openai/gpt-image-2/edit", family: "openai", moderation: true },
   "gpt-image-2.5-flare":         { base: "openai/gpt-image-2.5/flare/text-to-image", edit: "openai/gpt-image-2.5/flare/edit", family: "openai" },
   "gpt-image-2.5-sunburst":      { base: "openai/gpt-image-2.5/sunburst/text-to-image", edit: "openai/gpt-image-2.5/sunburst/edit", family: "openai" },
+  // Seedream 5 Pro (2026-10-11, owner): text-to-image without references; WITH references the edit route, whose
+  // image_urls is required (at most SEEDREAM_MAX_REFERENCES = 10 — the proxy sends the first 10).
+  "seedream-5-pro":              { base: "bytedance/seedream/v5/pro/text-to-image", edit: "bytedance/seedream/v5/pro/edit", family: "seedream" },
 };
 
 /* Pricing overrides are the admin's reviewed turn_app_config "pricing-overrides" (written by the
@@ -414,26 +417,37 @@ Deno.serve(async (req) => {
   // ── parse request ───────────────────────────────────────────────────────────
   const body: any = parsedBody;
   if (body === undefined) return json({ error: "Bad request body." }, 400);
-  const provider = body.provider || "openai";
-  // a retired image engine's id (Nano Banana 2 Lite, from an older app) → its successor, before the plan
-  // gate, the price and the route (billing-pricing.mjs canonicalImageModel); logged once per instance
-  const model = canonicalImageModel(body.model || "gpt-image-2");
-  if (model !== (body.model || "gpt-image-2") && !legacyImageModelLogged) {
+  // a removed WRITING engine (Kimi K3 / K2.7, Fable 5.1, Gemini 3.5 Flash, GPT-5.5 — 2026-10-11) named by an older
+  // app → its successor's provider and model, before the plan gate, the price and the route (billing-pricing.mjs
+  // legacyWritingModel); logged once per instance
+  const textLegacy = (body.task === "text") ? legacyWritingModel(body.model) : null;
+  if (textLegacy && !legacyWritingModelLogged) {
+    legacyWritingModelLogged = true;
+    console.warn(`[image-proxy] removed writing model "${String(body.model).slice(0, 60)}" served as "${textLegacy.model}" (an older app version).`);
+  }
+  const provider = textLegacy ? textLegacy.provider : (body.provider || "openai");
+  // a retired image engine's id (Nano Banana 2 Lite; Nano Banana 2, Nano Banana Pro and GPT Image 2 — 2026-10-11 —
+  // from an older app) → its successor, before the plan gate, the price and the route (billing-pricing.mjs
+  // canonicalImageModel); logged once per instance. A request naming no model is GPT Image 2.5 Sunburst (it was
+  // GPT Image 2).
+  const model = textLegacy ? textLegacy.model : canonicalImageModel(body.model || "gpt-image-2.5-sunburst");
+  if (!textLegacy && model !== (body.model || "gpt-image-2.5-sunburst") && !legacyImageModelLogged) {
     legacyImageModelLogged = true;
     console.warn(`[image-proxy] retired image model "${String(body.model).slice(0, 60)}" served as "${model}" (an older app version).`);
   }
   const prompt = (body.prompt || "").toString();
   const aspect = body.aspect || "16:9";
-  const imageSize = body.imageSize || "2K";
-  // OpenAI's SUPPORTED moderation-sensitivity control for gpt-image models: "low" is the
-  // least-restrictive ALLOWED setting (fewer false positives on legitimate creative
-  // content) — it does NOT disable safety; genuinely prohibited content is still blocked.
-  const moderation = (typeof body.moderation === "string" && /^(low|auto)$/.test(body.moderation))
-    ? body.moderation
-    : (/^gpt-image/.test(model) ? "low" : "");
-  const groundSearch = !!body.groundSearch;
-  const groundImageSearch = !!body.groundImageSearch;
-  const images: string[] = Array.isArray(body.images) ? body.images : [];
+  // SEEDREAM 5 PRO renders 1K or 2K only (fal: at most 2048x2048 pixels) — a 4K request (an older app, a saved 4K
+  // setting) renders, is gated and is priced at 2K (2026-10-11, owner — image engines)
+  const imageSize = model === SEEDREAM_MODEL && body.imageSize === "4K" ? seedreamImageSize("4K") : (body.imageSize || "2K");
+  // MODERATION (2026-10-11): fal's moderation field was GPT Image 2's only — GPT Image 2.5 Flare / Sunburst take
+  // none — so an older app's `moderation` is ignored. Image-search grounding (Nano Banana 2's) went with it.
+  // Web grounding is Nano Banana 2.1's only: any other engine never searches, and is never charged for it.
+  const groundSearch = !!body.groundSearch && model === "gemini-nano-banana-2.1";
+  // Seedream's edit route uses at most 10 input images: the proxy sends (and prices) the first 10 — the app sends
+  // them in priority order (a likeness's front angle is image 1) and caps them itself
+  const allImages: string[] = Array.isArray(body.images) ? body.images : [];
+  const images: string[] = model === SEEDREAM_MODEL ? allImages.slice(0, SEEDREAM_MAX_REFERENCES) : allImages;
   const task = body.task || "image";
   const usageKind = String(body.usageKind || (images.length && task === "text" ? "vision" : task)).toLowerCase();
 
@@ -889,8 +903,7 @@ Deno.serve(async (req) => {
     }
     const textKind = textBill.kind;
     const TEXT_PROVIDERS: Record<string, [string, string]> = {
-      google: ["Google", "GOOGLE_API_KEY"], openai: ["OpenAI", "OPENAI_API_KEY"],
-      moonshot: ["Moonshot (Kimi)", "MOONSHOT_API_KEY"], anthropic: ["Anthropic", "ANTHROPIC_API_KEY"],
+      google: ["Google", "GOOGLE_API_KEY"], openai: ["OpenAI", "OPENAI_API_KEY"], anthropic: ["Anthropic", "ANTHROPIC_API_KEY"],
     };
     if (!TEXT_PROVIDERS[provider]) return json({ error: `That writing engine isn't available on this server.` }, 400);
     // FRANCES'S DAILY QUESTION LIMIT (owner decision 2026-09-28): a free Frances question
@@ -945,7 +958,6 @@ Deno.serve(async (req) => {
     // provider now always gets a cap too (the hold must cover the most a call can cost).
     const wantedCap = textKind === "muse" ? MUSE_LIMITS.maxOutputTokens
       : provider === "anthropic" ? Math.max(requestedMaxTokens || 0, 16000)
-      : provider === "moonshot" ? (requestedMaxTokens || 4096)
       : (requestedMaxTokens || DEFAULT_TEXT_OUTPUT_CAP);
     // HOLD (2026-09-30): the most this call can cost — its input (estimated generously) plus the
     // whole output cap — is held before the provider is called. When the balance can't cover the
@@ -979,7 +991,7 @@ Deno.serve(async (req) => {
     const textUsageEstimate = (providerName: string, modelName: string, tokens: any, kind: string) =>
       textActualCost(kind === "muse" ? modelName : priceKey, tokens, { vision: kind === "vision", free: kind === "muse", unit });
     const finishText = async (providerName: string, modelName: string, providerData: any, text: string, vision: boolean, extra: Record<string, unknown> = {}) => {
-      const tokens = normaliseTextUsage(providerName, providerData);
+      const tokens = normaliseTextUsage(providerName, providerData, priceKey);
       const estimate = textUsageEstimate(providerName, modelName, tokens, textKind);
       const charged = textHold ? await settleHold(textHold, estimate.credits) : 0;
       const usage = await recordUsage({
@@ -1000,7 +1012,7 @@ Deno.serve(async (req) => {
       // degrading (a truncated shot-list draft salvages early beats and one-shot
       // backfills the rest — invisible without this flag)
       const truncated = (providerName === "anthropic" && providerData?.stop_reason === "max_tokens")
-        || ((providerName === "openai" || providerName === "moonshot") && ((((providerData?.choices || [])[0] || {}).finish_reason) === "length"))
+        || (providerName === "openai" && ((((providerData?.choices || [])[0] || {}).finish_reason) === "length"))
         || (providerName === "google" && ((((providerData?.candidates || [])[0] || {}).finishReason) === "MAX_TOKENS"));
       if (body.webSearch === true && !("webSearch" in extra)) extra = { ...extra, webSearch: { available: false, searches: 0 } };
       return json({ text, vision, truncated: truncated || undefined, ...extra, usage: { ...usage, providerCostUsd: estimate.providerCostUsd, credits: charged, ...tokens, totalTokens: tokens.inputTokens + tokens.outputTokens } });
@@ -1064,7 +1076,8 @@ Deno.serve(async (req) => {
                through to an unsupported legacy parameter. It bounds reasoning
                tokens too, so the hold covers the whole call. */
             ...(reqMaxTokens ? { max_completion_tokens: reqMaxTokens } : {}),
-            ...(/^gpt-6-astra(?:$|-)/.test(model) && reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+            // the GPT-6 engines (Astra, 6.1 Sol) take low | medium | high | xhigh | max (Sol refuses none / minimal)
+            ...(/^gpt-6(?:-astra|\.1-sol)(?:$|-)/.test(model) && reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
             messages: messages.map((m: any, i: number) => {
             const text = messageText(m);
             if (images.length && i === messages.length - 1)
@@ -1076,32 +1089,6 @@ Deno.serve(async (req) => {
         const data = await r.json();
         return await finishText("openai", model, data, (((data.choices || [])[0] || {}).message || {}).content || "", images.length > 0);
       } catch (e) { return textUnreachable(e); }
-    }
-    if (provider === "moonshot") {
-      // Kimi (Moonshot AI) — OpenAI-compatible chat completions
-      const mKey = providerKey("moonshot", "MOONSHOT_API_KEY");
-      if (!mKey) return json({ error: missingKey("Moonshot (Kimi)", "MOONSHOT_API_KEY") }, 500);
-      try {
-        // K3 is a 2.8T deep reasoner (launched 2026-07-16): long drafts are SLOW,
-        // especially under launch-week load. 380s (user ruling 2026-07-19) fits under
-        // the paid-plan 400s function ceiling so medium drafts (~700 words at ~2 w/s)
-        // can finish; if the platform gateway still kills at ~150s the client sees a
-        // generic fetch error instead of this clean message. max_tokens bounds the
-        // completion so generation time can't run unbounded.
-        const r = await fetch("https://api.moonshot.ai/v1/chat/completions", {
-          method: "POST",
-          signal: AbortSignal.timeout(TEXT_PROVIDER_TIMEOUT_MS),
-          headers: { Authorization: `Bearer ${mKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model, max_tokens: reqMaxTokens || 4096,
-            messages: messages.map((m: any) => ({ role: m.role || "user", content: messageText(m) })) }),
-        });
-        if (!r.ok) { let d = ""; try { d = (await r.json())?.error?.message || ""; } catch (_e) { /* noop */ } return textRefused(d, r.status); }
-        const data = await r.json();
-        return await finishText("moonshot", model, data, (((data.choices || [])[0] || {}).message || {}).content || "", false);
-      } catch (e) {
-        if ((e as any)?.name === "TimeoutError") return json({ error: "Kimi took too long to answer — K3 is a brand-new deep-reasoning flagship, and this draft outran even the extended 6-minute server window. Try again, keep K3 for shorter tasks (analysis, alt lines), or switch the writing dock back to Auto for heavy drafting." }, 200);
-        return textUnreachable(e);
-      }
     }
     if (provider === "anthropic") {
       const apiKey = providerKey("anthropic", "ANTHROPIC_API_KEY");
@@ -2343,23 +2330,26 @@ Deno.serve(async (req) => {
   }
   // THE IMAGE ROUTE AND MODEL (2026-09-30): each route serves only the models it has a price for.
   // The direct Google route used to accept ANY model name (priced at 0 → 1 credit, and the name
-  // went straight into the request URL); now only its three Nano Banana models may go there.
+  // went straight into the request URL); now only its Nano Banana model may go there.
+  // THE DIRECT OPENAI IMAGE ROUTE IS RETIRED (2026-10-11, owner — image engines): it served GPT Image 2 only. An
+  // older app's image request naming provider "openai" (GPT Image 2, mapped to GPT Image 2.5 Sunburst above) is
+  // served — gated, priced, held and recorded — on fal, the only route GPT Image 2.5 runs on.
   if (provider !== "fal" && provider !== "google" && provider !== "openai") {
     return json({ error: `Provider "${provider}" is not configured on this proxy yet.` }, 400);
   }
-  const imageRouteOk = provider === "fal" ? Object.prototype.hasOwnProperty.call(FAL_IMAGE_MODELS, model)
-    : provider === "google" ? Object.prototype.hasOwnProperty.call(GOOGLE_IMAGE_USD, model)
-    : OPENAI_DIRECT_IMAGE_MODELS.includes(model);
+  const imageProvider = provider === "openai" ? "fal" : provider;
+  const imageRouteOk = imageProvider === "fal" ? Object.prototype.hasOwnProperty.call(FAL_IMAGE_MODELS, model)
+    : Object.prototype.hasOwnProperty.call(GOOGLE_IMAGE_USD, model);
   if (!imageRouteOk) return json({ error: `Image model "${model}" is not available on this route.`, code: "model_not_allowed" }, 400);
   if (!["1K", "2K", "4K"].includes(imageSize)) return json({ error: "Choose a 1K, 2K or 4K image.", code: "bad_request" }, 400);
   // ROUND 4 (S1): the direct Google route sends each reference as inline data with its own label —
   // only real PNG / JPEG / WebP / GIF / HEIC data URLs may go, refused before any hold
-  if (provider === "google") {
+  if (imageProvider === "google") {
     const refProblem = visionImagesProblem(images);
     if (refProblem) return json({ error: refProblem.error, code: "bad_image" }, 400);
   }
   // PLAN GATE: no plan / trial → draft images (Nano Banana 2.1 at 1K); Writer → up to 2K;
-  // Director and Producer → every engine at 4K (billing-policy.mjs checkImage).
+  // Director and Producer → every engine at 4K (Seedream 5 Pro tops out at 2K) (billing-policy.mjs checkImage).
   if (!accountKnown) return refuse(billingUnavailable());
   const imageGate = checkImage(account, { model, imageSize });
   if (imageGate) return refuseGate(imageGate);
@@ -2383,7 +2373,7 @@ Deno.serve(async (req) => {
   const imageUnit = await creditUnitNow();
   if (imageUnit == null) return refuse(billingUnavailable());
   const imageUsageEstimate = (m: string, size: string, q: string | undefined, table: Record<string, Record<string, number>>) =>
-    imageCost({ route: provider, model: m, imageSize: size, aspect,
+    imageCost({ route: imageProvider, model: m, imageSize: size, aspect,
       pricingKey: /^gpt-image/i.test(m) ? imagePricingQuality(m, q) : undefined,
       referenceImages: images.length, webSearch: groundSearch, table, unit: imageUnit });
   const imageUsage = imageUsageEstimate(model, imageSize, quality, imagePricingTable);
@@ -2394,7 +2384,7 @@ Deno.serve(async (req) => {
   // longer all pass one balance check); settle it on delivery, release it on any failure
   const { hold: imageHold, block: imageHoldBlock } = await takeHold(imageUsage.credits, "image", `image:${model}:${imageSize}`);
   if (imageHoldBlock) return imageHoldBlock;
-  const finishImage = async (payload: Record<string, unknown>, providerName = provider, modelName = model) => {
+  const finishImage = async (payload: Record<string, unknown>, providerName = imageProvider, modelName = model) => {
     const charged = imageHold ? await settleHold(imageHold, imageUsage.credits) : 0;
     const usage = await recordUsage({
       kind: "generation",
@@ -2411,8 +2401,8 @@ Deno.serve(async (req) => {
   };
   const runImage = async (): Promise<Response> => {
 
-  // ── provider: fal.ai image broker (Nano Banana + GPT Image) ────────────────
-  if (provider === "fal") {
+  // ── provider: fal.ai image broker (Nano Banana 2.1, GPT Image 2.5, Seedream 5 Pro) ──
+  if (imageProvider === "fal") {
     const falKey = providerKey("fal", "FAL_KEY");
     if (!falKey) return json({ error: missingKey("fal.ai", "FAL_KEY") }, 500);
 
@@ -2447,25 +2437,32 @@ Deno.serve(async (req) => {
 
     try {
       const imageUrls = await videoInputUrls(images, "image");
-      // a render with references uses the model's edit route when it has one (GPT Image, Nano Banana 2.1);
-      // Nano Banana 2 / Pro take image_urls on their base route
+      // a render with references uses the model's edit route (every engine has one now)
       const endpoint = imageUrls.length && cfg.edit ? cfg.edit : cfg.base;
       const input: any = { prompt };
 
       if (cfg.family === "openai") {
-        // fal's openai/gpt-image-2 wrapper does NOT take OpenAI's "WxH" string. Its schema
+        // fal's GPT Image wrapper does NOT take OpenAI's "WxH" string. Its schema
         // is either an enum (square_hd | landscape_16_9 | …) or an OBJECT {width,height}.
-        // Sending the string returned 422 on every request, so GPT Image 2 never worked
-        // through fal. Use the object form: it keeps TURN's exact aspect+resolution tiers,
-        // which the enum cannot express (no 16:9 at 2K, no 21:9 at all).
+        // Sending the string returned 422 on every request. Use the object form: it keeps
+        // TURN's exact aspect+resolution tiers, which the enum cannot express (no 16:9 at
+        // 2K, no 21:9 at all). GPT Image 2.5 takes no moderation field.
         const wh = sizeForAspect(aspect, imageSize).split("x");
         const w = parseInt(wh[0], 10), h = parseInt(wh[1], 10);
         input.image_size = (Number.isFinite(w) && Number.isFinite(h)) ? { width: w, height: h } : "landscape_16_9";
         Object.assign(input, providerQualityPayload(qualityCheck));
-        // The legacy GPT Image 2 wrapper exposes fal's moderation field; the
-        // 2.5 Flare/Sunburst schemas do not, so do not send an unknown input.
-        if (moderation && cfg.moderation) input.moderation = moderation;
         if (imageUrls.length) input.image_urls = imageUrls;
+      } else if (cfg.family === "seedream") {
+        // SEEDREAM 5 PRO (2026-10-11, owner — image engines): the exact {width, height} that was priced
+        // (billing-pricing.mjs seedreamImageDimensions: 1K ≈ 1.05 MP, 2K ≈ 4.1-4.19 MP, inside fal's 1024²-2048²
+        // range), one PNG, fal's safety checker left on. No seed, no web search, no quality: it has none. The
+        // edit route requires image_urls (the first 10 — `images` was capped where it was read).
+        input.image_size = seedreamImageDimensions(aspect, imageSize);
+        input.num_images = 1;
+        input.output_format = "png";
+        input.enable_safety_checker = true;
+        input.sync_mode = false;
+        if (imageUrls.length) input.image_urls = imageUrls.slice(0, SEEDREAM_MAX_REFERENCES);
       } else {
         input.aspect_ratio = aspect || "16:9";
         input.resolution = imageSize || "2K";
@@ -2523,18 +2520,18 @@ Deno.serve(async (req) => {
         : [];
       const img = imageList[0] || result?.image || result?.data?.image || result?.output?.image || null;
       const b64 = (img && (img.b64_json || img.base64 || img.b64)) || result?.b64_json || result?.base64 || "";
-      if (b64) return await finishImage({ b64, mime: (img && (img.content_type || img.mime_type)) || "image/png", falModel: endpoint, grounded: cfg.family !== "openai" && !!groundSearch }, "fal", model);
+      if (b64) return await finishImage({ b64, mime: (img && (img.content_type || img.mime_type)) || "image/png", falModel: endpoint, grounded: cfg.family === "nano" && !!groundSearch }, "fal", model);
 
       const url = typeof img === "string" ? img : (img && (img.url || img.image_url)) || result?.url || "";
       if (!url) return json({ error: "The image service returned no image." }, 200);
       const m = /^data:(.*?);base64,(.*)$/.exec(url);
-      if (m) return await finishImage({ b64: m[2], mime: m[1] || "image/png", falModel: endpoint, grounded: cfg.family !== "openai" && !!groundSearch }, "fal", model);
+      if (m) return await finishImage({ b64: m[2], mime: m[1] || "image/png", falModel: endpoint, grounded: cfg.family === "nano" && !!groundSearch }, "fal", model);
 
       const imageHeaders = okFalHost(url) ? { "Authorization": "Key " + falKey } : undefined;
       const ir = await fetch(url, { headers: imageHeaders });
       if (!ir.ok) return json({ error: `Could not download the generated image (${ir.status}).` }, 200);
       const mime = ir.headers.get("content-type") || (img && (img.content_type || img.mime_type)) || "image/png";
-      return await finishImage({ b64: arrayBufferToBase64(await ir.arrayBuffer()), mime, falModel: endpoint, grounded: cfg.family !== "openai" && !!groundSearch }, "fal", model);
+      return await finishImage({ b64: arrayBufferToBase64(await ir.arrayBuffer()), mime, falModel: endpoint, grounded: cfg.family === "nano" && !!groundSearch }, "fal", model);
     } catch (e) {
       if ((e as any)?.name === "TimeoutError")
         return json({ error: "The image service didn't accept the request within 30s — it was cancelled server-side. Try again, or choose a faster quality/resolution." }, 200);
@@ -2547,7 +2544,7 @@ Deno.serve(async (req) => {
   }
 
   // ── provider: Google (Nano Banana / Gemini) — mirrors the client's nbGenerate ──
-  if (provider === "google") {
+  if (imageProvider === "google") {
     const gkey = providerKey("google", "GOOGLE_API_KEY");
     if (!gkey) {
       return json({ error: missingKey("Google", "GOOGLE_API_KEY") }, 500);
@@ -2563,11 +2560,9 @@ Deno.serve(async (req) => {
       generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: aspect, imageSize } },
     };
     if (groundSearch) {
-      // image search too only on Nano Banana 2 (gemini-3.1-flash-image); Nano Banana 2.1 grounds with web
-      // search (Google bills its searches; GOOGLE_GROUNDING_USD covers them)
-      const isFlash = model === "gemini-3.1-flash-image";
-      reqBody.tools = [{ googleSearch: (isFlash && groundImageSearch)
-        ? { searchTypes: { webSearch: {}, imageSearch: {} } } : {} }];
+      // Nano Banana 2.1 grounds with web search (Google bills its searches; GOOGLE_GROUNDING_USD covers them).
+      // Image-search grounding was Nano Banana 2's and went with it (2026-10-11).
+      reqBody.tools = [{ googleSearch: {} }];
     }
     try {
       const gRes = await fetch(
@@ -2601,64 +2596,8 @@ Deno.serve(async (req) => {
     }
   }
 
-  // ── provider: OpenAI (GPT Image) ────────────────────────────────────────────
-  if (provider !== "openai") {
-    return json({ error: `Provider "${provider}" is not configured on this proxy yet.` }, 400);
-  }
-
-  const apiKey = providerKey("openai", "OPENAI_API_KEY");
-  if (!apiKey) {
-    return json({ error: missingKey("OpenAI", "OPENAI_API_KEY") }, 500);
-  }
-
-  const size = sizeForAspect(aspect, imageSize);
-
-  // ── call OpenAI server-side (no CORS here) ──────────────────────────────────
-  try {
-    let oaiRes: Response;
-    if (images.length) {
-      // image edit (reference images supplied) → multipart
-      const form = new FormData();
-      form.append("model", model);
-      form.append("prompt", prompt);
-      form.append("size", size);
-      const providerQuality = providerQualityPayload(qualityCheck);
-      if (providerQuality.quality !== undefined) form.append("quality", providerQuality.quality);
-      if (moderation) form.append("moderation", moderation);
-      let i = 0;
-      for (const src of images) {
-        const blob = dataUrlToBlob(src);
-        if (blob) form.append("image[]", blob, `ref${i++}.png`);
-      }
-      oaiRes = await fetch("https://api.openai.com/v1/images/edits", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}` },
-        body: form,
-        signal: AbortSignal.timeout(380000),
-      });
-    } else {
-      oaiRes = await fetch("https://api.openai.com/v1/images/generations", {
-        method: "POST",
-        signal: AbortSignal.timeout(380000),
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, prompt, size, n: 1, ...providerQualityPayload(qualityCheck), ...(moderation ? { moderation } : {}) }),
-      });
-    }
-
-    if (!oaiRes.ok) {
-      let detail = "";
-      try { const j = await oaiRes.json(); detail = j?.error?.message || ""; } catch (_e) { /* noop */ }
-      return json({ error: say(detail, `The image service returned an error (${oaiRes.status}).`), status: oaiRes.status }, 200);
-    }
-
-    const data = await oaiRes.json();
-    const d = (data.data || [])[0] || {};
-    if (d.b64_json) return await finishImage({ b64: d.b64_json }, "openai", model);
-    if (d.url) return await finishImage({ url: d.url }, "openai", model);
-    return json({ error: "The image service returned no image." }, 200);
-  } catch (e) {
-    return json({ error: isAdmin ? "Proxy failed to reach OpenAI: " + (e?.message || e) : "Couldn't reach the image service. Please try again." }, 502);
-  }
+  // the direct OpenAI image route was retired (2026-10-11): imageProvider is "fal" or "google" here
+  return json({ error: `Provider "${provider}" is not configured on this proxy yet.` }, 400);
   };
   // any render that did not deliver (a refusal, a timeout, a missing key) refunds its hold
   try { return await runImage(); }

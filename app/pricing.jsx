@@ -63,13 +63,11 @@
         // display fallbacks scaled to Anthropic list prices (checked 2026-09-26)
         // (base credits per call at the $0.10 base anchor — 3x the pre-2026-09-30 values)
         "claude-fable-5": 0.33,
-        "claude-fable-5-1": 0.33,
         "claude-opus-5": 0.18,
         "claude-opus-5-5": 0.12,
         "claude-sonnet-5": 0.24,
-        "kimi-k3": 0.18,
-        "kimi-k2.7-code": 0.09,
         "gpt-6-astra": 0.60,
+        "gpt-6.1-sol": 0.12,
         "gemini-3.8-flash": 0.24,
         muse: 0.09,
         vision: 0.60,
@@ -78,26 +76,23 @@
     },
     image: {
       note: "Provider cost per generated image on fal (the route the app uses) — the SAME table as supabase/functions/image-proxy/billing-pricing.mjs IMAGE_PROVIDER_USD, so a cost chip quotes what the server holds and settles.",
-      // fal prices (checked 2026-09-29): Nano Banana 2 $0.08, 2K x1.5, 4K x2; Nano Banana Pro
-      // $0.15, 4K x2; Nano Banana 2.1 (2026-10-10, owner: replaces Nano Banana 2 Lite) $0.05 / $0.07 /
-      // $0.15 at 1K / 2K / 4K — fal bills it per token (representative $0.040 / $0.059 / $0.134 for a short
-      // prompt at medium thinking), so the table adds an allowance for long prompts and references and
-      // charges no extra per reference image. GPT Image rows are the
-      // price at the model's BASELINE size and scale with output size (turnGptImageSizeFactor):
-      // GPT Image 2 high is $0.158 at 1080p, $0.401 at 4K.
+      // THE ENGINES (2026-10-11, owner — image engines): exactly Nano Banana 2.1, GPT Image 2.5 Flare,
+      // GPT Image 2.5 Sunburst and Seedream 5 Pro (Nano Banana 2, Nano Banana Pro and GPT Image 2 were removed).
+      // Nano Banana 2.1 (2026-10-10, owner) $0.05 / $0.07 / $0.15 at 1K / 2K / 4K — fal bills it per token
+      // (representative $0.040 / $0.059 / $0.134 for a short prompt at medium thinking), so the table adds an
+      // allowance for long prompts and references and charges no extra per reference image.
+      // GPT Image 2.5 rows are fal's canonical 1024x1024 prices (2026-10-11: low $0.00588, medium $0.01317,
+      // high $0.05268, xhigh $0.09366, max $0.21072 — low / medium / high used to sit below fal's) and scale
+      // with output size (turnGptImageSizeFactor); default is high, auto is estimated at max.
+      // Seedream 5 Pro (2026-10-11): fal's tentative price by OUTPUT AREA — $0.0675 up to 1536x1536 ("standard"),
+      // $0.135 above it up to 2048x2048 ("large") — plus $0.0045 for each reference image after the first
+      // ("extraRef"); the tier follows the exact size sent (turnSeedreamImageDimensions; no 4K — a 4K pick
+      // renders at 2K).
       providerUsd: {
         "gemini-nano-banana-2.1":      { "1K":0.05, "2K":0.07, "4K":0.15 },
-        "gemini-3.1-flash-image":      { "1K":0.08, "2K":0.12, "4K":0.16 },
-        "gemini-3-pro-image":          { "1K":0.15, "2K":0.15, "4K":0.30 },
-        "gpt-image-2":                 { low:0.012, medium:0.044, high:0.158 },
-        // GPT Image 2.5 xhigh/max use the official canonical 1024-square
-        // output-token baseline. Input-token counts and non-square dimensions
-        // vary, so these are estimates rather than exact per-request quotes;
-        // TURN intentionally preserves its existing lower-tier rates.
-        // default aliases high; auto uses the conservative max estimate. The
-        // watcher scales these token tiers if fal's published rate changes.
-        "gpt-image-2.5-flare":         { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
-        "gpt-image-2.5-sunburst":      { default:0.045, auto:0.21072, low:0.005, medium:0.012, high:0.045, xhigh:0.09366, max:0.21072 },
+        "gpt-image-2.5-flare":         { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
+        "gpt-image-2.5-sunburst":      { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
+        "seedream-5-pro":              { standard:0.0675, large:0.135, extraRef:0.0045 },
       },
     },
     video: {
@@ -221,8 +216,8 @@
     return TURN_PRICING.image.providerUsd;
   }
   /* GPT Image cost scales with output size: fal's two GPT Image 2 points ($0.158 at 2.07 MP,
-     $0.401 at 8.29 MP) fit cost ∝ MP^0.672. Mirrors billing-pricing.mjs gptImageSizeFactor. */
-  const GPT_IMAGE_BASELINE_MP = { "gpt-image-2":1920*1080/1e6, "gpt-image-2.5-flare":1024*1024/1e6, "gpt-image-2.5-sunburst":1024*1024/1e6 };
+     $0.401 at 8.29 MP) fit cost ∝ MP^0.672 — kept for 2.5. Mirrors billing-pricing.mjs gptImageSizeFactor. */
+  const GPT_IMAGE_BASELINE_MP = { "gpt-image-2.5-flare":1024*1024/1e6, "gpt-image-2.5-sunburst":1024*1024/1e6 };
   const GPT_IMAGE_SIZES = {
     "16:9": { "1K":"1280x720", "2K":"2048x1152", "4K":"3840x2160" },
     "9:16": { "1K":"720x1280", "2K":"1152x2048", "4K":"2160x3840" },
@@ -232,10 +227,34 @@
     "4:3":  { "1K":"1024x768", "2K":"2048x1536", "4K":"3840x2880" },
   };
   function turnGptImageSizeFactor(model, aspect, imageSize){
-    const base = GPT_IMAGE_BASELINE_MP[model] || GPT_IMAGE_BASELINE_MP["gpt-image-2"];
+    const base = GPT_IMAGE_BASELINE_MP[model] || GPT_IMAGE_BASELINE_MP["gpt-image-2.5-sunburst"];
     const tier = ["1K","2K","4K"].indexOf(imageSize)>=0 ? imageSize : "2K";
     const dims = (GPT_IMAGE_SIZES[aspect] || GPT_IMAGE_SIZES["16:9"])[tier].split("x").map(Number);
     return Math.pow((dims[0]*dims[1]/1e6)/base, 0.672);
+  }
+  /* SEEDREAM 5 PRO (2026-10-11, owner — image engines): the exact {width, height} the server sends fal and prices
+     (billing-pricing.mjs seedreamImageDimensions): 1K = the smallest area at or above 1024x1024 for the aspect, 2K
+     (and a 4K pick) the largest at or below 2048x2048, both sides multiples of 16. Its price tier follows that
+     area — $0.0675 up to 1536x1536, $0.135 above — plus $0.0045 for each reference after the first (at most 10
+     references are sent: fal's edit route uses no more). */
+  const SEEDREAM_ASPECTS = { "16:9":16/9, "9:16":9/16, "21:9":21/9, "1:1":1, "3:4":3/4, "4:3":4/3 };
+  const SEEDREAM_MAX_REFERENCES = 10;
+  function turnSeedreamImageSize(imageSize){ return imageSize==="1K" ? "1K" : "2K"; }
+  function turnSeedreamImageDimensions(aspect, imageSize){
+    const r = SEEDREAM_ASPECTS[aspect] || SEEDREAM_ASPECTS["16:9"];
+    const big = turnSeedreamImageSize(imageSize)==="2K";
+    const area = big ? 2048*2048 : 1024*1024;
+    const snap = (v)=> (big ? Math.floor(v/16) : Math.ceil(v/16)) * 16;
+    return { width:snap(Math.sqrt(area*r)), height:snap(Math.sqrt(area/r)) };
+  }
+  function turnSeedreamProviderUsd(aspect, imageSize, refs){
+    const row = TURN_PRICING.image.providerUsd["seedream-5-pro"];
+    if(!row) return null;
+    const d = turnSeedreamImageDimensions(aspect, imageSize);
+    const tier = Number(d.width*d.height <= 1536*1536 ? row.standard : row.large);
+    if(!(tier>0)) return null;
+    const n = Math.min(SEEDREAM_MAX_REFERENCES, Math.max(0, Math.floor(Number(refs)||0)));
+    return tier + Math.max(0, n-1) * Math.max(0, Number(row.extraRef)||0);
   }
   /* whole credits for a provider cost, exactly as the server rounds (billing-pricing.mjs
      creditsFromUsd): up, at least 1, with a hair of float tolerance */
@@ -321,6 +340,10 @@
   window.turnCreditsFromProviderUsd = turnCreditsFromProviderUsd;
   window.turnImageProviderUsdTable = turnImageProviderUsdTable;
   window.turnGptImageSizeFactor = turnGptImageSizeFactor;
+  window.turnSeedreamImageSize = turnSeedreamImageSize;
+  window.turnSeedreamImageDimensions = turnSeedreamImageDimensions;
+  window.turnSeedreamProviderUsd = turnSeedreamProviderUsd;
+  window.TURN_SEEDREAM_MAX_REFERENCES = SEEDREAM_MAX_REFERENCES;
   window.turnCreditCost = turnCreditCost;
   window.turnVideoCreditRate = turnVideoCreditRate;
   window.turnVideoCreditRates = turnVideoCreditRates;

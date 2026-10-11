@@ -165,7 +165,7 @@
       const n = Number(v);
       if(Number.isFinite(n) && n >= 0) return Math.floor(n);
     }
-    /* Nano Banana 2 documents fourteen input images; keep one conservative,
+    /* Nano Banana 2.1 documents fourteen input images; keep one conservative,
        model-independent cap for older image routes.  The target's canon refs
        are reserved before this function is used, so context can never displace
        a real identity/location/prop sheet. */

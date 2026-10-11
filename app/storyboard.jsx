@@ -1070,7 +1070,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
         +"Everything the instruction does NOT name stays IDENTICAL to the reference — the same characters "
         +"(identical faces & wardrobe), the same location and set, the same lighting and colour grade, and "
         +"(unless the instruction changes them) the same shot size, lens and staging. Do not re-imagine the frame.";
-      // Preserve GPT Image 2's medium timeout guard; 2.5 uses the captured choice.
+      // GPT Image 2.5 uses the captured quality choice.
       const extra = [];
       for(const rid of editRefSel){ let u=(typeof nbGetImage==="function")?nbGetImage(rid):"";
         if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(rid); }catch(e){} } if(u) extra.push(u); }

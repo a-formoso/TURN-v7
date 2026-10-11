@@ -319,7 +319,9 @@ async function generateLookbookFrame(c, project){
     const now = new Date();
     const mEntry = (window.NB_MODELS||[]).find(m=>m.id===model) || {};
     const meta = { modelLabel:mEntry.label||"Nano Banana", modelId:model,
-      aspect:(typeof nbGetAspect==="function"?nbGetAspect():"16:9"), size:(typeof nbGetRes==="function"?nbGetRes():"2K"),
+      aspect:(typeof nbGetAspect==="function"?nbGetAspect():"16:9"),
+      // the size really rendered (Seedream 5 Pro renders a 4K pick at 2K — 2026-10-11)
+      size:(typeof window.nbModelRes==="function" ? window.nbModelRes(model, (typeof nbGetRes==="function"?nbGetRes():"2K")) : (typeof nbGetRes==="function"?nbGetRes():"2K")),
       date: now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
       time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
       iso:now.toISOString(), prompt, mode:"final", version:1,

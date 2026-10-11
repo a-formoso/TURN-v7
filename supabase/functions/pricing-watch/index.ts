@@ -17,7 +17,7 @@
 //   • a price is only emitted when its specific regex matches AND the number
 //     passes sanity bounds; anything else lands in `failures` and produces NO
 //     diff — never a zero/garbage price.
-//   • token-priced models (GPT Image 2, Nano Banana 2.1, Seedance's
+//   • token-priced models (GPT Image 2.5, Nano Banana 2.1, Seedance's
 //     token-formula resolutions) don't state a flat per-image/per-second price,
 //     so we emit the parsed TOKEN RATE as a "rate" item. The client scales the
 //     existing table value by rate/referenceRate — a rate that halves halves
@@ -132,34 +132,6 @@ async function falPricingText(slug: string): Promise<string> {
 // (tokenRefs), which supersedes defaultRef — so a change is never re-applied.
 const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = [
   {
-    // Nano Banana Pro → gemini-3-pro-image. Flat $/image (1K & 2K), 4K double.
-    slug: "fal-ai/nano-banana-pro",
-    run(t, c) {
-      const base = firstMatch(t, /\$\s*([\d.,]+)\s*per image/i);
-      c.abs("image.providerUsd.gemini-3-pro-image.1K", base, "per-image price");
-      c.abs("image.providerUsd.gemini-3-pro-image.2K", base, "per-image price");
-      if (sanePrice(base) && /4K outputs? will be charged at double/i.test(t)) {
-        c.abs("image.providerUsd.gemini-3-pro-image.4K", base * 2, "4K price");
-      } else c.fail("4K 'double' multiplier text not found");
-    },
-  },
-  {
-    // Nano Banana 2 → gemini-3.1-flash-image. Flat $/image at 1K; the page
-    // states explicit 2K / 4K multipliers ("charged at 1.5 times and 2 times").
-    slug: "fal-ai/nano-banana-2",
-    run(t, c) {
-      const base = firstMatch(t, /\$\s*([\d.,]+)\s*per image/i);
-      c.abs("image.providerUsd.gemini-3.1-flash-image.1K", base, "per-image price");
-      const m = t.match(
-        /2K and 4K outputs? will be charged at\s*([\d.,]+)\s*times and\s*([\d.,]+)\s*times/i,
-      );
-      if (sanePrice(base) && m) {
-        c.abs("image.providerUsd.gemini-3.1-flash-image.2K", base * money(m[1]), "2K price");
-        c.abs("image.providerUsd.gemini-3.1-flash-image.4K", base * money(m[2]), "4K price");
-      } else c.fail("2K/4K multiplier text not found");
-    },
-  },
-  {
     // Nano Banana 2.1 → gemini-nano-banana-2.1 (2026-10-10, owner: it replaced
     // Nano Banana 2 Lite). fal bills it PER TOKEN (no per-image fee, no
     // resolution / search / thinking surcharge), and the table is NOT fal's
@@ -167,7 +139,7 @@ const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = 
     // ($0.040 / $0.059 / $0.134 for a short prompt at medium thinking) plus an
     // allowance for long prompts and references. fal's catalog states only TOKEN rates for it
     // (checked 2026-10-10: "Image tokens (per 1M): $1.764 input, $35.294 output", no per-image
-    // figure), so — like GPT Image 2 — this watches the IMAGE OUTPUT TOKEN rate and the whole column
+    // figure), so — like GPT Image 2.5 — this watches the IMAGE OUTPUT TOKEN rate and the whole column
     // scales by (new rate / $35.294), keeping the allowance in proportion; never an absolute
     // overwrite of the owner's prices.
     slug: "google/nano-banana-2.1",
@@ -188,29 +160,10 @@ const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = 
     },
   },
   {
-    // GPT Image 2 — token-priced; per-quality USD scales with the image output
-    // token rate. Reference $60/1M matches the 07-25 table (high $0.317); the
-    // 2026-07-30 manual check found the live rate at $30/1M → high ≈ $0.158.
-    slug: "openai/gpt-image-2",
-    run(t, c) {
-      const rate = firstMatch(t, /Image tokens \(per 1M\):[^\n]*?\$\s*([\d.,]+)\s*output/i);
-      c.rate(
-        "gpt-image-2-image-output-tokens",
-        rate,
-        "$/1M image output tokens",
-        60,
-        [
-          "image.providerUsd.gpt-image-2.low",
-          "image.providerUsd.gpt-image-2.medium",
-          "image.providerUsd.gpt-image-2.high",
-        ],
-        "derived: table × (new rate / reference rate)",
-      );
-    },
-  },
-  {
-    // GPT Image 2.5 Flare — token-priced. The committed quality estimates use
-    // the current $30/1M image-output-token rate at TURN's default 2K canvas.
+    // GPT Image 2.5 Flare — token-priced. The committed quality rows are fal's
+    // canonical 1024x1024 prices at the $30/1M image-output-token rate (2026-10-11:
+    // low $0.00588, medium $0.01317, high $0.05268, xhigh $0.09366, max $0.21072 —
+    // the low / medium / high rows used to sit below fal's); they scale with it.
     slug: "openai/gpt-image-2.5/flare/text-to-image",
     run(t, c) {
       const rate = firstMatch(t, /Image tokens \(per 1M\):[^\n]*?\$\s*([\d.,]+)\s*output/i);
@@ -253,6 +206,40 @@ const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = 
           "image.providerUsd.gpt-image-2.5-sunburst.max",
         ],
         "derived: table × (new rate / reference rate)",
+      );
+    },
+  },
+  {
+    // Seedream 5 Pro → seedream-5-pro (2026-10-11, owner — image engines). fal states
+    // a flat, TENTATIVE per-image price by output area (catalog text, 2026-10-11:
+    // "Tentative pricing is $0.0675 per image for images of total area less than or
+    // equal to 1536x1536 pixels. For images with area in between 1536x1536 and
+    // 2048x2048 pixels, the price is $0.135 per image."), watched as absolute prices.
+    slug: "bytedance/seedream/v5/pro/text-to-image",
+    run(t, c) {
+      if (!/tentative/i.test(t)) c.fail("pricing no longer marked tentative — review the Seedream 5 Pro rows");
+      c.abs(
+        "image.providerUsd.seedream-5-pro.standard",
+        firstMatch(t, /\$\s*([\d.,]+)\s*per image for images of total area less than or equal to/i),
+        "per-image price up to 1536x1536",
+      );
+      c.abs(
+        "image.providerUsd.seedream-5-pro.large",
+        firstMatch(t, /between\s*1536x1536\s*and\s*2048x2048\s*pixels,\s*the price is\s*\$\s*([\d.,]+)/i),
+        "per-image price up to 2048x2048",
+      );
+    },
+  },
+  {
+    // Seedream 5 Pro's edit route (references): each input image after the first adds
+    // a flat fee ("every additional input image will cost $0.0045." — the number is read
+    // without the sentence's full stop).
+    slug: "bytedance/seedream/v5/pro/edit",
+    run(t, c) {
+      c.abs(
+        "image.providerUsd.seedream-5-pro.extraRef",
+        firstMatch(t, /every additional input image will cost\s*\$\s*(\d[\d,]*(?:\.\d+)?)/i),
+        "per additional input image",
       );
     },
   },

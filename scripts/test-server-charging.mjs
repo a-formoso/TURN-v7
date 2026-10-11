@@ -11,8 +11,8 @@
        actual cost or RELEASES the hold after — text, images, video (held at submit, settled on
        the poll that sees it finish, released on failure or timeout), voice (charged now);
      * plan TIERS and the TRIAL rule are enforced on the server (billing-policy.mjs);
-     * corrected price tables (GPT-5.5, Gemini 3.5 Flash + thinking tokens, Kimi, Nano Banana
-       at fal's prices incl. 4K, GPT Image 2 by size), and only known models on the direct
+     * corrected price tables (GPT-6.1 Sol and its cache writes, Gemini thinking tokens, Nano Banana
+       at fal's prices incl. 4K, GPT Image 2.5 by size, Seedream 5 Pro by area), and only known models on the direct
        Google image route;
      * Frances: Opus 5 and Opus 5.5 both ride the free path during the move, prompt caching is
        passed through, and the daily cap follows the plan (5 / 15 / 30 / 50; admins exempt);
@@ -299,16 +299,14 @@ await test("A2 the live unit comes from turn_credit_regime(): 0.03 before the sw
   for (const bad of [null, [], [{}], { usd_per_credit: 0.5 }, { usd_per_credit: "x" }, "0.01"]) assert.equal(P.creditUnitFromRegime(bad), null, j(bad));
 });
 
-await test("A3 text prices: GPT-5.5 (the app's dated id) $5/$30, Gemini 3.5 Flash $1.50/$9, Kimi K3 / K2.7, Claude list and cache prices", () => {
+await test("A3 text prices: GPT-6.1 Sol $2/$10, the removed engines (GPT-5.5, Gemini 3.5 Flash, Kimi, Fable 5.1) unpriced, Claude list and cache prices", () => {
   const r = (m, o) => P.textRates(m, o);
-  assert.equal(P.textPriceKey("gpt-5.5-2026-04-23"), "gpt-5.5", "the id the app sends (it missed the old exact lookup)");
-  assert.deepEqual([r("gpt-5.5-2026-04-23").input, r("gpt-5.5-2026-04-23").output], [5, 30]);
-  assert.deepEqual([r("gemini-3.5-flash").input, r("gemini-3.5-flash").output], [1.5, 9]);
-  assert.deepEqual([r("kimi-k3").input, r("kimi-k3").output], [3, 15]);
-  assert.deepEqual([r("kimi-k2.7-code").input, r("kimi-k2.7-code").output], [0.95, 4]);
+  // (2026-10-11, owner) the removed engines have no price; an older app's id is served on a successor (index.ts)
+  for (const m of ["gpt-5.5-2026-04-23", "gpt-5.5", "gemini-3.5-flash", "kimi-k3", "kimi-k2.7-code", "claude-fable-5-1"]) assert.equal(r(m), null, m);
+  assert.deepEqual([r("gpt-6.1-sol").input, r("gpt-6.1-sol").output, r("gpt-6.1-sol").cacheRead], [2, 10, 0.1]);
   assert.deepEqual([r("claude-opus-5-5").input, r("claude-opus-5-5").output, r("claude-opus-5-5").cacheRead, r("claude-opus-5-5").cacheWrite], [4, 20, 0.2, 5]);
   assert.deepEqual([r("claude-opus-5").input, r("claude-opus-5").output, r("claude-opus-5").cacheRead], [5, 25, 0.5]);
-  assert.deepEqual([r("claude-fable-5-1").input, r("claude-fable-5-1").output], [10, 50]);
+  assert.deepEqual([r("claude-fable-5").input, r("claude-fable-5").output], [10, 50]);
   // dated price change: Gemini 3.8 Flash doubles on 2027-01-01
   assert.equal(r("gemini-3.8-flash", { nowMs: Date.parse("2026-12-31T23:59:59Z") }).input, 0.75);
   assert.deepEqual([r("gemini-3.8-flash", { nowMs: Date.parse("2027-01-01T00:00:00Z") }).input, r("gemini-3.8-flash", { nowMs: Date.parse("2027-01-01T00:00:00Z") }).output], [1.5, 7.5]);
@@ -317,11 +315,11 @@ await test("A3 text prices: GPT-5.5 (the app's dated id) $5/$30, Gemini 3.5 Flas
   // an unknown model has NO price (the proxy refuses it instead of guessing)
   assert.equal(P.textPriceKey("gpt-7-omega"), ""); assert.equal(r("gpt-7-omega"), null);
   assert.equal(P.textHoldEstimate({ model: "gpt-7-omega", messages: [{ role: "user", content: "x" }], outputCap: 100 }), null);
-  // the report's medium GPT-5.5 call (8k in / 2k out) costs $0.10 = 10 credits (it was charged 1)
-  const medium = P.textActualCost("gpt-5.5-2026-04-23", { inputTokens: 8000, outputTokens: 2000 });
-  assert.ok(near(medium.providerCostUsd, 0.10)); assert.equal(medium.credits, 10);
-  // a large Gemini 3.5 Flash call (30k / 8k) = $0.117 → 12 credits (it was charged 1)
-  assert.equal(P.textActualCost("gemini-3.5-flash", { inputTokens: 30000, outputTokens: 8000 }).credits, 12);
+  // a medium GPT-6.1 Sol call (8k in / 2k out, nothing cached) costs $0.036 = 4 credits
+  const medium = P.textActualCost("gpt-6.1-sol", { inputTokens: 8000, outputTokens: 2000 });
+  assert.ok(near(medium.providerCostUsd, 0.036)); assert.equal(medium.credits, 4);
+  // a large Gemini 3.8 Flash call (30k / 8k) = $0.0525 → 6 credits
+  assert.equal(P.textActualCost("gemini-3.8-flash", { inputTokens: 30000, outputTokens: 8000 }, { nowMs: Date.parse("2026-10-11T00:00:00Z") }).credits, 6);
 });
 
 await test("A4 Gemini thinking tokens are billed as output; Anthropic cache tokens at their own prices", () => {
@@ -364,36 +362,35 @@ await test("A5 the text HOLD covers input + the whole output cap; a small balanc
   assert.equal(P.affordableOutputCap({ model: "claude-opus-5-5", messages: msgs, wantedCap: 16000, minCap: 16000, availableCredits: 12, unit: 0.03 }), 16000);
 });
 
-await test("A6 images: Nano Banana 2 / Pro at fal's prices incl. 4K, Nano Banana 2.1, web search, GPT Image 2 by output size", () => {
+await test("A6 images (2026-10-11 engines): Nano Banana 2.1, GPT Image 2.5 by output size at fal's 1024² rates, Seedream 5 Pro by output area", () => {
   const c = (o) => P.imageCost({ route: "fal", aspect: "16:9", ...o });
-  assert.deepEqual(["1K", "2K", "4K"].map((s) => c({ model: "gemini-3.1-flash-image", imageSize: s }).credits), [8, 12, 16], "NB2 $0.08 / $0.12 / $0.16");
-  assert.deepEqual(["1K", "2K", "4K"].map((s) => c({ model: "gemini-3-pro-image", imageSize: s }).credits), [15, 15, 30], "NB Pro $0.15 / $0.15 / $0.30 (4K was charged below cost)");
   assert.deepEqual(["1K", "2K", "4K"].map((s) => c({ model: "gemini-nano-banana-2.1", imageSize: s }).credits), [5, 7, 15], "Nano Banana 2.1 $0.05 / $0.07 / $0.15 (the draft engine at 1K)");
-  assert.equal(c({ model: "gemini-nano-banana-2.1", imageSize: "1K", webSearch: true }).credits, 7, "+ $0.015 web search, as Nano Banana 2");
-  assert.equal(c({ model: "gemini-3.1-flash-lite-image", imageSize: "1K" }), null, "Lite is no longer priced (the proxy maps its id first)");
-  assert.equal(c({ model: "gemini-3.1-flash-image", imageSize: "2K", webSearch: true }).credits, 14, "+ $0.015 web search");
-  // GPT Image 2 high: $0.158 at fal's 1080p canonical size, $0.401 at 4K — scaled by output pixels
-  const at = (size, aspect) => P.imageCost({ route: "fal", model: "gpt-image-2", imageSize: size, aspect, pricingKey: "high" });
-  assert.ok(Math.abs(at("4K", "16:9").providerCostUsd - 0.401) < 0.003, String(at("4K", "16:9").providerCostUsd));
-  assert.equal(at("4K", "16:9").credits, 41);
+  assert.equal(c({ model: "gemini-nano-banana-2.1", imageSize: "1K", webSearch: true }).credits, 7, "+ $0.015 web search");
+  for (const old of ["gemini-3.1-flash-lite-image", "gemini-3.1-flash-image", "gemini-3-pro-image", "gpt-image-2"])
+    assert.equal(c({ model: old, imageSize: "1K", pricingKey: "high" }), null, old + " is no longer priced (the proxy maps its id first)");
+  // GPT Image 2.5 high: fal's $0.05268 at its canonical 1024x1024, scaled by output pixels
+  const at = (size, aspect) => P.imageCost({ route: "fal", model: "gpt-image-2.5-sunburst", imageSize: size, aspect, pricingKey: "high" });
+  assert.ok(Math.abs(at("1K", "1:1").providerCostUsd - 0.05268) < 1e-12);
+  assert.equal(at("4K", "16:9").credits, 22);
   assert.ok(at("1K", "16:9").credits < at("2K", "16:9").credits && at("2K", "16:9").credits < at("4K", "16:9").credits, "cost follows size");
-  assert.equal(P.imageCost({ route: "fal", model: "gpt-image-2", imageSize: "2K", aspect: "16:9", pricingKey: "high", referenceImages: 2 }).credits,
+  assert.equal(P.imageCost({ route: "fal", model: "gpt-image-2.5-sunburst", imageSize: "2K", aspect: "16:9", pricingKey: "high", referenceImages: 2 }).credits,
     P.creditsFromUsd(at("2K", "16:9").providerCostUsd + 2 * P.GPT_IMAGE_REFERENCE_USD), "reference images add their input cost");
+  // Seedream 5 Pro: $0.0675 up to 1536x1536 of output, $0.135 above it; $0.0045 per reference after the first
+  assert.deepEqual(["1K", "2K", "4K"].map((s) => c({ model: "seedream-5-pro", imageSize: s }).credits), [7, 14, 14], "4K renders (and is priced) at 2K");
+  assert.equal(c({ model: "seedream-5-pro", imageSize: "1K", referenceImages: 3 }).credits, 8, "$0.0675 + 2 x $0.0045");
   assert.equal(P.imageCost({ route: "fal", model: "no-such-model", imageSize: "2K" }), null);
-  assert.equal(P.imageCost({ route: "fal", model: "gemini-3.1-flash-image", imageSize: "8K" }), null);
+  assert.equal(P.imageCost({ route: "fal", model: "gemini-nano-banana-2.1", imageSize: "8K" }), null);
   // the pre-switch unit
-  assert.equal(c({ model: "gemini-3.1-flash-image", imageSize: "2K", unit: 0.03 }).credits, 4);
+  assert.equal(c({ model: "gemini-nano-banana-2.1", imageSize: "2K", unit: 0.03 }).credits, 3);
 });
 
-await test("A7 the direct Google image route serves ONLY its three known models, at Google's own prices", () => {
-  assert.deepEqual(Object.keys(P.GOOGLE_IMAGE_USD).sort(), ["gemini-3-pro-image", "gemini-3.1-flash-image", "gemini-nano-banana-2.1"]);
+await test("A7 the direct Google image route serves ONLY Nano Banana 2.1, at Google's own prices; the direct OpenAI image route prices nothing", () => {
+  assert.deepEqual(Object.keys(P.GOOGLE_IMAGE_USD).sort(), ["gemini-nano-banana-2.1"]);
   assert.deepEqual(["1K", "2K", "4K"].map((s) => P.imageCost({ route: "google", model: "gemini-nano-banana-2.1", imageSize: s }).providerCostUsd), [0.0336, 0.0504, 0.113]);
   const g = (m, s) => P.imageCost({ route: "google", model: m, imageSize: s });
-  assert.deepEqual(["1K", "2K", "4K"].map((s) => g("gemini-3.1-flash-image", s).providerCostUsd), [0.067, 0.101, 0.151]);
-  assert.equal(g("gemini-3-pro-image", "4K").providerCostUsd, 0.24);
-  for (const bad of ["gemini-2.0-flash-exp", "../../v1/models/x", "gpt-image-2", ""]) assert.equal(g(bad, "2K"), null, bad);
-  assert.equal(P.imageCost({ route: "openai", model: "gpt-image-2.5-flare", imageSize: "2K", pricingKey: "high" }), null, "the direct OpenAI route serves GPT Image 2 only");
-  assert.ok(P.imageCost({ route: "openai", model: "gpt-image-2", imageSize: "2K", pricingKey: "high" }));
+  for (const bad of ["gemini-2.0-flash-exp", "../../v1/models/x", "gpt-image-2", "gemini-3.1-flash-image", "gemini-3-pro-image", ""]) assert.equal(g(bad, "2K"), null, bad);
+  assert.deepEqual([...P.OPENAI_DIRECT_IMAGE_MODELS], [], "retired with GPT Image 2 (2026-10-11)");
+  for (const m of ["gpt-image-2.5-flare", "gpt-image-2"]) assert.equal(P.imageCost({ route: "openai", model: m, imageSize: "2K", pricingKey: "high" }), null, m);
 });
 
 await test("A8 video per second: Seedance 2.0 / 2.5 (x0.6 on input + output seconds with video references), Kling, Sora gone", () => {
@@ -548,7 +545,7 @@ await test("A14 (round 3, S1) the estimate counts EXACTLY what each provider is 
   const src = read("supabase/functions/image-proxy/index.ts");
   const textTask = src.slice(src.indexOf('if (task === "text") {'), src.indexOf('if (task === "voice") {'));
   assert.doesNotMatch(textTask, /String\(m\.content|String\(\(m\s*&&|m\.content\s*\|\|/, "no provider builds its own message text");
-  assert.equal((textTask.match(/messageText\(m\)/g) || []).length, 5, "Google, OpenAI, Kimi, Anthropic's system prompt and turns");
+  assert.equal((textTask.match(/messageText\(m\)/g) || []).length, 4, "Google, OpenAI, Anthropic's system prompt and turns");
   assert.match(textTask, /messages\.some\(\(m: any\) => !m \|\| typeof m !== "object" \|\| Array\.isArray\(m\)\)\) return json\(/, "a message that isn't an object is refused before any hold");
 });
 
@@ -590,7 +587,8 @@ await test("A15 (round 4, S2) line breaks count 1 token each and every letter ru
   // the long-context rate follows the NEW bound: 'a\n' x 150,000 is 300k tokens → gpt-6-astra's long-context price
   const astra = P.textHoldEstimate({ model: "gpt-6-astra", messages: [{ role: "user", content: "a\n".repeat(150000) }], outputCap: 16000 });
   assert.ok(astra.inputTokens > 272000, String(astra.inputTokens));
-  assert.ok(near(astra.providerCostUsd, (astra.inputTokens * 20 + 16000 * 75) / 1e6), "held at $20 / $75 per million (long context), not $10 / $50");
+  // (2026-10-11) the input is held at the cache-WRITE price (1.25x): OpenAI writes its prompt cache by itself on the GPT-6 family
+  assert.ok(near(astra.providerCostUsd, (astra.inputTokens * 25 + 16000 * 75) / 1e6), "held at $25 (a $20 write) / $75 per million (long context), not $10 / $50");
   const pieces = o200kPieces("a\n".repeat(150000));
   assert.ok(astra.credits >= P.creditsFromUsd((pieces * 20 + 16000 * 75) / 1e6), "covers the pieces at the long-context price");
 });
@@ -785,20 +783,20 @@ await test("B1 the account as the proxy reads it (turn_credit_balance), with saf
 
 await test("B2 TRIAL / no plan: writing on the default engines and draft images only — no premium or formerly mispriced engines, no video, voice or 3D", () => {
   const none = acct("none", { trial: true });
-  for (const m of ["claude-opus-5-5", "gemini-3.8-flash", "kimi-k2.7-code"]) assert.equal(POL.checkText(none, m), null, m);
-  for (const m of ["claude-fable-5", "claude-fable-5-1", "gpt-6-astra", "kimi-k3", "gpt-5.5", "gemini-3.5-flash", "claude-opus-5"]) {
+  for (const m of ["claude-opus-5-5", "gemini-3.8-flash"]) assert.equal(POL.checkText(none, m), null, m);
+  for (const m of ["claude-fable-5", "gpt-6-astra", "gpt-6.1-sol", "claude-opus-5"]) {
     const r = POL.checkText(none, m); assert.equal(r.status, 402, m); assert.equal(code(r), "plan_required", m);
   }
   assert.equal(POL.checkImage(none, { model: "gemini-nano-banana-2.1", imageSize: "1K" }), null);
   for (const s of ["2K", "4K"]) assert.equal(code(POL.checkImage(none, { model: "gemini-nano-banana-2.1", imageSize: s })), "plan_required", "a draft is 1K: " + s);
   assert.equal(code(POL.checkImage(none, { model: "gemini-3.1-flash-lite-image", imageSize: "1K" })), "plan_required", "the old id only passes once index.ts maps it");
   assert.equal(POL.checkImage(none, { model: P.canonicalImageModel("gemini-3.1-flash-lite-image"), imageSize: "1K" }), null);
-  for (const m of ["gemini-3.1-flash-image", "gemini-3-pro-image", "gpt-image-2"]) assert.equal(code(POL.checkImage(none, { model: m, imageSize: "1K" })), "plan_required", m);
+  for (const m of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "seedream-5-pro"]) assert.equal(code(POL.checkImage(none, { model: m, imageSize: "1K" })), "plan_required", m);
   assert.equal(code(POL.checkVideo(none, { appModel: "kling-3.0", resolution: "720p" })), "plan_required");
   for (const op of ["tts", "stt", "listVoices", "design", "saveVoice", "clone"]) assert.equal(code(POL.checkVoice(none, op)), "plan_required", op);
   assert.equal(code(POL.checkStudio3d(none)), "plan_required");
   // a cancelled account holding pack credits is a no-plan account too
-  assert.equal(code(POL.checkText(acct("none", { pack_remaining: 900 }), "claude-fable-5-1")), "plan_required");
+  assert.equal(code(POL.checkText(acct("none", { pack_remaining: 900 }), "claude-fable-5")), "plan_required");
   // nothing left and no plan: the older "choose a plan" refusal (opens the Plans window)
   assert.deepEqual(POL.shortOfCredits(acct("none", { remaining: 0 }), 3, 0).body, { error: "no_plan", code: "no_plan", message: "Choose a plan to start creating — every generation runs on your plan's credits." });
   assert.equal(code(POL.shortOfCredits(acct("none"), 3000, 2)), "insufficient_credits", "a trial with credits left hears the numbers");
@@ -823,16 +821,17 @@ await test("B3 plan TIERS exactly as the client gates them (TIER_GATES / ROOM_EN
   const draft = plans.match(/const DRAFT_IMAGE = \{ model:"([^"]+)"[^}]*maxRes:"([^"]+)" \}/);
   assert.deepEqual([draft[1], draft[2]], [POL.DRAFT_IMAGE.model, POL.DRAFT_IMAGE.maxRes], "the draft engine and its ceiling");
   // writing: every paid plan may pick every priced engine
-  for (const p of ["writer", "director", "studio"]) for (const m of ["claude-fable-5-1", "gpt-5.5", "gemini-3.5-flash", "kimi-k3"]) assert.equal(POL.checkText(acct(p), m), null, p + " " + m);
+  for (const p of ["writer", "director", "studio"]) for (const m of ["claude-fable-5", "gpt-6-astra", "gpt-6.1-sol", "gemini-3.8-flash"]) assert.equal(POL.checkText(acct(p), m), null, p + " " + m);
   assert.equal(code(POL.checkText(acct("studio"), "")), "model_not_allowed", "an unpriced engine is refused, not guessed");
   // images: Writer up to 2K (dashboard key art; the Art Room is Director's), Director / Producer 4K
-  assert.equal(POL.checkImage(acct("writer"), { model: "gpt-image-2", imageSize: "2K" }), null);
-  const w4 = POL.checkImage(acct("writer"), { model: "gemini-3-pro-image", imageSize: "4K" });
+  assert.equal(POL.checkImage(acct("writer"), { model: "gpt-image-2.5-sunburst", imageSize: "2K" }), null);
+  assert.equal(POL.checkImage(acct("writer"), { model: "seedream-5-pro", imageSize: "2K" }), null);
+  const w4 = POL.checkImage(acct("writer"), { model: "gpt-image-2.5-sunburst", imageSize: "4K" });
   assert.equal(w4.status, 403); assert.equal(code(w4), "tier_required"); assert.equal(w4.body.requiredPlan, "director");
   assert.equal(w4.body.message, "4K images need the Director plan.");
   assert.equal(POL.checkVideo(acct("director"), {}).body.message, "The Stage needs the Producer plan.");
   assert.equal(POL.checkVoice(acct("writer"), "clone").body.message, "Character voices need the Director plan.");
-  for (const p of ["director", "pro", "studio"]) assert.equal(POL.checkImage(acct(p), { model: "gemini-3-pro-image", imageSize: "4K" }), null, p);
+  for (const p of ["director", "pro", "studio"]) assert.equal(POL.checkImage(acct(p), { model: "gpt-image-2.5-sunburst", imageSize: "4K" }), null, p);
   // video: the Stage is Producer's; its resolution ladder and takes per Generate
   for (const p of ["writer", "director", "pro"]) { const r = POL.checkVideo(acct(p), { appModel: "kling-3.0", resolution: "720p" }); assert.equal(code(r), "tier_required", p); assert.equal(r.body.requiredPlan, "studio"); }
   assert.equal(POL.checkVideo(acct("studio"), { appModel: "seedance-2.5", resolution: "4k", batch: 4 }), null);
@@ -846,7 +845,7 @@ await test("B3 plan TIERS exactly as the client gates them (TIER_GATES / ROOM_EN
 
 await test("B4 a FROZEN account (disputed payment) may spend nothing; past-due keeps its plan; admins pass every gate", () => {
   const f = acct("studio", { frozen: true });
-  for (const r of [POL.checkText(f, "claude-opus-5-5"), POL.checkImage(f, { model: "gemini-3.1-flash-image", imageSize: "1K" }), POL.checkVideo(f, {}), POL.checkVoice(f, "tts"), POL.checkStudio3d(f)]) {
+  for (const r of [POL.checkText(f, "claude-opus-5-5"), POL.checkImage(f, { model: "gemini-nano-banana-2.1", imageSize: "1K" }), POL.checkVideo(f, {}), POL.checkVoice(f, "tts"), POL.checkStudio3d(f)]) {
     assert.equal(r.status, 403); assert.equal(code(r), "account_frozen");
   }
   assert.equal(POL.checkVideo(acct("studio", { payment_status: "past_due" }), { appModel: "kling-3.0", resolution: "720p" }), null);
@@ -1623,7 +1622,7 @@ async function proxySection() {
   const ENV = {
     SUPABASE_URL: "https://example.supabase.co", SUPABASE_ANON_KEY: "anon-key", SUPABASE_SERVICE_ROLE_KEY: "service-role-key-for-tests",   // ≥ 16 characters: blender-bridge derives its relay key from it (F27)
     FAL_KEY: "fal-key", ANTHROPIC_API_KEY: "anthropic-key", OPENAI_API_KEY: "openai-key", GOOGLE_API_KEY: "google-key",
-    ELEVENLABS_API_KEY: "el-key", MOONSHOT_API_KEY: "moonshot-key", VIDEO_HOLD_SECRET: "video-hold-secret",
+    ELEVENLABS_API_KEY: "el-key", VIDEO_HOLD_SECRET: "video-hold-secret",
   };
   globalThis.__chargingTestCreateClient = (url, key, opts) => {
     if (!key) throw new Error("supabaseKey is required.");
@@ -1732,7 +1731,6 @@ async function proxySection() {
       return new Response(bytes.slice(a, b + 1), { status: 206, headers: { "content-type": "video/mp4", "content-range": `bytes ${a}-${b}/${bytes.length}` } });
     }
     if (u === "https://api.anthropic.com/v1/messages") return reply(200, { content: [{ type: "text", text: "ok" }], usage: { input_tokens: 30000, output_tokens: 8000 }, stop_reason: "end_turn" });
-    if (u === "https://api.moonshot.ai/v1/chat/completions") return reply(200, { choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 3000, completion_tokens: 1000 } });
     if (u === "https://api.openai.com/v1/chat/completions") return reply(200, { choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 8000, completion_tokens: 2000 } });
     if (u === "https://api.openai.com/v1/live/sessions") return reply(201, { transport: { type: "webrtc", sdp: "v=0\r\nanswer\r\n" } });
     if (u.startsWith("https://generativelanguage.googleapis.com/")) {
@@ -1846,15 +1844,27 @@ async function proxySection() {
       assert.equal((await lastHold(U.writer)).status, "released"); assert.equal(await bal(U.writer), before);
     });
 
-    await test("F3 TEXT prices: GPT-5.5 (dated id) at $5/$30, Gemini thinking tokens counted, an unknown engine refused", async () => {
+    await test("F3 TEXT prices: GPT-6.1 Sol with its cache writes, removed engines served on a successor, Gemini thinking tokens counted, an unknown engine refused", async () => {
       reset();
-      let r = await post("tok-director", TEXT("gpt-5.5-2026-04-23", "openai"));
+      let r = await post("tok-director", TEXT("gpt-6.1-sol", "openai"));
       assert.equal(r.status, 200, j(r.json));
-      assert.equal(r.json.usage.credits, 4, "8k/2k on GPT-5.5 = $0.10 → 4 credits at $0.03 (it was charged 1)");
+      assert.equal(r.json.usage.credits, 2, "8k/2k on Sol, the 8k written to OpenAI's cache: $0.02 + $0.02 → 2 credits at $0.03");
+      assert.equal(r.json.usage.cacheWriteTokens, 8000);
       assert.ok(providerCalls("https://api.openai.com/v1/chat")[0].body.max_completion_tokens > 0, "OpenAI always gets a cap now (the hold covers it)");
       reset();
+      // (2026-10-11) an older app's GPT-5.5 runs on GPT-6.1 Sol, priced as Sol
+      r = await post("tok-director", TEXT("gpt-5.5-2026-04-23", "openai"));
+      assert.equal(r.status, 200, j(r.json)); assert.equal(r.json.usage.credits, 2);
+      assert.equal(providerCalls("https://api.openai.com/v1/chat")[0].body.model, "gpt-6.1-sol");
+      reset();
+      // …its Kimi K3 runs on Opus 5.5 (Anthropic), never on Moonshot
+      r = await post("tok-director", TEXT("kimi-k3", "moonshot"));
+      assert.equal(r.status, 200, j(r.json));
+      assert.equal(providerCalls("https://api.anthropic.com/")[0].body.model, "claude-opus-5-5");
+      reset();
       r = await post("tok-director", TEXT("gemini-3.5-flash", "google"));
-      assert.ok(near(r.json.usage.providerCostUsd, (1000 * 1.5 + 1000 * 9) / 1e6), "100 candidate + 900 thinking tokens billed as output: " + r.json.usage.providerCostUsd);
+      assert.match(providerCalls("https://generativelanguage")[0].url, /models\/gemini-3\.8-flash:generateContent/, "Gemini 3.5 Flash is served on 3.8 Flash");
+      assert.ok(near(r.json.usage.providerCostUsd, (1000 * 0.75 + 1000 * 3.75) / 1e6), "100 candidate + 900 thinking tokens billed as output: " + r.json.usage.providerCostUsd);
       assert.equal(r.json.usage.outputTokens, 1000);
       assert.ok(providerCalls("https://generativelanguage")[0].body.generationConfig.maxOutputTokens > 0);
       reset();
@@ -1884,8 +1894,10 @@ async function proxySection() {
       const fresh = await post("tok-fresh", TEXT("claude-opus-5-5"));
       assert.equal(fresh.status, 402); assert.equal(fresh.json.code, "no_plan"); assert.equal(W.calls.length, 0);
       assert.equal((await post("tok-none", TEXT("claude-opus-5-5"))).status, 200);
+      assert.equal((await post("tok-none", TEXT("gemini-3.8-flash", "google"))).status, 200);
+      // an older app's Kimi K2.7 (a default engine until 2026-10-11) runs on Gemini 3.8 Flash, still a default
       assert.equal((await post("tok-none", TEXT("kimi-k2.7-code", "moonshot"))).status, 200);
-      for (const [m, p] of [["claude-fable-5-1", "anthropic"], ["gpt-5.5-2026-04-23", "openai"], ["gemini-3.5-flash", "google"], ["gpt-6-astra", "openai"], ["kimi-k3", "moonshot"]]) {
+      for (const [m, p] of [["claude-fable-5", "anthropic"], ["claude-fable-5-1", "anthropic"], ["gpt-5.5-2026-04-23", "openai"], ["gpt-6-astra", "openai"], ["gpt-6.1-sol", "openai"]]) {
         W.calls = [];
         const r = await post("tok-none", TEXT(m, p));
         assert.equal(r.status, 402, m); assert.equal(r.json.code, "plan_required", m); assert.equal(r.json.error, "plan_required");
@@ -1896,32 +1908,38 @@ async function proxySection() {
     await test("F6 IMAGES: held before the render, settled on delivery; a failed render is released; renders sent together can't share one balance", async () => {
       reset();
       let before = await bal(U.director);
-      let r = await post("tok-director", IMAGE("gemini-3.1-flash-image", "2K"));
+      let r = await post("tok-director", IMAGE("gemini-nano-banana-2.1", "2K"));
       assert.equal(r.status, 200, j(r.json)); assert.ok(r.json.b64);
       let h = await lastHold(U.director);
-      assert.deepEqual([h.held, h.kept, h.status], [4, 4, "settled"], "Nano Banana 2 at 2K: $0.12 → 4 credits at $0.03");
-      assert.equal(await bal(U.director), before - 4); assert.equal(r.json.usage.credits, 4);
+      assert.deepEqual([h.held, h.kept, h.status], [3, 3, "settled"], "Nano Banana 2.1 at 2K: $0.07 → 3 credits at $0.03");
+      assert.equal(await bal(U.director), before - 3); assert.equal(r.json.usage.credits, 3);
       // a failed render: released
       reset(); W.falNextStatus = "FAILED"; before = await bal(U.director);
-      r = await post("tok-director", IMAGE("gemini-3-pro-image", "4K"));
+      r = await post("tok-director", IMAGE("seedream-5-pro", "2K"));
       assert.match(r.json.error, /likeness/); h = await lastHold(U.director);
-      assert.deepEqual([h.held, h.status], [10, "released"], "NB Pro 4K: $0.30 → 10 credits, given back"); assert.equal(await bal(U.director), before);
+      assert.deepEqual([h.held, h.status], [5, "released"], "Seedream 5 Pro 2K: $0.135 → 5 credits, given back"); assert.equal(await bal(U.director), before);
+      // a refused Seedream image (no image in the result) is released too
+      reset(); before = await bal(U.director);
+      W.providers["https://queue.fal.run/bytedance/seedream/v5/pro/text-to-image/requests/"] = (u) => (u.endsWith("/status") ? null : reply(200, { images: [] }));
+      r = await post("tok-director", IMAGE("seedream-5-pro", "1K"));
+      assert.match(r.json.error, /no image/); assert.equal((await lastHold(U.director)).status, "released"); assert.equal(await bal(U.director), before);
       // fal's account trouble never reaches the user
-      reset(); W.providers["https://queue.fal.run/fal-ai/nano-banana-2"] = (u, m) => (m === "POST" ? reply(403, { detail: "User is locked. Reason: Exhausted balance. Top up your balance at fal.ai/dashboard/billing." }) : null);
-      r = await post("tok-director", IMAGE("gemini-3.1-flash-image", "1K"));
+      reset(); W.providers["https://queue.fal.run/google/nano-banana-2.1"] = (u, m) => (m === "POST" ? reply(403, { detail: "User is locked. Reason: Exhausted balance. Top up your balance at fal.ai/dashboard/billing." }) : null);
+      r = await post("tok-director", IMAGE("gemini-nano-banana-2.1", "1K"));
       assert.doesNotMatch(r.json.error, /locked|balance|fal/i); assert.equal((await lastHold(U.director)).status, "released");
       // two renders at once with credits for one: the second hold is refused
       reset();
       await svc("select public.turn_set_plan_once($1, $2, 'director', 12, 'sub_o', 'cus_o', $3)", ["evt-o", U.other.id, future]);
       let release;
       const gate = new Promise((ok) => { release = ok; });
-      W.providers["https://queue.fal.run/fal-ai/nano-banana-pro/requests/"] = async (u) => { if (u.endsWith("/status")) { await gate; } return null; };
-      const [a, b] = [post("tok-other", IMAGE("gemini-3-pro-image", "4K")), post("tok-other", IMAGE("gemini-3-pro-image", "4K"))];
+      W.providers["https://queue.fal.run/openai/gpt-image-2.5/sunburst/text-to-image/requests/"] = async (u) => { if (u.endsWith("/status")) { await gate; } return null; };
+      const HI4K = IMAGE("gpt-image-2.5-sunburst", "4K", "fal", { quality: "high" });
+      const [a, b] = [post("tok-other", HI4K), post("tok-other", HI4K)];
       await new Promise((ok) => setTimeout(ok, 300)); release();
       const rs = await Promise.all([a, b]);
       assert.deepEqual(rs.map((x) => x.status).sort(), [200, 402], j(rs.map((x) => x.json.code || "ok")));
       assert.equal(rs.find((x) => x.status === 402).json.code, "insufficient_credits");
-      assert.equal(await bal(U.other), 2, "only one render charged (12 - 10)");
+      assert.equal(await bal(U.other), 4, "only one render charged (12 - 8: Sunburst high 4K $0.2115 → 8 at $0.03)");
     });
 
     await test("F7 IMAGE gates: trial → draft engine at 1K only; Writer up to 2K; the Google route refuses unknown models before any call", async () => {
@@ -1941,22 +1959,63 @@ async function proxySection() {
       assert.ok(editJob, j(Object.values(W.fal).map((x) => x.endpoint)));
       assert.deepEqual([editJob.input.image_urls, editJob.input.resolution], [["https://v3.fal.media/files/ref-a.png", "https://v3.fal.media/files/ref-b.png"], "2K"]);
       assert.equal((await lastHold(U.director)).held, P.creditsFromUsd(0.07, 0.03), "2K $0.07, no extra per reference");
-      // Nano Banana 2 keeps its base route with references
-      r = await post("tok-director", IMAGE("gemini-3.1-flash-image", "1K", "fal", { images: ["https://v3.fal.media/files/ref-a.png"] }));
-      assert.equal(r.status, 200, j(r.json)); assert.equal(r.json.falModel, "fal-ai/nano-banana-2");
-      for (const [m, s] of [["gemini-3.1-flash-image", "1K"], ["gemini-nano-banana-2.1", "2K"], ["gemini-3.1-flash-lite-image", "4K"], ["gpt-image-2", "1K"]]) {
+      // the removed engines (2026-10-11): an older app's Nano Banana 2 / Pro pick renders on Nano Banana 2.1
+      for (const old of ["gemini-3.1-flash-image", "gemini-3-pro-image"]) {
+        W.calls = [];
+        r = await post("tok-director", IMAGE(old, "1K", "fal", { images: ["https://v3.fal.media/files/ref-a.png"] }));
+        assert.equal(r.status, 200, j(r.json)); assert.equal(r.json.falModel, "google/nano-banana-2.1/edit", old);
+        assert.equal((await lastHold(U.director)).held, P.creditsFromUsd(0.05, 0.03), old + " priced as 2.1");
+        assert.ok(!W.calls.some((c) => /nano-banana-2"|nano-banana-2\/|nano-banana-pro/.test(c.url + '"')), j(W.calls.map((c) => c.url)));
+      }
+      // a trial's old Nano Banana 2 pick at 1K IS the draft (Nano Banana 2.1 at 1K) since 2026-10-11
+      assert.equal((await post("tok-none", IMAGE("gemini-3.1-flash-image", "1K"))).status, 200);
+      for (const [m, s] of [["gemini-3-pro-image", "2K"], ["gemini-nano-banana-2.1", "2K"], ["gemini-3.1-flash-lite-image", "4K"], ["gpt-image-2", "1K"], ["seedream-5-pro", "1K"]]) {
         W.calls = [];
         r = await post("tok-none", IMAGE(m, s, "fal", /gpt/.test(m) ? { quality: "high" } : {}));
         assert.equal(r.status, 402, m + s); assert.equal(r.json.code, "plan_required"); assert.equal(W.calls.length, 0);
       }
-      r = await post("tok-writer", IMAGE("gemini-3-pro-image", "4K"));
+      r = await post("tok-writer", IMAGE("gpt-image-2.5-sunburst", "4K", "fal", { quality: "high" }));
       assert.equal(r.status, 403); assert.equal(r.json.code, "tier_required"); assert.equal(r.json.requiredPlan, "director");
-      assert.equal((await post("tok-writer", IMAGE("gpt-image-2", "2K", "fal", { quality: "high" }))).status, 200, "a Writer's 2K key art");
+      assert.equal((await post("tok-writer", IMAGE("gpt-image-2.5-sunburst", "2K", "fal", { quality: "high" }))).status, 200, "a Writer's 2K key art");
+      // an older app's GPT Image 2 key art — even on the retired direct OpenAI route — renders on fal's Sunburst, its quality kept
+      W.calls = [];
+      r = await post("tok-writer", IMAGE("gpt-image-2", "2K", "openai", { quality: "medium" }));
+      assert.equal(r.status, 200, j(r.json)); assert.equal(r.json.falModel, "openai/gpt-image-2.5/sunburst/text-to-image");
+      const sunJob = Object.values(W.fal).filter((x) => x.endpoint === "openai/gpt-image-2.5/sunburst/text-to-image" && x.input.quality === "medium").pop();
+      assert.ok(sunJob, j(Object.values(W.fal).map((x) => [x.endpoint, x.input.quality])));
+      assert.ok(!("moderation" in sunJob.input), "GPT Image 2.5 takes no moderation field");
+      assert.ok(!W.calls.some((c) => c.url.startsWith("https://api.openai.com/")), "no direct OpenAI image call");
+      assert.equal((await lastHold(U.writer)).held, P.imageCost({ route: "fal", model: "gpt-image-2.5-sunburst", imageSize: "2K", aspect: "16:9", pricingKey: "medium", unit: 0.03 }).credits);
+      // a Writer's Seedream 4K renders at 2K (its ceiling) — gated, priced and sent as 2K
+      W.calls = [];
+      r = await post("tok-writer", IMAGE("seedream-5-pro", "4K"));
+      assert.equal(r.status, 200, j(r.json)); assert.equal(r.json.falModel, "bytedance/seedream/v5/pro/text-to-image");
       reset();
       r = await post("tok-director", IMAGE("gemini-2.0-flash-exp-image-generation", "2K", "google"));
       assert.equal(r.status, 400); assert.equal(r.json.code, "model_not_allowed"); assert.equal(W.calls.length, 0, "the name never reaches Google's URL");
+      r = await post("tok-director", IMAGE("gemini-nano-banana-2.1", "2K", "google"));
+      assert.equal(r.status, 200, j(r.json)); assert.equal((await lastHold(U.director)).held, P.creditsFromUsd(0.0504, 0.03), "Google's direct price");
       r = await post("tok-director", IMAGE("gemini-3.1-flash-image", "2K", "google"));
-      assert.equal(r.status, 200, j(r.json)); assert.equal((await lastHold(U.director)).held, P.creditsFromUsd(0.101, 0.03), "Google's direct price");
+      assert.equal(r.status, 200, j(r.json)); assert.equal((await lastHold(U.director)).held, P.creditsFromUsd(0.0504, 0.03), "an old Nano Banana 2 id on the Google route is 2.1 there too");
+    });
+
+    await test("F7b SEEDREAM 5 PRO (2026-10-11): text-to-image without references, the edit route with them (the first 10), {width, height} as priced, no seed / web search", async () => {
+      reset();
+      let r = await post("tok-director", IMAGE("seedream-5-pro", "1K", "fal", { seed: 42, groundSearch: true, quality: "high" }));
+      assert.equal(r.status, 200, j(r.json)); assert.equal(r.json.falModel, "bytedance/seedream/v5/pro/text-to-image"); assert.equal(r.json.grounded, false);
+      let job = Object.values(W.fal).filter((x) => x.endpoint === "bytedance/seedream/v5/pro/text-to-image").pop();
+      assert.deepEqual(job.input, { prompt: "a lighthouse at dusk", image_size: { width: 1376, height: 768 }, num_images: 1, output_format: "png", enable_safety_checker: true, sync_mode: false });
+      assert.equal((await lastHold(U.director)).held, P.creditsFromUsd(0.0675, 0.03), "1K ≈ 1.06 MP: the $0.0675 tier, no web-search charge");
+      reset();
+      const refs = Array.from({ length: 12 }, (_, i) => "https://v3.fal.media/files/ref-" + i + ".png");
+      r = await post("tok-director", IMAGE("seedream-5-pro", "4K", "fal", { images: refs }));
+      assert.equal(r.status, 200, j(r.json)); assert.equal(r.json.falModel, "bytedance/seedream/v5/pro/edit");
+      job = Object.values(W.fal).filter((x) => x.endpoint === "bytedance/seedream/v5/pro/edit").pop();
+      assert.deepEqual(job.input.image_urls, refs.slice(0, 10), "the first 10, in order");
+      assert.deepEqual(job.input.image_size, { width: 2720, height: 1536 }, "4K is sent as 2K");
+      const h = await lastHold(U.director);
+      assert.equal(h.held, P.creditsFromUsd(0.135 + 9 * 0.0045, 0.03), "the $0.135 tier + 9 references after the first");
+      assert.equal(h.status, "settled");
     });
 
     const strip = (x) => H.takeHoldParam(x).url;
@@ -2076,7 +2135,7 @@ async function proxySection() {
 
     await test("F12 a FROZEN account (open dispute) spends nothing; Frances still answers it (5 a day)", async () => {
       reset();
-      for (const body of [TEXT("claude-opus-5-5"), IMAGE("gemini-3.1-flash-image"), { task: "voice", op: "tts", voiceId: "v", text: "x" }]) {
+      for (const body of [TEXT("claude-opus-5-5"), IMAGE("gemini-nano-banana-2.1"), { task: "voice", op: "tts", voiceId: "v", text: "x" }]) {
         const r = await post("tok-frozen", body);
         assert.equal(r.status, 403, j(body)); assert.equal(r.json.code, "account_frozen");
       }
@@ -2143,7 +2202,7 @@ async function proxySection() {
 
     await test("F15 billing unavailable (the hold functions missing): paid calls refuse with a plain 503, never run free", async () => {
       reset(); W.failServiceRpc = (n) => n === "turn_hold_credits";
-      for (const body of [TEXT("claude-opus-5-5"), IMAGE("gemini-3.1-flash-image"), KLING()]) {
+      for (const body of [TEXT("claude-opus-5-5"), IMAGE("gemini-nano-banana-2.1"), KLING()]) {
         W.calls = [];
         const r = await post(body.task === "video" ? "tok-producer" : "tok-director", body);
         assert.equal(r.status, 503, j(body)); assert.equal(r.json.code, "billing_unavailable");
@@ -2334,8 +2393,8 @@ async function proxySection() {
 
     await test("F21 (repair F11) every writing-provider call carries a timeout below the Edge wall clock; a timeout releases the hold", async () => {
       reset();
-      for (const [model, prov, url] of [["claude-opus-5-5", "anthropic", "https://api.anthropic.com/v1/messages"], ["gpt-5.5-2026-04-23", "openai", "https://api.openai.com/v1/chat/completions"],
-        ["gemini-3.8-flash", "google", "https://generativelanguage.googleapis.com/"], ["kimi-k2.7-code", "moonshot", "https://api.moonshot.ai/v1/chat/completions"]]) {
+      for (const [model, prov, url] of [["claude-opus-5-5", "anthropic", "https://api.anthropic.com/v1/messages"], ["gpt-6.1-sol", "openai", "https://api.openai.com/v1/chat/completions"],
+        ["gemini-3.8-flash", "google", "https://generativelanguage.googleapis.com/"]]) {
         W.calls = [];
         const r = await post("tok-producer", TEXT(model, prov));
         assert.equal(r.status, 200, model + " " + j(r.json));
@@ -2345,7 +2404,7 @@ async function proxySection() {
       assert.ok(providerCalls("https://api.anthropic.com/")[0].signal instanceof AbortSignal, "Frances too");
       const src = read("supabase/functions/image-proxy/index.ts");
       assert.match(src, /const TEXT_PROVIDER_TIMEOUT_MS = 380000;/);
-      assert.equal((src.match(/signal: AbortSignal\.timeout\(TEXT_PROVIDER_TIMEOUT_MS\)/g) || []).length, 4, "Anthropic, OpenAI, Google and Moonshot");
+      assert.equal((src.match(/signal: AbortSignal\.timeout\(TEXT_PROVIDER_TIMEOUT_MS\)/g) || []).length, 3, "Anthropic, OpenAI and Google");
       // a call that outruns it: the finally path runs — the hold comes back — and the message says so
       reset(); W.providers["https://api.anthropic.com/v1/messages"] = () => { throw new DOMException("The operation was aborted due to timeout", "TimeoutError"); };
       const b = await bal(U.producer);
@@ -2625,7 +2684,7 @@ async function proxySection() {
       assert.equal(r.json.usage.credits, real); assert.equal(b0 - await bal(U.producer), real, "charged " + real + " (round 2: capped at the output-only hold)");
       // every other provider branch: the same text sent, the same hold
       for (const [model, provider, url, pick] of [["gemini-3.8-flash", "google", "https://generativelanguage.googleapis.com/", (b) => b.contents[0].parts[0].text],
-        ["gpt-5.5", "openai", "https://api.openai.com/v1/chat/completions", (b) => b.messages[0].content], ["kimi-k3", "moonshot", "https://api.moonshot.ai/v1/chat/completions", (b) => b.messages[0].content]]) {
+        ["gpt-6.1-sol", "openai", "https://api.openai.com/v1/chat/completions", (b) => b.messages[0].content], ["gpt-6-astra", "openai", "https://api.openai.com/v1/chat/completions", (b) => b.messages[0].content]]) {
         const s1 = await run("tok-producer", U.producer, { ...TEXT(model, provider), messages: [{ role: "user", content: big }] }, url);
         const s2 = await run("tok-producer", U.producer, { ...TEXT(model, provider), messages: [{ role: "user", content: [big] }] }, url);
         assert.equal(s2.status, 200, model + " " + j(s2.json)); assert.equal(pick(s2.sent), big, model + ": the whole text is sent");
@@ -2684,12 +2743,12 @@ async function proxySection() {
         // 0 credits: the plain refusal on any engine
         await svc("select public.turn_hold_credits($1, 1, 'test:s5-drain2', 'test')", [U.other.id]);
         assert.equal(await bal(U.other), 0);
-        for (const [model, provider] of [["claude-opus-5-5", "anthropic"], ["gemini-3.8-flash", "google"], ["kimi-k2.7-code", "moonshot"]]) {
+        for (const [model, provider] of [["claude-opus-5-5", "anthropic"], ["gemini-3.8-flash", "google"]]) {
           const z = await post("tok-other", TEXT(model, provider));
           assert.equal(z.status, 402, model); assert.equal(z.json.code, "insufficient_credits", model); assert.equal(z.json.suggest, undefined, model);
           assert.match(z.json.message, /^This generation needs [\d,]+ credits?, but this account has 0\.$/, model + ": " + z.json.message);
         }
-        assert.equal(providerCalls("https://api.anthropic.com/").length + providerCalls("https://generativelanguage.googleapis.com/").length + providerCalls("https://api.moonshot.ai/").length, 0, "no provider call");
+        assert.equal(providerCalls("https://api.anthropic.com/").length + providerCalls("https://generativelanguage.googleapis.com/").length, 0, "no provider call");
       } finally {
         await svc("select public.turn_release_hold('test:s5-drain')"); await svc("select public.turn_release_hold('test:s5-drain2')");
       }
@@ -2743,7 +2802,7 @@ async function proxySection() {
         "a PDF labelled image/png": "data:image/png;base64," + pdf,
         "a link": "https://v3.fal.media/files/notes.pdf",
       };
-      for (const [provider, model] of [["google", "gemini-3.8-flash"], ["openai", "gpt-5.5"], ["anthropic", "claude-opus-5-5"], ["moonshot", "kimi-k2.7-code"]]) {
+      for (const [provider, model] of [["google", "gemini-3.8-flash"], ["openai", "gpt-6.1-sol"], ["anthropic", "claude-opus-5-5"]]) {
         for (const [kind, src] of Object.entries(BAD)) {
           reset();
           const b0 = await bal(U.producer), h0 = (await holdsOf(U.producer)).length;
@@ -2773,12 +2832,12 @@ async function proxySection() {
       for (const src of [BAD["application/pdf"], BAD["text/plain"], BAD["video/mp4"]]) {
         reset();
         const h0 = (await holdsOf(U.producer)).length;
-        const gi = await post("tok-producer", IMAGE("gemini-3.1-flash-image", "2K", "google", { images: [src] }));
+        const gi = await post("tok-producer", IMAGE("gemini-nano-banana-2.1", "2K", "google", { images: [src] }));
         assert.equal(gi.status, 400, j(gi.json)); assert.equal(gi.json.code, "bad_image");
         assert.equal(W.calls.length, 0); assert.equal((await holdsOf(U.producer)).length, h0);
       }
       reset();
-      const gok = await post("tok-producer", IMAGE("gemini-3.1-flash-image", "2K", "google", { images: [PNG] }));
+      const gok = await post("tok-producer", IMAGE("gemini-nano-banana-2.1", "2K", "google", { images: [PNG] }));
       assert.equal(gok.status, 200, j(gok.json));
       assert.deepEqual(providerCalls("https://generativelanguage.googleapis.com/")[0].body.contents[0].parts[1], { inlineData: { mimeType: "image/png", data: PNG.split(",")[1] } });
     });
@@ -3092,7 +3151,7 @@ async function proxySection() {
 
     await test("F39 (round 5, S4) every image route refuses a prompt longer than 40,000 characters (400) before any hold or provider call — the direct Google route bills a prompt's tokens", async () => {
       assert.equal(P.IMAGE_PROMPT_MAX_CHARS, 40000);
-      for (const [model, provider] of [["gemini-3-pro-image", "google"], ["gemini-3.1-flash-image", "google"], ["gemini-3-pro-image", "fal"]]) {
+      for (const [model, provider] of [["gemini-nano-banana-2.1", "google"], ["seedream-5-pro", "fal"], ["gemini-nano-banana-2.1", "fal"]]) {
         reset();
         const holds0 = (await holdsOf(U.director)).length, b0 = await bal(U.director);
         const r = await post("tok-director", IMAGE(model, "1K", provider, { prompt: "a lighthouse at dusk ".repeat(2500).slice(0, 40001) }));
@@ -3102,7 +3161,7 @@ async function proxySection() {
         assert.equal(W.calls.filter((c) => /generativelanguage|queue\.fal\.run|fal\.run/.test(c.url)).length, 0, "no provider call");
       }
       reset();
-      const ok = await post("tok-director", IMAGE("gemini-3-pro-image", "1K", "google", { prompt: "x".repeat(40000) }));
+      const ok = await post("tok-director", IMAGE("gemini-nano-banana-2.1", "1K", "google", { prompt: "x".repeat(40000) }));
       assert.equal(ok.status, 200, j(ok.json)); assert.ok(!ok.json.error, j(ok.json));
     });
 
@@ -3112,7 +3171,7 @@ async function proxySection() {
       const stagedRemoved = () => W.removed.filter((k) => k.includes("/stage-tmp/"));
       // a fal image with the face as a reference: staged, handed to fal, gone once the image is back
       reset();
-      let r = await post("tok-director", IMAGE("gemini-3.1-flash-image", "1K", "fal", { images: [face] }));
+      let r = await post("tok-director", IMAGE("gemini-nano-banana-2.1", "1K", "fal", { images: [face] }));
       assert.equal(r.status, 200, j(r.json)); assert.ok(!r.json.error, j(r.json));
       const sent = W.calls.find((c) => c.method === "POST" && c.url.startsWith("https://queue.fal.run/"));
       assert.ok(sent && /\/stage-tmp\//.test(String((sent.body.image_urls || [])[0] || "")), "fal got the staged copy's signed URL");
@@ -3121,8 +3180,8 @@ async function proxySection() {
       assert.ok(W.events.lastIndexOf("storage:upload") < W.events.indexOf("fetch:" + sent.url), "staged before the provider call");
       // the provider refuses the render: removed all the same, and the refusal is unchanged
       reset();
-      W.providers["https://queue.fal.run/fal-ai/nano-banana-2"] = (u, method) => method === "POST" ? reply(422, { detail: "likeness rejected" }) : null;
-      r = await post("tok-director", IMAGE("gemini-3.1-flash-image", "1K", "fal", { images: [face] }));
+      W.providers["https://queue.fal.run/google/nano-banana-2.1/edit"] = (u, method) => method === "POST" ? reply(422, { detail: "likeness rejected" }) : null;
+      r = await post("tok-director", IMAGE("gemini-nano-banana-2.1", "1K", "fal", { images: [face] }));
       assert.equal(r.status, 200); assert.match(r.json.error || "", /likeness rejected|refused/i, j(r.json));
       assert.equal(stagedRemoved().length, 1, "removed after a refusal too"); assert.deepEqual(stagedNow(), []);
       // a video job fal accepted keeps its staged start image (fal reads it when the job runs)…
@@ -3154,14 +3213,14 @@ async function proxySection() {
       // the day-0 deploys are confirmed first (the switch refuses without this marker: owner runbook)
       await db.query("insert into public.turn_billing_state(key, value, at) values ('server_video_billing', '{}'::jsonb, now() - interval '1 minute') on conflict (key) do update set at = excluded.at");
       // …and the switch also wants proof the new image-proxy is live: a hold it took after the marker
-      assert.equal((await post("tok-producer", IMAGE("gemini-3.1-flash-image", "2K"))).status, 200);
+      assert.equal((await post("tok-producer", IMAGE("gemini-nano-banana-2.1", "2K"))).status, 200);
       const sw = await db.exec(read("supabase/billing-switch.sql")).then(() => true, (e) => e.message);
       assert.equal(sw, true, "billing-switch.sql ran");
       assert.equal(await bal(U.writer), wBefore * 3); assert.equal(await bal(U.director), dBefore * 3);
       const after = await load("after-switch");   // a fresh instance; a warm one re-reads the regime within 30 s
       reset();
-      const r = await post("tok-director", IMAGE("gemini-3.1-flash-image", "2K"), after);
-      assert.equal(r.status, 200); assert.equal((await lastHold(U.director)).held, 12, "Nano Banana 2 at 2K: $0.12 → 12 credits at $0.01");
+      const r = await post("tok-director", IMAGE("gemini-nano-banana-2.1", "2K"), after);
+      assert.equal(r.status, 200); assert.equal((await lastHold(U.director)).held, 7, "Nano Banana 2.1 at 2K: $0.07 → 7 credits at $0.01");
       const t = await post("tok-writer", TEXT("claude-opus-5-5"), after);
       assert.equal(t.json.usage.credits, 28, "the same $0.28 call now costs 28 credits");
       const v = await post("tok-producer", KLING(), after);
@@ -3178,7 +3237,7 @@ async function proxySection() {
       const [row] = (await as(U.trial, "select * from public.turn_credit_balance()")).rows;
       assert.equal(row.trial, true); assert.equal(row.plan, "none"); assert.equal(Number(row.remaining), 50 - r.json.usage.credits);
       assert.equal((await post("tok-trial", IMAGE("gemini-nano-banana-2.1", "1K"), after)).status, 200, "a draft image");
-      for (const body of [TEXT("claude-fable-5"), IMAGE("gemini-3.1-flash-image", "1K"), KLING(), { task: "voice", op: "stt", audioB64: "AAAA" }]) {
+      for (const body of [TEXT("claude-fable-5"), IMAGE("seedream-5-pro", "1K"), KLING(), { task: "voice", op: "stt", audioB64: "AAAA" }]) {
         const x = await post("tok-trial", body, after);
         assert.equal(x.status, 402, j(body)); assert.equal(x.json.code, "plan_required");
       }
