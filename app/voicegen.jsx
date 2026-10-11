@@ -10,7 +10,9 @@
      elDesignVoice(description, {text, modelId})  -> [{generatedVoiceId, audioUrl}]   (audition)
      elSaveVoice(generatedVoiceId, {name, description}) -> {voiceId}                  (the lock)
      elListVoices()                               -> [{voiceId, name, ...}]           (library)
-     elCloneVoice(samples[], {name, description}) -> {voiceId}                        (consent-gated)
+     elListVoicesFull()                           -> {voices, customVoices:{used, limit}, realVoices:{used, limit}}
+     elCloneVoice(samples[], {consent, removeNoise, meName}) -> {voiceId, name, kind, personKind, personName}
+     elDeleteVoice(voiceId) / elAttachVoice(voiceId)                                  (real voices, free)
      vgGetAudio(id) / vgGetMeta(id) / vgLoadAudio(id) / vgClearAudio(id)
      useVoiceGen(id) -> {audioUrl, durationMs, gening, err, generate, clear}
 */
@@ -50,6 +52,16 @@ function vgLineCredits(text, modelId){
   return (typeof window.turnCreditCost==="function") ? window.turnCreditCost(usd) : Math.max(1, Math.ceil(usd/0.01 - 1e-9));
 }
 window.vgLineCredits = vgLineCredits;
+/* DESIGNING OR CLONING A VOICE (2026-10-11, owner — real voices): a flat provider cost per call, the same
+   table as image-proxy billing-pricing.mjs VOICE_USD (design / clone $0.10), turned into whole credits by the
+   app's live credit unit (pricing.jsx turnCreditCost) — so "Clone voice · 10 credits" follows the unit. */
+const VG_VOICE_OP_USD = { design:0.10, clone:0.10 };
+function vgVoiceOpCredits(op){
+  const usd = VG_VOICE_OP_USD[op==="clone" ? "clone" : "design"];
+  return (typeof window.turnCreditCost==="function") ? window.turnCreditCost(usd) : Math.max(1, Math.ceil(usd/0.01 - 1e-9));
+}
+window.VG_VOICE_OP_USD = VG_VOICE_OP_USD;
+window.vgVoiceOpCredits = vgVoiceOpCredits;
 window.VG_VOICE_MASTER_TEXT=VG_VOICE_MASTER_TEXT;
 window.vgVoiceMasterAssetId=vgVoiceMasterAssetId;
 window.vgVoiceMasterFileName=vgVoiceMasterFileName;
@@ -433,7 +445,9 @@ function vgAssertIdentity(opts, phase){
   opts=opts||{};
   const c=opts.identityCharacter||opts.character;
   const lock=opts.voiceLock||opts.voiceIdentity||null;
-  if(c && lock){
+  /* A REAL PERSON'S VOICE (2026-10-11, owner — real voices) doesn't depend on the character's pronouns or
+     identity text: a cloned lock never goes stale on an identity change (no re-clone). */
+  if(c && lock && lock.source!=="cloned"){
     const normalize=(v)=>typeof window.turnNormalizePronouns==="function"
       ? String(window.turnNormalizePronouns(v)||"") : String(v||"").trim().toLowerCase();
     const currentRevision=c.identityRevision!=null ? String(c.identityRevision) : "";
@@ -504,6 +518,15 @@ async function vgProxy(op, payload, opts){
     // a request the server refuses as it stands (400 — say, a recording it can't read or one longer
     // than the app records): its own plain sentence, and the status, so the New Story interview can
     // switch to the browser's speech recognition quietly (billing round 5)
+    /* A VOICE THE SERVER WON'T USE OR MAKE (2026-10-11, owner — real voices): the server's own plain sentence,
+       with its code — whose voice it is, the recordings, the plan's number of real voices, a voice that isn't
+       this account's or the film's, a deleted one. */
+    if((status===400 || status===403) && body && VG_VOICE_REFUSAL_CODES.indexOf(String(body.code||""))>=0){
+      const said=typeof body.error==="string" && body.error.trim() ? body.error.trim() : (typeof body.message==="string" ? body.message.trim() : "");
+      const e=new Error(_safe(said || vgVoiceRefusalFallback(body.code)));
+      e.code=String(body.code); e.status=status;
+      throw e;
+    }
     if(status===400){
       const said=body && typeof body.error==="string" && body.error.trim() && !/^[a-z_]+$/.test(body.error.trim()) ? body.error.trim()
         : (body && typeof body.message==="string" && body.message.trim() ? body.message.trim() : "");
@@ -516,7 +539,7 @@ async function vgProxy(op, payload, opts){
     throw new Error(_safe("Couldn't reach the voice proxy: "+((error&&error.message)||"unknown error")+"."));
   }
   if(data && data.error){
-    const raw = (window.turnSafeError||(x=>x))(data.error);
+    const raw = (window.turnSafeError||(x=>x))(data.error) || (data.code ? vgVoiceRefusalFallback(data.code) : "");
     const msg = vgVoiceUserError(raw, data.code, op);
     const e = new Error(msg);
     e.code = data.code || "";
@@ -530,6 +553,21 @@ async function vgProxy(op, payload, opts){
   return data||{};
 }
 
+const VG_VOICE_REFUSAL_CODES = ["consent_required","samples_invalid","voice_limit","voice_library_full","voice_not_allowed","voice_deleted","voice_verification","VOICE_SLOTS_FULL"];
+function vgVoiceRefusalFallback(code){
+  switch(String(code||"")){
+    case "consent_required": return "Say whose voice this is, and confirm they agreed and are 18 or over.";
+    case "samples_invalid": return "Those recordings can't be used. Record about a minute and a half of clear speech.";
+    case "voice_limit": return "This account already has as many voices as its plan holds. Delete one in Voices to add another.";
+    case "voice_library_full": return "New voices can't be added right now \u2014 the studio's voice library is full. Please try again later.";
+    case "voice_not_allowed": return "This voice isn't available to this account. Choose another voice for this character.";
+    case "voice_deleted": return "This voice was deleted. Choose another voice for this character.";
+    case "voice_verification": return "This voice couldn't be cloned. Try another recording of the person's own voice.";
+    case "VOICE_SLOTS_FULL": return "New voices can't be added right now. Please try again later.";
+    default: return "The voice service couldn't use this request.";
+  }
+}
+window.VG_VOICE_REFUSAL_CODES = VG_VOICE_REFUSAL_CODES;
 function vgVoiceUserError(message, code, op){
   const raw = String(message||"").trim();
   const blocked = code==="VOICE_PROVIDER_BILLING" || /\b(subscription|invoice|payment|billing)\b/i.test(raw);
@@ -628,11 +666,19 @@ window.elGenerateVoiceMaster=elGenerateVoiceMaster;
 // ---- New Story "Talk it through" voice: one-off speak (no caching/commit) + transcribe ----
 // These calls are QUIET (vgProxy opts.quiet): a billing refusal never opens the Plans window — the
 // interview falls back to the browser's own speech (app/newstory.jsx Voice adapter).
-// Resolve a default interviewer voice once: the account's first voice, else a known public one.
+// Resolve a default interviewer voice once: the first STOCK voice of the library, else a known public one.
+// (2026-10-11) elListVoices returns the list itself (it used to read r.voices of it, so it never found one), and
+// the interviewer never speaks with a recorded voice — a real person's or a designed one — only a stock voice.
+function vgPickStockVoice(list){
+  const vs = Array.isArray(list) ? list : [];
+  const stock = vs.filter(v=>v && v.voiceId && !v.own && !v.onFilm && !v.kind && !/^(cloned|generated|professional_clone)$/i.test(String(v.category||"")));
+  return stock.find(v=>String(v.category||"")==="premade") || stock[0] || null;
+}
+window.vgPickStockVoice = vgPickStockVoice;
 let _interviewVoiceId = "";
 async function elInterviewVoiceId(){
   if(_interviewVoiceId) return _interviewVoiceId;
-  try{ const r = await elListVoices({ quiet:true }); const v = r && r.voices && r.voices[0]; if(v && v.voiceId) _interviewVoiceId = v.voiceId; }
+  try{ const v = vgPickStockVoice(await elListVoices({ quiet:true })); if(v && v.voiceId) _interviewVoiceId = v.voiceId; }
   catch(e){ if(e && e.billing) throw e; }   // refused for billing: no point asking for speech next
   if(!_interviewVoiceId) _interviewVoiceId = "21m00Tcm4TlvDq8ikWAM";   // ElevenLabs default ("Rachel")
   return _interviewVoiceId;
@@ -685,30 +731,84 @@ async function elSaveVoice(generatedVoiceId, opts){
     identityCharacter:opts.identityCharacter||opts.character, identityCharacterIds:opts.identityCharacterIds||opts.characterIds,
     identityContext:opts.identityContext, identityCast:opts.identityCast });
   if(!d.voiceId) throw new Error("Couldn't save that voice — try another preview.");
+  // a designed voice is one of the account's own voices too (they count together — 2026-10-11)
+  if(_vgRealSeen) _vgRealSeen = { ..._vgRealSeen, used:_vgRealSeen.used+1 };
+  _vgVoicesChanged("save");
   return { voiceId:d.voiceId, name:d.name||opts.name };
 }
-// the account's voices (the "picked from library" origin)
-async function elListVoices(opts){
+/* the voices this account may use (the "picked from library" origin): the provider's stock voices, the
+   account's own recorded voices (own:true — designed or a real person's, kind "designed" / "cloned") and, with
+   the film context, the film's linked voices (onFilm:true). customVoices { used, limit }: the account's OWN voices,
+   designed and real together (the studio's voice plan holds a fixed number for everyone — owner 2026-10-11; Director 3,
+   Producer 6, set on the server); realVoices { used, limit }: the real ones only (kept for older servers). limit null =
+   no limit. The last answer is remembered for the Characters header (vgRealVoicesSeen: { used, real, limit }). */
+let _vgRealSeen = null;
+function vgRealVoicesSeen(){ return _vgRealSeen; }
+window.vgRealVoicesSeen = vgRealVoicesSeen;
+function _vgVoicesChanged(reason){ try{ window.dispatchEvent(new CustomEvent("vg-voices-changed",{ detail:{ reason } })); }catch(e){} }
+async function elListVoicesFull(opts){
   opts=opts||{}; vgAssertIdentity(opts, "voice-list-start");
   const d = await vgProxy("listVoices", { identityCharacter:opts.identityCharacter||opts.character,
     identityCharacterIds:opts.identityCharacterIds||opts.characterIds, identityContext:opts.identityContext, identityCast:opts.identityCast },
     { quiet:!!opts.quiet });
-  return d.voices||[];
+  const voices = Array.isArray(d.voices) ? d.voices : [];
+  const count = (x)=> x && typeof x==="object" ? { used:Math.max(0, Number(x.used)||0), limit:(x.limit==null ? null : Math.max(0, Number(x.limit)||0)) } : null;
+  const realVoices = count(d.realVoices), customVoices = count(d.customVoices);
+  const ownAll = voices.filter(v=>v && v.own && (v.kind==="cloned" || v.kind==="designed")).length;
+  const ownReal = voices.filter(v=>v && v.own && v.kind==="cloned").length;
+  _vgRealSeen = { used:customVoices ? customVoices.used : ownAll, real:realVoices ? realVoices.used : ownReal,
+    limit:customVoices ? customVoices.limit : (realVoices ? realVoices.limit : null), at:Date.now() };
+  _vgVoicesChanged("list");
+  return { voices, customVoices, realVoices };
 }
-// instant clone from samples (consent-gated on the client, like a cameo face)
+async function elListVoices(opts){
+  return (await elListVoicesFull(opts)).voices;
+}
+/* A REAL PERSON'S VOICE (2026-10-11, owner — real voices): an instant clone from recordings. opts.consent
+   { personKind:"me"|"someone", personName, adult:true, attest:true } is checked again on the server (and kept with
+   the voice); opts.removeNoise asks the provider to clean the recordings; opts.meName labels a "me" voice. */
 async function elCloneVoice(samples, opts){
   opts=opts||{};
   vgAssertIdentity(opts, "voice-clone-start");
-  if(!samples || !samples.length) throw new Error("Add at least one voice sample to clone.");
+  if(!samples || !samples.length) throw new Error("Add a recording of the voice to clone.");
   vgAssertIdentity(opts, "voice-clone-submit");
+  const c = opts.consent || null;
+  const consent = c ? { personKind:c.personKind, personName:c.personKind==="someone" ? String(c.personName||"").trim() : "",
+    adult:c.adult===true, attest:c.attest===true } : undefined;
   const d = await vgProxy("clone", { samples, name:opts.name, description:opts.description,
+    ...(consent ? { consent } : {}), removeNoise:opts.removeNoise===true,
+    ...(opts.meName ? { meName:String(opts.meName).slice(0,80) } : {}),
     identityCharacter:opts.identityCharacter||opts.character, identityCharacterIds:opts.identityCharacterIds||opts.characterIds,
     identityContext:opts.identityContext, identityCast:opts.identityCast });
-  if(!d.voiceId) throw new Error("Cloning failed — check the samples and try again.");
-  return { voiceId:d.voiceId, name:d.name||opts.name };
+  if(!d.voiceId) throw new Error("The voice couldn't be cloned. Check the recordings and try again.");
+  if(_vgRealSeen) _vgRealSeen = { ..._vgRealSeen, used:_vgRealSeen.used+1, real:(_vgRealSeen.real||0)+1 };
+  _vgVoicesChanged("clone");
+  return { voiceId:d.voiceId, name:d.name||opts.name||"", kind:d.kind||"cloned",
+    personKind:d.personKind||(consent&&consent.personKind)||"", personName:d.personName!=null ? d.personName : ((consent&&consent.personName)||"") };
+}
+// delete one of this account's voices for good, at the provider too (free, any plan; only its owner)
+async function elDeleteVoice(voiceId){
+  const id = String(voiceId||"").trim();
+  if(!id) throw new Error("Which voice?");
+  const d = await vgProxy("deleteVoice", { voiceId:id });
+  if(!(d && (d.deleted || d.ok))) throw new Error("The voice couldn't be deleted right now. Please try again.");
+  if(_vgRealSeen) _vgRealSeen = { ..._vgRealSeen, used:Math.max(0, _vgRealSeen.used-1) };   // (a list reload corrects .real)
+  _vgVoicesChanged("delete");
+  return { ok:true, deleted:true };
+}
+/* link one of this account's voices (or the film's) to the open film, so everyone on it can voice lines with it
+   (free). Without a film open there is nothing to link: { linked:false, skipped:true }. */
+async function elAttachVoice(voiceId){
+  const id = String(voiceId||"").trim();
+  if(!id) throw new Error("Which voice?");
+  const ctx = typeof window.turnFilmContext==="function" ? window.turnFilmContext() : null;
+  if(!ctx || !ctx.projectId) return { ok:true, linked:false, skipped:true };
+  const d = await vgProxy("attachVoice", { voiceId:id });
+  return { ok:true, linked:!!(d && d.linked) };
 }
 window.elDesignVoice=elDesignVoice; window.elSaveVoice=elSaveVoice;
-window.elListVoices=elListVoices; window.elCloneVoice=elCloneVoice;
+window.elListVoices=elListVoices; window.elListVoicesFull=elListVoicesFull; window.elCloneVoice=elCloneVoice;
+window.elDeleteVoice=elDeleteVoice; window.elAttachVoice=elAttachVoice;
 
 // ---- React hook (mirrors useImageGen) — one line's audio, by asset id --------
 function useVoiceGen(id){

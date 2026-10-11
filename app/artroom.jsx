@@ -5118,6 +5118,11 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                 if(patch.wardrobe!=null){ if((c.wardrobeMask||"").trim()) up.wardrobeMask=patch.wardrobe; else up.wardrobe=patch.wardrobe; }
                 if(patch.accessories!=null) up.accessories=patch.accessories;
                 onUpdate(c.id, up); } })))),
+      // FACE AND VOICE, EACH ITS OWN (2026-10-11, owner — real voices): which face and which voice this character has —
+      // "Face: Sam (likeness) · Voice: Sam (real voice)" / "Voice: designed" / "Voice: from the library"
+      (()=>{ const line = (typeof window.vcFaceVoiceLine==="function") ? window.vcFaceVoiceLine(lkInfo, c.voiceLock) : "";
+        return line ? React.createElement("div",{className:"char-cast-line","data-testid":"char-face-voice"},
+          React.createElement(Icon.mic,{s:11}), React.createElement("span",null,line)) : null; })(),
       // UPDATE SHEET WITH NEW WARDROBE (owner 2026-10-06 — Characters review): the app pointed here from six
       // places, but the button didn't exist. The master doesn't wear its newly built worn-item sheets yet.
       wardrobeStale && gen.genUrl && !readOnly && React.createElement("div",{className:"sheet-cameo-status char-wardrobe-update"},
@@ -5488,7 +5493,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             confirmLabel:"Generate sheet"+(price ? " \u00b7 "+price+" credit"+(price==="1"?"":"s") : "") });
           if(ok && !gen.gening) gen.generate();
         } })),
-    voiceOpen && window.VoiceModal && React.createElement(window.VoiceModal,{character:c,project,speaks,onUpdate,
+    voiceOpen && window.VoiceModal && React.createElement(window.VoiceModal,{character:c,project,speaks,onUpdate,readOnly:!!readOnly,cast:cast||[c],
       onClose:()=>onCloseVoice&&onCloseVoice(c.id)}));
 }
 
@@ -6153,9 +6158,23 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
   const batchLikenessNote = (ids)=> (ids||[]).map(id=>{ const ch=(characters||[]).find(x=>x&&x.id===id); return (window.turnLikenessUnavailableText||(()=>""))(id, ch&&ch.name); })
     .filter(Boolean).join(" ");
   const nameOf = (id)=>{ const c=(characters||[]).find(x=>x.id===id); return c?c.name:id; };
+  /* THE VOICES WINDOW (2026-10-11, owner — real voices): the account's own voices (real and designed), beside
+     Likenesses. Shown once this account has one (the last list the server gave) or a character here uses one. */
+  const [voicesMgrOpen, setVoicesMgrOpen] = React.useState(false);
+  const [, setVoicesTick] = React.useState(0);
+  React.useEffect(()=>{
+    const h = ()=> setVoicesTick(t=>t+1);
+    window.addEventListener("vg-voices-changed", h);
+    return ()=> window.removeEventListener("vg-voices-changed", h);
+  },[]);
+  const realSeen = (typeof window.vgRealVoicesSeen==="function") ? window.vgRealVoicesSeen() : null;
+  const realHere = (characters||[]).some(c=>c && c.voiceLock && (c.voiceLock.source==="cloned" || c.voiceLock.source==="designed"));
+  const voicesBtn = !!window.VoicesManager && (typeof window.voiceProxyReady==="function" && window.voiceProxyReady())
+    && ((realSeen && realSeen.used>0) || realHere);
   return React.createElement("div",{className:"art-scroll"},
     view && React.createElement(ImageLightbox,{url:view.url,character:view.character,onClose:()=>setView(null)}),
     mgrOpen && React.createElement(CameoManager,{nameOf,characters,onClose:()=>setMgrOpen(false),onChanged:refreshCount}),
+    voicesMgrOpen && window.VoicesManager && React.createElement(window.VoicesManager,{characters,onUpdate,onClose:()=>setVoicesMgrOpen(false)}),
     React.createElement(NbKeyBar,null),
     React.createElement(NbControls,null),
     window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,onDraftOnly:onApplyLookbookDraftOnly,label:"these characters",dept:"characters"}),
@@ -6173,6 +6192,9 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
           cameoCount>0 && React.createElement("button",{className:"art-cameo-mgr",onClick:()=>setMgrOpen(true),
             title:"Likeness manager \u2014 review and manage the locked likenesses"},
             React.createElement(Icon.userScan,{s:14}),"Likenesses \u00b7 "+cameoCount),
+          voicesBtn && React.createElement("button",{className:"art-cameo-mgr art-voices-mgr",onClick:()=>setVoicesMgrOpen(true),"data-testid":"voices-manager-btn",
+            title:"Voices \u2014 your own voices (real and designed): who, which characters use them, delete to free room"},
+            React.createElement(Icon.mic,{s:14}),"Voices"+(realSeen && realSeen.used>0 ? " \u00b7 "+realSeen.used : "")),
           // NO hand-adding: the cast derives from story creation and screenplay
           // development; the Art Room designs only what the story establishes.
           // ONE primary per stage: "Design the cast" leads while specs are missing,

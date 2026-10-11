@@ -589,7 +589,8 @@ function _shotAudioState(sh,auds,characters){
   const lock=c&&c.voiceLock ? c.voiceLock : (!roster&&la.voiceId?{
     voiceId:la.voiceId,modelId:la.modelId,modelChosen:true,defaults:la.settings||{},revision:la.voiceRevision||""
   }:null);
-  if(c&&lock){
+  // a real person's voice (source "cloned") doesn't follow the character's pronouns: never stale on an identity change (2026-10-11)
+  if(c&&lock&&lock.source!=="cloned"){
     const currentRevision=c.identityRevision!=null?String(c.identityRevision):"";
     const lockedRevision=lock.identityRevision!=null?String(lock.identityRevision):"";
     const currentPronouns=String(c.canonicalPronouns||c.pronouns||"").trim().toLowerCase();
