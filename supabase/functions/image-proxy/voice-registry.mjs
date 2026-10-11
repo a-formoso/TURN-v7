@@ -141,6 +141,8 @@ export function voicesForCaller(providerVoices, ownRows, filmRows = []) {
     out.push({ voiceId: id, name: row ? (row.label || row.person_name || v.name || "") : (v.name || ""),
       category: row ? (row.kind === "cloned" ? "cloned" : "generated") : (v.category || ""),
       previewUrl: row ? "" : (v.preview_url || ""), labels: row ? {} : (v.labels || {}),
+      // when it was added (2026-10-11, owner): the record's own date, the same on every device
+      ...(row && row.created_at ? { createdAt: new Date(row.created_at).toISOString() } : {}),
       ...(row ? { own: !!mine, kind: row.kind, ...(row.kind === "cloned" ? { personKind: row.person_kind || "", personName: row.person_name || "" } : {}),
         ...(onFilm && !mine ? { onFilm: true } : {}) } : {}) });
   }

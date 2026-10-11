@@ -1272,7 +1272,7 @@ Deno.serve(async (req) => {
     // TTS is held at the dearer of its two routes (ElevenLabs direct, or the fal backup's endpoint
     // for this model) and settled at the route that served it; a model id that isn't on the list
     // is refused here, before any hold or provider call (repair F4)
-    const ttsModelId = String(body.modelId || "eleven_v3");
+    const ttsModelId = String(body.modelId || "eleven_v4");
     // SPEECH-TO-TEXT BY THE RECORDING'S REAL LENGTH (round 5, S1; owner decision (2)): the duration
     // is read from the recording's own container (audio-length.mjs: WebM / Matroska, Ogg, MP4 / MOV,
     // WAV — recognised by its bytes, never by the MIME type the client names) BEFORE any hold, and
@@ -1447,12 +1447,16 @@ Deno.serve(async (req) => {
         }
         const s = body.settings || {};
         const fmt = (body.outputFormat || "mp3_44100_128").toString();
-        const modelId = (body.modelId || "eleven_v3").toString();
+        const modelId = (body.modelId || "eleven_v4").toString();
         // Eleven v3 uses DISCRETE stability (0 creative / 0.5 natural / 1 robust) and
         // doesn't take style/speed — snap and trim the settings when v3 renders a line.
+        // Eleven v4 takes stability and similarity only (no style, speed or speaker boost).
         const isV3 = modelId.startsWith("eleven_v3");
+        const isV4 = modelId.startsWith("eleven_v4");
         const rawStab = Number(s.stability ?? 0.5);
-        const voiceSettings = isV3
+        const voiceSettings: any = isV4
+          ? { stability: Math.min(1, Math.max(0, Number.isFinite(rawStab) ? rawStab : 0.5)), similarity_boost: s.similarity ?? 0.75 }
+          : isV3
           ? { stability: rawStab < 0.25 ? 0.0 : rawStab > 0.75 ? 1.0 : 0.5,
               similarity_boost: s.similarity ?? 0.75,
               use_speaker_boost: s.speakerBoost ?? true }
@@ -1485,11 +1489,12 @@ Deno.serve(async (req) => {
         // Fallback: the same ElevenLabs models hosted on fal, billed to the fal wallet.
         // Custom voices are addressed by the same voice id; timestamps keep the cut clock.
         // the fal mirror for THIS model (billing-pricing.mjs TTS_MODELS) — the line is charged at its price
-        const falTtsEndpoint = String(voiceCost.falEndpoint || "fal-ai/elevenlabs/tts/eleven-v3");
+        const falTtsEndpoint = String(voiceCost.falEndpoint || "elevenlabs/tts/eleven-v4");
         let falWhy = "";
         try {
           const fd = await falVoiceRun(falTtsEndpoint, {
-            text, voice: voiceId, timestamps: true, stability: voiceSettings.stability });
+            text, voice: voiceId, timestamps: true, stability: voiceSettings.stability,
+            ...(isV4 && voiceSettings.similarity_boost != null ? { similarity_boost: voiceSettings.similarity_boost } : {}) });
           const fUrl = fd?.audio?.url || fd?.audio_url || (typeof fd?.audio === "string" ? fd.audio : "");
           if (fUrl) {
             const ar = await fetch(fUrl, { signal: AbortSignal.timeout(30000) });
@@ -1569,14 +1574,14 @@ Deno.serve(async (req) => {
         // caller's own and the film's are listed (never another user's)
         if (ownElKey) return json({ voices: (data.voices || []).map((v: any) => ({
           voiceId: v.voice_id, name: v.name, category: v.category || "", previewUrl: v.preview_url || "", labels: v.labels || {} })) });
-        const { data: own, error: oErr } = await sbVoice.from("turn_voices").select("voice_id, kind, person_kind, person_name, label, deleted_at").eq("owner", authUser.id).is("deleted_at", null);
+        const { data: own, error: oErr } = await sbVoice.from("turn_voices").select("voice_id, kind, person_kind, person_name, label, created_at, deleted_at").eq("owner", authUser.id).is("deleted_at", null);
         if (oErr) return refuse(billingUnavailable());
         let onFilm: any[] = [];
         if (voiceFilmId) {
           const { data: links } = await sbVoice.from("turn_voice_films").select("voice_id").eq("project_id", voiceFilmId);
           const ids = (links || []).map((l: any) => l.voice_id).filter((id: string) => !(own || []).some((o: any) => o.voice_id === id));
           if (ids.length) {
-            const { data: fr } = await sbVoice.from("turn_voices").select("voice_id, kind, person_kind, person_name, label, deleted_at").in("voice_id", ids).is("deleted_at", null);
+            const { data: fr } = await sbVoice.from("turn_voices").select("voice_id, kind, person_kind, person_name, label, created_at, deleted_at").in("voice_id", ids).is("deleted_at", null);
             // a film-linked voice is listed only to someone the database confirms is on the film
             const checked = await Promise.all((fr || []).map(async (v: any) => {
               const { data: a } = await sbVoice.rpc("turn_voice_access", { p_voice: v.voice_id, p_user: authUser.id, p_project: voiceFilmId });

@@ -3354,6 +3354,14 @@ APP_FEATURES.forEach(f=>{
   const sf = APP_FEATURES.find(x=>x && x.name==="The Stage (Production)");
   if(sf) sf.what += " (2026-10-11) A character's real voice voices its lines like any other locked voice; a line voiced with a real voice that was later deleted is marked to revoice, and a voice that isn't the account's or the film's is refused before anything is spent.";
 }
+/* ELEVEN V4 (owner 2026-10-11 — "bring in V4, remove V2"): Lifelike (v4) is the default for new voices; v3 stays; v2 isn't offered */
+APP_FEATURES.forEach(f=>{
+  if(!f || !f.what) return;
+  f.what = String(f.what)
+    .replace("Each character also has a selectable DELIVERY MODEL on the voice popup (honoured by every line render and Test line, including lines voiced from the Stage): Expressive (v3) — THE DEFAULT — the most expressive delivery, which also understands audio tags like [whispers] or [sighs] typed into a dialogue line — or Classic (v2) — flatter but maximally consistent timbre",
+      "Each character also has a selectable DELIVERY MODEL on the voice popup (honoured by every line render and voice file, including lines voiced from the Stage): Lifelike (v4) \u2014 THE DEFAULT for new voices \u2014 the most natural delivery and the closest match to a real person's voice, or Expressive (v3) \u2014 the previous default, very expressive; both understand audio tags like [whispers] or [sighs] typed into a dialogue line. Classic (v2) is no longer offered for new voices; a voice already set to it keeps it until you choose another model")
+    .replace("the picker's Expressive (v3) and Classic (v2) are among them", "the picker's Lifelike (v4) and Expressive (v3) \u2014 and Classic (v2) for a voice still on it \u2014 are among them");
+});
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;

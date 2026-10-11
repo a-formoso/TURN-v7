@@ -903,11 +903,17 @@ export function sttModel(modelId) {
    the backup uses for that model, priced in FAL_TTS_USD_PER_1K. The HOLD covers the dearer of
    the two routes; the settle charges the route that actually served the line. */
 export const FAL_TTS_USD_PER_1K = Object.freeze({
+  // Eleven v4 (2026-10-11, owner): fal.ai/models/elevenlabs/tts/eleven-v4, $0.08 per 1,000 characters (its own namespace)
+  "elevenlabs/tts/eleven-v4": 0.08,
   "fal-ai/elevenlabs/tts/eleven-v3": 0.10,
   "fal-ai/elevenlabs/tts/multilingual-v2": 0.10,
   "fal-ai/elevenlabs/tts/turbo-v2.5": 0.05,
 });
 export const TTS_MODELS = Object.freeze({
+  // ELEVEN V4 (2026-10-11, owner — "bring in V4"): the provider's flagship, the app's default for new voices; $0.08 per
+  // 1,000 characters direct (elevenlabs.io/pricing/api; held at the $0.10 rate like v3). Multilingual v2 is no longer
+  // offered for new voices, but a voice already locked on it keeps rendering on it (a lock's model never changes).
+  eleven_v4: Object.freeze({ direct: VOICE_USD.ttsPer1kChars, falEndpoint: "elevenlabs/tts/eleven-v4" }),
   eleven_v3: Object.freeze({ direct: VOICE_USD.ttsPer1kChars, falEndpoint: "fal-ai/elevenlabs/tts/eleven-v3" }),
   eleven_multilingual_v2: Object.freeze({ direct: VOICE_USD.ttsPer1kChars, falEndpoint: "fal-ai/elevenlabs/tts/multilingual-v2" }),
   eleven_turbo_v2_5: Object.freeze({ direct: VOICE_USD.ttsPer1kCharsFast, falEndpoint: "fal-ai/elevenlabs/tts/turbo-v2.5" }),

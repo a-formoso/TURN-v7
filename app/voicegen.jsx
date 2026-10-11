@@ -18,7 +18,10 @@
 */
 
 // ---- config -----------------------------------------------------------------
-const VG_TTS_MODEL = "eleven_v3";      // DEFAULT delivery: the most expressive model
+const VG_TTS_MODEL = "eleven_v4";      // DEFAULT delivery for NEW voices (2026-10-11, owner — "bring in V4")
+/* a lock saved before locks named their model was made on v3, the default then: it stays on v3 (a lock's model never
+   follows a later default) */
+const VG_UNPINNED_LOCK_MODEL = "eleven_v3";
 const VG_OUTPUT_FORMAT = "mp3_44100_128";
 const VG_DEFAULTS = { stability:0.70, similarity:0.75, style:0.10, speed:1.0, speakerBoost:true };
 const VG_VOICE_MASTER_TEXT = "That quick beige fox jumped in the air over each thin dog. Look out, I shout, for he's foiled you again, creating chaos";
@@ -29,19 +32,25 @@ function vgVoiceMasterFileName(characterName){
   return stem+"_voice.mp3";
 }
 // selectable per-character DELIVERY models (stored on the voice lock, honoured on every
-// line render + test line). v3 is the app default; v2 stays available for a flatter,
-// maximally-consistent timbre.
+// line render + test line). v4 is the default for new voices (2026-10-11, owner); v3 stays a choice. v2 is no longer
+// OFFERED (owner: "remove V2 if we don't need it" — v4 is as consistent and far closer to a real voice), but a voice
+// already locked on it keeps it: the picker then shows it as that voice's current model (VG_RETIRED_TTS_MODELS).
 const VG_TTS_MODELS = [
-  { id:"eleven_v3", label:"Expressive (v3)", note:"The default — most expressive delivery; understands audio tags like [whispers] or [sighs] written into the line." },
-  { id:"eleven_multilingual_v2", label:"Classic (v2)", note:"Flatter but maximally consistent timbre — pick when a voice should never vary." },
+  { id:"eleven_v4", label:"Lifelike (v4)", note:"The default — the most natural delivery and the closest match to a real person's voice; understands audio tags like [whispers] or [sighs] written into the line." },
+  { id:"eleven_v3", label:"Expressive (v3)", note:"The previous default — very expressive delivery; understands audio tags like [whispers] or [sighs]." },
+];
+const VG_RETIRED_TTS_MODELS = [
+  { id:"eleven_multilingual_v2", label:"Classic (v2)", note:"No longer offered for new voices — this voice keeps it until you choose another model." },
 ];
 /* A voice lock is a production master, so its delivery model is immutable until the
    director explicitly changes it. Silently migrating an older lock to a new global
    default can mix two delivery engines inside one character's scene. */
 function vgDeliveryModelOf(lock){
-  return (lock && lock.modelId) ? lock.modelId : VG_TTS_MODEL;
+  if(lock && lock.modelId) return lock.modelId;
+  return lock ? VG_UNPINNED_LOCK_MODEL : VG_TTS_MODEL;
 }
 window.VG_DEFAULTS = VG_DEFAULTS; window.VG_TTS_MODEL = VG_TTS_MODEL; window.VG_TTS_MODELS = VG_TTS_MODELS;
+window.VG_RETIRED_TTS_MODELS = VG_RETIRED_TTS_MODELS; window.VG_UNPINNED_LOCK_MODEL = VG_UNPINNED_LOCK_MODEL;
 /* A VOICE LINE'S PRICE (2026-10-05, owner — Stage review): the server prices text-to-speech by
    characters (image-proxy billing-pricing.mjs: ttsPer1kChars $0.10, the fast models $0.05) and
    holds each line on its own, rounded up to whole credits — so a clip's total is the sum per line. */

@@ -2177,6 +2177,8 @@ async function proxySection() {
       reset(); before = await bal(U.writer);
       W.providers["https://api.elevenlabs.io/v1/text-to-speech/"] = () => reply(401, { detail: { message: "The account has an unpaid invoice." } });
       W.providers["https://queue.fal.run/fal-ai/elevenlabs/tts/eleven-v3"] = (u, m) => (m === "POST" ? reply(500, "fal internal error") : null);
+      // (2026-10-11) a request naming no model is Eleven v4, whose backup is fal's elevenlabs/tts/eleven-v4
+      W.providers["https://queue.fal.run/elevenlabs/tts/eleven-v4"] = (u, m) => (m === "POST" ? reply(500, "fal internal error") : null);
       r = await post("tok-writer", { task: "voice", op: "tts", voiceId: "v1", text: "x".repeat(300) });
       assert.doesNotMatch(r.json.error, /invoice|fal|ElevenLabs/i); assert.equal(await bal(U.writer), before);
       assert.equal((await lastHold(U.writer)).status, "released");

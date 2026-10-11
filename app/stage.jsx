@@ -5234,7 +5234,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const voiceTodo = lineShots.filter(sh=>String(sh.dialogue||"").trim() && !_shotAudioReady(sh,auds,ctx.characters||[]));
   const voiceLineModel = (sh)=>{ const la=(sh&&sh.lineAudio)||{}; const norm=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
     const c=(ctx.characters||[]).find(x=>x && ((la.speakerId && String(x.id)===String(la.speakerId)) || norm(x.name)===norm(la.speaker)));
-    return (c && c.voiceLock && c.voiceLock.modelId) || la.modelId || window.VG_TTS_MODEL || "eleven_v3"; };
+    // the lock's own model (an unpinned lock: the model it was made on — voicegen.jsx vgDeliveryModelOf)
+    if(c && c.voiceLock) return (typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(c.voiceLock) : (c.voiceLock.modelId || "eleven_v3");
+    return la.modelId || window.VG_TTS_MODEL || "eleven_v4"; };
   const voiceClipCredits = voiceTodo.reduce((n,sh)=> n + ((typeof window.vgLineCredits==="function") ? window.vgLineCredits(sh.dialogue, voiceLineModel(sh)) : 1), 0);
   const onVoiceClip = async ()=>{
     // paid, and it writes the shots' line audio: never from a view-only Stage (2026-10-09)

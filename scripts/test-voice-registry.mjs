@@ -54,11 +54,12 @@ await test("C the list", () => {
   const provider = [{ voice_id: "s1", name: "Stock", category: "premade", preview_url: "p" }, { voice_id: "pro", name: "Pro", category: "professional" },
     { voice_id: "mine", name: "rv-1", category: "cloned" }, { voice_id: "des", name: "dv-1", category: "generated" },
     { voice_id: "theirs", name: "Their friend", category: "cloned" }, { voice_id: "film", name: "rv-2", category: "cloned" }, { voice_id: "gone", category: "cloned" }];
-  const own = [{ voice_id: "mine", kind: "cloned", person_kind: "someone", person_name: "Sam", label: "Sam" }, { voice_id: "des", kind: "designed", label: "MAREN" },
+  const own = [{ voice_id: "mine", kind: "cloned", person_kind: "someone", person_name: "Sam", label: "Sam", created_at: "2026-10-11T09:30:00Z" }, { voice_id: "des", kind: "designed", label: "MAREN" },
     { voice_id: "gone", kind: "cloned", deleted_at: "x" }];
   const out = R.voicesForCaller(provider, own, [{ voice_id: "film", kind: "cloned", person_kind: "me", person_name: "", label: "Dora's voice" }]);
   assert.deepEqual(out.map((v) => v.voiceId), ["s1", "pro", "mine", "des", "film"]);
-  assert.deepEqual(out[2], { voiceId: "mine", name: "Sam", category: "cloned", previewUrl: "", labels: {}, own: true, kind: "cloned", personKind: "someone", personName: "Sam" });
+  assert.deepEqual(out[2], { voiceId: "mine", name: "Sam", category: "cloned", previewUrl: "", labels: {}, createdAt: "2026-10-11T09:30:00.000Z", own: true, kind: "cloned", personKind: "someone", personName: "Sam" });
+  assert.equal(out[3].createdAt, undefined, "no date recorded: none sent");
   assert.deepEqual([out[3].name, out[3].category, out[3].own], ["MAREN", "generated", true]);
   assert.deepEqual([out[4].onFilm, out[4].own, out[4].name], [true, false, "Dora's voice"]);
 });

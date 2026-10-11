@@ -635,8 +635,8 @@ await test("J the copy names no vendor and no codename; the keys", ()=>{
   assert.ok(!/ElevenLabs|fal/.test(block));
   const html = read("TURN.html");
   for(const f of ["app/voicegen.jsx", "app/voices-ui.jsx", "app/artroom.jsx", "app/stage.jsx", "app/ai.jsx", "app/script.jsx"])
-    assert.ok(html.includes('src="'+f+'?v=20261011-rv1"'), f);
-  assert.ok(html.includes('href="app/styles.css?v=20261011-rv1"'));
+    assert.ok(html.includes('src="'+f+'?v=20261011-rv1"') || html.includes('src="'+f+'?v=20261011-v4a"'), f);
+  assert.ok(html.includes('href="app/styles.css?v=20261011-rv1"') || html.includes('href="app/styles.css?v=20261011-v4a"'));
   const css = read("app/styles.css");
   for(const k of [".vc-rv-meter{", ".vc-rv-level{", ".vc-pair{", ".char-cast-line{", ".vc-rv-script{"]) assert.ok(css.includes(k), k);
 });

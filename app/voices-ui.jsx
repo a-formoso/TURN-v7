@@ -338,7 +338,8 @@ async function vcDeleteRealVoiceFlow(o){
   users.forEach(c=>{ if(typeof onUpdate==="function") onUpdate(c.id, { voiceLock:null }); });
   return { deleted:true, unlinked:users.map(c=>c.id) };
 }
-/* when this browser added each real voice (the list from the server has no date) */
+/* when this browser added each real voice — only a fallback since 2026-10-11: the server's list carries each voice's
+   own createdAt (the same on every device), which wins */
 const VC_RV_ADDED_KEY = "turn_real_voices_added";
 function vcRvAddedAt(voiceId){ try{ return (JSON.parse(localStorage.getItem(VC_RV_ADDED_KEY)||"{}")||{})[voiceId] || ""; }catch(e){ return ""; } }
 function vcRvRememberAdded(voiceId){
@@ -688,7 +689,7 @@ function VoicesManager({ characters, onUpdate, onClose }){
   const count = vcRvAddState({ ready:true, customVoices:state.customVoices || (state.realVoices ? { used:own, limit:state.realVoices.limit } : { used:own, limit:null }) }).count;
   const row = (v)=>{
     const users = vcVoiceUsers(v.voiceId, characters);
-    const at = vcRvAddedAt(v.voiceId) || (users.map(c=>c.voiceLock.lockedAt).filter(Boolean).sort()[0] || "");
+    const at = v.createdAt || vcRvAddedAt(v.voiceId) || (users.map(c=>c.voiceLock.lockedAt).filter(Boolean).sort()[0] || "");
     const name = v.kind==="designed" ? (String(v.name||"").trim() || "Designed voice") : (vcVoicePerson(v) || "Your voice");
     const kind = v.kind==="designed" ? "Designed" : (v.personKind==="me" ? "Me" : "Someone else");
     return _vcEl("div",{ key:v.voiceId, className:"cameo-mgr-row", "data-voice":v.voiceId },
@@ -746,9 +747,15 @@ function VoiceCard({ c, project, speaks, onUpdate, titleId, readOnly, cast }){
   const vcMasterCr = (typeof window.vgLineCredits==="function" && window.VG_VOICE_MASTER_TEXT)
     ? window.vgLineCredits(window.VG_VOICE_MASTER_TEXT, (lock&&lock.modelId)||window.VG_TTS_MODEL||"") : 0;
   const vcMasterPrice = vcMasterCr ? (" \u00b7 about "+vcMasterCr+" credit"+(vcMasterCr===1?"":"s")) : "";
-  const effModel = (typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(lock) : ((lock&&lock.modelId) || window.VG_TTS_MODEL || "eleven_v3");
+  const effModel = (typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(lock) : ((lock&&lock.modelId) || window.VG_TTS_MODEL || "eleven_v4");
   const [ttsModel, setTtsModel] = React.useState(effModel);
-  const ttsModels = window.VG_TTS_MODELS || [{ id:"eleven_v3", label:"Expressive (v3)" }];
+  // the offered models, plus a retired one this voice is still locked on (it keeps it until another is chosen)
+  const ttsModels = (()=>{
+    const list = window.VG_TTS_MODELS || [{ id:"eleven_v4", label:"Lifelike (v4)" }];
+    if(!effModel || list.some(m=>m.id===effModel)) return list;
+    const retired = (window.VG_RETIRED_TTS_MODELS||[]).find(m=>m.id===effModel);
+    return [...list, retired || { id:effModel, label:effModel }];
+  })();
   const changeDelivery = (v)=>{
     setTtsModel(v);
     if(lock){
