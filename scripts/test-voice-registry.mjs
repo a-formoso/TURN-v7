@@ -73,9 +73,20 @@ await test("D speaking", () => {
 });
 
 await test("E limits and names", () => {
-  assert.equal(R.voiceLimit({ plan: "director" }), 5); assert.equal(R.voiceLimit({ plan: "studio" }), 15);
+  assert.equal(R.voiceLimit({ plan: "director" }), 3); assert.equal(R.voiceLimit({ plan: "studio" }), 6);
   assert.equal(R.voiceLimit({ plan: "writer" }), 0); assert.equal(R.voiceLimit({ isAdmin: true, plan: "none" }), Infinity);
-  assert.match(R.voiceLimitRefusal(5).error, /already has 5 real voices, the most its plan holds\. Delete one in Voices/);
+  assert.match(R.voiceLimitRefusal(3).error, /already has 3 voices, the most its plan holds\. Delete one in Voices/);
+  // the setting: defaults for anything missing or unusable
+  assert.deepEqual(R.voiceSlotSettings(null), { studioMax: 30, reserve: 3, perAccount: { director: 3, studio: 6 } });
+  assert.deepEqual(R.voiceSlotSettings({ studioMax: 160, reserve: 10, perAccount: { director: 5, studio: "x" } }), { studioMax: 160, reserve: 10, perAccount: { director: 5, studio: 6 } });
+  assert.deepEqual(R.voiceSlotSettings({ studioMax: -1, reserve: 99 }).studioMax, 30);
+  assert.equal(R.voiceSlotSettings({ studioMax: 5, reserve: 99 }).reserve, 5, "the reserve never exceeds the library");
+  const S = R.voiceSlotSettings(null);
+  assert.equal(R.voiceRoomRefusal({ studioUsed: 26, ownerUsed: 0, limit: 3, settings: S }), null);
+  assert.equal(R.voiceRoomRefusal({ studioUsed: 27, ownerUsed: 0, limit: 3, settings: S }).code, "voice_library_full", "27 of 30: full for users");
+  assert.equal(R.voiceRoomRefusal({ studioUsed: 29, ownerUsed: 0, limit: Infinity, isAdmin: true, settings: S }), null, "the admin's reserve");
+  assert.equal(R.voiceRoomRefusal({ studioUsed: 30, ownerUsed: 0, limit: Infinity, isAdmin: true, settings: S }).code, "voice_library_full");
+  assert.equal(R.voiceRoomRefusal({ studioUsed: 5, ownerUsed: 3, limit: 3, settings: S }).code, "voice_limit");
   assert.match(R.providerVoiceName("cloned", "d0000000-0000-4000-8000-000000000001", 1760000000000), /^rv-d0000000-[0-9a-z]+$/);
   assert.match(R.providerVoiceName("designed", "abc"), /^dv-abc-/);
 });

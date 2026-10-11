@@ -11,13 +11,17 @@
    THE SAMPLES (cloneSamples): 1–25 audio files, 30 MB at most in all, each one an audio file by its bytes (WebM, Ogg,
      MP4 / M4A, WAV, MP3, FLAC); when their length can be read (every container but MP3 and FLAC), 30 seconds to
      5 minutes in all (the provider recommends 1–2 minutes of clean speech from one speaker).
-   HOW MANY (voiceLimit): real voices an account may hold — Director 5, Producer 15; admins unlimited. */
+   HOW MANY (owner 2026-10-11 — the studio's voice plan holds 30 custom voices for EVERYONE, designed and real alike):
+     each account may hold `perAccount[plan]` designed + real voices together (Director 3, Producer 6; admins
+     unlimited), and nobody adds one once the studio has `studioMax - reserve` (27 of 30: the reserve is the admin's,
+     for testing). All of it is the server setting turn_app_config "voice_slots" (voiceSlotSettings) — raised the
+     day the plan is, with no code change or deploy. Checked before designing (which is paid), saving and cloning. */
 
 import { audioDurationFromBytes, sniffAudioContainer, AUDIO_CONTAINERS } from "./audio-length.mjs";
 
 export const VOICE_CONSENT_VERSION = "voice-consent-1";
 export const VOICE_CONSENT_TEXT = "This is my own voice, or the person whose voice this is has agreed to it being cloned and used for characters in my films. They are 18 or over.";
-export const REAL_VOICE_LIMITS = Object.freeze({ director: 5, studio: 15 });
+export const VOICE_SLOT_DEFAULTS = Object.freeze({ studioMax: 30, reserve: 3, perAccount: Object.freeze({ director: 3, studio: 6 }) });
 export const CLONE_SAMPLE_LIMITS = Object.freeze({ maxFiles: 25, maxBytes: 30 * 1024 * 1024, minSeconds: 30, maxSeconds: 300 });
 /* the provider's own voices anyone may use — every other voice must be one this studio recorded */
 export const STOCK_VOICE_CATEGORIES = Object.freeze(["premade", "professional"]);
@@ -37,16 +41,37 @@ export function cloneConsent(raw, { now = () => new Date(), attestedBy = "" } = 
     text: VOICE_CONSENT_TEXT, attestedBy: String(attestedBy || ""), attestedAt: now().toISOString() } };
 }
 
-/** How many real voices an account may hold (its plan: on a shared film, the owner's). */
-export function voiceLimit(account) {
+/** The voice-room setting (turn_app_config "voice_slots"), with the defaults for anything missing or unusable. */
+export function voiceSlotSettings(raw) {
+  const v = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const int = (x, dflt, max) => { const n = Math.floor(Number(x)); return Number.isFinite(n) && n >= 0 && n <= max ? n : dflt; };
+  const studioMax = int(v.studioMax, VOICE_SLOT_DEFAULTS.studioMax, 100000);
+  const reserve = Math.min(int(v.reserve, VOICE_SLOT_DEFAULTS.reserve, 100000), studioMax);
+  const pa = v.perAccount && typeof v.perAccount === "object" ? v.perAccount : {};
+  return { studioMax, reserve, perAccount: { director: int(pa.director, VOICE_SLOT_DEFAULTS.perAccount.director, 10000),
+    studio: int(pa.studio, VOICE_SLOT_DEFAULTS.perAccount.studio, 10000) } };
+}
+
+/** How many voices (designed + real) an account may hold — its plan's (on a shared film, the owner's). */
+export function voiceLimit(account, settings = VOICE_SLOT_DEFAULTS) {
   if (!account) return 0;
   if (account.isAdmin) return Infinity;
-  return REAL_VOICE_LIMITS[account.plan] || 0;
+  return (settings.perAccount || {})[account.plan] || 0;
 }
 export function voiceLimitRefusal(limit) {
   return refuse("voice_limit", limit > 0
-    ? `This account already has ${limit} real voice${limit !== 1 ? "s" : ""}, the most its plan holds. Delete one in Voices to add another.`
-    : "Real voices need a Director or Producer plan.", 403);
+    ? `This account already has ${limit} voice${limit !== 1 ? "s" : ""}, the most its plan holds. Delete one in Voices to add another.`
+    : "Character voices need a Director or Producer plan.", 403);
+}
+export function voiceLibraryFullRefusal() {
+  return refuse("voice_library_full", "New voices can't be added right now \u2014 the studio's voice library is full. Please try again later.", 403);
+}
+/** May one more voice be added: null, or the refusal. `studioUsed` = every active voice the studio holds. */
+export function voiceRoomRefusal({ studioUsed, ownerUsed, limit, isAdmin = false, settings = VOICE_SLOT_DEFAULTS }) {
+  const ceiling = settings.studioMax - (isAdmin ? 0 : settings.reserve);
+  if ((Number(studioUsed) || 0) >= ceiling) return voiceLibraryFullRefusal();
+  if (limit !== Infinity && (Number(ownerUsed) || 0) >= limit) return voiceLimitRefusal(limit);
+  return null;
 }
 
 function sniffMore(b) {

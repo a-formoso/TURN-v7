@@ -1658,6 +1658,11 @@ async function proxySection() {
       // length_mismatch records (turn_grant_failures)
       from: (table) => {
         // (2026-10-11) the voice registry: a small PostgREST-like builder over the real tables (service role)
+        // the voice room setting (turn_app_config "voice_slots"): W.voiceSlots, or none
+        if (table === "turn_app_config") {
+          const b = { select: () => b, eq: () => b, maybeSingle: async () => ({ data: W.voiceSlots ? { value: W.voiceSlots } : null, error: null }) };
+          return b;
+        }
         if (table === "turn_voices" || table === "turn_voice_films") {
           const q = { op: "select", cols: "*", where: [], row: null, count: false, head: false };
           const run = async () => {
@@ -2209,7 +2214,7 @@ async function proxySection() {
       const mine = (await post("tok-director", { task: "voice", op: "listVoices" })).json;
       assert.deepEqual(mine.voices.map((v) => v.voiceId), ["v1", "clone-1"]);
       assert.deepEqual([mine.voices[1].own, mine.voices[1].personName, mine.voices[1].name], [true, "Sam Reyes", "Sam Reyes"]);
-      assert.deepEqual(mine.realVoices, { used: 1, limit: 5 });
+      assert.deepEqual([mine.customVoices, mine.realVoices], [{ used: 1, limit: 3 }, { used: 1, limit: 3 }], "Director: 3 voices, designed and real together");
       assert.deepEqual((await post("tok-producer", { task: "voice", op: "listVoices" })).json.voices.map((v) => v.voiceId), ["v1"]);
       // speaking: the owner may; someone else may not — not even naming the film — until they're on it
       const tts = (tok, extra = {}) => post(tok, { task: "voice", op: "tts", voiceId: "clone-1", text: "Hello there", ...extra });
@@ -2231,8 +2236,8 @@ async function proxySection() {
       assert.equal((await tts("tok-director")).json.code, "voice_deleted");
       assert.ok(await svc("select deleted_at is not null and consent->>'adult' = 'true' from public.turn_voices where voice_id = 'clone-1'"));
       assert.equal(await svc("select count(*)::int from public.turn_voice_films where voice_id = 'clone-1'"), 0);
-      // the plan's number of real voices: Director 5
-      for (let i = 0; i < 5; i++) await svc("insert into public.turn_voices(voice_id, owner, created_by, kind, person_kind, consent) values ($1, $2, $2, 'cloned', 'me', jsonb_build_object('adult', true, 'attestedAt', now()))", ["cap-" + i, U.director.id]);
+      // the plan's number of voices: Director 3 (designed and real together)
+      for (let i = 0; i < 3; i++) await svc("insert into public.turn_voices(voice_id, owner, created_by, kind, person_kind, consent) values ($1, $2, $2, 'cloned', 'me', jsonb_build_object('adult', true, 'attestedAt', now()))", ["cap-" + i, U.director.id]);
       W.calls = [];
       r = await post("tok-director", { task: "voice", op: "clone", consent: { personKind: "me", adult: true, attest: true }, samples: [rec(45)] });
       assert.equal(r.status, 403); assert.equal(r.json.code, "voice_limit"); assert.equal(cloneCalls().length, 0);
@@ -2241,6 +2246,24 @@ async function proxySection() {
       assert.equal(r.json.voiceId, "voice-9");
       assert.equal(await svc("select owner::text from public.turn_voices where voice_id = 'voice-9'"), U.producer.id);
       assert.ok(!(await post("tok-writer", { task: "voice", op: "listVoices" })).json.voices.some((v) => v.voiceId === "voice-9"));
+      // …and counts: at its limit a paid design is refused before any hold, and so is the save
+      for (let i = 0; i < 5; i++) await svc("insert into public.turn_voices(voice_id, owner, created_by, kind, label) values ($1, $2, $2, 'designed', 'x')", ["pd-" + i, U.producer.id]);
+      let hb = (await holdsOf(U.producer)).length;
+      for (const op of [{ op: "design", description: "gravelly" }, { op: "saveVoice", generatedVoiceId: "gen-1", name: "IVO" }]) {
+        const x = await post("tok-producer", { task: "voice", ...op }); assert.equal(x.status, 403, op.op); assert.equal(x.json.code, "voice_limit", op.op);
+      }
+      assert.equal((await holdsOf(U.producer)).length, hb, "no hold");
+      // THE STUDIO'S VOICE LIBRARY (the provider plan's voices for everyone): full at studioMax - reserve; the admin may use the reserve
+      W.voiceSlots = { studioMax: 14, reserve: 3 };   // 9 active voices now held (+2 below = 11 = 14 - 3: full)
+      assert.equal((await post("tok-writer", { task: "voice", op: "listVoices" })).json.customVoices.limit, 0, "a Writer holds none (design is Director's)");
+      await svc("insert into public.turn_voices(voice_id, owner, created_by, kind, label) values ('w1', $1, $1, 'designed', 'x'), ('w2', $1, $1, 'designed', 'x')", [U.other.id]);
+      const full = await post("tok-director", { task: "voice", op: "design", description: "warm" });
+      assert.equal(full.status, 403); assert.equal(full.json.code, "voice_library_full"); assert.match(full.json.error, /studio's voice library is full/);
+      assert.ok(warns.some((w) => /\[voices\] the studio voice library holds 11 of 14/.test(w)));
+      assert.equal((await post("tok-admin", { task: "voice", op: "design", description: "warm" })).status, 200, "the reserve is the admin's");
+      W.voiceSlots = { studioMax: 1000, reserve: 3, perAccount: { director: 10 } };
+      assert.equal((await post("tok-director", { task: "voice", op: "design", description: "warm" })).status, 200, "raised by the setting: no deploy");
+      W.voiceSlots = null;
     });
 
     await test("F12 a FROZEN account (open dispute) spends nothing; Frances still answers it (5 a day)", async () => {

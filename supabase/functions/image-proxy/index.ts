@@ -105,7 +105,7 @@ import {
 // Round 5 (S1): a recording's real length, read from its container (WebM / Ogg / MP4 / WAV) before
 // speech-to-text is held.
 import { AUDIO_CONTAINERS, audioDurationFromBytes } from "./audio-length.mjs";
-import { cloneConsent, cloneSamples, providerVoiceName, voiceLimit, voiceLimitRefusal, voiceUseDecision, voicesForCaller } from "./voice-registry.mjs";
+import { cloneConsent, cloneSamples, providerVoiceName, voiceLimit, voiceRoomRefusal, voiceSlotSettings, voiceUseDecision, voicesForCaller } from "./voice-registry.mjs";
 import { requestContext } from "./request-context.mjs";
 // (Stage editor review, 2026-10-09) the take an owner-paid render lands in (context.clipId + context.take)
 import { requestTake } from "./request-context.mjs";
@@ -1232,19 +1232,38 @@ Deno.serve(async (req) => {
     const voiceOwner: string = ownerPays ? String(film.payer) : authUser.id;
     // A REAL PERSON'S VOICE: whose it is, 18 or over, the attestation, the recordings and the plan's number of real
     // voices are all checked HERE, before any hold or provider call (voice-registry.mjs)
+    // THE VOICE ROOM (owner 2026-10-11): the studio's voice plan holds a fixed number of custom voices for everyone
+    // (turn_app_config "voice_slots"); designed and real voices both take one. Read for every op that adds or lists.
+    let voiceSlots = voiceSlotSettings(null);
+    if (!ownElKey && (voiceOp === "clone" || voiceOp === "design" || voiceOp === "saveVoice" || voiceOp === "listVoices")) {
+      const { data: cfg, error: cfgErr } = await sbVoice.from("turn_app_config").select("value").eq("key", "voice_slots").maybeSingle();
+      if (cfgErr) return refuse(billingUnavailable());
+      voiceSlots = voiceSlotSettings(cfg && cfg.value);
+    }
+    const voiceLimitNow = voiceLimit(account, voiceSlots);
+    // one more voice for this owner: null, or the refusal (checked before a paid design, a save or a clone)
+    const voiceRoom = async (): Promise<any> => {
+      const studio = await sbVoice.from("turn_voices").select("voice_id", { count: "exact", head: true }).is("deleted_at", null);
+      const mine = await sbVoice.from("turn_voices").select("voice_id", { count: "exact", head: true }).eq("owner", voiceOwner).is("deleted_at", null);
+      if (studio.error || mine.error) return billingUnavailable();
+      const studioUsed = Number(studio.count) || 0;
+      if (studioUsed >= voiceSlots.studioMax - voiceSlots.reserve - 2)
+        console.warn(`[image-proxy] [voices] the studio voice library holds ${studioUsed} of ${voiceSlots.studioMax} (reserve ${voiceSlots.reserve})`);
+      const r = voiceRoomRefusal({ studioUsed, ownerUsed: Number(mine.count) || 0, limit: voiceLimitNow, isAdmin, settings: voiceSlots });
+      return r ? { status: r.status, body: { error: r.error, code: r.code } } : null;
+    };
+    if (!ownElKey && (voiceOp === "design" || voiceOp === "saveVoice")) {
+      const full = await voiceRoom();
+      if (full) return full.status === 503 ? refuse(full) : json(full.body, full.status);
+    }
     let clonePlan: any = null;
     if (voiceOp === "clone" && !ownElKey) {
       const consent = cloneConsent(body.consent, { attestedBy: authUser.id });
       if (!consent.ok) return json({ error: consent.error, code: consent.code }, consent.status);
       const samples = await cloneSamples(body.samples);
       if (!samples.ok) return json({ error: samples.error, code: samples.code }, samples.status);
-      const limit = voiceLimit(account);
-      if (limit !== Infinity) {
-        const { count, error: cErr } = await sbVoice.from("turn_voices").select("voice_id", { count: "exact", head: true })
-          .eq("owner", voiceOwner).eq("kind", "cloned").is("deleted_at", null);
-        if (cErr) return refuse(billingUnavailable());
-        if ((Number(count) || 0) >= limit) { const r = voiceLimitRefusal(limit); return json({ error: r.error, code: r.code }, r.status); }
-      }
+      const full = await voiceRoom();
+      if (full) return full.status === 503 ? refuse(full) : json(full.body, full.status);
       clonePlan = { consent: consent.consent, files: samples.files, seconds: samples.seconds };
     }
     const paidVoiceOp = voiceOp === "tts" || voiceOp === "stt" || voiceOp === "design" || voiceOp === "clone";
@@ -1566,10 +1585,11 @@ Deno.serve(async (req) => {
             onFilm = checked.filter(Boolean);
           }
         }
-        const used = (own || []).filter((v: any) => v.kind === "cloned").length;
-        const limit = voiceLimit(account);
+        // customVoices: designed + real together (what the plan's number counts); realVoices: the real ones
+        const limitOut = voiceLimitNow === Infinity ? null : voiceLimitNow;
         return json({ voices: voicesForCaller(data.voices || [], own || [], onFilm),
-          realVoices: { used, limit: limit === Infinity ? null : limit } });
+          customVoices: { used: (own || []).length, limit: limitOut },
+          realVoices: { used: (own || []).filter((v: any) => v.kind === "cloned").length, limit: limitOut } });
       }
 
       // A REAL PERSON'S VOICE — an instant clone from recordings. On the studio's account the consent, the recordings
