@@ -268,10 +268,11 @@ await test("E1 approved script details go to the field — coreBody is untouched
 
 /* ═══ F — the card, Frances, the exports ═══ */
 await test("F1 the card shows its own editable row with a note, in both the physique list and the plain Body view", ()=>{
-  assert.ok(art.includes('React.createElement("span",{className:"phys-lab"},"Distinguishing features")'));
+  // (2026-10-12, fidelity step 2) the row also says where it comes from, and removing a script mark asks first
+  assert.ok(art.includes('React.createElement("span",{className:"phys-lab"},"Distinguishing features", OriginChip("features"))'));
   assert.ok(art.includes("React.createElement(EditText,{value:charScriptFeaturesRaw(c)||\"\",multiline:true,"));
-  assert.ok(art.includes("onCommit:val=>onUpdate(c.id, charFeaturesPatch(c, val))"));
-  assert.ok(art.includes("\"From the screenplay — added when you approve a Production check or a sheet check, or typed here. Sent with every sheet, appearance variant and shot.\""));
+  assert.ok(art.includes("onCommit:commitFeatures}),") && art.includes("onUpdate(c.id, charFeaturesPatch(c, val));"));
+  assert.ok(art.includes("\"From the screenplay — added when you read the script, approve a Production check or a sheet check, or typed here. Sent with every sheet, appearance variant and shot.\""));
   assert.ok(art.includes("\" While a likeness is locked, marks on the face, head or hair are left out — the face comes from the likeness photos.\""));
   assert.ok(art.includes("Row(\"Legs & feet\",F.legs,v2=>setPhys(\"legs\",v2),true),\n            featuresRow,"));
   assert.ok(art.includes("React.createElement(\"div\",{className:\"char-phys\"}, featuresRow));"));

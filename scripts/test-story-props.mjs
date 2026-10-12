@@ -268,7 +268,7 @@ await test("7c the Art Coordinator's Props step is the Props Master (approved au
   const entry = between(agents, "{ id:\"propsmaster\"", "run:agentPropsMaster }");
   assert.ok(entry.includes("asksApproval:true") && entry.includes("Reads the screenplay for its props first"));
   assert.ok(entry.includes("writing credits to read the screenplay for its props (once per film)"));
-  assert.ok(art.includes("reads the screenplay for its props when it hasn't been read yet"));
+  assert.ok(art.includes("and for its props when it hasn't been read yet"))   // (2026-10-12: it reads for the characters too);
 });
 await test("7d the agents' surface: extraction proposes; applying is a PATCH (new added, linked re-linked on the live card)", ()=>{
   const pm = between(app, "    const propmaster = {", "    // ---- Location Scout surface");

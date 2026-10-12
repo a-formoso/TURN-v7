@@ -445,7 +445,7 @@ await test("C3 a batch / Design the cast sum each image's own price (photos + wo
   assert.ok(art.includes("batchChip(missingAll)") && art.includes("batchChip(sceneMissing)"));
   assert.ok(art.includes("prompt.refsOf ? React.createElement(window.LikenessBatchCost,{ refs:prompt.missing.map(prompt.refsOf) })"));
   assert.ok(art.includes("? React.createElement(window.LikenessBatchCost,{ refs:lkRefs })"), "Design the cast");
-  assert.ok(app.includes("characters, props, sceneId:castConfirm.sceneId,"), "Design the cast gets the props to count worn sheets");
+  assert.ok(app.includes("characters, props, scenes, drafts, sceneId:castConfirm.sceneId,"), "Design the cast gets the props to count worn sheets");   // (+ the screenplay, 2026-10-12)
 });
 await test("C4 a numbered reference list can't silently lose an image; a failed fetch is no image", ()=>{
   const blob = between(imagegen, "async function oaiToBlob(src){", "async function oaiToDataUrl(src){");

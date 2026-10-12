@@ -114,7 +114,7 @@ await test("B2 the preview: scopes with counts, the price chip is the image tota
   const go = buttons(tree).find(b=>/Design 3 characters/.test(textOf(b)));
   assert.ok(go && !go.props.disabled);
   go.props.onClick();
-  assert.deepEqual(J(got), { only:["b","c","d"], variants:true });
+  assert.deepEqual(J(got), { only:["b","c","d"], variants:true, fidelity:false });
 });
 await test("B3 a focused scene opens on that scene's cast; 'Every character' passes no list; variants can be left out", ()=>{
   images = new Set();
@@ -123,11 +123,11 @@ await test("B3 a focused scene opens on that scene's cast; 'Every character' pas
   let tree = box.CastConfirm({ characters:cast(), sceneId:"s2", sceneNo:2, sceneIds:["b"], onCancel:noop, onConfirm:(s)=>{ got = s; } });
   assert.ok(/Scene 02's cast/.test(textOf(tree)));
   buttons(tree).find(b=>/Design 1 character$/.test(textOf(b))).props.onClick();
-  assert.deepEqual(J(got), { only:["b"], variants:true });
+  assert.deepEqual(J(got), { only:["b"], variants:true, fidelity:false });
   R.reset([ "all", false ]);
   tree = box.CastConfirm({ characters:cast(), onCancel:noop, onConfirm:(s)=>{ got = s; } });
   buttons(tree).find(b=>/Design 4 characters/.test(textOf(b))).props.onClick();
-  assert.deepEqual(J(got), { only:null, variants:false });
+  assert.deepEqual(J(got), { only:null, variants:false, fidelity:false });
 });
 await test("B4 nothing to make → says so and the button is off", ()=>{
   images = new Set(["a", "a:w", "b", "d", "d:x"]);
@@ -138,7 +138,7 @@ await test("B4 nothing to make → says so and the button is off", ()=>{
 });
 await test("B5 the app: Design the cast opens the preview; its button starts the run with the scope", ()=>{
   assert.ok(app.includes('if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },'));
-  assert.ok(app.includes("setCastingForce({ only:(scope&&scope.only)||null, variants:!(scope && scope.variants===false) });"));
+  assert.ok(app.includes("setCastingForce({ only:(scope&&scope.only)||null, variants:!(scope && scope.variants===false), fidelity:!!(scope && scope.fidelity) });"));   // + the optional Script check (2026-10-12)
   assert.ok(app.includes('runOnOpen: !!(castingForce && typeof castingForce==="object"),'));
   assert.ok(app.includes("castOnly: castScope && Array.isArray(castScope.only) ? castScope.only.slice() : null,"));
   assert.ok(app.includes('castVariants: !(castScope && castScope.variants===false),'));

@@ -1912,14 +1912,39 @@ async function agentCastingDirector(ctx){
   const withVariants = ctx.castVariants!==false;
   if(!castList.length){ ctx.emit({k:"done", t:"Nothing to cast in this selection."}); return; }
   const N = castList.length;
+  /* CHARACTER FIDELITY (owner-approved 2026-10-12). Step 2 — READ THE SCRIPT FIRST: the characters whose look this run
+     drafts and whose screenplay has no fact sheet yet (or changed since it was read) are read in one batch, so each look
+     is drafted from what the script states. Step 4 — the optional Script check (ctx.castFidelity, chosen in Design the
+     cast's preview): each master sheet it makes is read against the fact sheet (one vision read each); mismatches are
+     said here, and fixed from the card's Script check — nothing is changed or regenerated on its own. */
+  const redraftAll = ctx.force || ctx.draftOnly;
+  const idBlocked = (c)=> !ctx.draftOnly && typeof window.turnIdentityBlock==="function" && !!window.turnIdentityBlock(c, cast.list);
+  const toRead = (ctx.ai && ctx.ai.available && typeof cast.readFacts==="function" && typeof cast.needsFacts==="function")
+    ? castList.filter(c=> (redraftAll || !cast.isDrafted(c)) && cast.needsFacts(c) && !idBlocked(c)) : [];
+  const readCalls = (toRead.length && typeof cast.factCalls==="function") ? cast.factCalls(toRead) : 0;
+  const callsText = (n)=> (typeof window.turnWritingCallsText==="function") ? window.turnWritingCallsText(n, "specs") : ("about "+n+" writing call"+(n!==1?"s":""));
+  const checking = !ctx.draftOnly && !!ctx.castFidelity && typeof cast.fidelityCheck==="function";
+  const readPlan = toRead.length ? "first read the screenplay for what it states about "+toRead.length+" character"+(toRead.length!==1?"s":"")+(readCalls ? " ("+callsText(readCalls)+")" : "")+"; then " : "";
   ctx.emit({k:"plan", t: ctx.draftOnly
-    ? "Re-drafting the cast from the updated Lookbook — for each of the "+N+" character"+(N!==1?"s":"")+": re-draft the look and appearance states. Specs only — every master sheet and variant stays untouched."
-    : "Designing the cast — for each of the "+N+" character"+(N!==1?"s":"")+": draft the look"+(withVariants?", find their appearance changes":"")+", generate the master sheet (with prop + likeness references)"+(withVariants?", then each state variant":"")+". Only what's missing is made."});
-  let specs=0, sheets=0, variants=0, specErr="";
+    ? "Re-drafting the cast from the updated Lookbook — "+readPlan+"for each of the "+N+" character"+(N!==1?"s":"")+": re-draft the look and appearance states. Specs only — every master sheet and variant stays untouched."
+    : "Designing the cast — "+readPlan+"for each of the "+N+" character"+(N!==1?"s":"")+": draft the look"+(withVariants?", find their appearance changes":"")+", generate the master sheet (with prop + likeness references)"
+      +(checking?", check it against the script (one vision read each, writing credits)":"")+(withVariants?", then each state variant":"")+". Only what's missing is made."});
+  let factPatches = {};
+  if(toRead.length){
+    ctx.emit({k:"act", t:"Reading the screenplay for what it states about "+(toRead.length===1 ? (toRead[0].name||"the character") : toRead.length+" characters")+"…"});
+    try{
+      factPatches = (await cast.readFacts(toRead)) || {};
+      const read = Object.keys(factPatches).length;
+      if(read){ const nf = Object.keys(factPatches).reduce((a,id)=> a + (((factPatches[id]||{}).scriptFacts||{}).facts||[]).length, 0);
+        ctx.emit({k:"ok", t:"Screenplay read — "+nf+" fact"+(nf!==1?"s":"")+" about "+read+" character"+(read!==1?"s":"")+", each with its quote. They lead the looks."}); }
+    }catch(e){ ctx.emit({k:"flag", t:"Couldn't read the screenplay ("+agentErrText(e)+") — the looks are drafted from the script excerpt instead."}); }
+    if(ctx.cancelled()) return;
+  }
+  let specs=0, sheets=0, variants=0, specErr="", mismatched=0;
   const needPronouns = [], failedSheets = [];
   for(const ch of castList){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+sheets+" sheet"+(sheets!==1?"s":"")+" generated."}); return; }
-    let c = ch;
+    let c = factPatches[ch.id] ? { ...ch, ...factPatches[ch.id] } : ch;
     ctx.emit({k:"act", t:"Casting "+(c.name||"a character")+"…"});
     /* NO PRONOUNS, NO SHEET (2026-10-10, owner): a character's images are refused until its pronouns are set, so it's
        skipped BEFORE anything is drafted or paid for (it used to draft, find appearance changes, then fail the sheet) */
@@ -1966,6 +1991,19 @@ async function agentCastingDirector(ctx){
       try{ baseUrl = await cast.generateMaster(c); sheets++;
         ctx.emit({k:"ok", t:(c.name||"Character")+" — master sheet generated."}); }
       catch(e){ failedSheets.push(c.name||"a character"); ctx.emit({k:"flag", t:"Couldn't generate "+(c.name||"the character")+"'s sheet: "+agentErrText(e)+". Moving on."}); continue; }
+      // the optional Script check of the sheet just made (2026-10-12) — skipped for a character with no fact sheet
+      if(checking && baseUrl && !ctx.cancelled()){
+        try{
+          ctx.emit({k:"act", t:"Checking "+(c.name||"the character")+"'s sheet against the script…"});
+          const r = await cast.fidelityCheck(c, baseUrl);
+          if(!r) ctx.emit({k:"observe", t:(c.name||"Character")+" — nothing in the script to check the sheet against (no fact sheet, or nothing it can show); skipped."});
+          else if(r.unsupported) ctx.emit({k:"observe", t:"The script check isn't available right now — the writing engine couldn't look at the image. Run it later from the card."});
+          else if(r.mismatches && r.mismatches.length){ mismatched++;
+            ctx.emit({k:"flag", t:(c.name||"Character")+"'s sheet doesn't match the script: "+r.mismatches.slice(0,3).map(m=>"the script says \u201c"+m.fact.quote+"\u201d \u2014 "+(m.issue||"the sheet differs")).join("; ")
+              +(r.mismatches.length>3 ? " (+"+(r.mismatches.length-3)+" more)" : "")+". Open Script check on the card to fix it."}); }
+          else ctx.emit({k:"ok", t:(c.name||"Character")+"'s sheet matches the script."});
+        }catch(e){ ctx.emit({k:"flag", t:"Couldn't check "+(c.name||"the character")+"'s sheet against the script ("+agentErrText(e)+")."}); }
+      }
     }
     if(ctx.cancelled()) return;
 
@@ -1989,6 +2027,7 @@ async function agentCastingDirector(ctx){
   // what didn't get made is said plainly before the summary (2026-10-10 — it ended "Cast designed" with nothing made)
   if(needPronouns.length) ctx.emit({k:"flag", t:needPronouns.length+" character"+(needPronouns.length!==1?"s":"")+" still need"+(needPronouns.length!==1?"":"s")+" pronouns: "+needPronouns.join(", ")+". Set them on the cards (or in Design the cast's preview) and run it again."});
   if(failedSheets.length) ctx.emit({k:"flag", t:failedSheets.length+" master sheet"+(failedSheets.length!==1?"s":"")+" couldn't be made: "+failedSheets.join(", ")+"."});
+  if(mismatched) ctx.emit({k:"flag", t:mismatched+" sheet"+(mismatched!==1?"s don't":" doesn't")+" match the script — each card's Script check lists what differs and offers the fix."});
   const nothingMade = !ctx.draftOnly && !specs && !sheets && !variants && (needPronouns.length || failedSheets.length);
   ctx.emit({k:"done", t: nothingMade ? "Finished \u2014 nothing was made. See the notes above."
     : ctx.draftOnly
@@ -3067,7 +3106,7 @@ const AGENTS = [
     run:agentShotDesigner },
   { id:"casting", name:"Casting Director", icon:"userScan", kind:"build", room:"art", autonomous:true,
     blurb:"Designs your whole cast on its own \u2014 drafts each character's look, finds their appearance changes, then generates the master sheet (with prop + likeness references) and every state variant. Runs autonomously; press Stop anytime.",
-    costLine:"It uses writing credits for its specs and image credits for each sheet or plate it makes \u2014 only what's missing is made, and what it used (writing calls and images) shows when it finishes.", run:agentCastingDirector },
+    costLine:"It uses writing credits to read the screenplay for the looks it drafts (when a character's hasn't been read, or changed since) and for its specs, and image credits for each sheet it makes \u2014 only what's missing is made, and what it used (writing calls and images) shows when it finishes.", run:agentCastingDirector },
   { id:"propsmaster", name:"Props Master", icon:"box", kind:"build", room:"art", autonomous:true,
     blurb:"Reads the screenplay for its props first (Extract screenplay props) and asks you before adding what it finds; then adds the worn items listed in the cast's character briefs (their carried items stay proposals until the screenplay names them or you keep them), drafts every prop's spec, and generates the reference images for the props that need their own (text-only objects are described in shots instead), each owned prop referencing its owner's character sheet so it matches that character's look (runs after the cast). Proposals are never drafted or generated. Press Stop anytime.",
     // it asks before adding the screenplay's props (an approval card), so it isn't "on its own" (2026-10-12)

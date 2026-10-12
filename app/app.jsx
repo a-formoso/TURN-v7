@@ -3905,11 +3905,60 @@ function App(){
   // Art Room: draft a character's visual layer (look/wardrobe/props) from the script
   // per-card character drafts run CONCURRENTLY (reuse the drafting-ids set the cards
   // already reflect), so several "Draft details" / "Draft & Generate" can run at once.
+  /* THE SCREENPLAY FACT SHEET (owner-approved 2026-10-12 — Character fidelity, step 2): read what the screenplay states
+     about these characters (ai.jsx aiCastScriptFacts — writing calls, the whole list at once) and save it on each card
+     (artroom.jsx charFactsReadPatch: the facts, the screenplay signature they were read from, and the marks they add to
+     Distinguishing features). FILM-FENCED like Draft all. Returns { id: patch } for the characters read, or null.
+     o.quiet: no success toast (a draft flow carries on); o.silent: no toasts at all; o.throwErrors: an error is thrown. */
+  const [readingFactIds, setReadingFactIds] = React.useState([]);
+  const readingFactIdsRef = React.useRef([]); readingFactIdsRef.current = readingFactIds;
+  const readCharacterFacts = async (list, o)=>{
+    o = o || {};
+    if(!canMutateCharacters() || typeof window.aiCastScriptFacts!=="function" || typeof window.charFactsReadPatch!=="function") return null;
+    const targets = (list||[]).filter(c=>c && c.id && readingFactIdsRef.current.indexOf(c.id)<0);
+    if(!targets.length) return null;
+    const ids = targets.map(c=>c.id);
+    const filmAtStart = castDraftFilmKey();
+    const curDrafts = draftsRef.current || drafts, curScenes = scenes;
+    setReadingFactIds(x=>[...x, ...ids.filter(id=>x.indexOf(id)<0)]);
+    readingFactIdsRef.current = [...readingFactIdsRef.current, ...ids];
+    const say = (t, kind)=>{ if(!o.silent && typeof window.appToast==="function") window.appToast(t, kind); };
+    let out = null;
+    try{
+      const r = await window.aiCastScriptFacts(targets, curScenes, curDrafts, { isCancelled:o.isCancelled });
+      if(!r || castDraftFilmKey()!==filmAtStart) return null;
+      out = {};
+      let n = 0;
+      targets.forEach(t=>{
+        const c = ((charactersRef.current||characters)||[]).find(x=>x && x.id===t.id) || t;
+        const facts = r.byId[t.id] || [];
+        n += facts.length;
+        const patch = window.charFactsReadPatch(c, facts, { sig:window.charScriptSig(c, curScenes, curDrafts), partial:r.failures.length>0, by:r.by });
+        updateCharacter(t.id, patch);
+        out[t.id] = patch;
+      });
+      if(r.failures.length) say("The script was read, but some scenes couldn't be ("+r.failures[0]+") \u2014 read it again to fill the gaps.","info");
+      else if(!o.quiet) say("Script read \u2014 "+n+" fact"+(n!==1?"s":"")+" for "+(targets.length===1 ? (targets[0].name||"the character") : targets.length+" characters")+(r.rejected ? " ("+r.rejected+" without a matching quote were left out)" : "")+".","success");
+    }catch(e){
+      say("Couldn't read the script: "+(((window.turnSafeError||((x)=>x))((e && e.message)||"the read failed"))||"the read failed")+(o.quiet ? " \u2014 drafting from the script excerpt instead." : ""),"info");
+      if(o.throwErrors) throw e;
+    }finally{
+      setReadingFactIds(x=>x.filter(id=>ids.indexOf(id)<0));
+      readingFactIdsRef.current = readingFactIdsRef.current.filter(id=>ids.indexOf(id)<0);
+    }
+    return out;
+  };
+  // a draft reads the script first for anyone with no fact sheet, or one the screenplay changed since (step 2)
+  const _needsFactRead = (c)=>{
+    try{ return typeof window.charFactsState==="function" && window.charFactsState(c, scenes, draftsRef.current||drafts).needsRead; }catch(e){ return false; }
+  };
   const draftCharacterVisuals = async (ch)=>{
     if(draftingVisualIdsRef.current.indexOf(ch.id)>=0) return;   // this character already drafting
     setDraftingVisualIds(ids=> ids.indexOf(ch.id)>=0 ? ids : [...ids, ch.id]);
     const driven = scenes.filter(s=>s.driver===ch.id);
     try{
+      // (2026-10-12, Character fidelity step 2) the fact sheet first, when it's missing or out of date
+      if(_needsFactRead(ch)){ const fp = await readCharacterFacts([ch], { quiet:true }); if(fp && fp[ch.id]) ch = { ...ch, ...fp[ch.id] }; }
       const res = (typeof aiCharacterVisuals==="function") ? await aiCharacterVisuals(ch, driven, lbProject("characters"), { scenes, drafts }) : null;
       // (2026-10-12, Character fidelity) a re-draft rewrites coreBody: an older card's script details appended to it
       // move to the distinguishing-features field first (a card that has the field keeps it — the draft never sets it)
@@ -4007,7 +4056,16 @@ function App(){
     setDraftingAllVisuals(true);
     let landed = false;                          // did any spec actually land?
     try{
-      const map = await aiCastVisualBible(targets, scenes, lbProject("characters"), { scenes, drafts });
+      // (2026-10-12, Character fidelity step 2) read the script first for the targets with no fact sheet (or an out-of-date
+      // one) — one batch for all of them — so each look is drafted from what the screenplay states
+      let drafting = targets;
+      const toRead = (typeof _needsFactRead==="function") ? targets.filter(_needsFactRead) : [];
+      if(toRead.length){
+        const fp = await readCharacterFacts(toRead, { quiet:true });
+        if(!sameFilm()) throw new Error("film switched");
+        if(fp) drafting = targets.map(c=> fp[c.id] ? { ...c, ...fp[c.id] } : c);
+      }
+      const map = await aiCastVisualBible(drafting, scenes, lbProject("characters"), { scenes, drafts });
       if(!sameFilm()) throw new Error("film switched");
       // merge ONLY the targeted (undrafted) characters — never touch the rest. Re-checked at apply
       // time: a card that got a spec while the model was out (a hand edit, or an agent's draft) keeps it.
@@ -7585,6 +7643,19 @@ function App(){
       draftSpec: async (c)=>{ if(typeof aiCharacterVisuals!=="function") return null;
         const patch = await aiCharacterVisuals(c, scenes.filter(s=>s.driver===c.id), lbProject("characters"), { scenes, drafts });
         if(patch){ _w.updateCharacter(c.id, patch); } return patch; },   // (the card records its own Lookbook)
+      /* CHARACTER FIDELITY (owner-approved 2026-10-12): step 2 — the fact sheet is read first for the looks it drafts
+         (needsFacts: none yet, or the screenplay changed since); step 4 — the optional Script check of a new master */
+      needsFacts: (c)=>{ try{ return typeof window.charFactsState==="function" && window.charFactsState(c, scenes, drafts).needsRead; }catch(e){ return false; } },
+      factCalls: (list)=> (typeof window.charFactCallCount==="function") ? window.charFactCallCount(scenes, drafts, list) : 0,
+      readFacts: async (list)=> readCharacterFacts(list, { silent:true, throwErrors:true }),
+      fidelityCheck: async (c, url)=>{
+        if(!url || typeof window.aiCharacterFidelityCheck!=="function" || typeof window.charFidelityFacts!=="function") return null;
+        const lk = (typeof window.charLikenessGivesFace==="function") ? window.charLikenessGivesFace(c) : false;
+        const facts = window.charFidelityFacts(c, { drafts, likeness:lk });
+        if(!facts.length) return null;
+        return window.aiCharacterFidelityCheck({ name:c.name, url, facts,
+          spec:(typeof window.charQaSpecFields==="function") ? window.charQaSpecFields(c, { likeness:lk }) : {} });
+      },
       suggestStates: async (c)=>{ if(typeof aiSuggestStates!=="function") return null;
         const raw = await aiSuggestStates(c, scenes.filter(s=>s.driver===c.id), project);
         if(!raw || !raw.length) return null;
@@ -8053,6 +8124,8 @@ function App(){
       draftOnly,
       castOnly: castScope && Array.isArray(castScope.only) ? castScope.only.slice() : null,
       castVariants: !(castScope && castScope.variants===false),
+      // the optional Script check of each new master sheet (Design the cast's preview, 2026-10-12)
+      castFidelity: !!(castScope && castScope.fidelity),
       ai:{ available: (typeof aiAvailable==="function" && aiAvailable()) },
       art:{
         coverage,
@@ -8773,6 +8846,10 @@ function App(){
             onSuggestLookbookNote:roomReadOnly ? null : suggestLookbookNote,suggestingLookbookId,
             staleTabs,onApplyLookbook:applyLookbook,onReviewLookbook:(dept)=>applyLookbook(dept,"review"),
             onUpdateChar:updateCharacter,onDraftVisuals:draftCharacterVisuals,onDraftAllVisuals:draftAllVisuals,
+            // "Read the script" on the Characters tab (every character) and on a card (2026-10-12, Character fidelity)
+            onReadCharacterScript:(ids)=>{ if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; }
+              readCharacterFacts(Array.isArray(ids) ? (characters||[]).filter(c=>c && ids.indexOf(c.id)>=0) : (characters||[])); },
+            readingFactIds,
             draftingVisualId,draftingAllVisuals,draftingVisualIds,onDeleteCharacter:deleteCharacter,
             onSuggestStates:suggestCharacterStates,suggestingStatesId,onRemoveOwnedItem:removeOwnedProp,
             onBuildWornProps:(c)=>{ if(c && wornBuildRef.current) wornBuildRef.current(c.id); },onRenameOwnedItem:renameOwnedProp,
@@ -9022,7 +9099,7 @@ function App(){
     // #2 — cost/scope preview before the Coordinator spends. It names the writing model, and
     // its Run button starts the run (the panel opens running — no second Run press).
     castConfirm && window.CastConfirm && React.createElement(window.CastConfirm,{
-      characters, props, sceneId:castConfirm.sceneId, sceneNo:castConfirm.sceneNo, sceneIds:castConfirm.sceneIds,
+      characters, props, scenes, drafts, sceneId:castConfirm.sceneId, sceneNo:castConfirm.sceneNo, sceneIds:castConfirm.sceneIds,
       // the preview's one-click pronoun fix (2026-10-10): the same patch the card's Pronouns selector writes
       onSetPronouns:(id,p)=>updateCharacter(id,{ pronouns:p, pronounProvenance:"user",
         identityProvenance:{ ...(((characters||[]).find(x=>x && x.id===id)||{}).identityProvenance||{}), pronouns:"user" } }),
@@ -9030,7 +9107,7 @@ function App(){
       onConfirm:(scope)=>{ setCastConfirm(null);
         if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; }
         if(turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) return;
-        setCastingForce({ only:(scope&&scope.only)||null, variants:!(scope && scope.variants===false) });
+        setCastingForce({ only:(scope&&scope.only)||null, variants:!(scope && scope.variants===false), fidelity:!!(scope && scope.fidelity) });
         setCastingOpen(true); }}),
     coordConfirm && window.CoordConfirm && React.createElement(window.CoordConfirm,{
       project, characters, props, locations, shots, scenes, drafts, wardrobeCount,

@@ -1429,6 +1429,412 @@ function charQaSpecPatch(c, patch){
   return up;
 }
 window.charQaSpecPatch = charQaSpecPatch;
+/* ═══ CHARACTER FIDELITY, steps 2 · 4 · 6 (owner-approved 2026-10-12, "go ahead with all of it, in that order") ═══
+   STEP 2 — A SCREENPLAY FACT SHEET PER CHARACTER. One writing call per chunk of the screenplay (the whole cast at once;
+   ai.jsx aiCastScriptFacts) EXTRACTS what the script states about each character — every fact with its verbatim quote
+   and scene: age, heritage (only if stated), build, height, hair, eyes, skin, face, distinguishing marks, injuries /
+   changes by scene, wardrobe by scene. A quote that isn't really in the cited scene's text is dropped (like the props'
+   normalizeResult). Dialogue is weaker evidence ("mentioned"). Stored on the character as
+     scriptFacts = { facts:[{field, value, quote, sceneId, sceneNo, block, weak?}], scriptSig, at, fed, partial? }
+   Stored data is never migrated: a character without it just hasn't been read. The look drafter reads the fact sheet
+   INSTEAD of the old excerpt (charFactsPromptBlock). On the card each look row says where it comes from — "From the
+   script" (the quote on hover), "From the likeness", "Designed" or "Changed by you" (scriptOverrides: the writer chose
+   to differ — the drafter keeps it, charKeepOverrides). Marks from the fact sheet feed the Distinguishing features row
+   once (charFactsFeatureMerge — `fed` remembers what was added, so a mark the writer removes isn't put back).
+   STEP 4 — the Script check: a vision read of a sheet against the facts it can show (charFidelityFacts).
+   STEP 6 — SCRIPT-CHANGE WARNINGS: charScriptSig is a free, local signature of the screenplay paragraphs about a
+   character (the paragraphs naming them, and a pronoun-led action paragraph right after one). The fact sheet and the
+   drafted look (lookScriptSig) remember the one they were made from; when it changes the card says so. */
+const CHAR_FACT_FIELDS = ["age","heritage","build","height","hair","eyes","skin","face","marks","injury","wardrobe"];
+const CHAR_FACT_LABELS = { age:"Age", heritage:"Heritage", build:"Build", height:"Height", hair:"Hair", eyes:"Eyes", skin:"Skin",
+  face:"Face", marks:"Distinguishing marks", injury:"Injuries & changes", wardrobe:"Wardrobe" };
+/* the card row each fact backs (injury: appearance changes by scene — listed, never a row) */
+const CHAR_FACT_ROW = { age:"age", heritage:"ethnicity", build:"build", height:"height", hair:"hair", eyes:"eyes", skin:"skin",
+  face:"face", marks:"features", wardrobe:"wardrobe" };
+/* rows the likeness photos give while a likeness is locked (the face fields, as charQaSpecFields) */
+const CHAR_LIKENESS_ROWS = ["age","ethnicity","skin","eyes","hair","face"];
+window.CHAR_FACT_FIELDS = CHAR_FACT_FIELDS; window.CHAR_FACT_LABELS = CHAR_FACT_LABELS; window.CHAR_FACT_ROW = CHAR_FACT_ROW;
+function _cfNorm(s){
+  return String(s||"").replace(/[‘’‚‛′]/g,"'").replace(/[“”„‟″]/g,'"')
+    .replace(/[–—−]/g,"-").replace(/…/g,"...").replace(/\s+/g," ").trim().toLowerCase();
+}
+function _cfBlocks(drafts, sceneId){
+  const d = drafts && drafts[sceneId];
+  return Array.isArray(d) ? d : ((d && Array.isArray(d.blocks)) ? d.blocks : []);
+}
+function _cfScenes(scenes){
+  const list = (scenes||[]).filter(Boolean);
+  return (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(list)
+    : list.slice().sort((a,b)=>(Number(a.no)||0)-(Number(b.no)||0));
+}
+const _CF_SPEECH = /^(char|character|cue|dia|dialogue|dialog|paren|parenthetical)$/i;
+const _CF_CUE = /^(char|character|cue|paren|parenthetical)$/i;
+const _CF_SKIP = /^(scene|heading|slug|slugline|trans|transition)$/i;
+const _CF_PRONOUN_LEAD = /^(?:he|she|they|his|her|hers|their|theirs|him|them)\b/i;
+function _cfHash(str){
+  let h = 0x811c9dc5;
+  for(let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h>>>0).toString(36);
+}
+/* the words a screenplay names this character by: the full name and each part of it (not a title or "the") */
+function charNameTokens(c){
+  const name = String((c && c.name)||"").trim();
+  if(!name) return [];
+  const parts = name.split(/\s+/).map(p=>p.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g,""))
+    .filter(p=> p.length>2 && !/^(the|mr|mrs|ms|dr|miss|sir|old|young|big|little|lady|lord)$/i.test(p));
+  return Array.from(new Set([name, ...parts]));
+}
+window.charNameTokens = charNameTokens;
+function _cfNameRx(c){
+  const toks = charNameTokens(c);
+  if(!toks.length) return null;
+  const esc = (x)=>String(x).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  return new RegExp("\\b(?:"+toks.map(esc).join("|")+")\\b","i");
+}
+/* where a quote sits in a scene: the cited block when it holds the quote, else the first block that does; 0 = nowhere */
+function charFactLocate(drafts, sceneId, quote, hint){
+  const q = _cfNorm(quote);
+  if(q.length<3) return 0;
+  const bs = _cfBlocks(drafts, sceneId);
+  const h = Number(hint)||0;
+  if(h>0 && bs[h-1] && _cfNorm(bs[h-1].text).indexOf(q)>=0) return h;
+  for(let i=0;i<bs.length;i++) if(bs[i] && _cfNorm(bs[i].text).indexOf(q)>=0) return i+1;
+  return 0;
+}
+window.charFactLocate = charFactLocate;
+function charFactQuoteValid(f, drafts){ return !!(f && f.sceneId && charFactLocate(drafts, f.sceneId, f.quote, f.block)); }
+window.charFactQuoteValid = charFactQuoteValid;
+/* THE SCREENPLAY ABOUT A CHARACTER (step 6, free): every action / dialogue paragraph that names them, and an action
+   paragraph that follows one of those and starts with a pronoun ("His left hand…"). A cue is who speaks, not about them,
+   so their own lines changing doesn't count. Returned as "sceneId:text" (no block numbers: moving text isn't a change). */
+function charScriptParagraphs(c, scenes, drafts){
+  const rx = _cfNameRx(c);
+  if(!rx || !drafts) return [];
+  const out = [];
+  _cfScenes(scenes).forEach(s=>{
+    let prevAbout = false;
+    _cfBlocks(drafts, s.id).forEach(b=>{
+      const t = String((b && b.type)||"action"), tx = String((b && b.text)||"").trim();
+      if(!tx) return;
+      if(_CF_SKIP.test(t)){ prevAbout = false; return; }
+      if(_CF_CUE.test(t)) return;
+      const speech = _CF_SPEECH.test(t);
+      const names = rx.test(tx);
+      const follows = !speech && !names && prevAbout && _CF_PRONOUN_LEAD.test(tx);
+      if(names || follows) out.push(s.id+":"+tx);
+      if(!speech) prevAbout = names || follows;
+    });
+  });
+  return out;
+}
+window.charScriptParagraphs = charScriptParagraphs;
+const _cfSigCache = (typeof WeakMap==="function") ? new WeakMap() : null;
+function charScriptSig(c, scenes, drafts){
+  if(!c || !drafts || typeof drafts!=="object") return "";
+  const key = String(c.name||"")+"|"+(scenes||[]).map(s=>s && (s.id+"@"+s.no)).join(",");
+  let m = _cfSigCache ? _cfSigCache.get(drafts) : null;
+  if(m && m.has(key)) return m.get(key);
+  const sig = "cs-"+_cfHash(charScriptParagraphs(c, scenes, drafts).map(_cfNorm).join("\n"));
+  if(_cfSigCache){ if(!m){ m = new Map(); _cfSigCache.set(drafts, m); } m.set(key, sig); }
+  return sig;
+}
+window.charScriptSig = charScriptSig;
+/* the fact sheet and the look against the screenplay as it is now */
+function charFactsState(c, scenes, drafts){
+  const sf = c && c.scriptFacts;
+  const has = !!(sf && Array.isArray(sf.facts));
+  const sig = drafts ? charScriptSig(c, scenes, drafts) : "";
+  const stale = has && !!sf.scriptSig && !!sig && sf.scriptSig!==sig;
+  const lookStale = !!(c && c.lookScriptSig && sig && c.lookScriptSig!==sig && charVisualsDrafted(c));
+  const partial = !!(sf && sf.partial);
+  return { has, stale, sig, lookStale, needsRead:!has || stale || partial, count:has ? sf.facts.length : 0, partial, at:(sf && sf.at) || "" };
+}
+window.charFactsState = charFactsState;
+/* the facts whose quotes are still in the screenplay (a rewrite can remove one before the sheet is re-read) */
+function charFactsLive(c, drafts){
+  const sf = c && c.scriptFacts;
+  const facts = (sf && Array.isArray(sf.facts)) ? sf.facts.filter(f=>f && f.field && f.quote) : [];
+  return drafts ? facts.filter(f=>charFactQuoteValid(f, drafts)) : facts;
+}
+window.charFactsLive = charFactsLive;
+/* the scenes worth reading for these characters, cut into chunks of about maxChars — one writing call each. A scene that
+   names none of them is skipped; a long scene is split between blocks (a block is never cut in two). */
+function charFactChunks(scenes, drafts, chars, maxChars){
+  const max = Math.max(4000, Number(maxChars)||24000);
+  const rxs = (chars||[]).map(_cfNameRx).filter(Boolean);
+  const chunks = []; let cur = [], size = 0;
+  _cfScenes(scenes).forEach(s=>{
+    const rows = [];
+    _cfBlocks(drafts, s.id).forEach((b,i)=>{ const tx = String((b && b.text)||"").trim(); if(!tx) return;
+      rows.push({ block:i+1, type:String((b && b.type)||"action"), text:tx.length>6000 ? tx.slice(0,6000) : tx }); });
+    if(!rows.length) return;
+    if(rxs.length && !rows.some(r=> rxs.some(rx=> rx.test(r.text)))) return;
+    let part = { sceneId:s.id, no:s.no, title:String(s.title||""), blocks:[] }, psize = 0;
+    rows.forEach(r=>{
+      if(size+psize+r.text.length>max && (part.blocks.length || cur.length)){
+        if(part.blocks.length) cur.push(part);
+        chunks.push(cur); cur = []; size = 0;
+        part = { sceneId:s.id, no:s.no, title:String(s.title||""), blocks:[] }; psize = 0;
+      }
+      part.blocks.push(r); psize += r.text.length;
+    });
+    if(part.blocks.length){ cur.push(part); size += psize; }
+  });
+  if(cur.length) chunks.push(cur);
+  return chunks;
+}
+window.charFactChunks = charFactChunks;
+/* how many writing calls reading the script for these characters makes (0 = nothing to read) */
+function charFactCallCount(scenes, drafts, chars){ return (chars && chars.length) ? charFactChunks(scenes, drafts, chars).length : 0; }
+window.charFactCallCount = charFactCallCount;
+/* is there a screenplay to read at all? */
+function charHasScript(scenes, drafts){
+  return !!drafts && (scenes||[]).some(sc=> sc && _cfBlocks(drafts, sc.id).some(b=>b && String(b.text||"").trim()));
+}
+window.charHasScript = charHasScript;
+/* the read's price as the app quotes writing runs: "about 2 writing calls on Opus 5.5" */
+function charReadCostText(scenes, drafts, chars){
+  const n = charFactCallCount(scenes, drafts, chars);
+  if(!n) return "no writing calls \u2014 the script doesn't name them";
+  return (typeof window.turnWritingCallsText==="function") ? window.turnWritingCallsText(n, "specs") : ("about "+n+" writing call"+(n!==1?"s":""));
+}
+window.charReadCostText = charReadCostText;
+function charFactsDedupe(facts){
+  const seen = new Set(), out = [];
+  (facts||[]).forEach(f=>{ const k = [f.field,_cfNorm(f.value),f.sceneId,_cfNorm(f.quote)].join("|"); if(seen.has(k)) return; seen.add(k); out.push(f); });
+  return out;
+}
+window.charFactsDedupe = charFactsDedupe;
+/* a model answer → checked facts per character. Every fact needs a known character, a known field, a scene of this
+   chunk and a quote that is really in that scene's text; anything else is counted as rejected and dropped. */
+function charFactsNormalize(raw, chunk, chars, drafts){
+  const byId = {}; let rejected = 0;
+  const parts = Array.isArray(chunk) ? chunk : [];
+  const findChar = (id, name)=>{
+    const sid = String(id||"").trim(), nn = _cfNorm(name);
+    return (chars||[]).find(c=>c && c.id===sid) || (nn ? (chars||[]).find(c=>c && _cfNorm(c.name)===nn) : null) || null;
+  };
+  (raw && Array.isArray(raw.facts) ? raw.facts : []).forEach(f=>{
+    if(!f || typeof f!=="object"){ rejected++; return; }
+    const ch = findChar(f.charId||f.id, f.name||f.character);
+    const field = String(f.field||"").toLowerCase().trim();
+    const part = parts.find(p=>String(p.sceneId)===String(f.sceneId||"")) || parts.find(p=>f.sceneNo!=null && String(p.no)===String(f.sceneNo));
+    const value = String(f.value||"").replace(/\s+/g," ").trim().slice(0,200);
+    const quote = String(f.quote||"").trim();
+    if(!ch || CHAR_FACT_FIELDS.indexOf(field)<0 || !part || !value || !quote || quote.length>600){ rejected++; return; }
+    const block = charFactLocate(drafts, part.sceneId, quote, f.block);
+    if(!block){ rejected++; return; }
+    const b = _cfBlocks(drafts, part.sceneId)[block-1];
+    const weak = _CF_SPEECH.test(String((b && b.type)||"")) || /^(dialogue|mentioned|weak)$/i.test(String(f.source||""));
+    (byId[ch.id] = byId[ch.id] || []).push({ field, value, quote, sceneId:part.sceneId, sceneNo:part.no, block, ...(weak ? { weak:true } : {}) });
+  });
+  Object.keys(byId).forEach(id=>{ byId[id] = charFactsDedupe(byId[id]); });
+  return { byId, rejected };
+}
+window.charFactsNormalize = charFactsNormalize;
+/* a card row's current value */
+function charRowValue(c, row){
+  c = c || {};
+  if(row==="height") return String(c.height||"");
+  if(row==="wardrobe") return String(c.wardrobeMask||c.wardrobe||"");
+  if(row==="features") return charScriptFeaturesRaw(c);
+  return String(((c.physique||{})[row])||"");
+}
+window.charRowValue = charRowValue;
+function charFactsForRow(c, row, drafts){
+  return charFactsLive(c, drafts).filter(f=> CHAR_FACT_ROW[f.field]===row)
+    .sort((a,b)=> (a.weak?1:0)-(b.weak?1:0));
+}
+window.charFactsForRow = charFactsForRow;
+function charFactQuoteLine(f){ return "Sc "+(f.sceneNo!=null?f.sceneNo:"?")+": “"+String(f.quote||"").replace(/\s+/g," ")+"”"+(f.weak?" (dialogue)":""); }
+window.charFactQuoteLine = charFactQuoteLine;
+/* WHERE A LOOK ROW COMES FROM (step 2, on the card). o.likeness: a usable likeness gives the face; o.drafts: the
+   screenplay, to show only quotes still in it. kind: "likeness" | "override" | "script" | "mentioned" | "designed" | "" */
+function charFieldOrigin(c, row, o){
+  o = o || {};
+  const facts = charFactsForRow(c, row, o.drafts);
+  const quotes = facts.map(charFactQuoteLine).join("\n");
+  const ov = c && c.scriptOverrides && c.scriptOverrides[row];
+  if(o.likeness && CHAR_LIKENESS_ROWS.indexOf(row)>=0)
+    return { kind:"likeness", label:"From the likeness", facts, title:"The likeness photos give the face."+(facts.length ? "\nThe script says:\n"+quotes : "") };
+  if(ov) return { kind:"override", label:"Changed by you", facts, title:"You chose this over the script"+(facts.length ? " — the script says:\n"+quotes : "")+"\nRe-drafting keeps your choice." };
+  if(facts.some(f=>!f.weak)) return { kind:"script", label:"From the script", facts, title:quotes };
+  if(facts.length) return { kind:"mentioned", label:"Mentioned in dialogue", facts, title:quotes+"\nOnly mentioned in dialogue — weaker than the action; edit freely." };
+  if(charRowValue(c, row).trim()) return { kind:"designed", label:"Designed", facts:[], title:"Designed — the script doesn't say; edit it freely." };
+  return { kind:"", label:"", facts:[], title:"" };
+}
+window.charFieldOrigin = charFieldOrigin;
+/* editing a row the script states asks first; the answer is remembered on the card (the drafter keeps it) */
+function charOverridePatch(c, row, at){
+  return { scriptOverrides:{ ...((c && c.scriptOverrides)||{}), [row]:{ at:at||new Date().toISOString() } } };
+}
+window.charOverridePatch = charOverridePatch;
+function charOverrideQuestion(c, row, o){
+  const facts = charFactsForRow(c, row, o && o.drafts).filter(f=>!f.weak);
+  if(!facts.length) return null;
+  const v = facts.map(f=>f.value).filter((x,i,a)=>a.indexOf(x)===i).slice(0,2).join(" / ");
+  return { title:"The script says “"+v+"” — change it anyway?",
+    body:facts.slice(0,3).map(charFactQuoteLine).join("\n")+"\n\nYour change is kept: re-drafting the look won't put the script's version back.",
+    confirmLabel:"Change it anyway", cancelLabel:"Keep the script's" };
+}
+window.charOverrideQuestion = charOverrideQuestion;
+/* a re-draft never fights the writer: the rows they chose over the script keep their value */
+function charKeepOverrides(c, patch){
+  const ov = c && c.scriptOverrides;
+  if(!ov || !patch || typeof patch!=="object") return patch;
+  const out = { ...patch };
+  const physKeys = Object.keys(ov).filter(k=> CHAR_PHYS_LABELS.some(([pk])=>pk===k) && String(((c.physique||{})[k])||"").trim());
+  if(physKeys.length && out.physique){
+    const nf = { ...out.physique };
+    physKeys.forEach(k=>{ nf[k] = c.physique[k]; });
+    out.physique = nf; out.coreBody = charPhysiqueSentences(nf);
+  }
+  if(ov.height && String(c.height||"").trim() && out.height!=null) out.height = c.height;
+  if(ov.wardrobe && String(c.wardrobeMask||c.wardrobe||"").trim() && out.wardrobeMask!=null) out.wardrobeMask = c.wardrobeMask||c.wardrobe;
+  return out;
+}
+window.charKeepOverrides = charKeepOverrides;
+/* what the look drafter is given about a character from its fact sheet ("" = no fact sheet: the excerpt is used) */
+function charFactsPromptBlock(c, drafts){
+  const sf = c && c.scriptFacts;
+  if(!(sf && Array.isArray(sf.facts))) return "";
+  const name = (c && c.name) || "this character";
+  const live = charFactsLive(c, drafts);
+  let s = "    SCREENPLAY FACT SHEET — what the script itself states about "+name+" (CANON; each fact with its verbatim quote and scene; 'mentioned' = only said in dialogue, weaker):\n";
+  if(!live.length) s += "      (the script states nothing about "+name+"'s appearance — design it within the story)\n";
+  let n = 0;
+  CHAR_FACT_FIELDS.forEach(field=> live.filter(f=>f.field===field).forEach(f=>{
+    if(n++>=80) return;
+    s += "      - "+field+": "+String(f.value).replace(/\s+/g," ")+(f.weak?" (mentioned)":"")+" — Sc "+(f.sceneNo!=null?f.sceneNo:"?")+": \""+String(f.quote).replace(/\s+/g," ")+"\"\n";
+  }));
+  const ov = Object.keys((c && c.scriptOverrides)||{}).map(row=>{ const v = charRowValue(c, row).trim(); return v ? (row+": "+v) : ""; }).filter(Boolean);
+  if(ov.length) s += "    THE WRITER'S OWN CHOICES (keep these exactly, even where the script differs): "+ov.join("; ")+"\n";
+  return s;
+}
+window.charFactsPromptBlock = charFactsPromptBlock;
+/* MARKS FEED THE DISTINGUISHING FEATURES (step 2): the fact sheet's marks (action evidence, not dialogue) are added to
+   the row once, without duplicating one already there (same words, or one inside the other). `fed` lists what a read
+   added before — never added again, so a mark the writer removed stays removed. */
+function charFactsFeatureMerge(c, facts, prevFed){
+  const cur = charFeatureItems(charScriptFeaturesRaw(c));
+  const seen = cur.map(_cfNorm);
+  const before = (prevFed||[]).map(_cfNorm);
+  const fed = new Set(before);
+  const adds = [], fedNow = [];
+  (facts||[]).filter(f=>f && f.field==="marks" && !f.weak).forEach(f=>{
+    const v = String(f.value||"").replace(/[.;\s]+$/,"").trim();
+    const n = _cfNorm(v);
+    if(!n) return;
+    fedNow.push(n);
+    if(fed.has(n)) return;
+    if(seen.some(s=> s===n || s.indexOf(n)>=0 || n.indexOf(s)>=0)) return;
+    seen.push(n); adds.push(v);
+  });
+  return { patch: adds.length ? charFeaturesPatch(c, [...cur, ...adds].join(". ")+".") : null,
+    fed: Array.from(new Set([...before, ...fedNow])), added:adds };
+}
+window.charFactsFeatureMerge = charFactsFeatureMerge;
+/* the patch a finished read writes on a character: the fact sheet (+ the marks it adds to the features row) */
+function charFactsReadPatch(c, facts, o){
+  o = o || {};
+  const prev = c && c.scriptFacts;
+  const merge = charFactsFeatureMerge(c, facts, prev && prev.fed);
+  const sheet = { facts:charFactsDedupe(facts||[]), scriptSig:o.sig||"", at:o.at||new Date().toISOString(), fed:merge.fed,
+    ...(o.partial ? { partial:true } : {}), ...(o.by ? { by:o.by } : {}) };
+  return { scriptFacts:sheet, ...(merge.patch||{}) };
+}
+window.charFactsReadPatch = charFactsReadPatch;
+/* STEP 4 — what a sheet can be checked against: action facts (dialogue is too weak to fault an image), not the rows the
+   writer chose over the script, not the face while a likeness gives it; wardrobe and injuries only for a variant's own
+   scene (the master is the neutral look). o: { drafts, likeness, sceneId } */
+function charFidelityFacts(c, o){
+  o = o || {};
+  const ov = (c && c.scriptOverrides) || {};
+  return charFactsLive(c, o.drafts).filter(f=>{
+    if(f.weak) return false;
+    if(f.field==="wardrobe" || f.field==="injury") return !!o.sceneId && f.sceneId===o.sceneId;
+    const row = CHAR_FACT_ROW[f.field];
+    if(row && ov[row]) return false;
+    if(o.likeness && row && CHAR_LIKENESS_ROWS.indexOf(row)>=0) return false;
+    if(o.likeness && f.field==="marks" && CHAR_FACE_MARK_RX.test(f.value+" "+f.quote)) return false;
+    return true;
+  }).slice(0,24);
+}
+window.charFidelityFacts = charFidelityFacts;
+/* a Script check fix where the SPEC is wrong: the field the sheet prompt reads, set to the corrected value */
+const CHAR_FACT_QA_KEY = { age:"apparent_age", heritage:"ethnicity", build:"build", hair:"hair", eyes:"eyes", skin:"skin", face:"face", wardrobe:"wardrobe" };
+function charFidelityFixPatch(c, field, value){
+  c = c || {};
+  const v = String(value||"").trim();
+  if(!v) return {};
+  if(field==="height") return { height:v };
+  if(field==="marks"){ const m = charFactsFeatureMerge(c, [{ field:"marks", value:v }], []); return m.patch || {}; }
+  if(field==="injury") return {};
+  const k = CHAR_FACT_QA_KEY[field];
+  if(!k) return {};
+  if(k==="wardrobe") return charQaSpecPatch(c, { wardrobe:v });
+  const F = c.physique || {};
+  if(!CHAR_PHYS_LABELS.some(([pk])=>String(F[pk]||"").trim())){
+    // no physique rows: the hand-typed body says it, with the label the sheet reads
+    const lab = (CHAR_PHYS_LABELS.find(([pk])=> CHAR_QA_PHYS_KEYS[pk]===k)||[])[1] || field;
+    const body = String(c.coreBody||"").trim();
+    return { coreBody:(body ? body.replace(/\.?$/,". ") : "")+lab+": "+v+"." };
+  }
+  return charQaSpecPatch(c, { [k]:v });
+}
+window.charFidelityFixPatch = charFidelityFixPatch;
+/* the script marks an edit of the Distinguishing features row would remove (it asks first) */
+function charFeaturesRemovedMarks(c, val, drafts){
+  const before = _cfNorm(charScriptFeaturesRaw(c)), after = _cfNorm(val);
+  return charFactsForRow(c, "features", drafts).filter(f=>{
+    if(f.weak) return false;
+    const n = _cfNorm(String(f.value||"").replace(/[.;\s]+$/,""));
+    return n && before.indexOf(n)>=0 && after.indexOf(n)<0;
+  });
+}
+window.charFeaturesRemovedMarks = charFeaturesRemovedMarks;
+/* the card's "What the script says" panel (step 2): the fact sheet, each fact with its scene and its quote */
+function CharScriptFactsPanel({ c, drafts, state, reading, readOnly, onRead, readCost }){
+  const [open, setOpen] = React.useState(false);
+  if(!c) return null;
+  const st = state || {};
+  const sf = c.scriptFacts;
+  const live = st.has ? charFactsLive(c, drafts) : [];
+  const gone = st.has ? Math.max(0, sf.facts.length - live.length) : 0;
+  const name = c.name || "this character";
+  const btn = (label)=> (onRead && !readOnly) ? React.createElement("button",{type:"button",className:"char-draft-btn ghost",disabled:reading,onClick:onRead,"data-testid":"char-read-script",
+      title:"Read what the screenplay states about "+name+" — age, heritage (only if stated), build, height, hair, distinguishing marks, injuries and wardrobe by scene — each with its quote. "
+        +(readCost||"")+" (writing credits). Nothing is drafted or generated."},
+      reading ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.script,{s:12}), reading ? "Reading…" : label) : null;
+  if(!st.has) return React.createElement("div",{className:"char-facts none","data-testid":"char-facts"},
+    React.createElement("div",{className:"char-facts-head"},
+      React.createElement(Icon.script,{s:12}),
+      React.createElement("span",{className:"char-facts-t"},"What the script says — not read yet"),
+      btn("Read the script")),
+    React.createElement("div",{className:"phys-note"},"Reading lists what the screenplay states about "+name+", each fact with its quote; the look is then drafted from it. Drafting reads it first on its own."));
+  const status = [live.length+" fact"+(live.length!==1?"s":"")+" from the script",
+    st.stale ? "the script changed since it was read" : "", st.partial ? "some scenes couldn't be read" : "",
+    gone ? gone+" no longer in the script" : ""].filter(Boolean).join(" · ");
+  return React.createElement("div",{className:"char-facts"+(st.stale||st.partial?" stale":""),"data-testid":"char-facts"},
+    React.createElement("div",{className:"char-facts-head"},
+      React.createElement("button",{type:"button",className:"char-facts-toggle","aria-expanded":open?"true":"false",onClick:()=>setOpen(v=>!v),
+        title:open ? "Hide the facts" : "Show each fact with its quote"},
+        React.createElement(open ? Icon.chevD : Icon.chevR,{s:12}),
+        React.createElement("span",{className:"char-facts-t"},"What the script says"),
+        React.createElement("span",{className:"char-facts-meta"}, status)),
+      btn((st.stale||st.partial) ? "Re-read the script" : "Re-read")),
+    open && (live.length
+      ? React.createElement("div",{className:"char-facts-list"},
+          CHAR_FACT_FIELDS.filter(f=> live.some(x=>x.field===f)).map(f=>React.createElement("div",{key:f,className:"char-facts-group"},
+            React.createElement("div",{className:"char-facts-lab"}, CHAR_FACT_LABELS[f]),
+            live.filter(x=>x.field===f).map((x,i)=>React.createElement("div",{key:i,className:"char-fact"+(x.weak?" weak":"")},
+              React.createElement("span",{className:"char-fact-v"}, x.value),
+              React.createElement("span",{className:"char-fact-sc"}, "Sc "+(x.sceneNo!=null?x.sceneNo:"?")),
+              x.weak && React.createElement("span",{className:"char-fact-weak",title:"Only said in dialogue — weaker than the action"},"dialogue"),
+              React.createElement("div",{className:"char-fact-q"}, "“"+String(x.quote).replace(/\s+/g," ")+"”"))))))
+      : React.createElement("div",{className:"phys-note"},"The script states nothing about "+name+"'s appearance — the look is designed.")));
+}
+window.CharScriptFactsPanel = CharScriptFactsPanel;
 /* what the store says about a character's likeness on the open film. nbCameoInfo (the store's) when
    this build has it, else today's registry (an older build: every locked likeness is usable). */
 function turnLikenessInfo(charId){
@@ -3664,6 +4070,117 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
 }
 window.QaCheckButton = QaCheckButton;
 
+/* ---- THE SCRIPT CHECK (owner-approved 2026-10-12 — Character fidelity, step 4): the second check next to the QA check.
+   The QA check reads an image against its own prompt; this one reads a character's sheet (or an appearance variant)
+   against what the SCREENPLAY states about them — the fact sheet (charFidelityFacts: age band, build, heritage only if
+   stated, marks with their side and place, hair, and a variant's own scene's wardrobe). Each mismatch is listed with
+   the quote it breaks. Where the SPEC is wrong it offers "Apply to spec" (the field the sheet prompt reads); where the
+   spec is right but the image isn't, "Regenerate". One vision read (the QA check's paid path, aiVisionComplete). ---- */
+function ScriptCheckReport({ c, name, noun, report, gening, variant, onClose, onApply, onRegen, regenCost }){
+  const r = report;
+  const [applied, setApplied] = React.useState({});
+  const curRef = React.useRef({ ...(c||{}) });
+  const fixFor = (m)=>{
+    if(variant && (m.fact.field==="wardrobe" || m.fact.field==="injury")) return {};
+    const value = m.fact.field==="marks" ? m.fact.value : (m.specFix || m.fact.value);
+    return charFidelityFixPatch(curRef.current, m.fact.field, value);
+  };
+  const apply = (m, i)=>{
+    const patch = fixFor(m);
+    if(!Object.keys(patch).length || !onApply) return;
+    curRef.current = { ...curRef.current, ...patch };
+    onApply(patch);
+    setApplied(a=>({ ...a, [i]:true }));
+  };
+  const anyApplied = Object.keys(applied).length>0;
+  const mism = r.mismatches || [];
+  const fieldLab = (f)=> (CHAR_FACT_LABELS[f] || f);
+  return React.createElement("div",{className:"ns-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
+    React.createElement("div",{className:"qa-modal","data-testid":"script-check-report"},
+      React.createElement("div",{className:"qa-head"},
+        React.createElement("span",{className:"qa-orb "+(mism.length?"major":"pass")}, React.createElement(Icon.script,{s:16})),
+        React.createElement("div",{className:"qa-head-txt"},
+          React.createElement("div",{className:"qa-title"}, name||"Untitled"),
+          React.createElement("div",{className:"qa-sub"}, (noun||"sheet")+" · checked against what the screenplay states ("+(r.checked||0)+" fact"+((r.checked||0)!==1?"s":"")+")")),
+        React.createElement("span",{className:"qa-badge "+(mism.length?"major":"pass")}, mism.length ? (mism.length+" mismatch"+(mism.length!==1?"es":"")) : "Matches the script"),
+        React.createElement("button",{className:"ag-x",onClick:onClose,"aria-label":"Close"},React.createElement(Icon.x,{s:16}))),
+      !mism.length
+        ? React.createElement("div",{className:"qa-clean"}, React.createElement(Icon.check,{s:14}),"Matches the script — nothing to fix.")
+        : React.createElement("div",{className:"qa-sec"},
+            React.createElement("div",{className:"qa-sec-lab"},"Where the sheet breaks the script"),
+            mism.map((m,i)=>{
+              const fix = fixFor(m), canApply = !m.specOk && !!onApply && Object.keys(fix).length>0;
+              return React.createElement("div",{key:i,className:"qa-item script-check-item"},
+                React.createElement("span",{className:"qa-dot major",title:"Doesn't match the script"}),
+                React.createElement("div",{className:"qa-item-body"},
+                  React.createElement("div",{className:"qa-chips"}, React.createElement("span",{className:"qa-where"}, fieldLab(m.fact.field)),
+                    React.createElement("span",{className:"qa-where"}, "Sc "+(m.fact.sceneNo!=null?m.fact.sceneNo:"?"))),
+                  React.createElement("div",{className:"qa-what"},
+                    "The script says “"+String(m.fact.quote||"").replace(/\s+/g," ")+"” — the sheet: "+(m.issue||"it differs")+"."),
+                  React.createElement("div",{className:"script-check-fix"},
+                    m.specOk
+                      ? React.createElement("span",{className:"phys-note"},"The spec already says it — the image missed it: regenerate.")
+                      : canApply
+                        ? React.createElement("button",{className:"ns-btn ghost qa-apply-btn",disabled:!!applied[i]||gening,
+                            title:"Write the script's version into the spec field the sheet is made from — then regenerate",
+                            onClick:()=>apply(m,i)},
+                            React.createElement(Icon.check,{s:12}), applied[i] ? "Applied to spec" : "Apply to spec")
+                        : React.createElement("span",{className:"phys-note"}, variant
+                            ? "Fix it in this variant's change text, or on the character's card, then regenerate."
+                            : "Fix the spec on the card, then regenerate."))));
+            })),
+      (r.unclear && r.unclear.length>0) && React.createElement("div",{className:"qa-sec"},
+        React.createElement("div",{className:"qa-sec-lab"},"Not visible in any view"),
+        React.createElement("div",{className:"phys-note"}, r.unclear.map(f=> fieldLab(f.field)+": "+f.value).join(" · "))),
+      React.createElement("div",{className:"qa-foot"},
+        React.createElement("span",{className:"qa-foot-note"},"1 vision read · no image credits spent"),
+        React.createElement("button",{className:"ns-btn ghost",onClick:onClose},"Close"),
+        mism.length>0 && React.createElement("button",{className:"ns-btn "+(anyApplied || mism.some(m=>m.specOk) ? "primary" : "ghost"),disabled:gening,
+          title:"Regenerate the "+(noun||"sheet")+" from the current spec (one image) — the current version stays in history",
+          onClick:()=>{ onRegen(); onClose(); }},
+          React.createElement(Icon.sparkles,{s:14}),"Regenerate", typeof window.nbCostChip==="function" && window.nbCostChip(1, regenCost)))));
+}
+function ScriptCheckButton({ gen, c, drafts, sceneId, variantLabel, noun, onUpdate, className }){
+  const [busy, setBusy] = React.useState(false);
+  const [report, setReport] = React.useState(null);
+  // Regenerate fires one render later, so it builds from the spec "Apply to spec" just wrote (the QA check's rule)
+  const [pendingRegen, setPendingRegen] = React.useState(false);
+  React.useEffect(()=>{ if(!pendingRegen) return; setPendingRegen(false); if(gen) gen.generate(); },[pendingRegen]);
+  if(!gen || !gen.genUrl || !c) return null;
+  const lk = charLikenessGivesFace(c);
+  const has = !!(c.scriptFacts && Array.isArray(c.scriptFacts.facts));
+  const facts = has ? charFidelityFacts(c, { drafts, likeness:lk, sceneId }) : [];
+  const nounT = noun || "character sheet";
+  const why = !has ? "Read the script for "+(c.name||"this character")+" first — the Script check compares the "+nounT+" with what the screenplay states."
+    : (!facts.length ? "The script states nothing this "+nounT+" can show"+(lk ? " (the likeness gives the face)" : "")+" — nothing to check." : "");
+  const run = async ()=>{
+    if(busy || gen.gening || why) return;
+    if(typeof window.aiCharacterFidelityCheck!=="function"){ if(window.appToast) window.appToast("The Script check is unavailable in this build — reload the app and try again.","info"); return; }
+    setBusy(true);
+    let rep = null;
+    try{ rep = await window.aiCharacterFidelityCheck({ name:c.name, url:gen.genUrl, facts, spec:charQaSpecFields(c, { likeness:lk }), variant:variantLabel||"" }); }
+    catch(e){ const msg = (window.turnSafeError||((x)=>x))((e && e.message) || "The Script check failed.");
+      if(window.appToast) window.appToast(msg || "The Script check failed — try again.","info"); return; }
+    finally{ setBusy(false); }
+    if(!rep){ if(window.appToast) window.appToast("The Script check failed — try again.","info"); return; }
+    if(rep.unsupported){ if(window.appToast) window.appToast("The Script check isn't available right now — the writing engine couldn't look at the image. Try again later; nothing was charged for an image.","info"); return; }
+    setReport(rep);
+  };
+  return React.createElement(React.Fragment,null,
+    React.createElement("button",{className:(className||"char-draft-btn ghost")+(busy?" busy":""),disabled:busy||gen.gening||!!why,"data-testid":"script-check-btn",
+      title:why || ("Script check — reads this "+nounT+" against what the screenplay states about "+(c.name||"the character")+" ("+facts.length+" fact"+(facts.length!==1?"s":"")
+        +": age, build, marks with their side and place…): what differs, with the quote each one breaks. One vision read (writing credits, no image spend).")},
+      busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.script,{s:12}),
+      busy ? "Checking…" : "Script check"),
+    report && ReactDOM.createPortal(React.createElement(ScriptCheckReport,{ c, name:c.name+(variantLabel ? " · "+variantLabel : ""), noun:nounT, report,
+      gening:gen.gening, variant:!!variantLabel,
+      onApply: onUpdate ? (patch)=> onUpdate(c.id, patch) : null,
+      onRegen:()=> setPendingRegen(true),
+      regenCost:(gen.likenessRefs && gen.refCounts) ? { refs:gen.refCounts().generate } : undefined,
+      onClose:()=>setReport(null) }), document.body));
+}
+window.ScriptCheckButton = ScriptCheckButton; window.ScriptCheckReport = ScriptCheckReport;
+
 function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApply, costOptsFor }){
   const [rect, setRect] = React.useState({ x:24, y:24, w:44, h:36 });
   const [drag, setDrag] = React.useState(null);
@@ -4079,7 +4596,7 @@ function PropSheetReferenceModal({ prop, onClose }){
 }
 
 /* (the sheet-review helpers and their context were never used — removed 2026-10-06) */
-function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs }){
+function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs, draftNote }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, relatedClearIdsOf, relatedClearLabel, revertPrevious, layers, allModels } = gen;
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
@@ -4422,7 +4939,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
       title:generateDisabled
         ? (generateDisabledTitle||"Wait for the current generation to finish first.")
         : (!drafted && !genUrl && !slotHasRef)
-        ? "Fills the text spec from the script first (writing credits), then generates the sheet in one step (image credits)"
+        ? "Fills the text spec from the script first (writing credits), then generates the sheet in one step (image credits)"+(draftNote||"")
         : (generateTitle || (genUrl ? "Generate a fresh sheet from the current spec" : "Generate the sheet from the current spec"))},
       generateDisabled && !gening
         ? React.createElement(React.Fragment,null,React.createElement(onResolveGenerationBlock?Icon.chevR:Icon.clock,{s:14}),
@@ -4878,7 +5395,9 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
     gen.genUrl && React.createElement("div",{className:"card-qa-row"},
       React.createElement(QaCheckButton,{ gen, name:(viewEntity.name||"")+" \u00b7 "+(st.label||vtag), noun:vtag+" sheet",
         specFields:()=>({ what_changed:(st.change||"") }),
-        onApplySpec:(patch)=>{ if(patch.what_changed!=null) onChange({ change:patch.what_changed, suggested:false }); } })),
+        onApplySpec:(patch)=>{ if(patch.what_changed!=null) onChange({ change:patch.what_changed, suggested:false }); } }),
+      // the Script check of this variant: the character's facts + its own scene's wardrobe and injuries (2026-10-12)
+      React.createElement(ScriptCheckButton,{ gen, c, drafts, sceneId:st.sceneId||"", variantLabel:(st.label||vtag), noun:vtag+" sheet" })),
     !baseGenUrl && React.createElement("div",{className:"state-hint"},
       React.createElement(Icon.alert,{s:12}),
       gen.likenessUsable
@@ -4904,7 +5423,7 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
         scenes.map(s=>React.createElement("option",{key:s.id,value:s.id},"Sc "+s.no+" \u00b7 "+s.title)))));
 }
 
-function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scenes, props, drafts, cast, speaks, voiceOpen, onOpenVoice, onCloseVoice, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete }){
+function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scenes, props, drafts, cast, speaks, voiceOpen, onOpenVoice, onCloseVoice, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete, onReadScript, readingFacts=false }){
   const drivenScenes = scenes.filter(s=>s.driver===c.id);
   const driven = drivenScenes.length;
   // ALL scenes this character appears in (drives OR is named in the script/summary), not
@@ -4927,6 +5446,11 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
   const promptText = buildCharRefPrompt(c, project, props);
   const finalPrompt = (typeof combinedImagePrompt==="function") ? combinedImagePrompt(c, project, props) : promptText;
   const drafted = charVisualsDrafted(c);
+  // THE SCREENPLAY FACT SHEET and the script-change warning (2026-10-12, Character fidelity steps 2 and 6)
+  const fst = charFactsState(c, scenes, drafts);
+  const readCost = React.useMemo(()=> onReadScript ? charReadCostText(scenes, drafts, [c]) : "", [!!onReadScript, c.name, scenes, drafts]);
+  const [reReadOffer, setReReadOffer] = React.useState(false);   // re-read from the banner → then offer the re-draft
+  const [rowKeyTick, setRowKeyTick] = React.useState(0);        // a declined edit of a script row puts the old text back
   const initials = c.name.split(" ").map(w=>w[0]).slice(0,2).join("");
   const palette = (c.palette && c.palette.length) ? c.palette : v.palette;
 
@@ -5244,6 +5768,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
   return React.createElement("div",{className:"sheet-card"+(batchActiveId===c.id?" batch-on":"")+(voiceOpen?" voice-open":""),"data-char-card":c.id},
     React.createElement(SheetFrame,{ gen, slotId:"charref-"+c.id, name:c.name, avatarColor:c.color,
       initials, drafted, drafting, onDraft:()=>onDraft(c), entity:c, onView,
+      draftNote:(onReadScript && fst.needsRead) ? " \u2014 it reads the script for "+(c.name||"this character")+" first ("+readCost+")." : "",
       slotPlaceholder:"Drop reference art", noun:"sheet",
       // The empty slot is also the finished-image importer (full resolution, like the Locations
       // plate), so the separate "Upload a finished sheet" button is intentionally omitted.
@@ -5280,7 +5805,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
               // coreBody the prompt ignores once a physique exists
               specFields:()=> charQaSpecFields(c, { likeness:charLikenessGivesFace(c) }),
               onApplySpec:(patch)=>{ const up = charQaSpecPatch(c, patch);
-                if(Object.keys(up).length) onUpdate(c.id, up); } })))),
+                if(Object.keys(up).length) onUpdate(c.id, up); } }),
+            // the Script check (2026-10-12, Character fidelity step 4): the sheet against what the screenplay states
+            React.createElement(ScriptCheckButton,{ gen, c, drafts, noun:"character sheet", onUpdate:readOnly ? null : onUpdate })))),
       // FACE AND VOICE, EACH ITS OWN (2026-10-11, owner — real voices): which face and which voice this character has —
       // "Face: Sam (likeness) · Voice: Sam (real voice)" / "Voice: designed" / "Voice: from the library"
       (()=>{ const line = (typeof window.vcFaceVoiceLine==="function") ? window.vcFaceVoiceLine(lkInfo, c.voiceLock) : "";
@@ -5296,6 +5823,33 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           title:"Regenerate the master sheet wearing its worn items (one image)"},
           gen.gening?"Updating\u2026":"Update sheet with new wardrobe", !gen.gening && typeof window.nbCostChip==="function"
             && window.nbCostChip(1, gen.likenessRefs ? { refs:cardGenerateRefs() } : undefined))),
+      // SCRIPT CHANGED (owner-approved 2026-10-12 — Character fidelity, step 6): the screenplay about this character
+      // changed since its look was drafted (or its fact sheet read) — like the Lookbook's stale banner. One button re-reads
+      // the script; then the card offers to re-draft the look. Nothing is blocked and nothing is spent on its own.
+      (()=>{
+        if(readOnly || !drafted) return null;
+        const offer = reReadOffer && fst.has && !fst.stale && !readingFacts;
+        if(!(fst.lookStale || fst.stale || offer)) return null;
+        const reRead = (fst.stale || !fst.has || fst.partial) && !offer;
+        return React.createElement("div",{className:"sheet-cameo-status char-script-changed",role:"status","data-testid":"char-script-changed"},
+          React.createElement(Icon.alert,{s:14}),
+          React.createElement("span",{className:"scs-t"}, reRead ? "Script changed \u2014 re-read and re-draft" : (offer ? "Script re-read \u2014 re-draft the look?" : "Script changed since this look was drafted")),
+          React.createElement("span",{className:"scs-meta"}, reRead
+            ? "the screenplay about "+(c.name||"this character")+" changed since "+(fst.lookStale ? "the look was drafted" : "it was read")
+            : "the fact sheet is up to date; the look was drafted from "+(offer && !fst.lookStale ? "an earlier read" : "the earlier script")),
+          reRead
+            ? (onReadScript
+                ? React.createElement("button",{className:"scs-act",disabled:readingFacts,onClick:()=>{ setReReadOffer(true); onReadScript(); },
+                    title:"Read what the screenplay now states about "+(c.name||"this character")+" \u2014 "+readCost+" (writing credits). Then you choose whether to re-draft the look."},
+                    readingFacts ? "Reading\u2026" : "Re-read the script")
+                : null)
+            : React.createElement(React.Fragment,null,
+                React.createElement("button",{className:"scs-act",disabled:drafting,onClick:()=>{ setReReadOffer(false); onDraft(c); },
+                  title:"Re-draft "+(c.name||"this character")+"'s look from the fact sheet \u2014 one writing call (writing credits). Rows you changed over the script keep your choice; the sheet image stays until you regenerate it."},
+                  drafting ? "Re-drafting\u2026" : "Re-draft look"),
+                React.createElement("button",{className:"scs-act",disabled:drafting,onClick:()=>{ setReReadOffer(false); onUpdate(c.id, { lookScriptSig:fst.sig }); },
+                  title:"Keep the look as it is \u2014 the warning goes until the script about "+(c.name||"them")+" changes again"},"Keep this look")));
+      })(),
       // a likeness on this film this person can't use (a shared film): said on the card, before anything is spent
       (lkInfo && lkInfo.available===false) && React.createElement("div",{className:"sheet-cameo-status unavailable",role:"note"},
         React.createElement(Icon.userScan,{s:14}),
@@ -5373,6 +5927,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             onUpdate:(id,patch)=>onUpdate(id, { ...(patch||{}), pronounProvenance:"user",
               identityProvenance:{ ...(c.identityProvenance||{}), pronouns:"user" } })
           }),
+        // WHAT THE SCRIPT SAYS (2026-10-12, Character fidelity step 2): the fact sheet, each fact with its quote
+        React.createElement(CharScriptFactsPanel,{ c, drafts, state:fst, reading:readingFacts, readOnly,
+          onRead:onReadScript, readCost }),
         // physical identity as a clean LABELLED LIST (each field editable), instead of one
         // run-on paragraph. Edits update the structured `physique` (the source the prompt
         // reads) AND recompose `coreBody` so downstream/legacy readers stay in sync.
@@ -5389,33 +5946,61 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           const setPhys=(k,val)=>{ const pp=charPhysPatch(c,k,val); onUpdate(c.id,{...pp, coreBody:recompose(pp.physique)}); };
           // DISTINGUISHING FEATURES (2026-10-12, owner — Character fidelity): their own row, sent with every sheet,
           // variant and shot; a likeness gives the face, so marks on the face, head or hair are left out then
-          const featuresRow = React.createElement("div",{className:"phys-row phys-row-features",key:"Features","data-testid":"char-features"},
-            React.createElement("span",{className:"phys-lab"},"Distinguishing features"),
+          /* WHERE EACH ROW COMES FROM (2026-10-12, Character fidelity step 2): "From the script" (the quote on hover),
+             "From the likeness", "Designed" or "Changed by you". A row the script states asks before it changes, and the
+             answer is kept on the card (scriptOverrides — a re-draft keeps the writer's choice). */
+          const lkFace = !!(lkInfo && lkInfo.available!==false);
+          const originOf = (row)=> charFieldOrigin(c, row, { drafts, likeness:lkFace });
+          const OriginChip = (row)=>{ const o = originOf(row); if(!o.kind) return null;
+            return React.createElement("span",{className:"char-origin "+o.kind,title:o.title,tabIndex:0,"data-origin":o.kind,
+              "aria-label":o.label+(o.title ? ". "+o.title : "")}, o.label); };
+          const guarded = (row, apply)=> async (val)=>{
+            if(!readOnly && originOf(row).kind==="script"){
+              const q = charOverrideQuestion(c, row, { drafts });
+              const ok = (q && typeof window.appConfirm==="function") ? await window.appConfirm(q) : true;
+              if(!ok){ setRowKeyTick(t=>t+1); return; }
+              onUpdate(c.id, charOverridePatch(c, row));
+            }
+            apply(val);
+          };
+          const commitFeatures = async (val)=>{
+            const removed = charFeaturesRemovedMarks(c, val, drafts);
+            if(removed.length && !readOnly && !((c.scriptOverrides||{}).features) && typeof window.appConfirm==="function"){
+              const ok = await window.appConfirm({ title:"The script says \u201c"+removed[0].value+"\u201d \u2014 remove it anyway?",
+                body:removed.slice(0,3).map(charFactQuoteLine).join("\n")+"\n\nYour change is kept: reading the script again won't put it back.",
+                confirmLabel:"Remove it anyway", cancelLabel:"Keep the script's" });
+              if(!ok){ setRowKeyTick(t=>t+1); return; }
+              onUpdate(c.id, charOverridePatch(c, "features"));
+            }
+            onUpdate(c.id, charFeaturesPatch(c, val));
+          };
+          const featuresRow = React.createElement("div",{className:"phys-row phys-row-features",key:"Features-"+rowKeyTick,"data-testid":"char-features"},
+            React.createElement("span",{className:"phys-lab"},"Distinguishing features", OriginChip("features")),
             React.createElement("div",{className:"phys-features"},
               React.createElement(EditText,{value:charScriptFeaturesRaw(c)||"",multiline:true,
                 placeholder:"Scars, marks, implants, a missing finger… from the script",
-                onCommit:val=>onUpdate(c.id, charFeaturesPatch(c, val))}),
+                onCommit:commitFeatures}),
               React.createElement("div",{className:"phys-note"},
-                "From the screenplay — added when you approve a Production check or a sheet check, or typed here. Sent with every sheet, appearance variant and shot."
+                "From the screenplay — added when you read the script, approve a Production check or a sheet check, or typed here. Sent with every sheet, appearance variant and shot."
                 +((lkInfo && lkInfo.available!==false) ? " While a likeness is locked, marks on the face, head or hair are left out — the face comes from the likeness photos." : ""))));
           // long descriptive fields render as auto-growing textareas (ml=true) so the
           // full sentence is always visible; short tokens stay single-line.
-          const Row=(lab,val,onC,ml)=> React.createElement("div",{className:"phys-row",key:lab},
-            React.createElement("span",{className:"phys-lab"},lab),
-            React.createElement(EditText,{value:val||"",placeholder:"\u2014",multiline:!!ml,onCommit:onC}));
+          const Row=(lab,val,onC,ml,row)=> React.createElement("div",{className:"phys-row",key:lab+"-"+rowKeyTick},
+            React.createElement("span",{className:"phys-lab"},lab, row ? OriginChip(row) : null),
+            React.createElement(EditText,{value:val||"",placeholder:"\u2014",multiline:!!ml,onCommit:row ? guarded(row, onC) : onC}));
           if(!hasPhys) return React.createElement(React.Fragment,null,
             React.createElement(SheetField,{label:"Body \u2014 fixed physical tokens",value:vfield(c,"coreBody","look"),multiline:true,
               placeholder:"Apparent age, ethnicity, skin tone & condition, eye colour, hair, face shape, body type, defining features\u2026",onCommit:val=>onUpdate(c.id,{coreBody:val})}),
             React.createElement("div",{className:"char-phys"}, featuresRow));
           return React.createElement("div",{className:"char-phys"},
-            Row("Apparent age",F.age,v2=>setPhys("age",v2),true),
-            Row("Ethnicity",F.ethnicity,v2=>setPhys("ethnicity",v2),true),
-            Row("Height",c.height||v.height,v2=>onUpdate(c.id,{height:v2})),
-            Row("Build",F.build,v2=>setPhys("build",v2),true),
-            Row("Hair",F.hair,v2=>setPhys("hair",v2),true),
-            Row("Eyes",F.eyes,v2=>setPhys("eyes",v2),true),
-            Row("Skin",F.skin,v2=>setPhys("skin",v2),true),
-            Row("Facial features",F.face,v2=>setPhys("face",v2),true),
+            Row("Apparent age",F.age,v2=>setPhys("age",v2),true,"age"),
+            Row("Ethnicity",F.ethnicity,v2=>setPhys("ethnicity",v2),true,"ethnicity"),
+            Row("Height",c.height||v.height,v2=>onUpdate(c.id,{height:v2}),false,"height"),
+            Row("Build",F.build,v2=>setPhys("build",v2),true,"build"),
+            Row("Hair",F.hair,v2=>setPhys("hair",v2),true,"hair"),
+            Row("Eyes",F.eyes,v2=>setPhys("eyes",v2),true,"eyes"),
+            Row("Skin",F.skin,v2=>setPhys("skin",v2),true,"skin"),
+            Row("Facial features",F.face,v2=>setPhys("face",v2),true,"face"),
             Row("Arms & hands",F.arms,v2=>setPhys("arms",v2),true),
             Row("Legs & feet",F.legs,v2=>setPhys("legs",v2),true),
             featuresRow,
@@ -5438,8 +6023,21 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           placeholder:"Pore texture, subsurface scattering, blemishes, lighting\u2026",onCommit:val=>onUpdate(c.id,{materialTexture:val})})),
 
       React.createElement(CardFold,{label:"Wardrobe",defaultOpen:false},
-        React.createElement(SheetField,{label:"Public \u2014 the mask",value:vfield(c,"wardrobeMask","wardrobe"),multiline:true,
-          placeholder:"Armour / public clothes \u2014 the social persona\u2026",onCommit:val=>onUpdate(c.id,{wardrobeMask:val})}),
+        // (2026-10-12, Character fidelity) where the wardrobe comes from; the script's wardrobe asks before it changes
+        (()=>{ const o = charFieldOrigin(c, "wardrobe", { drafts });
+          const commit = async (val)=>{
+            if(!readOnly && o.kind==="script"){
+              const q = charOverrideQuestion(c, "wardrobe", { drafts });
+              const ok = (q && typeof window.appConfirm==="function") ? await window.appConfirm(q) : true;
+              if(!ok){ setRowKeyTick(t=>t+1); return; }
+              onUpdate(c.id, charOverridePatch(c, "wardrobe"));
+            }
+            onUpdate(c.id,{wardrobeMask:val});
+          };
+          return React.createElement(SheetField,{key:"wardrobe-"+rowKeyTick,
+            label:React.createElement(React.Fragment,null,"Public \u2014 the mask", o.kind ? React.createElement("span",{className:"char-origin "+o.kind,title:o.title,tabIndex:0,"data-origin":o.kind,"aria-label":o.label+(o.title?". "+o.title:"")},o.label) : null),
+            value:vfield(c,"wardrobeMask","wardrobe"),multiline:true,
+            placeholder:"Armour / public clothes \u2014 the social persona\u2026",onCommit:commit}); })(),
         React.createElement(SheetField,{label:"Private \u2014 the true self",value:c.wardrobeInner,multiline:true,
           placeholder:"Softer, personal clothing \u2014 who they really are\u2026",onCommit:val=>onUpdate(c.id,{wardrobeInner:val})})),
 
@@ -6143,7 +6741,7 @@ window.charLookbookFirstHint = charLookbookFirstHint;
 window.turnFocusArtScene = (tab, sceneId, action)=>{ window.turnArtFocus = { tab, sceneId, action:action||"", at:Date.now(), film:window.turnOpenFilmId||null }; };
 window.turnPeekArtFocus = (tab)=>{ const f = window.turnArtFocus; return (f && f.tab===tab && Date.now()-f.at<15000 && (f.film||null)===(window.turnOpenFilmId||null)) ? f : null; };
 window.turnClearArtFocus = (tab)=>{ const f = window.turnArtFocus; if(f && f.tab===tab) window.turnArtFocus = null; };
-function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook }){
+function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook, onReadScript, readingFactIds }){
   const [view, setView] = React.useState(null);   // {url, character}
   // Keep one open flag per character so several card-contained Voice cards can
   // remain open independently without sharing UI state.
@@ -6238,6 +6836,15 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
   // otherwise it's noise. Nothing drafts on its own any more (2026-10-03, owner: no silent
   // spending) — the user drafts when ready, after the Lookbook (see charLookbookFirstHint).
   const someUndrafted = eligibleAll < list.length;
+  /* READ THE SCRIPT (2026-10-12, Character fidelity step 2): the tab's button reads the screenplay for every character
+     (writing calls, quoted in its title); Draft all reads it first for the characters it drafts that need it */
+  const readingIds = readingFactIds || [];
+  const readingAny = list.some(c=> readingIds.indexOf(c.id)>=0);
+  const scriptReady = (typeof charHasScript==="function") && charHasScript(scenes, drafts);
+  const draftReaders = (scriptReady && typeof charFactsState==="function") ? list.filter(c=> !charVisualsDrafted(c) && charFactsState(c, scenes, drafts).needsRead) : [];
+  const draftReadNote = (scriptReady && draftReaders.length)
+    ? " It reads the script first for "+draftReaders.length+" character"+(draftReaders.length!==1?"s":"")+" ("+charReadCostText(scenes, drafts, draftReaders)+") so each look follows what the screenplay states."
+    : "";
   const lookbookFirst = charLookbookFirstHint(lookbook, lookbookNote, list, draftingAll);
   // STAGED HEADER (design-clarity ruling 2026-07-14): exactly ONE primary action
   // per pipeline stage — draft (specs missing) → generate (specs done, sheets
@@ -6380,8 +6987,13 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
           onCast && React.createElement("button",{className:"art-draftall ghost",disabled:!characters.length,onClick:()=>onCast({}),
             title:"Casting Director — drafts each character's look, finds their appearance changes, and generates the master sheet + every state variant, on its own"},
             React.createElement(Icon.robot,{s:14}),"Design the cast"),
+          (onReadScript && scriptReady && list.length>0) && React.createElement("button",{className:"art-draftall ghost",disabled:readingAny||!!readOnly,
+            onClick:()=>onReadScript(null),"data-testid":"char-read-script-all",
+            title:"Read the script \u2014 lists what the screenplay states about every character (age, heritage only if stated, build, height, hair, distinguishing marks, injuries and wardrobe by scene), each with its quote, so their looks follow it. "
+              +charReadCostText(scenes, drafts, list)+" (writing credits). Nothing is drafted or generated."},
+            React.createElement(Icon.script,{s:14}), readingAny ? "Reading the script\u2026" : "Read the script"),
           someUndrafted && React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:onDraftAll,
-            title:"Draft the spec for any character that doesn't have one yet \u2014 identity, wardrobe, props & accessories, continuity and look dev (the master reference prompt builds from these). Specs only \u2014 no images; the manual alternative to Design the cast."},
+            title:"Draft the spec for any character that doesn't have one yet \u2014 identity, wardrobe, props & accessories, continuity and look dev (the master reference prompt builds from these). Specs only \u2014 no images; the manual alternative to Design the cast."+draftReadNote},
             React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":(eligibleAll>0?"Draft remaining":"Draft all (specs only)")),
           missingAll.length>0 && React.createElement("button",{className:"art-draftall"+(castStage==="draft"?" ghost":""),disabled:!!batchActiveId,onClick:()=>startAllBatch(true),
             title:"Generate the reference sheet for every drafted character that doesn't have one yet \u2014 existing sheets are left as they are"},
@@ -6450,6 +7062,7 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
     BatchBar && React.createElement(BatchBar,{batch,noun:"character"}),
     React.createElement("div",{className:"sheet-grid"},
       charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,readOnly,wardrobeStale:(wardrobeIds||[]).indexOf(c.id)>=0,project,scenes,props,drafts,cast:characters,speaks:speakingSet.has(c.id),onUpdate,onDraft,
+        onReadScript:(onReadScript && scriptReady) ? (()=>onReadScript([c.id])) : null, readingFacts:readingIds.indexOf(c.id)>=0,
         voiceOpen:openVoiceIds.indexOf(c.id)>=0,onOpenVoice:openVoice,onCloseVoice:closeVoice,
         drafting:draftingId===c.id||(draftingIds||[]).indexOf(c.id)>=0,onView:(url,ch)=>setView({url,character:ch}),
         batchActiveId,onBatchDone:batch.advance,onDelete:onDelete,
@@ -6595,7 +7208,7 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
                 React.createElement("span",{className:"cc-list-n"}, l.n+" "+l.unit+(l.n===1?"":"s"))))),
             note("alert","It can make more than this: missing time-of-day variants for the locations, places and appearance changes it finds in the script, and a wardrobe update for anyone whose worn prop is made in this run. Each image uses credits; what it made shows when it finishes."))
         : note("check","Every sheet and plate already exists — running again refreshes the lookbook, colour and shot coverage (writing credits only) and fills any gaps.","ok"),
-      note("info","It also researches the Lookbook, reads the screenplay for its props when it hasn't been read yet (the objects it names are added; carried items from the character briefs stay proposals and are never drafted or generated), sets the colour grade and designs shot coverage where it's missing or weak (writing credits). Scenes whose shots you approved or locked keep them. The Lookbook's render style fills every card that has no style yet \u2014 a style already set on a card stays.","info"),
+      note("info","It also researches the Lookbook, reads the screenplay for what it states about each character whose look it drafts (when it hasn't been read, or changed since) and for its props when it hasn't been read yet (the objects it names are added; carried items from the character briefs stay proposals and are never drafted or generated), sets the colour grade and designs shot coverage where it's missing or weak (writing credits). Scenes whose shots you approved or locked keep them. The Lookbook's render style fills every card that has no style yet \u2014 a style already set on a card stays.","info"),
       note("info","Not included: shot frames and storyboards. Render the frames from the Shots tab, then compose the boards in Storyboards.","info"),
       React.createElement("div",{className:"cc-model"},
         React.createElement(Icon.sparkles,{s:12}),
@@ -6642,10 +7255,12 @@ function turnIdentityBlock(c, cast){
   }
 }
 window.turnIdentityBlock = turnIdentityBlock;
-function CastConfirm({ characters, props, sceneId, sceneNo, sceneIds, onCancel, onConfirm, onSetPronouns }){
+function CastConfirm({ characters, props, scenes, drafts, sceneId, sceneNo, sceneIds, onCancel, onConfirm, onSetPronouns }){
   const C = characters||[];
   const [scope, setScope] = React.useState(sceneId ? "scene" : "missing");
   const [withVariants, setWithVariants] = React.useState(true);
+  // the optional Script check of each new master sheet (2026-10-12, Character fidelity step 4) — off unless chosen
+  const [withCheck, setWithCheck] = React.useState(false);
   const plan = castDesignPlan(C, scope, sceneIds, withVariants);
   /* LIKENESS (2026-10-10, owner — Likeness review): a character with a likeness sends its photos with each of its
      sheets (+ the worn-item sheets on a master, + the master on a variant) — GPT Image charges each, so the price
@@ -6676,9 +7291,20 @@ function CastConfirm({ characters, props, sceneId, sceneNo, sceneIds, onCancel, 
   ].filter(Boolean);
   const note = (icon, text, cls)=> React.createElement("div",{className:"cc-note"+(cls?" "+cls:"")},
     React.createElement(Icon[icon]||Icon.alert,{s:12}), React.createElement("span",null,text));
+  /* READ THE SCRIPT FIRST (2026-10-12, Character fidelity step 2): the looks it drafts are drafted from each character's
+     screenplay fact sheet — read first for anyone with none yet (or one the screenplay changed since); the price says so */
+  const readers = (drafts && typeof window.charFactsState==="function") ? planChars.filter(c=> !blockedIds.has(c.id)
+    && !charVisualsDrafted(c) && window.charFactsState(c, scenes, drafts).needsRead) : [];
+  const readCalls = readers.length ? charFactCallCount(scenes, drafts, readers) : 0;
+  // the Script check reads a sheet against the facts: offered when someone making a sheet has (or will have) a fact sheet
+  const canCheck = plan.sheets>0 && planChars.some(c=> !blockedIds.has(c.id) && !_img(c.id)
+    && ((c.scriptFacts && Array.isArray(c.scriptFacts.facts) && c.scriptFacts.facts.length) || readers.indexOf(c)>=0));
+  const checking = withCheck && canCheck;
   const lines = [
+    { id:"read", label:"Read the script first ("+readers.length+" character"+(readers.length!==1?"s":"")+")", unit:"writing call", n:readCalls, writing:true },
     { id:"specs", label:"Looks to draft", unit:"spec", n:plan.specs, writing:true },
     { id:"sheets", label:"Master sheets", unit:"sheet", n:plan.sheets },
+    { id:"check", label:"Script checks of the new sheets", unit:"vision read", n:checking ? plan.sheets : 0, writing:true },
     { id:"variants", label:"Appearance variants", unit:"variant", n:plan.variants },
   ].filter(l=>l.n>0);
   const nothing = !plan.n || (!plan.specs && !plan.images && !plan.noStates);
@@ -6701,6 +7327,9 @@ function CastConfirm({ characters, props, sceneId, sceneNo, sceneIds, onCancel, 
       React.createElement("label",{className:"cc-check"},
         React.createElement("input",{type:"checkbox",checked:withVariants,onChange:e=>setWithVariants(e.target.checked)}),
         React.createElement("span",null,"Also make appearance variants (wounds, dirt, costume changes)")),
+      canCheck && React.createElement("label",{className:"cc-check","data-testid":"cast-confirm-check"},
+        React.createElement("input",{type:"checkbox",checked:withCheck,onChange:e=>setWithCheck(e.target.checked)}),
+        React.createElement("span",null,"Check each new master sheet against the script (one vision read each, writing credits) \u2014 mismatches are listed; nothing is changed on its own")),
       nothing
         ? note("check", plan.n ? "Everything in this choice already exists \u2014 there's nothing to make." : "No characters in this choice.", "ok")
         : React.createElement(React.Fragment,null,
@@ -6745,7 +7374,7 @@ function CastConfirm({ characters, props, sceneId, sceneNo, sceneIds, onCancel, 
         React.createElement("button",{className:"ns-btn ghost",onClick:onCancel},"Cancel"),
         React.createElement("button",{className:"ns-btn primary",disabled:nothing || !runIds.length,
           title:!runIds.length && blocked.length ? "Set the pronouns above first" : undefined,
-          onClick:()=>onConfirm({ only: (scope==="all" && !blocked.length) ? null : runIds, variants:withVariants })},
+          onClick:()=>onConfirm({ only: (scope==="all" && !blocked.length) ? null : runIds, variants:withVariants, fidelity:checking })},
           React.createElement(Icon.robot,{s:16}), "Design "+runIds.length+" character"+(runIds.length!==1?"s":"")))));
 }
 window.CastConfirm = CastConfirm;
@@ -6807,7 +7436,7 @@ function ArtTabLock({ tab, locks, onGo }){
 }
 window.ArtTabLock = ArtTabLock;
 
-function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, tabLocks, noPropsConfirmed, onSetNoProps, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp,
+function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, tabLocks, noPropsConfirmed, onSetNoProps, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp, onReadCharacterScript, readingFactIds,
   onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
   locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetFilmStock, onUpdatePreset, onDeletePreset, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
@@ -6896,6 +7525,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
       ? React.createElement(CharacterSheets,{readOnly,wardrobeIds:wardrobeIds||[],project,characters,scenes,props,drafts,shots,beatsMap,onUpdate:onUpdateChar,
           onDraftProp,onCreateOwnedProp,
           onDraft:onDraftVisuals,onDraftAll:onDraftAllVisuals,draftingId:draftingVisualId,draftingAll:draftingAllVisuals,draftingIds:draftingVisualIds,
+          onReadScript:onReadCharacterScript,readingFactIds,
           trashItems:(trash&&trash.characters)||[],onRestore:onRestoreChar,onPurge:onPurgeChar,
           onSuggestStates,suggestingStatesId,onBuildWornProps,onRemoveOwnedItem,onRenameOwnedItem,onDelete:onDeleteCharacter,onCast,
           lookbookStale:!!_stale.characters,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("characters"),

@@ -489,7 +489,17 @@ Each entity gets a canonical, reusable reference so every generated image stays 
     **Generate all images** then skips objects marked **Text only** (seen once and never handled), which
     shots describe in words instead of attaching an image.
   - **Draft all characters** → Identity, Wardrobe, Props & accessories, Continuity (appearance states,
-    where the script shows the look change), Look dev. *Switched off 2026-10-03 (owner, Characters review:
+    where the script shows the look change), Look dev.
+    *(approved 2026-10-12 by owner — Character fidelity, "go ahead with all of it, in that order")* **The script
+    is read first**: every character look (Draft all, a card's Draft & generate, Design the cast / the Casting
+    Director, Run pre-production) is drafted from that character's **screenplay fact sheet** — what the script
+    states about them (age, heritage only if stated, build, height, hair, distinguishing marks, injuries and
+    wardrobe by scene), each fact with its verbatim quote, extracted (never invented) by **Read the script**
+    (writing credits) and read first for anyone not read yet or whose screenplay changed since. The facts
+    outrank everything else; what the script doesn't say is designed. Rows the script states ask before they
+    change and keep the writer's choice. A **Script check** next to the QA check compares a sheet with the
+    facts (optional in Design the cast), and a look drafted from an older screenplay shows **Script changed —
+    re-read and re-draft** (nothing is redone or spent on its own). *Switched off 2026-10-03 (owner, Characters review:
     nothing is drafted or generated on its own — the user presses **Draft all**, the draft stage's main
     button, or **Design the cast**, whose preview shows the scope and price first; the silent pass below is
     kept behind `window.TURN_CAST_AUTO_DRAFT` and runs only if that is turned on) —* **The cast is auto-drafted once, silently, once

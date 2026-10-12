@@ -175,7 +175,7 @@ const chrome = spawn(CHROME, ["--headless=new", "--no-sandbox", "--disable-gpu",
 let c;
 try {
   const target = await (async () => {
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 375; i++) {   // up to 15 s: a busy machine can take 6 s or more to start Chrome
       try {
         const list = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
         const page = list.find(x => x.type === "page" && x.webSocketDebuggerUrl);
