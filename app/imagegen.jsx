@@ -503,7 +503,8 @@ window.nbGetGroundSearch = nbGetGroundSearch; window.nbSetGroundSearch = nbSetGr
 
 /* simplified fallback prompt — fewer words, less detail, less likely to hit content filters */
 function buildSimpleCharPrompt(c){
-  const body = ((c.coreBody||c.look)||"").replace(/\.$/,"").trim();
+  // (2026-10-12, Character fidelity) the body plus its distinguishing features (artroom.jsx charBodyWithFeatures)
+  const body = ((typeof window.charBodyWithFeatures==="function") ? window.charBodyWithFeatures(c) : ((c.coreBody||c.look)||"")).replace(/\.$/,"").trim();
   const wardrobe = ((c.wardrobeMask||c.wardrobe)||"").replace(/\.$/,"").trim();
   // the retry still speaks the character's PICKED render style (first clause of their
   // style block) — a content-filter fallback must not go photoreal on a stylized film

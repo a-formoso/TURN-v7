@@ -58,7 +58,7 @@ test("D Frances", () => {
   assert.ok(!all.includes("Expressive (v3) — THE DEFAULT"));
   assert.ok(all.includes("the picker's Lifelike (v4) and Expressive (v3)"));
   const html = read("TURN.html");
-  for (const f of ["voicegen", "voices-ui", "stage", "ai", "script"]) assert.ok(html.includes('src="app/' + f + '.jsx?v=20261011-v4a"'), f);
+  for (const f of ["voicegen", "voices-ui", "stage", "ai", "script"]) assert.ok(['20261011-v4a', '20261012-art1'].some((k) => html.includes('src="app/' + f + '.jsx?v=' + k + '"')), f);   // (later passes re-key some)
 });
 
 console.log(failed ? `FAIL ${failed} of ${checks + failed}` : `PASS Eleven v4 (${checks} checks)`);

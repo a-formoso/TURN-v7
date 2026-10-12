@@ -44,7 +44,9 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
   const extracted = (props||[]).some(p=> p && (p.screenplaySources||[]).length);
   const blockOf = (p)=>{ if(!p || p.kind==="worn") return "";
     if((p.kind||"carried")==="carried" && !p.ownerId) return "owner";
-    try{ if(extracted && PS && typeof PS.notInScreenplay==="function" && PS.notInScreenplay(p)) return "screenplay"; }catch(e){}
+    // (2026-10-12, owner) a proposal — a carried object the screenplay doesn't name — on ANY film
+    try{ if(PS && typeof PS.batchSkip==="function" ? PS.batchSkip(p, extracted)
+      : (extracted && PS && typeof PS.notInScreenplay==="function" && PS.notInScreenplay(p))) return "screenplay"; }catch(e){}
     return ""; };
   const BLOCK_TEXT = { owner:"needs an owner", screenplay:"not in the screenplay" };
   let prevKind = "";
@@ -944,7 +946,9 @@ async function _bdBuildBible({ project, characters, props, locations, scenes, dr
       +'<h3>'+_bdEsc(c.name||"Unnamed")+'</h3>'
       +'<div class="m">'+_bdEsc([c.role, c.archetype].filter(Boolean).join(" · "))+'</div>'
       +field("Pronouns", c.pronouns)+field("Scale", SCALE[c.scaleClass]||"")+field("Height", c.height)
-      +field("Identity", c.identity)+field("Body", c.coreBody)
+      +field("Identity", c.identity)+field("Body", (typeof window.charLegacyBodySplit==="function") ? window.charLegacyBodySplit(c).base : c.coreBody)
+      // (2026-10-12, Character fidelity) the script's distinguishing features (older films: read from coreBody, unmigrated)
+      +field("Distinguishing features", (typeof window.charScriptFeaturesRaw==="function") ? window.charScriptFeaturesRaw(c) : c.scriptFeatures)
       +(physInBody ? "" : field("Age", F.age)+field("Build", F.build)+field("Skin", F.skin)+field("Eyes", F.eyes)+field("Hair", F.hair)+field("Face", F.face))
       +field("Wardrobe", c.wardrobe)+field("Accessories", c.accessories)+field("Look", c.look)
       +field("Voice", [v.accent, v.pitch, v.pace, v.quirks].filter(Boolean).join("; "))

@@ -6,7 +6,9 @@ import vm from "node:vm";
 let selection;
 const noop=()=>{};
 const React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity)}),
-  useState:init=>{if(selection===undefined)selection=init;return [selection,next=>selection=next];}};
+  useState:init=>{if(selection===undefined)selection=init;return [selection,next=>selection=next];},
+  // the layout gate's refresh (2026-10-12): covered by test-location-compose-order.mjs
+  useReducer:(fn,init)=>[init,noop],useEffect:noop};
 const box={console,React,localStorage:{getItem:()=>null},window:null,
   EditText:function EditText(){},SheetField:function SheetField(){},Icon:{sparkles:noop,camera:noop,eye:noop,layers:noop,x:noop,plus:noop}};
 box.window=box;vm.createContext(box);

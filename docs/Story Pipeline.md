@@ -467,8 +467,25 @@ Each entity gets a canonical, reusable reference so every generated image stays 
     to its scenes: reviewed passages give exact scenes, worn items follow their owner's on-screen
     presence, and unconfirmed cards map to the scenes whose action text names them. Mapping uses no
     model call and refreshes by itself after a script change, so there's no "Pull from cast" or
-    "Re-map scenes" button. It never extracts from the screenplay: screenplay objects come only from
-    **Extract screenplay props**, which proposes them for review and adds nothing until applied.
+    "Re-map scenes" button. Screenplay objects come only from **Extract screenplay props**, which
+    proposes them for review and adds nothing until applied.
+    *(approved 2026-10-12 by owner — "carried props must be derived from the story as much as possible";
+    this note supersedes the parts of this step it contradicts)* **Extract screenplay props is the first
+    Props step**: when the film's screenplay hasn't been read for props yet, Draft all specifications
+    first offers to extract (writing credits; the review opens and drafting continues once it is applied
+    or discarded), and the Props Master and the Art Coordinator's Props step read the screenplay first
+    and propose what it names through their approval card (Run pre-production approves it automatically,
+    as it does its other steps) — so the real carried props exist before anything else. The character
+    briefs then add their **worn** items (the watch, scarf, jewellery that come from designing the look)
+    as cards; a **carried** item from a brief — or one the worn/carried tidy moves to carried, or one made
+    with "Attach item to prop…" from a generated image (design origin, **Not in screenplay**) — is a
+    **proposal** in its own group, **Proposed — not in the screenplay**, not a story prop, until the user
+    keeps it (their explicit choice; it keeps its design origin) or Extract finds it in the screenplay
+    (then it is a story prop with its passage). No batch or agent drafts or generates a proposal, on any
+    film; a card's own buttons still work. Unconfirmed cards map only to scenes whose action names them
+    by their **exact** name. The character look drafter lists carried items only when the screenplay text
+    it is given names them; it invents wardrobe and worn accessories only. Existing films are not
+    migrated: an older carried card with no passage just shows in the Proposed group.
     **Generate all images** then skips objects marked **Text only** (seen once and never handled), which
     shots describe in words instead of attaching an image.
   - **Draft all characters** → Identity, Wardrobe, Props & accessories, Continuity (appearance states,

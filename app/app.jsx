@@ -400,6 +400,7 @@ function buildFilmBible(doc){
       id: c.id, name: c.name, role: undef(c.role),
       wants: undef(c.conscious), fear: undef(c.unconscious), arc: undef(c.arc),
       physique: (c.physique && Object.keys(c.physique).length) ? c.physique : undefined,
+      distinguishing_features: undef(typeof window.charScriptFeatures==="function" ? window.charScriptFeatures(c) : c.scriptFeatures),
       wardrobe: undef(c.wardrobeMask||c.wardrobe),
       worn: undef(c.accessories), carried: undef(c.props),
       appears_in_scenes: scenesOfChar[c.id],
@@ -1585,8 +1586,10 @@ function App(){
         form: seed.form||("Derived from selected visual reference: "+(ref.sourceName||"Art Room sheet")),
         detail: seed.detail||("Created from a selected item reference so its design belongs to the existing film world."),
         referenceImages:[{ ...ref, id:ref.id||("pref-"+Date.now().toString(36)) }],
-        manual:true, origin:(typeof artRoomPropOrigin==="function")
-          ? artRoomPropOrigin(seed.kind||"carried","design") : {kind:"props"} };
+        // (owner 2026-10-12) a crop of a GENERATED image is a design choice, not the screenplay and not
+        // a hand-made card: it carries a design origin and the "Not in screenplay" badge (a carried one
+        // waits under Proposed until the user keeps it or the screenplay names it)
+        origin:{ kind:"design", from:"art-room-image", sourceName:String(ref.sourceName||"") } };
       setProps(ps=>[card, ...ps]);
       return card;
     };
@@ -3908,7 +3911,11 @@ function App(){
     const driven = scenes.filter(s=>s.driver===ch.id);
     try{
       const res = (typeof aiCharacterVisuals==="function") ? await aiCharacterVisuals(ch, driven, lbProject("characters"), { scenes, drafts }) : null;
-      if(res){ updateCharacter(ch.id, res);
+      // (2026-10-12, Character fidelity) a re-draft rewrites coreBody: an older card's script details appended to it
+      // move to the distinguishing-features field first (a card that has the field keeps it — the draft never sets it)
+      const _legacyFeats = (res && typeof ch.scriptFeatures!=="string" && typeof window.charLegacyBodySplit==="function")
+        ? window.charLegacyBodySplit(ch).tail : "";
+      if(res){ updateCharacter(ch.id, _legacyFeats ? { ...res, scriptFeatures:_legacyFeats } : res);
         // (the card records the Lookbook it was drafted from — lookbookBrief — so a first per-card
         //  draft raises no false banner, and the rest of the cast isn't marked up to date — 2026-10-06)
         }
@@ -4292,7 +4299,7 @@ function App(){
       return hit ? { ...pr, kind:"carried" } : pr;
     }));
     if(typeof window.appToast==="function")
-      window.appToast(patches.length+" character card"+(patches.length>1?"s":"")+" tidied automatically — carried objects (bags, phones, documents) moved off the worn list; their prop cards are now carried-type.","info");
+      window.appToast(patches.length+" character card"+(patches.length>1?"s":"")+" tidied automatically — carried objects (bags, phones, documents) moved off the worn list; their prop cards are now carried-type, listed under Proposed until the screenplay names them or you keep them.","info");
   },[characters, hydrationTick]);
   // COMMA-SPLIT REPAIR (2026-10-05, owner): the old splitter cut items at every comma, so "a steel
   // wristwatch with a cracked, heat-fogged crystal" became two cast-derived prop cards. With the
@@ -4375,8 +4382,10 @@ function App(){
     setDraftingPropIds(ids=> ids.filter(x=>x!==pr.id));
   };
   // "Draft all props" — the full props pipeline in one click:
-  //   1) SYNC any missing cards from the cast (worn/carried, dedup by owner+name)
-  //   2) DRAFT every card's spec (form/material/significance/look dev) from the script
+  //   0) (2026-10-12, owner) the Props tab first runs Extract screenplay props, for review (props.jsx draftAllFlow)
+  //   1) SYNC any missing cards from the cast (worn cards; carried items as PROPOSALS, dedup by owner+name)
+  //   2) DRAFT every card's spec (form/material/significance/look dev) from the script — never a
+  //      proposal (a carried object the screenplay doesn't name: PropScreenplay.isProposal)
   //   3) MAP every card to the scenes it appears in (reviewed sources, worn -> owner
   //      presence, anything the screenplay hasn't established -> scenes whose text
   //      names it; deterministic, no model call)
@@ -4386,8 +4395,9 @@ function App(){
   const draftAllProps = async (mode)=>{
     if(!canMutateSharedFilm() || draftingAllProps) return;
     const redraft = mode==="redraft";
+    const _isProposal = (p)=> !!(window.PropScreenplay && window.PropScreenplay.isProposal && window.PropScreenplay.isProposal(p));
     if(redraft){
-      const n = (props||[]).length;
+      const n = (props||[]).filter(p=>!_isProposal(p)).length;
       const ok = typeof window.appConfirm!=="function" || await window.appConfirm({
         title:"Redraft all "+n+" prop specification"+(n!==1?"s":"")+"?",
         body:"Every prop's design is written again from the script and the cast \u2014 replacing the current specs, including your edits. Images are left as they are. This uses writing credits for every card.",
@@ -4403,8 +4413,9 @@ function App(){
         if(derived.length){ working = [...props, ...derived]; setProps(working); setPropsSeeded(true); }
       }
       // 2) draft specs
-      const toDraft = redraft ? working
-        : working.filter(p=> !(typeof propVisualsDrafted==="function" ? propVisualsDrafted(p) : (String(p.form||"").trim() && String(p.material||"").trim())));
+      const toDraft = (redraft ? working
+        : working.filter(p=> !(typeof propVisualsDrafted==="function" ? propVisualsDrafted(p) : (String(p.form||"").trim() && String(p.material||"").trim()))))
+        .filter(p=>!_isProposal(p));
       if(typeof aiDesignPropBible==="function" && toDraft.length){
         const map = await aiDesignPropBible(toDraft, characters, lbProject("props"));
         if(!map) throw new Error("no specs came back");
@@ -4532,7 +4543,8 @@ function App(){
       if(!p) return "its prop card is gone (Props)";
       if((p.kind||"carried")==="carried" && !p.ownerId) return "needs an owner (Props)";
       const PS = window.PropScreenplay;
-      if(PS && typeof PS.notInScreenplay==="function" && L.extracted && PS.notInScreenplay(p)) return "isn't in the screenplay (Props)";
+      if(PS && typeof PS.isProposal==="function" && PS.isProposal(p)) return "is a proposal the screenplay doesn't name (Props)";
+      if(PS && typeof PS.notInScreenplay==="function" && L.extracted && (p.kind||"carried")!=="worn" && !p.proposalAccepted && PS.notInScreenplay(p)) return "isn't in the screenplay (Props)";
       return "";
     }
     return "can't be made here";
@@ -5273,7 +5285,16 @@ function App(){
       // render fine from prose (a card's "Draft staging" button stages one on demand).
       if(typeof aiDraftStaging==="function"){
         const staged = (l)=> (typeof stagingHasContent==="function") ? stagingHasContent(l) : !!l.staging;
-        const stageTargets = merged.filter(l=>(l.scenes||[]).length>=2 && (redraft || !staged(l)));
+        const wantStage = merged.filter(l=>(l.scenes||[]).length>=2 && (redraft || !staged(l)));
+        // THE LAYOUT FIRST (2026-10-12, owner — Locations review): a composition is drafted only where the shared
+        // layout is ready — never paid for while the layout it follows is missing or unconfirmed; the others are named
+        const layoutReady = (l)=>{ try{ if(typeof requireLocationSpatialPlan==="function") requireLocationSpatialPlan(l); return true; }catch(e){ return false; } };
+        const stageTargets = wantStage.filter(layoutReady);
+        const waitingLayout = wantStage.filter(l=>!layoutReady(l)).map(l=>l.name||"a location");
+        if(waitingLayout.length && typeof window.appToast==="function"){
+          const shown = waitingLayout.slice(0,4).join(", ")+(waitingLayout.length>4?" and "+(waitingLayout.length-4)+" more":"");
+          window.appToast("View composition not drafted for "+shown+" \u2014 confirm "+(waitingLayout.length!==1?"their":"its")+" shared layout in Spatial Layout & Staging first, then draft it from the card.");
+        }
         const stages = await Promise.all(stageTargets.map(async l=>{
           try{ return { id:l.id, staging: await aiDraftStaging(l, scenes, project) }; }
           catch(e){ return { id:l.id, staging:null }; }
@@ -5299,13 +5320,41 @@ function App(){
         confirmLabel:"Draft again", cancelLabel:"Cancel" });
       if(!ok) return;
     }
+    /* THE LAYOUT FIRST, EDITS KEPT, FAILURES SAID (2026-10-12, owner — Locations review): it waits while the shared
+       layout is drafting / waiting to be confirmed / not ready (the button says why); a grid edited while the draft
+       ran is never overwritten without asking; a failed draft is said in plain words. */
+    const block = (typeof locationStagingDraftBlock==="function") ? locationStagingDraftBlock(l) : "";
+    if(block){ if(typeof window.appToast==="function") window.appToast(block); return; }
+    const liveLoc = ()=> (locationsRef.current || []).find(x=>x.id===l.id) || null;   // (declared below; read at run time)
+    const basisOf = (x)=> (typeof locationStagingBasis==="function") ? locationStagingBasis(x) : JSON.stringify((x&&x.staging)||null);
+    const basis = basisOf(liveLoc() || l);
+    const name = l.name || "this location";
     setDraftingStageId(l.id);
     const film0 = projIdRef.current;
     try{
-      const staging = await aiDraftStaging(l, scenes, project);
-      if(staging && projIdRef.current===film0) setLocations(ls=>ls.map(x=>x.id===l.id?{...x, staging}:x));
-    }catch(e){}
-    setDraftingStageId(null);
+      const staging = await aiDraftStaging(l, scenes, project, { throwErrors:true });
+      if(!staging || projIdRef.current!==film0) return;
+      const now = liveLoc();
+      if(!now) return;   // removed meanwhile
+      if(basisOf(now)!==basis){
+        // edited while it ran: the edits stay unless the user picks the draft
+        const take = typeof window.appConfirm==="function" && await window.appConfirm({ title:"Use the new view composition?",
+          body:"\u201c"+name+"\u201d\u2019s view composition was edited while the new one was being drafted. Keep your edits, or replace them with the new draft?",
+          confirmLabel:"Use the new draft", cancelLabel:"Keep my edits" });
+        if(!take){
+          if(typeof window.appConfirm!=="function" && typeof window.appToast==="function")
+            window.appToast("\u201c"+name+"\u201d\u2019s view composition was edited while the new one was being drafted \u2014 your edits were kept and the draft wasn't applied.");
+          return;
+        }
+        if(projIdRef.current!==film0) return;
+      }
+      setLocations(ls=>ls.map(x=>x.id===l.id?{...x, staging}:x));
+    }catch(e){
+      if(projIdRef.current===film0 && typeof window.appToast==="function"){
+        const why = (typeof window.agentErrText==="function") ? window.agentErrText(e) : "an unexpected error";
+        window.appToast("Couldn't draft \u201c"+name+"\u201d\u2019s view composition ("+why+"). Nothing was changed \u2014 try again.","error");
+      }
+    }finally{ setDraftingStageId(null); }
   };
   /* SUB-SPACE CLEANUP — when the screenplay folds a sub-structure place ("INT.
      INTAKE BOOTH - NIGHT") under its complex's master card (deriveSubspaceFold),
@@ -7643,8 +7692,38 @@ function App(){
     let _propWork = (props||[]).slice();
     const _propDrafted = (p)=> (typeof propVisualsDrafted==="function") ? propVisualsDrafted(p)
       : !!((p.form||"").trim() && (p.material||"").trim());
+    const _PS = ()=> window.PropScreenplay || null;
     const propmaster = {
-      // pull the cast's own worn/carried items in (dedup handled by propsFromCast)
+      // (2026-10-12, owner) EXTRACT FIRST: has the screenplay already been read for props on this film?
+      extracted: ()=> _propWork.some(p=> p && (p.screenplaySources||[]).length),
+      canExtract: ()=> typeof window.aiExtractScreenplayProps==="function" && (scenes||[]).length>0
+        && !!(typeof aiAvailable!=="function" || aiAvailable()),
+      // the extraction PROPOSES (a writing call per screenplay section); nothing is added here
+      extract: async (isCancelled)=>{
+        const r = await window.aiExtractScreenplayProps(scenes, draftsRef.current||drafts, characters,
+          locations||[], _propWork, null, isCancelled);
+        return r || null;
+      },
+      // apply the reviewed proposals with their default choices (what "Apply" does on the Props tab):
+      // a PATCH onto the live list — new objects added, linked ones updated — never a snapshot
+      applyExtraction: (candidates)=>{
+        const PS = _PS(); if(!PS) return { added:0, linked:0 };
+        const live = draftsRef.current||drafts;
+        const chosen = (candidates||[]).filter(c=>c && c.target!=="skip");
+        if(!chosen.length) return { added:0, linked:0 };
+        const next = PS.accept(_propWork, chosen, live);   // throws when the screenplay changed meanwhile
+        const before = new Set(_propWork.map(p=>p.id));
+        const withScenes = (p)=> Array.isArray(p.scenes) ? withEpisodeSceneRefs(p, p.scenes, scenesRef.current||scenes) : p;
+        const changed = {}; next.forEach(p=>{ if(before.has(p.id) && _propWork.find(x=>x.id===p.id)!==p) changed[p.id]=withScenes(p); });
+        const added = next.filter(p=>!before.has(p.id)).map(withScenes);
+        _propWork = next.map(p=> changed[p.id] || added.find(a=>a.id===p.id) || p);
+        // a linked card is re-linked on its LIVE copy, so an edit made while the run read the screenplay stays
+        _w.setProps(ps=>{ const have = new Set(ps.map(p=>p.id));
+          const relink = (p)=>{ try{ return withScenes(PS.accept([p], chosen.filter(d=>d.target===p.id), live)[0]); }catch(e){ return p; } };
+          return [...ps.map(p=> changed[p.id] ? relink(p) : p), ...added.filter(a=>!have.has(a.id))]; });
+        return { added:added.length, linked:Object.keys(changed).length };
+      },
+      // pull the cast's own worn/carried items in (dedup handled by propsFromCast; carried = proposals)
       deriveCast: ()=>{
         if(typeof propsFromCast!=="function") return 0;
         const add = propsFromCast(characters, [..._propWork, ...((trash&&trash.props)||[])], scenes, drafts);
@@ -7654,7 +7733,9 @@ function App(){
       // draft form/material/detail/renderStyle for every undrafted prop
       draftSpecs: async (force)=>{
         if(typeof aiDesignPropBible!=="function") return 0;
-        const todo = _propWork.filter(p=>force || !_propDrafted(p));
+        // never a proposal — a carried object the screenplay doesn't name (2026-10-12, owner)
+        const PSd = _PS();
+        const todo = _propWork.filter(p=>(force || !_propDrafted(p)) && !(PSd && PSd.isProposal && PSd.isProposal(p)));
         if(!todo.length) return 0;
         const map = await aiDesignPropBible(todo, characters, lbProject("props"));
         if(!map) throw new Error("no specs came back");   // said out loud — it read "Specs already complete" (2026-10-09)
@@ -7674,13 +7755,15 @@ function App(){
         const extracted = _propWork.some(p=> p && (p.screenplaySources||[]).length);
         for(const p of _propWork){
           if(!_propDrafted(p)) continue;
+          // a proposal is never paid for, not even to refresh a sheet it already has (2026-10-12, owner)
+          if(PS && PS.isProposal && PS.isProposal(p)) continue;
           const has = await _grabImg(p.id);
           if(!force && has) continue;
           if(!has){
             if(p.kind==="worn") continue;
             if((p.kind||"carried")==="carried" && !p.ownerId) continue;
             if(PS && PS.sheetTier(p,drafts0).tier==="text") continue;
-            if(PS && extracted && PS.notInScreenplay(p)) continue;
+            if(PS && PS.batchSkip(p, extracted)) continue;   // the batch's rule; a proposal on ANY film (2026-10-12)
             if(PS && PS.nameIssue && PS.nameIssue(p.name)) continue;
           }
           out.push(p);
@@ -7696,10 +7779,12 @@ function App(){
     // ---- Location Scout surface (Locations tab agent): pull → coverage → spec → staging → variants → generate ----
     let _locWork = (locations||[]).slice();
     let stagingFailed = [];   // places whose staging couldn't be drafted in the last pass
+    let stagingWaiting = [];  // places whose staging waits for their shared layout (2026-10-12)
     const _locDrafted = (l)=> (typeof locVisualsDrafted==="function") ? locVisualsDrafted(l)
       : !!((l.architecture||"").trim() && (l.lighting||"").trim());
     const locscout = {
       stagingFailed: ()=> stagingFailed.slice(),
+      stagingWaiting: ()=> stagingWaiting.slice(),
       // pull master places from screenplay headings (new cards), and refresh scene lists / times on existing
       pull: ()=>{
         if(typeof deriveLocations!=="function") return 0;
@@ -7733,7 +7818,11 @@ function App(){
         // where cross-scene geometric continuity matters. Single-scene places generate
         // fine from their prose spec; skip them here (the card's "Draft staging" button
         // still stages any one location on demand).
-        const todo = _locWork.filter(l=>_locDrafted(l) && !l.staging && (l.scenes||[]).length>=2);
+        // the layout first (2026-10-12): never pays for a composition whose shared layout isn't ready — named instead
+        const layoutReady = (l)=>{ try{ if(typeof requireLocationSpatialPlan==="function") requireLocationSpatialPlan(l); return true; }catch(e){ return false; } };
+        const want = _locWork.filter(l=>_locDrafted(l) && !l.staging && (l.scenes||[]).length>=2);
+        stagingWaiting = want.filter(l=>!layoutReady(l)).map(l=>l.name||"a location");
+        const todo = want.filter(layoutReady);
         if(!todo.length) return 0;
         const res = await Promise.all(todo.map(async l=>{ try{ return {id:l.id, staging: await aiDraftStaging(l, scenes, project)}; }catch(e){ return {id:l.id, staging:null, err:e}; } }));
         // the places whose staging couldn't be drafted are named by the agent (2026-10-09 — they were dropped silently)

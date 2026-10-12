@@ -1780,7 +1780,10 @@ window.scaleInfoOf = scaleInfoOf; window.shotScaleClause = shotScaleClause; wind
 function buildScaleSheetPrompt(c){
   const info = scaleInfoOf(c);
   const clean = (x)=>String(x||"").replace(/\s+/g," ").trim().replace(/\.$/,"");
-  const body = clean(c && (c.coreBody||c.look)) || "the character";
+  // (2026-10-12, Character fidelity) the body plus its distinguishing features — face marks drop with a likeness
+  const body = clean(c && ((typeof window.charBodyWithFeatures==="function")
+    ? window.charBodyWithFeatures(c, { likeness:(typeof window.charLikenessGivesFace==="function") && window.charLikenessGivesFace(c) })
+    : (c.coreBody||c.look))) || "the character";
   const tex  = clean(c && c.materialTexture);
   const ht   = clean(c && c.height);
   const ruler = ((typeof scaleRulerFor==="function") ? scaleRulerFor(c) : info.ruler).join(", ");
@@ -2221,7 +2224,11 @@ function buildShotPrompt(sh, ctx){
         : (locWeight==="ambient" ? "a background reference for the grade and surfaces only; the character fills this tight frame" : "reproduce its architecture, surfaces, fixtures, sightlines and signage exactly"))));
   const _castLabels = subjects.filter(c=>_refOff.indexOf(c.id)<0).map(c=> {
     const scale = (typeof canonicalScaleLabel==="function") ? canonicalScaleLabel(c) : (c.name||"character");
-    return c.name+"'s character sheet — match the face, build, hair and wardrobe exactly; canonical scale: "+scale+SHOT_SHEET_IDENTITY_ONLY;
+    // (2026-10-12, Character fidelity) the script's distinguishing features ride with the sheet (face marks drop with a likeness)
+    const feats = (typeof window.charFeaturesForRender==="function") ? String(window.charFeaturesForRender(c)||"").replace(/\.$/,"") : "";
+    return c.name+"'s character sheet — match the face, build, hair and wardrobe exactly"
+      +(feats ? ("; keep their distinguishing features wherever that part of the body is visible: "+feats) : "")
+      +"; canonical scale: "+scale+SHOT_SHEET_IDENTITY_ONLY;
   });
   // STATE-AWARE prop labels: when a prop's ACTIVE appearance state (story-order ≤ this
   // scene) has a generated variant sheet, that variant is what attaches — the label must

@@ -3636,6 +3636,7 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 [data-theme="light"] .prop-kind-badge.dressing{color:oklch(0.45 0.1 150)}
 /* status pills under a prop's name: evidence (not in screenplay) + reference-image tier */
 .prop-status-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.prop-proposed-row{align-items:center}
 .prop-status-pill{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:4px;cursor:help;
   font-family:var(--f-mono);font-size:9px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
   background:var(--bg-3);color:var(--txt-2);border:1px dashed var(--line-2)}
@@ -4666,6 +4667,10 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .phys-row textarea.edit-in{resize:none;overflow:hidden;display:block}
 .phys-row .edit-in:hover{background:var(--bg-3)}
 .phys-row .edit-in:focus{background:var(--bg-4);border-color:var(--line-3);outline:none}
+/* distinguishing features (2026-10-12): the field plus its note about where the details come from */
+.phys-features{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.phys-features .edit-in{flex:0 0 auto;width:calc(100% + 12px)}
+.phys-note{font-size:10.5px;line-height:1.4;color:var(--txt-3)}
 .sheet-rationale{display:flex;gap:7px;align-items:flex-start;font-size:11px;line-height:1.45;color:var(--txt-2);
   font-style:italic;padding:2px 2px 0}
 .sheet-rationale svg{flex:0 0 auto;color:var(--pos-ink);margin-top:2px}

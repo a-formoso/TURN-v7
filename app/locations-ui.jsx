@@ -171,6 +171,14 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   const currentState=()=>locationSpatialPlanState((((window.turnContinuity||{}).locations)||[]).find(x=>x.id===owner.id)||owner);
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
   React.useEffect(()=>{setCandidate(null);setError("");},[owner.id]);
+  // a layout being drafted, or drafted and waiting to be confirmed, holds "Draft view composition" (2026-10-12)
+  const pendingToken=React.useRef({});
+  React.useEffect(()=>{
+    if(typeof setLocationLayoutDraftPending!=="function")return;
+    const id=owner.id,token=pendingToken.current;
+    setLocationLayoutDraftPending(id,token,busy||!!candidate);
+    return ()=>setLocationLayoutDraftPending(id,token,false);
+  },[owner.id,busy,!!candidate]);
   React.useEffect(()=>{if(reviewRequest){setOpen(true);summaryRef.current?.focus({preventScroll:true});}},[reviewRequest]);
   React.useEffect(()=>{const changed=()=>refresh();window.addEventListener("nb-gen-done",changed);
     return ()=>window.removeEventListener("nb-gen-done",changed);},[]);
@@ -832,7 +840,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
               previousSheets:coverageSheets.slice(0,i),parentGenUrl:gen.genUrl,onView}))))),
 
       React.createElement(CardFold,{label:"Spatial Layout & Staging",foldId:layoutFoldId,defaultOpen:initialSection==="layout",
-        count:!spatialState.ready?"layout needs review":locStaged?null:(stagingPrep?"staging\u2026":"drafts on first render")},
+        count:!spatialState.ready?"layout needs review":locStaged?((typeof locationStagingLayoutChanged==="function"&&locationStagingLayoutChanged(l))?"layout changed":null):(stagingPrep?"staging\u2026":"drafts on first render")},
         React.createElement(LocationSpatialPlanEditor,{l,scenes,project,onUpdate,readOnly,reviewRequest:layoutReviewRequest,onReturnToImage:returnToImage}),
         React.createElement(LocationRoomLinks,{entries:roomLocations.map(owner=>({owner,key:owner.id,
           label:owner.name,detail:"Open room layout and staging"})),onSelectLocation,section:"layout"}),
@@ -930,6 +938,18 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
   const columns=[{key:"left",label:"Left"},{key:"center",label:"Centre"},{key:"right",label:"Right"}];
   const isFloor=selected.key==="floor";
   const plane=planes.find(p=>p.key===selected.plane), col=columns.find(c=>c.key===selected.col);
+  /* THE LAYOUT FIRST (2026-10-12): the draft waits for the shared layout (drafting, waiting to be confirmed, or
+     not ready — the plate's own reason); hand edits stay open. A composition drafted from a layout that has
+     changed since says so (plates still render). */
+  const [,refreshLayoutGate]=React.useReducer(n=>n+1,0);
+  React.useEffect(()=>{
+    if(!onDraftStaging)return;
+    const h=()=>refreshLayoutGate();
+    window.addEventListener("loc-layout-draft-pending",h);window.addEventListener("nb-gen-done",h);
+    return ()=>{window.removeEventListener("loc-layout-draft-pending",h);window.removeEventListener("nb-gen-done",h);};
+  },[!!onDraftStaging]);
+  const draftBlock=(onDraftStaging&&!draftingStage&&typeof locationStagingDraftBlock==="function")?locationStagingDraftBlock(l):"";
+  const layoutChanged=!!(onDraftStaging&&typeof locationStagingLayoutChanged==="function"&&locationStagingLayoutChanged(l));
   const selectedLabel=isFloor?"Floor / ground":plane.label+" · "+col.label;
   const selectedValue=isFloor?s.floor:(s[selected.plane]||{})[selected.col];
   const set = (patch)=>{
@@ -944,9 +964,11 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
   return React.createElement("div",{className:"stage-wrap"},
     React.createElement("div",{className:"stage-toolbar"},
       React.createElement("span",{className:"stage-map-title"},"View composition"),
-      onDraftStaging && React.createElement("button",{className:"art-draftall",disabled:draftingStage,onClick:()=>onDraftStaging(l),
-        title:"Draft this view's composition from the script (writing credits) \u2014 asks first when one is already written, because it replaces it"},
+      onDraftStaging && React.createElement("button",{className:"art-draftall",disabled:draftingStage||!!draftBlock,onClick:()=>onDraftStaging(l),
+        title:draftBlock||"Draft this view's composition from the script (writing credits) \u2014 asks first when one is already written, because it replaces it"},
         React.createElement(Icon.sparkles,{s:14}), draftingStage?"Drafting\u2026":"Draft view composition")),
+    draftBlock&&React.createElement("p",{className:"loc-layer-note stage-draft-wait",role:"status"},draftBlock),
+    layoutChanged&&React.createElement("p",{className:"loc-layer-note stage-layout-changed",role:"status"},"Layout changed \u2014 re-draft view composition"),
     React.createElement("div",{className:"stage-composition",role:"group","aria-label":"Camera-relative composition for "+(s.viewLabel||l.name||"this view")},
       React.createElement("div",{className:"stage-map-direction"},target?"Looking toward: "+target:"Farther from the camera"),
       React.createElement("div",{className:"stage-map-columns","aria-hidden":true},

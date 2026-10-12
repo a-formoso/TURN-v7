@@ -557,6 +557,51 @@ function requireLocationSpatialPlan(l){
   if(!state.ready){const e=new Error(state.reason+" ("+(state.owner.name||"Location")+")");e.requiredReference=true;throw e;}
   return state;
 }
+/* VIEW COMPOSITION FOLLOWS THE SHARED LAYOUT (2026-10-12, owner — "go ahead with all of it"). A composition is
+   drafted from the layout, so "Draft view composition" waits while that layout is being drafted or a drafted one
+   waits to be confirmed (registered here by every open layout editor, per owner, per editor instance), and while
+   the layout isn't ready (the plate's own reason). Each drafted composition records the layout it was drafted
+   from (staging.layoutSig); a later change to that layout is said on the composition — never a block. */
+const _locLayoutDraftPending={};
+function setLocationLayoutDraftPending(ownerId,token,on){
+  const id=String(ownerId||""); if(!id||!token)return;
+  const set=_locLayoutDraftPending[id]||(_locLayoutDraftPending[id]=new Set());
+  const had=set.has(token);
+  if(on)set.add(token);else set.delete(token);
+  if(!set.size)delete _locLayoutDraftPending[id];
+  if(had!==!!on){try{window.dispatchEvent(new CustomEvent("loc-layout-draft-pending",{detail:id}));}catch(e){}}
+}
+function locationLayoutDraftPending(ownerId){
+  const set=_locLayoutDraftPending[String(ownerId||"")];
+  return !!(set&&set.size);
+}
+const LOCATION_STAGING_LAYOUT_WAIT="Waiting for the shared layout — confirm it first.";
+/* "" when "Draft view composition" may run for l; otherwise the reason it waits */
+function locationStagingDraftBlock(l){
+  if(!l)return "";
+  const owner=locationSpatialOwner(l);
+  if(locationLayoutDraftPending(owner.id))return LOCATION_STAGING_LAYOUT_WAIT;
+  try{requireLocationSpatialPlan(l);return "";}catch(e){return String(e&&e.message||"Review the shared set layout before rendering.");}
+}
+/* the layout a composition drafted NOW is drafted from (the live owner's layout, as the prompt reads it) */
+function locationStagingLayoutSig(l){
+  try{
+    const owner=locationSpatialOwner(l);
+    const live=(((window.turnContinuity||{}).locations)||[]).find(x=>x.id===owner.id)||owner;
+    return locationSpatialPlanSig(live.spatialPlan);
+  }catch(e){return "";}
+}
+/* true when l's composition was drafted from a layout that has changed since (an unstamped one says nothing) */
+function locationStagingLayoutChanged(l){
+  const sig=String((l&&l.staging&&l.staging.layoutSig)||"");
+  if(!sig||(typeof stagingHasContent==="function"&&!stagingHasContent(l)))return false;
+  const now=locationStagingLayoutSig(l);
+  return !!now&&now!==sig;
+}
+/* what a composition looked like, for "did someone edit it while the draft ran?" (content only) */
+function locationStagingBasis(l){
+  return JSON.stringify(typeof stagingOf==="function"?stagingOf(l||{}):((l&&l.staging)||{}));
+}
 function locationSpatialContract(l,locations){
   const owner=locationSpatialOwner(l,locations);
   const live=(locations||((window.turnContinuity||{}).locations)||[]).find(x=>x.id===owner.id)||owner;
@@ -601,6 +646,13 @@ window.locationSpatialPlanState=locationSpatialPlanState;
 window.locationSpatialPlanSig=locationSpatialPlanSig;
 window.locationSpatialPlanSigFor=locationSpatialPlanSigFor;
 window.requireLocationSpatialPlan=requireLocationSpatialPlan;
+window.setLocationLayoutDraftPending=setLocationLayoutDraftPending;
+window.locationLayoutDraftPending=locationLayoutDraftPending;
+window.LOCATION_STAGING_LAYOUT_WAIT=LOCATION_STAGING_LAYOUT_WAIT;
+window.locationStagingDraftBlock=locationStagingDraftBlock;
+window.locationStagingLayoutSig=locationStagingLayoutSig;
+window.locationStagingLayoutChanged=locationStagingLayoutChanged;
+window.locationStagingBasis=locationStagingBasis;
 window.locationSpatialContract=locationSpatialContract;
 window.locationSpatialPrompt=locationSpatialPrompt;
 window.locationSpatialReferences=locationSpatialReferences;
@@ -1140,19 +1192,22 @@ function locationSceneSetups(l,units){
 function locationCoverageViews(l){
   const stored=Array.isArray(l&&l.coverageViews)?l.coverageViews.filter(Boolean):[];
   if(!stored.length){
-    const staging=stagingOf(l||{});
+    const sig=l&&l.staging&&l.staging.layoutSig;
+    const staging={...stagingOf(l||{}),...(sig?{layoutSig:String(sig)}:{})};
     return [{id:"principal",name:staging.viewLabel||((l&&l.name)||"Location")+" principal view",
       purpose:"Reusable establishing view",cameraPosition:"",target:"",visibleAnchors:"",
       lens:staging.lens||"",staging,legacy:true}];
   }
   return stored.map((v,index)=>{
-    const staging=stagingOf({name:(l&&l.name)||"Location",staging:v.staging||(index===0&&l&&l.staging)||{}});
+    const raw=v.staging||(index===0&&l&&l.staging)||{};
+    const staging=stagingOf({name:(l&&l.name)||"Location",staging:raw});
     const name=String(v.name||staging.viewLabel||("Coverage view "+(index+1)));
     return {...v,id:String(v.id||("view-"+(index+1))),name,
       purpose:String(v.purpose||""),cameraPosition:String(v.cameraPosition||""),
       target:String(v.target||""),visibleAnchors:String(v.visibleAnchors||""),
       lens:String(v.lens||staging.lens||""),
-      staging:{...staging,viewLabel:name,lens:String(v.lens||staging.lens||"")},legacy:false};
+      // the layout it was drafted from survives grid edits (2026-10-12)
+      staging:{...staging,viewLabel:name,lens:String(v.lens||staging.lens||""),...(raw.layoutSig?{layoutSig:String(raw.layoutSig)}:{})},legacy:false};
   });
 }
 function locationProductionPlan(l,units){
@@ -2528,6 +2583,9 @@ async function generateLocationPlate(l, project, opts){
      (a film switch, a role that lost the Art Room) — nothing is sent or written once it says stop; a retry
      with the simpler prompt is a second paid image, so the caller is told (onRetry) */
   const _stale = (id, tok, ep)=> _nbLocStale(id, tok, ep) || !!(typeof o.cancelled==="function" && o.cancelled());
+  // THE LAYOUT FIRST (2026-10-12): a plate its layout would refuse is refused before any composition is written —
+  // nobody pays for a view composition whose plate never comes (the same reason the plate itself gives)
+  if(o.draftStaging && typeof requireLocationSpatialPlan==="function") requireLocationSpatialPlan(l);
   if(o.draftStaging && typeof stagingHasContent==="function" && !stagingHasContent(l)
     && typeof aiDraftStaging==="function" && typeof aiAvailable==="function" && aiAvailable()){
     try{ const st = await aiDraftStaging(l, (window.turnContinuity||{}).scenes||[], project);

@@ -262,7 +262,11 @@ await test("E7 one render-style control: Look dev has no free-text style; the ph
   vm.runInContext(between(art, "function charVisualDefaults(c){", "window.charVisualDefaults"), pb);
   vm.runInContext(between(art, "const RENDER_STYLE_PROMPT_NAMES", "\n") + "\n" + art.split("\n").find(l=>l.startsWith("function renderStylePromptName(")), pb);
   vm.runInContext(between(art, "function charRenderBlock(c){", "window.charRenderBlock"), pb);
+  // (2026-10-12, Character fidelity) the photo-based sheet also sends the body's distinguishing features
+  vm.runInContext(between(art, "const CHAR_PHYS_LABELS", "/* the features a render of this character sends"), pb);
   vm.runInContext(between(art, "function buildRefFromPhotoPrompt(c, project){", "window.buildRefFromPhotoPrompt"), pb);
+  assert.match(pb.buildRefFromPhotoPrompt({ name:"Ana", scriptFeatures:"A scar on the chin. A forearm panel." }, {}),
+    /Distinguishing features \(from the script\), shown in every view where that part of the body is visible: A forearm panel\. /);
   const g = pb.buildRefFromPhotoPrompt({ name:"Ana", renderStyleKey:"ghibli" }, {});
   assert.ok(/RENDER STYLE: Studio Ghibli; hand-painted watercolour animation; warm daylight; pastel\./.test(g), g);
   const legacy = pb.buildRefFromPhotoPrompt({ name:"Ana", renderStyleKey:"ghibli", renderStyle:"ink outlines." }, {});

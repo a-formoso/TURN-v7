@@ -1095,7 +1095,9 @@ function buildCharRefPrompt(c, project, props, o){
      text spec leaves out every face field (age, ethnicity, skin, eyes, hair, face) — a written face could
      contradict the real one. Body build, height, wardrobe and accessories stay. */
   const _lk = !!(o && o.likeness);
-  const body = _lk ? turnLikenessStripFace(vfield(c,"coreBody","look")) : vfield(c,"coreBody","look");
+  const body = _lk ? turnLikenessStripFace(charBodyText(c)) : charBodyText(c);
+  // DISTINGUISHING FEATURES (2026-10-12, Character fidelity): always sent — face / head / hair marks drop with a likeness
+  const feats = charScriptFeatures(c, { likeness:_lk });
   const texture = c.materialTexture || "natural skin pore texture, subsurface scattering, high detail";
   const mask = vfield(c,"wardrobeMask","wardrobe");
   const acc = (c.accessories && !/^none$/i.test(c.accessories.trim())) ? clean(c.accessories) : "";
@@ -1145,7 +1147,7 @@ function buildCharRefPrompt(c, project, props, o){
   // field (the Winston Palmer no-cane QA case). Detection reads only what the
   // spec already says, so nothing is ever invented.
   const _HELD_RX = /\b(cane|walking stick|walking-stick|crutch(?:es)?|staff|walker|zimmer frame|walking frame)\b/i;
-  const _heldSrc = [accAll.join("; "), clean(mask), clean(body), clean(F.build), clean(F.arms)].filter(Boolean).join(" · ");
+  const _heldSrc = [accAll.join("; "), clean(mask), clean(body), clean(F.build), clean(F.arms), clean(feats)].filter(Boolean).join(" · ");
   const _heldM = _heldSrc.match(_HELD_RX);
   let _heldItem = "";
   if(_heldM){
@@ -1161,6 +1163,7 @@ function buildCharRefPrompt(c, project, props, o){
       wants: clean(c.conscious)||undefined,
       physique: hasPhys ? phys : undefined,
       description: (!hasPhys && body) ? clean(body) : undefined,
+      distinguishing_features: feats ? clean(feats) : undefined,
       face_and_hair: _lk ? "from the attached likeness photos (see LIKENESS below) — not described in text" : undefined,
       why_this_look: clean(c.bodyRationale)||undefined,
       height: v.height, scale: v.scaleClass,
@@ -1195,6 +1198,7 @@ function buildCharRefPrompt(c, project, props, o){
     continuity: {
       identity_rule: "the SAME identical face, build and identity in every view",
       anatomy: "true-to-design anatomy and proportions \u2014 never humanize a non-human design",
+      distinguishing_features_rule: feats ? "show every distinguishing feature, in the same place and size, in every view where that part of the body is visible" : undefined,
     },
     render: { ..._rb, rules: _rules, aspect: "16:9" },
     style_name: ((c.renderStyleKey==="surprise" && c.surpriseRender && c.surpriseRender.label)
@@ -1234,6 +1238,9 @@ function buildRefFromPhotoPrompt(c, project){
   let s = "Master character design reference sheet \u2014 "+(c.name||"Character")+". ";
   s += "BASE APPEARANCE: match EXACTLY the face, hair colour & style, skin tone, and physical build ";
   s += "as shown in the reference photo. Do not alter or idealise the subject's appearance. ";
+  // the photo gives the face: only the body's distinguishing features (2026-10-12, Character fidelity)
+  const _feats = charScriptFeatures(c, { likeness:true }).replace(/\.$/,"");
+  if(_feats) s += "Distinguishing features (from the script), shown in every view where that part of the body is visible: "+_feats+". ";
   if(c.role) s += "Role: "+c.role+". ";
   s += mask ? ("Wearing "+mask.replace(/\.$/,"")+acc+". ") : "";
   if(tone) s += tone+" tone. ";
@@ -1270,6 +1277,158 @@ function turnLikenessStripFace(text){
   return parts.length ? parts.join(". ")+"." : "";
 }
 window.turnLikenessStripFace = turnLikenessStripFace;
+/* DISTINGUISHING FEATURES (2026-10-12, owner — Character fidelity, step 1): the physical details the screenplay gives
+   a character (a forearm maintenance panel, a scar, a missing finger) — added when a Production check card or the
+   sheet's QA check is approved, or typed on the card. They live in their own field, `scriptFeatures` (a sibling of
+   `physique`), so editing a physique row or re-drafting the look never rebuilds them away, and they reach every prompt
+   that describes the look: the sheet, its appearance variants, the simplified retry, the scale sheet, the shot frames.
+   Films checked before this field have them appended to `coreBody` after the labelled physique sentences (the old
+   Production check enrichment): read from there where they are shown and sent — saved data is never migrated.
+   While a likeness is locked the face comes from its photos, so a mark on the face, head or hair is left out with the
+   other face fields; marks on the body still go. */
+const CHAR_PHYS_LABELS = [["age","Apparent age"],["ethnicity","Ethnicity"],["skin","Skin tone"],["eyes","Eye colour"],
+  ["hair","Hair"],["face","Face shape"],["build","Body type"],["arms","Arms & hands"],["legs","Legs & feet"]];
+/* the labelled physique sentences, as the look drafter (ai.jsx mapBibleEntry) and the card's row edits write coreBody */
+function charPhysiqueSentences(F){
+  F = F || {};
+  const t = CHAR_PHYS_LABELS.map(([k,lab])=> F[k] && (lab+": "+F[k])).filter(Boolean).join(". ");
+  return t ? (t+".") : "";
+}
+window.charPhysiqueSentences = charPhysiqueSentences;
+const _CHAR_PHYS_LABEL_RX = /^(?:apparent\s+age|age|ethnicity|skin(?:\s+tone)?|eye\s+colou?r|eyes?|hair(?:\s+colou?r)?|face(?:\s+shape)?|facial\s+features?|body\s+type|build|arms?\s*(?:&|and)\s*hands|legs?\s*(?:&|and)\s*feet)\s*:/i;
+/* a mark on the face, head or hair — left out while a likeness gives the face */
+const CHAR_FACE_MARK_RX = /\b(?:face|facial|forehead|brows?|eyebrows?|eyes?|eyelids?|eyelashes|lashes|nose|nostrils?|cheeks?|cheekbones?|jaw|jawline|chin|lips?|mouth|teeth|tooth|ears?|earlobes?|temples?|head|scalp|hair|hairline|beard|moustache|mustache|stubble|freckles?|complexion|dimples?|iris|irises|pupils?)\b/i;
+/* one feature per sentence, semicolon or line */
+function charFeatureItems(text){
+  return String(text||"").split(/[.;]\s+|[.;]$|\n+/)
+    .map(s=> s.replace(/^[\s.;•·\-–—]+|[\s.;]+$/g,"").trim()).filter(Boolean);
+}
+window.charFeatureItems = charFeatureItems;
+/* a saved coreBody split into the labelled physique ("base") and the details the old enrichment appended after it
+   ("tail"). Only when the card has a physique — a hand-typed Body with no physique is sent whole, as before. */
+function charLegacyBodySplit(c){
+  const cb = String((c && c.coreBody) || "").trim();
+  const F = (c && c.physique) || {};
+  const none = { base:cb, tail:"" };
+  if(!cb || !CHAR_PHYS_LABELS.some(([k])=> String(F[k]||"").trim())) return none;
+  const sq = (s)=> String(s||"").replace(/\s+/g," ").trim();
+  const flat = sq(cb), lab = sq(charPhysiqueSentences(F));
+  let base, rest;
+  if(lab && flat.indexOf(lab)===0){ base = lab; rest = flat.slice(lab.length); }
+  else {
+    // a coreBody written slightly differently: everything after the last labelled physique sentence found in it
+    let end = -1;
+    CHAR_PHYS_LABELS.forEach(([k,l])=>{ const v = sq(F[k]); if(!v) return; const seg = l+": "+v; const i = flat.indexOf(seg); if(i>=0) end = Math.max(end, i+seg.length); });
+    if(end<0) return none;
+    base = flat.slice(0,end).replace(/[.\s]+$/,"")+"."; rest = flat.slice(end);
+  }
+  const items = charFeatureItems(rest);
+  const labelled = items.filter(it=> _CHAR_PHYS_LABEL_RX.test(it)), feats = items.filter(it=> !_CHAR_PHYS_LABEL_RX.test(it));
+  if(!feats.length) return none;
+  return { base: labelled.length ? (base.replace(/\.$/,"")+". "+labelled.join(". ")+".") : base, tail: feats.join(". ")+"." };
+}
+window.charLegacyBodySplit = charLegacyBodySplit;
+/* the features as the card's row shows them: the field once it has been saved (even empty — the writer cleared it),
+   else the details appended to an older coreBody */
+function charScriptFeaturesRaw(c){
+  if(!c) return "";
+  return typeof c.scriptFeatures==="string" ? c.scriptFeatures : charLegacyBodySplit(c).tail;
+}
+window.charScriptFeaturesRaw = charScriptFeaturesRaw;
+/* the features for a prompt. o.likeness: a likeness gives the face → face / head / hair marks are left out */
+function charScriptFeatures(c, o){
+  let items = charFeatureItems(charScriptFeaturesRaw(c));
+  if(o && o.likeness) items = items.filter(it=> !CHAR_FACE_MARK_RX.test(it));
+  return items.length ? (items.join(". ")+".") : "";
+}
+window.charScriptFeatures = charScriptFeatures;
+/* the body description without the old appended details (they travel as features now), else the legacy look */
+function charBodyText(c){
+  if(!c) return "";
+  const s = charLegacyBodySplit(c);
+  return s.tail ? s.base : vfield(c,"coreBody","look");
+}
+window.charBodyText = charBodyText;
+/* a usable likeness gives this character's face in renders (one that can't be used here doesn't) */
+function charLikenessGivesFace(c){
+  const i = (c && c.id && typeof turnLikenessInfo==="function") ? turnLikenessInfo(c.id) : null;
+  return !!(i && i.available!==false);
+}
+window.charLikenessGivesFace = charLikenessGivesFace;
+/* the features a render of this character sends, by its likeness */
+function charFeaturesForRender(c, o){
+  const lk = (o && o.likeness!=null) ? !!o.likeness : charLikenessGivesFace(c);
+  return charScriptFeatures(c, { likeness:lk });
+}
+window.charFeaturesForRender = charFeaturesForRender;
+/* body + features in one line (the simplified retry, the scale sheet, the appearance-state suggester) */
+function charBodyWithFeatures(c, o){
+  const lk = !!(o && o.likeness);
+  const body = String(lk ? turnLikenessStripFace(charBodyText(c)) : charBodyText(c)).replace(/\.$/,"").trim();
+  const f = charScriptFeatures(c, { likeness:lk }).replace(/\.$/,"");
+  return [body, f ? ("distinguishing features: "+f) : ""].filter(Boolean).join(". ");
+}
+window.charBodyWithFeatures = charBodyWithFeatures;
+/* the sentence an edit-from-the-master prompt adds (appearance variants), so a variant never loses a scar or a panel */
+function charFeaturesKeepClause(c, o){
+  const f = charFeaturesForRender(c, o).replace(/\.$/,"");
+  return f ? (" Keep every distinguishing feature exactly as on the master, in every view where that part of the body shows: "+f+".") : "";
+}
+window.charFeaturesKeepClause = charFeaturesKeepClause;
+/* saving the card's "Distinguishing features" row: the field, with the old appended copy taken out of coreBody
+   when the writer saves it (their own edit, never a load-time migration) */
+function charFeaturesPatch(c, val){
+  const patch = { scriptFeatures:String(val||"").trim() };
+  const s = charLegacyBodySplit(c);
+  if(s.tail) patch.coreBody = s.base;
+  return patch;
+}
+window.charFeaturesPatch = charFeaturesPatch;
+/* editing one physique row: the physique and its labelled coreBody, as before — and an older card's appended details
+   move into the features field instead of being rebuilt away */
+function charPhysPatch(c, key, val){
+  const nf = { ...((c && c.physique) || {}), [key]:val };
+  const patch = { physique:nf, coreBody:charPhysiqueSentences(nf) };
+  if(c && typeof c.scriptFeatures!=="string"){ const t = charLegacyBodySplit(c).tail; if(t) patch.scriptFeatures = t; }
+  return patch;
+}
+window.charPhysPatch = charPhysPatch;
+/* the sheet QA check's "Apply to spec": the fields the sheet prompt really reads, under the names it sends them by.
+   A likeness gives the face, so its face fields aren't offered then. */
+const CHAR_QA_PHYS_KEYS = { age:"apparent_age", ethnicity:"ethnicity", skin:"skin", eyes:"eyes", hair:"hair", face:"face",
+  build:"build", arms:"arms_hands", legs:"legs_feet" };
+const CHAR_QA_FACE_KEYS = ["age","ethnicity","skin","eyes","hair","face"];
+function charQaSpecFields(c, o){
+  c = c || {};
+  const F = c.physique || {};
+  const hasPhys = CHAR_PHYS_LABELS.some(([k])=> String(F[k]||"").trim());
+  const out = {};
+  if(hasPhys) Object.keys(CHAR_QA_PHYS_KEYS).forEach(k=>{
+    if(o && o.likeness && CHAR_QA_FACE_KEYS.indexOf(k)>=0) return;
+    out[CHAR_QA_PHYS_KEYS[k]] = String(F[k]||"");
+  });
+  else out.body = charBodyText(c);
+  out.distinguishing_features = charScriptFeaturesRaw(c);
+  out.wardrobe = c.wardrobeMask || c.wardrobe || "";
+  out.accessories = c.accessories || "";
+  return out;
+}
+window.charQaSpecFields = charQaSpecFields;
+function charQaSpecPatch(c, patch){
+  c = c || {}; patch = patch || {};
+  const up = {};
+  let nf = null;
+  Object.keys(CHAR_QA_PHYS_KEYS).forEach(k=>{ const pk = CHAR_QA_PHYS_KEYS[k];
+    if(patch[pk]!=null){ nf = nf || { ...(c.physique || {}) }; nf[k] = patch[pk]; } });
+  if(patch.distinguishing_features!=null) Object.assign(up, charFeaturesPatch(c, patch.distinguishing_features));
+  if(nf){ up.physique = nf; up.coreBody = charPhysiqueSentences(nf);
+    if(up.scriptFeatures==null && typeof c.scriptFeatures!=="string"){ const t = charLegacyBodySplit(c).tail; if(t) up.scriptFeatures = t; } }
+  else if(patch.body!=null) up.coreBody = patch.body;
+  if(patch.wardrobe!=null){ if((c.wardrobeMask||"").trim()) up.wardrobeMask = patch.wardrobe; else up.wardrobe = patch.wardrobe; }
+  if(patch.accessories!=null) up.accessories = patch.accessories;
+  return up;
+}
+window.charQaSpecPatch = charQaSpecPatch;
 /* what the store says about a character's likeness on the open film. nbCameoInfo (the store's) when
    this build has it, else today's registry (an older build: every locked likeness is usable). */
 function turnLikenessInfo(charId){
@@ -1459,7 +1618,8 @@ function turnLikenessVariantPrompt(c, st, project, props, ctx){
     const s = "Make the “"+label+"” appearance variant of "+((c&&c.name)||"the character")+"'s character design sheet. "
       +"Image "+ctx.masterImage+" is the master sheet: keep its layout, panel arrangement, framing, render style, build and wardrobe, "
       +"and apply only this appearance change: "+(change||"(no specific change given)")+". "
-      +"The face comes from "+ctx.faceImages+" (the likeness) — the same person in every view. Do not re-imagine the character.";
+      +"The face comes from "+ctx.faceImages+" (the likeness) — the same person in every view. Do not re-imagine the character."
+      +charFeaturesKeepClause(c, { likeness:true });
     const identity = (typeof window.turnIdentityPrompt==="function") ? String(window.turnIdentityPrompt([c])||"").trim() : "";
     return identity ? (s+"\n\nCANONICAL CHARACTER IDENTITY (binding): "+identity) : s;
   }
@@ -1493,12 +1653,14 @@ function buildSimpleCharPromptFor(c, o){
   const F = (c && c.physique) || {};
   const v = charVisualDefaults(c||{});
   const body = [String(F.build||"").replace(/\.$/,"").trim(), v.height ? (v.height+" tall") : ""].filter(Boolean).join(", ")
-    || turnLikenessStripFace((c&&(c.coreBody||c.look))||"").replace(/\.$/,"");
+    || turnLikenessStripFace(charBodyText(c)).replace(/\.$/,"");
+  const feats = charScriptFeatures(c, { likeness:true }).replace(/\.$/,"");   // body marks only: the face is the likeness's
   const wardrobe = String((c&&(c.wardrobeMask||c.wardrobe))||"").replace(/\.$/,"").trim();
   const styleLine = String((charRenderBlock(c||{})||{}).rendering||"").split(/[;,]/)[0].trim();
   const parts = [
     "Character reference — "+((c&&c.name)||"character"),
     body || "",
+    feats ? ("distinguishing features: "+feats) : "",
     wardrobe ? ("wearing "+wardrobe) : "",
     "4-panel casting reference sheet: large close-up face portrait, full-body front view, full-body three-quarter front view, full-body back view",
     "plain grey background, studio lighting, "+(styleLine||"photoreal")+", sharp focus, no text or labels"
@@ -4665,7 +4827,8 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
     +"Apply this appearance change: "+(changeText()||"(no specific change given)")+". "
     +"Keep the EXACT same face, hair colour and style, skin tone, body proportions and identity in every view \u2014 "
     +"only the described change should differ from the reference. "
-    +"Maintain the reference sheet's EXISTING layout, panel arrangement, render style and framing. Do not re-imagine the character.";
+    +"Maintain the reference sheet's EXISTING layout, panel arrangement, render style and framing. Do not re-imagine the character."
+    +charFeaturesKeepClause(c);
   const buildFinal = ()=> baseFinal + " APPEARANCE STATE \u2014 "+(st.label||"variant")+": "
     + (changeText()||"") + ". Render the character in THIS changed state consistently across every panel.";
   const buildSimple = (o)=> buildSimpleCharPromptFor(c, o) + " " + (changeText()||"");
@@ -5112,12 +5275,12 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
               title:voiceOpen?"Voice design is open on this character card":(voiceLocked?("Voice locked: "+((c.voiceLock&&c.voiceLock.voiceName)||"voice")+" \u2014 test or relock"):"Cast a voice \u2014 lock how this character sounds")},
               React.createElement(Icon.mic,{s:12}), "Voice"),
             React.createElement(QaCheckButton,{ gen, name:c.name, noun:"character sheet",
-              specFields:()=>({ body:(c.coreBody||""), wardrobe:(c.wardrobeMask||c.wardrobe||""), accessories:(c.accessories||"") }),
-              onApplySpec:(patch)=>{ const up={};
-                if(patch.body!=null) up.coreBody=patch.body;
-                if(patch.wardrobe!=null){ if((c.wardrobeMask||"").trim()) up.wardrobeMask=patch.wardrobe; else up.wardrobe=patch.wardrobe; }
-                if(patch.accessories!=null) up.accessories=patch.accessories;
-                onUpdate(c.id, up); } })))),
+              // (2026-10-12, Character fidelity) the fields the sheet prompt really reads: the physique rows (face rows
+              // only without a likeness), the distinguishing features, wardrobe, accessories — a fix never lands in a
+              // coreBody the prompt ignores once a physique exists
+              specFields:()=> charQaSpecFields(c, { likeness:charLikenessGivesFace(c) }),
+              onApplySpec:(patch)=>{ const up = charQaSpecPatch(c, patch);
+                if(Object.keys(up).length) onUpdate(c.id, up); } })))),
       // FACE AND VOICE, EACH ITS OWN (2026-10-11, owner — real voices): which face and which voice this character has —
       // "Face: Sam (likeness) · Voice: Sam (real voice)" / "Voice: designed" / "Voice: from the library"
       (()=>{ const line = (typeof window.vcFaceVoiceLine==="function") ? window.vcFaceVoiceLine(lkInfo, c.voiceLock) : "";
@@ -5222,14 +5385,28 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             nf.face&&("Face shape: "+nf.face),nf.build&&("Body type: "+nf.build),
             nf.arms&&("Arms & hands: "+nf.arms),
             nf.legs&&("Legs & feet: "+nf.legs)].filter(Boolean).join(". "); return t?(t+"."):""; };
-          const setPhys=(k,val)=>{ const nf={...F,[k]:val}; onUpdate(c.id,{physique:nf, coreBody:recompose(nf)}); };
+          // (2026-10-12) an older card's appended script details move to the features row, never rebuilt away
+          const setPhys=(k,val)=>{ const pp=charPhysPatch(c,k,val); onUpdate(c.id,{...pp, coreBody:recompose(pp.physique)}); };
+          // DISTINGUISHING FEATURES (2026-10-12, owner — Character fidelity): their own row, sent with every sheet,
+          // variant and shot; a likeness gives the face, so marks on the face, head or hair are left out then
+          const featuresRow = React.createElement("div",{className:"phys-row phys-row-features",key:"Features","data-testid":"char-features"},
+            React.createElement("span",{className:"phys-lab"},"Distinguishing features"),
+            React.createElement("div",{className:"phys-features"},
+              React.createElement(EditText,{value:charScriptFeaturesRaw(c)||"",multiline:true,
+                placeholder:"Scars, marks, implants, a missing finger… from the script",
+                onCommit:val=>onUpdate(c.id, charFeaturesPatch(c, val))}),
+              React.createElement("div",{className:"phys-note"},
+                "From the screenplay — added when you approve a Production check or a sheet check, or typed here. Sent with every sheet, appearance variant and shot."
+                +((lkInfo && lkInfo.available!==false) ? " While a likeness is locked, marks on the face, head or hair are left out — the face comes from the likeness photos." : ""))));
           // long descriptive fields render as auto-growing textareas (ml=true) so the
           // full sentence is always visible; short tokens stay single-line.
           const Row=(lab,val,onC,ml)=> React.createElement("div",{className:"phys-row",key:lab},
             React.createElement("span",{className:"phys-lab"},lab),
             React.createElement(EditText,{value:val||"",placeholder:"\u2014",multiline:!!ml,onCommit:onC}));
-          if(!hasPhys) return React.createElement(SheetField,{label:"Body \u2014 fixed physical tokens",value:vfield(c,"coreBody","look"),multiline:true,
-            placeholder:"Apparent age, ethnicity, skin tone & condition, eye colour, hair, face shape, body type, defining features\u2026",onCommit:val=>onUpdate(c.id,{coreBody:val})});
+          if(!hasPhys) return React.createElement(React.Fragment,null,
+            React.createElement(SheetField,{label:"Body \u2014 fixed physical tokens",value:vfield(c,"coreBody","look"),multiline:true,
+              placeholder:"Apparent age, ethnicity, skin tone & condition, eye colour, hair, face shape, body type, defining features\u2026",onCommit:val=>onUpdate(c.id,{coreBody:val})}),
+            React.createElement("div",{className:"char-phys"}, featuresRow));
           return React.createElement("div",{className:"char-phys"},
             Row("Apparent age",F.age,v2=>setPhys("age",v2),true),
             Row("Ethnicity",F.ethnicity,v2=>setPhys("ethnicity",v2),true),
@@ -5241,6 +5418,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             Row("Facial features",F.face,v2=>setPhys("face",v2),true),
             Row("Arms & hands",F.arms,v2=>setPhys("arms",v2),true),
             Row("Legs & feet",F.legs,v2=>setPhys("legs",v2),true),
+            featuresRow,
             // SCALE CLASS — drives the height sheet's ruler AND the per-shot world-POV rewrite
             // (gigantism / miniaturization / microscopic). A/B/C/D; resolves any legacy free-text value.
             React.createElement("div",{className:"phys-row",key:"Scale"},
@@ -6374,7 +6552,9 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
     { id:"variants", label:"Appearance variants", unit:"variant", n:C.reduce((a,c)=> a + ((c&&c.states)||[]).filter(st=>st && st.sceneId && !img(c.id+":"+st.id)).length, 0) },
     // the props the run really makes (2026-10-09): a worn item gets no sheet of its own (it shows on its owner's),
     // and a carried prop with no owner isn't made either
-    { id:"props",    label:"Prop sheets",         unit:"sheet",   n:P.filter(p=>p && !img(p.id) && p.kind!=="worn" && !((p.kind||"carried")==="carried" && !p.ownerId) && tierOf(p)!=="text").length },
+    // …and never a proposal, nor (once the screenplay was read) an object it didn't establish (2026-10-12)
+    { id:"props",    label:"Prop sheets",         unit:"sheet",   n:P.filter(p=>p && !img(p.id) && p.kind!=="worn" && !((p.kind||"carried")==="carried" && !p.ownerId) && tierOf(p)!=="text"
+        && !(window.PropScreenplay && window.PropScreenplay.batchSkip && window.PropScreenplay.batchSkip(p, P.some(x=>x && (x.screenplaySources||[]).length)))).length },
     { id:"wardrobe", label:"Wardrobe updates",    unit:"re-rendered sheet", n:Math.max(0, Number(wardrobeCount)||0) },
     { id:"plates",   label:"Location plates",     unit:"plate",   n:L.filter(l=>l && !img(l.id)).length },
   ];
@@ -6415,7 +6595,7 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
                 React.createElement("span",{className:"cc-list-n"}, l.n+" "+l.unit+(l.n===1?"":"s"))))),
             note("alert","It can make more than this: missing time-of-day variants for the locations, places and appearance changes it finds in the script, and a wardrobe update for anyone whose worn prop is made in this run. Each image uses credits; what it made shows when it finishes."))
         : note("check","Every sheet and plate already exists — running again refreshes the lookbook, colour and shot coverage (writing credits only) and fills any gaps.","ok"),
-      note("info","It also researches the Lookbook, sets the colour grade and designs shot coverage where it's missing or weak (writing credits). Scenes whose shots you approved or locked keep them. The Lookbook's render style fills every card that has no style yet \u2014 a style already set on a card stays.","info"),
+      note("info","It also researches the Lookbook, reads the screenplay for its props when it hasn't been read yet (the objects it names are added; carried items from the character briefs stay proposals and are never drafted or generated), sets the colour grade and designs shot coverage where it's missing or weak (writing credits). Scenes whose shots you approved or locked keep them. The Lookbook's render style fills every card that has no style yet \u2014 a style already set on a card stays.","info"),
       note("info","Not included: shot frames and storyboards. Render the frames from the Shots tab, then compose the boards in Storyboards.","info"),
       React.createElement("div",{className:"cc-model"},
         React.createElement(Icon.sparkles,{s:12}),

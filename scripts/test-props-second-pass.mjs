@@ -161,7 +161,9 @@ await test("D1 'Generate N missing' always asks with the price on the Props tab 
 await test("D2 the Props Master makes new sheets by the batch's rules", ()=>{
   const g = between(app, "      toGenerate: async (force)=>{", "      generateSheet: async (p)=>{");
   for(const s of ["if(p.kind===\"worn\") continue;", "if((p.kind||\"carried\")===\"carried\" && !p.ownerId) continue;",
-    "PS.sheetTier(p,drafts0).tier===\"text\") continue;", "if(PS && extracted && PS.notInScreenplay(p)) continue;", "PS.nameIssue(p.name)) continue;"]) assert.ok(g.includes(s), s);
+    "PS.sheetTier(p,drafts0).tier===\"text\") continue;", "if(PS && PS.batchSkip(p, extracted)) continue;", "PS.nameIssue(p.name)) continue;"]) assert.ok(g.includes(s), s);
+  // (2026-10-12, owner) a proposal is never paid for, not even a forced refresh of a sheet it has
+  assert.ok(g.indexOf("if(PS && PS.isProposal && PS.isProposal(p)) continue;") < g.indexOf("const has = await _grabImg(p.id);"));
   assert.ok(g.indexOf("if(!force && has) continue;") < g.indexOf("if(!has){"), "an existing sheet is still remade on a forced run");
 });
 await test("D3 a failed draft isn't paid for twice; Surprise me and the critique say they use writing credits", ()=>{

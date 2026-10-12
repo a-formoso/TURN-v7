@@ -280,6 +280,11 @@ function findDuplicateProps(props){
 }
 window.findDuplicateProps = findDuplicateProps;
 
+/* A character brief's items (owner 2026-10-12: carried props come from the screenplay). WORN items —
+   the watch, the scarf, the jewellery that come from designing how a character looks — become worn
+   cards. A CARRIED item becomes a PROPOSAL, never a story prop: it is saved in the group "proposed"
+   (PropScreenplay.isProposal) until the user keeps it or Extract screenplay props finds it in the
+   screenplay; batches and agents never pay for it (PropScreenplay.batchSkip). */
 function propsFromCast(characters, existing, scenes, drafts){
   const have = existing || [];
   // WORN items belong to their owner, so they're present wherever the owner is — map them
@@ -301,7 +306,7 @@ function propsFromCast(characters, existing, scenes, drafts){
       const card = {
         id: "prop-"+(c.id||"x")+"-"+kind+"-"+propSlug(item)+"-"+(out.length),
         name: item.replace(/^\w/, m=>m.toUpperCase()),
-        kind, inventoryGroup:kind==="worn"?"accessories":"story", ownerId: c.id||"", ownerName: c.name||"",
+        kind, inventoryGroup:kind==="worn"?"accessories":kind==="carried"?"proposed":"story", ownerId: c.id||"", ownerName: c.name||"",
         form:"", material:"", detail:"", renderStyle:"", negativePrompt:"",
         fromCast:true,
         // This is a department design proposal copied from a character brief. It is
@@ -331,6 +336,7 @@ function propOriginLabel(prop){
     if(o.kind==="costume") return "Costume department design proposal from "+who+"'s character brief";
     if(o.kind==="props") return "Props department design proposal from "+who+"'s character brief";
     if(o.kind==="set-decoration") return "Set Decoration department design proposal";
+    if(o.kind==="design") return "Design proposal from a selected item in "+(o.sourceName||"an Art Room image");
     if(o.kind==="manual") return "Added manually in Props";
     return "Origin not recorded";
   }
@@ -1053,6 +1059,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
   const finalPrompt = combinedPropPrompt(p, project);
   const drafted = propVisualsDrafted(p);
   const unverified = window.PropScreenplay.notInScreenplay(p);
+  const proposed = window.PropScreenplay.isProposal(p);   // a carried object the screenplay hasn't named (2026-10-12)
   const tier = window.PropScreenplay.sheetTier(p, drafts);
 
   // render style — same dropdown + "Surprise me" behaviour as the character cards
@@ -1350,6 +1357,17 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             React.createElement("span",{className:"prop-status-pill",
               title:"Text only ("+tier.reason.toLowerCase()+"). Shots describe this object from its specification instead of attaching an image, and batch generation skips it. Change it in Object → Reference image, or generate an image on this card — an existing image is always used."},
               React.createElement(Icon.layers,{s:10}),"Text only")),
+          // PROPOSED (owner 2026-10-12): carried props come from the screenplay. A carried item from a
+          // character brief (or a selected image) waits here until the user keeps it or Extract
+          // screenplay props finds it in the screenplay; batches and agents never pay for it.
+          proposed && React.createElement("div",{className:"prop-status-row prop-proposed-row"},
+            React.createElement("span",{className:"prop-status-pill unverified",
+              title:propOriginLabel(p)+". The screenplay doesn't name this carried object, so it isn't a story prop: Generate all images, Draft all specifications and the agents leave it alone. Run Extract screenplay props — if the screenplay names it, link the passage and it becomes a story prop. Or keep it as your own prop, or delete it."},
+              React.createElement(Icon.alert,{s:10}),"Proposed — not in the screenplay"),
+            React.createElement("button",{type:"button",className:"char-draft-btn ghost",
+              title:"Keep this object as a prop you own — it moves to Story props and batches can then draft it and make its image. It keeps its origin and its Not in screenplay badge.",
+              onClick:()=>onUpdate(p.id, window.PropScreenplay.acceptPatch())},
+              React.createElement(Icon.check,{s:12}),"Keep this prop")),
           p.kind==="dressing" && React.createElement("div",{className:"prop-worn-note",
             title:"Two ways to place this fixture into its location's plate: open the plate's Edit panel and click this fixture's Set-dressing chip (inserts an edit instruction built from this card's spec), or \u2014 once this sheet is generated \u2014 use the chip's attach button to ALSO ride this sheet along as a reference image, locking the exact design."},
             React.createElement(Icon.sparkles,{s:12}),
@@ -1513,7 +1531,10 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
         // MORE DETAIL (2026-10-03, owner — Props review): the fields most people never need
         React.createElement("details",{className:"prop-more-fields"},React.createElement("summary",null,"More detail \u2014 other names, identity, custodian, origin, dimension source, content"),
         React.createElement("label",{className:"sheet-field"},React.createElement("span",{className:"obj-lab"},"Inventory group"),
-          React.createElement("select",{className:"prop-select",value:window.PropScreenplay.group(p),onChange:e=>onUpdate(p.id,{inventoryGroup:e.target.value})},
+          // choosing a group for a proposal is keeping it (the user's explicit choice — 2026-10-12)
+          React.createElement("select",{className:"prop-select",value:window.PropScreenplay.group(p),onChange:e=>onUpdate(p.id,proposed
+              ? { ...window.PropScreenplay.acceptPatch(), inventoryGroup:e.target.value } : {inventoryGroup:e.target.value})},
+            proposed && React.createElement("option",{value:"proposed",disabled:true},"Proposed — not in the screenplay"),
             React.createElement("option",{value:"story"},"Story props"),React.createElement("option",{value:"accessories"},"Wardrobe & accessories"))),
         React.createElement(SheetField,{label:"Other names for this same object",value:(p.aliases||[]).join("; "),placeholder:"Medication notebook; dose log",onCommit:val=>onUpdate(p.id,{aliases:val.split(";").map(s=>s.trim()).filter(Boolean)})}),
         React.createElement(SheetField,{label:"Identity — distinguish from similar objects",value:p.identityNote,multiline:true,placeholder:"Marcus's phone, not Daniel's. The same phone travels between locations.",onCommit:val=>onUpdate(p.id,{identityNote:val})}),
@@ -1573,12 +1594,13 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           text:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt) || finalPrompt}))));
 }
 
-function PropExtractionReview({review,onChange,onApply,onClose,props,characters,locations,error}){
+function PropExtractionReview({review,onChange,onApply,onClose,props,characters,locations,error,continueNote}){
   const h=React.createElement, update=(id,patch)=>onChange({...review,candidates:review.candidates.map(p=>p.reviewId===id?{...p,...patch}:p)});
   const selected=review.candidates.filter(p=>p.target!=="skip");
   return h("section",{className:"prop-extract-review","aria-label":"Review screenplay props"},
     h("div",{className:"prop-extract-heading"},h("div",null,h("h3",null,"Review screenplay props"),h("p",null,"Keep separate objects separate. Link only when a passage describes the same physical object. Existing images and design fields are preserved.")),
       h("button",{className:"char-draft-btn ghost",onClick:onClose},"Discard proposals")),
+    continueNote&&h("p",{role:"status"},continueNote),
     !!review.failures.length&&h("div",{className:"prop-review-warning",role:"alert"},"Partial extraction — these sections could not be read. You can apply the successful proposals, then retry extraction. ",review.failures.join(" · ")),
     !!review.rejected&&h("p",{className:"prop-review-warning"},review.rejected+" unverified or incomplete result(s) were excluded. Only exact screenplay passages are accepted as evidence."),
     !review.candidates.length&&h("p",null,"No verifiable objects found. Your inventory has not changed."),
@@ -1622,22 +1644,48 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   const extractionRun=React.useRef(0);
   const scopeKey=JSON.stringify([project&&project.id,project&&project.title,(scenes||[]).map(s=>s.id)]);
   React.useEffect(()=>{extractionRun.current++;setReview(null);setExtraction(null);setExtractionError("");return ()=>{extractionRun.current++;};},[scopeKey]);
-  const extractProps=async()=>{
+  // EXTRACT FIRST (owner 2026-10-12): "Draft all specifications" starts by reading the screenplay for its
+  // props, so the real carried props exist before anything else. The extraction still only PROPOSES: the
+  // draft waits for the review (apply or discard), then runs on the film as it is after it.
+  const extractedOnce=React.useRef(false);      // the screenplay was read for props in this session
+  const pendingDraft=React.useRef(null);        // a Draft all waiting for the extraction's review
+  const [draftQueued,setDraftQueued]=React.useState(null);
+  const releaseDraft=()=>{ const q=pendingDraft.current; pendingDraft.current=null; if(q) setDraftQueued({mode:q.mode}); };
+  React.useEffect(()=>{ if(!draftQueued) return; const m=draftQueued.mode; setDraftQueued(null); onDraftAll(m); },[draftQueued]);
+  React.useEffect(()=>{ pendingDraft.current=null; },[scopeKey]);
+  const extractProps=async(opts)=>{
     if(extraction)return;
     const gate=extractionRun.current;
-    const ok=typeof window.appConfirm!=="function"||await window.appConfirm({title:"Extract screenplay props?",body:"The writing model will read every screenplay scene and propose objects with exact source passages. This uses writing-model credits, not image credits. Nothing is added until you review and apply it.",confirmLabel:"Extract props"});
-    if(!ok||gate!==extractionRun.current)return;
+    const ok=(opts&&opts.confirmed)||typeof window.appConfirm!=="function"||await window.appConfirm({title:"Extract screenplay props?",body:"The writing model will read every screenplay scene and propose objects with exact source passages. This uses writing-model credits, not image credits. Nothing is added until you review and apply it.",confirmLabel:"Extract props"});
+    if(!ok||gate!==extractionRun.current){ pendingDraft.current=null; return; }
     const run=++extractionRun.current;setExtraction({done:0,total:0});setExtractionError("");setReview(null);
     try{
       const result=await window.aiExtractScreenplayProps(scenes,drafts,characters,((window.turnContinuity||{}).locations)||[],props,
         p=>{if(run===extractionRun.current)setExtraction(p);},()=>run!==extractionRun.current);
-      if(run===extractionRun.current&&result)setReview(result);
-    }catch(e){if(run===extractionRun.current)setExtractionError(e.message||"Extraction failed. Nothing was changed.");}
+      if(run===extractionRun.current&&result){
+        extractedOnce.current=true; setReview(result);
+        if(!(result.candidates||[]).length) releaseDraft();   // nothing to review: the draft goes on
+      } else if(run===extractionRun.current) pendingDraft.current=null;
+    }catch(e){if(run===extractionRun.current){pendingDraft.current=null;setExtractionError(e.message||"Extraction failed. Nothing was changed.");}}
     finally{if(run===extractionRun.current)setExtraction(null);}
   };
   const applyExtraction=()=>{
-    try{onImportProps(review.candidates);setReview(null);setExtractionError("");setInventoryGroup("story");}
+    try{onImportProps(review.candidates);setReview(null);setExtractionError("");setInventoryGroup("story");releaseDraft();}
     catch(e){setExtractionError(e.message||"Could not apply proposals.");}
+  };
+  const discardExtraction=()=>{ setReview(null); releaseDraft(); };
+  const draftAllFlow=async(mode)=>{
+    if(draftingAll||extraction||pendingDraft.current) return;
+    const read=(props||[]).some(p=>p&&(p.screenplaySources||[]).length) || extractedOnce.current;
+    if(read || !(scenes||[]).length || typeof window.aiExtractScreenplayProps!=="function"){ onDraftAll(mode); return; }
+    const res=typeof window.appConfirm!=="function" ? true : await window.appConfirm({
+      title:"Read the screenplay for its props first?",
+      body:"Draft all specifications starts with Extract screenplay props: the writing model reads every screenplay scene and proposes the objects it names, with their passages, for your review (writing credits, no images). Carried props come from the screenplay — a carried item from a character brief stays a proposal until you keep it or the screenplay names it. The specifications are drafted after your review.",
+      confirmLabel:"Extract, then draft", altLabel:"Draft only", cancelLabel:"Cancel" });
+    if(res==="alt"){ onDraftAll(mode); return; }
+    if(res!==true) return;
+    pendingDraft.current={mode};
+    await extractProps({confirmed:true});
   };
   const [searchOpen, setSearchOpen] = React.useState(false);  // collapsible search: icon-only until clicked
   const searchRef = React.useRef(null);
@@ -1691,15 +1739,13 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
     if(typeof scenesWhereCharacterAppears!=="function") return m;
     // does THIS scene's script/summary actually name the object? (head noun, or a
     // meaningful word of its name — 4+ letters so "of"/"the" never match)
-    const namesIt = (p, s)=>{
-      const hay = (((typeof window.sceneScriptText==="function") ? window.sceneScriptText(s.id, drafts) : "")
-        +" "+(s.summary||"")).toLowerCase();
-      if(!hay.trim()) return false;
-      const head = propHeadNoun(p.name);
-      if(head && hay.indexOf(head)>=0) return true;
-      return String(p.name||"").toLowerCase().split(/[^a-z0-9]+/)
-        .filter(w=>w.length>=4).some(w=> hay.indexOf(w)>=0);
-    };
+    // EXACT NAME ONLY (owner 2026-10-12): an object the screenplay hasn't established is pinned
+    // to a scene only where its action text names it in full — a loose noun ("phone" for an
+    // invented "smartphone") used to put brief-only objects into scenes and then into shots
+    const exactScenes = (p)=> new Set(propScreenplayMentions(p, scenes, drafts).filter(m=>m.match==="exact"
+      && !/^(dia|dialogue|dialog|parenthetical|transition)$/i.test(String(((((drafts||{})[m.sceneId]||{}).blocks||[])[m.block-1]||{}).type||"")))
+      .map(m=>m.sceneId));
+    const namesIt = (p, s, hits)=> hits.has(s.id);
     list.forEach(p=>{
       if(Array.isArray(p.scenes)) return;
       if(!(p.ownerId || p.ownerName)) return;
@@ -1713,7 +1759,8 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
         const ids = window.PropScreenplay.characterScenes(p.ownerId,p.ownerName,scenes,drafts,characters) || [];
         if(ids.length) m[p.id] = ids;
       } else {
-        const ids = (scenes||[]).filter(s=>namesIt(p,s)).map(s=>s.id);
+        const hits = exactScenes(p);
+        const ids = (scenes||[]).filter(s=>namesIt(p,s,hits)).map(s=>s.id);
         if(ids.length) m[p.id] = ids;
       }
     });
@@ -1732,7 +1779,8 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   const kindCountBase = (sceneFilter ? list.filter(p=>inScene(p, sceneFilter)) : list).filter(matchesQuery);
   // carried props with no owner — they'd generate WORLD-GENERIC (no character anchor)
   const unassignedCarried = list.filter(p=> kindOf(p)==="carried" && !p.ownerId);
-  // "unverified" is a view, not a group: objects the screenplay hasn't established yet
+  // "unverified" is a view, not a group: objects the screenplay hasn't established yet.
+  // "proposed" IS a group (PropScreenplay.group): carried objects nobody established (2026-10-12)
   const inView = (p)=> inventoryGroup==="all" || (inventoryGroup==="unverified"
     ? window.PropScreenplay.notInScreenplay(p) : window.PropScreenplay.group(p)===inventoryGroup);
   const shown = kindCountBase.filter(inView);
@@ -1812,9 +1860,11 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   // BATCHES (2026-10-03, owner — Props review): only drafted objects that need their own image,
   // and — once the screenplay has been extracted — never one it didn't establish ("Not in
   // screenplay", proposed from a character brief); those can still be made on their own card.
-  // Before any extraction every card is "not in screenplay", so the flag says nothing yet.
+  // (2026-10-12, owner) A PROPOSAL — a carried object nobody established — is skipped on EVERY
+  // film, extracted or not; worn items from the character design and kept cards can still be made.
   const extracted = list.some(p=> (p.screenplaySources||[]).length);
-  const unverifiedSkip = (p)=> extracted && window.PropScreenplay.notInScreenplay(p);
+  const unverifiedSkip = (p)=> window.PropScreenplay.batchSkip(p, extracted);
+  const proposalN = list.filter(p=>window.PropScreenplay.isProposal(p)).length;
   const draftedIds = (subset)=> subset.filter(p=>propVisualsDrafted(p) && p.kind!=="worn" && ownImage(p)
     && !window.PropScreenplay.nameIssue(p.name) && !unverifiedSkip(p)).map(p=>p.id);
   // batch never makes a WORLD-GENERIC carried prop: an owned object needs its owner's
@@ -1879,6 +1929,8 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
         ? "Every prop that needs its own image already has one."
         : draftedAll.length
         ? "Every drafted carried prop has no owner \u2014 assign one on each card first (batch generation won't make world-generic sheets)."
+        : (proposalN && !list.some(p=>!window.PropScreenplay.isProposal(p) && p.kind!=="worn"))
+        ? "Nothing to generate yet \u2014 every carried object here is a proposal the screenplay doesn't name. Keep the ones you want, or run Extract screenplay props."
         : "Draft the prop specifications first \u2014 nothing is ready to generate yet.");
       return;
     }
@@ -1893,7 +1945,8 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
     batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length, { alwaysAsk:true });
   };
   const eligibleAll = readyIds(list).length;
-  const undraftedN = list.filter(p=>!propVisualsDrafted(p) && !window.PropScreenplay.nameIssue(p.name)).length;
+  // proposals aren't drafted by Draft all (2026-10-12) — they aren't counted on its button either
+  const undraftedN = list.filter(p=>!propVisualsDrafted(p) && !window.PropScreenplay.nameIssue(p.name) && !window.PropScreenplay.isProposal(p)).length;
   const sceneNoOf = (sid)=>{ const s=(scenes||[]).find(x=>x.id===sid); return s?s.no:sid; };
 
   return React.createElement("div",{className:"art-scroll"},
@@ -1908,15 +1961,15 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
             ((typeof roomCopy==="function" && roomCopy(project,"props").title) || "Props Master"),
             React.createElement(window.InfoTip,{label:"About Props",
               text:((typeof roomCopy==="function" && roomCopy(project,"props").tip) ||
-                "Continuity objects \u2014 the things characters wear and carry, plus the set dressing the camera sees. Carried and set-dressing props get their own multi-view reference image (worn items render on their owner's character sheet instead). Draft all specifications fills the design fields and maps scene appearances; Generate all images then renders the drafted objects that need their own image \u2014 objects the screenplay only shows once, never handled, are TEXT ONLY and described in shot prompts instead. Each card records whether it came from an explicit screenplay extraction, a department proposal based on a character brief, or manual entry; objects the screenplay hasn't established carry a Not in screenplay badge. Matching screenplay words are shown separately as discovery evidence, not proof of origin or object identity.")}))),
+                "Continuity objects \u2014 the things characters wear and carry, plus the set dressing the camera sees. Carried and set-dressing props get their own multi-view reference image (worn items render on their owner's character sheet instead). Draft all specifications fills the design fields and maps scene appearances; Generate all images then renders the drafted objects that need their own image \u2014 objects the screenplay only shows once, never handled, are TEXT ONLY and described in shot prompts instead. Each card records whether it came from an explicit screenplay extraction, a department proposal based on a character brief, or manual entry; objects the screenplay hasn't established carry a Not in screenplay badge. Carried props come from the screenplay: a carried item from a character brief waits under Proposed \u2014 not in the screenplay (batches and agents leave it alone) until you keep it or Extract screenplay props finds it. Matching screenplay words are shown separately as discovery evidence, not proof of origin or object identity.")}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{items:trashItems,kind:"prop",onRestore,onPurge,compact:true}),
           React.createElement("button",{className:"art-draftall ghost",disabled:!!extraction||draftingAll||!scenes.length,onClick:extractProps,
             title:"Read every scene with the writing model and propose the story's objects for your review (writing credits, no images)"},React.createElement(Icon.layers,{s:14}),extraction?"Reading screenplay…":"Extract screenplay props"),
-          (undraftedN>0 || (!list.length && castHasProps)) && React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll,onClick:()=>onDraftAll(),
-            title:"Draft the specification of every prop that doesn't have one yet (finished and edited cards are left alone) and map each prop to its scene appearances \u2014 writing credits, no images"},
+          (undraftedN>0 || (!list.length && castHasProps)) && React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll||!!extraction,onClick:()=>draftAllFlow(),
+            title:"Read the screenplay for its props first (Extract screenplay props, for your review \u2014 once per film), then draft the specification of every prop that doesn't have one yet (finished and edited cards and proposals are left alone) and map each prop to its scene appearances \u2014 writing credits, no images"},
             React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":(list.length ? "Draft "+undraftedN+" specification"+(undraftedN!==1?"s":"") : "Draft all specifications")),
-          (list.length>0 && !undraftedN) && React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll,onClick:()=>onDraftAll("redraft"),
+          (list.length>0 && !undraftedN) && React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll||!!extraction,onClick:()=>draftAllFlow("redraft"),
             title:"Write every prop's design again from the script \u2014 asks first; replaces the current specs, including your edits"},
             React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":"Redraft all\u2026"),
           missingAll.length>0 && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId,onClick:()=>startAllBatch(true),
@@ -1929,9 +1982,10 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
             React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Regenerate images\u2026")))),
     extraction&&React.createElement("div",{className:"prop-review-actions",role:"status"},
       React.createElement("span",null,"Reading screenplay "+extraction.done+" / "+extraction.total+(extraction.sceneNo?" · Scene "+extraction.sceneNo:"")),
-      React.createElement("button",{className:"char-draft-btn ghost",onClick:()=>{extractionRun.current++;setExtraction(null);}},"Cancel")),
+      React.createElement("button",{className:"char-draft-btn ghost",onClick:()=>{extractionRun.current++;pendingDraft.current=null;setExtraction(null);}},"Cancel")),
     extractionError&&!review&&React.createElement("p",{className:"prop-review-warning",role:"alert"},extractionError),
-    review&&React.createElement(PropExtractionReview,{review,onChange:setReview,onApply:applyExtraction,onClose:()=>setReview(null),props:list,characters:characters||[],locations:((window.turnContinuity||{}).locations)||[],error:extractionError}),
+    review&&React.createElement(PropExtractionReview,{review,onChange:setReview,onApply:applyExtraction,onClose:discardExtraction,props:list,characters:characters||[],locations:((window.turnContinuity||{}).locations)||[],error:extractionError,
+      continueNote:pendingDraft.current?"Draft all specifications continues when you apply or discard these proposals.":""}),
     unassignedCarried.length>0 && React.createElement("div",{className:"prompt-drift-note",style:{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}},
       React.createElement("span",{style:{flex:1,minWidth:220}},
         React.createElement("b",null,unassignedCarried.length+" carried prop"+(unassignedCarried.length!==1?"s":"")),
@@ -1942,6 +1996,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
       React.createElement("label",{className:"prop-scenebar"},"Show",React.createElement("select",{className:"prop-select",value:inventoryGroup,"aria-label":"Prop inventory group",onChange:e=>setInventoryGroup(e.target.value)},
         React.createElement("option",{value:"story"},"Story props ("+list.filter(p=>window.PropScreenplay.group(p)==="story").length+")"),
         React.createElement("option",{value:"accessories"},"Wardrobe & accessories ("+list.filter(p=>window.PropScreenplay.group(p)==="accessories").length+")"),
+        React.createElement("option",{value:"proposed"},"Proposed \u2014 not in the screenplay ("+proposalN+")"),
         React.createElement("option",{value:"all"},"All objects ("+list.length+")"),
         React.createElement("option",{value:"unverified"},"Not in screenplay ("+list.filter(p=>window.PropScreenplay.notInScreenplay(p)).length+")"))),
       list.length>0 && React.createElement("div",{className:"prop-searchbar collapsible"+((searchOpen||q)?" open":""),
@@ -2011,16 +2066,18 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
                 React.createElement("div",{className:"art-soon-t"},"No objects in this view"),
                 React.createElement("div",{className:"art-soon-d"},inventoryGroup==="unverified"
                   ? "Every object here is established by the screenplay or was added by hand."
+                  : inventoryGroup==="proposed"
+                  ? "No proposals \u2014 every carried object here comes from the screenplay, was added by hand, or is one you kept."
                   : "Extract screenplay props to find story objects. Existing wardrobe accessories remain available in All objects."),
                 React.createElement("button",{className:"art-draftall",style:{marginTop:16},onClick:()=>{setSceneFilter("");setInventoryGroup("all");}},"Show all objects")))
       : React.createElement("div",{className:"prop-empty"},
           React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon.box,{s:30})),
           React.createElement("div",{className:"art-soon-t"},"No props yet"),
           React.createElement("div",{className:"art-soon-d"}, castHasProps
-            ? "Your cast already lists worn & carried items on their character sheets \u2014 \u201cDraft all specifications\u201d pulls them in as department proposals, drafts each spec, and maps their scenes in one pass. Or add one by hand."
+            ? "Your cast already lists worn & carried items on their character sheets \u2014 \u201cDraft all specifications\u201d first reads the screenplay for its props (for your review), then adds the worn items, lists the carried ones the screenplay doesn't name as proposals, drafts each spec and maps their scenes. Or add one by hand."
             : "Add a prop to start building its reference sheet \u2014 a weapon, a phone, a talisman, anything that recurs across scenes."),
           React.createElement("div",{className:"prop-empty-actions"},
-            castHasProps && React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:()=>onDraftAll()},
+            castHasProps && React.createElement("button",{className:"art-draftall",disabled:draftingAll||!!extraction,onClick:()=>draftAllFlow()},
               React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":"Draft all specifications"),
             React.createElement("button",{className:castHasProps?"art-draftall ghost":"art-draftall",onClick:onAdd},
               React.createElement(Icon.plus,{s:14}),castHasProps?"Add by hand":"Add your first prop"),

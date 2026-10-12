@@ -24,8 +24,11 @@
     }).map(s=>s.id);
   }
   function group(p){
-    if(p.inventoryGroup) return p.inventoryGroup;
-    if((p.screenplaySources||[]).length || p.manual) return "story";
+    // a carried object nobody established is shown as a proposal, whatever group it was saved in
+    // (display only — stored cards are never moved or migrated)
+    if(isProposal(p)) return "proposed";
+    if(p.inventoryGroup && p.inventoryGroup!=="proposed") return p.inventoryGroup;
+    if((p.screenplaySources||[]).length || p.manual || p.proposalAccepted) return "story";
     const k=root.classifyPropKind?root.classifyPropKind(p.name):"";
     return (k||p.kind)==="worn" ? "accessories" : "story";
   }
@@ -40,6 +43,28 @@
   function notInScreenplay(p){
     const o=p&&p.origin&&typeof p.origin==="object"?p.origin:null;
     return !!p && !p.manual && !(o&&o.kind==="manual") && !(p.screenplaySources||[]).length;
+  }
+  /* CARRIED PROPS COME FROM THE STORY (owner 2026-10-12): a CARRIED object the screenplay hasn't
+     established (no reviewed passage), that wasn't added by hand and that the user hasn't chosen to
+     keep, is a PROPOSAL — shown in its own group "Proposed — not in the screenplay", never a story
+     prop. It stops being one when Extract screenplay props links a passage to it (then it's a story
+     prop with its evidence) or when the user keeps it (acceptPatch — their explicit choice; the card
+     keeps its design origin and its "Not in screenplay" badge). Worn items from the character design
+     and set dressing are never proposals. */
+  function isProposal(p){
+    return !!p && (p.kind||"carried")==="carried" && !p.proposalAccepted && notInScreenplay(p);
+  }
+  function acceptPatch(now){
+    return {proposalAccepted:true,proposalAcceptedAt:now||new Date().toISOString(),inventoryGroup:"story"};
+  }
+  /* What a BATCH or an AGENT may not pay for (images or writing): a proposal, on any film; and, once
+     the screenplay has been read (extracted = some card has reviewed evidence), any other object it
+     didn't establish — except worn items from the character design and cards the user keeps
+     (hand-added or accepted). A single card's own buttons still work: that is the user's choice. */
+  function batchSkip(p,extracted){
+    if(!p) return true;
+    if(isProposal(p)) return true;
+    return !!extracted && (p.kind||"carried")!=="worn" && !p.proposalAccepted && notInScreenplay(p);
   }
   // Whether an object earns its own reference image. "text" objects are described in
   // shot prompts instead, so batch generation and shot renders don't spend image
@@ -130,10 +155,12 @@
       const next={...base,aliases:uniq([...(base.aliases||[]),...d.aliases,...(old&&norm(old.name)!==norm(d.name)?[d.name]:[])]),
         screenplaySources:es,screenplaySourceHistory:history,scenes:uniq(es.filter(e=>physical.has(e.presence)&&sourceValid(e,drafts)).map(e=>e.sceneId)),
         continuityEvents:events,contentNotes:base.contentNotes||d.contentNotes,identityNote:base.identityNote||d.identityNote,
-        extractionWarnings:uniq([...(base.extractionWarnings||[]),...d.warnings]),screenplayReviewed:true};
+        extractionWarnings:uniq([...(base.extractionWarnings||[]),...d.warnings]),screenplayReviewed:true,
+        // a proposal the screenplay turns out to name becomes a story prop in the reviewed group
+        ...(old&&isProposal(old)?{inventoryGroup:d.inventoryGroup==="accessories"?"accessories":"story"}:{})};
       if(old) out=out.map(p=>p.id===id?next:p); else out.push(next);
     });
     return out;
   }
-  root.PropScreenplay={sourceValid,sources,scenesFor,characterScenes,group,nameIssue,notInScreenplay,sheetTier,sourceKey,mergeBy,chunks,normalizeResult,accept,physical};
+  root.PropScreenplay={sourceValid,sources,scenesFor,characterScenes,group,nameIssue,notInScreenplay,isProposal,acceptPatch,batchSkip,sheetTier,sourceKey,mergeBy,chunks,normalizeResult,accept,physical};
 })(window);

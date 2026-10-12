@@ -126,7 +126,8 @@ await test("C1 the header drafts only the missing specs; 'Redraft all…' once n
 await test("C2 the app: only cards with no spec are sent; Redraft asks first; a failure is said", ()=>{
   const fx = between(app, "  const draftAllProps = async (mode)=>{", "  // Pull standalone prop cards");
   assert.ok(fx.includes('const redraft = mode==="redraft";'));
-  assert.ok(fx.includes("const toDraft = redraft ? working"));
+  assert.ok(fx.includes("const toDraft = (redraft ? working"));
+  assert.ok(fx.includes(".filter(p=>!_isProposal(p));"), "a proposal is never drafted by Draft all (2026-10-12)");
   assert.ok(fx.includes("await aiDesignPropBible(toDraft, characters, lbProject(\"props\"));"));
   assert.ok(fx.indexOf("appConfirm") < fx.indexOf("setDraftingAllProps(true)"));
   assert.ok(fx.includes("Couldn't draft the prop specifications") && !/catch\(e\)\{\}/.test(fx));
@@ -145,9 +146,9 @@ await test("D1 'Generate N missing images' prices only drafted, anchored, screen
   await b.props.onClick();
   assert.deepEqual(J(box.__begun), { ids:["b"], skipped:0 }); assert.equal(confirms.length, 0, "Ana has a sheet → no question");
 });
-await test("D1b before any extraction, 'Not in screenplay' cards still batch (the flag says nothing yet)", ()=>{
+await test("D1b before any extraction, 'Not in screenplay' set dressing and kept cards still batch; a carried PROPOSAL never does (2026-10-12)", ()=>{
   images = new Set(["ana"]);
-  const tree = sheets([P("a", { manual:false }), P("b", { manual:false })]);
+  const tree = sheets([P("a", { manual:false }), P("b", { manual:false, kind:"dressing" }), P("c", { manual:false, proposalAccepted:true })]);
   const b = buttons(tree).find(x=>/Generate 2 missing images/.test(textOf(x)));
   assert.ok(b, buttons(tree).map(textOf).join(" | "));
 });
