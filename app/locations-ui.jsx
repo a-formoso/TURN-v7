@@ -326,44 +326,288 @@ function LocBasisSelect({value,onChange,disabled,label="Basis"}){
     React.createElement("select",{className:"prop-select",value:value||"design",disabled,onChange:e=>onChange(e.target.value)},
       LOC_BASIS_OPTIONS.map(o=>React.createElement("option",{key:o[0],value:o[0]},o[1]))));
 }
-function LocationFloorPlanMap({scene,selected,onSelect}){
+/* READABLE TOP-DOWN MAP (owner 2026-10-13, "is this intended?" — no): the map takes the plan's shape (wide for a long
+   quay, square for a room; 160–480 px tall on a phone, up to 560 px on a desktop; one scale for x and y, never
+   stretched), fits the footprints and what stands in or near them (outliers point from the edge), zooms and pans
+   ("+" / "−" / "Fit", Ctrl/⌘ + scroll or a pinch; once zoomed in, scroll zooms and a drag or one finger pans — at the fit
+   a finger on the map still scrolls the page), shows one space at a time, and labels everything through numbered
+   markers and a key under it (tap a marker or a row: its full label on the map, one at a time). */
+const LOC_MAP_PAD=28,LOC_MAP_MAX_ZOOM=12,LOC_MAP_STEP=1.6;
+function locMapBox(fit,width){
+  const W=Math.max(240,Math.round(width||343)),phone=W<600,P=LOC_MAP_PAD;
+  const fw=Math.max(2,fit.maxX-fit.minX),fh=Math.max(2,fit.maxY-fit.minY);
+  const H=Math.round(Math.max(160,Math.min(phone?480:560,(W-2*P)*fh/fw+2*P)));
+  const s=Math.min((W-2*P)/fw,(H-2*P)/fh);   // px per metre — the same on both axes
+  return {W,H,s,cx:(fit.minX+fit.maxX)/2,cy:(fit.minY+fit.maxY)/2,vw:W/s,vh:H/s};
+}
+/* keep the zoomed view inside the fitted area (at the fit it cannot move) */
+function locMapClamp(box,v){
+  const zoom=Math.max(1,Math.min(LOC_MAP_MAX_ZOOM,(v&&v.zoom)||1));
+  const lim=(c,mid,full)=>{const span=full/zoom,half=(full-span)/2;return c==null?mid:Math.max(mid-half,Math.min(mid+half,c));};
+  return {zoom,cx:lim(v&&v.cx,box.cx,box.vw),cy:lim(v&&v.cy,box.cy,box.vh)};
+}
+/* zoom by `factor` keeping the plan point under (px, py) where it is */
+function locMapZoomAt(box,v,factor,px,py){
+  const z=Math.max(1,Math.min(LOC_MAP_MAX_ZOOM,v.zoom*factor)),k=box.s;
+  const x=v.cx+(px-box.W/2)/(k*v.zoom),y=v.cy-(py-box.H/2)/(k*v.zoom);
+  return locMapClamp(box,{zoom:z,cx:x-(px-box.W/2)/(k*z),cy:y+(py-box.H/2)/(k*z)});
+}
+/* a scale bar 40–110 px long, in round metres */
+function locMapScaleBar(pxPerM){
+  const steps=[0.5,1,2,5,10,20,50,100,200,500,1000];
+  const m=steps.filter(x=>x*pxPerM<=110).pop()||steps[0];
+  return {m,px:Math.round(m*pxPerM),label:(m<1?String(m):String(Math.round(m)))+" m"};
+}
+/* first candidate box that stays on the map and clear of everything placed so far (null: leave it to the key) */
+function locMapPlace(taken,cands,w,h,W,H){
+  for(const c of cands){
+    const r={x:c[0],y:c[1],w,h};
+    if(r.x<2||r.y<2||r.x+w>W-2||r.y+h>H-2)continue;
+    if(taken.some(t=>r.x<t.x+t.w&&r.x+w>t.x&&r.y<t.y+t.h&&r.y+h>t.y))continue;
+    taken.push(r);return r;
+  }
+  return null;
+}
+function locMapTextW(s,size){ return Math.ceil(String(s||"").length*size*0.58)+6; }
+const LOC_MAP_KIND_WORD={window:"window",glass:"glazing",door:"door",arch:"opening"};
+function _locMapPos(xy){ return "x "+_locFmt(xy[0])+", y "+_locFmt(xy[1])+" m"; }
+function LocationFloorPlanMap({scene,selected,onSelect,spaceId=""}){
+  const [filterPick,setFilterPick]=React.useState(null);
+  const [width,setWidth]=React.useState(343);
+  const [viewRaw,setView]=React.useState(null);
+  const wrapRef=React.useRef(null),svgRef=React.useRef(null),live=React.useRef({}),gest=React.useRef({pts:{},n:0,start:null,pinch:null,moved:false});
+  const list=(scene&&scene.spaceList)||[];
+  const dflt=list.length>1&&list.some(s=>s.id===spaceId)?spaceId:"";
+  const filter=list.length>1?(filterPick==null?dflt:filterPick):"";
+  React.useEffect(()=>{setFilterPick(null);},[spaceId]);
+  React.useEffect(()=>{setView(null);},[filter]);
+  React.useEffect(()=>{
+    const el=wrapRef.current;if(!el)return;
+    const measure=()=>{const w=Math.round(el.clientWidth||el.getBoundingClientRect().width);if(w>0)setWidth(w);};
+    measure();
+    if(typeof ResizeObserver!=="function")return;
+    const ro=new ResizeObserver(measure);ro.observe(el);return ()=>ro.disconnect();
+  },[]);
+  // wheel: Ctrl/⌘ + scroll (a trackpad pinch) always zooms; a plain scroll zooms only once zoomed in
+  React.useEffect(()=>{
+    const el=svgRef.current;if(!el||!el.addEventListener)return;
+    const wheel=e=>{const L=live.current;if(!L.box)return;
+      if(!(e.ctrlKey||e.metaKey)&&L.view.zoom<=1)return;
+      e.preventDefault();
+      const r=el.getBoundingClientRect(),px=(e.clientX-r.left)*L.box.W/r.width,py=(e.clientY-r.top)*L.box.H/r.height;
+      const f=Math.exp(-Math.max(-60,Math.min(60,e.deltaY))*(e.ctrlKey?0.012:0.004));
+      setView(locMapZoomAt(L.box,L.view,f,px,py));};
+    el.addEventListener("wheel",wheel,{passive:false});
+    return ()=>el.removeEventListener("wheel",wheel);
+  },[!scene||scene.empty]);
   if(!scene||scene.empty)return React.createElement("p",{className:"loc-layer-note loc-map-empty"},
     "No floor plan numbers yet. Draft shared layout drafts approximate ones from the plate and the screenplay, or add a room's footprint under Floor plan numbers.");
-  const b=scene.bounds,pad=1;
-  const minX=b.minX-pad,maxX=b.maxX+pad,minY=b.minY-pad,maxY=b.maxY+pad;
-  const w=Math.max(3,maxX-minX),h=Math.max(3,maxY-minY),u=Math.max(w,h)/60;
-  const P=q=>[Math.round(q[0]*100)/100,Math.round(-q[1]*100)/100];
-  const pts=arr=>arr.map(q=>P(q).join(",")).join(" ");
-  const sel=scene.cameras.find(c=>c.spaceId+":"+c.panel===selected)||null;
-  const svg=React.createElement("svg",{className:"loc-map-svg",viewBox:[minX,-maxY,w,h].map(n=>Math.round(n*100)/100).join(" "),
-    preserveAspectRatio:"xMidYMid meet",role:"img","aria-label":"Top-down map of the shared layout"+(scene.frame?" — north is: "+scene.frame:"")},
-    scene.spaces.map(sp=>React.createElement("g",{key:"s-"+sp.id},
-      React.createElement("polygon",{points:pts(sp.footprint),className:"loc-map-space"+(sp.owner?" owner":" room"),strokeWidth:u*0.35}),
-      React.createElement("text",{x:P(sp.centre)[0],y:P(sp.centre)[1],className:"loc-map-label",fontSize:u*2.4,textAnchor:"middle"},sp.name))),
-    scene.cameras.map(c=>{const on=sel&&sel===c;
-      return React.createElement("g",{key:"c-"+c.spaceId+c.panel,className:"loc-map-cam"+(on?" on":"")+(selected&&!on?" dim":""),
-        onClick:()=>onSelect(c.spaceId+":"+c.panel)},
-        React.createElement("polygon",{points:pts(c.frustum),strokeWidth:u*(on?0.45:0.2)}),
-        React.createElement("circle",{cx:P(c.position)[0],cy:P(c.position)[1],r:u*0.8}),
-        React.createElement("text",{x:P(c.position)[0]+u,y:P(c.position)[1]-u,fontSize:u*1.9,className:"loc-map-camlabel"},c.panel));}),
-    scene.openings.map(o=>React.createElement("line",{key:"o-"+o.spaceId+o.id,x1:P(o.a)[0],y1:P(o.a)[1],x2:P(o.b)[0],y2:P(o.b)[1],
-      className:"loc-map-opening "+o.kind,strokeWidth:u*1.1},React.createElement("title",null,o.name+" ("+o.kind+")"))),
-    scene.anchors.filter(a=>!a.opening).map(a=>React.createElement("g",{key:"a-"+a.id,className:"loc-map-anchor"},
-      React.createElement("circle",{cx:P(a.xy)[0],cy:P(a.xy)[1],r:u*0.7}),
-      React.createElement("text",{x:P(a.xy)[0]+u,y:P(a.xy)[1]+u*0.6,fontSize:u*1.7},a.name))),
-    React.createElement("text",{x:minX+u*2,y:-maxY+u*4,fontSize:u*2.6,className:"loc-map-north"},"N ↑"));
+  const fit=(typeof locationFloorPlanFit==="function"&&locationFloorPlanFit(scene,filter))||scene.fit||scene.bounds;
+  const box=locMapBox(fit,width),view=locMapClamp(box,viewRaw||{}),k=box.s*view.zoom,W=box.W,H=box.H;
+  live.current={box,view};
+  const X=x=>Math.round((W/2+(x-view.cx)*k)*10)/10,Y=y=>Math.round((H/2-(y-view.cy)*k)*10)/10;
+  const pts=arr=>arr.map(q=>X(q[0])+","+Y(q[1])).join(" ");
+  const shown=x=>!filter||x.spaceId===filter;
+  const nameOf=id=>((list.find(s=>s.id===id))||{}).name||"";
+  const cams=scene.cameras.filter(shown),anchors=scene.anchors.filter(a=>!a.opening&&shown(a)),openings=scene.openings.filter(shown);
+  const camKey=c=>c.spaceId+":"+c.panel,aKey=a=>"#a:"+a.id,oKey=o=>"#o:"+o.spaceId+":"+o.id;
+  const selCam=cams.find(c=>camKey(c)===selected)||null,selA=anchors.find(a=>aKey(a)===selected)||null,selO=openings.find(o=>oKey(o)===selected)||null;
+  const sel=selCam||selA||selO;
+  const pick=key=>onSelect&&onSelect(selected===key?"":key);
+  const inset=14,inside=(px,py)=>px>=inset&&px<=W-inset&&py>=inset&&py<=H-inset;
+  const edge=(px,py,pad=inset)=>{   // where the ray from the centre to an off-map point leaves the map (pad: room for the arrow)
+    const dx=px-W/2,dy=py-H/2,t=Math.min(Math.abs(dx)>1e-6?(W/2-pad)/Math.abs(dx):Infinity,Math.abs(dy)>1e-6?(H/2-pad)/Math.abs(dy):Infinity);
+    return [W/2+dx*t,H/2+dy*t,Math.atan2(dy,dx)*180/Math.PI];
+  };
+  // fixed furniture first, so labels keep clear of it: the north arrow (top-left) and the scale bar (bottom-left)
+  const taken=[{x:6,y:6,w:30,h:42}],bar=locMapScaleBar(k);
+  taken.push({x:8,y:H-34,w:Math.max(bar.px,40)+8,h:28});
+  // 1. the selected item's full label
+  const selLabel=sel?(selCam?selCam.panel+" \u2014 "+selCam.label:selA?selA.num+" · "+selA.name:selO.tag+" · "+selO.name):"";
+  const selXY=sel?(selCam?selCam.position:selA?selA.xy:selO.centre):null;
+  let selBox=null;
+  if(sel){
+    let sx=X(selXY[0]),sy=Y(selXY[1]);
+    if(!inside(sx,sy)){const e=edge(sx,sy);sx=e[0];sy=e[1];}
+    const w=Math.min(W-8,locMapTextW(selLabel,12)+4),h=22;
+    selBox=locMapPlace(taken,[[sx-w/2,sy-h-14],[sx-w/2,sy+14],[sx+14,sy-h/2],[sx-w-14,sy-h/2],[sx-w/2,sy-h-34],[sx-w/2,sy+34],
+      [Math.min(W-w-4,Math.max(4,sx-w/2)),4],[Math.min(W-w-4,Math.max(4,sx-w/2)),H-h-4]],w,h,W,H)
+      ||{x:Math.max(4,Math.min(W-w-4,sx-w/2)),y:4,w,h};
+  }
+  // 2. numbered object markers (nudged apart, with a leader line to where they stand)
+  const R=10,markers=anchors.map(a=>{
+    let px=X(a.xy[0]),py=Y(a.xy[1]),arrow=null;
+    if(!inside(px,py)){const e=edge(px,py,28);px=e[0];py=e[1];arrow=e[2];}
+    const ring=[[0,0]].concat(...[22,40].map(d=>[[0,-d],[d,0],[0,d],[-d,0],[d*.7,-d*.7],[d*.7,d*.7],[-d*.7,d*.7],[-d*.7,-d*.7]]));
+    const r=locMapPlace(taken,ring.map(o=>[px+o[0]-R,py+o[1]-R]),2*R,2*R,W,H);
+    return {a,px,py,arrow,mx:r?r.x+R:px,my:r?r.y+R:py};
+  });
+  // 3. opening tags, just outside their wall
+  const tags=openings.map(o=>{
+    const cx=X(o.centre[0]),cy=Y(o.centre[1]);
+    if(!inside(cx,cy))return {o,cx,cy,off:true};
+    const d=o.yaw!=null?_locDir(o.yaw):[0,1],w=locMapTextW(o.tag,10),h=14;
+    const at=s=>[cx+d[0]*s-w/2,cy-d[1]*s-h/2];
+    return {o,cx,cy,box:locMapPlace(taken,[at(14),at(-14),at(26),at(-26),[cx+8,cy-h-4],[cx-w-8,cy+4]],w,h,W,H)};
+  });
+  // 4. space names inside their footprints (smallest first); one that doesn't fit is named in the key only
+  const names=scene.spaces.slice().sort((p,q)=>_locMapArea(p)-_locMapArea(q))
+    .map(sp=>{const b=_locMapBounds(sp.footprint),bw=(b.maxX-b.minX)*k,bh=(b.maxY-b.minY)*k,w=locMapTextW(sp.name,11),h=16;
+      if(!sp.name||w>bw-6||h>bh-4)return {sp,box:null};
+      const cx=X(sp.centre[0]),cy=Y(sp.centre[1]);
+      const cands=[].concat(...[0,-.25,.25,-.4,.4].map(fx=>[0,-18,18,-36,36].map(dy=>[cx+fx*bw-w/2,cy+dy-h/2]))).filter(c=>{
+        const mx=view.cx+(c[0]+w/2-W/2)/k,my=view.cy-(c[1]+h/2-H/2)/k;return _locMapInside([mx,my],sp.footprint);});
+      return {sp,box:locMapPlace(taken,cands,w,h,W,H)};});
+  const spaceCls=sp=>"loc-map-space s"+((sp.index||0)%6)+(sp.owner?" owner":" room")+(filter&&sp.id!==filter?" dim":"");
+  const zoomBy=f=>setView(locMapZoomAt(box,view,f,W/2,H/2));
+  // gestures: a drag (mouse) or one finger (touch, once zoomed in) pans; two fingers pinch
+  const G=gest.current;
+  const at=e=>{const r=svgRef.current.getBoundingClientRect();return [(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height];};
+  const down=e=>{
+    if(e.pointerType==="mouse"&&e.button!==0)return;
+    G.pts[e.pointerId]=at(e);G.n=Object.keys(G.pts).length;
+    if(G.n===1){G.start={p:G.pts[e.pointerId],view};G.moved=false;}
+    if(G.n===2){const [a,b]=Object.values(G.pts);G.pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1])||1,mid:[(a[0]+b[0])/2,(a[1]+b[1])/2],view};G.moved=true;
+      Object.keys(G.pts).forEach(id=>{try{svgRef.current.setPointerCapture(Number(id));}catch(x){}});}
+  };
+  const move=e=>{
+    if(!G.pts[e.pointerId])return;
+    G.pts[e.pointerId]=at(e);
+    if(G.n>=2&&G.pinch){const [a,b]=Object.values(G.pts),P0=G.pinch,v0=P0.view;
+      const z=Math.max(1,Math.min(LOC_MAP_MAX_ZOOM,v0.zoom*Math.hypot(a[0]-b[0],a[1]-b[1])/P0.d)),mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];
+      const x=v0.cx+(P0.mid[0]-W/2)/(box.s*v0.zoom),y=v0.cy-(P0.mid[1]-H/2)/(box.s*v0.zoom);
+      setView(locMapClamp(box,{zoom:z,cx:x-(mid[0]-W/2)/(box.s*z),cy:y+(mid[1]-H/2)/(box.s*z)}));return;}
+    if(!G.start)return;
+    const dx=G.pts[e.pointerId][0]-G.start.p[0],dy=G.pts[e.pointerId][1]-G.start.p[1];
+    if(!G.moved){if(Math.hypot(dx,dy)<5||G.start.view.zoom<=1)return;G.moved=true;try{svgRef.current.setPointerCapture(e.pointerId);}catch(x){}}
+    const v0=G.start.view,kk=box.s*v0.zoom;
+    setView(locMapClamp(box,{zoom:v0.zoom,cx:v0.cx-dx/kk,cy:v0.cy+dy/kk}));
+  };
+  const up=e=>{delete G.pts[e.pointerId];G.n=Object.keys(G.pts).length;
+    if(G.n<2)G.pinch=null;
+    if(G.n===1){G.start={p:Object.values(G.pts)[0],view:live.current.view};}
+    if(!G.n)G.start=null;};
+  const svg=React.createElement("svg",{ref:svgRef,className:"loc-map-svg"+(view.zoom>1?" zoomed":""),width:W,height:H,
+    viewBox:"0 0 "+W+" "+H,style:{height:H+"px"},preserveAspectRatio:"xMidYMid meet",role:"group",
+    "aria-label":"Top-down map of the shared layout"+(scene.frame?" — north is: "+scene.frame:""),
+    onPointerDown:down,onPointerMove:move,onPointerUp:up,onPointerCancel:up,
+    onClickCapture:e=>{if(G.moved){e.stopPropagation();G.moved=false;}}},
+    React.createElement("rect",{className:"loc-map-bg",x:0,y:0,width:W,height:H,onClick:()=>sel&&onSelect&&onSelect("")}),
+    scene.spaces.slice().sort((p,q)=>_locMapArea(q)-_locMapArea(p)).map(sp=>React.createElement("polygon",{key:"s-"+sp.id,points:pts(sp.footprint),className:spaceCls(sp)},
+      React.createElement("title",null,sp.name))),
+    openings.map(o=>React.createElement("line",{key:"o-"+o.spaceId+o.id,x1:X(o.a[0]),y1:Y(o.a[1]),x2:X(o.b[0]),y2:Y(o.b[1]),
+      className:"loc-map-opening "+o.kind+(selO===o?" on":"")})),
+    cams.map(c=>{const on=selCam===c,px=X(c.position[0]),py=Y(c.position[1]);
+      if(c.outlier&&!inside(px,py)){const e=edge(px,py,22);
+        return React.createElement("g",{key:"c-"+camKey(c),className:"loc-map-cam out"+(on?" on":""),onClick:()=>pick(camKey(c))},
+          React.createElement("circle",{cx:e[0],cy:e[1],r:6}),
+          React.createElement("path",{className:"loc-map-arrow",d:"M8,-5 L16,0 L8,5 Z",transform:"translate("+e[0]+","+e[1]+") rotate("+Math.round(e[2])+")"}),
+          React.createElement("circle",{className:"loc-map-hit",cx:e[0],cy:e[1],r:16}));}
+      return React.createElement("g",{key:"c-"+camKey(c),className:"loc-map-cam"+(on?" on":"")+(sel&&!on?" dim":"")+(c.outlier?" out":""),onClick:()=>pick(camKey(c))},
+        React.createElement("polygon",{points:pts(c.frustum)}),
+        React.createElement("circle",{cx:px,cy:py,r:on?5:4}),
+        React.createElement("circle",{className:"loc-map-hit",cx:px,cy:py,r:16}));}),
+    tags.filter(t=>t.box).map(t=>React.createElement("g",{key:"t-"+oKey(t.o),className:"loc-map-tag"+(selO===t.o?" on":""),onClick:()=>pick(oKey(t.o))},
+      React.createElement("rect",{x:t.box.x,y:t.box.y,width:t.box.w,height:t.box.h,rx:3}),
+      React.createElement("text",{x:t.box.x+t.box.w/2,y:t.box.y+10.5,textAnchor:"middle"},t.o.tag))),
+    names.filter(n=>n.box).map(n=>React.createElement("text",{key:"n-"+n.sp.id,x:n.box.x+n.box.w/2,y:n.box.y+12,textAnchor:"middle",
+      className:"loc-map-label"+(filter&&n.sp.id!==filter?" dim":"")},n.sp.name)),
+    // leader lines first, under every marker, so a nudged marker's line never crosses another's number
+    React.createElement("g",{className:"loc-map-leaders","aria-hidden":"true"},markers.filter(m=>m.mx!==m.px||m.my!==m.py).map(m=>React.createElement("g",{key:"l-"+m.a.id},
+      React.createElement("line",{className:"loc-map-leader",x1:m.px,y1:m.py,x2:m.mx,y2:m.my}),
+      m.arrow==null&&React.createElement("circle",{className:"loc-map-foot",cx:m.px,cy:m.py,r:2.5})))),
+    markers.map(m=>{const on=selA===m.a,key=aKey(m.a);
+      return React.createElement("g",{key:"a-"+m.a.id,className:"loc-map-anchor"+(on?" on":"")+(m.a.outlier?" out":"")+(sel&&!on?" dim":""),onClick:()=>pick(key)},
+        m.arrow!=null&&React.createElement("path",{className:"loc-map-arrow",d:"M12,-5 L20,0 L12,5 Z",transform:"translate("+m.px+","+m.py+") rotate("+Math.round(m.arrow)+")"}),
+        React.createElement("circle",{cx:m.mx,cy:m.my,r:R}),
+        React.createElement("circle",{className:"loc-map-hit",cx:m.mx,cy:m.my,r:16}),
+        React.createElement("text",{x:m.mx,y:m.my+3.8,textAnchor:"middle"},String(m.a.num)));}),
+    selBox&&React.createElement("g",{className:"loc-map-sel"},
+      React.createElement("rect",{x:selBox.x,y:selBox.y,width:selBox.w,height:selBox.h,rx:5}),
+      React.createElement("text",{x:selBox.x+selBox.w/2,y:selBox.y+15,textAnchor:"middle"},selLabel)),
+    React.createElement("g",{className:"loc-map-north","aria-hidden":"true"},
+      React.createElement("circle",{cx:21,cy:24,r:15}),
+      React.createElement("path",{d:"M21,12 L27,26 L21,22 L15,26 Z"}),
+      React.createElement("text",{x:21,y:36,textAnchor:"middle"},"N")),
+    React.createElement("g",{className:"loc-map-scale","aria-label":"Scale: "+bar.label},
+      React.createElement("rect",{className:"loc-map-scale-bg",x:8,y:H-34,width:Math.max(bar.px,40)+8,height:28,rx:4}),
+      React.createElement("path",{d:"M12,"+(H-14)+" v6 h"+bar.px+" v-6"}),
+      React.createElement("text",{x:12,y:H-19},bar.label)));
+  // the key: spaces, numbered objects, openings, then each space's cameras as one compact row
+  const showSpaces=list.filter(s=>!filter||s.id===filter);
+  const row=(key,mark,name,meta,warn)=>React.createElement("button",{key,type:"button",className:"loc-map-row"+(selected===key?" on":"")+(warn?" warn":""),
+    "aria-pressed":selected===key,onClick:()=>pick(key)},
+    React.createElement("span",{className:"loc-map-mark"},mark),
+    React.createElement("span",{className:"loc-map-row-text"},React.createElement("b",null,name),React.createElement("small",null,meta),
+      warn&&React.createElement("em",null,"outside the plan — check this position")));
+  const camRows=showSpaces.map(sp=>{
+    const mine=LOC_PANEL_KEYS.map(key=>({key,c:cams.find(c=>c.spaceId===sp.id&&c.panel===key),n:scene.noPosition.find(n=>n.spaceId===sp.id&&n.panel===key)}));
+    if(!mine.some(m=>m.c||m.n))return null;
+    return React.createElement("div",{key:"cr-"+sp.id,className:"loc-map-camrow",role:"group","aria-label":(sp.name||"This space")+" cameras"},
+      React.createElement("span",{className:"loc-map-camrow-name"},sp.name),
+      React.createElement("span",{className:"loc-map-seg"},mine.map(m=>{
+        const label=(sp.name||"")+" · "+LOC_PANEL_INFO[m.key].label.toLowerCase();
+        if(!m.c)return React.createElement("button",{key:m.key,type:"button",className:"loc-map-segbtn off","aria-disabled":"true",
+          "aria-label":label+" camera — no position yet",title:"This camera has no position yet, so it isn't drawn"},m.key);
+        const key=camKey(m.c);
+        return React.createElement("button",{key:m.key,type:"button",className:"loc-map-segbtn"+(selected===key?" on":"")+(m.c.outlier?" warn":""),
+          "aria-pressed":selected===key,"aria-label":label+" camera"+(m.c.outlier?" — outside the plan, check this position":""),
+          title:label,onClick:()=>pick(key)},m.key);})));
+  }).filter(Boolean);
+  const hidden=scene.noPosition.filter(shown);
+  const detail=selCam?selCam.label+": "+locationPoseText({position:selCam.position,yaw:selCam.yaw,pitch:selCam.pitch,lensMm:selCam.lensMm},"",[])
+      +" Field of view "+Math.round(selCam.hfov)+"°."+(selCam.source==="set"?" Set by hand in Plate cameras.":selCam.source==="layout"?" From the floor plan.":" Suggested.")
+      +(selCam.outlier?" Far outside every footprint — check this position.":"")
+    : selA?selA.num+" · "+selA.name+" — "+(selA.spaceName||nameOf(selA.spaceId))+", "+_locMapPos(selA.xy)+(selA.facing!=null?", front faces "+locCompass(selA.facing):"")+"."
+      +(selA.placement?" "+selA.placement:"")+(selA.outlier?" Far outside every footprint — check this position.":"")
+    : selO?selO.tag+" · "+selO.name+" ("+(LOC_MAP_KIND_WORD[selO.kind]||selO.kind)+") — "+(selO.spaceName||nameOf(selO.spaceId))
+      +(selO.yaw!=null?", faces "+locCompass(selO.yaw):"")+"."+(selO.outlier?" Far outside every footprint — check this position.":"")
+    : "";
   return React.createElement("div",{className:"loc-map"},
-    svg,
-    React.createElement("div",{className:"loc-map-chips",role:"group","aria-label":"Plate panel cameras"},
-      scene.cameras.map(c=>React.createElement("button",{key:c.spaceId+c.panel,type:"button",
-        className:"loc-map-chip"+(selected===c.spaceId+":"+c.panel?" on":""),"aria-pressed":selected===c.spaceId+":"+c.panel,
-        onClick:()=>onSelect(selected===c.spaceId+":"+c.panel?"":c.spaceId+":"+c.panel)},c.label)),
-      scene.noPosition.map(c=>React.createElement("span",{key:"n"+c.spaceId+c.panel,className:"loc-map-chip off",
-        title:"This camera has no position yet, so it isn't drawn"},c.label+" — no position"))),
-    sel&&React.createElement("p",{className:"loc-layer-note loc-map-detail",role:"status"},
-      sel.label+": "+locationPoseText({position:sel.position,yaw:sel.yaw,pitch:sel.pitch,lensMm:sel.lensMm},"",[])
-        +" Field of view "+Math.round(sel.hfov)+"\u00b0."+(sel.source==="set"?" Set by hand in Plate cameras.":sel.source==="layout"?" From the floor plan.":" Suggested.")),
+    list.length>1&&React.createElement("div",{className:"loc-map-spaces",role:"group","aria-label":"Spaces on the map"},
+      list.map(s=>React.createElement("button",{key:s.id,type:"button",className:"loc-map-chip"+(filter===s.id?" on":""),"aria-pressed":filter===s.id,
+        onClick:()=>{setFilterPick(s.id);onSelect&&selected&&onSelect("");}},s.name||"Unnamed space")),
+      React.createElement("button",{type:"button",className:"loc-map-chip"+(!filter?" on":""),"aria-pressed":!filter,
+        onClick:()=>{setFilterPick("");}},list.length===2?"Both":"All")),
+    React.createElement("div",{className:"loc-map-frame",ref:wrapRef},svg),
+    React.createElement("div",{className:"loc-map-tools"},
+      React.createElement("small",null,view.zoom>1?"Drag or use one finger to move · pinch or scroll to zoom":"Pinch, Ctrl/⌘ + scroll or + to zoom"),
+      React.createElement("span",{className:"loc-map-zoom",role:"group","aria-label":"Map zoom"},
+        React.createElement("button",{type:"button",className:"loc-map-zbtn","aria-label":"Zoom out",title:"Zoom out",disabled:view.zoom<=1,onClick:()=>zoomBy(1/LOC_MAP_STEP)},"−"),
+        React.createElement("button",{type:"button",className:"loc-map-zbtn","aria-label":"Zoom in",title:"Zoom in",disabled:view.zoom>=LOC_MAP_MAX_ZOOM,onClick:()=>zoomBy(LOC_MAP_STEP)},"+"),
+        React.createElement("button",{type:"button",className:"loc-map-zbtn fit","aria-label":"Fit the plan to the map",title:"Fit the plan",onClick:()=>setView(null)},"Fit"))),
+    detail&&React.createElement("p",{className:"loc-layer-note loc-map-detail",role:"status"},detail),
+    React.createElement("div",{className:"loc-map-legend",role:"group","aria-label":"Map key"},
+      React.createElement("div",{className:"loc-map-legend-spaces"},showSpaces.map(s=>{const sp=scene.spaces.find(x=>x.id===s.id);
+        return React.createElement("span",{key:s.id,className:"loc-map-swatch-row"},
+          React.createElement("span",{className:"loc-map-swatch s"+((sp?sp.index:0)%6)+(sp?"":" none")}),s.name||"Unnamed space",
+          sp?null:React.createElement("small",null," — no footprint yet"));})),
+      anchors.length>0&&React.createElement("div",{className:"loc-map-legend-group"},React.createElement("h5",null,"Objects"),
+        anchors.map(a=>row(aKey(a),String(a.num),a.name,(filter||list.length<2?"":(a.spaceName||nameOf(a.spaceId))+" · ")+_locMapPos(a.xy),a.outlier))),
+      openings.length>0&&React.createElement("div",{className:"loc-map-legend-group"},React.createElement("h5",null,"Windows & doors"),
+        openings.map(o=>row(oKey(o),o.tag,o.name,(filter||list.length<2?"":(o.spaceName||nameOf(o.spaceId))+" · ")+(LOC_MAP_KIND_WORD[o.kind]||o.kind)
+          +(o.yaw!=null?", faces "+locCompass(o.yaw):""),o.outlier))),
+      camRows.length>0&&React.createElement("div",{className:"loc-map-legend-group"},React.createElement("h5",null,"Plate cameras"),camRows,
+        cams.filter(c=>c.outlier).map(c=>React.createElement("p",{key:"w"+camKey(c),className:"loc-map-warn"},c.label+" camera: outside the plan — check this position"))),
+      hidden.length>0&&React.createElement("p",{className:"loc-layer-note"},"Not drawn (no position yet): "+hidden.map(c=>c.label).join(", ")+".")),
     React.createElement("p",{className:"loc-layer-note"},"Approximate — estimated from the plates and the screenplay, not surveyed. Metres; north (↑) is the way the layout's frame faces."));
+}
+function _locMapArea(sp){ const b=_locMapBounds(sp.footprint); return (b.maxX-b.minX)*(b.maxY-b.minY); }
+function _locMapBounds(poly){ const xs=poly.map(p=>p[0]),ys=poly.map(p=>p[1]);
+  return {minX:Math.min(...xs),maxX:Math.max(...xs),minY:Math.min(...ys),maxY:Math.max(...ys)}; }
+function _locMapInside(pt,poly){
+  let ins=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];
+    if(((a[1]>pt[1])!==(b[1]>pt[1]))&&(pt[0]<(b[0]-a[0])*(pt[1]-a[1])/((b[1]-a[1])||1e-9)+a[0]))ins=!ins;}
+  return ins;
+}
+/* the outliers to name near Review / Confirm: "Check these positions" (a draft only; it never blocks) */
+function locationFloorPlanCheckText(scene){
+  const o=(scene&&scene.outliers)||[];
+  if(!o.length)return "";
+  const word={object:"",opening:"",camera:" camera"};
+  return "Check these positions: "+o.slice(0,6).map(x=>x.name+word[x.kind]).join(", ")+(o.length>6?" and "+(o.length-6)+" more":"")
+    +" — far outside every footprint on the drafted floor plan. Fix them under Floor plan numbers, or confirm if they are right.";
 }
 /* every floor plan number as an editable field — a change makes the layout a draft to confirm again */
 function LocationFloorPlanFields({plan,family,change,readOnly}){
@@ -449,6 +693,9 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   const summaryRef=React.useRef(null);
   const [mapSel,setMapSel]=React.useState("");   // the selected panel camera on the top-down map ("spaceId:TL")
   const confirmed=!candidate&&state.ready;
+  // the map's scene, once per render: drawn below and read for "Check these positions" on a draft (never blocking)
+  const mapScene=typeof locationFloorPlanScene==="function"?locationFloorPlanScene(owner,plan):null;
+  const checkPositions=!confirmed&&typeof locationFloorPlanCheckText==="function"?locationFloorPlanCheckText(mapScene):"";
   const empty=!plan.frame.trim()&&!plan.anchors.length&&!plan.sightlines.trim()&&!plan.unresolved.trim();
   const check=locationSpatialPlanState({...owner,spatialPlan:normalizeLocationSpatialPlan({...plan,status:"reviewed",source:state.source})});
   const reviewHint=empty
@@ -536,13 +783,14 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       React.createElement("small",null,readOnly?"View only — ask an editor to prepare or confirm this layout.":empty
         ? "Reads the parent image when available; otherwise uses the written specification. Also drafts an approximate floor plan in metres (footprints, windows and doors, object positions, each panel's camera) \u2014 every number editable. Uses writing-model credits, not image credits. Review and confirm the result before generating."
         : "Confirmation uses no credits and does not generate an image."),
+      checkPositions&&React.createElement("p",{className:"loc-map-check",role:"note"},checkPositions),
       candidate&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:()=>{setCandidate(null);setError("");}},"Discard draft"),
       error&&React.createElement("p",{role:"alert",className:"loc-spatial-error"},error)),
     React.createElement("p",{className:"loc-layer-note loc-spatial-owner"},"One physical layout for "+(owner.name||"this location")+" and every room. Camera views below change the framing, not the furniture."),
     // the top-down map of the floor plan — the draft under review when there is one (step B, 2026-10-13)
-    typeof locationFloorPlanScene==="function"&&React.createElement("div",{className:"loc-map-wrap"},
+    mapScene&&React.createElement("div",{className:"loc-map-wrap"},
       React.createElement("h4",{className:"loc-spatial-heading"},candidate?"Top-down map \u2014 draft to review":"Top-down map"),
-      React.createElement(LocationFloorPlanMap,{scene:locationFloorPlanScene(owner,plan),selected:mapSel,onSelect:setMapSel})),
+      React.createElement(LocationFloorPlanMap,{scene:mapScene,selected:mapSel,onSelect:setMapSel,spaceId:l.id})),
     React.createElement("fieldset",{disabled:readOnly||busy},
       !empty&&React.createElement("details",{className:"loc-spatial-assist"},
         React.createElement("summary",null,"Need help? Draft with AI",React.createElement("small",null,"Optional")),

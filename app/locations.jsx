@@ -700,7 +700,9 @@ const LOCATION_COORDINATE_CONVENTION = {
   basis:"observed = read from a plate, script = stated in the screenplay, design = proposed, user = set by hand",
   blender:"camera {position, target, focalLength, sensorWidth 36}; rotation_euler XYZ radians = [(90 + pitch), 0, -yaw] in degrees converted"
 };
-const LOC_OPENING_RE = /\b(windows?|doors?|doorway|glass|glazing|glazed|arch|archway|opening|hatch|pass-through|porthole|skylight)\b/i;
+/* (2026-10-13) "glass" alone is a material, not an opening — in a glassworks "Glass crates", "glass rack" or "glass furnace"
+   are objects; only an architectural glass surface ("glass wall / partition / door / front…") is an opening */
+const LOC_OPENING_RE = /\b(windows?|doors?|doorway|glazing|glazed|arch|archway|opening|hatch|pass-through|porthole|skylight|(?:plate[- ]?)?glass[- ](?:walls?|doors?|partitions?|panels?|screens?|fronts?|frontage|facade|fa\u00e7ade|roof|ceiling|booth|pane|panes))\b/i;
 const LOC_COMPASS = ["north","north-east","east","south-east","south","south-west","west","north-west"];
 
 function _locNum(v, lo, hi){
@@ -1116,7 +1118,33 @@ function locationChildrenVisibleText(kids){
 }
 /* ---- THE TOP-DOWN MAP (step B): everything the floor plan places, ready to draw — footprints, openings (a segment
    along their wall), anchors and each panel's camera frustum (position, facing, field of view). `plan` may be a draft
-   under review: it is read as if it were the owner's saved layout. ---- */
+   under review: it is read as if it were the owner's saved layout.
+   READABLE MAP (owner 2026-10-13, "is this intended?" — a canal-side plan squashed into a strip by one stray dot):
+   every item carries its space; objects are numbered and openings tagged (W1 / D1 / A1) for the legend; the map fits
+   the footprints and what stands within/near them (max(3 m, 25% of the footprint's size)); anything far outside
+   every footprint is an OUTLIER — not fitted, drawn at the map's edge pointing its way, listed "check this position". ---- */
+function _locSegDist(p, a, b){
+  const dx = b[0]-a[0], dy = b[1]-a[1], len = dx*dx+dy*dy;
+  const t = len ? Math.max(0, Math.min(1, ((p[0]-a[0])*dx+(p[1]-a[1])*dy)/len)) : 0;
+  return Math.hypot(p[0]-(a[0]+t*dx), p[1]-(a[1]+t*dy));
+}
+/* how far a point lies outside a footprint (0 inside it) */
+function _locPolyDist(pt, poly){
+  if(_locInside(pt,poly)) return 0;
+  let d = Infinity;
+  for(let i=0;i<poly.length;i++) d = Math.min(d, _locSegDist(pt, poly[i], poly[(i+1)%poly.length]));
+  return d;
+}
+function _locBoundsOf(pts){
+  return pts.length ? {minX:Math.min(...pts.map(q=>q[0])), maxX:Math.max(...pts.map(q=>q[0])),
+    minY:Math.min(...pts.map(q=>q[1])), maxY:Math.max(...pts.map(q=>q[1]))} : null;
+}
+/* the fitting margin around a footprint: max(3 m, 25% of its larger side) */
+function locationFloorPlanMargin(poly){
+  const b = _locBoundsOf(poly||[]);
+  return b ? Math.max(3, 0.25*Math.max(b.maxX-b.minX, b.maxY-b.minY)) : 3;
+}
+const LOC_OPENING_TAG = {window:"W", glass:"W", door:"D", arch:"A"};
 function locationFloorPlanScene(owner, plan, locations){
   const base = _locList(locations), live = base.find(x=>x && x.id===owner.id) || owner;
   const list = base.some(x=>x && x.id===owner.id)
@@ -1124,7 +1152,7 @@ function locationFloorPlanScene(owner, plan, locations){
     : [{...live, spatialPlan:plan||live.spatialPlan}].concat(base);
   const own = list.find(x=>x.id===owner.id), family = _locFamily(own,list);
   const p = normalizeLocationSpatialPlan(plan || own.spatialPlan), coords = p.coordinates;
-  const spaces = [], openings = [], cameras = [], noPosition = [];
+  const spaces = [], openings = [], cameras = [], noPosition = [], tagCount = {};
   family.forEach(sp=>{
     const c = _locCoordSpace(coords,sp);
     if(c && c.footprint.length>=3) spaces.push({id:sp.id, name:sp.name||"", footprint:c.footprint, floorZ:c.floorZ, owner:sp.id===own.id,
@@ -1132,25 +1160,55 @@ function locationFloorPlanScene(owner, plan, locations){
     locationSpaceOpenings(sp,list).forEach(o=>{
       if(!o.centre) return;
       const w = (o.width||0.9)/2, t = o.yaw!=null ? [Math.cos(o.yaw*Math.PI/180), -Math.sin(o.yaw*Math.PI/180)] : [1,0];
-      openings.push({spaceId:sp.id, id:o.id, name:o.name||o.id, kind:o.kind, yaw:o.yaw, centre:o.centre,
-        a:[o.centre[0]-t[0]*w, o.centre[1]-t[1]*w], b:[o.centre[0]+t[0]*w, o.centre[1]+t[1]*w]});
+      const letter = LOC_OPENING_TAG[o.kind] || "W"; tagCount[letter] = (tagCount[letter]||0)+1;
+      openings.push({spaceId:sp.id, spaceName:sp.name||"", id:o.id, name:o.name||o.id, kind:o.kind, yaw:o.yaw, centre:o.centre,
+        tag:letter+tagCount[letter], a:[o.centre[0]-t[0]*w, o.centre[1]-t[1]*w], b:[o.centre[0]+t[0]*w, o.centre[1]+t[1]*w]});
     });
     locationPanelPoses(sp,list).forEach(pp=>{
-      const label = (sp.name||"")+" \u00b7 "+pp.label.toLowerCase();
-      if(!pp.pose.position || pp.pose.yaw==null){ noPosition.push({spaceId:sp.id, panel:pp.key, label}); return; }
+      const label = (sp.name||"")+" · "+pp.label.toLowerCase();
+      if(!pp.pose.position || pp.pose.yaw==null){ noPosition.push({spaceId:sp.id, spaceName:sp.name||"", panel:pp.key, label}); return; }
       const pos = pp.pose.position, len = Math.max(1.5, Math.min(6, (pp.pose.lensMm||24)/8));
       const edge = (d)=>{ const v = _locDir(pp.pose.yaw+d); return [pos[0]+v[0]*len, pos[1]+v[1]*len]; };
       cameras.push({spaceId:sp.id, spaceName:sp.name||"", panel:pp.key, label, source:pp.source, position:pos,
         yaw:pp.pose.yaw, pitch:pp.pose.pitch||0, lensMm:pp.pose.lensMm||24, hfov:pp.hfov, frustum:[[pos[0],pos[1]], edge(-pp.hfov/2), edge(pp.hfov/2)]});
     });
   });
-  const anchors = p.anchors.filter(a=>a.xy).map(a=>({id:a.id, name:a.name||a.id, xy:a.xy, facing:a.facing==null ? null : a.facing,
-    opening:locationAnchorIsOpening(a)}));
+  // every space of the family, in order (the owner first) — the map's "one space at a time" chips
+  const spaceList = family.map(sp=>({id:sp.id, name:sp.name||"", owner:sp.id===own.id, footprint:spaces.some(s=>s.id===sp.id)}));
+  spaces.forEach(s=>{ s.index = Math.max(0, spaceList.findIndex(x=>x.id===s.id)); });
+  let num = 0;
+  const anchors = p.anchors.filter(a=>a.xy).map(a=>{ const sp = locationAnchorSpaceOf(a,family) || own, opening = locationAnchorIsOpening(a);
+    return {id:a.id, name:a.name||a.id, xy:a.xy, facing:a.facing==null ? null : a.facing, opening, num:opening ? 0 : ++num,
+      spaceId:sp.id, spaceName:sp.name||"", placement:a.placement||""}; });
+  // outliers: far outside every footprint (nothing to test against without a footprint)
+  const near = (pt)=>!spaces.length || spaces.some(s=>_locPolyDist(pt,s.footprint)<=locationFloorPlanMargin(s.footprint));
+  const outliers = [];
+  anchors.forEach(a=>{ a.outlier = !a.opening && !near(a.xy);
+    if(a.outlier) outliers.push({kind:"object", key:"#a:"+a.id, id:a.id, name:a.name, spaceId:a.spaceId, xy:a.xy}); });
+  openings.forEach(o=>{ o.outlier = !near(o.centre);
+    if(o.outlier) outliers.push({kind:"opening", key:"#o:"+o.spaceId+":"+o.id, id:o.id, name:o.name, spaceId:o.spaceId, xy:o.centre}); });
+  cameras.forEach(c=>{ c.outlier = !near(c.position);
+    if(c.outlier) outliers.push({kind:"camera", key:c.spaceId+":"+c.panel, id:c.panel, name:c.label, spaceId:c.spaceId, xy:[c.position[0],c.position[1]]}); });
   const pts = [].concat(...spaces.map(x=>x.footprint), ...openings.map(o=>[o.a,o.b]), anchors.map(a=>a.xy), ...cameras.map(c=>c.frustum));
-  const bounds = pts.length ? {minX:Math.min(...pts.map(q=>q[0])), maxX:Math.max(...pts.map(q=>q[0])),
-    minY:Math.min(...pts.map(q=>q[1])), maxY:Math.max(...pts.map(q=>q[1]))} : null;
-  return {frame:p.frame, origin:coords ? coords.origin : {anchorId:"", note:""}, spaces, openings, anchors, cameras, noPosition, bounds,
-    empty:!pts.length};
+  const bounds = _locBoundsOf(pts);
+  const scene = {frame:p.frame, origin:coords ? coords.origin : {anchorId:"", note:""}, spaces, spaceList, openings, anchors, cameras,
+    noPosition, outliers, bounds, empty:!pts.length};
+  scene.fit = locationFloorPlanFit(scene, "");
+  return scene;
+}
+/* what the map fits for one space ("" = every space): its footprint, its cameras and what stands in / near it —
+   never an outlier. A space with nothing positioned falls back to the whole plan. */
+function locationFloorPlanFit(scene, spaceId){
+  if(!scene || scene.empty) return null;
+  const collect = (only)=>[].concat(
+    ...scene.spaces.filter(s=>!only || s.id===only).map(s=>s.footprint),
+    ...scene.openings.filter(o=>!o.outlier && (!only || o.spaceId===only)).map(o=>[o.a,o.b]),
+    scene.anchors.filter(a=>!a.outlier && (!only || a.spaceId===only)).map(a=>a.xy),
+    scene.cameras.filter(c=>!c.outlier && (!only || c.spaceId===only)).map(c=>[c.position[0],c.position[1]]));
+  let pts = spaceId ? collect(spaceId) : [];
+  if(!pts.length) pts = collect("");
+  if(!pts.length) pts = scene.outliers.map(o=>o.xy);   // only outliers (cannot happen with a footprint) — fit them
+  return _locBoundsOf(pts);
 }
 
 /* ---- LAYOUT CHANGED (step B): what a plate was made from — the shared layout's content (words and numbers, not its
@@ -1640,6 +1698,7 @@ window.locationPanelChildrenVisible = locationPanelChildrenVisible;
 window.locationChildrenVisibleText = locationChildrenVisibleText;
 window.locationPlateLayoutSig = locationPlateLayoutSig;
 window.locationFloorPlanScene = locationFloorPlanScene;
+window.locationFloorPlanFit = locationFloorPlanFit;
 function locationSpatialFamily(l, locations){ return _locFamily(l, locations); }
 window.locationSpatialFamily = locationSpatialFamily;
 window.locationPlateLayoutChanged = locationPlateLayoutChanged;

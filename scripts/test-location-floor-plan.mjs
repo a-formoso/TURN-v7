@@ -181,23 +181,178 @@ assert.equal(other.spaces.length,1,"a draft under review is drawn as itself");
 assert.equal(furnace.spatialPlan.coordinates.spaces.length,2,"…and the saved layout is untouched");
 assert.equal(box.locationFloorPlanScene(furnace,box.normalizeLocationSpatialPlan({frame:"x",anchors:[]})).empty,true);
 
-// the map component
+// the map component (READABLE MAP, owner 2026-10-13: "is this intended?" — a canal-side plan squashed into a strip)
 let selected="";const flat=n=>!n||typeof n!=="object"?[]:[n,...(n.children||[]).flatMap(flat)];
 const text=n=>n==null||n===false?"":typeof n!=="object"?String(n):(n.children||[]).map(text).join("");
-let map=box.LocationFloorPlanMap({scene,selected:"",onSelect:v=>selected=v});
+const cls=n=>String((n.props&&n.props.className)||"");
+const render=(props,keep)=>{if(!keep)hooks=[];cursor=0;effects=[];return box.LocationFloorPlanMap({selected:"",onSelect:v=>selected=v,...props});};
+let map=render({scene});
 const svg=flat(map).find(n=>n.type==="svg");
 assert.ok(svg&&/^-?[\d.]+ -?[\d.]+ [\d.]+ [\d.]+$/.test(svg.props.viewBox));
 assert.match(svg.props["aria-label"],/Top-down map/);
-assert.equal(flat(svg).filter(n=>n.type==="polygon").length,2+scene.cameras.length);
-const chip=flat(map).find(n=>n.type==="button"&&/Furnace · top-left/.test(text(n)));
-chip.props.onClick();assert.equal(selected,"furnace:TL");
-map=box.LocationFloorPlanMap({scene,selected:"furnace:TL",onSelect:v=>selected=v});
+assert.equal(flat(svg).filter(n=>n.type==="polygon").length,2+scene.cameras.length,"'Both' (no current space): every footprint and every cone");
+let seg=flat(map).find(n=>n.type==="button"&&n.props["aria-label"]==="Furnace · top-left camera");
+assert.equal(text(seg),"TL","a camera is one segment of its space's TL TR BL BR row");
+seg.props.onClick();assert.equal(selected,"furnace:TL");
+map=render({scene,selected:"furnace:TL"});
 assert.match(text(map),/Furnace · top-left: Camera at x 0 m, y -8 m, 1\.6 m up, facing north \(0°\), level, 24 mm lens\. Field of view 74°\. From the floor plan\./);
-assert.ok(flat(map).some(n=>n.type==="g"&&/loc-map-cam on/.test(n.props.className||"")),"its frustum is highlighted");
-assert.ok(flat(map).some(n=>n.type==="g"&&/dim/.test(n.props.className||"")),"the others step back");
+assert.ok(flat(map).some(n=>n.type==="g"&&/loc-map-cam on/.test(cls(n))),"its frustum is highlighted");
+assert.ok(flat(map).some(n=>n.type==="g"&&/dim/.test(cls(n))),"the others step back");
+assert.equal(flat(map).filter(n=>n.type==="g"&&cls(n)==="loc-map-sel").length,1,"one full label on the map");
+assert.match(text(flat(map).find(n=>cls(n)==="loc-map-sel")),/^TL — Furnace · top-left$/,"the panel letters show only when selected");
 assert.match(text(map),/Approximate — estimated from the plates and the screenplay, not surveyed/);
-assert.match(text(map),/no position/);
+assert.match(text(map),/Not drawn \(no position yet\): Furnace · bottom-right/);
+assert.ok(flat(map).some(n=>n.type==="button"&&/no position yet/.test(n.props["aria-label"]||"")&&n.props["aria-disabled"]==="true"));
 assert.match(text(box.LocationFloorPlanMap({scene:{empty:true}})),/No floor plan numbers yet/);
+
+/* ---- 6. a canal-side place (long and thin) with a glassworks frontage on it, a stray dot far to the right ---- */
+const quayAnchors=[{id:"pontoon",space:"Fondamenta",name:"Vaporetto landing pontoon",placement:"on the canal off the quay",xy:[12,-2.5]},
+  {id:"shelter",space:"Fondamenta",name:"Break down shelter",placement:"mid-quay",xy:[30,4]},
+  {id:"sacks",space:"Fondamenta dei Vetrai",name:"Wet sand sacks",placement:"by the furnace door",xy:[45,10]},
+  {id:"post",space:"Fondamenta",name:"Mooring post",placement:"at the far end",xy:[400,3]},
+  {id:"bench",space:"Fondamenta",name:"Bench",placement:"just off the west end",xy:[-14,4]},
+  {id:"crate",space:"Fondamenta",name:"Crate",placement:"well off the west end",xy:[-20,4]},
+  {id:"lamp1",space:"Fondamenta",name:"Lamp post one",xy:[20,1]},{id:"lamp2",space:"Fondamenta",name:"Lamp post two",xy:[20.2,1.1]},
+  {id:"lamp3",space:"Fondamenta",name:"Lamp post three",xy:[20.1,0.9]}];
+const quayCoords={origin:{anchorId:"shelter"},spaces:[
+  {id:"fond",name:"Fondamenta",footprint:[[0,0],[60,0],[60,8],[0,8]],basis:"observed"},
+  {id:"vetrai",name:"Fondamenta dei Vetrai",footprint:[[40,8],[52,8],[52,14],[40,14]],basis:"design",openings:[
+    {id:"vdoor",name:"Furnace door",kind:"door",centre:[46,8],width:1.2,connectsTo:"fond"},
+    {id:"vwin",name:"Shop window",kind:"window",centre:[42,8],width:2,connectsTo:"fond"}]}],
+  cameras:[{spaceId:"fond",panel:"TL",position:[2,4,1.6],yaw:90,lensMm:24,basis:"observed"},
+    {spaceId:"fond",panel:"TR",position:[30,-3,4],yaw:0,lensMm:18,basis:"observed"},      // on the water side of the quay: not an outlier
+    {spaceId:"fond",panel:"BL",position:[58,4,1.6],yaw:270,lensMm:35,basis:"observed"},
+    {spaceId:"vetrai",panel:"TL",position:[46,9,1.6],yaw:0,lensMm:24,basis:"design"},
+    {spaceId:"vetrai",panel:"TR",position:[51,13,3],yaw:225,lensMm:16,basis:"design"},
+    {spaceId:"vetrai",panel:"BR",position:[46,300,1.6],yaw:180,lensMm:24,basis:"design"}]};   // a stray camera
+const fond={id:"fond",key:"fond",name:"Fondamenta",spatialPlan:box.normalizeLocationSpatialPlan({frame:"Along the quay, facing the canal",
+  status:"draft",anchors:quayAnchors,coordinates:quayCoords})};
+const vetrai={id:"vetrai",key:"vetrai",name:"Fondamenta dei Vetrai",parentKey:"fond"};
+const quayList=[fond,vetrai];
+const quay=box.locationFloorPlanScene(fond,fond.spatialPlan,quayList);
+deq(quay.spaceList.map(s=>[s.id,s.owner]),[["fond",true],["vetrai",false]],"every space of the family, the owner first");
+deq(quay.anchors.map(a=>[a.id,a.num,a.spaceId]).slice(0,4),[["pontoon",1,"fond"],["shelter",2,"fond"],["sacks",3,"vetrai"],["post",4,"fond"]],
+  "objects are numbered for the key, each with its space");
+deq(quay.openings.map(o=>[o.id,o.tag,o.spaceId]),[["vdoor","D1","vetrai"],["vwin","W1","vetrai"]],"openings get short W1 / D1 tags");
+assert.equal(box.locationFloorPlanMargin([[0,0],[60,0],[60,8],[0,8]]),15,"the margin: 25% of a 60 m quay");
+assert.equal(box.locationFloorPlanMargin([[0,0],[4,0],[4,4],[0,4]]),3,"…never under 3 m");
+deq(quay.outliers.map(o=>[o.kind,o.id]),[["object","post"],["object","crate"],["camera","BR"]],
+  "the mooring post 340 m out, the crate 20 m off the end and a camera 286 m off are outliers; the bench 14 m off and the pontoon on the water are not");
+assert.equal(quay.anchors.find(a=>a.id==="bench").outlier,false);
+assert.equal(quay.cameras.find(c=>c.spaceId==="fond"&&c.panel==="TR").outlier,false,"a camera on the exterior quay is drawn normally");
+assert.ok(quay.bounds.maxX>=400,"the old bounds still include everything");
+assert.ok(quay.fit.minX>=-14.5&&quay.fit.maxX<=60.5&&quay.fit.maxY<=14.5&&quay.fit.minY>=-3.5,"the fit: footprints, their cameras and what is near them — never an outlier");
+const vfit=box.locationFloorPlanFit(quay,"vetrai");
+assert.ok(vfit.minX>=40&&vfit.maxX<=52&&vfit.minY>=8&&vfit.maxY<=14,"one space: its own footprint, cameras and objects");
+deq(box.locationFloorPlanFit(quay,"nowhere"),quay.fit,"an unknown space: the whole plan");
+// a scene without any footprint has nothing to test against: no outliers
+assert.equal(box.locationFloorPlanScene(fond,{...fond.spatialPlan,coordinates:{...quayCoords,spaces:[]}},quayList).outliers.length,0);
+
+// the map takes the plan's shape — one scale on both axes, 160–480 px tall on a phone, ≤ 560 px on a desktop
+let b=box.locMapBox(quay.fit,343);
+assert.equal(b.W,343);assert.equal(b.H,160,"a long quay on a phone: a wide map at the 160 px floor");
+assert.ok(Math.abs(b.vw/b.vh-b.W/b.H)<1e-9,"equal x / y scale");
+const room={minX:0,maxX:6,minY:0,maxY:6};
+b=box.locMapBox(room,343);assert.equal(b.H,343,"a square room on a phone: square");
+b=box.locMapBox({minX:0,maxX:4,minY:0,maxY:40},343);assert.equal(b.H,480,"a tall corridor on a phone: capped at 480 px");
+b=box.locMapBox(room,900);assert.equal(b.H,560,"a square room on a desktop: capped at 560 px");
+b=box.locMapBox(quay.fit,900);assert.ok(b.H>=160&&b.H<260,"a long quay on a desktop stays wide");
+// zoom and pan
+b=box.locMapBox(quay.fit,343);
+deq(box.locMapClamp(b,{zoom:1,cx:999,cy:-999}),{zoom:1,cx:b.cx,cy:b.cy},"at the fit the view cannot wander");
+let v=box.locMapZoomAt(b,{zoom:1,cx:b.cx,cy:b.cy},3,100,80);
+assert.equal(v.zoom,3);
+const under=(view,px,py)=>[view.cx+(px-b.W/2)/(b.s*view.zoom),view.cy-(py-b.H/2)/(b.s*view.zoom)];
+const p1=under({zoom:1,cx:b.cx,cy:b.cy},100,80),p2=under(v,100,80);
+assert.ok(Math.abs(p1[0]-p2[0])<1e-6&&Math.abs(p1[1]-p2[1])<1e-6,"zooming keeps the point under the pointer");
+assert.equal(box.locMapClamp(b,{zoom:99}).zoom,12,"zoom is capped");
+assert.equal(box.locMapClamp(b,{zoom:0.2}).zoom,1,"never smaller than the fit");
+deq(json(box.locMapScaleBar(20)),{m:5,px:100,label:"5 m"},"a scale bar in round metres");
+assert.equal(box.locMapScaleBar(400).label,"0.5 m");
+// label placement never overlaps and stays on the map
+const taken=[];
+assert.ok(box.locMapPlace(taken,[[10,10]],20,20,100,100));
+assert.equal(box.locMapPlace(taken,[[15,15]],20,20,100,100),null,"an overlapping spot is refused");
+deq(json(box.locMapPlace(taken,[[15,15],[95,10],[40,10]],20,20,100,100)),{x:40,y:10,w:20,h:20},"…the next free candidate on the map wins");
+
+// rendered on a phone, the current space is the room (the card's "Whole location / room" picker)
+map=render({scene:quay,spaceId:"vetrai"});
+let qs=flat(map).find(n=>n.type==="svg");
+assert.equal(qs.props.viewBox,"0 0 343 "+box.locMapBox(box.locationFloorPlanFit(quay,"vetrai"),343).H,"the viewBox is the map's own size — fitted to the room");
+deq(flat(map).filter(n=>n.type==="button"&&/loc-map-chip/.test(cls(n))).map(n=>[text(n),n.props["aria-pressed"]]),
+  [["Fondamenta",false],["Fondamenta dei Vetrai",true],["Both",false]],"one space at a time: the room, by default");
+assert.ok(/dim/.test(cls(flat(qs).find(n=>n.type==="polygon"&&/owner/.test(cls(n))))),"the other space's footprint is dimmed");
+deq(flat(qs).filter(n=>n.type==="g"&&/loc-map-cam/.test(cls(n))).map(n=>n.props.key),["c-vetrai:TL","c-vetrai:TR","c-vetrai:BL","c-vetrai:BR"],"…and its cameras are hidden (only the room's four)");
+assert.deepEqual(flat(qs).filter(n=>n.type==="g"&&/loc-map-anchor/.test(cls(n))).map(n=>text(n)),["3"],"only the room's object, as its number");
+assert.ok(!flat(qs).some(n=>n.type==="text"&&/Wet sand sacks|Fondamenta · /.test(text(n))),"names live in the key, not piled on the map");
+assert.equal(text(flat(map).find(n=>/loc-map-camrow$/.test(cls(n)))),"Fondamenta dei VetraiTLTRBLBR","a compact TL TR BL BR row named for its space");
+assert.equal(flat(map).filter(n=>/loc-map-camrow$/.test(cls(n))).length,1,"one camera row: the shown space");
+assert.ok(flat(qs).some(n=>n.type==="path"&&/loc-map-arrow/.test(cls(n))),"the stray camera sits at the map's edge, pointing its way");
+const legendText=text(flat(map).find(n=>cls(n)==="loc-map-legend"));
+assert.match(legendText,/Wet sand sacks/);assert.match(legendText,/D1Furnace door/);
+assert.match(legendText,/Fondamenta dei Vetrai · bottom-right camera: outside the plan — check this position/);
+// Both: every space's things; the outliers listed and pointed at, the marker cluster nudged apart
+map=render({scene:quay,spaceId:"vetrai"});
+flat(map).find(n=>n.type==="button"&&text(n)==="Both").props.onClick();
+map=render({scene:quay,spaceId:"vetrai"},true);
+qs=flat(map).find(n=>n.type==="svg");
+assert.equal(flat(qs).filter(n=>n.type==="polygon"&&/dim/.test(cls(n))).length,0,"Both: nothing dimmed");
+const marks=flat(qs).filter(n=>n.type==="g"&&/loc-map-anchor/.test(cls(n))).map(g=>g.children.find(c=>c&&c.type==="circle"&&!c.props.className));
+assert.equal(marks.length,quay.anchors.length);
+for(let i=0;i<marks.length;i++)for(let j=i+1;j<marks.length;j++)
+  assert.ok(Math.hypot(marks[i].props.cx-marks[j].props.cx,marks[i].props.cy-marks[j].props.cy)>=19.9,"numbered markers never overlap (three lamp posts 0.2 m apart)");
+assert.ok(marks.every(c=>c.props.cx>=0&&c.props.cx<=343&&c.props.cy>=0&&c.props.cy<=qs.props.height),"every marker is on the map, outliers clamped at its edge");
+const rows=flat(map).filter(n=>n.type==="button"&&/loc-map-row/.test(cls(n)));
+deq(rows.filter(n=>/warn/.test(cls(n))).map(n=>text(n).replace(/\s+/g," ")),
+  ["4Mooring postFondamenta · x 400, y 3 moutside the plan — check this position","6CrateFondamenta · x -20, y 4 moutside the plan — check this position"]);
+// tapping a key row shows its full label on the map — one at a time
+rows.find(n=>/Wet sand sacks/.test(text(n))).props.onClick();assert.equal(selected,"#a:sacks");
+map=render({scene:quay,spaceId:"vetrai",selected:"#a:sacks"},true);
+assert.deepEqual(flat(map).filter(n=>cls(n)==="loc-map-sel").map(text),["3 · Wet sand sacks"]);
+assert.match(text(map),/3 · Wet sand sacks — Fondamenta dei Vetrai, x 45, y 10 m\. by the furnace door/);
+flat(map).find(n=>n.type==="button"&&/loc-map-row/.test(cls(n))&&/Wet sand sacks/.test(text(n))).props.onClick();assert.equal(selected,"","tapping it again clears it");
+const tagG=flat(qs).find(n=>n.type==="g"&&/loc-map-tag/.test(cls(n))&&text(n)==="D1");
+assert.ok(tagG,"openings are short tags along their wall");tagG.props.onClick();assert.equal(selected,"#o:vetrai:vdoor");
+// zoom buttons
+const zb=l=>flat(map).find(n=>n.type==="button"&&n.props["aria-label"]===l);
+assert.ok(zb("Zoom in")&&zb("Zoom out")&&zb("Fit the plan to the map"),"+ / − / Fit, with accessible labels");
+assert.equal(zb("Zoom out").props.disabled,true,"already at the fit");
+zb("Zoom in").props.onClick();
+map=render({scene:quay,spaceId:"vetrai"},true);qs=flat(map).find(n=>n.type==="svg");
+assert.match(cls(qs),/zoomed/,"zoomed in: the map takes one-finger pans (touch-action none) — at the fit a finger scrolls the page");
+assert.equal(zb("Zoom out").props.disabled,false);
+zb("Fit the plan to the map").props.onClick();
+map=render({scene:quay,spaceId:"vetrai"},true);
+assert.doesNotMatch(cls(flat(map).find(n=>n.type==="svg")),/zoomed/);
+assert.ok(flat(map).some(n=>n.type==="g"&&/loc-map-north/.test(cls(n))&&text(n)==="N"),"a north arrow");
+assert.match(text(flat(map).find(n=>n.type==="g"&&/loc-map-scale/.test(cls(n)))),/^\d+(\.5)? m$/,"a scale bar in metres");
+const css=read("app/styles.css");
+assert.match(css,/\.loc-map-svg\{[^}]*touch-action:pan-x pan-y/);assert.match(css,/\.loc-map-svg\.zoomed\{touch-action:none/);
+assert.doesNotMatch(css,/\.loc-map-svg\{[^}]*aspect-ratio/,"no fixed box: the map's height comes from the plan");
+assert.match(css,/\.loc-map-segbtn\{min-width:40px;min-height:34px/,"touch targets ≥ 32 px");
+// "Check these positions" near Review / Confirm on a draft (never blocking)
+assert.equal(box.locationFloorPlanCheckText(quay),"Check these positions: Mooring post, Crate, Fondamenta dei Vetrai · bottom-right camera — far outside every footprint on the drafted floor plan. Fix them under Floor plan numbers, or confirm if they are right.");
+assert.equal(box.locationFloorPlanCheckText(scene),"","nothing to check: nothing said");
+box.turnContinuity={locations:quayList,scenes:[],drafts:{}};
+hooks=[];cursor=0;effects=[];
+let ed=box.LocationSpatialPlanEditor({l:vetrai,scenes:[],project:{},onUpdate:noop});
+assert.match(text(flat(ed).find(n=>/loc-map-check/.test(cls(n)))),/^Check these positions: Mooring post/);
+assert.equal(flat(ed).find(n=>n.type===box.LocationFloorPlanMap).props.spaceId,"vetrai","the map opens on the card's current space");
+box.turnContinuity={locations:[furnace,office],scenes:[],drafts:{}};
+hooks=[];cursor=0;effects=[];
+ed=box.LocationSpatialPlanEditor({l:furnace,scenes:[],project:{},onUpdate:noop});
+assert.ok(!flat(ed).some(n=>/loc-map-check/.test(cls(n))),"a confirmed layout with nothing far off: no note");
+// a square room fixture keeps its square
+const sq=box.locationFloorPlanScene(office,{...furnace.spatialPlan,coordinates:{...coordinates,spaces:[coordinates.spaces[1]],cameras:[]}});
+assert.ok(Math.abs(box.locMapBox(sq.fit,343).H-343)<=2,"a square room draws square");
+// Frances knows how the map reads
+const aiSrc=read("app/ai.jsx");
+assert.match(aiSrc,/listed as 'outside the plan \\u2014 check this position'/);
+assert.match(aiSrc,/one row of TL TR BL BR buttons/);
+assert.match(aiSrc,/the map opens on the space chosen in the card's Whole location \/ room picker/);
+// the brand rule: no internal names in the map's copy
+const mapSrc=read("app/locations-ui.jsx").slice(read("app/locations-ui.jsx").indexOf("const LOC_MAP_PAD"),read("app/locations-ui.jsx").indexOf("/* every floor plan number"));
+assert.doesNotMatch(mapSrc,/"[^"]*\bTURN\b[^"]*"/);
 
 // every number is an editable field
 const changes=[];
