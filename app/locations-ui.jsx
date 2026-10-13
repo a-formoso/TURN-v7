@@ -150,6 +150,147 @@ function LocationSpatialAnchorEditor({anchor,onRemove,children}){
     children);
 }
 
+/* PLATE CAMERAS (2026-10-13, owner — Location coordinates): the camera of each panel of this space's 2x2 plate.
+   A room's panels are cameras INSIDE the room; through each window or door they show the space beyond from that
+   camera's position, using the panel of that space's plate whose recorded camera faces the same way (cut out and
+   attached as its own reference), or a view made from here ("Make a … view" — one paid image). An owner space's
+   cameras are suggestions until they are set: its plate prompt only states cameras that are set. */
+function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
+  const [,refresh]=React.useReducer(n=>n+1,0);
+  const [busy,setBusy]=React.useState("");
+  React.useEffect(()=>{const h=()=>refresh();
+    window.addEventListener("nb-gen-done",h);window.addEventListener("nb-prefetched",h);
+    return ()=>{window.removeEventListener("nb-gen-done",h);window.removeEventListener("nb-prefetched",h);};},[]);
+  const alive=React.useRef(true);
+  React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
+  if(typeof locationPanelPoses!=="function")return null;
+  const panels=locationPanelPoses(l);
+  const parent=locationParentOf(l);
+  const plan=parent&&typeof locationSubspacePanelPlan==="function"?locationSubspacePanelPlan(l):null;
+  const anchors=locationSpaceAnchors(l);
+  const openings=locationSpaceOpenings(l);
+  const layout=locationSpatialPlanState(l);
+  const storedAny=panels.some(p=>p.source==="set");
+  const name=l.name||"this space";
+  const storedPose=key=>({...(((locationStoredPanelViews(l)[key])||{}).pose||{})});
+  const save=(key,pose)=>{ if(readOnly)return; onUpdate(l.id,{coverageViews:locationCoverageViewsWithPose(l,key,pose)}); };
+  const setField=(p,field,raw)=>{
+    const next=storedPose(p.key);
+    if(field==="position"){
+      const parts=String(raw||"").split(/[,\s]+/).filter(Boolean).map(Number);
+      next.position=parts.length===3&&parts.every(Number.isFinite)?parts:null;
+    }else if(field==="target")next.target=raw||"";
+    else{const n=String(raw).trim()===""?null:Number(raw);next[field]=Number.isFinite(n)?n:null;}
+    Object.keys(next).forEach(k=>{if(next[k]==null||next[k]==="")delete next[k];});
+    delete next.basis;
+    save(p.key,Object.keys(next).length?{...next,basis:"user"}:null);
+  };
+  const useSuggested=()=>{
+    if(readOnly)return;
+    let tmp={...l};
+    panels.filter(p=>p.suggestedPose&&p.suggestedPose.yaw!=null).forEach(p=>{
+      tmp={...tmp,coverageViews:locationCoverageViewsWithPose(tmp,p.key,{...p.suggestedPose,basis:"design"})};});
+    onUpdate(l.id,{coverageViews:tmp.coverageViews||[]});
+  };
+  const makeView=async(openingId)=>{
+    if(readOnly||busy)return;
+    const req=locationParentViewRequest(l,openingId);
+    if(!req)return;
+    const toast=(m,k)=>{if(typeof window.appToast==="function")window.appToast(m,k);};
+    // a view already made (a cold cache on this device) is used, never paid for twice
+    let exists=false;
+    try{exists=!!((typeof nbGetImage==="function"&&nbGetImage(req.assetId))||(typeof nbLoadImage==="function"&&await nbLoadImage(req.assetId)));}catch(e){}
+    const meta=exists&&typeof nbGetMeta==="function"?nbGetMeta(req.assetId):null;
+    const parentMeta=typeof nbGetMeta==="function"?nbGetMeta(req.targetId):null;
+    if(meta&&meta.parentViewPose&&!(parentMeta&&parentMeta.iso&&meta.locationParentIso&&meta.locationParentIso!==parentMeta.iso)){
+      refresh();toast("That view is already made — "+name+"'s plate uses it for "+(req.opening.name||"the opening")+".","info");return;}
+    setBusy(openingId);
+    try{
+      const ok=await generateLocationParentView(l,req,project);
+      if(ok)toast("Made "+req.targetName+" seen from "+name+" — it is used for "+(req.opening.name||"the opening")+" when you generate "+name+"'s plate.");
+    }catch(e){toast((e&&e.message)||"Couldn't make that view.","error");}
+    finally{if(alive.current){setBusy("");refresh();}}
+  };
+  const unknownFacing=openings.filter(o=>o.yaw==null);
+  const recorded=!!(plateMeta&&plateMeta.platePanels);
+  const num=(label,value,placeholder,onCommit,unit)=>React.createElement("label",{className:"loc-cam-field"},
+    React.createElement("span",null,label),
+    React.createElement("input",{className:"prop-select",type:"number",inputMode:"decimal",step:"any",
+      key:String(value==null?"":value),defaultValue:value==null?"":value,placeholder:placeholder==null?"":String(placeholder),
+      disabled:readOnly,onBlur:e=>{if(String(e.target.value)!==String(value==null?"":value))onCommit(e.target.value);}}),
+    unit&&React.createElement("small",null,unit));
+  const sightRow=(s,i)=>{
+    const head="“"+s.openingName+"”"+(s.wallYaw!=null?" ("+locCompass(s.wallYaw)+" wall)":"")+" → "+s.targetName+", looking "+locCompass(s.yaw);
+    if(s.sourceId){
+      const src=(plan.sources||[]).find(x=>x.id===s.sourceId)||{};
+      return React.createElement("li",{key:i,className:"loc-cam-sight ok"},React.createElement("b",null,head),
+        React.createElement("span",null,src.kind==="view"?": the view made from "+name+"'s position."
+          :": the "+LOC_PANEL_INFO[src.key].label.toLowerCase()+" panel of "+s.targetName+"'s plate, cut out and attached as its own reference."
+          +(s.approx?" Matched by facing — positions would make the check exact.":"")));
+    }
+    const reason=s.reason==="no-plate"?s.targetName+" has no plate yet."
+      :s.reason==="no-record"?s.targetName+"'s plate was made before its cameras were recorded, so its panels' facings are unknown."
+      :"No "+s.targetName+" view faces "+locCompass(s.yaw)+" from here.";
+    const beyond=(s.beyond||[]).map(a=>a.name).filter(Boolean);
+    const req=locationParentViewRequest(l,s.openingId);
+    const refs=typeof locationParentViewRefCount==="function"?locationParentViewRefCount(l,req):1;
+    return React.createElement("li",{key:i,className:"loc-cam-sight open"},React.createElement("b",null,head),
+      React.createElement("span",null,": "+reason+" The plate describes what lies that way from the shared layout"
+        +(beyond.length?" ("+beyond.join(", ")+")":"")+" and marks it unresolved."),
+      req&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-cam-make",
+        disabled:readOnly||!!busy||!layout.ready||s.reason==="no-plate",
+        title:!layout.ready?layout.reason:"One image: "+s.targetName+" seen from "+name+", looking "+locCompass(s.yaw)
+          +" through "+s.openingName+". It becomes the reference for that opening. Uses image credits.",
+        onClick:()=>makeView(s.openingId)},
+        busy===s.openingId?"Making the view…":"Make a "+s.targetName+" view from "+name+"'s position",
+        busy!==s.openingId&&typeof window.nbCostChip==="function"&&window.nbCostChip(1,{refs})));
+  };
+  return React.createElement("details",{className:"loc-nested-section loc-plate-cameras",open:parent?true:undefined},
+    React.createElement("summary",null,"Plate cameras",React.createElement("span",{className:"loc-spatial-status"+(storedAny||parent?" ready":"")},
+      parent?(plan&&plan.unresolved.length?plan.unresolved.length+" view"+(plan.unresolved.length===1?"":"s")+" unresolved":"Planned")
+        :storedAny?"Set":"Suggested")),
+    React.createElement("p",{className:"loc-layer-note"},parent
+      ?"Each panel of "+name+"'s plate is a camera inside "+name+". Through a window or door it shows "+parent.name
+        +" as seen from that camera, using the panel of "+parent.name+"'s plate that faces the same way — never its most striking panel. Compass directions follow the shared layout's frame (north = the way it faces); positions are metres from its origin."
+      :"The camera of each panel of this plate. Rooms inside "+name+" use these to pick the panel that faces the same way as their windows. Compass directions follow the shared layout's frame (north = the way it faces). Until a camera is set, the plate prompt is unchanged."),
+    !parent&&storedAny&&!recorded&&plateMeta&&React.createElement("p",{className:"loc-layer-note loc-cam-warn",role:"status"},
+      "The current plate was made before these cameras were set — regenerate it so the rooms inside can use its panels."),
+    unknownFacing.length>0&&React.createElement("p",{className:"loc-layer-note loc-cam-warn"},
+      "Set which way "+unknownFacing.map(o=>"“"+o.name+"”").join(", ")+" faces in the shared layout's objects (“Faces”) so the panels can see through "+(unknownFacing.length===1?"it":"them")+"."),
+    !parent&&!storedAny&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly,onClick:useSuggested},
+      "Use the suggested cameras"),
+    React.createElement("div",{className:"loc-cam-grid"},
+      (plan?plan.panels:panels).map(p=>React.createElement("div",{key:p.key,className:"loc-cam-panel"},
+        React.createElement("div",{className:"loc-cam-head"},React.createElement("b",null,p.label),
+          React.createElement("span",{className:"loc-cam-badge"+(p.source==="set"?" set":"")},p.source==="set"?"Set":(parent?"Planned":"Suggested"))),
+        React.createElement("p",{className:"loc-cam-purpose"},p.purpose),
+        React.createElement("p",{className:"loc-cam-text"},locationPoseText(p.pose,parent?name:"",anchors)),
+        p.sights&&p.sights.length>0&&React.createElement("ul",{className:"loc-cam-sights"},p.sights.map(sightRow)),
+        React.createElement("details",{className:"loc-cam-edit"},
+          React.createElement("summary",null,"Edit camera"),
+          React.createElement("div",{className:"loc-cam-fields"},
+            num("Facing",storedPose(p.key).yaw,p.suggestedPose.yaw,v=>setField(p,"yaw",v),p.pose.yaw!=null?locCompass(p.pose.yaw)+" · degrees, 0 = north, 90 = east":"degrees, 0 = north, 90 = east"),
+            num("Tilt",storedPose(p.key).pitch,p.suggestedPose.pitch,v=>setField(p,"pitch",v),"degrees, negative looks down"),
+            num("Lens",storedPose(p.key).lensMm,p.suggestedPose.lensMm,v=>setField(p,"lensMm",v),"mm"),
+            React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"Position"),
+              React.createElement("input",{className:"prop-select",type:"text",inputMode:"decimal",disabled:readOnly,
+                key:JSON.stringify(storedPose(p.key).position||null),
+                defaultValue:(storedPose(p.key).position||[]).join(", "),
+                placeholder:p.suggestedPose.position?p.suggestedPose.position.join(", "):"x, y, height (metres)",
+                onBlur:e=>{if(e.target.value!==(storedPose(p.key).position||[]).join(", "))setField(p,"position",e.target.value);}}),
+              React.createElement("small",null,"x, y, height in metres from the layout's origin")),
+            React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"Aimed at"),
+              React.createElement("select",{className:"prop-select",disabled:readOnly,value:storedPose(p.key).target||"",
+                onChange:e=>setField(p,"target",e.target.value)},
+                React.createElement("option",{value:""},p.suggestedPose.target?"Suggested: "+(((anchors.find(a=>a.id===p.suggestedPose.target))||{}).name||p.suggestedPose.target):"Nothing in particular"),
+                anchors.map(a=>React.createElement("option",{key:a.id,value:a.id},a.name||a.id))))),
+          p.source==="set"&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly,
+            onClick:()=>save(p.key,null)},parent?"Back to the planned camera":"Back to the suggestion"))))),
+    React.createElement("p",{className:"loc-layer-note"},parent
+      ?"Each matched view is sent as its own reference image with "+name+"'s plate (on some engines each reference adds a little to the price). Setting cameras uses no credits."
+      :"Setting cameras uses no credits and generates nothing."));
+}
+
 function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,reviewRequest=0,onReturnToImage}){
   const [candidate,setCandidate]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState("");
   const [,refresh]=React.useReducer(n=>n+1,0);
@@ -269,7 +410,16 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         React.createElement("label",{className:"loc-spatial-field"},React.createElement("span",null,"Evidence basis"),
           React.createElement("select",{className:"prop-select",value:a.basis,onChange:e=>anchorChange(a.id,{basis:e.target.value})},
             [["observed","Visible in reference"],["script","Screenplay fact"],["design","Proposed design"]].map(o=>React.createElement("option",{key:o[0],value:o[0]},o[1])))),
-        field("Supporting panels / evidence",a.evidence,value=>anchorChange(a.id,{evidence:value}),"Top-left: through archway. Top-right: direct kitchen view."))),
+        field("Supporting panels / evidence",a.evidence,value=>anchorChange(a.id,{evidence:value}),"Top-left: through archway. Top-right: direct kitchen view."),
+        // which way a window / door faces, so a room's panels can see through it (2026-10-13, Location coordinates)
+        typeof locationAnchorIsOpening==="function"&&locationAnchorIsOpening(a)&&React.createElement("label",{className:"loc-spatial-field"},
+          React.createElement("span",null,"Faces (outward from "+(a.space||"its room")+")"),
+          React.createElement("select",{className:"prop-select",value:a.facing==null?"":String(a.facing),
+            onChange:e=>anchorChange(a.id,{facing:e.target.value===""?undefined:Number(e.target.value)})},
+            React.createElement("option",{value:""},(()=>{const w=locWallYawFromText((a.placement||"")+" "+(a.name||""));
+              return w?"From its placement: "+locCompass(w.yaw):"Not set";})()),
+            (a.facing!=null&&a.facing%45?[a.facing]:[]).concat([0,45,90,135,180,225,270,315]).map(y=>
+              React.createElement("option",{key:y,value:String(y)},locCompass(y)+" ("+Math.round(y)+"\u00b0)")))))),
       React.createElement("button",{className:"art-draftall ghost",disabled:plan.anchors.length>=24,
         onClick:()=>change({anchors:[...plan.anchors,{id:"anchor-"+Date.now().toString(36),space:l.name||"",name:"",placement:"",basis:"design",evidence:""}]})},"Add fixed anchor"),
       field("Connections & doorway sightlines",plan.sightlines,value=>change({sightlines:value}),"Which rooms connect? What objects are visible through each opening?"),
@@ -391,6 +541,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const [parentRefUrl,setParentRefUrl]=React.useState("");
   const masterParentSnapshot=React.useRef({});
   const masterPlanSig=React.useRef("");
+  // a room's panel plan and the cameras its prompt states, fixed when its references are read (2026-10-13)
+  const masterSubPlan=React.useRef(null);
+  const masterPanelRecord=React.useRef(null);
   React.useEffect(()=>{
     let alive=true;
     const id=l.parentLocation&&l.parentLocation.id;
@@ -408,7 +561,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     const C = window.turnContinuity || {};
     if(l.parentLocation){
       const rootUrl=((typeof nbGetImage==="function")?nbGetImage(l.parentLocation.id):"")||parentRefUrl;
-      out.push(locationParentReference(l,rootUrl));
+      // a room's parent plate is sent small, for materials and colour — not a view to copy (2026-10-13)
+      out.push((typeof locationSubspaceParentReference==="function"?locationSubspaceParentReference(l,rootUrl):null)
+        ||locationParentReference(l,rootUrl));
     }
     // the same pages the headless runs attach (locationScriptPageRefs)
     if(typeof locationScriptPageRefs==="function")
@@ -460,12 +615,28 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     attachments: async ()=>{
       requireLocationSpatialPlan(l);
       masterPlanSig.current=(typeof locationSpatialPlanSigFor==="function") ? locationSpatialPlanSigFor(l) : "";
-      const parentRefs=mergeLocationReferences(await locationParentReferences(l),await locationSpatialReferences(l));
+      masterPanelRecord.current=(typeof locationPlatePanelRecord==="function") ? locationPlatePanelRecord(l) : null;
+      /* A ROOM (2026-10-13, Location coordinates): its parent's plate small, then the view of the space beyond each
+         opening its panels see — numbered, so the prompt can say "match Image N" */
+      let parentRefs;
+      if(l.parentLocation&&typeof locationSubspacePlateReferences==="function"){
+        const sub=await locationSubspacePlateReferences(l);
+        masterSubPlan.current=sub.plan;parentRefs=sub.refs;
+      } else {
+        masterSubPlan.current=null;
+        parentRefs=mergeLocationReferences(await locationParentReferences(l),await locationSpatialReferences(l));
+      }
       masterParentSnapshot.current=l.parentLocation
         ? locationAssetDependencySnapshot(locationParentOf(l).id,[],"subspace") : {};
       return [...parentRefs,...buildMasterRefs().filter(r=>!r.required&&r.url&&masterRefOff.indexOf(r.refId)<0)].slice(0,6)
-        .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note}));
+        .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note,
+          ...(r.maxDim?{maxDim:r.maxDim}:{}),...(r.numbered?{numbered:true}:{})}));
     },
+    // the room's views name their images by number once the final list is known (2026-10-13)
+    rebuildPromptAfterAttachments:(attach,mode)=> mode==="final"&&masterSubPlan.current
+      ? combinedLocationPrompt(stagingDraftRef.current?{...l,staging:stagingDraftRef.current}:l,project,
+          {panelPlan:masterSubPlan.current,panelRefs:locationReferenceNumbers(attach)})
+      : null,
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")
         +". Read screenplay pages together as evidence for permanent geography. A continuity-root plate is binding inherited identity, not a panel map. "
@@ -478,6 +649,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       ...masterParentSnapshot.current,
       // made from the reviewed layout (not an edit): the layout stays reviewed — 2026-10-08
       ...(mode!=="edit" && masterPlanSig.current ? { spatialPlanSig:masterPlanSig.current } : {}),
+      // the cameras its prompt stated (a fresh plate) or the ones the edited plate had (2026-10-13)
+      ...(mode==="final"&&masterPanelRecord.current?{platePanels:masterPanelRecord.current}
+        :mode==="edit"&&gen.genMeta&&gen.genMeta.platePanels?{platePanels:gen.genMeta.platePanels}:{}),
       // the written spec it was made from ("Description changed" — an edit keeps the one it started from)
       locSpecSig: mode==="edit" ? (gen.genMeta && gen.genMeta.locSpecSig) : (typeof locationSpecSig==="function" ? locationSpecSig(l) : undefined)
     }),
@@ -561,12 +735,16 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // (2026-10-08) on an INT+EXT place the plate follows locationMasterPanelPlan — the hints say so
   const _panelPlan = (typeof locationMasterPanelPlan==="function") ? (()=>{ try{ return locationMasterPanelPlan(l, scenes, drafts); }catch(e){ return null; } })() : null;
   const _hintOf = (txt, dflt)=> txt ? String(txt).split(/\s+(?:\u2014|-|because)\s+|:/)[0].replace(/\s+/g," ").trim().toLowerCase().slice(0,48) : dflt;
+  // a room's panels are its own planned cameras (2026-10-13)
+  const _roomPanels = (l.parentLocation && typeof locationPanelPoses==="function") ? (()=>{ try{ return locationPanelPoses(l); }catch(e){ return null; } })() : null;
+  const _roomHint = (i, dflt)=> _roomPanels && _roomPanels[i] ? _hintOf(_roomPanels[i].purpose, dflt) : dflt;
   const LOC_PANELS = [
     { grid:"TOP-LEFT",     label:"Top-left",     hint:_hintOf(_panelPlan&&_panelPlan.top_left, "wide establishing") },
     { grid:"TOP-RIGHT",    label:"Top-right",    hint:_hintOf(_panelPlan&&_panelPlan.top_right, "high overview") },
     { grid:"BOTTOM-LEFT",  label:"Bottom-left",  hint:_hintOf(_panelPlan&&_panelPlan.bottom_left, "close-up") },
     { grid:"BOTTOM-RIGHT", label:"Bottom-right", hint:_hintOf(_panelPlan&&_panelPlan.bottom_right, "close-up") },
   ];
+  if(_roomPanels) LOC_PANELS.forEach((p,i)=>{ p.hint = _roomHint(i, p.hint); });
   const [panelEdit, setPanelEdit] = React.useState(null);   // { idx:int|null, text:string } | null
   const applyPanelEdit = ()=>{
     if(!panelEdit || panelEdit.idx==null || !panelEdit.text.trim() || gen.gening) return;
@@ -842,6 +1020,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       React.createElement(CardFold,{label:"Spatial Layout & Staging",foldId:layoutFoldId,defaultOpen:initialSection==="layout",
         count:!spatialState.ready?"layout needs review":locStaged?((typeof locationStagingLayoutChanged==="function"&&locationStagingLayoutChanged(l))?"layout changed":null):(stagingPrep?"staging\u2026":"drafts on first render")},
         React.createElement(LocationSpatialPlanEditor,{l,scenes,project,onUpdate,readOnly,reviewRequest:layoutReviewRequest,onReturnToImage:returnToImage}),
+        React.createElement(LocationPlateCameras,{l,project,onUpdate,readOnly,plateMeta:gen.genUrl?gen.genMeta:null}),
         React.createElement(LocationRoomLinks,{entries:roomLocations.map(owner=>({owner,key:owner.id,
           label:owner.name,detail:"Open room layout and staging"})),onSelectLocation,section:"layout"}),
         React.createElement(CoverageViewsEditor,{l,views:coverageViews,onUpdateView:updateCoverageView,
@@ -909,6 +1088,8 @@ function CoverageViewsEditor({l,views,onUpdateView,onAdd,onRemove,onDraftStaging
       React.createElement("div",{className:"loc-variant-head"},
         React.createElement("div",{className:"loc-camera-view-title"},
           index===0&&React.createElement("span",{className:"loc-primary-badge"},"Primary"),
+          v.panel&&typeof LOC_PANEL_INFO!=="undefined"&&LOC_PANEL_INFO[v.panel]&&React.createElement("span",{className:"loc-primary-badge loc-panel-badge",
+            title:"This camera makes the "+LOC_PANEL_INFO[v.panel].label.toLowerCase()+" panel of the plate (Plate cameras)"},"Plate · "+LOC_PANEL_INFO[v.panel].label.toLowerCase()),
           React.createElement(EditText,{value:v.name||"",placeholder:"Named camera view",
             onCommit:name=>onUpdateView(v.id,{name,staging:{...(v.staging||{}),viewLabel:name}})})),
         list.length>1&&React.createElement("button",{className:"loc-variant-x",title:"Remove camera view",

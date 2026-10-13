@@ -140,6 +140,7 @@ images={house:"current-parent",kitchen:"room"};box.nbLoadImage=async id=>images[
 reviewLayout();
 box.l={...child,parentLocation:parent};
 Object.assign(box,{stagingDraftRef:{current:null},finalPrompt:"SPEC",masterParentSnapshot:{current:{}},masterPlanSig:{current:""},
+  masterSubPlan:{current:null},masterPanelRecord:{current:null},
   masterRefOff:["house","page"],buildMasterRefs:()=>[
     box.locationParentReference(child,"old-preview"),{url:"script-page",kind:"script",refId:"page"}
   ]});
@@ -150,6 +151,12 @@ const attached=await options.attachments();
 assert.deepEqual(Array.from(attached,r=>r.url),["current-parent"],
   "the parent cannot be excluded; optional screenplay exclusions still work and stale preview URLs are not reused");
 assert.equal(box.masterParentSnapshot.current.locationParentIso,"current-parent");
+// a room (2026-10-13, Location coordinates): its parent plate goes small, for materials and colour — not a view to copy
+assert.equal(attached[0].maxDim,768);assert.equal(attached[0].numbered,true);
+assert.match(attached[0].note,/NOT a view to copy/);
+assert.ok(box.masterSubPlan.current&&box.masterSubPlan.current.panels.length===4,"the room's panel plan is kept for its prompt");
+assert.deepEqual(Object.keys(box.masterPanelRecord.current.panels),["TL","TR","BL","BR"],"…and the cameras it states, for the plate's record");
+assert.equal(options.rebuildPromptAfterAttachments(attached,"simple"),null,"only the full prompt is rebuilt");
 delete images.house;
 await assert.rejects(options.attachments(),/parent plate changed|Generate or restore House/);
 const wrapper=nodes.find(n=>n.type==="VariableDeclarator"&&n.id.name==="generatePlate").init;

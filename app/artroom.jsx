@@ -2750,7 +2750,10 @@ async function nbRunSheetGeneration(env, gopts){
         if(!likenessOn){   // with a likeness, the numbered map below orders and names them
           genOpts.extraImages = attach.map(a=>a.url);
           genOpts.extraImageMaxDims = attach.map(a=>
-            a && a.assetRole==="screenplay_context" ? 1536 : (genOpts.referenceMaxDim||1024));
+            a && a.assetRole==="screenplay_context" ? 1536
+              : (a && Number(a.maxDim)>0 ? Number(a.maxDim) : (genOpts.referenceMaxDim||1024)));   // a reference's own size (a room's parent plate goes small — 2026-10-13)
+          // a numbered reference list ("match Image 3") can't lose one silently: proxyGenerate stops before sending
+          if(attach.some(a=>a && a.numbered)) genOpts.referencesNumbered = true;
           const notes = attach.map(a=>a.note).filter(Boolean).join(", ");
           if(typeof opts.attachmentsText==="function"){
             const extra = opts.attachmentsText(attach);   // caller supplies the reference sentence

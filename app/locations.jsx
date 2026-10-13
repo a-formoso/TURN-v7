@@ -501,13 +501,21 @@ function normalizeLocationSpatialPlan(value){
     let id=text(a.id,64).trim().replace(/[^a-zA-Z0-9_-]/g,"-")||"anchor-"+(i+1);
     while(ids.has(id))id+="-"+(i+1);
     ids.add(id);
-    return {id,space:text(a.space,80),name:text(a.name,80),placement:text(a.placement,320),
+    const out={id,space:text(a.space,80),name:text(a.name,80),placement:text(a.placement,320),
       evidence:text(a.evidence,160),basis:/^(observed|script|design)$/.test(a.basis)?a.basis:"design"};
+    /* LOCATION COORDINATES (2026-10-13): an anchor's position / facing, written only when present, so a layout
+       without them keeps its exact signature (see the coordinate model below) */
+    const xy=_locVec(a.xy,2),z=_locNum(a.z,-500,500),facing=locYaw(a.facing);
+    if(xy)out.xy=xy; if(z!=null)out.z=z; if(facing!=null)out.facing=facing;
+    if(xy||z!=null||facing!=null)out.posBasis=_locBasis(a.posBasis,"design");
+    return out;
   });
+  const coordinates=normalizeLocationCoordinates(p.coordinates);
   return {schema:"cm-spatial-layout-v1",frame:text(p.frame,400),anchors,
     sightlines:text(p.sightlines,1000),unresolved:text(p.unresolved,1000),
     status:p.status==="reviewed"?"reviewed":"draft",
-    source:{assetId:text(p.source&&p.source.assetId,160),iso:text(p.source&&p.source.iso,160)}};
+    source:{assetId:text(p.source&&p.source.assetId,160),iso:text(p.source&&p.source.iso,160)},
+    ...(coordinates?{coordinates}:{})};
 }
 function locationSpatialSource(owner){
   const meta=typeof nbGetMeta==="function"?nbGetMeta(owner.id):null;
@@ -610,6 +618,8 @@ function locationSpatialContract(l,locations){
     targetSpace:l.name,status:state.ready?"reviewed":state.stale&&state.plan.status==="reviewed"?"needs-review":"draft",
     frame:state.plan.frame,anchors:state.plan.anchors,sightlines:state.plan.sightlines,
     unresolved:state.plan.unresolved,source:state.plan.source,
+    // the coordinate model (2026-10-13), only when the layout has numbers
+    ...(state.plan.coordinates?{coordinates:{...state.plan.coordinates,convention:LOCATION_COORDINATE_CONVENTION}}:{}),
     corrections:String(state.owner.spatialNotes||"").slice(0,2000),
     rules:"One physical set, not one layout per image. Stable anchor IDs identify the SAME objects in every panel and subspace. Placements are relative to the named room frame, NOT screen-left/right. Move only cameras; never mirror rooms, swap walls, move furniture or change doorway/window adjacency to fit a view. Reconcile direct room views with every doorway glimpse of that room. Camera depth grids describe projections of this plan and cannot override it. Unknown or occluded geometry is not measured evidence; retain uncertainty and request dimensions before exact Blender construction."};
 }
@@ -657,6 +667,800 @@ window.locationSpatialContract=locationSpatialContract;
 window.locationSpatialPrompt=locationSpatialPrompt;
 window.locationSpatialReferences=locationSpatialReferences;
 window.mergeLocationReferences=mergeLocationReferences;
+
+/* LOCATION COORDINATES (owner-approved 2026-10-13, "go ahead with both, include the top-down map" — "the more
+   realistic we get the easier it will be to turn these main spaces and subspaces into 3D using Blender").
+   ONE coordinate model for a location family, Blender-ready:
+   - metres; right-handed; +Z up; the origin is a named anchor of the owner space, at its floor (coordinates.origin);
+   - +Y = the facing named in the shared layout's frame (the set's "north"); +X = east;
+   - yaw: degrees clockwise from +Y seen from above (0 north/+Y, 90 east/+X, 180 south, 270 west);
+     pitch: degrees above the horizontal (negative looks down); lens: millimetres on a 36 mm-wide sensor;
+   - every group of numbers carries a basis: observed (read from a plate) · script (stated in the screenplay) ·
+     design (proposed) · user (set by hand).
+   Where it lives: spatialPlan.coordinates (spaces: footprint polygon, floorZ, ceilingH, openings), optional
+   xy / z / facing / posBasis on each anchor, and a camera pose per plate panel (TL, TR, BL, BR) on the space's
+   coverage views (view.panel + view.pose). Stored data is never migrated: the new fields are written only when
+   present, so a layout without them keeps its exact signature, review state and prompts. */
+const LOC_PANEL_KEYS = ["TL","TR","BL","BR"];
+const LOC_PANEL_INFO = {
+  TL:{key:"TL",grid:"TOP-LEFT",label:"Top-left",field:"top_left",crop:{x:0.5,y:0.5,w:49,h:49}},
+  TR:{key:"TR",grid:"TOP-RIGHT",label:"Top-right",field:"top_right",crop:{x:50.5,y:0.5,w:49,h:49}},
+  BL:{key:"BL",grid:"BOTTOM-LEFT",label:"Bottom-left",field:"bottom_left",crop:{x:0.5,y:50.5,w:49,h:49}},
+  BR:{key:"BR",grid:"BOTTOM-RIGHT",label:"Bottom-right",field:"bottom_right",crop:{x:50.5,y:50.5,w:49,h:49}},
+};
+const LOC_NUMBER_BASES = ["observed","script","design","user"];
+const LOC_SENSOR_MM = 36;
+const LOCATION_COORDINATE_CONVENTION = {
+  units:"metres", axes:"right-handed, +Z up",
+  north:"+Y is the facing named in the shared layout's frame; +X is east",
+  origin:"the owner space's origin anchor, at floor level",
+  yaw:"degrees clockwise from +Y seen from above (0 north, 90 east, 180 south, 270 west)",
+  pitch:"degrees above the horizontal (negative looks down)",
+  lens:"millimetres on a 36 mm-wide sensor",
+  basis:"observed = read from a plate, script = stated in the screenplay, design = proposed, user = set by hand",
+  blender:"camera {position, target, focalLength, sensorWidth 36}; rotation_euler XYZ radians = [(90 + pitch), 0, -yaw] in degrees converted"
+};
+const LOC_OPENING_RE = /\b(windows?|doors?|doorway|glass|glazing|glazed|arch|archway|opening|hatch|pass-through|porthole|skylight)\b/i;
+const LOC_COMPASS = ["north","north-east","east","south-east","south","south-west","west","north-west"];
+
+function _locNum(v, lo, hi){
+  const n = (typeof v==="string" && v.trim()!=="") ? Number(v) : v;
+  return (typeof n==="number" && Number.isFinite(n) && n>=lo && n<=hi) ? Math.round(n*1000)/1000 : null;
+}
+function _locVec(v, len){
+  if(!Array.isArray(v) || v.length<len) return null;
+  const out = v.slice(0,len).map(n=>_locNum(n,-10000,10000));
+  return out.every(n=>n!=null) ? out : null;
+}
+function locYaw(v){
+  const n = _locNum(v,-100000,100000);
+  return n==null ? null : Math.round((((n%360)+360)%360)*10)/10%360;
+}
+/* signed smallest difference a − b, in (−180, 180] */
+function locYawDiff(a, b){ let d = ((Number(a)-Number(b))%360+360)%360; if(d>180) d -= 360; return d; }
+function locCompass(yaw){ return yaw==null ? "" : LOC_COMPASS[Math.round(Number(yaw)/45)%8]; }
+function locLensHfov(mm){ const f = Number(mm)>0 ? Number(mm) : 24; return Math.round(2*Math.atan(LOC_SENSOR_MM/(2*f))*1800/Math.PI)/10; }
+function _locBasis(v, dflt){ return LOC_NUMBER_BASES.indexOf(v)>=0 ? v : (dflt||"design"); }
+function _locBearing(from, to){ return locYaw(Math.atan2(to[0]-from[0], to[1]-from[1])*180/Math.PI); }
+function _locDir(yaw){ const r = Number(yaw)*Math.PI/180; return [Math.sin(r), Math.cos(r)]; }
+function _locCentroid(poly){
+  if(!poly || !poly.length) return null;
+  const s = poly.reduce((a,p)=>[a[0]+p[0],a[1]+p[1]],[0,0]);
+  return [s[0]/poly.length, s[1]/poly.length];
+}
+function _locInside(pt, poly){
+  if(!pt || !poly || poly.length<3) return false;
+  let inside = false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const a = poly[i], b = poly[j];
+    if(((a[1]>pt[1])!==(b[1]>pt[1])) && (pt[0] < (b[0]-a[0])*(pt[1]-a[1])/((b[1]-a[1])||1e-9)+a[0])) inside = !inside;
+  }
+  return inside;
+}
+/* the outward facing (yaw) of a footprint edge — the normal pointing away from the space's centre */
+function _locEdgeYaw(poly, edge){
+  if(!poly || poly.length<3 || edge==null || edge<0 || edge>=poly.length) return null;
+  const a = poly[edge], b = poly[(edge+1)%poly.length], c = _locCentroid(poly);
+  const mid = [(a[0]+b[0])/2, (a[1]+b[1])/2];
+  let n = [b[1]-a[1], -(b[0]-a[0])];
+  if(n[0]*(mid[0]-c[0]) + n[1]*(mid[1]-c[1]) < 0) n = [-n[0], -n[1]];
+  return locYaw(Math.atan2(n[0], n[1])*180/Math.PI);
+}
+function _locNearestEdge(poly, pt){
+  if(!poly || poly.length<3 || !pt) return null;
+  let best = null, bestD = Infinity;
+  for(let i=0;i<poly.length;i++){
+    const a = poly[i], b = poly[(i+1)%poly.length];
+    const dx = b[0]-a[0], dy = b[1]-a[1], len2 = dx*dx+dy*dy || 1e-9;
+    const t = Math.max(0, Math.min(1, ((pt[0]-a[0])*dx+(pt[1]-a[1])*dy)/len2));
+    const d = Math.hypot(pt[0]-(a[0]+t*dx), pt[1]-(a[1]+t*dy));
+    if(d<bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+/* how far a ray from pt along yaw travels before it leaves the polygon (null when it never crosses an edge) */
+function _locRayExit(poly, pt, yaw){
+  if(!poly || poly.length<3 || !pt) return null;
+  const d = _locDir(yaw); let best = null;
+  for(let i=0;i<poly.length;i++){
+    const a = poly[i], b = poly[(i+1)%poly.length];
+    const ex = b[0]-a[0], ey = b[1]-a[1], den = d[0]*ey - d[1]*ex;
+    if(Math.abs(den)<1e-9) continue;
+    const t = ((a[0]-pt[0])*ey - (a[1]-pt[1])*ex)/den, u = ((a[0]-pt[0])*d[1] - (a[1]-pt[1])*d[0])/den;
+    if(t>0.05 && u>=-1e-6 && u<=1+1e-6 && (best==null || t<best)) best = t;
+  }
+  return best;
+}
+/* a named wall in prose → its outward facing: a compass word first ("on the south wall"), else words relative to
+   the layout's frame (far / back wall = north, left = west, right = east, near / front / behind the camera = south) */
+function locWallYawFromText(text){
+  const s = String(text||"").toLowerCase();
+  const m = s.match(/\b(north|south)[\s-]?(east|west)\b|\b(north|south|east|west)(?:ern)?\b/);
+  if(m){
+    const word = m[1] ? (m[1]+"-"+m[2]) : m[3];
+    const at = LOC_COMPASS.indexOf(word);
+    if(at>=0) return {yaw:at*45, word};
+  }
+  if(/\b(far|back|rear|opposite|end)\s+wall\b/.test(s)) return {yaw:0, word:"far wall"};
+  if(/\bleft(?:-hand)?\s+(wall|side)\b/.test(s)) return {yaw:270, word:"left wall"};
+  if(/\bright(?:-hand)?\s+(wall|side)\b/.test(s)) return {yaw:90, word:"right wall"};
+  if(/\b(near|front)\s+wall\b|\bbehind the camera\b/.test(s)) return {yaw:180, word:"near wall"};
+  return null;
+}
+function locationAnchorIsOpening(a){ return LOC_OPENING_RE.test(String((a && a.name) || "")); }
+function _locOpeningKind(name){
+  const s = String(name||"").toLowerCase();
+  if(/\barch|archway|opening\b/.test(s)) return "arch";
+  if(/\bdoor/.test(s)) return "door";
+  if(/\bglass|glazing|glazed|porthole/.test(s)) return "glass";
+  return "window";
+}
+
+function normalizeLocationCameraPose(p){
+  if(!p || typeof p!=="object") return null;
+  const out = {position:_locVec(p.position,3), yaw:locYaw(p.yaw), pitch:_locNum(p.pitch,-90,90),
+    lensMm:_locNum(p.lensMm,8,200), target:typeof p.target==="string" ? p.target.slice(0,64) : "",
+    place:typeof p.place==="string" ? p.place.slice(0,160) : "", basis:_locBasis(p.basis,"user")};
+  return out;
+}
+function normalizeLocationCoordinates(value){
+  if(!value || typeof value!=="object") return null;
+  const t = (v,n)=> typeof v==="string" ? v.slice(0,n) : "";
+  const cleanId = (v,fb)=> t(v,64).trim().replace(/[^a-zA-Z0-9_-]/g,"-") || fb;
+  const spaces = (Array.isArray(value.spaces) ? value.spaces : []).filter(s=>s && typeof s==="object").slice(0,16).map((s,i)=>{
+    const footprint = (Array.isArray(s.footprint) ? s.footprint : []).map(p=>_locVec(p,2)).filter(Boolean).slice(0,32);
+    const poly = footprint.length>=3 ? footprint : [];
+    const ids = new Set();
+    const openings = (Array.isArray(s.openings) ? s.openings : []).filter(o=>o && typeof o==="object").slice(0,16).map((o,j)=>{
+      let id = cleanId(o.id,"opening-"+(j+1)); while(ids.has(id)) id += "-"+(j+1); ids.add(id);
+      const centre = _locVec(o.centre,2);
+      const edge = (Number.isInteger(o.edge) && o.edge>=0 && o.edge<poly.length) ? o.edge : (centre && poly.length ? _locNearestEdge(poly,centre) : null);
+      const yaw = locYaw(o.yaw);
+      return {id, name:t(o.name,80), kind:/^(window|door|glass|arch)$/.test(o.kind) ? o.kind : "window", edge, centre,
+        width:_locNum(o.width,0.05,100), sillZ:_locNum(o.sillZ,-50,500), headZ:_locNum(o.headZ,-50,500),
+        yaw:yaw!=null ? yaw : _locEdgeYaw(poly,edge), connectsTo:t(o.connectsTo,160), basis:_locBasis(o.basis,"design")};
+    });
+    return {id:t(s.id,160) || ("space-"+(i+1)), name:t(s.name,80), footprint:poly,
+      floorZ:_locNum(s.floorZ,-500,500)==null ? 0 : _locNum(s.floorZ,-500,500),
+      ceilingH:_locNum(s.ceilingH,0.5,200), openings, basis:_locBasis(s.basis,"design")};
+  });
+  const origin = value.origin && typeof value.origin==="object"
+    ? {anchorId:t(value.origin.anchorId,64), note:t(value.origin.note,200)} : {anchorId:"", note:""};
+  if(!spaces.length && !origin.anchorId && !origin.note) return null;
+  return {schema:"cm-location-coords-v1", origin, spaces};
+}
+
+function _locList(locations){ return locations || ((window.turnContinuity||{}).locations) || []; }
+function _locNameKey(s){ return String(s||"").toLowerCase().replace(/^the\s+/,"").replace(/[^a-z0-9]+/g," ").trim(); }
+function _locOwnerPlan(l, locations){
+  const list = _locList(locations), owner = locationSpatialOwner(l,list);
+  const live = list.find(x=>x && x.id===owner.id) || owner;
+  return {owner:live, plan:normalizeLocationSpatialPlan(live.spatialPlan)};
+}
+function _locFamily(l, locations){
+  const list = _locList(locations), owner = locationSpatialOwner(l,list);
+  const out = list.filter(x=>x && locationSpatialOwner(x,list).id===owner.id);
+  if(!out.some(x=>x.id===owner.id)) out.unshift(owner);
+  if(l && !out.some(x=>x.id===l.id)) out.push(l);
+  return out;
+}
+/* the family member an anchor's `space` names — exact name first, then the longest room name it is part of
+   ("Office" → "Furnace Office"); otherwise the owner space */
+function locationAnchorSpaceOf(anchor, family){
+  const owner = family[0];
+  const k = _locNameKey(anchor && anchor.space);
+  if(!k) return owner;
+  const exact = family.find(x=>_locNameKey(x.name)===k);
+  if(exact) return exact;
+  const part = family.filter(x=>x.id!==owner.id && k.length>=4 && _locNameKey(x.name).length>=4
+    && (_locNameKey(x.name).indexOf(k)>=0 || k.indexOf(_locNameKey(x.name))>=0))
+    .sort((a,b)=>_locNameKey(b.name).length-_locNameKey(a.name).length)[0];
+  return part || owner;
+}
+function _locCoordSpace(coords, l){
+  if(!coords || !l) return null;
+  return coords.spaces.find(s=>s.id===l.id) || coords.spaces.find(s=>s.name && _locNameKey(s.name)===_locNameKey(l.name)) || null;
+}
+function _locMentions(text, family, exceptId){
+  const s = " "+_locNameKey(text)+" ";
+  return family.filter(x=>x.id!==exceptId && _locNameKey(x.name).length>=3)
+    .sort((a,b)=>_locNameKey(b.name).length-_locNameKey(a.name).length)
+    .find(x=>s.indexOf(" "+_locNameKey(x.name)+" ")>=0) || null;
+}
+function _locResolveSpace(ref, family){
+  if(!ref) return null;
+  return family.find(x=>x.id===ref) || family.find(x=>_locNameKey(x.name)===_locNameKey(ref)) || null;
+}
+/* the anchors of the shared layout that sit in this space */
+function locationSpaceAnchors(l, locations){
+  const list = _locList(locations), family = _locFamily(l,list), plan = _locOwnerPlan(l,list).plan;
+  return plan.anchors.filter(a=>locationAnchorSpaceOf(a,family).id===l.id);
+}
+/* this space's openings — the coordinates' openings first, then the layout's window / door / glass / arch anchors
+   (their facing: the anchor's own, else the wall its placement names). connectsTo = the space beyond it. */
+function locationSpaceOpenings(l, locations){
+  if(!l) return [];
+  const list = _locList(locations), family = _locFamily(l,list), plan = _locOwnerPlan(l,list).plan;
+  const parent = locationParentOf(l,list), sp = _locCoordSpace(plan.coordinates,l), out = [];
+  if(sp) sp.openings.forEach(o=>{
+    const beyond = _locResolveSpace(o.connectsTo,family);
+    out.push({...o, name:o.name||o.id, yawFrom:o.yaw!=null ? "coordinates" : "", source:"coordinates",
+      connectsTo:beyond ? beyond.id : (o.connectsTo ? "" : (parent ? parent.id : ""))});
+  });
+  plan.anchors.forEach(a=>{
+    if(!LOC_OPENING_RE.test(a.name) || out.some(o=>o.id===a.id)) return;
+    if(locationAnchorSpaceOf(a,family).id!==l.id) return;
+    const wall = a.facing!=null ? null : locWallYawFromText(a.placement+" "+a.name);
+    const beyond = _locMentions([a.name,a.placement,a.evidence].join(" "),family,l.id);
+    out.push({id:a.id, name:a.name, kind:_locOpeningKind(a.name), edge:null, centre:a.xy||null, width:null,
+      sillZ:null, headZ:null, yaw:a.facing!=null ? a.facing : (wall ? wall.yaw : null),
+      yawFrom:a.facing!=null ? "set" : (wall ? "text" : ""), connectsTo:beyond ? beyond.id : (parent ? parent.id : ""),
+      basis:a.posBasis || a.basis || "design", source:"anchor"});
+  });
+  return out;
+}
+
+/* ---- camera poses for the four panels of a space's 2x2 plate ---- */
+function _locPose(fields){
+  return {position:fields.position||null, yaw:fields.yaw==null ? null : locYaw(fields.yaw),
+    pitch:fields.pitch==null ? 0 : fields.pitch, lensMm:fields.lensMm||24, target:fields.target||"", place:fields.place||"",
+    basis:fields.basis||"design"};
+}
+function _locStationPose(a, geo){
+  const yawOf = ()=>{
+    if(a.facing!=null) return locYaw(a.facing+180);
+    if(a.xy && geo.centre && Math.hypot(a.xy[0]-geo.centre[0],a.xy[1]-geo.centre[1])>0.2) return _locBearing(geo.centre,a.xy);
+    const w = locWallYawFromText(a.placement); return w ? w.yaw : null;
+  };
+  const yaw = yawOf();
+  let position = null;
+  if(a.xy && yaw!=null){ const d = _locDir(yaw); position = [a.xy[0]-d[0]*1.8, a.xy[1]-d[1]*1.8, geo.floorZ+1.5]; }
+  return _locPose({position, yaw, pitch:-12, lensMm:35, target:a.id, place:position ? "" : "in front of "+(a.name||a.id),
+    basis:a.posBasis || "design"});
+}
+function locationDefaultPanelPoses(l, locations){
+  const list = _locList(locations), parent = locationParentOf(l,list);
+  const plan = _locOwnerPlan(l,list).plan, sp = _locCoordSpace(plan.coordinates,l);
+  const poly = sp && sp.footprint.length>=3 ? sp.footprint : null;
+  const geo = {floorZ:sp ? sp.floorZ : 0, ceilingH:sp && sp.ceilingH ? sp.ceilingH : null, centre:_locCentroid(poly), poly};
+  const anchors = locationSpaceAnchors(l,list), openings = locationSpaceOpenings(l,list);
+  const stations = anchors.filter(a=>!LOC_OPENING_RE.test(a.name));
+  const door = openings.find(o=>/door|arch/.test(o.kind) && o.yaw!=null) || openings.find(o=>/door|arch/.test(o.kind));
+  const win = openings.find(o=>/window|glass/.test(o.kind) && o.yaw!=null) || openings.find(o=>/window|glass/.test(o.kind));
+  const name = l.name || "this space";
+  const out = {};
+  const corner = (yaw)=>{
+    // the footprint corner whose view across the room is closest to the wanted facing
+    if(!poly || !geo.centre || yaw==null) return null;
+    let best = null;
+    poly.forEach(v=>{ const b = _locBearing(v,geo.centre), d = Math.abs(locYawDiff(b,yaw));
+      if(!best || d<best.d) best = {v,b,d}; });
+    const dist = Math.hypot(best.v[0]-geo.centre[0], best.v[1]-geo.centre[1]) || 1;
+    const k = Math.min(0.3, dist/2)/dist, z = geo.floorZ+(geo.ceilingH||2.7)-0.3;
+    return {position:[best.v[0]+(geo.centre[0]-best.v[0])*k, best.v[1]+(geo.centre[1]-best.v[1])*k, z], yaw:best.b,
+      pitch:-Math.round(Math.atan2(z-geo.floorZ-0.8, dist)*180/Math.PI)};
+  };
+  if(!parent){
+    out.TL = {purpose:"wide establishing view from the layout's standpoint, in the direction its frame faces",
+      pose:_locPose({yaw:0, pitch:0, lensMm:24, place:"at the shared layout's standpoint",
+        position:poly && geo.centre ? (()=>{ const e = _locRayExit(poly,geo.centre,180); return e ? [geo.centre[0], geo.centre[1]-Math.max(0,e-0.8), geo.floorZ+1.6] : null; })() : null})};
+    const c = corner(45);
+    out.TR = {purpose:"high three-quarter overview from an elevated corner, looking across the space",
+      pose:_locPose(c ? {...c, lensMm:18} : {yaw:45, pitch:-30, lensMm:18, place:"high in the near-left corner"})};
+  } else {
+    let tl;
+    if(door && door.yaw!=null){
+      const yaw = locYaw(door.yaw+180);
+      const position = door.centre ? (()=>{ const d = _locDir(yaw); return [door.centre[0]+d[0]*0.6, door.centre[1]+d[1]*0.6, geo.floorZ+1.6]; })() : null;
+      tl = _locPose({yaw, pitch:0, lensMm:24, position, target:"", place:position ? "" : "just inside "+(door.name||"the door")});
+    } else tl = _locPose({yaw:null, pitch:0, lensMm:24, place:"at the entrance"});
+    out.TL = {purpose:"from the doorway, looking at the far wall of "+name, pose:tl};
+    let trYaw = null;
+    if(tl.yaw!=null){
+      const a = locYaw(tl.yaw+45), b = locYaw(tl.yaw-45);
+      trYaw = (win && win.yaw!=null && Math.abs(locYawDiff(b,win.yaw))<Math.abs(locYawDiff(a,win.yaw))) ? b : a;
+    } else if(win && win.yaw!=null) trYaw = win.yaw;
+    const c = corner(trYaw);
+    out.TR = {purpose:"high corner view across "+name+", showing how its walls, openings and stations fit together",
+      pose:_locPose(c ? {...c, lensMm:16} : {yaw:trYaw, pitch:-35, lensMm:16, place:"high in a corner"})};
+  }
+  // the two key stations: the space's own fixed anchors, then the window wall and the door wall
+  const fill = stations.slice(0,2).map(a=>({purpose:"key station: "+(a.name||a.id), pose:_locStationPose(a,geo)}));
+  [[win,"the window wall and what it overlooks"],[door,"the doorway wall"]].forEach(([o,label])=>{
+    if(fill.length>=2 || !o || o.yaw==null || !parent) return;
+    fill.push({purpose:label, pose:_locPose({yaw:o.yaw, pitch:-5, lensMm:28, target:o.id,
+      position:o.centre && geo.centre ? (()=>{ const d = _locDir(o.yaw); const back = Math.min(2.2, Math.hypot(o.centre[0]-geo.centre[0],o.centre[1]-geo.centre[1])+0.6);
+        return [o.centre[0]-d[0]*back, o.centre[1]-d[1]*back, geo.floorZ+1.5]; })() : null,
+      place:o.centre ? "" : "across from "+(o.name||"the opening")})});
+  });
+  while(fill.length<2) fill.push({purpose:fill.length ? "close-up of a signature material detail of "+name
+    : "close-up of the space's primary, most story-relevant feature", pose:_locPose({yaw:null, pitch:-12, lensMm:35})});
+  out.BL = fill[0]; out.BR = fill[1];
+  return out;
+}
+/* the panel poses the user (or a confirmed draft) stored on this space's coverage views */
+function locationStoredPanelViews(l){
+  const out = {};
+  (Array.isArray(l && l.coverageViews) ? l.coverageViews : []).forEach(v=>{
+    if(v && LOC_PANEL_KEYS.indexOf(v.panel)>=0 && v.pose && typeof v.pose==="object" && !out[v.panel]) out[v.panel] = v;
+  });
+  return out;
+}
+/* the four panel cameras of l's plate: a stored pose wins field by field over the suggestion. stated = the pose is
+   written into the plate prompt and recorded with the plate (a room always; an owner space only once a pose is
+   stored — its plate prompt is otherwise unchanged) */
+function locationPanelPoses(l, locations){
+  if(!l) return [];
+  const list = _locList(locations), parent = locationParentOf(l,list);
+  const defaults = locationDefaultPanelPoses(l,list), stored = locationStoredPanelViews(l);
+  return LOC_PANEL_KEYS.map(key=>{
+    const d = defaults[key], v = stored[key], s = v ? normalizeLocationCameraPose(v.pose) : null;
+    const pose = {...d.pose};
+    if(s){ Object.keys(s).forEach(k=>{ if(k!=="basis" && s[k]!=null && s[k]!=="") pose[k] = s[k]; }); pose.basis = s.basis; }
+    return {...LOC_PANEL_INFO[key], purpose:String((v && v.purpose) || d.purpose), suggestedPose:d.pose, pose,
+      hfov:locLensHfov(pose.lensMm), source:s ? "set" : "suggested", stated:!!parent || !!s, viewId:v ? String(v.id||"") : "",
+      subspace:!!parent};
+  });
+}
+/* what a plate records about the cameras its prompt stated (meta.platePanels) — null when it stated none */
+function locationPlatePanelRecord(l, locations){
+  const panels = locationPanelPoses(l,locations).filter(p=>p.stated);
+  if(!panels.length) return null;
+  const out = {schema:"cm-plate-panels-v1", spaceId:String(l.id||""), spaceName:String(l.name||""), layout:"2x2", panels:{}};
+  panels.forEach(p=>{ out.panels[p.key] = {yaw:p.pose.yaw, pitch:p.pose.pitch, lensMm:p.pose.lensMm, hfov:p.hfov,
+    position:p.pose.position, target:p.pose.target, place:p.pose.place, basis:p.pose.basis, source:p.source,
+    purpose:String(p.purpose||"").slice(0,160)}; });
+  return out;
+}
+/* a plate's recorded panel cameras; an older plate (no record) → null = every panel's facing is unknown */
+function locationPlatePanels(meta){
+  const r = meta && meta.platePanels;
+  if(!r || typeof r!=="object" || !r.panels || typeof r.panels!=="object") return null;
+  const panels = {};
+  LOC_PANEL_KEYS.forEach(k=>{ const p = r.panels[k]; if(!p || typeof p!=="object") return;
+    const pose = normalizeLocationCameraPose(p);
+    panels[k] = {...pose, pitch:pose.pitch==null ? 0 : pose.pitch, lensMm:pose.lensMm||24,
+      hfov:_locNum(p.hfov,1,179) || locLensHfov(pose.lensMm||24), purpose:String(p.purpose||"")}; });
+  return Object.keys(panels).length ? {spaceId:String(r.spaceId||""), panels} : null;
+}
+
+/* ---- what each panel sees through an opening (plain geometry, no model call) ---- */
+function locationPanelSightlines(l, panel, locations){
+  const list = _locList(locations), pose = panel && panel.pose;
+  if(!pose) return [];
+  const half = (panel.hfov || locLensHfov(pose.lensMm))/2;
+  return locationSpaceOpenings(l,list).filter(o=>o.connectsTo).map(o=>{
+    if(pose.position && o.centre){
+      if(pose.yaw==null) return null;
+      const dist = Math.hypot(o.centre[0]-pose.position[0], o.centre[1]-pose.position[1]);
+      if(dist<0.05) return null;
+      const yaw = _locBearing(pose.position,o.centre);
+      if(Math.abs(locYawDiff(yaw,pose.yaw))>half) return null;                       // outside the frame
+      if(o.yaw!=null && Math.cos(locYawDiff(yaw,o.yaw)*Math.PI/180)<0.15) return null; // seen from outside / edge-on
+      const midZ = (o.sillZ!=null && o.headZ!=null) ? (o.sillZ+o.headZ)/2 : pose.position[2];
+      const pitch = Math.round(Math.atan2(midZ-pose.position[2], dist)*1800/Math.PI)/10;
+      return {opening:o, yaw, pitch, through:o.centre, from:"positions"};
+    }
+    if(pose.yaw==null || o.yaw==null) return null;
+    const d = locYawDiff(pose.yaw,o.yaw);
+    if(Math.abs(d)>half+20) return null;                                               // the wall is out of view
+    return {opening:o, yaw:locYaw(o.yaw+Math.max(-45,Math.min(45,d))), pitch:pose.pitch||0, through:null, from:"facings"};
+  }).filter(Boolean);
+}
+/* what the plan knows lies beyond an opening, in the direction of the line of sight */
+function locationAnchorsBeyond(target, sight, locations){
+  const list = _locList(locations), family = _locFamily(target,list), plan = _locOwnerPlan(target,list).plan;
+  const own = plan.anchors.filter(a=>locationAnchorSpaceOf(a,family).id===target.id && a.id!==sight.opening.id);
+  const word = locCompass(sight.yaw);
+  const hits = own.map(a=>{
+    if(a.xy && sight.through){
+      const b = _locBearing(sight.through,a.xy), dist = Math.hypot(a.xy[0]-sight.through[0], a.xy[1]-sight.through[1]);
+      return Math.abs(locYawDiff(b,sight.yaw))<=40 && dist>0.2 ? {a,dist} : null;
+    }
+    const w = locWallYawFromText(a.placement);
+    return (w && Math.abs(locYawDiff(w.yaw,sight.yaw))<=45) || (word && new RegExp("\\b"+word+"\\b","i").test(a.placement)) ? {a,dist:99} : null;
+  }).filter(Boolean).sort((x,y)=>x.dist-y.dist).slice(0,4);
+  return hits.map(h=>({id:h.a.id, name:h.a.name, placement:h.a.placement}));
+}
+function locationParentViewAssetId(l, openingId){ return String((l&&l.id)||"location")+"-pview-"+(locSlug(openingId)||"opening"); }
+/* the views of the space beyond that a panel could be matched to: the quadrants its plate recorded, plus any view
+   made from this room's position ("Make a … view"), when made from the plate as it is now */
+function locationViewCandidates(target, l, metaOf, locations){
+  const get = typeof metaOf==="function" ? metaOf : (id)=>(typeof nbGetMeta==="function" ? nbGetMeta(id) : null);
+  const meta = get(target.id), rec = locationPlatePanels(meta), out = [];
+  if(rec) LOC_PANEL_KEYS.forEach(k=>{ const p = rec.panels[k];
+    if(p && p.yaw!=null) out.push({id:"pq-"+target.id+"-"+k.toLowerCase(), kind:"quadrant", key:k, assetId:target.id,
+      targetId:target.id, targetName:target.name||"", pose:p, hfov:p.hfov}); });
+  locationSpaceOpenings(l,locations).filter(o=>o.connectsTo===target.id).forEach(o=>{
+    const id = locationParentViewAssetId(l,o.id), m = get(id), p = m && m.parentViewPose ? normalizeLocationCameraPose(m.parentViewPose) : null;
+    if(!p || p.yaw==null) return;
+    if(meta && meta.iso && m.locationParentIso && m.locationParentIso!==meta.iso) return;   // made from an older plate
+    out.push({id, kind:"view", key:"", assetId:id, targetId:target.id, targetName:target.name||"", openingId:o.id,
+      pose:{...p, pitch:p.pitch||0, lensMm:p.lensMm||24}, hfov:_locNum(m.parentViewPose.hfov,1,179) || locLensHfov(p.lensMm||24)});
+  });
+  return {candidates:out, recorded:!!rec, hasPlate:!!meta};
+}
+/* the view whose camera faces the line of sight (within its half field of view) and, with positions, covers the
+   area beyond the opening from outside this room — the closest facing wins; null when none faces that way */
+function locationMatchView(sight, candidates, childPoly){
+  let best = null;
+  (candidates||[]).forEach(c=>{
+    if(c.kind==="view" && c.openingId && c.openingId!==sight.opening.id) return;
+    const half = (c.hfov || locLensHfov(c.pose.lensMm))/2, dyaw = Math.abs(locYawDiff(c.pose.yaw,sight.yaw));
+    if(dyaw>half) return;
+    let approx = true;
+    if(c.pose.position && sight.through){
+      if(childPoly && _locInside(c.pose.position,childPoly)) return;          // a camera inside this room shows the room
+      const d = _locDir(sight.yaw);
+      const pts = [[sight.through[0]+d[0]*1.5, sight.through[1]+d[1]*1.5], [sight.through[0]+d[0]*4, sight.through[1]+d[1]*4]];
+      const covers = pts.every(pt=>{ const dist = Math.hypot(pt[0]-c.pose.position[0], pt[1]-c.pose.position[1]);
+        return dist>0.3 && Math.abs(locYawDiff(_locBearing(c.pose.position,pt),c.pose.yaw))<=half; });
+      if(!covers) return;
+      approx = false;
+    }
+    const score = dyaw + 0.3*Math.abs((c.pose.pitch||0)-(sight.pitch||0)) + (approx ? 10 : 0) - (c.kind==="view" ? 5 : 0);
+    if(!best || score<best.score) best = {...c, score, approx};
+  });
+  return best;
+}
+/* THE ROOM'S PANEL PLAN: per panel, its camera and, for every opening it sees, the view of the space beyond that
+   faces the same way (a recorded quadrant of that space's plate, or a view made from here) — or, when none does,
+   what the layout says lies that way (unresolved). At most `maxSources` distinct views are attached. */
+function locationSubspacePanelPlan(l, locations, metaOf, opts){
+  const list = _locList(locations), parent = locationParentOf(l,list);
+  if(!parent) return null;
+  const o = opts || {}, family = _locFamily(l,list), plan = _locOwnerPlan(l,list).plan;
+  const sp = _locCoordSpace(plan.coordinates,l), childPoly = sp && sp.footprint.length>=3 ? sp.footprint : null;
+  const maxSources = o.maxSources==null ? 4 : o.maxSources;
+  const sources = [], unresolved = [], cands = {};
+  const candFor = (t)=> cands[t.id] || (cands[t.id] = locationViewCandidates(t,l,metaOf,list));
+  const panels = locationPanelPoses(l,list).map(p=>{
+    const sights = locationPanelSightlines(l,p,list).map(s=>{
+      const target = _locResolveSpace(s.opening.connectsTo,family) || parent;
+      const c = candFor(target);
+      let m = locationMatchView(s,c.candidates,childPoly);
+      let src = m ? sources.find(x=>x.id===m.id) : null;
+      if(m && !src){
+        if(sources.length>=maxSources) m = null;
+        else { src = {...m, uses:[]}; sources.push(src); }
+      }
+      const row = {openingId:s.opening.id, openingName:s.opening.name||s.opening.id, kind:s.opening.kind, wallYaw:s.opening.yaw,
+        yaw:s.yaw, pitch:s.pitch, through:s.through, from:s.from, targetId:target.id, targetName:target.name||"",
+        sourceId:m ? m.id : "", approx:m ? !!m.approx : false};
+      if(m) src.uses.push({panel:p.key, openingId:row.openingId, openingName:row.openingName, kind:row.kind});
+      else {
+        row.beyond = locationAnchorsBeyond(target,s,list);
+        row.reason = !c.hasPlate ? "no-plate" : !c.recorded ? "no-record" : "no-match";
+        unresolved.push({panel:p.key, openingId:row.openingId, openingName:row.openingName, targetId:target.id,
+          targetName:target.name||"", yaw:s.yaw, reason:row.reason});
+      }
+      return row;
+    });
+    return {...p, sights};
+  });
+  return {schema:"cm-subspace-panels-v1", spaceId:l.id, spaceName:l.name||"", parentId:parent.id, parentName:parent.name||"",
+    panels, sources, unresolved};
+}
+
+/* ---- prompt wording ---- */
+function _locM(n){ return (Math.round(Number(n)*100)/100).toString(); }
+function locationPoseText(pose, spaceName, anchors){
+  const p = pose || {};
+  const where = p.position ? "at x "+_locM(p.position[0])+" m, y "+_locM(p.position[1])+" m, "+_locM(p.position[2])+" m up"
+    : (p.place ? p.place : "position not yet measured");
+  const facing = p.yaw!=null ? "facing "+locCompass(p.yaw)+" ("+Math.round(p.yaw)+"°)" : "facing not set";
+  const tilt = (p.pitch||0)<=-5 ? "looking down "+Math.round(-p.pitch)+"°" : (p.pitch||0)>=5 ? "looking up "+Math.round(p.pitch)+"°" : "level";
+  const aim = p.target ? ((anchors||[]).find(a=>a.id===p.target)||{}).name || "" : "";
+  return (spaceName ? "Camera inside "+spaceName+" " : "Camera ")+where+", "+facing+", "+tilt+", "+Math.round(p.lensMm||24)+" mm lens"
+    +(aim ? ", aimed at "+aim : "")+".";
+}
+function _locKindWord(kind){ return kind==="arch" ? "archway" : (kind||"opening"); }
+function locationSightText(row, refNumber){
+  const opening = "Opening “"+row.openingName+"” ("+_locKindWord(row.kind)+(row.wallYaw!=null ? ", "+locCompass(row.wallYaw)+" wall" : "")+")";
+  const dir = locCompass(row.yaw);
+  if(row.sourceId){
+    const ref = refNumber ? "match Image "+refNumber : "match the reference image named for it";
+    return opening+" shows "+row.targetName+" as seen from here, looking "+dir+": "+ref+" for what shows through it.";
+  }
+  const beyond = (row.beyond||[]).map(a=>a.name).filter(Boolean);
+  return opening+" looks "+dir+" into "+row.targetName+"; no reference view faces that way yet (unresolved)"
+    +(beyond.length ? " — the shared layout puts "+beyond.join(", ")+" in that direction" : "")
+    +". Keep what shows through it plausible and secondary; never fill it with a copied panel of "+row.targetName+".";
+}
+/* the views block of a room's plate prompt: one camera per panel, interior only, each opening named with its view */
+function locationSubspaceViews(l, plan, refNumbers){
+  const name = l.name || "this space", anchors = locationSpaceAnchors(l);
+  const nums = refNumbers || {};
+  const views = {layout:"exactly 4 views in a 2x2 grid — four cameras INSIDE "+name+", one per panel, as placed below"};
+  plan.panels.forEach(p=>{
+    views[p.field] = String(p.purpose||"").replace(/\.$/,"")+". "+locationPoseText(p.pose,name,anchors)+" Interior of "+name+" only."
+      +p.sights.map(s=>" "+locationSightText(s,nums[s.sourceId])).join("");
+  });
+  views.camera_convention = "Facings are compass directions of the shared layout: north is the facing named in its frame; yaw in degrees clockwise from north; positions in metres from its origin anchor, height above the floor.";
+  views.rule = "each view a distinctly different camera angle and composition — the SAME identical space, consistent architecture, scale, materials and light across all views";
+  views.subspace_rules = [
+    "The inside of every panel is "+name+" only — never "+(plan.parentName||"the parent space")+" itself, never a sibling room.",
+    "An opening shows "+(plan.parentName||"the space beyond")+" as seen from THIS panel's camera position, in the direction it looks, and only through the opening.",
+    "Never reuse a composition from "+(plan.parentName||"the parent")+"'s plate as a backdrop, as a view through an opening or as this room's layout."];
+  return views;
+}
+/* the reference note for one attached view of the space beyond */
+function locationViewSourceNote(src, l){
+  const where = (u)=> u.map(x=>LOC_PANEL_INFO[x.panel].label.toLowerCase()).filter((v,i,a)=>a.indexOf(v)===i);
+  const byOpening = {};
+  (src.uses||[]).forEach(u=>{ (byOpening[u.openingId] = byOpening[u.openingId] || {u, list:[]}).list.push(u); });
+  const through = Object.keys(byOpening).map(k=>{ const g = byOpening[k], ps = where(g.list);
+    return "the "+_locKindWord(g.u.kind)+" “"+g.u.openingName+"” in the "+ps.join(" and ")+" panel"+(ps.length>1 ? "s" : ""); }).join("; ");
+  const facing = locCompass(src.pose.yaw);
+  const what = src.kind==="quadrant"
+    ? src.targetName+" seen facing "+facing+" — the "+LOC_PANEL_INFO[src.key].label.toLowerCase()+" panel of its plate"+(src.pose.place ? ", camera "+src.pose.place : "")
+    : src.targetName+" seen facing "+facing+" from "+(l.name||"this room")+"'s position";
+  return what+": use ONLY for what is visible through "+through+"; never as "+(l.name||"this room")+" itself and never as a backdrop";
+}
+/* a room's parent plate, sent small: materials and colour, not a view to copy */
+function locationSubspaceParentReference(l, url){
+  const parent = locationParentOf(l);
+  if(!parent) return null;
+  const name = l.name || "this room";
+  return {url:url||"", kind:"location", ready:!!url, required:true, refId:parent.id, label:parent.name||"Parent location",
+    maxDim:768, numbered:true,
+    note:(parent.name||"Parent location")+" whole plate, small — binding visual continuity for materials, colour, construction details and scale only. "
+      +"It is NOT a view to copy: never reuse one of its panels as a view of "+name+" or through an opening. "
+      +"Where it shows the inside of "+name+" itself, keep those fixed fixtures and finishes. Time of day, active lights and weather may change only for the requested state."};
+}
+async function _locLoadPlate(id){
+  let url = typeof nbGetImage==="function" ? nbGetImage(id) : "";
+  if(!url && typeof nbLoadImage==="function") url = await nbLoadImage(id);
+  return url || "";
+}
+/* A ROOM'S PLATE REFERENCES: Image 1 its parent's whole plate (small), then each view of the space beyond the
+   panel plan matched (a quadrant cut out of that plate, or a view made from here), then the reviewed layout's
+   plate when it is another space's. Numbered: an unreadable one stops the request before anything is charged. */
+async function locationSubspacePlateReferences(l){
+  const parent = locationParentOf(l);
+  if(!parent){
+    if(l && l.parentKey){ const e = new Error("Restore the parent location before generating this subspace."); e.requiredReference = true; throw e; }
+    return {refs:[], plan:null};
+  }
+  let parentUrl;
+  try{ parentUrl = await _locLoadPlate(parent.id); }catch(e){ e.requiredReference = true; throw e; }
+  if(!parentUrl){ const e = new Error("Generate or restore "+(parent.name||"the parent location")+"'s plate first — this subspace needs it as a visual reference."); e.requiredReference = true; throw e; }
+  const state = requireLocationSpatialPlan(l);
+  const ownerDistinct = state.owner.id!==parent.id && !!(state.source.iso || state.plan.source.iso);
+  // a view made from this room's position may not have loaded on this device yet
+  for(const o of locationSpaceOpenings(l)){
+    const id = locationParentViewAssetId(l,o.id);
+    if(typeof nbGetMeta==="function" && !nbGetMeta(id) && typeof nbLoadImage==="function"){ try{ await nbLoadImage(id); }catch(e){} }
+  }
+  const plan = locationSubspacePanelPlan(l,null,null,{maxSources:ownerDistinct ? 3 : 4});
+  const refs = [locationSubspaceParentReference(l,parentUrl)];
+  const plates = {[parent.id]:parentUrl};
+  for(const src of plan.sources){
+    let url = "";
+    if(src.kind==="quadrant"){
+      const plate = plates[src.assetId] || (plates[src.assetId] = await _locLoadPlate(src.assetId));
+      // read as data first (the same fetch the image request uses), so the canvas cut never depends on the image host
+      let source = plate;
+      if(plate && typeof oaiToDataUrl==="function"){ try{ source = (await oaiToDataUrl(plate)) || plate; }catch(e){} }
+      url = source && typeof cropRegionAsDataUrl==="function" ? await cropRegionAsDataUrl(source, LOC_PANEL_INFO[src.key].crop, 1024) : "";
+    } else url = await _locLoadPlate(src.assetId);
+    if(!url){ const e = new Error("Couldn't read "+(src.targetName||"the parent")+"'s plate to take the view through "+(((src.uses||[])[0]||{}).openingName||"the opening")+". Nothing was sent or charged — try again."); e.requiredReference = true; throw e; }
+    refs.push({url, kind:"location", refId:src.id, required:true, ready:true, numbered:true, maxDim:1024,
+      label:src.targetName+" · facing "+locCompass(src.pose.yaw), note:locationViewSourceNote(src,l)});
+  }
+  if(ownerDistinct){
+    const spatial = await locationSpatialReferences(l);
+    spatial.forEach(r=>{ if(!refs.some(x=>x.refId===r.refId)) refs.push({...r, numbered:true,
+      note:(state.owner.name||"The set")+" — source plate for the reviewed shared layout: anchor positions, materials and colour only — not a view to copy."}); });
+  }
+  return {refs, plan};
+}
+/* refId → its image number in the final list (Image 1 = the first) */
+function locationReferenceNumbers(refs){
+  const out = {};
+  (refs||[]).forEach((r,i)=>{ if(r && r.refId && out[r.refId]==null) out[r.refId] = i+1; });
+  return out;
+}
+
+/* ---- "Make a … view from this room's position" — one paid image ---- */
+function locationParentViewRequest(l, openingId, locations){
+  const list = _locList(locations), parent = locationParentOf(l,list);
+  if(!parent) return null;
+  const family = _locFamily(l,list);
+  for(const p of locationPanelPoses(l,list)){
+    const s = locationPanelSightlines(l,p,list).find(x=>x.opening.id===openingId);
+    if(!s) continue;
+    const target = _locResolveSpace(s.opening.connectsTo,family) || parent;
+    const position = s.through ? [s.through[0], s.through[1], p.pose.position ? p.pose.position[2] : 1.6] : (p.pose.position||null);
+    const pose = {position, yaw:s.yaw, pitch:s.pitch||0, lensMm:p.pose.lensMm||24, hfov:p.hfov, target:"",
+      place:"inside "+(l.name||"the room")+", at "+(s.opening.name||"the opening"), basis:"design"};
+    return {assetId:locationParentViewAssetId(l,s.opening.id), spaceId:l.id, spaceName:l.name||"", panel:p.key,
+      opening:s.opening, targetId:target.id, targetName:target.name||"", pose, beyond:locationAnchorsBeyond(target,s,list)};
+  }
+  return null;
+}
+function buildLocationParentViewPrompt(l, req, project){
+  const list = _locList(), target = list.find(x=>x.id===req.targetId) || locationParentOf(l) || {};
+  const v = locVisualDefaults(target);
+  const rules = (typeof locationNoCharactersRules==="function") ? locationNoCharactersRules(project, target).join(" ") : "empty of people and characters.";
+  const beyond = (req.beyond||[]).map(a=>a.name+(a.placement ? " ("+a.placement+")" : "")).filter(Boolean);
+  const tname = target.name || "the parent space", rname = l.name || "the room";
+  let s = "Render ONE single full-frame environment view of "+tname+" — not a grid, not a storyboard panel. ";
+  s += "CAMERA (binding): "+locationPoseText(req.pose, rname, [])+" It looks out through the "+_locKindWord(req.opening.kind)+" “"+(req.opening.name||req.opening.id)+"”. ";
+  s += "Show ONLY "+tname+" as it is seen from this position in that direction — leave out "+rname+"'s own frame, walls and interior; "+tname+" fills the frame. ";
+  if(beyond.length) s += "From the shared layout, in that direction: "+beyond.join("; ")+". ";
+  s += "Image 1 is "+tname+"'s plate: match its architecture, materials, colour, light and construction exactly, but it is NOT a composition to copy — compose this view from the camera above. ";
+  s += locationSpatialPrompt(target);
+  s += "RENDER STYLE: "+String(v.renderStyle||"").replace(/\.$/,"")+". "+rules+" No text, labels or captions. Sharp focus, faithful to the render style.";
+  const extra = (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, target) : "";
+  const neg = [target.negativePrompt||v.negativePrompt||"", extra].filter(Boolean).join(", ").trim();
+  return neg ? (s+" AVOID: "+neg.replace(/\.$/,"")+".") : s;
+}
+/* how many images it attaches (GPT Image prices each): the plate of the space beyond, and the reviewed layout's
+   plate when it is another space's */
+function locationParentViewRefCount(l, req){
+  const ids = new Set([req ? req.targetId : ((locationParentOf(l)||{}).id)]);
+  try{ const st = requireLocationSpatialPlan(l); if(st.source.iso || st.plan.source.iso) ids.add(st.owner.id); }catch(e){}
+  ids.delete(undefined);
+  return ids.size;
+}
+async function generateLocationParentView(l, req, project, opts){
+  const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;
+  if(typeof nbGenerate!=="function" || typeof nbCommit!=="function" || !l || !req) return false;
+  const o = opts || {};
+  const id = req.assetId;
+  const _stale = (sid, tok, ep)=> _nbLocStale(sid, tok, ep) || !!(typeof o.cancelled==="function" && o.cancelled());
+  const target = _locList().find(x=>x.id===req.targetId) || locationParentOf(l);
+  if(!target) return false;
+  const runSnapshot = _nbLocRunSnapshot(target);
+  const gopts = {};
+  if(runSnapshot.model) gopts.model = runSnapshot.model;
+  if(runSnapshot.quality!=null) gopts.quality = runSnapshot.quality;
+  const _runToken = _nbLocRunStart(id);
+  if(!_runToken) return false;
+  try{
+    requireLocationSpatialPlan(l);
+    const plate = await _locLoadPlate(target.id);
+    if(!plate){ const e = new Error("Generate "+(target.name||"the parent location")+"'s plate first — this view is made from it."); e.requiredReference = true; throw e; }
+    if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    const refs = mergeLocationReferences([{url:plate, kind:"location", refId:target.id, required:true, ready:true,
+      note:(target.name||"Parent location")+" plate — architecture, materials, colour and light to match; not a composition to copy"}],
+      (await locationSpatialReferences(l)).map(r=>r.refId===target.id ? {...r, note:""} : r));
+    let prompt = buildLocationParentViewPrompt(l, req, project)+locationReferenceInstructions(refs);
+    gopts.extraImages = refs.map(r=>r.url);
+    gopts.referencesNumbered = true;
+    const lineage = locationAssetDependencySnapshot(target.id, [], "parent-view");
+    if(runSnapshot.quality && typeof window.nbRequireImageQuality==="function"){
+      try{ await window.nbRequireImageQuality(runSnapshot.model, runSnapshot.quality); }
+      catch(e){ if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; } throw e; }
+    }
+    if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    let url;
+    try{ url = await nbGenerate(prompt, { ...gopts, assetId:id }); }
+    catch(e){ if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; } throw e; }
+    if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    const meta = Object.assign(_nbLocMeta(prompt,target,runSnapshot), lineage, {
+      parentViewPose:{...req.pose}, parentViewFor:{spaceId:l.id, spaceName:l.name||"", openingId:req.opening.id, panel:req.panel}});
+    const saved = await nbCommit(id, url, meta, refs, "location", _ep, ()=>_stale(id,_runToken,_ep));
+    if(_stale(id,_runToken,_ep) || (saved && /^(cancelled|stale)$/.test(saved.tier||""))){ _nbLocCancelEvent(id,_runToken); return false; }
+    if(!saved || saved.tier==="error") return false;
+    try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
+    return true;
+  } finally { _nbLocCleanup(id,_runToken); }
+}
+
+/* ---- storing a panel pose on the space's coverage views (the free-text fields follow it) ---- */
+function locationPoseFreeText(pose, anchors){
+  const p = pose || {};
+  const aim = p.target ? ((anchors||[]).find(a=>a.id===p.target)||{}).name || p.target : "";
+  return {
+    cameraPosition:(p.position ? "x "+_locM(p.position[0])+" m, y "+_locM(p.position[1])+" m, "+_locM(p.position[2])+" m up" : (p.place||""))
+      +(p.yaw!=null ? (p.position||p.place ? " — " : "")+"facing "+locCompass(p.yaw)+" ("+Math.round(p.yaw)+"°)" : ""),
+    target:aim || (p.yaw!=null ? "the "+locCompass(p.yaw)+" side" : ""),
+    lens:p.lensMm ? Math.round(p.lensMm)+" mm" : ""};
+}
+function locationCoverageViewsWithPose(l, key, pose){
+  if(LOC_PANEL_KEYS.indexOf(key)<0) return Array.isArray(l && l.coverageViews) ? l.coverageViews.slice() : [];
+  let list = Array.isArray(l && l.coverageViews) && l.coverageViews.length
+    ? l.coverageViews.map(v=>({...v}))
+    : locationCoverageViews(l).map(v=>{ const x = {...v}; delete x.legacy; return x; });
+  const anchors = locationSpaceAnchors(l);
+  const panels = locationPanelPoses(l);
+  let at = list.findIndex(v=>v && v.panel===key);
+  if(at<0 && key==="TL" && list[0] && !list[0].panel) at = 0;     // the principal view is the top-left camera
+  const before = at>=0 && list[at].pose ? panels.find(p=>p.key===key).pose : null;
+  if(!pose){
+    if(at<0) return list;
+    const v = {...list[at]}; delete v.pose;
+    if(v.autoPanel){ list.splice(at,1); return list; }
+    if(key==="TL") delete v.panel;
+    list[at] = v; return list;
+  }
+  const clean = normalizeLocationCameraPose(pose);
+  const stored = {};
+  Object.keys(clean).forEach(k=>{ if(clean[k]!=null && clean[k]!=="") stored[k] = clean[k]; });
+  const merged = {...panels.find(p=>p.key===key).suggestedPose, ...stored};
+  const text = locationPoseFreeText(merged, anchors), prior = before ? locationPoseFreeText(before, anchors) : null;
+  const fill = (v,f)=> (!String(v[f]||"").trim() || (prior && v[f]===prior[f])) ? text[f] : v[f];
+  if(at<0){
+    const info = LOC_PANEL_INFO[key];
+    const name = info.label+" panel camera";
+    list.push({id:"panel-"+key.toLowerCase(), name, panel:key, autoPanel:true, pose:stored,
+      purpose:panels.find(p=>p.key===key).purpose, cameraPosition:text.cameraPosition, target:text.target, visibleAnchors:"",
+      lens:text.lens, staging:{...(typeof emptyStaging==="function" ? emptyStaging() : {}), viewLabel:name}});
+    return list;
+  }
+  const v = {...list[at], panel:key, pose:stored};
+  v.cameraPosition = fill(v,"cameraPosition"); v.target = fill(v,"target"); v.lens = fill(v,"lens");
+  list[at] = v;
+  return list;
+}
+
+/* ---- the Blender handoff: the coordinate model as the studio contract reads it ---- */
+function locationPoseToStudioCamera(pose){
+  const p = pose || {};
+  if(!p.position || p.yaw==null) return null;
+  const r = Number(p.yaw)*Math.PI/180, t = Number(p.pitch||0)*Math.PI/180, d = 5;
+  const target = [p.position[0]+Math.sin(r)*Math.cos(t)*d, p.position[1]+Math.cos(r)*Math.cos(t)*d, p.position[2]+Math.sin(t)*d]
+    .map(n=>Math.round(n*1000)/1000);
+  return {position:p.position.slice(), target, focalLength:Math.max(8,Math.min(200,Number(p.lensMm)||24)), sensorWidth:LOC_SENSOR_MM};
+}
+function locationPoseBlenderRotation(pose){
+  const p = pose || {};
+  if(p.yaw==null) return null;
+  const rad = (deg)=> Math.round(deg*Math.PI/180*10000)/10000;
+  return [rad(90+Number(p.pitch||0)), 0, rad(-Number(p.yaw))];
+}
+function locationCoordinateExport(l, locations){
+  const list = _locList(locations), {owner, plan} = _locOwnerPlan(l,list), family = _locFamily(l,list);
+  const anchors = plan.anchors.filter(a=>a.xy || a.z!=null || a.facing!=null).map(a=>({id:a.id, space:a.space, name:a.name,
+    xy:a.xy||null, z:a.z==null ? null : a.z, facing:a.facing==null ? null : a.facing, basis:a.posBasis||"design"}));
+  const cameras = locationPanelPoses(l,list).map(p=>({spaceId:l.id, panel:p.key, grid:p.grid, purpose:p.purpose,
+    source:p.source, stated:p.stated, pose:p.pose, hfov:p.hfov, studioCamera:locationPoseToStudioCamera(p.pose),
+    blenderRotationEuler:locationPoseBlenderRotation(p.pose)}));
+  return {schema:"cm-location-coords-v1", convention:LOCATION_COORDINATE_CONVENTION, ownerId:owner.id,
+    origin:plan.coordinates ? plan.coordinates.origin : {anchorId:"", note:""},
+    spaces:plan.coordinates ? plan.coordinates.spaces : [], anchors,
+    openings:family.flatMap(x=>locationSpaceOpenings(x,list).map(o=>({...o, spaceId:x.id}))),
+    cameras};
+}
+window.LOC_PANEL_KEYS = LOC_PANEL_KEYS;
+window.LOC_PANEL_INFO = LOC_PANEL_INFO;
+window.LOCATION_COORDINATE_CONVENTION = LOCATION_COORDINATE_CONVENTION;
+window.locYaw = locYaw; window.locYawDiff = locYawDiff; window.locCompass = locCompass; window.locLensHfov = locLensHfov;
+window.locWallYawFromText = locWallYawFromText;
+window.locationAnchorIsOpening = locationAnchorIsOpening;
+window.normalizeLocationCameraPose = normalizeLocationCameraPose;
+window.normalizeLocationCoordinates = normalizeLocationCoordinates;
+window.locationAnchorSpaceOf = locationAnchorSpaceOf;
+window.locationSpaceAnchors = locationSpaceAnchors;
+window.locationSpaceOpenings = locationSpaceOpenings;
+window.locationDefaultPanelPoses = locationDefaultPanelPoses;
+window.locationStoredPanelViews = locationStoredPanelViews;
+window.locationPanelPoses = locationPanelPoses;
+window.locationPlatePanelRecord = locationPlatePanelRecord;
+window.locationPlatePanels = locationPlatePanels;
+window.locationPanelSightlines = locationPanelSightlines;
+window.locationAnchorsBeyond = locationAnchorsBeyond;
+window.locationParentViewAssetId = locationParentViewAssetId;
+window.locationViewCandidates = locationViewCandidates;
+window.locationMatchView = locationMatchView;
+window.locationSubspacePanelPlan = locationSubspacePanelPlan;
+window.locationPoseText = locationPoseText;
+window.locationSubspaceViews = locationSubspaceViews;
+window.locationSubspaceParentReference = locationSubspaceParentReference;
+window.locationSubspacePlateReferences = locationSubspacePlateReferences;
+window.locationReferenceNumbers = locationReferenceNumbers;
+window.locationParentViewRequest = locationParentViewRequest;
+window.buildLocationParentViewPrompt = buildLocationParentViewPrompt;
+window.locationParentViewRefCount = locationParentViewRefCount;
+window.generateLocationParentView = generateLocationParentView;
+window.locationPoseFreeText = locationPoseFreeText;
+window.locationCoverageViewsWithPose = locationCoverageViewsWithPose;
+window.locationPoseToStudioCamera = locationPoseToStudioCamera;
+window.locationPoseBlenderRotation = locationPoseBlenderRotation;
+window.locationCoordinateExport = locationCoordinateExport;
+
 function locationChildrenOf(l,locations){
   const key=locationKeyOf(l);
   return key ? (locations||[]).filter(x=>x&&x!==l&&String(x.parentKey||"")===key) : [];
@@ -698,7 +1502,9 @@ function locationIdentityLayers(l,locations){
     continuity_root:parent?{ id:parent.id,name:parent.name,invariants:fields(parent) }:undefined,
     child_space:parent?{ id:l.id,name:l.name,specific_identity:fields(l) }:undefined,
     visual_continuity:parent?{
-      rule:"Match the exact subspace already visible in the parent plate. Extend shared materials, construction details, architectural era and scale only where the parent does not show it. Child-specific layout does not replace shared anchors; never transplant sibling-room furnishings.",
+      /* (2026-10-13, Location coordinates) "Match the exact subspace already visible in the parent plate" made the
+         model copy the parent's most striking panel into a room's window — the parent's panels are not views to copy */
+      rule:"Where the parent plate shows this room itself (its outside, or a glimpse through a doorway), keep what it shows. Shared materials, construction details, architectural era and scale come from the parent; its panels are never views to copy — what shows through an opening follows this room's own panel cameras and the reference named for it. Child-specific layout does not replace shared anchors; never transplant sibling-room furnishings.",
       render_style_source:(locationRenderStyleSource(l,list)||l).name,
       state_rule:"Keep architecture fixed. Lighting, weather and temporary dressing may vary only in the requested unit/state.",
     }:undefined,
@@ -1225,6 +2031,8 @@ function locationProductionPlan(l,units){
   return {
     schema:"cm-location-plan-v1",
     sharedSetLayout:locationSpatialContract(l),
+    // the coordinate model and each plate panel's camera, as Blender Studio's contract reads cameras (2026-10-13)
+    coordinates:locationCoordinateExport(l),
     canonicalSet:canon(l),
     continuityRoot:parent?{id:parent.id||null,key:parent.key||null,name:bounded(parent.name,240),
       canonicalSet:canon(parent)}:undefined,
@@ -1240,7 +2048,8 @@ function locationProductionPlan(l,units){
       id:v.id,assetId:String(l&&l.id||"location")+"-"+String(v.id||"plate"),name:v.name,
       role:v.role||"",scenes:(v.sceneNos||[]).slice(),summary:v.summary||""})),
     coverageViews:locationCoverageViews(l).map(v=>({id:v.id,name:v.name,purpose:v.purpose,
-      cameraPosition:v.cameraPosition,target:v.target,visibleAnchors:v.visibleAnchors,lens:v.lens,staging:v.staging})),
+      cameraPosition:v.cameraPosition,target:v.target,visibleAnchors:v.visibleAnchors,lens:v.lens,staging:v.staging,
+      ...(v.panel?{panel:v.panel}:{}),...(v.pose?{pose:normalizeLocationCameraPose(v.pose)}:{})})),
     sceneSetups:locationSceneSetups(l,spaces).map(s=>({id:s.id,unitKey:s.unitKey,sceneId:s.sceneId,
       sceneNo:s.sceneNo,occurrenceOrdinal:s.occurrenceOrdinal,occurrenceCount:s.occurrenceCount,
       spaceName:s.spaceName,sourceKind:s.sourceKind,
@@ -2100,6 +2909,15 @@ function buildLocationRefPrompt(l, project, opts){
   const secondStation = clean(st.mid.left) || clean(st.mid.right) || clean(st.fg.left) || clean(st.fg.right) || "a signature material detail of the space";
   const screenplayContext = (typeof locationScreenplayContext==="function") ? locationScreenplayContext(l, _C0.scenes||[], _C0.drafts||{}, 2600) : "";
   const panelPlan = (typeof locationMasterPanelPlan==="function") ? locationMasterPanelPlan(l, _C0.scenes||[], _C0.drafts||{}) : null;
+  const subspacePlan = locationParentOf(l, _C0.locations) ? (opts.panelPlan || locationSubspacePanelPlan(l, _C0.locations)) : null;
+  const ownerCameraViews = (views)=>{
+    const stated = subspacePlan ? [] : locationPanelPoses(l, _C0.locations).filter(p=>p.stated);
+    if(!stated.length) return views;
+    const anchors = locationSpaceAnchors(l, _C0.locations), out = { ...views };
+    stated.forEach(p=>{ out[p.field] = String(out[p.field]||p.purpose).replace(/\.$/,"")+". "+locationPoseText(p.pose, "", anchors); });
+    out.camera_convention = "Facings are compass directions of the shared layout: north is the facing named in its frame; yaw in degrees clockwise from north; positions in metres from its origin anchor, height above the floor.";
+    return out;
+  };
   const envProps = locationEnvironmentProps(l).map(p=>({
     name: p.name,
     description: [clean(p.form), clean(p.material)].filter(Boolean).join("; ") || undefined,
@@ -2181,7 +2999,10 @@ function buildLocationRefPrompt(l, project, opts){
     fixture_projection_rule:"These depth-grid fixtures describe ONLY the principal camera view. The shared set layout takes precedence over this legacy composition. Other panels project the same fixed objects from new cameras; do not restage or duplicate them.",
     environment_props: envProps.length ? envProps : undefined,
     ambient_species_canon: speciesCanon.length ? speciesCanon : undefined,
-    views: {
+    /* PLATE CAMERAS (2026-10-13, Location coordinates): a room's four panels are its own cameras, each opening named
+       with the view of the space beyond it (locationSubspaceViews); an owner space states the cameras that are SET —
+       with none set its views are exactly as before */
+    views: subspacePlan ? locationSubspaceViews(l, subspacePlan, opts.panelRefs) : ownerCameraViews({
       ...(panelPlan || {
         layout: "exactly 4 views in a 2x2 grid",
         top_left: "wide establishing front shot at eye level with symmetrical centered composition",
@@ -2190,7 +3011,7 @@ function buildLocationRefPrompt(l, project, opts){
         bottom_right: "close-up of "+secondStation,
         rule: "each view a distinctly different camera angle and composition \u2014 the SAME identical space, consistent architecture, scale, materials and light across all views",
       }),
-    },
+    }),
     render: {
       style: v.renderStyle.replace(/\.$/,""),
       /* quality rules must AGREE with the picked style: pushing "photorealistic /
@@ -2605,15 +3426,28 @@ async function generateLocationPlate(l, project, opts){
   const _runToken = _nbLocRunStart(l.id);
   if(!_runToken) return false;
   try{
-    const parentRefs=await locationParentReferences(l);
-    if(_stale(l.id,_runToken,_ep)){_nbLocCancelEvent(l.id,_runToken);return false;}
-    let refs=mergeLocationReferences(parentRefs,await locationSpatialReferences(l));
+    const parent=locationParentOf(l);
+    /* A ROOM (2026-10-13, Location coordinates): its parent's plate small (materials and colour), then the view of
+       the space beyond each opening its panels see (locationSubspacePlateReferences); a main location as before */
+    let refs, subPlan=null;
+    if(parent && typeof locationSubspacePlateReferences==="function"){
+      const sub=await locationSubspacePlateReferences(l);
+      if(_stale(l.id,_runToken,_ep)){_nbLocCancelEvent(l.id,_runToken);return false;}
+      refs=sub.refs; subPlan=sub.plan;
+    } else {
+      const parentRefs=await locationParentReferences(l);
+      if(_stale(l.id,_runToken,_ep)){_nbLocCancelEvent(l.id,_runToken);return false;}
+      refs=mergeLocationReferences(parentRefs,await locationSpatialReferences(l));
+    }
     if(o.scriptRefs!==false){
       const pages=locationScriptPageRefs(l, null, null, 6).filter(r=>r.url);
       refs=[...refs, ...pages.map(r=>({url:r.url,kind:"script",refId:r.refId,note:r.note}))].slice(0,6);
     }
-    const parent=locationParentOf(l);
     const lineage=parent?locationAssetDependencySnapshot(parent.id,[],"subspace"):{};
+    // the cameras this plate's prompt states, recorded with it (rooms inside use them to pick the right panel)
+    const panelRecord=(typeof locationPlatePanelRecord==="function")?locationPlatePanelRecord(l):null;
+    if(panelRecord) lineage.platePanels=panelRecord;
+    if(subPlan && typeof combinedLocationPrompt==="function") prompt=combinedLocationPrompt(l, project, {panelPlan:subPlan, panelRefs:locationReferenceNumbers(refs)});
     const planSig=(typeof locationSpatialPlanSigFor==="function")?locationSpatialPlanSigFor(l):"";   // the reviewed layout this plate is made from
     if(planSig) lineage.spatialPlanSig=planSig;
     if(typeof locationSpecSig==="function") lineage.locSpecSig=locationSpecSig(l);
@@ -2621,7 +3455,11 @@ async function generateLocationPlate(l, project, opts){
     if(refs.some(r=>r.kind==="script")) referenceText+=" Read screenplay pages together as evidence for permanent geography \u2014 NOT a quadrant map: "
       +"do not make one panel per page or per scene, and never copy screenplay typography, page borders, text or captions.";
     prompt+=referenceText;
-    if(refs.length)gopts.extraImages=refs.map(r=>r.url);
+    if(refs.length){
+      gopts.extraImages=refs.map(r=>r.url);
+      if(refs.some(r=>r.maxDim)) gopts.extraImageMaxDims=refs.map(r=>r.maxDim||1024);
+      if(refs.some(r=>r.numbered)) gopts.referencesNumbered=true;   // an unreadable one would shift every number after it
+    }
     if(_stale(l.id,_runToken,_ep)){_nbLocCancelEvent(l.id,_runToken);return false;}
     if(runSnapshot.quality && typeof window.nbRequireImageQuality==="function"){
       try{ await window.nbRequireImageQuality(runSnapshot.model, runSnapshot.quality); }
@@ -2639,6 +3477,7 @@ async function generateLocationPlate(l, project, opts){
       if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
       if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){
         if(typeof o.onRetry==="function"){ try{ o.onRetry(); }catch(_e){} }   // a second paid image — the caller says so
+        delete lineage.platePanels;   // the simplified prompt states no cameras
         try{ prompt=buildSimpleLocationPrompt(l)+referenceText;url = await nbGenerate(prompt, { ...gopts, assetId:l.id }); }
         catch(fallbackError){
           if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
@@ -2809,12 +3648,17 @@ function sluglineUnitPseudoSheet(id, u, role){
    the most it can be. */
 function locationPlateRefCount(l){
   const ids = new Set();
-  try{ const parent = locationParentOf(l); if(parent) ids.add(parent.id); }catch(e){}
-  try{ const st = requireLocationSpatialPlan(l); if(st.source.iso || st.plan.source.iso) ids.add(st.owner.id); }
+  let parent = null;
+  try{ parent = locationParentOf(l); if(parent) ids.add(parent.id); }catch(e){}
+  let ownerDistinct = false;
+  try{ const st = requireLocationSpatialPlan(l); if(st.source.iso || st.plan.source.iso){ ids.add(st.owner.id); ownerDistinct = !!parent && st.owner.id!==parent.id; } }
   catch(e){ return { n:6, exact:false }; }
+  // a room also attaches the view of the space beyond each opening its panels see (2026-10-13)
+  let views = 0;
+  if(parent){ try{ views = locationSubspacePanelPlan(l, null, null, { maxSources:ownerDistinct ? 3 : 4 }).sources.length; }catch(e){ return { n:6, exact:false }; } }
   let pages = 0;
   try{ pages = locationScriptPageRefs(l, null, null, 6).filter(r=>r.url).length; }catch(e){ return { n:6, exact:false }; }
-  return { n:Math.min(6, ids.size+pages), exact:true };
+  return { n:Math.min(6, ids.size+views+pages), exact:true };
 }
 /* a room & time plate: its screenplay pages, its location's plate, the root's plate when it has one
    (opts.rootPlate: false = the root has none, so it isn't attached) and the reviewed layout's plate */

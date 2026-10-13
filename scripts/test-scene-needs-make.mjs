@@ -171,9 +171,11 @@ await test("4b a reference count known only as a maximum is said as 'up to'", as
   await w.run([need("L","location","House")]);
   assert.match(w.asks[0].body, /^1 reference image — up to 10 credits\./);
 });
-await test("4c the plate counts mirror the generators (locations.jsx): parent + reviewed layout + pages, capped at 6", ()=>{
+await test("4c the plate counts mirror the generators (locations.jsx): parent + reviewed layout + a room's views + pages, capped at 6", ()=>{
   const fn = between(locs, "function locationPlateRefCount(l){", "/* a room & time plate:");
-  assert.ok(fn.includes("return { n:Math.min(6, ids.size+pages), exact:true };") && fn.includes("locationScriptPageRefs(l, null, null, 6)"));
+  assert.ok(fn.includes("return { n:Math.min(6, ids.size+views+pages), exact:true };") && fn.includes("locationScriptPageRefs(l, null, null, 6)"));
+  // a room also counts the views of the space beyond its openings (2026-10-13, Location coordinates)
+  assert.ok(fn.includes("views = locationSubspacePanelPlan(l, null, null, { maxSources:ownerDistinct ? 3 : 4 }).sources.length;"));
   const u = between(locs, "function sluglineUnitPlateRefCount(l, u, opts){", "window.locationPlateRefCount");
   assert.ok(u.includes("locationScreenplayReferenceImages(l, sluglineUnitPseudoSheet(id, u)") && u.includes("return { n:pages+ids.size, exact };"));
   assert.ok(locs.includes("const pseudo = sluglineUnitPseudoSheet(id, u, role);"), "the plate and its count read the same pages");

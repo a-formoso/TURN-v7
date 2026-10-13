@@ -3758,6 +3758,36 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   .loc-spatial-plan .art-draftall{min-height:44px;height:auto;white-space:normal}
   .loc-spatial-field :is(textarea,select){font-size:16px}
 }
+/* plate cameras — each panel's camera of a location's 2x2 plate (2026-10-13, Location coordinates) */
+.loc-plate-cameras{margin-top:10px}
+.loc-plate-cameras>summary{display:flex;align-items:center;gap:8px}
+.loc-cam-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin:10px 0}
+.loc-cam-panel{border:1px solid var(--line-2);border-radius:var(--r-m);padding:9px 10px;background:var(--bg-1);min-width:0}
+.loc-cam-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font:600 12px/1.4 var(--f-ui);color:var(--txt-1)}
+.loc-cam-badge{padding:2px 6px;border-radius:5px;background:var(--bg-4);color:var(--txt-2);font:500 10px/1.4 var(--f-ui)}
+.loc-cam-badge.set{background:var(--accent-soft);color:var(--txt-1)}
+.loc-cam-purpose{margin:6px 0 4px;font:500 11.5px/1.45 var(--f-ui);color:var(--txt-2);overflow-wrap:anywhere}
+.loc-cam-text{margin:0;font:400 11.5px/1.5 var(--f-ui);color:var(--txt-1);overflow-wrap:anywhere}
+.loc-cam-sights{margin:8px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.loc-cam-sight{font:400 11.5px/1.5 var(--f-ui);color:var(--txt-2);border-left:2px solid var(--line-2);padding-left:8px;overflow-wrap:anywhere}
+.loc-cam-sight b{color:var(--txt-1);font-weight:600}
+.loc-cam-sight.ok{border-left-color:var(--accent)}
+.loc-cam-sight.open{border-left-color:var(--accent-ink)}
+.loc-cam-make{margin-top:6px;height:auto;min-height:32px;white-space:normal;text-align:left}
+.loc-cam-edit{margin-top:8px}
+.loc-cam-edit>summary{cursor:pointer;font:500 11px/1.5 var(--f-ui);color:var(--txt-2)}
+.loc-cam-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0}
+.loc-cam-field{display:flex;flex-direction:column;gap:3px;font:500 11px/1.4 var(--f-ui);color:var(--txt-2);min-width:0}
+.loc-cam-field input,.loc-cam-field select{width:100%;box-sizing:border-box}
+.loc-cam-field small{font-size:10px;color:var(--txt-3)}
+.loc-cam-warn{color:var(--accent-ink)}
+.loc-panel-badge{background:var(--bg-4)}
+@media(max-width:600px){
+  .loc-cam-grid{grid-template-columns:1fr}
+  .loc-cam-fields{grid-template-columns:1fr}
+  .loc-cam-field :is(input,select){font-size:16px;min-height:40px}
+  .loc-cam-make{min-height:44px}
+}
 /* time-of-day variants */
 .loc-variants{display:flex;flex-direction:column;gap:10px}
 .loc-variants-empty{font-size:12px;color:var(--txt-3);font-style:italic}

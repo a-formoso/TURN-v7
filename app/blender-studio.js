@@ -48,6 +48,7 @@
         var raw=JSON.stringify(value);if(raw.length<=16000)return raw;
         var compact={schema:value.schema||"cm-location-plan-v1",canonicalSet:value.canonicalSet||{},
           sharedSetLayout:value.sharedSetLayout,continuityRoot:value.continuityRoot,
+          coordinates:value.coordinates,
           screenplaySpaces:(value.screenplaySpaces||[]).map(function(x){return {key:x.key,name:x.name,intExt:x.intExt,time:x.time,source:x.source,scenes:x.scenes};}),
           appearanceStates:(value.appearanceStates||[]).map(function(x){return {id:x.id,unitKey:x.unitKey,time:x.time,state:x.state,scenes:x.scenes};}),
           requiredSpacePlates:(value.requiredSpacePlates||[]).map(function(x){return {id:x.id,name:x.name,role:x.role,scenes:x.scenes};}),
