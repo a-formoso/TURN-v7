@@ -43,6 +43,15 @@ if (typeof globalThis.WebSocket === "undefined") {
 
 const ROOT = new URL("../", import.meta.url);
 const CHROME = process.env.CHROMIUM || "/repl/tools/bin/chromium";
+/* THE FACE MODEL'S SPEED (2026-10-13, stabilising B4/B5): the capture window treats a gap of more than 400 ms between
+   camera frames as "not seen" (the hold starts again — the owner's strict hold). On the software graphics fallback
+   (SwiftShader, the only one on Replit's Linux) headless Chrome runs the model at ~3 frames a second under load, with
+   gaps of 400–800 ms, so the holds kept restarting and the test failed on timing, not on the app. On a Mac the real
+   graphics chip (Metal through ANGLE) runs it at full speed; elsewhere SwiftShader stays. LIKENESS_POSE_GPU=swiftshader
+   forces the fallback. */
+const GPU_FLAGS = (process.platform === "darwin" && process.env.LIKENESS_POSE_GPU !== "swiftshader")
+  ? ["--use-angle=metal", "--enable-gpu-rasterization", "--ignore-gpu-blocklist"]
+  : ["--enable-unsafe-swiftshader"];
 const CACHE = `${tmpdir()}/kinolot-likeness-pose`;
 const REACT = {
   "react.js": ["https://unpkg.com/react@18.3.1/umd/react.development.js", "/tmp/fixture/browserfiles/react.js"],
@@ -236,7 +245,7 @@ async function main(){
   const port = srv.address().port, debugPort = 9300 + Math.floor(Math.random() * 400);
   const profile = `${CACHE}/chrome-profile-${process.pid}`;
   // no --disable-gpu: the face model needs WebGL even on its CPU path
-  const chrome = spawn(CHROME, ["--headless=new", "--no-sandbox", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required",
+  const chrome = spawn(CHROME, ["--headless=new", "--no-sandbox", ...GPU_FLAGS, "--autoplay-policy=no-user-gesture-required",
     `--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1`, `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
   let c;
   try {
@@ -353,6 +362,7 @@ async function main(){
       await c.eval(`(() => { __fx.gaps = []; let last = performance.now(); const f = (t) => { __fx.gaps.push(Math.round(t - last)); last = t; if (__fx.gaps.length < 2000) requestAnimationFrame(f); }; requestAnimationFrame(f); })()`);
       await waitFor(async () => (await st()).left, "'Your left' captured", 9000).catch(async (e) => { console.log("     state", JSON.stringify(await st()), "\n     rAF gaps > 300 ms:", JSON.stringify(await c.eval(`__fx.gaps.filter((g) => g > 300)`)), "frames", await c.eval(`__fx.gaps.length`)); throw e; });
       const dl = Date.now() - t1;
+      { const g = await c.eval(`__fx.gaps`); console.log("     frames during the left hold:", g.length, "· gaps over 400 ms:", g.filter((x) => x > 400).length); }
       console.log("     left after", dl, "ms");
       assert.ok(dl >= 5000, "held 5 s first: " + dl);
       await sleep(8000);
@@ -390,6 +400,13 @@ async function main(){
       served.clips = { manifest: { voice: "test", clips: Object.fromEntries(lines.map((l) => [l.id, { text: l.text }])) }, wav: silentWav(250) };
       await open();
       await c.eval(`__fx.camera()`);
+      // WAKE THE AUDIO OUTPUT FIRST (2026-10-13, stabilising B5): headless Chrome can take 3 s or more to start its
+      // audio output the first time anything plays, so the window's first clip ("Hold still") sometimes hadn't begun
+      // when the 3 s Front hold ended — the numbers queued behind it were then (rightly) dropped. A short tone through
+      // Web Audio (not an <audio> element, so the window's one-element check still sees only its own) starts the
+      // output before the window opens; a real browser's output is already running.
+      await c.eval(`(async () => { const ac = new AudioContext(); await ac.resume(); const o = ac.createOscillator(), g = ac.createGain();
+        g.gain.value = 0.0001; o.connect(g); g.connect(ac.destination); o.start(); await new Promise((r) => setTimeout(r, 600)); o.stop(); await ac.close(); })()`);
       await c.eval(`__fx.mount()`);
       await waitFor(async () => (await c.eval(`__fx.state()`)).engine === "ready", "the pose check ready", 20000);
       await waitFor(async () => (await c.eval(`__fx.state()`)).front, "Front captured", 9000);
