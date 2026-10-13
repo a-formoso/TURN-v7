@@ -211,7 +211,7 @@ async function main(){
   const http=server(); await new Promise(resolve=>http.listen(0,"127.0.0.1",resolve));
   const port=http.address().port,debugPort=9500+Math.floor(Math.random()*300);
   const chrome=spawn(CHROME,["--headless=new","--no-sandbox",`--remote-debugging-port=${debugPort}`,
-    `--user-data-dir=${FIX}/cleanup-${process.pid}`, "about:blank"]);   // (Chrome 154+ opens no page without one)
+    `--user-data-dir=${FIX}/cleanup-${process.pid}`, "about:blank"]);   // a starting page, like the other browser tests
   let cdp;
   try{
     const target=await waitForTarget(debugPort);
