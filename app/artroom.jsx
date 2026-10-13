@@ -1835,6 +1835,128 @@ function CharScriptFactsPanel({ c, drafts, state, reading, readOnly, onRead, rea
       : React.createElement("div",{className:"phys-note"},"The script states nothing about "+name+"'s appearance — the look is designed.")));
 }
 window.CharScriptFactsPanel = CharScriptFactsPanel;
+/* ═══ CHARACTER FIDELITY, step 5 — LIKENESS FIT (owner-approved 2026-10-12, "go ahead with all of it, in that order") ═══
+   When a likeness is locked on a character and the fact sheet (or the card) states an age band, a heritage or a build,
+   the card asks "Does this person fit the character?": what the script says (with its quotes), then
+     Fits — remembered (likenessFit.choice "fits"), the card stays as it is;
+     Update the character to match this person — the card's designed Apparent age / Ethnicity rows (what the writers and
+       voice design read) are set to what the user types, recorded as their choice (scriptOverrides; the script's facts
+       are never rewritten — likenessFit.choice "match");
+     Choose someone else — opens the Likeness window.
+   A MANUAL confirmation: the photos are never sent anywhere for it (they stay on the device unless the person synced
+   them). The choice belongs to the likeness it was made for (likenessFit.key = its capture time + subject note): a
+   recaptured likeness asks again. */
+const CHAR_FIT_FIELDS = ["age","heritage","build"];
+function charLikenessKey(info){
+  if(!info) return "";
+  return String(info.capturedAt||"")+"|"+String((info.consent && info.consent.subject) || "");
+}
+window.charLikenessKey = charLikenessKey;
+/* o: { drafts, info } → { show, facts, card, choice, stale, key } */
+function charLikenessFitState(c, o){
+  o = o || {};
+  const info = o.info || null;
+  const usable = !!(info && info.available!==false);
+  const key = charLikenessKey(info);
+  const facts = charFactsLive(c, o.drafts).filter(f=> CHAR_FIT_FIELDS.indexOf(f.field)>=0)
+    .sort((a,b)=> CHAR_FIT_FIELDS.indexOf(a.field)-CHAR_FIT_FIELDS.indexOf(b.field) || (a.weak?1:0)-(b.weak?1:0)).slice(0,8);
+  const F = (c && c.physique) || {};
+  const card = [];
+  const stated = (field)=> facts.some(f=>f.field===field);
+  const age = String(F.age || (c && c.ageRange) || "").trim();
+  if(age && !stated("age")) card.push({ field:"age", label:"Age", value:age, from:F.age ? "the card" : "the story" });
+  if(String(F.ethnicity||"").trim() && !stated("heritage")) card.push({ field:"heritage", label:"Heritage", value:String(F.ethnicity).trim(), from:"the card" });
+  if(String(F.build||"").trim() && !stated("build")) card.push({ field:"build", label:"Build", value:String(F.build).trim(), from:"the card" });
+  const fit = c && c.likenessFit;
+  const current = !!(fit && (fit.choice==="fits" || fit.choice==="match") && (!fit.key || !key || fit.key===key));
+  return { show: usable && (facts.length>0 || card.length>0), facts, card, choice: current ? fit.choice : "", stale: !!fit && !current, key };
+}
+window.charLikenessFitState = charLikenessFitState;
+/* the patch each answer writes. choice "fits" | "match" (o.age / o.heritage: what the person looks like) | "clear" */
+function charLikenessFitPatch(c, choice, o){
+  o = o || {};
+  const at = o.at || new Date().toISOString();
+  const key = o.key!=null ? o.key : "";
+  if(choice==="clear") return { likenessFit:null };
+  if(choice==="fits") return { likenessFit:{ choice:"fits", key, at } };
+  if(choice!=="match") return {};
+  const age = String(o.age||"").replace(/\s+/g," ").trim().slice(0,60);
+  const heritage = String(o.heritage||"").replace(/\s+/g," ").trim().slice(0,120);
+  if(!age && !heritage) return {};
+  let cur = c || {};
+  let patch = {};
+  // the card rows the sheet, the writers (castPronounBlock) and voice design read — as a row edit writes them
+  if(age){ const p = charPhysPatch(cur, "age", age); patch = { ...patch, ...p }; cur = { ...cur, ...p }; }
+  if(heritage){ const p = charPhysPatch(cur, "ethnicity", heritage); patch = { ...patch, ...p }; cur = { ...cur, ...p }; }
+  // recorded as the writer's choice: a re-draft keeps it (charKeepOverrides), the script's facts are left as they are
+  let ov = (c && c.scriptOverrides) || {};
+  if(age) ov = charOverridePatch({ scriptOverrides:ov }, "age", at).scriptOverrides;
+  if(heritage) ov = charOverridePatch({ scriptOverrides:ov }, "ethnicity", at).scriptOverrides;
+  return { ...patch, scriptOverrides:ov, likenessFit:{ choice:"match", key, at, ...(age ? { age } : {}), ...(heritage ? { heritage } : {}) } };
+}
+window.charLikenessFitPatch = charLikenessFitPatch;
+function CharLikenessFitCheck({ c, drafts, info, readOnly, onUpdate, onChooseOther }){
+  const [editing, setEditing] = React.useState(false);
+  const [age, setAge] = React.useState("");
+  const [heritage, setHeritage] = React.useState("");
+  if(!c) return null;
+  const st = charLikenessFitState(c, { drafts, info });
+  if(!st.show) return null;
+  const name = c.name || "this character";
+  const fit = c.likenessFit || {};
+  if(st.choice) return React.createElement("div",{className:"char-fit done","data-testid":"char-likeness-fit"},
+    React.createElement(Icon.check||Icon.userScan,{s:12}),
+    React.createElement("span",{className:"char-facts-meta"}, st.choice==="fits"
+      ? "You confirmed this person fits "+name+"."
+      : "You updated "+name+" to match this person"+[fit.age && ("age "+fit.age), fit.heritage && ("heritage "+fit.heritage)].filter(Boolean).map((x,i)=>(i?" · ":" — ")+x).join("")+"."),
+    (!readOnly && onUpdate) && React.createElement("button",{type:"button",className:"char-draft-btn ghost",onClick:()=>onUpdate(c.id, charLikenessFitPatch(c, "clear")),
+      title:"Ask again whether this person fits "+name+" (nothing on the card changes)"},"Check again"));
+  const F = c.physique || {};
+  const startEdit = ()=>{ setAge(String(F.age || c.ageRange || "")); setHeritage(String(F.ethnicity||"")); setEditing(true); };
+  const save = ()=>{ const p = charLikenessFitPatch(c, "match", { age, heritage, key:st.key });
+    if(Object.keys(p).length){ onUpdate(c.id, p); setEditing(false); } };
+  const factRow = (f,i)=> React.createElement("div",{key:"f"+i,className:"char-fact"+(f.weak?" weak":"")},
+    React.createElement("span",{className:"char-fact-v"}, CHAR_FACT_LABELS[f.field]+": "+f.value),
+    React.createElement("span",{className:"char-fact-sc"}, "Sc "+(f.sceneNo!=null?f.sceneNo:"?")),
+    f.weak && React.createElement("span",{className:"char-fact-weak",title:"Only said in dialogue — weaker than the action"},"dialogue"),
+    React.createElement("div",{className:"char-fact-q"}, "“"+String(f.quote).replace(/\s+/g," ")+"”"));
+  const cardRow = (r,i)=> React.createElement("div",{key:"c"+i,className:"char-fact"},
+    React.createElement("span",{className:"char-fact-v"}, r.label+": "+r.value),
+    React.createElement("span",{className:"char-fact-sc"}, r.from==="the story" ? "set by the story" : "on the card"));
+  return React.createElement("div",{className:"char-facts char-fit","data-testid":"char-likeness-fit",role:"group","aria-label":"Does this person fit the character?"},
+    React.createElement("div",{className:"char-facts-head"},
+      React.createElement(Icon.userScan,{s:12}),
+      React.createElement("span",{className:"char-facts-t"},"Does this person fit the character?")),
+    React.createElement("div",{className:"phys-note"},
+      "The likeness gives "+name+"'s face. "+(st.facts.length ? "What the script says:" : "What the card says:")
+      +(st.stale ? " (you checked an earlier likeness — check this one)" : "")),
+    React.createElement("div",{className:"char-facts-list"}, st.facts.map(factRow), st.card.map(cardRow)),
+    editing
+      ? React.createElement("div",{className:"char-fit-form"},
+          React.createElement("label",{className:"char-fit-field"},
+            React.createElement("span",{className:"char-facts-lab"},"Their age"),
+            React.createElement("input",{className:"sheet-edit-input",value:age,placeholder:"e.g. early 30s",maxLength:60,
+              onChange:e=>setAge(e.target.value),"data-testid":"char-fit-age"})),
+          React.createElement("label",{className:"char-fit-field"},
+            React.createElement("span",{className:"char-facts-lab"},"Their heritage (optional)"),
+            React.createElement("input",{className:"sheet-edit-input",value:heritage,placeholder:"as you'd describe it",maxLength:120,
+              onChange:e=>setHeritage(e.target.value),"data-testid":"char-fit-heritage"})),
+          React.createElement("div",{className:"phys-note"},
+            "This sets the card's Apparent age and Ethnicity rows — what the writers and voice design read — as your choice. What the script states stays as it is. Body and wardrobe still follow the card."),
+          React.createElement("div",{className:"char-fit-acts"},
+            React.createElement("button",{type:"button",className:"char-draft-btn",disabled:!String(age).trim() && !String(heritage).trim(),onClick:save},"Update "+name),
+            React.createElement("button",{type:"button",className:"char-draft-btn ghost",onClick:()=>setEditing(false)},"Cancel")))
+      : (!readOnly && onUpdate) && React.createElement("div",{className:"char-fit-acts"},
+          React.createElement("button",{type:"button",className:"char-draft-btn","data-testid":"char-fit-fits",
+            onClick:()=>onUpdate(c.id, charLikenessFitPatch(c, "fits", { key:st.key })),
+            title:"This person can play "+name+" as written — remembered; nothing on the card changes"},"Fits"),
+          React.createElement("button",{type:"button",className:"char-draft-btn ghost","data-testid":"char-fit-match",onClick:startEdit,
+            title:"Set "+name+"'s age and heritage on the card to this person's — your choice; the script's facts stay as they are"},"Update the character to match this person"),
+          onChooseOther && React.createElement("button",{type:"button",className:"char-draft-btn ghost","data-testid":"char-fit-other",onClick:onChooseOther,
+            title:"Open the Likeness window to capture or choose someone else"},"Choose someone else")),
+    React.createElement("div",{className:"phys-note"},"You decide — the photos aren't sent anywhere for this check."));
+}
+window.CharLikenessFitCheck = CharLikenessFitCheck;
 /* what the store says about a character's likeness on the open film. nbCameoInfo (the store's) when
    this build has it, else today's registry (an older build: every locked likeness is usable). */
 function turnLikenessInfo(charId){
@@ -5416,6 +5538,11 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
     React.createElement(SheetField,{label:"What changed",value:st.change,multiline:true,
       placeholder:"The visible difference from the base look \u2014 torn shirt, cut brow, dried blood\u2026",
       onCommit:val=>onChange({change:val,suggested:false})}),
+    // the screenplay line this state comes from (2026-10-12, Character fidelity step 3: the states suggester and the
+    // Production check keep the quote that shows the change)
+    st.quote && React.createElement("div",{className:"phys-note state-quote","data-testid":"state-quote"},
+      "From the script — "+(()=>{ const sc = (scenes||[]).find(x=>x && x.id===(st.quoteSceneId||st.sceneId)); return sc ? "Sc "+sc.no+": " : ""; })()
+      +"“"+String(st.quote).replace(/\s+/g," ").trim()+"”"),
     React.createElement("div",{className:"sheet-field"},
       React.createElement("div",{className:"obj-lab"},"First appears in"),
       React.createElement("select",{className:"prop-select",value:st.sceneId||"",onChange:e=>onChange({sceneId:e.target.value})},
@@ -5873,6 +6000,10 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           !gen.gening && typeof window.nbCostChip==="function" && window.nbCostChip(1, { refs:cardGenerateRefs() })),
         lkInfo.mine!==false && React.createElement("button",{className:"scs-act",onClick:()=>setCameoOpen(true)},"Recapture"),
         lkInfo.mine!==false && React.createElement("button",{className:"scs-act danger",onClick:removeCameo},"Remove")),
+      // DOES THIS PERSON FIT THE CHARACTER? (owner-approved 2026-10-12 — Character fidelity step 5): a manual check of the
+      // locked likeness against the age band, heritage or build the script (or the card) states — nothing is sent anywhere
+      (lkInfo && lkInfo.available!==false) && React.createElement(CharLikenessFitCheck,{ c, drafts, info:lkInfo, readOnly:!!readOnly,
+        onUpdate:readOnly ? null : onUpdate, onChooseOther:()=>setCameoOpen(true) }),
 
       // render-style picker — the visual language the sheet is drawn in (always visible)
       React.createElement("div",{className:"char-style-row"},

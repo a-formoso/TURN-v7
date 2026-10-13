@@ -77,6 +77,17 @@ function CharacterPanel({ character, scenes, drafts, cast, onUpdate, onDraft, dr
               value:visiblePronouns,
               onChange:e=>onUpdate(c.id,{pronouns:e.target.value,pronounProvenance:"user",pronounSource:"user"})},
               [["","set pronouns\u2026"],["he/him","he/him"],["she/her","she/her"],["they/them","they/them"]].map(function(o){return React.createElement("option",{key:o[0]||"unset",value:o[0],disabled:!o[0]},o[1]);}))),
+          // AGE (owner-approved 2026-10-12 \u2014 Character fidelity step 7): the age range the story build gave them, fed to the
+          // scene writer as canon (the introduction's age) and to voice design; edit it freely
+          React.createElement("div",{className:"char-age-row",style:{display:"flex",alignItems:"center",gap:6,marginTop:4},"data-testid":"char-age"},
+            React.createElement("span",{className:"obj-lab",style:{marginBottom:0},
+              title:"The age range the scenes introduce them at (e.g. 60s, early 30s, about 12). The scene writer uses it, and so does voice design when the Art Room hasn't designed an apparent age."},"Age"),
+            React.createElement("div",{style:{flex:1,minWidth:0}},
+              React.createElement(EditText,{value:c.ageRange||"",readOnly,placeholder:"e.g. early 30s\u2026",
+                onCommit:v=>onUpdate(c.id,{ ageRange:String(v||"").replace(/\s+/g," ").trim().slice(0,40), ageProvenance:"user", ageSource:"user" })})),
+            (c.ageRange && c.ageProvenance==="story") && React.createElement("span",{className:"char-origin designed",
+              title:c.ageSource==="screenplay" ? "Taken from the screenplay's introduction when the story was built \u2014 edit it freely." : "Set when the story was built \u2014 the scenes introduce them at this age. Edit it freely."},
+              "Set by the story")),
           // ORBIT — the solar-system cast map. Auto-inferred from role + scenes driven;
           // the build spends psychological depth on inner circles (texture stays texture).
           React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,marginTop:4}},

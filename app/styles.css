@@ -4692,6 +4692,15 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .char-fact-sc,.char-fact-weak{font-family:var(--f-mono);font-size:9px;color:var(--txt-3);margin-left:6px}
 .char-fact-q{font-size:10.5px;color:var(--txt-3);font-style:italic;overflow-wrap:anywhere}
 .script-check-fix{margin-top:5px}
+/* CHARACTER FIDELITY step 5 (2026-10-12): "Does this person fit the character?" under a locked likeness */
+.char-fit{margin:0 0 12px}
+.char-fit.done{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:4px 2px;margin:0 0 10px;color:var(--txt-3)}
+.char-fit.done .char-draft-btn{margin-left:auto}
+.char-fit-acts{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.char-fit-form{display:flex;flex-direction:column;gap:7px}
+.char-fit-field{display:flex;flex-direction:column;gap:2px}
+.char-fit-field .sheet-edit-input{width:100%;box-sizing:border-box}
+.state-quote{padding:0 2px 6px;overflow-wrap:anywhere;font-style:italic}
 .sheet-rationale{display:flex;gap:7px;align-items:flex-start;font-size:11px;line-height:1.45;color:var(--txt-2);
   font-style:italic;padding:2px 2px 0}
 .sheet-rationale svg{flex:0 0 auto;color:var(--pos-ink);margin-top:2px}

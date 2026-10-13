@@ -214,6 +214,16 @@ palette, sheet prompts) — that is drafted in the Art Room once the Lookbook ha
 > is named in the build's summary. In an Episode, a character the Show already had is never changed
 > (its canon), only named.
 
+> **Cast ages** *(approved 2026-10-12 by owner)*: the same cast step also gives every cast member an
+> **age range** — e.g. "60s", "early 30s", "about 12" — consistent with their identity (a documentary's
+> real subject: the age the record gives), saved on the card as set by the story. The scene writer
+> takes ages as canon from the cast list, so each screenplay introduction carries a deliberate age, not
+> an invented one; the Art Room's script reading then reads those ages back as script facts. The writer
+> can change the age in the Cast panel. At the end of the build, a character still without one (a
+> supporting member made for a scene's unnamed driver) takes the age its first screenplay introduction
+> gives — "NAME (70s)" — with no model call. In an Episode, a character the Show already had is never
+> changed (its canon).
+
 > **Character architecture** *(approved 2026-08-31 by owner)*: every major character is built in
 > **two layers** — characterization is only the *mask* (job, manner, surface traits); **true
 > character is revealed only by choices under pressure**, so the inner life always derives from

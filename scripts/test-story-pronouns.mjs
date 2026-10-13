@@ -34,7 +34,7 @@ await test("A the cast step asks for pronouns and keeps only the three accepted 
   vm.runInContext(between(ai, "async function aiBuildStoryWorld(", "\nwindow.aiBuildStoryWorld")+";this.f=aiBuildStoryWorld;", box);
   const w = await box.f("A keeper", { title:"LIGHT", scenes:[{ no:1, title:"Dusk", driver:"maren" }] }, "film", null);
   assert.match(prompt, /PRONOUNS — give every cast member their pronouns, consistent with their IDENTITY: "he\/him" or "she\/her"; "they\/them" ONLY for a character the story itself makes non-binary\./);
-  assert.match(prompt, /"cast":\[\{"id":"\.\.\.","name":"\.\.\.","role":"\.\.\.","pronouns":"he\/him","voice"/);
+  assert.match(prompt, /"cast":\[\{"id":"\.\.\.","name":"\.\.\.","role":"\.\.\.","pronouns":"he\/him","age":"early 30s","voice"/);   // (2026-10-12) the cast step also asks for an age range
   assert.doesNotMatch(prompt, /real subject's pronouns/);
   assert.deepEqual(w.cast.map(c=>c.pronouns||""), ["she/her", "he/him", "they/them", "", ""], "normalised; an unknown or missing value is left unset");
   await box.f("A portrait", { title:"DOC", scenes:[] }, "documentary", null);
@@ -90,7 +90,7 @@ await test("D where it runs; the pipeline doc and Frances", ()=>{
   const fb = { console }; fb.window = fb; vm.createContext(fb); vm.runInContext(ai.slice(a, b)+";this.__F=APP_FEATURES;", fb);
   assert.ok(fb.__F.find(f=>String(f.name||"").startsWith("New Story (format")).what.includes("PRONOUNS COME WITH THE CAST"));
   const html = read("TURN.html");
-  for(const f of ["ai", "script", "agents"]) assert.ok(html.includes('src="app/'+f+'.jsx?v=20261011-pron2"') || html.includes('src="app/'+f+'.jsx?v=20261011-rv1"') || html.includes('src="app/'+f+'.jsx?v=20261011-v4a"') || html.includes('src="app/'+f+'.jsx?v=20261012-art1"') || html.includes('src="app/'+f+'.jsx?v=20261013-fact1"'), f);   // (later passes re-key some)
+  for(const f of ["ai", "script", "agents"]) assert.ok(html.includes('src="app/'+f+'.jsx?v=20261011-pron2"') || html.includes('src="app/'+f+'.jsx?v=20261011-rv1"') || html.includes('src="app/'+f+'.jsx?v=20261011-v4a"') || html.includes('src="app/'+f+'.jsx?v=20261012-art1"') || html.includes('src="app/'+f+'.jsx?v=20261013-fact1"') || html.includes('src="app/'+f+'.jsx?v=20261013-arc1"'), f);   // (later passes re-key some)
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

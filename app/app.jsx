@@ -4078,8 +4078,11 @@ function App(){
       if(typeof aiSuggestStates==="function"){
         const results = await Promise.all(targets.map(async c=>{
           const driven = scenes.filter(s=>s.driver===c.id);
-          if(!driven.length) return { id:c.id, states:null };
-          try{ return { id:c.id, states: await aiSuggestStates(c, driven, project) }; }
+          // (2026-10-12, Character fidelity step 3) every scene the character is in, not only the ones they drive —
+          // a character in no scene still gets no call
+          const appears = (typeof scenesWhereCharacterAppears==="function") ? scenesWhereCharacterAppears(c.id, c.name, scenes, drafts) : driven.map(s=>s.id);
+          if(!driven.length && !appears.length) return { id:c.id, states:null };
+          try{ return { id:c.id, states: await aiSuggestStates(c, driven, project, { scenes, drafts }) }; }
           catch(e){ return { id:c.id, states:null }; }
         }));
         const add = {}; results.forEach(r=>{ if(r.states && r.states.length) add[r.id]=r.states; });
@@ -6385,7 +6388,7 @@ function App(){
     setSuggestingStatesId(ch.id);
     const driven = scenes.filter(s=>s.driver===ch.id);
     try{
-      const suggested = await aiSuggestStates(ch, driven, project);
+      const suggested = await aiSuggestStates(ch, driven, project, { scenes, drafts:draftsRef.current||drafts });
       if(suggested && suggested.length){
         setCharacters(cs=>cs.map(c=>{
           if(c.id!==ch.id) return c;
@@ -7657,7 +7660,7 @@ function App(){
           spec:(typeof window.charQaSpecFields==="function") ? window.charQaSpecFields(c, { likeness:lk }) : {} });
       },
       suggestStates: async (c)=>{ if(typeof aiSuggestStates!=="function") return null;
-        const raw = await aiSuggestStates(c, scenes.filter(s=>s.driver===c.id), project);
+        const raw = await aiSuggestStates(c, scenes.filter(s=>s.driver===c.id), project, { scenes, drafts });
         if(!raw || !raw.length) return null;
         const existing = c.states||[]; const have=new Set(existing.map(s=>(s.label||"").trim().toLowerCase()));
         const adds = raw.filter(s=>!have.has((s.label||"").trim().toLowerCase()))

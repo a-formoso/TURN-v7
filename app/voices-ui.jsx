@@ -51,7 +51,9 @@ function buildVoiceSpec(c){
   const pron = c.canonicalPronouns || c.pronouns || "";
   const gender = pron==="she/her" ? "female" : pron==="he/him" ? "male" : "";
   const phys = c.physique||{};
-  const age = phys.age || phys.ageRange || phys.ageBand || "";
+  // (2026-10-12, Character fidelity steps 5 · 7) the card's apparent age — the writer's choice when they updated the character
+  // to match a likeness — else the age range the story build gave the cast
+  const age = phys.age || phys.ageRange || phys.ageBand || String(c.ageRange||"").trim() || "";
   const fn = (role.fn||"").toLowerCase();
   const vb = c.voice || {};
   // role-based delivery is only the FALLBACK when the voice block has no pitch/pace

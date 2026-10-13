@@ -762,6 +762,33 @@ function assertPromptIdentity(character, context, options){
 }
 window.assertPromptIdentity = assertPromptIdentity;
 
+/* THE AGE AND HERITAGE THE WRITERS AND VOICE DESIGN GET (owner-approved 2026-10-12 — Character fidelity, steps 5 · 7).
+   Age: the card's designed apparent age (physique.age — the Art Room's, or the writer's choice to update the character to
+   match their likeness), else the AGE RANGE the story build gave the cast (`ageRange`, provenance "story", editable in
+   the Cast panel). Heritage is only passed when the writer chose "Update the character to match this person" for a
+   locked likeness (likenessFit.choice "match"): the designed heritage is the Art Room's, not canon for the scenes. */
+function charWriterAge(c){
+  return String((c && c.physique && c.physique.age) || (c && c.ageRange) || "").replace(/\s+/g," ").trim();
+}
+window.charWriterAge = charWriterAge;
+function charWriterHeritage(c){
+  const f = c && c.likenessFit;
+  if(!f || f.choice!=="match") return "";
+  return String((c.physique && c.physique.ethnicity) || f.heritage || "").replace(/\s+/g," ").trim();
+}
+window.charWriterHeritage = charWriterHeritage;
+/* A story age range as the cast step gives it ("60s", "early 30s", "about 12", "late teens"): short, and an age —
+   anything else ("ageless", a sentence) is left unset, never guessed. */
+const _STORY_AGE_RX = /\d|\b(?:teens?|teenaged?|teenager|twenties|thirties|forties|fifties|sixties|seventies|eighties|nineties|infant|toddler|baby|child|middle[- ]aged|elderly)\b/i;
+function normalizeStoryAge(raw){
+  let s = String(raw==null ? "" : raw).replace(/[“”"]/g,"").replace(/\s+/g," ").trim()
+    .replace(/^\(+|\)+$/g,"").replace(/^(?:aged?|age)\s*[:\-]?\s*/i,"").replace(/[.;,]+$/,"").trim();
+  if(!s || s.length>24 || !_STORY_AGE_RX.test(s)) return "";
+  if(/^\d{1,3}$/.test(s) && Number(s)>120) return "";
+  return s;
+}
+window.normalizeStoryAge = normalizeStoryAge;
+
 /* a compact CAST PRONOUNS block for the scene/beat drafter so generated prose uses each
    character's canonical pronouns (prevents the bible<->script gender drift at the source). */
 function castPronounBlock(cast, context){
@@ -772,10 +799,14 @@ function castPronounBlock(cast, context){
   // background person (the young enforcer "Kelan Broderick" written into a scene as
   // a stooped pensioner) — conflating two people under one name and poisoning every
   // downstream sheet and render that references the character.
+  // (2026-10-12, Character fidelity steps 5 · 7) the age is the card's designed one, else the AGE RANGE the story build
+  // gave the cast (empty physique at build time); the heritage rides along only when the writer chose to update the
+  // character to match their locked likeness (charWriterAge / charWriterHeritage). Never cut off by a long role.
   const brief = (c)=>{ const bits=[c.role, c.identity].map(x=>String(x||"").trim()).filter(Boolean);
-    const age = String((c.physique&&c.physique.age)||"").trim();
-    if(age) bits.push("apparent age: "+age);
-    const b = bits.join(" · ").slice(0,150); return b ? (" — "+b) : ""; };
+    const who = bits.join(" · ").slice(0,150);
+    const age = charWriterAge(c), heritage = charWriterHeritage(c);
+    const b = [who, age && ("apparent age: "+age.slice(0,40)), heritage && ("heritage: "+heritage.slice(0,60))].filter(Boolean).join(" · ");
+    return b ? (" — "+b) : ""; };
   const lines = (list||[]).filter(c=>c&&c.name).map(c=>{ const identity=canonicalIdentity(c,ctx), pr=identity.pronouns;
     const conflict=identity.conflict && identity.screenplayConflict
       ? " · IDENTITY CONFLICT — stop and resolve the quoted screenplay evidence before generating"
@@ -3405,6 +3436,19 @@ if(_propsFeature) _propsFeature.what += " (2026-10-12) CARRIED PROPS COME FROM T
   const df = APP_FEATURES.find(x=>x && x.name==="Draft all (batch spec drafters, Art Room)");
   if(df) df.what += " (2026-10-12) Draft all characters first reads the script for the characters it drafts that haven't been read (or whose screenplay changed), so each look follows what the script states.";
 }
+/* CHARACTER FIDELITY, steps 3 · 5 · 7 (owner-approved 2026-10-12, "go ahead with all of it, in that order"): the look
+   follows the arc (aiCastVisualBible charInnerLifeLine; aiSuggestStates over every scene; the Production check's
+   appearance states), the likeness fit check (artroom.jsx CharLikenessFitCheck), ages decided in the story build
+   (aiBuildStoryWorld age → ageRange; agents.jsx fillAgesFromScreenplay; castPronounBlock charWriterAge) */
+{ const ns = APP_FEATURES.find(x=>x && String(x.name||"").startsWith("New Story (format"));
+  if(ns) ns.what += " (2026-10-12) AGES COME WITH THE CAST: every character a new story builds gets an age range on their card (e.g. '60s', 'early 30s', 'about 12'), matching who they are, so each scene introduces them at a deliberate age instead of an invented one. A minor character the build adds for a scene takes the age its screenplay introduction gives (e.g. 'GRETA HOLM (70s)'). The age shows in the Cast panel next to the pronouns, marked 'Set by the story', and you can change it there; the Art Room's 'Read the script' then reads those ages back from the screenplay. Episodes work the same way; a character an earlier episode already has is never changed.";
+  const chf = APP_FEATURES.find(x=>x && x.name==="Character Sheets (Art Room)");
+  if(chf) chf.what += " (2026-10-12) THE LOOK FOLLOWS THE ARC: drafting a character's look also reads their inner life from the Cast panel — the arc, where it stands in each act, the need they don't say and their contradictions — so it shows in posture, grooming and wear (never as writing on the sheet). DOES THIS PERSON FIT THE CHARACTER? When a likeness is locked and the script (or the card) states an age band, heritage or build, the card shows what the script says, with its quotes, and three buttons: 'Fits' (remembered; the card stays as it is), 'Update the character to match this person' (you type their age and, optionally, their heritage; the card's Apparent age and Ethnicity rows — what the writers and voice design use — are set to it as your choice, and the script's own facts stay as they are) and 'Choose someone else' (opens the Likeness window). It is a check you make yourself: the photos are not sent anywhere for it, and it costs nothing. A recaptured likeness asks again; 'Check again' asks again too.";
+  const apf = APP_FEATURES.find(x=>x && x.name==="Appearance states / continuity (Art Room)");
+  if(apf) apf.what += " (2026-10-12) 'Suggest from script' now reads every scene the character is in (not only the ones they drive), the injuries and wardrobe the script states scene by scene (from 'Read the script') and where their arc stands in each act, and can pin a state to any of those scenes. A state the screenplay shows keeps its words: the card shows 'From the script — Sc N: “…”' under What changed. It is one writing call, as before.";
+  const pcf = APP_FEATURES.find(x=>x && x.name==="Production check (Art Room)");
+  if(pcf) pcf.what += " (2026-10-12) APPEARANCE STATES FROM THE SCRIPT: the visible changes the script read finds in each scene (a wound, torn or changed clothes, dirt, blood) become proposed appearance states — one approval card per character listing each change with its scene and the screenplay's words. Approved, they are added to the character's Continuity · appearance states, pinned to the scene where each first shows (nothing is generated). A change already on the card, or one that repeats in a later scene, isn't proposed again; one whose words can't be found in the scene is only noted in the run.";
+}
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;
@@ -4264,7 +4308,7 @@ async function aiScriptBreakdown(scene, beats, draft, characters){
     "SCENE "+scene.no+" — "+(scene.title||"")+"\n"+(body||"(no body)")+"\n\n"+
     "For SCALE: report 'critter' ONLY if the text clearly implies the character is far SMALLER than a person (an insect, mouse, fairy, sprite, palm-sized being), 'microscopic' ONLY if MUCH smaller still — sub-insect / cellular (a microbe, nanobot, dust-mite-sized or smaller being), 'giant' ONLY if far LARGER (a giant, kaiju, towering mech, building-sized creature), else 'human'.\n\n"+
     "Return ONLY compact JSON: "+
-    '{"characters":[{"name":"<exact cast name>","gender_used":"he|she|they|unclear","scale":"human|critter|microscopic|giant","emotion":"<the single dominant emotion this character SHOWS in this scene, one or two plain words, e.g. joy, grief, rage, fear, determination, awe, shame, despair, tenderness>","features":["physical/anatomical detail the scene reveals, e.g. forearm maintenance panel"],"states":["appearance change in this scene, e.g. forearm panel open, wires exposed"],"voice_cues":["AUDIBLE voice detail the text STATES for this character, e.g. speaks with a thick Glasgow accent, voice barely above a whisper, stammers when lying — empty if the text says nothing about their voice"]}]}';
+    '{"characters":[{"name":"<exact cast name>","gender_used":"he|she|they|unclear","scale":"human|critter|microscopic|giant","emotion":"<the single dominant emotion this character SHOWS in this scene, one or two plain words, e.g. joy, grief, rage, fear, determination, awe, shame, despair, tenderness>","features":["physical/anatomical detail the scene reveals, e.g. forearm maintenance panel"],"states":[{"label":"2-4 word name for the look, e.g. Panel open","change":"VISIBLE appearance change in this scene (a wound, blood or dirt, torn or changed clothing, exhaustion, a transformation), e.g. forearm panel open, wires exposed","quote":"the EXACT words of the screenplay that show it, copied verbatim"}],"voice_cues":["AUDIBLE voice detail the text STATES for this character, e.g. speaks with a thick Glasgow accent, voice barely above a whisper, stammers when lying — empty if the text says nothing about their voice"]}]}';
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     const j = extractJSON(res); if(!j) return null;
@@ -4274,7 +4318,13 @@ async function aiScriptBreakdown(scene, beats, draft, characters){
       scale_used: /^(human|critter|microscopic|giant)$/.test(String(c.scale||"").trim().toLowerCase()) ? String(c.scale).trim().toLowerCase() : "unclear",
       emotion: clipWords(scrubBrand(String(c.emotion||"")).toLowerCase().replace(/[^a-z /]/g,"").trim(),24),
       features: (Array.isArray(c.features)?c.features:[]).map(x=>clipSpecText(String(x).replace(/\.$/,""),180)).filter(Boolean).slice(0,6),
-      states: (Array.isArray(c.states)?c.states:[]).map(x=>clipSpecText(String(x).replace(/\.$/,""),180)).filter(Boolean).slice(0,4),
+      // (2026-10-12, Character fidelity step 3) each state with a short label and the screenplay words that show it — the
+      // Production check proposes them as appearance states (an older answer's plain strings still read)
+      states: (Array.isArray(c.states)?c.states:[]).map(x=>{
+        const o = (x && typeof x==="object") ? x : { change:x };
+        const change = clipSpecText(String(o.change||o.state||"").replace(/\.$/,""),180);
+        return change ? { label:clipSpecText(String(o.label||""),48), change, quote:String(o.quote||"").replace(/\s+/g," ").trim().slice(0,400) } : null;
+      }).filter(Boolean).slice(0,4),
       voice_cues: (Array.isArray(c.voice_cues)?c.voice_cues:[]).map(x=>clipSpecText(String(x).replace(/\.$/,""),160)).filter(Boolean).slice(0,3),
     })).filter(c=>c.name);
     // Props are NOT tagged here: the reviewed Props inventory (Extract screenplay props)
@@ -4747,10 +4797,14 @@ async function aiBuildStoryWorld(brief, spine, format, research){
     // scenes are written from them (castPronounBlock), so the cast is born with them
     "PRONOUNS \u2014 give every cast member their pronouns, consistent with their IDENTITY: \"he/him\" or \"she/her\"; \"they/them\" ONLY for a character the story itself makes non-binary"+
       (/^documentary$/i.test(String(format||"")) ? " (a real subject's pronouns are the ones that person uses)" : "")+". Every scene and every image of them follows these.\n"+
+    // AGES DECIDED IN THE STORY BUILD (owner-approved 2026-10-12 — Character fidelity, step 7): the scene writer is told
+    // ages are canon "from THIS list", but the list had none at build time, so every introduction's age was invented
+    "AGE \u2014 give every cast member an AGE RANGE consistent with their IDENTITY and their place in the story: a short band such as \"60s\", \"early 30s\", \"late teens\" or \"about 12\""+
+      (/^documentary$/i.test(String(format||"")) ? " (a real subject's age as the record gives it)" : "")+". The screenplay introduces each person at this age.\n"+
     "VOICE \u2014 give every cast member a voice block describing how they SOUND (this seeds voice casting later): "+
     "accent = the EXPLICIT spoken accent with strength, consistent with their identity, the setting and the period \u2014 name it as SOUND (e.g. 'noticeable Turkish accent, London inflections underneath', 'soft Glasgow accent', 'neutral American'), never just an ethnicity or backstory; "+
     "pitch = pitch/timbre in a few words (e.g. 'low, warm, slightly gravelly'); pace = speaking rhythm (e.g. 'measured, unhurried'); quirks = OPTIONAL audible speech habits (e.g. 'clips sentences when stressed', 'formal, never contracts words'). Keep each field \u2264 ~8 words.\n"+
-    'Return ONLY JSON: {"genre":"1-3 words naming the genre, e.g. psychological thriller","premise":"one vivid sentence as a question","controllingIdea":{"value":"...","cause":"...","polarity":"ironic"},"centerOfGood":"one sentence","setting":{"period":"...","duration":"...","location":"...","conflict":"..."},"cast":[{"id":"...","name":"...","role":"...","pronouns":"he/him","voice":{"accent":"...","pitch":"...","pace":"...","quirks":"..."}}]}.';
+    'Return ONLY JSON: {"genre":"1-3 words naming the genre, e.g. psychological thriller","premise":"one vivid sentence as a question","controllingIdea":{"value":"...","cause":"...","polarity":"ironic"},"centerOfGood":"one sentence","setting":{"period":"...","duration":"...","location":"...","conflict":"..."},"cast":[{"id":"...","name":"...","role":"...","pronouns":"he/him","age":"early 30s","voice":{"accent":"...","pitch":"...","pace":"...","quirks":"..."}}]}.';
   // ONE RETRY (2026-09-28, Round 1): the spine halves and the psychology batches already get
   // one; the world build had none, so a single unreadable reply or service hiccup left the
   // film with no premise, controlling idea, setting or cast identities. Still null after two.
@@ -4771,6 +4825,8 @@ async function aiBuildStoryWorld(brief, spine, format, research){
       const voice = { accent:vClean(v.accent), pitch:vClean(v.pitch), pace:vClean(v.pace), quirks:vClean(v.quirks) };
       // he/him · she/her · they/them only (character-identity.js); anything else is left unset, never guessed
       const pronouns = typeof window.turnNormalizePronouns==="function" ? window.turnNormalizePronouns(c.pronouns) : "";
+      // a short age band only ("60s", "early 30s", "about 12"); anything else is left unset (normalizeStoryAge)
+      const ageRange = typeof window.normalizeStoryAge==="function" ? window.normalizeStoryAge(scrubBrand(String(c.age||c.ageRange||""))) : "";
       return {
         id:(c.id||c.name||"").toString().toLowerCase().replace(/[^a-z]/g,"").slice(0,12),
         name:scrubBrand((c.name||"Character").toString()).slice(0,40),
@@ -4779,6 +4835,7 @@ async function aiBuildStoryWorld(brief, spine, format, research){
         // buildVoiceSpec (voices-ui.jsx) reads these before any heuristic.
         ...( (voice.accent||voice.pitch||voice.pace||voice.quirks) ? { voice } : {} ),
         ...( pronouns ? { pronouns } : {} ),
+        ...( ageRange ? { ageRange } : {} ),
       };
     }).filter(c=>c.id) : [];
     return {
@@ -5787,11 +5844,34 @@ function _lookbookBlock(project){
   return b ? ("\nLOOKBOOK — honour these visual references (translate their LOOK — palette / light / lens / texture — NOT their story or content):\n"+b+"\n") : "";
 }
 
+/* THE LOOK FOLLOWS THE ARC (owner-approved 2026-10-12 — Character fidelity, step 3): a compact line of what the story
+   build / Draft stored about a character's inner life — the arc, where it stands in each act (arcStages, by the film's
+   framework acts), the unconscious need and the dimensions — for the look drafter. "" when none is stored. */
+function charInnerLifeLine(c, project){
+  if(!c) return "";
+  const cut = (x,n)=>{ const t = String(x||"").replace(/\s+/g," ").trim(); return t.length>n ? (t.slice(0,n-1).replace(/\s+\S*$/,"")+"\u2026") : t; };
+  const bits = [];
+  if(String(c.arc||"").trim()) bits.push("arc: "+cut(c.arc,80));
+  const st = (c.arcStages && typeof c.arcStages==="object") ? c.arcStages : null;
+  if(st){
+    const acts = (typeof frameworkOf==="function") ? (frameworkOf(project||{}).acts || {}) : {};
+    const keys = Object.keys(st).filter(k=>String(st[k]||"").trim()).sort((a,b)=>Number(a)-Number(b));
+    if(keys.length) bits.push("by act: "+keys.map(k=>"act "+k+(acts[k] ? " ("+acts[k]+")" : "")+" "+cut(st[k],110)).join("; "));
+  }
+  if(String(c.unconscious||"").trim()) bits.push("needs (unspoken): "+cut(c.unconscious,150));
+  const dims = (Array.isArray(c.dimensions) ? c.dimensions : String(c.dimensions||"").split(/\n+/))
+    .map(x=>cut(x,70)).filter(Boolean).slice(0,4);
+  if(dims.length) bits.push("contradictions: "+dims.join("; "));
+  return bits.length ? ("    INNER LIFE (let it show in the body): "+bits.join(" | ")+"\n") : "";
+}
+window.charInnerLifeLine = charInnerLifeLine;
+
 function bibleBatchPrompt(ctx, chars){
   return ctx
     + "\nDesign each character's ON-SCREEN APPEARANCE for the art department so every generated shot stays visually consistent. "+
     "Be SPECIFIC and casting-director concrete \u2014 never generic, never a placeholder. "+
     "CRUCIAL: derive every physical choice FROM who the character is \u2014 their role, want, class, history and arc should be legible in the body. "+
+    "Where a character has an INNER LIFE line, read it as the body's story: the need they hide, the contradictions they carry and where their arc stands in each act show in posture, grooming, wear and how they hold themselves \u2014 the base look is who they are when the story finds them (act 1), with room for what the later acts make of them; never write the inner life as text, a slogan or a symbol on the sheet. "+
      "REPAIR RULE: the canonical cast binding and direct screenplay evidence outrank any old coreBody, profile, visual spec or generated image description. If old prose says the wrong gender, do NOT repeat or lock that prose; discard its gendered body/wardrobe wording and write a fresh corrected specification from the binding. This is a repair draft, not a screenplay contradiction. "+
     "For EACH character return these discrete physical fields, each a concrete value:\n"+
     "age = apparent age with a number e.g. 'late 30s (around 38)'. ethnicity = specific heritage. "+
@@ -5884,6 +5964,10 @@ async function aiCastVisualBible(characters, scenes, project, canon){
       const identity=canonicalIdentity(c,visualIdentityCtx);
       ctx += "- id:"+c.id+" | "+c.name+" ("+(c.role||"")+")"+(identity.pronouns?(" ["+identity.pronouns+"]"):" [pronouns UNSET]")+(c.conscious?(" \u2014 wants "+c.conscious):"")+
         (driven.length?(" \u2014 drives: "+driven.map(s=>s.title).slice(0,4).join(", ")):"")+"\n";
+      // THE LOOK FOLLOWS THE ARC (2026-10-12, owner — Character fidelity step 3): the drafter is told the arc should be
+      // "legible in the body", so it gets the arc, where it stands in each act, the need and the contradictions
+      const inner = charInnerLifeLine(c, P);
+      if(inner) ctx += inner;
       // existing worn/carried items ride along so the model repeats them verbatim
       if(String(c.accessories||"").trim()) ctx += "    EXISTING worn items (repeat VERBATIM in accessories): "+c.accessories+"\n";
       if(String(c.props||"").trim()) ctx += "    EXISTING carried items (repeat VERBATIM in props): "+c.props+"\n";
@@ -6778,50 +6862,98 @@ async function aiSuggestLookbookNote(card, scenes, project, statement, cards){
 }
 window.aiSuggestLookbookNote = aiSuggestLookbookNote;
 
-/* ---- ART ROOM ▸ CONTINUITY: scan the scenes a character drives and propose the
+/* ---- ART ROOM ▸ CONTINUITY: scan the scenes a character appears in and propose the
    moments where their on-screen APPEARANCE visibly changes from the base look
    (wounds, costume shifts, dirt/blood, exhaustion, transformation, time jumps).
-   Each becomes an "appearance state" that can be generated as a v2 sheet. ---- */
-async function aiSuggestStates(character, drivenScenes, project){
+   Each becomes an "appearance state" that can be generated as a v2 sheet.
+   (2026-10-12, owner — Character fidelity step 3) canon = { scenes, drafts }: it reads EVERY scene the character appears
+   in (drives, or is named in — scenesWhereCharacterAppears), not only the ones they drive, with the fact sheet's
+   injuries / changes and wardrobe BY SCENE (each with its quote) and where the arc stands in each act, and may pin a
+   state to any of those scenes. A state the fact sheet shows carries that quote. Without canon: the driven scenes, as
+   before. ---- */
+function charStateScenes(character, drivenScenes, canon){
+  const c = character || {};
+  const all = (canon && Array.isArray(canon.scenes) && canon.scenes.length) ? canon.scenes : (drivenScenes||[]);
+  const drafts = (canon && canon.drafts) || null;
+  const ids = new Set((drivenScenes||[]).map(s=>s && s.id).filter(Boolean));
+  if(canon && typeof scenesWhereCharacterAppears==="function"){
+    try{ scenesWhereCharacterAppears(c.id, c.name, all, drafts||{}).forEach(id=>ids.add(id)); }catch(e){}
+  }
+  const facts = (c.scriptFacts && Array.isArray(c.scriptFacts.facts)) ? c.scriptFacts.facts : [];
+  facts.forEach(f=>{ if(f && f.sceneId && (f.field==="injury" || f.field==="wardrobe") && all.some(s=>s && s.id===f.sceneId)) ids.add(f.sceneId); });
+  const list = all.filter(s=>s && ids.has(s.id));
+  return (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(list) : list.slice().sort((x,y)=>(Number(x.no)||0)-(Number(y.no)||0));
+}
+window.charStateScenes = charStateScenes;
+/* the fact sheet's changes by scene, still in the screenplay (a rewrite can remove one before the sheet is re-read) */
+function charStateFacts(character, canon){
+  const drafts = (canon && canon.drafts) || null;
+  const live = (typeof window.charFactsLive==="function") ? window.charFactsLive(character, drafts)
+    : (((character && character.scriptFacts) || {}).facts || []);
+  return (live||[]).filter(f=>f && (f.field==="injury" || f.field==="wardrobe") && f.sceneId && f.quote);
+}
+window.charStateFacts = charStateFacts;
+async function aiSuggestStates(character, drivenScenes, project, canon){
   if(!aiAvailable()) return null;
   const P = writingProjectOf(project);
-  const identityCtx = identityContext({ scenes:drivenScenes||[], cast:[character] });
+  const scenes = charStateScenes(character, drivenScenes, canon);
+  const identityCtx = identityContext({ scenes:scenes, cast:[character] });
   assertPromptIdentity(character, identityCtx, { allowStaleProfileRepair:true });
   // (2026-10-12, Character fidelity) the base look includes the distinguishing features (artroom.jsx)
   const base = [(typeof window.charBodyWithFeatures==="function") ? window.charBodyWithFeatures(character) : character.coreBody,
     character.wardrobeMask||character.wardrobe].filter(Boolean).join(" | ");
+  const facts = charStateFacts(character, canon);
+  const driven = new Set((drivenScenes||[]).map(s=>s && s.id));
   let ctx = "FILM: "+(P.title||"Untitled")+genreTag(P)+". Logline: "+writingLoglineOf(P)+"\n";
   ctx += "CHARACTER: "+character.name+" ("+(character.role||"")+")"+(character.arc?(" \u2014 arc: "+character.arc):"")+"\n";
+  // where the arc stands in each act (2026-10-12): a change of look often marks a turn of the arc
+  const st = (character.arcStages && typeof character.arcStages==="object") ? character.arcStages : null;
+  const stKeys = st ? Object.keys(st).filter(k=>String(st[k]||"").trim()).sort((a,b)=>Number(a)-Number(b)) : [];
+  if(stKeys.length) ctx += "ARC BY ACT: "+stKeys.map(k=>"act "+k+" \u2014 "+String(st[k]).replace(/\s+/g," ").trim()).join("; ")+"\n";
   if(base) ctx += "BASE LOOK (their default appearance): "+base+"\n";
-  if(drivenScenes && drivenScenes.length){
-    ctx += "\nScenes this character drives, in order:\n";
-    drivenScenes.forEach(s=>{ ctx += "  Sc "+s.no+" \u201c"+s.title+"\u201d: "+(s.summary||"")+"\n"; });
+  if(scenes.length){
+    ctx += "\nScenes this character is in, in order (drives = the scene is theirs; appears = they are in it):\n";
+    scenes.forEach(s=>{
+      ctx += "  Sc "+s.no+(s.act!=null?(" (act "+s.act+")"):"")+" \u201c"+(s.title||"")+"\u201d ["+(driven.has(s.id)?"drives":"appears")+"]: "+String(s.summary||"").slice(0,240)+"\n";
+      facts.filter(f=>f.sceneId===s.id).slice(0,6).forEach(f=>{
+        ctx += "      SCREENPLAY \u2014 "+(f.field==="injury"?"injury / change":"wardrobe")+": "+String(f.value||"").replace(/\s+/g," ")+(f.weak?" (mentioned in dialogue)":"")+" \u2014 \""+String(f.quote).replace(/\s+/g," ")+"\"\n";
+      });
+    });
   } else {
-    ctx += "\nThis character drives no scenes \u2014 infer likely appearance changes from the premise and arc.\n";
+    ctx += "\nThis character is in no scene yet \u2014 infer likely appearance changes from the premise and arc.\n";
   }
   const prompt = castPronounBlock([character], identityCtx) + ctx + "\nIDENTITY IS CANON: keep the confirmed cast pronouns above in every state; repair stale visual prose instead of copying it. Identify the distinct moments where this character's PHYSICAL APPEARANCE visibly changes "+
     "from their base look \u2014 a costume change, wounds/injuries, blood or dirt, torn or damaged clothing, "+
     "exhaustion, a transformation, or a time jump. Only include changes a viewer would actually SEE; skip purely "+
-    "emotional beats. Order them as they occur. For EACH change return:\n"+
+    "emotional beats. The SCREENPLAY lines are what the script states \u2014 every change they show is a state (never contradict them); a turn of the arc may show in the look too. Order them as they occur. For EACH change return:\n"+
     "label = 2\u20134 word name for the state (e.g. 'Bloodied finale', 'Unplugged & raw'). "+
     "change = one concrete sentence describing the VISIBLE difference from the base look, for an artist to draw. "+
-    "sceneNo = the scene number where this look first appears (an integer from the list, or null).\n"+
-    'Return ONLY compact JSON: {"states":[{"label":"...","change":"...","sceneNo":N}]}. Return at most 5, fewest that capture the real changes; if the look never changes, return {"states":[]}.';
+    "sceneNo = the scene number where this look first appears (an integer from the list \u2014 ANY scene listed, whether they drive it or only appear in it \u2014 or null). "+
+    "quote = when a SCREENPLAY line above shows this change, copy that line's quote EXACTLY; otherwise \"\".\n"+
+    'Return ONLY compact JSON: {"states":[{"label":"...","change":"...","sceneNo":N,"quote":""}]}. Return at most 5, fewest that capture the real changes; if the look never changes, return {"states":[]}.';
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     const j = extractJSON(res);
     const arr = (j && Array.isArray(j.states)) ? j.states : (Array.isArray(j)?j:[]);
     if(!arr) return [];
     const sceneById = {};
-    (drivenScenes||[]).forEach(s=>{ sceneById[String(s.no)] = s.id; });
-    return arr.slice(0,5).map((e,i)=>({
-      id: "st-"+Date.now().toString(36)+"-"+i,
-      label: clipSpecText(e.label||"State "+(i+1),48),
-      change: clipSpecText(e.change,220),
-      sceneId: (e.sceneNo!=null && sceneById[String(e.sceneNo)]) ? sceneById[String(e.sceneNo)] : "",
-      suggested: true,
-      writingProvenance: writingStamp("Appearance state"),
-    })).filter(s=>s.change);
+    scenes.forEach(s=>{ sceneById[String(s.no)] = s.id; });
+    const norm = (x)=>String(x||"").replace(/[\u2018\u2019]/g,"'").replace(/[\u201c\u201d]/g,'"').replace(/\s+/g," ").trim().toLowerCase();
+    return arr.slice(0,5).map((e,i)=>{
+      const sceneId = (e.sceneNo!=null && sceneById[String(e.sceneNo)]) ? sceneById[String(e.sceneNo)] : "";
+      // a quote is kept only when it is one of the fact sheet's (the quote really is in the screenplay)
+      const q = norm(e.quote);
+      const f = q ? (facts.find(x=>norm(x.quote)===q && (!sceneId || x.sceneId===sceneId)) || facts.find(x=>norm(x.quote)===q)) : null;
+      return {
+        id: "st-"+Date.now().toString(36)+"-"+i,
+        label: clipSpecText(e.label||"State "+(i+1),48),
+        change: clipSpecText(e.change,220),
+        sceneId: sceneId || (f ? f.sceneId : ""),
+        ...(f ? { quote:String(f.quote).slice(0,400), quoteSceneId:f.sceneId } : {}),
+        suggested: true,
+        writingProvenance: writingStamp("Appearance state"),
+      };
+    }).filter(s=>s.change);
   }catch(e){ return []; }
 }
 window.aiSuggestStates = aiSuggestStates;

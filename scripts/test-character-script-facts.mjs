@@ -246,6 +246,7 @@ drafterBox.window = drafterBox; vm.createContext(drafterBox);
 for(const k of ["charFactsPromptBlock","charKeepOverrides","charScriptSig"]) drafterBox[k] = W[k];
 Object.assign(drafterBox, { aiAvailable:()=>true, writingProjectOf:(p)=>p||{}, genreTag:()=>"", writingLoglineOf:()=>"", assertPromptIdentity:noop,
   canonicalIdentity:(c)=>({ pronouns:c.pronouns||"" }), castPronounBlock:()=>"", _lookbookBlock:()=>"", _lookbookStamp:()=>undefined,
+  charInnerLifeLine:()=>"",   // (2026-10-12, fidelity step 3 — tested in test-character-arc-likeness-age)
   bibleBatchPrompt:(ctx)=>ctx, extractJSON:aiBox.extractJSON, salvageBibleEntries:()=>[], writingStamp:()=>({ model:"Opus 5.5" }),
   mapBibleEntry:(e)=>({ physique:{ age:e.age, build:e.build }, coreBody:"Apparent age: "+e.age+". Body type: "+e.build+".", height:e.height, wardrobeMask:e.mask }) });
 vm.runInContext(between(ai, "function draftParagraphs(draft){", "window.draftParagraphs = draftParagraphs;")

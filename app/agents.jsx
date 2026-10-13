@@ -1126,6 +1126,9 @@ async function agentAdaptation(ctx){
     // the world build's pronouns (2026-10-11, owner): saved on the card as set BY THE STORY — the scenes are written
     // from them and the Art Room needs them for every image; the writer can change them on the card
     ...(c.pronouns ? { pronouns:c.pronouns, pronounProvenance:"story", pronounSource:"story" } : {}),
+    // the world build's AGE RANGE (2026-10-12, owner — Character fidelity step 7): set BY THE STORY, so the scene writer
+    // introduces each person at a deliberate age ("AGES ARE CANON … from THIS list"); the writer can change it
+    ...(c.ageRange ? { ageRange:c.ageRange, ageProvenance:"story", ageSource:"story" } : {}),
   }));
   // dedup: the model sometimes splits one person into multiple entries (e.g. an
   // "expanded" later-act version). Merge cast members with the same name into one.
@@ -1141,6 +1144,7 @@ async function agentAdaptation(ctx){
         if(lead(c.role) && !lead(prev.role)) prev.role = c.role;
         else if((c.role||"").length > (prev.role||"").length && !lead(prev.role)) prev.role = c.role;
         if(!prev.pronouns && c.pronouns){ prev.pronouns = c.pronouns; prev.pronounProvenance = "story"; prev.pronounSource = "story"; }
+        if(!prev.ageRange && c.ageRange){ prev.ageRange = c.ageRange; prev.ageProvenance = "story"; prev.ageSource = "story"; }
         // a split entry may carry the voice details the kept one lacks
         if(c.voice){ const pv = prev.voice || {};
           const merged = {...c.voice, ...Object.fromEntries(Object.entries(pv).filter(([,v])=>String(v||"").trim()))};
@@ -1373,6 +1377,9 @@ async function agentAdaptation(ctx){
   // evidence as the Art Room's "Use … (from the screenplay)" — free, no model call. Anyone still unset is named.
   if(ctx.cancelled()) return;
   fillPronounsFromScreenplay(ctx);
+  // ---- AGES (2026-10-12, owner — Character fidelity step 7): a character the cast step gave no age range (a supporting
+  // member made for a scene's unnamed driver) takes the age its screenplay introduction gives — "GRETA HOLM (70s)" — free
+  fillAgesFromScreenplay(ctx);
 
   // ---- THE BUILD STOPS HERE (2026-09-27, owner-approved — docs/Story Pipeline.md): it does NOT
   // draft the cast's visual look (wardrobe, palette, sheet prompts). The Lookbook steers every
@@ -1413,6 +1420,60 @@ function fillPronounsFromScreenplay(ctx){
   return { filled:filled.length, missing };
 }
 window.fillPronounsFromScreenplay = fillPronounsFromScreenplay;
+
+/* The build's age safety net (see agentAdaptation; owner-approved 2026-10-12). A character with no age range and no
+   designed age takes the one its FIRST screenplay introduction gives — the parenthetical straight after its name in an
+   action line, "GRETA HOLM (70s), …" — when that is an age (normalizeStoryAge). Never over a card's value, never a Show's
+   canon character. No model call; nobody is named when it finds nothing (an age is not required). */
+function storyAgeFromScreenplay(c, scenes, drafts){
+  const name = String((c && c.name) || "").trim();
+  if(!name || !drafts) return null;
+  const esc = (x)=>String(x).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  const first = name.split(/\s+/)[0];
+  const alts = Array.from(new Set([name, first.length>2 ? first : ""].filter(Boolean))).map(esc).join("|");
+  const named = new RegExp("\\b(?:"+alts+")\\b", "i");
+  const rx = new RegExp("\\b(?:"+alts+")\\s*\\(([^()]{1,40})\\)", "i");
+  const caps = String(name).toUpperCase();
+  const ordered = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes||[]) : (scenes||[]);
+  // the introduction is the first action line naming them in capitals (the screenplay convention), else the first naming them
+  let intro = null, firstNamed = null;
+  for(const s of ordered){
+    const d = s && drafts[s.id];
+    const bs = Array.isArray(d) ? d : ((d && d.blocks) || []);
+    for(const b of bs){
+      if(!b || !/^action$/i.test(String(b.type||"action"))) continue;
+      const tx = String(b.text||"");
+      if(!named.test(tx)) continue;
+      if(!firstNamed) firstNamed = { s, tx };
+      if(tx.indexOf(caps)>=0 || (first.length>2 && new RegExp("\\b"+esc(first.toUpperCase())+"\\b").test(tx))){ intro = { s, tx }; break; }
+    }
+    if(intro) break;
+  }
+  intro = intro || firstNamed;
+  if(!intro) return null;
+  const m = rx.exec(intro.tx);
+  if(!m) return null;   // the introduction gives no age: a later line is never read as one
+  // "(60s, Filipino, wiry)": the age is the first part
+  const age = (typeof window.normalizeStoryAge==="function") ? window.normalizeStoryAge(m[1].split(/[,;]/)[0]) : "";
+  return age ? { age, sceneId:intro.s.id, quote:m[0] } : null;
+}
+window.storyAgeFromScreenplay = storyAgeFromScreenplay;
+function fillAgesFromScreenplay(ctx){
+  const cast = Array.isArray(ctx.model.characters) ? ctx.model.characters : [];
+  const canon = (c)=> typeof ctx.castCanon==="function" && !!ctx.castCanon(c);
+  const has = (c)=> !!String((c && c.ageRange) || (c && c.physique && c.physique.age) || "").trim();
+  const filled = [];
+  ctx.model.characters = cast.map(c=>{
+    if(!c || has(c) || canon(c)) return c;
+    let r = null; try{ r = storyAgeFromScreenplay(c, ctx.model.scenes, ctx.model.drafts); }catch(e){}
+    if(!r) return c;
+    filled.push((c.name||"a character")+" ("+r.age+")");
+    return { ...c, ageRange:r.age, ageProvenance:"story", ageSource:"screenplay" };
+  });
+  if(filled.length){ ctx.sync(); ctx.emit({k:"ok", t:"Ages set from the screenplay's introductions for "+filled.join(", ")+"."}); }
+  return { filled:filled.length };
+}
+window.fillAgesFromScreenplay = fillAgesFromScreenplay;
 
 /* =========================================================
    AGENT 4 — TABLE-READ  (whole-script critique, read-only)
@@ -1540,6 +1601,7 @@ async function productionScriptRead(ctx){
   const inventoryProps = ((ctx.bible && ctx.bible.props) || []).filter(p=> p && p.name);
   const scriptPronounsByChar = {};
   const emoTally = {};   // charId → { emotion: count } — the character's emotions across the story
+  const stateFinds = {}; // charId → [{ sceneId, sceneNo, label, change, quote }] — proposed as appearance states after the pass
   for(const s of written){
     if(ctx.cancelled()) return;
     ctx.emit({k:"act", t:"Reading Sc "+s.no+" “"+s.title+"”…"});
@@ -1680,7 +1742,43 @@ async function productionScriptRead(ctx){
             ctx.model.characters[i]={...cc, voice:cv};
             charByName[(ch.name||"").toLowerCase()]=ctx.model.characters[i]; ctx.sync(); enriched++; ctx.emit({k:"ok", t:ch.name+" voice · "+q}); } }
       }
+      // (2c) APPEARANCE STATES (owner-approved 2026-10-12 — Character fidelity step 3): the visible changes this scene
+      // shows (wounds, torn clothes, dirt, a costume change) used to be counted and discarded. Each one whose quote is
+      // really in the scene is kept, and after the pass every character's are proposed as appearance states (one card).
+      (c.states||[]).forEach(st=>{
+        const o = (st && typeof st==="object") ? st : { change:st };
+        const change = String(o.change||"").trim(); if(!change) return;
+        const quote = String(o.quote||"").trim();
+        if(!quote || !_stateQuoteInScene(ctx.model.drafts[s.id], quote)){
+          ctx.emit({k:"observe", t:"Sc "+s.no+" · "+ch.name+" — “"+change+"” isn't proposed as an appearance state: the screenplay words that show it couldn't be found in the scene."});
+          return; }
+        (stateFinds[ch.id] = stateFinds[ch.id] || []).push({ sceneId:s.id, sceneNo:s.no, label:String(o.label||"").trim(), change, quote });
+      });
     }
+  }
+  // APPEARANCE STATES — one approval card per character (2026-10-12). A change already on the card (same scene, or the
+  // same change), or one repeated in a later scene (a state lasts from its scene until a later one replaces it), is left out.
+  let statesAdded = 0;
+  for(const cid of Object.keys(stateFinds)){
+    if(ctx.cancelled()) return;
+    const ch = ctx.model.characters.find(x=>x.id===cid); if(!ch) continue;
+    const props = _newAppearanceStates(ch, stateFinds[cid]);
+    if(!props.length) continue;
+    const cur = Array.isArray(ch.states) ? ch.states : [];
+    const ok = await ctx.propose({ writes:"art",
+      title:"Appearance states — "+ch.name,
+      reason:"The screenplay shows "+ch.name+"'s look change in "+props.length+" place"+(props.length!==1?"s":"")+" — "+props.map(p=>"Sc "+p.sceneNo).join(", ")+".",
+      rationale:"Approve to add "+(props.length!==1?"them":"it")+" to "+ch.name+"'s Continuity · appearance states, each pinned to the scene where it first shows, with the screenplay's words. Each can then be made as its own variant sheet from the card (image credits) \u2014 nothing is generated now.",
+      before:cur.length ? cur.map(x=>(x.label||"State")+(x.change?(" \u2014 "+x.change):"")).join("\n").slice(0,400) : "(no appearance states yet)",
+      after:props.map(p=>"Sc "+p.sceneNo+" · "+p.label+" \u2014 "+p.change+" \u2014 “"+p.quote+"”").join("\n") });
+    if(ctx.cancelled()) return;
+    if(ok){ const i=ctx.model.characters.findIndex(x=>x.id===cid);
+      if(i>=0){ const cc=ctx.model.characters[i]; const stamp=Date.now().toString(36);
+        const adds = props.map((p,k)=>({ id:"st-"+stamp+"-p"+k, label:p.label, change:p.change, sceneId:p.sceneId, quote:p.quote, quoteSceneId:p.sceneId,
+          suggested:true, source:"production" }));
+        ctx.model.characters[i]={...cc, states:[...(Array.isArray(cc.states)?cc.states:[]), ...adds]};
+        charByName[(cc.name||"").toLowerCase()]=ctx.model.characters[i]; ctx.sync(); statesAdded += adds.length;
+        ctx.emit({k:"ok", t:adds.length+" appearance state"+(adds.length!==1?"s":"")+" added to "+cc.name+"."}); } }
   }
   // SIGNATURE EXPRESSIONS — each character's 3 most-prevalent emotions across the story.
   // ONE approval card for the whole cast (they used to be written without asking);
@@ -1711,7 +1809,37 @@ async function productionScriptRead(ctx){
       if(exprSet){ ctx.sync(); ctx.emit({k:"ok", t:"Signature expressions set for "+exprSet+" character"+(exprSet!==1?"s":"")+"."}); }
     }
   }
-  return { drift, reconciled, enriched, exprSet, propScenes };
+  return { drift, reconciled, enriched, exprSet, propScenes, statesAdded };
+}
+/* is a quote really in this scene's screenplay? (the fact sheet's own check when the Art Room has loaded, else the same
+   normalised search: curly quotes, dashes, spacing and case don't count) */
+function _stateQuoteInScene(draft, quote){
+  if(typeof window.charFactLocate==="function" && draft){ try{ return window.charFactLocate({ _s:draft }, "_s", quote)>0; }catch(e){} }
+  const n = (x)=>String(x||"").replace(/[\u2018\u2019]/g,"'").replace(/[\u201c\u201d]/g,'"').replace(/[\u2013\u2014]/g,"-").replace(/\s+/g," ").trim().toLowerCase();
+  const q = n(quote); if(q.length<3) return false;
+  const bs = Array.isArray(draft) ? draft : ((draft && draft.blocks) || []);
+  return bs.some(b=>b && n(b.text).indexOf(q)>=0);
+}
+/* the states worth proposing for a character: not already on the card (same scene, or the same change), and not a
+   repeat of an earlier scene's (a state lasts until a later one replaces it). A missing label is made from the change. */
+function _newAppearanceStates(ch, finds){
+  const n = (x)=>String(x||"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ").trim();
+  const key = (x)=>n(x).slice(0,28);
+  const cur = Array.isArray(ch && ch.states) ? ch.states : [];
+  const seen = new Set(cur.map(x=>key(x && x.change)).filter(Boolean));
+  const labels = new Set(cur.map(x=>n(x && x.label)).filter(Boolean));
+  const scenesHave = new Set(cur.map(x=>x && x.sceneId).filter(Boolean));
+  const out = [];
+  (finds||[]).forEach(f=>{
+    const k = key(f.change);
+    if(!k || seen.has(k) || scenesHave.has(f.sceneId)) return;
+    let label = String(f.label||"").trim();
+    if(!label) label = f.change.split(/\s+/).slice(0,3).join(" ").replace(/[,;.]+$/,"").replace(/^./,m=>m.toUpperCase());
+    if(labels.has(n(label))) label = label+" (Sc "+f.sceneNo+")";
+    seen.add(k); labels.add(n(label));
+    out.push({ ...f, label:label.slice(0,48) });
+  });
+  return out.slice(0,6);
 }
 
 /* =========================================================
@@ -3028,14 +3156,14 @@ async function agentProductionCheck(ctx){
   }});
   const aiOn = !!(ctx.ai && ctx.ai.available);
   ctx.emit({k:"plan", t:"Checking "+drafted.length+" written scene"+(drafted.length===1?"":"s")+" for production: "
-    +(aiOn ? "first reading the script into the cast sheets (pronouns, scale, physical details, voice, signature expressions), then " : "")
+    +(aiOn ? "first reading the script into the cast sheets (pronouns, scale, physical details, voice, appearance states, signature expressions), then " : "")
     +"holding props, locations, render styles, wardrobe and shots to the script. Every change asks for your approval."});
   let read = null;
   if(aiOn){ read = await productionScriptRead(pctx); if(ctx.cancelled() || !read) return; }
   else ctx.emit({k:"flag", t:"The writing model isn't available, so the script read (pronouns, scale, physical details, voice, expressions) was skipped. The free checks below still run."});
   const cons = await agentConsistency(pctx, { scope:"production", noDone:true });
   if(ctx.cancelled() || !cons) return;
-  const castFixes = read ? read.reconciled + read.enriched + (read.exprSet?1:0) : 0;
+  const castFixes = read ? read.reconciled + read.enriched + (read.exprSet?1:0) + (read.statesAdded||0) : 0;
   const fixes = castFixes + cons.fixes;
   const mapped = ((ctx.bible && ctx.bible.props) || []).some(p=> p && Array.isArray(p.scenes) && p.scenes.length);
   ctx.emit({k:"done", t:"Production check complete — "+fixes+" fix"+(fixes===1?"":"es")+" applied"
@@ -3092,7 +3220,7 @@ const AGENTS = [
     blurb:"Reads the finished screenplay as actor, director, editor and sound designer \u2014 reporting visual writing, sound, page rhythm, action/dialogue causality, voice, pacing and thematic payoff across the whole film.",
     maxCalls:2, run:agentTableRead },   // the read + the voice check
   { id:"production", name:"Production check", icon:"clipboard", kind:"fix", room:"art",
-    blurb:"The 1st-AD pass before you render: reads every written scene into the cast sheets (pronouns, scale, physical details, voice, signature expressions), then holds props, locations, render styles, wardrobe and shots to the script \u2014 and offers to rewrite they/them lines to the cast's real pronouns and to slug the spaces the action plays inside. Every change is an approval card. The script read uses the writing model; the checks after it are free.",
+    blurb:"The 1st-AD pass before you render: reads every written scene into the cast sheets (pronouns, scale, physical details, voice, appearance states with the screenplay's words, signature expressions), then holds props, locations, render styles, wardrobe and shots to the script \u2014 and offers to rewrite they/them lines to the cast's real pronouns and to slug the spaces the action plays inside. Every change is an approval card. The script read uses the writing model; the checks after it are free.",
     // (2026-10-09) one writing call per written scene (the script read); the checks after it are free
     costLine:"It makes one writing call per written scene (the script read, writing credits); the checks after it are free. What it used shows when it finishes.",
     run:agentProductionCheck },
