@@ -90,7 +90,7 @@ await test("D where it runs; the pipeline doc and Frances", ()=>{
   const fb = { console }; fb.window = fb; vm.createContext(fb); vm.runInContext(ai.slice(a, b)+";this.__F=APP_FEATURES;", fb);
   assert.ok(fb.__F.find(f=>String(f.name||"").startsWith("New Story (format")).what.includes("PRONOUNS COME WITH THE CAST"));
   const html = read("TURN.html");
-  for(const f of ["ai", "script", "agents"]) assert.ok(html.includes('src="app/'+f+'.jsx?v=20261011-pron2"') || html.includes('src="app/'+f+'.jsx?v=20261011-rv1"') || html.includes('src="app/'+f+'.jsx?v=20261011-v4a"') || html.includes('src="app/'+f+'.jsx?v=20261012-art1"') || html.includes('src="app/'+f+'.jsx?v=20261013-fact1"') || html.includes('src="app/'+f+'.jsx?v=20261013-arc1"'), f);   // (later passes re-key some)
+  for(const f of ["ai", "script", "agents"]) assert.ok(html.includes('src="app/'+f+'.jsx?v=20261011-pron2"') || html.includes('src="app/'+f+'.jsx?v=20261011-rv1"') || html.includes('src="app/'+f+'.jsx?v=20261011-v4a"') || html.includes('src="app/'+f+'.jsx?v=20261012-art1"') || html.includes('src="app/'+f+'.jsx?v=20261013-fact1"') || html.includes('src="app/'+f+'.jsx?v=20261013-arc1"') || html.includes('src="app/'+f+'.jsx?v=20261013-cdx1"'), f);   // (later passes re-key some)
 });
 
 console.log((failed ? "RESULT: FAIL — " : "RESULT: PASS — ")+checks+" passed, "+failed+" failed");

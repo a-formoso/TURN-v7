@@ -2056,7 +2056,7 @@ await test("Q the once-per-account note next to the Voice toggle (Writer and up 
   T.turnUserId = "u-t"; T.aiSeedInterview = async () => null; T.React.reset();
   assert.equal(findAll(T.NSLegacyInterview({ formatLabel: "film", onComplete: noop, onBack: noop }), hasClass("ns-voice-cost")).length, 0, "free-tier: browser voice, nothing to say");
   assert.ok(!/\bTURN\b|\bMUSE\b|ElevenLabs|Claude|Anthropic|OpenAI/.test(Q.NS_PAID_VOICE_NOTE));
-  assert.ok(read("TURN.html").includes('src="app/newstory.jsx?v=20260930-billing1"') || read("TURN.html").includes('src="app/newstory.jsx?v=20261002-research1"') || read("TURN.html").includes('src="app/newstory.jsx?v=20261002-research2"'));
+  assert.ok(read("TURN.html").includes('src="app/newstory.jsx?v=20260930-billing1"') || read("TURN.html").includes('src="app/newstory.jsx?v=20261002-research1"') || read("TURN.html").includes('src="app/newstory.jsx?v=20261002-research2"') || read("TURN.html").includes('src="app/newstory.jsx?v=20261013-cdx1"'));
 });
 
 /* ════════ R: the live voice conversation ends itself after 15 minutes (F7) ════════ */
