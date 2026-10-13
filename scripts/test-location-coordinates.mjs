@@ -150,18 +150,37 @@ assert.equal(trSight[0].from,"positions");
 assert.equal(box.locationPanelSightlines(office,panels[0]).length,0,"the window is outside the doorway camera's field of view");
 metas.furnace=furnaceRecord({
   TL:{yaw:0,position:[0,-8,1.6],lensMm:24},                         // looks north AT the office from the hall floor
-  TR:{yaw:180,position:[5,9,5],lensMm:18},                          // behind the office, looking south over the hall
+  TR:{yaw:160,position:[4.3,3.5,4.4],lensMm:24},                    // just outside the window, looking out over the hall
   BL:{yaw:180,position:[4,6,3.5],lensMm:24},                        // inside the office — shows the room itself
   BR:{yaw:160,position:[-8,0,2],lensMm:85}});                       // faces roughly south but looks at the west side
 plan=box.locationSubspacePanelPlan(office);
 const trRow=plan.panels[1].sights[0];
-assert.equal(plan.sources[0].key,"TR","the camera behind the office whose frustum covers the area beyond the window");
+assert.equal(plan.sources[0].key,"TR","the camera in front of the window, on its outward side, covering the area beyond it");
 assert.equal(trRow.approx,false,"a position-checked match");
-const sight={opening:{id:"office-window"},yaw:154.7,pitch:-12,through:[4,4]};
+const sight={opening:{id:"office-window",yaw:180},yaw:154.7,pitch:-12,through:[4,4]};
 const cands=box.locationViewCandidates(coordFurnace,office).candidates;
+assert.equal(box.locationMatchView(sight,cands.filter(c=>c.key==="TR"),box2).key,"TR","camera in front: chosen");
 assert.equal(box.locationMatchView(sight,cands.filter(c=>c.key==="BL"),box2),null,"a camera inside the room is refused");
 assert.equal(box.locationMatchView(sight,cands.filter(c=>c.key==="BR"),box2),null,"facing the right way but covering another area is refused");
 assert.equal(box.locationMatchView(sight,cands.filter(c=>c.key==="TL"),box2),null,"a camera looking at the office is refused");
+// a camera BEHIND the room (the mezzanine behind the office, looking south over it) would show the office's own back
+const behind={id:"pq-behind",kind:"quadrant",key:"TR",pose:{position:[5,9,5],yaw:180,pitch:-30,lensMm:18},hfov:box.locLensHfov(18)};
+assert.equal(box.locationMatchView(sight,[behind],box2),null,"a camera behind the room (not on the opening's outward side) is never chosen");
+assert.equal(box.locationMatchView({...sight,opening:{id:"office-window",yaw:180}},[{...behind,pose:{...behind.pose,position:[4.3,4.1,5]}}],box2),null,
+  "…nor one barely in front of the wall (inside the margin)");
+// on the outward side, but the room's own wing stands between the camera and what it must show
+const lRoom=[[2,4],[5,4],[5,1],[7,1],[7,8],[2,8]];
+const occluded={id:"pq-occ",kind:"quadrant",key:"BR",pose:{position:[3,3.7,4],yaw:140,pitch:0,lensMm:24},hfov:box.locLensHfov(24)};
+assert.equal(box.locationMatchView(sight,[occluded],lRoom),null,"a sight line crossing the room's own footprint is refused");
+assert.equal(box.locationMatchView(sight,[occluded],null).key,"BR","…the same camera, with no footprint to block it, would match");
+assert.equal(box.locationSegmentCrossesFootprint([3,3.7],[5.71,0.38],lRoom),true);
+assert.equal(box.locationSegmentCrossesFootprint([4.3,3.5],[4.64,2.64],box2),false);
+// nothing qualifies → the no-match path: no picture, the layout's objects named, the offer
+metas.furnace=furnaceRecord({TR:{yaw:180,position:[5,9,5],lensMm:18}});
+plan=box.locationSubspacePanelPlan(office);
+assert.equal(plan.sources.length,0,"the camera behind the office is refused");
+assert.equal(plan.unresolved[0].reason,"no-match");
+assert.ok(box.locationParentViewRequest(office,"office-window"),"…and 'Make a view from the office's position' is offered");
 box.turnContinuity={locations:[furnace,office],scenes:[],drafts:{}};
 
 /* ---- 4 · 5. references and prompt ---- */

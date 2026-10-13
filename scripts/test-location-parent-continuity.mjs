@@ -140,7 +140,7 @@ images={house:"current-parent",kitchen:"room"};box.nbLoadImage=async id=>images[
 reviewLayout();
 box.l={...child,parentLocation:parent};
 Object.assign(box,{stagingDraftRef:{current:null},finalPrompt:"SPEC",masterParentSnapshot:{current:{}},masterPlanSig:{current:""},
-  masterSubPlan:{current:null},masterPanelRecord:{current:null},
+  masterSubPlan:{current:null},masterPanelRecord:{current:null},masterLayoutSig:{current:""},
   masterRefOff:["house","page"],buildMasterRefs:()=>[
     box.locationParentReference(child,"old-preview"),{url:"script-page",kind:"script",refId:"page"}
   ]});

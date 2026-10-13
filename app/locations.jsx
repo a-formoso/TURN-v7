@@ -546,14 +546,14 @@ function locationSpatialPlanSigFor(l){
 function locationSpatialPlanState(l,locations){
   const owner=locationSpatialOwner(l,locations),plan=normalizeLocationSpatialPlan(owner.spatialPlan);
   const source=locationSpatialSource(owner);
-  const tooLarge=JSON.stringify(plan).length>12000;
+  const tooLarge=locationSpatialPlanTooLarge(plan);
   const complete=!tooLarge&&!!plan.frame.trim()&&plan.anchors.length>0&&plan.anchors.every(a=>a.space.trim()&&a.name.trim()&&a.placement.trim());
   const info=locationSpatialSourceInfo(owner);
   const builtFromThis=!!(info.planSig && info.planSig===locationSpatialPlanSig(plan));
   const stale=plan.source.assetId!==source.assetId||(info.known && plan.source.iso!==source.iso && !builtFromThis);
   const ready=complete&&plan.status==="reviewed"&&!stale;
   return {owner,plan,source,complete,stale,ready,
-    reason:tooLarge?"Shorten the shared set layout to 12,000 characters so it reaches image generation and Blender intact."
+    reason:tooLarge?"Shorten the shared set layout to 12,000 characters (and its floor plan to 9,000) so it reaches image generation and Blender intact."
       :!complete?"Prepare the shared set layout in Spatial Layout & Staging first."
       :plan.status!=="reviewed"?"Review the shared set layout before rendering."
       :stale?"The parent plate changed. Check it against the shared set layout and review the layout again.":""};
@@ -758,6 +758,17 @@ function _locNearestEdge(poly, pt){
   }
   return best;
 }
+/* does the 2D segment a→b touch the polygon (either end inside, or crossing an edge)? */
+function _locSegCrossesPoly(a, b, poly){
+  if(!poly || poly.length<3 || !a || !b) return false;
+  if(_locInside(a,poly) || _locInside(b,poly)) return true;
+  const orient = (p,q,r)=>{ const v = (q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]); return Math.abs(v)<1e-9 ? 0 : (v>0 ? 1 : -1); };
+  for(let i=0;i<poly.length;i++){
+    const c = poly[i], d = poly[(i+1)%poly.length];
+    if(orient(a,b,c)!==orient(a,b,d) && orient(c,d,a)!==orient(c,d,b)) return true;
+  }
+  return false;
+}
 /* how far a ray from pt along yaw travels before it leaves the polygon (null when it never crosses an edge) */
 function _locRayExit(poly, pt, yaw){
   if(!poly || poly.length<3 || !pt) return null;
@@ -826,8 +837,37 @@ function normalizeLocationCoordinates(value){
   });
   const origin = value.origin && typeof value.origin==="object"
     ? {anchorId:t(value.origin.anchorId,64), note:t(value.origin.note,200)} : {anchorId:"", note:""};
-  if(!spaces.length && !origin.anchorId && !origin.note) return null;
-  return {schema:"cm-location-coords-v1", origin, spaces};
+  /* the panel cameras the drafted floor plan proposes (step B, 2026-10-13): one per space and panel. A camera set by
+     hand in Plate cameras (on the space's coverage view) still wins over it. */
+  const seen = new Set();
+  const cameras = (Array.isArray(value.cameras) ? value.cameras : []).filter(c=>c && typeof c==="object").slice(0,64).map(c=>{
+    const spaceId = t(c.spaceId||c.space,160), panel = LOC_PANEL_KEYS.indexOf(c.panel)>=0 ? c.panel : "";
+    if(!spaceId || !panel || seen.has(spaceId+":"+panel)) return null;
+    seen.add(spaceId+":"+panel);
+    const pose = normalizeLocationCameraPose({...c, basis:_locBasis(c.basis,"design")});
+    return {spaceId, panel, position:pose.position, yaw:pose.yaw, pitch:pose.pitch, lensMm:pose.lensMm,
+      target:pose.target, basis:pose.basis};
+  }).filter(Boolean);
+  if(!spaces.length && !cameras.length && !origin.anchorId && !origin.note) return null;
+  return {schema:"cm-location-coords-v1", origin, spaces, ...(cameras.length ? {cameras} : {})};
+}
+/* a drafted floor plan names spaces and connections by NAME — turn them into this family's location ids */
+function locationResolveDraftCoordinates(value, family){
+  if(!value || typeof value!=="object") return value;
+  const fam = Array.isArray(family) ? family : [];
+  const idOf = (ref)=>{ const hit = _locResolveSpace(String(ref||""), fam); return hit ? hit.id : String(ref||""); };
+  const nameOf = (ref)=>{ const hit = _locResolveSpace(String(ref||""), fam); return hit ? (hit.name||"") : ""; };
+  return {...value,
+    spaces:(Array.isArray(value.spaces) ? value.spaces : []).map(sp=>sp && typeof sp==="object" ? {...sp, id:idOf(sp.id||sp.name),
+      name:nameOf(sp.id||sp.name) || String(sp.name||sp.id||""),
+      openings:(Array.isArray(sp.openings) ? sp.openings : []).map(o=>o && typeof o==="object" ? {...o, connectsTo:o.connectsTo ? idOf(o.connectsTo) : ""} : o)} : sp),
+    cameras:(Array.isArray(value.cameras) ? value.cameras : []).map(c=>c && typeof c==="object" ? {...c, spaceId:idOf(c.spaceId||c.space)} : c)};
+}
+/* how big a layout may be: its words reach every plate prompt and Blender intact (12,000 characters), its floor
+   plan numbers have their own allowance (9,000) */
+function locationSpatialPlanTooLarge(plan){
+  const p = {...(plan||{})}; const coords = p.coordinates; delete p.coordinates;
+  return JSON.stringify(p).length>12000 || (coords ? JSON.stringify(coords).length>9000 : false);
 }
 
 function _locList(locations){ return locations || ((window.turnContinuity||{}).locations) || []; }
@@ -978,6 +1018,10 @@ function locationDefaultPanelPoses(l, locations){
   out.BL = fill[0]; out.BR = fill[1];
   return out;
 }
+function _locPlanCamera(coords, l, key){
+  if(!coords || !Array.isArray(coords.cameras) || !l) return null;
+  return coords.cameras.find(c=>c.panel===key && (c.spaceId===l.id || _locNameKey(c.spaceId)===_locNameKey(l.name))) || null;
+}
 /* the panel poses the user (or a confirmed draft) stored on this space's coverage views */
 function locationStoredPanelViews(l){
   const out = {};
@@ -993,13 +1037,19 @@ function locationPanelPoses(l, locations){
   if(!l) return [];
   const list = _locList(locations), parent = locationParentOf(l,list);
   const defaults = locationDefaultPanelPoses(l,list), stored = locationStoredPanelViews(l);
+  const coords = _locOwnerPlan(l,list).plan.coordinates;
   return LOC_PANEL_KEYS.map(key=>{
     const d = defaults[key], v = stored[key], s = v ? normalizeLocationCameraPose(v.pose) : null;
+    const c = _locPlanCamera(coords,l,key);
     const pose = {...d.pose};
-    if(s){ Object.keys(s).forEach(k=>{ if(k!=="basis" && s[k]!=null && s[k]!=="") pose[k] = s[k]; }); pose.basis = s.basis; }
-    return {...LOC_PANEL_INFO[key], purpose:String((v && v.purpose) || d.purpose), suggestedPose:d.pose, pose,
-      hfov:locLensHfov(pose.lensMm), source:s ? "set" : "suggested", stated:!!parent || !!s, viewId:v ? String(v.id||"") : "",
-      subspace:!!parent};
+    const over = (x)=>{ Object.keys(x).forEach(k=>{ if(k!=="basis" && k!=="spaceId" && k!=="panel" && x[k]!=null && x[k]!=="") pose[k] = x[k]; }); pose.basis = x.basis; };
+    if(c) over(c);                 // the reviewed floor plan's camera (step B)
+    if(s) over(s);                 // a camera set by hand wins
+    // the layout's camera, before any hand edit (what "Back to the layout" returns to)
+    const basePose = c ? (()=>{ const b = {...d.pose}; Object.keys(c).forEach(k=>{ if(k!=="spaceId" && k!=="panel" && c[k]!=null && c[k]!=="") b[k] = c[k]; }); return b; })() : d.pose;
+    return {...LOC_PANEL_INFO[key], purpose:String((v && v.purpose) || d.purpose), suggestedPose:basePose, pose,
+      hfov:locLensHfov(pose.lensMm), source:s ? "set" : (c ? "layout" : "suggested"), stated:!!parent || !!s || !!c,
+      viewId:v ? String(v.id||"") : "", subspace:!!parent};
   });
 }
 /* what a plate records about the cameras its prompt stated (meta.platePanels) — null when it stated none */
@@ -1009,7 +1059,10 @@ function locationPlatePanelRecord(l, locations){
   const out = {schema:"cm-plate-panels-v1", spaceId:String(l.id||""), spaceName:String(l.name||""), layout:"2x2", panels:{}};
   panels.forEach(p=>{ out.panels[p.key] = {yaw:p.pose.yaw, pitch:p.pose.pitch, lensMm:p.pose.lensMm, hfov:p.hfov,
     position:p.pose.position, target:p.pose.target, place:p.pose.place, basis:p.pose.basis, source:p.source,
-    purpose:String(p.purpose||"").slice(0,160)}; });
+    purpose:String(p.purpose||"").slice(0,160)};
+    // the rooms this panel's camera sees (step B — the reverse direction)
+    const kids = locationPanelChildrenVisible(l,p,locations);
+    if(kids.length) out.panels[p.key].childrenVisible = kids; });
   return out;
 }
 /* a plate's recorded panel cameras; an older plate (no record) → null = every panel's facing is unknown */
@@ -1022,6 +1075,106 @@ function locationPlatePanels(meta){
     panels[k] = {...pose, pitch:pose.pitch==null ? 0 : pose.pitch, lensMm:pose.lensMm||24,
       hfov:_locNum(p.hfov,1,179) || locLensHfov(pose.lensMm||24), purpose:String(p.purpose||"")}; });
   return Object.keys(panels).length ? {spaceId:String(r.spaceId||""), panels} : null;
+}
+
+/* ---- THE REVERSE DIRECTION (step B): the rooms a panel's camera sees — a room's footprint (or its openings / anchors)
+   inside the camera's horizontal field of view, from outside it. Needs positions; without them nothing is claimed. ---- */
+function locationPanelChildrenVisible(l, panel, locations){
+  const list = _locList(locations), pose = panel && panel.pose;
+  if(!pose || !pose.position || pose.yaw==null) return [];
+  const half = (panel.hfov || locLensHfov(pose.lensMm))/2, cam = pose.position;
+  const plan = _locOwnerPlan(l,list).plan, family = _locFamily(l,list);
+  const kids = family.filter(x=>x.id!==l.id && (locationParentOf(x,list)||{}).id===l.id);
+  const inView = (pt)=>{ const d = Math.hypot(pt[0]-cam[0], pt[1]-cam[1]); return d>0.3 && Math.abs(locYawDiff(_locBearing(cam,pt),pose.yaw))<=half; };
+  return kids.map(k=>{
+    const sp = _locCoordSpace(plan.coordinates,k), poly = sp && sp.footprint.length>=3 ? sp.footprint : null;
+    if(poly && _locInside(cam,poly)) return null;              // the camera stands inside that room
+    const opens = locationSpaceOpenings(k,list).filter(o=>o.centre);
+    const pts = poly ? poly.concat([_locCentroid(poly)]) : opens.map(o=>o.centre)
+      .concat(plan.anchors.filter(a=>a.xy && locationAnchorSpaceOf(a,family).id===k.id).map(a=>a.xy));
+    if(!pts.length || !pts.some(inView)) return null;
+    const c = poly ? _locCentroid(poly) : [pts.reduce((a,p)=>a+p[0],0)/pts.length, pts.reduce((a,p)=>a+p[1],0)/pts.length];
+    const rel = locYawDiff(_locBearing(cam,c),pose.yaw), dist = Math.hypot(c[0]-cam[0], c[1]-cam[1]);
+    const floorZ = sp ? sp.floorZ : null, top = sp && floorZ!=null ? floorZ+(sp.ceilingH||2.5) : null;
+    return {spaceId:k.id, name:k.name||"", frame:rel<-half/3 ? "left" : rel>half/3 ? "right" : "centre",
+      depth:dist<3 ? "near" : dist>8 ? "far" : "middle", distance:Math.round(dist*10)/10,
+      level:floorZ!=null && floorZ>cam[2]-0.3 ? "raised" : top!=null && top<cam[2] ? "below" : "",
+      openings:opens.filter(o=>inView(o.centre) && o.yaw!=null).map(o=>{
+        const d = Math.abs(locYawDiff(_locBearing(o.centre,cam),o.yaw));
+        return {id:o.id, name:o.name||o.id, kind:o.kind, faces:d<50 ? "camera" : d>130 ? "away" : "side"}; })};
+  }).filter(Boolean);
+}
+function locationChildrenVisibleText(kids){
+  if(!kids || !kids.length) return "";
+  return " In this view: "+kids.map(k=>{
+    const where = (k.depth==="middle" ? "" : k.depth+" ")+(k.frame==="centre" ? "centre" : k.frame);
+    const lvl = k.level==="raised" ? ", raised above the camera" : k.level==="below" ? ", below the camera" : "";
+    const ops = (k.openings||[]).map(o=>"its "+_locKindWord(o.kind)+" \u201c"+o.name+"\u201d "
+      +(o.faces==="camera" ? "faces the camera" : o.faces==="away" ? "faces away" : "is side-on")).join(", ");
+    return k.name+" sits in the "+where+" of the frame, about "+_locM(k.distance)+" m away"+lvl+(ops ? "; "+ops : "");
+  }).join("; ")+" \u2014 keep "+(kids.length>1 ? "them" : "it")+" exactly where the shared layout puts "+(kids.length>1 ? "them" : "it")+".";
+}
+/* ---- THE TOP-DOWN MAP (step B): everything the floor plan places, ready to draw — footprints, openings (a segment
+   along their wall), anchors and each panel's camera frustum (position, facing, field of view). `plan` may be a draft
+   under review: it is read as if it were the owner's saved layout. ---- */
+function locationFloorPlanScene(owner, plan, locations){
+  const base = _locList(locations), live = base.find(x=>x && x.id===owner.id) || owner;
+  const list = base.some(x=>x && x.id===owner.id)
+    ? base.map(x=>x && x.id===owner.id ? {...x, spatialPlan:plan||x.spatialPlan} : x)
+    : [{...live, spatialPlan:plan||live.spatialPlan}].concat(base);
+  const own = list.find(x=>x.id===owner.id), family = _locFamily(own,list);
+  const p = normalizeLocationSpatialPlan(plan || own.spatialPlan), coords = p.coordinates;
+  const spaces = [], openings = [], cameras = [], noPosition = [];
+  family.forEach(sp=>{
+    const c = _locCoordSpace(coords,sp);
+    if(c && c.footprint.length>=3) spaces.push({id:sp.id, name:sp.name||"", footprint:c.footprint, floorZ:c.floorZ, owner:sp.id===own.id,
+      centre:_locCentroid(c.footprint)});
+    locationSpaceOpenings(sp,list).forEach(o=>{
+      if(!o.centre) return;
+      const w = (o.width||0.9)/2, t = o.yaw!=null ? [Math.cos(o.yaw*Math.PI/180), -Math.sin(o.yaw*Math.PI/180)] : [1,0];
+      openings.push({spaceId:sp.id, id:o.id, name:o.name||o.id, kind:o.kind, yaw:o.yaw, centre:o.centre,
+        a:[o.centre[0]-t[0]*w, o.centre[1]-t[1]*w], b:[o.centre[0]+t[0]*w, o.centre[1]+t[1]*w]});
+    });
+    locationPanelPoses(sp,list).forEach(pp=>{
+      const label = (sp.name||"")+" \u00b7 "+pp.label.toLowerCase();
+      if(!pp.pose.position || pp.pose.yaw==null){ noPosition.push({spaceId:sp.id, panel:pp.key, label}); return; }
+      const pos = pp.pose.position, len = Math.max(1.5, Math.min(6, (pp.pose.lensMm||24)/8));
+      const edge = (d)=>{ const v = _locDir(pp.pose.yaw+d); return [pos[0]+v[0]*len, pos[1]+v[1]*len]; };
+      cameras.push({spaceId:sp.id, spaceName:sp.name||"", panel:pp.key, label, source:pp.source, position:pos,
+        yaw:pp.pose.yaw, pitch:pp.pose.pitch||0, lensMm:pp.pose.lensMm||24, hfov:pp.hfov, frustum:[[pos[0],pos[1]], edge(-pp.hfov/2), edge(pp.hfov/2)]});
+    });
+  });
+  const anchors = p.anchors.filter(a=>a.xy).map(a=>({id:a.id, name:a.name||a.id, xy:a.xy, facing:a.facing==null ? null : a.facing,
+    opening:locationAnchorIsOpening(a)}));
+  const pts = [].concat(...spaces.map(x=>x.footprint), ...openings.map(o=>[o.a,o.b]), anchors.map(a=>a.xy), ...cameras.map(c=>c.frustum));
+  const bounds = pts.length ? {minX:Math.min(...pts.map(q=>q[0])), maxX:Math.max(...pts.map(q=>q[0])),
+    minY:Math.min(...pts.map(q=>q[1])), maxY:Math.max(...pts.map(q=>q[1]))} : null;
+  return {frame:p.frame, origin:coords ? coords.origin : {anchorId:"", note:""}, spaces, openings, anchors, cameras, noPosition, bounds,
+    empty:!pts.length};
+}
+
+/* ---- LAYOUT CHANGED (step B): what a plate was made from — the shared layout's content (words and numbers, not its
+   review state) and, for a 2x2 plate, the cameras its prompt stated. Recorded as meta.plateLayoutSig; a later change
+   says "Layout changed — regenerate" on the plate. Nothing regenerates or spends on its own. ---- */
+function locationPlateLayoutSig(l, opts){
+  if(!l) return "";
+  let body;
+  try{
+    const plan = {..._locOwnerPlan(l).plan}; delete plan.status; delete plan.source;
+    body = {plan};
+    if(opts && opts.panels){
+      const r = locationPlatePanelRecord(l);
+      body.panels = r ? LOC_PANEL_KEYS.map(k=>{ const p = r.panels[k]; return p ? [k,p.yaw,p.pitch,p.lensMm,p.position,p.target] : null; }) : null;
+    }
+  }catch(e){ return ""; }
+  const str = JSON.stringify(body); let h = 5381;
+  for(let i=0;i<str.length;i++) h = ((h<<5)+h+str.charCodeAt(i))|0;
+  return "pl1:"+(h>>>0).toString(36)+":"+str.length;
+}
+function locationPlateLayoutChanged(meta, l, opts){
+  if(!meta || !meta.plateLayoutSig || !l) return false;
+  const now = locationPlateLayoutSig(l, opts);
+  return !!now && now!==meta.plateLayoutSig;
 }
 
 /* ---- what each panel sees through an opening (plain geometry, no model call) ---- */
@@ -1067,7 +1220,19 @@ function locationParentViewAssetId(l, openingId){ return String((l&&l.id)||"loca
    made from this room's position ("Make a … view"), when made from the plate as it is now */
 function locationViewCandidates(target, l, metaOf, locations){
   const get = typeof metaOf==="function" ? metaOf : (id)=>(typeof nbGetMeta==="function" ? nbGetMeta(id) : null);
-  const meta = get(target.id), rec = locationPlatePanels(meta), out = [];
+  const meta = get(target.id), out = [];
+  let rec = locationPlatePanels(meta);
+  /* a plate made before cameras were recorded, but READ for the reviewed floor plan (step B): the cameras the
+     confirmed layout says stood behind each of ITS panels (basis observed, reviewed against this exact plate) */
+  if(!rec && meta && meta.iso){
+    const plan = _locOwnerPlan(target,locations).plan;
+    if(plan.status==="reviewed" && plan.source.assetId===target.id && plan.source.iso===meta.iso && plan.coordinates){
+      const panels = {};
+      (plan.coordinates.cameras||[]).filter(c=>c.basis==="observed" && (c.spaceId===target.id || _locNameKey(c.spaceId)===_locNameKey(target.name)))
+        .forEach(c=>{ panels[c.panel] = {...c, pitch:c.pitch||0, lensMm:c.lensMm||24, hfov:locLensHfov(c.lensMm||24)}; });
+      if(Object.keys(panels).length) rec = {spaceId:target.id, panels, fromLayout:true};
+    }
+  }
   if(rec) LOC_PANEL_KEYS.forEach(k=>{ const p = rec.panels[k];
     if(p && p.yaw!=null) out.push({id:"pq-"+target.id+"-"+k.toLowerCase(), kind:"quadrant", key:k, assetId:target.id,
       targetId:target.id, targetName:target.name||"", pose:p, hfov:p.hfov}); });
@@ -1091,11 +1256,18 @@ function locationMatchView(sight, candidates, childPoly){
     let approx = true;
     if(c.pose.position && sight.through){
       if(childPoly && _locInside(c.pose.position,childPoly)) return;          // a camera inside this room shows the room
+      /* ON THE OPENING'S OUTWARD SIDE (2026-10-13): a camera behind the room (the mezzanine behind the office) would
+         show the room's own back in front of the view — never chosen */
+      const ow = sight.opening && sight.opening.yaw;
+      if(ow!=null){ const n = _locDir(ow);
+        if((c.pose.position[0]-sight.through[0])*n[0] + (c.pose.position[1]-sight.through[1])*n[1] <= 0.2) return; }
       const d = _locDir(sight.yaw);
       const pts = [[sight.through[0]+d[0]*1.5, sight.through[1]+d[1]*1.5], [sight.through[0]+d[0]*4, sight.through[1]+d[1]*4]];
       const covers = pts.every(pt=>{ const dist = Math.hypot(pt[0]-c.pose.position[0], pt[1]-c.pose.position[1]);
         return dist>0.3 && Math.abs(locYawDiff(_locBearing(c.pose.position,pt),c.pose.yaw))<=half; });
       if(!covers) return;
+      // …and nothing of the room itself between that camera and what it must show
+      if(childPoly && pts.some(pt=>_locSegCrossesPoly(c.pose.position,pt,childPoly))) return;
       approx = false;
     }
     const score = dyaw + 0.3*Math.abs((c.pose.pitch||0)-(sight.pitch||0)) + (approx ? 10 : 0) - (c.kind==="view" ? 5 : 0);
@@ -1174,7 +1346,8 @@ function locationSubspaceViews(l, plan, refNumbers){
   const views = {layout:"exactly 4 views in a 2x2 grid — four cameras INSIDE "+name+", one per panel, as placed below"};
   plan.panels.forEach(p=>{
     views[p.field] = String(p.purpose||"").replace(/\.$/,"")+". "+locationPoseText(p.pose,name,anchors)+" Interior of "+name+" only."
-      +p.sights.map(s=>" "+locationSightText(s,nums[s.sourceId])).join("");
+      +p.sights.map(s=>" "+locationSightText(s,nums[s.sourceId])).join("")
+      +locationChildrenVisibleText(locationPanelChildrenVisible(l,p));
   });
   views.camera_convention = "Facings are compass directions of the shared layout: north is the facing named in its frame; yaw in degrees clockwise from north; positions in metres from its origin anchor, height above the floor.";
   views.rule = "each view a distinctly different camera angle and composition — the SAME identical space, consistent architecture, scale, materials and light across all views";
@@ -1445,6 +1618,7 @@ window.locationAnchorsBeyond = locationAnchorsBeyond;
 window.locationParentViewAssetId = locationParentViewAssetId;
 window.locationViewCandidates = locationViewCandidates;
 window.locationMatchView = locationMatchView;
+window.locationSegmentCrossesFootprint = _locSegCrossesPoly;
 window.locationSubspacePanelPlan = locationSubspacePanelPlan;
 window.locationPoseText = locationPoseText;
 window.locationSubspaceViews = locationSubspaceViews;
@@ -1460,6 +1634,15 @@ window.locationCoverageViewsWithPose = locationCoverageViewsWithPose;
 window.locationPoseToStudioCamera = locationPoseToStudioCamera;
 window.locationPoseBlenderRotation = locationPoseBlenderRotation;
 window.locationCoordinateExport = locationCoordinateExport;
+window.locationResolveDraftCoordinates = locationResolveDraftCoordinates;
+window.locationSpatialPlanTooLarge = locationSpatialPlanTooLarge;
+window.locationPanelChildrenVisible = locationPanelChildrenVisible;
+window.locationChildrenVisibleText = locationChildrenVisibleText;
+window.locationPlateLayoutSig = locationPlateLayoutSig;
+window.locationFloorPlanScene = locationFloorPlanScene;
+function locationSpatialFamily(l, locations){ return _locFamily(l, locations); }
+window.locationSpatialFamily = locationSpatialFamily;
+window.locationPlateLayoutChanged = locationPlateLayoutChanged;
 
 function locationChildrenOf(l,locations){
   const key=locationKeyOf(l);
@@ -2914,7 +3097,8 @@ function buildLocationRefPrompt(l, project, opts){
     const stated = subspacePlan ? [] : locationPanelPoses(l, _C0.locations).filter(p=>p.stated);
     if(!stated.length) return views;
     const anchors = locationSpaceAnchors(l, _C0.locations), out = { ...views };
-    stated.forEach(p=>{ out[p.field] = String(out[p.field]||p.purpose).replace(/\.$/,"")+". "+locationPoseText(p.pose, "", anchors); });
+    stated.forEach(p=>{ out[p.field] = String(out[p.field]||p.purpose).replace(/\.$/,"")+". "+locationPoseText(p.pose, "", anchors)
+      +locationChildrenVisibleText(locationPanelChildrenVisible(l, p, _C0.locations)); });
     out.camera_convention = "Facings are compass directions of the shared layout: north is the facing named in its frame; yaw in degrees clockwise from north; positions in metres from its origin anchor, height above the floor.";
     return out;
   };
@@ -3447,6 +3631,8 @@ async function generateLocationPlate(l, project, opts){
     // the cameras this plate's prompt states, recorded with it (rooms inside use them to pick the right panel)
     const panelRecord=(typeof locationPlatePanelRecord==="function")?locationPlatePanelRecord(l):null;
     if(panelRecord) lineage.platePanels=panelRecord;
+    // what it was made from, for "Layout changed — regenerate" (step B)
+    if(typeof locationPlateLayoutSig==="function"){ const ls=locationPlateLayoutSig(l,{panels:true}); if(ls) lineage.plateLayoutSig=ls; }
     if(subPlan && typeof combinedLocationPrompt==="function") prompt=combinedLocationPrompt(l, project, {panelPlan:subPlan, panelRefs:locationReferenceNumbers(refs)});
     const planSig=(typeof locationSpatialPlanSigFor==="function")?locationSpatialPlanSigFor(l):"";   // the reviewed layout this plate is made from
     if(planSig) lineage.spatialPlanSig=planSig;
@@ -3526,6 +3712,7 @@ async function generateLocationVariant(l, v, project){
     if(_nbLocStale(id,_runToken,_ep)){_nbLocCancelEvent(id,_runToken,_ep);return false;}
     const refs=mergeLocationReferences(stateRefs,await locationSpatialReferences(l));
     const lineage=locationAssetDependencySnapshot(l.id,refs.slice(1).map(r=>r.refId).concat((typeof locationRootIds==="function")?locationRootIds(l):[]),unit?"slugline-unit":"continuity-state");
+    if(typeof locationPlateLayoutSig==="function"){ const ls=locationPlateLayoutSig(l); if(ls) lineage.plateLayoutSig=ls; }
     const referenceText=locationReferenceInstructions(refs);
     prompt+=referenceText;
     gopts.extraImages=refs.map(r=>r.url);
@@ -3606,6 +3793,7 @@ async function generateSluglineUnitPlate(l, u, project, opts){
     if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     const refs = mergeLocationReferences(base, await locationSpatialReferences(l));
     const lineage = locationAssetDependencySnapshot(l.id,(typeof locationRootIds==="function")?locationRootIds(l):[],"slugline-unit");
+    if(typeof locationPlateLayoutSig==="function"){ const ls = locationPlateLayoutSig(l); if(ls) lineage.plateLayoutSig = ls; }
     const referenceText = locationReferenceInstructions(refs)
       +" The screenplay page snapshots are context only: never copy their typography, page border, text, captions or layout.";
     prompt += referenceText;

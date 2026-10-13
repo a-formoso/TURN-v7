@@ -171,6 +171,7 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
   const openings=locationSpaceOpenings(l);
   const layout=locationSpatialPlanState(l);
   const storedAny=panels.some(p=>p.source==="set");
+  const statedAny=panels.some(p=>p.stated);   // set by hand or from the reviewed floor plan (step B)
   const name=l.name||"this space";
   const storedPose=key=>({...(((locationStoredPanelViews(l)[key])||{}).pose||{})});
   const save=(key,pose)=>{ if(readOnly)return; onUpdate(l.id,{coverageViews:locationCoverageViewsWithPose(l,key,pose)}); };
@@ -248,24 +249,30 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
   return React.createElement("details",{className:"loc-nested-section loc-plate-cameras",open:parent?true:undefined},
     React.createElement("summary",null,"Plate cameras",React.createElement("span",{className:"loc-spatial-status"+(storedAny||parent?" ready":"")},
       parent?(plan&&plan.unresolved.length?plan.unresolved.length+" view"+(plan.unresolved.length===1?"":"s")+" unresolved":"Planned")
-        :storedAny?"Set":"Suggested")),
+        :storedAny?"Set":statedAny?"From the layout":"Suggested")),
     React.createElement("p",{className:"loc-layer-note"},parent
       ?"Each panel of "+name+"'s plate is a camera inside "+name+". Through a window or door it shows "+parent.name
         +" as seen from that camera, using the panel of "+parent.name+"'s plate that faces the same way — never its most striking panel. Compass directions follow the shared layout's frame (north = the way it faces); positions are metres from its origin."
       :"The camera of each panel of this plate. Rooms inside "+name+" use these to pick the panel that faces the same way as their windows. Compass directions follow the shared layout's frame (north = the way it faces). Until a camera is set, the plate prompt is unchanged."),
-    !parent&&storedAny&&!recorded&&plateMeta&&React.createElement("p",{className:"loc-layer-note loc-cam-warn",role:"status"},
+    !parent&&statedAny&&!recorded&&plateMeta&&React.createElement("p",{className:"loc-layer-note loc-cam-warn",role:"status"},
       "The current plate was made before these cameras were set — regenerate it so the rooms inside can use its panels."),
     unknownFacing.length>0&&React.createElement("p",{className:"loc-layer-note loc-cam-warn"},
       "Set which way "+unknownFacing.map(o=>"“"+o.name+"”").join(", ")+" faces in the shared layout's objects (“Faces”) so the panels can see through "+(unknownFacing.length===1?"it":"them")+"."),
-    !parent&&!storedAny&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly,onClick:useSuggested},
+    !parent&&!statedAny&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly,onClick:useSuggested},
       "Use the suggested cameras"),
     React.createElement("div",{className:"loc-cam-grid"},
       (plan?plan.panels:panels).map(p=>React.createElement("div",{key:p.key,className:"loc-cam-panel"},
         React.createElement("div",{className:"loc-cam-head"},React.createElement("b",null,p.label),
-          React.createElement("span",{className:"loc-cam-badge"+(p.source==="set"?" set":"")},p.source==="set"?"Set":(parent?"Planned":"Suggested"))),
+          React.createElement("span",{className:"loc-cam-badge"+(p.source==="set"||p.source==="layout"?" set":"")},
+            p.source==="set"?"Set":p.source==="layout"?"From the layout":(parent?"Planned":"Suggested"))),
         React.createElement("p",{className:"loc-cam-purpose"},p.purpose),
         React.createElement("p",{className:"loc-cam-text"},locationPoseText(p.pose,parent?name:"",anchors)),
         p.sights&&p.sights.length>0&&React.createElement("ul",{className:"loc-cam-sights"},p.sights.map(sightRow)),
+        // the reverse direction (step B): the rooms this camera sees, named in its prompt
+        (()=>{const kids=typeof locationPanelChildrenVisible==="function"?locationPanelChildrenVisible(l,p):[];
+          return kids.length?React.createElement("p",{className:"loc-cam-kids"},"Sees "+kids.map(k=>k.name+" ("+(k.depth==="middle"?"":k.depth+" ")+k.frame+", about "+(Math.round(k.distance*10)/10)+" m"
+            +((k.openings||[]).length?"; "+k.openings.map(o=>o.name+(o.faces==="camera"?" facing the camera":o.faces==="away"?" facing away":" side-on")).join(", "):"")+")").join("; ")
+            +" \u2014 named in this panel's prompt so it stays where the layout puts it."):null;})(),
         React.createElement("details",{className:"loc-cam-edit"},
           React.createElement("summary",null,"Edit camera"),
           React.createElement("div",{className:"loc-cam-fields"},
@@ -285,10 +292,153 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
                 React.createElement("option",{value:""},p.suggestedPose.target?"Suggested: "+(((anchors.find(a=>a.id===p.suggestedPose.target))||{}).name||p.suggestedPose.target):"Nothing in particular"),
                 anchors.map(a=>React.createElement("option",{key:a.id,value:a.id},a.name||a.id))))),
           p.source==="set"&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly,
-            onClick:()=>save(p.key,null)},parent?"Back to the planned camera":"Back to the suggestion"))))),
+            onClick:()=>save(p.key,null)},parent?"Back to the planned camera":(JSON.stringify(p.suggestedPose)!==JSON.stringify(locationDefaultPanelPoses(l)[p.key].pose)?"Back to the floor plan's camera":"Back to the suggestion")))))),
     React.createElement("p",{className:"loc-layer-note"},parent
       ?"Each matched view is sent as its own reference image with "+name+"'s plate (on some engines each reference adds a little to the price). Setting cameras uses no credits."
       :"Setting cameras uses no credits and generates nothing."));
+}
+
+/* THE FLOOR PLAN (step B of Location coordinates, owner 2026-10-13 — "include the top-down map"): the shared layout's
+   approximate metric plan as a top-down map — footprints, openings, anchors and each plate panel's camera as a little
+   frustum (position, facing, field of view); selecting a panel highlights its frustum. The numbers are estimates
+   (drafted from the plates and the screenplay, or entered by hand), editable below, never presented as surveyed. */
+const LOC_BASIS_OPTIONS=[["observed","Read from a plate"],["script","Stated in the screenplay"],["design","Proposed design"],["user","Set by hand"]];
+function _locFmt(v){ return v==null||v===""?"":String(Math.round(Number(v)*100)/100); }
+function _locPtsText(pts){ return (pts||[]).map(p=>_locFmt(p[0])+", "+_locFmt(p[1])).join("; "); }
+function _locParsePts(text){
+  return String(text||"").split(/;|\n/).map(x=>x.trim()).filter(Boolean)
+    .map(x=>x.split(/[,\s]+/).filter(Boolean).map(Number)).filter(p=>p.length>=2&&Number.isFinite(p[0])&&Number.isFinite(p[1])).map(p=>[p[0],p[1]]);
+}
+function _locParseVec(text,n){
+  const parts=String(text||"").split(/[,\s]+/).filter(Boolean).map(Number);
+  return parts.length===n&&parts.every(Number.isFinite)?parts:null;
+}
+function _locParseNum(text){ const t=String(text==null?"":text).trim(); if(!t)return null; const n=Number(t); return Number.isFinite(n)?n:null; }
+/* a text field that commits on leaving it (numbers typed as text, so "1.2, -3" works on every phone keyboard) */
+function LocCoordInput({label,value,placeholder,onCommit,hint,disabled,mode="decimal"}){
+  return React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,label),
+    React.createElement("input",{className:"prop-select",type:"text",inputMode:mode,disabled,key:String(value),defaultValue:value,
+      placeholder:placeholder||"",onBlur:e=>{if(e.target.value!==value)onCommit(e.target.value);}}),
+    hint&&React.createElement("small",null,hint));
+}
+function LocBasisSelect({value,onChange,disabled,label="Basis"}){
+  return React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,label),
+    React.createElement("select",{className:"prop-select",value:value||"design",disabled,onChange:e=>onChange(e.target.value)},
+      LOC_BASIS_OPTIONS.map(o=>React.createElement("option",{key:o[0],value:o[0]},o[1]))));
+}
+function LocationFloorPlanMap({scene,selected,onSelect}){
+  if(!scene||scene.empty)return React.createElement("p",{className:"loc-layer-note loc-map-empty"},
+    "No floor plan numbers yet. Draft shared layout drafts approximate ones from the plate and the screenplay, or add a room's footprint under Floor plan numbers.");
+  const b=scene.bounds,pad=1;
+  const minX=b.minX-pad,maxX=b.maxX+pad,minY=b.minY-pad,maxY=b.maxY+pad;
+  const w=Math.max(3,maxX-minX),h=Math.max(3,maxY-minY),u=Math.max(w,h)/60;
+  const P=q=>[Math.round(q[0]*100)/100,Math.round(-q[1]*100)/100];
+  const pts=arr=>arr.map(q=>P(q).join(",")).join(" ");
+  const sel=scene.cameras.find(c=>c.spaceId+":"+c.panel===selected)||null;
+  const svg=React.createElement("svg",{className:"loc-map-svg",viewBox:[minX,-maxY,w,h].map(n=>Math.round(n*100)/100).join(" "),
+    preserveAspectRatio:"xMidYMid meet",role:"img","aria-label":"Top-down map of the shared layout"+(scene.frame?" — north is: "+scene.frame:"")},
+    scene.spaces.map(sp=>React.createElement("g",{key:"s-"+sp.id},
+      React.createElement("polygon",{points:pts(sp.footprint),className:"loc-map-space"+(sp.owner?" owner":" room"),strokeWidth:u*0.35}),
+      React.createElement("text",{x:P(sp.centre)[0],y:P(sp.centre)[1],className:"loc-map-label",fontSize:u*2.4,textAnchor:"middle"},sp.name))),
+    scene.cameras.map(c=>{const on=sel&&sel===c;
+      return React.createElement("g",{key:"c-"+c.spaceId+c.panel,className:"loc-map-cam"+(on?" on":"")+(selected&&!on?" dim":""),
+        onClick:()=>onSelect(c.spaceId+":"+c.panel)},
+        React.createElement("polygon",{points:pts(c.frustum),strokeWidth:u*(on?0.45:0.2)}),
+        React.createElement("circle",{cx:P(c.position)[0],cy:P(c.position)[1],r:u*0.8}),
+        React.createElement("text",{x:P(c.position)[0]+u,y:P(c.position)[1]-u,fontSize:u*1.9,className:"loc-map-camlabel"},c.panel));}),
+    scene.openings.map(o=>React.createElement("line",{key:"o-"+o.spaceId+o.id,x1:P(o.a)[0],y1:P(o.a)[1],x2:P(o.b)[0],y2:P(o.b)[1],
+      className:"loc-map-opening "+o.kind,strokeWidth:u*1.1},React.createElement("title",null,o.name+" ("+o.kind+")"))),
+    scene.anchors.filter(a=>!a.opening).map(a=>React.createElement("g",{key:"a-"+a.id,className:"loc-map-anchor"},
+      React.createElement("circle",{cx:P(a.xy)[0],cy:P(a.xy)[1],r:u*0.7}),
+      React.createElement("text",{x:P(a.xy)[0]+u,y:P(a.xy)[1]+u*0.6,fontSize:u*1.7},a.name))),
+    React.createElement("text",{x:minX+u*2,y:-maxY+u*4,fontSize:u*2.6,className:"loc-map-north"},"N ↑"));
+  return React.createElement("div",{className:"loc-map"},
+    svg,
+    React.createElement("div",{className:"loc-map-chips",role:"group","aria-label":"Plate panel cameras"},
+      scene.cameras.map(c=>React.createElement("button",{key:c.spaceId+c.panel,type:"button",
+        className:"loc-map-chip"+(selected===c.spaceId+":"+c.panel?" on":""),"aria-pressed":selected===c.spaceId+":"+c.panel,
+        onClick:()=>onSelect(selected===c.spaceId+":"+c.panel?"":c.spaceId+":"+c.panel)},c.label)),
+      scene.noPosition.map(c=>React.createElement("span",{key:"n"+c.spaceId+c.panel,className:"loc-map-chip off",
+        title:"This camera has no position yet, so it isn't drawn"},c.label+" — no position"))),
+    sel&&React.createElement("p",{className:"loc-layer-note loc-map-detail",role:"status"},
+      sel.label+": "+locationPoseText({position:sel.position,yaw:sel.yaw,pitch:sel.pitch,lensMm:sel.lensMm},"",[])
+        +" Field of view "+Math.round(sel.hfov)+"\u00b0."+(sel.source==="set"?" Set by hand in Plate cameras.":sel.source==="layout"?" From the floor plan.":" Suggested.")),
+    React.createElement("p",{className:"loc-layer-note"},"Approximate — estimated from the plates and the screenplay, not surveyed. Metres; north (↑) is the way the layout's frame faces."));
+}
+/* every floor plan number as an editable field — a change makes the layout a draft to confirm again */
+function LocationFloorPlanFields({plan,family,change,readOnly}){
+  const coords=plan.coordinates||{origin:{anchorId:"",note:""},spaces:[],cameras:[]};
+  const spaces=coords.spaces||[],cameras=coords.cameras||[];
+  const set=patch=>change({coordinates:{...coords,...patch}});
+  const setSpace=(id,patch)=>set({spaces:spaces.map(s=>s.id===id?{...s,...patch}:s)});
+  const setOpening=(sid,oid,patch)=>setSpace(sid,{openings:(spaces.find(s=>s.id===sid).openings||[]).map(o=>o.id===oid?{...o,...patch}:o)});
+  const setCamera=(c,patch)=>set({cameras:cameras.map(x=>x===c?{...x,...patch}:x)});
+  const nameOf=id=>((family.find(f=>f.id===id))||{}).name||id;
+  const missing=family.filter(f=>!spaces.some(s=>s.id===f.id));
+  return React.createElement("details",{className:"loc-spatial-assist loc-floorplan-fields"},
+    React.createElement("summary",null,"Floor plan numbers",React.createElement("small",null,"Approximate · metres")),
+    React.createElement("p",{className:"loc-layer-note"},"Every number is an estimate you can change: footprints as corner points “x, y; x, y; …”, heights above the main floor, facings in degrees (0 = north, 90 = east). Changing a number makes the layout a draft to confirm again."),
+    React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"Origin (0, 0, floor level)"),
+      React.createElement("select",{className:"prop-select",disabled:readOnly,value:coords.origin&&coords.origin.anchorId||"",
+        onChange:e=>set({origin:{...(coords.origin||{}),anchorId:e.target.value}})},
+        React.createElement("option",{value:""},"Not named"),
+        plan.anchors.map(a=>React.createElement("option",{key:a.id,value:a.id},a.name||a.id)))),
+    spaces.map(sp=>React.createElement("div",{key:sp.id,className:"loc-floorplan-space"},
+      React.createElement("div",{className:"loc-cam-head"},React.createElement("b",null,nameOf(sp.id)),
+        React.createElement("button",{type:"button",className:"loc-variant-x",disabled:readOnly,"aria-label":"Remove "+nameOf(sp.id)+" from the floor plan",
+          onClick:()=>set({spaces:spaces.filter(s=>s.id!==sp.id),cameras:cameras.filter(c=>c.spaceId!==sp.id)})},React.createElement(Icon.x,{s:12}))),
+      React.createElement("div",{className:"loc-cam-fields"},
+        React.createElement(LocCoordInput,{label:"Footprint corners",value:_locPtsText(sp.footprint),placeholder:"0, 0; 6, 0; 6, 4; 0, 4",disabled:readOnly,
+          hint:"x, y in metres; at least 3 corners",mode:"text",onCommit:v=>{const f=_locParsePts(v);setSpace(sp.id,{footprint:f,
+            openings:(sp.openings||[]).map(o=>({...o,edge:null}))});}}),
+        React.createElement(LocCoordInput,{label:"Floor height",value:_locFmt(sp.floorZ),placeholder:"0",disabled:readOnly,hint:"m above the main floor",
+          onCommit:v=>setSpace(sp.id,{floorZ:_locParseNum(v)})}),
+        React.createElement(LocCoordInput,{label:"Ceiling height",value:_locFmt(sp.ceilingH),placeholder:"2.6",disabled:readOnly,hint:"m",
+          onCommit:v=>setSpace(sp.id,{ceilingH:_locParseNum(v)})}),
+        React.createElement(LocBasisSelect,{value:sp.basis,disabled:readOnly,onChange:v=>setSpace(sp.id,{basis:v})})),
+      (sp.openings||[]).map(o=>React.createElement("div",{key:o.id,className:"loc-floorplan-opening"},
+        React.createElement("div",{className:"loc-cam-head"},React.createElement("span",null,(o.name||o.id)+" · "+o.kind),
+          React.createElement("button",{type:"button",className:"loc-variant-x",disabled:readOnly,"aria-label":"Remove "+(o.name||o.id),
+            onClick:()=>setSpace(sp.id,{openings:sp.openings.filter(x=>x.id!==o.id)})},React.createElement(Icon.x,{s:12}))),
+        React.createElement("div",{className:"loc-cam-fields"},
+          React.createElement(LocCoordInput,{label:"Name",value:o.name||"",disabled:readOnly,mode:"text",onCommit:v=>setOpening(sp.id,o.id,{name:v})}),
+          React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"Kind"),
+            React.createElement("select",{className:"prop-select",disabled:readOnly,value:o.kind,onChange:e=>setOpening(sp.id,o.id,{kind:e.target.value})},
+              ["window","door","glass","arch"].map(k=>React.createElement("option",{key:k,value:k},k)))),
+          React.createElement(LocCoordInput,{label:"Centre",value:o.centre?_locPtsText([o.centre]):"",placeholder:"x, y",disabled:readOnly,mode:"text",
+            hint:"on its wall; its facing follows the nearest wall",onCommit:v=>setOpening(sp.id,o.id,{centre:_locParseVec(v,2),edge:null,yaw:null})}),
+          React.createElement(LocCoordInput,{label:"Faces (outward)",value:_locFmt(o.yaw),placeholder:"degrees",disabled:readOnly,
+            hint:o.yaw!=null?locCompass(o.yaw):"",onCommit:v=>setOpening(sp.id,o.id,{yaw:_locParseNum(v)})}),
+          React.createElement(LocCoordInput,{label:"Width",value:_locFmt(o.width),placeholder:"0.9",disabled:readOnly,hint:"m",onCommit:v=>setOpening(sp.id,o.id,{width:_locParseNum(v)})}),
+          React.createElement(LocCoordInput,{label:"Sill",value:_locFmt(o.sillZ),placeholder:"0.9",disabled:readOnly,hint:"m above the main floor",onCommit:v=>setOpening(sp.id,o.id,{sillZ:_locParseNum(v)})}),
+          React.createElement(LocCoordInput,{label:"Head",value:_locFmt(o.headZ),placeholder:"2.1",disabled:readOnly,hint:"m above the main floor",onCommit:v=>setOpening(sp.id,o.id,{headZ:_locParseNum(v)})}),
+          React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"Opens onto"),
+            React.createElement("select",{className:"prop-select",disabled:readOnly,value:o.connectsTo||"",onChange:e=>setOpening(sp.id,o.id,{connectsTo:e.target.value})},
+              React.createElement("option",{value:""},"Outside / not set"),
+              family.filter(f=>f.id!==sp.id).map(f=>React.createElement("option",{key:f.id,value:f.id},f.name||f.id)))),
+          React.createElement(LocBasisSelect,{value:o.basis,disabled:readOnly,onChange:v=>setOpening(sp.id,o.id,{basis:v})})))),
+      React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||(sp.openings||[]).length>=16,
+        onClick:()=>setSpace(sp.id,{openings:[...(sp.openings||[]),{id:"opening-"+Date.now().toString(36),name:"",kind:"window",basis:"user"}]})},"Add window or door"),
+      React.createElement("div",{className:"loc-floorplan-cams"},
+        LOC_PANEL_KEYS.map(k=>{const c=cameras.find(x=>x.spaceId===sp.id&&x.panel===k);
+          if(!c)return React.createElement("button",{key:k,type:"button",className:"art-draftall ghost",disabled:readOnly,
+            onClick:()=>set({cameras:[...cameras,{spaceId:sp.id,panel:k,basis:"user"}]})},"Add the "+LOC_PANEL_INFO[k].label.toLowerCase()+" camera");
+          return React.createElement("div",{key:k,className:"loc-floorplan-opening"},
+            React.createElement("div",{className:"loc-cam-head"},React.createElement("span",null,LOC_PANEL_INFO[k].label+" camera"),
+              React.createElement("button",{type:"button",className:"loc-variant-x",disabled:readOnly,"aria-label":"Remove the "+LOC_PANEL_INFO[k].label.toLowerCase()+" camera",
+                onClick:()=>set({cameras:cameras.filter(x=>x!==c)})},React.createElement(Icon.x,{s:12}))),
+            React.createElement("div",{className:"loc-cam-fields"},
+              React.createElement(LocCoordInput,{label:"Position",value:c.position?c.position.map(_locFmt).join(", "):"",placeholder:"x, y, height",mode:"text",disabled:readOnly,
+                hint:"m; height above the main floor",onCommit:v=>setCamera(c,{position:_locParseVec(v,3)})}),
+              React.createElement(LocCoordInput,{label:"Facing",value:_locFmt(c.yaw),placeholder:"degrees",disabled:readOnly,hint:c.yaw!=null?locCompass(c.yaw):"0 = north",
+                onCommit:v=>setCamera(c,{yaw:_locParseNum(v)})}),
+              React.createElement(LocCoordInput,{label:"Tilt",value:_locFmt(c.pitch),placeholder:"0",disabled:readOnly,hint:"degrees; negative looks down",
+                onCommit:v=>setCamera(c,{pitch:_locParseNum(v)})}),
+              React.createElement(LocCoordInput,{label:"Lens",value:_locFmt(c.lensMm),placeholder:"24",disabled:readOnly,hint:"mm",onCommit:v=>setCamera(c,{lensMm:_locParseNum(v)})}),
+              React.createElement(LocBasisSelect,{value:c.basis,disabled:readOnly,onChange:v=>setCamera(c,{basis:v})})));})))),
+    missing.map(f=>React.createElement("button",{key:f.id,type:"button",className:"art-draftall ghost",disabled:readOnly||spaces.length>=16,
+      onClick:()=>set({spaces:[...spaces,{id:f.id,name:f.name||"",footprint:[],floorZ:0,ceilingH:null,openings:[],basis:"user"}]})},
+      "Add "+(f.name||"this room")+" to the floor plan")));
 }
 
 function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,reviewRequest=0,onReturnToImage}){
@@ -297,13 +447,14 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   const state=locationSpatialPlanState(l),owner=state.owner,plan=candidate||state.plan;
   const [open,setOpen]=React.useState(!state.ready);
   const summaryRef=React.useRef(null);
+  const [mapSel,setMapSel]=React.useState("");   // the selected panel camera on the top-down map ("spaceId:TL")
   const confirmed=!candidate&&state.ready;
   const empty=!plan.frame.trim()&&!plan.anchors.length&&!plan.sightlines.trim()&&!plan.unresolved.trim();
   const check=locationSpatialPlanState({...owner,spatialPlan:normalizeLocationSpatialPlan({...plan,status:"reviewed",source:state.source})});
   const reviewHint=empty
     ? "No fixed placements have been saved. Draft specification writes the location description; use Draft shared layout to fill the fields below, or enter them manually."
     : !check.complete
-    ? (JSON.stringify(plan).length>12000?check.reason:"Add a viewing direction and at least one object below. Each object needs a room, name and fixed placement. You can also draft with AI.")
+    ? ((typeof locationSpatialPlanTooLarge==="function"?locationSpatialPlanTooLarge(plan):JSON.stringify(plan).length>12000)?check.reason:"Add a viewing direction and at least one object below. Each object needs a room, name and fixed placement. You can also draft with AI.")
     : candidate?"Check this proposed layout against your reference panels, then confirm it. Your saved layout is unchanged until you confirm."
     : state.stale&&state.plan.status==="reviewed"?"The parent image changed. Check the placements below against the new image, then confirm again."
     : "Check the placements below against your reference panels, then confirm to enable image generation.";
@@ -383,11 +534,15 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         ? onReturnToImage&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",onClick:onReturnToImage},"Back to image",React.createElement(Icon.chevR,{s:14}))
         : empty?draftButton(true):confirmButton(),
       React.createElement("small",null,readOnly?"View only — ask an editor to prepare or confirm this layout.":empty
-        ? "Reads the parent image when available; otherwise uses the written specification. Uses writing-model credits, not image credits. Review and confirm the result before generating."
+        ? "Reads the parent image when available; otherwise uses the written specification. Also drafts an approximate floor plan in metres (footprints, windows and doors, object positions, each panel's camera) \u2014 every number editable. Uses writing-model credits, not image credits. Review and confirm the result before generating."
         : "Confirmation uses no credits and does not generate an image."),
       candidate&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:()=>{setCandidate(null);setError("");}},"Discard draft"),
       error&&React.createElement("p",{role:"alert",className:"loc-spatial-error"},error)),
     React.createElement("p",{className:"loc-layer-note loc-spatial-owner"},"One physical layout for "+(owner.name||"this location")+" and every room. Camera views below change the framing, not the furniture."),
+    // the top-down map of the floor plan — the draft under review when there is one (step B, 2026-10-13)
+    typeof locationFloorPlanScene==="function"&&React.createElement("div",{className:"loc-map-wrap"},
+      React.createElement("h4",{className:"loc-spatial-heading"},candidate?"Top-down map \u2014 draft to review":"Top-down map"),
+      React.createElement(LocationFloorPlanMap,{scene:locationFloorPlanScene(owner,plan),selected:mapSel,onSelect:setMapSel})),
     React.createElement("fieldset",{disabled:readOnly||busy},
       !empty&&React.createElement("details",{className:"loc-spatial-assist"},
         React.createElement("summary",null,"Need help? Draft with AI",React.createElement("small",null,"Optional")),
@@ -419,12 +574,23 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
             React.createElement("option",{value:""},(()=>{const w=locWallYawFromText((a.placement||"")+" "+(a.name||""));
               return w?"From its placement: "+locCompass(w.yaw):"Not set";})()),
             (a.facing!=null&&a.facing%45?[a.facing]:[]).concat([0,45,90,135,180,225,270,315]).map(y=>
-              React.createElement("option",{key:y,value:String(y)},locCompass(y)+" ("+Math.round(y)+"\u00b0)")))))),
+              React.createElement("option",{key:y,value:String(y)},locCompass(y)+" ("+Math.round(y)+"\u00b0)")))),
+        // where it stands on the floor plan (step B): approximate metres, with where the numbers came from
+        React.createElement("div",{className:"loc-cam-fields loc-anchor-coords"},
+          React.createElement(LocCoordInput,{label:"Floor plan position",value:a.xy?a.xy.map(_locFmt).join(", "):"",placeholder:"x, y",mode:"text",
+            hint:"metres from the origin (approximate)",onCommit:v=>anchorChange(a.id,{xy:_locParseVec(v,2)||undefined})}),
+          React.createElement(LocCoordInput,{label:"Height",value:_locFmt(a.z),placeholder:"0",hint:"m above the main floor",
+            onCommit:v=>{const z=_locParseNum(v);anchorChange(a.id,{z:z==null?undefined:z});}}),
+          !(typeof locationAnchorIsOpening==="function"&&locationAnchorIsOpening(a))&&React.createElement(LocCoordInput,{label:"Front faces",value:_locFmt(a.facing),
+            placeholder:"degrees",hint:a.facing!=null?locCompass(a.facing):"0 = north, 90 = east",
+            onCommit:v=>{const f=_locParseNum(v);anchorChange(a.id,{facing:f==null?undefined:f});}}),
+          (a.xy||a.z!=null||a.facing!=null)&&React.createElement(LocBasisSelect,{label:"Position basis",value:a.posBasis,onChange:v=>anchorChange(a.id,{posBasis:v})})))),
       React.createElement("button",{className:"art-draftall ghost",disabled:plan.anchors.length>=24,
         onClick:()=>change({anchors:[...plan.anchors,{id:"anchor-"+Date.now().toString(36),space:l.name||"",name:"",placement:"",basis:"design",evidence:""}]})},"Add fixed anchor"),
+      typeof locationSpatialFamily==="function"&&React.createElement(LocationFloorPlanFields,{plan,family:locationSpatialFamily(owner),change,readOnly}),
       field("Connections & doorway sightlines",plan.sightlines,value=>change({sightlines:value}),"Which rooms connect? What objects are visible through each opening?"),
       field("Unknowns / conflicts to resolve in 3D",plan.unresolved,value=>change({unresolved:value}),"Unseen walls, conflicting panels, dimensions that still need measurement…"),
-      React.createElement("p",{className:"loc-layer-note"},"Check placements across all source panels and explicitly resolve any disagreement in Layout corrections. Unknown dimensions remain unmeasured—not exact Blender coordinates. A new parent plate requires another review."),
+      React.createElement("p",{className:"loc-layer-note"},"Check placements across all source panels and explicitly resolve any disagreement in Layout corrections. Floor plan numbers are approximate estimates for a 3D blockout \u2014 never a survey; unknown dimensions stay in Unknowns. A new parent plate requires another review."),
       !confirmed&&!empty&&React.createElement("div",{className:"loc-spatial-footer"},
         React.createElement("p",{className:"loc-layer-note"},check.complete?"Finished checking? Confirm this layout to enable image generation.":reviewHint),
         confirmButton(),
@@ -544,6 +710,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // a room's panel plan and the cameras its prompt states, fixed when its references are read (2026-10-13)
   const masterSubPlan=React.useRef(null);
   const masterPanelRecord=React.useRef(null);
+  const masterLayoutSig=React.useRef("");
   React.useEffect(()=>{
     let alive=true;
     const id=l.parentLocation&&l.parentLocation.id;
@@ -616,6 +783,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       requireLocationSpatialPlan(l);
       masterPlanSig.current=(typeof locationSpatialPlanSigFor==="function") ? locationSpatialPlanSigFor(l) : "";
       masterPanelRecord.current=(typeof locationPlatePanelRecord==="function") ? locationPlatePanelRecord(l) : null;
+      masterLayoutSig.current=(typeof locationPlateLayoutSig==="function") ? locationPlateLayoutSig(l,{panels:true}) : "";
       /* A ROOM (2026-10-13, Location coordinates): its parent's plate small, then the view of the space beyond each
          opening its panels see — numbered, so the prompt can say "match Image N" */
       let parentRefs;
@@ -652,6 +820,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       // the cameras its prompt stated (a fresh plate) or the ones the edited plate had (2026-10-13)
       ...(mode==="final"&&masterPanelRecord.current?{platePanels:masterPanelRecord.current}
         :mode==="edit"&&gen.genMeta&&gen.genMeta.platePanels?{platePanels:gen.genMeta.platePanels}:{}),
+      // the layout (and cameras) it was made from — "Layout changed — regenerate" (step B); an edit keeps the old one
+      ...(mode==="edit"?(gen.genMeta&&gen.genMeta.plateLayoutSig?{plateLayoutSig:gen.genMeta.plateLayoutSig}:{})
+        :masterLayoutSig.current?{plateLayoutSig:masterLayoutSig.current}:{}),
       // the written spec it was made from ("Description changed" — an edit keeps the one it started from)
       locSpecSig: mode==="edit" ? (gen.genMeta && gen.genMeta.locSpecSig) : (typeof locationSpecSig==="function" ? locationSpecSig(l) : undefined)
     }),
@@ -914,6 +1085,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             // what this plate was made from has changed since (2026-10-08) — the plate stays until you regenerate it
             gen.genUrl && typeof locationSpecChanged==="function" && locationSpecChanged(gen.genMeta, l) && React.createElement("span",{className:"shot-source-badge stale",
               title:"This location's description or render style changed after the plate was made. The plate stays as it is until you regenerate it."},"Description changed"),
+            gen.genUrl && typeof locationPlateLayoutChanged==="function" && locationPlateLayoutChanged(gen.genMeta, l, {panels:true}) && React.createElement("span",{className:"shot-source-badge stale",
+              title:"The shared layout or this plate's cameras changed after the plate was made. Nothing regenerates on its own \u2014 regenerate it when you are ready."},"Layout changed \u2014 regenerate"),
             gen.genUrl && l.parentLocation && typeof locationDerivedPlateChanged==="function" && locationDerivedPlateChanged(gen.genMeta) && React.createElement("span",{className:"shot-source-badge stale",
               title:"The parent location's plate was regenerated after this plate was made from it. This plate stays as it is until you regenerate it."},"Parent plate changed")),
           l.parentLocation&&React.createElement("div",{className:"loc-parent-breadcrumb"},
@@ -1206,11 +1379,23 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
    they are extra empty-set anchors for subspaces the screenplay actually films
    inside a broader scene location (e.g. EXT yard + INT booth). */
 /* the parent snapshot taken when THIS run attached its references, used once (a later run takes its own) */
-function _parentChangedBadge(gen){
-  return (gen && gen.genUrl && typeof locationDerivedPlateChanged==="function" && locationDerivedPlateChanged(gen.genMeta))
-    ? React.createElement("span",{className:"shot-source-badge stale",
+function _parentChangedBadge(gen, l){
+  const parent = (gen && gen.genUrl && typeof locationDerivedPlateChanged==="function" && locationDerivedPlateChanged(gen.genMeta))
+    ? React.createElement("span",{key:"parent",className:"shot-source-badge stale",
         title:"The location plate this was made from was regenerated afterwards. This plate stays as it is until you regenerate it."},"Parent plate changed")
     : null;
+  // (step B, 2026-10-13) the shared layout it was made from changed — said, never regenerated on its own
+  const layout = (gen && gen.genUrl && l && typeof locationPlateLayoutChanged==="function" && locationPlateLayoutChanged(gen.genMeta, l))
+    ? React.createElement("span",{key:"layout",className:"shot-source-badge stale",
+        title:"The shared layout changed after this plate was made. Nothing regenerates on its own \u2014 regenerate it when you are ready."},"Layout changed \u2014 regenerate")
+    : null;
+  return parent||layout ? React.createElement(React.Fragment,null,parent,layout) : null;
+}
+/* the layout stamp a single-frame plate records (an edit keeps the one it was made with) */
+function _withLayoutStamp(l, mode, gen, meta){
+  const sig = mode==="edit" ? (gen && gen.genMeta && gen.genMeta.plateLayoutSig)
+    : (typeof locationPlateLayoutSig==="function" ? locationPlateLayoutSig(l) : "");
+  return sig ? {...(meta||{}), plateLayoutSig:sig} : meta;
 }
 function _takeDepSnap(ref){ const x = ref && ref.current; if(ref) ref.current = null; return x; }
 function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, parentGenUrl, onView }){
@@ -1305,12 +1490,12 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". The screenplay page snapshots are context only: read the scene geography from them, but never copy their typography, page border, text, captions or layout into the location sheet."
       : "",
-    metaExtra:({mode})=> mode==="edit"
+    metaExtra:({mode})=> _withLayoutStamp(l,mode,gen,mode==="edit"
       ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage")),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage"))),
     buildEdit: (instr)=> "Edit this "+(v.role||"INT")+" Required Space Plate for "+(v.name||l.name||"the location")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -1323,7 +1508,7 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       React.createElement("div",{className:"loc-coverage-title"},
         React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(v.role||"")?"ext":"int")},v.role||"INT"),
         React.createElement("b",null,v.name||"Extra space"),
-        _parentChangedBadge(gen)),
+        _parentChangedBadge(gen, l)),
       React.createElement("span",{className:"loc-coverage-source",title:v.summary||""},sourceLabel)),
     v.summary && React.createElement("div",{className:"loc-variants-empty loc-coverage-summary"},v.summary),
     React.createElement(SheetFrame,{ gen, slotId:"loccov-"+id, name:(v.name||l.name||"Location")+" \u00b7 "+(v.role||"INT"),
@@ -1462,12 +1647,12 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
     attachmentsText: (refs)=> refs&&refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". Read screenplay snapshots as context only; never copy their text, typography, borders or layout."
       : "",
-    metaExtra:({mode})=> mode==="edit"
+    metaExtra:({mode})=> _withLayoutStamp(l,mode,gen,mode==="edit"
       ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),stateUnit?"slugline-unit":"continuity-state")),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),stateUnit?"slugline-unit":"continuity-state"))),
     buildEdit: (instr)=> "Edit this establishing frame of "+(l.name||"the place")+" ("+v.time+"). Apply ONLY: "+instr+". Keep the same space and architecture."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -1482,7 +1667,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
             React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(stateUnit.intExt||"")?"ext":"int")},stateUnit.intExt||"INT"),
             React.createElement("b",null,stateUnit.name||l.name||"Location"),
             stateUnit.time&&React.createElement("span",{className:"loc-time-badge"},stateUnit.time),
-            _parentChangedBadge(gen))
+            _parentChangedBadge(gen, l))
         : React.createElement(EditText,{value:v.time,placeholder:"State name / time, e.g. Dawn \u00b7 storm\u2026",onCommit:onTime}),
       onRemove&&React.createElement("button",{className:"loc-variant-x",title:"Remove environment state",onClick:onRemove},React.createElement(Icon.x,{s:12}))),
     React.createElement(SheetField,{label:"What changes",value:v.state||"",multiline:true,
@@ -1593,12 +1778,12 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". The screenplay page snapshots are context only: read the scene geography from them, but never copy their typography, page border, text, captions or layout into the location sheet."
       : "",
-    metaExtra:({mode})=> mode==="edit"
+    metaExtra:({mode})=> _withLayoutStamp(l,mode,gen,mode==="edit"
       ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit")),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit"))),
     buildEdit: (instr)=> "Edit this "+role+" Slugline Unit plate for "+(u.name||l.name||"the location")+(u.time?(" at "+u.time):"")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -1612,7 +1797,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
         React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(role)?"ext":"int")},role),
         React.createElement("b",null,u.name||"Slugline unit"),
         u.time && React.createElement("span",{className:"loc-time-badge"},u.time),
-        _parentChangedBadge(gen)),
+        _parentChangedBadge(gen, l)),
       React.createElement("span",{className:"loc-coverage-source",title:(u.sluglines||[]).join("\n")},sourceLabel)),
     React.createElement("div",{className:"loc-space-provenance "+sourceMeta.kind,title:(u.sluglines||[]).join("\n")},
       sourceMeta.label,

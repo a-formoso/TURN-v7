@@ -120,7 +120,8 @@ await test("B3 derived plates say 'Parent plate changed' only when they recorded
   assert.equal(box.locationSpecChanged({ locSpecSig:sig }, { ...house, materials:"Stone" }), true);
   assert.equal(box.locationSpecChanged({}, { ...house, materials:"Stone" }), false, "older plates don't flag");
   assert.ok(locs.includes("lineage.locSpecSig=locationSpecSig(l);") && ui.includes("locSpecSig: mode===\"edit\" ? (gen.genMeta && gen.genMeta.locSpecSig)"));
-  assert.equal((ui.match(/\n\s+_parentChangedBadge\(gen\)/g)||[]).length, 3, "the extra-space, state and room & time cards");
+  // (2026-10-13, Location coordinates step B) the badge also says when the shared layout changed — it takes the card's location
+  assert.equal((ui.match(/\n\s+_parentChangedBadge\(gen, l\)/g)||[]).length, 3, "the extra-space, state and room & time cards");
   assert.equal((ui.match(/attachments: async \(\.\.\.a\)=>\{ depSnap\.current = /g)||[]).length, 3, "the parent as ATTACHED, not after the render");
 });
 await test("B4 a frame records its location plates and text; 'Location changed' only once details load", ()=>{

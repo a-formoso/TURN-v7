@@ -3788,6 +3788,41 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
   .loc-cam-field :is(input,select){font-size:16px;min-height:40px}
   .loc-cam-make{min-height:44px}
 }
+/* the floor plan — a top-down map of the shared layout and its numbers (2026-10-13, Location coordinates step B) */
+.loc-map-wrap{margin:12px 0}
+.loc-map{display:flex;flex-direction:column;gap:8px}
+.loc-map-svg{width:100%;height:auto;max-height:60vh;aspect-ratio:4/3;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-1);touch-action:manipulation}
+.loc-map-space{fill:var(--bg-3);stroke:var(--txt-3)}
+.loc-map-space.room{fill:var(--accent-soft);stroke:var(--txt-2)}
+.loc-map-label{fill:var(--txt-2);font-family:var(--f-ui);font-weight:600;pointer-events:none}
+.loc-map-opening{stroke:var(--txt-2);stroke-linecap:round}
+.loc-map-opening.window,.loc-map-opening.glass{stroke:var(--accent)}
+.loc-map-opening.arch{stroke-dasharray:.4 .3}
+.loc-map-anchor circle{fill:var(--txt-1)}
+.loc-map-anchor text{fill:var(--txt-1);font-family:var(--f-ui);pointer-events:none}
+.loc-map-cam{cursor:pointer}
+.loc-map-cam polygon{fill:var(--accent);fill-opacity:.14;stroke:var(--accent);stroke-opacity:.55}
+.loc-map-cam circle{fill:var(--accent)}
+.loc-map-cam.on polygon{fill-opacity:.32;stroke-opacity:1}
+.loc-map-cam.dim{opacity:.35}
+.loc-map-camlabel{fill:var(--accent-ink);font-family:var(--f-mono);font-weight:700;pointer-events:none}
+.loc-map-north{fill:var(--txt-2);font-family:var(--f-mono);font-weight:700}
+.loc-map-chips{display:flex;flex-wrap:wrap;gap:6px}
+.loc-map-chip{border:1px solid var(--line-2);border-radius:999px;background:var(--bg-1);color:var(--txt-2);padding:4px 10px;font:500 11px/1.4 var(--f-ui);cursor:pointer}
+.loc-map-chip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--txt-1)}
+.loc-map-chip.off{cursor:default;opacity:.6}
+.loc-map-detail{color:var(--txt-1)}
+.loc-floorplan-fields{margin-top:12px}
+.loc-floorplan-space{margin:10px 0;padding:10px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-1)}
+.loc-floorplan-opening{margin:8px 0;padding:8px;border-left:2px solid var(--line-2)}
+.loc-floorplan-cams{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.loc-anchor-coords{margin-top:4px}
+.loc-cam-kids{margin:8px 0 0;font:400 11.5px/1.5 var(--f-ui);color:var(--txt-2);overflow-wrap:anywhere}
+@media(max-width:600px){
+  .loc-map-svg{aspect-ratio:1/1}
+  .loc-map-chip{min-height:36px;padding:6px 12px}
+  .loc-floorplan-space{padding:8px}
+}
 /* time-of-day variants */
 .loc-variants{display:flex;flex-direction:column;gap:10px}
 .loc-variants-empty{font-size:12px;color:var(--txt-3);font-style:italic}
