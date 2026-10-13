@@ -4198,7 +4198,7 @@ window.QaCheckButton = QaCheckButton;
    stated, marks with their side and place, hair, and a variant's own scene's wardrobe). Each mismatch is listed with
    the quote it breaks. Where the SPEC is wrong it offers "Apply to spec" (the field the sheet prompt reads); where the
    spec is right but the image isn't, "Regenerate". One vision read (the QA check's paid path, aiVisionComplete). ---- */
-function ScriptCheckReport({ c, name, noun, report, gening, variant, onClose, onApply, onRegen, regenCost }){
+function CharacterScriptCheckReport({ c, name, noun, report, gening, variant, onClose, onApply, onRegen, regenCost }){
   const r = report;
   const [applied, setApplied] = React.useState({});
   const curRef = React.useRef({ ...(c||{}) });
@@ -4294,14 +4294,14 @@ function ScriptCheckButton({ gen, c, drafts, sceneId, variantLabel, noun, onUpda
         +": age, build, marks with their side and place…): what differs, with the quote each one breaks. One vision read (writing credits, no image spend).")},
       busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.script,{s:12}),
       busy ? "Checking…" : "Script check"),
-    report && ReactDOM.createPortal(React.createElement(ScriptCheckReport,{ c, name:c.name+(variantLabel ? " · "+variantLabel : ""), noun:nounT, report,
+    report && ReactDOM.createPortal(React.createElement(CharacterScriptCheckReport,{ c, name:c.name+(variantLabel ? " · "+variantLabel : ""), noun:nounT, report,
       gening:gen.gening, variant:!!variantLabel,
       onApply: onUpdate ? (patch)=> onUpdate(c.id, patch) : null,
       onRegen:()=> setPendingRegen(true),
       regenCost:(gen.likenessRefs && gen.refCounts) ? { refs:gen.refCounts().generate } : undefined,
       onClose:()=>setReport(null) }), document.body));
 }
-window.ScriptCheckButton = ScriptCheckButton; window.ScriptCheckReport = ScriptCheckReport;
+window.ScriptCheckButton = ScriptCheckButton; window.CharacterScriptCheckReport = CharacterScriptCheckReport;
 
 function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApply, costOptsFor }){
   const [rect, setRect] = React.useState({ x:24, y:24, w:44, h:36 });

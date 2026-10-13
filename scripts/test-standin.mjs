@@ -427,7 +427,7 @@ await test("E agents.jsx alone (no script.jsx) still offers stand-ins, through t
 
 await test("E sensitivity: with the old 'any draft with blocks is written' filter, the stand-ins are not offered", async ()=>{
   const src = read("app/agents.jsx");
-  const fixed = "return !(d && (d.blocks||[]).length) || isStandIn(d); });";
+  const fixed = "return !(d && (d.blocks||[]).length) || isStandIn(d) || !(b && (b.rows||[]).length); });";
   assert.ok(src.includes(fixed));
   const b = makeBox();
   vm.runInContext(src.replace(fixed, "return !(d && (d.blocks||[]).length); });"), b, { filename:"app/agents.jsx(old)" });

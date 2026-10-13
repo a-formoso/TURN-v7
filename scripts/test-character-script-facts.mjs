@@ -59,7 +59,7 @@ const W = sandbox;
 for(const fn of ["charNameTokens","charScriptParagraphs","charScriptSig","charFactsState","charFactsLive","charFactChunks","charFactCallCount",
   "charFactsNormalize","charFactLocate","charFactsReadPatch","charFactsFeatureMerge","charFieldOrigin","charOverridePatch","charOverrideQuestion",
   "charKeepOverrides","charFactsPromptBlock","charFidelityFacts","charFidelityFixPatch","charFeaturesRemovedMarks","charReadCostText","charHasScript",
-  "CharScriptFactsPanel","ScriptCheckButton","ScriptCheckReport","CastConfirm"])
+  "CharScriptFactsPanel","ScriptCheckButton","CharacterScriptCheckReport","CastConfirm"])
   if(typeof W[fn]!=="function"){ console.log("FAIL "+fn+" missing from dist/app/artroom.js — run npm run build"); process.exit(1); }
 W.turnWritingCallsText = (n)=> "about "+n+" writing call"+(n!==1?"s":"")+" on Opus 5.5";
 W.nbCostChip = (n, o)=>({ type:"chip", props:{ n, o }, children:[] });
@@ -451,7 +451,7 @@ await test("E4 the report: each mismatch with the quote it breaks; Apply to spec
     { fact:{ field:"marks", value:"missing two fingers on the left hand", quote:"His left hand is missing two fingers.", sceneNo:1 }, issue:"the missing fingers are on the RIGHT hand", specOk:true, specFix:"" },
     { fact:{ field:"age", value:"60s", quote:"(60s", sceneNo:1 }, issue:"looks mid 30s", specOk:false, specFix:"60s, weathered" }] };
   const applied = []; let regen = 0, closed = 0;
-  const tree = W.ScriptCheckReport({ c, name:"Kai Reyes", noun:"character sheet", report, gening:false, onClose:()=>closed++, onApply:(p)=>applied.push(p), onRegen:()=>regen++, regenCost:undefined });
+  const tree = W.CharacterScriptCheckReport({ c, name:"Kai Reyes", noun:"character sheet", report, gening:false, onClose:()=>closed++, onApply:(p)=>applied.push(p), onRegen:()=>regen++, regenCost:undefined });
   const t = textOf(tree);
   assert.match(t, /The script says “His left hand is missing two fingers\.” — the sheet: the missing fingers are on the RIGHT hand\./);
   assert.match(t, /The spec already says it — the image missed it: regenerate\./);
@@ -464,12 +464,12 @@ await test("E4 the report: each mismatch with the quote it breaks; Apply to spec
   assert.ok(findAll(re, n=>n.type==="chip").length===1, "the regenerate price is shown");
   re.props.onClick(); assert.equal(regen, 1); assert.equal(closed, 1);
   // a variant: its wardrobe isn't written to the master's spec
-  const v = W.ScriptCheckReport({ c, name:"Kai · Street", noun:"variant sheet", report:{ checked:1, mismatches:[{ fact:{ field:"wardrobe", value:"grey boiler suit", quote:"in a grey boiler suit", sceneNo:2 }, issue:"a suit", specOk:false, specFix:"grey boiler suit" }] },
+  const v = W.CharacterScriptCheckReport({ c, name:"Kai · Street", noun:"variant sheet", report:{ checked:1, mismatches:[{ fact:{ field:"wardrobe", value:"grey boiler suit", quote:"in a grey boiler suit", sceneNo:2 }, issue:"a suit", specOk:false, specFix:"grey boiler suit" }] },
     variant:true, onClose:noop, onApply:noop, onRegen:noop });
   assert.ok(!findAll(v, n=>n.type==="button").some(b=>textOf(b)==="Apply to spec"));
   assert.match(textOf(v), /Fix it in this variant's change text/);
   // clean
-  assert.match(textOf(W.ScriptCheckReport({ c, report:{ checked:4, mismatches:[] }, onClose:noop, onRegen:noop })), /Matches the script — nothing to fix\./);
+  assert.match(textOf(W.CharacterScriptCheckReport({ c, report:{ checked:4, mismatches:[] }, onClose:noop, onRegen:noop })), /Matches the script — nothing to fix\./);
 });
 await test("E5 the button: next to QA check on the sheet and on each variant; says why it can't run; quotes the vision read", ()=>{
   const gen = { genUrl:"https://x/s.png", gening:false, generate:noop };

@@ -7465,6 +7465,7 @@ function App(){
         buildStoryWorld:(b,sp)=>window.aiBuildStoryWorld(b,sp,(project&&project.format)||"film",
           (project && project.research && String(project.sourceBrief||"").trim()===String(b||"").trim()) ? project.research : null),
         authorScene:(s,p)=>window.aiAuthorScene(s,p,model.characters,model.project,{scenes:model.scenes}),
+        beatsFromScript:(s,d)=>window.aiBeatsFromScript(s,d,model.characters,model.project),
         draftScene:(s,b,p,o)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes,o),
       } };
   };
@@ -8671,6 +8672,7 @@ function App(){
           ? window.choosableFrameworkId(project.framework) : project.framework;
         const _fwSame = _fwKeep===project.framework;
         const keep = { format:project.format, framework:_fwKeep, logline:(project.logline||"").trim(),
+          ...(project.research ? { research:JSON.parse(JSON.stringify(project.research)) } : {}),
           ...(project.synopsis && _fwSame ? { synopsis:project.synopsis } : {}) };
         if(cloudMode && typeof createProject==="function"){
           const requestId=typeof window.cloudCreateRequestId==="function"
@@ -8700,6 +8702,7 @@ function App(){
         setRoom("writers"); setView("spine");
         setProject(p=>({ ...p, ...(keep.format?{format:keep.format}:{}), ...(keep.framework?{framework:keep.framework}:{}),
           logline:keep.logline || p.logline, ...(keep.synopsis ? { synopsis:keep.synopsis } : {}),
+          ...(keep.research ? { research:keep.research } : {}),
           sourceBrief:brief, sourceBriefAt:new Date().toISOString() }));
         setAgentLaunch({id:"adapt", input:brief}); setAgentsOpen(true);
       },
@@ -8993,12 +8996,13 @@ function App(){
       undoCount:agentUndoHere.length,
       undoLabel:agentUndoHere.length?agentUndoHere[agentUndoHere.length-1].label:null,
       onUndo:undoLastAgent,
-      // "Finish writing this film" (2026-09-28): scenes with no screenplay or only a rough stand-in
+      // Finish incomplete scenes, including a real screenplay whose beat map is missing.
       ...(()=>{ const standIn = (d)=> typeof window.isStandInDraft==="function" ? window.isStandInDraft(d) : false;
-        let n = 0, st = 0;
+        let n = 0, st = 0, bm = 0;
         scenes.forEach(s=>{ const d = drafts[s.id];
-          if(!(d && (d.blocks||[]).length)) n++; else if(standIn(d)){ n++; st++; } });
-        return { unwritten:n, unwrittenStandIns:st, finishInput:String((project && (project.sourceBrief || project.logline)) || "") }; })(),
+          if(!(d && (d.blocks||[]).length)) n++; else if(standIn(d)){ n++; st++; }
+          else if(!(beatsMap[s.id] && (beatsMap[s.id].rows||[]).length)){ n++; bm++; } });
+        return { unwritten:n, unwrittenStandIns:st, unwrittenBeatMaps:bm, finishInput:String((project && (project.sourceBrief || project.logline)) || "") }; })(),
       issues:agentIssues,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
 

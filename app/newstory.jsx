@@ -507,7 +507,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
   // RESEARCH, ITS OWN MOMENT (2026-10-02, owner-approved): gathered for one logline, read and
   // edited (or re-researched with a steer) before the synopsis is written FROM it
   const [research, setResearch] = React.useState(null);   // { memory, imagination, fact:{ world, roles[] }, sources, grounded }
-  const [researchFor, setResearchFor] = React.useState(""); // the logline it was gathered for
+  const [researchFor, setResearchFor] = React.useState(""); // seed, logline and shape it was gathered for
   const [researchLoading, setResearchLoading] = React.useState(false);
   const [researchEdited, setResearchEdited] = React.useState(false);
   const [steer, setSteer] = React.useState("");
@@ -564,21 +564,23 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
     if(typeof window.appConfirm!=="function") return true;
     return !!(await window.appConfirm({ title, body, confirmLabel }));
   };
-  // gather the research for the chosen logline; the same logline goes straight back to it,
-  // a changed one researches again (and its old synopsis goes with the old research)
+  const intakeKey = ()=>JSON.stringify({ logline:(chosen||"").trim(), seed:text.trim(),
+    format:formatRef.current, framework:frameworkRef.current });
+  // Research is reusable only for the same seed, logline, format and framework.
   const runResearch = async (again)=>{
     if(researchLoading || synLoading) return;
     const l=(chosen||"").trim();
     if(!l){ setErr("Choose a logline first."); return; }
-    if(!again && research && researchFor===l){ setErr(""); setStep("research"); return; }
-    if(again && researchEdited && !(await askFirst("Research again?",
+    const inputKey = intakeKey();
+    if(!again && research && researchFor===inputKey){ setErr(""); setStep("research"); return; }
+    if(research && researchEdited && !(await askFirst("Research again?",
       "A new research replaces your edits to this one.", "Research again"))) return;
     setErr(""); setResearchLoading(true);
     try{
       const r = (typeof aiResearch==="function") ? await aiResearch(l, text, frameworkRef.current, formatRef.current, again ? steer : "") : null;
       if(r && r.research){
-        const fresh = researchFor!==l;
-        setResearch(r.research); setResearchFor(l); setResearchEdited(false);
+        const fresh = researchFor!==inputKey;
+        setResearch(r.research); setResearchFor(inputKey); setResearchEdited(false);
         if(fresh){ setSyn(null); setParas([]); setSynFrom(""); setTitle(r.title||""); }
         else if(!title) setTitle(r.title||"");
         setStep("research");
@@ -587,12 +589,15 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
     setResearchLoading(false);
   };
   const editResearch = (fn)=>{ setResearch(r=>{ const n = JSON.parse(JSON.stringify(r||{})); fn(n); return n; }); setResearchEdited(true); };
-  const researchKey = JSON.stringify(research||null);
+  const researchKey = JSON.stringify({ input:intakeKey(), research:research||null });
   // write (or rewrite) the synopsis FROM the research as it stands now
   const writeSynopsis = async ()=>{
     if(synLoading || researchLoading) return;
     const l=(chosen||"").trim();
     if(!l || !research){ setErr("Research the logline first."); return; }
+    if(researchFor!==intakeKey()){
+      setErr("The seed or story shape changed \u2014 research it again before writing the synopsis."); setStep("loglines"); return;
+    }
     if(paras.length && !(await askFirst("Rewrite the synopsis from the research?",
       "It replaces the paragraphs below, including your edits to them.", "Rewrite synopsis"))) return;
     setErr(""); setSynLoading(true);
@@ -611,6 +616,9 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
   // spine always builds FROM the reviewed synopsis — there is no logline-only path.
   const build = ()=>{
     const l=(chosen||"").trim(); if(!l || !syn) return;
+    if(researchFor!==intakeKey()){
+      setErr("The seed or story shape changed \u2014 research it again before building."); setStep("loglines"); return;
+    }
     const edited = paras.map(pg=>({ ...pg, text:(pg.text||"").trim() }));
     const synopsis = { paras: edited };
     edited.forEach(pg=>{ synopsis[pg.key] = pg.text; });

@@ -454,7 +454,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
           viewLabel||"View story",React.createElement(Icon.chevR,{s:16})))));
 }
 
-function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force, unwritten, unwrittenStandIns, finishInput }){
+function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force, unwritten, unwrittenStandIns, unwrittenBeatMaps, finishInput }){
   const agents = window.AGENTS || [];
   const dn = (t)=> (typeof window.turnDisplayNames==="function") ? window.turnDisplayNames(t) : t;
   const [active, setActive] = React.useState(()=> initialAgentId ? (agents.find(a=>a.id===initialAgentId)||null) : null);
@@ -478,13 +478,16 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
      auto-started), with the film's own brief. Its first proposal is "Finish writing this film first?". */
   const [finishLaunch, setFinishLaunch] = React.useState(null);
   const unwrittenN = Math.max(0, Number(unwritten)||0), standInN = Math.min(unwrittenN, Math.max(0, Number(unwrittenStandIns)||0));
+  const beatMapN = Math.min(unwrittenN, Math.max(0, Number(unwrittenBeatMaps)||0));
+  const finishStatus = beatMapN
+    ? unwrittenN+" scene"+(unwrittenN===1?" needs":"s need")+" finishing ("+beatMapN+" with a screenplay but no beat map)"
+    : "This film has "+unwrittenN+" unwritten scene"+(unwrittenN!==1?"s":"")+(standInN ? " ("+standInN+" of them "+(standInN===1?"a rough stand-in":"rough stand-ins")+")" : "");
   const openFinish = ()=>{ const a = agents.find(x=>x.id==="adapt"); if(!a) return;
     setFinishLaunch({ input:String(finishInput||"") }); setAuto(false); setActive(a); };
   const finishing = !!(finishLaunch && active && active.id==="adapt");
   const finishNote = finishing && React.createElement("div",{className:"ag-intro-note"},
     React.createElement(Icon.sparkles,{s:14}),
-    "This film has "+unwrittenN+" unwritten scene"+(unwrittenN!==1?"s":"")+(standInN ? " ("+standInN+" of them "+(standInN===1?"a rough stand-in":"rough stand-ins")+")" : "")+
-    ". Press Run Adaptation: it first offers to write just "+(unwrittenN===1?"that one":"those")+" \u2014 every scene already written stays untouched. Decline only if you want to rebuild the whole film from the logline above.");
+    finishStatus+". Press Run Adaptation: it first offers to "+(beatMapN ? "finish" : "write")+" just "+(unwrittenN===1?"that one":"those")+" \u2014 every scene already written stays untouched."+(beatMapN ? " Only their missing beat maps are repaired." : "")+" Decline only if you want to rebuild the whole film from the logline above.");
   const iss = issues || {};
   const turnN = iss.doctor||0, contN = iss.continuity||0;
   const issueParts = [];
@@ -548,8 +551,9 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
             unwrittenN>0 && aiOn && React.createElement("div",{className:"ag-undo-row ag-finish-row"},
               React.createElement(Icon.flask,{s:14}),
               React.createElement("span",{className:"ag-undo-tx"},
-                unwrittenN+" scene"+(unwrittenN!==1?"s aren\u2019t":" isn\u2019t")+" written yet"+(standInN ? " ("+standInN+" "+(standInN===1?"is a rough stand-in":"are rough stand-ins")+")" : "")+
-                " \u2014 Adaptation can write just "+(unwrittenN===1?"that one":"those")+", leaving everything already written untouched."),
+                beatMapN ? finishStatus+" \u2014 Adaptation can repair their beat maps while keeping existing screenplays."
+                  : unwrittenN+" scene"+(unwrittenN!==1?"s aren\u2019t":" isn\u2019t")+" written yet"+(standInN ? " ("+standInN+" "+(standInN===1?"is a rough stand-in":"are rough stand-ins")+")" : "")+
+                    " \u2014 Adaptation can write just "+(unwrittenN===1?"that one":"those")+", leaving everything already written untouched."),
               React.createElement("button",{className:"ag-undo-btn",onClick:openFinish},"Finish writing this film")),
             undoCount>0 && React.createElement("div",{className:"ag-undo-row"},
               React.createElement(Icon.undo,{s:14}),

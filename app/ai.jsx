@@ -2086,8 +2086,9 @@ async function aiBeatsFromScript(scene, draft, characters, project){
     const j = extractJSON(res);
     if(!j || !Array.isArray(j.beats) || !j.beats.length) return null;
     const resolveLabel = (lab, fb)=>{ const s=(lab||"").toString().trim(); if(!s) return fb;
-      const low=s.toLowerCase().replace(/[^a-z0-9]/g,"");
-      const m = cast.find(c=> c.name.toLowerCase().replace(/[^a-z0-9]/g,"").includes(low) || low.includes(c.name.toLowerCase().replace(/[^a-z0-9]/g,"")));
+      const norm = v=>String(v||"").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu,"");
+      const low=norm(s);
+      const m = low && (cast.find(c=>norm(c.name)===low) || cast.find(c=>{ const n=norm(c.name); return n && (n.includes(low) || low.includes(n)); }));
       return m ? m.name.toUpperCase() : s.toUpperCase(); };
     const rows = j.beats.map((b,i)=>({ n: Number(b.n)||i+1,
       drive:{ a:scrubBrand((b.drive&&b.drive.a)||"Action").slice(0,24), d:scrubBrand((b.drive&&b.drive.d)||"").slice(0,200) },
@@ -3461,6 +3462,17 @@ window.museFacts = museFacts;
 
 /* The FULL public fact sheet (every entry, whole). MUSE's chat no longer sends this with every
    question — see museBrief() below — but it stays the reference for everything MUSE may know. */
+/* Writers' Room recovery and retained research: keep Frances's capability facts current. */
+(()=>{
+  const intake = APP_FEATURES.find(f=>f.name.startsWith("New Story"));
+  if(intake) intake.what += " Research is reused only for the same seed, logline, format and framework; a changed shape is researched again before writing its synopsis.";
+  const editors = APP_FEATURES.find(f=>f.name==="Story Editors (Writers' Room agents)");
+  if(editors) editors.what += " Finish writing this film also repairs missing or empty beat maps on written scenes, keeping their existing screenplays.";
+  const continuity = APP_FEATURES.find(f=>f.name==="Continuity check");
+  if(continuity) continuity.what += " If a needed ledger refresh fails, Setups & Payoffs stops and says continuity was not checked; an older map is never treated as a current clean check.";
+  const brief = APP_FEATURES.find(f=>f.name==="Story brief (Brief button) + Rebuild as a new film");
+  if(brief) brief.what += " Rebuilding as a new film keeps the complete saved research, including its sources and the writer's edits.";
+})();
 function appBrief(){
   const facts = museFacts();
   return "\n\nABOUT THIS APP (use ONLY these facts to answer product/how-to questions; never invent features or behaviour — if a question isn't covered here, say you're not sure rather than guess):\n"
@@ -3916,7 +3928,7 @@ async function aiSuggestTurn(scene, prevScene, project, report){
     // guarantee it actually REVERSES relative to the opening
     const turns = (typeof chargeTurn==="function") ? chargeTurn(scene.openCharge, cc).turned
       : Math.sign(scene.openCharge)*Math.sign(cc) < 0;
-    if(!turns) cc = scene.openCharge>=0 ? Math.max(-3,scene.openCharge-3) : Math.min(3,scene.openCharge+3);
+    if(!turns) cc = scene.openCharge>0 ? -2 : 2;
     const axis = (typeof sceneValueAxis==="function") ? sceneValueAxis(scene) : null;
     return { closeValue: axis ? valueWordFor(axis, cc) : (j.closeValue||scene.closeValue).toString().slice(0,18), closeCharge:cc,
       rationale: scrubAnalysis((j.rationale||"").toString(), museStoryWords([scene, prevScene].filter(Boolean), project)) };

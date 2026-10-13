@@ -564,8 +564,8 @@ async function agentContinuityRepair(ctx){
   const legacyMap = !L0 && Object.keys(ctx.facts||{}).length>0;
   const stale = !legacyMap && (!L0 || !P0.continuityFacts || (typeof window.continuityLedgerSig==="function"
     && L0.sig !== window.continuityLedgerSig(ctx.model.scenes, ctx.model.drafts)));
-  if(stale && ctx.ai.continuityLedger){
-    if(!ctx.ai.available){ ctx.emit({k:"flag", t:"This film's setups and payoffs aren't mapped yet, and the writing model isn't available to map them."}); ctx.emit({k:"done", t:"Nothing to check yet."}); return; }
+  if(stale){
+    if(!ctx.ai.available || !ctx.ai.continuityLedger){ ctx.emit({k:"flag", t:"This film's setups and payoffs need mapping from the current script, and the writing model isn't available to map them."}); ctx.emit({k:"done", t:"Nothing checked yet."}); return; }
     if(L0) ctx.emit({k:"observe", t:"The script changed since the continuity ledger was built \u2014 it needs rebuilding first."});
     /* THE LEDGER IS REBUILT ONLY WITH YOUR OK (2026-10-09, owner — Writers' Room review): it was rebuilt (a paid
        call, and the film's continuity map replaced) with no card, even when every later card was rejected */
@@ -577,9 +577,9 @@ async function agentContinuityRepair(ctx){
       after:"A ledger built from today's script" });
     if(ctx.cancelled()) return;
     if(!okL){ ctx.emit({k:"done", t:"Setups & Payoffs stopped \u2014 nothing was changed."}); return; }
-    await buildContinuityLedgerStep(ctx);
+    const mapped = await buildContinuityLedgerStep(ctx);
     if(ctx.cancelled()) return;
-    if(!(ctx.model.project||{}).continuityFacts){ ctx.emit({k:"done", t:"Setups & Payoffs stopped \u2014 nothing was changed."}); return; }
+    if(!mapped){ ctx.emit({k:"done", t:"Setups & Payoffs stopped \u2014 the ledger couldn't be refreshed, so continuity was not checked."}); return; }
   }
   let planted = 0;   // lines written into scene cards (their scripts then need a redraft)
   for(let iter=0; iter<MAX; iter++){
@@ -795,9 +795,14 @@ async function writeScenesSeq(ctx, indices){
         // author the beat map; retry once with a breather if the model hiccups — a scene
         // must never end up with a screenplay but no beat map (the cause of "No beat map
         // yet" on a written scene). Both tries can fail only on a hard model error.
-        for(let attempt=0; attempt<2 && !beats; attempt++){
+        for(let attempt=0; attempt<2 && !(beats && (beats.rows||[]).length); attempt++){
           if(attempt){ await scenePause(800); if(ctx.cancelled()) return {cancelled:true}; }
-          const authored = await ctx.ai.authorScene(scn, prev);
+          // A finished screenplay is canon: reconstruct its map rather than inventing
+          // another scene's beats. New scenes still follow beats first, then script.
+          const authored = repairBeatsOnly && ctx.ai.beatsFromScript
+            ? { beats:await ctx.ai.beatsFromScript(scn, ctx.model.drafts[scn.id]) }
+            : await ctx.ai.authorScene(scn, prev);
+          if(ctx.cancelled()) return {cancelled:true};
           if(authored && authored.beats && (authored.beats.rows||[]).length){
             scn = {...scn, ...authored.patch}; beats = authored.beats;
             ctx.model.scenes[i] = scn; ctx.model.beats[scn.id] = authored.beats;
@@ -852,6 +857,7 @@ async function writeScenesSeq(ctx, indices){
       // Stop pressed while the failing call was in flight — this is a STOP, not a
       // scene failure; report it as such so the run never ends with completion copy
       if(ctx.cancelled()) return {cancelled:true};
+      if(repairBeatsOnly) return { ...fail(true, String((e&&e.message)||e||"unknown error")), beatsOnly:true };
       return fail(false, String((e&&e.message)||e||"unknown error"));
     }
   };
@@ -867,7 +873,10 @@ async function writeScenesSeq(ctx, indices){
     const i = indices[k];
     const s = ctx.model.scenes[i];
     ctx.emit({k:"act", t:"Writing Sc "+s.no+" \u201c"+s.title+"\u201d \u2014 "+(k+1)+" of "+indices.length+"\u2026"});
-    const f = await attemptScene(i, 2);
+    const existing = ctx.model.drafts[s.id];
+    const repairBeatsOnly = !!(existing && (existing.blocks||[]).length && !standInDraft(existing)
+      && !(ctx.model.beats[s.id] && (ctx.model.beats[s.id].rows||[]).length));
+    const f = await attemptScene(i, 2, repairBeatsOnly);
     if(f && f.cancelled) return stopRes();
     if(!f){ written++; prevFail = null; continue; }
     // `written` counts real screenplays only: a rough stand-in is not a written scene (Story
@@ -934,13 +943,14 @@ function reportSceneFailures(ctx, r){
    Setups & Payoffs and the Story Editors count work the moment a story exists. One
    writing call; never fatal — a failure leaves the film buildable, marked "not mapped". */
 async function buildContinuityLedgerStep(ctx){
-  if(ctx.cancelled() || !ctx.ai.available || !ctx.ai.continuityLedger) return;
+  if(ctx.cancelled() || !ctx.ai.available || !ctx.ai.continuityLedger) return false;
   const written = (ctx.model.scenes||[]).some(s=>{ const d=ctx.model.drafts[s.id]; return d && (d.blocks||[]).length; });
-  if(!written) return;
+  if(!written) return false;
   ctx.emit({k:"act", t:"Mapping continuity \u2014 what each scene sets up and what later scenes rely on\u2026"});
   try{
     const L = await ctx.ai.continuityLedger();
-    if(ctx.cancelled()) return;
+    if(ctx.cancelled()) return false;
+    if(!L || !L.map || !L.facts || !L.ledger) throw new Error("No complete continuity map was returned");
     ctx.model.continuity = L.map;
     ctx.model.project = { ...ctx.model.project, continuityFacts:L.facts, continuityLedger:L.ledger };
     ctx.facts = L.facts;
@@ -948,8 +958,10 @@ async function buildContinuityLedgerStep(ctx){
     const n = Object.keys(L.facts).length;
     const issues = (typeof continuityReport==="function") ? continuityReport(ctx.model.scenes, L.map, L.facts).conflicts.length : 0;
     ctx.emit({k:"ok", t:"Continuity mapped \u2014 "+n+" story fact"+(n!==1?"s":"")+" tracked"+(issues?(", "+issues+" setup/payoff issue"+(issues!==1?"s":"")+" for Setups & Payoffs."):", every setup pays off.")});
+    return true;
   }catch(e){
     ctx.emit({k:"flag", t:"Couldn't map continuity this time ("+agentErrText(e)+"). The film is fine \u2014 build the ledger later from the Script view's Continuity report."});
+    return false;
   }
 }
 
@@ -966,20 +978,25 @@ async function agentAdaptation(ctx){
   // scene with none), and the stand-in it replaces stays on the agent Undo.
   const have = ctx.model.scenes||[];
   const isStandIn = standInDraft;
-  const unwritten = have.map((s,i)=>i).filter(i=>{ const d = ctx.model.drafts[have[i].id]; return !(d && (d.blocks||[]).length) || isStandIn(d); });
+  const unwritten = have.map((s,i)=>i).filter(i=>{ const d = ctx.model.drafts[have[i].id], b = ctx.model.beats[have[i].id];
+    return !(d && (d.blocks||[]).length) || isStandIn(d) || !(b && (b.rows||[]).length); });
   if(have.length && unwritten.length){
     const standIns = unwritten.filter(i=>isStandIn(ctx.model.drafts[have[i].id])).length;
-    const blank = unwritten.length - standIns;
-    const what = !standIns
+    const beatRepairs = unwritten.filter(i=>{ const d=ctx.model.drafts[have[i].id]; return d && (d.blocks||[]).length && !isStandIn(d); }).length;
+    const blank = unwritten.length - standIns - beatRepairs;
+    const what = beatRepairs
+      ? unwritten.length+" of "+have.length+" scenes need finishing: "+blank+" have no screenplay, "+standIns+" are rough stand-ins, and "+beatRepairs+" have a screenplay but no beat map."
+      : !standIns
       ? unwritten.length+" of "+have.length+" scenes have no screenplay yet."
       : !blank
       ? standIns+" of "+have.length+" scenes "+(standIns===1?"is":"are")+" still a rough stand-in built from the beat cards \u2014 not written yet."
       : unwritten.length+" of "+have.length+" scenes aren\u2019t written yet: "+blank+" "+(blank===1?"has":"have")+" no screenplay and "+standIns+" "+(standIns===1?"is a rough stand-in":"are rough stand-ins")+" built from the beat cards.";
     const finish = await ctx.propose({
       title:"Finish writing this film first?",
-      reason: what+" Approve to write beats + script for JUST those scenes"+(standIns ? " (a stand-in is written from the beat cards it already has; Undo agent changes brings it back)" : "")+" \u2014 everything already written stays untouched. Decline to rebuild the whole film from your logline instead.",
+      reason: what+(beatRepairs ? " Approve to finish JUST those scenes" : " Approve to write beats + script for JUST those scenes")+(standIns ? " (a stand-in is written from the beat cards it already has; Undo agent changes brings it back)" : "")
+        +" \u2014 everything already written stays untouched."+(beatRepairs ? " Only the missing beat maps are repaired on written scenes." : "")+" Decline to rebuild the whole film from your logline instead.",
       rationale:"The fastest, cheapest path: nothing regenerates, nothing you approved is replaced.",
-      list: unwritten.map(i=>"Sc "+have[i].no+" \u00b7 "+have[i].title+(isStandIn(ctx.model.drafts[have[i].id]) ? " (rough stand-in)" : "")),
+      list: unwritten.map(i=>"Sc "+have[i].no+" \u00b7 "+have[i].title+(isStandIn(ctx.model.drafts[have[i].id]) ? " (rough stand-in)" : ctx.model.drafts[have[i].id] && (ctx.model.drafts[have[i].id].blocks||[]).length ? " (beat map missing)" : "")),
     });
     if(ctx.cancelled()) return;
     if(finish){
@@ -1111,8 +1128,8 @@ async function agentAdaptation(ctx){
   const palette = ["linear-gradient(135deg,#c97b45,#5e3a1d)","linear-gradient(135deg,#3f7d86,#16323a)",
     "linear-gradient(135deg,#7a6cae,#2a2440)","linear-gradient(135deg,#5a6470,#23282f)",
     "linear-gradient(135deg,#4a8c6a,#1d3a2a)","linear-gradient(135deg,#9a5a6e,#3a2230)"];
-  const norm = (s)=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
-  const nameWords = (s)=>String(s||"").toLowerCase().split(/[^a-z]+/).filter(w=>w.length>2);
+  const norm = (s)=>String(s||"").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu,"");
+  const nameWords = (s)=>String(s||"").normalize("NFKC").toLowerCase().split(/[^\p{L}\p{N}\p{M}]+/u).filter(w=>w.length>2);
   const titleCase = (s)=>String(s||"").replace(/[_-]+/g," ").replace(/\b\w/g,m=>m.toUpperCase());
 
   let cast = ((world && world.cast) || []).map((c,i)=>({
@@ -1133,10 +1150,10 @@ async function agentAdaptation(ctx){
   // dedup: the model sometimes splits one person into multiple entries (e.g. an
   // "expanded" later-act version). Merge cast members with the same name into one.
   (()=>{
-    const byName = {}; const kept = []; const remap = {};
+    const byName = new Map(); const kept = []; const remap = {};
     cast.forEach(c=>{
       const key = norm(c.name);
-      const prev = byName[key];
+      const prev = key ? byName.get(key) : null;
       if(prev){
         remap[c.id] = prev.id;
         // prefer the protagonist/lead role and keep the richer (longer) role text
@@ -1149,7 +1166,7 @@ async function agentAdaptation(ctx){
         if(c.voice){ const pv = prev.voice || {};
           const merged = {...c.voice, ...Object.fromEntries(Object.entries(pv).filter(([,v])=>String(v||"").trim()))};
           prev.voice = merged; }
-      } else { byName[key] = c; kept.push(c); }
+      } else { if(key) byName.set(key, c); kept.push(c); }
     });
     if(kept.length !== cast.length){
       newScenes.forEach(s=>{ if(remap[s.driver]) s.driver = remap[s.driver]; });
@@ -1159,7 +1176,7 @@ async function agentAdaptation(ctx){
   // remap each scene's driver onto a matching cast id (by id, then by name word)
   const matchTo = (driver)=>{
     const dn = norm(driver); if(!dn) return null;
-    let m = cast.find(c=>c.id===dn);
+    let m = cast.find(c=>c.id===dn) || cast.find(c=>norm(c.name)===dn);
     if(m) return m;
     return cast.find(c=> nameWords(c.name).some(w=> norm(w)===dn || dn.includes(norm(w)) || norm(w).includes(dn))) || null;
   };

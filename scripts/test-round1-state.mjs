@@ -855,7 +855,7 @@ await test("3 Story Editors offers 'Finish writing this film' and opens Adaptati
   const off = mountPanel({ onClose:noop, ctxFactory:noop, aiOn:false, undoCount:0, issues:{}, unwritten:2 })();
   assert.equal(findAll(off, n=>n.type==="button" && textOf(n)==="Finish writing this film").length, 0);
   // the app passes the counts (blank + stand-in scenes) and the film's brief
-  assert.ok(/return \{ unwritten:n, unwrittenStandIns:st, finishInput:String\(\(project && \(project\.sourceBrief \|\| project\.logline\)\) \|\| ""\) \};/.test(appSrc));
+  assert.ok(/return \{ unwritten:n, unwrittenStandIns:st, unwrittenBeatMaps:bm, finishInput:String\(\(project && \(project\.sourceBrief \|\| project\.logline\)\) \|\| ""\) \};/.test(appSrc));
   // the build's own messages point there
   assert.ok(agentsSrc.includes('const FINISH_WHERE = "press Run again, or later open Story Editors and choose Finish writing this film";'));
   assert.ok(!/Run Adaptation again/.test(agentsSrc), "no dead-end 'Run Adaptation again' advice left");
