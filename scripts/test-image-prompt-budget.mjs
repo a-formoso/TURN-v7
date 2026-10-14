@@ -87,8 +87,9 @@ assert.equal(box.locationPromptBudget({ model: "gemini-nano-banana-2.1", reserve
 assert.match(ui, /rebuildPromptAfterAttachments:\(attach,mode,gopts\)=> mode==="final"\n\s+\? buildLocationCoveragePrompt\(l, v, project, _locBudgetOpts\(attach,gopts\)\)/);
 assert.equal((ui.match(/_locBudgetOpts\(attach,gopts\)/g) || []).length, 5, "the master plate, coverage, state and unit cards");
 
-/* the master plate as the card makes it: its references (a room: the parent plate small + matched views; a main
-   location: its layout's plate), its screenplay pages (at most 6 in all), then the prompt rebuilt with them */
+/* the master plate as the card makes it: its references (a room: the parent's matched panels cut out, or one small
+   material panel — never its whole sheet (2026-10-14); a main location: its layout's plate), its screenplay pages (at
+   most 6 in all), then the prompt rebuilt with them */
 async function masterPrompt(l, limit){
   let refs;
   if (l.parentLocation) refs = (await box.locationSubspacePlateReferences(l)).refs;
@@ -128,8 +129,9 @@ for (const id of appEngines) {
       fitsAlone(id + " · " + l.name + " sheet " + sheet.id, box.buildLocationCoveragePrompt(l, sheet, project, {}), limit);
     for (const v of (l.variants || [])) fitsAlone(id + " · " + l.name + " state " + v.id, box.buildLocationVariantPrompt(l, project, { time: v.time, state: v.state }), limit);
   }
-  const req = box.locationParentViewRequest(sub, "opening-3");
-  assert.ok(req, "the quay's real opening onto Fondamenta");
+  // (2026-10-14) the quay stretch's eye-level top-left looks east along it, through its open side onto the rest of the quay
+  const req = box.locationParentViewRequest(sub, "opening-4");
+  assert.ok(req, "the quay's real open side onto Fondamenta");
   fitsAlone(id + " · parent view", box.buildLocationParentViewPrompt(sub, req, project), limit);
 }
 
@@ -147,9 +149,10 @@ assert.ok(!fv.prompt.includes("She runs her thumb"), "the screenplay text isn't 
 const specOf = (p) => JSON.parse(p.slice(p.indexOf("\n") + 1, p.lastIndexOf(" AVOID: ")));
 const fvSpec = specOf(fv.spec);
 assert.deepEqual(Object.keys(fvSpec.views).filter((k) => /^(top|bottom)_/.test(k)), ["top_left", "top_right", "bottom_left", "bottom_right"]);
-assert.ok(Object.values(fvSpec.views).filter((v) => /Camera inside Fondamenta DEI Vetrai/.test(v)).length === 4, "every panel's camera line");
+assert.ok(Object.values(fvSpec.views).filter((v) => /Camera standing on Fondamenta DEI Vetrai, part of Fondamenta/.test(v)).length === 4, "every panel's camera line (an outdoor part: standing on it — 2026-10-14)");
 assert.equal(fvSpec.location.identity_layers.shared_set_layout.anchors.length, 13, "every layout object (nothing had to be trimmed)");
-assert.match(fv.prompt, / REFERENCE IMAGES are attached: Image 1 = Fondamenta whole plate, small[^]*Image 3 = full-scene screenplay page 1 for Scene 13[^]*Never copy screenplay typography, page borders, text, captions or layout\.$/);
+assert.match(fv.prompt, / REFERENCE IMAGES are attached: Image 1 = Fondamenta — ONE panel of its plate, small: materials and colour only[^]*Image 3 = full-scene screenplay page 1 for Scene 13[^]*Never copy screenplay typography, page borders, text, captions or layout\.$/);
+assert.ok(!/whole plate/.test(fv.prompt), "never the parent's whole sheet");
 // without its pages (a text-only render) the screenplay goes as text — once
 const fvText = box.combinedLocationPrompt(sub, project, { panelPlan: box.locationSubspacePanelPlan(sub), maxChars: 31500 });
 assert.ok(fvText.includes("She runs her thumb") && !fvText.includes("attached as page images"));
@@ -165,7 +168,7 @@ for (const id of appEngines) {
   const limit = box.nbPromptMaxChars(id), p = sent[0].prompt;
   assert.ok(p.length <= limit && box.nbFitImagePrompt(p, limit).steps.length === 0, id + " headless room plate " + p.length);
   assert.match(p, /"screenplay_context":"the screenplay of these scenes is attached as page images \(Images 2–3\)/);
-  assert.match(p, / REFERENCE IMAGES \(binding\): Image 1 = Fondamenta whole plate, small[^]*never copy screenplay typography, page borders, text or captions\.$/);
+  assert.match(p, / REFERENCE IMAGES \(binding\): Image 1 = Fondamenta — ONE panel of its plate, small: materials and colour only[^]*never copy screenplay typography, page borders, text or captions\.$/);
   images[sub.id] = "https://cdn/plate-sub.png";   // a room & time plate needs its room's plate
   for (const u of units.filter((u) => u && !u.orphan && String(u.subspaceKey || u.locationKey || "") === sub.key)) {
     sent.length = 0;
@@ -222,7 +225,7 @@ for (const share of [0.95, 0.85, 0.7, 0.55, 0.4, 0.2]) {
   prev = steps;
   const spec = fit.spec, ssl = spec.location.identity_layers.shared_set_layout;
   assert.ok(spec.task && spec.render && spec.render.rules.some((r) => /GRAZIELLA FIORIN/.test(r)), "the task and the empty-set rules with the cast's names");
-  assert.equal(Object.values(spec.views).filter((v) => /Camera inside Fondamenta DEI Vetrai/.test(v)).length, 4, "every panel's camera line");
+  assert.equal(Object.values(spec.views).filter((v) => /Camera standing on Fondamenta DEI Vetrai/.test(v)).length, 4, "every panel's camera line");
   assert.equal(JSON.stringify(spec.views), JSON.stringify(roomSpec.views), "the views, word for word");
   for (const a of big.spatialPlan.anchors.filter((a) => /Vetrai/.test(a.space)))
     assert.ok(ssl.anchors.some((x) => x.id === a.id && x.name === a.name && x.placement === a.placement), "the room's fixed landmark " + a.id);
@@ -233,7 +236,7 @@ assert.deepEqual(prev, ORDER, "the tightest budget runs every step: " + prev.joi
 // past every step (a budget below what may never be cut) the final check still fits it — the middle of the body
 // goes, never the reference list
 const tiny = box.nbFitImagePrompt((await masterPrompt(bigSub, 40000)).prompt, 9000);
-assert.ok(tiny.after <= 9000 && tiny.steps.includes("middle cut") && tiny.prompt.includes(" REFERENCE IMAGES are attached: Image 1 = Fondamenta whole plate"));
+assert.ok(tiny.after <= 9000 && tiny.steps.includes("middle cut") && tiny.prompt.includes(" REFERENCE IMAGES are attached: Image 1 = Fondamenta — ONE panel of its plate"));
 locations.splice(locations.indexOf(big), 1, owner); locations.splice(locations.indexOf(bigSub), 1, sub);
 metas[owner.id].spatialPlanSig = box.locationSpatialPlanSig(owner.spatialPlan);
 

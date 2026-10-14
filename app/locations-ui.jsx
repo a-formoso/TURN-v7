@@ -165,7 +165,12 @@ function _locBudgetOpts(attach, gopts){
    A room's panels are cameras INSIDE the room; through each window or door they show the space beyond from that
    camera's position, using the panel of that space's plate whose recorded camera faces the same way (cut out and
    attached as its own reference), or a view made from here ("Make a … view" — one paid image). An owner space's
-   cameras are suggestions until they are set: its plate prompt only states cameras that are set. */
+   cameras are suggestions until they are set: its plate prompt only states cameras that are set.
+   (2026-10-14, owner — "go ahead with all of it") AN OUTDOOR PART (a stretch of quay) has cameras standing on it at eye
+   level, each framed differently from its parent's own panels. THIS PLATE'S CAMERAS: a plate made before its cameras
+   were recorded can be given them without regenerating — each panel's direction set by hand (free), or "Read the
+   cameras from this plate" (one writing call, priced on the button) — saved on the card for that plate version
+   (l.plateCameras), so the rooms inside can cut out its panels; the plate's own prompt and layout are unchanged. */
 function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
   const [,refresh]=React.useReducer(n=>n+1,0);
   const [busy,setBusy]=React.useState("");
@@ -184,6 +189,15 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
   const storedAny=panels.some(p=>p.source==="set");
   const statedAny=panels.some(p=>p.stated);   // set by hand or from the reviewed floor plan (step B)
   const name=l.name||"this space";
+  const outdoor=!!(plan&&plan.outdoor);
+  // the cameras noted on the card for the CURRENT plate (2026-10-14) — set by hand or read from it
+  const noted=plateMeta&&typeof normalizeLocationPlateCameras==="function"?normalizeLocationPlateCameras(l.plateCameras):null;
+  const notedNow=!!(noted&&plateMeta&&plateMeta.iso&&noted.iso===plateMeta.iso);
+  const rooms=typeof locationChildrenOf==="function"?locationChildrenOf(l,((window.turnContinuity||{}).locations)||[]):[];
+  const ownsLayout=typeof locationSpatialOwner==="function"&&locationSpatialOwner(l).id===l.id;
+  // the reviewed layout read from THIS plate already says where its cameras stood (step B) — the rooms use those
+  const layoutKnows=!notedNow&&rooms.length>0&&!!plateMeta&&!plateMeta.platePanels&&typeof locationViewCandidates==="function"
+    &&(()=>{try{return !!locationViewCandidates(l,rooms[0]).recorded;}catch(e){return false;}})();
   const storedPose=key=>({...(((locationStoredPanelViews(l)[key])||{}).pose||{})});
   const save=(key,pose)=>{ if(readOnly)return; onUpdate(l.id,{coverageViews:locationCoverageViewsWithPose(l,key,pose)}); };
   const setField=(p,field,raw)=>{
@@ -241,6 +255,30 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
     if(typeof window.appToast==="function")window.appToast((t.name||"That location")+"'s card isn't on this page — find it in Locations.","info");
   };
   const recorded=!!(plateMeta&&plateMeta.platePanels);
+  const setPlateFacing=(key,raw)=>{
+    if(readOnly||!plateMeta||!plateMeta.iso)return;
+    const base=notedNow?{...noted.panels}:{};
+    const yaw=String(raw)===""?null:Number(raw);
+    if(yaw==null||!Number.isFinite(yaw))delete base[key];
+    else base[key]={...(base[key]||{}),yaw,basis:"user"};
+    const next=normalizeLocationPlateCameras({iso:plateMeta.iso,source:"set",panels:base});
+    onUpdate(l.id,{plateCameras:next||undefined});
+  };
+  const readPlateCameras=async()=>{
+    if(readOnly||busy||!plateMeta)return;
+    const toast=(m,k)=>{if(typeof window.appToast==="function")window.appToast(m,k);};
+    if(typeof window.aiReadPlateCameras!=="function"){toast("Reading cameras isn't available here.","error");return;}
+    const epoch=typeof nbEpoch==="function"?nbEpoch():null;
+    setBusy("read-cameras");
+    try{
+      const rec=await window.aiReadPlateCameras(l,((window.turnContinuity||{}).scenes)||[],project);
+      if(typeof nbEpoch==="function"&&nbEpoch()!==epoch)return;
+      onUpdate(l.id,{plateCameras:rec});
+      const n=Object.keys(rec.panels).length;
+      toast("Read "+n+" camera"+(n===1?"":"s")+" from "+name+"'s plate — the rooms inside can now use its panels.");
+    }catch(e){toast((e&&e.message)||"Couldn't read the cameras.","error");}
+    finally{if(alive.current)setBusy("");}
+  };
   const num=(label,value,placeholder,onCommit,unit)=>React.createElement("label",{className:"loc-cam-field"},
     React.createElement("span",null,label),
     React.createElement("input",{className:"prop-select",type:"number",inputMode:"decimal",step:"any",
@@ -248,7 +286,7 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
       disabled:readOnly,onBlur:e=>{if(String(e.target.value)!==String(value==null?"":value))onCommit(e.target.value);}}),
     unit&&React.createElement("small",null,unit));
   const sightRow=(s,i)=>{
-    const head="“"+s.openingName+"”"+(s.wallYaw!=null?" ("+locCompass(s.wallYaw)+" wall)":"")+" → "+s.targetName+", looking "+locCompass(s.yaw);
+    const head="“"+s.openingName+"”"+(s.wallYaw!=null?" ("+locCompass(s.wallYaw)+(outdoor&&s.kind==="arch"?" side)":" wall)"):"")+" → "+s.targetName+", looking "+locCompass(s.yaw);
     if(s.sourceId){
       const src=(plan.sources||[]).find(x=>x.id===s.sourceId)||{};
       return React.createElement("li",{key:i,className:"loc-cam-sight ok"},React.createElement("b",null,head),
@@ -257,7 +295,7 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
           +(s.approx?" Matched by facing — positions would make the check exact.":"")));
     }
     const reason=s.reason==="no-plate"?s.targetName+" has no plate yet."
-      :s.reason==="no-record"?s.targetName+"'s plate was made before its cameras were recorded, so its panels' facings are unknown."
+      :s.reason==="no-record"?s.targetName+"'s plate was made before its cameras were recorded, so its panels' facings are unknown — set them (free) or read them from the plate under "+s.targetName+"'s Plate cameras."
       :"No "+s.targetName+" view faces "+locCompass(s.yaw)+" from here.";
     const beyond=(s.beyond||[]).map(a=>a.name).filter(Boolean);
     const req=locationParentViewRequest(l,s.openingId);
@@ -278,11 +316,39 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
       parent?(plan&&plan.unresolved.length?plan.unresolved.length+" view"+(plan.unresolved.length===1?"":"s")+" unresolved":"Planned")
         :storedAny?"Set":statedAny?"From the layout":"Suggested")),
     React.createElement("p",{className:"loc-layer-note"},parent
-      ?"Each panel of "+name+"'s plate is a camera inside "+name+". Through a window or door it shows "+parent.name
-        +" as seen from that camera, using the panel of "+parent.name+"'s plate that faces the same way — never its most striking panel. Compass directions follow the shared layout's frame (north = the way it faces); positions are metres from its origin."
+      ?(outdoor
+        ?"Each panel of "+name+"'s plate is a camera standing on "+name+", part of "+parent.name+", at eye level — each framed differently from "+parent.name
+          +"'s own panels, with the rest of "+parent.name+" around it matching "+parent.name+"'s plate. Beyond an open side it uses the panel of "+parent.name+"'s plate that faces the same way, cut out on its own — never the whole sheet. Compass directions follow the shared layout's frame (north = the way it faces); positions are metres from its origin."
+        :"Each panel of "+name+"'s plate is a camera inside "+name+". Through a window or door it shows "+parent.name
+        +" as seen from that camera, using the panel of "+parent.name+"'s plate that faces the same way — never its most striking panel. Compass directions follow the shared layout's frame (north = the way it faces); positions are metres from its origin.")
       :"The camera of each panel of this plate. Rooms inside "+name+" use these to pick the panel that faces the same way as their windows. Compass directions follow the shared layout's frame (north = the way it faces). Until a camera is set, the plate prompt is unchanged."),
-    !parent&&statedAny&&!recorded&&plateMeta&&React.createElement("p",{className:"loc-layer-note loc-cam-warn",role:"status"},
+    !parent&&statedAny&&!recorded&&!notedNow&&plateMeta&&React.createElement("p",{className:"loc-layer-note loc-cam-warn",role:"status"},
       "The current plate was made before these cameras were set — regenerate it so the rooms inside can use its panels."),
+    /* THIS PLATE'S CAMERAS (2026-10-14): a plate without recorded cameras, with rooms inside that would use its panels —
+       not when the reviewed layout was read from this very plate (its observed cameras already serve the rooms) */
+    !recorded&&!layoutKnows&&plateMeta&&plateMeta.iso&&rooms.length>0&&React.createElement("div",{className:"loc-cam-plate"},
+      React.createElement("b",null,"This plate's cameras"),
+      React.createElement("p",{className:"loc-layer-note"},notedNow
+        ?(noted.source==="read"?"Read from this plate.":"Set by hand for this plate.")+" "+rooms.map(r=>r.name).join(", ")
+          +" can now use the panel of it that faces the way a window, door or open side looks. They are kept for this plate only; the plate itself is unchanged."
+        :"This plate was made before its cameras were recorded, so "+rooms.map(r=>r.name).join(", ")
+          +" can't use its panels — "+(rooms.length===1?"it gets":"they get")+" one small panel of it for materials and colour only. Say which way each panel faces (free)"+(ownsLayout?", or read them from the plate.":".")),
+      React.createElement("div",{className:"loc-cam-plate-grid"},LOC_PANEL_KEYS.map(k=>React.createElement("label",{key:k,className:"loc-cam-field"},
+        React.createElement("span",null,LOC_PANEL_INFO[k].label+" faces"),
+        React.createElement("select",{className:"prop-select",disabled:readOnly||!!busy,
+          value:notedNow&&noted.panels[k]?String(Math.round(noted.panels[k].yaw/45)%8*45):"",
+          onChange:e=>setPlateFacing(k,e.target.value)},
+          React.createElement("option",{value:""},"Not known"),
+          ["north","north-east","east","south-east","south","south-west","west","north-west"].map((w,i)=>React.createElement("option",{key:w,value:String(i*45)},w)))))),
+      React.createElement("div",{className:"loc-cam-plate-acts"},
+        // the read is the Draft shared layout read — only a location that owns its layout has one (a room inside: by hand)
+        ownsLayout&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-cam-make",disabled:readOnly||!!busy,
+          title:"Reads where each panel's camera stood from this plate, the way Draft shared layout reads it. Only the cameras are kept — the layout and the plate are unchanged. Uses writing credits, not image credits.",
+          onClick:readPlateCameras},
+          busy==="read-cameras"?"Reading the cameras…":"Read the cameras from this plate",
+          busy!=="read-cameras"&&typeof window.aiPlateCamerasReadCostText==="function"&&React.createElement("small",{className:"loc-cam-price"}," · "+window.aiPlateCamerasReadCostText())),
+        notedNow&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-cam-make",disabled:readOnly||!!busy,
+          onClick:()=>{if(!readOnly)onUpdate(l.id,{plateCameras:undefined});}},"Clear"))),
     unknownFacing.length>0&&React.createElement("p",{className:"loc-layer-note loc-cam-warn"},
       "Set which way "+unknownFacing.map(o=>"“"+o.name+"”").join(", ")+" faces in the shared layout's objects (“Faces”) so the panels can see through "+(unknownFacing.length===1?"it":"them")+"."),
     (leadsCard.length>0||leadsChosen.length>0||leadsUnknown.length>0)&&React.createElement("ul",{className:"loc-cam-sights loc-cam-leads"},
@@ -311,7 +377,7 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
           React.createElement("span",{className:"loc-cam-badge"+(p.source==="set"||p.source==="layout"?" set":"")},
             p.source==="set"?"Set":p.source==="layout"?"From the layout":(parent?"Planned":"Suggested"))),
         React.createElement("p",{className:"loc-cam-purpose"},p.purpose),
-        React.createElement("p",{className:"loc-cam-text"},locationPoseText(p.pose,parent?name:"",anchors)),
+        React.createElement("p",{className:"loc-cam-text"},locationPoseText(p.pose,parent?name:"",anchors,outdoor?parent.name:undefined)),
         p.sights&&p.sights.length>0&&React.createElement("ul",{className:"loc-cam-sights"},p.sights.map(sightRow)),
         // the reverse direction (step B): the rooms this camera sees, named in its prompt
         (()=>{const kids=typeof locationPanelChildrenVisible==="function"?locationPanelChildrenVisible(l,p):[];
@@ -339,7 +405,7 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
           p.source==="set"&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly,
             onClick:()=>save(p.key,null)},parent?"Back to the planned camera":(JSON.stringify(p.suggestedPose)!==JSON.stringify(locationDefaultPanelPoses(l)[p.key].pose)?"Back to the floor plan's camera":"Back to the suggestion")))))),
     React.createElement("p",{className:"loc-layer-note"},parent
-      ?"Each matched view is sent as its own reference image with "+name+"'s plate (on some engines each reference adds a little to the price). Setting cameras uses no credits."
+      ?"Each matched view is sent as its own reference image — one panel cut out of "+parent.name+"'s plate, never its whole sheet (on some engines each reference adds a little to the price). With none matched, one small panel of it goes for materials and colour only; you can untick it under the plate's reference images. Setting cameras uses no credits."
       :"Setting cameras uses no credits and generates nothing."));
 }
 
@@ -684,6 +750,11 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
           onCommit:v=>setSpace(sp.id,{floorZ:_locParseNum(v)})}),
         React.createElement(LocCoordInput,{label:"Ceiling height",value:_locFmt(sp.ceilingH),placeholder:"2.6",disabled:readOnly,hint:"m",
           onCommit:v=>setSpace(sp.id,{ceilingH:_locParseNum(v)})}),
+        // (2026-10-14) a space with no roof: its plate's cameras stand at eye level, none above about 6 m
+        React.createElement("label",{className:"loc-cam-field loc-cam-check"},React.createElement("span",null,"Open sky"),
+          React.createElement("input",{type:"checkbox",checked:!!sp.openSky,disabled:readOnly,
+            onChange:e=>setSpace(sp.id,{openSky:e.target.checked?true:undefined})}),
+          React.createElement("small",null,"no roof \u2014 cameras at eye level, none above about 6 m")),
         React.createElement(LocBasisSelect,{value:sp.basis,disabled:readOnly,onChange:v=>setSpace(sp.id,{basis:v})})),
       (sp.openings||[]).map(o=>React.createElement("div",{key:o.id,className:"loc-floorplan-opening"},
         React.createElement("div",{className:"loc-cam-head"},React.createElement("span",null,(o.name||o.id)+" · "+o.kind),
@@ -1016,14 +1087,28 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     window.addEventListener("nb-gen-done",onDone);
     return ()=>{alive=false;window.removeEventListener("nb-gen-done",onDone);};
   },[l.parentLocation&&l.parentLocation.id]);
+  /* SINGLE CUT-OUT PANELS, NEVER THE WHOLE SHEET (2026-10-14, owner — "go ahead with all of it"): a room's strip shows
+     the parent's part as it will be sent — each quadrant matched to a view (needed: the prompt names it), or the one
+     small material panel (optional: it can be unticked). Thumbnails are cut small here; Generate cuts them full size. */
+  const [rootRefs,setRootRefs]=React.useState([]);
+  const rootPlanKey=(()=>{ if(!l.parentLocation||typeof locationSubspacePanelPlan!=="function")return "";
+    try{ const pl=locationSubspacePanelPlan(l); const pm=(typeof nbGetMeta==="function"&&nbGetMeta(l.parentLocation.id))||{};
+      return pl.sources.map(x=>x.id+":"+(x.uses||[]).map(u=>u.panel+u.openingId).join("+")).join(",")+"|"+(pm.iso||"")+"|"+JSON.stringify(((locationParentOf(l)||{}).plateCameras)||null); }
+    catch(e){ return "x"; } })();
+  React.useEffect(()=>{
+    let alive=true;
+    if(!l.parentLocation||!parentRefUrl||typeof locationSubspaceRootReferences!=="function"){ setRootRefs([]); return ()=>{alive=false;}; }
+    locationSubspaceRootReferences(l,{preview:true}).then(r=>{ if(alive) setRootRefs((r&&r.refs||[]).map(x=>({...x,preview:true}))); },
+      ()=>{ if(alive) setRootRefs([]); });
+    return ()=>{alive=false;};
+  },[l.id,parentRefUrl,rootPlanKey]);
   const buildMasterRefs = ()=>{
     const out = [];
     const C = window.turnContinuity || {};
     if(l.parentLocation){
-      const rootUrl=((typeof nbGetImage==="function")?nbGetImage(l.parentLocation.id):"")||parentRefUrl;
-      // a room's parent plate is sent small, for materials and colour — not a view to copy (2026-10-13)
-      out.push((typeof locationSubspaceParentReference==="function"?locationSubspaceParentReference(l,rootUrl):null)
-        ||locationParentReference(l,rootUrl));
+      // the parent's part: its cut-out panels (above), or — its plate missing — the one slot that says it is needed
+      if(parentRefUrl) rootRefs.forEach(r=>out.push(r));
+      else { const miss=typeof locationParentMissingReference==="function"?locationParentMissingReference(l):null; if(miss) out.push(miss); }
     }
     /* the same pages the headless runs attach (locationScriptPageRefs): whole scenes, in the slots the parent's plate,
        the cut-out panels and the layout's plate leave (2026-10-14) */
@@ -1033,7 +1118,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     return out;
   };
   const masterScriptSig = JSON.stringify((l.scenes||[]).map(sid=>(((drafts||{})[sid]||{}).blocks||[])));
-  const masterRefsKey = [l.id, l.parentLocation&&l.parentLocation.id, parentRefUrl, (l.scenes||[]).join(","), scenes&&scenes.length, masterScriptSig].join("|");
+  const masterRefsKey = [l.id, l.parentLocation&&l.parentLocation.id, parentRefUrl, (l.scenes||[]).join(","), scenes&&scenes.length, masterScriptSig,
+    rootRefs.map(r=>r.refId+":"+(r.url?r.url.length:0)).join(",")].join("|");
   React.useEffect(()=>{ setMasterRefs(buildMasterRefs()); },[masterRefsKey]);
   const toggleMasterRef = (rid)=> setMasterRefOff(off=>{
     if(masterRefs.some(r=>r.refId===rid&&r.required))return off;
@@ -1079,7 +1165,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       ? { ...l, staging: stagingDraftRef.current } : l, project, {}),
     buildFromPhoto: ()=> buildLocationFromPhotoPrompt(l, project),
     buildSimple: ()=> buildSimpleLocationPrompt(l),
-    attachmentsRequired:!!l.parentLocation,
+    /* a room's references are required — unless the parent's part is its one small material panel and the strip unticked
+       it (2026-10-14); a failure reading the parent's part is never turned into a render without it (requiredReference) */
+    attachmentsRequired:!!l.parentLocation&&!masterRefs.some(r=>r&&/^pm-/.test(String(r.refId))&&masterRefOff.indexOf(r.refId)>=0),
     attachmentsInSimple:true,
     referenceMaxDim:1536,
     attachments: async ()=>{
@@ -1087,20 +1175,24 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       masterPlanSig.current=(typeof locationSpatialPlanSigFor==="function") ? locationSpatialPlanSigFor(l) : "";
       masterPanelRecord.current=(typeof locationPlatePanelRecord==="function") ? locationPlatePanelRecord(l) : null;
       masterLayoutSig.current=(typeof locationPlateLayoutSig==="function") ? locationPlateLayoutSig(l,{panels:true}) : "";
-      /* A ROOM (2026-10-13, Location coordinates): its parent's plate small, then the view of the space beyond each
-         opening its panels see — numbered, so the prompt can say "match Image N" */
+      /* A ROOM (2026-10-13, Location coordinates): the view of the space beyond each opening its panels see — numbered,
+         so the prompt can say "match Image N"; (2026-10-14) single panels cut out of the parent's plate, never its whole
+         sheet — or, none matched, one small material panel */
       let parentRefs;
       if(l.parentLocation&&typeof locationSubspacePlateReferences==="function"){
-        const sub=await locationSubspacePlateReferences(l);
-        masterSubPlan.current=sub.plan;parentRefs=sub.refs;
+        let sub;
+        try{ sub=await locationSubspacePlateReferences(l); }
+        catch(e){ if(e&&typeof e==="object")e.requiredReference=true; throw e; }
+        // an optional reference (the material panel) the strip unticked stays out (2026-10-14)
+        masterSubPlan.current=sub.plan;parentRefs=sub.refs.filter(r=>r.required!==false||masterRefOff.indexOf(r.refId)<0);
       } else {
         masterSubPlan.current=null;
         parentRefs=mergeLocationReferences(await locationParentReferences(l),await locationSpatialReferences(l));
       }
       masterParentSnapshot.current=l.parentLocation
         ? locationAssetDependencySnapshot(locationParentOf(l).id,[],"subspace") : {};
-      // cut-out panels and the parent's plate take the slots first; then whole scenes' pages in what is left (2026-10-14)
-      const pages=buildMasterRefs().filter(r=>!r.required&&r.url&&masterRefOff.indexOf(r.refId)<0);
+      // the parent's cut-out panels (or the layout's plate) take the slots first; then whole scenes' pages in what is left (2026-10-14)
+      const pages=buildMasterRefs().filter(r=>r.kind==="script"&&!r.required&&r.url&&masterRefOff.indexOf(r.refId)<0);
       return [...parentRefs,...(typeof locationWholeScenePages==="function"?locationWholeScenePages(pages,6-parentRefs.length):pages)].slice(0,6)
         .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note,
           ...(r.maxDim?{maxDim:r.maxDim}:{}),...(r.numbered?{numbered:true}:{})}));
@@ -1344,7 +1436,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         ...(alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,
           onClick:()=>setShowPrompt(v=>!v) }])],
       referenceControls: masterRefs.length>0 && React.createElement(CoverageReferenceStrip,{ refs:masterRefs, excludedIds:masterRefOff, onToggle:toggleMasterRef, onView }),
-      generateDisabled:!spatialState.ready||!!l.parentLocation&&(!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready)),
+      generateDisabled:!spatialState.ready||!!l.parentLocation&&(!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready&&!r.preview)),
       generateDisabledLabel:!spatialState.ready?"Review shared layout":"Generate parent plate first",
       onResolveGenerationBlock:!spatialState.ready?reviewLayout:undefined,
       generateDisabledTitle:!spatialState.ready?"Open the shared layout to review and confirm it. No image will be generated.":"Generate or restore the whole location's plate first so this room can match its visual design.",
@@ -1355,7 +1447,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     // a sub-space's plate that copies a panel of its parent's — said, never regenerated on its own (2026-10-14)
     l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:l.id, gen, readOnly,
       refs:()=>(typeof locationPlateRefCount==="function" ? locationPlateRefCount(l).n : undefined),
-      disabled:!spatialState.ready||!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready),
+      disabled:!spatialState.ready||!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready&&!r.preview),
       regenerateTitle:(!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable())
         ? "Writes this place's view composition first — a small writing charge — then makes a new plate (one image); this one stays in its version history" : undefined,
       onRegenerate:()=>genPlate.generate() }),
@@ -1984,11 +2076,26 @@ async function buildSluglineUnitReferences(l,u,imgId,pseudo,scenes,drafts,parent
   const parent = parentGenUrl || await grab(l.id);
   out.push({ url:parent, kind:"location", refId:l.id, required:true, ready:!!parent,
     label:(l.name||"Parent location"), note:(l.name||"parent location")+" child/master plate \u2014 preserve this exact subspace geometry, materials and continuity anchors" });
-  if(l.parentLocation && l.parentLocation.id){
-    const rootUrl=await grab(l.parentLocation.id);
-    out.push(locationParentReference(l,rootUrl));
-  }
+  // the root's part: single panels cut out of its plate, never its whole sheet (2026-10-14)
+  if(l.parentLocation && l.parentLocation.id) out.push(...await _locRootRefsFor(l, grab));
   return out;
+}
+/* the parent's plate cameras noted on its card (l.plateCameras, 2026-10-14) — a card strip refreshes when they change */
+function _locParentCamerasKey(l){
+  if(!l || !l.parentLocation || typeof locationParentOf!=="function") return "";
+  try{ return JSON.stringify(((locationParentOf(l)||{}).plateCameras)||null); }catch(e){ return ""; }
+}
+/* a sub-space's single-frame plates (room & time, environment state): the root's part — its panels matched to a view
+   through an opening, else one optional small material panel; the root's plate missing → one "needed" slot */
+async function _locRootRefsFor(l, grab){
+  if(!(await grab(l.parentLocation.id))){
+    const miss = typeof locationParentMissingReference==="function" ? locationParentMissingReference(l) : null;
+    return miss ? [miss] : [];
+  }
+  try{ return (await locationSubspaceRootReferences(l,{single:true})).refs; }
+  catch(e){ const miss = typeof locationParentMissingReference==="function" ? locationParentMissingReference(l) : null;
+    // the slot says why (a panel that couldn't be cut out of the plate: try again), not only that it is needed
+    return miss ? [{...miss, note:(e && e.message) || miss.note}] : []; }
 }
 
 /* An additional environment state. The legacy linked-unit resolver is retained
@@ -2005,7 +2112,8 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
     summary:"Time-of-Day Variant: "+(stateUnit.sluglines||[]).join(" \u00b7 ") } : null;
   const [refPreview,setRefPreview]=React.useState([]);
   const [refOff,setRefOff]=React.useState([]);
-  const refsKey=[l.id,id,stateUnit&&stateUnit.scriptText,parentGenUrl,l.parentLocation&&l.parentLocation.id,(scenes&&scenes.length)].join("|");
+  // the parent's cameras noted on its card (2026-10-14) change which of its panels this state is sent
+  const refsKey=[l.id,id,stateUnit&&stateUnit.scriptText,parentGenUrl,l.parentLocation&&l.parentLocation.id,(scenes&&scenes.length),_locParentCamerasKey(l)].join("|");
   const buildRefs=async()=> stateUnit
     ? buildSluglineUnitReferences(l,stateUnit,id,pseudo,scenes,drafts,parentGenUrl)
     : buildSluglineUnitReferences(l,{name:l.name},id,{sceneNos:[]},[],{},parentGenUrl);
@@ -2030,7 +2138,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
     const refs=mergeLocationReferences(await buildRefs(),await locationSpatialReferences(l));
     if(refs.some(r=>r.required&&!r.ready))throw new Error("Restore the required location plates before generating this state.");
     return refs.filter(r=>r.ready&&r.url&&(r.required||refOff.indexOf(r.refId)<0))
-      .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note,...(r.maxDim?{maxDim:r.maxDim}:{})}));
+      .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note,...(r.maxDim?{maxDim:r.maxDim}:{}),...(r.numbered?{numbered:true}:{})}));
   };
   const depSnap = React.useRef(null);
   const gen = useImageGen({
@@ -2122,7 +2230,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
   const [refPreview, setRefPreview] = React.useState([]);
   const [refOff, setRefOff] = React.useState([]);
   const refsKey = [l.id, imgId, u.scriptText, parentGenUrl,
-    l.parentLocation&&l.parentLocation.id, (scenes&&scenes.length)].join("|");
+    l.parentLocation&&l.parentLocation.id, (scenes&&scenes.length), _locParentCamerasKey(l)].join("|");
   const buildUnitRefs = async ()=>{
     const out = [];
     const C = window.turnContinuity || {};
@@ -2136,10 +2244,8 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     const parent = parentGenUrl || await grab(l.id);
     out.push({ url:parent, kind:"location", refId:l.id, required:true, ready:!!parent,
       label:(l.name||"Parent location"), note:(l.name||"parent location")+" child/master plate \u2014 preserve this exact subspace geometry, materials and scale" });
-    if(l.parentLocation){
-      const rootUrl=await grab(l.parentLocation.id);
-      out.push(locationParentReference(l,rootUrl));
-    }
+    // the root's part: single panels cut out of its plate, never its whole sheet (2026-10-14)
+    if(l.parentLocation) out.push(...await _locRootRefsFor(l, grab));
     return out;
   };
   React.useEffect(()=>{
@@ -2166,7 +2272,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     const refs=mergeLocationReferences(await buildUnitRefs(),await locationSpatialReferences(l));
     if(refs.some(r=>r.required&&!r.ready))throw new Error("Restore the required location plates before generating this unit.");
     return refs.filter(r=>r.ready && r.url && (r.required || refOff.indexOf(r.refId)<0))
-      .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note, ...(r.maxDim?{maxDim:r.maxDim}:{}) }));
+      .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note, ...(r.maxDim?{maxDim:r.maxDim}:{}), ...(r.numbered?{numbered:true}:{}) }));
   };
   const depSnap = React.useRef(null);
   const gen = useImageGen({

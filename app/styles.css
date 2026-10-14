@@ -3784,12 +3784,23 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .loc-cam-field input,.loc-cam-field select{width:100%;box-sizing:border-box}
 .loc-cam-field small{font-size:10px;color:var(--txt-3)}
 .loc-cam-warn{color:var(--accent-ink)}
+/* "This plate's cameras" — giving an older plate its cameras without regenerating it (2026-10-14) */
+.loc-cam-plate{margin:10px 0;padding:9px 10px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-1);min-width:0}
+.loc-cam-plate>b{font:600 12px/1.4 var(--f-ui);color:var(--txt-1)}
+.loc-cam-plate-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0}
+.loc-cam-plate-acts{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.loc-cam-plate-acts .loc-cam-make{flex:0 1 auto;min-width:0;max-width:100%}
+.loc-cam-price{font:500 10.5px/1.4 var(--f-ui);color:var(--txt-3)}
+/* Floor plan numbers' "Open sky" (2026-10-14): a plain checkbox, not a full-width field */
+.loc-cam-field.loc-cam-check input{width:auto;align-self:flex-start;margin:2px 0;accent-color:var(--accent)}
 .loc-panel-badge{background:var(--bg-4)}
 @media(max-width:600px){
   .loc-cam-grid{grid-template-columns:1fr}
   .loc-cam-fields{grid-template-columns:1fr}
   .loc-cam-field :is(input,select){font-size:16px;min-height:40px}
   .loc-cam-make{min-height:44px}
+  .loc-cam-plate-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .loc-cam-field.loc-cam-check input{width:22px;height:22px;min-height:0}
 }
 /* the floor plan — a top-down map of the shared layout and its numbers (2026-10-13, Location coordinates step B) */
 .loc-map-wrap{margin:12px 0;min-width:0}

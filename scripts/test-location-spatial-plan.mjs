@@ -51,9 +51,17 @@ assert.match(spec.fixture_projection_rule,/takes precedence/);
 assert.match(spec.fixtures[0].position,/principal camera view only/);
 assert.equal(JSON.stringify([house,kitchen]),copy,"no migration or mutation from prompt compilation");
 assert.equal(box.locationProductionPlan(kitchen,[]).sharedSetLayout.ownerId,"house");
+// (2026-10-14) a sub-space gets neither the parent's nor the layout's whole sheet — single cut-out panels only
+box.cropRegionAsDataUrl=async(url,rect,max)=>"crop("+url+","+rect.x+","+rect.y+","+max+")";
+assert.deepEqual(Array.from(await box.locationSpatialReferences(kitchen)),[],"the layout reaches a sub-space as text, not as its source sheet");
 const merged=box.mergeLocationReferences(await box.locationParentReferences(kitchen),await box.locationSpatialReferences(kitchen));
-assert.equal(merged.length,1,"same parent image isn't sent twice");
-assert.match(merged[0].note,/ALL panels/);
+assert.equal(merged.length,1,"one image of the parent");
+assert.equal(merged[0].url,"crop(plate-v1,50.5,50.5,640)","a small panel cut out of it, never the sheet");
+assert.doesNotMatch(merged[0].note,/ALL panels/);
+assert.match(merged[0].note,/materials and colour only/);
+// the owner itself still reads its own reviewed source sheet
+assert.equal((await box.locationSpatialReferences(house))[0].url,image);
+delete box.cropRegionAsDataUrl;
 iso="version-2";
 assert.throws(()=>box.requireLocationSpatialPlan(kitchen),/parent plate changed/);
 house.spatialPlan.source.iso=iso;

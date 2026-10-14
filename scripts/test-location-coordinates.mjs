@@ -9,7 +9,8 @@
       suggestions are not stated until set; set poses fill the coverage view's free text
    3. quadrant selection geometry: by facing, and with positions by coverage (a camera inside the room or one that
       faces the right way but looks elsewhere is refused); no match / no record / no plate
-   4. references: parent plate small (materials and colour only), the crop labelled for its opening; numbered
+   4. references (2026-10-14, single cut-out panels): never the parent's whole sheet — the matched crop alone, at its own
+      size (up to 1536 px), labelled for its opening, numbered; none matched → one optional small material panel
    5. prompt text per panel; the weak "Read ALL panels together" guidance is gone for a room; owner unchanged
    6. generation: the plate records its cameras; "Make a … view" (one image) records its pose and is then used
    7. the Blender handoff: studio-contract cameras
@@ -192,22 +193,20 @@ box.turnContinuity={locations:[furnace,office],scenes:[],drafts:{}};
 metas.furnace=furnaceRecord({TL:{yaw:0,lensMm:24},TR:{yaw:180,pitch:-30,lensMm:18,place:"on the mezzanine"}});
 crops.length=0;
 const sub=await box.locationSubspacePlateReferences(office);
-assert.equal(sub.refs.length,2);
-assert.equal(sub.refs[0].refId,"furnace");assert.equal(sub.refs[0].url,"furnace-plate");assert.equal(sub.refs[0].maxDim,768);
-assert.match(sub.refs[0].note,/materials, colour, construction details and scale only/);
-assert.match(sub.refs[0].note,/NOT a view to copy/);
-assert.doesNotMatch(sub.refs.map(r=>r.note).join(" "),/Read ALL panels together|reproduce that exact room/,"the weak room guidance is gone");
-deq(json(crops),[{url:"furnace-plate",rect:{x:50.5,y:0.5,w:49,h:49},max:1024}],"the top-right quadrant is cut out");
-assert.equal(sub.refs[1].url,"crop:furnace-plate:50.5,0.5");
-assert.equal(sub.refs[1].refId,"pq-furnace-tr");assert.ok(sub.refs.every(r=>r.numbered&&r.required));
-assert.match(sub.refs[1].note,/^Furnace seen facing south — the top-right panel of its plate, camera on the mezzanine: use ONLY for what is visible through the window “Office window” in the top-right and bottom-right panels; never as Furnace Office itself and never as a backdrop$/);
-deq(json(box.locationReferenceNumbers(sub.refs)),{furnace:1,"pq-furnace-tr":2});
+assert.equal(sub.refs.length,1,"the matched panel alone");
+assert.ok(!sub.refs.some(r=>r.url==="furnace-plate"||r.refId==="furnace"),"never the parent's whole sheet (2026-10-14)");
+assert.doesNotMatch(sub.refs.map(r=>r.note).join(" "),/Read ALL panels together|reproduce that exact room|whole plate/,"the weak room guidance is gone");
+deq(json(crops),[{url:"furnace-plate",rect:{x:50.5,y:0.5,w:49,h:49},max:1536}],"the top-right quadrant is cut out at its own size");
+assert.equal(sub.refs[0].url,"crop:furnace-plate:50.5,0.5");assert.equal(sub.refs[0].maxDim,1536);
+assert.equal(sub.refs[0].refId,"pq-furnace-tr");assert.ok(sub.refs.every(r=>r.numbered&&r.required));
+assert.match(sub.refs[0].note,/^Furnace seen facing south — the top-right panel of its plate, camera on the mezzanine: use ONLY for what is visible through the window “Office window” in the top-right and bottom-right panels; never as Furnace Office itself and never as a backdrop$/);
+deq(json(box.locationReferenceNumbers(sub.refs)),{"pq-furnace-tr":1});
 const promptOf=(l,o)=>box.buildLocationRefPrompt(l,{},o);
 const specOf=(l,o)=>JSON.parse(promptOf(l,o).split("\n").slice(1).join("\n"));
 let spec=specOf(office,{panelPlan:sub.plan,panelRefs:box.locationReferenceNumbers(sub.refs)});
 assert.match(spec.views.layout,/four cameras INSIDE Furnace Office/);
 assert.match(spec.views.top_left,/^from the doorway, looking at the far wall of Furnace Office\. Camera inside Furnace Office just inside Office door, facing east \(90°\), level, 24 mm lens\. Interior of Furnace Office only\.$/);
-assert.match(spec.views.bottom_right,/Opening “Office window” \(window, south wall\) shows Furnace as seen from here, looking south: match Image 2 for what shows through it\./);
+assert.match(spec.views.bottom_right,/Opening “Office window” \(window, south wall\) shows Furnace as seen from here, looking south: match Image 1 for what shows through it\./);
 assert.match(spec.views.subspace_rules.join(" "),/inside of every panel is Furnace Office only/);
 assert.match(spec.views.subspace_rules.join(" "),/as seen from THIS panel's camera position/);
 assert.match(spec.views.subspace_rules.join(" "),/Never reuse a composition from Furnace's plate as a backdrop/);
@@ -219,7 +218,19 @@ assert.match(specOf(office).views.bottom_right,/match the reference image named 
 metas.furnace=furnaceRecord({TL:{yaw:0,lensMm:24}});
 spec=specOf(office);
 assert.match(spec.views.bottom_right,/looks south into Furnace; no reference view faces that way yet \(unresolved\) — the shared layout puts Slag conveyor in that direction\. Keep what shows through it plausible and secondary; never fill it with a copied panel of Furnace\./);
-assert.equal((await box.locationSubspacePlateReferences(office)).refs.length,1,"no matching quadrant: no picture, only the small parent plate");
+// …and no whole sheet: ONE small panel of the parent's plate, for materials and colour only — optional (it can be unticked)
+crops.length=0;
+const mat=(await box.locationSubspacePlateReferences(office)).refs;
+assert.equal(mat.length,1,"no matching quadrant: one material panel, never the sheet");
+assert.equal(mat[0].required,false);assert.equal(mat[0].numbered,true);assert.equal(mat[0].maxDim,640);
+assert.equal(mat[0].refId,"pm-furnace-br","the parent's requested 'signature material detail' close-up (bottom-right)");
+assert.match(mat[0].label,/^Furnace · materials and colour only$/);
+assert.match(mat[0].note,/ONE panel of its plate, small: materials and colour only\. It is NOT a view: never copy its composition, framing or layout into Furnace Office/);
+deq(json(crops),[{url:"furnace-plate",rect:{x:50.5,y:50.5,w:49,h:49},max:640}]);
+// an unreadable material panel is simply left out (nothing names it)
+box.cropRegionAsDataUrl=async()=>"";
+assert.equal((await box.locationSubspacePlateReferences(office)).refs.length,0);
+box.cropRegionAsDataUrl=async(url,rect,max)=>{crops.push({url,rect,max});return "crop:"+url+":"+rect.x+","+rect.y;};
 // owner prompt unchanged until its cameras are set
 const genericViews={layout:"exactly 4 views in a 2x2 grid",
   top_left:"wide establishing front shot at eye level with symmetrical centered composition",
@@ -262,15 +273,15 @@ box.nbGenerate=async(prompt,opts)=>{generated.push({prompt,opts});return "render
 box.nbCommit=async(id,url,meta,used)=>{commits.push({id,meta,used});return {tier:"local"};};
 metas.furnace=furnaceRecord({TL:{yaw:0,lensMm:24},TR:{yaw:180,pitch:-30,lensMm:18,place:"on the mezzanine"}});
 assert.equal(await box.generateLocationPlate(office,{}),true);
-deq(Array.from(generated[0].opts.extraImages),["furnace-plate","crop:furnace-plate:50.5,0.5"]);
-deq(Array.from(generated[0].opts.extraImageMaxDims),[768,1024],"the parent plate goes small");
+deq(Array.from(generated[0].opts.extraImages),["crop:furnace-plate:50.5,0.5"],"the cut-out panel alone — never the whole sheet");
+deq(Array.from(generated[0].opts.extraImageMaxDims),[1536],"at its own size");
 assert.equal(generated[0].opts.referencesNumbered,true);
-assert.match(generated[0].prompt,/match Image 2 for what shows through it/);
-assert.match(generated[0].prompt,/REFERENCE IMAGES \(binding\): Image 1 = Furnace whole plate, small/);
-assert.match(generated[0].prompt,/Image 2 = Furnace seen facing south/);
+assert.match(generated[0].prompt,/match Image 1 for what shows through it/);
+assert.match(generated[0].prompt,/REFERENCE IMAGES \(binding\): Image 1 = Furnace seen facing south/);
+assert.doesNotMatch(generated[0].prompt,/whole plate/);
 deq(Object.keys(commits[0].meta.platePanels.panels),["TL","TR","BL","BR"],"the room's plate records the cameras its prompt stated");
 assert.equal(commits[0].meta.platePanels.panels.BR.yaw,180);
-assert.equal(box.locationPlateRefCount(office).n,2,"the price counts the cut-out view too");
+assert.equal(box.locationPlateRefCount(office).n,1,"the price counts the cut-out view (and no whole sheet)");
 generated.length=0;commits.length=0;
 furnace.spatialPlan={...furnace.spatialPlan,status:"reviewed"};
 assert.equal(await box.generateLocationPlate(furnace,{}),true);
@@ -311,7 +322,8 @@ plan=box.locationSubspacePanelPlan(office);
 deq(plan.sources.map(s=>[s.kind,s.id]),[["view","office-pview-office-window"]],"the view made from here is used");
 assert.equal(plan.unresolved.length,0);
 const subV=await box.locationSubspacePlateReferences(office);
-assert.equal(subV.refs[1].url,"view-image");assert.match(subV.refs[1].note,/from Furnace Office's position/);
+assert.equal(subV.refs[0].url,"view-image");assert.match(subV.refs[0].note,/from Furnace Office's position/);
+assert.equal(subV.refs.length,1,"the made view alone");
 metas.furnace={...metas.furnace,iso:"f2"};
 assert.equal(box.locationSubspacePanelPlan(office).sources.length,0,"a view made from an older parent plate is not used");
 metas.furnace.iso="f1";
@@ -339,7 +351,7 @@ assert.ok(read("app/blender-studio.js").includes("coordinates:value.coordinates,
 
 /* ---- the card wiring (source checks) ---- */
 const ui=read("app/locations-ui.jsx"),art=read("app/artroom.jsx");
-assert.match(ui,/const sub=await locationSubspacePlateReferences\(l\);/);
+assert.match(ui,/try\{ sub=await locationSubspacePlateReferences\(l\); \}\n\s+catch\(e\)\{ if\(e&&typeof e==="object"\)e\.requiredReference=true; throw e; \}/,"a failure reading the parent's part never becomes a render without it");
 assert.match(ui,/rebuildPromptAfterAttachments:\(attach,mode,gopts\)=> mode==="final"\n\s+\? combinedLocationPrompt\([^\n]*\n\s+\.\.\.\(masterSubPlan.current\?\{panelPlan:masterSubPlan.current,panelRefs:locationReferenceNumbers\(attach\)\}:\{\}\)/);
 assert.match(ui,/mode==="final"&&masterPanelRecord.current\?\{platePanels:masterPanelRecord.current\}/);
 assert.match(ui,/React.createElement\(LocationPlateCameras,\{l,project,onUpdate,readOnly/);

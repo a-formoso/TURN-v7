@@ -83,16 +83,19 @@ assert.ok(!ops(owner).some((o) => /bench|sand/.test(o[0])), "no false opening on
 /* ---- 4. the room's plate: no view of the parent through the furnace window, one real unresolved view ---- */
 images[owner.id] = "fondamenta-plate"; metas[owner.id] = { iso: "2026-10-13T10:00:00Z" };
 const plan = box.locationSubspacePanelPlan(sub);
-assert.deepEqual(json(plan.unresolved).map((u) => [u.panel, u.openingId, u.reason]), [["TR", "opening-3", "no-record"]],
-  "only 'Quay continues west' is unresolved (it was 4 views: the bench 'seen through window' three times)");
+/* (2026-10-14, fix B) the quay stretch is OUTDOOR: its cameras stand on it at eye level — the top-left looks east along it,
+   so its one real open side 'Quay continues east to landing' is the only unresolved view */
+assert.deepEqual(json(plan.unresolved).map((u) => [u.panel, u.openingId, u.reason]), [["TL", "opening-4", "no-record"]],
+  "only a real open side of the quay is unresolved (it was 4 views: the bench 'seen through window' three times)");
 assert.ok(!JSON.stringify(json(plan)).includes("fv-furnace-bench"), "the bench is never an opening of the plan");
 assert.equal(box.locationParentViewRequest(sub, "fv-furnace-bench"), null, "no 'Make a Fondamenta view' for the bench");
 assert.equal(box.locationParentViewRequest(sub, "fv-furnace-window"), null, "nor for the furnace window: it leads to the Furnace card");
 const views = box.locationSubspaceViews(sub, plan, {});
 assert.ok(!/Graziella's bench[^"]*looks/.test(JSON.stringify(views)), "no panel says the bench 'looks into Fondamenta'");
-// the stations of its panel cameras: the bench and the sand sacks are objects again (the façade and shutter stay first)
+// the stations of its panel cameras: the sand sacks are an object again — a three-quarter station of the outdoor panels
+// (the façade, shutter and bench are left to the parent's own close-up of them — fix B)
 const poses = box.locationPanelPoses(sub);
-assert.deepEqual(json(poses.map((p) => p.purpose.replace(/^key station: /, "")).slice(2)), ["Glass-furnace façade", "Iron roll-down shutter"]);
+assert.deepEqual(json(poses.map((p) => p.purpose).slice(2)), ["three-quarter view of Sacks of sand by the door, at eye level", "three-quarter view of Cullet skip, at eye level"]);
 
 /* ---- 5. the floor-plan map and the Blender export ---- */
 const scene = box.locationFloorPlanScene(owner, owner.spatialPlan, locations);
