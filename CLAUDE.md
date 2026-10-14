@@ -83,8 +83,11 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   (`billing-pricing.mjs` `textWebSearchTool`). **Attribution:** an image call names its film and item
   (`context: {projectId, assetId, purpose}`, from `imagegen.jsx` `proxyGenerate`); the proxy records them with the
   hold's `holdRef` on the usage row (`request-context.mjs`) — browser-supplied, so attribution only, never billing.
-  **Image prompts** above 40,000 characters
-  (`IMAGE_PROMPT_MAX_CHARS`) get a 400 on every image route before the hold.
+  **Image prompts** have a limit per engine (`billing-pricing.mjs` `IMAGE_PROMPT_LIMITS` = `app/pricing.jsx`
+  `TURN_IMAGE_PROMPT_LIMITS`, owner 2026-10-14): GPT Image 2.5 Flare / Sunburst 31,500 (fal takes 32,000), Seedream 5
+  Pro 30,000, Nano Banana 2.1 and any other engine 40,000 (`IMAGE_PROMPT_MAX_CHARS`, the ceiling). A longer prompt gets
+  a 400 `prompt_too_long` before the hold; the app's builders fit themselves and `proxyGenerate` trims what's left in
+  a fixed order (`imagegen.jsx` `nbFitImagePrompt`) — users are never asked to shorten a prompt.
 - **Reconciliation:** every 10 minutes `supabase/billing-housekeeping-cron.sql` (pg_cron + pg_net) POSTs
   `{"op":"reconcile_holds"}` (no auth, idempotent, throttled by `turn_claim_housekeeping`) to `image-proxy` (video) and
   `blender-bridge` (3D); each asks the provider about its open provider-tied holds (`turn_open_provider_holds`):
