@@ -245,7 +245,8 @@ const chrome=spawn(CHROME,["--headless=new","--no-sandbox","--disable-gpu",`--re
   `--user-data-dir=${FIXTURE}/profile`,"about:blank"],{stdio:"ignore"});
 let c;
 try{
-  const target=await (async()=>{for(let i=0;i<100;i++){try{const rows=await(await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
+  // up to 15 s: a busy machine can take 6 s or more to start Chrome
+  const target=await (async()=>{for(let i=0;i<375;i++){try{const rows=await(await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
     const page=rows.find(x=>x.type==="page"&&x.webSocketDebuggerUrl);if(page)return page;}catch{}await sleep(40);}
     throw new Error("Chromium target did not start");})();
   c=await CDP.connect(target.webSocketDebuggerUrl);await c.call("Page.enable");await c.call("Runtime.enable");
