@@ -592,12 +592,37 @@ export function seedreamCostUsd({ aspect = "16:9", imageSize = "2K", referenceIm
 
 /* THE LONGEST IMAGE PROMPT (round 5, S4). An image is priced flat per render, but the direct Google
    route also bills the prompt's input tokens (and thinking) — a very long prompt was partly free.
-   Every image route refuses (400, before any hold) a prompt longer than this: the app's longest
-   image prompts (a shot's composed brief with its style and every character's identity block, the
-   Stage's 12,000-character panel prompt) are well under it, and OpenAI's image models stop at
-   32,000 characters anyway. A prompt at the limit adds at most ~10k input tokens (~$0.02 at the
-   dearest listed Gemini image input price) to a flat-priced render. */
+   Every image route refuses (400, before any hold) a prompt longer than this, whatever the engine. A
+   prompt at the limit adds at most ~10k input tokens (~$0.02 at the dearest listed Gemini image input
+   price) to a flat-priced render. (2026-10-14) The app's prompts are NOT all well under it: a location
+   plate with a large shared layout reached 33,577 characters — the per-engine limits below are what
+   each engine is actually sent. */
 export const IMAGE_PROMPT_MAX_CHARS = 40000;
+
+/* PROMPT LIMITS PER IMAGE ENGINE (2026-10-14, owner — "go ahead with all of it"). A GPT Image 2.5 plate of
+   33,577 characters came back from fal as a raw refusal: fal's schema for GPT Image 2.5 Flare and Sunburst stops
+   at 32,000 characters (OpenAI's own limit for its image models). Each engine has its own ceiling here, a margin
+   under what its provider takes:
+     GPT Image 2.5 Flare / Sunburst — fal maxLength 32,000 → 31,500;
+     Nano Banana 2.1 — fal maxLength 50,000 → held at IMAGE_PROMPT_MAX_CHARS (40,000);
+     Seedream 5 Pro — fal publishes no maxLength and BytePlus advises short prompts (long ones "may scatter
+       information") → 30,000.
+   The image route refuses a longer prompt with prompt_too_long BEFORE any hold (index.ts). The app never gets
+   there: the SAME table lives in app/pricing.jsx (TURN_IMAGE_PROMPT_LIMITS); its prompt builders fit themselves
+   under it and proxyGenerate trims what is left in a fixed order (imagegen.jsx nbFitImagePrompt) — nobody is
+   ever asked to shorten a prompt. An engine missing here gets IMAGE_PROMPT_MAX_CHARS. */
+export const IMAGE_PROMPT_LIMITS = Object.freeze({
+  "gpt-image-2.5-flare": 31500,
+  "gpt-image-2.5-sunburst": 31500,
+  "gemini-nano-banana-2.1": IMAGE_PROMPT_MAX_CHARS,
+  "seedream-5-pro": 30000,
+});
+/** the longest prompt an image engine (a retired id maps to its successor) is sent */
+export function imagePromptMaxChars(model) {
+  const id = canonicalImageModel(String(model || ""));
+  const n = Object.prototype.hasOwnProperty.call(IMAGE_PROMPT_LIMITS, id) ? Number(IMAGE_PROMPT_LIMITS[id]) : IMAGE_PROMPT_MAX_CHARS;
+  return Math.min(IMAGE_PROMPT_MAX_CHARS, n > 0 ? n : IMAGE_PROMPT_MAX_CHARS);
+}
 
 /**
  * The cost of one image render, or null when the route does not serve the model.

@@ -3774,6 +3774,9 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
 .loc-cam-sight.ok{border-left-color:var(--accent)}
 .loc-cam-sight.open{border-left-color:var(--accent-ink)}
 .loc-cam-make{margin-top:6px;height:auto;min-height:32px;white-space:normal;text-align:left}
+/* where an opening leads (2026-10-14): another card, set here, or a question with two answers */
+.loc-cam-leads{margin:8px 0 4px}
+.loc-cam-lead-buttons{display:flex;flex-wrap:wrap;gap:6px}
 .loc-cam-edit{margin-top:8px}
 .loc-cam-edit>summary{cursor:pointer;font:500 11px/1.5 var(--f-ui);color:var(--txt-2)}
 .loc-cam-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0}

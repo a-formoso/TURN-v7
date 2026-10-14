@@ -703,6 +703,65 @@ const LOCATION_COORDINATE_CONVENTION = {
 /* (2026-10-13) "glass" alone is a material, not an opening — in a glassworks "Glass crates", "glass rack" or "glass furnace"
    are objects; only an architectural glass surface ("glass wall / partition / door / front…") is an opening */
 const LOC_OPENING_RE = /\b(windows?|doors?|doorway|glazing|glazed|arch|archway|opening|hatch|pass-through|porthole|skylight|(?:plate[- ]?)?glass[- ](?:walls?|doors?|partitions?|panels?|screens?|fronts?|frontage|facade|fa\u00e7ade|roof|ceiling|booth|pane|panes))\b/i;
+/* (2026-10-14, owner — "go ahead with all of it") THE NAME IS THE OPENING: an object counts as a window / door / arch
+   only when its NAME names the opening itself ("Office window", "Furnace side door (origin)", "Archway", "Canal-side
+   street door and stone threshold"), never when it merely mentions one ("Graziella's bench, stool and glory hole (seen
+   through window)", "Sacks of sand by the door", "Steps by the doorway", "Office partition wall with window"). Read:
+   an aside in brackets is dropped, the name is cut at its first comma / dash and at its first relation word (by, near,
+   through, with, of, to, at, on, in, under, behind, …), and an opening word (LOC_OPENING_RE — the "glass" rule above is
+   unchanged) must END one of its "and"-joined parts; a trailing state ("left ajar", "boarded up") or a number / letter
+   that only labels it ("Window 1", "Door B") may follow it. "Row / pair / bank of windows" is an opening; an
+   appliance's or a cupboard's door ("Oven door", "Furnace mouth and door") is not. A floor plan's own openings
+   (coordinates.spaces[].openings) always count, whatever their name. */
+const LOC_OPENING_END_RE = new RegExp(LOC_OPENING_RE.source.replace(/\\b$/,"")+"$","i");
+const LOC_GLAZED_END_RE = /\b(glaz(?:ed|ing)[- ](?:screens?|panels?|walls?|partitions?|fronts?|frontage|roof|ceiling|booth|doors?))$/i;
+const LOC_OPENING_REL = new Set(("by near beside next behind beneath below under underneath above over through thru past across along against "
+  +"around round at on in inside outside into onto from with without for of to toward towards facing overlooking opposite beyond "
+  +"between among amid via off seen visible where which that holding holds showing leading looking like as is are used lit").split(" "));
+const LOC_OPENING_STATE = new Set(("ajar open opened closed shut locked unlocked boarded bricked propped half wide left right up frame frames "
+  +"pane panes surround slightly partly partially fully still always barred shuttered curtained broken cracked smashed sealed blocked "
+  +"jammed stuck north south east west northeast northwest southeast southwest upper lower").split(" "));
+const LOC_OPENING_GROUP = new Set("row rows bank banks pair pairs set sets line lines run series band strip rank tier wall".split(" "));
+const LOC_APPLIANCE_DOOR = new Set("oven ovens fridge refrigerator freezer cupboard cabinet wardrobe locker safe stove microwave dishwasher cage kiln".split(" "));
+/* a trailing label that only numbers the opening ("Window 1", "Door B", "Window #2", "Windows x2", "Door II") */
+const LOC_OPENING_LABEL_RE = /^(?:#?\d+[a-z]?|[a-z]|x\d+|no\.?\d+|(?:i{1,3}|iv|vi{0,3}|ix|x))$/i;
+function _locOpeningPart(words){
+  const w = words.slice();
+  while(w.length>1 && (LOC_OPENING_STATE.has(w[w.length-1].toLowerCase()) || LOC_OPENING_LABEL_RE.test(w[w.length-1]))) w.pop();
+  const m = w.join(" ").match(LOC_OPENING_END_RE) || w.join(" ").match(LOC_GLAZED_END_RE);   // "Glazed screen"
+  if(!m) return "";
+  const term = m[1].toLowerCase(), before = (w.join(" ").slice(0, m.index).trim().split(/\s+/).pop()||"").toLowerCase();
+  if(/^(doors?|hatch)$/.test(term) && LOC_APPLIANCE_DOOR.has(before.replace(/'s$/,""))) return "";
+  return term;
+}
+/* the opening word an object's NAME ends on ("" = the object is not an opening) */
+function locationOpeningTerm(name){
+  const clause = String(name||"").replace(/\([^)]*\)|\[[^\]]*\]/g," ").split(/[,;:\u2014\u2013]|\s-\s/)[0];
+  // each word without the punctuation around it ("Office window." / "\u201cDoor\u201d"); "&" and "/" stay joiners
+  const words = clause.trim().split(/\s+/).map(x=>x.replace(/^[^\w#&\/]+|[^\w&\/]+$/g,"")).filter(Boolean);
+  let cut = words.length;
+  for(let i=1;i<words.length;i++) if(LOC_OPENING_REL.has(words[i].toLowerCase().replace(/[^a-z]/g,""))){ cut = i; break; }
+  const head = words.slice(0,cut);
+  const parts = []; let cur = [];
+  head.forEach(x=>{ if(/^(and|or|&|\/)$/i.test(x)){ if(cur.length) parts.push(cur); cur = []; } else cur.push(x); });
+  if(cur.length) parts.push(cur);
+  for(let i=0;i<parts.length;i++){
+    const t = _locOpeningPart(parts[i]);
+    if(!t) continue;
+    // "Furnace mouth and door": a bare door / hatch joined to an appliance (or its mouth) is that appliance's own door
+    const bare = parts[i].filter(x=>!LOC_OPENING_STATE.has(x.toLowerCase()) && !LOC_OPENING_LABEL_RE.test(x)).length===1;
+    if(i>0 && bare && /^(doors?|hatch)$/.test(t) && parts[i-1].some(x=>{ const k = x.toLowerCase().replace(/'s$/,"");
+      return k==="mouth" || k==="furnace" || LOC_APPLIANCE_DOOR.has(k); })) continue;
+    return t;
+  }
+  // "Row of windows", "Pair of glass doors": a group named by its openings
+  if(cut<words.length && words[cut].toLowerCase()==="of" && head.length && LOC_OPENING_GROUP.has(head[head.length-1].toLowerCase())){
+    const rest = words.slice(cut+1); let end = rest.length;
+    for(let i=1;i<rest.length;i++) if(LOC_OPENING_REL.has(rest[i].toLowerCase().replace(/[^a-z]/g,""))){ end = i; break; }
+    return _locOpeningPart(rest.slice(0,end));
+  }
+  return "";
+}
 const LOC_COMPASS = ["north","north-east","east","south-east","south","south-west","west","north-west"];
 
 function _locNum(v, lo, hi){
@@ -800,8 +859,12 @@ function locWallYawFromText(text){
   if(/\b(near|front)\s+wall\b|\bbehind the camera\b/.test(s)) return {yaw:180, word:"near wall"};
   return null;
 }
-function locationAnchorIsOpening(a){ return LOC_OPENING_RE.test(String((a && a.name) || "")); }
+function locationAnchorIsOpening(a){ return !!locationOpeningTerm(a && a.name); }
 function _locOpeningKind(name){
+  // the kind of the opening the name ENDS on ("Arched window" is a window, "Door to the arch" a door)
+  const t = locationOpeningTerm(name);
+  if(t) return /^(arch|archway|opening)$/.test(t) ? "arch" : /\bdoor/.test(t) ? "door"
+    : /glass|glazing|glazed|porthole/.test(t) ? "glass" : "window";
   const s = String(name||"").toLowerCase();
   if(/\barch|archway|opening\b/.test(s)) return "arch";
   if(/\bdoor/.test(s)) return "door";
@@ -918,25 +981,55 @@ function locationSpaceAnchors(l, locations){
   const list = _locList(locations), family = _locFamily(l,list), plan = _locOwnerPlan(l,list).plan;
   return plan.anchors.filter(a=>locationAnchorSpaceOf(a,family).id===l.id);
 }
-/* this space's openings — the coordinates' openings first, then the layout's window / door / glass / arch anchors
-   (their facing: the anchor's own, else the wall its placement names). connectsTo = the space beyond it. */
+/* (2026-10-14) where an opening leads when it is not a space of this family: another location card its words name
+   ("Furnace interior (unlisted)" → the Furnace card). It is pointed to (leadsTo) — never painted with this family's parent */
+function _locOtherCard(text, l, list, family){
+  const own = new Set(family.map(x=>x && x.id));
+  const others = list.filter(x=>x && x.id && !own.has(x.id) && String(x.name||"").trim());
+  const hit = others.length && String(text||"").trim() ? (_locResolveSpace(text,others) || _locMentions(text,others,l && l.id)) : null;
+  return hit ? {id:hit.id, name:hit.name||""} : null;
+}
+/* this space's openings — the coordinates' openings first, then the layout's objects whose NAME is a window / door /
+   glass / arch (locationOpeningTerm; their facing: the anchor's own, else the wall its placement names).
+   connectsTo = the space of this family beyond it, as its own words say ("Opens onto", or a space its name / placement
+   names). NEVER THE PARENT BY DEFAULT (2026-10-14, owner — "go ahead with all of it"): an opening whose words name no
+   space of the family leads nowhere this plate can show (connectsTo ""), so no view of the parent is ever put in it;
+   one whose words name another location card points to that card (leadsTo {id, name}); for one whose words say
+   nothing, the room's card may say where it leads (l.openingLeadsTo {openingId: spaceId | "elsewhere"} — Plate
+   cameras' "It opens onto …"; an optional field, absent on every older card). destination: "space" (its own
+   words) · "chosen" (set on the card) · "card" (another location) · "elsewhere" · "unknown" (nothing says). */
 function locationSpaceOpenings(l, locations){
   if(!l) return [];
   const list = _locList(locations), family = _locFamily(l,list), plan = _locOwnerPlan(l,list).plan;
-  const parent = locationParentOf(l,list), sp = _locCoordSpace(plan.coordinates,l), out = [];
+  // the card passed in says where its openings lead (Plate cameras renders with the just-saved card before the shared
+  // continuity snapshot catches up); a caller holding a card without the field reads the live one
+  const live = Object.prototype.hasOwnProperty.call(l,"openingLeadsTo") ? l : (list.find(x=>x && x.id===l.id) || l);
+  const chosenMap = live.openingLeadsTo && typeof live.openingLeadsTo==="object" ? live.openingLeadsTo : {};
+  const sp = _locCoordSpace(plan.coordinates,l), out = [];
+  const settle = (id, beyond, elsewhere, wordsSaySomething)=>{
+    if(beyond) return {connectsTo:beyond.id, leadsTo:null, destination:"space"};
+    if(elsewhere) return {connectsTo:"", leadsTo:elsewhere, destination:"card"};
+    if(wordsSaySomething) return {connectsTo:"", leadsTo:null, destination:"elsewhere"};
+    const pick = Object.prototype.hasOwnProperty.call(chosenMap,id) ? String(chosenMap[id]||"") : "";
+    const hit = pick && pick!=="elsewhere" ? _locResolveSpace(pick,family) : null;
+    if(hit && hit.id!==l.id) return {connectsTo:hit.id, leadsTo:null, destination:"chosen"};
+    return {connectsTo:"", leadsTo:null, destination:pick==="elsewhere" ? "elsewhere" : "unknown"};
+  };
   if(sp) sp.openings.forEach(o=>{
     const beyond = _locResolveSpace(o.connectsTo,family);
+    const elsewhere = beyond ? null : _locOtherCard(o.connectsTo,l,list,family);
     out.push({...o, name:o.name||o.id, yawFrom:o.yaw!=null ? "coordinates" : "", source:"coordinates",
-      connectsTo:beyond ? beyond.id : (o.connectsTo ? "" : (parent ? parent.id : ""))});
+      ...settle(o.id, beyond, elsewhere, !!String(o.connectsTo||"").trim())});
   });
   plan.anchors.forEach(a=>{
-    if(!LOC_OPENING_RE.test(a.name) || out.some(o=>o.id===a.id)) return;
+    if(!locationAnchorIsOpening(a) || out.some(o=>o.id===a.id)) return;
     if(locationAnchorSpaceOf(a,family).id!==l.id) return;
     const wall = a.facing!=null ? null : locWallYawFromText(a.placement+" "+a.name);
     const beyond = _locMentions([a.name,a.placement,a.evidence].join(" "),family,l.id);
+    const elsewhere = beyond ? null : _locOtherCard([a.name,a.placement].join(" "),l,list,family);
     out.push({id:a.id, name:a.name, kind:_locOpeningKind(a.name), edge:null, centre:a.xy||null, width:null,
       sillZ:null, headZ:null, yaw:a.facing!=null ? a.facing : (wall ? wall.yaw : null),
-      yawFrom:a.facing!=null ? "set" : (wall ? "text" : ""), connectsTo:beyond ? beyond.id : (parent ? parent.id : ""),
+      yawFrom:a.facing!=null ? "set" : (wall ? "text" : ""), ...settle(a.id, beyond, elsewhere, false),
       basis:a.posBasis || a.basis || "design", source:"anchor"});
   });
   return out;
@@ -966,7 +1059,7 @@ function locationDefaultPanelPoses(l, locations){
   const poly = sp && sp.footprint.length>=3 ? sp.footprint : null;
   const geo = {floorZ:sp ? sp.floorZ : 0, ceilingH:sp && sp.ceilingH ? sp.ceilingH : null, centre:_locCentroid(poly), poly};
   const anchors = locationSpaceAnchors(l,list), openings = locationSpaceOpenings(l,list);
-  const stations = anchors.filter(a=>!LOC_OPENING_RE.test(a.name));
+  const stations = anchors.filter(a=>!locationAnchorIsOpening(a));   // "Sacks of sand by the door" is a station
   const door = openings.find(o=>/door|arch/.test(o.kind) && o.yaw!=null) || openings.find(o=>/door|arch/.test(o.kind));
   const win = openings.find(o=>/window|glass/.test(o.kind) && o.yaw!=null) || openings.find(o=>/window|glass/.test(o.kind));
   const name = l.name || "this space";
@@ -1524,8 +1617,8 @@ function buildLocationParentViewPrompt(l, req, project){
   s += locationSpatialPrompt(target);
   s += "RENDER STYLE: "+String(v.renderStyle||"").replace(/\.$/,"")+". "+rules+" No text, labels or captions. Sharp focus, faithful to the render style.";
   const extra = (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, target) : "";
-  const neg = [target.negativePrompt||v.negativePrompt||"", extra].filter(Boolean).join(", ").trim();
-  return neg ? (s+" AVOID: "+neg.replace(/\.$/,"")+".") : s;
+  const neg = locationAvoidText(target.negativePrompt||v.negativePrompt||"", extra);   // once (2026-10-14)
+  return neg ? (s+" AVOID: "+neg+".") : s;
 }
 /* how many images it attaches (GPT Image prices each): the plate of the space beyond, and the reviewed layout's
    plate when it is another space's */
@@ -2854,6 +2947,142 @@ window.impliedSpaceSlugline = impliedSpaceSlugline;
 function scriptHasLocations(scenes){ return (scenes||[]).some(s=> !!parseSlugline(s.loc)); }
 window.scriptHasLocations = scriptHasLocations;
 
+/* ---- THE PROMPT BUDGET OF A LOCATION PLATE (2026-10-14, owner — "go ahead with all of it") ----
+   A GPT Image 2.5 plate of 33,577 characters was refused by its engine (fal stops at 32,000). Each engine now has its
+   own limit (pricing.jsx TURN_IMAGE_PROMPT_LIMITS = the server's IMAGE_PROMPT_LIMITS) and the builders fit under it by
+   themselves. FREE, ALWAYS: the JSON spec without indentation; the AVOID list once (locationAvoidText — the default
+   negative prompt already carries the character negative that used to be added a second time); the screenplay as
+   page images OR as text, never both (locationScreenplayPointer: with its pages attached, the text becomes a short
+   pointer to them). THEN, only while the prompt is still longer than its engine takes, the fixed order of
+   locationFitPromptSpec. NEVER CUT: the task line, each panel's camera line and what it sees through its openings
+   (views), the binding fixed landmarks (fixtures, LOCKED continuity anchors, the shared layout's objects, frame and
+   floor plan), the render style and empty-set rules, the AVOID list, and the "REFERENCE IMAGES are attached:" list
+   that follows the prompt. proxyGenerate repeats the same order on the finished prompt (imagegen.jsx
+   nbFitImagePrompt) and, past it, cuts the middle rather than failing — nobody is asked to shorten a prompt. */
+const LOC_PROMPT_DEFAULT_MAX = 30000;    // the smallest engine's limit, when the engine isn't known
+const LOC_PROMPT_TAIL_RESERVE = 2500;    // room for the reference list that follows the prompt, before it is known
+const LOC_CONVENTION_SHORT = "metres, +Z up, +Y = the frame's facing (north), +X east; yaw in degrees clockwise from north; pitch above the horizontal; lens in mm on a 36 mm sensor";
+/* how long a location prompt may be: its engine's limit (opts.maxChars, else the engine opts.model or the picked one),
+   less the room kept for what follows it (opts.reserve — the reference list, the AVOID list) */
+function locationPromptBudget(opts){
+  const o = opts || {};
+  const max = Number(o.maxChars)>0 ? Number(o.maxChars)
+    : (typeof window.nbPromptMaxChars==="function" ? window.nbPromptMaxChars(o.model||"") : LOC_PROMPT_DEFAULT_MAX);
+  const reserve = o.reserve!=null && Number(o.reserve)>=0 ? Number(o.reserve) : LOC_PROMPT_TAIL_RESERVE;
+  return Math.max(4000, max - reserve);
+}
+/* one AVOID list from several comma lists: each term once (case-insensitive), in first-seen order */
+function locationAvoidText(...lists){
+  const seen = new Set(), out = [];
+  lists.forEach(x=>String(x||"").split(/\s*,\s*/).forEach(t=>{
+    const term = t.replace(/\s+/g," ").trim().replace(/\.$/,"").trim(), k = term.toLowerCase();
+    if(term && !seen.has(k)){ seen.add(k); out.push(term); } }));
+  return out.join(", ");
+}
+/* the screenplay as page images OR as text, never both: with its pages attached (pages = their numbers in the
+   reference list, or a count), the screenplay text becomes this pointer */
+function locationScreenplayPointer(pages){
+  const nums = Array.isArray(pages) ? pages.map(Number).filter(n=>n>0) : [];
+  const n = nums.length || (Number(pages)>0 ? Math.floor(Number(pages)) : 0);
+  if(!n) return "";
+  const run = nums.length>1 && nums.every((x,i)=>!i || x===nums[i-1]+1);
+  const which = !nums.length ? n+" screenplay page image"+(n===1 ? "" : "s")
+    : nums.length===1 ? "Image "+nums[0] : run ? "Images "+nums[0]+"–"+nums[nums.length-1] : "Images "+nums.join(", ");
+  return "the screenplay of these scenes is attached as page images ("+which+") — read it there; it is not repeated here";
+}
+/* THE FIXED TRIMMING ORDER — only while the spec is longer than budget, each step whole before the next:
+     1. layout notes: each layout object's evidence and basis, the layout's open questions and source, the long
+        coordinate convention (a one-line one stays), provenance, the script-requirements note, the fixture rule;
+     2. this space's own description said a second time (its identity layer repeating the location's own fields);
+     3. the screenplay-reading rules (the reference list after the prompt says them again);
+     4. a room's layout objects in other spaces that none of its panels looks at;
+     5. "reads as" (narrative significance), dramatic use and tone;
+     6. the screenplay text, when no pages carry it, cut to an excerpt (~600 characters);
+     7. the parent's description cut to its binding continuity anchors;
+     8. long descriptive prose cut to 240, then 120 characters.
+   Never: task, views, fixtures, render, world scale, species canon, continuity anchors, the shared layout's objects,
+   frame and floor plan, a unit's time / state / dressing. → {spec, steps} (steps: what went, in order) */
+function locationFitPromptSpec(specIn, budget){
+  let spec;
+  try{ spec = JSON.parse(JSON.stringify(specIn||{})); }catch(e){ return {spec:specIn, steps:[]}; }
+  const steps = [], size = ()=>JSON.stringify(spec).length, fits = ()=>size()<=budget;
+  if(fits()) return {spec, steps};
+  const own = (spec.location && typeof spec.location==="object") ? spec.location
+    : ((spec.environment_spec && typeof spec.environment_spec==="object") ? spec.environment_spec : {});
+  const il = own.identity_layers && typeof own.identity_layers==="object" ? own.identity_layers : null;
+  const ssl = il && il.shared_set_layout && typeof il.shared_set_layout==="object" ? il.shared_set_layout : null;
+  const each = (arr, fn)=>(Array.isArray(arr) ? arr : []).forEach(x=>{ if(x && typeof x==="object") fn(x); });
+  const norm = (v)=>JSON.stringify(v, (k,x)=>typeof x==="string" ? x.trim().replace(/\.$/,"").trim() : x);
+  const cutAt = (v, n)=>v.slice(0,n).replace(/\s+\S*$/,"")+" …";
+  const PROTECT = /^(task|views|fixtures|render|world_scale|ambient_species_canon)(\.|$)|(^|\.)continuity_anchors(\.|$)|(^|\.)shared_set_layout\.(schema|ownerId|ownerName|targetSpace|status|frame|anchors|coordinates)(\.|$)|^location\.(name|scope|type|time_of_day)$|^coverage\.(role|name|parent_location|time_of_day|appearance_state|state_dressing|sluglines|scenes)(\.|$)/;
+  const shorten = (n)=>{
+    const walk = (node, path)=>{
+      if(Array.isArray(node)) node.forEach((v,i)=>{ if(typeof v==="string"){ if(v.length>n && !PROTECT.test(path)) node[i] = cutAt(v,n); } else walk(v,path); });
+      else if(node && typeof node==="object") Object.keys(node).forEach(k=>{ const p = path ? path+"."+k : k, v = node[k];
+        if(typeof v==="string"){ if(v.length>n && !PROTECT.test(p)) node[k] = cutAt(v,n); } else walk(v,p); });
+    };
+    walk(spec,"");
+  };
+  const order = [
+    ["layout notes", ()=>{
+      if(ssl){
+        each(ssl.anchors, a=>{ delete a.evidence; delete a.basis; delete a.posBasis; });
+        delete ssl.unresolved; delete ssl.source;
+        if(ssl.coordinates && typeof ssl.coordinates==="object"){
+          if(ssl.coordinates.convention) ssl.coordinates.convention = LOC_CONVENTION_SHORT;
+          each(ssl.coordinates.spaces, s=>{ delete s.basis; each(s.openings, o=>{ delete o.basis; }); });
+          each(ssl.coordinates.cameras, c=>{ delete c.basis; });
+        }
+      }
+      if(il) [il.place_identity, il.child_space && il.child_space.specific_identity, il.continuity_root && il.continuity_root.invariants]
+        .forEach(x=>{ if(x && typeof x==="object") delete x.provenance; });
+      if(own.script_requirements && typeof own.script_requirements==="object") delete own.script_requirements.note;
+      delete spec.fixture_projection_rule;
+    }],
+    ["own description once", ()=>{
+      const mine = il && (il.place_identity || (il.child_space && il.child_space.specific_identity));
+      if(!mine || typeof mine!=="object") return;
+      const said = new Set(Object.keys(own).filter(k=>k!=="identity_layers").map(k=>norm(own[k])));
+      Object.keys(mine).forEach(k=>{ if(said.has(norm(mine[k]))) delete mine[k]; });
+      if(il.place_identity && typeof il.place_identity==="object" && !Object.keys(il.place_identity).length) delete il.place_identity;
+    }],
+    ["screenplay rules once", ()=>{ delete own.screenplay_reference_contract; }],
+    ["other spaces' objects", ()=>{
+      if(!ssl || !il || !il.child_space || !spec.views || !Array.isArray(ssl.anchors)) return;
+      const room = _locNameKey(il.child_space.name || ssl.targetSpace), seen = JSON.stringify(spec.views);
+      const parentKey = _locNameKey((il.continuity_root && il.continuity_root.name) || ssl.ownerName);
+      // the room's own objects ("Office" names the "Furnace Office" room — never the parent "Fondamenta" in "Fondamenta
+      // DEI Vetrai"), and any object a panel's view names
+      ssl.anchors = ssl.anchors.filter(a=>{ const sk = _locNameKey(a && a.space);
+        return (sk && (sk===room || (sk!==parentKey && sk.length>=4 && room.indexOf(sk)>=0)))
+          || (a && a.name && seen.indexOf(a.name)>=0) || (a && a.id && seen.indexOf(a.id)>=0); });
+    }],
+    ["reads as and tone", ()=>{ delete own.reads_as; delete own.tone; delete own.dramatic_use; }],
+    ["screenplay excerpt", ()=>{
+      if(typeof own.screenplay_context==="string" && own.screenplay_context.length>600
+        && !/^the screenplay of these scenes is attached/.test(own.screenplay_context)) own.screenplay_context = cutAt(own.screenplay_context,600);
+      if(spec.coverage && typeof spec.coverage==="object") ["screenplay_excerpt","screenplay_basis"].forEach(k=>{
+        const v = spec.coverage[k];
+        if(typeof v==="string" && v.length>600 && !/^the screenplay of these scenes is attached/.test(v)) spec.coverage[k] = cutAt(v,600); });
+    }],
+    ["parent description to its anchors", ()=>{
+      const inv = il && il.continuity_root && il.continuity_root.invariants;
+      if(inv && typeof inv==="object") il.continuity_root.invariants = inv.continuity_anchors ? {continuity_anchors:inv.continuity_anchors} : {};
+    }],
+    ["long prose shortened", ()=>{ shorten(240); if(!fits()) shorten(120); }],
+  ];
+  for(const [name, step] of order){
+    if(fits()) break;
+    const was = size(); step();
+    if(size()<was) steps.push(name);
+  }
+  return {spec, steps};
+}
+window.locationPromptBudget = locationPromptBudget;
+window.locationAvoidText = locationAvoidText;
+window.locationScreenplayPointer = locationScreenplayPointer;
+window.locationFitPromptSpec = locationFitPromptSpec;
+
 function locVisualDefaults(l){
   const livingNeg = (typeof locationCharacterNegative==="function") ? locationCharacterNegative(null, l) : "people, characters, animals, creatures, wildlife, insects";
   const styleSource=locationRenderStyleSource(l);
@@ -3149,7 +3378,9 @@ function buildLocationRefPrompt(l, project, opts){
   if(clean(st.fg.right))  fixtures.push({ what: clean(st.fg.right),  position: "near foreground right" });
   const mainStation = clean(st.bg.center) || "the space's primary, most story-relevant feature";
   const secondStation = clean(st.mid.left) || clean(st.mid.right) || clean(st.fg.left) || clean(st.fg.right) || "a signature material detail of the space";
-  const screenplayContext = (typeof locationScreenplayContext==="function") ? locationScreenplayContext(l, _C0.scenes||[], _C0.drafts||{}, 2600) : "";
+  // the screenplay as page images OR as text (2026-10-14): with its pages attached (opts.screenplayPages), a pointer
+  const screenplayContext = locationScreenplayPointer(opts.screenplayPages)
+    || ((typeof locationScreenplayContext==="function") ? locationScreenplayContext(l, _C0.scenes||[], _C0.drafts||{}, 2600) : "");
   const panelPlan = (typeof locationMasterPanelPlan==="function") ? locationMasterPanelPlan(l, _C0.scenes||[], _C0.drafts||{}) : null;
   const subspacePlan = locationParentOf(l, _C0.locations) ? (opts.panelPlan || locationSubspacePanelPlan(l, _C0.locations)) : null;
   const ownerCameraViews = (views)=>{
@@ -3276,7 +3507,11 @@ function buildLocationRefPrompt(l, project, opts){
   const _wcls = (typeof locationScaleClass==="function") ? locationScaleClass(l, P) : "A";
   const _wclause = (typeof worldScaleClause==="function") ? worldScaleClause(_wcls) : "";
   if(_wclause) spec.world_scale = _wclause;
-  return "Render this environment reference sheet EXACTLY as specified by this JSON spec (continuity fields are binding):\n"+JSON.stringify(spec, null, 1);
+  // THE PROMPT BUDGET (2026-10-14): compact JSON, then the fixed trimming order only while it is still too long for
+  // its engine (opts.avoidChars: the AVOID list combinedLocationPrompt adds after it)
+  const header = "Render this environment reference sheet EXACTLY as specified by this JSON spec (continuity fields are binding):\n";
+  const fit = locationFitPromptSpec(spec, locationPromptBudget(opts)-header.length-(Number(opts.avoidChars)||0));
+  return header+JSON.stringify(fit.spec);
 }
 window.buildLocationRefPrompt = buildLocationRefPrompt;
 
@@ -3316,11 +3551,15 @@ function locationEnvironmentProps(l){
 }
 window.locationEnvironmentProps = locationEnvironmentProps;
 
+/* opts (2026-10-14): panelPlan / panelRefs (a room's views), screenplayPages (the attached pages' image numbers — the
+   screenplay text becomes a pointer to them), model / maxChars / reserve (the prompt budget: its engine's limit less
+   the reference list that follows) */
 function combinedLocationPrompt(l, project, opts){
-  const master = buildLocationRefPrompt(l, project, opts);
   const extra = (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : "";
-  const neg = [l.negativePrompt || locVisualDefaults(l).negativePrompt || "", extra].filter(Boolean).join(", ").trim();
-  return neg ? (master + " AVOID: " + neg.replace(/\.$/,"") + ".") : master;
+  // ONE AVOID list (2026-10-14): the default negative prompt already ends with the character negative — said once
+  const neg = locationAvoidText(l.negativePrompt || locVisualDefaults(l).negativePrompt || "", extra);
+  const avoid = neg ? (" AVOID: " + neg + ".") : "";
+  return buildLocationRefPrompt(l, project, {...(opts||{}), avoidChars:avoid.length}) + avoid;
 }
 window.combinedLocationPrompt = combinedLocationPrompt;
 
@@ -3345,13 +3584,17 @@ function buildLocationVariantPrompt(l, project, opts){
   if(speciesCanon) s += speciesCanon+" ";
   s += "Single wide cinematic frame, the same space and architecture. "+rules+" Sharp focus, faithful to the specified render style.";
   const extra = (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : "";
-  const neg = [l.negativePrompt||v.negativePrompt||"", extra].filter(Boolean).join(", ").trim();
-  return neg ? (s+" AVOID: "+neg.replace(/\.$/,"")+".") : s;
+  const neg = locationAvoidText(l.negativePrompt||v.negativePrompt||"", extra);   // once (2026-10-14)
+  return neg ? (s+" AVOID: "+neg+".") : s;
 }
 window.buildLocationVariantPrompt = buildLocationVariantPrompt;
 
-function buildLocationCoveragePrompt(l, sheet, project){
+/* opts (2026-10-14): screenplayPages (the attached pages' numbers — the excerpt becomes a pointer to them), model /
+   maxChars / reserve (the prompt budget) */
+function buildLocationCoveragePrompt(l, sheet, project, opts){
   sheet = sheet || {};
+  opts = opts || {};
+  const pagesPointer = locationScreenplayPointer(opts.screenplayPages);
   const v = locVisualDefaults(l);
   const role = String(sheet.role||"INT").toUpperCase();
   const rules = (typeof locationNoCharactersRules==="function") ? locationNoCharactersRules(project, l).join(" ") : "empty of people and characters.";
@@ -3367,7 +3610,7 @@ function buildLocationCoveragePrompt(l, sheet, project){
       name,
       parent_location: parent+" ("+(l.intExt||"INT")+")",
       screenplay_basis: summary || undefined,
-      screenplay_excerpt: clean(sheet.scriptExcerpt) || undefined,
+      screenplay_excerpt: pagesPointer || clean(sheet.scriptExcerpt) || undefined,
       screenplay_order: sheet.order!=null ? Number(sheet.order) : undefined,
       scenes: Array.isArray(sheet.sceneNos) && sheet.sceneNos.length ? sheet.sceneNos : undefined,
       rule: "render ONLY the space the screenplay needs for shots; no actors, no story action, no temporary performance moment",
@@ -3392,10 +3635,11 @@ function buildLocationCoveragePrompt(l, sheet, project){
       rules: [rules, "empty set only", "if the screenplay names a subspace without fully describing it, infer the missing architecture from the attached screenplay-page reference plus the parent location reference while staying conservative", "no text, no labels, no typography, no captions, no watermarks", "consistent with the parent location's materials, scale and light"],
     },
   };
-  const neg = [l.negativePrompt || v.negativePrompt || "", (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : ""].filter(Boolean).join(", ").trim();
-  return "Render this screenplay-derived location coverage sheet EXACTLY as specified by this JSON spec:\n"
-    + JSON.stringify(spec, null, 1)
-    + (neg ? ("\nAVOID: "+neg.replace(/\.$/,"")+".") : "");
+  const neg = locationAvoidText(l.negativePrompt || v.negativePrompt || "", (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : "");
+  const header = "Render this screenplay-derived location coverage sheet EXACTLY as specified by this JSON spec:\n";
+  const avoid = neg ? ("\nAVOID: "+neg+".") : "";
+  // compact, then the fixed trimming order only while too long for its engine (2026-10-14)
+  return header + JSON.stringify(locationFitPromptSpec(spec, locationPromptBudget(opts)-header.length-avoid.length).spec) + avoid;
 }
 window.buildLocationCoveragePrompt = buildLocationCoveragePrompt;
 
@@ -3404,8 +3648,11 @@ window.buildLocationCoveragePrompt = buildLocationCoveragePrompt;
    bucket and the user's TIME-OF-DAY VARIANT ("dawn and raining") are first-class,
    binding spec fields, and the screenplay basis is ONLY this unit's owned blocks
    (yard-at-night coverage never reads booth prose). */
-function buildSluglineUnitPrompt(l, u, project){
+/* opts (2026-10-14): as buildLocationCoveragePrompt's */
+function buildSluglineUnitPrompt(l, u, project, opts){
   u = u || {};
+  opts = opts || {};
+  const pagesPointer = locationScreenplayPointer(opts.screenplayPages);
   const v = locVisualDefaults(l);
   const role = String(u.intExt||"INT").toUpperCase();
   const rules = (typeof locationNoCharactersRules==="function") ? locationNoCharactersRules(project, l).join(" ") : "empty of people and characters.";
@@ -3425,7 +3672,7 @@ function buildSluglineUnitPrompt(l, u, project){
       state_dressing: (Array.isArray(u.dressing) && u.dressing.length ? u.dressing
         : (Array.isArray(u.dressingDerived) && u.dressingDerived.length ? u.dressingDerived : undefined)),
       sluglines: Array.isArray(u.sluglines) && u.sluglines.length ? u.sluglines : undefined,
-      screenplay_excerpt: clean(String(u.scriptText||"").slice(0,720)) || undefined,
+      screenplay_excerpt: pagesPointer || clean(String(u.scriptText||"").slice(0,720)) || undefined,
       scenes: Array.isArray(u.sceneNos) && u.sceneNos.length ? u.sceneNos : undefined,
       rule: "render ONLY the space the screenplay needs for shots; no actors, no story action, no temporary performance moment",
     },
@@ -3449,10 +3696,11 @@ function buildSluglineUnitPrompt(l, u, project){
       rules: [rules, "empty set only", "the TIME OF DAY, TIME-OF-DAY VARIANT and STATE DRESSING list are binding — light, sky and weather must match the first two, and every listed temporary dressing item must be present in the space", "LOCKED continuity anchors and spatial topology are binding; Narrative Significance is soft interpretive guidance only", "no text, no labels, no typography, no captions, no watermarks", "consistent with the continuity root's invariants and this child space's specific identity"],
     },
   };
-  const neg = [l.negativePrompt || v.negativePrompt || "", (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : ""].filter(Boolean).join(", ").trim();
-  return "Render this slugline-unit location coverage plate EXACTLY as specified by this JSON spec:\n"
-    + JSON.stringify(spec, null, 1)
-    + (neg ? ("\nAVOID: "+neg.replace(/\.$/,"")+".") : "");
+  const neg = locationAvoidText(l.negativePrompt || v.negativePrompt || "", (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : "");
+  const header = "Render this slugline-unit location coverage plate EXACTLY as specified by this JSON spec:\n";
+  const avoid = neg ? ("\nAVOID: "+neg+".") : "";
+  // compact, then the fixed trimming order only while too long for its engine (2026-10-14)
+  return header + JSON.stringify(locationFitPromptSpec(spec, locationPromptBudget(opts)-header.length-avoid.length).spec) + avoid;
 }
 window.buildSluglineUnitPrompt = buildSluglineUnitPrompt;
 
@@ -3692,13 +3940,19 @@ async function generateLocationPlate(l, project, opts){
     if(panelRecord) lineage.platePanels=panelRecord;
     // what it was made from, for "Layout changed — regenerate" (step B)
     if(typeof locationPlateLayoutSig==="function"){ const ls=locationPlateLayoutSig(l,{panels:true}); if(ls) lineage.plateLayoutSig=ls; }
-    if(subPlan && typeof combinedLocationPrompt==="function") prompt=combinedLocationPrompt(l, project, {panelPlan:subPlan, panelRefs:locationReferenceNumbers(refs)});
     const planSig=(typeof locationSpatialPlanSigFor==="function")?locationSpatialPlanSigFor(l):"";   // the reviewed layout this plate is made from
     if(planSig) lineage.spatialPlanSig=planSig;
     if(typeof locationSpecSig==="function") lineage.locSpecSig=locationSpecSig(l);
     let referenceText=locationReferenceInstructions(refs);
     if(refs.some(r=>r.kind==="script")) referenceText+=" Read screenplay pages together as evidence for permanent geography \u2014 NOT a quadrant map: "
       +"do not make one panel per page or per scene, and never copy screenplay typography, page borders, text or captions.";
+    /* THE PROMPT, ONCE ITS REFERENCES ARE KNOWN (2026-10-14): the same plate the card makes — a room's views name their
+       images, the screenplay goes as its attached pages OR as text (a pointer when the pages ride along), and the
+       prompt fits the engine this run uses, less the reference list that follows it */
+    if(typeof combinedLocationPrompt==="function") prompt=combinedLocationPrompt(l, project, {
+      ...(subPlan ? {panelPlan:subPlan, panelRefs:locationReferenceNumbers(refs)} : {}),
+      screenplayPages:refs.map((r,i)=>r.kind==="script" ? i+1 : 0).filter(Boolean),
+      model:runSnapshot.model, reserve:referenceText.length+1});
     prompt+=referenceText;
     if(refs.length){
       gopts.extraImages=refs.map(r=>r.url);
@@ -3720,7 +3974,8 @@ async function generateLocationPlate(l, project, opts){
       if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
     }catch(e){
       if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
-      if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){
+      // (2026-10-14) a refusal for the prompt's length takes the same simplified retry as "no image"
+      if((/no image/i.test((e&&e.message)||"") || (typeof window.nbIsPromptLengthError==="function" && window.nbIsPromptLengthError(e))) && typeof buildSimpleLocationPrompt==="function"){
         if(typeof o.onRetry==="function"){ try{ o.onRetry(); }catch(_e){} }   // a second paid image — the caller says so
         delete lineage.platePanels;   // the simplified prompt states no cameras
         try{ prompt=buildSimpleLocationPrompt(l)+referenceText;url = await nbGenerate(prompt, { ...gopts, assetId:l.id }); }
@@ -3759,7 +4014,7 @@ async function generateLocationVariant(l, v, project){
     ? locationAppearanceStateAssetId(l,{...v,linkedUnit:unit},units)
     : l.id+"-"+v.id;
   let prompt = unit && typeof buildSluglineUnitPrompt==="function"
-    ? buildSluglineUnitPrompt(l,{...unit,appearance:v.state||unit.appearance||""},project)
+    ? buildSluglineUnitPrompt(l,{...unit,appearance:v.state||unit.appearance||""},project,{model:runSnapshot.model})
     : ((typeof buildLocationVariantPrompt==="function") ? buildLocationVariantPrompt(l, project, { time:v.time, state:v.state }) : (l.name||"location reference"));
   const gopts = {};
   if(runSnapshot.model) gopts.model = runSnapshot.model;
@@ -3787,7 +4042,7 @@ async function generateLocationVariant(l, v, project){
       if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     }catch(e){
       if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
-      if(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function"){
+      if((/no image/i.test((e&&e.message)||"") || (typeof window.nbIsPromptLengthError==="function" && window.nbIsPromptLengthError(e))) && typeof buildSimpleLocationPrompt==="function"){
         try{ prompt=buildSimpleLocationPrompt(l,{ name:(unit&&unit.name)||l.name, side:unit&&unit.intExt, time:v&&v.time, state:v&&v.state })+referenceText;url = await nbGenerate(prompt, { ...gopts, assetId:id }); }
         catch(fallbackError){
           if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
@@ -3855,6 +4110,9 @@ async function generateSluglineUnitPlate(l, u, project, opts){
     if(typeof locationPlateLayoutSig==="function"){ const ls = locationPlateLayoutSig(l); if(ls) lineage.plateLayoutSig = ls; }
     const referenceText = locationReferenceInstructions(refs)
       +" The screenplay page snapshots are context only: never copy their typography, page border, text, captions or layout.";
+    // (2026-10-14) its screenplay as the attached pages OR as text, and a prompt that fits this run's engine
+    if(typeof buildSluglineUnitPrompt==="function") prompt = buildSluglineUnitPrompt(l, u, project, {
+      screenplayPages:refs.map((r,i)=>r.kind==="script" ? i+1 : 0).filter(Boolean), model:runSnapshot.model, reserve:referenceText.length+1});
     prompt += referenceText;
     gopts.extraImages = refs.map(r=>r.url);
     if(runSnapshot.quality && typeof window.nbRequireImageQuality==="function"){
@@ -3867,7 +4125,7 @@ async function generateSluglineUnitPlate(l, u, project, opts){
     catch(e){
       if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
       // the same simplified retry the card uses, keeping this plate's room, side, time and state (2026-10-08)
-      if(!(/no image/i.test((e&&e.message)||"") && typeof buildSimpleLocationPrompt==="function")) throw e;
+      if(!((/no image/i.test((e&&e.message)||"") || (typeof window.nbIsPromptLengthError==="function" && window.nbIsPromptLengthError(e))) && typeof buildSimpleLocationPrompt==="function")) throw e;
       if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
       if(typeof o.onRetry==="function"){ try{ o.onRetry(); }catch(_e){} }   // a second paid image — the caller says so
       prompt = buildSimpleLocationPrompt(l,{ name:u.name||l.name, side:u.intExt, time:u.time, state:u.appearance||u.environment||"" })+referenceText;

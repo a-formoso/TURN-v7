@@ -88,8 +88,13 @@ const furnaceRecord=(panels)=>({iso:"f1",platePanels:{schema:"cm-plate-panels-v1
 /* ---- 2. panel poses ---- */
 assert.equal(box.locationAnchorSpaceOf(anchors[2],[furnace,office]).id,"office","'Office' names the Furnace Office room");
 assert.equal(box.locationAnchorSpaceOf(anchors[4],[furnace,office]).id,"furnace");
+/* (2026-10-14) NEVER THE PARENT BY DEFAULT: neither object's words name a space, so neither leads anywhere until the
+   room's card says where (Plate cameras' "It opens onto Furnace" — openingLeadsTo) */
+deq(box.locationSpaceOpenings(office).map(o=>[o.id,o.connectsTo,o.destination]),[["office-door","","unknown"],["office-window","","unknown"]]);
+assert.equal(box.locationSubspacePanelPlan(office).panels.every(p=>!p.sights.length),true,"no parent view goes through an opening nobody placed");
+office.openingLeadsTo={"office-door":"furnace","office-window":"Furnace"};
 const openings=box.locationSpaceOpenings(office);
-deq(openings.map(o=>[o.id,o.kind,o.yaw,o.yawFrom,o.connectsTo]),[["office-door","door",270,"text","furnace"],["office-window","window",180,"text","furnace"]]);
+deq(openings.map(o=>[o.id,o.kind,o.yaw,o.yawFrom,o.connectsTo,o.destination]),[["office-door","door",270,"text","furnace","chosen"],["office-window","window",180,"text","furnace","chosen"]]);
 let panels=box.locationPanelPoses(office);
 deq(panels.map(p=>p.key),["TL","TR","BL","BR"]);
 assert.ok(panels.every(p=>p.stated&&p.source==="suggested"),"a room always states its planned cameras");
@@ -335,7 +340,7 @@ assert.ok(read("app/blender-studio.js").includes("coordinates:value.coordinates,
 /* ---- the card wiring (source checks) ---- */
 const ui=read("app/locations-ui.jsx"),art=read("app/artroom.jsx");
 assert.match(ui,/const sub=await locationSubspacePlateReferences\(l\);/);
-assert.match(ui,/rebuildPromptAfterAttachments:\(attach,mode\)=> mode==="final"&&masterSubPlan.current/);
+assert.match(ui,/rebuildPromptAfterAttachments:\(attach,mode,gopts\)=> mode==="final"\n\s+\? combinedLocationPrompt\([^\n]*\n\s+\.\.\.\(masterSubPlan.current\?\{panelPlan:masterSubPlan.current,panelRefs:locationReferenceNumbers\(attach\)\}:\{\}\)/);
 assert.match(ui,/mode==="final"&&masterPanelRecord.current\?\{platePanels:masterPanelRecord.current\}/);
 assert.match(ui,/React.createElement\(LocationPlateCameras,\{l,project,onUpdate,readOnly/);
 assert.match(art,/a && Number\(a.maxDim\)>0 \? Number\(a.maxDim\)/);

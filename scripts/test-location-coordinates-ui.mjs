@@ -47,10 +47,34 @@ const render=(props)=>{cursor=0;effects=[];const tree=box.LocationPlateCameras(p
 const writes=[];
 const props={l:office,project:{},onUpdate:(id,patch)=>writes.push({id,patch}),readOnly:false,plateMeta:null};
 
-/* a room: its planned cameras, the window that no parent panel faces, and the offer */
+/* (2026-10-14) where an opening leads: nothing in the layout says, so no parent view goes through it — the card asks,
+   one free click each ("It opens onto Furnace" / "Somewhere else"), and shows the answer with "Change" */
 hooks=[];
 let tree=render(props);
 let t=text(tree);
+assert.match(t,/“Office window”: the shared layout doesn't say what it opens onto, so no view of Furnace goes through it\./);
+assert.doesNotMatch(t,/views? unresolved/,"nothing is unresolved: no opening leads to Furnace yet");
+const askFor=(name,label)=>flat(tree).find(n=>n.type==="li"&&text(n).startsWith("“"+name+"”")&&flat(n).some(b=>b.type==="button"&&text(b)===label));
+const pick=(name,label)=>flat(askFor(name,label)).find(b=>b.type==="button"&&text(b)===label);
+pick("Office window","It opens onto Furnace").props.onClick();
+assert.deepEqual(JSON.parse(JSON.stringify(writes.pop())),{id:"office",patch:{openingLeadsTo:{"office-window":"furnace"}}});
+office.openingLeadsTo={"office-window":"furnace"};
+hooks=[];tree=render(props);
+pick("Office door","Somewhere else").props.onClick();
+assert.deepEqual(JSON.parse(JSON.stringify(writes.pop())),{id:"office",patch:{openingLeadsTo:{"office-window":"furnace","office-door":"elsewhere"}}});
+office.openingLeadsTo={"office-window":"furnace","office-door":"elsewhere"};
+hooks=[];tree=render(props);t=text(tree);
+assert.match(t,/“Office window” opens onto Furnace \(set here\)\./);
+assert.match(t,/“Office door” opens somewhere else \(set here\) — no view of Furnace goes through it\./);
+const change=flat(tree).find(n=>n.type==="li"&&text(n).startsWith("“Office door” opens somewhere else"));
+flat(change).find(b=>b.type==="button"&&text(b)==="Change").props.onClick();
+assert.deepEqual(JSON.parse(JSON.stringify(writes.pop())),{id:"office",patch:{openingLeadsTo:{"office-window":"furnace"}}});
+office.openingLeadsTo={"office-window":"furnace","office-door":"furnace"};
+
+/* a room: its planned cameras, the window that no parent panel faces, and the offer */
+hooks=[];
+tree=render(props);
+t=text(tree);
 assert.match(t,/Plate cameras/);
 assert.match(t,/2 views unresolved/);
 assert.match(t,/Each panel of Furnace Office's plate is a camera inside Furnace Office/);

@@ -150,6 +150,17 @@ function LocationSpatialAnchorEditor({anchor,onRemove,children}){
     children);
 }
 
+/* THE PROMPT BUDGET (2026-10-14, owner — "go ahead with all of it"): a plate card's prompt is rebuilt once its
+   references are known — the screenplay goes as the attached pages OR as text (the image numbers of its pages), and
+   the prompt fits its engine less the reference list that follows it (an upper bound of that list's length) */
+function _locScriptPages(attach){ return (attach||[]).map((r,i)=>r&&r.kind==="script"?i+1:0).filter(Boolean); }
+function _locRefListReserve(attach){ return 360+(attach||[]).reduce((n,r)=>n+String((r&&r.note)||"").length+16,0); }
+/* the budget options of a card's rebuild: its pages, the room for its reference list and the engine this run renders
+   on (a batch / "Try <engine>" pick — gopts.model; else the picked engine) */
+function _locBudgetOpts(attach, gopts){
+  return {screenplayPages:_locScriptPages(attach), reserve:_locRefListReserve(attach), ...((gopts&&gopts.model)?{model:gopts.model}:{})};
+}
+
 /* PLATE CAMERAS (2026-10-13, owner — Location coordinates): the camera of each panel of this space's 2x2 plate.
    A room's panels are cameras INSIDE the room; through each window or door they show the space beyond from that
    camera's position, using the panel of that space's plate whose recorded camera faces the same way (cut out and
@@ -213,6 +224,22 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
     finally{if(alive.current){setBusy("");refresh();}}
   };
   const unknownFacing=openings.filter(o=>o.yaw==null);
+  /* WHERE EACH OPENING LEADS (2026-10-14, owner — "go ahead with all of it"): never the parent by default. One that
+     names another location points to that card; for one whose words say nothing, a room's card says where it leads
+     (openingLeadsTo — costs nothing, generates nothing) */
+  const leadMap=(l.openingLeadsTo&&typeof l.openingLeadsTo==="object")?l.openingLeadsTo:{};
+  const leadsCard=openings.filter(o=>o.destination==="card"&&o.leadsTo);
+  const leadsChosen=openings.filter(o=>Object.prototype.hasOwnProperty.call(leadMap,o.id)&&(o.destination==="chosen"||o.destination==="elsewhere"));
+  const leadsUnknown=parent?openings.filter(o=>o.destination==="unknown"):[];
+  const setLead=(id,value)=>{ if(readOnly)return;
+    const next={...leadMap}; if(value==null)delete next[id]; else next[id]=value;
+    onUpdate(l.id,{openingLeadsTo:Object.keys(next).length?next:undefined}); };
+  const goToCard=(t)=>{
+    const sel=String(t.id||"").replace(/["\\]/g,"");
+    const el=typeof document!=="undefined"&&document.querySelector('[data-location-card="'+sel+'"],[data-location-workspace="'+sel+'"]');
+    if(el&&el.scrollIntoView){el.scrollIntoView({behavior:"smooth",block:"start"});return;}
+    if(typeof window.appToast==="function")window.appToast((t.name||"That location")+"'s card isn't on this page — find it in Locations.","info");
+  };
   const recorded=!!(plateMeta&&plateMeta.platePanels);
   const num=(label,value,placeholder,onCommit,unit)=>React.createElement("label",{className:"loc-cam-field"},
     React.createElement("span",null,label),
@@ -258,6 +285,24 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
       "The current plate was made before these cameras were set — regenerate it so the rooms inside can use its panels."),
     unknownFacing.length>0&&React.createElement("p",{className:"loc-layer-note loc-cam-warn"},
       "Set which way "+unknownFacing.map(o=>"“"+o.name+"”").join(", ")+" faces in the shared layout's objects (“Faces”) so the panels can see through "+(unknownFacing.length===1?"it":"them")+"."),
+    (leadsCard.length>0||leadsChosen.length>0||leadsUnknown.length>0)&&React.createElement("ul",{className:"loc-cam-sights loc-cam-leads"},
+      leadsCard.map(o=>React.createElement("li",{key:"card-"+o.id,className:"loc-cam-sight"},
+        React.createElement("b",null,"“"+o.name+"”"),
+        React.createElement("span",null," opens onto "+o.leadsTo.name+" — another location with its own card"
+          +(parent?", so "+name+"'s plate never shows "+parent.name+" through it.":".")),
+        React.createElement("button",{type:"button",className:"art-draftall ghost loc-cam-make",onClick:()=>goToCard(o.leadsTo)},"Go to "+o.leadsTo.name))),
+      leadsChosen.map(o=>React.createElement("li",{key:"set-"+o.id,className:"loc-cam-sight ok"},
+        React.createElement("b",null,"“"+o.name+"”"),
+        React.createElement("span",null,o.destination==="chosen"
+          ?" opens onto "+(((locationSpatialFamily(l)||[]).find(x=>x.id===o.connectsTo))||{}).name+" (set here)."
+          :" opens somewhere else (set here) — no view of "+(parent?parent.name:"the space beyond")+" goes through it."),
+        React.createElement("button",{type:"button",className:"art-draftall ghost loc-cam-make",disabled:readOnly,onClick:()=>setLead(o.id,null)},"Change"))),
+      leadsUnknown.map(o=>React.createElement("li",{key:"ask-"+o.id,className:"loc-cam-sight open"},
+        React.createElement("b",null,"“"+o.name+"”"),
+        React.createElement("span",null,": the shared layout doesn't say what it opens onto, so no view of "+parent.name+" goes through it."),
+        React.createElement("span",{className:"loc-cam-lead-buttons"},
+          React.createElement("button",{type:"button",className:"art-draftall ghost loc-cam-make",disabled:readOnly,onClick:()=>setLead(o.id,parent.id)},"It opens onto "+parent.name),
+          React.createElement("button",{type:"button",className:"art-draftall ghost loc-cam-make",disabled:readOnly,onClick:()=>setLead(o.id,"elsewhere")},"Somewhere else"))))),
     !parent&&!statedAny&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly,onClick:useSuggested},
       "Use the suggested cameras"),
     React.createElement("div",{className:"loc-cam-grid"},
@@ -1008,6 +1053,14 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   React.useEffect(()=>{ if(stagingDraftRef.current && typeof stagingHasContent==="function" && stagingHasContent(l)) stagingDraftRef.current=null; },[l.staging]);
   const locStaged = (typeof stagingHasContent==="function") ? stagingHasContent(l) : true;
 
+  // the reference list that follows a master plate's prompt (the prompt budget keeps room for it — 2026-10-14)
+  const masterAttachmentsText = (refs)=> refs && refs.length
+    ? "REFERENCE IMAGES are attached: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")
+      +". Read screenplay pages together as evidence for permanent geography. A continuity-root plate is binding inherited identity, not a panel map. "
+      +"They are NOT a quadrant map: do not make one panel per page or per scene. The 2x2 is four different camera views of the same coherent space, following the prompt's panel plan. "
+      +"Aggregate architecture, fixtures, sightlines and action affordances only. Do NOT bake in scene-specific time of day, weather or progression (for example NIGHT/rain versus DAWN); those belong to each Slugline Unit or Time-of-Day Variant plate. "
+      +"Never copy screenplay typography, page borders, text, captions or layout."
+    : "";
   const gen = useImageGen({
     id: l.id, slotId: "locref-"+l.id,
     entity: locationRenderEntity(l),
@@ -1048,18 +1101,15 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note,
           ...(r.maxDim?{maxDim:r.maxDim}:{}),...(r.numbered?{numbered:true}:{})}));
     },
-    // the room's views name their images by number once the final list is known (2026-10-13)
-    rebuildPromptAfterAttachments:(attach,mode)=> mode==="final"&&masterSubPlan.current
-      ? combinedLocationPrompt(stagingDraftRef.current?{...l,staging:stagingDraftRef.current}:l,project,
-          {panelPlan:masterSubPlan.current,panelRefs:locationReferenceNumbers(attach)})
+    /* once the final list is known: a room's views name their images by number (2026-10-13), the screenplay goes as
+       its attached pages OR as text (a pointer to the pages), and the prompt fits its engine less the reference list
+       that follows it (2026-10-14, the prompt budget) */
+    rebuildPromptAfterAttachments:(attach,mode,gopts)=> mode==="final"
+      ? combinedLocationPrompt(stagingDraftRef.current?{...l,staging:stagingDraftRef.current}:l,project,{
+          ...(masterSubPlan.current?{panelPlan:masterSubPlan.current,panelRefs:locationReferenceNumbers(attach)}:{}),
+          ..._locBudgetOpts(attach,gopts), reserve:masterAttachmentsText(attach).length+1})
       : null,
-    attachmentsText: (refs)=> refs && refs.length
-      ? "REFERENCE IMAGES are attached: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")
-        +". Read screenplay pages together as evidence for permanent geography. A continuity-root plate is binding inherited identity, not a panel map. "
-        +"They are NOT a quadrant map: do not make one panel per page or per scene. The 2x2 is four different camera views of the same coherent space, following the prompt's panel plan. "
-        +"Aggregate architecture, fixtures, sightlines and action affordances only. Do NOT bake in scene-specific time of day, weather or progression (for example NIGHT/rain versus DAWN); those belong to each Slugline Unit or Time-of-Day Variant plate. "
-        +"Never copy screenplay typography, page borders, text, captions or layout."
-      : "",
+    attachmentsText: (refs)=> masterAttachmentsText(refs),
     metaExtra:({mode,prompt})=>({
       specPrompt:locationCanonicalSpecPrompt(mode,prompt,finalPrompt,gen.genMeta),
       ...masterParentSnapshot.current,
@@ -1719,6 +1769,8 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
     id, slotId: "loccov-"+id,
     entity: l,
     buildFinal: ()=> buildLocationCoveragePrompt(l, v, project),
+    rebuildPromptAfterAttachments:(attach,mode,gopts)=> mode==="final"
+      ? buildLocationCoveragePrompt(l, v, project, _locBudgetOpts(attach,gopts)) : null,
     buildSimple: ()=> buildSimpleLocationPrompt(l,{ name:v.name||l.name, side:v.role }),
     attachmentsInSimple:true,
     referenceMaxDim:1536,
@@ -1882,6 +1934,8 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
     buildFinal: ()=> stateUnit && typeof buildSluglineUnitPrompt==="function"
       ? buildSluglineUnitPrompt(l,stateUnit,project)
       : buildLocationVariantPrompt(l, project, { time:v.time, state:v.state }),
+    rebuildPromptAfterAttachments:(attach,mode,gopts)=> mode==="final" && stateUnit && typeof buildSluglineUnitPrompt==="function"
+      ? buildSluglineUnitPrompt(l,stateUnit,project,_locBudgetOpts(attach,gopts)) : null,
     buildSimple: ()=> buildSimpleLocationPrompt(l,{ name:(stateUnit&&stateUnit.name)||l.name, side:stateUnit&&stateUnit.intExt, time:v.time, state:v.state }),
     beforeGenerate: async()=>{
       const refs=await buildRefs();
@@ -2012,6 +2066,10 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     buildFinal: ()=> (typeof buildSluglineUnitPrompt==="function")
       ? buildSluglineUnitPrompt(l, u, project)
       : buildLocationCoveragePrompt(l, pseudo, project),
+    rebuildPromptAfterAttachments:(attach,mode,gopts)=> mode!=="final" ? null
+      : (typeof buildSluglineUnitPrompt==="function")
+        ? buildSluglineUnitPrompt(l, u, project, _locBudgetOpts(attach,gopts))
+        : buildLocationCoveragePrompt(l, pseudo, project, _locBudgetOpts(attach,gopts)),
     buildSimple: ()=> buildSimpleLocationPrompt(l,{ name:u.name||l.name, side:role, time:u.time, state:u.appearance||u.environment||"" }),
     beforeGenerate: async ()=>{
       const refs = await buildUnitRefs();

@@ -256,6 +256,25 @@
     const n = Math.min(SEEDREAM_MAX_REFERENCES, Math.max(0, Math.floor(Number(refs)||0)));
     return tier + Math.max(0, n-1) * Math.max(0, Number(row.extraRef)||0);
   }
+  /* PROMPT LIMITS PER IMAGE ENGINE (2026-10-14, owner — "go ahead with all of it"): the longest prompt each engine is
+     sent — the SAME table as supabase/functions/image-proxy/billing-pricing.mjs IMAGE_PROMPT_LIMITS (the server
+     refuses a longer prompt with prompt_too_long before any hold). GPT Image 2.5: fal stops at 32,000 → 31,500;
+     Nano Banana 2.1: fal's 50,000, held at the 40,000 every image route allows; Seedream 5 Pro: no published limit,
+     short prompts advised → 30,000. The prompt builders fit themselves under it and proxyGenerate trims what is
+     left (imagegen.jsx nbFitImagePrompt) — nobody is ever asked to shorten a prompt. */
+  const IMAGE_PROMPT_MAX_CHARS = 40000;
+  const IMAGE_PROMPT_LIMITS = Object.freeze({
+    "gpt-image-2.5-flare": 31500,
+    "gpt-image-2.5-sunburst": 31500,
+    "gemini-nano-banana-2.1": IMAGE_PROMPT_MAX_CHARS,
+    "seedream-5-pro": 30000,
+  });
+  /* the longest prompt an engine (an id the caller has already mapped from a retired one) is sent */
+  function turnImagePromptMaxChars(model){
+    const id = String(model||"");
+    const n = Object.prototype.hasOwnProperty.call(IMAGE_PROMPT_LIMITS, id) ? Number(IMAGE_PROMPT_LIMITS[id]) : IMAGE_PROMPT_MAX_CHARS;
+    return Math.min(IMAGE_PROMPT_MAX_CHARS, n>0 ? n : IMAGE_PROMPT_MAX_CHARS);
+  }
   /* whole credits for a provider cost, exactly as the server rounds (billing-pricing.mjs
      creditsFromUsd): up, at least 1, with a hair of float tolerance */
   function turnCreditCost(usd){
@@ -344,6 +363,9 @@
   window.turnSeedreamImageDimensions = turnSeedreamImageDimensions;
   window.turnSeedreamProviderUsd = turnSeedreamProviderUsd;
   window.TURN_SEEDREAM_MAX_REFERENCES = SEEDREAM_MAX_REFERENCES;
+  window.TURN_IMAGE_PROMPT_LIMITS = IMAGE_PROMPT_LIMITS;
+  window.TURN_IMAGE_PROMPT_MAX_CHARS = IMAGE_PROMPT_MAX_CHARS;
+  window.turnImagePromptMaxChars = turnImagePromptMaxChars;
   window.turnCreditCost = turnCreditCost;
   window.turnVideoCreditRate = turnVideoCreditRate;
   window.turnVideoCreditRates = turnVideoCreditRates;

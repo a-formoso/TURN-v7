@@ -55,7 +55,8 @@
 //   account could change after the read (project storage, a `stage:` upload, a data URL) is COPIED
 //   (service role) to `_internal/video-snapshots/…` — a path no user storage rule can write, update
 //   or delete — and fal renders from the copy (video-snapshots.mjs); copies go when the hold
-//   settles or is released, leftovers after two days. Image prompts are capped at 40,000 characters.
+//   settles or is released, leftovers after two days. Image prompts are capped at 40,000 characters,
+//   and per engine below that (billing-pricing.mjs IMAGE_PROMPT_LIMITS: GPT Image 2.5 31,500, Seedream 5 Pro 30,000).
 //
 //   NOTE on --no-verify-jwt: this function verifies the user itself (sb.auth.getUser
 //   below) and answers the CORS OPTIONS preflight. If you deploy WITHOUT that flag,
@@ -99,7 +100,7 @@ import { FRANCES_LIMIT_RPC, createFrancesLimiter, francesDailyLimit } from "./fr
 import {
   GOOGLE_IMAGE_USD, IMAGE_PROVIDER_USD, PROVIDER_USD_PER_CREDIT, SEEDREAM_MAX_REFERENCES, SEEDREAM_MODEL, seedreamImageDimensions, seedreamImageSize, VIDEO_PROVIDER_USD_PER_SECOND, affordableOutputCap,
   cheapestTextHold, creditUnitFromRegime, flatVoiceCost, imageCost, lengthBilledFacts, lengthBilledVideoHold, mergeVideoPricingOverrides,
-  IMAGE_PROMPT_MAX_CHARS, STT_MAX_SECONDS, TEXT_WEB_SEARCH_MAX_USES, textWebSearchTool, messageText, normaliseTextUsage, sttHoldCost, sttModel, sttReportedSeconds, sttSettleCost, textActualCost,
+  IMAGE_PROMPT_MAX_CHARS, imagePromptMaxChars, STT_MAX_SECONDS, TEXT_WEB_SEARCH_MAX_USES, textWebSearchTool, messageText, normaliseTextUsage, sttHoldCost, sttModel, sttReportedSeconds, sttSettleCost, textActualCost,
   textHoldEstimate, textPriceKey, legacyWritingModel, ttsCost, videoAppModel, videoCost, visionImagesProblem, canonicalImageModel,
 } from "./billing-pricing.mjs";
 // Round 5 (S1): a recording's real length, read from its container (WebM / Ogg / MP4 / WAV) before
@@ -2504,9 +2505,13 @@ Deno.serve(async (req) => {
   if (!prompt) return json({ error: "No prompt supplied." }, 400);
   // ROUND 5 (S4): every image route refuses a prompt longer than the app ever sends, before any hold
   // (billing-pricing.mjs IMAGE_PROMPT_MAX_CHARS — the direct Google route bills a prompt's tokens on
-  // top of its flat image price)
-  if (prompt.length > IMAGE_PROMPT_MAX_CHARS) {
-    return json({ error: `This image prompt is too long (${prompt.length.toLocaleString("en-US")} characters; at most ${IMAGE_PROMPT_MAX_CHARS.toLocaleString("en-US")}). Shorten it and try again.`, code: "prompt_too_long" }, 400);
+  // top of its flat image price). PER ENGINE (2026-10-14): each engine's own ceiling (imagePromptMaxChars —
+  // GPT Image 2.5 31,500 under fal's 32,000, Seedream 5 Pro 30,000, Nano Banana 2.1 40,000), checked here, before
+  // the hold, so a provider never refuses a prompt the app paid to send. The app fits its prompts under the same
+  // table (app/pricing.jsx TURN_IMAGE_PROMPT_LIMITS), so this only stops an older app or a hand-made request.
+  const promptMax = imagePromptMaxChars(model);
+  if (prompt.length > promptMax) {
+    return json({ error: `This image prompt is too long for this image engine (${prompt.length.toLocaleString("en-US")} characters; at most ${promptMax.toLocaleString("en-US")}). Nothing was charged.`, code: "prompt_too_long", limit: promptMax }, 400);
   }
   // THE IMAGE ROUTE AND MODEL (2026-09-30): each route serves only the models it has a price for.
   // The direct Google route used to accept ANY model name (priced at 0 → 1 credit, and the name

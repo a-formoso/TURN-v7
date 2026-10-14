@@ -2332,15 +2332,55 @@ function buildShotPrompt(sh, ctx){
       It gives the model continuity and geography without allowing a later beat
       (or a remote name) to rewrite the TARGET BEAT OPENING above.  The context
       builder freezes this exact text before either the card or headless path can
-      render; never excerpt it here. */
-   const _sceneContextPrompt = (typeof shotSceneContextPrompt==="function")
-     ? shotSceneContextPrompt(_sceneContext) : "";
+      render; it is excerpted only by the prompt budget below, never rewritten. */
+   /* THE PROMPT BUDGET (2026-10-14, owner — "go ahead with all of it"): the screenplay goes as its attached page
+      images OR as text — with this request's pages (ctx.resolvedRefs) the scene's text becomes a pointer to them;
+      and while the whole prompt is longer than its engine takes (shotPromptBudget), the scene's text is cut to an
+      excerpt around the target beat, then left out. The image map, the style spine, the camera / staging line and
+      the TARGET BEAT OPENING are never cut. */
+   const _pagesAttached = shotScreenplayPagesSent(ctx.resolvedRefs, ctx.model, (ctx.prevFrameRole || ctx.prevShot) ? 1 : 0);
+   const _constraints = "\n\nConstraints: " + shotNegativePrompt(sh, _styleKey) + ".";
+   const _shotBudget = shotPromptBudget(ctx);
+   let _sceneContextPrompt = "";
+   if(typeof shotSceneContextPrompt==="function"){
+     for(const fit of [undefined, "excerpt", "omit"]){
+       _sceneContextPrompt = shotSceneContextPrompt(_sceneContext, {pagesAttached:_pagesAttached, fit});
+       if(_pagesAttached || !_sceneContextPrompt || out.length+2+_sceneContextPrompt.length+_constraints.length<=_shotBudget) break;
+     }
+   }
    const _isolatedChildSpace=!!(_promptLoc&&_promptLoc.parentKey&&loc&&String(_promptLoc.id)!==String(loc.id));
    if(_sceneContextPrompt&&!_isolatedChildSpace) out += "\n\n"+_sceneContextPrompt;
    else if(_sceneContextPrompt&&_isolatedChildSpace) out += "\n\nCURRENT-SPACE CONTEXT: the exact beat opening above is authoritative. Full-scene screenplay background from sibling rooms is intentionally omitted so it cannot contaminate this "+(_promptLoc.name||"child-space")+" frame.";
-  out += "\n\nConstraints: " + shotNegativePrompt(sh, _styleKey) + ".";
+  out += _constraints;
   return out;
 }
+/* how long a shot's prompt may be (2026-10-14): its engine's limit (ctx.promptMaxChars, else the engine ctx.model or
+   the picked one — pricing.jsx TURN_IMAGE_PROMPT_LIMITS) less room for the canonical character identity block the Art
+   Room adds after it; proxyGenerate fits whatever is still over (imagegen.jsx nbFitImagePrompt) */
+const SHOT_PROMPT_IDENTITY_RESERVE = 3000;
+function shotPromptBudget(ctx){
+  const c = ctx || {};
+  const max = Number(c.promptMaxChars)>0 ? Number(c.promptMaxChars)
+    : (typeof window.nbPromptMaxChars==="function" ? window.nbPromptMaxChars(c.model||"") : 30000);
+  return Math.max(0, max-SHOT_PROMPT_IDENTITY_RESERVE);
+}
+/* how many of this request's screenplay page images its engine really receives (2026-10-14): an engine that takes
+   fewer reference images (Seedream 5 Pro: 10) gets the FIRST ones (proxyGenerate), and the pages ride last — when
+   any page would fall past its cap, none count and the scene goes as text. lead = images sent before the references
+   (a chained shot's seed frame, an edit's frame). */
+function shotScreenplayPagesSent(refs, model, lead){
+  const list = Array.isArray(refs) ? refs : [];
+  const isPage = (r)=>!!(r && r.assetRole==="screenplay_context");
+  const pages = list.filter(isPage).length;
+  if(!pages) return 0;
+  const cap = typeof window.nbModelMaxRefs==="function"
+    ? window.nbModelMaxRefs(model || (typeof window.nbGetModel==="function" ? window.nbGetModel() : "")) : null;
+  if(!(cap>0)) return pages;
+  const room = Math.max(0, cap - Math.max(0, Number(lead)||0));
+  return list.slice(0, room).filter(isPage).length===pages ? pages : 0;
+}
+window.shotScreenplayPagesSent = shotScreenplayPagesSent;
+window.shotPromptBudget = shotPromptBudget;
 window.buildShotPrompt = buildShotPrompt;
 
 /* the negative prompt for a shot frame */

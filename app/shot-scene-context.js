@@ -172,8 +172,23 @@
     return Number.isFinite(Number(fallback)) && Number(fallback)>0 ? Math.floor(Number(fallback)) : 14;
   }
 
-  function contextPrompt(snapshot){
+  /* opts (2026-10-14, owner — "go ahead with all of it"; the prompt budget):
+       pagesAttached — how many of this scene's screenplay page images ride with THIS request. The screenplay goes as
+         page images OR as text, never both: when the pages carry the whole scene, its text becomes a short pointer
+         to them (sceneContextReferences attaches pages only when they carry all of it).
+       fit — "excerpt" (the target beat with the blocks either side) or "omit" (the scene's own text left out): only
+         when the whole prompt is longer than its engine takes (shots.jsx buildShotPrompt), in that order.
+     The TARGET BEAT OPENING is never cut. */
+  function excerptAround(snapshot){
+    const blocks = (snapshot.blocks || []).filter(meaningful);
+    const tb = snapshot.targetBeat;
+    const idx = blocks.map((b,i)=>beatOf(b)===tb ? i : -1).filter(i=>i>=0);
+    if(!idx.length) return "";
+    return formatSceneBlocks(null, blocks.slice(Math.max(0, idx[0]-1), Math.min(blocks.length, idx[idx.length-1]+2)));
+  }
+  function contextPrompt(snapshot, opts){
     if(!snapshot || !snapshot.enabled || !snapshot.hasSource || !snapshot.fullText) return "";
+    opts = opts || {};
     if(snapshot.inputLimit != null && Number.isFinite(snapshot.inputLimit)
       && snapshot.fullText.length > snapshot.inputLimit)
       throw new Error("Full scene screenplay context exceeds the configured input limit ("
@@ -182,10 +197,20 @@
     const omitted = snapshot.omissions && snapshot.omissions.length
       ? "\nSCENE CONTEXT REFERENCE NOTE: "+snapshot.omissions.join("; ")+"."
       : "";
+    const pages = Math.max(0, Math.floor(Number(opts.pagesAttached)||0));
+    const excerpt = opts.fit==="excerpt" ? excerptAround(snapshot) : "";
+    const sceneText = pages
+      ? "(the entire scene is attached as "+pages+" screenplay page image"+(pages===1 ? "" : "s")
+        +(snapshot.targetBeat != null ? ", target beat highlighted" : "")+" — read it there; it is not repeated here)"
+      : opts.fit==="omit" || (opts.fit==="excerpt" && !excerpt)
+        ? "(the scene's own text is left out here to fit this engine's prompt limit; the TARGET BEAT OPENING below is the authority)"
+        : excerpt
+          ? "(an excerpt to fit this engine's prompt limit — the target beat and the lines either side)\n"+excerpt
+          : snapshot.fullText;
     return [
       "FULL SCENE CONTEXT (background only; exact screenplay text for the entire selected scene):",
       "SCREENPLAY SOURCE REVISION: "+snapshot.sourceRev,
-      snapshot.fullText,
+      sceneText,
       "",
       "TARGET BEAT OPENING (the only action/cast authority for this first frame):",
       target,
@@ -233,13 +258,20 @@
        array; current ones return a metadata envelope when returnMeta is set. */
     const images = Array.isArray(result) ? result : ((result && result.images)||[]);
     const total = Array.isArray(result) ? images.length : Number(result && result.pageCount)||images.length;
-    const rendered = images.length;
+    let rendered = images.length;
     const omitted = Math.max(0,total-rendered);
     const omissions = [];
     if(omitted) omissions.push(omitted+" screenplay page"+(omitted===1?"":"s")+" omitted due reference capacity");
+    /* PAGES OR TEXT, NEVER BOTH (2026-10-14): pages that carry only part of the scene are not attached — the scene
+       goes as text (contextPrompt), the free reference slots stay free */
+    let asText = false;
+    if(omitted && rendered){
+      omissions.push("screenplay pages left out: the scene needs more pages than the free reference slots, so it goes as text");
+      images.length = 0; rendered = 0; asText = true;
+    }
     if(!limit && !omissions.length)
       omissions.push("screenplay pages omitted: reference capacity reserved for canonical identity/location/prop assets");
-    if(!rendered && total) omissions.push("screenplay pages unavailable; full scene remains in text");
+    if(!rendered && total && !asText) omissions.push("screenplay pages unavailable; full scene remains in text");
     const refs = images.map((url,i)=>({
       url, kind:"screenplay-context", refId:snapshot.refId+":page-"+(i+1),
       note:"SCREENPLAY PAGE REFERENCE — full scene "+(i+1)+" of "+total
@@ -249,7 +281,7 @@
       sourceRev:snapshot.sourceRev, sceneId:snapshot.sceneId, targetBeat:snapshot.targetBeat,
       persist:false, ephemeral:true
     }));
-    return { refs, pages:total, renderedPages:rendered, omittedPages:omitted, omissions };
+    return { refs, pages:total, renderedPages:rendered, omittedPages:asText ? total : omitted, omissions };
   }
 
   root.shotSceneContextPlan = sceneContextPlan;

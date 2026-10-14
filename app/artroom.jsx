@@ -2887,14 +2887,27 @@ async function nbRunSheetGeneration(env, gopts){
         const isPolicy = typeof window.turnIsContentBlock==="function"
           ? window.turnIsContentBlock(emsg)
           : /rejected by the safety system|safety system|content polic|content_policy|moderation_blocked|flagged as potentially violating|image generation.*not allowed|violat(?:es|ing).*(?:policy|guidelines)/i.test(emsg);
-        if(!useSimple && !isEditMode && /no image/i.test(emsg) && opts.buildSimple){
+        /* (2026-10-14, owner — "go ahead with all of it") a refusal for the prompt's LENGTH takes the same simplified
+           retry as "no image" (a server prompt_too_long costs nothing; proxyGenerate has already re-fitted it once) */
+        const lengthRefused = typeof window.nbIsPromptLengthError==="function" ? window.nbIsPromptLengthError(e) : /prompt_too_long/i.test(emsg);
+        if(!useSimple && !isEditMode && (/no image/i.test(emsg) || lengthRefused) && opts.buildSimple){
           setRetrying(true);
            if(typeof opts.assertFreshBeforeFallback==="function")
              await opts.assertFreshBeforeFallback({mode,prompt:genPrompt});
           if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-simple-retry");
           // the retry re-sends the same images: with a likeness it keeps the likeness sentence and the
-          // numbered map, and Details records the prompt actually sent (2026-10-10, owner — Likeness review)
-          const retryPrompt = withIdentity(opts.buildSimple(lkCtx||undefined)) + (likenessTail ? "\n\n"+likenessTail : "");
+          // numbered map, and Details records the prompt actually sent (2026-10-10, owner — Likeness review).
+          // (2026-10-14) Without a likeness, the images it re-sends keep their meaning too: a caller that rebuilds its
+          // prompt from the attached references (a shot's image map) rebuilds the simplified one the same way, and the
+          // reference list follows it as it followed the first try (a location's "REFERENCE IMAGES are attached: …")
+          let simpleBase = null;
+          if(attachList.length && !likenessOn && typeof opts.rebuildPromptAfterAttachments==="function"){
+            try{ simpleBase = opts.rebuildPromptAfterAttachments(attachList, "simple", gopts); }catch(_e){ simpleBase = null; }
+          }
+          if(!simpleBase) simpleBase = opts.buildSimple(lkCtx||undefined);
+          const retryRefText = (attachList.length && !likenessOn && typeof opts.attachmentsText==="function") ? String(opts.attachmentsText(attachList)||"") : "";
+          const retryPrompt = withIdentity(simpleBase) + (retryRefText ? " "+retryRefText : "") + (likenessTail ? "\n\n"+likenessTail : "");
+          if(genOpts.metaOut) delete genOpts.metaOut.promptFit;   // the record is the retry's own
           url = await nbGenerate(retryPrompt, genOpts);
           sentPrompt = retryPrompt; simplifiedRetry = true;
           if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-simple-retry");
@@ -2930,6 +2943,7 @@ async function nbRunSheetGeneration(env, gopts){
            if(typeof opts.assertFreshBeforeFallback==="function")
              await opts.assertFreshBeforeFallback({mode,prompt:genPrompt,model:gModel.id});
            if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-policy-fallback");
+          if(genOpts.metaOut) delete genOpts.metaOut.promptFit;   // the record is this engine's own
           url = await nbGenerate(genPrompt, { ...genOpts, model:gModel.id });
            if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-policy-fallback");
         } else { throw e; }
@@ -2989,6 +3003,8 @@ async function nbRunSheetGeneration(env, gopts){
         // a likeness exists but couldn't be used by this person here — the sheet follows the text spec
         likenessSkipped: (likenessBlocked && !likenessPlan) ? true : undefined,
         simplifiedRetry: simplifiedRetry || undefined,
+        // what proxyGenerate had to trim to fit the engine's prompt limit (2026-10-14; absent when nothing went)
+        promptFit: (genOpts.metaOut && genOpts.metaOut.promptFit) || undefined,
         propRefs: attachCount,
         refCount: refsUsed.length,
         // personal images (reference photo / cameo / device uploads) that guided this

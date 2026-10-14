@@ -255,12 +255,15 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     // buildShotPrompt now names the reference stack in-prose (the spine + staging + References
     // block), so we don't append a second reference sentence here — that would just duplicate it.
     attachmentsText: ()=> "",
-    buildEdit: (instr, resolvedRefs)=>{
+    buildEdit: (instr, resolvedRefs, model)=>{
       assertSceneContext();
        let out = "Edit this film frame. Apply ONLY this change: "+instr+". Keep the same shot size, lens, staging, "
          +"the same characters (identical faces & wardrobe), the same location and the same colour grade. Do not re-imagine the frame.";
+       // the screenplay as the attached pages OR as text (2026-10-14): with this edit's pages — all of them reaching the
+       // engine after the frame being edited (shotScreenplayPagesSent) — a pointer to them
        const sceneRead = (typeof shotSceneContextPrompt==="function")
-         ? shotSceneContextPrompt(renderPlan&&renderPlan.sceneContext) : "";
+         ? shotSceneContextPrompt(renderPlan&&renderPlan.sceneContext,{pagesAttached:typeof shotScreenplayPagesSent==="function"
+           ? shotScreenplayPagesSent(resolvedRefs, model, 1) : 0}) : "";
        if(sceneRead) out += "\n\n"+sceneRead
          +"\n\nEDIT READING CONTRACT: screenplay context is read-only background for continuity and geography. "
          +"It must not broaden the edit, add later-beat action or introduce remote/mentioned people. "
@@ -279,11 +282,13 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     rebuildPromptAfterAttachments: (resolvedRefs, mode, gopts)=>{
       assertSceneContext();
       const refs = Array.isArray(resolvedRefs) ? resolvedRefs : [];
+      // the engine this run renders on (a batch / "Try <engine>" pick), for its prompt limit and reference cap (2026-10-14)
+      const runModel = (gopts && gopts.model) || undefined;
       if(mode==="simple") return buildShotPrompt(sh,{ ...promptCtx, simpleMode:true,resolvedRefs:refs,
-        sceneContext:(renderPlan&&renderPlan.sceneContext)||null });
-      if(mode==="edit") return opts.buildEdit ? opts.buildEdit(gopts&&gopts.editInstruction||"",refs) : "";
+        sceneContext:(renderPlan&&renderPlan.sceneContext)||null, ...(runModel?{model:runModel}:{}) });
+      if(mode==="edit") return opts.buildEdit ? opts.buildEdit(gopts&&gopts.editInstruction||"",refs,runModel) : "";
       const base = { ...promptCtx, resolvedRefs:refs,
-        sceneContext:(renderPlan&&renderPlan.sceneContext)||null };
+        sceneContext:(renderPlan&&renderPlan.sceneContext)||null, ...(runModel?{model:runModel}:{}) };
       return (mode==="base" ? buildShotPrompt(sh,{...base,prevFrameRole:true}) : combinedShotPrompt(sh,base));
     },
     /* Art Room skips its normal beforeGenerate gate for edits, batches, and

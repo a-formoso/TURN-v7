@@ -707,8 +707,12 @@ The full runbook with the notice email is kept by the owner; the order is:
   browser's own speech recognition (free). Only the speech-to-text models the app uses
   are accepted.
 - **Image prompts:** an image prompt longer than 40,000 characters is refused on every
-  image route before anything is held (the app's longest prompts are well under it), so a
-  long prompt can't use input the flat image price doesn't cover.
+  image route before anything is held, so a long prompt can't use input the flat image
+  price doesn't cover. Each engine also has its own limit, refused the same way before the
+  hold (`prompt_too_long`, `billing-pricing.mjs` `IMAGE_PROMPT_LIMITS`): GPT Image 2.5
+  Flare and Sunburst 31,500 (fal stops at 32,000), Seedream 5 Pro 30,000, Nano Banana 2.1
+  40,000. The app fits its prompts under the same table (`app/pricing.jsx`) and trims what
+  is left before sending, so a user is never asked to shorten one.
 - **Trial:** 50 credits once per account after email confirmation, one per mailbox
   (lower-case, "+tag" and Gmail dots ignored; only a SHA-256 key of it is stored),
   granted on the first balance read or spend; never for an account that has paid (a

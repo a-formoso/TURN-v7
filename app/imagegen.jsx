@@ -693,6 +693,101 @@ window.nbIdentityContext = nbIdentityContext;
 window.nbAssertMediaIdentity = nbAssertMediaIdentity;
 window.nbCanonicalMediaPrompt = nbCanonicalMediaPrompt;
 
+/* THE PROMPT BUDGET PER ENGINE (2026-10-14, owner — "go ahead with all of it"): the longest prompt an engine is sent
+   (pricing.jsx TURN_IMAGE_PROMPT_LIMITS — the same table as the server's billing-pricing.mjs IMAGE_PROMPT_LIMITS,
+   which refuses a longer prompt with prompt_too_long before any hold). GPT Image 2.5 31,500 (fal stops at 32,000),
+   Seedream 5 Pro 30,000, Nano Banana 2.1 40,000. */
+function nbPromptMaxChars(model){
+  const id = nbCanonicalModelId(model || nbGetModel());
+  return typeof window.turnImagePromptMaxChars==="function" ? window.turnImagePromptMaxChars(id) : 30000;
+}
+/* FIT A FINISHED PROMPT TO ITS ENGINE — the last step before an image request (proxyGenerate). The builders already
+   fit themselves (locations.jsx locationFitPromptSpec, shots.jsx buildShotPrompt); this repeats the same order on the
+   finished text and never refuses one for length (nobody is ever asked to shorten a prompt):
+     0. the TAIL is set aside and never cut: from the first reference list (" REFERENCE IMAGES are attached: …" —
+        kept exactly, as locationCanonicalSpecPrompt reads it — " REFERENCE IMAGES (binding): …", a likeness map),
+        the canonical character identity or an edit's attached-reference order, to the end;
+     1. a JSON spec is written without indentation, and a location spec runs locationFitPromptSpec's steps (its
+        per-panel camera lines and binding fixed landmarks stay);
+     2. an AVOID list says each term once;
+     3. a shot's FULL SCENE CONTEXT loses the scene's text (its TARGET BEAT OPENING stays);
+     4. last resort: the middle of what is left before the tail is cut ("…"), keeping its first 60% (the task, the
+        image map, the style and the camera lines lead every prompt) and its end.
+   → {prompt, steps, before, after, limit}; steps is empty when nothing had to go. */
+function nbFitImagePrompt(prompt, max){
+  const before = String(prompt||""), limit = Math.max(2000, Math.floor(Number(max)||0) || 30000);
+  const out = { prompt:before, steps:[], before:before.length, after:before.length, limit };
+  if(before.length<=limit) return out;
+  let cut = before.length;
+  const ref = before.search(/\sREFERENCE IMAGES\b/);
+  if(ref>=0) cut = ref;
+  ["\n\nCANONICAL CHARACTER IDENTITY", "\n\nATTACHED REFERENCE ORDER"].forEach(m=>{ const i = before.indexOf(m); if(i>=0 && i<cut) cut = i; });
+  let body = before.slice(0,cut), tail = before.slice(cut);
+  const room = ()=> limit - tail.length;
+  // 1. a JSON spec, compact; a location spec in its own trimming order
+  const jStart = body.indexOf("\n{"), jEnd = body.lastIndexOf("}");
+  if(jStart>=0 && jEnd>jStart){
+    try{
+      let spec = JSON.parse(body.slice(jStart+1, jEnd+1));
+      const head = body.slice(0, jStart+1), rest = body.slice(jEnd+1);
+      let js = JSON.stringify(spec);
+      if(js.length < jEnd-jStart) out.steps.push("compact JSON");
+      if(head.length+js.length+rest.length > room() && spec && (spec.location || spec.coverage) && typeof window.locationFitPromptSpec==="function"){
+        const f = window.locationFitPromptSpec(spec, room()-head.length-rest.length);
+        spec = f.spec; js = JSON.stringify(spec); (f.steps||[]).forEach(s=>out.steps.push(s));
+      }
+      body = head+js+rest;
+    }catch(e){}
+  }
+  // 2. one AVOID list, each term once
+  if(body.length > room()){
+    const at = body.lastIndexOf("AVOID: ");
+    if(at>=0){
+      const m = body.slice(at+7).match(/^([^\n]*?)\.(\s*)$/);
+      if(m){
+        const seen = new Set(), terms = m[1].split(/\s*,\s*/).filter(t=>{ const k = t.trim().toLowerCase(); if(!k || seen.has(k)) return false; seen.add(k); return true; });
+        const next = body.slice(0,at+7)+terms.join(", ")+"."+m[2];
+        if(next.length<body.length){ body = next; out.steps.push("AVOID list once"); }
+      }
+    }
+  }
+  // 3. a shot's full-scene text (shot-scene-context.js contextPrompt) — the target beat stays
+  if(body.length > room()){
+    const m = body.match(/(FULL SCENE CONTEXT \(background only[^\n]*\n(?:SCREENPLAY SOURCE REVISION:[^\n]*\n)?)([\s\S]*?)(\n\nTARGET BEAT OPENING)/);
+    if(m && m[2].length>160){
+      body = body.replace(m[0], m[1]+"(the scene's own text is left out here to fit this engine's prompt limit; the TARGET BEAT OPENING below is the authority)"+m[3]);
+      out.steps.push("full-scene text left out");
+    }
+  }
+  // 4. last resort: cut the middle of the body, never the tail
+  if(body.length > room()){
+    const keep = Math.max(0, room()-3), headN = Math.floor(keep*0.6);
+    const h = body.slice(0, headN).replace(/\s+\S*$/,"");
+    const e = body.slice(body.length-Math.max(0, keep-headN)).replace(/^\S*\s+/,"");
+    body = keep>0 ? h+" … "+e : "";
+    out.steps.push("middle cut");
+    if(body.length+tail.length > limit){   // the tail alone is longer than the engine takes (never seen) — still fit
+      const k = Math.max(0, limit-body.length-3);
+      tail = tail.slice(0, Math.floor(k*0.6))+" … "+tail.slice(tail.length-(k-Math.floor(k*0.6)));
+      out.steps.push("tail middle cut");
+    }
+  }
+  out.prompt = (body+tail).slice(0, limit);
+  out.after = out.prompt.length;
+  return out;
+}
+/* a refusal for the prompt's LENGTH (the proxy's prompt_too_long, or a provider's own "at most N characters") */
+function nbIsPromptLengthError(e){
+  if(e && typeof e==="object" && (e.promptTooLong || e.code==="prompt_too_long")) return true;
+  const s = String((e && e.message) || e || "");
+  // a length word only counts beside the word "prompt" (an image's own "maximum length" is not a prompt refusal)
+  return /prompt_too_long/i.test(s)
+    || (/\bprompt\b/i.test(s) && /too long|longer than|at most [\d,]+ characters|string_too_long|max(?:imum)? (?:prompt )?length/i.test(s));
+}
+window.nbPromptMaxChars = nbPromptMaxChars;
+window.nbFitImagePrompt = nbFitImagePrompt;
+window.nbIsPromptLengthError = nbIsPromptLengthError;
+
 function nbIdentitySnapshot(character){
   if(!character || typeof character!=="object") return null;
   const pronouns = String(character.canonicalPronouns || character.pronouns
@@ -2552,6 +2647,12 @@ async function proxyGenerate(prompt, opts, provider){
   nbAssertMediaIdentity(opts, "image-provider-start");
   prompt = nbCanonicalMediaPrompt(prompt, opts);
   const model = nbCanonicalModelId(opts.model || nbGetModel());
+  /* THE ENGINE'S PROMPT LIMIT (2026-10-14, owner — "go ahead with all of it"): checked here, after the identity text
+     is added, and fitted by the same order the builders use (nbFitImagePrompt) — a prompt is never refused for its
+     length and its reference list is never cut. metaOut.promptFit records what had to go. */
+  { const fit = nbFitImagePrompt(prompt, Math.min(nbPromptMaxChars(model), Number(opts.__promptLimit)>0 ? Number(opts.__promptLimit) : Infinity));
+    if(fit.steps.length){ prompt = fit.prompt;
+      if(opts.metaOut) opts.metaOut.promptFit = { limit:fit.limit, before:fit.before, after:fit.after, steps:fit.steps.slice() }; } }
   const aspect = opts.aspectRatio || nbGetAspect();
   /* the engine's own ceiling (2026-10-11): Seedream 5 Pro renders at most 2K — a 4K pick is sent (and priced) as
      2K, said once; metaOut.imageSize records the size really rendered */
@@ -2675,6 +2776,16 @@ async function proxyGenerate(prompt, opts, provider){
       e.billing = billing.code;
       throw e;
     }
+    /* TOO LONG FOR THIS ENGINE (2026-10-14): the server refuses before any hold and says its limit — the prompt is
+       fitted to it once more (nbFitImagePrompt) and sent again, which costs nothing; it is never put to the user */
+    if(body && body.code==="prompt_too_long"){
+      const lim = Math.floor(Number(body.limit)||0);
+      if(!opts.__promptRefit && lim>=2000 && lim<prompt.length)
+        return await proxyGenerate(prompt, { ...opts, __promptRefit:true, __promptLimit:lim }, provider);
+      const e = new Error("This prompt was longer than "+nbModelLabel(model)+" takes, so nothing was sent and nothing was charged.");
+      e.promptTooLong = true; e.code = "prompt_too_long";
+      throw e;
+    }
     if(status===401) throw new Error("Sign in to use server-side image generation \u2014 it runs on your server, not in the browser.");
     const _safe = window.turnSafeError || (x=>x);
     if(status===404) throw new Error(_safe("Image generation isn't available right now \u2014 it's waiting on a server update."));
@@ -2705,9 +2816,13 @@ async function proxyGenerate(prompt, opts, provider){
     }
     // provider error relayed by the proxy — attributed to the image model that asked
     const _mLbl = nbModelLabel(model);
-    throw new Error(window.turnAttrError
+    const _pe = new Error(window.turnAttrError
       ? window.turnAttrError("Image model", _mLbl, _raw)
       : (window.turnSafeError||(x=>x))(_raw));
+    // a provider's own length refusal ("prompt: String should have at most 32000 characters") — the caller's
+    // simplified retry takes it (artroom.jsx), as it takes "no image"
+    if(nbIsPromptLengthError(_raw)) _pe.promptTooLong = true;
+    throw _pe;
   }
   if(opts.metaOut && data && typeof data.grounded!=="undefined") opts.metaOut.grounded = !!data.grounded;
   if(data && data.usage && typeof window.dispatchEvent==="function")

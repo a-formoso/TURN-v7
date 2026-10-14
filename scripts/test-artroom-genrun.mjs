@@ -470,5 +470,58 @@ reset();
   ok("simplified render keeps explicit reference prompt",genCalls[0]?.prompt==="Use room-state");
 }
 
+/* THE PROMPT BUDGET (2026-10-14, owner — "go ahead with all of it"): a refusal for the prompt's LENGTH takes the same
+   simplified retry as "no image", and a retry that re-sends images keeps their reference list (or rebuilds the
+   caller's attachment-aware prompt) — it used to send them with no list at all */
+for(const [label, err] of [["a server prompt_too_long", Object.assign(new Error("This prompt was longer than GPT Image 2.5 Flare takes, so nothing was sent and nothing was charged."),{promptTooLong:true,code:"prompt_too_long"})],
+  ["a provider's own length refusal", new Error("Image model GPT Image 2.5 Flare said: prompt: String should have at most 32000 characters (prompt_too_long)")],
+  ["no image", new Error("The model returned no image")]]){
+  reset();
+  sandbox.window.nbIsPromptLengthError = (e)=>!!(e && (e.promptTooLong || /prompt_too_long|at most [\d,]+ characters/.test(e.message||"")));
+  let n = 0;
+  genImpl = async () => { if(n++===0) throw err; return "data:image/png;base64,RETRY"; };
+  await run(env({opts:{buildFinal:()=>"FULL SPEC",buildSimple:()=>"SIMPLE SPEC",
+    attachments:async()=>[{url:"plate",refId:"plate",note:"the parent plate"}],
+    attachmentsText:(refs)=>"REFERENCE IMAGES are attached: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+"."}}),{});
+  ok(label+": one simplified retry", genCalls.length===2 && /^SIMPLE SPEC/.test(genCalls[1].prompt||""), JSON.stringify(genCalls.map(c=>c.prompt)));
+  ok(label+": the retry keeps the images' reference list", (genCalls[1]?.prompt||"").endsWith(" REFERENCE IMAGES are attached: Image 1 = the parent plate.")
+    && genCalls[1].opts.extraImages[0]==="plate", genCalls[1]?.prompt);
+  ok(label+": the kept image records the simplified prompt", commits.length===1 && commits[0].meta.simplifiedRetry===true && /^SIMPLE SPEC/.test(commits[0].meta.prompt));
+}
+reset();
+{
+  sandbox.window.nbIsPromptLengthError = (e)=>!!(e && e.promptTooLong);
+  let n = 0;
+  genImpl = async () => { if(n++===0) throw Object.assign(new Error("too long"),{promptTooLong:true}); return "data:image/png;base64,RETRY"; };
+  await run(env({opts:{buildFinal:()=>"FRAME",buildSimple:()=>"SIMPLE",attachments:async()=>[{url:"sheet",refId:"marcus",note:"Marcus"}],
+    attachmentsText:()=>"", rebuildPromptAfterAttachments:(refs,mode)=>mode==="simple" ? "SIMPLE MAP "+refs.map(r=>r.refId).join(",") : "FULL MAP"}}),{});
+  ok("a caller's attachment-aware prompt is rebuilt for the retry", genCalls.length===2 && genCalls[1].prompt==="SIMPLE MAP marcus", JSON.stringify(genCalls.map(c=>c.prompt)));
+}
+reset();
+{
+  sandbox.window.nbIsPromptLengthError = (e)=>!!(e && e.promptTooLong);
+  genImpl = async () => { throw new Error("content moderation hiccup"); };
+  await run(env({opts:{buildFinal:()=>"FRAME",buildSimple:()=>"SIMPLE"}}),{});
+  ok("any other refusal is not retried", genCalls.length===1);
+}
+delete sandbox.window.nbIsPromptLengthError;
+/* what proxyGenerate trimmed to fit the engine is recorded with the image (review 2026-10-14) — and a retry's
+   record is its own, never the refused first try's */
+reset();
+{
+  genImpl = async (prompt, o) => { if(o && o.metaOut) o.metaOut.promptFit = { limit:31500, before:33577, after:31500, steps:["middle cut"] }; return "data:image/png;base64,FIT"; };
+  await run(env({opts:{buildFinal:()=>"FRAME"}}),{});
+  ok("the image records what had to go", commits.length===1 && JSON.stringify(commits[0].meta.promptFit)===JSON.stringify({limit:31500,before:33577,after:31500,steps:["middle cut"]}), JSON.stringify(commits[0]&&commits[0].meta.promptFit));
+}
+reset();
+{
+  sandbox.window.nbIsPromptLengthError = (e)=>!!(e && e.promptTooLong);
+  let n = 0;
+  genImpl = async (prompt, o) => { if(n++===0){ o.metaOut.promptFit = { steps:["middle cut"] }; throw Object.assign(new Error("too long"),{promptTooLong:true}); } return "data:image/png;base64,RETRY"; };
+  await run(env({opts:{buildFinal:()=>"FULL",buildSimple:()=>"SIMPLE"}}),{});
+  ok("a retry that fit as it was records nothing trimmed", commits.length===1 && commits[0].meta.promptFit===undefined, JSON.stringify(commits[0]&&commits[0].meta.promptFit));
+  delete sandbox.window.nbIsPromptLengthError;
+}
+
 console.log(passes + failures === 0 ? "no checks ran" : (failures ? "FAILURES: " + failures + " (of " + (passes + failures) + ")" : "PASS: all " + passes + " checks"));
 process.exit(failures ? 1 : 0);

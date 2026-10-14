@@ -3291,13 +3291,35 @@ async function proxySection() {
         const holds0 = (await holdsOf(U.director)).length, b0 = await bal(U.director);
         const r = await post("tok-director", IMAGE(model, "1K", provider, { prompt: "a lighthouse at dusk ".repeat(2500).slice(0, 40001) }));
         assert.equal(r.status, 400, j(r.json)); assert.equal(r.json.code, "prompt_too_long");
-        assert.match(r.json.error, /40,001 characters; at most 40,000/);
+        assert.match(r.json.error, new RegExp(`40,001 characters; at most ${P.imagePromptMaxChars(model).toLocaleString("en-US")}`));
         assert.equal((await holdsOf(U.director)).length, holds0, "no hold"); assert.equal(await bal(U.director), b0);
         assert.equal(W.calls.filter((c) => /generativelanguage|queue\.fal\.run|fal\.run/.test(c.url)).length, 0, "no provider call");
       }
       reset();
       const ok = await post("tok-director", IMAGE("gemini-nano-banana-2.1", "1K", "google", { prompt: "x".repeat(40000) }));
       assert.equal(ok.status, 200, j(ok.json)); assert.ok(!ok.json.error, j(ok.json));
+    });
+
+    await test("F39b (2026-10-14) each image engine's own prompt limit (billing-pricing.mjs IMAGE_PROMPT_LIMITS — GPT Image 2.5 31,500 under fal's 32,000, Seedream 5 Pro 30,000, Nano Banana 2.1 40,000) is refused with prompt_too_long before any hold or provider call; a prompt at the limit renders", async () => {
+      assert.deepEqual({ ...P.IMAGE_PROMPT_LIMITS }, { "gpt-image-2.5-flare": 31500, "gpt-image-2.5-sunburst": 31500, "gemini-nano-banana-2.1": 40000, "seedream-5-pro": 30000 });
+      assert.equal(P.imagePromptMaxChars("gpt-image-2"), 31500, "a retired id is held to its successor's limit");
+      assert.equal(P.imagePromptMaxChars("some-unknown-model"), 40000);
+      for (const [model, provider] of [["gpt-image-2.5-flare", "fal"], ["gpt-image-2.5-sunburst", "fal"], ["gpt-image-2", "fal"], ["seedream-5-pro", "fal"], ["gemini-nano-banana-2.1", "fal"]]) {
+        const max = P.imagePromptMaxChars(model);
+        reset();
+        const holds0 = (await holdsOf(U.director)).length, b0 = await bal(U.director);
+        const r = await post("tok-director", IMAGE(model, "1K", provider, { prompt: "a glass furnace on a quay ".repeat(2000).slice(0, max + 1) }));
+        assert.equal(r.status, 400, model + " " + j(r.json)); assert.equal(r.json.code, "prompt_too_long"); assert.equal(r.json.limit, max);
+        assert.match(r.json.error, new RegExp(`${(max + 1).toLocaleString("en-US")} characters; at most ${max.toLocaleString("en-US")}`));
+        assert.doesNotMatch(r.json.error, /shorten/i, "nobody is asked to shorten a prompt");
+        assert.equal((await holdsOf(U.director)).length, holds0, model + ": no hold"); assert.equal(await bal(U.director), b0);
+        assert.equal(W.calls.filter((c) => /generativelanguage|queue\.fal\.run|fal\.run/.test(c.url)).length, 0, model + ": no provider call");
+      }
+      for (const model of ["gpt-image-2.5-flare", "seedream-5-pro"]) {
+        reset();
+        const r = await post("tok-director", IMAGE(model, "1K", "fal", { prompt: "y".repeat(P.imagePromptMaxChars(model)) }));
+        assert.equal(r.status, 200, model + " " + j(r.json)); assert.ok(!r.json.error, model + " " + j(r.json));
+      }
     });
 
     await test("F40 (2026-10-10, Likeness review) a data-URL reference the proxy staged (a likeness photo) is removed as soon as its render returns — delivered or refused; a video job fal kept keeps its staged inputs (fal reads them when it runs), one fal refused loses them; a stage: device upload is never touched", async () => {

@@ -125,8 +125,52 @@ assert.equal(manualMeta.sceneContext.sourceRev,context.sourceRev);
 // the full-scene context reaches the prompt the Shots card actually sends (the headless
 // Scene Director path that used to be exercised here was removed 2026-09-26)
 assert.ok(actualManualPrompt.includes("TARGET BEAT OPENING"));
-assert.ok(actualManualPrompt.includes("He crosses the room and opens the desk."));
-assert.ok(actualManualPrompt.includes("DANIEL's phone buzzes from the hallway."));
+/* THE SCREENPLAY AS PAGES OR TEXT, NEVER BOTH (2026-10-14, owner — the prompt budget): the pages ride with this request,
+   so the scene's text is a pointer to them; the target beat stays verbatim */
+assert.match(actualManualPrompt,/the entire scene is attached as \d+ screenplay page images?, target beat highlighted — read it there; it is not repeated here/);
+assert.ok(!actualManualPrompt.includes("He crosses the room and opens the desk."),"the scene's text is not sent twice");
+assert.ok(actualManualPrompt.includes("MARCUS enters carrying the brass key."),"the target beat opening is never cut");
+// …with no page attached (refs without pages, or a text-only render) the whole scene goes as text
+const noPageRefs=manualRefs.filter(r=>r&&r.assetRole!=="screenplay_context");
+const textPrompt=manual.opts.rebuildPromptAfterAttachments(noPageRefs,"final",{});
+assert.ok(textPrompt.includes("He crosses the room and opens the desk.")&&textPrompt.includes("DANIEL's phone buzzes from the hallway."));
+// …and longer than its engine takes: an excerpt around the target beat, then left out — never the target beat
+const fullLen=box.buildShotPrompt(sh,{...ctx,sceneContext:context,resolvedRefs:noPageRefs}).length;
+const tight=box.buildShotPrompt(sh,{...ctx,sceneContext:context,resolvedRefs:noPageRefs,promptMaxChars:3000+fullLen-10});
+assert.match(tight,/an excerpt to fit this engine's prompt limit/);
+assert.ok(!tight.includes("DANIEL's phone buzzes")&&tight.includes("MARCUS enters carrying the brass key."),"the far beat goes first");
+assert.ok(tight.length<=fullLen-10,"it fits");
+const tighter=box.buildShotPrompt(sh,{...ctx,sceneContext:context,resolvedRefs:noPageRefs,promptMaxChars:1});
+assert.match(tighter,/the scene's own text is left out here/);assert.ok(tighter.includes("MARCUS enters carrying the brass key."));
+assert.equal(box.shotPromptBudget({promptMaxChars:31500}),28500,"the identity block's room is kept");
+const ex=box.shotSceneContextPrompt(context,{fit:"excerpt"});
+assert.match(ex,/an excerpt to fit this engine's prompt limit/);assert.ok(ex.includes("He crosses the room")&&!ex.includes("DANIEL's phone"),"beat 1 and the line after it");
+assert.match(box.shotSceneContextPrompt(context,{fit:"omit"}),/the scene's own text is left out here to fit this engine's prompt limit; the TARGET BEAT OPENING below is the authority/);
+// pages that carry only part of the scene are not attached: the scene goes as text
+const longBlocks=[{type:"scene",text:"INT. HOUSE - NIGHT",beat:1}].concat(Array.from({length:90},(_,i)=>({type:"action",text:"Line "+(i+1)+" of a long scene where Marcus searches every drawer of the desk, one by one, and finds nothing.",beat:1+Math.floor(i/30)})));
+const longCtx={...ctx,drafts:{"scene-a":{blocks:longBlocks}}};
+const longPlan={...box.shotSceneContextPlan(sh,longCtx),maxPages:null};
+const whole=await box.shotSceneContextReferences(longPlan,longCtx,{maxPages:9});
+assert.ok(whole.pages>1&&whole.refs.length===whole.pages,"a long scene: every page attached when they all fit");
+const partial=await box.shotSceneContextReferences(longPlan,longCtx,{maxPages:1});
+assert.equal(partial.refs.length,0,"part of a scene is never attached beside its text");
+assert.equal(partial.renderedPages,0);assert.equal(partial.omittedPages,whole.pages);
+assert.ok(partial.omissions.some(x=>/so it goes as text/.test(x)),partial.omissions.join(" | "));
+/* pages its ENGINE never receives don't count (2026-10-14 review): Seedream 5 Pro takes the first 10 references
+   (proxyGenerate), the pages ride last — past its cap the scene goes as text, never "attached" while it isn't */
+const pageRefs=manualRefs.filter(r=>r&&r.assetRole==="screenplay_context");
+assert.ok(pageRefs.length>0,"the manual render attaches its pages");
+const canon=Array.from({length:10},(_,i)=>({url:"sheet-"+i,assetRole:"master_reference",note:"Sheet "+i}));
+box.nbModelMaxRefs=(m)=>m==="seedream-5-pro"?10:null;
+assert.equal(box.shotScreenplayPagesSent([...canon.slice(0,2),...pageRefs],"seedream-5-pro",0),pageRefs.length,"under the cap: every page counts");
+assert.equal(box.shotScreenplayPagesSent([...canon,...pageRefs],"seedream-5-pro",0),0,"past the cap: none count");
+assert.equal(box.shotScreenplayPagesSent([...canon,...pageRefs],"gpt-image-2.5-flare",0),pageRefs.length,"an engine with no cap: every page");
+assert.equal(box.shotScreenplayPagesSent([...canon.slice(0,10-pageRefs.length),...pageRefs],"seedream-5-pro",1),0,"a seed frame takes the first slot");
+const capped=box.buildShotPrompt(sh,{...ctx,sceneContext:context,resolvedRefs:[...canon,...pageRefs],model:"seedream-5-pro"});
+assert.ok(capped.includes("He crosses the room and opens the desk.")&&!/it is not repeated here/.test(capped),"Seedream past its cap: the scene goes as text");
+const uncapped=box.buildShotPrompt(sh,{...ctx,sceneContext:context,resolvedRefs:[...canon,...pageRefs],model:"gpt-image-2.5-flare"});
+assert.match(uncapped,/it is not repeated here/);
+delete box.nbModelMaxRefs;
 assert.equal(manualMeta.sceneContext.sceneId,"scene-a");
 assert.equal(manualMeta.sceneContext.targetBeat,1);
 // the live generator keeps screenplay pages readable and never persists their bytes
