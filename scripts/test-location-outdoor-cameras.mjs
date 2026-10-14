@@ -10,8 +10,12 @@
       (openSky — written only when true, so older layouts keep their exact signature); Furnace Office (INT) is not;
    2. an outdoor part's four cameras stand ON it at eye level (1.6 m): along it, a reverse angle from its door, and
       three-quarter views of its own stations — never a station the parent's own views already aim at or name — and no
-      panel repeats one of the parent's REQUESTED views (same way, same height band, nearby);
-   3. outdoors no camera stands higher than about 6 m: the parent's suggested overview is raised 6 m, not 11.7 m;
+      panel repeats one of the parent's views (same way, same height band, nearby) — its CURRENT plate's real cameras
+      where known, else the ones it asks for (locationParentPlateViews; here none are known, so they are the requested
+      ones — the known case, and the least-repeating pick when every candidate repeats, are in
+      test-location-camera-limits §3);
+   3. outdoors no camera stands higher than about 6 m: the parent's suggested overview is raised 6 m, not 11.7 m (a
+      floor-plan, drafted or saved camera too — test-location-camera-limits §1-2);
    4. the owner's suggested close-ups follow its staging (the two its prompt asks for — "close-up of Glass-furnace
       façade…", "close-up of Stone quay edge running away west…") instead of unrelated objects (the canal lamps, the
       vaporetto landing); a staging that names an object by id is read too; with no staging, the old stations stay;
@@ -69,7 +73,12 @@ assert.match(read("app/locations-ui.jsx"), /React\.createElement\("span",null,"O
   "Floor plan numbers: each space can be marked open to the sky");
 
 /* ---- 2 · 3. the outdoor part's cameras ---- */
-const kids = box.locationPanelPoses(sub), parentViews = json(box.locationRequestedViews(owner));
+// the parent's views a part must not repeat: its plate's real cameras when known (none in Glass Hours today: its plate
+// recorded none and none are noted), else the views it asks for
+const kids = box.locationPanelPoses(sub), parentViews = json(box.locationParentPlateViews(owner));
+assert.ok(parentViews.every((v) => v.real === false));
+assert.deepEqual(parentViews.map((v) => [v.key, v.yaw, v.position]), json(box.locationRequestedViews(owner)).map((v) => [v.key, v.yaw, v.position]));
+assert.ok(kids.every((p) => !p.repeatsParent), "no panel had to repeat one");
 assert.ok(kids.every((p) => p.stated && p.source === "suggested"), "a sub-space always states its planned cameras");
 assert.deepEqual(json(kids.map((p) => p.purpose)), [
   "eye-level view along Fondamenta DEI Vetrai, looking east",
@@ -224,6 +233,11 @@ assert.ok(ex.cameras.every((c) => c.pose.position[2] === 1.6 && c.studioCamera),
 assert.equal(ex.plateCameras, undefined, "no recorded plate: no plate cameras");
 const exOwner = box.locationCoordinateExport(owner, locations);
 assert.ok(exOwner.cameras.every((c) => !c.pose.position || c.pose.position[2] <= 6), "no exterior camera above 6 m (the 11.7 m corner is gone)");
+// …a floor-plan camera at 11.7 m too (it used to come through unchanged; test-location-camera-limits §1)
+const ownerCam = { ...owner, spatialPlan: box.normalizeLocationSpatialPlan({ ...owner.spatialPlan, coordinates: { ...owner.spatialPlan.coordinates,
+  cameras: [{ spaceId: owner.id, panel: "TR", position: [7.7, -0.1, 11.7], yaw: 254, pitch: -53, lensMm: 16, basis: "design" }] } }) };
+const exCam = box.locationCoordinateExport(ownerCam, locations.map((l) => l.id === owner.id ? ownerCam : l));
+assert.deepEqual(json([exCam.cameras[1].pose.position, exCam.cameras[1].loweredFrom]), [[7.7, -0.1, 6], 11.7]);
 // a plate made from these very cameras: said in one flag, never the same four cameras twice (the package has a size limit)
 metas[sub.id] = { iso: "s1", platePanels: record };
 const exSame = box.locationCoordinateExport(sub, locations);

@@ -381,6 +381,9 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
             p.source==="set"?"Set":p.source==="layout"?"From the layout":(parent?"Planned":"Suggested"))),
         React.createElement("p",{className:"loc-cam-purpose"},p.purpose),
         React.createElement("p",{className:"loc-cam-text"},locationPoseText(p.pose,parent?name:"",anchors,outdoor?parent.name:undefined)),
+        // (2026-10-14) outdoors: lowered to about 6 m, typed above it, or a framing one of the parent's views already has
+        (typeof locationPanelCameraNotes==="function"?locationPanelCameraNotes(p,name,outdoor?parent.name:""):[]).map(n=>
+          React.createElement("p",{key:n.kind,className:"loc-layer-note loc-cam-warn loc-cam-note-"+n.kind,role:"note"},n.text)),
         p.sights&&p.sights.length>0&&React.createElement("ul",{className:"loc-cam-sights"},p.sights.map(sightRow)),
         // the reverse direction (step B): the rooms this camera sees, named in its prompt
         (()=>{const kids=typeof locationPanelChildrenVisible==="function"?locationPanelChildrenVisible(l,p):[];
@@ -671,6 +674,8 @@ function LocationFloorPlanMap({scene,selected,onSelect,spaceId=""}){
   const hidden=scene.noPosition.filter(shown);
   const detail=selCam?selCam.label+": "+locationPoseText({position:selCam.position,yaw:selCam.yaw,pitch:selCam.pitch,lensMm:selCam.lensMm},"",[])
       +" Field of view "+Math.round(selCam.hfov)+"°."+(selCam.source==="set"?" Set by hand in Plate cameras.":selCam.source==="layout"?" From the floor plan.":" Suggested.")
+      +(selCam.lowered?" Lowered to "+selCam.lowered.to+" m ("+(selCam.lowered.source==="layout"?"the floor plan says ":"saved at ")+selCam.lowered.from+" m) — outdoor cameras stay at eye level or a low high-angle.":"")
+      +(selCam.heightWarning?" "+selCam.heightWarning.height+" m up, as set by hand — outdoor cameras stay at eye level or a low high-angle (at most about "+selCam.heightWarning.max+" m).":"")
       +(selCam.outlier?" Far outside every footprint — check this position.":"")
     : selA?selA.num+" · "+selA.name+" — "+(selA.spaceName||nameOf(selA.spaceId))+", "+_locMapPos(selA.xy)+(selA.facing!=null?", front faces "+locCompass(selA.facing):"")+"."
       +(selA.placement?" "+selA.placement:"")+(selA.outlier?" Far outside every footprint — check this position.":"")
@@ -733,6 +738,16 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
   const setCamera=(c,patch)=>set({cameras:cameras.map(x=>x===c?{...x,...patch}:x)});
   const nameOf=id=>((family.find(f=>f.id===id))||{}).name||id;
   const missing=family.filter(f=>!spaces.some(s=>s.id===f.id));
+  /* (2026-10-14) the number stays as written, but outdoors a camera above about 6 m is used lower unless it is marked
+     Set by hand (locationPanelPoses) — the Position hint says so, so the number here never silently disagrees */
+  const camHint=(sp,c)=>{
+    const base="m; height above the main floor",max=window.LOC_OUTDOOR_MAX_Z||6;
+    if(!c.position||typeof locationIsOutdoor!=="function")return base;
+    const card=family.find(f=>f.id===sp.id);
+    if(!(card?locationIsOutdoor(card,undefined,sp):!!sp.openSky)||!(c.position[2]>(sp.floorZ||0)+max+0.05))return base;
+    return c.basis==="user"?base+" — above the outdoor limit of about "+max+" m, used as set by hand"
+      :base+" — outdoors it is used at most "+max+" m above this space's floor; mark it Set by hand to keep it higher";
+  };
   return React.createElement("details",{className:"loc-spatial-assist loc-floorplan-fields"},
     React.createElement("summary",null,"Floor plan numbers",React.createElement("small",null,"Approximate · metres")),
     React.createElement("p",{className:"loc-layer-note"},"Every number is an estimate you can change: footprints as corner points “x, y; x, y; …”, heights above the main floor, facings in degrees (0 = north, 90 = east). Changing a number makes the layout a draft to confirm again."),
@@ -792,7 +807,7 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
                 onClick:()=>set({cameras:cameras.filter(x=>x!==c)})},React.createElement(Icon.x,{s:12}))),
             React.createElement("div",{className:"loc-cam-fields"},
               React.createElement(LocCoordInput,{label:"Position",value:c.position?c.position.map(_locFmt).join(", "):"",placeholder:"x, y, height",mode:"text",disabled:readOnly,
-                hint:"m; height above the main floor",onCommit:v=>setCamera(c,{position:_locParseVec(v,3)})}),
+                hint:camHint(sp,c),onCommit:v=>setCamera(c,{position:_locParseVec(v,3)})}),
               React.createElement(LocCoordInput,{label:"Facing",value:_locFmt(c.yaw),placeholder:"degrees",disabled:readOnly,hint:c.yaw!=null?locCompass(c.yaw):"0 = north",
                 onCommit:v=>setCamera(c,{yaw:_locParseNum(v)})}),
               React.createElement(LocCoordInput,{label:"Tilt",value:_locFmt(c.pitch),placeholder:"0",disabled:readOnly,hint:"degrees; negative looks down",
@@ -815,6 +830,8 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   // the map's scene, once per render: drawn below and read for "Check these positions" on a draft (never blocking)
   const mapScene=typeof locationFloorPlanScene==="function"?locationFloorPlanScene(owner,plan):null;
   const checkPositions=!confirmed&&typeof locationFloorPlanCheckText==="function"?locationFloorPlanCheckText(mapScene):"";
+  // (2026-10-14) the outdoor cameras the draft proposed above about 6 m, lowered in the draft (while it is untouched)
+  const loweredNote=candidate&&typeof locationLoweredCamerasText==="function"?locationLoweredCamerasText(candidate.loweredCameras):"";
   const empty=!plan.frame.trim()&&!plan.anchors.length&&!plan.sightlines.trim()&&!plan.unresolved.trim();
   const check=locationSpatialPlanState({...owner,spatialPlan:normalizeLocationSpatialPlan({...plan,status:"reviewed",source:state.source})});
   const reviewHint=empty
@@ -903,6 +920,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         ? "Reads the parent image when available; otherwise uses the written specification. Also drafts an approximate floor plan in metres (footprints, windows and doors, object positions, each panel's camera) \u2014 every number editable. Uses writing-model credits, not image credits. Review and confirm the result before generating."
         : "Confirmation uses no credits and does not generate an image."),
       checkPositions&&React.createElement("p",{className:"loc-map-check",role:"note"},checkPositions),
+      loweredNote&&React.createElement("p",{className:"loc-map-check",role:"note"},loweredNote),
       candidate&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:()=>{setCandidate(null);setError("");}},"Discard draft"),
       error&&React.createElement("p",{role:"alert",className:"loc-spatial-error"},error)),
     React.createElement("p",{className:"loc-layer-note loc-spatial-owner"},"One physical layout for "+(owner.name||"this location")+" and every room. Camera views below change the framing, not the furniture."),

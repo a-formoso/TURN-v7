@@ -1537,6 +1537,38 @@ function locationIsOutdoor(l, locations, space){
   const sp = space!==undefined ? space : _locCoordSpace(_locOwnerPlan(l,locations).plan.coordinates, l);
   return !!(sp && sp.openSky);
 }
+/* THE DRAFTED FLOOR PLAN KEEPS THE SAME LIMIT (2026-10-14 — the check's gap B2: the drafter was only told "about 6 m").
+   A camera the draft PROPOSES (basis design or script) on an outdoor space — its card an exterior, or the draft marks
+   it open to the sky — standing more than LOC_OUTDOOR_MAX_Z above that space's floor is lowered to it in the draft, and
+   listed so the review can say so: {plan, lowered:[{spaceId, spaceName, panel, from, to}]}. A camera it READ from a
+   plate (observed) is kept as read — it says where that plate's camera stood, and the rooms match its panels by it;
+   it is lowered only where it is used for a next plate (locationPanelPoses). Run on a normalized plan whose spaces are
+   already this family's ids (locationResolveDraftCoordinates). */
+function locationLowerDraftOutdoorCameras(plan, family, locations){
+  const coords = plan && plan.coordinates;
+  if(!coords || !Array.isArray(coords.cameras) || !coords.cameras.length) return {plan, lowered:[]};
+  const list = _locList(locations), fam = Array.isArray(family) ? family : [];
+  const lowered = [];
+  const cameras = coords.cameras.map(c=>{
+    if(!c || !c.position || c.basis==="observed" || c.basis==="user") return c;
+    const card = _locResolveSpace(c.spaceId, fam);
+    const sp = (coords.spaces||[]).find(s=>s.id===c.spaceId) || (card ? _locCoordSpace(coords, card) : null) || null;
+    const outdoor = card ? locationIsOutdoor(card, list, sp) : !!(sp && sp.openSky);
+    const floorZ = sp ? sp.floorZ : 0;
+    if(!outdoor || !(c.position[2]>floorZ+LOC_OUTDOOR_MAX_Z+0.05)) return c;
+    lowered.push({spaceId:c.spaceId, spaceName:(card && card.name) || (sp && sp.name) || c.spaceId, panel:c.panel,
+      from:Math.round((c.position[2]-floorZ)*10)/10, to:LOC_OUTDOOR_MAX_Z});
+    return {...c, position:[c.position[0], c.position[1], floorZ+LOC_OUTDOOR_MAX_Z]};
+  });
+  return {plan:lowered.length ? {...plan, coordinates:{...coords, cameras}} : plan, lowered};
+}
+/* the review's words for what the draft lowered (Shared set layout, while the draft is untouched) */
+function locationLoweredCamerasText(lowered){
+  const xs = Array.isArray(lowered) ? lowered.filter(x=>x && LOC_PANEL_INFO[x.panel]) : [];
+  if(!xs.length) return "";
+  return "Lowered to "+xs[0].to+" m: "+xs.map(x=>(x.spaceName ? x.spaceName+" · " : "")+LOC_PANEL_INFO[x.panel].label.toLowerCase()+" camera (the draft put it "+x.from+" m up)").join(", ")
+    +" — outdoor cameras stay at eye level or a low high-angle.";
+}
 /* the object a view's words name — the earliest whole name, its head (before a comma or bracket, two words or more) or
    its id ("Main glory-hole furnace (A-furnace)") in the text */
 function _locAnchorNamed(text, anchors){
@@ -1582,14 +1614,50 @@ function _locStagedStationPose(text, anchor, geo){
   return _locPose({yaw:look, pitch:-12, lensMm:35, place:"in front of "+String(text).slice(0,80)});
 }
 /* does camera c repeat view p — the same way (within 30°), the same height band (within 2 m) and, with positions,
-   from nearby (within 8 m)? */
+   from nearby (within 8 m)? A view whose spot is unknown but whose height is (p.z — a parent camera known by its facing
+   alone, locationParentPlateViews) is compared by its facing and height band only. */
 function _locRepeatsView(c, p){
   if(!c || !p || c.yaw==null || p.yaw==null || Math.abs(locYawDiff(c.yaw,p.yaw))>=30) return false;
   if(c.position && p.position){
     if(Math.abs(c.position[2]-p.position[2])>=2) return false;
     if(Math.hypot(c.position[0]-p.position[0], c.position[1]-p.position[1])>=8) return false;
-  }
+  } else if(c.position && p.z!=null && Math.abs(c.position[2]-p.z)>=2) return false;
   return true;
+}
+/* HOW CLOSELY camera c repeats view p (2026-10-14 — the check's gap B4): 0 when it doesn't (_locRepeatsView), up to 1
+   for the same way from the same spot at the same height; with a position unknown on either side, the facing alone
+   (at most 0.75 — it may stand elsewhere) */
+function _locRepeatCloseness(c, p){
+  if(!_locRepeatsView(c,p)) return 0;
+  const way = 1-Math.abs(locYawDiff(c.yaw,p.yaw))/30;
+  if(!c.position || !p.position) return way*0.75;
+  const height = 1-Math.abs(c.position[2]-p.position[2])/2;
+  const spot = 1-Math.hypot(c.position[0]-p.position[0], c.position[1]-p.position[1])/8;
+  return way*(height+spot)/2;
+}
+/* THE PARENT PLATE'S OWN VIEWS, AS FAR AS THEY ARE KNOWN (2026-10-14 — the check's gap B4: "each panel framed
+   differently from the main sheet's own views" was checked against the views the parent's NEXT plate asks for, not the
+   cameras its current plate really had). Per panel: the camera the CURRENT plate had when known — recorded with it
+   (meta.platePanels), noted on its card for that version (l.plateCameras: set by hand or read from it) or read for the
+   confirmed floor plan from that very plate (locationKnownPlatePanels) — real:true; else the view its plate asks for
+   (a stored, floor-plan or suggested camera — locationRequestedViews), real:false. The words stay the requested view's
+   (what that plate's prompt asked for) unless the record has its own; so does the object it aims at. A camera known
+   by its facing alone (set by hand: "Top-right faces east") keeps only the HEIGHT its plate asked for (z — a
+   "high-angle overview" facing east is still the raised one, not an eye-level camera on the quay); where on the place
+   it stood is unknown, so any camera facing that way at that height repeats it (never "9 m from a guessed spot, so
+   not a repeat"). */
+function locationParentPlateViews(parent, locations){
+  if(!parent) return [];
+  const list = _locList(locations), asked = locationRequestedViews(parent, list);
+  const meta = typeof nbGetMeta==="function" ? nbGetMeta(parent.id) : null;
+  const known = meta ? locationKnownPlatePanels(parent, meta, list) : null;
+  return asked.map(v=>{
+    const p = known && known.panels[v.key];
+    if(!p || p.yaw==null) return {...v, real:false};
+    const position = Array.isArray(p.position) ? p.position : null;
+    return {key:v.key, yaw:p.yaw, position, ...(position || !v.position ? {} : {z:v.position[2]}),
+      target:p.target||v.target||"", purpose:String(p.purpose||v.purpose||"").replace(/\.$/,""), real:true};
+  });
 }
 /* AN OWNER WHOSE PLATE PLANS INSIDE AND OUTSIDE VIEWS (locationMasterPanelPlan: the screenplay plays it from both
    sides) asks for that plan's four views, not the two staging close-ups — so its suggested cameras stay the anchor
@@ -1620,14 +1688,17 @@ function locationRequestedViews(l, locations){
 /* THE OUTDOOR PART'S FOUR CAMERAS: TL along it (from the end whose view repeats none of the parent's), TR a reverse
    angle from its door (or window) out across it, BL / BR three-quarter views of its own stations — the ones the
    parent's own views don't already show close up — each at eye level; a candidate that would repeat a parent view (or
-   one already chosen) gives way to one that doesn't. */
+   one already chosen) gives way to one that doesn't. The parent's views are its CURRENT plate's real cameras where
+   known, else the ones its plate asks for (locationParentPlateViews). When every candidate for a panel repeats one, the
+   one that repeats LEAST is taken (a real camera of the parent's plate counts double) — and the panel says so
+   (locationPanelPoses repeatsParent: on Plate cameras, in its prompt line and in the plate's record). */
 const _locOutdoorBusy = new Set();   // a parent chain that loops back never recurses
 function _locOutdoorPanels(l, list, parent, geo, anchors, openings){
   const name = l.name || "this space", eye = geo.floorZ+LOC_EYE_Z, poly = geo.poly;
   let theirs = [];
   if(!_locOutdoorBusy.has(l.id)){
     _locOutdoorBusy.add(l.id);
-    try{ theirs = locationRequestedViews(parent, list); } finally { _locOutdoorBusy.delete(l.id); }
+    try{ theirs = locationParentPlateViews(parent, list); } finally { _locOutdoorBusy.delete(l.id); }
   }
   const theirWords = theirs.map(p=>p.purpose).join(" ; ");
   const targeted = new Set(theirs.map(p=>p.target).filter(Boolean));
@@ -1689,13 +1760,25 @@ function _locOutdoorPanels(l, list, parent, geo, anchors, openings){
     });
   });
   const chosen = [];
-  const reps = (c)=> theirs.concat(chosen).filter(p=>_locRepeatsView(c,p)).length;
-  const best = (list)=> list.map((c,i)=>({c, i, r:reps(c)})).sort((x,y)=>x.r-y.r || x.i-y.i).map(x=>x.c)[0] || null;
+  // how much a candidate repeats what is already framed: each view by how close it comes, a real camera of the
+  // parent's current plate double, a view its plate only asks for (or another panel of this plate) once
+  const score = (c)=> theirs.reduce((n,p)=>n+_locRepeatCloseness(c,p)*(p.real ? 2 : 1),0)
+    + chosen.reduce((n,p)=>n+_locRepeatCloseness(c,p),0);
+  const least = (rows)=> rows.sort((x,y)=>x.s-y.s || x.i-y.i)[0] || null;
+  const rank = (xs, from)=> xs.map((c,i)=>({c, i:i+from, s:score(c)}));
+  // the panel's own kind when one of them repeats nothing, else the least-repeating of it and the fallback (which
+  // must repeat clearly less — by a tenth — to take the panel from its own kind)
+  const pick = (primary, fallback)=>{
+    const own = least(rank(primary,0));
+    if(own && own.s===0) return own.c;
+    const any = least(rank(primary,0).concat(rank(fallback||[],1000).map(x=>({...x, s:x.s+0.1}))));
+    return any ? any.c : null;
+  };
   const take = (c)=>{ if(c) chosen.push(c); return c; };
-  const tl = take(best(cands.along));
-  const tr = take(best(cands.reverse.filter(c=>!reps(c))) || best(cands.along.filter(c=>c!==tl)));
-  const bl = take(best(cands.station));
-  const br = take(best(cands.station.filter(c=>!bl || c.anchor!==bl.anchor)) || best(cands.along.filter(c=>c!==tl && c!==tr)));
+  const tl = take(pick(cands.along));
+  const tr = take(pick(cands.reverse, cands.along.filter(c=>c!==tl)));
+  const bl = take(pick(cands.station));
+  const br = take(pick(cands.station.filter(c=>!bl || c.anchor!==bl.anchor), cands.along.filter(c=>c!==tl && c!==tr)));
   const r2 = (n)=> Math.round(n*100)/100 + 0;   // centimetres (and never -0)
   const pose = (c)=> _locPose({position:c.position ? c.position.map(r2) : null, yaw:c.yaw==null ? null : Math.round(c.yaw*10)/10,
     pitch:c.pitch, lensMm:c.lensMm, target:c.target||"", place:c.place||"", basis:"design"});
@@ -1705,7 +1788,8 @@ function _locOutdoorPanels(l, list, parent, geo, anchors, openings){
     TL: tl ? {purpose:tl.purpose, pose:pose(tl)} : none("eye-level view along "+name),
     TR: tr ? {purpose:tr.purpose, pose:pose(tr)} : none("eye-level reverse angle across "+name),
     BL: bl ? {purpose:bl.purpose, pose:pose(bl)} : none("eye-level view of the main feature of "+name),
-    BR: br ? {purpose:br.purpose, pose:pose(br)} : none("eye-level close view of a signature material detail of "+name)};
+    BR: br ? {purpose:br.purpose, pose:pose(br)} : none("eye-level close view of a signature material detail of "+name),
+    parentViews:theirs};   // what each panel was kept apart from (locationPanelPoses repeatsParent)
 }
 function locationDefaultPanelPoses(l, locations){
   const list = _locList(locations), parent = locationParentOf(l,list);
@@ -1801,12 +1885,31 @@ function locationStoredPanelViews(l){
 }
 /* the four panel cameras of l's plate: a stored pose wins field by field over the suggestion. stated = the pose is
    written into the plate prompt and recorded with the plate (a room always; an owner space only once a pose is
-   stored — its plate prompt is otherwise unchanged) */
+   stored — its plate prompt is otherwise unchanged).
+   OUTDOORS NO CAMERA ABOVE ABOUT 6 M, WHEREVER IT COMES FROM (2026-10-14 — the check's gap B2: only the suggestions were
+   capped). On an outdoor space (locationIsOutdoor) a camera higher than LOC_OUTDOOR_MAX_Z above the space's floor — a
+   drafted or reviewed floor plan's camera, or one saved from a suggestion — is LOWERED to it where it is used (the
+   plate prompt, the plate's record, the top-down map, Blender) and the panel says so (lowered {from, to, source});
+   the floor plan and the card are not changed. A camera whose height was typed by hand (Plate cameras' Edit camera, or
+   a floor-plan camera marked "Set by hand" — basis user) is used as typed and only warned about (heightWarning).
+   An outdoor part's panel whose camera repeats one of its parent's views (locationParentPlateViews) says which
+   (repeatsParent [{panel, real}]) — the planner's least-repeating pick, or a camera set by hand or by the floor plan. */
 function locationPanelPoses(l, locations){
   if(!l) return [];
   const list = _locList(locations), parent = locationParentOf(l,list);
   const defaults = locationDefaultPanelPoses(l,list), stored = locationStoredPanelViews(l);
   const coords = _locOwnerPlan(l,list).plan.coordinates;
+  const sp = _locCoordSpace(coords,l), outdoor = locationIsOutdoor(l,list,sp);
+  const floorZ = sp ? sp.floorZ : 0, topZ = floorZ+LOC_OUTDOOR_MAX_Z;
+  const theirs = Array.isArray(defaults.parentViews) ? defaults.parentViews : null;
+  // → {lowered} or {heightWarning} (p's position lowered in place — p is always a fresh copy) or {}
+  const capHeight = (p, from, source)=>{
+    if(!outdoor || !p.position || !(p.position[2]>topZ+0.05)) return {};
+    const height = Math.round((p.position[2]-floorZ)*10)/10;
+    if(from && from.basis==="user") return {heightWarning:{height, max:LOC_OUTDOOR_MAX_Z, source}};
+    p.position = [p.position[0], p.position[1], topZ];
+    return {lowered:{from:height, to:LOC_OUTDOOR_MAX_Z, source}};
+  };
   return LOC_PANEL_KEYS.map(key=>{
     const d = defaults[key], v = stored[key], s = v ? normalizeLocationCameraPose(v.pose) : null;
     const c = _locPlanCamera(coords,l,key);
@@ -1816,9 +1919,14 @@ function locationPanelPoses(l, locations){
     if(s) over(s);                 // a camera set by hand wins
     // the layout's camera, before any hand edit (what "Back to the layout" returns to)
     const basePose = c ? (()=>{ const b = {...d.pose}; Object.keys(c).forEach(k=>{ if(k!=="spaceId" && k!=="panel" && c[k]!=null && c[k]!=="") b[k] = c[k]; }); return b; })() : d.pose;
+    // its height: where the position came from decides (a hand-typed one is respected)
+    const from = s && s.position ? s : (c && c.position ? c : null);
+    const height = capHeight(pose, from, from===s ? "saved" : from===c ? "layout" : "suggested");
+    if(c) capHeight(basePose, c, "layout");
+    const repeats = theirs && parent ? theirs.filter(t=>_locRepeatCloseness(pose,t)>0).map(t=>({panel:t.key, real:!!t.real})) : [];
     return {...LOC_PANEL_INFO[key], purpose:String((v && v.purpose) || d.purpose), suggestedPose:basePose, pose,
       hfov:locLensHfov(pose.lensMm), source:s ? "set" : (c ? "layout" : "suggested"), stated:!!parent || !!s || !!c,
-      viewId:v ? String(v.id||"") : "", subspace:!!parent};
+      viewId:v ? String(v.id||"") : "", subspace:!!parent, ...height, ...(repeats.length ? {repeatsParent:repeats} : {})};
   });
 }
 /* what a plate records about the cameras its prompt stated (meta.platePanels) — null when it stated none */
@@ -1829,6 +1937,8 @@ function locationPlatePanelRecord(l, locations){
   panels.forEach(p=>{ out.panels[p.key] = {yaw:p.pose.yaw, pitch:p.pose.pitch, lensMm:p.pose.lensMm, hfov:p.hfov,
     position:p.pose.position, target:p.pose.target, place:p.pose.place, basis:p.pose.basis, source:p.source,
     purpose:String(p.purpose||"").slice(0,160)};
+    // (2026-10-14) an outdoor part's panel that could not avoid repeating one of its parent's views says which
+    if(p.repeatsParent) out.panels[p.key].repeatsParent = p.repeatsParent.map(r=>({...r}));
     // the rooms this panel's camera sees (step B — the reverse direction)
     const kids = locationPanelChildrenVisible(l,p,locations);
     if(kids.length) out.panels[p.key].childrenVisible = kids; });
@@ -1937,7 +2047,8 @@ function locationFloorPlanScene(owner, plan, locations){
       const pos = pp.pose.position, len = Math.max(1.5, Math.min(6, (pp.pose.lensMm||24)/8));
       const edge = (d)=>{ const v = _locDir(pp.pose.yaw+d); return [pos[0]+v[0]*len, pos[1]+v[1]*len]; };
       cameras.push({spaceId:sp.id, spaceName:sp.name||"", panel:pp.key, label, source:pp.source, position:pos,
-        yaw:pp.pose.yaw, pitch:pp.pose.pitch||0, lensMm:pp.pose.lensMm||24, hfov:pp.hfov, frustum:[[pos[0],pos[1]], edge(-pp.hfov/2), edge(pp.hfov/2)]});
+        yaw:pp.pose.yaw, pitch:pp.pose.pitch||0, lensMm:pp.pose.lensMm||24, hfov:pp.hfov, frustum:[[pos[0],pos[1]], edge(-pp.hfov/2), edge(pp.hfov/2)],
+        ...(pp.lowered ? {lowered:pp.lowered} : {}), ...(pp.heightWarning ? {heightWarning:pp.heightWarning} : {})});
     });
   });
   // every space of the family, in order (the owner first) — the map's "one space at a time" chips
@@ -2066,9 +2177,8 @@ function locationAnchorsBeyond(target, sight, locations){
 function locationParentViewAssetId(l, openingId){ return String((l&&l.id)||"location")+"-pview-"+(locSlug(openingId)||"opening"); }
 /* the views of the space beyond that a panel could be matched to: the quadrants its plate recorded, plus any view
    made from this room's position ("Make a … view"), when made from the plate as it is now */
-function locationViewCandidates(target, l, metaOf, locations){
-  const get = typeof metaOf==="function" ? metaOf : (id)=>(typeof nbGetMeta==="function" ? nbGetMeta(id) : null);
-  const meta = get(target.id), out = [];
+/* the cameras behind the panels of target's CURRENT plate (meta), as far as they are known — null when unknown */
+function locationKnownPlatePanels(target, meta, locations){
   let rec = locationPlatePanels(meta);
   /* (2026-10-14) a plate made before cameras were recorded, whose cameras were then noted on its card for that very
      version (Plate cameras: set by hand, or "Read the cameras from this plate") */
@@ -2084,6 +2194,12 @@ function locationViewCandidates(target, l, metaOf, locations){
       if(Object.keys(panels).length) rec = {spaceId:target.id, panels, fromLayout:true};
     }
   }
+  return rec || null;
+}
+function locationViewCandidates(target, l, metaOf, locations){
+  const get = typeof metaOf==="function" ? metaOf : (id)=>(typeof nbGetMeta==="function" ? nbGetMeta(id) : null);
+  const meta = get(target.id), out = [];
+  const rec = locationKnownPlatePanels(target, meta, locations);
   if(rec) LOC_PANEL_KEYS.forEach(k=>{ const p = rec.panels[k];
     if(p && p.yaw!=null) out.push({id:"pq-"+target.id+"-"+k.toLowerCase(), kind:"quadrant", key:k, assetId:target.id,
       targetId:target.id, targetName:target.name||"", pose:p, hfov:p.hfov}); });
@@ -2178,6 +2294,30 @@ function locationPoseText(pose, spaceName, anchors, partOf){
   const camera = !spaceName ? "Camera " : partOf ? "Camera standing on "+spaceName+", part of "+partOf+", " : "Camera inside "+spaceName+" ";
   return camera+where+", "+facing+", "+tilt+", "+Math.round(p.lensMm||24)+" mm lens"+(aim ? ", aimed at "+aim : "")+".";
 }
+/* (2026-10-14) what Plate cameras says under a panel's camera: lowered to the outdoor limit, typed above it, or (an
+   outdoor part) facing the way one of its parent's views does — [{kind:"lowered"|"high"|"repeats", text}] */
+function locationPanelCameraNotes(p, spaceName, parentName){
+  const out = [];
+  if(!p) return out;
+  if(p.lowered) out.push({kind:"lowered", text:"Lowered to "+p.lowered.to+" m — outdoor cameras stay at eye level or a low high-angle. "
+    +(p.lowered.source==="layout" ? "The floor plan puts it "+p.lowered.from+" m up" : p.lowered.source==="saved" ? "It was saved "+p.lowered.from+" m up" : "It was planned "+p.lowered.from+" m up")
+    +"; to keep it higher, type its position under Edit camera."});
+  /* set by hand (basis user): under Edit camera — where changing any one number keeps the rest of the saved camera, so a
+     height that came with an older "Use the suggested cameras" is "as set", not claimed as typed — or on the floor plan */
+  if(p.heightWarning) out.push({kind:"high", text:"This camera stands "+p.heightWarning.height+" m up, "
+    +(p.heightWarning.source==="layout" ? "as set by hand on the floor plan" : "as set under Edit camera")
+    +" — outdoor cameras stay at eye level or a low high-angle (at most about "+p.heightWarning.max+" m). It is used as you set it."});
+  const reps = Array.isArray(p.repeatsParent) ? p.repeatsParent.filter(r=>r && LOC_PANEL_INFO[r.panel]) : [];
+  if(reps.length && parentName){
+    const whose = reps.map(r=>r.real ? "the "+LOC_PANEL_INFO[r.panel].label.toLowerCase()+" panel of "+parentName+"'s plate"
+      : "the "+LOC_PANEL_INFO[r.panel].label.toLowerCase()+" view "+parentName+"'s plate asks for").join(" and ");
+    out.push({kind:"repeats", text:"Looks the same way as "+whose
+      +(p.source==="suggested" ? " — every framing planned on "+(spaceName||"this space")+" repeats one of "+parentName+"'s views here, so this is the one that repeats least."
+        : ", so this panel may repeat it.")
+      +" Its prompt asks for its own foreground, distance and composition"+(p.source==="suggested" ? "; set this camera by hand to frame it differently." : ".")});
+  }
+  return out;
+}
 function _locKindWord(kind){ return kind==="arch" ? "archway" : (kind||"opening"); }
 /* outdoor (2026-10-14): an open side of an outdoor part ("Quay continues west") is where the parent continues */
 function locationSightText(row, refNumber, outdoor){
@@ -2207,7 +2347,10 @@ function locationSubspaceViews(l, plan, refNumbers){
     ? "exactly 4 views in a 2x2 grid — four cameras standing on "+name+", an open-air part of "+pname+", one per panel, as placed below"
     : "exactly 4 views in a 2x2 grid — four cameras INSIDE "+name+", one per panel, as placed below"};
   plan.panels.forEach(p=>{
+    // (2026-10-14) a camera that could not avoid one of the parent's views: the panel still frames its own picture
+    const rep = outdoor && Array.isArray(p.repeatsParent) ? p.repeatsParent.map(r=>LOC_PANEL_INFO[r.panel] ? LOC_PANEL_INFO[r.panel].label.toLowerCase() : "").filter(Boolean) : [];
     views[p.field] = String(p.purpose||"").replace(/\.$/,"")+". "+(outdoor ? locationPoseText(p.pose,name,anchors,pname) : locationPoseText(p.pose,name,anchors)+" Interior of "+name+" only.")
+      +(rep.length ? " It looks the same way as the "+rep.join(" and ")+" panel"+(rep.length>1 ? "s" : "")+" of "+pname+"'s plate: give it its own foreground, distance and composition, never that panel's." : "")
       +p.sights.map(s=>" "+locationSightText(s,nums[s.sourceId],outdoor)).join("")
       +locationChildrenVisibleText(locationPanelChildrenVisible(l,p));
   });
@@ -2217,7 +2360,8 @@ function locationSubspaceViews(l, plan, refNumbers){
     const parent = locationParentOf(l);
     const clip = (t)=>{ t = String(t||"").replace(/\s+/g," ").trim(); if(t.length<=90) return t.replace(/[\s,;.…]+$/,"");
       const cut = t.slice(0,90), sp = cut.lastIndexOf(" "); return (sp>40 ? cut.slice(0,sp) : cut).replace(/[\s,;:.…]+$/,"")+"…"; };
-    const theirs = parent ? locationRequestedViews(parent).map(v=>clip(v.purpose)+(v.yaw!=null ? ", facing "+locCompass(v.yaw) : "")).filter(Boolean) : [];
+    // its plate's real cameras where known (locationParentPlateViews), else the views it asks for
+    const theirs = parent ? locationParentPlateViews(parent).map(v=>clip(v.purpose)+(v.yaw!=null ? ", facing "+locCompass(v.yaw) : "")).filter(Boolean) : [];
     views.subspace_rules = [
       "Every panel stands on "+name+" at eye level; "+name+" is part of "+pname+", so the rest of "+pname+" around it may be in view.",
       "The surroundings must match "+pname+"'s plate: the same ground, façades, water, skyline, lamps, materials, colours and scale, with everything where the shared layout puts it.",
@@ -2716,9 +2860,10 @@ function locationCoordinateExport(l, locations){
   const list = _locList(locations), {owner, plan} = _locOwnerPlan(l,list), family = _locFamily(l,list);
   const anchors = plan.anchors.filter(a=>a.xy || a.z!=null || a.facing!=null).map(a=>({id:a.id, space:a.space, name:a.name,
     xy:a.xy||null, z:a.z==null ? null : a.z, facing:a.facing==null ? null : a.facing, basis:a.posBasis||"design"}));
+  // the cameras as used: an outdoor camera above about 6 m lowered (its floor-plan height kept in loweredFrom)
   const cameras = locationPanelPoses(l,list).map(p=>({spaceId:l.id, panel:p.key, grid:p.grid, purpose:p.purpose,
     source:p.source, stated:p.stated, pose:p.pose, hfov:p.hfov, studioCamera:locationPoseToStudioCamera(p.pose),
-    blenderRotationEuler:locationPoseBlenderRotation(p.pose)}));
+    blenderRotationEuler:locationPoseBlenderRotation(p.pose), ...(p.lowered ? {loweredFrom:p.lowered.from} : {})}));
   /* (2026-10-14) the cameras behind the CURRENT plate's panels, when known (its own record, or the ones noted on the card
      for that version) — for matching the plate's pixels in Blender; the cameras above are the ones the next plate asks for */
   const meta = typeof nbGetMeta==="function" ? nbGetMeta(l.id) : null;
@@ -2769,6 +2914,12 @@ window.locationNotedPlatePanels = locationNotedPlatePanels;
 window.locationParentMaterialPanel = locationParentMaterialPanel;
 window.locationIsOutdoor = locationIsOutdoor;
 window.locationRequestedViews = locationRequestedViews;
+window.locationParentPlateViews = locationParentPlateViews;
+window.locationKnownPlatePanels = locationKnownPlatePanels;
+window.locationLowerDraftOutdoorCameras = locationLowerDraftOutdoorCameras;
+window.locationLoweredCamerasText = locationLoweredCamerasText;
+window.locationPanelCameraNotes = locationPanelCameraNotes;
+window.LOC_OUTDOOR_MAX_Z = LOC_OUTDOOR_MAX_Z;
 window.locationStagingStations = locationStagingStations;
 window.locationReferenceNumbers = locationReferenceNumbers;
 window.locationParentViewRequest = locationParentViewRequest;
