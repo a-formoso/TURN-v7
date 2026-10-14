@@ -961,7 +961,10 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         error&&React.createElement("p",{className:"loc-spatial-error"},error))));
 }
 
-function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft, drafting, onView, batchActiveId, onBatchDone, onChipClick, onDraftStaging, draftingStage, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false, workspaceMembers=[],onSelectLocation,initialSection="",embedded=false }){
+function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft, drafting, onView, batchActiveId, onBatchDone, onChipClick, onDraftStaging, draftingStage, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false, workspaceMembers=[],onSelectLocation,initialSection="",embedded=false,
+  samePlace=[], mergeChoices=[], onMergeLocations, onPlaceDecision }){
+  // "Same place as…" (2026-10-14): the card picked to merge this one with — null while the picker is closed
+  const [samePick, setSamePick] = React.useState(null);
   const d = locVisualDefaults(l);
   const styleSource=locationRenderStyleSource(l);
   const inheritsStyle=styleSource.id!==l.id;
@@ -1434,7 +1437,11 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           onClick:()=> setPanelEdit(pe=> pe ? null : { idx:null, text:"" }) }] : []),
         // the prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03); "Always show prompts" opens it everywhere
         ...(alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,
-          onClick:()=>setShowPrompt(v=>!v) }])],
+          onClick:()=>setShowPrompt(v=>!v) }]),
+        // SAME PLACE, TWO NAMES (2026-10-14): merge with a card nothing points at (Fiorin Furnace and Furnace) — confirmed first
+        ...(!readOnly && typeof onMergeLocations==="function" && (mergeChoices||[]).length ? [{ label:"Same place as\u2026", icon:Icon.layers,
+          title:"This card and another one are the same place under two names \u2014 pick the other card, see what a merge keeps, and confirm. Nothing is generated or charged.",
+          onClick:()=>setSamePick(p=> p ? null : { otherId:"" }) }] : [])],
       referenceControls: masterRefs.length>0 && React.createElement(CoverageReferenceStrip,{ refs:masterRefs, excludedIds:masterRefOff, onToggle:toggleMasterRef, onView }),
       generateDisabled:!spatialState.ready||!!l.parentLocation&&(!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready&&!r.preview)),
       generateDisabledLabel:!spatialState.ready?"Review shared layout":"Generate parent plate first",
@@ -1451,6 +1458,12 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       regenerateTitle:(!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable())
         ? "Writes this place's view composition first — a small writing charge — then makes a new plate (one image); this one stays in its version history" : undefined,
       onRegenerate:()=>genPlate.generate() }),
+    // SAME PLACE, TWO NAMES (2026-10-14): "These look like one place" on both cards, and the "Same place as…" picker
+    (samePlace||[]).map(s=>React.createElement(LocationSamePlaceNotice,{ key:s.pair, l, s, readOnly,
+      onMerge:onMergeLocations, onDecide:onPlaceDecision })),
+    samePick && !readOnly && React.createElement(LocationSamePlacePicker,{ l, choices:mergeChoices||[], value:samePick.otherId,
+      onChange:(v)=>setSamePick({ otherId:v }), onCancel:()=>setSamePick(null),
+      onMerge:()=>{ const other = samePick.otherId; if(!other || typeof onMergeLocations!=="function") return; setSamePick(null); onMergeLocations(l.id, other, {}); } }),
     panelEdit && gen.genUrl && React.createElement("div",{className:"sheet-edit-panel loc-panel-edit"},
       React.createElement("div",{className:"loc-panel-pick"},
         LOC_PANELS.map((p,i)=>React.createElement("button",{key:i,
@@ -1891,6 +1904,52 @@ function LocationCopyCheckNotice({ l, assetId, gen, single=false, refs, readOnly
           !(gen && gen.gening) && typeof window.nbCostChip==="function" && window.nbCostChip(1, n!=null ? {refs:n} : undefined)),
         React.createElement("button",{type:"button",className:"art-draftall ghost",
           title:"Keep this plate as it is — the check won't ask again about this version",onClick:keep},"Keep"))));
+}
+/* SAME PLACE, TWO NAMES (owner-approved 2026-10-14, "go ahead with all of it"; Story Pipeline "Locations"): the
+   suggestion on both cards — "These look like one place: scene 13's card says FONDAMENTA, its screenplay says FONDAMENTA
+   DEI VETRAI" — with Merge… (one confirmed action: app.jsx mergeLocations), Part of and Keep separate (app.jsx
+   decideLocationPlace), and the "Same place as…" picker of any card. Read from the screenplay, free; nothing is merged
+   without its confirm, nothing is generated or charged. Only a role that saves the Art Room (the owner, an Art
+   director) gets the buttons. */
+function LocationSamePlaceNotice({ l, s, readOnly=false, onMerge, onDecide }){
+  if(!l || !s) return null;
+  const q = (x)=> "“"+String(x||"")+"”";
+  const isPart = s.childId===l.id;
+  const partLabel = isPart ? "Part of "+(s.parentName||"it") : (s.childName||"It")+" is a part of it";
+  const evidence = (s.scenes||[]).map(x=>"scene "+x.no+" — card: "+x.card+"; screenplay: "+x.heading).join(" · ");
+  return React.createElement("div",{className:"loc-copy-check loc-same-place",role:"status","data-same-place":s.pair},
+    React.createElement(Icon.layers,{s:12}),
+    React.createElement("div",{className:"loc-copy-check-body"},
+      React.createElement("p",{title:"Read from the screenplay, free: "+evidence},s.text+"."),
+      readOnly
+        ? React.createElement("p",{className:"loc-same-place-note"},"The owner or an Art director can merge them or keep them apart.")
+        : React.createElement("div",{className:"loc-copy-check-acts"},
+            React.createElement("button",{type:"button",className:"art-draftall",
+              title:"One card for both, named as the screenplay names it ("+q(s.headingName)+"), keeping the shared layout and plate — you see exactly what happens and confirm first. Nothing is generated or charged.",
+              onClick:()=>{ if(typeof onMerge==="function") onMerge(s.cardId, s.headingId, { nameFrom:s.headingId, detected:true }); }},"Merge…"),
+            React.createElement("button",{type:"button",className:"art-draftall ghost",
+              title:q(s.childName)+" is a part of "+q(s.parentName)+": keep the two cards as they are and stop asking.",
+              onClick:()=>{ if(typeof onDecide==="function") onDecide(s.childId, s.parentId, "part"); }},partLabel),
+            React.createElement("button",{type:"button",className:"art-draftall ghost",
+              title:"Two different places: "+q(s.childName)+" becomes a location of its own (you confirm first).",
+              onClick:()=>{ if(typeof onDecide==="function") onDecide(s.cardId, s.headingId, "separate"); }},"Keep separate"))));
+}
+function LocationSamePlacePicker({ l, choices=[], value="", onChange, onMerge, onCancel }){
+  return React.createElement("div",{className:"loc-copy-check loc-same-place loc-same-pick","data-same-place-pick":l && l.id},
+    React.createElement(Icon.layers,{s:12}),
+    React.createElement("div",{className:"loc-copy-check-body"},
+      React.createElement("label",{className:"loc-same-pick-row"},
+        React.createElement("span",null,"“"+((l && l.name)||"This location")+"” is the same place as"),
+        React.createElement("select",{className:"loc-same-pick-select",value:value||"","aria-label":"The card that is the same place",
+          onChange:(e)=>{ if(typeof onChange==="function") onChange(e.target.value); }},
+          React.createElement("option",{value:""},"Choose a card…"),
+          (choices||[]).map(c=>React.createElement("option",{key:c.id,value:c.id},c.name||"Untitled location")))),
+      React.createElement("div",{className:"loc-copy-check-acts"},
+        React.createElement("button",{type:"button",className:"art-draftall",disabled:!value,
+          title:"Shows what the merge keeps and asks you to confirm. Nothing is generated or charged.",
+          onClick:()=>{ if(value && typeof onMerge==="function") onMerge(); }},"Merge…"),
+        React.createElement("button",{type:"button",className:"art-draftall ghost",
+          onClick:()=>{ if(typeof onCancel==="function") onCancel(); }},"Cancel"))));
 }
 function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, parentGenUrl, onView }){
   const id = l.id+"-"+v.id;
@@ -2422,7 +2481,7 @@ function UnitDressing({ u, onUpdateUnit, items, suggestions, onChange, label="Te
         title:"Mentioned in this screenplay occurrence \u2014 click to add",onClick:()=>add(x)},"+ "+x))));
 }
 
-function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft, onDraftAll, onDelete, draftingId, draftingIds, draftingAll, scriptHasLocs, onDraftStaging, draftingStageId, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false }){
+function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft, onDraftAll, onDelete, draftingId, draftingIds, draftingAll, scriptHasLocs, onDraftStaging, draftingStageId, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false, onMergeLocations, onPlaceDecision }){
   const [view, setView] = React.useState(null);
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
   const [sceneFilter, setSceneFilter] = React.useState(()=>{ const f = window.turnPeekArtFocus && window.turnPeekArtFocus("locations"); return (f && f.sceneId) || ""; });   // a Breakdown hand-off opens on its scene
@@ -2434,6 +2493,12 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   const batchActiveId = batch.activeId;
   const rawLocations = locations || [];
   const locationFold = (typeof deriveSubspaceFold==="function") ? deriveSubspaceFold(scenes||[],drafts||{}) : {};
+  // SAME PLACE, TWO NAMES (2026-10-14): the pairs of cards that look like one place (read from the screenplay, free)
+  const placeSig = (typeof locationPlaceDecisionsNow==="function" && locationPlaceDecisionsNow().sig) || "";
+  const samePlace = React.useMemo(()=> (typeof locationSamePlaceSuggestions==="function")
+    ? locationSamePlaceSuggestions(rawLocations, scenes||[], drafts||{}) : [], [rawLocations, scenes, drafts, placeSig]);
+  const mergeChoicesFor = (l)=> rawLocations.filter(x=>x && x.id!==l.id && x.key)
+    .map(x=>({ id:x.id, name:x.name||"" })).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
   const masterKeyOf = (loc)=> String((loc&&loc.key)||((typeof locSlug==="function")
     ? locSlug(loc&&loc.name).split("-").slice(0,4).join("-") : "")||"");
   const rootLocationIdOf = (loc)=>{
@@ -2724,7 +2789,9 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
                       : { url, character:pr });
                   },
                   batchActiveId,onBatchDone:batch.advance,onChipClick:(sid)=>setSceneFilter(sid),
-                  onDraftStaging,draftingStage:draftingStageId===l.id,sluglineUnits,onUpdateUnit,onRemoveUnit,readOnly})}))),
+                  onDraftStaging,draftingStage:draftingStageId===l.id,sluglineUnits,onUpdateUnit,onRemoveUnit,readOnly,
+                  samePlace:samePlace.filter(s=>s.cardId===l.id||s.headingId===l.id),mergeChoices:mergeChoicesFor(l),
+                  onMergeLocations,onPlaceDecision})}))),
               React.createElement(PagerBar,{pager,noun:"location"}))
           : React.createElement("div",{className:"prop-empty"},
               React.createElement("div",{className:"art-soon-t"}, sceneFilter ? "No locations in this scene" : "No matching locations"),

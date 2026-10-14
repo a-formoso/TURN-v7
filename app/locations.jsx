@@ -79,8 +79,11 @@ window.deriveLocationTimes = deriveLocationTimes;
 
 /* normalise a place into a canonical display name: title-case-ish but keep short
    ALL-CAPS acronyms (FBI, CIA); collapse whitespace. Common short words (the, of,
-   a, o') are lower/title-cased normally, not treated as acronyms. */
-const LOC_LOWER_WORDS = /^(the|of|a|an|and|to|in|on|at|by|o'|de|la|le)$/i;
+   a, o') are lower/title-cased normally, not treated as acronyms.
+   (2026-10-14, owner — "go ahead with all of it") Italian and French particles too: "FONDAMENTA DEI VETRAI" reads
+   "Fondamenta dei Vetrai", never "Fondamenta DEI Vetrai". Derived names only (areas, slugline units, a new card); a
+   card's saved name stays as it is. */
+const LOC_LOWER_WORDS = /^(the|of|a|an|and|to|in|on|at|by|o'|de|la|le|dei|della|di|del|degli|delle|dello|du|des)$/i;
 function tidyPlace(p){
   return String(p||"").trim().replace(/\s+/g," ")
     .split(" ").map((w,i)=>{
@@ -101,9 +104,10 @@ function parseSlugline(raw){
   const m = s.match(/^(INT\.?\/EXT\.?|EXT\.?\/INT\.?|INT\.?|EXT\.?|I\/E\.?)\s*/i);
   if(m){ intExt = m[1].toUpperCase().replace(/\./g,"").replace(/I\/E/,"INT/EXT"); s = s.slice(m[0].length); }
   // time of day: trailing segment after the LAST separator, if it reads like a time
+  // ("NIGHTS" too \u2014 2026-10-14: "INT. FURNACE \u00b7 NIGHTS" no longer makes a place called "Furnace \u00b7 Nights")
   let time = "";
   const tm = s.match(/[\u00b7\u2014,\-]\s*([A-Za-z][A-Za-z'\s]{1,22})\s*$/);
-  if(tm && /\b(night|day|dawn|dusk|morning|evening|afternoon|continuous|later|moments?\s+later|sunset|sunrise|magic\s+hour|golden\s+hour|loading\s+program)\b/i.test(tm[1])){
+  if(tm && /\b(nights?|day|dawn|dusk|morning|evening|afternoon|continuous|later|moments?\s+later|sunset|sunrise|magic\s+hour|golden\s+hour|loading\s+program)\b/i.test(tm[1])){
     time = tm[1].trim(); s = s.slice(0, tm.index).trim();
   }
   let place = s.replace(/[\u00b7\u2014,\-\s]+$/,"").trim();
@@ -152,13 +156,75 @@ function screenplayInlineSpaceHeading(text,currentHeading,allowEstablishing){
 window.screenplayInlineSpaceName=screenplayInlineSpaceName;
 window.screenplayInlineSpaceHeading=screenplayInlineSpaceHeading;
 
+/* SAME PLACE, TWO NAMES (owner-approved 2026-10-14, "go ahead with all of it" — fix A of the Fondamenta plan; Story
+   Pipeline "Locations"). A place the screenplay names two ways (scene 13's card says "EXT. FONDAMENTA", its own
+   screenplay heading "EXT. FONDAMENTA DEI VETRAI") used to become a parent card and a room card of one quay. The app
+   now SUGGESTS it on both cards (locationSamePlaceSuggestions — never a merge on its own) and the owner decides:
+   - Merge: one card. It takes the name and key the screenplay's headings use; the other names and keys are listed on
+     it (aliasKeys, aliases), so the merged-away card is never derived again;
+   - Part of: the place and its part stay as derived (partOfKeys on the part — kept even if a name changes later);
+   - Keep separate: two places, never folded by name (notAliasOf on both cards).
+   The decisions are new optional fields on the cards (absent on every older card — nothing is migrated, an old film
+   derives exactly as before until the owner acts). Every derivation reads them (deriveLocations, deriveSubspaceFold,
+   deriveSluglineUnits, reconcileSluglineUnits; shots follow the units): the app sets them once per render
+   (setLocationPlaceDecisions), a caller may pass its own ({placeDecisions}). Cards in Recently deleted count too (a
+   deleted survivor still holds its names). On a Show the cards are shared by every episode, so a decision holds in
+   every episode's derivation. */
+const _LOC_NO_DECISIONS = Object.freeze({alias:Object.freeze({}), names:Object.freeze({}), aliasNames:Object.freeze({}),
+  separate:Object.freeze({}), partOf:Object.freeze({}), sig:""});
+let _locPlaceDecisionsNow = _LOC_NO_DECISIONS;
+function _locPairKey(a,b){ return [String(a||""),String(b||"")].sort().join("|"); }
+function _locKeysOf(v){ return (Array.isArray(v)?v:[]).map(x=>String(x||"").trim()).filter(Boolean); }
+function locationPlaceDecisions(locations, binned){
+  const alias={}, names={}, aliasNames={}, separate={}, partOf={};
+  const live=(Array.isArray(locations)?locations:[]).filter(l=>l&&l.key);
+  const liveKeys=new Set(live.map(l=>String(l.key)));
+  const bin=(Array.isArray(binned)?binned:[]).filter(l=>l&&l.key);
+  [live,bin].forEach((list,i)=>list.forEach(l=>{
+    const own=String(l.key);
+    if(i===1 && liveKeys.has(own)) return;   // a live card with this key owns the decisions about it
+    if(!names[own]) names[own]=String(l.name||"");
+    // an alias a LIVE card holds as its own key is not read as an alias (that card would freeze, never derived)
+    _locKeysOf(l.aliasKeys).forEach(k=>{ if(k!==own && !liveKeys.has(k) && !alias[k]) alias[k]=own; });
+    (Array.isArray(l.aliases)?l.aliases:[]).forEach(n=>{ n=String(n||"").trim(); if(!n) return;
+      const at=aliasNames[own]||(aliasNames[own]=[]); if(at.indexOf(n)<0) at.push(n); });
+    _locKeysOf(l.notAliasOf).forEach(k=>{ if(k!==own) separate[_locPairKey(own,k)]=true; });
+    _locKeysOf(l.partOfKeys).forEach(k=>{ if(k!==own && !partOf[own]) partOf[own]=k; });
+  }));
+  // chains (A merged into B, B later into C) read A as C; a cycle stops where it repeats
+  Object.keys(alias).forEach(k=>{
+    const seen=new Set([k]); let cur=alias[k];
+    while(alias[cur] && !seen.has(cur)){ seen.add(cur); cur=alias[cur]; }
+    if(cur===k) delete alias[k]; else alias[k]=cur;
+  });
+  const empty=!Object.keys(alias).length && !Object.keys(separate).length && !Object.keys(partOf).length && !Object.keys(aliasNames).length;
+  return {alias,names,aliasNames,separate,partOf,sig:empty?"":JSON.stringify([alias,separate,partOf,aliasNames])};
+}
+function setLocationPlaceDecisions(d){
+  _locPlaceDecisionsNow = (d && typeof d==="object" && d.alias) ? d : _LOC_NO_DECISIONS;
+  return _locPlaceDecisionsNow;
+}
+function locationPlaceDecisionsNow(){ return _locPlaceDecisionsNow; }
+function _locDecisions(opts){ const d=opts && opts.placeDecisions; return (d && typeof d==="object" && d.alias) ? d : _locPlaceDecisionsNow; }
+/* the key a place is read as: a merged-away name's key is its survivor's */
+function locationAliasKey(key, decisions){
+  const d=(decisions && decisions.alias) ? decisions : _locPlaceDecisionsNow, k=String(key||"");
+  return (k && d.alias[k]) || k;
+}
+window.locationPlaceDecisions=locationPlaceDecisions;
+window.setLocationPlaceDecisions=setLocationPlaceDecisions;
+window.locationPlaceDecisionsNow=locationPlaceDecisionsNow;
+window.locationAliasKey=locationAliasKey;
+
 /* Collect every slugged place record + entry from screenplay headings — shared
    by deriveLocations (master cards) and deriveSubspaceFold (sub-space grouping).
    A scene's own slugline is read PLUS any secondary (mid-scene) sluglines the
    draft carries — a chase that cuts INT. HALL → EXT. ROOF names real places.
    INTERCUT lines are skipped (they reference already-slugged places, they don't
-   introduce one). */
-function collectSluggedPlaces(scenes, drafts){
+   introduce one). A merged-away name is read as its survivor (aliasNames records the
+   other names a record was written as — the fold below reads them too). */
+function collectSluggedPlaces(scenes, drafts, decisions){
+  const dec = (decisions && decisions.alias) ? decisions : _locPlaceDecisionsNow;
   const recOrder = []; const recByKey = {}; const entries = [];
   (scenes||[]).forEach(sc=>{
     if(!sc) return;
@@ -185,14 +251,24 @@ function collectSluggedPlaces(scenes, drafts){
       if(!parsed) return;
       const places = splitCompoundPlace(parsed.place);
       const primary = tidyPlace(places[0]);
-      const key = locSlug(primary.split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-");
-      if(!key) return;
-      if(!recByKey[key]){ recByKey[key] = { key, name:primary.split(/[\u00b7\u2014]/)[0].trim(), scenes:[] }; recOrder.push(key); }
+      const ownKey = locSlug(primary.split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-");
+      if(!ownKey) return;
+      const key = locationAliasKey(ownKey, dec), headName = primary.split(/[\u00b7\u2014]/)[0].trim();
+      if(!recByKey[key]){
+        recByKey[key] = { key, name:key!==ownKey ? (dec.names[key]||headName) : headName, scenes:[], aliasNames:[] };
+        if(key!==ownKey) recByKey[key].nameFromAlias = true;
+        recOrder.push(key);
+      }
       const R = recByKey[key];
+      if(key===ownKey && R.nameFromAlias){ R.name = headName; delete R.nameFromAlias; }
+      if(key!==ownKey && R.aliasNames.indexOf(headName)<0) R.aliasNames.push(headName);
       if(sc.id && R.scenes.indexOf(sc.id)<0) R.scenes.push(sc.id);
-      entries.push({ key, sc, parsed, places, primary });
+      entries.push({ key, ownKey, sc, parsed, places, primary });
     });
   });
+  recOrder.forEach(k=>{ const R=recByKey[k];
+    (dec.aliasNames[k]||[]).forEach(n=>{ if(R.aliasNames.indexOf(n)<0) R.aliasNames.push(n); });
+    delete R.nameFromAlias; });
   return { recOrder, recByKey, entries };
 }
 
@@ -263,29 +339,40 @@ function semanticRoomParent(sub, recs, scenes, drafts){
   }).filter(Boolean).sort((a,b)=>b.score-a.score);
   return scored.length && (!scored[1] || scored[0].score>scored[1].score) ? scored[0].parent : null;
 }
-function foldSubspaceKeys(recs, scenes, drafts){
+/* (see Rule B below; both names lower-cased; also read by the same-place check) */
+function locationNameStartsArea(subN, parN){
+  if(!parN || subN===parN || subN.indexOf(parN)!==0) return false;
+  const rest = subN.slice(parN.length);
+  return /^\s*[-\u00b7\u2014,]/.test(rest) || /^\s/.test(rest);
+}
+function foldSubspaceKeys(recs, scenes, drafts, decisions){
+  const dec = (decisions && decisions.alias) ? decisions : _locPlaceDecisionsNow;
   const headTok = (n)=> String(n||"").trim().split(/\s+/)[0].toLowerCase();
   const low = (n)=> String(n||"").trim().toLowerCase();
+  // the owner's decisions (2026-10-14): "Keep separate" — never folded into each other; a merged place is also known by
+  // its other names (a part of "Fondamenta" stays a part of the merged "Fondamenta dei Vetrai")
+  const apart = (a,b)=> !!dec.separate[_locPairKey(a,b)];
+  const namesOf = (p)=> [p.name].concat(Array.isArray(p.aliasNames)?p.aliasNames:[]).filter(Boolean);
   /* RULE B — PREFIX CONTAINMENT: "PARENT - AREA" / "PARENT AREA" names an area OF
      the parent by construction ("E-waste Canals - Flooded Junction" ⊂ "E-waste
      Canals"). The name itself declares containment, so no scene-subset or lexicon
      is required; a trailing name boundary is, so "Yardbird" never folds under "Yard". */
-  const startsArea = (subN, parN)=>{
-    if(!parN || subN===parN || subN.indexOf(parN)!==0) return false;
-    const rest = subN.slice(parN.length);
-    return /^\s*[-\u00b7\u2014,]/.test(rest) || /^\s/.test(rest);
-  };
+  const startsArea = locationNameStartsArea;
   const out = {};
   (recs||[]).forEach(sub=>{
     if(!sub || !sub.key) return;
+    // "PART OF" (the owner's decision): this place stays a part of that one whatever the names say
+    const told = dec.partOf[sub.key];
+    if(told && told!==sub.key && !apart(sub.key,told) && (recs||[]).some(p=>p && p.key===told)){ out[sub.key] = told; return; }
     // RULE A — SUB-STRUCTURE NOUN + shared first token + scene containment
     // ("Intake Booth" only ever plays inside scenes that also visit "Intake Yard").
     if(SUBSPACE_TAIL.test(sub.name)){
       const tok = headTok(sub.name);
       if(tok){
         const parents = (recs||[]).filter(p=> p && p.key!==sub.key
+          && !apart(sub.key,p.key)
           && !SUBSPACE_TAIL.test(p.name)
-          && headTok(p.name)===tok
+          && namesOf(p).some(n=>headTok(n)===tok)
           && sub.scenes.every(sid=> p.scenes.indexOf(sid)>=0));
         if(parents.length){
           parents.sort((a,b)=> b.scenes.length - a.scenes.length);   // the most-visited sibling is the complex's master
@@ -296,17 +383,20 @@ function foldSubspaceKeys(recs, scenes, drafts){
     }
     // RULE B — longest matching prefix parent wins; chains ("A - B - C" under
     // "A - B" under "A") resolve transitively when the fold is applied.
-    const prefixes = (recs||[]).filter(p=> p && p.key!==sub.key && startsArea(low(sub.name), low(p.name)));
+    const matchLen = (p)=> Math.max(0, ...namesOf(p).filter(n=>startsArea(low(sub.name), low(n))).map(n=>String(n).length));
+    const prefixes = (recs||[]).filter(p=> p && p.key!==sub.key && !apart(sub.key,p.key) && matchLen(p)>0);
     if(prefixes.length){
-      prefixes.sort((a,b)=> String(b.name||"").length - String(a.name||"").length);
+      prefixes.sort((a,b)=> matchLen(b) - matchLen(a));
       out[sub.key] = prefixes[0].key;
       return;
     }
     // RULE C — screenplay-evidenced room containment: KITCHEN / LIVING ROOM
     // remain distinct slugline units but share the enclosing HOUSE master.
     const semantic = semanticRoomParent(sub, recs, scenes, drafts);
-    if(semantic) out[sub.key] = semantic.key;
+    if(semantic && !apart(sub.key, semantic.key)) out[sub.key] = semantic.key;
   });
+  // a place the owner said is a part of another is never also that one's parent
+  Object.keys(dec.partOf).forEach(child=>{ const parent=dec.partOf[child]; if(out[child]===parent && out[parent]===child) delete out[parent]; });
   return out;
 }
 /* chase a fold chain to its ultimate master, with a cycle guard */
@@ -315,9 +405,10 @@ function resolveFoldKey(fold, key){
   while(fold[cur] && !seen[cur]){ seen[cur] = true; cur = fold[cur]; }
   return cur;
 }
-function deriveSubspaceFold(scenes, drafts){
-  const c = collectSluggedPlaces(scenesInStoryOrder(scenes), drafts);
-  const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]), scenes, drafts);
+function deriveSubspaceFold(scenes, drafts, opts){
+  const dec = _locDecisions(opts);
+  const c = collectSluggedPlaces(scenesInStoryOrder(scenes), drafts, dec);
+  const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]), scenes, drafts, dec);
   const resolved = {};
   Object.keys(fold).forEach(k=>{ resolved[k] = resolveFoldKey(fold, k); });
   return resolved;
@@ -332,13 +423,15 @@ window.deriveSubspaceFold = deriveSubspaceFold;
    separate masters. Implied sides and threshold spaces inside action prose are
    handled by coverage sheets on the relevant master card. Named sub-structures
    (booth, kiosk…) likewise fold under their complex's master. Returns new objects only
-   (deduped against `existing`). */
-function deriveLocations(scenes, existing, drafts){
+   (deduped against `existing`). The owner's same-place decisions apply (opts.placeDecisions, else the app's —
+   see SAME PLACE, TWO NAMES above): a merged-away name is read as its survivor and is never a card of its own. */
+function deriveLocations(scenes, existing, drafts, opts){
   scenes = scenesInStoryOrder(scenes);
+  const dec = _locDecisions(opts);
   const have = existing || [];
   const seen = new Set(have.map(l=>l.key || locSlug(l.name)));
-  const c = collectSluggedPlaces(scenes, drafts);
-  const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]), scenes, drafts);
+  const c = collectSluggedPlaces(scenes, drafts, dec);
+  const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]), scenes, drafts, dec);
   const order = []; const byKey = {};
   const ensure = (key,rootKey)=>{
     if(byKey[key]) return byKey[key];
@@ -393,6 +486,372 @@ function deriveLocations(scenes, existing, drafts){
 window.deriveLocations = deriveLocations;
 window.parseSlugline = parseSlugline;
 window.locSlug = locSlug;
+
+/* ---- SAME PLACE, TWO NAMES — the suggestion, the merge and the owner's other answers (owner-approved 2026-10-14, "go
+   ahead with all of it"; see the decisions above collectSluggedPlaces, and Story Pipeline "Locations").
+   SUGGESTED, NEVER APPLIED ON ITS OWN. The strong sign is a scene whose CARD slugline names another place than the first
+   heading of its own screenplay (Glass Hours scene 13: card "EXT. FONDAMENTA · NIGHT", screenplay "EXT. FONDAMENTA DEI
+   VETRAI — NIGHT"). It counts only together with the name fold (one name is the other plus more words) and shared
+   scenes (the card's name plays in no scene the screenplay's name doesn't) — the fold and the scenes alone also fit an
+   ordinary "HOUSE" with a "HOUSE - KITCHEN", which is a real place and its part. Both cards say it; "Same place as…"
+   on any card merges a pair nothing points at (Glass Hours' Fiorin Furnace and Furnace). ---- */
+function _locPlaceOf(slugText, dec){
+  const parsed = parseSlugline(slugText); if(!parsed) return null;
+  const primary = tidyPlace(splitCompoundPlace(parsed.place)[0]||""); if(!primary) return null;
+  const ownKey = locSlug(primary.split(/[·—,]/)[0]).split("-").slice(0,4).join("-"); if(!ownKey) return null;
+  return { key:locationAliasKey(ownKey,dec), ownKey, name:primary.split(/[·—]/)[0].trim(),
+    side:parsed.intExt||"", time:parsed.time||"", place:parsed.place };
+}
+/* the first heading of a scene's own screenplay — its restatement of the scene heading ("" when the draft opens on
+   anything else, or there is none) */
+function locationDraftFirstHeading(sc, drafts){
+  const blocks = sc && drafts && drafts[sc.id] && drafts[sc.id].blocks;
+  if(!Array.isArray(blocks)) return "";
+  const first = blocks.find(b=>b && b.type!=="transition" && String(b.text||"").trim());
+  if(!first || first.type!=="scene") return "";
+  const t = String(first.text||"").trim();
+  return /^\s*(?:\d+[\.\)]?\s+)?INTERCUT\b/i.test(t) ? "" : t;
+}
+function locationSamePlaceText(s){
+  const nos = ((s && s.scenes) || []).map(x=>x && x.no).filter(n=>n!=null && n!=="");
+  const list = nos.length<=1 ? String(nos.length ? nos[0] : "") : nos.slice(0,-1).join(", ")+" and "+nos[nos.length-1];
+  return "These look like one place: "+(nos.length<=1
+    ? "scene "+list+"'s card says "+s.cardPlace+", its screenplay says "
+    : "the cards of scenes "+list+" say "+s.cardPlace+", their screenplay says ")+s.headingPlace;
+}
+/* every pair of cards that look like one place: [{pair, cardId, headingId (the screenplay's name), childId, parentId
+   (today's fold), cardPlace, headingPlace, scenes:[{id,no,card,heading}], text}] — a pair the owner answered is left out */
+function locationSamePlaceSuggestions(locations, scenes, drafts, opts){
+  const dec = _locDecisions(opts);
+  const list = (Array.isArray(locations)?locations:[]).filter(l=>l && l.key);
+  const cardOf = (key)=> list.find(l=>String(l.key)===String(key)) || null;
+  const ordered = scenesInStoryOrder(scenes||[]);
+  const c = collectSluggedPlaces(ordered, drafts, dec);
+  const low = (s)=> String(s||"").trim().toLowerCase();
+  const byPair = {}, out = [];
+  ordered.forEach(sc=>{
+    if(!sc || !String(sc.loc||"").trim()) return;
+    const heading = locationDraftFirstHeading(sc, drafts); if(!heading) return;
+    const card = _locPlaceOf(sc.loc, dec), said = _locPlaceOf(heading, dec);
+    if(!card || !said || card.key===said.key) return;
+    if(card.side && said.side && card.side!==said.side) return;     // INT on the card, EXT in the screenplay: another matter
+    const A = c.recByKey[card.key], B = c.recByKey[said.key];
+    if(!A || !B) return;
+    // one name is the other plus more words (the fold that made a place and its part of them)…
+    const bUnderA = locationNameStartsArea(low(B.name), low(A.name)), aUnderB = locationNameStartsArea(low(A.name), low(B.name));
+    if(!bUnderA && !aUnderB) return;
+    // …and the card's name plays in no scene the screenplay's name doesn't (a "HOUSE" with scenes of its own is a place)
+    if(!A.scenes.every(sid=>B.scenes.indexOf(sid)>=0)) return;
+    const pair = _locPairKey(A.key, B.key);
+    if(dec.separate[pair] || dec.partOf[A.key]===B.key || dec.partOf[B.key]===A.key) return;
+    const cardLoc = cardOf(A.key), headLoc = cardOf(B.key);
+    if(!cardLoc || !headLoc || cardLoc.id===headLoc.id) return;
+    let s = byPair[pair];
+    if(!s){
+      const child = bUnderA ? headLoc : cardLoc, parent = bUnderA ? cardLoc : headLoc;
+      s = byPair[pair] = { pair, cardKey:String(A.key), headingKey:String(B.key), cardId:cardLoc.id, headingId:headLoc.id,
+        cardName:cardLoc.name||"", headingName:headLoc.name||"",
+        childId:child.id, parentId:parent.id, childName:child.name||"", parentName:parent.name||"",
+        cardPlace:card.name.toUpperCase(), headingPlace:said.name.toUpperCase(), scenes:[] };
+      out.push(s);
+    }
+    s.scenes.push({ id:sc.id, no:sc.no, card:String(sc.loc).trim(), heading });
+  });
+  out.forEach(s=>{ s.text = locationSamePlaceText(s); });
+  return out;
+}
+function _locHasLayout(l){
+  const p = normalizeLocationSpatialPlan(l && l.spatialPlan);
+  return !!(p.frame.trim() || p.anchors.length || p.coordinates);
+}
+function _locUniq(list, caseless){
+  const seen = new Set(), out = [];
+  (list||[]).forEach(x=>{ const v = String(x==null ? "" : x).trim(), k = caseless ? v.toLowerCase() : v;
+    if(!v || seen.has(k)) return; seen.add(k); out.push(v); });
+  return out;
+}
+/* a scene card's slugline with its place's NAME in the screenplay heading's words — everything else on the card (its
+   side, its time, a state or the weather after the name) stays: "INT. DANFO (STOPPED) · NIGHT · RAIN" with a heading
+   "INT. DANFO — NIGHT — STOPPED" reads "INT. DANFO · NIGHT · RAIN", never the heading's own tail */
+function locationCorrectedSlugline(cardLoc, heading){
+  const cp = parseSlugline(cardLoc), hp = parseSlugline(heading);
+  if(!hp || !hp.place) return "";
+  const headOf = (place)=> String(splitCompoundPlace(place)[0]||"").split(/[·—]/)[0].trim();
+  const newHead = headOf(hp.place).toUpperCase();
+  if(!newHead) return "";
+  const raw = String(cardLoc||"").replace(/^\s*\d+[\.\)]?\s+/,"").trim();
+  const sideM = raw.match(/^(INT\.?\/EXT\.?|EXT\.?\/INT\.?|INT\.?|EXT\.?|I\/E\.?)(?=\s|$)\s*/i);
+  let side = ((sideM||[])[1]||"").toUpperCase();
+  if(!side && hp.intExt) side = hp.intExt==="INT/EXT" ? "INT./EXT." : hp.intExt+".";
+  else if(side && !/\.$/.test(side)) side += ".";
+  const rest = sideM ? raw.slice(sideM[0].length) : raw;
+  const oldHead = cp ? headOf(cp.place) : "";
+  if(oldHead && rest.slice(0, oldHead.length).toLowerCase()===oldHead.toLowerCase())
+    return [side, newHead+rest.slice(oldHead.length)].filter(Boolean).join(" ");
+  const time = (cp && cp.time) || "";
+  return [side, newHead].filter(Boolean).join(" ")+(time ? " · "+time.toUpperCase() : "");
+}
+/* WHAT A MERGE DOES — pure, so the confirm says exactly that. opts.nameFrom: the card whose name the merged card takes
+   (default: the one the screenplay's headings use, then the one with more scenes); opts.hasPlate(id). */
+function locationMergePlan(locations, scenes, drafts, aId, bId, opts){
+  opts = opts || {};
+  const dec = _locDecisions(opts);
+  const list = (Array.isArray(locations)?locations:[]).filter(Boolean);
+  const a = list.find(l=>l.id===aId), b = list.find(l=>l.id===bId);
+  if(!a || !b || a.id===b.id || !a.key || !b.key) return null;
+  const ordered = scenesInStoryOrder(scenes||[]);
+  // how many scenes' screenplay headings use a name (a scene with no screenplay counts its card slugline)
+  const headingCount = (key)=> ordered.filter(sc=>{
+    if(!sc) return false;
+    const blocks = drafts && drafts[sc.id] && drafts[sc.id].blocks;
+    const heads = Array.isArray(blocks) && blocks.some(x=>x && x.type==="scene")
+      ? blocks.filter(x=>x && x.type==="scene" && String(x.text||"").trim()).map(x=>x.text) : [sc.loc];
+    return heads.some(t=>{ const p = _locPlaceOf(t, dec); return !!p && p.ownKey===String(key); });
+  }).length;
+  const ha = headingCount(a.key), hb = headingCount(b.key);
+  let nameCard = opts.nameFrom===a.id ? a : opts.nameFrom===b.id ? b : null;
+  if(!nameCard) nameCard = hb>ha ? b : ha>hb ? a : ((b.scenes||[]).length>(a.scenes||[]).length ? b : a);
+  const otherName = nameCard===a ? b : a;
+  const byHeadings = (nameCard===a ? ha : hb) > (nameCard===a ? hb : ha);
+  // the card KEPT: the one that owns a shared layout, then the one with a plate — its plate, layout and view
+  // composition stay exactly as they are (a layout is checked against the plate it was made from)
+  const hasPlate = typeof opts.hasPlate==="function" ? opts.hasPlate
+    : (id)=> typeof nbGetImage==="function" && !!nbGetImage(id);
+  // (whichever name is picked: the card kept is the same — then the one with more scenes, then the one with rooms)
+  const rooms = (l)=> list.filter(x=>x && x.id!==a.id && x.id!==b.id && String(x.parentKey||"")===String(l.key)).length;
+  const weight = (l)=> [(_locHasLayout(l) ? 2 : 0) + (hasPlate(l.id) ? 1 : 0), (l.scenes||[]).length, rooms(l)];
+  const wa = weight(a), wb = weight(b);
+  const cmp = wa[0]-wb[0] || wa[1]-wb[1] || wa[2]-wb[2];
+  const keeper = cmp>0 ? a : cmp<0 ? b : nameCard;
+  const gone = keeper===a ? b : a;
+  // the screenplay's spelling ("Fondamenta dei Vetrai"), unless the card was renamed to other words by hand
+  const recs = collectSluggedPlaces(ordered, drafts, dec).recByKey;
+  const nameOf = (l)=>{ const rec = recs[l.key], derived = rec && rec.name ? String(rec.name) : "";
+    return (derived && _locNameKey(derived)===_locNameKey(l.name)) ? derived : String(l.name||derived||"").trim(); };
+  const name = nameOf(nameCard);
+  const key = String(nameCard.key);
+  const aliasKeys = _locUniq(_locKeysOf(keeper.aliasKeys).concat(_locKeysOf(gone.aliasKeys), [keeper.key, gone.key])).filter(k=>k!==key);
+  const aliases = _locUniq([].concat(keeper.aliases||[], gone.aliases||[], [keeper.name, gone.name]), true)
+    .filter(n=>n.toLowerCase()!==name.toLowerCase());
+  // the scene cards that disagree with their own screenplay, corrected to the screenplay's words
+  const joined = (k)=> k===key || aliasKeys.indexOf(k)>=0;
+  const sceneFixes = [];
+  ordered.forEach(sc=>{
+    const heading = locationDraftFirstHeading(sc, drafts); if(!heading) return;
+    const card = _locPlaceOf(sc.loc, dec), said = _locPlaceOf(heading, dec);
+    if(!card || !said || card.ownKey===said.ownKey || !joined(card.ownKey) || said.ownKey!==key) return;
+    const to = locationCorrectedSlugline(sc.loc, heading);
+    if(to && to!==String(sc.loc)) sceneFixes.push({ sceneId:sc.id, no:sc.no, from:String(sc.loc), to });
+  });
+  return { keeperId:keeper.id, goneId:gone.id, keeperName:keeper.name||"", goneName:gone.name||"",
+    oldKey:String(keeper.key), name, key, aliasKeys, aliases, byHeadings,
+    nameFromId:nameCard.id, altNameFromId:otherName.id, altName:nameOf(otherName),
+    // the merged card takes the other card's key: that card can't come back as a card of its own (Recently deleted keeps it)
+    goneKeyTaken:String(gone.key)===key,
+    keeperHasLayout:_locHasLayout(keeper), goneHasLayout:_locHasLayout(gone),
+    keeperHasPlate:!!hasPlate(keeper.id), goneHasPlate:!!hasPlate(gone.id),
+    keeperHasStaging:typeof stagingHasContent==="function" ? stagingHasContent(keeper) : !!keeper.staging,
+    goneSheets:(Array.isArray(gone.coverageSheets)?gone.coverageSheets.length:0)+(Array.isArray(gone.variants)?gone.variants.length:0),
+    sceneFixes };
+}
+/* the confirm for a merge — ctx: canFixScenes (the role can save scene cards), show (the film is an episode of a Show),
+   offerOtherName (the "Same place as…" path: the other name is a second button), altPlan (what that button does) */
+function locationMergeConfirmText(plan, ctx){
+  ctx = ctx || {};
+  const q = (s)=> "“"+String(s||"")+"”";
+  const kept = [plan.keeperHasPlate && "its plate", plan.keeperHasLayout && "the shared layout (with its floor plan)",
+    plan.keeperHasStaging && "its view composition"].filter(Boolean);
+  const list = (xs)=> xs.length<=1 ? (xs[0]||"") : xs.slice(0,-1).join(", ")+" and "+xs[xs.length-1];
+  const items = [];
+  items.push(q(plan.keeperName)+"’s card stays"+(kept.length ? ", with "+list(kept)+" as they are" : "")
+    +(plan.keeperName!==plan.name ? ", and is named "+q(plan.name)+(plan.byHeadings ? " — the name the screenplay’s headings use" : "") : "")+".");
+  const goneWith = [plan.goneHasPlate && "its own plate", plan.goneHasLayout && "its own shared layout",
+    plan.goneSheets ? plan.goneSheets+" other plate"+(plan.goneSheets!==1?"s":"") : ""].filter(Boolean);
+  items.push(q(plan.goneName)+"’s scenes join it (and any description it has that the other card lacks); its card moves to Recently deleted"
+    +(goneWith.length ? " with "+list(goneWith) : "")+" — nothing is deleted for good"
+    +(plan.goneKeyTaken ? " (it stays there: the merged card now has its name, so it can’t come back as a card of its own)" : "")+".");
+  const fixText = (fixes)=> (fixes||[]).map(f=> ctx.canFixScenes
+    ? "Scene "+f.no+"’s card slugline is corrected to "+f.to+", as its screenplay says."
+    : "Scene "+f.no+"’s card keeps "+f.from+" (correcting it needs a role that edits the screenplay); it is read as "+plan.name+" either way.");
+  fixText(plan.sceneFixes).forEach(t=>items.push(t));
+  // the "Same place as…" path's second button: the same card stays, under the other name — say what else differs
+  const alt = ctx.offerOtherName && ctx.altPlan && plan.altName && plan.altName.toLowerCase()!==plan.name.toLowerCase() ? ctx.altPlan : null;
+  if(alt){
+    const nos = (fixes)=> (fixes||[]).map(f=>f.no+"→"+f.to).join("|");
+    const fixesDiffer = nos(alt.sceneFixes)!==nos(plan.sceneFixes);
+    items.push("Or merge as "+q(alt.name)+": the same card stays, under that name"
+      +(fixesDiffer ? ((alt.sceneFixes||[]).length && ctx.canFixScenes
+        ? ", and "+list((alt.sceneFixes||[]).map(f=>"scene "+f.no+"’s card is corrected to "+f.to))
+        : ", and the scene cards are left as they are") : "")+".");
+  }
+  if(ctx.show) items.push("This film is an episode of a Show and its locations are shared: the merge holds in every episode — a scene in another episode that names "
+    +list(_locUniq([plan.keeperName, plan.goneName].filter(n=>n.toLowerCase()!==plan.name.toLowerCase()), true).map(q))
+    +" is read as "+q(plan.name)+" (scene cards in other episodes, and their shots that picked "+q(plan.goneName)+"’s plate by hand, are not changed).");
+  return { title:"Merge "+q(plan.keeperName)+" and "+q(plan.goneName)+" into one place?",
+    body:"They become one location card. Nothing is generated and nothing is charged.",
+    items, note:"Shots that picked "+q(plan.goneName)+"’s plate by hand, and props linked to it, now use the merged card.",
+    confirmLabel:"Merge as "+q(plan.name), cancelLabel:"Cancel",
+    ...(ctx.offerOtherName && plan.altName && plan.altName.toLowerCase()!==plan.name.toLowerCase() ? { altLabel:"Merge as "+q(plan.altName) } : {}) };
+}
+/* APPLY A MERGE — pure: {locations, keeper, gone (for Recently deleted)}. The kept card takes the name and key, lists the
+   other names and keys, and every card's parent / continuity root that named either now names the merged one (this
+   episode's and, on a Show, every episode's slice). opts.mergeSceneRefs(set, survivor): a Show's per-episode scenes. */
+function locationMergeApply(locations, plan, opts){
+  opts = opts || {};
+  const list = (Array.isArray(locations)?locations:[]).filter(Boolean);
+  const keeper = plan && list.find(l=>l.id===plan.keeperId), gone = plan && list.find(l=>l.id===plan.goneId);
+  if(!keeper || !gone) return null;
+  const at = opts.at || new Date().toISOString();
+  const joined = new Set([plan.key, plan.oldKey, String(gone.key)].concat(plan.aliasKeys||[]).map(String));
+  const remap = (k)=> joined.has(String(k||"")) ? plan.key : String(k||"");
+  const relink = (l, selfKey)=>{
+    const out = {};
+    ["parentKey","continuityRootKey"].forEach(f=>{
+      if(l[f]==null || l[f]==="") return;
+      let v = remap(l[f]);
+      if(f==="parentKey" && v===selfKey) v = "";
+      if(v!==String(l[f])) out[f] = v;
+    });
+    const meta = l.episodeLocationMeta;
+    if(meta && typeof meta==="object" && !Array.isArray(meta)){
+      let touched = false; const map = {};
+      Object.keys(meta).forEach(ep=>{
+        const s = meta[ep];
+        if(!s || typeof s!=="object"){ map[ep] = s; return; }
+        const n = {...s};
+        if(n.parentKey){ const v = remap(n.parentKey); n.parentKey = v===selfKey ? "" : v; }
+        if(n.continuityRootKey) n.continuityRootKey = remap(n.continuityRootKey);
+        if(n.parentKey!==s.parentKey || n.continuityRootKey!==s.continuityRootKey) touched = true;
+        map[ep] = n;
+      });
+      if(touched) out.episodeLocationMeta = map;
+    }
+    ["notAliasOf","partOfKeys"].forEach(f=>{
+      if(!Array.isArray(l[f])) return;
+      const v = _locUniq(_locKeysOf(l[f]).map(remap)).filter(k=>k!==selfKey);
+      if(JSON.stringify(v)!==JSON.stringify(l[f])) out[f] = v;
+    });
+    return out;
+  };
+  const kept = { ...keeper, ...relink(keeper, plan.key), key:plan.key, name:plan.name,
+    aliasKeys:(plan.aliasKeys||[]).slice(), aliases:(plan.aliases||[]).slice(),
+    mergedFrom:(Array.isArray(keeper.mergedFrom)?keeper.mergedFrom:[]).concat([{id:gone.id, key:String(gone.key), name:gone.name||"", at}]) };
+  ["notAliasOf","partOfKeys"].forEach(f=>{ if(Array.isArray(kept[f]) && !kept[f].length) delete kept[f]; });
+  ["architecture","materials","lighting","permanentDressing","topology","continuityAnchors","significance","negativePrompt","lookbookBrief"]
+    .forEach(f=>{ if(!String(kept[f]||"").trim() && String(gone[f]||"").trim()) kept[f] = gone[f]; });
+  const staged = (l)=> typeof stagingHasContent==="function" ? stagingHasContent(l) : !!(l && l.staging);
+  if(!staged(kept) && staged(gone)) kept.staging = gone.staging;
+  // the other card's layout corrections belong to ITS layout: they come along only with that layout
+  if(!_locHasLayout(kept) && _locHasLayout(gone)){
+    kept.spatialPlan = gone.spatialPlan;
+    const notes = _locUniq([keeper.spatialNotes, gone.spatialNotes]);
+    if(notes.length) kept.spatialNotes = notes.join("\n");
+  }
+  if(typeof opts.mergeSceneRefs==="function") Object.assign(kept, opts.mergeSceneRefs([keeper, gone], kept) || {});
+  else kept.scenes = _locUniq([].concat(keeper.scenes||[], gone.scenes||[]));
+  const next = list.filter(l=>l.id!==gone.id).map(l=>{
+    if(l.id===keeper.id) return kept;
+    const patch = relink(l, String(l.key||""));
+    return Object.keys(patch).length ? {...l, ...patch} : l;
+  });
+  return { locations:next, keeper:kept, gone:{ ...gone, _trashReason:"merge", mergedInto:keeper.id, mergedIntoName:plan.name } };
+}
+/* shots that picked the merged-away card's plate by hand use the kept card's */
+function locationMergeShots(shots, goneId, keeperId){
+  const hit = (arr)=> Array.isArray(arr) && arr.some(x=>String(x)===String(goneId));
+  const swap = (arr)=> Array.from(new Set(arr.map(x=> String(x)===String(goneId) ? keeperId : x)));
+  return (Array.isArray(shots)?shots:[]).map(sh=>{
+    const legacy = !!sh && sh.locationId!=null && String(sh.locationId)===String(goneId);   // an older shot's own location
+    if(!sh || (!hit(sh.referenceLocationIds) && !hit(sh.refOff) && !legacy)) return sh;
+    const n = {...sh};
+    if(hit(sh.referenceLocationIds)) n.referenceLocationIds = swap(sh.referenceLocationIds);
+    if(hit(sh.refOff)) n.refOff = swap(sh.refOff);
+    if(legacy) n.locationId = keeperId;
+    return n;
+  });
+}
+/* props linked to the merged-away card — a fixture's location, where it is placed, its association and its story
+   events — are linked to the kept card (otherwise they'd point at a card in Recently deleted) */
+function locationMergeProps(props, goneId, keeperId){
+  const g = String(goneId||""), k = String(keeperId||"");
+  if(!g || !k || g===k) return props;
+  const is = (v)=> v!=null && String(v)===g;
+  return (Array.isArray(props)?props:[]).map(p=>{
+    if(!p || typeof p!=="object") return p;
+    let n = null; const set = (f,v)=>{ if(!n) n = {...p}; n[f] = v; };
+    if(is(p.locationId)) set("locationId", k);
+    if(is(p.placementLocationId)) set("placementLocationId", k);
+    if(p.associationType==="location" && is(p.associationId)) set("associationId", k);
+    if(Array.isArray(p.continuityEvents) && p.continuityEvents.some(e=>e && (is(e.locationId) || is(e.placementLocationId))))
+      set("continuityEvents", p.continuityEvents.map(e=> !e || !(is(e.locationId) || is(e.placementLocationId)) ? e
+        : { ...e, ...(is(e.locationId) ? {locationId:k} : {}), ...(is(e.placementLocationId) ? {placementLocationId:k} : {}) }));
+    return n || p;
+  });
+}
+/* the scene cards a merge corrects — and their screenplay's card snapshot, so the correction never reads as
+   "needs redraft" (the screenplay already says it) */
+function locationMergeScenes(scenes, drafts, plan){
+  const fixes = {};
+  ((plan && plan.sceneFixes) || []).forEach(f=>{ fixes[f.sceneId] = f; });
+  const nextScenes = (Array.isArray(scenes)?scenes:[]).map(sc=> sc && fixes[sc.id] && String(sc.loc)===fixes[sc.id].from ? {...sc, loc:fixes[sc.id].to} : sc);
+  let nextDrafts = drafts;
+  Object.keys(fixes).forEach(id=>{
+    const d = drafts && drafts[id];
+    if(!d || !d.cardSnap || String(d.cardSnap.loc||"")!==fixes[id].from) return;
+    if(nextDrafts===drafts) nextDrafts = {...drafts};
+    nextDrafts[id] = {...d, cardSnap:{...d.cardSnap, loc:fixes[id].to}};
+  });
+  return { scenes:nextScenes, drafts:nextDrafts };
+}
+/* "Part of" (kind "part": a is the part, b the place) and "Keep separate" (kind "separate") — the cards' new fields */
+function locationPlaceDecisionApply(locations, aId, bId, kind){
+  const list = (Array.isArray(locations)?locations:[]).filter(Boolean);
+  const a = list.find(l=>l.id===aId), b = list.find(l=>l.id===bId);
+  if(!a || !b || a.id===b.id || !a.key || !b.key || (kind!=="part" && kind!=="separate")) return null;
+  const add = (arr,k)=> _locUniq(_locKeysOf(arr).concat([String(k)]));
+  const drop = (arr,k)=> _locKeysOf(arr).filter(x=>x!==String(k));
+  return list.map(l=>{
+    if(l.id!==a.id && l.id!==b.id) return l;
+    const other = l.id===a.id ? b : a, n = {...l};
+    if(kind==="separate"){
+      n.notAliasOf = add(l.notAliasOf, other.key);
+      if(Array.isArray(l.partOfKeys)) n.partOfKeys = drop(l.partOfKeys, other.key);
+    }else{
+      if(l.id===a.id) n.partOfKeys = add(l.partOfKeys, b.key);
+      if(Array.isArray(l.notAliasOf)) n.notAliasOf = drop(l.notAliasOf, other.key);
+    }
+    ["notAliasOf","partOfKeys"].forEach(f=>{ if(Array.isArray(n[f]) && !n[f].length) delete n[f]; });
+    return n;
+  });
+}
+/* restoring a merged-away card undoes the merge for its name: the kept card stops reading that key (and that card's
+   name) as its own, and its merge record of it goes */
+function locationUnmergeRestored(locations, item){
+  if(!item || !item.mergedInto || !item.key) return locations;
+  const nm = String(item.name||"").trim().toLowerCase();
+  return (Array.isArray(locations)?locations:[]).map(l=>{
+    if(!l || l.id!==item.mergedInto || _locKeysOf(l.aliasKeys).indexOf(String(item.key))<0) return l;
+    const n = {...l}, ks = _locKeysOf(l.aliasKeys).filter(k=>k!==String(item.key));
+    if(ks.length) n.aliasKeys = ks; else delete n.aliasKeys;
+    if(Array.isArray(l.aliases) && nm){ const as = l.aliases.filter(a=>String(a||"").trim().toLowerCase()!==nm);
+      if(as.length) n.aliases = as; else delete n.aliases; }
+    if(Array.isArray(l.mergedFrom)){ const mf = l.mergedFrom.filter(m=>!(m && m.id===item.id));
+      if(mf.length) n.mergedFrom = mf; else delete n.mergedFrom; }
+    return n;
+  });
+}
+window.locationDraftFirstHeading=locationDraftFirstHeading;
+window.locationSamePlaceSuggestions=locationSamePlaceSuggestions;
+window.locationSamePlaceText=locationSamePlaceText;
+window.locationCorrectedSlugline=locationCorrectedSlugline;
+window.locationMergePlan=locationMergePlan;
+window.locationMergeConfirmText=locationMergeConfirmText;
+window.locationMergeApply=locationMergeApply;
+window.locationMergeShots=locationMergeShots;
+window.locationMergeProps=locationMergeProps;
+window.locationMergeScenes=locationMergeScenes;
+window.locationPlaceDecisionApply=locationPlaceDecisionApply;
+window.locationUnmergeRestored=locationUnmergeRestored;
 
 /* LOCATION IDENTITY GRAPH ---------------------------------------------------
    Root invariants flow into a child workspace by reference. They are never copied
@@ -947,7 +1406,7 @@ function locationAnchorSpaceOf(anchor, family){
   const owner = family[0];
   const k = _locNameKey(anchor && anchor.space);
   if(!k) return owner;
-  const exact = family.find(x=>_locNameKey(x.name)===k);
+  const exact = family.find(x=>_locNameKey(x.name)===k) || family.find(x=>_locIsOtherName(x,k));
   if(exact) return exact;
   const part = family.filter(x=>x.id!==owner.id && k.length>=4 && _locNameKey(x.name).length>=4
     && (_locNameKey(x.name).indexOf(k)>=0 || k.indexOf(_locNameKey(x.name))>=0))
@@ -958,6 +1417,11 @@ function _locCoordSpace(coords, l){
   if(!coords || !l) return null;
   return coords.spaces.find(s=>s.id===l.id) || coords.spaces.find(s=>s.name && _locNameKey(s.name)===_locNameKey(l.name)) || null;
 }
+/* a merged card is still the space its layout names by one of its other names (2026-10-14, SAME PLACE, TWO NAMES:
+   "Fiorin Furnace" merged under the screenplay's "Furnace", or the other way round — the layout says what it said) */
+function _locIsOtherName(x, k){
+  return !!(x && k && Array.isArray(x.aliases) && x.aliases.some(n=>_locNameKey(n)===k));
+}
 function _locMentions(text, family, exceptId){
   const s = " "+_locNameKey(text)+" ";
   return family.filter(x=>x.id!==exceptId && _locNameKey(x.name).length>=3)
@@ -966,7 +1430,8 @@ function _locMentions(text, family, exceptId){
 }
 function _locResolveSpace(ref, family){
   if(!ref) return null;
-  return family.find(x=>x.id===ref) || family.find(x=>_locNameKey(x.name)===_locNameKey(ref)) || null;
+  return family.find(x=>x.id===ref) || family.find(x=>_locNameKey(x.name)===_locNameKey(ref))
+    || family.find(x=>_locIsOtherName(x,_locNameKey(ref))) || null;
 }
 /* the anchors of the shared layout that sit in this space */
 function locationSpaceAnchors(l, locations){
@@ -2383,8 +2848,9 @@ window.locationIdentityLayers=locationIdentityLayers;
      inherits the bucket of the context it follows (else the scene's own slug time).
    Pure + deterministic: returns skeleton descriptors in first-appearance order.
    User edits / Time-of-Day Variant / generated images reconcile ON TOP by unit key. */
-function deriveSluglineUnits(scenes, drafts){
+function deriveSluglineUnits(scenes, drafts, opts){
   scenes = scenesInStoryOrder(scenes);
+  const dec = _locDecisions(opts);
   const order = []; const byKey = {};
   /* character-name exclusion set for dressing candidates — screenplay convention
      capitalizes cast names in action prose, so every char cue (plus its
@@ -2500,14 +2966,21 @@ function deriveSluglineUnits(scenes, drafts){
      overlay key) never changes, but its master-card grouping follows the complex
      it belongs to: the Intake Booth unit renders INSIDE the Intake Yard card
      instead of a booth card of its own. */
+  /* A unit written with a merged-away name (2026-10-14, SAME PLACE, TWO NAMES) keeps its own key (and so its plates and
+     notes) but belongs to the survivor's card: its subspaceKey is the survivor's key. */
   const placeRecs = {};
+  const unitPlaceKey = (u)=> locationAliasKey(locSlug(u.place.split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-"), dec);
   order.forEach(k=>{ const u = byKey[k];
-    const pk = locSlug(u.place.split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-");
-    if(!placeRecs[pk]) placeRecs[pk] = { key:pk, name:String(u.place).split(/[\u00b7\u2014]/)[0].trim(), scenes:[] };
+    const own = locSlug(u.place.split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-"), pk = unitPlaceKey(u);
+    const headName = String(u.place).split(/[\u00b7\u2014]/)[0].trim();
+    if(!placeRecs[pk]) placeRecs[pk] = { key:pk, name:pk!==own ? (dec.names[pk]||headName) : headName, scenes:[], aliasNames:[], fromAlias:pk!==own };
+    else if(pk===own && placeRecs[pk].fromAlias){ placeRecs[pk].name = headName; placeRecs[pk].fromAlias = false; }
+    if(pk!==own && placeRecs[pk].aliasNames.indexOf(headName)<0) placeRecs[pk].aliasNames.push(headName);
     u.scenes.forEach(sid=>{ if(placeRecs[pk].scenes.indexOf(sid)<0) placeRecs[pk].scenes.push(sid); }); });
-  const unitFold = foldSubspaceKeys(Object.values(placeRecs), scenes, drafts);
+  Object.keys(placeRecs).forEach(pk=>{ (dec.aliasNames[pk]||[]).forEach(n=>{ if(placeRecs[pk].aliasNames.indexOf(n)<0) placeRecs[pk].aliasNames.push(n); }); });
+  const unitFold = foldSubspaceKeys(Object.values(placeRecs), scenes, drafts, dec);
   order.forEach(k=>{ const u = byKey[k];
-    const pk = locSlug(u.place.split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-");
+    const pk = unitPlaceKey(u);
     u.subspaceKey = pk;
     u.continuityRootKey = unitFold[pk] ? resolveFoldKey(unitFold,pk) : pk;
     u.locationKey = u.continuityRootKey; });
@@ -2570,12 +3043,14 @@ function reconcileSluglineUnits(derived, overlays){
     const name = placeSlug.replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase());
     const side = parts.length>2 ? parts[parts.length-2] : "";
     const bucket = parts.length>2 ? parts[parts.length-1] : "";
+    // a merged-away name's orphan belongs to its survivor's card (2026-10-14, SAME PLACE, TWO NAMES)
+    const placeKey = locationAliasKey(placeSlug.split("-").slice(0,4).join("-"));
     merged.push({
       key:k, name: name||k, place: name||k,
       intExt: side, time: (bucket && bucket!=="untimed") ? bucket : "",
-      locationKey: placeSlug.split("-").slice(0,4).join("-"),
-      subspaceKey: placeSlug.split("-").slice(0,4).join("-"),
-      continuityRootKey: placeSlug.split("-").slice(0,4).join("-"),
+      locationKey: placeKey,
+      subspaceKey: placeKey,
+      continuityRootKey: placeKey,
       scenes: [], sceneNos: [], sluglines: [], occurrences: [], scriptText: "",
       appearance: o.appearance||"", notes: o.notes||"",
       dressing: Array.isArray(o.dressing) ? o.dressing.slice() : [],
@@ -2970,7 +3445,10 @@ function locationSpecSig(l){
   return "ls1:"+(h>>>0).toString(36)+":"+str.length;
 }
 function locationSpecChanged(meta, l){
-  return !!(meta && meta.locSpecSig && l && meta.locSpecSig!==locationSpecSig(l));
+  if(!(meta && meta.locSpecSig && l && meta.locSpecSig!==locationSpecSig(l))) return false;
+  // A MERGE RENAMES, IT DOESN'T REDESCRIBE (2026-10-14): a plate made under one of the card's other names (aliases)
+  // with the same description is not "Description changed" because the merge gave the card the screenplay's name
+  return !(Array.isArray(l.aliases) ? l.aliases.slice(0,8) : []).some(n=>meta.locSpecSig===locationSpecSig({...l, name:n}));
 }
 window.locationRootIds = locationRootIds;
 window.locationDerivedPlateChanged = locationDerivedPlateChanged;

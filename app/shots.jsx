@@ -830,7 +830,9 @@ function locationForScene(locations, sceneId){
     const grouped=(locations||[]).find(l=>{
       const key=String((l&&l.key)||((typeof locSlug==="function")?locSlug(l&&l.name).split("-").slice(0,4).join("-"):"")||"");
       return key===wanted;
-    });
+    })
+      // a name merged into another card (2026-10-14, SAME PLACE, TWO NAMES): the card that lists it among its keys
+      || (locations||[]).find(l=>l&&Array.isArray(l.aliasKeys)&&l.aliasKeys.map(String).indexOf(wanted)>=0);
     if(grouped) return grouped;
   }
   return (locations||[]).find(l=> Array.isArray(l.scenes) && l.scenes.indexOf(sceneId)>=0) || null;

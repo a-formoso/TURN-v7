@@ -1208,7 +1208,7 @@ again.
 
 ## Scene 13 — The Canal  (Act III)
 
-- **Slugline:** EXT. FONDAMENTA · NIGHT
+- **Slugline:** EXT. FONDAMENTA DEI VETRAI · NIGHT
 - **Driver:** Luca
 - **Reactor:** Graziella
 - **Value at stake:** Understanding ↔ Estrangement

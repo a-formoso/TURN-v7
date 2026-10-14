@@ -8800,6 +8800,12 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .loc-copy-check-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 .loc-copy-check-acts .art-draftall{height:auto;min-height:30px}
 @media (max-width:640px){ .loc-copy-check-acts .art-draftall{min-height:44px} }
+/* SAME PLACE, TWO NAMES (2026-10-14): "These look like one place" and the "Same place as…" picker — a question, not a warning */
+.loc-same-place{color:var(--txt-1);background:var(--bg-2);border-style:solid}
+.loc-same-place-note{color:var(--txt-2)}
+.loc-same-pick-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0 0 4px}
+.loc-same-pick-select{min-width:0;max-width:100%;flex:1 1 180px;font:inherit;color:var(--txt-0);background:var(--bg-1);border:1px solid var(--line-2);border-radius:var(--r-s);padding:5px 8px}
+@media (max-width:640px){ .loc-same-pick-select{min-height:44px} }
 
 /* slugline unit set dressing */
 .loc-dress{margin:6px 0}

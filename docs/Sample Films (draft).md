@@ -85,7 +85,7 @@ Vetrai, Murano · conflict: personal (mother and son) and institutional (the mar
 | 10 | II | His Father's Bench | INT. FURNACE · NIGHT | Luca | Pride +1 → Wound −2 | Luca finds Samir at his father's bench; she never let him touch the pipe. |
 | 11 | II | Papers | INT. HOTEL STAFF CORRIDOR · DAY | Samir | Hope +1 → Trapped −2 | The hotel offers Samir a bellhop job with a work permit. |
 | 12 | II | The Lehr | INT. FURNACE · NIGHT | Graziella | Craft +2 → Ruin −3 | They rush the anneal; the chandelier cracks. Samir leaves. |
-| 13 | III | The Canal | EXT. FONDAMENTA · NIGHT | Luca | Estrangement −2 → Understanding +1 | Mother and son tell each other the truth about the trade. |
+| 13 | III | The Canal | EXT. FONDAMENTA DEI VETRAI · NIGHT | Luca | Estrangement −2 → Understanding +1 | Mother and son tell each other the truth about the trade. |
 | 14 | III | The Staff Door | EXT. HOTEL STAFF ENTRANCE · DAWN | Luca | Resignation −2 → Purpose +2 | Luca asks Samir back: neither of them can lift the gather alone. |
 | 15 | III | Three at the Furnace | INT. FURNACE · NIGHT | Graziella | Ruin −3 → Legacy +3 | The three blow the piece together; it holds. She offers the buyer a new deal. (Climax.) |
 | 16 | III | The Second Bench | INT. FURNACE · DAWN | Samir | Uncertainty −1 → Continuity +2 | Samir works the second bench; Graziella watches; Luca photographs the first piece Samir signs. |

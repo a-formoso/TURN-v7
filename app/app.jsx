@@ -1554,10 +1554,18 @@ function App(){
      derived fresh from the script and reconciled with the user's persisted overlays
      (appearance state / notes / images). Read-only consumers (Art Room UI, prompt
      builders) take this list; edits go through updateSlugUnitOverlay. */
+  /* SAME PLACE, TWO NAMES (owner-approved 2026-10-14, "go ahead with all of it"): the owner's answers on the location
+     cards (merged names, "Part of", "Keep separate" — locations.jsx locationPlaceDecisions) are read by every
+     derivation of places, rooms and units. Set here, on every render, from the live cards and Recently deleted — on a
+     Show those are the Show's shared cards, so a decision holds in every episode. */
+  const placeDecisions = React.useMemo(()=> (typeof locationPlaceDecisions==="function")
+    ? locationPlaceDecisions(locations, trash && trash.locations) : null, [locations, trash && trash.locations]);
+  if(typeof setLocationPlaceDecisions==="function") setLocationPlaceDecisions(placeDecisions);
+  const placeDecisionsSig = (placeDecisions && placeDecisions.sig) || "";
   const sluglineUnits = React.useMemo(()=>
     (typeof deriveSluglineUnits==="function" && typeof reconcileSluglineUnits==="function")
       ? reconcileSluglineUnits(deriveSluglineUnits(scenes, drafts), slugUnitsOv) : [],
-    [scenes, drafts, slugUnitsOv]);
+    [scenes, drafts, slugUnitsOv, placeDecisionsSig]);
   // the CONTINUITY GRAPH, exposed for prompt builders that have no props/scenes/locations
   // params (e.g. the location plate folds in the environment props it owns — locations.jsx)
   React.useEffect(()=>{ window.turnContinuity = { props, scenes, locations, characters, drafts, beatsMap, shots, sluglineUnits }; },[props, scenes, locations, characters, drafts, beatsMap, shots, sluglineUnits]);
@@ -5224,12 +5232,82 @@ function App(){
     // the binned copy — it used to drop it silently (same id) or add a second card for one place (same key)
     const clash = (locations||[]).find(l=> l && (l.id===id || (item.key && l.key===item.key)));
     if(clash){
-      if(typeof window.appToast==="function") window.appToast("\u201c"+(clash.name||item.name||"This location")+"\u201d is already on the board, so the copy in Recently deleted stays there.","info");
+      if(typeof window.appToast==="function") window.appToast(item.mergedInto && clash.id===item.mergedInto
+        ? "\u201c"+(item.name||"This location")+"\u201d was merged into \u201c"+(clash.name||"another card")+"\u201d, so the copy in Recently deleted stays there."
+        : "\u201c"+(clash.name||item.name||"This location")+"\u201d is already on the board, so the copy in Recently deleted stays there.","info");
       return;
     }
-    const { _deletedAt, _trashReason, ...clean } = item;
-    setLocations(ls=> ls.some(l=>l.id===id) ? ls : [...ls, clean]);
+    const { _deletedAt, _trashReason, mergedInto, mergedIntoName, ...clean } = item;
+    // a merged-away card brought back is its own place again: the card it was merged into stops reading its name
+    setLocations(ls=> ls.some(l=>l.id===id) ? ls
+      : [...((typeof locationUnmergeRestored==="function") ? locationUnmergeRestored(ls, item) : ls), clean]);
     setTrash(t=>({ ...t, locations:(t.locations||[]).filter(x=>x.id!==id) }));
+  };
+  /* SAME PLACE, TWO NAMES (owner-approved 2026-10-14, "go ahead with all of it"; Story Pipeline "Locations"): the
+     merge is ONE confirmed action, for a role that saves the Art Room (the owner, an Art director). One card stays
+     (the one with the shared layout and plate, locations.jsx locationMergePlan) and takes the name the screenplay's
+     headings use; the other card goes to Recently deleted with its plate; the scene cards that disagree with their own
+     screenplay are corrected when the role can also save the screenplay (with the screenplay's card snapshot, so they
+     never read "needs redraft"); shots that picked the other card's plate by hand use the kept one. Nothing is
+     generated or charged. On a Show the cards are shared, so the merge holds in every episode (the confirm says so). */
+  const mergeLocations = async (aId, bId, opts)=>{
+    if(!canMutateSharedFilm()) return;
+    if(typeof locationMergePlan!=="function" || typeof locationMergeApply!=="function") return;
+    opts = opts || {};
+    const hasPlate = (id)=> typeof nbGetImage==="function" && !!nbGetImage(id);
+    const film0 = projIdRef.current;
+    let plan = locationMergePlan(locations, scenes, drafts, aId, bId, { nameFrom:opts.nameFrom, hasPlate });
+    if(!plan) return;
+    const canFixScenes = !writersRoomReadOnlyRef.current;
+    if(typeof window.appConfirm==="function"){
+      // the "Same place as…" path offers the other name too: the confirm says what that button does differently
+      const altPlan = !opts.detected ? locationMergePlan(locations, scenes, drafts, aId, bId, { nameFrom:plan.altNameFromId, hasPlate }) : null;
+      const ok = await window.appConfirm(locationMergeConfirmText(plan, { canFixScenes, show:!!currentShowId, offerOtherName:!opts.detected, altPlan }));
+      if(!ok || projIdRef.current!==film0) return;
+      // read again from the live cards (an edit may have landed while the confirm was open); the name picked stays
+      plan = locationMergePlan(locationsRef.current, scenesRef.current, draftsRef.current, aId, bId,
+        { nameFrom:ok==="alt" ? plan.altNameFromId : plan.nameFromId, hasPlate });
+      if(!plan) return;
+    }
+    if(!canMutateSharedFilm()) return;   // the role changed while the confirm was open
+    const mergeSceneRefs = (currentShowId && currentProjectId && window.turnSeries && typeof window.turnSeries.mergeEntitySceneRefs==="function")
+      ? (set, survivor)=> window.turnSeries.mergeEntitySceneRefs(set, survivor, currentProjectId) : null;
+    const res = locationMergeApply(locationsRef.current, plan, { mergeSceneRefs });
+    if(!res) return;
+    setLocations(cur=>{ const r = locationMergeApply(cur, plan, { mergeSceneRefs }); return r ? r.locations : cur; });
+    setTrash(t=>({ ...t, locations:[ _trashStamp(res.gone), ...(t.locations||[]).filter(x=>x.id!==res.gone.id) ] }));
+    if(typeof locationMergeShots==="function" && !shotsReadOnlyRef.current) setShots(ss=>locationMergeShots(ss, plan.goneId, plan.keeperId));
+    // props linked to the merged-away card (a fixture's location, its placement, its story events) follow it
+    if(typeof locationMergeProps==="function") setProps(ps=>locationMergeProps(ps, plan.goneId, plan.keeperId));
+    const fixing = canFixScenes && !writersRoomReadOnlyRef.current && plan.sceneFixes.length && typeof locationMergeScenes==="function";
+    if(fixing){
+      setScenes(ss=>locationMergeScenes(ss, {}, plan).scenes);
+      setDrafts(d=>locationMergeScenes([], d, plan).drafts);
+    }
+    if(typeof window.appToast==="function") window.appToast("Merged into \u201c"+plan.name+"\u201d"
+      +(fixing ? " \u2014 scene "+plan.sceneFixes.map(f=>f.no).join(", ")+"\u2019s card"+(plan.sceneFixes.length!==1?"s":"")+" corrected" : "")
+      +". \u201c"+plan.goneName+"\u201d\u2019s card is in Recently deleted.","info");
+  };
+  /* "Part of" (kind "part": aId is the part, bId the place) and "Keep separate" (kind "separate") \u2014 the owner's answer
+     to "These look like one place"; stored on the cards (locations.jsx locationPlaceDecisionApply). Keeping a place and
+     its part separate makes the part a location of its own, so it asks first. Nothing is generated or charged. */
+  const decideLocationPlace = async (aId, bId, kind)=>{
+    if(!canMutateSharedFilm()) return;
+    if(typeof locationPlaceDecisionApply!=="function") return;
+    const a = (locations||[]).find(l=>l && l.id===aId), b = (locations||[]).find(l=>l && l.id===bId);
+    if(!a || !b) return;
+    if(kind==="separate" && typeof window.appConfirm==="function"){
+      const part = String(a.parentKey||"")===String(b.key||"") ? a : String(b.parentKey||"")===String(a.key||"") ? b : null;
+      const whole = part ? (part===a ? b : a) : null;
+      const ok = await window.appConfirm({ title:"Keep \u201c"+(a.name||"this place")+"\u201d and \u201c"+(b.name||"that place")+"\u201d as two places?",
+        body:(part ? "\u201c"+(part.name||"It")+"\u201d stops being a part of \u201c"+(whole.name||"the other")+"\u201d and becomes a location of its own: it needs its own shared layout (Spatial Layout & Staging) before its next plate. " : "")
+          +"Both cards, their plates and layouts stay as they are, and they won't be suggested as one place again"
+          +(currentShowId ? " \u2014 in every episode of the Show" : "")+". Nothing is generated or charged.",
+        confirmLabel:"Keep separate", cancelLabel:"Cancel" });
+      if(!ok) return;
+      if(!canMutateSharedFilm()) return;
+    }
+    setLocations(cur=> locationPlaceDecisionApply(cur, aId, bId, kind) || cur);
   };
   const purgeLocation = async (id)=>{
     if(!canMutateSharedFilm()) return;
@@ -5237,7 +5315,8 @@ function App(){
     if(!item) return;
     const itemKey = String(item.key||item.id);
     // rooms still on the board that hang off this place can't make new plates without it — ask first
-    const liveKids = (locations||[]).filter(l=> l && l.key!==item.key && (l.parentKey===item.key || l.continuityRootKey===item.key));
+    // (a merged-away card has no rooms of its own: they belong to the card it was merged into — 2026-10-14)
+    const liveKids = item.mergedInto ? [] : (locations||[]).filter(l=> l && l.key!==item.key && (l.parentKey===item.key || l.continuityRootKey===item.key));
     if(liveKids.length && typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({ title:"Delete \u201c"+(item.name||"this location")+"\u201d forever?",
         body:liveKids.length+" room"+(liveKids.length!==1?"s":"")+" on the board belong"+(liveKids.length===1?"s":"")+" to it ("+liveKids.slice(0,4).map(l=>l.name||"Room").join(", ")+(liveKids.length>4?"\u2026":"")
@@ -5270,7 +5349,9 @@ function App(){
       }
       setTrash(t=>({ ...t, locations:(t.locations||[]).filter(x=>x.id!==id) }));
       // still in the screenplay → the place comes back as a fresh, empty card (the sync derives it)
-      if(item.key && typeof deriveLocations==="function" && deriveLocations(scenes, [], drafts).some(f=>f.key===item.key)
+      // (never for a card merged into another — its place lives on in the card it was merged into, 2026-10-14)
+      if(item.key && !item.mergedInto && !(locations||[]).some(l=>l && l.key===item.key)
+        && typeof deriveLocations==="function" && deriveLocations(scenes, [], drafts).some(f=>f.key===item.key)
         && typeof window.appToast==="function")
         window.appToast("\u201c"+(item.name||"This location")+"\u201d is still in the screenplay, so it comes back as an empty card.","info");
     }catch(e){ if(window.appToast) window.appToast("Couldn't permanently delete this location's descendant assets. It stays in Recently deleted so you can try again.","error"); }
@@ -8864,6 +8945,7 @@ function App(){
             castHasProps:(typeof castHasProps==="function" && castHasProps(characters)),
             locations,onUpdateLocation:updateLocation,onDraftLocation:draftLocationVisuals,onDraftAllLocs:draftAllLocations,
             onDeleteLocation:deleteLocation,draftingLocIds,draftingAllLocs,
+            onMergeLocations:mergeLocations,onLocationPlaceDecision:decideLocationPlace,
             scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
             sluglineUnits,onUpdateUnit:updateSlugUnitOverlay,onRemoveUnit:removeSlugUnitOverlay,
             onSetStyleRefs:setStyleRefs,onSetScenePreset:setScenePreset,onSetFilmStock:setFilmStock,

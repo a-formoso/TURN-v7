@@ -554,6 +554,17 @@ Each entity gets a canonical, reusable reference so every generated image stays 
   stays disabled with a hint, and the spec fold opens by default, until the spec is written. This
   script-vs-manual rule is shared across **Props, Characters and Locations** — derived entities keep
   one-click Draft & Generate; hand-added ones must be described first.
+  **Same place, two names (approved 2026-10-14 by owner).** When a scene's card slugline names a different
+  place than the first heading of that scene's own screenplay, and one name is the other plus more words, and
+  the card's name plays in no scene the screenplay's name doesn't (Glass Hours scene 13: card "EXT. FONDAMENTA",
+  screenplay "EXT. FONDAMENTA DEI VETRAI"), both cards say "These look like one place" — a suggestion only, never
+  applied on its own — with **Merge** (one confirmed action, for the owner or an Art director: one card stays,
+  with its shared layout and plate, named as the screenplay's headings name it; the place's name on the scene
+  card's slugline is corrected to the screenplay's words, the rest of that slugline kept; shots and props that
+  pointed at the other card point at the kept one; the other card goes to Recently deleted), **Part of** (the place and its
+  part stay as derived) or **Keep separate** (two places, never folded by name). Any card also has **Same place
+  as…** for a pair nothing points at. The decision is stored on the cards and every derivation from the
+  sluglines reads it, so a merged-away name never comes back as a card; on a Show it holds in every episode.
 - **Style Bible grade is NOT baked into location plates.** A location can span scenes with different
   looks, so its coverage plate renders **grade-neutral**; the card shows only an informational chip of
   which preset(s) its scenes use. The 60/30/10 Style Bible grade is a per-scene property applied
