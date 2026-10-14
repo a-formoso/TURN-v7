@@ -5,9 +5,13 @@
    screenplay text into a pointer whenever pages ride along. Together they sent a location with more scenes than slots
    (Glass Hours' Furnace: 10 scenes) the rest of its scenes in NO form. Now:
    1. the scenes whose pages are not attached go as text (location.screenplay_of_scenes_not_attached): one entry per
-      scene, in story order, an equal share of 2,600 characters each — never a scene twice, never one left out;
+      scene, in story order, a FAIR share of 2,600 characters (a short scene keeps all of itself, the rest goes to the
+      longer ones) — never a scene twice, never one left out;
    2. a page that doesn't say its scene, or no page at all, keeps the behaviour before (the pointer alone, or the text);
-   3. the trimming order cuts those entries (step 6) to ~600 characters in all, an equal share each;
+   3. the trimming order cuts those entries (step 6) only as far as the prompt needs, never below ~600 characters in
+      all, a fair share each (2026-10-14, headless paths: always ~600 before);
+   3b. with nothing to trim, they get the room the prompt has left — up to 6,000 characters in all (Furnace's five:
+      most of each scene, it was ~520 each) — never past the budget, never when something was trimmed;
    4. the card's rebuild (_locBudgetOpts) and the headless plate run (Generate all, Location Scout, "Make what this
       scene needs") both pass the attached pages' scenes; every prompt still fits every engine;
    5. a merge (fix A) moves a room's "It opens onto …" answer (fix D, openingLeadsTo) from the merged-away card to the
@@ -46,8 +50,10 @@ const ENGINES = Object.keys(box.TURN_IMAGE_PROMPT_LIMITS);
 const locations = film.locations.map((l) => ({ ...l }));
 const byId = (id) => locations.find((l) => l.id === id);
 const furnace = byId("loc-furnace-1"), office = byId("loc-furnace-office-2"), owner = byId("loc-fondamenta-3"), sub = byId("loc-fondamenta-dei-vetrai-4");
-sub.parentLocation = { id: owner.id, key: owner.key, name: owner.name };
-office.parentLocation = { id: furnace.id, key: furnace.key, name: furnace.name };
+// the STORED cards (a parentKey, no parentLocation): the card's own list adds parentLocation exactly when the parent
+// resolves, so the card simulation below asks locationParentOf (2026-10-14, headless paths — no hand-set parent)
+assert.ok(!("parentLocation" in sub) && !("parentLocation" in office));
+const isRoom = (l) => !!box.locationParentOf(l);
 const units = box.deriveSluglineUnits(film.scenes, film.drafts);
 box.turnContinuity = { locations, scenes: film.scenes, drafts: film.drafts, characters: film.characters, props: [], sluglineUnits: units };
 box.TURN_DATA = { PROJECT: film.project };
@@ -69,7 +75,7 @@ assert.equal(rest.length, left.length, "one entry per scene left out");
 rest.forEach((t, i) => {
   const full = sceneText(left[i]);
   assert.ok(full.startsWith(t.replace(/ …$/, "")), "entry " + i + " is scene " + left[i] + "'s own text, from its heading");
-  assert.ok(t.length <= Math.floor(2600 / left.length) + 2, "an equal share each: " + t.length);
+  assert.ok(t.length <= Math.floor(2600 / left.length) + 2, "a fair share each (Furnace's are all long: equal): " + t.length);
 });
 assert.ok(rest.join("").length <= 2600 + 2 * rest.length);
 assert.deepEqual(json(box.locationUnattachedScreenplay(furnace, film.scenes, film.drafts, furnace.scenes, 2600)), [], "every scene as pages: no text");
@@ -78,6 +84,15 @@ assert.deepEqual(json(box.locationUnattachedScreenplay(furnace, film.scenes, fil
 // a short scene keeps all of itself
 const one = json(box.locationUnattachedScreenplay(furnace, film.scenes, film.drafts, furnace.scenes.slice(0, 9), 100000));
 assert.deepEqual(one, [sceneText(furnace.scenes[9]).replace(/\n{3,}/g, "\n\n").trim()]);
+// THE FAIR SHARE (2026-10-14): a short text keeps all of itself and its spare room goes to the long ones
+{ const w = (n) => ("word ".repeat(Math.ceil(n / 5))).slice(0, n).trim();
+  const cut = json(box._locShareCut([w(300), w(1400), w(1400)], 2600));
+  assert.equal(cut[0], w(300), "the short one whole");
+  assert.ok(cut[1].length > 1100 && cut[1].length <= 1152 && cut[2].length === cut[1].length, "the long ones share the rest: " + cut[1].length + " (an equal share was 866)");
+  assert.ok(cut.join("").length <= 2600 + 4);
+  assert.deepEqual(json(box._locShareCut([w(100), w(200)], 2600)), [w(100), w(200)], "all of them fit: nothing cut");
+  assert.ok(json(box._locShareCut([w(2000), w(2000)], 100)).every((t) => t.length >= 100 && t.length <= 122), "never below 120 each");
+  assert.deepEqual(json(box._locShareCut([], 2600)), []); }
 // the pages' scenes, from a reference list
 assert.equal(box._locPageScenes([{ kind: "location" }]), null, "no page");
 assert.equal(box._locPageScenes([{ kind: "script", sceneId: "a" }, { kind: "script" }]), null, "a page that doesn't say its scene");
@@ -86,7 +101,7 @@ assert.deepEqual(json(box._locPageScenes([{ kind: "location" }, { kind: "script"
 /* ---- 2. the plate's prompt: the pointer for the attached scenes, the text for the rest — never both ---- */
 const refsFor = async (l) => {
   let refs;
-  if (l.parentLocation) refs = (await box.locationSubspacePlateReferences(l)).refs;
+  if (isRoom(l)) refs = (await box.locationSubspacePlateReferences(l)).refs;
   else { try { refs = box.mergeLocationReferences(await box.locationParentReferences(l), await box.locationSpatialReferences(l)); } catch (e) { refs = []; } }
   const pages = box.locationScriptPageRefs(l, film.scenes, film.drafts, 6 - refs.length);
   // the card's own attachment list (locations-ui.jsx attachments): each page keeps its scene
@@ -94,7 +109,7 @@ const refsFor = async (l) => {
     ...(r.numbered ? { numbered: true } : {}), ...(r.kind === "script" && r.sceneId != null ? { sceneId: r.sceneId } : {}) }));
 };
 const cardPrompt = (l, attach, model) => {
-  const plan = l.parentLocation ? box.locationSubspacePanelPlan(l) : null, tail = masterAttachmentsText(attach);
+  const plan = isRoom(l) ? box.locationSubspacePanelPlan(l) : null, tail = masterAttachmentsText(attach);
   const p = box.combinedLocationPrompt(l, project, { ...(plan ? { panelPlan: plan, panelRefs: box.locationReferenceNumbers(attach) } : {}),
     ...box._locBudgetOpts(attach, { model }), reserve: tail.length + 1 });
   return { spec: p, prompt: p + (tail ? " " + tail : "") };
@@ -123,6 +138,8 @@ for (const id of ENGINES) {
 engine = "gpt-image-2.5-flare";
 const fa = await refsFor(furnace), fspec = specOf(cardPrompt(furnace, fa, engine).spec).location;
 assert.ok(fspec.screenplay_of_scenes_not_attached.length >= 4, "Furnace: the scenes beyond its reference slots reach the engine as text");
+// (2026-10-14) with room to spare on every engine, each left-out scene gets most of itself (it was ~520 characters)
+assert.ok(fspec.screenplay_of_scenes_not_attached.every((t) => t.length > 1000), "Furnace: " + fspec.screenplay_of_scenes_not_attached.map((t) => t.length).join(", "));
 assert.equal(fspec.screenplay_of_scenes_not_attached[fspec.screenplay_of_scenes_not_attached.length - 1].split("\n")[0], "INT. FURNACE — DAWN", "in story order, each from its heading");
 // a page list that doesn't say its scenes (an older caller): the pointer alone, exactly as before
 const blind = box.combinedLocationPrompt(furnace, project, { screenplayPages: [2, 3, 4], maxChars: 31500 });
@@ -131,15 +148,56 @@ assert.ok(!("screenplay_of_scenes_not_attached" in specOf(blind).location));
 const textOnly = specOf(box.combinedLocationPrompt(furnace, project, { maxChars: 31500 })).location;
 assert.ok(!/attached as page images/.test(textOnly.screenplay_context) && !("screenplay_of_scenes_not_attached" in textOnly));
 
-/* ---- 3. the trimming order: step 6 shares ~600 characters among them ---- */
+/* ---- 3. the trimming order: step 6 cuts them only as far as the prompt needs, never below ~600 in all ---- */
 const tight = { location: { name: "Furnace", screenplay_context: "the screenplay of these scenes is attached as page images (Images 2–6) — read it there; it is not repeated here",
   screenplay_of_scenes_not_attached: rest, reads_as: "x".repeat(50) }, task: "t" };
-const fit = box.locationFitPromptSpec(tight, JSON.stringify(tight).length - rest.join("").length + 700);
-assert.ok(fit.steps.indexOf("screenplay excerpt") >= 0, fit.steps.join(", "));
-assert.equal(fit.spec.location.screenplay_of_scenes_not_attached.length, rest.length, "every left-out scene is still there");
-assert.ok(fit.spec.location.screenplay_of_scenes_not_attached.join("").length <= 600 + 2 * rest.length);
-fit.spec.location.screenplay_of_scenes_not_attached.forEach((t, i) => assert.ok(t.length >= 100 && rest[i].startsWith(t.replace(/ …$/, "")), "each keeps its heading and opening"));
-assert.match(fit.spec.location.screenplay_context, /^the screenplay of these scenes is attached/, "the pointer is never cut");
+const fullLeft = json(box.locationUnattachedScreenplayTexts(furnace, film.scenes, film.drafts, attached));
+assert.equal(fullLeft.length, rest.length);
+fullLeft.forEach((t, i) => assert.ok(t.startsWith(rest[i].replace(/ …$/, "")) && t.length >= rest[i].length - 2, "the uncut texts behind each entry"));
+const total = (spec) => spec.location.screenplay_of_scenes_not_attached.join("").length;
+const tightBudget = (extra) => JSON.stringify(tight).length - rest.join("").length + extra;
+for (const full of [null, fullLeft]) {
+  const xo = full ? { notAttachedFull: full } : undefined;
+  // a little room: cut to about what fits (never below ~600 in all)
+  const fit = box.locationFitPromptSpec(tight, tightBudget(700), xo);
+  assert.ok(fit.steps.indexOf("screenplay excerpt") >= 0, fit.steps.join(", "));
+  assert.ok(JSON.stringify(fit.spec).length <= tightBudget(700), "it fits");
+  assert.equal(fit.spec.location.screenplay_of_scenes_not_attached.length, rest.length, "every left-out scene is still there");
+  // the room: the 700 characters given, plus what the steps before it freed ("reads as") and the JSON escapes of the
+  // original entries' line breaks
+  assert.ok(total(fit.spec) >= 600 && total(fit.spec) <= 700 + 150, "only as far as the prompt needs: " + total(fit.spec));
+  const oneMore = json(fit.spec); oneMore.location.screenplay_of_scenes_not_attached = json(box._locShareCut(full || rest, total(fit.spec) + 40 * rest.length));
+  assert.ok(JSON.stringify(oneMore).length > tightBudget(700), "a bigger share would not fit");
+  fit.spec.location.screenplay_of_scenes_not_attached.forEach((t, i) => assert.ok(t.length >= 100 && rest[i].startsWith(t.replace(/ …$/, "")), "each keeps its heading and opening"));
+  assert.match(fit.spec.location.screenplay_context, /^the screenplay of these scenes is attached/, "the pointer is never cut");
+  assert.ok(!("reads_as" in fit.spec.location), "the steps before it went first, in order");
+  // more room: more of each scene
+  const roomy = box.locationFitPromptSpec(tight, tightBudget(1500), xo);
+  assert.ok(JSON.stringify(roomy.spec).length <= tightBudget(1500) && total(roomy.spec) > total(fit.spec) + 600, "a fairer share with more room: " + total(roomy.spec));
+  // no room at all: ~600 in all (as before), and the later steps carry on
+  const none = box.locationFitPromptSpec(tight, tightBudget(100), xo);
+  assert.ok(total(none.spec) <= 600 + 2 * rest.length && none.spec.location.screenplay_of_scenes_not_attached.every((t) => t.length >= 100), "the floor: " + total(none.spec));
+  assert.ok(none.steps.indexOf("screenplay excerpt") >= 0, none.steps.join(", "));
+}
+/* ---- 3b. nothing to trim: the left-out scenes get the room the prompt has left ---- */
+{
+  const loose = { location: { name: "Furnace", screenplay_of_scenes_not_attached: rest }, task: "t" };
+  const big = box.locationFitPromptSpec(loose, 100000, { notAttachedFull: fullLeft });
+  assert.deepEqual(json(big.steps), [], "nothing trimmed");
+  const got = big.spec.location.screenplay_of_scenes_not_attached;
+  assert.equal(got.length, rest.length);
+  assert.ok(total(big.spec) > 4500 && total(big.spec) <= 6000 + 2 * rest.length, "up to 6,000 characters in all: " + total(big.spec));
+  got.forEach((t, i) => assert.ok(t.length > 2 * rest[i].length && fullLeft[i].startsWith(t.replace(/ …$/, "")), "each scene more of itself: " + t.length));
+  // exactly the room there is
+  const at = JSON.stringify(loose).length + 900;
+  const mid = box.locationFitPromptSpec(loose, at, { notAttachedFull: fullLeft });
+  assert.ok(JSON.stringify(mid.spec).length <= at && JSON.stringify(mid.spec).length > at - 60, "fills the budget, never past it");
+  // without the uncut texts, or when something had to be trimmed: as before
+  assert.deepEqual(json(box.locationFitPromptSpec(loose, 100000).spec), json(loose));
+  const trimmed = box.locationFitPromptSpec({ ...loose, location: { ...loose.location, reads_as: "x".repeat(400) } }, JSON.stringify(loose).length + 20, { notAttachedFull: fullLeft });
+  assert.deepEqual(json(trimmed.steps), ["reads as and tone"]);
+  assert.deepEqual(json(trimmed.spec.location.screenplay_of_scenes_not_attached), rest, "something was trimmed: no growth");
+}
 
 /* ---- 4. the card's rebuild and the headless run pass the pages' scenes ---- */
 assert.deepEqual(json(box._locBudgetOpts([{ kind: "location", note: "plate" }, { kind: "script", note: "page", sceneId: "gh-s02" }], { model: "seedream-5-pro" })),

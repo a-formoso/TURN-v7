@@ -184,10 +184,16 @@ await test("4c the plate counts mirror the generators (locations.jsx): the layou
   // sheet (2026-10-14, single cut-out panels)
   assert.ok(fn.includes("views = locationSubspacePanelPlan(l, null, null, { maxSources:4 }).sources.length;"));
   const u = between(locs, "function sluglineUnitPlateRefCount(l, u, opts){", "window.locationPlateRefCount");
-  assert.ok(u.includes("locationScreenplayReferenceImages(l, sluglineUnitPseudoSheet(id, u), C.scenes||[], C.drafts||{}, { countOnly:true })")
+  // (2026-10-14, headless paths) every scene of the unit, whole scenes in the slots its plates leave; the room's parent
+  // found by the stored card's parentKey (locationParentOf)
+  assert.ok(u.includes("pages = sluglineUnitPageCount(l, u, C.scenes||[], C.drafts||{}, Math.max(0, LOC_PLATE_MAX_REFS-ids.size-root));")
     && u.includes("return { n:pages+ids.size+root, exact };")
+    && u.includes("const parent = locationParentOf(l);")
     && u.includes("root = Math.max(1, locationSubspacePanelPlan(l, null, null, { maxSources:2 }).sources.length);"));
-  assert.ok(locs.includes("const pseudo = sluglineUnitPseudoSheet(id, u, role);"), "the plate and its count read the same pages");
+  const gen = between(locs, "async function generateSluglineUnitPlate(", "window.generateSluglineUnitPlate");
+  assert.ok(gen.includes("sluglineUnitPageRefs(l, u, id, C.scenes||[], C.drafts||{}, Math.max(0, LOC_PLATE_MAX_REFS-fixed.length))"), "the plate and its count read the same pages");
+  const pc2 = between(locs, "function sluglineUnitPageCount(", "function sluglineUnitUnattachedTexts(");
+  assert.ok(pc2.includes("locationScriptPageCount(place, all, drafts || C.drafts || {}, max)"), "…counted as a location plate's are");
   // imagegen prices references on GPT Image (read-only check of the helper the question uses)
   assert.ok(read("app/imagegen.jsx").includes("if(isGptImageModel(model) && Number(opts.refs)>0) usd += 0.012 * Number(opts.refs);"));
 });
@@ -389,6 +395,21 @@ await test("G on a shared film the owner pays, within your budget (and what's le
   const o = makeWindow({ locations:[{ id:"L", key:"house", name:"House", staging:"x" }] });
   await o.run([need("L","location","House")]);
   assert.ok(!/owner/.test(o.asks[0].body));
+});
+
+await test("4d a room's room & time plate is priced with its parent's part, found by the STORED card's parentKey (2026-10-14)", async ()=>{
+  // the stored card (no parentLocation), as this run reads it: the parent's plate there → its part counted exactly; no
+  // plate and none planned → nothing of it
+  for(const [store, want] of [[{ H:"u", K:"u" }, true], [{ K:"u" }, false]]){
+    const w = makeWindow({ locations:[{ id:"H", key:"house", name:"House", staging:"x" }, { id:"K", key:"kitchen", name:"Kitchen", parentKey:"house", staging:"x" }],
+      units:[{ key:"kitchen-night", locationKey:"kitchen", subspaceKey:"kitchen", name:"Kitchen", time:"NIGHT" }], store });
+    const seen = [];
+    w.sb.sluglineUnitPlateRefCount = (l, u, o)=>{ seen.push([l.id, "parentLocation" in l, o && o.rootPlate]); return { n:4, exact:true }; };
+    await w.run([need("locunit-kitchen-night","location","Kitchen · NIGHT")]);
+    assert.deepEqual(J(seen), [["K", false, want]], JSON.stringify(store));
+    assert.ok(w.log.includes("IMG unit kitchen-night"));
+  }
+  assert.ok(app.includes('const rootId = ((typeof locationParentOf==="function" ? locationParentOf(owner, L.locList) : null) || {}).id;'));
 });
 
 /* ═══ plan / ask / run ═══ */

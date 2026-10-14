@@ -1356,7 +1356,7 @@ if (RUN("L") || RUN("P")) {
     const vs = await import(new URL("supabase/functions/image-proxy/video-snapshots.mjs", ROOT));
     // the app's own recording limit (New Story's spoken answer), read from its source
     const appMax = Number((read("app/newstory.jsx").match(/^const NS_MAX_ANSWER_SECONDS = (\d+);/m) || [])[1]);
-    SRV = { sttMax: bp.STT_MAX_SECONDS, promptCap: bp.IMAGE_PROMPT_MAX_CHARS, dir: vs.SNAPSHOT_DIR, urlSecs: vs.SNAPSHOT_URL_SECONDS, maxAgeMs: vs.SNAPSHOT_MAX_AGE_MS, appMax };
+    SRV = { sttMax: bp.STT_MAX_SECONDS, promptCap: bp.IMAGE_PROMPT_MAX_CHARS, promptLimits: bp.IMAGE_PROMPT_LIMITS || {}, dir: vs.SNAPSHOT_DIR, urlSecs: vs.SNAPSHOT_URL_SECONDS, maxAgeMs: vs.SNAPSHOT_MAX_AGE_MS, appMax };
     if (![SRV.sttMax, SRV.promptCap, SRV.urlSecs, SRV.maxAgeMs, SRV.appMax].every((n) => Number.isFinite(n) && n > 0) || typeof SRV.dir !== "string" || !SRV.dir) SRV = { error: "a constant is missing", ...SRV };
   } catch (e) { SRV = { error: String((e && e.message) || e) }; }
 }
@@ -1477,16 +1477,19 @@ if (part("P", "P. CLAUDE.md billing rules")) {
     /\(fragmented, compressed-header, unreadable or untrusted → the validator maximum\)/.test(bill) && /capped at the hold/.test(bill) &&
     !/only from a trusted host/.test(bill) &&
     /`\[billing\] length_mismatch` and is recorded in `turn_grant_failures` \(reason `length_mismatch`\)/.test(bill) && /STAGE_LENGTH_HOLD/.test(bill), bill);
-  const psrv = SRV && !SRV.error ? SRV : { dir: "\u0000", urlSecs: NaN, maxAgeMs: NaN, sttMax: NaN, promptCap: NaN, appMax: NaN };
+  const psrv = SRV && !SRV.error ? SRV : { dir: "\u0000", urlSecs: NaN, maxAgeMs: NaN, sttMax: NaN, promptCap: NaN, appMax: NaN, promptLimits: {} };
   ok("P5 …and the snapshots: the changeable sources (film storage, stage: uploads, data URLs' bytes) copied by image-proxy with the service role to SNAPSHOT_DIR (video-snapshots.mjs), closed to every signed-in user (the storage test), the provider gets a signed URL of the copy, a failed copy = the maximum, cleanup at settle / release plus leftovers after SNAPSHOT_MAX_AGE_MS, never under a user's folder",
     bill.includes("**Snapshots:** a length-billed video the account could still change after the read (the film's storage, a `stage:` upload; a data URL's bytes too) is copied / uploaded by `image-proxy` (service role) at submit to `" + psrv.dir + "/<ms>-<hold id>-<n>.<ext>` (`video-snapshots.mjs`), a key no Storage rule lets a signed-in user write, update, delete or list (`scripts/test-storage-billing-snapshots.mjs`, every production rule set)") &&
     bill.includes(`hands the provider a ${psrv.urlSecs / 3600} h signed URL of the copy (a failed copy → unread → the maximum)`) &&
     bill.includes(`Deleted when the hold settles or is released (poll or reconcile); the reconcile op removes leftovers older than ${psrv.maxAgeMs / 86400000} days (best effort).`) &&
     bill.includes("Never move snapshots under a folder that starts with a user's id: `storage.sql`'s owner-only rules would open them."), bill);
-  ok("P6 …and speech-to-text (container duration; a longer provider duration only logged, never word timestamps, an empty transcript still settles, 400 for an unreadable container / above STT_MAX_SECONDS / an unknown modelId, the app falls back to the browser) and the image prompt cap (IMAGE_PROMPT_MAX_CHARS)",
+  ok("P6 …and speech-to-text (container duration; a longer provider duration only logged, never word timestamps, an empty transcript still settles, 400 for an unreadable container / above STT_MAX_SECONDS / an unknown modelId, the app falls back to the browser) and the image prompt limits per engine (IMAGE_PROMPT_LIMITS, the ceiling IMAGE_PROMPT_MAX_CHARS — owner 2026-10-14)",
     bill.includes("**Speech-to-text:** held and settled on the recording's own duration read from its container (WebM/Matroska, Ogg, MP4/MOV, WAV), never word timestamps; a longer provider-reported duration is only logged (`stt_length_mismatch`), never charged above the hold; an empty transcript still settles.") &&
     bill.includes(`a recording above ${psrv.sttMax / 60} min (\`STT_MAX_SECONDS\`; the app stops at ${psrv.appMax / 60}, \`NS_MAX_ANSWER_SECONDS\`) or an unknown \`modelId\` gets a 400 before any hold, and the app then switches to the browser's speech recognition.`) &&
-    bill.includes(`**Image prompts** above ${thousands(psrv.promptCap)} characters (\`IMAGE_PROMPT_MAX_CHARS\`) get a 400 on every image route before the hold.`), bill);
+    // (2026-10-14, owner — commit aa4441b) a limit per engine, read from the server's own table
+    psrv.promptLimits["gpt-image-2.5-flare"] === psrv.promptLimits["gpt-image-2.5-sunburst"]
+      && psrv.promptLimits["gemini-nano-banana-2.1"] === psrv.promptCap &&
+    bill.includes(`**Image prompts** have a limit per engine (\`billing-pricing.mjs\` \`IMAGE_PROMPT_LIMITS\` = \`app/pricing.jsx\` \`TURN_IMAGE_PROMPT_LIMITS\`, owner 2026-10-14): GPT Image 2.5 Flare / Sunburst ${thousands(psrv.promptLimits["gpt-image-2.5-flare"])} (fal takes 32,000), Seedream 5 Pro ${thousands(psrv.promptLimits["seedream-5-pro"])}, Nano Banana 2.1 and any other engine ${thousands(psrv.promptCap)} (\`IMAGE_PROMPT_MAX_CHARS\`, the ceiling). A longer prompt gets a 400 \`prompt_too_long\` before the hold; the app's builders fit themselves and \`proxyGenerate\` trims what's left in a fixed order (\`imagegen.jsx\` \`nbFitImagePrompt\`) — users are never asked to shorten a prompt.`), bill);
 }
 
 /* ============================== S. the section filter ============================== */

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /* test-location-copy-check.mjs — THE COPY CHECK (owner-approved 2026-10-14, "go ahead with all of it").
    A sub-space's plate (Glass Hours' "Fondamenta DEI Vetrai") came back with two panels that were near-copies of its
-   parent's sheet. Now, once a sub-space's plate (or its room & time, state or extra-space plate) is made, each of its
-   panels is compared IN THE BROWSER with each panel of the parent's plate, and a near-copy says "This panel looks like
+   parent's sheet. Now, once a sub-space's plate (or its room & time or state plate — a sub-space has no extra-space
+   plates) is made, each of its panels is compared IN THE BROWSER with each panel of the parent's plate, and a near-copy says "This panel looks like
    <parent>'s sheet — regenerate?" with Regenerate (its price) and Keep. Pinned here:
    1. the maths (locations.jsx "THE COPY CHECK"): normalising, the high-pass that drops the sky/ground split, the
       shift search, a flat image matching nothing;
@@ -12,10 +12,12 @@
    3. the record on the plate's meta (locationCopyCheckMeta / locationCopyCheckCurrent): this version against the
       parent's current version; never in the way of a save (a failure or a slow check records nothing);
    4. the generators: the card's metaExtra and the headless runs record it before the save, and NOTHING spends on its
-      own — a near-copy never triggers a second image;
+      own — a near-copy never triggers a second image; the headless runs (the Location Scout, "Make what this scene
+      needs") pass the STORED card — a parentKey, no parentLocation — and record it too (2026-10-14, headless paths);
    5. the notice (locations-ui.jsx LocationCopyCheckNotice): the copy, Regenerate with its price, Keep recorded on the
       meta (imagegen.jsx nbSetAssetCopyCheck — this version only), checked once a session when nothing was recorded;
-   6. the wiring on the four cards and Frances's manifest;
+   6. the wiring on the three cards (the room's plate, its states, its rooms & times — never an extra space, which only
+      a main location has) and Frances's manifest;
    7. (review) the whole check — loading the parent's plate too — inside its time limit; a parent's plate decoded once
       for several checks and a failed read tried again; Regenerate blocked exactly when the card's own Generate is
       (running, an unsaved image waiting for its save, the layout / parent plate / script not ready).
@@ -152,6 +154,16 @@ const nearResult = { v: 1, kind: "2x2", near: true, panels: [
   assert.deepEqual(json(m), { copyCheck: { ...nearResult, iso: "s1", parentId: parent.id, parentIso: "p1" } }, "this plate version against that parent version");
   checkImpl = async (c, p, opts) => { assert.equal(opts.single, true, "a single-frame plate"); return { ...nearResult, kind: "single" }; };
   assert.equal((await box.locationCopyCheckMeta(sub, "new-plate", "s1", { single: true })).copyCheck.kind, "single");
+  // (2026-10-14, headless paths) the STORED card — a parentKey, no parentLocation — finds its parent in the film's list
+  checkImpl = async () => nearResult;
+  const keepC = box.turnContinuity;
+  const stored = { id: "loc-sub", key: "fondamenta-dei-vetrai", name: "Fondamenta DEI Vetrai", parentKey: "fondamenta" };
+  box.turnContinuity = { locations: [parent, stored] };
+  assert.deepEqual(json(await box.locationCopyCheckMeta(stored, "new-plate", "s1")), { copyCheck: { ...nearResult, iso: "s1", parentId: parent.id, parentIso: "p1" } },
+    "the stored card's check is recorded");
+  box.turnContinuity = { locations: [stored] };
+  assert.deepEqual(json(await box.locationCopyCheckMeta(stored, "new-plate", "s1")), {}, "its parent not in the film: nothing");
+  box.turnContinuity = keepC;
   checkImpl = async () => { throw new Error("decode failed"); };
   assert.deepEqual(json(await box.locationCopyCheckMeta(sub, "new-plate", "s1")), {}, "a failing check records nothing — the save goes on");
   const slow = C.timeoutMs; C.timeoutMs = 30;
@@ -200,7 +212,10 @@ const nearResult = { v: 1, kind: "2x2", near: true, panels: [
   const ui = read("app/locations-ui.jsx"), art = read("app/artroom.jsx");
   assert.match(art, /await opts\.metaExtra\(\{ mode, refsUsed, prompt: sentPrompt, url, iso: meta\.iso \}\)/, "the new image and its version reach metaExtra");
   assert.match(ui, /\.\.\.\(l\.parentLocation&&typeof locationCopyCheckMeta==="function"\?await locationCopyCheckMeta\(l,url,iso\):\{\}\)/, "the room's plate card");
-  assert.equal((ui.match(/metaExtra:async \(\{mode,url,iso\}\)=> _withCopyCheck\(l,url,iso,_withLayoutStamp\(/g) || []).length, 3, "the extra-space, state and room & time cards");
+  assert.equal((ui.match(/metaExtra:async \(\{mode,url,iso\}\)=> _withCopyCheck\(l,url,iso,_withLayoutStamp\(/g) || []).length, 2, "the state and room & time cards");
+  // an extra space belongs to a main location (it has no parent plate): its card records no check (2026-10-14)
+  const cov = ui.slice(ui.indexOf("function LocationCoverageSheet("), ui.indexOf("function CoverageReferenceStrip("));
+  assert.ok(cov.includes("metaExtra:async ({mode,url,iso})=> _withLayoutStamp(l,mode,gen,") && !/_withCopyCheck|LocationCopyCheckNotice/.test(cov), "the extra-space card");
   // _withCopyCheck: a sub-space's single frame, else the meta untouched
   checks = 0; checkImpl = async (c, p, opts) => ({ ...nearResult, kind: opts && opts.single ? "single" : "2x2" });
   assert.deepEqual(json(await box._withCopyCheck({ id: "main" }, "u", "i", { a: 1 })), { a: 1 }); assert.equal(checks, 0);
@@ -210,7 +225,9 @@ const nearResult = { v: 1, kind: "2x2", near: true, panels: [
   const film = JSON.parse(read("scripts/fixtures/glass-hours-locations.json"));
   const locations = film.locations.map((l) => ({ ...l }));
   const owner = locations.find((l) => l.id === "loc-fondamenta-3"), room = locations.find((l) => l.id === "loc-fondamenta-dei-vetrai-4");
-  room.parentLocation = { id: owner.id, key: owner.key, name: owner.name };
+  // the STORED card, as the Location Scout and "Make what this scene needs" pass it (the test used to add parentLocation
+  // by hand, which hid that those runs saved no check)
+  assert.equal(room.parentKey, owner.key); assert.ok(!("parentLocation" in room), "the stored record shape");
   box.turnContinuity = { locations, scenes: film.scenes, drafts: film.drafts, characters: film.characters, props: [], sluglineUnits: box.deriveSluglineUnits(film.scenes, film.drafts) };
   box.TURN_DATA = { PROJECT: film.project };
   for (const l of locations) if (l.spatialPlan) { metas[l.id] = { iso: "2026-10-13T10:00:00Z", spatialPlanSig: box.locationSpatialPlanSig(l.spatialPlan) }; images[l.id] = "https://cdn/plate-" + l.id + ".png"; }
@@ -231,6 +248,12 @@ const nearResult = { v: 1, kind: "2x2", near: true, panels: [
   sent.length = 0; commits.length = 0;
   assert.equal(await box.generateSluglineUnitPlate(room, unit, film.project, {}), true);
   assert.equal(sent.length, 1); assert.equal(commits[0].meta.copyCheck.kind, "single", "a room & time plate is one frame");
+  assert.equal(commits[0].meta.copyCheck.parentId, owner.id);
+  // an environment state the Location Scout makes (generateLocationVariant), on the stored card
+  sent.length = 0; commits.length = 0; checks = 0;
+  assert.equal(await box.generateLocationVariant(room, { id: "night", time: "Night", state: "Acqua alta" }, film.project), true);
+  assert.equal(sent.length, 1); assert.equal(checks, 1);
+  assert.equal(commits[0].meta.copyCheck.kind, "single"); assert.equal(commits[0].meta.copyCheck.iso, commits[0].meta.iso);
   // a main location's plate: no check at all
   sent.length = 0; commits.length = 0; checks = 0;
   assert.equal(await box.generateLocationPlate(owner, film.project, {}), true);
@@ -323,15 +346,14 @@ const runEffects = async () => { const list = effects.slice(); list.forEach((e) 
   assert.equal(checks, 2, "tried again when the card is shown again");
 }
 
-/* ---- 6. the four cards, the meta write, the manifest ---- */
+/* ---- 6. the three cards, the meta write, the manifest ---- */
 {
   const ui = read("app/locations-ui.jsx");
   assert.match(ui, /l\.parentLocation && React\.createElement\(LocationCopyCheckNotice,\{ l, assetId:l\.id, gen, readOnly,\n\s+refs:\(\)=>\(typeof locationPlateRefCount==="function" \? locationPlateRefCount\(l\)\.n : undefined\),\n\s+disabled:!spatialState\.ready\|\|!parentRefUrl\|\|masterRefs\.some\(r=>r\.required&&!r\.ready&&!r\.preview\),\n\s+regenerateTitle:\(!locStaged && !gen\.slotHasRef[^\n]*\n[^\n]*a small writing charge[^\n]*\n\s+onRegenerate:\(\)=>genPlate\.generate\(\) \}\)/, "the room's own plate: blocked as its Generate is, and says when it writes first");
-  assert.match(ui, /React\.createElement\(LocationCopyCheckNotice,\{ l, assetId:id, gen, single:true, disabled:!canGenerateCoverage, onRegenerate:\(\)=>gen\.generate\(\) \}\)/, "an extra-space plate");
   assert.match(ui, /React\.createElement\(LocationCopyCheckNotice,\{ l, assetId:id, gen, single:true,\n\s+refs:\(\)=>\(stateUnit && typeof sluglineUnitPlateRefCount[^\n]*\n\s+disabled:!canGenerate, onRegenerate:\(\)=>gen\.generate\(\) \}\)/, "an environment state");
   assert.match(ui, /refs:\(\)=>\(typeof sluglineUnitPlateRefCount==="function" \? sluglineUnitPlateRefCount\(l,u,\{rootPlate:true\}\)\.n : undefined\),\n\s+disabled:!canGenerate, onRegenerate:\(\)=>gen\.generate\(\) \}\)/, "a room & time plate: not once it left the script");
   assert.match(ui, /React\.createElement\(LocationCopyCheckNotice,\{ l, assetId:imgId, gen, single:true, readOnly:!!u\.orphan,/, "a room & time plate");
-  assert.equal((ui.match(/React\.createElement\(LocationCopyCheckNotice,/g) || []).length, 4);
+  assert.equal((ui.match(/React\.createElement\(LocationCopyCheckNotice,/g) || []).length, 3, "never on an extra space (a main location's only)");
   // Keep writes this version's meta only (imagegen.jsx nbSetAssetCopyCheck; cloud.jsx cloudSetAssetCopyCheck)
   const ig = read("app/imagegen.jsx");
   const a = ig.indexOf("function nbSetAssetCopyCheck("), b = ig.indexOf("window.nbSetAssetCopyCheck=nbSetAssetCopyCheck;");
@@ -361,4 +383,4 @@ const runEffects = async () => { const list = effects.slice(); list.forEach((e) 
 
 console.log("PASS location copy check: the maths (normalised, high-pass, shift search), the threshold on " + stats.copy.length + " copies vs "
   + negatives.length + " other views (copy margin " + copyMargin.toFixed(3) + ", other margin " + otherMargin.toFixed(3) + "; " + twoByTwo
-  + " 2x2 plates read panel by panel; night copies caught " + nightCaught + "/" + stats.night.length + " — the documented limit), recorded on the meta before the save, never spends on its own, the notice, Keep, the four cards");
+  + " 2x2 plates read panel by panel; night copies caught " + nightCaught + "/" + stats.night.length + " — the documented limit), recorded on the meta before the save (the headless runs on the stored card too), never spends on its own, the notice, Keep, the three cards");

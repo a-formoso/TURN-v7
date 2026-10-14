@@ -2248,13 +2248,19 @@ async function _locLoadPlate(id){
   return url || "";
 }
 /* ---- SINGLE CUT-OUT PANELS, NEVER THE WHOLE SHEET (2026-10-14, owner — "go ahead with all of it") ------------------
-   A sub-space's plates — its own 2x2 plate, its room & time, environment-state and extra-space plates, and each one's
-   simplified retry — never attach the parent's whole 2x2 sheet (Glass Hours: Fondamenta's sheet, a required "need"
-   Image 1 at 768 px, sat beside a quay stretch it already showed; two of the four panels came back near-copies). The
-   parent goes in as SINGLE PANELS cut out of its plate: the quadrants matched to a view through an opening (at their
-   own size, up to 1536 px) — or, when no quadrant is matched (the plate's cameras are unknown, or none faces the way an
-   opening looks), at most ONE small panel for materials and colour only, which can be unticked. The layout's own plate
-   is not sent to a sub-space either (locationSpatialReferences). */
+   A sub-space's plates — its own 2x2 plate, its room & time and environment-state plates, and each one's simplified
+   retry, on its card and headless alike — never attach the parent's whole 2x2 sheet (Glass Hours: Fondamenta's sheet,
+   a required "need" Image 1 at 768 px, sat beside a quay stretch it already showed; two of the four panels came back
+   near-copies). The parent goes in as SINGLE PANELS cut out of its plate: the quadrants matched to a view through an
+   opening (at their own size, up to 1536 px) — or, when no quadrant is matched (the plate's cameras are unknown, or none
+   faces the way an opening looks), at most ONE small panel for materials and colour only, which can be unticked. The
+   layout's own plate is not sent to a sub-space either (locationSpatialReferences). Every path finds the parent the
+   same way (locationParentOf: the stored card's parentKey, else the card's parentLocation), so the Location Scout and
+   "Make what this scene needs", which pass the stored card, send the same panels as the card.
+   EXTRA-SPACE PLATES are not a sub-space path: a sub-space has none (deriveLocationCoverageSheets derives none for a
+   card with a parent, and the card shows "Extra spaces" only on a main location). An extra space — the other side of a
+   main location, or a booth inside it, that the screenplay never slugs — is made from that location's OWN plate, as its
+   room & time and environment-state plates are; it has no parent to cut panels from. */
 const LOC_PANEL_CROP_MAX_DIM = 1536, LOC_MATERIAL_CROP_MAX_DIM = 640, LOC_PREVIEW_CROP_MAX_DIM = 320;
 /* the cameras recorded for a location's CURRENT plate: the plate's own record (the cameras its prompt stated), else the
    ones noted on its card for that very version (Plate cameras: "This plate's cameras" set by hand, or read from the plate
@@ -2366,8 +2372,9 @@ function locationReferenceNumbers(refs){
 }
 
 /* ---- THE COPY CHECK (2026-10-14, owner — "go ahead with all of it") ------------------------------------------------
-   Once a sub-space's plate (or its room & time, environment-state or extra-space plate) is made, each of its panels —
-   a single-frame plate: the whole frame — is compared IN THE BROWSER with each panel of the parent's plate. Free:
+   Once a sub-space's plate (or its room & time or environment-state plate — a sub-space has no extra-space plates) is
+   made, each of its panels — a single-frame plate: the whole frame — is compared IN THE BROWSER with each panel of the
+   parent's plate, on its card and from the headless runs alike (the parent found by its parentKey). Free:
    nothing is sent anywhere. A panel that is a near-copy of one of the parent's shows "This panel looks like <parent>'s
    sheet — regenerate?" with Regenerate (its price) and Keep (locations-ui.jsx LocationCopyCheckNotice). It never blocks
    a render, never regenerates and never spends on its own.
@@ -2516,10 +2523,13 @@ async function locationCopyCheck(childUrl, parentUrl, opts){
   }catch(e){ return null; }
 }
 /* the check recorded with a plate as it is saved: { copyCheck } for a sub-space's plate, {} for anything else. Never in
-   the way — a check that fails, or takes longer than 4 s, is simply not recorded (the card runs it when it is shown). */
+   the way — a check that fails, or takes longer than 4 s, is simply not recorded (the card runs it when it is shown).
+   The parent is found as every generator finds it (locationParentOf: the stored card's parentKey, else the card's
+   parentLocation) — the Location Scout and "Make what this scene needs" pass the STORED card, which has a parentKey
+   but no parentLocation, and their plates used to save no check (2026-10-14, headless paths). */
 async function locationCopyCheckMeta(l, url, iso, opts){
-  const parent = l && l.parentLocation && l.parentLocation.id ? l.parentLocation : null;
-  if(!parent || !url || !iso) return {};
+  const parent = locationParentOf(l);
+  if(!parent || !parent.id || !url || !iso) return {};
   let timer = null;
   // the whole of it inside the time limit — loading the parent's plate too (a slow cloud read never holds the save up)
   const run = (async ()=>{
@@ -4092,22 +4102,40 @@ function locationScreenplayPointer(pages){
    slots its other references leave (locationScriptPageRefs), so a location with more scenes than slots (Glass Hours'
    Furnace: 10 scenes, 5 attached) used to send the rest in no form at all — the pointer above stood for the whole
    screenplay. The scenes whose pages are NOT attached (attachedSceneIds: the scene ids of the attached pages) go as
-   text, never both and never neither: one entry per scene, in story order, each given an equal share of the limit
+   text, never both and never neither: one entry per scene, in story order, each given a fair share of the limit
    (its heading and the opening of its action), so every left-out scene is there. [] when every scene rides as pages,
-   or the attached scenes aren't known. */
-function locationUnattachedScreenplay(l, scenes, drafts, attachedSceneIds, limit){
+   or the attached scenes aren't known.
+   HOW MUCH TEXT EACH LEFT-OUT SCENE GETS (2026-10-14, headless paths — it was ~520 characters each for Furnace's five,
+   ~120 once trimmed):
+     · a FAIR share, not an equal one (_locShareCut): a scene shorter than its share keeps all of itself and the room it
+       doesn't use goes to the longer ones;
+     · 2,600 characters in all to start with (LOC_UNATTACHED_TEXT_BASE). When the whole prompt fits its engine with
+       nothing trimmed, the scenes get the room it has left, up to 6,000 characters in all (LOC_UNATTACHED_TEXT_MAX —
+       Furnace's five: about 1,200 each, most of each scene) — never more than the prompt's budget, and never at the
+       cost of anything else in it;
+     · when the prompt is too long, the fixed trimming order is unchanged (locationFitPromptSpec): step 6 cuts them only
+       as far as the prompt needs, never below ~600 characters in all, before step 7; step 8 may shorten them further.
+   The builders hand the uncut texts to locationFitPromptSpec (extra.notAttachedFull) for that. */
+const LOC_UNATTACHED_TEXT_BASE = 2600, LOC_UNATTACHED_TEXT_MAX = 6000;
+function locationUnattachedScreenplayTexts(l, scenes, drafts, attachedSceneIds){
   if(!Array.isArray(attachedSceneIds) || !attachedSceneIds.length) return [];
   const got = new Set(attachedSceneIds.map(String));
   const own = new Set(((Array.isArray(l && l.scenes) && l.scenes.length) ? l.scenes : []).map(String));
   const order = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder : (x=>x||[]);
   const rest = order((scenes||[]).filter(s=>s && own.has(String(s.id)) && !got.has(String(s.id))));
-  const chunks = rest.map(s=>String(locationSceneScriptText(s, drafts)||"").replace(/\n{3,}/g,"\n\n").trim()).filter(Boolean);
-  return _locShareCut(chunks, limit||2600);
+  return rest.map(s=>String(locationSceneScriptText(s, drafts)||"").replace(/\n{3,}/g,"\n\n").trim()).filter(Boolean);
 }
-/* texts cut to an equal share of max characters each (at a word, "…" marking a cut) */
+function locationUnattachedScreenplay(l, scenes, drafts, attachedSceneIds, limit){
+  return _locShareCut(locationUnattachedScreenplayTexts(l, scenes, drafts, attachedSceneIds), limit||LOC_UNATTACHED_TEXT_BASE);
+}
+/* texts cut to a FAIR share of max characters (at a word, "…" marking a cut): the largest cap c with every text cut to
+   c (a shorter one kept whole) adding up to max — so a short scene's spare room goes to the long ones; at least 120 each */
 function _locShareCut(texts, max){
   const list = (texts||[]).filter(t=>typeof t==="string" && t);
-  const each = Math.max(120, Math.floor(Number(max||0)/Math.max(1, list.length)));
+  if(!list.length) return [];
+  let left = Math.max(0, Math.floor(Number(max)||0)), k = list.length;
+  for(const n of list.map(t=>t.length).sort((a,b)=>a-b)){ if(n<=left/k){ left -= n; k--; } else break; }
+  const each = k ? Math.max(120, Math.floor(left/k)) : Infinity;
   return list.map(t=>t.length>each ? t.slice(0,each).replace(/\s+\S*$/,"").trim()+" …" : t);
 }
 /* the scenes of a reference list's screenplay pages (kind "script", each carrying its sceneId) — null when it has no
@@ -4125,16 +4153,39 @@ function _locPageScenes(refs){
      4. a room's layout objects in other spaces that none of its panels looks at;
      5. "reads as" (narrative significance), dramatic use and tone;
      6. the screenplay text, when no pages carry it, cut to an excerpt (~600 characters) — and the scenes whose pages
-        didn't fit the slots (screenplay_of_scenes_not_attached) to ~600 in all, an equal share each;
+        didn't fit the slots (screenplay_of_scenes_not_attached) only as far as the prompt needs, never below ~600 in
+        all, a fair share each (2026-10-14: they were always cut to ~600);
      7. the parent's description cut to its binding continuity anchors;
      8. long descriptive prose cut to 240, then 120 characters.
    Never: task, views, fixtures, render, world scale, species canon, continuity anchors, the shared layout's objects,
-   frame and floor plan, a unit's time / state / dressing. → {spec, steps} (steps: what went, in order) */
-function locationFitPromptSpec(specIn, budget){
+   frame and floor plan, a unit's time / state / dressing. → {spec, steps} (steps: what went, in order)
+   extra.notAttachedFull (2026-10-14): the uncut texts of those left-out scenes — with nothing to trim they get the room
+   the prompt has left, up to LOC_UNATTACHED_TEXT_MAX in all (see LOC_UNATTACHED_TEXT_BASE); step 6 cuts from them. */
+function locationFitPromptSpec(specIn, budget, extra){
   let spec;
   try{ spec = JSON.parse(JSON.stringify(specIn||{})); }catch(e){ return {spec:specIn, steps:[]}; }
   const steps = [], size = ()=>JSON.stringify(spec).length, fits = ()=>size()<=budget;
-  if(fits()) return {spec, steps};
+  // the left-out scenes' text: on the location (or environment spec), or on a room & time plate's coverage
+  const naHost = ()=>[spec.location, spec.environment_spec, spec.coverage]
+    .find(h=>h && typeof h==="object" && Array.isArray(h.screenplay_of_scenes_not_attached)) || null;
+  const naFull = (extra && Array.isArray(extra.notAttachedFull)) ? extra.notAttachedFull.filter(t=>typeof t==="string" && t) : null;
+  /* the largest share, from lo to hi characters in all, at which the whole spec fits — false (left at lo) when even lo
+     doesn't; the spec only grows with the share, so a binary search finds it */
+  const naShare = (host, base, lo, hi)=>{
+    const at = (m)=>{ host.screenplay_of_scenes_not_attached = _locShareCut(base, m); return fits(); };
+    if(!at(lo)) return false;
+    while(hi>lo){ const mid = Math.ceil((lo+hi)/2); if(at(mid)) lo = mid; else hi = mid-1; }
+    at(lo); return true;
+  };
+  if(fits()){
+    // nothing to trim: the left-out scenes get the room left, up to LOC_UNATTACHED_TEXT_MAX in all (each its fair share)
+    const host = naHost(), was = host && host.screenplay_of_scenes_not_attached;
+    if(host && naFull && naFull.length===was.length){
+      const hi = Math.min(LOC_UNATTACHED_TEXT_MAX, naFull.reduce((n,t)=>n+t.length, 0));
+      if(hi>LOC_UNATTACHED_TEXT_BASE && !naShare(host, naFull, LOC_UNATTACHED_TEXT_BASE, hi)) host.screenplay_of_scenes_not_attached = was;
+    }
+    return {spec, steps};
+  }
   const own = (spec.location && typeof spec.location==="object") ? spec.location
     : ((spec.environment_spec && typeof spec.environment_spec==="object") ? spec.environment_spec : {});
   const il = own.identity_layers && typeof own.identity_layers==="object" ? own.identity_layers : null;
@@ -4189,13 +4240,14 @@ function locationFitPromptSpec(specIn, budget){
     ["screenplay excerpt", ()=>{
       if(typeof own.screenplay_context==="string" && own.screenplay_context.length>600
         && !/^the screenplay of these scenes is attached/.test(own.screenplay_context)) own.screenplay_context = cutAt(own.screenplay_context,600);
-      // the scenes whose pages didn't fit the reference slots (locationUnattachedScreenplay): ~600 characters in all,
-      // shared equally so each scene keeps its heading and opening
-      if(Array.isArray(own.screenplay_of_scenes_not_attached) && own.screenplay_of_scenes_not_attached.join("").length>600)
-        own.screenplay_of_scenes_not_attached = _locShareCut(own.screenplay_of_scenes_not_attached, 600);
       if(spec.coverage && typeof spec.coverage==="object") ["screenplay_excerpt","screenplay_basis"].forEach(k=>{
         const v = spec.coverage[k];
         if(typeof v==="string" && v.length>600 && !/^the screenplay of these scenes is attached/.test(v)) spec.coverage[k] = cutAt(v,600); });
+      // the scenes whose pages didn't fit the reference slots (locationUnattachedScreenplay): cut only as far as the
+      // prompt needs, never below ~600 characters in all — a fair share each, so each keeps its heading and opening
+      const host = naHost(), cur = host ? host.screenplay_of_scenes_not_attached : null;
+      if(cur && cur.join("").length>600)
+        naShare(host, (naFull && naFull.length===cur.length) ? naFull : cur.slice(), 600, cur.join("").length);
     }],
     ["parent description to its anchors", ()=>{
       const inv = il && il.continuity_root && il.continuity_root.invariants;
@@ -4214,6 +4266,8 @@ window.locationPromptBudget = locationPromptBudget;
 window.locationAvoidText = locationAvoidText;
 window.locationScreenplayPointer = locationScreenplayPointer;
 window.locationUnattachedScreenplay = locationUnattachedScreenplay;
+window.locationUnattachedScreenplayTexts = locationUnattachedScreenplayTexts;
+window._locShareCut = _locShareCut;
 window._locPageScenes = _locPageScenes;
 window.locationFitPromptSpec = locationFitPromptSpec;
 
@@ -4516,9 +4570,11 @@ function buildLocationRefPrompt(l, project, opts){
   const pagesPointer = locationScreenplayPointer(opts.screenplayPages);
   const screenplayContext = pagesPointer
     || ((typeof locationScreenplayContext==="function") ? locationScreenplayContext(l, _C0.scenes||[], _C0.drafts||{}, 2600) : "");
-  // …and the scenes whose pages didn't fit the slots, as text (opts.screenplaySceneIds: the attached pages' scenes)
-  const screenplayNotAttached = (pagesPointer && typeof locationUnattachedScreenplay==="function")
-    ? locationUnattachedScreenplay(l, _C0.scenes||[], _C0.drafts||{}, opts.screenplaySceneIds, 2600) : [];
+  // …and the scenes whose pages didn't fit the slots, as text (opts.screenplaySceneIds: the attached pages' scenes) —
+  // a fair share of LOC_UNATTACHED_TEXT_BASE, more when the prompt has room (the uncut texts go to the fitter below)
+  const screenplayNotAttachedFull = (pagesPointer && typeof locationUnattachedScreenplayTexts==="function")
+    ? locationUnattachedScreenplayTexts(l, _C0.scenes||[], _C0.drafts||{}, opts.screenplaySceneIds) : [];
+  const screenplayNotAttached = _locShareCut(screenplayNotAttachedFull, LOC_UNATTACHED_TEXT_BASE);
   const panelPlan = (typeof locationMasterPanelPlan==="function") ? locationMasterPanelPlan(l, _C0.scenes||[], _C0.drafts||{}) : null;
   const subspacePlan = locationParentOf(l, _C0.locations) ? (opts.panelPlan || locationSubspacePanelPlan(l, _C0.locations)) : null;
   const ownerCameraViews = (views)=>{
@@ -4649,7 +4705,8 @@ function buildLocationRefPrompt(l, project, opts){
   // THE PROMPT BUDGET (2026-10-14): compact JSON, then the fixed trimming order only while it is still too long for
   // its engine (opts.avoidChars: the AVOID list combinedLocationPrompt adds after it)
   const header = "Render this environment reference sheet EXACTLY as specified by this JSON spec (continuity fields are binding):\n";
-  const fit = locationFitPromptSpec(spec, locationPromptBudget(opts)-header.length-(Number(opts.avoidChars)||0));
+  const fit = locationFitPromptSpec(spec, locationPromptBudget(opts)-header.length-(Number(opts.avoidChars)||0),
+    { notAttachedFull:screenplayNotAttachedFull });
   return header+JSON.stringify(fit.spec);
 }
 window.buildLocationRefPrompt = buildLocationRefPrompt;
@@ -4787,11 +4844,18 @@ window.buildLocationCoveragePrompt = buildLocationCoveragePrompt;
    bucket and the user's TIME-OF-DAY VARIANT ("dawn and raining") are first-class,
    binding spec fields, and the screenplay basis is ONLY this unit's owned blocks
    (yard-at-night coverage never reads booth prose). */
-/* opts (2026-10-14): as buildLocationCoveragePrompt's */
+/* opts (2026-10-14): as buildLocationCoveragePrompt's, and screenplaySceneIds (the attached pages' scenes — the
+   unit's other scenes go as text) */
 function buildSluglineUnitPrompt(l, u, project, opts){
   u = u || {};
   opts = opts || {};
   const pagesPointer = locationScreenplayPointer(opts.screenplayPages);
+  /* (2026-10-14, headless paths) its unit's scenes whose pages aren't attached (opts.screenplaySceneIds: the attached
+     pages' scenes) go as text — the unit's own part of each, a fair share; the uncut texts go to the fitter below */
+  const _C = window.turnContinuity || {};
+  const notAttachedFull = (pagesPointer && typeof sluglineUnitUnattachedTexts==="function")
+    ? sluglineUnitUnattachedTexts(u, _C.scenes||[], _C.drafts||{}, opts.screenplaySceneIds) : [];
+  const notAttached = _locShareCut(notAttachedFull, LOC_UNATTACHED_TEXT_BASE);
   const v = locVisualDefaults(l);
   const role = String(u.intExt||"INT").toUpperCase();
   const rules = (typeof locationNoCharactersRules==="function") ? locationNoCharactersRules(project, l).join(" ") : "empty of people and characters.";
@@ -4812,6 +4876,7 @@ function buildSluglineUnitPrompt(l, u, project, opts){
         : (Array.isArray(u.dressingDerived) && u.dressingDerived.length ? u.dressingDerived : undefined)),
       sluglines: Array.isArray(u.sluglines) && u.sluglines.length ? u.sluglines : undefined,
       screenplay_excerpt: pagesPointer || clean(String(u.scriptText||"").slice(0,720)) || undefined,
+      screenplay_of_scenes_not_attached: notAttached.length ? notAttached : undefined,
       scenes: Array.isArray(u.sceneNos) && u.sceneNos.length ? u.sceneNos : undefined,
       rule: "render ONLY the space the screenplay needs for shots; no actors, no story action, no temporary performance moment",
     },
@@ -4839,7 +4904,8 @@ function buildSluglineUnitPrompt(l, u, project, opts){
   const header = "Render this slugline-unit location coverage plate EXACTLY as specified by this JSON spec:\n";
   const avoid = neg ? ("\nAVOID: "+neg+".") : "";
   // compact, then the fixed trimming order only while too long for its engine (2026-10-14)
-  return header + JSON.stringify(locationFitPromptSpec(spec, locationPromptBudget(opts)-header.length-avoid.length).spec) + avoid;
+  return header + JSON.stringify(locationFitPromptSpec(spec, locationPromptBudget(opts)-header.length-avoid.length,
+    { notAttachedFull }).spec) + avoid;
 }
 window.buildSluglineUnitPrompt = buildSluglineUnitPrompt;
 
@@ -5083,6 +5149,72 @@ function locationWholeScenePages(pages, slots){
   return out;
 }
 window.locationWholeScenePages = locationWholeScenePages;
+/* ---- A ROOM & TIME PLATE'S SCREENPLAY: EVERY SCENE OF ITS UNIT (2026-10-14, headless paths) ------------------------
+   A room & time plate (a Slugline Unit's — the room at one time) used to attach the pages of its unit's FIRST scene
+   only (locationSceneForCoverageSheet) — Glass Hours' Furnace · Night sent scene 4's page for scenes 4, 6, 7, 9, 10,
+   12 and 15 — while its prompt said "the screenplay of these scenes is attached". Now it reads like a location plate:
+   EVERY scene of the unit, in story order, as whole scenes' pages in the reference slots its plates leave (its room's
+   own plate and the parent's cut-out panels take theirs first; LOC_PLATE_MAX_REFS images in all), and the scenes whose
+   pages don't fit go in its prompt as text (coverage.screenplay_of_scenes_not_attached: the unit's own part of each
+   scene, a fair share each — see LOC_UNATTACHED_TEXT_BASE) — never both, never neither. The same choice everywhere:
+   the room & time card and an environment state's card (locations-ui.jsx buildSluglineUnitReferences), the headless
+   run (generateSluglineUnitPlate — "Make what this scene needs", "Generate N missing in Scene NN"), a state the
+   Location Scout makes from a unit (generateLocationVariant) and the price (sluglineUnitPlateRefCount). The pages keep
+   their list order: the screenplay first, then the plates (as before). */
+const LOC_PLATE_MAX_REFS = 6;
+/* the unit's scenes, in story order (its scene ids; else its scene numbers) */
+function sluglineUnitScenes(u, scenes){
+  const all = scenes || ((window.turnContinuity||{}).scenes) || [];
+  const ids = Array.isArray(u && u.scenes) ? u.scenes.filter(x=>x!=null).map(String) : [];
+  const nos = Array.isArray(u && u.sceneNos) ? u.sceneNos.map(Number).filter(Number.isFinite) : [];
+  const list = all.filter(s=>s && (ids.length ? ids.indexOf(String(s.id))>=0 : nos.indexOf(Number(s.no))>=0));
+  return (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(list) : list;
+}
+/* the unit read as a place with only its scenes — so its pages are chosen exactly as a location plate's are
+   (locationScriptPageRefs: whole scenes, story order, the slots given) — null when none of its scenes is known */
+function _locUnitPlace(l, u, scenes){
+  const ids = sluglineUnitScenes(u, scenes).map(s=>s.id);
+  return ids.length ? { ...l, scenes:ids } : null;
+}
+/* the pages a room & time plate attaches in max slots → [{url, kind:"script", refId, sceneId, label, note, maxDim, …}] */
+function sluglineUnitPageRefs(l, u, id, scenes, drafts, max){
+  const C = window.turnContinuity || {};
+  const all = scenes || C.scenes || [];
+  const place = _locUnitPlace(l, u, all);
+  if(!place || typeof locationScriptPageRefs!=="function") return [];
+  const name = (u && u.name) || "this Slugline Unit";
+  return locationScriptPageRefs(place, all, drafts || C.drafts || {}, max).map((r,k)=>{
+    const no = ((all.find(s=>s && s.id===r.sceneId)||{}).no);
+    return { ...r, refId:"script-"+id+"-"+k,
+      note:"screenplay page "+(k+1)+" for "+name+" (Scene "+(no!=null ? no : "?")+(r.scenePages>1 ? ", page "+r.scenePage+" of "+r.scenePages : "")+")"
+        +" — use it to infer what the script implies, but do not render any text from it" };
+  });
+}
+/* how many — counted, not drawn (a price is read on every render) */
+function sluglineUnitPageCount(l, u, scenes, drafts, max){
+  const C = window.turnContinuity || {};
+  const all = scenes || C.scenes || [];
+  const place = _locUnitPlace(l, u, all);
+  return place && typeof locationScriptPageCount==="function" ? locationScriptPageCount(place, all, drafts || C.drafts || {}, max) : 0;
+}
+/* the unit's scenes NOT among the attached pages' scenes, as text: each scene's part under this unit's slugline (its
+   occurrences), else the whole scene — uncut, in story order; [] when the attached scenes aren't known */
+function sluglineUnitUnattachedTexts(u, scenes, drafts, attachedSceneIds){
+  if(!Array.isArray(attachedSceneIds) || !attachedSceneIds.length) return [];
+  const got = new Set(attachedSceneIds.map(String)), dr = drafts || {};
+  return sluglineUnitScenes(u, scenes).filter(s=>!got.has(String(s.id))).map(sc=>{
+    const blocks = locationScreenplayBlocks(sc, dr);
+    const occ = ((u && u.occurrences) || []).filter(o=>o && String(o.sceneId)===String(sc.id));
+    const part = occ.length && blocks.length ? occ.map(o=>locationSceneScriptText(sc, { [sc.id]:{ blocks:blocks.slice(Number(o.start)||0,
+      o.end==null ? blocks.length : Number(o.end)) } })).filter(Boolean).join("\n\n") : "";
+    return String(part || locationSceneScriptText(sc, dr) || "").replace(/\n{3,}/g,"\n\n").trim();
+  }).filter(Boolean);
+}
+window.LOC_PLATE_MAX_REFS = LOC_PLATE_MAX_REFS;
+window.sluglineUnitScenes = sluglineUnitScenes;
+window.sluglineUnitPageRefs = sluglineUnitPageRefs;
+window.sluglineUnitPageCount = sluglineUnitPageCount;
+window.sluglineUnitUnattachedTexts = sluglineUnitUnattachedTexts;
 /* opts (2026-10-08, owner — Locations review): the one-scene run and "Make what this scene needs" now make
    the SAME plate the card does — draftStaging writes the view composition first when the place has none
    (onStaged saves it), and the screenplay pages ride along as references. */
@@ -5229,12 +5361,23 @@ async function generateLocationVariant(l, v, project){
   try{
     const stateRefs=await locationStateReferences(l);
     if(_nbLocStale(id,_runToken,_ep)){_nbLocCancelEvent(id,_runToken,_ep);return false;}
-    const refs=mergeLocationReferences(stateRefs,await locationSpatialReferences(l));
+    const fixed=mergeLocationReferences(stateRefs,await locationSpatialReferences(l));
     // the parent's plate stays an upstream dependency though only panels cut out of it are attached (2026-10-14)
     const _parentId=(locationParentOf(l)||{}).id;
-    const lineage=locationAssetDependencySnapshot(l.id,Array.from(new Set(refs.slice(1).map(r=>r.refId).concat(_parentId?[_parentId]:[],(typeof locationRootIds==="function")?locationRootIds(l):[]))),unit?"slugline-unit":"continuity-state");
+    const lineage=locationAssetDependencySnapshot(l.id,Array.from(new Set(fixed.slice(1).map(r=>r.refId).concat(_parentId?[_parentId]:[],(typeof locationRootIds==="function")?locationRootIds(l):[]))),unit?"slugline-unit":"continuity-state");
     if(typeof locationPlateLayoutSig==="function"){ const ls=locationPlateLayoutSig(l); if(ls) lineage.plateLayoutSig=ls; }
-    const referenceText=locationReferenceInstructions(refs);
+    /* A STATE OF A ROOM & TIME (2026-10-14, headless paths): the Location Scout makes a room & time plate here — its
+       unit's scenes' pages ride first in the slots the plates leave, as on the state's card (buildSluglineUnitReferences),
+       and the prompt says which scenes they carry; the rest go as text */
+    const pages=(unit && typeof sluglineUnitPageRefs==="function")
+      ? sluglineUnitPageRefs(l, unit, id, null, null, Math.max(0, LOC_PLATE_MAX_REFS-fixed.length)) : [];
+    const refs=[...pages.map(r=>({url:r.url,kind:"script",refId:r.refId,note:r.note,maxDim:r.maxDim,sceneId:r.sceneId})), ...fixed];
+    const referenceText=locationReferenceInstructions(refs)
+      +(pages.length ? " The screenplay page snapshots are context only: never copy their typography, page border, text, captions or layout." : "");
+    if(pages.length && typeof buildSluglineUnitPrompt==="function") prompt=buildSluglineUnitPrompt(l,{...unit,appearance:v.state||unit.appearance||""},project,{
+      screenplayPages:refs.map((r,i)=>r.kind==="script" ? i+1 : 0).filter(Boolean),
+      ...((typeof _locPageScenes==="function" && _locPageScenes(refs)) ? {screenplaySceneIds:_locPageScenes(refs)} : {}),
+      model:runSnapshot.model, reserve:referenceText.length+1});
     prompt+=referenceText;
     gopts.extraImages=refs.map(r=>r.url);
     if(refs.some(r=>r.maxDim)) gopts.extraImageMaxDims=refs.map(r=>r.maxDim||1024);
@@ -5261,7 +5404,8 @@ async function generateLocationVariant(l, v, project){
       }else throw e;
     }
     const meta = Object.assign(_nbLocMeta(prompt,unit?{...l,appearanceState:unit}:l,runSnapshot),lineage);
-    if(l.parentLocation) Object.assign(meta, await locationCopyCheckMeta(l, url, meta.iso, {single:true}));   // the copy check (2026-10-14)
+    // the copy check (2026-10-14) — a room found by its parentKey too (the Location Scout passes the stored card)
+    if(_parentId) Object.assign(meta, await locationCopyCheckMeta(l, url, meta.iso, {single:true}));
     if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     let saved;
     try{
@@ -5283,8 +5427,9 @@ window.generateLocationVariant = generateLocationVariant;
 
 /* A ROOM / TIME PLATE (Slugline Unit) made without its card being on screen — for "Generate N
    missing in Scene NN" (2026-10-03, owner — Locations review). The same references and prompt as
-   the card's own Generate: the owning location's plate (required), its parent's plate when it is a
-   room, the scene's screenplay pages, and the reviewed spatial references. */
+   the card's own Generate: the owning location's plate (required), single panels cut out of its
+   parent's plate when it is a room (the parent found by its parentKey — 2026-10-14), the reviewed
+   spatial references, and the pages of every scene of the unit in the slots left (the rest as text). */
 async function generateSluglineUnitPlate(l, u, project, opts){
   const _ep = (typeof nbEpoch==="function") ? nbEpoch() : null;
   if(typeof nbGenerate!=="function" || typeof nbCommit!=="function" || typeof sluglineUnitImageId!=="function") return false;
@@ -5307,25 +5452,28 @@ async function generateSluglineUnitPlate(l, u, project, opts){
     requireLocationSpatialPlan(l);
     const own = await grab(l.id);
     if(!own) throw new Error("Generate "+(l.name||"the location")+"'s plate first — this room needs it as a reference.");
-    const role = String(u.intExt||"INT").toUpperCase();
-    const pseudo = sluglineUnitPseudoSheet(id, u, role);
-    const scriptImgs = (typeof locationScreenplayReferenceImages==="function")
-      ? locationScreenplayReferenceImages(l, pseudo, C.scenes||[], C.drafts||{}) : [];
-    const base = scriptImgs.map((url,i)=>({ url, kind:"script", refId:"script-"+id+"-"+i, maxDim:LOC_SCREENPLAY_PAGE_MAX_DIM,
-      note:"screenplay page "+(i+1)+" for "+(u.name||"this Slugline Unit")+" — use it to infer what the script implies, but do not render any text from it" }));
-    base.push({ url:own, kind:"location", refId:l.id,
-      note:(l.name||"parent location")+" child/master plate — preserve this exact subspace geometry, materials and scale" });
-    // the root's part: single cut-out panels, never its whole sheet (2026-10-14) — left out when the root has no plate
-    if(l.parentLocation && await grab(l.parentLocation.id)) base.push(...(await locationSubspaceRootReferences(l,{single:true})).refs);
+    const plates = [{ url:own, kind:"location", refId:l.id,
+      note:(l.name||"parent location")+" child/master plate — preserve this exact subspace geometry, materials and scale" }];
+    /* the root's part: single cut-out panels, never its whole sheet (2026-10-14) — left out when the root has no plate.
+       The root is found by the stored card's parentKey too (locationParentOf): "Make what this scene needs" passes the
+       STORED card, which has no parentLocation, and its room & time plates used to go without any panel of the root */
+    const root = locationParentOf(l);
+    if(root && root.id && await grab(root.id)) plates.push(...(await locationSubspaceRootReferences(l,{single:true})).refs);
     if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
-    const refs = mergeLocationReferences(base, await locationSpatialReferences(l));
+    const fixed = mergeLocationReferences(plates, await locationSpatialReferences(l));
+    // EVERY scene of the unit (2026-10-14): whole scenes' pages in the slots the plates leave; the rest go as text
+    const pages = (typeof sluglineUnitPageRefs==="function")
+      ? sluglineUnitPageRefs(l, u, id, C.scenes||[], C.drafts||{}, Math.max(0, LOC_PLATE_MAX_REFS-fixed.length)) : [];
+    const refs = [...pages.map(r=>({ url:r.url, kind:"script", refId:r.refId, note:r.note, maxDim:r.maxDim, sceneId:r.sceneId })), ...fixed];
     const lineage = locationAssetDependencySnapshot(l.id,(typeof locationRootIds==="function")?locationRootIds(l):[],"slugline-unit");
     if(typeof locationPlateLayoutSig==="function"){ const ls = locationPlateLayoutSig(l); if(ls) lineage.plateLayoutSig = ls; }
     const referenceText = locationReferenceInstructions(refs)
       +" The screenplay page snapshots are context only: never copy their typography, page border, text, captions or layout.";
     // (2026-10-14) its screenplay as the attached pages OR as text, and a prompt that fits this run's engine
     if(typeof buildSluglineUnitPrompt==="function") prompt = buildSluglineUnitPrompt(l, u, project, {
-      screenplayPages:refs.map((r,i)=>r.kind==="script" ? i+1 : 0).filter(Boolean), model:runSnapshot.model, reserve:referenceText.length+1});
+      screenplayPages:refs.map((r,i)=>r.kind==="script" ? i+1 : 0).filter(Boolean),
+      ...((typeof _locPageScenes==="function" && _locPageScenes(refs)) ? {screenplaySceneIds:_locPageScenes(refs)} : {}),   // the scenes left out go as text
+      model:runSnapshot.model, reserve:referenceText.length+1});
     prompt += referenceText;
     gopts.extraImages = refs.map(r=>r.url);
     // the screenplay pages at their own size (2026-10-14), every other reference as before
@@ -5349,7 +5497,7 @@ async function generateSluglineUnitPlate(l, u, project, opts){
     }
     if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     const meta = Object.assign(_nbLocMeta(prompt,{...l,appearanceState:u},runSnapshot),lineage);
-    if(l.parentLocation) Object.assign(meta, await locationCopyCheckMeta(l, url, meta.iso, {single:true}));   // the copy check (2026-10-14)
+    if(root) Object.assign(meta, await locationCopyCheckMeta(l, url, meta.iso, {single:true}));   // the copy check (2026-10-14)
     if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     const saved = await nbCommit(id, url, meta, refs, "location", _ep,
       ()=>_stale(id,_runToken,_ep));
@@ -5394,26 +5542,29 @@ function locationPlateRefCount(l){
   return { n:Math.min(6, fixed.n+pages), exact:true };
 }
 window.locationPlateFixedRefCount = locationPlateFixedRefCount;
-/* a room & time plate: its screenplay pages, its location's plate, the root's plate when it has one
-   (opts.rootPlate: false = the root has none, so it isn't attached) and the reviewed layout's plate */
+/* a room & time plate: its location's plate, the root's part when it has one (opts.rootPlate: false = the root has no
+   plate, so nothing of it is attached), the reviewed layout's plate, then the pages of its unit's whole scenes in the
+   slots they leave (2026-10-14: every scene of the unit, LOC_PLATE_MAX_REFS images in all — counted, not drawn) */
 function sluglineUnitPlateRefCount(l, u, opts){
   const o = opts || {};
   const C = window.turnContinuity || {};
-  let pages = 0, exact = true;
-  // counted, not drawn (2026-10-14): the pages the generator draws — at most its page limit (6)
-  try{ const id = sluglineUnitImageId(u.key);
-    const c = locationScreenplayReferenceImages(l, sluglineUnitPseudoSheet(id, u), C.scenes||[], C.drafts||{}, { countOnly:true });
-    pages = Array.isArray(c) ? c.length : Math.min(Number(c&&c.pageCount)||0, c&&c.pageLimit!=null ? Number(c.pageLimit)||0 : 6); }
-  catch(e){ exact = false; }
+  let exact = true;
   const ids = new Set([l.id]);
-  // the root's part (2026-10-14): its panels matched to a view (at most 2), else one small material panel — never its sheet
+  /* the root's part (2026-10-14): its panels matched to a view (at most 2), else one small material panel — never its
+     sheet. The root found by the stored card's parentKey too (locationParentOf): "Make what this scene needs" prices
+     the stored card, which has no parentLocation */
   let root = 0;
-  if(l.parentLocation && l.parentLocation.id && o.rootPlate!==false){
+  const parent = locationParentOf(l);
+  if(parent && parent.id && o.rootPlate!==false){
     try{ root = Math.max(1, locationSubspacePanelPlan(l, null, null, { maxSources:2 }).sources.length); }catch(e){ root = 1; }
     if(o.rootPlate!==true) exact = false;
   }
   // the layout's own plate reaches only the location that owns it (a sub-space gets the layout as text)
   try{ const st = requireLocationSpatialPlan(l); if((st.source.iso || st.plan.source.iso) && st.owner.id===l.id) ids.add(st.owner.id); }catch(e){}
+  // the pages the generator attaches: whole scenes of the unit in the slots left (sluglineUnitPageRefs)
+  let pages = 0;
+  try{ pages = sluglineUnitPageCount(l, u, C.scenes||[], C.drafts||{}, Math.max(0, LOC_PLATE_MAX_REFS-ids.size-root)); }
+  catch(e){ exact = false; }
   return { n:pages+ids.size+root, exact };
 }
 window.locationPlateRefCount = locationPlateRefCount;

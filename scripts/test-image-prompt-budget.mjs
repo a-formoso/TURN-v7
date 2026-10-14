@@ -63,10 +63,11 @@ assert.doesNotMatch(read("supabase/functions/image-proxy/index.ts"), /Shorten it
 const locations = film.locations.map((l) => ({ ...l }));
 const byId = (id) => locations.find((l) => l.id === id);
 const owner = byId("loc-fondamenta-3"), sub = byId("loc-fondamenta-dei-vetrai-4");
-sub.parentLocation = { id: owner.id, key: owner.key, name: owner.name };
 owner.childLocations = [{ id: sub.id, name: sub.name, intExt: sub.intExt }];
 const office = byId("loc-furnace-office-2"), furnace = byId("loc-furnace-1");
-office.parentLocation = { id: furnace.id, key: furnace.key, name: furnace.name };
+// the STORED cards (a parentKey, no parentLocation — 2026-10-14, headless paths): every generator and builder finds a
+// room's parent by its parentKey, so the headless runs below are tested on the shape they really get
+assert.ok(!("parentLocation" in sub) && !("parentLocation" in office) && sub.parentKey === owner.key && office.parentKey === furnace.key);
 let units = box.deriveSluglineUnits(film.scenes, film.drafts);
 box.turnContinuity = { locations, scenes: film.scenes, drafts: film.drafts, characters: film.characters, props: [], sluglineUnits: units };
 box.TURN_DATA = { PROJECT: film.project };
@@ -92,11 +93,12 @@ assert.equal((ui.match(/_locBudgetOpts\(attach,gopts\)/g) || []).length, 5, "the
    most 6 in all), then the prompt rebuilt with them */
 async function masterPrompt(l, limit){
   let refs;
-  if (l.parentLocation) refs = (await box.locationSubspacePlateReferences(l)).refs;
+  const room = !!box.locationParentOf(l);   // the card's parentLocation, as its list resolves it
+  if (room) refs = (await box.locationSubspacePlateReferences(l)).refs;
   else { try { refs = box.mergeLocationReferences(await box.locationParentReferences(l), await box.locationSpatialReferences(l)); } catch (e) { refs = []; } }
   const pages = box.locationScriptPageRefs(l, film.scenes, film.drafts, 6 - refs.length);
   const attach = [...refs, ...pages.filter((r) => !r.required && r.url)].slice(0, 6).map((r) => ({ url: r.url, kind: r.kind === "script" ? "script" : "location", refId: r.refId, note: r.note }));
-  const plan = l.parentLocation ? box.locationSubspacePanelPlan(l) : null;
+  const plan = room ? box.locationSubspacePanelPlan(l) : null;
   const tail = masterAttachmentsText(attach);
   const prompt = box.combinedLocationPrompt(l, project, { ...(plan ? { panelPlan: plan, panelRefs: box.locationReferenceNumbers(attach) } : {}),
     screenplayPages: pagesOf(attach), reserve: tail.length + 1, maxChars: limit });
@@ -119,11 +121,16 @@ for (const id of appEngines) {
     fitsAlone(id + " · " + l.name + " simplified retry", box.buildSimpleLocationPrompt(l) + " " + masterAttachmentsText(m.attach), limit);
     const lunits = units.filter((u) => u && !u.orphan && String(u.subspaceKey || u.locationKey || "") === l.key);
     for (const u of lunits) {
-      const pseudo = box.sluglineUnitPseudoSheet("unit-" + u.key, u);
-      const pages = box.locationScreenplayReferenceImages(l, pseudo, film.scenes, film.drafts).map((url, i) => ({ url, kind: "script", note: "screenplay page " + (i + 1) + " for " + (u.name || "this Slugline Unit") + " — use it to infer what the script implies, but do not render any text from it" }));
-      const attach = [...pages, { url: "plate", kind: "location", note: (l.name || "parent location") + " child/master plate — preserve this exact subspace geometry, materials and scale" }];
+      // (2026-10-14) as the card sends it: its room's plate and the parent's one material panel, then the pages of
+      // every scene of the unit in the slots left (6 in all); the scenes left out go as text
+      const parent = box.locationParentOf(l);
+      const fixed = [{ url: "plate", kind: "location", note: (l.name || "parent location") + " child/master plate — preserve this exact subspace geometry, materials and scale" },
+        ...(parent ? [{ url: "panel", kind: "location", note: parent.name + " — ONE panel of its plate, small: materials and colour only. It is NOT a view: never copy its composition, framing or layout into " + l.name }] : [])];
+      const pages = box.sluglineUnitPageRefs(l, u, "unit-" + u.key, film.scenes, film.drafts, 6 - fixed.length);
+      const attach = [...pages.map((r) => ({ url: r.url, kind: "script", note: r.note, sceneId: r.sceneId })), ...fixed];
       const tail = "REFERENCE IMAGES are attached in this order: " + attach.map((r, i) => "Image " + (i + 1) + " = " + r.note).join("; ") + ". The screenplay page snapshots are context only.";
-      fitsAlone(id + " · " + l.name + " unit " + u.key, box.buildSluglineUnitPrompt(l, u, project, { screenplayPages: pagesOf(attach), reserve: tail.length + 1 }) + " " + tail, limit);
+      fitsAlone(id + " · " + l.name + " unit " + u.key, box.buildSluglineUnitPrompt(l, u, project, { screenplayPages: pagesOf(attach),
+        ...(pages.length ? { screenplaySceneIds: json(box._locPageScenes(attach)) } : {}), reserve: tail.length + 1 }) + " " + tail, limit);
     }
     for (const sheet of box.deriveLocationCoverageSheets(l, film.scenes, film.drafts, undefined, units))
       fitsAlone(id + " · " + l.name + " sheet " + sheet.id, box.buildLocationCoveragePrompt(l, sheet, project, {}), limit);

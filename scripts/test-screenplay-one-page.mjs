@@ -213,8 +213,8 @@ vm.runInContext(locSrc, full, { filename: "app/locations.jsx" });
 {
   const locations = film.locations.map((l) => ({ ...l }));
   const by = (id) => locations.find((l) => l.id === id);
-  by("loc-fondamenta-dei-vetrai-4").parentLocation = { id: "loc-fondamenta-3", key: "fondamenta", name: "Fondamenta" };
-  by("loc-furnace-office-2").parentLocation = { id: "loc-furnace-1", key: "furnace", name: "Furnace" };
+  // the STORED cards, as the headless runs get them (a parentKey, no parentLocation — 2026-10-14, headless paths)
+  assert.ok(!("parentLocation" in by("loc-fondamenta-dei-vetrai-4")) && by("loc-fondamenta-dei-vetrai-4").parentKey === "fondamenta");
   full.turnContinuity = { locations, scenes: film.scenes, drafts: film.drafts, characters: film.characters, props: [], sluglineUnits: full.deriveSluglineUnits(film.scenes, film.drafts) };
   full.TURN_DATA = { PROJECT: film.project };
   const metas = {}, images = {};
@@ -242,9 +242,11 @@ vm.runInContext(locSrc, full, { filename: "app/locations.jsx" });
     assert.equal(dims.length, o.extraImages.length);
     assert.ok(o.extraImages.every((u, i) => !/^data:image\/png;base64,PAGE/.test(u) || dims[i] === 1536), "every page at 1536: " + dims.join(","));
     assert.ok(o.extraImages.some((u) => /^data:image\/png;base64,PAGE/.test(u))); }
-  // a room & time plate: the count (no drawing) is what its generator attaches, its pages at 1536
+  // a room & time plate: the count (no drawing) is what its generator attaches, its pages at 1536 — a room's too, on
+  // its stored card (2026-10-14: its parent's panel found by its parentKey; every scene of the unit, 6 images at most)
   const unitReport = [];
-  for (const l of locations.filter((x) => x.spatialPlan)) {
+  for (const l of locations.filter((x) => x.parentKey)) { images[l.id] = "https://cdn/plate-" + l.id + ".png"; metas[l.id] = { iso: "r1" }; }
+  for (const l of locations.filter((x) => x.spatialPlan || x.parentKey)) {
     for (const u of full.turnContinuity.sluglineUnits.filter((u) => u && !u.orphan && String(u.subspaceKey || u.locationKey || "") === l.key)) {
       sent.length = 0; pages = [];
       const n = full.sluglineUnitPlateRefCount(l, u, { rootPlate: true }).n;
@@ -252,11 +254,14 @@ vm.runInContext(locSrc, full, { filename: "app/locations.jsx" });
       if (!(await full.generateSluglineUnitPlate(l, u, film.project, {}))) continue;
       const o = sent[0], dims = Array.from(o.extraImageMaxDims || []);
       assert.equal(n, o.extraImages.length, l.name + " · " + u.key + ": the count is what the unit plate attaches");
+      assert.ok(o.extraImages.length <= 6, "6 images at most");
+      if (l.parentKey) assert.ok(o.extraImages.some((x) => /^data:crop:/.test(x)), l.name + ": its parent's panel");
       o.extraImages.forEach((url, i) => { if (/^data:image\/png;base64,PAGE/.test(url)) assert.equal(dims[i], 1536, "a unit's page at 1536"); });
       unitReport.push(u.key + " " + n);
     }
   }
   assert.ok(unitReport.length >= 3, "room & time plates checked: " + unitReport.join(", "));
+  assert.ok(unitReport.includes("furnace|INT|Night 6") && unitReport.some((x) => /^fondamenta-dei-vetrai\|/.test(x)), unitReport.join(", "));
   const furnace = full.locationScriptPageRefs(by("loc-furnace-1"), null, null, 6 - full.locationPlateFixedRefCount(by("loc-furnace-1")).n);
   assert.ok(furnace.length >= 5 && furnace.every((r) => r.scenePages === 1), "Furnace: one page per scene — " + furnace.length + " of its 10 scenes (3 before)");
   console.log("  references attached: " + report.join(", "));

@@ -150,7 +150,9 @@ await test("D1 the headless room & time plate: needs its location's plate; uses 
     nbGenerate:async (prompt, o)=>{ calls.push({ prompt, o }); return "data:x"; }, nbCommit:async ()=>({ tier:"ok" }),
     dispatchEvent:(e)=>{ events.push(e.detail); return true; }, requireLocationSpatialPlan:()=>({ ready:true }),
     locationSpatialReferences:async ()=>[], locationScreenplayReferenceImages:()=>["blob:page1"],
-    buildSluglineUnitPrompt:()=>"ROOM PROMPT", locationAssetDependencySnapshot:()=>({}), turnContinuity:{ scenes:[], drafts:{} } });
+    buildSluglineUnitPrompt:()=>"ROOM PROMPT", locationAssetDependencySnapshot:()=>({}),
+    // the unit's scene (2026-10-14: its pages are drawn for every scene of the unit the film has)
+    turnContinuity:{ scenes:[{ id:"s1", no:1 }], drafts:{} } });
   const l = { id:"kitchen", name:"Kitchen", key:"kitchen" }, u = unit("kitchen-night","kitchen",["s1"]);
   await assert.rejects(()=>db.generateSluglineUnitPlate(l, u, {}), /Generate Kitchen's plate first/);
   assert.equal(calls.length, 0, "nothing is spent without the location's plate");
@@ -194,7 +196,9 @@ await test("F1 plainer names on screen; model-facing prompts keep their terms", 
   for(const t of ['CardFold,{label:"Slugline Units"', 'label:"Spatial topology"', 'React.createElement("span",null,"Continuity anchors")', '"Additional space plates"', '"Add coverage view"'])
     assert.ok(!ui.includes(t), t);
   assert.ok(shotsUi.includes('unit:"Rooms & times",coverage:"Extra spaces",'));
-  assert.ok(ui.includes('note:"screenplay page "+(i+1)+" for "+(u.name||"this Slugline Unit")'), "image-model notes keep the craft term");
+  // (2026-10-14) a room & time plate's page notes are written once, for its card and the headless runs alike
+  assert.ok(loc.includes('const name = (u && u.name) || "this Slugline Unit";') && loc.includes('note:"screenplay page "+(k+1)+" for "+name+" (Scene "'),
+    "image-model notes keep the craft term");
 });
 await test("F2 Frances: the new names, one-scene plates, missing-only, confirms, no World scale box", ()=>{
   const s = between(ai, "const APP_FEATURES = [", "function appBrief(){");

@@ -1821,8 +1821,9 @@ function _takeDepSnap(ref){ const x = ref && ref.current; if(ref) ref.current = 
 /* the size a location card sends its screenplay pages at (locations.jsx LOC_SCREENPLAY_PAGE_MAX_DIM, 2026-10-14): their
    own size, never shrunk — every other reference keeps its card's size */
 function _locPageMaxDim(){ return Number(window.LOC_SCREENPLAY_PAGE_MAX_DIM)||1536; }
-/* a sub-space's single-frame plate (room & time, state, extra space): its copy check against the parent's plate, read
-   before the save and recorded with it (2026-10-14 — locations.jsx "THE COPY CHECK") */
+/* a sub-space's single-frame plate (room & time, environment state — a sub-space has no extra-space plates): its copy
+   check against the parent's plate, read before the save and recorded with it (2026-10-14 — locations.jsx "THE COPY
+   CHECK") */
 async function _withCopyCheck(l, url, iso, meta){
   if(!(l && l.parentLocation) || typeof locationCopyCheckMeta!=="function") return meta;
   return {...(meta||{}), ...(await locationCopyCheckMeta(l, url, iso, {single:true}))};
@@ -2049,12 +2050,15 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". The screenplay page snapshots are context only: read the scene geography from them, but never copy their typography, page border, text, captions or layout into the location sheet."
       : "",
-    metaExtra:async ({mode,url,iso})=> _withCopyCheck(l,url,iso,_withLayoutStamp(l,mode,gen,mode==="edit"
+    /* no copy check here (2026-10-14): an extra space belongs to a MAIN location only — a sub-space derives none and its
+       card shows no "Extra spaces" — so it has no parent plate to be compared with; it is made from its own location's
+       plate, which it is meant to match */
+    metaExtra:async ({mode,url,iso})=> _withLayoutStamp(l,mode,gen,mode==="edit"
       ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage")))),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage"))),
     buildEdit: (instr)=> "Edit this "+(v.role||"INT")+" Required Space Plate for "+(v.name||l.name||"the location")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -2081,8 +2085,7 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       generateDisabledLabel: missingPrev ? "Generate earlier plate first" : "Generate parent plate first",
       generateDisabledTitle: missingPrev
         ? "This extra space depends on an earlier plate. Generate that plate first so the geometry and sightlines can carry forward."
-        : "This extra space needs the parent location plate as a visual reference before it can generate." }),
-    l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:id, gen, single:true, disabled:!canGenerateCoverage, onRegenerate:()=>gen.generate() }));
+        : "This extra space needs the parent location plate as a visual reference before it can generate." }));
 }
 
 function CoverageReferenceStrip({ refs, excludedIds, onToggle, onView }){
@@ -2127,21 +2130,38 @@ function CoverageReferenceStrip({ refs, excludedIds, onToggle, onView }){
 }
 
 async function buildSluglineUnitReferences(l,u,imgId,pseudo,scenes,drafts,parentGenUrl){
-  const out = [];
   const C = window.turnContinuity || {};
-  const scriptImgs = (typeof locationScreenplayReferenceImages==="function")
-    ? locationScreenplayReferenceImages(l, pseudo, scenes||C.scenes||[], drafts||C.drafts||{})
-    : [];
-  scriptImgs.forEach((scriptImg, i)=> out.push({ url:scriptImg, kind:"script", refId:"script-"+imgId+"-"+i, required:false, ready:true, maxDim:_locPageMaxDim(),
-      label:"Screenplay p"+(i+1), note:"screenplay page "+(i+1)+" for "+(u.name||"this Slugline Unit")+" \u2014 use it to infer what the script implies, but do not render any text from it" }));
   const grab = async (rid)=>{ let u2=(typeof nbGetImage==="function")?nbGetImage(rid):"";
     if(!u2 && typeof nbLoadImage==="function"){ try{ u2=await nbLoadImage(rid); }catch(e){} } return u2||""; };
   const parent = parentGenUrl || await grab(l.id);
-  out.push({ url:parent, kind:"location", refId:l.id, required:true, ready:!!parent,
-    label:(l.name||"Parent location"), note:(l.name||"parent location")+" child/master plate \u2014 preserve this exact subspace geometry, materials and continuity anchors" });
+  const plates = [{ url:parent, kind:"location", refId:l.id, required:true, ready:!!parent,
+    label:(l.name||"Parent location"), note:(l.name||"parent location")+" child/master plate \u2014 preserve this exact subspace geometry, materials and continuity anchors" }];
   // the root's part: single panels cut out of its plate, never its whole sheet (2026-10-14)
-  if(l.parentLocation && l.parentLocation.id) out.push(...await _locRootRefsFor(l, grab));
-  return out;
+  if(l.parentLocation && l.parentLocation.id) plates.push(...await _locRootRefsFor(l, grab));
+  // (2026-10-14) every scene of the unit: whole scenes' pages, first in the list, in the slots the plates leave
+  return [..._locUnitPages(l, u, imgId, scenes||C.scenes||[], drafts||C.drafts||{}, plates.length), ...plates];
+}
+/* A ROOM & TIME PLATE'S PAGES ON ITS CARD (2026-10-14 — locations.jsx sluglineUnitPageRefs): every scene of its unit in
+   story order, whole scenes in the slots its plates leave (6 images in all) — the scenes left out go as text */
+function _locUnitPages(l, u, imgId, scenes, drafts, taken){
+  const max = Math.max(0, (Number(window.LOC_PLATE_MAX_REFS)||6) - (Number(taken)||0));
+  return (typeof sluglineUnitPageRefs==="function" ? sluglineUnitPageRefs(l, u, imgId, scenes, drafts, max) : [])
+    .map(r=>({ ...r, required:false, ready:true, maxDim:_locPageMaxDim() }));
+}
+/* the unit's scenes and their screenplay — a card's pages are redrawn when any of them changes (2026-10-14) */
+function _locUnitScriptSig(u, drafts){
+  const dr = drafts || ((window.turnContinuity||{}).drafts) || {};
+  return JSON.stringify(((u && u.scenes) || []).map(sid=>[sid, ((dr[sid]||{}).blocks)||[]]));
+}
+/* what a room & time / state card sends: the references it keeps (ticked, ready), its pages cut to whole scenes in the
+   slots the rest leave, each page with its scene (the scenes left out go as text — _locBudgetOpts) */
+function _locUnitAttachments(refs, off){
+  const kept = (refs||[]).filter(r=>r && r.ready && r.url && (r.required || (off||[]).indexOf(r.refId)<0));
+  const others = kept.filter(r=>r.kind!=="script"), max = (Number(window.LOC_PLATE_MAX_REFS)||6) - others.length;
+  const pages = kept.filter(r=>r.kind==="script");
+  return [...(typeof locationWholeScenePages==="function" ? locationWholeScenePages(pages, max) : pages), ...others]
+    .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note, ...(r.maxDim?{maxDim:r.maxDim}:{}),
+      ...(r.numbered?{numbered:true}:{}), ...(r.kind==="script"&&r.sceneId!=null?{sceneId:r.sceneId}:{}) }));
 }
 /* the parent's plate cameras noted on its card (l.plateCameras, 2026-10-14) — a card strip refreshes when they change */
 function _locParentCamerasKey(l){
@@ -2176,7 +2196,8 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
   const [refPreview,setRefPreview]=React.useState([]);
   const [refOff,setRefOff]=React.useState([]);
   // the parent's cameras noted on its card (2026-10-14) change which of its panels this state is sent
-  const refsKey=[l.id,id,stateUnit&&stateUnit.scriptText,parentGenUrl,l.parentLocation&&l.parentLocation.id,(scenes&&scenes.length),_locParentCamerasKey(l)].join("|");
+  const refsKey=[l.id,id,stateUnit&&stateUnit.scriptText,parentGenUrl,l.parentLocation&&l.parentLocation.id,(scenes&&scenes.length),_locParentCamerasKey(l),
+    stateUnit?_locUnitScriptSig(stateUnit,drafts):""].join("|");
   const buildRefs=async()=> stateUnit
     ? buildSluglineUnitReferences(l,stateUnit,id,pseudo,scenes,drafts,parentGenUrl)
     : buildSluglineUnitReferences(l,{name:l.name},id,{sceneNos:[]},[],{},parentGenUrl);
@@ -2200,8 +2221,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
     requireLocationSpatialPlan(l);
     const refs=mergeLocationReferences(await buildRefs(),await locationSpatialReferences(l));
     if(refs.some(r=>r.required&&!r.ready))throw new Error("Restore the required location plates before generating this state.");
-    return refs.filter(r=>r.ready&&r.url&&(r.required||refOff.indexOf(r.refId)<0))
-      .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note,...(r.maxDim?{maxDim:r.maxDim}:{}),...(r.numbered?{numbered:true}:{})}));
+    return _locUnitAttachments(refs,refOff);   // its pages keep their scenes (2026-10-14: the rest go as text)
   };
   const depSnap = React.useRef(null);
   const gen = useImageGen({
@@ -2293,23 +2313,18 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
   const [refPreview, setRefPreview] = React.useState([]);
   const [refOff, setRefOff] = React.useState([]);
   const refsKey = [l.id, imgId, u.scriptText, parentGenUrl,
-    l.parentLocation&&l.parentLocation.id, (scenes&&scenes.length), _locParentCamerasKey(l)].join("|");
+    l.parentLocation&&l.parentLocation.id, (scenes&&scenes.length), _locParentCamerasKey(l), _locUnitScriptSig(u, drafts)].join("|");
   const buildUnitRefs = async ()=>{
-    const out = [];
     const C = window.turnContinuity || {};
-    const scriptImgs = (typeof locationScreenplayReferenceImages==="function")
-      ? locationScreenplayReferenceImages(l, pseudo, scenes||C.scenes||[], drafts||C.drafts||{})
-      : [];
-    scriptImgs.forEach((scriptImg, i)=> out.push({ url:scriptImg, kind:"script", refId:"script-"+imgId+"-"+i, required:false, ready:true, maxDim:_locPageMaxDim(),
-      label:"Screenplay p"+(i+1), note:"screenplay page "+(i+1)+" for "+(u.name||"this Slugline Unit")+" \u2014 use it to infer what the script implies, but do not render any text from it" }));
     const grab = async (rid)=>{ let u2=(typeof nbGetImage==="function")?nbGetImage(rid):"";
       if(!u2 && typeof nbLoadImage==="function"){ try{ u2=await nbLoadImage(rid); }catch(e){} } return u2||""; };
     const parent = parentGenUrl || await grab(l.id);
-    out.push({ url:parent, kind:"location", refId:l.id, required:true, ready:!!parent,
-      label:(l.name||"Parent location"), note:(l.name||"parent location")+" child/master plate \u2014 preserve this exact subspace geometry, materials and scale" });
+    const plates = [{ url:parent, kind:"location", refId:l.id, required:true, ready:!!parent,
+      label:(l.name||"Parent location"), note:(l.name||"parent location")+" child/master plate \u2014 preserve this exact subspace geometry, materials and scale" }];
     // the root's part: single panels cut out of its plate, never its whole sheet (2026-10-14)
-    if(l.parentLocation) out.push(...await _locRootRefsFor(l, grab));
-    return out;
+    if(l.parentLocation) plates.push(...await _locRootRefsFor(l, grab));
+    // (2026-10-14) every scene of the unit: whole scenes' pages, first in the list, in the slots the plates leave
+    return [..._locUnitPages(l, u, imgId, scenes||C.scenes||[], drafts||C.drafts||{}, plates.length), ...plates];
   };
   React.useEffect(()=>{
     // seq: same out-of-order guard as the coverage card above
@@ -2334,8 +2349,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     requireLocationSpatialPlan(l);
     const refs=mergeLocationReferences(await buildUnitRefs(),await locationSpatialReferences(l));
     if(refs.some(r=>r.required&&!r.ready))throw new Error("Restore the required location plates before generating this unit.");
-    return refs.filter(r=>r.ready && r.url && (r.required || refOff.indexOf(r.refId)<0))
-      .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note, ...(r.maxDim?{maxDim:r.maxDim}:{}), ...(r.numbered?{numbered:true}:{}) }));
+    return _locUnitAttachments(refs, refOff);   // its pages keep their scenes (2026-10-14: the rest go as text)
   };
   const depSnap = React.useRef(null);
   const gen = useImageGen({

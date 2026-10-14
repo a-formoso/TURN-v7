@@ -4,8 +4,9 @@
    Glass Hours' "Fondamenta DEI Vetrai" plate was sent Fondamenta's WHOLE 2x2 sheet as a required "need" Image 1 (768 px,
    each panel ~384 px), its room & time / environment-state plates sent it again with the old "Read ALL panels …
    reproduce that exact room" note, and the layout's source sheet rode along to every sub-space plate. Now, in EVERY
-   sub-space path (its 2x2 plate on the card and headless, its room & time plates, its environment states, its
-   extra-space plates and each one's simplified retry):
+   sub-space path (its 2x2 plate on the card and headless, its room & time plates, its environment states and each
+   one's simplified retry — a sub-space has no extra-space plates: those belong to a main location and are made from
+   its OWN plate, §8):
    1. the parent goes in as single panels cut out of its plate: the quadrants matched to a view through an opening (at
       their own size, up to 1536 px, required and numbered, labelled for that opening) — never the whole sheet;
    2. when no quadrant is matched (the parent's cameras unknown, or none faces that way): at most ONE small panel
@@ -19,7 +20,11 @@
       cameras": each panel's direction by hand — free — or "Read the cameras from this plate", the Draft shared layout
       read keeping only the cameras, priced on the button), for that plate version only (l.plateCameras), without
       changing its prompt or layout; the rooms inside then get the matched panels;
-   7. Frances knows (APP_FEATURES).
+   7. Frances knows (APP_FEATURES);
+   8. the headless runs (2026-10-14, headless paths — the Location Scout, "Make what this scene needs") pass the STORED
+      card, which has a parentKey and no parentLocation: every path here runs on that shape (the cards on the card's own
+      shape, with parentLocation), and sends the same panels — a room & time plate from those runs used to get none;
+      an extra-space plate (a main location's only) is made from its own location's plate, on the real card code.
    Fixture: the app's own sample film Glass Hours (scripts/fixtures/glass-hours-locations.json). All providers and
    persistence are mocked; nothing is generated or charged. node scripts/test-location-single-panels.mjs */
 import assert from "node:assert/strict";
@@ -58,7 +63,11 @@ const json = (x) => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
 const locations = film.locations.map((l) => ({ ...l }));
 const byId = (id) => locations.find((l) => l.id === id);
 const owner = byId("loc-fondamenta-3"), sub = byId("loc-fondamenta-dei-vetrai-4");
-sub.parentLocation = { id: owner.id, key: owner.key, name: owner.name };
+/* the STORED card, as the Location Scout and "Make what this scene needs" pass it: a parentKey, no parentLocation (the
+   test used to add one by hand, which hid that those runs sent a room & time plate no panel of the parent) */
+assert.equal(sub.parentKey, "fondamenta"); assert.ok(!("parentLocation" in sub), "the stored record shape");
+// the card's own shape (locations-ui.jsx LocationSheets adds parentLocation) — only for the card code below
+const subCard = () => ({ ...sub, parentLocation: { id: owner.id, key: owner.key, name: owner.name } });
 const units = box.deriveSluglineUnits(film.scenes, film.drafts);
 box.turnContinuity = { locations, scenes: film.scenes, drafts: film.drafts, characters: film.characters, props: [], sluglineUnits: units };
 box.TURN_DATA = { PROJECT: film.project };
@@ -168,12 +177,17 @@ sent.length = 0;
 assert.equal(await box.generateSluglineUnitPlate(sub, subUnit, film.project, {}), true);
 assert.ok(!json(sent[0].o.extraImages).some((u) => /fondamenta/.test(u) && !/plate-sub/.test(u)));
 images[owner.id] = PLATE;
-// an environment state
+// an environment state — this one is the quay's Night room & time (the Location Scout makes those here): its unit's
+// page first, as on its card (2026-10-14, headless paths), then its room's plate and the root's ONE panel
 sent.length = 0; commits.length = 0;
 await box.generateLocationVariant(sub, { id: "night", time: "Night", state: "Acqua alta over the stones" }, film.project);
-assert.deepEqual(json(sent[0].o.extraImages), ["https://cdn/plate-sub.png", "crop(data:https://cdn/plate-fondamenta.png@50.5,50.5/640)"]);
-assert.deepEqual(json(sent[0].o.extraImageMaxDims), [1024, 640]);
-assert.match(sent[0].prompt, /Image 2 = Fondamenta — ONE panel of its plate, small: materials and colour only/);
+assert.deepEqual(json(sent[0].o.extraImages.slice(1)), ["https://cdn/plate-sub.png", "crop(data:https://cdn/plate-fondamenta.png@50.5,50.5/640)"]);
+assert.match(sent[0].o.extraImages[0], /^data:image\/png;base64,PAGE/, "scene 13's page");
+assert.deepEqual(json(sent[0].o.extraImageMaxDims), [1536, 1024, 640]);
+assert.match(sent[0].prompt, /Image 1 = screenplay page 1 for Fondamenta dei Vetrai \(Scene 13\)/);
+assert.match(sent[0].prompt, /Image 3 = Fondamenta — ONE panel of its plate, small: materials and colour only/);
+assert.match(sent[0].prompt, /"screenplay_excerpt":"the screenplay of these scenes is attached as page images \(Image 1\)/);
+assert.equal(commits[0].meta.locationUpstream.filter((u) => /^script-/.test(u.id)).length, 0, "a page is never an upstream plate");
 assert.ok(commits[0].meta.locationUpstream.some((u) => u.id === owner.id && u.iso === ISO), "the parent's plate stays an upstream dependency");
 // the parent's plate missing: the state waits for it (nothing is sent)
 delete images[owner.id];
@@ -184,18 +198,18 @@ images[owner.id] = PLATE;
 
 /* ---- the cards: room & time / environment-state references (locations-ui.jsx) ---- */
 const pseudo = { id: "u1", name: subUnit.name, role: "EXT", sceneNos: subUnit.sceneNos, scriptExcerpt: "", summary: "" };
-let cardRefs = await box.buildSluglineUnitReferences(sub, subUnit, "u1", pseudo, film.scenes, film.drafts, "");
+let cardRefs = await box.buildSluglineUnitReferences(subCard(), subUnit, "u1", pseudo, film.scenes, film.drafts, "");
 noSheet(cardRefs, "the state card");
 const root = cardRefs.find((r) => /^pm-/.test(r.refId));
 assert.ok(root && root.required === false && root.ready, "the root's panel shows as optional — it can be unticked (no 'need' badge)");
 assert.equal(cardRefs.find((r) => r.refId === sub.id).required, true, "the room's own plate stays required");
 delete images[owner.id];
-cardRefs = await box.buildSluglineUnitReferences(sub, subUnit, "u1", pseudo, film.scenes, film.drafts, "");
+cardRefs = await box.buildSluglineUnitReferences(subCard(), subUnit, "u1", pseudo, film.scenes, film.drafts, "");
 assert.deepEqual(json(cardRefs.filter((r) => r.refId === owner.id).map((r) => [r.required, r.ready])), [[true, false]], "the root's plate missing: one 'needed' slot (the card waits)");
 images[owner.id] = PLATE;
 const ui = read("app/locations-ui.jsx");
 assert.ok(!/locationParentReference\(|locationSubspaceParentReference/.test(ui), "no card path sends the old whole-sheet reference");
-assert.equal((ui.match(/out\.push\(\.\.\.await _locRootRefsFor\(l, grab\)\)/g) || []).length, 2, "the room & time and environment-state cards both use the single panels");
+assert.equal((ui.match(/plates\.push\(\.\.\.await _locRootRefsFor\(l, grab\)\)/g) || []).length, 2, "the room & time and environment-state cards both use the single panels");
 assert.match(ui, /if\(parentRefUrl\) rootRefs\.forEach\(r=>out\.push\(r\)\);/, "the room's own card shows the panels it will send");
 assert.match(ui, /parentRefs=sub\.refs\.filter\(r=>r\.required!==false\|\|masterRefOff\.indexOf\(r\.refId\)<0\)/, "an unticked material panel stays out");
 assert.match(ui, /\.\.\.\(r\.numbered\?\{numbered:true\}:\{\}\)/);
@@ -300,6 +314,59 @@ Object.assign(box, { WRITING_MODELS: [{ id: "m1", label: "Text Only", provider: 
 assert.equal(box.aiPlateCamerasReadCostText(), "about 1 writing call on Vision One", "priced on the engine the vision read really uses");
 assert.match(ui, /const rec=await window\.aiReadPlateCameras\(l,\(\(window\.turnContinuity\|\|\{\}\)\.scenes\)\|\|\[\],project\);/, "the card runs the read");
 
+/* ---- 8. the headless runs pass the STORED card (2026-10-14, headless paths) ---- */
+{
+  // the parent's plate cameras filled in: "Make what this scene needs" sends the room & time plate the matched quadrant
+  owner.plateCameras = box.normalizeLocationPlateCameras({ iso: ISO, source: "set", panels: { TR: { yaw: 90 } } });
+  images[sub.id] = "https://cdn/plate-sub.png"; metas[sub.id] = { iso: "s1" };
+  sent.length = 0; commits.length = 0;
+  assert.ok(!("parentLocation" in sub));
+  assert.equal(await box.generateSluglineUnitPlate(sub, subUnit, film.project, {}), true);
+  const imgs = json(sent[0].o.extraImages);
+  assert.deepEqual(imgs.slice(-2), ["https://cdn/plate-sub.png", "crop(data:https://cdn/plate-fondamenta.png@50.5,0.5/1536)"],
+    "the stored card: its room's plate, then the parent's top-right quadrant cut out at its own size");
+  assert.equal(sent[0].o.referencesNumbered, true);
+  assert.equal(box.sluglineUnitPlateRefCount(sub, subUnit, { rootPlate: true }).n, imgs.length, "priced on the stored card as it is sent");
+  assert.equal(box.sluglineUnitPlateRefCount(sub, subUnit, { rootPlate: false }).n, imgs.length - 1, "the root without a plate: nothing of it");
+  // the root's plate missing: the room & time plate goes without it, as from the card
+  delete images[owner.id]; sent.length = 0;
+  assert.equal(await box.generateSluglineUnitPlate(sub, subUnit, film.project, {}), true);
+  assert.ok(!json(sent[0].o.extraImages).some((u) => /plate-fondamenta/.test(u)));
+  images[owner.id] = PLATE;
+  delete owner.plateCameras;
+  // a room whose card has a parentKey its list can't resolve (its parent deleted): stopped, nothing sent, as before
+  sent.length = 0;
+  await assert.rejects(box.generateLocationPlate({ ...sub, parentKey: "gone-place" }, film.project, {}), /Restore the parent location/);
+  assert.equal(sent.length, 0);
+}
+/* ---- 8. extra-space plates belong to a main location: made from its OWN plate, on the real card code ---- */
+{
+  assert.deepEqual(json(box.deriveLocationCoverageSheets(sub, film.scenes, film.drafts, locations, units)), [], "a sub-space has no extra spaces");
+  const ui8 = read("app/locations-ui.jsx");
+  assert.match(ui8, /!l\.parentLocation&&coverageSheets\.length>0&&React\.createElement\("details",\{className:"loc-nested-section"\},\n\s+React\.createElement\("summary",null,"Extra spaces"\)/,
+    "the card shows Extra spaces on a main location only");
+  const corridor = byId("loc-hotel-staff-corridor-6");
+  const sheets = box.deriveLocationCoverageSheets(corridor, film.scenes, film.drafts, locations, units);
+  assert.deepEqual(json(sheets.map((x) => x.id)), ["cov-ext-hotel-staff-corridor-exterior"], "Hotel Staff Corridor: its exterior, never slugged");
+  corridor.spatialPlan = box.normalizeLocationSpatialPlan({ frame: "Corridor frame", status: "reviewed", source: { assetId: corridor.id, iso: "" },
+    anchors: [{ id: "door", space: "Hotel Staff Corridor", name: "Service door", placement: "end wall" }] });
+  images[corridor.id] = "https://cdn/plate-corridor.png";
+  let cap = null;
+  Object.assign(box, { useImageGen: (o) => { cap = o; return { genUrl: "", genMeta: null, generate: noop }; }, SheetFrame: () => null });
+  hooks = []; cursor = 0; effects = [];
+  const tree8 = box.LocationCoverageSheet({ l: corridor, v: sheets[0], project: film.project, scenes: film.scenes, drafts: film.drafts, previousSheets: [], parentGenUrl: "", onView: noop });
+  assert.ok(!flat(tree8).some((n) => n.type === box.LocationCopyCheckNotice), "no copy check: it has no parent plate to be compared with");
+  crops.length = 0;
+  const att = json(await cap.attachments({}, "final"));
+  assert.deepEqual(att.map((r) => r.kind), ["script", "location"], "its scene's page, then its location's own plate");
+  assert.equal(att[1].url, "https://cdn/plate-corridor.png", "the location's own plate, whole");
+  assert.match(att[1].note, /^Hotel Staff Corridor master plate — preserve the same exterior\/interior world, materials, scale and light$/);
+  assert.equal(crops.length, 0, "nothing is cut out: it is that location's own plate");
+  const meta8 = await cap.metaExtra({ mode: "final", url: "https://img/x.png", iso: "x1" });
+  assert.ok(!("copyCheck" in (meta8 || {})));
+  delete corridor.spatialPlan; delete images[corridor.id]; delete box.useImageGen; delete box.SheetFrame;
+}
+
 /* ---- 7. Frances ---- */
 const frances = ai.slice(ai.indexOf("/* OUTDOOR PARTS and SINGLE CUT-OUT PANELS"), ai.indexOf("/* the public view of every entry, memoised"));
 assert.match(frances, /AN OUTDOOR PART OF A PLACE/);
@@ -309,4 +376,4 @@ assert.match(frances, /'Read the cameras from this plate'/);
 assert.match(frances, /Outdoors no camera stands higher than about 6 m/);
 assert.doesNotMatch(ai.slice(ai.indexOf("(2026-10-13) PLATE CAMERAS"), ai.indexOf("/* LOCATION COORDINATES, step B")), /the parent's whole plate is attached small/, "the older entry no longer says the whole plate is sent");
 
-console.log("PASS single cut-out panels: no sub-space path sends the parent's whole sheet (its plate, room & time, states, the cards, the retry); matched quadrants at their own size, else one optional small material panel; the layout sheet only to its owner; prices follow; a plate's cameras can be noted (free) or read (priced) for that version; Frances knows");
+console.log("PASS single cut-out panels: no sub-space path sends the parent's whole sheet (its plate, room & time, states, the cards, the retry — and the headless runs on the stored card, parentKey only); matched quadrants at their own size, else one optional small material panel; the layout sheet only to its owner; prices follow; a plate's cameras can be noted (free) or read (priced) for that version; Frances knows");

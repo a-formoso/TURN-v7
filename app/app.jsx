@@ -4727,7 +4727,8 @@ function App(){
         const label = (u.name||owner.name||"Room")+(u.time?" \u00b7 "+u.time:"");
         if(await has(n.id)){ already.push(label); continue; }
         if(!planned.has(owner.id) && !(await has(owner.id))){ needNo({ label }, "needs "+(owner.name||"its location")+"'s plate first (Locations)"); continue; }
-        const rootId = owner.parentLocation && owner.parentLocation.id;
+        // the room's parent found by the stored card's parentKey (it has no parentLocation) — 2026-10-14, headless paths
+        const rootId = ((typeof locationParentOf==="function" ? locationParentOf(owner, L.locList) : null) || {}).id;
         const rootPlate = rootId ? (planned.has(rootId) || await has(rootId)) : undefined;
         const rc = (typeof window.sluglineUnitPlateRefCount==="function") ? window.sluglineUnitPlateRefCount(owner, u, { rootPlate }) : { n:6, exact:false };
         planned.add(n.id);

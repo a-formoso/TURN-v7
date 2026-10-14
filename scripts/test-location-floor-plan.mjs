@@ -162,8 +162,10 @@ assert.match(commits[0].meta.plateLayoutSig,/^pl1:/,"a room's state plate record
 const ui=read("app/locations-ui.jsx");
 assert.match(ui,/locationPlateLayoutChanged\(gen.genMeta, l, \{panels:true\}\)/);
 assert.match(ui,/"Layout changed \\u2014 regenerate"/);
-// (2026-10-14) wrapped by the copy check, which adds its result to the same meta
-assert.equal((ui.match(/metaExtra:async \(\{mode,url,iso\}\)=> _withCopyCheck\(l,url,iso,_withLayoutStamp\(l,mode,gen,/g)||[]).length,3,"the extra-space, state and room & time cards stamp it");
+// (2026-10-14) wrapped by the copy check, which adds its result to the same meta — on the state and room & time cards;
+// an extra space (a main location's only, no parent plate to compare with) stamps it without one (headless paths)
+assert.equal((ui.match(/metaExtra:async \(\{mode,url,iso\}\)=> _withCopyCheck\(l,url,iso,_withLayoutStamp\(l,mode,gen,/g)||[]).length,2,"the state and room & time cards stamp it");
+assert.equal((ui.match(/metaExtra:async \(\{mode,url,iso\}\)=> _withLayoutStamp\(l,mode,gen,/g)||[]).length,1,"the extra-space card stamps it");
 assert.match(ui,/plateLayoutSig:masterLayoutSig.current/);
 
 /* ---- 5. the top-down map ---- */
