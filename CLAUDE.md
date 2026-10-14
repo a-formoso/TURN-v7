@@ -171,6 +171,11 @@ deploy`, or you overwrite fixes made elsewhere.
 - `app/inspector.jsx` — editable scene/beats/analysis panel.
 - `app/script.jsx` — Script view, continuity checker, version history.
 - `app/chrome.jsx` — top bar + left rail. `app/app.jsx` — state + composition (scenes, beatsMap, drafts, continuityMap, agent ctx factory).
+- **Cache keys (2026-10-14):** a changed app file gets a new `?v=` key in `TURN.html` (`script.jsx` shares `ai.jsx`'s).
+  Tests pin keys as double-quoted lists (`["k1", …].some(k=>html.includes('…?v='+k+'"'))`), so after a bump run
+  `perl -pi -e 's/"<prev>"/"<prev>", "<new>"/g' scripts/test-*.mjs` (prev = the latest key used anywhere); write new
+  pins the same way, latest key included. Kept by hand: the livevoice regex in `test-gpt-live.mjs`, the
+  `admin-storage.jsx` / `admin-tax.jsx` checks and `test-identity.mjs`'s `KEY` (icons).
 - **Team (relaunched 2026-10-03)** — owner: "Let's ship Collaboration (Teams)", live as soon as built; the rules are
   `docs/Dashboard Plan.md` §5-§7, §9. Director and up shares (5 people a film / 10 on Producer, pending invites count;
   3 Co-writers; 20 invites a day; 14-day invites, confirmed email); roles View-only / Co-writer / Art director /
