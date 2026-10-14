@@ -5247,7 +5247,8 @@ function App(){
   /* SAME PLACE, TWO NAMES (owner-approved 2026-10-14, "go ahead with all of it"; Story Pipeline "Locations"): the
      merge is ONE confirmed action, for a role that saves the Art Room (the owner, an Art director). One card stays
      (the one with the shared layout and plate, locations.jsx locationMergePlan) and takes the name the screenplay's
-     headings use; the other card goes to Recently deleted with its plate; the scene cards that disagree with their own
+     headings use; the other card goes to Recently deleted with its plate (and copies of its plates become earlier
+     versions of the kept card's plate, 2026-10-14); the scene cards that disagree with their own
      screenplay are corrected when the role can also save the screenplay (with the screenplay's card snapshot, so they
      never read "needs redraft"); shots that picked the other card's plate by hand use the kept one. Nothing is
      generated or charged. On a Show the cards are shared, so the merge holds in every episode (the confirm says so). */
@@ -5288,6 +5289,34 @@ function App(){
     if(typeof window.appToast==="function") window.appToast("Merged into \u201c"+plan.name+"\u201d"
       +(fixing ? " \u2014 scene "+plan.sceneFixes.map(f=>f.no).join(", ")+"\u2019s card"+(plan.sceneFixes.length!==1?"s":"")+" corrected" : "")
       +". \u201c"+plan.goneName+"\u201d\u2019s card is in Recently deleted.","info");
+    /* (2026-10-14) THE MERGED-AWAY CARD'S PLATES ARE NOT LOST TO RECENTLY DELETED: copies of its plate, extra-space and
+       environment-state plates go onto the kept card as earlier versions of its plate (locations.jsx
+       locationMergeCarryIds; imagegen.jsx nbCarryVersionsInto) \u2014 its current plate is never replaced, the originals
+       stay with the card in Recently deleted, the confirm said so. Free: nothing is generated or charged. */
+    const carry = (plan.carry||[]).map(c=>({ id:c.id, cardId:c.cardId, name:c.name, what:c.what, label:c.label }));
+    if(carry.length && typeof nbCarryVersionsInto==="function"){
+      const film1 = projIdRef.current;
+      // one plate or several: the ones known to have an image (the confirm said which), else every id carried
+      const many = ((plan.carry||[]).filter(c=>c && c.hasImage).length || carry.length)!==1;
+      const carryFailText = ()=> "Couldn\u2019t copy \u201c"+plan.goneName+"\u201d\u2019s plate"+(many ? "s" : "")+" onto \u201c"+plan.name+"\u201d. "
+        +(many ? "The originals are" : "The original is")+" still with \u201c"+plan.goneName+"\u201d\u2019s card in Recently deleted.";
+      Promise.resolve(nbCarryVersionsInto(plan.keeperId, carry)).then(r=>{
+        if(!r || projIdRef.current!==film1 || typeof window.appToast!=="function") return;
+        if(r.error==="asset scope changed") return;   // another film opened meanwhile: nothing was written
+        /* fixed words only (2026-10-14 review): a storage or database error's own text never reaches the toast */
+        const gone = "\u201c"+plan.goneName+"\u201d\u2019s", keptName = "\u201c"+plan.name+"\u201d";
+        const carried = Number(r.carried)||0;
+        const lost = (r.failed||[]).length>0 || r.ok===false;
+        const originals = (many ? " The originals are" : " The original is")+" still with "+gone+" card in Recently deleted.";
+        if(r.persisted==="unknown") window.appToast("Couldn\u2019t confirm that "+gone+(many ? " plates were" : " plate was")+" copied onto "+keptName
+          +" \u2014 look in its \u22ef \u203a Details \u203a Earlier versions."+originals,"error");
+        else if(lost && carried) window.appToast(carried+" of "+gone+" plates "+(carried!==1 ? "are now earlier versions" : "is now an earlier version")
+          +" of "+keptName+"\u2019s plate (\u22ef \u203a Details \u203a Earlier versions); the others couldn\u2019t be copied."+originals,"error");
+        else if(lost) window.appToast(carryFailText(),"error");
+        else if(carried) window.appToast(gone+" plate"+(carried!==1 ? "s are now earlier versions" : " is now an earlier version")
+          +" of "+keptName+"\u2019s plate (\u22ef \u203a Details \u203a Earlier versions).","info");
+      }).catch(()=>{ if(projIdRef.current===film1 && typeof window.appToast==="function") window.appToast(carryFailText(),"error"); });
+    }
   };
   /* "Part of" (kind "part": aId is the part, bId the place) and "Keep separate" (kind "separate") \u2014 the owner's answer
      to "These look like one place"; stored on the cards (locations.jsx locationPlaceDecisionApply). Keeping a place and

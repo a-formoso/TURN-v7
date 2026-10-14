@@ -652,7 +652,27 @@ function locationMergePlan(locations, scenes, drafts, aId, bId, opts){
     keeperHasPlate:!!hasPlate(keeper.id), goneHasPlate:!!hasPlate(gone.id),
     keeperHasStaging:typeof stagingHasContent==="function" ? stagingHasContent(keeper) : !!keeper.staging,
     goneSheets:(Array.isArray(gone.coverageSheets)?gone.coverageSheets.length:0)+(Array.isArray(gone.variants)?gone.variants.length:0),
+    // the other card's own images, copied onto the kept card as earlier versions of its plate (hasImage: one is there)
+    carry:locationMergeCarryIds(gone).map(c=>({ ...c, hasImage:!!hasPlate(c.id) })),
     sceneFixes };
+}
+/* A MERGE KEEPS THE OTHER CARD'S PLATES (2026-10-14, the gap an independent check found in fix A): the images the
+   merged-away card takes to Recently deleted under its own id — the ones deleting it for good clears (app.jsx
+   purgeLocation): its plate, its extra-space plates and its own environment-state plates (a room & time plate belongs
+   to its room & time, which the merged card keeps). Each is COPIED onto the kept card as an earlier version of its
+   plate (imagegen.jsx nbCarryVersionsInto) — the kept card's current plate is never replaced; the originals stay with
+   the card in Recently deleted. Pure: [{id, cardId, name, what:"plate"|"extra space"|"environment state", label}]. */
+function locationMergeCarryIds(gone){
+  if(!gone || gone.id==null || gone.id==="") return [];
+  const id = String(gone.id), name = String(gone.name||"").trim();
+  const out = [{ id, cardId:id, name, what:"plate", label:"" }];
+  (Array.isArray(gone.coverageSheets) ? gone.coverageSheets : []).forEach(v=>{
+    if(v && v.id!=null && v.id!=="") out.push({ id:id+"-"+v.id, cardId:id, name, what:"extra space", label:String(v.name||"").trim() }); });
+  (Array.isArray(gone.variants) ? gone.variants : []).forEach(v=>{
+    if(v && v.id!=null && v.id!=="") out.push({ id:id+"-"+v.id, cardId:id, name, what:"environment state",
+      label:[v.time, v.state].map(x=>String(x||"").trim()).filter(Boolean).join(" · ") }); });
+  const seen = new Set();
+  return out.filter(c=>{ if(seen.has(c.id)) return false; seen.add(c.id); return true; });
 }
 /* the confirm for a merge — ctx: canFixScenes (the role can save scene cards), show (the film is an episode of a Show),
    offerOtherName (the "Same place as…" path: the other name is a second button), altPlan (what that button does) */
@@ -670,9 +690,24 @@ function locationMergeConfirmText(plan, ctx){
   items.push(q(plan.goneName)+"’s scenes join it (and any description it has that the other card lacks); its card moves to Recently deleted"
     +(goneWith.length ? " with "+list(goneWith) : "")+" — nothing is deleted for good"
     +(plan.goneKeyTaken ? " (it stays there: the merged card now has its name, so it can’t come back as a card of its own)" : "")+".");
+  // (2026-10-14) …and copies of them stay on the merged card, as earlier versions of its plate
+  const carried = (plan.carry||[]).filter(c=>c && c.hasImage);
+  if(carried.length){
+    const own = carried.some(c=>c.what==="plate"), others = carried.length-(own ? 1 : 0);
+    const otherPlates = (others===1 ? "its other plate" : "its "+others+" other plates");
+    const what = carried.length===1 ? "A copy of "+(own ? "its plate" : otherPlates)+" is"
+      : "Copies of "+(own ? "its plate and "+otherPlates : otherPlates)+" are";
+    items.push(what+" kept on the merged card too, as "+(carried.length===1 ? "an earlier version" : "earlier versions")
+      +" in its plate’s version history (⋯ › Details › Earlier versions, where Restore makes "+(carried.length===1 ? "it" : "one")+" the current plate); "
+      +(plan.keeperHasPlate ? q(plan.keeperName)+"’s current plate stays as it is." : "the merged card has no current plate, and none is made."));
+  }
+  /* an Art director can't edit scenes (2026-10-14): the scene card keeps its heading as it is and the merged place still
+     reads correctly; the owner's merge corrects it — said plainly */
   const fixText = (fixes)=> (fixes||[]).map(f=> ctx.canFixScenes
     ? "Scene "+f.no+"’s card slugline is corrected to "+f.to+", as its screenplay says."
-    : "Scene "+f.no+"’s card keeps "+f.from+" (correcting it needs a role that edits the screenplay); it is read as "+plan.name+" either way.");
+    : "Scene "+f.no+"’s card keeps its heading as it is, "+f.from+": an Art director can’t edit scenes. The merged place still reads correctly — scene "
+      +f.no+", its shots and its room & time plates are read as "+q(plan.name)+". (The owner’s merge corrects the heading to "+f.to
+      +"; after yours, the owner can change it on the scene card.)");
   fixText(plan.sceneFixes).forEach(t=>items.push(t));
   // the "Same place as…" path's second button: the same card stays, under the other name — say what else differs
   const alt = ctx.offerOtherName && ctx.altPlan && plan.altName && plan.altName.toLowerCase()!==plan.name.toLowerCase() ? ctx.altPlan : null;
@@ -857,6 +892,7 @@ window.locationSamePlaceSuggestions=locationSamePlaceSuggestions;
 window.locationSamePlaceText=locationSamePlaceText;
 window.locationCorrectedSlugline=locationCorrectedSlugline;
 window.locationMergePlan=locationMergePlan;
+window.locationMergeCarryIds=locationMergeCarryIds;
 window.locationMergeConfirmText=locationMergeConfirmText;
 window.locationMergeApply=locationMergeApply;
 window.locationMergeShots=locationMergeShots;

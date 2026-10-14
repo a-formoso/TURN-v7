@@ -1609,14 +1609,14 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement("div",{className:"loc-variants"},
           units.length
             ? environment.units.map(u=>React.createElement(SluglineUnitCard,{key:u.key, l, u, project, scenes, drafts,
-                parentGenUrl:gen.genUrl, onRemoveUnit, onView,
+                parentGenUrl:gen.genUrl, onRemoveUnit, onView, readOnly,
                 onEnvironmentChange:state=>saveLocationUnitEnvironment(l,u,appearanceStates,state,onUpdateUnit,onUpdate)}))
             : !roomUnits.length&&React.createElement("div",{className:"loc-variants-empty"},"No authored or screenplay-derived slugline unit currently addresses this location."),
           React.createElement(LocationRoomLinks,{entries:roomUnits,onSelectLocation,section:"units"}),
           React.createElement("details",{className:"loc-nested-section",open:initialSection==="environments"?true:undefined},
             React.createElement("summary",null,"Additional environment states"),
             React.createElement("p",{className:"loc-layer-note"},"Only for another look not already represented by a room & time, such as a storm or power outage. Scripted Night / Dawn changes are edited in each room & time's Lighting & environment."),
-            environment.additional.map(v=>React.createElement(LocationVariant,{key:v.id,l,v,project,scenes,drafts,units,
+            environment.additional.map(v=>React.createElement(LocationVariant,{key:v.id,l,v,project,scenes,drafts,units,readOnly,
               parentGenUrl:gen.genUrl,onTime:time=>updateVariant(v.id,{time}),
               onState:state=>updateVariant(v.id,{state}),onRemove:()=>removeVariant(v.id),onView})),
             React.createElement(LocationRoomLinks,{entries:roomStates,onSelectLocation,section:"environments"}),
@@ -2201,7 +2201,8 @@ async function _locRootRefsFor(l, grab){
 
 /* An additional environment state. The legacy linked-unit resolver is retained
    for asset compatibility; ordinary linked states render only in their unit. */
-function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, onTime, onState, onRemove, onView }){
+/* readOnly (2026-10-14): a viewer who can't change the Art Room sees its copy check's words, never Regenerate / Keep */
+function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, onTime, onState, onRemove, onView, readOnly=false }){
   const unit = v.linkedUnit || ((typeof locationVariantSluglineUnit==="function")
     ? locationVariantSluglineUnit(l,v,units||[]) : null);
   const stateUnit = unit ? {...unit,appearance:v.state||unit.appearance||""} : null;
@@ -2299,8 +2300,10 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
       generateDisabled:!canGenerate,
       generateDisabledLabel:"Generate parent plate first",
       generateDisabledTitle:"This time-of-day variant needs the parent location plate as a visual reference before it can generate." }),
-    l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:id, gen, single:true,
-      refs:()=>(stateUnit && typeof sluglineUnitPlateRefCount==="function" ? sluglineUnitPlateRefCount(l,stateUnit,{rootPlate:true}).n : undefined),
+    // its price counts what it sends: a state of its own (a storm, no room & time) sends the room's plate and the root's
+    // part, no pages — priced as such, never as an image with no references (2026-10-14)
+    l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:id, gen, single:true, readOnly,
+      refs:()=>(typeof sluglineUnitPlateRefCount==="function" ? sluglineUnitPlateRefCount(l,stateUnit||{name:l.name},{rootPlate:true}).n : undefined),
       disabled:!canGenerate, onRegenerate:()=>gen.generate() }));
 }
 
@@ -2312,7 +2315,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
    never auto) and requires the parent master plate as its visual anchor. Orphan
    units (slugline edited away) stay visible so their plate and notes aren't
    silently lost; the user removes them explicitly. */
-function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvironmentChange, onRemoveUnit, onView }){
+function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvironmentChange, onRemoveUnit, onView, readOnly=false }){
   // collision-safe id: readable slug + djb2 hash of the FULL key (locations.jsx)
   const imgId = (typeof sluglineUnitImageId==="function")
     ? sluglineUnitImageId(u.key)
@@ -2445,7 +2448,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       generateDisabledTitle: u.orphan
         ? "This room & time is no longer in the screenplay, so it can't generate new plates. Its existing plate and notes are kept until you Remove it."
         : "This room & time plate needs the parent location plate as a visual reference before it can generate." }),
-    l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:imgId, gen, single:true, readOnly:!!u.orphan,
+    l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:imgId, gen, single:true, readOnly:readOnly||!!u.orphan,
       refs:()=>(typeof sluglineUnitPlateRefCount==="function" ? sluglineUnitPlateRefCount(l,u,{rootPlate:true}).n : undefined),
       disabled:!canGenerate, onRegenerate:()=>gen.generate() }));
 }

@@ -3162,6 +3162,12 @@ function useImageGen(opts){
     try{ const h = await nbGetHistory(id); setLayers((h&&h.length)||0); }catch(e){ setLayers(0); }
   },[id]);
   React.useEffect(()=>{ refreshLayers(); },[refreshLayers, genUrl]);
+  // another card's plate added as an earlier version (a location merge, 2026-10-14 — imagegen.jsx nbCarryVersionsInto)
+  React.useEffect(()=>{
+    const onHistory = (e)=>{ if(e && e.detail && e.detail.id===id) refreshLayers(); };
+    window.addEventListener("nb-history-changed", onHistory);
+    return ()=>window.removeEventListener("nb-history-changed", onHistory);
+  },[id, refreshLayers]);
 
   /* hydrate from IndexedDB / cloud on mount (large sheets live there, not localStorage) */
   React.useEffect(()=>{
@@ -3597,6 +3603,13 @@ function BatchBar({ batch, noun }){
 }
 window.BatchBar = BatchBar;
 
+/* an earlier version copied from another card when two location cards were merged (2026-10-14 — imagegen.jsx
+   nbCarryVersionsInto): "From “Fondamenta DEI Vetrai”’s card" (· extra space: Exterior / · environment state: Storm) */
+function nbCarriedFromLabel(c){
+  if(!c) return "";
+  const what = c.what && c.what!=="plate" ? " \u00b7 "+c.what+(c.label ? ": "+c.label : "") : "";
+  return "From \u201c"+(c.name||"another card")+"\u201d\u2019s card"+what;
+}
 /* SheetDetails — a modal exposing everything about a generated sheet: id, model,
    resolution, aspect, timestamp, grounding, the exact prompt sent, the reference
    images used, and the full version history (preview + restore any prior version). */
@@ -3725,7 +3738,8 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
   const deleteCurrent = async ()=>{
     if(!history.length || !gen.deleteCurrentAndPromote) return;
     const prev = history[0] && history[0].meta;
-    const prevLabel = prev && prev.version ? ("v"+prev.version) : "the previous version";
+    const prevLabel = prev && prev.carriedFrom ? "the earlier version "+nbCarriedFromLabel(prev.carriedFrom).replace(/^From/,"from")
+      : prev && prev.version ? ("v"+prev.version) : "the previous version";
     const ok = await window.appConfirm({
       title:"Delete current image?",
       body:"This deletes the current "+(noun||"image")+" and restores "+prevLabel+" as the current image. The deleted current image will not be kept in Earlier versions.",
@@ -3818,6 +3832,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
           field("Aspect ratio", aspectDetail),
           field("Quality", meta.quality ? String(meta.quality).replace(/^./,c=>c.toUpperCase()) : null),
           field("Generated", generatedDetail),
+          field("Kept from", meta.carriedFrom ? nbCarriedFromLabel(meta.carriedFrom).replace(/^From /,"")+" \u2014 copied here when the two cards were merged" : null),
           field("Worn continuity", meta.wornRefSummary && meta.wornRefSummary.total
             ? (meta.wornRefSummary.visual+" visual lock"+(meta.wornRefSummary.visual===1?"":"s")
               +" · "+meta.wornRefSummary.text+" text-only") : null),
@@ -3895,7 +3910,8 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
               const hm = h.meta||{};
               const isEdit = hm.mode==="edit";
               const styleLabel = (typeof renderStyleLabelFromMeta==="function") ? renderStyleLabelFromMeta(hm) : "";
-              const layerLabel = isEdit
+              // a copy kept from a merged-away card (2026-10-14, imagegen.jsx nbCarryVersionsInto) says whose it was
+              const layerLabel = hm.carriedFrom ? nbCarriedFromLabel(hm.carriedFrom) : isEdit
                 ? ("Edit: "+(hm.editInstruction||"adjustment"))
                 : (hm.mode==="photo" ? "From reference photo" : hm.mode==="cameo" ? "From the likeness" : styleLabel || "Original generation");
               const modelName = hm.modelId || hm.modelLabel || "unknown model";

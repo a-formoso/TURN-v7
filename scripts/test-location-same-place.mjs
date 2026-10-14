@@ -146,14 +146,18 @@ assert.equal(conf.body, "They become one location card. Nothing is generated and
 assert.deepEqual(conf.items, [
   "“Fondamenta”’s card stays, with its plate, the shared layout (with its floor plan) and its view composition as they are, and is named “Fondamenta dei Vetrai” — the name the screenplay’s headings use.",
   "“Fondamenta DEI Vetrai”’s scenes join it (and any description it has that the other card lacks); its card moves to Recently deleted with its own plate — nothing is deleted for good (it stays there: the merged card now has its name, so it can’t come back as a card of its own).",
+  // (2026-10-14) its plate is not lost to Recently deleted: a copy stays on the merged card (test-location-merge-versions)
+  "A copy of its plate is kept on the merged card too, as an earlier version in its plate’s version history (⋯ › Details › Earlier versions, where Restore makes it the current plate); “Fondamenta”’s current plate stays as it is.",
   "Scene 13’s card slugline is corrected to EXT. FONDAMENTA DEI VETRAI · NIGHT, as its screenplay says."]);
+assert.deepEqual(plan.carry, [{ id: C, cardId: C, name: "Fondamenta DEI Vetrai", what: "plate", label: "", hasImage: true }], "the merged-away card's own plate is carried");
 assert.equal(plan.goneKeyTaken, true, "the merged card takes the room card's key");
 assert.equal(conf.note, "Shots that picked “Fondamenta DEI Vetrai”’s plate by hand, and props linked to it, now use the merged card.");
 assert.equal(conf.confirmLabel, "Merge as “Fondamenta dei Vetrai”");
 assert.ok(!("altLabel" in conf), "the suggestion's merge takes the screenplay's name");
 const confAD = json(box.locationMergeConfirmText(plan, { canFixScenes: false, show: true }));
-assert.equal(confAD.items[2], "Scene 13’s card keeps EXT. FONDAMENTA · NIGHT (correcting it needs a role that edits the screenplay); it is read as Fondamenta dei Vetrai either way.");
-assert.equal(confAD.items[3], "This film is an episode of a Show and its locations are shared: the merge holds in every episode — a scene in another episode that names “Fondamenta” is read as “Fondamenta dei Vetrai” (scene cards in other episodes, and their shots that picked “Fondamenta DEI Vetrai”’s plate by hand, are not changed).");
+// (2026-10-14) said plainly: an Art director's merge leaves the scene card's heading; the place still reads right; the owner's corrects it
+assert.equal(confAD.items[3], "Scene 13’s card keeps its heading as it is, EXT. FONDAMENTA · NIGHT: an Art director can’t edit scenes. The merged place still reads correctly — scene 13, its shots and its room & time plates are read as “Fondamenta dei Vetrai”. (The owner’s merge corrects the heading to EXT. FONDAMENTA DEI VETRAI · NIGHT; after yours, the owner can change it on the scene card.)");
+assert.equal(confAD.items[4], "This film is an episode of a Show and its locations are shared: the merge holds in every episode — a scene in another episode that names “Fondamenta” is read as “Fondamenta dei Vetrai” (scene cards in other episodes, and their shots that picked “Fondamenta DEI Vetrai”’s plate by hand, are not changed).");
 // "Same place as…" on the same pair: the second button keeps the same card under the other name, and says what it skips
 const planAlt = json(box.locationMergePlan(live0, film.scenes, film.drafts, C, P, { hasPlate, nameFrom: plan.altNameFromId }));
 assert.deepEqual([planAlt.keeperId, planAlt.name, planAlt.key, planAlt.aliasKeys, planAlt.sceneFixes, planAlt.goneKeyTaken],

@@ -2446,6 +2446,79 @@ async function _nbDeleteHistoryEntryInner(id, index){
 }
 window.nbDeleteHistoryEntry = nbDeleteHistoryEntry;
 
+/* ANOTHER ASSET'S IMAGE AS AN EARLIER VERSION (2026-10-14 — a location merge keeps the merged-away card's plates:
+   locations.jsx locationMergeCarryIds, app.jsx mergeLocations). COPIES of other assets' CURRENT images go into this
+   asset's version history, in front of its earlier versions — its current image is NEVER replaced (with none, the
+   copies wait in Details › Earlier versions until Restore). The sources are untouched. A copy's meta keeps the
+   original's (model, prompt, date, version) and says where it came from (carriedFrom); what belonged to that asset
+   only is dropped: its approval, its copy check (made against its own parent), its cleanup ledger. The same version
+   of a source (id + iso) is never carried twice. Free: nothing is generated or charged.
+   sources: [{ id, cardId, name, what, label }] → { ok, carried, skipped, failed:[ids], error? } */
+const NB_CARRY_DROP_META = ["approval","copyCheck","cleanupPending","cleanupTombstone","cleanupPurge","cleanupPurgeTarget",
+  "cleanupPurgeReceipts","cleanupPurgeWarning","cleanupPurgeRetryable","cleanupPurgeStatus","deleted","deletedStoragePath",
+  "seriesMigrationKey","seriesMigrationStatus","seriesMigratedFrom","seriesMigratedAt"];
+function nbCarriedVersionMeta(meta, src, at){
+  const out = { ...((meta && typeof meta==="object") ? meta : {}) };
+  NB_CARRY_DROP_META.forEach(k=>{ delete out[k]; });
+  const s = src || {};
+  out.carriedFrom = { id:String(s.id||""), cardId:String(s.cardId||s.id||""), name:String(s.name||""),
+    what:String(s.what||"plate"), label:String(s.label||""), iso:String((meta && meta.iso)||""), at:String(at||"") };
+  return out;
+}
+function nbCarriedVersionKey(meta){
+  const c = meta && meta.carriedFrom;
+  return c && c.id ? String(c.id)+"|"+String(c.iso||"") : "";
+}
+function nbCarryVersionsInto(targetId, sources, opts){
+  opts = opts || {};
+  const epoch = _nbEpoch, backend = _nbBackend;
+  const list = (Array.isArray(sources) ? sources : []).filter(s=>s && s.id && String(s.id)!==String(targetId));
+  const none = { ok:true, carried:0, skipped:0, failed:[] };
+  if(!targetId || !list.length) return Promise.resolve(none);
+  const at = opts.at || new Date().toISOString();
+  const stale = ()=> epoch!==_nbEpoch || backend!==_nbBackend;
+  const scopeChanged = { ok:false, carried:0, skipped:0, failed:list.map(s=>String(s.id)), error:"asset scope changed" };
+  // the card's earlier-versions count (artroom.jsx useImageGen) re-reads; its current image is the same
+  const announce = (r)=>{ if(r && r.carried && !stale()){ try{ window.dispatchEvent(new CustomEvent("nb-history-changed",{ detail:{ id:targetId } })); }catch(e){} } return r; };
+  if(backend==="cloud"){
+    // capture scope + uid now, never after an await (the film may switch)
+    const scope = _scopeFor(targetId), uid = _nbUid;
+    const srcs = list.map(s=>({ id:String(s.id), projectId:_scopeFor(s.id), fallbackProjectId:_nbProject, from:s }));
+    return _nbSerial(targetId, async ()=>{
+      if(stale()) return scopeChanged;
+      if(typeof window.cloudCarryVersions!=="function") return { ...scopeChanged, error:"cloud copy unavailable" };
+      try{
+        return announce(await window.cloudCarryVersions(scope, uid, targetId, srcs,
+          { metaFor:(meta, from)=>nbCarriedVersionMeta(meta, from, at), keyOf:nbCarriedVersionKey, cancelled:stale }));
+      }catch(e){ return { ...scopeChanged, error:(e&&e.message)||"copy failed" }; }
+    });
+  }
+  return _nbSerial(targetId, async ()=>{
+    if(stale()) return scopeChanged;
+    const hist = await localGetHistory(targetId);
+    if(stale()) return scopeChanged;
+    // already there: in its earlier versions, or restored as its current plate
+    const have = new Set(hist.map(h=>nbCarriedVersionKey(h && h.meta)).concat([nbCarriedVersionKey(localGetMeta(targetId))]).filter(Boolean));
+    const add = []; let skipped = 0;
+    for(const s of list){
+      let url = "";
+      try{ url = await localLoadImage(s.id); }catch(e){ url = ""; }
+      if(stale()) return scopeChanged;
+      if(!url){ skipped++; continue; }
+      const meta = nbCarriedVersionMeta(localGetMeta(s.id), s, at);
+      const k = nbCarriedVersionKey(meta);
+      if(have.has(k)){ skipped++; continue; }
+      have.add(k);
+      add.push({ url, meta, refs:[] });
+    }
+    if(!add.length) return { ...none, skipped };
+    await localSetHistory(targetId, add.concat(hist));
+    return announce({ ok:true, carried:add.length, skipped, failed:[] });
+  });
+}
+window.nbCarriedVersionMeta = nbCarriedVersionMeta;
+window.nbCarryVersionsInto = nbCarryVersionsInto;
+
 /* A valid approval is deliberately generation-scoped; stale inherited metadata is
    treated as unapproved even if its boolean remains true. */
 function nbAssetApproval(meta){

@@ -4619,6 +4619,90 @@ async function cloudDeleteHistoryEntry(projectId, uid, entityId, index){
   return finished.warning?{ok:true,cleanupWarning:finished.warning}:true;
 }
 window.cloudDeleteHistoryEntry = cloudDeleteHistoryEntry;
+/* ANOTHER ROW'S IMAGE AS AN EARLIER VERSION (2026-10-14 — imagegen.jsx nbCarryVersionsInto; a location merge keeps
+   the merged-away card's plates): each source row's CURRENT file is copied to a NEW file under the writer's own
+   folders (downloaded from its signed link and uploaded the way a reference snapshot is), so deleting the source for
+   good later never takes this row's history with it; the copies go in front of this row's history, its current file,
+   meta and refs untouched. Written compare-and-set (re-read and retried twice); a copy that isn't written is removed
+   again. A source with no current file is skipped; a source version already carried (opts.keyOf) is never added
+   twice. opts.metaFor(sourceMeta, from) → the copy's meta. sources: [{ projectId, fallbackProjectId, id, from }] */
+async function cloudCarryVersions(projectId, uid, entityId, sources, opts){
+  opts=opts||{};
+  const all=(sources||[]).filter(s=>s&&s.id).map(s=>String(s.id));
+  const result=(extra)=>({ok:true,carried:0,skipped:0,failed:[],...extra});
+  const sb=sbClient();
+  if(!sb) return result({ok:false,failed:all,error:"cloud unavailable"});
+  const cancelled=()=>typeof opts.cancelled==="function"&&!!opts.cancelled();
+  const metaFor=typeof opts.metaFor==="function" ? opts.metaFor : (m)=>({...(m||{})});
+  const keyOf=typeof opts.keyOf==="function" ? opts.keyOf : ()=>"";
+  // a source version already there: in the row's history, or restored as its current image
+  const keysIn=(row)=>new Set(((row&&row.history)||[]).map(h=>keyOf(h&&h.meta)).concat([keyOf(row&&row.meta)]).filter(Boolean));
+  let target;
+  try{ target=await cloudGetGenStrict(projectId,entityId); }
+  catch(e){ return result({ok:false,failed:all,error:"Cloud generation could not be read."}); }
+  const have=keysIn(target), created=[], entries=[], failed=[];
+  let skipped=0;
+  const removeCopies=async(paths)=>{ try{ if(paths.length) await cloudRemovePaths(paths); }catch(e){} };
+  const stamp=turnStamp(), folders=await turnStorageFolders(sb,uid,projectId);
+  for(const s of (sources||[])){
+    if(!s||!s.id) continue;
+    if(cancelled()){ await removeCopies(created); return result({ok:false,failed:all,error:"asset scope changed"}); }
+    let row=null;
+    try{
+      row=await cloudGetGenStrict(s.projectId||projectId,s.id);
+      // a Show's shared card reads its episode's copy when the Show has none (imagegen.jsx nbCloudLoadRecord)
+      if((!row||!row.storage_path) && s.fallbackProjectId && String(s.fallbackProjectId)!==String(s.projectId||projectId))
+        row=await cloudGetGenStrict(s.fallbackProjectId,s.id);
+    }catch(e){ failed.push(String(s.id)); continue; }
+    if(!row||!row.storage_path){ skipped++; continue; }
+    const meta=metaFor(row.meta||{},s.from||{}), key=keyOf(meta);
+    if(key&&have.has(key)){ skipped++; continue; }
+    const url=await cloudSignedUrl(row.storage_path);
+    const path=url ? await cloudUploadImage(projectId,uid,entityId,url,"location","sheet",undefined,true,{},stamp,folders) : null;
+    if(!path){ failed.push(String(s.id)); continue; }
+    created.push(path);
+    if(key) have.add(key);
+    entries.push({storage_path:path,meta,refs:[]});
+  }
+  if(!entries.length) return result({skipped,failed,ok:!failed.length});
+  if(cancelled()){ await removeCopies(created); return result({ok:false,failed:all,error:"asset scope changed"}); }
+  // the row now owns these copies: retire their temporary cleanup reservations (as cloudCommit does); the rest go
+  const done=async(owned)=>{
+    const own=new Set(owned.map(e=>e.storage_path)), unused=created.filter(p=>!own.has(p));
+    await _seriesFinishAssetUploadIntents(Array.from(own));
+    await removeCopies(unused);
+    return result({carried:owned.length,skipped:skipped+(entries.length-owned.length),failed,ok:!failed.length});
+  };
+  // a write whose answer was lost may still have landed: its copies are in the row's history (by their exact files)
+  const landedIn=(row)=>{ const paths=new Set(((row&&row.history)||[]).map(h=>h&&h.storage_path).filter(Boolean));
+    return entries.filter(e=>paths.has(e.storage_path)); };
+  let uncertain=false;
+  for(let attempt=0; attempt<4; attempt++){
+    if(attempt>0){
+      try{ target=await cloudGetGenStrict(projectId,entityId); }
+      catch(e){
+        // never remove a copy a landed write may hold: an unreferenced file costs storage, a removed one a version
+        if(uncertain) return result({ok:false,skipped,failed:all,persisted:"unknown",error:"The earlier versions may not have been added."});
+        break;
+      }
+      if(uncertain){ const landed=landedIn(target); if(landed.length) return await done(landed); }
+      uncertain=false;
+    }
+    if(attempt===3) break;   // the last pass only checks whether the third write landed
+    // a run that landed in between already carried some (the same source versions): those copies aren't needed
+    const there=keysIn(target);
+    const fresh=entries.filter(e=>!keyOf(e.meta)||!there.has(keyOf(e.meta)));
+    if(!fresh.length) return await done([]);
+    const fields={ storage_path:target?(target.storage_path||null):null, meta:target?(target.meta||{}):{},
+      refs:target?(target.refs||[]):[], history:fresh.concat((target&&target.history)||[]) };
+    const after=await cloudCasGen(projectId,uid,entityId,target,fields);
+    if(after&&!after._cloudMutationError) return await done(fresh);
+    uncertain=!!(after&&after._cloudMutationError);   // null: the row changed under us (nothing written)
+  }
+  await removeCopies(created);
+  return result({ok:false,skipped,failed:all,error:"The card changed while its earlier versions were being added."});
+}
+window.cloudCarryVersions = cloudCarryVersions;
 async function cloudSetAssetApproval(projectId, uid, entityId, expectedIso, approved, reviewKey){
   const row=await cloudGetGenStrict(projectId,entityId);
   if(!row || !row.storage_path) return {ok:false,error:"asset not found"};

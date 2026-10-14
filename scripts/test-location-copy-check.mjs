@@ -20,7 +20,9 @@
       a main location has) and Frances's manifest;
    7. (review) the whole check — loading the parent's plate too — inside its time limit; a parent's plate decoded once
       for several checks and a failed read tried again; Regenerate blocked exactly when the card's own Generate is
-      (running, an unsaved image waiting for its save, the layout / parent plate / script not ready).
+      (running, an unsaved image waiting for its save, the layout / parent plate / script not ready);
+   8. (2026-10-14) the notice on a room's environment-state and room & time cards follows the viewer's role (no
+      Regenerate / Keep for a read-only viewer), rendered through the real Locations cards.
    No browser, no provider: a fake canvas-free pixel path, recording stubs. (The real canvas path:
    scripts/test-screenplay-pages-browser.mjs.)
    node scripts/test-location-copy-check.mjs */
@@ -350,9 +352,9 @@ const runEffects = async () => { const list = effects.slice(); list.forEach((e) 
 {
   const ui = read("app/locations-ui.jsx");
   assert.match(ui, /l\.parentLocation && React\.createElement\(LocationCopyCheckNotice,\{ l, assetId:l\.id, gen, readOnly,\n\s+refs:\(\)=>\(typeof locationPlateRefCount==="function" \? locationPlateRefCount\(l\)\.n : undefined\),\n\s+disabled:!spatialState\.ready\|\|!parentRefUrl\|\|masterRefs\.some\(r=>r\.required&&!r\.ready&&!r\.preview\),\n\s+regenerateTitle:\(!locStaged && !gen\.slotHasRef[^\n]*\n[^\n]*a small writing charge[^\n]*\n\s+onRegenerate:\(\)=>genPlate\.generate\(\) \}\)/, "the room's own plate: blocked as its Generate is, and says when it writes first");
-  assert.match(ui, /React\.createElement\(LocationCopyCheckNotice,\{ l, assetId:id, gen, single:true,\n\s+refs:\(\)=>\(stateUnit && typeof sluglineUnitPlateRefCount[^\n]*\n\s+disabled:!canGenerate, onRegenerate:\(\)=>gen\.generate\(\) \}\)/, "an environment state");
+  assert.match(ui, /React\.createElement\(LocationCopyCheckNotice,\{ l, assetId:id, gen, single:true, readOnly,\n\s+refs:\(\)=>\(typeof sluglineUnitPlateRefCount==="function" \? sluglineUnitPlateRefCount\(l,stateUnit\|\|\{name:l\.name\},\{rootPlate:true\}\)\.n : undefined\),\n\s+disabled:!canGenerate, onRegenerate:\(\)=>gen\.generate\(\) \}\)/, "an environment state (its buttons follow the viewer's role; a state of its own priced with what it sends, 2026-10-14)");
   assert.match(ui, /refs:\(\)=>\(typeof sluglineUnitPlateRefCount==="function" \? sluglineUnitPlateRefCount\(l,u,\{rootPlate:true\}\)\.n : undefined\),\n\s+disabled:!canGenerate, onRegenerate:\(\)=>gen\.generate\(\) \}\)/, "a room & time plate: not once it left the script");
-  assert.match(ui, /React\.createElement\(LocationCopyCheckNotice,\{ l, assetId:imgId, gen, single:true, readOnly:!!u\.orphan,/, "a room & time plate");
+  assert.match(ui, /React\.createElement\(LocationCopyCheckNotice,\{ l, assetId:imgId, gen, single:true, readOnly:readOnly\|\|!!u\.orphan,/, "a room & time plate (read-only for a viewer, or once it left the script)");
   assert.equal((ui.match(/React\.createElement\(LocationCopyCheckNotice,/g) || []).length, 3, "never on an extra space (a main location's only)");
   // Keep writes this version's meta only (imagegen.jsx nbSetAssetCopyCheck; cloud.jsx cloudSetAssetCopyCheck)
   const ig = read("app/imagegen.jsx");
@@ -379,6 +381,68 @@ const runEffects = async () => { const list = effects.slice(); list.forEach((e) 
   assert.match(ai, /'This panel looks like <parent>'s sheet \\u2014 regenerate\?'/);
   assert.match(ai, /It never blocks a plate, never regenerates and never spends on its own\./);
   assert.match(read("app/styles.css"), /\.loc-copy-check\{display:flex;/);
+}
+
+/* ---- 8. (2026-10-14, the gap an independent check found) the notice on a room's ENVIRONMENT-STATE and ROOM & TIME
+   cards follows the viewer's role, as the room's own plate does: rendered through the real Locations cards on Glass
+   Hours' Fondamenta DEI Vetrai, a read-only viewer gets readOnly on every notice (no Regenerate / Keep); an editor
+   gets it only on a room & time no longer in the script ---- */
+{
+  const film = JSON.parse(read("scripts/fixtures/glass-hours-locations.json"));
+  const walk = (n, f) => { if (!n || typeof n !== "object") return; if (Array.isArray(n)) { n.forEach((x) => walk(x, f)); return; } f(n); (n.children || []).forEach((x) => walk(x, f)); };
+  const findAll = (tree, pred) => { const out = []; walk(tree, (n) => { if (pred(n)) out.push(n); }); return out; };
+  const R = { Fragment: "fragment", createElement: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity) }),
+    useState: (init) => [typeof init === "function" ? init() : init, noop], useReducer: (f, init) => [init, noop],
+    useEffect: noop, useLayoutEffect: noop, useRef: (v) => ({ current: v === undefined ? null : v }), useMemo: (f) => f(), useCallback: (f) => f };
+  const cb = { console, React: R, Icon: new Proxy({}, { get: () => () => null }), localStorage: { getItem: () => null, setItem: noop },
+    document: { addEventListener: noop, removeEventListener: noop, querySelector: () => null }, addEventListener: noop, removeEventListener: noop,
+    dispatchEvent: () => true, CustomEvent: class {}, nbCostChip: () => null, nbGetImage: () => "", nbLoadImage: async () => "", nbEpoch: () => 1, nbGetMeta: () => null,
+    useBatchGen: () => ({ activeId: null, begin: noop, setMsg: noop, advance: noop }), usePager: () => ({ slice: (a) => a }),
+    useImageGen: () => ({ genUrl: "", genMeta: null, gening: false, generate: noop, slotHasRef: false }),
+    PagerBar: "PagerBar", NbKeyBar: "NbKeyBar", NbControls: "NbControls", BatchBar: "BatchBar", ImageLightbox: "ImageLightbox", InfoTip: "InfoTip",
+    RecentlyDeleted: "RecentlyDeleted", RenderStylePicker: "RenderStylePicker", EditText: "EditText", SheetField: "SheetField", SheetFrame: "SheetFrame",
+    CardFold: "CardFold", CopyBox: "CopyBox", SceneChipPager: "SceneChipPager", renderStyleText: () => "Photoreal",
+    scenesInStoryOrder: (x) => (x || []).slice().sort((a, b) => (a.no || 0) - (b.no || 0)), searchWordMatch: (t, q) => !q || String(t).toLowerCase().includes(q) };
+  cb.window = cb; vm.createContext(cb);
+  vm.runInContext(read("app/locations.jsx"), cb); vm.runInContext(read("app/locations-ui.jsx"), cb);
+  const SUB = "loc-fondamenta-dei-vetrai-4";
+  // the room gets an environment state of its own (a storm), beside its two rooms & times (Dusk, Night)
+  const locations = film.locations.map((l) => l.id === SUB ? { ...l, variants: [{ id: "vstorm", time: "Night", state: "Storm, shutters banging", manualState: true }] } : l);
+  const units = JSON.parse(JSON.stringify(cb.deriveSluglineUnits(film.scenes, film.drafts)));
+  const orphanUnit = { ...units.find((u) => u.key === "fondamenta-dei-vetrai|EXT|Night"), key: "fondamenta-dei-vetrai|EXT|Dawn", time: "Dawn", orphan: true };
+  const allUnits = units.concat([orphanUnit]);
+  cb.turnContinuity = { scenes: film.scenes, drafts: film.drafts, locations, sluglineUnits: allUnits };
+  for (const readOnly of [false, true]) {
+    const tree = cb.LocationSheets({ project: {}, locations, scenes: film.scenes, drafts: film.drafts, onUpdate: noop, onDraft: noop,
+      onDraftAll: noop, onDelete: noop, scriptHasLocs: true, trashItems: [], onRestore: noop, onPurge: noop, sluglineUnits: allUnits, readOnly,
+      onMergeLocations: noop, onPlaceDecision: noop });
+    let props = null;
+    findAll(tree, (n) => n.props && typeof n.props.renderLocation === "function")
+      .forEach((w) => w.props.group.members.forEach((m) => { if (m.id === SUB) props = w.props.renderLocation(m, {}).props; }));
+    assert.ok(props && props.l.parentLocation, "the room card, with its parent (as the Locations tab builds it)");
+    const card = cb.LocationSheet(props);
+    const unitCards = findAll(card, (n) => n.type === cb.SluglineUnitCard), stateCards = findAll(card, (n) => n.type === cb.LocationVariant);
+    assert.ok(unitCards.length >= 2, "its rooms & times: " + unitCards.map((n) => n.props.u.key).join(", "));
+    assert.equal(stateCards.length, 1, "its environment state");
+    for (const n of unitCards.concat(stateCards)) assert.equal(n.props.readOnly, readOnly, "the card is told the viewer's role");
+    const noticeOf = (el) => { const out = findAll(el.type(el.props), (x) => x.type === cb.LocationCopyCheckNotice); assert.equal(out.length, 1); return out[0].props; };
+    for (const n of unitCards) assert.equal(noticeOf(n).readOnly, readOnly || !!n.props.u.orphan, "room & time " + n.props.u.key);
+    assert.equal(noticeOf(stateCards[0]).readOnly, readOnly, "the environment state's notice");
+    // its Regenerate is priced with what it sends: the room's plate and the root's part (a storm has no room & time,
+    // so no pages) — never the plain price of an image with no references (GPT Image / Seedream charge for each)
+    const stateRefs = noticeOf(stateCards[0]).refs();
+    assert.equal(stateRefs, cb.sluglineUnitPlateRefCount(stateCards[0].props.l, { name: stateCards[0].props.l.name }, { rootPlate: true }).n);
+    assert.equal(stateRefs, 2, "Fondamenta DEI Vetrai's storm: its plate + Fondamenta's part");
+    // and the notice itself: no Regenerate / Keep for a read-only viewer
+    if (readOnly) assert.equal(flat(render({ ...noticeOf(stateCards[0]), l: sub, assetId: "loc-sub-vstorm", single: true,
+      gen: { genUrl: "plate-url", gening: false, genMeta: { iso: "s1", copyCheck: { v: 1, kind: "single", near: true, iso: "s1", parentIso: "p1",
+        panels: [{ key: "plate", match: "BR", detail: 0.8, layout: 0.7, near: true }] } } } })).filter((x) => x.type === "button").length, 0);
+  }
+  // an editor still gets the buttons on a room & time in the script
+  const unitNotice = { l: sub, assetId: "locunit-y", single: true, readOnly: false,
+    gen: { genUrl: "plate-url", gening: false, genMeta: { iso: "s1", copyCheck: { v: 1, kind: "single", near: true, iso: "s1", parentIso: "p1",
+      panels: [{ key: "plate", match: "BR", detail: 0.8, layout: 0.7, near: true }] } } } };
+  assert.deepEqual(flat(render(unitNotice)).filter((x) => x.type === "button").map(text), ["Regenerate7", "Keep"]);
 }
 
 console.log("PASS location copy check: the maths (normalised, high-pass, shift search), the threshold on " + stats.copy.length + " copies vs "
