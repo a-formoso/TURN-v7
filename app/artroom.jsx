@@ -2230,9 +2230,10 @@ async function turnLikenessUnavailableGate(c, refs){
     confirmLabel:"Generate without the face", cancelLabel:"Cancel" }));
 }
 window.turnLikenessUnavailableGate = turnLikenessUnavailableGate;
-/* a batch's price when its renders send different numbers of images (likeness photos, worn-item sheets): the
-   sum of each image's own price, re-read when the engine / settings / price table change (like nbCostChip) */
-function LikenessBatchCost({ refs }){
+/* a batch's price when its renders send different numbers of images (likeness photos, worn-item sheets; the location
+   plates' panels and pages): the sum of each image's own price, re-read when the engine / settings / price table change
+   (like nbCostChip). `what` names the references in its tooltip. */
+function LikenessBatchCost({ refs, what }){
   const [, force] = React.useState(0);
   React.useEffect(()=>{
     const h = ()=>force(x=>x+1);
@@ -2242,12 +2243,13 @@ function LikenessBatchCost({ refs }){
   if(typeof window.nbImageCostText!=="function") return null;
   const list = (refs||[]).map(r=>Number(r)||0);
   let total = 0;
-  for(const r of list){ const t = Number(window.nbImageCostText(1, { refs:r })); if(!(t>0)) return null; total += t; }
+  if(typeof window.nbBatchCostText==="function") total = Number(window.nbBatchCostText(list))||0;
+  else for(const r of list){ const t = Number(window.nbImageCostText(1, { refs:r })); if(!(t>0)) return null; total += t; }
   if(!total) return null;
   const n = list.length;
   return React.createElement("span",{className:"nb-cost",
     title:"\u2248 "+total+" generation credit"+(total===1?"":"s")+" for "+n+" image"+(n===1?"":"s")
-      +" \u2014 counting each one's likeness photos and worn-item sheets"}, String(total));
+      +" \u2014 counting "+(what || "each one's likeness photos and worn-item sheets")}, String(total));
 }
 window.LikenessBatchCost = LikenessBatchCost;
 /* saved labels from before the rename ("Cameo likeness") are shown under today's name; stored data is never rewritten */
@@ -3484,8 +3486,9 @@ function useBatchGen(){
     const note = (opts && typeof opts.note==="function") ? opts.note(missing, existing) : ((opts && opts.note) || "");
     // opts.refsOf (2026-10-10, likeness): each item's reference-image count, so the choice bar's price counts them
     const refsOf = (opts && typeof opts.refsOf==="function") ? opts.refsOf : null;
-    if(!missing.length){ setMsg(""); setPrompt({ missing:[], existing:ids, note, refsOf }); return; }
-    setMsg(""); setPrompt({ missing, existing, note, refsOf });
+    const refsWhat = (opts && opts.refsWhat) || "";   // what those references are, for the price's tooltip (2026-10-14)
+    if(!missing.length){ setMsg(""); setPrompt({ missing:[], existing:ids, note, refsOf, refsWhat }); return; }
+    setMsg(""); setPrompt({ missing, existing, note, refsOf, refsWhat });
   };
   const cancel = ()=>{
     tokenRef.current++;                  // abandon any in-flight partition scan
@@ -3578,13 +3581,13 @@ function BatchBar({ batch, noun }){
         onClick:()=>run(prompt.missing, prompt.existing.length),
         title:"Generate only the "+N+"s that don't have a sheet yet"},
         React.createElement(Icon.sparkles,{s:14}),"Generate "+prompt.missing.length+" missing",
-        prompt.refsOf ? React.createElement(window.LikenessBatchCost,{ refs:prompt.missing.map(prompt.refsOf) })
+        prompt.refsOf ? React.createElement(window.LikenessBatchCost,{ refs:prompt.missing.map(prompt.refsOf), what:prompt.refsWhat||undefined })
           : (typeof window.nbCostChip==="function" && window.nbCostChip(prompt.missing.length))),
       prompt.existing.length>0 && React.createElement("button",{className:"art-draftall"+(prompt.missing.length?" ghost":""),
         onClick:()=>run([...prompt.missing, ...prompt.existing], 0),
         title:"Generate every "+N+", regenerating ones that already have a sheet"},
         React.createElement(Icon.sparkles,{s:14}),"Regenerate all "+(prompt.missing.length+prompt.existing.length),
-        prompt.refsOf ? React.createElement(window.LikenessBatchCost,{ refs:[...prompt.missing, ...prompt.existing].map(prompt.refsOf) })
+        prompt.refsOf ? React.createElement(window.LikenessBatchCost,{ refs:[...prompt.missing, ...prompt.existing].map(prompt.refsOf), what:prompt.refsWhat||undefined })
           : (typeof window.nbCostChip==="function" && window.nbCostChip(prompt.missing.length+prompt.existing.length))),
       React.createElement("button",{className:"art-draftall ghost",onClick:cancel},"Cancel")),
     // ACTIVELY GENERATING → the shared progress card (spinner + status + reassurance),

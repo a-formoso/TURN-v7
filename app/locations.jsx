@@ -3922,6 +3922,7 @@ function locationScreenplayLayout(blocks, scene, sample, targetBeat){
     return units;
   }) };
 }
+const _locPageCountLayouts = new Map();   // scene number | target beat | its blocks → the layout (counts only)
 function locationScreenplayReferenceImages(l, sheet, scenes, drafts, options){
   const renderOpts = options || {};
   if(typeof document==="undefined") return [];
@@ -3933,11 +3934,17 @@ function locationScreenplayReferenceImages(l, sheet, scenes, drafts, options){
   if(!blocks.length) return [];
   const targetBeatValue = renderOpts.targetBeat == null ? renderOpts.highlightBeat : renderOpts.targetBeat;
   const targetBeat = targetBeatValue == null ? null : Number(targetBeatValue);
-  const measureCanvas = document.createElement("canvas");
-  let sample = measureCanvas && typeof measureCanvas.getContext==="function" ? measureCanvas.getContext("2d") : null;
-  if(!sample || typeof sample.measureText!=="function") sample = { font:"15px", measureText(t){   // no canvas metrics: Courier's 0.6 em
-    const m = String(this.font).match(/(\d+(?:\.\d+)?)px/); return { width:String(t).length*0.6*(m ? Number(m[1]) : 15) }; } };
-  const laid = locationScreenplayLayout(blocks, scene, sample, targetBeat);
+  /* a count is read on every render (the Generate prices, 2026-10-14): the same scene text is laid out once */
+  const countKey = renderOpts.countOnly ? String(scene&&scene.no)+"|"+targetBeat+"|"+JSON.stringify(blocks) : "";
+  let laid = countKey ? _locPageCountLayouts.get(countKey) : undefined;
+  if(laid===undefined){
+    const measureCanvas = document.createElement("canvas");
+    let sample = measureCanvas && typeof measureCanvas.getContext==="function" ? measureCanvas.getContext("2d") : null;
+    if(!sample || typeof sample.measureText!=="function") sample = { font:"15px", measureText(t){   // no canvas metrics: Courier's 0.6 em
+      const m = String(this.font).match(/(\d+(?:\.\d+)?)px/); return { width:String(t).length*0.6*(m ? Number(m[1]) : 15) }; } };
+    laid = locationScreenplayLayout(blocks, scene, sample, targetBeat);
+    if(countKey){ if(_locPageCountLayouts.size>=300) _locPageCountLayouts.clear(); _locPageCountLayouts.set(countKey, laid); }
+  }
   if(!laid) return renderOpts.returnMeta || renderOpts.countOnly ? { images:[], pageCount:0, renderedPageCount:0, omittedPages:0,
     targetBeat, sceneId:scene&&scene.id||"", pageLimit:0 } : [];
   const L = laid.layout, pages = laid.pages, P = LOC_SCREENPLAY_PAGE;

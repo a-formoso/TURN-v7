@@ -443,7 +443,7 @@ await test("C3 a batch / Design the cast sum each image's own price (photos + wo
   const el = W.LikenessBatchCost({ refs:[3, 0, 4] });
   assert.equal(el.children[0], String((4+3)+(4+0)+(4+4)));
   assert.ok(art.includes("batchChip(missingAll)") && art.includes("batchChip(sceneMissing)"));
-  assert.ok(art.includes("prompt.refsOf ? React.createElement(window.LikenessBatchCost,{ refs:prompt.missing.map(prompt.refsOf) })"));
+  assert.ok(art.includes("prompt.refsOf ? React.createElement(window.LikenessBatchCost,{ refs:prompt.missing.map(prompt.refsOf), what:prompt.refsWhat||undefined })"));
   assert.ok(art.includes("? React.createElement(window.LikenessBatchCost,{ refs:lkRefs })"), "Design the cast");
   assert.ok(app.includes("characters, props, scenes, drafts, sceneId:castConfirm.sceneId,"), "Design the cast gets the props to count worn sheets");   // (+ the screenplay, 2026-10-12)
 });

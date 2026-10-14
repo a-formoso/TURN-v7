@@ -1145,6 +1145,17 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const masterRefsKey = [l.id, l.parentLocation&&l.parentLocation.id, parentRefUrl, (l.scenes||[]).join(","), scenes&&scenes.length, masterScriptSig,
     rootRefs.map(r=>r.refId+":"+(r.url?r.url.length:0)).join(",")].join("|");
   React.useEffect(()=>{ setMasterRefs(buildMasterRefs()); },[masterRefsKey]);
+  /* WHAT GENERATE SENDS, FOR ITS PRICE (2026-10-14): the parent's part (or, on a main location, the layout's plate), then
+     whole scenes' pages in the slots left — as attachments() builds it, the unticked ones left out */
+  const masterGenerateRefs = (()=>{
+    try{
+      const parentN = l.parentLocation
+        ? (parentRefUrl ? rootRefs.filter(r=>r.required!==false || masterRefOff.indexOf(r.refId)<0).length : 0)
+        : ((typeof locationPlateFixedRefCount==="function" ? locationPlateFixedRefCount(l).n : 0) || 0);
+      const pages = masterRefs.filter(r=>r.kind==="script" && !r.required && r.url && masterRefOff.indexOf(r.refId)<0);
+      return Math.min(6, parentN + (typeof locationWholeScenePages==="function" ? locationWholeScenePages(pages, 6-parentN) : pages).length);
+    }catch(e){ return undefined; }
+  })();
   const toggleMasterRef = (rid)=> setMasterRefOff(off=>{
     if(masterRefs.some(r=>r.refId===rid&&r.required))return off;
     return off.indexOf(rid)>=0 ? off.filter(x=>x!==rid) : [...off, rid];
@@ -1465,6 +1476,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           title:"This card and another one are the same place under two names \u2014 pick the other card, see what a merge keeps, and confirm. Nothing is generated or charged.",
           onClick:()=>setSamePick(p=> p ? null : { otherId:"" }) }] : [])],
       referenceControls: masterRefs.length>0 && React.createElement(CoverageReferenceStrip,{ refs:masterRefs, excludedIds:masterRefOff, onToggle:toggleMasterRef, onView }),
+      generateRefs: masterGenerateRefs,
       generateDisabled:!spatialState.ready||!!l.parentLocation&&(!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready&&!r.preview)),
       generateDisabledLabel:!spatialState.ready?"Review shared layout":"Generate parent plate first",
       onResolveGenerationBlock:!spatialState.ready?reviewLayout:undefined,
@@ -2099,6 +2111,8 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       // drops the redundant "Upload a finished Required Space Plate" button below the generate CTA
       dropToImport:true,
       referenceControls: React.createElement(CoverageReferenceStrip,{ refs:refPreview, excludedIds:coverageRefOff, onToggle:toggleCoverageRef, onView }),
+      // its price counts what it sends: the ready references it keeps (2026-10-14)
+      generateRefs: refPreview.length ? refPreview.filter(r=>r.ready && r.url && (r.required || coverageRefOff.indexOf(r.refId)<0)).length : undefined,
       generateDisabled:!canGenerateCoverage,
       generateDisabledLabel: missingPrev ? "Generate earlier plate first" : "Generate parent plate first",
       generateDisabledTitle: missingPrev
@@ -2180,6 +2194,22 @@ function _locUnitAttachments(refs, off){
   return [...(typeof locationWholeScenePages==="function" ? locationWholeScenePages(pages, max) : pages), ...others]
     .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note, ...(r.maxDim?{maxDim:r.maxDim}:{}),
       ...(r.numbered?{numbered:true}:{}), ...(r.kind==="script"&&r.sceneId!=null?{sceneId:r.sceneId}:{}) }));
+}
+/* THE BATCH PRICES' REFERENCE COUNTS, KEPT (2026-10-14): the same card, room & time, parent, plates and screenplay give
+   the same count, so a keystroke in search or a progress tick doesn't count every missing plate again */
+const _locRefCountMemo = new WeakMap();
+function _locMemoRefCount(l, u, extra, count){
+  const C = window.turnContinuity || {};
+  const parent = typeof locationParentOf==="function" ? locationParentOf(l) : null;
+  const metaOf = (id)=>{ try{ const m = id && typeof nbGetMeta==="function" ? nbGetMeta(id) : null;
+    return m ? String(m.iso||"")+(m.platePanels ? "+cams" : "") : ""; }catch(e){ return ""; } };
+  const deps = [u||null, parent, C.scenes, C.drafts, C.locations, metaOf(l.id), metaOf(parent && parent.id), String(extra)];
+  const kept = _locRefCountMemo.get(l) || [];
+  const hit = kept.find(e=> e.deps.length===deps.length && e.deps.every((d,i)=>d===deps[i]));
+  if(hit) return hit.n;
+  const n = count();
+  _locRefCountMemo.set(l, [{ deps, n }, ...kept].slice(0, 8));
+  return n;
 }
 /* the parent's plate cameras noted on its card (l.plateCameras, 2026-10-14) — a card strip refreshes when they change */
 function _locParentCamerasKey(l){
@@ -2297,6 +2327,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
       entity:viewerEntity, onView, slotPlaceholder:"Drop a photo", noun:"time-of-day variant plate", compact:true,
       dropToImport:true,
       referenceControls:React.createElement(CoverageReferenceStrip,{refs:refPreview,excludedIds:refOff,onToggle:toggleRef,onView}),
+      generateRefs: refPreview.length ? _locUnitAttachments(refPreview, refOff).length : undefined,   // what it sends (2026-10-14)
       generateDisabled:!canGenerate,
       generateDisabledLabel:"Generate parent plate first",
       generateDisabledTitle:"This time-of-day variant needs the parent location plate as a visual reference before it can generate." }),
@@ -2443,6 +2474,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       entity:viewerEntity, onView, slotPlaceholder:"Drop a finished room & time plate", noun:"room & time plate", compact:true,
       dropToImport:true,
       referenceControls: React.createElement(CoverageReferenceStrip,{ refs:refPreview, excludedIds:refOff, onToggle:toggleRef, onView }),
+      generateRefs: refPreview.length ? _locUnitAttachments(refPreview, refOff).length : undefined,   // what it sends (2026-10-14)
       generateDisabled:!canGenerate,
       generateDisabledLabel: u.orphan ? "No longer in script" : "Generate parent plate first",
       generateDisabledTitle: u.orphan
@@ -2621,6 +2653,32 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   // the plate is built from, so an undrafted/hand-added card never makes a generic plate)
   const draftedIds = (subset)=> locationGenerationOrder(subset).filter(l=> (typeof locVisualsDrafted==="function") ? locVisualsDrafted(l) : true).map(l=>l.id);
   const byLocId = {}; list.forEach(l=>{ byLocId[l.id]=l; });
+  /* EACH PLATE'S REFERENCE IMAGES IN THE BATCH PRICES (2026-10-14): a location plate's parent panels or layout plate and
+     its pages, a room & time plate's location plate, root panels and pages — counted as the cards send them (nothing
+     unticked); an image that can't be counted is priced at the most it could send. `run`: the plates the run makes, in
+     order — a room whose parent's plate the run makes (or remakes, when its cameras were never recorded) has its panels
+     matched only once that plate exists: up to 4 of them on its own plate, 2 on a room & time plate, not the 1 */
+  const inRun = (ids, id)=> !!(ids && id) && (typeof ids.has==="function" ? ids.has(id) : Array.prototype.indexOf.call(ids, id)>=0);
+  const parentUnknown = (l, run)=>{
+    const p = typeof locationParentOf==="function" ? locationParentOf(l) : null;
+    if(!p || !inRun(run, p.id)) return false;
+    const m = hasImg(p.id) && typeof nbGetMeta==="function" ? nbGetMeta(p.id) : null;
+    return !(m && m.platePanels);
+  };
+  const plateRefsOf = (l, run)=>{ try{
+    if(!l || typeof locationPlateRefCount!=="function") return 6;
+    const n = _locMemoRefCount(l, null, "", ()=>{ const r = locationPlateRefCount(l); return r && r.n!=null ? r.n : 6; });
+    return parentUnknown(l, run) ? Math.min(6, n+3) : n;
+  }catch(e){ return 6; } };
+  const unitRefsOf = (x, rootPlate, run)=>{ try{
+    if(typeof sluglineUnitPlateRefCount!=="function") return 6;
+    const n = _locMemoRefCount(x.owner, x.u, rootPlate, ()=>{ const r = sluglineUnitPlateRefCount(x.owner, x.u, { rootPlate }); return r && r.n!=null ? r.n : 6; });
+    return rootPlate && parentUnknown(x.owner, run) ? Math.min(6, n+1) : n;
+  }catch(e){ return 6; } };
+  const refsWhat = "each plate's reference images (its parent's panels or the layout's plate, and the screenplay pages)";
+  const batchChip = (refs)=> typeof window.LikenessBatchCost==="function"
+    ? React.createElement(window.LikenessBatchCost,{ refs, what:refsWhat })
+    : (typeof window.nbCostChip==="function" ? window.nbCostChip(refs.length) : null);
   // MISSING PLATES FIRST (2026-10-03, owner — Locations review): the buttons price exactly the
   // plates they will make; redoing existing ones is the quiet "Regenerate…" (which asks first)
   const [, setPlateTick] = React.useState(0);
@@ -2651,7 +2709,8 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
     // with no view composition spends first (the card drafts it before rendering)
     batch.begin(eligible, onlyMissing ? 0 : list.length - eligible.length, { alwaysAsk:true, note:(missing, existing)=>{
       const n = [...missing, ...existing].map(id=>byLocId[id]).filter(l=> l && !(typeof stagingHasContent==="function" ? stagingHasContent(l) : true)).length;
-      return n ? "Plus writing credits to draft "+n+" view composition"+(n!==1?"s":"")+" first." : ""; } });
+      return n ? "Plus writing credits to draft "+n+" view composition"+(n!==1?"s":"")+" first." : ""; },
+      refsOf:(id, i, run)=>plateRefsOf(byLocId[id], run), refsWhat });
   };
   const eligibleAll = list.filter(l=> (typeof locVisualsDrafted==="function") ? locVisualsDrafted(l) : true).length;
   const undraftedN = list.filter(l=> (typeof locVisualsDrafted==="function") ? !locVisualsDrafted(l) : false).length;
@@ -2674,6 +2733,14 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
     const missingUnits = unitsAll.filter(x=> layoutReady(x.owner) && willHave(x.owner));
     return { masters, units:missingUnits, waiting:(mastersAll.length-masters.length)+(unitsAll.length-missingUnits.length) };
   };
+  // a room & time plate gets its root's panels only when the root has a plate, or this run makes it
+  const sceneRefsList = (p)=>{
+    const run = p.masters.map(l=>l.id);
+    return [...p.masters.map(l=>plateRefsOf(l, run)), ...p.units.map(x=>{
+      const root = typeof locationParentOf==="function" ? locationParentOf(x.owner) : null;
+      return unitRefsOf(x, !root || hasImg(root.id) || run.indexOf(root.id)>=0, run);
+    })];
+  };
   const plan = scenePlan(sceneFilter);
   const sceneMissingN = plan.masters.length + plan.units.length;
   const startSceneRun = async ()=>{
@@ -2682,7 +2749,8 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
     const n = p.masters.length + p.units.length;
     // asks first, with the price (2026-10-08 — it used to start at once)
     if(n && typeof window.appConfirm==="function"){
-      const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(n) : "";
+      const price = (typeof window.nbBatchCostText==="function") ? window.nbBatchCostText(sceneRefsList(p))
+        : (typeof window.nbImageCostText==="function") ? window.nbImageCostText(n) : "";
       const unstaged = p.masters.filter(l=> !(typeof stagingHasContent==="function" ? stagingHasContent(l) : true)).length;
       const ok = await window.appConfirm({ title:"Make "+n+" plate"+(n!==1?"s":"")+" for Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"?",
         body:p.masters.length+" location plate"+(p.masters.length!==1?"s":"")+" (a room's parent first), then "+p.units.length+" room & time plate"+(p.units.length!==1?"s":"")+"."
@@ -2712,7 +2780,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
     if(!sceneFilter || batchActiveId || sceneRun) return;
     const eligible = draftedIds(shown);
     if(!eligible.length){ batch.setMsg("Draft these location specifications first \u2014 nothing in this scene is ready to generate."); return; }
-    batch.begin(eligible, shown.length - eligible.length);
+    batch.begin(eligible, shown.length - eligible.length, { refsOf:(id, i, run)=>plateRefsOf(byLocId[id], run), refsWhat });
   };
 
   return React.createElement("div",{className:"art-scroll"},
@@ -2745,7 +2813,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
             title:"Generate the plate of every drafted location that doesn't have one yet (a room's parent first) \u2014 existing plates are left as they are"
               +(waitingLayout ? ". "+waitingLayout+" more wait for their shared layout to be reviewed (Spatial Layout & Staging)" : "")},
             React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":("Generate "+missingAll.length+" missing plate"+(missingAll.length!==1?"s":"")),
-            typeof window.nbCostChip==="function" && window.nbCostChip(missingAll.length)),
+            batchChip(missingAll.map(id=>plateRefsOf(byLocId[id], missingAll)))),
           (!missingAll.length && eligibleAll>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId||!!sceneRun,onClick:()=>startAllBatch(false),
             title:"Regenerate the location plates \u2014 you'll be asked before anything is redone, with the price"},
             React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Regenerate plates\u2026")))),
@@ -2787,7 +2855,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
             +(plan.waiting ? ". "+plan.waiting+" more wait for a shared layout to be reviewed (Spatial Layout & Staging)" : "")},
           React.createElement(Icon.sparkles,{s:14}),
           sceneRun?"Generating\u2026":("Generate "+sceneMissingN+" missing in Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")),
-          typeof window.nbCostChip==="function" && window.nbCostChip(sceneMissingN)),
+          batchChip(sceneRefsList(plan))),
         (sceneFilter && !sceneMissingN && draftedIds(shown).length>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId||!!sceneRun,onClick:startSceneRegenerate,
           title:"Regenerate this scene's location plates \u2014 you'll be asked before anything is redone, with the price"},
           React.createElement(Icon.sparkles,{s:14}),

@@ -444,6 +444,13 @@ function nbImageCostText(count, opts){
   const each = Math.max(1, Math.ceil(per - 1e-9));   // the server's rounding (billing-pricing.mjs creditsFromUsd)
   return String(each * Math.max(1, Number(count)||1));
 }
+/* a batch whose images send different numbers of reference images (likeness sheets; 2026-10-14 the location plates):
+   the sum of each image's own rounded price, as the server charges them — "" when any one can't be priced */
+function nbBatchCostText(refsList){
+  let total = 0;
+  for(const r of (refsList||[])){ const t = Number(nbImageCostText(1, { refs:Number(r)||0 })); if(!(t>0)) return ""; total += t; }
+  return total ? String(total) : "";
+}
 /* small cost chip for Generate/Re-generate buttons. A tiny COMPONENT (not a static
    span) so it re-reads the current model/resolution/quality when the picker fires
    nb-model-changed / nb-settings-changed — otherwise chips deep in sheet cards would
@@ -484,7 +491,7 @@ function nbCostChip(count, opts){
   if(!window.React) return null;
   return window.React.createElement(NbCostChipInner, { count, opts });
 }
-window.nbImageCredits = nbImageCredits; window.nbImageCostText = nbImageCostText; window.nbCostChip = nbCostChip;
+window.nbImageCredits = nbImageCredits; window.nbImageCostText = nbImageCostText; window.nbCostChip = nbCostChip; window.nbBatchCostText = nbBatchCostText;
 
 /* grounding with web search — Nano Banana 2.1 only (nbModelGrounds) */
 const NB_GROUND_KEY = "turn-nb-ground";

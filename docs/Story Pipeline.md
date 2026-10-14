@@ -561,7 +561,10 @@ Each entity gets a canonical, reusable reference so every generated image stays 
   applied on its own — with **Merge** (one confirmed action, for the owner or an Art director: one card stays,
   with its shared layout and plate, named as the screenplay's headings name it; the place's name on the scene
   card's slugline is corrected to the screenplay's words, the rest of that slugline kept; shots and props that
-  pointed at the other card point at the kept one; the other card goes to Recently deleted), **Part of** (the place and its
+  pointed at the other card point at the kept one; the other card goes to Recently deleted, and copies of its plates —
+  its plate, extra-space and environment-state plates — become earlier versions of the kept card's plate, never its current
+  one; an Art director's merge leaves the scene card's slugline as it is, since an Art director can't edit scenes — the
+  merged place still reads correctly, and the owner's merge corrects it), **Part of** (the place and its
   part stay as derived) or **Keep separate** (two places, never folded by name). Any card also has **Same place
   as…** for a pair nothing points at. The decision is stored on the cards and every derivation from the
   sluglines reads it, so a merged-away name never comes back as a card; on a Show it holds in every episode.
