@@ -731,6 +731,18 @@ function locationMergeApply(locations, plan, opts){
       const v = _locUniq(_locKeysOf(l[f]).map(remap)).filter(k=>k!==selfKey);
       if(JSON.stringify(v)!==JSON.stringify(l[f])) out[f] = v;
     });
+    /* (2026-10-14, final pass) a room's "It opens onto …" answer (openingLeadsTo {openingId: a space's card id}) that
+       named the merged-away card names the kept one — on the kept card itself the answer is dropped (it would point at
+       itself) and Plate cameras asks again */
+    const lead = l.openingLeadsTo;
+    if(lead && typeof lead==="object" && !Array.isArray(lead) && Object.keys(lead).some(k=>String(lead[k])===String(gone.id))){
+      const m = {};
+      Object.keys(lead).forEach(k=>{
+        if(String(lead[k])!==String(gone.id)) m[k] = lead[k];
+        else if(l.id!==keeper.id) m[k] = keeper.id;
+      });
+      out.openingLeadsTo = Object.keys(m).length ? m : undefined;
+    }
     return out;
   };
   const kept = { ...keeper, ...relink(keeper, plan.key), key:plan.key, name:plan.name,
@@ -4076,6 +4088,35 @@ function locationScreenplayPointer(pages){
     : nums.length===1 ? "Image "+nums[0] : run ? "Images "+nums[0]+"–"+nums[nums.length-1] : "Images "+nums.join(", ");
   return "the screenplay of these scenes is attached as page images ("+which+") — read it there; it is not repeated here";
 }
+/* PAGES OR TEXT, PER SCENE (2026-10-14, final consistency pass): a plate attaches whole scenes only, in the reference
+   slots its other references leave (locationScriptPageRefs), so a location with more scenes than slots (Glass Hours'
+   Furnace: 10 scenes, 5 attached) used to send the rest in no form at all — the pointer above stood for the whole
+   screenplay. The scenes whose pages are NOT attached (attachedSceneIds: the scene ids of the attached pages) go as
+   text, never both and never neither: one entry per scene, in story order, each given an equal share of the limit
+   (its heading and the opening of its action), so every left-out scene is there. [] when every scene rides as pages,
+   or the attached scenes aren't known. */
+function locationUnattachedScreenplay(l, scenes, drafts, attachedSceneIds, limit){
+  if(!Array.isArray(attachedSceneIds) || !attachedSceneIds.length) return [];
+  const got = new Set(attachedSceneIds.map(String));
+  const own = new Set(((Array.isArray(l && l.scenes) && l.scenes.length) ? l.scenes : []).map(String));
+  const order = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder : (x=>x||[]);
+  const rest = order((scenes||[]).filter(s=>s && own.has(String(s.id)) && !got.has(String(s.id))));
+  const chunks = rest.map(s=>String(locationSceneScriptText(s, drafts)||"").replace(/\n{3,}/g,"\n\n").trim()).filter(Boolean);
+  return _locShareCut(chunks, limit||2600);
+}
+/* texts cut to an equal share of max characters each (at a word, "…" marking a cut) */
+function _locShareCut(texts, max){
+  const list = (texts||[]).filter(t=>typeof t==="string" && t);
+  const each = Math.max(120, Math.floor(Number(max||0)/Math.max(1, list.length)));
+  return list.map(t=>t.length>each ? t.slice(0,each).replace(/\s+\S*$/,"").trim()+" …" : t);
+}
+/* the scenes of a reference list's screenplay pages (kind "script", each carrying its sceneId) — null when it has no
+   page, or a page doesn't say its scene (then the pointer stands alone, as before) */
+function _locPageScenes(refs){
+  const pages = (refs||[]).filter(r=>r && r.kind==="script");
+  if(!pages.length || pages.some(r=>r.sceneId==null || r.sceneId==="")) return null;
+  return Array.from(new Set(pages.map(r=>String(r.sceneId))));
+}
 /* THE FIXED TRIMMING ORDER — only while the spec is longer than budget, each step whole before the next:
      1. layout notes: each layout object's evidence and basis, the layout's open questions and source, the long
         coordinate convention (a one-line one stays), provenance, the script-requirements note, the fixture rule;
@@ -4083,7 +4124,8 @@ function locationScreenplayPointer(pages){
      3. the screenplay-reading rules (the reference list after the prompt says them again);
      4. a room's layout objects in other spaces that none of its panels looks at;
      5. "reads as" (narrative significance), dramatic use and tone;
-     6. the screenplay text, when no pages carry it, cut to an excerpt (~600 characters);
+     6. the screenplay text, when no pages carry it, cut to an excerpt (~600 characters) — and the scenes whose pages
+        didn't fit the slots (screenplay_of_scenes_not_attached) to ~600 in all, an equal share each;
      7. the parent's description cut to its binding continuity anchors;
      8. long descriptive prose cut to 240, then 120 characters.
    Never: task, views, fixtures, render, world scale, species canon, continuity anchors, the shared layout's objects,
@@ -4147,6 +4189,10 @@ function locationFitPromptSpec(specIn, budget){
     ["screenplay excerpt", ()=>{
       if(typeof own.screenplay_context==="string" && own.screenplay_context.length>600
         && !/^the screenplay of these scenes is attached/.test(own.screenplay_context)) own.screenplay_context = cutAt(own.screenplay_context,600);
+      // the scenes whose pages didn't fit the reference slots (locationUnattachedScreenplay): ~600 characters in all,
+      // shared equally so each scene keeps its heading and opening
+      if(Array.isArray(own.screenplay_of_scenes_not_attached) && own.screenplay_of_scenes_not_attached.join("").length>600)
+        own.screenplay_of_scenes_not_attached = _locShareCut(own.screenplay_of_scenes_not_attached, 600);
       if(spec.coverage && typeof spec.coverage==="object") ["screenplay_excerpt","screenplay_basis"].forEach(k=>{
         const v = spec.coverage[k];
         if(typeof v==="string" && v.length>600 && !/^the screenplay of these scenes is attached/.test(v)) spec.coverage[k] = cutAt(v,600); });
@@ -4167,6 +4213,8 @@ function locationFitPromptSpec(specIn, budget){
 window.locationPromptBudget = locationPromptBudget;
 window.locationAvoidText = locationAvoidText;
 window.locationScreenplayPointer = locationScreenplayPointer;
+window.locationUnattachedScreenplay = locationUnattachedScreenplay;
+window._locPageScenes = _locPageScenes;
 window.locationFitPromptSpec = locationFitPromptSpec;
 
 function locVisualDefaults(l){
@@ -4465,8 +4513,12 @@ function buildLocationRefPrompt(l, project, opts){
   const mainStation = clean(st.bg.center) || "the space's primary, most story-relevant feature";
   const secondStation = clean(st.mid.left) || clean(st.mid.right) || clean(st.fg.left) || clean(st.fg.right) || "a signature material detail of the space";
   // the screenplay as page images OR as text (2026-10-14): with its pages attached (opts.screenplayPages), a pointer
-  const screenplayContext = locationScreenplayPointer(opts.screenplayPages)
+  const pagesPointer = locationScreenplayPointer(opts.screenplayPages);
+  const screenplayContext = pagesPointer
     || ((typeof locationScreenplayContext==="function") ? locationScreenplayContext(l, _C0.scenes||[], _C0.drafts||{}, 2600) : "");
+  // …and the scenes whose pages didn't fit the slots, as text (opts.screenplaySceneIds: the attached pages' scenes)
+  const screenplayNotAttached = (pagesPointer && typeof locationUnattachedScreenplay==="function")
+    ? locationUnattachedScreenplay(l, _C0.scenes||[], _C0.drafts||{}, opts.screenplaySceneIds, 2600) : [];
   const panelPlan = (typeof locationMasterPanelPlan==="function") ? locationMasterPanelPlan(l, _C0.scenes||[], _C0.drafts||{}) : null;
   const subspacePlan = locationParentOf(l, _C0.locations) ? (opts.panelPlan || locationSubspacePanelPlan(l, _C0.locations)) : null;
   const ownerCameraViews = (views)=>{
@@ -4547,6 +4599,7 @@ function buildLocationRefPrompt(l, project, opts){
         capacity: _capacity>1 ? ("the space must comfortably hold up to "+_capacity+" people at once when scenes play") : undefined,
       } : undefined,
       screenplay_context: screenplayContext || undefined,
+      screenplay_of_scenes_not_attached: screenplayNotAttached.length ? screenplayNotAttached : undefined,
       screenplay_reference_contract: {
         purpose: "all attached screenplay pages jointly describe permanent geography, architecture, fixtures, sightlines and action affordances for this ONE location",
         not_a_panel_map: "do NOT assign one screenplay page or one scene to each quadrant; the four quadrants are four camera views chosen by the views plan below",
@@ -5079,7 +5132,7 @@ async function generateLocationPlate(l, project, opts){
     if(o.scriptRefs!==false){
       // the parent's plate, the cut-out panels and the layout's plate first; whole scenes' pages in the slots left (2026-10-14)
       const pages=locationScriptPageRefs(l, null, null, Math.max(0, 6-refs.length)).filter(r=>r.url);
-      refs=[...refs, ...pages.map(r=>({url:r.url,kind:"script",refId:r.refId,note:r.note,maxDim:r.maxDim}))].slice(0,6);
+      refs=[...refs, ...pages.map(r=>({url:r.url,kind:"script",refId:r.refId,note:r.note,maxDim:r.maxDim,sceneId:r.sceneId}))].slice(0,6);
     }
     const lineage=parent?locationAssetDependencySnapshot(parent.id,[],"subspace"):{};
     // the cameras this plate's prompt states, recorded with it (rooms inside use them to pick the right panel)
@@ -5099,6 +5152,7 @@ async function generateLocationPlate(l, project, opts){
     if(typeof combinedLocationPrompt==="function") prompt=combinedLocationPrompt(l, project, {
       ...(subPlan ? {panelPlan:subPlan, panelRefs:locationReferenceNumbers(refs)} : {}),
       screenplayPages:refs.map((r,i)=>r.kind==="script" ? i+1 : 0).filter(Boolean),
+      ...((typeof _locPageScenes==="function" && _locPageScenes(refs)) ? {screenplaySceneIds:_locPageScenes(refs)} : {}),   // the scenes left out go as text
       model:runSnapshot.model, reserve:referenceText.length+1});
     prompt+=referenceText;
     if(refs.length){

@@ -158,7 +158,10 @@ function _locRefListReserve(attach){ return 360+(attach||[]).reduce((n,r)=>n+Str
 /* the budget options of a card's rebuild: its pages, the room for its reference list and the engine this run renders
    on (a batch / "Try <engine>" pick — gopts.model; else the picked engine) */
 function _locBudgetOpts(attach, gopts){
-  return {screenplayPages:_locScriptPages(attach), reserve:_locRefListReserve(attach), ...((gopts&&gopts.model)?{model:gopts.model}:{})};
+  // (2026-10-14, final pass) the scenes the pages carry — a master plate sends the scenes left out as text
+  const sceneIds=(typeof _locPageScenes==="function")?_locPageScenes(attach):null;
+  return {screenplayPages:_locScriptPages(attach), reserve:_locRefListReserve(attach), ...((gopts&&gopts.model)?{model:gopts.model}:{}),
+    ...(sceneIds?{screenplaySceneIds:sceneIds}:{})};
 }
 
 /* PLATE CAMERAS (2026-10-13, owner — Location coordinates): the camera of each panel of this space's 2x2 plate.
@@ -1198,7 +1201,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       const pages=buildMasterRefs().filter(r=>r.kind==="script"&&!r.required&&r.url&&masterRefOff.indexOf(r.refId)<0);
       return [...parentRefs,...(typeof locationWholeScenePages==="function"?locationWholeScenePages(pages,6-parentRefs.length):pages)].slice(0,6)
         .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note,
-          ...(r.maxDim?{maxDim:r.maxDim}:{}),...(r.numbered?{numbered:true}:{})}));
+          ...(r.maxDim?{maxDim:r.maxDim}:{}),...(r.numbered?{numbered:true}:{}),
+          ...(r.kind==="script"&&r.sceneId!=null?{sceneId:r.sceneId}:{})}));   // its scene: the scenes left out go as text
     },
     /* once the final list is known: a room's views name their images by number (2026-10-13), the screenplay goes as
        its attached pages OR as text (a pointer to the pages), and the prompt fits its engine less the reference list
