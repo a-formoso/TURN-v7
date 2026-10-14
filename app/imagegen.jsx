@@ -2490,6 +2490,41 @@ function nbSetAssetApproval(id, expectedIso, approved, reviewKey){
 }
 window.nbAssetApproval=nbAssetApproval;
 window.nbSetAssetApproval=nbSetAssetApproval;
+/* A LOCATION'S COPY CHECK (2026-10-14 — locations.jsx "THE COPY CHECK"): the result recorded on the plate's own meta,
+   for this exact version only (copyCheck.iso) — "Keep" is written here. Free: no image is made, nothing is charged. */
+function nbSetAssetCopyCheck(id, expectedIso, copyCheck){
+  const epoch=_nbEpoch;
+  return _nbSerial(id,async()=>{
+    if(!id || !expectedIso || !copyCheck || typeof copyCheck!=="object") return {ok:false,error:"asset version required"};
+    if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+    const check={...copyCheck,iso:expectedIso};
+    const backend=_nbBackend;
+    const scope=backend==="cloud"?_scopeFor(id):null, uid=_nbUid;
+    if(backend==="cloud"){
+      if(typeof window.cloudSetAssetCopyCheck!=="function") return {ok:false,error:"cloud update unavailable"};
+      try{
+        const result=await window.cloudSetAssetCopyCheck(scope,uid,id,expectedIso,check);
+        if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+        if(result&&result.ok){
+          _cloudMetaCache.set(id,result.meta);
+          try{ window.dispatchEvent(new CustomEvent("nb-meta-changed",{detail:{id}})); }catch(e){}
+        }
+        return result&&typeof result.ok==="boolean" ? result : {ok:false,error:"update failed"};
+      }catch(e){
+        if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+        return {ok:false,error:(e&&e.message)||"update failed"};
+      }
+    }
+    const current=localGetMeta(id);
+    if(!localGetImage(id)) return {ok:false,error:"asset not found"};
+    if(!current || current.iso!==expectedIso) return {ok:false,error:"asset version changed"};
+    const meta={...current,copyCheck:check};
+    localSetMeta(id,meta);
+    try{ window.dispatchEvent(new CustomEvent("nb-meta-changed",{detail:{id}})); }catch(e){}
+    return {ok:true,meta};
+  });
+}
+window.nbSetAssetCopyCheck=nbSetAssetCopyCheck;
 
 /* read the image URL from an <image-slot> by querying its shadow DOM */
 function nbGetSlotImage(slotId){

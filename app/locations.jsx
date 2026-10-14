@@ -1586,6 +1586,189 @@ function locationReferenceNumbers(refs){
   return out;
 }
 
+/* ---- THE COPY CHECK (2026-10-14, owner — "go ahead with all of it") ------------------------------------------------
+   Once a sub-space's plate (or its room & time, environment-state or extra-space plate) is made, each of its panels —
+   a single-frame plate: the whole frame — is compared IN THE BROWSER with each panel of the parent's plate. Free:
+   nothing is sent anywhere. A panel that is a near-copy of one of the parent's shows "This panel looks like <parent>'s
+   sheet — regenerate?" with Regenerate (its price) and Keep (locations-ui.jsx LocationCopyCheckNotice). It never blocks
+   a render, never regenerates and never spends on its own.
+   THE MATHS: each panel, 2% inside its grid lines, in grey, area-averaged into 24×24 and 16×16 grids —
+     detail = the best correlation of the 24×24 grids' high-pass (each cell less its 7×7 neighbourhood's mean, so the
+              sky / ground split every exterior shares counts for nothing) over shifts of up to ±2 cells (±8%), with
+              the new panel also read at 93% and 107% (a copy reframed a little);
+     layout = the best correlation of the 16×16 grey grids over shifts of up to ±1 cell.
+   A NEAR-COPY: detail ≥ 0.60 AND layout ≥ 0.62 — picked on the fixtures of scripts/test-location-copy-check.mjs
+   (scripts/fixtures/copy-check-plates.js: procedural plates of a quay seen by four cameras, 8 worlds — 96 near-
+   identical re-renders of a parent panel (up to 5% pan, 6% zoom, 3% tilt, brightness, contrast, tint, noise, blur,
+   a window gone) against 48 genuinely different views of the same worlds, 32 neighbouring views (15–26% pan, 1.3×
+   zoom) and 8 other worlds). Every copy scores detail ≥ 0.66 and layout ≥ 0.68 (and matches the panel it copies);
+   no other view scores both — the closest: detail 0.63 with layout 0.56, detail 0.55 with layout 0.90 — so each
+   side clears the line by about 0.05. Known limit: a copy re-lit for another time of day (dark sky and water) is
+   usually NOT caught (8 of 32 in the fixtures).
+   The result is recorded on the plate's meta as it is saved (copyCheck: this plate version against that parent plate
+   version), so it isn't recomputed on every render; Keep is recorded there too. */
+const LOC_COPY_CHECK = { v:1, detail:0.60, layout:0.62, inset:2, maxW:384, timeoutMs:4000 };
+function _locCopyGrey(img, rect, n){
+  const out = new Float64Array(n*n), cnt = new Float64Array(n*n), px = img.px, W = img.w;
+  const x0 = Math.max(0, Math.round(rect.x*img.w/100)), y0 = Math.max(0, Math.round(rect.y*img.h/100));
+  const x1 = Math.min(img.w, Math.round((rect.x+rect.w)*img.w/100)), y1 = Math.min(img.h, Math.round((rect.y+rect.h)*img.h/100));
+  const rw = Math.max(1, x1-x0), rh = Math.max(1, y1-y0);
+  const col = new Int32Array(Math.max(0, x1-x0));   // each column's cell, worked out once
+  for(let x=x0; x<x1; x++) col[x-x0] = Math.min(n-1, Math.floor((x-x0)*n/rw));
+  for(let y=y0; y<y1; y++){
+    const row = Math.min(n-1, Math.floor((y-y0)*n/rh))*n;
+    let i = (y*W+x0)*4;
+    for(let x=0; x<col.length; x++, i+=4){
+      const c = row+col[x];
+      out[c] += 0.299*px[i]+0.587*px[i+1]+0.114*px[i+2]; cnt[c]++;
+    }
+  }
+  for(let i=0;i<out.length;i++) out[i] = cnt[i] ? out[i]/cnt[i] : 0;
+  return out;
+}
+function _locCopyHighPass(g, n, r){
+  const out = new Float64Array(n*n);
+  for(let y=0;y<n;y++) for(let x=0;x<n;x++){
+    let s = 0, c = 0;
+    for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){
+      const yy = y+dy, xx = x+dx;
+      if(yy>=0 && yy<n && xx>=0 && xx<n){ s += g[yy*n+xx]; c++; }
+    }
+    out[y*n+x] = g[y*n+x]-s/c;
+  }
+  return out;
+}
+// zero mean, unit variance (a flat window → all zeros: it correlates with nothing)
+function _locCopyZ(a){
+  let m = 0; for(let i=0;i<a.length;i++) m += a[i]; m /= a.length || 1;
+  let s = 0; for(let i=0;i<a.length;i++) s += (a[i]-m)*(a[i]-m); s = Math.sqrt(s/(a.length||1));
+  const out = new Float64Array(a.length);
+  if(s>1e-6) for(let i=0;i<a.length;i++) out[i] = (a[i]-m)/s;
+  return out;
+}
+function _locCopyWindow(a, n, dx, dy, m){
+  const out = new Float64Array(m*m);
+  for(let y=0;y<m;y++) for(let x=0;x<m;x++) out[y*m+x] = a[(y+dy)*n+(x+dx)];
+  return out;
+}
+/* every window of a grid shifted by up to ±s cells, normalised — a parent panel's are read once and kept on its features */
+function _locCopyWindows(a, n, s){
+  const m = n-2*s, out = [];
+  for(let dy=0;dy<=2*s;dy++) for(let dx=0;dx<=2*s;dx++) out.push(_locCopyZ(_locCopyWindow(a, n, dx, dy, m)));
+  return out;
+}
+/* the best correlation of a normalised centre window with any of the shifted windows */
+function _locCopyBest(centre, windows){
+  let best = -1;
+  windows.forEach(w=>{ let c = 0; for(let i=0;i<centre.length;i++) c += centre[i]*w[i]; c /= centre.length || 1; if(c>best) best = c; });
+  return best;
+}
+/* a panel's features — rect in % of the image (LOC_PANEL_INFO[key].crop); scales: the read sizes (1 = the panel) */
+function locationCopyFeatures(img, rect, scales){
+  const k = LOC_COPY_CHECK.inset;
+  const r = { x:rect.x+k, y:rect.y+k, w:rect.w-2*k, h:rect.h-2*k };
+  const at = (s)=>{ const w = r.w/s, h = r.h/s; return { x:r.x+(r.w-w)/2, y:r.y+(r.h-h)/2, w, h }; };
+  return { hp:(scales||[1]).map(s=>_locCopyHighPass(_locCopyGrey(img, at(s), 24), 24, 3)), g16:_locCopyGrey(img, r, 16) };
+}
+/* mine: the new panel (its centre window at each read size) against theirs: a parent panel (its windows at every
+   shift of up to ±2 cells for detail, ±1 for layout) */
+function locationCopyCompare(mine, theirs){
+  mine.hpC = mine.hpC || mine.hp.map(h=>_locCopyZ(_locCopyWindow(h, 24, 2, 2, 20)));
+  mine.gC = mine.gC || _locCopyZ(_locCopyWindow(mine.g16, 16, 1, 1, 14));
+  theirs.hpW = theirs.hpW || _locCopyWindows(theirs.hp[0], 24, 2);
+  theirs.gW = theirs.gW || _locCopyWindows(theirs.g16, 16, 1);
+  let detail = -1;
+  mine.hpC.forEach(c=>{ const v = _locCopyBest(c, theirs.hpW); if(v>detail) detail = v; });
+  const layout = _locCopyBest(mine.gC, theirs.gW);
+  return { detail, layout, near:detail>=LOC_COPY_CHECK.detail && layout>=LOC_COPY_CHECK.layout };
+}
+/* child / parent: {px (RGBA), w, h}. opts.single: the child is one frame (a room & time, state or extra-space plate)
+   → { v, kind, near, panels:[{key, match, detail, layout, near}] } (match: the parent's panel it is closest to) */
+function locationCopyCheckPixels(child, parent, opts){
+  const single = !!(opts && opts.single);
+  const keys = ["TL","TR","BL","BR"];
+  const theirs = keys.map(k=>({ key:k, f:locationCopyFeatures(parent, LOC_PANEL_INFO[k].crop) }));
+  const mine = single ? [{ key:"plate", rect:{ x:0, y:0, w:100, h:100 } }] : keys.map(k=>({ key:k, rect:LOC_PANEL_INFO[k].crop }));
+  const r3 = (x)=>Math.round(x*1000)/1000;
+  const panels = mine.map(p=>{
+    const f = locationCopyFeatures(child, p.rect, [0.93,1,1.07]);
+    let best = null;
+    theirs.forEach(q=>{
+      const m = locationCopyCompare(f, q.f);
+      if(!best || (m.near && !best.near) || (m.near===best.near && m.detail>best.detail)) best = { ...m, match:q.key };
+    });
+    return { key:p.key, match:best.match, detail:r3(best.detail), layout:r3(best.layout), near:!!best.near };
+  });
+  return { v:LOC_COPY_CHECK.v, kind:single ? "single" : "2x2", near:panels.some(p=>p.near), panels };
+}
+/* an image's pixels, small (the whole image at most 384 px wide), read as data first so the canvas is never tainted.
+   The last few reads are kept (a parent's plate is read once for all its rooms' and room & time plates' checks); a
+   failed read is not kept, so it is tried again next time. */
+const _locCopyPixelCache = new Map();
+function _locCopyPixels(url){
+  if(!url || typeof document==="undefined" || typeof Image==="undefined") return Promise.resolve(null);
+  if(_locCopyPixelCache.has(url)) return _locCopyPixelCache.get(url);
+  const p = _locCopyReadPixels(url).catch(()=>null);
+  _locCopyPixelCache.set(url, p);
+  if(_locCopyPixelCache.size>6) _locCopyPixelCache.delete(_locCopyPixelCache.keys().next().value);
+  p.then(r=>{ if(!r && _locCopyPixelCache.get(url)===p) _locCopyPixelCache.delete(url); });
+  return p;
+}
+async function _locCopyReadPixels(url){
+  let src = url;
+  if(!/^data:/.test(src) && typeof oaiToDataUrl==="function"){ try{ src = (await oaiToDataUrl(url)) || url; }catch(e){} }
+  const img = await new Promise(ok=>{ const im = new Image(); im.crossOrigin = "anonymous";
+    im.onload = ()=>ok(im); im.onerror = ()=>ok(null); im.src = src; });
+  if(!img) return null;
+  const nw = img.naturalWidth||img.width, nh = img.naturalHeight||img.height;
+  if(!nw || !nh) return null;
+  const sc = Math.min(1, LOC_COPY_CHECK.maxW/nw), w = Math.max(1, Math.round(nw*sc)), h = Math.max(1, Math.round(nh*sc));
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d"); if(!ctx) return null;
+  ctx.imageSmoothingEnabled = true; try{ ctx.imageSmoothingQuality = "high"; }catch(e){}
+  ctx.drawImage(img, 0, 0, w, h);
+  try{ return { px:ctx.getImageData(0, 0, w, h).data, w, h }; }catch(e){ return null; }
+}
+/* the check on two plate images (URLs) → the result above, or null when either can't be read (no check, no notice) */
+async function locationCopyCheck(childUrl, parentUrl, opts){
+  try{
+    const [child, parent] = await Promise.all([_locCopyPixels(childUrl), _locCopyPixels(parentUrl)]);
+    return child && parent ? locationCopyCheckPixels(child, parent, opts) : null;
+  }catch(e){ return null; }
+}
+/* the check recorded with a plate as it is saved: { copyCheck } for a sub-space's plate, {} for anything else. Never in
+   the way — a check that fails, or takes longer than 4 s, is simply not recorded (the card runs it when it is shown). */
+async function locationCopyCheckMeta(l, url, iso, opts){
+  const parent = l && l.parentLocation && l.parentLocation.id ? l.parentLocation : null;
+  if(!parent || !url || !iso) return {};
+  let timer = null;
+  // the whole of it inside the time limit — loading the parent's plate too (a slow cloud read never holds the save up)
+  const run = (async ()=>{
+    let parentUrl = typeof nbGetImage==="function" ? nbGetImage(parent.id) : "";
+    if(!parentUrl && typeof nbLoadImage==="function") parentUrl = await nbLoadImage(parent.id);
+    const pm = typeof nbGetMeta==="function" ? nbGetMeta(parent.id) : null;
+    if(!parentUrl || !pm || !pm.iso) return null;
+    const res = await locationCopyCheck(url, parentUrl, opts);
+    return res ? { copyCheck:{ ...res, iso, parentId:parent.id, parentIso:pm.iso } } : null;
+  })().catch(()=>null);
+  try{
+    const out = await Promise.race([run, new Promise(ok=>{ timer = setTimeout(()=>ok(null), LOC_COPY_CHECK.timeoutMs); })]);
+    return out || {};
+  }catch(e){ return {}; }
+  finally{ if(timer) clearTimeout(timer); }
+}
+/* the recorded check when it is THIS plate version's against the parent's CURRENT plate, else null */
+function locationCopyCheckCurrent(meta, parentMeta){
+  const c = meta && meta.copyCheck;
+  return c && c.v===LOC_COPY_CHECK.v && meta.iso && c.iso===meta.iso && parentMeta && parentMeta.iso
+    && c.parentIso===parentMeta.iso && Array.isArray(c.panels) ? c : null;
+}
+window.LOC_COPY_CHECK = LOC_COPY_CHECK;
+window.locationCopyCheckPixels = locationCopyCheckPixels;
+window.locationCopyCheck = locationCopyCheck;
+window.locationCopyCheckMeta = locationCopyCheckMeta;
+window.locationCopyCheckCurrent = locationCopyCheckCurrent;
+
 /* ---- "Make a … view from this room's position" — one paid image ---- */
 function locationParentViewRequest(l, openingId, locations){
   const list = _locList(locations), parent = locationParentOf(l,list);
@@ -2604,33 +2787,48 @@ function locationScreenplayBlocks(scene, drafts){
   if(_locTurn(scene)) out.push({ type:"action", text:_locTurn(scene) });
   return out;
 }
-function locationScreenplayReferenceImages(l, sheet, scenes, drafts, options){
-  const renderOpts = options || {};
-  if(typeof document==="undefined") return [];
-  const selectedSceneId = renderOpts.sceneId != null ? renderOpts.sceneId : renderOpts.selectedSceneId;
-  const scene = renderOpts.scene || ((selectedSceneId != null)
-    ? (scenes||[]).find(s=>s && String(s.id)===String(selectedSceneId)) : null)
-    || locationSceneForCoverageSheet(l, sheet, scenes);
-  const blocks = locationScreenplayBlocks(scene, drafts);
-  if(!blocks.length) return [];
-  const W = 1000, H = 1294, padX = 78, padTop = 62, padBottom = 64, lineH = 20;
-  const font = "15px Courier New, monospace";
-  const boldFont = "700 15px Courier New, monospace";
-  const targetBeatValue = renderOpts.targetBeat == null ? renderOpts.highlightBeat : renderOpts.targetBeat;
-  const targetBeat = targetBeatValue == null ? null : Number(targetBeatValue);
-  const lineUnits = (b)=>{
+/* ONE SCREENPLAY IMAGE PER SCENE WHEN IT FITS (2026-10-14, owner — "go ahead with all of it"). The layouts are tried in
+   order and the first that fits the WHOLE scene on one page wins:
+     1. 15 px text on 18 px lines, block spacing halved, 1000×1294;
+     2. the same on a taller page, 1000×1500 (still under the 1536 px a page reference is sent at — never shrunk);
+     3. 14 px on 17 px lines;
+     4. 13 px on 16 px lines — the legibility floor (a provider that scales the short side to ~768 px leaves it ~10 px).
+   A scene no layout fits on one page takes the fewest pages any layout allows, on the most legible layout that allows
+   them, split EVENLY between blocks: a character cue (and a parenthetical) stays with the lines after it, a page never
+   starts with block spacing, and the last page is never a near-empty tail. Parentheticals keep their parentheses.
+   The Stage's pages (stage-screenplay-images.js) follow the same table. Glass Hours: all 16 scenes fit one page (14 of
+   them used to spill 1–12 lines onto a second, and Furnace's six slots reached only 3 of its 10 scenes). */
+const LOC_SCREENPLAY_LAYOUTS = [
+  { id:"15px-tight", font:15, lineH:18, spacing:0.5, H:1294 },
+  { id:"15px-tall", font:15, lineH:18, spacing:0.5, H:1500 },
+  { id:"14px", font:14, lineH:17, spacing:0.5, H:1500 },
+  { id:"13px-floor", font:13, lineH:16, spacing:0.4, H:1500 },
+];
+// a text row's top runs from bodyTop; the body ends bodyBottom above the page's foot (the footer sits below it)
+const LOC_SCREENPLAY_PAGE = { W:1000, padX:78, bodyTop:66, bodyBottom:64 };
+/* the size every location plate sends its screenplay pages at — the card, the room & time / state / extra-space cards
+   and the headless runs alike (a shot's pages go at the same 1536): no layout above is ever shrunk on the way */
+const LOC_SCREENPLAY_PAGE_MAX_DIM = 1536;
+window.LOC_SCREENPLAY_PAGE_MAX_DIM = LOC_SCREENPLAY_PAGE_MAX_DIM;
+function locationScreenplayParen(text){
+  const core = String(text==null ? "" : text).replace(/^\s*\(+\s*/,"").replace(/\s*\)+\s*$/,"").trim();
+  return core ? "("+core+")" : "";
+}
+/* a scene's blocks laid out for ONE layout → groups [[{type, before, after, rows:[{text,x,bold,target}]}]] */
+function locationScreenplayGroups(blocks, scene, L, sample, targetBeat){
+  const font = L.font+"px Courier New, monospace", boldFont = "700 "+font;
+  const cfgOf = (type)=> type==="char" ? { x:378, w:220, bold:true, upper:true, before:12, after:0 }
+    : type==="dia" ? { x:250, w:390, before:0, after:10 }
+    : type==="paren" ? { x:305, w:310, before:0, after:0 }
+    : type==="trans" ? { x:650, w:230, upper:true, before:10, after:10 }
+    : type==="scene" ? { x:LOC_SCREENPLAY_PAGE.padX, w:760, bold:true, upper:true, before:8, after:12 }
+    : { x:LOC_SCREENPLAY_PAGE.padX, w:760, before:8, after:12 };
+  const unit = (b)=>{
     const type = String(b&&b.type||"action");
-    const text = String(b&&b.text||"").replace(/\s+/g," ").trim();
-    if(!text) return [];
-    const target = targetBeat != null && Number.isFinite(targetBeat)
-      && Number(b&&b.beat)===targetBeat;
-    const cfg = type==="char" ? { x:378, w:220, bold:true, upper:true, before:12, after:0 }
-      : type==="dia" ? { x:250, w:390, before:0, after:10 }
-      : type==="paren" ? { x:305, w:310, before:0, after:0 }
-      : type==="trans" ? { x:650, w:230, upper:true, before:10, after:10 }
-      : type==="scene" ? { x:padX, w:760, bold:true, upper:true, before:8, after:12 }
-      : { x:padX, w:760, before:8, after:12 };
-    const sample = document.createElement("canvas").getContext("2d");
+    let text = String(b&&b.text||"").replace(/\s+/g," ").trim();
+    if(type==="paren") text = locationScreenplayParen(text);
+    if(!text) return null;
+    const cfg = cfgOf(type);
     sample.font = cfg.bold ? boldFont : font;
     const words = (cfg.upper ? text.toUpperCase() : text).split(/\s+/);
     const lines = []; let line = "";
@@ -2640,50 +2838,136 @@ function locationScreenplayReferenceImages(l, sheet, scenes, drafts, options){
       else line = t;
     });
     if(line) lines.push(line);
-    return [{ blank:cfg.before }, ...lines.map(s=>({ text:s, ...cfg, target })), { blank:cfg.after }];
+    const target = targetBeat != null && Number.isFinite(targetBeat) && Number(b&&b.beat)===targetBeat;
+    return { type, before:Math.round(cfg.before*L.spacing), after:Math.round(cfg.after*L.spacing),
+      rows:lines.map(s=>({ text:s, x:cfg.x, bold:!!cfg.bold, target })) };
   };
   const units = [];
-  const slug = blocks.find(b=>b.type==="scene");
-  if(slug && !String(slug.text||"").match(/^\s*\d+\s+/) && scene && scene.no!=null)
-    units.push(...lineUnits({ type:"scene", text:String(scene.no)+"  "+slug.text }));
-  blocks.forEach(b=>{ if(slug && b===slug) return; units.push(...lineUnits(b)); });
-  const pages = [];
-  let page = [], y = padTop;
-  const pushPage = ()=>{ if(page.length){ pages.push(page); page = []; y = padTop; } };
-  units.forEach(u=>{
-    const h = u.blank!=null ? Number(u.blank)||0 : lineH;
-    if(y + h > H - padBottom){ pushPage(); }
-    page.push(u); y += h;
+  const slug = blocks.find(b=>b && b.type==="scene");
+  if(slug){
+    const numbered = /^\s*\d+\s+/.test(String(slug.text||"")) || !scene || scene.no==null;
+    const u = unit({ ...slug, text:(numbered ? "" : String(scene.no)+"  ")+String(slug.text||"") });
+    if(u) units.push(u);
+  }
+  blocks.forEach(b=>{ if(slug && b===slug) return; const u = unit(b); if(u) units.push(u); });
+  const groups = [];
+  units.forEach((u,i)=>{
+    const prev = units[i-1];
+    if(prev && groups.length && /^(char|paren)$/.test(prev.type) && /^(paren|dia)$/.test(u.type)) groups[groups.length-1].push(u);
+    else groups.push([u]);
   });
-  pushPage();
+  return groups;
+}
+/* page packing — the same in stage-screenplay-images.js. items [{h, before, after}]: a page holds a run of items whose
+   heights add up to at most cap, less the first one's spacing before and the last one's after. Filling each page in
+   turn gives the fewest pages; the smallest cap that keeps that count gives EVEN pages. null: an item fits no page. */
+function locationScreenplayPack(items, cap){
+  const pages = []; let cur = null;
+  for(let i=0;i<items.length;i++){
+    const it = items[i];
+    if(it.h-it.before-it.after > cap) return null;
+    if(cur && cur.sum+it.h-cur.before-it.after <= cap){ cur.items.push(i); cur.sum += it.h; }
+    else{ cur = { items:[i], sum:it.h, before:it.before }; pages.push(cur); }
+  }
+  return pages.map(p=>p.items);
+}
+function locationScreenplayBalance(items, usable){
+  const first = locationScreenplayPack(items, usable);
+  if(!first || first.length<=1) return first;
+  let lo = 0, hi = usable;
+  while(hi-lo>1){
+    const mid = Math.floor((lo+hi)/2), p = locationScreenplayPack(items, mid);
+    if(p && p.length<=first.length) hi = mid; else lo = mid;
+  }
+  return locationScreenplayPack(items, hi);
+}
+/* the layout a scene's pages use → { layout, pages:[[unit (its first before dropped)…]] } */
+function locationScreenplayLayout(blocks, scene, sample, targetBeat){
+  const P = LOC_SCREENPLAY_PAGE;
+  let best = null;
+  for(const L of LOC_SCREENPLAY_LAYOUTS){
+    const usable = L.H-P.bodyTop-P.bodyBottom;
+    const hOf = (g)=> g.reduce((n,u)=>n+u.before+u.rows.length*L.lineH+u.after, 0);
+    // a group taller than a whole page (a very long paragraph) is split between its rows
+    const groups = [];
+    locationScreenplayGroups(blocks, scene, L, sample, targetBeat).forEach(g=>{
+      if(hOf(g)-g[0].before-g[g.length-1].after <= usable){ groups.push(g); return; }
+      g.forEach(u=>u.rows.forEach((r,i)=>groups.push([{ type:u.type, before:i ? 0 : u.before,
+        after:i===u.rows.length-1 ? u.after : 0, rows:[r] }])));
+    });
+    const pages = locationScreenplayBalance(groups.map(g=>({ h:hOf(g), before:g[0].before, after:g[g.length-1].after })), usable);
+    if(!pages) continue;
+    if(!best || pages.length<best.pages.length) best = { L, groups, pages };
+    if(pages.length===1) break;
+  }
+  if(!best) return null;
+  return { layout:best.L, pages:best.pages.map(idx=>{
+    const units = [];
+    idx.forEach(i=>best.groups[i].forEach(u=>units.push(units.length ? u : { ...u, before:0 })));
+    return units;
+  }) };
+}
+function locationScreenplayReferenceImages(l, sheet, scenes, drafts, options){
+  const renderOpts = options || {};
+  if(typeof document==="undefined") return [];
+  const selectedSceneId = renderOpts.sceneId != null ? renderOpts.sceneId : renderOpts.selectedSceneId;
+  const scene = renderOpts.scene || ((selectedSceneId != null)
+    ? (scenes||[]).find(s=>s && String(s.id)===String(selectedSceneId)) : null)
+    || locationSceneForCoverageSheet(l, sheet, scenes);
+  const blocks = locationScreenplayBlocks(scene, drafts);
+  if(!blocks.length) return [];
+  const targetBeatValue = renderOpts.targetBeat == null ? renderOpts.highlightBeat : renderOpts.targetBeat;
+  const targetBeat = targetBeatValue == null ? null : Number(targetBeatValue);
+  const measureCanvas = document.createElement("canvas");
+  let sample = measureCanvas && typeof measureCanvas.getContext==="function" ? measureCanvas.getContext("2d") : null;
+  if(!sample || typeof sample.measureText!=="function") sample = { font:"15px", measureText(t){   // no canvas metrics: Courier's 0.6 em
+    const m = String(this.font).match(/(\d+(?:\.\d+)?)px/); return { width:String(t).length*0.6*(m ? Number(m[1]) : 15) }; } };
+  const laid = locationScreenplayLayout(blocks, scene, sample, targetBeat);
+  if(!laid) return renderOpts.returnMeta || renderOpts.countOnly ? { images:[], pageCount:0, renderedPageCount:0, omittedPages:0,
+    targetBeat, sceneId:scene&&scene.id||"", pageLimit:0 } : [];
+  const L = laid.layout, pages = laid.pages, P = LOC_SCREENPLAY_PAGE;
+  const W = P.W, H = L.H, padX = P.padX, lineH = L.lineH;
+  const font = L.font+"px Courier New, monospace", boldFont = "700 "+font;
   const sceneNo = scene&&scene.no!=null ? scene.no : "";
   const contextLabel = renderOpts.contextLabel || renderOpts.label;
   const title = (contextLabel ? String(contextLabel)+" — " : "")
     +"SCENE "+sceneNo+" - "+(((scene&&scene.title)||((l&&l.name)||"LOCATION"))).toUpperCase();
   const pageLimit = renderOpts.pageLimit == null ? 6
     : Math.max(0,Number(renderOpts.pageLimit)||0);
+  const meta = (imgs)=>({
+    images:imgs, pageCount:pages.length, renderedPageCount:imgs.length,
+    omittedPages:Math.max(0,pages.length-imgs.length), targetBeat,
+    sceneId:scene&&scene.id||"", pageLimit,
+    layout:L.id, pageWidth:W, pageHeight:H, fontPx:L.font, lineHeight:lineH
+  });
+  // (2026-10-14) how many pages the scene takes, without drawing them (the reference counts and whole-scene slots)
+  if(renderOpts.countOnly) return meta([]);
+  const baseline = Math.round(lineH*0.78);
   const imgs = pages.slice(0,pageLimit).map((items,pi)=>{
     const canvas = document.createElement("canvas"); canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext("2d"); if(!ctx) return "";
     ctx.fillStyle = "#f4f0e6"; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle = "#151515"; ctx.font = boldFont;
+    ctx.fillStyle = "#151515"; ctx.font = "700 15px Courier New, monospace";
     ctx.fillText(title.slice(0,86), padX, 42);
     ctx.fillText(String(pi+1), W-padX-8, 42);
     if(targetBeat != null && Number.isFinite(targetBeat)){
       ctx.fillStyle = "#76621f"; ctx.font = "700 11px Courier New, monospace";
       ctx.fillText(String(renderOpts.targetLabel||"TARGET BEAT OPENING")+" — BEAT "+targetBeat, padX, 57);
     }
-    let cy = padTop;
+    let y = P.bodyTop;
     items.forEach(u=>{
-      if(u.blank!=null){ cy += Number(u.blank)||0; return; }
-      if(u.target){
-        ctx.fillStyle = "#ead58b";
-        ctx.fillRect(padX-16, cy-lineH+3, W-padX*2+16, lineH+4);
-      }
-      ctx.font = u.bold ? boldFont : font;
-      ctx.fillStyle = "#151515";
-      ctx.fillText(u.text, u.x, cy);
-      cy += lineH;
+      y += u.before;
+      u.rows.forEach(r=>{
+        if(r.target){
+          ctx.fillStyle = "#ead58b";
+          ctx.fillRect(padX-16, y-1, W-padX*2+16, lineH+2);
+        }
+        ctx.font = r.bold ? boldFont : font;
+        ctx.fillStyle = "#151515";
+        ctx.fillText(r.text, r.x, y+baseline);
+        y += lineH;
+      });
+      y += u.after;
     });
     ctx.fillStyle = "#8a8177"; ctx.font = "12px Courier New, monospace";
     ctx.fillText((contextLabel ? String(contextLabel)+" — " : "")
@@ -2691,11 +2975,7 @@ function locationScreenplayReferenceImages(l, sheet, scenes, drafts, options){
     ctx.fillText("PAGE "+(pi+1)+" OF "+pages.length, W-padX-92, H-34);
     try{ return canvas.toDataURL("image/png"); }catch(e){ return ""; }
   }).filter(Boolean);
-  if(renderOpts.returnMeta) return {
-    images:imgs, pageCount:pages.length, renderedPageCount:imgs.length,
-    omittedPages:Math.max(0,pages.length-imgs.length), targetBeat,
-    sceneId:scene&&scene.id||"", pageLimit
-  };
+  if(renderOpts.returnMeta) return meta(imgs);
   return imgs;
 }
 function locationScreenplayReferenceImage(l, sheet, scenes, drafts){
@@ -3872,18 +4152,62 @@ function locationScriptPageRefs(l, scenes, drafts, max){
   const order = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder : (x=>x||[]);
   const list = (Array.isArray(l.scenes) && l.scenes.length)
     ? order(all.filter(s=>l.scenes.indexOf(s.id)>=0)) : order(all);
+  const dr = drafts||C.drafts||{};
+  /* WHOLE SCENES ONLY (2026-10-14): a scene's pages ride together or not at all \u2014 a scene whose pages no longer fit the
+     slots left is skipped (a later one-page scene may still fit), never cut after its first page */
   for(const sc of list){
-    const imgs = (typeof locationScreenplayReferenceImages==="function")
-      ? locationScreenplayReferenceImages(l, { name:l.name, sceneNos:[sc.no] }, all, drafts||C.drafts||{}) : [];
-    imgs.forEach((url,i)=>{ if(out.length<cap) out.push({ url, kind:"script", ready:true, required:false,
-      refId:"script-main-"+l.id+"-"+(sc.no||sc.id)+"-"+i,
-      label:"Scene "+String(sc.no||"?").padStart(2,"0")+" p"+(i+1),
-      note:"full-scene screenplay page "+(i+1)+" for Scene "+(sc.no||"?")+" \u2014 use this to design the location's 2x2 geography from what is actually filmed; do not render page text or borders" }); });
     if(out.length>=cap) break;
+    const sheet = { name:l.name, sceneNos:[sc.no] };
+    if(typeof locationScreenplayReferenceImages!=="function") break;
+    const count = locationScreenplayReferenceImages(l, sheet, all, dr, { countOnly:true });
+    const n = count && !Array.isArray(count) ? Number(count.pageCount)||0 : null;
+    if(n!=null && (!n || n>cap-out.length)) continue;
+    const imgs = locationScreenplayReferenceImages(l, sheet, all, dr, { pageLimit:Math.max(n||0, cap-out.length) });
+    if(!imgs.length || imgs.length>cap-out.length || (n!=null && imgs.length!==n)) continue;
+    // maxDim 1536: a page is sent at its own size, never shrunk (the layouts are chosen for that — 2026-10-14)
+    imgs.forEach((url,i)=>out.push({ url, kind:"script", ready:true, required:false, maxDim:LOC_SCREENPLAY_PAGE_MAX_DIM,
+      refId:"script-main-"+l.id+"-"+(sc.no||sc.id)+"-"+i, sceneId:sc.id, scenePage:i+1, scenePages:imgs.length,
+      label:"Scene "+String(sc.no||"?").padStart(2,"0")+" p"+(i+1),
+      note:"full-scene screenplay page "+(i+1)+" for Scene "+(sc.no||"?")+" \u2014 use this to design the location's 2x2 geography from what is actually filmed; do not render page text or borders" }));
   }
   return out;
 }
 window.locationScriptPageRefs = locationScriptPageRefs;
+/* how many pages locationScriptPageRefs attaches — the same whole-scene choice, counted without drawing a page (a price
+   is read on every render of a card; drawing a PNG per page there is far too slow) */
+function locationScriptPageCount(l, scenes, drafts, max){
+  const C = window.turnContinuity || {};
+  const all = scenes || C.scenes || [];
+  const cap = (max==null ? 6 : Math.max(0, max));
+  if(!cap || typeof locationScreenplayReferenceImages!=="function") return 0;
+  const order = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder : (x=>x||[]);
+  const list = (Array.isArray(l.scenes) && l.scenes.length)
+    ? order(all.filter(s=>l.scenes.indexOf(s.id)>=0)) : order(all);
+  const dr = drafts||C.drafts||{};
+  let total = 0;
+  for(const sc of list){
+    if(total>=cap) break;
+    const count = locationScreenplayReferenceImages(l, { name:l.name, sceneNos:[sc.no] }, all, dr, { countOnly:true });
+    const n = count && !Array.isArray(count) ? Number(count.pageCount)||0 : 0;
+    if(n && n<=cap-total) total += n;
+  }
+  return total;
+}
+window.locationScriptPageCount = locationScriptPageCount;
+/* the pages a card attaches once its other references are known: whole scenes (pages that share a sceneId) that fit the
+   slots left, in order \u2014 a scene that doesn't fit is left out whole (2026-10-14) */
+function locationWholeScenePages(pages, slots){
+  const cap = Math.max(0, Math.floor(Number(slots)||0)), runs = [];
+  (pages||[]).forEach(r=>{
+    const last = runs[runs.length-1];
+    if(last && r && r.sceneId!=null && last.sceneId===r.sceneId) last.list.push(r);
+    else runs.push({ sceneId:r&&r.sceneId!=null ? r.sceneId : null, list:[r] });
+  });
+  const out = [];
+  runs.forEach(run=>{ if(run.list.length<=cap-out.length) out.push(...run.list); });
+  return out;
+}
+window.locationWholeScenePages = locationWholeScenePages;
 /* opts (2026-10-08, owner — Locations review): the one-scene run and "Make what this scene needs" now make
    the SAME plate the card does — draftStaging writes the view composition first when the place has none
    (onStaged saves it), and the screenplay pages ride along as references. */
@@ -3931,8 +4255,9 @@ async function generateLocationPlate(l, project, opts){
       refs=mergeLocationReferences(parentRefs,await locationSpatialReferences(l));
     }
     if(o.scriptRefs!==false){
-      const pages=locationScriptPageRefs(l, null, null, 6).filter(r=>r.url);
-      refs=[...refs, ...pages.map(r=>({url:r.url,kind:"script",refId:r.refId,note:r.note}))].slice(0,6);
+      // the parent's plate, the cut-out panels and the layout's plate first; whole scenes' pages in the slots left (2026-10-14)
+      const pages=locationScriptPageRefs(l, null, null, Math.max(0, 6-refs.length)).filter(r=>r.url);
+      refs=[...refs, ...pages.map(r=>({url:r.url,kind:"script",refId:r.refId,note:r.note,maxDim:r.maxDim}))].slice(0,6);
     }
     const lineage=parent?locationAssetDependencySnapshot(parent.id,[],"subspace"):{};
     // the cameras this plate's prompt states, recorded with it (rooms inside use them to pick the right panel)
@@ -3986,9 +4311,13 @@ async function generateLocationPlate(l, project, opts){
         if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
       }else throw e;
     }
+    // a sub-space's panels against its parent's plate, in the browser — free, never in the way (2026-10-14, the copy check)
+    const meta = {..._nbLocMeta(prompt,l,runSnapshot),...lineage};
+    if(parent) Object.assign(meta, await locationCopyCheckMeta(l, url, meta.iso));
+    if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
     let saved;
     try{
-      saved = await nbCommit(l.id, url, {..._nbLocMeta(prompt,l,runSnapshot),...lineage}, refs, "location", _ep,
+      saved = await nbCommit(l.id, url, meta, refs, "location", _ep,
         ()=>_stale(l.id,_runToken,_ep));
     }catch(e){
       if(_stale(l.id,_runToken,_ep)){ _nbLocCancelEvent(l.id,_runToken); return false; }
@@ -4051,9 +4380,12 @@ async function generateLocationVariant(l, v, project){
         if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
       }else throw e;
     }
+    const meta = Object.assign(_nbLocMeta(prompt,unit?{...l,appearanceState:unit}:l,runSnapshot),lineage);
+    if(l.parentLocation) Object.assign(meta, await locationCopyCheckMeta(l, url, meta.iso, {single:true}));   // the copy check (2026-10-14)
+    if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     let saved;
     try{
-      saved = await nbCommit(id, url, Object.assign(_nbLocMeta(prompt,unit?{...l,appearanceState:unit}:l,runSnapshot),lineage), refs, "location", _ep,
+      saved = await nbCommit(id, url, meta, refs, "location", _ep,
         ()=>_nbLocStale(id,_runToken,_ep));
     }catch(e){
       if(_nbLocStale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
@@ -4099,7 +4431,7 @@ async function generateSluglineUnitPlate(l, u, project, opts){
     const pseudo = sluglineUnitPseudoSheet(id, u, role);
     const scriptImgs = (typeof locationScreenplayReferenceImages==="function")
       ? locationScreenplayReferenceImages(l, pseudo, C.scenes||[], C.drafts||{}) : [];
-    const base = scriptImgs.map((url,i)=>({ url, kind:"script", refId:"script-"+id+"-"+i,
+    const base = scriptImgs.map((url,i)=>({ url, kind:"script", refId:"script-"+id+"-"+i, maxDim:LOC_SCREENPLAY_PAGE_MAX_DIM,
       note:"screenplay page "+(i+1)+" for "+(u.name||"this Slugline Unit")+" — use it to infer what the script implies, but do not render any text from it" }));
     base.push({ url:own, kind:"location", refId:l.id,
       note:(l.name||"parent location")+" child/master plate — preserve this exact subspace geometry, materials and scale" });
@@ -4115,6 +4447,8 @@ async function generateSluglineUnitPlate(l, u, project, opts){
       screenplayPages:refs.map((r,i)=>r.kind==="script" ? i+1 : 0).filter(Boolean), model:runSnapshot.model, reserve:referenceText.length+1});
     prompt += referenceText;
     gopts.extraImages = refs.map(r=>r.url);
+    // the screenplay pages at their own size (2026-10-14), every other reference as before
+    if(refs.some(r=>r.maxDim)) gopts.extraImageMaxDims = refs.map(r=>r.maxDim||1024);
     if(runSnapshot.quality && typeof window.nbRequireImageQuality==="function"){
       try{ await window.nbRequireImageQuality(runSnapshot.model, runSnapshot.quality); }
       catch(e){ if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; } throw e; }
@@ -4132,7 +4466,10 @@ async function generateSluglineUnitPlate(l, u, project, opts){
       url = await nbGenerate(prompt, { ...gopts, assetId:id });
     }
     if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
-    const saved = await nbCommit(id, url, Object.assign(_nbLocMeta(prompt,{...l,appearanceState:u},runSnapshot),lineage), refs, "location", _ep,
+    const meta = Object.assign(_nbLocMeta(prompt,{...l,appearanceState:u},runSnapshot),lineage);
+    if(l.parentLocation) Object.assign(meta, await locationCopyCheckMeta(l, url, meta.iso, {single:true}));   // the copy check (2026-10-14)
+    if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
+    const saved = await nbCommit(id, url, meta, refs, "location", _ep,
       ()=>_stale(id,_runToken,_ep));
     if(_stale(id,_runToken,_ep) || (saved&&/^(cancelled|stale)$/.test(saved.tier||""))){ _nbLocCancelEvent(id,_runToken); return false; }
     if(!saved || saved.tier==="error") return false;
@@ -4151,28 +4488,40 @@ function sluglineUnitPseudoSheet(id, u, role){
    plate with the references the generator above will attach — the parent's plate, the reviewed layout's plate
    (one image when it is the same plate) and the screenplay pages, at most 6. { n, exact }: exact false = n is
    the most it can be. */
-function locationPlateRefCount(l){
+/* the references a plate attaches BEFORE its screenplay pages — the parent's plate, the cut-out panels / views of the
+   space beyond (a room), the reviewed layout's plate — { n } (n null: the layout isn't ready, the plate can't be made) */
+function locationPlateFixedRefCount(l){
   const ids = new Set();
   let parent = null;
   try{ parent = locationParentOf(l); if(parent) ids.add(parent.id); }catch(e){}
   let ownerDistinct = false;
   try{ const st = requireLocationSpatialPlan(l); if(st.source.iso || st.plan.source.iso){ ids.add(st.owner.id); ownerDistinct = !!parent && st.owner.id!==parent.id; } }
-  catch(e){ return { n:6, exact:false }; }
+  catch(e){ return { n:null }; }
   // a room also attaches the view of the space beyond each opening its panels see (2026-10-13)
   let views = 0;
-  if(parent){ try{ views = locationSubspacePanelPlan(l, null, null, { maxSources:ownerDistinct ? 3 : 4 }).sources.length; }catch(e){ return { n:6, exact:false }; } }
-  let pages = 0;
-  try{ pages = locationScriptPageRefs(l, null, null, 6).filter(r=>r.url).length; }catch(e){ return { n:6, exact:false }; }
-  return { n:Math.min(6, ids.size+views+pages), exact:true };
+  if(parent){ try{ views = locationSubspacePanelPlan(l, null, null, { maxSources:ownerDistinct ? 3 : 4 }).sources.length; }catch(e){ return { n:null }; } }
+  return { n:ids.size+views };
 }
+/* (2026-10-14) the pages: whole scenes in the slots the other references leave — the count follows the real pages */
+function locationPlateRefCount(l){
+  const fixed = locationPlateFixedRefCount(l);
+  if(fixed.n==null) return { n:6, exact:false };
+  let pages = 0;
+  // counted, not drawn: the same whole scenes locationScriptPageRefs attaches (a price is read on every render)
+  try{ pages = locationScriptPageCount(l, null, null, Math.max(0, 6-fixed.n)); }catch(e){ return { n:6, exact:false }; }
+  return { n:Math.min(6, fixed.n+pages), exact:true };
+}
+window.locationPlateFixedRefCount = locationPlateFixedRefCount;
 /* a room & time plate: its screenplay pages, its location's plate, the root's plate when it has one
    (opts.rootPlate: false = the root has none, so it isn't attached) and the reviewed layout's plate */
 function sluglineUnitPlateRefCount(l, u, opts){
   const o = opts || {};
   const C = window.turnContinuity || {};
   let pages = 0, exact = true;
+  // counted, not drawn (2026-10-14): the pages the generator draws — at most its page limit (6)
   try{ const id = sluglineUnitImageId(u.key);
-    pages = locationScreenplayReferenceImages(l, sluglineUnitPseudoSheet(id, u), C.scenes||[], C.drafts||{}).length; }
+    const c = locationScreenplayReferenceImages(l, sluglineUnitPseudoSheet(id, u), C.scenes||[], C.drafts||{}, { countOnly:true });
+    pages = Array.isArray(c) ? c.length : Math.min(Number(c&&c.pageCount)||0, c&&c.pageLimit!=null ? Number(c.pageLimit)||0 : 6); }
   catch(e){ exact = false; }
   const ids = new Set([l.id]);
   if(l.parentLocation && l.parentLocation.id && o.rootPlate!==false){ ids.add(l.parentLocation.id); if(o.rootPlate!==true) exact = false; }

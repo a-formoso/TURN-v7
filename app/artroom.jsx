@@ -3054,7 +3054,8 @@ async function nbRunSheetGeneration(env, gopts){
       // caller-supplied extra meta (e.g. a prop's owner-sheet anchor version, a
       // character sheet's baked worn-prop signature) — powers the staleness badges
       if(typeof opts.metaExtra==="function"){
-        try{ const extra = await opts.metaExtra({ mode, refsUsed, prompt: sentPrompt });
+        // url / iso (2026-10-14): the new image and its version — a location's copy check reads them before the save
+        try{ const extra = await opts.metaExtra({ mode, refsUsed, prompt: sentPrompt, url, iso: meta.iso });
           if(extra && typeof extra==="object") Object.assign(meta, extra); }
         catch(e){ if(e && e.sceneContextStale) throw e; }
       }
@@ -3201,8 +3202,9 @@ function useImageGen(opts){
     window.addEventListener("nb-gen-saving",onSaving);
     window.addEventListener("nb-save-pending",onPending);
     window.addEventListener("nb-approval-changed",onApproval);
+    window.addEventListener("nb-meta-changed",onApproval);   // a note on this version's meta (a location's copy check "Keep")
     return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); window.removeEventListener("nb-prefetched", onPrefetched); window.removeEventListener("nb-gen-cancel", onCancel); window.removeEventListener("nb-gen-start", onStart);
-      window.removeEventListener("nb-gen-saving",onSaving);window.removeEventListener("nb-save-pending",onPending);window.removeEventListener("nb-approval-changed",onApproval); };
+      window.removeEventListener("nb-gen-saving",onSaving);window.removeEventListener("nb-save-pending",onPending);window.removeEventListener("nb-approval-changed",onApproval);window.removeEventListener("nb-meta-changed",onApproval); };
   },[id]);
 
   /* the character's LIKENESS as the store reports it (locked / usable here / when captured), kept current

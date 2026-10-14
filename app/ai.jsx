@@ -3483,6 +3483,17 @@ if(_propsFeature) _propsFeature.what += " (2026-10-12) CARRIED PROPS COME FROM T
   const sf = APP_FEATURES.find(x=>x && x.name==="Shots (Art Room)");
   if(sf) sf.what += " (2026-10-14) A shot's prompt carries its scene's screenplay either as the attached screenplay page images or as text, never both: when the pages go with the frame, the prompt points to them; pages that would carry only part of the scene are left out and the whole scene goes as text, and when an engine wouldn't receive every page (Seedream 5 Pro takes at most 10 reference images) the scene's text goes too. When the prompt would be longer than the engine takes, the scene's text is cut to the lines around the shot's beat, then left out \u2014 the beat's own opening, the camera and the reference list never are.";
 }
+/* ONE SCREENPLAY IMAGE PER SCENE and THE COPY CHECK (owner-approved 2026-10-14, "go ahead with all of it"): the page
+   layouts tried in order (locations.jsx LOC_SCREENPLAY_LAYOUTS, locationScreenplayLayout; stage-screenplay-images.js),
+   whole scenes in a plate's free reference slots (locationScriptPageRefs, locationWholeScenePages,
+   locationPlateRefCount); a sub-space plate's panels compared in the browser with its parent's (locations.jsx
+   locationCopyCheckPixels / locationCopyCheckMeta; locations-ui.jsx LocationCopyCheckNotice) */
+{ const lf = APP_FEATURES.find(x=>x && x.name==="Locations (Art Room)");
+  if(lf) lf.what += " (2026-10-14) ONE SCREENPLAY PAGE PER SCENE: the screenplay page images a plate reads (and a shot's and the Stage's pages) now fit a whole scene on ONE page whenever they can \u2014 slightly tighter lines first, then a taller page, then smaller type (never below a still-legible size); a genuinely long scene is split evenly between its blocks, never with a near-empty last page. Parentheticals show their parentheses. A location plate attaches whole scenes only, in the reference slots left after the parent's plate, the panels cut out of it and the layout's plate (at most 6 images in all), so a location with many scenes gets about twice as many of them in as before (one page each instead of two); the price counts the pages really attached. "
+    +"THE COPY CHECK: after a room's plate (or one of its room & time or environment-state plates) is made, each of its panels is compared with each panel of the parent location's plate, in your browser \u2014 free, nothing is sent anywhere. When one is a near-copy, the card says 'This panel looks like <parent>'s sheet \u2014 regenerate?' (a single-frame plate: 'This plate looks like \u2026') with Regenerate \u2014 one image, priced on the button \u2014 and Keep, which hides it for that version. It never blocks a plate, never regenerates and never spends on its own. It compares composition, so a copy re-lit for another time of day may not be caught.";
+  const stf = APP_FEATURES.find(x=>x && x.name==="Scene screenplay reference (Stage)");
+  if(stf) stf.what += " (2026-10-14) A scene's screenplay now fits on one page image whenever it can (tighter lines, then a taller page, then smaller but legible type), a long scene splits evenly, and each block's beat number sits in the margin beside it instead of on a line of its own \u2014 so most scenes are one reference image instead of two or three.";
+}
 /* the public view of every entry, memoised on the manifest's size (APP_FEATURES is only
    extended at load time, but a late push or `.what +=` still invalidates it) */
 let _museFactsMemo = null;

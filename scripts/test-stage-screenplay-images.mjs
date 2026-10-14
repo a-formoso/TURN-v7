@@ -39,7 +39,9 @@ vm.runInContext(readFileSync("app/stage-screenplay-images.js","utf8"),box,{
   filename:"app/stage-screenplay-images.js"
 });
 
-const longToken = "UNBROKEN-TOKEN-".repeat(450);
+/* (2026-10-14) one page per scene when it fits — 13 px on a 1000×1500 page holds ~80 rows of this fake 9 px measure,
+   so the unbroken token is long enough (~145 rows) to need two pages at any size */
+const longToken = "UNBROKEN-TOKEN-".repeat(900);
 const reference = {
   schema:"cm-stage-screenplay-v1",
   kind:"screenplay",
@@ -79,6 +81,15 @@ result.images.forEach(image=>{
   assert.match(image.label,/SCREENPLAY PAGE/);
 });
 const drawn = calls.filter(call=>call[0]==="text").map(call=>call[1]).join("\n");
+/* the beat labels sit in the margin beside their block's first line — never a row of their own (2026-10-14) */
+assert.ok(!calls.some(call=>call[0]==="text" && /^\[BEAT /.test(call[1])),"no [BEAT n · TYPE] label rows");
+const margin = calls.filter(call=>call[0]==="text" && /^BEAT \d+$/.test(call[1]));
+assert.ok(margin.length>=3 && margin.every(call=>call[2]===60),"BEAT 1, 2 and 3 in the left margin");
+assert.ok(margin.every(label=>calls.some(call=>call[0]==="text" && call[3]===label[3] && call[2]>=78 && !/^BEAT /.test(call[1]))),
+  "each beside its block's first line");
+// ~150 rows: 3 pages at 15 px even on the taller page, 2 at 14 px — so 14 px (13 px would also make 2, less legibly)
+assert.ok(result.images.length===2 && result.images.every(image=>image.layout==="14px" && image.height===1500),
+  "a scene no layout fits on one page: the fewest pages any layout allows (2), on the most legible one that allows them");
 assert.match(drawn,/MARCUS enters the archive/);
 assert.match(drawn,/The final authored block survives/);
 assert.match(drawn,/UNBROKEN-TOKEN-/,"long tokens are drawn rather than truncated");

@@ -141,14 +141,15 @@ assert.ok(!/\n {1,}"/.test(fv.prompt), "the JSON spec has no indentation");
 const avoid = fv.spec.slice(fv.spec.lastIndexOf(" AVOID: ") + 8).replace(/\.$/, "").split(", ").map((t) => t.toLowerCase());
 assert.equal(new Set(avoid).size, avoid.length, "each AVOID term once");
 assert.ok(avoid.length >= 40 && avoid.length <= 50, "the 44 different terms (80 were sent): " + avoid.length);
-assert.match(fv.prompt, /"screenplay_context":"the screenplay of these scenes is attached as page images \(Images 2–5\) — read it there; it is not repeated here"/);
+// (2026-10-14) one page image per scene: scenes 3 and 13 are Images 2 and 3 (they took four pages before)
+assert.match(fv.prompt, /"screenplay_context":"the screenplay of these scenes is attached as page images \(Images 2–3\) — read it there; it is not repeated here"/);
 assert.ok(!fv.prompt.includes("She runs her thumb"), "the screenplay text isn't sent beside its pages");
 const specOf = (p) => JSON.parse(p.slice(p.indexOf("\n") + 1, p.lastIndexOf(" AVOID: ")));
 const fvSpec = specOf(fv.spec);
 assert.deepEqual(Object.keys(fvSpec.views).filter((k) => /^(top|bottom)_/.test(k)), ["top_left", "top_right", "bottom_left", "bottom_right"]);
 assert.ok(Object.values(fvSpec.views).filter((v) => /Camera inside Fondamenta DEI Vetrai/.test(v)).length === 4, "every panel's camera line");
 assert.equal(fvSpec.location.identity_layers.shared_set_layout.anchors.length, 13, "every layout object (nothing had to be trimmed)");
-assert.match(fv.prompt, / REFERENCE IMAGES are attached: Image 1 = Fondamenta whole plate, small[^]*Image 5 = full-scene screenplay page 2 for Scene 13[^]*Never copy screenplay typography, page borders, text, captions or layout\.$/);
+assert.match(fv.prompt, / REFERENCE IMAGES are attached: Image 1 = Fondamenta whole plate, small[^]*Image 3 = full-scene screenplay page 1 for Scene 13[^]*Never copy screenplay typography, page borders, text, captions or layout\.$/);
 // without its pages (a text-only render) the screenplay goes as text — once
 const fvText = box.combinedLocationPrompt(sub, project, { panelPlan: box.locationSubspacePanelPlan(sub), maxChars: 31500 });
 assert.ok(fvText.includes("She runs her thumb") && !fvText.includes("attached as page images"));
@@ -163,7 +164,7 @@ for (const id of appEngines) {
   assert.equal(await box.generateLocationPlate(sub, project, {}), true, id);
   const limit = box.nbPromptMaxChars(id), p = sent[0].prompt;
   assert.ok(p.length <= limit && box.nbFitImagePrompt(p, limit).steps.length === 0, id + " headless room plate " + p.length);
-  assert.match(p, /"screenplay_context":"the screenplay of these scenes is attached as page images \(Images 2–5\)/);
+  assert.match(p, /"screenplay_context":"the screenplay of these scenes is attached as page images \(Images 2–3\)/);
   assert.match(p, / REFERENCE IMAGES \(binding\): Image 1 = Fondamenta whole plate, small[^]*never copy screenplay typography, page borders, text or captions\.$/);
   images[sub.id] = "https://cdn/plate-sub.png";   // a room & time plate needs its room's plate
   for (const u of units.filter((u) => u && !u.orphan && String(u.subspaceKey || u.locationKey || "") === sub.key)) {

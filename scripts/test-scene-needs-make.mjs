@@ -172,12 +172,18 @@ await test("4b a reference count known only as a maximum is said as 'up to'", as
   assert.match(w.asks[0].body, /^1 reference image — up to 10 credits\./);
 });
 await test("4c the plate counts mirror the generators (locations.jsx): parent + reviewed layout + a room's views + pages, capped at 6", ()=>{
-  const fn = between(locs, "function locationPlateRefCount(l){", "/* a room & time plate:");
-  assert.ok(fn.includes("return { n:Math.min(6, ids.size+views+pages), exact:true };") && fn.includes("locationScriptPageRefs(l, null, null, 6)"));
+  // (2026-10-14) the references before the pages (locationPlateFixedRefCount), then whole scenes' pages in the slots left
+  const fn = between(locs, "function locationPlateFixedRefCount(l){", "/* a room & time plate:");
+  assert.ok(fn.includes("return { n:ids.size+views };") && fn.includes("return { n:Math.min(6, fixed.n+pages), exact:true };")
+    && fn.includes("locationScriptPageCount(l, null, null, Math.max(0, 6-fixed.n))"));
+  // …counted without drawing: the same whole-scene choice as the pages the generator attaches
+  const pc = between(locs, "function locationScriptPageCount(l, scenes, drafts, max){", "window.locationScriptPageCount");
+  assert.ok(pc.includes("{ countOnly:true }") && pc.includes("if(n && n<=cap-total) total += n;"));
   // a room also counts the views of the space beyond its openings (2026-10-13, Location coordinates)
   assert.ok(fn.includes("views = locationSubspacePanelPlan(l, null, null, { maxSources:ownerDistinct ? 3 : 4 }).sources.length;"));
   const u = between(locs, "function sluglineUnitPlateRefCount(l, u, opts){", "window.locationPlateRefCount");
-  assert.ok(u.includes("locationScreenplayReferenceImages(l, sluglineUnitPseudoSheet(id, u)") && u.includes("return { n:pages+ids.size, exact };"));
+  assert.ok(u.includes("locationScreenplayReferenceImages(l, sluglineUnitPseudoSheet(id, u), C.scenes||[], C.drafts||{}, { countOnly:true })")
+    && u.includes("return { n:pages+ids.size, exact };"));
   assert.ok(locs.includes("const pseudo = sluglineUnitPseudoSheet(id, u, role);"), "the plate and its count read the same pages");
   // imagegen prices references on GPT Image (read-only check of the helper the question uses)
   assert.ok(read("app/imagegen.jsx").includes("if(isGptImageModel(model) && Number(opts.refs)>0) usd += 0.012 * Number(opts.refs);"));

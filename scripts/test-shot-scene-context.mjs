@@ -72,6 +72,8 @@ assert.ok(pages.refs.length>0);
 assert.equal(pages.refs.every(r=>r.persist===false && r.assetRole==="screenplay_context"),true);
 assert.ok(canvasEvents.some(e=>e.kind==="rect"&&e.style==="#ead58b"),"target beat is highlighted");
 assert.ok(pages.refs[0].note.includes("target beat 1"));
+// (2026-10-14) one screenplay image per scene when it fits (locations.jsx LOC_SCREENPLAY_LAYOUTS)
+assert.equal(pages.pages,1,"a whole scene on one page image");assert.equal(pages.refs.length,1);
 
 const off=box.shotSceneContextPlan({...sh,refOff:["screenplay-context"]},ctx);
 assert.equal(off.imagesEnabled,false);
@@ -152,6 +154,7 @@ const longCtx={...ctx,drafts:{"scene-a":{blocks:longBlocks}}};
 const longPlan={...box.shotSceneContextPlan(sh,longCtx),maxPages:null};
 const whole=await box.shotSceneContextReferences(longPlan,longCtx,{maxPages:9});
 assert.ok(whole.pages>1&&whole.refs.length===whole.pages,"a long scene: every page attached when they all fit");
+assert.equal(whole.pages,3,"90 two-line blocks: three pages, the fewest any layout allows (four at 15 px)");
 const partial=await box.shotSceneContextReferences(longPlan,longCtx,{maxPages:1});
 assert.equal(partial.refs.length,0,"part of a scene is never attached beside its text");
 assert.equal(partial.renderedPages,0);assert.equal(partial.omittedPages,whole.pages);

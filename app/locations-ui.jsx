@@ -1025,9 +1025,11 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       out.push((typeof locationSubspaceParentReference==="function"?locationSubspaceParentReference(l,rootUrl):null)
         ||locationParentReference(l,rootUrl));
     }
-    // the same pages the headless runs attach (locationScriptPageRefs)
+    /* the same pages the headless runs attach (locationScriptPageRefs): whole scenes, in the slots the parent's plate,
+       the cut-out panels and the layout's plate leave (2026-10-14) */
+    const fixed=(typeof locationPlateFixedRefCount==="function")?locationPlateFixedRefCount(l):{n:null};
     if(typeof locationScriptPageRefs==="function")
-      locationScriptPageRefs(l, scenes||C.scenes||[], drafts||C.drafts||{}, 6-out.length).forEach(r=>out.push(r));
+      locationScriptPageRefs(l, scenes||C.scenes||[], drafts||C.drafts||{}, Math.max(0,6-(fixed.n!=null?fixed.n:out.length))).forEach(r=>out.push(r));
     return out;
   };
   const masterScriptSig = JSON.stringify((l.scenes||[]).map(sid=>(((drafts||{})[sid]||{}).blocks||[])));
@@ -1097,7 +1099,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       }
       masterParentSnapshot.current=l.parentLocation
         ? locationAssetDependencySnapshot(locationParentOf(l).id,[],"subspace") : {};
-      return [...parentRefs,...buildMasterRefs().filter(r=>!r.required&&r.url&&masterRefOff.indexOf(r.refId)<0)].slice(0,6)
+      // cut-out panels and the parent's plate take the slots first; then whole scenes' pages in what is left (2026-10-14)
+      const pages=buildMasterRefs().filter(r=>!r.required&&r.url&&masterRefOff.indexOf(r.refId)<0);
+      return [...parentRefs,...(typeof locationWholeScenePages==="function"?locationWholeScenePages(pages,6-parentRefs.length):pages)].slice(0,6)
         .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note,
           ...(r.maxDim?{maxDim:r.maxDim}:{}),...(r.numbered?{numbered:true}:{})}));
     },
@@ -1110,7 +1114,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           ..._locBudgetOpts(attach,gopts), reserve:masterAttachmentsText(attach).length+1})
       : null,
     attachmentsText: (refs)=> masterAttachmentsText(refs),
-    metaExtra:({mode,prompt})=>({
+    metaExtra:async ({mode,prompt,url,iso})=>({
       specPrompt:locationCanonicalSpecPrompt(mode,prompt,finalPrompt,gen.genMeta),
       ...masterParentSnapshot.current,
       // made from the reviewed layout (not an edit): the layout stays reviewed — 2026-10-08
@@ -1122,7 +1126,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       ...(mode==="edit"?(gen.genMeta&&gen.genMeta.plateLayoutSig?{plateLayoutSig:gen.genMeta.plateLayoutSig}:{})
         :masterLayoutSig.current?{plateLayoutSig:masterLayoutSig.current}:{}),
       // the written spec it was made from ("Description changed" — an edit keeps the one it started from)
-      locSpecSig: mode==="edit" ? (gen.genMeta && gen.genMeta.locSpecSig) : (typeof locationSpecSig==="function" ? locationSpecSig(l) : undefined)
+      locSpecSig: mode==="edit" ? (gen.genMeta && gen.genMeta.locSpecSig) : (typeof locationSpecSig==="function" ? locationSpecSig(l) : undefined),
+      // a sub-space's panels against its parent's plate, in the browser — free, never in the way of the save (2026-10-14)
+      ...(l.parentLocation&&typeof locationCopyCheckMeta==="function"?await locationCopyCheckMeta(l,url,iso):{})
     }),
     /* NO set-dressing refs at generation — the clean plate anchors the look;
        fixtures are painted in afterwards via the Edit panel's Set-dressing buttons */
@@ -1346,6 +1352,13 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       generateTitle:(!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable())
         ? "Writes this place's view composition first \u2014 a small writing charge \u2014 then generates the plate from it" : undefined,
       onDelete:()=>onDelete(l.id), deleteLabel:"Delete location" }),
+    // a sub-space's plate that copies a panel of its parent's — said, never regenerated on its own (2026-10-14)
+    l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:l.id, gen, readOnly,
+      refs:()=>(typeof locationPlateRefCount==="function" ? locationPlateRefCount(l).n : undefined),
+      disabled:!spatialState.ready||!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready),
+      regenerateTitle:(!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable())
+        ? "Writes this place's view composition first — a small writing charge — then makes a new plate (one image); this one stays in its version history" : undefined,
+      onRegenerate:()=>genPlate.generate() }),
     panelEdit && gen.genUrl && React.createElement("div",{className:"sheet-edit-panel loc-panel-edit"},
       React.createElement("div",{className:"loc-panel-pick"},
         LOC_PANELS.map((p,i)=>React.createElement("button",{key:i,
@@ -1696,6 +1709,97 @@ function _withLayoutStamp(l, mode, gen, meta){
   return sig ? {...(meta||{}), plateLayoutSig:sig} : meta;
 }
 function _takeDepSnap(ref){ const x = ref && ref.current; if(ref) ref.current = null; return x; }
+/* the size a location card sends its screenplay pages at (locations.jsx LOC_SCREENPLAY_PAGE_MAX_DIM, 2026-10-14): their
+   own size, never shrunk — every other reference keeps its card's size */
+function _locPageMaxDim(){ return Number(window.LOC_SCREENPLAY_PAGE_MAX_DIM)||1536; }
+/* a sub-space's single-frame plate (room & time, state, extra space): its copy check against the parent's plate, read
+   before the save and recorded with it (2026-10-14 — locations.jsx "THE COPY CHECK") */
+async function _withCopyCheck(l, url, iso, meta){
+  if(!(l && l.parentLocation) || typeof locationCopyCheckMeta!=="function") return meta;
+  return {...(meta||{}), ...(await locationCopyCheckMeta(l, url, iso, {single:true}))};
+}
+/* THE COPY CHECK'S NOTICE (2026-10-14, owner — "go ahead with all of it"; the maths: locations.jsx "THE COPY CHECK").
+   A sub-space plate's panel that is a near-copy of a panel of its parent's plate says "This panel looks like <parent>'s
+   sheet — regenerate?" with Regenerate (its price) and Keep. Nothing happens on its own: the check is free and runs in
+   this browser, Regenerate is the viewer's click, Keep only hides the notice for this plate version (recorded on its
+   meta). A plate saved without a check (made before it, or the check couldn't run) is checked here once a session. */
+const _locCopySession = new Map();
+function _locCopyRun(key, url, parentId, single){
+  if(_locCopySession.has(key)) return _locCopySession.get(key).promise;
+  const entry = { result:undefined };
+  entry.promise = (async ()=>{
+    let parentUrl = "";
+    try{ parentUrl = (typeof nbGetImage==="function" ? nbGetImage(parentId) : "")
+      || (typeof nbLoadImage==="function" ? await nbLoadImage(parentId) : ""); }catch(e){}
+    let r = null;
+    try{ r = parentUrl && typeof locationCopyCheck==="function" ? await locationCopyCheck(url, parentUrl, {single}) : null; }catch(e){}
+    entry.result = r || null;
+    // a check that couldn't read an image isn't kept: the card tries again the next time it is shown
+    if(!r && _locCopySession.get(key)===entry) _locCopySession.delete(key);
+    return entry.result;
+  })();
+  _locCopySession.set(key, entry);
+  return entry.promise;
+}
+/* disabled: the card's own Generate is unavailable (its layout, the parent's plate, a room & time no longer in the
+   script) — Regenerate waits too; regenerateTitle: what Regenerate does when it is more than one image */
+function LocationCopyCheckNotice({ l, assetId, gen, single=false, refs, readOnly=false, disabled=false, regenerateTitle, onRegenerate }){
+  const parent = l && l.parentLocation;
+  const [,bump] = React.useReducer(n=>n+1,0);
+  const [kept,setKept] = React.useState("");
+  const url = gen && gen.genUrl, meta = gen && gen.genMeta;
+  const parentMeta = parent && parent.id && typeof nbGetMeta==="function" ? nbGetMeta(parent.id) : null;
+  const key = parent && assetId && url && meta && meta.iso && parentMeta && parentMeta.iso
+    ? [assetId, meta.iso, parentMeta.iso, single ? "1" : "4"].join("|") : "";
+  const recorded = key && typeof locationCopyCheckCurrent==="function" ? locationCopyCheckCurrent(meta, parentMeta) : null;
+  // the parent's plate (or this one) changes or loads → read again
+  React.useEffect(()=>{
+    if(!parent) return;
+    const h = (e)=>{ const id = e && e.detail && e.detail.id; if(!id || id===parent.id || id===assetId) bump(); };
+    window.addEventListener("nb-gen-done",h); window.addEventListener("nb-prefetched",h);
+    return ()=>{ window.removeEventListener("nb-gen-done",h); window.removeEventListener("nb-prefetched",h); };
+  },[parent&&parent.id, assetId]);
+  React.useEffect(()=>{
+    if(!key || recorded) return;
+    let alive = true;
+    _locCopyRun(key, url, parent.id, single).then(()=>{ if(alive) bump(); });
+    return ()=>{ alive = false; };
+  },[key, !!recorded]);
+  if(!key) return null;
+  const check = recorded || (_locCopySession.get(key)||{}).result;
+  if(!check || !check.near || check.kept || kept===key) return null;
+  const name = parent.name || "the parent location";
+  const near = (check.panels||[]).filter(p=>p && p.near);
+  const label = (k)=> (typeof LOC_PANEL_INFO!=="undefined" && LOC_PANEL_INFO[k]) ? LOC_PANEL_INFO[k].label : "";
+  const th = typeof LOC_COPY_CHECK!=="undefined" ? LOC_COPY_CHECK : { detail:0.6, layout:0.62 };
+  const why = (p)=> "Compared in your browser, free: "+(single ? "this plate" : "its "+label(p.key).toLowerCase()+" panel")
+    +" is a near-copy of the "+label(p.match).toLowerCase()+" panel of "+name+"'s plate (detail "+p.detail+", layout "+p.layout
+    +" — a near-copy scores at least "+th.detail+" and "+th.layout+"). Nothing changes unless you regenerate.";
+  const keep = async ()=>{
+    setKept(key);
+    if(typeof nbSetAssetCopyCheck==="function"){
+      try{ await nbSetAssetCopyCheck(assetId, meta.iso, { ...check, iso:meta.iso, parentId:parent.id, parentIso:parentMeta.iso, kept:true }); }catch(e){}
+    }
+  };
+  const n = typeof refs==="function" ? refs() : refs;
+  // the card's own Generate rules: never while it runs, while an unsaved image waits for its save, or while blocked
+  const regenOff = !!(gen && (gen.gening || gen.pendingSave)) || !!disabled || typeof onRegenerate!=="function";
+  return React.createElement("div",{className:"loc-copy-check",role:"status","data-copy-check":assetId},
+    React.createElement(Icon.alert,{s:12}),
+    React.createElement("div",{className:"loc-copy-check-body"},
+      near.map(p=>React.createElement("p",{key:p.key,title:why(p)},
+        single ? null : React.createElement("b",null,label(p.key)+": "),
+        (single ? "This plate" : "This panel")+" looks like "+name+"'s sheet — regenerate?")),
+      !readOnly && React.createElement("div",{className:"loc-copy-check-acts"},
+        React.createElement("button",{type:"button",className:"art-draftall",
+          disabled:regenOff,
+          title:regenerateTitle || "Make a new plate (one image) — this one stays in its version history",
+          onClick:()=>{ if(!regenOff) onRegenerate(); }},
+          React.createElement(Icon.sparkles,{s:12}), gen && gen.gening ? "Generating…" : "Regenerate",
+          !(gen && gen.gening) && typeof window.nbCostChip==="function" && window.nbCostChip(1, n!=null ? {refs:n} : undefined)),
+        React.createElement("button",{type:"button",className:"art-draftall ghost",
+          title:"Keep this plate as it is — the check won't ask again about this version",onClick:keep},"Keep"))));
+}
 function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, parentGenUrl, onView }){
   const id = l.id+"-"+v.id;
   const previousIds=(previousSheets||[]).filter(Boolean).map(p=>l.id+"-"+p.id);
@@ -1716,7 +1820,7 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
     const scriptImgs = (typeof locationScreenplayReferenceImages==="function")
       ? locationScreenplayReferenceImages(l, v, scenes||C.scenes||[], drafts||C.drafts||{})
       : ((typeof locationScreenplayReferenceImage==="function") ? [locationScreenplayReferenceImage(l, v, scenes||C.scenes||[], drafts||C.drafts||{})].filter(Boolean) : []);
-    scriptImgs.forEach((scriptImg, i)=> out.push({ url:scriptImg, kind:"script", refId:"script-"+id+"-"+i, required:false, ready:true,
+    scriptImgs.forEach((scriptImg, i)=> out.push({ url:scriptImg, kind:"script", refId:"script-"+id+"-"+i, required:false, ready:true, maxDim:_locPageMaxDim(),
       label:"Screenplay p"+(i+1), note:"full-scene screenplay page "+(i+1)+" for "+(v.name||l.name||"this Required Space Plate")+" — use it to infer what the script implies, but do not render any text from it" }));
     const grab = async (rid)=>{ let u=(typeof nbGetImage==="function")?nbGetImage(rid):"";
       if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(rid); }catch(e){} } return u||""; };
@@ -1762,7 +1866,7 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
     if(refs.some(r=>r.required&&!r.ready)){const e=new Error("Restore the required space plates before rendering.");e.requiredReference=true;throw e;}
     return refs
       .filter(r=>r.ready && r.url && (r.required || coverageRefOff.indexOf(r.refId)<0))
-      .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note }));
+      .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note, ...(r.maxDim?{maxDim:r.maxDim}:{}) }));
   };
   const depSnap = React.useRef(null);
   const gen = useImageGen({
@@ -1790,12 +1894,12 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". The screenplay page snapshots are context only: read the scene geography from them, but never copy their typography, page border, text, captions or layout into the location sheet."
       : "",
-    metaExtra:({mode})=> _withLayoutStamp(l,mode,gen,mode==="edit"
+    metaExtra:async ({mode,url,iso})=> _withCopyCheck(l,url,iso,_withLayoutStamp(l,mode,gen,mode==="edit"
       ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage"))),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage")))),
     buildEdit: (instr)=> "Edit this "+(v.role||"INT")+" Required Space Plate for "+(v.name||l.name||"the location")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -1822,7 +1926,8 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       generateDisabledLabel: missingPrev ? "Generate earlier plate first" : "Generate parent plate first",
       generateDisabledTitle: missingPrev
         ? "This extra space depends on an earlier plate. Generate that plate first so the geometry and sightlines can carry forward."
-        : "This extra space needs the parent location plate as a visual reference before it can generate." }));
+        : "This extra space needs the parent location plate as a visual reference before it can generate." }),
+    l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:id, gen, single:true, disabled:!canGenerateCoverage, onRegenerate:()=>gen.generate() }));
 }
 
 function CoverageReferenceStrip({ refs, excludedIds, onToggle, onView }){
@@ -1872,7 +1977,7 @@ async function buildSluglineUnitReferences(l,u,imgId,pseudo,scenes,drafts,parent
   const scriptImgs = (typeof locationScreenplayReferenceImages==="function")
     ? locationScreenplayReferenceImages(l, pseudo, scenes||C.scenes||[], drafts||C.drafts||{})
     : [];
-  scriptImgs.forEach((scriptImg, i)=> out.push({ url:scriptImg, kind:"script", refId:"script-"+imgId+"-"+i, required:false, ready:true,
+  scriptImgs.forEach((scriptImg, i)=> out.push({ url:scriptImg, kind:"script", refId:"script-"+imgId+"-"+i, required:false, ready:true, maxDim:_locPageMaxDim(),
       label:"Screenplay p"+(i+1), note:"screenplay page "+(i+1)+" for "+(u.name||"this Slugline Unit")+" \u2014 use it to infer what the script implies, but do not render any text from it" }));
   const grab = async (rid)=>{ let u2=(typeof nbGetImage==="function")?nbGetImage(rid):"";
     if(!u2 && typeof nbLoadImage==="function"){ try{ u2=await nbLoadImage(rid); }catch(e){} } return u2||""; };
@@ -1925,7 +2030,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
     const refs=mergeLocationReferences(await buildRefs(),await locationSpatialReferences(l));
     if(refs.some(r=>r.required&&!r.ready))throw new Error("Restore the required location plates before generating this state.");
     return refs.filter(r=>r.ready&&r.url&&(r.required||refOff.indexOf(r.refId)<0))
-      .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note}));
+      .map(r=>({url:r.url,kind:r.kind==="script"?"script":"location",refId:r.refId,note:r.note,...(r.maxDim?{maxDim:r.maxDim}:{})}));
   };
   const depSnap = React.useRef(null);
   const gen = useImageGen({
@@ -1949,12 +2054,12 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
     attachmentsText: (refs)=> refs&&refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". Read screenplay snapshots as context only; never copy their text, typography, borders or layout."
       : "",
-    metaExtra:({mode})=> _withLayoutStamp(l,mode,gen,mode==="edit"
+    metaExtra:async ({mode,url,iso})=> _withCopyCheck(l,url,iso,_withLayoutStamp(l,mode,gen,mode==="edit"
       ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),stateUnit?"slugline-unit":"continuity-state"))),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),stateUnit?"slugline-unit":"continuity-state")))),
     buildEdit: (instr)=> "Edit this establishing frame of "+(l.name||"the place")+" ("+v.time+"). Apply ONLY: "+instr+". Keep the same space and architecture."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -1984,7 +2089,10 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
       referenceControls:React.createElement(CoverageReferenceStrip,{refs:refPreview,excludedIds:refOff,onToggle:toggleRef,onView}),
       generateDisabled:!canGenerate,
       generateDisabledLabel:"Generate parent plate first",
-      generateDisabledTitle:"This time-of-day variant needs the parent location plate as a visual reference before it can generate." }));
+      generateDisabledTitle:"This time-of-day variant needs the parent location plate as a visual reference before it can generate." }),
+    l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:id, gen, single:true,
+      refs:()=>(stateUnit && typeof sluglineUnitPlateRefCount==="function" ? sluglineUnitPlateRefCount(l,stateUnit,{rootPlate:true}).n : undefined),
+      disabled:!canGenerate, onRegenerate:()=>gen.generate() }));
 }
 
 /* SLUGLINE UNIT card — the atomic addressed unit of this location
@@ -2021,7 +2129,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     const scriptImgs = (typeof locationScreenplayReferenceImages==="function")
       ? locationScreenplayReferenceImages(l, pseudo, scenes||C.scenes||[], drafts||C.drafts||{})
       : [];
-    scriptImgs.forEach((scriptImg, i)=> out.push({ url:scriptImg, kind:"script", refId:"script-"+imgId+"-"+i, required:false, ready:true,
+    scriptImgs.forEach((scriptImg, i)=> out.push({ url:scriptImg, kind:"script", refId:"script-"+imgId+"-"+i, required:false, ready:true, maxDim:_locPageMaxDim(),
       label:"Screenplay p"+(i+1), note:"screenplay page "+(i+1)+" for "+(u.name||"this Slugline Unit")+" \u2014 use it to infer what the script implies, but do not render any text from it" }));
     const grab = async (rid)=>{ let u2=(typeof nbGetImage==="function")?nbGetImage(rid):"";
       if(!u2 && typeof nbLoadImage==="function"){ try{ u2=await nbLoadImage(rid); }catch(e){} } return u2||""; };
@@ -2058,7 +2166,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     const refs=mergeLocationReferences(await buildUnitRefs(),await locationSpatialReferences(l));
     if(refs.some(r=>r.required&&!r.ready))throw new Error("Restore the required location plates before generating this unit.");
     return refs.filter(r=>r.ready && r.url && (r.required || refOff.indexOf(r.refId)<0))
-      .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note }));
+      .map(r=>({ url:r.url, kind:r.kind==="script"?"script":"location", refId:r.refId, note:r.note, ...(r.maxDim?{maxDim:r.maxDim}:{}) }));
   };
   const depSnap = React.useRef(null);
   const gen = useImageGen({
@@ -2084,12 +2192,12 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     attachmentsText: (refs)=> refs && refs.length
       ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+". The screenplay page snapshots are context only: read the scene geography from them, but never copy their typography, page border, text, captions or layout into the location sheet."
       : "",
-    metaExtra:({mode})=> _withLayoutStamp(l,mode,gen,mode==="edit"
+    metaExtra:async ({mode,url,iso})=> _withCopyCheck(l,url,iso,_withLayoutStamp(l,mode,gen,mode==="edit"
       ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit"))),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit")))),
     buildEdit: (instr)=> "Edit this "+role+" Slugline Unit plate for "+(u.name||l.name||"the location")+(u.time?(" at "+u.time):"")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -2135,7 +2243,10 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       generateDisabledLabel: u.orphan ? "No longer in script" : "Generate parent plate first",
       generateDisabledTitle: u.orphan
         ? "This room & time is no longer in the screenplay, so it can't generate new plates. Its existing plate and notes are kept until you Remove it."
-        : "This room & time plate needs the parent location plate as a visual reference before it can generate." }));
+        : "This room & time plate needs the parent location plate as a visual reference before it can generate." }),
+    l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:imgId, gen, single:true, readOnly:!!u.orphan,
+      refs:()=>(typeof sluglineUnitPlateRefCount==="function" ? sluglineUnitPlateRefCount(l,u,{rootPlate:true}).n : undefined),
+      disabled:!canGenerate, onRegenerate:()=>gen.generate() }));
 }
 
 function SceneSetupCard({setup,unit,onUpdate}){

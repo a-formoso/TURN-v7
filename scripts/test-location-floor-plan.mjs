@@ -162,7 +162,8 @@ assert.match(commits[0].meta.plateLayoutSig,/^pl1:/,"a room's state plate record
 const ui=read("app/locations-ui.jsx");
 assert.match(ui,/locationPlateLayoutChanged\(gen.genMeta, l, \{panels:true\}\)/);
 assert.match(ui,/"Layout changed \\u2014 regenerate"/);
-assert.equal((ui.match(/metaExtra:\(\{mode\}\)=> _withLayoutStamp\(l,mode,gen,/g)||[]).length,3,"the extra-space, state and room & time cards stamp it");
+// (2026-10-14) wrapped by the copy check, which adds its result to the same meta
+assert.equal((ui.match(/metaExtra:async \(\{mode,url,iso\}\)=> _withCopyCheck\(l,url,iso,_withLayoutStamp\(l,mode,gen,/g)||[]).length,3,"the extra-space, state and room & time cards stamp it");
 assert.match(ui,/plateLayoutSig:masterLayoutSig.current/);
 
 /* ---- 5. the top-down map ---- */

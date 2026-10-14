@@ -175,8 +175,9 @@ await test("C2 'Make what this scene needs' makes the card's plate and never pay
   assert.equal((m.match(/if\(await has\((l\.id|n\.id|cid|cid\+":"\+v\.sid|p0\.id)\)\) return "exists";/g)||[]).length, 5);
   assert.ok(shotsUi.includes("sceneReferenceNeeds(shots||[], ctx, needsHas)") && shotsUi.includes('window.addEventListener("nb-prefetched", h);'));
   assert.ok(locs.includes("async function generateLocationPlate(l, project, opts){") && locs.includes("if(o.draftStaging && typeof stagingHasContent===\"function\" && !stagingHasContent(l)"));
-  assert.ok(locs.includes("const pages=locationScriptPageRefs(l, null, null, 6).filter(r=>r.url);"));
-  assert.ok(ui.includes("locationScriptPageRefs(l, scenes||C.scenes||[], drafts||C.drafts||{}, 6-out.length)"));
+  // (2026-10-14) whole scenes in the slots the parent's plate, the cut-out panels and the layout's plate leave
+  assert.ok(locs.includes("const pages=locationScriptPageRefs(l, null, null, Math.max(0, 6-refs.length)).filter(r=>r.url);"));
+  assert.ok(ui.includes("locationScriptPageRefs(l, scenes||C.scenes||[], drafts||C.drafts||{}, Math.max(0,6-(fixed.n!=null?fixed.n:out.length)))"));
   assert.deepEqual(J(box.locationScriptPageRefs({ id:"x", scenes:[] }, [], {}, 0)), []);
 });
 

@@ -8779,6 +8779,16 @@ html[data-theme="dark"] .hd-card-new-art{ box-shadow:none; }
 .loc-unit-remove{font-size:11px;background:none;border:1px solid var(--line);border-radius:var(--r-s);padding:2px 8px;cursor:pointer;color:var(--txt-2)}
 .loc-unit-remove:hover{color:#b45309;border-color:#b45309}
 .loc-unit-card.orphan{opacity:.85}
+/* the copy check's notice (2026-10-14): a sub-space plate's panel that copies its parent's sheet */
+/* the theme's warning ink (amber as text: AA on both themes) on its soft fill — not a fixed amber, too dim on dark */
+.loc-copy-check{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--line);border-radius:var(--r-m);padding:7px 10px;margin:6px 0}
+.loc-copy-check>svg{flex:0 0 auto;margin-top:2px}
+.loc-copy-check-body{flex:1;min-width:0}
+.loc-copy-check-body p{margin:0 0 4px;line-height:1.45}
+.loc-copy-check-body b{font-weight:600}
+.loc-copy-check-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.loc-copy-check-acts .art-draftall{height:auto;min-height:30px}
+@media (max-width:640px){ .loc-copy-check-acts .art-draftall{min-height:44px} }
 
 /* slugline unit set dressing */
 .loc-dress{margin:6px 0}
