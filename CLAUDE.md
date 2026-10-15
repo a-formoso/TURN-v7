@@ -135,9 +135,10 @@ Work happens in **two places**: this local repo and the **Replit workspace**. Ei
 publishes, and runs tests that need its tools (real Postgres, Blender) — give its agent run-only instructions. Its
 "Published your App" commits are empty: `git pull --rebase` before pushing.
 
-**Home since 2026-09-27: `github.com/a-formoso/TURN-v6`** (the Mac's `origin`; the old TURN-v5 repo is kept
-read-only as the `v5-archive` remote) and the **Replit project TURN-v6**, connected to it. The old Replit project
-*TURN-v5* is retired: its remote was also pointed at TURN-v6, so never push from it.
+**Home since 2026-10-16: `github.com/a-formoso/TURN-v7`** (the Mac's `origin`, in the folder `~/Desktop/TURN-v7`;
+the old repos are kept read-only as the `v6-archive` and `v5-archive` remotes) and the **Replit project TURN-v7**,
+connected to it. The Mac folder `~/Desktop/TURN-v6` and the Replit projects *TURN-v6* and *TURN-v5* are retired: never
+commit or push from them.
 
 **Before proposing any `reset --hard`, merge, sync-conflict resolution, or "Replit is behind" claim:**
 
