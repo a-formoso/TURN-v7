@@ -10200,3 +10200,9 @@ html[data-theme="light"]{
 .char-cameo-btn:hover:not(:disabled),html[data-theme="light"] .char-cameo-btn:hover:not(:disabled){background:rgba(242,154,67,.24);color:var(--win-amber-ink)}
 .char-cameo-btn.on,html[data-theme="light"] .char-cameo-btn.on{background:rgba(242,154,67,.22);border-color:var(--win-amber);color:var(--win-amber-ink)}
 .sheet-cameo-chip,html[data-theme="light"] .sheet-cameo-chip{border-color:var(--win-amber-line);background:var(--win-amber-soft);color:var(--win-amber-ink)}
+/* the card's Voice button is amber too (owner 2026-10-16: "make the Voice button amber too") — Likeness and Voice
+   sit side by side on every character card in one colour */
+.char-voice-btn,html[data-theme="light"] .char-voice-btn{border-color:var(--win-amber-line);background:var(--win-amber-soft);color:var(--win-amber-ink)}
+.char-voice-btn:hover,html[data-theme="light"] .char-voice-btn:hover{background:rgba(242,154,67,.24);color:var(--win-amber-ink)}
+.char-voice-btn.on,html[data-theme="light"] .char-voice-btn.on{background:rgba(242,154,67,.22);border-color:var(--win-amber);color:var(--win-amber-ink)}
+.char-voice-btn.open,html[data-theme="light"] .char-voice-btn.open{box-shadow:0 0 0 2px rgba(242,154,67,.25)}
