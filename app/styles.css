@@ -10206,3 +10206,24 @@ html[data-theme="light"]{
 .char-voice-btn:hover,html[data-theme="light"] .char-voice-btn:hover{background:rgba(242,154,67,.24);color:var(--win-amber-ink)}
 .char-voice-btn.on,html[data-theme="light"] .char-voice-btn.on{background:rgba(242,154,67,.22);border-color:var(--win-amber);color:var(--win-amber-ink)}
 .char-voice-btn.open,html[data-theme="light"] .char-voice-btn.open{box-shadow:0 0 0 2px rgba(242,154,67,.25)}
+/* the Voice window in the family (owner 2026-10-16: "make the Voice window's buttons amber too"): its teal
+   outline and focus ring go amber, its buttons take the family's look — amber for the main action and the picked
+   mode, white for the rest, the playing sample amber */
+.dt-panel.voice-modal{border-color:var(--win-amber-line)}
+.voice-modal-x:focus-visible{outline-color:var(--win-amber)}
+.voice-modal .vc-btn{min-height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--win-line-2);background:var(--win-surface);color:var(--win-ink);font:600 13px var(--f-ui)}
+.voice-modal .vc-btn:hover:not(:disabled){background:var(--win-bone);border-color:var(--win-line-3);color:var(--win-ink)}
+.voice-modal .vc-btn.primary{background:var(--win-amber);border-color:var(--win-amber);color:var(--win-on-amber);filter:none}
+.voice-modal .vc-btn.primary:hover:not(:disabled){background:var(--win-amber-hover);border-color:var(--win-amber-hover);color:var(--win-on-amber);filter:none}
+.voice-modal .vc-btn.ghost{background:transparent;border-color:transparent;color:var(--win-ink-2)}
+.voice-modal .vc-mode{min-height:34px;border-radius:9px;border:0;background:var(--win-bone);color:var(--win-ink-2);font:600 12.5px var(--f-ui)}
+.voice-modal .vc-mode:hover{background:var(--win-bone-2);color:var(--win-ink)}
+.voice-modal .vc-mode.on{background:var(--win-amber-soft);box-shadow:inset 0 0 0 1px var(--win-amber-line);color:var(--win-ink)}
+.voice-modal .vc-rebuild{border-color:var(--win-amber-line);background:var(--win-amber-soft);color:var(--win-amber-ink)}
+.voice-modal .vc-upload{border-color:var(--win-line-3);background:var(--win-surface);color:var(--win-ink)}
+.voice-modal .vc-play{background:var(--win-surface);border-color:var(--win-line-2);color:var(--win-ink-2)}
+.voice-modal .vc-play:hover{color:var(--win-amber-ink)}
+.voice-modal :is(.vc-play.playing,.vc-btn.audio-toggle.playing){background:var(--win-amber-soft);border-color:var(--win-amber-line);color:var(--win-amber-ink)}
+.voice-modal :is(.vc-play,.vc-btn.audio-toggle):focus-visible{outline-color:var(--win-amber)}
+.voice-modal :is(.vc-delivery,.vc-spec,select,textarea,input[type="text"]){border-radius:9px;border-color:var(--win-line-2);background:var(--win-surface);color:var(--win-ink)}
+.voice-modal :is(.vc-delivery,select,textarea,input[type="text"]):focus{outline:none;border-color:var(--win-ink);box-shadow:0 0 0 3px var(--win-focus)}
