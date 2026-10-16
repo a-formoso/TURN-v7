@@ -9900,3 +9900,14 @@ html[data-theme="dark"] .app.hs{
 /* the filmstrip card's accent bar and CLIMAX tag stay with the old card: a tile names its peak in the chart */
 .spine-hs .stile::before,.spine-hs .stile::after{display:none}
 .app.hs.room-writers .insp-eyebrow .insp-select{margin-left:auto;height:26px;border:1px solid var(--hs-line-2);border-radius:999px;background:var(--hs-surface);padding:0 10px}
+/* the spine chart, polished (2026-10-16): a soft charge fill, the scale at the left, act shading, a guide at
+   the selected scene, and peak names with a halo so the line never cuts through them */
+.spine-hs .sp-area{stroke:none}
+.spine-hs .sp-area.pos{fill:var(--hs-rise,var(--pos));opacity:.13}
+.spine-hs .sp-area.neg{fill:var(--hs-fall,var(--neg));opacity:.13}
+.spine-hs .sp-act-shade{fill:rgba(127,127,127,.035)}
+.spine-hs .sp-ylab{font:400 9px var(--f-mono);fill:var(--hs-sub,var(--txt-2));opacity:.75}
+.spine-hs .sp-guide{stroke:var(--hs-ink-2,var(--txt-1));stroke-width:1;stroke-dasharray:2 4;opacity:.35}
+.spine-hs .sp-kind{paint-order:stroke;stroke:var(--hs-bone,var(--bg-2));stroke-width:4px;stroke-linejoin:round}
+.spine-hs .spine-line{stroke-width:1.8}
+.spine-hs .act-band .act-min{margin-left:auto}

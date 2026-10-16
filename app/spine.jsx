@@ -355,15 +355,32 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
         React.createElement("svg",{className:"graph-svg",width:totalW,height:H,viewBox:`0 0 ${totalW} ${H}`,role:"img",
           // a summary for screen readers: how each scene's value charge moves (2026-10-09)
           "aria-label":"Value-charge graph: "+(scenes||[]).slice(0,40).map(sc=>"Scene "+sc.no+((sc.openCharge!=null&&sc.closeCharge!=null)?(" "+chargeStr(sc.openCharge)+" to "+chargeStr(sc.closeCharge)):"")).join(", ")},
-          // the zero line, and faint lines at ±3
+          // the charge fill clips at the zero line: amber above, blue below (2026-10-16 polish)
+          React.createElement("defs",null,
+            React.createElement("clipPath",{id:"spClipPos"},React.createElement("rect",{x:0,y:0,width:totalW,height:yFor(0)})),
+            React.createElement("clipPath",{id:"spClipNeg"},React.createElement("rect",{x:0,y:yFor(0),width:totalW,height:H-yFor(0)}))),
+          // every other act sits on a faint shade, so the acts read as blocks
+          ruler.filter((r,k)=>!r.collapsed && k%2===1).map(r=>React.createElement("rect",{key:"sh"+r.act,className:"sp-act-shade",
+            x:bandL(r),y:0,width:bandW(r),height:H})),
+          // the zero line, and faint lines at ±3, with their values at the left edge
           React.createElement("line",{className:"sp-zero",x1:SPINE_PAD_X/2,y1:yFor(0),x2:totalW-SPINE_PAD_X/2,y2:yFor(0)}),
           [3,-3].map(g=>React.createElement("line",{key:"g"+g,className:"sp-grid",x1:SPINE_PAD_X/2,y1:yFor(g),x2:totalW-SPINE_PAD_X/2,y2:yFor(g)})),
+          [[3,"+3"],[0,"0"],[-3,"\u22123"]].map(([g,t])=>React.createElement("text",{key:"yl"+g,className:"sp-ylab",
+            x:4,y:yFor(g)-4,"aria-hidden":"true"},t)),
           // act dividers (before each act except the first)
           ruler.slice(1).map(r => React.createElement("line",{key:"ad"+r.act,className:"sp-act",
             x1:bandL(r),y1:6,x2:bandL(r),y2:H-4})),
           // folded acts — a quiet band, click to unfold
           ruler.filter(r=>r.collapsed).map(r => React.createElement("rect",{key:"cb"+r.act,className:"sp-fold",
             x:bandL(r)+3,y:6,width:SPINE_FOLD_W-6,height:H-12,rx:6,onClick:()=>toggle(r.act)})),
+          // the soft charge fill between the line and zero (hidden while following a character)
+          pts.length>=2 && !follow && (()=>{ const d = smoothD(pts)+` L${pts[pts.length-1].x} ${yFor(0)} L${pts[0].x} ${yFor(0)} Z`;
+            return React.createElement("g",{pointerEvents:"none"},
+              React.createElement("path",{className:"sp-area pos",d,clipPath:"url(#spClipPos)"}),
+              React.createElement("path",{className:"sp-area neg",d,clipPath:"url(#spClipNeg)"})); })(),
+          // a guide down the selected scene's column, so the point and its tile below connect
+          pts.filter(p=>p.s.id===selId).map(p=>React.createElement("line",{key:"guide",className:"sp-guide",
+            x1:p.x,y1:SPINE_TOP-14,x2:p.x,y2:H-6})),
           // the spine line (recedes while following, so the character's arc reads on top)
           pts.length>=2 && React.createElement("path",{className:"spine-line",d:smoothD(pts),fill:"none",
             strokeLinejoin:"round",strokeLinecap:"round",pointerEvents:"none",opacity:follow?.3:1}),
@@ -397,8 +414,12 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
             const label = main || (roomy ? p.s.plot : "");
             if(!label) return null;
             const above = p.s.closeCharge >= 0;
-            return React.createElement("text",{key:"t"+p.i,className:"sp-kind"+(main?" main":""),x:p.x,
-              y: above ? p.y-17 : p.y+24, textAnchor:"middle",pointerEvents:"none"},label);
+            // kept inside the chart: a label that would run past an edge is anchored to it instead
+            const half = String(label).length*2.9 + 2, lo = SPINE_PAD_X/2, hi = totalW - SPINE_PAD_X/2;
+            const anchor = p.x - half < lo ? "start" : p.x + half > hi ? "end" : "middle";
+            const x = anchor==="start" ? Math.max(lo, p.x - 10) : anchor==="end" ? Math.min(hi, p.x + 10) : p.x;
+            return React.createElement("text",{key:"t"+p.i,className:"sp-kind"+(main?" main":""),x,
+              y: above ? Math.max(SPINE_TOP-14, p.y-16) : Math.min(H-8, p.y+23), textAnchor:anchor,pointerEvents:"none"},label);
           }),
           // hit columns — full-height transparent click targets, one per visible scene
           pts.map(p => React.createElement("rect",{key:"hit"+p.i,className:"sp-hit",
