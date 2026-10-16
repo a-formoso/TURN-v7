@@ -10194,3 +10194,9 @@ html[data-theme="light"]{
    the card's content-visibility:auto (sheet virtualization, above) made it the window's containing block, so the
    window opened squeezed inside the card (2026-10-16; the Voice window has the same exception, .voice-open) */
 .sheet-card:has(.cameo-overlay){content-visibility:visible;position:relative;z-index:130}
+/* the character card's Likeness button and the image's Likeness chip are amber too (owner 2026-10-16: "make the
+   card's Likeness button amber too") — the chip and the button keep one colour, as they keep one word */
+.char-cameo-btn,html[data-theme="light"] .char-cameo-btn{border-color:var(--win-amber-line);background:var(--win-amber-soft);color:var(--win-amber-ink)}
+.char-cameo-btn:hover:not(:disabled),html[data-theme="light"] .char-cameo-btn:hover:not(:disabled){background:rgba(242,154,67,.24);color:var(--win-amber-ink)}
+.char-cameo-btn.on,html[data-theme="light"] .char-cameo-btn.on{background:rgba(242,154,67,.22);border-color:var(--win-amber);color:var(--win-amber-ink)}
+.sheet-cameo-chip,html[data-theme="light"] .sheet-cameo-chip{border-color:var(--win-amber-line);background:var(--win-amber-soft);color:var(--win-amber-ink)}
