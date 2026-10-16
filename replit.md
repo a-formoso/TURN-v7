@@ -20,6 +20,11 @@ declared npm dependencies are installed for `npm run build`. Signed-out work
 uses local browser storage. Sign-in, cloud sync, and generation require the
 existing Supabase project and its server-side services to be available.
 
+The main web address forwards to port 5000. The initial signed-out screen is
+the landing page; signed-in screens and cloud/generation services require
+separate authenticated verification. Development Babel size notices are
+expected for the larger JSX files; `npm run build` precompiles production assets.
+
 ## Project layout
 
 - `TURN.html` — entry point; loads all scripts in order
