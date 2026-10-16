@@ -10043,3 +10043,153 @@ html[data-theme="dark"] .app.hs{
 /* the plans fill the column under their left-aligned heading, and their note reads from the same edge */
 .lp-section .lp-tiers{max-width:none}
 .lp-section .lp-tier-note{max-width:none;margin:22px 0 0;text-align:left}
+
+/* ============================ THE WINDOW FAMILY (homepage style, owner 2026-10-16) ============================
+   Every pop-up and form in one family (the "Kinolot Pop-ups — Today vs Proposed" board): a white panel with a
+   hairline edge and 14px corners on a soft dimmed ground, a Spectral title, quiet body text, 42px buttons (amber
+   primary, white secondary), one close ×, white 42px fields with a small-caps label and an ink focus ring, choice
+   tiles in bone with the picked one amber, and white notices. It restyles the existing windows only — their
+   content and behaviour are unchanged. Many of them render outside .app (portaled to <body>), so the family has
+   its own tokens, for both themes. Image viewers (.lb-overlay, the region editor) stay dark on purpose. */
+:root{
+  --win-surface:var(--bg-2); --win-bone:var(--bg-3); --win-bone-2:var(--bg-4);
+  --win-line:rgba(255,255,255,.08); --win-line-2:rgba(255,255,255,.13); --win-line-3:rgba(255,255,255,.22);
+  --win-ink:var(--txt-0); --win-ink-2:var(--txt-1); --win-sub:#8F8C85;
+  --win-scrim:rgba(0,0,0,.6); --win-shadow:0 24px 60px -20px rgba(0,0,0,.7);
+  --win-amber:#F29A43; --win-amber-hover:#E88A33; --win-on-amber:#2C2722;
+  --win-amber-soft:rgba(242,154,67,.14); --win-amber-line:rgba(242,154,67,.5); --win-amber-ink:#F29A43;
+  --win-err:#F08A80; --win-err-fill:#C9473C; --win-focus:rgba(255,255,255,.14);
+}
+html[data-theme="light"]{
+  --win-surface:#FFFFFF; --win-bone:#F6F6F4; --win-bone-2:#F1F1EE;
+  --win-line:#E8E8E5; --win-line-2:#E1E1DD; --win-line-3:#D6D6D1;
+  --win-ink:#0F1012; --win-ink-2:#3C3F44; --win-sub:#5D6066;
+  --win-scrim:rgba(15,16,18,.42); --win-shadow:0 24px 60px -20px rgba(15,16,18,.45);
+  --win-amber-ink:#9E5410; --win-err:#B3261E; --win-err-fill:#B3261E; --win-focus:rgba(15,16,18,.08);
+}
+
+/* the dimmed ground */
+:is(.appconfirm-scrim,.redraft-overlay,.ns-overlay,.ag-overlay,.bible-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim){
+  background:var(--win-scrim);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+/* the panel */
+:is(.appconfirm,.redraft-card,.ns-panel,.ag-panel,.bible-modal,.cc-modal,.cameo-modal,.qa-modal,.shot-ref-dialog,.shot-notice,.plans-modal){
+  background:var(--win-surface);color:var(--win-ink);border:1px solid var(--win-line);border-radius:14px;box-shadow:var(--win-shadow)}
+.appconfirm{width:min(480px,94vw);padding:26px 28px 24px}
+.redraft-card.studio-progress-card{width:min(480px,92vw);min-width:0;box-sizing:border-box;padding:24px 28px;gap:12px;align-items:stretch;text-align:left}
+/* headers: hairline under, roomier padding */
+:is(.ns-head,.ag-head,.bible-head,.shot-ref-dialog-head,.ag-runner-head){padding:20px 26px 16px;border-bottom-color:var(--win-line)}
+.qa-head{border-bottom-color:var(--win-line)}
+:is(.ns-steps,.ag-runner-foot,.shot-ref-dialog-actions){border-color:var(--win-line)}
+/* titles: Spectral, as the rooms' headings */
+:is(.appconfirm-title,.redraft-t,.ns-title,.ag-title,.bible-title,.cc-title,.cameo-title,.qa-title,.plans-title,.ag-runner-name){
+  font-family:var(--f-serif);font-weight:500;letter-spacing:-.01em;color:var(--win-ink)}
+.appconfirm-title{font-size:24px;line-height:1.18;margin-bottom:10px}
+.redraft-t{font-size:24px;line-height:1.18}
+:is(.ns-title,.ag-title){font-size:22px;line-height:1.2}
+:is(.bible-title,.cc-title,.qa-title,.ag-runner-name){font-size:21px;line-height:1.2}
+.cameo-title{font-size:22px}
+.plans-title{font-size:32px}
+.shot-ref-dialog-head h3{font-family:var(--f-serif);font-weight:500;font-size:21px;letter-spacing:-.01em;color:var(--win-ink)}
+/* the small line that names who is working or where */
+:is(.redraft-role){font:400 11px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--win-sub)}
+.studio-progress-head{display:flex;align-items:center;gap:10px}
+.studio-progress-head .orb{width:18px;height:18px;flex:0 0 18px}
+:is(.ns-sub,.ag-sub,.ag-runner-sub){font-family:var(--f-ui);font-size:13.5px;letter-spacing:0;color:var(--win-sub);margin-top:2px}
+.bible-sub{color:var(--win-sub)}
+/* body text */
+:is(.appconfirm-body,.redraft-d,.cc-body,.shot-ref-dialog-head p){font-size:15px;line-height:1.55;color:var(--win-ink-2)}
+.redraft-d{font-size:14.5px}
+.appconfirm-items{background:var(--win-bone);border:0;border-radius:9px}
+.appconfirm-note{color:var(--win-sub);font-size:12.5px}
+.appconfirm-actions{gap:10px;margin-top:22px}
+/* the progress bar and its foot (the running time · Stop) */
+.studio-progress-card .studio-progress-bar{height:6px;background:var(--win-bone-2)}
+.studio-progress-card .studio-progress-bar i{background:var(--win-amber)}
+.studio-progress-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:2px}
+.studio-progress-foot:not(:has(.studio-progress-time)){justify-content:flex-end}
+.studio-progress-time{font:400 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--win-sub)}
+.studio-progress-card > .studio-progress-time{align-self:flex-start}
+/* the close × — one look */
+:is(.ag-x,.bible-x,.cameo-x){width:36px;height:36px;border-radius:9px;border:1px solid var(--win-line-2);background:var(--win-surface);color:var(--win-ink-2)}
+:is(.ag-x,.bible-x,.cameo-x):hover{background:var(--win-bone);color:var(--win-ink);border-color:var(--win-line-3)}
+/* buttons inside windows: 42px, amber primary, white secondary */
+:is(.appconfirm-btn,.ns-btn,.ag-btn,.ag-run,.bible-btn,.cameo-btn,.flag-btn,.adm-btn){
+  min-height:42px;height:auto;padding:0 18px;border-radius:9px;font:600 14.5px var(--f-ui);display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  border:1px solid var(--win-line-2);background:var(--win-surface);color:var(--win-ink);filter:none}
+:is(.appconfirm-btn,.ns-btn,.ag-btn,.ag-run,.bible-btn,.cameo-btn,.flag-btn,.adm-btn):hover:not(:disabled){background:var(--win-bone);border-color:var(--win-line-3);color:var(--win-ink);filter:none}
+:is(.appconfirm-btn,.ns-btn,.ag-btn,.flag-btn).primary,.ag-run:not(.ghost):not(.stop){background:var(--win-amber);border-color:var(--win-amber);color:var(--win-on-amber);padding:0 20px}
+:is(.appconfirm-btn,.ns-btn,.ag-btn,.flag-btn).primary:hover:not(:disabled),.ag-run:not(.ghost):not(.stop):hover:not(:disabled){background:var(--win-amber-hover);border-color:var(--win-amber-hover);color:var(--win-on-amber)}
+:is(.appconfirm-btn,.adm-btn,.cameo-mgr-btn).danger{background:var(--win-surface);border-color:var(--win-line-2);color:var(--win-err)}
+:is(.appconfirm-btn,.adm-btn,.cameo-mgr-btn).danger:hover:not(:disabled){background:var(--win-bone);color:var(--win-err)}
+.ag-run.stop{background:var(--win-surface);border-color:var(--win-line-2);color:var(--win-err)}
+.ns-btn.link{border-color:transparent;background:transparent;color:var(--win-ink-2);text-decoration:underline;text-underline-offset:3px}
+.ns-btn.link:hover:not(:disabled){background:transparent;border-color:transparent}
+.adm-btn.sm{min-height:34px;padding:0 12px;font-size:13px}
+:is(.appconfirm-btn,.ns-btn,.ag-btn,.ag-run,.bible-btn,.cameo-btn,.flag-btn,.adm-btn):disabled{opacity:.5;cursor:not-allowed}
+:is(.appconfirm-btn,.ns-btn,.ag-btn,.ag-run,.bible-btn,.cameo-btn,.flag-btn,.adm-btn):focus-visible{outline:2px solid var(--win-ink);outline-offset:2px}
+/* the secondary ("ghost") buttons: white with a hairline, as the board (their own rules outranked the family's) */
+:is(.appconfirm-btn,.ns-btn,.ag-btn,.ag-run,.cameo-btn).ghost{background:var(--win-surface);border-color:var(--win-line-2);color:var(--win-ink)}
+:is(.appconfirm-btn,.ns-btn,.ag-btn,.ag-run,.cameo-btn).ghost:hover:not(:disabled){background:var(--win-bone);border-color:var(--win-line-3);color:var(--win-ink)}
+/* the Story brief: the logline in Spectral italic, the note in a bone box */
+.brief-empty-lab{font:400 10px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--win-sub)}
+.brief-empty-log{font-family:var(--f-serif);font-style:italic;font-size:19px;line-height:1.45;color:var(--win-ink)}
+.brief-empty-note{background:var(--win-bone);border-radius:9px;padding:12px 14px;font-size:13.5px;line-height:1.5;color:var(--win-ink-2)}
+/* Likeness keeps its own violet main button (the feature's colour) in the family's shape */
+.cameo-btn.primary{border-color:transparent}
+/* fields inside windows: white, 42px, an ink focus ring, the label in small caps */
+:is(.appconfirm,.ns-panel,.ag-panel,.bible-modal,.cc-modal,.cameo-modal,.qa-modal,.shot-ref-dialog,.plans-modal)
+  :is(input:not([type]),input[type="text"],input[type="email"],input[type="search"],input[type="number"],input[type="url"],input[type="password"],select:not(.ns-model-sel),textarea){
+  background:var(--win-surface);color:var(--win-ink);border:1px solid var(--win-line-2);border-radius:9px;font-family:var(--f-ui);font-size:14.5px}
+:is(.appconfirm,.ns-panel,.ag-panel,.bible-modal,.cc-modal,.cameo-modal,.qa-modal,.shot-ref-dialog,.plans-modal)
+  :is(input:not([type]),input[type="text"],input[type="email"],input[type="search"],input[type="number"],input[type="url"],input[type="password"],select:not(.ns-model-sel)){min-height:42px;box-sizing:border-box}
+:is(.appconfirm,.ns-panel,.ag-panel,.bible-modal,.cc-modal,.cameo-modal,.qa-modal,.shot-ref-dialog,.plans-modal)
+  :is(input,select:not(.ns-model-sel),textarea):focus{outline:none;border-color:var(--win-ink);box-shadow:0 0 0 3px var(--win-focus)}
+:is(.appconfirm,.ns-panel,.ag-panel,.bible-modal,.cc-modal,.cameo-modal,.qa-modal,.shot-ref-dialog,.plans-modal) :is(input,textarea)::placeholder{color:var(--win-sub)}
+:is(.ns-input-lab,.shot-ref-dialog-label){font:400 10px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--win-sub)}
+.ns-input{padding:12px 14px;line-height:1.5}
+/* choices: bone tiles, the picked one amber (New Story's seed and format chips) */
+.ns-chip{min-height:42px;padding:10px 14px;border:0;border-radius:9px;background:var(--win-bone);color:var(--win-ink);font-weight:600}
+.ns-chip:hover{background:var(--win-bone-2);color:var(--win-ink)}
+.ns-chip.on{background:var(--win-amber-soft);box-shadow:inset 0 0 0 1px var(--win-amber-line);color:var(--win-ink)}
+.ns-chip.on svg{color:var(--win-amber-ink)}
+.ns-format{background:var(--win-bone);border-color:transparent}
+.ns-format.on{background:var(--win-amber-soft);border-color:transparent;box-shadow:inset 0 0 0 1px var(--win-amber-line)}
+/* New Story's steps: numbers in small caps, the open step underlined in ink */
+.ns-steps{gap:22px;padding:0 26px}
+.ns-step{padding:10px 0 11px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.ns-step::after{display:none}
+.ns-step-dot{width:auto;height:auto;flex:0 0 auto;border:0;background:none;color:var(--win-sub);font:400 10px var(--f-mono)}
+.ns-step-lab{font-family:var(--f-ui);font-size:13.5px;letter-spacing:0;text-transform:none;color:var(--win-sub)}
+.ns-step.on{border-bottom-color:var(--win-ink)}
+.ns-step.on .ns-step-dot{background:none;color:var(--win-ink)}
+.ns-step.on .ns-step-lab{color:var(--win-ink);font-weight:600}
+.ns-step.done .ns-step-dot{background:none;border:0;color:var(--win-amber-ink)}
+.ns-step.done .ns-step-lab{color:var(--win-ink-2)}
+.ns-body{padding:22px 26px}
+/* notices (toasts): white, a hairline edge, colour only on the error mark */
+.turn-toast{background:var(--win-surface);color:var(--win-ink);border:1px solid var(--win-line);border-radius:12px;
+  box-shadow:0 14px 34px -14px rgba(15,16,18,.45);padding:11px 11px 11px 14px;font-size:14px;align-items:center}
+.turn-toast.err,.turn-toast.ok{background:var(--win-surface);color:var(--win-ink);box-shadow:0 14px 34px -14px rgba(15,16,18,.45)}
+.turn-toast .turn-toast-ic{color:var(--win-sub)}
+.turn-toast.err .turn-toast-ic{color:var(--win-err)}
+.turn-toast.ok .turn-toast-ic{color:var(--win-amber-ink)}
+.turn-toast-x{width:30px;height:30px;border-radius:8px;background:var(--win-bone);opacity:1;color:var(--win-ink-2);display:grid;place-items:center;padding:0}
+.turn-toast-x:hover{background:var(--win-bone-2)}
+.turn-toast-act{border:0;background:transparent;color:var(--win-amber-ink);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.turn-toast-act:hover,.turn-toast-act:focus-visible{background:transparent}
+/* phones: a little tighter */
+@media (max-width:700px){
+  .appconfirm{padding:22px 20px 20px}
+  .appconfirm-title,.redraft-t{font-size:21px}
+  :is(.ns-head,.ag-head,.bible-head,.shot-ref-dialog-head,.ag-runner-head){padding:16px 18px 12px}
+  .ns-steps{padding:0 18px;gap:16px;overflow-x:auto}
+  .ns-body{padding:18px}
+}
+/* the writing-model picker in a window's header (New Story, Story Editors runs) reads as the top bar's engine chip */
+.ns-model-badge,.ag-runner-model{background:var(--win-bone);border-color:var(--win-line);color:var(--win-ink-2);border-radius:9px}
+.ns-model-badge:hover{border-color:var(--win-line-3);color:var(--win-ink)}
+.ns-model-badge:focus-within{box-shadow:0 0 0 3px var(--win-focus);border-color:var(--win-ink)}
+/* a Likeness window opened from a card (cameo.jsx renders it inside the card) covers the page, not the card:
+   the card's content-visibility:auto (sheet virtualization, above) made it the window's containing block, so the
+   window opened squeezed inside the card (2026-10-16; the Voice window has the same exception, .voice-open) */
+.sheet-card:has(.cameo-overlay){content-visibility:visible;position:relative;z-index:130}

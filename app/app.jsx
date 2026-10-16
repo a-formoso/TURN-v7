@@ -181,22 +181,39 @@ const GRADES = {
 
 function StudioProgressOverlay({ title, detail, progress, role, onStop, stopping }){
   const pct = progress==null ? null : Math.max(0, Math.min(100, Math.round(progress)));
+  // THE RUNNING TIME (window family, owner 2026-10-16): "1:42 so far" from the fifth second, so a long draft
+  // never looks frozen. One component kept on window, so a re-render (a progress tick) never restarts it; it is
+  // hidden from screen readers — the live region would otherwise announce the card every second.
+  const G = (typeof window!=="undefined") ? window : globalThis;
+  const Elapsed = G.__turnProgressElapsed || (G.__turnProgressElapsed = function ProgressElapsed(){
+    const [t0] = React.useState(()=>Date.now());
+    const [now, setNow] = React.useState(t0);
+    React.useEffect(()=>{ const id = setInterval(()=>setNow(Date.now()), 1000); return ()=>clearInterval(id); },[]);
+    const s = Math.max(0, Math.floor((now - t0)/1000));
+    if(s < 5) return null;
+    return React.createElement("span",{className:"studio-progress-time","aria-hidden":"true"},
+      Math.floor(s/60)+":"+String(s%60).padStart(2,"0")+" so far");
+  });
   return React.createElement("div",{className:"redraft-overlay studio-progress-overlay",
     role:"status","aria-live":"polite","aria-atomic":"true","aria-label":title},
     React.createElement("div",{className:"redraft-card studio-progress-card"},
-      React.createElement("span",{className:"orb"}),
-      // the eyebrow names the department doing the work (its job title), the title the work —
-      // no persona: the help assistant, Frances, only answers (owner, 2026-09-28)
-      role && React.createElement("div",{className:"redraft-role"},role),
+      React.createElement("div",{className:"studio-progress-head"},
+        React.createElement("span",{className:"orb"}),
+        // the eyebrow names the department doing the work (its job title), the title the work —
+        // no persona: the help assistant, Frances, only answers (owner, 2026-09-28)
+        role && React.createElement("div",{className:"redraft-role"},role),),
       React.createElement("div",{className:"redraft-t"},title),
       detail && React.createElement("div",{className:"redraft-d"},detail),
       pct!=null && React.createElement("div",{className:"studio-progress-bar",role:"progressbar",
         "aria-label":"Progress","aria-valuemin":0,"aria-valuemax":100,"aria-valuenow":pct},
         React.createElement("i",{style:{width:pct+"%"}})),
       // a long batch (Auto-draft all) can be stopped between scenes (2026-09-28)
-      onStop && React.createElement("button",{type:"button",className:"appconfirm-btn ghost",
-        disabled:!!stopping, onClick:onStop, style:{marginTop:4}},
-        stopping ? "Stopping\u2026" : "Stop")));
+      onStop ? React.createElement("div",{className:"studio-progress-foot"},
+        React.createElement(Elapsed,null),
+        React.createElement("button",{type:"button",className:"appconfirm-btn ghost",
+          disabled:!!stopping, onClick:onStop},
+          stopping ? "Stopping\u2026" : "Stop"))
+        : React.createElement(Elapsed,null)));
 }
 
 /* ---- alternate view: Turn Audit table ---- */
