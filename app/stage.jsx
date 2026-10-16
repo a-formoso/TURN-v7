@@ -8480,6 +8480,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   if(!scenesWithShots.length){
     return _stEl("div",{className:"stage2-root"},
       _stEl("div",{className:"prop-empty"},
+        _stEl("div",{className:"wr-eyebrow stage-empty-eyebrow"},"03 \u00b7 Production"),
         _stEl("div",{className:"art-soon-ic"}, Icon.clapper&&_stEl(Icon.clapper,{s:30})),
         _stEl("div",{className:"art-soon-t"},"Nothing to stage yet"),
         _stEl("div",{className:"art-soon-d"},"The Stage turns your shots into video clips. Break your scenes into shots in the Art Room → Shots first, then come back.")));
@@ -8590,18 +8591,34 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       ["Timeline","timeline",Icon.grid,"The film assembled from each clip's current take"],
       ["Mix","audio",Icon.mic,"The post mix — voiced lines over the picture, beds under, kept with the film"],
     ];
-    const stageHead = _stEl("div",{className:"viewnav","aria-label":"Views"},
-      _stEl("div",{className:"vn-side vn-left"}),
-      _stEl("div",{className:"vn-center"},
-        _stEl("div",{className:"segmented"},
+    // THE STAGE'S PAGE HEADING (homepage style, owner 2026-10-16 — "update the Stage UI the same way" as the
+    // Writers' Room and the Art Room): "03 · Production", the view's title — Shoot names the open scene,
+    // "<Scene>, take by take." — a line of what it holds, and the four views as underlined text on the right.
+    // It keeps the .viewnav class and the tab buttons' own words (the browser test finds them by label).
+    const headSceneShots = shotsByScene[selectedScene.id]||[];
+    const headDone = selectedSceneClips.filter(c=>clipVideoReady(c, vids)).length;
+    const headTitle = stageView==="versions" ? ["The ","takes."] : stageView==="timeline" ? ["The ","timeline."]
+      : stageView==="audio" ? ["The ","mix."] : [(selectedScene.title||selectedScene.loc||("Scene "+_pad2(selectedScene.no)))+", ","take by take."];
+    const headSub = stageView==="versions" ? "Review and approve each clip's takes, and choose the one the timeline uses."
+      : stageView==="timeline" ? "The film assembled from each clip's current take"+((project&&project.title)?" \u2014 "+project.title:"")+"."
+      : stageView==="audio" ? "The post mix: voiced lines over the picture, beds under, kept with the film."
+      : "Scene "+_pad2(selectedScene.no)+" \u00b7 "+selectedSceneClips.length+" clip"+(selectedSceneClips.length!==1?"s":"")
+        +" \u00b7 "+headDone+" of "+selectedSceneClips.length+" rendered \u00b7 "+_fmtSecs(headSceneShots.reduce((t,sh)=>t+stageShotRuntime(sh),0))+".";
+    const stageHead = _stEl("header",{className:"viewnav stage-head","aria-label":"Views"},
+      _stEl("div",{className:"wr-head-in stage-head-in"},
+        _stEl("div",{className:"wr-head-copy"},
+          _stEl("div",{className:"wr-eyebrow"},"03 \u00b7 Production"),
+          _stEl("h1",{className:"wr-title"},headTitle[0],_stEl("em",null,headTitle[1])),
+          _stEl("p",{className:"wr-sub"},headSub)),
+        _stEl("div",{className:"wr-head-side"},
+          _stEl("nav",{className:"segmented stage-tabs","aria-label":"Stage views"},
           stageTabs.map(([label,id,Ic,tip])=>{
             const on = stageView===id;
             // the current tab is marked for assistive tech, and keeps its own description (2026-10-09)
             return _stEl("button",{key:id,type:"button",className:"seg"+(on?" on":""),"aria-pressed":on?"true":"false",
               onClick:()=>setStageView(id),
               title: tip},
-              Ic&&_stEl(Ic,{s:14}),_stEl("span",{className:"seg-lab"},label)); }))),
-      _stEl("div",{className:"vn-side vn-right"}));
+              Ic&&_stEl(Ic,{s:14}),_stEl("span",{className:"seg-lab"},label)); })))));
     // the view tabs span the FULL app width above the rail+console split — the same
     // TopBar → ViewNav → body stack every other room has.
     return _stEl("div",{className:"stage2-root",style:_stageAspectCss(aspect)},
