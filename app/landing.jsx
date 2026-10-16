@@ -128,10 +128,10 @@ function RotatingWord({ word }){
 }
 
 const LP_STEPS = [
-  { n:"1", t:"Bring an idea", d:"A logline, a “what if” — or talk it through out loud with Frances." },
+  { n:"01", t:"Bring an idea", d:"A logline, a “what if” — or talk it through out loud with Frances." },
   // the structures (frameworks.jsx) and the formats in the Shape step's display order (formats.jsx)
-  { n:"2", t:"Choose how it’s told", d:"Kinolot suggests a structure and a format for your idea, and you can keep them or pick your own: Three-Act Turns, Hero’s Journey or Kishōtenketsu, as a Feature Film, TV Series, Short Film, Micro Short, Micro-drama, Music Video, Documentary or Commercial." },
-  { n:"3", t:"Build the film", d:"Research, synopsis, spine and script, then cast, places, shots and video — it all grows in one place." },
+  { n:"02", t:"Choose how it’s told", d:"Kinolot suggests a structure and a format for your idea, and you can keep them or pick your own: Three-Act Turns, Hero’s Journey or Kishōtenketsu, as a Feature Film, TV Series, Short Film, Micro Short, Micro-drama, Music Video, Documentary or Commercial." },
+  { n:"03", t:"Build the film", d:"Research, synopsis, spine and script, then cast, places, shots and video — it all grows in one place." },
 ];
 
 /* Pricing — derived from the SINGLE source of truth (plans.jsx CINEMA_PLANS), so
@@ -253,7 +253,7 @@ function Landing({ onStart, onSignIn }){
       React.createElement("section",{className:"lp-section"},
         React.createElement("div",{className:"lp-sec-head"},
           React.createElement("div",{className:"lp-act"},"Act I · Choose your room"),
-          React.createElement("h2",{className:"lp-h2"},"Start with the room you need")),
+          React.createElement("h2",{className:"lp-h2"},"Start with the room ",React.createElement("em",null,"you need."))),
         React.createElement("div",{className:"lp-grid"},
           LP_ROOMS.map((f,i)=>React.createElement("div",{key:i,className:"lp-card lp-room-card"},
             React.createElement("div",{className:"lp-card-top"},
@@ -266,7 +266,7 @@ function Landing({ onStart, onSignIn }){
       React.createElement("section",{className:"lp-section steps"},
         React.createElement("div",{className:"lp-sec-head"},
           React.createElement("div",{className:"lp-act"},"Act II · The process"),
-          React.createElement("h2",{className:"lp-h2"},"How it works")),
+          React.createElement("h2",{className:"lp-h2"},"How it ",React.createElement("em",null,"works."))),
         React.createElement("div",{className:"lp-steps"},
           LP_STEPS.map((s,i)=>React.createElement("div",{key:i,className:"lp-step"},
             React.createElement("div",{className:"lp-step-n"}, s.n),
@@ -276,7 +276,7 @@ function Landing({ onStart, onSignIn }){
       React.createElement("section",{className:"lp-section pricing"},
         React.createElement("div",{className:"lp-sec-head"},
           React.createElement("div",{className:"lp-act"},"Act III · Plans"),
-          React.createElement("h2",{className:"lp-h2"},"Pricing follows the rooms")),
+          React.createElement("h2",{className:"lp-h2"},"Pricing follows ",React.createElement("em",null,"the rooms."))),
         React.createElement("div",{className:"lp-tiers"},
           lpTiers().map((t,i)=>React.createElement("div",{key:i,className:"lp-tier"+(t.featured?" featured":"")},
             t.tag && React.createElement("div",{className:"lp-tier-tag"}, t.tag),
@@ -304,7 +304,7 @@ function Landing({ onStart, onSignIn }){
       React.createElement("section",{className:"lp-final"},
         React.createElement("div",{className:"lp-final-copy"},
           React.createElement("div",{className:"lp-act"},"Epilogue"),
-          React.createElement("h2",{className:"lp-h2"},"Start building your film.")),
+          React.createElement("h2",{className:"lp-h2"},"Start building ",React.createElement("em",null,"your film."))),
         React.createElement("div",{className:"lp-final-cta"},
           React.createElement("button",{className:"lp-btn ghost big",onClick:onSignIn},"Sign in"),
           React.createElement("button",{className:"lp-btn primary big",onClick:()=>onStart("free")},"Create a free account")))),
