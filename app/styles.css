@@ -10326,3 +10326,139 @@ html[data-theme="light"]{
 .app.hs.room-art :is(.char-draft-btn,.sb-card-btn,.pager-btn,.sheet-gen-tool,.rs-trigger,.sheet-scenes-nav):hover:not(:disabled){background:var(--win-bone);border-color:var(--win-line-3);color:var(--win-ink)}
 .app.hs.room-art .sb-card-btn.danger{color:var(--win-err)}
 .app.hs.room-art .sb-card-btn.danger:hover:not(:disabled){color:var(--win-err)}
+
+/* ============================ THE WRITERS' ROOM'S BUTTONS (owner 2026-10-16: "make the Writers' Room's buttons amber
+   too") — the window family, as the Stage and the Art Room: the page's main action is the full amber (Story Editors,
+   already; Redraft on the script, Rebuild from script on the beats); whatever is PICKED — the board's Columns / Table,
+   the Idea / Counter-idea switch, a character you follow, a beat marked as the turn — is the soft amber with an amber
+   edge; the other buttons are white with a hairline; Delete is red. */
+.app.hs.room-writers :is(.draft-btn.sm:not(.ghost),.beat-build-btn.primary){background:var(--win-amber);border:1px solid var(--win-amber);color:var(--win-on-amber);font-weight:600}
+.app.hs.room-writers :is(.draft-btn.sm:not(.ghost),.beat-build-btn.primary):hover:not(:disabled){background:var(--win-amber);border-color:var(--win-amber);filter:brightness(1.05);color:var(--win-on-amber)}
+.app.hs.room-writers :is(.board-mode-btn,.argues-btn,.follow-chip).on,
+.app.hs.room-writers .beat-edit.turn .beat-turn-btn{background:var(--win-amber-soft);border-color:var(--win-amber-line);box-shadow:inset 0 0 0 1px var(--win-amber-line);color:var(--win-ink)}
+.app.hs.room-writers .follow-chip.on .follow-n{color:var(--win-amber-ink)}
+.app.hs.room-writers :is(.strip-btn,.va-name-all,.step-btn,.draft-btn.sm.ghost,.cont-btn:not(.ok):not(.warn):not(.stale),.beat-turn-btn,.ia-btn:not(.danger)){background:var(--win-surface);border:1px solid var(--win-line-2);color:var(--win-ink)}
+.app.hs.room-writers :is(.strip-btn,.va-name-all,.step-btn,.draft-btn.sm.ghost,.cont-btn:not(.ok):not(.warn):not(.stale),.beat-turn-btn,.ia-btn:not(.danger)):hover:not(:disabled){background:var(--win-bone);border-color:var(--win-line-3);color:var(--win-ink)}
+.app.hs.room-writers .beat-edit.turn .beat-turn-btn:hover{background:rgba(242,154,67,.24);border-color:var(--win-amber)}
+.app.hs.room-writers :is(.argues-btn,.board-mode-btn):not(.on){background:var(--win-surface);color:var(--win-sub)}
+.app.hs.room-writers :is(.argues-btn,.board-mode-btn):not(.on):hover{background:var(--win-bone);color:var(--win-ink)}
+.app.hs.room-writers .ia-btn.danger,.app.hs.room-writers .ia-btn.danger:hover{color:var(--win-err)}
+
+/* ============================ ONE LOGO POSITION (owner 2026-10-16: "Place the logo in the same position as the other 3
+   rooms … the same position in the homepage") — Home's and the landing's bars put the lockup where the rooms' top bar
+   does: the 1280px column's edge + 22px (14px on a tablet, 8px on a phone), the mark 33×18 and the wordmark 22px. */
+.hd-topbar-in,.lp-nav-in{padding-left:22px;padding-right:22px}
+.hd-brand,.lp-nav .lp-logo{gap:9px}
+.hd-brand .brand-mark,.lp-nav .lp-logo .brand-mark{width:33px;height:18px}
+.hd-brand-name,.lp-nav .lp-logo{font-size:22px}
+@media (max-width:1100px){ .hd-topbar-in,.lp-nav-in{padding-left:14px;padding-right:14px} }
+@media (max-width:700px){ .hd-topbar-in,.lp-nav-in{padding-left:8px;padding-right:8px} }
+
+/* ============================ HOME: three bigger film cards + New Project, and the feature band evenly spaced
+   (owner 2026-10-16) — the band has the same 40px above and below; the footer's own top margin goes. */
+.hd-root .hd-body .hd-recent-row{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.hd-feature-band{padding:40px}
+.hd-root .hd-feature-band .hd-features{margin:0 auto}
+.hd-root .hd-feature-band + .hd-foot{margin-top:0}
+@media (max-width:1080px){ .hd-root .hd-body .hd-recent-row{grid-template-columns:repeat(4,minmax(0,1fr))} .hd-feature-band{padding:28px 24px} }
+@media (max-width:860px){ .hd-root .hd-body .hd-recent-row{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:560px){ .hd-feature-band{padding:20px} }
+
+/* ============================ THE STAGE'S SHOOT PAGE (owner 2026-10-16: "Bring back this design" — the Stage
+   mockup) — Shoot scrolls as a page: the open scene's heading with the selected clip's facts, its first line and
+   the Render / Edit-the-prompt buttons, the player on the right; the scene's clips as cards over Dialogue / Room
+   tone / Cut; then the work area (Scenes rail, composer, Render settings) at the window's height, as before. */
+.app.hs.room-stage .stage2-root.stage-shoot-page{overflow-x:hidden;overflow-y:auto}
+.stage-shoot{display:contents}
+.stage-shoot-page > .stage-shoot > *{flex:0 0 auto}
+.stage-shoot-page .stage2-body{height:100%;min-height:560px;border-top:0}
+.wr-head-in.stage-hero-in{display:block;padding:26px 40px 30px}
+.stage-hero-top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 24px}
+.stage-hero-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,560px);gap:28px 44px;align-items:start;margin-top:10px}
+.stage-hero-copy{min-width:0}
+.stage-hero .wr-title{margin-top:4px;font-size:48px}
+.stage-hero .stage-hero-sub{margin-top:12px;font-size:15.5px;max-width:560px}
+.stage-hero-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:20px;max-width:600px}
+.stage-hero-tile{display:flex;flex-direction:column;gap:6px;min-width:0;padding:12px 14px;border-radius:10px;background:var(--win-bone);border:1px solid transparent}
+.stage-hero-tile span{font:400 10px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--win-sub)}
+.stage-hero-tile b{font-size:14.5px;font-weight:600;color:var(--win-ink);line-height:1.25;overflow-wrap:anywhere}
+.stage-hero-tile.hot{background:var(--win-amber-soft);border-color:var(--win-amber-line)}
+.stage-hero-tile.hot span{color:var(--win-amber-ink)}
+.stage-hero-line{margin:20px 0 0;max-width:600px;font-family:var(--f-serif);font-style:italic;font-size:19px;line-height:1.45;color:var(--win-ink)}
+.stage-hero-line cite{display:block;margin-top:6px;font:normal 400 10.5px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--win-sub)}
+.stage-hero-cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+.app.hs .stage-hero-cta .hs-btn{height:46px;padding:0 20px;font-size:15px}
+.app.hs .stage-hero-cta .stage-hero-render{background:var(--win-amber);border-color:var(--win-amber);color:var(--win-on-amber);font-weight:600;gap:10px}
+.app.hs .stage-hero-cta .stage-hero-render:hover:not(:disabled){background:var(--win-amber-hover);border-color:var(--win-amber-hover)}
+.app.hs .stage-hero-cta .stage-hero-render.blocked{opacity:.75}
+.app.hs .stage-hero-cta .stage-hero-edit{background:var(--win-surface);border:1px solid var(--win-line-2);color:var(--win-ink)}
+.app.hs .stage-hero-cta .stage-hero-edit:hover{background:var(--win-bone);border-color:var(--win-line-3)}
+.stage-hero-media{min-width:0}
+.stage-hero-media .stage2-player{border-radius:14px;border:0;background:#0E0F12;box-shadow:0 18px 44px -18px rgba(15,16,18,.45)}
+.stage-hero-cap{position:absolute;top:12px;left:12px;padding:5px 8px;border-radius:6px;background:rgba(14,15,18,.7);color:#fff;
+  font:400 10px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;pointer-events:none}
+.stage-hero-media .stage2-ruler{margin-top:10px}
+/* the scene's clips */
+.stage-shots{background:var(--hs-paper);border-bottom:1px solid var(--hs-line)}
+.stage-shots-in{max-width:var(--hs-col);margin:0 auto;box-sizing:border-box;border-left:1px solid var(--hs-line);border-right:1px solid var(--hs-line);padding:26px 40px 30px}
+.stage-shots-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 16px;margin-bottom:16px}
+.stage-shots-head h2{margin:0;font-family:var(--f-serif);font-weight:500;font-size:30px;letter-spacing:-.01em;color:var(--hs-ink)}
+.stage-shots-meta{font:400 11px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hs-sub)}
+.stage-shots-acts{display:flex;align-items:center;gap:8px;margin-left:auto;align-self:center}
+.app.hs .stage-shots-acts .hs-btn{height:38px;padding:0 14px;gap:7px;background:var(--win-surface);border:1px solid var(--win-line-2);color:var(--win-ink)}
+.app.hs .stage-shots-acts .hs-btn:hover:not(:disabled){background:var(--win-bone);border-color:var(--win-line-3)}
+.app.hs .stage-shots-acts .stage-scene-arrow{width:38px;padding:0;justify-content:center}
+.stage-shot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
+.stage-shot-card{position:relative;aspect-ratio:3 / 4;border:0;border-radius:14px;padding:11px;box-sizing:border-box;overflow:hidden;
+  display:flex;flex-direction:column;justify-content:space-between;text-align:left;cursor:pointer;color:#fff;background:#2F2A24;font:inherit}
+.stage-shot-card.missing{background:#5D6066}
+.stage-shot-media{position:absolute;inset:0}
+.stage-shot-media :is(img,video){width:100%;height:100%;object-fit:cover;display:block}
+.stage-shot-card::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(14,15,18,.35) 0%,rgba(14,15,18,0) 30%,rgba(14,15,18,0) 52%,rgba(14,15,18,.82) 100%);pointer-events:none}
+.stage-shot-top,.stage-shot-foot{position:relative;z-index:1}
+.stage-shot-top{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.stage-shot-state{padding:4px 7px;border-radius:6px;background:rgba(14,15,18,.7);color:#fff;font:400 9.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase}
+.stage-shot-state.missing,.stage-shot-state.stale{background:var(--win-amber);color:var(--win-on-amber)}
+.stage-shot-len{font:400 10px/1 var(--f-mono);letter-spacing:.06em;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.stage-shot-foot{display:flex;flex-direction:column;gap:3px;min-width:0}
+.stage-shot-foot b{font-size:13.5px;font-weight:600;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.stage-shot-foot span{font-size:12px;color:rgba(255,255,255,.78);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stage-shot-card:hover{filter:brightness(1.06)}
+.stage-shot-card.on{box-shadow:0 0 0 2px var(--hs-paper),0 0 0 4px var(--win-amber)}
+.stage-shot-card:focus-visible{outline:2px solid var(--win-amber);outline-offset:3px}
+.stage-shots-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin-top:18px;border-radius:12px;overflow:hidden;background:var(--win-line)}
+.stage-shots-fact{display:flex;flex-direction:column;gap:5px;padding:14px 18px;background:var(--win-bone);border:0;text-align:left;font:inherit;color:inherit;min-width:0}
+button.stage-shots-fact{cursor:pointer}
+button.stage-shots-fact:hover{background:var(--win-bone-2)}
+.stage-shots-fact span{font-size:13px;font-weight:600;color:var(--win-ink)}
+.stage-shots-fact b{font-size:13px;font-weight:400;line-height:1.45;color:var(--win-sub)}
+/* the top bar's engine chip */
+.app.hs .topbar .tb-btn.stage-engine-chip{gap:7px}
+@media (max-height:860px) and (min-width:701px){
+  .stage-hero .wr-title{font-size:40px}
+  .wr-head-in.stage-hero-in{padding:20px 40px 24px}
+}
+@media (max-width:1100px){
+  .wr-head-in.stage-hero-in{padding:20px 24px 24px}
+  .stage-hero-grid{grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:24px 28px}
+  .stage-hero .wr-title{font-size:38px}
+  .stage-shots-in{padding:22px 24px 26px;border-left:0;border-right:0}
+  .stage-hero-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:860px){
+  .stage-hero-grid{grid-template-columns:minmax(0,1fr)}
+  .stage-hero-media{order:-1}
+  .stage-shots-facts{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:700px){
+  .wr-head-in.stage-hero-in{padding:14px 16px 18px}
+  .stage-hero .wr-title{font-size:28px}
+  .stage-hero .stage-hero-sub{font-size:14px}
+  .app.hs .stage-hero-cta .hs-btn{flex:1 1 auto;height:44px;padding:0 16px;font-size:14px}
+  .stage-shots-in{padding:18px 16px 20px}
+  .stage-shots-head h2{font-size:24px}
+  .stage-shots-acts{margin-left:0;width:100%}
+  .app.hs .stage-shots-acts .stage-play-scene{flex:1 1 auto;justify-content:center}
+  .stage-shot-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .stage-hero-top{flex-direction:column;align-items:stretch}
+}

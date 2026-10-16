@@ -1111,8 +1111,10 @@ async function main() {
     await chooseClipGrouping("legacy","previous-packing reload setup");
     assert.equal(await c.eval(`localStorage.getItem("turn_stage_clip_scope")`),"auto",
       "previous packing writes the historical auto storage value before reload");
+    // marked first: a check right after Page.reload could still read the old page (2026-10-16)
+    await c.eval(`window.__beforeReload=true`);
     await c.call("Page.reload",{ignoreCache:true});
-    await waitFor(()=>c.eval(`document.querySelector(".sd-gen-model.on")?.textContent.includes("2.0")`),"stored 2.0 reload");
+    await waitFor(()=>c.eval(`!window.__beforeReload&&document.querySelector(".sd-gen-model.on")?.textContent.includes("2.0")`),"stored 2.0 reload");
     assert.match(await selectedModel(),/Seedance 2\.0/,"stored 2.0 persists");
     assert.equal(await readClipGrouping("previous-packing after reload"),"legacy",
       "previous packing selection persists across reload");

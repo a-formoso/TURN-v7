@@ -3192,7 +3192,7 @@ function StageMentionEditor({ value, mentionables, includeMention, maxLen, place
         m.t===swap.tok && _stEl("span",{className:"stage2-mention-kind"},"Current")))));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeIdentity=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeIdentity=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed, rail=null, tabsNav=null, onPrevScene=null, onNextScene=null, onPlayScene=null }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the scene's look + film stock when this console renders — stamped on each take it makes, so a later
   // change on the Color tab shows the take as "made with an earlier look" (2026-10-05, owner — Color review)
@@ -4234,6 +4234,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const [promptSourceStamp,setPromptSourceStamp]=React.useState(promptSourceSig);
   // written whenever the box changes (edits, reset and restore all set the prompt)
   React.useEffect(()=>{ const t = setTimeout(savePromptDrafts, 400); return ()=>clearTimeout(t); },[prompt]);
+  /* (2026-10-16) an edit made in the last 0.4 s is saved too when the page is left or reloaded, or the console
+     closes — reloading right after typing brought back the edit before it */
+  const savePromptDraftsRef = React.useRef(savePromptDrafts); savePromptDraftsRef.current = savePromptDrafts;
+  React.useEffect(()=>{ const flush = ()=>savePromptDraftsRef.current();
+    window.addEventListener("pagehide", flush); window.addEventListener("beforeunload", flush);
+    return ()=>{ window.removeEventListener("pagehide", flush); window.removeEventListener("beforeunload", flush); flush(); }; },[]);
   const [promptLookStamp,setPromptLookStamp]=React.useState(clipLookSig);   // the look a hand-edited prompt was written against
   const [promptDriftConfirmed,setPromptDriftConfirmed]=React.useState("");
   const [promptOtherGrouping,setPromptOtherGrouping]=React.useState(false);   // the kept edit was written for other shots
@@ -6452,77 +6458,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
 
   // ----- CENTER: player + filmstrip + prompt + input assets -----
   const center = _stEl("div",{className:"stage2-center stage2-compose-mode"},
-    _stEl("div",{className:"stage2-clip-head"},
-      _stEl("div",{className:"stage2-clip-slug",title:beatName||""}, beatLabel+" · ",
-        _stEl("span",{className:"stage2-clip-loc"}, stageScenePlace(scene)))),
-      // take switching & management live in the room's Versions view (the tab above) —
-      // the clip head is just the slug (full screen is a double-click on the video)
-    // player
-    _stEl("div",{className:"stage2-player",style:_stageAspectCss(aspect)},
-      playerUrl
-        ? _stEl("video",{ref:playerVideoRef,src:playerUrl,poster:shotStartFrame||undefined,controls:true,playsInline:true,
-            "aria-label":"Take of "+(clip.label||"this clip"),
-            title:"Double-click for full screen",onDoubleClick:playerFullscreen,
-            onLoadedMetadata:()=>syncPlayerClock(false),onTimeUpdate:()=>syncPlayerClock(),
-            onPlay:()=>syncPlayerClock(true),onPause:()=>syncPlayerClock(false),onEnded:()=>syncPlayerClock(false)})
-        : _stEl("div",{className:"stage2-player-empty"},
-            _stEl("span",{className:"stage2-player-playring"+(gening?" busy":"")}, Icon.play&&_stEl(Icon.play,{s:22})),
-            _stEl("div",{className:"stage2-player-msg"}, gening ? genBusyLabel : "Not rendered yet"),
-            gening && genPct!=null && _stEl("div",{className:"stage2-player-bar",role:"progressbar",
-                "aria-valuenow":genPct,"aria-valuemin":0,"aria-valuemax":100,"aria-label":"Render progress"},
-              _stEl("div",{className:"stage2-player-bar-fill",style:{width:genPct+"%"}})),
-            _stEl("div",{className:"stage2-player-sub"}, gening ? genBusySub : "Generate this clip to create the video"))),
-    _stEl("div",{className:"stage2-ruler"+(playerUrl?" has-video":" empty")},
-      _stEl("div",{className:"stage2-ruler-track"},
-        _stEl("div",{className:"stage2-ruler-fill",style:{width:playerClockFill+"%"}})),
-      _stEl("span",{className:"stage2-ruler-dur"}, playerClockLabel)),
-    // scene assembly strip — one CURRENT/chosen take slot per beat clip. Newly
-    // generated clips appear immediately; Takes remains the place to compare,
-    // approve and restore versions.
-    _stEl("div",{className:"stage2-timeline"},
-      _stEl("button",{type:"button",className:"stage2-time-arrow",title:"Previous clip","aria-label":"Previous clip",
-        disabled:clipsInScene.findIndex(c=>c.id===clip.id)<=0,
-        onClick:()=>{ const i=clipsInScene.findIndex(c=>c.id===clip.id); if(i>0) onSelectClip&&onSelectClip(clipsInScene[i-1].id); }},
-        Icon.chevL&&_stEl(Icon.chevL,{s:14})),
-      _stEl("div",{className:"stage2-time-track"},
-        _stEl("div",{className:"stage2-time-scene-head"},
-          _stEl("span",null,"Scene "+_pad2(scene.no)+" · chosen take per beat"),
-          _stEl("span",null,readySceneTakeCount+" / "+sceneTakeSlots.length+" ready")),
-        _stEl("div",{className:"stage2-time-cards"},
-          sceneTakeSlots.length ? sceneTakeSlots.map(slot=>{
-            const c=slot.clip,m=slot.meta||{},shotCount=(((c.data||{}).shots)||[]).length;
-            const active=c.id===clip.id;
-            const thumb=clipPrimaryFrame(c,imgs,visualSource);
-            const takeLabel=slot.take ? _stageTakeVno(slot.take,slot.takes,slot.takes.indexOf(slot.take)) : "";
-            const statusLabel=slot.rendered ? (slot.approved?"Approved":"Current")
-              : slot.state==="stale"?"Needs review":"Not rendered";
-            const beatName0=clipBeatName(c,beatsMap,drafts);
-            const click=()=>{ if(c.id===clip.id){ if(slot.url)setActiveTakeUrl(slot.url); }
-              else if(onSelectClip)onSelectClip(c.id); };
-            return _stEl("button",{key:c.id,type:"button",
-              className:"stage2-time-card"+(slot.rendered?" rendered":" missing")+(slot.state==="stale"?" stale":"")+(active?" on":""),
-              "data-testid":"stage-scene-beat-take","data-scene-id":String(c.scene&&c.scene.id||""),
-              "data-clip-id":c.id,"data-beat":slot.beatNumbers.join(","),"data-state":slot.state,
-              onClick:click,title:slot.beatLabel+" · "+(slot.rendered
-                ? (takeLabel+" · "+statusLabel+" · "+(_stageAgo(m.createdAt)||"rendered"))
-                : statusLabel+" — select this beat to render it")},
-              _stEl("div",{className:"stage2-time-thumb"},
-                slot.rendered
-                  ? _stEl("video",{src:slot.url+"#t=0.1",muted:true,playsInline:true,preload:"metadata"})
-                  : thumb ? _stEl("img",{src:thumb,alt:""}) : _stEl("span",{className:"stage2-time-blank"}),
-                shotCount>1 && _stEl("span",{className:"stage2-time-merge",title:shotCount+" shots in this beat clip"},"×"+shotCount),
-                _stEl("span",{className:"stage2-time-state "+(slot.approved?"approved":slot.state)},statusLabel),
-                slot.rendered && _stEl("span",{className:"stage2-time-play"},Icon.play&&_stEl(Icon.play,{s:12}))),
-              _stEl("div",{className:"stage2-time-meta"},
-                _stEl("b",null,slot.beatLabel+(beatName0?" · "+beatName0:"")),
-                _stEl("span",null,slot.rendered
-                  ? [m.durationSec?_fmtSecs(m.durationSec):_fmtSecs((c.data||{}).dur),m.resolution].filter(Boolean).join(" · ")
-                  : "—"))); })
-            : _stEl("div",{className:"stage2-time-empty"},"This scene has no planned beat clips yet.") )),
-      _stEl("button",{type:"button",className:"stage2-time-arrow",title:"Next clip",
-        disabled:(()=>{ const i=clipsInScene.findIndex(c=>c.id===clip.id); return i<0 || i>=clipsInScene.length-1; })(),
-        onClick:()=>{ const i=clipsInScene.findIndex(c=>c.id===clip.id); if(i>=0 && i<clipsInScene.length-1) onSelectClip&&onSelectClip(clipsInScene[i+1].id); }},
-        Icon.chevR&&_stEl(Icon.chevR,{s:14}))),
     composer,
     _stEl("div",{className:"stage2-director-prompt"},
       _stEl("div",{className:"stage2-director-head"},
@@ -6865,8 +6800,192 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     ? _stEl(CollapsedStrip,{ side:"right", label:"Render settings", icon:Icon.panelRight||Icon.grid, onExpand:()=>setSettingsOpen(true) })
     : _stEl("button",{className:"strip right strip-clickable",onClick:()=>setSettingsOpen(true),title:"Expand render settings"},
         _stEl("div",{className:"strip-label"},"Render settings"));
-  return _stEl("div",{className:"stage2-console stage2-console-composer"+(settingsOpen?" settings-open":"")},
-    center, settingsOpen ? settings : settingsStrip, lightbox);
+  /* ===== THE SHOOT PAGE (owner 2026-10-16: "Bring back this design" — the Stage mockup): the open scene as a page
+     heading — "03 · Production · Scene NN", "<Scene>, take by take.", what the selected clip is, four facts (framing,
+     length, voice, takes), its first line of dialogue, the amber "Render take N · price" (the composer's own render:
+     the same price, blockers and confirmations) and "Edit the prompt" — with the player on the right; then the
+     scene's clips as cards (the chosen take per beat, its state and length; the selected one ringed amber), "Play the
+     scene" and the previous / next scene; then Dialogue, Room tone and Cut. The composer, prompt, inputs and render
+     settings follow below, unchanged. ===== */
+  const [sceneQueue, setSceneQueue] = React.useState(null);   // "Play the scene": { items:[{url,label}], i }
+  React.useEffect(()=>{ setSceneQueue(null); }, [scene.id]);
+  const queueItem = sceneQueue ? sceneQueue.items[sceneQueue.i] : null;
+  const heroUrl = queueItem ? queueItem.url : playerUrl;
+  // the scene's ambience bed from the Mix (Room tone)
+  const [roomTone, setRoomTone] = React.useState(null);
+  React.useEffect(()=>{ let alive=true; setRoomTone(null);
+    stageLoadMixBeds([clip],[scene.id]).then(b=>{ if(alive) setRoomTone(((b||{})[scene.id]||{}).amb||null); }).catch(()=>{});
+    return ()=>{ alive=false; }; }, [scene.id]);
+  // the top bar's engine slot carries the video engine and resolution (opens the render settings)
+  const engineSlot = (typeof window.useTopbarEngineSlot==="function") ? window.useTopbarEngineSlot() : null;
+  const sizeLabel = (sh)=> (sh && sh.size!=null && typeof shotSizeOf==="function") ? (shotSizeOf(sh.size).label||"") : "";
+  const shownTake = visibleTakes.find(t=>t&&t.url===playerUrl) || visibleTakes[0] || null;
+  const shownTakeNo = shownTake ? _stageTakeVno(shownTake, visibleTakes, visibleTakes.indexOf(shownTake)) : "";
+  const takeApproved = (t)=> !!(t && t.meta && t.meta.status==="approved");
+  const approvedTakes = visibleTakes.filter(takeApproved).length;
+  const activeLine = (d.panelLines||[]).find(p=>p&&p.shotId===activeShot.id) || (d.panelLines||[])[0] || {};
+  const firstLine = (d.panelLines||[]).find(p=>p&&String(p.dialogue||"").trim()) || null;
+  const heroSize = sizeLabel(activeShot);
+  const heroAction = _firstWords(String(activeLine.staging||activeLine.text||activeLine.sheet||"").replace(/\s+/g," ").trim(), 28);
+  const heroSub = [clip.label, heroSize ? heroSize.toLowerCase() : "", _fmtSecs(duration)].filter(Boolean).join(" · ")
+    +"."+(heroAction ? " "+heroAction.replace(/([^.!?…])$/,"$1.") : "");
+  const takesText = visibleTakes.length
+    ? visibleTakes.length+" · "+(approvedTakes ? (approvedTakes===1 ? "one approved" : approvedTakes+" approved") : "none approved")
+    : "None yet";
+  const voiceText = hasDialogue ? ((dialogueSpeakers.join(", ")||"Dialogue")+(voiceReady ? "" : " · needs voice")) : "No lines";
+  const heroTiles = [["Framing", heroSize || ((d.shots||[]).length>1 ? (d.shots||[]).length+" shots" : "—"), false],
+    ["Length", (Math.round((Number(duration)||0)*10)/10).toFixed(1)+" s", false],
+    ["Voice", voiceText, hasDialogue],
+    ["Takes", takesText, false]];
+  const scrollToPrompt = ()=>{
+    const el = document.querySelector(".stage2-director-prompt");
+    if(!el) return;
+    try{ el.scrollIntoView({ behavior:"smooth", block:"center" }); }catch(e){}
+    const ed = el.querySelector("[contenteditable], textarea");
+    if(ed && !readOnly) setTimeout(()=>{ try{ ed.focus({ preventScroll:true }); }catch(e){} }, 250);
+  };
+  const heroRender = !readOnly && _stEl("button",{type:"button",
+      className:"hs-btn primary stage-hero-render"+(blocker?" blocked":"")+(gening?" working":""),
+      disabled:gening, "aria-disabled":blocker?"true":undefined,
+      title: blocker ? (blocker.text+" (click to see why)") : renderCostTitle,
+      onClick:onSeedanceGenerateClick},
+    gening ? (genBusyLabel||"Rendering…")
+      : ("Render take "+(visibleTakes.length+1)+" · "+totalCost.toLocaleString("en-US")+" credit"+(totalCost!==1?"s":"")),
+    !gening && _stEl("span",{className:"wr-arrow","aria-hidden":"true"},"→"));
+  const heroCaption = queueItem
+    ? "Scene "+_pad2(scene.no)+" · "+(sceneQueue.i+1)+" of "+sceneQueue.items.length+" · "+queueItem.label
+    : playerUrl ? [clip.label, shownTakeNo ? "Take "+shownTakeNo.replace(/^v/,"") : "", takeApproved(shownTake) ? "Approved" : ""].filter(Boolean).join(" · ") : "";
+  const heroPlayer = _stEl("div",{className:"stage-hero-media"},
+    _stEl("div",{className:"stage2-player",style:_stageAspectCss(aspect)},
+      heroUrl
+        ? _stEl("video",{ref:playerVideoRef,src:heroUrl,poster:queueItem?undefined:(shotStartFrame||undefined),controls:true,playsInline:true,
+            autoPlay:!!queueItem,
+            "aria-label":"Take of "+(clip.label||"this clip")+(queueItem ? " \u2014 scene "+_pad2(scene.no)+" playing" : ""),
+            title:"Double-click for full screen",onDoubleClick:playerFullscreen,
+            onLoadedMetadata:()=>syncPlayerClock(false),onTimeUpdate:()=>syncPlayerClock(),
+            onPlay:()=>syncPlayerClock(true),onPause:()=>syncPlayerClock(false),
+            onEnded:()=>{ syncPlayerClock(false);
+              if(sceneQueue){ const n=sceneQueue.i+1; setSceneQueue(n<sceneQueue.items.length ? { ...sceneQueue, i:n } : null); } }})
+        : _stEl("div",{className:"stage2-player-empty"},
+            _stEl("span",{className:"stage2-player-playring"+(gening?" busy":"")}, Icon.play&&_stEl(Icon.play,{s:22})),
+            _stEl("div",{className:"stage2-player-msg"}, gening ? genBusyLabel : "Not rendered yet"),
+            gening && genPct!=null && _stEl("div",{className:"stage2-player-bar",role:"progressbar",
+                "aria-valuenow":genPct,"aria-valuemin":0,"aria-valuemax":100,"aria-label":"Render progress"},
+              _stEl("div",{className:"stage2-player-bar-fill",style:{width:genPct+"%"}})),
+            _stEl("div",{className:"stage2-player-sub"}, gening ? genBusySub : "Render this clip to create the video")),
+      heroCaption && _stEl("span",{className:"stage-hero-cap","aria-hidden":"true"}, heroCaption)),
+    _stEl("div",{className:"stage2-ruler"+(heroUrl?" has-video":" empty")},
+      _stEl("div",{className:"stage2-ruler-track"},
+        _stEl("div",{className:"stage2-ruler-fill",style:{width:playerClockFill+"%"}})),
+      _stEl("span",{className:"stage2-ruler-dur"}, playerClockLabel)));
+  const hero = _stEl("header",{className:"viewnav stage-head stage-hero","aria-label":"Views"},
+    _stEl("div",{className:"wr-head-in stage-hero-in"},
+      _stEl("div",{className:"stage-hero-top"},
+        _stEl("div",{className:"wr-eyebrow"},"03 · Production · Scene "+_pad2(scene.no)),
+        tabsNav),
+      _stEl("div",{className:"stage-hero-grid"},
+        _stEl("div",{className:"stage-hero-copy"},
+          _stEl("h1",{className:"wr-title"},(scene.title||scene.loc||("Scene "+_pad2(scene.no)))+", ",_stEl("em",null,"take by take.")),
+          _stEl("p",{className:"wr-sub stage-hero-sub",title:beatName||""}, heroSub),
+          _stEl("div",{className:"stage-hero-tiles"},
+            heroTiles.map(([k,v,hot])=>_stEl("div",{key:k,className:"stage-hero-tile"+(hot?" hot":"")},
+              _stEl("span",null,k), _stEl("b",null,v)))),
+          firstLine && _stEl("blockquote",{className:"stage-hero-line"},
+            "“"+String(firstLine.dialogue).trim()+"”",
+            firstLine.speaker && firstLine.speaker.name && _stEl("cite",null,firstLine.speaker.name)),
+          _stEl("div",{className:"stage-hero-cta"},
+            heroRender,
+            _stEl("button",{type:"button",className:"hs-btn stage-hero-edit",onClick:scrollToPrompt},readOnly?"See the prompt":"Edit the prompt"))),
+        heroPlayer)));
+  // ---- the scene's clips as cards: one CURRENT/chosen take slot per beat clip (newly generated clips appear at
+  // once; Takes stays the place to compare, approve and restore versions) ----
+  const sceneSecs = sceneTakeSlots.reduce((t,slot)=>{ const m=slot.meta||{};
+    return t+(Number(slot.rendered&&m.durationSec)||Number(((slot.clip||{}).data||{}).dur)||0); },0);
+  const sceneApproved = sceneTakeSlots.filter(x=>x.approved).length;
+  const playable = sceneTakeSlots.filter(x=>x.rendered && x.url);
+  const playScene = ()=>{ if(!playable.length) return;
+    setSceneQueue({ items:playable.map(x=>({ url:x.url, label:x.beatLabel })), i:0 });
+    try{ const el=document.querySelector(".stage-hero-media"); el && el.scrollIntoView({ behavior:"smooth", block:"center" }); }catch(e){} };
+  const shotCards = _stEl("div",{className:"stage-shot-grid",title:"Scene "+_pad2(scene.no)+" · chosen take per beat"},
+    sceneTakeSlots.length ? sceneTakeSlots.map(slot=>{
+      const c=slot.clip,m=slot.meta||{},shotCount=(((c.data||{}).shots)||[]).length;
+      const active=c.id===clip.id;
+      const thumb=clipPrimaryFrame(c,imgs,visualSource);
+      const takeLabel=slot.take ? _stageTakeVno(slot.take,slot.takes,slot.takes.indexOf(slot.take)) : "";
+      const statusLabel=slot.rendered ? (slot.approved?"Approved":"Current")
+        : slot.state==="stale"?"Needs review":"Needs a take";
+      const beatName0=clipBeatName(c,beatsMap,drafts);
+      const firstShot=(((c.data||{}).shots)||[])[0]||{};
+      const size=sizeLabel(firstShot);
+      const secs=slot.rendered && m.durationSec ? m.durationSec : (c.data||{}).dur;
+      const click=()=>{ if(c.id===clip.id){ if(slot.url){ setSceneQueue(null); setActiveTakeUrl(slot.url); } }
+        else if(onSelectClip)onSelectClip(c.id); };
+      return _stEl("button",{key:c.id,type:"button",
+        className:"stage-shot-card stage2-time-card"+(slot.rendered?" rendered":" missing")+(slot.state==="stale"?" stale":"")+(slot.approved?" approved":"")+(active?" on":""),
+        "data-testid":"stage-scene-beat-take","data-scene-id":String(c.scene&&c.scene.id||""),
+        "data-clip-id":c.id,"data-beat":slot.beatNumbers.join(","),"data-state":slot.state,
+        "aria-pressed":active?"true":"false",
+        onClick:click,title:slot.beatLabel+" · "+(slot.rendered
+          ? (takeLabel+" · "+statusLabel+" · "+(_stageAgo(m.createdAt)||"rendered"))
+          : statusLabel+" — select this beat to render it")},
+        _stEl("span",{className:"stage-shot-media"},
+          slot.rendered
+            ? _stEl("video",{src:slot.url+"#t=0.1",muted:true,playsInline:true,preload:"metadata"})
+            : thumb ? _stEl("img",{src:thumb,alt:""}) : null),
+        _stEl("span",{className:"stage-shot-top"},
+          _stEl("span",{className:"stage-shot-state "+(slot.approved?"approved":slot.rendered?"ready":slot.state)},statusLabel),
+          _stEl("span",{className:"stage-shot-len"}, _fmtSecs(secs))),
+        _stEl("span",{className:"stage-shot-foot"},
+          _stEl("b",null,slot.beatLabel+(beatName0?" · "+beatName0:"")),
+          _stEl("span",null,[size, shotCount>1 ? shotCount+" shots" : ""].filter(Boolean).join(" · ") || (takeLabel ? "Take "+takeLabel.replace(/^v/,"") : "—")))); })
+      : _stEl("div",{className:"stage2-time-empty"},"This scene has no planned beat clips yet."));
+  // the scene's dialogue, room tone and how its shots are cut into clips
+  const sceneLines = (clipsInScene||[]).flatMap(c=>((c.data||{}).lineShots)||[]);
+  const sceneVoiced = sceneLines.filter(sh=>_shotAudioState(sh,auds,ctx.characters||[]).ready).length;
+  const sceneSpeakers = _uniq((clipsInScene||[]).flatMap(c=>(((c.data||{}).panelLines)||[]).filter(p=>p&&String(p.dialogue||"").trim()&&p.speaker&&p.speaker.name).map(p=>p.speaker.name)));
+  const andList = (a)=> a.length<=1 ? (a[0]||"") : a.slice(0,-1).join(", ")+" and "+a[a.length-1];
+  const dialogueText = sceneLines.length
+    ? (sceneVoiced===sceneLines.length ? sceneLines.length+" line"+(sceneLines.length!==1?"s":"")+" voiced" : sceneVoiced+" of "+sceneLines.length+" lines voiced")
+      +(sceneSpeakers.length ? " · "+andList(sceneSpeakers) : "")
+    : "No dialogue in this scene";
+  const cutText = clipScope==="shot" ? "One render per shot — each shot is its own clip"
+    : clipScope==="legacy" ? "The earlier grouping — its older takes stay reachable"
+    : "Each beat is one clip, split at shot boundaries to fit the engine";
+  const openMix = ()=>{ try{ window.dispatchEvent(new CustomEvent("turn-stage-view",{ detail:{ view:"audio" } })); }catch(e){} };
+  const shotsSection = _stEl("section",{className:"stage-shots","aria-label":"Clips in this scene"},
+    _stEl("div",{className:"stage-shots-in"},
+      _stEl("div",{className:"stage-shots-head"},
+        _stEl("h2",null,"Clips"),
+        _stEl("span",{className:"stage-shots-meta"},
+          sceneTakeSlots.length+" clip"+(sceneTakeSlots.length!==1?"s":"")+" · "+_fmtSecs(sceneSecs)
+            +" · "+readySceneTakeCount+" rendered · "+sceneApproved+" approved"),
+        _stEl("div",{className:"stage-shots-acts"},
+          _stEl("button",{type:"button",className:"hs-btn stage-play-scene",disabled:!playable.length,
+              title:playable.length ? "Play the scene's chosen takes in order, in the player above" : "No clip in this scene is rendered yet",
+              onClick:playScene}, Icon.play&&_stEl(Icon.play,{s:13}), "Play the scene"),
+          _stEl("button",{type:"button",className:"hs-btn stage-scene-arrow","aria-label":"Previous scene",title:"Previous scene",
+              disabled:!onPrevScene,onClick:()=>onPrevScene&&onPrevScene()}, Icon.chevL&&_stEl(Icon.chevL,{s:15})),
+          _stEl("button",{type:"button",className:"hs-btn stage-scene-arrow","aria-label":"Next scene",title:"Next scene",
+              disabled:!onNextScene,onClick:()=>onNextScene&&onNextScene()}, Icon.chevR&&_stEl(Icon.chevR,{s:15})))),
+      shotCards,
+      _stEl("div",{className:"stage-shots-facts"},
+        _stEl("div",{className:"stage-shots-fact"},_stEl("span",null,"Dialogue"),_stEl("b",null,dialogueText)),
+        _stEl("button",{type:"button",className:"stage-shots-fact",onClick:openMix,title:"Open the Mix"},
+          _stEl("span",null,"Room tone"),
+          _stEl("b",null, roomTone ? roomTone.name+" — under the whole scene" : "None yet — add an ambience bed in the Mix")),
+        _stEl("div",{className:"stage-shots-fact"},_stEl("span",null,"Cut"),_stEl("b",null,cutText)))));
+  const engineChip = engineSlot && typeof ReactDOM!=="undefined" && ReactDOM.createPortal(
+    _stEl("button",{type:"button",className:"tb-btn stage-engine-chip",onClick:()=>setSettingsOpen(true),
+        title:"Video engine and resolution — open the render settings"},
+      Icon.video&&_stEl(Icon.video,{s:14}), _stEl("span",null,model.label+" · "+resolution)), engineSlot);
+  return _stEl("div",{className:"stage-shoot"},
+    hero,
+    shotsSection,
+    _stEl("div",{className:"stage2-body"}, rail,
+      _stEl("div",{className:"stage2-main"},
+        _stEl("div",{className:"stage2-console stage2-console-composer"+(settingsOpen?" settings-open":"")},
+          center, settingsOpen ? settings : settingsStrip, lightbox))),
+    engineChip);
 }
 function _ctrlRow(label, control){ return _stEl("div",{className:"stage2-ctrl"},
   _stEl("span",{className:"stage2-ctrl-l"}, label), control); }
@@ -8604,21 +8723,39 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       : stageView==="audio" ? "The post mix: voiced lines over the picture, beds under, kept with the film."
       : "Scene "+_pad2(selectedScene.no)+" \u00b7 "+selectedSceneClips.length+" clip"+(selectedSceneClips.length!==1?"s":"")
         +" \u00b7 "+headDone+" of "+selectedSceneClips.length+" rendered \u00b7 "+_fmtSecs(headSceneShots.reduce((t,sh)=>t+stageShotRuntime(sh),0))+".";
+    const tabsNav = _stEl("nav",{className:"segmented stage-tabs","aria-label":"Stage views"},
+      stageTabs.map(([label,id,Ic,tip])=>{
+        const on = stageView===id;
+        // the current tab is marked for assistive tech, and keeps its own description (2026-10-09)
+        return _stEl("button",{key:id,type:"button",className:"seg"+(on?" on":""),"aria-pressed":on?"true":"false",
+          onClick:()=>setStageView(id),
+          title: tip},
+          Ic&&_stEl(Ic,{s:14}),_stEl("span",{className:"seg-lab"},label)); }));
     const stageHead = _stEl("header",{className:"viewnav stage-head","aria-label":"Views"},
       _stEl("div",{className:"wr-head-in stage-head-in"},
         _stEl("div",{className:"wr-head-copy"},
           _stEl("div",{className:"wr-eyebrow"},"03 \u00b7 Production"),
           _stEl("h1",{className:"wr-title"},headTitle[0],_stEl("em",null,headTitle[1])),
           _stEl("p",{className:"wr-sub"},headSub)),
-        _stEl("div",{className:"wr-head-side"},
-          _stEl("nav",{className:"segmented stage-tabs","aria-label":"Stage views"},
-          stageTabs.map(([label,id,Ic,tip])=>{
-            const on = stageView===id;
-            // the current tab is marked for assistive tech, and keeps its own description (2026-10-09)
-            return _stEl("button",{key:id,type:"button",className:"seg"+(on?" on":""),"aria-pressed":on?"true":"false",
-              onClick:()=>setStageView(id),
-              title: tip},
-              Ic&&_stEl(Ic,{s:14}),_stEl("span",{className:"seg-lab"},label)); })))));
+        _stEl("div",{className:"wr-head-side"}, tabsNav)));
+    // SHOOT IS A PAGE (owner 2026-10-16, "Bring back this design"): the console draws the scene's heading (with
+    // the player) and its clips above the work area, and holds the rail; the scene arrows step through scenes
+    const sceneIdx = scenesWithShots.findIndex(s=>s.id===selectedScene.id);
+    const goScene = (k)=>{ const sc = scenesWithShots[sceneIdx+k]; if(!sc) return;
+      const first = allClips.find(c=>c.scene.id===sc.id); if(first) onSelectClip(first.id); };
+    if(stageView==="stage"){
+      return _stEl("div",{className:"stage2-root stage-shoot-page",style:_stageAspectCss(aspect)},
+        // keyed by SCENE, not clip.id — clip ids change on every repack (they hash the member shots), and
+        // remounting the console wiped the recipe tab + Multi-shot row state mid-edit; the console's own
+        // member-overlap effect handles real clip moves within the scene.
+        _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeIdentity:!!identityVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
+          onSelectClip,
+          onFirstVideo:()=>setStageView("versions"),
+          pendingReuse, onReuseConsumed:()=>setPendingReuse(null),
+          rail: railOpen ? rail : railStrip, tabsNav,
+          onPrevScene: sceneIdx>0 ? ()=>goScene(-1) : null,
+          onNextScene: (sceneIdx>=0 && sceneIdx<scenesWithShots.length-1) ? ()=>goScene(1) : null }));
+    }
     // the view tabs span the FULL app width above the rail+console split — the same
     // TopBar → ViewNav → body stack every other room has.
     return _stEl("div",{className:"stage2-root",style:_stageAspectCss(aspect)},
@@ -8635,13 +8772,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
                 onOpenStage:(id)=>{ onSelectClip(id); setStageView("stage"); } })
             : stageView==="audio"
             ? _stEl(StageAudioView,{ key:"au", allClips, vids, staleVids, identityVids, noteVids, vidsLoaded, auds, characters, selId, onSelectClip })
-            // keyed by SCENE, not clip.id — clip ids change on every repack (they
-            // hash the member shots), and remounting the console wiped the recipe
-            // tab + Multi-shot row state mid-edit; the console's own member-overlap
-            // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeIdentity:!!identityVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
-                onSelectClip,
-                onFirstVideo:()=>setStageView("versions"),
-                pendingReuse, onReuseConsumed:()=>setPendingReuse(null) }))));
+            // (Shoot returns above as its own page)
+            : null)));
   }
 window.StageView = StageView;

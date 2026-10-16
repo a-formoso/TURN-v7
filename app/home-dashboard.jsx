@@ -119,15 +119,15 @@
     // paging and poster behaviour unchanged); shared films get their own section
     const mine = films.filter(p=> !p.isShared);
     const shared = films.filter(p=> !!p.isShared);
-    // Recent Projects is a PAGED window (‹ › arrows) over the owned films — FOUR
-    // film cards a page; the fifth column is always the New Project card
-    const PER = 4;
+    // Recent Projects is a PAGED window (‹ › arrows) over the owned films — THREE
+    // film cards a page; the fourth column is always the New Project card (owner 2026-10-16: bigger cards)
+    const PER = 3;
     const [start, setStart] = React.useState(0);
     const maxStart = Math.max(0, mine.length - PER);
     const from = Math.min(start, maxStart);
     const recent = mine.slice(from, from + PER);
-    // the shared strip pages too (five per page — no New card in this row)
-    const SPER = 5;
+    // the shared strip pages too (four per page, the same card size — no New card in this row)
+    const SPER = 4;
     const [sStart, setSStart] = React.useState(0);
     const sMax = Math.max(0, shared.length - SPER);
     const sFrom = Math.min(sStart, sMax);
