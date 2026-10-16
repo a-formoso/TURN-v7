@@ -90,10 +90,10 @@ await test("the audit's dead code is gone and nothing still calls it",()=>{
   assert.ok(!art.includes('"Next increment"')&&art.includes("This tab is still loading."));
 });
 
-await test("the Art Room's ⋮ menu — home of its exports — shows at every width",()=>{
+await test("the Art Room's menu — home of its exports — shows at every width (the Film ⋯ menu, every room since 2026-10-16)",()=>{
   const chrome=read("app/chrome.jsx"), css=read("app/styles.css");
-  assert.ok(chrome.includes('className:"overflow-wrap"+(room==="art"?" in-art":"")'));
-  assert.ok(css.includes(".overflow-wrap.in-art{display:block}")&&css.includes(".overflow-wrap{position:relative;display:none}"),"phone-only elsewhere, always on in the Art Room");
+  assert.ok(chrome.includes('className:"overflow-wrap film-menu"+(room==="art"?" in-art":"")'));
+  assert.ok(css.includes(".overflow-wrap.in-art{display:block}")&&css.includes(".app.hs .overflow-wrap.film-menu{display:block}"),"always on in the Art Room, and in every room with the homepage-style bar");
 });
 
 console.log(checks+" checks passed");

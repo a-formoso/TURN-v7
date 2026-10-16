@@ -44,11 +44,15 @@ function WritingDock({ task }){
   const mode = pick ? "SET" : "AUTO";
   const choose = (id)=>{ if(typeof window.setWritingModelId==="function") window.setWritingModelId(id||""); force(x=>x+1); };
   const labelOf = (id)=> ((models.find(m=>m.id===id)||{}).label)||id;
-  return React.createElement("div",{className:"write-dock nb-dock"+(open?" open":""),ref,"aria-label":"Writing engine"},
+  // in the top bar's engine slot (homepage style, 2026-10-16) the pill reads as a plain button
+  // ("Opus 5.5 · AUTO"); without the slot it floats at the right edge as before
+  const slot = (typeof window.useTopbarEngineSlot==="function") ? window.useTopbarEngineSlot() : null;
+  const dock = React.createElement("div",{className:"write-dock nb-dock"+(slot?" in-topbar":"")+(open?" open":""),ref,"aria-label":"Writing engine"},
     React.createElement("button",{className:"nb-dock-toggle","aria-expanded":open?"true":"false",
       title:"Writing engine ("+((models.find(m=>m.id===resolvedId)||{}).label||resolvedId)+") — the text model behind drafting, agents and story builds"+(pick?" (your pick this session)":" (AUTO — the per-task recommendation)")+". Click to change.",
       onClick:()=>setOpen(o=>!o)},
       React.createElement("span",{className:"nb-dock-label"},"Writing"),
+      slot && React.createElement("span",{className:"tb-engine-name"},labelOf(resolvedId)),
       React.createElement("span",{className:"nb-dock-chip model"},short),
       React.createElement("span",{className:"nb-dock-chip"},mode)),
     open && React.createElement("div",{className:"nb-dock-panel write-dock-panel"},
@@ -83,6 +87,7 @@ function WritingDock({ task }){
       pick && React.createElement("div",{className:"write-dock-note sel"},
         labelOf(pick)+" — "+(((models.find(m=>m.id===pick)||{}).note)||"")),
       React.createElement("div",{className:"write-dock-foot"},"A pick applies for THIS session; every new session starts on Auto.")));
+  return slot ? ReactDOM.createPortal(dock, slot) : dock;
 }
 window.WritingDock = WritingDock;
 

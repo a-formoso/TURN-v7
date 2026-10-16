@@ -160,8 +160,8 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "grade": "Teal & Orange",
   "density": "regular",
   "display": "Grotesk",
-  "grain": true,
-  "premium": true
+  "grain": false,
+  "premium": false
 }/*EDITMODE-END*/;
 
 /* darken/saturate an oklch color for legibility on light surfaces */
@@ -6538,8 +6538,20 @@ function App(){
   // when a scene is selected, center it horizontally in the spine/board so the user
   // sees what they just picked (e.g. clicking a scene in the left sidebar)
   React.useEffect(()=>{
-    const sel = view==="spine" ? ".canvas-scroll.spine-pan"
-              : view==="board" ? ".canvas-scroll.board-pan" : null;
+    // the spine (homepage style, 2026-10-16): its chart pans sideways inside its own panel and the
+    // tiles wrap, so bring the scene's point into the chart's view and its tile into the page's
+    if(view==="spine"){
+      const timer = setTimeout(()=>{
+        const chart = document.querySelector(".spine-chart"), hit = chart && chart.querySelector('.sp-hit[data-sel="1"]');
+        if(chart && hit){ const hr = hit.getBoundingClientRect(), kr = chart.getBoundingClientRect();
+          if(hr.left < kr.left + 4 || hr.right > kr.right - 4)
+            chart.scrollTo({ left: chart.scrollLeft + (hr.left + hr.width/2) - (kr.left + kr.width/2), behavior:"smooth" }); }
+        const tile = document.querySelector(".canvas-scroll.spine-pan .stile.sel");
+        if(tile && tile.scrollIntoView) tile.scrollIntoView({ block:"nearest", behavior:"smooth" });
+      }, 60);
+      return ()=> clearTimeout(timer);
+    }
+    const sel = view==="board" ? ".canvas-scroll.board-pan" : null;
     if(!sel) return;
     const cont = document.querySelector(sel);
     if(!cont) return;
@@ -8636,7 +8648,7 @@ function App(){
   const newStoryEpisodeFormat=newStoryFormatEntry&&newStoryFormatEntry.id
     ? String(newStoryFormatEntry.id) : (newStoryBuildsCurrentEpisode?"series":undefined);
 
-  return React.createElement("div",{className:`app vp-${vp} ${densClass} ${premiumClass}`+(roomReadOnly?" is-readonly":"")},
+  return React.createElement("div",{className:`app hs room-${room} vp-${vp} ${densClass} ${premiumClass}`+(roomReadOnly?" is-readonly":"")},
     window.ConfirmHost && React.createElement(window.ConfirmHost,null),
     /* VIEW-ONLY BANNER — say it UP FRONT. RLS rejects this user's writes, so without a
        standing notice they could work for an hour and only discover it from a failed save. */
@@ -8895,7 +8907,22 @@ function App(){
       onToggleInsp:toggleInsp}),
 
     // the room's view tabs, moved out of the top bar to a full-width bar beneath it
-    room!=="stage" && React.createElement(ViewNav,{room,view,setView,artView,setArtView,staleTabs,
+    // the Writers' Room's page heading (homepage style, 2026-10-16): eyebrow, the view's title, the
+    // film's size, the Spine / Board / Script tabs, Draft scene and Story Editors
+    room==="writers" && React.createElement(WritersHeader,{view,setView,project,scenes,runtimeTotal,
+      sub: view==="spine" ? "The emotional charge of every scene, end to end"
+        : view==="script" ? scriptSubtitle()
+        : (boardMode==="table" ? "Every scene's turn in one table — "+((((typeof fwAuditOf==="function")&&fwAuditOf().subline)||"If a scene doesn't turn, cut it"))
+          : "Every scene, grouped by act"),
+      scene: scenes.length ? sel : null, sceneDrafted: !!(sel && drafts[sel.id]), drafting: !!drafting,
+      onDraftScene: ()=>{ if(!sel) return;
+        if(drafts[sel.id]){ setView("script"); return; }
+        if(!canMutateWritersRoom()) return;
+        setView("script"); draftOne(sel); },
+      readOnly:writersRoomBlocked,
+      railOpen,inspOpen,onToggleRail:toggleRail,onToggleInsp:toggleInsp,
+      onAgents:async ()=>{ if(!canMutateWritersRoom()) return; if(await requireStory("Story Editors")) setAgentsOpen(true); }}),
+    room==="art" && React.createElement(ViewNav,{room,view,setView,artView,setArtView,staleTabs,
       attnTabs:{ characters: wardrobeAttn },tabLocks:artTabLocks,
       readOnly:roomReadOnly,
       hiddenTabs:(typeof tabHidden==="function") ? Object.fromEntries((window.ART_TABS||[]).map(t=>[t.id, tabHidden(project, t.id)])) : null,
@@ -9008,17 +9035,15 @@ function App(){
               onExpand:openRail,flagCount:scenes.filter(s=>turnInfo(s).flagged).length}))),
 
       React.createElement("div",{className:"canvas"},
-        React.createElement("div",{className:"canvas-head"},
-          React.createElement("div",{className:"canvas-head-copy"},
-            React.createElement("div",{className:"canvas-title"},
-              view==="spine"?"Value-Charge Spine":view==="script"?"Screenplay Draft":"Story Board"),
-            React.createElement("div",{className:"canvas-sub"},
-              view==="spine"?"The emotional charge of every scene, end to end":
-              view==="script"?scriptSubtitle():
-              (()=>{ const nActs = new Set(scenes.map(s=>s.act)).size;
-                const count = scenes.length+" scene"+(scenes.length!==1?"s":"")+" across "+nActs+" act"+(nActs!==1?"s":"");
-                return boardMode==="table" ? count+" \u00b7 "+(((typeof fwAuditOf==="function")&&fwAuditOf().subline)||"If a scene doesn't turn, cut it") : count; })())),
-          view==="board" && scenes.length>0 && React.createElement("div",{className:"board-mode",role:"group","aria-label":"Board layout"},
+        // the view's tools row (the title moved to the page heading, WritersHeader): the spine's Follow
+        // chips and legend, the board's Columns / Table switch with its count. The script has its own toolbar.
+        view!=="script" && scenes.length>0 && React.createElement("div",{className:"canvas-head canvas-tools"},
+          view==="spine" && characters.length>0 && React.createElement(FollowStrip,{
+            characters,scenes,beatsMap,followId:followChar,onFollow:setFollowChar}),
+          view==="board" && React.createElement("div",{className:"canvas-sub"},
+            (()=>{ const nActs = new Set(scenes.map(s=>s.act)).size;
+              return scenes.length+" scene"+(scenes.length!==1?"s":"")+" across "+nActs+" act"+(nActs!==1?"s":""); })()),
+          view==="board" && React.createElement("div",{className:"board-mode",role:"group","aria-label":"Board layout"},
             [["columns","Columns"],["table","Table"]].map(([m,lab])=>React.createElement("button",{key:m,type:"button",
               className:"board-mode-btn"+(boardMode===m?" on":""),"aria-pressed":boardMode===m,onClick:()=>setBoardMode(m),
               title:m==="table"?"Every scene's turn in one table (the former Audit)":"Scenes grouped by act"},lab))),
@@ -9029,16 +9054,14 @@ function App(){
               React.createElement(Icon.clock,{s:12}),
               "≈ "+((typeof fmtRuntime==="function") ? fmtRuntime(runtimeTotal) : Math.round(runtimeTotal/60)+" min")),
             React.createElement("div",{className:"legend-item"},
-              React.createElement("span",{className:"legend-swatch",style:{background:"var(--pos)"}}),"POS"),
+              React.createElement("span",{className:"legend-swatch",style:{background:"var(--pos)"}}),"Positive"),
             React.createElement("div",{className:"legend-item"},
-              React.createElement("span",{className:"legend-swatch",style:{background:"var(--neg)"}}),"NEG"),
+              React.createElement("span",{className:"legend-swatch",style:{background:"var(--neg)"}}),"Negative"),
             React.createElement("div",{className:"legend-item",title:"Intensifies on the same side instead of reversing"},
               React.createElement("span",{className:"legend-swatch",style:{background:"var(--prog)"}}),"Progresses"),
             React.createElement("div",{className:"legend-item"},
               React.createElement("span",{className:"legend-swatch",style:{background:"var(--alert)"}}),"No turn"))),
 
-        view==="spine" && scenes.length>0 && characters.length>0 && React.createElement(FollowStrip,{
-          characters,scenes,beatsMap,followId:followChar,onFollow:setFollowChar}),
         view==="spine" && scenes.length>0 && React.createElement(DragScroll,{className:"canvas-scroll spine-pan"},
           React.createElement(SpineCanvas,{scenes,selId,onSelect:selectSceneDetail,staleIds:new Set(Object.keys(staleMap)),
             onReorder:reorderScenes,onAddScene:addScene,runtimes:runtimeMap,readOnly:writersRoomBlocked,

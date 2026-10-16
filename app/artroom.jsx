@@ -6050,7 +6050,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement("span",{className:"char-style-lab"},React.createElement(Icon.sparkles,{s:12}),"Render style"),
         React.createElement("div",{className:"char-style-pick"},
           React.createElement(window.RenderStylePicker,{value:(typeof inferCharacterRenderStyleKey==="function"?inferCharacterRenderStyleKey(c):(c.renderStyleKey||(window.turnDefaultRenderStyleKey?window.turnDefaultRenderStyleKey():"photoreal"))),disabled:styling,onPick:pickRenderStyle}),
-          (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. Manage via Styles in the top bar."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+"/"+(window.turnGlobalStyleCap||40))),
+          (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. The admin manages them via Styles in the Film menu."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+"/"+(window.turnGlobalStyleCap||40))),
         styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing…"),
         (!styling && c.renderStyleKey==="surprise" && c.surpriseRender && c.surpriseRender.label) &&
           React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style",onClick:reSurprise},
@@ -6677,15 +6677,20 @@ function NbDock(){
     window.addEventListener("keydown", k); return ()=>window.removeEventListener("keydown", k); },[open]);
   // NOTE: the TEXT (writing) engine is shown by the separate WritingDock (rendered in
   // both rooms) — this dock is the IMAGE engine only, so the two aren't redundant.
-  return React.createElement("div",{className:"nb-dock"+(open?" open":""),ref:ref,role:"region","aria-label":"Image engine settings"},
+  // in the top bar's engine slot (homepage style, 2026-10-16) it reads as a plain button
+  // ("Nano Banana 2.1 · 16:9 · 2K"); without the slot it floats at the right edge as before
+  const slot = (typeof window.useTopbarEngineSlot==="function") ? window.useTopbarEngineSlot() : null;
+  const dock = React.createElement("div",{className:"nb-dock"+(slot?" in-topbar":"")+(open?" open":""),ref:ref,role:"region","aria-label":"Image engine settings"},
     React.createElement("button",{className:"nb-dock-toggle","aria-expanded":open?"true":"false","aria-controls":"nb-dock-panel",
       title:"Image engine — model, aspect & resolution",onClick:()=>setOpen(o=>!o)},
       React.createElement("span",{className:"nb-dock-label"},"Images"),
+      slot && React.createElement("span",{className:"tb-engine-name"},(typeof nbModelLabel==="function" && nbModelLabel(model))||short),
       React.createElement("span",{className:"nb-dock-chip model"},short),
       React.createElement("span",{className:"nb-dock-chip"},aspect),
       React.createElement("span",{className:"nb-dock-chip"},isGpt && qual ? qual : (typeof nbModelRes==="function" ? nbModelRes(model, resv) : resv))),
     open && React.createElement("div",{className:"nb-dock-panel",id:"nb-dock-panel",onClick:()=>force(x=>x+1)},
       React.createElement(NbControls,null)));
+  return slot ? ReactDOM.createPortal(dock, slot) : dock;
 }
 
 /* ONE-LINE scene-chip pager — 4 chips per page, ‹ › arrows, a "12–16 (10)" counter

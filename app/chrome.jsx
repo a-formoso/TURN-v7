@@ -86,10 +86,19 @@ function storyBriefShown(room, project){
 }
 window.storyBriefShown = storyBriefShown;
 
-/* OverflowMenu — mobile-only kebab that holds the actions whose labels don't
-   fit the narrow bar (New Story; the Story brief and Team; the export targets in
-   the Writers' Room only; the admin-only Reset). Keeps every action reachable on a phone. */
-function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artView, setArtView, artTabLocks, hiddenArtTabs }){
+/* OverflowMenu — the top bar's "Film ⋯" menu (homepage style, owner 2026-10-16): in every room and at
+   every width it holds the film's actions the bar no longer shows as buttons — New Story, the Story
+   brief, Team, the exports (the Writers' Room's screenplay formats, the Art Room's shot list /
+   stripboard / art bible), the Art Room's "Always show prompts", Appearance (light / dark / system),
+   the admin's Render styles and API keys, and the admin-only Reset. On a phone it also lists the Art
+   Room tabs. */
+const FILM_EXPORTS = [
+  ["pdf", Icon.film, "Screenplay (PDF)", "Preview, then print / save as PDF"],
+  ["fountain", Icon.script, "Screenplay (.fountain)", "Opens in Final Draft, Highland…"],
+  ["outline", Icon.layers, "Story outline (.txt)", "Premise, idea & spine"],
+  ["csv", Icon.grid, "Spine data (.csv)", "Scenes, charges, turns"],
+];
+function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artView, setArtView, artTabLocks, hiddenArtTabs, theme, onTheme, onOpenStyles, onOpenApiKeys }){
   const [open, setOpen] = React.useState(false);
   // "Always show prompts" (owner 2026-10-05) — the Art Room's personal switch (artroom.jsx keeps it)
   const readPrompts = ()=> typeof window.turnArtAlwaysPrompts==="function" && window.turnArtAlwaysPrompts();
@@ -104,13 +113,10 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
     return ()=>document.removeEventListener("mousedown", close);
   },[open]);
   const run=(kind)=>{ setOpen(false); try{ window.TURNExport[kind](project, scenes, drafts); }catch(e){ console.error(e); } };
-  const exp=[
-    ["pdf", Icon.film, "Screenplay (PDF)"],
-    ["fountain", Icon.script, "Screenplay (.fountain)"],
-    ["outline", Icon.layers, "Story outline (.txt)"],
-    ["csv", Icon.grid, "Spine data (.csv)"],
-  ];
-  const inWriters = room!=="art" && (scenes||[]).length>0;   // export: Writers'/Stage action, only once a story exists
+  // export: a Writers' Room action, only once a story exists (the Film menu shows in the Stage too since 2026-10-16)
+  const inWriters = room==="writers" && (scenes||[]).length>0;
+  const drafted = (scenes||[]).filter(s=>drafts && drafts[s.id]).length;
+  const themeNow = ["light","dark","system"].indexOf(theme)>=0 ? theme : "system";
   const artExports = room!=="art" ? [] : [
     typeof window.turnExportShotList==="function" && ["shots","Export shot list","Printable AD-style table",()=>window.turnExportShotList()],
     typeof window.turnExportBreakdown==="function" && ["strip","Export stripboard","One coloured strip per scene",()=>window.turnExportBreakdown()],
@@ -122,12 +128,10 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
   // ("unlocks after Characters (Subjects)"). A locked tab still opens — onto its lock card.
   const artTabs = (room==="art" && typeof setArtView==="function")
     ? (window.ART_TABS||[]).filter(t=>!(hiddenArtTabs&&hiddenArtTabs[t.id])) : [];
-  // 2026-09-28 (Round 1): a phone (≤700px) hides every plain top-bar button, so this menu
-  // also carries the Story brief (with its "Rebuild as a new film") and Team there. Each
-  // entry shows exactly when its top-bar button would: the brief by the same rule as the
-  // button; Team while the top bar's Team button is up for a saved film (team.jsx registers
-  // window.turnTeamMenu then). Both are phone-only entries (.ovf-phone), because the Art
-  // Room shows this menu at every width, beside the visible buttons.
+  // The Story brief (with its "Rebuild as a new film") and Team live here at every width since the
+  // homepage-style bar (2026-10-16). The brief shows by storyBriefShown; Team while team.jsx registers
+  // window.turnTeamMenu for a saved film (its own top-bar button stays mounted but hidden, so its
+  // window still opens from here).
   // TEAM IS COMING SOON (owner decision 2026-10-02): for everyone but the admin the entry
   // team.jsx registers is { soon:true, hint, notify } — shown with a "Soon" chip, disabled-
   // looking (aria-disabled), and a tap only closes the menu and shows the coming-soon notice.
@@ -135,26 +139,28 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
   const teamEntry = window.turnTeamMenu || null;
   const team = teamEntry && (typeof teamEntry.open==="function" || teamEntry.soon) ? teamEntry : null;
   const openBrief = ()=>{ setOpen(false); window.dispatchEvent(new CustomEvent("turn-open-brief")); };
-  // the ⋮ is a phone-only control in the other rooms, but in the ART ROOM it carries the
-  // exports (shot list, stripboard, art department bible), so it shows at every width there
-  // (the 2026-07-19 ruling; the stylesheet had kept it phone-only, hiding them on desktop)
-  return React.createElement("div",{className:"overflow-wrap"+(room==="art"?" in-art":""),ref:ref},
-    React.createElement("button",{className:`tb-icon ${open?"on":""}`,onClick:()=>setOpen(o=>!o),"aria-label":"More actions",title:"More"},
-      React.createElement(Icon.moreV,{s:18})),
-    open && React.createElement("div",{className:"export-menu",style:{maxWidth:"min(300px, calc(100vw - 24px))"}},
+  // "Film ⋯" shows in every room at every width (homepage style, 2026-10-16); on a phone it
+  // folds to the ⋯ alone (styles.css)
+  return React.createElement("div",{className:"overflow-wrap film-menu"+(room==="art"?" in-art":""),ref:ref},
+    React.createElement("button",{type:"button",className:`tb-btn film-menu-btn ${open?"on":""}`,onClick:()=>setOpen(o=>!o),
+        "aria-label":"Film menu — more actions","aria-haspopup":"menu","aria-expanded":open?"true":"false",
+        title:"Film — new story, brief, team, export, appearance"},
+      React.createElement("span",{className:"film-menu-lab"},"Film"),
+      React.createElement("span",{className:"film-menu-dots","aria-hidden":"true"},"⋯")),
+    open && React.createElement("div",{className:"export-menu film-menu-pop",style:{maxWidth:"min(300px, calc(100vw - 24px))"}},
       React.createElement("button",{className:"export-item",onClick:()=>{ setOpen(false); onNewStory&&onNewStory(); }},
         React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.plus,{s:16})),
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"New Story"),
           React.createElement("span",{className:"s"},"Start from an idea"))),
-      briefShown && React.createElement("button",{type:"button",className:"export-item ovf-phone",onClick:openBrief},
+      briefShown && React.createElement("button",{type:"button",className:"export-item",onClick:openBrief},
         React.createElement("span",{className:"export-item-ic"},React.createElement((Icon.book||Icon.file||Icon.layers),{s:16})),
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"Story brief"),
           React.createElement("span",{className:"s"},project.sourceBrief
             ? "What this story was built from · rebuild as a new film"
             : "The logline this story was built from"))),
-      team && team.soon && React.createElement("button",{type:"button",className:"export-item ovf-phone is-soon",
+      team && team.soon && React.createElement("button",{type:"button",className:"export-item is-soon",
           "aria-disabled":"true",title:team.hint,
           onClick:()=>{ setOpen(false); if(typeof team.notify==="function") team.notify(); }},
         React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.user,{s:16})),
@@ -162,7 +168,7 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
           React.createElement("span",{className:"t"},"Team"),
           team.hint && React.createElement("span",{className:"s"},team.hint)),
         React.createElement("span",{className:"soon-chip","aria-hidden":"true"},"Soon")),
-      team && !team.soon && React.createElement("button",{type:"button",className:"export-item ovf-phone",onClick:()=>{ setOpen(false); team.open(); }},
+      team && !team.soon && React.createElement("button",{type:"button",className:"export-item",onClick:()=>{ setOpen(false); team.open(); }},
         React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.user,{s:16})),
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"Team"),
@@ -183,12 +189,14 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
               React.createElement("span",{className:"t"},t.label),
               locked && React.createElement("span",{className:"s"},"Locked \u00b7 unlocks after "+(lock.afterLabel||lock.unlockLabel))));
         })),
-      inWriters && React.createElement("div",{className:"export-subhead"},"Export"),
-      inWriters && exp.map(([kind,Ic,title])=>
+      inWriters && React.createElement("div",{className:"export-subhead"},"Export · ",
+        React.createElement("span",{className:"film-menu-count"},drafted+" of "+scenes.length+" scenes drafted")),
+      inWriters && FILM_EXPORTS.map(([kind,Ic,title,sub])=>
         React.createElement("button",{key:kind,className:"export-item",onClick:()=>run(kind)},
           React.createElement("span",{className:"export-item-ic"},React.createElement(Ic,{s:16})),
           React.createElement("span",{className:"export-item-t"},
-            React.createElement("span",{className:"t"},title)))),
+            React.createElement("span",{className:"t"},title),
+            React.createElement("span",{className:"s"},sub)))),
       // Art Room exports live HERE, not on the Art Room screen (user ruling 2026-07-19).
       // Each registers itself while it can run: the shot list from the Shots tab, the
       // stripboard from the Breakdown tab, the art department bible from any Art Room tab.
@@ -212,6 +220,30 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
             React.createElement("span",{className:"s"},alwaysPrompts
               ? "Every card shows its generation prompt \u2014 click to fold them back into each card's \u22ef menu"
               : "Open every card's generation prompt (this device)")))),
+      // APPEARANCE — the theme switch the bar used to carry as an icon (the menu stays open: it's a setting)
+      onTheme && React.createElement(React.Fragment,null,
+        React.createElement("div",{className:"export-subhead"},"Appearance"),
+        React.createElement("div",{className:"film-theme-row",role:"group","aria-label":"Appearance"},
+          [["light","Light",Icon.sun],["dark","Dark",Icon.moon],["system","System",Icon.monitor]].map(([m,lab,Ic])=>
+            React.createElement("button",{key:m,type:"button",className:"film-theme-btn"+(themeNow===m?" on":""),
+                "aria-pressed":themeNow===m?"true":"false",title:lab+" mode",onClick:()=>onTheme(m)},
+              React.createElement(Ic,{s:14}),lab)))),
+      // ADMIN — Render styles (curates the GLOBAL style tier) and the platform's provider keys. Regular users
+      // manage their own locked styles on the Art Room cards, and never enter provider keys.
+      window.turnIsAdmin && (onOpenStyles || onOpenApiKeys) && React.createElement(React.Fragment,null,
+        React.createElement("div",{className:"export-subhead"},"Admin"),
+        onOpenStyles && React.createElement("button",{type:"button",className:"export-item",onClick:()=>{ setOpen(false); onOpenStyles(); },
+            title:"Render styles — curate the global style list (admin) and your locked styles"},
+          React.createElement("span",{className:"export-item-ic"},React.createElement((Icon.sparkles||Icon.layers),{s:16})),
+          React.createElement("span",{className:"export-item-t"},
+            React.createElement("span",{className:"t"},"Styles"),
+            React.createElement("span",{className:"s"},"Render styles for every film"))),
+        onOpenApiKeys && React.createElement("button",{type:"button",className:"export-item",onClick:()=>{ setOpen(false); onOpenApiKeys(); },
+            title:"API keys — platform provider keys (admin only)"},
+          React.createElement("span",{className:"export-item-ic"},React.createElement((Icon.key||Icon.padlock||Icon.layers),{s:16})),
+          React.createElement("span",{className:"export-item-t"},
+            React.createElement("span",{className:"t"},"API Keys"),
+            React.createElement("span",{className:"s"},"Platform provider keys")))),
       // admin-only (app.jsx passes onReset only for the admin account)
       onReset && React.createElement("div",{className:"export-foot"},
         React.createElement("button",{className:"export-item reset",
@@ -297,6 +329,58 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
         React.createElement(Icon.panelRight,{s:16}))));
 }
 window.ViewNav = ViewNav;
+
+/* WritersHeader — the Writers' Room page heading in the homepage style (owner 2026-10-16, from the
+   "Kinolot Rooms in the Homepage Style" board): the room's eyebrow, the view as a big Spectral title
+   ("The value spine." / "The story board." / "The screenplay."), what the view shows plus the film's
+   size, and on the right the Spine / Board / Script tabs over the two actions: Draft scene (the
+   selected scene — or Open script once it's drafted) and the amber Story Editors. Replaces the
+   Writers' Room's ViewNav bar; the panel toggles ride along below 1100px, as they did there. */
+const WRITERS_TITLES = { spine:["The value ","spine."], board:["The story ","board."], script:["The ","screenplay."] };
+function WritersHeader({ view, setView, project, scenes, runtimeTotal, sub, scene, sceneDrafted, drafting,
+                         onDraftScene, onAgents, readOnly, railOpen, inspOpen, onToggleRail, onToggleInsp }){
+  const h = React.createElement;
+  const tabs = [["spine","Spine"],["board","Board"],["script","Script"]];
+  const t = WRITERS_TITLES[view] || WRITERS_TITLES.spine;
+  const n = (scenes||[]).length;
+  const film = String((project && project.title) || "").trim();
+  const mins = runtimeTotal > 0 ? ("about " + ((typeof fmtRuntime==="function") ? fmtRuntime(runtimeTotal) : Math.round(runtimeTotal/60)+" min")) : "";
+  const meta = [film, n ? n+" scene"+(n!==1?"s":"") : "", mins].filter(Boolean).join(" · ");
+  const no = scene ? String(scene.no||"").padStart(2,"0") : "";
+  // the selected scene's next step: draft it (the beats are authored first when it has none), or read it
+  const showDraft = view!=="script" && !!scene && typeof onDraftScene==="function";
+  const draftLab = sceneDrafted ? "Open script" : (drafting ? "Drafting…" : "Draft scene");
+  const draftTitle = sceneDrafted ? ("Open Scene "+no+"'s screenplay in the Script view")
+    : readOnly ? "Your role can't change the story here, so scenes can't be drafted"
+    : drafting ? "A draft is being written — the Script view shows its progress"
+    : ("Draft Scene "+no+(scene && scene.title ? " — "+scene.title : "")+": writes its screenplay from the card and its beats (writing credits)");
+  return h("header",{className:"wr-head"},
+    h("div",{className:"wr-head-in"},
+      h("div",{className:"wr-head-copy"},
+        h("div",{className:"wr-eyebrow"},"01 · Development"),
+        h("h1",{className:"wr-title"},t[0],h("em",null,t[1])),
+        h("p",{className:"wr-sub"},sub ? String(sub).replace(/\.?\s*$/,".") : null,
+          meta ? h("span",{className:"wr-meta"},(sub?" ":"")+meta+".") : null)),
+      h("div",{className:"wr-head-side"},
+        h("nav",{className:"wr-tabs","aria-label":"Writers' Room views"},
+          tabs.map(([id,lab])=>h("button",{key:id,type:"button",className:"wr-tab"+(view===id?" on":""),
+            "aria-current":view===id?"page":undefined,onClick:()=>setView(id)},lab))),
+        h("div",{className:"wr-actions"},
+          // story-panel / inspector toggles: drawer and tablet widths only (hidden ≥1100px, as in ViewNav)
+          onToggleRail && h("button",{type:"button",className:`tb-icon vn-paneltoggle wr-paneltoggle ${railOpen?"on":""}`,onClick:onToggleRail,
+            "aria-pressed":railOpen?"true":"false","aria-label":"Toggle story panel",title:"Toggle story panel"},
+            h(Icon.panelLeft,{s:16})),
+          showDraft && h("button",{type:"button",className:"hs-btn wr-draft",onClick:onDraftScene,
+            disabled:!sceneDrafted && (readOnly || !!drafting),title:draftTitle},
+            h(sceneDrafted ? Icon.script : Icon.pencil,{s:15}),draftLab),
+          onAgents && h("button",{type:"button",className:"hs-btn primary wr-agents vn-cta",onClick:onAgents,disabled:readOnly,
+            title:readOnly?"Your role can't change the story here, so the Story Editors can't run":"Story Editors — AI editors that refine your story: Story Doctor, Script Supervisor, Setups & Payoffs, Final Read"},
+            h("span",{className:"vn-cta-lab"},"Story Editors"),h("span",{className:"wr-arrow","aria-hidden":"true"},"→")),
+          onToggleInsp && h("button",{type:"button",className:`tb-icon vn-paneltoggle wr-paneltoggle ${inspOpen?"on":""}`,onClick:onToggleInsp,
+            "aria-pressed":inspOpen?"true":"false","aria-label":"Toggle inspector",title:"Toggle inspector"},
+            h(Icon.panelRight,{s:16}))))));
+}
+window.WritersHeader = WritersHeader;
 
 const ROOMS = [
   { id:"writers", label:"Writers' Room", phase:"Development", icon:"script", live:true, entitlement:"writers_room" },
@@ -627,7 +711,23 @@ window.StoryBriefModal = StoryBriefModal;
    styles.css raises the bar while one is open with .topbar:has(…); this mirrors that selector as a
    class (.topbar.is-raised) for browsers without :has(). Only child-list changes inside the bar are
    watched, so toggling the class never re-triggers it. Returns the cleanup for useEffect. */
-const TOPBAR_LAYER_SEL = ".export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay";
+const TOPBAR_LAYER_SEL = ".export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay, .nb-dock-panel";
+/* the top bar's engine slot (homepage style, 2026-10-16). The Writing and Images pickers render into
+   it through a portal; without it (an older layout, a test page) they float at the right edge as before. */
+const TOPBAR_ENGINE_SLOT_ID = "tb-engines";
+function useTopbarEngineSlot(){
+  const find = ()=>{ const el = (typeof document!=="undefined") ? document.getElementById(TOPBAR_ENGINE_SLOT_ID) : null;
+    return el && el.isConnected ? el : null; };
+  const [slot, setSlot] = React.useState(find);
+  React.useEffect(()=>{
+    const sync = ()=> setSlot(find());
+    sync();
+    window.addEventListener("turn-engine-slot", sync);
+    return ()=>window.removeEventListener("turn-engine-slot", sync);
+  },[]);
+  return slot && slot.isConnected ? slot : null;
+}
+window.useTopbarEngineSlot = useTopbarEngineSlot;
 function turnWatchTopbarLayer(bar){
   if(!bar || typeof bar.querySelector!=="function" || typeof MutationObserver!=="function") return undefined;
   const sync = ()=>{
@@ -653,6 +753,9 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
   // bubble and the Writing dock (styles.css .topbar:has(…) / .topbar.is-raised)
   const barRef = React.useRef(null);
   React.useEffect(()=>turnWatchTopbarLayer(barRef.current),[]);
+  // tell the engine pickers their slot is in the page (they mount in the same commit, before it exists)
+  const engineSlotRef = React.useRef(null);
+  React.useEffect(()=>{ try{ window.dispatchEvent(new CustomEvent("turn-engine-slot")); }catch(e){} },[]);
   return React.createElement("div",{className:"topbar",ref:barRef},
     bibleOpen && onViewBible && React.createElement(FilmBibleModal,{ getBible:onViewBible, onClose:()=>setBibleOpen(false) }),
     briefOpen && React.createElement(StoryBriefModal,{ project, onClose:()=>setBriefOpen(false), onRebuild:onRebuildFromBrief }),
@@ -673,46 +776,22 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
         React.createElement(RoomSwitcher,{room,setRoom,hasStory:(scenes||[]).length>0,roomEntitlements}))),
 
     React.createElement("div",{className:"tb-right"},
-      React.createElement(ThemeToggle,{theme,onTheme}),
+      // HOMEPAGE-STYLE BAR (owner 2026-10-16): the engines this room runs on, who's here, the bell, the
+      // "Film ⋯" menu and the account. The engine pickers render INTO this slot (aiwriter.jsx WritingDock,
+      // artroom.jsx NbDock, through useTopbarEngineSlot) — the Writers' Room shows its writing engine, the
+      // Art Room its writing and image engines; the slot hides itself when no room puts one there.
+      React.createElement("div",{className:"tb-engines",id:TOPBAR_ENGINE_SLOT_ID,ref:engineSlotRef,role:"group","aria-label":"Engines"}),
       presenceSlot || null,      // who else has this film open right now
       notifySlot || null,        // the owner's bell: who joined your films (team.jsx TeamNotifications)
-      teamSlot || null,
-      // Writers' Room: review the logline + synopsis the story was built from
-      storyBriefShown(room, project) && React.createElement("button",{className:"tb-btn",onClick:()=>setBriefOpen(true),
-        title:"Story brief — the logline & synopsis this story was built from"},
-        React.createElement((Icon.book||Icon.file||Icon.layers),{s:14}),"Brief"),
-      // Styles manager: ADMIN ONLY. Its real job is curating the GLOBAL style tier
-      // (publish/hide/reorder what every user sees). Regular users manage their own
-      // locked styles where they live — on the Art Room cards (lock 🔒 / unlock chip)
-      // — so for them this button was an empty modal and top-bar clutter.
-      window.turnIsAdmin && onManageStyles && React.createElement("button",{className:"tb-btn",onClick:()=>setStylesOpen(true),
-        title:"Render styles — curate the global style list (admin) and your locked styles"},
-        React.createElement((Icon.sparkles||Icon.layers),{s:14}),"Styles"),
-      // API keys: ADMIN ONLY. Subscribers never enter provider keys — all generation
-      // runs on the platform's server-side keys through the proxy (no key in the browser).
-      window.turnIsAdmin && React.createElement("button",{className:"tb-btn",onClick:()=>setApiKeysOpen(true),
-        title:"API keys — platform provider keys (admin only)"},
-        React.createElement((Icon.key||Icon.lock||Icon.layers),{s:14}),"API Keys"),
-      React.createElement("button",{className:"tb-btn newstory",onClick:onNewStory,title:"Start a new story from an idea"},
-        React.createElement(Icon.plus,{s:14})),
-      // Export is a Writers' Room action (screenplay / story formats) — only there,
-      // and only once a story exists (nothing to export from an empty canvas).
-      room==="writers" && (scenes||[]).length>0 && React.createElement(ExportMenu,{project,scenes,drafts,onReset}),
-      // ⋯ overflow: ADMIN ONLY (user ruling 2026-07-14 — non-admins see exactly:
-      // theme · Brief · New Story · Export · account). Its only unique item is the
-      // admin Reset; New Story and the export formats already live in the visible
-      // whitelisted controls, so users lose nothing.
-      // EXCEPTION (user ruling 2026-07-19): in the ART ROOM the ⋮ shows for everyone —
-      // it carries "Export shot list" (moved off the Shots screen); admin extras stay gated.
-      // EXCEPTION (2026-09-28, Round 1): in the WRITERS' ROOM it renders for everyone too. The
-      // 07-14 ruling holds on desktop, where the stylesheet keeps the ⋯ hidden outside the Art
-      // Room; but a phone (≤700px) hides every plain top-bar button, and without the ⋯ a
-      // non-admin there had no Export, Brief / Rebuild or Team. The menu carries each of them
-      // under the same conditions as its button; Reset stays admin-only.
-      (window.turnIsAdmin || room==="art" || room==="writers") && React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room,
-        artView,setArtView,artTabLocks,hiddenArtTabs}),
-      // Story Editors live only in the Writers' Room ViewNav; the Art Room exposes
-      // its separate Run pre-production coordinator in the corresponding position.
+      // Team opens from the Film menu (window.turnTeamMenu); the button stays mounted, hidden, because
+      // its window renders beside it
+      teamSlot ? React.createElement("span",{className:"tb-team-slot"},teamSlot) : null,
+      // the Film menu: New Story, the Story brief, Team, the exports, Appearance, the admin's Styles /
+      // API keys and Reset — in every room, at every width (each entry under its own conditions)
+      React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room,
+        artView,setArtView,artTabLocks,hiddenArtTabs,theme,onTheme,
+        onOpenStyles: onManageStyles ? ()=>setStylesOpen(true) : null,
+        onOpenApiKeys: ()=>setApiKeysOpen(true)}),
       authSlot || React.createElement("div",{className:"avatar"},"MV")),
   );
 }

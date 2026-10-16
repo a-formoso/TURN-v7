@@ -136,7 +136,10 @@ await test("1 the Brief button and its ⋯ entry share one rule: Writers' Room, 
   assert.equal(s("writers", null), false);
   assert.equal(s("art", { sourceBrief:"A brief" }), false);
   assert.equal(s("stage", { sourceBrief:"A brief" }), false);
-  assert.ok(chromeSrc.includes('storyBriefShown(room, project) && React.createElement("button",{className:"tb-btn",onClick:()=>setBriefOpen(true),'), "the top-bar button uses it");
+  // homepage-style bar (2026-10-16): the brief opens from the Film menu, under the same rule
+  assert.ok(chromeSrc.includes('const briefShown = storyBriefShown(room, project);')
+    && chromeSrc.includes('briefShown && React.createElement("button",{type:"button",className:"export-item",onClick:openBrief},'), "the Film menu's entry uses it");
+  assert.ok(!chromeSrc.includes('className:"tb-btn",onClick:()=>setBriefOpen(true)'), "no separate Brief button in the bar");
 });
 
 const topBar = (room, admin, extra)=>{
@@ -144,20 +147,20 @@ const topBar = (room, admin, extra)=>{
   return cb.TopBar({ room, setRoom:noop, project:{ title:"F", sourceBrief:"B" }, scenes:scenes2, drafts:{}, onReset:admin?noop:null,
     onNewStory:noop, theme:"dark", onTheme:noop, ...(extra||{}) });
 };
-await test("1 the ⋯ menu renders for EVERY user in the Writers' Room (the stylesheet keeps it phone-only there)", ()=>{
+await test("1 the Film ⋯ menu renders for EVERY user in every room (homepage-style bar, 2026-10-16)", ()=>{
   const has = (t)=> findAll(t, n=>n.type===cb.OverflowMenu).length===1;
   assert.ok(has(topBar("writers", false)), "non-admin, Writers' Room");
   assert.ok(has(topBar("writers", true)), "admin, Writers' Room");
   assert.ok(has(topBar("art", false)), "Art Room, as before");
-  assert.ok(!has(topBar("stage", false)), "the Stage is unchanged for non-admins");
+  assert.ok(has(topBar("stage", false)), "the Stage too (New Story, Team, Appearance)");
   assert.ok(has(topBar("stage", true)), "admins keep it everywhere");
   cb.turnIsAdmin = false;
-  assert.ok(chromeSrc.includes("React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room,\n        artView,setArtView,artTabLocks,hiddenArtTabs}),"),
-    "the call test-art-tab-locks pins is unchanged");
+  assert.ok(chromeSrc.includes("React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room,\n        artView,setArtView,artTabLocks,hiddenArtTabs,theme,onTheme,"),
+    "the call test-art-tab-locks pins");
 });
 
 const TEAM_SOON = "Team sharing is coming soon: invite co-writers and art directors to work on your film.";
-await test("1 a non-admin's phone menu in the Writers' Room: New Story · Story brief · Team (Soon) · the four exports — no Reset", ()=>{
+await test("1 a non-admin's Film menu in the Writers' Room: New Story · Story brief · Team (Soon) · the four exports — no Reset", ()=>{
   // Team is coming soon (owner decision 2026-10-02): a non-admin's entry (team.jsx) is { soon, hint, notify }
   let notified = 0;
   cb.turnTeamMenu = { soon:true, hint:TEAM_SOON, notify:()=>{ notified++; } };
@@ -166,7 +169,7 @@ await test("1 a non-admin's phone menu in the Writers' Room: New Story · Story 
   assert.deepEqual(items.map(itemTitle), ["New Story","Story brief","Team","Screenplay (PDF)","Screenplay (.fountain)","Story outline (.txt)","Spine data (.csv)"]);
   assert.equal(findAll(tree, hasClass("export-foot")).length, 0, "no Reset for a non-admin");
   const brief = items[1], team = items[2];
-  assert.ok(hasClass("ovf-phone")(brief) && hasClass("ovf-phone")(team), "both are phone-only entries");
+  assert.ok(!hasClass("ovf-phone")(brief) && !hasClass("ovf-phone")(team), "both show at every width (the bar has no Brief / Team buttons now)");
   assert.equal(textOf(findAll(brief, hasClass("s"))[0]), "What this story was built from · rebuild as a new film");
   assert.equal(textOf(findAll(team, hasClass("s"))[0]), TEAM_SOON, "the entry says Team is coming soon");
   assert.ok(hasClass("is-soon")(team) && team.props["aria-disabled"]==="true" && team.props.title===TEAM_SOON, "disabled-looking, with the tooltip");
@@ -182,12 +185,12 @@ await test("1 a non-admin's phone menu in the Writers' Room: New Story · Story 
   cb.__dispatched.length = 0;
 });
 
-await test("1 the admin's phone menu keeps the working Team entry (for testing)", ()=>{
+await test("1 the admin's Film menu keeps the working Team entry (for testing)", ()=>{
   let teamOpened = 0;
   cb.turnTeamMenu = { open:()=>{ teamOpened++; }, hint:"Team collaboration" };
   const items = menuItems(openMenu({ project:{ sourceBrief:"The brief" }, scenes:scenes2, onReset:noop }));
   const team = items.find(n=>itemTitle(n)==="Team");
-  assert.ok(team && hasClass("ovf-phone")(team) && !hasClass("is-soon")(team) && team.props["aria-disabled"]===undefined);
+  assert.ok(team && !hasClass("ovf-phone")(team) && !hasClass("is-soon")(team) && team.props["aria-disabled"]===undefined);
   assert.equal(textOf(findAll(team, hasClass("s"))[0]), "Team collaboration");
   assert.equal(findAll(team, hasClass("soon-chip")).length, 0, "no Soon chip for the admin");
   team.props.onClick();
@@ -205,10 +208,10 @@ await test("1 each ⋯ entry shows only when its button would", ()=>{
   cb.turnTeamMenu = { open:noop, hint:"Show team · shared Bible and all episodes" };
   const art = menuItems(openMenu({ room:"art", project:{ sourceBrief:"B" }, scenes:scenes2, setArtView:noop }));
   assert.ok(!art.map(itemTitle).includes("Story brief"), "the brief is a Writers' Room button");
-  assert.ok(art.some(n=>itemTitle(n)==="Team" && hasClass("ovf-phone")(n)), "Team is offered in the Art Room's menu too, phone-only");
+  assert.ok(art.some(n=>itemTitle(n)==="Team" && !hasClass("ovf-phone")(n)), "Team is offered in the Art Room's menu too, at every width");
   cb.turnTeamMenu = { soon:true, hint:TEAM_SOON, notify:noop };
   const artSoon = menuItems(openMenu({ room:"art", project:{}, scenes:scenes2, setArtView:noop }));
-  assert.ok(artSoon.some(n=>itemTitle(n)==="Team" && hasClass("ovf-phone")(n) && hasClass("is-soon")(n)), "…and as Coming soon for a non-admin");
+  assert.ok(artSoon.some(n=>itemTitle(n)==="Team" && hasClass("is-soon")(n)), "…and as Coming soon for a non-admin");
   cb.turnTeamMenu = { hint:"an entry with neither open nor soon" };
   assert.ok(!menuItems(openMenu({ project:{}, scenes:scenes2 })).some(n=>itemTitle(n)==="Team"), "an entry that can do nothing isn't shown");
   const admin = openMenu({ project:{ sourceBrief:"B" }, scenes:scenes2, onReset:noop });
@@ -448,15 +451,15 @@ await test("5 below 900px only the colour key hides: the runtime (the legend's o
 
 /* ═══ 6. (review) layering and the Script header ═══════════════════════════ */
 await test("6 while a top-bar menu or window is open, the bar sits above the drawers, the MUSE bubble and the Writing dock — below dialogs", ()=>{
-  const rule = ".topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay){z-index:130}";
+  const rule = ".topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay, .nb-dock-panel){z-index:130}";
   assert.ok(cssBare.includes(rule), "the rule is live (not commented out)");
   const z = (sel)=>{ const d = declsOn(sel, ["z-index"]); assert.ok(d.length, sel); return Number(d[0].match(/z-index:(\d+)/)[1]); };
   const raised = 130;
   for(const sel of [".scrim", ".muse-dock-wrap", ".nb-dock"]) assert.ok(raised > z(sel), sel+" "+z(sel));
   assert.ok(raised < z(".appconfirm-scrim"), "a confirm opened from Team or the brief stays on top");
   assert.deepEqual(declsOn(".topbar", ["z-index"]), [".topbar{z-index:30}"], "the bar's resting layer is unchanged");
-  assert.deepEqual(declsOn(".topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay)", ["z-index"]),
-    [".topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay){z-index:130}"]);
+  assert.deepEqual(declsOn(".topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay, .nb-dock-panel)", ["z-index"]),
+    [".topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay, .nb-dock-panel){z-index:130}"]);
   // the windows those menus open are rendered inside the bar (so the rule reaches them)
   assert.ok(/React\.createElement\("div",\{className:"topbar",ref:barRef\},\s*bibleOpen[^\n]*\n\s*briefOpen && React\.createElement\(StoryBriefModal/.test(chromeSrc));
   assert.ok(teamSrc.includes('className:"bible-overlay"'));

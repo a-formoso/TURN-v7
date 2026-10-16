@@ -214,7 +214,7 @@ button,input,select,textarea{font-family:inherit}
    brief, Team, the Film bible…) is rendered inside it, and the bar's z-index:30 capped them all: on a
    phone the Scene drawer, the MUSE bubble and the Writing dock covered them. While one is open the
    bar sits above those layers; dialogs (appConfirm) and toasts stay higher still (2026-09-28). */
-.topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay){z-index:130}
+.topbar:has(.export-menu, .room-menu, .proj-menu, .acct-menu, .bible-overlay, .nb-dock-panel){z-index:130}
 /* the same raise as a class, set by chrome.jsx turnWatchTopbarLayer, for browsers without :has()
    (kept a separate rule: a browser that can't parse :has() drops the whole rule it sits in) */
 .topbar.is-raised{z-index:130}
@@ -9516,3 +9516,387 @@ body.adm-open .pricing-watch-card{display:none}
 .export-item.is-soon .t{color:var(--txt-2)}
 .export-item.is-soon .export-item-ic{color:var(--txt-3)}
 .export-item.is-soon .soon-chip{margin-left:auto;align-self:flex-start;margin-top:2px}
+
+/* ============================================================================
+   HOMEPAGE STYLE — the rooms in the homepage's language (owner 2026-10-16, from the
+   "Kinolot Rooms in the Homepage Style" board). EVERY ROOM: paper ground, the frosted
+   64px top bar (brand, film, room · engines, bell, "Film ⋯", account), white 38px
+   buttons, hairlines. THE WRITERS' ROOM: the page heading (WritersHeader), a 1280px
+   column with hairline rails, the flat bone spine chart and its scene tiles, text tabs
+   and hairline rows in the story panel and the inspector. The Art Room and the Stage
+   keep their page contents until their turn. Light = the homepage's own palette; dark
+   re-points it at the room tokens, as Home does (.hd-root).
+   ============================================================================ */
+.app.hs{
+  --hs-paper:#FCFCFB; --hs-glass:rgba(252,252,251,.86); --hs-surface:#FFFFFF;
+  --hs-bone:#F6F6F4; --hs-bone-2:#F1F1EE;
+  --hs-line:#E8E8E5; --hs-line-2:#E1E1DD; --hs-line-3:#D6D6D1;
+  --hs-ink:#0F1012; --hs-ink-2:#3C3F44; --hs-sub:#5D6066;
+  --hs-amber:#F29A43; --hs-amber-hover:#E88A33; --hs-on-amber:#2C2722;
+  --hs-amber-soft:rgba(242,154,67,.14); --hs-amber-line:rgba(242,154,67,.5);
+  --hs-amber-ink:#9E5410; --hs-amber-display:#C56C0C; --hs-blue-display:#2F7FA6;
+  --hs-rise:#F29A43; --hs-fall:#5DB0D8;
+  --hs-col:1280px;
+  background:var(--hs-paper);color:var(--hs-ink);
+}
+/* the light theme's room surfaces become the homepage's: paper panels, bone cards, hairlines, ink */
+html[data-theme="light"] .app.hs{
+  --bg-0:#FCFCFB; --bg-1:#FCFCFB; --bg-2:#F6F6F4; --bg-3:#F1F1EE; --bg-4:#FFFFFF; --bg-5:#FFFFFF;
+  --line:#E8E8E5; --line-2:#E1E1DD; --line-3:#D6D6D1;
+  --txt-0:#0F1012; --txt-1:#3C3F44; --txt-2:#5D6066; --txt-3:#5D6066;
+}
+html[data-theme="dark"] .app.hs{
+  --hs-paper:var(--bg-1); --hs-glass:rgba(14,15,18,.86); --hs-surface:var(--bg-3);
+  --hs-bone:var(--bg-2); --hs-bone-2:var(--bg-3);
+  --hs-line:rgba(255,255,255,.07); --hs-line-2:rgba(255,255,255,.12); --hs-line-3:rgba(255,255,255,.2);
+  --hs-ink:var(--txt-0); --hs-ink-2:var(--txt-1); --hs-sub:#8F8C85;
+  --hs-amber-soft:rgba(242,154,67,.12);
+  --hs-amber-ink:var(--hs-amber); --hs-amber-display:var(--hs-amber); --hs-blue-display:var(--hs-fall);
+  --bg-0:var(--bg-1);   /* one flat ground: the canvas sits on the same paper as the panels */
+}
+
+/* ---- the top bar ---- */
+.app.hs .topbar{height:64px;flex:0 0 64px;gap:14px;
+  padding:0 max(16px, calc((100% - var(--hs-col)) / 2 + 22px));
+  background:
+    linear-gradient(var(--hs-line),var(--hs-line)) left max(0px, calc((100% - var(--hs-col)) / 2)) top / 1px 100% no-repeat,
+    linear-gradient(var(--hs-line),var(--hs-line)) right max(0px, calc((100% - var(--hs-col)) / 2)) top / 1px 100% no-repeat,
+    var(--hs-glass);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--hs-line)}
+.app.hs .tb-left{gap:12px}
+.app.hs .tb-right{gap:8px}
+.app.hs .context-group{gap:8px}
+.app.hs .brand-name{font-size:22px}
+.app.hs .brand-mark{width:33px;height:18px;color:var(--hs-ink)}
+.app.hs .topbar-divider{height:24px;background:var(--hs-line-2)}
+/* white 38px buttons — the homepage's .hd-tbtn */
+.app.hs .topbar .tb-btn,
+.app.hs .topbar .proj-btn,
+.app.hs .topbar .room-btn{height:38px;border-radius:9px;border:1px solid var(--hs-line-2);background:var(--hs-surface);
+  color:var(--hs-ink);font-family:var(--f-ui);font-size:13.5px;font-weight:600;box-shadow:none}
+.app.hs .topbar .tb-btn:hover,
+.app.hs .topbar .proj-btn:hover,
+.app.hs .topbar .room-btn:hover{background:var(--hs-bone-2);border-color:var(--hs-line-3);color:var(--hs-ink)}
+.app.hs .topbar .tb-btn{padding:0 14px;gap:7px}
+.app.hs .topbar .tb-btn.on{background:var(--hs-bone-2);border-color:var(--hs-line-3)}
+.app.hs .topbar .proj-btn{padding:0 12px}
+.app.hs .topbar .proj-name{font-family:var(--f-ui);font-weight:600;font-size:13.5px}
+.app.hs .topbar .room-btn{padding:0 12px}
+.app.hs .topbar .room-btn-name{font-family:var(--f-ui);font-size:13px;font-weight:600;color:var(--hs-ink)}
+.app.hs .topbar .room-btn-phase{font-size:9px;letter-spacing:.08em;color:var(--hs-sub)}
+.app.hs .topbar .tb-icon{width:38px;height:38px;border-radius:9px;border:1px solid var(--hs-line-2);background:var(--hs-surface);color:var(--hs-ink)}
+.app.hs .topbar .tb-icon:hover{background:var(--hs-bone-2);border-color:var(--hs-line-3)}
+/* Team opens from the Film menu; its own button stays mounted (its window renders beside it) */
+.app.hs .tb-team-slot{display:contents}
+.app.hs .tb-team-slot > .tb-btn{display:none}
+/* the Film menu — in every room, at every width */
+.app.hs .overflow-wrap.film-menu{display:block}
+.app.hs .topbar .film-menu-btn{font-size:13.5px;gap:8px;padding:0 14px}
+.app.hs .film-menu-dots{font-size:16px;line-height:1;letter-spacing:.04em;color:var(--hs-ink-2)}
+.app.hs .film-menu-count{color:var(--txt-2);text-transform:none;letter-spacing:0;font-family:var(--f-ui);font-size:11px}
+.film-theme-row{display:flex;gap:4px;padding:2px 6px 6px}
+.film-theme-btn{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 8px;
+  border-radius:var(--r-m);border:1px solid var(--line-2);background:var(--bg-4);color:var(--txt-1);
+  font:500 12.5px var(--f-ui);cursor:pointer}
+.film-theme-btn:hover{border-color:var(--line-3);color:var(--txt-0)}
+.film-theme-btn.on{border-color:var(--txt-0);color:var(--txt-0);box-shadow:inset 0 0 0 1px var(--txt-0)}
+.app.hs .export-menu{background:var(--hs-surface);border-color:var(--hs-line-2);border-radius:var(--r-l)}
+
+/* the engines: the pickers render here as one bone chip ("Opus 5.5 · AUTO | Nano Banana 2.1 · 16:9 · 2K") */
+.app.hs .tb-engines{display:flex;align-items:stretch;height:38px;border:1px solid var(--hs-line);border-radius:9px;background:var(--hs-bone)}
+.app.hs .tb-engines:empty{display:none}
+.app.hs .nb-dock.in-topbar{position:relative;top:auto;right:auto;bottom:auto;left:auto;transform:none;z-index:auto;display:flex}
+.app.hs .nb-dock.in-topbar.write-dock{order:1}
+.app.hs .nb-dock.in-topbar:not(.write-dock){order:2;border-left:1px solid var(--hs-line)}
+.app.hs .nb-dock.in-topbar .nb-dock-toggle{flex-direction:row;align-items:center;gap:7px;width:auto;height:100%;padding:0 12px;
+  border:0;border-radius:0;background:transparent;box-shadow:none;transform:none;color:var(--hs-ink-2);font:500 13px var(--f-ui);cursor:pointer}
+.app.hs .nb-dock.in-topbar:first-child .nb-dock-toggle{border-radius:8px 0 0 8px}
+.app.hs .nb-dock.in-topbar:last-child .nb-dock-toggle{border-radius:0 8px 8px 0}
+.app.hs .nb-dock.in-topbar:only-child .nb-dock-toggle{border-radius:8px}
+.app.hs .nb-dock.in-topbar .nb-dock-toggle:hover,
+.app.hs .nb-dock.in-topbar.open .nb-dock-toggle{background:var(--hs-bone-2);color:var(--hs-ink);transform:none}
+.app.hs .nb-dock.in-topbar .nb-dock-label,
+.app.hs .nb-dock.in-topbar .nb-dock-chip.model{display:none}
+.app.hs .nb-dock.in-topbar .tb-engine-name{white-space:nowrap}
+.app.hs .nb-dock.in-topbar .nb-dock-chip{display:inline;padding:0;border:0;background:none;color:var(--hs-sub);
+  font:700 9px/1 var(--f-mono);letter-spacing:.08em}
+.app.hs .nb-dock.in-topbar .nb-dock-panel{position:absolute;top:calc(100% + 8px);bottom:auto;right:0;left:auto;transform:none;
+  max-height:calc(100dvh - 92px);overflow-y:auto;z-index:2}
+.app.hs .write-dock.in-topbar .nb-dock-panel{width:min(300px,calc(100vw - 24px))}
+
+/* ---- the paper ground in every room ---- */
+.app.hs .canvas,
+.app.hs .rail,
+.app.hs .inspector,
+.app.hs .strip,
+.app.hs .viewnav{background:var(--hs-paper)}
+.app.hs .viewnav{border-bottom-color:var(--hs-line)}
+/* the Art Room's tab bar keeps its tabs; its actions wear the homepage buttons */
+.app.hs .viewnav .tb-btn{height:38px;border-radius:9px;border:1px solid var(--hs-line-2);background:var(--hs-surface);color:var(--hs-ink);font-weight:600}
+.app.hs .viewnav .tb-btn:hover{background:var(--hs-bone-2);border-color:var(--hs-line-3)}
+.app.hs .viewnav .tb-btn.accent,
+.app.hs .tb-btn.accent{background:var(--hs-amber);border-color:var(--hs-amber);color:var(--hs-on-amber)}
+.app.hs .viewnav .tb-btn.accent:hover,
+.app.hs .tb-btn.accent:hover{background:var(--hs-amber-hover);border-color:var(--hs-amber-hover);filter:none}
+.app.hs .segmented{background:var(--hs-bone);border-color:var(--hs-line)}
+
+/* ---- buttons in the homepage sizes (.hd-btn) ---- */
+.hs-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:46px;padding:0 20px;border-radius:9px;
+  border:1px solid var(--hs-line-2,var(--line-2));background:var(--hs-surface,var(--bg-4));color:var(--hs-ink,var(--txt-0));
+  font:600 15px var(--f-ui);cursor:pointer;white-space:nowrap;transition:background .12s,border-color .12s}
+.hs-btn:hover{background:var(--hs-bone-2,var(--bg-3));border-color:var(--hs-line-3,var(--line-3))}
+.hs-btn.primary{background:var(--hs-amber,var(--accent));border-color:var(--hs-amber,var(--accent));color:var(--hs-on-amber,var(--ink-on-accent));padding:0 22px}
+.hs-btn.primary:hover{background:var(--hs-amber-hover,var(--accent));border-color:var(--hs-amber-hover,var(--accent))}
+.hs-btn:disabled{opacity:.5;cursor:not-allowed}
+.hs-btn:focus-visible{outline:2px solid var(--hs-ink,var(--txt-0));outline-offset:2px}
+
+/* ============================ THE WRITERS' ROOM ============================ */
+.app.hs.room-writers{--rail-w:300px;--insp-w:360px}
+/* the page heading */
+.wr-head{flex:0 0 auto;border-bottom:1px solid var(--hs-line);background:var(--hs-paper);position:relative;z-index:20}
+.wr-head-in{max-width:var(--hs-col);margin:0 auto;border-left:1px solid var(--hs-line);border-right:1px solid var(--hs-line);
+  padding:30px 40px 22px;display:flex;flex-wrap:wrap;align-items:flex-end;gap:18px 40px}
+.wr-head-copy{flex:1 1 440px;min-width:0}
+.wr-eyebrow{font:400 11px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--hs-sub)}
+.wr-title{margin:10px 0 0;font-family:var(--f-serif);font-weight:500;font-size:52px;line-height:1.02;letter-spacing:-.015em;color:var(--hs-ink)}
+.wr-title em{font-style:italic;color:var(--hs-amber-display)}
+.wr-sub{margin:12px 0 0;max-width:700px;font-size:16px;line-height:1.5;color:var(--hs-sub)}
+.wr-head-side{display:flex;flex-direction:column;align-items:flex-end;gap:14px;margin-left:auto}
+.wr-tabs{display:flex;gap:22px}
+.wr-tab{padding:8px 0;border:0;border-bottom:2px solid transparent;background:none;color:var(--hs-sub);
+  font:500 14px var(--f-ui);cursor:pointer}
+.wr-tab:hover{color:var(--hs-ink)}
+.wr-tab.on{color:var(--hs-ink);font-weight:600;border-bottom-color:var(--hs-ink)}
+.wr-tab:focus-visible{outline:2px solid var(--hs-ink);outline-offset:3px;border-radius:2px}
+.wr-actions{display:flex;align-items:center;gap:10px}
+.wr-arrow{font-weight:500}
+.app.hs .wr-paneltoggle{width:46px;height:46px;border-radius:9px;border:1px solid var(--hs-line-2);background:var(--hs-surface);color:var(--hs-ink)}
+@media (min-width:1101px){ .wr-paneltoggle{display:none} }
+/* short laptop screens: a calmer heading so the spine keeps its room */
+@media (max-height:860px) and (min-width:701px){
+  .wr-head-in{padding:20px 40px 16px}
+  .wr-title{font-size:40px}
+  .wr-sub{margin-top:8px;font-size:14.5px}
+  .wr-head-side{gap:10px}
+}
+/* the work area: the same 1280px column, hairline rails at its edges */
+.app.hs.room-writers .body{width:100%;max-width:var(--hs-col);margin:0 auto;border-left:1px solid var(--hs-line);border-right:1px solid var(--hs-line);background:var(--hs-paper)}
+.app.hs.room-writers .rail{border-right:1px solid var(--hs-line)}
+.app.hs.room-writers .inspector{border-left:1px solid var(--hs-line)}
+.app.hs.room-writers .strip{background:var(--hs-paper)}
+.app.hs.room-writers .strip.left{border-right-color:var(--hs-line)}
+.app.hs.room-writers .strip.right,.app.hs.room-writers .strip.strip-clickable{border-left-color:var(--hs-line)}
+
+/* the view's tools row (Follow + the key, or the board's layout switch) */
+.app.hs.room-writers .canvas-head.canvas-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:20px 28px 0;border:0;background:none;min-height:0}
+.app.hs.room-writers .canvas-tools .follow-strip{padding:0;flex:1 1 auto;min-width:0}
+.app.hs.room-writers .canvas-tools .canvas-sub{font-family:var(--f-ui);font-size:13px;letter-spacing:0;color:var(--hs-sub)}
+.app.hs .follow-strip .eyebrow{font-size:10px;letter-spacing:.1em;color:var(--hs-sub)}
+.app.hs .follow-chip{height:32px;padding:0 12px 0 8px;border-radius:999px;border:1px solid var(--hs-line-2);background:var(--hs-surface);color:var(--hs-ink);font-size:13px}
+.app.hs .follow-chip:hover{border-color:var(--hs-line-3);background:var(--hs-bone-2)}
+.app.hs .follow-chip.on{box-shadow:inset 0 0 0 1px currentColor}
+.app.hs .legend{gap:14px}
+.app.hs .legend-item{font-family:var(--f-ui);font-size:12px;letter-spacing:0;text-transform:none;color:var(--hs-sub);gap:6px}
+.app.hs .legend-swatch{width:9px;height:9px;border-radius:50%}
+.app.hs.room-writers .canvas-scroll{padding:16px 28px 32px}
+.app.hs.room-writers .canvas-scroll.spine-pan{cursor:auto}
+.app.hs.room-writers .scroll-fade{display:none}
+.app.hs .board-mode{background:var(--hs-bone);border-color:var(--hs-line)}
+
+/* ---- the spine chart ---- */
+.spine-hs{min-width:0;width:100%;display:flex;flex-direction:column;gap:14px}
+.spine-hs .spine-chart{position:relative;background:var(--hs-bone,var(--bg-2));border:1px solid var(--hs-line,var(--line));border-radius:var(--r-l);
+  overflow-x:auto;overflow-y:hidden;cursor:grab;scrollbar-width:thin}
+.spine-hs .spine-chart.grabbing{cursor:grabbing}
+.spine-hs .spine-chart-in{position:relative}
+.spine-hs .act-ruler{position:absolute;inset:0;height:auto;margin:0;display:block;pointer-events:none}
+.spine-hs .act-band{position:absolute;top:10px;height:22px;display:flex;align-items:center;gap:7px;padding:0 8px 0 10px;
+  background:none;border:0;border-radius:6px;pointer-events:auto;cursor:pointer;white-space:nowrap;overflow:hidden;
+  font:400 10px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hs-sub,var(--txt-2))}
+.spine-hs .act-band:hover{background:rgba(127,127,127,.08);color:var(--hs-ink,var(--txt-0))}
+.spine-hs .act-band .no{color:var(--hs-ink-2,var(--txt-1));font-weight:700}
+.spine-hs .act-band .nm{text-transform:none;letter-spacing:0;font-family:var(--f-ui);font-size:11.5px}
+.spine-hs .act-band .act-min,.spine-hs .act-band .pct{color:var(--hs-sub,var(--txt-2))}
+.spine-hs .act-band .act-fold-ic{display:inline-flex;opacity:0;transition:opacity .12s}
+.spine-hs .act-band:hover .act-fold-ic,.spine-hs .act-band:focus-visible .act-fold-ic{opacity:1}
+.spine-hs .act-band.collapsed{top:6px;bottom:6px;height:auto;padding:0;justify-content:center;align-items:center}
+.spine-hs .act-band.collapsed .no{writing-mode:vertical-rl;transform:rotate(180deg);font-weight:400;font-size:9.5px}
+.spine-hs .act-band:focus-visible{outline:2px solid var(--hs-ink,var(--txt-0));outline-offset:-2px}
+.spine-hs .graph-svg{display:block;position:relative}
+.spine-hs .sp-zero{stroke:var(--hs-line-3,var(--line-3));stroke-width:1}
+.spine-hs .sp-grid{stroke:var(--hs-line,var(--line));stroke-width:1;stroke-dasharray:2 5}
+.spine-hs .sp-act{stroke:var(--hs-line-2,var(--line-2));stroke-width:1;stroke-dasharray:3 4}
+.spine-hs .sp-fold{fill:rgba(127,127,127,.06);stroke:var(--hs-line-2,var(--line-2));stroke-dasharray:3 4;cursor:pointer}
+.spine-hs .spine-line{stroke:var(--hs-ink-2,var(--txt-1));stroke-width:1.6}
+.spine-hs .spine-node{stroke:var(--hs-bone,var(--bg-2));stroke-width:3}
+.spine-hs .spine-node.pos{fill:var(--hs-rise,var(--pos))}
+.spine-hs .spine-node.neg{fill:var(--hs-fall,var(--neg))}
+.spine-hs .spine-node.zero{fill:var(--hs-sub,var(--txt-2))}
+.spine-hs .sp-peak{fill:none;stroke-width:1;opacity:.55}
+.spine-hs .sp-peak.pos{stroke:var(--hs-rise,var(--pos))}
+.spine-hs .sp-peak.neg{stroke:var(--hs-fall,var(--neg))}
+.spine-hs .sp-peak.zero{stroke:var(--hs-sub,var(--txt-2))}
+.spine-hs .sp-sel{fill:none;stroke:var(--hs-ink,var(--txt-0));stroke-width:1.4}
+.spine-hs .sp-flag{fill:none;stroke:var(--alert);stroke-width:2}
+.spine-hs .sp-prog{fill:none;stroke:var(--prog);stroke-width:2;stroke-dasharray:2 2}
+.spine-hs .sp-kind{font:400 8.5px var(--f-mono);letter-spacing:.5px;fill:var(--hs-sub,var(--txt-3))}
+.spine-hs .sp-kind.main{text-transform:uppercase;fill:var(--hs-ink-2,var(--txt-2))}
+.spine-hs .sp-hit{fill:transparent;cursor:pointer}
+.spine-hs .sp-hit:hover{fill:rgba(127,127,127,.06)}
+
+/* ---- the scene tiles ---- */
+.spine-hs .spine-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:6px;margin:0}
+.spine-hs .stile{position:relative;display:flex;flex-direction:column;gap:4px;min-height:84px;width:auto;padding:9px 10px 8px;
+  border:0;border-radius:9px;background:var(--hs-bone,var(--bg-2));color:var(--hs-ink,var(--txt-0));cursor:pointer;
+  box-shadow:none;transition:background .12s,box-shadow .12s;user-select:none;overflow:hidden}
+.spine-hs .stile:hover{background:var(--hs-bone-2,var(--bg-3))}
+.spine-hs .stile.sel{background:var(--hs-amber-soft,var(--pos-soft));box-shadow:inset 0 0 0 1px var(--hs-amber-line,var(--pos-line))}
+.spine-hs .stile.dim{opacity:.4}
+.spine-hs .stile.dragging{opacity:.45}
+.spine-hs .stile.dragover{box-shadow:inset 3px 0 0 var(--hs-ink,var(--txt-0))}
+.spine-hs .stile:focus-visible{outline:2px solid var(--hs-ink,var(--txt-0));outline-offset:2px}
+.spine-hs .stile-top{display:flex;align-items:center;gap:6px;min-height:14px}
+.spine-hs .stile-no{font:400 10px/1 var(--f-mono);color:var(--hs-sub,var(--txt-2));letter-spacing:.02em}
+.spine-hs .stile .scard-conf{display:flex;gap:2px}
+.spine-hs .stile .conf-pip{width:4px;height:4px;border-radius:50%;background:var(--hs-line-3,var(--line-3))}
+.spine-hs .stile .conf-pip.on{background:var(--hs-ink-2,var(--txt-1))}
+.spine-hs .stile-mark{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%}
+.spine-hs .stile-mark.no{color:#fff;background:var(--alert)}
+.spine-hs .stile-mark.prog{color:var(--prog);background:var(--prog-soft)}
+.spine-hs .stile .scard-stale{display:inline-flex;color:var(--hs-amber-ink,var(--pos-ink))}
+.spine-hs .stile .scard-grip{position:static;margin-left:auto;display:inline-flex;color:var(--hs-sub,var(--txt-3));opacity:0;cursor:grab;transition:opacity .12s}
+.spine-hs .stile:hover .scard-grip,.spine-hs .stile:focus-visible .scard-grip{opacity:1}
+.spine-hs .stile-title{font:600 12.5px/1.25 var(--f-ui);color:var(--hs-ink,var(--txt-0));display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;margin:0}
+.spine-hs .stile-foot{margin-top:auto;display:flex;align-items:center;gap:6px;min-width:0}
+.spine-hs .stile-charge{display:inline-flex;align-items:center;gap:3px;font:700 10.5px/1 var(--f-mono)}
+.spine-hs .stile-charge .pos{color:var(--pos-ink)}
+.spine-hs .stile-charge .neg{color:var(--neg-ink)}
+.spine-hs .stile-charge .zero{color:var(--hs-sub,var(--txt-2))}
+.spine-hs .stile-arrow{color:var(--hs-sub,var(--txt-2));font-weight:400}
+.spine-hs .stile .scard-rt{margin-left:auto;font:400 10px/1 var(--f-mono);color:var(--hs-sub,var(--txt-2));display:inline-flex;align-items:center;gap:3px}
+.spine-hs .stile .scard-rt.hot{color:var(--hs-amber-ink,var(--pos-ink));font-weight:700}
+.spine-hs .stile-fold{display:flex;flex-direction:column;gap:4px;min-height:84px;padding:9px 10px;border-radius:9px;cursor:pointer;
+  background:none;border:1px dashed var(--hs-line-3,var(--line-3));color:var(--hs-ink,var(--txt-0))}
+.spine-hs .stile-fold:hover{background:var(--hs-bone,var(--bg-2))}
+.spine-hs .stile-fold .stile-title{font-weight:500}
+.spine-hs .stile-fold-n{margin-top:auto;font:400 10px/1 var(--f-mono);color:var(--hs-sub,var(--txt-2))}
+.spine-hs .stile-add{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:84px;height:auto;width:auto;
+  border-radius:9px;border:1px dashed var(--hs-line-3,var(--line-3));background:none;color:var(--hs-sub,var(--txt-2));font:500 12.5px var(--f-ui);cursor:pointer}
+.spine-hs .stile-add:hover:not(:disabled){color:var(--hs-ink,var(--txt-0));border-color:var(--hs-ink-2,var(--txt-1));background:var(--hs-bone,var(--bg-2))}
+.spine-hs .stile-add:disabled{opacity:.5;cursor:not-allowed}
+
+/* ---- the story panel (left) ---- */
+.app.hs.room-writers .rail-tabs,
+.app.hs.room-writers .insp-tabs{gap:18px;padding:18px 24px 0;border-bottom:0}
+.app.hs.room-writers .insp-tab{padding:6px 0;font:500 14px var(--f-ui);color:var(--hs-sub);letter-spacing:0;text-transform:none;background:none}
+.app.hs.room-writers .insp-tab:hover{color:var(--hs-ink)}
+.app.hs.room-writers .insp-tab.on{color:var(--hs-ink);font-weight:600}
+.app.hs.room-writers .insp-tab.on::after{left:0;right:0;height:2px;bottom:0;background:var(--hs-ink);border-radius:0}
+.app.hs.room-writers .panel-collapse{border-color:var(--hs-line-2);background:var(--hs-surface);color:var(--hs-sub)}
+.app.hs.room-writers .rail-scroll{padding-top:16px;padding-left:24px;padding-right:24px}
+.app.hs.room-writers .idea-card{background:none;border:0;padding:0;border-radius:0;box-shadow:none}
+.app.hs.room-writers .eyebrow{font-size:10px;letter-spacing:.1em;color:var(--hs-sub)}
+.app.hs.room-writers .idea-card .premise-edit.edit-in{font-family:var(--f-serif);font-style:italic;font-size:18px;line-height:1.45;color:var(--hs-ink);padding:3px 0}
+.app.hs.room-writers .ctrl-idea{background:none;border:0;padding:0;margin-top:18px;border-radius:0}
+.app.hs.room-writers .ctrl-idea .val{color:var(--hs-ink)}
+.app.hs.room-writers .ctrl-idea .cause{color:var(--hs-ink-2)}
+.app.hs.room-writers .rail-genre{margin-top:12px}
+.app.hs.room-writers .edit-in{padding-left:0;padding-right:0}
+.app.hs.room-writers .edit-in:hover{background:transparent;box-shadow:inset 0 -1px 0 var(--hs-line-2)}
+.app.hs.room-writers .edit-in:focus{background:var(--hs-surface);border-color:var(--hs-line-3);padding-left:6px;padding-right:6px}
+.app.hs.room-writers .rail-sec{margin:0;border-top:1px solid var(--hs-line)}
+.app.hs.room-writers .rail-sec:last-child{border-bottom:1px solid var(--hs-line)}
+.app.hs.room-writers .rail-tab-pane + .rail-sec{margin-top:22px}
+.app.hs.room-writers .rail-sec-head.clickable{padding:12px 0;border-radius:0}
+.app.hs.room-writers .rail-sec-head.clickable:hover{background:none}
+.app.hs.room-writers .rail-sec-head .eyebrow{flex:1;font:500 14px var(--f-ui);letter-spacing:0;text-transform:none;color:var(--hs-ink)}
+.app.hs.room-writers .rail-sec-head .eyebrow > svg{display:none}
+.app.hs.room-writers .rail-sec-head .rail-fold-ic{order:2;margin-left:auto;color:var(--hs-sub)}
+.app.hs.room-writers .rail-sec:not(.folded){padding-bottom:16px}
+.app.hs.room-writers .world-field,
+.app.hs.room-writers .cast-card{background:var(--hs-bone);border-color:transparent;box-shadow:none}
+.app.hs.room-writers .cast-card.sel{background:var(--hs-amber-soft);box-shadow:inset 0 0 0 1px var(--hs-amber-line)}
+
+/* ---- the inspector (right) ---- */
+.app.hs.room-writers .insp-scroll{padding-top:16px;padding-left:24px;padding-right:24px}   /* the bottom keeps the Frances clearance */
+.app.hs.room-writers .insp-eyebrow{gap:8px;margin-bottom:8px}
+.app.hs.room-writers .insp-scene-no{background:none;color:var(--hs-sub);padding:0;border-radius:0;font-weight:400;font-size:10px;letter-spacing:.1em}
+.app.hs.room-writers .insp-scene-no::before{content:"SCENE "}
+.app.hs.room-writers .insp-eyebrow .insp-select{height:24px;padding:0 6px;border-color:transparent;background:transparent;
+  font:400 10px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hs-sub)}
+.app.hs.room-writers .insp-eyebrow .insp-select:hover{border-color:var(--hs-line-2);background:var(--hs-surface)}
+.app.hs.room-writers .insp-title.edit-in{font-family:var(--f-serif);font-weight:500;font-size:30px;line-height:1.1;letter-spacing:-.01em;color:var(--hs-ink)}
+.app.hs.room-writers .loc.edit-in{font:400 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hs-sub)}
+.app.hs.room-writers .summary.edit-in{font-size:14px;line-height:1.5;color:var(--hs-ink-2)}
+.app.hs.room-writers .insp-block{margin:0;padding:16px 0;border-top:1px solid var(--hs-line)}
+.app.hs.room-writers .insp-block:first-of-type{margin-top:16px !important}
+.app.hs.room-writers .insp-block-head .eyebrow > svg{display:none}
+.app.hs.room-writers .value-axis{background:none;border:0;padding:0}
+.app.hs.room-writers .charge-grid{gap:8px}
+.app.hs.room-writers .charge-cell{background:var(--hs-bone);border:0;border-radius:9px;padding:12px 13px}
+.app.hs.room-writers .charge-arrow{color:var(--hs-sub);align-self:center}
+.app.hs.room-writers .charge-cell .lab{color:var(--hs-sub);letter-spacing:.08em;margin-bottom:4px}
+.app.hs.room-writers .charge-name.derived,
+.app.hs.room-writers .charge-name.edit-in{font:600 13.5px var(--f-ui);text-align:left;color:var(--hs-ink);margin-bottom:4px}
+.app.hs.room-writers .step-val{font-family:var(--f-serif);font-weight:500;font-size:22px;text-align:center}
+.app.hs.room-writers .step-val.pos{color:var(--hs-amber-display)}
+.app.hs.room-writers .step-val.neg{color:var(--hs-blue-display)}
+.app.hs.room-writers .step-btn{border-color:var(--hs-line-2);background:var(--hs-surface);color:var(--hs-ink-2)}
+.app.hs.room-writers .verdict{background:none;border:0;padding:0;gap:9px}
+.app.hs.room-writers .verdict-t{font:600 13.5px var(--f-ui)}
+.app.hs.room-writers .verdict.ok .verdict-icn,.app.hs.room-writers .verdict.ok .verdict-t{color:var(--hs-amber-ink)}
+.app.hs.room-writers .verdict-d{font-size:12.5px;color:var(--hs-ink-2)}
+.app.hs.room-writers .obj-row{border-bottom-color:var(--hs-line)}
+.app.hs.room-writers .obj-icn{display:none}
+.app.hs.room-writers .obj-lab{font-size:10px;letter-spacing:.08em;color:var(--hs-sub)}
+.app.hs.room-writers .insp-select{border-color:var(--hs-line-2);background:var(--hs-surface);color:var(--hs-ink)}
+.app.hs.room-writers .argues-seg{background:var(--hs-bone);border-color:var(--hs-line)}
+.app.hs.room-writers .ia-btn{height:34px;border-color:var(--hs-line-2);background:var(--hs-surface);color:var(--hs-ink);font-weight:600}
+.app.hs.room-writers .ia-btn:hover{background:var(--hs-bone-2)}
+.app.hs.room-writers .ia-btn.danger{border-color:transparent;background:none;color:var(--alert)}
+
+/* ---- the board and the script read on paper too ---- */
+.app.hs.room-writers .board-pan .scard{background:var(--hs-bone);border-color:transparent;box-shadow:none}
+.app.hs.room-writers .board-pan .scard.sel{background:var(--hs-amber-soft);box-shadow:inset 0 0 0 1px var(--hs-amber-line)}
+
+/* ---- tablet and phone ---- */
+@media (max-width:1100px){
+  .wr-head-in{padding:22px 24px 16px;border-left:0;border-right:0}
+  .wr-title{font-size:40px}
+  .app.hs.room-writers .body{border-left:0;border-right:0}
+  .app.hs .topbar{padding:0 14px;background:var(--hs-glass)}
+  .app.hs .topbar .tb-btn:not(.film-menu-btn){font-size:0;gap:0;padding:0 11px}
+}
+@media (max-width:900px){
+  .app.hs .nb-dock.in-topbar .nb-dock-chip{display:none}
+}
+@media (max-width:700px){
+  .app.hs .topbar{height:56px;flex:0 0 56px;padding:0 8px;gap:6px}
+  .app.hs .scrim{inset:56px 0 0 0}
+  .app.hs.vp-mobile .rail,.app.hs.vp-mobile .inspector{top:56px}
+  .app.hs .topbar .tb-btn.film-menu-btn{display:inline-flex;width:38px;padding:0;justify-content:center}
+  .app.hs .film-menu-lab{display:none}
+  .app.hs .tb-engines{height:34px}
+  .app.hs .nb-dock.in-topbar .nb-dock-toggle{padding:0 8px;font-size:12px}
+  .app.hs .nb-dock.in-topbar .tb-engine-name{max-width:76px;overflow:hidden;text-overflow:ellipsis}
+  .app.hs .nb-dock.in-topbar .nb-dock-panel{position:fixed;top:64px;left:8px;right:8px;width:auto;max-height:calc(100dvh - 80px)}
+  .app.hs .topbar .proj-btn,.app.hs .topbar .room-btn{height:34px}
+  .app.hs .context-group .proj-btn,.app.hs .context-group .room-btn{border:0;background:none}
+  .app.hs .context-group{background:var(--hs-surface);border-color:var(--hs-line-2)}
+  .wr-head-in{padding:16px 16px 12px;gap:12px}
+  .wr-eyebrow{font-size:10px}
+  .wr-title{font-size:30px;margin-top:6px}
+  .wr-sub{font-size:13.5px;margin-top:6px}
+  .wr-head-side{width:100%;align-items:stretch;gap:10px}
+  .wr-tabs{gap:18px}
+  .wr-actions{flex-wrap:wrap}
+  .wr-actions .hs-btn{height:42px;padding:0 14px;font-size:14px;flex:1 1 auto}
+  .app.hs .wr-paneltoggle{width:42px;height:42px}
+  .app.hs.room-writers .canvas-head.canvas-tools{padding:14px 16px 0}
+  .app.hs.room-writers .canvas-scroll{padding:12px 16px 24px}
+  .spine-hs .spine-tiles{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+}
+/* the filmstrip card's accent bar and CLIMAX tag stay with the old card: a tile names its peak in the chart */
+.spine-hs .stile::before,.spine-hs .stile::after{display:none}
+.app.hs.room-writers .insp-eyebrow .insp-select{margin-left:auto;height:26px;border:1px solid var(--hs-line-2);border-radius:999px;background:var(--hs-surface);padding:0 10px}

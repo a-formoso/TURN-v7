@@ -172,7 +172,9 @@ deploy`, or you overwrite fixes made elsewhere.
 - `app/spine.jsx` — value-charge graph + filmstrip + DragScroll pan.
 - `app/inspector.jsx` — editable scene/beats/analysis panel.
 - `app/script.jsx` — Script view, continuity checker, version history.
-- `app/chrome.jsx` — top bar + left rail. `app/app.jsx` — state + composition (scenes, beatsMap, drafts, continuityMap, agent ctx factory).
+- `app/chrome.jsx` — top bar (homepage style since 2026-10-16: engine slot `#tb-engines` that WritingDock / NbDock portal
+  into, bell, the "Film ⋯" menu = `OverflowMenu`, account) + `WritersHeader` (the Writers' Room page heading; the Art
+  Room keeps `ViewNav`) + left rail. The `.app.hs` layer at the end of styles.css carries the homepage look. `app/app.jsx` — state + composition (scenes, beatsMap, drafts, continuityMap, agent ctx factory).
 - **Cache keys (2026-10-14):** a changed app file gets a new `?v=` key in `TURN.html` (`script.jsx` shares `ai.jsx`'s).
   Tests pin keys as double-quoted lists (`["k1", …].some(k=>html.includes('…?v='+k+'"'))`), so after a bump run
   `perl -pi -e 's/"<prev>"/"<prev>", "<new>"/g' scripts/test-*.mjs` (prev = the latest key used anywhere); write new

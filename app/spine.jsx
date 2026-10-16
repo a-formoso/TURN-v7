@@ -1,6 +1,4 @@
-/* spine.jsx — value-charge graph + act ruler + scene filmstrip */
-
-const COL_W = 138, GAP = 6, GRAPH_H = 300, PAD_T = 28, PAD_B = 30;
+/* spine.jsx — value-charge chart + act labels + scene tiles */
 
 /* shared turn logic — used by canvas, inspector, Audit and the agents.
    The RULE lives in the project's narrative FRAMEWORK (app/frameworks.jsx);
@@ -244,8 +242,16 @@ function runtimeTip(r){
 }
 window.runtimeTip = runtimeTip;
 
+/* SpineCanvas — the value spine in the homepage style (owner 2026-10-16, "Kinolot Rooms in the Homepage
+   Style"): a flat bone chart that fits the canvas (a long film keeps a minimum width per scene and the
+   chart pans sideways), the act labels inside it, an ink line through amber (positive) and blue
+   (negative) closing charges — and under it the scenes as tiles in a grid: number, title, the charge
+   line, a red mark when a scene doesn't turn, the runtime. Every function of the old filmstrip stays:
+   select, drag to reorder, keyboard, fold an act (its label in the chart, or its tile), the follow
+   lens, the structural peaks, the out-of-date and long-for-this-format marks, Add scene. */
+const SPINE_MIN_COL = 34, SPINE_FOLD_W = 30, SPINE_CHART_H = 276, SPINE_PAD_X = 14, SPINE_TOP = 58, SPINE_BOT = 24;
 function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, runtimes, readOnly, staleIds }){
-  // minutes per act, for the ruler's pacing readout
+  // minutes per act, for the act labels' pacing readout
   const actMin = (act)=>{
     if(!runtimes) return null;
     const sec = scenes.filter(s=>s.act===act).reduce((a,s)=> a + ((runtimes[s.id]||{}).sec||0), 0);
@@ -253,22 +259,29 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
   };
   const [dragIdx, setDragIdx] = React.useState(null);
   const [overIdx, setOverIdx] = React.useState(null);
-  // per-act fold state (persisted) — collapse an act to a narrow band to focus the arc
+  // per-act fold state (persisted) — fold an act to a narrow band to focus the arc
   const [collapsed, setCollapsed] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem("turn_spine_collapsed")||"{}")||{}; }catch(e){ return {}; } });
   React.useEffect(()=>{ try{ localStorage.setItem("turn_spine_collapsed", JSON.stringify(collapsed)); }catch(e){} },[collapsed]);
   const toggle = (act)=> setCollapsed(c=>({...c,[act]:!c[act]}));
-  const COLLAPSED_W = 46;
+  // the chart fits the width it's given (measured), never narrower than SPINE_MIN_COL a scene
+  const [boxW, setBoxW] = React.useState(0);
+  const boxRef = React.useRef(null);
+  React.useEffect(()=>{
+    const el = boxRef.current; if(!el || typeof ResizeObserver!=="function") return undefined;
+    const ro = new ResizeObserver(()=>{ const w = Math.floor(el.clientWidth||0); setBoxW(x=> x===w ? x : w); });
+    ro.observe(el); return ()=>ro.disconnect();
+  },[]);
   const roman = (a)=> ["I","II","III","IV"][a-1] || String(a);
   // act names come from the project's narrative framework (Three-Act: Setup /
   // Complication / Resolution; Kishōtenketsu: Ki / Shō / Ten / Ketsu)
   const actName = (a)=> (typeof fwActName==="function") ? fwActName(a) : (({1:"Setup",2:"Complication",3:"Resolution"})[a] || ("Act "+a));
-  // 2026-09-28 (Round 1): the act bands and scene cards are clickable divs, so they also take
-  // keyboard focus and act on Enter / Space, and carry a spoken name (screen readers).
+  // 2026-09-28 (Round 1): the act labels and scene tiles take keyboard focus and act on Enter /
+  // Space, and carry a spoken name (screen readers).
   const keyActivate = (fn)=> (e)=>{
     if(e.target!==e.currentTarget) return;
     if(e.key==="Enter" || e.key===" "){ e.preventDefault(); fn(); }
   };
-  // a scene card's spoken name: what the card shows (the grip, dots and chips are visual only)
+  // a scene tile's spoken name: what the tile shows (the grip, pips and marks are visual only)
   const sceneCardLabel = (s, stale, rt)=> "Scene "+s.no+(s.title?": "+s.title:"")+
     ", "+chargeStr(s.openCharge)+" to "+chargeStr(s.closeCharge)+", "+turnBadgeOf(s).word+
     (stale ? ", script out of date" : "")+
@@ -277,243 +290,184 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
     "aria-label":(isCollapsed?"Expand":"Collapse")+" Act "+roman(act)+" — "+actName(act)+(figures?", "+figures:""),
     onKeyDown:keyActivate(()=>toggle(act)) });
 
-  const yFor = (charge) => {
-    // charge -3..+3 -> y within graph (PAD_T..GRAPH_H-PAD_B)
-    const top = PAD_T, bot = GRAPH_H - PAD_B;
-    const t = (3 - charge) / 6; // +3 -> 0, -3 -> 1
-    return top + t * (bot - top);
-  };
-
-  // group scenes into consecutive acts, then flatten to COLUMNS — a column is either
-  // one scene, or (for a collapsed act) a single narrow placeholder. The act ruler,
-  // graph and filmstrip all lay out from this shared column model so they stay aligned.
+  // group scenes into consecutive acts, then flatten to COLUMNS — a column is either one
+  // scene, or (for a folded act) one narrow band. The act labels, the line and the hit
+  // targets all lay out from this column model so they stay aligned.
   const actGroups = [];
   scenes.forEach((s, i) => { const last = actGroups[actGroups.length - 1];
     if (!last || last.act !== s.act) actGroups.push({ act:s.act, items:[{s,i}] }); else last.items.push({s,i}); });
   const columns = [];
   actGroups.forEach(g => { if(collapsed[g.act]) columns.push({ kind:"act", act:g.act, count:g.items.length });
     else g.items.forEach(it => columns.push({ kind:"scene", s:it.s, i:it.i })); });
-  const colW = (c)=> c.kind==="scene" ? COL_W : COLLAPSED_W;
-  const lefts = []; let _cur = 0;
-  columns.forEach((c,ci)=>{ if(ci>0) _cur += GAP; lefts[ci] = _cur; _cur += colW(c); });
-  const totalW = _cur || COL_W;
-  const centerOf = (ci)=> lefts[ci] + colW(columns[ci])/2;
+  const nScene = columns.filter(c=>c.kind==="scene").length, nFold = columns.length - nScene;
+  const room = Math.max(0, (boxW||0) - 2 - SPINE_PAD_X*2 - nFold*SPINE_FOLD_W);   // 2: the chart's border
+  const colW = nScene ? Math.max(SPINE_MIN_COL, Math.floor(room / nScene) || SPINE_MIN_COL) : SPINE_MIN_COL;
+  const wOf = (c)=> c.kind==="scene" ? colW : SPINE_FOLD_W;
+  const lefts = []; let _cur = SPINE_PAD_X;
+  columns.forEach((c,ci)=>{ lefts[ci] = _cur; _cur += wOf(c); });
+  const totalW = Math.max(_cur + SPINE_PAD_X, (boxW||0) - 2);
+  const centerOf = (ci)=> lefts[ci] + wOf(columns[ci])/2;
+  const H = SPINE_CHART_H;
+  const yFor = (charge)=> SPINE_TOP + ((3 - charge) / 6) * (H - SPINE_BOT - SPINE_TOP);   // +3 → top, −3 → bottom
 
-  // one ruler entry per act, with its x-extent across the columns
+  // one label per act, with its x-extent across the columns
   const ruler = [];
   columns.forEach((c,ci)=>{ const act = c.kind==="act" ? c.act : c.s.act; const last = ruler[ruler.length-1];
     if(!last || last.act!==act) ruler.push({ act, firstCi:ci, lastCi:ci, collapsed:c.kind==="act", count:c.kind==="act"?c.count:1 });
     else { last.lastCi = ci; last.count += 1; } });
-  const bandW = (r)=> (lefts[r.lastCi] + colW(columns[r.lastCi])) - lefts[r.firstCi];
+  const bandL = (r)=> lefts[r.firstCi], bandW = (r)=> (lefts[r.lastCi] + wOf(columns[r.lastCi])) - lefts[r.firstCi];
 
-  // build spine path from the VISIBLE scene points (collapsed acts are skipped)
+  // the line through the VISIBLE scenes (folded acts are skipped)
   const pts = [];
   columns.forEach((c,ci)=>{ if(c.kind==="scene") pts.push({ x:centerOf(ci), y:yFor(c.s.closeCharge), s:c.s, i:c.i, ci }); });
-  const lastPt = pts[pts.length-1];
-  const linePath = pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
-  // smooth catmull-rom variant (premium look) — gentle curve through the same points
-  const smoothPath = smoothD(pts);
   // follow lens — the followed character's own arc through the scenes they DRIVE
   const fpts = follow ? pts.filter(p => follow.drivenIds.has(p.s.id)) : [];
   const fInvolved = (s)=> !follow || follow.involvedIds.has(s.id);
+  const chargeCls = (v)=> v>0 ? "pos" : v<0 ? "neg" : "zero";
+  // the framework's structural peaks get the big marker (every framework, not just three-act)
+  const _peaks = (typeof frameworkOf==="function" && frameworkOf(window.turnProject).peakKinds) || ["incite","story-climax","act-climax","midpoint","crisis"];
+  const roomy = colW >= 70;   // secondary plot labels only when the columns have room for them
 
-  return React.createElement("div",{className:"spine-wrap",style:{width:totalW}},
-    // ---- act ruler ----
-    React.createElement("div",{className:"act-ruler"},
-      ruler.map(r => {
-        if(r.collapsed) return React.createElement("div",{key:r.act,className:"act-band collapsed",
-          style:{width:COLLAPSED_W,cursor:"pointer",justifyContent:"center",gap:4,padding:0},
-          onClick:()=>toggle(r.act),title:`Expand Act ${roman(r.act)}`,
-          ...actBandA11y(r.act, true, r.count+" scene"+(r.count!==1?"s":""))},
-          React.createElement(Icon.chevR,{s:12}),
-          React.createElement("span",{className:"no"},roman(r.act)));
-        const pct = Math.round((r.count / scenes.length) * 100);
-        const mins = actMin(r.act);
-        return React.createElement("div",{key:r.act,className:"act-band",style:{width:bandW(r),cursor:"pointer"},
-          onClick:()=>toggle(r.act),title:`Collapse Act ${roman(r.act)}`,
-          ...actBandA11y(r.act, false, (mins!=null ? "about "+mins+", " : "")+pct+"% of the scenes")},
-          React.createElement("span",{className:"act-fold-ic"},React.createElement(Icon.chevD,{s:11})),
-          React.createElement("span",{className:"no"},`ACT ${roman(r.act)}`),
-          React.createElement("span",{className:"nm"},actName(r.act)),
-          mins!=null && React.createElement("span",{className:"act-min",
-            title:`Act ${roman(r.act)} estimated screen time (≈1 page/min)`},`≈${mins}`),
-          React.createElement("span",{className:"pct"},`${pct}%`));
-      })),
+  return React.createElement("div",{className:"spine-wrap spine-hs",ref:boxRef},
+    // ---- the chart (grab to pan a long film sideways) ----
+    React.createElement(DragScroll,{className:"spine-chart"},
+      React.createElement("div",{className:"spine-chart-in",style:{width:totalW,height:H}},
+        // act labels — click (or Enter / Space) to fold or unfold the act
+        React.createElement("div",{className:"act-ruler"},
+          ruler.map(r => {
+            if(r.collapsed) return React.createElement("div",{key:r.act,className:"act-band collapsed",
+              style:{left:bandL(r),width:SPINE_FOLD_W,height:H},
+              onClick:()=>toggle(r.act),title:`Expand Act ${roman(r.act)}`,
+              ...actBandA11y(r.act, true, r.count+" scene"+(r.count!==1?"s":""))},
+              React.createElement("span",{className:"no"},`ACT ${roman(r.act)} · ${r.count}`));
+            const pct = Math.round((r.count / scenes.length) * 100);
+            const mins = actMin(r.act);
+            return React.createElement("div",{key:r.act,className:"act-band",style:{left:bandL(r),width:bandW(r)},
+              onClick:()=>toggle(r.act),title:`Fold Act ${roman(r.act)}`,
+              ...actBandA11y(r.act, false, (mins!=null ? "about "+mins+", " : "")+pct+"% of the scenes")},
+              React.createElement("span",{className:"no"},`ACT ${roman(r.act)}`),
+              React.createElement("span",{className:"nm"},actName(r.act)),
+              mins!=null && React.createElement("span",{className:"act-min",
+                title:`Act ${roman(r.act)} estimated screen time (≈1 page/min)`},`≈${mins}`),
+              React.createElement("span",{className:"pct"},`${pct}%`),
+              React.createElement("span",{className:"act-fold-ic","aria-hidden":"true"},React.createElement(Icon.chevL,{s:11})));
+          })),
+        React.createElement("svg",{className:"graph-svg",width:totalW,height:H,viewBox:`0 0 ${totalW} ${H}`,role:"img",
+          // a summary for screen readers: how each scene's value charge moves (2026-10-09)
+          "aria-label":"Value-charge graph: "+(scenes||[]).slice(0,40).map(sc=>"Scene "+sc.no+((sc.openCharge!=null&&sc.closeCharge!=null)?(" "+chargeStr(sc.openCharge)+" to "+chargeStr(sc.closeCharge)):"")).join(", ")},
+          // the zero line, and faint lines at ±3
+          React.createElement("line",{className:"sp-zero",x1:SPINE_PAD_X/2,y1:yFor(0),x2:totalW-SPINE_PAD_X/2,y2:yFor(0)}),
+          [3,-3].map(g=>React.createElement("line",{key:"g"+g,className:"sp-grid",x1:SPINE_PAD_X/2,y1:yFor(g),x2:totalW-SPINE_PAD_X/2,y2:yFor(g)})),
+          // act dividers (before each act except the first)
+          ruler.slice(1).map(r => React.createElement("line",{key:"ad"+r.act,className:"sp-act",
+            x1:bandL(r),y1:6,x2:bandL(r),y2:H-4})),
+          // folded acts — a quiet band, click to unfold
+          ruler.filter(r=>r.collapsed).map(r => React.createElement("rect",{key:"cb"+r.act,className:"sp-fold",
+            x:bandL(r)+3,y:6,width:SPINE_FOLD_W-6,height:H-12,rx:6,onClick:()=>toggle(r.act)})),
+          // the spine line (recedes while following, so the character's arc reads on top)
+          pts.length>=2 && React.createElement("path",{className:"spine-line",d:smoothD(pts),fill:"none",
+            strokeLinejoin:"round",strokeLinecap:"round",pointerEvents:"none",opacity:follow?.3:1}),
+          // follow overlay — the character's own arc through their driven scenes
+          follow && fpts.length>=2 && React.createElement("path",{d:smoothD(fpts),fill:"none",
+            stroke:follow.color,strokeWidth:2.4,strokeLinejoin:"round",strokeLinecap:"round",pointerEvents:"none",opacity:.95}),
+          // markers (decorative — clicks land on the hit columns below)
+          pts.map(p => {
+            const { flagged, progression } = turnInfo(p.s);
+            const sel = p.s.id === selId;
+            const big = _peaks.includes(p.s.kind);
+            const r0 = big ? 6 : 4.5;
+            const fDrives = follow && follow.drivenIds.has(p.s.id);
+            const fTurn = follow && follow.turnIds.has(p.s.id);
+            return React.createElement("g",{key:"m"+p.i,pointerEvents:"none",opacity:fInvolved(p.s)?1:.22},
+              sel && React.createElement("circle",{className:"sp-sel",cx:p.x,cy:p.y,r:big?13:11}),
+              // follow lens: solid ring = they drive this scene; dashed ring = their arc turns here
+              fDrives && React.createElement("circle",{cx:p.x,cy:p.y,r:big?10.5:8.5,fill:"none",
+                stroke:follow.color,strokeWidth:1.5,opacity:.9}),
+              fTurn && React.createElement("circle",{cx:p.x,cy:p.y,r:big?15:13,fill:"none",
+                stroke:follow.color,strokeWidth:1.5,strokeDasharray:"3 3",opacity:.75}),
+              big && React.createElement("circle",{className:"sp-peak "+chargeCls(p.s.closeCharge),cx:p.x,cy:p.y,r:9.5}),
+              React.createElement("circle",{className:"spine-node "+chargeCls(p.s.closeCharge),cx:p.x,cy:p.y,r:r0}),
+              flagged && React.createElement("circle",{className:"sp-flag",cx:p.x,cy:p.y,r:r0+1.5}),
+              // progression: intensified on the same side instead of reversing
+              progression && React.createElement("circle",{className:"sp-prog",cx:p.x,cy:p.y,r:r0+1.5}));
+          }),
+          // the structural peaks' names (caps) + secondary plot labels (when the columns have room)
+          pts.map(p => {
+            const main = KIND_LABEL[p.s.kind];
+            const label = main || (roomy ? p.s.plot : "");
+            if(!label) return null;
+            const above = p.s.closeCharge >= 0;
+            return React.createElement("text",{key:"t"+p.i,className:"sp-kind"+(main?" main":""),x:p.x,
+              y: above ? p.y-17 : p.y+24, textAnchor:"middle",pointerEvents:"none"},label);
+          }),
+          // hit columns — full-height transparent click targets, one per visible scene
+          pts.map(p => React.createElement("rect",{key:"hit"+p.i,className:"sp-hit",
+            x:lefts[p.ci], y:0, width:colW, height:H, "data-sel":p.s.id===selId?"1":undefined, onClick:()=>onSelect(p.s.id)},
+            React.createElement("title",null,"Scene "+String(p.s.no).padStart(2,"0")+(p.s.title?" · "+p.s.title:"")))))),
+    ),
 
-    // ---- graph ----
-    React.createElement("div",{className:"graph-box",style:{width:totalW}},
-      // Story Contract: the outer plot names the external value this axis tracks
-      // every scene turns its OWN value at stake (Scene panel), so the axis is the charge
-      // itself — it used to borrow the Story Contract's outer value (Love / Hate) for all
-      React.createElement("div",{className:"graph-ylabel top"},"Positive +"),
-      React.createElement("div",{className:"graph-ylabel bot"},"Negative \u2212"),
-      React.createElement("svg",{className:"graph-svg",width:totalW,height:GRAPH_H,
-        viewBox:`0 0 ${totalW} ${GRAPH_H}`,role:"img",
-        // a summary for screen readers: how each scene's value charge moves (2026-10-09)
-        "aria-label":"Value-charge graph: "+(scenes||[]).slice(0,40).map(sc=>"Scene "+sc.no+((sc.openCharge!=null&&sc.closeCharge!=null)?(" "+chargeStr(sc.openCharge)+" to "+chargeStr(sc.closeCharge)):"")).join(", ")},
-        React.createElement("defs",null,
-          React.createElement("filter",{id:"spineGlow",x:"-20%",y:"-60%",width:"140%",height:"220%"},
-            React.createElement("feGaussianBlur",{stdDeviation:"3.2",result:"b"}),
-            React.createElement("feMerge",null,
-              React.createElement("feMergeNode",{in:"b"}),
-              React.createElement("feMergeNode",{in:"SourceGraphic"}))),
-          React.createElement("linearGradient",{id:"spineStroke",x1:"0",y1:"0",x2:"0",y2:"1"},
-            React.createElement("stop",{offset:"0%",stopColor:"oklch(0.78 0.15 62)"}),
-            React.createElement("stop",{offset:"50%",stopColor:"#8d8a84"}),
-            React.createElement("stop",{offset:"100%",stopColor:"oklch(0.72 0.10 232)"})),
-          React.createElement("linearGradient",{id:"areaFill",x1:"0",y1:"0",x2:"0",y2:"1"},
-            React.createElement("stop",{offset:"0%",stopColor:"oklch(0.78 0.15 62 / .22)"}),
-            React.createElement("stop",{offset:"50%",stopColor:"transparent"}),
-            React.createElement("stop",{offset:"100%",stopColor:"oklch(0.72 0.10 232 / .22)"}))),
-        // gridlines
-        [3,2,1,0,-1,-2,-3].map(g => {
-          const y = yFor(g), zero = g===0;
-          return React.createElement("line",{key:"g"+g,x1:0,y1:y,x2:totalW,y2:y,
-            stroke: zero ? "rgba(255,255,255,.22)" : "rgba(255,255,255,.05)",
-            strokeWidth: zero ? 1 : 1, strokeDasharray: zero ? "none" : "2 6"});
-        }),
-        // act dividers (before each act except the first)
-        ruler.slice(1).map(r => {
-          const x = lefts[r.firstCi] - GAP/2;
-          return React.createElement("line",{key:"ad"+r.act,x1:x,y1:0,x2:x,y2:GRAPH_H,
-            stroke:"rgba(255,255,255,.1)",strokeWidth:1,strokeDasharray:"3 4"});
-        }),
-        // collapsed-act bands — a subtle dashed region, click to expand
-        ruler.filter(r=>r.collapsed).map(r => {
-          const x = lefts[r.firstCi], w = COLLAPSED_W, cx = x + w/2, cy = GRAPH_H/2;
-          return React.createElement("g",{key:"cb"+r.act,style:{cursor:"pointer"},onClick:()=>toggle(r.act)},
-            React.createElement("rect",{x,y:0,width:w,height:GRAPH_H,fill:"rgba(255,255,255,.03)",
-              stroke:"rgba(255,255,255,.08)",strokeWidth:1,strokeDasharray:"3 4"}),
-            React.createElement("text",{x:cx,y:cy,textAnchor:"middle",fontFamily:"var(--f-mono)",fontSize:9,
-              fill:"var(--txt-3)",transform:`rotate(-90 ${cx} ${cy})`},`ACT ${roman(r.act)} · ${r.count}`));
-        }),
-        // area under spine to zero line
-        pts.length>=2 && React.createElement("path",{
-          d:`${linePath} L${lastPt.x} ${yFor(0)} L${pts[0].x} ${yFor(0)} Z`,
-          fill:"url(#areaFill)",stroke:"none",pointerEvents:"none",opacity:follow?.25:1}),
-        // spine line (recedes while following, so the character's arc reads on top)
-        pts.length>=2 && React.createElement("path",{className:"spine-line",d:smoothPath,fill:"none",stroke:"url(#spineStroke)",
-          strokeWidth:2.5,strokeLinejoin:"round",strokeLinecap:"round",pointerEvents:"none",opacity:follow?.3:1}),
-        // follow overlay — the character's own arc through their driven scenes
-        follow && fpts.length>=2 && React.createElement("path",{d:smoothD(fpts),fill:"none",
-          stroke:follow.color,strokeWidth:2.5,strokeLinejoin:"round",strokeLinecap:"round",
-          pointerEvents:"none",filter:"url(#spineGlow)",opacity:.95}),
-        // vertical connector from zero to each point (subtle)
-        pts.map(p => React.createElement("line",{key:"v"+p.i,x1:p.x,y1:yFor(0),x2:p.x,y2:p.y,
-          stroke: p.s.closeCharge>0?"var(--pos-line)":p.s.closeCharge<0?"var(--neg-line)":"rgba(255,255,255,.15)",
-          strokeWidth:1,opacity:fInvolved(p.s)?.35:.08,pointerEvents:"none"})),
-        // markers (decorative — clicks handled by the hit columns below)
-        pts.map(p => {
-          const { flagged, progression } = turnInfo(p.s);
-          const sel = p.s.id === selId;
-          const col = p.s.closeCharge>0?"oklch(0.78 0.15 62)":p.s.closeCharge<0?"oklch(0.72 0.10 232)":"#8d8a84";
-          // the framework's structural peaks get the big marker (every framework, not just three-act)
-          const _peaks = (typeof frameworkOf==="function" && frameworkOf(window.turnProject).peakKinds) || ["incite","story-climax","act-climax","midpoint","crisis"];
-          const big = _peaks.includes(p.s.kind);
-          const fDrives = follow && follow.drivenIds.has(p.s.id);
-          const fTurn = follow && follow.turnIds.has(p.s.id);
-          return React.createElement("g",{key:"m"+p.i,pointerEvents:"none",opacity:fInvolved(p.s)?1:.22},
-            sel && React.createElement("circle",{cx:p.x,cy:p.y,r:11,fill:"none",
-              stroke:col,strokeWidth:1.5,opacity:.6}),
-            // follow lens: solid ring = they drive this scene; dashed ring = their arc turns here
-            fDrives && React.createElement("circle",{cx:p.x,cy:p.y,r:big?10.5:8.5,fill:"none",
-              stroke:follow.color,strokeWidth:1.5,opacity:.9}),
-            fTurn && React.createElement("circle",{cx:p.x,cy:p.y,r:big?14.5:12.5,fill:"none",
-              stroke:follow.color,strokeWidth:1.5,strokeDasharray:"3 3",opacity:.75}),
-            React.createElement("circle",{className:"spine-node",cx:p.x,cy:p.y,r:big?6:4.5,fill:col,
-              stroke:"var(--bg-0)",strokeWidth:2}),
-            flagged && React.createElement("circle",{cx:p.x,cy:p.y,r:big?6:4.5,fill:"none",
-              stroke:"var(--alert)",strokeWidth:2}),
-            // progression: intensified on the same side instead of reversing
-            progression && React.createElement("circle",{cx:p.x,cy:p.y,r:big?6:4.5,fill:"none",
-              stroke:"var(--prog)",strokeWidth:2,strokeDasharray:"2 2"}),
-            big && React.createElement("circle",{cx:p.x,cy:p.y,r:9.5,fill:"none",stroke:col,
-              strokeWidth:1,opacity:.4}));
-        }),
-        // kind labels above big beats (CAPS) + secondary plot labels (Title Case)
-        pts.map(p => {
-          const main = KIND_LABEL[p.s.kind];
-          const label = main || p.s.plot;
-          if(!label) return null;
-          const above = p.s.closeCharge >= 0;
-          return React.createElement("text",{key:"t"+p.i,x:p.x,
-            y: above ? p.y-16 : p.y+22, textAnchor:"middle",
-            fontFamily:"var(--f-mono)",fontSize:8.5,letterSpacing:"0.5",
-            fill: main ? "var(--txt-2)" : "var(--txt-3)",pointerEvents:"none",
-            style: main ? {textTransform:"uppercase"} : null},
-            label);
-        }),
-        // hit columns — full-height transparent click targets, one per visible scene
-        pts.map(p => {
-          const colLeft = lefts[p.ci] - GAP/2;
-          return React.createElement("rect",{key:"hit"+p.i,
-            x:colLeft, y:0, width:COL_W+GAP, height:GRAPH_H,
-            fill:"transparent", style:{cursor:"pointer"},
-            onClick:()=>onSelect(p.s.id)});
-        }))),
-
-    // ---- filmstrip ----
-    React.createElement("div",{className:"filmstrip"},
-      columns.map((c) => {
-        // collapsed act → a slim, clickable strip (mirrors the act ruler / graph band)
-        if(c.kind==="act") return React.createElement("div",{key:"acol"+c.act,className:"spine-act-strip",
-          onClick:()=>toggle(c.act),title:`Expand Act ${roman(c.act)}`,role:"button",tabIndex:0,"aria-label":`Expand Act ${roman(c.act)}`,
-          onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); toggle(c.act); } },
-          style:{flex:`0 0 ${COLLAPSED_W}px`,width:COLLAPSED_W,cursor:"pointer",display:"flex",
-            flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,padding:"10px 0",
-            border:"1px solid var(--line)",borderTop:0,borderRadius:"0 0 8px 8px",background:"var(--bg-2)"}},
-          React.createElement(Icon.chevR,{s:14}),
-          React.createElement("span",{className:"tree-act-no"},roman(c.act)),
-          React.createElement("span",{style:{writingMode:"vertical-rl",fontFamily:"var(--f-display)",fontSize:12,fontWeight:500,color:"var(--txt-2)"}},actName(c.act)),
-          React.createElement("span",{style:{fontFamily:"var(--f-mono)",fontSize:10,color:"var(--txt-3)"}},c.count));
-        const s = c.s, ci = c.i;
-        const ti = turnInfo(s), { flagged } = ti;
-        const sel = s.id === selId;
-        const fDrives = follow && follow.drivenIds.has(s.id);
-        return React.createElement("div",{key:s.id,
-          draggable:!readOnly,
-          onDragStart:(e)=>{ if(readOnly){ e.preventDefault(); return; } setDragIdx(ci); e.dataTransfer.effectAllowed="move"; },
-          onDragOver:(e)=>{ if(readOnly) return; e.preventDefault(); if(overIdx!==ci) setOverIdx(ci); },
-          onDragEnd:()=>{ setDragIdx(null); setOverIdx(null); },
-          onDrop:(e)=>{ if(readOnly) return; e.preventDefault(); if(dragIdx!=null && dragIdx!==ci) onReorder(dragIdx, ci); setDragIdx(null); setOverIdx(null); },
-          className:`scard ${sel?"sel":""} ${s.kind==="incite"?"incite":""} `+
-                    `${["story-climax","act-climax","midpoint"].includes(s.kind)?"climax":""} `+
-                    `${dragIdx===ci?"dragging":""} ${overIdx===ci&&dragIdx!=null&&dragIdx!==ci?"dragover":""} `+
-                    `${follow && !fInvolved(s) ? "dim":""}`,
-          style:{width:COL_W, ...(fDrives ? {boxShadow:`inset 0 2px 0 ${follow.color}`+(sel?", inset 0 0 0 1px var(--pos-line)":"")} : null)},
-          onClick:()=>onSelect(s.id),
-          role:"button", tabIndex:0, onKeyDown:keyActivate(()=>onSelect(s.id)),
-          "aria-current":sel?"true":undefined,
-          "aria-label":sceneCardLabel(s, staleIds && staleIds.has(s.id), runtimes && runtimes[s.id])},
-          !readOnly && React.createElement("span",{className:"scard-grip",title:"Drag to reorder"},React.createElement(Icon.grip,{s:14})),
-          React.createElement("div",{className:"scard-top"},
-            React.createElement("span",{className:"scard-no"},String(s.no).padStart(2,"0")),
-            React.createElement("div",{className:"scard-conf",title:`Conflict source: ${["Inner","Personal","Extra-personal"][s.conf-1]||s.conf}`},
-              [1,2,3].map(i=>React.createElement("span",{key:i,className:`conf-pip ${i<=s.conf?"on":""}`})))),
-          React.createElement("div",{className:"scard-title"},s.title),
-          React.createElement("div",{className:"scard-charge"},
-            React.createElement(ChargeChip,{value:s.openCharge}),
-            React.createElement("span",{className:"chip-arrow"},React.createElement(Icon.arrowSmall,{s:11})),
-            React.createElement(ChargeChip,{value:s.closeCharge})),
-          React.createElement("div",{className:"scard-foot"},
-            React.createElement(TurnBadge,{scene:s}),
-            (staleIds && staleIds.has(s.id)) && React.createElement("span",{className:"scard-stale",
-              title:"Script out of date \u2014 the card changed after the draft. Redraft it from the Script view or the Scene tab."},
-              React.createElement(Icon.history,{s:11})),
-            // LONG FOR THIS FORMAT: amber with a warning mark (a word would overflow the
-            // 138px card beside a PROGRESSES badge); the tooltip names both lengths
-            (runtimes && runtimes[s.id]) && React.createElement("span",{
-              className:"scard-rt"+(runtimes[s.id].long?" hot":""),
-              style: runtimes[s.id].long ? {marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:3} : {marginLeft:"auto"},
-              "data-long":runtimes[s.id].long?"1":undefined,
-              "aria-label": runtimes[s.id].long ? fmtClock(runtimes[s.id].sec)+", long for this format" : undefined,
-              title: runtimeTip(runtimes[s.id])},
-              runtimes[s.id].long && React.createElement(Icon.alert,{s:9}),
-              (runtimes[s.id].approx?"~":"")+fmtClock(runtimes[s.id].sec))));
+    // ---- the scene tiles ----
+    React.createElement("div",{className:"filmstrip spine-tiles"},
+      actGroups.map(g => {
+        // a folded act → one tile that unfolds it (mirrors its band in the chart)
+        if(collapsed[g.act]) return React.createElement("div",{key:"acol"+g.act,className:"spine-act-strip stile-fold",
+          onClick:()=>toggle(g.act),title:`Expand Act ${roman(g.act)}`,role:"button",tabIndex:0,"aria-label":`Expand Act ${roman(g.act)}`,
+          onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); toggle(g.act); } }},
+          React.createElement("span",{className:"stile-no"},"ACT "+roman(g.act)),
+          React.createElement("span",{className:"stile-title"},actName(g.act)),
+          React.createElement("span",{className:"stile-fold-n"},g.items.length+" scene"+(g.items.length!==1?"s":"")+" · unfold"));
+        return g.items.map(({s, i:ci}) => {
+          const ti = turnInfo(s), { flagged } = ti;
+          const sel = s.id === selId;
+          const fDrives = follow && follow.drivenIds.has(s.id);
+          const stale = !!(staleIds && staleIds.has(s.id));
+          const rt = runtimes && runtimes[s.id];
+          return React.createElement("div",{key:s.id,
+            draggable:!readOnly,
+            onDragStart:(e)=>{ if(readOnly){ e.preventDefault(); return; } setDragIdx(ci); e.dataTransfer.effectAllowed="move"; },
+            onDragOver:(e)=>{ if(readOnly) return; e.preventDefault(); if(overIdx!==ci) setOverIdx(ci); },
+            onDragEnd:()=>{ setDragIdx(null); setOverIdx(null); },
+            onDrop:(e)=>{ if(readOnly) return; e.preventDefault(); if(dragIdx!=null && dragIdx!==ci) onReorder(dragIdx, ci); setDragIdx(null); setOverIdx(null); },
+            className:`scard stile ${sel?"sel":""} ${flagged?"flagged":""} ${s.kind==="incite"?"incite":""} `+
+                      `${["story-climax","act-climax","midpoint"].includes(s.kind)?"climax":""} `+
+                      `${dragIdx===ci?"dragging":""} ${overIdx===ci&&dragIdx!=null&&dragIdx!==ci?"dragover":""} `+
+                      `${follow && !fInvolved(s) ? "dim":""}`,
+            style: fDrives ? {boxShadow:`inset 0 2px 0 ${follow.color}`} : undefined,
+            onClick:()=>onSelect(s.id),
+            role:"button", tabIndex:0, onKeyDown:keyActivate(()=>onSelect(s.id)),
+            "aria-current":sel?"true":undefined,
+            "aria-label":sceneCardLabel(s, stale, rt)},
+            React.createElement("div",{className:"scard-top stile-top"},
+              React.createElement("span",{className:"scard-no stile-no"},String(s.no).padStart(2,"0")),
+              React.createElement("div",{className:"scard-conf",title:`Conflict source: ${["Inner","Personal","Extra-personal"][s.conf-1]||s.conf}`},
+                [1,2,3].map(k=>React.createElement("span",{key:k,className:`conf-pip ${k<=s.conf?"on":""}`}))),
+              // a red mark when the scene doesn't turn; a violet one when it progresses
+              flagged && React.createElement("span",{className:"stile-mark no",title:turnBadgeOf(s).word},React.createElement(Icon.alert,{s:11})),
+              !flagged && ti.progression && React.createElement("span",{className:"stile-mark prog",title:"Progresses — intensifies on the same side instead of reversing"},
+                React.createElement(Icon.arrowSmall,{s:11})),
+              stale && React.createElement("span",{className:"scard-stale",
+                title:"Script out of date — the card changed after the draft. Redraft it from the Script view or the Scene tab."},
+                React.createElement(Icon.history,{s:11})),
+              !readOnly && React.createElement("span",{className:"scard-grip",title:"Drag to reorder"},React.createElement(Icon.grip,{s:12}))),
+            React.createElement("div",{className:"scard-title stile-title"},s.title),
+            React.createElement("div",{className:"stile-foot"},
+              React.createElement("span",{className:"stile-charge"},
+                React.createElement("span",{className:chargeClass(s.openCharge)},chargeStr(s.openCharge).replace("-","−")),
+                React.createElement("span",{className:"stile-arrow","aria-hidden":"true"},"→"),
+                React.createElement("span",{className:chargeClass(s.closeCharge)},chargeStr(s.closeCharge).replace("-","−"))),
+              // LONG FOR THIS FORMAT: amber with a warning mark; the tooltip names both lengths
+              rt && React.createElement("span",{
+                className:"scard-rt"+(rt.long?" hot":""),
+                "data-long":rt.long?"1":undefined,
+                "aria-label": rt.long ? fmtClock(rt.sec)+", long for this format" : undefined,
+                title: runtimeTip(rt)},
+                rt.long && React.createElement(Icon.alert,{s:9}),
+                (rt.approx?"~":"")+fmtClock(rt.sec))));
+        });
       }),
-      onAddScene && React.createElement("button",{className:"spine-add",style:{height:"auto"},disabled:readOnly,
+      onAddScene && React.createElement("button",{type:"button",className:"spine-add stile-add",disabled:readOnly,
         onClick:()=>onAddScene(scenes.length?scenes[scenes.length-1].id:null)},
-        React.createElement(Icon.plus,{s:18}),"Add scene")),
+        React.createElement(Icon.plus,{s:16}),"Add scene")),
   );
 }
 window.SpineCanvas = SpineCanvas;
