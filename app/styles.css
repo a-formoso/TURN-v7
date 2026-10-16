@@ -10134,8 +10134,9 @@ html[data-theme="light"]{
 .brief-empty-lab{font:400 10px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--win-sub)}
 .brief-empty-log{font-family:var(--f-serif);font-style:italic;font-size:19px;line-height:1.45;color:var(--win-ink)}
 .brief-empty-note{background:var(--win-bone);border-radius:9px;padding:12px 14px;font-size:13.5px;line-height:1.5;color:var(--win-ink-2)}
-/* Likeness keeps its own violet main button (the feature's colour) in the family's shape */
-.cameo-btn.primary{border-color:transparent}
+/* Likeness's main button is amber like every window's (owner 2026-10-16: "make the Likeness button amber too") */
+.cameo-btn.primary{background:var(--win-amber);border-color:var(--win-amber);color:var(--win-on-amber)}
+.cameo-btn.primary:hover:not(:disabled){background:var(--win-amber-hover);border-color:var(--win-amber-hover);color:var(--win-on-amber)}
 /* fields inside windows: white, 42px, an ink focus ring, the label in small caps */
 :is(.appconfirm,.ns-panel,.ag-panel,.bible-modal,.cc-modal,.cameo-modal,.qa-modal,.shot-ref-dialog,.plans-modal)
   :is(input:not([type]),input[type="text"],input[type="email"],input[type="search"],input[type="number"],input[type="url"],input[type="password"],select:not(.ns-model-sel),textarea){
