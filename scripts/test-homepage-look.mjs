@@ -110,9 +110,11 @@ check("D Home follows the theme: the dark theme re-points the palette at the app
   return !!r && /--lpw-bg:var\(--bg-1\)/.test(r) && /--lpw-ink:var\(--txt-0\)/.test(r) && /--lpw-card:var\(--bg-2\)/.test(r)
     && /color-scheme:dark/.test(r) && !/--lpw-bg:#/.test(rule(".hd-root") || "x");
 });
-check("D Home's phone layout: minmax(0,…) hero column, steps two by two, New Project on one line", ()=>
-  /@media \(max-width:1080px\)\{ \.hd-hero\{ grid-template-columns:minmax\(0,1fr\); \}/.test(css)
-  && /\.hd-steps\{ grid-template-columns:repeat\(2,minmax\(0,1fr\)\); \}/.test(css)
+// (2026-10-16) Home in the rooms' page layout: the work area folds to one minmax(0,…) column (the open film first),
+// the heading's side (rooms + actions) takes the full width on a phone, New Project stays on one line
+check("D Home's narrow layout: one minmax(0,…) column with the open film first, the heading's side full width, New Project on one line", ()=>
+  /\.hd-body,\.hd-body\.no-side\{grid-template-columns:minmax\(0,1fr\)\}/.test(css) && /\.hd-now\{order:-1;/.test(css)
+  && /\.hd-head-side\{width:100%;align-items:stretch\}/.test(css)
   && /white-space:nowrap/.test(rule(".hd-tbtn") || ""));
 check("D Home's icon-only buttons are named (play, pagers, poster actions, viewer close)", ()=>{
   const s = read("app/home-dashboard.jsx");
