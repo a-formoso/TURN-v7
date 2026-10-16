@@ -8896,8 +8896,8 @@ function App(){
       projectSlot: cloudMode ? React.createElement(ProjectSwitcher,{ projects, currentId:currentProjectId,
         // no format / framework badge on a blank canvas: nothing has been chosen yet
         formatLabel:(typeof formatOf==="function" && !currentFilmBlank) ? formatOf(project).label : null,
-        // framework badge only when it differs from the default — three-act is the baseline
-        frameworkLabel:(typeof frameworkOf==="function" && !currentFilmBlank && frameworkOf(project).id!=="threeact") ? frameworkOf(project).badge : null,
+        // the structure shows on EVERY film beside its format, Three-Act too (owner 2026-10-16: one rule for all films)
+        frameworkLabel:(typeof frameworkOf==="function" && !currentFilmBlank) ? frameworkOf(project).badge : null,
         onSwitch:switchProject, onCreate:createProject, onRename:renameProject, onDelete:deleteProject,
         // the switcher's "New Story" opens the New Story window (like Home's New Project) — the film is
         // created when a story launches, so no blank "Untitled film" rows pile up

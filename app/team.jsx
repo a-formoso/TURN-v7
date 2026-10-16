@@ -679,21 +679,21 @@ function TeamButton({ projectId, projectTitle, projectMeta, series, onChanged, i
     open && React.createElement(TeamModal,{projectId,projectTitle,projectMeta,series,onChanged,isAdmin,sharing:live,paused,onClose:()=>setOpen(false)}));
 }
 
-/* PRESENCE DOTS — who else has this film open right now, shown beside the Team button.
-   Only renders when someone OTHER than this window is here, so a solo writer sees nothing.
-   Two entries for the same email means that person has it open twice (their own second
-   window) — worth surfacing, since same-section edits from two windows still resolve
-   last-writer-wins. */
+/* PRESENCE DOTS — who else has this film open right now, shown in the top bar.
+   Only renders when another PERSON is here, so a solo writer sees nothing (your own second window is
+   not shown — 2026-10-16). */
 function PresenceDots({ people }){
-  const others = (people||[]).filter(p=>!p.isSelf);
+  const me = (people||[]).find(p=>p.isSelf) || {};
+  // the same person in another window: presence carries the account id, never an email (2026-10-03)
+  const myEmail = String(me.uid || me.email || "").toLowerCase();
+  /* only OTHER PEOPLE (owner 2026-10-16): your own other window or tab showed as your own initial beside the
+     bell, which read as a stray button — the dots are for collaborators who have the film open */
+  const others = (people||[]).filter(p=>!p.isSelf && !(myEmail && String(p.uid||p.email||"").toLowerCase()===myEmail));
   if(!others.length) return null;
   const label = (p)=> String(p.name || "Collaborator");
   const initial = (p)=> (label(p).trim()[0] || "?").toUpperCase();
   // who someone is includes what they may DO here — show the role with the name
   const roleBit = (p)=> p.role==="owner" ? "Owner" : (p.role ? teamRoleLabel(p.role) : "");
-  const me = (people||[]).find(p=>p.isSelf) || {};
-  // the same person in another window: presence carries the account id, never an email (2026-10-03)
-  const myEmail = String(me.uid || me.email || "").toLowerCase();
   const shown = others.slice(0,4);
   const extra = others.length - shown.length;
   const describe = (p)=>{

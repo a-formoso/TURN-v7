@@ -227,19 +227,19 @@
           h("button",{className:"hd-tbtn hd-newproj", onClick:onCreate}, Ic("plus",15), "New Project"),
           accountSlot ? h("div",{className:"hd-acct"}, accountSlot) : null)));
 
-    // ----- the page heading (homepage style, owner 2026-10-16: "Update the Dashboard to match the page layout
-    // used in the other 3 rooms") — the rooms' heading: eyebrow, the big title, what the page holds, and on the
-    // right the rooms as underlined text (the room you were in underlined) over the two actions ---------------
-    const roomTabs = h("nav",{className:"hd-rooms","aria-label":"The rooms"},
+    // ----- THE HERO (owner 2026-10-16: the "take by take" mockup is Home's design) — on the left the eyebrow, the
+    // title, what the studio does, the four rooms as tiles (the room you were in in amber; a click goes there),
+    // the open film's logline, and the two actions; on the right the open film's premiere screen ---------------
+    const activeStep = STEPS.find(s=>s.id===activeRoom) || STEPS[0];
+    const nowFilm = current || hero;
+    const roomTabs = h("nav",{className:"hd-rooms hd-room-tiles","aria-label":"The rooms"},
       STEPS.map(st=> h("button",{ key:st.id, type:"button",
-        className:"hd-step hd-room-tab"+(st.id===activeRoom?" on":"")+(st.live?"":" soon"),
-        disabled:!st.live, "aria-label":st.no+" "+st.phase+" \u2014 "+(st.live ? st.name : "coming soon"),
+        className:"hd-step hd-room-tile"+(st.id===activeRoom?" on":"")+(st.live?"":" soon"),
+        disabled:!st.live, "aria-label":st.no+" "+st.phase+" — "+(st.live ? st.name : "coming soon"),
         "aria-current":st.id===activeRoom ? "step" : undefined,
         onClick:()=> st.live && onGoRoom && onGoRoom(st.id)},
-        h("span",{className:"hd-step-no"}, st.no),
-        h("span",{className:"hd-step-name"}, st.live ? st.name : "Post \u00b7 soon"))));
-
-    const activeStep = STEPS.find(s=>s.id===activeRoom) || STEPS[0];
+        h("span",{className:"hd-step-no"}, st.no+" "+st.phase),
+        h("span",{className:"hd-step-name"}, st.live ? st.name : "Post · soon"))));
     // THE PREMIERE SCREEN — a video placeholder for the current film once it's
     // fully assembled (the Post room will play it here). Until then: a dark
     // cinema screen with the play button into The Stage. Poster previews live
@@ -250,30 +250,25 @@
       h("button",{className:"hd-play", onClick:()=> onGoRoom && onGoRoom("stage"), title:"Go to The Stage", "aria-label":"Go to The Stage"},
         Ic("play",26)),
       h("div",{className:"hd-hero-media-note"},"Your finished film will play here"),
-      hero && h("div",{className:"hd-hero-media-cap"}, hero.title||"Untitled film"));
-
+      nowFilm && h("div",{className:"hd-hero-media-cap"}, nowFilm.title||"Untitled film"),
+      nowFilm && h("div",{className:"hd-hero-media-meta"},
+        [displayType(nowFilm), updatedAgo(nowFilm.updated_at||nowFilm.created_at)].filter(Boolean).join(" · ")));
+    const logline = nowFilm ? String(nowFilm.logline||"").replace(/\s+/g," ").trim() : "";
     const heroSection = h("section",{className:"hd-head"},
       h("div",{className:"hd-head-in"},
         h("div",{className:"hd-head-copy"},
-          // the rooms' eyebrow (01 · Development …): Home's names the studio and its films
-          h("div",{className:"hd-eyebrow"}, "Home \u00b7 Your studio"+(films.length ? " \u00b7 "+films.length+" film"+(films.length!==1?"s":"") : "")),
+          h("div",{className:"hd-eyebrow"}, "Home · Your studio"+(films.length ? " · "+films.length+" film"+(films.length!==1?"s":"") : "")),
           h("h1",{className:"hd-hero-title"}, "From idea to ", h("span",{className:"hd-accent-text"},"final frame.")),
-          h("p",{className:"hd-hero-sub"},"Your studio is open. Develop the story, design the world, and shoot the film.")),
-        h("div",{className:"hd-head-side"},
+          h("p",{className:"hd-hero-sub"},"Your studio is open. Develop the story, design the world, and shoot the film."),
           roomTabs,
+          logline && h("blockquote",{className:"hd-hero-line"}, "“"+logline.replace(/[“”"]/g,"")+"”",
+            h("cite",null,(nowFilm.title||"Untitled film")+" · "+phaseOf(nowFilm))),
           h("div",{className:"hd-hero-cta"},
-            // back to the film that's open — named, and only when there is one (2026-10-09: "Open Project" only closed Home)
-            current && h("button",{className:"hd-btn hd-btn-ghost", onClick:onClose}, "Back to "+(current.title||"Untitled film")),
             h("button",{className:"hd-btn hd-btn-accent", onClick:()=> onGoRoom && onGoRoom(activeStep.live?activeStep.id:"stage")},
-              "Go to "+(activeStep.live?activeStep.name:"The Stage"), Ic("arrowR",16))))));
-
-    // the open film, as the rooms' side panel: its name, what it is, where it stands, and its premiere screen
-    const nowFilm = current || hero;
-    const nowPanel = nowFilm ? h("aside",{className:"hd-now","aria-label":"The film you have open"},
-      h("div",{className:"hd-eyebrow"}, current ? "Now open" : "Most recent"),
-      h("div",{className:"hd-now-title"}, nowFilm.title||"Untitled film"),
-      h("div",{className:"hd-now-meta"}, [displayType(nowFilm), phaseOf(nowFilm), updatedAgo(nowFilm.updated_at||nowFilm.created_at)].filter(Boolean).join(" \u00b7 ")),
-      hero_panel) : null;
+              "Go to "+(activeStep.live?activeStep.name:"The Stage"), Ic("arrowR",16)),
+            // back to the film that's open — named, and only when there is one (2026-10-09: "Open Project" only closed Home)
+            current && h("button",{className:"hd-btn hd-btn-ghost", onClick:onClose}, "Back to "+(current.title||"Untitled film")))),
+        hero_panel));
 
     // ----- recent projects --------------------------------------------------
     const recentSection = h("section",{className:"hd-recent"},
@@ -401,10 +396,9 @@
         topbar,
         h("div",{className:"hd-scroll"},
           heroSection,
-          // the work area: the films in the main column, the open film in the side panel (the rooms' layout)
-          h("div",{className:"hd-body"+(nowPanel?"":" no-side")},
-            h("div",{className:"hd-body-main"}, recentSection, sharedSection),
-            nowPanel),
+                // the films under the hero, in the page column
+          h("div",{className:"hd-body no-side"},
+            h("div",{className:"hd-body-main"}, recentSection, sharedSection)),
           h("div",{className:"hd-feature-band"}, featureSection),
           footer)),
       posterViewer);
