@@ -114,7 +114,8 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   the Admin panel's Tax & compliance view (`app/admin-tax.jsx`: UK VAT £90k, EU non-Union OSS from the first sale, US
   per-state nexus); the consent step before every checkout (14-day right: refund of the unused part); partial refunds
   remove the same share of credits (`refund_fraction`). Prices stay in USD. Tests: `test-tax-compliance-db`,
-  `test-tax-compliance-app`. The switch-day Terms / Privacy live on branch `switch-day-terms` until the switch.
+  `test-tax-compliance-app`. The Terms / Privacy for the switch are live on `main` (dated 3 October 2026, with the Teams "Shared films" clause); the
+  old `switch-day-terms` branch was folded into `main` and deleted (2026-10-16).
 
 ## 📐 Story-building process — follow the skill
 When building a story (New Story → spine, Adaptation, or any seed→script flow), follow the canonical

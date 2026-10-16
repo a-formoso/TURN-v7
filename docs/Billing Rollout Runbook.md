@@ -280,6 +280,9 @@ Suggested text (email, and optionally an in-app note):
 
 ## (8) Terms and privacy wording (for you and a lawyer)
 
+> **Done (2026-10-02):** the pages below went live on `main` with the switch (later dated 3 October 2026 for the
+> Teams clause). The `switch-day-terms` branch named in this section was deleted on 2026-10-16; its commits are on `main`.
+
 **Drafted 2026-10-01 on the branch `switch-day-terms`** (not on `main`: Replit publishes `main` as it is, and these pages describe the rules from the switch day). They were built from `docs/Billing Terms Proposal.md` and checked against the code. They describe the plans (600 / 1,600 / 5,000), the packs and their 12-month balance, the trial, holds and settles, failed payments, refunds, disputes and Frances's limits; Privacy adds the trial's email fingerprint and the billing records kept.
 
 **On the switch day (Mac):** set "Last updated" on both pages to the switch date, written like `14 November 2026`, merge the branch into `main` and push; then Replit Pull + Publish (step 6, item 5). Fill in `<legal name>` and `<business address>` on both pages first, and `<EU representative>` in `privacy.html` or delete that sentence (section 9, step 9). Then turn on the "We've updated our Terms and Privacy Policy" banner: in `app/plans.jsx` set `const TERMS_UPDATED_AT = "2026-11-14";` to the switch date written as YYYY-MM-DD (not "14 November 2026"), change `app/plans.jsx`'s `?v=` key in `TURN.html`, and Replit Pull + Publish. Check with `LEGAL_SWITCH_DAY=1 node scripts/test-rebrand-shell.mjs` (every placeholder still left, the date included, fails there).
