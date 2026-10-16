@@ -93,7 +93,7 @@
   --z-menu:60;        /* dropdowns anchored in the page */
   --z-overlay:120;    /* full-screen dialogs (New Story, Story Editors, Plans, auth) + Home */
   --z-overlay-2:124;  /* a dialog opened from a dialog (Film bible, Plans from Home) */
-  --z-confirm:9990;   /* appConfirm, lightboxes, floating pickers */
+  --z-confirm:9990;   /* lightboxes, floating pickers (appConfirm sits at 9997, above the progress card's 9996) */
   --z-toast:99999;
 
   /* density (driven by tweak) */
@@ -2858,7 +2858,10 @@ html[data-theme="light"] .cameo-note.warn{color:oklch(0.5 0.13 65)}
 .linked-prop-kind.carried{color:oklch(0.74 0.1 250);background:oklch(0.72 0.1 250 / .13)}
 
 /* in-app confirm dialog (replaces window.confirm) */
-.appconfirm-scrim{position:fixed;inset:0;z-index:9990;display:flex;align-items:center;justify-content:center;
+/* above the centered progress card (.redraft-overlay, 9996): a question asked while a run shows its card —
+   "Re-draft Scene 01's keyframes?", "Use the new view composition?" — must be seen and answered, or the run
+   waits behind its own card forever (2026-10-16) */
+.appconfirm-scrim{position:fixed;inset:0;z-index:9997;display:flex;align-items:center;justify-content:center;
   padding:24px;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);animation:appconfirm-fade .12s ease}
 @keyframes appconfirm-fade{from{opacity:0}to{opacity:1}}
 .appconfirm{width:min(440px,94vw);background:var(--bg-1);border:1px solid var(--line);
@@ -9561,8 +9564,10 @@ html[data-theme="dark"] .app.hs{
   background:
     linear-gradient(var(--hs-line),var(--hs-line)) left max(0px, calc((100% - var(--hs-col)) / 2)) top / 1px 100% no-repeat,
     linear-gradient(var(--hs-line),var(--hs-line)) right max(0px, calc((100% - var(--hs-col)) / 2)) top / 1px 100% no-repeat,
-    var(--hs-glass);
-  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+    var(--hs-paper);
+  /* NO backdrop-filter here: it makes the bar the containing block of every position:fixed window rendered
+     inside it (Story brief, Film bible, Styles, API Keys, Team), which then opened clipped inside the 64px bar
+     (2026-10-16). The bar sits on paper, so a solid paper fill reads the same. */
   border-bottom:1px solid var(--hs-line)}
 .app.hs .tb-left{gap:12px}
 .app.hs .tb-right{gap:8px}
@@ -9865,7 +9870,7 @@ html[data-theme="dark"] .app.hs{
   .wr-head-in{padding:22px 24px 16px;border-left:0;border-right:0}
   .wr-title{font-size:40px}
   .app.hs.room-writers .body{border-left:0;border-right:0}
-  .app.hs .topbar{padding:0 14px;background:var(--hs-glass)}
+  .app.hs .topbar{padding:0 14px;background:var(--hs-paper)}
   .app.hs .topbar .tb-btn:not(.film-menu-btn){font-size:0;gap:0;padding:0 11px}
 }
 @media (max-width:900px){

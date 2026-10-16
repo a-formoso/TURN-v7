@@ -6412,9 +6412,12 @@ function App(){
     return bits.length ? " It replaces "+bits.join(", ")+"." : "";
   };
   const [draftingSceneShots, setDraftingSceneShots] = React.useState(null);
+  // ASK FIRST, THEN SHOW THE CARD (2026-10-16): the busy card used to go up before the re-draft question, and
+  // the question opened behind it — the card stayed up for ever with nothing running. A second click while
+  // the question is open does nothing.
+  const sceneShotsAskingRef = React.useRef(false);
   const draftSceneShots = async (scene)=>{
-    if(draftingSceneShots) return;
-    setDraftingSceneShots(scene.id);
+    if(draftingSceneShots || sceneShotsAskingRef.current) return;
     let out = null;
     try{
       const assertCurrent=keyframeScope(scene);
@@ -6422,12 +6425,17 @@ function App(){
         const body="Draft one opening keyframe per screenplay beat. Each primary keeps its shot ID and image history. Additional shots move to Recently deleted in Shots and can be restored. No images or takes are deleted; changed frames need regeneration. Writing-model credits only.";
         const live=shotsLiveRef.current.filter(sh=>sh && sh.sceneId===scene.id);
         const body2=body+redraftReplaces(live);
-        const ok=typeof window.appConfirm==="function"
-          ? await window.appConfirm({title:"Re-draft Scene "+String(scene.no||"").padStart(2,"0")+"'s keyframes (writing credits)?",body:body2,confirmLabel:"Re-draft keyframes",cancelLabel:"Cancel"})
-          : window.confirm(body2);
-        if(!ok){ setDraftingSceneShots(null); return; }
+        sceneShotsAskingRef.current = true;
+        let ok = false;
+        try{
+          ok=typeof window.appConfirm==="function"
+            ? await window.appConfirm({title:"Re-draft Scene "+String(scene.no||"").padStart(2,"0")+"'s keyframes (writing credits)?",body:body2,confirmLabel:"Re-draft keyframes",cancelLabel:"Cancel"})
+            : window.confirm(body2);
+        }finally{ sceneShotsAskingRef.current = false; }
+        if(!ok) return;
         assertCurrent();
       }
+      setDraftingSceneShots(scene.id);
       out = await draftOneSceneShots(scene, true);
     }
     catch(e){ out = { status:"failed", error:String((e&&e.message)||"Shot design failed.") }; }
