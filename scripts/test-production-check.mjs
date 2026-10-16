@@ -191,7 +191,7 @@ await test("MUSE knows the Production check, and the Story Editors list no longe
   vm.runInContext(ai.slice(a,b).replace(/^const APP_FEATURES/,"var APP_FEATURES")+"\n;this.__F=APP_FEATURES;",mbox);
   const F=mbox.__F, byName=n=>F.find(f=>f.name===n);
   const pc=byName("Production check (Art Room)");
-  assert.ok(pc && /Production check' button on the Art Room's view bar/.test(pc.what) && /noted in the trace instead of shown/.test(pc.what));
+  assert.ok(pc && /Production check' button on the Art Room's (?:view bar|page heading)/.test(pc.what) && /noted in the trace instead of shown/.test(pc.what));
   const se=byName("Story Editors (Writers' Room agents)").what;
   assert.ok(!/Script Breakdown \(the 1st-AD pass/.test(se)&&/Script Supervisor \(the FREE rule-based STORY audit/.test(se));
   assert.ok(/the PRODUCTION CHECK \(the 'Production check' button/.test(se));

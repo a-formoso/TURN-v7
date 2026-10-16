@@ -258,6 +258,19 @@ window.OverflowMenu = OverflowMenu;
    Room tabs) as a full-width bar directly beneath the top bar, at every screen
    size. Moved out of the top bar to free its space; the panel toggles ride along
    at the edges (Writers' Room only). Replaces the old mobile-only bottom bar. */
+/* the Art Room's page heading: each tab's title and what it holds (homepage style, 2026-10-16) */
+const ART_TITLES = { lookbook:["The ","lookbook."], characters:["The ","cast."], props:["The ","props."],
+  locations:["Every place, ","on one plate."], stylebible:["The ","color script."], shots:["The ","shots."],
+  storyboard:["The ","storyboards."], breakdown:["The ","breakdown."] };
+const ART_SUBS = {
+  lookbook:"The film's visual north star: a short statement and the references every department reads.",
+  characters:"A reference sheet for every character, and how each one's look changes across the film.",
+  props:"Every object the story handles; a worn or carried prop matches its owner's look.",
+  locations:"Reusable sets for every scene, built from the screenplay. A room's plates are made from its location's plate, so that one comes first.",
+  stylebible:"The film's colour system, and the look of every scene.",
+  shots:"Every beat broken into shots, with their frames rendered in order.",
+  storyboard:"Each scene's boards, composed from its rendered shot frames.",
+  breakdown:"What every scene still needs before it can be shot." };
 function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen, onToggleRail, onToggleInsp, onCoordinate, onProductionCheck, productionReadOnly, onAgents, staleTabs, attnTabs, hiddenTabs, tabLocks, readOnly }){
   // The Stage is a single full-width assembly view — no sub-view tabs (don't fall through
   // to the Writers' Room tabs); its own header carries the context.
@@ -279,18 +292,7 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
     : (onAgents && React.createElement("button",{className:"tb-btn accent vn-cta",onClick:onAgents,disabled:readOnly,
         title:readOnly?"Your role can't change the story here, so the Story Editors can't run":"Story Editors — AI editors that refine your story: Story Doctor, Script Supervisor, Setups & Payoffs, Final Read"},
         React.createElement(Icon.robot,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Story Editors")));
-  // viewnav-art: the Art Room's eight tabs + three actions need their own narrow-width rule (styles.css)
-  return React.createElement("nav",{className:"viewnav"+(inArt?" viewnav-art":""),"aria-label":inArt?"Art Room views":"Writers' Room views"},
-    // LEFT zone — story-panel toggle. DRAWER MODES ONLY (hidden ≥1100px via CSS):
-    // on desktop the panels collapse/expand from inside (panel-collapse / CollapsedStrip).
-    React.createElement("div",{className:"vn-side vn-left"},
-      !inArt && React.createElement("button",{className:`tb-icon vn-paneltoggle ${railOpen?"on":""}`,onClick:onToggleRail,
-        "aria-pressed":railOpen?"true":"false","aria-label":"Toggle story panel",title:"Toggle story panel"},
-        React.createElement(Icon.panelLeft,{s:16}))),
-    // CENTER — the room's view tabs WITH the room's agent CTA, centered as one unit
-    React.createElement("div",{className:"vn-center"},
-      React.createElement("div",{className:"segmented"},
-        nav.map(([id,lab,Ic])=>{
+  const tabButtons = nav.map(([id,lab,Ic])=>{
           // TAB LOCKS (docs/Story Pipeline.md step 9): a locked Art Room tab stays visible with a
           // padlock; clicking it still opens the tab, which shows its lock card (what it waits for
           // + a button to the step that unlocks it). Its accessible name says "locked".
@@ -310,17 +312,52 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
             locked ? React.createElement("span",{className:"seg-lock","aria-hidden":"true"},React.createElement(Icon.padlock||Icon.alert,{s:12}))
               : attn ? React.createElement("span",{className:"seg-attn-dot"})
               : (stale && React.createElement("span",{className:"seg-stale-dot"})));
-        })),
-      inArt&&React.createElement("button",{type:"button",className:"tb-btn vn-studio",title:"Blender Studio — derive a set from a generated location image",
+        });
+  const studioBtn = inArt&&React.createElement("button",{type:"button",className:"tb-btn vn-studio",title:"Blender Studio — derive a set from a generated location image",
         "aria-label":"Blender Studio",onClick:()=>window.dispatchEvent(new CustomEvent("turn-open-blender-studio"))},
-        React.createElement(Icon.box,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Blender Studio")),
-      // the 1st-AD pass: the script read into the cast sheets, then every Art Room layer
-      // held to the script. Open to a Writer too (its script cards are theirs to apply).
-      inArt && onProductionCheck && React.createElement("button",{type:"button",className:"tb-btn vn-studio",
-        onClick:onProductionCheck,disabled:!!productionReadOnly,"aria-label":"Production check",
-        title:productionReadOnly?"Your role can't change this film's script or Art Room here, so the Production check can't run"
-          :"Production check — reads the script into the cast sheets (pronouns, scale, details, voice), then holds props, locations, render styles, wardrobe and shots to the script. Every change asks for your approval."},
-        React.createElement(Icon.clipboard||Icon.check,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Production check")),
+        React.createElement(Icon.box,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Blender Studio"));
+  // the 1st-AD pass: the script read into the cast sheets, then every Art Room layer
+  // held to the script. Open to a Writer too (its script cards are theirs to apply).
+  const productionBtn = inArt && onProductionCheck && React.createElement("button",{type:"button",className:"tb-btn vn-studio",
+    onClick:onProductionCheck,disabled:!!productionReadOnly,"aria-label":"Production check",
+    title:productionReadOnly?"Your role can't change this film's script or Art Room here, so the Production check can't run"
+      :"Production check — reads the script into the cast sheets (pronouns, scale, details, voice), then holds props, locations, render styles, wardrobe and shots to the script. Every change asks for your approval."},
+    React.createElement(Icon.clipboard||Icon.check,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Production check"));
+  // THE ART ROOM'S PAGE HEADING (homepage style, owner 2026-10-16 — "update the Art Room UI the same way"
+  // as the Writers' Room): eyebrow, the tab's title, what it holds, the room's three actions on the right,
+  // and the eight tabs as underlined text below (the same tab buttons: locks, dots and names unchanged).
+  // It keeps the .viewnav class, so the focus-the-current-tab code still finds its tab.
+  if(inArt){
+    const t = ART_TITLES[cur] || ["The ", String(((window.ART_TABS||[]).find(x=>x.id===cur)||{}).label||"Art Room").toLowerCase()+"."];
+    return React.createElement("header",{className:"viewnav viewnav-art art-head"},
+      React.createElement("div",{className:"wr-head-in art-head-in"},
+        React.createElement("div",{className:"art-head-top"},
+          React.createElement("div",{className:"wr-head-copy"},
+            React.createElement("div",{className:"wr-eyebrow"},"02 \u00b7 Pre-production"),
+            React.createElement("h1",{className:"wr-title"},t[0],React.createElement("em",null,t[1])),
+            React.createElement("p",{className:"wr-sub"},ART_SUBS[cur]||"")),
+          React.createElement("div",{className:"wr-actions art-head-actions"},
+            studioBtn, productionBtn, cta)),
+        React.createElement("nav",{className:"art-tabs","aria-label":"Art Room views"},
+          // on a narrow screen the row scrolls sideways: keep the open tab in view
+          React.createElement("div",{className:"segmented art-tabs-row",ref:(el)=>{
+            if(!el || el.scrollWidth<=el.clientWidth) return;
+            const on = el.querySelector(".seg.on");
+            if(on) el.scrollLeft = Math.max(0, on.offsetLeft - el.offsetLeft - 16); }},tabButtons))));
+  }
+  // viewnav-art: the Art Room's eight tabs + three actions need their own narrow-width rule (styles.css)
+  return React.createElement("nav",{className:"viewnav"+(inArt?" viewnav-art":""),"aria-label":inArt?"Art Room views":"Writers' Room views"},
+    // LEFT zone — story-panel toggle. DRAWER MODES ONLY (hidden ≥1100px via CSS):
+    // on desktop the panels collapse/expand from inside (panel-collapse / CollapsedStrip).
+    React.createElement("div",{className:"vn-side vn-left"},
+      !inArt && React.createElement("button",{className:`tb-icon vn-paneltoggle ${railOpen?"on":""}`,onClick:onToggleRail,
+        "aria-pressed":railOpen?"true":"false","aria-label":"Toggle story panel",title:"Toggle story panel"},
+        React.createElement(Icon.panelLeft,{s:16}))),
+    // CENTER — the room's view tabs WITH the room's agent CTA, centered as one unit
+    React.createElement("div",{className:"vn-center"},
+      React.createElement("div",{className:"segmented"},tabButtons),
+      studioBtn,
+      productionBtn,
       cta),
     // RIGHT zone — the inspector toggle, drawer modes only (balances the left zone)
     React.createElement("div",{className:"vn-side vn-right"},
