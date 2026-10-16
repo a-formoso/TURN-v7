@@ -222,7 +222,9 @@
             h("span",{className:"hd-brand-name"},"Kinolot"))),
         h("div",{className:"hd-top-actions"},
           notifySlot || null,
-          h("button",{className:"hd-tbtn hd-accent", onClick:onCreate}, Ic("plus",15), "New Project"),
+          // white, as every top-bar button in the rooms (homepage style, 2026-10-16): the amber is the page's
+          // own primary — the hero's "Go to …" button
+          h("button",{className:"hd-tbtn hd-newproj", onClick:onCreate}, Ic("plus",15), "New Project"),
           accountSlot ? h("div",{className:"hd-acct"}, accountSlot) : null)));
 
     // ----- hero -------------------------------------------------------------
@@ -251,6 +253,8 @@
 
     const heroSection = h("section",{className:"hd-hero"},
       h("div",{className:"hd-hero-left"},
+        // the rooms' eyebrow (01 · Development …): Home's names the studio and its films
+        h("div",{className:"hd-eyebrow"}, "Your studio"+(films.length ? " \u00b7 "+films.length+" film"+(films.length!==1?"s":"") : "")),
         h("h1",{className:"hd-hero-title"}, "From idea to",h("br",null),
           h("span",{className:"hd-accent-text"},"final frame.")),
         h("p",{className:"hd-hero-sub"},"Your studio is open. Develop the story, design the world, and shoot the film"),
@@ -265,7 +269,9 @@
     // ----- recent projects --------------------------------------------------
     const recentSection = h("section",{className:"hd-recent"},
       h("div",{className:"hd-sec-head"},
-        h("h2",{className:"hd-sec-title"},"Recent Projects"),
+        h("div",{className:"hd-sec-titles"},
+          h("h2",{className:"hd-sec-title"},"Recent Projects"),
+          mine.length>0 && h("span",{className:"hd-sec-count"}, mine.length+" film"+(mine.length!==1?"s":""))),
         // the poster offer (nothing is painted until you say yes)
         offer.length>0 && h("div",{className:"hd-poster-offer",role:"status"},
           h("span",null, offer.length+" film"+(offer.length!==1?"s have":" has")+" no poster"),
@@ -317,7 +323,9 @@
     const roleBlurb = (r)=> (typeof teamRoleBlurb==="function") ? (teamRoleBlurb(r)||"") : "";
     const sharedSection = shared.length ? h("section",{className:"hd-recent hd-shared"},
       h("div",{className:"hd-sec-head"},
-        h("h2",{className:"hd-sec-title"},"Shared with me"),
+        h("div",{className:"hd-sec-titles"},
+          h("h2",{className:"hd-sec-title"},"Shared with me"),
+          h("span",{className:"hd-sec-count"}, shared.length+" film"+(shared.length!==1?"s":""))),
         shared.length > SPER && h("div",{className:"hd-nav"},
           h("button",{className:"hd-navbtn", disabled:sFrom<=0, title:"Previous", "aria-label":"Previous shared projects",
             onClick:()=> setSStart(Math.max(0, sFrom - SPER))}, Ic("chevL",15)),

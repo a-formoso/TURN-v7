@@ -2056,7 +2056,7 @@ await test("Q the once-per-account note next to the Voice toggle (Writer and up 
   T.turnUserId = "u-t"; T.aiSeedInterview = async () => null; T.React.reset();
   assert.equal(findAll(T.NSLegacyInterview({ formatLabel: "film", onComplete: noop, onBack: noop }), hasClass("ns-voice-cost")).length, 0, "free-tier: browser voice, nothing to say");
   assert.ok(!/\bTURN\b|\bMUSE\b|ElevenLabs|Claude|Anthropic|OpenAI/.test(Q.NS_PAID_VOICE_NOTE));
-  assert.ok(["20260930-billing1", "20261002-research1", "20261002-research2", "20261013-cdx1", "20261013-loc1", "20261014-locfix2", "20261016-hs1", "20261016-hs2", "20261016-hs3", "20261016-hs4"].some(k=>read("TURN.html").includes('src="app/newstory.jsx?v='+k+'"')));
+  assert.ok(["20260930-billing1", "20261002-research1", "20261002-research2", "20261013-cdx1", "20261013-loc1", "20261014-locfix2", "20261016-hs1", "20261016-hs2", "20261016-hs3", "20261016-hs4", "20261016-hs5"].some(k=>read("TURN.html").includes('src="app/newstory.jsx?v='+k+'"')));
 });
 
 /* ════════ R: the live voice conversation ends itself after 15 minutes (F7) ════════ */
@@ -2087,7 +2087,7 @@ await test("R a live session closes itself at its time limit with Frances's line
   const story = read("app/newstory.jsx");
   assert.ok(story.includes('onTimeLimit:message=>{ if(alive){ sessionRef.current=null; setTimeUp(String(message||"This conversation with Frances has ended.")); } },'));
   assert.ok(story.includes('timeUp && React.createElement("button",{className:"ns-btn ghost",disabled:finalizing,onClick:another},"Start another conversation")'));
-  assert.ok(["20260930-billing1", "20261014-locfix2", "20261016-hs1", "20261016-hs2", "20261016-hs3", "20261016-hs4"].some(k=>read("TURN.html").includes('src="app/livevoice.js?v='+k+'"')));
+  assert.ok(["20260930-billing1", "20261014-locfix2", "20261016-hs1", "20261016-hs2", "20261016-hs3", "20261016-hs4", "20261016-hs5"].some(k=>read("TURN.html").includes('src="app/livevoice.js?v='+k+'"')));
 });
 
 await test("R (A5) 'Start another conversation': each fragment carries its conversation; the new session's first line starts a new row (never glued into the last bubble) under a 'New conversation' divider", () => {
