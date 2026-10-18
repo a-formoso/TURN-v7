@@ -33,7 +33,7 @@ function WritingDock({ task }){
   const pick = (typeof window.getWritingPick==="function") ? window.getWritingPick() : null;
   const recStory = (typeof window.recommendedWritingModelId==="function") ? window.recommendedWritingModelId("story") : "";
   const recSpecs = (typeof window.recommendedWritingModelId==="function") ? window.recommendedWritingModelId("specs") : "";
-  const SHORT = { "claude-opus-5-5":"OPUS5.5", "claude-fable-5":"FABLE", "gemini-3.8-flash":"GEM3.8",
+  const SHORT = { "claude-opus-5-5":"OPUS5.5", "claude-fable-5":"FABLE", "gemini-3.8-flash":"GEM3.8", "gemini-4-argon":"ARGON",
     "gpt-6-astra":"ASTRA", "gpt-6.1-sol":"SOL" };
   // resolve the engine for THIS room's task (Art Room → specs, Writers' Room → story) so
   // the collapsed pill NAMES the model at a glance — whether Auto-resolved or a manual pick

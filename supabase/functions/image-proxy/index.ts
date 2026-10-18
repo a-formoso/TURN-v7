@@ -1068,7 +1068,8 @@ Deno.serve(async (req) => {
           { method: "POST", signal: AbortSignal.timeout(TEXT_PROVIDER_TIMEOUT_MS), headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents,
             generationConfig: {
               ...(reqMaxTokens ? { maxOutputTokens: reqMaxTokens } : {}),
-              ...(/^gemini-3\.8-flash(?:$|-)/.test(model) && thinkingLevel
+              // Gemini 3.8 Flash and Gemini 4 Argon take low | medium | high (Argon ignores temperature; none is sent)
+              ...(/^gemini-(?:3\.8-flash|4-argon)(?:$|-)/.test(model) && thinkingLevel
                 ? { thinkingConfig: { thinkingLevel } }
                 : {}),
             },

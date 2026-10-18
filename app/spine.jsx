@@ -355,34 +355,53 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
         React.createElement("svg",{className:"graph-svg",width:totalW,height:H,viewBox:`0 0 ${totalW} ${H}`,role:"img",
           // a summary for screen readers: how each scene's value charge moves (2026-10-09)
           "aria-label":"Value-charge graph: "+(scenes||[]).slice(0,40).map(sc=>"Scene "+sc.no+((sc.openCharge!=null&&sc.closeCharge!=null)?(" "+chargeStr(sc.openCharge)+" to "+chargeStr(sc.closeCharge)):"")).join(", ")},
-          // the charge fill clips at the zero line: amber above, blue below (2026-10-16 polish)
+          /* THE HOMEPAGE'S SPINE (owner 2026-10-18 — "the same style of graph svg as the one we have on the Homepage,
+             similar to how we had it in v6"): a warm field above the zero line and a cool one below, named POSITIVE +
+             and NEGATIVE −; each scene drops a hairline and a soft cone to zero; the line shades from amber at the
+             crests to blue in the troughs over a soft glow; the nodes sit in halos. In the app's paper palette. */
           React.createElement("defs",null,
-            React.createElement("clipPath",{id:"spClipPos"},React.createElement("rect",{x:0,y:0,width:totalW,height:yFor(0)})),
-            React.createElement("clipPath",{id:"spClipNeg"},React.createElement("rect",{x:0,y:yFor(0),width:totalW,height:H-yFor(0)}))),
-          // every other act sits on a faint shade, so the acts read as blocks
-          ruler.filter((r,k)=>!r.collapsed && k%2===1).map(r=>React.createElement("rect",{key:"sh"+r.act,className:"sp-act-shade",
-            x:bandL(r),y:0,width:bandW(r),height:H})),
-          // the zero line, and faint lines at ±3, with their values at the left edge
+            React.createElement("linearGradient",{id:"spBg",gradientUnits:"userSpaceOnUse",x1:0,y1:0,x2:0,y2:H},
+              React.createElement("stop",{offset:0,className:"sp-bg-rise",stopOpacity:.22}),
+              React.createElement("stop",{offset:yFor(0)/H,className:"sp-bg-mid",stopOpacity:0}),
+              React.createElement("stop",{offset:1,className:"sp-bg-fall",stopOpacity:.2})),
+            React.createElement("linearGradient",{id:"spLine",gradientUnits:"userSpaceOnUse",x1:0,y1:yFor(3),x2:0,y2:yFor(-3)},
+              React.createElement("stop",{offset:0,className:"sp-bg-rise"}),
+              React.createElement("stop",{offset:.5,className:"sp-line-mid"}),
+              React.createElement("stop",{offset:1,className:"sp-bg-fall"})),
+            React.createElement("linearGradient",{id:"spConeUp",x1:0,y1:0,x2:0,y2:1},
+              React.createElement("stop",{offset:0,className:"sp-cone",stopOpacity:.16}),
+              React.createElement("stop",{offset:1,className:"sp-cone",stopOpacity:0})),
+            React.createElement("linearGradient",{id:"spConeDown",x1:0,y1:0,x2:0,y2:1},
+              React.createElement("stop",{offset:0,className:"sp-cone",stopOpacity:0}),
+              React.createElement("stop",{offset:1,className:"sp-cone",stopOpacity:.16})),
+            React.createElement("filter",{id:"spGlow",x:"-10%",y:"-40%",width:"120%",height:"180%"},
+              React.createElement("feGaussianBlur",{stdDeviation:3.5}))),
+          React.createElement("rect",{className:"sp-field",x:0,y:0,width:totalW,height:H,fill:"url(#spBg)"}),
+          React.createElement("text",{className:"sp-side pos",x:10,y:SPINE_TOP-12,"aria-hidden":"true"},"POSITIVE +"),
+          React.createElement("text",{className:"sp-side neg",x:10,y:H-8,"aria-hidden":"true"},"NEGATIVE −"),
+          // the zero line
           React.createElement("line",{className:"sp-zero",x1:SPINE_PAD_X/2,y1:yFor(0),x2:totalW-SPINE_PAD_X/2,y2:yFor(0)}),
-          [3,-3].map(g=>React.createElement("line",{key:"g"+g,className:"sp-grid",x1:SPINE_PAD_X/2,y1:yFor(g),x2:totalW-SPINE_PAD_X/2,y2:yFor(g)})),
-          [[3,"+3"],[0,"0"],[-3,"\u22123"]].map(([g,t])=>React.createElement("text",{key:"yl"+g,className:"sp-ylab",
-            x:4,y:yFor(g)-4,"aria-hidden":"true"},t)),
           // act dividers (before each act except the first)
           ruler.slice(1).map(r => React.createElement("line",{key:"ad"+r.act,className:"sp-act",
             x1:bandL(r),y1:6,x2:bandL(r),y2:H-4})),
           // folded acts — a quiet band, click to unfold
           ruler.filter(r=>r.collapsed).map(r => React.createElement("rect",{key:"cb"+r.act,className:"sp-fold",
             x:bandL(r)+3,y:6,width:SPINE_FOLD_W-6,height:H-12,rx:6,onClick:()=>toggle(r.act)})),
-          // the soft charge fill between the line and zero (hidden while following a character)
-          pts.length>=2 && !follow && (()=>{ const d = smoothD(pts)+` L${pts[pts.length-1].x} ${yFor(0)} L${pts[0].x} ${yFor(0)} Z`;
-            return React.createElement("g",{pointerEvents:"none"},
-              React.createElement("path",{className:"sp-area pos",d,clipPath:"url(#spClipPos)"}),
-              React.createElement("path",{className:"sp-area neg",d,clipPath:"url(#spClipNeg)"})); })(),
+          // each scene's drop to zero: a soft cone and a hairline (hidden while following a character)
+          !follow && React.createElement("g",{pointerEvents:"none"},
+            pts.map(p=>{ const z = yFor(0), half = Math.max(6, Math.min(26, colW*0.34)), up = p.y < z;
+              if(Math.abs(p.y - z) < 2) return null;
+              return React.createElement(React.Fragment,{key:"dz"+p.i},
+                React.createElement("path",{className:"sp-cone-fill",d:`M${p.x} ${p.y} L${p.x+half} ${z} L${p.x-half} ${z} Z`,
+                  fill:up?"url(#spConeUp)":"url(#spConeDown)"}),
+                React.createElement("line",{className:"sp-drop",x1:p.x,y1:p.y,x2:p.x,y2:z})); })),
           // a guide down the selected scene's column, so the point and its tile below connect
           pts.filter(p=>p.s.id===selId).map(p=>React.createElement("line",{key:"guide",className:"sp-guide",
             x1:p.x,y1:SPINE_TOP-14,x2:p.x,y2:H-6})),
           // the spine line (recedes while following, so the character's arc reads on top)
-          pts.length>=2 && React.createElement("path",{className:"spine-line",d:smoothD(pts),fill:"none",
+          pts.length>=2 && React.createElement("path",{className:"spine-glow",d:smoothD(pts),fill:"none",stroke:"url(#spLine)",
+            filter:"url(#spGlow)",pointerEvents:"none",opacity:follow?.12:.45}),
+          pts.length>=2 && React.createElement("path",{className:"spine-line",d:smoothD(pts),fill:"none",stroke:"url(#spLine)",
             strokeLinejoin:"round",strokeLinecap:"round",pointerEvents:"none",opacity:follow?.3:1}),
           // follow overlay — the character's own arc through their driven scenes
           follow && fpts.length>=2 && React.createElement("path",{d:smoothD(fpts),fill:"none",
@@ -402,6 +421,7 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
                 stroke:follow.color,strokeWidth:1.5,opacity:.9}),
               fTurn && React.createElement("circle",{cx:p.x,cy:p.y,r:big?15:13,fill:"none",
                 stroke:follow.color,strokeWidth:1.5,strokeDasharray:"3 3",opacity:.75}),
+              React.createElement("circle",{className:"sp-halo "+chargeCls(p.s.closeCharge),cx:p.x,cy:p.y,r:big?11:8}),
               big && React.createElement("circle",{className:"sp-peak "+chargeCls(p.s.closeCharge),cx:p.x,cy:p.y,r:9.5}),
               React.createElement("circle",{className:"spine-node "+chargeCls(p.s.closeCharge),cx:p.x,cy:p.y,r:r0}),
               flagged && React.createElement("circle",{className:"sp-flag",cx:p.x,cy:p.y,r:r0+1.5}),

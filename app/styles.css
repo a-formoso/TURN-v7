@@ -10363,3 +10363,35 @@ html[data-theme="light"]{
    kept the 9px right padding meant for the label, so the initial sat off-centre; the padding now follows the label */
 .acct-chip:has(.acct-cloud.quiet){padding-right:3px;transition:background .12s,padding-right .45s cubic-bezier(.22,1,.36,1)}
 .acct-wrap:hover .acct-chip:has(.acct-cloud.quiet),.acct-chip:has(.acct-cloud.quiet):focus-visible{padding-right:9px}
+
+/* ============================ ONE COLUMN LINE IN THE ART ROOM AND ON HOME (owner 2026-10-18: "Fix the vertical line in Art
+   Room") — the tabs' page scrolls under a heading that doesn't, so a visible scrollbar narrowed it and its centred
+   column (and its hairline rails) sat half a scrollbar left of the heading's. Reserving the gutter on both edges
+   keeps both columns centred on the same line; overlay scrollbars reserve nothing and change nothing. */
+.app.hs.room-art .artroom{scrollbar-gutter:stable both-edges}
+/* Home scrolls under its top bar the same way */
+.hd-root .hd-scroll{scrollbar-gutter:stable both-edges}
+
+/* ============================ THE SPINE IN THE HOMEPAGE'S STYLE (owner 2026-10-18, "similar to how we had it in v6")
+   spine.jsx: a warm field over the zero line, a cool one under it, POSITIVE + / NEGATIVE − at the left; a hairline and
+   a soft cone from each scene to zero; the line graded amber → ink → blue over a soft glow; haloed nodes. The paper
+   palette (dark theme: the same tokens re-pointed). */
+.spine-hs .sp-bg-rise{stop-color:var(--hs-rise,var(--pos))}
+.spine-hs .sp-bg-mid{stop-color:var(--hs-bone,var(--bg-2))}
+.spine-hs .sp-bg-fall{stop-color:var(--hs-fall,var(--neg))}
+.spine-hs .sp-line-mid{stop-color:var(--hs-ink-2,var(--txt-1))}
+.spine-hs .sp-cone{stop-color:var(--hs-ink-2,var(--txt-1))}
+.spine-hs .sp-side{font:400 9.5px var(--f-mono);letter-spacing:.1em}
+.spine-hs .sp-side.pos{fill:var(--hs-amber-ink,var(--pos-ink))}
+.spine-hs .sp-side.neg{fill:var(--hs-blue-display,var(--neg))}
+.spine-hs .sp-drop{stroke:var(--hs-ink-2,var(--txt-1));stroke-width:1;opacity:.14}
+.spine-hs .sp-zero{stroke:var(--hs-ink-2,var(--txt-1));opacity:.22}
+.spine-hs .spine-line{stroke-width:2.2}
+.spine-hs .spine-glow{stroke-width:7}
+.spine-hs .sp-halo{stroke:none;opacity:.16}
+.spine-hs .sp-halo.pos{fill:var(--hs-rise,var(--pos))}
+.spine-hs .sp-halo.neg{fill:var(--hs-fall,var(--neg))}
+.spine-hs .sp-halo.zero{fill:var(--hs-sub,var(--txt-2))}
+.spine-hs .spine-node{stroke:var(--hs-surface,#fff);stroke-width:2}
+.spine-hs .sp-kind{stroke:transparent}
+.spine-hs .spine-line,.spine-hs .spine-glow{stroke:url(#spLine)}

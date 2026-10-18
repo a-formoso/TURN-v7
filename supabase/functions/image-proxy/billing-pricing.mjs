@@ -79,6 +79,8 @@ export const TEXT_PROVIDER_USD_PER_1M = Object.freeze({
   "claude-fable-5": { input: 10, output: 50 },
   // Google introductory Gemini 3.8 Flash pricing through 2026-12-31 (see TEXT_PRICE_CHANGES).
   "gemini-3.8-flash": { input: 0.75, output: 3.75 },
+  // Gemini 4 Argon (owner 2026-10-18): Google's introductory price through 2026-11-30 (see TEXT_PRICE_CHANGES)
+  "gemini-4-argon": { input: 2, output: 10 },
   // up to 272K input tokens; above that TEXT_LONG_CONTEXT applies (both GPT-6 engines)
   "gpt-6-astra": { input: 10, output: 50 },
   "gpt-6.1-sol": { input: 2, output: 10 },
@@ -93,12 +95,16 @@ export const TEXT_CACHE_READ_USD_PER_1M = Object.freeze({
   "claude-fable-5": 1,
   "gpt-6-astra": 1,
   "gpt-6.1-sol": 0.1,
+  // Gemini caches long prompts (4,096+ tokens) by itself; a cached token is read at this price
+  "gemini-4-argon": 0.1,
 });
 export const TEXT_CACHE_WRITE_MULTIPLIER = 1.25;
 
-/* Dated list-price changes: from `from` on, the model costs these rates. */
+/* Dated list-price changes: from `from` on, the model costs these rates (and `cacheRead`, when given). */
 export const TEXT_PRICE_CHANGES = Object.freeze([
   Object.freeze({ model: "gemini-3.8-flash", from: "2027-01-01T00:00:00Z", input: 1.5, output: 7.5 }),
+  // Google: $4 / $20 (cached input $0.20) from 1 December 2026 — from midnight UTC, never after Google's own switch
+  Object.freeze({ model: "gemini-4-argon", from: "2026-12-01T00:00:00Z", input: 4, output: 20, cacheRead: 0.2 }),
 ]);
 
 /* Long-context tiers: above `aboveInputTokens` input tokens the whole call costs these rates. */
@@ -228,13 +234,18 @@ export function textRates(model, { nowMs = Date.now(), inputTokens = 0 } = {}) {
   const key = textPriceKey(model);
   if (!key) return null;
   let { input, output } = TEXT_PROVIDER_USD_PER_1M[key];
+  let changedCacheRead = null;
   for (const c of TEXT_PRICE_CHANGES) {
-    if (c.model === key && Number(nowMs) >= Date.parse(c.from)) ({ input, output } = c);
+    if (c.model === key && Number(nowMs) >= Date.parse(c.from)) {
+      ({ input, output } = c);
+      if (c.cacheRead != null) changedCacheRead = c.cacheRead;
+    }
   }
   const long = TEXT_LONG_CONTEXT[key];
   const isLong = !!long && Number(inputTokens) > long.aboveInputTokens;
   if (isLong) ({ input, output } = long);
-  const cacheRead = (isLong && long.cacheRead != null) ? long.cacheRead : (TEXT_CACHE_READ_USD_PER_1M[key] ?? input);
+  const cacheRead = (isLong && long.cacheRead != null) ? long.cacheRead
+    : (changedCacheRead != null ? changedCacheRead : (TEXT_CACHE_READ_USD_PER_1M[key] ?? input));
   return { key, input, output, cacheRead, cacheWrite: input * TEXT_CACHE_WRITE_MULTIPLIER };
 }
 
@@ -434,11 +445,14 @@ export function normaliseTextUsage(provider, data, model = "") {
     };
   }
   if (provider === "google") {
-    // Gemini bills thinking tokens as output; they are reported apart from the candidates
+    // Gemini bills thinking tokens as output; they are reported apart from the candidates. Its own prompt cache
+    // (implicit, no write charge) is counted inside promptTokenCount: that part is billed as a cache read
+    const prompt = num(u.promptTokenCount ?? u.prompt_token_count);
+    const cached = Math.min(prompt, num(u.cachedContentTokenCount ?? u.cached_content_token_count));
     return {
-      inputTokens: num(u.promptTokenCount ?? u.prompt_token_count),
+      inputTokens: prompt - cached,
       outputTokens: num(u.candidatesTokenCount ?? u.candidates_token_count) + num(u.thoughtsTokenCount ?? u.thoughts_token_count),
-      cacheWriteTokens: 0, cacheReadTokens: 0,
+      cacheWriteTokens: 0, cacheReadTokens: cached,
     };
   }
   if (provider === "openai" && textCachesByDefault(model)) {

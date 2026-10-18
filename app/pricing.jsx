@@ -69,6 +69,7 @@
         "gpt-6-astra": 0.60,
         "gpt-6.1-sol": 0.12,
         "gemini-3.8-flash": 0.24,
+        "gemini-4-argon": 0.12,
         muse: 0.09,
         vision: 0.60,
         default: 0.30,

@@ -5,7 +5,7 @@
    held and settled. Offline: the server's pure pricing module is imported; the app and index.ts are checked at
    source level.
 
-     A  the picker: exactly Opus 5.5, Fable 5, Gemini 3.8 Flash, GPT-6 Astra, GPT-6.1 Sol
+     A  the picker: exactly Opus 5.5, Fable 5, Gemini 4 Argon (2026-10-18), Gemini 3.8 Flash, GPT-6 Astra, GPT-6.1 Sol
      B  removed ids: no price, no route, no trial default; an older app's id is served on its successor
      C  GPT-6.1 Sol's price, long-context tier and reasoning effort
      D  OpenAI cache writes: the hold prices all input as a write; the settle bills reads, writes and the rest,
@@ -34,8 +34,8 @@ function test(name, fn){
 const modelsBlock = ai.slice(ai.indexOf("const WRITING_MODELS = ["), ai.indexOf("];", ai.indexOf("const WRITING_MODELS = [")));
 const ids = [...modelsBlock.matchAll(/\{\s*id:"([^"]+)"/g)].map((m) => m[1]);
 
-test("A the picker offers exactly the five engines, Opus 5.5 first", () => {
-  assert.deepEqual(ids, ["claude-opus-5-5", "claude-fable-5", "gemini-3.8-flash", "gpt-6-astra", "gpt-6.1-sol"]);
+test("A the picker offers exactly the six engines, Opus 5.5 first (Gemini 4 Argon added 2026-10-18)", () => {
+  assert.deepEqual(ids, ["claude-opus-5-5", "claude-fable-5", "gemini-4-argon", "gemini-3.8-flash", "gpt-6-astra", "gpt-6.1-sol"]);
   const providers = [...modelsBlock.matchAll(/provider:"([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(providers)].sort(), ["anthropic", "google", "openai"]);
   for (const id of ids) assert.ok(P.textPriceKey(id), id + " has a price");
