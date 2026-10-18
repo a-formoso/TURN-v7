@@ -467,7 +467,7 @@ function NSInterview(props){
   return React.createElement(NSLiveInterview,{...props,onUseFallback:()=>setUseFallback(true)});
 }
 
-function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, formatOwnerLabel, onImportScript }){
+function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, formatOwnerLabel, onImportScript, initialSeedText }){
   const seedTypes = (typeof onImportScript==="function") ? SEED_TYPES.concat([SEED_SCRIPT]) : SEED_TYPES;
   // the writing model developing THIS story — synced with the global drafting picker,
   // so loglines, research, synopsis and the spine build all run on the picked engine
@@ -489,7 +489,8 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
   const [frameworkTouched, setFrameworkTouched] = React.useState(false);
   const [autoShape, setAutoShape] = React.useState(null);   // {formatLabel?, frameworkLabel?, why} — shown on the logline step
   const [seed, setSeed] = React.useState("logline");
-  const [text, setText] = React.useState("");
+  // a prose text from Import your script arrives as the seed (2026-10-18) — the writer develops it from here
+  const [text, setText] = React.useState(()=> String(initialSeedText||""));
   const [step, setStep] = React.useState("seed");  // seed | interview | format(=shape) | loglines | research | synopsis
   const [loading, setLoading] = React.useState(false);
   const [candidates, setCandidates] = React.useState([]);

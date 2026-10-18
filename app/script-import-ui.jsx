@@ -5,7 +5,7 @@
    split at a line), warnings in plain words, and the rights confirmation. "Import script" hands the film to the
    app (onImport), which creates it the way New Story does. The read — scene cards, beats and the cast from the
    script — is phase 2. Window family classes (ns-*) as New Story. */
-function ScriptImportWindow({ onClose, onImport, busy=false }){
+function ScriptImportWindow({ onClose, onImport, onUseAsIdea, busy=false }){
   const h = React.createElement;
   const SI = window.ScriptImport;
   const [stage, setStage] = React.useState("source");   // "source" | "preview"
@@ -21,6 +21,7 @@ function ScriptImportWindow({ onClose, onImport, busy=false }){
   const [framework, setFramework] = React.useState("");
   const [rights, setRights] = React.useState(false);
   const [splitOpen, setSplitOpen] = React.useState(-1);
+  const [proseOk, setProseOk] = React.useState(false);   // "Import it as it is" chosen for a prose text
   const fileRef = React.useRef(null);
 
   React.useEffect(()=>{ const k=(e)=>{ if(e.key==="Escape" && !busy) onClose(); }; window.addEventListener("keydown", k); return ()=>window.removeEventListener("keydown", k); },[busy]);
@@ -96,6 +97,20 @@ function ScriptImportWindow({ onClose, onImport, busy=false }){
   const firstLine = (sc)=>{ const b = (sc.blocks||[]).find(x=>x.type!=="scene"); return b ? b.text : ""; };
   const kindWord = { fountain:"Fountain", fdx:"Final Draft", highland:"Highland", text:"plain text", paste:"pasted text" }[parsed.source] || "your script";
 
+  // PROSE, NOT A SCREENPLAY: offer New Story first (the studio writes the screenplay from it)
+  if(parsed.looksLikeProse && !proseOk){
+    return h("div",{className:"ns-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget && !busy) onClose(); }},
+      h("div",{className:"ns-panel si-panel",role:"dialog","aria-modal":"true","aria-label":"Import your script"}, head,
+        h("div",{className:"ns-body si-body"},
+          h("div",{className:"si-prose"},
+            h("b",null,"This reads like prose, not a screenplay"),
+            h("span",null,"There are no scene headings (INT. / EXT.) and no character names over dialogue \u2014 it looks like a story, a treatment or a synopsis ("+st.words+" words). The studio can write the screenplay from it, or bring it in as it is."),
+            h("div",{className:"si-prose-acts"},
+              typeof onUseAsIdea==="function" && h("button",{type:"button",className:"ns-btn primary",onClick:()=>onUseAsIdea(parsed.prose||"")},"Use it as the idea in New Story \u2192"),
+              h("button",{type:"button",className:"ns-btn ghost",onClick:()=>setProseOk(true)},"Import it as it is"))),
+          h("div",{className:"ns-foot"},
+            h("button",{className:"ns-btn ghost",onClick:()=>{ setStage("source"); setParsed(null); }},"\u2190 Back")))));
+  }
   const preview = h("div",{className:"ns-body si-body"},
     h("div",{className:"si-tiles"},
       tile("Scenes", String(st.scenes)), tile("Pages", "≈ "+st.pages), tile("Screen time", "≈ "+st.minutes+" min"), tile("Speaking", String(st.speaking))),

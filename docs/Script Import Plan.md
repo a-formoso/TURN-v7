@@ -2,6 +2,18 @@
 
 Status (2026-10-18): **approved by the owner** ("yes to all, except 3 (use Gemini 4)"). **Phase 1 is built** and is
 visible to the admin account only until the read (phase 2) lands, so users never meet a half-built feature.
+**Phase 2 (the read) is built** (2026-10-18), still admin only until the ways in (phase 3) go public: app/script-read.js
+reads each scene (card + beats that group the existing lines; words never change), then the cast and the brief; the app
+asks with the price, shows progress with Stop, offers "Read my script / Read the rest" in a Writers' Room strip, shows
+dismissable Story notes in the Scene panel (and a film-wide Hide), and keeps each scene's imported words the first time
+it is rewritten, for **Restore the import**.
+
+**Short scripts and other shapes (owner's question, 2026-10-18):** a one-page script imports as one or two scenes and
+is read as it is; the length only SUGGESTS a format (it can be changed), and for an imported film the format's scene
+counts are guidance, never a request to add or cut scenes. A story built differently is read in the structure that
+fits it best, and where it doesn't do what the method expects, that is a dismissable note. Prose — no scene headings
+and no character cues (a short story, a treatment, a synopsis) — is recognised in the preview, which offers to **use it
+as the idea in New Story** (the studio writes the screenplay) or to import it as it is.
 
 Decisions: (1) import is **Entry B** in `docs/Story Pipeline.md`; (2) the read is charged as normal writing (held
 and settled per scene); a trial account previews and fixes for free and reads on the default light engine up to

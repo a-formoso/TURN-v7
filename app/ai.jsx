@@ -222,7 +222,9 @@ if(!window.claude || typeof window.claude.complete !== "function"){
       // window.__forceWritingModel pins the model for the duration of a run regardless of
       // the user's drafting picker — used to keep ALL Writers' Room agents on Claude.
       const forcedId = window.__forceWritingModel;
+      // opts.modelId: one call on a named engine (the script read's Gemini 4 Argon, 2026-10-18) — a run's pin still wins
       const m = (forcedId && WRITING_MODELS.find(x=>x.id===forcedId))
+        || (opts.modelId && WRITING_MODELS.find(x=>x.id===opts.modelId))
         || WRITING_MODELS.find(x=>x.id===getWritingModelId(window.__writingTaskHint)) || WRITING_MODELS[0];
       const sb = (typeof window.sbClient==="function") ? window.sbClient() : null;
       const fail = (msg)=>{ const m = safeError(msg); if(typeof window.appToast==="function") window.appToast(m,"error"); throw new Error(m); };

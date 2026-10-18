@@ -195,7 +195,32 @@ function ChargeEditor({ scene, onCharge, onUpdate, readOnly, unnamedValues, onNa
         React.createElement(Stepper,{value:scene.closeCharge,readOnly,label:"closing value",onChange:v=>onCharge("closeCharge",v)}))));
 }
 
+/* STORY NOTES on an IMPORTED script (owner 2026-10-18, docs/Script Import Plan.md): the writer's script was read as
+   written, so what the method would flag is a dismissable NOTE, never a verdict to "recharge it or cut it"; the read's
+   own observations and the fields it had to guess ("Check: closing charge") sit beside it. The film can turn notes off. */
+const READ_UNSURE_WORD = { title:"title", summary:"summary", act:"act", openValue:"opening value", openCharge:"opening charge",
+  closeValue:"closing value", closeCharge:"closing charge", kind:"kind", driver:"driver", objective:"objective",
+  turningPoint:"turning point", beats:"beats", valueAtStake:"value at stake", conf:"conflict source" };
+function ReadNotes({ scene, project, onUpdate, readOnly }){
+  if(!scene || !scene.imported || scene.unread) return null;
+  if(project && project.storyNotesOff) return null;
+  const notes = (scene.readNotes||[]).filter(Boolean);
+  const unsure = (scene.readUnsure||[]).map(k=>READ_UNSURE_WORD[k]||null).filter(Boolean);
+  if(!notes.length && !unsure.length) return null;
+  const drop = (i)=> onUpdate && onUpdate(scene.id,{ readNotes:notes.filter((_,k)=>k!==i) });
+  return React.createElement("div",{className:"read-notes",role:"note"},
+    React.createElement("div",{className:"read-notes-head"},React.createElement(Icon.info||Icon.alert,{s:12}),"Story notes · read from your script"),
+    notes.map((n,i)=>React.createElement("div",{key:i,className:"read-note"},
+      React.createElement("span",null,n),
+      !readOnly && React.createElement("button",{type:"button",className:"read-note-x",title:"Dismiss this note","aria-label":"Dismiss this note",onClick:()=>drop(i)},
+        React.createElement(Icon.x,{s:12})))),
+    unsure.length>0 && React.createElement("div",{className:"read-unsure"},"Check: "+unsure.join(", ")+" — the read had to guess",
+      !readOnly && React.createElement("button",{type:"button",className:"read-note-x",title:"Looks right","aria-label":"Looks right",onClick:()=>onUpdate&&onUpdate(scene.id,{readUnsure:[]})},
+        React.createElement(Icon.check||Icon.x,{s:12}))));
+}
 function Verdict({ scene }){
+  // an imported script's turn is read, not judged: the read's Story notes say it (ReadNotes)
+  if(scene && scene.imported) return null;
   const ti = turnInfo(scene), { flagged } = ti;
   // titles + flag icon come from the project's narrative framework (frameworks.jsx);
   // the detail lines stay charge-factual.
@@ -482,6 +507,7 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
           React.createElement(ChargeEditor,{scene,onCharge,onUpdate,readOnly,unnamedValues,onNameAllValues,namingValues}),
           React.createElement("div",{style:{height:12}}),
           React.createElement(Verdict,{scene}),
+          React.createElement(ReadNotes,{scene,project,onUpdate,readOnly}),
           // NEEDS REDRAFT — the card changed after this scene's script was written
           (stale && stale.length) ? React.createElement("div",{className:"insp-stale",role:"status"},
             React.createElement("span",null,React.createElement("b",null,"Script out of date: "),"changed since the draft \u2014 ",stale.join(", "),"."),

@@ -778,6 +778,13 @@ function App(){
   // IMPORT A SCREENPLAY (owner 2026-10-18, docs/Script Import Plan.md — phase 1, admin only until the read lands)
   const [scriptImportOpen, setScriptImportOpen] = React.useState(false);
   const [scriptImporting, setScriptImporting] = React.useState(false);
+  // THE READ (phase 2): { i, total, no, phase:"scenes"|"cast"|"film", run, stopping } while it runs
+  const [scriptReading, setScriptReading] = React.useState(null);
+  const [newStorySeedText, setNewStorySeedText] = React.useState("");
+  const [scriptReadOffer, setScriptReadOffer] = React.useState(0);
+  // after a read (and its cast pass) every read scene's script takes today's card as its baseline
+  const [readRestamp, setReadRestamp] = React.useState(null);
+  React.useEffect(()=>{ if(!scriptReadOffer) return; const t = setTimeout(()=>{ readImportedScript({}); }, 700); return ()=>clearTimeout(t); },[scriptReadOffer]);
 
   // ---- cloud auth (Supabase) ----
   const [session, setSession] = React.useState(null);
@@ -6640,6 +6647,13 @@ function App(){
     const prev = drafts[id];
     // a manual edit or a written beat keeps the card snapshot of the draft it edits
     if(next && !next.cardSnap && prev && prev.cardSnap) next = { ...next, cardSnap:prev.cardSnap };
+    /* THE IMPORTED WORDS ARE KEPT (2026-10-18): the first time an imported scene's text is rewritten (an edit, a
+       Redraft), its imported blocks are kept with the draft so "Restore the import" can always bring them back */
+    if(next && prev && prev.imported && !("importedBlocks" in next)){
+      const words = (b)=> (b||[]).map(x=>(x&&x.type)+"\u0001"+(x&&x.text)).join("\u0002");
+      const kept = prev.importedBlocks || (words(prev.blocks)!==words(next.blocks) ? (prev.blocks||[]).map(b=>({ ...b })) : null);
+      next = { ...next, imported:prev.imported, ...(kept ? { importedBlocks:kept } : {}) };
+    }
     /* THE CAP NEVER EATS WHAT UNDO PROMISED (2026-09-28). Every single-line manual edit is a
        version too, so a normal editing pass used to push out the draft a Redraft had promised
        "Undo restores it". Over the cap, the oldest IN-BETWEEN manual step goes first (a manual
@@ -6948,7 +6962,166 @@ function App(){
       setScriptImportOpen(false);
       if(typeof window.appToast==="function") window.appToast("\u201c"+title+"\u201d is in \u2014 "+film.scenes.length+" scene"+(film.scenes.length!==1?"s":"")
         +" and "+film.characters.length+" character"+(film.characters.length!==1?"s":"")+", your screenplay exactly as written.","ok");
+      // the read is offered straight away (it asks, with its price); "Not now" leaves the Read my script strip
+      setScriptReadOffer(Date.now());
     } finally { setScriptImporting(false); }
+  };
+
+  /* THE READ (phase 2, docs/Script Import Plan.md): the imported scenes that aren't read yet are read one by one into
+     their scene card and beats (script-read.js — the words never change; each block only gets its beat number), then
+     the cast and the film's brief. Priced and confirmed first; Stop keeps what was read; a failure that retrying can't
+     fix (plan, credits, sign-in) or the same failure twice stops the run; "Read the rest" continues later. The spine
+     fills in as each scene lands. Gemini 4 Argon reads by default (a trial account on the light default engine). */
+  const scriptReadRef = React.useRef({});
+  scriptReadRef.current = { scenes, drafts, characters, project, beatsMap };
+  const readImportedScript = async (opts)=>{
+    opts = opts || {};
+    const SR = window.ScriptRead;
+    if(scriptReading || !SR || !canMutateWritersRoom()) return;
+    if(!(typeof aiAvailable==="function" && aiAvailable())){ if(typeof window.appToast==="function") window.appToast("Sign in to read your script — the read runs on the writing engine.","error"); return; }
+    if(!planActive()){ requirePlan("read your script"); return; }
+    const ordered0 = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes) : scenes.slice();
+    const todo = ordered0.filter(sc=>sc && sc.imported && sc.unread);
+    const needFilm = !String((project && project.logline)||"").trim();
+    if(!todo.length && !needFilm) return;
+    const modelId = SR.engineFor();
+    const label = ((window.WRITING_MODELS||[]).find(m=>m.id===modelId)||{}).label || modelId;
+    const est = SR.estimate({ scenes:todo, drafts }, modelId, { withFilm:true });
+    if(opts.ask!==false && typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({
+        title: todo.length ? "Read "+todo.length+" scene"+(todo.length!==1?"s":"")+" of your script?" : "Read your script’s brief?",
+        body: label+" reads "+(todo.length ? "each scene into its scene card and beats, then the cast and" : "")+" the film’s logline and synopsis — about "
+          +(est.lo===est.hi ? est.lo : est.lo+"–"+est.hi)+" credits. Your words aren’t changed. You can stop at any time; what’s read is kept.",
+        confirmLabel: todo.length ? "Read "+todo.length+" scene"+(todo.length!==1?"s":"") : "Read the brief",
+        cancelLabel: "Not now" });
+      if(!ok) return;
+    }
+    const owner = projIdRef.current;
+    const run = { stop:false };
+    const keepWords = (typeof museStoryWords==="function") ? museStoryWords(scenes, project) : [];
+    const total = todo.length;
+    let done = 0, prevCard = null, halted = null, prevFail = null;
+    const failed = [];
+    const castFor = ()=> (scriptReadRef.current.characters||[]).map(c=>({ id:c.id, name:c.name, aliases:c.aliases||[] }));
+    const prevList = [];
+    const readCards = {};   // what this run read, by scene id (the state may not have rendered the last one yet)
+    // the scenes already read, as context for the next
+    ordered0.forEach(sc=>{ if(sc && !sc.unread && sc.imported) prevList.push(sc); });
+    try{
+      for(let i=0;i<todo.length;i++){
+        if(owner!==projIdRef.current || !canMutateWritersRoom()) break;
+        if(run.stop) break;
+        const sc = todo[i];
+        setScriptReading({ i:i+1, total, no:sc.no, phase:"scenes", run });
+        const d = (scriptReadRef.current.drafts||{})[sc.id] || {};
+        const blocks = d.blocks || [];
+        if(!blocks.length){ continue; }
+        try{
+          const r = await SR.readScene({ modelId, title:project && project.title, format:(typeof formatOf==="function" && formatOf(project).label)||"",
+            framework:(project && project.framework)||"threeact", no:sc.no, total:scenes.length, blocks,
+            prev:prevList.slice(-6), prevCard, cast:castFor(), keepWords,
+            fallbackDriver:sc.driver, fallbackTitle:sc.title, fallbackAct:sc.act });
+          if(owner!==projIdRef.current) break;
+          const tagged = SR.applyBeats(blocks, r.beatOf);
+          setScenes(list=>list.map(x=> x.id===sc.id ? { ...x, ...r.card, unread:false, readAt:new Date().toISOString(),
+            readNotes:r.notes, readUnsure:r.unsure, readEngine:modelId } : x));
+          setBeatsMap(m=>{ const next = { ...m, [sc.id]:r.beats }; return (typeof withBeatMapIdentity==="function") ? withBeatMapIdentity(next) : next; });
+          // the card was READ FROM this script, so the script is its baseline (never "out of date — redraft")
+          const snap = (typeof window.sceneCardSnap==="function")
+            ? window.sceneCardSnap({ ...sc, ...r.card }, scriptReadRef.current.characters||characters, r.beats) : undefined;
+          setDrafts(m=> m[sc.id] ? { ...m, [sc.id]:{ ...m[sc.id], blocks:tagged, ...(snap ? { cardSnap:snap } : {}) } } : m);
+          prevList.push({ ...sc, ...r.card });
+          readCards[sc.id] = r.card;
+          prevCard = r.card; done++; prevFail = null;
+        }catch(e){
+          const f = (typeof window.screenplayFailureFromError==="function") ? window.screenplayFailureFromError(e, "read") : { kind:"service" };
+          failed.push({ no:sc.no, failure:f });
+          if(typeof window.turnFailureNeedsAction==="function" && window.turnFailureNeedsAction(f)){ halted = { no:sc.no, failure:f }; break; }
+          if(typeof window.turnRepeatedServiceFailure==="function" && window.turnRepeatedServiceFailure(prevFail, f)){ halted = { no:sc.no, failure:f, repeated:true }; break; }
+          prevFail = f;
+        }
+      }
+      // the cast and the brief, once every scene is read (or there was nothing left to read)
+      const allRead = owner===projIdRef.current && !run.stop && !halted
+        && ordered0.every(x=>!(x && x.imported && x.unread) || readCards[x.id]);
+      if(allRead){
+        const S = ordered0.map(x=> readCards[x.id] ? { ...x, ...readCards[x.id], unread:false } : x);
+        const D = scriptReadRef.current.drafts||{};
+        const cast0 = scriptReadRef.current.characters||[];
+        if(cast0.length){
+          setScriptReading({ i:total, total, phase:"cast", run });
+          const sampleOf = (c)=>{ const out = []; const names = [c.name].concat(c.aliases||[]).map(n=>String(n).toLowerCase());
+            S.forEach(sc=>{ const bs=(D[sc.id]||{}).blocks||[]; bs.forEach((b,k)=>{ if(b.type!=="char") return;
+              const nm = (window.ScriptImport ? window.ScriptImport.cueName(b.text) : b.text).toLowerCase();
+              if(names.indexOf(nm)<0) return; let j=k+1; while(bs[j]&&bs[j].type==="paren") j++; if(bs[j]&&bs[j].type==="dia"&&out.length<6) out.push(bs[j].text); }); });
+            return out; };
+          try{
+            const castRead = await SR.readCast({ modelId, title:project && project.title, keepWords,
+              scenes:S.map(x=>({ no:x.no, title:x.title, summary:x.summary })),
+              cast:cast0.map(c=>({ id:c.id, name:c.name, lines:0, scenes:S.filter(x=>x.driver===c.id).length, voiceOnly:!!c.voiceOnly, samples:sampleOf(c) })) });
+            if(owner===projIdRef.current && castRead) setCharacters(list=>list.map(c=> castRead[c.id] ? { ...c, ...Object.fromEntries(Object.entries(castRead[c.id]).filter(([k,v])=>v)), readFromScript:true } : c));
+          }catch(e){ failed.push({ no:"cast", failure:(window.screenplayFailureFromError?window.screenplayFailureFromError(e,"read"):null) }); }
+        }
+        if(owner===projIdRef.current && !run.stop && !String((scriptReadRef.current.project||{}).logline||"").trim()){
+          setScriptReading({ i:total, total, phase:"film", run });
+          try{
+            const brief = await SR.readFilm({ modelId, title:project && project.title, keepWords,
+              format:(typeof formatOf==="function" && formatOf(project).label)||"", framework:(project&&project.framework)||"threeact",
+              scenes:S.map(x=>({ no:x.no, act:x.act, title:x.title, summary:x.summary, openValue:x.openValue, openCharge:x.openCharge, closeValue:x.closeValue, closeCharge:x.closeCharge })),
+              cast:(scriptReadRef.current.characters||[]).map(c=>({ name:c.name, role:c.role })) });
+            if(owner===projIdRef.current && brief){
+              const composed = (typeof composeStoryBrief==="function") ? composeStoryBrief(brief.logline, brief.synopsis ? { synopsis:brief.synopsis } : null) : brief.logline;
+              setProject(p=>({ ...p,
+                ...(brief.logline ? { logline:brief.logline } : {}), ...(brief.premise ? { premise:brief.premise } : {}),
+                ...(brief.genre && !p.genre ? { genre:brief.genre } : {}),
+                ...(brief.controllingIdea && brief.controllingIdea.value ? { controllingIdea:brief.controllingIdea } : {}),
+                ...(brief.setting && (brief.setting.location||brief.setting.period) ? { setting:brief.setting } : {}),
+                ...(brief.synopsis ? { synopsis:brief.synopsis } : {}),
+                sourceBrief:composed, sourceBriefAt:new Date().toISOString(),
+                importRead:{ at:new Date().toISOString(), engine:modelId } }));
+            }
+          }catch(e){ failed.push({ no:"brief", failure:(window.screenplayFailureFromError?window.screenplayFailureFromError(e,"read"):null) }); }
+        }
+      }
+    } finally { setScriptReading(null); if(owner===projIdRef.current && Object.keys(readCards).length) setReadRestamp(Object.keys(readCards)); }
+    if(owner!==projIdRef.current){
+      if(typeof window.appToast==="function") window.appToast("You switched films, so the read stopped: "+done+" of "+total+" scenes were read in that film — open it and press Read the rest.","info");
+      return;
+    }
+    const notesN = (scriptReadRef.current.scenes||[]).reduce((n,x)=>n+((x && x.readNotes)||[]).length,0);
+    const left = (scriptReadRef.current.scenes||[]).filter(x=>x && x.imported && x.unread).length;
+    if(typeof window.appToast==="function"){
+      if(halted){
+        const why = (typeof window.screenplayFailureReason==="function") ? window.screenplayFailureReason(halted.failure) : "the writing service can’t be reached";
+        window.appToast("The read stopped at Scene "+halted.no+" — "+why+". "+done+" scene"+(done!==1?"s were":" was")+" read and kept; press Read the rest to continue.","error",{ force:true });
+      } else if(left){
+        window.appToast(done+" of "+total+" scene"+(total!==1?"s":"")+" read — "+left+" still to read"+(failed.length?" ("+failed.length+" couldn’t be read this time)":"")+". Press Read the rest to continue; you’re only charged for what’s read.", failed.length?"error":"info");
+      } else {
+        window.appToast("Your script is in — "+(done||total)+" scene"+((done||total)!==1?"s":"")+" read"+(notesN?" · "+notesN+" story note"+(notesN!==1?"s":"")+" to look at":"")+". Your words are unchanged.","ok");
+      }
+    }
+  };
+  React.useEffect(()=>{
+    if(!readRestamp || typeof window.sceneCardSnap!=="function") return;
+    const ids = readRestamp; setReadRestamp(null);
+    setDrafts(d=>{ const n = { ...d }; ids.forEach(id=>{ const sc = scenes.find(x=>x.id===id);
+      if(sc && n[id]) n[id] = { ...n[id], cardSnap:window.sceneCardSnap(sc, characters, beatsMap[id]) }; }); return n; });
+  },[readRestamp]);
+  const stopScriptRead = ()=>{ const r = scriptReading && scriptReading.run; if(r && !r.stop){ r.stop = true; setScriptReading(x=> x ? { ...x, stopping:true } : x); } };
+  /* RESTORE THE IMPORT: every scene back to the words it was imported with (commitVersion keeps them the first time a
+     scene is rewritten — drafts[id].importedBlocks); the current text stays in version history (Undo) */
+  const restoreImport = async ()=>{
+    if(!canMutateWritersRoom()) return;
+    const ids = scenes.map(x=>x.id).filter(id=>drafts[id] && Array.isArray(drafts[id].importedBlocks));
+    if(!ids.length){ if(typeof window.appToast==="function") window.appToast("Every scene is still exactly as imported.","info"); return; }
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Restore the imported script?",
+        body:ids.length+" scene"+(ids.length!==1?"s were":" was")+" changed since the import. They go back to the words you imported; the current text of each stays in its version history (Undo restores it).",
+        confirmLabel:"Restore "+ids.length+" scene"+(ids.length!==1?"s":"") });
+      if(!ok) return;
+    }
+    ids.forEach(id=>{ const d = drafts[id]; commitVersion(id, { ...d, blocks:d.importedBlocks.map(b=>({ ...b })), importedBlocks:undefined, restoredImportAt:new Date().toISOString() }); });
+    if(typeof window.appToast==="function") window.appToast(ids.length+" scene"+(ids.length!==1?"s are":" is")+" back to the imported words — Undo restores the edits.","ok");
   };
 
   const sel = scenes.find(s=>s.id===selId) || null;
@@ -8565,6 +8738,18 @@ function App(){
      Master, Location Scout, Colorist, Shot Designer) so the agent panels and these
      pop-ups tell the same story. */
   const studioProgress =
+    // the script read (2026-10-18): which scene, the cast, the brief — with a Stop
+    scriptReading ? {
+      role:"Script reader",
+      title: scriptReading.phase==="cast" ? "Reading the cast" : scriptReading.phase==="film" ? "Reading the film\u2019s brief"
+        : "Reading scene "+scriptReading.i+" of "+scriptReading.total,
+      detail: scriptReading.stopping ? "Stopping after this scene \u2014 what\u2019s read is kept; press Read the rest later."
+        : scriptReading.phase==="cast" ? "Who each character is, what they want and how they speak \u2014 from what the script shows."
+        : scriptReading.phase==="film" ? "The logline, the synopsis in your structure\u2019s shape and the controlling idea."
+        : "Scene "+scriptReading.no+": its scene card and beats, from your words. Nothing in the script is changed.",
+      progress: scriptReading.phase==="scenes" ? ((Number(scriptReading.i)-1+0.5)/Math.max(1, Number(scriptReading.total)))*90 : (scriptReading.phase==="cast" ? 93 : 97),
+      onStop: scriptReading.phase==="scenes" ? stopScriptRead : undefined, stopping:!!scriptReading.stopping
+    } :
     // "Redraft N out-of-date" (2026-09-28): the batch's own card — where it is, and a Stop —
     // in place of the single-scene card below, which said only "Redrafting Scene X"
     redraftingAll ? {
@@ -8993,6 +9178,34 @@ function App(){
       readOnly:writersRoomBlocked,
       railOpen,inspOpen,onToggleRail:toggleRail,onToggleInsp:toggleInsp,
       onAgents:async ()=>{ if(!canMutateWritersRoom()) return; if(await requireStory("Story Editors")) setAgentsOpen(true); }}),
+    // AN IMPORTED SCRIPT (2026-10-18): what's left to read, the Story notes and Restore the import
+    room==="writers" && project && project.importedFrom && !project.importStripHidden && (()=>{
+      const unreadN = scenes.filter(x=>x && x.imported && x.unread).length;
+      const notesN = scenes.reduce((n,x)=>n+((x && x.readNotes)||[]).length,0);
+      const changedN = scenes.filter(x=>x && drafts[x.id] && Array.isArray(drafts[x.id].importedBlocks)).length;
+      const needBrief = !unreadN && !String(project.logline||"").trim();
+      if(!unreadN && !notesN && !changedN && !needBrief) return null;
+      const SR = window.ScriptRead;
+      const est = (SR && (unreadN || needBrief)) ? SR.estimate({ scenes:scenes.filter(x=>x && x.imported && x.unread), drafts }, SR.engineFor(), { withFilm:true }) : null;
+      const allUnread = unreadN && unreadN===scenes.filter(x=>x && x.imported).length;
+      const off = !!project.storyNotesOff;
+      return React.createElement("div",{className:"import-strip",role:"status"},
+        React.createElement("div",{className:"import-strip-in"},
+          React.createElement("span",{className:"import-strip-lab"},Icon.script&&React.createElement(Icon.script,{s:13}),
+            "Imported"+(project.importedFrom.file?" from "+project.importedFrom.file:"")),
+          unreadN>0 && React.createElement("span",{className:"import-strip-t"}, unreadN+" scene"+(unreadN!==1?"s":"")+" not read yet \u2014 their cards and beats come from the read"),
+          !unreadN && notesN>0 && React.createElement("span",{className:"import-strip-t"}, notesN+" story note"+(notesN!==1?"s":"")+(off?" (hidden)":"")+" \u2014 observations from the read, in each scene\u2019s panel"),
+          !unreadN && !notesN && needBrief && React.createElement("span",{className:"import-strip-t"},"The film\u2019s logline and synopsis aren\u2019t read yet"),
+          React.createElement("span",{className:"import-strip-acts"},
+            (unreadN>0 || needBrief) && React.createElement("button",{type:"button",className:"hs-btn primary import-strip-read",disabled:writersRoomBlocked||!!scriptReading,
+                onClick:()=>readImportedScript({})},
+              (allUnread ? "Read my script" : unreadN ? "Read the rest" : "Read the brief")+(est?" \u00b7 \u2248"+(est.lo===est.hi?est.lo:est.lo+"\u2013"+est.hi)+" credits":"")),
+            notesN>0 && React.createElement("button",{type:"button",className:"hs-btn",disabled:writersRoomBlocked,
+              onClick:()=>setProject(p=>({ ...p, storyNotesOff:!p.storyNotesOff }))}, off?"Show story notes":"Hide story notes"),
+            changedN>0 && React.createElement("button",{type:"button",className:"hs-btn",disabled:writersRoomBlocked,onClick:restoreImport},"Restore the import"),
+            React.createElement("button",{type:"button",className:"import-strip-x",title:"Hide this bar","aria-label":"Hide this bar",
+              onClick:()=>setProject(p=>({ ...p, importStripHidden:true }))}, Icon.x&&React.createElement(Icon.x,{s:13})))));
+    })(),
     room==="art" && React.createElement(ViewNav,{room,view,setView,artView,setArtView,staleTabs,
       attnTabs:{ characters: wardrobeAttn },tabLocks:artTabLocks,
       readOnly:roomReadOnly,
@@ -9342,9 +9555,12 @@ function App(){
     scriptImportOpen && (typeof window.ScriptImportWindow==="function") && React.createElement(window.ScriptImportWindow,{
       busy:scriptImporting,
       onClose:()=>{ if(!scriptImporting) setScriptImportOpen(false); },
-      onImport:(film)=>importScriptFilm(film) }),
+      onImport:(film)=>importScriptFilm(film),
+      // prose, not a screenplay: New Story develops it (the studio writes the screenplay)
+      onUseAsIdea:(text)=>{ setScriptImportOpen(false); setNewStorySeedText(String(text||"").slice(0,6000)); setNewStoryOpen(true); } }),
     newStoryOpen && React.createElement(NewStoryIntake,{
-      onClose:()=>setNewStoryOpen(false),
+      onClose:()=>{ setNewStoryOpen(false); setNewStorySeedText(""); },
+      initialSeedText:newStorySeedText||undefined,
       aiOn: (typeof aiAvailable==="function" && aiAvailable()),
       initialFormat:newStoryBuildsCurrentEpisode?newStoryEpisodeFormat:undefined,
       formatLocked:newStoryBuildsCurrentEpisode,
@@ -9358,7 +9574,7 @@ function App(){
         // stopped here and sent to the plans modal, instead of consuming a build and
         // hitting a cryptic provider-funds error (CM-11) part-way through.
         if(!planActive()){ setNewStoryOpen(false); requirePlan("build a story"); return; }
-        setNewStoryOpen(false);
+        setNewStoryOpen(false); setNewStorySeedText("");
         // LAZY film creation: the blank film is minted only NOW that a story is really
         // being built — and only when the current film already holds one (an empty
         // canvas is reused instead of duplicated). Aborted intakes create nothing.

@@ -249,6 +249,12 @@
     r.author = squash(r.titlePage.author || r.titlePage.authors || "");
     r.draftDate = squash(r.titlePage["draft date"] || r.titlePage.date || "");
     r.characters = buildCharacters(r.scenes);
+    /* PROSE, NOT A SCREENPLAY (2026-10-18): no scene headings and no character cues — a story, treatment or synopsis.
+       The preview offers to use it as the idea in New Story (the studio writes the screenplay) instead */
+    const heads = r.scenes.some(s => !s.opening && s.heading);
+    const cues = r.scenes.some(s => (s.blocks || []).some(b => b.type === "char"));
+    r.looksLikeProse = !!r.scenes.length && !heads && !cues;
+    if(r.looksLikeProse) r.prose = r.scenes.flatMap(s => (s.blocks || []).map(b => b.text)).join("\n\n");
     if(!r.scenes.length) r.warnings.push("No scenes were found \u2014 check the file, or paste the script as text.");
     else if(r.scenes.length === 1 && r.scenes[0].opening) r.warnings.push("No scene headings were found (INT. / EXT.) \u2014 the whole script came in as one scene. Split it below.");
     return r;
