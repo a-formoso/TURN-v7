@@ -5,7 +5,7 @@
    split at a line), warnings in plain words, and the rights confirmation. "Import script" hands the film to the
    app (onImport), which creates it the way New Story does. The read — scene cards, beats and the cast from the
    script — is phase 2. Window family classes (ns-*) as New Story. */
-function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, busy=false, existing=null, onApplyDraft }){
+function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, busy=false, existing=null, onApplyDraft, beforeScanRead }){
   // A NEW DRAFT (phase 4): with an existing film, step 2 shows what changed scene by scene instead of a fresh preview
   const draftMode = !!(existing && Array.isArray(existing.scenes) && existing.scenes.length && typeof onApplyDraft==="function");
   const h = React.createElement;
@@ -25,6 +25,10 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
   const [splitOpen, setSplitOpen] = React.useState(-1);
   const [proseOk, setProseOk] = React.useState(false);   // "Import it as it is" chosen for a prose text
   const [removeMissing, setRemoveMissing] = React.useState(false);
+  // A SCANNED PDF (phase 5): its pages are pictures — read them with the vision model, page by page, priced first
+  const [scan, setScan] = React.useState(null);   // { file, pages, texts:[], reading, stopping, fileName }
+  const scanStop = React.useRef(false);
+  React.useEffect(()=>()=>{ scanStop.current = true; },[]);   // closing the window stops a scan read after its page
   const fileRef = React.useRef(null);
 
   React.useEffect(()=>{ const k=(e)=>{ if(e.key==="Escape" && !busy) onClose(); }; window.addEventListener("keydown", k); return ()=>window.removeEventListener("keydown", k); },[busy]);
@@ -41,7 +45,11 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
   const readFile = async (file)=>{
     if(!file || reading) return;
     setReading(true); setErr("");
-    try{ took(await SI.parseFile(file)); }
+    try{
+      const r = await SI.parseFile(file);
+      if(r && r.scanned){ setScan({ file, pages:r.pageCount||0, texts:[], reading:false, fileName:file.name||"" }); setStage("scan"); return; }
+      took(r);
+    }
     catch(e){ setErr(String((e && e.message) || e || "That file couldn’t be read.")); }
     finally{ setReading(false); }
   };
@@ -57,7 +65,7 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
       h("span",{className:"ns-orb"}),
       h("div",null,
         h("div",{className:"ns-title"}, draftMode ? "Import a new draft" : "Import your script"),
-        h("div",{className:"ns-sub"}, stage==="source"
+        h("div",{className:"ns-sub"}, stage==="scan" ? "Step 1 of 2 \u00b7 a scanned PDF \u2014 reading its pages is charged as writing" : stage==="source"
           ? (draftMode ? "Step 1 of 2 \u00b7 the revised screenplay for \u201c"+(existing.title||"this film")+"\u201d" : "Step 1 of 2 \u00b7 your screenplay, word for word")
           : (draftMode ? "Step 2 of 2 \u00b7 what changed \u2014 nothing is charged yet" : "Step 2 of 2 \u00b7 check what we found \u2014 nothing is charged")))),
     h("button",{className:"ag-x",onClick:()=>{ if(!busy) onClose(); },title:"Close","aria-label":"Close"},Icon.x&&h(Icon.x,{s:16})));
@@ -72,7 +80,7 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
         "aria-label":"Choose a script file, or drop one here"},
       Icon.script && h(Icon.script,{s:22}),
       h("b",null, reading ? "Reading your script…" : "Drop your script here, or choose a file"),
-      h("span",null,"Fountain (.fountain), Final Draft (.fdx), Highland (.highland) or plain text (.txt). PDF and Word are coming next.")),
+      h("span",null,"Fountain (.fountain), Final Draft (.fdx), Highland (.highland), PDF, Word (.docx) or plain text (.txt).")),
     h("input",{ref:fileRef,type:"file",accept:SI.ACCEPT,className:"si-file",tabIndex:-1,"aria-hidden":"true",
       onChange:(e)=>{ const f=e.target.files&&e.target.files[0]; e.target.value=""; if(f) readFile(f); }}),
     h("button",{type:"button",className:"si-paste-toggle",onClick:()=>setPasteOpen(o=>!o),"aria-expanded":pasteOpen?"true":"false"},
@@ -85,6 +93,52 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
     h("div",{className:"ns-foot"},
       h("button",{className:"ns-btn ghost",onClick:onClose},"Cancel"),
       pasteOpen && h("button",{className:"ns-btn primary",onClick:readPaste,disabled:!pasteText.trim()},"Read the text →")));
+
+  // ---- a scanned PDF: read the page images (paid, stoppable; what's read is kept while the window is open) ----
+  if(stage==="scan" && scan){
+    const P = window.ScriptPages, SR = window.ScriptRead;
+    const modelId = SR && SR.engineFor ? SR.engineFor() : undefined;
+    const est = P.scanEstimate(scan.pages, modelId);
+    const label = ((window.WRITING_MODELS||[]).find(m=>m.id===est.modelId)||{}).label || "The reading engine";
+    const left = Math.max(0, scan.pages - scan.texts.length);
+    const leftEst = P.scanEstimate(left, modelId);
+    const readPages = async ()=>{
+      if(scan.reading || !left) return;
+      if(typeof beforeScanRead==="function" && !beforeScanRead()) return;
+      scanStop.current = false; setErr("");
+      setScan(x=>({ ...x, reading:true, stopping:false }));
+      try{
+        const buf = await scan.file.arrayBuffer();
+        const res = await P.readScan(buf, { modelId, prior:scan.texts, shouldStop:()=>scanStop.current,
+          onPage:(n, of, text)=>setScan(x=> x ? { ...x, texts:x.texts.concat([text]) } : x) });
+        setScan(x=>({ ...x, reading:false, stopping:false, texts:res.texts }));
+        if(res.done){ const r = P.fromScan(res.texts, scan.fileName); took(r); }
+      }catch(e){
+        setScan(x=> x ? { ...x, reading:false, stopping:false } : x);
+        setErr(String((e && e.message) || e || "The pages couldn\u2019t be read."));
+      }
+    };
+    const n = scan.texts.length;
+    return h("div",{className:"ns-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget && !busy && !scan.reading) onClose(); }},
+      h("div",{className:"ns-panel si-panel",role:"dialog","aria-modal":"true","aria-label":"Read a scanned script"}, head,
+        h("div",{className:"ns-body si-body"},
+          h("div",{className:"si-prose si-scan"},
+            h("b",null,"This PDF is a scan"),
+            h("span",null,"Its "+scan.pages+" page"+(scan.pages!==1?"s are":" is")+" pictures, with no text to read on this device. "+label
+              +" can read the page images into your script, page by page \u2014 about "+(est.lo===est.hi?est.lo:est.lo+"\u2013"+est.hi)+" credits for all of them. "
+              +"It\u2019s a transcription of the pages, so check the words in the preview before you import."),
+            (scan.reading || n>0) && h("div",{className:"si-scan-bar",role:"progressbar","aria-valuemin":0,"aria-valuemax":scan.pages,"aria-valuenow":n},
+              h("i",{style:{width:Math.round(100*n/Math.max(1,scan.pages))+"%"}})),
+            (scan.reading || n>0) && h("small",null, scan.reading ? (scan.stopping ? "Stopping after this page\u2026" : "Reading page "+Math.min(scan.pages, n+1)+" of "+scan.pages+"\u2026") : n+" of "+scan.pages+" pages read \u2014 the rest is about "+(leftEst.lo===leftEst.hi?leftEst.lo:leftEst.lo+"\u2013"+leftEst.hi)+" credits."),
+            h("div",{className:"si-prose-acts"},
+              !scan.reading && h("button",{type:"button",className:"ns-btn primary",onClick:readPages,disabled:!left},
+                n>0 ? "Read the rest \u2192" : "Read the "+scan.pages+" page"+(scan.pages!==1?"s":"")+" \u2192"),
+              scan.reading && h("button",{type:"button",className:"ns-btn ghost",disabled:!!scan.stopping,onClick:()=>{ scanStop.current = true; setScan(x=>({ ...x, stopping:true })); }},"Stop"))),
+          h("div",{className:"ns-hint si-hint"},"Or export the script from your writing app as PDF, Fountain or .fdx \u2014 a PDF your writing app saves has its text in it, and reading that is free."),
+          err && h("div",{className:"ns-err"},err),
+          h("div",{className:"ns-foot"},
+            h("button",{className:"ns-btn ghost",disabled:!!scan.reading,onClick:()=>{ setStage("source"); setScan(null); setErr(""); }},"\u2190 Back")))));
+  }
 
   if(stage==="source" || !parsed){
     return h("div",{className:"ns-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget && !busy) onClose(); }},
@@ -102,7 +156,7 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
   const merge = (from, into)=> setParsed(p=> SI.mergeCharacters(p, from, into));
   const tile = (k, v)=> h("div",{className:"si-tile"}, h("span",null,k), h("b",null,v));
   const firstLine = (sc)=>{ const b = (sc.blocks||[]).find(x=>x.type!=="scene"); return b ? b.text : ""; };
-  const kindWord = { fountain:"Fountain", fdx:"Final Draft", highland:"Highland", text:"plain text", paste:"pasted text" }[parsed.source] || "your script";
+  const kindWord = { fountain:"Fountain", fdx:"Final Draft", highland:"Highland", text:"plain text", paste:"pasted text", pdf:"PDF", docx:"Word", "pdf-scan":"the page images of a scanned PDF" }[parsed.source] || "your script";
 
   // ---- a new draft: what changed ----
   if(draftMode){
@@ -204,7 +258,9 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
       h("div",{className:"si-scene-row"},
         h("span",{className:"si-scene-no"}, String(i+1).padStart(2,"0")),
         h("div",{className:"si-scene-main"},
-          h("b",null, sc.heading || (sc.opening ? "Opening — before the first scene heading" : "No heading")),
+          h("b",null, sc.heading || (sc.opening ? "Opening — before the first scene heading" : "No heading"),
+            // a line the PDF / Word reader had to guess (phase 5)
+            (sc.blocks||[]).some(b=>b.unsure) && h("span",{className:"si-check",title:"A line here was indented like dialogue with no character name over it \u2014 it came in as action. Open Split\u2026 to see the lines."},"Check")),
           h("span",null, (firstLine(sc)||"").slice(0,140))),
         h("div",{className:"si-scene-acts"},
           i<(parsed.scenes.length-1) && h("button",{type:"button",className:"ns-btn ghost si-mini",title:"Make this scene and the next one scene (both headings stay in the text)",

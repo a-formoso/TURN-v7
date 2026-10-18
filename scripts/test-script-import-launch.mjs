@@ -35,7 +35,7 @@ test("A public, and always its own film", () => {
 });
 
 test("B the empty Writers' Room, Home and a dropped file", () => {
-  assert.ok(app.includes('"Import a screenplay")),') && app.includes("Or drop a Fountain, Final Draft, Highland or text file anywhere on this page."));
+  assert.ok(app.includes('"Import a screenplay")),') && app.includes("Or drop a Fountain, Final Draft, Highland, PDF, Word or text file anywhere on this page."));
   assert.ok(app.includes("onImportScript: ()=>{ setHomeOpen(false); setRoom(\"writers\"); setView(\"spine\"); startScriptImport(); },"));
   assert.ok(home.includes('typeof onImportScript==="function" && h("button",{className:"hd-tbtn hd-import"'));
   assert.ok(app.includes("(room===\"writers\" || homeOpen) && !scriptImportOpen && !newStoryOpen"), "the Writers' Room or Home only");

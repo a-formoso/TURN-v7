@@ -8877,7 +8877,7 @@ function App(){
         React.createElement("button",{className:"empty-canvas-btn",onClick:startNewStory},React.createElement(Icon.plus,{s:14}),"New Story"),
         // a finished screenplay comes in word for word (phase 3, 2026-10-18)
         React.createElement("button",{className:"empty-canvas-btn ghost",onClick:()=>startScriptImport()},React.createElement(Icon.script,{s:14}),"Import a screenplay")),
-      React.createElement("div",{className:"empty-canvas-note"},"Or drop a Fountain, Final Draft, Highland or text file anywhere on this page.")));
+      React.createElement("div",{className:"empty-canvas-note"},"Or drop a Fountain, Final Draft, Highland, PDF, Word or text file anywhere on this page.")));
   const sceneByBusyShot = draftingSceneShots ? scenes.find(s=>s.id===draftingSceneShots) : null;
   const draftSceneNow = drafting ? scenes[Math.min(drafting.i||0, Math.max(0, scenes.length-1))] : null;
   const draftSceneNo = draftSceneNow && draftSceneNow.no!=null ? String(draftSceneNow.no).padStart(2,"0") : "";
@@ -9720,7 +9720,7 @@ function App(){
     scriptDropOver && React.createElement("div",{className:"script-drop-over","aria-hidden":"true"},
       React.createElement("div",{className:"script-drop-card"},Icon.script&&React.createElement(Icon.script,{s:26}),
         React.createElement("b",null,"Drop your script to import it"),
-        React.createElement("span",null,"Fountain, Final Draft, Highland or plain text \u2014 your words kept exactly"))),
+        React.createElement("span",null,"Fountain, Final Draft, Highland, PDF, Word or plain text \u2014 your words kept exactly"))),
     readDone && (typeof window.ScriptReadDone==="function") && React.createElement(window.ScriptReadDone,{ info:readDone,
       onClose:()=>setReadDone(null),
       onArt:()=>{ setReadDone(null); setIntentRoom(""); setRoom("art"); setArtView("lookbook"); },
@@ -9733,6 +9733,11 @@ function App(){
       onApplyDraft: scriptImportMode==="draft" ? ((r)=>applyNewDraft(r)) : undefined,
       onClose:()=>{ if(!scriptImporting){ setScriptImportOpen(false); setScriptImportFile(null); } },
       onImport:(film)=>importScriptFilm(film),
+      // a scanned PDF's pages are read with the vision model (phase 5): signed in and on a plan, as the script read
+      beforeScanRead:()=>{
+        if(!(typeof aiAvailable==="function" && aiAvailable())){ if(typeof window.appToast==="function") window.appToast("Sign in to read scanned pages — they’re read on the writing engine.","error"); return false; }
+        if(!planActive()){ requirePlan("read a scanned script"); return false; }
+        return true; },
       // prose, not a screenplay: New Story develops it (the studio writes the screenplay)
       onUseAsIdea:(text)=>{ setScriptImportOpen(false); setNewStorySeedText(String(text||"").slice(0,6000)); setNewStoryOpen(true); } }),
     newStoryOpen && React.createElement(NewStoryIntake,{

@@ -345,7 +345,8 @@
       const w = b.type === "dia" ? 35 : b.type === "paren" ? 25 : 60;
       lines += Math.max(1, Math.ceil(t.length / w)) + (b.type === "char" || b.type === "paren" ? 0 : 1);
     }));
-    const pages = Math.max(1, Math.round(lines / 55));
+    // a PDF knows its pages (its title page aside); otherwise ~55 lines a page
+    const pages = parsed.pagesExact > 0 ? parsed.pagesExact : Math.max(1, Math.round(lines / 55));
     return { scenes:(parsed.scenes || []).length, pages, minutes:pages, words,
       speaking:(parsed.characters || []).filter(c => c.lines > 0).length };
   }
@@ -500,20 +501,28 @@
   /* ---------- entry points ---------- */
   const KINDS = [
     { ext:/\.(?:fountain|spmd)$/i, kind:"fountain" }, { ext:/\.fdx$/i, kind:"fdx" }, { ext:/\.highland$/i, kind:"highland" },
-    { ext:/\.(?:txt|text|md|markdown)$/i, kind:"text" },
+    { ext:/\.(?:txt|text|md|markdown)$/i, kind:"text" }, { ext:/\.pdf$/i, kind:"pdf" }, { ext:/\.docx$/i, kind:"docx" },
   ];
-  const ACCEPT = ".fountain,.spmd,.fdx,.highland,.txt,.text,.md";
+  const ACCEPT = ".fountain,.spmd,.fdx,.highland,.pdf,.docx,.txt,.text,.md";
   const MAX_BYTES = 8 * 1024 * 1024;
+  const MAX_PDF_BYTES = 40 * 1024 * 1024;
   function kindOf(name){ const k = KINDS.find(x => x.ext.test(String(name || ""))); return k ? k.kind : ""; }
   async function parseFile(file){
     if(!file) throw new Error("Choose a script file.");
-    if(file.size > MAX_BYTES) throw new Error("This file is larger than 8 MB \u2014 a screenplay is usually well under 1 MB. Check it\u2019s the script.");
+    // a PDF may be a scan (page images): it may be bigger
+    if(/\.pdf$/i.test(file.name) ? file.size > MAX_PDF_BYTES : file.size > MAX_BYTES)
+      throw new Error("This file is larger than " + (/\.pdf$/i.test(file.name) ? "40" : "8") + " MB \u2014 a screenplay is usually well under " + (/\.pdf$/i.test(file.name) ? "10" : "1") + " MB. Check it\u2019s the script.");
     const kind = kindOf(file.name);
-    if(/\.pdf$/i.test(file.name)) throw new Error("PDF scripts are coming next. For now, export the script from your writing app as Final Draft (.fdx) or Fountain, or paste its text.");
-    if(/\.docx?$/i.test(file.name)) throw new Error("Word files are coming next. For now, save the script as plain text (.txt) or paste it.");
-    if(!kind) throw new Error("We read Fountain (.fountain), Final Draft (.fdx), Highland (.highland) and plain text (.txt) \u2014 or paste the script.");
+    if(/\.doc$/i.test(file.name)) throw new Error("This is an older Word file (.doc). Open it in Word or Google Docs and save it as .docx (or export a PDF), then import that.");
+    if(!kind) throw new Error("We read Fountain (.fountain), Final Draft (.fdx), Highland (.highland), PDF, Word (.docx) and plain text (.txt) \u2014 or paste the script.");
     let r;
-    if(kind === "highland") r = await parseHighland(await file.arrayBuffer());
+    // PDF and Word (phase 5): the layout reader in script-import-pages.js
+    if(kind === "pdf" || kind === "docx"){
+      const P = root.ScriptPages;
+      if(!P) throw new Error("The PDF and Word reader didn\u2019t load \u2014 reload the page and try again.");
+      r = kind === "pdf" ? await P.parsePdf(await file.arrayBuffer()) : await P.parseDocx(await file.arrayBuffer());
+    }
+    else if(kind === "highland") r = await parseHighland(await file.arrayBuffer());
     else {
       const text = await file.text();
       r = kind === "fdx" || /^\s*<\?xml[\s\S]{0,200}<FinalDraft/i.test(text) ? parseFdx(text) : parseFountain(text);
@@ -533,5 +542,7 @@
   root.ScriptImport = { parseFile, parseText, parseFountain, parseFdx, parseHighland, unzip, mergeScenes, splitScene,
     mergeCharacters, renameCharacter, characterSuggestions, applyCharacterMerges, stats, suggestFormat, toFilm, wordsOf, cueName, sceneTitle,
     matchDraft, lis,
+    // for the PDF / Word reader (script-import-pages.js, phase 5)
+    finishParse:finish, isCueLine, isTransitionLine, HEADING,
     ACCEPT, kindOf };
 })(typeof window !== "undefined" ? window : globalThis);

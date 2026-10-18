@@ -241,7 +241,7 @@ test("F  Frances knows about a new draft (file types only, no app names)", () =>
 test("F  cache keys: every changed file is loaded with a key", () => {
   const html = read("TURN.html");
   for (const f of ["app.jsx", "chrome.jsx", "script-import.js", "script-import-ui.jsx", "spine.jsx", "styles.css"])
-    assert.ok(["20261018-hs24"].some(k => html.includes(f + '?v=' + k + '"')), f);
+    assert.ok(["20261018-hs24", "20261018-hs25"].some(k => html.includes(f + '?v=' + k + '"')), f);
 });
 
 console.log(`\n${checks} passed, ${failed} failed`);

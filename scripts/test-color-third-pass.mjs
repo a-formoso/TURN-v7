@@ -140,9 +140,10 @@ await test("C1 the Colorist: a failure says why; an unreadable answer is the onl
   assert.ok(col.includes("Couldn't look at your reference stills ("));
 });
 await test("C2 the stills' vision call honours the run's pinned model and records it", ()=>{
-  const v = between(ai, "async function aiVisionComplete(messages, images){", "\n}\n");
+  // (2026-10-18, Import a screenplay phase 5: opts.modelId — a caller's own engine — comes after the run's pinned model)
+  const v = between(ai, "async function aiVisionComplete(messages, images, opts){", "\n}\n");
   assert.ok(v.includes("const forced = window.__forceWritingModel ? WRITING_MODELS.find(x=>x.id===window.__forceWritingModel) : null;"));
-  assert.ok(v.includes("const picked = forced || WRITING_MODELS.find("));
+  assert.ok(v.includes("const picked = forced || asked || WRITING_MODELS.find("));
   assert.ok(v.includes("window.__lastWritingModel = { id:m.id, label:m.label };"));
 });
 await test("C3 the cost is said before Run; the panel no longer says 'Nothing happens without your OK'", ()=>{

@@ -285,5 +285,5 @@
   }
 
   root.ScriptRead = { engineFor, estimate, ratesOf, buildScenePrompt, parseSceneReply, readScene, readCast, readCastPrompt, readFilm, readFilmPrompt,
-    methodNotes, applyBeats, validBeats, blocksText, READ_ENGINE_USD, DEFAULT_ENGINE };
+    methodNotes, applyBeats, validBeats, blocksText, READ_ENGINE_USD, DEFAULT_ENGINE, ratesOf };
 })(typeof window !== "undefined" ? window : globalThis);

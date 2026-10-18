@@ -10565,3 +10565,12 @@ html[data-theme="light"]{
   display:inline-flex;align-items:center;font:400 9px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--win-err);
   background:var(--win-surface);border:1px solid currentColor}
 .stile .stile-mark.gone,.spine-hs .stile .stile-mark.gone{align-self:flex-start;margin-top:4px}
+
+/* ============================ IMPORT A SCREENPLAY — PDF, Word and scans (phase 5, 2026-10-18) ============================ */
+/* a scanned PDF: the read's progress */
+.si-scan small{font-size:12.5px;color:var(--win-sub)}
+.si-scan-bar{height:6px;border-radius:99px;background:var(--win-line-2);overflow:hidden}
+.si-scan-bar i{display:block;height:100%;border-radius:inherit;background:var(--win-amber-ink);transition:width .3s ease}
+/* a scene with a line the layout reader had to guess */
+.si-check{display:inline-flex;align-items:center;height:18px;margin-left:8px;padding:0 7px;border-radius:99px;vertical-align:2px;
+  font:500 9.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--win-amber-ink);background:var(--win-amber-soft)}

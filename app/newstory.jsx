@@ -12,7 +12,7 @@ const SEED_TYPES = [
 /* BRING YOUR OWN SCRIPT (owner 2026-10-18, docs/Script Import Plan.md): a finished screenplay comes in through its
    own window (script-import-ui.jsx) — shown only when the app passes onImportScript */
 const SEED_SCRIPT = { id:"script", label:"I have a script", icon:"script",
-  hint:"Bring your finished screenplay \u2014 Fountain, Final Draft, Highland or plain text, or paste it. Every word is kept exactly as you wrote it.",
+  hint:"Bring your finished screenplay \u2014 Fountain, Final Draft, Highland, PDF, Word or plain text, or paste it. Every word is kept exactly as you wrote it.",
   inputLabel:"", placeholder:"" };
 
 // the four intake screens, in order — drives the header progress stepper
