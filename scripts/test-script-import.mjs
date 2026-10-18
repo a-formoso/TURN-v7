@@ -12,6 +12,7 @@
         with merged names pointing at one character, the author and the film's import record
      G  the window and the app: New Story's "I have a script" card (admin only until the read), the import window,
         the film created with its content in it (createProject opts.doc), the files loaded with cache keys
+        (public since phase 3 — test-script-import-launch)
 
    node scripts/test-script-import.mjs */
 import assert from "node:assert/strict";
@@ -200,7 +201,8 @@ await test("F into a film: cards per heading (unread), blocks verbatim, the cast
 await test("G the window and the app wiring", () => {
   const ns = read("app/newstory.jsx"), ui = read("app/script-import-ui.jsx"), app = read("app/app.jsx"), html = read("TURN.html");
   assert.ok(ns.includes('const SEED_SCRIPT = { id:"script", label:"I have a script"') && ns.includes("(typeof onImportScript===\"function\") ? SEED_TYPES.concat([SEED_SCRIPT]) : SEED_TYPES"));
-  assert.ok(app.includes("onImportScript:(isAdmin && !newStoryBuildsCurrentEpisode) ?"), "admin only until the read lands; never in an episode");
+  // (phase 3, 2026-10-18) public — never inside a Show's episode (it was admin only until the read landed)
+  assert.ok(app.includes("onImportScript:!newStoryBuildsCurrentEpisode ?"), "public; never in an episode");
   assert.ok(app.includes("opts.doc ? { ...emptyDoc(), ...opts.doc } : emptyDoc()"), "the film is created with its content");
   assert.ok(app.includes("const importScriptFilm = async (film)=>") && app.includes("React.createElement(window.ScriptImportWindow,{"));
   assert.ok(ui.includes("I wrote this script or have the rights to use it.") && ui.includes("disabled:!rights||busy||!st.scenes"), "the rights confirmation gates the import");

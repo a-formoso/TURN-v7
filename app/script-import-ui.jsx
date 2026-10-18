@@ -5,7 +5,7 @@
    split at a line), warnings in plain words, and the rights confirmation. "Import script" hands the film to the
    app (onImport), which creates it the way New Story does. The read — scene cards, beats and the cast from the
    script — is phase 2. Window family classes (ns-*) as New Story. */
-function ScriptImportWindow({ onClose, onImport, onUseAsIdea, busy=false }){
+function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, busy=false }){
   const h = React.createElement;
   const SI = window.ScriptImport;
   const [stage, setStage] = React.useState("source");   // "source" | "preview"
@@ -42,6 +42,8 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, busy=false }){
     catch(e){ setErr(String((e && e.message) || e || "That file couldn’t be read.")); }
     finally{ setReading(false); }
   };
+  // a file dropped on the page arrives already chosen (phase 3)
+  React.useEffect(()=>{ if(initialFile) readFile(initialFile); },[initialFile]);
   const readPaste = ()=>{
     if(!pasteText.trim()){ setErr("Paste the script's text first."); return; }
     try{ took(SI.parseText(pasteText)); }catch(e){ setErr(String((e && e.message) || e)); }
@@ -178,3 +180,35 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, busy=false }){
     h("div",{className:"ns-panel si-panel",role:"dialog","aria-modal":"true","aria-label":"Import your script"}, head, preview));
 }
 window.ScriptImportWindow = ScriptImportWindow;
+
+/* WHAT NEXT after a read (phase 3, docs/Script Import Plan.md step 6): three plain choices — design the film (the Art
+   Room), shoot it (honestly: the Stage shoots shots, so it starts in the Art Room's Shots), or get notes (the Story
+   Editors) — or stay in the Writers' Room. The room a landing card was chosen for is the first choice. */
+function ScriptReadDone({ info, onArt, onStage, onEditors, onClose }){
+  const h = React.createElement;
+  const i = info || {};
+  React.useEffect(()=>{ const k=(e)=>{ if(e.key==="Escape") onClose(); }; window.addEventListener("keydown", k); return ()=>window.removeEventListener("keydown", k); },[]);
+  const opts = [
+    { id:"art", t:"Design the film", room:"The Art Room", d:"The lookbook, the cast sheets, props and locations \u2014 the Production check reads your script into each character.", on:onArt },
+    { id:"stage", t:"Shoot it", room:"The Stage", d:"The Stage shoots your shots, so they come first: draft each scene\u2019s shots and frames in the Art Room, then open the Stage.", on:onStage },
+    { id:"editors", t:"Get notes", room:"Story Editors", d:"The Story Doctor, Setups & Payoffs and the Final Read \u2014 every change asks you first.", on:onEditors },
+  ];
+  const first = i.room==="stage" ? "stage" : "art";
+  opts.sort((a,b)=> (b.id===first) - (a.id===first));
+  return h("div",{className:"ns-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
+    h("div",{className:"ns-panel si-panel si-done",role:"dialog","aria-modal":"true","aria-label":"Your script is in"},
+      h("div",{className:"ns-head"},
+        h("div",{className:"ns-head-t"}, h("span",{className:"ns-orb"}),
+          h("div",null, h("div",{className:"ns-title"},"Your script is in"),
+            h("div",{className:"ns-sub"}, (i.scenes||0)+" scene"+(i.scenes!==1?"s":"")+" read \u00b7 "+(i.characters||0)+" character"+(i.characters!==1?"s":"")
+              +(i.notes ? " \u00b7 "+i.notes+" story note"+(i.notes!==1?"s":"")+" to look at" : "")+" \u00b7 your words unchanged"))),
+        h("button",{className:"ag-x",onClick:onClose,title:"Close","aria-label":"Close"},Icon.x&&h(Icon.x,{s:16}))),
+      h("div",{className:"ns-body si-body"},
+        h("div",{className:"ns-seclab"},"What next?"),
+        h("div",{className:"si-next"}, opts.map((o,k)=>h("button",{key:o.id,type:"button",className:"si-next-card"+(k===0?" first":""),onClick:o.on},
+          h("span",{className:"si-next-room"},o.room),
+          h("b",null,o.t+" \u2192"),
+          h("span",null,o.d)))),
+        h("div",{className:"ns-foot"}, h("button",{className:"ns-btn ghost",onClick:onClose},"Stay in the Writers' Room")))));
+}
+window.ScriptReadDone = ScriptReadDone;

@@ -170,8 +170,14 @@ const visible = (s)=> s.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ").replac
    (who may share, the owner pays within budgets, a lapsed plan makes the film read-only, the film stays
    the owner's, the owner answers for their team, invitation emails) and Privacy says shared films are
    readable by the people the owner invites, adds a "Shared films" section and where a collaborator's
-   files are kept; both dated 3 October 2026. */
-const LEGAL_FINGERPRINT = { "privacy.html":"2ea25e2a0033ebec", "terms.html":"e5402bc8ad07cbfb" };
+   files are kept; both dated 3 October 2026.
+   2026-10-18 owner decision (Import a screenplay, "yes to all": a Terms line about uploaded scripts goes live with
+   the public launch): Terms' "Your content and ownership" says an imported screenplay stays the writer's, that
+   importing confirms they wrote it or have the rights, and that it is stored with the film and sent to the writing
+   model only when they ask for the read (which never changes their words); Privacy's "Your creative content" says
+   an imported screenplay is read on the device first and sent to a writing model only when the studio is asked to
+   read it; both dated 18 October 2026. */
+const LEGAL_FINGERPRINT = { "privacy.html":"494ae3ac3aed7b36", "terms.html":"bd521c6c4cc8e920" };
 /* The "Last updated" line holds the placeholder until the switch day; the owner then writes the date
    on BOTH pages in the form "14 November 2026" (docs/Billing Rollout Runbook.md). The fingerprint
    reads either as {DATE}, so filling in the date needs no test change — any other change to the

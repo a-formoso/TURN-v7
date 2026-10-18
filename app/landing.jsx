@@ -106,13 +106,13 @@ function HeroSpine({ structure }){
 const LP_ROOMS = [
   { no:"01", icon:"script", title:"Writers' Room",
     body:"Turn an idea into a structured screenplay: logline, synopsis, a story spine charting every scene's value, beats and script — with Story Editors to test it. Everything stays editable.",
-    cta:"Start with Writers' Room", plan:"writer" },
+    room:"writers", plan:"writer" },
   { no:"02", icon:"palette", title:"The Art Room",
     body:"Design the film from the script: lookbook, characters and their voices, props, locations, color, shots and storyboards — drafted with your Department Heads, ready for production.",
-    cta:"Start with the Art Room", plan:"director" },
+    room:"art", plan:"director" },
   { no:"03", icon:"clapper", title:"The Stage",
     body:"Once the film is designed, shoot it as video, beat by beat, with voiced lines — then choose takes, assemble them on the timeline and export the film.",
-    cta:"Start with the Stage", plan:"studio" },
+    room:"stage", plan:"studio" },
 ];
 /* (the room cards' plan chips — "Every plan", "Director and Producer plans", "Producer plan" — were
    removed 2026-10-03, owner request; the plan cards in Act III say which plan opens which room) */
@@ -128,7 +128,7 @@ function RotatingWord({ word }){
 }
 
 const LP_STEPS = [
-  { n:"01", t:"Bring an idea", d:"A logline, a “what if” — or talk it through out loud with Frances." },
+  { n:"01", t:"Bring an idea \u2014 or your script", d:"A logline, a “what if”, a talk it through out loud with Frances \u2014 or a finished screenplay, imported word for word." },
   // the structures (frameworks.jsx) and the formats in the Shape step's display order (formats.jsx)
   { n:"02", t:"Choose how it’s told", d:"Kinolot suggests a structure and a format for your idea, and you can keep them or pick your own: Three-Act Turns, Hero’s Journey or Kishōtenketsu, as a Feature Film, TV Series, Short Film, Micro Short, Micro-drama, Music Video, Documentary or Commercial." },
   { n:"03", t:"Build the film", d:"Research, synopsis, spine and script, then cast, places, shots and video — it all grows in one place." },
@@ -261,7 +261,11 @@ function Landing({ onStart, onSignIn }){
               React.createElement("span",{className:"lp-card-no"}, f.no)),
             React.createElement("div",{className:"lp-card-t"}, f.title),
             React.createElement("div",{className:"lp-card-b"}, f.body),
-            React.createElement("button",{className:"lp-btn ghost full lp-room-cta",onClick:()=>onStart(f.plan)}, f.cta))))),
+            /* START WITH YOUR SCRIPT, OR FROM AN IDEA (owner 2026-10-18, docs/Script Import Plan.md): a writer with a finished
+               screenplay imports it, word for word; anyone else starts in New Story. The choice rides through sign-up. */
+            React.createElement("div",{className:"lp-room-ctas"},
+              React.createElement("button",{className:"lp-btn ghost full lp-room-cta",onClick:()=>onStart(f.plan,{ mode:"script", room:f.room })},"Start with your script"),
+              React.createElement("button",{className:"lp-btn ghost full lp-room-cta lp-room-idea",onClick:()=>onStart(f.plan,{ mode:"idea", room:f.room })},"Start from an idea")))))),
 
       React.createElement("section",{className:"lp-section steps"},
         React.createElement("div",{className:"lp-sec-head"},

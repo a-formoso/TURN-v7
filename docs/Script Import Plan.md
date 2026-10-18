@@ -8,6 +8,12 @@ asks with the price, shows progress with Stop, offers "Read my script / Read the
 dismissable Story notes in the Scene panel (and a film-wide Hide), and keeps each scene's imported words the first time
 it is rewritten, for **Restore the import**.
 
+**Phase 3 (the ways in) is built and PUBLIC** (2026-10-18): New Story's "I have a script" on every account; "Import a
+screenplay" on an empty Writers' Room; "Import a script" in Home's top bar; a script file dropped on the Writers' Room or
+Home; the landing room cards' "Start with your script" / "Start from an idea" carried through sign-up; the What next panel
+after a read; Frances's "Import a screenplay" entry; the Terms and Privacy lines (dated 18 October 2026). An import is
+always its own film, never an episode of the open Show. Next: phase 4 (re-import a revised draft).
+
 **Short scripts and other shapes (owner's question, 2026-10-18):** a one-page script imports as one or two scenes and
 is read as it is; the length only SUGGESTS a format (it can be changed), and for an imported film the format's scene
 counts are guidance, never a request to add or cut scenes. A story built differently is read in the structure that

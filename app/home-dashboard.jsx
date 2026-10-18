@@ -106,7 +106,7 @@
 
   function HomeDashboard(props){
     const { projects, currentId, room,
-            onOpen, onCreate, onGeneratePoster, onRegenPoster, onRestorePoster,
+            onOpen, onCreate, onImportScript, onGeneratePoster, onRegenPoster, onRestorePoster,
             onGoRoom, onClose, accountSlot, noticesSlot, notifySlot } = props;
 
     // real films only (shows are containers), newest-updated first (list already sorted)
@@ -224,6 +224,8 @@
           notifySlot || null,
           // white, as every top-bar button in the rooms (homepage style, 2026-10-16): the amber is the page's
           // own primary — the hero's "Go to …" button
+          // a finished screenplay comes in word for word (phase 3, 2026-10-18)
+          typeof onImportScript==="function" && h("button",{className:"hd-tbtn hd-import", onClick:onImportScript, title:"Import a screenplay \u2014 Fountain, Final Draft, Highland or plain text"}, Ic("script",15), "Import a script"),
           h("button",{className:"hd-tbtn hd-newproj", onClick:onCreate}, Ic("plus",15), "New Project"),
           accountSlot ? h("div",{className:"hd-acct"}, accountSlot) : null)));
 

@@ -778,6 +778,9 @@ function App(){
   // IMPORT A SCREENPLAY (owner 2026-10-18, docs/Script Import Plan.md — phase 1, admin only until the read lands)
   const [scriptImportOpen, setScriptImportOpen] = React.useState(false);
   const [scriptImporting, setScriptImporting] = React.useState(false);
+  const [scriptImportFile, setScriptImportFile] = React.useState(null);   // a file dropped on the page
+  const [scriptDropOver, setScriptDropOver] = React.useState(false);
+  const [readDone, setReadDone] = React.useState(null);   // the What next panel after a read
   // THE READ (phase 2): { i, total, no, phase:"scenes"|"cast"|"film", run, stopping } while it runs
   const [scriptReading, setScriptReading] = React.useState(null);
   const [newStorySeedText, setNewStorySeedText] = React.useState("");
@@ -804,12 +807,19 @@ function App(){
   //   window.turnIntendedPlan()  -> "free" | "pro" | "studio" | null
   //   window.turnClearIntendedPlan()  (call once checkout has consumed it)
   const [intendedPlan, setIntendedPlan] = React.useState(()=>{ try{ return localStorage.getItem("turn-intended-plan")||null; }catch(e){ return null; } });
-  const startWithPlan = (plan)=>{
+  const startWithPlan = (plan, start)=>{
     // carry the tier the visitor chose on the landing pricing cards through signup:
     // writer/director/studio (a real plan) or "free" for the generic Get-started CTA.
     const valid = (window.CINEMA_PLANS||[]).some(p=>String(p.tier).toLowerCase()===String(plan).toLowerCase());
     const p = valid ? String(plan).toLowerCase() : "free";
     try{ localStorage.setItem("turn-intended-plan", p); localStorage.setItem("turn-intended-plan-at", String(Date.now())); }catch(e){}
+    // THE START CHOICE (phase 3, 2026-10-18): a room card's "Start with your script" / "Start from an idea" is
+    // carried through sign-up, then opens Import your script or New Story (and the room they chose, once it can open)
+    try{
+      if(start && (start.mode==="script" || start.mode==="idea"))
+        localStorage.setItem("turn-intended-start", JSON.stringify({ mode:start.mode, room:String(start.room||"writers"), at:Date.now() }));
+      else localStorage.removeItem("turn-intended-start");
+    }catch(e){}
     setIntendedPlan(p); openAuth("signup", { keepPlanIntent:true });
   };
   // the sign-up window's plan dropdown (auth-ui.jsx): the new pick replaces the saved one and
@@ -3776,6 +3786,41 @@ function App(){
   // (an empty canvas is reused, never duplicated). Deleting a film remains the
   // project switcher's deliberate per-film Delete.
   const startNewStory = ()=>{ if(!canMutateWritersRoom()) return; if(!planActive()){ requirePlan("start a story"); return; } setNewStoryOpen(true); };
+  /* IMPORT A SCREENPLAY from anywhere (phase 3): the import itself is free on any signed-in account (the read asks
+     for credits); a dropped file comes in already chosen. It always makes its own film (never an episode). */
+  const startScriptImport = (file)=>{ if(!canMutateWritersRoom()) return;
+    setScriptImportFile(file||null); setScriptImportOpen(true); };
+  const [intentRoom, setIntentRoom] = React.useState("");   // the room a landing card was chosen for
+  React.useEffect(()=>{
+    if(!session || authOpen || welcomeOpen || trialWelcomeOpen || projectLoadingRef.current) return;
+    let intent = null;
+    try{ intent = JSON.parse(localStorage.getItem("turn-intended-start")||"null"); }catch(e){ intent = null; }
+    if(!intent) return;
+    try{ localStorage.removeItem("turn-intended-start"); }catch(e){}
+    if(!(Date.now() - Number(intent.at||0) < 86400000)) return;   // a day at most
+    setIntentRoom(intent.room==="art" || intent.room==="stage" ? intent.room : "");
+    setHomeOpen(false); setRoom("writers"); setView("spine");
+    if(intent.mode==="script") startScriptImport(); else startNewStory();
+  },[session, authOpen, welcomeOpen, trialWelcomeOpen, hydrationTick, currentProjectId]);
+  /* DROP A SCRIPT ON THE PAGE (phase 3): in the Writers' Room or on Home, a script file dropped anywhere starts the
+     import with it (an element with its own drop zone keeps its drop — it prevents the default first) */
+  const dropReady = !!(session || !cloudMode) && (room==="writers" || homeOpen) && !scriptImportOpen && !newStoryOpen && !writersRoomBlocked;
+  React.useEffect(()=>{
+    if(!dropReady) return undefined;
+    const hasFiles = (e)=> !!(e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types||[], "Files")>=0);
+    const over = (e)=>{ if(!hasFiles(e) || e.defaultPrevented) return; e.preventDefault(); setScriptDropOver(true); };
+    const leave = (e)=>{ if(!e.relatedTarget || e.relatedTarget===document.documentElement) setScriptDropOver(false); };
+    const drop = (e)=>{ setScriptDropOver(false); if(!hasFiles(e) || e.defaultPrevented) return;
+      const f = e.dataTransfer.files && e.dataTransfer.files[0]; if(!f) return;
+      const SI = window.ScriptImport;
+      const ok = SI && (SI.kindOf(f.name) || /\.(?:pdf|docx?)$/i.test(f.name));
+      if(!ok) return;   // not a script: left to the page
+      e.preventDefault();
+      if(homeOpen){ setHomeOpen(false); setRoom("writers"); setView("spine"); }
+      startScriptImport(f); };
+    window.addEventListener("dragover", over); window.addEventListener("dragleave", leave); window.addEventListener("drop", drop);
+    return ()=>{ window.removeEventListener("dragover", over); window.removeEventListener("dragleave", leave); window.removeEventListener("drop", drop); };
+  },[dropReady, homeOpen]);
 
   // ---- character handlers ----
   const updateCharacter = (id,patch)=>{
@@ -6934,7 +6979,8 @@ function App(){
       const title = (film.project && film.project.title) || "Untitled film";
       const doc = { project:film.project, scenes:film.scenes, drafts:film.drafts, characters:film.characters,
         beatsMap:film.beatsMap||{}, continuityMap:{}, history:{} };
-      if(cloudMode && typeof createProject==="function" && (scenes.length || !currentProjectId)){
+      // a new film unless an empty one is open — and always its own film, never an episode of the open Show
+      if(cloudMode && typeof createProject==="function" && (scenes.length || !currentProjectId || currentShowId)){
         const requestId=typeof window.cloudCreateRequestId==="function" ? window.cloudCreateRequestId() : "";
         const launchScope={projectId:projIdRef.current,loadSeq:loadSeqRef.current,homeOpen:homeOpenRef.current};
         const createOpts={...(requestId?{requestId}:{}),launchScope,doc};
@@ -7097,7 +7143,8 @@ function App(){
       } else if(left){
         window.appToast(done+" of "+total+" scene"+(total!==1?"s":"")+" read — "+left+" still to read"+(failed.length?" ("+failed.length+" couldn’t be read this time)":"")+". Press Read the rest to continue; you’re only charged for what’s read.", failed.length?"error":"info");
       } else {
-        window.appToast("Your script is in — "+(done||total)+" scene"+((done||total)!==1?"s":"")+" read"+(notesN?" · "+notesN+" story note"+(notesN!==1?"s":"")+" to look at":"")+". Your words are unchanged.","ok");
+        // WHAT NEXT (phase 3): the Art Room, the Stage (honestly: shots first) or the Story Editors
+        setReadDone({ scenes:(done||total), notes:notesN, characters:(scriptReadRef.current.characters||[]).length, room:intentRoom });
       }
     }
   };
@@ -8720,7 +8767,11 @@ function App(){
       React.createElement("div",{className:"art-soon-ic","aria-hidden":"true"},React.createElement(Icon.spine||Icon.pen,{s:30})),
       React.createElement("div",{className:"empty-canvas-title"},"Start your story"),
       React.createElement("div",{className:"empty-canvas-sub"},"Your canvas is clean. Describe an idea and Kinolot builds the value-charge spine, scene by scene — then characters, props, script and shots all follow from it."),
-      React.createElement("button",{className:"empty-canvas-btn",onClick:startNewStory},React.createElement(Icon.plus,{s:14}),"New Story")));
+      React.createElement("div",{className:"empty-canvas-acts"},
+        React.createElement("button",{className:"empty-canvas-btn",onClick:startNewStory},React.createElement(Icon.plus,{s:14}),"New Story"),
+        // a finished screenplay comes in word for word (phase 3, 2026-10-18)
+        React.createElement("button",{className:"empty-canvas-btn ghost",onClick:()=>startScriptImport()},React.createElement(Icon.script,{s:14}),"Import a screenplay")),
+      React.createElement("div",{className:"empty-canvas-note"},"Or drop a Fountain, Final Draft, Highland or text file anywhere on this page.")));
   const sceneByBusyShot = draftingSceneShots ? scenes.find(s=>s.id===draftingSceneShots) : null;
   const draftSceneNow = drafting ? scenes[Math.min(drafting.i||0, Math.max(0, scenes.length-1))] : null;
   const draftSceneNo = draftSceneNow && draftSceneNow.no!=null ? String(draftSceneNow.no).padStart(2,"0") : "";
@@ -9000,6 +9051,7 @@ function App(){
           // createProject() stranded an Untitled film (and its auto-painted poster)
           // every time someone clicked in and changed their mind.
           onCreate: ()=>{ setHomeOpen(false); setRoom("writers"); setView("spine"); startNewStory(); },
+          onImportScript: ()=>{ setHomeOpen(false); setRoom("writers"); setView("spine"); startScriptImport(); },
           onGeneratePoster: generatePoster,
           onRegenPoster: (p)=>generatePoster(p, { keepPrev:true }),
           onRestorePoster: restorePoster,
@@ -9552,9 +9604,19 @@ function App(){
 
 
     // New Story intake — many seed types in, one logline out, then launch Adaptation
+    scriptDropOver && React.createElement("div",{className:"script-drop-over","aria-hidden":"true"},
+      React.createElement("div",{className:"script-drop-card"},Icon.script&&React.createElement(Icon.script,{s:26}),
+        React.createElement("b",null,"Drop your script to import it"),
+        React.createElement("span",null,"Fountain, Final Draft, Highland or plain text \u2014 your words kept exactly"))),
+    readDone && (typeof window.ScriptReadDone==="function") && React.createElement(window.ScriptReadDone,{ info:readDone,
+      onClose:()=>setReadDone(null),
+      onArt:()=>{ setReadDone(null); setIntentRoom(""); setRoom("art"); setArtView("lookbook"); },
+      onStage:()=>{ setReadDone(null); setIntentRoom(""); setRoom("art"); setArtView("shots");
+        if(typeof window.appToast==="function") window.appToast("The Stage shoots your shots \u2014 design them here first (Draft scene shots, then their frames), then open the Stage.","info"); },
+      onEditors:()=>{ setReadDone(null); setIntentRoom(""); setRoom("writers"); setAgentsOpen(true); } }),
     scriptImportOpen && (typeof window.ScriptImportWindow==="function") && React.createElement(window.ScriptImportWindow,{
-      busy:scriptImporting,
-      onClose:()=>{ if(!scriptImporting) setScriptImportOpen(false); },
+      busy:scriptImporting, initialFile:scriptImportFile,
+      onClose:()=>{ if(!scriptImporting){ setScriptImportOpen(false); setScriptImportFile(null); } },
       onImport:(film)=>importScriptFilm(film),
       // prose, not a screenplay: New Story develops it (the studio writes the screenplay)
       onUseAsIdea:(text)=>{ setScriptImportOpen(false); setNewStorySeedText(String(text||"").slice(0,6000)); setNewStoryOpen(true); } }),
@@ -9565,8 +9627,8 @@ function App(){
       initialFormat:newStoryBuildsCurrentEpisode?newStoryEpisodeFormat:undefined,
       formatLocked:newStoryBuildsCurrentEpisode,
       formatOwnerLabel:(newStoryShowRow&&newStoryShowRow.title)||"this Show",
-      // "I have a script" — admin only while the read (phase 2) isn't built; never inside a Show's episode
-      onImportScript:(isAdmin && !newStoryBuildsCurrentEpisode) ? (()=>{ setNewStoryOpen(false); setScriptImportOpen(true); }) : undefined,
+      // "I have a script" (public since phase 3, 2026-10-18) — never inside a Show's episode (its bible owns the story)
+      onImportScript:!newStoryBuildsCurrentEpisode ? (()=>{ setNewStoryOpen(false); setScriptImportOpen(true); }) : undefined,
       onLaunch:async (logline, synopsis, formatId, frameworkId)=>{
         if(!canMutateWritersRoom()) return;
         // HARD GATE: building a story runs the paid engine. Every intake path funnels

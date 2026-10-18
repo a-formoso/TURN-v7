@@ -10516,3 +10516,35 @@ html[data-theme="light"]{
 .si-prose b{font-size:15px;color:var(--win-ink)}
 .si-prose span{font-size:13.5px;line-height:1.5;color:var(--win-ink-2)}
 .si-prose-acts{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}
+
+/* ============================ IMPORT A SCREENPLAY — the ways in (phase 3, 2026-10-18) ============================ */
+/* the landing room cards: "Start with your script" over "Start from an idea" */
+.lp-room-ctas{margin-top:auto;display:flex;flex-direction:column;gap:8px}
+.lp-card .lp-room-ctas .lp-btn.lp-room-cta{margin-top:0}
+/* the empty Writers' Room: New Story and Import a screenplay side by side */
+.empty-canvas-acts{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+.empty-canvas-btn.ghost{background:var(--win-surface);color:var(--win-ink);border:1px solid var(--win-line-2)}
+.empty-canvas-btn.ghost:hover{background:var(--win-bone);border-color:var(--win-line-3)}
+.empty-canvas-note{margin-top:12px;font-size:12.5px;color:var(--win-sub)}
+/* a script dragged over the page */
+.script-drop-over{position:fixed;inset:0;z-index:9990;pointer-events:none;display:flex;align-items:center;justify-content:center;
+  background:rgba(15,16,18,.28);backdrop-filter:blur(2px)}
+.script-drop-card{display:flex;flex-direction:column;align-items:center;gap:8px;padding:28px 36px;border-radius:16px;
+  background:var(--win-surface);border:2px dashed var(--win-amber);color:var(--win-ink);box-shadow:0 24px 60px -20px rgba(15,16,18,.5)}
+.script-drop-card b{font-size:17px}
+.script-drop-card span{font-size:13px;color:var(--win-sub)}
+.script-drop-card svg{color:var(--win-amber-ink)}
+/* Home's top bar */
+.hd-tbtn.hd-import{background:var(--lpw-surface,#fff);color:var(--lpw-ink);border:1px solid var(--lpw-line-2)}
+@media (max-width:700px){ .hd-tbtn.hd-import{display:none} }
+/* What next after a read */
+.si-next{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.si-next-card{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:14px 16px;border-radius:12px;border:1px solid var(--win-line-2);
+  background:var(--win-surface);color:var(--win-ink);text-align:left;cursor:pointer;font:inherit}
+.si-next-card:hover{background:var(--win-bone);border-color:var(--win-line-3)}
+.si-next-card.first{background:var(--win-amber-soft);border-color:var(--win-amber-line)}
+.si-next-room{font:400 10px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--win-sub)}
+.si-next-card.first .si-next-room{color:var(--win-amber-ink)}
+.si-next-card b{font-size:15px}
+.si-next-card > span:last-child{font-size:12.5px;line-height:1.45;color:var(--win-sub)}
+@media (max-width:640px){ .si-next{grid-template-columns:minmax(0,1fr)} }
