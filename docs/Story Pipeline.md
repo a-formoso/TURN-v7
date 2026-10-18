@@ -20,6 +20,22 @@ real authoring should always begin at Step 1.)
 
 ## The pipeline
 
+### Entry B — Import a screenplay  *(added 2026-10-18 by owner approval — "yes to all"; plan: `docs/Script Import Plan.md`)*
+A second way in, beside Step 0, for a writer who already has a finished screenplay. It does not change any step
+below: an imported film joins the pipeline at **Step 4 (the Spine)** with its screenplay already written.
+- **Read, don't rewrite.** The imported text IS the film's screenplay, word for word (formatting marks are not
+  words; notes and boneyard text are kept aside as notes). Nothing in this entry rewrites a line.
+- **Free first:** the file is read in the browser (Fountain, Final Draft, Highland, plain text, paste) into
+  scenes at each heading; the writer previews and fixes it (title, author, format, the structure to read it
+  with, merge / split scenes, merge duplicate characters as aliases — cues are never renamed) and confirms they
+  have the rights to the script. Only then is the film created, with a scene card per heading marked unread.
+- **The read** (phase 2) fills each scene card, its beats (grouping the existing lines), the cast and the
+  film's brief from the script, scene by scene, priced first and charged as writing; the default reading engine
+  is **Gemini 4 Argon** (a trial account reads on the default light engine). Where the method would flag a scene
+  (no turn, a repeated charge), it is a dismissable **Story note**, never a rewrite.
+- **Changing the story stays the writer's choice:** the Story Editors (Step 7) advise and ask first; an
+  adaptation into another format or structure is always a **new film**, the import untouched.
+
 ### 0. Seed  *(reordered before Format 2026-07-11 by owner approval — a creator arrives with an idea, not a container; the studio listens first, then recommends the shape)*
 The user provides a seed: a logline, a premise, or a rough idea. Nothing is assumed beyond it.
 - *(approved 2026-07-04; repositioned 2026-07-11)* Developing the seed **recommends the format +
@@ -635,6 +651,7 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
 ---
 
 ## Change log
+- *(2026-10-18 — Entry B added by owner approval)* — **Import a screenplay**: a second way in for a finished script, read into the pipeline word for word and joining at Step 4; no existing step changed (`docs/Script Import Plan.md`).
 - *(created)* — initial pipeline codified from the manager's 8-step spec + the Three Pillars of Research.
 - *(Step 2 shipped)* — Research → Synopsis built into the New Story flow: 3-pillar research + editable
   three-paragraph synopsis, reviewed before the spine builds, then threaded into spine/world/cast generation.
