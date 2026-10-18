@@ -201,9 +201,10 @@ function FollowStrip({ characters, scenes, beatsMap, followId, onFollow }){
           style: on ? {borderColor:charSolidColor(c)} : null,
           title: on ? "Stop following" : `Follow ${c.name} across the spine`,
           onClick:()=>onFollow(on ? null : c.id)},
-          React.createElement("span",{className:"follow-av",style:{background:c.color}}),
+          React.createElement("span",{className:"follow-av",style:{background:charSolidColor(c)}}),
           // chips show first names only; the tooltip keeps the full name
-          React.createElement("span",{className:"follow-name"},String(c.name||"").trim().split(/\s+/)[0]),
+          // concise (owner 2026-10-18): the first name, in Title Case even when the script's cue is in capitals
+          React.createElement("span",{className:"follow-name",title:String(c.name||"")},spineTitleCase(String(c.name||"").trim().split(/\s+/)[0])),
           React.createElement("span",{className:"follow-n"},driven));
       })),
     cur && React.createElement("div",{className:"follow-insight"+(tl.flat?" warn":"")},
@@ -215,6 +216,16 @@ function FollowStrip({ characters, scenes, beatsMap, followId, onFollow }){
 }
 window.FollowStrip = FollowStrip;
 
+/* a label in capitals reads in Title Case on the spine (owner 2026-10-18: plot points capitalised, not uppercased);
+   a label already in mixed case is kept as written */
+const SPINE_SMALL_WORDS = new Set(["a","an","and","as","at","but","by","for","in","into","of","on","or","the","to","with"]);
+function spineTitleCase(t){
+  const s = String(t||"").trim();
+  if(!s || s!==s.toUpperCase() || !/\p{L}/u.test(s)) return s;
+  return s.toLowerCase().split(/(\s+|-)/).map((w,i)=> /^\s+$|^-$/.test(w) || (i>0 && SPINE_SMALL_WORDS.has(w)) ? w
+    : w.replace(/^(\P{L}*)(\p{L})/u,(m,a,b)=>a+b.toUpperCase())).join("");
+}
+window.spineTitleCase = spineTitleCase;
 /* catmull-rom smoothing shared by the base spine and the follow overlay */
 function smoothD(pts){
   if(pts.length < 2) return pts.map((p,i)=>`${i?"L":"M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
@@ -301,7 +312,9 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
     else g.items.forEach(it => columns.push({ kind:"scene", s:it.s, i:it.i })); });
   const nScene = columns.filter(c=>c.kind==="scene").length, nFold = columns.length - nScene;
   const room = Math.max(0, (boxW||0) - 2 - SPINE_PAD_X*2 - nFold*SPINE_FOLD_W);   // 2: the chart's border
-  const colW = nScene ? Math.max(SPINE_MIN_COL, Math.floor(room / nScene) || SPINE_MIN_COL) : SPINE_MIN_COL;
+  // a phone gives each scene room for its label (the chart pans sideways) instead of squeezing every label together
+  const minCol = (boxW && boxW < 600) ? 58 : SPINE_MIN_COL;
+  const colW = nScene ? Math.max(minCol, Math.floor(room / nScene) || minCol) : minCol;
   const wOf = (c)=> c.kind==="scene" ? colW : SPINE_FOLD_W;
   const lefts = []; let _cur = SPINE_PAD_X;
   columns.forEach((c,ci)=>{ lefts[ci] = _cur; _cur += wOf(c); });
@@ -336,21 +349,22 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
         React.createElement("div",{className:"act-ruler"},
           ruler.map(r => {
             if(r.collapsed) return React.createElement("div",{key:r.act,className:"act-band collapsed",
-              style:{left:bandL(r),width:SPINE_FOLD_W,height:H},
+              style:{left:bandL(r),width:SPINE_FOLD_W},
               onClick:()=>toggle(r.act),title:`Expand Act ${roman(r.act)}`,
               ...actBandA11y(r.act, true, r.count+" scene"+(r.count!==1?"s":""))},
-              React.createElement("span",{className:"no"},`ACT ${roman(r.act)} · ${r.count}`));
+              React.createElement("span",{className:"act-fold-ic","aria-hidden":"true"},React.createElement(Icon.chevR,{s:11})),
+              React.createElement("span",{className:"no"},roman(r.act)));
             const pct = Math.round((r.count / scenes.length) * 100);
             const mins = actMin(r.act);
             return React.createElement("div",{key:r.act,className:"act-band",style:{left:bandL(r),width:bandW(r)},
               onClick:()=>toggle(r.act),title:`Fold Act ${roman(r.act)}`,
               ...actBandA11y(r.act, false, (mins!=null ? "about "+mins+", " : "")+pct+"% of the scenes")},
+              React.createElement("span",{className:"act-fold-ic","aria-hidden":"true"},React.createElement(Icon.chevD,{s:11})),
               React.createElement("span",{className:"no"},`ACT ${roman(r.act)}`),
               React.createElement("span",{className:"nm"},actName(r.act)),
               mins!=null && React.createElement("span",{className:"act-min",
                 title:`Act ${roman(r.act)} estimated screen time (≈1 page/min)`},`≈${mins}`),
-              React.createElement("span",{className:"pct"},`${pct}%`),
-              React.createElement("span",{className:"act-fold-ic","aria-hidden":"true"},React.createElement(Icon.chevL,{s:11})));
+              React.createElement("span",{className:"pct"},`${pct}%`));
           })),
         React.createElement("svg",{className:"graph-svg",width:totalW,height:H,viewBox:`0 0 ${totalW} ${H}`,role:"img",
           // a summary for screen readers: how each scene's value charge moves (2026-10-09)
@@ -368,12 +382,12 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
               React.createElement("stop",{offset:0,className:"sp-bg-rise"}),
               React.createElement("stop",{offset:.5,className:"sp-line-mid"}),
               React.createElement("stop",{offset:1,className:"sp-bg-fall"})),
-            React.createElement("linearGradient",{id:"spConeUp",x1:0,y1:0,x2:0,y2:1},
-              React.createElement("stop",{offset:0,className:"sp-cone",stopOpacity:.16}),
-              React.createElement("stop",{offset:1,className:"sp-cone",stopOpacity:0})),
-            React.createElement("linearGradient",{id:"spConeDown",x1:0,y1:0,x2:0,y2:1},
-              React.createElement("stop",{offset:0,className:"sp-cone",stopOpacity:0}),
-              React.createElement("stop",{offset:1,className:"sp-cone",stopOpacity:.16})),
+            // the shade between the curve and the zero line: one tint each side, deepest at the curve
+            React.createElement("linearGradient",{id:"spArea",gradientUnits:"userSpaceOnUse",x1:0,y1:yFor(3),x2:0,y2:yFor(-3)},
+              React.createElement("stop",{offset:0,className:"sp-bg-rise",stopOpacity:.3}),
+              React.createElement("stop",{offset:.5,className:"sp-bg-rise",stopOpacity:.05}),
+              React.createElement("stop",{offset:.5,className:"sp-bg-fall",stopOpacity:.05}),
+              React.createElement("stop",{offset:1,className:"sp-bg-fall",stopOpacity:.3})),
             React.createElement("filter",{id:"spGlow",x:"-10%",y:"-40%",width:"120%",height:"180%"},
               React.createElement("feGaussianBlur",{stdDeviation:3.5}))),
           React.createElement("rect",{className:"sp-field",x:0,y:0,width:totalW,height:H,fill:"url(#spBg)"}),
@@ -385,16 +399,19 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
           ruler.slice(1).map(r => React.createElement("line",{key:"ad"+r.act,className:"sp-act",
             x1:bandL(r),y1:6,x2:bandL(r),y2:H-4})),
           // folded acts — a quiet band, click to unfold
-          ruler.filter(r=>r.collapsed).map(r => React.createElement("rect",{key:"cb"+r.act,className:"sp-fold",
-            x:bandL(r)+3,y:6,width:SPINE_FOLD_W-6,height:H-12,rx:6,onClick:()=>toggle(r.act)})),
-          // each scene's drop to zero: a soft cone and a hairline (hidden while following a character)
+          ruler.filter(r=>r.collapsed).map(r => { const cx = bandL(r)+SPINE_FOLD_W/2, cy = H/2+12;
+            return React.createElement("g",{key:"cb"+r.act,onClick:()=>toggle(r.act)},
+              React.createElement("rect",{className:"sp-fold",x:bandL(r)+3,y:6,width:SPINE_FOLD_W-6,height:H-12,rx:6}),
+              React.createElement("text",{className:"sp-fold-t",x:cx,y:cy,textAnchor:"middle",transform:`rotate(-90 ${cx} ${cy})`,pointerEvents:"none"},
+                `ACT ${roman(r.act)} · ${r.count}`)); }),
+          // the shade between the curve and the zero line (owner 2026-10-18: it follows the curve — one tint above the
+          // line, one below, nothing else inside a crest or a trough)
+          pts.length>=2 && React.createElement("path",{className:"sp-area",d:smoothD(pts)+` L${pts[pts.length-1].x} ${yFor(0)} L${pts[0].x} ${yFor(0)} Z`,
+            fill:"url(#spArea)",pointerEvents:"none",opacity:follow?.3:1}),
+          // each scene's hairline to zero (hidden while following a character)
           !follow && React.createElement("g",{pointerEvents:"none"},
-            pts.map(p=>{ const z = yFor(0), half = Math.max(6, Math.min(26, colW*0.34)), up = p.y < z;
-              if(Math.abs(p.y - z) < 2) return null;
-              return React.createElement(React.Fragment,{key:"dz"+p.i},
-                React.createElement("path",{className:"sp-cone-fill",d:`M${p.x} ${p.y} L${p.x+half} ${z} L${p.x-half} ${z} Z`,
-                  fill:up?"url(#spConeUp)":"url(#spConeDown)"}),
-                React.createElement("line",{className:"sp-drop",x1:p.x,y1:p.y,x2:p.x,y2:z})); })),
+            pts.map(p=> Math.abs(p.y - yFor(0)) < 2 ? null
+              : React.createElement("line",{key:"dz"+p.i,className:"sp-drop",x1:p.x,y1:p.y,x2:p.x,y2:yFor(0)}))),
           // a guide down the selected scene's column, so the point and its tile below connect
           pts.filter(p=>p.s.id===selId).map(p=>React.createElement("line",{key:"guide",className:"sp-guide",
             x1:p.x,y1:SPINE_TOP-14,x2:p.x,y2:H-6})),
@@ -421,26 +438,36 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
                 stroke:follow.color,strokeWidth:1.5,opacity:.9}),
               fTurn && React.createElement("circle",{cx:p.x,cy:p.y,r:big?15:13,fill:"none",
                 stroke:follow.color,strokeWidth:1.5,strokeDasharray:"3 3",opacity:.75}),
-              React.createElement("circle",{className:"sp-halo "+chargeCls(p.s.closeCharge),cx:p.x,cy:p.y,r:big?11:8}),
-              big && React.createElement("circle",{className:"sp-peak "+chargeCls(p.s.closeCharge),cx:p.x,cy:p.y,r:9.5}),
-              React.createElement("circle",{className:"spine-node "+chargeCls(p.s.closeCharge),cx:p.x,cy:p.y,r:r0}),
-              flagged && React.createElement("circle",{className:"sp-flag",cx:p.x,cy:p.y,r:r0+1.5}),
-              // progression: intensified on the same side instead of reversing
-              progression && React.createElement("circle",{className:"sp-prog",cx:p.x,cy:p.y,r:r0+1.5}));
+              // one dot with a white border (owner 2026-10-18 — no other circle around it unless it's selected); a scene
+              // that doesn't turn, or progresses (intensifies on the same side), says so in that border's colour
+              React.createElement("circle",{className:"spine-node "+chargeCls(p.s.closeCharge)+(flagged?" flag":progression?" prog":""),cx:p.x,cy:p.y,r:r0}));
           }),
           // the structural peaks' names (caps) + secondary plot labels (when the columns have room)
-          pts.map(p => {
+          (()=>{ const last = { up:{ x1:-1e9, y:0 }, down:{ x1:-1e9, y:0 } };
+            const yTop = SPINE_TOP-14, yBot = H-8;   // the band the labels may use (under the act labels, above the edge)
+            return pts.map(p => {
             const main = KIND_LABEL[p.s.kind];
-            const label = main || (roomy ? p.s.plot : "");
+            const label = spineTitleCase(main || (roomy ? p.s.plot : ""));
             if(!label) return null;
-            const above = p.s.closeCharge >= 0;
+            let above = p.s.closeCharge >= 0;
             // kept inside the chart: a label that would run past an edge is anchored to it instead
-            const half = String(label).length*2.9 + 2, lo = SPINE_PAD_X/2, hi = totalW - SPINE_PAD_X/2;
+            const half = String(label).length*2.75 + 2, lo = SPINE_PAD_X/2, hi = totalW - SPINE_PAD_X/2;
             const anchor = p.x - half < lo ? "start" : p.x + half > hi ? "end" : "middle";
             const x = anchor==="start" ? Math.max(lo, p.x - 10) : anchor==="end" ? Math.min(hi, p.x + 10) : p.x;
-            return React.createElement("text",{key:"t"+p.i,className:"sp-kind"+(main?" main":""),x,
-              y: above ? Math.max(SPINE_TOP-14, p.y-16) : Math.min(H-8, p.y+23), textAnchor:anchor,pointerEvents:"none"},label);
-          }),
+            const x0 = anchor==="start" ? x : anchor==="end" ? x - 2*half : x - half, x1 = x0 + 2*half;
+            const home = (up)=> up ? Math.max(yTop, p.y-16) : Math.min(yBot, p.y+23);
+            let y = home(above);
+            // two labels side by side would overlap ("Crossing the Threshold" / "Tests, Allies, Enemies"): the second
+            // takes the next line out from the one it meets, or the other side of its point when there's no room
+            const hits = (up, yy)=>{ const l = last[up ? "up" : "down"]; return x0 < l.x1 + 6 && Math.abs(yy - l.y) < 11; };
+            if(hits(above, y)){
+              const l = last[above ? "up" : "down"], y2 = above ? Math.min(y, l.y) - 11 : Math.max(y, l.y) + 11;
+              if(above ? y2 >= yTop : y2 <= yBot) y = y2;
+              else { above = !above; y = home(above); if(hits(above, y)) y = above ? y - 11 : y + 11; }
+            }
+            last[above ? "up" : "down"] = { x1, y };
+            return React.createElement("text",{key:"t"+p.i,className:"sp-kind"+(main?" main":""),x,y,textAnchor:anchor,pointerEvents:"none"},label);
+          }); })(),
           // hit columns — full-height transparent click targets, one per visible scene
           pts.map(p => React.createElement("rect",{key:"hit"+p.i,className:"sp-hit",
             x:lefts[p.ci], y:0, width:colW, height:H, "data-sel":p.s.id===selId?"1":undefined, onClick:()=>onSelect(p.s.id)},

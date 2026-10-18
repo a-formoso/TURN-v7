@@ -10585,3 +10585,34 @@ html[data-theme="light"]{
   box-shadow:var(--win-shadow);font-size:13.5px;max-width:calc(100vw - 32px)}
 .ad-note textarea{min-height:72px;resize:vertical}
 .ad-unread{margin-bottom:4px}
+
+/* ============================ THE SPINE, second pass (owner 2026-10-18, from v6) ============================
+   The zero line sits in the background, white (a soft light line in the dark theme); the shade follows the curve —
+   one tint between the curve and the zero line above it, one below, no cones; a plot point is ONE dot with a white
+   border (a scene that doesn't turn or progresses colours that border), ringed only when selected; the labels in
+   Title Case; dashed act separators; an act folds from its label (chevron) to a slim tab and unfolds from it. */
+.spine-hs{--sp-zero:#FFFFFF}
+html[data-theme="dark"] .spine-hs{--sp-zero:rgba(255,255,255,.16)}
+.spine-hs .sp-zero{stroke:var(--sp-zero);opacity:1;stroke-width:1.5}
+.spine-hs .sp-act{stroke:var(--hs-ink-2,var(--txt-1));opacity:.3;stroke-width:1;stroke-dasharray:4 4}
+.spine-hs .sp-drop{opacity:.1}
+.spine-hs .spine-node{stroke:#FFFFFF;stroke-width:2}
+.spine-hs .spine-node.flag{stroke:var(--alert)}
+.spine-hs .spine-node.prog{stroke:var(--prog);stroke-dasharray:2.2 1.6}
+.spine-hs .sp-kind,.spine-hs .sp-kind.main{text-transform:none;font-size:9px;letter-spacing:.2px}
+.spine-hs .act-band .act-fold-ic{opacity:.55;color:inherit}
+.spine-hs .act-band:hover .act-fold-ic,.spine-hs .act-band:focus-visible .act-fold-ic{opacity:1}
+.spine-hs .act-band.collapsed{top:10px;bottom:auto;height:22px;padding:0;gap:1px;justify-content:center}
+.spine-hs .act-band.collapsed .no{writing-mode:horizontal-tb;transform:none;font-weight:700;font-size:10px}
+.spine-hs .sp-fold{cursor:pointer}
+.spine-hs .sp-fold-t{font:400 9px var(--f-mono);letter-spacing:.08em;fill:var(--hs-sub,var(--txt-3))}
+/* the cast chips: short (a first name), a small solid dot */
+.app.hs .follow-chip{height:30px;padding:0 11px 0 10px;gap:6px;font-size:12.5px}
+.app.hs .follow-av{width:8px;height:8px}
+.follow-name{max-width:10ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:700px){
+  .app.hs .follow-row{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+  .app.hs .follow-row::-webkit-scrollbar{display:none}
+  .app.hs .follow-chip{height:28px;padding:0 9px 0 8px;font-size:12px;flex:none}
+  .follow-name{max-width:7ch}
+}
