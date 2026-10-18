@@ -10397,3 +10397,30 @@ html[data-theme="light"]{
 .spine-hs .spine-line,.spine-hs .spine-glow{stroke:url(#spLine)}
 /* a storyboard brief's line the redraft removed (2026-10-18) */
 .sb-brief-gone{color:var(--alert,#B3261E);font-size:11px;font-weight:600}
+
+/* ============================ ONE PIXEL GRID (owner 2026-10-18: "these vertical and horizontal intersecting lines
+   aren't crossing each other properly") — the 1280px column's edge fell on a HALF pixel whenever the window's width
+   is odd, and the top bar drew its rails as background images while the headings and work areas drew theirs as
+   borders: the two round a half pixel differently, so the rails above and below a hairline sat half a pixel to a
+   pixel apart and the "+" broke. Every column now starts on a WHOLE pixel (the same rounding everywhere), and the top
+   bar's rails are boxes like the rest. Browsers without round() keep the earlier rules (the declarations drop). */
+:root{
+  --rail-l:max(0px, round(down, calc((100% - 1280px) / 2), 1px));
+  --rail-r:calc(max(0px, round(down, calc((100% - 1280px) / 2), 1px)) + min(100%, 1280px) - 1px);
+}
+/* boxes in the column start on a whole pixel (their max-width keeps the right edge whole too) */
+.art-scroll,.lp-nav-in,.lp-frame,.lp-hero,.lp-hero-media,.lp-foot-in,.hd-topbar-in,.wr-head-in,
+.app.hs.room-writers .body,.app.hs.room-stage .stage2-body,.hd-head-in,.hd-body{margin-left:var(--rail-l);margin-right:auto}
+/* the rails drawn as boxes, at the same whole pixels */
+.lp-rails::before,.lp-nav::before,.hd-rails::before,.hd-topbar::before{left:var(--rail-l)}
+.lp-rails::after,.lp-nav::after,.hd-rails::after,.hd-topbar::after{right:auto;left:var(--rail-r)}
+/* the rooms' top bar: its rails were background images — now boxes like every other rail */
+.app.hs .topbar{background:var(--hs-paper)}
+.app.hs .topbar::before,.app.hs .topbar::after{content:"";position:absolute;top:0;bottom:0;width:1px;background:var(--hs-line);pointer-events:none}
+.app.hs .topbar::before{left:var(--rail-l)}
+.app.hs .topbar::after{left:var(--rail-r)}
+@media (max-width:1100px){ .app.hs .topbar::before,.app.hs .topbar::after{display:none} }
+/* the full-width hairlines were centred with a transform, which turns off pixel snapping: on a half-pixel row they
+   painted as a soft two-pixel grey line through the rails. Placed without a transform, they snap like the borders. */
+.lp-hero-media::after,.lp-section::after{left:calc(50% - 50vw);transform:none}
+.hd-foot{left:auto;transform:none;margin-left:calc(50% - 50vw)}
