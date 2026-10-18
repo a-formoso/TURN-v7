@@ -775,6 +775,9 @@ function App(){
   const [coordOpen, setCoordOpen] = React.useState(false);   // Art Coordinator (meta-agent)
   const [coordConfirm, setCoordConfirm] = React.useState(false);  // cost/scope preview gate before it runs
   const [newStoryOpen, setNewStoryOpen] = React.useState(false);
+  // IMPORT A SCREENPLAY (owner 2026-10-18, docs/Script Import Plan.md — phase 1, admin only until the read lands)
+  const [scriptImportOpen, setScriptImportOpen] = React.useState(false);
+  const [scriptImporting, setScriptImporting] = React.useState(false);
 
   // ---- cloud auth (Supabase) ----
   const [session, setSession] = React.useState(null);
@@ -2269,7 +2272,8 @@ function App(){
         "Save the current film before creating another one.","error");
       return null;
     }
-    const created = await cloudCreateProject(createTitle, emptyDoc(),opts);
+    // opts.doc: a film that arrives whole (an imported screenplay, 2026-10-18) is created with its content in it
+    const created = await cloudCreateProject(createTitle, opts.doc ? { ...emptyDoc(), ...opts.doc } : emptyDoc(),opts);
     if(!created){
       if(implicitIntent && window.cloudLastCreateRequestId)
         projectCreateRetryRef.current={title:createTitle,requestId:window.cloudLastCreateRequestId};
@@ -6905,6 +6909,48 @@ function App(){
     return done;
   };
 
+  /* IMPORT A SCREENPLAY (phase 1): the parsed script (script-import.js toFilm — the screenplay word for word, a
+     scene card per heading, the cast from the cues) becomes a film. Like New Story: an empty canvas is filled in
+     place; otherwise a NEW film is created with the script already in it, so nothing depends on save timing. */
+  const importScriptFilm = async (film)=>{
+    if(scriptImporting || !film || !Array.isArray(film.scenes) || !film.scenes.length) return;
+    if(!canMutateWritersRoom()) return;
+    setScriptImporting(true);
+    try{
+      const title = (film.project && film.project.title) || "Untitled film";
+      const doc = { project:film.project, scenes:film.scenes, drafts:film.drafts, characters:film.characters,
+        beatsMap:film.beatsMap||{}, continuityMap:{}, history:{} };
+      if(cloudMode && typeof createProject==="function" && (scenes.length || !currentProjectId)){
+        const requestId=typeof window.cloudCreateRequestId==="function" ? window.cloudCreateRequestId() : "";
+        const launchScope={projectId:projIdRef.current,loadSeq:loadSeqRef.current,homeOpen:homeOpenRef.current};
+        const createOpts={...(requestId?{requestId}:{}),launchScope,doc};
+        let minted = await createProject(title, createOpts);
+        if(!minted) minted = await createProject(title, createOpts);
+        if(minted && minted.superseded){ if(typeof window.appToast==="function") window.appToast(minted.message||"The film was created. Your current screen was left unchanged.","info"); setScriptImportOpen(false); return; }
+        if(typeof minted!=="string"){
+          const why = String(window.cloudLastCreateError||"").trim();
+          if(typeof window.appToast==="function") window.appToast("Couldn\u2019t create the film"+(why?" \u2014 "+why:"")+". Your script wasn\u2019t imported and your current film is untouched.","error");
+          return;
+        }
+      } else {
+        // an empty canvas (or this device's own film): filled in place
+        if(scenes.length){ localStoryGenRef.current++; applyDoc(emptyDoc()); }
+        setProject(p=>({ ...p, ...film.project }));
+        setCharacters(film.characters.map(c=>({...c})));
+        setScenes(film.scenes.map(sc=>({...sc})));
+        setBeatsMap((typeof withBeatMapIdentity==="function")?withBeatMapIdentity(film.beatsMap||{}):(film.beatsMap||{}));
+        setDrafts({ ...film.drafts });
+        setContinuityMap({});
+        if(cloudMode && currentProjectId && typeof renameProject==="function") renameProject(currentProjectId, title);
+      }
+      setRoom("writers"); setView("spine");
+      setSelId(film.scenes[0].id);
+      setScriptImportOpen(false);
+      if(typeof window.appToast==="function") window.appToast("\u201c"+title+"\u201d is in \u2014 "+film.scenes.length+" scene"+(film.scenes.length!==1?"s":"")
+        +" and "+film.characters.length+" character"+(film.characters.length!==1?"s":"")+", your screenplay exactly as written.","ok");
+    } finally { setScriptImporting(false); }
+  };
+
   const sel = scenes.find(s=>s.id===selId) || null;
   const beats = sel ? beatsMap[sel.id] : null;
 
@@ -9293,12 +9339,18 @@ function App(){
 
 
     // New Story intake — many seed types in, one logline out, then launch Adaptation
+    scriptImportOpen && (typeof window.ScriptImportWindow==="function") && React.createElement(window.ScriptImportWindow,{
+      busy:scriptImporting,
+      onClose:()=>{ if(!scriptImporting) setScriptImportOpen(false); },
+      onImport:(film)=>importScriptFilm(film) }),
     newStoryOpen && React.createElement(NewStoryIntake,{
       onClose:()=>setNewStoryOpen(false),
       aiOn: (typeof aiAvailable==="function" && aiAvailable()),
       initialFormat:newStoryBuildsCurrentEpisode?newStoryEpisodeFormat:undefined,
       formatLocked:newStoryBuildsCurrentEpisode,
       formatOwnerLabel:(newStoryShowRow&&newStoryShowRow.title)||"this Show",
+      // "I have a script" — admin only while the read (phase 2) isn't built; never inside a Show's episode
+      onImportScript:(isAdmin && !newStoryBuildsCurrentEpisode) ? (()=>{ setNewStoryOpen(false); setScriptImportOpen(true); }) : undefined,
       onLaunch:async (logline, synopsis, formatId, frameworkId)=>{
         if(!canMutateWritersRoom()) return;
         // HARD GATE: building a story runs the paid engine. Every intake path funnels

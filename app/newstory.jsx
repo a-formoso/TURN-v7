@@ -9,6 +9,11 @@ const SEED_TYPES = [
   { id:"talk",      label:"Talk it through", icon:"mic", hint:"Not sure yet? Talk it out loud \u2014 I\u2019ll ask a few questions and listen.",
     inputLabel:"", placeholder:"" },
 ];
+/* BRING YOUR OWN SCRIPT (owner 2026-10-18, docs/Script Import Plan.md): a finished screenplay comes in through its
+   own window (script-import-ui.jsx) — shown only when the app passes onImportScript */
+const SEED_SCRIPT = { id:"script", label:"I have a script", icon:"script",
+  hint:"Bring your finished screenplay \u2014 Fountain, Final Draft, Highland or plain text, or paste it. Every word is kept exactly as you wrote it.",
+  inputLabel:"", placeholder:"" };
 
 // the four intake screens, in order — drives the header progress stepper
 /* Step order (reordered 2026-07-11, owner-approved): the SEED comes first — a
@@ -462,7 +467,8 @@ function NSInterview(props){
   return React.createElement(NSLiveInterview,{...props,onUseFallback:()=>setUseFallback(true)});
 }
 
-function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, formatOwnerLabel }){
+function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, formatOwnerLabel, onImportScript }){
+  const seedTypes = (typeof onImportScript==="function") ? SEED_TYPES.concat([SEED_SCRIPT]) : SEED_TYPES;
   // the writing model developing THIS story — synced with the global drafting picker,
   // so loglines, research, synopsis and the spine build all run on the picked engine
   const [mid, setMid] = React.useState(()=> (typeof window.getWritingModelId==="function") ? window.getWritingModelId("story") : "");
@@ -518,8 +524,8 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
   // closure that would silently fall back to the default three-act synopsis).
   const frameworkRef = React.useRef(framework); frameworkRef.current = framework;
   const formatRef = React.useRef(format); formatRef.current = format;
-  const cfg = SEED_TYPES.find(s=>s.id===seed) || SEED_TYPES[0];
-  const needsText = seed !== "talk";
+  const cfg = seedTypes.find(s=>s.id===seed) || SEED_TYPES[0];
+  const needsText = seed !== "talk" && seed !== "script";
   const formatLabel = (((window.FORMATS||[]).find(f=>f.id===format)||{}).label || "film").toLowerCase();
   const liveSeedSupport = (typeof window.turnLiveVoiceSupport==="function")
     ? window.turnLiveVoiceSupport() : {ok:false};
@@ -734,7 +740,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
         ? React.createElement("div",{className:"ns-body"},
             React.createElement("div",{className:"ns-seclab"},"How did your idea arrive?"),
             React.createElement("div",{className:"ns-chips"},
-              SEED_TYPES.map(s=>
+              seedTypes.map(s=>
                 React.createElement("button",{key:s.id,className:"ns-chip "+(seed===s.id?"on":""),
                   onClick:()=>{ setSeed(s.id); setErr(""); }},
                   React.createElement(Icon[s.icon]||Icon.target,{s:14}), s.label))),
@@ -753,7 +759,10 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
             err && React.createElement("div",{className:"ns-err"},(window.turnLinkifyReact?window.turnLinkifyReact(err):err)),
             React.createElement("div",{className:"ns-foot"},
               React.createElement("button",{className:"ns-btn ghost",onClick:onClose},"Cancel"),
-              seed==="talk"
+              seed==="script"
+                ? React.createElement("button",{className:"ns-btn primary",onClick:()=>onImportScript()},
+                    React.createElement(Icon.script,{s:16}),"Choose your script \u2192")
+              : seed==="talk"
                 ? React.createElement("button",{className:"ns-btn primary",onClick:()=>{ setErr(""); setStep("interview"); },disabled:!aiOn},
                     React.createElement(Icon.mic,{s:16}),"Start the conversation")
                 : React.createElement("button",{className:"ns-btn primary",onClick:develop,disabled:loading||!aiOn},
