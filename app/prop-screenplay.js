@@ -5,11 +5,24 @@
   const uniq = xs=>Array.from(new Set(xs));
   const physical = new Set(["visible","handled","worn"]);
   const action = b=>! /^(scene|heading|slug|char|character|cue|dialogue|dialog|parenthetical|transition)$/i.test(String(b&&b.type||""));
-  function sourceValid(e,drafts){
-    const b=(((drafts||{})[e.sceneId]||{}).blocks||[])[Number(e.block)-1];
-    return !!(b && e.quote && String(b.text||"").includes(e.quote));
+  /* WHERE A REVIEWED PASSAGE IS NOW (2026-10-18, owner — "Redraft script from beats" review): a passage is
+     checked in its saved block first, then anywhere in the same scene's current draft. A redraft that adds or
+     removes a line renumbers the blocks, and an unchanged passage used to fail — the prop then quietly lost its
+     scenes and continuity events. Spacing and curly quotes don't count as changes; the words must still be there. */
+  const flat=v=>String(v||"").replace(/[\u2018\u2019]/g,"'").replace(/[\u201c\u201d]/g,'"').replace(/\s+/g," ").trim();
+  function locate(e,drafts){
+    if(!e || !e.quote) return 0;
+    const q=flat(e.quote); if(!q) return 0;
+    const bs=(((drafts||{})[e.sceneId]||{}).blocks||[]);
+    const at=Number(e.block)-1;
+    if(bs[at] && flat(bs[at].text).includes(q)) return at+1;
+    for(let i=0;i<bs.length;i++) if(flat(bs[i]&&bs[i].text).includes(q)) return i+1;
+    return 0;
   }
-  function sources(p,drafts){ return (p.screenplaySources||[]).filter(e=>sourceValid(e,drafts)); }
+  function sourceValid(e,drafts){ return locate(e,drafts)>0; }
+  // the passages still in the screenplay, each at the block it sits in NOW
+  function sources(p,drafts){ return (p.screenplaySources||[]).map(e=>{ const b=locate(e,drafts);
+    return !b ? null : (b===Number(e.block) ? e : { ...e, block:b }); }).filter(Boolean); }
   function scenesFor(p,drafts){ return uniq(sources(p,drafts).filter(e=>physical.has(e.presence)).map(e=>e.sceneId)); }
   function characterScenes(ownerId,ownerName,scenes,drafts,characters){
     const others=(characters||[]).filter(c=>c.id!==ownerId).flatMap(c=>norm(c.name).split(" "));
@@ -147,7 +160,12 @@
       const old=d.target==="new"?null:out.find(p=>p.id===d.target);
       const id=old?old.id:"prop-script-"+Date.now().toString(36)+"-"+i+"-"+Math.random().toString(36).slice(2,8);
       const priorSources=old&&old.screenplaySources||[];
-      const es=mergeBy(priorSources.filter(s=>sourceValid(s,drafts)),d.screenplaySources,sourceKey);
+      // a passage the screenplay still has is the SAME passage wherever it moved (2026-10-18): kept at its block now,
+      // and replaced by the fresh extraction's copy of it, never doubled
+      const samePassage=e=>[e.sceneId,flat(e.quote),e.presence].join("|");
+      const kept=priorSources.map(s=>{ const b=locate(s,drafts); return b ? (b===Number(s.block) ? s : {...s,block:b}) : null; }).filter(Boolean)
+        .filter(s=>!d.screenplaySources.some(f=>samePassage(f)===samePassage(s)));
+      const es=mergeBy(kept,d.screenplaySources,sourceKey);
       const history=mergeBy(old&&old.screenplaySourceHistory||[],priorSources.filter(s=>!sourceValid(s,drafts)),sourceKey);
       const events=mergeBy(old&&old.continuityEvents||[],d.includeEvents?d.continuityEvents.map((e,n)=>({...e,id:"pe-"+id+"-"+Date.now().toString(36)+"-"+n})):[],e=>e.source?sourceKey(e.source)+"|"+e.type:e.id);
       const base=old||{id,name:d.name,kind:d.kind,kindSet:true,inventoryGroup:d.inventoryGroup,ownerId:d.ownerId,ownerName:d.ownerName,
@@ -162,5 +180,5 @@
     });
     return out;
   }
-  root.PropScreenplay={sourceValid,sources,scenesFor,characterScenes,group,nameIssue,notInScreenplay,isProposal,acceptPatch,batchSkip,sheetTier,sourceKey,mergeBy,chunks,normalizeResult,accept,physical};
+  root.PropScreenplay={sourceValid,locate,sources,scenesFor,characterScenes,group,nameIssue,notInScreenplay,isProposal,acceptPatch,batchSkip,sheetTier,sourceKey,mergeBy,chunks,normalizeResult,accept,physical};
 })(window);

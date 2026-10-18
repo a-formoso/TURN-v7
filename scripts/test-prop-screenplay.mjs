@@ -47,9 +47,15 @@ test("edited evidence disappears from mapping, not inventory",()=>{assert.deepEq
 test("missing reviewed evidence cannot make an object appear everywhere",()=>assert.equal(box.propStateAt(item,"s2",null,null,null,{scenes,drafts:{}}).active,false));
 test("explicit empty wearable map means absent",()=>assert.equal(box.propStateAt({id:"w",kind:"worn",scenes:[]},"s1",null,null,null,{scenes}).active,false));
 test("re-extraction archives outdated source passages",()=>{
+  // (2026-10-18) a passage that only MOVED (a redraft added a line above it) is the same passage: kept, never archived
   const shifted={s1:{blocks:[{type:"action",text:"A pause."},...drafts.s1.blocks]}};
   const fresh={...proposal,target:item.id,screenplaySources:proposal.screenplaySources.map(e=>({...e,block:e.block+1})),includeEvents:false};
-  const updated=P.accept(accepted,[fresh],shifted)[0];assert.equal(updated.screenplaySources.length,2);assert.equal(updated.screenplaySourceHistory.length,2);assert.equal(P.sources(updated,shifted).length,2);
+  const updated=P.accept(accepted,[fresh],shifted)[0];assert.equal(updated.screenplaySources.length,2);assert.equal((updated.screenplaySourceHistory||[]).length,0);assert.equal(P.sources(updated,shifted).length,2);
+  assert.equal(P.sources(accepted[0],shifted).length,2,"before re-extraction the moved passages are still found");
+  // a passage the redraft REWROTE is outdated: archived when the extraction runs again
+  const rewritten={s1:{blocks:[{type:"action",beat:1,text:"Marcus opens the medication notebook."},{type:"char",text:"REUBEN (V.O.)"},{type:"dialogue",text:"I remember the old watch."},{type:"action",beat:2,text:"Marcus slides the notebook across to Daniel."}]},s2:drafts.s2};
+  const fresh2={...proposal,target:item.id,screenplaySources:[proposal.screenplaySources[0]],includeEvents:false};
+  const updated2=P.accept(accepted,[fresh2],rewritten)[0];assert.equal(updated2.screenplaySources.length,1);assert.equal(updated2.screenplaySourceHistory.length,1);
 });
 test("full screenplay chunks include objects after character 600",()=>{
   const long={s1:{blocks:[{type:"action",text:"A long pause. ".repeat(3000)+"The final envelope appears."}]}};

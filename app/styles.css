@@ -10395,3 +10395,5 @@ html[data-theme="light"]{
 .spine-hs .spine-node{stroke:var(--hs-surface,#fff);stroke-width:2}
 .spine-hs .sp-kind{stroke:transparent}
 .spine-hs .spine-line,.spine-hs .spine-glow{stroke:url(#spLine)}
+/* a storyboard brief's line the redraft removed (2026-10-18) */
+.sb-brief-gone{color:var(--alert,#B3261E);font-size:11px;font-weight:600}

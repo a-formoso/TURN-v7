@@ -444,6 +444,55 @@
     if(!byNumber.size&&blocks.some(b=>meaningful(b)&&!isScene(b)))byNumber.set(1,{n:1});
     return Array.from(byNumber.values()).sort((a,b)=>a.n-b.n);
   };
+  /* A SHOT'S WORDS AFTER A REDRAFT (2026-10-18, owner — "Redraft script from beats" review). A shot keeps the
+     action and line it was built with; after the screenplay is redrafted those copies can hold old words. This
+     reads them against the CURRENT draft, the way the frame prompt does:
+       action   — a beat-opening shot shows the screenplay's opening action, unless its Action was written by hand;
+                  other shots keep their own staging text;
+       dialogue — the shot's line as the screenplay has it NOW: the same line (spacing aside), or the closest line
+                  of the beat when the words were revised (dialogueChanged); dialogueGone when no line of the beat
+                  is close any more (the old words are kept and said to be gone).
+     Never invents a line for a shot that had none. */
+  root.shotLiveText=function(scene, sh, options){
+    const strip=v=>clean(v).replace(/^["\u201c]|["\u201d]$/g,"");
+    const out={ action:clean(sh&&sh.action), dialogue:strip(sh&&sh.dialogue),
+      actionChanged:false, dialogueChanged:false, dialogueGone:false };
+    if(!scene || !sh) return out;
+    let src=null;
+    try{ src=arguments.length<3 ? shotBeatScreenplay(scene, sh.beatN) : shotBeatScreenplay(scene, sh.beatN, options); }catch(e){ src=null; }
+    if(!src || !src.hasSource) return out;
+    if(sh.keyframeMode==="beat-opening" && !(sh.actionByHand && out.action)){
+      const a=clean(src.openingAction);
+      if(a && a!==out.action){ out.action=a; out.actionChanged=true; }
+    }
+    if(out.dialogue){
+      const lines=(src.dialogue||[]).map(d=>strip(d&&d.text)).filter(Boolean);
+      const mine=norm(out.dialogue);
+      if(!lines.some(l=>norm(l)===mine)){
+        const words=new Set(mine.split(" ").filter(Boolean));
+        let best="", score=0;
+        lines.forEach(l=>{
+          const n=norm(l);
+          let sc=0;
+          if(n && mine && (n.indexOf(mine)>=0 || mine.indexOf(n)>=0)) sc=1;
+          else { const w=new Set(n.split(" ").filter(Boolean)); let hit=0; words.forEach(x=>{ if(w.has(x)) hit++; });
+            sc=hit/Math.max(1, Math.sqrt(words.size*w.size)); }
+          if(sc>score){ score=sc; best=l; }
+        });
+        if(best && score>=0.55){ out.dialogue=best; out.dialogueChanged=true; }
+        else out.dialogueGone=true;
+      }
+    }
+    return out;
+  };
+  /* a scene's screenplay as a short signature — any redraft changes it (2026-10-18: the Storyboards health
+     count, the Stage's saved clip counts and the Breakdown compare it) */
+  root.screenplayDraftSig=function(draft){
+    if(!draft || !Array.isArray(draft.blocks)) return "";
+    let h=0; const str=draft.blocks.map(b=>(b&&b.beat||"")+"|"+(b&&b.type||"")+"|"+(b&&b.text||"")).join("\n");
+    for(let i=0;i<str.length;i++){ h=((h<<5)-h+str.charCodeAt(i))|0; }
+    return draft.blocks.length+":"+(h>>>0).toString(36);
+  };
   root.shotBeatScreenplay=shotBeatScreenplay;
   root.shotScreenplayNamesInText=namesInText;
   root.shotScreenplayDelivery=deliveryFor;

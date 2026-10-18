@@ -1829,7 +1829,22 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
    they are extra empty-set anchors for subspaces the screenplay actually films
    inside a broader scene location (e.g. EXT yard + INT booth). */
 /* the parent snapshot taken when THIS run attached its references, used once (a later run takes its own) */
-function _parentChangedBadge(gen, l){
+/* the screenplay text a plate was made from, as a short signature (2026-10-18, owner — "Redraft script from
+   beats" review): a plate made from a scene's pages or a unit's script text says "Script changed" once a redraft
+   changes that text; nothing regenerates on its own */
+function _plateScriptSig(text){
+  const str = String(text||"").replace(/\s+/g," ").trim();
+  if(!str) return "";
+  let h = 5381; for(let i=0;i<str.length;i++) h = ((h<<5)+h+str.charCodeAt(i))|0;
+  return "ps1:"+(h>>>0).toString(36)+":"+str.length;
+}
+function _draftScriptText(draft){ return ((draft&&draft.blocks)||[]).map(b=>(b&&b.type||"")+":"+(b&&b.text||"")).join("\n"); }
+function _parentChangedBadge(gen, l, scriptSig){
+  // the screenplay text it was made from changed (only plates that recorded it)
+  const script = (gen && gen.genUrl && gen.genMeta && gen.genMeta.plateScriptSig && scriptSig && gen.genMeta.plateScriptSig!==scriptSig)
+    ? React.createElement("span",{key:"script",className:"shot-source-badge stale",
+        title:"The screenplay this plate was made from was redrafted afterwards. The plate stays as it is until you regenerate it \u2014 check it still fits the scene."},"Script changed")
+    : null;
   const parent = (gen && gen.genUrl && typeof locationDerivedPlateChanged==="function" && locationDerivedPlateChanged(gen.genMeta))
     ? React.createElement("span",{key:"parent",className:"shot-source-badge stale",
         title:"The location plate this was made from was regenerated afterwards. This plate stays as it is until you regenerate it."},"Parent plate changed")
@@ -1839,13 +1854,15 @@ function _parentChangedBadge(gen, l){
     ? React.createElement("span",{key:"layout",className:"shot-source-badge stale",
         title:"The shared layout changed after this plate was made. Nothing regenerates on its own \u2014 regenerate it when you are ready."},"Layout changed \u2014 regenerate")
     : null;
-  return parent||layout ? React.createElement(React.Fragment,null,parent,layout) : null;
+  return parent||layout||script ? React.createElement(React.Fragment,null,script,parent,layout) : null;
 }
 /* the layout stamp a single-frame plate records (an edit keeps the one it was made with) */
-function _withLayoutStamp(l, mode, gen, meta){
+function _withLayoutStamp(l, mode, gen, meta, scriptSig){
   const sig = mode==="edit" ? (gen && gen.genMeta && gen.genMeta.plateLayoutSig)
     : (typeof locationPlateLayoutSig==="function" ? locationPlateLayoutSig(l) : "");
-  return sig ? {...(meta||{}), plateLayoutSig:sig} : meta;
+  const ss = mode==="edit" ? (gen && gen.genMeta && gen.genMeta.plateScriptSig) : scriptSig;
+  const out = sig ? {...(meta||{}), plateLayoutSig:sig} : meta;
+  return ss ? {...(out||{}), plateScriptSig:ss} : out;
 }
 function _takeDepSnap(ref){ const x = ref && ref.current; if(ref) ref.current = null; return x; }
 /* the size a location card sends its screenplay pages at (locations.jsx LOC_SCREENPLAY_PAGE_MAX_DIM, 2026-10-14): their
@@ -1999,6 +2016,7 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
   const _sheetScene = (typeof locationSceneForCoverageSheet==="function") ? locationSceneForCoverageSheet(l, v, scenes||_C0.scenes||[]) : null;
   const _sheetDraft = _sheetScene && (drafts||_C0.drafts||{})[_sheetScene.id];
   const _scriptSig = JSON.stringify((_sheetDraft&&_sheetDraft.blocks)||[]);
+  const _coverScriptSig = _plateScriptSig(_draftScriptText(_sheetDraft));
   const refsKey = [l.id, id, v.id, v.order, v.scriptExcerpt, parentGenUrl, _scriptSig, (previousSheets||[]).map(p=>p&&p.id).join(","), scenes&&scenes.length].join("|");
   const buildCoverageRefs = async ()=>{
     const out = [];
@@ -2088,7 +2106,7 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage"))),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,previousIds,"screenplay-coverage")), _coverScriptSig),
     buildEdit: (instr)=> "Edit this "+(v.role||"INT")+" Required Space Plate for "+(v.name||l.name||"the location")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -2101,7 +2119,7 @@ function LocationCoverageSheet({ l, v, project, scenes, drafts, previousSheets, 
       React.createElement("div",{className:"loc-coverage-title"},
         React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(v.role||"")?"ext":"int")},v.role||"INT"),
         React.createElement("b",null,v.name||"Extra space"),
-        _parentChangedBadge(gen, l)),
+        _parentChangedBadge(gen, l, _coverScriptSig)),
       React.createElement("span",{className:"loc-coverage-source",title:v.summary||""},sourceLabel)),
     v.summary && React.createElement("div",{className:"loc-variants-empty loc-coverage-summary"},v.summary),
     React.createElement(SheetFrame,{ gen, slotId:"loccov-"+id, name:(v.name||l.name||"Location")+" \u00b7 "+(v.role||"INT"),
@@ -2299,7 +2317,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),stateUnit?"slugline-unit":"continuity-state")))),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),stateUnit?"slugline-unit":"continuity-state")), stateUnit ? _plateScriptSig(stateUnit.scriptText) : "")),
     buildEdit: (instr)=> "Edit this establishing frame of "+(l.name||"the place")+" ("+v.time+"). Apply ONLY: "+instr+". Keep the same space and architecture."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -2314,7 +2332,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
             React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(stateUnit.intExt||"")?"ext":"int")},stateUnit.intExt||"INT"),
             React.createElement("b",null,stateUnit.name||l.name||"Location"),
             stateUnit.time&&React.createElement("span",{className:"loc-time-badge"},stateUnit.time),
-            _parentChangedBadge(gen, l))
+            _parentChangedBadge(gen, l, stateUnit ? _plateScriptSig(stateUnit.scriptText) : ""))
         : React.createElement(EditText,{value:v.time,placeholder:"State name / time, e.g. Dawn \u00b7 storm\u2026",onCommit:onTime}),
       onRemove&&React.createElement("button",{className:"loc-variant-x",title:"Remove environment state",onClick:onRemove},React.createElement(Icon.x,{s:12}))),
     React.createElement(SheetField,{label:"What changes",value:v.state||"",multiline:true,
@@ -2432,7 +2450,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
           locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit")))),
+      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit")), _plateScriptSig(u.scriptText))),
     buildEdit: (instr)=> "Edit this "+role+" Slugline Unit plate for "+(u.name||l.name||"the location")+(u.time?(" at "+u.time):"")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light."+locationSpatialPrompt(l),
   });
   const viewerEntity = {
@@ -2446,7 +2464,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
         React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(role)?"ext":"int")},role),
         React.createElement("b",null,u.name||"Slugline unit"),
         u.time && React.createElement("span",{className:"loc-time-badge"},u.time),
-        _parentChangedBadge(gen, l)),
+        _parentChangedBadge(gen, l, _plateScriptSig(u.scriptText))),
       React.createElement("span",{className:"loc-coverage-source",title:(u.sluglines||[]).join("\n")},sourceLabel)),
     React.createElement("div",{className:"loc-space-provenance "+sourceMeta.kind,title:(u.sluglines||[]).join("\n")},
       sourceMeta.label,

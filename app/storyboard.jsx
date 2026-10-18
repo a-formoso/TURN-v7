@@ -114,6 +114,12 @@ function sbLocRefsForShots(shots, ctx){
 }
 window.sbLocRefsForShots = sbLocRefsForShots;
 
+/* the scene's screenplay as a short signature: a redraft changes it, so the page's "frames need source refresh"
+   count is recounted at once (2026-10-18 — it used to wait for the tab to be opened again or a frame to land) */
+function sbDraftSig(scene){
+  const d = scene ? ((((window.turnContinuity||{}).drafts)||{})[scene.id]) : null;
+  return (typeof window.screenplayDraftSig==="function") ? window.screenplayDraftSig(d) : "";
+}
 /* a mood phrase from the scene's closing value charge */
 function sbMood(scene){
   const c = (scene&&scene.closeCharge)||0;
@@ -131,10 +137,12 @@ function sbStrip(sh, scene, row){
     (typeof shotLensOf==="function")  ? shotLensOf(sh.lens).label   : sh.lens,
   ].filter(Boolean).join(" · ");
   const motion = ((typeof shotMoveOf==="function") ? shotMoveOf(sh.move).label : (sh.move||"Static")) || "Static";
-  let action = (sh.action||"").replace(/\s+/g," ").trim();
+  // the action and line as the CURRENT screenplay has them (shot-screenplay.js shotLiveText, 2026-10-18)
+  const lt = (typeof window.shotLiveText==="function") ? window.shotLiveText(scene, sh) : { action:sh.action||"", dialogue:sh.dialogue||"" };
+  let action = (lt.action||"").replace(/\s+/g," ").trim();
   const m = action.match(/^[^.!?]*[.!?]/); if(m) action=m[0];
   action = action.replace(/[.!?]+$/,"");
-  const dlg = (sh.dialogue||"").trim().replace(/^["“]|["”]$/g,"").replace(/[.!?]+$/,"");
+  const dlg = (lt.dialogue||"").trim().replace(/^["“]|["”]$/g,"").replace(/[.!?]+$/,"");
   const beh = ((row && ((row.drive&&row.drive.d)||(row.react&&row.react.d)))||"").replace(/\s+/g," ").trim();
   const performance = dlg ? ('"'+((typeof clipWords==="function") ? clipWords(dlg,160) : dlg.slice(0,160))+'"')
     : (beh || sbMood(scene));
@@ -978,7 +986,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
     window.addEventListener("nb-prefetched", onChange);
     return ()=>{ alive=false; clearTimeout(autoTimer.current);
       window.removeEventListener("nb-gen-done", onChange); window.removeEventListener("nb-prefetched", onChange); };
-  },[(page.shots||[]).map(s=>s.id+":"+(s.locked?1:0)).join(","),
+  },[(page.shots||[]).map(s=>s.id+":"+(s.locked?1:0)).join(","), sbDraftSig(scene),   // a redraft of the scene's script (2026-10-18)
      (typeof shotLookSig==="function" && scene) ? shotLookSig(ctx.project, scene.id) : ""]);   // approve/unapprove, and a look change on Color (2026-10-08), refresh health
 
   // FIRST VIEW: a scene whose frames already exist gets its sheet composed
@@ -1413,6 +1421,7 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
         const bm = sbBeatMeta(beatsMap, scene.id);
         const row = sbBeatRow(beatsMap, sh);
         const who = sbInFrame(sh, ctx);
+        const lt = (typeof window.shotLiveText==="function") ? window.shotLiveText(scene, sh) : { action:sh.action||"", dialogue:sh.dialogue||"" };
         return _sbEl("div",{className:"sb-brief",key:sh.id},
           _sbEl("div",{className:"sb-brief-head"},
             _sbEl("span",{className:"sb-brief-no"}, sbPanelLabel(sh)),
@@ -1420,9 +1429,10 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
             _sbEl("button",{className:"sb-brief-jump",onClick:()=>jumpToShot(sh),title:"Edit in Shots"},
               _sbEl(Icon.film,{s:10}),"Edit")),
           _sbEl("div",{className:"sb-brief-line"},_sbEl("b",null,"In frame — "), who.length?who.join(", "):"—"),
-          sh.action && _sbEl("div",{className:"sb-brief-line"},_sbEl("b",null,"Action — "), sh.action),
+          lt.action && _sbEl("div",{className:"sb-brief-line"},_sbEl("b",null,"Action — "), lt.action),
           sh.composition && _sbEl("div",{className:"sb-brief-line"},_sbEl("b",null,"Composition — "), sh.composition),
-          sh.dialogue && _sbEl("div",{className:"sb-brief-line dlg"},_sbEl("b",null,"Dialogue — "), "“"+sh.dialogue+"”"),
+          lt.dialogue && _sbEl("div",{className:"sb-brief-line dlg"},_sbEl("b",null,"Dialogue — "), "“"+lt.dialogue+"”",
+            lt.dialogueGone && _sbEl("span",{className:"sb-brief-gone",title:"A redraft removed or rewrote this line — check the shot in Shots"}," · no longer in the script")),
           row && row.drive && _sbEl("div",{className:"sb-brief-line"},_sbEl("b",null,(bm.driverLabel||"Driver")+" ▸ "), (row.drive.a||"")+(row.drive.d?(" — "+row.drive.d):"")),
           row && row.react && _sbEl("div",{className:"sb-brief-line"},_sbEl("b",null,(bm.reactorLabel||"Reactor")+" ▸ "), (row.react.a||"")+(row.react.d?(" — "+row.react.d):"")),
           // the REAL inputs — from the frame's own render record, never re-derived

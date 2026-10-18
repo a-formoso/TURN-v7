@@ -225,7 +225,12 @@ function bdSceneRow({ scene, slug, todKind, ordered, C, props, locations, sceneS
         else boards.current++;
       });
     }
-    const clips = (stageStatus && stageStatus[scene.id]) || null;
+    const clips0 = (stageStatus && stageStatus[scene.id]) || null;
+    /* (2026-10-18) counted against an earlier screenplay: a redraft since the last Stage visit changed this scene,
+       so the takes the count calls current may be out of date — said so, never shown as done */
+    const scriptNow = (typeof window.screenplayDraftSig==="function") ? window.screenplayDraftSig((drafts||{})[scene.id]) : "";
+    const scriptChanged = !!(clips0 && clips0.scriptSig && scriptNow && clips0.scriptSig!==scriptNow);
+    const clips = clips0 ? (scriptChanged ? { ...clips0, scriptChanged:true } : clips0) : null;
     return { scene, slug:{ ...slug, todKind }, cast, location, wardrobe, props:sceneProps,
       shots:{ total:sceneShots.length, rendered, approved, toRender, toApprove, approvedOld }, framesDone:done, missing, notes, ready:!missing.length,
       needs: needs||[], boards, clips, boardIds };
@@ -600,7 +605,7 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
             ? _bdEl("button",{type:"button",className:"bd-chip"+(bdClipsDone(row.clips)?" ok":""),
                 onClick:()=>onOpenStage&&onOpenStage(), disabled:!onOpenStage,
                 title:"The Stage's video clips for this scene, as of your last visit to the Stage \u2014 open the Stage"},
-                dot(bdClipsDone(row.clips)), bdClipsText(row.clips)+" (at your last Stage visit)")
+                dot(bdClipsDone(row.clips)), bdClipsText(row.clips)+(row.clips.scriptChanged?"":" (at your last Stage visit)"))
             : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>onOpenStage&&onOpenStage(),disabled:!onOpenStage,
                 title:"Video clips are counted when you visit the Stage"}, dot("unused"), "Counted on your next visit to the Stage")))),
       (row.notes||[]).length>0 && _bdEl("div",{className:"bd-notes"}, row.notes.map((n,i)=>
@@ -624,9 +629,10 @@ function bdBoardsText(b){
 }
 /* B14 (2026-10-09, owner — Breakdown review): the Stage leaves a clip out of the film when a character's identity
    changed after its take — `identity` in the Stage's saved counts (read when present) */
-function bdClipsDone(c){ return !!c && c.rendered===c.total && !c.stale && !(Number(c.identity)>0); }
+function bdClipsDone(c){ return !!c && !c.scriptChanged && c.rendered===c.total && !c.stale && !(Number(c.identity)>0); }
 function bdClipsText(c){
   if(!c || !c.total) return "";
+  if(c.scriptChanged) return "Script changed since your last Stage visit \u2014 open the Stage to recount";
   const idn = Number(c.identity)||0;
   return c.rendered+" of "+c.total+" clip"+(c.total===1?"":"s")+" rendered"
     +(c.stale?" \u00b7 "+c.stale+" out of date":"")

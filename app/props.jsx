@@ -1418,7 +1418,14 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             React.createElement("span",{className:"prop-status-pill unverified",
               title:propOriginLabel(p)+". The screenplay has not established this object"+(p.kind==="worn"?" \u2014 normal for wardrobe choices.":".")
                 +" Run Extract screenplay props and link a passage to this card to confirm it, or delete it if the story doesn't need it."},
-              React.createElement(Icon.alert,{s:10}),"Not in screenplay"))),
+              React.createElement(Icon.alert,{s:10}),"Not in screenplay")),
+          // a reviewed passage the screenplay no longer has (a redraft rewrote it): said on the closed section too
+          !!savedSources.length && validSources.length<savedSources.length && React.createElement("span",{className:"prop-evidence-flag"},
+            React.createElement("span",{className:"prop-status-pill unverified",
+              title:"The screenplay changed: "+(savedSources.length-validSources.length)+" reviewed passage"+(savedSources.length-validSources.length!==1?"s are":" is")
+                +" no longer in it, so this object no longer counts as in "+((savedSources.length-validSources.length)!==1?"those scenes":"that scene")
+                +". Extract screenplay props again to review it; the object and its images are kept."},
+              React.createElement(Icon.alert,{s:10}),(savedSources.length-validSources.length)+" source"+(savedSources.length-validSources.length!==1?"s":"")+" changed"))),
         React.createElement("div",{className:"prop-origin-label"},propOriginLabel(p)),
         !!savedSources.length&&React.createElement("div",{className:"prop-evidence-list"},savedSources.map((s,i)=>React.createElement("div",{key:i,className:"prop-evidence-quote"},
           React.createElement("button",{className:"prop-evidence-jump",onClick:()=>onSourceClick&&onSourceClick({...s,beat:s.beat})},"Scene "+s.sceneNo+(s.beat?" · Beat "+s.beat:"")),

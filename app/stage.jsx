@@ -3635,8 +3635,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           assetRole:"shot_anchor", assetSourceQuality:"shot_frame_full_frame" });
       });
     }
-    if(_mAud) sceneShots.forEach(sh=>{
-      if(!String(sh&&sh.dialogue||"").trim()) return;
+    /* (2026-10-18, owner — "Redraft script from beats" review) a voiced line is checked against the words the
+       scene's clips speak NOW (their lineShots carry the current screenplay), never the copy the shot was built
+       with: after a redraft, a line voiced with the old words is no longer offered as ready */
+    const liveLines = {};
+    (sceneClips||[]).forEach(sc=>(((sc&&sc.data)||{}).lineShots||[]).forEach(x=>{ if(x&&x.id) liveLines[x.id]=x; }));
+    const clipsKnowLines = (sceneClips||[]).some(sc=>Array.isArray(((sc&&sc.data)||{}).lineShots));
+    if(_mAud) sceneShots.forEach(sh0=>{
+      const sh = liveLines[sh0.id] || (clipsKnowLines ? null : sh0);
+      if(!sh || !String(sh.dialogue||"").trim()) return;
       const u=auds[sh.id],audioState=_shotAudioState(sh,auds,ctx.characters||[]); if(!audioState.ready) return;
       const exact=stageShotDialogueLine(scene,ctx.drafts,sh,ctx);
       const speaker=(exact&&exact.speaker) || (sh.lineAudio&&sh.lineAudio.speaker) || "Character";
@@ -7241,6 +7248,10 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
    where the render was told to put them. */
 function clipLinePlacements(clip, auds, characters){
   const shots = ((clip&&clip.data&&clip.data.shots)||[]);
+  /* the words each line has NOW (the clip's lineShots carry the current screenplay — 2026-10-18): a line voiced
+     with words a redraft changed or removed is not playable in the Mix; the timing walk is unchanged */
+  const liveList = clip && clip.data && Array.isArray(clip.data.lineShots) ? clip.data.lineShots : null;
+  const liveOf = (sh)=> liveList ? (liveList.find(x=>x&&x.id===(sh&&sh.id))||null) : sh;
   const out = []; let t = CLIP_AIR.lead, spoken = 0;
   shots.forEach(sh=>{
     const talks = String((sh&&sh.dialogue)||"").trim();
@@ -7248,13 +7259,15 @@ function clipLinePlacements(clip, auds, characters){
       if(spoken>0) t += CLIP_AIR.gap;
       const sec = Number((sh.lineAudio||{}).durationMs||0)/1000 || ((typeof _seedanceVoiceSec==="function")?_seedanceVoiceSec(sh):2);
       const p = (((clip.data||{}).panelLines)||[]).find(x=>x&&x.shotId===sh.id);
-      const audioState=_shotAudioState(sh,auds,characters);
+      const live = liveOf(sh);
+      const audioState = live ? _shotAudioState(live,auds,characters)
+        : { ready:false, state:"stale-text", reason:"The screenplay no longer has this line \u2014 a redraft changed it." };
       out.push({ shotId:sh.id, at:Math.round(t*10)/10, sec:Math.round(sec*10)/10,
         // A voice relock, model/settings change, text edit or project switch makes
         // the old bytes recoverable history, never playable dialogue in Mix.
         url:audioState.ready?((auds&&auds[sh.id])||""):"", audioState,
         speaker:(p&&p.speaker&&p.speaker.name)||(sh.lineAudio&&sh.lineAudio.speaker)||"Line",
-        text:String(sh.dialogue||"").trim() });
+        text:String(((live||sh).dialogue)||"").trim() });
       t += sec; spoken++;
     } else t += stageActionSec(sh);
   });
@@ -8427,11 +8440,13 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     (allClips||[]).forEach(c=>{ if(!c || !c.scene) return; const o = out[c.scene.id] = out[c.scene.id] || { total:0, rendered:0, stale:0, oldLook:0, notes:0, identity:0 };
       o.total++; if(vids[c.id]) o.rendered++; if(staleVids[c.id]) o.stale++; if(oldLookVids[c.id]) o.oldLook++; if(noteVids[c.id]) o.notes++;
       if(identityVids[c.id] && !vids[c.id]) o.identity++; });
+    // each scene's screenplay as counted (2026-10-18): the Breakdown says the count is behind once a redraft changes it
+    Object.keys(out).forEach(sid=>{ out[sid].scriptSig = (typeof window.screenplayDraftSig==="function") ? window.screenplayDraftSig((drafts||{})[sid]) : ""; });
     out.__at = new Date().toISOString();
     // keyed by the OPEN FILM (2026-10-09, owner — Stage review): films carry no project.id, so every
     // film wrote "local" and one film's Stage overwrote another's Breakdown counts
     try{ localStorage.setItem("turn_stage_scene_status:"+stageFilmKey(project), JSON.stringify(out)); }catch(e){}
-  },[stageStatusSig, stageFilmKey(project), vidsLoaded]);
+  },[stageStatusSig, stageFilmKey(project), vidsLoaded, draftSig]);
   React.useEffect(()=>{ let alive=true;
     (async()=>{ const out={}, stale={}, ident={};
        // read in parallel (2026-10-09: one at a time, the Timeline said "0 rendered" for seconds)

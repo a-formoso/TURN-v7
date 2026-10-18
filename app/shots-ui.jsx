@@ -1541,7 +1541,7 @@ function useShotKeyframe(shotId){
 }
 
 /* one compact row per shot inside a BEAT CARD — click to expand the full editor */
-function BeatShotRow({ sh, letter, open, selected, onToggle, isNext, live }){
+function BeatShotRow({ sh, letter, open, selected, onToggle, isNext, live, liveText }){
   const url = useShotKeyframe(sh.id);
   return _el("div",{className:"bc-shot-row"+(open?" on":"")+(selected?" selected":"")+(isNext?" next":"")+(live?" live":""),role:"button",tabIndex:0,onClick:onToggle,
     "data-shot-row":sh.id,
@@ -1554,7 +1554,8 @@ function BeatShotRow({ sh, letter, open, selected, onToggle, isNext, live }){
       title:"NEXT IN THE ROLLING CHAIN \u2014 this frame renders next; later shots seed from it. Open it and Generate, or use 'Render Scene in order'."},"\u25b8 next"),
     sh.priority && _el("span",{className:"bc-shot-pri",title:"Priority — carries the beat's protected moment"},"\u2605"),
     _el("span",{className:"bc-shot-gram"},String(sh.size||"")+" \u00b7 "+String(sh.angle||"")+" \u00b7 "+String(sh.lens||"")+"mm"),
-    _el("span",{className:"bc-shot-act"},String(sh.action||"")),
+    // the action as the CURRENT screenplay has it (shot-screenplay.js shotLiveText — 2026-10-18)
+    _el("span",{className:"bc-shot-act"},String((liveText ? liveText.action : sh.action)||"")),
     (Array.isArray(sh.covers)&&sh.covers.length>0) && _el("span",{className:"bc-shot-covers"},"Covers"),
     _el("span",{className:"bc-shot-chev"+(open?" open":"")},_el(Icon.chevR,{s:14})));
 }
@@ -1829,6 +1830,7 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
         L.shots.map((sh,i)=> _el(React.Fragment,{key:sh.id},
           _el(BeatShotRow,{sh,letter:letterOf(i),open:openShotId===sh.id,selected:previewShotId===sh.id,isNext:(sh.id===nextShotId),
             live:(sh.id===batchActiveId),
+            liveText:(typeof window.shotLiveText==="function") ? window.shotLiveText(scene, sh) : null,
             onToggle:()=>selectAndToggle(sh)}),
           openShotId===sh.id && _el("div",{className:"bc-shot-expand"},
             (()=>{ const prevShot=(typeof seedShotOf==="function")?seedShotOf(sh,ordered)
@@ -2927,6 +2929,8 @@ function exportShotList(scenesWithShots, shotsByScene, ctxFor, project, beatsMap
       + esc(scene.title||"")+(loc?(' &nbsp;&middot;&nbsp; '+esc(loc)):"")+'</td></tr>';
     (shotsByScene[scene.id]||[]).forEach((sh,i)=>{
       const subs = (sh.subjects||[]).map(id=>ctx.charById[id]).filter(Boolean).map(c=>c.name).join(", ");
+      // the action and line as the CURRENT screenplay has them (shotLiveText, 2026-10-18)
+      const lt = (typeof window.shotLiveText==="function") ? window.shotLiveText(scene, sh) : { action:sh.action||"", dialogue:sh.dialogue||"" };
       // the SCRIPT BEAT this shot covers (drive — reaction) rides under the action,
       // so the printed list carries the source text the coverage answers to
       const br = beatRows.find(r=>String(r.n)===String(sh.beatN));
@@ -2937,7 +2941,7 @@ function exportShotList(scenesWithShots, shotsByScene, ctxFor, project, beatsMap
         + '<td>'+esc(shotAngleOf(sh.angle).label)+'</td>'
         + '<td>'+esc(shotMoveOf(sh.move).label)+' &middot; '+esc(shotLensOf(sh.lens).label)+'</td>'
         + '<td>'+esc(subs)+'</td>'
-        + '<td class="act">'+esc(sh.action||"")+(sh.dialogue?(' <span class="dlg">&ldquo;'+esc(sh.dialogue)+'&rdquo;</span>'):"")
+        + '<td class="act">'+esc(lt.action||"")+(lt.dialogue?(' <span class="dlg">&ldquo;'+esc(lt.dialogue)+'&rdquo;</span>'):"")
         + (beatText?('<div class="beat"><span class="beatlab">Beat '+esc(sh.beatN||"")+'</span> '+esc(beatText)+'</div>'):"")+'</td>'
         + '<td class="comp">'+esc(sh.composition||"")+'</td>'
         + '</tr>';
