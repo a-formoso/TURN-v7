@@ -1,0 +1,248 @@
+#!/usr/bin/env node
+/* test-script-import-draft.mjs — IMPORT A NEW DRAFT, phase 4 (owner 2026-10-18; docs/Script Import Plan.md).
+   A revised draft from the writer's app is matched scene by scene to the film before anything changes.
+
+     A  matchDraft without scene numbers: unchanged / revised / new / removed by heading + words, one-to-one
+     B  matchDraft with scene numbers (production drafts): the number wins even when the heading changed
+     C  moved: a scene outside the longest run that keeps the film's order; lis() keeps the longest increasing run
+     D  "also changed in Kinolot": a revised scene the writer had already rewritten here (drafts[id].importedBlocks)
+     E  the window: draft mode, the status chips, the keep / remove choice, the rights box, nothing charged yet
+     F  the app: applyNewDraft (whole-film Undo snapshot, revised scenes re-marked unread through commitVersion, new
+        scenes and new speaking parts added, acts kept in order, the scenes the draft lacks kept and marked), the
+        strip's Remove / Import a new draft buttons, the Film menu items, the spine's "Not in draft" mark, Frances
+
+   node scripts/test-script-import-draft.mjs */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+const ROOT = new URL("../", import.meta.url);
+const read = (f) => readFileSync(new URL(f, ROOT), "utf8");
+const box = { console, TextDecoder, TextEncoder, Blob, Response, DecompressionStream, Uint8Array, DataView };
+box.window = box; vm.createContext(box);
+vm.runInContext(read("app/script-import.js"), box);
+const SI = box.ScriptImport;
+const J = (x) => JSON.parse(JSON.stringify(x));
+
+let checks = 0, failed = 0;
+function test(name, fn){
+  try { fn(); checks++; console.log("PASS", name); }
+  catch (e) { failed++; console.error("FAIL", name, "\n ", e && e.message || e); }
+}
+
+// a film as the app holds it, built from a first draft
+function filmOf(text){
+  const t = SI.toFilm(SI.parseFountain(text), { now:"2026-10-18T10:00:00.000Z", fileName:"draft1.fountain" });
+  return { scenes:t.scenes, drafts:t.drafts };
+}
+
+const D1 = `INT. KITCHEN - NIGHT
+
+Maya pours coffee into two mugs. One stays full.
+
+MAYA
+He isn't coming.
+
+EXT. STREET - DAY
+
+Rain on the windscreen. Maya waits at the lights.
+
+INT. BUS - DAY
+
+Maya sits at the back with her bag on her knees.
+
+INT. HOSPITAL CORRIDOR - NIGHT
+
+A nurse pushes an empty bed past Maya.
+
+NURSE
+You can go in now.
+
+EXT. DEPOT - NIGHT
+
+Buses sleep in rows under orange lights.
+`;
+
+// draft 2: Street moves to the top, Kitchen is revised, Hospital unchanged, Bus unchanged, Depot gone, Roof new
+const D2 = `EXT. STREET - DAY
+
+Rain on the windscreen. Maya waits at the lights.
+
+INT. KITCHEN - NIGHT
+
+Maya pours coffee into two mugs. One stays full. She drinks his.
+
+MAYA
+He isn't coming. He never was.
+
+INT. BUS - DAY
+
+Maya sits at the back with her bag on her knees.
+
+INT. HOSPITAL CORRIDOR - NIGHT
+
+A nurse pushes an empty bed past Maya.
+
+NURSE
+You can go in now.
+
+EXT. HOSPITAL ROOF - DAWN
+
+Maya and the nurse share a cigarette in silence.
+`;
+
+test("A  matchDraft without scene numbers: unchanged / revised / new / removed, one-to-one", () => {
+  const film = filmOf(D1);
+  const m = J(SI.matchDraft(film, SI.parseFountain(D2)));
+  assert.equal(m.rows.length, 5);
+  assert.deepEqual(m.rows.map(r => r.status), ["unchanged", "revised", "unchanged", "unchanged", "new"]);
+  const byHead = Object.fromEntries(m.rows.map(r => [r.heading, r]));
+  assert.equal(byHead["EXT. STREET - DAY"].oldId, film.scenes[1].id);
+  assert.equal(byHead["INT. KITCHEN - NIGHT"].oldId, film.scenes[0].id);
+  assert.ok(byHead["INT. KITCHEN - NIGHT"].changed > 0 && byHead["INT. KITCHEN - NIGHT"].changed <= 100);
+  assert.equal(byHead["INT. BUS - DAY"].changed, 0);
+  assert.equal(byHead["EXT. HOSPITAL ROOF - DAWN"].oldId, undefined);
+  assert.deepEqual(m.removed.map(r => r.oldId), [film.scenes[4].id]);
+  assert.equal(m.removed[0].heading, "EXT. DEPOT - NIGHT");
+  assert.deepEqual(m.counts, { unchanged:3, revised:1, new:1, removed:1, moved:1 });
+  // one-to-one: no film scene is matched twice
+  const ids = m.rows.map(r => r.oldId).filter(Boolean);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test("A  the same draft again: everything unchanged, nothing moved", () => {
+  const film = filmOf(D1);
+  const m = SI.matchDraft(film, SI.parseFountain(D1));
+  assert.deepEqual(J(m.counts), { unchanged:5, revised:0, new:0, removed:0, moved:0 });
+  // spacing and case are not changes
+  const m2 = SI.matchDraft(film, SI.parseFountain(D1.replace("One stays full.", "One  stays   full.")));
+  assert.equal(m2.counts.unchanged, 5);
+});
+
+test("A  a rewritten heading still matches by its words; an unrelated scene doesn't", () => {
+  const film = filmOf(D1);
+  const m = J(SI.matchDraft(film, SI.parseFountain(D1.replace("INT. BUS - DAY", "INT. NIGHT BUS - NIGHT"))));
+  const bus = m.rows.find(r => /BUS/.test(r.heading));
+  assert.equal(bus.oldId, film.scenes[2].id);
+  assert.equal(m.counts.removed, 0);
+  const m2 = J(SI.matchDraft(film, SI.parseFountain("INT. CHURCH - DAY\n\nA choir rehearses a hymn nobody remembers.\n")));
+  assert.deepEqual(m2.rows.map(r => r.status), ["new"]);
+  assert.equal(m2.counts.removed, 5);
+});
+
+test("B  scene numbers decide when both drafts carry them", () => {
+  const N1 = "INT. KITCHEN - NIGHT #1#\n\nMaya pours coffee.\n\nEXT. STREET - DAY #2#\n\nRain on the windscreen.\n";
+  const film = filmOf(N1);
+  assert.equal(film.scenes[0].sceneNumber, "1");
+  // scene 2's heading AND words changed — the number still pairs it; a new 2A is new
+  const N2 = "INT. KITCHEN - NIGHT #1#\n\nMaya pours coffee.\n\nEXT. MOTORWAY - NIGHT #2#\n\nHeadlights smear across the glass.\n\nEXT. LAYBY - NIGHT #2A#\n\nShe pulls over.\n";
+  const m = J(SI.matchDraft(film, SI.parseFountain(N2)));
+  assert.deepEqual(m.rows.map(r => r.status), ["unchanged", "revised", "new"]);
+  assert.equal(m.rows[1].oldId, film.scenes[1].id);
+  assert.equal(m.counts.removed, 0);
+});
+
+test("C  moved: only the scenes outside the run that keeps the order", () => {
+  assert.deepEqual(J(SI.lis([1, 0, 2, 3])), [0, 2, 3]);
+  assert.deepEqual(J(SI.lis([0, 1, 2])), [0, 1, 2]);
+  assert.deepEqual(J(SI.lis([])), []);
+  assert.equal(SI.lis([4, 1, 2, 3, 0]).length, 3);
+  const film = filmOf(D1);
+  const m = J(SI.matchDraft(film, SI.parseFountain(D2)));
+  // Street came up from second to first: Kitchen/Bus/Hospital keep their order, so exactly one scene moved
+  assert.deepEqual(m.rows.filter(r => r.moved).map(r => r.heading), ["EXT. STREET - DAY"]);
+  assert.ok(!m.rows.find(r => r.status === "new").moved, "a new scene is new, not moved");
+});
+
+test("D  a revised scene that was also rewritten in Kinolot is flagged", () => {
+  const film = filmOf(D1);
+  const k = film.scenes[0].id;
+  film.drafts[k] = { ...film.drafts[k], importedBlocks:film.drafts[k].blocks.slice() };
+  const m = J(SI.matchDraft(film, SI.parseFountain(D2)));
+  assert.equal(m.rows.find(r => r.oldId === k).editedHere, true);
+  // an unchanged scene is never flagged, even when it was edited here
+  const b = film.scenes[2].id;
+  film.drafts[b] = { ...film.drafts[b], importedBlocks:[] };
+  const m2 = J(SI.matchDraft(film, SI.parseFountain(D2)));
+  assert.equal(m2.rows.find(r => r.oldId === b).editedHere, false);
+});
+
+const ui = read("app/script-import-ui.jsx");
+test("E  the window in draft mode: statuses, the choice, the rights box, nothing charged yet", () => {
+  assert.match(ui, /function ScriptImportWindow\(\{[^}]*existing[^}]*onApplyDraft/);
+  assert.match(ui, /"Import a new draft"/);
+  assert.match(ui, /what changed \\u2014 nothing is charged yet|what changed — nothing is charged yet/);
+  for (const s of ["Unchanged", "Revised", "New", "Not in the new draft"]) assert.ok(ui.includes('"' + s + '"'), s);
+  assert.match(ui, /si-status/);
+  assert.match(ui, /si-choice/);
+  assert.match(ui, /also changed in Kinolot/);
+  assert.match(ui, /I wrote this script or have the rights to use it/);
+  assert.match(ui, /onApplyDraft\(\{\s*parsed[^}]*match:\s*m[^}]*removeMissing[^}]*fileName/);
+  assert.match(ui, /SI\.matchDraft\(|ScriptImport\.matchDraft\(/);
+});
+
+const app = read("app/app.jsx");
+test("F  applyNewDraft: Undo snapshot, revised scenes unread via commitVersion, new scenes + cast, acts in order", () => {
+  const i = app.indexOf("const applyNewDraft = async"), j = app.indexOf("const removeNotInDraft = async");
+  assert.ok(i > 0 && j > i);
+  const f = app.slice(i, j);
+  assert.match(f, /label:"New draft"/);
+  assert.match(f, /setAgentUndo\(stk=>\[\.\.\.stk, snap\]/);
+  assert.match(f, /unread:true, revisedAt:at/);
+  assert.match(f, /commitVersion\(rv\.id/);
+  assert.match(f, /importedBlocks:undefined/);
+  assert.match(f, /imported:\{ at, file:fileName\|\|"", draft:draftNo \}/);
+  assert.match(f, /addCast\.push/);
+  assert.match(f, /notInDraft:true/);
+  assert.match(f, /removeMissing/);
+  assert.match(f, /Number\(x\.act\) < Number\(list\[i-1\]\.act\)/, "acts never run backwards");
+  assert.match(f, /drafts:draftNo/);
+  assert.match(f, /importStripHidden:false/);
+  assert.match(f, /setScriptReadOffer\(/, "the read is offered for what changed");
+  assert.match(f, /canMutateWritersRoom\(\)/);
+  // the imported words are the new draft's words, verbatim (no model in the apply)
+  assert.doesNotMatch(f, /window\.claude|aiComplete|complete\(/);
+});
+
+test("F  the scenes the draft lacks: kept and marked until removed; Remove asks first and is undoable", () => {
+  const i = app.indexOf("const removeNotInDraft = async");
+  const f = app.slice(i, i + 2200);
+  assert.match(f, /appConfirm/);
+  assert.match(f, /filter\(x=>!x\.notInDraft\)/);
+  assert.match(f, /setAgentUndo/);
+  assert.match(app, /onClick:removeNotInDraft\},"Remove "\+\(goneN!==1\?"them":"it"\)/);
+  assert.match(app, /onClick:\(\)=>startDraftImport\(\)/);
+  assert.match(app, /onApplyDraft: scriptImportMode==="draft"/);
+  assert.match(app, /onImportDraft: scenes\.length \?/);
+  const spine = read("app/spine.jsx");
+  assert.match(spine, /s\.notInDraft && React\.createElement\("span",\{className:"stile-mark gone"/);
+  assert.match(spine, /"Not in draft"\)/);
+  const css = read("app/styles.css");
+  assert.match(css, /\.stile-mark\.gone/);
+  assert.match(css, /\.si-status/);
+});
+
+test("F  the Film menu has both imports", () => {
+  const chrome = read("app/chrome.jsx");
+  assert.match(chrome, /function OverflowMenu\(\{[^}]*onImportScript, onImportDraft/);
+  assert.match(chrome, /"Import a screenplay"/);
+  assert.match(chrome, /"Import a new draft"/);
+  assert.match(chrome, /function TopBar\(\{[^}]*onImportScript, onImportDraft/);
+});
+
+test("F  Frances knows about a new draft (file types only, no app names)", () => {
+  const ai = read("app/ai.jsx");
+  const k = ai.indexOf("Import a new draft");
+  assert.ok(k > 0, "APP_FEATURES mentions Import a new draft");
+  const line = ai.slice(ai.lastIndexOf("\n", k), ai.indexOf("\n", k));
+  assert.doesNotMatch(line, /Final Draft|Highland|WriterDuet|Celtx|Fade In/);
+});
+
+test("F  cache keys: every changed file is loaded with a key", () => {
+  const html = read("TURN.html");
+  for (const f of ["app.jsx", "chrome.jsx", "script-import.js", "script-import-ui.jsx", "spine.jsx", "styles.css"])
+    assert.ok(["20261018-hs24"].some(k => html.includes(f + '?v=' + k + '"')), f);
+});
+
+console.log(`\n${checks} passed, ${failed} failed`);
+process.exit(failed ? 1 : 0);

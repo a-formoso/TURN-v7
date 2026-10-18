@@ -781,6 +781,7 @@ function App(){
   const [scriptImportFile, setScriptImportFile] = React.useState(null);   // a file dropped on the page
   const [scriptDropOver, setScriptDropOver] = React.useState(false);
   const [readDone, setReadDone] = React.useState(null);   // the What next panel after a read
+  const [scriptImportMode, setScriptImportMode] = React.useState("new");   // "new" | "draft" (a revised draft, phase 4)
   // THE READ (phase 2): { i, total, no, phase:"scenes"|"cast"|"film", run, stopping } while it runs
   const [scriptReading, setScriptReading] = React.useState(null);
   const [newStorySeedText, setNewStorySeedText] = React.useState("");
@@ -3789,7 +3790,10 @@ function App(){
   /* IMPORT A SCREENPLAY from anywhere (phase 3): the import itself is free on any signed-in account (the read asks
      for credits); a dropped file comes in already chosen. It always makes its own film (never an episode). */
   const startScriptImport = (file)=>{ if(!canMutateWritersRoom()) return;
-    setScriptImportFile(file||null); setScriptImportOpen(true); };
+    setScriptImportMode("new"); setScriptImportFile(file||null); setScriptImportOpen(true); };
+  // A NEW DRAFT of the open film's screenplay (phase 4): matched scene by scene, applied only when you say so
+  const startDraftImport = (file)=>{ if(!canMutateWritersRoom() || !scenes.length) return;
+    setScriptImportMode("draft"); setScriptImportFile(file||null); setScriptImportOpen(true); };
   const [intentRoom, setIntentRoom] = React.useState("");   // the room a landing card was chosen for
   React.useEffect(()=>{
     if(!session || authOpen || welcomeOpen || trialWelcomeOpen || projectLoadingRef.current) return;
@@ -7154,6 +7158,108 @@ function App(){
     setDrafts(d=>{ const n = { ...d }; ids.forEach(id=>{ const sc = scenes.find(x=>x.id===id);
       if(sc && n[id]) n[id] = { ...n[id], cardSnap:window.sceneCardSnap(sc, characters, beatsMap[id]) }; }); return n; });
   },[readRestamp]);
+  /* APPLY A NEW DRAFT (phase 4, docs/Script Import Plan.md step 7): the match (script-import.js matchDraft) decides —
+     unchanged scenes keep everything; a REVISED scene takes the new draft's words exactly (commitVersion: its current
+     text stays in version history) and is marked to be read again; a NEW scene comes in at its place, unread; the order
+     follows the new draft (a moved scene takes its new neighbour's act); a scene the draft no longer has is kept and
+     marked "not in the new draft" — or removed, if you chose that. New speaking parts join the cast. One Undo restores
+     the whole film as it was. Everything made from the old words is flagged by the rooms themselves, never redone. */
+  const applyNewDraft = async ({ parsed, match, removeMissing, fileName })=>{
+    const SI = window.ScriptImport;
+    if(scriptImporting || !SI || !parsed || !match || !canMutateWritersRoom()) return;
+    setScriptImporting(true);
+    try{
+      const snap = { label:"New draft", ts:Date.now(), filmKey:(typeof agentFilmKey==="function") ? agentFilmKey() : String(projIdRef.current||""), runWrite:null,
+        scenes:scenes.map(x=>({...x})), characters:characters.map(c=>({...c})), project:{...project}, beats:{...beatsMap}, drafts:{...drafts},
+        continuity:Object.fromEntries(Object.entries(continuityMap||{}).map(([k,v])=>[k,{ establishes:[...((v&&v.establishes)||[])], references:[...((v&&v.references)||[])] }])) };
+      const at = new Date().toISOString();
+      const draftNo = Number((project.importedFrom && project.importedFrom.drafts) || 1) + 1;
+      const keyOf = (n)=> String(n||"").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu,"");
+      // the cast: a speaking part nobody in the film answers to joins it
+      const known = new Map();
+      characters.forEach(c=>{ [c.name, c.id].concat(c.aliases||[]).forEach(n=>{ const k = keyOf(n); if(k) known.set(k, c.id); }); });
+      const tmp = SI.toFilm(parsed, { format:project.format, framework:project.framework, fileName, now:at });
+      const addCast = [];
+      (tmp.characters||[]).forEach(c=>{ const keys = [c.name, c.id].concat(c.aliases||[]).map(keyOf);
+        const hit = keys.map(k=>known.get(k)).find(Boolean);
+        if(hit){ known.set(keyOf(c.id), hit); return; }
+        addCast.push({ ...c, color:c.color }); known.set(keyOf(c.id), c.id); });
+      const ordered0 = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes) : scenes.slice();
+      const byId = Object.fromEntries(scenes.map(x=>[x.id, x]));
+      const list = [], revised = [], newDrafts = {};
+      match.rows.forEach(r=>{
+        const prev = list[list.length-1];
+        if(r.status==="new"){
+          const sc = tmp.scenes[r.newIndex];
+          const id = "s-imp-"+Date.now().toString(36)+"-"+r.newIndex+"-"+Math.random().toString(36).slice(2,6);
+          list.push({ ...sc, id, act:prev ? prev.act : (ordered0[0] && ordered0[0].act) || 1, __place:true,
+            driver:known.get(keyOf(sc.driver)) || sc.driver || "", draftAddedAt:at });
+          newDrafts[id] = { ...tmp.drafts[sc.id], imported:{ at, file:fileName||"", draft:draftNo } };
+          return;
+        }
+        const old = byId[r.oldId]; if(!old) return;
+        const moved = r.moved ? { __place:true } : {};
+        const { notInDraft, ...rest } = old;
+        if(r.status==="revised"){
+          list.push({ ...rest, ...moved, imported:true, unread:true, revisedAt:at });
+          revised.push({ id:old.id, blocks:parsed.scenes[r.newIndex].blocks });
+        } else list.push({ ...rest, ...moved });
+      });
+      // the scenes the draft doesn't have: kept after the scene that came before them, marked — or removed
+      const keptGone = [];
+      if(!removeMissing) match.removed.forEach(rm=>{
+        const old = byId[rm.oldId]; if(!old) return;
+        const oi = ordered0.findIndex(x=>x.id===rm.oldId);
+        let at2 = -1;
+        for(let k=oi-1;k>=0;k--){ const j = list.findIndex(x=>x.id===ordered0[k].id); if(j>=0){ at2 = j; break; } }
+        list.splice(at2+1, 0, { ...old, notInDraft:true });
+        keptGone.push(old.id);
+      });
+      // a moved or new scene takes its neighbours' act (the one before it, else the one after); the acts then run in
+      // order, so an act never comes back after a later one
+      list.forEach((x,i)=>{ if(!x.__place) return;
+        const before = list.slice(0,i).reverse().find(y=>!y.__place), after = list.slice(i+1).find(y=>!y.__place);
+        x.act = before ? before.act : (after ? after.act : x.act); });
+      list.forEach((x,i)=>{ delete x.__place; if(i>0 && Number(x.act) < Number(list[i-1].act)) x.act = list[i-1].act; x.no = i+1; });
+      setScenes(list);
+      if(addCast.length) setCharacters(cs=>cs.concat(addCast));
+      setDrafts(d=>({ ...d, ...newDrafts }));
+      revised.forEach(rv=>{ const d = drafts[rv.id] || {};
+        commitVersion(rv.id, { ...d, blocks:rv.blocks.map(b=>({ beat:1, type:b.type, text:b.text, ...(b.dual?{dual:true}:{}), ...(b.centered?{centered:true}:{}) })),
+          importedBlocks:undefined, imported:{ at, file:fileName||"", draft:draftNo } }); });
+      const st = SI.stats(parsed);
+      setProject(p=>({ ...p, ...(parsed.author && !p.author ? { author:parsed.author } : {}),
+        importedFrom:{ ...(p.importedFrom||{}), file:fileName || (p.importedFrom && p.importedFrom.file) || "", kind:parsed.source||"", at,
+          scenes:st.scenes, pages:st.pages, drafts:draftNo, ...(parsed.draftDate ? { draftDate:parsed.draftDate } : {}) },
+        importStripHidden:false }));
+      setAgentUndo(stk=>[...stk, snap].slice(-8));
+      setScriptImportOpen(false); setScriptImportFile(null);
+      const c = match.counts;
+      if(typeof window.appToast==="function") window.appToast("The new draft is in — "
+        +[c.revised ? c.revised+" revised" : "", c.new ? c.new+" new" : "", c.moved ? c.moved+" moved" : "",
+          c.removed ? c.removed+(removeMissing ? " removed" : " marked not in the draft") : "", c.unchanged ? c.unchanged+" unchanged" : ""].filter(Boolean).join(", ")
+        +(addCast.length ? "; "+addCast.length+" new speaking part"+(addCast.length!==1?"s":"") : "")+". Undo restores the film as it was.","ok");
+      if(c.revised || c.new) setScriptReadOffer(Date.now());
+    } finally { setScriptImporting(false); }
+  };
+  /* the scenes a new draft doesn't have, removed when you say so (the whole-film Undo brings them back) */
+  const removeNotInDraft = async ()=>{
+    if(!canMutateWritersRoom()) return;
+    const gone = scenes.filter(x=>x && x.notInDraft);
+    if(!gone.length) return;
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm({ title:"Remove "+gone.length+" scene"+(gone.length!==1?"s":"")+" the new draft doesn’t have?",
+        body:gone.map(x=>"Scene "+String(x.no).padStart(2,"0")+" · "+(x.title||"")).join(", ")+". Undo brings "+(gone.length!==1?"them":"it")+" back with "+(gone.length!==1?"their":"its")+" script and beats.",
+        confirmLabel:"Remove "+gone.length, danger:true });
+      if(!ok) return;
+    }
+    const snap = { label:"New draft", ts:Date.now(), filmKey:(typeof agentFilmKey==="function") ? agentFilmKey() : String(projIdRef.current||""), runWrite:null,
+      scenes:scenes.map(x=>({...x})), characters:characters.map(c=>({...c})), project:{...project}, beats:{...beatsMap}, drafts:{...drafts},
+      continuity:Object.fromEntries(Object.entries(continuityMap||{}).map(([k,v])=>[k,{ establishes:[...((v&&v.establishes)||[])], references:[...((v&&v.references)||[])] }])) };
+    setScenes(list=>list.filter(x=>!x.notInDraft).map((x,i)=>({ ...x, no:i+1 })));
+    setAgentUndo(stk=>[...stk, snap].slice(-8));
+    if(typeof window.appToast==="function") window.appToast(gone.length+" scene"+(gone.length!==1?"s":"")+" removed — Undo brings "+(gone.length!==1?"them":"it")+" back.","ok");
+  };
   const stopScriptRead = ()=>{ const r = scriptReading && scriptReading.run; if(r && !r.stop){ r.stop = true; setScriptReading(x=> x ? { ...x, stopping:true } : x); } };
   /* RESTORE THE IMPORT: every scene back to the words it was imported with (commitVersion keeps them the first time a
      scene is rewritten — drafts[id].importedBlocks); the current text stays in version history (Undo) */
@@ -9082,6 +9188,8 @@ function App(){
     // room switcher, theme toggle, etc.) — only its own sub-view tabs (ViewNav) are skipped,
     // since the Stage is a single full-width assembly view.
     React.createElement(TopBar,{view,setView,room,setRoom:guardedSetRoom,artView,setArtView,project,scenes,drafts,
+      onImportScript:()=>{ setRoom("writers"); setView("spine"); startScriptImport(); },
+      onImportDraft: scenes.length ? (()=>{ setRoom("writers"); setView("spine"); startDraftImport(); }) : null,
       artTabLocks,hiddenArtTabs:(typeof tabHidden==="function") ? Object.fromEntries((window.ART_TABS||[]).map(t=>[t.id, tabHidden(project, t.id)])) : null,
       onReset: isAdmin ? resetStory : null,
       onNewStory:startNewStory,
@@ -9236,7 +9344,8 @@ function App(){
       const notesN = scenes.reduce((n,x)=>n+((x && x.readNotes)||[]).length,0);
       const changedN = scenes.filter(x=>x && drafts[x.id] && Array.isArray(drafts[x.id].importedBlocks)).length;
       const needBrief = !unreadN && !String(project.logline||"").trim();
-      if(!unreadN && !notesN && !changedN && !needBrief) return null;
+      const goneN = scenes.filter(x=>x && x.notInDraft).length;
+      if(!unreadN && !notesN && !changedN && !needBrief && !goneN) return null;
       const SR = window.ScriptRead;
       const est = (SR && (unreadN || needBrief)) ? SR.estimate({ scenes:scenes.filter(x=>x && x.imported && x.unread), drafts }, SR.engineFor(), { withFilm:true }) : null;
       const allUnread = unreadN && unreadN===scenes.filter(x=>x && x.imported).length;
@@ -9248,6 +9357,7 @@ function App(){
           unreadN>0 && React.createElement("span",{className:"import-strip-t"}, unreadN+" scene"+(unreadN!==1?"s":"")+" not read yet \u2014 their cards and beats come from the read"),
           !unreadN && notesN>0 && React.createElement("span",{className:"import-strip-t"}, notesN+" story note"+(notesN!==1?"s":"")+(off?" (hidden)":"")+" \u2014 observations from the read, in each scene\u2019s panel"),
           !unreadN && !notesN && needBrief && React.createElement("span",{className:"import-strip-t"},"The film\u2019s logline and synopsis aren\u2019t read yet"),
+          goneN>0 && React.createElement("span",{className:"import-strip-t"}, goneN+" scene"+(goneN!==1?"s aren\u2019t":" isn\u2019t")+" in the new draft"),
           React.createElement("span",{className:"import-strip-acts"},
             (unreadN>0 || needBrief) && React.createElement("button",{type:"button",className:"hs-btn primary import-strip-read",disabled:writersRoomBlocked||!!scriptReading,
                 onClick:()=>readImportedScript({})},
@@ -9255,6 +9365,9 @@ function App(){
             notesN>0 && React.createElement("button",{type:"button",className:"hs-btn",disabled:writersRoomBlocked,
               onClick:()=>setProject(p=>({ ...p, storyNotesOff:!p.storyNotesOff }))}, off?"Show story notes":"Hide story notes"),
             changedN>0 && React.createElement("button",{type:"button",className:"hs-btn",disabled:writersRoomBlocked,onClick:restoreImport},"Restore the import"),
+            goneN>0 && React.createElement("button",{type:"button",className:"hs-btn",disabled:writersRoomBlocked,onClick:removeNotInDraft},"Remove "+(goneN!==1?"them":"it")),
+            React.createElement("button",{type:"button",className:"hs-btn",disabled:writersRoomBlocked||!!scriptReading,onClick:()=>startDraftImport(),
+              title:"A revised draft from your writing app \u2014 matched scene by scene before anything changes"},"Import a new draft"),
             React.createElement("button",{type:"button",className:"import-strip-x",title:"Hide this bar","aria-label":"Hide this bar",
               onClick:()=>setProject(p=>({ ...p, importStripHidden:true }))}, Icon.x&&React.createElement(Icon.x,{s:13})))));
     })(),
@@ -9616,6 +9729,8 @@ function App(){
       onEditors:()=>{ setReadDone(null); setIntentRoom(""); setRoom("writers"); setAgentsOpen(true); } }),
     scriptImportOpen && (typeof window.ScriptImportWindow==="function") && React.createElement(window.ScriptImportWindow,{
       busy:scriptImporting, initialFile:scriptImportFile,
+      existing: scriptImportMode==="draft" ? { scenes:(typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes) : scenes, drafts, title:project && project.title } : null,
+      onApplyDraft: scriptImportMode==="draft" ? ((r)=>applyNewDraft(r)) : undefined,
       onClose:()=>{ if(!scriptImporting){ setScriptImportOpen(false); setScriptImportFile(null); } },
       onImport:(film)=>importScriptFilm(film),
       // prose, not a screenplay: New Story develops it (the studio writes the screenplay)

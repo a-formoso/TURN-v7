@@ -491,6 +491,8 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
                 React.createElement(Icon.history,{s:11})),
               !readOnly && React.createElement("span",{className:"scard-grip",title:"Drag to reorder"},React.createElement(Icon.grip,{s:12}))),
             React.createElement("div",{className:"scard-title stile-title"},s.title),
+            // a scene a new draft no longer has (phase 4 of Import a screenplay, 2026-10-18)
+            s.notInDraft && React.createElement("span",{className:"stile-mark gone",title:"Not in the new draft \u2014 kept until you remove it (the bar above the spine)"},"Not in draft"),
             React.createElement("div",{className:"stile-foot"},
               React.createElement("span",{className:"stile-charge"},
                 React.createElement("span",{className:chargeClass(s.openCharge)},chargeStr(s.openCharge).replace("-","−")),

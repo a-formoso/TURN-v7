@@ -98,7 +98,7 @@ const FILM_EXPORTS = [
   ["outline", Icon.layers, "Story outline (.txt)", "Premise, idea & spine"],
   ["csv", Icon.grid, "Spine data (.csv)", "Scenes, charges, turns"],
 ];
-function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artView, setArtView, artTabLocks, hiddenArtTabs, theme, onTheme, onOpenStyles, onOpenApiKeys }){
+function OverflowMenu({ onNewStory, onImportScript, onImportDraft, project, scenes, drafts, onReset, room, artView, setArtView, artTabLocks, hiddenArtTabs, theme, onTheme, onOpenStyles, onOpenApiKeys }){
   const [open, setOpen] = React.useState(false);
   // "Always show prompts" (owner 2026-10-05) — the Art Room's personal switch (artroom.jsx keeps it)
   const readPrompts = ()=> typeof window.turnArtAlwaysPrompts==="function" && window.turnArtAlwaysPrompts();
@@ -153,6 +153,17 @@ function OverflowMenu({ onNewStory, project, scenes, drafts, onReset, room, artV
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"New Story"),
           React.createElement("span",{className:"s"},"Start from an idea"))),
+      // IMPORT A SCREENPLAY / A NEW DRAFT (2026-10-18, docs/Script Import Plan.md)
+      typeof onImportScript==="function" && React.createElement("button",{className:"export-item",onClick:()=>{ setOpen(false); onImportScript(); }},
+        React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.script,{s:16})),
+        React.createElement("span",{className:"export-item-t"},
+          React.createElement("span",{className:"t"},"Import a screenplay"),
+          React.createElement("span",{className:"s"},"A finished script, word for word, as a new film"))),
+      typeof onImportDraft==="function" && React.createElement("button",{className:"export-item",onClick:()=>{ setOpen(false); onImportDraft(); }},
+        React.createElement("span",{className:"export-item-ic"},React.createElement(Icon.refresh||Icon.history||Icon.script,{s:16})),
+        React.createElement("span",{className:"export-item-t"},
+          React.createElement("span",{className:"t"},"Import a new draft"),
+          React.createElement("span",{className:"s"},"A revised draft of this film\u2019s script \u2014 matched scene by scene"))),
       briefShown && React.createElement("button",{type:"button",className:"export-item",onClick:openBrief},
         React.createElement("span",{className:"export-item-ic"},React.createElement((Icon.book||Icon.file||Icon.layers),{s:16})),
         React.createElement("span",{className:"export-item-t"},
@@ -778,7 +789,7 @@ function turnWatchTopbarLayer(bar){
 }
 window.turnWatchTopbarLayer = turnWatchTopbarLayer;
 
-function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, onAgents, onViewBible, onManageStyles, onRebuildFromBrief, hasFilmStyle, theme, onTheme, authSlot, projectSlot, teamSlot, presenceSlot, notifySlot, roomEntitlements, onHome, artView, setArtView, artTabLocks, hiddenArtTabs }){
+function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, onImportScript, onImportDraft, onAgents, onViewBible, onManageStyles, onRebuildFromBrief, hasFilmStyle, theme, onTheme, authSlot, projectSlot, teamSlot, presenceSlot, notifySlot, roomEntitlements, onHome, artView, setArtView, artTabLocks, hiddenArtTabs }){
   const [bibleOpen, setBibleOpen] = React.useState(false);
   const [briefOpen, setBriefOpen] = React.useState(false);
   const [stylesOpen, setStylesOpen] = React.useState(false);
@@ -825,7 +836,7 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
       teamSlot ? React.createElement("span",{className:"tb-team-slot"},teamSlot) : null,
       // the Film menu: New Story, the Story brief, Team, the exports, Appearance, the admin's Styles /
       // API keys and Reset — in every room, at every width (each entry under its own conditions)
-      React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room,
+      React.createElement(OverflowMenu,{onNewStory,onImportScript,onImportDraft,project,scenes,drafts,onReset,room,
         artView,setArtView,artTabLocks,hiddenArtTabs,theme,onTheme,
         onOpenStyles: onManageStyles ? ()=>setStylesOpen(true) : null,
         onOpenApiKeys: ()=>setApiKeysOpen(true)}),

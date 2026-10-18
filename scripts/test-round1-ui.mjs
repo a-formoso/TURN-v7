@@ -155,7 +155,7 @@ await test("1 the Film ⋯ menu renders for EVERY user in every room (homepage-s
   assert.ok(has(topBar("stage", false)), "the Stage too (New Story, Team, Appearance)");
   assert.ok(has(topBar("stage", true)), "admins keep it everywhere");
   cb.turnIsAdmin = false;
-  assert.ok(chromeSrc.includes("React.createElement(OverflowMenu,{onNewStory,project,scenes,drafts,onReset,room,\n        artView,setArtView,artTabLocks,hiddenArtTabs,theme,onTheme,"),
+  assert.ok(chromeSrc.includes("React.createElement(OverflowMenu,{onNewStory,onImportScript,onImportDraft,project,scenes,drafts,onReset,room,\n        artView,setArtView,artTabLocks,hiddenArtTabs,theme,onTheme,"),
     "the call test-art-tab-locks pins");
 });
 

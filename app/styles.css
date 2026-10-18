@@ -10548,3 +10548,20 @@ html[data-theme="light"]{
 .si-next-card b{font-size:15px}
 .si-next-card > span:last-child{font-size:12.5px;line-height:1.45;color:var(--win-sub)}
 @media (max-width:640px){ .si-next{grid-template-columns:minmax(0,1fr)} }
+
+/* ============================ IMPORT A NEW DRAFT (phase 4, 2026-10-18) — what changed, scene by scene */
+.si-status{flex:0 0 auto;padding:3px 8px;border-radius:999px;font:400 10px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;
+  background:var(--win-bone);color:var(--win-sub);border:1px solid var(--win-line)}
+.si-status.revised{background:var(--win-amber-soft);color:var(--win-amber-ink);border-color:var(--win-amber-line)}
+.si-status.new{background:var(--win-surface);color:var(--win-ink);border-color:var(--win-line-3)}
+.si-status.removed{background:var(--win-surface);color:var(--win-err);border-color:var(--win-line-2)}
+.si-scene.removed .si-scene-main b{color:var(--win-sub);text-decoration:line-through;text-decoration-thickness:1px}
+.si-scene-row:has(.si-status){grid-template-columns:auto minmax(0,1fr) auto}
+.si-choice{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:10px;background:var(--win-bone)}
+.si-choice label{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.45;color:var(--win-ink);cursor:pointer}
+.si-choice input{margin-top:3px;accent-color:var(--win-amber)}
+.stile-mark.gone{font:400 9px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--win-err);border:1px solid currentColor;border-radius:999px;padding:1px 6px;width:auto;height:auto}
+.stile .stile-mark.gone,.spine-hs .stile .stile-mark.gone{width:auto;min-width:0;height:18px;padding:0 7px;border-radius:999px;white-space:nowrap;
+  display:inline-flex;align-items:center;font:400 9px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--win-err);
+  background:var(--win-surface);border:1px solid currentColor}
+.stile .stile-mark.gone,.spine-hs .stile .stile-mark.gone{align-self:flex-start;margin-top:4px}

@@ -429,6 +429,69 @@
     return { project, scenes, drafts, characters, beatsMap:{} };
   }
 
+  /* ---------- A REVISED DRAFT (phase 4, owner 2026-10-18): match its scenes to the film's ---------- */
+  /* Each new scene is matched to one of the film's scenes by its scene number (when both have one — production drafts
+     keep them), its heading and its words; one-to-one, best match first. A matched scene is UNCHANGED (the same words,
+     spacing aside) or REVISED; an unmatched new scene is NEW; a film scene nothing matched is REMOVED; a matched scene
+     whose place in the order changed is also MOVED. Nothing is applied here. */
+  const headKey = h => norm(String(h || "").replace(/#[^#]*#/g, "")).replace(/\b(?:cont(?:inuous|d)?|later|moments later|same)\b/g, "").trim();
+  const wordsKey = blocks => (blocks || []).filter(b => b && b.type !== "scene").map(b => norm(b.text)).join(" ");
+  function wordSet(t){ const set = new Set(); String(t || "").split(" ").forEach(w => { if(w.length > 1) set.add(w); }); return set; }
+  function overlap(a, b){
+    if(!a.size && !b.size) return 1;
+    let hit = 0; a.forEach(w => { if(b.has(w)) hit++; });
+    return hit / Math.max(1, Math.max(a.size, b.size));
+  }
+  function matchDraft(film, parsed){
+    const old = (film.scenes || []).map((sc, i) => {
+      const blocks = ((film.drafts || {})[sc.id] || {}).blocks || [];
+      const head = (blocks.find(b => b.type === "scene") || {}).text || sc.loc || "";
+      const w = wordsKey(blocks);
+      return { i, id:sc.id, no:sc.no, title:sc.title, number:String(sc.sceneNumber || ""), head:headKey(head), heading:squash(head), words:w, set:wordSet(w), edited:!!((film.drafts || {})[sc.id] || {}).importedBlocks };
+    });
+    const neu = (parsed.scenes || []).map((sc, j) => { const w = wordsKey(sc.blocks);
+      return { j, number:String(sc.number || ""), head:headKey(sc.heading), heading:squash(sc.heading), words:w, set:wordSet(w), blocks:sc.blocks }; });
+    const pairs = [];
+    neu.forEach(n => old.forEach(o => {
+      const byNumber = n.number && o.number && n.number === o.number;
+      const headSim = n.head && o.head ? (n.head === o.head ? 1 : overlap(wordSet(n.head), wordSet(o.head))) : 0;
+      const textSim = overlap(n.set, o.set);
+      const near = 1 - Math.min(1, Math.abs(n.j / Math.max(1, neu.length) - o.i / Math.max(1, old.length)) * 2);
+      const score = byNumber ? 2 + textSim : headSim * 0.45 + textSim * 0.45 + near * 0.1;
+      if(byNumber || score >= 0.42 || (headSim === 1 && textSim >= 0.2)) pairs.push({ n:n.j, o:o.i, score });
+    }));
+    pairs.sort((a, b) => b.score - a.score);
+    const nTaken = new Map(), oTaken = new Set();
+    pairs.forEach(p => { if(nTaken.has(p.n) || oTaken.has(p.o)) return; nTaken.set(p.n, p.o); oTaken.add(p.o); });
+    // MOVED: matched scenes outside the longest run that keeps the film's order
+    const seq = neu.filter(n => nTaken.has(n.j)).map(n => nTaken.get(n.j));
+    const keep = new Set(lis(seq));
+    const rows = neu.map(n => {
+      if(!nTaken.has(n.j)) return { status:"new", newIndex:n.j, heading:n.heading, words:n.words.split(" ").length };
+      const o = old[nTaken.get(n.j)];
+      const same = o.words === n.words;
+      const changed = same ? 0 : Math.round((1 - overlap(o.set, n.set)) * 100);
+      return { status:same ? "unchanged" : "revised", newIndex:n.j, oldId:o.id, oldNo:o.no, title:o.title, heading:n.heading,
+        moved:!keep.has(o.i), changed:same ? 0 : Math.max(1, changed), editedHere:o.edited && !same };
+    });
+    const removed = old.filter(o => !oTaken.has(o.i)).map(o => ({ status:"removed", oldId:o.id, oldNo:o.no, title:o.title, heading:o.heading }));
+    const count = k => rows.filter(r => r.status === k).length;
+    return { rows, removed, counts:{ unchanged:count("unchanged"), revised:count("revised"), new:count("new"),
+      removed:removed.length, moved:rows.filter(r => r.moved).length } };
+  }
+  // the longest increasing subsequence's VALUES (the scenes that kept their relative order)
+  function lis(a){
+    const tails = [], prev = new Array(a.length), idx = [];
+    a.forEach((x, i) => {
+      let lo = 0, hi = tails.length;
+      while(lo < hi){ const m = (lo + hi) >> 1; if(a[tails[m]] < x) lo = m + 1; else hi = m; }
+      prev[i] = lo > 0 ? tails[lo - 1] : -1; tails[lo] = i;
+    });
+    const out = []; let k = tails.length ? tails[tails.length - 1] : -1;
+    while(k >= 0){ out.push(a[k]); k = prev[k]; }
+    return out.reverse();
+  }
+
   /* the words of a parsed script, for the word-for-word check (tests, and a guard before import) */
   function wordsOf(parsed){
     return (parsed.scenes || []).flatMap(sc => (sc.blocks || []).map(b => squash(b.text))).join(" ");
@@ -469,5 +532,6 @@
 
   root.ScriptImport = { parseFile, parseText, parseFountain, parseFdx, parseHighland, unzip, mergeScenes, splitScene,
     mergeCharacters, renameCharacter, characterSuggestions, applyCharacterMerges, stats, suggestFormat, toFilm, wordsOf, cueName, sceneTitle,
+    matchDraft, lis,
     ACCEPT, kindOf };
 })(typeof window !== "undefined" ? window : globalThis);

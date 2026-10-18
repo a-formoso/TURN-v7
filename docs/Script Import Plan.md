@@ -1,4 +1,4 @@
-# Bring your own script — plan
+# Bring your own script â plan
 
 Status (2026-10-18): **approved by the owner** ("yes to all, except 3 (use Gemini 4)"). **Phase 1 is built** and is
 visible to the admin account only until the read (phase 2) lands, so users never meet a half-built feature.
@@ -12,13 +12,19 @@ it is rewritten, for **Restore the import**.
 screenplay" on an empty Writers' Room; "Import a script" in Home's top bar; a script file dropped on the Writers' Room or
 Home; the landing room cards' "Start with your script" / "Start from an idea" carried through sign-up; the What next panel
 after a read; Frances's "Import a screenplay" entry; the Terms and Privacy lines (dated 18 October 2026). An import is
-always its own film, never an episode of the open Show. Next: phase 4 (re-import a revised draft).
+always its own film, never an episode of the open Show. **Phase 4 (import a new draft) is built and public** (2026-10-18): "Import a new draft" in the Film ⋯ menu and the
+Writers' Room import bar; each scene matched by its scene number, heading and words (`ScriptImport.matchDraft`), shown as
+unchanged / revised / new / moved / not in the new draft (with "also changed in Kinolot" when the studio had rewritten it)
+before anything changes; revised scenes take the new words through version history and are marked unread; new scenes and
+speaking parts join; the scenes the draft lacks are kept and marked "Not in draft" (or removed); one whole-film Undo;
+the read is offered for what changed. Tests: `scripts/test-script-import-draft.mjs`. Next (when asked): phase 5 (PDF / Word).
+
 
 **Short scripts and other shapes (owner's question, 2026-10-18):** a one-page script imports as one or two scenes and
 is read as it is; the length only SUGGESTS a format (it can be changed), and for an imported film the format's scene
 counts are guidance, never a request to add or cut scenes. A story built differently is read in the structure that
-fits it best, and where it doesn't do what the method expects, that is a dismissable note. Prose — no scene headings
-and no character cues (a short story, a treatment, a synopsis) — is recognised in the preview, which offers to **use it
+fits it best, and where it doesn't do what the method expects, that is a dismissable note. Prose â no scene headings
+and no character cues (a short story, a treatment, a synopsis) â is recognised in the preview, which offers to **use it
 as the idea in New Story** (the studio writes the screenplay) or to import it as it is.
 
 Decisions: (1) import is **Entry B** in `docs/Story Pipeline.md`; (2) the read is charged as normal writing (held
@@ -53,10 +59,10 @@ spine, beats and cast**, so the Art Room and the Stage work on it exactly as on 
 
 ### 1. Ways in (one flow wherever you start)
 
-- **New Story** gets a fourth card beside Logline / "What if…" / Talk it through: **"I have a script"**.
+- **New Story** gets a fourth card beside Logline / "What ifâ¦" / Talk it through: **"I have a script"**.
 - **Landing page:** "Start with the Art Room" and "Start with the Stage" first ask *"Do you have a script?"*:
-  - **Yes** → sign up, then Import.
-  - **Not yet** → sign up, then New Story, and the film opens in the room they chose once the story is built.
+  - **Yes** â sign up, then Import.
+  - **Not yet** â sign up, then New Story, and the film opens in the room they chose once the story is built.
 - **Home:** "New Project" offers the same choice.
 - **An empty film's Writers' Room:** "Start your story" gets a second button, **Import a screenplay**.
 - **Drag and drop:** a script file dropped anywhere on the Writers' Room or Home starts the import.
@@ -82,20 +88,20 @@ spine, beats and cast**, so the Art Room and the Stage work on it exactly as on 
 
 One window, laid out like the rest of the app, showing what was found before anything is charged:
 
-- **The count:** 42 scenes · 108 pages · ~1 h 52 min · 23 speaking characters, plus a suggested **format** from
-  the length (feature, short, micro short, a TV episode…).
+- **The count:** 42 scenes Â· 108 pages Â· ~1 h 52 min Â· 23 speaking characters, plus a suggested **format** from
+  the length (feature, short, micro short, a TV episodeâ¦).
 - **Scene list:** each scene's heading and first line. You can **merge** or **split** scenes, for example a
   sequence that should be one unit, or a long scene with two sluglines.
 - **Characters:** the names found, with likely duplicates grouped for one-click merging ("BOB", "ROBERT",
   "BOB (V.O.)"), plus the option to mark a voice that's only heard.
 - **Warnings, in plain words:** "3 lines couldn't be placed: check them", "No scene headings found: split by
   page or by blank lines?", "This looks like a TV episode: import it into a Show?".
-- **Choose the structure to read it with:** Three-Act Turns, Hero's Journey or Kishōtenketsu. We suggest one and
+- **Choose the structure to read it with:** Three-Act Turns, Hero's Journey or KishÅtenketsu. We suggest one and
   say why ("the midpoint reversal at page 55 reads as Three-Act"). The structure decides the acts and the names of
   the big turns.
 - **Rights:** a checkbox: "I wrote this script or have the rights to use it." The wording is for the owner and
   legal to approve.
-- **The price before the read:** "Reading 42 scenes ≈ N credits on Opus 5.5 (≈ M on Gemini 3.8 Flash)", with the
+- **The price before the read:** "Reading 42 scenes â N credits on Opus 5.5 (â M on Gemini 3.8 Flash)", with the
   engine choice. The film itself is created when the writer presses **Read my script**, as New Story only creates
   a film when the story launches.
 
@@ -106,7 +112,7 @@ One window, laid out like the rest of the app, showing what was found before any
 - **Per scene:**
   - title, summary, act;
   - value at stake, opening and closing value with their charges, and whether it turns or progresses;
-  - driver, objective, turning point and plot label (inciting incident, act climax…);
+  - driver, objective, turning point and plot label (inciting incident, act climaxâ¦);
   - **beats**, made by grouping the scene's existing lines and tagging each block with its beat number; the driver
     and reactor rows describe what happens in those lines.
 - **Per character:** role, description, want and need, and voice notes, from what the script shows and says.
@@ -121,23 +127,23 @@ One window, laid out like the rest of the app, showing what was found before any
 
 ### 5. Review (free)
 
-- **The summary card:** "Your script is in. 42 scenes read · 6 notes to look at".
+- **The summary card:** "Your script is in. 42 scenes read Â· 6 notes to look at".
 - **Notes, not verdicts.** Where the reading is unsure, or the script does something the method would flag (a scene
   that doesn't turn, two scenes in a row on the same charge, a long act), it's shown as a **Story note** you can
   dismiss. You can turn notes off for the whole film.
 - **"Check" marks** on anything the read guessed with low confidence, so the writer knows where to look.
 - **Undo:** "Restore the import" brings back the script exactly as uploaded, at any time. It's saved as the first
-  version in every scene's history, labelled "Imported — <file name>".
+  version in every scene's history, labelled "Imported â <file name>".
 
 ### 6. What next (free)
 
 The review ends with three plain choices:
 
-- **Design the film → the Art Room.** Production check reads the script into the cast sheets, props and locations.
+- **Design the film â the Art Room.** Production check reads the script into the cast sheets, props and locations.
   Department Heads draft the lookbook. "Design all shots" plans the coverage.
-- **Shoot it → the Stage.** We say honestly that this needs shots and frames first, and offer to run those steps
+- **Shoot it â the Stage.** We say honestly that this needs shots and frames first, and offer to run those steps
   in order.
-- **Get notes → the Story Editors.** Story Doctor, Setups & Payoffs, Final Read. Every change asks first.
+- **Get notes â the Story Editors.** Story Doctor, Setups & Payoffs, Final Read. Every change asks first.
 
 ### 7. Keep working in your own writing app (re-import)
 
@@ -162,7 +168,7 @@ Writers will keep revising in Final Draft or Highland. **Import a new draft** in
 
 From the Story Editors, **"Adapt into a new film"**:
 
-- to another format (feature → micro-drama, pilot → short);
+- to another format (feature â micro-drama, pilot â short);
 - in the Infinite Studio AI method, as a rewrite pass;
 - or into another structure.
 
@@ -175,7 +181,7 @@ It writes a **new film** beside the original. The imported script is never overw
 - The **author** from the title page becomes the film's author, so exports credit the writer (the existing
   export-credit rule).
 - **Scene numbers** from the file are kept, so a production can talk about "scene 37" and mean the same scene.
-- **Page count and runtime** use the script's real pages (≈ 1 page a minute), shown on the spine as for any film.
+- **Page count and runtime** use the script's real pages (â 1 page a minute), shown on the spine as for any film.
 - **Dual dialogue, intercuts and montages** keep their formatting in the Script view and the exports.
 - **Notes the writer left** in the file, such as [[notes]] in Fountain or ScriptNotes in FDX, are kept as scene
   notes and never read as dialogue.
@@ -221,15 +227,15 @@ It writes a **new film** beside the original. The imported script is never overw
 5. **PDF and Word,** then scanned PDFs (vision, paid).
 6. **Series import, and "Adapt into a new film".**
 
-Phases 1–3 make "Start with the Art Room" true. 4–6 make it a tool writers keep using.
+Phases 1â3 make "Start with the Art Room" true. 4â6 make it a tool writers keep using.
 
 ## Decisions for the owner
 
 1. **Story Pipeline.** `docs/Story Pipeline.md` is yours and its steps can't change without your yes. Import
-   would be added as **Entry B — Import a screenplay**, a second way in, beside the existing Step 0 (Seed). It
+   would be added as **Entry B â Import a screenplay**, a second way in, beside the existing Step 0 (Seed). It
    joins the pipeline at Step 4 (the Spine), with the screenplay already written. No existing step changes.
 2. **Price of the read:** charged as normal writing (held and settled per scene)? And the trial rule above?
-3. **Default reading engine:** ~~Opus 5.5 or Gemini 3.8 Flash~~ → **Gemini 4 Argon** (owner).
+3. **Default reading engine:** ~~Opus 5.5 or Gemini 3.8 Flash~~ â **Gemini 4 Argon** (owner).
 4. **Story notes on imported scripts:** shown by default, or collected in a notes panel the writer opens?
 5. **Rights checkbox wording**, and whether the Terms need a line about uploaded scripts.
 6. **Landing page wording** for the room cards ("Start with your script" / "Start from an idea").

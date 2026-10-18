@@ -5,7 +5,9 @@
    split at a line), warnings in plain words, and the rights confirmation. "Import script" hands the film to the
    app (onImport), which creates it the way New Story does. The read — scene cards, beats and the cast from the
    script — is phase 2. Window family classes (ns-*) as New Story. */
-function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, busy=false }){
+function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, busy=false, existing=null, onApplyDraft }){
+  // A NEW DRAFT (phase 4): with an existing film, step 2 shows what changed scene by scene instead of a fresh preview
+  const draftMode = !!(existing && Array.isArray(existing.scenes) && existing.scenes.length && typeof onApplyDraft==="function");
   const h = React.createElement;
   const SI = window.ScriptImport;
   const [stage, setStage] = React.useState("source");   // "source" | "preview"
@@ -22,6 +24,7 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
   const [rights, setRights] = React.useState(false);
   const [splitOpen, setSplitOpen] = React.useState(-1);
   const [proseOk, setProseOk] = React.useState(false);   // "Import it as it is" chosen for a prose text
+  const [removeMissing, setRemoveMissing] = React.useState(false);
   const fileRef = React.useRef(null);
 
   React.useEffect(()=>{ const k=(e)=>{ if(e.key==="Escape" && !busy) onClose(); }; window.addEventListener("keydown", k); return ()=>window.removeEventListener("keydown", k); },[busy]);
@@ -53,8 +56,10 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
     h("div",{className:"ns-head-t"},
       h("span",{className:"ns-orb"}),
       h("div",null,
-        h("div",{className:"ns-title"},"Import your script"),
-        h("div",{className:"ns-sub"}, stage==="source" ? "Step 1 of 2 · your screenplay, word for word" : "Step 2 of 2 · check what we found — nothing is charged"))),
+        h("div",{className:"ns-title"}, draftMode ? "Import a new draft" : "Import your script"),
+        h("div",{className:"ns-sub"}, stage==="source"
+          ? (draftMode ? "Step 1 of 2 \u00b7 the revised screenplay for \u201c"+(existing.title||"this film")+"\u201d" : "Step 1 of 2 \u00b7 your screenplay, word for word")
+          : (draftMode ? "Step 2 of 2 \u00b7 what changed \u2014 nothing is charged yet" : "Step 2 of 2 \u00b7 check what we found \u2014 nothing is charged")))),
     h("button",{className:"ag-x",onClick:()=>{ if(!busy) onClose(); },title:"Close","aria-label":"Close"},Icon.x&&h(Icon.x,{s:16})));
 
   // ---- step 1: the source ----
@@ -99,6 +104,54 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
   const firstLine = (sc)=>{ const b = (sc.blocks||[]).find(x=>x.type!=="scene"); return b ? b.text : ""; };
   const kindWord = { fountain:"Fountain", fdx:"Final Draft", highland:"Highland", text:"plain text", paste:"pasted text" }[parsed.source] || "your script";
 
+  // ---- a new draft: what changed ----
+  if(draftMode){
+    const m = SI.matchDraft(existing, parsed);
+    const c = m.counts;
+    const chip = { unchanged:"Unchanged", revised:"Revised", new:"New", removed:"Not in the new draft" };
+    const edited = m.rows.filter(r=>r.editedHere).length;
+    const nothing = !c.revised && !c.new && !c.removed && !c.moved;
+    const body = h("div",{className:"ns-body si-body"},
+      h("div",{className:"si-tiles"}, tile("Unchanged", String(c.unchanged)), tile("Revised", String(c.revised)), tile("New", String(c.new)), tile("Not in it", String(c.removed))),
+      h("div",{className:"si-read-from"},"Read from "+(parsed.fileName||"the pasted text")+(c.moved?" · "+c.moved+" scene"+(c.moved!==1?"s":"")+" moved":"")),
+      parsed.looksLikeProse && h("ul",{className:"si-warn"}, h("li",null,Icon.alert&&h(Icon.alert,{s:12}),"This reads like prose, not a screenplay — check it’s the right file.")),
+      edited>0 && h("ul",{className:"si-warn"}, h("li",null,Icon.alert&&h(Icon.alert,{s:12}),
+        edited+" revised scene"+(edited!==1?"s were":" was")+" also changed here in Kinolot. The new draft’s words replace them; your Kinolot text stays in each scene’s version history.")),
+      nothing && h("div",{className:"ns-hint"},"This draft has the same words as the film — nothing to apply."),
+      h("div",{className:"ns-seclab"},"Scenes in the new draft · "+m.rows.length),
+      h("div",{className:"si-scenes"}, m.rows.map((r,k)=>h("div",{key:k,className:"si-scene"},
+        h("div",{className:"si-scene-row"},
+          h("span",{className:"si-scene-no"}, String(k+1).padStart(2,"0")),
+          h("div",{className:"si-scene-main"},
+            h("b",null, r.heading || "No heading"),
+            h("span",null, (r.status==="new" ? "A new scene" : (r.oldNo!=null ? "Scene "+String(r.oldNo).padStart(2,"0")+(r.title?" · "+r.title:"") : ""))
+              +(r.status==="revised" ? " · about "+r.changed+"% of its words changed" : "")+(r.moved ? " · moved" : "")
+              +(r.editedHere ? " · also changed in Kinolot" : ""))),
+          h("span",{className:"si-status "+r.status}, chip[r.status]))))
+        .concat(m.removed.map((r,k)=>h("div",{key:"rm"+k,className:"si-scene removed"},
+          h("div",{className:"si-scene-row"},
+            h("span",{className:"si-scene-no"},"—"),
+            h("div",{className:"si-scene-main"}, h("b",null, r.heading || r.title || "Scene"), h("span",null,"Scene "+String(r.oldNo).padStart(2,"0")+" · not in the new draft")),
+            h("span",{className:"si-status removed"}, chip.removed)))))),
+      c.removed>0 && h("div",{className:"si-choice",role:"radiogroup","aria-label":"Scenes not in the new draft"},
+        h("label",null, h("input",{type:"radio",name:"si-missing",checked:!removeMissing,onChange:()=>setRemoveMissing(false)}),
+          h("span",null,h("b",null,"Keep "+(c.removed!==1?"them":"it")),", marked “not in the new draft” — "+(c.removed!==1?"their":"its")+" beats, shots and takes stay")),
+        h("label",null, h("input",{type:"radio",name:"si-missing",checked:removeMissing,onChange:()=>setRemoveMissing(true)}),
+          h("span",null,h("b",null,"Remove "+(c.removed!==1?"them":"it")),", as the new draft does — Undo brings "+(c.removed!==1?"them":"it")+" back"))),
+      h("label",{className:"si-rights"},
+        h("input",{type:"checkbox",checked:rights,onChange:e=>setRights(e.target.checked)}),
+        h("span",null,"I wrote this script or have the rights to use it.")),
+      h("div",{className:"ns-hint si-hint"},"Unchanged scenes keep everything. Revised and new scenes take the new draft’s words exactly (the current text stays in version history) and are read again — you’re only charged for those, and you’re asked first. Everything made from the old words is flagged, never redone on its own."),
+      err && h("div",{className:"ns-err"},err),
+      h("div",{className:"ns-foot"},
+        h("button",{className:"ns-btn ghost",onClick:()=>{ setStage("source"); setParsed(null); setRights(false); },disabled:busy},"← Back"),
+        h("button",{className:"ns-btn primary",disabled:!rights||busy||nothing||!m.rows.length,
+            title:!rights ? "Confirm you have the rights to use this script first" : "",
+            onClick:()=>onApplyDraft({ parsed, match:m, removeMissing, fileName:parsed.fileName||"" })},
+          busy ? "Applying…" : "Apply the new draft →")));
+    return h("div",{className:"ns-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget && !busy) onClose(); }},
+      h("div",{className:"ns-panel si-panel",role:"dialog","aria-modal":"true","aria-label":"Import a new draft"}, head, body));
+  }
   // PROSE, NOT A SCREENPLAY: offer New Story first (the studio writes the screenplay from it)
   if(parsed.looksLikeProse && !proseOk){
     return h("div",{className:"ns-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget && !busy) onClose(); }},
