@@ -170,9 +170,10 @@
       inner.replace(/<Paragraph\b([^>]*)>/gi, (mm, a) => "<Paragraph" + a + " data-dual=\"1\">"));
     const scenes = [], pre = [];
     let cur = null;
-    let unknown = 0;
+    let unknown = 0, actBreaks = 0;
     src.replace(/<Paragraph\b([^>]*)>([\s\S]*?)<\/Paragraph>/gi, (m, attrs, inner) => {
       const typeRaw = attr(attrs, "Type").toLowerCase();
+      if(typeRaw === "new act" || typeRaw === "end of act") actBreaks++;   // a TV script's acts (phase 6: an episode?)
       const type = Object.prototype.hasOwnProperty.call(FDX_TYPE, typeRaw) ? FDX_TYPE[typeRaw] : (unknown++, "action");
       const text = squash(textOf(inner));
       if(!type || !text) return m;
@@ -190,7 +191,7 @@
       warnings.push(pre.length + " line" + (pre.length !== 1 ? "s come" : " comes") + " before the first scene heading \u2014 kept as an opening scene.");
       scenes.unshift({ heading:"", number:"", blocks:pre, notes:[], opening:true });
     }
-    return finish({ titlePage, scenes, notes, warnings, source:"fdx" });
+    return finish({ titlePage, scenes, notes, warnings, source:"fdx", actBreaks });
   }
 
   /* ---------- Highland (.highland): a zip holding the script as Fountain text ---------- */
@@ -245,6 +246,14 @@
   /* ---------- the result: scenes, characters, counts ---------- */
   function finish(r){
     r.scenes = (r.scenes || []).filter(s => s && s.blocks && s.blocks.some(b => b.type !== "scene" || squash(b.text)));
+    // a TV script's act markers before the first heading ("COLD OPEN", "TEASER", "ACT ONE") are structure, not a scene:
+    // kept aside as section notes, as Fountain's own "# ACT ONE" sections are (phase 6)
+    const op = r.scenes[0];
+    if(op && op.opening && op.blocks.length && op.blocks.every(b => squash(b.text).length <= 40 && ACT_MARK.test(squash(b.text)))){
+      r.notes = (r.notes || []).concat(op.blocks.map(b => ({ kind:"section", text:squash(b.text) })));
+      r.scenes = r.scenes.slice(1);
+      r.warnings = (r.warnings || []).filter(w => !/before the first scene heading/.test(w));
+    }
     r.title = squash(r.titlePage.title || "").replace(/^["“]|["”]$/g, "");
     r.author = squash(r.titlePage.author || r.titlePage.authors || "");
     r.draftDate = squash(r.titlePage["draft date"] || r.titlePage.date || "");
@@ -498,6 +507,60 @@
     return (parsed.scenes || []).flatMap(sc => (sc.blocks || []).map(b => squash(b.text))).join(" ");
   }
 
+  /* ---------- AN EPISODE? (phase 6, owner 2026-10-18; docs/Script Import Plan.md §8) ----------
+     A script that looks like an episode of a series — a cold open or a teaser, act breaks, an episode number or a
+     "Series" line on the title page, or a name like "1x03" / "S01E03" / "Pilot" — can go into a Show. Nothing is
+     decided here: the preview offers it. */
+  const ACT_MARK = /^(?:END OF\s+)?(?:ACT\s+(?:ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|[1-7]|[IVX]{1,4})|TEASER|COLD OPEN|TAG)\b/i;
+  const NUM_WORDS = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, eleven:11, twelve:12 };
+  function episodeInfo(parsed, fileName){
+    parsed = parsed || {};
+    const tp = parsed.titlePage || {};
+    const tpGet = (...keys) => { for(const k of keys){ if(squash(tp[k])) return squash(tp[k]); } return ""; };
+    const texts = [];
+    (parsed.scenes || []).forEach(sc => {
+      (sc.blocks || []).forEach(b => { if(b.type === "action" || b.type === "trans") texts.push(squash(b.text)); });
+      (sc.notes || []).forEach(n => texts.push(squash(n && n.text != null ? n.text : n)));
+    });
+    (parsed.notes || []).forEach(n => texts.push(squash(n && n.text != null ? n.text : n)));
+    const marks = new Set(texts.filter(t => t.length <= 40 && ACT_MARK.test(t)).map(t => t.toUpperCase().replace(/^END OF\s+/, "")));
+    const acts = Math.max(Number(parsed.actBreaks) || 0, Array.from(marks).filter(m => /^ACT\b/.test(m)).length);
+    const cold = Array.from(marks).some(m => /^(?:COLD OPEN|TEASER)\b/.test(m));
+    const file = String(fileName || parsed.fileName || "").replace(/\.[^.]+$/, "").replace(/[_]+/g, " ");
+    const title = squash(parsed.title);
+    let number = 0, numberFrom = "";
+    const tryNum = (t, from) => {
+      if(number || !t) return;
+      let m = /\bS(\d{1,2})\s*E(\d{1,3})\b/i.exec(t) || /\b\d{1,2}x(\d{1,3})\b/i.exec(t);
+      if(m){ number = Number(m[m.length - 1]); numberFrom = from; return; }
+      m = /\b(?:ep(?:isode)?\.?|e)\s*#?\s*(\d{1,3})\b/i.exec(t) || /^#?\s*(\d{1,3})$/.exec(t);
+      if(m){ number = Number(m[1]); numberFrom = from; return; }
+      m = /\bepisode\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i.exec(t);
+      if(m){ number = NUM_WORDS[m[1].toLowerCase()]; numberFrom = from; return; }
+      if(/\bpilot\b/i.test(t)){ number = 1; numberFrom = from; }
+    };
+    tryNum(tpGet("episode", "episode number", "episode no", "ep"), "the title page");
+    tryNum(title, "the title"); tryNum(file, "the file name");
+    // the series' name: the title page's "Series:" / "Show:" line, or the title before " - Episode 3" / ": Pilot"
+    let series = tpGet("series", "show", "series title", "show title");
+    const split = /^(.+?)\s*(?:[-\u2013\u2014:|]\s*|\s+)(?:S\d{1,2}\s*E\d{1,3}|\d{1,2}x\d{1,3}|ep(?:isode)?\.?\s*#?\s*\d{1,3}|episode\s+\w+|pilot)\b\s*(?:[-\u2013\u2014:|]\s*(.*))?$/i;
+    let episodeTitle = tpGet("episode title");
+    [title, file].some(t => { const m = t && split.exec(t); if(!m) return false;
+      if(!series) series = squash(m[1]); if(!episodeTitle && m[2]) episodeTitle = squash(m[2]); return true; });
+    const why = [];
+    if(cold) why.push("a cold open");
+    if(acts >= 2) why.push(acts + " act breaks");
+    if(number) why.push((numberFrom === "the title page" ? "Episode " + number : "\u201c" + (numberFrom === "the title" ? title : file) + "\u201d") + " in " + numberFrom);
+    if(tpGet("series", "show", "series title", "show title")) why.push("\u201cSeries\u201d on the title page");
+    return { likely:!!(cold || acts >= 2 || number || tpGet("series", "show", "series title", "show title")), number, series, episodeTitle, acts, coldOpen:cold, why };
+  }
+  /* several episodes in their order: the episode numbers found, then the file names (natural order) */
+  function orderEpisodes(list){
+    const nat = (a, b) => String(a || "").localeCompare(String(b || ""), undefined, { numeric:true, sensitivity:"base" });
+    return (list || []).map((p, i) => ({ p, i, n:episodeInfo(p, p.fileName).number || 0 }))
+      .sort((a, b) => (a.n && b.n ? a.n - b.n : a.n ? -1 : b.n ? 1 : 0) || nat(a.p.fileName, b.p.fileName) || a.i - b.i).map(x => x.p);
+  }
+
   /* ---------- entry points ---------- */
   const KINDS = [
     { ext:/\.(?:fountain|spmd)$/i, kind:"fountain" }, { ext:/\.fdx$/i, kind:"fdx" }, { ext:/\.highland$/i, kind:"highland" },
@@ -541,7 +604,7 @@
 
   root.ScriptImport = { parseFile, parseText, parseFountain, parseFdx, parseHighland, unzip, mergeScenes, splitScene,
     mergeCharacters, renameCharacter, characterSuggestions, applyCharacterMerges, stats, suggestFormat, toFilm, wordsOf, cueName, sceneTitle,
-    matchDraft, lis,
+    matchDraft, lis, episodeInfo, orderEpisodes,
     // for the PDF / Word reader (script-import-pages.js, phase 5)
     finishParse:finish, isCueLine, isTransitionLine, HEADING,
     ACCEPT, kindOf };

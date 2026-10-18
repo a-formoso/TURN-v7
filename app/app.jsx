@@ -3817,11 +3817,13 @@ function App(){
     const drop = (e)=>{ setScriptDropOver(false); if(!hasFiles(e) || e.defaultPrevented) return;
       const f = e.dataTransfer.files && e.dataTransfer.files[0]; if(!f) return;
       const SI = window.ScriptImport;
-      const ok = SI && (SI.kindOf(f.name) || /\.(?:pdf|docx?)$/i.test(f.name));
-      if(!ok) return;   // not a script: left to the page
+      const isScript = (x)=> SI && (SI.kindOf(x.name) || /\.(?:pdf|docx?)$/i.test(x.name));
+      if(!isScript(f)) return;   // not a script: left to the page
       e.preventDefault();
       if(homeOpen){ setHomeOpen(false); setRoom("writers"); setView("spine"); }
-      startScriptImport(f); };
+      // several script files: episodes of a series (phase 6)
+      const all = Array.from(e.dataTransfer.files).filter(isScript);
+      startScriptImport(all.length>1 ? all : f); };
     window.addEventListener("dragover", over); window.addEventListener("dragleave", leave); window.addEventListener("drop", drop);
     return ()=>{ window.removeEventListener("dragover", over); window.removeEventListener("dragleave", leave); window.removeEventListener("drop", drop); };
   },[dropReady, homeOpen]);
@@ -6975,9 +6977,12 @@ function App(){
   /* IMPORT A SCREENPLAY (phase 1): the parsed script (script-import.js toFilm — the screenplay word for word, a
      scene card per heading, the cast from the cues) becomes a film. Like New Story: an empty canvas is filled in
      place; otherwise a NEW film is created with the script already in it, so nothing depends on save timing. */
-  const importScriptFilm = async (film)=>{
-    if(scriptImporting || !film || !Array.isArray(film.scenes) || !film.scenes.length) return;
-    if(!canMutateWritersRoom()) return;
+  // returns { ok, projectId } once the film is in (opts.quiet: no toast, no read offer — a Show import's Episode 1)
+  const importScriptFilm = async (film, opts)=>{
+    opts = opts || {};
+    if(scriptImporting || !film || !Array.isArray(film.scenes) || !film.scenes.length) return false;
+    if(!canMutateWritersRoom()) return false;
+    let madeId = "";
     setScriptImporting(true);
     try{
       const title = (film.project && film.project.title) || "Untitled film";
@@ -6990,12 +6995,13 @@ function App(){
         const createOpts={...(requestId?{requestId}:{}),launchScope,doc};
         let minted = await createProject(title, createOpts);
         if(!minted) minted = await createProject(title, createOpts);
-        if(minted && minted.superseded){ if(typeof window.appToast==="function") window.appToast(minted.message||"The film was created. Your current screen was left unchanged.","info"); setScriptImportOpen(false); return; }
+        if(minted && minted.superseded){ if(typeof window.appToast==="function") window.appToast(minted.message||"The film was created. Your current screen was left unchanged.","info"); setScriptImportOpen(false); return false; }
         if(typeof minted!=="string"){
           const why = String(window.cloudLastCreateError||"").trim();
           if(typeof window.appToast==="function") window.appToast("Couldn\u2019t create the film"+(why?" \u2014 "+why:"")+". Your script wasn\u2019t imported and your current film is untouched.","error");
-          return;
+          return false;
         }
+        madeId = minted;
       } else {
         // an empty canvas (or this device's own film): filled in place
         if(scenes.length){ localStoryGenRef.current++; applyDoc(emptyDoc()); }
@@ -7006,16 +7012,121 @@ function App(){
         setDrafts({ ...film.drafts });
         setContinuityMap({});
         if(cloudMode && currentProjectId && typeof renameProject==="function") renameProject(currentProjectId, title);
+        madeId = String(currentProjectId||"");
       }
       setRoom("writers"); setView("spine");
       setSelId(film.scenes[0].id);
       setScriptImportOpen(false);
+      if(opts.quiet) return { ok:true, projectId:madeId };
       if(typeof window.appToast==="function") window.appToast("\u201c"+title+"\u201d is in \u2014 "+film.scenes.length+" scene"+(film.scenes.length!==1?"s":"")
         +" and "+film.characters.length+" character"+(film.characters.length!==1?"s":"")+", your screenplay exactly as written.","ok");
       // the read is offered straight away (it asks, with its price); "Not now" leaves the Read my script strip
       setScriptReadOffer(Date.now());
+      return { ok:true, projectId:madeId };
     } finally { setScriptImporting(false); }
   };
+  /* IMPORT INTO A SHOW (Import a screenplay phase 6, docs/Script Import Plan.md §8): one script as an episode, or
+     several episode files at once, into a new Show or one of yours. Each step runs on a fresh render through the app's
+     own series steps, so every save boundary they keep holds:
+       a NEW Show — Episode 1 is imported as a series film and the app turns it into the Show and its Episode 1 (the
+         automatic conversion, makeShow); its cast becomes the Show's one cast;
+       every other episode — a new episode of the Show (createEpisode), filled with its script; its people are matched
+         to the Show's cast by name and new ones join it (turnSeries.mergeAdaptationCast); saved before the next one.
+     The screenplay of each episode is its file's words exactly; nothing is read (paid) here. */
+  const [seriesImport, setSeriesImport] = React.useState(null);
+  const seriesStepRef = React.useRef("");
+  const fillOpenEpisode = (film)=>{
+    const TS = window.turnSeries;
+    let chars = (film.characters||[]).map(c=>({...c})), scs = (film.scenes||[]).map(sc=>({...sc}));
+    if(TS && typeof TS.mergeAdaptationCast==="function"){
+      const m = TS.mergeAdaptationCast(characters, chars, scs, { allowNew:true });
+      if(m && Array.isArray(m.characters)){ chars = m.characters; scs = Array.isArray(m.scenes) ? m.scenes : scs; }
+    } else chars = characters.concat(chars.filter(c=>!characters.some(x=>x.id===c.id)));
+    const { title:_t, format:_f, ...rest } = film.project || {};
+    setCharacters(chars);
+    setScenes(scs);
+    setBeatsMap((typeof withBeatMapIdentity==="function")?withBeatMapIdentity(film.beatsMap||{}):(film.beatsMap||{}));
+    setDrafts({ ...(film.drafts||{}) });
+    setContinuityMap({});
+    setProject(p=>({ ...p, ...rest }));
+    if(scs[0]) setSelId(scs[0].id);
+    setRoom("writers"); setView("spine");
+  };
+  const importSeries = ({ films, showId, showTitle })=>{
+    if(!cloudMode){ if(typeof window.appToast==="function") window.appToast("A Show lives in your account \u2014 sign in to import episodes.","error"); return; }
+    if(seriesImport || !Array.isArray(films) || !films.length || !canMutateWritersRoom()) return;
+    setScriptImportOpen(false); setScriptImportFile(null);
+    seriesStepRef.current = "";
+    setSeriesImport({ films, showId:showId||null, showTitle:showTitle||"", i:0, done:0, phase:showId ? "next" : "first", since:Date.now(), stop:false });
+  };
+  React.useEffect(()=>{
+    const j = seriesImport; if(!j) return undefined;
+    const N = j.films.length;
+    const say = (m, kind)=>{ if(typeof window.appToast==="function") window.appToast(m, kind||"info"); };
+    const key = j.phase+"|"+j.i+"|"+String(currentProjectId||"")+"|"+String(currentShowId||"")+"|"+scenes.length+"|"+String(seriesBusy||"")+"|"+(projectLoading?1:0);
+    if(seriesStepRef.current===key) return undefined;
+    if(j.phase==="first"){
+      seriesStepRef.current = key;
+      setSeriesImport(x=>x && ({ ...x, phase:"starting" }));
+      (async ()=>{
+        const r = await importScriptFilm(j.films[0], { quiet:true });
+        if(!r || !r.ok){ setSeriesImport(null); return; }   // it said why; nothing else was imported
+        setSeriesImport(x=>x && ({ ...x, phase:"await-show", ep1:String(r.projectId||""), since:Date.now() }));
+      })();
+      return undefined;
+    }
+    if(j.phase==="await-show"){
+      if(currentShowId && String(currentProjectId||"")===j.ep1 && !seriesBusy){
+        seriesStepRef.current = key;
+        setSeriesImport(x=>x && ({ ...x, showId:currentShowId, i:1, done:1, phase:"next" }));
+        return undefined;
+      }
+      // the Show wasn't made (offline, or the series database isn't set up): Episode 1 stays, as a film
+      const left = Math.max(0, 45000 - (Date.now() - (j.since||0)));
+      const t = setTimeout(()=>{ setSeriesImport(x=>{ if(!x || x.phase!=="await-show") return x;
+        say("\u201c"+(j.showTitle||"Episode 1")+"\u201d is in as a film, but the Show couldn\u2019t be made yet. Make it from the film switcher (Turn this into a show), then import the other episodes into it.","error");
+        return null; }); }, left);
+      return ()=>clearTimeout(t);
+    }
+    if(j.phase==="next"){
+      if(j.stop || j.i >= N){
+        seriesStepRef.current = key;
+        setSeriesImport(null);
+        if(N===1 && j.done===1) setScriptReadOffer(Date.now());   // one episode: its read is offered, as a film's is
+        say(j.done+" episode"+(j.done!==1?"s are":" is")+" in the Show"+(j.done<N ? " ("+(N-j.done)+" not imported \u2014 stopped)" : "")
+          +" \u2014 each with its screenplay exactly as written, and one shared cast. Read each episode from its Writers' Room bar.", j.done ? "ok" : "info");
+        return undefined;
+      }
+      if(seriesBusy || projectLoading) return undefined;
+      seriesStepRef.current = key;
+      const from = String(projIdRef.current||"");
+      setSeriesImport(x=>x && ({ ...x, phase:"creating", from }));
+      (async ()=>{
+        const ok = await createEpisode(j.showId);
+        if(!ok){ setSeriesImport(null);
+          say(j.done+" of "+N+" episodes imported; the next one couldn\u2019t be created, so the import stopped. Import the rest into the Show again.","error"); return; }
+        setSeriesImport(x=>x && ({ ...x, phase:"fill" }));
+      })();
+      return undefined;
+    }
+    if(j.phase==="fill"){
+      if(String(currentProjectId||"")===j.from || String(currentShowId||"")!==String(j.showId) || scenes.length || projectLoading) return undefined;
+      seriesStepRef.current = key;
+      fillOpenEpisode(j.films[j.i]);
+      setSeriesImport(x=>x && ({ ...x, phase:"saving", episodeId:String(currentProjectId||"") }));
+      return undefined;
+    }
+    if(j.phase==="saving"){
+      if(String(currentProjectId||"")!==j.episodeId || !scenes.length) return undefined;
+      seriesStepRef.current = key;
+      (async ()=>{
+        await new Promise(r=>setTimeout(r, 1200));   // the autosave picks the episode up first
+        if(typeof flushPendingProjectSave==="function") await flushPendingProjectSave(j.episodeId);
+        setSeriesImport(x=>x && ({ ...x, i:x.i+1, done:x.done+1, phase:"next" }));
+      })();
+    }
+    return undefined;
+  },[seriesImport, currentProjectId, currentShowId, scenes.length, seriesBusy, projectLoading]);
 
   /* THE READ (phase 2, docs/Script Import Plan.md): the imported scenes that aren't read yet are read one by one into
      their scene card and beats (script-read.js — the words never change; each block only gets its beat number), then
@@ -7243,6 +7354,61 @@ function App(){
     } finally { setScriptImporting(false); }
   };
   /* the scenes a new draft doesn't have, removed when you say so (the whole-film Undo brings them back) */
+  /* A NEW, EMPTY FILM to build into (Rebuild as a new film; Adapt into a new film, Import a screenplay phase 6): a
+     cloud row minted safely (one retry on the same request; a screen the user moved on from is left alone), or this
+     device's canvas cleared. True when the new film is open and ready; the open film is never changed otherwise. */
+  const mintFilmForBuild = async (verb)=>{
+    if(cloudMode && typeof createProject==="function"){
+      const requestId=typeof window.cloudCreateRequestId==="function"
+        ? window.cloudCreateRequestId()
+        : (window.crypto&&typeof window.crypto.randomUUID==="function"?window.crypto.randomUUID():"");
+      const launchScope={projectId:projIdRef.current,loadSeq:loadSeqRef.current,homeOpen:homeOpenRef.current};
+      const createOpts={...(requestId?{requestId}:{}),launchScope};
+      let minted=await createProject(undefined,createOpts);
+      let committed=!!(minted&&minted.created);
+      if(!minted){
+        minted=await createProject(undefined,createOpts);
+        committed=committed||!!(minted&&minted.created);
+      }
+      if(minted&&minted.superseded){
+        if(typeof window.appToast==="function") window.appToast(
+          minted.message||"The new film was created. Your current screen was left unchanged.","info");
+        return false;
+      }
+      if(typeof minted!=="string"){
+        const why=String(window.cloudLastCreateError||"").trim();
+        if(typeof window.appToast==="function") window.appToast(
+          (committed?"The new film was saved but couldn\u2019t be opened yet":"Couldn\u2019t create the new film")+
+          (why?" \u2014 "+why:"")+". The current film was not "+(verb||"rebuilt")+" or replaced.","error");
+        return false;
+      }
+    } else { localStoryGenRef.current++; applyDoc(emptyDoc()); setArtView("lookbook"); }
+    setRoom("writers"); setView("spine");
+    return true;
+  };
+  /* ADAPT INTO A NEW FILM (Import a screenplay phase 6, docs/Script Import Plan.md §9): the story build runs into a NEW
+     film in the chosen format and structure, from a brief made from this film (AdaptFilm.composeBrief) — this film,
+     its script and its art are never touched */
+  const [adaptOpen, setAdaptOpen] = React.useState(false);
+  const [adaptBusy, setAdaptBusy] = React.useState(false);
+  const adaptIntoNewFilm = async ({ format, framework, mode, note })=>{
+    if(adaptBusy || !canMutateWritersRoom() || !scenes.length || !window.AdaptFilm) return;
+    if(!(typeof aiAvailable==="function" && aiAvailable())){ if(typeof window.appToast==="function") window.appToast("Sign in to adapt a film \u2014 the build runs on the writing engine.","error"); return; }
+    if(!planActive()){ requirePlan("adapt a film"); return; }
+    setAdaptBusy(true);
+    try{
+      const ordered = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes) : scenes.slice();
+      const brief = window.AdaptFilm.composeBrief({ project, scenes:ordered, characters }, { format, framework, mode, note });
+      const from = { id:String(projIdRef.current||""), title:project.title||"Untitled", format:project.format||"film",
+        framework:project.framework||"threeact", mode, at:new Date().toISOString() };
+      const keepLogline = (project.logline||"").trim();
+      setAdaptOpen(false);
+      if(!(await mintFilmForBuild("adapted"))) return;
+      setProject(p=>({ ...p, format, framework, ...(keepLogline ? { logline:keepLogline } : {}),
+        adaptedFrom:from, sourceBrief:brief, sourceBriefAt:new Date().toISOString() }));
+      setAgentLaunch({id:"adapt", input:brief}); setAgentsOpen(true);
+    } finally { setAdaptBusy(false); }
+  };
   const removeNotInDraft = async ()=>{
     if(!canMutateWritersRoom()) return;
     const gone = scenes.filter(x=>x && x.notInDraft);
@@ -9213,32 +9379,7 @@ function App(){
         const keep = { format:project.format, framework:_fwKeep, logline:(project.logline||"").trim(),
           ...(project.research ? { research:JSON.parse(JSON.stringify(project.research)) } : {}),
           ...(project.synopsis && _fwSame ? { synopsis:project.synopsis } : {}) };
-        if(cloudMode && typeof createProject==="function"){
-          const requestId=typeof window.cloudCreateRequestId==="function"
-            ? window.cloudCreateRequestId()
-            : (window.crypto&&typeof window.crypto.randomUUID==="function"?window.crypto.randomUUID():"");
-          const launchScope={projectId:projIdRef.current,loadSeq:loadSeqRef.current,homeOpen:homeOpenRef.current};
-          const createOpts={...(requestId?{requestId}:{}),launchScope};
-          let minted=await createProject(undefined,createOpts);
-          let committed=!!(minted&&minted.created);
-          if(!minted){
-            minted=await createProject(undefined,createOpts);
-            committed=committed||!!(minted&&minted.created);
-          }
-          if(minted&&minted.superseded){
-            if(typeof window.appToast==="function") window.appToast(
-              minted.message||"The new film was created. Your current screen was left unchanged.","info");
-            return;
-          }
-          if(typeof minted!=="string"){
-            const why=String(window.cloudLastCreateError||"").trim();
-            if(typeof window.appToast==="function") window.appToast(
-              (committed?"The new film was saved but couldn\u2019t be opened yet":"Couldn\u2019t create the new film")+
-              (why?" \u2014 "+why:"")+". The current film was not rebuilt or replaced.","error");
-            return;
-          }
-        } else { localStoryGenRef.current++; applyDoc(emptyDoc()); setArtView("lookbook"); }
-        setRoom("writers"); setView("spine");
+        if(!(await mintFilmForBuild("rebuilt"))) return;
         setProject(p=>({ ...p, ...(keep.format?{format:keep.format}:{}), ...(keep.framework?{framework:keep.framework}:{}),
           logline:keep.logline || p.logline, ...(keep.synopsis ? { synopsis:keep.synopsis } : {}),
           ...(keep.research ? { research:keep.research } : {}),
@@ -9588,7 +9729,12 @@ function App(){
           else if(!(beatsMap[s.id] && (beatsMap[s.id].rows||[]).length)){ n++; bm++; } });
         return { unwritten:n, unwrittenStandIns:st, unwrittenBeatMaps:bm, finishInput:String((project && (project.sourceBrief || project.logline)) || "") }; })(),
       issues:agentIssues,
+      // Adapt into a new film (phase 6): on a film with scenes the writer may change
+      onAdapt: (scenes.length && !writersRoomBlocked) ? (()=>{ setAgentsOpen(false); setAgentLaunch(null); setAdaptOpen(true); }) : undefined,
       aiOn: (typeof aiAvailable==="function" && aiAvailable())}),
+    adaptOpen && typeof window.AdaptFilmWindow==="function" && React.createElement(window.AdaptFilmWindow,{
+      project, sceneCount:scenes.length, unreadCount:scenes.filter(x=>x && x.imported && x.unread).length, busy:adaptBusy,
+      onClose:()=>{ if(!adaptBusy) setAdaptOpen(false); }, onAdapt:(o)=>adaptIntoNewFilm(o) }),
 
 
     // Cinematographer / Colorist — gated agent (proposes the colour system for approval);
@@ -9727,8 +9873,17 @@ function App(){
       onStage:()=>{ setReadDone(null); setIntentRoom(""); setRoom("art"); setArtView("shots");
         if(typeof window.appToast==="function") window.appToast("The Stage shoots your shots \u2014 design them here first (Draft scene shots, then their frames), then open the Stage.","info"); },
       onEditors:()=>{ setReadDone(null); setIntentRoom(""); setRoom("writers"); setAgentsOpen(true); } }),
+    // a Show import in progress (phase 6): how far it is, and Stop (after the episode it's on)
+    seriesImport && React.createElement("div",{className:"si-series-run",role:"status"},
+      React.createElement("span",null,"Importing episodes \u2014 "+seriesImport.done+" of "+seriesImport.films.length+" in"+(seriesImport.stop ? " \u00b7 stopping after this one" : "")),
+      !seriesImport.stop && React.createElement("button",{type:"button",className:"hs-btn",onClick:()=>setSeriesImport(x=>x && ({ ...x, stop:true }))},"Stop")),
     scriptImportOpen && (typeof window.ScriptImportWindow==="function") && React.createElement(window.ScriptImportWindow,{
-      busy:scriptImporting, initialFile:scriptImportFile,
+      busy:scriptImporting||!!seriesImport, initialFile:scriptImportFile,
+      // INTO A SHOW (phase 6): the Shows this account owns, and the import of one or several episodes
+      ...(cloudMode && scriptImportMode!=="draft" ? { onImportSeries:(r)=>importSeries(r),
+        shows:(()=>{ const TS = window.turnSeries; const g = TS && typeof TS.groups==="function" ? TS.groups(projects||[]) : { shows:[] };
+          return (g.shows||[]).filter(x=>x && x.isOwner!==false && !x.isShared).map(x=>({ id:x.id, title:x.title||"Show",
+            format:String(x.fmt||"series"), episodes:(projects||[]).filter(q=>q && q.showId && String(q.showId)===String(x.id)).length })); })() } : {}),
       existing: scriptImportMode==="draft" ? { scenes:(typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes) : scenes, drafts, title:project && project.title } : null,
       onApplyDraft: scriptImportMode==="draft" ? ((r)=>applyNewDraft(r)) : undefined,
       onClose:()=>{ if(!scriptImporting){ setScriptImportOpen(false); setScriptImportFile(null); } },

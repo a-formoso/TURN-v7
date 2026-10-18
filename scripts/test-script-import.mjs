@@ -204,7 +204,7 @@ await test("G the window and the app wiring", () => {
   // (phase 3, 2026-10-18) public — never inside a Show's episode (it was admin only until the read landed)
   assert.ok(app.includes("onImportScript:!newStoryBuildsCurrentEpisode ?"), "public; never in an episode");
   assert.ok(app.includes("opts.doc ? { ...emptyDoc(), ...opts.doc } : emptyDoc()"), "the film is created with its content");
-  assert.ok(app.includes("const importScriptFilm = async (film)=>") && app.includes("React.createElement(window.ScriptImportWindow,{"));
+  assert.ok(app.includes("const importScriptFilm = async (film, opts)=>") && app.includes("React.createElement(window.ScriptImportWindow,{"));
   assert.ok(ui.includes("I wrote this script or have the rights to use it.") && ui.includes("disabled:!rights||busy||!st.scenes"), "the rights confirmation gates the import");
   assert.ok(/src="app\/script-import\.js\?v=[^"]+"/.test(html) && /src="app\/script-import-ui\.jsx\?v=[^"]+"/.test(html));
   assert.ok(html.indexOf("app/script-import-ui.jsx") < html.indexOf("app/app.jsx"), "loaded before the app");

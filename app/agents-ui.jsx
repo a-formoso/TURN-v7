@@ -454,7 +454,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
           viewLabel||"View story",React.createElement(Icon.chevR,{s:16})))));
 }
 
-function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force, unwritten, unwrittenStandIns, unwrittenBeatMaps, finishInput }){
+function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force, unwritten, unwrittenStandIns, unwrittenBeatMaps, finishInput, onAdapt }){
   const agents = window.AGENTS || [];
   const dn = (t)=> (typeof window.turnDisplayNames==="function") ? window.turnDisplayNames(t) : t;
   const [active, setActive] = React.useState(()=> initialAgentId ? (agents.find(a=>a.id===initialAgentId)||null) : null);
@@ -555,6 +555,12 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
                   : unwrittenN+" scene"+(unwrittenN!==1?"s aren\u2019t":" isn\u2019t")+" written yet"+(standInN ? " ("+standInN+" "+(standInN===1?"is a rough stand-in":"are rough stand-ins")+")" : "")+
                     " \u2014 Adaptation can write just "+(unwrittenN===1?"that one":"those")+", leaving everything already written untouched."),
               React.createElement("button",{className:"ag-undo-btn",onClick:openFinish},"Finish writing this film")),
+            // ADAPT INTO A NEW FILM (Import a screenplay phase 6): another format or structure, or a rewrite pass —
+            // always a new film beside this one
+            aiOn && typeof onAdapt==="function" && React.createElement("div",{className:"ag-undo-row ag-adapt-row"},
+              React.createElement(Icon.flask,{s:14}),
+              React.createElement("span",{className:"ag-undo-tx"},"Adapt this story into a new film \u2014 another format or structure, or a rewrite pass in the method. This film stays exactly as it is."),
+              React.createElement("button",{className:"ag-undo-btn",onClick:onAdapt},"Adapt into a new film\u2026")),
             undoCount>0 && React.createElement("div",{className:"ag-undo-row"},
               React.createElement(Icon.undo,{s:14}),
               React.createElement("span",{className:"ag-undo-tx"},
@@ -583,3 +589,56 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
               })))));
 }
 window.AgentsPanel = AgentsPanel;
+
+
+/* ADAPT INTO A NEW FILM (Import a screenplay, phase 6; docs/Script Import Plan.md §9): the choice — the format, the
+   structure, how (retell / a rewrite pass in the method), a note — before a new film is built beside this one. The
+   build is the story build (Adaptation), paid as building; nothing here changes the open film. Window family ns-*. */
+function AdaptFilmWindow({ project, sceneCount=0, unreadCount=0, onClose, onAdapt, busy=false }){
+  const h = React.createElement;
+  const P = project || {};
+  const formats = (typeof window.formatsForPicker==="function" ? window.formatsForPicker() : (window.FORMATS||[])) || [];
+  const fmtList = (Array.isArray(formats) ? formats.flatMap(x=> Array.isArray(x.formats) ? x.formats : [x]) : []).filter(f=>f && f.id);
+  const fws = (typeof frameworkChoices==="function") ? frameworkChoices() : [];
+  const curFw = (typeof window.choosableFrameworkId==="function") ? window.choosableFrameworkId(P.framework) : (P.framework||"threeact");
+  const [format, setFormat] = React.useState(P.format || "film");
+  const [framework, setFramework] = React.useState(curFw || "threeact");
+  const [mode, setMode] = React.useState("retell");
+  const [note, setNote] = React.useState("");
+  const same = format===(P.format||"film") && framework===curFw;
+  React.useEffect(()=>{ const k=(e)=>{ if(e.key==="Escape" && !busy) onClose(); }; window.addEventListener("keydown", k); return ()=>window.removeEventListener("keydown", k); },[busy]);
+  const M = (window.AdaptFilm && window.AdaptFilm.MODES) || {};
+  const fmtLabel = (id)=> ((fmtList.find(f=>f.id===id)||{}).label) || id;
+  return h("div",{className:"ns-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget && !busy) onClose(); }},
+    h("div",{className:"ns-panel si-panel ad-panel",role:"dialog","aria-modal":"true","aria-label":"Adapt into a new film"},
+      h("div",{className:"ns-head"},
+        h("div",{className:"ns-head-t"}, h("span",{className:"ns-orb"}),
+          h("div",null, h("div",{className:"ns-title"},"Adapt into a new film"),
+            h("div",{className:"ns-sub"},"From \u201c"+(P.title||"Untitled")+"\u201d \u00b7 "+sceneCount+" scene"+(sceneCount!==1?"s":"")+" \u2014 this film stays exactly as it is"))),
+        h("button",{className:"ag-x",onClick:()=>{ if(!busy) onClose(); },title:"Close","aria-label":"Close"},Icon.x&&h(Icon.x,{s:16}))),
+      h("div",{className:"ns-body si-body"},
+        unreadCount>0 && h("div",{className:"si-prose ad-unread"},
+          h("b",null, unreadCount+" scene"+(unreadCount!==1?"s haven\u2019t":" hasn\u2019t")+" been read yet"),
+          h("span",null,"The adaptation works from the scene cards, the logline and the synopsis. Read your script first (the Writers' Room import bar) so it knows the whole story.")),
+        h("div",{className:"si-grid"},
+          h("label",{className:"si-field"}, h("span",null,"Into"),
+            h("select",{className:"ns-input",value:format,onChange:e=>setFormat(e.target.value)},
+              fmtList.map(f=>h("option",{key:f.id,value:f.id},f.label+(f.id===(P.format||"film")?" \u00b7 as now":""))))),
+          h("label",{className:"si-field"}, h("span",null,"Structure"),
+            h("select",{className:"ns-input",value:framework,onChange:e=>setFramework(e.target.value)},
+              fws.map(f=>h("option",{key:f.id,value:f.id},f.label+(f.id===curFw?" \u00b7 as now":"")))))),
+        h("div",{className:"ns-seclab"},"How"),
+        h("div",{className:"si-choice",role:"radiogroup","aria-label":"How to adapt it"},
+          Object.keys(M).map(k=>h("label",{key:k},
+            h("input",{type:"radio",name:"ad-mode",checked:mode===k,onChange:()=>setMode(k)}),
+            h("span",null,h("b",null,M[k].label), k==="retell" ? " \u2014 the same story, told in "+fmtLabel(format)+"\u2019s shape" : " \u2014 the same story and order of events, every scene made to turn")))),
+        h("label",{className:"si-field ad-note"}, h("span",null,"A note for the adaptation (optional)"),
+          h("textarea",{className:"ns-input",rows:3,maxLength:400,value:note,placeholder:"e.g. Tell it from the nurse\u2019s side. Keep the ending.",onChange:e=>setNote(e.target.value)})),
+        h("div",{className:"ns-hint si-hint"},"This builds a brand-new film \u2014 spine, cast and screenplay freshly written in "+fmtLabel(format)+"\u2019s shape (results differ run to run). It spends build credits, as a new story does."+(same && mode==="retell" ? " The format and structure are the same as now: pick a rewrite pass, or another format or structure." : "")),
+        h("div",{className:"ns-foot"},
+          h("button",{className:"ns-btn ghost",onClick:onClose,disabled:busy},"Cancel"),
+          h("button",{className:"ns-btn primary",disabled:busy || (same && mode==="retell") || !sceneCount,
+              onClick:()=>onAdapt({ format, framework, mode, note:note.trim() })},
+            busy ? "Starting\u2026" : "Adapt into a new film \u2192")))));
+}
+window.AdaptFilmWindow = AdaptFilmWindow;

@@ -5,7 +5,7 @@
    split at a line), warnings in plain words, and the rights confirmation. "Import script" hands the film to the
    app (onImport), which creates it the way New Story does. The read — scene cards, beats and the cast from the
    script — is phase 2. Window family classes (ns-*) as New Story. */
-function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, busy=false, existing=null, onApplyDraft, beforeScanRead }){
+function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, busy=false, existing=null, onApplyDraft, beforeScanRead, shows=[], onImportSeries }){
   // A NEW DRAFT (phase 4): with an existing film, step 2 shows what changed scene by scene instead of a fresh preview
   const draftMode = !!(existing && Array.isArray(existing.scenes) && existing.scenes.length && typeof onApplyDraft==="function");
   const h = React.createElement;
@@ -28,6 +28,15 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
   // A SCANNED PDF (phase 5): its pages are pictures — read them with the vision model, page by page, priced first
   const [scan, setScan] = React.useState(null);   // { file, pages, texts:[], reading, stopping, fileName }
   const scanStop = React.useRef(false);
+  // INTO A SHOW (phase 6): one script as an episode, or several episode files at once
+  const seriesOn = !draftMode && typeof onImportSeries==="function";
+  const [episodes, setEpisodes] = React.useState(null);   // several parsed episode scripts, in order
+  const [dest, setDest] = React.useState("film");          // "film" | "show"
+  const [showPick, setShowPick] = React.useState("new");   // "new" | an owned Show's id
+  const [showTitle, setShowTitle] = React.useState("");
+  const showName = (t)=> String(t||"").replace(/\s+\u2014\s+Show$/i,"").trim();
+  const pickShowFor = (series)=>{ const k = String(series||"").trim().toLowerCase();
+    const hit = k && (shows||[]).find(x=>showName(x.title).toLowerCase()===k); return hit ? hit.id : "new"; };
   React.useEffect(()=>()=>{ scanStop.current = true; },[]);   // closing the window stops a scan read after its page
   const fileRef = React.useRef(null);
 
@@ -40,8 +49,37 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
     const st = SI.stats(r);
     setFormat(SI.suggestFormat(st).id);
     setFramework((typeof frameworkChoices==="function" && frameworkChoices()[0] && frameworkChoices()[0].id) || "threeact");
+    // an episode of a series? (phase 6) — offered, never assumed
+    const ep = SI.episodeInfo ? SI.episodeInfo(r, r.fileName) : { likely:false };
+    setDest(seriesOn && ep.likely ? "show" : "film");
+    setShowTitle(ep.series || r.title || "");
+    setShowPick(pickShowFor(ep.series));
     setStage("preview");
   };
+  // several files at once: every one read, then one window for the episodes (phase 6)
+  const readMany = async (files)=>{
+    if(reading) return;
+    setReading(true); setErr("");
+    try{
+      const out = [];
+      for(const f of files){
+        const r = await SI.parseFile(f);
+        if(r && r.scanned) throw new Error("\u201c"+f.name+"\u201d is a scanned PDF \u2014 import it on its own (its pages are read with the vision model, priced first), then the others.");
+        if(!r.scenes || !r.scenes.length) throw new Error("No scenes were found in \u201c"+f.name+"\u201d \u2014 check that file, or leave it out.");
+        out.push(r);
+      }
+      const list = SI.orderEpisodes ? SI.orderEpisodes(out) : out;
+      const ep0 = SI.episodeInfo ? SI.episodeInfo(list[0], list[0].fileName) : {};
+      const series = ep0.series || "";
+      setEpisodes(list); setAuthor(list[0].author || "");
+      setShowTitle(series || list[0].title || ""); setShowPick(pickShowFor(series));
+      setFramework((typeof frameworkChoices==="function" && frameworkChoices()[0] && frameworkChoices()[0].id) || "threeact");
+      setStage("series");
+    }catch(e){ setErr(String((e && e.message) || e || "Those files couldn\u2019t be read.")); }
+    finally{ setReading(false); }
+  };
+  const readFiles = (list)=>{ const files = Array.from(list||[]).filter(Boolean);
+    if(!files.length) return; if(files.length>1 && seriesOn) readMany(files); else readFile(files[0]); };
   const readFile = async (file)=>{
     if(!file || reading) return;
     setReading(true); setErr("");
@@ -54,7 +92,7 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
     finally{ setReading(false); }
   };
   // a file dropped on the page arrives already chosen (phase 3)
-  React.useEffect(()=>{ if(initialFile) readFile(initialFile); },[initialFile]);
+  React.useEffect(()=>{ if(initialFile) (Array.isArray(initialFile) ? readFiles(initialFile) : readFile(initialFile)); },[initialFile]);
   const readPaste = ()=>{
     if(!pasteText.trim()){ setErr("Paste the script's text first."); return; }
     try{ took(SI.parseText(pasteText)); }catch(e){ setErr(String((e && e.message) || e)); }
@@ -76,13 +114,14 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
     h("button",{type:"button",className:"si-drop"+(drag?" over":"")+(reading?" busy":""),
         onClick:()=>fileRef.current && fileRef.current.click(),
         onDragOver:(e)=>{ e.preventDefault(); setDrag(true); }, onDragLeave:()=>setDrag(false),
-        onDrop:(e)=>{ e.preventDefault(); setDrag(false); const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) readFile(f); },
+        onDrop:(e)=>{ e.preventDefault(); setDrag(false); readFiles(e.dataTransfer && e.dataTransfer.files); },
         "aria-label":"Choose a script file, or drop one here"},
       Icon.script && h(Icon.script,{s:22}),
       h("b",null, reading ? "Reading your script…" : "Drop your script here, or choose a file"),
       h("span",null,"Fountain (.fountain), Final Draft (.fdx), Highland (.highland), PDF, Word (.docx) or plain text (.txt).")),
-    h("input",{ref:fileRef,type:"file",accept:SI.ACCEPT,className:"si-file",tabIndex:-1,"aria-hidden":"true",
-      onChange:(e)=>{ const f=e.target.files&&e.target.files[0]; e.target.value=""; if(f) readFile(f); }}),
+    h("input",{ref:fileRef,type:"file",accept:SI.ACCEPT,className:"si-file",tabIndex:-1,"aria-hidden":"true",multiple:seriesOn,
+      onChange:(e)=>{ const fs=Array.from(e.target.files||[]); e.target.value=""; readFiles(fs); }}),
+    seriesOn && h("div",{className:"si-many-hint"},"Episodes of a series? Choose or drop all their files at once \u2014 they go into one Show, with one shared cast."),
     h("button",{type:"button",className:"si-paste-toggle",onClick:()=>setPasteOpen(o=>!o),"aria-expanded":pasteOpen?"true":"false"},
       pasteOpen ? "Hide the text box" : "Or paste the script’s text"),
     pasteOpen && h("div",{className:"ns-field"},
@@ -138,6 +177,83 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
           err && h("div",{className:"ns-err"},err),
           h("div",{className:"ns-foot"},
             h("button",{className:"ns-btn ghost",disabled:!!scan.reading,onClick:()=>{ setStage("source"); setScan(null); setErr(""); }},"\u2190 Back")))));
+  }
+
+  // ---- SEVERAL EPISODES (phase 6): one Show, the episodes in order, one cast across them ----
+  if(stage==="series" && episodes){
+    const newShow = showPick==="new";
+    const pickRow = (shows||[]).find(x=>x.id===showPick) || null;
+    const castMap = new Map();
+    episodes.forEach((p,ei)=>(p.characters||[]).forEach(c=>{ const k = String(c.name||"").toLowerCase(); if(!k) return;
+      const x = castMap.get(k) || { key:k, name:c.name, lines:0, eps:new Set() }; x.lines += c.lines||0; x.eps.add(ei); castMap.set(k, x); }));
+    const cast = Array.from(castMap.values()).sort((a,b)=> b.eps.size-a.eps.size || b.lines-a.lines || a.name.localeCompare(b.name));
+    // "Same person as…" across every episode: merged where both appear, renamed where only one does (the Show's cast
+    // matches people by name)
+    const mergeAcross = (fromK, intoK)=>{ const into = cast.find(c=>c.key===intoK); if(!into) return;
+      setEpisodes(list=>list.map(p=>{
+        const f = (p.characters||[]).find(c=>String(c.name).toLowerCase()===fromK), t = (p.characters||[]).find(c=>String(c.name).toLowerCase()===intoK);
+        if(f && t) return SI.mergeCharacters(p, f.key, t.key);
+        if(f) return SI.renameCharacter(p, f.key, into.name);
+        return p; })); };
+    const move = (i,d)=> setEpisodes(list=>{ const a = list.slice(), j = i+d; if(j<0 || j>=a.length) return list; const t = a[i]; a[i] = a[j]; a[j] = t; return a; });
+    const epTitle = (p)=>{ const e = SI.episodeInfo ? SI.episodeInfo(p, p.fileName) : {}; return e.episodeTitle || p.title || String(p.fileName||"").replace(/\.[^.]+$/,""); };
+    const firstNo = newShow ? 1 : (Number(pickRow && pickRow.episodes)||0)+1;
+    const fws = (typeof frameworkChoices==="function") ? frameworkChoices() : [];
+    const doImport = ()=>{
+      const films = episodes.map((p,i)=>{
+        const film = SI.toFilm(p, { title: i===0 && newShow ? (showTitle.trim() || epTitle(p)) : epTitle(p), author: author || p.author,
+          format: newShow ? "series" : ((pickRow && pickRow.format) || "series"), framework, fileName:p.fileName||"" });
+        film.project.importedFrom = { ...(film.project.importedFrom||{}), episodeTitle:epTitle(p) };
+        return film; });
+      onImportSeries({ films, showId: newShow ? null : showPick, showTitle: showTitle.trim() });
+    };
+    return h("div",{className:"ns-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget && !busy) onClose(); }},
+      h("div",{className:"ns-panel si-panel",role:"dialog","aria-modal":"true","aria-label":"Import episodes"}, head,
+        h("div",{className:"ns-body si-body"},
+          h("div",{className:"si-tiles"}, h("div",{className:"si-tile"},h("span",null,"Episodes"),h("b",null,String(episodes.length))),
+            h("div",{className:"si-tile"},h("span",null,"Scenes"),h("b",null,String(episodes.reduce((n,p)=>n+(p.scenes||[]).length,0)))),
+            h("div",{className:"si-tile"},h("span",null,"Pages"),h("b",null,"\u2248 "+episodes.reduce((n,p)=>n+SI.stats(p).pages,0))),
+            h("div",{className:"si-tile"},h("span",null,"Cast"),h("b",null,String(cast.length)))),
+          h("div",{className:"si-grid"},
+            h("label",{className:"si-field"}, h("span",null,"Show"),
+              h("select",{className:"ns-input",value:showPick,onChange:e=>setShowPick(e.target.value)},
+                h("option",{value:"new"},"A new Show"),
+                (shows||[]).map(x=>h("option",{key:x.id,value:x.id},showName(x.title)+(x.episodes?" \u00b7 "+x.episodes+" episode"+(x.episodes!==1?"s":""):""))))),
+            newShow ? h("label",{className:"si-field"}, h("span",null,"The Show\u2019s name"),
+                h("input",{className:"ns-input",value:showTitle,onChange:e=>setShowTitle(e.target.value),placeholder:"The series\u2019 title"}))
+              : h("div",{className:"si-field"}, h("span",null,"Adds"), h("small",null,"Episodes "+firstNo+"\u2013"+(firstNo+episodes.length-1)+", after the Show\u2019s own")),
+            h("label",{className:"si-field"}, h("span",null,"Written by"),
+              h("input",{className:"ns-input",value:author,onChange:e=>setAuthor(e.target.value),placeholder:"Credited on every export"})),
+            h("label",{className:"si-field"}, h("span",null,"Read it as"),
+              h("select",{className:"ns-input",value:framework,onChange:e=>setFramework(e.target.value)}, fws.map(f=>h("option",{key:f.id,value:f.id},f.label))))),
+          h("div",{className:"ns-seclab"},"Episodes \u00b7 in this order"),
+          h("div",{className:"si-scenes"}, episodes.map((p,i)=>{ const st = SI.stats(p), w = (p.warnings||[]).length;
+            return h("div",{key:(p.fileName||"")+i,className:"si-scene"},
+              h("div",{className:"si-scene-row"},
+                h("span",{className:"si-scene-no"},"E"+String(firstNo+i).padStart(2,"0")),
+                h("div",{className:"si-scene-main"}, h("b",null,epTitle(p)),
+                  h("span",null,(p.fileName||"pasted text")+" \u00b7 "+st.scenes+" scene"+(st.scenes!==1?"s":"")+" \u00b7 \u2248"+st.pages+" page"+(st.pages!==1?"s":"")+(w?" \u00b7 "+w+" note"+(w!==1?"s":"")+" to check":""))),
+                h("div",{className:"si-scene-acts"},
+                  h("button",{type:"button",className:"ns-btn ghost si-mini",disabled:i===0,"aria-label":"Move up",onClick:()=>move(i,-1)},"\u2191"),
+                  h("button",{type:"button",className:"ns-btn ghost si-mini",disabled:i===episodes.length-1,"aria-label":"Move down",onClick:()=>move(i,1)},"\u2193")))); })),
+          h("div",{className:"ns-seclab"},"The cast across the episodes \u00b7 "+cast.length),
+          h("div",{className:"si-chars"}, cast.map(c=>h("div",{key:c.key,className:"si-char"},
+            h("span",{className:"si-char-name ro"},c.name),
+            h("span",{className:"si-char-meta"}, "in "+c.eps.size+" of "+episodes.length+" \u00b7 "+c.lines+" line"+(c.lines!==1?"s":"")),
+            cast.length>1 && h("select",{className:"si-char-merge",value:"","aria-label":"Merge "+c.name+" into another character",
+                onChange:e=>{ if(e.target.value) mergeAcross(c.key, e.target.value); }},
+              h("option",{value:""},"Same person as\u2026"),
+              cast.filter(x=>x.key!==c.key).map(x=>h("option",{key:x.key,value:x.key},x.name)))))),
+          h("label",{className:"si-rights"},
+            h("input",{type:"checkbox",checked:rights,onChange:e=>setRights(e.target.checked)}),
+            h("span",null,"I wrote these scripts or have the rights to use them.")),
+          h("div",{className:"ns-hint si-hint"},"Importing is free. Each episode comes in with its screenplay exactly as written; the cast is one shared Show cast, and each episode is read from its own Writers' Room bar."),
+          err && h("div",{className:"ns-err"},err),
+          h("div",{className:"ns-foot"},
+            h("button",{className:"ns-btn ghost",onClick:()=>{ setStage("source"); setEpisodes(null); setRights(false); },disabled:busy},"\u2190 Back"),
+            h("button",{className:"ns-btn primary",disabled:!rights||busy||(newShow && !showTitle.trim()),
+                title:!rights ? "Confirm you have the rights to use these scripts first" : "", onClick:doImport},
+              busy ? "Importing\u2026" : "Import "+episodes.length+" episodes \u2192")))));
   }
 
   if(stage==="source" || !parsed){
@@ -230,7 +346,7 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
         h("input",{className:"ns-input",value:title,onChange:e=>setTitle(e.target.value),placeholder:"The film’s title"})),
       h("label",{className:"si-field"}, h("span",null,"Written by"),
         h("input",{className:"ns-input",value:author,onChange:e=>setAuthor(e.target.value),placeholder:"Credited on every export"})),
-      h("label",{className:"si-field"}, h("span",null,"Format"),
+      dest!=="show" && h("label",{className:"si-field"}, h("span",null,"Format"),
         h("select",{className:"ns-input",value:format,onChange:e=>setFormat(e.target.value)},
           fmtList.map(f=>h("option",{key:f.id,value:f.id},f.label+(f.id===sug.id?" · suggested":"")))),
         h("small",null,"Suggested from the length: "+sug.why+".")),
@@ -239,6 +355,25 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
           fws.map(f=>h("option",{key:f.id,value:f.id},f.label))),
         h("small",null,"The structure names the acts and the big turns. Your script isn’t changed."))),
 
+    // WHERE IT GOES (phase 6): its own film, or an episode of a Show (a new one, or one of yours)
+    seriesOn && (()=>{ const ep = SI.episodeInfo ? SI.episodeInfo(parsed, parsed.fileName) : { likely:false, why:[] };
+      const newShow = showPick==="new";
+      return h("div",{className:"si-dest"},
+        h("div",{className:"ns-seclab"},"Where it goes"),
+        ep.likely && h("div",{className:"si-dest-why"},"This looks like an episode of a series \u2014 "+ep.why.join(", ")+"."),
+        h("div",{className:"si-choice",role:"radiogroup","aria-label":"Where the script goes"},
+          h("label",null, h("input",{type:"radio",name:"si-dest",checked:dest==="film",onChange:()=>setDest("film")}),
+            h("span",null,h("b",null,"Its own film"))),
+          h("label",null, h("input",{type:"radio",name:"si-dest",checked:dest==="show",onChange:()=>setDest("show")}),
+            h("span",null,h("b",null,"An episode of a Show"),", sharing the Show\u2019s cast, locations, props and look"))),
+        dest==="show" && h("div",{className:"si-grid"},
+          h("label",{className:"si-field"}, h("span",null,"Show"),
+            h("select",{className:"ns-input",value:showPick,onChange:e=>setShowPick(e.target.value)},
+              h("option",{value:"new"},"A new Show (this is Episode 1)"),
+              (shows||[]).map(x=>h("option",{key:x.id,value:x.id},showName(x.title)+" \u00b7 as Episode "+((Number(x.episodes)||0)+1))))),
+          newShow && h("label",{className:"si-field"}, h("span",null,"The Show\u2019s name"),
+            h("input",{className:"ns-input",value:showTitle,onChange:e=>setShowTitle(e.target.value),placeholder:"The series\u2019 title"}))));
+    })(),
     h("div",{className:"ns-seclab"},"Characters · "+chars.length),
     sugg.length>0 && h("div",{className:"si-sugg"}, sugg.map(sg=>h("div",{key:sg.from,className:"si-sugg-row"},
       h("span",null,sg.text+"?"),
@@ -282,8 +417,16 @@ function ScriptImportWindow({ onClose, onImport, onUseAsIdea, initialFile=null, 
       h("button",{className:"ns-btn ghost",onClick:()=>{ setStage("source"); setParsed(null); setRights(false); },disabled:busy},"← Back"),
       h("button",{className:"ns-btn primary",disabled:!rights||busy||!st.scenes,
           title:!rights ? "Confirm you have the rights to use this script first" : "",
-          onClick:()=>{ const film = SI.toFilm(parsed, { title, author, format, framework, fileName:parsed.fileName||"" }); onImport(film); }},
-        busy ? "Importing…" : "Import script →")));
+          onClick:()=>{
+            if(seriesOn && dest==="show"){
+              const newShow = showPick==="new", row = (shows||[]).find(x=>x.id===showPick);
+              const film = SI.toFilm(parsed, { title: newShow ? (showTitle.trim() || title) : title, author,
+                format: newShow ? "series" : ((row && row.format) || "series"), framework, fileName:parsed.fileName||"" });
+              film.project.importedFrom = { ...(film.project.importedFrom||{}), episodeTitle:title };
+              onImportSeries({ films:[film], showId: newShow ? null : showPick, showTitle: showTitle.trim() || title });
+              return; }
+            const film = SI.toFilm(parsed, { title, author, format, framework, fileName:parsed.fileName||"" }); onImport(film); }},
+        busy ? "Importing…" : (seriesOn && dest==="show" ? "Import as an episode →" : "Import script →"))));
 
   return h("div",{className:"ns-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget && !busy) onClose(); }},
     h("div",{className:"ns-panel si-panel",role:"dialog","aria-modal":"true","aria-label":"Import your script"}, head, preview));

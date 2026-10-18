@@ -27,7 +27,16 @@ marked "Check". Word reads a screenplay template's styles first, else the indent
 read page by page from its page images by the reading engine (the existing vision call, held and settled per page;
 priced first, stoppable, labelled a transcription). An old .doc is refused in plain words. Tests:
 `scripts/test-script-import-pages.mjs`, `scripts/test-script-import-pdf-browser.mjs` (a PDF Chrome prints, read back).
-Next (when asked): phase 6 (series import, "Adapt into a new film").
+**Phase 6 (Shows and adaptations) is built and public** (2026-10-18). INTO A SHOW: `ScriptImport.episodeInfo` spots an
+episode (a cold open or teaser, act breaks, an episode number, "Series" on the title page, 1x03 / S01E03 / Pilot) and the
+preview's "Where it goes" offers its own film or an episode of a Show (one of yours, or a new Show it starts as Episode
+1); several episode files at once get one window (the episodes in order, the Show, the cast across them). The app runs it
+step by step through its own series steps (Episode 1 → the automatic conversion; `createEpisode` → fill → save for each
+other), every episode's people matched by name into the Show's one cast (`turnSeries.mergeAdaptationCast`); act markers
+before the first heading are section notes. ADAPT INTO A NEW FILM: the Story Editors' "Adapt into a new film…" (format,
+structure, retell / a rewrite pass in the method, a note) mints a new film and runs the story build from a brief made from
+the original (`app/adapt-film.js`); the original never changes. Tests: `scripts/test-script-import-series.mjs`. All six
+phases are built.
 
 
 **Short scripts and other shapes (owner's question, 2026-10-18):** a one-page script imports as one or two scenes and

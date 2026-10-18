@@ -40,8 +40,9 @@ test("B the empty Writers' Room, Home and a dropped file", () => {
   assert.ok(home.includes('typeof onImportScript==="function" && h("button",{className:"hd-tbtn hd-import"'));
   assert.ok(app.includes("(room===\"writers\" || homeOpen) && !scriptImportOpen && !newStoryOpen"), "the Writers' Room or Home only");
   assert.ok(app.includes("if(!hasFiles(e) || e.defaultPrevented) return;"), "an element's own drop zone keeps its drop");
-  assert.ok(app.includes("if(!ok) return;   // not a script: left to the page"));
-  assert.ok(ui.includes("React.useEffect(()=>{ if(initialFile) readFile(initialFile); },[initialFile]);"), "the dropped file arrives chosen");
+  assert.ok(app.includes("if(!isScript(f)) return;   // not a script: left to the page"));
+  // (phase 6: several dropped files arrive as a list — episodes)
+  assert.ok(ui.includes("React.useEffect(()=>{ if(initialFile) (Array.isArray(initialFile) ? readFiles(initialFile) : readFile(initialFile)); },[initialFile]);"), "the dropped file arrives chosen");
 });
 
 test("C the landing's start choice, carried through sign-up", () => {

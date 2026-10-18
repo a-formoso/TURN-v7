@@ -201,6 +201,9 @@ await test("changing shape asks before replacing edited research",async()=>{
 await test("rebuild-as-new keeps a detached complete research object in local and cloud creation",async()=>{
   const prop=find(ast.app,n=>n.type==="ObjectProperty" && n.key.name==="onRebuildFromBrief");
   assert.ok(prop); const fn=files.app.slice(prop.value.start,prop.value.end);
+  // the new film is minted by the helper Rebuild shares with Adapt into a new film (2026-10-18)
+  const mint=find(ast.app,n=>n.type==="VariableDeclarator" && n.id && n.id.name==="mintFilmForBuild");
+  assert.ok(mint); const mintSrc=files.app.slice(mint.init.start,mint.init.end);
   for(const cloudMode of [false,true]){
     const research={memory:"Edited memory",imagination:"Imagined days",fact:{roles:[{who:"Mara",role:"Officer"}]},
       sources:[{url:"https://example.org/source",title:"Source"}],grounded:true,edited:true};
@@ -211,6 +214,7 @@ await test("rebuild-as-new keeps a detached complete research object in local an
       createProject:async()=>{next={};return "new-film";},
       localStoryGenRef:{current:0},applyDoc:()=>{next={};},emptyDoc:()=>({}),setArtView:noop,setRoom:noop,setView:noop,
       setProject:f=>{next=f(next);},setAgentLaunch:()=>launches++,setAgentsOpen:noop});
+    vm.runInContext("this.mintFilmForBuild="+mintSrc,b);
     vm.runInContext("this.rebuild="+fn,b); await b.rebuild();
     assert.deepEqual(plain(next.research),research); assert.notEqual(next.research,research);
     next.research.fact.roles[0].role="Changed"; assert.equal(research.fact.roles[0].role,"Officer"); assert.equal(launches,1);
