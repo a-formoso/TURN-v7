@@ -344,6 +344,10 @@ function BeatEditor({ scene, beats, onBeats, onBeatsStructure, focusBeat, draft,
     commitShape(withBeatIdentity({...beats, rows:renumber(rows)},id)); };
   const delBeat = (i)=>{
     setLastDeleted({ row: beats.rows[i], index: i, turnBeatId: beats.turnBeatId||"" });
+    // (owner 2026-10-20: "can't find the Undo") the restore is also offered in a toast, and in the deleted beat's
+    // own place in the list — the chip at the top of the tab was out of sight when a later beat was deleted
+    if(typeof window.appToast==="function") window.appToast("Beat "+(i+1)+" deleted \u2014 its lines and shots joined the beat beside it.","info",
+      { action:{ label:"Undo", onClick:()=>{ if(undoRef.current) undoRef.current(); } } });
     const rows=renumber(beats.rows.filter((_,j)=>j!==i));
     const turnBeatId=beats.rows[i].id===beats.turnBeatId?"":beats.turnBeatId;
     commitShape(withBeatIdentity({...beats, rows, turnBeatId},id)); };
@@ -352,6 +356,12 @@ function BeatEditor({ scene, beats, onBeats, onBeatsStructure, focusBeat, draft,
     rows.splice(Math.min(lastDeleted.index, rows.length), 0, lastDeleted.row);
     commitShape(withBeatIdentity({...beats, rows:renumber(rows), turnBeatId:lastDeleted.turnBeatId},id));
     setLastDeleted(null); };
+  // the toast's Undo runs the latest restore (the one made when the toast showed would see a stale list)
+  const undoRef = React.useRef(null); undoRef.current = (lastDeleted && !readOnly) ? undoDelete : null;
+  const restoreInline = (k)=> React.createElement("div",{key:"restore-"+k,className:"beat-restore-row"},
+    React.createElement("span",null,"Beat "+(lastDeleted.index+1)+" deleted"),
+    React.createElement("button",{type:"button",className:"beat-build-btn beat-undo-btn",disabled:readOnly,onClick:undoDelete,
+      title:"Put the beat back in its place, with its lines and shots"},React.createElement(Icon.undo,{s:12}),"Restore"));
   const moveBeat = (i,dir)=>{ const j=i+dir; if(j<0||j>=beats.rows.length) return;
     const rows=beats.rows.slice(); const [m]=rows.splice(i,1); rows.splice(j,0,m);
     commitShape(withBeatIdentity({...beats, rows:renumber(rows)},id)); };
@@ -401,7 +411,7 @@ function BeatEditor({ scene, beats, onBeats, onBeatsStructure, focusBeat, draft,
       React.createElement("div",{className:"obj-lab",style:{margin:"8px 0 3px"}},"Result"),
       React.createElement(EditText,{value:beats.result||"",readOnly,multiline:true,placeholder:"What is resolved by the end of the scene\u2026",onCommit:v=>setField({result:v})})),
 
-    beats.rows.map((r,i)=>
+    beats.rows.map((r,i)=>[ (lastDeleted && lastDeleted.index===i) ? restoreInline(i) : null,
       React.createElement("div",{key:r.id, ref:(el)=>{ rowRefs.current[r.n]=el; },
         className:`beat-edit ${r.id===beats.turnBeatId?"turn":""} ${r.n===focusBeat?"focus":""}`},
         React.createElement("div",{className:"beat-edit-head"},
@@ -426,7 +436,9 @@ function BeatEditor({ scene, beats, onBeats, onBeatsStructure, focusBeat, draft,
           React.createElement("div",{className:"beat-edit-col"},
             React.createElement("div",{className:"clab"},beats.reactorLabel||"Reaction"),
             React.createElement(EditText,{value:r.react.a,readOnly,className:"bt-act",placeholder:"reaction",onCommit:v=>setCell(i,"react","a",v)}),
-            React.createElement(EditText,{value:r.react.d,readOnly,className:"bt-beh",multiline:true,placeholder:"behaviour\u2026",onCommit:v=>setCell(i,"react","d",v)})))) ),
+            React.createElement(EditText,{value:r.react.d,readOnly,className:"bt-beh",multiline:true,placeholder:"behaviour\u2026",onCommit:v=>setCell(i,"react","d",v)}))))] ),
+    // the last beat was the one deleted: its place is at the end
+    (lastDeleted && lastDeleted.index>=beats.rows.length) ? restoreInline("end") : null,
 
     React.createElement("button",{className:"add-beat",disabled:readOnly,onClick:addBeat},
       React.createElement(Icon.plus,{s:14}),"Add beat"));

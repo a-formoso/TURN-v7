@@ -148,6 +148,11 @@ test("D  the Beats tab: Insert below; every shape change goes through setBeatsSt
   assert.match(f, /!shotsReadOnlyRef\.current && !shotsStageOnlyRef\.current/);
   assert.match(f, /setShots\(ss=>window\.beatRemapShots\(ss, sceneId, R, at\)\)/);
   assert.match(read("app/shots-ui.jsx"), /L\.shots\.some\(x=>x&&x\.beatRemoved\) && _el\("span",\{className:"beat-lane-gone"/);
+  // (2026-10-20, "can't find the Undo") the restore in a toast and in the deleted beat's own place
+  assert.match(insp, /window\.appToast\("Beat "\+\(i\+1\)\+" deleted/);
+  assert.match(insp, /onClick:\(\)=>\{ if\(undoRef\.current\) undoRef\.current\(\); \}/);
+  assert.match(insp, /\(lastDeleted && lastDeleted\.index===i\) \? restoreInline\(i\) : null/);
+  assert.match(insp, /\(lastDeleted && lastDeleted\.index>=beats\.rows\.length\) \? restoreInline\("end"\) : null/);
 });
 
 test("E  adding a scene: before or after, no placeholder heading, the protagonist, Undo; the old placeholder isn't a place", () => {
@@ -172,7 +177,7 @@ test("E  a recast keeps the beats' ids (the turning point stays); Frances knows"
   assert.match(ai, /name:"Adding a scene"/);
   const html = read("TURN.html");
   for (const f of ["scene-order.js", "inspector.jsx", "app.jsx", "shots-ui.jsx", "locations.jsx", "ai.jsx"])
-    assert.ok(["20261019-hs34"].some(v => html.includes(f + "?v=" + v + '"')), f);
+    assert.ok(["20261019-hs34", "20261020-hs35"].some(v => html.includes(f + "?v=" + v + '"')), f);
 });
 
 console.log(`\n${checks} passed, ${failed} failed`);
