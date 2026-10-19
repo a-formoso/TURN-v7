@@ -5969,6 +5969,8 @@ function App(){
     setShots(ss=>ss.map(s=>{
     if(s.id!==id) return s;
     const next={...s,...patch};
+    // a shot moved to another beat BY HAND is a real change (its frames follow that beat now)
+    if(patch && Object.prototype.hasOwnProperty.call(patch,"beatN")) delete next.specBeatN;
     const before=(typeof shotSpecFingerprint==="function")?shotSpecFingerprint(s):"";
     const after=(typeof shotSpecFingerprint==="function")?shotSpecFingerprint(next):"";
     next.specRev=(typeof shotSpecRevision==="function")?shotSpecRevision(s):(Math.max(1,Number(s.specRev)||1));
@@ -7700,8 +7702,12 @@ function App(){
       if(owner !== projIdRef.current){ setRecastBusy(null); return; }
       if(res && canMutateWritersRoom()){
         updateScene(sceneId, { ...(res.summary?{summary:res.summary}:{}), ...(res.objective?{objective:res.objective}:{}) });
-        setBeatsMap(m=>{ const cur=m[sceneId]||b; return { ...m, [sceneId]:{ ...cur, driverLabel:NEW,
-          desire:res.desire||cur.desire, obstacle:res.obstacle||cur.obstacle, result:res.result||cur.result, rows:res.rows||cur.rows } }; });
+        // the recast beats keep their beats' ids, position by position (it returns the same number of beats), so the
+        // turning point and anything tied to a beat stay on it (owner 2026-10-19: the marker used to be dropped)
+        setBeatsMap(m=>{ const cur=m[sceneId]||b;
+          const rows = res.rows ? res.rows.map((r,i)=>({ ...r, id:(cur.rows && cur.rows[i] && cur.rows[i].id) || r.id })) : cur.rows;
+          const next = { ...cur, driverLabel:NEW, desire:res.desire||cur.desire, obstacle:res.obstacle||cur.obstacle, result:res.result||cur.result, rows };
+          return { ...m, [sceneId]:(typeof withBeatIdentity==="function") ? withBeatIdentity(next, sceneId) : next }; });
         if(typeof window.appToast==="function")
           window.appToast("Scene "+scn.no+" recast for "+NEW+" \u2014 review the beats, then \u2018Redraft script from beats\u2019 to rebuild the screenplay.","ok");
       } else if(!res && typeof window.appToast==="function"){
@@ -7732,23 +7738,41 @@ function App(){
     }
   };
   const onCharge = (field,val)=>updateScene(selId,{[field]:val});
-  const addScene = (afterId)=>{
+  /* ADD A SCENE (owner 2026-10-19): after a scene, or BEFORE one (opts.before) — so a scene can open the film or an act
+     (it takes the act of the scene it sits beside). Its heading starts empty (the old placeholder made a stray "New
+     Location" card in the Art Room) and its driver is the film's protagonist, never just the previous scene's. Undo
+     takes it out again. */
+  const addScene = (refId, opts)=>{
     if(!canMutateWritersRoom()) return;
+    const before = !!(opts && opts.before);
     const id = newId();
     setScenes(ss=>{
-      const i = afterId!=null ? ss.findIndex(s=>s.id===afterId) : ss.length-1;
+      const i = refId!=null ? ss.findIndex(s=>s.id===refId) : ss.length-1;
       const ref = ss[i] || { act:1, seq:"New" };
-      // default the driver to the current story's protagonist (or first cast member),
-      // never a hardcoded sample-story character
+      // the current story's protagonist (or first cast member), never a hardcoded sample-story character
       const protag = characters.find(c=>/protagon|lead|hero/i.test(c.role||"")) || characters[0];
-      const defDriver = (ref && ref.driver) || (protag && protag.id) || "lead";
+      const defDriver = (protag && protag.id) || (ref && ref.driver) || "lead";
       const ns = { id, act:ref.act||1, seq:ref.seq||"New", no:0, title:"New Scene",
-        loc:"INT. NEW LOCATION \u00b7 DAY", summary:"A new scene \u2014 describe what happens here.",
+        loc:"", summary:"A new scene \u2014 describe what happens here.",
         openValue:"Value", openCharge:0, closeValue:"Value", closeCharge:1,
         conf:1, kind:"normal", driver:defDriver, objective:"" };
-      const out = ss.slice(); out.splice((i<0?ss.length-1:i)+1, 0, ns); return renum(out);
+      const at = i<0 ? ss.length : (before ? i : i+1);
+      const out = ss.slice(); out.splice(at, 0, ns); return renum(out);
     });
     setSelId(id);
+    const film0 = projIdRef.current;
+    if(typeof window.appToast==="function") window.appToast("Scene added \u2014 give it a heading and a summary, then draft it.","info",{ action:{ label:"Undo", onClick:()=>{
+      if(String(film0||"")!==String(projIdRef.current||"") || !canMutateWritersRoom()) return;
+      // only an untouched scene goes this way; one that has a script or shots by now is deleted from the Scene panel
+      // (that asks, and keeps its own Undo)
+      const d = (draftsRef.current||{})[id];
+      if((d && (d.blocks||[]).length) || (shotsRef.current||[]).some(sh=>sh && sh.sceneId===id)){
+        if(typeof window.appToast==="function") window.appToast("That scene has a script or shots now \u2014 delete it from the Scene panel instead.","info"); return; }
+      setScenes(ss=> ss.some(x=>x.id===id) ? renum(ss.filter(x=>x.id!==id)) : ss);
+      setBeatsMap(m=>{ if(!m[id]) return m; const n={...m}; delete n[id]; return n; });
+      setDrafts(d=>{ if(!d[id]) return d; const n={...d}; delete n[id]; return n; });
+      setSelId(cur=> cur===id ? null : cur);
+    } } });
   };
   // the last deleted scene with everything that went with it, so "Undo" can restore it
   // exactly (single level, tied to the film it was deleted from)
@@ -7889,6 +7913,31 @@ function App(){
   const moveScene = (id,dir)=>{ const i=scenes.findIndex(s=>s.id===id); reorderScenes(i,i+dir); };
   // setBeatsFor(sceneId, next, filmToken?) — as commitVersion: a beat map built after an await
   // (Inspector "Create beat map" / "Rebuild from script") lands only in the film it was asked for
+  /* BEATS KEEP THEIR WORK (owner 2026-10-19): a beat added, inserted, deleted, restored or moved in the Beats tab —
+     the screenplay's lines (a new version, Undo keeps the old) and the scene's shots follow their beats to their new
+     numbers (scene-order.js beatRemap), so storyboards and the Stage stay on the right beat; a moved beat's approved
+     frames and takes stay current; a deleted beat's lines and shots fold into the beat before it, marked, until it's
+     restored. Only the shape changes come here — a Rebuild from the script replaces the map as before. */
+  const setBeatsStructured = (sceneId,next)=>{
+    if(!canMutateWritersRoom()) return;
+    const before = beatsMap[sceneId];
+    const identified = (typeof withBeatIdentity==="function") ? withBeatIdentity(next,sceneId) : next;
+    const R = (typeof window.beatRemap==="function" && before && Array.isArray(before.rows) && identified && Array.isArray(identified.rows))
+      ? window.beatRemap(before.rows, identified.rows) : null;
+    if(R && !R.identity){
+      const d = drafts[sceneId];
+      if(d && Array.isArray(d.blocks) && d.blocks.length && typeof window.beatRemapBlocks==="function"){
+        const nb = window.beatRemapBlocks(d.blocks, R);
+        if(nb!==d.blocks) commitVersion(sceneId, { ...d, blocks:nb });
+      }
+      // the shots follow when this person may change them (a Co-writer on a shared film can't: the Art director's)
+      if(!projectLoadingRef.current && !shotsReadOnlyRef.current && !shotsStageOnlyRef.current && typeof window.beatRemapShots==="function"){
+        const at = new Date().toISOString();
+        setShots(ss=>window.beatRemapShots(ss, sceneId, R, at));
+      }
+    }
+    setBeatsMap(m=>({...m,[sceneId]:identified}));
+  };
   const setBeatsFor = (sceneId,next,filmToken)=>{
     if(filmToken!==undefined && filmToken!==castDraftFilmKey()) return;
     if(!canMutateWritersRoom()) return;
@@ -9696,7 +9745,7 @@ function App(){
               onFollow:(id)=>{ setFollowChar(id); setView("spine");
                 if(inspDrawer) setInspOpen(false); }})
           : React.createElement(Inspector,{scene:sel,beats,draft:(sel?drafts[sel.id]:null),onCharge,onUpdate:updateScene,characters,scenes,
-              onAddScene:addScene,onDeleteScene:deleteScene,onMove:moveScene,onBeats:setBeatsFor,
+              onAddScene:addScene,onDeleteScene:deleteScene,onMove:moveScene,onBeats:setBeatsFor,onBeatsStructure:setBeatsStructured,
               stale: sel ? staleMap[sel.id] : null, onRedraft:(scn)=>redraftScene(scn, beatsMap[scn.id]),
               unnamedValues:unnamedValueCount, onNameAllValues:nameAllValues, namingValues,
               sceneIndex:scenes.findIndex(s=>s.id===selId),sceneCount:scenes.length,

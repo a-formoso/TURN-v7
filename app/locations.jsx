@@ -251,6 +251,8 @@ function collectSluggedPlaces(scenes, drafts, decisions){
       if(!parsed) return;
       const places = splitCompoundPlace(parsed.place);
       const primary = tidyPlace(places[0]);
+      // a new scene's old placeholder heading ("INT. NEW LOCATION · DAY") is not a place (owner 2026-10-19)
+      if(/^new location$/i.test(String(primary||"").trim())) return;
       const ownKey = locSlug(primary.split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-");
       if(!ownKey) return;
       const key = locationAliasKey(ownKey, dec), headName = primary.split(/[\u00b7\u2014]/)[0].trim();

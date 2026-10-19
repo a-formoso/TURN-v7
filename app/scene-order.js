@@ -42,6 +42,8 @@ const SHOT_SPEC_FIELDS = ["beatN","size","angle","move","lens","composition","su
 const SHOT_FRAME_ONLY_FIELDS = ["negativePrompt"];
 function shotSpecFingerprint(shot){
   const spec={}; SHOT_SPEC_FIELDS.forEach(k=>{ if(shot&&shot[k]!==undefined) spec[k]=shot[k]; });
+  // a shot that only moved with its beat (beatRemapShots) keeps the number its frames and takes were made under
+  if(shot && shot.specBeatN!=null && spec.beatN!==undefined) spec.beatN=shot.specBeatN;
   // Advanced cinematography is stored as a nested object. Only explicit overrides
   // belong to source provenance: missing settings, {} and six "auto" values are
   // semantically identical, while a real override changes the generated prompt.
@@ -193,6 +195,83 @@ function withBeatMapIdentity(beatsMap){
   return out;
 }
 
+/* BEATS KEEP THEIR WORK WHEN THEY MOVE (owner 2026-10-19). Every room points at a beat by its NUMBER — the
+   screenplay's blocks (block.beat), the shots (sh.beatN), and through the shots the storyboards and the Stage. When the
+   beat map changes shape (a beat moved, deleted, inserted, or a deleted one restored), the beats' own ids say where
+   each old number went; beatRemap() returns that, and the two helpers below carry the screenplay and the shots along.
+   A deleted beat's prose and shots fold into the beat before it (or the next, when it was the first), each marked with
+   the deleted beat's id — so restoring that beat (Undo) gives them back to it. */
+function beatRemap(oldRows, newRows){
+  const oldR = Array.isArray(oldRows) ? oldRows : [], newR = Array.isArray(newRows) ? newRows : [];
+  const newById = {}; newR.forEach((r,i)=>{ if(r && r.id) newById[r.id] = i+1; });
+  const map = {}, removed = {}, newIds = {};
+  newR.forEach((r,i)=>{ if(r && r.id) newIds[r.id] = i+1; });
+  oldR.forEach((r,i)=>{ const oldN = Number(r && r.n) || (i+1); if(r && r.id && newById[r.id]) map[oldN] = newById[r.id]; });
+  // a beat that's gone: its work goes to the surviving beat before it (or after it, when it was the first)
+  oldR.forEach((r,i)=>{
+    const oldN = Number(r && r.n) || (i+1);
+    if(map[oldN]) return;
+    let to = 0;
+    for(let k=i-1; k>=0 && !to; k--){ const n = Number(oldR[k] && oldR[k].n) || (k+1); if(map[n]) to = map[n]; }
+    for(let k=i+1; k<oldR.length && !to; k++){ const n = Number(oldR[k] && oldR[k].n) || (k+1); if(map[n]) to = map[n]; }
+    if(to){ map[oldN] = to; removed[oldN] = { id:(r && r.id) || "", to }; }
+  });
+  const identity = !Object.keys(removed).length && Object.keys(map).every(k=> Number(k)===map[k])
+    && oldR.length===newR.length;
+  return { map, removed, newIds, identity };
+}
+/* the screenplay's blocks re-tagged to the beats' new numbers, in the beats' new order (a beat's own lines keep
+   their order; a line on a number no beat ever had stays where it was, after the line before it) */
+function beatRemapBlocks(blocks, R){
+  if(!Array.isArray(blocks) || !blocks.length || !R) return blocks;
+  let changed = false, lastKey = 0;
+  const tagged = blocks.map((b,i)=>{
+    if(!b) return { b, key:lastKey, i };
+    let nb = b;
+    const old = Number(b.beat) || 1;
+    // a deleted beat being restored: its lines come back to it
+    if(b.wasBeatId && R.newIds[b.wasBeatId]){
+      const { wasBeatId, ...rest } = b; nb = { ...rest, beat:R.newIds[b.wasBeatId] };
+    } else if(R.map[old] != null){
+      const gone = R.removed[old];
+      nb = (R.map[old]!==old || gone) ? { ...b, beat:R.map[old], ...(gone && gone.id ? { wasBeatId:gone.id } : {}) } : b;
+    }
+    if(nb!==b) changed = true;
+    lastKey = Number(nb && nb.beat) || lastKey;
+    return { b:nb, key:lastKey, i };
+  });
+  const sorted = tagged.slice().sort((x,y)=> (x.key - y.key) || (x.i - y.i));
+  if(sorted.some((t,k)=> t.i!==k)) changed = true;
+  return changed ? sorted.map(t=>t.b) : blocks;
+}
+/* the scene's shots on the beats' new numbers (a deleted beat's shots marked, never silently re-pointed) */
+function beatRemapShots(shots, sceneId, R, at){
+  if(!Array.isArray(shots) || !R) return shots;
+  let changed = false;
+  const out = shots.map(sh=>{
+    if(!sh || String(sh.sceneId)!==String(sceneId)) return sh;
+    const old = Number(sh.beatN);
+    if(sh.beatRemoved && sh.beatRemoved.id && R.newIds[sh.beatRemoved.id]){
+      const { beatRemoved, ...rest } = sh; changed = true; return { ...rest, beatN:R.newIds[sh.beatRemoved.id] };
+    }
+    if(!(old > 0) || R.map[old]==null) return sh;
+    const gone = R.removed[old];
+    if(R.map[old]===old && !gone) return sh;
+    changed = true;
+    return { ...sh, beatN:R.map[old], specBeatN:(sh.specBeatN!=null ? sh.specBeatN : old),
+      ...(gone ? { beatRemoved:{ id:gone.id, was:old, at:at || new Date().toISOString() } } : {}) };
+  });
+  return changed ? out : shots;
+}
+window.beatRemap = beatRemap;
+window.beatRemapBlocks = beatRemapBlocks;
+window.beatRemapShots = beatRemapShots;
+/* the beat map's words in order — the script's card snapshot keeps it, so changing the beats says "Script out of date" */
+function beatMapSignature(map){
+  const rows = (map && Array.isArray(map.rows)) ? map.rows : [];
+  return rows.map(r=>[String(r && r.drive && r.drive.d || "").trim(), String(r && r.react && r.react.d || "").trim()].join(" / ")).join(" | ");
+}
+window.beatMapSignature = beatMapSignature;
 window.compareSceneOrder = compareSceneOrder;
 window.scenesInStoryOrder = scenesInStoryOrder;
 /* the scene's TURNING POINT as text: the beat marked as the turn (Beats tab → Mark

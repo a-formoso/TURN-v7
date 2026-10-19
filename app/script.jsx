@@ -1604,7 +1604,10 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
           for(let j=0;j<blocks.length;j++){ if((Number(blocks[j].beat)||1) < n) at = j; }
           blocks.splice(at+1, 0, ...res.blocks);
           const commit = L.onEditScene || onEditScene;
-          const ok = commit(sid, keepStandInMark(latest, { ...latest, blocks, ai:true, auto:false, edited:false, by:res.by||null }));
+          // the script now covers the beats it was written against: their part of "Script out of date" is settled
+          const snap = (latest.cardSnap && typeof window.beatMapSignature==="function")
+            ? { cardSnap:{ ...latest.cardSnap, beats:window.beatMapSignature(beats) } } : {};
+          const ok = commit(sid, keepStandInMark(latest, { ...latest, blocks, ai:true, auto:false, edited:false, by:res.by||null, ...snap }));
           if(ok!==false && !LR.closed){
             setVerFlash(new Set(res.blocks));
             clearTimeout(verFlashTimer.current);

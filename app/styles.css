@@ -10715,3 +10715,6 @@ html[data-theme="light"] .app.hs .script-body.just-polished .sp-page{animation-n
    Room's tabs are full width, with no sidebars): the shot rail and the settings drawer frame the desk, bone cards */
 .app.hs.room-stage .stage2-rail,.app.hs.room-stage .stage2-settings-drawer{background:var(--hs-paper)}
 html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-drawer){--hs-bone:#F6F6F4; --hs-bone-2:#F1F1EE; --bg-2:#F6F6F4; --bg-3:#F1F1EE}
+/* shots that came from a deleted beat (owner 2026-10-19) */
+.beat-lane-gone{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;font:500 10px var(--f-mono);
+  letter-spacing:.04em;color:var(--alert,#B3261E);background:color-mix(in oklab, var(--alert,#B3261E) 10%, transparent)}

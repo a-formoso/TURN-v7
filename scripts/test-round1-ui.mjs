@@ -333,9 +333,10 @@ await test("3 the beat tools are named, and the item list's × is reachable by k
     rows:[1,2,3].map(n=>({ id:"b"+n, n, drive:{ a:"Push", d:"x" }, react:{ a:"Pull", d:"y" } })) };
   const tree = sb.BeatEditor({ scene:{ id:"s1", no:1 }, beats, onBeats:noop, readOnly:false });
   const bx = findAll(tree, n=>n.type==="button" && hasClass("bx")(n));
-  assert.equal(bx.length, 9);
-  assert.deepEqual(bx.slice(0,3).map(n=>n.props["aria-label"]), ["Move beat 1 up","Move beat 1 down","Delete beat 1"]);
-  assert.deepEqual(bx.slice(6).map(n=>n.props.title), ["Move beat up","Move beat down","Delete beat"]);
+  // four tools a beat since 2026-10-19: Insert a beat below sits before Delete
+  assert.equal(bx.length, 12);
+  assert.deepEqual(bx.slice(0,4).map(n=>n.props["aria-label"]), ["Move beat 1 up","Move beat 1 down","Insert a beat after beat 1","Delete beat 1"]);
+  assert.deepEqual(bx.slice(8).map(n=>n.props.title), ["Move beat up","Move beat down","Insert a beat below this one","Delete beat"]);
   assert.ok(bx.every(n=>n.props["aria-label"] && n.props.title));
   sb.React.reset();
   const list = sb.EditableItemList({ value:"Pistol\nBadge", onCommit:noop });

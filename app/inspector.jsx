@@ -255,7 +255,7 @@ function Verdict({ scene }){
         "A value-charged condition reverses \u2014 the scene earns its place.")));
 }
 
-function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, project, readOnly:readOnlyIn }){
+function BeatEditor({ scene, beats, onBeats, onBeatsStructure, focusBeat, draft, characters, project, readOnly:readOnlyIn }){
   const [deriving, setDeriving] = React.useState(false);
   // a new scene never inherits the last one's "Reading the script…" (2026-10-09)
   React.useEffect(()=>{ setDeriving(false); }, [scene && scene.id]);
@@ -330,25 +330,31 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
       deriving ? "Reading the script\u2026" : (hasScript ? "Create beat map from script" : "Create beat map")));
 
   const commit = (next)=>{ if(!readOnly) onBeats(id,next); };
+  // a change to the beats' SHAPE (added, inserted, deleted, restored, moved): the screenplay's lines and the shots
+  // follow their beats to their new numbers (app.jsx setBeatsStructured, owner 2026-10-19)
+  const commitShape = (next)=>{ if(!readOnly) (onBeatsStructure||onBeats)(id,next); };
+  const newBeatRow = ()=>({id:"beat-"+id+"-"+Date.now().toString(36)+Math.random().toString(36).slice(2,5), drive:{a:"Action",d:""}, react:{a:"Reaction",d:""}});
   const renumber = (rows)=>rows.map((r,k)=>({...r,n:k+1}));
   const setField = (patch)=>commit({...beats,...patch});
   const setCell = (i,side,field,val)=>commit({...beats, rows:beats.rows.map((r,j)=>
     j===i ? {...r,[side]:{...r[side],[field]:val}} : r)});
-  const addBeat = ()=>commit({...beats, rows:[...beats.rows,
-    {id:"beat-"+id+"-"+Date.now().toString(36),n:beats.rows.length+1, drive:{a:"Action",d:""}, react:{a:"Reaction",d:""}}]});
+  const addBeat = ()=>commitShape({...beats, rows:[...beats.rows, { ...newBeatRow(), n:beats.rows.length+1 }]});
+  // INSERT a beat between two others (owner 2026-10-19): the beats after it, their lines and their shots move down one
+  const insertBeat = (i)=>{ const rows = beats.rows.slice(); rows.splice(i+1, 0, newBeatRow());
+    commitShape(withBeatIdentity({...beats, rows:renumber(rows)},id)); };
   const delBeat = (i)=>{
     setLastDeleted({ row: beats.rows[i], index: i, turnBeatId: beats.turnBeatId||"" });
     const rows=renumber(beats.rows.filter((_,j)=>j!==i));
     const turnBeatId=beats.rows[i].id===beats.turnBeatId?"":beats.turnBeatId;
-    commit(withBeatIdentity({...beats, rows, turnBeatId},id)); };
+    commitShape(withBeatIdentity({...beats, rows, turnBeatId},id)); };
   const undoDelete = ()=>{ if(!lastDeleted) return;
     const rows = beats.rows.slice();
     rows.splice(Math.min(lastDeleted.index, rows.length), 0, lastDeleted.row);
-    commit(withBeatIdentity({...beats, rows:renumber(rows), turnBeatId:lastDeleted.turnBeatId},id));
+    commitShape(withBeatIdentity({...beats, rows:renumber(rows), turnBeatId:lastDeleted.turnBeatId},id));
     setLastDeleted(null); };
   const moveBeat = (i,dir)=>{ const j=i+dir; if(j<0||j>=beats.rows.length) return;
     const rows=beats.rows.slice(); const [m]=rows.splice(i,1); rows.splice(j,0,m);
-    commit(withBeatIdentity({...beats, rows:renumber(rows)},id)); };
+    commitShape(withBeatIdentity({...beats, rows:renumber(rows)},id)); };
   const toggleTurn = (row)=>commit(withBeatIdentity({...beats,
     turnBeatId:beats.turnBeatId===row.id?"":row.id},id));
   // per-beat VALUE CHARGE stays a DATA layer only (r.charge, -3..+3): the AI sets it
@@ -408,6 +414,8 @@ function BeatEditor({ scene, beats, onBeats, focusBeat, draft, characters, proje
               "aria-label":"Move beat "+r.n+" up",title:"Move beat up"},React.createElement(Icon.chevU,{s:14})),
             React.createElement("button",{type:"button",className:"bx",disabled:readOnly||i===beats.rows.length-1,onClick:()=>moveBeat(i,1),
               "aria-label":"Move beat "+r.n+" down",title:"Move beat down"},React.createElement(Icon.chevD,{s:14})),
+            React.createElement("button",{type:"button",className:"bx",disabled:readOnly,onClick:()=>insertBeat(i),
+              "aria-label":"Insert a beat after beat "+r.n,title:"Insert a beat below this one"},React.createElement(Icon.plus,{s:14})),
             React.createElement("button",{type:"button",className:"bx",disabled:readOnly,onClick:()=>delBeat(i),
               "aria-label":"Delete beat "+r.n,title:"Delete beat"},React.createElement(Icon.x,{s:14})))),
         React.createElement("div",{className:"beat-edit-cols"},
@@ -455,7 +463,7 @@ const ANALYSIS = (scene, beats) => [
   { lab:"Turning Point", txt: turningBeatText(beats) || scene.turningPoint || "Mark the beat where the gap opens (Beats tab \u2192 Mark turn)." },
 ];
 
-function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes, onAddScene, onDeleteScene, onMove, onBeats, stale, onRedraft,
+function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes, onAddScene, onDeleteScene, onMove, onBeats, onBeatsStructure, stale, onRedraft,
                      unnamedValues, onNameAllValues, namingValues,
                      sceneIndex, sceneCount, onCollapse, project, tab:tabProp, onTab, focusBeat, readOnly }){
   // tab is controllable by the parent (e.g. the Script gutter opens the Beats tab);
@@ -601,6 +609,10 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
             React.createElement(Icon.chevU,{s:14}),"Up"),
           React.createElement("button",{className:"ia-btn",disabled:readOnly||sceneIndex>=sceneCount-1,onClick:()=>onMove(scene.id,1)},
             React.createElement(Icon.chevD,{s:14}),"Down"),
+          // a scene BEFORE this one, too (owner 2026-10-19): a new first scene, or a scene opening an act
+          React.createElement("button",{className:"ia-btn",disabled:readOnly,onClick:()=>onAddScene(scene.id,{before:true}),
+            title:"Add a scene before this one, in the same act"},
+            React.createElement(Icon.plus,{s:14}),"Add before"),
           React.createElement("button",{className:"ia-btn",disabled:readOnly,onClick:()=>onAddScene(scene.id)},
             React.createElement(Icon.plus,{s:14}),"Add after"),
           // a film keeps at least one scene: the only scene's Delete says why instead of doing nothing (2026-10-09)
@@ -613,7 +625,7 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
         React.createElement("div",{className:"insp-eyebrow",style:{marginBottom:10}},
           React.createElement("span",{className:"insp-scene-no"},String(scene.no).padStart(2,"0")),
           React.createElement("span",{className:"eyebrow"},"Beat / Subtext map \u2014 "+(readOnly?"view only":"editable"))),
-        React.createElement(BeatEditor,{scene,beats,onBeats,focusBeat,draft,characters,project,readOnly})),
+        React.createElement(BeatEditor,{scene,beats,onBeats,onBeatsStructure,focusBeat,draft,characters,project,readOnly})),
 
       tab==="analysis" && React.createElement("div",{style:{paddingTop:2}},
         React.createElement("div",{className:"divider"},
