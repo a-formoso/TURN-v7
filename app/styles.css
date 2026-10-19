@@ -10677,3 +10677,41 @@ html[data-theme="light"] .app.hs .sp-page{background:#FFFFFF}
 html[data-theme="light"] .app.hs .sp-seg.polishing .sp-page,
 html[data-theme="light"] .app.hs .script-body.just-polished .sp-page{animation-name:polishpulse-page}
 @keyframes polishpulse-page{0%{background:#fff5e2}100%{background:#FFFFFF}}
+
+/* ============================ THE SPINE IN THE HOMEPAGE HERO'S FILM FRAME (owner 2026-10-19) ============================
+   "The exact same style of spine used in the homepage hero" (landing.jsx HeroSpine, .lp-video): carbon with the
+   viewfinder's corner brackets (they stay put while the chart pans), faint gridlines, a soft white midline, + and −,
+   dashed act breaks, act names in spaced mono capitals, the white-centred amber → blue line over a glow, haloed nodes
+   ringed in carbon, white labels on a leader tick. The same in both themes, as on the homepage. */
+.spine-hs .spine-frame{position:relative;border-radius:var(--r-l);background:#0E0F12;border:1px solid #0E0F12;overflow:hidden}
+.spine-hs .spine-frame > .lp-video-corners{z-index:5}
+.spine-hs .spine-chart{background:transparent;border:0;border-radius:0}
+.spine-hs .sp-grid{stroke:rgba(255,255,255,.05);stroke-width:1}
+.spine-hs .sp-zero{stroke:rgba(255,255,255,.18);stroke-width:1;opacity:1}
+.spine-hs .sp-act{stroke:rgba(255,255,255,.12);stroke-width:1;stroke-dasharray:3 6;opacity:1}
+.spine-hs .sp-side,.spine-hs .sp-side.pos,.spine-hs .sp-side.neg{font:400 22px var(--f-mono);fill:rgba(255,255,255,.55)}
+.spine-hs .spine-line{stroke-width:2.5}
+.spine-hs .spine-glow{stroke-width:7}
+.spine-hs .sp-halo{stroke:none;opacity:.14}
+.spine-hs .sp-halo.pos{fill:#F29A43}.spine-hs .sp-halo.neg{fill:#5DB0D8}.spine-hs .sp-halo.zero{fill:#8D8A84}
+.spine-hs .spine-node{stroke:#0E0F12;stroke-width:2.5}
+.spine-hs .spine-node.pos{fill:#F29A43}.spine-hs .spine-node.neg{fill:#5DB0D8}.spine-hs .spine-node.zero{fill:#8D8A84}
+.spine-hs .spine-node.flag{stroke:var(--alert)}
+.spine-hs .spine-node.prog{stroke:var(--prog)}
+.spine-hs .sp-sel{fill:none;stroke:rgba(255,255,255,.8);stroke-width:1.4}
+.spine-hs .sp-kind,.spine-hs .sp-kind.main{fill:rgba(255,255,255,.62);letter-spacing:.08em;paint-order:stroke;stroke:#0E0F12;stroke-width:3px;stroke-linejoin:round}
+.spine-hs .sp-tick{stroke:rgba(255,255,255,.28);stroke-width:1}
+.spine-hs .act-band{justify-content:center}
+.spine-hs .act-band .no,.spine-hs .act-band .nm{color:rgba(255,255,255,.55);font:400 10px var(--f-mono);letter-spacing:.14em;text-transform:uppercase}
+.spine-hs .act-band .act-fold-ic{color:rgba(255,255,255,.55)}
+.spine-hs .act-band:hover{background:rgba(255,255,255,.06)}
+.spine-hs .act-band:hover .no,.spine-hs .act-band:hover .nm{color:rgba(255,255,255,.85)}
+.spine-hs .act-band:focus-visible{outline-color:#fff}
+.spine-hs .sp-fold{fill:rgba(255,255,255,.03);stroke:rgba(255,255,255,.08)}
+.spine-hs .sp-fold-t{fill:rgba(255,255,255,.5)}
+.spine-hs .sp-hit:hover{fill:rgba(255,255,255,.035)}
+@media (hover:none){ .spine-hs .sp-hit:hover{fill:transparent} }
+/* THE STAGE'S SIDEBARS on paper too (owner 2026-10-19 — "do the same for the Art Room and the Stage sidebars"; the Art
+   Room's tabs are full width, with no sidebars): the shot rail and the settings drawer frame the desk, bone cards */
+.app.hs.room-stage .stage2-rail,.app.hs.room-stage .stage2-settings-drawer{background:var(--hs-paper)}
+html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-drawer){--hs-bone:#F6F6F4; --hs-bone-2:#F1F1EE; --bg-2:#F6F6F4; --bg-3:#F1F1EE}

@@ -348,6 +348,11 @@ function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, f
 
   return React.createElement("div",{className:"spine-wrap spine-hs",ref:boxRef},
     // ---- the chart (grab to pan a long film sideways) ----
+    // THE FILM FRAME (owner 2026-10-19: "the exact same style of spine used in the homepage hero"): carbon, the corner
+    // brackets fixed to the frame while the chart pans under them
+    React.createElement("div",{className:"spine-frame"},
+    React.createElement("div",{className:"lp-video-corners","aria-hidden":"true"}),
+    React.createElement("div",{className:"lp-video-corners b","aria-hidden":"true"}),
     React.createElement(DragScroll,{className:"spine-chart",edgeFade:true},
       React.createElement("div",{className:"spine-chart-in",style:{width:totalW,height:H}},
         // act labels — click (or Enter / Space) to fold or unfold the act
@@ -383,30 +388,31 @@ function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, f
         React.createElement("svg",{className:"graph-svg",width:totalW,height:H,viewBox:`0 0 ${totalW} ${H}`,role:"img",
           // a summary for screen readers: how each scene's value charge moves (2026-10-09)
           "aria-label":"Value-charge graph: "+(scenes||[]).slice(0,40).map(sc=>"Scene "+sc.no+((sc.openCharge!=null&&sc.closeCharge!=null)?(" "+chargeStr(sc.openCharge)+" to "+chargeStr(sc.closeCharge)):"")).join(", ")},
-          /* THE HOMEPAGE'S SPINE (owner 2026-10-18 — "the same style of graph svg as the one we have on the Homepage,
-             similar to how we had it in v6"): a warm field above the zero line and a cool one below, named POSITIVE +
-             and NEGATIVE −; each scene drops a hairline and a soft cone to zero; the line shades from amber at the
-             crests to blue in the troughs over a soft glow; the nodes sit in halos. In the app's paper palette. */
+          /* THE HOMEPAGE HERO'S SPINE, exactly (owner 2026-10-19; landing.jsx HeroSpine): carbon, faint charge gridlines
+             and a soft white midline, + and −, dashed act breaks, the tint fading from amber / blue at the curve to
+             nothing at the midline, the line amber → white → blue over a blurred glow, haloed nodes ringed in carbon,
+             named plot points on a short leader tick. */
           React.createElement("defs",null,
             React.createElement("linearGradient",{id:"spBg",gradientUnits:"userSpaceOnUse",x1:0,y1:0,x2:0,y2:H},
               React.createElement("stop",{offset:0,className:"sp-bg-rise",stopOpacity:.22}),
               React.createElement("stop",{offset:yFor(0)/H,className:"sp-bg-mid",stopOpacity:0}),
               React.createElement("stop",{offset:1,className:"sp-bg-fall",stopOpacity:.2})),
             React.createElement("linearGradient",{id:"spLine",gradientUnits:"userSpaceOnUse",x1:0,y1:yFor(3),x2:0,y2:yFor(-3)},
-              React.createElement("stop",{offset:0,className:"sp-bg-rise"}),
-              React.createElement("stop",{offset:.5,className:"sp-line-mid"}),
-              React.createElement("stop",{offset:1,className:"sp-bg-fall"})),
+              React.createElement("stop",{offset:0,stopColor:"#F29A43"}),
+              React.createElement("stop",{offset:.5,stopColor:"rgba(255,255,255,.95)"}),
+              React.createElement("stop",{offset:1,stopColor:"#5DB0D8"})),
             // the shade between the curve and the zero line: one tint each side, deepest at the curve
             React.createElement("linearGradient",{id:"spArea",gradientUnits:"userSpaceOnUse",x1:0,y1:yFor(3),x2:0,y2:yFor(-3)},
-              React.createElement("stop",{offset:0,className:"sp-bg-rise",stopOpacity:.3}),
-              React.createElement("stop",{offset:.5,className:"sp-bg-rise",stopOpacity:.05}),
-              React.createElement("stop",{offset:.5,className:"sp-bg-fall",stopOpacity:.05}),
-              React.createElement("stop",{offset:1,className:"sp-bg-fall",stopOpacity:.3})),
+              React.createElement("stop",{offset:0,stopColor:"rgba(242,154,67,.22)"}),
+              React.createElement("stop",{offset:.5,stopColor:"rgba(255,255,255,0)"}),
+              React.createElement("stop",{offset:1,stopColor:"rgba(93,176,216,.22)"})),
             React.createElement("filter",{id:"spGlow",x:"-10%",y:"-40%",width:"120%",height:"180%"},
-              React.createElement("feGaussianBlur",{stdDeviation:3.5}))),
-          React.createElement("rect",{className:"sp-field",x:0,y:0,width:totalW,height:H,fill:"url(#spBg)"}),
-          React.createElement("text",{className:"sp-side pos",x:10,y:SPINE_TOP-10,"aria-hidden":"true"},"+"),
-          React.createElement("text",{className:"sp-side neg",x:10,y:H-8,"aria-hidden":"true"},"\u2212"),
+              React.createElement("feGaussianBlur",{stdDeviation:4}))),
+          // the charge gridlines (±1, ±2)
+          [-2,-1,1,2].map(c=>React.createElement("line",{key:"g"+c,className:"sp-grid",x1:SPINE_PAD_X/2,y1:yFor(c),x2:totalW-SPINE_PAD_X/2,y2:yFor(c)})),
+          // + and − just inside the frame's corner brackets
+          React.createElement("text",{className:"sp-side pos",x:32,y:SPINE_TOP+4,"aria-hidden":"true"},"+"),
+          React.createElement("text",{className:"sp-side neg",x:32,y:H-22,"aria-hidden":"true"},"\u2212"),
           // the zero line
           React.createElement("line",{className:"sp-zero",x1:SPINE_PAD_X/2,y1:yFor(0),x2:totalW-SPINE_PAD_X/2,y2:yFor(0)}),
           // act dividers (before each act except the first)
@@ -422,13 +428,9 @@ function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, f
           // line, one below, nothing else inside a crest or a trough)
           pts.length>=2 && React.createElement("path",{className:"sp-area",d:smoothD(pts)+` L${pts[pts.length-1].x} ${yFor(0)} L${pts[0].x} ${yFor(0)} Z`,
             fill:"url(#spArea)",pointerEvents:"none",opacity:follow?.3:1}),
-          // each scene's hairline to zero (hidden while following a character)
-          !follow && React.createElement("g",{pointerEvents:"none"},
-            pts.map(p=> Math.abs(p.y - yFor(0)) < 2 ? null
-              : React.createElement("line",{key:"dz"+p.i,className:"sp-drop",x1:p.x,y1:p.y,x2:p.x,y2:yFor(0)}))),
           // the spine line (recedes while following, so the character's arc reads on top)
           pts.length>=2 && React.createElement("path",{className:"spine-glow",d:smoothD(pts),fill:"none",stroke:"url(#spLine)",
-            filter:"url(#spGlow)",pointerEvents:"none",opacity:follow?.12:.45}),
+            filter:"url(#spGlow)",pointerEvents:"none",opacity:follow?.1:.3}),
           pts.length>=2 && React.createElement("path",{className:"spine-line",d:smoothD(pts),fill:"none",stroke:"url(#spLine)",
             strokeLinejoin:"round",strokeLinecap:"round",pointerEvents:"none",opacity:follow?.3:1}),
           // follow overlay — the character's own arc through their driven scenes
@@ -451,6 +453,7 @@ function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, f
                 stroke:follow.color,strokeWidth:1.5,strokeDasharray:"3 3",opacity:.75}),
               // one dot with a white border (owner 2026-10-18 — no other circle around it unless it's selected); a scene
               // that doesn't turn, or progresses (intensifies on the same side), says so in that border's colour
+              React.createElement("circle",{className:"sp-halo "+chargeCls(p.s.closeCharge),cx:p.x,cy:p.y,r:big?12:10}),
               React.createElement("circle",{className:"spine-node "+chargeCls(p.s.closeCharge)+(flagged?" flag":progression?" prog":""),cx:p.x,cy:p.y,r:r0}));
           }),
           // the structural peaks' names (caps) + secondary plot labels (when the columns have room)
@@ -478,7 +481,11 @@ function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, f
               else { above = !above; y = home(above); if(hits(above, y)) y = above ? y - 11 : y + 11; }
             }
             last[above ? "up" : "down"] = { x1, y };
-            return React.createElement("text",{key:"t"+p.i,className:"sp-kind"+(main?" main":""),x,y,textAnchor:anchor,pointerEvents:"none"},label);
+            // a short leader tick from the point toward its name (the homepage hero's)
+            const t0 = above ? p.y-9 : p.y+9, t1 = above ? Math.max(y+4, p.y-14) : Math.min(y-12, p.y+14);
+            return React.createElement(React.Fragment,{key:"t"+p.i},
+              Math.abs(t1-t0) >= 3 && React.createElement("line",{className:"sp-tick",x1:p.x,y1:t0,x2:p.x,y2:t1,pointerEvents:"none"}),
+              React.createElement("text",{className:"sp-kind"+(main?" main":""),x,y,textAnchor:anchor,pointerEvents:"none"},label));
           }); })(),
           // hit columns — full-height transparent click targets, one per visible scene
           pts.map(p => React.createElement("rect",{key:"hit"+p.i,className:"sp-hit",
@@ -486,7 +493,7 @@ function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, f
             // a phone: the first tap names the point (the label shows), a second tap opens the scene
             onClick:()=>{ if(compact && typeof onPeek==="function" && p.s.id!==selId) onPeek(p.s.id); else onSelect(p.s.id); }},
             React.createElement("title",null,"Scene "+String(p.s.no).padStart(2,"0")+(p.s.title?" · "+p.s.title:"")))))),
-    ),
+    )),
 
     // ---- the scene tiles ----
     React.createElement("div",{className:"filmstrip spine-tiles"},
