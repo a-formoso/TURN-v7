@@ -10641,3 +10641,29 @@ html[data-theme="dark"] .spine-hs{--sp-zero:rgba(255,255,255,.16)}
   .app.hs .topbar .context-group .proj-btn,.app.hs .topbar .context-group .room-btn{height:36px}
   .app.hs .topbar .context-group .room-switch,.app.hs .topbar .context-group .proj-wrap{display:flex;align-items:center}
 }
+
+/* ============================ THE DESK (owner 2026-10-19) ============================
+   "The scrollable area needs a different background so the elements being scrolled stand out, and the division between
+   the hero section and the area below is easy to see — across the Writers' Room, the Art Room and the Stage."
+   Below each room's header the ground is the DESK — the homepage's warm paper, a step deeper — and the cards on it turn
+   white (the light theme's bone tokens are re-pointed inside the work area only), so they lift off it; the header and
+   the top bar stay paper. Dark theme: the desk is a step darker than the header; cards keep their lighter grounds. */
+.app.hs{--hs-desk:#F3F1EC}
+html[data-theme="dark"] .app.hs{--hs-desk:color-mix(in oklab, var(--bg-1) 70%, #000)}
+.app.hs.room-writers,.app.hs.room-art,.app.hs.room-stage{background:var(--hs-desk)}
+.app.hs.room-writers .body,.app.hs.room-writers .canvas,.app.hs.room-writers .rail,.app.hs.room-writers .inspector,.app.hs.room-writers .strip,
+.app.hs.room-art .artroom,
+.app.hs.room-stage .stage2-root,.app.hs.room-stage .stage2-body,.app.hs.room-stage .stage2-main,
+.app.hs.room-stage .stage2-rail,.app.hs.room-stage .stage2-settings-drawer{background:var(--hs-desk)}
+html[data-theme="light"] .app.hs.room-writers .body,
+html[data-theme="light"] .app.hs.room-art .artroom,
+html[data-theme="light"] .app.hs.room-stage .stage2-body{
+  --hs-bone:#FFFFFF; --hs-bone-2:#FAFAF8; --bg-2:#FFFFFF; --bg-3:#FAFAF8;
+}
+/* HOME, the same (owner 2026-10-19 — "if it applies to the dashboard, you can also do that"): the hero on paper, the
+   films and everything below it on the desk, their cards white (light theme) */
+.hd-root{--hd-desk:#F3F1EC}
+html[data-theme="dark"] .hd-root{--hd-desk:color-mix(in oklab, var(--bg-1) 70%, #000)}
+.hd-root .hd-scroll{background:var(--hd-desk)}
+.hd-root .hd-head{background:var(--lpw-bg);box-shadow:0 0 0 24px var(--lpw-bg);clip-path:inset(0 -24px)}   /* paper into the scrollbar gutters too */
+html:not([data-theme="dark"]) .hd-root :is(.hd-body,.hd-feature-band,.hd-foot){--lpw-card:#FFFFFF;--lpw-card-2:#FAFAF8}
