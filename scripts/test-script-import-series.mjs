@@ -190,7 +190,7 @@ test("E  Frances knows both; the files load with keys", () => {
   assert.doesNotMatch(line, /Final Draft|Highland|McKee|Claude|Gemini/);
   const html = read("TURN.html");
   for (const f of ["script-import.js", "script-import-ui.jsx", "agents-ui.jsx", "app.jsx", "adapt-film.js", "styles.css"])
-    assert.ok(["20261018-hs26", "20261018-hs27"].some(v => html.includes(f + "?v=" + v + '"')), f);
+    assert.ok(["20261018-hs26", "20261018-hs27", "20261019-hs28"].some(v => html.includes(f + "?v=" + v + '"')), f);
   assert.ok(html.indexOf("app/adapt-film.js?v=") > 0);
 });
 

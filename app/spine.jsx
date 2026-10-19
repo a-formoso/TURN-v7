@@ -261,7 +261,7 @@ window.runtimeTip = runtimeTip;
    select, drag to reorder, keyboard, fold an act (its label in the chart, or its tile), the follow
    lens, the structural peaks, the out-of-date and long-for-this-format marks, Add scene. */
 const SPINE_MIN_COL = 34, SPINE_FOLD_W = 30, SPINE_CHART_H = 276, SPINE_PAD_X = 14, SPINE_TOP = 58, SPINE_BOT = 24;
-function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, runtimes, readOnly, staleIds }){
+function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, follow, runtimes, readOnly, staleIds }){
   // minutes per act, for the act labels' pacing readout
   const actMin = (act)=>{
     if(!runtimes) return null;
@@ -274,6 +274,8 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
   const [collapsed, setCollapsed] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem("turn_spine_collapsed")||"{}")||{}; }catch(e){ return {}; } });
   React.useEffect(()=>{ try{ localStorage.setItem("turn_spine_collapsed", JSON.stringify(collapsed)); }catch(e){} },[collapsed]);
   const toggle = (act)=> setCollapsed(c=>({...c,[act]:!c[act]}));
+  // the act's screen time and share of the scenes: a tooltip on its label (owner 2026-10-19)
+  const [tipAct, setTipAct] = React.useState(null);
   // the chart fits the width it's given (measured), never narrower than SPINE_MIN_COL a scene
   const [boxW, setBoxW] = React.useState(0);
   const boxRef = React.useRef(null);
@@ -312,8 +314,11 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
     else g.items.forEach(it => columns.push({ kind:"scene", s:it.s, i:it.i })); });
   const nScene = columns.filter(c=>c.kind==="scene").length, nFold = columns.length - nScene;
   const room = Math.max(0, (boxW||0) - 2 - SPINE_PAD_X*2 - nFold*SPINE_FOLD_W);   // 2: the chart's border
-  // a phone gives each scene room for its label (the chart pans sideways) instead of squeezing every label together
-  const minCol = (boxW && boxW < 600) ? 58 : SPINE_MIN_COL;
+  // every scene gets room for its plot point (owner 2026-10-19: hold and pan to see more acts and plot points) — a long
+  // film runs wider than the view and pans, instead of squeezing every label together; a phone hides the labels (the
+  // tapped point's shows), so its columns can be narrower
+  const compact = !!(boxW && boxW < 600);
+  const minCol = compact ? 56 : 80;
   const colW = nScene ? Math.max(minCol, Math.floor(room / nScene) || minCol) : minCol;
   const wOf = (c)=> c.kind==="scene" ? colW : SPINE_FOLD_W;
   const lefts = []; let _cur = SPINE_PAD_X;
@@ -343,29 +348,38 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
 
   return React.createElement("div",{className:"spine-wrap spine-hs",ref:boxRef},
     // ---- the chart (grab to pan a long film sideways) ----
-    React.createElement(DragScroll,{className:"spine-chart"},
+    React.createElement(DragScroll,{className:"spine-chart",edgeFade:true},
       React.createElement("div",{className:"spine-chart-in",style:{width:totalW,height:H}},
         // act labels — click (or Enter / Space) to fold or unfold the act
         React.createElement("div",{className:"act-ruler"},
           ruler.map(r => {
             if(r.collapsed) return React.createElement("div",{key:r.act,className:"act-band collapsed",
               style:{left:bandL(r),width:SPINE_FOLD_W},
-              onClick:()=>toggle(r.act),title:`Expand Act ${roman(r.act)}`,
+              onClick:()=>{ setTipAct(null); toggle(r.act); },
+              onMouseEnter:()=>setTipAct(r.act), onMouseLeave:()=>setTipAct(t=>t===r.act?null:t),
+              onFocus:()=>setTipAct(r.act), onBlur:()=>setTipAct(t=>t===r.act?null:t),
               ...actBandA11y(r.act, true, r.count+" scene"+(r.count!==1?"s":""))},
               React.createElement("span",{className:"act-fold-ic","aria-hidden":"true"},React.createElement(Icon.chevR,{s:11})),
               React.createElement("span",{className:"no"},roman(r.act)));
             const pct = Math.round((r.count / scenes.length) * 100);
             const mins = actMin(r.act);
             return React.createElement("div",{key:r.act,className:"act-band",style:{left:bandL(r),width:bandW(r)},
-              onClick:()=>toggle(r.act),title:`Fold Act ${roman(r.act)}`,
+              onClick:()=>{ setTipAct(null); toggle(r.act); },
+              onMouseEnter:()=>setTipAct(r.act), onMouseLeave:()=>setTipAct(t=>t===r.act?null:t),
+              onFocus:()=>setTipAct(r.act), onBlur:()=>setTipAct(t=>t===r.act?null:t),
               ...actBandA11y(r.act, false, (mins!=null ? "about "+mins+", " : "")+pct+"% of the scenes")},
               React.createElement("span",{className:"act-fold-ic","aria-hidden":"true"},React.createElement(Icon.chevD,{s:11})),
               React.createElement("span",{className:"no"},`ACT ${roman(r.act)}`),
-              React.createElement("span",{className:"nm"},actName(r.act)),
-              mins!=null && React.createElement("span",{className:"act-min",
-                title:`Act ${roman(r.act)} estimated screen time (≈1 page/min)`},`≈${mins}`),
-              React.createElement("span",{className:"pct"},`${pct}%`));
-          })),
+              React.createElement("span",{className:"nm"},actName(r.act)));
+          }),
+          // the hovered (or focused) act's figures
+          (()=>{ const r = tipAct!=null && ruler.find(x=>x.act===tipAct); if(!r) return null;
+            const mins = actMin(r.act), pct = Math.round((r.count / Math.max(1, scenes.length)) * 100);
+            const left = Math.max(6, Math.min(totalW - 216, bandL(r) + 6));
+            return React.createElement("div",{className:"act-tip",role:"tooltip",style:{left}},
+              React.createElement("b",null,"Act "+roman(r.act)+" \u00b7 "+actName(r.act)),
+              React.createElement("span",null,(mins!=null ? "\u2248"+mins+" of screen time \u00b7 " : "")+r.count+" scene"+(r.count!==1?"s":"")+" \u00b7 "+pct+"% of the film"),
+              React.createElement("small",null, r.collapsed ? "Click to unfold" : "Click to fold")); })()),
         React.createElement("svg",{className:"graph-svg",width:totalW,height:H,viewBox:`0 0 ${totalW} ${H}`,role:"img",
           // a summary for screen readers: how each scene's value charge moves (2026-10-09)
           "aria-label":"Value-charge graph: "+(scenes||[]).slice(0,40).map(sc=>"Scene "+sc.no+((sc.openCharge!=null&&sc.closeCharge!=null)?(" "+chargeStr(sc.openCharge)+" to "+chargeStr(sc.closeCharge)):"")).join(", ")},
@@ -391,8 +405,8 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
             React.createElement("filter",{id:"spGlow",x:"-10%",y:"-40%",width:"120%",height:"180%"},
               React.createElement("feGaussianBlur",{stdDeviation:3.5}))),
           React.createElement("rect",{className:"sp-field",x:0,y:0,width:totalW,height:H,fill:"url(#spBg)"}),
-          React.createElement("text",{className:"sp-side pos",x:10,y:SPINE_TOP-12,"aria-hidden":"true"},"POSITIVE +"),
-          React.createElement("text",{className:"sp-side neg",x:10,y:H-8,"aria-hidden":"true"},"NEGATIVE −"),
+          React.createElement("text",{className:"sp-side pos",x:10,y:SPINE_TOP-10,"aria-hidden":"true"},"+"),
+          React.createElement("text",{className:"sp-side neg",x:10,y:H-8,"aria-hidden":"true"},"\u2212"),
           // the zero line
           React.createElement("line",{className:"sp-zero",x1:SPINE_PAD_X/2,y1:yFor(0),x2:totalW-SPINE_PAD_X/2,y2:yFor(0)}),
           // act dividers (before each act except the first)
@@ -412,9 +426,6 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
           !follow && React.createElement("g",{pointerEvents:"none"},
             pts.map(p=> Math.abs(p.y - yFor(0)) < 2 ? null
               : React.createElement("line",{key:"dz"+p.i,className:"sp-drop",x1:p.x,y1:p.y,x2:p.x,y2:yFor(0)}))),
-          // a guide down the selected scene's column, so the point and its tile below connect
-          pts.filter(p=>p.s.id===selId).map(p=>React.createElement("line",{key:"guide",className:"sp-guide",
-            x1:p.x,y1:SPINE_TOP-14,x2:p.x,y2:H-6})),
           // the spine line (recedes while following, so the character's arc reads on top)
           pts.length>=2 && React.createElement("path",{className:"spine-glow",d:smoothD(pts),fill:"none",stroke:"url(#spLine)",
             filter:"url(#spGlow)",pointerEvents:"none",opacity:follow?.12:.45}),
@@ -449,6 +460,7 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
             const main = KIND_LABEL[p.s.kind];
             const label = spineTitleCase(main || (roomy ? p.s.plot : ""));
             if(!label) return null;
+            if(compact && p.s.id!==selId) return null;   // a phone: only the tapped point's name
             let above = p.s.closeCharge >= 0;
             // kept inside the chart: a label that would run past an edge is anchored to it instead
             const half = String(label).length*2.75 + 2, lo = SPINE_PAD_X/2, hi = totalW - SPINE_PAD_X/2;
@@ -470,7 +482,9 @@ function SpineCanvas({ scenes, selId, onSelect, onReorder, onAddScene, follow, r
           }); })(),
           // hit columns — full-height transparent click targets, one per visible scene
           pts.map(p => React.createElement("rect",{key:"hit"+p.i,className:"sp-hit",
-            x:lefts[p.ci], y:0, width:colW, height:H, "data-sel":p.s.id===selId?"1":undefined, onClick:()=>onSelect(p.s.id)},
+            x:lefts[p.ci], y:0, width:colW, height:H, "data-sel":p.s.id===selId?"1":undefined,
+            // a phone: the first tap names the point (the label shows), a second tap opens the scene
+            onClick:()=>{ if(compact && typeof onPeek==="function" && p.s.id!==selId) onPeek(p.s.id); else onSelect(p.s.id); }},
             React.createElement("title",null,"Scene "+String(p.s.no).padStart(2,"0")+(p.s.title?" · "+p.s.title:"")))))),
     ),
 
@@ -546,8 +560,18 @@ window.KIND_LABEL = KIND_LABEL;
 /* DragScroll — grab-to-pan horizontal scroller for desktop mouse.
    Touch uses native momentum scrolling (overflow-x). Excludes scene cards
    so their HTML5 drag-reorder still works. Suppresses the click that ends a pan. */
-function DragScroll({ className, style, children }){
+function DragScroll({ className, style, children, edgeFade=false }){
   const ref = React.useRef(null);
+  // edgeFade: the side with more to pan to fades out, so it's plain there is more (owner 2026-10-19)
+  const [edges, setEdges] = React.useState("");
+  const measure = ()=>{ const el = ref.current; if(!el || !edgeFade) return;
+    const l = el.scrollLeft > 2, r = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    const v = (l?" fade-l":"")+(r?" fade-r":""); setEdges(x=> x===v ? x : v); };
+  React.useEffect(()=>{ const el = ref.current; if(!el || !edgeFade) return undefined;
+    measure(); el.addEventListener("scroll", measure, { passive:true });
+    const ro = typeof ResizeObserver==="function" ? new ResizeObserver(measure) : null;
+    if(ro){ ro.observe(el); if(el.firstElementChild) ro.observe(el.firstElementChild); }
+    return ()=>{ el.removeEventListener("scroll", measure); if(ro) ro.disconnect(); }; },[edgeFade]);
   const st = React.useRef({down:false,startX:0,startLeft:0,moved:false});
   const EXCLUDE = ".scard, .spine-add, .tree-scene, select, input, textarea, button";
 
@@ -580,6 +604,6 @@ function DragScroll({ className, style, children }){
     return ()=>{ window.removeEventListener("pointermove",onMove);
       window.removeEventListener("pointerup",onUp); window.removeEventListener("pointercancel",onUp); };
   },[]);
-  return React.createElement("div",{ref,className,style,onPointerDown:onDown,onClickCapture},children);
+  return React.createElement("div",{ref,className:(className||"")+edges,style,onPointerDown:onDown,onClickCapture},children);
 }
 window.DragScroll = DragScroll;

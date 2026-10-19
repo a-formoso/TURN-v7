@@ -9653,7 +9653,7 @@ function App(){
               React.createElement("span",{className:"legend-swatch",style:{background:"var(--alert)"}}),"No turn"))),
 
         view==="spine" && scenes.length>0 && React.createElement(DragScroll,{className:"canvas-scroll spine-pan"},
-          React.createElement(SpineCanvas,{scenes,selId,onSelect:selectSceneDetail,staleIds:new Set(Object.keys(staleMap)),
+          React.createElement(SpineCanvas,{scenes,selId,onSelect:selectSceneDetail,onPeek:selectSceneBrowse,staleIds:new Set(Object.keys(staleMap)),
             onReorder:reorderScenes,onAddScene:addScene,runtimes:runtimeMap,readOnly:writersRoomBlocked,
             follow:(()=>{ if(!followChar) return null;
               const c = characters.find(x=>x.id===followChar); if(!c) return null;

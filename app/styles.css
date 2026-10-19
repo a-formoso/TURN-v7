@@ -10616,3 +10616,19 @@ html[data-theme="dark"] .spine-hs{--sp-zero:rgba(255,255,255,.16)}
   .app.hs .follow-chip{height:28px;padding:0 9px 0 8px;font-size:12px;flex:none}
   .follow-name{max-width:7ch}
 }
+
+/* ============================ THE SPINE, third pass (owner 2026-10-19) ============================
+   The act labels sit ABOVE the scenes' click columns (folding works from the label); the act's minutes and share are
+   a tooltip; the sides say just + and −; a long film pans (hold and drag), its edges fading where there is more. */
+.spine-hs .act-ruler{z-index:3}
+.spine-hs .act-tip{position:absolute;top:36px;z-index:4;width:210px;display:flex;flex-direction:column;gap:3px;padding:9px 11px;
+  border-radius:10px;background:var(--hs-surface,var(--bg-1));border:1px solid var(--hs-line-2,var(--line));box-shadow:0 8px 24px rgba(15,16,18,.12);
+  pointer-events:none;font-size:12px;line-height:1.35;color:var(--hs-ink-2,var(--txt-1))}
+.spine-hs .act-tip b{font-size:12.5px;font-weight:600;color:var(--hs-ink,var(--txt-0))}
+.spine-hs .act-tip small{font-size:11px;color:var(--hs-sub,var(--txt-3))}
+.spine-hs .sp-side{font:500 13px var(--f-mono);letter-spacing:0}
+.spine-hs .spine-chart.fade-r{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 36px),transparent)}
+.spine-hs .spine-chart.fade-l{-webkit-mask-image:linear-gradient(90deg,transparent,#000 36px);mask-image:linear-gradient(90deg,transparent,#000 36px)}
+.spine-hs .spine-chart.fade-l.fade-r{-webkit-mask-image:linear-gradient(90deg,transparent,#000 36px,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(90deg,transparent,#000 36px,#000 calc(100% - 36px),transparent)}
+/* a touch screen keeps the last tapped column "hovered": no hover shade there */
+@media (hover:none){ .spine-hs .sp-hit:hover{fill:transparent} }
