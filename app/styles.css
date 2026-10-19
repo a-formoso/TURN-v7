@@ -10699,7 +10699,7 @@ html[data-theme="light"] .app.hs .script-body.just-polished .sp-page{animation-n
 .spine-hs .spine-node.flag{stroke:var(--alert)}
 .spine-hs .spine-node.prog{stroke:var(--prog)}
 .spine-hs .sp-sel{fill:none;stroke:rgba(255,255,255,.8);stroke-width:1.4}
-.spine-hs .sp-kind,.spine-hs .sp-kind.main{fill:rgba(255,255,255,.62);letter-spacing:.08em;paint-order:stroke;stroke:#0E0F12;stroke-width:3px;stroke-linejoin:round}
+.spine-hs .sp-kind,.spine-hs .sp-kind.main{fill:rgba(255,255,255,.62);letter-spacing:.2px;paint-order:stroke;stroke:#0E0F12;stroke-width:3px;stroke-linejoin:round}
 .spine-hs .sp-tick{stroke:rgba(255,255,255,.28);stroke-width:1}
 .spine-hs .act-band{justify-content:center}
 .spine-hs .act-band .no,.spine-hs .act-band .nm{color:rgba(255,255,255,.55);font:400 10px var(--f-mono);letter-spacing:.14em;text-transform:uppercase}

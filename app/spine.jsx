@@ -481,11 +481,8 @@ function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, f
               else { above = !above; y = home(above); if(hits(above, y)) y = above ? y - 11 : y + 11; }
             }
             last[above ? "up" : "down"] = { x1, y };
-            // a short leader tick from the point toward its name (the homepage hero's)
-            const t0 = above ? p.y-9 : p.y+9, t1 = above ? Math.max(y+4, p.y-14) : Math.min(y-12, p.y+14);
-            return React.createElement(React.Fragment,{key:"t"+p.i},
-              Math.abs(t1-t0) >= 3 && React.createElement("line",{className:"sp-tick",x1:p.x,y1:t0,x2:p.x,y2:t1,pointerEvents:"none"}),
-              React.createElement("text",{className:"sp-kind"+(main?" main":""),x,y,textAnchor:anchor,pointerEvents:"none"},label));
+            // the plot point's name as before the film frame (owner 2026-10-19): no leader tick, the same spacing
+            return React.createElement("text",{key:"t"+p.i,className:"sp-kind"+(main?" main":""),x,y,textAnchor:anchor,pointerEvents:"none"},label);
           }); })(),
           // hit columns — full-height transparent click targets, one per visible scene
           pts.map(p => React.createElement("rect",{key:"hit"+p.i,className:"sp-hit",

@@ -165,20 +165,23 @@ function ChargeEditor({ scene, onCharge, onUpdate, readOnly, unnamedValues, onNa
     const cur = axis || { pos:(guess&&guess.pos)||"", neg:(guess&&guess.neg)||"" };
     onUpdate(scene.id,{ value:{ ...cur, [k]:String(v||"").trim() } });
   };
-  const word = (field, charge)=> axis
-    ? React.createElement("div",{className:"charge-name derived",title:"Follows the value at stake and this charge"},valueWordFor(axis, charge)||"\u2014")
-    : React.createElement(EditText,{value:scene[field],className:"charge-name",readOnly,onCommit:v=>onUpdate(scene.id,{[field]:v})});
+  /* the word in each card NAMES the value's side its charge is on (owner 2026-10-19: the "+ Love <-> - Hate" row is
+     gone): a + charge's word is the positive side, a - charge's the negative side, and the other card follows when it
+     stands on the same side; a neutral charge shows both sides (or, with no value named yet, its own free word) */
+  const word = (field, charge)=>{
+    const c = Number(charge)||0;
+    if(c===0) return axis
+      ? React.createElement("div",{className:"charge-name derived",title:"A neutral charge stands between the two sides"},valueWordFor(axis, 0)||"\u2014")
+      : React.createElement(EditText,{value:scene[field],className:"charge-name",readOnly,onCommit:v=>onUpdate(scene.id,{[field]:v})});
+    const key = c>0 ? "pos" : "neg";
+    return React.createElement(EditText,{value:axis ? (axis[key]||"") : (scene[field]||""),className:"charge-name",readOnly,
+      placeholder:(guess&&guess[key]) || (c>0 ? "e.g. Love" : "e.g. Hate"),
+      title:"Names the value's "+(c>0?"positive (+)":"negative (\u2212)")+" side \u2014 a card on the same side follows",
+      onCommit:v=>setPole(key, v)});
+  };
   return React.createElement("div",{className:"charge-wrap"},
     React.createElement("div",{className:"value-axis",title:"The one value this scene is about. It opens and closes on this axis; the charges say which side it stands on."},
-      React.createElement("div",{className:"va-row"},
-        React.createElement("span",{className:"va-pole pos"},"+"),
-        React.createElement(EditText,{value:axis?axis.pos:"",className:"va-in",readOnly,
-          placeholder:(guess&&guess.pos)||"e.g. Love",onCommit:v=>setPole("pos",v)}),
-        React.createElement("span",{className:"va-sep"},"\u2194"),
-        React.createElement("span",{className:"va-pole neg"},"\u2212"),
-        React.createElement(EditText,{value:axis?axis.neg:"",className:"va-in",readOnly,
-          placeholder:(guess&&guess.neg)||"e.g. Hate",onCommit:v=>setPole("neg",v)})),
-      !axis && React.createElement("div",{className:"va-hint"},"Name the one value this scene turns. Until you do, the opening and closing words below are free text."),
+      !axis && React.createElement("div",{className:"va-hint"},"Name the one value this scene turns in the cards below \u2014 the word on a + charge names its positive side, the word on a \u2212 charge its negative side."),
       !axis && onNameAllValues && unnamedValues>1 && React.createElement("button",{className:"char-draft-btn va-name-all",disabled:readOnly||namingValues,
           onClick:onNameAllValues,title:"Fill every scene's value at stake: the poles their own words give are used as-is, and only the missing ones are written (one writing call). Scripts aren't changed."},
         React.createElement(Icon.sparkles,{s:12}), namingValues ? "Naming values\u2026" : ("Name every scene's value ("+unnamedValues+")"))),
