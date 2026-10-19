@@ -170,7 +170,6 @@ function ChargeEditor({ scene, onCharge, onUpdate, readOnly, unnamedValues, onNa
     : React.createElement(EditText,{value:scene[field],className:"charge-name",readOnly,onCommit:v=>onUpdate(scene.id,{[field]:v})});
   return React.createElement("div",{className:"charge-wrap"},
     React.createElement("div",{className:"value-axis",title:"The one value this scene is about. It opens and closes on this axis; the charges say which side it stands on."},
-      React.createElement("div",{className:"lab"},"Value at stake"),
       React.createElement("div",{className:"va-row"},
         React.createElement("span",{className:"va-pole pos"},"+"),
         React.createElement(EditText,{value:axis?axis.pos:"",className:"va-in",readOnly,
@@ -185,12 +184,12 @@ function ChargeEditor({ scene, onCharge, onUpdate, readOnly, unnamedValues, onNa
         React.createElement(Icon.sparkles,{s:12}), namingValues ? "Naming values\u2026" : ("Name every scene's value ("+unnamedValues+")"))),
     React.createElement("div",{className:"charge-grid"},
       React.createElement("div",{className:"charge-cell"},
-        React.createElement("div",{className:"lab"},"Opening value"),
+        React.createElement("div",{className:"lab"},"Opens"),
         word("openValue", scene.openCharge),
         React.createElement(Stepper,{value:scene.openCharge,readOnly,label:"opening value",onChange:v=>onCharge("openCharge",v)})),
       React.createElement("div",{className:"charge-arrow"},React.createElement(Icon.arrowR,{s:16})),
       React.createElement("div",{className:"charge-cell"},
-        React.createElement("div",{className:"lab"},"Closing value"),
+        React.createElement("div",{className:"lab"},"Closes"),
         word("closeValue", scene.closeCharge),
         React.createElement(Stepper,{value:scene.closeCharge,readOnly,label:"closing value",onChange:v=>onCharge("closeCharge",v)}))));
 }
@@ -503,7 +502,8 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
 
         React.createElement("div",{className:"insp-block",style:{marginTop:16}},
           React.createElement("div",{className:"insp-block-head"},
-            React.createElement("span",{className:"eyebrow"},React.createElement(Icon.graph,{s:12}),"Value Charge")),
+            // one heading per block (owner 2026-10-19: no "Value Charge" over "Value at stake", no "Drive" over "Driver")
+            React.createElement("span",{className:"eyebrow"},React.createElement(Icon.graph,{s:12}),"Value at stake")),
           React.createElement(ChargeEditor,{scene,onCharge,onUpdate,readOnly,unnamedValues,onNameAllValues,namingValues}),
           React.createElement("div",{style:{height:12}}),
           React.createElement(Verdict,{scene}),
@@ -543,24 +543,28 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
 
         React.createElement("div",{className:"insp-block"},
           React.createElement("div",{className:"insp-block-head"},
-            React.createElement("span",{className:"eyebrow"},React.createElement(Icon.target,{s:12}),"Drive")),
+            React.createElement("span",{className:"eyebrow"},React.createElement(Icon.target,{s:12}),"Driver")),
           React.createElement("div",{className:"obj-row"},
             React.createElement("span",{className:"obj-icn"},React.createElement(Icon.user,{s:14})),
             React.createElement("div",{style:{flex:1}},
-              React.createElement("div",{className:"obj-lab",style:{marginBottom:4}},"Driver"),
-              React.createElement("select",{className:"insp-select",value:scene.driver,disabled:readOnly,
+              React.createElement("select",{className:"insp-select",value:scene.driver,disabled:readOnly,"aria-label":"Driver",
                 onChange:e=>onUpdate(scene.id,{driver:e.target.value})},
                 driverOpts.map(([v,l])=>React.createElement("option",{key:v,value:v},l))),
               React.createElement("div",{style:{height:8}}),
               React.createElement(EditText,{value:scene.objective,readOnly,multiline:true,
                 placeholder:"What the driver pursues in this scene\u2026",
-                onCommit:v=>onUpdate(scene.id,{objective:v})}))),
+                onCommit:v=>onUpdate(scene.id,{objective:v})})))),
+
+        // CONFLICT: where the antagonism comes from (Source) and how it's conducted on the page (Style)
+        React.createElement("div",{className:"insp-block"},
+          React.createElement("div",{className:"insp-block-head"},
+            React.createElement("span",{className:"eyebrow"},React.createElement(Icon.layers,{s:12}),"Conflict")),
           React.createElement("div",{className:"obj-row"},
             React.createElement("span",{className:"obj-icn"},React.createElement(Icon.layers,{s:14})),
             React.createElement("div",null,
               React.createElement("div",{className:"obj-lab",style:{marginBottom:5},
                 title:"Where this scene's antagonism comes from: inner (the driver against their own mind), personal (family, friends, lovers) or extra-personal (institutions, society, the physical world). Set deliberately, it steers the next draft."},
-                "Conflict source \u00b7 ",["Inner","Personal","Extra-personal"][scene.conf-1]),
+                "Source \u00b7 ",["Inner","Personal","Extra-personal"][scene.conf-1]),
               React.createElement("div",{className:"conf-edit"},
                 [1,2,3].map(i=>React.createElement("button",{key:i,className:`pip ${i<=scene.conf?"on":""}`,disabled:readOnly,
                   title:["Inner","Personal","Extra-personal"][i-1],
@@ -574,7 +578,7 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
             // labels size the select wider than the panel, under the scrollbar
             React.createElement("div",{style:{flex:1,minWidth:0}},
               React.createElement("div",{className:"obj-lab",style:{marginBottom:4},
-                title:"How the antagonism is conducted on the page \u2014 the scene's dialogue grammar. Auto picks one per draft; a pick binds every draft of this scene."},"Conflict style"),
+                title:"How the antagonism is conducted on the page \u2014 the scene's dialogue grammar. Auto picks one per draft; a pick binds every draft of this scene."},"Style"),
               // an unrecognized stored value (legacy/import) displays — and behaves — as Auto
               React.createElement("select",{className:"insp-select insp-select-full",disabled:readOnly,
                 value:((window.CONFLICT_MODES||[]).some(m=>m.id===scene.conflictMode) ? scene.conflictMode : ""),

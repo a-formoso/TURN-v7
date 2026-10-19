@@ -10632,3 +10632,12 @@ html[data-theme="dark"] .spine-hs{--sp-zero:rgba(255,255,255,.16)}
 .spine-hs .spine-chart.fade-l.fade-r{-webkit-mask-image:linear-gradient(90deg,transparent,#000 36px,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(90deg,transparent,#000 36px,#000 calc(100% - 36px),transparent)}
 /* a touch screen keeps the last tapped column "hovered": no hover shade there */
 @media (hover:none){ .spine-hs .sp-hit:hover{fill:transparent} }
+
+/* ONE HEIGHT for the top bar's controls (owner 2026-10-19): the film and room switchers, the engines, the bell and the
+   Film menu are 38px in every room at every width — on a phone the switchers are one 38px pill (36px inside its border) */
+@media (max-width:700px){
+  .app.hs .tb-engines{height:38px}
+  .app.hs .topbar .context-group{box-sizing:border-box;height:38px;align-items:stretch}
+  .app.hs .topbar .context-group .proj-btn,.app.hs .topbar .context-group .room-btn{height:36px}
+  .app.hs .topbar .context-group .room-switch,.app.hs .topbar .context-group .proj-wrap{display:flex;align-items:center}
+}

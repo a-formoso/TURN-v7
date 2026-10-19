@@ -152,11 +152,12 @@ await test("one writing-model setting: pickers where a build starts at once, lab
   assert.ok(brief.includes('className:"brief-model-sel"')&&brief.includes("window.setWritingModelId(id)")&&brief.includes('"turn-writing-model-changed"'));
   assert.ok(read("app/newstory.jsx").includes('window.addEventListener("turn-writing-model-changed", h);'),"the New Story picker follows the dock too");
 });
-await test("labels read Conflict style / Conflict source, and the tooltip names the Final Read",()=>{
+await test("labels read Conflict · Source / Style (the Conflict block, 2026-10-19), and the tooltip names the Final Read",()=>{
   for(const f of ["app/inspector.jsx","app/spine.jsx","app/shots-ui.jsx","app/storyboard.jsx"]){
     const s=read(f); assert.ok(!/"Conflict level|Conflict level ·|"Conflict mode"/.test(s),f);
   }
-  assert.ok(insp.includes("Conflict style")&&insp.includes("Conflict source"));
+  // one heading per block (owner 2026-10-19): the Conflict block's Source pips and Style select
+  assert.ok(insp.includes('"Conflict")),')&&insp.includes('"Source \\u00b7 "')&&insp.includes('},"Style"),'));
   // Script Breakdown moved into the Art Room's Production check (2026-09-26)
   assert.ok(chrome.includes("Story Doctor, Script Supervisor, Setups & Payoffs, Final Read\"")&&!chrome.includes("Final Read, Script Breakdown"));
 });
@@ -236,7 +237,7 @@ await test("Story Doctor notes are neutral and never counted as issues",()=>{
 await test("MUSE's manifest and the pipeline doc describe the change",()=>{
   const m=ai.slice(ai.indexOf("const APP_FEATURES"),ai.indexOf("function appBrief"));
   for(const bit of ['name:"Needs redraft (script out of date)"','name:"Story-level inputs (left rail: Premise and Setting)"',"REACTOR'S inner life",
-    "NAME EVERY SCENE'S VALUE","'Conflict style' select","Conflict source pips","Columns / Table switch","MEETING THE MENTOR"]) assert.ok(m.includes(bit),bit);
+    "NAME EVERY SCENE'S VALUE","'Style' select in its Conflict block","Conflict block's Source pips","Columns / Table switch","MEETING THE MENTOR"]) assert.ok(m.includes(bit),bit);
   for(const gone of ["Table-Read","Audit table","Conflict level pips","'Conflict mode' select","picker in every agent-panel header"]) assert.ok(!m.includes(gone),gone);
   const doc=read("docs/Story Pipeline.md");
   assert.ok(doc.includes("**Needs redraft** *(added 2026-09-25 by owner)*")&&doc.includes("**reactor's inner life** *(added 2026-09-25 by owner)*")&&!doc.includes("Table-Read"));
