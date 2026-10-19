@@ -10667,3 +10667,13 @@ html[data-theme="dark"] .hd-root{--hd-desk:color-mix(in oklab, var(--bg-1) 70%, 
 .hd-root .hd-scroll{background:var(--hd-desk)}
 .hd-root .hd-head{background:var(--lpw-bg);box-shadow:0 0 0 24px var(--lpw-bg);clip-path:inset(0 -24px)}   /* paper into the scrollbar gutters too */
 html:not([data-theme="dark"]) .hd-root :is(.hd-body,.hd-feature-band,.hd-foot){--lpw-card:#FFFFFF;--lpw-card-2:#FAFAF8}
+
+/* THE WRITERS' ROOM'S SIDEBARS AND PAGE (owner 2026-10-19): the Story rail and the Scene panel are paper — with the
+   header they frame the desk — and keep the bone cards that read on paper; the screenplay is a white page on the desk
+   (it was a cream almost the desk's own colour). The dark theme keeps its cream page. */
+.app.hs.room-writers .rail,.app.hs.room-writers .inspector{background:var(--hs-paper)}
+html[data-theme="light"] .app.hs.room-writers :is(.rail,.inspector){--hs-bone:#F6F6F4; --hs-bone-2:#F1F1EE; --bg-2:#F6F6F4; --bg-3:#F1F1EE}
+html[data-theme="light"] .app.hs .sp-page{background:#FFFFFF}
+html[data-theme="light"] .app.hs .sp-seg.polishing .sp-page,
+html[data-theme="light"] .app.hs .script-body.just-polished .sp-page{animation-name:polishpulse-page}
+@keyframes polishpulse-page{0%{background:#fff5e2}100%{background:#FFFFFF}}
