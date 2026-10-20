@@ -605,7 +605,12 @@ function shotLocationReferenceError(spec, cause){
   const reason=spec&&spec.unavailable
     ? "is unavailable or was deleted"
     : "has no available image";
-  const e=new Error("Required location reference "+(id?"\""+id+"\" ":"")+reason+". Restore it or choose another location reference.");
+  /* (owner 2026-10-20: "make missing location views block too") a matched view that isn't made yet stops the render
+     as a missing character sheet does — named by what it is, with the way out */
+  const view=String(spec&&(spec.label||spec.note)||"").replace(/\s+\([^)]*\)$/,"").trim();
+  const e=new Error(spec&&!spec.required&&!spec.unavailable
+    ? "The location view "+(view?"\u201c"+view+"\u201d ":"")+"isn\u2019t made yet, so this frame would invent the set. Make it in Art Room \u2192 Locations, or untick it under this shot's Reference images (or choose another location reference) to render without it. Nothing was charged."
+    : "Required location reference "+(id?"\""+id+"\" ":"")+reason+". Restore it or choose another location reference.");
   e.name="ShotLocationReferenceError";
   e.code="SHOT_LOCATION_REFERENCE_UNAVAILABLE";
   e.errorFlag="fatal-reference";
@@ -630,7 +635,8 @@ async function shotLoadLocationSpecImage(spec, grab, opts){
   if(typeof grab==="function"){
     try{ u = await grab(spec.id); }catch(e){ grabError=e; }
   }
-  if((spec.required || spec.unavailable) && !opts.allowMissing && (spec.unavailable || !u)){
+  // opts.requireAll (the render): every ticked view needs its image, matched or chosen (2026-10-20)
+  if((spec.required || spec.unavailable || opts.requireAll) && !opts.allowMissing && (spec.unavailable || !u)){
     throw shotLocationReferenceError(spec,grabError);
   }
   if(grabError && !opts.allowMissing) throw grabError;
@@ -2873,7 +2879,8 @@ window.ShotCharacterReferenceError=shotCharacterReferenceError;
 async function shotResolveRenderRefs(plan, grab){
   const refs = [];
   const locIds = new Set(plan.activeLocSpec.map(s=>s&&s.id).filter(Boolean));
-  const locResolved = (typeof shotResolveLocationSpecImages==="function") ? await shotResolveLocationSpecImages(plan.activeLocSpec, grab) : [];
+  // a ticked location view with no image stops the render, as a missing character sheet does (owner 2026-10-20)
+  const locResolved = (typeof shotResolveLocationSpecImages==="function") ? await shotResolveLocationSpecImages(plan.activeLocSpec, grab, { requireAll:true }) : [];
   let locResolvedPushed = false;
   for(const s of plan.orderedSpecs){
     if(locIds.has(s.id)){

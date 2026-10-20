@@ -250,9 +250,9 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     attachments: collectShotRefs,
     // Required manual location references must survive every Art Room mode,
     // including a simplified retry and the Stage composer.
-    // a frame with a character in it never renders without its sheets (2026-10-20): a failure to load them stops it
+    // a frame never renders without the sheets and views it names (2026-10-20): a failure to load them stops it
     attachmentsRequired:requiredCanonicalAttachments || !!(renderPlan&&Array.isArray(renderPlan.orderedSpecs)
-      &&renderPlan.orderedSpecs.some(s=>s&&s.referenceKind==="character")),
+      &&renderPlan.orderedSpecs.length),
     // a simplified retry ("Try simplified prompt") keeps the frame's sheets too (2026-10-20): without them it rendered
     // every character from words alone
     attachmentsInSimple:!!(renderPlan&&Array.isArray(renderPlan.orderedSpecs)&&renderPlan.orderedSpecs.length) || requiredCanonicalAttachments,
@@ -1059,8 +1059,14 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     _el("span",null,
       _missCast.length ? (_namesOf(_missCast)+(_missCast.length>1?" have":" has")+" no usable sheet yet, so this frame won\u2019t render: make "
         +(_missCast.length>1?"them":"it")+" in Art Room \u2192 Characters (or with \u2018Make what this scene needs\u2019), or untick "+(_missCast.length>1?"them":"it")+" above to render without. ") : "",
-      _missLoc.length ? ((_missLoc.length>1?"Some location views aren\u2019t":"A location view isn\u2019t")
-        +" made yet, so the set would be left to the engine \u2014 make "+(_missLoc.length>1?"them":"it")+" in Art Room \u2192 Locations, or choose another location reference.") : ""));
+      _missCast.length && _missLoc.length ? _el("br") : null,
+      _missLoc.length ? ((_missLoc.length>1?"The location views ":"The location view ")
+        +_missLoc.slice(0,3).map(r=>"\u201c"+String(r.label||"this view").replace(/\s+\([^)]*\)$/,"")+"\u201d").join(", ")+(_missLoc.length>3?" and more":"")
+        +(_missLoc.length>1?" aren\u2019t":" isn\u2019t")+" made yet, so this frame won\u2019t render: make "+(_missLoc.length>1?"them":"it")+" in Locations, or untick "
+        +(_missLoc.length>1?"them":"it")+" above (or choose another location reference) to render without. ") : "",
+      _missLoc.length>0 && loc && loc.id && typeof window.turnOpenLocationCard==="function" && _el("button",{type:"button",className:"shot-refs-warn-btn",
+        onClick:()=>window.turnOpenLocationCard(loc.id),title:"Open "+(loc.name||"this location")+" in the Art Room's Locations tab"},
+        "Open "+(loc.name||"the location")+" in Locations \u2192")));
   const referenceControls=(refImgs.length>0 || locationReferencePicker) && _el("div",{className:"shot-refs coverage-refs"},
     _el("div",{className:"shot-refs-lab",
       title:"Check or uncheck references at any time. Removing a location reference removes it from this shot and its thumbnail, while the source asset remains available in the Location reference picker. A running render keeps its starting reference selection. Source assets are never deleted here."},

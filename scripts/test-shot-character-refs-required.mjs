@@ -63,13 +63,25 @@ await test("A  an appearance state keeps its own message; an unticked character 
   assert.equal(refs[0].referenceKind, "character");
 });
 
-await test("A  a location view with no image is skipped (not fatal); the found sheets attach in order", async () => {
-  const refs = await box.resolve(plan([locB, locA, temi], [locB, locA]), grab);
+await test("A  a ticked location view with no image stops the render too (owner 2026-10-20); unticked, the rest attach in order", async () => {
+  let err = null;
+  try { await box.resolve(plan([locB, locA, temi], [locB, locA]), grab); } catch (e) { err = e; }
+  assert.ok(err, "it throws");
+  assert.equal(err.code, "SHOT_LOCATION_REFERENCE_UNAVAILABLE");
+  assert.equal(err.requiredReference, true);
+  assert.match(err.message, /^The location view “Kiosk night view” isn’t made yet, so this frame would invent the set\. Make it in Art Room → Locations, or untick it under this shot's Reference images \(or choose another location reference\) to render without it\. Nothing was charged\.$/);
+  const refs = await box.resolve(plan([locA, temi], [locA]), grab);   // the missing view unticked
   assert.deepEqual([...refs.map(r => r.refId)], ["loc-a", "temi"]);
+  // a CHOSEN view keeps its own message
+  let err2 = null;
+  try { await box.resolve(plan([{ ...locB, required:true }], [{ ...locB, required:true }]), grab); } catch (e) { err2 = e; }
+  assert.match(err2.message, /^Required location reference "loc-b" has no available image\./);
 });
 
 await test("B  Generate needs a frame's character sheets; the simplified retry keeps them and its image map", () => {
-  assert.match(ui, /attachmentsRequired:requiredCanonicalAttachments \|\| !!\(renderPlan&&Array\.isArray\(renderPlan\.orderedSpecs\)\n\s+&&renderPlan\.orderedSpecs\.some\(s=>s&&s\.referenceKind==="character"\)\),/);
+  assert.match(ui, /attachmentsRequired:requiredCanonicalAttachments \|\| !!\(renderPlan&&Array\.isArray\(renderPlan\.orderedSpecs\)\n\s+&&renderPlan\.orderedSpecs\.length\),/);
+  assert.match(shots, /shotResolveLocationSpecImages\(plan\.activeLocSpec, grab, \{ requireAll:true \}\)/);
+  assert.match(ui, /" made yet, so this frame won\\u2019t render: make "/);
   assert.match(ui, /attachmentsInSimple:!!\(renderPlan&&Array\.isArray\(renderPlan\.orderedSpecs\)&&renderPlan\.orderedSpecs\.length\) \|\| requiredCanonicalAttachments,/);
   assert.match(shots, /const _retainRequiredSimpleMap = !!\(ctx\.simpleMode && Array\.isArray\(ctx\.resolvedRefs\)\n\s+&& ctx\.resolvedRefs\.some\(r=>r && r\.assetRole!=="screenplay_context"\)\);/);
   // the Art Room: a requiredReference error is thrown, never swallowed into a text-only render
@@ -81,9 +93,15 @@ await test("B  the card names what's missing under the reference strip; Frances 
   assert.match(ui, /" no usable sheet yet, so this frame won\\u2019t render: make "/);
   assert.match(ui, /off \? "\+" : "✓"\)\); \}\)\),\n\s+refWarn\);/);
   assert.match(read("app/styles.css"), /\.shot-refs-warn\{/);
+  // the missing view is named, and one click opens its location in the Art Room (2026-10-20)
+  assert.match(ui, /className:"shot-refs-warn-btn",\n\s+onClick:\(\)=>window\.turnOpenLocationCard\(loc\.id\)/);
+  assert.match(ui, /"Open "\+\(loc\.name\|\|"the location"\)\+" in Locations \\u2192"/);
+  const app = read("app/app.jsx");
+  assert.match(app, /window\.turnOpenLocationCard = \(locationId\)=>\{\n\s+setRoom\("art"\); setArtView\("locations"\);/);
+  assert.match(app, /document\.querySelector\('\[data-location-card="'\+sel\+'"\],\[data-location-workspace="'\+sel\+'"\]'\)/);
   assert.match(read("app/ai.jsx"), /A FRAME NEVER INVENTS A CHARACTER \(2026-10-20\)/);
   const html = read("TURN.html");
-  for (const f of ["shots.jsx", "shots-ui.jsx"]) assert.ok(["20261020-hs36"].some(v => html.includes(f + "?v=" + v + '"')), f);
+  for (const f of ["shots.jsx", "shots-ui.jsx"]) assert.ok(["20261020-hs36", "20261020-hs37"].some(v => html.includes(f + "?v=" + v + '"')), f);
 });
 
 console.log(`\n${checks} passed, ${failed} failed`);

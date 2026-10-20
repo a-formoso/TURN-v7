@@ -1003,6 +1003,17 @@ function App(){
     setArtViewNoFilm(v);
   };
   const setArtView = (tab)=> setArtViewFor(artViewKeyRef.current, typeof tab==="function" ? tab(artView) : tab);
+  // open a location's card in the Art Room (a shot's missing location view, 2026-10-20): the Locations tab, scrolled to it
+  window.turnOpenLocationCard = (locationId)=>{
+    setRoom("art"); setArtView("locations");
+    const sel = String(locationId||"").replace(/["\\]/g,"");
+    if(!sel) return;
+    let tries = 0;
+    const seek = ()=>{ const el = typeof document!=="undefined" && document.querySelector('[data-location-card="'+sel+'"],[data-location-workspace="'+sel+'"]');
+      if(el && el.scrollIntoView){ el.scrollIntoView({ behavior:"smooth", block:"start" }); return; }
+      if(++tries < 20) setTimeout(seek, 150); };
+    setTimeout(seek, 150);
+  };
   // opening a film first picks up any newer tab another open window saved for it (NAV_KEY), then
   // bumps the film's recency so the cap forgets the films opened longest ago. A layout effect, so a
   // tab restored from the other window lands before paint (no flash of the Lookbook).
