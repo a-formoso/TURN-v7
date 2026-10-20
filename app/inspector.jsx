@@ -1,6 +1,6 @@
 /* inspector.jsx — right panel: EDITABLE scene detail, charge editor, turn verdict, beats, analysis */
 
-const KIND_OPTS_3ACT = [["normal","Scene"],["incite","Inciting Incident"],["act-climax","Act Climax"],
+const KIND_OPTS_3ACT = [["normal","Normal scene"],["incite","Inciting Incident"],["act-climax","Act Climax"],
   ["midpoint","Mid-Act Climax"],["crisis","Crisis"],["story-climax","Story Climax"],["resolution","Resolution"]];
 /* the kind dropdown lists the FRAMEWORK's milestones (frameworks.jsx kindOpts);
    a scene whose stored kind isn't in the list keeps it via an extra option. */

@@ -105,7 +105,7 @@ const FRAMEWORKS = [
     kinds:{ hook:"Hook", incite:"Inciting Incident", "act-climax":"Act Climax", pinch:"Pinch Point",
             midpoint:"Mid-Act Climax", crisis:"Crisis", "story-climax":"Story Climax", resolution:"Resolution" },
     // the Inspector's kind dropdown (Hook + Pinch Point added 2026-09-25 by owner)
-    kindOpts:[["normal","Scene"],["hook","Hook"],["incite","Inciting Incident"],["act-climax","Act Climax"],
+    kindOpts:[["normal","Normal scene"],["hook","Hook"],["incite","Inciting Incident"],["act-climax","Act Climax"],
       ["pinch","Pinch Point"],["midpoint","Mid-Act Climax"],["crisis","Crisis"],["story-climax","Story Climax"],["resolution","Resolution"]],
     /* each structural beat's JOB — rides into the scene writer's prompt (unattributed craft) */
     jobs:{
@@ -146,7 +146,7 @@ const FRAMEWORKS = [
             // legacy three-act kinds still label sensibly if they appear
             incite:"Planting", "act-climax":"Deepening", midpoint:"Deepening",
             crisis:"The Twist", "story-climax":"Recontextualization", resolution:"Reconciliation" },
-    kindOpts:[["normal","Scene"],["plant","Planting"],["deepen","Deepening"],["ten","The Twist"],
+    kindOpts:[["normal","Normal scene"],["plant","Planting"],["deepen","Deepening"],["ten","The Twist"],
       ["re-read","Recontextualization"],["ketsu","Reconciliation"]],
     jobs:{
       plant:"plant the world, a person or a charged image without forcing conflict; establish, don't argue.",
@@ -219,7 +219,7 @@ const FRAMEWORKS = [
             // legacy three-act kinds still label sensibly if they appear
             incite:"Call to Adventure", "act-climax":"Crossing the Threshold", midpoint:"The Ordeal",
             crisis:"The Road Back", "story-climax":"Resurrection", resolution:"Return with the Elixir" },
-    kindOpts:[["normal","Scene"],["ordinary-world","Ordinary World"],["call","Call to Adventure"],
+    kindOpts:[["normal","Normal scene"],["ordinary-world","Ordinary World"],["call","Call to Adventure"],
       ["refusal","Refusal of the Call"],["mentor","Meeting the Mentor"],["threshold","Crossing the Threshold"],
       ["belly","Belly of the Whale"],
       ["tests","Tests, Allies, Enemies"],["approach","Approach to the Inmost Cave"],["ordeal","The Ordeal"],
@@ -292,7 +292,7 @@ const FRAMEWORKS = [
             // legacy three-act kinds still label sensibly if they appear
             incite:"The Need", "act-climax":"Crossing Over", midpoint:"The Find",
             crisis:"The Price", "story-climax":"The Road Home", resolution:"Changed" },
-    kindOpts:[["normal","Scene"],["you","Comfort Zone"],["need","The Need"],["go","Crossing Over"],
+    kindOpts:[["normal","Normal scene"],["you","Comfort Zone"],["need","The Need"],["go","Crossing Over"],
       ["search","The Search"],["find","The Find"],["take","The Price"],["return","The Road Home"],
       ["change","Changed"]],
     jobs:{
