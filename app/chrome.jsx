@@ -380,8 +380,8 @@ window.ViewNav = ViewNav;
 
 /* WritersHeader — the Writers' Room page heading in the homepage style (owner 2026-10-16, from the
    "Kinolot Rooms in the Homepage Style" board): the room's eyebrow, the view as a big Spectral title
-   ("The value spine." / "The story board." / "The screenplay."), what the view shows plus the film's
-   size, and on the right the Spine / Board / Script tabs over the two actions: Draft scene (the
+   ("The value spine." / "The story board." / "The screenplay."), what the view shows (the film's name /
+   scene count / length line was dropped, owner 2026-10-20: it read as stray text), and on the right the Spine / Board / Script tabs over the two actions: Draft scene (the
    selected scene — or Open script once it's drafted) and the amber Story Editors. Replaces the
    Writers' Room's ViewNav bar; the panel toggles ride along below 1100px, as they did there. */
 const WRITERS_TITLES = { spine:["The value ","spine."], board:["The story ","board."], script:["The ","screenplay."] };
@@ -390,10 +390,6 @@ function WritersHeader({ view, setView, project, scenes, runtimeTotal, sub, scen
   const h = React.createElement;
   const tabs = [["spine","Spine"],["board","Board"],["script","Script"]];
   const t = WRITERS_TITLES[view] || WRITERS_TITLES.spine;
-  const n = (scenes||[]).length;
-  const film = String((project && project.title) || "").trim();
-  const mins = runtimeTotal > 0 ? ("about " + ((typeof fmtRuntime==="function") ? fmtRuntime(runtimeTotal) : Math.round(runtimeTotal/60)+" min")) : "";
-  const meta = [film, n ? n+" scene"+(n!==1?"s":"") : "", mins].filter(Boolean).join(" · ");
   const no = scene ? String(scene.no||"").padStart(2,"0") : "";
   // the selected scene's next step: draft it (the beats are authored first when it has none), or read it
   const showDraft = view!=="script" && !!scene && typeof onDraftScene==="function";
@@ -407,8 +403,7 @@ function WritersHeader({ view, setView, project, scenes, runtimeTotal, sub, scen
       h("div",{className:"wr-head-copy"},
         h("div",{className:"wr-eyebrow"},"01 · Development"),
         h("h1",{className:"wr-title"},t[0],h("em",null,t[1])),
-        h("p",{className:"wr-sub"},sub ? String(sub).replace(/\.?\s*$/,".") : null,
-          meta ? h("span",{className:"wr-meta"},(sub?" ":"")+meta+".") : null)),
+        sub ? h("p",{className:"wr-sub"},String(sub).replace(/\.?\s*$/,".")) : null),
       h("div",{className:"wr-head-side"},
         h("nav",{className:"wr-tabs","aria-label":"Writers' Room views"},
           tabs.map(([id,lab])=>h("button",{key:id,type:"button",className:"wr-tab"+(view===id?" on":""),

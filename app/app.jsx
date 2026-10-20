@@ -291,7 +291,9 @@ function Board({ scenes, selId, onSelect }){
   // keyboard: a clickable card or strip answers Enter and Space like a button (2026-09-28)
   const keyActivate=(fn)=>(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); fn(); } };
   return React.createElement(DragScroll,{className:"canvas-scroll board-pan",style:{padding:"18px 22px 40px"}},
-    React.createElement("div",{style:{display:"flex",gap:14,minWidth:"max-content"}},
+    // the act columns sit centred in the room whether the side panels are open or shut (owner 2026-10-20);
+    // auto margins fall to 0 when the columns are wider than the room, so panning still reaches both ends
+    React.createElement("div",{className:"board-cols",style:{display:"flex",gap:14,width:"max-content",minWidth:"max-content",margin:"0 auto"}},
       acts.map(a=>{
         const roman=["I","II","III","IV"][a.act-1]||String(a.act);
         // collapsed → a slim, clickable vertical strip
