@@ -94,14 +94,19 @@ await test("B  the card names what's missing under the reference strip; Frances 
   assert.match(ui, /off \? "\+" : "✓"\)\); \}\)\),\n\s+refWarn\);/);
   assert.match(read("app/styles.css"), /\.shot-refs-warn\{/);
   // the missing view is named, and one click opens its location in the Art Room (2026-10-20)
-  assert.match(ui, /className:"shot-refs-warn-btn",\n\s+onClick:\(\)=>window\.turnOpenLocationCard\(loc\.id\)/);
-  assert.match(ui, /"Open "\+\(loc\.name\|\|"the location"\)\+" in Locations \\u2192"/);
+  assert.match(ui, /"Make "\+\(_missLoc\.length>1\?"the first one":"it"\)\+" in Locations \\u2192"/);
+  assert.match(ui, /window\.turnOpenLocationCard\(\(_missLoc\[0\]&&_missLoc\[0\]\.locationId\)\|\|loc\.id, _missLoc\[0\]&&_missLoc\[0\]\.refId\)/);
+  const lui = read("app/locations-ui.jsx");
+  assert.match(lui, /"data-location-unit-image":imgId\}/);
+  assert.match(lui, /CardFold,\{label:"Rooms & times",foldId:"loc-units-"\+l\.id,/);
+  assert.match(lui, /window\.addEventListener\("turn-location-select",h\)/);
   const app = read("app/app.jsx");
-  assert.match(app, /window\.turnOpenLocationCard = \(locationId\)=>\{\n\s+setRoom\("art"\); setArtView\("locations"\);/);
-  assert.match(app, /document\.querySelector\('\[data-location-card="'\+sel\+'"\],\[data-location-workspace="'\+sel\+'"\]'\)/);
+  assert.match(app, /window\.turnOpenLocationCard = \(locationId, imageId\)=>\{\n\s+setRoom\("art"\); setArtView\("locations"\);/);
+  assert.match(app, /new CustomEvent\("nb-open-fold",\{ detail:"loc-units-"\+sel \}\)/);
+  assert.match(app, /document\.querySelector\('\[data-location-unit-image="'\+img\+'"\]'\)/);
   assert.match(read("app/ai.jsx"), /A FRAME NEVER INVENTS A CHARACTER \(2026-10-20\)/);
   const html = read("TURN.html");
-  for (const f of ["shots.jsx", "shots-ui.jsx"]) assert.ok(["20261020-hs36", "20261020-hs37"].some(v => html.includes(f + "?v=" + v + '"')), f);
+  for (const f of ["shots.jsx", "shots-ui.jsx"]) assert.ok(["20261020-hs36", "20261020-hs37", "20261020-hs38"].some(v => html.includes(f + "?v=" + v + '"')), f);
 });
 
 console.log(`\n${checks} passed, ${failed} failed`);

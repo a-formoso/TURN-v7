@@ -5,13 +5,16 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
 
-let state, effects=[], effectDeps;
+let state, effects=[];
+// each effect keeps its own deps, by call order (the workspace has two effects since 2026-10-20)
+const effectDeps=[]; let effectAt=0;
 const React={
   createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity)}),
-  useState:init=>{if(state===undefined)state=init;return [state,next=>{state=next;}];},
+  useState:init=>{effectAt=0;if(state===undefined)state=init;return [state,next=>{state=next;}];},
   useEffect:(fn,deps)=>{
-    if(!effectDeps||deps.some((v,i)=>v!==effectDeps[i]))effects.push(fn);
-    effectDeps=deps;
+    const i=effectAt++, prev=effectDeps[i];
+    if(!prev||deps.some((v,k)=>v!==prev[k]))effects.push(fn);
+    effectDeps[i]=deps;
   }
 };
 const box={console,React,window:null};box.window=box;

@@ -1004,14 +1004,34 @@ function App(){
   };
   const setArtView = (tab)=> setArtViewFor(artViewKeyRef.current, typeof tab==="function" ? tab(artView) : tab);
   // open a location's card in the Art Room (a shot's missing location view, 2026-10-20): the Locations tab, scrolled to it
-  window.turnOpenLocationCard = (locationId)=>{
+  // …and with imageId, the exact room & time view: its room shown, "Rooms & times" opened, the view scrolled to and flashed
+  window.turnOpenLocationCard = (locationId, imageId)=>{
     setRoom("art"); setArtView("locations");
-    const sel = String(locationId||"").replace(/["\\]/g,"");
+    const clean = (v)=> String(v||"").replace(/["\\]/g,"");
+    const sel = clean(locationId), img = clean(imageId);
     if(!sel) return;
-    let tries = 0;
-    const seek = ()=>{ const el = typeof document!=="undefined" && document.querySelector('[data-location-card="'+sel+'"],[data-location-workspace="'+sel+'"]');
-      if(el && el.scrollIntoView){ el.scrollIntoView({ behavior:"smooth", block:"start" }); return; }
-      if(++tries < 20) setTimeout(seek, 150); };
+    let tries = 0, asked = false, folded = false;
+    const seek = ()=>{
+      if(typeof document==="undefined") return;
+      const card = document.querySelector('[data-location-card="'+sel+'"]');
+      if(!card){
+        // a room inside another location's workspace: ask the workspace to show it
+        if(!asked && document.querySelector('[data-location-workspace]')){ asked = true;
+          window.dispatchEvent(new CustomEvent("turn-location-select",{ detail:{ id:sel, section:img ? "units" : "" } })); }
+        if(++tries < 30) setTimeout(seek, 150);
+        else { const ws = document.querySelector('[data-location-workspace="'+sel+'"]'); if(ws && ws.scrollIntoView) ws.scrollIntoView({ behavior:"smooth", block:"start" }); }
+        return;
+      }
+      if(img){
+        const view = document.querySelector('[data-location-unit-image="'+img+'"]');
+        if(view){ view.scrollIntoView({ behavior:"smooth", block:"center" });
+          view.classList.remove("fold-flash"); void view.offsetWidth; view.classList.add("fold-flash");
+          setTimeout(()=>view.classList.remove("fold-flash"), 2200); return; }
+        if(!folded){ folded = true; window.dispatchEvent(new CustomEvent("nb-open-fold",{ detail:"loc-units-"+sel })); }
+        if(++tries < 30){ setTimeout(seek, 150); return; }
+      }
+      if(card.scrollIntoView) card.scrollIntoView({ behavior:"smooth", block:"start" });
+    };
     setTimeout(seek, 150);
   };
   // opening a film first picks up any newer tab another open window saved for it (NAV_KEY), then

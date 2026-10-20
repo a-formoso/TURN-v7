@@ -1023,6 +1023,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           if((sh.refOff||[]).includes(spec.id)) continue; // hide legacy excluded location ghosts before migration commits
           const r=resolved.find(x=>x.refId===spec.id);
           locItems.push({ url:r&&r.url||"", label:String(r&&r.note||spec.label||spec.note||"Location reference").replace(/\s+\([^)]*\)$/,""), kind:"location", refId:spec.id,
+            locationId:(r&&r.locationId)||spec.locationId||"",
             assetRole:r&&r.assetRole||spec.assetRole, assetRoleLabel:r&&r.assetRoleLabel,
             assetRolePriority:r&&r.assetRolePriority,assetSourceQuality:r&&r.assetSourceQuality,
             missing:!(r&&r.url) });
@@ -1064,9 +1065,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         +_missLoc.slice(0,3).map(r=>"\u201c"+String(r.label||"this view").replace(/\s+\([^)]*\)$/,"")+"\u201d").join(", ")+(_missLoc.length>3?" and more":"")
         +(_missLoc.length>1?" aren\u2019t":" isn\u2019t")+" made yet, so this frame won\u2019t render: make "+(_missLoc.length>1?"them":"it")+" in Locations, or untick "
         +(_missLoc.length>1?"them":"it")+" above (or choose another location reference) to render without. ") : "",
+      // straight to the missing view's own card (Locations → the location → Rooms & times), where it's made
       _missLoc.length>0 && loc && loc.id && typeof window.turnOpenLocationCard==="function" && _el("button",{type:"button",className:"shot-refs-warn-btn",
-        onClick:()=>window.turnOpenLocationCard(loc.id),title:"Open "+(loc.name||"this location")+" in the Art Room's Locations tab"},
-        "Open "+(loc.name||"the location")+" in Locations \u2192")));
+        onClick:()=>window.turnOpenLocationCard((_missLoc[0]&&_missLoc[0].locationId)||loc.id, _missLoc[0]&&_missLoc[0].refId),
+        title:"Open this view in "+(loc.name||"the location")+" \u2192 Rooms & times, in the Art Room's Locations tab"},
+        "Make "+(_missLoc.length>1?"the first one":"it")+" in Locations \u2192")));
   const referenceControls=(refImgs.length>0 || locationReferencePicker) && _el("div",{className:"shot-refs coverage-refs"},
     _el("div",{className:"shot-refs-lab",
       title:"Check or uncheck references at any time. Removing a location reference removes it from this shot and its thumbnail, while the source asset remains available in the Location reference picker. A running render keeps its starting reference selection. Source assets are never deleted here."},

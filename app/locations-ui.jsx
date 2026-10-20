@@ -62,6 +62,11 @@ function LocationWorkspace({group,matchingIds,filterKey,batchActiveId,renderLoca
   const selected=group.members.find(l=>l.id===selection.id);
   const active=queued||selected||group.root;
   const select=(id,section="")=>setSelection({id,section});
+  // a shot's missing view can name a room of this location: show that room (window.turnOpenLocationCard, 2026-10-20)
+  React.useEffect(()=>{ const h=(e)=>{ const id=e&&e.detail&&e.detail.id;
+      if(id && group.members.some(l=>l.id===id)) setSelection({id,section:e.detail.section||""}); };
+    if(typeof window.addEventListener!=="function") return undefined;
+    window.addEventListener("turn-location-select",h); return ()=>window.removeEventListener("turn-location-select",h); },[group]);
   return React.createElement("div",{className:"sheet-card loc-workspace","data-location-workspace":group.root.id},
     group.members.length>1&&React.createElement("div",{className:"loc-workspace-nav"},
       React.createElement("button",{className:"loc-workspace-root",disabled:!!batchActiveId,
@@ -1617,7 +1622,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       React.createElement(CardFold,{label:"Screenplay Evidence",defaultOpen:false},
         React.createElement(LocationScreenplayEvidence,{units:evidenceUnits,onScene:onChipClick})),
 
-      React.createElement(CardFold,{label:"Rooms & times",defaultOpen:initialSection==="units"||initialSection==="environments"},
+      // foldId: a shot's missing room & time view opens this fold from the Shots tab (2026-10-20)
+      React.createElement(CardFold,{label:"Rooms & times",foldId:"loc-units-"+l.id,defaultOpen:initialSection==="units"||initialSection==="environments"},
         React.createElement("div",{className:"loc-variants"},
           units.length
             ? environment.units.map(u=>React.createElement(SluglineUnitCard,{key:u.key, l, u, project, scenes, drafts,
@@ -2458,7 +2464,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     id:imgId,
     name:(u.name||l.name||"Location")+" · "+role+(u.time?(" · "+u.time):"")
   };
-  return React.createElement("div",{className:"loc-variant loc-coverage-sheet loc-unit-card"+(u.orphan?" orphan":"")},
+  return React.createElement("div",{className:"loc-variant loc-coverage-sheet loc-unit-card"+(u.orphan?" orphan":""),"data-location-unit-image":imgId},
     React.createElement("div",{className:"loc-variant-head"},
       React.createElement("div",{className:"loc-coverage-title"},
         React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(role)?"ext":"int")},role),
