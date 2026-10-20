@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+/* test-shot-character-refs-required.mjs — A FRAME NEVER INVENTS A CHARACTER (owner 2026-10-20: "some keyframes are
+   being generated without the proper character references … the AI randomly generating the character").
+
+     A  shotResolveRenderRefs (app/shots.jsx): a character in the frame whose sheet has no image stops the render with a
+        plain message (make the sheet, or untick the character) marked requiredReference — so the Art Room never turns
+        it into a reference-less paid render; an appearance state keeps its own message; an unticked character (not in
+        the plan) renders; a location view with no image is skipped, never fatal; the found sheets attach in order
+     B  the card and the paths around it: Generate treats a frame with a character as needing its sheets
+        (attachmentsRequired), "Try simplified prompt" keeps the frame's sheets (attachmentsInSimple) and its numbered
+        image map; the card names what's missing under the reference strip; Frances knows
+
+   node scripts/test-shot-character-refs-required.mjs */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+const ROOT = new URL("../", import.meta.url);
+const read = (f) => readFileSync(new URL(f, ROOT), "utf8");
+const shots = read("app/shots.jsx"), ui = read("app/shots-ui.jsx");
+const slice = (src, from, to) => { const a = src.indexOf(from), b = src.indexOf(to, a); assert.ok(a >= 0 && b > a, from); return src.slice(a, b); };
+
+let checks = 0, failed = 0;
+async function test(name, fn){
+  try { await fn(); checks++; console.log("PASS", name); }
+  catch (e) { failed++; console.error("FAIL", name, "\n ", e && e.message || e); }
+}
+
+const box = { console };
+box.window = box;
+vm.createContext(box);
+vm.runInContext([
+  slice(shots, "function shotLocationReferenceError(", "window.shotLocationReferenceError"),
+  slice(shots, "async function shotLoadLocationSpecImage(", "window.shotLoadLocationSpecImage"),
+  slice(shots, "async function shotResolveLocationSpecImages(", "window.shotResolveLocationSpecImages"),
+  slice(shots, "function shotCharacterReferenceError(", "window.shotCharacterReferenceError"),
+  slice(shots, "async function shotResolveRenderRefs(", "window.shotResolveRenderRefs"),
+  "this.resolve = shotResolveRenderRefs;",
+].join("\n"), box);
+
+const IMAGES = { temi:"data:temi", "loc-a":"data:loc" };
+const grab = async (id) => IMAGES[id] || "";
+const temi = { id:"temi", baseId:"temi", entityId:"temi", referenceKind:"character", label:"Temi", note:"Temi character sheet", version:1, required:false };
+const folake = { id:"folake", baseId:"folake", entityId:"folake", referenceKind:"character", label:"Folake", note:"Folake character sheet", version:1, required:false };
+const locA = { id:"loc-a", note:"Kiosk plate" }, locB = { id:"loc-b", note:"Kiosk night view" };
+const plan = (orderedSpecs, activeLocSpec) => ({ orderedSpecs, activeLocSpec:activeLocSpec || [], castSpec:orderedSpecs.filter(s => s.referenceKind === "character") });
+
+await test("A  a character in the frame with no sheet stops the render — never a frame that invents them", async () => {
+  let err = null;
+  try { await box.resolve(plan([temi, folake]), grab); } catch (e) { err = e; }
+  assert.ok(err, "it throws");
+  assert.equal(err.code, "SHOT_CHARACTER_REFERENCE_UNAVAILABLE");
+  assert.equal(err.requiredReference, true, "so the Art Room never turns it into a reference-less render");
+  assert.match(err.message, /^Folake has no character sheet yet, so this frame would invent their look\. Make Folake's sheet in Art Room → Characters, or untick Folake under this shot's Reference images to render without it\. Nothing was charged\.$/);
+});
+
+await test("A  an appearance state keeps its own message; an unticked character renders without it", async () => {
+  let err = null;
+  try { await box.resolve(plan([{ ...folake, id:"folake:s1", stateId:"s1", label:"Folake · Wounded · v2", required:true }]), grab); } catch (e) { err = e; }
+  assert.match(err.message, /Required character appearance reference "Folake · Wounded · v2" has no available image/);
+  const refs = await box.resolve(plan([temi]), grab);   // Folake unticked: not in the plan's specs
+  assert.deepEqual([...refs.map(r => r.refId)], ["temi"]);
+  assert.equal(refs[0].referenceKind, "character");
+});
+
+await test("A  a location view with no image is skipped (not fatal); the found sheets attach in order", async () => {
+  const refs = await box.resolve(plan([locB, locA, temi], [locB, locA]), grab);
+  assert.deepEqual([...refs.map(r => r.refId)], ["loc-a", "temi"]);
+});
+
+await test("B  Generate needs a frame's character sheets; the simplified retry keeps them and its image map", () => {
+  assert.match(ui, /attachmentsRequired:requiredCanonicalAttachments \|\| !!\(renderPlan&&Array\.isArray\(renderPlan\.orderedSpecs\)\n\s+&&renderPlan\.orderedSpecs\.some\(s=>s&&s\.referenceKind==="character"\)\),/);
+  assert.match(ui, /attachmentsInSimple:!!\(renderPlan&&Array\.isArray\(renderPlan\.orderedSpecs\)&&renderPlan\.orderedSpecs\.length\) \|\| requiredCanonicalAttachments,/);
+  assert.match(shots, /const _retainRequiredSimpleMap = !!\(ctx\.simpleMode && Array\.isArray\(ctx\.resolvedRefs\)\n\s+&& ctx\.resolvedRefs\.some\(r=>r && r\.assetRole!=="screenplay_context"\)\);/);
+  // the Art Room: a requiredReference error is thrown, never swallowed into a text-only render
+  assert.match(read("app/artroom.jsx"), /if\(opts\.attachmentsRequired \|\| \(e&&e\.requiredReference\)\) throw e;/);
+});
+
+await test("B  the card names what's missing under the reference strip; Frances knows", () => {
+  assert.match(ui, /const _missCast = refsLoaded \? refImgs\.filter\(r=>r && r\.kind==="character" && r\.missing && _offIds\.indexOf\(r\.refId\)<0\) : \[\];/);
+  assert.match(ui, /" no usable sheet yet, so this frame won\\u2019t render: make "/);
+  assert.match(ui, /off \? "\+" : "✓"\)\); \}\)\),\n\s+refWarn\);/);
+  assert.match(read("app/styles.css"), /\.shot-refs-warn\{/);
+  assert.match(read("app/ai.jsx"), /A FRAME NEVER INVENTS A CHARACTER \(2026-10-20\)/);
+  const html = read("TURN.html");
+  for (const f of ["shots.jsx", "shots-ui.jsx"]) assert.ok(["20261020-hs36"].some(v => html.includes(f + "?v=" + v + '"')), f);
+});
+
+console.log(`\n${checks} passed, ${failed} failed`);
+process.exit(failed ? 1 : 0);

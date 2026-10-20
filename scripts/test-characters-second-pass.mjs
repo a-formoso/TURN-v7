@@ -91,7 +91,8 @@ await test("D1 Storyboards use the scene's own variant; a character with no shee
   const comp = between(sb, "function StoryboardComposite({", "\nfunction StoryboardPage(");
   assert.equal((comp.match(/shotCharacterReferenceSpec\(c, scene, ctx\.scenes\|\|null\)/g)||[]).length, 2);
   assert.ok(comp.includes("const rid=(spec&&spec.id)||id; const u=await grab(rid);") && comp.includes("id:(spec&&spec.id)||c.id"));
-  assert.ok(ui.includes("No character sheet yet for ") && ui.includes("this frame renders without "));
+  // (2026-10-20) a character with no sheet stops the frame; the card says so under its reference strip
+  assert.ok(ui.includes('" no usable sheet yet, so this frame won\\u2019t render: make "') && !ui.includes("this frame renders without "));
 });
 
 /* ═══ E ═══ */

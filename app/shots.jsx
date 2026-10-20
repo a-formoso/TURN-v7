@@ -2074,8 +2074,10 @@ function buildShotPrompt(sh, ctx){
     ? shotPromptLocation(loc,_activePromptLocSpecs,ctx) : loc;
   const _manualLocSpecs = sh && sh.referenceLocationsSet
     ? _activePromptLocSpecs : [];
-  const _retainRequiredSimpleMap = !!(ctx.simpleMode && _manualLocSpecs.length
-    && Array.isArray(ctx.resolvedRefs) && ctx.resolvedRefs.some(r=>r&&r.required));
+  /* a simplified retry still attaches the frame's sheets (2026-10-20): it keeps the numbered map, so the engine knows
+     which image is which person and which is the set */
+  const _retainRequiredSimpleMap = !!(ctx.simpleMode && Array.isArray(ctx.resolvedRefs)
+    && ctx.resolvedRefs.some(r=>r && r.assetRole!=="screenplay_context"));
 
   /* PROSE, not JSON. The user's structure: a constant STYLE SPINE (render mode, grade,
      60/30/10 palette, grade-lighting, lens, film stock, the locked location, format)
@@ -2843,7 +2845,12 @@ window.shotRenderPlan = shotRenderPlan;
 function shotCharacterReferenceError(spec,cause){
   const id=String(spec&&spec.id||"");
   const label=String(spec&&spec.label||spec&&spec.note||id||"character appearance");
-  const e=new Error("Required character appearance reference \""+label+"\" has no available image. Generate or import that appearance state in Art Room → Characters before rendering this shot.");
+  /* (owner 2026-10-20: frames were made "with the AI randomly generating the character") a character in the frame
+     without a sheet stops the render, whether its sheet is an appearance state or the character's own */
+  const name=String(spec&&spec.label||"").split(" \u00b7 ")[0]||label;
+  const e=new Error(spec&&spec.stateId
+    ? "Required character appearance reference \""+label+"\" has no available image. Generate or import that appearance state in Art Room → Characters before rendering this shot."
+    : name+" has no character sheet yet, so this frame would invent their look. Make "+name+"'s sheet in Art Room → Characters, or untick "+name+" under this shot's Reference images to render without it. Nothing was charged.");
   e.name="ShotCharacterReferenceError";
   e.code="SHOT_CHARACTER_REFERENCE_UNAVAILABLE";
   e.errorFlag="fatal-reference";
@@ -2882,7 +2889,8 @@ async function shotResolveRenderRefs(plan, grab){
     }
     let u="",grabError=null;
     try{u=await grab(s.id);}catch(e){grabError=e;}
-    if(!u&&s.required&&s.referenceKind==="character")
+    // every character in the frame needs its sheet (an unticked one isn't in orderedSpecs): never a frame that invents them
+    if(!u&&s.referenceKind==="character")
       throw shotCharacterReferenceError(s,grabError);
     if(grabError)throw grabError;
     if(u){

@@ -250,8 +250,12 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     attachments: collectShotRefs,
     // Required manual location references must survive every Art Room mode,
     // including a simplified retry and the Stage composer.
-    attachmentsRequired:requiredCanonicalAttachments,
-    attachmentsInSimple:requiredCanonicalAttachments,
+    // a frame with a character in it never renders without its sheets (2026-10-20): a failure to load them stops it
+    attachmentsRequired:requiredCanonicalAttachments || !!(renderPlan&&Array.isArray(renderPlan.orderedSpecs)
+      &&renderPlan.orderedSpecs.some(s=>s&&s.referenceKind==="character")),
+    // a simplified retry ("Try simplified prompt") keeps the frame's sheets too (2026-10-20): without them it rendered
+    // every character from words alone
+    attachmentsInSimple:!!(renderPlan&&Array.isArray(renderPlan.orderedSpecs)&&renderPlan.orderedSpecs.length) || requiredCanonicalAttachments,
     // buildShotPrompt now names the reference stack in-prose (the spine + staging + References
     // block), so we don't append a second reference sentence here — that would just duplicate it.
     attachmentsText: ()=> "",
@@ -1042,6 +1046,21 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const waitingForShot = !!(batchActiveId && batchActiveId!==sh.id);
   // Use the same pre-Generate slot as Locations. These remain the live inputs,
   // with seed approval and reference exclusions intact, not historical snapshots.
+  /* WHAT'S MISSING, SAID BEFORE THE RENDER (owner 2026-10-20: "keyframes generated without the proper character
+     references"): a ticked character with no sheet stops the render (shots.jsx shotResolveRenderRefs) — the card says so
+     and how to fix it; a ticked location view that isn't made yet would leave the set to the engine */
+  const _offIds = sh.refOff||[];
+  const _missCast = refsLoaded ? refImgs.filter(r=>r && r.kind==="character" && r.missing && _offIds.indexOf(r.refId)<0) : [];
+  const _missLoc = refsLoaded ? refImgs.filter(r=>r && r.kind==="location" && r.missing && _offIds.indexOf(r.refId)<0) : [];
+  const _namesOf = (list)=>{ const n = Array.from(new Set(list.map(r=>String(r.label||"A character").split(" \u00b7 ")[0])));
+    return n.length<=1 ? (n[0]||"") : n.slice(0,-1).join(", ")+" and "+n[n.length-1]; };
+  const refWarn = (_missCast.length || _missLoc.length) && _el("div",{className:"shot-refs-warn",role:"status"},
+    Icon.alert && _el(Icon.alert,{s:12}),
+    _el("span",null,
+      _missCast.length ? (_namesOf(_missCast)+(_missCast.length>1?" have":" has")+" no usable sheet yet, so this frame won\u2019t render: make "
+        +(_missCast.length>1?"them":"it")+" in Art Room \u2192 Characters (or with \u2018Make what this scene needs\u2019), or untick "+(_missCast.length>1?"them":"it")+" above to render without. ") : "",
+      _missLoc.length ? ((_missLoc.length>1?"Some location views aren\u2019t":"A location view isn\u2019t")
+        +" made yet, so the set would be left to the engine \u2014 make "+(_missLoc.length>1?"them":"it")+" in Art Room \u2192 Locations, or choose another location reference.") : ""));
   const referenceControls=(refImgs.length>0 || locationReferencePicker) && _el("div",{className:"shot-refs coverage-refs"},
     _el("div",{className:"shot-refs-lab",
       title:"Check or uncheck references at any time. Removing a location reference removes it from this shot and its thumbnail, while the source asset remains available in the Location reference picker. A running render keeps its starting reference selection. Source assets are never deleted here."},
@@ -1097,7 +1116,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){
               e.preventDefault(); e.stopPropagation(); e.currentTarget.click();
             }}},
-            off ? "+" : "✓")); })));
+            off ? "+" : "✓")); })),
+    refWarn);
 
   return _el("div",{className:"sheet-card shot-card"+(batchActiveId===sh.id?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id},
     _el(SheetFrame,{ gen:genGuarded, slotId:"shot-"+sh.id, name:beatLabel, avatarColor:"linear-gradient(135deg,#7a6cae,#2a2440)",
@@ -1163,11 +1183,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           "Continuity needs refresh — re-render this frame or render the scene in order."),
         seedWasUnapproved && _el("span",{className:"shot-seed-exception"},
           (continuityNeedsRefresh?" · ":"")+"Director override — rendered from an unapproved continuity frame.")),
-      // a character in frame with no sheet yet renders without one — say so (2026-10-06)
-      (()=>{ const missingCast = subjects.filter(ch=>{ const spec = (typeof shotCharacterReferenceSpec==="function") ? shotCharacterReferenceSpec(ch, scene, null) : null;
-          return spec && !spec.required && typeof nbGetImage==="function" && !nbGetImage(spec.id); });
-        return missingCast.length>0 && _el("div",{className:"shot-ref-quality-note"},
-          "No character sheet yet for "+missingCast.map(ch=>ch.name).join(", ")+" \u2014 this frame renders without "+(missingCast.length===1?"it":"them")+". Make "+(missingCast.length===1?"it":"them")+" in Characters, or with 'Make what this scene needs'."); })(),
+      // (a character in frame with no sheet is said under the reference strip since 2026-10-20 — the frame no longer
+      // renders without it; see refWarn)
       refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
           "No full-frame room & time or extra-space plate is ready for this beat. Generate one in Locations — a cropped master plate won't be used in its place."),
