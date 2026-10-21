@@ -735,6 +735,9 @@ function rulesFor(prop){
 function mediaOK(ctx, env){
   return ctx.every(p=>{
     if(/^@supports/i.test(p)) return true;
+    // a container query depends on its element's width, which this model doesn't lay out: treated as not
+    // applying (the one in use, 2026-10-21, only trims the spine Key's label on a narrow tools row)
+    if(/^@container/i.test(p)) return false;
     if(!/^@media/i.test(p)) throw Error("at-rule context? "+p);
     return splitTop(p.replace(/^@media/i, "").trim(), ",").some(part=>{
       let qx = part.trim(), neg = false;

@@ -6,8 +6,8 @@
         its own film (never an episode of the open Show)
      B  the ways in: the empty Writers' Room, Home's "Import a script", a script file dropped on the Writers' Room or
         Home (an element with its own drop zone keeps its drop; a file that isn't a script is left alone)
-     C  the landing: each room card offers "Start with your script" / "Start from an idea", carried through sign-up
-        (a day at most) into Import your script or New Story; step 01 says a screenplay can come in
+     C  the landing: each room card has ONE button again (owner 2026-10-21 — the script / idea pair went); the start
+        choice the app still reads (a day at most) is no longer set by the landing; step 01 says a screenplay can come in
      D  What next after a read: the Art Room, the Stage (honestly: shots first, in the Art Room's Shots) or the Story
         Editors — the room the landing card was chosen for first
      E  Frances knows the flow and names no other company's product; the Terms and Privacy say what happens to an
@@ -46,8 +46,9 @@ test("B the empty Writers' Room, Home and a dropped file", () => {
 });
 
 test("C the landing's start choice, carried through sign-up", () => {
-  assert.ok(lp.includes('"Start with your script"') && lp.includes('"Start from an idea"'));
-  assert.ok(lp.includes("onStart(f.plan,{ mode:\"script\", room:f.room })") && lp.includes("onStart(f.plan,{ mode:\"idea\", room:f.room })"));
+  assert.ok(!lp.includes('"Start with your script"') && !lp.includes('"Start from an idea"'), "one CTA per card (2026-10-21)");
+  assert.ok(lp.includes('React.createElement("button",{className:"lp-btn ghost full lp-room-cta",onClick:()=>onStart(f.plan)}, f.cta)'));
+  for (const c of ["Start with Writers' Room", "Start with the Art Room", "Start with the Stage"]) assert.ok(lp.includes('cta:"'+c+'"'), c);
   assert.ok(app.includes('localStorage.setItem("turn-intended-start", JSON.stringify({ mode:start.mode, room:String(start.room||"writers"), at:Date.now() }))'));
   assert.ok(app.includes("if(!(Date.now() - Number(intent.at||0) < 86400000)) return;   // a day at most"));
   assert.ok(app.includes("if(intent.mode===\"script\") startScriptImport(); else startNewStory();"));

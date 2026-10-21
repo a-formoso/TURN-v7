@@ -243,7 +243,7 @@ function SpineLegend({ runtimeText, runtimeTitle }){
       h("button",{type:"button",className:"legend-key-btn","aria-expanded":open?"true":"false","aria-haspopup":"true",
         title:"What the spine's colours mean",onClick:()=>setOpen(o=>!o)},
         h("span",{className:"legend-key-dots","aria-hidden":"true"},
-          SPINE_KEY.map(([c])=>h("i",{key:c,style:{background:c}}))),"Key"),
+          SPINE_KEY.map(([c])=>h("i",{key:c,style:{background:c}}))),h("span",{className:"legend-key-lab"},"Key")),
       h("div",{className:"legend-pop",role:"note","aria-label":"Spine colours"},
         SPINE_KEY.map(([c,lab,what])=>h("div",{key:lab,className:"legend-pop-row"},
           h("span",{className:"legend-swatch",style:{background:c}}),
@@ -309,6 +309,34 @@ function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, f
   const [collapsed, setCollapsed] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem("turn_spine_collapsed")||"{}")||{}; }catch(e){ return {}; } });
   React.useEffect(()=>{ try{ localStorage.setItem("turn_spine_collapsed", JSON.stringify(collapsed)); }catch(e){} },[collapsed]);
   const toggle = (act)=> setCollapsed(c=>({...c,[act]:!c[act]}));
+  /* THE CARD MENU (owner 2026-10-21): a scene card's ⋮ opens "Move to…", a place picker — the way to reorder
+     where dragging doesn't work (a phone, a tablet, the keyboard). { id, ci, x, y, step:"menu"|"move" } */
+  const [cardMenu, setCardMenu] = React.useState(null);
+  const cardMenuRef = React.useRef(null);
+  React.useEffect(()=>{
+    if(!cardMenu) return undefined;
+    const away = (e)=>{ if(cardMenuRef.current && !cardMenuRef.current.contains(e.target) && !(e.target.closest && e.target.closest(".stile-more"))) setCardMenu(null); };
+    const esc = (e)=>{ if(e.key==="Escape") setCardMenu(null); };
+    const gone = ()=> setCardMenu(null);
+    document.addEventListener("pointerdown", away); document.addEventListener("keydown", esc);
+    window.addEventListener("resize", gone); window.addEventListener("scroll", gone, true);
+    return ()=>{ document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc);
+      window.removeEventListener("resize", gone); window.removeEventListener("scroll", gone, true); };
+  },[!!cardMenu]);
+  const openCardMenu = (e, s, ci)=>{
+    e.stopPropagation(); e.preventDefault();
+    if(cardMenu && cardMenu.id===s.id){ setCardMenu(null); return; }
+    const r = e.currentTarget.getBoundingClientRect(), W = 260, vw = window.innerWidth||1200, vh = window.innerHeight||800;
+    const x = Math.max(8, Math.min(r.right - W, vw - W - 8));
+    const y = r.bottom + 6 + 150 > vh ? Math.max(8, r.top - 6 - 150) : r.bottom + 6;
+    setCardMenu({ id:s.id, ci, x, y, step:"menu" });
+  };
+  // "After NN" means the place right after that scene; reorder takes the index once the scene is lifted out
+  const moveSceneTo = (from, afterIdx)=>{
+    const to = afterIdx < 0 ? 0 : (afterIdx < from ? afterIdx + 1 : afterIdx);
+    setCardMenu(null);
+    if(to!==from && onReorder) onReorder(from, to);
+  };
   // the act's screen time and share of the scenes: a tooltip on its label (owner 2026-10-19)
   const [tipAct, setTipAct] = React.useState(null);
   // the chart fits the width it's given (measured), never narrower than SPINE_MIN_COL a scene
@@ -569,7 +597,14 @@ function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, f
               stale && React.createElement("span",{className:"scard-stale",
                 title:"Script out of date — the card changed after the draft. Redraft it from the Script view or the Scene tab."},
                 React.createElement(Icon.history,{s:11})),
-              !readOnly && React.createElement("span",{className:"scard-grip",title:"Drag to reorder"},React.createElement(Icon.grip,{s:12}))),
+              !readOnly && React.createElement("span",{className:"scard-grip",title:"Drag to reorder"},React.createElement(Icon.grip,{s:12})),
+              !readOnly && onReorder && scenes.length>1 && React.createElement("button",{type:"button",
+                className:"stile-more"+(cardMenu && cardMenu.id===s.id ? " on" : ""),draggable:false,
+                "aria-label":"Scene "+String(s.no).padStart(2,"0")+" options","aria-haspopup":"menu",
+                "aria-expanded":cardMenu && cardMenu.id===s.id ? "true" : "false",title:"More (Move to\u2026)",
+                onClick:(e)=>openCardMenu(e, s, ci), onKeyDown:(e)=>e.stopPropagation(),
+                onPointerDown:(e)=>e.stopPropagation()},
+                React.createElement(Icon.moreV,{s:13}))),
             React.createElement("div",{className:"scard-title stile-title"},s.title),
             // a scene a new draft no longer has (phase 4 of Import a screenplay, 2026-10-18)
             s.notInDraft && React.createElement("span",{className:"stile-mark gone",title:"Not in the new draft \u2014 kept until you remove it (the bar above the spine)"},"Not in draft"),
@@ -591,6 +626,33 @@ function SpineCanvas({ scenes, selId, onSelect, onPeek, onReorder, onAddScene, f
       onAddScene && React.createElement("button",{type:"button",className:"spine-add stile-add",disabled:readOnly,
         onClick:()=>onAddScene(scenes.length?scenes[scenes.length-1].id:null)},
         React.createElement(Icon.plus,{s:16}),"Add scene")),
+    cardMenu && (()=>{
+      const from = cardMenu.ci, me = scenes[from];
+      if(!me) return null;
+      const no = (x)=>String(x.no).padStart(2,"0");
+      // the place picker: "At the start", then "After NN · Title" for every other scene, grouped by act
+      const acts = [];
+      scenes.forEach((x,j)=>{ if(j===from) return; const a = x.act||1; let g = acts[acts.length-1];
+        if(!g || g.act!==a){ g = { act:a, items:[] }; acts.push(g); } g.items.push({ x, j }); });
+      const here = from===0 ? -1 : from-1;   // the option that leaves it where it is
+      return React.createElement("div",{ref:cardMenuRef,className:"stile-menu",role:"menu",
+          style:{left:cardMenu.x, top:cardMenu.y},onClick:(e)=>e.stopPropagation()},
+        cardMenu.step==="menu"
+          ? React.createElement("button",{type:"button",role:"menuitem",className:"stile-menu-item",autoFocus:true,
+              onClick:()=>setCardMenu(m=>m && ({ ...m, step:"move" }))},
+              React.createElement(Icon.arrowR,{s:13}),"Move to\u2026")
+          : React.createElement("div",{className:"stile-move"},
+              React.createElement("div",{className:"stile-move-t"},"Move Scene "+no(me)+(me.title?" \u00b7 "+me.title:"")),
+              React.createElement("label",{className:"stile-move-lab"},"Put it",
+                React.createElement("select",{className:"insp-select stile-move-sel",autoFocus:true,defaultValue:"",
+                  onChange:(e)=>{ const v = e.target.value; if(v!=="") moveSceneTo(from, Number(v)); }},
+                  React.createElement("option",{value:"",disabled:true},"Choose a place\u2026"),
+                  React.createElement("option",{value:"-1",disabled:here===-1},"At the start"+(here===-1?" (here now)":"")),
+                  acts.map(g=>React.createElement("optgroup",{key:g.act+"-"+g.items[0].j,label:"Act "+roman(g.act)},
+                    g.items.map(({x,j})=>React.createElement("option",{key:x.id,value:String(j),disabled:j===here},
+                      "After "+no(x)+(x.title?" \u00b7 "+x.title:"")+(j===here?" (here now)":""))))))),
+              React.createElement("div",{className:"stile-move-note"},"Its card, beats, script and shots go with it; past an act's edge it joins the act it lands in.")));
+    })(),
   );
 }
 window.SpineCanvas = SpineCanvas;

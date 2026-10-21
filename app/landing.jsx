@@ -106,13 +106,13 @@ function HeroSpine({ structure }){
 const LP_ROOMS = [
   { no:"01", icon:"script", title:"Writers' Room",
     body:"Turn an idea into a structured screenplay: logline, synopsis, a story spine charting every scene's value, beats and script — with Story Editors to test it. Everything stays editable.",
-    room:"writers", plan:"writer" },
+    cta:"Start with Writers' Room", room:"writers", plan:"writer" },
   { no:"02", icon:"palette", title:"The Art Room",
     body:"Design the film from the script: lookbook, characters and their voices, props, locations, color, shots and storyboards — drafted with your Department Heads, ready for production.",
-    room:"art", plan:"director" },
+    cta:"Start with the Art Room", room:"art", plan:"director" },
   { no:"03", icon:"clapper", title:"The Stage",
     body:"Once the film is designed, shoot it as video, beat by beat, with voiced lines — then choose takes, assemble them on the timeline and export the film.",
-    room:"stage", plan:"studio" },
+    cta:"Start with the Stage", room:"stage", plan:"studio" },
 ];
 /* (the room cards' plan chips — "Every plan", "Director and Producer plans", "Producer plan" — were
    removed 2026-10-03, owner request; the plan cards in Act III say which plan opens which room) */
@@ -261,11 +261,9 @@ function Landing({ onStart, onSignIn }){
               React.createElement("span",{className:"lp-card-no"}, f.no)),
             React.createElement("div",{className:"lp-card-t"}, f.title),
             React.createElement("div",{className:"lp-card-b"}, f.body),
-            /* START WITH YOUR SCRIPT, OR FROM AN IDEA (owner 2026-10-18, docs/Script Import Plan.md): a writer with a finished
-               screenplay imports it, word for word; anyone else starts in New Story. The choice rides through sign-up. */
-            React.createElement("div",{className:"lp-room-ctas"},
-              React.createElement("button",{className:"lp-btn ghost full lp-room-cta",onClick:()=>onStart(f.plan,{ mode:"script", room:f.room })},"Start with your script"),
-              React.createElement("button",{className:"lp-btn ghost full lp-room-cta lp-room-idea",onClick:()=>onStart(f.plan,{ mode:"idea", room:f.room })},"Start from an idea")))))),
+            /* ONE CTA PER CARD again (owner 2026-10-21: the 2026-10-18 script-or-idea pair of buttons
+               went); a script still comes in from New Story's "I have a script", the empty Writers' Room or Home */
+            React.createElement("button",{className:"lp-btn ghost full lp-room-cta",onClick:()=>onStart(f.plan)}, f.cta))))),
 
       React.createElement("section",{className:"lp-section steps"},
         React.createElement("div",{className:"lp-sec-head"},
