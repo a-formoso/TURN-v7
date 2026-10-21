@@ -587,6 +587,8 @@ html[data-theme="light"] :is(.seg,.theme-opt,.nb-seg-btn,.board-mode-btn,.sb-mod
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .cast-card.sel .cast-desc{-webkit-line-clamp:unset;display:block}
 .cast-track{display:flex;gap:2px;margin-top:9px;height:7px}
+.cast-foot{display:flex;align-items:center;gap:8px;margin-top:9px}
+.cast-foot .cast-track{flex:1;min-width:0;margin-top:0}
 .cast-cell{flex:1;border-radius:2px;background:var(--bg-4);border:1px solid var(--line);min-width:3px}
 .cast-cell.brk{margin-left:5px}
 .cast-cell.drive{border-color:transparent}
@@ -9819,9 +9821,62 @@ html[data-theme="dark"] .app.hs{
 .app.hs.room-writers .rail-sec-head .eyebrow > svg{display:none}
 .app.hs.room-writers .rail-sec-head .rail-fold-ic{order:2;margin-left:auto;color:var(--hs-sub)}
 .app.hs.room-writers .rail-sec:not(.folded){padding-bottom:16px}
-.app.hs.room-writers .world-field,
-.app.hs.room-writers .cast-card{background:var(--hs-bone);border-color:transparent;box-shadow:none}
-.app.hs.room-writers .cast-card.sel{background:var(--hs-amber-soft);box-shadow:inset 0 0 0 1px var(--hs-amber-line)}
+/* SETTING + CAST in the Premise tab's look (owner 2026-10-21: "stay visually consistent"): no grey cards,
+   no icon tiles, no boxed tags — hairline rows, a mono label, ink text; what's picked is the soft amber */
+.app.hs.room-writers .world-pane,
+.app.hs.room-writers .cast-pane{gap:0;padding:0}
+.app.hs.room-writers .world-field{background:none;border:0;border-radius:0;padding:14px 0 16px;border-top:1px solid var(--hs-line)}
+.app.hs.room-writers .world-field:first-child,
+.app.hs.room-writers .cast-card:first-child{border-top:0;padding-top:2px}
+.app.hs.room-writers .world-field.empty{background:none;border-style:solid}
+.app.hs.room-writers .world-head{margin-bottom:4px}
+.app.hs.room-writers .world-lab{font-size:10px;letter-spacing:.1em;color:var(--hs-sub)}
+.app.hs.room-writers .world-field .rail-setting-val.edit-in{font-size:14px;line-height:1.5;color:var(--hs-ink)}
+.app.hs.room-writers .world-ctx{margin-top:10px;padding-top:0;border-top:0;gap:6px}
+.app.hs.room-writers .world-ctx-lab{font:400 10px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hs-sub)}
+.app.hs.room-writers .world-ctx-note{gap:3px 12px}
+.app.hs.room-writers .world-key{font:400 10.5px var(--f-mono);letter-spacing:.02em;gap:5px}
+.app.hs.room-writers .world-key::before{width:6px;height:6px;border-radius:50%}
+.app.hs.room-writers .world-tod{gap:1px;height:5px;border-radius:3px;overflow:hidden}
+.app.hs.room-writers .world-tod-cell{border:0;border-radius:0;background:var(--hs-line-2)}
+.app.hs.room-writers .world-tod-cell.day{background:oklch(0.82 0.12 85)}
+.app.hs.room-writers .world-tod-cell.dusk{background:oklch(0.68 0.14 45)}
+.app.hs.room-writers .world-tod-cell.night{background:oklch(0.42 0.09 265)}
+.app.hs.room-writers .world-conf{height:5px;border-radius:3px;gap:1px}
+.app.hs.room-writers .world-places{display:flex;flex-direction:column;gap:0}
+.app.hs.room-writers .world-place{display:flex;justify-content:space-between;gap:10px;background:none;border:0;border-radius:0;
+  padding:3px 0;font-size:12.5px;color:var(--hs-ink-2)}
+.app.hs.room-writers .world-place span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app.hs.room-writers .world-place b{background:none;padding:0;font:400 10.5px var(--f-mono);color:var(--hs-sub);line-height:inherit}
+.app.hs.room-writers .world-place.more{padding:3px 0;font-size:11.5px;color:var(--hs-sub)}
+
+.app.hs.room-writers .cast-card{background:none;border:0;border-top:1px solid var(--hs-line);border-radius:0;box-shadow:none;
+  padding:14px 10px 15px;margin:0 -10px}
+.app.hs.room-writers .cast-card.lead{background:none}
+.app.hs.room-writers .cast-card:hover{background:var(--hs-surface)}
+.app.hs.room-writers .cast-card.sel{background:var(--hs-amber-soft);box-shadow:inset 0 0 0 1px var(--hs-amber-line);border-radius:10px;
+  border-top-color:transparent}
+.app.hs.room-writers .cast-card.sel + .cast-card{border-top-color:transparent}
+.app.hs.room-writers .cast-card:focus-visible{box-shadow:0 0 0 2px var(--hs-amber-line);border-radius:10px}
+.app.hs.room-writers .cast-top{gap:11px;align-items:flex-start}
+.app.hs.room-writers .cast-av{width:30px;height:30px;flex-basis:30px;border-radius:50%;font:600 11px var(--f-ui);margin-top:1px}
+.app.hs.room-writers .cast-name{font:600 14px var(--f-ui);color:var(--hs-ink);line-height:1.3}
+.app.hs.room-writers .cast-role{margin-top:2px;font:400 10px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hs-sub);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app.hs.room-writers .cast-card.lead .cast-role{color:var(--hs-amber-ink)}
+.app.hs.room-writers .cast-desc{margin-top:6px;margin-left:41px;font-size:12.5px;line-height:1.45;color:var(--hs-ink-2)}
+.app.hs.room-writers .cast-desc::first-letter{text-transform:uppercase}
+.app.hs.room-writers .cast-foot{display:flex;align-items:center;gap:10px;margin-top:10px;margin-left:41px}
+.app.hs.room-writers .cast-track{flex:1;min-width:0;margin-top:0;height:4px;gap:1px}
+.app.hs.room-writers .cast-drives{flex:none;flex-direction:row;align-items:baseline;gap:4px;min-width:0}
+.app.hs.room-writers .cast-drives b{font:600 12px var(--f-mono);color:var(--hs-ink)}
+.app.hs.room-writers .cast-drives span{font:400 9.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hs-sub);margin:0}
+.app.hs.room-writers .cast-cell{border:0;border-radius:1px;background:var(--hs-line-2);min-width:2px}
+.app.hs.room-writers .cast-cell.brk{margin-left:4px}
+.app.hs.room-writers .cast-cell.face{background:var(--hs-sub);opacity:.45;border:0}
+.app.hs.room-writers .cast-legend{padding:12px 0 0;border-top:1px solid var(--hs-line);font:400 10.5px var(--f-mono);color:var(--hs-sub);gap:14px}
+.app.hs.room-writers .cast-legend .cast-cell{width:10px;height:4px}
+.app.hs.room-writers .cast-legend .cast-cell.drive{background:var(--hs-ink-2)}
 
 /* ---- the inspector (right) ---- */
 .app.hs.room-writers .insp-scroll{padding-top:16px;padding-left:24px;padding-right:24px}   /* the bottom keeps the Frances clearance */

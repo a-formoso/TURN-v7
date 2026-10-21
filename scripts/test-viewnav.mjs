@@ -162,7 +162,7 @@ check(()=>assert.equal(byClass(leftRail,"rail-spine").length,0));
 
 byClass(leftRail,"insp-tab").find(n=>textOf(n)==="Cast").props.onClick();
 leftRail = rail();
-check(()=>assert.match(textOf(leftRail),/MARCUS TILLMON/));
+check(()=>assert.match(textOf(leftRail),/Marcus Tillmon/, "a name in capitals reads in Title Case"));
 check(()=>assert.doesNotMatch(textOf(leftRail),/Present day/));
 check(()=>assert.equal(byClass(leftRail,"rail-spine").length,0));
 check(()=>assert.equal(byClass(leftRail,"rail-tab-add").length,0,"Cast must not expose manual character creation"));

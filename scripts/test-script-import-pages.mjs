@@ -278,7 +278,7 @@ await test("E  pdf.js is self-hosted, licensed, served as .js and loaded only wh
   assert.match(pages, /isEvalSupported:false/);
   const html = read("TURN.html");
   assert.doesNotMatch(html, /pdf\.min\.js/, "not loaded with the app");
-  assert.ok(["20261018-hs25", "20261018-hs26", "20261018-hs27", "20261019-hs28", "20261019-hs29", "20261019-hs30", "20261019-hs31", "20261019-hs32", "20261019-hs33", "20261019-hs34", "20261020-hs35", "20261020-hs36", "20261020-hs37", "20261020-hs38", "20261020-hs39", "20261020-hs40"].some(k => html.includes('app/script-import-pages.js?v=' + k + '"')));
+  assert.ok(["20261018-hs25", "20261018-hs26", "20261018-hs27", "20261019-hs28", "20261019-hs29", "20261019-hs30", "20261019-hs31", "20261019-hs32", "20261019-hs33", "20261019-hs34", "20261020-hs35", "20261020-hs36", "20261020-hs37", "20261020-hs38", "20261020-hs39", "20261020-hs40", "20261021-hs41", "20261021-hs42"].some(k => html.includes('app/script-import-pages.js?v=' + k + '"')));
   assert.ok(html.indexOf("app/script-import.js?v=") < html.indexOf("app/script-import-pages.js?v="), "after script-import.js");
   assert.match(read("serve.js"), /urlPath\.startsWith\("\/app\/vendor\/"\)/);
 });

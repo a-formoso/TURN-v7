@@ -914,10 +914,11 @@ function WorldPane({ project, scenes, edit, setSetting }){
     { k:"location", lab:"Location", Ic:Icon.pin, ph:"A bounded, concrete place",
       extra: topPlaces.length ? React.createElement("div",{className:"world-ctx"},
         React.createElement("div",{className:"world-ctx-lab"},"In the script \u00b7 "+topPlaces.length+" place"+(topPlaces.length!==1?"s":"")),
+        // one line per place, its scene count on the right
         React.createElement("div",{className:"world-places"},
-          topPlaces.slice(0,5).map(pl=>React.createElement("span",{key:pl.name,className:"world-place",title:pl.n+" scene"+(pl.n!==1?"s":"")},
-            pl.name, React.createElement("b",null,pl.n))),
-          topPlaces.length>5 && React.createElement("span",{className:"world-place more"},"+"+(topPlaces.length-5)))) : null },
+          topPlaces.slice(0,5).map(pl=>React.createElement("div",{key:pl.name,className:"world-place",title:pl.n+" scene"+(pl.n!==1?"s":"")},
+            React.createElement("span",null,pl.name), React.createElement("b",null,pl.n))),
+          topPlaces.length>5 && React.createElement("div",{className:"world-place more"},"+"+(topPlaces.length-5)+" more"))) : null },
     { k:"conflict", lab:"Conflict", Ic:Icon.layers, ph:"The level of conflict: inner, personal, institutional, environmental",
       extra: confTotal ? React.createElement("div",{className:"world-ctx"},
         React.createElement("div",{className:"world-ctx-lab"},"Conflict source by scene"),
@@ -929,8 +930,8 @@ function WorldPane({ project, scenes, edit, setSetting }){
   ];
   return React.createElement("div",{className:"world-pane"},
     fields.map(f=>React.createElement("div",{key:f.k,className:"world-field"+(String(st[f.k]||"").trim()?"":" empty")},
+      // a hairline row with a mono label, like the Premise tab (owner 2026-10-21: one look across the rail)
       React.createElement("div",{className:"world-head"},
-        React.createElement("span",{className:"world-ic"},f.Ic && React.createElement(f.Ic,{s:14})),
         React.createElement("span",{className:"world-lab"},f.lab)),
       React.createElement(EditText,{value:st[f.k]||"",multiline:true,readOnly:edit,className:"rail-setting-val",
         placeholder:f.ph,onCommit:(v)=>setSetting(f.k, v)}),
@@ -946,6 +947,13 @@ function railRoleParts(role){
     .map(t=> t===t.toUpperCase() ? t.toLowerCase().replace(/(^|\s)([a-z\u00e0-\u00ff])/g,(m,p1,ch)=>p1+ch.toUpperCase()) : t);
   return (at<0 && tags.length===1 && tags[0].length>28) ? { tags:[], desc:r } : { tags, desc };
 }
+/* "TOMASZ WRÓBEL" -> "Tomasz Wróbel" (a name typed in capitals, as screenplays cue it); a mixed-case name is kept */
+function railNameCase(name){
+  const n = String(name||"");
+  if(!/\p{L}/u.test(n) || n!==n.toUpperCase()) return n;
+  return n.toLowerCase().replace(/(^|[\s\-'\u2019.])(\p{L})/gu,(m,p1,ch)=>p1+ch.toUpperCase());
+}
+window.railNameCase = railNameCase;
 function CastPane({ characters, scenes, selChar, onSelectChar }){
   const order = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes||[]) : (scenes||[]);
   const beatsMap = ((window.turnContinuity||{}).beatsMap) || {};
@@ -969,12 +977,13 @@ function CastPane({ characters, scenes, selChar, onSelectChar }){
           React.createElement("div",{className:"cast-av",style:{background:c.color}},
             (c.name||"?").split(" ").map(w=>w[0]||"").slice(0,2).join("")),
           React.createElement("div",{className:"cast-id"},
-            React.createElement("div",{className:"cast-name"},c.name||"Unnamed"),
-            (isLead || rp.tags.length) ? React.createElement("div",{className:"cast-tags"},
-              rp.tags.map((t,i)=>React.createElement("span",{key:i,className:"cast-tag"+(i===0?" arch":"")},t))) : null),
-          React.createElement("div",{className:"cast-drives",title:driven+" scene"+(driven!==1?"s":"")+" driven"},
-            React.createElement("b",null,driven), React.createElement("span",null,"drives"))),
+            React.createElement("div",{className:"cast-name",title:c.name||""},railNameCase(c.name)||"Unnamed"),
+            // the role as one quiet line ("Protagonist · The Applicant"), not boxed tags (owner 2026-10-21)
+            rp.tags.length ? React.createElement("div",{className:"cast-role"},rp.tags.join(" \u00b7 ")) : null),
+),
         rp.desc && React.createElement("div",{className:"cast-desc"},rp.desc),
+        // where they carry the film: the scene strip, with how many scenes they drive at its end
+        React.createElement("div",{className:"cast-foot"},
         order.length ? React.createElement("div",{className:"cast-track",role:"img",
             "aria-label":(c.name||"This character")+" drives "+driven+" of "+order.length+" scenes"},
           order.map((sc,i)=>{
@@ -983,7 +992,9 @@ function CastPane({ characters, scenes, selChar, onSelectChar }){
             return React.createElement("span",{key:sc.id||i,className:"cast-cell"+(kind?" "+kind:"")+(brk?" brk":""),
               style: kind==="drive" ? {background:c.color} : undefined,
               title:"Scene "+(sc.no||i+1)+(sc.title?" \u00b7 "+sc.title:"")+(kind==="drive"?" \u2014 drives":kind==="face"?" \u2014 faces the driver":"")});
-          })) : null);
+          })) : null,
+          React.createElement("div",{className:"cast-drives",title:"Drives "+driven+" of "+order.length+" scene"+(order.length!==1?"s":"")},
+            React.createElement("b",null,driven), React.createElement("span",null,"drives"))));
     }),
     React.createElement("div",{className:"cast-legend"},
       React.createElement("span",null,React.createElement("i",{className:"cast-cell drive"}),"drives the scene"),

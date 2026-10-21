@@ -227,7 +227,9 @@ function Verdict({ scene }){
   // titles + flag icon come from the project's narrative framework (frameworks.jsx);
   // the detail lines stay charge-factual.
   const aud = (typeof fwAuditOf==="function") ? fwAuditOf() : null;
-  const move = `${scene.openValue} (${chargeStr(scene.openCharge)}) \u2192 ${scene.closeValue} (${chargeStr(scene.closeCharge)}). `;
+  // a side with no value named yet shows just its charge (was "undefined (-1)", 2026-10-21)
+  const side = (v, c)=>{ const w = String(v==null ? "" : v).trim(); return w ? `${w} (${chargeStr(c)})` : chargeStr(c); };
+  const move = `${side(scene.openValue, scene.openCharge)} \u2192 ${side(scene.closeValue, scene.closeCharge)}. `;
   if(flagged) return React.createElement("div",{className:"verdict no"},
     React.createElement("span",{className:"verdict-icn"},React.createElement(Icon[(aud&&aud.flagIcon)||"scissors"]||Icon.scissors,{s:18})),
     React.createElement("div",null,
@@ -617,10 +619,16 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
         (typeof SceneContinuity==="function") && React.createElement(SceneContinuity,{scene,scenes,characters}),
 
         React.createElement("div",{className:"insp-actions"},
-          React.createElement("button",{className:"ia-btn",disabled:readOnly||sceneIndex<=0,onClick:()=>onMove(scene.id,-1)},
-            React.createElement(Icon.chevU,{s:14}),"Up"),
-          React.createElement("button",{className:"ia-btn",disabled:readOnly||sceneIndex>=sceneCount-1,onClick:()=>onMove(scene.id,1)},
-            React.createElement(Icon.chevD,{s:14}),"Down"),
+          // one place earlier / later in the story (owner 2026-10-21: named for what they do, with a hover hint);
+          // the card, beats, script and shots go with it, and past an act's edge it joins the act it lands in
+          React.createElement("button",{className:"ia-btn",disabled:readOnly||sceneIndex<=0,onClick:()=>onMove(scene.id,-1),
+            title:sceneIndex<=0 ? "This is the first scene"
+              : "Move this scene one place earlier in the story \u2014 its card, beats, script and shots go with it"},
+            React.createElement(Icon.chevU,{s:14}),"Move earlier"),
+          React.createElement("button",{className:"ia-btn",disabled:readOnly||sceneIndex>=sceneCount-1,onClick:()=>onMove(scene.id,1),
+            title:sceneIndex>=sceneCount-1 ? "This is the last scene"
+              : "Move this scene one place later in the story \u2014 its card, beats, script and shots go with it"},
+            React.createElement(Icon.chevD,{s:14}),"Move later"),
           // a scene BEFORE this one, too (owner 2026-10-19): a new first scene, or a scene opening an act
           React.createElement("button",{className:"ia-btn",disabled:readOnly,onClick:()=>onAddScene(scene.id,{before:true}),
             title:"Add a scene before this one, in the same act"},
