@@ -434,20 +434,23 @@ await test("4 involvement matches the first name as a whole word", ()=>{
 });
 
 /* ═══ 5. the runtime total below 900px ══════════════════════════════════════ */
-await test("5 below 900px only the colour key hides: the runtime (the legend's one item with no swatch) stays", ()=>{
+await test("5 the spine's length and Key: the colours live in the Key's card, the length stays at every width (2026-10-21)", ()=>{
   const b900 = css.slice(css.indexOf("@media (max-width:900px){\n  .topbar{gap:8px;padding:0 12px}"));
   const block = b900.slice(0, b900.indexOf("\n}\n"));
-  assert.ok(!/\.legend\{display:none\}/.test(block), "the legend is no longer hidden whole");
-  assert.ok(block.includes(".legend-item:has(> .legend-swatch){display:none}"));
+  assert.ok(!/\.legend\{display:none\}/.test(block), "the legend is not hidden on tablets and phones");
+  assert.ok(!/\.legend\{[^}]*display:none/.test(css), "nothing hides it");
+  assert.ok(!css.includes(".legend-item:has(> .legend-swatch){display:none}"), "no colour row left to hide");
   assert.ok(css.includes(".legend-item:not(:has(> .legend-swatch)){white-space:nowrap}"), "the runtime reads on one line");
-  assert.ok(!/\.legend\{[^}]*display:none/.test(css), "nothing else hides it");
-  // the markup this relies on (app.jsx): the runtime item has an icon and no swatch; every other has a swatch
-  const leg = appSrc.slice(appSrc.indexOf('view==="spine" && React.createElement("div",{className:"legend"}'));
-  const legend = leg.slice(0, leg.indexOf("\n\n"));
-  const items = legend.split('className:"legend-item"').slice(1);
-  assert.equal(items.length, 5);
-  assert.ok(!items[0].includes("legend-swatch") && items[0].includes("Icon.clock") && items[0].includes("fmtRuntime(runtimeTotal)"));
-  assert.ok(items.slice(1).every(x=>x.includes('className:"legend-swatch"')));
+  // app.jsx hands the length to SpineLegend (spine.jsx): the runtime item, then the Key and its card of four colours
+  assert.match(appSrc, /view==="spine" && React\.createElement\(SpineLegend,\{\n\s+runtimeText: runtimeTotal>0 \? "≈ "\+\(\(typeof fmtRuntime==="function"\) \? fmtRuntime\(runtimeTotal\)/);
+  const sp = readFileSync(new URL("../app/spine.jsx", import.meta.url), "utf8");
+  const fn = sp.slice(sp.indexOf("function SpineLegend("), sp.indexOf("window.SpineLegend"));
+  assert.ok(fn.includes('className:"legend-item legend-runtime"') && fn.includes("Icon.clock"));
+  assert.ok(fn.includes('className:"legend-key-btn"') && fn.includes('"aria-expanded"') && fn.includes('"Key"'));
+  const key = sp.slice(sp.indexOf("const SPINE_KEY = ["), sp.indexOf("];", sp.indexOf("const SPINE_KEY = [")));
+  for (const lab of ["Positive","Negative","Progresses","No turn"]) assert.ok(key.includes('"'+lab+'"'), lab);
+  assert.ok(css.includes(".legend-key.open .legend-pop{display:block}") && css.includes("@media (hover:hover){ .legend-key:hover .legend-pop{display:block} }"));
+  assert.ok(css.includes(".spine-hs .spine-chart::-webkit-scrollbar{display:none;height:0}"), "no scrollbar under the film frame");
 });
 
 /* ═══ 6. (review) layering and the Script header ═══════════════════════════ */
@@ -541,10 +544,8 @@ const fixture = ()=>`<!doctype html><html lang="en"><head><meta charset="utf-8">
 <div class="body"><main class="canvas">
   <div class="canvas-head"><div class="canvas-head-copy"><div class="canvas-title">Value-Charge Spine</div><div class="canvas-sub">The emotional charge of every scene, end to end</div></div>
     <div class="legend"><div class="legend-item" id="rt"><svg width="11" height="11"></svg>≈ 1h 46m</div>
-      <div class="legend-item" id="pos"><span class="legend-swatch" style="background:var(--pos)"></span>POS</div>
-      <div class="legend-item"><span class="legend-swatch" style="background:var(--neg)"></span>NEG</div>
-      <div class="legend-item"><span class="legend-swatch" style="background:var(--prog)"></span>Progresses</div>
-      <div class="legend-item"><span class="legend-swatch" style="background:var(--alert)"></span>No turn</div></div></div>
+      <div class="legend-key" id="pos"><button class="legend-key-btn"><span class="legend-key-dots"><i></i><i></i><i></i><i></i></span>Key</button>
+        <div class="legend-pop"><div class="legend-pop-row"><span class="legend-swatch" style="background:var(--pos)"></span><div><b>Positive</b><span>…</span></div></div></div></div></div></div>
 </main>
 <aside class="inspector"><div class="insp-tabs"><button class="insp-tab on">Scene</button></div><div class="insp-scroll" id="iscroll">
   <div style="height:1600px">scene fields</div>
@@ -1023,9 +1024,9 @@ for(const [w, h, name] of SIZES){
           assert.ok(tl >= 0 && C(t, "transform")==="none" && C(t, "width")==="auto", tag+t+" spans between its insets");
         }
       } else assert.ok(C("#t1", "left")==="50%" && /translate/.test(C("#t1", "transform")) && C("#t1", "width")==="max-content", tag+"the toast is centred, sized to its words");
-      // 5. the runtime total always shows, on one line; the colour key only above 900px
+      // 5. the runtime total always shows, on one line, and so does the Key (its card holds the colours, 2026-10-21)
       assert.ok(shown("#rt") && C("#rt", "white-space")==="nowrap" && shown(".legend"), tag+"the runtime shows, on one line");
-      assert.equal(shown("#pos"), w > 900, tag+"the colour key shows only above 900px");
+      assert.equal(shown("#pos"), true, tag+"the Key shows at every width");
       // 6. the item list's × shows while its row has focus
       assert.equal(Number(C("#eil-del", "opacity")), 1, tag+"the × shows with the row focused");
       assert.ok(shown("#eil-del"));
@@ -1079,7 +1080,7 @@ async function browserPart(){
       });
       assert.ok(m.toastsApart, tag+"two undo toasts don't overlap "+JSON.stringify(m.toastRects));
       assert.ok(m.rt && m.rtH < 20, tag+"the total runtime shows, on one line ("+m.rtH+"px)");
-      assert.equal(m.pos, w > 900, tag+"the colour key shows only above 900px");
+      assert.equal(m.pos, true, tag+"the Key shows at every width");
       assert.equal(m.eilDel, "1", tag+"the item-list × shows while its row has focus");
       assert.equal(m.eilTab, 0, tag+"…and Tab reaches it");
       assert.ok(m.modalTap, tag+"a top-bar window (Team, Story brief) is on top of the MUSE bubble and the Writing dock "+JSON.stringify({ modalTap:m.modalTap, over:m.modalOverMuse }));

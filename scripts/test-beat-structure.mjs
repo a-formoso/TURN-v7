@@ -177,7 +177,7 @@ test("E  a recast keeps the beats' ids (the turning point stays); Frances knows"
   assert.match(ai, /name:"Adding a scene"/);
   const html = read("TURN.html");
   for (const f of ["scene-order.js", "inspector.jsx", "app.jsx", "shots-ui.jsx", "locations.jsx", "ai.jsx"])
-    assert.ok(["20261019-hs34", "20261020-hs35", "20261020-hs36", "20261020-hs37", "20261020-hs38", "20261020-hs39", "20261020-hs40", "20261021-hs41", "20261021-hs42"].some(v => html.includes(f + "?v=" + v + '"')), f);
+    assert.ok(["20261019-hs34", "20261020-hs35", "20261020-hs36", "20261020-hs37", "20261020-hs38", "20261020-hs39", "20261020-hs40", "20261021-hs41", "20261021-hs42", "20261021-hs43"].some(v => html.includes(f + "?v=" + v + '"')), f);
 });
 
 console.log(`\n${checks} passed, ${failed} failed`);

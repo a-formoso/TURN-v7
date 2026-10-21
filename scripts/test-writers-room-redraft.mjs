@@ -214,7 +214,7 @@ await test("the Board's Table speaks the structure's language; the spine axis is
   const ta=app.slice(app.indexOf("function TurnAudit("),app.indexOf("function Board("));
   assert.ok(ta.includes("React.createElement(\"span\",{className:\"eyebrow\"},tableTitle)")&&ta.includes("actLabel(s.act)")&&!ta.includes("every scene must turn\")"));
   // the spine's key names the charge itself — Positive / Negative (homepage style 2026-10-16: the key sits in the tools row)
-  assert.ok(!/valueAxis/.test(spine)&&app.includes('style:{background:"var(--pos)"}}),"Positive")')&&app.includes('style:{background:"var(--neg)"}}),"Negative")')&&!read("app/contract.jsx").includes("function contractAxis"));
+  assert.ok(!/valueAxis/.test(spine)&&spine.includes('["var(--pos)","Positive",')&&spine.includes('["var(--neg)","Negative",')&&!read("app/contract.jsx").includes("function contractAxis"));
   assert.ok(read("app/contract.jsx").includes('meta("Outer value"'));
 });
 await test("the Writing dock keeps its right-edge spot when the Scene / Character panel opens (owner 2026-09-28)",()=>{

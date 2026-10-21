@@ -216,6 +216,41 @@ function FollowStrip({ characters, scenes, beatsMap, followId, onFollow }){
 }
 window.FollowStrip = FollowStrip;
 
+/* SpineLegend — the spine's tools row, right end: the film's estimated length and a small Key button whose
+   card names the four colours (owner 2026-10-21: the full colour row took too much room). Hover shows the
+   card on a mouse; a click / tap pins it open, and a click outside or Esc closes it. */
+const SPINE_KEY = [
+  ["var(--pos)","Positive","The scene closes on the value's positive side"],
+  ["var(--neg)","Negative","The scene closes on the value's negative side"],
+  ["var(--prog)","Progresses","Intensifies on the same side instead of reversing"],
+  ["var(--alert)","No turn","Doesn't reverse its value \u2014 recharge it or cut it"],
+];
+function SpineLegend({ runtimeText, runtimeTitle }){
+  const h = React.createElement;
+  const [open,setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(()=>{
+    if(!open) return undefined;
+    const away = (e)=>{ if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = (e)=>{ if(e.key==="Escape") setOpen(false); };
+    document.addEventListener("pointerdown", away); document.addEventListener("keydown", esc);
+    return ()=>{ document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
+  },[open]);
+  return h("div",{className:"legend"},
+    runtimeText ? h("div",{className:"legend-item legend-runtime",title:runtimeTitle||""},
+      Icon.clock && h(Icon.clock,{s:12}), runtimeText) : null,
+    h("div",{className:"legend-key"+(open?" open":""),ref},
+      h("button",{type:"button",className:"legend-key-btn","aria-expanded":open?"true":"false","aria-haspopup":"true",
+        title:"What the spine's colours mean",onClick:()=>setOpen(o=>!o)},
+        h("span",{className:"legend-key-dots","aria-hidden":"true"},
+          SPINE_KEY.map(([c])=>h("i",{key:c,style:{background:c}}))),"Key"),
+      h("div",{className:"legend-pop",role:"note","aria-label":"Spine colours"},
+        SPINE_KEY.map(([c,lab,what])=>h("div",{key:lab,className:"legend-pop-row"},
+          h("span",{className:"legend-swatch",style:{background:c}}),
+          h("div",null,h("b",null,lab),h("span",null,what)))))));
+}
+window.SpineLegend = SpineLegend;
+
 /* a label in capitals reads in Title Case on the spine (owner 2026-10-18: plot points capitalised, not uppercased);
    a label already in mixed case is kept as written */
 const SPINE_SMALL_WORDS = new Set(["a","an","and","as","at","but","by","for","in","into","of","on","or","the","to","with"]);

@@ -9719,20 +9719,11 @@ function App(){
             [["columns","Columns"],["table","Table"]].map(([m,lab])=>React.createElement("button",{key:m,type:"button",
               className:"board-mode-btn"+(boardMode===m?" on":""),"aria-pressed":boardMode===m,onClick:()=>setBoardMode(m),
               title:m==="table"?"Every scene's turn in one table (the former Audit)":"Scenes grouped by act"},lab))),
-          view==="spine" && React.createElement("div",{className:"legend"},
-            runtimeTotal>0 && React.createElement("div",{className:"legend-item",
-              title:"Estimated total runtime, ≈1 page/min (drafted scenes from their script; undrafted ones at this format’s budget per scene)"+
-                (sceneBudget ? " — this "+sceneBudget.label+" is meant to run about "+sceneBudget.runtimeText : "")},
-              React.createElement(Icon.clock,{s:12}),
-              "≈ "+((typeof fmtRuntime==="function") ? fmtRuntime(runtimeTotal) : Math.round(runtimeTotal/60)+" min")),
-            React.createElement("div",{className:"legend-item"},
-              React.createElement("span",{className:"legend-swatch",style:{background:"var(--pos)"}}),"Positive"),
-            React.createElement("div",{className:"legend-item"},
-              React.createElement("span",{className:"legend-swatch",style:{background:"var(--neg)"}}),"Negative"),
-            React.createElement("div",{className:"legend-item",title:"Intensifies on the same side instead of reversing"},
-              React.createElement("span",{className:"legend-swatch",style:{background:"var(--prog)"}}),"Progresses"),
-            React.createElement("div",{className:"legend-item"},
-              React.createElement("span",{className:"legend-swatch",style:{background:"var(--alert)"}}),"No turn"))),
+          // the length and a Key button (its card names the colours) at the row's right end (owner 2026-10-21)
+          view==="spine" && React.createElement(SpineLegend,{
+            runtimeText: runtimeTotal>0 ? "≈ "+((typeof fmtRuntime==="function") ? fmtRuntime(runtimeTotal) : Math.round(runtimeTotal/60)+" min") : "",
+            runtimeTitle:"Estimated total runtime, ≈1 page/min (drafted scenes from their script; undrafted ones at this format’s budget per scene)"+
+              (sceneBudget ? " — this "+sceneBudget.label+" is meant to run about "+sceneBudget.runtimeText : "")})),
 
         view==="spine" && scenes.length>0 && React.createElement(DragScroll,{className:"canvas-scroll spine-pan"},
           React.createElement(SpineCanvas,{scenes,selId,onSelect:selectSceneDetail,onPeek:selectSceneBrowse,staleIds:new Set(Object.keys(staleMap)),

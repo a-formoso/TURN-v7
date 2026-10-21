@@ -754,9 +754,6 @@ html[data-theme="light"] :is(.seg,.theme-opt,.nb-seg-btn,.board-mode-btn,.sb-mod
   display:flex;flex-direction:column;align-items:center;gap:12px}
 .empty-canvas-card .empty-canvas-title{margin-bottom:0}
 .empty-canvas-card .empty-canvas-sub{margin-bottom:4px;max-width:440px}
-/* the chart key has nothing to explain on an empty canvas (its colour swatches go; the runtime item only
-   renders once there are scenes) */
-.canvas:has(> .empty-canvas) .legend-item:has(> .legend-swatch){display:none}
 .empty-canvas-title{font-family:var(--f-serif);font-size:22px;font-weight:600;letter-spacing:-.01em;color:var(--txt-0);margin-bottom:9px}
 .empty-canvas-sub{font-size:13px;line-height:1.55;color:var(--txt-2);margin-bottom:20px}
 .empty-canvas-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 18px;
@@ -5031,9 +5028,7 @@ image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame)
      and Team. The Home button keeps its aria-label "Kinolot — Home" (review 2026-09-29). */
   .topbar .brand-name{display:none}
   .canvas-head{padding:12px 16px 0}
-  /* the colour key hides, but the film's estimated total runtime (the one legend item with
-     no swatch) stays on tablets and phones (2026-09-28) */
-  .legend-item:has(> .legend-swatch){display:none}
+  /* the length and the Key stay on tablets and phones (the colours live in the Key's card, 2026-10-21) */
   .canvas-scroll{padding:8px 14px 24px}
 }
 
@@ -9706,6 +9701,27 @@ html[data-theme="dark"] .app.hs{
 .app.hs .legend{gap:14px}
 .app.hs .legend-item{font-family:var(--f-ui);font-size:12px;letter-spacing:0;text-transform:none;color:var(--hs-sub);gap:6px}
 .app.hs .legend-swatch{width:9px;height:9px;border-radius:50%}
+/* the Key (owner 2026-10-21): the length + one small button on the Follow row; its card names the colours */
+.legend{position:relative}
+.legend-key{position:relative}
+.legend-key-btn{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:999px;cursor:pointer;
+  border:1px solid var(--hs-line-2,var(--line-2));background:var(--hs-surface,var(--bg-2));color:var(--hs-ink-2,var(--txt-1));
+  font:500 12px var(--f-ui)}
+.legend-key-btn:hover,.legend-key.open .legend-key-btn{border-color:var(--hs-line-3,var(--line-3));color:var(--hs-ink,var(--txt-0))}
+.legend-key-dots{display:inline-flex;gap:2px}
+.legend-key-dots i{width:6px;height:6px;border-radius:50%;display:block}
+.legend-pop{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:40;width:250px;padding:10px 12px;
+  background:var(--hs-surface,var(--bg-2));border:1px solid var(--hs-line-2,var(--line-2));border-radius:12px;box-shadow:0 12px 32px rgba(15,16,18,.12)}
+.legend-key.open .legend-pop{display:block}
+@media (hover:hover){ .legend-key:hover .legend-pop{display:block} }
+.legend-key::after{content:"";position:absolute;left:0;right:0;top:100%;height:8px}   /* the hover bridge to the card */
+.legend-pop-row{display:flex;gap:9px;align-items:flex-start;padding:5px 0}
+.legend-pop-row .legend-swatch{flex:none;width:9px;height:9px;border-radius:50%;margin-top:4px}
+.legend-pop-row b{display:block;font:600 12.5px var(--f-ui);color:var(--hs-ink,var(--txt-0))}
+.legend-pop-row span{display:block;font-size:11.5px;line-height:1.4;color:var(--hs-sub,var(--txt-2))}
+/* the Follow chips wrap inside their own space so the length and the Key keep the first row's right end */
+.app.hs.room-writers .canvas-tools .follow-strip + .legend{flex:none;align-self:flex-start;margin-top:2px}
+.app.hs.room-writers .canvas-tools .follow-strip:has(+ .legend){flex:1 1 0;min-width:min(100%,340px)}   /* too narrow: the Key drops to the next line */
 .app.hs.room-writers .canvas-scroll{padding:16px 28px 32px}
 .app.hs.room-writers .canvas-scroll.spine-pan{cursor:auto}
 .app.hs.room-writers .scroll-fade{display:none}
@@ -10740,7 +10756,10 @@ html[data-theme="light"] .app.hs .script-body.just-polished .sp-page{animation-n
    ringed in carbon, white labels on a leader tick. The same in both themes, as on the homepage. */
 .spine-hs .spine-frame{position:relative;border-radius:var(--r-l);background:#0E0F12;border:1px solid #0E0F12;overflow:hidden}
 .spine-hs .spine-frame > .lp-video-corners{z-index:5}
-.spine-hs .spine-chart{background:transparent;border:0;border-radius:0}
+.spine-hs .spine-chart{background:transparent;border:0;border-radius:0;scrollbar-width:none}
+/* no scrollbar under the film frame (owner 2026-10-21: it didn't belong to the chart) — hold and drag, the
+   trackpad or Shift + wheel pan it, and the faded edge says there's more */
+.spine-hs .spine-chart::-webkit-scrollbar{display:none;height:0}
 .spine-hs .sp-grid{stroke:rgba(255,255,255,.05);stroke-width:1}
 .spine-hs .sp-zero{stroke:rgba(255,255,255,.18);stroke-width:1;opacity:1}
 .spine-hs .sp-act{stroke:rgba(255,255,255,.12);stroke-width:1;stroke-dasharray:3 6;opacity:1}
