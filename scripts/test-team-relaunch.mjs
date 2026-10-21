@@ -340,7 +340,7 @@ await test("E1 app.jsx: rooms follow the owner's plan; a lapsed owner → read-o
   assert.ok(appSrc.includes('if(filmOwnerTier==="studio") return { writers_room:true, art_room:true, stage:true, shared:true };'));
   assert.ok(appSrc.includes('if(filmOwnerTier==="director") return { writers_room:true, art_room:true, stage:false, shared:true };'));
   // (Team review 2026-10-09) also read-only while sharing is paused, and while the film is off the list
-  assert.ok(appSrc.includes('const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : (_rolesNow || "view_only");'));
+  assert.ok(appSrc.includes('const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : (_rolesNow || (shareRole ? "view_only" : ""));'));
   assert.ok(appSrc.includes("window.teamCanWriteRoom(writeRole,id)") && appSrc.includes("window.teamCanWriteSection(writeRole,k)"));
   assert.ok(appSrc.includes('room==="stage" ? stageReadOnly : readOnlyShare'), "the Stage is read-only for every role but the Stage editor");
   assert.ok(appSrc.includes('{ uid:(session && session.user && session.user.id) || "", name, role:'), "presence: account id + name");

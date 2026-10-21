@@ -1138,7 +1138,10 @@ function App(){
      paused here too — what's left of the person's roles still works; nothing left = View-only. */
   const stageRolePaused = isSharedFilm && filmOwnerTier==="director" && String(shareRole||"").split("+").includes("stage_editor");
   const _rolesNow = stageRolePaused ? String(shareRole).split("+").filter(r=>r!=="stage_editor").join("+") : shareRole;
-  const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : (_rolesNow || "view_only");
+  // nothing left once a paused role is taken off = View-only; NO role known (a film that isn't a cloud row: a
+  // local film, or yours before the film list has loaded) stays yours to edit — it read "View-only access"
+  // and held the autosave back (2026-10-21; a film shared with you that's off the list is sharedOffList above)
+  const writeRole = (ownerPlanLapsed || sharingPaused || sharedOffList) ? "view_only" : (_rolesNow || (shareRole ? "view_only" : ""));
   const readOnlyShare = writeRole === "view_only";
   /* why this shared film is read-only, in one sentence (the notices and the banner use it — 2026-10-09: while
      sharing was paused they said "Your Stage editor role covers the Stage…") */

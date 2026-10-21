@@ -106,7 +106,7 @@ await test("B  the card names what's missing under the reference strip; Frances 
   assert.match(app, /document\.querySelector\('\[data-location-unit-image="'\+img\+'"\]'\)/);
   assert.match(read("app/ai.jsx"), /A FRAME NEVER INVENTS A CHARACTER \(2026-10-20\)/);
   const html = read("TURN.html");
-  for (const f of ["shots.jsx", "shots-ui.jsx"]) assert.ok(["20261020-hs36", "20261020-hs37", "20261020-hs38", "20261020-hs39", "20261020-hs40", "20261021-hs41", "20261021-hs42", "20261021-hs43"].some(v => html.includes(f + "?v=" + v + '"')), f);
+  for (const f of ["shots.jsx", "shots-ui.jsx"]) assert.ok(["20261020-hs36", "20261020-hs37", "20261020-hs38", "20261020-hs39", "20261020-hs40", "20261021-hs41", "20261021-hs42", "20261021-hs43", "20261021-hs44"].some(v => html.includes(f + "?v=" + v + '"')), f);
 });
 
 console.log(`\n${checks} passed, ${failed} failed`);
