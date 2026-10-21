@@ -500,8 +500,7 @@ function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSe
             React.createElement(window.InfoTip,{label:"About the Lookbook",
               text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture — each can have a mood frame in that visual language (original frames, never copies of the named films), rendered in the film's own medium. 'Research the look' writes the statement and gathers the references. 'Generate missing frames' renders the frames you don't have yet."}))),
         React.createElement("div",{className:"art-intro-actions"},
-          React.createElement("button",{className:"art-draftall ghost",onClick:addReference,title:"Add a reference by hand","aria-label":"Add a reference by hand"},
-            React.createElement(Icon.plus,{s:14})),
+          // the header's "+" (add a reference by hand) went (owner 2026-10-21); an empty Lookbook keeps "Add by hand"
           onResearch && (hasResearch && onResearchFresh
             ? React.createElement("div",{className:"lb-research"},
                 React.createElement("button",{className:"art-draftall ghost",onClick:()=>setResearchMenu(v=>!v),"aria-haspopup":"menu","aria-expanded":researchMenu?"true":"false",

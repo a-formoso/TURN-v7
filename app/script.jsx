@@ -1240,7 +1240,7 @@ function TransitionBar({ trans, out, fromTo }){
 
 function CarryLedger({ cells }){
   return React.createElement("div",{className:"sp-carry"},
-    React.createElement("div",{className:"clab2"},React.createElement(Icon.layers,{s:11}),"Story-state carried into this scene"),
+    // the cells speak for themselves — the "Story-state carried into this scene" label went (owner 2026-10-21)
     cells.map((c,i)=>React.createElement("div",{key:i,className:"cell"},
       React.createElement("div",{className:"clab"},c.lab),
       React.createElement("div",{className:"cval"},c.node || c.val))));

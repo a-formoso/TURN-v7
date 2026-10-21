@@ -619,16 +619,7 @@ function Inspector({ scene, beats, draft, onCharge, onUpdate, characters, scenes
         (typeof SceneContinuity==="function") && React.createElement(SceneContinuity,{scene,scenes,characters}),
 
         React.createElement("div",{className:"insp-actions"},
-          // one place earlier / later in the story (owner 2026-10-21: named for what they do, with a hover hint);
-          // the card, beats, script and shots go with it, and past an act's edge it joins the act it lands in
-          React.createElement("button",{className:"ia-btn",disabled:readOnly||sceneIndex<=0,onClick:()=>onMove(scene.id,-1),
-            title:sceneIndex<=0 ? "This is the first scene"
-              : "Move this scene one place earlier in the story \u2014 its card, beats, script and shots go with it"},
-            React.createElement(Icon.chevU,{s:14}),"Move earlier"),
-          React.createElement("button",{className:"ia-btn",disabled:readOnly||sceneIndex>=sceneCount-1,onClick:()=>onMove(scene.id,1),
-            title:sceneIndex>=sceneCount-1 ? "This is the last scene"
-              : "Move this scene one place later in the story \u2014 its card, beats, script and shots go with it"},
-            React.createElement(Icon.chevD,{s:14}),"Move later"),
+          // Move earlier / Move later went (owner 2026-10-21): a scene moves by dragging its card under the spine
           // a scene BEFORE this one, too (owner 2026-10-19): a new first scene, or a scene opening an act
           React.createElement("button",{className:"ia-btn",disabled:readOnly,onClick:()=>onAddScene(scene.id,{before:true}),
             title:"Add a scene before this one, in the same act"},
