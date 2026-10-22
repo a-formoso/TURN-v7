@@ -2845,7 +2845,31 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
       React.createElement("span",null,"Making Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"'s plates \u2014 "+sceneRun.i+" of "+sceneRun.total+" \u00b7 "+sceneRun.label),
       React.createElement("button",{className:"char-draft-btn ghost",onClick:()=>{ sceneStop.current = true; }},"Stop after this one")),
     BatchBar && React.createElement(BatchBar,{batch,noun:"location"}),
-    list.length>0 && React.createElement("div",{className:"prop-toolbar"},
+    /* THE SLATE (owner 2026-10-22, option A): one bar laid out like a film slate — labelled cells split by hairlines:
+       how many places (and rooms & times), the style for every location, the scene to focus, and search */
+    list.length>0 && React.createElement("div",{className:"loc-slate",role:"group","aria-label":"Locations: count, style, scene and search"},
+      React.createElement("div",{className:"loc-slate-cell loc-slate-count",
+          title:groups.length+" place"+(groups.length!==1?"s":"")+((sluglineUnits||[]).length ? " and "+(sluglineUnits||[]).length+" rooms & times from the sluglines" : "")},
+        React.createElement("span",{className:"loc-slate-lab"},"Places"),
+        React.createElement("b",null, groups.length+((sluglineUnits||[]).length ? " \u00b7 "+(sluglineUnits||[]).length+" rooms" : ""))),
+      React.createElement("div",{className:"loc-slate-cell loc-slate-style"},
+        React.createElement("span",{className:"loc-slate-lab"}, allStyling ? ("Inventing\u2026 "+allStyling.i+"/"+allStyling.total) : "Style \u00b7 all"),
+      // Render style stays editable; world scale is always resolved from the scene's occupants.
+        React.createElement("div",{className:"char-style-all",
+          title:"Apply one render style to ALL locations at once. Each location can still be overridden on its own card."},
+        React.createElement(window.RenderStylePicker,{context:"location",value:allStyleKey,disabled:!!allStyling,
+          placeholderLabel:"Mixed — per location",onPick:applyStyleAll}))),
+      sceneList.length>0 && React.createElement("div",{className:"loc-slate-cell loc-slate-scene prop-scenebar"},
+        React.createElement("span",{className:"loc-slate-lab"},"Scene"),
+        React.createElement("select",{className:"prop-select prop-scenebar-select",value:sceneFilter,
+          onChange:e=>setSceneFilter(e.target.value)},
+          React.createElement("option",{value:""},"All scenes \u2014 show every location"),
+          sceneList.map(s=>{
+            const n = groups.filter(g=>g.members.some(l=>inScene(l,s.id))).length;
+            return React.createElement("option",{key:s.id,value:s.id},
+              "Scene "+String(s.no).padStart(2,"0")+" \u00b7 "+(s.title||"")+"  ("+n+" location"+(n!==1?"s":"")+")");
+          }))),
+      React.createElement("div",{className:"loc-slate-cell loc-slate-search"+((searchOpen||q)?" open":"")},
       React.createElement("div",{className:"prop-searchbar collapsible"+((searchOpen||q)?" open":""),
         title:(searchOpen||q)?"":"Search locations",
         onClick:()=>{ if(!searchOpen && !q){ setSearchOpen(true); setTimeout(()=>{ if(searchRef.current) searchRef.current.focus(); },0); } }},
@@ -2856,24 +2880,9 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
           onBlur:()=>{ if(!query) setSearchOpen(false); },
           onKeyDown:e=>{ if(e.key==="Escape"){ setQuery(""); setSearchOpen(false); if(searchRef.current) searchRef.current.blur(); } }}),
         q && React.createElement("span",{className:"prop-search-count"}, shownGroups.length+" of "+groups.length),
-        q && React.createElement("button",{className:"prop-search-clear",title:"Clear search",onClick:(e)=>{ e.stopPropagation(); setQuery(""); setSearchOpen(false); }},React.createElement(Icon.x,{s:14}))),
-      // Render style stays editable; world scale is always resolved from the scene's occupants.
-      React.createElement("div",{className:"char-style-all",
-        title:"Apply one render style to ALL locations at once. Each location can still be overridden on its own card."},
-        React.createElement("span",{className:"char-style-all-lab"},
-          allStyling ? ("Inventing… "+allStyling.i+"/"+allStyling.total) : "Style · all locations"),
-        React.createElement(window.RenderStylePicker,{context:"location",value:allStyleKey,disabled:!!allStyling,
-          placeholderLabel:"Mixed — per location",onPick:applyStyleAll})),
-      sceneList.length>0 && React.createElement("div",{className:"prop-scenebar"},
-        React.createElement("span",{className:"prop-scenebar-lab"},React.createElement(Icon.layers,{s:14}),"Focus a scene"),
-        React.createElement("select",{className:"prop-select prop-scenebar-select",value:sceneFilter,
-          onChange:e=>setSceneFilter(e.target.value)},
-          React.createElement("option",{value:""},"All scenes \u2014 show every location"),
-          sceneList.map(s=>{
-            const n = groups.filter(g=>g.members.some(l=>inScene(l,s.id))).length;
-            return React.createElement("option",{key:s.id,value:s.id},
-              "Scene "+String(s.no).padStart(2,"0")+" \u00b7 "+(s.title||"")+"  ("+n+" location"+(n!==1?"s":"")+")");
-          })),
+        q && React.createElement("button",{className:"prop-search-clear",title:"Clear search",onClick:(e)=>{ e.stopPropagation(); setQuery(""); setSearchOpen(false); }},React.createElement(Icon.x,{s:14}))))),
+    // a focused scene's own batch: under the slate
+    (sceneFilter && (sceneMissingN>0 || draftedIds(shown).length>0)) && React.createElement("div",{className:"loc-slate-acts"},
         (sceneFilter && sceneMissingN>0) && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!!sceneRun,onClick:startSceneRun,
           title:"Make every plate this scene needs that doesn't exist yet: "+plan.masters.length+" location plate"+(plan.masters.length!==1?"s":"")+" (a room's parent first), then "+plan.units.length+" room & time plate"+(plan.units.length!==1?"s":"")
             +(plan.waiting ? ". "+plan.waiting+" more wait for a shared layout to be reviewed (Spatial Layout & Staging)" : "")},
@@ -2883,7 +2892,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
         (sceneFilter && !sceneMissingN && draftedIds(shown).length>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId||!!sceneRun,onClick:startSceneRegenerate,
           title:"Regenerate this scene's location plates \u2014 you'll be asked before anything is redone, with the price"},
           React.createElement(Icon.sparkles,{s:14}),
-          batchActiveId?"Generating\u2026":("Regenerate Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"\u2026")))),
+          batchActiveId?"Generating\u2026":("Regenerate Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"\u2026"))),
     list.length
       ? (shownGroups.length
           ? React.createElement(React.Fragment,null,

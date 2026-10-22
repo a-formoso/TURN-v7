@@ -10857,3 +10857,42 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .acct-menu-a .acct-signout.acct-row{color:var(--hs-sub,var(--txt-2))}
 .acct-menu-a .acct-status.acct-note{margin:2px 8px 8px}
 @media (max-width:560px){ .acct-menu.acct-menu-a{width:min(280px,calc(100vw - 24px))} }
+
+/* ============================ LOCATIONS: THE SLATE (owner 2026-10-22, option A) ============================
+   One bar like a film slate: labelled cells split by hairlines — Places, Style · all, Scene, search. The controls
+   inside lose their own boxes; each cell reads as an entry on the slate. */
+.loc-slate{display:flex;align-items:stretch;margin:0 0 18px;border:1px solid var(--hs-line-2,var(--line-2));border-radius:12px;
+  background:var(--hs-surface,var(--bg-2));overflow:visible}
+.loc-slate-cell{display:flex;flex-direction:column;justify-content:center;gap:3px;min-width:0;padding:8px 14px;
+  border-right:1px solid var(--hs-line,var(--line))}
+.loc-slate-cell:last-child{border-right:0}
+.loc-slate-lab{font:400 10px/1.2 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--hs-sub,var(--txt-2));white-space:nowrap}
+.loc-slate-count{flex:none}
+.loc-slate-count b{font:500 13px/24px var(--f-ui);color:var(--hs-ink,var(--txt-0));white-space:nowrap}
+.loc-slate-style{flex:1 1 240px}
+.loc-slate-scene{flex:1.2 1 280px}
+.loc-slate .char-style-all{display:block;height:auto;padding:0;margin:0;border:0;background:none;box-shadow:none}
+.app .loc-slate .rs-trigger,.app.hs.room-art .loc-slate .rs-trigger{width:100%;height:24px;padding:0;border:0;background:transparent;
+  font:500 13px var(--f-ui);color:var(--hs-ink,var(--txt-0))}
+.app .loc-slate .rs-trigger:hover:not(:disabled),.app.hs.room-art .loc-slate .rs-trigger:hover:not(:disabled){background:transparent;border:0;color:var(--hs-amber-ink,var(--pos-ink))}
+.loc-slate .rs-picker{display:block;width:100%}
+.loc-slate .prop-scenebar{display:flex;flex-direction:column;align-items:stretch;height:auto;margin:0;padding:8px 14px;border:0;
+  border-right:1px solid var(--hs-line,var(--line));border-radius:0;background:none;box-shadow:none;flex-wrap:nowrap}
+.loc-slate .prop-scenebar-select{width:100%;height:24px;padding:0 18px 0 0;border:0;background-color:transparent;
+  font:500 13px var(--f-ui);color:var(--hs-ink,var(--txt-0));cursor:pointer;box-shadow:none}
+.loc-slate .prop-scenebar-select:focus-visible{outline:2px solid var(--hs-amber-line,var(--accent-line));outline-offset:2px;border-radius:4px}
+.loc-slate-search{flex:none;justify-content:center;padding:0 6px}
+.loc-slate-search.open{flex:0 1 260px}
+.loc-slate .prop-searchbar{height:38px;margin:0;border:0;background:none;box-shadow:none;border-radius:8px}
+.loc-slate .prop-searchbar.collapsible{width:38px}
+.loc-slate .prop-searchbar.collapsible.open{width:100%}
+.loc-slate .prop-searchbar.collapsible:hover{background:var(--hs-bone,var(--bg-3))}
+.loc-slate-acts{display:flex;flex-wrap:wrap;gap:8px;margin:-8px 0 18px}
+@media (max-width:760px){
+  .loc-slate{flex-wrap:wrap}
+  .loc-slate-cell,.loc-slate .prop-scenebar{border-right:0;border-bottom:1px solid var(--hs-line,var(--line))}
+  .loc-slate-count{flex:1 1 40%}
+  .loc-slate-style,.loc-slate-scene{flex:1 1 100%}
+  .loc-slate-search{flex:0 0 auto;border-bottom:0}
+  .loc-slate-search.open{flex:1 1 100%}
+}
