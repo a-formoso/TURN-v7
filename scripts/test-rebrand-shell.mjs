@@ -519,8 +519,8 @@ check("C the account chip: Co-writer role, the Producer plan by name, Frances fr
   ab.React.reset();
   const retry = ab.AccountChip({ session:{}, cloudActive:false, connectionState:"retrying" });
   const titles = [bad, retry].map(t=>findAll(t, hasClass("acct-cloud"))[0].props.title);
-  return textOf(chip).includes("Co-writer") && textOf(chip).includes("Project role: Co-writer") && textOf(chip).includes("Credits: 120 remaining · Producer plan")
-    && all.includes("MUSE")===false && all.includes("Frances is free.") && titles.every(t=>t && !/\bTURN\b/.test(t))
+  return textOf(chip).includes("Co-writer") && textOf(chip).includes("Project role: Co-writer") && textOf(chip).includes("Producer · Synced") && textOf(chip).includes("Credits")
+    && all.includes("MUSE")===false && titles.every(t=>t && !/\bTURN\b/.test(t))
     && titles[0].startsWith("Your role on this shared project couldn't be verified") && /retrying automatically/.test(titles[1]);
 });
 

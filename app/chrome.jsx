@@ -89,8 +89,8 @@ window.storyBriefShown = storyBriefShown;
 /* OverflowMenu — the top bar's "Film ⋯" menu (homepage style, owner 2026-10-16): in every room and at
    every width it holds the film's actions the bar no longer shows as buttons — New Story, the Story
    brief, Team, the exports (the Writers' Room's screenplay formats, the Art Room's shot list /
-   stripboard / art bible), the Art Room's "Always show prompts", Appearance (light / dark / system),
-   the admin's Render styles and API keys, and the admin-only Reset. On a phone it also lists the Art
+   stripboard / art bible), the Art Room's "Always show prompts", Appearance (light / dark / system)
+   and the admin-only Reset (Render styles and API keys moved to the account menu, 2026-10-22). On a phone it also lists the Art
    Room tabs. */
 const FILM_EXPORTS = [
   ["pdf", Icon.film, "Screenplay (PDF)", "Preview, then print / save as PDF"],
@@ -98,7 +98,7 @@ const FILM_EXPORTS = [
   ["outline", Icon.layers, "Story outline (.txt)", "Premise, idea & spine"],
   ["csv", Icon.grid, "Spine data (.csv)", "Scenes, charges, turns"],
 ];
-function OverflowMenu({ onNewStory, onImportScript, onImportDraft, project, scenes, drafts, onReset, room, artView, setArtView, artTabLocks, hiddenArtTabs, theme, onTheme, onOpenStyles, onOpenApiKeys }){
+function OverflowMenu({ onNewStory, onImportScript, onImportDraft, project, scenes, drafts, onReset, room, artView, setArtView, artTabLocks, hiddenArtTabs, theme, onTheme }){
   const [open, setOpen] = React.useState(false);
   // "Always show prompts" (owner 2026-10-05) — the Art Room's personal switch (artroom.jsx keeps it)
   const readPrompts = ()=> typeof window.turnArtAlwaysPrompts==="function" && window.turnArtAlwaysPrompts();
@@ -239,22 +239,7 @@ function OverflowMenu({ onNewStory, onImportScript, onImportDraft, project, scen
             React.createElement("button",{key:m,type:"button",className:"film-theme-btn"+(themeNow===m?" on":""),
                 "aria-pressed":themeNow===m?"true":"false",title:lab+" mode",onClick:()=>onTheme(m)},
               React.createElement(Ic,{s:14}),lab)))),
-      // ADMIN — Render styles (curates the GLOBAL style tier) and the platform's provider keys. Regular users
-      // manage their own locked styles on the Art Room cards, and never enter provider keys.
-      window.turnIsAdmin && (onOpenStyles || onOpenApiKeys) && React.createElement(React.Fragment,null,
-        React.createElement("div",{className:"export-subhead"},"Admin"),
-        onOpenStyles && React.createElement("button",{type:"button",className:"export-item",onClick:()=>{ setOpen(false); onOpenStyles(); },
-            title:"Render styles — curate the global style list (admin) and your locked styles"},
-          React.createElement("span",{className:"export-item-ic"},React.createElement((Icon.sparkles||Icon.layers),{s:16})),
-          React.createElement("span",{className:"export-item-t"},
-            React.createElement("span",{className:"t"},"Styles"),
-            React.createElement("span",{className:"s"},"Render styles for every film"))),
-        onOpenApiKeys && React.createElement("button",{type:"button",className:"export-item",onClick:()=>{ setOpen(false); onOpenApiKeys(); },
-            title:"API keys — platform provider keys (admin only)"},
-          React.createElement("span",{className:"export-item-ic"},React.createElement((Icon.key||Icon.padlock||Icon.layers),{s:16})),
-          React.createElement("span",{className:"export-item-t"},
-            React.createElement("span",{className:"t"},"API Keys"),
-            React.createElement("span",{className:"s"},"Platform provider keys")))),
+      // (Render styles and API keys moved to the account menu's Admin group, owner 2026-10-22)
       // admin-only (app.jsx passes onReset only for the admin account)
       onReset && React.createElement("div",{className:"export-foot"},
         React.createElement("button",{className:"export-item reset",
@@ -790,6 +775,8 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
   const [stylesOpen, setStylesOpen] = React.useState(false);
   const [apiKeysOpen, setApiKeysOpen] = React.useState(false);
   React.useEffect(()=>{ const h=()=>setApiKeysOpen(true); window.addEventListener("turn-open-api-keys",h); return ()=>window.removeEventListener("turn-open-api-keys",h); },[]);
+  // the account menu's Admin rows (2026-10-22) open the same windows the Film menu used to
+  React.useEffect(()=>{ const h=()=>setStylesOpen(true); window.addEventListener("turn-open-styles",h); return ()=>window.removeEventListener("turn-open-styles",h); },[]);
   // the phone ⋯ menu's "Story brief" entry opens the same window as the Brief button
   React.useEffect(()=>{ const h=()=>setBriefOpen(true); window.addEventListener("turn-open-brief",h); return ()=>window.removeEventListener("turn-open-brief",h); },[]);
   // while a menu or window opened from the bar is up, the bar sits above the drawers, the Frances
@@ -829,12 +816,10 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
       // Team opens from the Film menu (window.turnTeamMenu); the button stays mounted, hidden, because
       // its window renders beside it
       teamSlot ? React.createElement("span",{className:"tb-team-slot"},teamSlot) : null,
-      // the Film menu: New Story, the Story brief, Team, the exports, Appearance, the admin's Styles /
-      // API keys and Reset — in every room, at every width (each entry under its own conditions)
+      // the Film menu: New Story, the Story brief, Team, the exports, Appearance and the admin's
+      // Reset — in every room, at every width (each entry under its own conditions)
       React.createElement(OverflowMenu,{onNewStory,onImportScript,onImportDraft,project,scenes,drafts,onReset,room,
-        artView,setArtView,artTabLocks,hiddenArtTabs,theme,onTheme,
-        onOpenStyles: onManageStyles ? ()=>setStylesOpen(true) : null,
-        onOpenApiKeys: ()=>setApiKeysOpen(true)}),
+        artView,setArtView,artTabLocks,hiddenArtTabs,theme,onTheme}),
       authSlot || React.createElement("div",{className:"avatar"},"MV")),
   );
 }

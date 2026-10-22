@@ -295,67 +295,95 @@ function AccountChip({ session, cloudActive, connectionState, saveState, shareRo
         : connectionState==="retrying"
         ? React.createElement("span",{className:"acct-cloud warn",title:"The cloud connection paused. It is retrying automatically, and your open work stays on screen."},React.createElement(Icon.warn,{s:11}),"Reconnecting")
         : React.createElement("span",{className:"acct-cloud warn"},React.createElement(Icon.warn,{s:11}),"Connecting")),
-    open && React.createElement("div",{className:"acct-menu"},
-      React.createElement("div",{className:"acct-email"}, email),
-      React.createElement("div",{className:"acct-status"},
-        cloudActive ? (saveState==="failed" ? "Signed in \u00b7 the last save FAILED \u2014 your work is still on screen; leave this tab open until it saves."
-                     : saveState==="retrying" ? "Signed in \u00b7 retrying a save that didn't go through\u2026"
-                     : "Signed in \u00b7 cloud storage active")
-                    : connectionState==="retrying"
-                    ? "Signed in \u00b7 reconnecting automatically. Your open work stays on screen."
-                    : "Signed in \u00b7 opening cloud storage\u2026"),
-      scopedRole && React.createElement("div",{className:"acct-status",
-        title:window.teamRoleScopeNote ? window.teamRoleScopeNote(shareRole) : ""},
-        "Project role: "+scopedRole),
-      roleUnavailable && React.createElement("div",{className:"acct-status acct-status-bad"},
-        "Project role unavailable \u00b7 read-only"),
-      // CREDITS (images, video and writing-model calls debit these server-side) + the
-      // WRITING-MODEL meter (a local running tally of those calls \u2014 counted in ai.jsx)
-      (()=>{
-        const bal = window.turnCreditBalance;
-        const ts = (typeof window.turnTextSpend==="function") ? window.turnTextSpend() : null;
-        const since = ts && ts.since ? new Date(ts.since) : null;
-        return React.createElement(React.Fragment,null,
-          bal && React.createElement("div",{className:"acct-status",title:"Credits \u2014 spent by image and video generation and by writing-model calls (see the Stage footer for per-render costs)"},
-            // one number format everywhere (repair 2026-09-30): "1,234 remaining · 1,000 plan + 234 pack"
-            "Credits: "+(Number(bal.remaining)||0).toLocaleString("en-US")+" remaining"
-              // plan + pack credits once the account has pack credits (billing fixes, 2026-09-30)
-              +((typeof window.turnCreditSplitText==="function" && window.turnCreditSplitText(bal)) ? " \u00b7 "+window.turnCreditSplitText(bal) : "")
-              +(window.turnIsPaidPlan&&window.turnIsPaidPlan(bal.plan)?(" \u00b7 "+((typeof window.turnPlanDisplayName==="function") ? window.turnPlanDisplayName(bal.plan) : bal.plan)+" plan"):"")),
-          // upgrade / manage plan \u2014 opens the Kinolot plans modal
-          window.turnOpenPlans && React.createElement("button",{className:"acct-upgrade",
+    /* THE ACCOUNT MENU, quiet list (owner 2026-10-22, option A): who you are and the save state in one header,
+       the credits as a bar, plain rows for the plan, the admin's tools (Render styles and API keys moved here
+       from the Film menu) and Sign out — hairlines between the groups, nothing filled. A save problem or a
+       project role still says itself in full under the header. */
+    open && (()=>{
+      const bal = window.turnCreditBalance;
+      const paid = !!(bal && window.turnIsPaidPlan && window.turnIsPaidPlan(bal.plan));
+      const planName = paid ? ((typeof window.turnPlanDisplayName==="function") ? window.turnPlanDisplayName(bal.plan) : bal.plan) : "";
+      const healthy = cloudActive && saveState!=="failed" && saveState!=="retrying";
+      const stateWord = !cloudActive ? (connectionState==="retrying" ? "Reconnecting" : "Connecting")
+        : saveState==="saving" ? "Saving\u2026" : healthy ? "Synced" : "";
+      const sub = [planName, stateWord].filter(Boolean).join(" \u00b7 ");
+      // the bar: what's left of the plan's monthly allowance (pack credits show as the split under it)
+      const left = bal ? (Number(bal.remaining)||0) : 0;
+      const allow = (()=>{ const t = String(bal && bal.plan || "").toLowerCase(), A = window.TURN_PLAN_ALLOWANCES;
+        if(!paid || !A) return 0; const set = (typeof window.turnCreditUnitSwitched==="function" && !window.turnCreditUnitSwitched()) ? A.legacy : A.switched;
+        return Number(set && set[t==="pro" ? "director" : t]) || 0; })();
+      const split = bal && (typeof window.turnCreditSplitText==="function") ? window.turnCreditSplitText(bal) : "";
+      const pack = bal ? Math.max(0, Number(bal.packRemaining)||0) : 0;
+      const planLeft = bal && bal.planRemaining!=null ? Math.max(0, Number(bal.planRemaining)||0) : Math.max(0, left - pack);
+      const isAdmin = !!window.turnIsAdmin;
+      const fire = (ev)=>{ setOpen(false); try{ window.dispatchEvent(new CustomEvent(ev)); }catch(e){} };
+      return React.createElement("div",{className:"acct-menu acct-menu-a"},
+        React.createElement("div",{className:"acct-head"},
+          React.createElement("span",{className:"acct-head-av","aria-hidden":"true"}, initial),
+          React.createElement("div",{className:"acct-head-t"},
+            React.createElement("div",{className:"acct-email"}, email),
+            sub && React.createElement("div",{className:"acct-sub"}, sub))),
+        // problems and roles say themselves in full
+        cloudActive && saveState==="failed" && React.createElement("div",{className:"acct-status acct-status-bad"},
+          "The last save failed \u2014 your work is still on screen; leave this tab open until it saves."),
+        cloudActive && saveState==="retrying" && React.createElement("div",{className:"acct-status"},"Retrying a save that didn't go through\u2026"),
+        !cloudActive && connectionState==="retrying" && React.createElement("div",{className:"acct-status"},"The connection paused \u2014 reconnecting automatically. Your open work stays on screen."),
+        scopedRole && React.createElement("div",{className:"acct-status",
+          title:window.teamRoleScopeNote ? window.teamRoleScopeNote(shareRole) : ""},
+          "Project role: "+scopedRole),
+        roleUnavailable && React.createElement("div",{className:"acct-status acct-status-bad"},
+          "Project role unavailable \u00b7 read-only"),
+        // CREDITS — images, video and writing calls are charged from these on the server
+        bal && React.createElement("div",{className:"acct-credits",
+            title:"Credits \u2014 spent by image and video generation and by writing-model calls (see the Stage footer for per-render costs)"},
+          React.createElement("div",{className:"acct-credits-row"},
+            React.createElement("span",null,"Credits"),
+            // "645 of 1,600" when it's all plan credits; with pack credits the total ("1,234 left") and the split under it
+            React.createElement("b",null, allow && !pack && left<=allow
+              ? left.toLocaleString("en-US")+" of "+allow.toLocaleString("en-US")
+              : left.toLocaleString("en-US")+" left")),
+          // the bar is the plan's month: what's left of its allowance (pack credits aren't in it)
+          allow ? React.createElement("div",{className:"acct-credits-bar",role:"img","aria-label":planLeft+" of "+allow+" plan credits left this month"},
+            React.createElement("i",{style:{width:Math.max(0,Math.min(100,Math.round(planLeft/allow*100)))+"%"}})) : null,
+          split && React.createElement("div",{className:"acct-credits-split"}, split)),
+        React.createElement("div",{className:"acct-sep"}),
+        window.turnOpenPlans && React.createElement("button",{className:"acct-upgrade acct-row",
             onClick:()=>{ setOpen(false); window.turnOpenPlans(); }},
-            React.createElement(Icon.sparkles,{s:12}),
-            (bal && window.turnIsPaidPlan && window.turnIsPaidPlan(bal.plan)) ? "Change plan" : "Get credits \u00b7 Choose a plan"),
-          // Manage plan (2026-09-30): paid plans only \u2014 card, invoices, cancel at the end of
-          // the period, on the billing portal the billing-portal Edge Function opens
-          (bal && window.turnIsPaidPlan && window.turnIsPaidPlan(bal.plan) && typeof window.sbClient==="function") &&
-            React.createElement("button",{className:"acct-upgrade acct-manage",disabled:portal.busy,"aria-busy":portal.busy?"true":"false",
-                title:"Update your card, see invoices, or cancel at the end of the billing period",
-                onClick:managePlan},
-              portal.busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.clipboard,{s:12}),
-              portal.busy ? "Opening\u2026" : "Manage plan"),
-          portal.msg && React.createElement("div",{className:"acct-status acct-note",role:"status"}, portal.msg),
-          ts && React.createElement("div",{className:"acct-status",
-            title:"Writing model use \u2014 a running tally on this device of drafting, agent and QA calls. The server deducts each call's real token cost from your credits; Frances is free."},
-            "Writing model: "+ts.calls+" call"+(ts.calls===1?"":"s")+" \u00b7 \u2248"+(ts.credits||0)+" credits"
-              +(since?(" since "+since.toLocaleDateString()):"")));
-      })(),
-      // platform admin only (2026-09-27): the Storage page (app/admin-storage.jsx, self-mounting);
-      // the admin-storage Edge Function enforces the admin gate again server-side
-      window.turnIsAdmin && typeof window.turnOpenAdminStorage==="function" &&
-        React.createElement("button",{className:"acct-upgrade acct-admin",
-            onClick:()=>{ setOpen(false); window.turnOpenAdminStorage(); }},
-          React.createElement(Icon.box,{s:12}),"Storage \u00b7 admin"),
-      // platform admin only (2026-10-01): Tax & compliance (app/admin-tax.jsx, self-mounting) —
-      // the sales ledger against the UK VAT, EU OSS and US sales-tax thresholds; the database
-      // function refuses everyone but the admin again (turn_admin_tax_summary)
-      window.turnIsAdmin && typeof window.turnOpenAdminTax==="function" &&
-        React.createElement("button",{className:"acct-upgrade acct-admin",
-            onClick:()=>{ setOpen(false); window.turnOpenAdminTax(); }},
-          React.createElement(Icon.globe||Icon.clipboard,{s:12}),"Tax & compliance \u00b7 admin"),
-      React.createElement("button",{className:"acct-signout",onClick:()=>{ setOpen(false); onSignOut && onSignOut(); }},
-        "Sign out")));
+          React.createElement(Icon.sparkles,{s:14}),
+          paid ? "Change plan" : "Get credits \u00b7 Choose a plan"),
+        // Manage plan (2026-09-30): paid plans only — card, invoices, cancel at the end of the period
+        (paid && typeof window.sbClient==="function") &&
+          React.createElement("button",{className:"acct-upgrade acct-manage acct-row",disabled:portal.busy,"aria-busy":portal.busy?"true":"false",
+              title:"Update your card, see invoices, or cancel at the end of the billing period",
+              onClick:managePlan},
+            portal.busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.clipboard,{s:14}),
+            portal.busy ? "Opening\u2026" : "Manage plan"),
+        portal.msg && React.createElement("div",{className:"acct-status acct-note",role:"status"}, portal.msg),
+        // ADMIN — the platform tools, the admin only (each also checks again where it opens)
+        isAdmin && React.createElement("div",{className:"acct-sep"}),
+        isAdmin && React.createElement("div",{className:"acct-group"},"Admin"),
+        isAdmin && React.createElement("button",{className:"acct-upgrade acct-admin acct-row",
+            title:"Render styles \u2014 curate the global style list and your locked styles",
+            onClick:()=>fire("turn-open-styles")},
+          React.createElement(Icon.palette||Icon.sparkles,{s:14}),"Render styles"),
+        isAdmin && React.createElement("button",{className:"acct-upgrade acct-admin acct-row",
+            title:"API keys \u2014 the platform's provider keys",
+            onClick:()=>fire("turn-open-api-keys")},
+          React.createElement(Icon.key||Icon.padlock,{s:14}),"API keys"),
+        // the Storage page (app/admin-storage.jsx); the admin-storage Edge Function checks the admin again
+        isAdmin && typeof window.turnOpenAdminStorage==="function" &&
+          React.createElement("button",{className:"acct-upgrade acct-admin acct-row",
+              onClick:()=>{ setOpen(false); window.turnOpenAdminStorage(); }},
+            React.createElement(Icon.box,{s:14}),"Storage"),
+        // Tax & compliance (app/admin-tax.jsx); turn_admin_tax_summary refuses everyone but the admin again
+        isAdmin && typeof window.turnOpenAdminTax==="function" &&
+          React.createElement("button",{className:"acct-upgrade acct-admin acct-row",
+              onClick:()=>{ setOpen(false); window.turnOpenAdminTax(); }},
+            React.createElement(Icon.globe||Icon.clipboard,{s:14}),"Tax & compliance"),
+        React.createElement("div",{className:"acct-sep"}),
+        React.createElement("button",{className:"acct-signout acct-row",onClick:()=>{ setOpen(false); onSignOut && onSignOut(); }},
+          "Sign out"));
+    })());
 }
 window.AccountChip = AccountChip;
 

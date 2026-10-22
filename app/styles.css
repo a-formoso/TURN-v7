@@ -10825,3 +10825,35 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .shot-ref-missing span{font-size:8px;letter-spacing:-.02em;margin-right:10px}
 /* a room & time view opened from a shot's missing reference flashes once (2026-10-20) */
 .loc-unit-card.fold-flash{animation:foldFlash 1.9s ease}
+
+/* ============================ THE ACCOUNT MENU, QUIET LIST (owner 2026-10-22, option A) ============================
+   Header (avatar, email, plan · save state), the credits as a bar, then plain rows split by hairlines: the plan,
+   the admin's tools, Sign out. Nothing filled; the row under the pointer gets a soft wash. */
+.acct-menu.acct-menu-a{width:280px;min-width:0;padding:8px;border-radius:14px;background:var(--hs-surface,var(--bg-2));
+  border:1px solid var(--hs-line-2,var(--line-2));box-shadow:0 14px 36px rgba(15,16,18,.14)}
+.acct-menu-a .acct-head{display:flex;align-items:center;gap:10px;padding:6px 8px 10px}
+.acct-menu-a .acct-head-av{width:32px;height:32px;flex:none;border-radius:50%;display:grid;place-items:center;
+  background:var(--hs-amber,var(--accent));color:var(--hs-on-amber,#fff);font:600 13px var(--f-ui)}
+.acct-menu-a .acct-head-t{min-width:0}
+.acct-menu-a .acct-email{font:600 13px/1.3 var(--f-ui);color:var(--hs-ink,var(--txt-0));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:normal}
+.acct-menu-a .acct-sub{margin-top:2px;font-size:11.5px;color:var(--hs-sub,var(--txt-2))}
+.acct-menu-a .acct-status{margin:0 8px 8px;font-size:11.5px;line-height:1.4;color:var(--hs-sub,var(--txt-2))}
+.acct-menu-a .acct-status.acct-status-bad{color:var(--neg-ink)}
+.acct-menu-a .acct-credits{padding:2px 8px 8px}
+.acct-menu-a .acct-credits-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--hs-ink-2,var(--txt-1))}
+.acct-menu-a .acct-credits-row b{font:500 12px var(--f-mono);color:var(--hs-ink,var(--txt-0))}
+.acct-menu-a .acct-credits-bar{height:4px;margin-top:6px;border-radius:2px;background:var(--hs-line,var(--bg-4));overflow:hidden}
+.acct-menu-a .acct-credits-bar i{display:block;height:100%;border-radius:2px;background:var(--hs-amber,var(--accent))}
+.acct-menu-a .acct-credits-split{margin-top:5px;font-size:11px;color:var(--hs-sub,var(--txt-2))}
+.acct-menu-a .acct-sep{height:1px;margin:6px 4px;background:var(--hs-line,var(--line))}
+.acct-menu-a .acct-group{padding:6px 8px 2px;font:400 10px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--hs-sub,var(--txt-2))}
+.acct-menu-a .acct-row,.acct-menu-a .acct-upgrade.acct-row,.acct-menu-a .acct-upgrade.acct-manage.acct-row,.acct-menu-a .acct-upgrade.acct-admin.acct-row{
+  width:100%;height:34px;margin:0;padding:0 8px;display:flex;align-items:center;justify-content:flex-start;gap:10px;
+  background:transparent;border:0;border-radius:8px;color:var(--hs-ink,var(--txt-0));font:500 13px var(--f-ui);text-align:left;cursor:pointer;transition:background .12s}
+.acct-menu-a .acct-row svg{flex:none;color:var(--hs-sub,var(--txt-2))}
+.acct-menu-a .acct-row:hover,.acct-menu-a .acct-row:focus-visible,.acct-menu-a .acct-upgrade.acct-row:hover,.acct-menu-a .acct-upgrade.acct-manage.acct-row:hover,
+.acct-menu-a .acct-upgrade.acct-admin.acct-row:hover{background:var(--hs-bone,var(--bg-3));color:var(--hs-ink,var(--txt-0));outline:none}
+.acct-menu-a .acct-upgrade.acct-manage.acct-row:disabled{background:transparent;opacity:.6;cursor:progress}
+.acct-menu-a .acct-signout.acct-row{color:var(--hs-sub,var(--txt-2))}
+.acct-menu-a .acct-status.acct-note{margin:2px 8px 8px}
+@media (max-width:560px){ .acct-menu.acct-menu-a{width:min(280px,calc(100vw - 24px))} }

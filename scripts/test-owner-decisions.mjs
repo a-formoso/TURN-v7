@@ -135,7 +135,8 @@ await test("review fixes: slash emotions, edit numbering, poster medium, money c
   assert.ok(app.includes('window.renderStylePromptName(topKey)) || (window.RENDER_STYLE_LABELS||{})[topKey]'),"the poster names the medium by its prompt name");
   assert.ok(app.includes("format: undef(project.format), framework: undef(project.framework),"));
   const au=read("app/auth-ui.jsx");
-  assert.ok(!au.includes("not deducted from your generation credits")&&au.includes("The server deducts each call's real token cost from your credits; Frances is free."));
+  // (the on-device "Writing model" tally left the account menu, 2026-10-22: its Credits say writing calls spend them)
+  assert.ok(!au.includes("not deducted from your generation credits")&&au.includes("Credits \\u2014 spent by image and video generation and by writing-model calls"));
   const m=ai.slice(ai.indexOf("const APP_FEATURES"),ai.indexOf("function appBrief"));
   assert.ok(!m.includes("(Short Film, Feature Film, TV Series, Commercial, Micro-Drama, Documentary)")&&m.includes("Micro Short, Micro-drama, Music Video"));
   assert.ok(!/GTA Loading-Screen Art \(Illustration \/ Concept Art: semi-realistic figures, bold black outlines, hard cel shading, a saturated sunset palette/.test(m)&&m.includes("location plates keep their own time of day"));
