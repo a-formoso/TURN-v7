@@ -1998,15 +1998,36 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
         React.createElement("b",null,unassignedCarried.length+" carried prop"+(unassignedCarried.length!==1?"s":"")),
         " ha"+(unassignedCarried.length!==1?"ve":"s")+" no owner \u2014 assign one on each card so its sheet is anchored to a character, not generated world-generic.")),
     BatchBar && React.createElement(BatchBar,{batch,noun:"prop"}),
-    // free-text search — filter prop cards by name or owner as you type
-    (list.length>0 || (tagged && sceneList.length>0)) && React.createElement("div",{className:"prop-toolbar"},
-      React.createElement("label",{className:"prop-scenebar"},"Show",React.createElement("select",{className:"prop-select",value:inventoryGroup,"aria-label":"Prop inventory group",onChange:e=>setInventoryGroup(e.target.value)},
+    /* THE SLATE (owner 2026-10-22, as Locations): one bar of labelled cells — Show (which objects), Style · all,
+       Scene, search */
+    (list.length>0 || (tagged && sceneList.length>0)) && React.createElement("div",{className:"loc-slate art-slate",role:"group","aria-label":"Props: which objects, style, scene and search"},
+      React.createElement("label",{className:"loc-slate-cell loc-slate-show"},
+        React.createElement("span",{className:"loc-slate-lab"},"Show"),
+        React.createElement("select",{className:"prop-select",value:inventoryGroup,"aria-label":"Prop inventory group",onChange:e=>setInventoryGroup(e.target.value)},
         React.createElement("option",{value:"story"},"Story props ("+list.filter(p=>window.PropScreenplay.group(p)==="story").length+")"),
         React.createElement("option",{value:"accessories"},"Wardrobe & accessories ("+list.filter(p=>window.PropScreenplay.group(p)==="accessories").length+")"),
         React.createElement("option",{value:"proposed"},"Proposed \u2014 not in the screenplay ("+proposalN+")"),
         React.createElement("option",{value:"all"},"All objects ("+list.length+")"),
         React.createElement("option",{value:"unverified"},"Not in screenplay ("+list.filter(p=>window.PropScreenplay.notInScreenplay(p)).length+")"))),
-      list.length>0 && React.createElement("div",{className:"prop-searchbar collapsible"+((searchOpen||q)?" open":""),
+      list.length>0 && React.createElement("div",{className:"loc-slate-cell loc-slate-style"},
+        React.createElement("span",{className:"loc-slate-lab"}, allStyling ? ("Inventing\u2026 "+allStyling.i+"/"+allStyling.total) : "Style \u00b7 all"),
+        React.createElement("div",{className:"char-style-all",
+          title:"Apply one render style to ALL props at once. Each prop can still be overridden on its own card."},
+        React.createElement(window.RenderStylePicker,{context:"prop",value:allStyleKey,disabled:!!allStyling,
+          placeholderLabel:"Mixed — per prop",onPick:applyStyleAll}))),
+      tagged && sceneList.length>0 && React.createElement("div",{className:"loc-slate-cell loc-slate-scene prop-scenebar"},
+        React.createElement("span",{className:"loc-slate-lab"},"Scene"),
+      React.createElement("select",{className:"prop-select prop-scenebar-select",value:sceneFilter,
+        onChange:e=>setSceneFilter(e.target.value)},
+        React.createElement("option",{value:""},"All scenes \u2014 show every prop"),
+        sceneList.map(s=>{
+          // Scene counts respect the active search so the dropdown and visible grid agree.
+          const n = list.filter(p=>inScene(p,s.id)).filter(matchesQuery).filter(inView).length;
+          return React.createElement("option",{key:s.id,value:s.id},
+            "Scene "+String(s.no).padStart(2,"0")+" \u00b7 "+(s.title||"")+"  ("+n+" prop"+(n!==1?"s":"")+")");
+        }))),
+      list.length>0 && React.createElement("div",{className:"loc-slate-cell loc-slate-search"+((searchOpen||q)?" open":"")},
+      React.createElement("div",{className:"prop-searchbar collapsible"+((searchOpen||q)?" open":""),
         title:(searchOpen||q)?"":"Search props",
         onClick:()=>{ if(!searchOpen && !q){ setSearchOpen(true); setTimeout(()=>{ if(searchRef.current) searchRef.current.focus(); },0); } }},
       React.createElement(Icon.search,{s:14}),
@@ -2018,25 +2039,9 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
       q && React.createElement("span",{className:"prop-search-count"},
         shown.length+" of "+list.length),
       q && React.createElement("button",{className:"prop-search-clear",title:"Clear search",
-        onClick:(e)=>{ e.stopPropagation(); setQuery(""); setSearchOpen(false); }},React.createElement(Icon.x,{s:14}))),
-      list.length>0 && React.createElement("div",{className:"char-style-all",
-        title:"Apply one render style to ALL props at once. Each prop can still be overridden on its own card."},
-        React.createElement("span",{className:"char-style-all-lab"},
-          allStyling ? ("Inventing… "+allStyling.i+"/"+allStyling.total) : "Style · all props"),
-        React.createElement(window.RenderStylePicker,{context:"prop",value:allStyleKey,disabled:!!allStyling,
-          placeholderLabel:"Mixed — per prop",onPick:applyStyleAll})),
-    // scene filter + per-scene batch generate
-    tagged && sceneList.length>0 && React.createElement("div",{className:"prop-scenebar"},
-      React.createElement("span",{className:"prop-scenebar-lab"},React.createElement(Icon.layers,{s:14}),"Focus a scene"),
-      React.createElement("select",{className:"prop-select prop-scenebar-select",value:sceneFilter,
-        onChange:e=>setSceneFilter(e.target.value)},
-        React.createElement("option",{value:""},"All scenes \u2014 show every prop"),
-        sceneList.map(s=>{
-          // Scene counts respect the active search so the dropdown and visible grid agree.
-          const n = list.filter(p=>inScene(p,s.id)).filter(matchesQuery).filter(inView).length;
-          return React.createElement("option",{key:s.id,value:s.id},
-            "Scene "+String(s.no).padStart(2,"0")+" \u00b7 "+(s.title||"")+"  ("+n+" prop"+(n!==1?"s":"")+")");
-        })),
+        onClick:(e)=>{ e.stopPropagation(); setQuery(""); setSearchOpen(false); }},React.createElement(Icon.x,{s:14}))))),
+    // a focused scene's own batch: under the slate
+    (tagged && sceneFilter) && React.createElement("div",{className:"loc-slate-acts"},
       // ONE SCENE (2026-10-03, owner): make just this scene's props, priced
       (sceneFilter && missingScene.length>0) && React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId,onClick:()=>startSceneBatch(true),
         title:"Generate the images this scene's drafted props still need \u2014 if an owner has no character sheet yet you'll be asked first, with the price"},
@@ -2046,7 +2051,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
       (sceneFilter && !missingScene.length && readyIds(sceneAll).length>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId,onClick:()=>startSceneBatch(false),
         title:"Regenerate this scene's prop images \u2014 you'll be asked before anything is redone, with the price"},
         React.createElement(Icon.sparkles,{s:14}),
-        batchActiveId?"Generating\u2026":("Regenerate Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"\u2026")))),
+        batchActiveId?"Generating\u2026":("Regenerate Scene "+String(sceneNoOf(sceneFilter)).padStart(2,"0")+"\u2026"))),
     // B13 (2026-10-09, owner decision B — Breakdown review): the focused scene counted the Breakdown's way — an undrafted
     // prop counts; one with no owner or not in the screenplay is listed as needing that — each a chip naming its card
     (sceneFilter && window.BdSceneNeedsLine) && React.createElement(window.BdSceneNeedsLine,{sceneId:sceneFilter,sceneNo:sceneNoOf(sceneFilter),kind:"props",

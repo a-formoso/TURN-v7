@@ -10896,3 +10896,11 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
   .loc-slate-search{flex:0 0 auto;border-bottom:0}
   .loc-slate-search.open{flex:1 1 100%}
 }
+/* the slate on Characters and Props too (owner 2026-10-22): Cast / Show lead; any select in a cell goes boxless */
+.loc-slate-show{flex:1 1 220px;cursor:pointer}
+.loc-slate .loc-slate-cell > select.prop-select{width:100%;height:24px;padding:0 18px 0 0;border:0;background-color:transparent;
+  font:500 13px var(--f-ui);color:var(--hs-ink,var(--txt-0));cursor:pointer;box-shadow:none}
+.loc-slate .loc-slate-cell > select.prop-select:focus-visible{outline:2px solid var(--hs-amber-line,var(--accent-line));outline-offset:2px;border-radius:4px}
+.loc-slate-acts:empty{display:none}
+@media (max-width:760px){ .loc-slate-show{flex:1 1 100%;border-bottom:1px solid var(--hs-line,var(--line))} }
+.prompt-drift-note + .loc-slate,.char-lookbook-hint + .loc-slate{margin-top:12px}
