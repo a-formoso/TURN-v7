@@ -10904,3 +10904,22 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .loc-slate-acts:empty{display:none}
 @media (max-width:760px){ .loc-slate-show{flex:1 1 100%;border-bottom:1px solid var(--hs-line,var(--line))} }
 .prompt-drift-note + .loc-slate,.char-lookbook-hint + .loc-slate{margin-top:12px}
+/* the Color tab's slate (owner 2026-10-23, option A): Looks · Film stock · Look target; the target's editor opens under it */
+.sb-slate .loc-slate-lab{display:inline-flex;align-items:center;gap:5px}
+.sb-slate .loc-slate-lab .infotip-btn{width:16px;height:16px}
+.sb-slate .sb-stock{flex:1 1 200px;position:relative}
+.sb-slate .sb-target{flex:2 1 320px}
+.sb-target-row{display:flex;align-items:baseline;gap:6px;min-width:0;height:24px}
+.sb-target-line{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:400 13px/24px var(--f-ui);color:var(--hs-ink-2,var(--txt-1))}
+.sb-target-line.empty{color:var(--hs-sub,var(--txt-2));font-style:italic}
+.sb-target-imgs{flex:none;font-size:12px;color:var(--hs-sub,var(--txt-2))}
+.sb-target-edit{flex:none;margin-left:auto;padding:0 2px;border:0;background:none;font:600 12.5px var(--f-ui);color:var(--hs-amber-ink,var(--pos-ink));cursor:pointer}
+.sb-target-edit:hover{text-decoration:underline}
+.sb-target-panel{margin:-8px 0 18px;padding:14px;border:1px solid var(--hs-line-2,var(--line-2));border-radius:12px;background:var(--hs-surface,var(--bg-2))}
+.sb-target-panel > div:first-child{margin-bottom:0 !important}
+.sb-target-panel .sb-redo{margin-top:10px}
+@media (max-width:760px){ .sb-slate .sb-stock,.sb-slate .sb-target{flex:1 1 100%} }
+.sb-slate .sb-stock{display:flex;flex-direction:column;align-items:stretch;justify-content:center;flex-wrap:nowrap;gap:3px;margin:0}
+.sb-slate .sb-stock-lab{font:400 10px/1.2 var(--f-mono);letter-spacing:.1em;color:var(--hs-sub,var(--txt-2))}
+.sb-slate .sb-stock-sel{max-width:none}
+.sb-slate .sb-stock-name{font:500 13px/24px var(--f-ui)}

@@ -132,7 +132,12 @@ await test("C2 the film-strip marks hand-picked scenes and shows the reason; the
   assert.match(cells[0].props.title, /\nwarm start/); assert.match(cells[1].props.title, /set by hand/);
   assert.equal(findAll(cells[1], hasClass("sb-strip-hand")).length, 1); assert.equal(findAll(cells[0], hasClass("sb-strip-hand")).length, 0);
   const tree = view(sb);
-  assert.equal(textOf(findAll(tree, hasClass("sb-palette-why"))[0]), "Heat.");
+  // the Colorist's reasoning sits behind the slate's "Looks" ⓘ (2026-10-23)
+  const why = findAll(tree, n=>n && n.props && n.props.label==="Why these looks")[0];
+  assert.equal(why && why.props.text, "Heat.");
+  // the header's Light the film: hand-picked scenes keep their look unless the editor's box is ticked
+  findAll(tree, n=>n.type==="button" && hasClass("sb-light")(n))[0].props.onClick();
+  assert.deepEqual(J(box.__lit), { redoManual:false });
   R.reset([ "", true ]);   // StyleRefsField state: v, redoManual, saved
   const field = box.StyleRefsField({ value:"", onCommit:noop, onLight:(r,o)=>{ box.__lit = o; }, manualCount:1, refImages:[] });
   assert.match(textOf(field), /Also redo the 1 scene I set by hand/);

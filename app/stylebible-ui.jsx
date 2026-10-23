@@ -148,7 +148,7 @@ function SbMetaRow({ k, v }){
    plus a LEGEND naming each preset and the scenes it covers \u2014 the at-a-glance answer
    to "which preset is set where". Cells use the preset's full 60/30/10 palette as a
    gradient (its dominant alone is often near-black, so cells would look identical). */
-function StyleFilmStrip({ scenes, project, presets, onSetScenePreset }){
+function StyleFilmStrip({ scenes, project, presets, onSetScenePreset, hideTitle=false }){
   const { sceneStyles, sceneStylesManual, sceneWhy } = styleBibleOf(project);
   const sorted = scenesInStoryOrder(scenes);
   const presetOf = (pid)=> presets.find(x=>x.id===pid) || null;
@@ -168,8 +168,9 @@ function StyleFilmStrip({ scenes, project, presets, onSetScenePreset }){
     document.addEventListener("mousedown", close); return ()=>document.removeEventListener("mousedown", close); },[pick]);
   const choose = (sid, pid)=>{ onSetScenePreset(sid, pid); setPick(null); };
   return React.createElement("div",{className:"sb-strip-wrap"},
-    React.createElement("div",{className:"sb-strip-head"},
-      React.createElement("span",{className:"sb-strip-title"},"Across the film",
+    // (the Color tab's slate says the counts, 2026-10-23: the strip then shows only its warning)
+    (!hideTitle || unassigned>0) && React.createElement("div",{className:"sb-strip-head"},
+      !hideTitle && React.createElement("span",{className:"sb-strip-title"},"Across the film",
         React.createElement("span",{className:"sb-strip-count"},
           " · "+presets.length+" look"+(presets.length!==1?"s":"")+" · "+(sorted.length-unassigned)+" of "+sorted.length+" scenes with a look"),
         editable && React.createElement("span",{className:"sb-strip-hint"}," — click a scene to change its look")),
@@ -389,11 +390,27 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
     return hit ? nbGetImage(hit.id) : "";
   };
   const stockNow = (window.FILM_STOCKS||[]).find(f=>f.id===filmStock) || { id:"none", name:"None (clean digital)" };
+  const stockNote = stockNow.id==="none" ? "No film look is added to shots." : "Added to every shot prompt: "+String(stockNow.clause||"").replace(/\s+$/,"");
+  /* THE SLATE (owner 2026-10-23, option A): Looks · Film stock · Look target in one bar; the look target's text is
+     one line with Edit (its editor opens under the slate); the Colorist's reasoning and the stock's note sit behind
+     ⓘ / hover; "Light the film" is the header's action */
+  const [refsOpen, setRefsOpen] = React.useState(false);
+  const [redoManual, setRedoManual] = React.useState(false);
+  const latestRefs = React.useRef(null);   // what the editor last saved (its blur commits before a click lands)
+  const sortedN = (scenes||[]).length, withLook = (scenes||[]).filter(s=>sceneStyles[s.id]).length;
+  const lightTitle = !(scenes||[]).length
+    ? "Add scenes first \u2014 the Colorist designs the palette and color-scripts each scene"
+    : "The Colorist designs a bespoke palette + film stock from the story and your look target and color-scripts every scene \u2014 proposed for your approval"
+      +(manualCount ? ". Scenes you set by hand (\u270b) keep their look"+(redoManual?" \u2014 this time they're redone too":"") : "")
+      +". Writing credits only, no images (a little more when it looks at your reference stills).";
+  const light = ()=>{ if(!onColorist) return; const r = latestRefs.current!=null ? latestRefs.current : refs;
+    onColorist(r, { redoManual:!!(manualCount && redoManual) }); };
+  const refsLine = String(refs||"").replace(/\s+/g," ").trim();
   return React.createElement("div",{className:"art-scroll"},
     // the references field is YOUR text: Light the film reads it, so the Lookbook change can't apply — say so (2026-10-06)
     lookbookStale && refsOwned && React.createElement("div",{className:"lb-stale-notice",role:"status"},
       React.createElement(Icon.alert,{s:14}),
-      React.createElement("span",null,"The ",React.createElement("b",null,"Lookbook")," changed, but the Visual references below are your own words, so Light the film reads them, not the Lookbook. Put the Lookbook\u2019s colour notes back, or keep yours."),
+      React.createElement("span",null,"The ",React.createElement("b",null,"Lookbook")," changed, but the Look target below is in your own words, so Light the film reads it, not the Lookbook. Put the Lookbook\u2019s colour notes back, or keep yours."),
       onUseLookbookRefs && React.createElement("button",{className:"lb-stale-btn ghost",onClick:onUseLookbookRefs,
         title:"Replace your text with the Lookbook's colour notes (the field follows the Lookbook again); then Light the film to use them"},"Use the Lookbook\u2019s colour notes"),
       onKeepRefs && React.createElement("button",{className:"lb-stale-btn ghost",onClick:onKeepRefs,title:"Keep your references; this banner goes away until the Lookbook changes again"},"Keep mine")),
@@ -406,26 +423,45 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
             "Colorist",
             React.createElement(InfoTip,{label:"About the Colorist",
               text:"Your film's own cinematic look system \u2014 each a 60/30/10 colour grade with its own lighting, lens and texture. Click 'Light the film' and the Colorist designs a BESPOKE palette + film stock for this film (from the story and your visual references), color-scripts every scene along the value-charge spine \u2014 so the look tracks the emotional arc \u2014 and PROPOSES it for your approval, showing the swatches and a per-scene 'why' (hover a scene in the film-strip to read it later). Scenes you set by hand (\u270b) keep their look when you light the film again, unless you tick 'Also redo'. Each look can be edited (name, colours, notes) or deleted; the film stock is picked below. Shot frames and the Stage's video renders use each scene's look and the film stock; character sheets and location plates stay neutral on purpose, so the same sheet works in every scene. The previews grade one of the film's own location plates live in the browser (no generation); before any plate exists they use a drawn stand-in. Writing credits only, no images (a little more when it looks at your reference stills)."}))),
-        null)),
+        onColorist && React.createElement("div",{className:"art-intro-actions"},
+          React.createElement("button",{className:"art-draftall sb-light",disabled:!(scenes||[]).length,onClick:light,title:lightTitle},
+            React.createElement(Icon.palette,{s:14}),"Light the film")))),
     !lit && React.createElement("div",{className:"sb-unlit",role:"note"},
       React.createElement(Icon.palette||Icon.sparkles,{s:14}),
       React.createElement("span",null,React.createElement("b",null,"Not lit yet. "),
         "The looks below are examples \u2014 \u201cLight the film\u201d designs this film's own palette and color-scripts every scene (writing credits only, no images \u2014 a little more when it looks at your reference stills). Or edit an example to start your own.")),
-    lit && paletteWhy && React.createElement("div",{className:"sb-palette-why"},paletteWhy),
-    onSetRefs && React.createElement(StyleRefsField,{value:refs,onCommit:onSetRefs,
-      refImages,onAddRefImages,onRemoveRefImage,manualCount,
-      onLight:onColorist,lightDisabled:!(scenes||[]).length}),
-    // FILM STOCK (2026-10-03, owner): shown and changeable — it's added to every shot prompt
-    React.createElement("div",{className:"sb-stock"},
-      React.createElement("span",{className:"sb-stock-lab"},"Film stock"),
-      onSetFilmStock
-        ? React.createElement("select",{className:"prop-select sb-stock-sel",value:stockNow.id,"aria-label":"Film stock",onChange:e=>onSetFilmStock(e.target.value)},
-            (window.FILM_STOCKS||[]).map(f=>React.createElement("option",{key:f.id,value:f.id},f.name)))
-        : React.createElement("span",{className:"sb-stock-name"},stockNow.name),
-      React.createElement("span",{className:"sb-stock-note"}, stockNow.id==="none"
-        ? "No film look is added to shots."
-        : "Added to every shot prompt: "+String(stockNow.clause||"").replace(/\s+$/,""))),
-    React.createElement(StyleFilmStrip,{scenes,project,presets,onSetScenePreset}),
+    React.createElement("div",{className:"loc-slate art-slate sb-slate",role:"group","aria-label":"Color: looks, film stock and look target"},
+      React.createElement("div",{className:"loc-slate-cell loc-slate-count"},
+        React.createElement("span",{className:"loc-slate-lab sb-slate-lab"},"Looks",
+          // the Colorist's own reasoning for the palette, behind an ⓘ
+          (lit && paletteWhy) && React.createElement(InfoTip,{label:"Why these looks",text:paletteWhy})),
+        React.createElement("b",null, presets.length+" \u00b7 "+withLook+" of "+sortedN+" scene"+(sortedN!==1?"s":""))),
+      // FILM STOCK (2026-10-03, owner): shown and changeable — it's added to every shot prompt (its note on hover)
+      React.createElement("div",{className:"loc-slate-cell sb-stock",title:stockNote},
+        React.createElement("span",{className:"loc-slate-lab sb-stock-lab"},"Film stock"),
+        onSetFilmStock
+          ? React.createElement("select",{className:"prop-select sb-stock-sel",value:stockNow.id,"aria-label":"Film stock",onChange:e=>onSetFilmStock(e.target.value)},
+              (window.FILM_STOCKS||[]).map(f=>React.createElement("option",{key:f.id,value:f.id},f.name)))
+          : React.createElement("b",{className:"sb-stock-name"},stockNow.name),
+        React.createElement("span",{className:"sb-stock-note sb-sr-only"},stockNote)),
+      onSetRefs && React.createElement("div",{className:"loc-slate-cell sb-target"},
+        React.createElement("span",{className:"loc-slate-lab"},"Look target",
+          React.createElement(InfoTip,{label:"About the look target",
+            text:"Auto-filled from your Lookbook (and re-synced when it changes) until you edit it \u2014 then your version wins. Add films, photographers or paintings you love, and reference stills; 'Light the film' translates their cinematography (palette, light, lens, texture) into this film's looks."})),
+        React.createElement("div",{className:"sb-target-row"},
+          React.createElement("span",{className:"sb-target-line"+(refsLine?"":" empty"),title:refsLine||""},
+            refsLine || "None yet \u2014 films, photographers or paintings you love"),
+          (refImages||[]).length>0 && React.createElement("span",{className:"sb-target-imgs"}," \u00b7 "+(refImages||[]).length+" still"+((refImages||[]).length!==1?"s":"")),
+          React.createElement("button",{type:"button",className:"sb-target-edit","aria-expanded":refsOpen?"true":"false",
+            onClick:()=>setRefsOpen(o=>!o)}, refsOpen ? "Done" : "Edit")))),
+    // the look target's editor, under the slate
+    (onSetRefs && refsOpen) && React.createElement("div",{className:"sb-target-panel"},
+      React.createElement(StyleRefsField,{value:refs,onCommit:(t)=>{ latestRefs.current = t; onSetRefs(t); },
+        refImages,onAddRefImages,onRemoveRefImage,manualCount,onLight:null}),
+      manualCount>0 && React.createElement("label",{className:"sb-redo"},
+        React.createElement("input",{type:"checkbox",checked:redoManual,onChange:e=>setRedoManual(e.target.checked)}),
+        React.createElement("span",null,"When I light the film, also redo the "+manualCount+" scene"+(manualCount!==1?"s":"")+" I set by hand (\u270b) \u2014 otherwise they keep their look"))),
+    React.createElement(StyleFilmStrip,{scenes,project,presets,onSetScenePreset,hideTitle:true}),
     React.createElement("div",{className:"sb-grid",style:{marginTop:16}},
       presets.map(p=>React.createElement(PresetCard,{key:p.id,preset:p,sceneList:scenesFor(p.id),count:scenesFor(p.id).length,
         img:imgFor(p.id), example:!lit,
