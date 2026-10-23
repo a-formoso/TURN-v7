@@ -1477,6 +1477,8 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
   const [view, setView]   = React.useState(null);   // lightbox {url, character}
   const [frames, setFrames] = React.useState({});    // sheetId -> url (for the progress count)
   const [jumpOpen, setJumpOpen] = React.useState(false);
+  // the scene brief folds to one line, as on Shots (owner 2026-10-23)
+  const [briefOpen,setBriefOpen]=React.useState(false);
 
   const ordered = React.useMemo(()=> scenesInStoryOrder(scenes), [scenes]);
   const shotsByScene = React.useMemo(()=>{
@@ -1687,9 +1689,6 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
       const driver=scene.driver&&charById[scene.driver];
       const driverName=(driver&&driver.name)||bm.driverLabel||"";
       const confLab=scene.conf ? SB_CONF_LABELS[scene.conf-1] : "";
-      const beatCounts=[];
-      sceneShots.forEach(sh=>{ const n=Number(sh.beatN)||0; let row=beatCounts.find(x=>x.n===n);
-        if(!row){ row={n,count:0}; beatCounts.push(row); } row.count++; });
       const sceneBusy=composingScene&&composingScene.id===scene.id;
       const boardN=pages.reduce((n,p)=>n+(p.shots||[]).length,0);
       return _sbEl("div",{className:"sb-scene",key:scene.id},
@@ -1712,15 +1711,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
                     _sbEl("span",{className:"scene-pager-menu-no"},String(sx.scene.no||(i+1)).padStart(2,"0")),
                     _sbEl("span",{className:"scene-pager-menu-t"},sx.scene.title||"Untitled scene"),
                     i===pIdx&&_sbEl(Icon.check,{s:14}))))),
-              _sbEl("div",{className:"shot-scene-title"},scene.title||"Untitled scene"),
-              _sbEl("div",{className:"shot-scene-style-row"},
-                _sbEl(StoryboardSceneStyleChip,{project,sceneId:scene.id})),
-              _sbEl("div",{className:"shot-scene-sub"},
-                // the PANELS drawn (one keyframe per beat), not every saved alternative (2026-10-09)
-                (ln?("Location: "+ln+"   ·   "):"")+boardN+" panel"+(boardN!==1?"s":"")+"   ·   "+pages.length+" sheet"+(pages.length!==1?"s":"")),
-              beatCounts.length>1&&_sbEl("div",{className:"ssx-beat-strip",title:"Shots saved per beat \u2014 the board draws each beat's main keyframe; any extra shots stay in Shots as alternatives"},
-                beatCounts.map(b=>_sbEl("span",{key:"sb"+b.n,className:"ssx-beat-seg",style:{flexGrow:Math.max(1,b.count)},
-                  title:"Beat "+b.n+" — "+b.count+" shot"+(b.count!==1?"s":"")},b.count)))),
+              _sbEl("div",{className:"shot-scene-title"},scene.title||"Untitled scene")),
             _sbEl("div",{className:"shot-scene-acts"},
               _sbEl("button",{className:"char-draft-btn primary",disabled:!!composingAll||!!composingScene||!!readOnly,
                 onClick:()=>composeOneScene(scene,pages),
@@ -1732,7 +1723,25 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
             _sbEl("button",{className:"scene-pager-arrow",disabled:pIdx>=pagesByScene.length-1,
               onClick:()=>{setJumpOpen(false);setPIdx(i=>Math.min(pagesByScene.length-1,i+1));},title:"Next scene (→)","aria-label":"Next scene"},
               _sbEl(Icon.chevR,{s:18}))),
-          _sbEl("div",{className:"shot-scene-ctx"},
+          /* THE SLATE (owner 2026-10-23, as Shots): Look · Location · Board (the PANELS drawn — one keyframe per
+             beat — and the sheets) */
+          _sbEl("div",{className:"loc-slate art-slate ssx-slate",role:"group","aria-label":"Scene "+String(scene.no).padStart(2,"0")+": look, location and board"},
+            _sbEl("div",{className:"loc-slate-cell ssx-look"},
+              _sbEl("span",{className:"loc-slate-lab"},"Look"),
+              _sbEl(StoryboardSceneStyleChip,{project,sceneId:scene.id})),
+            _sbEl("div",{className:"loc-slate-cell"},
+              _sbEl("span",{className:"loc-slate-lab"},"Location"),
+              _sbEl("b",{title:ln||""}, ln||"\u2014")),
+            _sbEl("div",{className:"loc-slate-cell"},
+              _sbEl("span",{className:"loc-slate-lab"},"Board"),
+              _sbEl("b",null, boardN+" panel"+(boardN!==1?"s":"")+" \u00b7 "+pages.length+" sheet"+(pages.length!==1?"s":"")))),
+          _sbEl("button",{type:"button",className:"ssx-brief-toggle","aria-expanded":briefOpen?"true":"false",onClick:()=>setBriefOpen(o=>!o)},
+            _sbEl(briefOpen?Icon.chevD:Icon.chevR,{s:12}),
+            _sbEl("span",{className:"ssx-brief-lab"},"Scene brief"),
+            !briefOpen&&_sbEl("span",{className:"ssx-brief-sum"},
+              [(()=>{ const nm=(x)=>typeof window.railNameCase==="function"?window.railNameCase(x):x;
+                return driverName&&bm.reactorLabel ? nm(driverName)+" vs "+nm(bm.reactorLabel) : nm(driverName||""); })(), confLab||""].filter(Boolean).join(" \u00b7 "))),
+          briefOpen&&_sbEl("div",{className:"shot-scene-ctx"},
             scene.summary&&_sbEl("div",{className:"ssx-desc"},scene.summary),
             _sbEl("div",{className:"ssx-grid"},
               _sbEl(StoryboardSceneCtxItem,{label:"Driver",value:driverName}),

@@ -10923,3 +10923,27 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .sb-slate .sb-stock-lab{font:400 10px/1.2 var(--f-mono);letter-spacing:.1em;color:var(--hs-sub,var(--txt-2))}
 .sb-slate .sb-stock-sel{max-width:none}
 .sb-slate .sb-stock-name{font:500 13px/24px var(--f-ui)}
+
+/* ============================ SHOTS: THE SCENE CARD, TITLE ROW + SLATE (owner 2026-10-23, option A) ============================
+   Head: ‹ Scene NN of 40 ▾ / title · Render in order · Re-draft ›; then the slate (Look · Location · Shots · To do), the
+   Needs line, and the scene brief folded to one line. */
+.shot-scene-card .shot-scene-head.merged{border-bottom:0;padding-bottom:4px}
+.shot-scene-card .scene-pager-btn{font:400 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hs-sub,var(--txt-2))}
+.shot-scene-card .shot-scene-title{font:600 17px/1.3 var(--f-ui);color:var(--hs-ink,var(--txt-0))}
+.shot-scene-card .ssx-slate{margin:6px 14px 10px}
+.ssx-slate .loc-slate-cell{flex:1 1 140px}
+.ssx-slate .ssx-look{flex:1.4 1 200px}
+.ssx-slate .loc-slate-cell b{font:500 13px/24px var(--f-ui);color:var(--hs-ink,var(--txt-0));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ssx-slate .ssx-look .shot-style-chip{height:24px;padding:0;border:0;background:transparent;box-shadow:none;font:500 13px var(--f-ui);color:var(--hs-ink,var(--txt-0))}
+.ssx-slate .ssx-look .shot-style-chip > svg{display:none}
+.ssx-slate .ssx-todo{flex:1.6 1 220px;cursor:default}
+.ssx-slate .ssx-todo.warn b{color:var(--alert)}
+.ssx-slate .ssx-todo.ok b{color:var(--ok,#2f7d4f)}
+.shot-scene-card .shot-needs{margin:0 14px 10px}
+.ssx-brief-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:10px 16px;border:0;border-top:1px solid var(--hs-line,var(--line));
+  background:none;cursor:pointer;text-align:left;color:var(--hs-sub,var(--txt-2));font:400 12.5px var(--f-ui);min-width:0}
+.ssx-brief-toggle:hover{color:var(--hs-ink,var(--txt-0))}
+.ssx-brief-lab{flex:none;font:400 10.5px var(--f-mono);letter-spacing:.1em;text-transform:uppercase}
+.ssx-brief-sum{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ssx-brief-toggle[aria-expanded="true"] + .shot-scene-ctx{padding-top:0}
+@media (max-width:760px){ .shot-scene-card .ssx-slate{margin:6px 10px 10px} }

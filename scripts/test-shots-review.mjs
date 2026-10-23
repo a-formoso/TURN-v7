@@ -100,7 +100,8 @@ await test("D1 the look signature follows the scene's look and the film stock; f
   // (2026-10-05, Color review) the check goes through shotLookIsEarlier: a missing look is never flagged
   assert.ok(group.includes('if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, ctx.project, scene.id)) oldLook++;'));
   assert.equal(box.shotLookIsEarlier("", P, "s1"), false, "frames without a stored look are never flagged");
-  assert.ok(group.includes('" made with an earlier look"'));
+  // (2026-10-23) the scene slate's "To do" cell counts it ("N earlier look"), its hover says why
+  assert.ok(group.includes('oldLook>0 && oldLook+" earlier look"') && group.includes('" made with an earlier look (the Color tab'));
 });
 
 /* ═══ E ═══ */

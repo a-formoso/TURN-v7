@@ -2059,6 +2059,8 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
   const batchMode = !!queueMode;
   // merged scene navigator: the click-to-jump scene list in this card's header
   const [jumpOpen, setJumpOpen] = React.useState(false);
+  // the scene brief (summary, driver, reactor, goal, antagonism, conflict) folds to one line (2026-10-23)
+  const [briefOpen, setBriefOpen] = React.useState(false);
   React.useEffect(()=>{ if(!jumpOpen) return;
     const close=(e)=>{ if(!e.target.closest || !e.target.closest(".ssg-jump")) setJumpOpen(false); };
     document.addEventListener("mousedown", close); return ()=>document.removeEventListener("mousedown", close); },[jumpOpen]);
@@ -2138,57 +2140,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
               _el("span",{className:"scene-pager-menu-no"},String(sx.no||(i+1)).padStart(2,"0")),
               _el("span",{className:"scene-pager-menu-t"},sx.title||"Untitled scene"),
               i===pager.idx && _el(Icon.check,{s:14}))))),
-        _el("div",{className:"shot-scene-title"},scene.title||"Untitled scene"),
-        _el("div",{className:"shot-scene-style-row"},_el(SceneStyleChip,{project:ctx.project,sceneId:scene.id})),
-        _el("div",{className:"shot-scene-sub"},
-          (loc?("Location: "+loc.name+"   \u00b7   "):"")+shots.length+" shot"+(shots.length!==1?"s":"")),
-        // SCENE CHAIN HEALTH (review finding #5): one glance answers "is this scene's
-        // chain solid, and what needs attention?" — derived live from the same checks
-        // the ordered runner uses to decide what to (re)render.
-        (()=>{
-          const meta=(id)=>(typeof nbGetMeta==="function")?nbGetMeta(id):null;
-          const drafts=((window.turnContinuity||{}).drafts||{});
-          let framed=0, approved=0, staleSeed=0, staleSrc=0, oldLook=0;
-          ordered.forEach(s=>{
-            const u=(typeof nbGetImage==="function")?nbGetImage(s.id):"";
-            if(!u) return;
-            framed++;
-            // made with an earlier colour look / film stock (frames from before this was recorded aren't counted)
-            const m=meta(s.id); if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, ctx.project, scene.id)) oldLook++;
-            if(s.locked) approved++;
-            const st=(typeof shotAssetProvenanceStatus==="function")
-              ? shotAssetProvenanceStatus(s, drafts[s.sceneId], meta(s.id)) : "unverified";
-            const ov=(typeof shotSourceOverrideCurrent==="function") && shotSourceOverrideCurrent(s, drafts[s.sceneId]);
-            if(st==="stale" && !ov) staleSrc++;
-            if(typeof shotChainStatus==="function" && shotChainStatus(s, ordered, meta)==="stale") staleSeed++;
-          });
-          const unrendered=ordered.length-framed;
-          if(!ordered.length) return null;
-          const solid=!unrendered && !staleSeed && !staleSrc && approved===ordered.length;
-          return _el("div",{className:"ssx-chain-strip"},
-            _el("span",{className:"ssx-chain-chip"+(approved===ordered.length&&framed===ordered.length?" ok":"")},
-              approved+"/"+ordered.length+" approved"),
-            unrendered>0 && _el("span",{className:"ssx-chain-chip warn",
-              title:"Shots with no generated frame yet — 'Render Scene in order' renders them in chain order."},
-              unrendered+" unrendered"),
-            staleSeed>0 && _el("span",{className:"ssx-chain-chip warn",
-              title:"Frames whose continuity source has since changed, moved or been removed — 'Render Scene in order' re-renders them automatically."},
-              staleSeed+" frame"+(staleSeed===1?" needs":"s need")+" continuity refresh"),
-            staleSrc>0 && _el("span",{className:"ssx-chain-chip warn",
-              title:"Frames rendered before their shot specification or screenplay beat changed — regenerate for verified coverage."},
-              staleSrc+" frame"+(staleSrc===1?" needs":"s need")+" source refresh"),
-            oldLook>0 && _el("span",{className:"ssx-chain-chip warn",
-              title:"These frames were made before the scene's colour look or the film stock changed in the Color tab. Nothing re-renders on its own \u2014 regenerate them when you want the new look."},
-              oldLook+" frame"+(oldLook===1?"":"s")+" made with an earlier look"),
-            solid && !oldLook && _el("span",{className:"ssx-chain-chip ok"},"Chain solid"));
-        })(),
-        // shots-per-beat strip: coverage distribution at a glance (widths ∝ shot counts)
-        (lanes.length>1) && _el("div",{className:"ssx-beat-strip",
-          title:"Shots per beat \u2014 how this scene's coverage is distributed"},
-          lanes.map(L=>_el("span",{key:"bb"+L.n,className:"ssx-beat-seg",
-            style:{flexGrow:Math.max(1,L.shots.length)},
-            title:"Beat "+L.n+" \u2014 "+L.shots.length+" shot"+(L.shots.length!==1?"s":"")},
-            L.shots.length)))),
+        _el("div",{className:"shot-scene-title"},scene.title||"Untitled scene")),
       _el("div",{className:"shot-scene-acts"},
         onRenderScene && (!scenePlan || scenePlan.toRender.length>0) && _el("button",{className:"char-draft-btn primary",disabled:!!renderBusy,onClick:()=>onRenderScene(scene),
           title:"Render this scene's shots that aren't approved and up to date, in order, each seeded by the frame before it (a beat's opener chains from the previous beat). Asks first, with the price; with 'Check each frame' on it pauses after each one."},
@@ -2200,6 +2152,46 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
           _el(Icon.layers,{s:12}), draftingScene?"Drafting\u2026":"Re-draft")),
       pager && _el("button",{className:"scene-pager-arrow",disabled:pager.idx>=pager.total-1,onClick:pager.onNext,
         title:"Next scene","aria-label":"Next scene"},_el(Icon.chevR,{s:18}))),
+    /* THE SLATE (owner 2026-10-23, option A — as the other Art Room tabs): Look · Location · Shots · To do. The
+       scene chain's health (review finding #5) in one "To do" cell, each count's reason on hover. */
+    (()=>{
+        const meta=(id)=>(typeof nbGetMeta==="function")?nbGetMeta(id):null;
+        const drafts=((window.turnContinuity||{}).drafts||{});
+        let framed=0, approved=0, staleSeed=0, staleSrc=0, oldLook=0;
+        ordered.forEach(s=>{
+          const u=(typeof nbGetImage==="function")?nbGetImage(s.id):"";
+          if(!u) return;
+          framed++;
+          // made with an earlier colour look / film stock (frames from before this was recorded aren't counted)
+          const m=meta(s.id); if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, ctx.project, scene.id)) oldLook++;
+          if(s.locked) approved++;
+          const st=(typeof shotAssetProvenanceStatus==="function")
+            ? shotAssetProvenanceStatus(s, drafts[s.sceneId], meta(s.id)) : "unverified";
+          const ov=(typeof shotSourceOverrideCurrent==="function") && shotSourceOverrideCurrent(s, drafts[s.sceneId]);
+          if(st==="stale" && !ov) staleSrc++;
+          if(typeof shotChainStatus==="function" && shotChainStatus(s, ordered, meta)==="stale") staleSeed++;
+        });
+        const unrendered=ordered.length-framed, refresh=staleSeed+staleSrc;
+        const todo=[unrendered>0 && unrendered+" to render", refresh>0 && refresh+" to refresh", oldLook>0 && oldLook+" earlier look"].filter(Boolean);
+        const why=[unrendered>0 && unrendered+" with no frame yet — 'Render Scene in order' renders them in chain order",
+          staleSeed>0 && staleSeed+" frame"+(staleSeed===1?" needs":"s need")+" continuity refresh: its continuity source changed, moved or was removed (re-rendered by 'Render Scene in order')",
+          staleSrc>0 && staleSrc+" frame"+(staleSrc===1?" needs":"s need")+" source refresh: rendered before its shot specification or screenplay beat changed",
+          oldLook>0 && oldLook+" frame"+(oldLook===1?"":"s")+" made with an earlier look (the Color tab's look or film stock changed; nothing re-renders on its own)"].filter(Boolean).join("\n");
+        const solid=ordered.length>0 && !unrendered && !refresh && approved===ordered.length;
+        return _el("div",{className:"loc-slate art-slate ssx-slate",role:"group","aria-label":"Scene "+String(scene.no).padStart(2,"0")+": look, location, shots and what's left"},
+          _el("div",{className:"loc-slate-cell ssx-look"},
+            _el("span",{className:"loc-slate-lab"},"Look"),
+            _el(SceneStyleChip,{project:ctx.project,sceneId:scene.id})),
+          _el("div",{className:"loc-slate-cell"},
+            _el("span",{className:"loc-slate-lab"},"Location"),
+            _el("b",{title:loc?loc.name:""}, loc ? loc.name : "—")),
+          _el("div",{className:"loc-slate-cell"},
+            _el("span",{className:"loc-slate-lab"},"Shots"),
+            _el("b",null, shots.length+(ordered.length ? " · "+approved+" approved" : ""))),
+          _el("div",{className:"loc-slate-cell ssx-todo"+(todo.length?" warn":solid?" ok":""),title:why||undefined},
+            _el("span",{className:"loc-slate-lab"},"To do"),
+            _el("b",null, todo.length ? todo.join(" · ") : solid ? (oldLook ? "Approved" : "Chain solid") : ordered.length ? approved+" of "+ordered.length+" to approve" : "No shots yet")));
+    })(),
     sceneNeeds.length>0 && _el("div",{className:"shot-needs",role:"note","data-testid":"shot-scene-needs"},
       _el(Icon.alert,{s:14}),
       _el("div",{className:"shot-needs-txt"},
@@ -2210,7 +2202,14 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
           title:"Make the "+makeImageN+" missing reference image"+(makeImageN!==1?"s":"")+" this scene's frames use (a location before its rooms, a character's sheet before their variant; a look that isn't written yet is drafted first, writing credits)"},
         _el(Icon.sparkles,{s:12}), runHere?"Making\u2026":"Make what this scene needs",
         typeof window.nbCostChip==="function" && window.nbCostChip(makeImageN))),
-    open && _el("div",{className:"shot-scene-ctx"},
+    // THE SCENE BRIEF folds to one line (owner 2026-10-23): who drives against whom, and the conflict
+    open && _el("button",{type:"button",className:"ssx-brief-toggle","aria-expanded":briefOpen?"true":"false",onClick:()=>setBriefOpen(o=>!o)},
+      _el(briefOpen?Icon.chevD:Icon.chevR,{s:12}),
+      _el("span",{className:"ssx-brief-lab"},"Scene brief"),
+      !briefOpen && _el("span",{className:"ssx-brief-sum"},
+        [(()=>{ const nm=(x)=>typeof window.railNameCase==="function" ? window.railNameCase(x) : x;
+          return driverName && bm.reactorLabel ? nm(driverName)+" vs "+nm(bm.reactorLabel) : nm(driverName||""); })(), confLab||""].filter(Boolean).join(" \u00b7 "))),
+    (open && briefOpen) && _el("div",{className:"shot-scene-ctx"},
       scene.summary && _el("div",{className:"ssx-desc"},scene.summary),
       _el("div",{className:"ssx-grid"},
         _el(SceneCtxItem,{k:"Driver",v:driverName}),
