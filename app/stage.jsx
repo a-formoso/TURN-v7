@@ -7842,6 +7842,12 @@ function StageTimelineView({ allClips, vids, staleVids, identityVids, imgs, visu
   const idx = Math.max(0, ordered.findIndex(c=>c.id===pickId));
   const [playAll, setPlayAll] = React.useState(false);
   const [playErr, setPlayErr] = React.useState("");   // the selected take couldn't be played
+  // the editor's track (2026-10-24, option A): zoom, the playhead's place in the selected clip, a picked point
+  const [tlZoom, setTlZoom] = React.useState(1);
+  const [tlPlay, setTlPlay] = React.useState({ id:"", t:0 });
+  const [tlPicked, setTlPicked] = React.useState("");
+  const tlSeekRef = React.useRef(null);
+  const tlTrackRef = React.useRef(null);
   const videoRef = React.useRef(null);
   const autoPlayIdRef = React.useRef("");              // play this clip as soon as its video can play
   const [exporting, setExporting] = React.useState(null);   // { i, n, phase, name, paused } while recording
@@ -7958,32 +7964,75 @@ function StageTimelineView({ allClips, vids, staleVids, identityVids, imgs, visu
     ? (exporting.phase==="preparing" ? "Preparing the film's sound" : exporting.paused ? "Recording paused while the tab is hidden"
       : "Recording clip "+exporting.i+" of "+exporting.n+(exporting.name ? ", "+exporting.name : ""))
     : (playAll && cur ? "Playing the film: "+stageClipBeatName(cur) : "");
-  return _stEl("div",{className:"stage2-tl"},
-    _stEl("div",{className:"stage2-versions-head"},
-      _stEl("div",{className:"stage2-versions-title"}, Icon.grid&&_stEl(Icon.grid,{s:14}), "Timeline",
-        _stEl("span",{className:"stage2-versions-sub"},"the film, assembled from each clip's current take")),
-      _stEl("span",{className:"stage2-versions-count"},
-        !vidsLoaded ? "Loading takes…"
-        : renderedN+" / "+ordered.length+" clips rendered · "+_fmtSecs(Math.round(doneSec))+" of ~"+_fmtSecs(totalSec)
-          +(staleN ? " · "+staleN+" out of date" : "")
-          +(()=>{ const n = ordered.filter(c=>(oldLookVids||{})[c.id]).length; return n ? " · "+n+" with an earlier look" : ""; })()
-          +(()=>{ const n = ordered.filter(c=>(noteVids||{})[c.id]).length; return n ? " · "+n+" with take notes" : ""; })()),
-      _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",disabled:!renderedN && !playAll,
-        title:playAll ? "Stop playing the film" : (renderedN?"Play every rendered clip in story order, from the first":"Render clips in the Shoot tab first"),
-        onClick:playAll ? stopFilm : playFilm}, playAll?"■ Stop film":"▶ Play film"),
-      _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",disabled:(!renderedN || !vidsLoaded) && !exporting,
-        title: exporting ? "Recording in real time — click to cancel the export"
-          : (renderedN ? "Record every rendered clip into ONE downloadable movie, with the Mix tab's voices, beds and levels if you like. Runs in real time — a 3-minute film takes about 3 minutes; keep this tab open and in front." : "Render clips in the Shoot tab first"),
-        onClick: exporting ? ()=>{ exportCancelRef.current = true; } : doExport},
-        exportLabel),
-      // the selected clip opens in Shoot from a button too — double-click was the only way (2026-10-09)
-      cur && vids[cur.id] && _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",
-        title:"Open "+stageClipBeatName(cur)+" in Shoot"+(((oldLookVids||{})[cur.id] || (noteVids||{})[cur.id]) ? " to regenerate it" : ""),
-        onClick:()=>onOpenStage&&onOpenStage(cur.id)}, "Open in Shoot")),
+  /* THE EDITOR'S TRACK (2026-10-24, owner — Timeline option A): the whole film on one time ruler. Each clip
+     is a block as long as its take (a clip with no take: its planned length, hatched), the scenes are bands
+     above it, a playhead moves through it while the film plays, and a lane under it shows where the voiced
+     lines from the Mix fall. Everything is placed by its share of the film's running time, so it all lines up. */
+  const spanOf = (c)=>Math.max(0.5, vids[c.id] ? (takeSecs(c)||Number(c.data&&c.data.dur)||0) : (Number(c.data&&c.data.dur)||0));
+  const spans = ordered.map(spanOf);
+  const starts = []; let filmRun = 0; spans.forEach(v=>{ starts.push(filmRun); filmRun += v; });
+  const filmLen = filmRun || 1;
+  const pct = (t)=>(Math.max(0, Math.min(filmLen, t))/filmLen*100)+"%";
+  const tickStep = [5,10,15,30,60,120,300,600,1200].find(st=>filmLen/st<=8*tlZoom) || 1800;
+  const ticks = []; for(let t=0; t<=filmLen+0.01; t+=tickStep) ticks.push(t);
+  const bands = []; ordered.forEach((c,i)=>{ const last = bands[bands.length-1];
+    if(last && last.scene.id===c.scene.id) last.len += spans[i];
+    else bands.push({ scene:c.scene, at:starts[i], len:spans[i] }); });
+  const lines = []; ordered.forEach((c,i)=>{ let pl = [];
+    try{ pl = (typeof clipLinePlacements==="function") ? (clipLinePlacements(c, auds, characters)||[]) : []; }catch(e){ pl = []; }
+    pl.forEach(l=>{ const at = Math.min(spans[i], Number(l.at)||0);
+      lines.push({ key:c.id+":"+l.shotId, at:starts[i]+at, len:Math.max(0.3, Math.min(spans[i]-at, Number(l.sec)||0)), ready:!!l.url,
+        label:(l.speaker||"Line")+(l.text ? ": “"+String(l.text).slice(0,60)+"”" : "")+(l.url ? "" : " — not voiced yet") }); }); });
+  const headAt = cur ? starts[idx] + (cur.id===tlPlay.id ? tlPlay.t : 0) : 0;
+  const pickedFrom = cur && vids[cur.id] && tlPicked===cur.id;
+  // a click places the playhead where you clicked inside the clip (a key press: its start)
+  const pickAt = (i, e)=>{ const c = ordered[i]; if(!c) return;
+    let f = 0; try{ if(e && e.detail){ const r = e.currentTarget.getBoundingClientRect(); f = Math.max(0, Math.min(0.98, (e.clientX-r.left)/(r.width||1))); } }catch(err){ f = 0; }
+    const t = Math.round(f*spans[i]*10)/10;
+    tlSeekRef.current = { id:c.id, t }; setTlPicked(c.id); setTlPlay({ id:c.id, t });
+    select(i);
+    if(c.id===(cur&&cur.id) && videoRef.current){ try{ videoRef.current.currentTime = t; }catch(err){} tlSeekRef.current = null; } };
+  const applySeek = (e)=>{ const sk = tlSeekRef.current; if(!sk || !cur || sk.id!==cur.id) return; tlSeekRef.current = null;
+    try{ e.currentTarget.currentTime = sk.t; }catch(err){} };
+  const playFromHere = ()=>{ if(!cur || !vids[cur.id]) return; setPlayAll(true); autoPlayIdRef.current = "";
+    try{ const v = videoRef.current; if(v){ const pr = v.play(); if(pr && pr.catch) pr.catch(()=>{}); } }catch(e){} };
+  // keep the selected clip in view on a zoomed track
+  React.useEffect(()=>{ const el = tlTrackRef.current && tlTrackRef.current.querySelector(".stage2-tl-clip.on");
+    if(el && tlZoom>1){ try{ el.scrollIntoView({ block:"nearest", inline:"nearest" }); }catch(e){} } }, [idx, tlZoom]);
+  const clockOf = (t)=>_stageClock(Math.round(t));
+  return _stEl("div",{className:"stage2-tl stage2-tl-a"},
+    _stEl("div",{className:"stage2-tl-head"},
+      _stEl("div",{className:"stage2-tl-sum"},
+        _stEl("b",{className:"stage2-tl-len"}, !vidsLoaded ? "—" : clockOf(doneSec)),
+        _stEl("span",{className:"stage2-versions-count"},
+          !vidsLoaded ? "Loading takes…"
+          : "of ~"+clockOf(totalSec)+" · "+renderedN+" / "+ordered.length+" clips in the film"
+            +(staleN ? " · "+staleN+" out of date" : "")
+            +(()=>{ const n = ordered.filter(c=>(oldLookVids||{})[c.id]).length; return n ? " · "+n+" with an earlier look" : ""; })()
+            +(()=>{ const n = ordered.filter(c=>(noteVids||{})[c.id]).length; return n ? " · "+n+" with take notes" : ""; })())),
+      _stEl("div",{className:"stage2-tl-tools"},
+        _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",disabled:!renderedN && !playAll,
+          title:playAll ? "Stop playing the film" : (renderedN?"Play every rendered clip in story order, from the first":"Render clips in the Shoot tab first"),
+          onClick:playAll ? stopFilm : playFilm}, playAll?"■ Stop film":"▶ Play film"),
+        (!playAll && pickedFrom) && _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button","data-testid":"timeline-play-from",
+          title:"Play the film from the playhead, through every rendered clip after it",
+          onClick:playFromHere}, "▶ Play from "+clockOf(headAt)),
+        _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",disabled:(!renderedN || !vidsLoaded) && !exporting,
+          title: exporting ? "Recording in real time — click to cancel the export"
+            : (renderedN ? "Record every rendered clip into ONE downloadable movie, with the Mix tab's voices, beds and levels if you like. Runs in real time — a 3-minute film takes about 3 minutes; keep this tab open and in front." : "Render clips in the Shoot tab first"),
+          onClick: exporting ? ()=>{ exportCancelRef.current = true; } : doExport},
+          exportLabel),
+        // the selected clip opens in Shoot from a button too — double-click was the only way (2026-10-09)
+        cur && vids[cur.id] && _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",
+          title:"Open "+stageClipBeatName(cur)+" in Shoot"+(((oldLookVids||{})[cur.id] || (noteVids||{})[cur.id]) ? " to regenerate it" : ""),
+          onClick:()=>onOpenStage&&onOpenStage(cur.id)}, "Open in Shoot"))),
     _stEl("div",{className:"sb-sr-only",role:"status","aria-live":"polite"}, liveText),
     _stEl("div",{className:"stage2-tl-player"},
+      cur && _stEl("span",{className:"stage2-tl-player-tag"}, stageClipBeatName(cur)+" · "+clockOf(headAt)),
       curUrl && !playErr
         ? _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,onEnded,onCanPlay,onPause,onError:onVideoError,
+            onLoadedMetadata:applySeek,
+            onTimeUpdate:(e)=>{ const t = Number(e.currentTarget.currentTime)||0; if(cur) setTlPlay(p=>(p.id===cur.id && Math.abs(p.t-t)<0.2) ? p : { id:cur.id, t }); },
             "aria-label":cur ? ("Timeline — "+stageClipBeatName(cur)) : "Timeline",
             title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget),
             poster:cur?clipPrimaryFrame(cur, thumbs, visualSource)||undefined:undefined})
@@ -7992,31 +8041,52 @@ function StageTimelineView({ allClips, vids, staleVids, identityVids, imgs, visu
               : playErr ? playErr
               : !vidsLoaded ? "Loading takes…"
               : (identityVids||{})[cur.id]
-              ? stageClipBeatName(cur)+"'s take finished after a character's identity changed — check it in Takes (\u201cCheck and use this take\u201d) to put it back in the film."
+              ? stageClipBeatName(cur)+"'s take finished after a character's identity changed — check it in Takes (“Check and use this take”) to put it back in the film."
               : (staleVids||{})[cur.id]
               ? stageClipBeatName(cur)+"'s take is out of date — its shots changed since it was rendered, so it's left out of the film."
               : stageClipBeatName(cur)+" isn't rendered yet.")),
             cur && vidsLoaded && _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",onClick:()=>onOpenStage&&onOpenStage(cur.id)},
               ((staleVids||{})[cur.id] || playErr) ? "Regenerate it in Shoot" : "Render it in Shoot"))),
-    _stEl("div",{className:"stage2-tl-strip"},
-      groups.map(g=>_stEl("div",{key:g.scene.id,className:"stage2-tl-scene",role:"group","aria-label":"Scene "+_pad2(g.scene.no)},
-        _stEl("div",{className:"stage2-tl-scene-lab"},_pad2(g.scene.no)+" · "+(g.scene.title||g.scene.loc||"Scene")),
-        _stEl("div",{className:"stage2-tl-clips"},
-          g.items.map(({c,i})=>{
+    ordered.length>0 && _stEl("div",{className:"stage2-tl-trackbar"},
+      _stEl("span",{className:"stage2-tl-trackbar-lab"},"The film · "+clockOf(filmLen)),
+      _stEl("div",{className:"stage2-seg",role:"group","aria-label":"Track zoom"},
+        [[1,"Fit"],[2,"2×"],[4,"4×"]].map(([z,l])=>_stEl("button",{key:z,type:"button","aria-pressed":tlZoom===z?"true":"false",
+          className:"stage2-seg-btn"+(tlZoom===z?" on":""),title:z===1?"The whole film in the width":"Zoom the track "+l,onClick:()=>setTlZoom(z)},l)))),
+    ordered.length>0 && _stEl("div",{className:"stage2-tl-scroll",ref:tlTrackRef},
+      _stEl("div",{className:"stage2-tl-canvas","data-testid":"timeline-track",style:{width:(100*tlZoom)+"%"}},
+        _stEl("div",{className:"stage2-tl-ruler","aria-hidden":"true"},
+          ticks.map(t=>_stEl("span",{key:t,className:"stage2-tl-tick",style:{left:pct(t)}}, clockOf(t)))),
+        _stEl("div",{className:"stage2-tl-bands"},
+          bands.map(b=>_stEl("div",{key:b.scene.id+":"+b.at,className:"stage2-tl-band",style:{left:pct(b.at),width:"calc("+pct(b.len)+" - 2px)"},
+            role:"group","aria-label":"Scene "+_pad2(b.scene.no)+", "+clockOf(b.len),title:_pad2(b.scene.no)+" · "+(b.scene.title||b.scene.loc||"Scene")+" · "+clockOf(b.len)},
+            _stEl("span",null,_pad2(b.scene.no)+" · "+(b.scene.title||b.scene.loc||"Scene"))))),
+        _stEl("div",{className:"stage2-tl-track"},
+          ordered.map((c,i)=>{
             const has = !!vids[c.id], st = statusOf(c);
             const look = has && (oldLookVids||{})[c.id], noted = has && (noteVids||{})[c.id];
             const thumb = clipPrimaryFrame(c, thumbs, visualSource);
             const state = has ? (look ? "made with an earlier look (still in the film)" : "in the film")
               : st==="identity" ? "identity changed — check it in Takes" : st==="stale" ? "out of date (left out)" : "not rendered yet";
             return _stEl("button",{key:c.id,type:"button","aria-pressed":i===idx ? "true" : "false",
-              "aria-label":stageClipBeatName(c)+", "+state+(noted ? ", take notes: "+noted.join(", ") : ""),
+              "aria-label":stageClipBeatName(c)+", "+clockOf(spans[i])+", "+state+(noted ? ", take notes: "+noted.join(", ") : ""),
               className:"stage2-tl-clip"+(i===idx?" on":"")+(has?"":" missing")+(st==="stale"||st==="identity"?" stale":"")+(look?" old-look":"")+(noted?" noted":""),
-              title:stageClipBeatName(c)+" — "+state+" · click to select, double-click to open it in Shoot"
+              style:{left:pct(starts[i]),width:"calc("+pct(spans[i])+" - 2px)"},
+              title:stageClipBeatName(c)+" — "+_fmtSecs(Math.round(spans[i]))+" · "+state+" · click to place the playhead, double-click to open it in Shoot"
                 +(noted ? " · "+noted.join(", ") : ""),
-              onClick:()=>{ if(playAll) stopFilm(); select(i); }, onDoubleClick:()=>onOpenStage&&onOpenStage(c.id)},
-              thumb ? _stEl("img",{src:thumb,alt:""}) : _stEl("span",{className:"stage2-tl-clip-blank"}),
-              _stEl("span",{className:"stage2-tl-clip-lab"}, stageClipBeatName(c)+" · "+_fmtSecs(Math.round(has ? takeSecs(c) : (Number(c.data&&c.data.dur)||0)))),
-              _stEl("span",{className:"stage2-tl-dot"+(has?" ok":"")+(st==="stale"||st==="identity"?" stale":"")})); }))))));
+              onClick:(e)=>{ if(playAll) stopFilm(); pickAt(i, e); }, onDoubleClick:()=>onOpenStage&&onOpenStage(c.id)},
+              (has && thumb) ? _stEl("img",{src:thumb,alt:""}) : _stEl("span",{className:"stage2-tl-clip-blank"}),
+              _stEl("span",{className:"stage2-tl-clip-lab"}, c.label+(has ? "" : " · "+_fmtSecs(Math.round(spans[i])))),
+              _stEl("span",{className:"stage2-tl-dot"+(has?" ok":"")+(st==="stale"||st==="identity"?" stale":"")})); }),
+          cur && _stEl("span",{className:"stage2-tl-head-line","aria-hidden":"true",style:{left:pct(headAt)}})),
+        _stEl("div",{className:"stage2-tl-lane","aria-label":"Voiced lines"},
+          lines.map(l=>_stEl("span",{key:l.key,className:"stage2-tl-line"+(l.ready?" ready":""),title:l.label,
+            style:{left:pct(l.at),width:"max(3px, calc("+pct(l.len)+" - 1px))"}}))))),
+    ordered.length>0 && _stEl("div",{className:"stage2-tl-legend","aria-hidden":"true"},
+      _stEl("span",null,_stEl("i",{className:"k-in"}),"In the film"),
+      _stEl("span",null,_stEl("i",{className:"k-stale"}),"Out of date"),
+      _stEl("span",null,_stEl("i",{className:"k-miss"}),"Not rendered (its planned length)"),
+      _stEl("span",null,_stEl("i",{className:"k-line"}),"Voiced lines"),
+      _stEl("span",null,_stEl("i",{className:"k-line off"}),"Lines not voiced yet")));
 }
 
 /* ---- AUDIO tab — the POST MIX. Generation audio is a scratch track; this is where the

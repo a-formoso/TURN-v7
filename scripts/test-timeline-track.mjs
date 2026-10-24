@@ -1,0 +1,56 @@
+#!/usr/bin/env node
+/*
+ * The Timeline as an editor's track (2026-10-24, owner — Timeline option A). Source checks on
+ * StageTimelineView: the film on one time ruler, blocks as long as their takes, scene bands, a
+ * playhead, the voiced-lines lane, zoom and "Play from here". The browser-free parts of the
+ * Timeline (export, play-through, states) stay pinned by scripts/test-timeline-third-pass.mjs.
+ */
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+
+const stage=readFileSync("app/stage.jsx","utf8");
+const css=readFileSync("app/styles.css","utf8");
+const ai=readFileSync("app/ai.jsx","utf8");
+const html=readFileSync("TURN.html","utf8");
+const a=stage.indexOf("function StageTimelineView("), b=stage.indexOf("/* ---- AUDIO tab", a);
+// compare with \uXXXX escapes decoded on both sides (the source writes some as characters)
+const dec=x=>String(x).replace(/\\u([0-9a-fA-F]{4})/g,(m,h)=>String.fromCharCode(parseInt(h,16)));
+const tlRaw=dec(stage.slice(a,b));
+const tl={ includes:(x)=>tlRaw.includes(dec(x)) };
+let pass=0;
+const t=(name,fn)=>{ try{ fn(); }catch(e){ console.error("FAIL "+name+" — "+String(e.message).slice(0,200)); process.exit(1); } pass++; console.log("PASS "+name); };
+
+t("A1 the second title bar is gone; the summary leads with the film's length", ()=>{
+  assert.ok(!tl.includes('"the film, assembled from each clip\'s current take"'));
+  assert.ok(tl.includes('_stEl("b",{className:"stage2-tl-len"}, !vidsLoaded ? "\\u2014" : clockOf(doneSec))'));
+  assert.ok(tl.includes('"of ~"+clockOf(totalSec)+" \\u00b7 "+renderedN+" / "+ordered.length+" clips in the film"'));
+});
+t("A2 each clip is a block as long as its take (no take: its planned length), placed by its share of the film", ()=>{
+  assert.ok(tl.includes("const spanOf = (c)=>Math.max(0.5, vids[c.id] ? (takeSecs(c)||Number(c.data&&c.data.dur)||0) : (Number(c.data&&c.data.dur)||0));"));
+  assert.ok(tl.includes('style:{left:pct(starts[i]),width:"calc("+pct(spans[i])+" - 2px)"}'));
+  assert.ok(tl.includes("const pct = (t)=>(Math.max(0, Math.min(filmLen, t))/filmLen*100)+\"%\";"));
+});
+t("A3 a time ruler, scene bands, a playhead and the voiced lines from the Mix", ()=>{
+  assert.ok(tl.includes("const tickStep = [5,10,15,30,60,120,300,600,1200].find(st=>filmLen/st<=8*tlZoom) || 1800;"));
+  assert.ok(tl.includes('className:"stage2-tl-band"') && tl.includes('className:"stage2-tl-head-line"'));
+  assert.ok(tl.includes("clipLinePlacements(c, auds, characters)") && tl.includes('className:"stage2-tl-line"+(l.ready?" ready":"")'));
+  assert.ok(tl.includes("const headAt = cur ? starts[idx] + (cur.id===tlPlay.id ? tlPlay.t : 0) : 0;"));
+});
+t("A4 a click places the playhead inside the clip; Play from here runs the film from it; zoom Fit / 2x / 4x", ()=>{
+  assert.ok(tl.includes("onClick:(e)=>{ if(playAll) stopFilm(); pickAt(i, e); }"));
+  assert.ok(tl.includes("onLoadedMetadata:applySeek"));
+  assert.ok(tl.includes('"▶ Play from "+clockOf(headAt)') && tl.includes("onClick:playFromHere"));
+  assert.ok(tl.includes('[[1,"Fit"],[2,"2\\u00d7"],[4,"4\\u00d7"]]') && tl.includes("style:{width:(100*tlZoom)+\"%\"}"));
+});
+t("A5 the states keep their marks: hatched when not rendered, a red edge when out of date, the dots", ()=>{
+  assert.ok(css.includes(".stage2-tl-a .stage2-tl-clip.missing{opacity:1;background:repeating-linear-gradient("));
+  assert.ok(css.includes(".stage2-tl-a .stage2-tl-clip.stale{box-shadow:inset 0 0 0 2px var(--alert"));
+  assert.ok(tl.includes('className:"stage2-tl-dot"+(has?" ok":"")+(st==="stale"||st==="identity"?" stale":"")'));
+});
+t("A6 Frances knows the track", ()=>{
+  assert.ok(ai.includes("THE TIMELINE AS AN EDITOR'S TRACK (2026-10-24"));
+});
+t("A7 cache keys", ()=>{
+  ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs67"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+});
+console.log(pass+" passed, 0 failed");

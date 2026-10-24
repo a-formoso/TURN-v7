@@ -80,6 +80,6 @@ t("Frances knows all of it", ()=>{
 });
 t("cache keys: the changed files load with the new key", ()=>{
   ["stage.jsx","stage-director-brief.js","ai.jsx","script.jsx"].forEach(f=>
-    assert.ok(["20261024-hs64", "20261024-hs65", "20261024-hs66"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+    assert.ok(["20261024-hs64", "20261024-hs65", "20261024-hs66", "20261024-hs67"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
 });
 console.log(pass+" passed, 0 failed");
