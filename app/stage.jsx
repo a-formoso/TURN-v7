@@ -4415,7 +4415,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   }, [playerUrl]);
   const blockerRef = React.useRef(null);              // the banner naming what blocks Generate
   const [blockPulse, setBlockPulse] = React.useState(0);   // bumped when a blocked Generate is clicked → shake + scroll
-  const [panelTab, setPanelTab] = React.useState("inputs"); // Render-settings panel tab: model | inputs | director
+  const [panelTab, setPanelTab] = React.useState("inputs"); // Render-settings panel: the open fold \u2014 model | inputs | director | "" (all folded)
+  const [capsOpen, setCapsOpen] = React.useState(false);     // R1: the "What <engine> can do" fold
   // fixed-height prompt box (scrolls when the text runs longer) — keeps the composer
   // compact even on wordy recipes; the resize handle still lets users pull it taller.
   React.useEffect(()=>{
@@ -6641,15 +6642,22 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // duration) plus the LIVE credit cost and the model's capabilities as compact chips —
   // one glanceable answer to "what will this render cost and why". Always visible above
   // the tabs; the tabs below keep only the advanced knobs (seed, bitrate, batch, end frame). ----
-  const renderCard = _stEl("div",{className:"stage2-rendercard"},
-    _stEl("div",{className:"stage2-rc-head"},
-      _stEl("span",{className:"eyebrow"},"Render"),
-      _stEl("b",{className:"stage2-rc-cost"+(creditInfo.empty?" empty":""),
-        title:renderCostTitle+". "+creditInfo.title},
-        Icon.sparkles&&_stEl(Icon.sparkles,{s:12}), totalCost+" credit"+(totalCost!==1?"s":""))),
+  /* R1 (owner 2026-10-24): THE PRICE LEADS \u2014 a card with the render's credits in large type and what they're made
+     of under it; then Engine, Tier, Resolution and Duration as quiet label / value rows */
+  const renderCard = _stEl("div",{className:"stage2-rendercard stage2-rc-r1"},
+    _stEl("div",{className:"stage2-rc-price"+(creditInfo.empty?" empty":""),title:renderCostTitle+". "+creditInfo.title},
+      _stEl("div",{className:"stage2-rc-price-main"},
+        _stEl("span",{className:"stage2-rc-price-lab"}, batchN>1 ? batchN+" takes" : "This render"),
+        _stEl("b",{className:"stage2-rc-cost"}, totalCost.toLocaleString("en-US")),
+        _stEl("span",{className:"stage2-rc-price-unit"},"credit"+(totalCost!==1?"s":""))),
+      // the cost math, spelled out — updates live with any choice below (and the batch pill)
+      _stEl("div",{className:"stage2-rc-math",title:creditInfo.title},
+        (batchN>1 ? (batchN+" takes × ") : "")+_fmtSecs(duration)+" × "+resolution+" × "+tierObj.label
+          +(refVideoSec>0 ? " (+ "+_fmtSecs(Math.round(refVideoSec*10)/10)+" reference video)" : "")
+          +(creditInfo.known ? (" · "+Number(creditInfo.remaining).toLocaleString("en-US")+" remaining") : ""))),
     // model picker — data-driven from SEEDANCE_MODELS; a future model is one registry
     // entry, so it shows up here (disabled, with its note as a tooltip) automatically.
-    _stEl("div",{className:"sd-gen-modelrow",role:"radiogroup","aria-label":"Model"},
+    _ctrlRow("Engine", _stEl("div",{className:"sd-gen-modelrow",role:"radiogroup","aria-label":"Model"},
       SEEDANCE_MODELS.map(m=>{
         const planLocked = m.status==="active" && !planAllowsModel(m.id);
         return _stEl("button",{key:m.id,type:"button",
@@ -6664,7 +6672,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           m.label,
           m.status==="soon" && _stEl("span",{className:"sd-gen-model-soon"},"Soon"),
           planLocked && _stEl("span",{className:"sd-gen-model-soon plan"},"Director"));
-      })),
+      }))),
     !!(model.tiers||[]).length && _ctrlRow("Tier", _stEl("div",{className:"sd-gen-quality"},
       model.tiers.map(t0=>_stEl("button",{key:t0.id,className:tier===t0.id?"on":"",type:"button",title:t0.note,onClick:()=>setTier(t0.id)},
         t0.fast&&Icon.sparkles&&_stEl(Icon.sparkles,{s:12}),t0.label)))),
@@ -6689,17 +6697,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     _ctrlRow("Duration", _stEl("select",{value:String(duration),
         title:"Clip duration","aria-description":durationTitle==="Clip duration"?undefined:durationTitle,
         onChange:e=>{ const v=Number(e.target.value); setDurationOverride(v===autoDurationSec ? null : v); }},
-        durationOptions.map(v=>_stEl("option",{key:v,value:String(v)},_fmtSecs(v)+durationOptionNote(v))))),
-    // the cost math, spelled out — updates live with any choice above (and the batch pill)
-    _stEl("div",{className:"stage2-rc-math",title:creditInfo.title},
-      (batchN>1 ? (batchN+" takes × ") : "")+_fmtSecs(duration)+" × "+resolution+" × "+tierObj.label
-        +(refVideoSec>0 ? " (+ "+_fmtSecs(Math.round(refVideoSec*10)/10)+" reference video)" : "")
-        +" = "+totalCost.toLocaleString("en-US")+" credit"+(totalCost!==1?"s":"")
-        +(creditInfo.known ? (" · "+Number(creditInfo.remaining).toLocaleString("en-US")+" remaining") : "")),
-    // capabilities as compact chips (full text on hover) — replaces the long text list
-    _stEl("div",{className:"stage2-rc-caps"},
-      (model.capabilities||[]).map((txt,i)=>
-        _stEl("span",{key:i,className:"stage2-rc-cap",title:txt}, _firstWords(txt, 4)))));
+        durationOptions.map(v=>_stEl("option",{key:v,value:String(v)},_fmtSecs(v)+durationOptionNote(v))))));
+  // what the engine can do: compact chips (full text on hover), in their own folded row below
+  const capsChips = _stEl("div",{className:"stage2-rc-caps"},
+    (model.capabilities||[]).map((txt,i)=>
+      _stEl("span",{key:i,className:"stage2-rc-cap",title:txt}, _firstWords(txt, 4))));
   const tabModel = _stEl(React.Fragment,null,
     _stEl("div",{className:"sd-gen-modegrid"},
       MODES.map(([id,label])=>_stEl("button",{key:id,type:"button",
@@ -6832,14 +6834,24 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         Icon.chevR&&_stEl(Icon.chevR,{s:14}))),
     // the unified Render card leads — cost-bearing choices + live price, above the tabs
     _stEl("div",{className:"stage2-rc-wrap"}, renderCard),
-    // the Writers' Room INSPECTOR tab style (underline .insp-tab), reused verbatim
-    _stEl("div",{className:"insp-tabs stage2-settings-tabs"},
-      panelTabs.map(([id,lab])=>_stEl("button",{key:id,className:"insp-tab"+(panelTab===id?" on":""),type:"button",
-        onClick:()=>setPanelTab(id)},lab))),
-    _stEl("div",{className:"sd-gen-panel"},
-      panelTab==="model" && tabModel,
-      panelTab==="inputs" && tabInputs,
-      panelTab==="director" && tabDirector,
+    /* R1: Model, Inputs and Director (and what the engine can do) fold to one-line rows with a short summary; one
+       opens at a time, in place (the rows keep the .insp-tab buttons and their names) */
+    _stEl("div",{className:"sd-gen-panel stage2-folds"},
+      panelTabs.map(([id,lab])=>{
+        const open = panelTab===id;
+        const sum = id==="inputs" ? counts.text+" text \u00b7 "+counts.images+" image"+(counts.images!==1?"s":"")+" \u00b7 "+counts.videos+" video \u00b7 "+counts.audio+" audio"
+          : id==="director" ? [camera, lighting].filter(Boolean).join(" \u00b7 ")
+          : [(MODES.find(m=>m[0]===mode)||[,""])[1], batchN>1 ? batchN+" takes" : ""].filter(Boolean).join(" \u00b7 ");
+        return _stEl("div",{key:id,className:"stage2-settings-tabs stage2-fold"+(open?" open":"")},
+          _stEl("button",{className:"insp-tab stage2-fold-head"+(open?" on":""),type:"button","aria-expanded":open?"true":"false",
+            "data-sum":sum||"", onClick:()=>setPanelTab(open?"":id)},lab),
+          open && _stEl("div",{className:"stage2-fold-body"},
+            id==="model" ? tabModel : id==="inputs" ? tabInputs : tabDirector));
+      }),
+      (model.capabilities||[]).length>0 && _stEl("div",{className:"stage2-fold stage2-fold-caps"+(capsOpen?" open":"")},
+        _stEl("button",{className:"stage2-fold-head",type:"button","aria-expanded":capsOpen?"true":"false",
+          "data-sum":(model.capabilities||[]).length+" note"+((model.capabilities||[]).length!==1?"s":""),onClick:()=>setCapsOpen(o=>!o)},"What "+model.label+" can do"),
+        capsOpen && _stEl("div",{className:"stage2-fold-body"}, capsChips)),
       // (the drawer's own "Voice clip first" / source / asset errors repeated the composer's notices — removed 2026-10-05)
       genErr && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), genErr),
 
@@ -8535,13 +8547,9 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
           onClick:()=>{ if(sceneClips[0]) onSelectClip(sceneClips[0].id); },
           title:"Select Scene "+_pad2(scene.no)+" · "+done+" of "+total+" clip"+(total!==1?"s":"")+" rendered · "+_fmtSecs(sceneDur)+" runtime"},
         _stEl("span",{className:"tree-scene-no"}, _pad2(scene.no)),
-        _stEl("span",{className:"tree-scene-dot",style:{background:allDone?"var(--pos)":chargeColor(scene)}}),
         _stEl("span",{className:"stage2-scene-ttl"}, scene.title||scene.loc),
-        // per-scene rollup: rendered/total clips (✓-green when complete, matching the
-        // chip done styling) + the scene's total runtime — the at-a-glance answer to
-        // "how far along is this scene?" without scanning chips
-        _stEl("span",{className:"stage2-scene-prog"+(allDone?" done":"")}, allDone?"✓ ":"", done+"/"+total),
-        _stEl("span",{className:"stage2-scene-meta"}, _fmtSecs(sceneDur))),
+        // L1 (owner 2026-10-24): rendered / total clips and the scene's runtime, in one quiet figure at the right
+        _stEl("span",{className:"stage2-scene-prog"+(allDone?" done":"")}, done+"/"+total+" \u00b7 "+_fmtSecs(sceneDur))),
       // thin progress bar that fills as clips render
       _stEl("div",{className:"stage2-scene-bar"+(allDone?" done":""),role:"progressbar",
           "aria-valuenow":done,"aria-valuemin":0,"aria-valuemax":total,
@@ -8552,7 +8560,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       // a beat row selects the clip holding the beat's FIRST shot, but only the
       // clicked/current beat highlights (packing can span beats without looking like
       // a multi-select).
-      _stEl("div",{className:"stage2-beat-list"},
+      // L1: only the OPEN scene lists its beats (the others are one line each)
+      selectedScene.id===scene.id && _stEl("div",{className:"stage2-beat-list"},
         (()=>{ const beats=[];
           sceneShots.forEach(sh=>{ const n=sh.beatN||null;
             const b=beats.find(x=>x.n===n); if(b) b.shots.push(sh); else beats.push({ n, shots:[sh] }); });
@@ -8574,6 +8583,10 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             const on = selectedScene.id===scene.id && b.shots.some(sh=>sh.id===((selectedShot||{}).id));
             const beatNm = stageBeatRailName(scene, drafts, beatsMap, b);
             const label = "Beat "+(b.n||"—");
+            // L1: a status dot (rendered / to do / can't render yet) and, when something stops it, one amber line saying what
+            const st = rendered ? "ok" : (p.ready||unknown) ? "todo" : "warn";
+            const warnTxt = rendered ? "" : unknown ? "" : !p.ready ? "No frame yet \u2014 make it in Shots"
+              : (ready && ready.issues.length ? String(ready.text||"").replace(/^\s*[\u2014-]\s*/,"") : "");
             return _stEl("div",{key:"beat-"+(b.n||"none"),className:"stage2-beat"+(on?" on":"")},
               _stEl("button",{type:"button",
                 className:"stage2-beat-row"+(rendered?" done":"")+((p.ready||unknown)?"":" missing"),
@@ -8585,16 +8598,21 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
                   +(rendered?" · rendered ✓":"")
                   +(rendered && noted ? " · take notes: "+coverClips.map(c=>(noteVids[c.id]||[]).concat(oldLookVids[c.id]?["Earlier look"]:[])).flat().join(", ") : ""),
                 onClick:()=>{ if(!firstClip) return; if(firstClip.id!==clip.id) onSelectClip(firstClip.id); setSelShotId(b.shots[0].id); }},
+                _stEl("span",{className:"stage2-beat-dot "+st,"aria-hidden":"true"}),
                 _stEl("b",null,label),
                 _stEl("span",{className:"stage2-beat-name"},beatNm||"—"),
                 _stEl("span",{className:"stage2-clip-chip-glyph"},p.glyph),
-                _stEl("span",{className:"stage2-clip-chip-st"}, rendered?(noted?"✓\u2022":"✓"):((p.ready||unknown)?"":"!"))));
+                _stEl("span",{className:"stage2-clip-chip-st"}, rendered?(noted?"✓\u2022":"✓"):((p.ready||unknown)?"":"!"))),
+              warnTxt && _stEl("div",{className:"stage2-beat-warn"}, warnTxt));
           });
         })()));
   };
   const rail = _stEl("div",{className:"stage2-rail"},
     _stEl("div",{className:"stage2-rail-head"},
       Icon.layers&&_stEl(Icon.layers,{s:12}), _stEl("span",null,"Scenes"),
+      // L1: how many scenes are fully shot
+      _stEl("span",{className:"stage2-rail-count"}, scenesWithShots.filter(sc=>{ const cs = allClips.filter(c=>c.scene.id===sc.id);
+        return cs.length>0 && cs.every(c=>clipVideoReady(c, vids)); }).length+" of "+scenesWithShots.length+" shot"),
       _stEl("button",{className:"panel-collapse",onClick:()=>setRailOpen(false),title:"Collapse scenes"},
         Icon.chevL&&_stEl(Icon.chevL,{s:14}))),
     _stEl("div",{className:"stage2-scene-list"}, scenesWithShots.map(sceneRow)));

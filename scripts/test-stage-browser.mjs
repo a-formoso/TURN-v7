@@ -544,7 +544,8 @@ async function main() {
       return value;
     };
     const chooseNativePerformance=async(label)=>{
-      await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()==="Director"))?.click()`);
+      // (2026-10-24, R1) the Render settings sections are folds: a second click on an open one closes it, so open Director only when it isn't
+      await c.eval(`(()=>{const b=[...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()==="Director"); if(b && !b.classList.contains("on")) b.click(); return !!b;})()`);
       await waitFor(()=>c.eval(`[...document.querySelectorAll("select")].some(s=>[...s.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)))`),`${label||"Stage"} native-performance control`);
       await c.eval(`(()=>{const s=[...document.querySelectorAll("select")].find(x=>[...x.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)));s.value="native";s.dispatchEvent(new Event("change",{bubbles:true}));return s.value;})()`);
       await waitFor(()=>c.eval(`[...document.querySelectorAll("select")].some(s=>s.value==="native"&&[...s.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)))`),`${label||"Stage"} native-performance selection`);

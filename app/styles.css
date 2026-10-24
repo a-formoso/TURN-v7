@@ -11020,3 +11020,60 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .art-intro-row > div:first-child:empty{display:none}
 .art-dept-sep{margin:0 8px 0 -3px}
 .art-intro-row > .art-intro-actions{margin-left:auto}
+
+/* ============================ THE STAGE'S SIDE PANELS: L1 + R1 (owner 2026-10-24) ============================
+   L1 — Scenes: one row per scene (number, title, "rendered/total · runtime") over a thin progress bar; the open scene is
+   the soft amber card and lists its beats, each with a status dot and, when something stops it, one amber line.
+   R1 — Render settings: the price leads (large credits, what they're made of), Engine / Tier / Resolution / Duration as
+   quiet rows, then Model, Inputs, Director and the engine's notes as one-line folds with a summary. */
+.app.hs.room-stage .stage2-rail-head{display:flex;align-items:center;gap:7px;padding:2px 4px 12px;font:400 10.5px var(--f-mono);letter-spacing:.1em;color:var(--hs-sub)}
+.app.hs.room-stage .stage2-rail-count{margin-left:auto;text-transform:none;letter-spacing:0;font-size:11px}
+.app.hs.room-stage .stage2-rail-head .panel-collapse{margin-left:6px}
+.app.hs.room-stage .stage2-scene-block{padding:0 0 6px;border-bottom:0}
+.app.hs.room-stage .stage2-scene-headrow{gap:10px;padding:9px 10px 6px;border-radius:10px 10px 0 0}
+.app.hs.room-stage .stage2-scene-headrow .tree-scene-no{font:700 11px var(--f-mono);color:var(--hs-sub);width:20px;flex:none}
+.app.hs.room-stage .stage2-scene-ttl{font:600 13px var(--f-ui);color:var(--hs-ink)}
+.app.hs.room-stage .stage2-scene-prog{margin-left:auto;font:400 11px var(--f-mono);color:var(--hs-sub);background:none;border:0;padding:0}
+.app.hs.room-stage .stage2-scene-prog.done{color:#2f7d4f}
+.app.hs.room-stage .stage2-scene-bar{height:3px;margin:0 10px 6px 40px;background:var(--hs-line)}
+.app.hs.room-stage .stage2-scene-bar-fill{background:var(--hs-amber)}
+.app.hs.room-stage .stage2-scene-bar.done .stage2-scene-bar-fill{background:#3E9A6A}
+.app.hs.room-stage .stage2-scene-block:has(> .stage2-scene-headrow.on){background:var(--hs-amber-soft);box-shadow:inset 0 0 0 1px var(--hs-amber-line);border-radius:10px;margin-bottom:6px}
+.app.hs.room-stage .stage2-scene-headrow.on{background:transparent}
+.app.hs.room-stage .stage2-beat-list{display:flex;flex-direction:column;gap:3px;padding:0 8px 4px 30px}
+.app.hs.room-stage .stage2-beat-row{gap:7px;padding:5px 8px;border:1px solid transparent;border-radius:7px;background:var(--hs-surface);font-size:12px}
+.app.hs.room-stage .stage2-beat.on .stage2-beat-row{border-color:var(--hs-amber-line);color:var(--hs-ink)}
+.app.hs.room-stage .stage2-beat-row .stage2-clip-chip-glyph,.app.hs.room-stage .stage2-beat-row .stage2-clip-chip-st{display:none}
+.app.hs.room-stage .stage2-beat-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--hs-ink-2)}
+.stage2-beat-dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
+.stage2-beat-dot.ok{background:#3E9A6A}
+.stage2-beat-dot.todo{border:1.5px solid var(--hs-line-3,var(--line-3))}
+.stage2-beat-dot.warn{border:1.5px solid var(--hs-amber,var(--accent))}
+.stage2-beat-warn{margin:2px 0 2px 23px;font-size:11.5px;line-height:1.35;color:var(--hs-amber-ink,var(--pos-ink))}
+
+.app.hs.room-stage .stage2-rc-r1{gap:8px;padding:12px;border-radius:12px;background:var(--hs-surface);border:1px solid var(--hs-line-2)}
+.stage2-rc-price{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:10px;background:var(--hs-bone,var(--bg-3));margin-bottom:4px}
+.stage2-rc-price-main{display:flex;align-items:baseline;gap:7px}
+.stage2-rc-price-lab{font:400 10.5px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--hs-sub);margin-right:auto}
+.app.hs.room-stage .stage2-rc-price .stage2-rc-cost{font:500 28px/1 var(--f-serif);color:var(--hs-ink);background:none;border:0;padding:0}
+.stage2-rc-price-unit{font:400 11px var(--f-mono);color:var(--hs-sub)}
+.stage2-rc-price.empty .stage2-rc-cost{color:var(--alert)}
+.app.hs.room-stage .stage2-rc-price .stage2-rc-math{font:400 10.5px/1.4 var(--f-mono);color:var(--hs-sub);background:none;border:0;padding:0}
+.app.hs.room-stage .stage2-rc-r1 .stage2-ctrl{grid-template-columns:78px minmax(0,1fr);padding:4px 0}
+.app.hs.room-stage .stage2-rc-r1 .stage2-ctrl-l{font:400 10px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hs-sub)}
+.app.hs.room-stage .stage2-rc-r1 .sd-gen-modelrow{margin:0}
+.stage2-folds{display:flex;flex-direction:column}
+.stage2-fold{border-top:1px solid var(--hs-line,var(--line))}
+.stage2-fold:last-of-type{border-bottom:1px solid var(--hs-line,var(--line))}
+.app.hs.room-stage .stage2-fold > .stage2-fold-head{display:flex;align-items:center;gap:8px;width:100%;padding:11px 2px;border:0;background:none;
+  font:600 13px var(--f-ui);color:var(--hs-ink);text-align:left;cursor:pointer;text-transform:none;letter-spacing:0}
+.app.hs.room-stage .stage2-fold > .stage2-fold-head::before{content:"\203A";display:inline-block;width:10px;color:var(--hs-sub);transition:transform .12s}
+.app.hs.room-stage .stage2-fold.open > .stage2-fold-head::before{transform:rotate(90deg)}
+.app.hs.room-stage .stage2-fold > .stage2-fold-head::after{content:attr(data-sum);margin-left:auto;font:400 11.5px var(--f-ui);color:var(--hs-sub);
+  max-width:60%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:static;height:auto;background:none;border:0}
+.app.hs.room-stage .stage2-fold > .stage2-fold-head.on{border-bottom:0}
+.stage2-fold-body{padding:2px 2px 14px;display:flex;flex-direction:column;gap:10px}
+.app.hs.room-stage .stage2-fold.stage2-settings-tabs{padding:0;gap:0;border-bottom:0;height:auto;min-height:0}
+.app.hs.room-stage .stage2-fold > .stage2-fold-head{height:auto;min-height:0;margin:0;flex:none}
+.app.hs.room-stage .sd-gen-panel.stage2-folds{gap:0}
+.app.hs.room-stage .sd-gen-panel.stage2-folds > :not(.stage2-fold){margin-top:14px}
