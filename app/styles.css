@@ -11084,3 +11084,52 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .prop-hero-btn:hover:not(:disabled){color:var(--hs-amber-ink,var(--pos-ink));border-color:var(--hs-line,var(--line-1))}
 .prop-hero-btn.on{color:var(--hs-amber,#e8963a);background:var(--hs-amber-soft,rgba(232,150,58,.12));border-color:var(--hs-amber-line,rgba(242,154,67,.5))}
 .prop-hero-btn:disabled{opacity:.35;cursor:not-allowed}
+/* ── THE STAGE CONSOLE, OPTION A (owner 2026-10-24) ──────────────────────────────────────────────
+   the mode switch on the clip's header line; the MONITOR (player + clock + the scene's takes on its
+   bottom edge, one dark block); the prompt as an OUTLINE of its sections with a foot line; the notices
+   right above a slim Generate row */
+.stage2-center .stage2-clip-head{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 14px}
+.stage2-center .stage2-clip-head .stage2-ctab-tabs{flex:none}
+.stage2-center .stage2-clip-head .stage2-ctab-btn{padding:5px 10px;font-size:12px}
+.stage2-monitor{border-radius:var(--r-m);overflow:hidden;background:#0b0c10;border:1px solid var(--line-3,var(--line-2));
+  box-shadow:0 14px 34px rgba(39,35,29,.12)}
+.stage2-center .stage2-monitor .stage2-player{border:0;border-radius:0;box-shadow:none}
+.stage2-center .stage2-monitor .stage2-ruler{margin:0;padding:8px 12px 2px;height:auto;background:#0b0c10}
+.stage2-center .stage2-monitor .stage2-ruler-track{background:rgba(255,255,255,.14)}
+.stage2-center .stage2-monitor .stage2-ruler-dur{color:rgba(255,255,255,.62)}
+.stage2-center .stage2-monitor .stage2-timeline{margin:0;padding:6px 10px 10px;background:#0b0c10;grid-template-columns:26px minmax(0,1fr) 26px;gap:8px}
+.stage2-center .stage2-monitor .stage2-time-arrow{width:26px;height:26px;background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.14);color:rgba(255,255,255,.75)}
+.stage2-center .stage2-monitor .stage2-time-arrow:disabled{opacity:.35}
+.stage2-center .stage2-monitor .stage2-time-scene-head{color:rgba(255,255,255,.55)}
+.stage2-center .stage2-monitor .stage2-time-card{flex-basis:124px;background:#15171c;border-color:rgba(255,255,255,.12);color:#f1efea}
+.stage2-center .stage2-monitor .stage2-time-card.on{border-color:var(--hs-amber,var(--brand));box-shadow:0 0 0 1px var(--hs-amber,var(--brand))}
+.stage2-center .stage2-monitor .stage2-time-thumb{height:48px}
+.stage2-center .stage2-monitor .stage2-time-meta{padding:4px 6px 5px}
+.stage2-center .stage2-monitor .stage2-time-meta b{color:#f1efea}
+.stage2-center .stage2-monitor .stage2-time-meta span{color:rgba(255,255,255,.55)}
+.stage2-center .stage2-monitor .stage2-time-empty{color:rgba(255,255,255,.55)}
+/* the prompt as an outline */
+.stage2-gen-box.outline{padding:4px 14px 10px}
+.stage2-outline{display:flex;flex-direction:column}
+.stage2-outline-sec{border-top:1px solid var(--line)}
+.stage2-outline-sec:first-child{border-top:0}
+.stage2-outline-head{display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:9px 2px;border:0;background:none;color:var(--txt-0);text-align:left;cursor:pointer}
+.stage2-outline-head:focus-visible{outline:2px solid var(--hs-amber,var(--brand));outline-offset:1px;border-radius:6px}
+.stage2-outline-chev{flex:none;display:grid;place-items:center;width:14px;color:var(--txt-2)}
+.stage2-outline-head b{flex:0 1 auto;min-width:0;font:700 10.5px/1.3 var(--f-mono);letter-spacing:.07em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stage2-outline-head small{flex:1 1 auto;min-width:0;margin-left:auto;text-align:right;font:400 12px/1.3 var(--f-ui);color:var(--txt-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stage2-outline-head:hover b{color:var(--hs-amber-ink,var(--txt-0))}
+.stage2-outline-sec.open{border-top-color:transparent}
+.stage2-outline-sec.open + .stage2-outline-sec{border-top-color:transparent}
+.stage2-outline-sec.open .stage2-outline-head{padding-bottom:6px}
+.stage2-outline-text{display:block;width:100%;margin:0 0 10px;padding:9px 11px;border:1px solid var(--line-2);border-radius:9px;background:var(--bg-3,var(--bg-1));
+  color:var(--txt-0);font:400 13px/1.55 var(--f-ui);resize:vertical;box-sizing:border-box}
+.stage2-outline-text:focus{outline:none;border-color:var(--hs-amber,var(--brand))}
+/* the prompt's foot: length, the view switch and Reset */
+.stage2-prompt-foot{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px 14px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.stage2-prompt-foot .sdbar-count{margin-right:auto}
+.stage2-prompt-view{padding:0;border:0;background:none;font:600 12px var(--f-ui);color:var(--hs-amber-ink,var(--pos-ink));cursor:pointer}
+.stage2-prompt-view:hover{text-decoration:underline}
+/* the notices sit above the Generate row, which carries only aspect, sound and Generate */
+.stage2-gen-composer > .stage2-gen-notices{margin-top:10px}
+.stage2-gen-composer > .sdbar.inline.stage2-genbar{margin-top:10px;align-items:center}

@@ -795,6 +795,29 @@ const langStyled=recipe("narrative",makeClip(langData,"lang-styled"),[shotOpenin
 ok("a named grammar in native performance lists the spoken language lines",
   /SPOKEN LANGUAGE\nMara: “Open the case\.” — spoken in Kalaallisut[^\n]*\nDaniel: “Усе те виндов\.”/.test(langStyled),langStyled.slice(-1500));
 
+// ── the prompt outline (2026-10-24, Stage console option A) ──
+{
+  const secs=box.stagePromptSections(actBrief);
+  const heads=secs.map(x=>x.heading);
+  ok("the outline finds the brief's sections, headings with a note included, and never a cut row",
+    ["BEAT CONTRACT","ACTION AND CAMERA PLAN","CHARACTER ACTING — play the want, never a mood","PERFORMANCE","DIALOGUE AND SOUND","NEGATIVE — must not happen"].every(h=>heads.includes(h))
+    &&!heads.some(h=>/^(CUT|SHOT) \d/.test(h)),JSON.stringify(heads));
+  ok("joining the sections gives the prompt back unchanged", box.stagePromptJoin(secs)===actBrief);
+  const edited=secs.map(x=>x.heading==="PERFORMANCE"?{...x,body:x.body+"\nHold the look for a beat."}:x);
+  const back=box.stagePromptJoin(edited);
+  ok("editing one section changes only that section",
+    back.includes("Hold the look for a beat.\n\nLIGHTING AND PHYSICAL CONTINUITY")&&back.replace("\nHold the look for a beat.","")===actBrief);
+  const styledSecs=box.stagePromptSections(styled);
+  ok("a run-on line ('AUDIO & OVERLAYS: …') stays text in the section before it",
+    !styledSecs.some(x=>/^AUDIO & OVERLAYS/.test(x.heading))&&box.stagePromptJoin(styledSecs).includes("AUDIO & OVERLAYS:"));
+  const sum=box.stagePromptSectionSummary;
+  ok("section summaries: cuts, lines, notes, names",
+    sum(secs.find(x=>x.heading==="ACTION AND CAMERA PLAN"))==="2 cuts"
+    &&/^\d+ lines?$/.test(sum(secs.find(x=>x.heading==="DIALOGUE AND SOUND")))
+    &&sum(secs.find(x=>/^NEGATIVE/.test(x.heading)))==="2 notes"
+    &&sum(secs.find(x=>/^CHARACTER ACTING/.test(x.heading)))==="Mara");
+}
+
 ok("brief and clip compilation are immutable",JSON.stringify({shots:allShots,drafts})===before);
 
 console.log(pass+" passed, "+fail+" failed");

@@ -3062,6 +3062,58 @@ function stageAssetRole(a, refs){
    to their raw token). Caret positions are tracked as absolute offsets into that
    string (a chip counts as its token's length), so autocomplete, insert-at-caret and
    maxLength all keep working exactly as they did on the old <textarea>. */
+/* THE PROMPT AS AN OUTLINE (2026-10-24, owner — Stage console, option A): the director brief's
+   sections (BEAT CONTRACT, ACTION AND CAMERA PLAN, SCENE TYPE…) one line each, with a short
+   summary; open one to read or edit it. A section is a block that starts with an all-capitals
+   heading line; blocks without one stay with the section before. "Edit as text" is the full editor. */
+function stagePromptSections(text){
+  const out=[];
+  String(text||"").split(/\n{2,}/).forEach(block=>{
+    const lines=block.split("\n"), head=String(lines[0]||"").trim();
+    // the heading is capitals up to an optional " \u2014 note" (SCENE TYPE \u2014 Quiet scene); a line that
+    // runs on after a colon ("AUDIO & OVERLAYS: besides\u2026") is text, and so are the cut rows
+    const main=head.split(/\s+\u2014\s+/)[0];
+    const isHead=head.length<=90&&main.length>=3&&/^[A-Z0-9][A-Z0-9 &'\u2019()\/\u00b7,+-]*$/.test(main)
+      &&/[A-Z]{3}/.test(main)&&!/^(CUT|SHOT|BEAT) \d/.test(head);
+    if(isHead) out.push({heading:head, body:lines.slice(1).join("\n")});
+    else if(out.length) out[out.length-1].body += (out[out.length-1].body?"\n\n":"")+block;
+    else out.push({heading:"", body:block});
+  });
+  return out;
+}
+function stagePromptJoin(sections){
+  return (sections||[]).map(x=>x.heading ? (x.body ? x.heading+"\n"+x.body : x.heading) : x.body).join("\n\n");
+}
+function stagePromptSectionSummary(sec){
+  const lines=String(sec&&sec.body||"").split("\n").map(x=>x.trim()).filter(Boolean);
+  const h=String(sec&&sec.heading||""), n=re=>lines.filter(l=>re.test(l)).length;
+  const short=(t,k)=>{ t=String(t||""); return t.length>k ? t.slice(0,k-1).replace(/\s+\S*$/,"")+"\u2026" : t; };
+  if(/^ACTION AND CAMERA/.test(h)){ const c=n(/^(CUT|SHOT) \d/); return c ? c+(c===1?" shot":" cuts") : ""; }
+  if(/^DIALOGUE AND SOUND/.test(h)){ const c=n(/^D\d+ \u00b7 /); return c ? c+" line"+(c===1?"":"s") : "no lines"; }
+  if(/^NEGATIVE/.test(h)) return lines.length+" note"+(lines.length===1?"":"s");
+  if(/^(CHARACTER ACTING|VOICE LOCK|SPOKEN LANGUAGE|HERO PROPS)/.test(h))
+    return _uniq(lines.map(l=>l.split(/[:(\u00b7]/)[0].trim())).slice(0,3).join(", ");
+  if(/^ACTIVE REFERENCES/.test(h)) return lines.length+" reference"+(lines.length===1?"":"s");
+  return short(lines[0], 46);
+}
+function StagePromptOutline({ value, onChange, readOnly=false }){
+  const sections = React.useMemo(()=>stagePromptSections(value), [value]);
+  const [open, setOpen] = React.useState(-1);
+  return _stEl("div",{className:"stage2-outline","data-testid":"stage-prompt-outline",role:"list","aria-label":"Prompt sections"},
+    sections.map((sec,i)=>{
+      const isOpen = open===i;
+      return _stEl("div",{key:i+":"+sec.heading,className:"stage2-outline-sec"+(isOpen?" open":""),role:"listitem"},
+        _stEl("button",{type:"button",className:"stage2-outline-head","aria-expanded":isOpen?"true":"false",
+            title:isOpen?"Close this section":"Open this section to read or edit it",onClick:()=>setOpen(isOpen?-1:i)},
+          _stEl("span",{className:"stage2-outline-chev","aria-hidden":"true"}, (isOpen?Icon.chevD:Icon.chevR)&&_stEl(isOpen?Icon.chevD:Icon.chevR,{s:11})),
+          _stEl("b",null, sec.heading||"Opening"),
+          !isOpen && _stEl("small",null, stagePromptSectionSummary(sec))),
+        isOpen && _stEl("textarea",{className:"stage2-outline-text",value:sec.body,readOnly,spellCheck:false,
+          rows:Math.min(18,Math.max(3,String(sec.body||"").split("\n").reduce((n,l)=>n+Math.max(1,Math.ceil(l.length/78)),0)+1)),
+          "aria-label":(sec.heading||"Opening")+" \u2014 section text",
+          onChange:e=>{ const next=sections.map((x,j)=>j===i?{...x,body:e.target.value}:x); onChange(stagePromptJoin(next)); }}));
+    }));
+}
 function StageMentionEditor({ value, mentionables, includeMention, maxLen, placeholder, onChange, onKeyDown, onBlur, apiRef }){
   const elRef = React.useRef(null);
   const lastVal = React.useRef(null);          // last value REFLECTED in the DOM
@@ -4044,6 +4096,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const [perf, setPerf] = React.useState(dialogueSpeakers[0] || d.lead);
   // SCENE TYPE (2026-10-24): the clip's pick (Auto unless chosen), and what Auto finds
   const sceneTypePick = (clipTypes && clipTypes[clip.id]) || "auto";
+  // the prompt shows as an OUTLINE of its sections or as one TEXT (2026-10-24, option A); remembered on this device
+  const [promptView, _setPromptView] = React.useState(()=>{ try{ return localStorage.getItem("turn_stage_prompt_view")==="text" ? "text" : "outline"; }catch(e){ return "outline"; } });
+  const setPromptView = (v)=>{ const next=v==="text"?"text":"outline"; _setPromptView(next); try{ localStorage.setItem("turn_stage_prompt_view",next); }catch(e){} };
   // modelId/setModelId come from StageView — the model choice drives CLIP PACKING
   // (sceneSequences shot caps), so it has to live above the per-clip console.
   const [tier, setTier] = React.useState("standard");
@@ -6025,13 +6080,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const TABS = [["create","Create Video","Create a clip for this beat from references, or extend an existing take (Seedance 2.5)"],
                 ["edit","Edit Video","Rewrite an existing video with a prompt — Seedance 2.5 Edit"],
                 ["motion","Motion Control","Drive a character image with a motion video — Kling 3.0 Motion Control"]];
-  const composerHeader = _stEl("div",{className:"stage2-ctab-head"},
-    _stEl("div",{className:"stage2-ctab-row"},
-      _stEl("div",{className:"stage2-ctab-tabs",role:"tablist","aria-label":"Composer mode"},
+  // (2026-10-24, option A) the mode switch sits on the clip's header line, right of its slug
+  const composerModeTabs = _stEl("div",{className:"stage2-ctab-tabs",role:"tablist","aria-label":"Composer mode"},
         TABS.map(([t,lab,tip])=>
           _stEl("button",{key:t,type:"button",role:"tab","aria-selected":composerTab===t?"true":"false",
             className:"stage2-ctab-btn"+(composerTab===t?" on":""), title:tip, "data-tab":t,
-            onClick:()=>{ setComposerTab(t); setSdMenu(null); setModeErr(""); }},lab)))));
+            onClick:()=>{ setComposerTab(t); setSdMenu(null); setModeErr(""); }},lab)));
   // the shared reference strip (Add references card + thumbnails)
   const referenceStrip =
     _stEl("div",{className:"stage2-gen-reference-row","aria-label":"Render references"},
@@ -6250,7 +6304,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         // edited away from the derivation → offer the way back to the script
         prompt!==beatPrompt && _stEl("button",{type:"button",className:"stage2-prompt-reset",
           title:"Rebuild this prompt from the screenplay beat and the Art Room shot design — discards manual edits",
-          onClick:()=>{ promptEditedRef.current=false; delete promptDraftsRef.current[promptDraftKey]; setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptOtherGrouping(false); setPromptDriftConfirmed(""); setPrompt(beatPrompt); }},
+          onClick:()=>resetPromptToScript()},
           "↺ Reset to script"),
         badMentions.length>0 && _stEl("div",{className:"stage2-mention-warn"},
           "⚠ "+badMentions.join(", ")+" — not among this render's included assets; the model will guess. Fix the token or include the asset."),
@@ -6467,8 +6521,27 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           disabled:(!capsPending && !serverHasTask("extension")) })
     : generateButton(playerUrl ? "Regenerate" : "Generate", totalCost, onSeedanceGenerateClick,
         { blocked:!!blocker, title: blocker ? (blocker.text+" (click to see why)") : renderCostTitle, costTitle:renderCostTitle, testId:"stage-generate" });
+  /* (2026-10-24, owner — option A) the prompt is an outline of its sections (or the full text), its foot
+     holds the length and the view switch; the notices sit right above Generate; the engine, resolution,
+     duration and bitrate are set in Render settings only (its price card shows them) */
+  const resetPromptToScript = ()=>{ promptEditedRef.current=false; delete promptDraftsRef.current[promptDraftKey]; setPromptSourceStamp(promptSourceSig),setPromptLookStamp(clipLookSig); setPromptOtherGrouping(false); setPromptDriftConfirmed(""); setPrompt(beatPrompt); };
+  const outlineOk = recipe!=="multishot" && stagePromptSections(prompt).filter(x=>x.heading).length>=2;
+  const showOutline = outlineOk && promptView==="outline";
+  const promptFoot = _stEl("div",{className:"stage2-prompt-foot"},
+    promptCount(prompt),
+    outlineOk && _stEl("button",{type:"button",className:"stage2-prompt-view","data-testid":"stage-prompt-view",
+      title:showOutline ? "Edit the whole prompt as one text" : "Show the prompt as its sections",
+      onClick:()=>setPromptView(showOutline?"text":"outline")}, showOutline ? "Edit as text" : "Show as outline"),
+    showOutline && prompt!==beatPrompt && _stEl("button",{type:"button",className:"stage2-prompt-view",
+      title:"Rebuild this prompt from the screenplay beat and the Art Room shot design \u2014 discards manual edits",
+      onClick:resetPromptToScript}, "\u21ba Reset to script"));
+  const promptBlock = showOutline
+    ? _stEl("div",{className:"stage2-gen-row"},
+        _stEl("div",{className:"stage2-gen-box outline"},
+          _stEl(StagePromptOutline,{key:"outline-"+clip.id, value:prompt, readOnly, onChange:(t)=>onPromptChange(t,0)}),
+          promptFoot))
+    : promptRowWith(promptFoot);
   const createBody = _stEl(React.Fragment,null,
-    heroCard("VIDEO MODEL", model.label),
     segmented("Create mode", createTask,
       [ { id:"reference", label:"References", title:"Render this beat from its references" },
         { id:"extension", label:"Extend Video", title:"Continue an existing video (Seedance 2.5 extension task)" } ], pickCreateTask),
@@ -6477,15 +6550,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     referenceStrip,
     createTask==="reference" && characterChoicesEl,
     createTask==="reference" && multishotEditor,
-    promptRowWith(composerBar(
-      [ modelPill,
-        createTask==="extension"
+    promptBlock,
+    composerNotices,
+    composerBar(
+      [ createTask==="extension"
           ? fixedPill("Extensions keep the source video's aspect ratio", _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:14}), _stEl("span",null,"Auto")))
           : aspectPill,
-        resolutionPill, durationPill, createSoundChip, bitratePill ],
-      [ promptCount(prompt), createGenerate ], { barRef:sdBarRef })),
-    modeErrEl,
-    composerNotices);
+        createSoundChip ],
+      [ createGenerate ], { barRef:sdBarRef, cls:"stage2-genbar" }),
+    modeErrEl);
   // ---- EDIT VIDEO ---------------------------------------------------------------
   const editPromptRef = React.useRef(null);
   const insertEditMention = (m)=>{
@@ -6602,7 +6675,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // the red no-credits outline follows the OPEN tab's render (footerCredit: its cost, or its hold —
   // flagged only once a measured video sizes the hold: footerCredit.short, round 5)
   const composer = _stEl("div",{className:"stage2-gen-composer"+(gening?" working":"")+(footerCredit.short?" no-credits":""),"data-composer-tab":composerTab},
-    composerHeader,
     composerTab==="edit" ? editBody : composerTab==="motion" ? motionBody : createBody,
     _stEl("input",{ref:fileInputRef,type:"file",className:"stage2-file-input",tabIndex:-1,"aria-hidden":"true",onChange:onDeviceFile}),
     tray);
@@ -6611,7 +6683,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const center = _stEl("div",{className:"stage2-center stage2-compose-mode"},
     _stEl("div",{className:"stage2-clip-head"},
       _stEl("div",{className:"stage2-clip-slug",title:beatName||""}, beatLabel+" · ",
-        _stEl("span",{className:"stage2-clip-loc"}, stageScenePlace(scene)))),
+        _stEl("span",{className:"stage2-clip-loc"}, stageScenePlace(scene))),
+      composerModeTabs),
+    // THE MONITOR (2026-10-24, option A): the player, its clock and the scene's takes on its bottom edge
+    _stEl("div",{className:"stage2-monitor"},
       // take switching & management live in the room's Versions view (the tab above) —
       // the clip head is just the slug (full screen is a double-click on the video)
     // player
@@ -6679,7 +6754,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       _stEl("button",{type:"button",className:"stage2-time-arrow",title:"Next clip",
         disabled:(()=>{ const i=clipsInScene.findIndex(c=>c.id===clip.id); return i<0 || i>=clipsInScene.length-1; })(),
         onClick:()=>{ const i=clipsInScene.findIndex(c=>c.id===clip.id); if(i>=0 && i<clipsInScene.length-1) onSelectClip&&onSelectClip(clipsInScene[i+1].id); }},
-        Icon.chevR&&_stEl(Icon.chevR,{s:14}))),
+        Icon.chevR&&_stEl(Icon.chevR,{s:14})))),
     composer,
     _stEl("div",{className:"stage2-director-prompt"},
       _stEl("div",{className:"stage2-director-head"},

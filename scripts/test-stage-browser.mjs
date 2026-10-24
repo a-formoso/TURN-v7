@@ -132,6 +132,9 @@ function fixtureHtml() {
 </head><body><div id="root"></div>
 <script src="/react.js"></script><script src="/react-dom.js"></script>
 <script>
+/* (2026-10-24, option A) the Stage opens its prompt as an outline; most checks below read and type into
+   the full-text editor, so the fixture opens it as text (the outline has its own checks) */
+try{ if(!localStorage.getItem("turn_stage_prompt_view")) localStorage.setItem("turn_stage_prompt_view","text"); }catch(e){}
 /* Deterministic browser-only boundaries. Every call is recorded for assertions. */
 window.__fixture={calls:[],loadCalls:[],imageOverrides:{},refreshResults:{},refreshCalls:[],delayedImages:{},updates:[],confirms:[],toasts:[],errors:[],consoleErrors:[],adoptTakes:[],proxyKnown:false,lastRuntimeCapabilities:null,
   variantLoaded:false,policyRefusal:false,hardRemounts:0,genEvents:0};
@@ -592,6 +595,27 @@ async function main() {
       "default Stage prompt uses the approved director-brief headings");
     assert.ok(defaultHeadings.every((h,i)=>i===0||defaultPrompt.indexOf(h)>defaultPrompt.indexOf(defaultHeadings[i-1])),
       "default Stage director-brief headings remain in stable order");
+    /* the prompt as an outline: one line per section with a summary; a section opens to its own text;
+       "Edit as text" goes back to the full editor (and the choice is remembered on this device) */
+    {
+      const textBefore=await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`);
+      await c.eval(`document.querySelector('[data-testid="stage-prompt-view"]').click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector('[data-testid="stage-prompt-outline"]')`),"the prompt shows as an outline");
+      const outline=await c.eval(`(()=>{const o=document.querySelector('[data-testid="stage-prompt-outline"]');
+        return {heads:[...o.querySelectorAll(".stage2-outline-head b")].map(b=>b.textContent.trim()),summaries:[...o.querySelectorAll(".stage2-outline-head small")].map(x=>x.textContent.trim()),
+          editor:!!document.querySelector(".stage2-gen-prompt[contenteditable]"),view:localStorage.getItem("turn_stage_prompt_view"),
+          button:document.querySelector('[data-testid="stage-prompt-view"]').textContent.trim()};})()`);
+      assert.ok(["BEAT CONTRACT","ACTION AND CAMERA PLAN","DIALOGUE AND SOUND","ENDING AND CONTINUITY LOCKS"].every(h=>outline.heads.includes(h)),"the outline lists the brief's sections "+JSON.stringify(outline.heads));
+      assert.ok(outline.summaries.length===outline.heads.length&&outline.summaries.some(x=>/\d+ (cuts?|shot|lines?)/.test(x)),"each section has a short summary "+JSON.stringify(outline.summaries));
+      assert.ok(!outline.editor&&outline.view==="outline"&&outline.button==="Edit as text","the outline replaces the full editor and is remembered "+JSON.stringify(outline));
+      await c.eval(`[...document.querySelectorAll(".stage2-outline-head")].find(b=>b.textContent.includes("DIALOGUE AND SOUND")).click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector(".stage2-outline-sec.open textarea")`),"a section opens to its text");
+      const opened=await c.eval(`document.querySelector(".stage2-outline-sec.open textarea").value`);
+      assert.ok(textBefore.replace(/\s+/g," ").includes(opened.split("\n")[0].replace(/\s+/g," ").trim()),"the open section shows that part of the prompt");
+      await c.eval(`document.querySelector('[data-testid="stage-prompt-view"]').click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector(".stage2-gen-prompt[contenteditable]")&&localStorage.getItem("turn_stage_prompt_view")==="text"`),"Edit as text returns to the full editor");
+      assert.equal(await c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent||""`),textBefore,"opening the outline doesn't change the prompt");
+    }
     assert.match(defaultPrompt,/CUT 1 · 0–4s · Beat 1/,
       "default Seedance brief carries the first planned shot window");
     assert.match(defaultPrompt,/CUT 2 · 4–10s · Beat 1/,
@@ -1142,7 +1166,10 @@ async function main() {
     if(!(proxy1080.disabled||proxy1080.aria==="true"))
       regressions.push(`unknown-proxy 1080p is enabled in Render settings: ${JSON.stringify(proxy1080)}`);
     assert.equal(proxy1080.selected,false,"unknown-proxy 1080p cannot be selected");
-    /* The compact Format popover is a second control surface and must gate identically. */
+    /* The compact Format popover is a second control surface and must gate identically. (2026-10-24,
+       option A: Create Video sets the resolution in Render settings only; the Edit Video bar keeps the pill) */
+    await c.eval(`document.querySelector(".stage2-ctab-btn[data-tab='edit']").click()`);
+    await waitFor(()=>c.eval(`!!document.querySelector('button[title="Resolution"]')`),"Edit Video's resolution pill");
     await c.eval(`document.querySelector('button[title="Resolution"]').click()`);
     await waitFor(()=>c.eval(`!!document.querySelector(".sdbar-pop-format")`),"format menu");
     const unknownFormat1080=await c.eval(`(()=>{const b=[...document.querySelectorAll(".sdbar-pop-format button")].find(x=>x.textContent.trim().toLowerCase()==="1080p");return {found:!!b,disabled:!!b?.disabled,aria:b?.getAttribute("aria-disabled"),title:b?.title||""}})()`);
@@ -1150,6 +1177,7 @@ async function main() {
     if(!(unknownFormat1080.disabled||unknownFormat1080.aria==="true"))
       regressions.push(`unknown-proxy 1080p is enabled in Format menu: ${JSON.stringify(unknownFormat1080)}`);
     await c.eval(`document.querySelector('button[title="Resolution"]').click()`);
+    await c.eval(`document.querySelector(".stage2-ctab-btn[data-tab='create']").click()`);
 
     /* A positive handshake must unlock both controls. It advertises an exact ordered
        resolution list and ten direct-audio slots (covering 6+ line packages) without
@@ -1164,12 +1192,15 @@ async function main() {
     const knownCaps=await c.eval(`window.__fixture.lastRuntimeCapabilities`);
     assert.deepEqual(knownCaps.resolutions,["480p","720p","1080p"],"known proxy uses exact advertised resolution array");
     assert.ok(knownCaps.directAudioFiles>=6&&knownCaps.references.audios.maxFiles>=6,"known proxy advertises 6+ direct audio inputs");
+    await c.eval(`document.querySelector(".stage2-ctab-btn[data-tab='edit']").click()`);
+    await waitFor(()=>c.eval(`!!document.querySelector('button[title="Resolution"]')`),"Edit Video's resolution pill (known proxy)");
     await c.eval(`document.querySelector('button[title="Resolution"]').click()`);
     await waitFor(()=>c.eval(`!!document.querySelector(".sdbar-pop-format")`),"known format menu");
     const knownFormat1080=await c.eval(`(()=>{const b=[...document.querySelectorAll(".sdbar-pop-format button")].find(x=>x.textContent.trim().toLowerCase()==="1080p");return {found:!!b,disabled:!!b?.disabled,aria:b?.getAttribute("aria-disabled")}})()`);
     assert.ok(knownFormat1080.found,"Known-proxy check must locate the actual Format menu option");
     assert.ok(!knownFormat1080.disabled&&knownFormat1080.aria!=="true","known-proxy 1080p is enabled in Format menu");
     await c.eval(`document.querySelector('button[title="Resolution"]').click()`);
+    await c.eval(`document.querySelector(".stage2-ctab-btn[data-tab='create']").click()`);
 
     /* ---- Shoot composer modes: Create Video | Edit Video | Motion Control ----
        Three paid paths, each with its own Generate. Every request below lands in
@@ -1181,104 +1212,64 @@ async function main() {
       await new Promise(r=>setTimeout(r,80));
       const tabs=await c.eval(`[...document.querySelectorAll(".stage2-ctab-btn")].map(b=>b.textContent.trim())`);
       assert.deepEqual(tabs,["Create Video","Edit Video","Motion Control"],"composer tabs follow the Create / Edit / Motion layout");
-      const toolbar=await c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer .sdbar");return {
+      /* (2026-10-24, owner — Stage console option A) the prompt's foot carries its length and the view switch;
+         the Generate row under the notices carries only the aspect ratio, Sound and Generate — the engine,
+         resolution, duration and bitrate are set in Render settings (its price card shows them) */
+      const toolbar=await c.eval(`(()=>{const comp=document.querySelector(".stage2-gen-composer");const bar=comp.querySelector(":scope > .sdbar.stage2-genbar");return {
         elements:!!bar.querySelector(".sdbar-chip.elements"),sound:bar.querySelector(".sdbar-chip.sound")?.getAttribute("aria-label")||"",
         soundText:bar.querySelector(".sdbar-chip.sound")?.textContent.trim()||"",soundIcon:bar.querySelector(".sdbar-chip.sound [data-icon]")?.getAttribute("data-icon")||"",
         soundOn:bar.querySelector(".sdbar-chip.sound")?.getAttribute("aria-pressed")||"",
-        source:document.querySelectorAll(".sdbar button[title='Reference mode']").length,count:bar.querySelector(".sdbar-count")?.textContent.trim()||""};})()`);
-      assert.equal(toolbar.elements,false,"the Create Video prompt box has no @ Elements chip (references come from the Add references card)");
-      assert.match(toolbar.sound,/^Sound (on|off)$/,"prompt box carries the Sound chip (labelled for screen readers)");
+        source:document.querySelectorAll(".sdbar button[title='Reference mode']").length,
+        titles:[...bar.querySelectorAll(".sdbar-left > .sdbar-chip, .sdbar-left > .sdbar-anchor > .sdbar-pill")].map(b=>String(b.title||"").split(" — ")[0].trim()),
+        gen:!!bar.querySelector('.sdbar-right [data-testid="stage-generate"]'),
+        count:comp.querySelector(".stage2-prompt-foot .sdbar-count")?.textContent.trim()||"",
+        modelPills:comp.querySelectorAll('.sdbar-pill[title="Video model"]').length,
+        settingsPills:[...comp.querySelectorAll(".sdbar-pill")].filter(b=>/^(Resolution|Duration|Bitrate)/.test(b.title||"")).length,
+        hero:comp.querySelectorAll(".stage2-hero").length};})()`);
+      assert.equal(toolbar.elements,false,"the Create Video composer has no @ Elements chip (references come from the Add references card)");
+      assert.match(toolbar.sound,/^Sound (on|off)$/,"the Generate row carries the Sound chip (labelled for screen readers)");
       assert.equal(toolbar.soundText,toolbar.soundOn==="true"?"On":"Off","the Sound chip shows a short On/Off word next to its icon");
       assert.equal(toolbar.soundIcon,toolbar.soundOn==="true"?"volume":"volumeX","the speaker icon mirrors the on/off state");
       assert.equal(toolbar.source,0,"the Omni reference source pill is gone from the toolbar");
-      assert.match(toolbar.count,/\d+ \/ \d+/,"character counter sits on the right of the toolbar");
-      /* the composer bar: every control on ONE line at the foot of the prompt card,
-         Generate at the right end and taller than the chips (Higgsfield-style footer) */
-      const readBar=()=>c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer .stage2-gen-box .sdbar.inline");if(!bar) return null;
-        const chips=[...bar.querySelectorAll(".sdbar-left > .sdbar-chip, .sdbar-left > .sdbar-anchor > .sdbar-pill")];
-        const gen=bar.querySelector('.sdbar-right [data-testid="stage-generate"]');
-        const rect=el=>{const r=el.getBoundingClientRect();return {l:r.left,r:r.right,t:r.top,b:r.bottom,h:r.height};};
-        return {titles:chips.map(b=>String(b.title||"").split(" — ")[0].trim()),gen:!!gen,genRect:gen&&rect(gen),chips:chips.map(rect),
-          first:rect(chips[0]),last:rect(chips[chips.length-1]),bar:rect(bar),opts:document.querySelectorAll(".stage2-gen-composer .stage2-opts").length,
-          count:bar.querySelector(".sdbar-right .sdbar-count")?.textContent.trim()||""};})()`);
-      const bar1=await readBar();
-      assert.ok(bar1&&bar1.gen,"Generate sits inside the composer bar, on the right");
-      assert.deepEqual(bar1.titles.slice(0,4),["Video model","Aspect ratio","Resolution","Duration"],
-        "Model, Aspect ratio, Resolution and Duration open the line in production order");
-      assert.match(bar1.titles[4],/^(Sound|Silent)/,"Sound follows Duration");
-      assert.equal(bar1.titles[5],"Bitrate","Bitrate closes the composer controls");
-      assert.ok(Math.abs(bar1.first.t-bar1.last.t)<1&&Math.abs(bar1.first.b-bar1.last.b)<1,"on a wide composer the chips share one line "+JSON.stringify({first:bar1.first,last:bar1.last,bar:bar1.bar}));
-      assert.ok(bar1.genRect.l>=bar1.last.r,"Generate is to the right of the last chip");
-      /* the chips share Generate's rounded-rectangle shape — no pill (fully round) corners */
-      const shapes=await c.eval(`[...document.querySelectorAll(".stage2-gen-composer .sdbar.inline .sdbar-chip, .stage2-gen-composer .sdbar.inline .sdbar-pill, .stage2-gen-composer .sdbar.inline .sdrow-badge, .stage2-gen-composer .sdbar.inline .stage2-generate")]
-        .map(el=>{const cs=getComputedStyle(el);return {c:el.className,radius:parseFloat(cs.borderTopLeftRadius),h:el.getBoundingClientRect().height};})`);
-      assert.ok(shapes.length>=6,"chips, badge and Generate are all measured "+JSON.stringify(shapes));
-      assert.ok(shapes.every(x=>x.radius>0&&x.radius<=12&&x.radius<x.h/2-2),"every chip is a rounded rectangle like Generate, not a pill "+JSON.stringify(shapes));
-      const controlColours=await c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer .sdbar.inline");const pill=bar.querySelector(".sdbar-pill");const sound=bar.querySelector(".sdbar-chip.sound");const read=el=>{const cs=getComputedStyle(el);return {border:cs.borderColor,color:cs.color,background:cs.backgroundColor,opacity:cs.opacity};};return {pill:read(pill),sound:read(sound)};})()`);
-      assert.deepEqual(controlColours.sound,controlColours.pill,
-        "Sound uses the same border, text, background and opacity as the neighboring controls");
-      assert.ok(bar1.genRect.h>bar1.last.h&&Math.abs(bar1.genRect.b-bar1.last.b)<2,"Generate stands taller than the chips and shares their baseline");
-      assert.match(bar1.count,/\d+ \/ \d+/,"the character count sits with Generate on the right");
-      assert.equal(bar1.opts,0,"no stacked option rows remain under the Create Video prompt");
-      await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
+      assert.deepEqual(toolbar.titles.map(t=>t.replace(/^Silent.*/,"Sound").replace(/^Sound.*/,"Sound")),["Aspect ratio","Sound"],"the Generate row holds the aspect ratio and Sound "+JSON.stringify(toolbar.titles));
+      assert.ok(toolbar.gen,"Generate closes the Generate row");
+      assert.match(toolbar.count,/\d+ \/ \d+/,"the prompt's length sits in the prompt's foot");
+      assert.equal(toolbar.modelPills,0,"no model picker in the composer — the engine is chosen in Render settings");
+      assert.equal(toolbar.settingsPills,0,"no resolution, duration or bitrate pills in Create Video — Render settings holds them");
+      assert.equal(toolbar.hero,0,"the Video model card is gone from Create Video");
+      const layout=await c.eval(`(()=>{const comp=document.querySelector(".stage2-gen-composer");const n=comp.querySelector(":scope > .stage2-gen-notices");
+        const bar=comp.querySelector(":scope > .sdbar.stage2-genbar");const head=document.querySelector(".stage2-clip-head");const mon=document.querySelector(".stage2-monitor");
+        return {notices:!!n,noticesFirst:n?!!(n.compareDocumentPosition(bar)&Node.DOCUMENT_POSITION_FOLLOWING):null,
+          tabsInHead:!!(head&&head.querySelector(".stage2-ctab-tabs .stage2-ctab-btn[data-tab='edit']")),tabsInComposer:comp.querySelectorAll(".stage2-ctab-btn").length,
+          monitor:!!(mon&&mon.querySelector(".stage2-player")&&mon.querySelector(".stage2-ruler")&&mon.querySelector(".stage2-timeline"))};})()`);
+      assert.ok(layout.tabsInHead&&layout.tabsInComposer===0,"the Create / Edit / Motion switch sits on the clip's header line "+JSON.stringify(layout));
+      assert.ok(layout.monitor,"the player, its clock and the scene's takes are one monitor block");
+      if(layout.notices) assert.ok(layout.noticesFirst,"the notices sit right above the Generate row");
+      await c.eval(`document.querySelector(".stage2-gen-composer > .sdbar.stage2-genbar")?.scrollIntoView({block:"center"})`);
       await new Promise(r=>setTimeout(r,60));
       await writeFile(`${OUT}/stage-composer-bar-desktop.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
-      /* a narrower column (laptop with both rails open): the chips wrap like inline
-         blocks, still packed to the foot of the bar, and Generate keeps the right end */
-      await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
-      await new Promise(r=>setTimeout(r,80));
-      const bar2=await readBar();
-      assert.ok(bar2.last.t>bar2.first.t,"in a narrower column the chips wrap onto a second line "+JSON.stringify(bar2.bar));
-      assert.ok(bar2.chips.every(r=>r.r<=bar2.genRect.l+0.5),"every chip stays left of Generate when wrapped");
-      assert.ok(Math.abs(bar2.genRect.b-bar2.last.b)<2&&bar2.genRect.h>=56,"Generate keeps its height and the shared foot line when the chips wrap");
-      await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
-      await new Promise(r=>setTimeout(r,60));
-      await writeFile(`${OUT}/stage-composer-bar-laptop.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
-      /* phone: Generate spans the bar under the chips, and every chip menu stays on screen
-         (menus anchor to the bar, not to the wrapped pill) */
+      /* phone: Generate spans the row under the chips and the aspect menu stays on screen */
       await c.call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:true});
       await new Promise(r=>setTimeout(r,120));
-      const bar3=await readBar();
-      assert.ok(bar3.genRect.l<=bar3.bar.l+1&&bar3.genRect.r>=bar3.bar.r-1,"on a phone Generate spans the full bar "+JSON.stringify({gen:bar3.genRect,bar:bar3.bar}));
-      assert.ok(bar3.genRect.t>=Math.max(...bar3.chips.map(r=>r.b))-0.5,"on a phone Generate sits below the chips");
-      /* Model is the first inline production control. Its menu must remain usable at
-         phone and desktop widths after moving it out of the old hero card. */
-      const modelPillJs=`document.querySelector('.stage2-gen-composer .sdbar.inline .sdbar-pill[title="Video model"]')`;
-      const modelPhone=await c.eval(`(()=>{const p=${modelPillJs}.getBoundingClientRect();return {l:p.left,r:p.right,vw:document.documentElement.clientWidth};})()`);
-      assert.ok(modelPhone.l>=0&&modelPhone.r<=modelPhone.vw,"the inline model picker stays inside the phone viewport "+JSON.stringify(modelPhone));
-      const checkModelMenu=async (where)=>{
-        await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box").scrollIntoView({block:"center"})`);
-        await c.eval(`${modelPillJs}.click()`);
-        await waitFor(()=>c.eval(`!!${modelPillJs}.parentElement.querySelector(".sdbar-pop")`),"model menu opens "+where);
-        const m=await c.eval(`(()=>{const pill=${modelPillJs};const pop=pill.parentElement.querySelector(".sdbar-pop");
-          const r=pop.getBoundingClientRect(),pb=pill.getBoundingClientRect().bottom;const cx=(r.left+r.right)/2,cy=(r.top+r.bottom)/2;const hit=document.elementFromPoint(cx,cy);
-          return {l:r.left,r:r.right,t:r.top,b:r.bottom,pillB:pb,vw:document.documentElement.clientWidth,vh:document.documentElement.clientHeight,
-            hitInside:!!(hit&&pop.contains(hit)),options:pop.querySelectorAll(".sdbar-option").length};})()`);
-        assert.ok(m.options>=2,"the model menu lists the models "+where+" "+JSON.stringify(m));
-        assert.ok(m.l>=0&&m.r<=m.vw+0.5&&m.b<=m.vh+0.5,"the model menu stays inside the viewport "+where+" "+JSON.stringify(m));
-        assert.ok(m.hitInside,"the inline model menu is not clipped "+where+" "+JSON.stringify(m));
-        await c.eval(`${modelPillJs}.click()`);
-        await waitFor(()=>c.eval(`!${modelPillJs}.parentElement.querySelector(".sdbar-pop")`),"model menu closes "+where);
-      };
-      await checkModelMenu("on a phone");
-      await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
-      await new Promise(r=>setTimeout(r,60));
-      await writeFile(`${OUT}/stage-composer-bar-mobile-390.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
-      for(const title of ["Aspect ratio","Resolution","Duration","Bitrate"]){
-        const pillJs=`[...document.querySelectorAll(".sdbar.inline .sdbar-pill")].find(b=>(b.title||"").startsWith(${JSON.stringify(title)}))`;
+      const phoneBar=await c.eval(`(()=>{const bar=document.querySelector(".stage2-gen-composer > .sdbar.stage2-genbar");const gen=bar.querySelector('[data-testid="stage-generate"]');
+        const chips=[...bar.querySelectorAll(".sdbar-left > .sdbar-chip, .sdbar-left > .sdbar-anchor > .sdbar-pill")];const r=el=>el.getBoundingClientRect();
+        return {gen:{l:r(gen).left,r:r(gen).right,t:r(gen).top},bar:{l:r(bar).left,r:r(bar).right},chipsB:Math.max(...chips.map(x=>r(x).bottom)),sw:document.documentElement.scrollWidth,vw:document.documentElement.clientWidth};})()`);
+      assert.ok(phoneBar.sw<=phoneBar.vw,"no sideways scroll on a phone "+JSON.stringify(phoneBar));
+      assert.ok(phoneBar.gen.t>=phoneBar.chipsB-0.5||(phoneBar.gen.l>=phoneBar.bar.l-1),"on a phone Generate keeps its own place in the row "+JSON.stringify(phoneBar));
+      {
+        const pillJs=`[...document.querySelectorAll(".stage2-gen-composer .sdbar.stage2-genbar .sdbar-pill")].find(b=>(b.title||"").startsWith("Aspect ratio"))`;
+        await c.eval(`${pillJs}.scrollIntoView({block:"center"})`);
         await c.eval(`${pillJs}.click()`);
-        await waitFor(()=>c.eval(`!!${pillJs}.parentElement.querySelector(".sdbar-pop")`),title+" menu opens on a phone");
+        await waitFor(()=>c.eval(`!!${pillJs}.parentElement.querySelector(".sdbar-pop")`),"Aspect ratio menu opens on a phone");
         const pop=await c.eval(`(()=>{const pop=${pillJs}.parentElement.querySelector(".sdbar-pop");const r=pop.getBoundingClientRect();
           return {l:r.left,r:r.right,w:document.documentElement.clientWidth,sw:document.documentElement.scrollWidth};})()`);
-        assert.ok(pop.l>=0&&pop.r<=pop.w+0.5&&pop.sw<=pop.w,title+" menu stays inside the phone viewport "+JSON.stringify(pop));
+        assert.ok(pop.l>=0&&pop.r<=pop.w+0.5&&pop.sw<=pop.w,"Aspect ratio menu stays inside the phone viewport "+JSON.stringify(pop));
         await c.eval(`${pillJs}.click()`);
-        await waitFor(()=>c.eval(`!${pillJs}.parentElement.querySelector(".sdbar-pop")`),title+" menu closes again");
+        await waitFor(()=>c.eval(`!${pillJs}.parentElement.querySelector(".sdbar-pop")`),"Aspect ratio menu closes again");
       }
+      await writeFile(`${OUT}/stage-composer-bar-mobile-390.png`,Buffer.from((await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false})).data,"base64"));
       await c.call("Emulation.setDeviceMetricsOverride",{width:1760,height:1000,deviceScaleFactor:1,mobile:false});
       await new Promise(r=>setTimeout(r,80));
-      assert.equal(await c.eval(`document.querySelectorAll('.stage2-gen-composer .sdbar.inline .sdbar-pill[title="Video model"]').length`),1,"the composer has one inline model picker");
-      assert.equal(await c.eval(`document.querySelectorAll(".stage2-hero .sdbar-pill.hero").length`),0,"the old hero model picker is gone");
-      await checkModelMenu("on desktop");
       await c.eval(`document.querySelector(".stage2-gen-composer .stage2-gen-box")?.scrollIntoView({block:"center"})`);
       const createCost=await c.eval(`document.querySelector('[data-testid="stage-generate"] .stage2-generate-cost')?.textContent.trim()`);
       assert.ok(Number(createCost)>=1,`Create Video's Generate carries the render price (${createCost})`);
