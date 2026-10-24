@@ -11028,5 +11028,5 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .art-intro-status{font-size:13px;color:var(--hs-sub,var(--txt-2))}
 .art-intro-status b{font-weight:600;color:var(--hs-ink,var(--txt-0))}
 .art-intro-row > div:first-child:empty{display:none}
-.art-dept-sep{margin:0 2px 0 8px}
+.art-dept-sep{margin:0 8px 0 -3px}
 .art-intro-row > .art-intro-actions{margin-left:auto}

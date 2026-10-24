@@ -375,7 +375,7 @@ function ArtDeptTitle({ className, style, children }){
   React.useEffect(()=>{ const s = find(); if(s!==slot) setSlot(s); });
   if(slot && slot.isConnected && typeof ReactDOM!=="undefined" && ReactDOM.createPortal)
     return ReactDOM.createPortal(React.createElement("span",{className:"art-dept"},
-      React.createElement("span",{className:"art-dept-sep","aria-hidden":"true"},"\u00b7"), children), slot);
+      React.createElement("span",{className:"art-dept-sep","aria-hidden":"true"},":"), children), slot);
   return React.createElement("div",{className,style},children);
 }
 window.ArtDeptTitle = ArtDeptTitle;
