@@ -10065,13 +10065,11 @@ html[data-theme="dark"] .app.hs{
    The Stage gets the same treatment: a page heading (stage.jsx stageHead — "03 · Production", the view's
    title, what it holds, the four views as underlined text on the right), and the workspace — the Scenes
    rail, the console and the Render settings drawer — on paper in the 1280px column with hairline rails.
-   The heading is a size smaller than the other rooms': the console needs its height. */
+   The heading uses the same paddings, margins and sizes as the other rooms' (owner 2026-10-24 \u2014 it used to be a
+   size smaller). */
 .app.hs.room-stage{--rail-w:280px;--insp-w:340px}
 .app.hs .viewnav.stage-head{display:block;flex:0 0 auto;padding:0;overflow:visible;justify-content:initial;
   background:var(--hs-paper);border-bottom:1px solid var(--hs-line);position:relative;z-index:20}
-.wr-head-in.stage-head-in{padding:24px 40px 14px;align-items:flex-end}
-.stage-head .wr-title{font-size:44px}
-.stage-head .wr-sub{margin-top:8px;font-size:15px}
 .app.hs .stage-head .stage-tabs{display:flex;gap:22px;padding:0;background:none;border:0;border-radius:0}
 .app.hs .stage-head .seg{flex:0 0 auto;gap:6px;padding:8px 0;border-radius:0;border-bottom:2px solid transparent;
   background:none;box-shadow:none;color:var(--hs-sub);font:500 14px var(--f-ui)}
@@ -10093,18 +10091,10 @@ html[data-theme="dark"] .app.hs{
 .stage-empty-eyebrow{margin-bottom:16px}
 .app.hs.room-stage .stage2-root > .prop-empty .art-soon-t{font-family:var(--f-serif);font-weight:500;font-size:34px;letter-spacing:-.01em}
 .app.hs.room-stage .stage2-root > .prop-empty .art-soon-d{font-size:15px;line-height:1.6;color:var(--hs-sub);max-width:460px}
-@media (max-height:860px) and (min-width:701px){
-  .wr-head-in.stage-head-in{padding:16px 40px 10px}
-  .stage-head .wr-title{font-size:34px}
-  .stage-head .wr-sub{margin-top:4px;font-size:14px}
-}
 @media (max-width:1100px){
-  .wr-head-in.stage-head-in{padding:18px 24px 10px}
   .app.hs.room-stage .stage2-body{border-left:0;border-right:0}
 }
 @media (max-width:700px){
-  .wr-head-in.stage-head-in{padding:14px 16px 8px}
-  .stage-head .wr-title{font-size:28px}
   .stage-head .wr-head-side{width:100%;align-items:stretch}
   .app.hs .stage-head .stage-tabs{gap:18px;overflow-x:auto;scrollbar-width:none}
 }
