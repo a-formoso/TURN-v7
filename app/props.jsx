@@ -1054,7 +1054,9 @@ async function propOwnerHasSheet(p){
   return !!u;
 }
 window.propOwnerHasSheet = propOwnerHasSheet;
-function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete, onDraft, onEnsureOwner, batchOwnerChoice, drafting, onView, batchActiveId, onBatchDone, onChipClick, onSourceClick, dupIds, dupProps, onMerge, derivedScenes }){
+const PROP_HERO_MAX = 3;
+window.PROP_HERO_MAX = PROP_HERO_MAX;
+function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete, onDraft, onEnsureOwner, batchOwnerChoice, drafting, onView, batchActiveId, onBatchDone, onChipClick, onSourceClick, dupIds, dupProps, onMerge, derivedScenes, heroCount=0 }){
   const d = propDefaults(p);
   const finalPrompt = combinedPropPrompt(p, project);
   const drafted = propVisualsDrafted(p);
@@ -1349,6 +1351,16 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
                   : (p.ownerName||"Unassigned")))),
             React.createElement("div",{className:"sheet-name",title:p.name||""},
               React.createElement(EditText,{value:p.name,placeholder:"Prop name\u2026",onCommit:val=>onUpdate(p.id,{name:val})})),
+            // HERO PROP (2026-10-24, from the Anerneq study): up to three objects the film turns on are
+            // described in full in every Stage clip they're in, so they never drift between takes
+            (()=>{ const full = !p.hero && heroCount>=PROP_HERO_MAX;
+              return React.createElement("button",{type:"button",className:"prop-hero-btn"+(p.hero?" on":""),
+                "aria-pressed":p.hero?"true":"false","aria-label":p.hero?"Hero prop \u2014 click to unmark":"Mark as a hero prop",
+                disabled:full,
+                title:p.hero ? "Hero prop: described in full (form, material, identifying details, size) in every Stage clip it's in, so it never changes between takes. Click to unmark."
+                  : full ? "Up to "+PROP_HERO_MAX+" hero props a film \u2014 unmark one first."
+                  : "Mark as a hero prop: one of the few objects the film turns on. It's described in full in every Stage clip it's in, so it never changes between takes (up to "+PROP_HERO_MAX+").",
+                onClick:(e)=>{ e.stopPropagation(); if(!full) onUpdate(p.id,{hero:!p.hero}); }},"\u2605"); })(),
             p.kind==="worn" && window.InfoTip && React.createElement(window.InfoTip,{
               label:"How worn prop sheets work",
               text:"Worn items are rendered on "+(p.ownerName||"the character")+"'s character sheet and that remains the canon for wide and medium shots. Generate a separate macro sheet here only when the item needs to read clearly in a close-up. The macro sheet uses the owner sheet as visual context and attaches to CU, MCU, ECU and INSERT shots. Batch generation skips these optional macro sheets."
@@ -2063,7 +2075,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
                 pager.slice(shown).map(p=>React.createElement(PropSheet,{key:p.id,p,project,characters,scenes,drafts,onUpdate,onDelete,onDraft,onEnsureOwner,batchOwnerChoice,
                   drafting:draftingId===p.id||(draftingIds||[]).indexOf(p.id)>=0||draftingAll,onView:(url,pr)=>setView({url,character:pr}),
                    batchActiveId,onBatchDone:batch.advance,onChipClick:(sid)=>setSceneFilter(sid),onSourceClick,
-                  derivedScenes:effMap[p.id],
+                  derivedScenes:effMap[p.id],heroCount:(props||[]).filter(x=>x&&x.hero).length,
                   dupIds:dupForId[p.id],dupProps:(dupForId[p.id]||[]).filter(id=>id!==p.id).map(id=>byId[id]).filter(Boolean),onMerge:onMergeProps}))),
               React.createElement(PagerBar,{pager,noun:"prop"}))
           : q

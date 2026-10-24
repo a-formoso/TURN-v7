@@ -17,7 +17,7 @@ const shotsUi=readFileSync("app/shots-ui.jsx","utf8");
 const ai=readFileSync("app/ai.jsx","utf8");
 const html=readFileSync("TURN.html","utf8");
 let pass=0;
-const t=(name,fn)=>{ fn(); pass++; console.log("PASS "+name); };
+const t=(name,fn)=>{ try{ fn(); }catch(e){ console.error("FAIL "+name+" — "+String(e.message).slice(0,200)); process.exit(1); } pass++; console.log("PASS "+name); };
 
 t("8 a film whose Stage was never used starts on Single shot, recorded on the film once", ()=>{
   assert.match(stage,/freshStageRef\.current = !used && !takes\.length;/);
@@ -47,7 +47,8 @@ t("an untouched prompt recompiles when anything the 2026-10-24 sections read cha
   ["sh.mustNot","d.acting","d.capture","d.voices","p.geometry","sceneTypePick"].forEach(k=>assert.ok(sig.includes(k),k));
   // and the clips rebuild when the beat map's duel or a character's voice changes
   assert.match(stage,/b&&b\.driverLabel,b&&b\.reactorLabel,b&&b\.desire,b&&b\.obstacle/);
-  assert.match(stage,/c\.voiceSpec\|\|"",\(c\.voiceLock&&c\.voiceLock\.specSnapshot\)\|\|""/);
+  const charSig=stage.slice(stage.indexOf("const charSig"),stage.indexOf("const propSig"));
+  ["c.voiceSpec","c.voiceLock.specSnapshot","c.voice||null","c.lineLanguage","c.lineScript"].forEach(k=>assert.ok(charSig.includes(k),k));
 });
 t("5 Capture is wired from the Color slate to the film (read-only roles get no editor)", ()=>{
   assert.match(color,/onSetFilmStock, onSetCapture,/);
@@ -60,11 +61,25 @@ t("3 'Must not happen' sits on the Shots card and never makes a frame out of dat
   const fields=readFileSync("app/scene-order.js","utf8");
   assert.ok(!/"mustNot"/.test(fields.slice(fields.indexOf("SHOT_SPEC_FIELDS"),fields.indexOf("];",fields.indexOf("SHOT_SPEC_FIELDS")))));
 });
-t("Frances knows all eight", ()=>{
-  ["Acting, living faces and 'Must not happen'","Geometry anchor, Capture and the voice lock","Scene types and one shot per clip"].forEach(n=>assert.ok(ai.includes(n),n));
+t("hero props: a star on the prop card, three a film at most", ()=>{
+  const propsUi=readFileSync("app/props.jsx","utf8");
+  assert.match(propsUi,/const PROP_HERO_MAX = 3;/);
+  assert.match(propsUi,/onClick:\(e\)=>\{ e\.stopPropagation\(\); if\(!full\) onUpdate\(p\.id,\{hero:!p\.hero\}\); \}/);
+  assert.match(propsUi,/heroCount:\(props\|\|\[\]\)\.filter\(x=>x&&x\.hero\)\.length/);
+  assert.match(stage,/hero:!!p\.hero, heroText:p\.hero \? stageHeroPropText\(p\) : ""/);
+});
+t("spoken language: the character card's fold sets the language and the Cyrillic spelling", ()=>{
+  assert.match(art,/CardFold,\{label:"Spoken language"/);
+  assert.match(art,/onUpdate\(c\.id,\{lineLanguage:/);
+  assert.match(art,/onUpdate\(c\.id,\{lineScript:e\.target\.value==="cyrillic"\?"cyrillic":""\}\)/);
+  assert.match(stage,/c\.lineLanguage\|\|"",c\.lineScript\|\|""/);
+});
+t("Frances knows all of it", ()=>{
+  ["Acting, living faces and 'Must not happen'","Geometry anchor, Capture and the voice lock","Scene types and one shot per clip",
+   "Hero props and spoken language"].forEach(n=>assert.ok(ai.includes(n),n));
 });
 t("cache keys: the changed files load with the new key", ()=>{
   ["stage.jsx","stage-director-brief.js","ai.jsx","script.jsx"].forEach(f=>
-    assert.ok(["20261024-hs64"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+    assert.ok(["20261024-hs64", "20261024-hs65"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
 });
 console.log(pass+" passed, 0 failed");

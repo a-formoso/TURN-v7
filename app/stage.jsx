@@ -714,11 +714,21 @@ function stageVoiceText(c){
       .map(x=>String(x||"").trim()).filter(Boolean).join("; ");
   }
   t=t.replace(/;?\s*clean close-mic recording, dry, with no background noise/ig,"").replace(/\s+/g," ").trim();
+  // a character who speaks another language doesn't "speak English" in their voice lock
+  const lang=String(c.lineLanguage||"").trim();
+  if(lang) t=t.replace(/\bspeaks English\b/g,"speaks "+lang);
   if(t.length>320){
     const cut=t.slice(0,320), end=cut.lastIndexOf(". ");
     t=end>80 ? cut.slice(0,end+1) : cut.replace(/\s+\S*$/,"");
   }
   return t.replace(/[\s;,.]+$/,"");
+}
+/* HERO PROP text (2026-10-24): the prop card's physical design, in the card's own words —
+   form, material, identifying details, size (never its story meaning) */
+function stageHeroPropText(p){
+  const t=v=>String(v||"").replace(/\s+/g," ").trim().replace(/[.;,\s]+$/,"");
+  return [t(p&&p.form), t(p&&p.material), t(p&&p.signatureFeature), t(p&&p.size)&&("size: "+t(p.size))]
+    .filter(Boolean).join("; ");
 }
 /* CHARACTER ACTING (2026-10-24): the beat map's duel for the clip's in-frame cast —
    the driver's goal + obstacle, and each side's tactic in the clip's beats. A label
@@ -1434,7 +1444,9 @@ function buildClipData(scene, g, ctx, maxSec){
       stateLabel:(so.state&&so.state.label)||((rs&&rs.condition&&rs.condition!=="intact")?rs.condition:""),
       holder:(rs&&rs.holderName)||co.name||p.ownerName||"", placement:rs&&rs.placement||null,
       contentByShot:(shots||[]).map((sh,i)=>({shotId:sh.id,content:resolvedStates[i]&&resolvedStates[i].contentNotes||"",version:resolvedStates[i]&&resolvedStates[i].contentVersion||""})).filter(x=>x.content),
-      visibility:(rs&&rs.visibility)||"visible", handover:co.handover||null };
+      visibility:(rs&&rs.visibility)||"visible", handover:co.handover||null,
+      // HERO PROP (2026-10-24): its whole written design travels with every clip it's in
+      hero:!!p.hero, heroText:p.hero ? stageHeroPropText(p) : "" };
   }).filter(Boolean);
   const loc = (typeof locationForScene==="function") ? locationForScene(ctx.locations, scene.id) : null;
   // coverage-sheet resolution: the screenplay-derived unit/coverage sheet (e.g. "Minicab
@@ -1663,7 +1675,11 @@ function buildClipData(scene, g, ctx, maxSec){
   // LENS AND CAPTURE (2026-10-24): the film's capture text from the Color tab, word for word
   const capture = String((((ctx.project||{}).styleBible)||{}).capture||"").trim();
   const voices = (ctx.characters||[]).map(c=>({id:c.id,name:c.name,text:stageVoiceText(c)})).filter(v=>v.name&&v.text);
-  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, capture, voices, sourceCharacters, props:clipProps, loc, locSheet, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
+  // SPOKEN LANGUAGE (2026-10-24): a character whose lines are in another (or an invented) language
+  const languages = (ctx.characters||[]).map(c=>({id:c.id,name:c.name,
+      language:String(c.lineLanguage||"").trim().slice(0,80), script:c.lineScript==="cyrillic"?"cyrillic":""}))
+    .filter(v=>v.name&&(v.language||v.script));
+  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, capture, voices, languages, sourceCharacters, props:clipProps, loc, locSheet, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
     dur:_clipDur(g, maxSec), lineShots };
 }
 
@@ -2893,7 +2909,9 @@ function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, au
      .filter(r=>r&&String(r.text||"").trim()&&!stageDeliveryIsText(r.delivery||"onscreen"));
    const voice=audioRefsOn===false&&typeof window.seedanceVoiceLock==="function"?window.seedanceVoiceLock(scoped.data,spoken):"";
    const sceneType=typeof window.seedanceSceneTypeSection==="function"?window.seedanceSceneTypeSection(scoped.data,list,opts):"";
-   const acting=[sceneType,notes.acting,notes.faces||"",capture,voice,notes.tells,notes.negative].filter(Boolean).join("\n");
+   const hero=typeof window.seedanceHeroProps==="function"?window.seedanceHeroProps(scoped.data):"";
+   const language=audioRefsOn===false&&typeof window.seedanceLanguageSection==="function"?window.seedanceLanguageSection(scoped.data,spoken):"";
+   const acting=[sceneType,notes.acting,notes.faces||"",hero,capture,voice,language,notes.tells,notes.negative].filter(Boolean).join("\n");
    return base + coverage + (delivery?"\n"+delivery:"") + (acting?"\n"+acting:"") + "\nAUDIO & OVERLAYS: besides any spoken dialogue specified above, the soundtrack is environmental and diegetic sound effects with natural ambience ONLY — NO background music, NO score, NO soundtrack. NO subtitles, captions or any burned-in text overlays anywhere in the frame.";
 }
 /* exported for the headless prompt-style test suite (scripts/test-stage-promptstyles.mjs) */
@@ -4328,7 +4346,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     promptShots.map(sh=>[sh.id,sh.size,sh.angle,sh.move,sh.lens,sh.composition,
       sh.purpose||"",sh.directives||"",sh.action||"",sh.cameraSettings||null,sh.mustNot||""]),
     // the acting layer, capture, voices, geometry and scene type (2026-10-24)
-    d.acting||[], d.capture||"", (d.voices||[]).map(v=>[v.id,v.text]),
+    d.acting||[], d.capture||"", (d.voices||[]).map(v=>[v.id,v.text]), (d.props||[]).filter(x=>x&&x.hero).map(x=>[x.name,x.heroText]),
+    d.languages||[],
     (d.panelLines||[]).map(p=>p&&p.geometry&&p.geometry.text||""), sceneTypePick]);
   const renderPlan = (typeof window.stageBuildTimedPlan==="function")
      ? window.stageBuildTimedPlan(promptShots,{modelId,maxSeconds:model.maxClipSec||15,
@@ -8430,7 +8449,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     shots, shotsByScene };
   const aspect = _stageAspect(project);
   // the written voice feeds the VOICE LOCK (2026-10-24)
-  const charSig = JSON.stringify((characters||[]).map(c=>[c.id,c.name,c.voiceSpec||"",(c.voiceLock&&c.voiceLock.specSnapshot)||"",JSON.stringify(c.voice||null),
+  const charSig = JSON.stringify((characters||[]).map(c=>[c.id,c.name,c.voiceSpec||"",c.lineLanguage||"",c.lineScript||"",(c.voiceLock&&c.voiceLock.specSnapshot)||"",JSON.stringify(c.voice||null),
     (c.states||[]).map(st=>[st.id,st.label,st.sceneId,st.change,st.version,st.updatedAt]).join("|")]));
   // CONTENT-based signatures — a state/custody/coverage edit that keeps the same counts
   // (re-pinned scene, renamed holder, new trigger words) must still bust the clip memo
@@ -8438,7 +8457,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     (p.states||[]).map(st=>[st.id,st.sceneId,st.label]).join("|"),
     (p.custody||[]).map(cu=>[cu.charId,cu.charName,cu.fromSceneId]).join("|"),
     (p.continuityEvents||[]).map(e=>[e.type,e.sceneId,e.beatId,e.microBeatId,e.shotId,e.holderId,e.locationId,e.condition,e.visibility,e.note]).join("|"),
-    p.kind||p.bindingMode||"",p.ownerId||p.ownerName||"",p.custodianId||"",p.associationId||"",p.locationId||p.placementLocationId||""]));
+    p.kind||p.bindingMode||"",p.ownerId||p.ownerName||"",p.custodianId||"",p.associationId||"",p.locationId||p.placementLocationId||"",
+    !!p.hero, p.hero ? [p.form,p.material,p.signatureFeature,p.size].join("|") : ""]));
   const locSig = JSON.stringify((locations||[]).map(l=>[l.id,l.name,(l.scenes||[]).join("|"),
     (l.coverageSheets||[]).map(v=>[v.id,v.role,v.name,(v.triggerWords||[]).join("~")]).join("|")]));
   const draftSig = JSON.stringify(Object.entries(drafts||{}).map(([id,d])=>[id,(d&&d.version)||"",((d&&d.blocks)||[]).map(b=>[b.beat,b.type,b.text]).join("|")]));

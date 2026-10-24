@@ -765,6 +765,36 @@ ok("six templates, each with three direction lines",
 const styledType=recipe("narrative",makeClip(dataPart,"type-styled"),[shotPart],shotPart,true,[],refs,{...opts,explicitStyle:true,sceneType:"wide"});
 ok("a named grammar carries the picked scene type", /SCENE TYPE — Extreme wide\nThe place is the subject/.test(styledType),styledType.slice(-1200));
 
+// ── hero props and spoken language (2026-10-24) ──
+const heroCtx={...ctx,props:[{...props[0],hero:true,form:"A cream envelope, folded once.",material:"heavy laid paper; red wax seal",signatureFeature:"a thumbprint in the wax",size:"C6, 11 x 16 cm",detail:"Her last chance"}]};
+heroCtx.propById=Object.fromEntries(heroCtx.props.map(x=>[x.id,x]));
+const heroData=buildClipData(scene,{shots:[shotPart],start:0,dur:4},heroCtx,15);
+const heroBrief=brief(makeClip(heroData,"hero-clip"),[shotPart],shotPart,true,[],refs,opts);
+ok("a hero prop in the clip is described in full from its card (never its story meaning)",
+  heroBrief.includes("HERO PROPS — the same object in every shot\nSealed Letter: A cream envelope, folded once; heavy laid paper; red wax seal; a thumbprint in the wax; size: C6, 11 x 16 cm. Its design, colour, size and markings never change.")
+  &&!/Her last chance/.test(heroBrief),section(heroBrief,"LIGHTING AND PHYSICAL CONTINUITY","DIALOGUE AND SOUND"));
+ok("a prop that isn't a hero gets no such block", !/HERO PROPS/.test(brief(makeClip(dataPart,"nohero"),[shotPart],shotPart,true,[],refs,opts)));
+ok("Cyrillic spelling by sound keeps capitals, punctuation and digraphs",
+  box.stageCyrillicSound("Aqqaluk, tikilluarit! Shila.")==="Аққалук, тикиллуарит! Шила.");
+const langChars=characters.map(c=>c.id==="daniel"?{...c,lineLanguage:"Kalaallisut",lineScript:"cyrillic"}
+  :c.id==="mara"?{...c,lineLanguage:"Kalaallisut",voiceSpec:"Low voice; speaks English with a soft accent"}:c);
+const langCtx={...ctx,characters:langChars,charById:Object.fromEntries(langChars.map(x=>[x.id,x]))};
+const langData=buildClipData(scene,{shots:[shotOpening,shotPart],start:0,dur:9},langCtx,15);
+const langNative=brief(makeClip(langData,"lang-native"),[shotOpening,shotPart],shotOpening,false,[],refs,{...opts,audioMode:"native"});
+const langAudio=section(langNative,"DIALOGUE AND SOUND","VOICE LOCK");
+ok("native lines: a Cyrillic speaker's words spelled by sound, a language-only speaker's kept, both told not to sound English",
+  /Daniel \[off-screen\]: “Усе те виндов\.” — spoken in Kalaallisut, never with English pronunciation; the Cyrillic letters spell how it sounds and are never shown/.test(langAudio)
+  &&/Mara \[in-room\]: “Open the case\.” — spoken in Kalaallisut, never with English pronunciation — exact spoken words/.test(langAudio)
+  &&!/D4 · Mara \[text\]: “[^”]*” — spoken/.test(langAudio),langAudio);
+ok("the voice lock follows the character's language", /^Mara: Low voice; speaks Kalaallisut with a soft accent\.$/m.test(langNative),
+  section(langNative,"VOICE LOCK — the same voice in every shot","AVOID AI TELLS"));
+const langLocked=brief(makeClip(langData,"lang-locked"),[shotOpening,shotPart],shotOpening,true,[shotOpening.id,shotPart.id],refs,opts);
+ok("a line that uses its recorded voice keeps the script's words",
+  /D1 · Mara \[in-room\]: “Open the case\.” — exact spoken words/.test(langLocked),section(langLocked,"DIALOGUE AND SOUND","VOICE LOCK"));
+const langStyled=recipe("narrative",makeClip(langData,"lang-styled"),[shotOpening,shotPart],shotOpening,false,[],refs,{...opts,explicitStyle:true});
+ok("a named grammar in native performance lists the spoken language lines",
+  /SPOKEN LANGUAGE\nMara: “Open the case\.” — spoken in Kalaallisut[^\n]*\nDaniel: “Усе те виндов\.”/.test(langStyled),langStyled.slice(-1500));
+
 ok("brief and clip compilation are immutable",JSON.stringify({shots:allShots,drafts})===before);
 
 console.log(pass+" passed, "+fail+" failed");

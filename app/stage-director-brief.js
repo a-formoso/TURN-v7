@@ -82,18 +82,69 @@
      model voices itself (no recorded line attached), word for word in every clip. */
   const voiceKey=v=>text(v).toLowerCase().replace(/\((?:v\.?o\.?|o\.?s\.?|o\.?c\.?|cont'?d)\)/g,"")
     .replace(/[^a-z0-9]+/g," ").trim();
+  // the character a dialogue row belongs to: its speaker id, else its name (a first name matches too)
+  const byRow=(list,row)=>{
+    const id=text(row&&row.speakerId)||text(row&&row.speaker&&row.speaker.id), key=voiceKey(speaker(row)), first=key.split(" ")[0];
+    return (list||[]).find(x=>id&&x.id===id)||(list||[]).find(x=>voiceKey(x.name)===key)
+      ||(first.length>2?(list||[]).find(x=>voiceKey(x.name).split(" ")[0]===first):null)||null;
+  };
   function seedanceVoiceLock(d,rows){
     const voices=((d&&d.voices)||[]).filter(v=>v&&text(v.name)&&text(v.text)),seen=[],out=[];
     (rows||[]).forEach(row=>{
-      const id=text(row&&row.speakerId)||text(row&&row.speaker&&row.speaker.id), key=voiceKey(speaker(row)), first=key.split(" ")[0];
-      const v=voices.find(x=>id&&x.id===id)||voices.find(x=>voiceKey(x.name)===key)
-        ||(first.length>2?voices.find(x=>voiceKey(x.name).split(" ")[0]===first):null);
+      const v=byRow(voices,row);
       if(!v||seen.includes(v.id))return;
       seen.push(v.id); out.push(v.name+": "+text(v.text)+".");
     });
     return section("VOICE LOCK — the same voice in every shot",out);
   }
   root.seedanceVoiceLock=seedanceVoiceLock;
+  /* SPOKEN LANGUAGE (2026-10-24, from the Anerneq study): a line in another or an invented
+     language is pronounced as English when it's written in Latin letters. A character set to
+     "Cyrillic letters" has their lines (the ones the video model voices) spelled by sound in
+     Cyrillic, which keeps English pronunciation out; the letters are never shown. */
+  const CYR_DI=[["shch","щ"],["sch","ш"],["sh","ш"],["ch","ч"],["zh","ж"],["kh","х"],["ts","ц"],["ya","я"],["yu","ю"],["yo","ё"],["ng","нг"],["th","т"]];
+  const CYR_ONE={a:"а",b:"б",c:"к",d:"д",e:"е",f:"ф",g:"г",h:"х",i:"и",j:"й",k:"к",l:"л",m:"м",n:"н",o:"о",p:"п",q:"қ",r:"р",s:"с",t:"т",u:"у",v:"в",w:"в",x:"кс",y:"ы",z:"з"};
+  function stageCyrillicSound(v){
+    const src=String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+    let out="";
+    for(let i=0;i<src.length;){
+      const rest=src.slice(i).toLowerCase();
+      const di=CYR_DI.find(([a])=>rest.startsWith(a));
+      const take=di?di[0].length:1, low=di?di[1]:CYR_ONE[rest[0]];
+      if(low===undefined){ out+=src[i]; i++; continue; }
+      const upper=src[i]!==src[i].toLowerCase();
+      out+=upper?low.charAt(0).toUpperCase()+low.slice(1):low;
+      i+=take;
+    }
+    return out;
+  }
+  root.stageCyrillicSound=stageCyrillicSound;
+  // a line's spoken form + its language note, for a speaker with a language set
+  const spokenForm=(d,row)=>{
+    const lang=byRow(((d&&d.languages)||[]).filter(x=>x&&text(x.name)),row);
+    if(!lang)return null;
+    const cyr=lang.script==="cyrillic";
+    return {words:cyr?stageCyrillicSound(text(row.text)):text(row.text),
+      note:"spoken in "+(text(lang.language)||"their own language")+", never with English pronunciation"
+        +(cyr?"; the Cyrillic letters spell how it sounds and are never shown":"")};
+  };
+  function seedanceLanguageSection(d,rows){
+    const out=[];
+    (rows||[]).forEach(row=>{
+      const f=spokenForm(d,row); if(!f||!f.words)return;
+      const line=speaker(row)+": “"+f.words+"” — "+f.note+".";
+      if(!out.includes(line))out.push(line);
+    });
+    return section("SPOKEN LANGUAGE",out);
+  }
+  root.seedanceLanguageSection=seedanceLanguageSection;
+  /* HERO PROPS (2026-10-24): the few objects the film turns on, described in full every time */
+  function seedanceHeroProps(d){
+    return section("HERO PROPS — the same object in every shot",((d&&d.props)||[])
+      .filter(p=>p&&p.hero&&text(p.name)&&text(p.heroText))
+      .map(p=>p.name+": "+text(p.heroText)+". Its design, colour, size and markings never change."));
+  }
+  root.seedanceHeroProps=seedanceHeroProps;
   const captureSection=d=>section("LENS AND CAPTURE — the same in every shot",[text(d&&d.capture)]);
   root.seedanceCaptureSection=captureSection;
 
@@ -366,7 +417,9 @@
           &&(text(u.sh.lineAudio&&u.sh.lineAudio.text)||text(u.p.dialogue))===text(row.text)
           ?refs.audioForShot(u.sh.id):"";
         if(!isText&&!audioTag)nativeVoices.push(row);
-        return x.label+" · "+speaker(row)+" ["+[delivery,text(row.channel)].filter(Boolean).join(" · ")+"]: “"+row.text+"”"
+        const own=!isText&&!audioTag?spokenForm(d,row):null;
+        return x.label+" · "+speaker(row)+" ["+[delivery,text(row.channel)].filter(Boolean).join(" · ")+"]: “"+(own?own.words:row.text)+"”"
+          +(own?" — "+own.note:"")
           +(isText?" — written/message content only; do not speak it or animate lips. Show it only where the screenplay calls for diegetic text."
             :remote?" — offscreen voice only; never add a body, face or lip-sync."
             :" — exact spoken words; lip-sync only when this speaker is visible.")
@@ -381,7 +434,7 @@
       "Preserve canonical body and object scale plus relative size between subjects; do not normalize different subjects to the same height or proportions.",
       "Do not add unprovided technical measurements or change the approved project look."
     ]);
-    return [contract,section("ACTIVE REFERENCES",refsLines),openingState,action,seedanceSceneTypeSection(d,list,opts),notes.acting,performance,lighting,captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
+    return [contract,section("ACTIVE REFERENCES",refsLines),openingState,action,seedanceSceneTypeSection(d,list,opts),notes.acting,performance,lighting,seedanceHeroProps(d),captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
   }
   root.seedanceDirectorBrief=seedanceDirectorBrief;
 })(typeof window!=="undefined"?window:globalThis);

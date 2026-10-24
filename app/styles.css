@@ -11078,3 +11078,9 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .app.hs.room-stage .stage2-fold > .stage2-fold-head{height:auto;min-height:0;margin:0;flex:none}
 .app.hs.room-stage .sd-gen-panel.stage2-folds{gap:0}
 .app.hs.room-stage .sd-gen-panel.stage2-folds > :not(.stage2-fold){margin-top:14px}
+/* HERO PROP (2026-10-24): the star beside a prop's name */
+.prop-hero-btn{flex:none;width:24px;height:24px;margin-left:4px;padding:0;border:1px solid transparent;border-radius:6px;background:none;
+  font-size:14px;line-height:22px;color:var(--hs-line-2,var(--line-2));cursor:pointer}
+.prop-hero-btn:hover:not(:disabled){color:var(--hs-amber-ink,var(--pos-ink));border-color:var(--hs-line,var(--line-1))}
+.prop-hero-btn.on{color:var(--hs-amber,#e8963a);background:var(--hs-amber-soft,rgba(232,150,58,.12));border-color:var(--hs-amber-line,rgba(242,154,67,.5))}
+.prop-hero-btn:disabled{opacity:.35;cursor:not-allowed}

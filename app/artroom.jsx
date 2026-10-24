@@ -6403,6 +6403,21 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement(SheetField,{label:"Leave out \u2014 what the sheet must not show (negative prompt)",value:c.negativePrompt||v.negativePrompt,multiline:true,
           onCommit:val=>onUpdate(c.id,{negativePrompt:val})})),
 
+      // SPOKEN LANGUAGE (2026-10-24, from the Anerneq study): lines in another or an invented language;
+      // Cyrillic letters spell them by sound for the video model, which keeps English pronunciation out
+      React.createElement(CardFold,{label:"Spoken language",defaultOpen:!!(c.lineLanguage||c.lineScript)},
+        React.createElement(SheetField,{label:"Speaks \u2014 the language of their lines (blank = the script's language)",value:c.lineLanguage||"",
+          placeholder:"e.g. Kalaallisut, or an invented language",onCommit:val=>onUpdate(c.id,{lineLanguage:String(val||"").trim()})}),
+        React.createElement("div",{className:"sheet-field"},
+          React.createElement("div",{className:"obj-lab"},"Lines for the video model"),
+          React.createElement("select",{className:"prop-select","aria-label":"How their lines are written for the video model",
+            value:c.lineScript==="cyrillic"?"cyrillic":"",
+            onChange:e=>onUpdate(c.id,{lineScript:e.target.value==="cyrillic"?"cyrillic":""})},
+            React.createElement("option",{value:""},"As written in the script"),
+            React.createElement("option",{value:"cyrillic"},"Spelled in Cyrillic letters (keeps English sounds out)")),
+          React.createElement("div",{className:"char-scalesheet-hint"},
+            "For lines the video model voices itself (no recorded voice). Write the line as it sounds in the script; Cyrillic letters stop the model reading it as English. The letters are never shown, and the script isn't changed."))),
+
       React.createElement(CardFold,{label:"Scale sheet",defaultOpen:false},
         React.createElement("div",{className:"char-scalesheet-hint"},
           React.createElement(Icon.sparkles,{s:12}),
