@@ -387,6 +387,12 @@ window.ArtDeptTitle = ArtDeptTitle;
    selected scene — or Open script once it's drafted) and the amber Story Editors. Replaces the
    Writers' Room's ViewNav bar; the panel toggles ride along below 1100px, as they did there. */
 const WRITERS_TITLES = { spine:["The value ","spine."], board:["The story ","board."], script:["The ","screenplay."] };
+/* each view's department (owner 2026-10-24) and what its \u24d8 says */
+const WRITERS_DEPTS = {
+  spine:["Story Architect","The value spine: every scene's emotional charge from where it opens to where it closes, end to end \u2014 above the line it closes positive, below it negative. Follow a character to see the scenes they drive; drag a scene card, or use its \u22ee \u2192 Move to\u2026, to reorder; the Key names the colours."],
+  board:["Head Writer","The story board: every scene as a card, grouped by act. Columns shows the shape of each act; Table reads every scene's turn at once. Click a card to open it in the Scene panel."],
+  script:["Screenwriter","The screenplay, scene by scene: draft a scene from its card and beats, redraft it, edit it by hand and check its continuity. Every draft is kept in the scene's version history."],
+};
 function WritersHeader({ view, setView, project, scenes, runtimeTotal, sub, scene, sceneDrafted, drafting,
                          onDraftScene, onAgents, readOnly, railOpen, inspOpen, onToggleRail, onToggleInsp }){
   const h = React.createElement;
@@ -403,7 +409,11 @@ function WritersHeader({ view, setView, project, scenes, runtimeTotal, sub, scen
   return h("header",{className:"wr-head"},
     h("div",{className:"wr-head-in"},
       h("div",{className:"wr-head-copy"},
-        h("div",{className:"wr-eyebrow"},"01 · Development"),
+        // the view's department joins the eyebrow, as in the Art Room (owner 2026-10-24): "01 · Development: Story Architect \u24d8"
+        h("div",{className:"wr-eyebrow art-eyebrow"},"01 · Development",
+          WRITERS_DEPTS[view] && h("span",{className:"art-dept"},
+            h("span",{className:"art-dept-sep","aria-hidden":"true"},":"), WRITERS_DEPTS[view][0],
+            window.InfoTip && h(window.InfoTip,{label:"About the "+(view==="script"?"Script":view==="board"?"Board":"Spine"),text:WRITERS_DEPTS[view][1]}))),
         h("h1",{className:"wr-title"},t[0],h("em",null,t[1])),
         sub ? h("p",{className:"wr-sub"},String(sub).replace(/\.?\s*$/,".")) : null),
       h("div",{className:"wr-head-side"},
