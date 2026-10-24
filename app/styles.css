@@ -10899,6 +10899,7 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .sb-slate .loc-slate-lab .infotip-btn{width:16px;height:16px}
 .sb-slate .sb-stock{flex:1 1 200px;position:relative}
 .sb-slate .sb-target{flex:2 1 320px}
+.sb-slate .sb-capture{flex:1.5 1 240px}
 .sb-target-row{display:flex;align-items:baseline;gap:6px;min-width:0;height:24px}
 .sb-target-line{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:400 13px/24px var(--f-ui);color:var(--hs-ink-2,var(--txt-1))}
 .sb-target-line.empty{color:var(--hs-sub,var(--txt-2));font-style:italic}

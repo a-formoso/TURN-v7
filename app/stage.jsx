@@ -643,6 +643,83 @@ function _normStageText(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9
 function stageBeatRow(beatsMap, sceneId, beatN){
   return (((beatsMap||{})[sceneId]||{}).rows||[]).find(r=>Number(r.n)===Number(beatN)) || null;
 }
+/* GEOMETRY ANCHOR (2026-10-24): real distances from the film's own Blender work — the
+   shot's camera and stand-ins as placed in Blender Studio, else the shot's saved Blender
+   blockout. Never estimated: a camera still at the starter position the size/angle table
+   gives (Studio's first camera, the blockout's default) was not placed by anyone, so it
+   gives no numbers. STAGE_STUDIO_SHOTS is filled by the Stage for the selected clip. */
+const STAGE_STUDIO_SHOTS = {};
+function stageStarterCamera(cam){
+  const p=cam&&cam.position; if(!Array.isArray(p)||p.length<3) return true;
+  const near=(a,b)=>Math.abs((Number(a)||0)-b)<0.011;
+  return near(p[0],0) && [14,8,6,4,2.8,1.8,1.1,0.1].some(d=>near(p[1],-d)) && [4,0.6,1.65,8].some(h=>near(p[2],h));
+}
+function stageShotGeometry(sh, cast, loc){
+  if(!sh||!sh.id) return null;
+  let cam=null, actors=[], source="";
+  const ws=loc&&loc.id&&STAGE_STUDIO_SHOTS[loc.id];
+  const st=ws&&Array.isArray(ws.shots) ? ws.shots.find(x=>x&&x.id===sh.id) : null;
+  if(st&&st.camera&&!stageStarterCamera(st.camera)){
+    cam=st.camera; source="Blender Studio";
+    actors=(st.objects||[]).filter(o=>o&&o.kind==="actor"&&o.characterId&&Array.isArray(o.position))
+      .map(o=>({id:String(o.characterId),position:o.position}));
+  } else {
+    const meta=(typeof nbGetMeta==="function") ? nbGetMeta("blender-preview-"+sh.id) : null;
+    const c=meta&&meta.kind==="blender-preview"&&meta.sourceSpec ? (meta.actualCamera||meta.sourceSpec.camera) : null;
+    if(c&&!stageStarterCamera(c)){
+      cam=c; source="Blender blockout";
+      actors=(meta.sourceSpec.actors||[]).filter(a=>a&&Array.isArray(a.position))
+        .map(a=>({id:String(a.id||"").replace(/^actor-/,""),position:a.position}));
+    }
+  }
+  if(!cam||!Array.isArray(cam.position)||!Array.isArray(cam.target)) return null;
+  const P=cam.position.map(Number), T=cam.target.map(Number);
+  if(P.concat(T).some(v=>!Number.isFinite(v))) return null;
+  const m=v=>(Math.round(v*10)/10).toFixed(1).replace(/\.0$/,"")+" m";
+  const deg=v=>Math.round(v/5)*5;
+  const fx=T[0]-P[0], fy=T[1]-P[1], flat=Math.hypot(fx,fy);
+  const tilt=deg(Math.atan2(T[2]-P[2], flat||1e-6)*180/Math.PI);
+  const parts=["camera "+m(P[2])+" above the floor"+(tilt<0?", looking "+(-tilt)+"° down":tilt>0?", looking "+tilt+"° up":", level")];
+  const people=actors.map(a=>({...a,name:((cast||[]).find(c=>c.id===a.id)||{}).name||""})).filter(a=>a.name);
+  people.forEach(a=>{
+    const ax=a.position[0]-P[0], ay=a.position[1]-P[1], d=Math.hypot(ax,ay);
+    if(!Number.isFinite(d)) return;
+    let side="";
+    if(flat>1e-6&&d>1e-6){
+      const ang=deg(Math.atan2(fx*ay-fy*ax, fx*ax+fy*ay)*180/Math.PI);
+      side=ang===0?", centre frame":", "+Math.abs(ang)+"° "+(ang>0?"left":"right")+" of centre";
+    }
+    parts.push(a.name+" "+m(d)+" from camera"+side);
+  });
+  for(let i=0;i<people.length;i++) for(let j=i+1;j<people.length;j++){
+    const d=Math.hypot(people[i].position[0]-people[j].position[0], people[i].position[1]-people[j].position[1]);
+    if(Number.isFinite(d)) parts.push(people[i].name+" and "+people[j].name+" "+m(d)+" apart");
+  }
+  return { source, text:parts.join("; ") };
+}
+/* VOICE LOCK (2026-10-24): a character's written voice — the description saved with their
+   voice (Art Room › Voices), else their authored voice block (accent, pitch, pace, quirks) —
+   for lines the video model voices itself. The studio-recording clause and the character's
+   look (both written for the voice designer) are left out. */
+function stageVoiceText(c){
+  if(!c) return "";
+  let t=String(c.voiceSpec||(c.voiceLock&&c.voiceLock.specSnapshot)||"").trim();
+  if(t&&typeof window!=="undefined"&&typeof window.turnIdentityPrompt==="function"){
+    const look=String(window.turnIdentityPrompt([c])||"").trim();
+    if(look&&t.endsWith(look)) t=t.slice(0,t.length-look.length).trim();
+  }
+  if(!t){
+    const v=c.voice||{}, acc=String(v.accent||"").trim();
+    t=[acc&&(/accent|dialect|speaks/i.test(acc)?acc:acc+" accent"),v.pitch,v.pace,v.quirks]
+      .map(x=>String(x||"").trim()).filter(Boolean).join("; ");
+  }
+  t=t.replace(/;?\s*clean close-mic recording, dry, with no background noise/ig,"").replace(/\s+/g," ").trim();
+  if(t.length>320){
+    const cut=t.slice(0,320), end=cut.lastIndexOf(". ");
+    t=end>80 ? cut.slice(0,end+1) : cut.replace(/\s+\S*$/,"");
+  }
+  return t.replace(/[\s;,.]+$/,"");
+}
 /* CHARACTER ACTING (2026-10-24): the beat map's duel for the clip's in-frame cast —
    the driver's goal + obstacle, and each side's tactic in the clip's beats. A label
    like "THE SIGN / TRINITY" names each part; nobody outside the clip's cast is added. */
@@ -1443,6 +1520,7 @@ function buildClipData(scene, g, ctx, maxSec){
       speaker: currentDirection&&currentDirection.dialogueRow
         ? {id:currentDirection.dialogueRow.speakerId||"",name:currentDirection.dialogueRow.speaker||"the speaker"} : speaker,
       camera:camSpec, composition:String((sh&&sh.composition)||"").trim(),
+      geometry:stageShotGeometry(sh, cast, (sh&&sh.locationId&&(ctx.locations||[]).find(l=>l&&l.id===sh.locationId))||loc),
       dur:(typeof stageShotRuntime==="function") ? stageShotRuntime(sh) : 0,
       dialogue:canonical ? String((primaryDialogue&&primaryDialogue.text)||"") :
         (currentDirection ? currentDirection.dialogue
@@ -1582,7 +1660,10 @@ function buildClipData(scene, g, ctx, maxSec){
   const sourceCharacterIds=new Set(Object.values(beatScripts).flatMap(s=>[].concat(s.physicalCharacterIds||[],s.remoteCharacterIds||[])));
   const sourceCharacters=(ctx.characters||[]).filter(c=>sourceCharacterIds.has(c.id)).map(c=>({id:c.id,name:c.name}));
   const acting = stageClipActing(scene, shots, cast, ctx);
-  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, sourceCharacters, props:clipProps, loc, locSheet, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
+  // LENS AND CAPTURE (2026-10-24): the film's capture text from the Color tab, word for word
+  const capture = String((((ctx.project||{}).styleBible)||{}).capture||"").trim();
+  const voices = (ctx.characters||[]).map(c=>({id:c.id,name:c.name,text:stageVoiceText(c)})).filter(v=>v.name&&v.text);
+  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, capture, voices, sourceCharacters, props:clipProps, loc, locSheet, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
     dur:_clipDur(g, maxSec), lineShots };
 }
 
@@ -2806,7 +2887,12 @@ function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, au
    // the acting layer travels with every grammar (2026-10-24): goal/obstacle/tactic,
    // living faces, the shot's AI tells and its "must not happen" notes
    const notes=typeof window.seedanceActingNotes==="function"?window.seedanceActingNotes(scoped.data,list,opts):{};
-   const acting=[notes.acting,notes.faces||"",notes.tells,notes.negative].filter(Boolean).join("\n");
+   // the film's capture text, and in native performance each speaker's written voice
+   const capture=typeof window.seedanceCaptureSection==="function"?window.seedanceCaptureSection(scoped.data):"";
+   const spoken=Object.values(scoped.data.beatDialogues||{}).flat()
+     .filter(r=>r&&String(r.text||"").trim()&&!stageDeliveryIsText(r.delivery||"onscreen"));
+   const voice=audioRefsOn===false&&typeof window.seedanceVoiceLock==="function"?window.seedanceVoiceLock(scoped.data,spoken):"";
+   const acting=[notes.acting,notes.faces||"",capture,voice,notes.tells,notes.negative].filter(Boolean).join("\n");
    return base + coverage + (delivery?"\n"+delivery:"") + (acting?"\n"+acting:"") + "\nAUDIO & OVERLAYS: besides any spoken dialogue specified above, the soundtrack is environmental and diegetic sound effects with natural ambience ONLY — NO background music, NO score, NO soundtrack. NO subtitles, captions or any burned-in text overlays anywhere in the frame.";
 }
 /* exported for the headless prompt-style test suite (scripts/test-stage-promptstyles.mjs) */
@@ -8290,7 +8376,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const ctx = { characters, charById, props, propById, locations, project, beatsMap, drafts, scenes:ordered,
     shots, shotsByScene };
   const aspect = _stageAspect(project);
-  const charSig = JSON.stringify((characters||[]).map(c=>[c.id,c.name,
+  // the written voice feeds the VOICE LOCK (2026-10-24)
+  const charSig = JSON.stringify((characters||[]).map(c=>[c.id,c.name,c.voiceSpec||"",(c.voiceLock&&c.voiceLock.specSnapshot)||"",JSON.stringify(c.voice||null),
     (c.states||[]).map(st=>[st.id,st.label,st.sceneId,st.change,st.version,st.updatedAt]).join("|")]));
   // CONTENT-based signatures — a state/custody/coverage edit that keeps the same counts
   // (re-pinned scene, renamed holder, new trigger words) must still bust the clip memo
@@ -8302,13 +8389,18 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const locSig = JSON.stringify((locations||[]).map(l=>[l.id,l.name,(l.scenes||[]).join("|"),
     (l.coverageSheets||[]).map(v=>[v.id,v.role,v.name,(v.triggerWords||[]).join("~")]).join("|")]));
   const draftSig = JSON.stringify(Object.entries(drafts||{}).map(([id,d])=>[id,(d&&d.version)||"",((d&&d.blocks)||[]).map(b=>[b.beat,b.type,b.text]).join("|")]));
-  const beatsSig = JSON.stringify(Object.entries(beatsMap||{}).map(([id,b])=>[id,((b&&b.rows)||[]).map(r=>[r.n,r&&r.drive&&r.drive.d,r&&r.react&&r.react.d]).join("|")]));
+  // the duel's labels, goal and obstacle and each side's tactic name feed CHARACTER ACTING (2026-10-24)
+  const beatsSig = JSON.stringify(Object.entries(beatsMap||{}).map(([id,b])=>[id,b&&b.driverLabel,b&&b.reactorLabel,b&&b.desire,b&&b.obstacle,
+    ((b&&b.rows)||[]).map(r=>[r.n,r&&r.drive&&r.drive.a,r&&r.drive&&r.drive.d,r&&r.react&&r.react.a,r&&r.react&&r.react.d]).join("|")]));
 
   /* PROP STATE SHEETS ARE LOADED (2026-10-09, owner — Stage review): a prop's continuity sheet
      ("damaged") is picked only when its image is known here, and the Stage never asked for it — a film
      opened straight into the Stage sent the master. The loader below asks for every state sheet the
      visible scene can use; when one arrives, the clips are rebuilt so it is picked. */
   const [propVariantTick, setPropVariantTick] = React.useState(0);
+  // GEOMETRY ANCHOR sources (2026-10-24): Blender Studio shots + saved blockouts, loaded for the selected clip
+  const [geoTick, setGeoTick] = React.useState(0);
+  const geoTriedRef = React.useRef(new Set());
   const propVariantIdsRef = React.useRef(new Set());
   // flatten clips with labels + derived data
   const allClips = React.useMemo(()=>{ const out=[];
@@ -8318,13 +8410,36 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       out.push({ id:(typeof clipStableId==="function")?clipStableId(scene.id, g.shots):("clip-"+scene.id+"-"+g.index),
         legacyId:(typeof clipVidId==="function")?clipVidId(scene.id,g.index):("clip-"+scene.id+"-"+g.index),
         label:_pad2(scene.no)+_clipLetter(g.index), scene, g, data:buildClipData(scene, g, ctx, stageModel.maxClipSec||15) }); }); });
-    return out; }, [scenesWithShots, clipsByScene, charSig, propSig, locSig, draftSig, beatsSig, project, propVariantTick]);
+    return out; }, [scenesWithShots, clipsByScene, charSig, propSig, locSig, draftSig, beatsSig, project, propVariantTick, geoTick]);
   // CLIP is the unit of selection/generation. Keep selection above image hydration
   // so Stage can request the visible scene's package first instead of loading every
   // shot and sheet in the film before the selected beat becomes usable.
   const [selId, setSelId] = React.useState(allClips[0] ? allClips[0].id : null);
   const [selShotId, setSelShotId] = React.useState((shots||[])[0] ? (shots||[])[0].id : null);
   const selMembersRef = React.useRef(null);
+  /* GEOMETRY ANCHOR (2026-10-24): fetch, once per Stage visit, the selected clip's Blender
+     Studio workspace(s) and its shots' saved Blender blockouts, then rebuild the clips so
+     the prompt carries their real distances. Best effort: nothing found → no numbers. */
+  React.useEffect(()=>{
+    const cur=allClips.find(c=>c.id===selId); if(!cur) return;
+    const tried=geoTriedRef.current, jobs=[], BS=window.BlenderStudio;
+    const locIds=_uniq([(cur.data&&cur.data.loc&&cur.data.loc.id)||""].concat((cur.g.shots||[]).map(sh=>sh&&sh.locationId||"")));
+    locIds.forEach(id=>{
+      if(!id||tried.has("ws:"+id)||!BS||typeof BS.get!=="function"
+        ||!(typeof BS.generatedReference==="function"&&BS.generatedReference(id))) return;
+      tried.add("ws:"+id);
+      jobs.push(Promise.resolve().then(()=>BS.get(id))
+        .then(ws=>{ STAGE_STUDIO_SHOTS[id]={shots:(ws&&ws.shots)||[]}; return true; }).catch(()=>false));
+    });
+    (cur.g.shots||[]).forEach(sh=>{
+      const slot="blender-preview-"+(sh&&sh.id);
+      if(!sh||!/^[a-zA-Z0-9_-]{1,128}$/.test(String(sh.id))||tried.has(slot)||typeof nbLoadImage!=="function"
+        ||(typeof nbGetMeta==="function"&&nbGetMeta(slot))) return;
+      tried.add(slot);
+      jobs.push(Promise.resolve().then(()=>nbLoadImage(slot)).then(url=>!!url).catch(()=>false));
+    });
+    if(jobs.length) Promise.all(jobs).then(r=>{ if(r.some(Boolean)) setGeoTick(t=>t+1); });
+  }, [selId]);
   React.useEffect(()=>{
     const cur = allClips.find(c=>c.id===selId);
     if(cur){ selMembersRef.current = (cur.g.shots||[]).map(s=>s.id); return; }

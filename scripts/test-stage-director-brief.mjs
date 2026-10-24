@@ -686,6 +686,61 @@ ok("a named grammar carries the acting layer before AUDIO & OVERLAYS",
   /CHARACTER ACTING/.test(styled)&&/\nMara: living faces/.test(styled)
   &&styled.indexOf("NEGATIVE — must not happen")>0&&styled.indexOf("NEGATIVE — must not happen")<styled.indexOf("AUDIO & OVERLAYS"),styled.slice(-900));
 
+// ── geometry anchor, lens and capture, voice lock (2026-10-24) ──
+const geoCtx={...ctx,locations:[{id:"loc-arch",name:"Archive",scenes:[scene.id]}]};
+box.nbGetMeta=id=>id==="blender-preview-"+shotPart.id
+  ?{kind:"blender-preview",sourceSpec:{camera:{position:[0,-4,1.65],target:[0,0,1.4]},actors:[{id:"actor-mara",position:[0,0,0]}]},
+    actualCamera:{position:[0,-4,1.65],target:[0,0,1.4]}}:null;
+const geoStarter=buildClipData(scene,{shots:[shotPart],start:0,dur:4},geoCtx,15);
+ok("a blockout still at the starter camera gives no numbers",
+  !(geoStarter.panelLines[0]||{}).geometry,JSON.stringify(geoStarter.panelLines[0]&&geoStarter.panelLines[0].geometry));
+box.nbGetMeta=id=>id==="blender-preview-"+shotPart.id
+  ?{kind:"blender-preview",sourceSpec:{camera:{position:[0,-4,1.65],target:[0,0,1.4]},actors:[{id:"actor-mara",position:[0,0,0]},{id:"actor-rhea",position:[1,0,0]}]},
+    actualCamera:{position:[0.5,-3,1.2],target:[0,0,1.4]}}:null;
+const geoData=buildClipData(scene,{shots:[shotPart],start:0,dur:4},geoCtx,15);
+const geoBrief=brief(makeClip(geoData,"geo-clip"),[shotPart],shotPart,true,[],refs,opts);
+ok("a hand-placed blockout camera: height, tilt, each in-frame person's distance and place in frame (Rhea isn't in the clip)",
+  geoBrief.includes("Geometry anchor (from Blender blockout): camera 1.2 m above the floor, looking 5° up; Mara 3 m from camera, centre frame."),
+  section(geoBrief,"ACTION AND CAMERA PLAN","PERFORMANCE"));
+vm.runInContext('STAGE_STUDIO_SHOTS["loc-arch"]={shots:[{id:"'+shotPart.id+'",camera:{position:[2,-2,1.6],target:[0,0,1.6]},objects:[{id:"a1",kind:"actor",characterId:"mara",position:[0,0,0]},{id:"a2",kind:"actor",characterId:"daniel",position:[0,1.5,0]}]}]};',box);
+const studioData=buildClipData(scene,{shots:[shotPart],start:0,dur:4},geoCtx,15);
+const studioGeo=(studioData.panelLines[0]||{}).geometry||{};
+ok("Blender Studio's placed camera and stand-ins win over the blockout; angles say which side of frame",
+  studioGeo.source==="Blender Studio"&&/^camera 1\.6 m above the floor, level; Mara 2\.8 m from camera, centre frame/.test(studioGeo.text||"")
+  &&(!/Daniel/.test(studioGeo.text)||/Daniel 3\.\d m from camera, \d+° (left|right) of centre; Mara and Daniel 1\.5 m apart/.test(studioGeo.text)),
+  JSON.stringify(studioGeo));
+vm.runInContext('STAGE_STUDIO_SHOTS["loc-arch"]={shots:[{id:"'+shotPart.id+'",camera:{position:[0,-4,1.65],target:[0,0,1.4]},objects:[]}]};',box);
+ok("a Studio shot still on its starter camera falls back to the blockout",
+  ((buildClipData(scene,{shots:[shotPart],start:0,dur:4},geoCtx,15).panelLines[0]||{}).geometry||{}).source==="Blender blockout");
+box.nbGetMeta=undefined;
+vm.runInContext('delete STAGE_STUDIO_SHOTS["loc-arch"];',box);
+
+const capCtx={...ctx,project:{id:"brief-film",styleBible:{capture:"  Shot on 35mm anamorphic, 2.39:1. Fine grain, no lens flares. "}}};
+const capData=buildClipData(scene,{shots:[shotPart],start:0,dur:4},capCtx,15);
+const capBrief=brief(makeClip(capData,"cap-clip"),[shotPart],shotPart,true,[],refs,opts);
+ok("LENS AND CAPTURE: the Color tab's text word for word, after the lighting",
+  capBrief.includes("\n\nLENS AND CAPTURE — the same in every shot\nShot on 35mm anamorphic, 2.39:1. Fine grain, no lens flares.\n\nDIALOGUE AND SOUND"),capBrief);
+ok("no capture text, no section", !/LENS AND CAPTURE/.test(brief(makeClip(dataPart,"nocap"),[shotPart],shotPart,true,[],refs,opts)));
+
+const voiceChars=characters.map(c=>c.id==="mara"?{...c,voiceSpec:"Thirties female voice; low, dry, clipped; clean close-mic recording, dry, with no background noise."}
+  :c.id==="daniel"?{...c,voice:{accent:"Glaswegian",pitch:"low pitch",pace:"slow"}}:c);
+const voiceCtx={...ctx,characters:voiceChars,charById:Object.fromEntries(voiceChars.map(x=>[x.id,x]))};
+const voiceData=buildClipData(scene,{shots:[shotOpening,shotPart],start:0,dur:9},voiceCtx,15);
+const nativeBrief=brief(makeClip(voiceData,"voice-clip"),[shotOpening,shotPart],shotOpening,false,[],refs,{...opts,audioMode:"native"});
+const lockTxt=section(nativeBrief,"VOICE LOCK — the same voice in every shot","AVOID AI TELLS");
+ok("native performance: each speaker's written voice, once, without the studio-recording clause",
+  /^Mara: Thirties female voice; low, dry, clipped\.$/m.test(lockTxt)&&/^Daniel: Glaswegian accent; low pitch; slow\.$/m.test(lockTxt)
+  &&!/close-mic/.test(nativeBrief)&&(lockTxt.match(/^Mara:/mg)||[]).length===1,lockTxt);
+ok("the voice lock follows DIALOGUE AND SOUND",
+  nativeBrief.indexOf("DIALOGUE AND SOUND")<nativeBrief.indexOf("VOICE LOCK")&&nativeBrief.indexOf("VOICE LOCK")<nativeBrief.indexOf("AVOID AI TELLS"));
+const lockedBrief=brief(makeClip(voiceData,"voice-locked"),[shotOpening,shotPart],shotOpening,true,[shotOpening.id,shotPart.id],refs,opts);
+const lockedLock=section(lockedBrief,"VOICE LOCK — the same voice in every shot","AVOID AI TELLS");
+ok("locked voices: Mara's lines use their recording (no written voice); Daniel's unrecorded line keeps his",
+  /@Audio4 as Mara's/.test(lockedBrief)&&!/^Mara:/m.test(lockedLock)&&/^Daniel: Glaswegian/m.test(lockedLock),lockedLock);
+const styledNative=recipe("narrative",makeClip({...voiceData,capture:"Shot on 16mm."},"voice-styled"),[shotOpening,shotPart],shotOpening,false,[],refs,{...opts,explicitStyle:true});
+ok("a named grammar in native performance carries the capture text and the voice lock",
+  /LENS AND CAPTURE — the same in every shot\nShot on 16mm\./.test(styledNative)&&/VOICE LOCK — the same voice in every shot\nMara: Thirties/.test(styledNative),styledNative.slice(-1400));
+
 ok("brief and clip compilation are immutable",JSON.stringify({shots:allShots,drafts})===before);
 
 console.log(pass+" passed, "+fail+" failed");

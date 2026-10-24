@@ -78,6 +78,25 @@
   }
   root.seedanceActingNotes=seedanceActingNotes;
 
+  /* VOICE LOCK (2026-10-24): the written voice of each character whose line the video
+     model voices itself (no recorded line attached), word for word in every clip. */
+  const voiceKey=v=>text(v).toLowerCase().replace(/\((?:v\.?o\.?|o\.?s\.?|o\.?c\.?|cont'?d)\)/g,"")
+    .replace(/[^a-z0-9]+/g," ").trim();
+  function seedanceVoiceLock(d,rows){
+    const voices=((d&&d.voices)||[]).filter(v=>v&&text(v.name)&&text(v.text)),seen=[],out=[];
+    (rows||[]).forEach(row=>{
+      const id=text(row&&row.speakerId)||text(row&&row.speaker&&row.speaker.id), key=voiceKey(speaker(row)), first=key.split(" ")[0];
+      const v=voices.find(x=>id&&x.id===id)||voices.find(x=>voiceKey(x.name)===key)
+        ||(first.length>2?voices.find(x=>voiceKey(x.name).split(" ")[0]===first):null);
+      if(!v||seen.includes(v.id))return;
+      seen.push(v.id); out.push(v.name+": "+text(v.text)+".");
+    });
+    return section("VOICE LOCK — the same voice in every shot",out);
+  }
+  root.seedanceVoiceLock=seedanceVoiceLock;
+  const captureSection=d=>section("LENS AND CAPTURE — the same in every shot",[text(d&&d.capture)]);
+  root.seedanceCaptureSection=captureSection;
+
   function seedanceDirectorBrief(clip,shots,activeShot,audioRefsOn,audioIncluded,refs,opts){
     opts=opts||{}; refs=refs||{};
     const d=clip&&clip.data||{},scene=clip&&clip.scene||{};
@@ -246,6 +265,7 @@
         (beatLevel||(u.actions.length&&stagingAdds))&&staging?"Staging: "+staging:"",
         !continuous&&u.i>0?"Carry-over: preserve prior positions, screen direction, gaze targets, relative scale and prop state; nothing resets or teleports.":"",
         camera?"Camera: "+camera:"",
+        u.p.geometry&&text(u.p.geometry.text)?"Geometry anchor (from "+(text(u.p.geometry.source)||"Blender")+"): "+text(u.p.geometry.text)+".":"",
         text(u.p.composition)?"Composition: "+u.p.composition:"",
         text(u.p.purpose)?"Intent: "+u.p.purpose:"",
         text(u.p.directives)?"Director's notes (binding): "+u.p.directives:"",
@@ -279,6 +299,7 @@
       "Lighting and physical changes follow the authored events. Preserve object design through motion, pickups and handovers; a reference image is not a requirement to keep an object in the same hands.",
       "Bodies, cloth and props obey gravity, contact, mass, inertia, weight transfer and follow-through. No floating feet, rubbery motion or frictionless movement."
     ]);
+    const nativeVoices=[];
     const audio=section("DIALOGUE AND SOUND",[
       ...dialogue.map(x=>{
         const row=x.row,delivery=text(row.delivery)||"onscreen";
@@ -289,6 +310,7 @@
           &&(!Array.isArray(audioIncluded)||audioIncluded.includes(u.sh.id))
           &&(text(u.sh.lineAudio&&u.sh.lineAudio.text)||text(u.p.dialogue))===text(row.text)
           ?refs.audioForShot(u.sh.id):"";
+        if(!isText&&!audioTag)nativeVoices.push(row);
         return x.label+" · "+speaker(row)+" ["+[delivery,text(row.channel)].filter(Boolean).join(" · ")+"]: “"+row.text+"”"
           +(isText?" — written/message content only; do not speak it or animate lips. Show it only where the screenplay calls for diegetic text."
             :remote?" — offscreen voice only; never add a body, face or lip-sync."
@@ -304,7 +326,7 @@
       "Preserve canonical body and object scale plus relative size between subjects; do not normalize different subjects to the same height or proportions.",
       "Do not add unprovided technical measurements or change the approved project look."
     ]);
-    return [contract,section("ACTIVE REFERENCES",refsLines),openingState,action,notes.acting,performance,lighting,audio,notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
+    return [contract,section("ACTIVE REFERENCES",refsLines),openingState,action,notes.acting,performance,lighting,captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
   }
   root.seedanceDirectorBrief=seedanceDirectorBrief;
 })(typeof window!=="undefined"?window:globalThis);

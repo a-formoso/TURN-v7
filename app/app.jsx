@@ -5960,6 +5960,8 @@ function App(){
   // the film stock (FILM_STOCKS id; "none" = clean digital) — added to every shot prompt
   // a stock you pick is yours: Light the film keeps it unless you ask it to redo your picks (2026-10-08)
   const setFilmStock = (id)=> canMutateSharedFilm() && setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), filmStock:String(id||"none"), filmStockManual:true } }));
+  // LENS AND CAPTURE (2026-10-24): the film's capture text, added word for word to every Stage clip
+  const setStyleCapture = (text)=> canMutateSharedFilm() && setProject(p=>({ ...p, styleBible:{ ...((p.styleBible)||{}), capture:String(text||"").trim().slice(0,1200) } }));
   // EDITABLE LOOKS: the shown set (the starter examples until the film is lit) becomes the film's own
   // on the first edit; deleting a look unassigns the scenes that used it
   const updateStylePreset = (id, patch)=> canMutateSharedFilm() && setProject(p=>{
@@ -9680,7 +9682,7 @@ function App(){
             onMergeLocations:mergeLocations,onLocationPlaceDecision:decideLocationPlace,
             scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
             sluglineUnits,onUpdateUnit:updateSlugUnitOverlay,onRemoveUnit:removeSlugUnitOverlay,
-            onSetStyleRefs:setStyleRefs,onSetScenePreset:setScenePreset,onSetFilmStock:setFilmStock,
+            onSetStyleRefs:setStyleRefs,onSetScenePreset:setScenePreset,onSetFilmStock:setFilmStock,onSetCapture:setStyleCapture,
             colorRefsOwned:!!(typeof colorRefsFor==="function" && colorRefsFor((project&&project.styleBible)||{}, lookbook, lookbookNote).owned),
             onUseLookbookColorRefs:useLookbookColorRefs,onKeepColorRefs:keepOwnColorRefs,
             onUpdatePreset:updateStylePreset,onDeletePreset:deleteStylePreset,

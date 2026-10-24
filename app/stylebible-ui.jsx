@@ -375,7 +375,7 @@ window.InfoTip = InfoTip;
    film-strip + look cards. "Light the film" (the Colorist) writes the scene→look map
    (scene-level, the source of truth); characters / locations / shots merely READ it. */
 function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRefImages, onRemoveRefImage, onColorist, lookbookStale, onApplyLookbook,
-  onSetFilmStock, onUpdatePreset, onDeletePreset, refsOwned=false, onUseLookbookRefs, onKeepRefs }){
+  onSetFilmStock, onSetCapture, onUpdatePreset, onDeletePreset, refsOwned=false, onUseLookbookRefs, onKeepRefs }){
   const { presets, sceneStyles, sceneStylesManual, refs, refImages, filmStock, paletteWhy } = styleBibleOf(project);
   const scenesFor = (pid)=> scenesInStoryOrder((scenes||[]).filter(s=>sceneStyles[s.id]===pid));
   // NOT LIT YET: until the Colorist (or an edit) gives the film its own looks, the starter set is
@@ -395,6 +395,9 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
      one line with Edit (its editor opens under the slate); the Colorist's reasoning and the stock's note sit behind
      ⓘ / hover; "Light the film" is the header's action */
   const [refsOpen, setRefsOpen] = React.useState(false);
+  // LENS AND CAPTURE (2026-10-24): one text for the whole film, pasted word for word into every Stage clip
+  const [captureOpen, setCaptureOpen] = React.useState(false);
+  const capture = String((project && project.styleBible && project.styleBible.capture)||"").trim();
   const [redoManual, setRedoManual] = React.useState(false);
   const latestRefs = React.useRef(null);   // what the editor last saved (its blur commits before a click lands)
   const sortedN = (scenes||[]).length, withLook = (scenes||[]).filter(s=>sceneStyles[s.id]).length;
@@ -444,6 +447,15 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
               (window.FILM_STOCKS||[]).map(f=>React.createElement("option",{key:f.id,value:f.id},f.name)))
           : React.createElement("b",{className:"sb-stock-name"},stockNow.name),
         React.createElement("span",{className:"sb-stock-note sb-sr-only"},stockNote)),
+      (onSetCapture || capture) && React.createElement("div",{className:"loc-slate-cell sb-target sb-capture"},
+        React.createElement("span",{className:"loc-slate-lab"},"Capture",
+          React.createElement(InfoTip,{label:"About capture",
+            text:"How the film is shot: format, lens character, grain, how real the capture feels. Written once, it's added word for word to every Stage clip's prompt, so every take shares the same optics. It doesn't change the frames."})),
+        React.createElement("div",{className:"sb-target-row"},
+          React.createElement("span",{className:"sb-target-line"+(capture?"":" empty"),title:capture||""},
+            capture || "Not set \u2014 format, lens, grain"),
+          onSetCapture && React.createElement("button",{type:"button",className:"sb-target-edit","aria-expanded":captureOpen?"true":"false",
+            onClick:()=>setCaptureOpen(o=>!o)}, captureOpen ? "Done" : "Edit"))),
       onSetRefs && React.createElement("div",{className:"loc-slate-cell sb-target"},
         React.createElement("span",{className:"loc-slate-lab"},"Look target",
           React.createElement(InfoTip,{label:"About the look target",
@@ -454,6 +466,10 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
           (refImages||[]).length>0 && React.createElement("span",{className:"sb-target-imgs"}," \u00b7 "+(refImages||[]).length+" still"+((refImages||[]).length!==1?"s":"")),
           React.createElement("button",{type:"button",className:"sb-target-edit","aria-expanded":refsOpen?"true":"false",
             onClick:()=>setRefsOpen(o=>!o)}, refsOpen ? "Done" : "Edit")))),
+    (onSetCapture && captureOpen) && React.createElement("div",{className:"sb-target-panel sb-capture-panel"},
+      React.createElement(SheetField,{label:"Lens and capture \u2014 added word for word to every Stage clip",value:capture,multiline:true,
+        placeholder:"e.g. Shot on 35mm anamorphic, 2.39:1. Soft halation on highlights, fine grain, gentle focus falloff and real lens breathing. Handheld weight, no lens flares, no digital sharpening.",
+        onCommit:v=>onSetCapture(v)})),
     // the look target's editor, under the slate
     (onSetRefs && refsOpen) && React.createElement("div",{className:"sb-target-panel"},
       React.createElement(StyleRefsField,{value:refs,onCommit:(t)=>{ latestRefs.current = t; onSetRefs(t); },
