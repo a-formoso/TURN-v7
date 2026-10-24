@@ -7294,7 +7294,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
       await window.vidRestoreTake(clipId,t.url);
       if(typeof window.appToast==="function") window.appToast(
         versionSourceStatus(t)==="current"
-          ?"Chosen for the timeline — the scene strip, Mix and export use it now."
+          ?"In the film now — the scene strip, Timeline, Mix and export use it."
           :"Chosen with an explicit source override — the scene strip and assembly may use it until the sources change.","ok");
     },
     // the app's own dialog, saying what it means; a failed delete says so (2026-10-05)
@@ -7349,71 +7349,129 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
     ["Take", selMeta.batchCount>1 ? (selMeta.batchIndex+" of "+selMeta.batchCount+" (batch)") : "single"],
     ["Created", selMeta.createdAt ? new Date(selMeta.createdAt).toLocaleString() : "—"],
   ] : [];
-  // right-column MODEL CARD (mockup-style): the active engine + its capability chips
-  const modelCard = stageModel && _stEl("div",{className:"stage2-vers-model"},
-    _stEl("div",{className:"stage2-vers-model-t"}, stageModel.label,
-      _stEl("span",{className:"stage2-vers-model-badge"}, stageModel.metaDur||"")),
-    _stEl("div",{className:"stage2-vers-model-caps"},
-      (stageModel.capabilities||[]).slice(0,8).map((c,i)=>_stEl("div",{key:i,className:"stage2-vers-cap"},
-        _stEl("span",{className:"stage2-vers-cap-dot"}), c))));
-  return _stEl("div",{className:"stage2-vers"},
-      _stEl("div",{className:"stage2-versions-head"},
-        _stEl("button",{className:"stage2-iconbtn",title:"Back to Shoot","aria-label":"Back to Shoot",onClick:onBack}, Icon.chevL&&_stEl(Icon.chevL,{s:16})),
-        _stEl("div",{className:"stage2-versions-title"},
-          Icon.layers&&_stEl(Icon.layers,{s:14}), "Takes",
-          _stEl("span",{className:"stage2-versions-sub"}, (clip&&clip.label)||"")),
-        _stEl("span",{className:"stage2-versions-count"}, takes.length+(takes.length===1?" take":" takes"))),   // (one Back to Shoot is enough — 2026-10-05)
-      _stEl("div",{className:"stage2-versions-body"},
-        // left — version cards
-        _stEl("div",{className:"stage2-versions-list"},
-          list.length ? list.map(t=>{
-            const m = t.meta||{};
-            return _stEl("button",{key:t.url,type:"button",
-              className:"stage2-vcard"+(sel&&sel.url===t.url?" sel":""),
-              onClick:()=>setSelUrl(t.url)},
-              t.unavailable ? _stEl("div",{className:"stage2-vcard-thumb","aria-hidden":"true"})
-                : _stEl("video",{className:"stage2-vcard-thumb",src:t.url+"#t=0.1",preload:"metadata",muted:true,playsInline:true,"aria-hidden":"true",tabIndex:-1}),
-              _stEl("div",{className:"stage2-vcard-main"},
-                _stEl("div",{className:"stage2-vcard-row"},
-                  _stEl("span",{className:"stage2-vcard-vno"}, _stageTakeVno(t, takes, takes.indexOf(t))),
-                  statusBadges(t)),
-                _stEl("div",{className:"stage2-vcard-chips"},
-                  [ m.tierLabel||m.tier, m.resolution,
-                    m.source ? (STAGE_SOURCE_SHORT[m.source]||m.source) : null,
-                    _stageVAudioLabel(m.audio)||null,
-                    m.batchCount>1 ? ("take "+m.batchIndex+"/"+m.batchCount) : null
-                  ].filter(Boolean).map((c,i)=>_stEl("span",{key:i,className:"stage2-vchip"},String(c)))),
-                m.note && _stEl("div",{className:"stage2-vcard-note"}, m.note),
-                _stEl("div",{className:"stage2-vcard-time"}, _stageAgo(m.createdAt)||"")));
-          }) : _stEl("div",{className:"stage2-versions-empty"},"No versions match these filters.")),
-        // center — player + details
-        _stEl("div",{className:"stage2-versions-viewer"},
-          sel && sel.unavailable ? _stEl("div",{className:"stage2-source-warning stale",role:"status"},"This take's video comes from an address the app doesn't play. The film's owner can delete it.")
-          : sel ? _stEl("video",{key:sel.url,className:"stage2-versions-video",src:sel.url,controls:true,playsInline:true,
-            "aria-label":"Selected take"+((sel.meta&&sel.meta.vno)?" v"+sel.meta.vno:""),
-            title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget)}) : null,
-          sel && _stEl("div",{className:"stage2-versions-details"},
-            propDependenciesStale(sel) && _stEl("div",{className:"stage2-source-warning stale"},
-              selApproved
-                ? "A prop used by this take has changed. This approved take remains pinned; update it only when you intentionally render a new version."
-                : "A prop used by this take has changed in the Art Room. Render a new version to use the current prop state and reference sheet."),
-            referenceVersionsStale(sel) && _stEl("div",{className:"stage2-source-warning stale"},
-              "A character appearance, location camera view or prop-state reference used by this take changed or is missing. Review and explicitly confirm before approving, restoring or reusing it."),
-            selEditorialStatus!=="current" && _stEl("div",{className:"stage2-source-warning "+selEditorialStatus},
-              selEditorialStatus==="override"
-                ?"Explicit source override: this historical take is approved for the current shot sources. Any later shot or screenplay change invalidates the override."
-                : selSourceStatus==="stale"
-                ?"Historical take: its shot specification or screenplay source has changed. Re-render it before using it as the clip's current take."
-                :"Legacy take: no shot/source revision stamp is available, so its match to the current shots can't be checked."),
+  /* THE CONTACT SHEET (2026-10-24, owner — Takes option A): every take of the clip as a thumbnail (its number,
+     ★ when approved, "In the film" on the current one, its warning); the take in the film and the one you pick
+     side by side (Play both runs them together, the film's take muted); one action row that names what it does
+     ("Use v8 in the film"); the details (settings, note, prompt, references) in a fold under them. */
+  const vno = (t)=>_stageTakeVno(t, takes, takes.indexOf(t)).toUpperCase();
+  const inFilm = takes.find(t=>t.current) || null;
+  const pair = inFilm && sel && inFilm.url!==sel.url ? [inFilm, sel] : (sel ? [sel] : []);
+  const cmpRefs = { a:React.useRef(null), b:React.useRef(null) };
+  const playBoth = ()=>{ const els = [cmpRefs.a.current, cmpRefs.b.current].filter(Boolean);
+    els.forEach((v,i)=>{ try{ v.currentTime = 0; v.muted = els.length>1 && i===0; const pr = v.play(); if(pr && pr.catch) pr.catch(()=>{}); }catch(e){} }); };
+  const [detailsOpen, _setDetailsOpen] = React.useState(()=>{ try{ return localStorage.getItem("turn_stage_take_details")!=="closed"; }catch(e){ return true; } });
+  const setDetailsOpen = (v)=>{ _setDetailsOpen(v); try{ localStorage.setItem("turn_stage_take_details", v ? "open" : "closed"); }catch(e){} };
+  const sheetBadge = (t)=>{ const m = t.meta||{}, notes = stageTakeNotes(clip, m, project), src = versionSourceStatus(t), ed = versionEditorialStatus(t);
+    if(ed!=="override" && src==="stale") return { cls:"warn", text:"Shots changed" };
+    if(m.identityChanged) return { cls:"warn", text:"Identity changed" };
+    if(notes.length) return { cls:"warn", text:notes[0].label };
+    return null; };
+  const playerFor = (t, ref, role)=>_stEl("div",{key:t.url,className:"stage2-takes-pane"+(role==="film"?" film":" pick")},
+    t.unavailable ? _stEl("div",{className:"stage2-source-warning stale",role:"status"},"This take's video comes from an address the app doesn't play. The film's owner can delete it.")
+      : _stEl("video",{key:t.url,ref,className:"stage2-versions-video",src:t.url,controls:true,playsInline:true,
+          "aria-label":(role==="film"?"Take in the film":"Selected take")+((t.meta&&t.meta.vno)?" v"+t.meta.vno:""),
+          title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget)}),
+    _stEl("div",{className:"stage2-takes-cap"},
+      _stEl("b",null, vno(t)),
+      t.current && _stEl("span",{className:"stage2-takes-infilm"},"In the film"),
+      (t.meta&&t.meta.status==="approved") && _stEl("span",{className:"stage2-takes-star",title:"Approved"},"★ Approved"),
+      _stEl("span",{className:"stage2-takes-ago"}, _stageAgo((t.meta||{}).createdAt)||"")));
+  const flagged = !!(sel && sel.current && sel.meta && sel.meta.identityChanged);
+  return _stEl("div",{className:"stage2-vers stage2-takes-a"},
+      _stEl("div",{className:"stage2-takes-head"},
+        _stEl("div",{className:"stage2-takes-title"},
+          _stEl("b",null, (clip&&clip.label)||"This clip"),
+          _stEl("span",{className:"stage2-versions-count"}, takes.length+(takes.length===1?" take":" takes"))),
+        _stEl("div",{className:"stage2-takes-filters",role:"group","aria-label":"Filter takes"},
+          [["all","All"],["approved","★ Approved"],["drafts","Drafts"]].map(([k,l])=>_stEl("button",{key:k,type:"button",
+            className:"stage2-takes-chip"+(fStatus===k?" on":""),"aria-pressed":fStatus===k?"true":"false",onClick:()=>setFStatus(k)},l)),
+          _stEl("select",{className:"stage2-takes-sel",value:fSource,"aria-label":"Source",onChange:(e)=>setFSource(e.target.value)},
+            _stEl("option",{value:"all"},"All sources"),
+            Object.keys(STAGE_SOURCE_MODES).map(k=>_stEl("option",{key:k,value:k},_stageVSourceLabel(k)||k))),
+          _stEl("select",{className:"stage2-takes-sel",value:sortNew?"new":"old","aria-label":"Sort",onChange:(e)=>setSortNew(e.target.value==="new")},
+            _stEl("option",{value:"new"},"Newest first"),
+            _stEl("option",{value:"old"},"Oldest first")))),
+      // compare — the take in the film beside the one you picked
+      _stEl("div",{className:"stage2-versions-viewer stage2-takes-compare"+(pair.length>1?" two":"")},
+        pair.length ? pair.map((t,i)=>playerFor(t, i===0 ? cmpRefs.a : cmpRefs.b, pair.length>1 && i===0 ? "film" : "pick"))
+          : _stEl("div",{className:"stage2-versions-empty"}, takes.length ? "No versions match these filters." : "No takes of this clip yet — render it in Shoot.")),
+      sel && _stEl("div",{className:"stage2-takes-warns"},
+        propDependenciesStale(sel) && _stEl("div",{className:"stage2-source-warning stale"},
+          selApproved
+            ? "A prop used by this take has changed. This approved take remains pinned; update it only when you intentionally render a new version."
+            : "A prop used by this take has changed in the Art Room. Render a new version to use the current prop state and reference sheet."),
+        referenceVersionsStale(sel) && _stEl("div",{className:"stage2-source-warning stale"},
+          "A character appearance, location camera view or prop-state reference used by this take changed or is missing. Review and explicitly confirm before approving, restoring or reusing it."),
+        selEditorialStatus!=="current" && _stEl("div",{className:"stage2-source-warning "+selEditorialStatus},
+          selEditorialStatus==="override"
+            ?"Explicit source override: this historical take is approved for the current shot sources. Any later shot or screenplay change invalidates the override."
+            : selSourceStatus==="stale"
+            ?"Historical take: its shot specification or screenplay source has changed. Re-render it before using it as the clip's current take."
+            :"Legacy take: no shot/source revision stamp is available, so its match to the current shots can't be checked.")),
+      // one action row (it used to be a column of tools at the side)
+      sel && _stEl("div",{className:"stage2-versions-tools stage2-takes-acts"},
+        // a CURRENT take flagged "identity changed" is out of the film until checked: this button checks it
+        _stEl("button",{className:"stage2-vtool primary",disabled:readOnly||!sel||(!!(sel&&sel.current)&&!flagged),
+          title:flagged
+            ? "A character's identity changed while this take rendered, so it's left out of the film — check it, then use it"
+            : sel&&sel.current
+            ? "This is the take in the film — the scene strip, Timeline, Mix and export use it"
+            : "Put this take in the film — the scene strip, Timeline, Mix and export use it",
+           onClick:async()=>{ if(!sel) return;
+             if(flagged){ if(await confirmIdentity(sel,"Use") && typeof window.appToast==="function") window.appToast("Checked — the take is back in the film.","ok"); return; }
+             act.restore(sel); }}, flagged ? "Check and use this take" : sel&&sel.current ? "In the film" : "Use "+vno(sel).toLowerCase()+" in the film"),
+        _stEl("button",{className:"stage2-vtool"+(selApproved?" on":""),disabled:readOnly||!sel,
+          title:selApproved?"Remove the approval star":"Star this take as the clip's approved version — it never rolls off the version list",
+           onClick:()=>sel&&act.approve(sel, !selApproved)}, selApproved?"★ Approved — unstar":"☆ Approve this take"),
+        pair.length>1 && _stEl("button",{className:"stage2-vtool",type:"button",title:"Play both from the start together (the film's take is muted)",onClick:playBoth},"▶ Play both"),
+        _stEl("button",{className:"stage2-vtool",disabled:!sel,
+          title:"Load this take's visual source, tier, resolution, bitrate and recipe back into the Stage composer",
+          onClick:async()=>{ if(sel&&await confirmSourceOverride(sel,"Reuse",false)) onReuse(selMeta,false); }}, "Reuse settings"),
+        _stEl("button",{className:"stage2-vtool",disabled:!sel||selMeta.seed==null,
+          title:"Reuse settings AND pin this take's seed — Generate renders a controlled variation",
+          onClick:async()=>{ if(sel&&await confirmSourceOverride(sel,"Branch",false)) onReuse(selMeta,true); }}, "Branch from this take"),
+        _stEl("span",{className:"stage2-takes-gap"}),
+        sel && !sel.unavailable && _stEl("a",{className:"stage2-vtool link",href:sel.url,target:"_blank",rel:"noreferrer",download:""},"Download / open"),
+        // (2026-10-09, owner — Stage editor review, decision C) a collaborator deletes only takes they made; the
+        // owner deletes any (window.vidTakeDeletable: no `by` on a take = the owner's)
+        (()=>{ const mine = !sel || typeof window.vidTakeDeletable!=="function" || window.vidTakeDeletable(sel);
+          return _stEl("button",{className:"stage2-vtool danger",disabled:readOnly||!sel||!mine,
+            title:readOnly?"View-only access — deleting a take requires edit access"
+              : !mine ? "Only the person who made this take, or the film's owner, can delete it" : "Delete this take from the clip",
+            onClick:()=>sel&&mine&&act.del(sel.url)}, "Delete take"); })()),
+      // the contact sheet
+      _stEl("div",{className:"stage2-versions-list stage2-takes-sheet",role:"list","aria-label":"Takes of this clip"},
+        list.map(t=>{ const m = t.meta||{}, badge = sheetBadge(t);
+          return _stEl("button",{key:t.url,type:"button",role:"listitem",
+            className:"stage2-vcard"+(sel&&sel.url===t.url?" sel":"")+(t.current?" infilm":""),
+            "aria-label":vno(t)+(t.current?", in the film":"")+(m.status==="approved"?", approved":"")+(badge?", "+badge.text:"")+(m.note?", note: "+m.note:""),
+            title:[vno(t), t.current?"in the film":"", m.status==="approved"?"approved":"", m.note||"", _stageAgo(m.createdAt)||""].filter(Boolean).join(" · "),
+            onClick:()=>setSelUrl(t.url)},
+            t.unavailable ? _stEl("div",{className:"stage2-vcard-thumb","aria-hidden":"true"})
+              : _stEl("video",{className:"stage2-vcard-thumb",src:t.url+"#t=0.1",preload:"metadata",muted:true,playsInline:true,"aria-hidden":"true",tabIndex:-1}),
+            _stEl("span",{className:"stage2-vcard-vno"}, vno(t)),
+            m.status==="approved" && _stEl("span",{className:"stage2-takes-star-mini","aria-hidden":"true"},"★"),
+            t.current ? _stEl("span",{className:"stage2-takes-badge film"},"In the film")
+              : badge ? _stEl("span",{className:"stage2-takes-badge warn"}, badge.text) : null,
+            m.note && _stEl("span",{className:"stage2-takes-note","aria-hidden":"true",title:m.note},"✎")); })),
+      // details of the picked take, in a fold (open unless you close it; remembered on this device)
+      sel && _stEl("div",{className:"stage2-takes-details"},
+        _stEl("button",{type:"button",className:"stage2-takes-fold","aria-expanded":detailsOpen?"true":"false",onClick:()=>setDetailsOpen(!detailsOpen)},
+          (detailsOpen?Icon.chevD:Icon.chevR)&&_stEl(detailsOpen?Icon.chevD:Icon.chevR,{s:12}),
+          _stEl("b",null,"Details · "+vno(sel)),
+          _stEl("span",null, statusBadges(sel))),
+        detailsOpen && _stEl("div",{className:"stage2-versions-details stage2-takes-dgrid"},
+          _stEl("div",{className:"stage2-takes-dcol"},
             _stEl("div",{className:"stage2-versions-dhead"},"Version details"),
             detailRows.map(([k,v])=>_stEl("div",{key:k,className:"stage2-vdetail"},
               _stEl("span",{className:"stage2-vdetail-k"},k), _stEl("span",{className:"stage2-vdetail-v"},v))),
             _stEl("div",{className:"stage2-vdetail notes"},
               _stEl("span",{className:"stage2-vdetail-k"},"Notes"),
               _stEl("input",{key:sel.url,className:"stage2-vnote-input",defaultValue:selMeta.note||"",readOnly,"aria-label":"Notes for this take",
-	                placeholder:"Why this take matters — e.g. best performance for this beat",
-	                onBlur:(e)=>{ const v=e.target.value.trim(); if(v!==(selMeta.note||"")) act.note(sel.url, v); },
-	                onKeyDown:(e)=>{ if(e.key==="Enter") e.target.blur(); }})),
+                placeholder:"Why this take matters — e.g. best performance for this beat",
+                onBlur:(e)=>{ const v=e.target.value.trim(); if(v!==(selMeta.note||"")) act.note(sel.url, v); },
+                onKeyDown:(e)=>{ if(e.key==="Enter") e.target.blur(); }}))),
+          _stEl("div",{className:"stage2-takes-dcol"},
             _stEl("div",{className:"stage2-versions-dhead with-action"},
               _stEl("span",null,"Prompt used"),
               selPrompt && _stEl("button",{type:"button",className:"stage2-vcopy",onClick:()=>_stagePromptCopy(selPrompt)},Icon.copy&&_stEl(Icon.copy,{s:12}),"Copy")),
@@ -7431,53 +7489,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
                       _stEl("b",null,[r.tag,r.label].filter(Boolean).join(" · ")),
                       r.assetRoleLabel && _stEl("em",null,r.assetRoleLabel),
                       r.role && _stEl("small",null,r.role)))))
-              : _stEl("div",{className:"stage2-vrefs-empty"},"No reference assets were attached to this take, or this older take was saved before reference snapshots existed."))),
-        // right — model card + iteration tools + filters
-        _stEl("div",{className:"stage2-versions-tools"},
-          modelCard,
-          _stEl("div",{className:"stage2-versions-dhead"},"Iteration tools"),
-          // a CURRENT take flagged "identity changed" is out of the film until checked: this button checks it
-          (()=>{ const flagged = !!(sel && sel.current && sel.meta && sel.meta.identityChanged);
-            return _stEl("button",{className:"stage2-vtool",disabled:readOnly||!sel||(!!(sel&&sel.current)&&!flagged),
-            title:flagged
-              ? "A character's identity changed while this take rendered, so it's left out of the film \u2014 check it, then use it"
-              : sel&&sel.current
-              ? "This is the chosen take used by the scene strip, Timeline, Mix and export"
-              : "Choose this take for the scene strip, Timeline, Mix and export",
-             onClick:async()=>{ if(!sel) return;
-               if(flagged){ if(await confirmIdentity(sel,"Use") && typeof window.appToast==="function") window.appToast("Checked \u2014 the take is back in the film.","ok"); return; }
-               act.restore(sel); }}, flagged ? "Check and use this take" : sel&&sel.current ? "Chosen for timeline" : "Choose for timeline"); })(),
-          _stEl("button",{className:"stage2-vtool"+(selApproved?" on":""),disabled:readOnly||!sel,
-            title:selApproved?"Remove the approval star":"Star this take as the clip's approved version — it never rolls off the version list",
-             onClick:()=>sel&&act.approve(sel, !selApproved)}, selApproved?"★ Approved — unstar":"☆ Approve this take"),
-          _stEl("button",{className:"stage2-vtool",disabled:!sel,
-            title:"Load this take's visual source, tier, resolution, bitrate and recipe back into the Stage composer",
-            onClick:async()=>{ if(sel&&await confirmSourceOverride(sel,"Reuse",false)) onReuse(selMeta,false); }}, "Reuse settings"),
-          _stEl("button",{className:"stage2-vtool",disabled:!sel||selMeta.seed==null,
-            title:"Reuse settings AND pin this take's seed — Generate renders a controlled variation",
-            onClick:async()=>{ if(sel&&await confirmSourceOverride(sel,"Branch",false)) onReuse(selMeta,true); }}, "Branch from version"),
-          sel && !sel.unavailable && _stEl("a",{className:"stage2-vtool link",href:sel.url,target:"_blank",rel:"noreferrer",download:""},"Download / open"),
-          // (2026-10-09, owner — Stage editor review, decision C) a collaborator deletes only takes they made; the
-          // owner deletes any (window.vidTakeDeletable: no `by` on a take = the owner's)
-          (()=>{ const mine = !sel || typeof window.vidTakeDeletable!=="function" || window.vidTakeDeletable(sel);
-            return _stEl("button",{className:"stage2-vtool danger",disabled:readOnly||!sel||!mine,
-              title:readOnly?"View-only access \u2014 deleting a take requires edit access"
-                : !mine ? "Only the person who made this take, or the film's owner, can delete it" : "Delete this take from the clip",
-              onClick:()=>sel&&mine&&act.del(sel.url)}, "Delete take"); })(),
-          _stEl("div",{className:"stage2-versions-dhead filters"},"Filters"),
-          _stEl("label",{className:"stage2-vfilter"},"Status",
-            _stEl("select",{value:fStatus,onChange:(e)=>setFStatus(e.target.value)},
-              _stEl("option",{value:"all"},"All"),
-              _stEl("option",{value:"approved"},"Approved"),
-              _stEl("option",{value:"drafts"},"Drafts"))),
-          _stEl("label",{className:"stage2-vfilter"},"Source",
-            _stEl("select",{value:fSource,onChange:(e)=>setFSource(e.target.value)},
-              _stEl("option",{value:"all"},"All sources"),
-              Object.keys(STAGE_SOURCE_MODES).map(k=>_stEl("option",{key:k,value:k},_stageVSourceLabel(k)||k)))),
-          _stEl("label",{className:"stage2-vfilter"},"Sort",
-            _stEl("select",{value:sortNew?"new":"old",onChange:(e)=>setSortNew(e.target.value==="new")},
-              _stEl("option",{value:"new"},"Newest first"),
-              _stEl("option",{value:"old"},"Oldest first"))))));
+              : _stEl("div",{className:"stage2-vrefs-empty"},"No reference assets were attached to this take, or this older take was saved before reference snapshots existed.")))));
 }
 
 /* where each voiced line lands inside its clip — the SAME CLIP_AIR walk the clock and
@@ -9061,7 +9073,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     const headDone = selectedSceneClips.filter(c=>clipVideoReady(c, vids)).length;
     const headTitle = stageView==="versions" ? ["The ","takes."] : stageView==="timeline" ? ["The ","timeline."]
       : stageView==="audio" ? ["The ","mix."] : [(selectedScene.title||selectedScene.loc||("Scene "+_pad2(selectedScene.no)))+", ","take by take."];
-    const headSub = stageView==="versions" ? "Review and approve each clip's takes, and choose the one the timeline uses."
+    const headSub = stageView==="versions" ? "Compare each clip's takes and choose the one in the film."
       : stageView==="timeline" ? "The film assembled from each clip's current take"+((project&&project.title)?" \u2014 "+project.title:"")+"."
       : stageView==="audio" ? "The post mix: voiced lines over the picture, beds under, kept with the film."
       : "Scene "+_pad2(selectedScene.no)+" \u00b7 "+selectedSceneClips.length+" clip"+(selectedSceneClips.length!==1?"s":"")

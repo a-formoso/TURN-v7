@@ -1475,7 +1475,7 @@ async function main() {
       "legacy grouping does not fabricate or rewrite fixture take data");
     await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Takes"))?.click()`);
     await waitFor(()=>c.eval(`document.querySelector(".stage2-vers")?.innerText.includes("2 takes")`),"legacy take review route");
-    assert.match(await text(),/Chosen for timeline|Choose for timeline|Reuse settings/,"legacy grouping retains the take review actions");
+    assert.match(await text(),/In the film|Use v\d+ in the film|Reuse settings/,"legacy grouping retains the take review actions");
     await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Shoot"))?.click()`);
     await waitFor(()=>c.eval(`!!document.querySelector(".stage2-console-composer")`),"return to Stage after legacy take review");
     await chooseClipGrouping("beat","fit-beat restoration");
@@ -1961,11 +1961,14 @@ async function main() {
     assert.doesNotMatch(review,/References need review/i);
     assert.match(review,/References used/i);
     assert.match(review,/Letter continuity/);
-    assert.match(review,/Chosen for timeline/);
+    // (2026-10-24, Takes option A) the take in the film says so; the others read "Use vN in the film"
+    assert.match(review,/In the film/);
     assert.match(review,/Approve this take/);
     assert.match(review,/Reuse settings/);
     await c.eval(`([...document.querySelectorAll(".stage2-vcard")].find(x=>!x.classList.contains("sel")))?.click()`);
-    await waitFor(()=>c.eval(`document.querySelector(".stage2-versions-tools .stage2-vtool")?.textContent.trim()==="Choose for timeline"`),"archived take can be chosen for the timeline");
+    await waitFor(()=>c.eval(`/^Use v\\d+ in the film$/.test(document.querySelector(".stage2-versions-tools .stage2-vtool")?.textContent.trim()||"")`),"archived take can be put in the film");
+    // the take in the film and the picked one sit side by side, with Play both
+    assert.ok(await c.eval(`document.querySelectorAll(".stage2-takes-compare.two .stage2-versions-video").length===2&&[...document.querySelectorAll(".stage2-takes-acts .stage2-vtool")].some(b=>b.textContent.trim()==="▶ Play both")`),"the take in the film and the picked take compare side by side");
 
     await c.call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     const desktop=await c.call("Page.captureScreenshot",{format:"png",captureBeyondViewport:false});
