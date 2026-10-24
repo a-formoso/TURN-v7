@@ -285,6 +285,19 @@ function bdStripKind(slug){
   return (ext?"ext-":"int-")+slug.todKind;
 }
 
+/* the slate's "To go" cell: the images and frames still to make, short (the full line is its hover) */
+function bdToGoShort(sum){
+  const t = [];
+  if(sum.castSheets) t.push(sum.castSheets+" cast sheet"+(sum.castSheets===1?"":"s"));
+  if(sum.plates) t.push(sum.plates+" plate"+(sum.plates===1?"":"s"));
+  if(sum.propSheets) t.push(sum.propSheets+" prop sheet"+(sum.propSheets===1?"":"s"));
+  if(sum.frames) t.push(sum.frames+" frame"+(sum.frames===1?"":"s"));
+  if(sum.toApprove) t.push(sum.toApprove+" to approve");
+  if(sum.noShots) t.push(sum.noShots+" without shots");
+  return t.join(" \u00b7 ");
+}
+window.bdToGoShort = bdToGoShort;
+
 // noPrice: the exported stripboard is for the crew — no credit estimate on it (2026-10-09)
 function bdSummaryLine(sum, noPrice){
   const todo = [];
@@ -434,6 +447,12 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
   React.useEffect(()=>{ const h = ()=> setBible(typeof window.bdBibleProgress==="function" ? window.bdBibleProgress() : null);
     window.addEventListener("turn-art-bible-progress", h); return ()=> window.removeEventListener("turn-art-bible-progress", h); },[]);
   const bibleBusy = !!bible;
+  const [exportOpen, setExportOpen] = React.useState(false);
+  React.useEffect(()=>{ if(!exportOpen) return undefined;
+    const away = (e)=>{ if(!(e.target.closest && e.target.closest(".bd-export"))) setExportOpen(false); };
+    const esc = (e)=>{ if(e.key==="Escape") setExportOpen(false); };
+    document.addEventListener("pointerdown", away); document.addEventListener("keydown", esc);
+    return ()=>{ document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); }; },[exportOpen]);
   const exportBible = ()=>{ if(bibleBusy) return; exportArtBible({ project, characters, props, locations, scenes, drafts, shots }); };
   const shown = rows.filter(r=> filter==="all" || (filter==="ready" ? r.ready : !r.ready));
   // the live region says the run's progress, then its result
@@ -445,26 +464,41 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
       _bdEl("div",null,
         _bdEl("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"First Assistant Director",
           window.InfoTip && _bdEl(window.InfoTip,{label:"About the Breakdown",
-            text:"The Breakdown is your stripboard: one strip per scene, in story order, coloured the way film crews colour them \u2014 white for INT day, yellow for EXT day, blue for INT night, green for EXT night, pink for dawn and dusk, grey when the slugline has no time of day. Each strip lists who is in the scene (in the look they wear there), its location, the props it needs and its shots, and says what is still missing before the scene can be shot: a cast sheet or appearance variant, a location plate (a room's location plate comes first), a prop sheet, shot frames, frames to approve (free, in Shots) or to refresh \u2014 and notes for frames made before a look, sheet, location or prop changed. A worn item is ready when it's on its owner's character sheet; until that sheet exists it reads \u201con their sheet \u2014 make that first\u201d. A carried prop with no owner, or one the screenplay doesn't mention, says so: it needs an owner or a screenplay mention on its card, not an image. Click a missing item to open its tab on this scene. Two buttons on a strip spend credits: \u201cMake what this scene needs\u201d makes the missing reference images (it asks first, with the price, and drafts any look that isn't written yet), and \u201cRender Scene NN\u201d opens Shots on that scene, which asks with the exact price. Each strip also shows its storyboard sheets and, as of your last visit to the Stage, its video clips. Export the stripboard or the whole art department bible with the buttons beside this tip."})),
-        _bdEl("div",{className:"bd-sum"}, !rows.length ? "No scenes yet" : checking ? "Checking which sheets and frames exist\u2026"
-          : checkFailed ? "Couldn't check which sheets and frames exist (no connection?) \u2014 the counts below may be too high. Reopen the tab to check again."
-          : bdSummaryLine(sum)),
+            text:"The Breakdown is your stripboard: one strip per scene, in story order, coloured the way film crews colour them \u2014 white for INT day, yellow for EXT day, blue for INT night, green for EXT night, pink for dawn and dusk, grey when the slugline has no time of day. Each strip lists who is in the scene (in the look they wear there), its location, the props it needs and its shots, and says what is still missing before the scene can be shot: a cast sheet or appearance variant, a location plate (a room's location plate comes first), a prop sheet, shot frames, frames to approve (free, in Shots) or to refresh \u2014 and notes for frames made before a look, sheet, location or prop changed. A worn item is ready when it's on its owner's character sheet; until that sheet exists it reads \u201con their sheet \u2014 make that first\u201d. A carried prop with no owner, or one the screenplay doesn't mention, says so: it needs an owner or a screenplay mention on its card, not an image. Click a missing item to open its tab on this scene. Two buttons on a strip spend credits: \u201cMake what this scene needs\u201d makes the missing reference images (it asks first, with the price, and drafts any look that isn't written yet), and \u201cRender Scene NN\u201d opens Shots on that scene, which asks with the exact price. Each strip also shows its storyboard sheets and, as of your last visit to the Stage, its video clips. Each scene is one line — its five dots say whether its cast, place, shots, board and clips are done; click the line to open the full strip. Export the stripboard or the whole art department bible from Export."})),
         // say why the spending buttons aren't there (2026-10-09) — while a film is still loading, say that instead
         loading ? _bdEl("div",{className:"bd-sum bd-readonly"},"Loading\u2026")
           : readOnly && rows.length>0 && _bdEl("div",{className:"bd-sum bd-readonly"},"View only \u2014 your role can't make images or render here.")),
       rows.length>0 && !checking && _bdEl("div",{className:"art-intro-actions"},
-        // the two exports, here too (they also stay in the top bar's ⋮ menu)
-        _bdEl("button",{type:"button",className:"art-draftall ghost",onClick:()=>exportStripboard(rows, project, { checkFailed }),
-          title:"Preview the stripboard as a printable document, then print / save as PDF or download it"},
-          _bdEl(Icon.download,{s:14}),"Export stripboard"),
-        _bdEl("button",{type:"button",className:"art-draftall ghost",onClick:exportBible,disabled:bibleBusy,"aria-busy":bibleBusy?"true":undefined,
-          title:"The cast, props and locations as one printable document, with their current sheets (and appearance states, rooms & times) embedded"},
-          _bdEl(Icon.download,{s:14}),bibleBusy?(bible.total ? "Preparing "+bible.i+" of "+bible.total+"\u2026" : "Preparing\u2026"):"Art department bible"),
-        _bdEl("div",{className:"bd-filter",role:"group","aria-label":"Show scenes"},
-          [["all","All"],["todo","Needs work"],["ready","Ready"]].map(([id,lab])=>
-            _bdEl("button",{key:id,type:"button",className:"bd-filter-btn"+(filter===id?" on":""),"aria-pressed":filter===id?"true":"false",
-              onClick:()=>setFilter(id)}, lab, _bdEl("span",{className:"bd-filter-n"},
-                id==="all"?rows.length:id==="ready"?sum.ready:rows.length-sum.ready)))))));
+        // the two exports under ONE "Export" menu (owner 2026-10-23, option A; they also stay in the top bar's \u22ee menu)
+        _bdEl("div",{className:"bd-export"},
+          _bdEl("button",{type:"button",className:"art-draftall ghost",onClick:()=>setExportOpen(o=>!o),"aria-haspopup":"menu","aria-expanded":exportOpen?"true":"false",
+            title:"Export the stripboard or the art department bible"},
+            _bdEl(Icon.download,{s:14}), "Export", _bdEl(Icon.chevD,{s:12})),
+          exportOpen && _bdEl("div",{className:"bd-export-menu",role:"menu"},
+            _bdEl("button",{type:"button",role:"menuitem",className:"bd-export-item",onClick:()=>{ setExportOpen(false); exportStripboard(rows, project, { checkFailed }); },
+              title:"Preview the stripboard as a printable document, then print / save as PDF or download it"},"Export stripboard"),
+            _bdEl("button",{type:"button",role:"menuitem",className:"bd-export-item",onClick:()=>{ setExportOpen(false); exportBible(); },disabled:bibleBusy,"aria-busy":bibleBusy?"true":undefined,
+              title:"The cast, props and locations as one printable document, with their current sheets (and appearance states, rooms & times) embedded"},
+              bibleBusy?(bible.total ? "Preparing "+bible.i+" of "+bible.total+"\u2026" : "Preparing\u2026"):"Art department bible"))))),
+    /* THE SLATE (owner 2026-10-23, option A, as the other Art Room tabs): Ready \u00b7 To go \u00b7 Cost \u00b7 Show */
+    rows.length>0 && _bdEl("div",{className:"loc-slate art-slate bd-slate",role:"group","aria-label":"Breakdown: ready, to go, cost and which scenes to show"},
+      _bdEl("div",{className:"loc-slate-cell"},
+        _bdEl("span",{className:"loc-slate-lab"},"Ready"),
+        _bdEl("b",null, checking ? "Checking\u2026" : sum.ready+" of "+sum.total+" scene"+(sum.total===1?"":"s"))),
+      _bdEl("div",{className:"loc-slate-cell bd-slate-togo",title:checkFailed ? "" : bdSummaryLine(sum)},
+        _bdEl("span",{className:"loc-slate-lab"},"To go"),
+        _bdEl("b",{className:checkFailed?"bd-slate-warn":""}, checking ? "Checking which sheets and frames exist\u2026"
+          : checkFailed ? "Couldn't check which sheets and frames exist (no connection?) \u2014 the counts below may be too high. Reopen the tab to check again."
+          : (bdToGoShort(sum) || "Nothing \u2014 every scene is ready"))),
+      (!checking && !checkFailed && sum.images>0 && typeof window.nbImageCostText==="function") && _bdEl("div",{className:"loc-slate-cell",
+          title:"For the images still to make, at the current engine's price \u2014 scenes without shots cost more to design; drafting adds a little writing; Shots gives each run's exact price; video is priced on the Stage"},
+        _bdEl("span",{className:"loc-slate-lab"},"Cost"),
+        _bdEl("b",null,"\u2248 "+window.nbImageCostText(sum.images)+" credits")),
+      _bdEl("label",{className:"loc-slate-cell bd-slate-show"},
+        _bdEl("span",{className:"loc-slate-lab"},"Show"),
+        _bdEl("select",{className:"prop-select",value:filter,onChange:e=>setFilter(e.target.value),"aria-label":"Show scenes"},
+          [["all","All"],["todo","Needs work"],["ready","Ready"]].map(([id,lab])=>_bdEl("option",{key:id,value:id},
+            lab+" ("+(id==="all"?rows.length:id==="ready"?sum.ready:rows.length-sum.ready)+")"))))));
 
   if(!rows.length){
     return _bdEl("div",{className:"art-scroll"}, header,
@@ -479,19 +513,20 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
         _bdEl("span",{className:"sb-sr-only"},"Checking which sheets and frames exist\u2026")));
   }
   return _bdEl("div",{className:"art-scroll"}, header,
+    // the strip colours as a quiet key under the slate, each named (2026-10-23: the long row became swatches with their names)
     _bdEl("div",{className:"bd-legend",role:"group","aria-label":"Strip colours"},
       Object.keys(BD_STRIP_LABEL).map(k=> _bdEl("span",{key:k,className:"bd-legend-i"}, _bdEl("span",{className:"bd-sw bd-k-"+k}), BD_STRIP_LABEL[k])),
       // the export's legend has it — the tab's does too (2026-10-09)
       _bdEl("span",{key:"none",className:"bd-legend-i"}, _bdEl("span",{className:"bd-sw bd-k-none"}), "No time of day")),
     // SCREEN READERS (2026-10-09): the strips are a list, each under its scene heading
     _bdEl("div",{className:"bd-board",role:"list","aria-label":"Scenes"},
-      shown.length ? shown.map(r=> _bdEl(BreakdownStrip,{key:r.scene.id, row:r, go, onMakeSceneNeeds, needsBusy:run, setNeedsBusy, onOpenStage, readOnly, onSaid:setSaid}))
+      shown.length ? shown.map(r=> _bdEl(BreakdownLine,{key:r.scene.id, row:r, go, onMakeSceneNeeds, needsBusy:run, setNeedsBusy, onOpenStage, readOnly, onSaid:setSaid}))
         : _bdEl("div",{className:"bd-none",role:"listitem"}, filter==="ready" ? "No scene is ready to shoot yet." : "Every scene is ready to shoot.")));
 }
 window.BreakdownView = BreakdownView;
 
 const BD_PROPS_SHOWN = 6;
-function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNeedsBusy=()=>{}, onOpenStage, readOnly=false, onSaid=()=>{} }){
+function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNeedsBusy=()=>{}, onOpenStage, readOnly=false, onSaid=()=>{}, nested=false }){
   const { scene, slug, cast, location, wardrobe, props, shots, missing, ready } = row;
   const go = (tab, action)=> goTab(tab, scene.id, action);   // every link opens on THIS scene
   const needsRun = (needsBusy && needsBusy.sceneId===scene.id) ? needsBusy : null;
@@ -547,7 +582,8 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
   const more = (list, open, set)=> list.length>BD_PROPS_SHOWN && _bdEl("button",{type:"button",className:"bd-chip more",onClick:()=>set(v=>!v),"aria-expanded":open?"true":"false"},
     open ? "Show fewer" : "+"+(list.length-BD_PROPS_SHOWN)+" more");
   const headId = "bd-h-"+String(scene.id).replace(/[^\w-]/g,"_");
-  return _bdEl("div",{className:"bd-strip"+(kind?" bd-k-"+kind:"")+(ready?" is-ready":""),role:"listitem","aria-labelledby":headId},
+  // inside its one-line row (2026-10-23) the row is the list item; the strip is a region under its heading
+  return _bdEl("div",{className:"bd-strip"+(kind?" bd-k-"+kind:"")+(ready?" is-ready":""),role:nested?"region":"listitem","aria-labelledby":headId},
     _bdEl("div",{className:"bd-strip-id"},
       _bdEl("div",{className:"bd-strip-no","aria-hidden":"true"}, String(scene.no!=null?scene.no:"").padStart(2,"0")),
       _bdEl("div",{className:"bd-strip-ie"}, [slug.ie, slug.tod].filter(Boolean).join(" · ") || "—")),
@@ -618,6 +654,39 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
               missing.length>4 && _bdEl("button",{type:"button",className:"bd-need more","aria-expanded":allMissing?"true":"false",onClick:()=>setAllMissing(v=>!v)},
                 allMissing ? "Show fewer" : "+"+(missing.length-4)+" more")))));
 }
+
+/* ONE LINE PER SCENE (owner 2026-10-23, option A): number, INT/EXT \u00b7 time, title, set, five status dots (Cast \u00b7
+   Place \u00b7 Shots \u00b7 Board \u00b7 Clips) and "N to go" / Ready; opening it shows the full strip (BreakdownStrip) under it. */
+function BreakdownLine(props){
+  const { row } = props;
+  const { scene, slug, cast, location, shots, missing, ready } = row;
+  const [open, setOpen] = React.useState(false);
+  const kind = bdStripKind(slug);
+  const allOk = (list)=> list.length>0 && list.every(x=> x.status ? (x.status==="ready" || x.status==="unused") : !!x.ready);
+  const st = {
+    cast: !cast.length ? "none" : allOk(cast) ? "ok" : "todo",
+    place: !location ? "todo" : (location.status ? location.status==="ready" || location.status==="unused" : !!location.ready) ? "ok" : "todo",
+    shots: !shots.total ? "todo" : ((shots.toRender||0)===0 && shots.rendered===shots.total) ? "ok" : "todo",
+    board: !(row.boards && row.boards.total) ? "none" : row.boards.current===row.boards.total ? "ok" : "todo",
+    clips: !(row.clips && row.clips.total) ? "none" : bdClipsDone(row.clips) ? "ok" : "todo",
+  };
+  const WORD = { ok:"ready", todo:"to do", none:"not yet" };
+  const dots = [["cast","Cast"],["place","Place"],["shots","Shots"],["board","Board"],["clips","Clips"]];
+  const tag = "Scene "+String(scene.no!=null?scene.no:"").padStart(2,"0");
+  return _bdEl("div",{className:"bd-line"+(kind?" bd-k-"+kind:"")+(ready?" is-ready":"")+(open?" open":""),role:"listitem"},
+    _bdEl("button",{type:"button",className:"bd-line-head","aria-expanded":open?"true":"false",onClick:()=>setOpen(o=>!o),
+        title:(open?"Hide":"Show")+" what "+tag+" needs"},
+      _bdEl("span",{className:"bd-line-no"}, String(scene.no!=null?scene.no:"").padStart(2,"0")),
+      _bdEl("span",{className:"bd-line-ie"}, [slug.ie, slug.tod].filter(Boolean).join(" \u00b7 ") || "\u2014"),
+      _bdEl("span",{className:"bd-line-title"}, scene.title||"Untitled scene",
+        _bdEl("span",{className:"bd-line-set"}, slug.place || (location && location.name) || "")),
+      _bdEl("span",{className:"bd-line-dots"}, dots.map(([k,lab])=>_bdEl("span",{key:k,className:"bd-line-dot "+st[k],title:lab+": "+WORD[st[k]]},
+        _bdEl("i",{"aria-hidden":"true"}), lab, _bdEl("span",{className:"sb-sr-only"}," "+WORD[st[k]])))),
+      _bdEl("span",{className:"bd-line-left"+(ready?" ok":"")}, ready ? "Ready" : missing.length+" to go"),
+      _bdEl(open?Icon.chevD:Icon.chevR,{s:14})),
+    open && _bdEl("div",{className:"bd-line-body"}, _bdEl(BreakdownStrip, { ...props, nested:true })));
+}
+window.BreakdownLine = BreakdownLine;
 
 /* the Boards and Clips words, shared by the strip and the exported stripboard (2026-10-09) */
 function bdBoardsText(b){

@@ -144,7 +144,7 @@ await test("F1 Frances: the Shots rules, the cost to finish, scene links, the st
   vm.runInContext(s + "\n;this.__F = APP_FEATURES;", fb);
   const w = (fb.__F.find(f=>f.name==="Breakdown (Art Room)")||{}).what || "";
   assert.ok(/READINESS USES THE SHOTS RULES/.test(w) && /credits to finish/.test(w) && /ON THAT SCENE/.test(w));
-  assert.ok(/'Make what this scene needs'/.test(w) && /'Render Scene NN'/.test(w) && /EMBEDDED/.test(w) && /buttons in the Breakdown header/.test(w));
+  assert.ok(/'Make what this scene needs'/.test(w) && /'Render Scene NN'/.test(w) && /EMBEDDED/.test(w) && /under the Breakdown header's 'Export' menu/.test(w));
   assert.ok(!/can expire; the PDF keeps them/.test(w));
 });
 
