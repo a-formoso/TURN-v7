@@ -643,6 +643,31 @@ function _normStageText(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9
 function stageBeatRow(beatsMap, sceneId, beatN){
   return (((beatsMap||{})[sceneId]||{}).rows||[]).find(r=>Number(r.n)===Number(beatN)) || null;
 }
+/* CHARACTER ACTING (2026-10-24): the beat map's duel for the clip's in-frame cast —
+   the driver's goal + obstacle, and each side's tactic in the clip's beats. A label
+   like "THE SIGN / TRINITY" names each part; nobody outside the clip's cast is added. */
+function stageClipActing(scene, shots, cast, ctx){
+  const bm=(((ctx&&ctx.beatsMap)||{})[scene&&scene.id])||null;
+  if(!bm||!Array.isArray(cast)||!cast.length) return [];
+  const who=label=>String(label||"").split(/\s*(?:\/|&|,|\band\b)\s*/i)
+    .map(part=>(typeof castMemberByLabel==="function")?castMemberByLabel(part,cast)
+      :(cast.find(c=>_normStageText(c.name)===_normStageText(part))||null)).filter(Boolean);
+  const beats=_uniq((shots||[]).map(sh=>Number(sh&&sh.beatN)).filter(n=>n>0)).sort((a,b)=>a-b);
+  const rows=beats.map(n=>stageBeatRow(ctx.beatsMap,scene.id,n)).filter(Boolean);
+  const tactics=side=>rows.map(r=>{
+    const x=(r&&r[side])||{};
+    const t=[String(x.a||"").trim(),String(x.d||"").trim()].filter(Boolean).join(" — ");
+    return t?{beatN:r.n,text:t}:null;
+  }).filter(Boolean);
+  const out=[];
+  const add=(c,role,goal,obstacle,list)=>{
+    if(!c||out.some(o=>o.id===c.id)||(!goal&&!obstacle&&!list.length)) return;
+    out.push({id:c.id,name:c.name,role,goal,obstacle,tactics:list});
+  };
+  who(bm.driverLabel).forEach(c=>add(c,"driver",String(bm.desire||"").trim(),String(bm.obstacle||"").trim(),tactics("drive")));
+  who(bm.reactorLabel).forEach(c=>add(c,"reactor","","",tactics("react")));
+  return out;
+}
 /* The canonical screenplay resolver is app/shot-screenplay.js. Stage deliberately
    does not provide a second parser: shipped load order must expose that helper
    before this module, and beat-opening shots fail explicitly when it is absent. */
@@ -1556,7 +1581,8 @@ function buildClipData(scene, g, ctx, maxSec){
   });
   const sourceCharacterIds=new Set(Object.values(beatScripts).flatMap(s=>[].concat(s.physicalCharacterIds||[],s.remoteCharacterIds||[])));
   const sourceCharacters=(ctx.characters||[]).filter(c=>sourceCharacterIds.has(c.id)).map(c=>({id:c.id,name:c.name}));
-  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, sourceCharacters, props:clipProps, loc, locSheet, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
+  const acting = stageClipActing(scene, shots, cast, ctx);
+  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, sourceCharacters, props:clipProps, loc, locSheet, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
     dur:_clipDur(g, maxSec), lineShots };
 }
 
@@ -2777,7 +2803,11 @@ function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, au
   // Standing soundtrack rule (user direction): generation audio is the WORLD only —
   // spoken dialogue (when specified above) plus environmental/diegetic SFX and
   // ambience. Music belongs to post; text must never be burned into pixels.
-   return base + coverage + (delivery?"\n"+delivery:"") + "\nAUDIO & OVERLAYS: besides any spoken dialogue specified above, the soundtrack is environmental and diegetic sound effects with natural ambience ONLY — NO background music, NO score, NO soundtrack. NO subtitles, captions or any burned-in text overlays anywhere in the frame.";
+   // the acting layer travels with every grammar (2026-10-24): goal/obstacle/tactic,
+   // living faces, the shot's AI tells and its "must not happen" notes
+   const notes=typeof window.seedanceActingNotes==="function"?window.seedanceActingNotes(scoped.data,list,opts):{};
+   const acting=[notes.acting,notes.faces||"",notes.tells,notes.negative].filter(Boolean).join("\n");
+   return base + coverage + (delivery?"\n"+delivery:"") + (acting?"\n"+acting:"") + "\nAUDIO & OVERLAYS: besides any spoken dialogue specified above, the soundtrack is environmental and diegetic sound effects with natural ambience ONLY — NO background music, NO score, NO soundtrack. NO subtitles, captions or any burned-in text overlays anywhere in the frame.";
 }
 /* exported for the headless prompt-style test suite (scripts/test-stage-promptstyles.mjs) */
 window.seedanceRecipePrompt = seedanceRecipePrompt;

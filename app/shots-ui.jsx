@@ -1328,7 +1328,12 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           onCommit:v=>onUpdate(sh.id,{directives:v})}),
         // on the card like the other tabs' "Leave out" (2026-10-05); the frame reads it, a Stage take doesn't
         _el(SheetField,{label:"Leave out \u2014 what the frame must not show (negative prompt)",value:sh.negativePrompt||"",multiline:true,
-          placeholder:shotNegativePrompt({}),onCommit:v=>onUpdate(sh.id,{negativePrompt:v})})),
+          placeholder:shotNegativePrompt({}),onCommit:v=>onUpdate(sh.id,{negativePrompt:v})}),
+        // the Stage's own "leave out" (2026-10-24): what the video take must not do —
+        // the clip prompt's NEGATIVE block; frames don't read it, so it never stales one
+        _el(SheetField,{label:"Must not happen \u2014 what the video take must avoid (optional)",value:sh.mustNot||"",multiline:true,
+          placeholder:"e.g. She never smiles. The cup stays on the table. Nobody looks into the lens.",
+          onCommit:v=>onUpdate(sh.id,{mustNot:v})})),
 
       _el(CardFold,{label:"In frame",defaultOpen:false},
         // read-only: derived from the action text, the single source the prompt uses —

@@ -646,6 +646,46 @@ const overlong=box.stageBuildTimedPlan([{...shotPart,dur:20}],
   {durationSec:20,maxSeconds:15,modelId:"seedance-2.5"});
 ok("timed plan still reports overlong content instead of squeezing it",
   overlong&&(overlong.over===true||overlong.issues?.some(x=>x.blocking&&/over|maximum|cap/i.test(x.message||""))));
+// ── the acting layer (2026-10-24): goal / obstacle / tactic, living faces, AI tells, NEGATIVE ──
+const actingCtx={...ctx,beatsMap:{[scene.id]:{driverLabel:"MARA",reactorLabel:"DANIEL / RHEA",
+  desire:"To get the letter out before dawn.",obstacle:"Daniel will not open the window.",
+  rows:[{n:1,drive:{a:"Pressing",d:"She pushes the case across."},react:{a:"Stalling",d:"He talks through the door."}}]}}};
+const actShots=[{...shotOpening,mustNot:"Mara never smiles."},{...shotPart,mustNot:"  The letter\n stays sealed. "}];
+const actData=buildClipData(scene,{shots:actShots,start:0,dur:9},actingCtx,15);
+const actBrief=brief(makeClip(actData,"acting-clip"),actShots,actShots[0],true,[],refs,{...opts,durationSec:9});
+ok("acting: the beat map's driver; offscreen Daniel and out-of-clip Rhea are left out",
+  (actData.acting||[]).length===1&&actData.acting[0].id==="mara"&&actData.acting[0].role==="driver",JSON.stringify(actData.acting));
+ok("acting: the driver carries goal, obstacle and this beat's tactic",
+  actBrief.includes("CHARACTER ACTING — play the want, never a mood\nMara (drives the scene) · Goal: To get the letter out before dawn. · Obstacle: Daniel will not open the window. · Tactic: Pressing — She pushes the case across."),
+  actBrief);
+ok("acting: the section sits between the action plan and PERFORMANCE",
+  actBrief.indexOf("ACTION AND CAMERA PLAN")<actBrief.indexOf("CHARACTER ACTING")&&actBrief.indexOf("CHARACTER ACTING")<actBrief.indexOf("\nPERFORMANCE\n"));
+ok("living faces name the in-frame cast inside PERFORMANCE",
+  section(actBrief,"PERFORMANCE","LIGHTING AND PHYSICAL CONTINUITY").includes("Mara: living faces — natural blinks"));
+const tellsTxt=section(actBrief,"AVOID AI TELLS","ENDING AND CONTINUITY LOCKS");
+ok("AI tells: the standing line and hands on a prop shot; no blend line for one face, no crowd line without a crowd",
+  /No doll eyes, frozen pupils, waxy or plastic skin/.test(tellsTxt)&&/five fingers and a real grip/.test(tellsTxt)
+  &&!/faces never blend/.test(tellsTxt)&&!/Background people/.test(tellsTxt),tellsTxt);
+ok("NEGATIVE closes the brief, one line per cut, whitespace folded",
+  /\n\nNEGATIVE — must not happen\nCUT 1: Mara never smiles\.\nCUT 2: The letter stays sealed\.$/.test(actBrief),actBrief.slice(-300));
+const plainBrief=brief(makeClip(dataPart,"plain-clip"),[shotPart],shotPart,true,[],refs,opts);
+ok("no beat map and no notes: no acting section and no NEGATIVE (the tells still apply)",
+  !/CHARACTER ACTING|NEGATIVE — must not happen/.test(plainBrief)&&/AVOID AI TELLS/.test(plainBrief),plainBrief.slice(-400));
+const pair=box.seedanceActingNotes({cast:[{id:"a",name:"Ana"},{id:"b",name:"Ben"}],props:[],
+  acting:[{id:"b",name:"Ben",role:"reactor",tactics:[{beatN:2,text:"Deflecting — jokes"},{beatN:3,text:"Folding — admits it"}]},
+    {id:"z",name:"Zed",role:"driver",goal:"Leave"}],
+  panelLines:[{text:"A crowd of commuters pushes past Ana.",dialogue:"Go.",dialogueDelivery:"onscreen"}]},[{id:"s1",mustNot:"Ben never cries."}]);
+ok("two faces never blend, a crowd stays few and soft, speaking mouths shape the words; no hands line without hands",
+  /faces never blend, swap/.test(pair.tells)&&/six or fewer/.test(pair.tells)&&/Mouths shape the actual words/.test(pair.tells)
+  &&!/five fingers/.test(pair.tells),pair.tells);
+ok("a reactor's tactics list each beat; someone outside the cast is dropped; one shot's note has no cut label",
+  pair.acting==="CHARACTER ACTING — play the want, never a mood\nBen (pushes back) · Tactic: beat 2 Deflecting — jokes; beat 3 Folding — admits it"
+  &&pair.negative==="NEGATIVE — must not happen\nBen never cries."&&pair.faces.startsWith("Ana, Ben: living faces"),JSON.stringify(pair));
+const styled=recipe("narrative",makeClip(actData,"acting-styled"),actShots,actShots[0],true,[],refs,{...opts,explicitStyle:true});
+ok("a named grammar carries the acting layer before AUDIO & OVERLAYS",
+  /CHARACTER ACTING/.test(styled)&&/\nMara: living faces/.test(styled)
+  &&styled.indexOf("NEGATIVE — must not happen")>0&&styled.indexOf("NEGATIVE — must not happen")<styled.indexOf("AUDIO & OVERLAYS"),styled.slice(-900));
+
 ok("brief and clip compilation are immutable",JSON.stringify({shots:allShots,drafts})===before);
 
 console.log(pass+" passed, "+fail+" failed");

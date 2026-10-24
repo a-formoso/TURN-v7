@@ -35,6 +35,49 @@
     })};
   };
 
+  /* The acting layer (2026-10-24): what each in-frame character wants, what stands in
+     the way and how they play it (the beat map's duel), living faces, the AI tells
+     this shot is prone to, and the shot's own "must not happen" notes. Shared by the
+     default brief and the named grammars. */
+  function seedanceActingNotes(d,list,opts){
+    opts=opts||{}; d=d||{}; list=(list||[]).filter(Boolean);
+    const cast=(d.cast||[]).filter(c=>c&&text(c.name));
+    const label=(sh,i)=>(list.length===1?"SHOT ":"CUT ")+(i+1);
+    const acting=(d.acting||[]).filter(a=>a&&text(a.name)&&cast.some(c=>c.id===a.id)).map(a=>{
+      const tactics=(a.tactics||[]).filter(t=>t&&text(t.text));
+      return [a.name+(a.role==="driver"?" (drives the scene)":a.role==="reactor"?" (pushes back)":""),
+        text(a.goal)?"Goal: "+text(a.goal):"",
+        text(a.obstacle)?"Obstacle: "+text(a.obstacle):"",
+        tactics.length?"Tactic: "+tactics.map(t=>(tactics.length>1?"beat "+t.beatN+" ":"")+text(t.text)).join("; "):""
+      ].filter(Boolean).join(" · ");
+    });
+    const words=[].concat((d.panelLines||[]).map(p=>[p.text,p.staging,p.sheet].join(" ")),
+      list.map(sh=>[sh.action,sh.vidText].join(" "))).join(" ");
+    const many=cast.length>1;
+    const crowd=/\b(crowd|crowds|extras|passers?-?by|onlookers|patrons|commuters|pedestrians|bystanders|audience|congregation|mourners|guests|diners|shoppers)\b/i.test(words);
+    const hands=(d.props||[]).length>0||/\b(hands?|grips?|grabs?|holds?|holding|picks? up|fingers?|reaches|hands over|passes)\b/i.test(words);
+    const speaking=(d.panelLines||[]).some(p=>text(p.dialogue)&&!/^(vo|voice-over|off-?screen|phone|text|sms|message|voicemail|radio|intercom)$/i.test(text(p.dialogueDelivery)));
+    const faces=cast.length?cast.map(c=>c.name).join(", ")+": living faces — natural blinks, small eye movements, focus that lands on what they look at, breath moving chest and shoulders, micro-expressions that change between lines. Never a frozen stare or a mask-still face.":"";
+    const tells=[
+      "No doll eyes, frozen pupils, waxy or plastic skin, flat shadowless fill light, or looping, repeated motion.",
+      many?"Every face stays its own person: faces never blend, swap or drift toward each other between cuts.":"",
+      crowd?"Background people stay few (six or fewer), soft, out of focus and partly in shadow; no cloned or melting faces.":"",
+      hands?"Hands have five fingers and a real grip that presses into what they hold; nothing passes through a hand.":"",
+      speaking?"Mouths shape the actual words; teeth and tongue stay stable.":""
+    ];
+    const negative=list.map((sh,i)=>{
+      const v=text(sh.mustNot).replace(/\s+/g," ");
+      return v?(list.length===1?v:label(sh,i)+": "+v):"";
+    });
+    return {
+      acting:section("CHARACTER ACTING — play the want, never a mood",acting),
+      faces,
+      tells:section("AVOID AI TELLS",tells),
+      negative:section("NEGATIVE — must not happen",negative)
+    };
+  }
+  root.seedanceActingNotes=seedanceActingNotes;
+
   function seedanceDirectorBrief(clip,shots,activeShot,audioRefsOn,audioIncluded,refs,opts){
     opts=opts||{}; refs=refs||{};
     const d=clip&&clip.data||{},scene=clip&&clip.scene||{};
@@ -219,8 +262,10 @@
       holdUnit?"FINAL HOLD · "+seconds(holdStart)+"–"+seconds(holdUnit.end)+"s — sustain the resulting pose, gaze, prop state and diegetic ambience; do not invent new action.":"",
       dialogue.some(x=>!x.unit)?"Unassigned clip-level dialogue follows the screenplay's action/line order; do not invent shot or audio associations for it.":""
     ]);
+    const notes=seedanceActingNotes(d,list,opts);
     const performance=section("PERFORMANCE",[
       "Play objectives through observable behavior, never generic emotion labels. Preserve authored pauses and changes through gaze, posture, breath, tempo and hand activity; keep eyes naturally alive without adding unrequested business.",
+      notes.faces,
       ...unique(dialogue.map(x=>x.parenthetical
         ?x.label+" · "+speaker(x.row)+": "+x.parenthetical:""))
     ]);
@@ -259,7 +304,7 @@
       "Preserve canonical body and object scale plus relative size between subjects; do not normalize different subjects to the same height or proportions.",
       "Do not add unprovided technical measurements or change the approved project look."
     ]);
-    return [contract,section("ACTIVE REFERENCES",refsLines),openingState,action,performance,lighting,audio,ending].filter(Boolean).join("\n\n");
+    return [contract,section("ACTIVE REFERENCES",refsLines),openingState,action,notes.acting,performance,lighting,audio,notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
   }
   root.seedanceDirectorBrief=seedanceDirectorBrief;
 })(typeof window!=="undefined"?window:globalThis);
