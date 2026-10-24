@@ -51,6 +51,6 @@ t("A6 Frances knows the track", ()=>{
   assert.ok(ai.includes("THE TIMELINE AS AN EDITOR'S TRACK (2026-10-24"));
 });
 t("A7 cache keys", ()=>{
-  ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs67"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs67", "20261024-hs68"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
 });
 console.log(pass+" passed, 0 failed");

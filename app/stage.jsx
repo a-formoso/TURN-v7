@@ -8104,8 +8104,7 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
   const sceneClips = (allClips||[]).filter(c=>c.scene.id===sceneId);
   // follow the rail selection while this tab is open
   React.useEffect(()=>{ if(selScene && selScene.id && selScene.id!==sceneId) setSceneId(selScene.id); },[selId]);
-  // picking a scene here moves the rail too (2026-10-09 — the two showed different scenes)
-  const pickScene = (id)=>{ setSceneId(id); const c = (allClips||[]).find(x=>x.scene.id===id); if(c && onSelectClip) onSelectClip(c.id); };
+  // (2026-10-24, option B) the scene is the Scenes rail's — the Mix has no scene menu of its own
   // mix settings survive the session — per film, on this device
   const mixKey = stageMixKey();
   const [gain, setGain] = React.useState(()=>stageMixSettings().gain);
@@ -8127,6 +8126,11 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
   // the clip shown: the playing one; else the rail's clip when it's rendered; else the scene's first rendered one
   const [clipIdx, setClipIdx] = React.useState(-1);
   const [playing, setPlaying] = React.useState(false);
+  // scene lanes (2026-10-24, option B): the playhead's time in the shown clip, the beds' own lengths, a drop target
+  const [auPlay, setAuPlay] = React.useState({ id:"", t:0 });
+  const [bedDur, setBedDur] = React.useState({ amb:0, music:0 });
+  const [dragK, setDragK] = React.useState("");
+  const bedInputs = { amb:React.useRef(null), music:React.useRef(null) };
   const shownIdx = (clipIdx>=0 && clipIdx<sceneClips.length) ? clipIdx
     : (selInScene>=0 && vids[sceneClips[selInScene].id]) ? selInScene : firstRendered;
   const videoRef = React.useRef(null);
@@ -8222,25 +8226,55 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
   const cur = sceneClips[shownIdx];
   const curUrl = cur ? (vids[cur.id]||"") : "";
   const levelText = (v)=> Math.round((Number(v)||0)*100)+"%";
-  const lane = (key, label, extra)=>_stEl("div",{className:"stage2-au-lane",role:"group","aria-label":label},
-    _stEl("div",{className:"stage2-au-lane-h"},
-      _stEl("b",{id:"au-lab-"+key},label),
-      _stEl("button",{type:"button",className:"stage2-au-mute"+(mute[key]?" on":""),"aria-pressed":mute[key]?"true":"false",
-        "aria-label":"Mute "+label,title:mute[key]?"Unmute":"Mute",
-        onClick:()=>{ setMute(m=>({ ...m, [key]:!m[key] })); setGainSet(x=>({ ...x, [key]:true })); }}, mute[key]?"Muted":"🔊"),
+  /* SCENE LANES (2026-10-24, owner — Mix option B): the scene on a ruler in seconds, like the Timeline. Picture:
+     its clips as long as their takes; Dialogue: each voiced line where it lands and as long as it runs; the
+     ambience bed spans the scene (it loops) and the music bed runs from the start for the file's own length.
+     Each lane's name, level and mute sit at its left; a playhead runs through the four while the mix plays;
+     a file dropped on a bed lane is imported like Import. */
+  const spanOf = (c)=>{ const m = (vids[c.id] && typeof vidGetMeta==="function") ? vidGetMeta(c.id) : null;
+    const v = m ? (Number(m.durationSec) || Number(m.durationMs)/1000) : 0;
+    return Math.max(0.5, v>0 ? v : (Number(c.data&&c.data.dur)||0)); };
+  const spans = sceneClips.map(spanOf);
+  const starts = []; let sceneRun = 0; spans.forEach(v=>{ starts.push(sceneRun); sceneRun += v; });
+  const sceneLen = sceneRun || 1;
+  const pct = (t)=>(Math.max(0, Math.min(sceneLen, t))/sceneLen*100)+"%";
+  const stepS = [1,2,5,10,15,30,60,120].find(st=>sceneLen/st<=8) || 300;
+  const ticks = []; for(let t=0; t<=sceneLen+0.01; t+=stepS) ticks.push(t);
+  const headT = cur ? starts[shownIdx] + (auPlay.id===cur.id ? auPlay.t : 0) : 0;
+  const clockS = (t)=>_stageClock(Math.round(t));
+  const playhead = cur && _stEl("span",{className:"stage2-au-ph","aria-hidden":"true",style:{left:pct(headT)}});
+  const sceneNow = scenes.find(x=>x.id===sceneId) || null;
+  const laneHead = (key, label, extra)=>_stEl("div",{className:"stage2-au-lh",role:"group","aria-label":label},
+    _stEl("b",{id:"au-lab-"+key},label),
+    _stEl("div",{className:"stage2-au-ctl"},
       _stEl("input",{type:"range",min:0,max:1,step:0.05,value:gain[key],"aria-labelledby":"au-lab-"+key,"aria-valuetext":levelText(gain[key]),
         title:label+" level "+levelText(gain[key]),
-        onChange:e=>{ const v = Number(e.target.value); setGain(x=>({ ...x, [key]:v })); setGainSet(x=>({ ...x, [key]:true })); }})),
+        onChange:e=>{ const v = Number(e.target.value); setGain(x=>({ ...x, [key]:v })); setGainSet(x=>({ ...x, [key]:true })); }}),
+      _stEl("button",{type:"button",className:"stage2-au-mute"+(mute[key]?" on":""),"aria-pressed":mute[key]?"true":"false",
+        "aria-label":"Mute "+label,title:(mute[key]?"Unmute ":"Mute ")+label+" \u00b7 level "+levelText(gain[key]),
+        onClick:()=>{ setMute(m=>({ ...m, [key]:!m[key] })); setGainSet(x=>({ ...x, [key]:true })); }}, mute[key]?"Muted":"Mute")),
     extra);
-  const bedLane = (k, label, empty, loop)=>lane(k, label,
-    _stEl("div",{className:"stage2-au-blocks"},
-      sceneBeds[k] ? _stEl("span",{className:"stage2-au-block bed",title:sceneBeds[k].name}, sceneBeds[k].name.slice(0,34)) : _stEl("span",{className:"stage2-au-note"},empty),
-      // a real button opens the file picker, so the keyboard reaches it (a label around a hidden input didn't)
-      _stEl("button",{type:"button",className:"stage2-au-import",onClick:(e)=>{ const inp=e.currentTarget.nextSibling; if(inp && inp.click) inp.click(); }},
-        sceneBeds[k] ? "Replace" : "Import audio"),
-      _stEl("input",{type:"file",accept:"audio/*",style:{display:"none"},tabIndex:-1,"aria-hidden":"true",onChange:importBed(k)}),
-      sceneBeds[k] && _stEl("button",{type:"button",className:"stage2-au-import",title:"Take this bed out of the scene's mix — the copy kept on this device is removed (Undo brings it back; your own file is untouched)",onClick:()=>removeBed(k)}, "Remove"),
-      _stEl("audio",{ref:bedRefs[k],src:(sceneBeds[k]&&sceneBeds[k].url)||undefined,loop:!!loop})));
+  const bedActions = (k)=>_stEl("div",{className:"stage2-au-bedacts"},
+    // a real button opens the file picker, so the keyboard reaches it (a label around a hidden input didn't)
+    _stEl("button",{type:"button",className:"stage2-au-import",onClick:()=>{ const inp=bedInputs[k].current; if(inp && inp.click) inp.click(); }},
+      sceneBeds[k] ? "Replace" : "Import"),
+    sceneBeds[k] && _stEl("button",{type:"button",className:"stage2-au-import",title:"Take this bed out of the scene's mix — the copy kept on this device is removed (Undo brings it back; your own file is untouched)",onClick:()=>removeBed(k)},"Remove"),
+    _stEl("input",{ref:bedInputs[k],type:"file",accept:"audio/*",style:{display:"none"},tabIndex:-1,"aria-hidden":"true",onChange:importBed(k)}),
+    _stEl("audio",{ref:bedRefs[k],src:(sceneBeds[k]&&sceneBeds[k].url)||undefined,loop:k==="amb",
+      onLoadedMetadata:(e)=>{ const d = Number(e.currentTarget.duration)||0; setBedDur(x=>x[k]===d ? x : ({ ...x, [k]:d })); }}));
+  const bedTrack = (k, loop)=>{
+    const bed = sceneBeds[k];
+    const onDrop = (e)=>{ e.preventDefault(); setDragK(""); const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f) importBed(k)({ target:{ files:[f], value:"" } }); };
+    return _stEl("div",{className:"stage2-au-lt bed"+(dragK===k?" drag":""),
+        onDragOver:(e)=>{ e.preventDefault(); if(dragK!==k) setDragK(k); }, onDragLeave:()=>setDragK(""), onDrop},
+      bed ? _stEl("span",{className:"stage2-au-bed "+k,title:bed.name,
+          style:{left:0,width:loop ? "100%" : pct(bedDur[k] ? Math.min(sceneLen, bedDur[k]) : sceneLen)}},
+          bed.name+(loop ? " \u00b7 loops" : " \u00b7 plays once"+(bedDur[k] ? " \u00b7 "+clockS(bedDur[k]) : "")))
+        : _stEl("span",{className:"stage2-au-drop"}, loop ? "No bed yet — drop a scene-long ambience file here (it loops), or Import"
+            : "No bed yet — drop a track here (it plays once), or Import"),
+      playhead);
+  };
   const lines = sceneClips.flatMap(c=>vids[c.id] ? stageTakeLinePlacements(c, auds, characters).map(pl=>({ c, pl })) : []);
   const lineWhy = (pl)=> pl.native ? "this take's own performance already speaks it (native audio) — not laid over it"
     : pl.revoiced ? "re-voiced since this take was rendered — it would no longer match the lips; re-render the clip to use it"
@@ -8251,45 +8285,70 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
     : sceneClips.some(c=>(staleVids||{})[c.id]) ? "None of this scene's takes can play: "+sceneClips.map(c=>stageClipBeatName(c)+" — "+statusOf(c)).join("; ")+"."
     : "This scene has no rendered clips yet — render them in the Shoot tab.";
   const voiceNotes = sceneClips.filter(c=>((noteVids||{})[c.id]||[]).indexOf("Voice changed")>=0);
-  return _stEl("div",{className:"stage2-au"},
-    _stEl("div",{className:"stage2-versions-head"},
-      _stEl("div",{className:"stage2-versions-title"}, Icon.mic&&_stEl(Icon.mic,{s:14}), "Mix",
-        _stEl("span",{className:"stage2-versions-sub"},"voiced lines over the picture · beds under them · exported with the film")),
-      _stEl("select",{className:"stage2-au-scene",value:sceneId||"","aria-label":"Scene to mix",onChange:e=>pickScene(e.target.value)},
-        scenes.map(s=>_stEl("option",{key:s.id,value:s.id},_pad2(s.no)+" · "+(s.title||s.loc||"Scene")))),
-      _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",
-        onClick:playing?stopAll:playScene,
-        disabled:!hasRendered && !playing,
-        title:hasRendered?"Play the scene with the post mix":"Render this scene's clips first"},
-        playing?"■ Stop":"▶ Play scene mix"),
-      !hasRendered && vidsLoaded && _stEl("span",{className:"stage2-au-note"},"Render this scene's clips first")),
+  const laneLines = sceneClips.flatMap((c,i)=>{ const rendered = !!vids[c.id]; let pls = [];
+    try{ pls = rendered ? stageTakeLinePlacements(c, auds, characters) : clipLinePlacements(c, auds, characters); }catch(e){ pls = []; }
+    return (pls||[]).map(pl=>({ c, i, pl, rendered })); });
+  return _stEl("div",{className:"stage2-au stage2-au-b"},
+    _stEl("div",{className:"stage2-au-head"},
+      _stEl("div",{className:"stage2-au-sum"},
+        _stEl("b",null, sceneNow ? ("Scene "+_pad2(sceneNow.no)+" \u00b7 "+(sceneNow.title||sceneNow.loc||"Scene")) : "Mix"),
+        _stEl("span",null, sceneClips.length+" clip"+(sceneClips.length!==1?"s":"")+" \u00b7 "+clockS(sceneRun))),
+      _stEl("div",{className:"stage2-au-tools"},
+        !hasRendered && vidsLoaded && _stEl("span",{className:"stage2-au-note"},"Render this scene's clips first"),
+        _stEl("button",{className:"stage2-vtool",style:{width:"auto"},type:"button",
+          onClick:playing?stopAll:playScene,
+          disabled:!hasRendered && !playing,
+          title:hasRendered?"Play the scene with the post mix":"Render this scene's clips first"},
+          playing?"■ Stop":"▶ Play scene mix"),
+        window.InfoTip && _stEl(window.InfoTip,{label:"How the mix works",
+          text:"The picture plays each clip's current take with its own sound at the Picture volume; your voiced lines drop in where the render was told to put them, and stop at the end of their clip. Levels, mutes and each scene's imported beds are kept on this device only — collaborators don't hear them, and each person's export uses their own. Export film in the Timeline tab can record the whole film with this mix. The scene follows the Scenes rail."}))),
     _stEl("div",{className:"stage2-au-player"},
+      cur && _stEl("span",{className:"stage2-tl-player-tag"}, stageClipBeatName(cur)+" \u00b7 "+clockS(headT)),
       curUrl ? _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,onEnded:onClipEnded,
           onPlay:onVideoPlay,onPause:onVideoPause,onSeeked:onVideoSeeked,onCanPlay,onError:onVideoError,
+          onTimeUpdate:(e)=>{ const t = Number(e.currentTarget.currentTime)||0; if(cur) setAuPlay(p=>(p.id===cur.id && Math.abs(p.t-t)<0.2) ? p : { id:cur.id, t }); },
           "aria-label":"Mix preview"+(cur ? " — "+stageClipBeatName(cur) : ""),
           title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget)})
         : _stEl("div",{className:"stage2-tl-empty"}, emptyText)),
     voiceNotes.length>0 && _stEl("div",{className:"stage2-au-note"},
       "A voice was re-locked after "+voiceNotes.map(stageClipBeatName).join(", ")+(voiceNotes.length!==1?" were":" was")+" rendered — the take still speaks in the earlier voice."),
-    _stEl("div",{className:"stage2-au-lanes"},
-      lane("native","Picture (the take's own sound)",
-        _stEl("div",{className:"stage2-au-blocks"}, sceneClips.map((c,i)=>_stEl("button",{key:c.id,type:"button",
-          className:"stage2-au-block"+(vids[c.id]?"":" missing")+(cur&&cur.id===c.id?" on":""),
+    sceneClips.length>0 && _stEl("div",{className:"stage2-au-lanes","data-testid":"mix-lanes"},
+      _stEl("span",{className:"stage2-au-corner"}),
+      _stEl("div",{className:"stage2-au-ruler","aria-hidden":"true"},
+        ticks.map(t=>_stEl("span",{key:t,className:"stage2-tl-tick",style:{left:pct(t)}}, _fmtSecs(t)))),
+      laneHead("native","Picture"),
+      _stEl("div",{className:"stage2-au-lt"},
+        sceneClips.map((c,i)=>_stEl("button",{key:c.id,type:"button",
+          className:"stage2-au-block pic"+(vids[c.id]?"":" missing")+(cur&&cur.id===c.id?" on":""),
+          style:{left:pct(starts[i]),width:"calc("+pct(spans[i])+" - 2px)"},
           "aria-pressed":cur&&cur.id===c.id?"true":"false",disabled:!vids[c.id],
-          title:stageClipBeatName(c)+(vids[c.id]?" — click to show it":" — "+statusOf(c)),
-          onClick:()=>{ if(!vids[c.id]) return; if(playing) stopAll(); setClipIdx(i); if(onSelectClip) onSelectClip(c.id); }}, stageClipBeatName(c))))),
-      lane("dialogue","Dialogue (locked voices)",
-        _stEl("div",{className:"stage2-au-blocks"}, lines.length ? lines.map(({c,pl})=>
-          _stEl("span",{key:c.id+":"+pl.shotId,className:"stage2-au-block line"+(pl.url?"":" missing"),tabIndex:0,
-            "aria-label":pl.speaker+", "+pl.sec+" seconds, lands about "+pl.at+" seconds into "+c.label+(lineWhy(pl)?", "+lineWhy(pl):"")+(pl.pastEnd?", runs past the take's end and stops there":""),
-            title:pl.speaker+" — \""+pl.text.slice(0,60)+"\" · lands ~"+pl.at+"s into "+c.label
-              +(lineWhy(pl)?(" · "+lineWhy(pl)):"")+(pl.pastEnd?" · runs past the take's end — it stops there":"")},
-            pl.speaker+" · "+pl.sec+"s"+(pl.pastEnd?" →|":"")))
-          : _stEl("span",{className:"stage2-au-note"}, sceneClips.some(c=>vids[c.id]) ? "No dialogue in this scene's rendered clips." : "Lines appear here once the scene's clips are rendered."))),
-      bedLane("amb","Ambience bed","No bed yet — import a scene-long ambience file (it loops)",true),
-      bedLane("music","Music bed","No bed yet — import a track (it plays once)",false)),
-    _stEl("div",{className:"stage2-au-note foot"},
-      "The picture plays each clip's current take with its own sound at the Picture volume; your voiced lines drop in where the render was told to put them, and stop at the end of their clip. Levels, mutes and each scene's imported beds are kept on this device only — collaborators don't hear them, and each person's export uses their own. Export film in the Timeline tab can record the whole film with this mix."));
+          title:stageClipBeatName(c)+" · "+_fmtSecs(Math.round(spans[i]))+(vids[c.id]?" — click to show it":" — "+statusOf(c)),
+          onClick:()=>{ if(!vids[c.id]) return; if(playing) stopAll(); setClipIdx(i); if(onSelectClip) onSelectClip(c.id); }},
+          c.label+" \u00b7 "+_fmtSecs(Math.round(spans[i])))),
+        playhead),
+      laneHead("dialogue","Dialogue"),
+      _stEl("div",{className:"stage2-au-lt"},
+        laneLines.length ? laneLines.map(({c,i,pl,rendered})=>{
+          const why = rendered ? lineWhy(pl) : "its clip isn't rendered yet";
+          const room = Math.max(0.3, Math.min(Number(pl.sec)||0, spans[i]-(Number(pl.at)||0)));
+          return _stEl("span",{key:c.id+":"+pl.shotId,
+            className:"stage2-au-line"+(pl.url&&rendered?" ready":"")+(pl.native?" native":"")+(pl.revoiced?" revoiced":"")+(!rendered?" later":"")+(pl.pastEnd?" past":""),
+            style:{left:pct(starts[i]+(Number(pl.at)||0)),width:"max(4px, calc("+pct(room)+" - 1px))"},tabIndex:0,
+            "aria-label":pl.speaker+", "+pl.sec+" seconds, lands about "+pl.at+" seconds into "+c.label+(why?", "+why:"")+(pl.pastEnd?", runs past the take's end and stops there":""),
+            title:pl.speaker+" — \""+String(pl.text||"").slice(0,60)+"\" · lands ~"+pl.at+"s into "+c.label
+              +(why?(" · "+why):"")+(pl.pastEnd?" · runs past the take's end — it stops there":"")},
+            pl.speaker+(pl.pastEnd?" →|":"")); })
+          : _stEl("span",{className:"stage2-au-drop quiet"}, sceneClips.some(c=>vids[c.id]) ? "No dialogue in this scene's rendered clips." : "No dialogue in this scene."),
+        playhead),
+      laneHead("amb","Ambience", bedActions("amb")),
+      bedTrack("amb", true),
+      laneHead("music","Music", bedActions("music")),
+      bedTrack("music", false)),
+    sceneClips.length>0 && _stEl("div",{className:"stage2-tl-legend","aria-hidden":"true"},
+      _stEl("span",null,_stEl("i",{className:"k-line"}),"Voiced line"),
+      _stEl("span",null,_stEl("i",{className:"k-line off"}),"Not voiced yet"),
+      _stEl("span",null,_stEl("i",{className:"k-native"}),"Spoken by the take itself"),
+      _stEl("span",null,_stEl("i",{className:"k-past"}),"Runs past its clip (→|)")));
 }
 
 /* ================================ the room shell =============================== */
