@@ -97,6 +97,61 @@
   const captureSection=d=>section("LENS AND CAPTURE — the same in every shot",[text(d&&d.capture)]);
   root.seedanceCaptureSection=captureSection;
 
+  /* SCENE TYPES (2026-10-24, from the Anerneq study): six direction templates that cover
+     most shots. Auto picks one from the clip's own words and shot sizes (or none); the
+     Stage's Director panel can pick one or turn it off for a clip. */
+  const SCENE_TYPES=[
+    {id:"quiet",label:"Quiet scene",lines:[
+      "The drama is in small changes. Hold the frame; the camera moves only as authored and never drifts or pushes in to add energy.",
+      "Let silences play at full length. The performance lives in the eyes, breath and hands; no added gestures, pacing or business to fill the time.",
+      "Sound is near-silent room tone with the small sounds of the space and of the people in it."]},
+    {id:"violence",label:"Violence off frame",lines:[
+      "Violence stays out of frame or hidden: show the build-up, the reaction and the aftermath, never the contact itself.",
+      "The camera stays on a face, a hand or the space; the impact is carried by sound, a flinch, a shadow or an object reacting.",
+      "No blood spray, close-up wounds or weapon contact on screen. Bodies keep their weight; nothing is choreographed or stylised like an action film."]},
+    {id:"altered",label:"Altered state",lines:[
+      "The world is seen through a mind that is not steady. Everything stays photographic and physically real; the strangeness comes from timing, framing and what is held too long, not from effects.",
+      "Show only the distortions the script describes; no morphing, warping, glitches, colour flashes or fantasy imagery.",
+      "Sound narrows to what the character hears: breath and one or two sounds of the space."]},
+    {id:"crowd",label:"Crowd",lines:[
+      "The people the scene is about stay sharp and readable; the crowd is texture around them.",
+      "Few people near the camera; those behind are soft, out of focus and partly in shadow. Each moves with their own purpose and pace: no synchronised or looping movement, no cloned faces.",
+      "The main characters keep their faces, wardrobe and positions when people pass in front of them."]},
+    {id:"hidden",label:"Hidden action",lines:[
+      "What the script keeps from the audience stays hidden: framed out, behind something, in darkness or with the character's back to camera.",
+      "Show only what the authored action shows; never complete the hidden action on screen or add an explanatory insert.",
+      "Hold on what can be seen: the approach, a reaction, the sound."]},
+    {id:"wide",label:"Extreme wide",lines:[
+      "The place is the subject. People are small in frame; their faces need no detail and are not turned to camera.",
+      "The camera is locked or moves very slowly; the horizon stays level and the scale real. Distance, haze and atmosphere carry the depth.",
+      "Movement in frame is slow and readable at this size; nothing pops or snaps."]}
+  ];
+  root.STAGE_SCENE_TYPES=SCENE_TYPES.map(t=>({id:t.id,label:t.label,lines:t.lines.slice()}));
+  function seedanceSceneTypeAuto(d,list){
+    d=d||{}; list=(list||[]).filter(Boolean);
+    const words=[].concat((d.panelLines||[]).map(p=>[p.text,p.staging,p.sheet,p.script].join(" ")),
+      list.map(sh=>[sh.action,sh.vidText].join(" "))).join(" ");
+    if(/\b(punch(?:es|ed)?|stab(?:s|bed|bing)?|strangl\w*|slash(?:es|ed)?|gunshots?|gunfire|shoots? (?:him|her|them|at)|beats? (?:him|her|them)|murders?|attacks? (?:him|her|them)|attacked|brawl|fistfight|bleeding|blood)\b/i.test(words))return "violence";
+    if(/\b(we (?:don'?t|do not|never) see|out of (?:sight|view)|hidden from (?:view|us)|unseen)\b/i.test(words))return "hidden";
+    if(/\b(hallucinat\w*|delirious|delirium|feverish|nightmare|dreaming|in a dream|drugged|madness|losing (?:his|her|their) mind)\b/i.test(words))return "altered";
+    const sizes=list.map(sh=>String(sh.size||"").toUpperCase());
+    if(sizes.length&&sizes.every(z=>z==="EWS"))return "wide";
+    if(/\b(crowd|crowds|extras|passers?-?by|onlookers|patrons|commuters|pedestrians|bystanders|audience|congregation|mourners|guests|diners|shoppers)\b/i.test(words))return "crowd";
+    const still=list.every(sh=>/^(|auto|static|locked|none)$/i.test(String(sh.move||"").trim()));
+    if(list.length&&still&&!/\b(runs?|running|sprints?|chases?|races?|leaps?|jumps?|falls?|crashes?|explodes?|fights?)\b/i.test(words))return "quiet";
+    return "";
+  }
+  root.seedanceSceneTypeAuto=seedanceSceneTypeAuto;
+  /* opts.sceneType: "auto" (default), "none", or a type id */
+  function seedanceSceneTypeSection(d,list,opts){
+    const pick=text(opts&&opts.sceneType)||"auto";
+    if(pick==="none")return "";
+    const id=pick==="auto"?seedanceSceneTypeAuto(d,list):pick;
+    const t=SCENE_TYPES.find(x=>x.id===id);
+    return t?section("SCENE TYPE — "+t.label,t.lines):"";
+  }
+  root.seedanceSceneTypeSection=seedanceSceneTypeSection;
+
   function seedanceDirectorBrief(clip,shots,activeShot,audioRefsOn,audioIncluded,refs,opts){
     opts=opts||{}; refs=refs||{};
     const d=clip&&clip.data||{},scene=clip&&clip.scene||{};
@@ -326,7 +381,7 @@
       "Preserve canonical body and object scale plus relative size between subjects; do not normalize different subjects to the same height or proportions.",
       "Do not add unprovided technical measurements or change the approved project look."
     ]);
-    return [contract,section("ACTIVE REFERENCES",refsLines),openingState,action,notes.acting,performance,lighting,captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
+    return [contract,section("ACTIVE REFERENCES",refsLines),openingState,action,seedanceSceneTypeSection(d,list,opts),notes.acting,performance,lighting,captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
   }
   root.seedanceDirectorBrief=seedanceDirectorBrief;
 })(typeof window!=="undefined"?window:globalThis);

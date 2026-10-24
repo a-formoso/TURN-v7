@@ -317,6 +317,8 @@ window.__takes=[
   {id:"take-approved",url:fakeVideo+"#approved",current:false,meta:takeMeta(false)}
 ];
 window.vidGetTakes=()=>window.__takes.slice(); window.vidLoadTakes=async()=>window.__takes.slice();
+// the film has takes, so it is a film in use (2026-10-24: only a film never used starts on Single shot)
+window.vidKnownIds=()=>window.__takes.length?["clip-fixture-in-use"]:[];
 window.vidGetVideo=()=>fakeVideo+"#new"; window.vidLoadVideo=async()=>fakeVideo+"#new";
 window.vidGetMeta=()=>takeMeta(true);
 for(const n of ["vidApproveTake","vidRestoreTake","vidDeleteTake","vidUpdateTake"])
@@ -553,7 +555,7 @@ async function main() {
     assert.match(await selectedModel(),/Seedance 2\.5/,"new Stage defaults to Seedance 2.5");
     assert.equal(await c.eval(`!!document.querySelector('.stage2-console-composer button[title^="Clip scope"],.stage2-console-composer .sdbar-pill.scope')`),false,
       "composer no longer renders the redundant clip-scope pill");
-    assert.equal(await readClipGrouping("initial"),"beat","new Stage defaults to beat grouping");
+    assert.equal(await readClipGrouping("initial"),"beat","a Stage already in use (it has takes) keeps beat grouping");
     await chooseNativePerformance("initial");
 
     /* The Shoot strip is a scene assembly preview: one stable current-take slot

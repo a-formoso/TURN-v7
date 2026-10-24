@@ -741,6 +741,30 @@ const styledNative=recipe("narrative",makeClip({...voiceData,capture:"Shot on 16
 ok("a named grammar in native performance carries the capture text and the voice lock",
   /LENS AND CAPTURE — the same in every shot\nShot on 16mm\./.test(styledNative)&&/VOICE LOCK — the same voice in every shot\nMara: Thirties/.test(styledNative),styledNative.slice(-1400));
 
+// ── scene types (2026-10-24) ──
+const typeAuto=box.seedanceSceneTypeAuto;
+ok("scene type auto: violence, hidden, altered, extreme wide, crowd, quiet, else none",
+  typeAuto({panelLines:[{text:"He punches Daniel against the wall."}]},[{move:"static"}])==="violence"
+  &&typeAuto({panelLines:[{text:"She opens the box; we don't see what's inside."}]},[{move:"static"}])==="hidden"
+  &&typeAuto({panelLines:[{text:"Feverish, he talks to the empty chair."}]},[{move:"handheld"}])==="altered"
+  &&typeAuto({panelLines:[{text:"The valley at dawn."}]},[{size:"EWS",move:"pan"},{size:"ews",move:"static"}])==="wide"
+  &&typeAuto({panelLines:[{text:"Commuters stream past Mara."}]},[{size:"MS",move:"dolly"}])==="crowd"
+  &&typeAuto({panelLines:[{text:"Mara reads the letter."}]},[{size:"CU",move:"static"},{size:"MS",move:""}])==="quiet"
+  &&typeAuto({panelLines:[{text:"Mara runs for the door."}]},[{size:"MS",move:"static"}])===""
+  &&typeAuto({panelLines:[{text:"Mara crosses the room."}]},[{size:"MS",move:"dolly"}])==="");
+const typedAuto=brief(makeClip(dataPart,"type-auto"),[shotPart],shotPart,true,[],refs,opts);
+const typedPick=brief(makeClip(dataPart,"type-pick"),[shotPart],shotPart,true,[],refs,{...opts,sceneType:"hidden"});
+const typedNone=brief(makeClip(dataPart,"type-none"),[shotPart],shotPart,true,[],refs,{...opts,sceneType:"none"});
+ok("a picked scene type is printed after the action plan, before the acting",
+  /\n\nSCENE TYPE — Hidden action\nWhat the script keeps from the audience stays hidden/.test(typedPick)
+  &&typedPick.indexOf("ACTION AND CAMERA PLAN")<typedPick.indexOf("SCENE TYPE")&&typedPick.indexOf("SCENE TYPE")<typedPick.indexOf("\nPERFORMANCE\n"),typedPick.slice(0,1500));
+ok("'None' prints no scene type; Auto prints what it found (or nothing)",
+  !/SCENE TYPE/.test(typedNone)&&/SCENE TYPE — /.test(typedAuto)===!!typeAuto(dataPart,[shotPart]));
+ok("six templates, each with three direction lines",
+  (box.STAGE_SCENE_TYPES||[]).map(t=>t.id).join()==="quiet,violence,altered,crowd,hidden,wide"&&box.STAGE_SCENE_TYPES.every(t=>t.lines.length===3));
+const styledType=recipe("narrative",makeClip(dataPart,"type-styled"),[shotPart],shotPart,true,[],refs,{...opts,explicitStyle:true,sceneType:"wide"});
+ok("a named grammar carries the picked scene type", /SCENE TYPE — Extreme wide\nThe place is the subject/.test(styledType),styledType.slice(-1200));
+
 ok("brief and clip compilation are immutable",JSON.stringify({shots:allShots,drafts})===before);
 
 console.log(pass+" passed, "+fail+" failed");

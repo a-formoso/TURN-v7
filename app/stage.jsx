@@ -2892,7 +2892,8 @@ function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, au
    const spoken=Object.values(scoped.data.beatDialogues||{}).flat()
      .filter(r=>r&&String(r.text||"").trim()&&!stageDeliveryIsText(r.delivery||"onscreen"));
    const voice=audioRefsOn===false&&typeof window.seedanceVoiceLock==="function"?window.seedanceVoiceLock(scoped.data,spoken):"";
-   const acting=[notes.acting,notes.faces||"",capture,voice,notes.tells,notes.negative].filter(Boolean).join("\n");
+   const sceneType=typeof window.seedanceSceneTypeSection==="function"?window.seedanceSceneTypeSection(scoped.data,list,opts):"";
+   const acting=[sceneType,notes.acting,notes.faces||"",capture,voice,notes.tells,notes.negative].filter(Boolean).join("\n");
    return base + coverage + (delivery?"\n"+delivery:"") + (acting?"\n"+acting:"") + "\nAUDIO & OVERLAYS: besides any spoken dialogue specified above, the soundtrack is environmental and diegetic sound effects with natural ambience ONLY — NO background music, NO score, NO soundtrack. NO subtitles, captions or any burned-in text overlays anywhere in the frame.";
 }
 /* exported for the headless prompt-style test suite (scripts/test-stage-promptstyles.mjs) */
@@ -3308,7 +3309,7 @@ function StageMentionEditor({ value, mentionables, includeMention, maxLen, place
         m.t===swap.tok && _stEl("span",{className:"stage2-mention-kind"},"Current")))));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeIdentity=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, pendingReuse, onReuseConsumed }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeIdentity=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType, pendingReuse, onReuseConsumed }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the scene's look + film stock when this console renders — stamped on each take it makes, so a later
   // change on the Color tab shows the take as "made with an earlier look" (2026-10-05, owner — Color review)
@@ -4023,6 +4024,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const [cameraProfile, setCameraProfile] = React.useState(d.cameraProfile || "auto");
   const [lighting, setLighting] = React.useState(d.lighting);
   const [perf, setPerf] = React.useState(dialogueSpeakers[0] || d.lead);
+  // SCENE TYPE (2026-10-24): the clip's pick (Auto unless chosen), and what Auto finds
+  const sceneTypePick = (clipTypes && clipTypes[clip.id]) || "auto";
   // modelId/setModelId come from StageView — the model choice drives CLIP PACKING
   // (sceneSequences shot caps), so it has to live above the per-clip console.
   const [tier, setTier] = React.useState("standard");
@@ -4285,6 +4288,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         ? "Remote/offscreen lines use VO/audio and never drive an onscreen actor's lips; visible speakers alone may lip-sync their matching audio."
         : "Each visible character speaks ONLY in their assigned voice, lip-synced to that audio.");
   })() : "";
+  const sceneTypeAuto = typeof window.seedanceSceneTypeAuto==="function"
+    ? window.seedanceSceneTypeAuto(seedanceBeatData(clip, promptShots), promptShots) : "";
   const recipeText = (id, explicit)=>{
     // Multi-shot editor compiles to the TIME-CODED prompt (Seedance's segment
     // grammar) — the structured rows are the editor, this is the model payload
@@ -4295,14 +4300,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     const beatSequence = modelId==="seedance-2.5" && promptShots.length>1;
     const useTimedPlan=typeof window.stageBuildTimedPlan==="function";
     const base = explicit
-      ? seedanceRecipePrompt(id, clip, promptShots, promptActiveShot, audioRefsOn, audioIncluded, promptRefs, { explicitStyle:true })
+      ? seedanceRecipePrompt(id, clip, promptShots, promptActiveShot, audioRefsOn, audioIncluded, promptRefs, { explicitStyle:true, sceneType:sceneTypePick })
       : useTimedPlan
       ? seedanceRecipePrompt(id, clip, promptShots, promptActiveShot, audioRefsOn, audioIncluded, promptRefs,
           {timedPlan:true,directAudioCap:directAudioLimit,durationSec:duration,modelId,
-            maxSeconds:model.maxClipSec||15,audioMode:voiceLocked?"locked":"native",renderPlan})
+            maxSeconds:model.maxClipSec||15,audioMode:voiceLocked?"locked":"native",renderPlan,sceneType:sceneTypePick})
       : beatSequence
       ? seedanceRecipePrompt(id, clip, promptShots, promptActiveShot, audioRefsOn, audioIncluded, promptRefs,
-          {beatSequence:true,directAudioCap:directAudioLimit,videoRefBase:onVideos.filter(a=>a&&a.url).length,videoRefCap:10,renderPlan})
+          {beatSequence:true,directAudioCap:directAudioLimit,videoRefBase:onVideos.filter(a=>a&&a.url).length,videoRefCap:10,renderPlan,sceneType:sceneTypePick})
       : id==="multishot" ? seedanceRecipePrompt("timeline", msClip,
           promptShots.filter(sh=>msShots.some(x=>x&&x.id===sh.id)), promptActiveShot,
           audioRefsOn, audioIncluded, promptRefs)
@@ -4321,7 +4326,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const promptProductionSig=JSON.stringify([d.setting,
     d.preset&&[d.preset.name,d.preset.grade,d.preset.lighting], d.lookText||"",   // palette, lens, texture, film stock too
     promptShots.map(sh=>[sh.id,sh.size,sh.angle,sh.move,sh.lens,sh.composition,
-      sh.purpose||"",sh.directives||"",sh.action||"",sh.cameraSettings||null])]);
+      sh.purpose||"",sh.directives||"",sh.action||"",sh.cameraSettings||null,sh.mustNot||""]),
+    // the acting layer, capture, voices, geometry and scene type (2026-10-24)
+    d.acting||[], d.capture||"", (d.voices||[]).map(v=>[v.id,v.text]),
+    (d.panelLines||[]).map(p=>p&&p.geometry&&p.geometry.text||""), sceneTypePick]);
   const renderPlan = (typeof window.stageBuildTimedPlan==="function")
      ? window.stageBuildTimedPlan(promptShots,{modelId,maxSeconds:model.maxClipSec||15,
         maxShots:model.maxShotsPerClip||Infinity,maxDialogue:10,
@@ -6835,7 +6843,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       _stEl("option",{value:"beat",
         title:"Fit the beat to the model limit by splitting at existing shot boundaries; never drops a shot or shortens dialogue."},"Split to fit"),
       _stEl("option",{value:"shot",
-        title:"One render per saved shot."},"Single shot"),
+        title:"One render per saved shot: short clips with no cuts inside them, cut together in the Timeline. New films start here."},"Single shot"),
       _stEl("option",{value:"legacy",
         title:"Browse the earlier automatic groups and their older takes."},"Earlier grouping"))),
     // batch takes — parallel renders with distinct seeds; the Render card's cost
@@ -6910,6 +6918,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       _uniq([camera,...SEEDANCE_CAMERA_MOVES].filter(Boolean)).map(v=>_stEl("option",{key:v,value:v},v)))),
     _ctrlRow("Lighting", _stEl("select",{value:lighting,onChange:e=>setLighting(e.target.value)},
       _uniq([lighting,"Blue night + Warm practicals","Moonlit rain","Backlit silhouette","Soft ambient glow","High contrast noir"].filter(Boolean)).map(v=>_stEl("option",{key:v,value:v},v)))),
+    _ctrlRow("Scene type", _stEl("select",{value:sceneTypePick,"aria-label":"Scene type","data-testid":"stage-scene-type",
+        disabled:!onSetClipType,
+        title:"A direction template for this clip — how the camera, performance and sound behave. Auto picks one from the clip's action and shot sizes.",
+        onChange:e=>{ if(onSetClipType) onSetClipType(clip.id, e.target.value); }},
+      _stEl("option",{value:"auto"},"Auto \u2014 "+(((window.STAGE_SCENE_TYPES||[]).find(t=>t.id===sceneTypeAuto)||{}).label||"none fits")),
+      (window.STAGE_SCENE_TYPES||[]).map(t=>_stEl("option",{key:t.id,value:t.id},t.label)),
+      _stEl("option",{value:"none"},"None"))),
     _ctrlRow("Acting focus", _stEl("select",{value:perf,onChange:e=>setPerf(e.target.value),
         title:"Choose whose authored objective and visible beat changes should receive the clearest performance emphasis"},
       _uniq([perf,d.lead].concat(dialogueSpeakers).filter(Boolean)).map(v=>_stEl("option",{key:v,value:v},v)))),
@@ -8321,10 +8336,24 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // permitting; whole-SCENE packing was retired by the same ruling); 2.0 packs by
   // its 15s/3-shot budget. "shot": one clip per SHOT on either model — maximum
   // per-render control. Persisted like the model choice.
+  /* ONE SHOT PER CLIP BY DEFAULT (2026-10-24, from the Anerneq study): a film whose Stage was never
+     used starts on Single shot — short clips with no cuts inside them, cut together in the Timeline,
+     which the video models play far more steadily. It is recorded on the film the first time its
+     Stage opens, so it never flips later. A film already in use keeps its grouping (its takes are
+     filed under its clips), and so does any film with a saved choice. */
+  const freshStageRef = React.useRef(null);
+  if(freshStageRef.current===null){
+    const st = project && project.stage;
+    const used = !!(st && typeof st==="object" && Object.keys(st).length);
+    let takes = [];
+    try{ takes = (typeof vidKnownIds==="function") ? (vidKnownIds()||[]) : []; }catch(e){}
+    freshStageRef.current = !used && !takes.length;
+  }
   const [clipScope, _setClipScope] = React.useState(()=>{
     const f = _stageFilm(project, "clipScope");
     if(f==="shot" || f==="beat") return f;
     if(f==="auto") return "legacy";
+    if(freshStageRef.current) return "shot";
     try{ const v=localStorage.getItem("turn_stage_clip_scope");
       // "auto" is the old packer and remains viewable so historical take keys stay
       // attached. No stored value means a new user: use approved beat-first packing.
@@ -8334,6 +8363,30 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const setClipScope = React.useCallback((v)=>{ const next=v==="shot"?"shot":v==="legacy"?"legacy":"beat";
     _setClipScope(next); try{ localStorage.setItem("turn_stage_clip_scope",next==="legacy"?"auto":next); }catch(e){}
     saveFilmStage({ clipScope: next==="legacy"?"auto":next }); },[saveFilmStage]);
+  // record the fresh film's default once; if takes for other clips turn up later this visit (a device
+  // that hadn't loaded them yet), the film was in use after all: go back to Split to fit
+  const autoShotRef = React.useRef(false);
+  React.useEffect(()=>{
+    if(!freshStageRef.current || readOnly || _stageFilm(project, "clipScope")) return;
+    autoShotRef.current = true;
+    saveFilmStage({ clipScope:"shot" });
+  }, []);
+  React.useEffect(()=>{
+    const h=()=>{
+      if(!autoShotRef.current) return;
+      let ids=[]; try{ ids=(typeof vidKnownIds==="function") ? (vidKnownIds()||[]) : []; }catch(e){}
+      const live=new Set((allClipsRef.current||[]).map(c=>c.id));
+      if(ids.some(id=>!live.has(id))){ autoShotRef.current=false; setClipScope("beat"); }
+    };
+    window.addEventListener("vid-done", h); return ()=>window.removeEventListener("vid-done", h);
+  }, [setClipScope]);
+  // SCENE TYPE per clip (2026-10-24): the film's picks; a clip with none uses Auto
+  const clipTypes = (_stageFilm(project, "clipTypes") && typeof _stageFilm(project, "clipTypes")==="object") ? _stageFilm(project, "clipTypes") : {};
+  const setClipType = React.useCallback((clipId, v)=>{
+    if(!clipId) return;
+    const next = { ...clipTypes };
+    if(!v || v==="auto") delete next[clipId]; else next[clipId] = String(v);
+    saveFilmStage({ clipTypes: next }); },[saveFilmStage, JSON.stringify(clipTypes)]);
   // the film's saved choice changed elsewhere (a collaborator, an undo, a reload): follow it
   const _fSrc = _stageFilm(project, "visualSource"), _fModel = _stageFilm(project, "modelId"), _fScope = _stageFilm(project, "clipScope");
   React.useEffect(()=>{ if(_fSrc==="halves" || _fSrc==="shots") _setVisualSource(_fSrc); },[_fSrc]);
@@ -8414,6 +8467,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // CLIP is the unit of selection/generation. Keep selection above image hydration
   // so Stage can request the visible scene's package first instead of loading every
   // shot and sheet in the film before the selected beat becomes usable.
+  const allClipsRef = React.useRef(null); allClipsRef.current = allClips;
   const [selId, setSelId] = React.useState(allClips[0] ? allClips[0].id : null);
   const [selShotId, setSelShotId] = React.useState((shots||[])[0] ? (shots||[])[0].id : null);
   const selMembersRef = React.useRef(null);
@@ -8823,7 +8877,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
             // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeIdentity:!!identityVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope,
+            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeIdentity:!!identityVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType:readOnly?null:setClipType,
                 onSelectClip,
                 onFirstVideo:()=>setStageView("versions"),
                 pendingReuse, onReuseConsumed:()=>setPendingReuse(null) }))));
