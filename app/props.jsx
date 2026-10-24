@@ -1964,7 +1964,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
-          React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},
+          React.createElement(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},
             ((typeof roomCopy==="function" && roomCopy(project,"props").title) || "Props Master"),
             React.createElement(window.InfoTip,{label:"About Props",
               text:((typeof roomCopy==="function" && roomCopy(project,"props").tip) ||

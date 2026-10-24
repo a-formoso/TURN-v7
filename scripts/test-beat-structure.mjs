@@ -177,7 +177,7 @@ test("E  a recast keeps the beats' ids (the turning point stays); Frances knows"
   assert.match(ai, /name:"Adding a scene"/);
   const html = read("TURN.html");
   for (const f of ["scene-order.js", "inspector.jsx", "app.jsx", "shots-ui.jsx", "locations.jsx", "ai.jsx"])
-    assert.ok(["20261019-hs34", "20261020-hs35", "20261020-hs36", "20261020-hs37", "20261020-hs38", "20261020-hs39", "20261020-hs40", "20261021-hs41", "20261021-hs42", "20261021-hs43", "20261021-hs44", "20261021-hs45", "20261021-hs46", "20261022-hs47", "20261022-hs48", "20261023-hs49", "20261023-hs50", "20261023-hs51", "20261023-hs52", "20261023-hs53", "20261024-hs54"].some(v => html.includes(f + "?v=" + v + '"')), f);
+    assert.ok(["20261019-hs34", "20261020-hs35", "20261020-hs36", "20261020-hs37", "20261020-hs38", "20261020-hs39", "20261020-hs40", "20261021-hs41", "20261021-hs42", "20261021-hs43", "20261021-hs44", "20261021-hs45", "20261021-hs46", "20261022-hs47", "20261022-hs48", "20261023-hs49", "20261023-hs50", "20261023-hs51", "20261023-hs52", "20261023-hs53", "20261024-hs54", "20261024-hs55"].some(v => html.includes(f + "?v=" + v + '"')), f);
 });
 
 console.log(`\n${checks} passed, ${failed} failed`);

@@ -2838,7 +2838,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         _el("div",{className:"art-intro-row"},
           _el("div",{style:{flex:1}},
             // empty state carries the same department title as the populated view
-            _el("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Shot Designer",
+            _el(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Shot Designer",
             _el(window.InfoTip,{label:"About the Shots tab",
                 text:"Each screenplay beat gets one opening keyframe specification. \u201cDesign all shots\u201d gives every beat its size, angle, movement and lens, then composes each frame from the scene's grade and its full-quality location, character and prop references. Generate the frames here; the Stage animates them next."}))),
           _el("div",{className:"art-intro-actions"},
@@ -2868,7 +2868,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     _el("div",{className:"art-intro"},
       _el("div",{className:"art-intro-row"},
         _el("div",{style:{flex:1}},
-          _el("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Shot Designer",
+          _el(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Shot Designer",
             _el(window.InfoTip,{label:"About the Shot List",
               text:"Each screenplay beat owns one opening keyframe specification, grouped by scene. The specification keeps its action, composition, size, angle, movement and lens; existing alternatives and manually added shots remain separate. Every frame generation follows a chain in scene order: the first shot renders from the selected full-quality references, and each later shot uses the preceding approved frame as its continuity anchor. Generate in order, or use 'Generate N shots' / 'Render Scene X in order' to run the chain. Stage video clips are packed automatically from these shots."}))),
         _el("div",{className:"art-intro-actions"},

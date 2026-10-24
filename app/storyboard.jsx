@@ -1657,7 +1657,7 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
         _sbEl("div",{className:"art-intro-row"},
           _sbEl("div",{style:{flex:1}},
             // department-professional title, matching the other Art Room tabs
-            _sbEl("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Storyboard Artist",
+            _sbEl(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Storyboard Artist",
               _sbEl(window.InfoTip,{label:"About Storyboards",
                 text:"Storyboards are the presentation layer of your shot chain: each scene's generated shot frames lay into printable 2×2 sheets — paginated on beat boundaries, with real CAMERA / MOTION / ACTION / PERFORMANCE annotations — and re-compose automatically when a frame re-renders while the scene is open here, or the next time you open it."}))))),
       _sbEl("div",{className:"prop-empty"},
@@ -1681,14 +1681,14 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
     _sbEl("div",{className:"art-intro"},
       _sbEl("div",{className:"art-intro-row"},
         _sbEl("div",{style:{flex:1}},
-          _sbEl("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Storyboard Artist",
+          _sbEl(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Storyboard Artist",
             _sbEl(window.InfoTip,{label:"About Storyboards",
               text:"Storyboards are the presentation layer of your shot chain: each scene's generated shot frames lay into printable 2×2 sheets — paginated on beat boundaries, with real CAMERA / MOTION / ACTION / PERFORMANCE annotations — and re-compose automatically when a frame re-renders while the scene is open here, or the next time you open it. Save top/bottom halves to hand panel rows to the Stage, repair a single panel (it edits that shot's frame), upload a board made elsewhere, or export the whole board as a print-ready PDF."})),
-          _sbEl("div",{style:{fontFamily:"var(--f-mono)",fontSize:11,letterSpacing:".03em",color:"var(--txt-3)",marginTop:4}},
-            readiness.complete+"/"+totalSheets+" complete"+
-            (readiness.stale ? " · "+readiness.stale+"/"+totalSheets+" out of date" : "")+
-            (readiness.partial ? " · "+readiness.partial+"/"+totalSheets+" partial" : "")+
-            (readiness.missing ? " · "+readiness.missing+"/"+totalSheets+" missing" : ""))),
+          // the board's progress, in words, beside the tab's buttons (2026-10-24): what's missing is the rest
+          _sbEl("div",{className:"art-intro-status",title:readiness.missing ? readiness.missing+" of "+totalSheets+" sheets not composed yet" : undefined},
+            _sbEl("b",null, readiness.complete+" of "+totalSheets+" sheet"+(totalSheets!==1?"s":"")+" complete"),
+            (readiness.partial ? " \u00b7 "+readiness.partial+" partial" : "")+
+            (readiness.stale ? " \u00b7 "+readiness.stale+" out of date" : ""))),
         _sbEl("div",{className:"art-intro-actions"},
           _sbEl("button",{className:"art-draftall",disabled:readOnly||!!composingAll||!!composingScene||!totalSheets,onClick:composeAll,
             title:"Lay every scene's generated shot frames into its sheets — instant and free; scenes with no frames yet are skipped"},

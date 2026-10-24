@@ -496,7 +496,7 @@ function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSe
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
-          React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Visual Researcher",
+          React.createElement(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Visual Researcher",
             React.createElement(window.InfoTip,{label:"About the Lookbook",
               text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture — each can have a mood frame in that visual language (original frames, never copies of the named films), rendered in the film's own medium. 'Research the look' writes the statement and gathers the references. 'Generate missing frames' renders the frames you don't have yet."}))),
         React.createElement("div",{className:"art-intro-actions"},

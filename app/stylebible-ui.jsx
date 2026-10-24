@@ -419,7 +419,7 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
-          React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},
+          React.createElement(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},
             "Colorist",
             React.createElement(InfoTip,{label:"About the Colorist",
               text:"Your film's own cinematic look system \u2014 each a 60/30/10 colour grade with its own lighting, lens and texture. Click 'Light the film' and the Colorist designs a BESPOKE palette + film stock for this film (from the story and your visual references), color-scripts every scene along the value-charge spine \u2014 so the look tracks the emotional arc \u2014 and PROPOSES it for your approval, showing the swatches and a per-scene 'why' (hover a scene in the film-strip to read it later). Scenes you set by hand (\u270b) keep their look when you light the film again, unless you tick 'Also redo'. Each look can be edited (name, colours, notes) or deleted; the film stock is picked below. Shot frames and the Stage's video renders use each scene's look and the film stock; character sheets and location plates stay neutral on purpose, so the same sheet works in every scene. The previews grade one of the film's own location plates live in the browser (no generation); before any plate exists they use a drawn stand-in. Writing credits only, no images (a little more when it looks at your reference stills)."}))),

@@ -11016,3 +11016,17 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .sb-refs .sb-canon-toggle{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:2px 0;cursor:pointer;color:rgba(255,255,255,.7);font:400 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase}
 .sb-refs .sb-canon-toggle:hover{color:#fff}
 @media (max-width:1100px){ .sb-page-a{grid-template-columns:1fr} .sb-side{position:static;max-height:none} }
+
+/* ============================ ART ROOM: THE DEPARTMENT IN THE EYEBROW (owner 2026-10-24) ============================
+   "02 · PRE-PRODUCTION · STORYBOARD ARTIST ⓘ": each tab's department name joins the heading's eyebrow (ArtDeptTitle
+   portals it there); the tab's own row keeps its status on the left and its buttons on the right. */
+.art-eyebrow{display:flex;align-items:center;flex-wrap:wrap;gap:0 2px}
+.art-dept-slot{display:inline-flex;align-items:center}
+.art-dept{display:inline-flex;align-items:center;gap:6px}
+.art-dept .infotip-btn{width:16px;height:16px;color:var(--hs-sub,var(--txt-2))}
+.art-dept .infotip-pop{text-transform:none;letter-spacing:normal;font:400 12.5px/1.5 var(--f-ui);color:var(--hs-ink,var(--txt-0))}
+.art-intro-status{font-size:13px;color:var(--hs-sub,var(--txt-2))}
+.art-intro-status b{font-weight:600;color:var(--hs-ink,var(--txt-0))}
+.art-intro-row > div:first-child:empty{display:none}
+.art-dept-sep{margin:0 2px 0 8px}
+.art-intro-row > .art-intro-actions{margin-left:auto}

@@ -329,7 +329,10 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
       React.createElement("div",{className:"wr-head-in art-head-in"},
         React.createElement("div",{className:"art-head-top"},
           React.createElement("div",{className:"wr-head-copy"},
-            React.createElement("div",{className:"wr-eyebrow"},"02 \u00b7 Pre-production"),
+            // the open tab's department ("Storyboard Artist" and its \u24d8) joins the eyebrow (owner 2026-10-24): each tab
+            // renders it through ArtDeptTitle, which portals into this slot
+            React.createElement("div",{className:"wr-eyebrow art-eyebrow"},"02 \u00b7 Pre-production",
+              React.createElement("span",{id:"art-dept-slot",className:"art-dept-slot"})),
             React.createElement("h1",{className:"wr-title"},t[0],React.createElement("em",null,t[1])),
             React.createElement("p",{className:"wr-sub"},ART_SUBS[cur]||"")),
           React.createElement("div",{className:"wr-actions art-head-actions"},
@@ -362,6 +365,20 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
         React.createElement(Icon.panelRight,{s:16}))));
 }
 window.ViewNav = ViewNav;
+
+/* ArtDeptTitle — an Art Room tab's department name and its \u24d8 ("Storyboard Artist"), shown in the page heading's eyebrow
+   ("02 \u00b7 PRE-PRODUCTION \u00b7 STORYBOARD ARTIST \u24d8", owner 2026-10-24) instead of a row of its own. With no heading on
+   the page it renders where it stands, as before. */
+function ArtDeptTitle({ className, style, children }){
+  const find = ()=> (typeof document!=="undefined" && document.getElementById) ? document.getElementById("art-dept-slot") : null;
+  const [slot, setSlot] = React.useState(find);
+  React.useEffect(()=>{ const s = find(); if(s!==slot) setSlot(s); });
+  if(slot && slot.isConnected && typeof ReactDOM!=="undefined" && ReactDOM.createPortal)
+    return ReactDOM.createPortal(React.createElement("span",{className:"art-dept"},
+      React.createElement("span",{className:"art-dept-sep","aria-hidden":"true"},"\u00b7"), children), slot);
+  return React.createElement("div",{className,style},children);
+}
+window.ArtDeptTitle = ArtDeptTitle;
 
 /* WritersHeader — the Writers' Room page heading in the homepage style (owner 2026-10-16, from the
    "Kinolot Rooms in the Homepage Style" board): the room's eyebrow, the view as a big Spectral title

@@ -7142,7 +7142,7 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},
-          React.createElement("div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},
+          React.createElement(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},
             ((typeof roomCopy==="function" && roomCopy(project,"characters").title) || "Casting Director"),
             React.createElement(window.InfoTip,{label:"About Character Sheets",
               text:((typeof roomCopy==="function" && roomCopy(project,"characters").tip) ||
