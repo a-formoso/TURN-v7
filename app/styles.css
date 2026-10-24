@@ -10996,3 +10996,23 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .bd-line-body .bd-strip-id,.bd-line-body .bd-strip-head{display:none}
 .bd-line-body .bd-strip{grid-template-columns:minmax(0,1fr) 150px;border-left:1px solid var(--line-2)}
 .bd-line-body .bd-strip::before{display:none}
+
+/* ============================ STORYBOARDS: THE SHEET LEADS, THE BRIEF ON THE SIDE (owner 2026-10-23, option A) ============================
+   The sheet on its carbon board (its health in one row on top); beside it, one panel's beat & shot brief, picked by number. */
+.sb-page-a{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start;margin:0 0 26px}
+.sb-page-a > .sb-sheet{margin:0}
+.sb-side{position:sticky;top:12px;display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - 140px);overflow:auto;
+  padding:14px;border:1px solid var(--hs-line-2,var(--line-2));border-radius:14px;background:var(--hs-surface,var(--bg-2));min-width:0}
+.sb-side-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sb-side-picks{display:flex;gap:4px;margin-left:auto}
+.sb-side-pick{min-width:28px;height:26px;padding:0 8px;border-radius:7px;border:1px solid var(--hs-line-2,var(--line-2));background:var(--hs-surface,var(--bg-2));
+  font:600 12px var(--f-mono);color:var(--hs-ink-2,var(--txt-1));cursor:pointer}
+.sb-side-pick:hover{border-color:var(--hs-line-3,var(--line-3))}
+.sb-side-pick.on{background:var(--hs-amber-soft,var(--pos-soft));border-color:var(--hs-amber-line,var(--pos-line));color:var(--hs-amber-ink,var(--pos-ink))}
+.sb-side .sb-brief{border-top:0;padding-top:0}
+.sb-side .sb-brief-scene{font-size:12.5px}
+.sb-side .sb-brief-line{font-size:12.5px;line-height:1.5}
+.sb-comp > .sb-health{margin:0 0 10px}
+.sb-refs .sb-canon-toggle{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:2px 0;cursor:pointer;color:rgba(255,255,255,.7);font:400 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase}
+.sb-refs .sb-canon-toggle:hover{color:#fff}
+@media (max-width:1100px){ .sb-page-a{grid-template-columns:1fr} .sb-side{position:static;max-height:none} }

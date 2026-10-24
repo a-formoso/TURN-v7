@@ -1209,8 +1209,30 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
   const shownHalves = halfNames.filter(h=>halves[h]);
   const sheetAlt = "Scene "+scene.no+" storyboard, page "+((page.index||0)+1);
   const engine = panelEditEngine();
+  const [canonOpen, setCanonOpen] = React.useState(false);   // the scene canon folds to one line (2026-10-23)
   return _sbEl("div",{className:"sb-comp","data-sbsheet":page.id},
     _sbEl("input",{type:"file",accept:"image/png,image/jpeg,image/webp,image/avif",ref:sbUploadRef,style:{display:"none"},onChange:onUploadPicked}),
+    // (2026-10-23, option A) the sheet's health sits on top of it, in one row
+    /* PANEL HEALTH strip — same chips as the Shots tab's chain strip, so a sheet never
+       reads as finished while its panels are unrendered, unapproved or stale */
+    health && !!health.total && _sbEl("div",{className:"ssx-chain-strip sb-health"},
+      _sbEl("span",{className:"ssx-chain-chip"+((health.approved===health.total)?" ok":""),
+        title:"Approved frames are the verified, locked panels — use Approve frame as seed in the shot image's Options menu."},
+        health.approved+"/"+health.total+" approved"),
+      health.unrendered>0 && _sbEl("span",{className:"ssx-chain-chip warn",
+        title:"Panels with no generated frame yet — they print as empty placeholders."},
+        health.unrendered+" unrendered"),
+      health.staleSeed>0 && _sbEl("span",{className:"ssx-chain-chip warn",
+        title:"Frames whose continuity source has since changed — 'Render Scene in order' in Shots re-renders them."},
+        health.staleSeed+" frame"+(health.staleSeed===1?" needs":"s need")+" continuity refresh"),
+      health.staleSrc>0 && _sbEl("span",{className:"ssx-chain-chip warn",
+        title:"Frames rendered before their shot specification or screenplay beat changed — regenerate in the Shots tab."},
+        health.staleSrc+" frame"+(health.staleSrc!==1?"s need":" needs")+" source refresh"),
+      health.oldLook>0 && _sbEl("span",{className:"ssx-chain-chip warn",
+        title:"These frames were made before the scene's colour look or the film stock changed in the Color tab — regenerate them in the Shots tab for the new look."},
+        health.oldLook+" frame"+(health.oldLook===1?"":"s")+" made with an earlier look"),
+      !health.unrendered && !health.staleSeed && !health.staleSrc && !health.oldLook && health.approved===health.total &&
+        _sbEl("span",{className:"ssx-chain-chip ok"},"Sheet solid")),
     _sbEl("div",{className:"sb-comp-frame"},
       gen.genUrl && _sbEl("div",{className:"sheet-tools-menu sb-tpanel-menu",ref:menuRef,
           // the menu closes when keyboard focus leaves it (2026-10-09)
@@ -1304,32 +1326,16 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
             "Try again"),
           !stripRetry && (halvesErr || actionErr) && _sbEl("button",{className:"sb-sheet-err-btn",
             onClick:()=>{ setHalvesErr(""); setActionErr(""); }}, "Dismiss")))),
-    /* PANEL HEALTH strip — same chips as the Shots tab's chain strip, so a sheet never
-       reads as finished while its panels are unrendered, unapproved or stale */
-    health && !!health.total && _sbEl("div",{className:"ssx-chain-strip sb-health"},
-      _sbEl("span",{className:"ssx-chain-chip"+((health.approved===health.total)?" ok":""),
-        title:"Approved frames are the verified, locked panels — use Approve frame as seed in the shot image's Options menu."},
-        health.approved+"/"+health.total+" approved"),
-      health.unrendered>0 && _sbEl("span",{className:"ssx-chain-chip warn",
-        title:"Panels with no generated frame yet — they print as empty placeholders."},
-        health.unrendered+" unrendered"),
-      health.staleSeed>0 && _sbEl("span",{className:"ssx-chain-chip warn",
-        title:"Frames whose continuity source has since changed — 'Render Scene in order' in Shots re-renders them."},
-        health.staleSeed+" frame"+(health.staleSeed===1?" needs":"s need")+" continuity refresh"),
-      health.staleSrc>0 && _sbEl("span",{className:"ssx-chain-chip warn",
-        title:"Frames rendered before their shot specification or screenplay beat changed — regenerate in the Shots tab."},
-        health.staleSrc+" frame"+(health.staleSrc!==1?"s need":" needs")+" source refresh"),
-      health.oldLook>0 && _sbEl("span",{className:"ssx-chain-chip warn",
-        title:"These frames were made before the scene's colour look or the film stock changed in the Color tab — regenerate them in the Shots tab for the new look."},
-        health.oldLook+" frame"+(health.oldLook===1?"":"s")+" made with an earlier look"),
-      !health.unrendered && !health.staleSeed && !health.staleSrc && !health.oldLook && health.approved===health.total &&
-        _sbEl("span",{className:"ssx-chain-chip ok"},"Sheet solid")),
     /* SCENE CANON — the master designs this scene locks to, as small thumbnails (click
        to enlarge). These are the scene-wide reference sheets, NOT a per-frame input
        list — each panel's actual render inputs are in its beat & shot brief below. */
-    refImgs.length>0 && _sbEl("div",{className:"shot-refs sb-refs"},
-      _sbEl("div",{className:"shot-refs-lab"}, _sbEl(Icon.layers,{s:12}),"Scene canon — the Character, Prop & Location designs this scene locks to (per-panel render inputs: see the beat & shot briefs)"),
-      _sbEl("div",{className:"shot-refs-row"},
+    // folded to one line (2026-10-23): "Scene canon · N reference sheets"
+    refImgs.length>0 && _sbEl("div",{className:"shot-refs sb-refs"+(canonOpen?" open":"")},
+      _sbEl("button",{type:"button",className:"shot-refs-lab sb-canon-toggle","aria-expanded":canonOpen?"true":"false",onClick:()=>setCanonOpen(o=>!o),
+          title:"The Character, Prop & Location designs this scene locks to (each panel's own render inputs are in its beat & shot brief)"},
+        _sbEl(canonOpen?Icon.chevD:Icon.chevR,{s:12}), _sbEl(Icon.layers,{s:12}),
+        "Scene canon \u00b7 "+refImgs.length+" reference sheet"+(refImgs.length!==1?"s":"")),
+      canonOpen && _sbEl("div",{className:"shot-refs-row"},
         refImgs.map((r,i)=> _sbEl("button",{key:"a"+i,className:"shot-ref-thumb "+r.kind,
           title:r.label+" — click to enlarge", onClick:()=>onView&&onView({ url:r.url, character:{ name:r.label } })},
           _sbEl("img",{src:r.url,alt:r.label,loading:"lazy"}))))),
@@ -1397,16 +1403,26 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
 /* one scene PAGE = a storyboard SHEET: a header bar + the composed sheet image,
    plus a beat-briefs expander. */
 function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView, jumpToShot, onUpdateShot, readOnly=false, bulkBusy=false }){
-  return _sbEl("div",{className:"sb-sheet","data-sbpage":page.id},
+  /* OPTION A (owner 2026-10-23): the sheet leads; ONE panel's beat & shot brief sits beside it (pick the panel above it) */
+  const [panelIdx, setPanelIdx] = React.useState(0);
+  const pIdx = Math.min(panelIdx, Math.max(0, (page.shots||[]).length-1));
+  return _sbEl("div",{className:"sb-page-a"},
+  _sbEl("div",{className:"sb-sheet","data-sbpage":page.id},
     _sbEl("div",{className:"sb-sheet-head"},
       _sbEl("span",{className:"sb-sheet-hi"}, _sbEl("b",null,"PROJECT: "), (project&&project.title)||"Untitled film"),
       _sbEl("span",{className:"sb-sheet-hi"}, _sbEl("b",null,"SCENE: "), String(scene.no).padStart(2,"0")),
       _sbEl("span",{className:"sb-sheet-hi"}, _sbEl("b",null,"TITLE: "), scene.title||"Untitled scene"),
       _sbEl("span",{className:"sb-sheet-hi page"}, _sbEl("b",null,"PAGE: "), (page.index+1)+" of "+pageCount)),
-    _sbEl(StoryboardComposite,{ scene, page, ctx, beatsMap, onView, onUpdateShot, readOnly, bulkBusy }),
+    _sbEl(StoryboardComposite,{ scene, page, ctx, beatsMap, onView, onUpdateShot, readOnly, bulkBusy })),
 
-    // full per-panel detail — Shots tab fields + Writers' Room beat subtext + the final frame prompt
-    _sbEl(CardFold,{label:"Beat & shot briefs",defaultOpen:false},
+    // the panel's full detail — Shots tab fields + Writers' Room beat subtext + the final frame prompt
+    _sbEl("aside",{className:"sb-side","aria-label":"Beat & shot brief"},
+      _sbEl("div",{className:"sb-side-head"},
+        _sbEl("span",{className:"loc-slate-lab"},"Beat & shot brief"),
+        (page.shots||[]).length>1 && _sbEl("div",{className:"sb-side-picks",role:"group","aria-label":"Panel"},
+          page.shots.map((sh,i)=>_sbEl("button",{key:sh.id,type:"button",className:"sb-side-pick"+(i===pIdx?" on":""),"aria-pressed":i===pIdx?"true":"false",
+            title:sbPanelLabel(sh)+((typeof shotGrammarLabel==="function")?" \u00b7 "+shotGrammarLabel(sh):""),onClick:()=>setPanelIdx(i)}, String((page.start||0)+i+1))))),
+
       (()=>{ const bm = sbBeatMeta(beatsMap, scene.id);
         return (bm.driverLabel || bm.reactorLabel || bm.desire || bm.obstacle)
           ? _sbEl("div",{className:"sb-brief-scene"},
@@ -1418,6 +1434,7 @@ function StoryboardPage({ project, scene, page, pageCount, ctx, beatsMap, onView
           : null;
       })(),
       page.shots.map((sh,i)=>{
+        if(i!==pIdx) return null;
         const bm = sbBeatMeta(beatsMap, scene.id);
         const row = sbBeatRow(beatsMap, sh);
         const who = sbInFrame(sh, ctx);
