@@ -578,12 +578,21 @@ async function stageServerAssetUrl(asset, fallbackUrl){
   }
   return raw;
 }
+/* who speaks a line: the voice it was rendered in, else (not voiced yet) the screenplay's speaker that the clip's
+   lineShots carry as lineSpeaker (live run 2026-10-25) */
+function _lineSpeakerOf(sh,characters){
+  const roster=Array.isArray(characters)?characters:[];
+  const la=(sh&&sh.lineAudio)||{},ls=(sh&&sh.lineSpeaker)||{};
+  const norm=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  return (la.speakerId&&roster.find(x=>x&&String(x.id)===String(la.speakerId)))
+    ||(la.speaker&&roster.find(x=>x&&norm(x.name)===norm(la.speaker)))
+    ||(ls.id&&roster.find(x=>x&&String(x.id)===String(ls.id)))
+    ||(ls.name&&roster.find(x=>x&&norm(x.name)===norm(ls.name)))||null;
+}
 function _shotAudioState(sh,auds,characters){
   const la=sh&&sh.lineAudio||{},url=(auds&&sh&&auds[sh.id])||"";
   const roster=Array.isArray(characters)?characters:null;
-  const norm=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
-  const c=roster&&((la.speakerId&&roster.find(x=>String(x&&x.id)===String(la.speakerId)))
-    ||roster.find(x=>norm(x&&x.name)===norm(la.speaker)));
+  const c=roster&&_lineSpeakerOf(sh,roster);
   // Callers without a roster (small pure helpers/tests) can still validate bytes and
   // the line's own provenance. Production Shoot always supplies the live cast lock.
   const lock=c&&c.voiceLock ? c.voiceLock : (!roster&&la.voiceId?{
@@ -608,6 +617,21 @@ function _shotAudioState(sh,auds,characters){
   if(la.stale)return {ready:false,state:"stale",reason:la.staleReason||"This line needs revoicing."};
   return {ready:true,state:"ready",reason:""};
 }
+/* WHAT A CLIP'S LINES STILL NEED, in the rail's words (live run 2026-10-25: a clip whose line wasn't voiced read
+   "Ready to render" while Shoot blocked Generate). Only under Locked voice on an engine that takes line audio;
+   Native performance (or lines not assigned to a shot, which force it) needs nothing. */
+function stageClipVoiceNote(clip, auds, characters, mode, audioRefs){
+  const d=(clip&&clip.data)||{};
+  if(mode==="native"||audioRefs===false||(d.clipDialogueLines||[]).length) return "";
+  const todo=(d.lineShots||[]).filter(sh=>String(sh&&sh.dialogue||"").trim())
+    .map(sh=>({sh,st:_shotAudioState(sh,auds,characters)})).filter(x=>!x.st.ready);
+  if(!todo.length) return "";
+  const lockless=Array.from(new Set(todo.filter(x=>x.st.state==="missing-lock")
+    .map(x=>String((_lineSpeakerOf(x.sh,characters)||{}).name||((x.sh&&x.sh.lineSpeaker)||{}).name||"the speaker").trim())));
+  if(lockless.length) return "No locked voice — "+lockless.join(", ");
+  return todo.length+" line"+(todo.length===1?"":"s")+" to voice";
+}
+window.stageClipVoiceNote=stageClipVoiceNote;
 function _shotAudioReady(sh,auds,characters){ return !!_shotAudioState(sh,auds,characters).ready; }
 window.stageShotAudioState=_shotAudioState;
 window.stageShotAudioReady=_shotAudioReady;
@@ -1574,7 +1598,9 @@ function buildClipData(scene, g, ctx, maxSec){
   const protect = shots.map(sh=>sh&&sh.beatPlan&&String(sh.beatPlan.protect||"").trim()).find(Boolean) || "";
   const lineShots = panelLines.filter(p=>String(p.dialogue||"").trim()&&!stageDeliveryIsText(p.dialogueDelivery)).map(p=>{
     const src = shots.find(sh=>sh && sh.id===p.shotId) || {};
-    return { ...src, dialogue:p.dialogue, lineAudio:src.lineAudio };
+    // who the screenplay says speaks it: before a line is voiced its lineAudio names nobody, and without this an
+    // unvoiced line read as "no voice lock" even when the speaker had one (live run 2026-10-25)
+    return { ...src, dialogue:p.dialogue, lineAudio:src.lineAudio, lineSpeaker:p.speaker||null };
   });
   const clipDialogueLines=Array.from(clipDialogueByBeat.values()).flat();
   const beatDialogues = {};
@@ -3379,7 +3405,7 @@ function StageMentionEditor({ value, mentionables, includeMention, maxLen, place
         m.t===swap.tok && _stEl("span",{className:"stage2-mention-kind"},"Current")))));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeIdentity=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType, pendingReuse, onReuseConsumed, shootMemory }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeIdentity=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType, pendingReuse, onReuseConsumed, shootMemory, onAudioMode }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the scene's look + film stock when this console renders — stamped on each take it makes, so a later
   // change on the Color tab shows the take as "made with an earlier look" (2026-10-05, owner — Color review)
@@ -4211,6 +4237,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const hasUnassignedClipDialogue = clipDialogueLines.length>0;
   const hasDialogue = lineShots.length>0 || hasUnassignedClipDialogue;
   const lineAudioStates=lineShots.map(sh=>({sh,state:_shotAudioState(sh,auds,ctx.characters||[])}));
+  React.useEffect(()=>{ if(onAudioMode) onAudioMode(clip.id, dialogueAudio); }, [clip.id, dialogueAudio]);
   const voicedLineCount = lineAudioStates.filter(x=>x.state.ready).length;
   const firstVoiceIssue=(lineAudioStates.find(x=>!x.state.ready)||{}).state||null;
   // capability flags from the model registry — Sora-class models take ONE start image
@@ -5484,8 +5511,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   };
   // PRICED, AND ASKED (2026-10-05, owner — Stage review): each unvoiced line is one paid voice render
   const voiceTodo = lineShots.filter(sh=>String(sh.dialogue||"").trim() && !_shotAudioReady(sh,auds,ctx.characters||[]));
-  const voiceLineModel = (sh)=>{ const la=(sh&&sh.lineAudio)||{}; const norm=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
-    const c=(ctx.characters||[]).find(x=>x && ((la.speakerId && String(x.id)===String(la.speakerId)) || norm(x.name)===norm(la.speaker)));
+  const voiceLineModel = (sh)=>{ const la=(sh&&sh.lineAudio)||{};
+    const c=_lineSpeakerOf(sh,ctx.characters||[]);
     // the lock's own model (an unpinned lock: the model it was made on — voicegen.jsx vgDeliveryModelOf)
     if(c && c.voiceLock) return (typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(c.voiceLock) : (c.voiceLock.modelId || "eleven_v3");
     return la.modelId || window.VG_TTS_MODEL || "eleven_v4"; };
@@ -5814,7 +5841,23 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   if(planIssue) blockers.push({key:"render-plan",text:planIssue.message,
     actionLabel:clipScope==="legacy"?"Split to fit":null,
     action:clipScope==="legacy"?()=>setClipScope("beat"):null});
-  if(needsVoice) blockers.push({ key:"voice",
+  /* A SPEAKER WITH NO LOCKED VOICE (live run 2026-10-25): "Voice clip now" can't voice their line — it offered a paid
+     voicing that could only fail. The notice names them and opens their card's Voice instead (Native performance
+     needs no lock). */
+  const lockless = needsVoice && !hasUnassignedClipDialogue
+    ? lineAudioStates.filter(x=>x.state && x.state.state==="missing-lock").map(x=>{ const c=_lineSpeakerOf(x.sh,ctx.characters||[]);
+        return { c, name:String((c&&c.name)||((x.sh&&x.sh.lineSpeaker)||{}).name||"The speaker").trim() }; })
+    : [];
+  const locklessNames = Array.from(new Set(lockless.map(x=>x.name)));
+  const locklessChar = (lockless.find(x=>x.c)||{}).c || null;
+  const canOpenVoice = !!(locklessChar && !readOnly && typeof window.turnOpenCharacterVoice==="function");
+  if(needsVoice && locklessNames.length) blockers.push({ key:"voice",
+    text:locklessNames.join(" and ")+(locklessNames.length>1?" have":" has")+" no locked voice yet, so "+(lockless.length>1?"these lines":"this line")
+      +" can’t be voiced. Lock one on the character’s card (Art Room → Characters → Voice), or set Direction → Audio to Native performance to let the model act the line.",
+    actionLabel:canOpenVoice ? "Lock "+locklessChar.name+"’s voice" : null,
+    action:canOpenVoice ? ()=>window.turnOpenCharacterVoice(locklessChar.id) : null,
+    busy:false });
+  else if(needsVoice) blockers.push({ key:"voice",
     text:hasUnassignedClipDialogue
       ? "This complete beat has ordered screenplay dialogue that is not assigned to a shot. Choose Native performance, or assign every line to a shot before using Locked voice. Lines are never matched to shots or audio by guesswork."
       : ((firstVoiceIssue&&firstVoiceIssue.reason)||"Voice this clip before rendering — duration and lip-sync lock to current line audio."),
@@ -8770,6 +8813,11 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const allClipsRef = React.useRef(null); allClipsRef.current = allClips;
   // each clip's Shoot choices for this session (option B, 2026-10-25) — a new Map per film (the Stage remounts per film)
   const shootMemRef = React.useRef(null); if(!shootMemRef.current) shootMemRef.current = new Map();
+  // each clip's Audio choice (Locked voice / Native performance) as Shoot last had it, so the rail can say a clip
+  // still needs its lines voiced (live run 2026-10-25) — the console reports it (onAudioMode)
+  const [clipAudioModes, setClipAudioModes] = React.useState({});
+  const setClipAudioMode = React.useCallback((id, mode)=>{ if(!id) return;
+    setClipAudioModes(m=> m[id]===mode ? m : { ...m, [id]:mode }); }, []);
   const [selId, setSelId] = React.useState(allClips[0] ? allClips[0].id : null);
   const selIdRef = React.useRef(null); selIdRef.current = selId;
   const [selShotId, setSelShotId] = React.useState((shots||[])[0] ? (shots||[])[0].id : null);
@@ -8887,23 +8935,31 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     setImgs(sync);
     setImageLoadState(Object.fromEntries(missing.map(id=>[id,typeof nbLoadImage==="function"?"loading":"unavailable"])));
     if(typeof nbLoadImage!=="function" || !missing.length){ return ()=>{ alive=false; }; }
-    (async()=>{
-      const limit = 8;
+    /* A LOAD THAT CAME BACK EMPTY IS ASKED AGAIN (live run 2026-10-25: frames rendered minutes earlier read "No frame
+       — Shots" / "Unavailable" until a reload — a load that times out or fails while the connection re-syncs answers
+       "" just like an image that doesn't exist, and nothing asked again). Empty ids are retried after 4 s and 12 s;
+       their state isn't reset to loading meanwhile, so an image that really doesn't exist doesn't flicker. */
+    const timers = [];
+    const run = async (list, attempt)=>{
+      const limit = 8, empty = [];
       let idx = 0;
       const worker = async()=>{
-        while(alive && idx<missing.length){
-          const id = missing[idx++];
+        while(alive && idx<list.length){
+          const id = list[idx++];
           try{
             const u = await nbLoadImage(id);
             if(alive && u) setImgs(prev=> prev[id] ? prev : ({...prev, [id]:u}));
             if(alive && u && propVariantIdsRef.current.has(id)) setPropVariantTick(t=>t+1);   // re-pick the prop's sheet
-            if(alive)setImageLoadState(prev=>({...prev,[id]:u?"ready":"unavailable"}));
-          }catch(e){ if(alive)setImageLoadState(prev=>({...prev,[id]:"error"})); }
+            if(alive && (u || attempt===0)) setImageLoadState(prev=>({...prev,[id]:u?"ready":"unavailable"}));
+            if(!u) empty.push(id);
+          }catch(e){ if(alive && attempt===0) setImageLoadState(prev=>({...prev,[id]:"error"})); empty.push(id); }
         }
       };
-      await Promise.all(Array.from({length:Math.min(limit, missing.length)}, worker));
-    })();
-    return ()=>{ alive=false; }; }, [neededIds.join(","), imgTick]);
+      await Promise.all(Array.from({length:Math.min(limit, list.length)}, worker));
+      if(alive && empty.length && attempt<2) timers.push(setTimeout(()=>{ if(alive) run(empty, attempt+1); }, attempt===0 ? 4000 : 12000));
+    };
+    run(missing, 0);
+    return ()=>{ alive=false; timers.forEach(clearTimeout); }; }, [neededIds.join(","), imgTick]);
 
   // load voiced line audio for shots that have it
   const [auds, setAuds] = React.useState({});
@@ -9080,11 +9136,16 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             const rendered = clipVideoReady(c, vids);
             const noted = !!(noteVids[c.id] || oldLookVids[c.id]);
             const fr = clipPrimaryFrame(c, railImgs, visualSource);
-            const st = rendered ? "ok" : unknown ? "todo" : !p.ready ? "warn" : (ready && ready.issues.length ? "warn" : "todo");
+            // its lines too: under Locked voice (Shoot's choice for the clip; the default) a line not voiced yet stops Generate
+            const railModel = (typeof SEEDANCE_MODELS!=="undefined" && SEEDANCE_MODELS.find(m=>m && m.id===modelId)) || {};
+            const voiceNote = (!rendered && !unknown && p.ready)
+              ? stageClipVoiceNote(c, auds, characters||[], clipAudioModes[c.id] || (shootMemRef.current.get(c.id)||{}).dialogueAudio || "locked", railModel.audioRefs!==false) : "";
+            const issueText = [ready && ready.issues.length ? String(ready.text||"").replace(/^\s*[—-]\s*/,"") : "", voiceNote].filter(Boolean).join(" · ");
+            const st = rendered ? "ok" : unknown ? "todo" : !p.ready ? "warn" : (issueText ? "warn" : "todo");
             const stText = rendered ? (noted ? "Rendered · take notes" : "Rendered")
               : unknown ? "Loading…"
               : !p.ready ? "No frame — Shots"
-              : (ready && ready.issues.length ? String(ready.text||"").replace(/^\s*[—-]\s*/,"") : "Ready to render");
+              : (issueText || "Ready to render");
             const shotsIn = (c.g&&c.g.shots)||[];
             const beats = []; shotsIn.forEach(sh=>{ const n = sh.beatN||null; const bb = beats.find(x=>x.n===n); if(bb) bb.shots.push(sh); else beats.push({ n, shots:[sh] }); });
             const secs = (()=>{ const m = rendered && typeof vidGetMeta==="function" ? vidGetMeta(c.id) : null;
@@ -9185,7 +9246,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
             // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeIdentity:!!identityVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType:readOnly?null:setClipType, shootMemory:shootMemRef.current,
+            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeIdentity:!!identityVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType:readOnly?null:setClipType, shootMemory:shootMemRef.current, onAudioMode:setClipAudioMode,
                 onSelectClip,
                 // only when you're still on Shoot with that clip (2026-10-25 — a render finishing while you were in the
                 // Timeline or on another clip used to pull you into Takes)

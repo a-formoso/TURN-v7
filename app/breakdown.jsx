@@ -116,6 +116,19 @@ function bdSceneRow({ scene, slug, todKind, ordered, C, props, locations, sceneS
     // approved = a FRAME you approved (a locked shot with no frame isn't one — 2026-10-05)
     const approved = sceneShots.filter(s=> (s.approved || s.locked) && img(s.id)).length;
     const missing = [], notes = [];
+    // A SPEAKER WITH NO LOCKED VOICE (live run 2026-10-25: Scene 01 read "Ready" while the Stage stopped its clip for
+    // the purser's voice): a note, not a block — the Stage's Native performance needs no lock
+    if(sceneShots.length && typeof stageBeatDialogueLines==="function"){
+      const norm = v=>String(v||"").toLowerCase().replace(/\(cont'?d\)/ig,"").replace(/[^a-z0-9]+/g," ").trim();
+      const unlocked = new Map();
+      Array.from(new Set(sceneShots.map(s=>s.beatN).filter(n=>n!=null))).forEach(n=>{
+        let rows = []; try{ rows = stageBeatDialogueLines(scene, drafts||{}, n) || []; }catch(e){ rows = []; }
+        rows.forEach(r=>{ if(!r || !String(r.text||"").trim() || r.delivery==="text") return;
+          const c = (r.speakerId && C.find(x=>x && x.id===r.speakerId)) || C.find(x=>x && norm(x.name)===norm(r.speaker));
+          if(c && !(c.voiceLock && c.voiceLock.voiceId)) unlocked.set(c.id, c.name||"A character"); }); });
+      if(unlocked.size) notes.push({ tab:"characters", cardId:String(Array.from(unlocked.keys())[0]),
+        text:"No locked voice yet: "+Array.from(unlocked.values()).join(", ")+" — lock one on the character’s card for lip-synced lines, or render with the Stage’s Native performance" });
+    }
     // THE SAME RULES AS SHOTS (2026-10-03, owner — Breakdown review): with shots, what's missing is
     // exactly what the scene's frames attach and don't have yet (sceneReferenceNeeds — so the room &
     // time plate a scene shoots in counts, not just the main plate), and a frame is done only when
@@ -645,7 +658,10 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
             : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>onOpenStage&&onOpenStage(),disabled:!onOpenStage,
                 title:"Video clips are counted when you visit the Stage"}, dot("unused"), "Counted on your next visit to the Stage")))),
       (row.notes||[]).length>0 && _bdEl("div",{className:"bd-notes"}, row.notes.map((n,i)=>
-        _bdEl("button",{key:i,type:"button",className:"bd-note",onClick:()=>go(n.tab)}, Icon.info&&_bdEl(Icon.info,{s:12}), n.text))),
+        _bdEl("button",{key:i,type:"button",className:"bd-note",
+          // the voice note opens that character's Voice (app.jsx turnOpenCharacterVoice)
+          onClick:()=>{ if(n.tab==="characters" && n.cardId && typeof window.turnOpenCharacterVoice==="function") window.turnOpenCharacterVoice(n.cardId); else go(n.tab); }},
+          Icon.info&&_bdEl(Icon.info,{s:12}), n.text))),
       sceneActs || runNote),
     _bdEl("div",{className:"bd-strip-status"+(ready?" ok":"")},
       ready ? _bdEl(React.Fragment,null, _bdEl(Icon.check,{s:14}), "Ready")

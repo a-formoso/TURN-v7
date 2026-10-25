@@ -1005,6 +1005,14 @@ function App(){
     setArtViewNoFilm(v);
   };
   const setArtView = (tab)=> setArtViewFor(artViewKeyRef.current, typeof tab==="function" ? tab(artView) : tab);
+  // open a character's Voice on their card (the Stage's "Lock <name>'s voice", live run 2026-10-25): the Characters
+  // tab, the card scrolled to, its Voice opened — the hand-off waits for the tab to mount (artroom.jsx CharacterSheets)
+  window.turnOpenCharacterVoice = (characterId)=>{
+    const id = String(characterId||""); if(!id) return;
+    window.turnCharacterVoiceAsk = { id, at:Date.now(), film:window.turnOpenFilmId||null };
+    setRoom("art"); setArtView("characters");
+    window.dispatchEvent(new CustomEvent("turn-character-voice",{ detail:{ id } }));
+  };
   // open a location's card in the Art Room (a shot's missing location view, 2026-10-20): the Locations tab, scrolled to it
   // …and with imageId, the exact room & time view: its room shown, "Rooms & times" opened, the view scrolled to and flashed
   window.turnOpenLocationCard = (locationId, imageId)=>{

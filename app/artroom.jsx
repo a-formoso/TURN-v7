@@ -6959,6 +6959,26 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
   const [query, setQuery] = React.useState("");               // free-text name search
   const [searchOpen, setSearchOpen] = React.useState(false);  // collapsible search: icon-only until clicked
   const searchRef = React.useRef(null);
+  // the Stage's "Lock <name>'s voice" (app.jsx turnOpenCharacterVoice, live run 2026-10-25): open that card's Voice
+  // and scroll to it — asked before this tab mounted (a hand-off up to 15 s old, this film's) or while it's open
+  React.useEffect(()=>{
+    const take = (id)=>{
+      const c = id && (characters||[]).find(x=>x && x.id===id); if(!c) return false;
+      openVoice(id); setSceneFilter("");
+      const sel = '[data-char-card="'+String(id).replace(/["\\]/g,"")+'"]';
+      let tries = 0;
+      const seek = ()=>{ const el = document.querySelector(sel);
+        if(el && el.scrollIntoView){ el.scrollIntoView({ behavior:"smooth", block:"center" }); return; }
+        if(++tries < 20) setTimeout(seek, 150);
+        else { setSearchOpen(true); setQuery(c.name||""); } };   // on another page of the grid: find it by name
+      setTimeout(seek, 100);
+      return true; };
+    const ask = window.turnCharacterVoiceAsk;
+    if(ask && Date.now()-ask.at<15000 && (ask.film||null)===(window.turnOpenFilmId||null) && take(ask.id)) window.turnCharacterVoiceAsk = null;
+    const on = (e)=>{ if(take(e && e.detail && e.detail.id)) window.turnCharacterVoiceAsk = null; };
+    window.addEventListener("turn-character-voice", on);
+    return ()=>window.removeEventListener("turn-character-voice", on);
+  },[characterIdsKey]);
   // film-wide render style: apply one visual language to the WHOLE cast at once. Shows the
   // shared key, or blank ("Mixed") when characters differ. "surprise" invents a bespoke
   // style per character (each unique), so it confirms the per-character AI cost first.

@@ -63,6 +63,6 @@ t("7 (option B) Shoot remembers each clip's choices for the session", ()=>{
 });
 t("Frances and keys", ()=>{
   assert.ok(ai.includes("STAGE TABS, HOW THEY CONNECT (2026-10-25)") && ai.includes("SHOOT REMEMBERS EACH CLIP (2026-10-25, owner)"));
-  ["stage.jsx","ai.jsx","script.jsx"].forEach(f=>assert.ok(["20261025-hs73"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  ["stage.jsx","ai.jsx","script.jsx"].forEach(f=>assert.ok(["20261025-hs73", "20261025-hs74"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
 });
 console.log(pass+" passed, 0 failed");

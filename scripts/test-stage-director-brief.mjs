@@ -752,6 +752,13 @@ ok("scene type auto: violence, hidden, altered, extreme wide, crowd, quiet, else
   &&typeAuto({panelLines:[{text:"Mara reads the letter."}]},[{size:"CU",move:"static"},{size:"MS",move:""}])==="quiet"
   &&typeAuto({panelLines:[{text:"Mara runs for the door."}]},[{size:"MS",move:"static"}])===""
   &&typeAuto({panelLines:[{text:"Mara crosses the room."}]},[{size:"MS",move:"dolly"}])==="");
+// live run 2026-10-25: a ticket punch is not a fight; a punch at a person still is
+ok("scene type auto: punching tickets, a card or the clock is not violence; punching someone is",
+  typeAuto({panelLines:[{text:"Aurelio punches tickets without looking up."}]},[{size:"WS",move:"static"}])==="quiet"
+  &&typeAuto({panelLines:[{text:"He answers only with the click of the ticket punch."}]},[{size:"WS",move:"pan"}])===""
+  &&typeAuto({panelLines:[{text:"She punches in at the gate and punches the code into the keypad."}]},[{move:"pan"}])===""
+  &&typeAuto({panelLines:[{text:"He punches Daniel, then punches tickets."}]},[{move:"static"}])==="violence"
+  &&typeAuto({panelLines:[{text:"Punching the wall until his knuckles split."}]},[{move:"static"}])==="violence");
 const typedAuto=brief(makeClip(dataPart,"type-auto"),[shotPart],shotPart,true,[],refs,opts);
 const typedPick=brief(makeClip(dataPart,"type-pick"),[shotPart],shotPart,true,[],refs,{...opts,sceneType:"hidden"});
 const typedNone=brief(makeClip(dataPart,"type-none"),[shotPart],shotPart,true,[],refs,{...opts,sceneType:"none"});

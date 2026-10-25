@@ -1055,7 +1055,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const _missLoc = refsLoaded ? refImgs.filter(r=>r && r.kind==="location" && r.missing && _offIds.indexOf(r.refId)<0) : [];
   const _namesOf = (list)=>{ const n = Array.from(new Set(list.map(r=>String(r.label||"A character").split(" \u00b7 ")[0])));
     return n.length<=1 ? (n[0]||"") : n.slice(0,-1).join(", ")+" and "+n[n.length-1]; };
-  const refWarn = (_missCast.length || _missLoc.length) && _el("div",{className:"shot-refs-warn",role:"status"},
+  const refWarn = (_missCast.length>0 || _missLoc.length>0) && _el("div",{className:"shot-refs-warn",role:"status"},
     Icon.alert && _el(Icon.alert,{s:12}),
     _el("span",null,
       _missCast.length ? (_namesOf(_missCast)+(_missCast.length>1?" have":" has")+" no usable sheet yet, so this frame won\u2019t render: make "

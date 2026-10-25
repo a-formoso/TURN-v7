@@ -182,7 +182,10 @@
     d=d||{}; list=(list||[]).filter(Boolean);
     const words=[].concat((d.panelLines||[]).map(p=>[p.text,p.staging,p.sheet,p.script].join(" ")),
       list.map(sh=>[sh.action,sh.vidText].join(" "))).join(" ");
-    if(/\b(punch(?:es|ed)?|stab(?:s|bed|bing)?|strangl\w*|slash(?:es|ed)?|gunshots?|gunfire|shoots? (?:him|her|them|at)|beats? (?:him|her|them)|murders?|attacks? (?:him|her|them)|attacked|brawl|fistfight|bleeding|blood)\b/i.test(words))return "violence";
+    /* a ticket punch is not a fight (owner's live run 2026-10-25: "punches tickets" tagged the car-deck beat as
+       violence): punching tickets, cards, a clock, keys or a code, and the punch as a tool or a drink, are set aside */
+    const fight=words.replace(/\b(?:ticket|hole|paper|card|fruit|rum) punch(?:es)?\b|\bpunch ?lines?\b|\bpunch(?:es|ed|ing)? (?:in|out)\b|\bpunch(?:es|ed|ing)? (?:(?:the|a|an|his|her|their|its|another|each|every|one|two|three|more|some) )?(?:tickets?|holes?|cards?|time ?cards?|clocks?|keys?|codes?|numbers?|digits?|buttons?|keypad|passes|stubs?|passports?)\b/gi," ");
+    if(/\b(punch(?:es|ed|ing)?|stab(?:s|bed|bing)?|strangl\w*|slash(?:es|ed)?|gunshots?|gunfire|shoots? (?:him|her|them|at)|beats? (?:him|her|them)|murders?|attacks? (?:him|her|them)|attacked|brawl|fistfight|bleeding|blood)\b/i.test(fight))return "violence";
     if(/\b(we (?:don'?t|do not|never) see|out of (?:sight|view)|hidden from (?:view|us)|unseen)\b/i.test(words))return "hidden";
     if(/\b(hallucinat\w*|delirious|delirium|feverish|nightmare|dreaming|in a dream|drugged|madness|losing (?:his|her|their) mind)\b/i.test(words))return "altered";
     const sizes=list.map(sh=>String(sh.size||"").toUpperCase());
