@@ -28,5 +28,5 @@ t("R4 styles and Frances", ()=>{
   assert.ok(css.includes(".stage2-clip-state.warn{") && css.includes(".stage2-rail-mini-th.none::after{"));
   assert.ok(ai.includes("CLIPS YOU CAN SEE, 2026-10-24, owner"));
 });
-t("R5 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs70", "20261025-hs71", "20261025-hs72"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
+t("R5 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs70", "20261025-hs71", "20261025-hs72", "20261025-hs73"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
 console.log(pass+" passed, 0 failed");

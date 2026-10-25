@@ -15,8 +15,9 @@ const t=(name,f)=>{ try{ f(); }catch(e){ console.error("FAIL "+name+" — "+Stri
 t("1 Branch keeps its seed: the per-clip reset skips the moment Shoot opens", ()=>{
   assert.ok(has('const resetKeyRef = React.useRef(clip.id+"|"+activeShot.id);'));
   assert.ok(has('if(resetKeyRef.current===k) return; resetKeyRef.current = k;'));
-  // the Reuse effect is declared before the reset (both run on opening; the reset no longer clears the seed)
-  assert.ok(src.indexOf("setSeedInput(pendingReuse.pin && m.seed!=null ? String(m.seed) : \"\");") < src.indexOf("const resetKeyRef"));
+  // (option B, 2026-10-25) the Reuse effect runs after the reset and after the clip memory, so a Branch's seed wins
+  const reuseAt=src.indexOf("setSeedInput(pendingReuse.pin && m.seed!=null ? String(m.seed) : \"\");");
+  assert.ok(reuseAt > src.indexOf("const resetKeyRef") && reuseAt > src.indexOf("const memOwnerRef = React.useRef(clip.id);"));
 });
 t("2 Takes: 'In the film' only for a take the film uses; a current take left out says so", ()=>{
   const v=fn("function StageVersionsView({", "\n}\n");
@@ -45,8 +46,23 @@ t("8 Reuse: the tier only from this engine; no recipe promise; a failed 'Use in 
   assert.ok(!has("bitrate and recipe back into the Stage composer"));
   assert.ok(has('if(!done || done.skipped || !done.url){'));
 });
+t("7 (option B) Shoot remembers each clip's choices for the session", ()=>{
+  assert.ok(has("const shootMemRef = React.useRef(null); if(!shootMemRef.current) shootMemRef.current = new Map();"));
+  assert.ok(has("shootMemory:shootMemRef.current,"));
+  assert.ok(has("React.useEffect(()=>{ if(shootMemory && memOwnerRef.current) shootMemory.set(memOwnerRef.current, shootSnap); });"));
+  // saved under the clip the choices belong to; the restore (declared after the save) moves the owner on
+  assert.ok(src.indexOf("shootMemory.set(memOwnerRef.current, shootSnap)") < src.indexOf("memOwnerRef.current = clip.id;"));
+  assert.ok(has("const memOwnerRef = React.useRef(null);"), "opening Shoot never saves its defaults over the clip's choices");
+  ["tier","resolution","bitrate","seedInput","batchN","durationOverride","endFrameId","aspectOverride","sourceOverride","nativeAudio",
+   "dialogueAudio","camera","cameraProfile","lighting","perf","panelTab","composerTab","createTask","extendVideo","editVideo","editPrompt",
+   "motionVideo","motionImage","motionTier","sceneControl","motionOrientation","keepOriginalSound","motionPrompt","modeOverride"]
+    .forEach(k=>assert.ok(new RegExp("const shootSnap = \\{[^}]*\\b"+k+"\\b").test(src), k));
+  // what the engine, tier or plan can't give isn't brought back
+  assert.ok(has("const tierOk = !!m.tier && (model.tiers||[]).some(t0=>t0.id===m.tier);") && has("&& planAllowsRes(m.resolution)) setResolution(m.resolution);"));
+  assert.ok(has("setBatchN(Math.max(1, Math.min(planMaxBatch, Number(m.batchN)||1)));"));
+});
 t("Frances and keys", ()=>{
-  assert.ok(ai.includes("STAGE TABS, HOW THEY CONNECT (2026-10-25)"));
-  ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261025-hs72"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  assert.ok(ai.includes("STAGE TABS, HOW THEY CONNECT (2026-10-25)") && ai.includes("SHOOT REMEMBERS EACH CLIP (2026-10-25, owner)"));
+  ["stage.jsx","ai.jsx","script.jsx"].forEach(f=>assert.ok(["20261025-hs73"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
 });
 console.log(pass+" passed, 0 failed");

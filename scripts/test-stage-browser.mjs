@@ -1953,6 +1953,24 @@ async function main() {
     assert.equal(await c.eval(`JSON.stringify(__story)`),thumbBaseline.story,"thumbnail recovery leaves story and saved reference choices untouched");
     await c.eval(`window.stageShotReferencePackage=window.__originalRefPackage;window.mount();`);
 
+    /* (2026-10-25, Stage review option B) Shoot remembers the clip's choices across a trip to another tab */
+    {
+      const before=await openModelSettings("clip memory");
+      const resNow=()=>c.eval(`([...document.querySelectorAll(".stage2-rendercard .stage2-respill.on")].map(x=>x.textContent.trim())[0]||"")`);
+      const pickRes=(r)=>c.eval(`([...document.querySelectorAll(".stage2-rendercard .stage2-respill")].find(x=>x.textContent.trim()===${JSON.stringify(r)}&&!x.disabled))?.click()`);
+      const was=await resNow();
+      const target=was==="480p"?"720p":"480p";
+      await pickRes(target);
+      await waitFor(async()=>(await resNow())===target,"clip memory: resolution picked");
+      await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Timeline")).click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector(".stage2-tl")`),"clip memory: the Timeline opens");
+      await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Shoot")).click()`);
+      await waitFor(()=>c.eval(`!!document.querySelector(".stage2-rendercard .stage2-respill")`),"clip memory: Shoot is back");
+      assert.equal(await resNow(),target,"Shoot brings back the clip's resolution after a trip to the Timeline");
+      await pickRes(was); await waitFor(async()=>(await resNow())===was,"clip memory: resolution restored");
+      await restoreSettingsState(before);
+    }
+
     /* Actual review UI, references, and take controls. */
     await c.eval(`([...document.querySelectorAll(".viewnav button")].find(x=>x.textContent.trim()==="Takes")).click()`);
     await waitFor(()=>c.eval(`document.querySelector(".stage2-vers")?.innerText.includes("2 takes")`),"take review");

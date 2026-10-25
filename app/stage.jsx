@@ -3379,7 +3379,7 @@ function StageMentionEditor({ value, mentionables, includeMention, maxLen, place
         m.t===swap.tok && _stEl("span",{className:"stage2-mention-kind"},"Current")))));
 }
 
-function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeIdentity=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType, pendingReuse, onReuseConsumed }){
+function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState={}, auds, beatsMap, drafts, prevClipVideoId, aspect, visualSource, creditBalance, readOnly=false, onVoiceLine, onMakeSceneNeeds, takeStale=false, takeIdentity=false, takeOldLook=false, orphanTakes=[], onUpdateShot, onSelectClip, onFirstVideo, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType, pendingReuse, onReuseConsumed, shootMemory }){
   const scene = clip.scene, g = clip.g, d = clip.data;
   // the scene's look + film stock when this console renders — stamped on each take it makes, so a later
   // change on the Color tab shows the take as "made with an earlier look" (2026-10-05, owner — Color review)
@@ -4540,39 +4540,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     const onKey = (e)=>{ if(e.key==="Escape"){ e.stopPropagation(); setMaxImg(null); } };
     window.addEventListener("keydown", onKey, true);
     return ()=>{ window.removeEventListener("keydown", onKey, true); try{ back && back.focus && back.focus(); }catch(e){} }; }, [!!maxImg]);
-  // ---- Reuse/Branch handoff from the VERSIONS tab: apply the take's settings to the
-  // composer once, then consume — an explicit pick from the Versions view always wins.
-  React.useEffect(()=>{
-    if(!pendingReuse || pendingReuse.clipId!==clip.id) return;
-    const m = pendingReuse.meta || {};
-    // the take's visual source only when this clip can still use it now (2026-10-09 — a take made from halves
-    // or a sheet that has since been cleared, gone out of date or left the board fell into a source it can't send)
-    const srcAvailable = (src)=> src==="halves" ? !!sourcePlan.hasHalves && !beatOpeningClip
-      : src==="sheet" ? !!sourcePlan.hasSheet && !beatOpeningClip
-      : src==="frames" ? !beatOpeningClip && ((d.shots||[]).length>=2)
-      : true;
-    let sourceNote = "";
-    if(m.source && STAGE_SOURCE_MODES[m.source]){
-      if(srcAvailable(m.source)) setSourceOverride(m.source);
-      else { setSourceOverride("auto");
-        sourceNote = " Its visual source ("+STAGE_SOURCE_MODES[m.source].pick+") isn\u2019t available for this clip now, so it uses Auto."; }
-    }
-    // (2026-10-25) a tier only when this engine has it — a take made on another engine keeps today's tier and says so
-    const tierHere = m.tier && (model.tiers||[]).some(t0=>t0.id===m.tier);
-    if(tierHere) setTier(m.tier);
-    else if(m.tier) sourceNote += " It was made on another engine, so the tier stays "+((seedanceTierOf(model,tier)||{}).label||"as it is")+" \u2014 switch the engine in Render settings to match it.";
-    const tObj = seedanceTierOf(model, tierHere ? m.tier : tier);
-    if(m.resolution && tObj && tObj.creditRate && tObj.creditRate[m.resolution]!=null) setResolution(m.resolution);
-    if(m.bitrate) setBitrate(m.bitrate==="high"?"high":"standard");
-    // (the take's recipe is deliberately NOT restored — since the tab row went, the
-    // prompt assembly is always the smart per-clip derivation; a legacy recipe id
-    // would park the composer on a shape the UI can no longer explain.)
-    setSeedInput(pendingReuse.pin && m.seed!=null ? String(m.seed) : "");
-    if(onReuseConsumed) onReuseConsumed();
-    if(typeof window.appToast==="function") window.appToast((pendingReuse.pin
-      ? "Settings + seed loaded — Generate now renders a controlled variation of that take."
-      : "That take's settings are loaded into the composer.")+sourceNote,"ok");
-  },[pendingReuse]);
   // full-screen preview of the rendered clip — native fullscreen on the <video>, with
   // the in-app lightbox as the fallback when the browser refuses (e.g. embedded frames)
   const playerVideoRef = React.useRef(null);
@@ -5111,6 +5078,72 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // task modes, no motion-control endpoints and no direct-to-storage staging: the
   // tabs then say so and never submit.
   const [modeCaps, setModeCaps] = React.useState({ tasks:null, motion:null, motionModel:"" });
+  /* SHOOT REMEMBERS EACH CLIP (2026-10-25, owner — Stage review option B): Shoot closes when you open Takes,
+     the Timeline or the Mix, and it used to start over when you came back. Each clip's choices are kept for the
+     session in the Stage (shootMemory, one per film; a reload starts fresh): saved on every change, and brought
+     back when you return to Shoot or to that clip. A tier or resolution the current engine, tier or plan can't
+     give isn't brought back. A clip with nothing kept carries today's choices over, as before. */
+  const shootSnap = { tier, resolution, bitrate, seedInput, batchN, durationOverride, endFrameId, aspectOverride, sourceOverride,
+    nativeAudio, dialogueAudio, camera, cameraProfile, lighting, perf, panelTab, composerTab, createTask,
+    extendVideo, editVideo, editPrompt, motionVideo, motionImage, motionTier, sceneControl, motionOrientation, keepOriginalSound, motionPrompt, modeOverride };
+  // the clip the current choices belong to — none until the restore below has run, so opening Shoot never
+  // saves its fresh defaults over what the clip had
+  const memOwnerRef = React.useRef(null);
+  React.useEffect(()=>{ if(shootMemory && memOwnerRef.current) shootMemory.set(memOwnerRef.current, shootSnap); });
+  React.useEffect(()=>{
+    memOwnerRef.current = clip.id;
+    const m = shootMemory && shootMemory.get(clip.id); if(!m) return;
+    const tierOk = !!m.tier && (model.tiers||[]).some(t0=>t0.id===m.tier);
+    if(tierOk) setTier(m.tier);
+    const tObj = seedanceTierOf(model, tierOk ? m.tier : tier);
+    // (the server's own list arrives after Shoot opens; the clamp above re-checks it then)
+    if(m.resolution && tObj && stageResAllowed(tObj, m.resolution) && planAllowsRes(m.resolution)) setResolution(m.resolution);
+    setBitrate(m.bitrate==="high" ? "high" : "standard");
+    setSeedInput(m.seedInput||""); setBatchN(Math.max(1, Math.min(planMaxBatch, Number(m.batchN)||1)));
+    setDurationOverride(m.durationOverride==null ? null : m.durationOverride); setEndFrameId(m.endFrameId||""); setAspectOverride(m.aspectOverride||null);
+    setSourceOverride(m.sourceOverride||"auto"); setNativeAudio(m.nativeAudio!==false);
+    setDialogueAudio(clipHasUnassignedDialogue ? "native" : (m.dialogueAudio==="native" ? "native" : "locked"));
+    if(m.camera) setCamera(m.camera); if(m.cameraProfile) setCameraProfile(m.cameraProfile); if(m.lighting) setLighting(m.lighting); if(m.perf) setPerf(m.perf);
+    if(m.panelTab) setPanelTab(m.panelTab);
+    setComposerTab(m.composerTab||"create"); setCreateTask(m.createTask||"reference");
+    setExtendVideo(m.extendVideo||null); setEditVideo(m.editVideo||null); setEditPrompt(m.editPrompt||"");
+    setMotionVideo(m.motionVideo||null); setMotionImage(m.motionImage||null); setMotionTier(m.motionTier||"standard");
+    setSceneControl(m.sceneControl!==false); setMotionOrientation(m.motionOrientation||"image"); setKeepOriginalSound(m.keepOriginalSound!==false);
+    setMotionPrompt(m.motionPrompt||""); setModeOverride(m.modeOverride||null);
+  }, [clip.id]);
+  // ---- Reuse/Branch handoff from the VERSIONS tab: apply the take's settings to the
+  // composer once, then consume — an explicit pick from the Versions view always wins.
+  React.useEffect(()=>{
+    if(!pendingReuse || pendingReuse.clipId!==clip.id) return;
+    const m = pendingReuse.meta || {};
+    // the take's visual source only when this clip can still use it now (2026-10-09 — a take made from halves
+    // or a sheet that has since been cleared, gone out of date or left the board fell into a source it can't send)
+    const srcAvailable = (src)=> src==="halves" ? !!sourcePlan.hasHalves && !beatOpeningClip
+      : src==="sheet" ? !!sourcePlan.hasSheet && !beatOpeningClip
+      : src==="frames" ? !beatOpeningClip && ((d.shots||[]).length>=2)
+      : true;
+    let sourceNote = "";
+    if(m.source && STAGE_SOURCE_MODES[m.source]){
+      if(srcAvailable(m.source)) setSourceOverride(m.source);
+      else { setSourceOverride("auto");
+        sourceNote = " Its visual source ("+STAGE_SOURCE_MODES[m.source].pick+") isn\u2019t available for this clip now, so it uses Auto."; }
+    }
+    // (2026-10-25) a tier only when this engine has it — a take made on another engine keeps today's tier and says so
+    const tierHere = m.tier && (model.tiers||[]).some(t0=>t0.id===m.tier);
+    if(tierHere) setTier(m.tier);
+    else if(m.tier) sourceNote += " It was made on another engine, so the tier stays "+((seedanceTierOf(model,tier)||{}).label||"as it is")+" \u2014 switch the engine in Render settings to match it.";
+    const tObj = seedanceTierOf(model, tierHere ? m.tier : tier);
+    if(m.resolution && tObj && tObj.creditRate && tObj.creditRate[m.resolution]!=null) setResolution(m.resolution);
+    if(m.bitrate) setBitrate(m.bitrate==="high"?"high":"standard");
+    // (the take's recipe is deliberately NOT restored — since the tab row went, the
+    // prompt assembly is always the smart per-clip derivation; a legacy recipe id
+    // would park the composer on a shape the UI can no longer explain.)
+    setSeedInput(pendingReuse.pin && m.seed!=null ? String(m.seed) : "");
+    if(onReuseConsumed) onReuseConsumed();
+    if(typeof window.appToast==="function") window.appToast((pendingReuse.pin
+      ? "Settings + seed loaded — Generate now renders a controlled variation of that take."
+      : "That take's settings are loaded into the composer.")+sourceNote,"ok");
+  },[pendingReuse]);
   const proxyReadyFlag = (typeof videoProxyReady==="function" && videoProxyReady()) ? 1 : 0;
   // an unknown answer is re-asked whenever the user opens a mode that needs it (a
   // transient failure at mount must not pin the tab to "pending" for the session);
@@ -8735,6 +8768,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // so Stage can request the visible scene's package first instead of loading every
   // shot and sheet in the film before the selected beat becomes usable.
   const allClipsRef = React.useRef(null); allClipsRef.current = allClips;
+  // each clip's Shoot choices for this session (option B, 2026-10-25) — a new Map per film (the Stage remounts per film)
+  const shootMemRef = React.useRef(null); if(!shootMemRef.current) shootMemRef.current = new Map();
   const [selId, setSelId] = React.useState(allClips[0] ? allClips[0].id : null);
   const selIdRef = React.useRef(null); selIdRef.current = selId;
   const [selShotId, setSelShotId] = React.useState((shots||[])[0] ? (shots||[])[0].id : null);
@@ -9150,7 +9185,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
             // effect handles real clip moves within the scene.
-            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeIdentity:!!identityVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType:readOnly?null:setClipType,
+            : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeIdentity:!!identityVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType:readOnly?null:setClipType, shootMemory:shootMemRef.current,
                 onSelectClip,
                 // only when you're still on Shoot with that clip (2026-10-25 — a render finishing while you were in the
                 // Timeline or on another clip used to pull you into Takes)
