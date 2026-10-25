@@ -48,9 +48,18 @@ t("2d Render settings says a refusal short, what it was sent with, what to chang
   assert.ok(stage.includes('or set Workflow to Image to Video (the shot frame only), and Generate again'));
   assert.ok(stage.includes('canTextOnlyRecovery && _stEl("button",{type:"button",className:"sd-gen-err-act",'));
 });
+t("3 full screen that always works: every Stage player hides the video's own button and carries one that falls back to the window", ()=>{
+  assert.ok(stage.includes("function _stageFsButton(getVideo, open){"));
+  assert.equal((stage.match(/controlsList:"nofullscreen"/g)||[]).length, 5);   // Shoot, Takes, Timeline, Mix and the window view
+  assert.equal((stage.match(/_stageFsButton\(/g)||[]).length, 5);            // the helper + four players
+  assert.ok(stage.includes('vid.setAttribute("controlslist","nofullscreen");'));
+  assert.ok(stage.includes("setTimeout(()=>{ if(!document.fullscreenElement && !document.webkitFullscreenElement) overlay(); }, 600);"));
+  assert.ok(css.includes(".stage2-player-fs{position:absolute;top:10px;right:10px;"));
+  assert.ok(css.includes("video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:auto}"));
+});
 t("Frances knows; keys", ()=>{
   assert.ok(ai.includes("While a clip renders (Stage, 2026-10-25 fixes)"));
-  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
-  assert.ok(["20261025-hs78", "20261025-hs79"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 console.log(pass+" passed, 0 failed");

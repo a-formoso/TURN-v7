@@ -31,5 +31,5 @@ t("T5 the details fold: settings, note, prompt and references, open unless close
   assert.ok(has('localStorage.getItem("turn_stage_take_details")!=="closed"') && has('"Version details"') && has('"Prompt used"') && has('"References used"'));
 });
 t("T6 Frances knows the contact sheet", ()=>{ assert.ok(ai.includes("THE CONTACT SHEET (2026-10-24, owner)") && !ai.includes("Branch from version (reuse")); });
-t("T7 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs69", "20261024-hs70", "20261025-hs71", "20261025-hs72", "20261025-hs73", "20261025-hs74", "20261025-hs75", "20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
+t("T7 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs69", "20261024-hs70", "20261025-hs71", "20261025-hs72", "20261025-hs73", "20261025-hs74", "20261025-hs75", "20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
 console.log(pass+" passed, 0 failed");

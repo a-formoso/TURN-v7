@@ -118,7 +118,7 @@ t("Frances knows", ()=>{
 });
 t("cache keys", ()=>{
   ["stage.jsx","ai.jsx","script.jsx","app.jsx","artroom.jsx","shots-ui.jsx","breakdown.jsx"].forEach(f=>
-    assert.ok(["20261025-hs74", "20261025-hs75", "20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
-  assert.ok(["20261025-hs74", "20261025-hs75", "20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79"].some(k=>html.includes("app/stage-director-brief.js?v="+k+'"')));
+    assert.ok(["20261025-hs74", "20261025-hs75", "20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  assert.ok(["20261025-hs74", "20261025-hs75", "20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80"].some(k=>html.includes("app/stage-director-brief.js?v="+k+'"')));
 });
 console.log(pass+" passed, 0 failed");
