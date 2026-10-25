@@ -1401,9 +1401,19 @@ Deno.serve(async (req) => {
       return out;
     };
     const op = (body.op || "tts").toString();
+    // the provider's reason: {detail:{message}}, {detail:"…"}, or a validation 422's {detail:[{loc,msg}]} — which used to
+    // be dropped, leaving only the status (2026-10-25: a voice design 422 read "error (422)" with no reason)
     const elErr = async (r: Response) => {
-      let d = ""; try { const j = await r.json(); d = j?.detail?.message || (typeof j?.detail === "string" ? j.detail : "") || j?.message || ""; } catch (_e) { /* noop */ }
-      return d || `ElevenLabs error (${r.status}).`;
+      let d = "";
+      try {
+        const j = await r.json();
+        const list = Array.isArray(j?.detail) ? j.detail.map((x: any) => {
+          const where = Array.isArray(x?.loc) ? x.loc.filter((k: any) => k !== "body").join(".") : "";
+          return (where ? where + ": " : "") + String(x?.msg || "");
+        }).filter((m: string) => m.trim()) : [];
+        d = (list.length ? list.join("; ") : "") || j?.detail?.message || (typeof j?.detail === "string" ? j.detail : "") || j?.message || "";
+      } catch (_e) { /* noop */ }
+      return String(d).slice(0, 300) || `The voice service returned an error (${r.status}).`;
     };
     const voiceBillingIssue = (msg: string, status = 0): boolean =>
       status === 402 || /\b(subscription|invoice|payment|billing)\b/i.test(String(msg || ""));
@@ -1533,7 +1543,8 @@ Deno.serve(async (req) => {
             ...(body.guidanceScale != null ? { guidance_scale: Number(body.guidanceScale) } : {}),
             ...(body.loudness != null ? { loudness: Number(body.loudness) } : {}),
             ...(body.quality != null ? { quality: Number(body.quality) } : {}),
-            ...(body.seed != null ? { seed: Number(body.seed) } : {}),
+            // a whole number in the signed 32-bit range, whatever the browser sent (2026-10-25)
+            ...(body.seed != null && Number.isFinite(Number(body.seed)) ? { seed: Math.abs(Math.trunc(Number(body.seed))) % 2147483647 } : {}),
           }),
         });
         if (!r.ok) return json(voiceProviderError(await elErr(r), r.status, op), 200);

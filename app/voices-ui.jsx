@@ -121,7 +121,9 @@ const VC_AUDITION_TEXT = window.VG_VOICE_MASTER_TEXT || "That quick beige fox ju
 function vcStableSeed(id){
   const s=String(id||"voice");let h=2166136261;
   for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}
-  return h>>>0;
+  // inside the signed 32-bit range (2026-10-25: half the cast — "ottavio" hashed to 4,120,027,253 — got a 422 from
+  // voice design); a seed already below it is unchanged, so earlier designs keep theirs
+  return (h>>>0)%2147483647;
 }
 
 /* ── REAL VOICES (2026-10-11, owner — "every user can give a character their own voice or another
