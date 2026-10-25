@@ -8990,57 +8990,62 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
           "aria-valuenow":done,"aria-valuemin":0,"aria-valuemax":total,
           "aria-label":"Scene "+_pad2(scene.no)+" render progress"},
         _stEl("div",{className:"stage2-scene-bar-fill",style:{width:(total?Math.round(done/total*100):0)+"%"}})),
-      // BEATS below scenes, matching the Art Room exactly: one row per beatN (the
-      // Shots tab's "Beat N" cards), in shot order. Clips stay the render unit —
-      // a beat row selects the clip holding the beat's FIRST shot, but only the
-      // clicked/current beat highlights (packing can span beats without looking like
-      // a multi-select).
-      // L1: only the OPEN scene lists its beats (the others are one line each)
-      selectedScene.id===scene.id && _stEl("div",{className:"stage2-beat-list"},
-        (()=>{ const beats=[];
-          sceneShots.forEach(sh=>{ const n=sh.beatN||null;
-            const b=beats.find(x=>x.n===n); if(b) b.shots.push(sh); else beats.push({ n, shots:[sh] }); });
-          return beats.map(b=>{
-            const bIds = new Set(b.shots.map(s=>s.id));   // id-compare, never object identity
-            const coverClips = sceneClips.filter(c=> (c.g.shots||[]).some(sh=> bIds.has(sh.id)));
-            const firstClip = coverClips[0] || null;
-            /* (2026-10-09, owner — Stage review) only the open scene's images are loaded here: another scene's
-               beats read the image cache, and when nothing is known yet they say so instead of "no frame yet";
-               the open scene's beats read the clip's readiness (stageClipReadiness), as Shoot does */
-            const hydrated = !!(hydrationScene && hydrationScene.id===scene.id);
-            const railImgs = hydrated ? imgs : stageImgsWithCache(imgs);
-            const p = firstClip ? stageClipSourcePlan(firstClip, railImgs) : { glyph:"", ready:false, label:"shots" };
+      /* CLIPS YOU CAN SEE (2026-10-24, owner — rail option A): every scene shows a mini strip of its clips
+         (the frame each renders from; ✓ once rendered; a dashed box when there's no frame yet); the OPEN scene
+         lists its clips as cards — the unit Generate renders — with the clip code and length, its state in
+         words, and the beats it covers (each beat still selects its own first shot). */
+      (()=>{
+        const hydrated = !!(hydrationScene && hydrationScene.id===scene.id);
+        const railImgs = hydrated ? imgs : stageImgsWithCache(imgs);
+        const isOpen = selectedScene.id===scene.id;
+        if(!isOpen) return sceneClips.length>0 && _stEl("div",{className:"stage2-rail-mini","aria-hidden":"true"},
+          sceneClips.map(c=>{ const fr = clipPrimaryFrame(c, railImgs, visualSource); const ok = clipVideoReady(c, vids);
+            // a scene that isn't open reads the image cache: no image yet means "not loaded", never "no frame" (2026-10-09)
+            const known = hydrated || !!fr;
+            return _stEl("span",{key:c.id,className:"stage2-rail-mini-th"+(fr?"":known?" none":" unknown")+(ok?" done":""),
+                title:c.label+(ok ? " — rendered" : !known ? " — its images load when you open this scene" : fr ? "" : " — no frame yet")},
+              fr && _stEl("img",{src:fr,alt:"",loading:"lazy"}), ok && _stEl("i",null,"✓")); }));
+        return _stEl("div",{className:"stage2-clip-cards"},
+          sceneClips.map(c=>{
+            const p = stageClipSourcePlan(c, railImgs);
             const unknown = !hydrated && !p.ready;
-            const ready = firstClip && hydrated ? stageClipReadiness(firstClip, ctx, imgs, drafts, { loading:imageLoadState }) : null;
-            const notReadyText = ready && ready.issues.length ? " — "+ready.text : "";
-            const rendered = coverClips.length>0 && coverClips.every(c=>clipVideoReady(c, vids));
-            const noted = coverClips.some(c=>noteVids[c.id] || oldLookVids[c.id]);
-            const on = selectedScene.id===scene.id && b.shots.some(sh=>sh.id===((selectedShot||{}).id));
-            const beatNm = stageBeatRailName(scene, drafts, beatsMap, b);
-            const label = "Beat "+(b.n||"—");
-            // L1: a status dot (rendered / to do / can't render yet) and, when something stops it, one amber line saying what
-            const st = rendered ? "ok" : (p.ready||unknown) ? "todo" : "warn";
-            const warnTxt = rendered ? "" : unknown ? "" : !p.ready ? "No frame yet \u2014 make it in Shots"
-              : (ready && ready.issues.length ? String(ready.text||"").replace(/^\s*[\u2014-]\s*/,"") : "");
-            return _stEl("div",{key:"beat-"+(b.n||"none"),className:"stage2-beat"+(on?" on":"")},
-              _stEl("button",{type:"button",
-                className:"stage2-beat-row"+(rendered?" done":"")+((p.ready||unknown)?"":" missing"),
-                title:label+(beatNm?" · "+beatNm:"")+" · "+b.shots.length+" shot"+(b.shots.length!==1?"s":"")
-                  +(coverClips.length>1?" · spans "+coverClips.length+" clips":"")
-                  +" · renders from "+p.label
-                  +(unknown ? " — its images load when you open this scene"
-                    : (p.ready ? notReadyText : " — no frame yet: it would render from the prompt only (make it in Shots)"))
-                  +(rendered?" · rendered ✓":"")
-                  +(rendered && noted ? " · take notes: "+coverClips.map(c=>(noteVids[c.id]||[]).concat(oldLookVids[c.id]?["Earlier look"]:[])).flat().join(", ") : ""),
-                onClick:()=>{ if(!firstClip) return; if(firstClip.id!==clip.id) onSelectClip(firstClip.id); setSelShotId(b.shots[0].id); }},
-                _stEl("span",{className:"stage2-beat-dot "+st,"aria-hidden":"true"}),
-                _stEl("b",null,label),
-                _stEl("span",{className:"stage2-beat-name"},beatNm||"—"),
-                _stEl("span",{className:"stage2-clip-chip-glyph"},p.glyph),
-                _stEl("span",{className:"stage2-clip-chip-st"}, rendered?(noted?"✓\u2022":"✓"):((p.ready||unknown)?"":"!"))),
-              warnTxt && _stEl("div",{className:"stage2-beat-warn"}, warnTxt));
-          });
-        })()));
+            const ready = hydrated ? stageClipReadiness(c, ctx, imgs, drafts, { loading:imageLoadState }) : null;
+            const rendered = clipVideoReady(c, vids);
+            const noted = !!(noteVids[c.id] || oldLookVids[c.id]);
+            const fr = clipPrimaryFrame(c, railImgs, visualSource);
+            const st = rendered ? "ok" : unknown ? "todo" : !p.ready ? "warn" : (ready && ready.issues.length ? "warn" : "todo");
+            const stText = rendered ? (noted ? "Rendered · take notes" : "Rendered")
+              : unknown ? "Loading…"
+              : !p.ready ? "No frame — Shots"
+              : (ready && ready.issues.length ? String(ready.text||"").replace(/^\s*[—-]\s*/,"") : "Ready to render");
+            const shotsIn = (c.g&&c.g.shots)||[];
+            const beats = []; shotsIn.forEach(sh=>{ const n = sh.beatN||null; const bb = beats.find(x=>x.n===n); if(bb) bb.shots.push(sh); else beats.push({ n, shots:[sh] }); });
+            const secs = (()=>{ const m = rendered && typeof vidGetMeta==="function" ? vidGetMeta(c.id) : null;
+              const v = m ? (Number(m.durationSec)||Number(m.durationMs)/1000) : 0; return v>0 ? v : (Number(c.data&&c.data.dur)||0); })();
+            const on = c.id===clip.id;
+            return _stEl("div",{key:c.id,className:"stage2-clip-card"+(on?" on":"")+(rendered?" done":"")},
+              _stEl("button",{type:"button",className:"stage2-clip-main","aria-pressed":on?"true":"false",
+                  title:c.label+" · "+_fmtSecs(Math.round(secs))+" · "+(stText==="No frame — Shots" ? "no frame yet — make it in the Art Room's Shots (it would render from the prompt only)" : stText)+" · renders from "+p.label
+                    +(rendered && noted ? " · take notes: "+(noteVids[c.id]||[]).concat(oldLookVids[c.id]?["Earlier look"]:[]).join(", ") : ""),
+                  onClick:()=>{ if(c.id!==clip.id) onSelectClip(c.id); if(shotsIn[0]) setSelShotId(shotsIn[0].id); }},
+                _stEl("span",{className:"stage2-clip-th"+(fr?"":" none")}, fr && _stEl("img",{src:fr,alt:"",loading:"lazy"}),
+                  rendered && _stEl("i",{"aria-hidden":"true"},"✓")),
+                _stEl("span",{className:"stage2-clip-meta"},
+                  _stEl("b",null, c.label+" · "+_fmtSecs(Math.round(secs))),
+                  _stEl("span",{className:"stage2-clip-state "+st}, stText))),
+              _stEl("div",{className:"stage2-beat-list"},
+                beats.map(bt=>{
+                  const beatNm = stageBeatRailName(scene, drafts, beatsMap, bt);
+                  const label = "Beat "+(bt.n||"—");
+                  const bOn = on && bt.shots.some(sh=>sh.id===((selectedShot||{}).id));
+                  return _stEl("button",{key:"b-"+(bt.n||"none"),type:"button",
+                      className:"stage2-beat-row"+(bOn?" on":"")+(rendered?" done":"")+(p.ready||unknown?"":" missing"),
+                      title:label+(beatNm?" · "+beatNm:"")+" · "+bt.shots.length+" shot"+(bt.shots.length!==1?"s":"")+" in "+c.label,
+                      onClick:()=>{ if(c.id!==clip.id) onSelectClip(c.id); setSelShotId(bt.shots[0].id); }},
+                    _stEl("b",null,label),
+                    _stEl("span",{className:"stage2-beat-name"},beatNm||"—")); })));
+          }));
+      })());
   };
   const rail = _stEl("div",{className:"stage2-rail"},
     _stEl("div",{className:"stage2-rail-head"},
