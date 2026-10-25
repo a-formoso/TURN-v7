@@ -11319,3 +11319,26 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .stage2-clip-card .stage2-beat-row:hover{border-color:var(--line-2)}
 .app.hs.room-stage .stage2-clip-card .stage2-beat-row.on,.stage2-clip-card .stage2-beat-row.on{border-color:var(--hs-amber-line,var(--brand));background:var(--hs-amber-soft,var(--bg-3));color:var(--hs-ink,var(--txt-0))}
 .stage2-rail-mini-th.unknown{background:var(--bg-3,var(--bg-2))}
+/* ── RENDER SETTINGS, OPTION A (owner 2026-10-24) ─────────────────────────────────────────────────────
+   the price card (with how much of your balance it takes) above three tabs: Settings, Direction, Inputs */
+.app.hs.room-stage .stage2-rc-r1{padding:0;border:0;background:none;gap:0}
+.app.hs.room-stage .stage2-rc-r1 .stage2-rc-price{margin-bottom:0}
+.stage2-rc-balance{height:4px;margin:7px 2px 0;border-radius:2px;background:var(--hs-line,var(--line));overflow:hidden}
+.stage2-rc-balance i{display:block;height:100%;border-radius:2px;background:var(--hs-amber,var(--brand))}
+.stage2-rc-price .stage2-rc-balance{margin:4px 0 0}
+.stage2-rendercard.stage2-rc-settings{padding:0;border:0;background:none;box-shadow:none;gap:2px;margin:0}
+.app.hs.room-stage .stage2-rc-settings .stage2-ctrl{grid-template-columns:78px minmax(0,1fr);padding:4px 0}
+.app.hs.room-stage .stage2-rc-settings .stage2-ctrl-l{font:400 10px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--hs-sub)}
+.app.hs.room-stage .stage2-rc-settings .sd-gen-modelrow{margin:0;align-items:center}
+.stage2-capnote{display:flex;align-items:flex-start;gap:5px;margin:-2px 0 4px 86px;font-size:11px;line-height:1.4;color:var(--hs-amber-ink,var(--txt-2))}
+.stage2-capnote svg{flex:none;margin-top:2px}
+.stage2-ptabs{display:flex;flex-direction:column;gap:10px}
+.app.hs.room-stage .stage2-ptab-row{display:flex;gap:16px;padding:0;margin-top:12px;border-bottom:1px solid var(--hs-line,var(--line))}
+.app.hs.room-stage .stage2-ptab-row .insp-tab.stage2-ptab{flex:none;height:auto;padding:0 0 7px;margin:0;border:0;border-radius:0;background:none;
+  font:500 13px var(--f-ui);color:var(--hs-sub,var(--txt-2));box-shadow:none;cursor:pointer}
+.app.hs.room-stage .stage2-ptab-row .insp-tab.stage2-ptab.on{color:var(--hs-ink,var(--txt-0));box-shadow:inset 0 -2px 0 var(--hs-ink,var(--txt-0))}
+.stage2-ptab-pane{display:flex;flex-direction:column;gap:6px;min-width:0}
+.stage2-ptab-pane[hidden]{display:none}
+.stage2-gen-refs-fold{border-top:1px solid var(--hs-line,var(--line));padding-top:6px}
+.stage2-gen-refs-fold > summary{cursor:pointer;font:500 12px var(--f-ui);color:var(--hs-ink-2,var(--txt-1));padding:4px 0}
+.stage2-gen-refs-fold[open] > summary{margin-bottom:6px}

@@ -508,7 +508,7 @@ async function main() {
     }))()`);
     const restoreSettingsState=async(state)=>{
       if(state.open){
-        if(state.tab && state.tab!=="Model")
+        if(state.tab && state.tab!=="Settings")
           await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()===${JSON.stringify(state.tab)}))?.click()`);
         await waitFor(()=>c.eval(`document.querySelector(".stage2-settings-drawer")&&([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.classList.contains("on"))?.textContent.trim()||null)===${JSON.stringify(state.tab)}`),"restore Render settings tab");
       }else if(await c.eval(`!!document.querySelector(".stage2-settings-drawer")`)){
@@ -522,8 +522,9 @@ async function main() {
         await c.eval(`document.querySelector('button[title="Expand render settings"],.stage2-console .strip.right')?.click()`);
         await waitFor(()=>c.eval(`!!document.querySelector(".stage2-settings-drawer")`),`${label||"Stage"} Render settings`);
       }
-      if((await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.classList.contains("on"))?.textContent.trim()||"")`))!=="Model")
-        await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()==="Model"))?.click()`);
+      // (2026-10-24, option A) the Render settings tabs are Settings · Direction · Inputs
+      if((await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.classList.contains("on"))?.textContent.trim()||"")`))!=="Settings")
+        await c.eval(`([...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()==="Settings"))?.click()`);
       await waitFor(()=>c.eval(`!!document.querySelector('select[data-testid="stage-clip-grouping"][aria-label="Clip grouping"]')`),`${label||"Stage"} Clip grouping control`);
       return before;
     };
@@ -550,7 +551,7 @@ async function main() {
     };
     const chooseNativePerformance=async(label)=>{
       // (2026-10-24, R1) the Render settings sections are folds: a second click on an open one closes it, so open Director only when it isn't
-      await c.eval(`(()=>{const b=[...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()==="Director"); if(b && !b.classList.contains("on")) b.click(); return !!b;})()`);
+      await c.eval(`(()=>{const b=[...document.querySelectorAll(".stage2-settings-tabs .insp-tab")].find(x=>x.textContent.trim()==="Direction"); if(b && !b.classList.contains("on")) b.click(); return !!b;})()`);
       await waitFor(()=>c.eval(`[...document.querySelectorAll("select")].some(s=>[...s.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)))`),`${label||"Stage"} native-performance control`);
       await c.eval(`(()=>{const s=[...document.querySelectorAll("select")].find(x=>[...x.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)));s.value="native";s.dispatchEvent(new Event("change",{bubbles:true}));return s.value;})()`);
       await waitFor(()=>c.eval(`[...document.querySelectorAll("select")].some(s=>s.value==="native"&&[...s.options].some(o=>o.value==="native"&&/Native performance/.test(o.textContent)))`),`${label||"Stage"} native-performance selection`);

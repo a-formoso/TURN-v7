@@ -4613,7 +4613,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   }, [playerUrl]);
   const blockerRef = React.useRef(null);              // the banner naming what blocks Generate
   const [blockPulse, setBlockPulse] = React.useState(0);   // bumped when a blocked Generate is clicked → shake + scroll
-  const [panelTab, setPanelTab] = React.useState("inputs"); // Render-settings panel: the open fold \u2014 model | inputs | director | "" (all folded)
+  const [panelTab, setPanelTab] = React.useState("settings"); // Render-settings panel tab (2026-10-24, option A): settings | direction | inputs
   const [capsOpen, setCapsOpen] = React.useState(false);     // R1: the "What <engine> can do" fold
   // fixed-height prompt box (scrolls when the text runs longer) — keeps the composer
   // compact even on wordy recipes; the resize handle still lets users pull it taller.
@@ -6855,7 +6855,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   // ---- Render settings panel, organised into three tabs (the Writers' Room
   // segmented pattern): MODEL (engine + quality), INPUTS (what feeds the render),
   // DIRECTOR (how it's staged). Voice/errors/Generate stay persistent below. ----
-  const panelTabs = [["model","Model"],["inputs","Inputs"],["director","Director"]];
+  const panelTabs = [["settings","Settings"],["direction","Direction"],["inputs","Inputs"]];
   // ---- the unified RENDER card: EVERY cost-bearing choice (model · tier · resolution ·
   // duration) plus the LIVE credit cost and the model's capabilities as compact chips —
   // one glanceable answer to "what will this render cost and why". Always visible above
@@ -6872,7 +6872,21 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       _stEl("div",{className:"stage2-rc-math",title:creditInfo.title},
         (batchN>1 ? (batchN+" takes × ") : "")+_fmtSecs(duration)+" × "+resolution+" × "+tierObj.label
           +(refVideoSec>0 ? " (+ "+_fmtSecs(Math.round(refVideoSec*10)/10)+" reference video)" : "")
-          +(creditInfo.known ? (" · "+Number(creditInfo.remaining).toLocaleString("en-US")+" remaining") : ""))),
+          +(creditInfo.known ? (" · "+Number(creditInfo.remaining).toLocaleString("en-US")+" credits left") : ""))),
+    // OPTION A (2026-10-24): how much of your balance this render takes, as a bar
+    creditInfo.known && _stEl("div",{className:"stage2-rc-balance",role:"img",
+        "aria-label":"This render uses "+totalCost.toLocaleString("en-US")+" of "+Number(creditInfo.remaining).toLocaleString("en-US")+" credits left"},
+      _stEl("i",{style:{width:Math.max(2,Math.min(100,Math.round(totalCost/Math.max(1,Number(creditInfo.remaining))*100)))+"%"}})));
+  /* RENDER SETTINGS, OPTION A (owner 2026-10-24): the price card above three tabs — Settings (engine, tier,
+     resolution, duration, workflow, takes per Generate, grouping, bitrate), Direction and Inputs. An engine
+     limit is said beside the control it limits; what the engine can do is an ⓘ beside Engine. */
+  const resOff = STAGE_RESOLUTIONS.filter(r=>{ const sp=!stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget);
+    return (!stageResAllowed(tierObj, r)||sp) && !( stageResAllowed(tierObj, r) && !sp && !planAllowsRes(r) ); })
+    .map(r=>{ const sp=!stageServerResolutionAllowed(modelId,r,runtimeCaps,capabilityTarget); const reachable=(model.tiers||[]).some(t0=>stageResAllowed(t0, r));
+      return { r, why: sp ? "waiting on a server update" : reachable ? "needs another tier" : "not on "+model.label }; });
+  const resNote = resOff.length ? resOff.map(x=>x.r).join(" and ")+(resOff.length>1?" aren't":" isn't")+" available here \u2014 "
+    +_uniq(resOff.map(x=>x.why)).join("; ") : "";
+  const settingsRows = _stEl("div",{className:"stage2-rendercard stage2-rc-settings"},
     // model picker — data-driven from SEEDANCE_MODELS; a future model is one registry
     // entry, so it shows up here (disabled, with its note as a tooltip) automatically.
     _ctrlRow("Engine", _stEl("div",{className:"sd-gen-modelrow",role:"radiogroup","aria-label":"Model"},
@@ -6890,7 +6904,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           m.label,
           m.status==="soon" && _stEl("span",{className:"sd-gen-model-soon"},"Soon"),
           planLocked && _stEl("span",{className:"sd-gen-model-soon plan"},"Director"));
-      }))),
+      }),
+      (model.capabilities||[]).length>0 && window.InfoTip && _stEl(window.InfoTip,{label:"What "+model.label+" can do",
+        text:(model.capabilities||[]).join(" \u00b7 ")}))),
     !!(model.tiers||[]).length && _ctrlRow("Tier", _stEl("div",{className:"sd-gen-quality"},
       model.tiers.map(t0=>_stEl("button",{key:t0.id,className:tier===t0.id?"on":"",type:"button",title:t0.note,onClick:()=>setTier(t0.id)},
         t0.fast&&Icon.sparkles&&_stEl(Icon.sparkles,{s:12}),t0.label)))),
@@ -6910,6 +6926,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
              :disabled?(reachable?(r+" needs the Standard tier"):(r+" isn't available on "+model.label)):(r==="4K"?"4K — ~5× the 720p credit rate":r),
            onClick:()=>{if(!disabled)setResolution(r);}}, r);
       }))),
+    resNote && _stEl("div",{className:"stage2-capnote"}, Icon.info&&_stEl(Icon.info,{s:11}), resNote),
     // title stays the stable "Clip duration" hook; the floor's reason rides the option
     // label ("· coverage minimum" / "· voice + air") and the accessible description
     _ctrlRow("Duration", _stEl("select",{value:String(duration),
@@ -6920,7 +6937,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const capsChips = _stEl("div",{className:"stage2-rc-caps"},
     (model.capabilities||[]).map((txt,i)=>
       _stEl("span",{key:i,className:"stage2-rc-cap",title:txt}, _firstWords(txt, 4))));
-  const tabModel = _stEl(React.Fragment,null,
+  const tabSettings = _stEl(React.Fragment,null,
+    settingsRows,
+    _stEl("label",{className:"sd-gen-label"},"Workflow"),
     _stEl("div",{className:"sd-gen-modegrid"},
       MODES.map(([id,label])=>_stEl("button",{key:id,type:"button",
         className:"sd-gen-mode "+(mode===id?"on":""),
@@ -6958,13 +6977,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       _stEl("option",{value:"high"},"High — less compression, larger file"),
       _stEl("option",{value:"standard"},"Standard — more compression, smaller file"))));
   const tabInputs = _stEl(React.Fragment,null,
-    _stEl("label",{className:"sd-gen-label"},"Assets summary"),
-    _stEl("div",{className:"sd-gen-summary"},
-      [["Text",counts.text,Icon.text],["Images",counts.images,Icon.image],["Videos",counts.videos,Icon.play],["Audio",counts.audio,Icon.mic]].map(([label,n,Ic])=>
-        _stEl("div",{className:"sd-gen-summary-card",key:label},
-          _stEl("span",null,label),
-          _stEl("b",null,Ic&&_stEl(Ic,{s:12}),n)))),
-    _stEl("label",{className:"sd-gen-label"},"References"),
+    _stEl("label",{className:"sd-gen-label"},"References \u00b7 "+counts.text+" text \u00b7 "+counts.images+" image"+(counts.images!==1?"s":"")+" \u00b7 "+counts.videos+" video \u00b7 "+counts.audio+" audio"),
     _stEl("div",{className:"sd-gen-refbtns"},
       _stEl("button",{type:"button",className:trayOpen==="refs"?"on":"",
         title:"Every derived input for this render — toggle in/out, inspect",
@@ -6981,9 +6994,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         "Voices ("+voiceGroups.filter(g=>voiceCharState(g)!=="excluded"&&voiceCharState(g)!=="missing").length+"/"+voiceGroups.length+")")),
     // read-only preview of the auto reference-role block appended at render — kept out
     // of the editable prompt so it always matches the CURRENT included assets.
-    refLines.length>0 && _stEl("div",{className:"stage2-gen-refs",title:"Appended to the prompt at render, so Seedance knows what each attached reference is for. Updates as you include/exclude assets."},
-      _stEl("b",null,"REFERENCES — added at render"),
-      refLines.map((l,i)=>_stEl("span",{key:i},l))),
+    refLines.length>0 && _stEl("details",{className:"stage2-gen-refs-fold"},
+      _stEl("summary",null,"What's added to the prompt at render"),
+      _stEl("div",{className:"stage2-gen-refs",title:"Appended to the prompt at render, so Seedance knows what each attached reference is for. Updates as you include/exclude assets."},
+        _stEl("b",null,"REFERENCES — added at render"),
+        refLines.map((l,i)=>_stEl("span",{key:i},l)))),
     _ctrlRow("Visual source", _stEl("select",{value:sourceOverride,"data-testid":"stage-visual-source","aria-label":"Visual source",
         title:"Which visual source anchors this render. Auto follows the per-clip rule: dialogue or 1 shot → the shot frame; 2 merged shots → the 2-panel storyboard half; 3–4 merged shots → per-shot frames when they fit the image budget, else the 4-panel sheet.",
         onChange:e=>setSourceOverride(e.target.value)},
@@ -7059,24 +7074,16 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         Icon.chevR&&_stEl(Icon.chevR,{s:14}))),
     // the unified Render card leads — cost-bearing choices + live price, above the tabs
     _stEl("div",{className:"stage2-rc-wrap"}, renderCard),
-    /* R1: Model, Inputs and Director (and what the engine can do) fold to one-line rows with a short summary; one
-       opens at a time, in place (the rows keep the .insp-tab buttons and their names) */
-    _stEl("div",{className:"sd-gen-panel stage2-folds"},
-      panelTabs.map(([id,lab])=>{
-        const open = panelTab===id;
-        const sum = id==="inputs" ? counts.text+" text \u00b7 "+counts.images+" image"+(counts.images!==1?"s":"")+" \u00b7 "+counts.videos+" video \u00b7 "+counts.audio+" audio"
-          : id==="director" ? [camera, lighting].filter(Boolean).join(" \u00b7 ")
-          : [(MODES.find(m=>m[0]===mode)||[,""])[1], batchN>1 ? batchN+" takes" : ""].filter(Boolean).join(" \u00b7 ");
-        return _stEl("div",{key:id,className:"stage2-settings-tabs stage2-fold"+(open?" open":"")},
-          _stEl("button",{className:"insp-tab stage2-fold-head"+(open?" on":""),type:"button","aria-expanded":open?"true":"false",
-            "data-sum":sum||"", onClick:()=>setPanelTab(open?"":id)},lab),
-          open && _stEl("div",{className:"stage2-fold-body"},
-            id==="model" ? tabModel : id==="inputs" ? tabInputs : tabDirector));
-      }),
-      (model.capabilities||[]).length>0 && _stEl("div",{className:"stage2-fold stage2-fold-caps"+(capsOpen?" open":"")},
-        _stEl("button",{className:"stage2-fold-head",type:"button","aria-expanded":capsOpen?"true":"false",
-          "data-sum":(model.capabilities||[]).length+" note"+((model.capabilities||[]).length!==1?"s":""),onClick:()=>setCapsOpen(o=>!o)},"What "+model.label+" can do"),
-        capsOpen && _stEl("div",{className:"stage2-fold-body"}, capsChips)),
+    /* OPTION A (2026-10-24): three tabs — Settings, Direction, Inputs. Every tab stays mounted (the inactive two
+       hidden), so a control keeps its state and is always findable; the tab buttons keep the .insp-tab class. */
+    _stEl("div",{className:"sd-gen-panel stage2-ptabs"},
+      _stEl("div",{className:"stage2-settings-tabs stage2-ptab-row",role:"tablist","aria-label":"Render settings"},
+        panelTabs.map(([id,lab])=>{ const on = (panelTab||"settings")===id;
+          return _stEl("button",{key:id,type:"button",role:"tab",id:"st-tab-"+id,"aria-selected":on?"true":"false","aria-controls":"st-pane-"+id,
+            className:"insp-tab stage2-ptab"+(on?" on":""),onClick:()=>setPanelTab(id)},lab); })),
+      panelTabs.map(([id])=>_stEl("div",{key:id,id:"st-pane-"+id,role:"tabpanel","aria-labelledby":"st-tab-"+id,
+          className:"stage2-ptab-pane",hidden:(panelTab||"settings")!==id},
+        id==="settings" ? tabSettings : id==="inputs" ? tabInputs : tabDirector)),
       // (the drawer's own "Voice clip first" / source / asset errors repeated the composer's notices — removed 2026-10-05)
       genErr && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), genErr),
 
@@ -7088,12 +7095,12 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
             _stEl("button",{className:"sd-gen-cancel",type:"button",
               title:"Before the render is sent nothing is charged. Once it's sent this only stops waiting: a render that finishes is still charged and appears in Takes.",
               onClick:()=>{ stagingCancelRef.current=true; gen.cancel(); }},"Stop"))
-        // ONE Generate (2026-10-05): the composer's button — it carries this render's price; the drawer
-        // used to repeat it for References renders
-        : _stEl("div",{className:"stage2-hint sd-gen-hint"}, "Generate from the "+(composerTab==="edit"?"Edit Video":composerTab==="motion"?"Motion Control":createTask==="reference"?"Create Video":"Extend Video")+" composer \u2014 its button carries this render's price."),
+        // (option A, 2026-10-24) the hint that Generate carries the price went: the price card says it
+        : null,
       // (Extend / Edit / Motion Control live on the composer's tabs — each with its own Generate)
       // the footer follows the open composer tab: Edit / Motion Control say what their render HOLDS
-      _stEl("div",{className:"stage2-credit sd-gen-credit"+(footerCredit.short?" empty":""),title:footerCredit.title},
+      // the price card prices a Create render; Extend, Edit and Motion Control say their own price or hold here
+      (composerTab!=="create" || createTask!=="reference" || footerCredit.short) && _stEl("div",{className:"stage2-credit sd-gen-credit"+(footerCredit.short?" empty":""),title:footerCredit.title},
         Icon.sparkles&&_stEl(Icon.sparkles,{s:12}),footerCredit.label),
       lastSeed!=null && _stEl("div",{className:"stage2-credit sd-gen-credit",title:"The seed the last render used — reuse it from the Seed control for repeatable variations"},
         "Seed "+lastSeed)));
