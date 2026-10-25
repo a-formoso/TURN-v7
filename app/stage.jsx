@@ -1711,7 +1711,9 @@ function buildClipData(scene, g, ctx, maxSec){
   const sourceCharacters=(ctx.characters||[]).filter(c=>sourceCharacterIds.has(c.id)).map(c=>({id:c.id,name:c.name}));
   const acting = stageClipActing(scene, shots, cast, ctx);
   // LENS AND CAPTURE (2026-10-24): the film's capture text from the Color tab, word for word
-  const capture = String((((ctx.project||{}).styleBible)||{}).capture||"").trim();
+  // (2026-10-25) a ratio that isn't the film's format is left out (turnCaptureForPrompt)
+  const capture = (typeof turnCaptureForPrompt==="function") ? turnCaptureForPrompt(ctx.project)
+    : String((((ctx.project||{}).styleBible)||{}).capture||"").trim();
   const voices = (ctx.characters||[]).map(c=>({id:c.id,name:c.name,text:stageVoiceText(c)})).filter(v=>v.name&&v.text);
   // SPOKEN LANGUAGE (2026-10-24): a character whose lines are in another (or an invented) language
   const languages = (ctx.characters||[]).map(c=>({id:c.id,name:c.name,

@@ -72,7 +72,10 @@ function turnVideoLookText(preset, project){
     const pal = Array.isArray(preset.palette) ? preset.palette : [];
     if(pal.length>=3) parts.push("colour 60/30/10: "+(t(preset.dominantLabel)||"dominant")+" "+pal[0]+", "
       +(t(preset.secondaryLabel)||"secondary")+" "+pal[1]+", "+(t(preset.accentLabel)||"accent")+" "+pal[2]);
-    if(t(preset.lens)) parts.push("lens character: "+t(preset.lens));
+    // ONE LENS SOURCE (2026-10-25, owner: "fix the lens conflict"): with the film's Capture set (the Color tab), its
+    // words are the lens in every clip prompt — the look's own lens note would contradict it ("vintage anamorphic"
+    // under "Spherical 35mm at T2.8"), so it's left out here; without a Capture the look's lens stands
+    if(t(preset.lens) && !turnFilmCapture(project)) parts.push("lens character: "+t(preset.lens));
     if(t(preset.texture)) parts.push("texture: "+t(preset.texture));
   }
   const stock = t(filmStockClause(project));
@@ -80,6 +83,51 @@ function turnVideoLookText(preset, project){
   return parts.join("; ");
 }
 window.turnVideoLookText = turnVideoLookText;
+
+/* THE FILM'S CAPTURE, CHECKED (2026-10-25): Capture (Color tab) is the film's lens and optics in every clip prompt.
+   turnCaptureConflicts says where it disagrees with the film itself — a lens kind (anamorphic / spherical) the
+   film's looks don't use, or an aspect ratio that isn't the film's format — and turnCaptureForPrompt leaves a
+   disagreeing ratio out of the prompt (the clip renders in the film's format either way; the words would only
+   invite letterboxing). The Color tab shows the conflicts under Capture. */
+function turnFilmCapture(project){ return String((((project||{}).styleBible)||{}).capture||"").trim(); }
+const _CAPTURE_RATIO_RE = /\b(\d(?:\.\d{1,2})?)\s*:\s*1\b|\b(16|9|4|3|21|5|2)\s*:\s*(9|16|3|4|5|2)\b/g;
+function _ratioValue(m){ if(!m) return 0; if(m[1]) return Number(m[1]); const a=Number(m[2]), b=Number(m[3]); return b ? a/b : 0; }
+function _filmRatio(project){
+  const a = String((typeof aspectFor==="function" ? aspectFor(project) : "16:9")||"16:9").split(":").map(Number);
+  return (a[0]>0 && a[1]>0) ? a[0]/a[1] : 16/9;
+}
+function turnCaptureConflicts(project){
+  const cap = turnFilmCapture(project);
+  if(!cap) return [];
+  const out = [];
+  const sb = styleBibleOf(project), used = new Set(Object.values(sb.sceneStyles||{}));
+  const lensOf = (x)=> /anamorphic/i.test(x) ? "anamorphic" : /spherical/i.test(x) ? "spherical" : "";
+  const capLens = lensOf(cap);
+  const lookLenses = Array.from(new Set((sb.presets||[]).filter(p=>p && (!used.size || used.has(p.id))).map(p=>lensOf(p.lens||"")).filter(Boolean)));
+  if(capLens && lookLenses.length && lookLenses.indexOf(capLens)<0)
+    out.push({ kind:"lens", capture:capLens, looks:lookLenses[0],
+      text:"Capture says "+capLens+", but this film's looks say "+lookLenses[0]+". Clip prompts follow Capture; the frames follow the looks — change one so the takes match their frames." });
+  const film = _filmRatio(project), fa = (typeof aspectFor==="function" ? aspectFor(project) : "16:9");
+  let m; _CAPTURE_RATIO_RE.lastIndex = 0;
+  const seen = new Set();
+  while((m = _CAPTURE_RATIO_RE.exec(cap))){
+    const v = _ratioValue(m), word = m[0];
+    if(v>0 && Math.abs(v-film)>0.04 && !seen.has(word)){ seen.add(word);
+      out.push({ kind:"ratio", capture:word, film:fa,
+        text:"Capture names "+word+", but this film is "+fa+". Clips render "+fa+", so "+word+" is left out of their prompts — take it out of Capture, or change the film's format." }); }
+  }
+  return out;
+}
+function turnCaptureForPrompt(project){
+  const cap = turnFilmCapture(project);
+  if(!cap) return "";
+  const film = _filmRatio(project);
+  return cap.replace(_CAPTURE_RATIO_RE, (w, a, b, c)=>{ const v = a ? Number(a) : (Number(c) ? Number(b)/Number(c) : 0);
+      return (v>0 && Math.abs(v-film)>0.04) ? "" : w; })
+    .replace(/\s*,\s*(?=[,.;])/g,"").replace(/,\s*,/g,",").replace(/\(\s*\)/g,"").replace(/\s{2,}/g," ")
+    .replace(/\s+([,.;])/g,"$1").replace(/^[,.;\s]+/,"").trim();
+}
+window.turnFilmCapture = turnFilmCapture; window.turnCaptureConflicts = turnCaptureConflicts; window.turnCaptureForPrompt = turnCaptureForPrompt;
 
 function styleBibleOf(project){
   const sb = (project && project.styleBible) || {};

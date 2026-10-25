@@ -59,7 +59,7 @@ t("3 full screen that always works: every Stage player hides the video's own but
 });
 t("Frances knows; keys", ()=>{
   assert.ok(ai.includes("While a clip renders (Stage, 2026-10-25 fixes)"));
-  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
-  assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 console.log(pass+" passed, 0 failed");

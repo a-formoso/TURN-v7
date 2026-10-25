@@ -398,6 +398,8 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
   // LENS AND CAPTURE (2026-10-24): one text for the whole film, pasted word for word into every Stage clip
   const [captureOpen, setCaptureOpen] = React.useState(false);
   const capture = String((project && project.styleBible && project.styleBible.capture)||"").trim();
+  // where Capture disagrees with the film's looks or its format (2026-10-25, stylebible.jsx turnCaptureConflicts)
+  const captureIssues = (capture && typeof turnCaptureConflicts==="function") ? turnCaptureConflicts(project) : [];
   const [redoManual, setRedoManual] = React.useState(false);
   const latestRefs = React.useRef(null);   // what the editor last saved (its blur commits before a click lands)
   const sortedN = (scenes||[]).length, withLook = (scenes||[]).filter(s=>sceneStyles[s.id]).length;
@@ -455,7 +457,10 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
           React.createElement("span",{className:"sb-target-line"+(capture?"":" empty"),title:capture||""},
             capture || "Not set \u2014 format, lens, grain"),
           onSetCapture && React.createElement("button",{type:"button",className:"sb-target-edit","aria-expanded":captureOpen?"true":"false",
-            onClick:()=>setCaptureOpen(o=>!o)}, captureOpen ? "Done" : "Edit"))),
+            onClick:()=>setCaptureOpen(o=>!o)}, captureOpen ? "Done" : "Edit")),
+        captureIssues.length>0 && React.createElement("div",{className:"sb-capture-warn",role:"status"},
+          captureIssues.map((x,i)=>React.createElement("span",{key:x.kind+i},
+            React.createElement(Icon.alert,{s:12}), x.text)))),
       onSetRefs && React.createElement("div",{className:"loc-slate-cell sb-target"},
         React.createElement("span",{className:"loc-slate-lab"},"Look target",
           React.createElement(InfoTip,{label:"About the look target",
@@ -468,7 +473,7 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
             onClick:()=>setRefsOpen(o=>!o)}, refsOpen ? "Done" : "Edit")))),
     (onSetCapture && captureOpen) && React.createElement("div",{className:"sb-target-panel sb-capture-panel"},
       React.createElement(SheetField,{label:"Lens and capture \u2014 added word for word to every Stage clip",value:capture,multiline:true,
-        placeholder:"e.g. Shot on 35mm anamorphic, 2.39:1. Soft halation on highlights, fine grain, gentle focus falloff and real lens breathing. Handheld weight, no lens flares, no digital sharpening.",
+        placeholder:"e.g. Shot on 35mm spherical lenses. Soft halation on highlights, fine grain, gentle focus falloff and real lens breathing. Handheld weight, no lens flares, no digital sharpening.",
         onCommit:v=>onSetCapture(v)})),
     // the look target's editor, under the slate
     (onSetRefs && refsOpen) && React.createElement("div",{className:"sb-target-panel"},
