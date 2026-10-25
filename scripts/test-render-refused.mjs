@@ -42,9 +42,15 @@ t("2c the app stops on a policy refusal even when an older server says to poll a
   assert.ok(stage.includes('.replace(/\\bRECONNECTING\\b/g,"Still rendering \\u2014 checking again")'));
   assert.ok(!stage.includes("\"Connection blip"));
 });
+t("2d Render settings says a refusal short, what it was sent with, what to change, and offers the text-only retry", ()=>{
+  assert.ok(stage.includes('genErr && providerPolicyFailure && _stEl("div",{className:"stage2-err sd-gen-err policy"}'));
+  assert.ok(stage.includes('"Video engines can mistake photoreal faces for real people. Untick "'));
+  assert.ok(stage.includes('or set Workflow to Image to Video (the shot frame only), and Generate again'));
+  assert.ok(stage.includes('canTextOnlyRecovery && _stEl("button",{type:"button",className:"sd-gen-err-act",'));
+});
 t("Frances knows; keys", ()=>{
   assert.ok(ai.includes("While a clip renders (Stage, 2026-10-25 fixes)"));
-  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
-  assert.ok(["20261025-hs78"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  assert.ok(["20261025-hs78", "20261025-hs79"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 console.log(pass+" passed, 0 failed");

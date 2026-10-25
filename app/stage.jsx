@@ -7180,7 +7180,26 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           className:"stage2-ptab-pane",hidden:(panelTab||"settings")!==id},
         id==="settings" ? tabSettings : id==="inputs" ? tabInputs : tabDirector)),
       // (the drawer's own "Voice clip first" / source / asset errors repeated the composer's notices — removed 2026-10-05)
-      genErr && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), genErr),
+      /* A REFUSED RENDER, SAID SHORT WITH WHAT TO DO (2026-10-25, live test film: the panel repeated the provider's whole
+         paragraph with no way forward): what the render sent, what to change, and the text-only retry; the provider's
+         own words stay in the composer's "Provider details" */
+      genErr && providerPolicyFailure && _stEl("div",{className:"stage2-err sd-gen-err policy"}, Icon.alert&&_stEl(Icon.alert,{s:14}),
+            _stEl("div",{className:"sd-gen-err-body"},
+              _stEl("span",null, genNotice),
+              !textOnlyPolicyFailure && _stEl("span",{className:"sd-gen-err-tip"}, (()=>{
+                const n = (gen.err && gen.err.inputCounts) || {};
+                const sent = [n.videos>0 ? (n.videos===1 ? "an earlier take as a video reference" : n.videos+" video references") : "",
+                  n.images>0 ? (n.images+" reference image"+(n.images===1?"":"s")) : ""].filter(Boolean).join(" and ");
+                return (sent ? "It was sent with "+sent+". " : "")
+                  +"Video engines can mistake photoreal faces for real people. Untick "+(n.videos>0 ? "the earlier take and " : "")
+                  +"the character sheets in References, or set Workflow to Image to Video (the shot frame only), and Generate again \u2014 or retry from text only.";
+              })()),
+              canTextOnlyRecovery && _stEl("button",{type:"button",className:"sd-gen-err-act",
+                  disabled:gening||creditInfo.empty||!!textOnlyRecoveryBlocked,
+                  title:textOnlyRecoveryBlocked?(textOnlyRecoveryBlocked.text||"Review the remaining render blocker first."):textOnlyRecoveryTitle,
+                  onClick:()=>onGenerate({referenceFree:true})},
+                "Retry from text only \u00b7 "+textOnlyTotal.toLocaleString("en-US")+" credit"+(textOnlyTotal===1?"":"s")))),
+      genErr && !providerPolicyFailure && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), genErr),
 
       // the right panel's credit error follows the open tab's render too (round 5: on hold, a hold, or a cost)
       footerCredit.short && _stEl("div",{className:"stage2-err sd-gen-err"}, Icon.alert&&_stEl(Icon.alert,{s:14}), stageCreditPanelText(footerCredit)),

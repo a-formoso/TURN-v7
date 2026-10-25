@@ -11354,3 +11354,8 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
   padding:8px 12px;border-radius:10px;background:rgba(12,12,14,.72);color:#fff;font-size:12px;pointer-events:none;
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .stage2-player-genbadge .stage2-player-bar{width:100%}
+/* a refused render in Render settings: the notice, what to change, the text-only retry (2026-10-25) */
+.sd-gen-err-body{display:flex;flex-direction:column;gap:6px;min-width:0}
+.sd-gen-err-tip{line-height:1.45;opacity:.9}
+.sd-gen-err-act{align-self:flex-start;margin-top:2px;padding:5px 10px;border-radius:8px;border:1px solid currentColor;background:transparent;color:inherit;font:inherit;font-weight:600;cursor:pointer}
+.sd-gen-err-act:disabled{opacity:.5;cursor:default}
