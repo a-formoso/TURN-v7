@@ -54,12 +54,14 @@ t("3 full screen that always works: every Stage player hides the video's own but
   assert.equal((stage.match(/_stageFsButton\(/g)||[]).length, 5);            // the helper + four players
   assert.ok(stage.includes('vid.setAttribute("controlslist","nofullscreen");'));
   assert.ok(stage.includes("setTimeout(()=>{ if(!document.fullscreenElement && !document.webkitFullscreenElement) overlay(); }, 600);"));
-  assert.ok(css.includes(".stage2-player-fs{position:absolute;top:10px;right:10px;"));
+  assert.ok(css.includes(".stage2-player-fs{position:absolute;bottom:58px;right:12px;"));
+  assert.ok(css.includes(".stage2-fs-wrap video::-webkit-media-controls-fullscreen-button{display:none!important}"));
+  assert.equal((stage.match(/className:"stage2-fs-wrap"/g)||[]).length, 4);
   assert.ok(css.includes("video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:auto}"));
 });
 t("Frances knows; keys", ()=>{
   assert.ok(ai.includes("While a clip renders (Stage, 2026-10-25 fixes)"));
-  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
-  assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 console.log(pass+" passed, 0 failed");

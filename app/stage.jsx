@@ -94,8 +94,10 @@ function _stageVideoFullscreen(v, url){
 }
 /* FULL SCREEN THAT ALWAYS WORKS (2026-10-25, owner: "allow full screen mode"): in the desktop app's browser the
    video's own full-screen button does nothing — the browser says full screen is allowed, then ignores the request.
-   Every Stage player hides that button (controlsList "nofullscreen") and carries this one: it asks for real full
-   screen and, when the browser doesn't grant it, fills the window instead (Esc or a click outside closes it). */
+   Every Stage player hides that button (controlsList "nofullscreen", and its greyed icon by CSS) and carries this
+   one in the bottom-right corner, just above the video's own controls, shown while the pointer is over the video
+   (owner: "bottom right, not top right"): it asks for real full screen and, when the browser doesn't grant it,
+   fills the window instead (Esc or a click outside closes it). */
 function _stageFsButton(getVideo, open){
   return _stEl("button",{type:"button",className:"stage2-player-fs",title:"Full screen (or double-click the video)","aria-label":"Full screen",
     onClick:(e)=>{ e.stopPropagation(); if(open) open(); else _stageVideoFullscreen(getVideo ? getVideo() : null); }},
@@ -6794,12 +6796,13 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     _stEl("div",{className:"stage2-player",style:_stageAspectCss(aspect)},
       playerUrl
         ? _stEl(React.Fragment,null,
+          _stEl("div",{className:"stage2-fs-wrap"},
           _stEl("video",{ref:playerVideoRef,src:playerUrl,poster:shotStartFrame||undefined,controls:true,playsInline:true,controlsList:"nofullscreen",
             "aria-label":"Take of "+(clip.label||"this clip"),
             title:"Double-click for full screen",onDoubleClick:playerFullscreen,
             onLoadedMetadata:()=>syncPlayerClock(false),onTimeUpdate:()=>syncPlayerClock(),
             onPlay:()=>syncPlayerClock(true),onPause:()=>syncPlayerClock(false),onEnded:()=>syncPlayerClock(false)}),
-          _stageFsButton(()=>playerVideoRef.current, playerFullscreen),
+          _stageFsButton(()=>playerVideoRef.current, playerFullscreen)),
           // a new take of a clip that already has one: its progress over the take you see (2026-10-25)
           gening && _stEl("div",{className:"stage2-player-genbadge",role:"status"},
             _stEl("span",null, genBusyLabel),
@@ -7533,7 +7536,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
     return null; };
   const playerFor = (t, ref, role)=>_stEl("div",{key:t.url,className:"stage2-takes-pane"+(role==="film"?" film":" pick")+(t.current && !usedByFilm(t)?" out":"")},
     t.unavailable ? _stEl("div",{className:"stage2-source-warning stale",role:"status"},"This take's video comes from an address the app doesn't play. The film's owner can delete it.")
-      : _stEl(React.Fragment,null,
+      : _stEl("div",{className:"stage2-fs-wrap"},
           _stEl("video",{key:t.url,ref,className:"stage2-versions-video",src:t.url,controls:true,playsInline:true,controlsList:"nofullscreen",
             "aria-label":(role==="film"?"Take in the film":"Selected take")+((t.meta&&t.meta.vno)?" v"+t.meta.vno:""),
             title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget)}),
@@ -8250,7 +8253,7 @@ function StageTimelineView({ allClips, vids, staleVids, identityVids, imgs, visu
     _stEl("div",{className:"stage2-tl-player"},
       cur && _stEl("span",{className:"stage2-tl-player-tag"}, stageClipBeatName(cur)+" · "+clockOf(headAt)),
       curUrl && !playErr
-        ? _stEl(React.Fragment,null, _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,controlsList:"nofullscreen",onEnded,onCanPlay,onPause,onError:onVideoError,
+        ? _stEl("div",{className:"stage2-fs-wrap"}, _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,controlsList:"nofullscreen",onEnded,onCanPlay,onPause,onError:onVideoError,
             onLoadedMetadata:applySeek,
             onTimeUpdate:(e)=>{ const t = Number(e.currentTarget.currentTime)||0; if(cur) setTlPlay(p=>(p.id===cur.id && Math.abs(p.t-t)<0.2) ? p : { id:cur.id, t }); },
             "aria-label":cur ? ("Timeline — "+stageClipBeatName(cur)) : "Timeline",
@@ -8545,7 +8548,7 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
           text:"The picture plays each clip's current take with its own sound at the Picture volume; your voiced lines drop in where the render was told to put them, and stop at the end of their clip. Levels, mutes and each scene's imported beds are kept on this device only — collaborators don't hear them, and each person's export uses their own. Export film in the Timeline tab can record the whole film with this mix. The scene follows the Scenes rail."}))),
     _stEl("div",{className:"stage2-au-player"},
       cur && _stEl("span",{className:"stage2-tl-player-tag"}, stageClipBeatName(cur)+" \u00b7 "+clockS(headT)),
-      curUrl ? _stEl(React.Fragment,null, _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,controlsList:"nofullscreen",onEnded:onClipEnded,
+      curUrl ? _stEl("div",{className:"stage2-fs-wrap"}, _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,controlsList:"nofullscreen",onEnded:onClipEnded,
           onPlay:onVideoPlay,onPause:onVideoPause,onSeeked:onVideoSeeked,onCanPlay,onError:onVideoError,
           onTimeUpdate:(e)=>{ const t = Number(e.currentTarget.currentTime)||0; if(cur) setAuPlay(p=>(p.id===cur.id && Math.abs(p.t-t)<0.2) ? p : { id:cur.id, t }); },
           "aria-label":"Mix preview"+(cur ? " — "+stageClipBeatName(cur) : ""),

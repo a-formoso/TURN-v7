@@ -11359,12 +11359,19 @@ html[data-theme="light"] .app.hs.room-stage :is(.stage2-rail,.stage2-settings-dr
 .sd-gen-err-tip{line-height:1.45;opacity:.9}
 .sd-gen-err-act{align-self:flex-start;margin-top:2px;padding:5px 10px;border-radius:8px;border:1px solid currentColor;background:transparent;color:inherit;font:inherit;font-weight:600;cursor:pointer}
 .sd-gen-err-act:disabled{opacity:.5;cursor:default}
-/* the players' own full-screen button (2026-10-25): real full screen where the browser allows it, else the window */
-.stage2-takes-pane{position:relative}
-.stage2-player-fs{position:absolute;top:10px;right:10px;z-index:3;display:inline-flex;align-items:center;justify-content:center;
+/* the players' own full-screen button (2026-10-25): real full screen where the browser allows it, else the window.
+   Bottom right, just above the video's own controls (whose greyed full-screen icon is hidden); shown while the
+   pointer is over the video, always on touch screens */
+.stage2-fs-wrap{position:relative;width:100%}
+.stage2-player>.stage2-fs-wrap,.stage2-tl-player>.stage2-fs-wrap,.stage2-au-player>.stage2-fs-wrap{height:100%}
+.stage2-fs-wrap>video{display:block}
+.stage2-fs-wrap video::-webkit-media-controls-fullscreen-button{display:none!important}
+.stage2-player-fs{position:absolute;bottom:58px;right:12px;z-index:3;display:inline-flex;align-items:center;justify-content:center;
   width:32px;height:32px;padding:0;border:0;border-radius:8px;background:rgba(12,12,14,.58);color:#f2efe9;cursor:pointer;
-  opacity:.85;transition:opacity .15s,background .15s}
-.stage2-player-fs:hover,.stage2-player-fs:focus-visible{opacity:1;background:rgba(12,12,14,.8)}
+  opacity:0;transition:opacity .15s,background .15s}
+.stage2-fs-wrap:hover .stage2-player-fs,.stage2-player-fs:focus-visible{opacity:1}
+.stage2-player-fs:hover{background:rgba(12,12,14,.8)}
+@media (hover:none){ .stage2-player-fs{opacity:.9} }
 .stage2-player-fs:focus-visible{outline:2px solid var(--accent,#e89a4f);outline-offset:2px}
 /* a video in the full-window view uses the window (2026-10-25) */
 video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:auto}
