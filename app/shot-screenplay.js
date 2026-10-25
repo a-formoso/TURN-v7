@@ -327,17 +327,41 @@
     if(first>=0){
       /* Re-run only the bounded opening segment into opening-local sets. */
       let openingActionSeen=false;
+      /* AN ESTABLISHING LINE FIRST (2026-10-25, owner: "no character reference in beat 1 … have the actual character in
+         the keyframe instead of a random one"): when the first action paragraph names nobody ("Sodium light. Diesel
+         haze. Headlights crawl up the ramp.") and has nobody in it, the people the next three action paragraphs show already
+         there are in the opening frame too — "Aurelio punches tickets…", "Ottavio ticks his clipboard". The look stops at
+         an entrance (enters, arrives, walks in, appears, a door that bangs open…) and at the first line of dialogue; a
+         first paragraph with someone in it ("He swings it open…") is no establishing line, so a reveal stays a reveal. */
+      let lookAhead=false;
+      const ENTRANCE=/\b(?:enters?|entering|walks?\s+(?:in|into|up|over)|comes?\s+(?:in|into|up|down|through)|steps?\s+(?:in|into|out|through|forward)|arriv(?:es?|ing)|appears?|emerges?|bursts?\s+in|strides?\s+in|hurries\s+in|returns?|climbs?\s+(?:in|aboard|out|up))\b/i;
+      // a door that bangs / opens / swings in that paragraph is an entrance too; a first paragraph with someone in it
+      // ("He swings it open…") isn't an establishing line, so nothing is looked for after it (a reveal stays a reveal)
+      const DOOR_ENTRANCE=/\bdoors?\b[^.!?]*\b(?:bangs?|opens?|swings?|slams?|bursts?|creaks?)\b/i;
+      const SOMEONE=/\b(?:he|she|they|him|her|his|hers|them|their|someone|somebody)\b/i;
       openingIndexes.forEach(i=>{
         const b=all[i], type=String(b&&b.type||"").toLowerCase(), raw=blockText(b);
         if(!clean(raw)||type==="scene")return;
         if(type==="action"){
           /* Only the first action paragraph is the visual opener.  Later
              paragraphs in the same beat may contain an entrance or a message. */
-          if(openingActionSeen)return;
+          if(openingActionSeen){
+            // the next three action paragraphs, up to an entrance or the first line of dialogue
+            if(!lookAhead || lookAhead>3)return;
+            lookAhead++;
+            if(ENTRANCE.test(raw)||DOOR_ENTRANCE.test(raw)){ lookAhead=false; return; }
+            const r2=classifyAction(raw,chars);
+            r2.physical.forEach(id=>add(openingPhysical,id));
+            r2.remote.forEach(id=>add(openingRemote,id));
+            return;
+          }
           openingActionSeen=true;
           const r=classifyAction(openingAction,chars);
           r.physical.forEach(id=>add(openingPhysical,id));
           r.remote.forEach(id=>add(openingRemote,id));
+          lookAhead=(!r.physical.length && !r.remote.length && !SOMEONE.test(openingAction)) ? 1 : false;
+        }else if(type==="char" && lookAhead){
+          lookAhead=false;   // a line of dialogue ends the opening
         }else if(type==="char" && !openingAction && !openingPhysical.length && !openingRemote.length){
           const c=charForCue(clean(raw).replace(/\s*\([^)]*\)\s*$/,"").trim(),chars);
           const d=deliveryFor(raw);
