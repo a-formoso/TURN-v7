@@ -7601,19 +7601,24 @@ function clipLinePlacements(clip, auds, characters){
   const liveOf = (sh)=> liveList ? (liveList.find(x=>x&&x.id===(sh&&sh.id))||null) : sh;
   const out = []; let t = CLIP_AIR.lead, spoken = 0;
   shots.forEach(sh=>{
-    const talks = String((sh&&sh.dialogue)||"").trim();
+    /* A LINE ONLY THE SCREENPLAY HOLDS (live run 2026-10-25): a designed shot's own dialogue field can be empty while
+       the clip speaks the beat's line from the screenplay (its lineShots) — the Mix and the Timeline showed no line.
+       The shot's own words still come first, so a line a redraft removed stays listed (and unplayable). */
+    const live = liveOf(sh);
+    const own = String((sh&&sh.dialogue)||"").trim();
+    const src = own ? sh : (liveList && live ? live : sh);
+    const talks = String((src&&src.dialogue)||"").trim();
     if(talks){
       if(spoken>0) t += CLIP_AIR.gap;
-      const sec = Number((sh.lineAudio||{}).durationMs||0)/1000 || ((typeof _seedanceVoiceSec==="function")?_seedanceVoiceSec(sh):2);
+      const sec = Number((src.lineAudio||{}).durationMs||0)/1000 || ((typeof _seedanceVoiceSec==="function")?_seedanceVoiceSec(src):2);
       const p = (((clip.data||{}).panelLines)||[]).find(x=>x&&x.shotId===sh.id);
-      const live = liveOf(sh);
       const audioState = live ? _shotAudioState(live,auds,characters)
         : { ready:false, state:"stale-text", reason:"The screenplay no longer has this line \u2014 a redraft changed it." };
       out.push({ shotId:sh.id, at:Math.round(t*10)/10, sec:Math.round(sec*10)/10,
         // A voice relock, model/settings change, text edit or project switch makes
         // the old bytes recoverable history, never playable dialogue in Mix.
         url:audioState.ready?((auds&&auds[sh.id])||""):"", audioState,
-        speaker:(p&&p.speaker&&p.speaker.name)||(sh.lineAudio&&sh.lineAudio.speaker)||"Line",
+        speaker:(p&&p.speaker&&p.speaker.name)||(src.lineAudio&&src.lineAudio.speaker)||((src.lineSpeaker||{}).name)||"Line",
         text:String(((live||sh).dialogue)||"").trim() });
       t += sec; spoken++;
     } else t += stageActionSec(sh);
@@ -8623,6 +8628,14 @@ function stageSceneBeatTakeSlots(sceneClips,drafts,takeLookup,sceneId,statusLook
   });
 }
 window.stageSceneBeatTakeSlots=stageSceneBeatTakeSlots;
+/* a clip's length: its rendered take's, else the length the Stage plans for it (the clip cards, the Mix and the
+   Timeline all read it this way) */
+function stageClipSecs(clip, vids){
+  const m = (clip && vids && vids[clip.id] && typeof vidGetMeta==="function") ? vidGetMeta(clip.id) : null;
+  const v = m ? (Number(m.durationSec) || Number(m.durationMs)/1000) : 0;
+  return v>0 ? v : (Number(clip && clip.data && clip.data.dur)||0);
+}
+window.stageClipSecs=stageClipSecs;
 function stageShotRuntime(sh){
   const ms = sh && sh.lineAudio && sh.lineAudio.durationMs;
   if(ms) return Math.max(1, Math.round((Number(ms)/1000)*10)/10);
@@ -9096,7 +9109,10 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const sceneRow = (scene)=>{
     const sceneClips = allClips.filter(c=>c.scene.id===scene.id);
     const sceneShots = shotsByScene[scene.id]||[];
-    const sceneDur = sceneShots.reduce((t,sh)=>t+stageShotRuntime(sh),0);
+    /* THE SCENE'S LENGTH IS ITS CLIPS' (live run 2026-10-25: the rail summed the shots' planning guesses — "20s" — while
+       the clip cards, the Mix and the Timeline said 43 s): the sum of the clips' lengths; the shots' only with no clips */
+    const sceneDur = sceneClips.length ? sceneClips.reduce((t,c)=>t+stageClipSecs(c, vids),0)
+      : sceneShots.reduce((t,sh)=>t+stageShotRuntime(sh),0);
     const done = sceneClips.filter(c=>clipVideoReady(c, vids)).length;
     const total = sceneClips.length;
     const allDone = total>0 && done===total;
@@ -9148,8 +9164,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
               : (issueText || "Ready to render");
             const shotsIn = (c.g&&c.g.shots)||[];
             const beats = []; shotsIn.forEach(sh=>{ const n = sh.beatN||null; const bb = beats.find(x=>x.n===n); if(bb) bb.shots.push(sh); else beats.push({ n, shots:[sh] }); });
-            const secs = (()=>{ const m = rendered && typeof vidGetMeta==="function" ? vidGetMeta(c.id) : null;
-              const v = m ? (Number(m.durationSec)||Number(m.durationMs)/1000) : 0; return v>0 ? v : (Number(c.data&&c.data.dur)||0); })();
+            const secs = stageClipSecs(c, vids);
             const on = c.id===clip.id;
             return _stEl("div",{key:c.id,className:"stage2-clip-card"+(on?" on":"")+(rendered?" done":"")},
               _stEl("button",{type:"button",className:"stage2-clip-main","aria-pressed":on?"true":"false",
@@ -9210,7 +9225,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       : stageView==="timeline" ? "The film assembled from each clip's current take"+((project&&project.title)?" \u2014 "+project.title:"")+"."
       : stageView==="audio" ? "The post mix: voiced lines over the picture, beds under, kept with the film."
       : "Scene "+_pad2(selectedScene.no)+" \u00b7 "+selectedSceneClips.length+" clip"+(selectedSceneClips.length!==1?"s":"")
-        +" \u00b7 "+headDone+" of "+selectedSceneClips.length+" rendered \u00b7 "+_fmtSecs(headSceneShots.reduce((t,sh)=>t+stageShotRuntime(sh),0))+".";
+        +" \u00b7 "+headDone+" of "+selectedSceneClips.length+" rendered \u00b7 "+_fmtSecs(selectedSceneClips.length ? selectedSceneClips.reduce((t,c)=>t+stageClipSecs(c, vids),0)
+          : headSceneShots.reduce((t,sh)=>t+stageShotRuntime(sh),0))+".";
     const stageHead = _stEl("header",{className:"viewnav stage-head","aria-label":"Views"},
       _stEl("div",{className:"wr-head-in stage-head-in"},
         _stEl("div",{className:"wr-head-copy"},

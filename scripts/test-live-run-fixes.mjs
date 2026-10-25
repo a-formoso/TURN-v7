@@ -88,12 +88,37 @@ t("7 the reference warning is false, never 0, when nothing is missing", ()=>{
   assert.ok(shotsUi.includes("const refWarn = (_missCast.length>0 || _missLoc.length>0) && "));
   assert.ok(!shotsUi.includes("const refWarn = (_missCast.length || _missLoc.length) && "));
 });
+t("3 a scene's length on the Stage is its clips' (rail and heading), not the shots' planning estimates", ()=>{
+  const b={window:{},vidGetMeta:(id)=>id==="c1"?{durationSec:4.06}:null}; vm.createContext(b);
+  vm.runInContext(fnSrc(stage,"stageClipSecs")+";this.f=stageClipSecs;",b);
+  assert.equal(b.f({id:"c1",data:{dur:4}},{c1:"blob:x"}),4.06);   // the rendered take's own length
+  assert.equal(b.f({id:"c2",data:{dur:11}},{}),11);              // else the planned length
+  assert.ok(stage.includes("const sceneDur = sceneClips.length ? sceneClips.reduce((t,c)=>t+stageClipSecs(c, vids),0)"));
+  assert.ok(stage.includes("_fmtSecs(selectedSceneClips.length ? selectedSceneClips.reduce((t,c)=>t+stageClipSecs(c, vids),0)"));
+  assert.ok(stage.includes("const secs = stageClipSecs(c, vids);"));
+});
+t("4 the Mix and the Timeline show a line only the screenplay holds; a shot's own words still come first", ()=>{
+  const b={window:{}}; vm.createContext(b);
+  vm.runInContext([fnSrc(voicegen,"vgLineAudioStatus"),"window.vgLineAudioStatus=vgLineAudioStatus;",
+    "const CLIP_AIR = { lead:0.6, gap:0.8, tail:0.6 };","function stageActionSec(){ return 3; }",
+    "function _seedanceVoiceSec(sh){ return String(sh&&sh.dialogue||'').split(/\\s+/).filter(Boolean).length>2 ? 2 : 1; }",
+    fnSrc(stage,"_lineSpeakerOf"),fnSrc(stage,"_shotAudioState"),fnSrc(stage,"clipLinePlacements"),"this.f=clipLinePlacements;"].join("\n"),b);
+  const sh1={id:"s1",dialogue:""}, sh2={id:"s2",dialogue:""};
+  const clip={data:{shots:[sh1,sh2],lineShots:[{...sh2,dialogue:"Last one, Bassi.",lineSpeaker:{id:"c1",name:"OTTAVIO SPADONI"}}],panelLines:[]}};
+  const out=b.f(clip,{},cast);
+  assert.equal(out.length,1);
+  assert.equal(out[0].shotId,"s2"); assert.equal(out[0].text,"Last one, Bassi."); assert.equal(out[0].speaker,"OTTAVIO SPADONI");
+  assert.equal(out[0].at,3.6);   // after the silent first shot (lead 0.6 + 3)
+  // a line a redraft removed: the shot's own words, listed but not playable
+  const gone=b.f({data:{shots:[{id:"s3",dialogue:"Old words."}],lineShots:[],panelLines:[]}},{},cast);
+  assert.equal(gone.length,1); assert.equal(gone[0].audioState.state,"stale-text");
+});
 t("Frances knows", ()=>{
   assert.ok(ai.includes("Voicing a clip's lines and the scene type (Stage, test-film fixes)"));
 });
 t("cache keys", ()=>{
   ["stage.jsx","ai.jsx","script.jsx","app.jsx","artroom.jsx","shots-ui.jsx","breakdown.jsx"].forEach(f=>
-    assert.ok(["20261025-hs74"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
-  assert.ok(["20261025-hs74"].some(k=>html.includes("app/stage-director-brief.js?v="+k+'"')));
+    assert.ok(["20261025-hs74", "20261025-hs75"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  assert.ok(["20261025-hs74", "20261025-hs75"].some(k=>html.includes("app/stage-director-brief.js?v="+k+'"')));
 });
 console.log(pass+" passed, 0 failed");
