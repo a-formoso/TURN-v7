@@ -276,10 +276,21 @@ function stageOwnerPaysInfo(cost, opts){
     title: "Work on this film is paid from its owner's credits"+(limit!=null ? ", within your monthly budget on it ("+fmt(Number(b.spent)||0)+" of "+fmt(limit)+" used)." : ".")
       +(hold ? " The render holds credits while it runs; the rest is returned when it finishes, and a render that fails is refunded." : "") };
 }
+/* AN ADMIN ISN'T CHARGED (2026-10-25: a 1,183-credit render was blocked on an admin's 645): the server never holds or
+   charges an admin (image-proxy), so the Stage shows the price for reference and never blocks Generate on the balance */
+function stageAdminInfo(cost, opts){
+  const fmt = (n)=> (Number(n)||0).toLocaleString("en-US");
+  const hold = !!(opts && opts.hold), floor = !hold && !!(opts && opts.floor);
+  return { known:false, remaining:null, after:null, frozen:false, hold, floor, basis:String((opts && opts.basis) || ""), cost,
+    admin:true, empty:false, short:false,
+    label:(hold ? "Would hold up to " : floor ? "Costs at least " : "Costs about ")+fmt(cost)+" credit"+(cost!==1?"s":"")+" \u00b7 not charged on an admin account",
+    title:"Admin account: renders are never charged, so the balance doesn't limit them. The price is what this render costs on a paying account." };
+}
 function stageCreditInfo(balance, cost, opts){
   cost = Number(cost)||1;
   if(typeof window!=="undefined" && typeof window.turnFilmPaidByOwner==="function" && window.turnFilmPaidByOwner())
     return stageOwnerPaysInfo(cost, opts);
+  if(typeof window!=="undefined" && window.turnIsAdmin===true) return stageAdminInfo(cost, opts);
   const hold = !!(opts && opts.hold);
   const floor = !hold && !!(opts && opts.floor);
   const estimate = (opts && Number(opts.estimate)>0) ? Math.ceil(Number(opts.estimate)) : null;

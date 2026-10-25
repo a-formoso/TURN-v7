@@ -10,6 +10,7 @@
  */
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
+import vm from "node:vm";
 import {videoResultRefused} from "../supabase/functions/image-proxy/video-reconcile.mjs";
 
 const vg=readFileSync("app/videogen.jsx","utf8"), stage=readFileSync("app/stage.jsx","utf8");
@@ -59,9 +60,21 @@ t("3 full screen that always works: every Stage player hides the video's own but
   assert.equal((stage.match(/className:"stage2-fs-wrap"/g)||[]).length, 4);
   assert.ok(css.includes("video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:auto}"));
 });
+t("4 an admin's render is never blocked on the balance (the server never charges an admin)", ()=>{
+  const fn=(name)=>{ const a=stage.indexOf("function "+name+"("); let i=stage.indexOf("{",a),d=0; for(;i<stage.length;i++){ if(stage[i]==="{")d++; else if(stage[i]==="}"){ d--; if(!d) break; } } return stage.slice(a,i+1); };
+  const W={}; const box={window:W}; vm.createContext(box);
+  vm.runInContext([fn("stageOwnerPaysInfo"),fn("stageAdminInfo"),fn("stageCreditInfo"),"this.f=stageCreditInfo;"].join("\n"),box);
+  W.turnIsAdmin=true;
+  const a=box.f({remaining:645},1183);
+  assert.equal(a.empty,false); assert.equal(a.short,false); assert.equal(a.admin,true);
+  assert.ok(/1,183 credits · not charged on an admin account/.test(a.label));
+  W.turnIsAdmin=false;
+  const u=box.f({remaining:645},1183);
+  assert.equal(u.empty,true); assert.ok(!u.admin);
+});
 t("Frances knows; keys", ()=>{
   assert.ok(ai.includes("While a clip renders (Stage, 2026-10-25 fixes)"));
-  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
-  assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 console.log(pass+" passed, 0 failed");
