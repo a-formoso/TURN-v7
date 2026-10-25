@@ -31,5 +31,12 @@ t("the server keeps the seed in range too, and passes on a validation 422's reas
   assert.ok(proxy.includes("`The voice service returned an error (${r.status}).`"));
   assert.ok(!proxy.includes("`ElevenLabs error (${r.status}).`"));
 });
+t("saving a designed voice tells the provider a neutral description of at least 20 characters, nothing about the character", ()=>{
+  const m=/const PROVIDER_VOICE_DESCRIPTION = "([^"]+)";/.exec(proxy);
+  assert.ok(m && m[1].length>=20, "neutral description");
+  assert.ok(!/ottavio|character's name/i.test(m[1]));
+  assert.ok(proxy.includes("voice_description: ownElKey && ownDesc.length >= 20 ? ownDesc : PROVIDER_VOICE_DESCRIPTION,"));
+  assert.ok(!proxy.includes('voice_description: ownElKey ? (body.description || "").toString() : ""'));
+});
 t("cache key", ()=>{ assert.ok(["20261025-hs77", "20261025-hs78", "20261025-hs79"].some(k=>html.includes("app/voices-ui.jsx?v="+k+'"'))); });
 console.log(pass+" passed, 0 failed");

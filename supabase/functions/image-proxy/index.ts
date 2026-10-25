@@ -1203,6 +1203,8 @@ Deno.serve(async (req) => {
     // saving a designed voice and listing voices cost nothing. The plan gate comes first: voice
     // needs a paid plan, and the character voice tools (design / save / clone) the Art Room's.
     const VOICE_OPS = ["tts", "design", "saveVoice", "listVoices", "clone", "stt", "attachVoice", "deleteVoice"];
+    // what the provider is told about a voice saved on the studio's account: nothing about the character (2026-10-25)
+    const PROVIDER_VOICE_DESCRIPTION = "A designed voice for a fictional film character.";
     const voiceOp = (body.op || "tts").toString();
     if (!VOICE_OPS.includes(voiceOp)) return json({ error: `Unknown voice op "${voiceOp}".` }, 400);
     const sbVoice = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -1562,11 +1564,16 @@ Deno.serve(async (req) => {
         const generatedVoiceId = (body.generatedVoiceId || "").toString();
         if (!generatedVoiceId) return json({ error: "Saving a voice needs a generatedVoiceId." }, 400);
         const name = (body.name || "Voice").toString().slice(0, 80);
-        // the provider is sent a neutral name and no description: the character's name stays in the studio
+        // the provider is sent a neutral name and a neutral description: the character's name and details stay in the
+        // studio. The description must be at least 20 characters (2026-10-25: an empty one made every "Lock this"
+        // fail with a 422); on a caller's own key their own description goes when it's long enough
+        const ownDesc = (body.description || "").toString().trim().slice(0, 1000);
         const r = await fetch(`${EL}/text-to-voice`, {
           method: "POST",
           headers: { "xi-api-key": elKey, "Content-Type": "application/json" },
-          body: JSON.stringify({ voice_name: ownElKey ? name : providerVoiceName("designed", voiceOwner), voice_description: ownElKey ? (body.description || "").toString() : "", generated_voice_id: generatedVoiceId }),
+          body: JSON.stringify({ voice_name: ownElKey ? name : providerVoiceName("designed", voiceOwner),
+            voice_description: ownElKey && ownDesc.length >= 20 ? ownDesc : PROVIDER_VOICE_DESCRIPTION,
+            generated_voice_id: generatedVoiceId }),
         });
         if (!r.ok) return json(voiceProviderError(await elErr(r), r.status, op), 200);
         const data = await r.json();
