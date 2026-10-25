@@ -74,9 +74,15 @@ function _stageVideoFullscreen(v, url){
     vid.setAttribute("controlslist","nofullscreen");   // the window view IS the full screen here (its own button does nothing)
     vid.controls = true; vid.autoplay = true; vid.playsInline = true;
     if(v){ try{ vid.currentTime = v.currentTime||0; }catch(e){} }
-    wrap.appendChild(vid);
+    // the video and its exit button, in the slot the full-screen button had (2026-10-25)
+    const box = document.createElement("div"); box.className = "stage2-fs-wrap"+(STAGE_FS_SLOT?" cr":"");
+    const exit = document.createElement("button"); exit.type = "button"; exit.className = "stage2-player-fs exit";
+    exit.title = "Exit full screen (Esc)"; exit.setAttribute("aria-label","Exit full screen");
+    exit.innerHTML = STAGE_EXIT_SVG;
+    box.appendChild(vid); box.appendChild(exit); wrap.appendChild(box);
     const onKey = (e)=>{ if(e.key==="Escape") close(); };
     const close = ()=>{ try{ wrap.remove(); }catch(e){} document.removeEventListener("keydown", onKey); };
+    exit.addEventListener("click",(e)=>{ e.stopPropagation(); close(); });
     wrap.addEventListener("mousedown",(e)=>{ if(e.target===wrap) close(); });
     document.addEventListener("keydown", onKey);
     document.body.appendChild(wrap);
@@ -101,8 +107,18 @@ function _stageVideoFullscreen(v, url){
 function _stageFsButton(getVideo, open){
   return _stEl("button",{type:"button",className:"stage2-player-fs",title:"Full screen (or double-click the video)","aria-label":"Full screen",
     onClick:(e)=>{ e.stopPropagation(); if(open) open(); else _stageVideoFullscreen(getVideo ? getVideo() : null); }},
-    Icon.maximize&&_stEl(Icon.maximize,{s:15}));
+    Icon.maximize&&_stEl(Icon.maximize,{s:18}));
 }
+/* IN THE CONTROL BAR (2026-10-25, owner: "between the volume icon and the ⋮ icon, just like in full screen"): a
+   Chromium browser (Chrome, Edge, the desktop app) keeps the video's own full-screen slot in its control bar — the
+   icon made invisible — and the button above sits exactly on it; elsewhere it stays just above the bar. In the
+   full-window view the same slot holds an exit button. */
+const STAGE_FS_SLOT = (()=>{ try{
+  const ud = navigator.userAgentData;
+  if(ud && Array.isArray(ud.brands) && ud.brands.some(b=>/Chromium|Google Chrome|Microsoft Edge/.test(String(b&&b.brand)))) return true;
+  return /\bChrome\/\d/.test(navigator.userAgent||"") && !/\b(OPR|SamsungBrowser)\//.test(navigator.userAgent||"");
+}catch(e){ return false; } })();
+const STAGE_EXIT_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 01-2 2H3M21 8h-3a2 2 0 01-2-2V3M3 16h3a2 2 0 012 2v3M16 21v-3a2 2 0 012-2h3"></path></svg>';
 function _chipClass(k){ return String(k||"").toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"") || "tag"; }
 function _fmtSecs(n){ n=Number(n)||0; return (Math.round(n*10)/10).toString().replace(/\.0$/,"")+"s"; }
 function _stageClock(n){
@@ -6807,7 +6823,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     _stEl("div",{className:"stage2-player",style:_stageAspectCss(aspect)},
       playerUrl
         ? _stEl(React.Fragment,null,
-          _stEl("div",{className:"stage2-fs-wrap"},
+          _stEl("div",{className:"stage2-fs-wrap"+(STAGE_FS_SLOT?" cr":"")},
           _stEl("video",{ref:playerVideoRef,src:playerUrl,poster:shotStartFrame||undefined,controls:true,playsInline:true,controlsList:"nofullscreen",
             "aria-label":"Take of "+(clip.label||"this clip"),
             title:"Double-click for full screen",onDoubleClick:playerFullscreen,
@@ -7249,7 +7265,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const lightbox = maxImg && (maxImg.kind==="video"
     ? _stEl("div",{className:"stage2-lightbox",role:"dialog","aria-modal":"true","aria-label":maxImg.label||"Video",onClick:()=>setMaxImg(null)},
         _stEl("button",{ref:lightboxCloseRef,className:"stage2-lightbox-x",title:"Close","aria-label":"Close",onClick:()=>setMaxImg(null)}, Icon.x&&_stEl(Icon.x,{s:18})),
-        _stEl("video",{className:"stage2-lightbox-media",src:maxImg.url,controls:true,autoPlay:true,playsInline:true,controlsList:"nofullscreen","aria-label":maxImg.label||"Video",onClick:(e)=>e.stopPropagation()}),
+        _stEl("div",{className:"stage2-fs-wrap"+(STAGE_FS_SLOT?" cr":""),onClick:(e)=>e.stopPropagation()},
+          _stEl("video",{className:"stage2-lightbox-media",src:maxImg.url,controls:true,autoPlay:true,playsInline:true,controlsList:"nofullscreen","aria-label":maxImg.label||"Video",onClick:(e)=>e.stopPropagation()}),
+          _stEl("button",{type:"button",className:"stage2-player-fs exit",title:"Exit full screen (Esc)","aria-label":"Exit full screen",
+            onClick:(e)=>{ e.stopPropagation(); setMaxImg(null); },dangerouslySetInnerHTML:{__html:STAGE_EXIT_SVG}})),
         maxImg.label && _stEl("div",{className:"stage2-lightbox-cap"}, maxImg.label))
     : _stEl("div",{className:"lb-overlay",role:"dialog","aria-modal":"true","aria-label":maxImg.label||"Image preview",onMouseDown:(e)=>{ if(e.target===e.currentTarget) setMaxImg(null); }},
         _stEl("div",{className:"lb-panel"},
@@ -7547,7 +7566,7 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
     return null; };
   const playerFor = (t, ref, role)=>_stEl("div",{key:t.url,className:"stage2-takes-pane"+(role==="film"?" film":" pick")+(t.current && !usedByFilm(t)?" out":"")},
     t.unavailable ? _stEl("div",{className:"stage2-source-warning stale",role:"status"},"This take's video comes from an address the app doesn't play. The film's owner can delete it.")
-      : _stEl("div",{className:"stage2-fs-wrap"},
+      : _stEl("div",{className:"stage2-fs-wrap"+(STAGE_FS_SLOT?" cr":"")},
           _stEl("video",{key:t.url,ref,className:"stage2-versions-video",src:t.url,controls:true,playsInline:true,controlsList:"nofullscreen",
             "aria-label":(role==="film"?"Take in the film":"Selected take")+((t.meta&&t.meta.vno)?" v"+t.meta.vno:""),
             title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget)}),
@@ -8264,7 +8283,7 @@ function StageTimelineView({ allClips, vids, staleVids, identityVids, imgs, visu
     _stEl("div",{className:"stage2-tl-player"},
       cur && _stEl("span",{className:"stage2-tl-player-tag"}, stageClipBeatName(cur)+" · "+clockOf(headAt)),
       curUrl && !playErr
-        ? _stEl("div",{className:"stage2-fs-wrap"}, _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,controlsList:"nofullscreen",onEnded,onCanPlay,onPause,onError:onVideoError,
+        ? _stEl("div",{className:"stage2-fs-wrap"+(STAGE_FS_SLOT?" cr":"")}, _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,controlsList:"nofullscreen",onEnded,onCanPlay,onPause,onError:onVideoError,
             onLoadedMetadata:applySeek,
             onTimeUpdate:(e)=>{ const t = Number(e.currentTarget.currentTime)||0; if(cur) setTlPlay(p=>(p.id===cur.id && Math.abs(p.t-t)<0.2) ? p : { id:cur.id, t }); },
             "aria-label":cur ? ("Timeline — "+stageClipBeatName(cur)) : "Timeline",
@@ -8559,7 +8578,7 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
           text:"The picture plays each clip's current take with its own sound at the Picture volume; your voiced lines drop in where the render was told to put them, and stop at the end of their clip. Levels, mutes and each scene's imported beds are kept on this device only — collaborators don't hear them, and each person's export uses their own. Export film in the Timeline tab can record the whole film with this mix. The scene follows the Scenes rail."}))),
     _stEl("div",{className:"stage2-au-player"},
       cur && _stEl("span",{className:"stage2-tl-player-tag"}, stageClipBeatName(cur)+" \u00b7 "+clockS(headT)),
-      curUrl ? _stEl("div",{className:"stage2-fs-wrap"}, _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,controlsList:"nofullscreen",onEnded:onClipEnded,
+      curUrl ? _stEl("div",{className:"stage2-fs-wrap"+(STAGE_FS_SLOT?" cr":"")}, _stEl("video",{key:curUrl,ref:videoRef,src:curUrl,controls:true,playsInline:true,controlsList:"nofullscreen",onEnded:onClipEnded,
           onPlay:onVideoPlay,onPause:onVideoPause,onSeeked:onVideoSeeked,onCanPlay,onError:onVideoError,
           onTimeUpdate:(e)=>{ const t = Number(e.currentTarget.currentTime)||0; if(cur) setAuPlay(p=>(p.id===cur.id && Math.abs(p.t-t)<0.2) ? p : { id:cur.id, t }); },
           "aria-label":"Mix preview"+(cur ? " — "+stageClipBeatName(cur) : ""),

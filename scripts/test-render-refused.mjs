@@ -56,8 +56,13 @@ t("3 full screen that always works: every Stage player hides the video's own but
   assert.ok(stage.includes('vid.setAttribute("controlslist","nofullscreen");'));
   assert.ok(stage.includes("setTimeout(()=>{ if(!document.fullscreenElement && !document.webkitFullscreenElement) overlay(); }, 600);"));
   assert.ok(css.includes(".stage2-player-fs{position:absolute;bottom:58px;right:12px;"));
-  assert.ok(css.includes(".stage2-fs-wrap video::-webkit-media-controls-fullscreen-button{display:none!important}"));
-  assert.equal((stage.match(/className:"stage2-fs-wrap"/g)||[]).length, 4);
+  // (2026-10-25) in a Chromium browser the button sits in the control bar's own full-screen slot, between volume and ⋮
+  assert.ok(css.includes(".stage2-fs-wrap:not(.cr) video::-webkit-media-controls-fullscreen-button{display:none!important}"));
+  assert.ok(css.includes(".stage2-fs-wrap.cr video::-webkit-media-controls-fullscreen-button{display:block!important;visibility:hidden!important}"));
+  assert.ok(css.includes(".stage2-fs-wrap.cr .stage2-player-fs{bottom:32px;right:52px;"));
+  assert.equal((stage.match(/className:"stage2-fs-wrap"\+\(STAGE_FS_SLOT\?" cr":""\)/g)||[]).length, 5);   // four players + the window view
+  assert.ok(stage.includes('box.className = "stage2-fs-wrap"+(STAGE_FS_SLOT?" cr":"");'));
+  assert.ok(stage.includes('className:"stage2-player-fs exit",title:"Exit full screen (Esc)"'));
   assert.ok(css.includes("video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:auto}"));
 });
 t("4 an admin's render is never blocked on the balance (the server never charges an admin)", ()=>{
@@ -74,7 +79,7 @@ t("4 an admin's render is never blocked on the balance (the server never charges
 });
 t("Frances knows; keys", ()=>{
   assert.ok(ai.includes("While a clip renders (Stage, 2026-10-25 fixes)"));
-  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
-  assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  ["videogen.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  assert.ok(["20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 console.log(pass+" passed, 0 failed");
