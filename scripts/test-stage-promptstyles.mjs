@@ -116,7 +116,11 @@ ok("recipes registry ids", ["narrative", "panels", "timeline", "structured", "li
 {
   const out = recipePrompt("narrative", mkClip(), [sh1], sh1, true, [], null, EX);
   const body = out.split("\nAUDIO & OVERLAYS")[0];
-  ok("narrative: single paragraph", body.indexOf("\n") < 0, JSON.stringify(body));
+  // the narrative is ONE paragraph; since 2026-10-24 the acting layer (scene type, living faces, AI tells) follows it
+  // as its own labelled sections, in every prompt style (this check read a stale dist/ until 2026-10-25)
+  const para = body.split("\n")[0];
+  ok("narrative: single paragraph, then the acting notes as their own sections",
+    para.indexOf(", then ") >= 0 && /\n(SCENE TYPE|AVOID AI TELLS)/.test(body), JSON.stringify(body));
   ok("narrative: micro-beats as prose", body.indexOf(", then ") >= 0, body);
   ok("narrative: camera clause separated", body.indexOf("Camera: ") >= 0 && body.indexOf("separate") >= 0, body);
   ok("narrative: not the labelled brief", !/^Subject: /m.test(body), body);
