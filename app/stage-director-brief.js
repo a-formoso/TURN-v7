@@ -336,11 +336,21 @@
         .concat(events.map(e=>e.value)).join("\n");
     });
     const normal=v=>text(v).replace(/\s+/g," ").toLowerCase();
+    /* WHEN EACH MOMENT HAPPENS (owner 2026-10-25, option A): a beat-opening shot's plan times its action paragraphs
+       and lines in screenplay order (stage-plan.jsx beatTimeline); each one is printed with its window in the clip */
+    const timedAt=(u,b)=>{
+      const timing=timedByShot.get(String(u.sh.id)),at=index(b);
+      const seg=timing&&Array.isArray(timing.segments)&&at!==null?timing.segments.find(x=>x&&x.blockIndex===at):null;
+      if(!seg)return "";
+      const base=Number(timing.start)||0;
+      return seconds(base+Number(seg.start))+"\u2013"+seconds(base+Number(seg.end))+"s \u00b7 ";
+    };
+    const anyTimed=units.some(u=>{const t=timedByShot.get(String(u.sh.id));return !!(t&&Array.isArray(t.segments)&&t.segments.length);});
     const actionRows=units.map(u=>{
       const ownDialogue=dialogue.filter(x=>x.unit===u);
       const beatLevel=isBeatLevel(u);
-      const events=ordered(u.actions.map((b,j)=>({at:index(b),ordinal:j,value:b.text}))
-        .concat(ownDialogue.map((x,j)=>({at:index(x.row),ordinal:u.actions.length+j,value:marker(x)}))));
+      const events=ordered(u.actions.map((b,j)=>({at:index(b),ordinal:j,value:timedAt(u,b)+b.text}))
+        .concat(ownDialogue.map((x,j)=>({at:index(x.row),ordinal:u.actions.length+j,value:timedAt(u,x.row)+marker(x)}))));
       const coverage=(u.p.coverage||[]).map(text).filter(Boolean);
       const staging=text(u.p.staging);
       // the storyboard staging line is authored Shots-tab design; print it when it
@@ -386,6 +396,7 @@
       continuous?"One continuous shot. No invented cuts, inserts, montage or extra keyframes."
         :"Use the following authored shot sequence. Cut only between its listed setups; do not invent additional coverage.",
       opening&&!continuous?"Each beat-opening unit is continuous within its own authored shot; no inserts or montage inside it.":"",
+      anyTimed?"The seconds before each moment are when it happens in this clip, from the screenplay's order. Let each action take its time and start each line at its moment \u2014 never speak a line early to fill the opening.":"",
       ...beatBlocks,
       ...actionRows,
       holdUnit?"FINAL HOLD · "+seconds(holdStart)+"–"+seconds(holdUnit.end)+"s — sustain the resulting pose, gaze, prop state and diegetic ambience; do not invent new action.":"",

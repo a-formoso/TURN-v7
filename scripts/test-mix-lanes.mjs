@@ -21,7 +21,7 @@ t("B2 the scene on a ruler: clips as long as their takes, lines where they land,
   assert.ok((au.match(/playhead\)/g)||[]).length>=3 && has("const headT = cur ? starts[shownIdx] + (auPlay.id===cur.id ? auPlay.t : 0) : 0;"));
 });
 t("B3 line marks: voiced, not voiced, spoken by the take, re-voiced / past its clip, clip not rendered", ()=>{
-  assert.ok(has('className:"stage2-au-line"+(pl.url&&rendered?" ready":"")+(pl.native?" native":"")+(pl.revoiced?" revoiced":"")+(!rendered?" later":"")+(pl.pastEnd?" past":"")'));
+  assert.ok(has('className:"stage2-au-line"+(pl.url&&rendered?" ready":"")+(pl.native?" native":"")+(pl.heardAt!=null?" heard":"")+(pl.revoiced?" revoiced":"")+(!rendered?" later":"")+(pl.pastEnd?" past":"")'));
   ["ready","native","revoiced","past","later"].forEach(k=>assert.ok(css.includes(".stage2-au-line."+k),k));
 });
 t("B4 each lane's name, level and Mute at its left; beds: Import / Replace / Remove there, and a dropped file imports", ()=>{
@@ -31,5 +31,5 @@ t("B4 each lane's name, level and Mute at its left; beds: Import / Replace / Rem
   assert.ok(has('loop ? "100%" : pct(bedDur[k] ? Math.min(sceneLen, bedDur[k]) : sceneLen)'), "music runs for its own length");
 });
 t("B5 Frances knows the lanes", ()=>{ assert.ok(ai.includes("THE MIX AS SCENE LANES (2026-10-24")); });
-t("B6 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs68", "20261024-hs69", "20261024-hs70", "20261025-hs71", "20261025-hs72", "20261025-hs73", "20261025-hs74", "20261025-hs75"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
+t("B6 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs68", "20261024-hs69", "20261024-hs70", "20261025-hs71", "20261025-hs72", "20261025-hs73", "20261025-hs74", "20261025-hs75", "20261025-hs76"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
 console.log(pass+" passed, 0 failed");

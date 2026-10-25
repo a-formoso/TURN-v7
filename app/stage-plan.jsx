@@ -39,6 +39,88 @@
     const saved=positive(sh&&sh.actionDurationSec);
     return {seconds:Math.max(baseline,explicit,saved),estimated:!explicit&&!saved,blocks:blocks.length,words};
   }
+  /* THE BEAT IN SCREENPLAY ORDER (owner 2026-10-25, option A: "a dialogue can appear 2, 4, 5 seconds into the
+     video — how do we know where, and how long the clip should be?"). The page says where: each action paragraph
+     and each line, in order. An action paragraph runs its authored seconds, else about 3.5 words a second (at least
+     1.5 s); a spoken line runs its recorded length (Locked voice, the same words), else about 2.4 words a second (at
+     least 1 s); a line opens 0.6 s in when nothing comes before it, 0.3 s after an action, 0.8 s after another line,
+     and the clip keeps 0.6 s of air after a closing line. Written messages are read on screen (about 3 words a
+     second). The total is the beat's length; each moment's start is where it falls in the clip. Estimates, not
+     promises: the model paces the take, and the Takes tab hears where the speech really landed.
+     FIT TO THE ENGINE (owner 2026-10-25): a beat longer than the engine's limit (15 s Seedance 2.0, 30 s 2.5) has
+     its ESTIMATED action paced faster, evenly, down to 1.5 s a paragraph, until it fits; lines, written messages,
+     authored seconds and the order never change. A beat that can't fit even then keeps that fastest pace and is
+     still blocked (over-duration) — trim it or use the longer engine. */
+  const BEAT_AIR={lead:0.6,afterAction:0.3,betweenLines:0.8,tail:0.6},MIN_ACTION=1.5;
+  const words=v=>text(v).split(/\s+/).filter(Boolean).length;
+  function beatTimeline(source,sh,opts){
+    opts=opts||{};
+    const blocks=(source&&source.blocks)||[],rows=(source&&source.dialogue)||[];
+    const audio=(sh&&sh.lineAudio)||{};
+    const isText=d=>typeof root.stageDeliveryIsText==="function"?!!root.stageDeliveryIsText(d):/^(text|sms|message)$/i.test(String(d||""));
+    const blockAt=b=>b&&b.evidence&&Number.isInteger(b.evidence.blockIndex)?b.evidence.blockIndex:null;
+    const segments=[];let t=0,prev="",estimated=false;
+    blocks.forEach(b=>{
+      const type=String(b&&b.type||"").toLowerCase(),body=text(b&&b.text),at=blockAt(b);
+      if(!body)return;
+      if(type==="action"){
+        const authored=positive(b.durationSec||b.duration||b.seconds);
+        const sec=authored&&authored<=120?authored:Math.max(1.5,words(body)/3.5);
+        if(!(authored&&authored<=120))estimated=true;
+        if(prev==="line")t+=BEAT_AIR.afterAction;
+        segments.push({kind:"action",start:round(t),end:round(t+sec),text:body,blockIndex:at,flex:!(authored&&authored<=120),sec});
+        t+=sec;prev="action";return;
+      }
+      if(type!=="dia")return;
+      const row=rows.find(r=>r&&r.evidence&&at!==null&&r.evidence.blockIndex===at)||{text:body,speaker:"",delivery:"in-room"};
+      if(isText(row.delivery)){
+        const sec=Math.max(1.5,words(row.text)/3);estimated=true;
+        if(prev==="line")t+=BEAT_AIR.afterAction;
+        segments.push({kind:"text",start:round(t),end:round(t+sec),text:text(row.text),speaker:row.speaker||"",blockIndex:at});
+        t+=sec;prev="action";return;
+      }
+      const recorded=opts.audioMode!=="native"&&positive(audio.durationMs)&&text(audio.text)===text(row.text)
+        ?positive(audio.durationMs)/1000:0;
+      const sec=recorded||Math.max(1,words(row.text)/2.4);
+      if(!recorded)estimated=true;
+      t+=prev===""?BEAT_AIR.lead:prev==="line"?BEAT_AIR.betweenLines:BEAT_AIR.afterAction;
+      segments.push({kind:"line",start:round(t),end:round(t+sec),text:text(row.text),speaker:row.speaker||"",
+        speakerId:row.speakerId||"",delivery:row.delivery||"in-room",blockIndex:at,recorded:!!recorded});
+      t+=sec;prev="line";
+    });
+    if(prev==="line")t+=BEAT_AIR.tail;
+    const pageSec=round(t);
+    const cap=positive(opts.fitSec);
+    let fitted=false;
+    if(cap&&t>cap){
+      const flex=segments.filter(x=>x.kind==="action"&&x.flex);
+      const fixed=t-flex.reduce((n,x)=>n+x.sec,0);
+      // an even pace for every estimated paragraph, none below 1.5 s (a few passes settle the clamped ones)
+      let room=cap-fixed;
+      let free=flex.slice();
+      for(let pass=0;pass<4&&free.length;pass++){
+        const k=room/free.reduce((n,x)=>n+x.sec,0);
+        const low=free.filter(x=>x.sec*k<MIN_ACTION);
+        if(!low.length){ free.forEach(x=>{x.fit=x.sec*k;}); break; }
+        low.forEach(x=>{x.fit=MIN_ACTION;room-=MIN_ACTION;});
+        free=free.filter(x=>low.indexOf(x)<0);
+        if(room<=0){ free.forEach(x=>{x.fit=MIN_ACTION;}); break; }
+      }
+      flex.forEach(x=>{ if(!(x.fit>0))x.fit=MIN_ACTION; });
+      // lay the moments out again at the new pace
+      let clock=0,last="";
+      segments.forEach(x=>{
+        const len=x.kind==="action"&&x.flex?x.fit:(x.end-x.start);
+        if(x.kind==="line")clock+=last===""?BEAT_AIR.lead:last==="line"?BEAT_AIR.betweenLines:BEAT_AIR.afterAction;
+        else if(last==="line")clock+=BEAT_AIR.afterAction;
+        x.start=round(clock);x.end=round(clock+len);clock+=len;last=x.kind==="line"?"line":"action";
+      });
+      if(last==="line")clock+=BEAT_AIR.tail;
+      t=clock;fitted=true;
+    }
+    segments.forEach(x=>{delete x.flex;delete x.sec;delete x.fit;});
+    return {segments,total:round(t),pageSec,fitted,estimated};
+  }
   function unitFor(sh,index,opts){
     const issues=[],p=(opts.panelLines||[]).find(x=>x&&x.shotId===sh.id)||{};
     const source=sourceFor(sh,opts),opening=beatOpening(sh)&&source&&source.hasSource;
@@ -67,15 +149,20 @@
       :text(p.dialogue!=null?p.dialogue:sh.dialogue);
     const audio=sh.lineAudio||{};
     const measured=opts.audioMode!=="native"&&dialogue?positive(audio.durationMs)/1000:0;
-    if(measured&&audio.text&&text(audio.text)!==dialogue)
+    // a beat-opening shot's dialogue reads "SPEAKER: words" for every line of the beat — its recording is one of
+    // those lines, so it matches when one line has its words (2026-10-25: it was compared with the whole string)
+    const audioMatches=opening?dialogueLines.some(x=>text(x.text)===text(audio.text)):text(audio.text)===dialogue;
+    if(measured&&audio.text&&!audioMatches)
       issues.push({code:"stale-audio",blocking:true,shotId:sh.id,message:"Recorded dialogue differs from this shot's current words. Revoice the line or select native dialogue."});
-    const speech=dialogue?(measured||Math.max(1,dialogue.split(/\s+/).length/2.4)):0;
+    const speech=dialogue&&!opening?(measured||Math.max(1,dialogue.split(/\s+/).length/2.4)):0;
     const actionTiming=opening?beatActionTiming(source,sh):null;
+    // a whole screenplay beat: its action and its lines in page order, one after another (beatTimeline)
+    const timeline=opening?beatTimeline(source,sh,{...opts,fitSec:limits(opts).max}):null;
     const actionTime=opening
-      ? actionTiming.seconds
+      ? Math.max(timeline.fitted?positive(sh.actionDurationSec):actionTiming.seconds,timeline.total)
       : positive(sh.actionDurationSec)||(micro.length?Math.max(2,micro.length*1.6):5);
-    // Dialogue and physical business can occur concurrently. Do not add them twice.
-    const floor=dialogue?Math.max(speech+0.6,micro.length?Math.min(actionTime,5):0):actionTime;
+    // A cut's own micro-beat business can play under its line. Do not add them twice.
+    const floor=opening?actionTime:dialogue?Math.max(speech+0.6,micro.length?Math.min(actionTime,5):0):actionTime;
     const savedDur=positive(sh.dur);
     const explicitShotDur=opening&&actionTiming ? (savedDur>=actionTime ? savedDur : 0) : savedDur;
     const duration=round(Math.max(explicitShotDur||floor,speech?speech+0.6:0,0.5));
@@ -87,7 +174,8 @@
     return {shotId:sh.id,index,beatN:positive(sh.beatN)||null,covers:opening?[]:covers,micro,action,dialogue,
       beatOpening:opening,beatScript:opening?String(source.text||""):"",sourceScreenplayRev:opening?String(source.sourceRev||""):"",
       dialogueLines,
-      duration,estimated:!!(opening&&actionTiming&&actionTiming.estimated)||(!opening&&!positive(sh.dur)&&!measured),audioMeasuredSec:round(measured),
+      duration,estimated:opening?!!(timeline&&timeline.estimated&&!positive(sh.actionDurationSec)):(!positive(sh.dur)&&!measured),audioMeasuredSec:round(measured),
+      segments:opening&&timeline?timeline.segments:[],pageSec:opening&&timeline?timeline.pageSec:0,paced:!!(opening&&timeline&&timeline.fitted),
       speaker:(p.speaker&&p.speaker.name)||audio.speaker||"",
       camera:{size:sh.size||"",angle:sh.angle||"",move:sh.move||"",lens:sh.lens||""},issues};
   }
@@ -183,6 +271,7 @@
         onSplit&&e("button",{type:"button",onClick:onSplit},"Split to fit this model")));
   }
   root.stageBuildTimedPlan=stageBuildTimedPlan;
+  root.stageBeatTimeline=beatTimeline;
   root.stagePlanClips=stagePlanClips;
   root.StageRenderPlan=StageRenderPlan;
 })(window);

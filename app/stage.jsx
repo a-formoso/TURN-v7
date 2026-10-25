@@ -2883,7 +2883,11 @@ function seedanceTimedPlanPrompt(clip, shots, audioRefsOn, audioIncluded, refs, 
     const micro=(Array.isArray(unit.micro)?unit.micro:(Array.isArray(p.micro)?p.micro:[]))
       .map(x=>String(x||"").replace(/[\s.;]+$/,"")).filter(Boolean);
     // p.micro was built from sh.covers, so this is shot coverage, never the whole beat.
-    const action=micro.length ? micro.map((x,j)=>(j+1)+") "+x).join("; ")
+    // a whole screenplay beat: its moments in page order, each at its time in the clip (2026-10-25, option A)
+    const segs=Array.isArray(unit.segments)?unit.segments:[];
+    const action=segs.length ? segs.map(x=>r1(r.start+Number(x.start))+"\u2013"+r1(r.start+Number(x.end))+"s "
+        +(x.kind==="line" ? (String(x.speaker||"the speaker")+": \u201c"+x.text+"\u201d") : x.kind==="text" ? ("on screen: "+x.text) : x.text)).join("; ")
+      : micro.length ? micro.map((x,j)=>(j+1)+") "+x).join("; ")
       : String(unit.action||p.text||sh.action||r.label||"Hold the composition.").trim();
     const exactDialogue=String(unit.dialogue||p.dialogue||sh.dialogue||"").trim();
     const dialogue=_seedanceDialogueClause(sh,{ ...p,dialogue:exactDialogue },{ ...d,audioRefsOn,audioIncluded },refs);
@@ -7428,12 +7432,41 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
     stageTakeNotes(clip, m, project).forEach(nt=>out.push(_stEl("span",{key:nt.key,className:"stage2-vbadge stale",title:nt.title},nt.label)));
     return out;
   };
+  /* WHERE THIS TAKE SPEAKS (owner 2026-10-25, option C): the picked take's soundtrack is heard once (stage-speech.js,
+     free, in the browser) and kept with the take; its lines are matched to the speech heard, in order */
+  const [heardTick, setHeardTick] = React.useState(0);
+  const selLines = React.useMemo(()=>{
+    if(!sel || sel.unavailable || typeof stageTakeLinePlacements!=="function") return [];
+    try{ return stageTakeLinePlacements(clip, {}, ((window.turnContinuity||{}).characters)||[], selMeta, sel.url); }catch(e){ return []; }
+  }, [sel && sel.url, selMeta, heardTick]);
+  const selHeard = (selMeta.speechHeard && Array.isArray(selMeta.speechHeard.regions)) ? selMeta.speechHeard
+    : (sel && typeof window.stageHeardFor==="function" ? window.stageHeardFor(sel.url) : null);
+  React.useEffect(()=>{
+    if(!sel || sel.unavailable || selHeard || !selLines.length || typeof window.stageHearSpeech!=="function") return;
+    let alive = true;
+    window.stageHearSpeech(sel.url).then(r=>{
+      if(!alive || !r) return;
+      setHeardTick(x=>x+1);
+      if(!readOnly && typeof window.vidUpdateTake==="function") window.vidUpdateTake(clipId, sel.url, { speechHeard:r });
+    });
+    return ()=>{ alive = false; };
+  }, [sel && sel.url, !!selHeard, selLines.length]);
+  const speechText = !selLines.length ? "" : !selHeard ? "Listening for speech\u2026"
+    : selHeard.noAudio ? "This take has no sound track"
+    : selLines.map(pl=>{
+        const who = String(pl.speaker||"Line").trim();
+        if(pl.heardAt==null) return who+" \u2014 no speech heard (planned at "+pl.at+"s)";
+        const d = Math.round((pl.heardAt-pl.plannedAt)*10)/10;
+        return who+" \u2014 heard at "+pl.heardAt+"s"+(Math.abs(d)<=0.3 ? " (as planned)"
+          : " ("+Math.abs(d)+"s "+(d<0?"earlier":"later")+" than the planned "+pl.plannedAt+"s; the Mix follows the picture)");
+      }).join(" \u00b7 ");
   const detailRows = sel ? [
     ["Model", stageTakeModelLabel(selMeta.model)],
     ["Workflow", _stageVSourceLabel(selMeta.source) || "—"],
     ["Duration", selMeta.durationSec ? (selMeta.durationSec+"s") : (selMeta.durationMs ? Math.round(selMeta.durationMs/1000)+"s" : "—")],
     ["Inputs", selMeta.inputs || "—"],
     ["Audio", _stageVAudioLabel(selMeta.audio) || "—"],
+    ...(speechText ? [["Speech", speechText]] : []),
     ["Quality", [selMeta.tierLabel||selMeta.tier, selMeta.resolution, selMeta.bitrate==="high"?"high bitrate":null].filter(Boolean).join(" · ") || "—"],
     ["Camera profile", selMeta.cameraProfileLabel || "Project default / None"],
     ["Recipe", _stageVRecipeLabel(selMeta.recipe) || "—"],
@@ -7492,6 +7525,9 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
         pair.length ? pair.map((t,i)=>playerFor(t, i===0 ? cmpRefs.a : cmpRefs.b, pair.length>1 && i===0 ? "film" : "pick"))
           : _stEl("div",{className:"stage2-versions-empty"}, takes.length ? "No versions match these filters." : "No takes of this clip yet — render it in Shoot.")),
       sel && _stEl("div",{className:"stage2-takes-warns"},
+        selHeard && !selHeard.noAudio && selLines.some(pl=>pl.notHeard) && _stEl("div",{className:"stage2-source-warning stale",role:"status"},
+          (selLines.every(pl=>pl.notHeard) ? "No speech was heard in this take" : "Not every line was heard in this take")
+            +" \u2014 the model may have left a line out. Play it before you use it; Details \u203a Speech says which."),
         propDependenciesStale(sel) && _stEl("div",{className:"stage2-source-warning stale"},
           selApproved
             ? "A prop used by this take has changed. This approved take remains pinned; update it only when you intentionally render a new version."
@@ -7599,6 +7635,10 @@ function clipLinePlacements(clip, auds, characters){
      with words a redraft changed or removed is not playable in the Mix; the timing walk is unchanged */
   const liveList = clip && clip.data && Array.isArray(clip.data.lineShots) ? clip.data.lineShots : null;
   const liveOf = (sh)=> liveList ? (liveList.find(x=>x&&x.id===(sh&&sh.id))||null) : sh;
+  /* WHERE THE SCREENPLAY PUTS THE LINE (owner 2026-10-25, option A): a beat-opening shot's plan times its action
+     and lines in page order (stage-plan.jsx beatTimeline) — the line lands at its moment, not 0.6 s in */
+  const planUnits = (clip && clip.g && clip.g.plan && Array.isArray(clip.g.plan.units)) ? clip.g.plan.units : [];
+  const normLine = (v)=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
   const out = []; let t = CLIP_AIR.lead, spoken = 0;
   shots.forEach(sh=>{
     /* A LINE ONLY THE SCREENPLAY HOLDS (live run 2026-10-25): a designed shot's own dialogue field can be empty while
@@ -7608,9 +7648,14 @@ function clipLinePlacements(clip, auds, characters){
     const own = String((sh&&sh.dialogue)||"").trim();
     const src = own ? sh : (liveList && live ? live : sh);
     const talks = String((src&&src.dialogue)||"").trim();
+    const unit = planUnits.find(u=>u && u.shotId===sh.id);
+    const lineSegs = unit && Array.isArray(unit.segments) ? unit.segments.filter(x=>x && x.kind==="line") : [];
+    const seg = talks ? (lineSegs.find(x=>normLine(x.text)===normLine(talks)) || null) : null;
     if(talks){
-      if(spoken>0) t += CLIP_AIR.gap;
-      const sec = Number((src.lineAudio||{}).durationMs||0)/1000 || ((typeof _seedanceVoiceSec==="function")?_seedanceVoiceSec(src):2);
+      if(seg) t = (Number(unit.start)||0) + (Number(seg.start)||0);
+      else if(spoken>0) t += CLIP_AIR.gap;
+      const sec = Number((src.lineAudio||{}).durationMs||0)/1000 || (seg ? Math.max(0.3, Number(seg.end)-Number(seg.start)) : 0)
+        || ((typeof _seedanceVoiceSec==="function")?_seedanceVoiceSec(src):2);
       const p = (((clip.data||{}).panelLines)||[]).find(x=>x&&x.shotId===sh.id);
       const audioState = live ? _shotAudioState(live,auds,characters)
         : { ready:false, state:"stale-text", reason:"The screenplay no longer has this line \u2014 a redraft changed it." };
@@ -7621,6 +7666,7 @@ function clipLinePlacements(clip, auds, characters){
         speaker:(p&&p.speaker&&p.speaker.name)||(src.lineAudio&&src.lineAudio.speaker)||((src.lineSpeaker||{}).name)||"Line",
         text:String(((live||sh).dialogue)||"").trim() });
       t += sec; spoken++;
+      if(seg) t = Math.max(t, Number(unit.end)||0);   // the next shot starts where this one's plan ends
     } else t += stageActionSec(sh);
   });
   return out;
@@ -7630,9 +7676,15 @@ window.stageClipLinePlacements=clipLinePlacements;
    and which recording each was (meta.linePlacements; older takes: meta.voiceReferences). A line re-voiced
    since — new audio over lips timed to the old — is left out of the Mix and the export and says so; a take
    the model voiced itself (native performance) already has its lines, so none are laid over it. */
-function stageTakeLinePlacements(clip, auds, characters, meta){
+function stageTakeLinePlacements(clip, auds, characters, meta, url){
   const m = meta || ((typeof vidGetMeta==="function" && clip) ? vidGetMeta(clip.id) : null) || {};
   const base = clipLinePlacements(clip, auds, characters);
+  /* WHERE THE TAKE SPEAKS (owner 2026-10-25, option C — stage-speech.js): once the take's soundtrack has been
+     heard, each line moves to the speech it matches (more than 0.3 s off its planned moment), so a voiced line
+     sits on the picture's lips; a take with lines but no speech heard says so */
+  const takeUrl = url || ((typeof vidGetVideo==="function" && clip) ? vidGetVideo(clip.id) : "") || "";
+  const heard = (m.speechHeard && Array.isArray(m.speechHeard.regions)) ? m.speechHeard
+    : (typeof window.stageHeardFor==="function" ? window.stageHeardFor(takeUrl) : null);
   const shots = ((clip&&clip.data&&clip.data.shots)||[]);
   const rec = {}; (Array.isArray(m.linePlacements) ? m.linePlacements : []).forEach(x=>{ if(x && x.shotId) rec[x.shotId] = x; });
   const vref = {}; (Array.isArray(m.voiceReferences) ? m.voiceReferences : []).forEach(x=>{ if(x && x.shotId) vref[x.shotId] = x; });
@@ -7648,6 +7700,14 @@ function stageTakeLinePlacements(clip, auds, characters, meta){
     if(native){ out.url = ""; out.native = true; }
     else if(thenHash && nowHash && thenHash!==nowHash){ out.url = ""; out.revoiced = true; }
     if(takeEnd>0 && at+pl.sec > takeEnd+0.05) out.pastEnd = true;
+    return out;
+  }).map((pl, i, all)=>{
+    if(!heard || heard.noAudio || typeof window.stageMatchHeard!=="function") return pl;
+    if(!(heard.regions||[]).length) return { ...pl, notHeard:true };
+    const at = window.stageMatchHeard(all, heard.regions)[i];
+    if(at==null) return { ...pl, notHeard:true };
+    const out = { ...pl, heardAt:at, plannedAt:pl.at };
+    if(Math.abs(at-pl.at)>0.3){ out.at = at; out.pastEnd = !!(takeEnd>0 && at+pl.sec > takeEnd+0.05); }
     return out;
   });
 }
@@ -8212,7 +8272,7 @@ function StageTimelineView({ allClips, vids, staleVids, identityVids, imgs, visu
    the prompts used), the clip's native mix duckable under them, and imported ambience /
    music beds per scene. Levels and beds are kept per film on this device, and Export film
    (Timeline) can record the whole film with this mix (2026-10-05). ---- */
-function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vidsLoaded=true, auds, characters, selId, onSelectClip }){
+function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vidsLoaded=true, auds, characters, selId, onSelectClip, readOnly=false }){
   const scenes = []; (allClips||[]).forEach(c=>{ if(!scenes.some(s=>s.id===c.scene.id)) scenes.push(c.scene); });
   const selClip = (allClips||[]).find(c=>c.id===selId) || null;
   const selScene = (selClip||allClips[0]||{}).scene;
@@ -8239,6 +8299,22 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
     stageLoadMixBeds(sceneClips, [sceneId]).then(b=>{ if(on) setBeds(x=>({ ...x, [sceneId]:{ ...(b[sceneId]||{}), ...(x[sceneId]||{}) } })); }).catch(()=>{});
     return ()=>{ on = false; }; },[mixKey, sceneId]);
   const sceneBeds = (sceneId && beds[sceneId]) || {};
+  /* WHERE EACH TAKE SPEAKS (owner 2026-10-25, option C): the open scene's rendered takes with lines are heard once
+     (stage-speech.js, free, in the browser) and kept with the take, so the lines lane follows the picture */
+  const [, setHeardTick] = React.useState(0);
+  React.useEffect(()=>{ const h=()=>setHeardTick(x=>x+1); window.addEventListener("stage-speech-heard", h);
+    return ()=>window.removeEventListener("stage-speech-heard", h); },[]);
+  React.useEffect(()=>{
+    if(typeof window.stageHearSpeech!=="function") return;
+    sceneClips.forEach(c=>{
+      const url = vids[c.id]; if(!url) return;
+      const m = (typeof vidGetMeta==="function" ? vidGetMeta(c.id) : null) || {};
+      if(m.speechHeard || !(((c.data||{}).lineShots)||[]).length) return;
+      window.stageHearSpeech(url).then(r=>{
+        if(r && !readOnly && typeof window.vidUpdateTake==="function" && vidGetVideo(c.id)===url) window.vidUpdateTake(c.id, url, { speechHeard:r });
+      });
+    });
+  },[sceneId, sceneClips.map(c=>c.id+"="+(vids[c.id]||"")).join("|")]);
   const firstRendered = Math.max(0, sceneClips.findIndex(c=>vids[c.id]));
   const selInScene = selClip ? sceneClips.findIndex(c=>c.id===selClip.id) : -1;
   // the clip shown: the playing one; else the rail's clip when it's rendered; else the scene's first rendered one
@@ -8454,10 +8530,11 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
           const why = rendered ? lineWhy(pl) : "its clip isn't rendered yet";
           const room = Math.max(0.3, Math.min(Number(pl.sec)||0, spans[i]-(Number(pl.at)||0)));
           return _stEl("span",{key:c.id+":"+pl.shotId,
-            className:"stage2-au-line"+(pl.url&&rendered?" ready":"")+(pl.native?" native":"")+(pl.revoiced?" revoiced":"")+(!rendered?" later":"")+(pl.pastEnd?" past":""),
+            className:"stage2-au-line"+(pl.url&&rendered?" ready":"")+(pl.native?" native":"")+(pl.heardAt!=null?" heard":"")+(pl.revoiced?" revoiced":"")+(!rendered?" later":"")+(pl.pastEnd?" past":""),
             style:{left:pct(starts[i]+(Number(pl.at)||0)),width:"max(4px, calc("+pct(room)+" - 1px))"},tabIndex:0,
             "aria-label":pl.speaker+", "+pl.sec+" seconds, lands about "+pl.at+" seconds into "+c.label+(why?", "+why:"")+(pl.pastEnd?", runs past the take's end and stops there":""),
             title:pl.speaker+" — \""+String(pl.text||"").slice(0,60)+"\" · lands ~"+pl.at+"s into "+c.label
+              +(pl.heardAt!=null ? (" · heard in the take at "+pl.heardAt+"s (planned "+pl.plannedAt+"s)") : pl.notHeard ? " · no speech heard in the take" : "")
               +(why?(" · "+why):"")+(pl.pastEnd?" · runs past the take's end — it stops there":"")},
             pl.speaker+(pl.pastEnd?" →|":"")); })
           : _stEl("span",{className:"stage2-au-drop quiet"}, sceneClips.some(c=>vids[c.id]) ? "No dialogue in this scene's rendered clips." : "No dialogue in this scene."),
@@ -9257,7 +9334,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
                 filmTitle:(project&&project.title)||"", auds, characters, oldLookVids, noteVids, identityVids, vidsLoaded,
                 onOpenStage:(id)=>{ onSelectClip(id); setStageView("stage"); } })
             : stageView==="audio"
-            ? _stEl(StageAudioView,{ key:"au", allClips, vids, staleVids, identityVids, noteVids, vidsLoaded, auds, characters, selId, onSelectClip })
+            ? _stEl(StageAudioView,{ key:"au", allClips, vids, staleVids, identityVids, noteVids, vidsLoaded, auds, characters, selId, onSelectClip, readOnly })
             // keyed by SCENE, not clip.id — clip ids change on every repack (they
             // hash the member shots), and remounting the console wiped the recipe
             // tab + Multi-shot row state mid-edit; the console's own member-overlap
