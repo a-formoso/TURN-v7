@@ -559,7 +559,9 @@ function stageStatusLabel(s){
   return raw
     .replace(/\bIN_QUEUE\b/g,"Waiting in the queue")
     .replace(/\bIN_PROGRESS\b/g,"Rendering")
-    .replace(/\bRECONNECTING\b/g,"Connection blip — reconnecting to the render")
+    // a status check that didn't answer, or a finished video not handed over yet: the render goes on (2026-10-25 —
+    // the old "blip" wording read as something broken); the percentage stays
+    .replace(/\bRECONNECTING\b/g,"Still rendering \u2014 checking again")
     .replace(/\bCOMPLETED\b/g,"Finishing up")
     .replace(/\bCANCELL?ED\b/g,"Cancelled")
     .replace(/_/g," ");
@@ -6779,11 +6781,17 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     // player
     _stEl("div",{className:"stage2-player",style:_stageAspectCss(aspect)},
       playerUrl
-        ? _stEl("video",{ref:playerVideoRef,src:playerUrl,poster:shotStartFrame||undefined,controls:true,playsInline:true,
+        ? _stEl(React.Fragment,null,
+          _stEl("video",{ref:playerVideoRef,src:playerUrl,poster:shotStartFrame||undefined,controls:true,playsInline:true,
             "aria-label":"Take of "+(clip.label||"this clip"),
             title:"Double-click for full screen",onDoubleClick:playerFullscreen,
             onLoadedMetadata:()=>syncPlayerClock(false),onTimeUpdate:()=>syncPlayerClock(),
-            onPlay:()=>syncPlayerClock(true),onPause:()=>syncPlayerClock(false),onEnded:()=>syncPlayerClock(false)})
+            onPlay:()=>syncPlayerClock(true),onPause:()=>syncPlayerClock(false),onEnded:()=>syncPlayerClock(false)}),
+          // a new take of a clip that already has one: its progress over the take you see (2026-10-25)
+          gening && _stEl("div",{className:"stage2-player-genbadge",role:"status"},
+            _stEl("span",null, genBusyLabel),
+            genPct!=null && _stEl("div",{className:"stage2-player-bar",role:"progressbar","aria-valuenow":genPct,"aria-valuemin":0,"aria-valuemax":100,"aria-label":"Render progress"},
+              _stEl("div",{className:"stage2-player-bar-fill",style:{width:genPct+"%"}}))))
         : _stEl("div",{className:"stage2-player-empty"},
             _stEl("span",{className:"stage2-player-playring"+(gening?" busy":"")}, Icon.play&&_stEl(Icon.play,{s:22})),
             _stEl("div",{className:"stage2-player-msg"}, gening ? genBusyLabel : "Not rendered yet"),

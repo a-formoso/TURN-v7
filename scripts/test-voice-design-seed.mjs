@@ -31,5 +31,5 @@ t("the server keeps the seed in range too, and passes on a validation 422's reas
   assert.ok(proxy.includes("`The voice service returned an error (${r.status}).`"));
   assert.ok(!proxy.includes("`ElevenLabs error (${r.status}).`"));
 });
-t("cache key", ()=>{ assert.ok(["20261025-hs77"].some(k=>html.includes("app/voices-ui.jsx?v="+k+'"'))); });
+t("cache key", ()=>{ assert.ok(["20261025-hs77", "20261025-hs78"].some(k=>html.includes("app/voices-ui.jsx?v="+k+'"'))); });
 console.log(pass+" passed, 0 failed");

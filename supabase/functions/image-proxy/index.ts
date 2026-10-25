@@ -144,7 +144,7 @@ import {
 import { isFalMediaUrl, mp4InfoFromBytes, probeMp4Info } from "./media-length.mjs";
 // Round 2: the charge of a finished render (shared with the housekeeping reconciliation) and the
 // reconciliation itself (POST {"op":"reconcile_holds"}).
-import { RECONCILE_OP, finishedVideoCharge, reconcileVideoHolds } from "./video-reconcile.mjs";
+import { RECONCILE_OP, finishedVideoCharge, reconcileVideoHolds, videoResultRefused } from "./video-reconcile.mjs";
 // Round 5 (S3): server-only copies of the videos a render is sized and billed by.
 import { createVideoSnapshots, projectStorageObject, snapshotExt } from "./video-snapshots.mjs";
 import { publicError } from "./public-errors.mjs";
@@ -2450,8 +2450,16 @@ Deno.serve(async (req) => {
         const rr = await fetch(responseUrl, { headers: { "Authorization": "Key " + falKey }, signal: AbortSignal.timeout(30000) });
         if (!rr.ok) {
           const detail = await falErr(rr);
-          if (!isAdmin) console.warn(`[image-proxy] video result ${job.rid} unavailable (${rr.status}): ${String(detail).slice(0, 200)}`);
-          return retryLater("The render finished, but its video couldn't be collected yet. Please try again in a moment.");
+          // logged for every caller, admins included (2026-10-25: an admin's render sat on "couldn't be collected"
+          // with no trace of why), and an admin sees the provider's status and words
+          console.warn(`[image-proxy] video result ${job.rid} unavailable (${rr.status}): ${String(detail).slice(0, 300)}`);
+          // a definitive refusal (a likeness / content check, a bad request) is a failed render: its reason, its hold
+          // released (video-reconcile.mjs videoResultRefused — the reconciliation applies the same rule)
+          if (videoResultRefused(rr.status)) return await refunded(say(detail || `The video service refused to deliver this render (${rr.status}).`,
+            `The video service refused to deliver this render (${rr.status}).`), "FAILED");
+          return isAdmin
+            ? json({ error: `The render finished, but its video couldn't be collected yet (${rr.status}: ${String(detail).slice(0, 300)}).`, code: "result_pending", retry: true, status: "IN_PROGRESS", resultStatus: rr.status }, 200)
+            : retryLater("The render finished, but its video couldn't be collected yet. Please try again in a moment.");
         }
         const rd = await rr.json().catch(() => null);
         const vurl = String(rd?.video?.url || "");

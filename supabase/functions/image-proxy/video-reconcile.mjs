@@ -46,6 +46,17 @@ import { VIDEO_HOLD_TTL_MS, canonicalRequestId, createHoldClient, parseVideoHold
 import { lengthBilledFacts, lengthBilledVideoSettle } from "./billing-pricing.mjs";
 import { isFalMediaUrl, probeMp4Duration } from "./media-length.mjs";
 
+/* A FINISHED JOB WHOSE VIDEO WAS REFUSED (2026-10-25, live test film): the job reads COMPLETED, but asking for its
+   result answers a definitive 4xx — fal's likeness / content check refusing to hand the video over ("422: … may
+   contain likenesses of real people …"). That is a failed render, never "not collectable yet": the poll ends it
+   with the provider's reason and releases the hold, and so does the reconciliation (before, it waited forever, then
+   the 30-day last-resort rule charged the hold for a video nobody got). 404 (the result not there yet), 408, 425,
+   429 and 5xx stay temporary. */
+export function videoResultRefused(status) {
+  const n = Number(status);
+  return n >= 400 && n < 500 && n !== 404 && n !== 408 && n !== 425 && n !== 429;
+}
+
 export const RECONCILE_OP = "reconcile_holds";
 export const RECONCILE_JOB = "image-proxy_reconcile";
 export const RECONCILE_EVERY_SECONDS = 240;
@@ -197,7 +208,11 @@ export async function reconcileVideoHolds({ rpc, falKey, fetchImpl = fetch, unit
     let rr;
     try { rr = await fetchImpl(jobUrl, { headers: head, ...timed(15000) }); }
     catch (_e) { return; }
-    if (!rr.ok) { try { await rr.body?.cancel(); } catch (_e) { /* noop */ } return; }   // finished, result not collectable yet
+    if (!rr.ok) {
+      try { await rr.body?.cancel(); } catch (_e) { /* noop */ }
+      if (videoResultRefused(rr.status)) return await release(`the video service refused to deliver the finished video (${rr.status})`);
+      return;   // finished, result not collectable yet
+    }
     const rd = await rr.json().catch(() => null);
     const videoUrl = String((rd && rd.video && rd.video.url) || "");
     if (!videoUrl) return;

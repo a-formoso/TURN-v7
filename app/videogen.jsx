@@ -2241,7 +2241,9 @@ async function seedanceGenerate(id, opts){
       catch(e){
         // "poll again" (result_pending / retry:true): the proxy answered, the job's credits stay
         // held and its video can still be collected — keep polling (within maxPolls), never fail
-        if(_vidPollRetryable(e)){ pollMiss = 0; statusHiccup = false; emit("RECONNECTING"); continue; }
+        // …unless the provider REFUSED the finished video (a likeness / content check): that is final, whatever the
+        // server's retry flag says (an older proxy kept asking to poll again — 2026-10-25, live test film)
+        if(_vidPollRetryable(e) && !vidPolicyError(e)){ pollMiss = 0; statusHiccup = false; emit(lastPct ? "RECONNECTING · "+lastPct+"%" : "RECONNECTING"); continue; }
         // A provider-declared terminal result is not recoverable. vidProxy can
         // throw it before the status branch below when the response carries an
         // error body; remove only that definitive job record. Transport errors,
@@ -2260,7 +2262,7 @@ async function seedanceGenerate(id, opts){
         const hiccup = _vidStatusHiccup(e);
         if((hiccup || /Couldn't reach the video (proxy|service)/i.test(String(e&&e.message))) && ++pollMiss<=4){
           statusHiccup = hiccup;
-          emit("RECONNECTING");
+          emit(lastPct ? "RECONNECTING · "+lastPct+"%" : "RECONNECTING");
           continue;
         }
         // still no status after the misses: the job is still running — say so, keep its record
@@ -2395,6 +2397,9 @@ function useSeedanceGen(id){
   const err = job.err || "";
 
   React.useEffect(()=>{ let alive=true;
+    // THE CLIP'S OWN VIDEO (2026-10-25): the Shoot console stays mounted while you move between a scene's clips, so
+    // the url must follow the id — 01B kept showing 01A's take (and hid its own render's progress)
+    setVideoUrl(vidGetVideo(id)||"");
     if(!vidGetVideo(id)){ vidLoadVideo(id).then(u=>{ if(alive&&u) setVideoUrl(u); }); }
     const onDone=(e)=>{ if(!alive||!e.detail||!e.detail.ids||e.detail.ids.indexOf(idRef.current)<0) return; setVideoUrl(vidGetVideo(idRef.current)); };
     const onJob=(e)=>{ if(!alive||!e.detail||e.detail.id!==idRef.current) return; setJobTick(t=>t+1); };
