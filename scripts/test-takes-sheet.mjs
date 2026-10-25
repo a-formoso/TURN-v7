@@ -18,18 +18,18 @@ t("T2 the take in the film beside the picked one; Play both, the film's take mut
   assert.ok(has("v.muted = els.length>1 && i===0;") && has('"▶ Play both"'));
 });
 t("T3 the action row says what it does: 'Use vN in the film', 'In the film', 'Check and use this take'", ()=>{
-  assert.ok(has('flagged ? "Check and use this take" : sel&&sel.current ? "In the film" : "Use "+vno(sel).toLowerCase()+" in the film"'));
+  assert.ok(has('flagged ? "Check and use this take" : leftOut ? "Left out \\u2014 shots changed" : sel&&sel.current ? "In the film" : "Use "+vno(sel).toLowerCase()+" in the film"'));
   assert.ok(stage.includes('"In the film now — the scene strip, Timeline, Mix and export use it."'));
   assert.equal((v.match(/disabled:readOnly\|\|!sel/g)||[]).length, 3, "choose, approve and delete stay gated");
 });
 t("T4 the contact sheet: number, ★, In the film, a warning badge, a note mark", ()=>{
-  assert.ok(has('className:"stage2-vcard"+(sel&&sel.url===t.url?" sel":"")+(t.current?" infilm":"")'));
-  assert.ok(has('_stEl("span",{className:"stage2-takes-badge film"},"In the film")') && has('className:"stage2-takes-badge warn"'));
+  assert.ok(has('className:"stage2-vcard"+(sel&&sel.url===t.url?" sel":"")+(usedByFilm(t)?" infilm":"")'));
+  assert.ok(has('usedByFilm(t) ? _stEl("span",{className:"stage2-takes-badge film"},"In the film")') && has('className:"stage2-takes-badge warn"'));
   assert.ok(css.includes(".stage2-takes-a .stage2-takes-sheet{display:grid;"));
 });
 t("T5 the details fold: settings, note, prompt and references, open unless closed (remembered)", ()=>{
   assert.ok(has('localStorage.getItem("turn_stage_take_details")!=="closed"') && has('"Version details"') && has('"Prompt used"') && has('"References used"'));
 });
 t("T6 Frances knows the contact sheet", ()=>{ assert.ok(ai.includes("THE CONTACT SHEET (2026-10-24, owner)") && !ai.includes("Branch from version (reuse")); });
-t("T7 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs69", "20261024-hs70", "20261025-hs71"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
+t("T7 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs69", "20261024-hs70", "20261025-hs71", "20261025-hs72"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
 console.log(pass+" passed, 0 failed");

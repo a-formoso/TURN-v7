@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+/* How the Stage's tabs hand work to each other (2026-10-25 review). Each check pins one fix:
+   1 Branch keeps its seed · 2 Takes says "In the film" only when the film uses the take · 3 the Timeline's line
+   lane reads the take's own placements, like the Mix · 4 the scene strip leaves out an identity-changed take ·
+   5 the Mix follows the rail within a scene · 6 a finished render pulls you into Takes only from Shoot on that
+   clip · 8 Reuse keeps the tier on this engine and doesn't promise the recipe; a failed "Use in the film" says so. */
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+const stage=readFileSync("app/stage.jsx","utf8"), ai=readFileSync("app/ai.jsx","utf8"), html=readFileSync("TURN.html","utf8");
+const dec=x=>String(x).replace(/\\u([0-9a-fA-F]{4})/g,(m,h)=>String.fromCharCode(parseInt(h,16)));
+const src=dec(stage), has=x=>src.includes(dec(x));
+const fn=(name, end)=>{ const a=src.indexOf(name); assert.ok(a>=0, name); return src.slice(a, src.indexOf(end, a)); };
+let pass=0;
+const t=(name,f)=>{ try{ f(); }catch(e){ console.error("FAIL "+name+" — "+String(e.message).slice(0,200)); process.exit(1); } pass++; console.log("PASS "+name); };
+t("1 Branch keeps its seed: the per-clip reset skips the moment Shoot opens", ()=>{
+  assert.ok(has('const resetKeyRef = React.useRef(clip.id+"|"+activeShot.id);'));
+  assert.ok(has('if(resetKeyRef.current===k) return; resetKeyRef.current = k;'));
+  // the Reuse effect is declared before the reset (both run on opening; the reset no longer clears the seed)
+  assert.ok(src.indexOf("setSeedInput(pendingReuse.pin && m.seed!=null ? String(m.seed) : \"\");") < src.indexOf("const resetKeyRef"));
+});
+t("2 Takes: 'In the film' only for a take the film uses; a current take left out says so", ()=>{
+  const v=fn("function StageVersionsView({", "\n}\n");
+  assert.ok(v.includes('const usedByFilm = (t)=> !!(t && t.current && !(t.meta&&t.meta.identityChanged) && ["current","override"].includes(versionEditorialStatus(t)));'));
+  assert.ok(v.includes('"Current · left out of the film"') && v.includes('leftOut ? "Left out — shots changed"'));
+  assert.ok(!/t\.current \? _stEl\("span",\{className:"stage2-takes-badge film"\}/.test(v));
+});
+t("3 the Timeline's line lane uses the take's own placements for a rendered clip", ()=>{
+  const tl=fn("function StageTimelineView(", "/* ---- AUDIO tab");
+  assert.ok(tl.includes("pl = vids[c.id] && typeof stageTakeLinePlacements===\"function\" ? (stageTakeLinePlacements(c, auds, characters)||[])"));
+  assert.ok(tl.includes('" — spoken by the take itself"') && tl.includes('" — re-voiced since the render, not laid over it"'));
+});
+t("4 the scene strip leaves out a take whose character identity changed", ()=>{
+  assert.ok(has('const usable=!!(current&&["current","override"].includes(sourceStatus)&&!meta.identityChanged);'));
+});
+t("5 the Mix follows the rail within a scene", ()=>{
+  assert.ok(has("React.useEffect(()=>{ if(selInScene<0 || selInScene===clipIdx) return; if(playing) stopAll();"));
+  assert.ok(has("setClipIdx(vids[sceneClips[selInScene].id] ? selInScene : -1); }, [selId]);"));
+});
+t("6 a first take pulls you into Takes only from Shoot, on that clip", ()=>{
+  assert.ok(has("setTimeout(()=>onFirstVideo(clipId0), 0)"));
+  assert.ok(has('onFirstVideo:(id)=>{ if(stageViewRef.current==="stage" && (!id || selIdRef.current===id)) setStageView("versions"); },'));
+});
+t("8 Reuse: the tier only from this engine; no recipe promise; a failed 'Use in the film' says so", ()=>{
+  assert.ok(has("const tierHere = m.tier && (model.tiers||[]).some(t0=>t0.id===m.tier);") && has("if(tierHere) setTier(m.tier);"));
+  assert.ok(!has("bitrate and recipe back into the Stage composer"));
+  assert.ok(has('if(!done || done.skipped || !done.url){'));
+});
+t("Frances and keys", ()=>{
+  assert.ok(ai.includes("STAGE TABS, HOW THEY CONNECT (2026-10-25)"));
+  ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261025-hs72"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+});
+console.log(pass+" passed, 0 failed");

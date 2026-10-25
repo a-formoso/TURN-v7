@@ -4557,8 +4557,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       else { setSourceOverride("auto");
         sourceNote = " Its visual source ("+STAGE_SOURCE_MODES[m.source].pick+") isn\u2019t available for this clip now, so it uses Auto."; }
     }
-    if(m.tier) setTier(m.tier);
-    const tObj = seedanceTierOf(model, m.tier||tier);
+    // (2026-10-25) a tier only when this engine has it — a take made on another engine keeps today's tier and says so
+    const tierHere = m.tier && (model.tiers||[]).some(t0=>t0.id===m.tier);
+    if(tierHere) setTier(m.tier);
+    else if(m.tier) sourceNote += " It was made on another engine, so the tier stays "+((seedanceTierOf(model,tier)||{}).label||"as it is")+" \u2014 switch the engine in Render settings to match it.";
+    const tObj = seedanceTierOf(model, tierHere ? m.tier : tier);
     if(m.resolution && tObj && tObj.creditRate && tObj.creditRate[m.resolution]!=null) setResolution(m.resolution);
     if(m.bitrate) setBitrate(m.bitrate==="high"?"high":"standard");
     // (the take's recipe is deliberately NOT restored — since the tab row went, the
@@ -4656,7 +4659,11 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     [clip.id, activeShot.id, d.camera, d.cameraProfile, d.lighting]);
   // a different beat resets per-beat render choices — a reused manual seed or end-frame
   // target from the last beat wouldn't make sense applied to this one.
-  React.useEffect(()=>{ setSeedInput(""); setLastSeed(null); setEndFrameId(""); setDurationOverride(null); setAspectOverride(null); setBatchN(1); }, [clip.id, activeShot.id]);
+  /* (2026-10-25) the reset runs when the clip or shot CHANGES — not when Shoot opens: on opening, a Branch from
+     Takes has just loaded its seed (the Reuse effect above runs first) and this used to wipe it */
+  const resetKeyRef = React.useRef(clip.id+"|"+activeShot.id);
+  React.useEffect(()=>{ const k = clip.id+"|"+activeShot.id; if(resetKeyRef.current===k) return; resetKeyRef.current = k;
+    setSeedInput(""); setLastSeed(null); setEndFrameId(""); setDurationOverride(null); setAspectOverride(null); setBatchN(1); }, [clip.id, activeShot.id]);
   // mode auto-inferred from which asset kinds are on (overridable in the selector)
   const autoMode = (()=>{ const hasI=onImages.length>0, hasV=onVideos.length>0, hasA=onAudios.length>0;
     if(hasV && (hasI||hasA)) return "multimodal";
@@ -5048,7 +5055,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       const landed = results.filter(r=>r && !r.stale && !r.discarded);
       const heldElsewhere = results.filter(r=>r && r.stale).length;
       const kept = landed.filter(r=>r.keptCurrent);
-      if(!hadTakeBefore && landed.length && onFirstVideo) setTimeout(()=>onFirstVideo(), 0);
+      if(!hadTakeBefore && landed.length && onFirstVideo) setTimeout(()=>onFirstVideo(clipId0), 0);
       if(kept.length){ const k=kept[kept.length-1]; if(k && k.videoUrl) setActiveTakeUrl(k.videoUrl); }
       if(typeof window.appToast==="function"){
         if(landed.length) window.appToast("Clip "+beatLabel+" \u2014 "+landed.length+" take"+(landed.length!==1?"s":"")+" rendered"
@@ -7298,7 +7305,9 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
     },
     restore:async(t)=>{
       if(!window.vidRestoreTake || readOnly || !(await confirmIdentity(t,"Choose")) || !(await confirmSourceOverride(t,"Restore"))) return;
-      await window.vidRestoreTake(clipId,t.url);
+      const done = await window.vidRestoreTake(clipId,t.url);
+      // (2026-10-25) say so when it didn't happen (a film switch, a take that's gone) instead of reporting success
+      if(!done || done.skipped || !done.url){ if(typeof window.appToast==="function") window.appToast("That take couldn't be put in the film \u2014 reopen Takes and try again.","error"); return; }
       if(typeof window.appToast==="function") window.appToast(
         versionSourceStatus(t)==="current"
           ?"In the film now — the scene strip, Timeline, Mix and export use it."
@@ -7373,17 +7382,21 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
     if(m.identityChanged) return { cls:"warn", text:"Identity changed" };
     if(notes.length) return { cls:"warn", text:notes[0].label };
     return null; };
-  const playerFor = (t, ref, role)=>_stEl("div",{key:t.url,className:"stage2-takes-pane"+(role==="film"?" film":" pick")},
+  const playerFor = (t, ref, role)=>_stEl("div",{key:t.url,className:"stage2-takes-pane"+(role==="film"?" film":" pick")+(t.current && !usedByFilm(t)?" out":"")},
     t.unavailable ? _stEl("div",{className:"stage2-source-warning stale",role:"status"},"This take's video comes from an address the app doesn't play. The film's owner can delete it.")
       : _stEl("video",{key:t.url,ref,className:"stage2-versions-video",src:t.url,controls:true,playsInline:true,
           "aria-label":(role==="film"?"Take in the film":"Selected take")+((t.meta&&t.meta.vno)?" v"+t.meta.vno:""),
           title:"Double-click for full screen",onDoubleClick:(e)=>_stageVideoFullscreen(e.currentTarget)}),
     _stEl("div",{className:"stage2-takes-cap"},
       _stEl("b",null, vno(t)),
-      t.current && _stEl("span",{className:"stage2-takes-infilm"},"In the film"),
+      t.current && (usedByFilm(t) ? _stEl("span",{className:"stage2-takes-infilm"},"In the film")
+        : _stEl("span",{className:"stage2-takes-badge-inline warn"},"Current \u00b7 left out of the film")),
       (t.meta&&t.meta.status==="approved") && _stEl("span",{className:"stage2-takes-star",title:"Approved"},"★ Approved"),
       _stEl("span",{className:"stage2-takes-ago"}, _stageAgo((t.meta||{}).createdAt)||"")));
   const flagged = !!(sel && sel.current && sel.meta && sel.meta.identityChanged);
+  // the film uses the current take only when it's still good (the same test the Timeline, Mix and export use)
+  const usedByFilm = (t)=> !!(t && t.current && !(t.meta&&t.meta.identityChanged) && ["current","override"].includes(versionEditorialStatus(t)));
+  const leftOut = !!(sel && sel.current && !flagged && !usedByFilm(sel));
   return _stEl("div",{className:"stage2-vers stage2-takes-a"},
       _stEl("div",{className:"stage2-takes-head"},
         _stEl("div",{className:"stage2-takes-title"},
@@ -7421,18 +7434,20 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
         _stEl("button",{className:"stage2-vtool primary",disabled:readOnly||!sel||(!!(sel&&sel.current)&&!flagged),
           title:flagged
             ? "A character's identity changed while this take rendered, so it's left out of the film — check it, then use it"
+            : leftOut
+            ? "This is the clip's current take, but the film leaves it out: its shots changed since it was rendered. Render the clip again in Shoot, or Approve this take to keep it with an override."
             : sel&&sel.current
             ? "This is the take in the film — the scene strip, Timeline, Mix and export use it"
             : "Put this take in the film — the scene strip, Timeline, Mix and export use it",
            onClick:async()=>{ if(!sel) return;
              if(flagged){ if(await confirmIdentity(sel,"Use") && typeof window.appToast==="function") window.appToast("Checked — the take is back in the film.","ok"); return; }
-             act.restore(sel); }}, flagged ? "Check and use this take" : sel&&sel.current ? "In the film" : "Use "+vno(sel).toLowerCase()+" in the film"),
+             act.restore(sel); }}, flagged ? "Check and use this take" : leftOut ? "Left out \u2014 shots changed" : sel&&sel.current ? "In the film" : "Use "+vno(sel).toLowerCase()+" in the film"),
         _stEl("button",{className:"stage2-vtool"+(selApproved?" on":""),disabled:readOnly||!sel,
           title:selApproved?"Remove the approval star":"Star this take as the clip's approved version — it never rolls off the version list",
            onClick:()=>sel&&act.approve(sel, !selApproved)}, selApproved?"★ Approved — unstar":"☆ Approve this take"),
         pair.length>1 && _stEl("button",{className:"stage2-vtool",type:"button",title:"Play both from the start together (the film's take is muted)",onClick:playBoth},"▶ Play both"),
         _stEl("button",{className:"stage2-vtool",disabled:!sel,
-          title:"Load this take's visual source, tier, resolution, bitrate and recipe back into the Stage composer",
+          title:"Load this take's visual source, tier, resolution and bitrate back into the Stage composer",
           onClick:async()=>{ if(sel&&await confirmSourceOverride(sel,"Reuse",false)) onReuse(selMeta,false); }}, "Reuse settings"),
         _stEl("button",{className:"stage2-vtool",disabled:!sel||selMeta.seed==null,
           title:"Reuse settings AND pin this take's seed — Generate renders a controlled variation",
@@ -7450,16 +7465,16 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
       _stEl("div",{className:"stage2-versions-list stage2-takes-sheet",role:"list","aria-label":"Takes of this clip"},
         list.map(t=>{ const m = t.meta||{}, badge = sheetBadge(t);
           return _stEl("button",{key:t.url,type:"button",role:"listitem",
-            className:"stage2-vcard"+(sel&&sel.url===t.url?" sel":"")+(t.current?" infilm":""),
-            "aria-label":vno(t)+(t.current?", in the film":"")+(m.status==="approved"?", approved":"")+(badge?", "+badge.text:"")+(m.note?", note: "+m.note:""),
-            title:[vno(t), t.current?"in the film":"", m.status==="approved"?"approved":"", m.note||"", _stageAgo(m.createdAt)||""].filter(Boolean).join(" · "),
+            className:"stage2-vcard"+(sel&&sel.url===t.url?" sel":"")+(usedByFilm(t)?" infilm":""),
+            "aria-label":vno(t)+(usedByFilm(t)?", in the film":t.current?", current but left out of the film":"")+(m.status==="approved"?", approved":"")+(badge?", "+badge.text:"")+(m.note?", note: "+m.note:""),
+            title:[vno(t), usedByFilm(t)?"in the film":t.current?"current \u2014 left out of the film":"", m.status==="approved"?"approved":"", m.note||"", _stageAgo(m.createdAt)||""].filter(Boolean).join(" · "),
             onClick:()=>setSelUrl(t.url)},
             t.unavailable ? _stEl("div",{className:"stage2-vcard-thumb","aria-hidden":"true"})
               : _stEl("video",{className:"stage2-vcard-thumb",src:t.url+"#t=0.1",preload:"metadata",muted:true,playsInline:true,"aria-hidden":"true",tabIndex:-1}),
             _stEl("span",{className:"stage2-vcard-vno"}, vno(t)),
             m.status==="approved" && _stEl("span",{className:"stage2-takes-star-mini","aria-hidden":"true"},"★"),
-            t.current ? _stEl("span",{className:"stage2-takes-badge film"},"In the film")
-              : badge ? _stEl("span",{className:"stage2-takes-badge warn"}, badge.text) : null,
+            usedByFilm(t) ? _stEl("span",{className:"stage2-takes-badge film"},"In the film")
+              : badge ? _stEl("span",{className:"stage2-takes-badge warn"}, (t.current ? "Left out \u00b7 " : "")+badge.text) : null,
             m.note && _stEl("span",{className:"stage2-takes-note","aria-hidden":"true",title:m.note},"✎")); })),
       // details of the picked take, in a fold (open unless you close it; remembered on this device)
       sel && _stEl("div",{className:"stage2-takes-details"},
@@ -7998,10 +8013,13 @@ function StageTimelineView({ allClips, vids, staleVids, identityVids, imgs, visu
     if(last && last.scene.id===c.scene.id) last.len += spans[i];
     else bands.push({ scene:c.scene, at:starts[i], len:spans[i] }); });
   const lines = []; ordered.forEach((c,i)=>{ let pl = [];
-    try{ pl = (typeof clipLinePlacements==="function") ? (clipLinePlacements(c, auds, characters)||[]) : []; }catch(e){ pl = []; }
+    // a rendered clip: where ITS take put each line (native, re-voiced and past-the-end as the Mix has them); else the plan
+    try{ pl = vids[c.id] && typeof stageTakeLinePlacements==="function" ? (stageTakeLinePlacements(c, auds, characters)||[])
+      : (typeof clipLinePlacements==="function") ? (clipLinePlacements(c, auds, characters)||[]) : []; }catch(e){ pl = []; }
     pl.forEach(l=>{ const at = Math.min(spans[i], Number(l.at)||0);
-      lines.push({ key:c.id+":"+l.shotId, at:starts[i]+at, len:Math.max(0.3, Math.min(spans[i]-at, Number(l.sec)||0)), ready:!!l.url,
-        label:(l.speaker||"Line")+(l.text ? ": “"+String(l.text).slice(0,60)+"”" : "")+(l.url ? "" : " — not voiced yet") }); }); });
+      lines.push({ key:c.id+":"+l.shotId, at:starts[i]+at, len:Math.max(0.3, Math.min(spans[i]-at, Number(l.sec)||0)), ready:!!l.url, native:!!l.native, off:!!l.revoiced,
+        label:(l.speaker||"Line")+(l.text ? ": \u201c"+String(l.text).slice(0,60)+"\u201d" : "")
+          +(l.native ? " \u2014 spoken by the take itself" : l.revoiced ? " \u2014 re-voiced since the render, not laid over it" : l.url ? "" : " \u2014 not voiced yet") }); }); });
   const headAt = cur ? starts[idx] + (cur.id===tlPlay.id ? tlPlay.t : 0) : 0;
   const pickedFrom = cur && vids[cur.id] && tlPicked===cur.id;
   // a click places the playhead where you clicked inside the clip (a key press: its start)
@@ -8098,7 +8116,7 @@ function StageTimelineView({ allClips, vids, staleVids, identityVids, imgs, visu
               _stEl("span",{className:"stage2-tl-dot"+(has?" ok":"")+(st==="stale"||st==="identity"?" stale":"")})); }),
           cur && _stEl("span",{className:"stage2-tl-head-line","aria-hidden":"true",style:{left:pct(headAt)}})),
         _stEl("div",{className:"stage2-tl-lane","aria-label":"Voiced lines"},
-          lines.map(l=>_stEl("span",{key:l.key,className:"stage2-tl-line"+(l.ready?" ready":""),title:l.label,
+          lines.map(l=>_stEl("span",{key:l.key,className:"stage2-tl-line"+(l.ready?" ready":"")+(l.native?" native":"")+(l.off?" off":""),title:l.label,
             style:{left:pct(l.at),width:"max(3px, calc("+pct(l.len)+" - 1px))"}}))))),
     ordered.length>0 && _stEl("div",{className:"stage2-tl-legend","aria-hidden":"true"},
       _stEl("span",null,_stEl("i",{className:"k-in"}),"In the film"),
@@ -8211,6 +8229,10 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
     document.addEventListener("visibilitychange", h); return ()=>document.removeEventListener("visibilitychange", h); }, []);
   React.useEffect(()=>()=>stopAll(), []);
   React.useEffect(()=>{ stopAll(); setClipIdx(-1); }, [sceneId]);
+  // a clip picked in the rail (or the Timeline) of the same scene is the one shown (2026-10-25 — a click on a
+  // Picture block used to pin the Mix to that clip until the scene changed)
+  React.useEffect(()=>{ if(selInScene<0 || selInScene===clipIdx) return; if(playing) stopAll();
+    setClipIdx(vids[sceneClips[selInScene].id] ? selInScene : -1); }, [selId]);
   // live volume updates (lines not started yet read the current level when they start)
   React.useEffect(()=>{ const v=videoRef.current; if(v) v.volume=g("native");
     Object.keys(bedRefs).forEach(k=>{ const el=bedRefs[k].current; if(el) el.volume=g(k); });
@@ -8509,7 +8531,8 @@ function stageSceneBeatTakeSlots(sceneClips,drafts,takeLookup,sceneId,statusLook
         ? shotSourcesEditorialStatus(((clip.data||{}).shots)||[],drafts||{},meta)
         : "current")
       : "missing";
-    const usable=!!(current&&["current","override"].includes(sourceStatus));
+    // a take that finished after a character's identity changed is out of the film until checked (2026-10-25)
+    const usable=!!(current&&["current","override"].includes(sourceStatus)&&!meta.identityChanged);
     const shots=(((clip.data||{}).shots)||((clip.g||{}).shots)||[]).filter(Boolean);
     const beats=[];
     shots.forEach(sh=>{ const n=Number(sh&&sh.beatN); if(Number.isFinite(n)&&n>0&&beats.indexOf(n)<0) beats.push(n); });
@@ -8640,6 +8663,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // in-room view: the director console ("stage") or the take browser ("versions");
   // pendingReuse carries a Versions-tab "Reuse/Branch" pick back into the composer
   const [stageView, setStageView] = React.useState("stage");
+  const stageViewRef = React.useRef("stage"); stageViewRef.current = stageView;
   // another room can open one of the Stage's tabs (the app's onStageNav "timeline" / "audio" / "versions")
   React.useEffect(()=>{ const h=(e)=>{ const v = e && e.detail && e.detail.view;
       if(["stage","versions","timeline","audio"].indexOf(v)>=0) setStageView(v); };
@@ -8712,6 +8736,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // shot and sheet in the film before the selected beat becomes usable.
   const allClipsRef = React.useRef(null); allClipsRef.current = allClips;
   const [selId, setSelId] = React.useState(allClips[0] ? allClips[0].id : null);
+  const selIdRef = React.useRef(null); selIdRef.current = selId;
   const [selShotId, setSelShotId] = React.useState((shots||[])[0] ? (shots||[])[0].id : null);
   const selMembersRef = React.useRef(null);
   /* GEOMETRY ANCHOR (2026-10-24): fetch, once per Stage visit, the selected clip's Blender
@@ -9127,7 +9152,9 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             // effect handles real clip moves within the scene.
             : _stEl(ClipConsole,{ key:"console-"+selectedScene.id, clip, selectedShot, sceneClips:selectedSceneClips, ctx, imgs, imageLoadState, auds, beatsMap, drafts, prevClipVideoId:prevBeatVideoId, aspect, visualSource, creditBalance, readOnly, onVoiceLine, onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds, takeStale:!!staleVids[clip.id], takeIdentity:!!identityVids[clip.id], takeOldLook:!!oldLookVids[clip.id], orphanTakes:orphanTakes[clip.id]||[], onUpdateShot, onStageNav, modelId, setModelId, clipScope, setClipScope, clipTypes, onSetClipType:readOnly?null:setClipType,
                 onSelectClip,
-                onFirstVideo:()=>setStageView("versions"),
+                // only when you're still on Shoot with that clip (2026-10-25 — a render finishing while you were in the
+                // Timeline or on another clip used to pull you into Takes)
+                onFirstVideo:(id)=>{ if(stageViewRef.current==="stage" && (!id || selIdRef.current===id)) setStageView("versions"); },
                 pendingReuse, onReuseConsumed:()=>setPendingReuse(null) }))));
   }
 window.StageView = StageView;

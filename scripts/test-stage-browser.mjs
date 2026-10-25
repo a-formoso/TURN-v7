@@ -1963,7 +1963,8 @@ async function main() {
     assert.match(review,/References used/i);
     assert.match(review,/Letter continuity/);
     // (2026-10-24, Takes option A) the take in the film says so; the others read "Use vN in the film"
-    assert.match(review,/In the film/);
+    // (2026-10-25) this fixture's current take is out of date, so Takes says it's left out instead of "In the film"
+    assert.match(review,/Current · left out of the film|In the film/i);
     assert.match(review,/Approve this take/);
     assert.match(review,/Reuse settings/);
     await c.eval(`([...document.querySelectorAll(".stage2-vcard")].find(x=>!x.classList.contains("sel")))?.click()`);

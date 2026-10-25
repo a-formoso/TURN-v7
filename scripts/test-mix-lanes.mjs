@@ -31,5 +31,5 @@ t("B4 each lane's name, level and Mute at its left; beds: Import / Replace / Rem
   assert.ok(has('loop ? "100%" : pct(bedDur[k] ? Math.min(sceneLen, bedDur[k]) : sceneLen)'), "music runs for its own length");
 });
 t("B5 Frances knows the lanes", ()=>{ assert.ok(ai.includes("THE MIX AS SCENE LANES (2026-10-24")); });
-t("B6 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs68", "20261024-hs69", "20261024-hs70", "20261025-hs71"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
+t("B6 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs68", "20261024-hs69", "20261024-hs70", "20261025-hs71", "20261025-hs72"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
 console.log(pass+" passed, 0 failed");
