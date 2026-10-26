@@ -1,11 +1,11 @@
 /*
  * Build the legacy-installable Kinolot Blender add-on ("Kinolot Bridge").
  *
- * The package folder (cinema_machine_bridge), the packaged ZIP path (cinema-machine-blender.zip,
- * also named by serve.js and the Blender tests — the file users SAVE is named kinolot-blender.zip
- * by the download link and serve.js) and the page global
- * window.CinemaMachineBlenderAddon keep the product's former name: they are internal,
- * and renaming the package would install as a second add-on beside the old one.
+ * The package is kinolot_bridge since 1.1.0 (owner 2026-10-26: Blender sees a new add-on, which
+ * switches off an older cinema_machine_bridge install). The packaged ZIP path
+ * (cinema-machine-blender.zip, also named by serve.js and the Blender tests — the file users SAVE
+ * is named kinolot-blender.zip by the download link and serve.js) and the page global
+ * window.CinemaMachineBlenderAddon keep the product's former name: they are internal.
  *
  * This is a deliberately dependency-free ZIP writer.  Keeping the archive
  * creation in Node avoids requiring a system `zip` command or adding a
@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
-const source = path.join(root, "blender", "cinema_machine_bridge");
+const source = path.join(root, "blender", "kinolot_bridge");
 const output = path.join(root, "app", "downloads", "cinema-machine-blender.zip");
 
 function crc32(buffer) {
@@ -107,8 +107,8 @@ function buildAddon() {
     .readdirSync(source)
     .filter((name) => name.endsWith(".py") && !name.startsWith("."))
     .sort()
-    .map((name) => `cinema_machine_bridge/${name}`);
-  if (!names.includes("cinema_machine_bridge/__init__.py")) {
+    .map((name) => `kinolot_bridge/${name}`);
+  if (!names.includes("kinolot_bridge/__init__.py")) {
     throw new Error("Add-on package has no __init__.py");
   }
 

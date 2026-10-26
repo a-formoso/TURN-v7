@@ -739,7 +739,7 @@ def render_auxiliary_preview(scene: Any) -> Dict[str, Any]:
         raise StudioSceneError("Choose a camera before rendering a local preview")
     previous_path = scene.render.filepath
     try:
-        with tempfile.TemporaryDirectory(prefix="cm_studio_preview_") as directory:
+        with tempfile.TemporaryDirectory(prefix="kinolot_studio_preview_") as directory:
             path = os.path.join(directory, "preview.png")
             scene.render.filepath = path
             if getattr(bpy.context, "window", None) is None:
@@ -849,7 +849,7 @@ def import_workspace_asset(scene: Any, workspace: Dict[str, Any], asset: Dict[st
     existing = _find_asset_root(root, checked_asset["id"])
     if existing is not None:
         return {"root": existing, "imported": False, "rigged": bool(existing.get("cinemaMachineStudioRigged")), "animated": bool(existing.get("cinemaMachineStudioHasAnimation"))}
-    with tempfile.TemporaryDirectory(prefix="cm_studio_asset_") as directory:
+    with tempfile.TemporaryDirectory(prefix="kinolot_studio_asset_") as directory:
         filepath = os.path.join(directory, checked_asset["id"] + ".glb")
         with open(filepath, "wb") as output:
             output.write(glb_bytes)

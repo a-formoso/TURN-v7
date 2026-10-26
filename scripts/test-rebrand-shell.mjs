@@ -30,8 +30,9 @@
       and Home footers ("Kinolot by Infinite Studio AI", the company linking to its site); the
       admin Storage page's copy and its display-time renaming of server text.
    D. The Blender add-on shows "Kinolot Bridge" / the "Kinolot" sidebar tab / author "Infinite
-      Studio AI", keeps its package id (cinema_machine_bridge) so an existing install updates in
-      place, and the packaged ZIP (and its page copy) matches the source.
+      Studio AI"; since 1.1.0 (owner 2026-10-26) its package is kinolot_bridge and its operators
+      kinolot.*, and it switches off an older cinema_machine_bridge install; the packaged ZIP (and
+      its page copy) matches the source.
 
    Run: node scripts/test-rebrand-shell.mjs  (no browser, no network) */
 import { readFileSync, existsSync, readdirSync } from "node:fs";
@@ -561,7 +562,7 @@ check("C admin Storage: its copy says Kinolot, and server text is renamed at dis
 });
 
 /* ── D. the Blender add-on ──────────────────────────────────────────────────────── */
-const PKG = "blender/cinema_machine_bridge";
+const PKG = "blender/kinolot_bridge";
 const init = read(PKG+"/__init__.py");
 check("D Blender shows 'Kinolot Bridge' by Infinite Studio AI, in a 'Kinolot' sidebar tab", ()=>{
   const info = /bl_info = \{([\s\S]*?)\n\}/.exec(init)[1];
@@ -592,9 +593,12 @@ check("D no text Blender shows or writes into the .blend says Cinema Machine or 
     && shown.some(t=>t==="renderer.py: Kinolot Proof Camera") && shown.some(t=>/^studio_scene\.py: Kinolot Studio — $/.test(t))
     && shown.some(t=>t==="__init__.py: Function URL" || /Function URL/.test(t));
 });
-check("D the package id stays cinema_machine_bridge (an existing install updates in place, operators keep their ids)", ()=>
-  existsSync(join(ROOT, PKG, "__init__.py")) && [...init.matchAll(/bl_idname = "([^"]*)"/g)].map(m=>m[1]).filter(x=>x.includes(".")).every(x=>x.startsWith("cinema_machine."))
-  && /version": \(1, 0, 4\)/.test(init));
+check("D the package is kinolot_bridge with kinolot.* operators (1.1.0), and it switches off an older cinema_machine_bridge install", ()=>
+  existsSync(join(ROOT, PKG, "__init__.py")) && !existsSync(join(ROOT, "blender/cinema_machine_bridge"))
+  && [...init.matchAll(/bl_idname = "([^"]*)"/g)].map(m=>m[1]).filter(x=>x.includes(".")).every(x=>x.startsWith("kinolot."))
+  && !/bl_idname = "[^"]*cinema_machine/.test(init) && /version": \(1, 1, 0\)/.test(init)
+  && init.includes('OLD_ADDON_MODULE = "cinema_machine_bridge"') && init.includes("addon_utils.disable(OLD_ADDON_MODULE, default_set=True)")
+  && init.includes('notice.label(text="The older Kinolot add-on was switched off.", icon="INFO")'));
 check("D the downloadable ZIP and its page copy are built from this source (names included)", ()=>{
   const zip = readFileSync(join(ROOT, "app/downloads/cinema-machine-blender.zip"));
   const files = {}; let off = zip.readUInt32LE(zip.length-6), count = zip.readUInt16LE(zip.length-12);
@@ -608,7 +612,7 @@ check("D the downloadable ZIP and its page copy are built from this source (name
   const same = Object.entries(files).every(([n, b])=>b.equals(readFileSync(join(ROOT, "blender", n))));
   const data = /window\.CinemaMachineBlenderAddon = Object\.freeze\((\{.*\})\);/.exec(read("app/blender-addon-data.js"));
   const bundle = data && JSON.parse(data[1]);
-  return same && files["cinema_machine_bridge/__init__.py"].toString("utf8").includes('"name": "Kinolot Bridge"')
+  return same && files["kinolot_bridge/__init__.py"].toString("utf8").includes('"name": "Kinolot Bridge"')
     && bundle.filename==="cinema-machine-blender.zip" && Buffer.from(bundle.base64, "base64").equals(zip) && bundle.byteLength===zip.length;
 });
 check("D the setup steps name 'Kinolot Bridge', the 'Kinolot' tab and the saved file kinolot-blender.zip (the packaged path keeps its internal name)", ()=>{

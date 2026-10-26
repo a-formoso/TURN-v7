@@ -22,8 +22,8 @@ import bpy  # type: ignore
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "blender"))
 
-from cinema_machine_bridge import studio_scene  # noqa: E402
-from cinema_machine_bridge.studio_runtime import StudioRuntime  # noqa: E402
+from kinolot_bridge import studio_scene  # noqa: E402
+from kinolot_bridge.studio_runtime import StudioRuntime  # noqa: E402
 
 
 def _remove_objects(objects):

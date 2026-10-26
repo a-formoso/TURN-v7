@@ -47,13 +47,13 @@ const corpus = [
 const expected = corpus.map((value) => contract.canonical(value));
 const python = String.raw`
 import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location("cinema_machine_bridge_protocol", sys.argv[1])
+spec = importlib.util.spec_from_file_location("kinolot_bridge_protocol", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 values = json.loads(sys.argv[2])
 print(json.dumps([module.canonical_json(value) for value in values], ensure_ascii=False))
 `;
-const result = spawnSync("python3", ["-c", python, path.join(root, "blender", "cinema_machine_bridge", "protocol.py"), JSON.stringify(corpus)], {
+const result = spawnSync("python3", ["-c", python, path.join(root, "blender", "kinolot_bridge", "protocol.py"), JSON.stringify(corpus)], {
   cwd: root,
   encoding: "utf8",
   timeout: 30000,
@@ -101,7 +101,7 @@ if (JSON.stringify(javascriptAccepted) !== JSON.stringify(expectedSchemaAcceptan
 }
 const schemaPython = String.raw`
 import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location("cinema_machine_bridge_protocol_schema", sys.argv[1])
+spec = importlib.util.spec_from_file_location("kinolot_bridge_protocol_schema", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 values = json.loads(sys.argv[2])
@@ -117,7 +117,7 @@ print(json.dumps(accepted))
 const schemaResult = spawnSync("python3", [
   "-c",
   schemaPython,
-  path.join(root, "blender", "cinema_machine_bridge", "protocol.py"),
+  path.join(root, "blender", "kinolot_bridge", "protocol.py"),
   JSON.stringify(schemaCorpus),
 ], { cwd: root, encoding: "utf8", timeout: 30000 });
 if (schemaResult.status !== 0) {

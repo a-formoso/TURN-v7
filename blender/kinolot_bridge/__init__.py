@@ -1,9 +1,11 @@
 """Kinolot Bridge: the Blender desktop add-on for Kinolot by Infinite Studio AI.
 
-Shown in Blender as "Kinolot Bridge" (sidebar tab "Kinolot"). The Python package
-stays ``cinema_machine_bridge`` (and the operator ids ``cinema_machine.*``), the
-product's former name, so an existing install is updated in place rather than
-becoming a second add-on.
+Shown in Blender as "Kinolot Bridge" (sidebar tab "Kinolot"). Since 1.1.0 (owner
+2026-10-26) the Python package is ``kinolot_bridge`` and the operator ids
+``kinolot.*``; Blender sees it as a new add-on, so on enable it switches off an
+older install still named ``cinema_machine_bridge`` (``_retire_old_addon``) and
+its panel says to remove it. The custom properties it stores in .blend files keep
+their ``cinemaMachine*`` keys, so scenes saved with the older add-on still open.
 
 The add-on is intentionally a legacy-installable package (rather than a
 Blender extension manifest).  It supports Blender 4.2 and newer, makes only
@@ -44,7 +46,7 @@ from .studio_runtime import StudioRuntime
 bl_info = {
     "name": "Kinolot Bridge",
     "author": "Infinite Studio AI",
-    "version": (1, 0, 4),
+    "version": (1, 1, 0),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar > Kinolot",
     "description": "Render an approved editable Blender proof through the Kinolot bridge",
@@ -144,7 +146,7 @@ class BridgeRuntime:
             # Pair codes are opaque relay values; do not normalize or assume
             # a numeric format. Device names are intentionally trimmed.
             args=(generation, endpoint, pair_code, device_name.strip(), stop_event),
-            name="CinemaMachineConnect",
+            name="KinolotConnect",
             daemon=True,
         )
         thread.start()
@@ -286,7 +288,7 @@ class BridgeRuntime:
             thread = threading.Thread(
                 target=self._disconnect_worker,
                 args=(old_client, old_project, old_generation),
-                name="CinemaMachineDisconnect",
+                name="KinolotDisconnect",
                 daemon=True,
             )
             thread.start()
@@ -315,7 +317,7 @@ class BridgeRuntime:
         thread = threading.Thread(
             target=self._cancel_worker,
             args=(generation, client, project_id, active["jobId"]),
-            name="CinemaMachineCancel",
+            name="KinolotCancel",
             daemon=True,
         )
         thread.start()
@@ -474,7 +476,7 @@ class BridgeRuntime:
                     threading.Thread(
                         target=self._send_failure,
                         args=(generation, client, failure_job, _safe_error(error)),
-                        name="CinemaMachineValidationFailure",
+                        name="KinolotValidationFailure",
                         daemon=True,
                     ).start()
                 return
@@ -505,7 +507,7 @@ class BridgeRuntime:
             threading.Thread(
                 target=self._send_completion,
                 args=(generation, client, project_id, active, result["pngBase64"], result["actualCamera"]),
-                name="CinemaMachineComplete",
+                name="KinolotComplete",
                 daemon=True,
             ).start()
         except Exception as error:
@@ -517,7 +519,7 @@ class BridgeRuntime:
                 threading.Thread(
                     target=self._send_failure,
                     args=(generation, client, active, _safe_error(error)),
-                    name="CinemaMachineRenderFailure",
+                    name="KinolotRenderFailure",
                     daemon=True,
                 ).start()
 
@@ -605,6 +607,9 @@ class BridgeRuntime:
 
 
 _RUNTIME: Optional[BridgeRuntime] = None
+# The add-on's package before 1.1.0. True once this session switched it off.
+OLD_ADDON_MODULE = "cinema_machine_bridge"
+_OLD_ADDON_RETIRED = False
 _STUDIO_RUNTIME: Optional[StudioRuntime] = None
 _TIMER_RUNNING = False
 _STUDIO_WORKSPACE_FAILURE_KEY: Optional[tuple] = None
@@ -640,15 +645,15 @@ class CMPreferences(bpy.types.AddonPreferences):
 
 
 class CM_OT_connect(bpy.types.Operator):
-    bl_idname = "cinema_machine.connect"
+    bl_idname = "kinolot.connect"
     bl_label = "Connect"
     bl_description = "Pair this Blender desktop using a one-time code"
 
     def execute(self, context: Any) -> set:
         _ensure_timer_registered()
         preferences = context.preferences.addons[__package__].preferences
-        pair_code = context.window_manager.cm_pair_code
-        if not context.window_manager.cm_pair_acknowledged:
+        pair_code = context.window_manager.kinolot_pair_code
+        if not context.window_manager.kinolot_pair_acknowledged:
             self.report({"ERROR"}, "Confirm the project and one-time code before connecting")
             return {"CANCELLED"}
         if not pair_code.strip():
@@ -656,43 +661,47 @@ class CM_OT_connect(bpy.types.Operator):
             return {"CANCELLED"}
         assert _RUNTIME is not None
         _RUNTIME.request_connect(preferences.edge_function_url, pair_code, preferences.device_name)
-        _tag_cinema_machine_areas()
+        _tag_kinolot_areas()
         return {"FINISHED"}
 
 
 class CM_OT_disconnect(bpy.types.Operator):
-    bl_idname = "cinema_machine.disconnect"
+    bl_idname = "kinolot.disconnect"
     bl_label = "Disconnect"
     bl_description = "Clear the in-memory device token and disconnect"
 
     def execute(self, _context: Any) -> set:
         assert _RUNTIME is not None
         _RUNTIME.request_disconnect()
-        _tag_cinema_machine_areas()
+        _tag_kinolot_areas()
         return {"FINISHED"}
 
 
 class CM_OT_cancel(bpy.types.Operator):
-    bl_idname = "cinema_machine.cancel"
+    bl_idname = "kinolot.cancel"
     bl_label = "Cancel Job"
     bl_description = "Ask the relay to cancel the current proof job"
 
     def execute(self, _context: Any) -> set:
         assert _RUNTIME is not None
         _RUNTIME.request_cancel()
-        _tag_cinema_machine_areas()
+        _tag_kinolot_areas()
         return {"FINISHED"}
 
 
-class VIEW3D_PT_cinema_machine(bpy.types.Panel):
+class VIEW3D_PT_kinolot(bpy.types.Panel):
     bl_label = "Kinolot"
-    bl_idname = "VIEW3D_PT_cinema_machine_bridge"
+    bl_idname = "VIEW3D_PT_kinolot_bridge"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Kinolot"
 
     def draw(self, context: Any) -> None:
         layout = self.layout
+        if _OLD_ADDON_RETIRED or OLD_ADDON_MODULE in context.preferences.addons:
+            notice = layout.box()
+            notice.label(text="The older Kinolot add-on was switched off.", icon="INFO")
+            notice.label(text="Remove it in Preferences > Add-ons.")
         preferences = context.preferences.addons[__package__].preferences
         runtime = _RUNTIME
         snapshot = runtime.snapshot() if runtime else {
@@ -708,8 +717,8 @@ class VIEW3D_PT_cinema_machine(bpy.types.Panel):
         connection.prop(preferences, "edge_function_url", text="Function URL")
         connection.prop(preferences, "project_id", text="Project ID")
         connection.prop(preferences, "device_name", text="Device name")
-        connection.prop(context.window_manager, "cm_pair_code", text="Pair code")
-        connection.prop(context.window_manager, "cm_pair_acknowledged", text="I approve this project")
+        connection.prop(context.window_manager, "kinolot_pair_code", text="Pair code")
+        connection.prop(context.window_manager, "kinolot_pair_acknowledged", text="I approve this project")
         row = connection.row(align=True)
         if snapshot["connected"]:
             row.operator(CM_OT_disconnect.bl_idname, text="Disconnect")
@@ -768,12 +777,12 @@ def _studio_reset_cost_ack(self: Any, _context: Any) -> None:
     # Acknowledgement is deliberately specific to the currently displayed
     # request.  Changing its mode/model/prompt/reference requires a fresh
     # explicit confirmation.
-    if hasattr(self, "cm_studio_cost_ack"):
-        self.cm_studio_cost_ack = False
+    if hasattr(self, "kinolot_studio_cost_ack"):
+        self.kinolot_studio_cost_ack = False
 
 
 class CM_OT_studio_open(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_open"
+    bl_idname = "kinolot.studio_open"
     bl_label = "Open Kinolot Studio"
     bl_description = "Open the native Studio dialog and fetch the browser-selected workspace"
 
@@ -782,7 +791,7 @@ class CM_OT_studio_open(bpy.types.Operator):
         _reset_studio_workspace_failure()
         _studio_runtime().request_current()
         _studio_runtime().request_capabilities()
-        _tag_cinema_machine_areas()
+        _tag_kinolot_areas()
         return context.window_manager.invoke_props_dialog(self, width=720)
 
     def execute(self, _context: Any) -> set:
@@ -794,7 +803,7 @@ class CM_OT_studio_open(bpy.types.Operator):
 
 
 class CM_OT_studio_capabilities(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_capabilities"
+    bl_idname = "kinolot.studio_capabilities"
     bl_label = "Refresh models"
 
     def execute(self, _context: Any) -> set:
@@ -803,19 +812,19 @@ class CM_OT_studio_capabilities(bpy.types.Operator):
 
 
 class CM_OT_studio_workspace_current(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_workspace_current"
+    bl_idname = "kinolot.studio_workspace_current"
     bl_label = "Open selected workspace"
 
     def execute(self, _context: Any) -> set:
         _ensure_timer_registered()
         _reset_studio_workspace_failure()
         _studio_runtime().request_current()
-        _tag_cinema_machine_areas()
+        _tag_kinolot_areas()
         return {"FINISHED"}
 
 
 class CM_OT_studio_generate(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_generate"
+    bl_idname = "kinolot.studio_generate"
     bl_label = "Generate"
 
     @classmethod
@@ -836,27 +845,27 @@ class CM_OT_studio_generate(bpy.types.Operator):
         try:
             local = studio_scene.workspace_snapshot(context.scene, workspace)
             runtime.set_local_workspace(local)
-            tab = context.window_manager.cm_studio_tab
+            tab = context.window_manager.kinolot_studio_tab
             if tab == "MODEL":
                 runtime.request_mesh(
-                    context.window_manager.cm_studio_mesh_model,
-                    context.window_manager.cm_studio_asset_name,
-                    prompt=context.window_manager.cm_studio_prompt,
-                    reference_id=context.window_manager.cm_studio_reference_id.strip() or workspace["locationId"],
-                    rigged=context.window_manager.cm_studio_mesh_rigged,
-                    animated=context.window_manager.cm_studio_mesh_animated,
-                    acknowledge_cost=context.window_manager.cm_studio_cost_ack,
+                    context.window_manager.kinolot_studio_mesh_model,
+                    context.window_manager.kinolot_studio_asset_name,
+                    prompt=context.window_manager.kinolot_studio_prompt,
+                    reference_id=context.window_manager.kinolot_studio_reference_id.strip() or workspace["locationId"],
+                    rigged=context.window_manager.kinolot_studio_mesh_rigged,
+                    animated=context.window_manager.kinolot_studio_mesh_animated,
+                    acknowledge_cost=context.window_manager.kinolot_studio_cost_ack,
                 )
             else:
                 runtime.request_assistant(
                     "animation" if tab == "ANIMATION" else "scene",
-                    context.window_manager.cm_studio_model,
-                    context.window_manager.cm_studio_prompt,
+                    context.window_manager.kinolot_studio_model,
+                    context.window_manager.kinolot_studio_prompt,
                     local,
-                    acknowledge_cost=context.window_manager.cm_studio_cost_ack,
-                    reference_id=context.window_manager.cm_studio_reference_id.strip() or workspace["locationId"],
+                    acknowledge_cost=context.window_manager.kinolot_studio_cost_ack,
+                    reference_id=context.window_manager.kinolot_studio_reference_id.strip() or workspace["locationId"],
                 )
-            context.window_manager.cm_studio_cost_ack = False
+            context.window_manager.kinolot_studio_cost_ack = False
         except (StudioProtocolError, studio_scene.StudioSceneError) as error:
             self.report({"ERROR"}, _safe_error(error))
             return {"CANCELLED"}
@@ -864,7 +873,7 @@ class CM_OT_studio_generate(bpy.types.Operator):
 
 
 class CM_OT_studio_apply(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_apply"
+    bl_idname = "kinolot.studio_apply"
     bl_label = "Apply reviewed proposal"
     bl_description = "Apply only the displayed typed Studio proposal to managed data"
 
@@ -888,7 +897,7 @@ class CM_OT_studio_apply(bpy.types.Operator):
 
 
 class CM_OT_studio_save(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_save"
+    bl_idname = "kinolot.studio_save"
     bl_label = "Save workspace"
     bl_description = "Capture managed local edits and save with revision conflict protection"
 
@@ -909,7 +918,7 @@ class CM_OT_studio_save(bpy.types.Operator):
 
 
 class CM_OT_studio_attach_file(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_attach_file"
+    bl_idname = "kinolot.studio_attach_file"
     bl_label = "Attach local PNG/JPEG"
     bl_description = "Attach a transient local reference to the next request"
 
@@ -933,7 +942,7 @@ class CM_OT_studio_attach_file(bpy.types.Operator):
                 raise StudioProtocolError("Reference must be a PNG or JPEG")
             data_url = "data:image/%s;base64,%s" % (media_type, base64.b64encode(payload).decode("ascii"))
             _studio_runtime().set_local_attachment(validate_image_data_url(data_url), os.path.basename(self.filepath))
-            _context.window_manager.cm_studio_cost_ack = False
+            _context.window_manager.kinolot_studio_cost_ack = False
         except (OSError, StudioProtocolError) as error:
             self.report({"ERROR"}, _safe_error(error))
             return {"CANCELLED"}
@@ -941,21 +950,21 @@ class CM_OT_studio_attach_file(bpy.types.Operator):
 
 
 class CM_OT_studio_get_reference(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_get_reference"
+    bl_idname = "kinolot.studio_get_reference"
     bl_label = "Attach approved reference"
 
     def execute(self, context: Any) -> set:
-        entity_id = context.window_manager.cm_studio_reference_id.strip()
+        entity_id = context.window_manager.kinolot_studio_reference_id.strip()
         if not entity_id:
             self.report({"ERROR"}, "Enter an approved project reference ID")
             return {"CANCELLED"}
         _studio_runtime().request_reference(entity_id)
-        context.window_manager.cm_studio_cost_ack = False
+        context.window_manager.kinolot_studio_cost_ack = False
         return {"FINISHED"}
 
 
 class CM_OT_studio_task_refresh(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_task_refresh"
+    bl_idname = "kinolot.studio_task_refresh"
     bl_label = "Refresh task"
 
     def execute(self, _context: Any) -> set:
@@ -964,7 +973,7 @@ class CM_OT_studio_task_refresh(bpy.types.Operator):
 
 
 class CM_OT_studio_task_cancel(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_task_cancel"
+    bl_idname = "kinolot.studio_task_cancel"
     bl_label = "Cancel task"
 
     @classmethod
@@ -979,11 +988,11 @@ class CM_OT_studio_task_cancel(bpy.types.Operator):
 
 
 class CM_OT_studio_asset_fetch(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_asset_fetch"
+    bl_idname = "kinolot.studio_asset_fetch"
     bl_label = "Fetch selected asset"
 
     def execute(self, context: Any) -> set:
-        asset_id = context.window_manager.cm_studio_asset_id.strip()
+        asset_id = context.window_manager.kinolot_studio_asset_id.strip()
         if not asset_id:
             self.report({"ERROR"}, "Enter an asset ID from this workspace")
             return {"CANCELLED"}
@@ -992,7 +1001,7 @@ class CM_OT_studio_asset_fetch(bpy.types.Operator):
 
 
 class CM_OT_studio_asset_import(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_asset_import"
+    bl_idname = "kinolot.studio_asset_import"
     bl_label = "Import fetched GLB"
     bl_description = "Explicitly import the authenticated GLB into the managed collection"
 
@@ -1015,7 +1024,7 @@ class CM_OT_studio_asset_import(bpy.types.Operator):
 
 
 class CM_OT_studio_conflict_reload(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_conflict_reload"
+    bl_idname = "kinolot.studio_conflict_reload"
     bl_label = "Reload server workspace"
     bl_description = "Fetch the server revision; unsaved local edits are not discarded automatically"
 
@@ -1025,7 +1034,7 @@ class CM_OT_studio_conflict_reload(bpy.types.Operator):
 
 
 class CM_OT_studio_replace_local(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_replace_local"
+    bl_idname = "kinolot.studio_replace_local"
     bl_label = "Replace local managed workspace"
     bl_description = "Explicitly discard local managed Studio edits and use the fetched server revision"
 
@@ -1044,7 +1053,7 @@ class CM_OT_studio_replace_local(bpy.types.Operator):
 
 
 class CM_OT_studio_activate_shot(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_activate_shot"
+    bl_idname = "kinolot.studio_activate_shot"
     bl_label = "Use selected shot"
     bl_description = "Use the selected workspace shot camera and timeline in this Blender scene"
 
@@ -1063,7 +1072,7 @@ class CM_OT_studio_activate_shot(bpy.types.Operator):
 
 
 class CM_OT_studio_play_preview(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_play_preview"
+    bl_idname = "kinolot.studio_play_preview"
     bl_label = "Play local preview"
     bl_description = "Play the active Blender timeline locally; no preview is published"
 
@@ -1077,7 +1086,7 @@ class CM_OT_studio_play_preview(bpy.types.Operator):
 
 
 class CM_OT_studio_render_preview(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_render_preview"
+    bl_idname = "kinolot.studio_render_preview"
     bl_label = "Render local preview"
     bl_description = "Render the active Blender scene locally; no preview is published"
 
@@ -1091,7 +1100,7 @@ class CM_OT_studio_render_preview(bpy.types.Operator):
 
 
 class CM_OT_studio_publish_preview(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_publish_preview"
+    bl_idname = "kinolot.studio_publish_preview"
     bl_label = "Render and publish auxiliary preview"
     bl_description = "Render the active local camera and publish an auxiliary Studio preview"
 
@@ -1113,7 +1122,7 @@ class CM_OT_studio_publish_preview(bpy.types.Operator):
 
 
 class CM_OT_studio_key_selected_blocking(bpy.types.Operator):
-    bl_idname = "cinema_machine.studio_key_selected_blocking"
+    bl_idname = "kinolot.studio_key_selected_blocking"
     bl_label = "Key selected blocking transform"
     bl_description = "Insert real location, rotation, and scale keyframes for the selected managed actor"
 
@@ -1145,7 +1154,7 @@ def _draw_studio_dialog(layout: Any, context: Any) -> None:
     snapshot = runtime.snapshot()
     wm = context.window_manager
     tabs = layout.row(align=True)
-    tabs.prop(wm, "cm_studio_tab", expand=True)
+    tabs.prop(wm, "kinolot_studio_tab", expand=True)
     status = layout.box()
     status.label(text=str(snapshot["status"]))
     if snapshot["detail"]:
@@ -1186,17 +1195,17 @@ def _draw_studio_dialog(layout: Any, context: Any) -> None:
         for item in history[-4:]:
             box.label(text="%s: %s" % (item.get("role", "Studio"), str(item.get("text", ""))[:110]))
     prompt = layout.box()
-    prompt.prop(wm, "cm_studio_prompt", text="")
-    if wm.cm_studio_tab == "MODEL":
-        prompt.prop(wm, "cm_studio_mesh_model", text="Mesh model")
-        prompt.prop(wm, "cm_studio_asset_name", text="Asset name")
-        prompt.prop(wm, "cm_studio_mesh_rigged", text="Request rigged asset")
-        prompt.prop(wm, "cm_studio_mesh_animated", text="Request animation")
+    prompt.prop(wm, "kinolot_studio_prompt", text="")
+    if wm.kinolot_studio_tab == "MODEL":
+        prompt.prop(wm, "kinolot_studio_mesh_model", text="Mesh model")
+        prompt.prop(wm, "kinolot_studio_asset_name", text="Asset name")
+        prompt.prop(wm, "kinolot_studio_mesh_rigged", text="Request rigged asset")
+        prompt.prop(wm, "kinolot_studio_mesh_animated", text="Request animation")
     else:
-        prompt.prop(wm, "cm_studio_model", text="Model")
+        prompt.prop(wm, "kinolot_studio_model", text="Model")
     reference = prompt.row(align=True)
-    if wm.cm_studio_tab != "SCENE":
-        reference.prop(wm, "cm_studio_reference_id", text="Generated image ID")
+    if wm.kinolot_studio_tab != "SCENE":
+        reference.prop(wm, "kinolot_studio_reference_id", text="Generated image ID")
         reference.operator(CM_OT_studio_get_reference.bl_idname, text="Preview source")
     prompt.label(text="Derived from the location image unless another generated asset is selected.")
     if snapshot.get("referenceDataUrl"):
@@ -1205,17 +1214,17 @@ def _draw_studio_dialog(layout: Any, context: Any) -> None:
     if isinstance(capabilities, dict):
         if capabilities.get("billingReady") is not True:
             prompt.label(text="Billing is not ready; generation will be refused.", icon="ERROR")
-        elif wm.cm_studio_tab == "MODEL":
+        elif wm.kinolot_studio_tab == "MODEL":
             estimate = capabilities.get("meshEstimate")
             if isinstance(estimate, dict):
                 prompt.label(text="Advertised mesh estimate: %s" % str(estimate.get("credits", "provider-priced")))
-        selected_models = capabilities.get("meshModels" if wm.cm_studio_tab == "MODEL" else "models", [])
-        selected_id = wm.cm_studio_mesh_model if wm.cm_studio_tab == "MODEL" else wm.cm_studio_model
+        selected_models = capabilities.get("meshModels" if wm.kinolot_studio_tab == "MODEL" else "models", [])
+        selected_id = wm.kinolot_studio_mesh_model if wm.kinolot_studio_tab == "MODEL" else wm.kinolot_studio_model
         if isinstance(selected_models, list):
             selected = next((item for item in selected_models if isinstance(item, dict) and item.get("modelId") == selected_id), None)
             if isinstance(selected, dict) and selected.get("verified") is not True and selected.get("selectable") is True:
                 prompt.label(text=str(selected.get("warning", "Provider may refuse this exact model."))[:150], icon="ERROR")
-    prompt.prop(wm, "cm_studio_cost_ack", text="I approve this generation's advertised cost")
+    prompt.prop(wm, "kinolot_studio_cost_ack", text="I approve this generation's advertised cost")
     generate = prompt.row()
     generate.enabled = not (isinstance(capabilities, dict) and capabilities.get("billingReady") is False)
     generate.operator(CM_OT_studio_generate.bl_idname, text="Generate", icon="PLAY")
@@ -1243,9 +1252,9 @@ def _draw_studio_dialog(layout: Any, context: Any) -> None:
         apply_row = reviewed.row()
         apply_row.enabled = completed
         apply_row.operator(CM_OT_studio_apply.bl_idname, text="Apply reviewed proposal", icon="CHECKMARK")
-    if wm.cm_studio_tab == "ASSETS":
+    if wm.kinolot_studio_tab == "ASSETS":
         assets = layout.box()
-        assets.prop(wm, "cm_studio_asset_id", text="Asset ID")
+        assets.prop(wm, "kinolot_studio_asset_id", text="Asset ID")
         row = assets.row(align=True)
         row.operator(CM_OT_studio_asset_fetch.bl_idname, text="Fetch authenticated GLB")
         if snapshot.get("asset"):
@@ -1253,9 +1262,9 @@ def _draw_studio_dialog(layout: Any, context: Any) -> None:
     layout.label(text="Native Blender dialog styling is limited; this is not a web panel.")
 
 
-class VIEW3D_PT_cinema_machine_studio(bpy.types.Panel):
+class VIEW3D_PT_kinolot_studio(bpy.types.Panel):
     bl_label = "Kinolot Studio"
-    bl_idname = "VIEW3D_PT_cinema_machine_studio"
+    bl_idname = "VIEW3D_PT_kinolot_studio"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Kinolot"
@@ -1274,7 +1283,7 @@ _CLASSES = (
     CM_OT_connect,
     CM_OT_disconnect,
     CM_OT_cancel,
-    VIEW3D_PT_cinema_machine,
+    VIEW3D_PT_kinolot,
     CM_OT_studio_open,
     CM_OT_studio_capabilities,
     CM_OT_studio_workspace_current,
@@ -1293,11 +1302,11 @@ _CLASSES = (
     CM_OT_studio_render_preview,
     CM_OT_studio_publish_preview,
     CM_OT_studio_key_selected_blocking,
-    VIEW3D_PT_cinema_machine_studio,
+    VIEW3D_PT_kinolot_studio,
 )
 
 
-def _tag_cinema_machine_areas() -> None:
+def _tag_kinolot_areas() -> None:
     """Redraw visible Kinolot panels from Blender's main thread.
 
     This function is called only by operators and ``_timer_callback``.  Worker
@@ -1486,8 +1495,31 @@ def _timer_callback() -> Optional[float]:
     if bridge_changed or studio_changed:
         # This call is deliberately after all worker events and scene work
         # have crossed the main-thread timer boundary.
-        _tag_cinema_machine_areas()
+        _tag_kinolot_areas()
     return 0.25
+
+
+def _retire_old_addon() -> None:
+    """Switch off the pre-1.1.0 install (package ``cinema_machine_bridge``) if it is enabled.
+
+    Both would otherwise poll the same pairing and draw two Kinolot panels. Runs once
+    at register and again from a timer, because Blender may enable the older add-on
+    after this one at startup. Never raises: an add-on that can't be switched off is
+    left for the user to remove (the panel says so).
+    """
+
+    global _OLD_ADDON_RETIRED
+    try:
+        if OLD_ADDON_MODULE not in bpy.context.preferences.addons:
+            return None
+        import addon_utils  # type: ignore
+
+        addon_utils.disable(OLD_ADDON_MODULE, default_set=True)
+        _OLD_ADDON_RETIRED = True
+        _tag_kinolot_areas()
+    except Exception:
+        pass
+    return None
 
 
 def register() -> None:
@@ -1495,17 +1527,17 @@ def register() -> None:
     global _LAST_BRIDGE_VISIBLE_STATE, _LAST_STUDIO_VISIBLE_STATE
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
-    bpy.types.WindowManager.cm_pair_code = StringProperty(
+    bpy.types.WindowManager.kinolot_pair_code = StringProperty(
         name="One-time pairing code",
         description="Code generated by the approved browser project",
         subtype="PASSWORD",
     )
-    bpy.types.WindowManager.cm_pair_acknowledged = BoolProperty(
+    bpy.types.WindowManager.kinolot_pair_acknowledged = BoolProperty(
         name="I approve this project",
         description="Explicitly acknowledge the project before pairing",
         default=False,
     )
-    bpy.types.WindowManager.cm_studio_tab = EnumProperty(
+    bpy.types.WindowManager.kinolot_studio_tab = EnumProperty(
         name="Studio task",
         items=(
             ("SCENE", "Scene builder", "Create a reviewed scene proposal"),
@@ -1516,31 +1548,36 @@ def register() -> None:
         default="SCENE",
         update=_studio_reset_cost_ack,
     )
-    bpy.types.WindowManager.cm_studio_prompt = StringProperty(
+    bpy.types.WindowManager.kinolot_studio_prompt = StringProperty(
         name="Prompt",
         description="Prompt sent only to the selected server-authorized Studio model",
         default="",
         maxlen=4000,
         update=_studio_reset_cost_ack,
     )
-    bpy.types.WindowManager.cm_studio_model = EnumProperty(name="Model", items=_studio_model_items, update=_studio_reset_cost_ack)
-    bpy.types.WindowManager.cm_studio_mesh_model = EnumProperty(name="Mesh model", items=_studio_mesh_model_items, update=_studio_reset_cost_ack)
-    bpy.types.WindowManager.cm_studio_asset_name = StringProperty(name="Asset name", default="New asset", maxlen=120, update=_studio_reset_cost_ack)
-    bpy.types.WindowManager.cm_studio_mesh_rigged = BoolProperty(name="Rigged", default=False, update=_studio_reset_cost_ack)
-    bpy.types.WindowManager.cm_studio_mesh_animated = BoolProperty(name="Animated", default=False, update=_studio_reset_cost_ack)
-    bpy.types.WindowManager.cm_studio_cost_ack = BoolProperty(
+    bpy.types.WindowManager.kinolot_studio_model = EnumProperty(name="Model", items=_studio_model_items, update=_studio_reset_cost_ack)
+    bpy.types.WindowManager.kinolot_studio_mesh_model = EnumProperty(name="Mesh model", items=_studio_mesh_model_items, update=_studio_reset_cost_ack)
+    bpy.types.WindowManager.kinolot_studio_asset_name = StringProperty(name="Asset name", default="New asset", maxlen=120, update=_studio_reset_cost_ack)
+    bpy.types.WindowManager.kinolot_studio_mesh_rigged = BoolProperty(name="Rigged", default=False, update=_studio_reset_cost_ack)
+    bpy.types.WindowManager.kinolot_studio_mesh_animated = BoolProperty(name="Animated", default=False, update=_studio_reset_cost_ack)
+    bpy.types.WindowManager.kinolot_studio_cost_ack = BoolProperty(
         name="Approve generation cost",
         description="Required for this one Studio assistant or Meshy submission",
         default=False,
     )
-    bpy.types.WindowManager.cm_studio_reference_id = StringProperty(name="Reference ID", default="", maxlen=128)
-    bpy.types.WindowManager.cm_studio_asset_id = StringProperty(name="Asset ID", default="", maxlen=128)
+    bpy.types.WindowManager.kinolot_studio_reference_id = StringProperty(name="Reference ID", default="", maxlen=128)
+    bpy.types.WindowManager.kinolot_studio_asset_id = StringProperty(name="Asset ID", default="", maxlen=128)
     _RUNTIME = BridgeRuntime()
     _STUDIO_RUNTIME = StudioRuntime(_RUNTIME)
     _LAST_BRIDGE_VISIBLE_STATE = _RUNTIME.snapshot()
     _LAST_STUDIO_VISIBLE_STATE = _STUDIO_RUNTIME.snapshot()
     _reset_studio_workspace_failure()
     _ensure_timer_registered()
+    _retire_old_addon()
+    try:
+        bpy.app.timers.register(_retire_old_addon, first_interval=2.0)
+    except Exception:
+        pass
 
 
 def unregister() -> None:
@@ -1548,20 +1585,25 @@ def unregister() -> None:
     global _LAST_BRIDGE_VISIBLE_STATE, _LAST_STUDIO_VISIBLE_STATE
     if _RUNTIME is not None:
         _RUNTIME.request_disconnect()
+    try:
+        if bpy.app.timers.is_registered(_retire_old_addon):
+            bpy.app.timers.unregister(_retire_old_addon)
+    except Exception:
+        pass
     if _timer_registered() or _TIMER_RUNNING:
         try:
             bpy.app.timers.unregister(_timer_callback)
         except ValueError:
             pass
         _TIMER_RUNNING = False
-    if hasattr(bpy.types.WindowManager, "cm_pair_code"):
-        del bpy.types.WindowManager.cm_pair_code
-    if hasattr(bpy.types.WindowManager, "cm_pair_acknowledged"):
-        del bpy.types.WindowManager.cm_pair_acknowledged
+    if hasattr(bpy.types.WindowManager, "kinolot_pair_code"):
+        del bpy.types.WindowManager.kinolot_pair_code
+    if hasattr(bpy.types.WindowManager, "kinolot_pair_acknowledged"):
+        del bpy.types.WindowManager.kinolot_pair_acknowledged
     for name in (
-        "cm_studio_tab", "cm_studio_prompt", "cm_studio_model", "cm_studio_mesh_model",
-        "cm_studio_asset_name", "cm_studio_mesh_rigged", "cm_studio_mesh_animated", "cm_studio_cost_ack",
-        "cm_studio_reference_id", "cm_studio_asset_id",
+        "kinolot_studio_tab", "kinolot_studio_prompt", "kinolot_studio_model", "kinolot_studio_mesh_model",
+        "kinolot_studio_asset_name", "kinolot_studio_mesh_rigged", "kinolot_studio_mesh_animated", "kinolot_studio_cost_ack",
+        "kinolot_studio_reference_id", "kinolot_studio_asset_id",
     ):
         if hasattr(bpy.types.WindowManager, name):
             delattr(bpy.types.WindowManager, name)

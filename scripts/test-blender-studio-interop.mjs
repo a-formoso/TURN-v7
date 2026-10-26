@@ -98,14 +98,14 @@ function zipHeader(signature, name, packed, original, offset = 0) {
   return Buffer.concat(common);
 }
 function buildTemporaryAddon(directory) {
-  const source = path.join(root, "blender", "cinema_machine_bridge");
+  const source = path.join(root, "blender", "kinolot_bridge");
   const names = fs.readdirSync(source).filter(name => name.endsWith(".py")).sort();
   check(names.includes("__init__.py") && names.includes("studio_runtime.py") && names.includes("studio_protocol.py"),
     "Studio package sources are incomplete; cannot build isolated interop ZIP");
   const chunks = [], central = []; let offset = 0;
   for (const name of names) {
     const original = fs.readFileSync(path.join(source, name)), packed = zlib.deflateRawSync(original, { level: 9 });
-    const archiveName = `cinema_machine_bridge/${name}`, local = zipHeader(0x04034b50, archiveName, packed, original);
+    const archiveName = `kinolot_bridge/${name}`, local = zipHeader(0x04034b50, archiveName, packed, original);
     chunks.push(local, packed); central.push(zipHeader(0x02014b50, archiveName, packed, original, offset)); offset += local.length + packed.length;
   }
   const records = Buffer.concat(central);

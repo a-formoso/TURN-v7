@@ -466,7 +466,7 @@ def render_preview(spec: Mapping[str, Any]) -> Dict[str, Any]:
         # TemporaryDirectory is private (0700 by Python) and keeps the path
         # present for Blender's write_still call; there is no unlink-before-
         # render TOCTOU window and no caller-supplied output path.
-        with tempfile.TemporaryDirectory(prefix="cinema_machine_proof_") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="kinolot_proof_") as temp_dir:
             temp_path = os.path.join(temp_dir, "preview.png")
             proof_scene.render.filepath = temp_path
             if getattr(bpy.context, "window", None) is not None:

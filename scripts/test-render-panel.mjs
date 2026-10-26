@@ -31,6 +31,6 @@ t("P5 Inputs: the assets summary cards are gone; the 'added at render' text fold
 t("P6 styles, Frances and keys", ()=>{
   assert.ok(css.includes(".stage2-ptab-pane[hidden]{display:none}") && css.includes(".stage2-rc-balance i{"));
   assert.ok(ai.includes("RENDER SETTINGS, PRICE CARD AND THREE TABS (2026-10-24, owner)"));
-  ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261025-hs71", "20261025-hs72", "20261025-hs73", "20261025-hs74", "20261025-hs75", "20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261025-hs71", "20261025-hs72", "20261025-hs73", "20261025-hs74", "20261025-hs75", "20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89", "20261026-hs90"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
 });
 console.log(pass+" passed, 0 failed");

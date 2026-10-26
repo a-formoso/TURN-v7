@@ -28,7 +28,7 @@
      E. the display-time mappings that must still MENTION the old names (stored data is never
         migrated — decision 6): each one really turns an old saved label into today's name.
      F. the guard bites: synthetic leaks of every kind are flagged; allowlisted internals are not.
-     G. the Blender add-on (blender/cinema_machine_bridge/*.py): every Python string literal —
+     G. the Blender add-on (blender/kinolot_bridge/*.py): every Python string literal —
         panel labels, tooltips, reports, errors, property names, and the names of the scenes,
         worlds, collections, objects and materials a proof render or a Studio workspace adds to the
         user's .blend file — says no retired name and uses no "CM " data-name prefix.
@@ -415,8 +415,9 @@ safely("F bites", ()=>{
 /* ───────────────────────── G. the Blender add-on's strings ───────────────────────── */
 /* Every Python string literal in the add-on (comments are skipped; docstrings are read too — Blender
    shows an operator's docstring as its tooltip when it has no bl_description). Blender-specific rules:
-   the internal ids keep the product's former name in lower case (the package cinema_machine_bridge,
-   operator ids cinema_machine.*, custom properties cinemaMachine*), so only the SHOWN spellings trip. */
+   the package is kinolot_bridge and the operator ids kinolot.* since 1.1.0 (owner 2026-10-26); the custom
+   properties saved in users' .blend files keep the former name (cinemaMachine*), and so does the older
+   package's id the add-on switches off (cinema_machine_bridge), in lower case — only the SHOWN spellings trip. */
 const PY_RULES = [
   { id:"CINEMA", what:"Cinema Machine / CinemaMachine", re:/Cinema ?Machine/ },
   { id:"TURN",   what:"TURN as the product",            re:/\bTURN\b/ },
@@ -424,9 +425,8 @@ const PY_RULES = [
   { id:"COMPANY",what:"'Infinite Studio' without ' AI'", re:/Infinite Studio(?! AI)/ },
   { id:"CM",     what:"the old 'CM ' prefix on a data-block name (scene / collection / object / material)", re:/^CM\s/ },
 ];
-/* thread names: Python's own diagnostics, never shown in Blender's UI */
-const PY_ALLOW = new Map([["CinemaMachineConnect",0], ["CinemaMachineDisconnect",0], ["CinemaMachineCancel",0],
-  ["CinemaMachineValidationFailure",0], ["CinemaMachineComplete",0], ["CinemaMachineRenderFailure",0], ["CinemaMachineStudio",0]]);
+/* nothing allowlisted since 1.1.0: the thread names became Kinolot… with the package (2026-10-26) */
+const PY_ALLOW = new Map();
 function pyStrings(src){
   const out = []; let i = 0, line = 1; const n = src.length;
   while(i < n){
@@ -449,7 +449,7 @@ function pyStrings(src){
   return out;
 }
 safely("G blender", ()=>{
-  const dir = "blender/cinema_machine_bridge";
+  const dir = "blender/kinolot_bridge";
   const files = existsSync(join(ROOT, dir)) ? readdirSync(join(ROOT, dir)).filter(f=>f.endsWith(".py")).sort() : [];
   ok("G the scan reads every add-on module", files.includes("__init__.py") && files.includes("renderer.py") && files.includes("studio_scene.py"), files);
   const hits = []; let literals = 0;
@@ -474,7 +474,7 @@ safely("G blender", ()=>{
   const missed = pyLeaks.filter(s=>!probe(s));
   ok("G the Python scan bites (button text=, a data-block name, a property name, the CM prefix, a report, a docstring tooltip)", !missed.length, missed);
   ok("G …and stays quiet on internals (ids, custom properties, thread names, comments)",
-    !probe('bl_idname = "cinema_machine.studio_open"\nobj["cinemaMachineProof"] = True\nthreading.Thread(name="CinemaMachineConnect")\n# product was called Cinema Machine'));
+    !probe('bl_idname = "kinolot.studio_open"\nobj["cinemaMachineProof"] = True\nOLD_ADDON_MODULE = "cinema_machine_bridge"\nthreading.Thread(name="KinolotConnect")\n# product was called Cinema Machine'));
 });
 
 /* ───────────────────────── the allowlist stays honest ───────────────────────── */

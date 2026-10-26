@@ -66,9 +66,9 @@ def main() -> int:
             archive.extractall(extracted)
         sys.path.insert(0, extracted)
         import bpy  # type: ignore
-        import cinema_machine_bridge.protocol as protocol  # type: ignore
-        from cinema_machine_bridge import studio_scene  # type: ignore
-        from cinema_machine_bridge.studio_runtime import StudioRuntime  # type: ignore
+        import kinolot_bridge.protocol as protocol  # type: ignore
+        from kinolot_bridge import studio_scene  # type: ignore
+        from kinolot_bridge.studio_runtime import StudioRuntime  # type: ignore
 
         def local_endpoint(value: str) -> str:
             if value != endpoint:

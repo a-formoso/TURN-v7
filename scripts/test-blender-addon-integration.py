@@ -69,8 +69,8 @@ def main():
         with zipfile.ZipFile(ZIP_PATH) as archive:
             archive.extractall(extracted)
         sys.path.insert(0, extracted)
-        import cinema_machine_bridge as addon  # type: ignore
-        from cinema_machine_bridge import protocol  # type: ignore
+        import kinolot_bridge as addon  # type: ignore
+        from kinolot_bridge import protocol  # type: ignore
 
         validated = protocol.validate_scene(spec())
         records = []

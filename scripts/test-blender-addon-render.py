@@ -20,8 +20,8 @@ import bpy  # type: ignore
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "blender"))
 
-from cinema_machine_bridge.protocol import scene_hash, validate_actual_camera, validate_scene  # noqa: E402
-from cinema_machine_bridge.renderer import render_preview  # noqa: E402
+from kinolot_bridge.protocol import scene_hash, validate_actual_camera, validate_scene  # noqa: E402
+from kinolot_bridge.renderer import render_preview  # noqa: E402
 
 
 def proof_spec(focal_length):

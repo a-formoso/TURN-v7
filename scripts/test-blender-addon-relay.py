@@ -25,8 +25,8 @@ def main() -> int:
         with zipfile.ZipFile(os.environ["CM_TEST_ZIP"]) as archive:
             archive.extractall(extracted)
         sys.path.insert(0, extracted)
-        import cinema_machine_bridge as addon  # type: ignore
-        from cinema_machine_bridge import protocol  # type: ignore
+        import kinolot_bridge as addon  # type: ignore
+        from kinolot_bridge import protocol  # type: ignore
 
         def local_endpoint(value: str) -> str:
             if value != endpoint:

@@ -11,7 +11,7 @@ import vm from "node:vm";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
-const addon = path.join(root, "blender", "cinema_machine_bridge");
+const addon = path.join(root, "blender", "kinolot_bridge");
 const files = ["__init__.py", "protocol.py", "renderer.py"].map((name) => path.join(addon, name));
 
 for (const file of files) {

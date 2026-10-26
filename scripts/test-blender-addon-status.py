@@ -23,7 +23,7 @@ import bpy  # type: ignore
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "blender"))
 
-import cinema_machine_bridge as addon  # noqa: E402
+import kinolot_bridge as addon  # noqa: E402
 
 
 def fail(message: str) -> None:
@@ -145,7 +145,7 @@ def assert_area_redraw_helper():
         context=SimpleNamespace(window_manager=SimpleNamespace(windows=[window]))
     )
     try:
-        addon._tag_cinema_machine_areas()
+        addon._tag_kinolot_areas()
     finally:
         addon.bpy = original_bpy
     if calls != ["redraw"]:
@@ -156,14 +156,14 @@ def main():
     addon.register()
     original_runtime = addon._RUNTIME
     original_studio = addon._STUDIO_RUNTIME
-    original_redraw = addon._tag_cinema_machine_areas
+    original_redraw = addon._tag_kinolot_areas
     redraws = []
-    addon._tag_cinema_machine_areas = lambda: redraws.append("redraw")
+    addon._tag_kinolot_areas = lambda: redraws.append("redraw")
     original_open_workspace = addon.studio_scene.open_workspace
     try:
-        addon._tag_cinema_machine_areas = original_redraw
+        addon._tag_kinolot_areas = original_redraw
         assert_area_redraw_helper()
-        addon._tag_cinema_machine_areas = lambda: redraws.append("redraw")
+        addon._tag_kinolot_areas = lambda: redraws.append("redraw")
         if not bpy.app.timers.is_registered(addon._timer_callback):
             fail("register() did not install the persistent Blender timer")
 
@@ -185,12 +185,12 @@ def main():
         original_connect = connect_runtime.request_connect
         connect_runtime.request_connect = lambda *_args: None
         window_manager = bpy.context.window_manager
-        window_manager.cm_pair_code = "status-test-pair-code"
-        window_manager.cm_pair_acknowledged = True
+        window_manager.kinolot_pair_code = "status-test-pair-code"
+        window_manager.kinolot_pair_acknowledged = True
         connect_context = SimpleNamespace(
             preferences=SimpleNamespace(
                 addons={
-                    "cinema_machine_bridge": SimpleNamespace(
+                    "kinolot_bridge": SimpleNamespace(
                         preferences=SimpleNamespace(
                             edge_function_url="https://status-test.invalid",
                             device_name="Status Test Blender",
@@ -453,7 +453,7 @@ def main():
             fail("timer could not be re-enabled after unavailable runtime")
     finally:
         addon.studio_scene.open_workspace = original_open_workspace
-        addon._tag_cinema_machine_areas = original_redraw
+        addon._tag_kinolot_areas = original_redraw
         addon._RUNTIME = original_runtime
         addon._STUDIO_RUNTIME = original_studio
         addon.unregister()

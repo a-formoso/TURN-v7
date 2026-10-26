@@ -141,8 +141,8 @@ t("C4 the Mix hears its scene's takes, keeps the result and redraws when one is 
 });
 t("Frances knows; the files load", ()=>{
   assert.ok(ai.includes("Clip length and where each line lands (Stage)"));
-  assert.ok(["20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89"].some(k=>html.includes('<script src="app/stage-speech.js?v='+k+'"></script>')));
-  assert.ok(["20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89"].some(k=>html.includes('app/stage-plan.jsx?v='+k+'"')));
+  assert.ok(["20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89", "20261026-hs90"].some(k=>html.includes('<script src="app/stage-speech.js?v='+k+'"></script>')));
+  assert.ok(["20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89", "20261026-hs90"].some(k=>html.includes('app/stage-plan.jsx?v='+k+'"')));
   assert.ok(html.indexOf("app/stage-speech.js")<html.indexOf("app/stage.jsx"));
 });
 console.log(pass+" passed, 0 failed");

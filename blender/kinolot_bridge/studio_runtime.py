@@ -123,7 +123,7 @@ class StudioRuntime:
                     }
                 )
 
-        threading.Thread(target=worker, name="CinemaMachineStudio" + kind.title(), daemon=True).start()
+        threading.Thread(target=worker, name="KinolotStudio" + kind.title(), daemon=True).start()
 
     def _set_status(self, status: str, detail: str = "") -> None:
         with self._lock:

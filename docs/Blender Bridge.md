@@ -17,7 +17,7 @@ provider is called.
 - `app/blender-preview-ui.jsx` / `.css`: a per-shot opt-in panel.
 - `supabase/functions/blender-bridge/`: authenticated stateless HTTP relay,
   using existing Supabase auth/storage and sealed, namespaced metadata records.
-- `blender/cinema_machine_bridge/`: desktop Blender add-on; outbound HTTPS only.
+- `blender/kinolot_bridge/`: desktop Blender add-on; outbound HTTPS only.
   Build its downloadable ZIP into `app/downloads/`.
 
 Existing film, shot, character and image IDs must not be replaced. Never modify
@@ -159,16 +159,16 @@ The panel has three numbered steps:
 1. **Download and install, once.** This step is collapsible; folding it leaves
    the connection and render controls available. Choose **Download add-on ZIP**.
    In Blender, open Preferences → Add-ons → the top-right menu → Install from
-   Disk, select the ZIP without extracting it, and enable **Cinema Machine Bridge**.
+   Disk, select the ZIP without extracting it, and enable **Kinolot Bridge**.
 2. **Connect.** Choose **Pair Blender desktop** to create a temporary code.
-   In Blender's 3D view, press N and choose the **CinemaMachine** side tab.
+   In Blender's 3D view, press N and choose the **Kinolot** side tab.
    Copy the Function URL and Pair code into the matching boxes, tick
    **I approve this project**, then click **Connect** in Blender.
 3. **Render.** Review the room, camera and lens settings and choose
    **Render Blender preview**. It remains disabled until connected.
 
 Download is not required for each connection or render. Copy/paste setup is
-easiest with Cinema Machine open in a browser on that computer; the connected
+easiest with Kinolot open in a browser on that computer; the connected
 Blender can then be controlled from a phone. Choose a Blender release compatible
 with the computer; Intel Macs need the macOS Intel build of Blender 4.5 LTS,
 not Blender 5.x.
@@ -178,7 +178,7 @@ bytes. The page loads that small data script before the UI; the download button
 decodes it and requests a Blob download synchronously, without fetching a ZIP
 URL or navigating the film page. The production build fingerprints the script
 URL from its contents. Never hand-edit the generated bundle. If an embedded
-browser still blocks saving files, open Cinema Machine in its own browser tab.
+browser still blocks saving files, open Kinolot in its own browser tab.
 
 Pairing codes for canonical UUID identities use a compact `u1_` locator: the
 owner, project and actor UUIDs occupy 48 binary bytes before base64url encoding.

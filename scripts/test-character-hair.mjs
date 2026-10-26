@@ -21,6 +21,6 @@ t("the whole line is kept (480 characters) and the card and the sheet prompt kee
 });
 t("Frances knows; keys", ()=>{
   assert.ok(ai.includes('name:"Hair on the character card and sheet"'));
-  assert.ok(["20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89"].some(k=>html.includes("app/ai.jsx?v="+k+'"')));
+  assert.ok(["20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89", "20261026-hs90"].some(k=>html.includes("app/ai.jsx?v="+k+'"')));
 });
 console.log(pass+" passed, 0 failed");

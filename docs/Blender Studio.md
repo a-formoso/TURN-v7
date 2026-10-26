@@ -17,13 +17,13 @@ Existing artwork and workspace IDs are preserved; no automatic generation runs.
    same dedicated workspace through an image-gated location chooser. Shots have
    a compact **Open this shot in Blender** handoff. There are no large Studio
    sections repeated across location, character or prop cards.
-3. Download the updated Cinema Machine add-on using the panel's download control.
+3. Download the updated Kinolot add-on using the panel's download control.
    Install the ZIP in Blender Preferences → Add-ons → Install from Disk.
    On an Intel Mac, use a compatible Intel Blender release such as 4.5 LTS.
 4. In **Connect Blender**, choose **Create pairing code**. Use the separate
    **Copy** buttons beside Function URL and Pair code, matching the Shots preview
    layout. Paste each value into the matching
-   fields in Blender's CinemaMachine sidebar (press **N** in the 3D view).
+   fields in Blender's Kinolot sidebar (press **N** in the 3D view).
    Approve the project and click **Connect** in Blender. The web panel confirms
    **Paired** automatically and folds completed setup away. This is pairing
    registration, not desktop liveness: check for **Status: Connected** in Blender
