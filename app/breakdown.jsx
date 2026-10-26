@@ -122,7 +122,7 @@ function bdSceneRow({ scene, slug, todKind, ordered, C, props, locations, sceneS
       const norm = v=>String(v||"").toLowerCase().replace(/\(cont'?d\)/ig,"").replace(/[^a-z0-9]+/g," ").trim();
       const unlocked = new Map();
       Array.from(new Set(sceneShots.map(s=>s.beatN).filter(n=>n!=null))).forEach(n=>{
-        let rows = []; try{ rows = stageBeatDialogueLines(scene, drafts||{}, n) || []; }catch(e){ rows = []; }
+        let rows = []; try{ rows = stageBeatDialogueLines(scene, drafts||{}, n, C) || []; }catch(e){ rows = []; }
         rows.forEach(r=>{ if(!r || !String(r.text||"").trim() || r.delivery==="text") return;
           const c = (r.speakerId && C.find(x=>x && x.id===r.speakerId)) || C.find(x=>x && norm(x.name)===norm(r.speaker));
           if(c && !(c.voiceLock && c.voiceLock.voiceId)) unlocked.set(c.id, c.name||"A character"); }); });

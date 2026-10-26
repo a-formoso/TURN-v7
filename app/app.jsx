@@ -6087,7 +6087,7 @@ function App(){
       throw new Error("The assigned screenplay speaker no longer matches a character. Reassign this line before voicing.");
     }
     const lines=(typeof stageBeatDialogueLines==="function")
-      ? stageBeatDialogueLines(scene,drafts,shot.beatN) : [];
+      ? stageBeatDialogueLines(scene,drafts,shot.beatN,characters) : [];
     const index=Number(shot.screenplayDialogueIndex);
     let row=Number.isInteger(index)&&index>=0 ? lines[index] : null;
     if(!row){

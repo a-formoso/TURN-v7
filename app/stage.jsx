@@ -1157,9 +1157,15 @@ function stageBeatScriptBlocks(scene, drafts, beatN){
   const blocks = (d && Array.isArray(d.blocks)) ? d.blocks : [];
   return blocks.filter(b=>b && b.type!=="scene" && Number(b.beat)===n);
 }
-function stageBeatDialogueLines(scene, drafts, beatN){
+function stageBeatDialogueLines(scene, drafts, beatN, characters){
+  /* WITH THE CAST (2026-10-26, live test film: "Voice clip now" failed with "We can't verify who speaks this line"):
+     read without the characters, a cue stays its bare text ("OTTAVIO") with no character id, and voicing matched it
+     against full names ("OTTAVIO SPADONI") and refused. The screenplay reader resolves a cue to its character (by
+     first name too) when it has the cast: the caller's, else the open film's. */
+  const cast = Array.isArray(characters) ? characters
+    : (((typeof window!=="undefined" && window.turnContinuity) || {}).characters || []);
   const live=(typeof window.shotBeatScreenplay==="function")
-    ? window.shotBeatScreenplay(scene,beatN,{drafts}) : null;
+    ? window.shotBeatScreenplay(scene,beatN,{drafts,characters:cast}) : null;
   if(live&&live.hasSource)return live.dialogue||[];
   const blocks = stageBeatScriptBlocks(scene, drafts, beatN);
   const out = [];
@@ -9134,7 +9140,9 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   React.useEffect(()=>{ const h=()=>setAudTick(x=>x+1); window.addEventListener("vg-audio-done", h); return ()=>window.removeEventListener("vg-audio-done", h); }, []);
   React.useEffect(()=>{ let alive=true;
     (async()=>{ const out={};
-      for(const sh of (shots||[])){ if(!String(sh.dialogue||"").trim()) continue;
+      // a shot with a recording counts even when its own dialogue field is empty — a designed shot's line can live only
+      // in the screenplay (2026-10-26: the voiced line read "its audio file is unavailable" and Generate stayed blocked)
+      for(const sh of (shots||[])){ if(!String(sh.dialogue||"").trim() && !(sh.lineAudio && Number(sh.lineAudio.durationMs)>0)) continue;
         let u=(typeof vgGetAudio==="function")?vgGetAudio(sh.id):"";
         if(!u && typeof vgLoadAudio==="function"){ try{ u=await vgLoadAudio(sh.id, undefined, { hash:sh.lineAudio && sh.lineAudio.hash }); }catch(e){} } if(u) out[sh.id]=u; }   // the matching voicing from the film (2026-10-09)
       if(alive) setAuds(out); })();
