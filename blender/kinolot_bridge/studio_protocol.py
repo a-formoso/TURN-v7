@@ -26,6 +26,54 @@ class StudioProtocolError(ValueError):
     """A studio request, response, or document violates the safe schema."""
 
 
+# Blender boards (owner 2026-10-26): 1-4 stills of a shot, rendered through its camera from start to
+# end and published together (``studio.board.publish``); Kinolot's Stage lays them out as one board.
+BOARD_MAX_FRAMES = 4
+BOARD_MAX_BYTES = 8 * 1024 * 1024
+BOARD_LONG_SIDE = 1280
+
+
+def board_frame_numbers(start: int, end: int, count: int) -> List[int]:
+    """Evenly spaced frames from the shot's first to its last, both included, without repeats."""
+
+    start, end = int(start), int(end)
+    if end < start:
+        start, end = end, start
+    count = max(1, min(BOARD_MAX_FRAMES, int(count)))
+    if count == 1 or end == start:
+        return [start]
+    frames: List[int] = []
+    for index in range(count):
+        frame = int(round(start + (end - start) * index / (count - 1)))
+        if frame not in frames:
+            frames.append(frame)
+    return frames
+
+
+def board_size(width: int, height: int) -> Tuple[int, int]:
+    """The board's render size: the scene's aspect ratio, its long side at most BOARD_LONG_SIDE pixels."""
+
+    width, height = max(1, int(width)), max(1, int(height))
+    scale = min(1.0, float(BOARD_LONG_SIDE) / float(max(width, height)))
+    return max(64, int(round(width * scale / 2.0)) * 2), max(64, int(round(height * scale / 2.0)) * 2)
+
+
+def validate_board_response(value: Any, shot_id: str, count: int) -> Tuple[List[Dict[str, Any]], int]:
+    """The relay's answer to ``studio.board.publish``: this shot's previews and the new revision."""
+
+    response = _mapping(value, "board response")
+    previews = response.get("previews")
+    revision = response.get("revision")
+    if not isinstance(previews, list) or len(previews) != count:
+        raise StudioProtocolError("Board response has the wrong number of frames")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise StudioProtocolError("Board response has an invalid revision")
+    checked = _validate_previews(previews)
+    if any(item.get("shotId") != shot_id or not item["id"].startswith("preview-board_") for item in checked):
+        raise StudioProtocolError("Board response does not belong to this shot")
+    return checked, revision
+
+
 def _mapping(value: Any, where: str) -> Mapping[str, Any]:
     if not isinstance(value, dict):
         raise StudioProtocolError(where + " must be an object")

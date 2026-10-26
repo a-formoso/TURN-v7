@@ -3175,6 +3175,12 @@ function stageAssetRole(a, refs){
   if(k.indexOf("shotframe:")===0) return T+" is "+(label.toLowerCase()||"a later shot's frame")+" — anchor that shot's composition and blocking to it.";
   if(k.indexOf("scene-shotframe:")===0) return T+" is a scene shot frame chosen by the director — use its composition, identity and continuity where the prompt mentions it.";
   if(k.indexOf("sb-half")===0 || k==="sb-sheet") return T+" is the storyboard for this clip — follow its composition, blocking and panel order.";
+  if(k.indexOf("blender-board:")===0){
+    const n=Number(a.boardFrames)||0, last=n>1?String.fromCharCode(64+n):"";
+    return T+" is the blocking board from Blender for this shot"+(n>1?": frames A to "+last+", left to right, run from the start of the shot to its end":"")
+      +". Its grey shapes and coloured stand-ins are placeholders that only mark position. Match its camera position, height, lens framing and moves, the screen direction, the relative size of people and objects, and where everyone stands and moves"
+      +(a.boardKey?" ("+a.boardKey+")":"")+". Take every look \u2014 faces, wardrobe, the set, the light \u2014 from the other references and this text; never show the stand-ins, grey shapes, letters, captions or the page itself.";
+  }
   if(k.indexOf("c:")===0) return T+" is "+(label.replace(/\s+reference$/i,"")||"the character")+"'s identity reference — keep their appearance exactly consistent; use it for identity only and do not copy its background, pose or lighting.";
   if(k==="loc") return T+" is the "+(label||"location plate")+" — keep its geography and lighting.";
   if(k.indexOf("scene-loc:")===0) return T+" is a scene location reference chosen by the director — preserve its geography, set dressing and lighting.";
@@ -3835,6 +3841,18 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       else out.push({ key:"frame-missing", kind:"image", label:"Shot start frame", ready:false, locked:true,
         id:(d.first||{}).id||activeShot.id });
     }
+    // BLENDER BOARDS (2026-10-26): each of the clip's shots with a board page (blender-board-<shotId>, composed
+    // from its Blender Studio board) brings it in, on by default — the camera and blocking come from it
+    if(_mRefs && window.BlenderBoards) (d.shots||[]).forEach((sh,i)=>{
+      if(!sh||!/^[a-zA-Z0-9_-]{1,128}$/.test(String(sh.id))) return;
+      const slot=window.BlenderBoards.slotId(sh.id), u=imgs[slot]; if(!u) return;
+      const meta=(typeof nbGetMeta==="function")?nbGetMeta(slot):null;
+      const n=(meta&&Array.isArray(meta.frames))?meta.frames.length:0;
+      out.push({ key:"blender-board:"+sh.id, kind:"image", group:"Blender boards",
+        label:"Blender board"+((d.shots||[]).length>1?" \u00b7 shot "+(i+1):"")+(n>1?" (frames A\u2013"+String.fromCharCode(64+n)+")":""),
+        url:u, ready:true, id:slot, boardFrames:n, boardKey:(meta&&meta.keyText)||"",
+        assetRole:"derived_reference", assetSourceQuality:"blender_board_page" });
+    });
     if(_mRefs){
       // Active character/location/prop rows come exclusively from the authoritative
       // shot reference package below. Legacy d.cast/d.loc/d.props masters remain
@@ -4597,6 +4615,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         : String(a.key).indexOf("p:")===0 ? "Props"
         : a.key==="loc" || String(a.key).indexOf("scene-loc:")===0 ? "Locations"
         : String(a.key).indexOf("scene-shotframe:")===0 ? "Shot frames"
+        : String(a.key).indexOf("blender-board:")===0 ? "Blender boards"
         : a.kind==="audio" ? "Voices" : "References");
       if(on(a)){
         out.push({ t:stageAssetMention(a), label:String(a.label||""), kind:a.kind, url:String(a.url||""), key:a.key, assetKey:a.key, group, included:true }); }
@@ -9063,7 +9082,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
         ||!(typeof BS.generatedReference==="function"&&BS.generatedReference(id))) return;
       tried.add("ws:"+id);
       jobs.push(Promise.resolve().then(()=>BS.get(id))
-        .then(ws=>{ STAGE_STUDIO_SHOTS[id]={shots:(ws&&ws.shots)||[]}; return true; }).catch(()=>false));
+        .then(ws=>{ STAGE_STUDIO_SHOTS[id]={shots:(ws&&ws.shots)||[],previews:(ws&&ws.previews)||[]}; return true; }).catch(()=>false));
     });
     (cur.g.shots||[]).forEach(sh=>{
       const slot="blender-preview-"+(sh&&sh.id);
@@ -9074,6 +9093,41 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     });
     if(jobs.length) Promise.all(jobs).then(r=>{ if(r.some(Boolean)) setGeoTick(t=>t+1); });
   }, [selId]);
+  /* BLENDER BOARDS (2026-10-26): a shot whose Studio workspace holds a newer board than the one saved with the
+     film gets its board page composed (app/blender-board.js) and saved as the film image blender-board-<shotId>,
+     which the clip's render then takes as a reference. Reading the frames is free; nothing is generated. A
+     read-only viewer only sees a page someone saved. */
+  const [boardTick, setBoardTick] = React.useState(0);
+  const boardBusyRef = React.useRef(new Set());
+  React.useEffect(()=>{
+    const cur=allClips.find(c=>c.id===selId), BB=window.BlenderBoards, BS=window.BlenderStudio, BP=window.BlenderPreview;
+    if(!cur||readOnly||!BB||!BS||!BP||typeof nbCommit!=="function"||typeof nbLoadImage!=="function") return;
+    let scope=null; try{ scope=BP.scope(); }catch(e){ return; }
+    if(!scope||!scope.projectId) return;
+    (cur.g.shots||[]).forEach(sh=>{
+      if(!sh||!/^[a-zA-Z0-9_-]{1,128}$/.test(String(sh.id))) return;
+      const locId=Object.keys(STAGE_STUDIO_SHOTS).find(id=>(STAGE_STUDIO_SHOTS[id].shots||[]).some(x=>x&&x.id===sh.id));
+      const ws=locId&&STAGE_STUDIO_SHOTS[locId], board=ws&&BB.latestBoard(ws.previews,sh.id);
+      const slot=BB.slotId(sh.id), busy=boardBusyRef.current;
+      if(!board||busy.has(slot+":"+board.boardId)) return;
+      busy.add(slot+":"+board.boardId);
+      Promise.resolve().then(()=>nbLoadImage(slot)).catch(()=>null).then(async()=>{
+        const had=(typeof nbGetMeta==="function")?nbGetMeta(slot):null;
+        if(had&&had.kind==="blender-board"&&had.boardId===board.boardId) return false;
+        const pages=await Promise.all(board.frames.map(f=>BS.previewGet(locId,f.previewId,scope)));
+        const studioShot=(ws.shots||[]).find(x=>x&&x.id===sh.id)||null;
+        const key=BB.standInKey(studioShot,characters);
+        const title="Scene "+_pad2(cur.scene&&cur.scene.no)+(sh.beatN?" \u00b7 Beat "+sh.beatN:"")+" \u2014 blocking board from Blender";
+        const dataUrl=await BB.compose({ title, key,
+          frames:board.frames.map((f,i)=>({ frame:f.frame, dataUrl:"data:image/png;base64,"+((pages[i]&&pages[i].pngBase64)||"") })) });
+        const meta={ kind:"blender-board", projectId:scope.projectId, shotId:String(sh.id), locationId:locId, boardId:board.boardId,
+          frames:board.frames.map(f=>({ previewId:f.previewId, frame:f.frame, actualCamera:f.actualCamera })),
+          keyText:BB.keyText(key), label:"Blender blocking board \u2014 staging and camera only", source:"blender", composedAt:new Date().toISOString() };
+        const r=await nbCommit(slot, dataUrl, meta, [], "shot", scope.epoch, ()=>!BP.isCurrent(scope));
+        return !!(r&&r.tier&&r.tier!=="stale"&&r.tier!=="cancelled"&&r.tier!=="error");
+      }).then(saved=>{ if(saved){ setBoardTick(t=>t+1); setImgTick(t=>t+1); } }).catch(()=>{ busy.delete(slot+":"+board.boardId); });
+    });
+  }, [selId, geoTick, readOnly]);
   React.useEffect(()=>{
     const cur = allClips.find(c=>c.id===selId);
     if(cur){ selMembersRef.current = (cur.g.shots||[]).map(s=>s.id); return; }
@@ -9121,6 +9175,14 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     requiredReferenceIds.forEach(id=>s.add(id));
     const sceneShots=hydrationScene?(shotsByScene[hydrationScene.id]||[]):[];
     sceneShots.forEach(sh=>s.add(sh.id));
+    // a shot's Blender board page, when its Studio workspace has a board or the film already saved one
+    if(window.BlenderBoards) sceneShots.forEach(sh=>{
+      if(!sh||!/^[a-zA-Z0-9_-]{1,128}$/.test(String(sh.id))) return;
+      const slot=window.BlenderBoards.slotId(sh.id);
+      const has=Object.keys(STAGE_STUDIO_SHOTS).some(id=>window.BlenderBoards.latestBoard(STAGE_STUDIO_SHOTS[id].previews,sh.id))
+        ||((typeof nbGetMeta==="function")&&nbGetMeta(slot));
+      if(has) s.add(slot);
+    });
     if(hydrationScene){
       // the BOARD's pages (one keyframe per beat — sbBoardShots), so only sheets that can exist are asked for (2026-10-09)
       const boardShots = (typeof window.sbBoardShots==="function") ? window.sbBoardShots(sceneShots) : sceneShots;
@@ -9152,7 +9214,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     });
     return Array.from(s); }, [shotIdsKey, charIdsKey, sceneOrderKey, locIdsKey, propIdsKey, propSig, requiredReferenceIdsKey,
       hydrationScene&&hydrationScene.id, hydrationSceneClips.map(c=>c.id).join(","),
-      JSON.stringify(hydrationSceneClips.map(c=>[(((c.data||{}).cast)||[]).map(x=>x.id).join("|"),(((c.data||{}).props)||[]).map(p=>p.sheetId||p.id).join("|"),(((c.data||{}).loc)||{}).id||"",(((c.data||{}).locSheet)||{}).id||""]))]);
+      JSON.stringify(hydrationSceneClips.map(c=>[(((c.data||{}).cast)||[]).map(x=>x.id).join("|"),(((c.data||{}).props)||[]).map(p=>p.sheetId||p.id).join("|"),(((c.data||{}).loc)||{}).id||"",(((c.data||{}).locSheet)||{}).id||""])), geoTick, boardTick]);
   const [imgs, setImgs] = React.useState({});
   const [imageLoadState,setImageLoadState] = React.useState({});
   const [imgTick, setImgTick] = React.useState(0);

@@ -38,5 +38,5 @@ t("saving a designed voice tells the provider a neutral description of at least 
   assert.ok(proxy.includes("voice_description: ownElKey && ownDesc.length >= 20 ? ownDesc : PROVIDER_VOICE_DESCRIPTION,"));
   assert.ok(!proxy.includes('voice_description: ownElKey ? (body.description || "").toString() : ""'));
 });
-t("cache key", ()=>{ assert.ok(["20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89", "20261026-hs90"].some(k=>html.includes("app/voices-ui.jsx?v="+k+'"'))); });
+t("cache key", ()=>{ assert.ok(["20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89", "20261026-hs90", "20261026-hs91"].some(k=>html.includes("app/voices-ui.jsx?v="+k+'"'))); });
 console.log(pass+" passed, 0 failed");

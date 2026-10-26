@@ -44,7 +44,7 @@ const ACTIONS = [
   "studio.workspace.current", "studio.workspace.save", "studio.assistant.submit",
   "studio.assistant.get", "studio.assistant.cancel", "studio.mesh.submit",
   "studio.mesh.get", "studio.mesh.cancel", "studio.asset.get", "studio.reference.get",
-  "studio.preview.publish", "studio.preview.get",
+  "studio.preview.publish", "studio.preview.get", "studio.board.publish",
 ];
 
 export class RelayError extends Error {

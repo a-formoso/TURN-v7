@@ -13,7 +13,13 @@ import uuid
 from typing import Any, Dict, Mapping, Optional
 
 from .protocol import BridgeError, BridgeHTTPError
-from .studio_protocol import StudioProtocolError, validate_proposal, validate_workspace
+from .studio_protocol import (
+    BOARD_MAX_FRAMES,
+    StudioProtocolError,
+    validate_board_response,
+    validate_proposal,
+    validate_workspace,
+)
 
 
 def _error(error: BaseException) -> str:
@@ -60,6 +66,7 @@ class StudioRuntime:
         self.pending_workspace: Optional[Dict[str, Any]] = None
         self._inflight_task_get = False
         self._reloading_after_conflict = False
+        self.board_pending: Optional[Dict[str, Any]] = None
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
@@ -320,6 +327,31 @@ class StudioRuntime:
         self._set_status("Publishing auxiliary preview")
         self._request("preview", "studio.preview.publish", fields)
 
+    def request_board(self, local_workspace: Dict[str, Any], frames: Any) -> None:
+        """Publish the active shot's board (``studio.board.publish``) in one call."""
+
+        checked = validate_workspace(local_workspace)
+        with self._lock:
+            shot_id = self.shot_id
+            relay_knows_boards = (not self.capabilities) or isinstance(self.capabilities.get("boardPublish"), dict)
+        if not shot_id or not any(shot["id"] == shot_id for shot in checked["shots"]):
+            self._set_status("Studio error", "Open this shot from Kinolot (Open this shot in Blender) before publishing its board")
+            return
+        if not relay_knows_boards:
+            self._set_status("Studio error", "Kinolot's server needs an update before boards can be published")
+            return
+        if not isinstance(frames, list) or not 1 <= len(frames) <= BOARD_MAX_FRAMES:
+            self._set_status("Studio error", "A board has 1 to %d frames" % BOARD_MAX_FRAMES)
+            return
+        with self._lock:
+            self.board_pending = {"shotId": shot_id, "count": len(frames)}
+        self._set_status("Publishing board", "%d frame%s" % (len(frames), "" if len(frames) == 1 else "s"))
+        self._request("board", "studio.board.publish", {
+            "locationId": checked["locationId"], "baseRevision": checked["revision"],
+            "requestId": "desktop_" + uuid.uuid4().hex, "shotId": shot_id,
+            "frames": [{"frame": f["frame"], "pngBase64": f["pngBase64"], "actualCamera": f["actualCamera"]} for f in frames],
+        })
+
     def request_reference(self, entity_id: str) -> None:
         with self._lock:
             workspace = self.workspace
@@ -466,6 +498,19 @@ class StudioRuntime:
                 with self._lock:
                     self.reference_data_url = response["dataUrl"]
                     self.status, self.detail = "Approved reference attached", ""
+            elif kind == "board":
+                with self._lock:
+                    pending, self.board_pending = self.board_pending, None
+                    if pending is None or self.workspace is None:
+                        raise StudioProtocolError("Board response arrived without a board being published")
+                    previews, revision = validate_board_response(response, pending["shotId"], pending["count"])
+                    # the relay added these previews and moved the revision on by one; keep the local
+                    # copy in step so a later Save from Blender isn't refused as out of date
+                    known = {item["id"] for item in self.workspace["previews"]}
+                    self.workspace["previews"].extend(item for item in previews if item["id"] not in known)
+                    self.workspace["revision"] = revision
+                    self.status = "Board published"
+                    self.detail = "%d frame%s for Kinolot's Stage" % (len(previews), "" if len(previews) == 1 else "s")
             elif kind == "preview":
                 if not isinstance(response.get("preview"), dict):
                     raise StudioProtocolError("Preview response is invalid")

@@ -262,6 +262,28 @@ Render and publish an auxiliary preview to return a separate still to the
 location/shot workspace. Approved location art, character sheets and finished
 shot frames are not replaced.
 
+## Boards for the Stage
+
+Add-on **1.1.0** adds **Publish board** to the shot row of the Studio dialog (owner
+2026-10-26). Open the shot from Kinolot (**Open this shot in Blender**), choose
+**Board frames** (1-4, default 3) and press **Publish board**: Blender renders quick
+flat-colour Workbench stills through the shot's camera, evenly spaced from its
+first frame to its last, at the scene's aspect ratio (long side 1280 px), then puts
+the engine, resolution, shading and current frame back. One
+`studio.board.publish` call stores them as ordinary previews named
+`preview-board_<requestId>_<n>of<N>_f<frame>` with one revision bump, so the
+workspace schema (and every add-on that validates it) is unchanged.
+
+When the Stage opens that shot's clip, it reads the newest complete board,
+lays it out as one page (`app/blender-board.js`: frames lettered A, B, C... left to
+right, a caption under each, a key naming each coloured stand-in) and saves it as
+the film image `blender-board-<shotId>`. The page joins the clip's references as
+**Blender board**, on by default: its role tells the video model to take the
+camera position and moves, screen direction, relative sizes and blocking from it
+and every look from the other references, and never to show the stand-ins or
+labels. A newer board replaces the page the next time the Stage opens the clip.
+Publishing and composing cost nothing; a read-only viewer never writes a page.
+
 ## Boundaries
 
 - The original version-1 preview/pairing protocol remains supported.
@@ -269,8 +291,8 @@ shot frames are not replaced.
   actions; API keys and provider polling URLs are not sent to the desktop.
 - GLB imports are size/hash checked and reject external resources or executable
   content. Imports affect managed data, not arbitrary objects in the user's file.
-- Camera and character animation remain editable in Blender. Automatic export of
-  a motion-reference clip into Seedance is a later integration, not this feature.
+- Camera and character animation remain editable in Blender. Boards carry stills to
+  the Stage; exporting a motion-reference clip into Seedance is a later integration.
 - No character-orbit generation, authority-receipt cleanup, database-policy
   changes or Story Pipeline edits are part of this feature.
 
@@ -278,6 +300,7 @@ shot frames are not replaced.
 
 ```sh
 node scripts/test-blender-studio-relay.mjs
+node scripts/test-blender-boards.mjs
 node scripts/test-blender-studio-billing.mjs
 node scripts/test-blender-studio-ui.mjs
 blender --background --factory-startup --python scripts/test-blender-studio-native.py

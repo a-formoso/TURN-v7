@@ -23,7 +23,7 @@ import time
 from typing import Any, Dict, Mapping, Optional
 
 import bpy  # type: ignore
-from bpy.props import BoolProperty, EnumProperty, StringProperty  # type: ignore
+from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty  # type: ignore
 
 from . import renderer
 from . import studio_scene
@@ -1121,6 +1121,31 @@ class CM_OT_studio_publish_preview(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class CM_OT_studio_publish_board(bpy.types.Operator):
+    bl_idname = "kinolot.studio_publish_board"
+    bl_label = "Render and publish board"
+    bl_description = (
+        "Render stills through the active shot camera, from its first frame to its last, and publish them "
+        "as this shot's board. Kinolot's Stage uses the board to place the camera and the people"
+    )
+
+    def execute(self, context: Any) -> set:
+        runtime = _studio_runtime()
+        workspace = runtime.snapshot().get("workspace")
+        if not isinstance(workspace, dict):
+            self.report({"ERROR"}, "Open a Studio workspace before publishing a board")
+            return {"CANCELLED"}
+        try:
+            local = studio_scene.workspace_snapshot(context.scene, workspace)
+            frames = studio_scene.render_board(context.scene, context.window_manager.kinolot_studio_board_frames)
+            runtime.set_local_workspace(local)
+            runtime.request_board(local, frames)
+        except (RuntimeError, StudioProtocolError, studio_scene.StudioSceneError) as error:
+            self.report({"ERROR"}, _safe_error(error))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
 class CM_OT_studio_key_selected_blocking(bpy.types.Operator):
     bl_idname = "kinolot.studio_key_selected_blocking"
     bl_label = "Key selected blocking transform"
@@ -1174,6 +1199,9 @@ def _draw_studio_dialog(layout: Any, context: Any) -> None:
         shot_row.operator(CM_OT_studio_play_preview.bl_idname, text="Play")
         shot_row.operator(CM_OT_studio_render_preview.bl_idname, text="Render local")
         shot_row.operator(CM_OT_studio_publish_preview.bl_idname, text="Publish preview")
+        board_row = layout.row(align=True)
+        board_row.prop(context.window_manager, "kinolot_studio_board_frames", text="Board frames")
+        board_row.operator(CM_OT_studio_publish_board.bl_idname, text="Publish board")
         shot_row.operator(CM_OT_studio_key_selected_blocking.bl_idname, text="Key selected")
     row = layout.row(align=True)
     row.operator(CM_OT_studio_capabilities.bl_idname, text="Refresh model access")
@@ -1301,6 +1329,7 @@ _CLASSES = (
     CM_OT_studio_play_preview,
     CM_OT_studio_render_preview,
     CM_OT_studio_publish_preview,
+    CM_OT_studio_publish_board,
     CM_OT_studio_key_selected_blocking,
     VIEW3D_PT_kinolot_studio,
 )
@@ -1565,6 +1594,11 @@ def register() -> None:
         description="Required for this one Studio assistant or Meshy submission",
         default=False,
     )
+    bpy.types.WindowManager.kinolot_studio_board_frames = IntProperty(
+        name="Board frames",
+        description="How many stills the board takes, from the shot's first frame to its last",
+        default=3, min=1, max=4,
+    )
     bpy.types.WindowManager.kinolot_studio_reference_id = StringProperty(name="Reference ID", default="", maxlen=128)
     bpy.types.WindowManager.kinolot_studio_asset_id = StringProperty(name="Asset ID", default="", maxlen=128)
     _RUNTIME = BridgeRuntime()
@@ -1603,7 +1637,7 @@ def unregister() -> None:
     for name in (
         "kinolot_studio_tab", "kinolot_studio_prompt", "kinolot_studio_model", "kinolot_studio_mesh_model",
         "kinolot_studio_asset_name", "kinolot_studio_mesh_rigged", "kinolot_studio_mesh_animated", "kinolot_studio_cost_ack",
-        "kinolot_studio_reference_id", "kinolot_studio_asset_id",
+        "kinolot_studio_reference_id", "kinolot_studio_asset_id", "kinolot_studio_board_frames",
     ):
         if hasattr(bpy.types.WindowManager, name):
             delattr(bpy.types.WindowManager, name)

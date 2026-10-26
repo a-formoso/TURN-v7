@@ -771,6 +771,75 @@ def render_auxiliary_preview(scene: Any) -> Dict[str, Any]:
     }
 
 
+def _camera_now(camera: Any) -> Dict[str, Any]:
+    Vector = _vector()
+    direction = camera.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0))
+    position = [float(value) for value in camera.matrix_world.translation]
+    return {
+        "position": position,
+        "target": [position[index] + float(direction[index]) * 5.0 for index in range(3)],
+        "focalLength": float(camera.data.lens),
+        "sensorWidth": float(camera.data.sensor_width),
+    }
+
+
+def render_board(scene: Any, count: int) -> list:
+    """Render the active shot's board: ``count`` stills through its camera from the first frame to the last.
+
+    A quick flat-colour Workbench render at the scene's aspect ratio (long side 1280 px), so the
+    stand-ins keep their colours. The engine, resolution, shading, output path and current frame
+    are put back afterwards. Returns ``[{"frame", "pngBase64", "actualCamera"}]`` in time order.
+    """
+
+    from .studio_protocol import BOARD_MAX_BYTES, board_frame_numbers, board_size
+
+    bpy = _bpy()
+    camera = scene.camera
+    if camera is None:
+        raise StudioSceneError("Choose a camera before rendering a board")
+    frames = board_frame_numbers(scene.frame_start, scene.frame_end, count)
+    render, shading = scene.render, scene.display.shading
+    saved = {
+        "engine": render.engine, "x": render.resolution_x, "y": render.resolution_y,
+        "percentage": render.resolution_percentage, "path": render.filepath,
+        "light": shading.light, "color": shading.color_type, "frame": scene.frame_current,
+    }
+    width, height = board_size(render.resolution_x, render.resolution_y)
+    result, total = [], 0
+    try:
+        render.engine = "BLENDER_WORKBENCH"
+        render.resolution_x, render.resolution_y, render.resolution_percentage = width, height, 100
+        shading.light, shading.color_type = "STUDIO", "MATERIAL"
+        with tempfile.TemporaryDirectory(prefix="kinolot_studio_board_") as directory:
+            for index, frame in enumerate(frames):
+                scene.frame_set(frame)
+                path = os.path.join(directory, "board-%d.png" % index)
+                render.filepath = path
+                if getattr(bpy.context, "window", None) is None:
+                    with bpy.context.temp_override(scene=scene, view_layer=scene.view_layers[0]):
+                        bpy.ops.render.render(write_still=True)
+                else:
+                    bpy.ops.render.render(write_still=True)
+                with open(path, "rb") as output:
+                    png = output.read()
+                if not png.startswith(b"\x89PNG\r\n\x1a\n"):
+                    raise StudioSceneError("Blender did not write a PNG for the board")
+                total += len(png)
+                if total > BOARD_MAX_BYTES:
+                    raise StudioSceneError("This board is too large to publish; use fewer frames")
+                result.append({"frame": int(frame), "pngBase64": base64.b64encode(png).decode("ascii"),
+                               "actualCamera": _camera_now(camera)})
+    except (OSError, RuntimeError) as error:
+        raise StudioSceneError("Blender could not render the board") from error
+    finally:
+        render.engine = saved["engine"]
+        render.resolution_x, render.resolution_y = saved["x"], saved["y"]
+        render.resolution_percentage, render.filepath = saved["percentage"], saved["path"]
+        shading.light, shading.color_type = saved["light"], saved["color"]
+        scene.frame_set(saved["frame"])
+    return result
+
+
 def apply_proposal(scene: Any, workspace: Dict[str, Any], proposal: Dict[str, Any]) -> Dict[str, Any]:
     """Apply a reviewed typed proposal to managed data and return local state."""
 

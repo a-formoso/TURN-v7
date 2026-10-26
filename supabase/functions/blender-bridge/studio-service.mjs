@@ -14,8 +14,16 @@ const studioActions = new Set([
   "studio.workspace.current", "studio.workspace.save", "studio.assistant.submit",
   "studio.assistant.get", "studio.assistant.cancel", "studio.mesh.submit",
   "studio.mesh.get", "studio.mesh.cancel", "studio.asset.get", "studio.reference.get",
-  "studio.preview.publish", "studio.preview.get",
+  "studio.preview.publish", "studio.preview.get", "studio.board.publish",
 ]);
+/* BLENDER BOARDS (owner 2026-10-26: "Blender board stills feeding the Stage"): a shot's board is 1-4 stills
+   rendered through its camera (start → end), published in one call as ordinary previews whose ids say which
+   board and frame they are — preview-board_<requestId>_<n>of<N>_f<frame> — so the workspace schema (and every
+   add-on that validates it strictly) is unchanged. The browser composes them into one lettered board page. */
+const MAX_BOARD_FRAMES = 4, MAX_BOARD_BYTES = 8 * 1024 * 1024;
+export function boardPreviewId(requestId, index, count, frame) {
+  return `preview-board_${requestId}_${index + 1}of${count}_f${frame}`;
+}
 
 function error(status, code, message) {
   const e = new Error(message); e.status = status; e.code = code; return e;
@@ -39,8 +47,10 @@ function bytesB64(bytes) {
   return btoa(binary);
 }
 function b64Bytes(value, max) {
-  if (typeof value !== "string" || value.length > Math.ceil(max * 4 / 3) + 8 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) throw bad("Invalid encoded bytes.");
+  // a flat character check plus the length rule: the grouped pattern this replaced ran out of stack on
+  // images above about 3 MB (2026-10-26) and turned a valid upload into a crash
+  if (typeof value !== "string" || value.length > Math.ceil(max * 4 / 3) + 8 || value.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) throw bad("Invalid encoded bytes.");
   const s = atob(value), bytes = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
   if (bytes.length > max) throw error(413, "too_large", "File is too large."); return bytes;
 }
@@ -383,6 +393,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
         billingMessage: await billingReady() ? null :
           "Studio generation is unavailable until atomic credit settlement is configured.",
         meshEstimate: meshEstimate(false, false, await creditUnitNow({ display: true })),
+        boardPublish: { maxFrames: MAX_BOARD_FRAMES, maxBytes: MAX_BOARD_BYTES },
       };
     }
     if (body.action === "studio.workspace.open") {
@@ -683,6 +694,43 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       const preview = { id: previewId, ...(body.shotId ? { shotId: body.shotId } : {}), sha256: digest, bytes: bytes.length, actualCamera: clone(body.actualCamera) };
       work.previews.push(preview); if (!object(data.previewPaths)) data.previewPaths = {}; data.previewPaths[previewId] = path; work.revision++;
       const saved = await persist(ctx, state); return { preview: clone(saved.state.studio.workspaces[locationId].previews.find(item => item.id === previewId)) };
+    }
+    if (body.action === "studio.board.publish") {
+      const work = workspaceFor(state, locationId);
+      if (body.baseRevision !== work.revision) throw conflict();
+      const requestId = id(body.requestId, "request id");
+      if (requestId.length > 64) throw bad("Invalid request id.");
+      const shotId = id(body.shotId, "shot id");
+      if (!work.shots.some(shot => shot.id === shotId)) throw bad("Shot is not in this workspace.");
+      const frames = body.frames;
+      if (!Array.isArray(frames) || frames.length < 1 || frames.length > MAX_BOARD_FRAMES) throw bad(`A board has 1 to ${MAX_BOARD_FRAMES} frames.`);
+      const ids = frames.map((f, i) => {
+        if (!object(f) || !Number.isInteger(f.frame) || f.frame < 0 || f.frame > 1000000) throw bad("Invalid board frame.");
+        return boardPreviewId(requestId, i, frames.length, f.frame);
+      });
+      if (ids.every(pid => work.previews.some(p => p.id === pid)))
+        return { previews: ids.map(pid => clone(work.previews.find(p => p.id === pid))), revision: work.revision };
+      let total = 0;
+      const decoded = frames.map(f => {
+        const bytes = b64Bytes(f.pngBase64, MAX_IMAGE); total += bytes.length;
+        if (!(bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71)) throw bad("Board frames must be PNGs.");
+        contract.validateCamera(f.actualCamera); return bytes;
+      });
+      if (total > MAX_BOARD_BYTES) throw error(413, "too_large", "This board is too large; render it smaller.");
+      if (work.previews.length + ids.length > 200) throw bad("This workspace has too many previews.");
+      if (typeof adapter?.uploadStudioAsset !== "function") throw error(503, "storage_unavailable", "Studio preview storage is unavailable.");
+      const folders = await resolveStorageFolders(adapter, ctx.access.ownerId, ctx.projectId);
+      if (!object(data.previewPaths)) data.previewPaths = {};
+      for (let i = 0; i < ids.length; i++) {
+        if (work.previews.some(p => p.id === ids[i])) continue;
+        const digest = await sha(decoded[i]), path = studioPreviewPath(folders, ctx.access.ownerId, ctx.projectId, locationId, ids[i]);
+        await adapter.uploadStudioAsset(path, decoded[i], "image/png"); await ctx.recheck();
+        work.previews.push({ id: ids[i], shotId, sha256: digest, bytes: decoded[i].length, actualCamera: clone(frames[i].actualCamera) });
+        data.previewPaths[ids[i]] = path;
+      }
+      work.revision++;
+      const saved = await persist(ctx, state), out = saved.state.studio.workspaces[locationId];
+      return { previews: ids.map(pid => clone(out.previews.find(p => p.id === pid))), revision: out.revision };
     }
     if (body.action === "studio.preview.get") {
       const work = workspaceFor(state, locationId), preview = work.previews.find(item => item.id === id(body.previewId, "preview id"));
