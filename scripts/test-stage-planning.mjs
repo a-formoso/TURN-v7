@@ -50,8 +50,12 @@ check("internal cuts may be shorter than four seconds",()=>{
   const p=s.stageBuildTimedPlan([shot("a",1,1),shot("b",1,2)],{});
   assert.equal(p.durationSec,4);assert.equal(p.units[0].end,1);assert.equal(p.units[1].end,4);
 });
-check("shortened request blocks instead of squeezing",()=>{
-  assert.ok(s.stageBuildTimedPlan([shot("a",1,8)],{durationSec:4}).issues.some(i=>i.code==="duration-too-short"));
+check("any length (2026-10-26): a shorter request paces the shots; a line too long for it still blocks",()=>{
+  const p=s.stageBuildTimedPlan([shot("a",1,4),shot("b",1,6)],{durationSec:5});
+  assert.equal(p.durationSec,5);assert.equal(p.paced,true);assert.equal(p.units[0].duration,2);assert.equal(p.units[1].duration,3);
+  assert.ok(!p.issues.some(i=>i.blocking)&&p.issues.some(i=>i.code==="paced-to-duration"));
+  const spoken={...shot("a",1,8),dialogue:"A line",lineAudio:{text:"A line",durationMs:6000}};
+  assert.ok(s.stageBuildTimedPlan([spoken],{durationSec:4}).issues.some(i=>i.code==="duration-too-short"&&i.blocking));
 });
 check("longer request holds ending",()=>{
   const p=s.stageBuildTimedPlan([shot("a",1,5)],{durationSec:8});

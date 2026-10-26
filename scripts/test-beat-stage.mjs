@@ -139,10 +139,19 @@ for(let i=1;i<=12;i++)actionBlocks.push({beat:1,type:"action",
 const actionDrafts={...drafts,[actionScene.id]:{version:1,blocks:actionBlocks}};
 const actionShot={id:"action-only-shot",sceneId:actionScene.id,beatN:1,keyframeMode:"beat-opening",
   subjects:["marcus"],action:"old short action",dur:5};
+// no length chosen: the beat asks for what it needs, and the engine's limit refuses it honestly
 const actionPlan=box.stageBuildTimedPlan([actionShot],{
+  modelId:"seedance-2.0",maxSeconds:15,maxShots:3,maxDialogue:10,
+  scene:actionScene,drafts:actionDrafts,characters,beatsMap:{},panelLines:[]
+});
+// (2026-10-26, owner: "any duration I want") a length the user chooses paces the action to fit instead
+const chosenPlan=box.stageBuildTimedPlan([actionShot],{
   modelId:"seedance-2.0",maxSeconds:15,maxShots:3,maxDialogue:10,durationSec:15,
   scene:actionScene,drafts:actionDrafts,characters,beatsMap:{},panelLines:[]
 });
+ok("a chosen length paces a long beat to fit it, every action kept",
+  !chosenPlan.over && chosenPlan.durationSec===15 && chosenPlan.issues.some(x=>x.code==="paced-to-duration"&&!x.blocking)
+    && chosenPlan.units[0].segments.length===12);
 ok("action-only full beat gets an honest duration estimate and blocker",
   actionPlan.units[0].estimated&&actionPlan.units[0].duration>15
     &&actionPlan.over&&actionPlan.issues.some(x=>x.code==="over-duration"));

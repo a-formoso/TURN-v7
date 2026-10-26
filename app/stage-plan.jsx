@@ -51,7 +51,7 @@
      its ESTIMATED action paced faster, evenly, down to 1.5 s a paragraph, until it fits; lines, written messages,
      authored seconds and the order never change. A beat that can't fit even then keeps that fastest pace and is
      still blocked (over-duration) — trim it or use the longer engine. */
-  const BEAT_AIR={lead:0.6,afterAction:0.3,betweenLines:0.8,tail:0.6},MIN_ACTION=1.5;
+  const BEAT_AIR={lead:0.6,afterAction:0.3,betweenLines:0.8,tail:0.6},MIN_ACTION_ENGINE=1.5;
   const words=v=>text(v).split(/\s+/).filter(Boolean).length;
   function beatTimeline(source,sh,opts){
     opts=opts||{};
@@ -91,6 +91,8 @@
     if(prev==="line")t+=BEAT_AIR.tail;
     const pageSec=round(t);
     const cap=positive(opts.fitSec);
+    // a length the user chose may pace the action harder than the engine fit does (0.5 s a paragraph, not 1.5)
+    const MIN_ACTION=opts.userFit?0.5:MIN_ACTION_ENGINE;
     let fitted=false;
     if(cap&&t>cap){
       const flex=segments.filter(x=>x.kind==="action"&&x.flex);
@@ -157,7 +159,9 @@
     const speech=dialogue&&!opening?(measured||Math.max(1,dialogue.split(/\s+/).length/2.4)):0;
     const actionTiming=opening?beatActionTiming(source,sh):null;
     // a whole screenplay beat: its action and its lines in page order, one after another (beatTimeline)
-    const timeline=opening?beatTimeline(source,sh,{...opts,fitSec:limits(opts).max}):null;
+    // fitted to the engine's limit, or to this unit's share of a shorter length the user chose (opts.fitTo)
+    const fitTo=positive(opts.fitTo);
+    const timeline=opening?beatTimeline(source,sh,{...opts,fitSec:fitTo?Math.min(limits(opts).max,fitTo):limits(opts).max,userFit:!!fitTo}):null;
     const actionTime=opening
       ? Math.max(timeline.fitted?positive(sh.actionDurationSec):actionTiming.seconds,timeline.total)
       : positive(sh.actionDurationSec)||(micro.length?Math.max(2,micro.length*1.6):5);
@@ -174,20 +178,39 @@
     return {shotId:sh.id,index,beatN:positive(sh.beatN)||null,covers:opening?[]:covers,micro,action,dialogue,
       beatOpening:opening,beatScript:opening?String(source.text||""):"",sourceScreenplayRev:opening?String(source.sourceRev||""):"",
       dialogueLines,
-      duration,estimated:opening?!!(timeline&&timeline.estimated&&!positive(sh.actionDurationSec)):(!positive(sh.dur)&&!measured),audioMeasuredSec:round(measured),
+      duration,speechSec:round(speech),estimated:opening?!!(timeline&&timeline.estimated&&!positive(sh.actionDurationSec)):(!positive(sh.dur)&&!measured),audioMeasuredSec:round(measured),
       segments:opening&&timeline?timeline.segments:[],pageSec:opening&&timeline?timeline.pageSec:0,paced:!!(opening&&timeline&&timeline.fitted),
       speaker:(p.speaker&&p.speaker.name)||audio.speaker||"",
       camera:{size:sh.size||"",angle:sh.angle||"",move:sh.move||"",lens:sh.lens||""},issues};
   }
   function stageBuildTimedPlan(shots,opts){
     opts=opts||{};const cap=limits(opts),list=(shots||[]).filter(Boolean);
-    const units=list.map((sh,i)=>unitFor(sh,i,opts));
+    let units=list.map((sh,i)=>unitFor(sh,i,opts));
+    const requested=positive(opts.durationSec);
+    /* ANY LENGTH (2026-10-26, owner: "give me the option to set any duration I want for a clip"): a length shorter than
+       the plan re-plans each beat to its share of it — the estimated action paced faster (down to 0.5 s a paragraph),
+       the lines and any seconds written on the page untouched. Only a length that can't hold them is refused. */
+    let paced=false;
+    const planned=round(units.reduce((n,u)=>n+u.duration,0));
+    // an older cut (not a whole beat) takes its share too, never under its line and a breath (or half a second)
+    if(requested && requested<Math.max(4,Math.ceil(planned)) && planned>0){
+      units=list.map((sh,i)=>{
+        const u=units[i],share=Math.max(0.5,requested*u.duration/planned);
+        if(u.beatOpening)return unitFor(sh,i,{...opts,fitTo:share});
+        const keep=u.speechSec?round(u.speechSec+0.6):0.5;
+        return {...u,duration:round(Math.min(u.duration,Math.max(share,keep))),paced:true};
+      });
+      paced=true;
+    }
     const issues=units.flatMap(u=>u.issues);
     const sum=round(units.reduce((n,u)=>n+u.duration,0));
     const minimumSec=units.length?Math.max(4,Math.ceil(sum)):0;
-    const requested=positive(opts.durationSec);
     if(requested&&requested<minimumSec)
-      issues.push({code:"duration-too-short",blocking:true,message:"The selected shots need at least "+minimumSec+" seconds. Increase duration or split this clip."});
+      issues.push({code:"duration-too-short",blocking:true,message:paced
+        ? "This clip needs at least "+minimumSec+" seconds even with its action paced as fast as it goes \u2014 its lines keep their length. Choose "+minimumSec+"s or longer."
+        : "The selected shots need at least "+minimumSec+" seconds. Increase duration or split this clip."});
+    else if(paced&&requested<Math.ceil(planned))
+      issues.push({code:"paced-to-duration",blocking:false,message:"Shorter than its planned "+Math.ceil(planned)+"s: the action is paced faster to fit "+requested+"s; the lines keep their length."});
     const durationSec=Math.max(minimumSec,requested?Math.ceil(requested):0);
     if(durationSec>cap.max){
       const oneBeat=units.some(u=>u&&u.beatOpening);
@@ -207,7 +230,7 @@
       delete u.issues;
     });
     const signature=hash({schema:SCHEMA,units,durationSec,modelId:opts.modelId||"",audioMode:opts.audioMode||"locked"});
-    return {schema:SCHEMA,units,durationSec,minimumSec,estimated:units.some(u=>u.estimated),
+    return {schema:SCHEMA,units,durationSec,minimumSec,plannedSec:Math.max(4,Math.ceil(planned)),paced,estimated:units.some(u=>u.estimated),
       over:durationSec>cap.max,issues,signature};
   }
   function stagePlanClips(shots,opts){

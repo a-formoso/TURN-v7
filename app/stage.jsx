@@ -121,6 +121,46 @@ const STAGE_FS_SLOT = (()=>{ try{
 const STAGE_EXIT_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 01-2 2H3M21 8h-3a2 2 0 01-2-2V3M3 16h3a2 2 0 012 2v3M16 21v-3a2 2 0 012-2h3"></path></svg>';
 function _chipClass(k){ return String(k||"").toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"") || "tag"; }
 function _fmtSecs(n){ n=Number(n)||0; return (Math.round(n*10)/10).toString().replace(/\.0$/,"")+"s"; }
+/* CHOOSE DURATION (owner 2026-10-26: "I want the duration tool in this style"): the Generate row's clock chip opens a
+   "Choose duration" box you type into — "12", "12s" or "12 seconds"; ↑ / ↓ step a second. Whole seconds from the
+   clip's shortest (4 s, or its voiced lines and a breath) to the engine's limit; a number outside is brought inside. */
+function stageParseDuration(text){
+  const m=String(text==null?"":text).trim().match(/^(\d+(?:[.,]\d+)?)\s*(s|secs?|seconds?)?$/i);
+  return m ? Math.round(Number(m[1].replace(",","."))) : null;
+}
+function StageDurationField({ value, min, max, planned, onPick, onDone }){
+  const [text, setText] = React.useState(_fmtSecs(value));
+  const [note, setNote] = React.useState("");
+  const inputRef = React.useRef(null);
+  React.useEffect(()=>{ setText(_fmtSecs(value)); }, [value]);
+  React.useEffect(()=>{ const el=inputRef.current; if(el){ try{ el.focus(); el.select(); }catch(e){} } }, []);
+  const commit = (v, close)=>{
+    if(v==null){ setNote("Type a length in seconds, like "+_fmtSecs(planned||min)+"."); return; }
+    const c = Math.max(min, Math.min(max, v));
+    setNote(c!==v ? (c>v ? "The shortest this clip takes is "+_fmtSecs(min)+"." : "This engine goes up to "+_fmtSecs(max)+".") : "");
+    setText(_fmtSecs(c));
+    if(c!==value) onPick(c);
+    if(close && c===v && onDone) onDone();
+  };
+  const v = Number(value)||0;
+  const hint = planned>0
+    ? (v<planned ? "Shorter than planned — the action is paced faster; its lines keep their length."
+      : v>planned ? "Longer than planned — more acting time." : "The planned length: this clip's speech and action.")
+    : "";
+  return _stEl("div",{className:"sdbar-durfield"},
+    _stEl("label",{htmlFor:"stage-choose-duration"},"Choose duration"),
+    _stEl("input",{ref:inputRef,id:"stage-choose-duration",type:"text",inputMode:"numeric",autoComplete:"off",spellCheck:false,
+      value:text, "aria-describedby":"stage-choose-duration-hint",
+      onChange:e=>{ setText(e.target.value); setNote(""); },
+      onBlur:()=>commit(stageParseDuration(text), false),
+      onKeyDown:e=>{
+        if(e.key==="Enter"){ e.preventDefault(); commit(stageParseDuration(text), true); }
+        else if(e.key==="ArrowUp"||e.key==="ArrowDown"){ e.preventDefault();
+          const cur=stageParseDuration(text); commit((cur==null?v:cur)+(e.key==="ArrowUp"?1:-1), false); }
+      }}),
+    _stEl("small",{id:"stage-choose-duration-hint",className:"sdbar-durfield-hint"+(note?" warn":"")},
+      note || (_fmtSecs(min)+" – "+_fmtSecs(max)+(planned>0 ? " · planned "+_fmtSecs(planned) : "")+(hint?" · "+hint:""))));
+}
 function _stageClock(n){
   n = Math.max(0, Number(n)||0);
   const m = Math.floor(n/60);
@@ -4392,22 +4432,24 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const duration = durationOverride
     ? ((voiceLocked && measuredSec) ? Math.max(measuredSec, durationOverride) : durationOverride)
     : autoDurationSec;
-  // the clip's true minimum for every duration picker: measured voice + air, or the
-  // plan floor when the coverage's action/speech time asks for more
-  const durationFloorSec = Math.max(durationLocked ? Math.ceil(measuredSec) : 0, planFloorSec);
-  const durationFloorIsPlan = planFloorSec>0 && planFloorSec>(durationLocked ? measuredSec : 0);
-  const durationTitle = durationFloorIsPlan
-    ? "Minimum "+_fmtSecs(planFloorSec)+" — this clip's speech and action time; extend for more acting time"
+  /* ANY LENGTH (2026-10-26, owner: "give me the option to set any duration I want for a clip"): every whole second
+     the engine takes, from its 4 s floor — or the voiced lines and a breath, when longer — up to its limit. The
+     planned length (the beat's speech and action time) is marked; a shorter pick paces the action faster
+     (stage-plan.jsx re-plans to it; the lines keep their length), a longer one gives more acting time. */
+  const plannedSec = planFloorSec;
+  const durationFloorSec = Math.max(4, durationLocked ? Math.ceil(measuredSec) : 0);
+  const durationTitle = plannedSec>0
+    ? "Planned "+_fmtSecs(plannedSec)+" — this clip's speech and action time. Shorter paces the action faster (its lines keep their length); longer gives more acting time."
     : durationLocked
-      ? "The measured voice + breathing room ("+_fmtSecs(measuredSec)+") is the MINIMUM — extend for more acting time"
+      ? "At least "+_fmtSecs(measuredSec)+" — the voiced lines and a breath"
       : "Clip duration";
-  // shorter picks are not offered rather than offered-then-blocked
-  const durationOptions = _uniq([duration, durationFloorSec, measuredSec||0, 4,5,6,8,10,12,15, model.maxClipSec||15])
-    .filter(v=> v>0 && v<=(model.maxClipSec||15) && v>=durationFloorSec)
+  const _durMax = model.maxClipSec||15;
+  const durationOptions = _uniq([duration, plannedSec, ...Array.from({length:Math.max(0,_durMax-durationFloorSec+1)},(_,i)=>durationFloorSec+i)])
+    .filter(v=> v>0 && v<=_durMax && v>=durationFloorSec)
     .sort((a,b)=>a-b);
-  const durationOptionNote = (v)=> v===durationFloorSec
-    ? (durationFloorIsPlan ? " · clip minimum" : durationLocked ? " · voice + air (min)" : "")
-    : "";
+  const durationOptionNote = (v)=> (plannedSec>0 && v===plannedSec) ? " · planned"
+    : (plannedSec>0 && v<plannedSec) ? " · paced faster"
+    : (durationLocked && v===durationFloorSec) ? " · voice + air (min)" : "";
   // VOICE CAST — when locked line-audio rides the render, declare which audio
   // reference is WHOSE voice BEFORE any dialogue instruction, so the model casts
   // the voices first and then performs the lines. @AudioN numbering mirrors the
@@ -6108,13 +6150,18 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     _stEl("div",{className:"sdbar-pop sdbar-pop-duration"},
       _stEl("label",null,"Total duration"),
       _stEl("input",{type:"range",min:durationMin,max:durationMax,step:1,value:Math.round(duration),
-        title:durationFloorIsPlan ? "Minimum "+_fmtSecs(planFloorSec)+" — this clip's speech and action time"
-          : durationLocked ? "Minimum locked to voiced line timing" : "Clip duration",
+        title:durationTitle,
         onChange:e=>{ const v=Number(e.target.value); setDurationOverride(v===autoDurationSec ? null : v); }}),
       _stEl("div",{className:"sdbar-duration-row"}, _stEl("span",null,"0"), _stEl("span",null,"5"), _stEl("span",null,"10"), _stEl("span",null,String(durationMax))),
       _stEl("b",null,_fmtSecs(duration)),
-      durationFloorIsPlan && _stEl("small",{className:"sdbar-duration-min"},
-        "Minimum "+_fmtSecs(planFloorSec)+" — this clip's speech and action time.")));
+      plannedSec>0 && _stEl("small",{className:"sdbar-duration-min"},
+        "Planned "+_fmtSecs(plannedSec)+" — shorter paces the action faster; its lines keep their length.")));
+  // the Generate row's clock chip: a "Choose duration" box (StageDurationField); Render settings keeps the full list
+  const chooseDurationPill = sdPill("duration","inline","Clip duration — "+durationTitle,
+    _stEl(React.Fragment,null, Icon.clock&&_stEl(Icon.clock,{s:14}), _stEl("span",null,_fmtSecs(duration))),
+    _stEl("div",{className:"sdbar-pop sdbar-pop-durfield"},
+      _stEl(StageDurationField,{ value:Math.round(duration), min:durationMin, max:durationMax, planned:plannedSec,
+        onPick:(v)=>setDurationOverride(v===autoDurationSec ? null : v), onDone:()=>setSdMenu(null) })));
   const aspectPill = sdPill("aspect","inline","Aspect ratio",
     _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:14}), _stEl("span",null,effAspect)),
     _stEl("div",{className:"sdbar-pop sdbar-pop-format"},
@@ -6689,7 +6736,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     promptBlock,
     composerNotices,
     composerBar(
-      [ createTask==="extension"
+      [ chooseDurationPill,
+        createTask==="extension"
           ? fixedPill("Extensions keep the source video's aspect ratio", _stEl(React.Fragment,null, Icon.monitor&&_stEl(Icon.monitor,{s:14}), _stEl("span",null,"Auto")))
           : aspectPill,
         createSoundChip ],

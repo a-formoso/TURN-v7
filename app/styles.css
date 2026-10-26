@@ -7127,6 +7127,15 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .sdbar-duration-row{display:flex;justify-content:space-between;color:var(--txt-3);font:700 10px var(--f-mono)}
 .sdbar-pop-duration b{justify-self:end;font:800 12px var(--f-ui);color:var(--txt-0)}
 .sdbar-duration-min{display:block;color:var(--txt-2);font:500 10.5px/1.4 var(--f-ui)}
+/* "Choose duration" (2026-10-26): a heading and one typed box, the Generate row's clock chip opens it */
+.sdbar-pop.sdbar-pop-durfield{left:0;right:auto;min-width:300px;padding:14px 14px 12px;gap:0}
+.sdbar-durfield{display:grid;gap:10px}
+.sdbar-pop .sdbar-durfield label{padding:0;font:650 14px var(--f-ui);color:var(--txt-0)}
+.sdbar-durfield input{height:42px;width:100%;box-sizing:border-box;border:1px solid var(--line-3);border-radius:var(--r-m);
+  background:var(--bg-1);color:var(--txt-0);font:600 14px var(--f-ui);padding:0 13px;outline:none}
+.sdbar-durfield input:focus{border-color:var(--brand,#d67e00);box-shadow:0 0 0 3px var(--accent-soft,rgba(214,126,0,.14))}
+.sdbar-durfield-hint{color:var(--txt-3);font:500 10.5px/1.4 var(--f-ui)}
+.sdbar-durfield-hint.warn{color:var(--accent-ink)}
 /* one decision per character across every affected shot — same persisted per-shot
    override as the row buttons, written for each listed shot on one click */
 .stage2-character-bulk{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--brand,#d67e00);border-radius:var(--r-m);background:color-mix(in srgb,var(--brand,#d67e00) 7%,var(--bg-2));font-size:11px}

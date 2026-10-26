@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /* Source-level guard for the Create Video composer's order (2026-10-24, owner — Stage console option A):
    references → prompt (outline or text) → notices → the Generate row (aspect ratio, Sound, Generate).
-   The engine, resolution, duration and bitrate live in Render settings only. */
+   The engine, resolution, duration and bitrate live in Render settings; since 2026-10-26 (owner) the Generate row also
+   leads with the clip's length — a clock chip that opens "Choose duration", a box you type into. */
 import {readFileSync} from "node:fs";
 
 const source=readFileSync(new URL("../app/stage.jsx",import.meta.url),"utf8");
@@ -15,6 +16,7 @@ const order=[
   ["references", "referenceStrip"],
   ["prompt", "promptBlock"],
   ["notices", "composerNotices"],
+  ["duration", "chooseDurationPill"],
   ["aspect ratio", "aspectPill"],
   ["sound", "createSoundChip"],
   ["generate", "createGenerate"],
@@ -31,4 +33,6 @@ for(const gone of ["modelPill","resolutionPill","durationPill","bitratePill",'he
 if(!/const promptBlock = showOutline\s*\?/.test(source)) throw new Error("the prompt no longer offers the outline view");
 if(!/composerModeTabs\),\s*\/\/ THE MONITOR/.test(source)) throw new Error("the mode switch is not on the clip's header line");
 
-console.log("PASS Stage Create Video composer: references, prompt, notices, then aspect ratio, Sound and Generate");
+if(!/function StageDurationField\(/.test(source)||!source.includes('_stEl("label",{htmlFor:"stage-choose-duration"},"Choose duration")'))
+  throw new Error("the duration chip no longer opens the Choose duration box");
+console.log("PASS Stage Create Video composer: references, prompt, notices, then duration, aspect ratio, Sound and Generate");

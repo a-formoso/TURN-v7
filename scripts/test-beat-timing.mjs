@@ -92,6 +92,20 @@ t("A6 the Mix and the Timeline place the line at its moment in the clip's plan",
   const pl=box.stageClipLinePlacements(clip,{},characters);
   assert.equal(pl.length,1); assert.equal(pl[0].at,8.3); assert.equal(pl[0].sec,1.3);
 });
+t("A7 any length: a shorter one paces the action, the line keeps its length; too short for the line is refused", ()=>{
+  const p10=box.stageBuildTimedPlan([shot],{...opts(ramp),durationSec:10});
+  assert.equal(p10.durationSec,10); assert.equal(p10.paced,true);
+  assert.ok(p10.issues.some(i=>i.code==="paced-to-duration"&&!i.blocking) && !p10.issues.some(i=>i.blocking));
+  const line=p10.units[0].segments.find(x=>x.kind==="line");
+  assert.equal(Math.round((line.end-line.start)*100)/100,1.25);
+  assert.equal(p10.units[0].segments.map(x=>x.kind).join(","),"action,action,line,action");
+  const p4=box.stageBuildTimedPlan([shot],{...opts(ramp),durationSec:4});
+  assert.ok(p4.issues.some(i=>i.code==="duration-too-short"&&i.blocking&&/even with its action paced/.test(i.message)));
+  const stage2=readFileSync("app/stage.jsx","utf8");
+  assert.ok(stage2.includes('(plannedSec>0 && v===plannedSec) ? " · planned"'));
+  assert.ok(stage2.includes("const durationFloorSec = Math.max(4, durationLocked ? Math.ceil(measuredSec) : 0);"));
+  assert.ok(readFileSync("app/ai.jsx","utf8").includes("click it for a 'Choose duration' box and type any length"));
+});
 t("C1 speech is found where the voice band is loud; a low hum and silence are not speech", ()=>{
   const n=250, band=[], full=[];   // 5 s of 20 ms frames
   for(let i=0;i<n;i++){ const sec=i*0.02;
@@ -127,8 +141,8 @@ t("C4 the Mix hears its scene's takes, keeps the result and redraws when one is 
 });
 t("Frances knows; the files load", ()=>{
   assert.ok(ai.includes("Clip length and where each line lands (Stage)"));
-  assert.ok(["20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87"].some(k=>html.includes('<script src="app/stage-speech.js?v='+k+'"></script>')));
-  assert.ok(["20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87"].some(k=>html.includes('app/stage-plan.jsx?v='+k+'"')));
+  assert.ok(["20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88"].some(k=>html.includes('<script src="app/stage-speech.js?v='+k+'"></script>')));
+  assert.ok(["20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88"].some(k=>html.includes('app/stage-plan.jsx?v='+k+'"')));
   assert.ok(html.indexOf("app/stage-speech.js")<html.indexOf("app/stage.jsx"));
 });
 console.log(pass+" passed, 0 failed");

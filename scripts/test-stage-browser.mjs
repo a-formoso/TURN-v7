@@ -1099,12 +1099,14 @@ async function main() {
     const manual="MANUAL FIXTURE PROMPT — preserve this verbatim";
     await c.eval(`(()=>{const e=document.querySelector(".stage2-gen-prompt[contenteditable]");e.focus();e.textContent=${JSON.stringify(manual)};e.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:"x"}));return true})()`);
     await waitFor(()=>c.eval(`document.querySelector(".stage2-gen-prompt[contenteditable]")?.textContent===${JSON.stringify(manual)}`),"manual prompt edit");
-    /* The 4s + 6s coverage needs 10s: the picker never offers a shorter value that
-       Generate would then refuse — the floor is the same timed plan that validates it. */
-    assert.deepEqual(await c.eval(`[...document.querySelector('.stage2-rendercard select[title="Clip duration"]').options].map(o=>Number(o.value)).filter(v=>v<10)`),[],
-      "duration picker offers no value below the clip minimum");
-    assert.match(await c.eval(`[...document.querySelector('.stage2-rendercard select[title="Clip duration"]').options].find(o=>o.value==="10")?.textContent||""`),/clip minimum/i,
-      "the clip minimum option says why it is the floor");
+    /* ANY LENGTH (2026-10-26): the 4s + 6s coverage plans 10s; every length from 4s is offered, a shorter one
+       paces the shots to fit (the plan that validates Generate does the same), and 10s says it is the plan. */
+    assert.deepEqual(await c.eval(`[...document.querySelector('.stage2-rendercard select[title="Clip duration"]').options].map(o=>Number(o.value)).filter(v=>v<10)`),[4,5,6,7,8,9],
+      "duration picker offers every length from 4s");
+    assert.match(await c.eval(`[...document.querySelector('.stage2-rendercard select[title="Clip duration"]').options].find(o=>o.value==="10")?.textContent||""`),/planned/i,
+      "the planned length says so");
+    assert.match(await c.eval(`[...document.querySelector('.stage2-rendercard select[title="Clip duration"]').options].find(o=>o.value==="6")?.textContent||""`),/paced faster/i,
+      "a shorter length says the shots are paced faster");
     await c.eval(`(()=>{
       const s=document.querySelector('.stage2-rendercard select[title="Clip duration"],.stage2-rendercard .stage2-control-row select');
       if(!s)return false;
@@ -1232,11 +1234,11 @@ async function main() {
       assert.equal(toolbar.soundText,toolbar.soundOn==="true"?"On":"Off","the Sound chip shows a short On/Off word next to its icon");
       assert.equal(toolbar.soundIcon,toolbar.soundOn==="true"?"volume":"volumeX","the speaker icon mirrors the on/off state");
       assert.equal(toolbar.source,0,"the Omni reference source pill is gone from the toolbar");
-      assert.deepEqual(toolbar.titles.map(t=>t.replace(/^Silent.*/,"Sound").replace(/^Sound.*/,"Sound")),["Aspect ratio","Sound"],"the Generate row holds the aspect ratio and Sound "+JSON.stringify(toolbar.titles));
+      assert.deepEqual(toolbar.titles.map(t=>t.replace(/^Silent.*/,"Sound").replace(/^Sound.*/,"Sound")),["Clip duration","Aspect ratio","Sound"],"the Generate row holds the clip's length (Choose duration, 2026-10-26), the aspect ratio and Sound "+JSON.stringify(toolbar.titles));
       assert.ok(toolbar.gen,"Generate closes the Generate row");
       assert.match(toolbar.count,/\d+ \/ \d+/,"the prompt's length sits in the prompt's foot");
       assert.equal(toolbar.modelPills,0,"no model picker in the composer — the engine is chosen in Render settings");
-      assert.equal(toolbar.settingsPills,0,"no resolution, duration or bitrate pills in Create Video — Render settings holds them");
+      assert.equal(toolbar.settingsPills,0,"no resolution or bitrate pills in Create Video — Render settings holds them (the length is the Choose duration chip)");
       assert.equal(toolbar.hero,0,"the Video model card is gone from Create Video");
       const layout=await c.eval(`(()=>{const comp=document.querySelector(".stage2-gen-composer");const n=comp.querySelector(":scope > .stage2-gen-notices");
         const bar=comp.querySelector(":scope > .sdbar.stage2-genbar");const head=document.querySelector(".stage2-clip-head");const mon=document.querySelector(".stage2-monitor");
