@@ -35,4 +35,6 @@ if(!/composerModeTabs\),\s*\/\/ THE MONITOR/.test(source)) throw new Error("the 
 
 if(!/function StageDurationField\(/.test(source)||!source.includes('_stEl("label",{htmlFor:"stage-choose-duration"},"Choose duration")'))
   throw new Error("the duration chip no longer opens the Choose duration box");
+if(!source.includes('_stEl("input",{type:"range",min,max,step:1,value:Math.max(min,Math.min(max,v)),"aria-label":"Clip duration"'))
+  throw new Error("the Choose duration box lost its drag bar");
 console.log("PASS Stage Create Video composer: references, prompt, notices, then duration, aspect ratio, Sound and Generate");

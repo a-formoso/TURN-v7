@@ -7131,9 +7131,22 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .sdbar-pop.sdbar-pop-durfield{left:0;right:auto;min-width:300px;padding:14px 14px 12px;gap:0}
 .sdbar-durfield{display:grid;gap:10px}
 .sdbar-pop .sdbar-durfield label{padding:0;font:650 14px var(--f-ui);color:var(--txt-0)}
-.sdbar-durfield input{height:42px;width:100%;box-sizing:border-box;border:1px solid var(--line-3);border-radius:var(--r-m);
+.sdbar-durfield input[type=text]{height:42px;width:100%;box-sizing:border-box;border:1px solid var(--line-3);border-radius:var(--r-m);
   background:var(--bg-1);color:var(--txt-0);font:600 14px var(--f-ui);padding:0 13px;outline:none}
-.sdbar-durfield input:focus{border-color:var(--brand,#d67e00);box-shadow:0 0 0 3px var(--accent-soft,rgba(214,126,0,.14))}
+.sdbar-durfield input[type=text]:focus{border-color:var(--brand,#d67e00);box-shadow:0 0 0 3px var(--accent-soft,rgba(214,126,0,.14))}
+/* the drag bar: brand fill up to the thumb, a small tick at the planned length, the range's ends under it */
+.sdbar-durfield-range{position:relative;padding:6px 0 0}
+.sdbar-durfield input[type=range]{-webkit-appearance:none;appearance:none;display:block;width:100%;height:6px;margin:0;border:0;border-radius:3px;
+  background:linear-gradient(to right,var(--brand,#d67e00) var(--fill,0%),var(--line-2) var(--fill,0%));cursor:pointer;outline:none}
+.sdbar-durfield input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;
+  background:var(--bg-0,#fff);border:2px solid var(--brand,#d67e00);box-shadow:0 1px 4px rgba(39,35,29,.25);cursor:grab}
+.sdbar-durfield input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--bg-0,#fff);
+  border:2px solid var(--brand,#d67e00);box-shadow:0 1px 4px rgba(39,35,29,.25);cursor:grab}
+.sdbar-durfield input[type=range]:active::-webkit-slider-thumb{cursor:grabbing}
+.sdbar-durfield input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 4px var(--accent-soft,rgba(214,126,0,.2))}
+.sdbar-durfield-planned{position:absolute;top:1px;left:calc(9px + (100% - 18px) * var(--at,0));width:2px;height:16px;margin-left:-1px;
+  border-radius:1px;background:var(--txt-3);opacity:.55;pointer-events:none}
+.sdbar-durfield-ends{display:flex;justify-content:space-between;margin-top:7px;color:var(--txt-3);font:600 10px var(--f-mono)}
 .sdbar-durfield-hint{color:var(--txt-3);font:500 10.5px/1.4 var(--f-ui)}
 .sdbar-durfield-hint.warn{color:var(--accent-ink)}
 /* one decision per character across every affected shot — same persisted per-shot

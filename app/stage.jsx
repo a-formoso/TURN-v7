@@ -122,7 +122,8 @@ const STAGE_EXIT_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="no
 function _chipClass(k){ return String(k||"").toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"") || "tag"; }
 function _fmtSecs(n){ n=Number(n)||0; return (Math.round(n*10)/10).toString().replace(/\.0$/,"")+"s"; }
 /* CHOOSE DURATION (owner 2026-10-26: "I want the duration tool in this style"): the Generate row's clock chip opens a
-   "Choose duration" box you type into — "12", "12s" or "12 seconds"; ↑ / ↓ step a second. Whole seconds from the
+   "Choose duration" box you type into — "12", "12s" or "12 seconds"; ↑ / ↓ step a second — or a bar you drag across
+   (owner 2026-10-26: "add a bar that can be dragged across horizontally"), its planned length marked on it. Whole seconds from the
    clip's shortest (4 s, or its voiced lines and a breath) to the engine's limit; a number outside is brought inside. */
 function stageParseDuration(text){
   const m=String(text==null?"":text).trim().match(/^(\d+(?:[.,]\d+)?)\s*(s|secs?|seconds?)?$/i);
@@ -158,8 +159,15 @@ function StageDurationField({ value, min, max, planned, onPick, onDone }){
         else if(e.key==="ArrowUp"||e.key==="ArrowDown"){ e.preventDefault();
           const cur=stageParseDuration(text); commit((cur==null?v:cur)+(e.key==="ArrowUp"?1:-1), false); }
       }}),
+    max>min && _stEl("div",{className:"sdbar-durfield-range"},
+      _stEl("input",{type:"range",min,max,step:1,value:Math.max(min,Math.min(max,v)),"aria-label":"Clip duration",
+        "aria-valuetext":_fmtSecs(v), style:{"--fill":(Math.max(0,Math.min(1,(v-min)/(max-min)))*100)+"%"},
+        onChange:e=>{ const n=Number(e.target.value); setNote(""); setText(_fmtSecs(n)); if(n!==value) onPick(n); }}),
+      planned>=min && planned<=max && _stEl("span",{className:"sdbar-durfield-planned","aria-hidden":"true",
+        title:"Planned "+_fmtSecs(planned), style:{"--at":((planned-min)/(max-min))}}),
+      _stEl("div",{className:"sdbar-durfield-ends","aria-hidden":"true"}, _stEl("span",null,_fmtSecs(min)), _stEl("span",null,_fmtSecs(max)))),
     _stEl("small",{id:"stage-choose-duration-hint",className:"sdbar-durfield-hint"+(note?" warn":"")},
-      note || (_fmtSecs(min)+" – "+_fmtSecs(max)+(planned>0 ? " · planned "+_fmtSecs(planned) : "")+(hint?" · "+hint:""))));
+      note || ((planned>0 ? "Planned "+_fmtSecs(planned)+" · " : "")+(hint || (_fmtSecs(min)+" – "+_fmtSecs(max))))));
 }
 function _stageClock(n){
   n = Math.max(0, Number(n)||0);

@@ -39,6 +39,6 @@ t("the Stage player's full-screen button is always shown", ()=>{
 });
 t("Frances knows; keys", ()=>{
   assert.ok(ai.includes('name:"Who is in a beat\'s opening frame"'));
-  assert.ok(["20261025-hs86", "20261026-hs87", "20261026-hs88"].some(k=>html.includes('app/shot-screenplay.js?v='+k+'"')));
+  assert.ok(["20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89"].some(k=>html.includes('app/shot-screenplay.js?v='+k+'"')));
 });
 console.log(pass+" passed, 0 failed");
