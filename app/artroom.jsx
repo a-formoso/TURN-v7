@@ -1011,7 +1011,7 @@ window.RenderStylePicker = RenderStylePicker;
 
 /* JSON character spec (the director's concept-art template as a key:value spec).
    LAYOUT: a casting-reference sheet — one large hero face portrait on the left, then
-   three full-body views (front, three-quarter front, back) in vertical panels.
+   full-body front (no head — one face per sheet) and back views in three vertical panels.
    Clean studio sweep, NO text baked in. Render style, worn props, height/scale and the
    16:9 aspect are all wired in below so the sheet stays consistent with the rest of the app. The
    `physique` object and `wardrobe` block are the continuity database fields the rest
@@ -1182,18 +1182,20 @@ function buildCharRefPrompt(c, project, props, o){
     // leak into frames and can split identity (d79a9ce). One neutral hero face is the anchor.
     // Signature expressions (c.expressions) reach the models as TEXT instead: the Shot
     // Designer's performance register in aiDraftOpeningKeyframes (ai.jsx).
+    /* THREE PANELS, ONE FACE (owner 2026-10-27: "Let's go back to this structure for character sheets" — the July
+       layout, d79a9ce / 0282391): face portrait | full-body front with NO head | full-body back. A second rendered face
+       makes video models blend or invent identity, so the front view stops at the collar, at the back view's scale. */
     layout: {
-      format: "a 4-panel casting reference sheet in 16:9 landscape: four tall vertical panels divided by thin clean vertical lines; panel 1 is a large hero face portrait and panels 2-4 are full-body turnaround views; the SAME character throughout",
+      format: "a 3-panel casting reference sheet in 16:9 landscape: three EQUAL-width tall vertical panels divided by thin clean vertical lines; panel 1 is a close-up hero face portrait, panels 2 and 3 are full-body front and back views; the SAME character throughout",
       panels_left_to_right: [
-        "PANEL 1 — large close-up hero FACE PORTRAIT, front-facing, neutral controlled expression, shoulders/chest crop, face fills most of the panel, exact identity anchor",
-        "PANEL 2 — full-body FRONT view, head-to-toe, facing camera, neutral expression matching the portrait identity, "+(_heldItem?("one hand on the "+_heldItem+", the other relaxed at side"):"arms relaxed at sides")+", clean silhouette, feet on the same baseline as panels 3 and 4",
-        "PANEL 3 — full-body THREE-QUARTER FRONT view, head-to-toe, body turned about 35-45 degrees, same face, same build, same wardrobe, same figure height and baseline as panels 2 and 4",
-        "PANEL 4 — full-body BACK view, head-to-toe, facing away (back of head visible, no face), same wardrobe, same proportions, same figure height and baseline as panels 2 and 3"
+        "PANEL 1 \u2014 close-up hero FACE PORTRAIT, front-facing, neutral controlled expression, head and shoulders, face fills most of the panel, exact identity anchor",
+        "PANEL 2 \u2014 full-body FRONT view at EXACTLY the same figure height, scale and vertical alignment as the BACK view in panel 3 (same headroom, feet on the same line) \u2014 but the head is NOT rendered: above the collar there is only clean empty background; the figure begins at the neckline; body facing camera, "+(_heldItem?("one hand on the "+_heldItem+", the other relaxed at side"):"arms relaxed at sides")+", clean silhouette, the full outfit and shoes visible",
+        "PANEL 3 \u2014 full-body BACK view, head-to-toe, facing away (hair and back of head visible, no face), same wardrobe, same proportions, same figure height and baseline as panel 2"
       ],
-      face_consistency_rule: "the face in panel 2 and panel 3 must match the hero portrait exactly; do not invent a second identity, age shift, hairstyle, facial hair change or different person",
-      scale_rule: "the full-body figures in panels 2, 3 and 4 are the SAME height and scale, vertically aligned across panels with the same headroom and feet on the same line",
-      no_extra_views: "do not add expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, or ANY info box / character-data panel (no name, height, age or traits printed on the image — that metadata travels in the prompt, never baked into pixels)",
-      background: "solid warm off-white or light-grey studio sweep, even and clean across all four panels"
+      one_face_rule: "EXACTLY ONE face appears on this sheet \u2014 the hero portrait in panel 1. The front view's head is omitted BY DESIGN (clean background above the collar, figure scale unchanged): a second rendered face makes video generators blend or invent identity.",
+      scale_rule: "the front and back figures are the SAME height and scale, vertically aligned across panels 2 and 3 \u2014 the missing head must NOT enlarge the front figure",
+      no_extra_views: "do not add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, or ANY info box / character-data panel (no name, height, age or traits printed on the image \u2014 that metadata travels in the prompt, never baked into pixels)",
+      background: "solid light-grey or warm off-white studio sweep, even and clean across all three panels"
     },
     continuity: {
       identity_rule: "the SAME identical face, build and identity in every view",
@@ -1246,8 +1248,8 @@ function buildRefFromPhotoPrompt(c, project){
   if(tone) s += tone+" tone. ";
   s += "Character is "+v.height+" tall ("+v.scaleClass+"). ";
   s += "RENDER STYLE: "+style.replace(/\.$/,"")+". ";
-  s += "LAYOUT: a clean 4-panel casting reference sheet in 16:9 landscape with four tall vertical panels divided by thin clean vertical lines. Panel 1: large close-up hero FACE PORTRAIT, front-facing, neutral controlled expression, shoulders/chest crop, face fills most of the panel. Panel 2: full-body FRONT view, head-to-toe, facing camera, neutral expression matching the portrait. Panel 3: full-body THREE-QUARTER FRONT view, head-to-toe, body turned about 35-45 degrees, same face/build/wardrobe. Panel 4: full-body BACK view, head-to-toe, facing away. Full-body panels use the same figure height, headroom, foot baseline and scale. No text, captions or info boxes anywhere on the image. ";
-  s += "Do NOT add expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, annotations or watermarks. Solid warm off-white or light-grey studio background, soft even studio lighting, the SAME identical face/build/wardrobe in every applicable panel, sharp focus.";
+  s += "LAYOUT: a clean 3-panel casting reference sheet in 16:9 landscape with three equal-width tall vertical panels divided by thin clean vertical lines. Panel 1: close-up hero FACE PORTRAIT, front-facing, neutral controlled expression, head and shoulders, face fills most of the panel. Panel 2: full-body FRONT view at exactly the same figure height and scale as Panel 3 (same headroom, feet aligned), but with NO head rendered \u2014 clean empty background above the collar, the figure beginning at the neckline; arms relaxed. Panel 3: full-body BACK view, head-to-toe, facing away (no face visible). EXACTLY ONE face on the sheet \u2014 the panel-1 portrait; the missing head must not enlarge the front figure. No text, captions or info boxes anywhere on the image. ";
+  s += "Do NOT add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, annotations or watermarks. Solid light-grey or warm off-white studio background, soft even studio lighting, the SAME identical face/build/wardrobe in every panel, sharp focus.";
   return s;
 }
 window.buildRefFromPhotoPrompt = buildRefFromPhotoPrompt;
@@ -2190,7 +2192,7 @@ function buildSimpleCharPromptFor(c, o){
     body || "",
     feats ? ("distinguishing features: "+feats) : "",
     wardrobe ? ("wearing "+wardrobe) : "",
-    "4-panel casting reference sheet: large close-up face portrait, full-body front view, full-body three-quarter front view, full-body back view",
+    "3-panel casting reference sheet: close-up face portrait, full-body front view without the head, full-body back view",
     "plain grey background, studio lighting, "+(styleLine||"photoreal")+", sharp focus, no text or labels"
   ].filter(Boolean);
   const identity = (typeof window.turnIdentityPrompt==="function") ? String(window.turnIdentityPrompt([c])||"").trim() : "";
@@ -6441,7 +6443,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       cameoOpen && React.createElement(CameoModal,{ character:c,
         onClose:()=>setCameoOpen(false),
         // locking stores the face-lock reference; turning it INTO the character sheet
-        // means regenerating the 4-panel design locked to that face — offer it right
+        // means regenerating the 3-panel design locked to that face — offer it right
         // away so the likeness doesn't sit unapplied until a manual "Apply to sheet".
         onSaved: async (saved)=>{
           refreshCameo();
@@ -6450,7 +6452,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(1, { refs:nAngles+wornSheetCount }) : "";
           const ok = !window.appConfirm || await window.appConfirm({
             title:"Turn the likeness into "+(c.name||"this character")+"'s sheet?",
-            body:"Regenerates the 4-panel character sheet with the captured face — the portrait and full-body views will match the real person"
+            body:"Regenerates the 3-panel character sheet with the captured face — the portrait and full-body views will match the real person"
               +(price ? " (one image, about "+price+" credit"+(price==="1"?"":"s")+")" : "")+". You can also do this later with “Apply to sheet”.",
             confirmLabel:"Generate sheet"+(price ? " \u00b7 "+price+" credit"+(price==="1"?"":"s") : "") });
           if(ok && !gen.gening) gen.generate();

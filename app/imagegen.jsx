@@ -521,7 +521,7 @@ function buildSimpleCharPrompt(c){
     "Character reference \u2014 "+(c.name||"character"),
     body||"",
     wardrobe ? ("wearing "+wardrobe) : "",
-    "4-panel casting reference sheet: large close-up face portrait, full-body front view, full-body three-quarter front view, full-body back view",
+    "3-panel casting reference sheet: close-up face portrait, full-body front view without the head, full-body back view",
     "plain grey background, studio lighting, "+(styleLine||"photoreal")+", sharp focus, no text or labels"
   ].filter(Boolean);
   const base = parts.join(". ")+".";

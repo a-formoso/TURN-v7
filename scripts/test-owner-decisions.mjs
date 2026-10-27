@@ -51,8 +51,9 @@ await test("the Shot Designer reads each on-screen character's performance regis
 
 await test("the character sheet stays neutral — no expression row, by design",()=>{
   assert.ok(art.includes("NO EXPRESSION ROW, BY DESIGN"));
-  assert.ok(art.includes('no_extra_views: "do not add expression rows'));
-  assert.ok(art.includes('"PANEL 1 — large close-up hero FACE PORTRAIT, front-facing, neutral controlled expression'));
+  // (2026-10-27, owner — three panels, one face) the views ban now leads with side/profile/three-quarter views
+  assert.ok(art.includes('no_extra_views: "do not add side, profile or three-quarter views, expression rows'));
+  assert.ok(art.includes('"PANEL 1 \\u2014 close-up hero FACE PORTRAIT, front-facing, neutral controlled expression'));
   const m=ai.slice(ai.indexOf("const APP_FEATURES"),ai.indexOf("function appBrief"));
   assert.ok(m.includes("The sheet deliberately has NO expression row")&&m.includes("PERFORMANCE REGISTER"));
   assert.ok(ag.includes("The Shot Designer uses them as film-level acting context"));
