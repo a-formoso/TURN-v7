@@ -76,6 +76,32 @@ await test("relay: the action is advertised and capabilities say boards can be p
   assert.ok(src.includes('boardPublish: { maxFrames: MAX_BOARD_FRAMES, maxBytes: MAX_BOARD_BYTES },'));
 });
 
+/* ── source images (2026-10-26): a 9.4 MB 2K location sheet opens Studio; models and Blender get the resized copy ── */
+await test("relay: a 9.4 MB generated location opens its workspace; Blender's copy of it is the 1568 px resize", async () => {
+  const big = new Uint8Array(Math.round(9.4 * 1024 * 1024)); big.set([137, 80, 78, 71, 13, 10, 26, 10], 0);
+  const small = new Uint8Array(2.5 * 1024 * 1024); small.set([137, 80, 78, 71, 13, 10, 26, 10], 0);
+  const asked = [];
+  const adapter = {
+    async validateStudioReference() { return true; },
+    async getStudioReference(q) { asked.push(q.fitBytes || 0); return { bytes: q.fitBytes ? small : big, contentType: "image/png" }; },
+    async uploadStudioAsset() { return { created: true }; },
+  };
+  const service = createStudioService({ contract: globalThis.BlenderStudioContract, adapter, provider: {} });
+  let state = { studio: { v: 1, current: {}, tasks: {}, workspaces: {} } };
+  const ctx = () => ({ kind: "browser", snapshot: { state }, actor: { id: U }, access: { ownerId: U }, projectId: P,
+    recheck: async () => {}, save: async (next) => { state = structuredClone(next); return { state }; } });
+  const call = (body) => service.handle(new Request("https://relay.test"), body, { context: async () => ctx() });
+  const opened = await call({ action: "studio.workspace.open", location: { id: "loc-1", name: "Car deck" },
+    references: [{ entityId: "loc-1", kind: "location", label: "Car deck", version: "2026-10-25T05:42:01.768Z" }] });
+  assert.equal(opened.workspace.locationId, "loc-1");
+  const ref = await call({ action: "studio.reference.get", locationId: "loc-1", entityId: "loc-1" });
+  assert.ok(ref.dataUrl.startsWith("data:image/png;base64,") && Buffer.from(ref.dataUrl.split(",")[1], "base64").length === small.length);
+  assert.deepEqual(asked, [0, Math.floor(4.5 * 1024 * 1024)]);
+  const src = readFileSync("supabase/functions/blender-bridge/supabase-adapter.mjs", "utf8");
+  assert.ok(src.includes('{ transform: { width: 1568, height: 1568, resize: "contain", quality: 85 } }'));
+  assert.ok(readFileSync("supabase/functions/blender-bridge/studio-service.mjs", "utf8").includes("const image=await readGeneratedImage(ctx,source,true);"));
+});
+
 /* ── the page (app/blender-board.js) ─────────────────────────────────────── */
 const box = {}; box.window = box; vm.createContext(box);
 vm.runInContext(readFileSync("app/blender-board.js", "utf8"), box);
@@ -116,11 +142,11 @@ await test("stage: a saved board page rides as a reference with a staging-only r
   assert.ok(stage.includes("never show the stand-ins, grey shapes, letters, captions or the page itself."));
   assert.ok(stage.includes('if(had&&had.kind==="blender-board"&&had.boardId===board.boardId) return false;'));
   assert.ok(stage.includes('const r=await nbCommit(slot, dataUrl, meta, [], "shot", scope.epoch, ()=>!BP.isCurrent(scope));'));
-  assert.ok(stage.includes("STAGE_STUDIO_SHOTS[id]={shots:(ws&&ws.shots)||[],previews:(ws&&ws.previews)||[]}"));
+  assert.ok(stage.includes("STAGE_STUDIO_SHOTS[id]={shots:(ws&&ws.shots)||[],previews:(ws&&ws.previews)||[],objects:(ws&&ws.objects)||[]}"));
   assert.ok(/if\(!cur\|\|readOnly\|\|!BB\|\|!BS\|\|!BP/.test(stage), "a read-only viewer never writes a board page");
   assert.ok(html.indexOf('src="app/blender-board.js?v=') > html.indexOf('src="app/blender-studio.js?v=')
     && html.indexOf('src="app/blender-board.js?v=') < html.indexOf('app/stage.jsx?v='));
-  assert.ok(["20261026-hs91"].some(k => html.includes('app/stage.jsx?v=' + k + '"')));
+  assert.ok(["20261026-hs91", "20261026-hs92", "20261026-hs93"].some(k => html.includes('app/stage.jsx?v=' + k + '"')));
   assert.ok(ai.includes("BLENDER BOARDS (2026-10-26): in Blender, open a shot from Kinolot (Open this shot in Blender), set Board frames"));
 });
 await test("add-on: Publish board renders through the shot camera and publishes in one call; frames and sizes are pure maths", () => {

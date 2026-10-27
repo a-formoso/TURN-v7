@@ -78,7 +78,7 @@ load("app/stage-plan.jsx");
  * actual compiler rather than a permissive fixture clone.  A production
  * export, if added, wins without changing this test.
  */
-load("app/stage.jsx","\nwindow.__testBuildClipData=buildClipData;");
+load("app/stage.jsx","\nwindow.__testBuildClipData=buildClipData;window.__studioShots=STAGE_STUDIO_SHOTS;window.__shotGeometry=stageShotGeometry;window.__setCompass=stageSetCompass;");
 
 const brief=box.seedanceDirectorBrief;
 const recipe=box.seedanceRecipePrompt;
@@ -823,6 +823,49 @@ ok("a named grammar in native performance lists the spoken language lines",
     &&/^\d+ lines?$/.test(sum(secs.find(x=>x.heading==="DIALOGUE AND SOUND")))
     &&sum(secs.find(x=>/^NEGATIVE/.test(x.heading)))==="2 notes"
     &&sum(secs.find(x=>/^CHARACTER ACTING/.test(x.heading)))==="Mara");
+}
+
+/* COMPASS, FIELD OF VIEW AND SIZES (2026-10-26, owner — "add the compass, field-of-view and size lines to the prompt") */
+{
+  const COMPASS8=["north","north-east","east","south-east","south","south-west","west","north-west"];
+  box.locCompass=y=>COMPASS8[Math.round(Number(y)/45)%8];
+  box.locationSpatialPlanState=l=>({plan:l.spatialPlan});
+  const room={id:"loc-bar",name:"Bar",spatialPlan:{frame:"North is the window wall",anchors:[
+    {name:"Window wall",space:"Bar",xy:[0,4]},{name:"Bar counter",space:"Bar",xy:[3,0]},
+    {name:"Front door",space:"Bar",xy:[0,-4]},{name:"Booths",space:"Bar",xy:[-3,0.5]},{name:"Unplaced",space:"Bar"}]}};
+  const compass=box.__setCompass(room,[room]);
+  ok("the set compass names what lies on each side, from the layout's placed anchors",
+    compass&&compass.frame==="North is the window wall"
+    &&JSON.stringify(Array.from(compass.lines))===JSON.stringify(["north: Window wall","east: Bar counter","south: Front door","west: Booths"]),JSON.stringify(compass));
+  ok("no compass without at least two placed anchors",
+    box.__setCompass({id:"x",name:"X",spatialPlan:{anchors:[{name:"A",xy:[1,1]}]}},[])===null);
+  const sh={id:"geo-shot"};
+  box.__studioShots[room.id]={shots:[{id:"geo-shot",camera:{position:[0,-2,1.6],target:[0,3,1.4],focalLength:35,sensorWidth:36},
+    objects:[{kind:"actor",characterId:"mara",position:[0.6,1,0]}]}],previews:[],
+    objects:[{name:"Window wall",kind:"box",position:[0,4,1.5]},{name:"Bar counter",kind:"box",position:[3,0,0.5]},
+      {name:"Front door",kind:"box",position:[0,-4,1]},{name:"Key light",kind:"light",position:[0,0,3]}]};
+  const geo=box.__shotGeometry(sh,[{id:"mara",name:"Mara"}],room,[room]);
+  ok("a Blender shot's geometry gives its lens as the width it sees, its compass heading and the set around it",
+    geo&&/lens 35 mm \(about 54° across\), facing north/.test(geo.text)
+    &&/in frame: Window wall \(6 m, centre\)/.test(geo.text)&&/off frame right: Bar counter/.test(geo.text)
+    &&/behind the camera: Front door/.test(geo.text)&&!/Key light/.test(geo.text)&&/Mara 3\.1 m from camera/.test(geo.text),geo&&geo.text);
+  box.__studioShots[room.id].objects=box.__studioShots[room.id].objects.map(o=>({...o,position:[o.position[0]+5,o.position[1],o.position[2]]}));
+  const loose=box.__shotGeometry(sh,[{id:"mara",name:"Mara"}],room,[room]);
+  ok("no compass heading when no Blender set piece stands where the layout puts it (the two may not share a north)",
+    loose&&!/facing/.test(loose.text)&&/lens 35 mm/.test(loose.text),loose&&loose.text);
+  delete box.__studioShots[room.id];
+  const sized={...fullData,compass:{frame:"North is the window wall",lines:["north: Window wall","east: Bar counter"]},
+    sizes:[{name:"Mara",text:"about 168 cm tall"},{name:"Sealed Letter",text:"A5, 15 x 21 cm"}]};
+  const lensShot={...shotOpening,lens:"35mm"};
+  const extra=brief(makeClip(sized,"brief-sized"),[lensShot],lensShot,true,[lensShot.id],refs,opts);
+  ok("the brief carries TRUE SIZES after the references and a SET COMPASS before the action",
+    /\nTRUE SIZES\nKeep these real sizes, and the differences between them, in every shot; never scale a person or object to fit the frame\.\nMara: about 168 cm tall\.\nSealed Letter: A5, 15 x 21 cm\./.test(extra)
+    &&/\nSET COMPASS\nFixed geography: the set never turns, flips or mirrors between shots; only the camera moves\. North is the window wall\.\nnorth: Window wall\.\neast: Bar counter\./.test(extra)
+    &&extra.indexOf("ACTIVE REFERENCES")<extra.indexOf("TRUE SIZES")&&extra.indexOf("SET COMPASS")<extra.indexOf("ACTION AND CAMERA PLAN"),extra.slice(0,1500));
+  ok("a lens written in mm says how wide it sees on the shot's camera line",/Camera: .*35mm \(about 54° across\)/.test(extra));
+  ok("without sizes or a compass the brief has neither section",!/TRUE SIZES|SET COMPASS/.test(fullBrief));
+  const real=makeData([shotOpening]);
+  ok("the clip compiler writes sizes only from heights and sizes someone gave",Array.isArray(real.sizes)&&real.sizes.length===0&&real.compass===null);
 }
 
 ok("brief and clip compilation are immutable",JSON.stringify({shots:allShots,drafts})===before);

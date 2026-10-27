@@ -16,6 +16,13 @@
       &&text(a&&a.delivery)===text(b&&b.delivery);
   };
   const section=(name,lines)=>{const body=lines.filter(Boolean);return body.length?name+"\n"+body.join("\n"):"";};
+  /* FIELD OF VIEW (2026-10-26, owner — "add the compass, field-of-view and size lines"): a lens in millimetres also
+     said as the width it sees on a full-frame (36 mm) sensor, " (about 54° across)"; nothing when no mm is written */
+  const lensWidth=(v)=>{
+    const m=/(\d{1,3}(?:\.\d)?)\s*mm\b/i.exec(String(v||"")), f=m?Number(m[1]):0;
+    if(!(f>=8&&f<=800)||/°/.test(String(v||"")))return "";
+    return " (about "+Math.round(2*Math.atan(36/(2*f))*180/Math.PI)+"° across)";
+  };
   const seconds=v=>{
     const n=Math.round((Number(v)||0)*10)/10;
     return String(n);
@@ -371,7 +378,8 @@
         ["move",root.shotMoveOf],["lens",root.shotLensOf]].map(([key,lookup])=>{
           const raw=text(u.sh[key]);
           if(!raw||raw==="auto")return "";
-          return typeof lookup==="function"?text((lookup(raw)||{}).label)||raw:raw;
+          const shown=typeof lookup==="function"?text((lookup(raw)||{}).label)||raw:raw;
+          return key==="lens"?shown+lensWidth(raw+" "+shown):shown;
         }).filter(Boolean).join(" · ");
       // the rest of the Shots-tab card, labelled with the Art Room's own vocabulary
       const cameraSettings=text(u.p.cameraSettings)
@@ -448,7 +456,16 @@
       "Preserve canonical body and object scale plus relative size between subjects; do not normalize different subjects to the same height or proportions.",
       "Do not add unprovided technical measurements or change the approved project look."
     ]);
-    return [contract,section("ACTIVE REFERENCES",refsLines),openingState,action,seedanceSceneTypeSection(d,list,opts),notes.acting,performance,lighting,seedanceHeroProps(d),captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
+    /* SET COMPASS and TRUE SIZES (2026-10-26, owner): what lies on each side of the set, and the real size of each
+       person and prop — so the set never turns and nobody changes size between shots (stageSetCompass / d.sizes) */
+    const compass=d.compass&&Array.isArray(d.compass.lines)&&d.compass.lines.length>=2?section("SET COMPASS",[
+      "Fixed geography: the set never turns, flips or mirrors between shots; only the camera moves."
+        +(text(d.compass.frame)?" "+(/^north\b/i.test(text(d.compass.frame))?"":"North: ")+text(d.compass.frame).replace(/\.$/,"")+".":""),
+      ...d.compass.lines.map(l=>text(l)+".")]):"";
+    const sizes=Array.isArray(d.sizes)&&d.sizes.length?section("TRUE SIZES",[
+      "Keep these real sizes, and the differences between them, in every shot; never scale a person or object to fit the frame.",
+      ...d.sizes.slice(0,16).map(z=>text(z.name)+": "+text(z.text)+".")]):"";
+    return [contract,section("ACTIVE REFERENCES",refsLines),sizes,openingState,compass,action,seedanceSceneTypeSection(d,list,opts),notes.acting,performance,lighting,seedanceHeroProps(d),captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
   }
   root.seedanceDirectorBrief=seedanceDirectorBrief;
 })(typeof window!=="undefined"?window:globalThis);

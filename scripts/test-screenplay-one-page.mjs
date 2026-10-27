@@ -102,15 +102,18 @@ const heights = (r) => r.pages.map((p) => { const rows = bodyRows(p); return row
     if (i) { const L = LAYOUTS.find((x) => x.id === r.meta.layout); assert.equal(rows[0].y, 66 + Math.round(L.lineH * 0.78), "page " + (i + 1) + " starts at the top, no spacing"); }
   });
 }
-// the scene heading carries its number once; parentheticals keep their parentheses
+// the scene heading carries its number once, on the RIGHT of the heading line (owner 2026-10-26: in front of
+// "INT." an image model reads it as part of the place's name); parentheticals keep their parentheses
 {
   const r = loc(S, [{ type: "scene", text: "INT. FURNACE — DAWN" }, { type: "char", text: "GRAZIELLA" }, { type: "paren", text: "under her breath" }, { type: "dia", text: "Again." },
     { type: "char", text: "LUCA" }, { type: "paren", text: "(beat)" }, { type: "dia", text: "Again." }]);
-  const t = bodyRows(r.pages[0]).map((x) => x.t);
-  assert.equal(t[0], "7 INT. FURNACE — DAWN");
+  const rows = bodyRows(r.pages[0]), t = rows.map((x) => x.t);
+  assert.equal(t[0], "INT. FURNACE — DAWN");
+  const no = rows.find((x) => x.t === "7");
+  assert.ok(no && no.y === rows[0].y && no.x > rows[0].x, "the scene number sits on the heading's line, at its right: " + JSON.stringify(no));
   assert.ok(t.includes("(under her breath)") && t.includes("(beat)"), "parentheses back, never doubled: " + t.join(" | "));
   const r2 = loc(S, [{ type: "scene", text: "12 INT. FURNACE — DAWN" }, { type: "action", text: "Heat." }]);
-  assert.equal(bodyRows(r2.pages[0])[0].t, "12 INT. FURNACE — DAWN", "a numbered heading is drawn as written (it used to vanish)");
+  assert.equal(bodyRows(r2.pages[0])[0].t, "INT. FURNACE — DAWN", "a number written in front of the heading is moved to the right, never drawn before INT.");
 }
 // counting without drawing
 {

@@ -3862,8 +3862,10 @@ function locationScreenplayGroups(blocks, scene, L, sample, targetBeat){
   const units = [];
   const slug = blocks.find(b=>b && b.type==="scene");
   if(slug){
-    const numbered = /^\s*\d+\s+/.test(String(slug.text||"")) || !scene || scene.no==null;
-    const u = unit({ ...slug, text:(numbered ? "" : String(scene.no)+"  ")+String(slug.text||"") });
+    /* THE SCENE NUMBER ON THE RIGHT ONLY (2026-10-26, owner): a number in front of "INT." reads to an image model as
+       part of the place's name, so the heading starts at INT./EXT. and the number sits at the right edge of its line */
+    const u = unit({ ...slug, text:String(slug.text||"").replace(/^\s*\d+[A-Z]?\.?\s+(?=(?:INT|EXT|I\/E|EST)\b)/i,"") });
+    if(u && scene && scene.no!=null && u.rows.length) u.rows[0].rightNo = String(scene.no);
     if(u) units.push(u);
   }
   blocks.forEach(b=>{ if(slug && b===slug) return; const u = unit(b); if(u) units.push(u); });
@@ -3989,6 +3991,7 @@ function locationScreenplayReferenceImages(l, sheet, scenes, drafts, options){
         ctx.font = r.bold ? boldFont : font;
         ctx.fillStyle = "#151515";
         ctx.fillText(r.text, r.x, y+baseline);
+        if(r.rightNo){ ctx.textAlign = "right"; ctx.fillText(r.rightNo, W-padX, y+baseline); ctx.textAlign = "left"; }
         y += lineH;
       });
       y += u.after;

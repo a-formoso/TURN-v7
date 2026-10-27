@@ -767,15 +767,42 @@ function stageStarterCamera(cam){
   const near=(a,b)=>Math.abs((Number(a)||0)-b)<0.011;
   return near(p[0],0) && [14,8,6,4,2.8,1.8,1.1,0.1].some(d=>near(p[1],-d)) && [4,0.6,1.65,8].some(h=>near(p[2],h));
 }
-function stageShotGeometry(sh, cast, loc){
+/* SET COMPASS (2026-10-26, owner — "add the compass, field-of-view and size lines to the prompt"): what lies to the
+   set's north, east, south and west, from the location's shared layout — anchors placed on its floor plan (xy, metres,
+   +Y = the layout frame's north), seen from the middle of the space. Only placed anchors count; none → no compass. */
+function stageSetCompass(loc, locations){
+  if(!loc||typeof window==="undefined"||typeof window.locationSpatialPlanState!=="function") return null;
+  let plan=null; try{ plan=window.locationSpatialPlanState(loc, locations).plan; }catch(e){ return null; }
+  const key=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  const placed=((plan&&plan.anchors)||[]).filter(a=>a&&a.name&&Array.isArray(a.xy)&&a.xy.length===2&&a.xy.every(Number.isFinite));
+  const mine=placed.filter(a=>key(a.space)===key(loc.name));
+  const anchors=(mine.length>=2?mine:placed).map(a=>({name:String(a.name).trim(),xy:a.xy.map(Number)}));
+  if(anchors.length<2) return null;
+  const sp=plan.coordinates&&Array.isArray(plan.coordinates.spaces)
+    ? plan.coordinates.spaces.find(x=>x&&(x.id===loc.id||key(x.name)===key(loc.name))) : null;
+  const poly=sp&&Array.isArray(sp.footprint)&&sp.footprint.length>=3 ? sp.footprint : null;
+  const pts=poly||anchors.map(a=>a.xy), c=[pts.reduce((n,p)=>n+Number(p[0]),0)/pts.length, pts.reduce((n,p)=>n+Number(p[1]),0)/pts.length];
+  const sides={north:[],east:[],south:[],west:[]};
+  anchors.forEach(a=>{
+    const dx=a.xy[0]-c[0], dy=a.xy[1]-c[1]; if(Math.hypot(dx,dy)<0.5) return;
+    const yaw=((Math.atan2(dx,dy)*180/Math.PI)+360)%360;
+    (yaw<45||yaw>=315 ? sides.north : yaw<135 ? sides.east : yaw<225 ? sides.south : sides.west).push(a.name);
+  });
+  const lines=Object.keys(sides).filter(k=>sides[k].length).map(k=>k+": "+sides[k].slice(0,4).join(", "));
+  if(lines.length<2) return null;
+  return { frame:String(plan.frame||"").replace(/\s+/g," ").trim().slice(0,160), lines, anchors };
+}
+function stageShotGeometry(sh, cast, loc, locations){
   if(!sh||!sh.id) return null;
-  let cam=null, actors=[], source="";
+  let cam=null, actors=[], source="", setPieces=[];
   const ws=loc&&loc.id&&STAGE_STUDIO_SHOTS[loc.id];
   const st=ws&&Array.isArray(ws.shots) ? ws.shots.find(x=>x&&x.id===sh.id) : null;
   if(st&&st.camera&&!stageStarterCamera(st.camera)){
     cam=st.camera; source="Blender Studio";
     actors=(st.objects||[]).filter(o=>o&&o.kind==="actor"&&o.characterId&&Array.isArray(o.position))
       .map(o=>({id:String(o.characterId),position:o.position}));
+    setPieces=(ws.objects||[]).filter(o=>o&&o.name&&o.kind!=="actor"&&o.kind!=="light"&&Array.isArray(o.position))
+      .map(o=>({name:String(o.name),position:o.position}));
   } else {
     const meta=(typeof nbGetMeta==="function") ? nbGetMeta("blender-preview-"+sh.id) : null;
     const c=meta&&meta.kind==="blender-preview"&&meta.sourceSpec ? (meta.actualCamera||meta.sourceSpec.camera) : null;
@@ -783,6 +810,8 @@ function stageShotGeometry(sh, cast, loc){
       cam=c; source="Blender blockout";
       actors=(meta.sourceSpec.actors||[]).filter(a=>a&&Array.isArray(a.position))
         .map(a=>({id:String(a.id||"").replace(/^actor-/,""),position:a.position}));
+      setPieces=(meta.sourceSpec.landmarks||[]).filter(l=>l&&l.label&&Array.isArray(l.position))
+        .map(l=>({name:String(l.label),position:l.position}));
     }
   }
   if(!cam||!Array.isArray(cam.position)||!Array.isArray(cam.target)) return null;
@@ -793,6 +822,36 @@ function stageShotGeometry(sh, cast, loc){
   const fx=T[0]-P[0], fy=T[1]-P[1], flat=Math.hypot(fx,fy);
   const tilt=deg(Math.atan2(T[2]-P[2], flat||1e-6)*180/Math.PI);
   const parts=["camera "+m(P[2])+" above the floor"+(tilt<0?", looking "+(-tilt)+"° down":tilt>0?", looking "+tilt+"° up":", level")];
+  // FIELD OF VIEW (2026-10-26): the lens as the width it sees, which a video model reads better than millimetres
+  const focal=Number(cam.focalLength), sensor=Number(cam.sensorWidth)||36;
+  const hfov=focal>0 ? 2*Math.atan(sensor/(2*focal))*180/Math.PI : 0;
+  if(hfov>0) parts[0]+=", lens "+Math.round(focal)+" mm (about "+Math.round(hfov)+"° across)";
+  // COMPASS (2026-10-26): the camera's heading on the set's compass, said only when this Blender set is proven to be
+  // in the layout's frame — a set piece stands where the layout puts the anchor of the same name (within 1.5 m)
+  const compass=stageSetCompass(loc, locations), key=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  const aligned=!!(compass&&flat>1e-6&&setPieces.some(o=>compass.anchors.some(a=>{
+    const ka=key(a.name), ko=key(o.name);
+    return ka&&ko&&(ka===ko||ka.indexOf(ko)>=0||ko.indexOf(ka)>=0)&&Math.hypot(a.xy[0]-Number(o.position[0]),a.xy[1]-Number(o.position[1]))<=1.5; })));
+  if(aligned&&typeof window!=="undefined"&&typeof window.locCompass==="function"){
+    const yaw=((Math.atan2(fx,fy)*180/Math.PI)+360)%360;
+    parts[0]+=", facing "+window.locCompass(yaw);
+  }
+  // what the camera sees and what's around it: the set's named pieces in frame, to the sides, behind
+  if(flat>1e-6&&setPieces.length){
+    const half=(hfov||50)/2, groups={frame:[],left:[],right:[],behind:[]};
+    setPieces.map(o=>{
+      const ax=Number(o.position[0])-P[0], ay=Number(o.position[1])-P[1], d=Math.hypot(ax,ay);
+      if(!Number.isFinite(d)||d<0.3) return null;
+      const ang=Math.atan2(fx*ay-fy*ax, fx*ax+fy*ay)*180/Math.PI;   // + = left of the view direction
+      return {name:o.name,d,ang};
+    }).filter(Boolean).sort((a,b)=>a.d-b.d).slice(0,8).forEach(o=>{
+      if(Math.abs(o.ang)<=half) groups.frame.push(o.name+" ("+m(o.d)+", "+(Math.abs(o.ang)<5?"centre":Math.round(Math.abs(o.ang))+"° "+(o.ang>0?"left":"right"))+")");
+      else if(Math.abs(o.ang)>=135) groups.behind.push(o.name);
+      else (o.ang>0?groups.left:groups.right).push(o.name);
+    });
+    [["frame","in frame: "],["left","off frame left: "],["right","off frame right: "],["behind","behind the camera: "]]
+      .forEach(([k,l])=>{ if(groups[k].length) parts.push(l+groups[k].join(", ")); });
+  }
   const people=actors.map(a=>({...a,name:((cast||[]).find(c=>c.id===a.id)||{}).name||""})).filter(a=>a.name);
   people.forEach(a=>{
     const ax=a.position[0]-P[0], ay=a.position[1]-P[1], d=Math.hypot(ax,ay);
@@ -1651,7 +1710,7 @@ function buildClipData(scene, g, ctx, maxSec){
       speaker: currentDirection&&currentDirection.dialogueRow
         ? {id:currentDirection.dialogueRow.speakerId||"",name:currentDirection.dialogueRow.speaker||"the speaker"} : speaker,
       camera:camSpec, composition:String((sh&&sh.composition)||"").trim(),
-      geometry:stageShotGeometry(sh, cast, (sh&&sh.locationId&&(ctx.locations||[]).find(l=>l&&l.id===sh.locationId))||loc),
+      geometry:stageShotGeometry(sh, cast, (sh&&sh.locationId&&(ctx.locations||[]).find(l=>l&&l.id===sh.locationId))||loc, ctx.locations),
       dur:(typeof stageShotRuntime==="function") ? stageShotRuntime(sh) : 0,
       dialogue:canonical ? String((primaryDialogue&&primaryDialogue.text)||"") :
         (currentDirection ? currentDirection.dialogue
@@ -1802,7 +1861,14 @@ function buildClipData(scene, g, ctx, maxSec){
   const languages = (ctx.characters||[]).map(c=>({id:c.id,name:c.name,
       language:String(c.lineLanguage||"").trim().slice(0,80), script:c.lineScript==="cyrillic"?"cyrillic":""}))
     .filter(v=>v.name&&(v.language||v.script));
-  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, capture, voices, languages, sourceCharacters, props:clipProps, loc, locSheet, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
+  /* TRUE SIZES (2026-10-26, owner): the height the Art Room gives each of the clip's people and the size it gives each
+     prop, so the video keeps them at real scale from shot to shot (only values someone wrote; nothing estimated) */
+  const sizes = cast.map(c=>{ const h=String((ctx.charById[c.id]||{}).height||"").replace(/\s+/g," ").trim().slice(0,60);
+      return h ? { name:c.name, text:/\btall\b/i.test(h) ? h : h+" tall" } : null; })
+    .concat((clipProps||[]).filter(Boolean).map(p=>{ const r=(ctx.propById||{})[p.id]||{}, z=String(r.size||"").replace(/\s+/g," ").trim().slice(0,80);
+      return z ? { name:r.name||p.name, text:z } : null; })).filter(Boolean);
+  const compass = stageSetCompass(loc, ctx.locations);
+  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, capture, voices, languages, sourceCharacters, props:clipProps, loc, locSheet, sizes, compass, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
     dur:_clipDur(g, maxSec), lineShots };
 }
 
@@ -9082,7 +9148,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
         ||!(typeof BS.generatedReference==="function"&&BS.generatedReference(id))) return;
       tried.add("ws:"+id);
       jobs.push(Promise.resolve().then(()=>BS.get(id))
-        .then(ws=>{ STAGE_STUDIO_SHOTS[id]={shots:(ws&&ws.shots)||[],previews:(ws&&ws.previews)||[]}; return true; }).catch(()=>false));
+        .then(ws=>{ STAGE_STUDIO_SHOTS[id]={shots:(ws&&ws.shots)||[],previews:(ws&&ws.previews)||[],objects:(ws&&ws.objects)||[]}; return true; }).catch(()=>false));
     });
     (cur.g.shots||[]).forEach(sh=>{
       const slot="blender-preview-"+(sh&&sh.id);

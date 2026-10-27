@@ -7,6 +7,11 @@ import { answerProviderRef, isTrustedFalUrl, meshOutputFile } from "./studio-rec
 const text = new TextEncoder();
 const MAX_GLB = 64 * 1024 * 1024;
 const MAX_IMAGE = 8 * 1024 * 1024;
+/* SOURCE IMAGES (2026-10-26): a 2K Nano Banana 2.1 location sheet is a ~9.4 MB PNG (2731 x 1536), over the 8 MB
+   that turned every such location away ("The generated source image is unavailable"). A source may now be up to
+   32 MB; what goes to a model or to Blender is the storage's resized copy (1568 px on its long side, the most the
+   scene assistant uses) whenever the original is over 4.5 MB — under the scene assistant's 5 MB image limit. */
+const MAX_SOURCE_IMAGE = 32 * 1024 * 1024, SOURCE_FIT_BYTES = Math.floor(4.5 * 1024 * 1024);
 const MODELS = ["claude-fable-5", "claude-opus-5", "gpt-6-astra", "gpt-5.5-2026-04-23"];
 const MESH_MODELS = ["meshy/v7/image-to-3d"];
 const studioActions = new Set([
@@ -193,10 +198,12 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
     await validateReferences(ctx, [source]);
     return source;
   }
-  async function readGeneratedImage(ctx, reference) {
+  async function readGeneratedImage(ctx, reference, fit = false) {
     const image = typeof adapter?.getStudioReference === "function" &&
-      await adapter.getStudioReference({ projectId: ctx.projectId, entityId: reference.entityId, reference });
-    if (!image || !(image.bytes instanceof Uint8Array) || !image.bytes.length || image.bytes.length > MAX_IMAGE ||
+      await adapter.getStudioReference({ projectId: ctx.projectId, entityId: reference.entityId, reference,
+        ...(fit ? { fitBytes: SOURCE_FIT_BYTES } : {}) });
+    if (!image || !(image.bytes instanceof Uint8Array) || !image.bytes.length
+      || image.bytes.length > (fit ? SOURCE_FIT_BYTES : MAX_SOURCE_IMAGE) ||
       !/^image\/(png|jpeg|webp)$/.test(image.contentType || ""))
       throw bad("The generated source image is unavailable. Regenerate or restore it before opening Studio.");
     await ctx.recheck();
@@ -482,7 +489,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       if(!source||!source.version)throw bad("Select a saved generated project image in this workspace.");
       if(!isMesh&&body.mode==="scene"&&referenceId!==locationId)
         throw bad("Scene Builder must derive the set from its location image.");
-      const image=await readGeneratedImage(ctx,source);
+      const image=await readGeneratedImage(ctx,source,true);
       if (isMesh) {
         if (body.prompt != null) str(body.prompt, "mesh prompt", 600);
         if (modelId === "meshy/v7/image-to-3d" && !image) throw bad("The selected image-to-3D model requires an image.");
@@ -669,8 +676,8 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
       const work = workspaceFor(state, locationId), entityId = id(body.entityId, "reference entity id");
       if (!work.references.some(reference => reference.entityId === entityId) || typeof adapter?.getStudioReference !== "function") throw error(404, "not_found", "No authorized generated reference is attached.");
       const reference = await adapter.getStudioReference({ projectId: ctx.projectId, entityId,
-        reference: work.references.find(item => item.entityId === entityId) });
-      if (!reference || !(reference.bytes instanceof Uint8Array) || reference.bytes.length > MAX_IMAGE ||
+        reference: work.references.find(item => item.entityId === entityId), fitBytes: SOURCE_FIT_BYTES });
+      if (!reference || !(reference.bytes instanceof Uint8Array) || reference.bytes.length > SOURCE_FIT_BYTES ||
         !/^image\/(png|jpeg|webp)$/.test(reference.contentType || "")) throw error(404, "not_found", "No authorized generated reference is attached.");
       await ctx.recheck();
       return { entityId, dataUrl: `data:${reference.contentType};base64,${bytesB64(reference.bytes)}` };

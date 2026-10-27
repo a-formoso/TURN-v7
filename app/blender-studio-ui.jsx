@@ -174,7 +174,8 @@ function BlenderStudioEntry({location,shot,references,readOnly=false,compact=fal
       loading&&_bsEl("p",{className:"bs-loading",role:"status"},"Opening the set workspace…"),
       error&&!workspace&&_bsEl("div",{className:"bs-error bs-central-error",role:"alert"},error,_bsEl("button",{type:"button",className:"bs-button",onClick:load},"Retry opening Studio")),
       _bsEl("ol",{className:"bs-steps","aria-label":"Blender Studio workflow"},
-        workspace&&window.BlenderStudioSetup?_bsEl(window.BlenderStudioSetup,{client,readOnly,locationId:location.id,onConnectionChange:setConnection}):null,
+        // Install and Connect need no workspace (2026-10-26: a workspace that failed to open hid the add-on download)
+        window.BlenderStudioSetup?_bsEl(window.BlenderStudioSetup,{client,readOnly,locationId:location.id,onConnectionChange:setConnection}):null,
         workspace&&_bsEl("li",{className:"bs-step"},_bsEl("div",{className:"bs-step-heading"},_bsEl("span",{className:"bs-step-number"},"3"),_bsEl("span",{className:"bs-step-label"},_bsEl("strong",null,"Choose what to make"),_bsEl("small",null,"Review a proposal before it changes the saved set."))),
           _bsEl("div",{className:"bs-step-body"},_bsEl("div",{className:"bs-composer"},_bsEl("div",{className:"bs-tabs"},
           _bsEl("button",{type:"button",className:mode==="scene"?"on":"",onClick:()=>setMode("scene")},"AI Scene Builder"),

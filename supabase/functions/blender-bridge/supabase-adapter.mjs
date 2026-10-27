@@ -251,7 +251,9 @@ export function createSupabaseAdapter({
     if (record.error || !record.data || typeof record.data.storage_path !== "string" || !provenance) return false;
     return version == null || String(version) === String(meta.iso || meta.version);
   }
-  async function getStudioReference({ projectId, entityId, reference }) {
+  // fitBytes: when the original is larger, the storage's resized copy (1568 px long side) is returned instead —
+  // still the same generated image, read server-side (studio-service.mjs SOURCE IMAGES, 2026-10-26)
+  async function getStudioReference({ projectId, entityId, reference, fitBytes }) {
     if (!(await validateStudioReference({ projectId, entityId, kind: reference?.kind,
       version: reference?.version }))) return null;
     const record = await admin.from("turn_generations")
@@ -261,7 +263,14 @@ export function createSupabaseAdapter({
       (reference?.version != null && String(reference.version) !== String(record.data.meta?.iso))) return null;
     const file = await admin.storage.from(bucket).download(record.data.storage_path);
     if (file.error || !file.data) return null;
-    const bytes = new Uint8Array(await file.data.arrayBuffer()), contentType = imageType(bytes);
+    let bytes = new Uint8Array(await file.data.arrayBuffer());
+    if (Number(fitBytes) > 0 && bytes.length > Number(fitBytes)) {
+      const fitted = await admin.storage.from(bucket).download(record.data.storage_path,
+        { transform: { width: 1568, height: 1568, resize: "contain", quality: 85 } });
+      if (fitted.error || !fitted.data) return null;
+      bytes = new Uint8Array(await fitted.data.arrayBuffer());
+    }
+    const contentType = imageType(bytes);
     return contentType ? { bytes, contentType } : null;
   }
 

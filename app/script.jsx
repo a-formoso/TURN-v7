@@ -1120,10 +1120,10 @@ function ScriptBlock({ b, contd, sceneNo, flash, blockIndex }){
     text = text.toUpperCase();
     if(contd && !/\(CONT\u2019?D\)\s*$/i.test(text)) text = text + " (CONT\u2019D)";
   }
-  // shooting-script convention: the scene number flanks the slugline in both margins
+  // the scene number sits at the right of the slugline only (2026-10-26, owner): on the left it reads, in the
+  // screenplay page images the image models get, as part of the place's name
   if(type==="scene" && sceneNo!=null){
     return React.createElement("div",{className:(BLOCK_CLASS.scene)+" numbered"+fl,"data-sp-block-index":blockIndex},
-      React.createElement("span",{className:"spb-scnum"},sceneNo),
       React.createElement("span",{className:"spb-sctext"},text),
       React.createElement("span",{className:"spb-scnum"},sceneNo));
   }
@@ -1181,11 +1181,9 @@ function EditableBlock({ b, onCommit, onRemove, flash, sceneNo, blockIndex }){
     spellCheck:true, "data-ph":"…", onBlur:commit,
     onKeyDown:(e)=>{ if(oneLine && e.key==="Enter"){ e.preventDefault(); e.currentTarget.blur(); } }
   };
-  // industry formatting holds while EDITING too: the first slugline keeps its
-  // scene-number flanks (only the text between them stays editable)
+  // while EDITING too, the first slugline keeps its scene number on the right (only the text stays editable)
   if(b.type==="scene" && sceneNo!=null){
     return React.createElement("div",{className:BLOCK_CLASS.scene+" numbered"+(flash?" spb-flash":""),"data-sp-block-index":blockIndex},
-      React.createElement("span",{className:"spb-scnum"},sceneNo),
       React.createElement("span",{...editableProps, className:"spb-sctext sp-editable"}),
       React.createElement("span",{className:"spb-scnum"},sceneNo));
   }
