@@ -1651,6 +1651,8 @@ function App(){
   // the CONTINUITY GRAPH, exposed for prompt builders that have no props/scenes/locations
   // params (e.g. the location plate folds in the environment props it owns — locations.jsx)
   React.useEffect(()=>{ window.turnContinuity = { props, scenes, locations, characters, drafts, beatsMap, shots, sluglineUnits }; },[props, scenes, locations, characters, drafts, beatsMap, shots, sluglineUnits]);
+  // CROWDS (2026-10-27): what each crowd card changed (look, how many, off) — the crowds themselves follow the screenplay
+  React.useEffect(()=>{ window.turnProjectCrowds = (project && project.crowds) || {}; },[project && project.crowds]);
   React.useEffect(()=>{
     window.turnAttachPropReference = (propId, ref)=>{
       if(!propId || !ref || !ref.url) return false;
@@ -5949,6 +5951,9 @@ function App(){
   // film's settings, which a Co-writer or Stage editor may also save — so every handler checks the role here.
   // CLEARING the field puts the Lookbook's colour notes back (the auto-fill resumes) — it used to stay empty
   // while the Colorist quietly read the Lookbook brief anyway
+  // a crowd card's own settings (Characters › Crowds, 2026-10-27): look, how many people its image shows, off
+  const updateCrowd = (key, patch)=>{ if(artRoomReadOnlyRef.current || !key) return;
+    setProject(p=>{ const all = { ...((p && p.crowds) || {}) }; all[key] = { ...(all[key]||{}), ...(patch||{}) }; return { ...p, crowds:all }; }); };
   const setStyleRefs = (refs)=>{ if(!canMutateSharedFilm()) return;
     const txt = String(refs||"");
     if(!txt.trim()){
@@ -9718,7 +9723,7 @@ function App(){
             onMergeLocations:mergeLocations,onLocationPlaceDecision:decideLocationPlace,onSharedHeadDecision:decideSharedHead,
             scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
             sluglineUnits,onUpdateUnit:updateSlugUnitOverlay,onRemoveUnit:removeSlugUnitOverlay,
-            onSetStyleRefs:setStyleRefs,onSetScenePreset:setScenePreset,onSetFilmStock:setFilmStock,onSetCapture:setStyleCapture,
+            onSetStyleRefs:setStyleRefs,onUpdateCrowd:updateCrowd,onSetScenePreset:setScenePreset,onSetFilmStock:setFilmStock,onSetCapture:setStyleCapture,
             colorRefsOwned:!!(typeof colorRefsFor==="function" && colorRefsFor((project&&project.styleBible)||{}, lookbook, lookbookNote).owned),
             onUseLookbookColorRefs:useLookbookColorRefs,onKeepColorRefs:keepOwnColorRefs,
             onUpdatePreset:updateStylePreset,onDeletePreset:deleteStylePreset,

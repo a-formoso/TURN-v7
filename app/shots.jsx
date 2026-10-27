@@ -635,6 +635,11 @@ async function shotLoadLocationSpecImage(spec, grab, opts){
   if(typeof grab==="function"){
     try{ u = await grab(spec.id); }catch(e){ grabError=e; }
   }
+  // a room that borrows its parent's plate: its panel is cut from the parent's current plate when missing or old
+  if(spec.parentStyle && typeof locationEnsureParentStyle==="function"){
+    const room=(((window.turnContinuity||{}).locations)||[]).find(l=>l&&String(l.id)===String(spec.locationId));
+    if(room){ try{ const fresh=await locationEnsureParentStyle(room); if(fresh){ u=fresh; grabError=null; } }catch(e){ if(!u) grabError=e; } }
+  }
   // opts.requireAll (the render): every ticked view needs its image, matched or chosen (2026-10-20)
   if((spec.required || spec.unavailable || opts.requireAll) && !opts.allowMissing && (spec.unavailable || !u)){
     throw shotLocationReferenceError(spec,grabError);
@@ -1187,6 +1192,25 @@ function shotLocationCatalogPlaceSpec(l,locations,allUnits,sheets){
     assetSourceQuality:compound?"location_master_plate_compound":"location_master_plate",
   };
 }
+/* a room that borrows its parent's plate (locationUsesParentPlate, 2026-10-27): one small panel of the parent's plate,
+   for materials, colour and light only — the room is written, not pictured. locationId stays the ROOM, so the prompt
+   describes the room; the image is the room's own "ps-" asset, cut by locationEnsureParentStyle. */
+function shotLocationParentStyleSpec(l,locations){
+  if(!l||typeof locationUsesParentPlate!=="function"||!locationUsesParentPlate(l,locations)) return null;
+  const parent=(typeof locationParentOf==="function")?locationParentOf(l,locations):null;
+  if(!parent) return null;
+  const id=(typeof locationParentStyleId==="function")?locationParentStyleId(l):"ps-"+l.id;
+  const note=(typeof locationParentStyleNote==="function")?locationParentStyleNote(l,parent)
+    :(parent.name||"Parent location")+" — materials, colour and light only; not "+(l.name||"this room");
+  return {id,category:"place",categoryLabel:"Parent's plate · materials only",categories:["place"],
+    label:[shotLocationCatalogDisplayName(l,locations),(parent.name||"parent")+"'s plate","materials, colour and light"].join(" · "),
+    description:(l.name||"This room")+" has no plate of its own: one small panel of "+(parent.name||"its parent")
+      +"'s plate gives its materials, colour and light; the room itself is described in the text.",
+    note,locationId:String(l.id),entityId:String(l.id),baseId:String(l.id),parentLocationId:String(parent.id),
+    parentStyle:true,placeName:String(l.name||""),source:"location-parent-style",
+    assetRole:"derived_reference",assetSourceQuality:"parent_material_panel"};
+}
+window.shotLocationParentStyleSpec=shotLocationParentStyleSpec;
 function shotLocationCatalogUnitSpec(u,owner,locations){
   if(!u||!u.key||!owner||typeof sluglineUnitImageId!=="function") return null;
   const id=sluglineUnitImageId(u.key), display=shotLocationCatalogDisplayName(owner,locations);
@@ -1294,6 +1318,7 @@ function shotLocationReferenceCatalog(loc,sh,scene,drafts){
   });
   locations.forEach(l=>shotLocationCatalogAdd(map,
     shotLocationCatalogPlaceSpec(l,locations,allUnits,sheetsByLocation.get(String(l.id))||[]),index++));
+  locations.forEach(l=>shotLocationCatalogAdd(map,shotLocationParentStyleSpec(l,locations),index++));
   allUnits.filter(u=>u&&!u.orphan&&u.key).forEach(u=>{
     const owner=shotLocationCatalogUnitOwner(u,locations); if(owner)
       shotLocationCatalogAdd(map,shotLocationCatalogUnitSpec(u,owner,locations),index++);
@@ -1403,6 +1428,9 @@ function shotLocationCoverageSpecs(loc, sh, scene, drafts){
     });
     return out;
   }
+  // a room that borrows its parent's plate has no plate, room & time plate or extra space of its own (2026-10-27)
+  const parentStyle=shotLocationParentStyleSpec(loc,Array.isArray(C.locations)&&C.locations.length?C.locations:null);
+  if(parentStyle) return [parentStyle];
   const inferredBeat=shotLocationBeatNumber(sh)==null && sh.referencePickerAll
     ? shotLocationInferBeat(scene,sh,drafts||C.drafts||{}) : null;
   const beatN=shotLocationBeatNumber(sh)!=null ? shotLocationBeatNumber(sh) : inferredBeat;
@@ -2195,7 +2223,13 @@ function buildShotPrompt(sh, ctx){
   // no staged action can never become an invented extra figure. Skipped when the
   // action itself stages unnamed people (a crowd, punters, customers).
   const _crowdRx = /\b(crowd|crowds|punters?|customers?|bystanders?|passers|pedestrians?|queue|onlookers?|mob|patrons?|strangers?|extras)\b/i;
-  if(subjects.length && !_crowdRx.test(String(sh.action||"")+" "+String(sh.composition||""))){
+  const _shotCrowds = shotCrowds(sh, ctx).filter(c=>_promptRefOff.indexOf(c.id)<0);
+  const _crowdHasImg = (c)=> typeof nbGetImage==="function" && !!nbGetImage(c.id);
+  if(_shotCrowds.length)
+    stage.push("Background people: the "+_shotCrowds.map(c=>c.name.toLowerCase()
+        +(_crowdHasImg(c) ? " from the crowd reference" : (c.look ? " ("+c.look+")" : ""))).join(" and the ")
+      +" — anonymous, behind and around the cast, the same faces from shot to shot; none of them is a named character");
+  if(subjects.length && !_shotCrowds.length && !_crowdRx.test(String(sh.action||"")+" "+String(sh.composition||""))){
     stage.push("Exactly "+subjects.length+" "+(subjects.length===1?"person":"people")+" in frame — ONLY "
       + subjects.map(c=>c.name).join(" and ")+"; no bystanders, no extras, no additional figures");
   }
@@ -2275,6 +2309,7 @@ function buildShotPrompt(sh, ctx){
   else { _locLabels.forEach(l=>imgs.push(l)); _castLabels.forEach(l=>imgs.push(l)); }
   _propLabels.forEach(l=>imgs.push(l));
   _carriedLabels.forEach(l=>imgs.push(l));
+  shotCrowdSpecs(sh, ctx).filter(c=>_refOff.indexOf(c.id)<0 && typeof nbGetImage==="function" && nbGetImage(c.id)).forEach(c=>imgs.push(c.note));
    /* Once refs have resolved, rebuild the map from the ACTUAL attachment list.
       A page budget is only a reservation: a short scene may render one page,
       a canvas/provider may return none, and a canonical sheet may be cold. */
@@ -2813,9 +2848,11 @@ function shotRenderPlan(sh, sceneShots, ctx){
   // map together — the numbered labels always match the attached files
   const _refOff = Array.isArray(sh.refOff) ? sh.refOff : [];
   const activeLocSpec = locSpec.filter(s=> _refOff.indexOf(s.baseId||s.id)<0);
+  // CROWDS (2026-10-27): the group image of each crowd this shot's action names — after the props, never required
+  const crowdSpec = shotCrowdSpecs(sh, ctx);
   const orderedSpecs = ((locWeight==="ambient")
-    ? [...castSpec, ...activeLocSpec, ...propSpec, ...carrySpec]   // tight: the cast leads, the set recedes
-    : [...activeLocSpec, ...castSpec, ...propSpec, ...carrySpec])  // wide: the set leads
+    ? [...castSpec, ...activeLocSpec, ...propSpec, ...carrySpec, ...crowdSpec]   // tight: the cast leads, the set recedes
+    : [...activeLocSpec, ...castSpec, ...propSpec, ...carrySpec, ...crowdSpec])  // wide: the set leads
     .filter(s=> _refOff.indexOf(s.baseId||s.id)<0);
    /* The screenplay pages are optional, lower-priority context. Reserve every
       canonical slot before offering a page slot — even if a canonical byte is
@@ -2841,9 +2878,23 @@ function shotRenderPlan(sh, sceneShots, ctx){
      sceneContextProject:ctx.project ? { ...ctx.project } : null,
     carriedForward: carried.map(id=>(ctx.propById||{})[id]).filter(Boolean),
     carriedTextOnly: carriedText.map(id=>(ctx.propById||{})[id]).filter(Boolean),
-    activeLocSpec, castSpec, propSpec, carrySpec, orderedSpecs };
+    activeLocSpec, castSpec, propSpec, carrySpec, crowdSpec, orderedSpecs };
 }
 window.shotRenderPlan = shotRenderPlan;
+/* the crowds a shot shows (app/crowds.js): in its scene and named by its own action, as reference specs */
+function shotCrowds(sh, ctx){
+  ctx = ctx || {};
+  const scene = ctx.scene || ((((window.turnContinuity||{}).scenes)||[]).find(x=>x && sh && x.id===sh.sceneId)) || null;
+  if(!scene || typeof window.turnFilmCrowds!=="function" || typeof crowdsForShot!=="function") return [];
+  try{ return crowdsForShot(window.turnFilmCrowds(ctx.project), scene, sh) || []; }catch(e){ return []; }
+}
+function shotCrowdSpecs(sh, ctx){
+  return shotCrowds(sh, ctx).map(c=>({ id:c.id, baseId:c.id, entityId:c.id, referenceKind:"crowd",
+    note:(typeof crowdReferenceNote==="function") ? crowdReferenceNote(c) : c.name+" crowd reference",
+    label:c.name+" · crowd", assetRole:"derived_reference", required:false }));
+}
+window.shotCrowds = shotCrowds;
+window.shotCrowdSpecs = shotCrowdSpecs;
 
 /* A required active appearance sheet is a paid-render precondition.  Omitting a
    missing v2+ sheet would let the provider improvise from the seed or silently

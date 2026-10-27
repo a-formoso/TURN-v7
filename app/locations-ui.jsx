@@ -1497,6 +1497,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       regenerateTitle:(!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable())
         ? "Writes this place's view composition first — a small writing charge — then makes a new plate (one image); this one stays in its version history" : undefined,
       onRegenerate:()=>genPlate.generate() }),
+    // a small room that borrows its parent's plate (2026-10-27)
+    l.parentLocation && React.createElement(LocationParentStyleNotice,{ l, gen, readOnly, onUpdate }),
     // SAME PLACE, TWO NAMES (2026-10-14): "These look like one place" on both cards, and the "Same place as…" picker
     (samePlace||[]).map(s=>React.createElement(LocationSamePlaceNotice,{ key:s.pair, l, s, readOnly,
       onMerge:onMergeLocations, onDecide:onPlaceDecision })),
@@ -1962,6 +1964,54 @@ function LocationCopyCheckNotice({ l, assetId, gen, single=false, refs, readOnly
           !(gen && gen.gening) && typeof window.nbCostChip==="function" && window.nbCostChip(1, n!=null ? {refs:n} : undefined)),
         React.createElement("button",{type:"button",className:"art-draftall ghost",
           title:"Keep this plate as it is — the check won't ask again about this version",onClick:keep},"Keep"))));
+}
+/* A SMALL ROOM BORROWS ITS PARENT'S PLATE (2026-10-27, owner — "go ahead with 5 and 6"): on a room with no plate of
+   its own. Off: a one-off room (in one or two scenes) is offered "Use <parent>'s plate". On: the panel its shots and
+   Stage clips get (one small panel of the parent's plate — materials, colour and light) and "Give it its own plate".
+   Free: the panel is cut in the browser; nothing is generated or charged. Generating the room's own plate turns it off. */
+function LocationParentStyleNotice({ l, gen, readOnly=false, onUpdate }){
+  const parent = (l && typeof locationParentOf==="function") ? locationParentOf(l) : null;
+  const on = !!(l && l.usesParentPlate && parent);
+  const own = !!(gen && gen.genUrl);
+  const [url,setUrl] = React.useState("");
+  const [tick,bump] = React.useReducer(n=>n+1,0);
+  React.useEffect(()=>{
+    if(!on || !parent) return;
+    const h = (e)=>{ const id = e && e.detail && e.detail.id; if(!id || id===parent.id) bump(); };
+    window.addEventListener("nb-gen-done",h); window.addEventListener("nb-prefetched",h);
+    return ()=>{ window.removeEventListener("nb-gen-done",h); window.removeEventListener("nb-prefetched",h); };
+  },[on, parent&&parent.id]);
+  const parentIso = (parent && typeof nbGetMeta==="function" && (nbGetMeta(parent.id)||{}).iso) || "";
+  React.useEffect(()=>{
+    let alive = true;
+    if(!on || typeof locationEnsureParentStyle!=="function"){ setUrl(""); return ()=>{ alive=false; }; }
+    locationEnsureParentStyle(l, { readOnly }).then(u=>{ if(alive) setUrl(u||""); }, ()=>{ if(alive) setUrl(""); });
+    return ()=>{ alive=false; };
+  },[on, l && l.id, parentIso, tick]);
+  // the room got its own plate: it no longer borrows
+  React.useEffect(()=>{ if(on && own && !readOnly && typeof onUpdate==="function") onUpdate(l.id,{ usesParentPlate:false }); },[on, own]);
+  if(!parent || own) return null;
+  const pName = parent.name || "the parent location", name = l.name || "This room";
+  const sceneN = Array.isArray(l.scenes) ? l.scenes.length : 0;
+  if(!on){
+    if(readOnly || sceneN>2 || typeof onUpdate!=="function") return null;
+    return React.createElement("div",{className:"loc-parent-style off","data-parent-style":l.id},
+      React.createElement("p",null,"In "+(sceneN===1 ? "one scene" : sceneN+" scenes")+" only? "+name
+        +" can borrow "+pName+"'s plate instead of having its own."),
+      React.createElement("button",{type:"button",className:"art-draftall ghost",
+        title:"Its shots and Stage clips get one small panel of "+pName+"'s plate for materials, colour and light, and the room is described in words. Nothing is generated or charged.",
+        onClick:()=>onUpdate(l.id,{ usesParentPlate:true })},"Use "+pName+"'s plate"));
+  }
+  return React.createElement("div",{className:"loc-parent-style on",role:"status","data-parent-style":l.id},
+    url ? React.createElement("img",{className:"loc-parent-style-thumb",src:url,alt:pName+" materials panel"})
+      : React.createElement("span",{className:"loc-parent-style-thumb empty"}),
+    React.createElement("div",{className:"loc-parent-style-body"},
+      React.createElement("p",null,React.createElement("b",null,name+" borrows "+pName+"'s plate. "),
+        url ? "Its shots and Stage clips get this panel for materials, colour and light; the room itself is described in words."
+          : "Generate "+pName+"'s plate first: its shots and Stage clips will get one panel of it for materials, colour and light."),
+      !readOnly && typeof onUpdate==="function" && React.createElement("button",{type:"button",className:"art-draftall ghost",
+        title:"Stop borrowing: this room needs its own plate before its shots can show it",
+        onClick:()=>onUpdate(l.id,{ usesParentPlate:false })},"Give it its own plate")));
 }
 /* SAME PLACE, TWO NAMES (owner-approved 2026-10-14, "go ahead with all of it"; Story Pipeline "Locations"): the
    suggestion on both cards — "These look like one place: scene 13's card says FONDAMENTA, its screenplay says FONDAMENTA
@@ -2738,7 +2788,9 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   // a plate renders only once its shared layout is reviewed (the card's own gate) — those waiting
   // are left out of the counts and prices, and named instead
   const layoutReady = (l)=>{ try{ if(typeof requireLocationSpatialPlan==="function") requireLocationSpatialPlan(l); return true; }catch(e){ return false; } };
-  const missingDrafted = draftedIds(list).filter(id=>!hasImg(id));
+  // a room that borrows its parent's plate has none of its own to make (2026-10-27)
+  const borrows = (l)=> typeof locationUsesParentPlate==="function" && locationUsesParentPlate(l);
+  const missingDrafted = draftedIds(list.filter(l=>!borrows(l))).filter(id=>!hasImg(id));
   const missingAll = missingDrafted.filter(id=>layoutReady(byLocId[id]));
   const waitingLayout = missingDrafted.length - missingAll.length;
   const [sceneRun, setSceneRun] = React.useState(null);   // {i,total,label} while a scene run works
@@ -2770,9 +2822,9 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
     list.filter(l=>inScene(l, sid)).forEach(addWithParent);
     const units = (sluglineUnits||[]).filter(u=> u && !u.orphan && (u.scenes||[]).indexOf(sid)>=0)
       .map(u=>({ u, owner:list.find(l=> String(l.key||"")===String(u.subspaceKey||u.locationKey||"")) }))
-      .filter(x=> x.owner);
+      .filter(x=> x.owner && !borrows(x.owner));
     units.forEach(x=> addWithParent(x.owner));
-    const mastersAll = draftedIds(list.filter(l=>need.has(l.id))).filter(id=>!hasImg(id)).map(id=>byLocId[id]);
+    const mastersAll = draftedIds(list.filter(l=>need.has(l.id) && !borrows(l))).filter(id=>!hasImg(id)).map(id=>byLocId[id]);
     const masters = mastersAll.filter(layoutReady);
     const unitsAll = (typeof sluglineUnitImageId==="function") ? units.filter(x=>!hasImg(sluglineUnitImageId(x.u.key))) : [];
     // a room plate needs its location's plate: one that exists, or one this run will make

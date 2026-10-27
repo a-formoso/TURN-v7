@@ -958,7 +958,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const [refAssetBump, setRefAssetBump] = React.useState(0);
   // Events and async grabs follow the candidate when this shot is a fresh start;
   // following prevShot here would leave an excluded seed thumbnail stale forever.
-  const _liveRefIdsKey = [seedCandidate&&seedCandidate.id, ...liveLocationRefIds(),
+  // CROWDS (2026-10-27): the group image of each crowd this shot's action names
+  const crowdSpecs = (typeof shotCrowdSpecs==="function") ? shotCrowdSpecs(sh, { project:ctx.project, scene }) : [];
+  const _liveRefIdsKey = [seedCandidate&&seedCandidate.id, ...liveLocationRefIds(), ...crowdSpecs.map(s=>s.id),
     ...characterReferenceSpecs.flatMap(s=>[s&&s.id,s&&s.baseId]), ...inProps.map(p=>p.id)].filter(Boolean).join("|");
   React.useEffect(()=>{
     const matches = (detail)=>{
@@ -977,7 +979,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     sh.referenceLocationsSet?1:0, (sh.referenceLocationIds||[]).join(","), locationReferenceChoices.map(x=>x.id+":"+x.label).join("|"),
     _locSpecKey, locWeight,
     characterReferenceSpecs.map(s=>[s.id,s.baseId,s.stateId,s.version,s.label].join(":")).join(","),
-    inProps.map(p=>p.id).join(","), gen.genUrl||""].join("|");
+    inProps.map(p=>p.id).join(","), crowdSpecs.map(s=>s.id).join(","), gen.genUrl||""].join("|");
   React.useEffect(()=>{
     let alive = true;
     setRefsLoaded(false);
@@ -1036,7 +1038,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           version:spec.version||1,required:!!spec.required,missing:!u});
       }
       const propItems = []; for(const p of inProps){ const u=await grab(p.id); if(u) propItems.push({ url:u, label:p.name, kind:"prop", refId:p.id }); }
-      const sheetOrder = (locWeight==="ambient") ? [...castItems, ...locItems, ...propItems] : [...locItems, ...castItems, ...propItems];
+      const crowdItems = []; for(const c of crowdSpecs){ const u=await grab(c.id); if(u) crowdItems.push({ url:u, label:c.label, kind:"crowd", refId:c.id }); }
+      const sheetOrder = (locWeight==="ambient") ? [...castItems, ...locItems, ...propItems, ...crowdItems] : [...locItems, ...castItems, ...propItems, ...crowdItems];
       if(alive){ setRefImgs([...seed, ...sheetOrder]); setRefsLoaded(true); }
     })();
     return ()=>{ alive=false; };
@@ -1196,7 +1199,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       // renders without it; see refWarn)
       refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
-          "No full-frame room & time or extra-space plate is ready for this beat. Generate one in Locations — a cropped master plate won't be used in its place."),
+          (typeof locationUsesParentPlate==="function" && locationUsesParentPlate(loc))
+            ? ((loc.name||"This room")+" borrows its parent's plate, which isn't ready yet. Generate "+(((typeof locationParentOf==="function"&&locationParentOf(loc))||{}).name||"the parent location")+"'s plate in Locations.")
+            : "No full-frame room & time or extra-space plate is ready for this beat. Generate one in Locations — a cropped master plate won't be used in its place."),
       _el("div",{className:"shot-head"},
         // Keep the compact header for status and review controls. Frame approval lives
         // in the image's existing Options menu, where its effect can be explained.

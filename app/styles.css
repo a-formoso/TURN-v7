@@ -11420,3 +11420,19 @@ video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:aut
 .stage2-lightbox>.stage2-fs-wrap{width:auto;max-width:96vw}
 .stage2-fs-wrap.cr .stage2-player-fs svg{stroke-width:2.2}
 .stage2-fs-wrap.cr .stage2-player-fs{filter:drop-shadow(0 1px 2px rgba(0,0,0,.65))}
+/* a small room that borrows its parent's plate (2026-10-27) */
+.loc-parent-style{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--txt-1);border:1px dashed var(--line);border-radius:var(--r-m);padding:7px 10px;margin:6px 0}
+.loc-parent-style p{margin:0;flex:1;min-width:0}
+.loc-parent-style.on{background:var(--bg-2)}
+.loc-parent-style-body{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}
+.loc-parent-style-body .art-draftall{align-self:flex-start}
+.loc-parent-style-thumb{width:56px;height:56px;object-fit:cover;border-radius:6px;flex:none;border:1px solid var(--line)}
+.loc-parent-style-thumb.empty{display:inline-block;background:var(--line)}
+/* Characters › Crowds (2026-10-27): the background people the screenplay calls for */
+.crowd-section{margin-top:28px;padding-top:18px;border-top:1px solid var(--line)}
+.crowd-section-head h3{margin:0 0 4px;font-family:var(--f-display);font-size:18px;color:var(--txt-0)}
+.crowd-section-head p{margin:0 0 14px;font-size:13px;color:var(--txt-2);max-width:68ch}
+.crowd-scenes{font-size:12px;color:var(--txt-2);margin-top:2px}
+.crowd-excerpts{margin:4px 0 10px}
+.crowd-excerpts p{margin:4px 0;font-size:12px;color:var(--txt-1);font-family:var(--f-mono);line-height:1.45}
+.crowd-card.off .sheet-frame,.crowd-card.off img{opacity:.55}

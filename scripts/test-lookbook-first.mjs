@@ -746,7 +746,8 @@ const bootNav = () => JSON.parse(store.get("turn-nav-v1") || "null") || {};
   // since 2026-10-03 nothing drafts on its own, so Draft all is the draft stage's PRIMARY (not a ghost)
   ok("C the Draft all button still shows whenever someone is undrafted (the stage's primary)", sheets.includes("someUndrafted && React.createElement(\"button\",{className:\"art-draftall\",disabled:draftingAll,onClick:onDraftAll,"));
   ok("C ArtRoom hands the Lookbook + a way to open it to the Characters tab",
-    art.includes('lookbook,lookbookNote,onOpenLookbook:setArtView?()=>setArtView("lookbook"):null})'));
+    // (2026-10-27) the Characters tab also gets onUpdateCrowd (Characters › Crowds) after it
+    art.includes('lookbook,lookbookNote,onOpenLookbook:setArtView?()=>setArtView("lookbook"):null,onUpdateCrowd})'));
   const rule = (css.match(/\.char-lookbook-hint\{[^}]*\}/) || [""])[0];
   const link = (css.match(/\.char-lookbook-hint-link\{[^}]*\}/) || [""])[0];
   ok("C hint CSS: small muted text from theme tokens only (light + dark follow the theme)",

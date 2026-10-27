@@ -3277,12 +3277,18 @@ function stageAssetRole(a, refs){
   if(a.referenceKind==="screenplay") return T+" is a screenshot of the scene screenplay, page "+a.page+" of "+a.totalPages
     +". Read it as writing context only; perform only the selected beat/shot/part. Never photograph or animate the page, its text, highlighting or borders, and never use it as composition or a character identity reference.";
   if(a.referenceKind==="character") return T+" is "+(label||"the character")+" — identity, wardrobe, body scale and proportions for its assigned shots only; do not inherit its background, pose or lighting. Shot-specific appearance overrides a supporting master reference.";
+  if(a.referenceKind==="location" && String(a.id||"").indexOf("ps-")===0)
+    return T+" is "+(label||"the parent location's materials")+" — one panel of the larger place this room belongs to: take its materials, colour and light only. It is NOT this room: build the room from the text, and never copy the panel's layout, framing or furniture.";
   if(a.referenceKind==="location") return T+" is "+(label||"the location")+" — preserve geography and materials, not reference framing. Authored lighting changes still occur.";
   if(a.referenceKind==="prop") return T+" is "+(label||"the prop")+" — preserve its design and markings, not reference backdrop, placement or custody; follow authored pickups and handovers.";
   if(k==="frame") return T+" is the first frame — start from this exact composition.";
   if(k.indexOf("shotframe:")===0) return T+" is "+(label.toLowerCase()||"a later shot's frame")+" — anchor that shot's composition and blocking to it.";
   if(k.indexOf("scene-shotframe:")===0) return T+" is a scene shot frame chosen by the director — use its composition, identity and continuity where the prompt mentions it.";
   if(k.indexOf("sb-half")===0 || k==="sb-sheet") return T+" is the storyboard for this clip — follow its composition, blocking and panel order.";
+  if(k.indexOf("crowd:")===0){
+    const n=String(a.crowdName||label.replace(/\s*\u00b7\s*crowd$/i,"")||"crowd").toLowerCase();
+    return T+" is the "+n+" crowd reference \u2014 anonymous background extras only: the same faces, ages and wardrobe recur behind and around the cast. None of them is a named character and none speaks. Never a lineup or the reference's row: place them naturally, few near the camera, soft behind the cast.";
+  }
   if(k.indexOf("blender-board:")===0){
     const n=Number(a.boardFrames)||0, last=n>1?String.fromCharCode(64+n):"";
     return T+" is the blocking board from Blender for this shot"+(n>1?": frames A to "+last+", left to right, run from the start of the shot to its end":"")
@@ -3961,6 +3967,16 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         url:u, ready:true, id:slot, boardFrames:n, boardKey:(meta&&meta.keyText)||"",
         assetRole:"derived_reference", assetSourceQuality:"blender_board_page" });
     });
+    // CROWDS (2026-10-27): the group image of each crowd this clip's shots name, on by default — background people only
+    if(_mRefs && typeof shotCrowds==="function"){
+      const seenCrowd=new Set();
+      (d.shots||[]).forEach(sh=>shotCrowds(sh,{project:ctx.project,scene}).forEach(c=>{
+        if(seenCrowd.has(c.id)) return; seenCrowd.add(c.id);
+        const u=imgs[c.id]; if(!u) return;
+        out.push({ key:"crowd:"+c.key, kind:"image", group:"Crowds", label:c.name+" \u00b7 crowd", url:u, ready:true, id:c.id,
+          crowdName:c.name, referenceKind:"crowd", assetRole:"derived_reference", assetSourceQuality:"crowd_group_image" });
+      }));
+    }
     if(_mRefs){
       // Active character/location/prop rows come exclusively from the authoritative
       // shot reference package below. Legacy d.cast/d.loc/d.props masters remain
@@ -4112,7 +4128,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
           ?((c.name||"Character")+" · Appearance: "+(state.label||"Unnamed state")+" (v"+version+")")
           :((c.name||"Character")+" · Master reference")); });
       (referencePackage.locations||[]).forEach(r=>{ const l=(ctx.locations||[]).find(x=>x.id===r.entityId)||{};
-        addRequired(r,"location",(l.name||"Location")+" · Camera view"); });
+        // a room that borrows its parent's plate (2026-10-27): its panel gives materials only
+        const ps=String(r.assetId||"").indexOf("ps-")===0, parent=ps&&typeof locationParentOf==="function"?locationParentOf(l):null;
+        addRequired(r,"location",ps ? (l.name||"Room")+" · "+((parent&&parent.name)||"parent")+"'s materials and colour"
+          : (l.name||"Location")+" · Camera view"); });
       (referencePackage.props||[]).forEach(r=>{ const p=(ctx.propById||{})[r.entityId]||{};
         addRequired(r,"prop",(p.name||"Prop")+(r.stateId?" · Continuity state":" · Master reference")); });
     }
@@ -4724,6 +4743,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         : a.key==="loc" || String(a.key).indexOf("scene-loc:")===0 ? "Locations"
         : String(a.key).indexOf("scene-shotframe:")===0 ? "Shot frames"
         : String(a.key).indexOf("blender-board:")===0 ? "Blender boards"
+        : String(a.key).indexOf("crowd:")===0 ? "Crowds"
         : a.kind==="audio" ? "Voices" : "References");
       if(on(a)){
         out.push({ t:stageAssetMention(a), label:String(a.label||""), kind:a.kind, url:String(a.url||""), key:a.key, assetKey:a.key, group, included:true }); }
@@ -9286,6 +9306,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     requiredReferenceIds.forEach(id=>s.add(id));
     const sceneShots=hydrationScene?(shotsByScene[hydrationScene.id]||[]):[];
     sceneShots.forEach(sh=>s.add(sh.id));
+    // the group image of each crowd these shots name (2026-10-27)
+    if(typeof shotCrowds==="function") sceneShots.forEach(sh=>shotCrowds(sh,{project,scene:hydrationScene}).forEach(c=>s.add(c.id)));
     // a shot's Blender board page, when its Studio workspace has a board or the film already saved one
     if(window.BlenderBoards) sceneShots.forEach(sh=>{
       if(!sh||!/^[a-zA-Z0-9_-]{1,128}$/.test(String(sh.id))) return;
@@ -9349,7 +9371,12 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
         while(alive && idx<list.length){
           const id = list[idx++];
           try{
-            const u = await nbLoadImage(id);
+            let u = await nbLoadImage(id);
+            // a room that borrows its parent's plate: its panel is cut on first use (2026-10-27)
+            if(!u && String(id).indexOf("ps-")===0 && typeof locationEnsureParentStyle==="function"){
+              const room=(locations||[]).find(l=>l&&"ps-"+l.id===String(id));
+              if(room) u = await locationEnsureParentStyle(room);
+            }
             if(alive && u) setImgs(prev=> prev[id] ? prev : ({...prev, [id]:u}));
             if(alive && u && propVariantIdsRef.current.has(id)) setPropVariantTick(t=>t+1);   // re-pick the prop's sheet
             if(alive && (u || attempt===0)) setImageLoadState(prev=>({...prev,[id]:u?"ready":"unavailable"}));

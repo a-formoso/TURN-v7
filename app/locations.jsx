@@ -2661,6 +2661,54 @@ async function locationSubspaceRootReferences(l, opts){
   }
   return {refs, plan, material};
 }
+/* A SMALL ROOM WITH NO PLATE OF ITS OWN (2026-10-27, owner — "go ahead with 5 and 6"): a one-off room (a dressing room
+   used for one shot) can borrow its parent's plate instead of needing its own. Its shots and Stage clips then get ONE
+   small panel of the parent's plate for materials, colour and light — never its layout — and the room itself is built
+   from its written description. The panel is cut once and kept as the room's own asset ("ps-<room id>"), so every path
+   that loads images by id (the Shots frame, the Stage) reads it; it is cut again when the parent's plate changes.
+   l.usesParentPlate is set on the room's card; generating the room's own plate turns it off. */
+const LOC_PARENT_STYLE_PREFIX = "ps-";
+function locationParentStyleId(l){ return LOC_PARENT_STYLE_PREFIX+String((l&&l.id)||""); }
+function locationUsesParentPlate(l, locations){
+  return !!(l && l.usesParentPlate && locationParentOf(l, locations));
+}
+function locationParentStyleNote(l, parent){
+  const name = (l && l.name) || "this room", pName = (parent && parent.name) || "the parent location";
+  return pName+" — ONE small panel of its plate: materials, colour and light only. It is NOT "+name
+    +": build "+name+" from its written description, and never copy this panel's layout, framing or furniture.";
+}
+async function locationEnsureParentStyle(l, opts){
+  const o = opts || {};
+  const parent = locationParentOf(l);
+  if(!parent) return "";
+  const id = locationParentStyleId(l);
+  const parentUrl = await _locLoadPlate(parent.id);
+  if(!parentUrl) return "";
+  const pMeta = (typeof nbGetMeta==="function" && nbGetMeta(parent.id)) || {};
+  let cur = typeof nbGetMeta==="function" ? nbGetMeta(id) : null;
+  if(!cur && typeof nbLoadImage==="function"){ try{ await nbLoadImage(id); }catch(e){} cur = typeof nbGetMeta==="function" ? nbGetMeta(id) : null; }
+  if(cur && cur.parentStyleOf===parent.id && String(cur.parentIso||"")===String(pMeta.iso||"")){
+    const u = await _locLoadPlate(id); if(u) return u;
+  }
+  if(o.readOnly) return "";
+  const live = _locList().find(x=>x && x.id===parent.id) || parent;
+  const noted = normalizeLocationPlateCameras(live.plateCameras);
+  const raw = pMeta.platePanels || (noted && noted.iso===pMeta.iso ? noted : null);
+  const key = locationParentMaterialPanel(parent, l, raw);
+  let source = parentUrl;
+  if(typeof oaiToDataUrl==="function"){ try{ source = (await oaiToDataUrl(parentUrl)) || parentUrl; }catch(e){} }
+  const url = typeof cropRegionAsDataUrl==="function" ? ((await cropRegionAsDataUrl(source, LOC_PANEL_INFO[key].crop, LOC_MATERIAL_CROP_MAX_DIM)) || "") : "";
+  if(!url) return "";
+  if(typeof nbCommit==="function"){
+    const epoch = typeof nbEpoch==="function" ? nbEpoch() : null;
+    try{ const r = await nbCommit(id, url, {parentStyleOf:parent.id, parentIso:pMeta.iso||"", panelKey:key, kind:"location-parent-style",
+      prompt:"Cut from "+(parent.name||"the parent location")+"'s plate ("+key+" panel) — materials, colour and light for "+(l.name||"this room")},
+      [], "location", epoch);
+      if(r && r.url && r.tier!=="stale" && r.tier!=="cancelled") return r.url;
+    }catch(e){}
+  }
+  return url;
+}
 /* A ROOM'S PLATE REFERENCES: the parent's part (above) — every quadrant matched to a view through an opening, cut out
    and numbered, or one optional material panel. Numbered: an unreadable one stops the request before anything is
    charged. The parent's whole sheet is never attached (2026-10-14). */
@@ -3076,6 +3124,10 @@ window.locationSubspacePlateReferences = locationSubspacePlateReferences;
 window.normalizeLocationPlateCameras = normalizeLocationPlateCameras;
 window.locationNotedPlatePanels = locationNotedPlatePanels;
 window.locationParentMaterialPanel = locationParentMaterialPanel;
+window.locationParentStyleId = locationParentStyleId;
+window.locationUsesParentPlate = locationUsesParentPlate;
+window.locationParentStyleNote = locationParentStyleNote;
+window.locationEnsureParentStyle = locationEnsureParentStyle;
 window.locationIsOutdoor = locationIsOutdoor;
 window.locationRequestedViews = locationRequestedViews;
 window.locationParentPlateViews = locationParentPlateViews;

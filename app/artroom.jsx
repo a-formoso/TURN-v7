@@ -6938,7 +6938,7 @@ window.charLookbookFirstHint = charLookbookFirstHint;
 window.turnFocusArtScene = (tab, sceneId, action)=>{ window.turnArtFocus = { tab, sceneId, action:action||"", at:Date.now(), film:window.turnOpenFilmId||null }; };
 window.turnPeekArtFocus = (tab)=>{ const f = window.turnArtFocus; return (f && f.tab===tab && Date.now()-f.at<15000 && (f.film||null)===(window.turnOpenFilmId||null)) ? f : null; };
 window.turnClearArtFocus = (tab)=>{ const f = window.turnArtFocus; if(f && f.tab===tab) window.turnArtFocus = null; };
-function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook, onReadScript, readingFactIds }){
+function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook, onReadScript, readingFactIds }){
   const [view, setView] = React.useState(null);   // {url, character}
   // Keep one open flag per character so several card-contained Voice cards can
   // remain open independently without sharing UI state.
@@ -7292,7 +7292,10 @@ function CharacterSheets({ readOnly=false, wardrobeIds=[], project, characters, 
         drafting:draftingId===c.id||(draftingIds||[]).indexOf(c.id)>=0,onView:(url,ch)=>setView({url,character:ch}),
         batchActiveId,onBatchDone:batch.advance,onDelete:onDelete,
         onSuggestStates,suggestingStates:suggestingStatesId===c.id,onBuildWornProps,onRemoveOwnedItem,onRenameOwnedItem,onDraftProp,onCreateOwnedProp}))),
-    React.createElement(PagerBar,{pager:charPager,noun:"character"}));
+    React.createElement(PagerBar,{pager:charPager,noun:"character"}),
+    // CROWDS (2026-10-27): the background groups the screenplay calls for, one group image each
+    window.CrowdSheets && React.createElement(window.CrowdSheets,{ project, scenes, drafts, readOnly, onUpdateCrowd,
+      sceneFilter, onView:(url,ch)=>setView({url,character:ch}) }));
 }
 
 /* ---- pre-production readiness — ONE shared status model, used by the overview
@@ -7664,7 +7667,7 @@ window.ArtTabLock = ArtTabLock;
 function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, tabLocks, noPropsConfirmed, onSetNoProps, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp, onReadCharacterScript, readingFactIds,
   onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
-  locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, onMergeLocations, onLocationPlaceDecision, onSharedHeadDecision, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetCapture, onSetFilmStock, onUpdatePreset, onDeletePreset, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
+  onUpdateCrowd, locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, onMergeLocations, onLocationPlaceDecision, onSharedHeadDecision, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetCapture, onSetFilmStock, onUpdatePreset, onDeletePreset, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
   shots, beatsMap, onMakeSceneNeeds, onOpenStage, wardrobeIds, colorRefsOwned, onUseLookbookColorRefs, onKeepColorRefs, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch,
   onResearchFresh, onRestoreLookbook, onPurgeLookbook, onSuggestLookbookNote, suggestingLookbookId,
@@ -7755,7 +7758,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onSuggestStates,suggestingStatesId,onBuildWornProps,onRemoveOwnedItem,onRenameOwnedItem,onDelete:onDeleteCharacter,onCast,
           lookbookStale:!!_stale.characters,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("characters"),
           onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("characters","draft"),
-          lookbook,lookbookNote,onOpenLookbook:setArtView?()=>setArtView("lookbook"):null})
+          lookbook,lookbookNote,onOpenLookbook:setArtView?()=>setArtView("lookbook"):null,onUpdateCrowd})
     : artView==="props" && PropSheets
       ? React.createElement(PropSheets,{project,props,characters,scenes,drafts,onSourceClick,onUpdate:onUpdateProp,onDraft:onDraftProp,
           onDraftAll:onDraftAllProps,onAdd:onAddProp,onImportProps,onDelete:onDeleteProp,draftingId:draftingPropId,draftingIds:draftingPropIds,draftingAll:draftingAllProps,
