@@ -39,6 +39,39 @@ function vcOriginFrom(text, charName){
   return "";
 }
 
+/* AN ACCENT BY ITS SOUNDS (owner 2026-10-27): "a French accent" gave an American voice; "a soft uvular R made at the back
+   of the throat" fixed it. A voice model given only a country's name drifts to a neutral voice, so an accent saved as a
+   name gets the telltale sounds of the commonest accents added. An accent that already says how it sounds, or one this
+   table doesn't know, is left as written. */
+const VC_ACCENT_SOUNDS = [
+  [/\b(french|parisian|paris|marseille|lyon)\b/i, "soft uvular R made at the back of the throat, a dropped H, short pure vowels, stress falling at the end of each phrase"],
+  [/\b(italian|tuscan|florentine|roman|neapolitan|sicilian|venetian|milanese|elban)\b/i, "a tapped or rolled R, every vowel fully sounded, words often ending on a vowel, a sing-song rise and fall"],
+  [/\b(spanish|castilian|madrid|andalusian|mexican|argentin\w*|colombian|latin american)\b/i, "a tapped R, short pure vowels, an even syllable-by-syllable rhythm"],
+  [/\b(portuguese|brazilian|lisbon|rio)\b/i, "nasal vowels, a soft guttural R, an S that slides toward SH, a flowing rhythm"],
+  [/\b(german|bavarian|berlin|austrian|swiss german)\b/i, "W said close to V, a guttural CH at the back of the throat, crisp final consonants, firm even stress"],
+  [/\b(russian|ukrainian|moscow|slavic|polish)\b/i, "a rolled R, soft palatalised consonants, a harsh back-of-the-throat H, a heavy, flat rhythm"],
+  [/\b(cockney|east london)\b/i, "dropped H, glottal stops in place of T, TH said as F or V"],
+  [/\b(glasgow|glaswegian|scottish|scots|edinburgh)\b/i, "a tapped R, short clipped vowels, a glottal stop for T"],
+  [/\b(irish|dublin|cork|belfast)\b/i, "a soft rolling R, TH turned toward T and D, a lilting, rising rhythm"],
+  [/\b(american south|southern american|texan|texas|deep south|southern us)\b/i, "long drawn-out vowels, I flattened toward AH, a slow, easy rhythm"],
+  [/\b(australian|aussie)\b/i, "wide gliding vowels (DAY toward DIE), a rise at the end of statements"],
+  [/\b(indian|hindi|punjabi|mumbai|delhi)\b/i, "T and D made with the tongue curled back, a tapped R, an even syllable-timed rhythm"],
+  [/\b(jamaican|caribbean)\b/i, "dropped H, TH said as T or D, open vowels, a sing-song rhythm"],
+  [/\b(nigerian|ghanaian|west african)\b/i, "full clear vowels, an even syllable-timed rhythm with a tonal rise and fall"],
+  [/\b(japanese|tokyo|osaka)\b/i, "R and L merged into one light tapped sound, a vowel added after final consonants, an even, flat rhythm"],
+  [/\b(chinese|mandarin|cantonese|beijing|shanghai)\b/i, "final consonants softened or dropped, a clipped syllable-by-syllable rhythm, tones carried into the sentence"],
+  [/\b(arabic|egyptian|lebanese|syrian|saudi|moroccan)\b/i, "a guttural H and Q at the back of the throat, a rolled R, P said close to B"],
+  [/\b(turkish|istanbul)\b/i, "a tapped R, clear even vowels, stress falling on the last syllable"],
+];
+const VC_ACCENT_SOUND_WORDS = /\b(uvular|rolled|tapped|glottal|vowels?|consonants?|throat|dropped|lilt\w*|drawl\w*|rhythm|stress|nasal|guttural|palatal\w*|th said|said as)\b/i;
+function vcAccentSound(accent){
+  const a = String(accent||"").trim();
+  if(!a || VC_ACCENT_SOUND_WORDS.test(a) || /\bneutral\b|\bno (?:noticeable )?accent\b/i.test(a)) return a;
+  const hit = VC_ACCENT_SOUNDS.find(([re])=>re.test(a));
+  return hit ? a.replace(/[.;,\s]+$/,"")+": "+hit[1] : a;
+}
+window.vcAccentSound = vcAccentSound;
+
 // a non-empty, editable VOICE descriptor built deterministically from the bible
 // (no AI call) — every clause describes SOUND (age/gender → explicit accent →
 // pitch/timbre → habitual cadence → quirks → recording quality); biography words are
@@ -73,7 +106,7 @@ function buildVoiceSpec(c){
   // accent priority: authored voice block → legacy voiceAccent → identity heuristic
   const origin = String(vb.accent||"").trim() || String(c.voiceAccent||"").trim() || vcOriginFrom(role.identity, c.name);
   const accent = origin
-    ? (/\baccent|dialect|speaks\b/i.test(origin) ? origin : ("speaks English with a noticeable "+origin+" accent"))
+    ? vcAccentSound(/\baccent|dialect|speaks\b/i.test(origin) ? origin : ("speaks English with a noticeable "+origin+" accent"))
     : "";
   const quirks = String(vb.quirks||"").trim();
   const base = [

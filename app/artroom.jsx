@@ -58,6 +58,10 @@ function vfield(c, key, legacy){ return (c[key] && c[key].trim()) ? c[key] : (le
    GENERALISED (no character-specific materials) so they apply to any cast member; each owns
    its own background + the no-text rules. The character's OWN palette/materials are honoured
    via "this character's own …" phrasing rather than hard-coded props. */
+/* THE SHEET'S BACKGROUND (owner 2026-10-27): plain mid-grey on every character sheet, whatever the render style — not
+   white, not black. A sheet is a reference for the video model; on grey the figure, hair and wardrobe edges read
+   cleanly and no light or dark background bleeds into the shot. A style's own background (below) is used elsewhere. */
+const CHAR_SHEET_BACKGROUND = "plain solid mid-grey studio background (neither white nor black), even and clean across all three panels, with a soft contact shadow under the feet";
 const CHAR_RENDER_STYLES = {
   photoreal: {
     rendering: "hyperrealistic photography, full-frame sensor look, fine grain, no illustration or painterly quality",
@@ -1195,14 +1199,14 @@ function buildCharRefPrompt(c, project, props, o){
       one_face_rule: "EXACTLY ONE face appears on this sheet \u2014 the hero portrait in panel 1. The front view's head is omitted BY DESIGN (clean background above the collar, figure scale unchanged): a second rendered face makes video generators blend or invent identity.",
       scale_rule: "the front and back figures are the SAME height and scale, vertically aligned across panels 2 and 3 \u2014 the missing head must NOT enlarge the front figure",
       no_extra_views: "do not add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, or ANY info box / character-data panel (no name, height, age or traits printed on the image \u2014 that metadata travels in the prompt, never baked into pixels)",
-      background: "solid light-grey or warm off-white studio sweep, even and clean across all three panels"
+      background: CHAR_SHEET_BACKGROUND
     },
     continuity: {
       identity_rule: "the SAME identical face, build and identity in every view",
       anatomy: "true-to-design anatomy and proportions \u2014 never humanize a non-human design",
       distinguishing_features_rule: feats ? "show every distinguishing feature, in the same place and size, in every view where that part of the body is visible" : undefined,
     },
-    render: { ..._rb, rules: _rules, aspect: "16:9" },
+    render: { ..._rb, background: CHAR_SHEET_BACKGROUND, rules: _rules, aspect: "16:9" },
     style_name: ((c.renderStyleKey==="surprise" && c.surpriseRender && c.surpriseRender.label)
       ? c.surpriseRender.label
       : (renderStylePromptName(typeof inferCharacterRenderStyleKey==="function"?inferCharacterRenderStyleKey(c):(c.renderStyleKey||"photoreal")) || undefined)),
@@ -1249,7 +1253,7 @@ function buildRefFromPhotoPrompt(c, project){
   s += "Character is "+v.height+" tall ("+v.scaleClass+"). ";
   s += "RENDER STYLE: "+style.replace(/\.$/,"")+". ";
   s += "LAYOUT: a clean 3-panel casting reference sheet in 16:9 landscape with three equal-width tall vertical panels divided by thin clean vertical lines. Panel 1: close-up hero FACE PORTRAIT, front-facing, neutral controlled expression, head and shoulders, face fills most of the panel. Panel 2: full-body FRONT view at exactly the same figure height and scale as Panel 3 (same headroom, feet aligned), but with NO head rendered \u2014 clean empty background above the collar, the figure beginning at the neckline; arms relaxed. Panel 3: full-body BACK view, head-to-toe, facing away (no face visible). EXACTLY ONE face on the sheet \u2014 the panel-1 portrait; the missing head must not enlarge the front figure. No text, captions or info boxes anywhere on the image. ";
-  s += "Do NOT add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, annotations or watermarks. Solid light-grey or warm off-white studio background, soft even studio lighting, the SAME identical face/build/wardrobe in every panel, sharp focus.";
+  s += "Do NOT add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, annotations or watermarks. "+CHAR_SHEET_BACKGROUND.charAt(0).toUpperCase()+CHAR_SHEET_BACKGROUND.slice(1)+", soft even studio lighting, the SAME identical face/build/wardrobe in every panel, sharp focus.";
   return s;
 }
 window.buildRefFromPhotoPrompt = buildRefFromPhotoPrompt;

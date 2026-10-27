@@ -121,6 +121,47 @@ const STAGE_FS_SLOT = (()=>{ try{
 const STAGE_EXIT_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 01-2 2H3M21 8h-3a2 2 0 01-2-2V3M3 16h3a2 2 0 012 2v3M16 21v-3a2 2 0 012-2h3"></path></svg>';
 function _chipClass(k){ return String(k||"").toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"") || "tag"; }
 function _fmtSecs(n){ n=Number(n)||0; return (Math.round(n*10)/10).toString().replace(/\.0$/,"")+"s"; }
+/* FIX THIS TAKE (owner 2026-10-27, from a viral short drama's making-of): watch the take, say what's wrong and what to
+   keep, and the clip's prompt is rewritten from those notes (ai.jsx aiFixTakePrompt — one writing call) with everything
+   else left exactly as it was. The rewrite lands in the prompt box like an edit of your own (Undo puts the old one back);
+   Regenerate renders the new take, and Takes compares the two. */
+function StageFixTake({ prompt, disabled, maxChars, onApply }){
+  const [open, setOpen] = React.useState(false);
+  const [notes, setNotes] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState("");
+  const [done, setDone] = React.useState(null);   // { before, changes }
+  const run = async ()=>{
+    if(busy || disabled || typeof window.aiFixTakePrompt!=="function") return;
+    setBusy(true); setErr("");
+    try{
+      const r = await window.aiFixTakePrompt(prompt, notes, { maxChars });
+      if(!r || r.error){ setErr((r && r.error) || "The rewrite didn't come back. Try again."); return; }
+      setDone({ before:prompt, changes:r.changes||[] }); onApply(r.prompt);
+    }finally{ setBusy(false); }
+  };
+  if(!open) return _stEl("div",{className:"stage2-fixtake closed"},
+    _stEl("button",{type:"button",className:"stage2-prompt-view","data-testid":"stage-fix-take",disabled:!!disabled,
+      title:"Say what's wrong with this take and what to keep; the prompt is rewritten from your notes, nothing else changes",
+      onClick:()=>setOpen(true)}, "Fix this take\u2026"));
+  return _stEl("div",{className:"stage2-fixtake",role:"group","aria-label":"Fix this take"},
+    _stEl("label",{htmlFor:"stage-fix-take-notes"},"What's wrong with this take, and what to keep?"),
+    _stEl("textarea",{id:"stage-fix-take-notes",rows:3,value:notes,maxLength:1200,disabled:busy,
+      placeholder:"e.g. The fall looks fake \u2014 make it a real stumble. Add a few models waiting along the runway. Keep the acting and the camera.",
+      onChange:e=>{ setNotes(e.target.value); setErr(""); }}),
+    _stEl("div",{className:"stage2-fixtake-acts"},
+      _stEl("button",{type:"button",className:"art-draftall","data-testid":"stage-fix-take-run",disabled:busy||disabled||notes.trim().length<4,
+        title:"Rewrites only what your notes name; the references, the dialogue's words and the timings stay. Uses a little writing credit.",
+        onClick:run}, busy ? "Rewriting\u2026" : "Rewrite the prompt"),
+      done && _stEl("button",{type:"button",className:"art-draftall ghost",disabled:busy,
+        title:"Put the prompt back as it was before this rewrite", onClick:()=>{ onApply(done.before); setDone(null); }}, "Undo"),
+      _stEl("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>{ setOpen(false); setErr(""); }}, "Close"),
+      _stEl("small",{className:"stage2-fixtake-note"},"Uses a little writing credit; nothing is rendered until you press Regenerate.")),
+    err && _stEl("p",{className:"stage2-fixtake-err",role:"alert"}, err),
+    done && !err && _stEl("div",{className:"stage2-fixtake-done",role:"status"},
+      _stEl("b",null,"Prompt rewritten \u2014 press Regenerate for the new take, then compare them in Takes."),
+      done.changes.length>0 && _stEl("ul",null, done.changes.map((c,i)=>_stEl("li",{key:i},c)))));
+}
 /* CHOOSE DURATION (owner 2026-10-26: "I want the duration tool in this style"): the Generate row's clock chip opens a
    "Choose duration" box you type into — "12", "12s" or "12 seconds"; ↑ / ↓ step a second — or a bar you drag across
    (owner 2026-10-26: "add a bar that can be dragged across horizontally"), its planned length marked on it. Whole seconds from the
@@ -882,7 +923,8 @@ function stageVoiceText(c){
   }
   if(!t){
     const v=c.voice||{}, acc=String(v.accent||"").trim();
-    t=[acc&&(/accent|dialect|speaks/i.test(acc)?acc:acc+" accent"),v.pitch,v.pace,v.quirks]
+    const sound=(x)=>typeof window!=="undefined"&&typeof window.vcAccentSound==="function"?window.vcAccentSound(x):x;   // its telltale sounds (2026-10-27)
+    t=[acc&&sound(/accent|dialect|speaks/i.test(acc)?acc:acc+" accent"),v.pitch,v.pace,v.quirks]
       .map(x=>String(x||"").trim()).filter(Boolean).join("; ");
   }
   t=t.replace(/;?\s*clean close-mic recording, dry, with no background noise/ig,"").replace(/\s+/g," ").trim();
@@ -6827,6 +6869,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     createTask==="reference" && characterChoicesEl,
     createTask==="reference" && multishotEditor,
     promptBlock,
+    // a rendered take can be fixed from notes (2026-10-27)
+    !readOnly && createTask==="reference" && !!playerUrl && _stEl(StageFixTake,{ key:"fix-"+clip.id, prompt, maxChars:PANEL_PROMPT_MAX,
+      disabled:gening, onApply:(t)=>onPromptChange(t,0) }),
     composerNotices,
     composerBar(
       [ chooseDurationPill,

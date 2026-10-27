@@ -868,6 +868,19 @@ ok("a named grammar in native performance lists the spoken language lines",
   ok("the clip compiler writes sizes only from heights and sizes someone gave",Array.isArray(real.sizes)&&real.sizes.length===0&&real.compass===null);
 }
 
+/* STAGING THAT READS (2026-10-27, owner — from a viral short drama's making-of) */
+{
+  const perf=section(fullBrief,"PERFORMANCE","LIGHTING AND PHYSICAL CONTINUITY");
+  ok("every clip's PERFORMANCE asks for moves played through, no dead air and readable reactions",
+    perf.includes("Play every move through, from where it starts to where it ends as written")
+    &&perf.includes("No dead air: movement continues into and through the lines unless the screenplay holds someone still")
+    &&perf.includes("keep the listener's face readable to camera so the reaction plays"),perf.slice(0,600));
+  ok("the entrance line only when the clip's action has someone entering",!/An entrance builds/.test(fullBrief));
+  const entrance={...shotOpening,action:"Luca walks in through the double doors."};
+  const withEntrance=brief(makeClip(makeData([shotOpening]),"brief-entrance"),[entrance],entrance,true,[entrance.id],refs,opts);
+  ok("…and with an entrance, it builds before the face is seen",/An entrance builds before the face is seen: the approach first/.test(withEntrance));
+}
+
 ok("brief and clip compilation are immutable",JSON.stringify({shots:allShots,drafts})===before);
 
 console.log(pass+" passed, "+fail+" failed");

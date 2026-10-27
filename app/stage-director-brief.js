@@ -411,8 +411,17 @@
       dialogue.some(x=>!x.unit)?"Unassigned clip-level dialogue follows the screenplay's action/line order; do not invent shot or audio associations for it.":""
     ]);
     const notes=seedanceActingNotes(d,list,opts);
+    /* STAGING THAT READS (2026-10-27, owner): the fixes a viral short drama's makers kept making to Seedance takes — a move
+       that skips its middle, long silent walks and pauses, a reaction turned away from camera, a face shown before its
+       entrance has built. The entrance line only when this clip's action has someone entering. */
+    const actionText=units.map(u=>u.actions.map(b=>text(b.text)).join(" ")+" "+text(u.p.staging)+" "+text(u.sh.action)).join(" ");
+    const entering=/\b(enters|enter|walks in|comes in|steps in|strides in|bursts in|arrives|appears in the door(?:way)?|comes through the door)\b/i.test(actionText);
     const performance=section("PERFORMANCE",[
       "Play objectives through observable behavior, never generic emotion labels. Preserve authored pauses and changes through gaze, posture, breath, tempo and hand activity; keep eyes naturally alive without adding unrequested business.",
+      "Play every move through, from where it starts to where it ends as written (rising from a chair, leaving a table, crossing the floor): nobody arrives somewhere without the move that takes them there.",
+      "No dead air: movement continues into and through the lines unless the screenplay holds someone still; no long silent walks or frozen pauses the screenplay doesn't ask for. Authored pauses stay.",
+      "While one character speaks, keep the listener's face readable to camera so the reaction plays; never turn a reaction away unless the screenplay hides it.",
+      entering?"An entrance builds before the face is seen: the approach first (footsteps, the door, a back or a shadow), then the face on the turn or the first line.":"",
       notes.faces,
       ...unique(dialogue.map(x=>x.parenthetical
         ?x.label+" · "+speaker(x.row)+": "+x.parenthetical:""))

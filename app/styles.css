@@ -7127,6 +7127,18 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 .sdbar-duration-row{display:flex;justify-content:space-between;color:var(--txt-3);font:700 10px var(--f-mono)}
 .sdbar-pop-duration b{justify-self:end;font:800 12px var(--f-ui);color:var(--txt-0)}
 .sdbar-duration-min{display:block;color:var(--txt-2);font:500 10.5px/1.4 var(--f-ui)}
+/* Fix this take (2026-10-27): notes on a take rewrite the clip's prompt */
+.stage2-fixtake{display:grid;gap:8px;margin:8px 0 2px;padding:12px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2)}
+.stage2-fixtake.closed{display:flex;justify-content:flex-end;margin:4px 0 0;padding:0;border:0;background:none}
+.stage2-fixtake label{font:650 12.5px var(--f-ui);color:var(--txt-0)}
+.stage2-fixtake textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:64px;border:1px solid var(--line-3);border-radius:var(--r-m);
+  background:var(--bg-1);color:var(--txt-0);font:500 13px/1.45 var(--f-ui);padding:9px 11px}
+.stage2-fixtake textarea:focus{outline:none;border-color:var(--brand,#d67e00)}
+.stage2-fixtake-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.stage2-fixtake-note{color:var(--txt-3);font:500 11px var(--f-ui)}
+.stage2-fixtake-err{margin:0;color:var(--danger,#b3261e);font:500 12px/1.4 var(--f-ui)}
+.stage2-fixtake-done{font:500 12px/1.45 var(--f-ui);color:var(--txt-1)}
+.stage2-fixtake-done ul{margin:4px 0 0;padding-left:18px}
 /* "Choose duration" (2026-10-26): a heading and one typed box, the Generate row's clock chip opens it */
 .sdbar-pop.sdbar-pop-durfield{left:0;right:auto;min-width:300px;padding:14px 14px 12px;gap:0}
 .sdbar-durfield{display:grid;gap:10px}

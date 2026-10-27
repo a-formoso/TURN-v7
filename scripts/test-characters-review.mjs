@@ -264,6 +264,8 @@ await test("E7 one render-style control: Look dev has no free-text style; the ph
   vm.runInContext(between(art, "function charRenderBlock(c){", "window.charRenderBlock"), pb);
   // (2026-10-12, Character fidelity) the photo-based sheet also sends the body's distinguishing features
   vm.runInContext(between(art, "const CHAR_PHYS_LABELS", "/* the features a render of this character sends"), pb);
+  // (2026-10-27) every character sheet's plain mid-grey background, shared by both sheet prompts
+  vm.runInContext(art.split("\n").find(l=>l.startsWith("const CHAR_SHEET_BACKGROUND = ")), pb);
   vm.runInContext(between(art, "function buildRefFromPhotoPrompt(c, project){", "window.buildRefFromPhotoPrompt"), pb);
   assert.match(pb.buildRefFromPhotoPrompt({ name:"Ana", scriptFeatures:"A scar on the chin. A forearm panel." }, {}),
     /Distinguishing features \(from the script\), shown in every view where that part of the body is visible: A forearm panel\. /);
