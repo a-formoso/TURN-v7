@@ -102,14 +102,26 @@ function veTier(){
   const m = (window.SEEDANCE_MODELS||[]).find(x=>x && x.id==="seedance-2.5");
   return m && (m.tiers||[]).find(t=>t.id==="standard") || null;
 }
+/* the voice line is already recorded for this line in this voice: Make it again reuses it (elGenerate's own cache,
+   same text + voice + settings), so it isn't paid for twice — e.g. after a refused render (2026-10-27) */
+function veLineRecorded(c, line){
+  const lock = (c && c.voiceLock) || {};
+  if(!lock.voiceId || typeof window.vgHash!=="function" || typeof window.vgGetMeta!=="function") return null;
+  const modelId = (typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(lock) : (lock.modelId||"");
+  const meta = window.vgGetMeta(veLineAudioId(c)), url = typeof window.vgGetAudio==="function" ? window.vgGetAudio(veLineAudioId(c)) : "";
+  const base = (typeof VG_DEFAULTS!=="undefined") ? VG_DEFAULTS : {};
+  const hash = window.vgHash(String(line||"").trim(), lock.voiceId, { ...base, ...(lock.defaults||{}), modelId:modelId || ((typeof VG_TTS_MODEL!=="undefined") ? VG_TTS_MODEL : "") });
+  return (meta && url && meta.hash===hash) ? meta : null;
+}
 function veCost(c, line){
   const lock = (c && c.voiceLock) || {};
   const modelId = (typeof window.vgDeliveryModelOf==="function") ? window.vgDeliveryModelOf(lock) : (lock.modelId||"");
+  const rec = veLineRecorded(c, line);
   const words = String(line||"").split(" ").length;
-  const secs = veSeconds(words*400);   // ~2.5 words a second; the real length is read after the voice line
-  const voice = (typeof window.vgLineCredits==="function") ? Number(window.vgLineCredits(line, modelId))||0 : 0;
+  const secs = rec && rec.durationMs ? veSeconds(rec.durationMs) : veSeconds(words*400);   // ~2.5 words a second until it's recorded
+  const voice = rec ? 0 : (typeof window.vgLineCredits==="function") ? Number(window.vgLineCredits(line, modelId))||0 : 0;
   const video = (typeof window.stageRenderCost==="function" && veTier()) ? Number(window.stageRenderCost(veTier(), VE_RESOLUTION, secs))||0 : 0;
-  return { voice, video, total:voice+video, secs };
+  return { voice, video, total:voice+video, secs, recorded:!!rec };
 }
 /* make it: the voice line, then the render (each held and settled by the server like any other call) */
 async function veMake(c, gen, ctx){
@@ -188,6 +200,12 @@ function useVideoElementUrls(cast){
 /* THE CARD'S FOLD: Characters › a character › Video element */
 function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate }){
   useVideoElement(c);
+  const [, setLineTick] = React.useState(0);
+  React.useEffect(()=>{ let alive = true;
+    if(typeof window.vgLoadAudio==="function" && !(typeof window.vgGetAudio==="function" && window.vgGetAudio(veLineAudioId(c))))
+      window.vgLoadAudio(veLineAudioId(c)).then(u=>{ if(alive && u) setLineTick(t=>t+1); }, ()=>{});
+    return ()=>{ alive = false; };
+  },[c && c.id]);
   const gen = (typeof useSeedanceGen==="function") ? useSeedanceGen(veId(c)) : null;
   const [busy, setBusy] = React.useState("");
   const [err, setErr] = React.useState("");
@@ -218,7 +236,9 @@ function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate }){
     const ok = !window.appConfirm || await window.appConfirm({
       title:(s.url ? "Make "+(c.name||"this character")+"'s video element again?" : "Make "+(c.name||"this character")+"'s video element?"),
       body:"A "+cost.secs+"-second clip of "+(c.name||"them")+" saying “"+line+"” in their locked voice, made from their sheet. "
-        +"About "+cost.total+" credits: the voice line ("+cost.voice+") and the render ("+cost.video+", Seedance 2.5, 480p). "
+        +(cost.recorded
+          ? "About "+cost.total+" credits for the render (Seedance 2.5, 480p); the voice line is already recorded and is reused. "
+          : "About "+cost.total+" credits: the voice line ("+cost.voice+") and the render ("+cost.video+", Seedance 2.5, 480p). ")
         +(s.url ? "The one you have stays in its takes." : "The Stage then sends it with every clip "+(c.name||"they")+" are in."),
       confirmLabel:"Make it · "+cost.total+" credits", cancelLabel:"Cancel" });
     if(!ok) return;
@@ -285,6 +305,7 @@ window.veStatus = veStatus;
 window.veSeconds = veSeconds;
 window.vePrompt = vePrompt;
 window.veCost = veCost;
+window.veLineRecorded = veLineRecorded;
 window.veMake = veMake;
 window.veStageAsset = veStageAsset;
 window.veRoleLine = veRoleLine;

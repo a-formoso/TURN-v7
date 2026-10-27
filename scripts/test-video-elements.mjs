@@ -46,6 +46,18 @@ box.stageRenderCost=(tier,res,secs)=>Math.ceil(tier.creditRate[res]*secs*10);
 box.vgLineCredits=(t,m)=>3; box.vgDeliveryModelOf=(l)=>l.modelId;
 const cost=box.veCost(aurelio,"Every regular by the bumper, and none of them by the face.");
 ok("the price is the voice line plus the 480p Seedance 2.5 render", cost.voice===3 && cost.secs===6 && cost.video===133 && cost.total===136, JSON.stringify(cost));
+// (2026-10-27) a voice line already recorded for this line in this voice is reused, not paid for twice
+{
+  const L="Every regular by the bumper, and none of them by the face.";
+  box.vgHash=(t,v,st)=>[t,v,st.modelId,st.stability].join("|");
+  box.vgGetAudio=(id)=>id==="ve-line-c1"?"https://cdn/line.mp3":"";
+  box.vgGetMeta=(id)=>id==="ve-line-c1"?{ hash:[L,"v-1","eleven_v4",0.7].join("|"), durationMs:3600 }:null;
+  const again=box.veCost(aurelio,L);
+  ok("already recorded: no voice cost, the length from the recording", again.recorded && again.voice===0 && again.secs===5 && again.total===again.video, JSON.stringify(again));
+  ok("another line or another voice is a new recording", !box.veCost(aurelio,"A different line for the record, friend.").recorded
+    && !box.veCost({...aurelio,voiceLock:{voiceId:"v-2",modelId:"eleven_v4",defaults:{stability:0.7}}},L).recorded);
+  delete box.vgHash; delete box.vgGetAudio; delete box.vgGetMeta;
+}
 
 // making it
 const calls=[];
@@ -132,6 +144,7 @@ ok("the fold: Write audition lines, Use this, your own line, back to the screenp
     /What they want: Keep the ferry running/.test(asked) && /How they sound: older male voice, soft uvular R/.test(asked)
     && /do not reuse them\)\n- Every regular by the bumper\./.test(asked) && /8 to 20 words each/.test(asked)
     && /accent's telltale sounds/.test(asked) && /Written in Italian\./.test(asked) && /not shouting, not crying/.test(asked));
+  ok("the confirmation says when the voice line is reused", ui.includes("the voice line is already recorded and is reused."));
   ok("Frances knows about audition lines", /AUDITION LINES \(2026-10-27\): 'Write audition lines' in the fold/.test(aiSrc));
 }
 console.log(pass+" passed, "+fail+" failed");

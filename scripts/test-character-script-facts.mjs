@@ -417,7 +417,9 @@ await test("E2 the vision call: the facts with their quotes, sides from the char
     aiVisionComplete:async (messages, images)=>{ sent = { prompt:messages[0].content, images };
       return { vision, text:JSON.stringify({ results:[{ n:1, status:"ok" }, { n:2, status:"mismatch", issue:"the missing fingers are on the RIGHT hand", specOk:true },
         { n:3, status:"mismatch", issue:"looks mid 30s", specOk:false, specFix:"60s, weathered" }, { n:4, status:"unclear" }, { n:9, status:"mismatch" }] }) }; } });
-  vm.runInContext(between(ai, "async function aiCharacterFidelityCheck(item){", "window.aiCharacterFidelityCheck = aiCharacterFidelityCheck;")+"; window.aiCharacterFidelityCheck = aiCharacterFidelityCheck;", box);
+  // (2026-10-27) the rules and the fact lines are shared with the QA check, which reads them in the same image read
+  vm.runInContext(between(ai, "function _fidelityFactLines(facts){", "async function aiImageQA(item){")
+    + between(ai, "async function aiCharacterFidelityCheck(item){", "window.aiCharacterFidelityCheck = aiCharacterFidelityCheck;")+"; window.aiCharacterFidelityCheck = aiCharacterFidelityCheck;", box);
   const facts = [{ field:"build", value:"wiry", quote:"wiry", sceneNo:1 }, { field:"marks", value:"missing two fingers on the left hand", quote:"His left hand is missing two fingers.", sceneNo:1 },
     { field:"age", value:"60s", quote:"(60s", sceneNo:1 }, { field:"marks", value:"koi tattoo", quote:"koi tattoo", sceneNo:4 }];
   const r = await box.aiCharacterFidelityCheck({ name:"Kai Reyes", url:"https://x/sheet.png", facts, spec:{ apparent_age:"30s" } });
@@ -481,8 +483,10 @@ await test("E5 the button: next to QA check on the sheet and on each variant; sa
   assert.equal(b.props.disabled, false); assert.equal(textOf(b), "Script check");
   assert.match(b.props.title, /\(5 facts: age, build, marks with their side and place…\)[^]*One vision read \(writing credits, no image spend\)\.$/);
   assert.equal(W.ScriptCheckButton({ gen:{ genUrl:"" }, c:KAI_READ(), drafts }), null, "no image, no check");
-  assert.ok(art.includes('React.createElement(ScriptCheckButton,{ gen, c, drafts, noun:"character sheet", onUpdate:readOnly ? null : onUpdate })'));
-  assert.ok(art.includes('React.createElement(ScriptCheckButton,{ gen, c, drafts, sceneId:st.sceneId||"", variantLabel:(st.label||vtag), noun:vtag+" sheet" })'));
+  // (owner 2026-10-27) the cards no longer show it: the QA check reads the screenplay in the same read
+  assert.ok(!art.includes("React.createElement(ScriptCheckButton,{"), "no Script check button on the cards");
+  assert.ok(art.includes('script:{ c, drafts, onUpdate:readOnly ? null : onUpdate } })'));
+  assert.ok(art.includes('script:{ c, drafts, sceneId:st.sceneId||"", variantLabel:(st.label||vtag) } })'));
   assert.ok(art.includes("rep = await window.aiCharacterFidelityCheck({ name:c.name, url:gen.genUrl, facts, spec:charQaSpecFields(c, { likeness:lk }), variant:variantLabel||\"\" });"));
   assert.ok(ai.includes("const res = await aiVisionComplete([{ role:\"user\", content:prompt }], [img]);\n  if(!res.vision) return { unsupported:true };\n  const j = extractJSON(res.text);\n  if(!j || !Array.isArray(j.results)) return null;"),
     "the QA check's paid vision path");

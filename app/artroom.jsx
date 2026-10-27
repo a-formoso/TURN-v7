@@ -4066,7 +4066,68 @@ function _qaDerivedEditInstruction(r){
   return "Targeted correction \u2014 change NOTHING else about the image (framing, faces, lighting and style stay exactly as they are): "
     + parts.slice(0,6).join("; ") + ".";
 }
-function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, specFields, onApplySpec, editCost, regenCost }){
+/* THE SCREENPLAY PART of a character sheet's QA check (owner 2026-10-27: Script check folded into QA check, one button,
+   one image read): where the sheet breaks what the screenplay states, each with its quote; "Apply to spec" where the
+   card's spec is wrong or silent, then Regenerate. A variant's wardrobe and injuries are fixed in its change text. */
+function QaScriptPart({ c, script, note, gening, variant, noun, onApply, onRegen, regenCost, onClose }){
+  const [applied, setApplied] = React.useState({});
+  const curRef = React.useRef({ ...(c||{}) });
+  const fieldLab = (f)=> (CHAR_FACT_LABELS[f] || f);
+  if(!script) return note ? React.createElement("div",{className:"qa-sec qa-script","data-testid":"qa-script-part"},
+    React.createElement("div",{className:"qa-sec-lab"},"Against the screenplay"),
+    React.createElement("div",{className:"phys-note"}, note)) : null;
+  if(script.failed) return React.createElement("div",{className:"qa-sec qa-script","data-testid":"qa-script-part"},
+    React.createElement("div",{className:"qa-sec-lab"},"Against the screenplay"),
+    React.createElement("div",{className:"phys-note"},"The screenplay part didn't come back this time. Run the QA check again to see it."));
+  const mism = script.mismatches || [];
+  const fixFor = (m)=>{
+    if(variant && (m.fact.field==="wardrobe" || m.fact.field==="injury")) return {};
+    const value = m.fact.field==="marks" ? m.fact.value : (m.specFix || m.fact.value);
+    return charFidelityFixPatch(curRef.current, m.fact.field, value);
+  };
+  const apply = (m, i)=>{
+    const patch = fixFor(m);
+    if(!Object.keys(patch).length || !onApply) return;
+    curRef.current = { ...curRef.current, ...patch };
+    onApply(patch);
+    setApplied(a=>({ ...a, [i]:true }));
+  };
+  const anyApplied = Object.keys(applied).length>0;
+  return React.createElement("div",{className:"qa-sec qa-script","data-testid":"qa-script-part"},
+    React.createElement("div",{className:"qa-sec-lab"},"Against the screenplay \u00b7 "+(script.checked||0)+" fact"+((script.checked||0)!==1?"s":"")
+      +(mism.length ? " \u00b7 "+mism.length+" mismatch"+(mism.length!==1?"es":"") : "")),
+    !mism.length
+      ? React.createElement("div",{className:"qa-clean"}, React.createElement(Icon.check,{s:14}),"Matches the script \u2014 nothing to fix.")
+      : mism.map((m,i)=>{
+          const fix = fixFor(m), canApply = !m.specOk && !!onApply && Object.keys(fix).length>0;
+          return React.createElement("div",{key:i,className:"qa-item script-check-item"},
+            React.createElement("span",{className:"qa-dot major",title:"Doesn't match the script"}),
+            React.createElement("div",{className:"qa-item-body"},
+              React.createElement("div",{className:"qa-chips"}, React.createElement("span",{className:"qa-where"}, fieldLab(m.fact.field)),
+                React.createElement("span",{className:"qa-where"}, "Sc "+(m.fact.sceneNo!=null?m.fact.sceneNo:"?"))),
+              React.createElement("div",{className:"qa-what"},
+                "The script says \u201c"+String(m.fact.quote||"").replace(/\s+/g," ")+"\u201d \u2014 the sheet: "+(m.issue||"it differs")+"."),
+              React.createElement("div",{className:"script-check-fix"},
+                m.specOk
+                  ? React.createElement("span",{className:"phys-note"},"The spec already says it \u2014 the image missed it: regenerate.")
+                  : canApply
+                    ? React.createElement("button",{className:"ns-btn ghost qa-apply-btn",disabled:!!applied[i]||gening,
+                        title:"Write the script's version into the spec field the sheet is made from \u2014 then regenerate",
+                        onClick:()=>apply(m,i)},
+                        React.createElement(Icon.check,{s:12}), applied[i] ? "Applied to spec" : "Apply to spec")
+                    : React.createElement("span",{className:"phys-note"}, variant
+                        ? "Fix it in this variant's change text, or on the character's card, then regenerate."
+                        : "Fix the spec on the card, then regenerate."))));
+        }),
+    (script.unclear && script.unclear.length>0) && React.createElement("div",{className:"phys-note"},
+      "Not visible in any view: "+script.unclear.map(f=> fieldLab(f.field)+": "+f.value).join(" \u00b7 ")),
+    mism.length>0 && onRegen && React.createElement("div",{className:"qa-apply-row"},
+      React.createElement("button",{className:"ns-btn qa-apply-btn "+(anyApplied || mism.some(m=>m.specOk) ? "primary" : "ghost"),disabled:gening,
+        title:"Regenerate the "+(noun||"sheet")+" from the current spec (one image) \u2014 the current version stays in history",
+        onClick:()=>{ onRegen(); onClose(); }},
+        React.createElement(Icon.sparkles,{s:12}),"Regenerate", typeof window.nbCostChip==="function" && window.nbCostChip(1, regenCost))));
+}
+function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, specFields, onApplySpec, editCost, regenCost, scriptPart }){
   const r = report;
   const [applying, setApplying] = React.useState(false);
   // "Apply to spec": fold the prompt advice into the card's own drafted fields —
@@ -4132,6 +4193,8 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
             r.inventions.length>0 && React.createElement("div",{className:"qa-sec"},
               React.createElement("div",{className:"qa-sec-lab"},"Invented — not in the prompt"),
               r.inventions.map((x,i)=>finding(x,"inv"+i,true)))),
+      // the screenplay part (character sheets, 2026-10-27)
+      scriptPart && React.createElement(QaScriptPart,{ ...scriptPart, script:r.script, gening, noun, regenCost, onRegen, onClose }),
       // the verdict, spelled out — what to do with this image
       React.createElement("div",{className:"qa-rec "+r.action},
         React.createElement("span",{className:"qa-rec-lab"},"Recommendation"),
@@ -4170,7 +4233,7 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
 /* ---- QA button — lives in the card controls and in the shot head row.
    Self-contained: busy state, the vision
    read, and the report modal. Hidden until the card has a generated image. */
-function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty }){
+function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script }){
   const [busy, setBusy] = React.useState(false);
   const [report, setReport] = React.useState(null);
   // Apply-to-spec REGENERATES immediately (user ruling 2026-07-18: the current sheet
@@ -4193,6 +4256,18 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
       title:"QA check unlocks once this card has a generated image — it reads the "+(noun||"sheet")+" against the prompt that made it. Generate the "+(noun||"image")+" first."},
       React.createElement(Icon.eye,{s:12}),"QA check");
   }
+  // a character sheet's QA also checks the screenplay's facts about them, in the same read (2026-10-27: the Script
+  // check's facts — charFidelityFacts — once the script has been read for them)
+  const scriptFacts = ()=>{
+    const c = script && script.c;
+    if(!c) return { facts:[], spec:null, note:"" };
+    const lk = charLikenessGivesFace(c);
+    const has = !!(c.scriptFacts && Array.isArray(c.scriptFacts.facts));
+    const facts = has ? charFidelityFacts(c, { drafts:script.drafts, likeness:lk, sceneId:script.sceneId||"" }) : [];
+    const note = !has ? "Not checked: the script hasn't been read for "+(c.name||"this character")+" yet."
+      : (!facts.length ? "The script states nothing this sheet can show"+(lk ? " (the likeness gives the face)" : "")+"." : "");
+    return { facts, spec:charQaSpecFields(c, { likeness:lk }), note };
+  };
   const run = async ()=>{
     if(busy || gen.gening) return;
     // the contract: the version's stored generation prompt — or, for UPLOADED /
@@ -4210,7 +4285,9 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
     setBusy(true);
     let rep = null;
     try{
-      rep = await window.aiImageQA({ kind:noun||"sheet", name, url:gen.genUrl, prompt:contract });
+      const sf = scriptFacts();
+      rep = await window.aiImageQA({ kind:noun||"sheet", name, url:gen.genUrl, prompt:contract,
+        ...(sf.facts.length ? { facts:sf.facts, spec:sf.spec, variant:(script&&script.variantLabel)||"", name:(script&&script.c&&script.c.name)||name } : {}) });
     }catch(e){
       const msg = (window.turnSafeError||((x)=>x))((e&&e.message)||"The QA read failed.");
       if(window.appToast) window.appToast(msg||"The QA read failed — try again.","info");
@@ -4224,19 +4301,24 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
   };
   return React.createElement(React.Fragment,null,
     React.createElement("button",{className:(className||"char-draft-btn ghost")+(busy?" busy":""),disabled:busy||gen.gening,
-      title:"QA check — re-reads this "+(noun||"sheet")+" against the exact prompt that generated it: deviations, invented content, per-panel faults, and whether to edit or regenerate. One vision read (writing-model credits, no image spend).",
+      title:"QA check — re-reads this "+(noun||"sheet")+" against the exact prompt that generated it: deviations, invented content, per-panel faults, and whether to edit or regenerate"
+        +((script && script.c) ? "; and against what the screenplay states about "+(script.c.name||"them")+", with the line each mismatch breaks" : "")
+        +". One vision read (writing-model credits, no image spend).",
       onClick:run},
       busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.eye,{s:12}),
       busy ? "QA…" : "QA check"),
     report && ReactDOM.createPortal(React.createElement(QaReport,{ name, noun, report, gening:gen.gening,
       specFields,
+      scriptPart: (script && script.c) ? { c:script.c, variant:!!script.variantLabel, note:scriptFacts().note,
+        onApply: script.onUpdate ? (patch)=>script.onUpdate(script.c.id, patch) : null } : null,
       onApplySpec: onApplySpec ? (patch)=>{ onApplySpec(patch); setPendingRegen(true); } : undefined,
       onClose:()=>setReport(null),
       // a likeness sheet's renders send its photos: these prices count every image (2026-10-10, owner — Likeness review)
       editCost: gen.likenessEditRefs ? { refs: 1 + gen.likenessEditRefs + ((gen.refCounts && gen.refCounts().attach) || 0) } : undefined,
       regenCost: (gen.likenessRefs && gen.refCounts) ? { refs: gen.refCounts().generate } : undefined,
       onRunEdit:(instr)=>gen.generate({ editInstruction:instr }),
-      onRegen:()=>gen.generate() }), document.body));
+      // one render later, so a screenplay fix just applied to the spec is in the prompt (the Apply-to-spec rule above)
+      onRegen:()=>setPendingRegen(true) }), document.body));
 }
 window.QaCheckButton = QaCheckButton;
 
@@ -5565,9 +5647,10 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
     gen.genUrl && React.createElement("div",{className:"card-qa-row"},
       React.createElement(QaCheckButton,{ gen, name:(viewEntity.name||"")+" \u00b7 "+(st.label||vtag), noun:vtag+" sheet",
         specFields:()=>({ what_changed:(st.change||"") }),
-        onApplySpec:(patch)=>{ if(patch.what_changed!=null) onChange({ change:patch.what_changed, suggested:false }); } }),
-      // the Script check of this variant: the character's facts + its own scene's wardrobe and injuries (2026-10-12)
-      React.createElement(ScriptCheckButton,{ gen, c, drafts, sceneId:st.sceneId||"", variantLabel:(st.label||vtag), noun:vtag+" sheet" })),
+        onApplySpec:(patch)=>{ if(patch.what_changed!=null) onChange({ change:patch.what_changed, suggested:false }); },
+        // the screenplay part: the character's facts + this variant's own scene's wardrobe and injuries (the Script
+        // check, folded into the QA check 2026-10-27)
+        script:{ c, drafts, sceneId:st.sceneId||"", variantLabel:(st.label||vtag) } })),
     !baseGenUrl && React.createElement("div",{className:"state-hint"},
       React.createElement(Icon.alert,{s:12}),
       gen.likenessUsable
@@ -5980,9 +6063,10 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
               // coreBody the prompt ignores once a physique exists
               specFields:()=> charQaSpecFields(c, { likeness:charLikenessGivesFace(c) }),
               onApplySpec:(patch)=>{ const up = charQaSpecPatch(c, patch);
-                if(Object.keys(up).length) onUpdate(c.id, up); } }),
-            // the Script check (2026-10-12, Character fidelity step 4): the sheet against what the screenplay states
-            React.createElement(ScriptCheckButton,{ gen, c, drafts, noun:"character sheet", onUpdate:readOnly ? null : onUpdate })))),
+                if(Object.keys(up).length) onUpdate(c.id, up); },
+              // the screenplay part (the Script check, folded into the QA check 2026-10-27): the sheet against what the
+              // screenplay states, in the same read
+              script:{ c, drafts, onUpdate:readOnly ? null : onUpdate } })))),
       // FACE AND VOICE, EACH ITS OWN (2026-10-11, owner — real voices): which face and which voice this character has —
       // "Face: Sam (likeness) · Voice: Sam (real voice)" / "Voice: designed" / "Voice: from the library"
       (()=>{ const line = (typeof window.vcFaceVoiceLine==="function") ? window.vcFaceVoiceLine(lkInfo, c.voiceLock) : "";
