@@ -14,7 +14,10 @@ t("the master sheet's layout is three equal panels: face, front without a head, 
   assert.ok(spec.includes('"a 3-panel casting reference sheet in 16:9 landscape: three EQUAL-width tall vertical panels'));
   assert.equal((spec.match(/"PANEL \d/g) || []).length, 3);
   assert.ok(spec.includes("PANEL 1 \\u2014 close-up hero FACE PORTRAIT") && spec.includes("PANEL 3 \\u2014 full-body BACK view"));
-  assert.ok(spec.includes("but the head is NOT rendered: above the collar there is only clean empty background; the figure begins at the neckline"));
+  // (owner 2026-10-27) no chin, mouth or neck under a cropped face: an invisible person wearing the clothes
+  assert.ok(spec.includes("but NO head and NO neck are rendered: an invisible person wearing the clothes"));
+  assert.ok(spec.includes("no chin, jaw, mouth, lips, neck or throat skin anywhere above the collar (the face is not cropped, cut off or half-shown"));
+  assert.ok(!spec.includes("the figure begins at the neckline"));
   assert.ok(spec.includes('one_face_rule: "EXACTLY ONE face appears on this sheet') && spec.includes("the missing head must NOT enlarge the front figure"));
   assert.ok(!/THREE-QUARTER FRONT view|PANEL 4|four tall|across all four panels/.test(spec));
   assert.ok(spec.includes("do not add side, profile or three-quarter views"));
@@ -22,7 +25,7 @@ t("the master sheet's layout is three equal panels: face, front without a head, 
 t("the from-a-photo sheet asks for the same three panels", () => {
   const photo = art.slice(art.indexOf("function buildRefFromPhotoPrompt"), art.indexOf("window.buildRefFromPhotoPrompt"));
   assert.ok(photo.includes("LAYOUT: a clean 3-panel casting reference sheet in 16:9 landscape with three equal-width tall vertical panels"));
-  assert.ok(photo.includes("but with NO head rendered") && photo.includes("EXACTLY ONE face on the sheet") && !/4-panel|THREE-QUARTER FRONT/.test(photo));
+  assert.ok(photo.includes("but with NO head and NO neck rendered") && photo.includes("EXACTLY ONE face on the sheet") && !/4-panel|THREE-QUARTER FRONT/.test(photo));
 });
 t("the sheet's one-line descriptions and Frances say three panels", () => {
   assert.ok(art.includes('"3-panel casting reference sheet: close-up face portrait, full-body front view without the head, full-body back view"'));
@@ -30,6 +33,6 @@ t("the sheet's one-line descriptions and Frances say three panels", () => {
   assert.ok(!/4-panel casting reference sheet|4-panel character sheet|4-panel design/.test(art + img));
   assert.ok(ai.includes("a 16:9 casting-reference layout with three equal vertical panels (owner 2026-10-27)"));
   assert.ok(ai.includes('.replaceAll("4-panel character sheet", "3-panel character sheet")'));
-  assert.ok(["20261027-hs95", "20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101", "20261027-hs102"].some(k => html.includes('app/artroom.jsx?v=' + k + '"')));
+  assert.ok(["20261027-hs95", "20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101", "20261027-hs102", "20261027-hs103"].some(k => html.includes('app/artroom.jsx?v=' + k + '"')));
 });
 console.log(n + " passed, 0 failed");
