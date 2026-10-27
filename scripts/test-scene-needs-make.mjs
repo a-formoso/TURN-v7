@@ -174,7 +174,7 @@ await test("4b a reference count known only as a maximum is said as 'up to'", as
 await test("4c the plate counts mirror the generators (locations.jsx): the layout's plate or a room's cut-out panels + pages, capped at 6", ()=>{
   // (2026-10-14) the references before the pages (locationPlateFixedRefCount), then whole scenes' pages in the slots left
   const fn = between(locs, "function locationPlateFixedRefCount(l){", "/* a room & time plate:");
-  assert.ok(fn.includes("if(!parent) return { n:(st.source.iso || st.plan.source.iso) ? 1 : 0 };") && fn.includes("return { n:views || 1 };")
+  assert.ok(fn.includes("if(!parent) return { n:(st.plan.source && st.plan.source.iso) ? 1 : 0 };") && fn.includes("return { n:views || 1 };")
     && fn.includes("return { n:Math.min(6, fixed.n+pages), exact:true };")
     && fn.includes("locationScriptPageCount(l, null, null, Math.max(0, 6-fixed.n))"));
   // …counted without drawing: the same whole-scene choice as the pages the generator attaches

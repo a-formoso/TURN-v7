@@ -1238,7 +1238,10 @@ function locationSpatialPrompt(l, opts){
 }
 async function locationSpatialReferences(l){
   const state=requireLocationSpatialPlan(l);
-  if(!state.source.iso && !state.plan.source.iso)return [];   // no plate behind the layout (yet)
+  /* only a plate the layout was READ from (owner 2026-10-27: Marmorica's layout was drafted from text, yet its last
+     plate went back in as "the source plate for the reviewed layout", and the next plate copied that plate's invented
+     shelter) — a layout with no plate behind it sends none */
+  if(!state.plan.source || !state.plan.source.iso)return [];
   /* (2026-10-14, owner — "go ahead with all of it") never the whole sheet to a sub-space: the layout reaches it as
      text (shared_set_layout); the parent goes in as single cut-out panels (locationSubspaceRootReferences) */
   if(state.owner && l && state.owner.id!==l.id)return [];
@@ -2598,7 +2601,10 @@ async function _locLoadPlate(id){
    room & time and environment-state plates are; it has no parent to cut panels from. */
 /* ONE LETTERING RULE (owner 2026-10-27): "no text" fought the spec's own stencilled deck and locker numbers, and the
    model drew gibberish ("DECK N1 30", "1112 1153"). Lettering the spec gives in quotes is drawn exactly; nothing else. */
-const LOC_TEXT_RULE = "no text, labels or captions anywhere, except lettering the spec gives in quotes (a stencilled number, a sign), which shows exactly that text and nothing more; lettering the spec names without quoted text shows no legible characters; no watermarks";
+/* (2026-10-27, the first test run) "except lettering the spec gives in quotes" let the model caption its panels
+   ("MARMORICA - CAR DECK (VIEWS ANNOTATIONS)", "VIEW A: 3/4 DIAGONAL"): nothing is ever added ON the picture; the only
+   lettering is painted or stencilled ON an object in the set, exactly as quoted */
+const LOC_TEXT_RULE = "no text added to the picture of any kind: no titles, headings, labels, captions, panel or view names, annotations, numbers or watermarks over the image or in its borders; the ONLY lettering is painted or stencilled ON an object in the set where the spec quotes it (e.g. a stencilled \"1\" on a bulkhead), exactly that text; any other lettering the spec names shows no legible characters";
 const LOC_PANEL_CROP_MAX_DIM = 1536, LOC_MATERIAL_CROP_MAX_DIM = 640, LOC_PREVIEW_CROP_MAX_DIM = 320;
 /* (2026-10-27) a panel sent as a VIEW (a matched quadrant, or the parent's panel of the room itself) is scaled up to at
    least this long side when the plate is small — a 2K plate's quadrant is ~1000 px */
@@ -4586,6 +4592,8 @@ function locationPromptBudget(opts){
 /* one AVOID list from several comma lists: each term once (case-insensitive), in first-seen order */
 function locationAvoidText(...lists){
   const seen = new Set(), out = [];
+  // (2026-10-27) never captioned panels
+  lists = lists.concat(["panel titles, view labels, captions, annotations, text overlays"]);
   lists.forEach(x=>String(x||"").split(/\s*,\s*/).forEach(t=>{
     const term = t.replace(/\s+/g," ").trim().replace(/\.$/,"").trim(), k = term.toLowerCase();
     if(term && !seen.has(k)){ seen.add(k); out.push(term); } }));
@@ -5071,7 +5079,8 @@ function buildLocationRefPrompt(l, project, opts){
   const st = stagingOf(l);
   const clean = (x)=>String(x||"").replace(/\.$/,"").trim();
   const fixtures = [];
-  if(clean(st.bg.center)) fixtures.push({ what: clean(st.bg.center), position: "center background \u2014 the primary landmark" });
+  // (2026-10-27) not "dead-centre": the main view is a three-quarter from a corner, and "center" made it a straight-on shot
+  if(clean(st.bg.center)) fixtures.push({ what: clean(st.bg.center), position: "background \u2014 the primary landmark, seen at an angle from the main camera's corner, not centred" });
     if(clean(st.mid.left))  fixtures.push({ what: clean(st.mid.left),  position: "screen-left in the principal camera view only; not a room-space coordinate" });
     if(clean(st.mid.right)) fixtures.push({ what: clean(st.mid.right), position: "screen-right in the principal camera view only; not a room-space coordinate" });
   if(clean(st.fg.left))   fixtures.push({ what: clean(st.fg.left),   position: "near foreground left" });
@@ -6049,8 +6058,8 @@ function locationPlateFixedRefCount(l){
   let parent = null, st = null;
   try{ parent = locationParentOf(l); }catch(e){}
   try{ st = requireLocationSpatialPlan(l); }catch(e){ return { n:null }; }
-  // a main location: the layout's plate (its own) when the layout was read from one
-  if(!parent) return { n:(st.source.iso || st.plan.source.iso) ? 1 : 0 };
+  // a main location: the layout's plate (its own) when the layout was read from one (2026-10-27: read FROM it)
+  if(!parent) return { n:(st.plan.source && st.plan.source.iso) ? 1 : 0 };
   /* a sub-space (2026-10-14): the parent's quadrants matched to a view through an opening — or its one material panel
      (an upper bound: it can be unticked); never the parent's or the layout's whole sheet */
   let views = 0;
@@ -6085,7 +6094,8 @@ function sluglineUnitPlateRefCount(l, u, opts){
     if(o.rootPlate!==true) exact = false;
   }
   // the layout's own plate reaches only the location that owns it (a sub-space gets the layout as text)
-  try{ const st = requireLocationSpatialPlan(l); if((st.source.iso || st.plan.source.iso) && st.owner.id===l.id) ids.add(st.owner.id); }catch(e){}
+  // …and only when the layout was read from it (2026-10-27, the same rule as locationSpatialReferences)
+  try{ const st = requireLocationSpatialPlan(l); if(st.plan.source && st.plan.source.iso && st.owner.id===l.id) ids.add(st.owner.id); }catch(e){}
   // the pages the generator attaches: whole scenes of the unit in the slots left (sluglineUnitPageRefs)
   let pages = 0;
   try{ pages = sluglineUnitPageCount(l, u, C.scenes||[], C.drafts||{}, Math.max(0, LOC_PLATE_MAX_REFS-ids.size-root)); }

@@ -81,7 +81,11 @@ box.locationSpatialPlanState=()=>({ready:true,stale:false,owner:ship,plan,source
 }
 // D
 ok("D one lettering rule everywhere, quoted lettering exact", (loc.match(/LOC_TEXT_RULE/g)||[]).length>=4 && !loc.includes('"no text, no labels, no typography, no captions, no watermarks"')
-  && box.LOC_TEXT_RULE===undefined && /except lettering the spec gives in quotes/.test(loc));
+  && box.LOC_TEXT_RULE===undefined && loc.includes("no text added to the picture of any kind: no titles, headings, labels, captions, panel or view names, annotations"));
+ok("D every location prompt's AVOID list bans captioned panels", box.locationAvoidText("people")==="people, panel titles, view labels, captions, annotations, text overlays");
+ok("E the last plate goes back as the layout's source only when the layout was read from it",
+  loc.includes("if(!state.plan.source || !state.plan.source.iso)return [];"));
+ok("E the main view's landmark is at an angle, not dead-centre", loc.includes("the primary landmark, seen at an angle from the main camera's corner, not centred"));
 ok("D no '8k / hyper realistic / commercial photography'", !/"8k ultra detailed"|"hyper realistic"|"photorealistic commercial photography"/.test(loc));
 // E
 ok("E the composition is the top-left panel, in the plate prompt and in its drafter",

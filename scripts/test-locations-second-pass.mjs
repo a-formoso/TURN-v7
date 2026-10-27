@@ -104,7 +104,8 @@ await test("B2 a plate that hasn't loaded on this device is unknown — never 't
   assert.equal(box.locationSpatialPlanState(kitchen).ready, true);
   metas.house = { iso:"2026-10-05" };
   assert.equal(box.locationSpatialPlanState(kitchen).stale, true, "a loaded, different plate still asks");
-  assert.ok(locs.includes("if(!state.source.iso && !state.plan.source.iso)return [];"));
+  // (2026-10-27) the plate goes back as the layout's source only when the layout was read from it
+  assert.ok(locs.includes("if(!state.plan.source || !state.plan.source.iso)return [];"));
 });
 await test("B3 derived plates say 'Parent plate changed' only when they recorded the parent; specs by signature", ()=>{
   metas.house = { iso:"A" };
