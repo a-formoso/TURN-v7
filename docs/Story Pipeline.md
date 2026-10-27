@@ -560,7 +560,12 @@ Each entity gets a canonical, reusable reference so every generated image stays 
   choice — **Generate N missing** or **Regenerate all** — so you never silently overwrite finished art.
   The same engine powers the per-scene **"Generate all in Scene X"** action; only one batch runs at a time.
 
-- **Locations** are derived from the script's sluglines; each gets a multi-angle **coverage plate**
+- **Locations** are derived from the script's sluglines. *(Shared-head parents, approved 2026-10-26 by owner:)*
+  spaces the screenplay only ever names as **"PLACE – ROOM"** (MARMORICA – CAR DECK, MARMORICA – UPPER DECK…) are
+  rooms of one place: a new film's first derivation makes a **parent card** for that place and nests every
+  "PLACE – …" / "PLACE …" space under it; an existing film is never regrouped on its own — the Locations tab
+  **suggests** it (Group under PLACE / Keep separate). The parent holds the shared identity, one layout with one
+  north and the 2×2 plate each room's plates are made from. Each location gets a multi-angle **coverage plate**
   and time-of-day variants. **Spec before render:** every location first gets a written **design spec**
   — *architecture, materials, lighting, significance, render style* (the AI "Draft" / "Draft all" pass
   writes these from the script). Those five fields ARE the plate prompt, so the spec must exist

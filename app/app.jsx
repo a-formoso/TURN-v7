@@ -5462,6 +5462,29 @@ function App(){
     }
     setLocations(cur=> locationPlaceDecisionApply(cur, aId, bId, kind) || cur);
   };
+  /* SHARED-HEAD PARENTS (2026-10-26, owner — "go ahead with the locations plan"): the owner's answer to "These places
+     are parts of Marmorica" — group them under a new Marmorica card, or keep them as places of their own (locations.jsx
+     locationSharedHeadApply). Asks first; nothing is generated or charged, no card, plate or layout is deleted. */
+  const decideSharedHead = async (sug, kind)=>{
+    if(!canMutateSharedFilm() || !sug || typeof locationSharedHeadApply!=="function") return;
+    const names = (sug.children||[]).map(c=>c.name).filter(Boolean);
+    const list = names.slice(0,6).join(", ")+(names.length>6?" and "+(names.length-6)+" more":"");
+    if(typeof window.appConfirm==="function"){
+      const ok = await window.appConfirm(kind==="group" ? {
+          title:"Group "+names.length+" places under \u201c"+sug.headName+"\u201d?",
+          body:"A new \u201c"+sug.headName+"\u201d card becomes the place they're all part of: "+list+". It holds what they share \u2014 "
+            +"the place's identity (The Space), one shared layout with one north, and the 2\u00d72 plate every room's plates are made from. "
+            +"Each room keeps its card, its plates and its notes. Next: draft "+sug.headName+"'s specification, review its shared layout "
+            +"(it starts from the most complete room's layout) and generate its plate; regenerate a room's plate when you want it made from it. "
+            +"Nothing is generated or charged now.",
+          confirmLabel:"Group under "+sug.headName, cancelLabel:"Cancel" }
+        : { title:"Keep these places separate?",
+          body:list+" stay locations of their own, and \u201c"+sug.headName+"\u201d won't be suggested again"+(currentShowId?" \u2014 in any episode of the Show":"")
+            +". Nothing is generated or charged.", confirmLabel:"Keep separate", cancelLabel:"Cancel" });
+      if(!ok || !canMutateSharedFilm()) return;
+    }
+    setLocations(cur=> locationSharedHeadApply(cur, sug.headKey, sug.headName, (sug.children||[]).map(c=>c.id), kind) || cur);
+  };
   const purgeLocation = async (id)=>{
     if(!canMutateSharedFilm()) return;
     const item = (trash.locations||[]).find(x=>x.id===id);
@@ -5787,7 +5810,10 @@ function App(){
   const pullLocationsFromScript = React.useCallback(()=>{
     if(typeof deriveLocations!=="function") return;
     if(artRoomReadOnlyRef.current) return;   // (also run by the auto-seed below — silent)
-    const derived = deriveLocations(scenes, [...(locations||[]), ...((trash&&trash.locations)||[])], drafts);   // never one in Recently deleted
+    const known = [...(locations||[]), ...((trash&&trash.locations)||[])];
+    // a film's FIRST derivation groups every shared "PLACE - ROOM" head under a parent card (SHARED-HEAD PARENTS,
+    // 2026-10-26); later ones keep only the heads that have a parent card, so an existing film never regroups by itself
+    const derived = deriveLocations(scenes, known, drafts, known.length ? undefined : { sharedHeads:"all" });   // never one in Recently deleted
     setLocsSeeded(true);
     if(derived.length) setLocations(ls=>[...ls, ...derived.map(l=>withEpisodeLocationMeta(l,l))]);
     // also refresh the scene lists on existing locations as the script grows
@@ -8644,7 +8670,9 @@ function App(){
       // pull master places from screenplay headings (new cards), and refresh scene lists / times on existing
       pull: ()=>{
         if(typeof deriveLocations!=="function") return 0;
-        const derived = deriveLocations(scenes, [..._locWork, ...(((trashRef.current||trash)&&(trashRef.current||trash).locations)||[])], drafts);   // new only — never one in Recently deleted
+        const _locKnown = [..._locWork, ...(((trashRef.current||trash)&&(trashRef.current||trash).locations)||[])];
+        // a film's first derivation groups shared "PLACE - ROOM" heads (SHARED-HEAD PARENTS, 2026-10-26)
+        const derived = deriveLocations(scenes, _locKnown, drafts, _locKnown.length ? undefined : { sharedHeads:"all" });   // new only — never one in Recently deleted
         const fresh = deriveLocations(scenes, [], drafts);                  // all, to refresh scene lists/times/areas
         // a PATCH, not a snapshot (2026-10-08): edits made while the run works are kept
         const patch = (ls)=>{ let next = ls.map(l=>{ const m=fresh.find(f=>f.key===l.key);
@@ -9687,7 +9715,7 @@ function App(){
             castHasProps:(typeof castHasProps==="function" && castHasProps(characters)),
             locations,onUpdateLocation:updateLocation,onDraftLocation:draftLocationVisuals,onDraftAllLocs:draftAllLocations,
             onDeleteLocation:deleteLocation,draftingLocIds,draftingAllLocs,
-            onMergeLocations:mergeLocations,onLocationPlaceDecision:decideLocationPlace,
+            onMergeLocations:mergeLocations,onLocationPlaceDecision:decideLocationPlace,onSharedHeadDecision:decideSharedHead,
             scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
             sluglineUnits,onUpdateUnit:updateSlugUnitOverlay,onRemoveUnit:removeSlugUnitOverlay,
             onSetStyleRefs:setStyleRefs,onSetScenePreset:setScenePreset,onSetFilmStock:setFilmStock,onSetCapture:setStyleCapture,

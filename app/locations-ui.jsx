@@ -2576,7 +2576,28 @@ function UnitDressing({ u, onUpdateUnit, items, suggestions, onChange, label="Te
         title:"Mentioned in this screenplay occurrence \u2014 click to add",onClick:()=>add(x)},"+ "+x))));
 }
 
-function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft, onDraftAll, onDelete, draftingId, draftingIds, draftingAll, scriptHasLocs, onDraftStaging, draftingStageId, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false, onMergeLocations, onPlaceDecision }){
+/* SHARED-HEAD PARENTS (owner-approved 2026-10-26, "go ahead with the locations plan"): the places a screenplay names as
+   "PLACE - ROOM" without ever heading a scene "INT. PLACE" — "These 9 places are parts of one place: Marmorica" — with
+   Group under Marmorica and Keep separate (app.jsx decideSharedHead, which asks first). Read from the screenplay, free. */
+function LocationSharedHeadNotice({ sug, readOnly=false, onDecide }){
+  if(!sug) return null;
+  const names = (sug.children||[]).map(c=>c.name).filter(Boolean);
+  return React.createElement("div",{className:"loc-copy-check loc-same-place loc-shared-head",role:"status","data-shared-head":sug.headKey},
+    React.createElement(Icon.layers,{s:12}),
+    React.createElement("div",{className:"loc-copy-check-body"},
+      React.createElement("p",null,"These "+names.length+" places are parts of one place, \u201c"+sug.headName+"\u201d: "+names.join(", ")
+        +". Grouped, they share its identity, one layout with one north, and its 2\u00d72 plate, which each room's plates are made from."),
+      readOnly
+        ? React.createElement("p",{className:"loc-same-place-note"},"The owner or an Art director can group them.")
+        : React.createElement("div",{className:"loc-copy-check-acts"},
+            React.createElement("button",{type:"button",className:"art-draftall",
+              title:"A new \u201c"+sug.headName+"\u201d card becomes the place they're part of; each room keeps its card, plates and notes. You confirm first. Nothing is generated or charged.",
+              onClick:()=>{ if(typeof onDecide==="function") onDecide(sug, "group"); }},"Group under "+sug.headName),
+            React.createElement("button",{type:"button",className:"art-draftall ghost",
+              title:"They stay locations of their own and this isn't suggested again (you confirm first).",
+              onClick:()=>{ if(typeof onDecide==="function") onDecide(sug, "separate"); }},"Keep separate"))));
+}
+function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft, onDraftAll, onDelete, draftingId, draftingIds, draftingAll, scriptHasLocs, onDraftStaging, draftingStageId, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false, onMergeLocations, onPlaceDecision, onSharedHeadDecision }){
   const [view, setView] = React.useState(null);
   if(window.useRenderStyleVersion) window.useRenderStyleVersion();   // re-render dropdowns when a style is locked/unlocked
   const [sceneFilter, setSceneFilter] = React.useState(()=>{ const f = window.turnPeekArtFocus && window.turnPeekArtFocus("locations"); return (f && f.sceneId) || ""; });   // a Breakdown hand-off opens on its scene
@@ -2592,6 +2613,8 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   const placeSig = (typeof locationPlaceDecisionsNow==="function" && locationPlaceDecisionsNow().sig) || "";
   const samePlace = React.useMemo(()=> (typeof locationSamePlaceSuggestions==="function")
     ? locationSamePlaceSuggestions(rawLocations, scenes||[], drafts||{}) : [], [rawLocations, scenes, drafts, placeSig]);
+  const sharedHeads = React.useMemo(()=> (typeof locationSharedHeadSuggestions==="function")
+    ? locationSharedHeadSuggestions(rawLocations, scenes||[], drafts||{}) : [], [rawLocations, scenes, drafts, placeSig]);
   const mergeChoicesFor = (l)=> rawLocations.filter(x=>x && x.id!==l.id && x.key)
     .map(x=>({ id:x.id, name:x.name||"" })).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
   const masterKeyOf = (loc)=> String((loc&&loc.key)||((typeof locSlug==="function")
@@ -2813,6 +2836,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
     React.createElement(NbKeyBar,null),
     React.createElement(NbControls,null),
     window.LookbookStaleNotice && React.createElement(window.LookbookStaleNotice,{stale:lookbookStale,onApply:onApplyLookbook,onDraftOnly:onApplyLookbookDraftOnly,label:"these locations",dept:"locations"}),
+    (sharedHeads||[]).map(sug=>React.createElement(LocationSharedHeadNotice,{ key:sug.headKey, sug, readOnly, onDecide:onSharedHeadDecision })),
     React.createElement("div",{className:"art-intro"},
       React.createElement("div",{className:"art-intro-row"},
         React.createElement("div",{style:{flex:1}},

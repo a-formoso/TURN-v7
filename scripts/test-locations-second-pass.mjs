@@ -46,7 +46,9 @@ await test("A1 a delete sticks: only a card the fold put away comes back, and a 
 await test("A2 Design all, the script pull and the Location Scout never re-add a binned location", ()=>{
   assert.ok(app.includes("deriveLocations(scenes, [...(locations||[]), ...((trash&&trash.locations)||[])], drafts);   // places not yet present"));
   assert.ok(between(app, "const pullLocationsFromScript = React.useCallback(()=>{", "},[scenes, locations, drafts, trash,").includes("...((trash&&trash.locations)||[])"));
-  assert.ok(app.includes("deriveLocations(scenes, [..._locWork, ...(((trashRef.current||trash)&&(trashRef.current||trash).locations)||[])], drafts);"));
+  // (2026-10-26) the known list (live + Recently deleted) is named first; a film's first pass adds { sharedHeads:"all" }
+  assert.ok(app.includes("const _locKnown = [..._locWork, ...(((trashRef.current||trash)&&(trashRef.current||trash).locations)||[])];")
+    && app.includes('deriveLocations(scenes, _locKnown, drafts, _locKnown.length ? undefined : { sharedHeads:"all" });'));
 });
 await test("A3 restore says when the place is already on the board; purge clears only this card's own rooms, never a live one's", ()=>{
   const restore = between(app, "  const restoreLocation = (id)=>{", "  const purgeLocation");

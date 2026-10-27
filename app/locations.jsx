@@ -171,13 +171,15 @@ window.screenplayInlineSpaceHeading=screenplayInlineSpaceHeading;
    deleted survivor still holds its names). On a Show the cards are shared by every episode, so a decision holds in
    every episode's derivation. */
 const _LOC_NO_DECISIONS = Object.freeze({alias:Object.freeze({}), names:Object.freeze({}), aliasNames:Object.freeze({}),
-  separate:Object.freeze({}), partOf:Object.freeze({}), sig:""});
+  separate:Object.freeze({}), partOf:Object.freeze({}), heads:Object.freeze({}), sig:""});
 let _locPlaceDecisionsNow = _LOC_NO_DECISIONS;
 function _locPairKey(a,b){ return [String(a||""),String(b||"")].sort().join("|"); }
 function _locKeysOf(v){ return (Array.isArray(v)?v:[]).map(x=>String(x||"").trim()).filter(Boolean); }
 function locationPlaceDecisions(locations, binned){
-  const alias={}, names={}, aliasNames={}, separate={}, partOf={};
+  const alias={}, names={}, aliasNames={}, separate={}, partOf={}, heads={};
   const live=(Array.isArray(locations)?locations:[]).filter(l=>l&&l.key);
+  // SHARED-HEAD PARENTS (2026-10-26): a live card marked as the parent of a "PLACE - ROOM" head keeps that head grouping
+  live.forEach(l=>{ if(l.sharedHeadParent) heads[String(l.key)]=String(l.name||""); });
   const liveKeys=new Set(live.map(l=>String(l.key)));
   const bin=(Array.isArray(binned)?binned:[]).filter(l=>l&&l.key);
   [live,bin].forEach((list,i)=>list.forEach(l=>{
@@ -197,8 +199,10 @@ function locationPlaceDecisions(locations, binned){
     while(alias[cur] && !seen.has(cur)){ seen.add(cur); cur=alias[cur]; }
     if(cur===k) delete alias[k]; else alias[k]=cur;
   });
-  const empty=!Object.keys(alias).length && !Object.keys(separate).length && !Object.keys(partOf).length && !Object.keys(aliasNames).length;
-  return {alias,names,aliasNames,separate,partOf,sig:empty?"":JSON.stringify([alias,separate,partOf,aliasNames])};
+  const empty=!Object.keys(alias).length && !Object.keys(separate).length && !Object.keys(partOf).length && !Object.keys(aliasNames).length
+    && !Object.keys(heads).length;
+  return {alias,names,aliasNames,separate,partOf,heads,
+    sig:empty?"":JSON.stringify(Object.keys(heads).length?[alias,separate,partOf,aliasNames,heads]:[alias,separate,partOf,aliasNames])};
 }
 function setLocationPlaceDecisions(d){
   _locPlaceDecisionsNow = (d && typeof d==="object" && d.alias) ? d : _LOC_NO_DECISIONS;
@@ -223,7 +227,7 @@ window.locationAliasKey=locationAliasKey;
    INTERCUT lines are skipped (they reference already-slugged places, they don't
    introduce one). A merged-away name is read as its survivor (aliasNames records the
    other names a record was written as — the fold below reads them too). */
-function collectSluggedPlaces(scenes, drafts, decisions){
+function collectSluggedPlaces(scenes, drafts, decisions, allHeads){
   const dec = (decisions && decisions.alias) ? decisions : _locPlaceDecisionsNow;
   const recOrder = []; const recByKey = {}; const entries = [];
   (scenes||[]).forEach(sc=>{
@@ -271,8 +275,40 @@ function collectSluggedPlaces(scenes, drafts, decisions){
   recOrder.forEach(k=>{ const R=recByKey[k];
     (dec.aliasNames[k]||[]).forEach(n=>{ if(R.aliasNames.indexOf(n)<0) R.aliasNames.push(n); });
     delete R.nameFromAlias; });
+  addSharedHeadParents(recOrder, recByKey, dec, allHeads);
   return { recOrder, recByKey, entries };
 }
+/* SHARED-HEAD PARENTS (owner-approved 2026-10-26, "go ahead with the locations plan"; Story Pipeline "Locations"). A
+   screenplay can name every space of one place as "PLACE - ROOM" without ever heading a scene "INT. PLACE":
+   MARMORICA - CAR DECK, MARMORICA - UPPER DECK, MARMORICA - LIFEJACKET LOCKER… Rule B (prefix containment) nests those
+   under a card called "Marmorica" — but no slugline made one, so each space became a location of its own, with its own
+   layout and its own north. When two or more places share the head before " - " (or " – "), a parent record of that
+   name is added; Rule B then folds every "Marmorica - …" and "Marmorica …" place under it, each keeping its own card,
+   slugline units and plates, and the parent becomes the continuity root that owns the shared layout and the 2x2 plate.
+   Which heads: all of them in a new film's first derivation (opts.sharedHeads "all", app.jsx pullLocationsFromScript
+   with no location cards yet); afterwards only heads with a card marked sharedHeadParent (decisions.heads) — so an
+   existing film never regroups on its own: the Locations tab suggests it (locationSharedHeadSuggestions) and the owner
+   groups (locationSharedHeadApply) or keeps the places apart (notAliasOf, read as "Keep separate"). */
+function locationSharedHead(name){
+  const m = /^(.+?)\s+[-\u2013]\s+(.+)$/.exec(String(name||"").trim());
+  if(!m) return null;
+  const head = m[1].trim(), key = locSlug(head).split("-").slice(0,4).join("-");
+  if(!key || head.replace(/[^A-Za-z]/g,"").length<3 || /^(int|ext|int\/ext|i\/e)$/i.test(head)) return null;
+  return { head, key };
+}
+function addSharedHeadParents(recOrder, recByKey, dec, allHeads){
+  const groups = {};
+  recOrder.forEach(k=>{ const R=recByKey[k]; const h=R && locationSharedHead(R.name); if(!h || h.key===k) return;
+    (groups[h.key]||(groups[h.key]={ head:h.head, keys:[] })).keys.push(k); });
+  Object.keys(groups).forEach(hk=>{
+    const g = groups[hk], known = dec && dec.heads && Object.prototype.hasOwnProperty.call(dec.heads, hk);
+    if(recByKey[hk] || g.keys.length<2 || !(known || allHeads)) return;
+    const scenes = []; g.keys.forEach(k=>(recByKey[k].scenes||[]).forEach(sid=>{ if(scenes.indexOf(sid)<0) scenes.push(sid); }));
+    recByKey[hk] = { key:hk, name:(known && dec.heads[hk]) || tidyPlace(g.head), scenes, aliasNames:[], sharedHead:true };
+    recOrder.splice(recOrder.indexOf(g.keys[0]), 0, hk);   // the parent's card comes first, where its first room was
+  });
+}
+window.locationSharedHead = locationSharedHead;
 
 /* SUB-SPACE FOLD — "INT. INTAKE BOOTH - NIGHT" inside a scene that also visits
    "EXT. INTAKE YARD - NIGHT": the booth is a sub-structure of the yard complex,
@@ -409,7 +445,7 @@ function resolveFoldKey(fold, key){
 }
 function deriveSubspaceFold(scenes, drafts, opts){
   const dec = _locDecisions(opts);
-  const c = collectSluggedPlaces(scenesInStoryOrder(scenes), drafts, dec);
+  const c = collectSluggedPlaces(scenesInStoryOrder(scenes), drafts, dec, !!(opts && opts.sharedHeads==="all"));
   const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]), scenes, drafts, dec);
   const resolved = {};
   Object.keys(fold).forEach(k=>{ resolved[k] = resolveFoldKey(fold, k); });
@@ -432,7 +468,7 @@ function deriveLocations(scenes, existing, drafts, opts){
   const dec = _locDecisions(opts);
   const have = existing || [];
   const seen = new Set(have.map(l=>l.key || locSlug(l.name)));
-  const c = collectSluggedPlaces(scenes, drafts, dec);
+  const c = collectSluggedPlaces(scenes, drafts, dec, !!(opts && opts.sharedHeads==="all"));
   const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]), scenes, drafts, dec);
   const order = []; const byKey = {};
   const ensure = (key,rootKey)=>{
@@ -478,6 +514,7 @@ function deriveLocations(scenes, existing, drafts, opts){
       // no time at all — the sync and the card used to overwrite each other's lists (2026-10-08)
       times:deriveLocationTimes({ name:L.name, scenes:L.scenes }, scenes),areas:[...L.areas],scenes:L.scenes,
       scope:L.scope,parentKey:L.parentKey,continuityRootKey:L.continuityRootKey,
+      ...((c.recByKey[key]||{}).sharedHead ? { sharedHeadParent:true } : {}),
       architecture:"",materials:"",lighting:"",permanentDressing:"",
       topology:"",continuityAnchors:"",anchorsLocked:true,significance:"",
       provenance:{},renderStyle:"",negativePrompt:"",variants:[],fromScript:true,
@@ -891,6 +928,57 @@ function locationUnmergeRestored(locations, item){
 }
 window.locationDraftFirstHeading=locationDraftFirstHeading;
 window.locationSamePlaceSuggestions=locationSamePlaceSuggestions;
+/* SHARED-HEAD PARENTS for an existing film (2026-10-26): the heads its places would group under, read from the
+   screenplay, free — [{ headKey, headName, children:[{id,name}] }]. A head that already has a card, a place already
+   inside another, and a place kept apart from the head (notAliasOf) are left out; fewer than two places, no suggestion. */
+function locationSharedHeadSuggestions(locations, scenes, drafts, opts){
+  const dec = _locDecisions(opts);
+  const list = (Array.isArray(locations)?locations:[]).filter(l=>l && l.key);
+  const keys = new Set(list.map(l=>String(l.key)));
+  const ordered = scenesInStoryOrder(scenes||[]);
+  const c = collectSluggedPlaces(ordered, drafts, dec, true);
+  const fold = foldSubspaceKeys(c.recOrder.map(k=>c.recByKey[k]), ordered, drafts, dec);
+  const out = [];
+  c.recOrder.forEach(hk=>{
+    const R = c.recByKey[hk]; if(!R || !R.sharedHead || keys.has(hk)) return;
+    const kids = list.filter(l=>!l.parentKey && String(l.key)!==hk && resolveFoldKey(fold, String(l.key))===hk);
+    if(kids.length<2) return;
+    out.push({ headKey:hk, headName:R.name, children:kids.map(l=>({ id:l.id, name:String(l.name||"") })) });
+  });
+  return out;
+}
+/* group: a new parent card (marked sharedHeadParent, so every derivation keeps the head) placed before its first room;
+   the screenplay sync then nests the rooms (parentKey) and fills its scenes. It starts with the render style of its
+   first room and, for review, the layout of the room that places the most anchors (as a draft owned by the parent —
+   the rooms' own layouts stay saved but the parent's governs). separate: each room keeps apart from the head (notAliasOf),
+   so the head never groups them and the suggestion stops. Returns the new list, or null when nothing applies. */
+function locationSharedHeadApply(locations, headKey, headName, childIds, kind){
+  const list = Array.isArray(locations) ? locations : [];
+  const ids = Array.isArray(childIds) ? childIds : [];
+  const kids = list.filter(l=>l && ids.indexOf(l.id)>=0);
+  if(!headKey || kids.length<2) return null;
+  if(kind==="separate") return list.map(l=> kids.indexOf(l)<0 ? l
+    : { ...l, notAliasOf:Array.from(new Set(_locKeysOf(l.notAliasOf).concat([String(headKey)]))) });
+  if(kind!=="group" || list.some(l=>l && String(l.key)===String(headKey))) return null;
+  let id = "loc-"+headKey+"-g", n = 2; while(list.some(l=>l && l.id===id)) id = "loc-"+headKey+"-g"+(n++);
+  const sides = Array.from(new Set(kids.map(l=>String(l.intExt||"").toUpperCase()).filter(Boolean)));
+  const scenes = []; kids.forEach(l=>(l.scenes||[]).forEach(sid=>{ if(scenes.indexOf(sid)<0) scenes.push(sid); }));
+  const placed = (p)=>p.anchors.filter(a=>a.xy).length;
+  const best = kids.map(l=>({ l, plan:normalizeLocationSpatialPlan(l.spatialPlan) })).filter(x=>x.plan.anchors.length)
+    .sort((a,b)=>placed(b.plan)-placed(a.plan) || b.plan.anchors.length-a.plan.anchors.length)[0];
+  const styled = kids.find(l=>l.renderStyleKey||l.renderStyle) || {};
+  const parent = { id, key:String(headKey), name:String(headName||headKey),
+    intExt:sides.length>1 || sides.some(x=>/\//.test(x)) ? "INT/EXT" : (sides[0]||"INT"),
+    times:[], areas:kids.map(l=>String(l.name||"")), scenes, scope:"compound", parentKey:"", continuityRootKey:String(headKey),
+    sharedHeadParent:true, architecture:"", materials:"", lighting:"", permanentDressing:"", topology:"", continuityAnchors:"",
+    anchorsLocked:true, significance:"", provenance:{}, renderStyle:styled.renderStyle||"",
+    ...(styled.renderStyleKey ? { renderStyleKey:styled.renderStyleKey } : {}), negativePrompt:"", variants:[], fromScript:true,
+    ...(best ? { spatialPlan:{ ...best.plan, status:"draft", source:{ assetId:id, iso:"" } } } : {}) };
+  const at = list.indexOf(kids[0]);
+  return list.slice(0, at).concat([parent], list.slice(at));
+}
+window.locationSharedHeadSuggestions=locationSharedHeadSuggestions;
+window.locationSharedHeadApply=locationSharedHeadApply;
 window.locationSamePlaceText=locationSamePlaceText;
 window.locationCorrectedSlugline=locationCorrectedSlugline;
 window.locationMergePlan=locationMergePlan;
@@ -3189,7 +3277,10 @@ function deriveSluglineUnits(scenes, drafts, opts){
     if(pk!==own && placeRecs[pk].aliasNames.indexOf(headName)<0) placeRecs[pk].aliasNames.push(headName);
     u.scenes.forEach(sid=>{ if(placeRecs[pk].scenes.indexOf(sid)<0) placeRecs[pk].scenes.push(sid); }); });
   Object.keys(placeRecs).forEach(pk=>{ (dec.aliasNames[pk]||[]).forEach(n=>{ if(placeRecs[pk].aliasNames.indexOf(n)<0) placeRecs[pk].aliasNames.push(n); }); });
-  const unitFold = foldSubspaceKeys(Object.values(placeRecs), scenes, drafts, dec);
+  // a grouped head's parent (SHARED-HEAD PARENTS, 2026-10-26) is every room's continuity root here too; each unit
+  // still belongs to its own room's card (subspaceKey)
+  const placeOrder = Object.keys(placeRecs); addSharedHeadParents(placeOrder, placeRecs, dec, false);
+  const unitFold = foldSubspaceKeys(placeOrder.map(k=>placeRecs[k]), scenes, drafts, dec);
   order.forEach(k=>{ const u = byKey[k];
     const pk = unitPlaceKey(u);
     u.subspaceKey = pk;

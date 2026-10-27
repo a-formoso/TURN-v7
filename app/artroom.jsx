@@ -7658,7 +7658,7 @@ window.ArtTabLock = ArtTabLock;
 function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, tabLocks, noPropsConfirmed, onSetNoProps, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp, onReadCharacterScript, readingFactIds,
   onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
-  locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, onMergeLocations, onLocationPlaceDecision, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetCapture, onSetFilmStock, onUpdatePreset, onDeletePreset, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
+  locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, onMergeLocations, onLocationPlaceDecision, onSharedHeadDecision, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetCapture, onSetFilmStock, onUpdatePreset, onDeletePreset, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
   shots, beatsMap, onMakeSceneNeeds, onOpenStage, wardrobeIds, colorRefsOwned, onUseLookbookColorRefs, onKeepColorRefs, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch,
   onResearchFresh, onRestoreLookbook, onPurgeLookbook, onSuggestLookbookNote, suggestingLookbookId,
@@ -7760,7 +7760,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     : artView==="locations" && LocationSheets
       ? React.createElement(LocationSheets,{project,locations,scenes,drafts,onUpdate:onUpdateLocation,onDraft:onDraftLocation,sluglineUnits,onUpdateUnit,onRemoveUnit,readOnly,
           onDraftAll:onDraftAllLocs,onDelete:onDeleteLocation,draftingIds:draftingLocIds,draftingAll:draftingAllLocs,
-          onMergeLocations,onPlaceDecision:onLocationPlaceDecision,
+          onMergeLocations,onPlaceDecision:onLocationPlaceDecision,onSharedHeadDecision,
           trashItems:(trash&&trash.locations)||[],onRestore:onRestoreLoc,onPurge:onPurgeLoc,
           scriptHasLocs,onDraftStaging,draftingStageId,
           lookbookStale:!!_stale.locations,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("locations"),
