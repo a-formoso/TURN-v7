@@ -2007,7 +2007,9 @@ function LocationParentStyleNotice({ l, gen, readOnly=false, onUpdate }){
       : React.createElement("span",{className:"loc-parent-style-thumb empty"}),
     React.createElement("div",{className:"loc-parent-style-body"},
       React.createElement("p",null,React.createElement("b",null,name+" borrows "+pName+"'s plate. "),
-        url ? "Its shots and Stage clips get this panel for materials, colour and light; the room itself is described in words."
+        url ? ((typeof locationParentStylePick==="function" && (locationParentStylePick(l)||{}).showsRoom)
+            ? "Its shots and Stage clips get this panel of "+pName+"'s plate, which shows "+name+" itself."
+            : "Its shots and Stage clips get this panel for materials, colour and light; the room itself is described in words.")
           : "Generate "+pName+"'s plate first: its shots and Stage clips will get one panel of it for materials, colour and light."),
       !readOnly && typeof onUpdate==="function" && React.createElement("button",{type:"button",className:"art-draftall ghost",
         title:"Stop borrowing: this room needs its own plate before its shots can show it",

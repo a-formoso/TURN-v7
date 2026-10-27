@@ -3292,8 +3292,12 @@ function stageAssetRole(a, refs){
   if(a.referenceKind==="screenplay") return T+" is a screenshot of the scene screenplay, page "+a.page+" of "+a.totalPages
     +". Read it as writing context only; perform only the selected beat/shot/part. Never photograph or animate the page, its text, highlighting or borders, and never use it as composition or a character identity reference.";
   if(a.referenceKind==="character") return T+" is "+(label||"the character")+" — identity, wardrobe, body scale and proportions for its assigned shots only; do not inherit its background, pose or lighting. Shot-specific appearance overrides a supporting master reference.";
-  if(a.referenceKind==="location" && String(a.id||"").indexOf("ps-")===0)
+  if(a.referenceKind==="location" && String(a.id||"").indexOf("ps-")===0){
+    // (2026-10-27) the parent's own view of this room, when its plate has one
+    const _psMeta=typeof nbGetMeta==="function"?nbGetMeta(a.id):null;
+    if(_psMeta&&_psMeta.showsRoom) return T+" is "+(label||"the room")+" — the panel of the larger place's plate that shows this room itself: keep its architecture, surfaces, fixtures, colour and light; frame it as this clip's camera says, never this panel's framing.";
     return T+" is "+(label||"the parent location's materials")+" — one panel of the larger place this room belongs to: take its materials, colour and light only. It is NOT this room: build the room from the text, and never copy the panel's layout, framing or furniture.";
+  }
   if(a.referenceKind==="location") return T+" is "+(label||"the location")+" — preserve geography and materials, not reference framing. Authored lighting changes still occur.";
   if(a.referenceKind==="prop") return T+" is "+(label||"the prop")+" — preserve its design and markings, not reference backdrop, placement or custody; follow authored pickups and handovers.";
   if(k==="frame") return T+" is the first frame — start from this exact composition.";
@@ -4151,7 +4155,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       (referencePackage.locations||[]).forEach(r=>{ const l=(ctx.locations||[]).find(x=>x.id===r.entityId)||{};
         // a room that borrows its parent's plate (2026-10-27): its panel gives materials only
         const ps=String(r.assetId||"").indexOf("ps-")===0, parent=ps&&typeof locationParentOf==="function"?locationParentOf(l):null;
-        addRequired(r,"location",ps ? (l.name||"Room")+" · "+((parent&&parent.name)||"parent")+"'s materials and colour"
+        const psShows=ps&&typeof nbGetMeta==="function"&&!!(nbGetMeta(r.assetId)||{}).showsRoom;
+        addRequired(r,"location",ps ? (l.name||"Room")+" · "+((parent&&parent.name)||"parent")+(psShows?"'s view of it":"'s materials and colour")
           : (l.name||"Location")+" · Camera view"); });
       (referencePackage.props||[]).forEach(r=>{ const p=(ctx.propById||{})[r.entityId]||{};
         addRequired(r,"prop",(p.name||"Prop")+(r.stateId?" · Continuity state":" · Master reference")); });

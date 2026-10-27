@@ -2559,7 +2559,9 @@ async function _locLoadPlate(id){
    a required "need" Image 1 at 768 px, sat beside a quay stretch it already showed; two of the four panels came back
    near-copies). The parent goes in as SINGLE PANELS cut out of its plate: the quadrants matched to a view through an
    opening (at their own size, up to 1536 px) — or, when no quadrant is matched (the plate's cameras are unknown, or none
-   faces the way an opening looks), at most ONE small panel for materials and colour only, which can be unticked. The
+   faces the way an opening looks), ONE panel, which can be unticked: the parent's own view of this room when its plate
+   has one (owner 2026-10-27 — locationParentPanelShowing; scaled up to 1536 px), else one small panel for materials and
+   colour only, inside for an inside room, outside for an outside one. The
    layout's own plate is not sent to a sub-space either (locationSpatialReferences). Every path finds the parent the
    same way (locationParentOf: the stored card's parentKey, else the card's parentLocation), so the Location Scout and
    "Make what this scene needs", which pass the stored card, send the same panels as the card.
@@ -2568,6 +2570,9 @@ async function _locLoadPlate(id){
    main location, or a booth inside it, that the screenplay never slugs — is made from that location's OWN plate, as its
    room & time and environment-state plates are; it has no parent to cut panels from. */
 const LOC_PANEL_CROP_MAX_DIM = 1536, LOC_MATERIAL_CROP_MAX_DIM = 640, LOC_PREVIEW_CROP_MAX_DIM = 320;
+/* (2026-10-27) a panel sent as a VIEW (a matched quadrant, or the parent's panel of the room itself) is scaled up to at
+   least this long side when the plate is small — a 2K plate's quadrant is ~1000 px */
+const LOC_PANEL_CROP_MIN_DIM = 1536;
 /* the cameras recorded for a location's CURRENT plate: the plate's own record (the cameras its prompt stated), else the
    ones noted on its card for that very version (Plate cameras: "This plate's cameras" set by hand, or read from the plate
    — l.plateCameras {iso, source, panels}; an optional field, absent on every older card) — null when unknown */
@@ -2589,6 +2594,30 @@ function locationNotedPlatePanels(l, meta){
   const rec = locationPlatePanels({platePanels:{spaceId:l.id, panels:r.panels}});
   return rec ? {...rec, noted:r.source} : null;
 }
+/* THE PARENT'S PANEL OF THIS ROOM ITSELF (owner 2026-10-27: Marmorica - CAR Deck was sent the Upper Deck's exterior
+   as "materials only" while Marmorica's plate has an interior view of the CAR Deck): the panel of the parent's plate
+   that shows this room — the plate's recorded cameras when they say so, else the requested view whose words name the
+   room and agree with it inside / outside (a THRESHOLD view between two spaces is not a view of the room). "" if none. */
+function locationParentPanelShowing(parent, l, rawRecord){
+  if(!parent || !l) return "";
+  const order = ["TL","TR","BL","BR"];
+  const panels = rawRecord && rawRecord.panels && typeof rawRecord.panels==="object" ? rawRecord.panels : {};
+  const recorded = order.find(k=>{ const p = panels[k]; return !!(p && Array.isArray(p.childrenVisible) && p.childrenVisible.some(c=>c && c.spaceId===l.id && c.whole!==false && c.inside!==false)); });
+  if(recorded) return recorded;
+  const nameK = _locNameKey(l.name), shortK = _locNameKey(String(l.name||"").split(/\s[-–—]\s/).slice(1).join(" "));
+  if(!nameK) return "";
+  const ie = String(l.intExt||l.ie||"").toUpperCase();
+  const words = locationRequestedViews(parent);
+  return order.find(k=>{
+    const w = String((words.find(x=>x.key===k)||{}).purpose||"");
+    if(!w || /^\s*THRESHOLD/i.test(w)) return false;
+    const wk = " "+_locNameKey(w)+" ";
+    if(wk.indexOf(" "+nameK+" ")<0 && !(shortK && shortK.split(" ").length>=2 && wk.indexOf(" "+shortK+" ")>=0)) return false;
+    if(ie==="INT" && /^\s*EXTERIOR/i.test(w)) return false;
+    if(ie==="EXT" && /^\s*INTERIOR/i.test(w)) return false;
+    return true;
+  }) || "";
+}
 /* the one panel of the parent's plate sent for materials and colour only: a close-up that doesn't show this space (from
    the plate's recorded cameras when it has them), else the parent's requested close-up whose words don't name it — its
    "signature material detail" (bottom-right) first */
@@ -2600,8 +2629,17 @@ function locationParentMaterialPanel(parent, l, rawRecord){
     && ((Number(panels[k].lensMm)||24)>=35 || /close|detail|texture|material/i.test(String(panels[k].purpose||""))));
   if(close) return close;
   const words = locationRequestedViews(parent), nameK = _locNameKey(l.name);
-  return ["BR","BL"].find(k=>{ const w = (words.find(x=>x.key===k)||{}).purpose||"";
-    return !showsIt(k) && !(nameK && (" "+_locNameKey(w)+" ").indexOf(" "+nameK+" ")>=0); }) || "BR";
+  // (2026-10-27) an inside room gets an inside panel, an outside one an outside panel, when the plate has one
+  const ie = String(l.intExt||l.ie||"").toUpperCase();
+  const said = (k)=> String((words.find(x=>x.key===k)||{}).purpose||"");
+  const same = (k)=> (ie==="INT" && /^\s*INTERIOR/i.test(said(k))) || (ie==="EXT" && /^\s*EXTERIOR/i.test(said(k)));
+  const fits = (k)=>{ const w = said(k);
+    return !(ie==="INT" && /^\s*EXTERIOR/i.test(w)) && !(ie==="EXT" && /^\s*INTERIOR/i.test(w)); };
+  const free = (k)=>{ const w = said(k);
+    return !showsIt(k) && !(nameK && (" "+_locNameKey(w)+" ").indexOf(" "+nameK+" ")>=0); };
+  const all4 = ["BR","BL","TR","TL"];
+  // a panel the plate asked for as inside / outside like this room first, then one that isn't the other kind
+  return all4.find(k=>free(k) && same(k)) || all4.find(k=>free(k) && fits(k)) || ["BR","BL"].find(free) || "BR";
 }
 /* THE PARENT'S PART OF A SUB-SPACE'S REFERENCES: {refs, plan, material} — the matched quadrants (required, numbered,
    labelled for their opening), views made from here, or one optional material panel. opts: single (a single-frame
@@ -2628,17 +2666,17 @@ async function locationSubspaceRootReferences(l, opts){
   catch(e){ if(!o.preview) throw e; }
   const name = l.name || "this space";
   const plates = {[parent.id]:parentUrl}, data = {};
-  const cut = async (assetId, key, max)=>{
+  const cut = async (assetId, key, max, min)=>{
     const plate = plates[assetId] || (plates[assetId] = await _locLoadPlate(assetId));
     // read as data first (the same fetch the image request uses), so the canvas cut never depends on the image host
     let source = data[assetId] || plate;
     if(plate && !data[assetId] && typeof oaiToDataUrl==="function"){ try{ source = data[assetId] = (await oaiToDataUrl(plate)) || plate; }catch(e){} }
-    return source && typeof cropRegionAsDataUrl==="function" ? (await cropRegionAsDataUrl(source, LOC_PANEL_INFO[key].crop, max)) || "" : "";
+    return source && typeof cropRegionAsDataUrl==="function" ? (await cropRegionAsDataUrl(source, LOC_PANEL_INFO[key].crop, max, min)) || "" : "";
   };
   const refs = [];
   for(const src of (plan ? plan.sources : [])){
     let url = "";
-    if(src.kind==="quadrant") url = await cut(src.assetId, src.key, o.preview ? LOC_PREVIEW_CROP_MAX_DIM : LOC_PANEL_CROP_MAX_DIM);
+    if(src.kind==="quadrant") url = await cut(src.assetId, src.key, o.preview ? LOC_PREVIEW_CROP_MAX_DIM : LOC_PANEL_CROP_MAX_DIM, o.preview ? 0 : LOC_PANEL_CROP_MIN_DIM);
     else url = await _locLoadPlate(src.assetId);
     if(!url && !o.preview){ const e = new Error("Couldn't read "+(src.targetName||"the parent")+"'s plate to take the view through "+(((src.uses||[])[0]||{}).openingName||"the opening")+". Nothing was sent or charged — try again."); e.requiredReference = true; throw e; }
     refs.push({url, kind:"location", refId:src.id, required:true, ready:!!url, numbered:true, maxDim:LOC_PANEL_CROP_MAX_DIM,
@@ -2650,6 +2688,18 @@ async function locationSubspaceRootReferences(l, opts){
     const live = _locList().find(x=>x && x.id===parent.id) || parent;
     const noted = normalizeLocationPlateCameras(live.plateCameras);
     const raw = (meta && meta.platePanels) || (noted && meta && noted.iso===meta.iso ? noted : null);
+    // the parent's own view of this room, when its plate has one: sent as the room's look (2026-10-27)
+    const shown = locationParentPanelShowing(parent, l, raw);
+    if(shown){
+      const url = await cut(parent.id, shown, o.preview ? LOC_PREVIEW_CROP_MAX_DIM : LOC_PANEL_CROP_MAX_DIM, o.preview ? 0 : LOC_PANEL_CROP_MIN_DIM);
+      material = {key:shown, refId:"pv-"+parent.id+"-"+shown.toLowerCase(), showsRoom:true};
+      if(url || o.preview) refs.push({url, kind:"location", refId:material.refId, required:false, ready:!!url, numbered:true,
+        maxDim:LOC_PANEL_CROP_MAX_DIM, label:(parent.name||"Parent location")+" \u00b7 its view of "+name,
+        note:(parent.name||"Parent location")+" \u2014 the panel of its plate that shows "+name+" itself: the same room. Keep its architecture, "
+          +"surfaces, fixtures, colour and light; "+(o.single ? "frame it as the prompt's camera says" : "each panel takes the camera the prompt states")
+          +", never this panel's framing."});
+      return {refs, plan, material};
+    }
     const key = locationParentMaterialPanel(parent, l, raw);
     const url = await cut(parent.id, key, o.preview ? LOC_PREVIEW_CROP_MAX_DIM : LOC_MATERIAL_CROP_MAX_DIM);
     material = {key, refId:"pm-"+parent.id+"-"+key.toLowerCase()};
@@ -2672,8 +2722,23 @@ function locationParentStyleId(l){ return LOC_PARENT_STYLE_PREFIX+String((l&&l.i
 function locationUsesParentPlate(l, locations){
   return !!(l && l.usesParentPlate && locationParentOf(l, locations));
 }
+/* which panel a borrowing room gets: the parent's own view of it when the plate has one (2026-10-27), else the
+   materials panel */
+function locationParentStylePick(l, parent){
+  parent = parent || locationParentOf(l);
+  if(!parent) return null;
+  const pMeta = (typeof nbGetMeta==="function" && nbGetMeta(parent.id)) || {};
+  const live = _locList().find(x=>x && x.id===parent.id) || parent;
+  const noted = normalizeLocationPlateCameras(live.plateCameras);
+  const raw = pMeta.platePanels || (noted && noted.iso===pMeta.iso ? noted : null);
+  const shown = locationParentPanelShowing(parent, l, raw);
+  return shown ? {key:shown, showsRoom:true} : {key:locationParentMaterialPanel(parent, l, raw), showsRoom:false};
+}
 function locationParentStyleNote(l, parent){
   const name = (l && l.name) || "this room", pName = (parent && parent.name) || "the parent location";
+  const pick = parent ? locationParentStylePick(l, parent) : null;
+  if(pick && pick.showsRoom) return pName+" \u2014 the panel of its plate that shows "+name+" itself: the same room. Keep its architecture, "
+    +"surfaces, fixtures, colour and light; frame it as the shot's camera says, never this panel's framing.";
   return pName+" — ONE small panel of its plate: materials, colour and light only. It is NOT "+name
     +": build "+name+" from its written description, and never copy this panel's layout, framing or furniture.";
 }
@@ -2687,22 +2752,22 @@ async function locationEnsureParentStyle(l, opts){
   const pMeta = (typeof nbGetMeta==="function" && nbGetMeta(parent.id)) || {};
   let cur = typeof nbGetMeta==="function" ? nbGetMeta(id) : null;
   if(!cur && typeof nbLoadImage==="function"){ try{ await nbLoadImage(id); }catch(e){} cur = typeof nbGetMeta==="function" ? nbGetMeta(id) : null; }
-  if(cur && cur.parentStyleOf===parent.id && String(cur.parentIso||"")===String(pMeta.iso||"")){
+  const pick = locationParentStylePick(l, parent), key = pick.key;
+  // the same parent plate AND the same panel choice (a cut kept from before 2026-10-27 may be the wrong panel)
+  if(cur && cur.parentStyleOf===parent.id && String(cur.parentIso||"")===String(pMeta.iso||"") && cur.panelKey===key && !!cur.showsRoom===pick.showsRoom){
     const u = await _locLoadPlate(id); if(u) return u;
   }
   if(o.readOnly) return "";
-  const live = _locList().find(x=>x && x.id===parent.id) || parent;
-  const noted = normalizeLocationPlateCameras(live.plateCameras);
-  const raw = pMeta.platePanels || (noted && noted.iso===pMeta.iso ? noted : null);
-  const key = locationParentMaterialPanel(parent, l, raw);
   let source = parentUrl;
   if(typeof oaiToDataUrl==="function"){ try{ source = (await oaiToDataUrl(parentUrl)) || parentUrl; }catch(e){} }
-  const url = typeof cropRegionAsDataUrl==="function" ? ((await cropRegionAsDataUrl(source, LOC_PANEL_INFO[key].crop, LOC_MATERIAL_CROP_MAX_DIM)) || "") : "";
+  const url = typeof cropRegionAsDataUrl==="function" ? ((await (pick.showsRoom
+    ? cropRegionAsDataUrl(source, LOC_PANEL_INFO[key].crop, LOC_PANEL_CROP_MAX_DIM, LOC_PANEL_CROP_MIN_DIM)
+    : cropRegionAsDataUrl(source, LOC_PANEL_INFO[key].crop, LOC_MATERIAL_CROP_MAX_DIM))) || "") : "";
   if(!url) return "";
   if(typeof nbCommit==="function"){
     const epoch = typeof nbEpoch==="function" ? nbEpoch() : null;
-    try{ const r = await nbCommit(id, url, {parentStyleOf:parent.id, parentIso:pMeta.iso||"", panelKey:key, kind:"location-parent-style",
-      prompt:"Cut from "+(parent.name||"the parent location")+"'s plate ("+key+" panel) — materials, colour and light for "+(l.name||"this room")},
+    try{ const r = await nbCommit(id, url, {parentStyleOf:parent.id, parentIso:pMeta.iso||"", panelKey:key, showsRoom:pick.showsRoom, kind:"location-parent-style",
+      prompt:"Cut from "+(parent.name||"the parent location")+"'s plate ("+key+" panel) \u2014 "+(pick.showsRoom ? "its view of "+(l.name||"this room") : "materials, colour and light for "+(l.name||"this room"))},
       [], "location", epoch);
       if(r && r.url && r.tier!=="stale" && r.tier!=="cancelled") return r.url;
     }catch(e){}
@@ -3124,9 +3189,11 @@ window.locationSubspacePlateReferences = locationSubspacePlateReferences;
 window.normalizeLocationPlateCameras = normalizeLocationPlateCameras;
 window.locationNotedPlatePanels = locationNotedPlatePanels;
 window.locationParentMaterialPanel = locationParentMaterialPanel;
+window.locationParentPanelShowing = locationParentPanelShowing;
 window.locationParentStyleId = locationParentStyleId;
 window.locationUsesParentPlate = locationUsesParentPlate;
 window.locationParentStyleNote = locationParentStyleNote;
+window.locationParentStylePick = locationParentStylePick;
 window.locationEnsureParentStyle = locationEnsureParentStyle;
 window.locationIsOutdoor = locationIsOutdoor;
 window.locationRequestedViews = locationRequestedViews;
@@ -5313,7 +5380,11 @@ function buildSimpleLocationPrompt(l, frame){
       subspace = (outdoor ? "Four cameras standing on "+(l.name||"this space")+" at eye level (an open-air part of "+pname+"; the rest of "+pname+" around it matches "+pname+"'s plate)"
         : "Four cameras inside "+(l.name||"this room"))+" — "+cams.join("; ");
     }
-    subspace += (subspace ? ". " : "")+"Any reference image of "+pname+" is a single cut-out panel of its plate — never copy one as a view of "+(l.name||"this space");
+    // (2026-10-27) when the parent's plate has a view of this room itself, that panel is sent as the room's look
+    const shows = !!(locationParentStylePick(l, parent)||{}).showsRoom;
+    subspace += (subspace ? ". " : "")+(shows
+      ? "The reference panel of "+pname+"'s plate shows "+(l.name||"this space")+" itself: keep its architecture, surfaces, fixtures, colour and light, and frame each view as stated here, never as that panel is framed"
+      : "Any reference image of "+pname+" is a single cut-out panel of its plate — never copy one as a view of "+(l.name||"this space"));
   }
   const parts = [
     "Location reference \u2014 "+(l.name||"place")+" ("+(l.intExt||"INT")+")",

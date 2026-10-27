@@ -88,5 +88,38 @@ ok("the Stage names the panel and gives it a materials-only role line, and cuts 
 ok("the Shots warning says the parent's plate is what's missing", /borrows its parent's plate, which isn't ready yet/.test(sui));
 const html=readFileSync("TURN.html","utf8"), ai=readFileSync("app/ai.jsx","utf8");
 ok("Frances knows", /A small room that borrows its parent's plate/.test(ai));
+// (owner 2026-10-27) THE PARENT'S OWN VIEW OF THE ROOM: Marmorica's plate asked for "INTERIOR establishing view of
+// Marmorica - CAR Deck" (top-left); the CAR Deck room was sent the Upper Deck's exterior as materials-only instead
+{
+  const realViews = box.locationRequestedViews;
+  const ship={id:"loc-m",key:"marmorica",name:"Marmorica",intExt:"INT/EXT"};
+  const car={id:"loc-car",key:"car",name:"Marmorica - CAR Deck",intExt:"INT",parentKey:"marmorica"};
+  const upper={id:"loc-up",key:"up",name:"Marmorica - Upper Deck",intExt:"EXT",parentKey:"marmorica"};
+  const galley={id:"loc-gal",key:"gal",name:"Marmorica - Galley",intExt:"INT",parentKey:"marmorica"};
+  box.locationRequestedViews=()=>[
+    {key:"TL",purpose:"INTERIOR establishing view of Marmorica - CAR Deck because the action starts inside"},
+    {key:"TR",purpose:"INTERIOR key action station from the screenplay"},
+    {key:"BL",purpose:"EXTERIOR context of Marmorica - Upper Deck seen from the connected approach"},
+    {key:"BR",purpose:"THRESHOLD CONNECTION view: between Marmorica - Upper Deck and Marmorica - CAR Deck"}];
+  ok("the CAR Deck gets the top-left panel (its own interior view), never the threshold or the exterior",
+    box.locationParentPanelShowing(ship,car,null)==="TL");
+  ok("the Upper Deck (outside) gets the bottom-left exterior view", box.locationParentPanelShowing(ship,upper,null)==="BL");
+  ok("a room the plate doesn't show gets none", box.locationParentPanelShowing(ship,galley,null)==="");
+  ok("the plate's recorded cameras win when they say a panel shows the room",
+    box.locationParentPanelShowing(ship,galley,{panels:{TR:{childrenVisible:[{spaceId:"loc-gal"}]}}})==="TR");
+  ok("an inside room's materials panel is an INTERIOR one when it has to fall back (not the threshold, not the exterior)",
+    box.locationParentMaterialPanel(ship,galley,null)==="TR", box.locationParentMaterialPanel(ship,galley,null));
+  ok("an outside room's is the EXTERIOR one",
+    box.locationParentMaterialPanel(ship,{id:"loc-bow",name:"Marmorica Bow",intExt:"EXT",parentKey:"marmorica"},null)==="BL");
+  box.locationRequestedViews=realViews;
+}
+{
+  const ui=readFileSync("app/artroom.jsx","utf8");
+  ok("a panel cut for a reference is scaled UP to its minimum (never above its maximum)",
+    ui.includes("const sc = Math.min(maxDim/long, Math.max(1, (Number(minDim)||0)/long));") && ui.includes('ctx.imageSmoothingQuality = "high"'));
+  const loc=readFileSync("app/locations.jsx","utf8");
+  ok("the borrowed panel is cut again when the panel choice changes (an older cut may be the wrong panel)",
+    loc.includes("cur.panelKey===key && !!cur.showsRoom===pick.showsRoom"));
+}
 console.log(pass+" passed, "+fail+" failed");
 process.exit(fail?1:0);

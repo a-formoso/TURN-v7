@@ -55,7 +55,7 @@ const box = { console, React, setTimeout, clearTimeout, localStorage: { getItem:
   nbCostChip: (n, o) => ({ type: "cost", props: { n, refs: o && o.refs }, children: ["≈ cost"] }),
   nbGetMeta: (id) => metas[id] || null, nbGetImage: (id) => images[id] || "", nbLoadImage: async (id) => images[id] || "",
   oaiToDataUrl: async (u) => "data:" + u,
-  cropRegionAsDataUrl: async (url, rect, max) => { crops.push({ url, rect, max }); return "crop(" + url + "@" + rect.x + "," + rect.y + "/" + max + ")"; } };
+  cropRegionAsDataUrl: async (url, rect, max, min) => { crops.push(min ? { url, rect, max, min } : { url, rect, max }); return "crop(" + url + "@" + rect.x + "," + rect.y + "/" + max + ")"; } };
 box.window = box; vm.createContext(box);
 vm.runInContext(read("app/locations.jsx"), box, { filename: "app/locations.jsx" });
 vm.runInContext(read("app/locations-ui.jsx"), box, { filename: "app/locations-ui.jsx" });
@@ -87,16 +87,24 @@ assert.deepEqual(json({ refId: mat.refId, required: mat.required, numbered: mat.
 assert.match(mat.note, /^Fondamenta — ONE panel of its plate, small: materials and colour only\. It is NOT a view: never copy its composition, framing or layout into Fondamenta DEI Vetrai or any of its panels$/);
 assert.deepEqual(json(crops), [{ url: "data:" + PLATE, rect: { x: 50.5, y: 50.5, w: 49, h: 49 }, max: 640 }], "the bottom-right close-up ('Stone quay edge'), cut out small");
 assert.equal(sub1.plan.unresolved[0].reason, "no-record");
-// the parent's recorded cameras say its bottom-right shows this space: a close-up that doesn't is chosen
+// the parent's recorded cameras say its bottom-right shows this space: (owner 2026-10-27) THAT panel is sent, as the
+// space's own look, scaled up to a reference size — not a materials-only close-up of something else
 metas[owner.id] = { ...metas[owner.id], platePanels: { schema: "cm-plate-panels-v1", spaceId: owner.id, panels: {
   BR: { yaw: 270, lensMm: 35, childrenVisible: [{ spaceId: sub.id }] }, BL: { yaw: 0, lensMm: 35, purpose: "close-up of the façade" } } } };
 crops.length = 0;
-assert.equal((await box.locationSubspacePlateReferences(sub)).refs[0].refId, "pm-loc-fondamenta-3-bl");
+{
+  const shown = (await box.locationSubspacePlateReferences(sub)).refs;
+  assert.equal(shown.length, 1);
+  assert.deepEqual(json({ refId: shown[0].refId, required: shown[0].required, maxDim: shown[0].maxDim, label: shown[0].label }),
+    { refId: "pv-loc-fondamenta-3-br", required: false, maxDim: 1536, label: "Fondamenta · its view of Fondamenta DEI Vetrai" });
+  assert.match(shown[0].note, /^Fondamenta — the panel of its plate that shows Fondamenta DEI Vetrai itself: the same room\. Keep its architecture, surfaces, fixtures, colour and light; each panel takes the camera the prompt states, never this panel's framing\.$/);
+  assert.deepEqual(json(crops), [{ url: "data:" + PLATE, rect: { x: 50.5, y: 50.5, w: 49, h: 49 }, max: 1536, min: 1536 }], "cut at a reference size");
+}
 delete metas[owner.id].platePanels;
 // an unreadable material panel is simply left out
 box.cropRegionAsDataUrl = async () => "";
 assert.equal((await box.locationSubspacePlateReferences(sub)).refs.length, 0);
-box.cropRegionAsDataUrl = async (url, rect, max) => { crops.push({ url, rect, max }); return "crop(" + url + "@" + rect.x + "," + rect.y + "/" + max + ")"; };
+box.cropRegionAsDataUrl = async (url, rect, max, min) => { crops.push(min ? { url, rect, max, min } : { url, rect, max }); return "crop(" + url + "@" + rect.x + "," + rect.y + "/" + max + ")"; };
 
 /* ---- 6 · 1. the plate's cameras noted on its card → the matched quadrant, cut out at its own size ---- */
 owner.plateCameras = box.normalizeLocationPlateCameras({ iso: ISO, source: "set", panels: { TR: { yaw: 90 }, TL: { yaw: 0 }, BL: { yaw: 0, lensMm: 35 } } });
@@ -109,7 +117,8 @@ noSheet(sub1.refs, "with noted cameras");
 assert.equal(sub1.refs.length, 1, "the matched panel alone — no material panel beside it");
 assert.deepEqual(json({ refId: sub1.refs[0].refId, required: sub1.refs[0].required, numbered: sub1.refs[0].numbered, maxDim: sub1.refs[0].maxDim }),
   { refId: "pq-loc-fondamenta-3-tr", required: true, numbered: true, maxDim: 1536 });
-assert.deepEqual(json(crops), [{ url: "data:" + PLATE, rect: { x: 50.5, y: 0.5, w: 49, h: 49 }, max: 1536 }], "the top-right quadrant at its own size");
+// (2026-10-27) scaled up to at least 1536 px when the plate is small
+assert.deepEqual(json(crops), [{ url: "data:" + PLATE, rect: { x: 50.5, y: 0.5, w: 49, h: 49 }, max: 1536, min: 1536 }], "the top-right quadrant at a reference size");
 assert.match(sub1.refs[0].note, /^Fondamenta seen facing east — the top-right panel of its plate: use ONLY for what is visible through the archway “Quay continues east to landing” in the top-left panel; never as Fondamenta DEI Vetrai itself and never as a backdrop$/);
 assert.equal(sub1.plan.unresolved.length, 0);
 const spec = JSON.parse(box.buildLocationRefPrompt(sub, film.project, { panelPlan: sub1.plan, panelRefs: box.locationReferenceNumbers(sub1.refs) }).split("\n").slice(1).join("\n"));

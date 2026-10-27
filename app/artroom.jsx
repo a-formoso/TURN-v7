@@ -4624,7 +4624,9 @@ function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApp
   return portalTarget ? ReactDOM.createPortal(modal, portalTarget) : modal;
 }
 
-function cropRegionAsDataUrl(url, rect, maxDim){
+/* minDim (2026-10-27): a small cut is scaled UP to at least that long side (never above maxDim), so a panel cut out of
+   a plate goes to the image model at a reference size, not as a thumbnail */
+function cropRegionAsDataUrl(url, rect, maxDim, minDim){
   maxDim = maxDim || 1024;
   return new Promise(resolve=>{
     const img = new Image();
@@ -4636,11 +4638,13 @@ function cropRegionAsDataUrl(url, rect, maxDim){
         const sy = Math.max(0, Math.round((rect.y/100)*nh));
         const sw = Math.max(1, Math.min(nw-sx, Math.round((rect.w/100)*nw)));
         const sh = Math.max(1, Math.min(nh-sy, Math.round((rect.h/100)*nh)));
-        const sc = Math.min(1, maxDim/Math.max(sw, sh));
+        const long = Math.max(sw, sh);
+        const sc = Math.min(maxDim/long, Math.max(1, (Number(minDim)||0)/long));
         const c = document.createElement("canvas");
         c.width = Math.max(1, Math.round(sw*sc));
         c.height = Math.max(1, Math.round(sh*sc));
         const ctx = c.getContext("2d");
+        if(sc>1){ ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; }
         ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
         resolve(c.toDataURL("image/jpeg", .88));
       }catch(e){ resolve(""); }

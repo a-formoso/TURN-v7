@@ -1202,9 +1202,13 @@ function shotLocationParentStyleSpec(l,locations){
   const id=(typeof locationParentStyleId==="function")?locationParentStyleId(l):"ps-"+l.id;
   const note=(typeof locationParentStyleNote==="function")?locationParentStyleNote(l,parent)
     :(parent.name||"Parent location")+" — materials, colour and light only; not "+(l.name||"this room");
-  return {id,category:"place",categoryLabel:"Parent's plate · materials only",categories:["place"],
-    label:[shotLocationCatalogDisplayName(l,locations),(parent.name||"parent")+"'s plate","materials, colour and light"].join(" · "),
-    description:(l.name||"This room")+" has no plate of its own: one small panel of "+(parent.name||"its parent")
+  // (2026-10-27) when the parent's plate has a view of this room itself, that panel is what it borrows
+  const shows=!!(typeof locationParentStylePick==="function"&&(locationParentStylePick(l,parent)||{}).showsRoom);
+  return {id,category:"place",categoryLabel:shows?"Parent's plate · its view of this room":"Parent's plate · materials only",categories:["place"],
+    label:[shotLocationCatalogDisplayName(l,locations),(parent.name||"parent")+"'s plate",shows?"its view of this room":"materials, colour and light"].join(" · "),
+    description:shows?(l.name||"This room")+" has no plate of its own: the panel of "+(parent.name||"its parent")
+      +"'s plate that shows it gives its look; the shot's camera frames it."
+      :(l.name||"This room")+" has no plate of its own: one small panel of "+(parent.name||"its parent")
       +"'s plate gives its materials, colour and light; the room itself is described in the text.",
     note,locationId:String(l.id),entityId:String(l.id),baseId:String(l.id),parentLocationId:String(parent.id),
     parentStyle:true,placeName:String(l.name||""),source:"location-parent-style",
