@@ -94,9 +94,23 @@ await test("relay: a 9.4 MB generated location opens its workspace; Blender's co
   const opened = await call({ action: "studio.workspace.open", location: { id: "loc-1", name: "Car deck" },
     references: [{ entityId: "loc-1", kind: "location", label: "Car deck", version: "2026-10-25T05:42:01.768Z" }] });
   assert.equal(opened.workspace.locationId, "loc-1");
+  // an extra image the server can't confirm (a room-and-time plate id, an uploaded sheet) is left out, not fatal
+  const strictAdapter = { ...adapter, async validateStudioReference(q) { return q.entityId !== "loc-1:night-plate"; } };
+  const svc2 = createStudioService({ contract: globalThis.BlenderStudioContract, adapter: strictAdapter, provider: {} });
+  let st2 = { studio: { v: 1, current: {}, tasks: {}, workspaces: {} } };
+  const ctx2 = () => ({ ...ctx(), snapshot: { state: st2 }, save: async (next) => { st2 = structuredClone(next); return { state: st2 }; } });
+  const opened2 = await svc2.handle(new Request("https://relay.test"), { action: "studio.workspace.open", location: { id: "loc-1", name: "Car deck" },
+    references: [{ entityId: "loc-1", kind: "location", label: "Car deck", version: "v1" },
+      { entityId: "loc-1:night-plate", kind: "location", label: "Night", version: "v1" }, { entityId: "c1", kind: "character", label: "Mara" }] },
+    { context: async () => ctx2() });
+  assert.deepEqual(opened2.workspace.references.map(r => r.entityId), ["loc-1", "c1"]);
+  const badSource = createStudioService({ contract: globalThis.BlenderStudioContract, provider: {},
+    adapter: { ...adapter, async validateStudioReference(q) { return q.entityId !== "loc-1"; } } });
+  await assert.rejects(() => badSource.handle(new Request("https://relay.test"), { action: "studio.workspace.open", location: { id: "loc-1", name: "Car deck" },
+    references: [{ entityId: "loc-1", kind: "location", label: "Car deck", version: "v1" }] }, { context: async () => ctx2() }), /authorized generated project asset/);
   const ref = await call({ action: "studio.reference.get", locationId: "loc-1", entityId: "loc-1" });
   assert.ok(ref.dataUrl.startsWith("data:image/png;base64,") && Buffer.from(ref.dataUrl.split(",")[1], "base64").length === small.length);
-  assert.deepEqual(asked, [0, Math.floor(4.5 * 1024 * 1024)]);
+  assert.deepEqual(asked, [0, 0, Math.floor(4.5 * 1024 * 1024)]);   // two opens read the original, the desktop copy is the resize
   const src = readFileSync("supabase/functions/blender-bridge/supabase-adapter.mjs", "utf8");
   assert.ok(src.includes('{ transform: { width: 1568, height: 1568, resize: "contain", quality: 85 } }'));
   assert.ok(readFileSync("supabase/functions/blender-bridge/studio-service.mjs", "utf8").includes("const image=await readGeneratedImage(ctx,source,true);"));

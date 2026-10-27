@@ -176,19 +176,25 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
   function workspaceFor(state, locationId) {
     const value = studio(state).workspaces[locationId]; if (!value) throw error(404, "not_found", "Studio workspace not found."); return value;
   }
-  async function validateReferences(ctx, references) {
+  /* lenient (2026-10-26): opening a workspace sends the film's other images too (room-and-time plates, every
+     character and prop); one that isn't an authorized generated asset — a plate whose id isn't a catalog location,
+     an uploaded sheet — is left out of the workspace instead of refusing the whole open. The location's own source
+     and a saved workspace's references stay strict. */
+  async function validateReferences(ctx, references, lenient = false) {
     if (!Array.isArray(references) || references.length > 200) throw bad("Invalid references (maximum 200).");
     if (!references.length) return [];
     if (typeof adapter?.validateStudioReference !== "function") {
       throw error(503, "reference_validation_unavailable", "Studio reference validation is unavailable.");
     }
+    const kept = [];
     for (const reference of references) {
-      if (!object(reference) || typeof reference.entityId !== "string" ||
-        !(await adapter.validateStudioReference({ projectId: ctx.projectId, entityId: reference.entityId,
-          kind: reference.kind, version: reference.version }))) {
-        throw bad("Reference is not an authorized generated project asset.");
-      }
+      const ok = object(reference) && typeof reference.entityId === "string" &&
+        await adapter.validateStudioReference({ projectId: ctx.projectId, entityId: reference.entityId,
+          kind: reference.kind, version: reference.version });
+      if (ok) kept.push(reference);
+      else if (!lenient) throw bad("Reference is not an authorized generated project asset.");
     }
+    references = kept;
     await ctx.recheck();
     return clone(references);
   }
@@ -428,7 +434,7 @@ export function createStudioService({ contract, provider = {}, adapter, now = ()
         contract.validateWorkspace(candidate); work.shots.push(clone(body.shot)); changed = true;
       }
       ensureCurrent(state, ctx.actor.id, loc.id, shotId);
-      if (body.references) { work.references = await validateReferences(ctx, body.references); changed = true; contract.validateWorkspace(work); }
+      if (body.references) { work.references = await validateReferences(ctx, body.references, true); changed = true; contract.validateWorkspace(work); }
       if (changed) work.revision++;
       validateBindings(work);
       // This sealed, short-lived authorization is for a paired desktop's
