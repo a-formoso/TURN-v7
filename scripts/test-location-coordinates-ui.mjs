@@ -79,8 +79,8 @@ assert.match(t,/Plate cameras/);
 assert.match(t,/2 views unresolved/);
 assert.match(t,/Each panel of Furnace Office's plate is a camera inside Furnace Office/);
 assert.match(t,/never its most striking panel/);
-assert.match(t,/from the doorway, looking at the far wall of Furnace Office/);
-assert.match(t,/Camera inside Furnace Office just inside Office door, facing east \(90°\)/);
+assert.match(t,/from the doorway, a three-quarter view diagonally across Furnace Office toward its far corner/);   // 2026-10-27
+assert.match(t,/Camera inside Furnace Office just inside Office door, facing north-east \(55°\)/);
 assert.match(t,/“Office window” \(south wall\) → Furnace, looking south/);
 assert.match(t,/No Furnace view faces south from here\. The plate describes what lies that way from the shared layout \(Slag conveyor\) and marks it unresolved\./);
 const make=flat(tree).filter(n=>n.type==="button"&&/Make a Furnace view from Furnace Office's position/.test(text(n)));
@@ -140,7 +140,7 @@ assert.match(t,/Until a camera is set, the plate prompt is unchanged/);
 const use=flat(tree).find(n=>n.type==="button"&&text(n)==="Use the suggested cameras");
 use.props.onClick();
 const ov=writes[0].patch.coverageViews;
-assert.deepEqual(JSON.parse(JSON.stringify(ov.map(v=>[v.panel,v.pose.yaw]))),[["TL",0],["TR",45],["BL",0],["BR",180]],
+assert.deepEqual(JSON.parse(JSON.stringify(ov.map(v=>[v.panel,v.pose.yaw]))),[["TL",35],["TR",45],["BL",0],["BR",180]],   // TL three-quarter (2026-10-27)
   "the suggestions with a known facing are stored (the stations face the walls their anchors are on)");
 assert.equal(ov[0].pose.basis,"design");
 assert.match(t,/Setting cameras uses no credits and generates nothing/);

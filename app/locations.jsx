@@ -1805,7 +1805,7 @@ function locationRequestedViews(l, locations){
   const mixed = st && _locOwnerUsesMixedViews(l) && typeof locationMasterPanelPlan==="function"
     ? locationMasterPanelPlan(l, C.scenes||[], C.drafts||{}) : null;
   const words = mixed ? {TL:mixed.top_left, TR:mixed.top_right, BL:mixed.bottom_left, BR:mixed.bottom_right}
-    : st ? {TL:"wide establishing front shot", TR:"high-angle three-quarter overview",
+    : st ? {TL:"wide establishing three-quarter view at eye level from a front corner", TR:"high-angle three-quarter overview",
     BL:"close-up of "+(st.main || "the space's primary, most story-relevant feature"),
     BR:"close-up of "+(st.second || "a signature material detail of the space")} : {};
   return locationPanelPoses(l,list).map(p=>({key:p.key, yaw:p.pose.yaw, position:p.pose.position, target:p.pose.target,
@@ -1917,7 +1917,24 @@ function _locOutdoorPanels(l, list, parent, geo, anchors, openings){
     BR: br ? {purpose:br.purpose, pose:pose(br)} : none("eye-level close view of a signature material detail of "+name),
     parentViews:theirs};   // what each panel was kept apart from (locationPanelPoses repeatsParent)
 }
-function locationDefaultPanelPoses(l, locations){
+/* THREE-QUARTER MAIN VIEWS (owner 2026-10-27: "Generate locations in a three-quarter view rather than straight-on —
+   showing more of the room's layout prevents the video model from hallucinating different backgrounds when camera
+   angles shift"). The main view (TL) looks diagonally across the space toward its farthest corner, 15-60 degrees off
+   straight, so two walls meet, the floor's depth and the ways in all read. The straight-on rule is kept as "legacy"
+   (opts.legacyMainView) only so a plate made with it isn't later called "Layout changed" (locationPlateLayoutChanged). */
+const LOC_THREE_QUARTER_FRAME = " \u2014 a THREE-QUARTER view at eye level from a corner, looking diagonally across the space so two walls, the floor's depth and the ways in all read, never a flat straight-on front view";
+function _locThreeQuarterYaw(poly, at, straight){
+  const base = straight==null ? 0 : Number(straight);
+  if(!poly || !at){ return locYaw(base+35); }
+  let far = null;
+  poly.forEach(v=>{ const d = Math.hypot(v[0]-at[0], v[1]-at[1]); if(!far || d>far.d) far = {v,d}; });
+  let off = locYawDiff(_locBearing(at, far.v), base);
+  if(Math.abs(off)<15) off = off<0 ? -35 : 35;
+  else if(Math.abs(off)>60) off = off<0 ? -60 : 60;
+  return locYaw(base+off);
+}
+function locationDefaultPanelPoses(l, locations, opts){
+  const legacy = !!(opts && opts.legacyMainView);
   const list = _locList(locations), parent = locationParentOf(l,list);
   const plan = _locOwnerPlan(l,list).plan, sp = _locCoordSpace(plan.coordinates,l);
   const poly = sp && sp.footprint.length>=3 ? sp.footprint : null;
@@ -1945,9 +1962,17 @@ function locationDefaultPanelPoses(l, locations){
       pitch:-Math.round(Math.atan2(z-geo.floorZ-0.8, dist)*180/Math.PI)};
   };
   if(!parent){
-    out.TL = {purpose:"wide establishing view from the layout's standpoint, in the direction its frame faces",
+    out.TL = legacy ? {purpose:"wide establishing view from the layout's standpoint, in the direction its frame faces",
       pose:_locPose({yaw:0, pitch:0, lensMm:24, place:"at the shared layout's standpoint",
-        position:poly && geo.centre ? (()=>{ const e = _locRayExit(poly,geo.centre,180); return e ? [geo.centre[0], geo.centre[1]-Math.max(0,e-0.8), geo.floorZ+1.6] : null; })() : null})};
+        position:poly && geo.centre ? (()=>{ const e = _locRayExit(poly,geo.centre,180); return e ? [geo.centre[0], geo.centre[1]-Math.max(0,e-0.8), geo.floorZ+1.6] : null; })() : null})}
+      : (()=>{
+        // THREE-QUARTER (2026-10-27): from a front corner beside the standpoint, looking diagonally across the space
+        const at = poly && geo.centre ? (()=>{ const e = _locRayExit(poly,geo.centre,215); if(!e) return null;
+          const d = _locDir(215), k = Math.max(0,e-0.8); return [geo.centre[0]+d[0]*k, geo.centre[1]+d[1]*k, geo.floorZ+1.6]; })() : null;
+        return {purpose:"wide establishing three-quarter view at eye level from a front corner, looking diagonally across the space",
+          pose:_locPose({yaw:_locThreeQuarterYaw(poly, at, 0), pitch:0, lensMm:24, position:at,
+            place:at ? "" : "in a front corner beside the shared layout's standpoint"})};
+      })();
     const c = corner(45);
     out.TR = {purpose:outdoor ? "raised three-quarter overview from about 6 m up, looking across the space"
         : "high three-quarter overview from an elevated corner, looking across the space",
@@ -1967,16 +1992,23 @@ function locationDefaultPanelPoses(l, locations){
     if(!out.BR) out.BR = rest.shift() || {purpose:"close-up of a signature material detail of "+name, pose:_locPose({yaw:null, pitch:-12, lensMm:35})};
     return out;
   } else {
-    let tl;
+    let tl, inYaw = null;   // inYaw: straight into the room from its door — the high corner view (TR) turns from it
     if(door && door.yaw!=null){
-      const yaw = locYaw(door.yaw+180);
+      const yaw = locYaw(door.yaw+180); inYaw = yaw;
       const position = door.centre ? (()=>{ const d = _locDir(yaw); return [door.centre[0]+d[0]*0.6, door.centre[1]+d[1]*0.6, geo.floorZ+1.6]; })() : null;
-      tl = _locPose({yaw, pitch:0, lensMm:24, position, target:"", place:position ? "" : "just inside "+(door.name||"the door")});
+      // THREE-QUARTER (2026-10-27): just inside the door, turned diagonally into the room (legacy: straight at the far wall)
+      // of the two diagonals, the one turned further from the window's wall (a view through a window needs a plate of its own)
+      const diag = legacy ? yaw : (()=>{ const d1 = _locThreeQuarterYaw(poly, position, yaw), d2 = locYaw(yaw-locYawDiff(d1,yaw));
+        if(!win || win.yaw==null) return d1;
+        return Math.abs(locYawDiff(d2, win.yaw))>Math.abs(locYawDiff(d1, win.yaw)) ? d2 : d1; })();
+      tl = _locPose({yaw:diag, pitch:0, lensMm:24, position, target:"",
+        place:position ? "" : "just inside "+(door.name||"the door")});
     } else tl = _locPose({yaw:null, pitch:0, lensMm:24, place:"at the entrance"});
-    out.TL = {purpose:"from the doorway, looking at the far wall of "+name, pose:tl};
+    out.TL = {purpose:legacy ? "from the doorway, looking at the far wall of "+name
+      : "from the doorway, a three-quarter view diagonally across "+name+" toward its far corner", pose:tl};
     let trYaw = null;
-    if(tl.yaw!=null){
-      const a = locYaw(tl.yaw+45), b = locYaw(tl.yaw-45);
+    if(inYaw!=null){
+      const a = locYaw(inYaw+45), b = locYaw(inYaw-45);
       trYaw = (win && win.yaw!=null && Math.abs(locYawDiff(b,win.yaw))<Math.abs(locYawDiff(a,win.yaw))) ? b : a;
     } else if(win && win.yaw!=null) trYaw = win.yaw;
     const c = corner(trYaw);
@@ -2020,10 +2052,10 @@ function locationStoredPanelViews(l){
    a floor-plan camera marked "Set by hand" — basis user) is used as typed and only warned about (heightWarning).
    An outdoor part's panel whose camera repeats one of its parent's views (locationParentPlateViews) says which
    (repeatsParent [{panel, real}]) — the planner's least-repeating pick, or a camera set by hand or by the floor plan. */
-function locationPanelPoses(l, locations){
+function locationPanelPoses(l, locations, opts){
   if(!l) return [];
   const list = _locList(locations), parent = locationParentOf(l,list);
-  const defaults = locationDefaultPanelPoses(l,list), stored = locationStoredPanelViews(l);
+  const defaults = locationDefaultPanelPoses(l,list,opts), stored = locationStoredPanelViews(l);
   const coords = _locOwnerPlan(l,list).plan.coordinates;
   const sp = _locCoordSpace(coords,l), outdoor = locationIsOutdoor(l,list,sp);
   const floorZ = sp ? sp.floorZ : 0, topZ = floorZ+LOC_OUTDOOR_MAX_Z;
@@ -2056,8 +2088,8 @@ function locationPanelPoses(l, locations){
   });
 }
 /* what a plate records about the cameras its prompt stated (meta.platePanels) — null when it stated none */
-function locationPlatePanelRecord(l, locations){
-  const panels = locationPanelPoses(l,locations).filter(p=>p.stated);
+function locationPlatePanelRecord(l, locations, opts){
+  const panels = locationPanelPoses(l,locations,opts).filter(p=>p.stated);
   if(!panels.length) return null;
   const out = {schema:"cm-plate-panels-v1", spaceId:String(l.id||""), spaceName:String(l.name||""), layout:"2x2", panels:{}};
   panels.forEach(p=>{ out.panels[p.key] = {yaw:p.pose.yaw, pitch:p.pose.pitch, lensMm:p.pose.lensMm, hfov:p.hfov,
@@ -2256,7 +2288,10 @@ function locationPlateLayoutChanged(meta, l, opts){
     if(!withOwn) return false;
     if(withOwn!==meta.plateLayoutSig) return true;                       // the layout itself changed
     let now = null; try{ now = locationPlatePanelRecord(l); }catch(e){ return false; }
-    return !_locSameCameras(meta.platePanels, now);                      // …or the cameras really moved
+    if(_locSameCameras(meta.platePanels, now)) return false;
+    // a plate made before the three-quarter main view (2026-10-27) still matches the straight-on one it asked for
+    let legacyNow = null; try{ legacyNow = locationPlatePanelRecord(l, undefined, {legacyMainView:true}); }catch(e){}
+    return !(legacyNow && _locSameCameras(meta.platePanels, legacyNow));   // …or the cameras really moved
   }
   const now = locationPlateLayoutSig(l, opts);
   return !!now && now!==meta.plateLayoutSig;
@@ -2505,7 +2540,8 @@ function locationViewSourceNote(src, l, opts){
   const byOpening = {};
   (src.uses||[]).forEach(u=>{ (byOpening[u.openingId] = byOpening[u.openingId] || {u, list:[]}).list.push(u); });
   const through = Object.keys(byOpening).map(k=>{ const g = byOpening[k], ps = where(g.list);
-    return "the "+_locKindWord(g.u.kind)+" “"+g.u.openingName+"”"+(opts && opts.single ? "" : " in the "+ps.join(" and ")+" panel"+(ps.length>1 ? "s" : "")); }).join("; ");
+    const named = ps.length>2 ? ps.slice(0,-1).join(", ")+" and "+ps[ps.length-1] : ps.join(" and ");   // "top-left, top-right and bottom-right"
+    return "the "+_locKindWord(g.u.kind)+" “"+g.u.openingName+"”"+(opts && opts.single ? "" : " in the "+named+" panel"+(ps.length>1 ? "s" : "")); }).join("; ");
   const facing = locCompass(src.pose.yaw);
   const what = src.kind==="quadrant"
     ? src.targetName+" seen facing "+facing+" — the "+LOC_PANEL_INFO[src.key].label.toLowerCase()+" panel of its plate"+(src.pose.place ? ", camera "+src.pose.place : "")
@@ -2998,7 +3034,9 @@ function locationCoordinateExport(l, locations){
   /* only when they differ from the cameras above (a plate made from them says camerasMatchPlate instead): the package
      reaches Blender Studio as text with a size limit, so the same four cameras are never sent twice */
   let current = null; try{ current = locationPlatePanelRecord(l,list); }catch(e){}
-  const same = !!(shown && meta && meta.platePanels && current && _locSameCameras(meta.platePanels, current));
+  let legacyCurrent = null; try{ legacyCurrent = locationPlatePanelRecord(l,list,{legacyMainView:true}); }catch(e){}
+  const same = !!(shown && meta && meta.platePanels && ((current && _locSameCameras(meta.platePanels, current))
+    || (legacyCurrent && _locSameCameras(meta.platePanels, legacyCurrent))));
   const plateCameras = shown && !same ? LOC_PANEL_KEYS.filter(k=>shown.panels[k]).map(k=>{ const p = shown.panels[k];
     return {spaceId:l.id, panel:k, plateIso:String((meta && meta.iso)||""), pose:{position:p.position||null, yaw:p.yaw, pitch:p.pitch||0, lensMm:p.lensMm||24},
       basis:p.basis||"design", studioCamera:locationPoseToStudioCamera(p), blenderRotationEuler:locationPoseBlenderRotation(p)}; }) : [];
@@ -4125,7 +4163,7 @@ function locationMasterPanelPlan(l, scenes, drafts){
   const threshold = "the visible threshold/sightline relationship between "+extName+" and "+intName+" — windows, glass, doors, booth walls, openings, approach path and eyeline geometry must line up";
   if(firstRole==="INT") return {
     layout: "exactly 4 views in a 2x2 grid, planned from the screenplay's first playable space",
-    top_left: "INTERIOR establishing view of "+intName+" because the action starts inside — show the empty working room, floor, walls, openings and usable blocking space",
+    top_left: "INTERIOR establishing view of "+intName+" because the action starts inside — show the empty working room, floor, walls, openings and usable blocking space — in three-quarter from a corner, never straight-on",
     top_right: "INTERIOR key action station from the screenplay — desk/terminal/counter/work surface or the practical area where the first business plays",
     bottom_left: "EXTERIOR context of "+extName+" seen from the connected approach or through the relevant opening, matching the interior's sightlines",
     bottom_right: "THRESHOLD CONNECTION view: "+threshold,
@@ -4133,7 +4171,7 @@ function locationMasterPanelPlan(l, scenes, drafts){
   };
   return {
     layout: "exactly 4 views in a 2x2 grid, planned from the screenplay's first playable space",
-    top_left: "EXTERIOR wide establishing view of "+extName+" because the scene opens outside — show the whole playable geography, approach, ground plane and permanent major landmarks in neutral continuity conditions",
+    top_left: "EXTERIOR wide establishing view of "+extName+" because the scene opens outside — show the whole playable geography, approach, ground plane and permanent major landmarks in neutral continuity conditions — in three-quarter from a corner, never straight-on",
     top_right: "EXTERIOR-to-INTERIOR relationship view: "+threshold,
     bottom_left: "INTERIOR establishing view of "+intName+" — the empty room/subspace the script later plays inside, with working surfaces and openings",
     bottom_right: "key close/detail from the screenplay that proves the location can stage the action: terminal, desk, counter, rack, window/glass, doorway or other named functional feature",
@@ -4839,7 +4877,7 @@ function buildLocationRefPrompt(l, project, opts){
   const time = opts.time || "";
 
   /* JSON environment spec (the director's template as a key:value spec, 2026-06):
-     EXACTLY 4 views in a 2\u00d72 grid \u2014 wide establishing front, high-angle three-quarter
+     EXACTLY 4 views in a 2\u00d72 grid \u2014 wide establishing three-quarter (2026-10-27; it was a front view), high-angle three-quarter
      overview, two close-ups of the key stations \u2014 no text baked in. The depth grid's
      landmarks fill `fixtures`; ownerless set dressing LINKED to this location (the
      fixture-of relationship: explicit locationId, or every mapped scene resolves here)
@@ -4871,7 +4909,9 @@ function buildLocationRefPrompt(l, project, opts){
     const stated = subspacePlan ? [] : locationPanelPoses(l, _C0.locations).filter(p=>p.stated);
     if(!stated.length) return views;
     const anchors = locationSpaceAnchors(l, _C0.locations), out = { ...views };
-    stated.forEach(p=>{ out[p.field] = String(out[p.field]||p.purpose).replace(/\.$/,"")+". "+locationPoseText(p.pose, "", anchors)
+    // a main view whose camera was set by hand or by the layout is framed by that camera, not told "three-quarter" (2026-10-27)
+    stated.forEach(p=>{ const words = p.key==="TL" && p.source!=="suggested" ? "wide establishing view at eye level from this camera" : String(out[p.field]||p.purpose);
+      out[p.field] = words.replace(/\.$/,"")+". "+locationPoseText(p.pose, "", anchors)
       +locationChildrenVisibleText(locationPanelChildrenVisible(l, p, _C0.locations)); });
     out.camera_convention = "Facings are compass directions of the shared layout: north is the facing named in its frame; yaw in degrees clockwise from north; positions in metres from its origin anchor, height above the floor.";
     return out;
@@ -4964,7 +5004,7 @@ function buildLocationRefPrompt(l, project, opts){
     views: subspacePlan ? locationSubspaceViews(l, subspacePlan, opts.panelRefs) : ownerCameraViews({
       ...(panelPlan || {
         layout: "exactly 4 views in a 2x2 grid",
-        top_left: "wide establishing front shot at eye level with symmetrical centered composition",
+        top_left: "wide establishing THREE-QUARTER view at eye level from a front corner, looking diagonally across the space so two walls meet and the floor's depth and the ways in read \u2014 not a flat, straight-on symmetrical front view",
         top_right: "high-angle three-quarter overview shot from an elevated corner perspective looking down into the space showing depth and spatial layout",
         bottom_left: "close-up of "+mainStation,
         bottom_right: "close-up of "+secondStation,
@@ -5117,7 +5157,7 @@ function buildLocationCoveragePrompt(l, sheet, project, opts){
     ambient_species_canon: speciesCanon || undefined,
     render: {
       style: clean(v.renderStyle),
-      format: "ONE "+((typeof nbGetAspect==="function" && nbGetAspect()) || "16:9")+" cinematic environment reference image, not a grid, not a storyboard panel",
+      format: "ONE "+((typeof nbGetAspect==="function" && nbGetAspect()) || "16:9")+" cinematic environment reference image, not a grid, not a storyboard panel"+LOC_THREE_QUARTER_FRAME,
       rules: [rules, "empty set only", "if the screenplay names a subspace without fully describing it, infer the missing architecture from the attached screenplay-page reference plus the parent location reference while staying conservative", "no text, no labels, no typography, no captions, no watermarks", "consistent with the parent location's materials, scale and light"],
     },
   };
@@ -5186,7 +5226,7 @@ function buildSluglineUnitPrompt(l, u, project, opts){
     ambient_species_canon: speciesCanon || undefined,
     render: {
       style: clean(v.renderStyle),
-      format: "ONE "+((typeof nbGetAspect==="function" && nbGetAspect()) || "16:9")+" cinematic environment reference image, not a grid, not a storyboard panel",
+      format: "ONE "+((typeof nbGetAspect==="function" && nbGetAspect()) || "16:9")+" cinematic environment reference image, not a grid, not a storyboard panel"+LOC_THREE_QUARTER_FRAME,
       rules: [rules, "empty set only", "the TIME OF DAY, TIME-OF-DAY VARIANT and STATE DRESSING list are binding — light, sky and weather must match the first two, and every listed temporary dressing item must be present in the space", "LOCKED continuity anchors and spatial topology are binding; Narrative Significance is soft interpretive guidance only", "no text, no labels, no typography, no captions, no watermarks", "consistent with the continuity root's invariants and this child space's specific identity"],
     },
   };
@@ -5232,9 +5272,9 @@ function buildSimpleLocationPrompt(l, frame){
     locationSpatialPrompt(l),
     speciesCanon,
     frame
-      ? ("ONE wide establishing frame"+(frame.name?(" of "+String(frame.name).trim()):"")+(frame.side?(" ("+frame.side+")"):"")
+      ? ("ONE wide three-quarter establishing frame"+(frame.name?(" of "+String(frame.name).trim()):"")+(frame.side?(" ("+frame.side+")"):"")
           +(frame.time?(", at "+String(frame.time).trim()):"")+(frame.state?(", "+String(frame.state).replace(/\.$/,"").trim()):"")
-          +" \u2014 a single image, not a grid, no text, labels or captions")
+          +" \u2014 from a corner, looking diagonally across the space, never straight-on; a single image, not a grid, no text, labels or captions")
       : "exactly 4 views of the same space in a 2x2 grid \u2014 establishing wide, reverse angle, a side view and a detail \u2014 no text, labels or captions",
     subspace,
     rules+", "+(styleLine||"photoreal")+", sharp focus"

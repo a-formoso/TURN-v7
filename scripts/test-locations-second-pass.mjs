@@ -229,7 +229,7 @@ await test("F1 prompts: the photo plate is the 2x2 four-view sheet; single-frame
   assert.match(photo, /exactly 4 views of that same space in a 2x2 grid/); assert.match(photo, /No text, no labels, no captions/);
   assert.ok(!/3\u00d72|six panels|Print a small caption/.test(photo));
   const unit = box.buildSimpleLocationPrompt({ id:"k", name:"Kitchen" }, { name:"Kitchen", side:"INT", time:"Night", state:"rain on the windows" });
-  assert.match(unit, /ONE wide establishing frame of Kitchen \(INT\), at Night, rain on the windows/); assert.match(unit, /not a grid, no text/);
+  assert.match(unit, /ONE wide three-quarter establishing frame of Kitchen \(INT\), at Night, rain on the windows — from a corner, looking diagonally across the space, never straight-on/); assert.match(unit, /not a grid, no text/);
   assert.match(box.buildSimpleLocationPrompt({ id:"k", name:"Kitchen" }), /exactly 4 views of the same space in a 2x2 grid/);
   assert.ok(!/"ONE 16:9 cinematic/.test(locs) && locs.includes('modelLabel:mEntry.label||"Image model"'));
   assert.equal((ui.match(/buildSimple: \(\)=> buildSimpleLocationPrompt\(l,\{/g)||[]).length, 3);

@@ -1,0 +1,27 @@
+#!/usr/bin/env node
+/* THREE-QUARTER LOCATION VIEWS (owner 2026-10-27: "Generate locations in a three-quarter view rather than straight-on
+   — showing more of the room's layout prevents the video model from hallucinating different backgrounds when camera
+   angles shift"). The plate prompts' wording; the cameras are in test-location-coordinates.mjs (diagonal main view,
+   a room turned away from its window wall, a hand-set camera framing its own view, legacy plates not "Layout changed").
+   Run: node scripts/test-location-three-quarter.mjs */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+const loc = readFileSync("app/locations.jsx", "utf8"), ai = readFileSync("app/ai.jsx", "utf8"), html = readFileSync("TURN.html", "utf8");
+let n = 0; const t = (name, fn) => { fn(); n++; console.log("PASS " + name); };
+t("the 2x2 plate's main view is a three-quarter view from a corner, never the straight-on symmetrical front shot", () => {
+  assert.ok(loc.includes('top_left: "wide establishing THREE-QUARTER view at eye level from a front corner, looking diagonally across the space'));
+  assert.ok(!loc.includes('top_left: "wide establishing front shot at eye level with symmetrical centered composition"'));
+  assert.ok(loc.includes('TL:"wide establishing three-quarter view at eye level from a front corner"'));
+  assert.ok((loc.match(/— in three-quarter from a corner, never straight-on"/g) || []).length === 2, "the inside/outside plan's main views too");
+});
+t("every single-frame plate asks for a three-quarter view", () => {
+  assert.equal((loc.match(/not a grid, not a storyboard panel"\+LOC_THREE_QUARTER_FRAME/g) || []).length, 2);
+  assert.ok(loc.includes("ONE wide three-quarter establishing frame") && loc.includes("from a corner, looking diagonally across the space, never straight-on"));
+  assert.ok(/const LOC_THREE_QUARTER_FRAME = ".*THREE-QUARTER view at eye level from a corner/.test(loc));
+});
+t("a hand-set main camera keeps its own framing; Frances knows; re-keyed", () => {
+  assert.ok(loc.includes('p.key==="TL" && p.source!=="suggested" ? "wide establishing view at eye level from this camera"'));
+  assert.ok(ai.includes("THREE-QUARTER LOCATION VIEWS (2026-10-27)"));
+  assert.ok(["20261027-hs97"].some(k => html.includes('app/locations.jsx?v=' + k + '"')));
+});
+console.log(n + " passed, 0 failed");

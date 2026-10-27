@@ -294,7 +294,7 @@ metas[owner.id] = { iso: "o2", platePanels: { schema: "cm-plate-panels-v1", spac
 const theirs = json(box.locationParentPlateViews(owner));
 assert.deepEqual(theirs.map((v) => [v.key, v.yaw, v.position, v.real]), [
   ["TL", 90, [-7.5, -2.6, 1.6], true], ["TR", 180, [0, -0.5, 1.6], true], ["BL", 0, [-1, -1.8, 1.5], false], ["BR", 270, [1.8, -4.5, 1.5], false]]);
-assert.equal(theirs[0].purpose, "wide establishing front shot", "the words its plate's prompt asked for");
+assert.equal(theirs[0].purpose, "wide establishing three-quarter view at eye level from a front corner", "the words its plate's prompt asked for");
 let kids = box.locationPanelPoses(sub);
 assert.deepEqual(json(kids.map((p) => [p.key, p.purpose, p.pose.yaw, p.pose.position])), [
   ["TL", "eye-level view along Fondamenta DEI Vetrai, looking west", 270, [7.2, -2.7, 1.6]],
@@ -311,7 +311,7 @@ assert.deepEqual(json([rec.panels.TL.repeatsParent, rec.panels.TR.repeatsParent,
 const subSpec = spec(sub, { panelPlan: box.locationSubspacePanelPlan(sub) });
 assert.match(subSpec.views.top_right, /facing south \(180°\), level, 28 mm lens\. It looks the same way as the top-right panel of Fondamenta's plate: give it its own foreground, distance and composition, never that panel's\./);
 assert.doesNotMatch(subSpec.views.bottom_left, /looks the same way/);
-assert.match(subSpec.views.subspace_rules[2], /^Each panel is a NEW camera position, framed differently from every view of Fondamenta's own plate \(wide establishing front shot, facing east; high-angle three-quarter overview, facing south; close-up of Glass-furnace façade/,
+assert.match(subSpec.views.subspace_rules[2], /^Each panel is a NEW camera position, framed differently from every view of Fondamenta's own plate \(wide establishing three-quarter view at eye level from a front corner, facing east; high-angle three-quarter overview, facing south; close-up of Glass-furnace façade/,
   "the prompt names the plate's REAL views");
 assert.deepEqual(json(box.locationPanelCameraNotes(kids[1], sub.name, owner.name)), [{ kind: "repeats",
   text: "Looks the same way as the top-right panel of Fondamenta's plate — every framing planned on Fondamenta DEI Vetrai repeats one of Fondamenta's views here, so this is the one that repeats least. Its prompt asks for its own foreground, distance and composition; set this camera by hand to frame it differently." }]);

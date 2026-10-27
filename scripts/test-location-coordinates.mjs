@@ -99,19 +99,20 @@ deq(openings.map(o=>[o.id,o.kind,o.yaw,o.yawFrom,o.connectsTo,o.destination]),[[
 let panels=box.locationPanelPoses(office);
 deq(panels.map(p=>p.key),["TL","TR","BL","BR"]);
 assert.ok(panels.every(p=>p.stated&&p.source==="suggested"),"a room always states its planned cameras");
-assert.match(panels[0].purpose,/from the doorway, looking at the far wall/);
-assert.equal(panels[0].pose.yaw,90,"TL: inside the west door, looking east at the far wall");
+// THREE-QUARTER (2026-10-27): inside the west door, turned diagonally (away from the south window) instead of straight east
+assert.match(panels[0].purpose,/from the doorway, a three-quarter view diagonally across Furnace Office toward its far corner/);
+assert.equal(panels[0].pose.yaw,55,"TL: inside the west door, a diagonal north-east, away from the window wall");
 assert.equal(panels[1].pose.yaw,135,"TR: the high corner turns toward the window side");
 assert.ok(panels[1].pose.pitch<0&&panels[1].pose.lensMm<=18);
 assert.match(panels[2].purpose,/Foreman's desk/);assert.equal(panels[2].pose.yaw,90,"BL faces the wall the desk is on");
 assert.match(panels[3].purpose,/window wall/);assert.equal(panels[3].pose.yaw,180);
 const ownerPanels=box.locationPanelPoses(furnace);
 assert.ok(ownerPanels.every(p=>!p.stated&&p.source==="suggested"),"an owner space's cameras are suggestions until set");
-assert.equal(ownerPanels[0].pose.yaw,0,"the owner's establishing view faces the layout frame's direction");
+assert.ok(Math.abs(box.locYawDiff(ownerPanels[0].pose.yaw,0))>=15&&Math.abs(box.locYawDiff(ownerPanels[0].pose.yaw,0))<=60,"the owner's establishing view looks diagonally across, 15-60° off the frame's direction (2026-10-27): "+ownerPanels[0].pose.yaw);
 assert.equal(box.locationPlatePanelRecord(furnace),null,"an owner without set cameras records nothing");
 const officeRecord=box.locationPlatePanelRecord(office);
 deq(Object.keys(officeRecord.panels),["TL","TR","BL","BR"]);
-assert.equal(officeRecord.panels.TL.yaw,90);near(officeRecord.panels.TL.hfov,73.7,0.1);
+assert.equal(officeRecord.panels.TL.yaw,55);near(officeRecord.panels.TL.hfov,73.7,0.1);
 assert.equal(box.locationPlatePanels({}),null,"an old plate (no record): every panel's facing is unknown");
 
 /* ---- 3. quadrant selection by facing ---- */
@@ -205,7 +206,7 @@ const promptOf=(l,o)=>box.buildLocationRefPrompt(l,{},o);
 const specOf=(l,o)=>JSON.parse(promptOf(l,o).split("\n").slice(1).join("\n"));
 let spec=specOf(office,{panelPlan:sub.plan,panelRefs:box.locationReferenceNumbers(sub.refs)});
 assert.match(spec.views.layout,/four cameras INSIDE Furnace Office/);
-assert.match(spec.views.top_left,/^from the doorway, looking at the far wall of Furnace Office\. Camera inside Furnace Office just inside Office door, facing east \(90°\), level, 24 mm lens\. Interior of Furnace Office only\.$/);
+assert.match(spec.views.top_left,/^from the doorway, a three-quarter view diagonally across Furnace Office toward its far corner\. Camera inside Furnace Office just inside Office door, facing north-east \(55°\), level, 24 mm lens\. Interior of Furnace Office only\.$/);
 assert.match(spec.views.bottom_right,/Opening “Office window” \(window, south wall\) shows Furnace as seen from here, looking south: match Image 1 for what shows through it\./);
 assert.match(spec.views.subspace_rules.join(" "),/inside of every panel is Furnace Office only/);
 assert.match(spec.views.subspace_rules.join(" "),/as seen from THIS panel's camera position/);
@@ -233,7 +234,7 @@ assert.equal((await box.locationSubspacePlateReferences(office)).refs.length,0);
 box.cropRegionAsDataUrl=async(url,rect,max)=>{crops.push({url,rect,max});return "crop:"+url+":"+rect.x+","+rect.y;};
 // owner prompt unchanged until its cameras are set
 const genericViews={layout:"exactly 4 views in a 2x2 grid",
-  top_left:"wide establishing front shot at eye level with symmetrical centered composition",
+  top_left:"wide establishing THREE-QUARTER view at eye level from a front corner, looking diagonally across the space so two walls meet and the floor's depth and the ways in read \u2014 not a flat, straight-on symmetrical front view",
   top_right:"high-angle three-quarter overview shot from an elevated corner perspective looking down into the space showing depth and spatial layout",
   bottom_left:"close-up of the space's primary, most story-relevant feature",bottom_right:"close-up of a signature material detail of the space",
   rule:"each view a distinctly different camera angle and composition — the SAME identical space, consistent architecture, scale, materials and light across all views"};
@@ -255,7 +256,8 @@ assert.equal(views.length,2);assert.equal(views[1].id,"panel-tr");assert.equal(v
 const furnace3={...furnace,coverageViews:views};
 deq(box.locationPanelPoses(furnace3).map(p=>p.stated),[true,true,false,false]);
 spec=specOf(furnace3);
-assert.match(spec.views.top_left,/^wide establishing front shot.*\. Camera at the shared layout's standpoint, facing north \(0°\), level, 24 mm lens\.$/);
+// a main camera set by hand frames the view itself — no "three-quarter" wording against it (2026-10-27)
+assert.match(spec.views.top_left,/^wide establishing view at eye level from this camera\. Camera .*facing north \(0°\), level, 24 mm lens\.$/);
 assert.match(spec.views.top_right,/facing south \(180°\), looking down 30°, 18 mm lens/);
 assert.equal(spec.views.bottom_left,genericViews.bottom_left,"an unset panel keeps its old wording");
 assert.match(spec.views.camera_convention,/north is the facing named in its frame/);
@@ -357,4 +359,17 @@ assert.match(ui,/mode==="final"&&masterPanelRecord.current\?\{platePanels:master
 assert.match(ui,/React.createElement\(LocationPlateCameras,\{l,project,onUpdate,readOnly/);
 assert.match(art,/a && Number\(a.maxDim\)>0 \? Number\(a.maxDim\)/);
 assert.match(art,/if\(attach.some\(a=>a && a.numbered\)\) genOpts.referencesNumbered = true;/);
+/* ---- THREE-QUARTER MAIN VIEWS (2026-10-27): a plate made with the old straight-on cameras isn't "Layout changed" ---- */
+{
+  const legacyRec=box.locationPlatePanelRecord(office,undefined,{legacyMainView:true});
+  assert.equal(legacyRec.panels.TL.yaw,90,"the legacy rule: straight from the door at the far wall");
+  const sigOf=(rec)=>box.locationPlateLayoutSig(office,{panels:true,record:rec});
+  assert.equal(box.locationPlateLayoutChanged({iso:"o1",platePanels:legacyRec,plateLayoutSig:sigOf(legacyRec)},office,{panels:true}),false,
+    "an older plate whose main camera was the straight-on default still matches");
+  const moved=JSON.parse(JSON.stringify(legacyRec)); moved.panels.TR.yaw=0;
+  assert.equal(box.locationPlateLayoutChanged({iso:"o1",platePanels:moved,plateLayoutSig:sigOf(moved)},office,{panels:true}),true,
+    "a camera that really moved is still a changed layout");
+  const nowRec=box.locationPlatePanelRecord(office);
+  assert.equal(box.locationPlateLayoutChanged({iso:"o2",platePanels:nowRec,plateLayoutSig:sigOf(nowRec)},office,{panels:true}),false);
+}
 console.log("PASS location coordinates: the model, old layouts unchanged, panel poses, quadrant geometry (facing + coverage, no match), crops and labels, per-panel prompts, recorded cameras, the made view and the Blender cameras");

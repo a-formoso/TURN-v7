@@ -155,7 +155,7 @@ for (const k of ["top_left", "top_right", "bottom_left", "bottom_right"])
 assert.doesNotMatch(all, /INSIDE|Camera inside|Interior of|never Fondamenta itself|inside of every panel/, "no indoor wording for an open quay");
 assert.match(views.top_left, /Its open side “Quay continues east to landing” \(east\) looks east along Fondamenta; no reference view faces that way yet \(unresolved\)[^"]*Continue Fondamenta there in the same materials and scale as its plate; never fill it with a copied panel of Fondamenta\./);
 assert.match(views.subspace_rules[1], /^The surroundings must match Fondamenta's plate: the same ground, façades, water, skyline, lamps, materials, colours and scale/);
-assert.match(views.subspace_rules[2], /^Each panel is a NEW camera position, framed differently from every view of Fondamenta's own plate \(wide establishing front shot, facing north; high-angle three-quarter overview, facing east; close-up of Glass-furnace façade: the two-pane furnace window under its iron roll-down…, facing north; close-up of Stone quay edge running away west, flooded ankle-deep with acqua alta and…, facing west\)\.$/);
+assert.match(views.subspace_rules[2], /^Each panel is a NEW camera position, framed differently from every view of Fondamenta's own plate \(wide establishing three-quarter view at eye level from a front corner, facing north-west; high-angle three-quarter overview, facing east; close-up of Glass-furnace façade: the two-pane furnace window under its iron roll-down…, facing north; close-up of Stone quay edge running away west, flooded ankle-deep with acqua alta and…, facing west\)\.$/);
 assert.match(views.subspace_rules[3], /Never reuse a composition from Fondamenta's plate/);
 assert.match(spec.location.identity_layers.visual_continuity.rule, /^This is an open-air part of Fondamenta: the ground, façades, water and skyline around it continue the parent's plate exactly/);
 assert.match(spec.location.identity_layers.visual_continuity.rule, /never views to copy/);
@@ -188,7 +188,7 @@ assert.match(draftSrc, /set openSky true for a space open to the sky/);
 /* ---- 6. indoor rooms keep their cameras exactly ---- */
 const officePoses = json(box.locationPanelPoses(office).map((p) => [p.key, p.purpose, p.pose.yaw, p.pose.place, p.pose.target]));
 assert.deepEqual(officePoses, [
-  ["TL", "from the doorway, looking at the far wall of Furnace Office", null, "at the entrance", ""],
+  ["TL", "from the doorway, a three-quarter view diagonally across Furnace Office toward its far corner", null, "at the entrance", ""],
   ["TR", "high corner view across Furnace Office, showing how its walls, openings and stations fit together", null, "high in a corner", ""],
   ["BL", "key station: Desk with ledgers, gas bill, glass paperweight", null, "in front of Desk with ledgers, gas bill, glass paperweight", "office-desk"],
   ["BR", "key station: Bank calendar", 0, "in front of Bank calendar", "bank-calendar"]], "Furnace Office: today's cameras");
@@ -197,7 +197,7 @@ assert.match(officeSpec.views.layout, /four cameras INSIDE Furnace Office/);
 assert.match(officeSpec.views.top_left, /Camera inside Furnace Office at the entrance, facing not set, level, 24 mm lens\. Interior of Furnace Office only\./);
 assert.match(officeSpec.views.subspace_rules[0], /^The inside of every panel is Furnace Office only/);
 assert.match(officeSpec.location.identity_layers.visual_continuity.rule, /^Where the parent plate shows this room itself/);
-assert.match(box.buildSimpleLocationPrompt(office), /Four cameras inside Furnace Office — top-left: from the doorway, looking at the far wall of Furnace Office/);
+assert.match(box.buildSimpleLocationPrompt(office), /Four cameras inside Furnace Office — top-left: from the doorway, a three-quarter view diagonally across Furnace Office toward its far corner/);
 
 /* ---- 7. "Layout changed — regenerate" only when the cameras really moved ---- */
 const record = json(box.locationPlatePanelRecord(sub)), sig = box.locationPlateLayoutSig(sub, { panels: true });
