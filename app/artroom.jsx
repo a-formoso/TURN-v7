@@ -6424,6 +6424,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           React.createElement("div",{className:"char-scalesheet-hint"},
             "For lines the video model voices itself (no recorded voice). Write the line as it sounds in the script; Cyrillic letters stop the model reading it as English. The letters are never shown, and the script isn't changed."))),
 
+      // VIDEO ELEMENT (2026-10-27): a few seconds of them speaking in their locked voice, sent with their Stage clips
+      window.VideoElementFold && React.createElement(window.VideoElementFold,{ c, readOnly, scenes, drafts, onUpdate }),
+
       React.createElement(CardFold,{label:"Scale sheet",defaultOpen:false},
         React.createElement("div",{className:"char-scalesheet-hint"},
           React.createElement(Icon.sparkles,{s:12}),

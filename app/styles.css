@@ -11436,3 +11436,10 @@ video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:aut
 .crowd-excerpts{margin:4px 0 10px}
 .crowd-excerpts p{margin:4px 0;font-size:12px;color:var(--txt-1);font-family:var(--f-mono);line-height:1.45}
 .crowd-card.off .sheet-frame,.crowd-card.off img{opacity:.55}
+/* a character's video element (2026-10-27) */
+.ve-video{display:block;width:100%;max-height:220px;border-radius:var(--r-m);background:#000;margin:6px 0}
+.ve-line{font-size:12px;color:var(--txt-1);font-style:italic;margin:0 0 8px}
+.ve-need{font-size:12px;color:var(--txt-2);margin:6px 0}
+.ve-cost{opacity:.75;font-weight:400}
+.ve-use{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt-1);margin-top:8px;cursor:pointer}
+.ve-err{font-size:12px;color:var(--alert);margin-top:6px}

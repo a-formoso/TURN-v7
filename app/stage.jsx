@@ -3273,6 +3273,8 @@ function stageAssetRole(a, refs){
       +"Match its vocal identity — timbre, vocal age and register, tone, accent or dialect, cadence, pacing, emphasis, breath and delivery — and follow its exact recorded words and timing. "
       +"It controls voice and lip timing only, never visuals, blocking, ambience, music or extra dialogue. Do not revoice, paraphrase, double or add another speaker. Lip-sync only when "+speaker+" is visible; otherwise keep the voice offscreen.";
   }
+  // a character's video element (2026-10-27): face motion and voice tone, never its words or framing
+  if(k.indexOf("ve:")===0 && typeof window.veRoleLine==="function") return window.veRoleLine(T,a);
   if(a.kind==="video") return T+" is the previous clip — continue its ending positions, screen direction, lighting, prop state and motion momentum. Do not replay its action or copy its opening composition.";
   if(a.referenceKind==="screenplay") return T+" is a screenshot of the scene screenplay, page "+a.page+" of "+a.totalPages
     +". Read it as writing context only; perform only the selected beat/shot/part. Never photograph or animate the page, its text, highlighting or borders, and never use it as composition or a character identity reference.";
@@ -3804,6 +3806,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   const identityCast = (ctx.characters||[]).filter(c=>identityIds.indexOf(c.id)>=0);
   const identityContext = { characterIds:identityIds, scenes:ctx.scenes||[scene],
     drafts, cast:identityCast };
+  // the cast's video elements, loaded once (app/video-elements.jsx)
+  const veTick = (typeof window.useVideoElementUrls==="function") ? window.useVideoElementUrls(identityCast) : 0;
   const identityPrompt = identityCast.length && typeof window.turnIdentityPrompt==="function"
     ? String(window.turnIdentityPrompt(identityCast)||"").trim() : "";
   // a real person's likeness in this clip's cast (re-read when a likeness is locked / removed)
@@ -3967,6 +3971,10 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         url:u, ready:true, id:slot, boardFrames:n, boardKey:(meta&&meta.keyText)||"",
         assetRole:"derived_reference", assetSourceQuality:"blender_board_page" });
     });
+    // VIDEO ELEMENTS (2026-10-27): each on-screen character's video element (face motion and voice) — on by default on
+    // Seedance 2.5; offered off on 2.0, whose video references are capped at 3 files and 15 s together
+    if(_mRefs && typeof window.veStageAsset==="function")
+      identityCast.forEach(c=>{ const a=window.veStageAsset(c,{ offByDefault:modelId!=="seedance-2.5" }); if(a) out.push(a); });
     // CROWDS (2026-10-27): the group image of each crowd this clip's shots name, on by default — background people only
     if(_mRefs && typeof shotCrowds==="function"){
       const seenCrowd=new Set();
@@ -4141,7 +4149,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       assetRoleLabel:"Screenplay screenshot",assetSourceQuality:"canonical_screenplay_page",
       ready:!!p.url,locked:false}));
     return out;
-  }, [clip.id, activeShot.id, sourceMode, dialogueAudio, modelId, referencePackage.signature, screenplayImageReference, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
+  }, [clip.id, activeShot.id, veTick, identityCast.map(c=>c.id+":"+(c.videoElementOff?0:1)).join(","), sourceMode, dialogueAudio, modelId, referencePackage.signature, screenplayImageReference, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
 
   // assets default ON when ready; user can toggle (off set). @tags number the INCLUDED
   // assets only — attachment order is what fal sees, so excluding @Image2 must renumber
