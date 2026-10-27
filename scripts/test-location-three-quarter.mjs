@@ -22,6 +22,6 @@ t("every single-frame plate asks for a three-quarter view", () => {
 t("a hand-set main camera keeps its own framing; Frances knows; re-keyed", () => {
   assert.ok(loc.includes('p.key==="TL" && p.source!=="suggested" ? "wide establishing view at eye level from this camera"'));
   assert.ok(ai.includes("THREE-QUARTER LOCATION VIEWS (2026-10-27)"));
-  assert.ok(["20261027-hs97"].some(k => html.includes('app/locations.jsx?v=' + k + '"')));
+  assert.ok(["20261027-hs97", "20261027-hs98"].some(k => html.includes('app/locations.jsx?v=' + k + '"')));
 });
 console.log(n + " passed, 0 failed");

@@ -735,8 +735,10 @@ ok("the voice lock follows DIALOGUE AND SOUND",
   nativeBrief.indexOf("DIALOGUE AND SOUND")<nativeBrief.indexOf("VOICE LOCK")&&nativeBrief.indexOf("VOICE LOCK")<nativeBrief.indexOf("AVOID AI TELLS"));
 const lockedBrief=brief(makeClip(voiceData,"voice-locked"),[shotOpening,shotPart],shotOpening,true,[shotOpening.id,shotPart.id],refs,opts);
 const lockedLock=section(lockedBrief,"VOICE LOCK — the same voice in every shot","AVOID AI TELLS");
-ok("locked voices: Mara's lines use their recording (no written voice); Daniel's unrecorded line keeps his",
-  /@Audio4 as Mara's/.test(lockedBrief)&&!/^Mara:/m.test(lockedLock)&&/^Daniel: Glaswegian/m.test(lockedLock),lockedLock);
+// (2026-10-27, owner — "carry that exact voice description across every scene") a recorded line keeps its speaker's
+// written voice too: the recording governs the line, the description keeps the voice the same in every scene
+ok("locked voices: Mara's lines use their recording AND keep her written voice; Daniel's unrecorded line keeps his",
+  /@Audio4 as Mara's/.test(lockedBrief)&&/^Mara: /m.test(lockedLock)&&/^Daniel: Glaswegian/m.test(lockedLock),lockedLock);
 const styledNative=recipe("narrative",makeClip({...voiceData,capture:"Shot on 16mm."},"voice-styled"),[shotOpening,shotPart],shotOpening,false,[],refs,{...opts,explicitStyle:true});
 ok("a named grammar in native performance carries the capture text and the voice lock",
   /LENS AND CAPTURE — the same in every shot\nShot on 16mm\./.test(styledNative)&&/VOICE LOCK — the same voice in every shot\nMara: Thirties/.test(styledNative),styledNative.slice(-1400));

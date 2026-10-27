@@ -436,7 +436,10 @@
       "Lighting and physical changes follow the authored events. Preserve object design through motion, pickups and handovers; a reference image is not a requirement to keep an object in the same hands.",
       "Bodies, cloth and props obey gravity, contact, mass, inertia, weight transfer and follow-through. No floating feet, rubbery motion or frictionless movement."
     ]);
-    const nativeVoices=[];
+    /* THE SAME VOICE IN EVERY SCENE (owner 2026-10-27: "carry that exact voice description across every scene for
+       consistency"): VOICE LOCK lists every character who speaks in the clip, with a recorded line or not — the
+       recording governs that line's sound, the description keeps the voice the same from scene to scene. */
+    const nativeVoices=[], spokenVoices=[];
     const audio=section("DIALOGUE AND SOUND",[
       ...dialogue.map(x=>{
         const row=x.row,delivery=text(row.delivery)||"onscreen";
@@ -448,6 +451,7 @@
           &&(text(u.sh.lineAudio&&u.sh.lineAudio.text)||text(u.p.dialogue))===text(row.text)
           ?refs.audioForShot(u.sh.id):"";
         if(!isText&&!audioTag)nativeVoices.push(row);
+        if(!isText)spokenVoices.push(row);
         const own=!isText&&!audioTag?spokenForm(d,row):null;
         return x.label+" · "+speaker(row)+" ["+[delivery,text(row.channel)].filter(Boolean).join(" · ")+"]: “"+(own?own.words:row.text)+"”"
           +(own?" — "+own.note:"")
@@ -474,7 +478,7 @@
     const sizes=Array.isArray(d.sizes)&&d.sizes.length?section("TRUE SIZES",[
       "Keep these real sizes, and the differences between them, in every shot; never scale a person or object to fit the frame.",
       ...d.sizes.slice(0,16).map(z=>text(z.name)+": "+text(z.text)+".")]):"";
-    return [contract,section("ACTIVE REFERENCES",refsLines),sizes,openingState,compass,action,seedanceSceneTypeSection(d,list,opts),notes.acting,performance,lighting,seedanceHeroProps(d),captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
+    return [contract,section("ACTIVE REFERENCES",refsLines),sizes,openingState,compass,action,seedanceSceneTypeSection(d,list,opts),notes.acting,performance,lighting,seedanceHeroProps(d),captureSection(d),audio,seedanceVoiceLock(d,spokenVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
   }
   root.seedanceDirectorBrief=seedanceDirectorBrief;
 })(typeof window!=="undefined"?window:globalThis);
