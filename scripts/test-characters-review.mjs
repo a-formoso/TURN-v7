@@ -225,7 +225,7 @@ await test("E1 pronouns offer they/them (like the Writers' Room's Character pane
   assert.ok(card.includes('c.pronouns==="they/them") ? c.pronouns : ""'));
 });
 await test("E2 the face-capture button reads 'Likeness'", ()=>{
-  assert.ok(card.includes('React.createElement(Icon.userScan,{s:12}), "Likeness"),'));
+  assert.ok(card.includes('React.createElement(Icon.userScan,{s:12}), "Likeness",'))   // (2026-10-27) then its locked tick;
   assert.ok(!card.includes('cameoMeta?"Cameo":"Cast"'));
 });
 await test("E3 deleting a character asks first and says it goes to Recently Deleted", ()=>{

@@ -6047,16 +6047,23 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement("div",{className:"sheet-head-top"},
           React.createElement("div",{className:"sheet-name",title:c.name||""},c.name),
           React.createElement("div",{className:"sheet-head-acts"},
+            // a locked likeness / voice shows as a tick on its button; what it is is in the tooltip (owner 2026-10-27:
+            // the "Voice: designed" line under the buttons is gone)
             React.createElement("button",{className:"char-cameo-btn"+(lkInfo?" on":""),disabled:drafting,
               onClick:()=>setCameoOpen(true),
-              title:lkInfo?"Likeness locked \u2014 recapture it with the webcam or photos":"Lock a real face as this character's likeness (webcam or photos)"},
-              React.createElement(Icon.userScan,{s:12}), "Likeness"),
+              title:lkInfo?("Likeness locked"+((()=>{ const t = (typeof window.vcFaceVoiceLine==="function") ? window.vcFaceVoiceLine(lkInfo, null).split(" \u00b7 ")[0] : "";
+                return t ? " ("+t.replace(/^Face: /,"")+")" : ""; })())+" \u2014 recapture it with the webcam or photos"):"Lock a real face as this character's likeness (webcam or photos)"},
+              React.createElement(Icon.userScan,{s:12}), "Likeness",
+              lkInfo && React.createElement("span",{className:"char-btn-tick","aria-label":"locked"}, React.createElement(Icon.check,{s:9}))),
             React.createElement("button",{className:"char-voice-btn"+(voiceLocked?" on":"")+(voiceOpen?" open":""),type:"button",
               onClick:()=>onOpenVoice&&onOpenVoice(c.id),
               "aria-expanded":voiceOpen?"true":"false","aria-controls":"voice-popup-"+String(c.id||"character").replace(/[^A-Za-z0-9_-]/g,"-"),
               "data-testid":"voice-popup-trigger","data-character-id":c.id,
-              title:voiceOpen?"Voice design is open on this character card":(voiceLocked?("Voice locked: "+((c.voiceLock&&c.voiceLock.voiceName)||"voice")+" \u2014 test or relock"):"Cast a voice \u2014 lock how this character sounds")},
-              React.createElement(Icon.mic,{s:12}), "Voice"),
+              title:voiceOpen?"Voice design is open on this character card":(voiceLocked?("Voice locked: "+((c.voiceLock&&c.voiceLock.voiceName)||"voice")
+                +((()=>{ const t = (typeof window.vcFaceVoiceLine==="function") ? (window.vcFaceVoiceLine(null, c.voiceLock).replace(/^Voice: /,"")) : "";
+                  return t ? " ("+t+")" : ""; })())+" \u2014 test or relock"):"Cast a voice \u2014 lock how this character sounds")},
+              React.createElement(Icon.mic,{s:12}), "Voice",
+              voiceLocked && React.createElement("span",{className:"char-btn-tick","data-testid":"voice-locked-tick","aria-label":"locked"}, React.createElement(Icon.check,{s:9}))),
             React.createElement(QaCheckButton,{ gen, name:c.name, noun:"character sheet",
               // (2026-10-12, Character fidelity) the fields the sheet prompt really reads: the physique rows (face rows
               // only without a likeness), the distinguishing features, wardrobe, accessories — a fix never lands in a
@@ -6067,11 +6074,8 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
               // the screenplay part (the Script check, folded into the QA check 2026-10-27): the sheet against what the
               // screenplay states, in the same read
               script:{ c, drafts, onUpdate:readOnly ? null : onUpdate } })))),
-      // FACE AND VOICE, EACH ITS OWN (2026-10-11, owner — real voices): which face and which voice this character has —
-      // "Face: Sam (likeness) · Voice: Sam (real voice)" / "Voice: designed" / "Voice: from the library"
-      (()=>{ const line = (typeof window.vcFaceVoiceLine==="function") ? window.vcFaceVoiceLine(lkInfo, c.voiceLock) : "";
-        return line ? React.createElement("div",{className:"char-cast-line","data-testid":"char-face-voice"},
-          React.createElement(Icon.mic,{s:11}), React.createElement("span",null,line)) : null; })(),
+      // (the "Face: … · Voice: …" line under the buttons is gone, owner 2026-10-27: a tick on the Likeness / Voice button
+      // says it's locked, and the button's tooltip says which face and which voice — vcFaceVoiceLine)
       // UPDATE SHEET WITH NEW WARDROBE (owner 2026-10-06 — Characters review): the app pointed here from six
       // places, but the button didn't exist. The master doesn't wear its newly built worn-item sheets yet.
       wardrobeStale && gen.genUrl && !readOnly && React.createElement("div",{className:"sheet-cameo-status char-wardrobe-update"},

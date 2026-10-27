@@ -10313,18 +10313,15 @@ html[data-theme="light"]{
    the card's content-visibility:auto (sheet virtualization, above) made it the window's containing block, so the
    window opened squeezed inside the card (2026-10-16; the Voice window has the same exception, .voice-open) */
 .sheet-card:has(.cameo-overlay){content-visibility:visible;position:relative;z-index:130}
-/* the character card's Likeness button and the image's Likeness chip are amber too (owner 2026-10-16: "make the
-   card's Likeness button amber too") — the chip and the button keep one colour, as they keep one word */
-.char-cameo-btn,html[data-theme="light"] .char-cameo-btn{border-color:var(--win-amber-line);background:var(--win-amber-soft);color:var(--win-amber-ink)}
-.char-cameo-btn:hover:not(:disabled),html[data-theme="light"] .char-cameo-btn:hover:not(:disabled){background:rgba(242,154,67,.24);color:var(--win-amber-ink)}
-.char-cameo-btn.on,html[data-theme="light"] .char-cameo-btn.on{background:rgba(242,154,67,.22);border-color:var(--win-amber);color:var(--win-amber-ink)}
-.sheet-cameo-chip,html[data-theme="light"] .sheet-cameo-chip{border-color:var(--win-amber-line);background:var(--win-amber-soft);color:var(--win-amber-ink)}
-/* the card's Voice button is amber too (owner 2026-10-16: "make the Voice button amber too") — Likeness and Voice
-   sit side by side on every character card in one colour */
-.char-voice-btn,html[data-theme="light"] .char-voice-btn{border-color:var(--win-amber-line);background:var(--win-amber-soft);color:var(--win-amber-ink)}
-.char-voice-btn:hover,html[data-theme="light"] .char-voice-btn:hover{background:rgba(242,154,67,.24);color:var(--win-amber-ink)}
-.char-voice-btn.on,html[data-theme="light"] .char-voice-btn.on{background:rgba(242,154,67,.22);border-color:var(--win-amber);color:var(--win-amber-ink)}
-.char-voice-btn.open,html[data-theme="light"] .char-voice-btn.open{box-shadow:0 0 0 2px rgba(242,154,67,.25)}
+/* (owner 2026-10-27: "bring back the colours we had used before") the card's Likeness button is violet and its Voice
+   button teal again, as before 2026-10-16 (the base rules above); the amber overrides that were here are gone. The
+   image's Likeness chip keeps its colour with the button, as it keeps its word. A locked likeness / voice is a tick
+   on the button's top right corner, in the button's colour. */
+.char-cameo-btn,.char-voice-btn{position:relative}
+.char-btn-tick{position:absolute;top:-6px;right:-6px;width:14px;height:14px;border-radius:50%;display:inline-flex;
+  align-items:center;justify-content:center;color:#fff;box-shadow:0 0 0 2px var(--bg-1,#fff);pointer-events:none}
+.char-cameo-btn .char-btn-tick{background:oklch(0.55 0.17 295)}
+.char-voice-btn .char-btn-tick{background:oklch(0.52 0.1 195)}
 /* the Voice window in the family (owner 2026-10-16: "make the Voice window's buttons amber too"): its teal
    outline and focus ring go amber, its buttons take the family's look — amber for the main action and the picked
    mode, white for the rest, the playing sample amber */
