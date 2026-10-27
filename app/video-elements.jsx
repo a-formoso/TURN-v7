@@ -87,15 +87,14 @@ function veStatus(c){
   return { url, meta, stale:why.length>0, why:why.join(" and "), seconds:Number(was.durationSec)||Number(meta&&meta.durationSec)||0, line:was.line||"" };
 }
 function veSeconds(audioMs){ return Math.max(VE_MIN_SEC, Math.min(VE_MAX_SEC, Math.ceil((Number(audioMs)||3000)/1000 + 1))); }
-/* the render's prompt: the character alone, saying the line in @Audio1, against plain grey */
+/* the render's prompt: the character alone, saying the line in @Audio1, against plain grey. No written voice (owner
+   2026-10-27): the recording in @Audio1 is the voice. */
 function vePrompt(c, line){
   const name = (c && c.name) || "the character";
-  const voice = (typeof stageVoiceText==="function") ? String(stageVoiceText(c)||"").trim() : "";
   return [
     "@Image1 is "+name+"'s character sheet: their face, hair, build and wardrobe. @Audio1 is "+name+"'s own voice saying: “"+line+"”",
     "A medium close-up of "+name+" alone, facing the camera at a slight three-quarter angle, against a plain mid-grey studio background, soft even light, a locked-off camera.",
     name+" says the line from @Audio1 with exact lip-sync, as themselves: natural blinks, small head and eye movements, breath in the chest and shoulders, real micro-expressions that change with the words. Never a frozen stare.",
-    voice ? "VOICE: "+voice : "",
     "Only "+name+" in frame. No other people, no text, no captions, no music, no sound but the voice."
   ].filter(Boolean).join("\n");
 }

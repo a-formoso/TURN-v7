@@ -35,6 +35,10 @@ const prompt=box.vePrompt(aurelio,"Every regular by the bumper.");
 ok("the prompt: the sheet as @Image1, their voice as @Audio1, alone on plain grey, lip-synced, living face",
   /@Image1 is Aurelio Bassi's character sheet/.test(prompt) && /@Audio1 is Aurelio Bassi's own voice saying: “Every regular by the bumper\.”/.test(prompt)
   && /plain mid-grey studio background/.test(prompt) && /exact lip-sync/.test(prompt) && /Only Aurelio Bassi in frame/.test(prompt), prompt);
+box.stageVoiceText=()=>"older male voice, soft uvular R";
+ok("no written voice in the prompt: the recording is the voice (owner 2026-10-27)",
+  !/VOICE:|uvular/.test(box.vePrompt(aurelio,"Every regular by the bumper.")));
+delete box.stageVoiceText;
 
 // price: the voice line + Seedance 2.5 at 480p
 box.SEEDANCE_MODELS=[{id:"seedance-2.5",tiers:[{id:"standard",falModel:"bytedance/seedance-2.5/reference-to-video",creditRate:{"480p":2.21}}]}];
