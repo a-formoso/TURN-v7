@@ -139,7 +139,7 @@ assert.deepEqual(json(box.locationPanelPoses(mixedOwner, mixedList).slice(2).map
 const corridor = byId("loc-hotel-staff-corridor-6");   // INT, with an EXT Required Space Plate: a truly mixed plan
 box.turnContinuity = { ...box.turnContinuity, sluglineUnits: box.deriveSluglineUnits(film.scenes, film.drafts) };
 assert.deepEqual(json(box.locationRequestedViews(corridor).map((v) => v.purpose.split(" ").slice(0, 2).join(" "))),
-  ["INTERIOR establishing", "INTERIOR key", "EXTERIOR context", "THRESHOLD CONNECTION"], "the INT + EXT plan's own four views");
+  ["INTERIOR establishing", "INTERIOR closer", "EXTERIOR context", "THRESHOLD CONNECTION"], "the INT + EXT plan's own four views (2026-10-27: in its own words)");
 assert.equal(box.locationRequestedViews(owner)[2].purpose, "close-up of " + box.locationStagingStations(owner).main, "(a one-sided owner: its staging close-ups)");
 delete box.turnContinuity.sluglineUnits;
 

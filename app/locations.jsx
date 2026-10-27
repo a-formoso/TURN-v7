@@ -1207,8 +1207,34 @@ function locationSpatialContract(l,locations){
     corrections:String(state.owner.spatialNotes||"").slice(0,2000),
     rules:"One physical set, not one layout per image. Stable anchor IDs identify the SAME objects in every panel and subspace. Placements are relative to the named room frame, NOT screen-left/right. Move only cameras; never mirror rooms, swap walls, move furniture or change doorway/window adjacency to fit a view. Reconcile direct room views with every doorway glimpse of that room. Camera depth grids describe projections of this plan and cannot override it. Unknown or occluded geometry is not measured evidence; retain uncertainty and request dimensions before exact Blender construction."};
 }
-function locationSpatialPrompt(l){
-  return " SHARED SET LAYOUT (binding physical relationships, all panels): "+JSON.stringify(locationSpatialContract(l))+". ";
+/* THE LAYOUT AS THE IMAGE MODEL READS IT (owner 2026-10-27: "some of the details we have in there might be only
+   applicable when it comes to Blender"): each fixed object's name, its space and its placement in words, the
+   sightlines and the corrections — never the metre coordinates, footprints, heights, yaw angles, the Blender axis
+   convention, evidence notes, open questions or the layout's housekeeping, which an image model can't use and which
+   pushed the place's own description out (~9,000 characters on Marmorica). Blender, the layout tools and the writing
+   calls keep the full layout (locationSpatialContract). The frame is the layout's own words, less its axis labels and
+   its "no plate exists" note (a layout drafted before the plate keeps saying it). */
+function locationSpatialImageContract(l,locations){
+  const full=locationSpatialContract(l,locations);
+  const frame=String(full.frame||"")
+    .replace(/\s*\((?:[+-]?[XYZ])\)/g,"")
+    .split(/(?<=[.!?])\s+/)
+    .filter(x=>!/\bno (?:reference )?(?:plate|image)\b|\bproposal for review\b|\bdesign proposal\b/i.test(x))
+    .join(" ").trim();
+  const objects=(Array.isArray(full.anchors)?full.anchors:[]).filter(a=>a&&(a.name||a.placement)).map(a=>({
+    id:a.id, name:a.name, ...(a.space?{space:a.space}:{}), where:String(a.placement||"").trim()}));
+  return {
+    binding:full.status==="reviewed",
+    ...(frame?{frame}:{}),
+    anchors:objects,
+    ...(full.sightlines?{sightlines:full.sightlines}:{}),
+    ...(full.corrections?{corrections:full.corrections}:{}),
+    rules:"One physical set seen by every camera: each object stays where its 'where' says, in every panel; only the camera moves. Never mirror the set, swap walls, move or duplicate an object to fit a view. Placements are on the set (port/starboard, fore/aft, which wall), not left/right on the screen.",
+  };
+}
+// image prompts read the plain layout; opts.full (a writing call) the whole one, numbers and all (2026-10-27)
+function locationSpatialPrompt(l, opts){
+  return " SHARED SET LAYOUT (binding physical relationships, all panels): "+JSON.stringify(opts&&opts.full ? locationSpatialContract(l) : locationSpatialImageContract(l))+". ";
 }
 async function locationSpatialReferences(l){
   const state=requireLocationSpatialPlan(l);
@@ -1237,6 +1263,7 @@ function mergeLocationReferences(...groups){
   });return out;
 }
 window.locationSpatialOwner=locationSpatialOwner;
+window.locationSpatialImageContract=locationSpatialImageContract;
 window.normalizeLocationSpatialPlan=normalizeLocationSpatialPlan;
 window.locationSpatialSource=locationSpatialSource;
 window.locationSpatialPlanState=locationSpatialPlanState;
@@ -2569,6 +2596,9 @@ async function _locLoadPlate(id){
    card with a parent, and the card shows "Extra spaces" only on a main location). An extra space — the other side of a
    main location, or a booth inside it, that the screenplay never slugs — is made from that location's OWN plate, as its
    room & time and environment-state plates are; it has no parent to cut panels from. */
+/* ONE LETTERING RULE (owner 2026-10-27): "no text" fought the spec's own stencilled deck and locker numbers, and the
+   model drew gibberish ("DECK N1 30", "1112 1153"). Lettering the spec gives in quotes is drawn exactly; nothing else. */
+const LOC_TEXT_RULE = "no text, labels or captions anywhere, except lettering the spec gives in quotes (a stencilled number, a sign), which shows exactly that text and nothing more; lettering the spec names without quoted text shows no legible characters; no watermarks";
 const LOC_PANEL_CROP_MAX_DIM = 1536, LOC_MATERIAL_CROP_MAX_DIM = 640, LOC_PREVIEW_CROP_MAX_DIM = 320;
 /* (2026-10-27) a panel sent as a VIEW (a matched quadrant, or the parent's panel of the room itself) is scaled up to at
    least this long side when the plate is small — a 2K plate's quadrant is ~1000 px */
@@ -3262,7 +3292,8 @@ function locationIdentityLayers(l,locations){
   }:undefined;
   return {
     scope:locationScopeOf(l,list),
-    shared_set_layout:locationSpatialContract(l,list),
+    // the image model's plain view of the layout (2026-10-27): placements in words, no Blender numbers
+    shared_set_layout:locationSpatialImageContract(l,list),
     continuity_root:parent?{ id:parent.id,name:parent.name,invariants:fields(parent) }:undefined,
     child_space:parent?{ id:l.id,name:l.name,specific_identity:fields(l) }:undefined,
     visual_continuity:parent?{
@@ -4279,23 +4310,49 @@ function locationMasterPanelPlan(l, scenes, drafts){
     || sheets.find(s=>String(s.role).toUpperCase()==="EXT")||{}).name || ((l&&l.name)||"Location")+" Exterior";
   const intName = (units.find(u=>String(u.intExt).toUpperCase()==="INT")
     || sheets.find(s=>String(s.role).toUpperCase()==="INT")||{}).name || ((l&&l.name)||"Location")+" Interior";
-  const threshold = "the visible threshold/sightline relationship between "+extName+" and "+intName+" — windows, glass, doors, booth walls, openings, approach path and eyeline geometry must line up";
-  if(firstRole==="INT") return {
+  /* THE PANELS IN THIS PLACE'S OWN WORDS (owner 2026-10-27): the template's "desk/terminal/counter" and "windows,
+     glass, booth walls" made a ship's car deck grow a counter and its upper deck a glazed shelter. Each panel now
+     names what the shared layout puts there; with no layout, the screenplay's own feature, never a list of guesses. */
+  let anchors = [];
+  try{ anchors = (locationSpatialImageContract(l).anchors||[]).filter(a=>a && a.name); }catch(e){}
+  const inRoom = (name)=>{ const k = _locNameKey(name); return anchors.filter(a=>_locNameKey(a.space)===k); };
+  const short = (a)=> String(a.name||"").split(/[,;(]/)[0].trim();
+  const list = (xs)=> xs.slice(0,3).map(short).join(", ");
+  const WAY = /\b(door|doorway|stair|stairs|hatch|ramp|gate|companionway|ladder|opening|arch|passage|window)\b/i;
+  // a way BETWEEN the two: its words name the other space, another way, or a stair (the stern ramp leads to the quay)
+  const shortKey = (n)=>{ const parts = String(n||"").split(/\s[-\u2013\u2014]\s/); return _locNameKey(parts.length>1 ? parts.slice(1).join(" ") : n); };
+  const allWays = [...inRoom(intName), ...inRoom(extName)].filter(a=>WAY.test(a.name||""));
+  const ways = allWays.filter(a=>{ const t = " "+_locNameKey((a.name||"")+" "+(a.where||""))+" ", other = shortKey(_locNameKey(a.space)===_locNameKey(intName) ? extName : intName);
+    return (other && t.indexOf(" "+other+" ")>=0) || /\b(stair|stairs|companionway|hatch|ladder)\b/i.test(t)
+      || allWays.some(b=>b!==a && b.id && String(a.where||"").indexOf(b.id)>=0); });
+  const intStation = inRoom(intName).filter(a=>!WAY.test(a.name||""));
+  const extStation = inRoom(extName).filter(a=>!WAY.test(a.name||""));
+  const threshold = ways.length
+    ? "the way between "+extName+" and "+intName+" as the layout sets it ("+list(ways)+") \u2014 its approach path and eyelines line up with the other panels"
+    : "the doorway, opening or approach the screenplay uses between "+extName+" and "+intName+" \u2014 its approach path and eyelines line up with the other panels";
+  const rule = "the four panels are one coherent real location with matched scale, materials, light direction and geography; no actors, no action, no lettering beyond what the spec quotes";
+  // the rooms the panels show, for the builder only (not enumerable: never in the prompt's views)
+  const withRooms = (plan)=>Object.defineProperty(plan, "rooms", { value:[intName, extName], enumerable:false });
+  if(firstRole==="INT") return withRooms({
     layout: "exactly 4 views in a 2x2 grid, planned from the screenplay's first playable space",
     top_left: "INTERIOR establishing view of "+intName+" because the action starts inside — show the empty working room, floor, walls, openings and usable blocking space — in three-quarter from a corner, never straight-on",
-    top_right: "INTERIOR key action station from the screenplay — desk/terminal/counter/work surface or the practical area where the first business plays",
-    bottom_left: "EXTERIOR context of "+extName+" seen from the connected approach or through the relevant opening, matching the interior's sightlines",
+    top_right: intStation.length
+      ? "INTERIOR closer view of "+intName+" where the first business plays: "+list(intStation)+", placed as the layout says"
+      : "INTERIOR closer view of "+intName+" where the first business plays: the fixture or working area the screenplay names there",
+    bottom_left: "EXTERIOR context of "+extName+(extStation.length ? " ("+list(extStation)+")" : "")+" seen from the connected approach or through the relevant opening, matching the interior's sightlines",
     bottom_right: "THRESHOLD CONNECTION view: "+threshold,
-    rule: "the four panels are one coherent real location with matched scale, materials, light direction and geography; no actors, no action, no text",
-  };
-  return {
+    rule,
+  });
+  return withRooms({
     layout: "exactly 4 views in a 2x2 grid, planned from the screenplay's first playable space",
     top_left: "EXTERIOR wide establishing view of "+extName+" because the scene opens outside — show the whole playable geography, approach, ground plane and permanent major landmarks in neutral continuity conditions — in three-quarter from a corner, never straight-on",
     top_right: "EXTERIOR-to-INTERIOR relationship view: "+threshold,
     bottom_left: "INTERIOR establishing view of "+intName+" — the empty room/subspace the script later plays inside, with working surfaces and openings",
-    bottom_right: "key close/detail from the screenplay that proves the location can stage the action: terminal, desk, counter, rack, window/glass, doorway or other named functional feature",
-    rule: "the four panels are one coherent real location with matched scale, materials, light direction and geography; no actors, no action, no text",
-  };
+    bottom_right: (intStation.length || extStation.length)
+      ? "closer view of the feature the action uses: "+list(intStation.length ? intStation : extStation)+", placed as the layout says"
+      : "closer view of the feature the screenplay's action uses here, as the screenplay names it",
+    rule,
+  });
 }
 window.locationMasterPanelPlan = locationMasterPanelPlan;
 function _locSheetId(role, name){
@@ -4564,13 +4621,21 @@ function locationScreenplayPointer(pages){
        as far as the prompt needs, never below ~600 characters in all, before step 7; step 8 may shorten them further.
    The builders hand the uncut texts to locationFitPromptSpec (extra.notAttachedFull) for that. */
 const LOC_UNATTACHED_TEXT_BASE = 2600, LOC_UNATTACHED_TEXT_MAX = 6000;
-function locationUnattachedScreenplayTexts(l, scenes, drafts, attachedSceneIds){
+/* onlyRooms (2026-10-27): the rooms the plate's four panels show — a scene set in another room of the place (the
+   ship's Stern Deck or Bow, when the panels show the CAR Deck and the Upper Deck) is left out: its text only invited
+   things no panel shows */
+function locationUnattachedScreenplayTexts(l, scenes, drafts, attachedSceneIds, onlyRooms){
   if(!Array.isArray(attachedSceneIds) || !attachedSceneIds.length) return [];
   const got = new Set(attachedSceneIds.map(String));
   const own = new Set(((Array.isArray(l && l.scenes) && l.scenes.length) ? l.scenes : []).map(String));
   const order = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder : (x=>x||[]);
   const rest = order((scenes||[]).filter(s=>s && own.has(String(s.id)) && !got.has(String(s.id))));
-  return rest.map(s=>String(locationSceneScriptText(s, drafts)||"").replace(/\n{3,}/g,"\n\n").trim()).filter(Boolean);
+  const texts = rest.map(s=>String(locationSceneScriptText(s, drafts)||"").replace(/\n{3,}/g,"\n\n").trim()).filter(Boolean);
+  const keys = (Array.isArray(onlyRooms) ? onlyRooms : []).map(n=>{ const parts = String(n||"").split(/\s[-\u2013\u2014]\s/);
+    return _locNameKey(parts.length>1 ? parts.slice(1).join(" ") : n); }).filter(k=>k && k.length>=3);
+  if(!keys.length) return texts;
+  return texts.filter(t=>t.split("\n").some(line=>/^\s*(INT|EXT|I\/E)[.\s]/i.test(line)
+    && keys.some(k=>(" "+_locNameKey(line)+" ").indexOf(" "+k+" ")>=0)));
 }
 function locationUnattachedScreenplay(l, scenes, drafts, attachedSceneIds, limit){
   return _locShareCut(locationUnattachedScreenplayTexts(l, scenes, drafts, attachedSceneIds), limit||LOC_UNATTACHED_TEXT_BASE);
@@ -5019,10 +5084,10 @@ function buildLocationRefPrompt(l, project, opts){
     || ((typeof locationScreenplayContext==="function") ? locationScreenplayContext(l, _C0.scenes||[], _C0.drafts||{}, 2600) : "");
   // …and the scenes whose pages didn't fit the slots, as text (opts.screenplaySceneIds: the attached pages' scenes) —
   // a fair share of LOC_UNATTACHED_TEXT_BASE, more when the prompt has room (the uncut texts go to the fitter below)
-  const screenplayNotAttachedFull = (pagesPointer && typeof locationUnattachedScreenplayTexts==="function")
-    ? locationUnattachedScreenplayTexts(l, _C0.scenes||[], _C0.drafts||{}, opts.screenplaySceneIds) : [];
-  const screenplayNotAttached = _locShareCut(screenplayNotAttachedFull, LOC_UNATTACHED_TEXT_BASE);
   const panelPlan = (typeof locationMasterPanelPlan==="function") ? locationMasterPanelPlan(l, _C0.scenes||[], _C0.drafts||{}) : null;
+  const screenplayNotAttachedFull = (pagesPointer && typeof locationUnattachedScreenplayTexts==="function")
+    ? locationUnattachedScreenplayTexts(l, _C0.scenes||[], _C0.drafts||{}, opts.screenplaySceneIds, panelPlan && panelPlan.rooms) : [];
+  const screenplayNotAttached = _locShareCut(screenplayNotAttachedFull, LOC_UNATTACHED_TEXT_BASE);
   const subspacePlan = locationParentOf(l, _C0.locations) ? (opts.panelPlan || locationSubspacePanelPlan(l, _C0.locations)) : null;
   const ownerCameraViews = (views)=>{
     const stated = subspacePlan ? [] : locationPanelPoses(l, _C0.locations).filter(p=>p.stated);
@@ -5065,9 +5130,11 @@ function buildLocationRefPrompt(l, project, opts){
     ? _C.scenes.filter(sc=> l.scenes.indexOf(sc.id)>=0) : [];
   let _affordances = [], _capacity = 0;
   if(_locScenes.length){
-    const _txt = _locScenes.map(sc=> [sc.summary, sc.objective, _locTurn(sc),
-      (typeof sceneScriptText==="function" && _C.drafts) ? sceneScriptText(sc.id, _C.drafts) : ""
-    ].filter(Boolean).join(" ")).join(" ");
+    /* the screenplay's ACTION lines and headings only (2026-10-27): a word in dialogue ("My nonna had the bed by the
+       window") is not the place's architecture — it asked a ferry deck for "windows that read from inside" */
+    const _action = (id)=>{ const d = (_C.drafts||{})[id];
+      return (d && Array.isArray(d.blocks)) ? d.blocks.filter(b=>b && (b.type==="action" || b.type==="scene" || b.type==="heading" || b.type==="slug")).map(b=>b.text||"").join(" ") : ""; };
+    const _txt = _locScenes.map(sc=> [sc.summary, sc.objective, _locTurn(sc), _action(sc.id)].filter(Boolean).join(" ")).join(" ");
     _AFFORD.forEach(af=>{ if(af[0].test(_txt) && _affordances.indexOf(af[1])<0) _affordances.push(af[1]); });
     _affordances = _affordances.slice(0,5);
     if(_C.drafts && Array.isArray(_C.characters) && typeof scenesWhereCharacterAppears==="function"){
@@ -5114,7 +5181,8 @@ function buildLocationRefPrompt(l, project, opts){
       tone: tone || undefined,
     },
     fixtures: fixtures.length ? fixtures : undefined,
-    fixture_projection_rule:"These depth-grid fixtures describe ONLY the principal camera view. The shared set layout takes precedence over this legacy composition. Other panels project the same fixed objects from new cameras; do not restage or duplicate them.",
+    // (2026-10-27) the composition is the plate's MAIN view: the top-left panel
+    fixture_projection_rule:"These fixtures describe ONLY the main (top-left) view"+(clean(st.viewLabel) ? " \u2014 "+clean(st.viewLabel) : "")+". The shared set layout takes precedence over this composition. Other panels show the same fixed objects from their own cameras; do not restage or duplicate them.",
     environment_props: envProps.length ? envProps : undefined,
     ambient_species_canon: speciesCanon.length ? speciesCanon : undefined,
     /* PLATE CAMERAS (2026-10-13, Location coordinates): a room's four panels are its own cameras, each opening named
@@ -5138,13 +5206,17 @@ function buildLocationRefPrompt(l, project, opts){
          every downstream shot off-style. Photoreal wording only for photoreal-family
          picks; style-faithful quality rules otherwise. */
       rules: emptySetRules.concat(
-        ["no text, no labels, no typography, no captions, no watermarks"],
+        [LOC_TEXT_RULE],
         /^(photoreal|horror)/.test(String(locationRenderStyleSource(l).renderStyleKey||"photoreal"))
-          ? ["photorealistic commercial photography","8k ultra detailed","consistent lighting across all views","clean layout","hyper realistic"]
+          // (2026-10-27) photographic realism in the film's own style — not "8k, hyper realistic, commercial photography",
+          // which pulled a 35mm night drama toward a bright advert
+          ? ["photographic realism in the render style named above","fine natural detail","consistent lighting across all views","clean layout"]
           : ["render every view strictly in the ONE render style named above — do not drift into any other style",
              "high-resolution, clean crisp detail in that style","consistent lighting and style across all views","clean layout"]),
     },
   };
+  // (2026-10-27) the place's own description is said once: its identity layer repeated every field word for word
+  if(spec.location.identity_layers && spec.location.identity_layers.place_identity) delete spec.location.identity_layers.place_identity;
   // WORLD SCALE — when this place is inhabited by a non-human-scale cast (critter / giant),
   // render the SPACE ITSELF at that scale (gigantism / miniaturization), so a bug's-world
   // location doesn't default to a human-scale room. Inert (Class A) for ordinary films.
@@ -5277,7 +5349,7 @@ function buildLocationCoveragePrompt(l, sheet, project, opts){
     render: {
       style: clean(v.renderStyle),
       format: "ONE "+((typeof nbGetAspect==="function" && nbGetAspect()) || "16:9")+" cinematic environment reference image, not a grid, not a storyboard panel"+LOC_THREE_QUARTER_FRAME,
-      rules: [rules, "empty set only", "if the screenplay names a subspace without fully describing it, infer the missing architecture from the attached screenplay-page reference plus the parent location reference while staying conservative", "no text, no labels, no typography, no captions, no watermarks", "consistent with the parent location's materials, scale and light"],
+      rules: [rules, "empty set only", "if the screenplay names a subspace without fully describing it, infer the missing architecture from the attached screenplay-page reference plus the parent location reference while staying conservative", LOC_TEXT_RULE, "consistent with the parent location's materials, scale and light"],
     },
   };
   const neg = locationAvoidText(l.negativePrompt || v.negativePrompt || "", (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : "");
@@ -5346,7 +5418,7 @@ function buildSluglineUnitPrompt(l, u, project, opts){
     render: {
       style: clean(v.renderStyle),
       format: "ONE "+((typeof nbGetAspect==="function" && nbGetAspect()) || "16:9")+" cinematic environment reference image, not a grid, not a storyboard panel"+LOC_THREE_QUARTER_FRAME,
-      rules: [rules, "empty set only", "the TIME OF DAY, TIME-OF-DAY VARIANT and STATE DRESSING list are binding — light, sky and weather must match the first two, and every listed temporary dressing item must be present in the space", "LOCKED continuity anchors and spatial topology are binding; Narrative Significance is soft interpretive guidance only", "no text, no labels, no typography, no captions, no watermarks", "consistent with the continuity root's invariants and this child space's specific identity"],
+      rules: [rules, "empty set only", "the TIME OF DAY, TIME-OF-DAY VARIANT and STATE DRESSING list are binding — light, sky and weather must match the first two, and every listed temporary dressing item must be present in the space", "LOCKED continuity anchors and spatial topology are binding; Narrative Significance is soft interpretive guidance only", LOC_TEXT_RULE, "consistent with the continuity root's invariants and this child space's specific identity"],
     },
   };
   const neg = locationAvoidText(l.negativePrompt || v.negativePrompt || "", (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : "");

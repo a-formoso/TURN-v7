@@ -33,6 +33,6 @@ t("the sheet's one-line descriptions and Frances say three panels", () => {
   assert.ok(!/4-panel casting reference sheet|4-panel character sheet|4-panel design/.test(art + img));
   assert.ok(ai.includes("a 16:9 casting-reference layout with three equal vertical panels (owner 2026-10-27)"));
   assert.ok(ai.includes('.replaceAll("4-panel character sheet", "3-panel character sheet")'));
-  assert.ok(["20261027-hs95", "20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101", "20261027-hs102", "20261027-hs103", "20261027-hs104", "20261027-hs105", "20261027-hs106", "20261027-hs107", "20261027-hs108", "20261027-hs109"].some(k => html.includes('app/artroom.jsx?v=' + k + '"')));
+  assert.ok(["20261027-hs95", "20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101", "20261027-hs102", "20261027-hs103", "20261027-hs104", "20261027-hs105", "20261027-hs106", "20261027-hs107", "20261027-hs108", "20261027-hs109", "20261027-hs110"].some(k => html.includes('app/artroom.jsx?v=' + k + '"')));
 });
 console.log(n + " passed, 0 failed");

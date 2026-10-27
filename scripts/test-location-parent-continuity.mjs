@@ -127,6 +127,8 @@ box.claude={complete:async({messages})=>{
   const ids=Array.from(prompt.matchAll(/^- id:([^ |]+)/gm),m=>m[1]);
   return JSON.stringify({locations:ids.map(id=>({id,materials:id==="house"?"Fresh oak design":"Kitchen tile"}))});
 }};
+// (2026-10-27) the field lengths the drafter is told
+{const lim=ast.program.body.find(n=>n.type==="VariableDeclaration"&&n.declarations.some(d=>d.id&&d.id.name==="LOC_FIELD_LIMITS"));vm.runInContext(ai.slice(lim.start,lim.end).replace(/^const /,"var "),box);}
 vm.runInContext(ai.slice(draftFn.start,draftFn.end),box);
 const drafted=await box.aiDesignLocationBible([child,parent],[],{});
 assert.equal(prompts.length,2);

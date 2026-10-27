@@ -30,11 +30,11 @@ const editor=t=>flatten(byClass(t,"stage-zone-editor")).find(n=>n.type===box.Edi
 assert.equal(zones(tree).length,8,"eight landmark zones; near centre remains the implicit camera");
 assert.equal(editor(tree).props.value,"Sink and window");
 assert.equal(zones(tree).filter(n=>n.props["aria-pressed"]).length,1);
-assert.equal(text(byClass(tree,"stage-map-title")),"View composition");
+assert.equal(text(byClass(tree,"stage-map-title")),"Main view \u00b7 far, middle, near");   // plain words (2026-10-27)
 assert.equal(text(byClass(tree,"stage-map-direction")),"Farther from the camera");
 assert.deepEqual(flatten(tree).filter(n=>hasClass(n,"stage-map-depth")).map(text),["Far","Middle","Near"]);
 assert.ok(byClass(tree,"stage-map-cone"));
-assert.ok(text(tree).includes("not a measured floor plan"));
+assert.ok(text(tree).includes("Where things really stand is the floor plan."));
 assert.ok(text(byClass(tree,"stage-map-camera")).includes("Camera"));
 assert.ok(!byClass(tree,"stage-view-details").props.open);
 assert.equal(drafted,0,"rendering the diagram never calls AI");
@@ -78,7 +78,7 @@ const viewTree=box.CoverageViewsEditor({l,views,onUpdateView:(id,value)=>patch={
 const maps=flatten(viewTree).filter(n=>n.type===box.StagingGrid);
 assert.equal(maps.length,2);
 assert.equal(maps[0].props.target,"Window");assert.equal(maps[0].props.cameraPosition,"Doorway");
-assert.ok(text(byClass(viewTree,"loc-layer-note")).startsWith("Plan what the camera sees:"));
+assert.ok(text(byClass(viewTree,"loc-layer-note")).startsWith("What the plate's main view (its top-left panel) shows"));
 assert.equal(maps[0].props.onDraftStaging,noop);assert.equal(maps[1].props.onDraftStaging,null);
 maps[1].props.onChange({...staging,lens:"50mm"});
 assert.equal(patch.id,"v2","edits stay scoped to the selected coverage view");assert.equal(patch.value.lens,"50mm");

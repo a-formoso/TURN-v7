@@ -228,15 +228,17 @@ for (const share of [0.95, 0.85, 0.7, 0.55, 0.4, 0.2]) {
   const steps = json(fit.steps);
   assert.deepEqual(steps, ORDER.filter((s) => steps.includes(s)), "steps in the documented order at " + share + ": " + steps.join(" > "));
   assert.ok(prev.every((s) => steps.includes(s)), "a tighter budget keeps every earlier step");
-  if (share >= 0.55) assert.ok(JSON.stringify(fit.spec).length <= Math.floor(full * share), "fits at " + share);
+  // (2026-10-27) with no metre floor plan the uncuttable core is a bigger share of a smaller prompt
+  if (share >= 0.7) assert.ok(JSON.stringify(fit.spec).length <= Math.floor(full * share), "fits at " + share);
   prev = steps;
   const spec = fit.spec, ssl = spec.location.identity_layers.shared_set_layout;
   assert.ok(spec.task && spec.render && spec.render.rules.some((r) => /GRAZIELLA FIORIN/.test(r)), "the task and the empty-set rules with the cast's names");
   assert.equal(Object.values(spec.views).filter((v) => /Camera standing on Fondamenta DEI Vetrai/.test(v)).length, 4, "every panel's camera line");
   assert.equal(JSON.stringify(spec.views), JSON.stringify(roomSpec.views), "the views, word for word");
   for (const a of big.spatialPlan.anchors.filter((a) => /Vetrai/.test(a.space)))
-    assert.ok(ssl.anchors.some((x) => x.id === a.id && x.name === a.name && x.placement === a.placement), "the room's fixed landmark " + a.id);
-  assert.ok(ssl.coordinates && ssl.coordinates.spaces.length === 2 && ssl.frame === big.spatialPlan.frame, "the floor plan and the frame");
+    assert.ok(ssl.anchors.some((x) => x.id === a.id && x.name === a.name && x.where === String(a.placement).trim()), "the room's fixed landmark " + a.id);
+  // (2026-10-27) the image model reads placements in words: no metre floor plan in an image prompt (Blender keeps it)
+  assert.ok(!ssl.coordinates && ssl.frame && !/\(\+[XYZ]\)/.test(ssl.frame), "the frame in words, no floor plan numbers");
   if (roomSpec.location.continuity_anchors) assert.equal(JSON.stringify(spec.location.continuity_anchors), JSON.stringify(roomSpec.location.continuity_anchors), "the LOCKED continuity anchors");
 }
 assert.deepEqual(prev, ORDER, "the tightest budget runs every step: " + prev.join(" > "));

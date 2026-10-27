@@ -241,7 +241,7 @@ function BlenderStudioLaunch({location,shot,references=[],readOnly=false}){
     _bsEl("button",{type:"button",className:"char-draft-btn primary bs-launch-button",disabled:!ready||readOnly,
       onClick:()=>window.dispatchEvent(new CustomEvent("turn-open-blender-studio",{detail:{location,shot,references}}))},
       _bsEl(Icon.box,{s:16}),shot?"Open this shot in Blender":window.BlenderStudio&&window.BlenderStudio.wasOpened(location&&location.id)?"Continue in Blender":"Build in Blender"),
-    _bsEl("small",null,ready?"Derived from the generated location image.":"Generate this location’s image to unlock Blender."));
+    _bsEl("small",null,ready?"Read from this location\u2019s plate.":"Generate this location\u2019s plate to unlock Blender."));
 }
 
 // The toolbar and contextual buttons use the same canonical location package.

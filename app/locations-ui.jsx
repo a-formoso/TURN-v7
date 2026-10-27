@@ -320,7 +320,7 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
         busy!==s.openingId&&typeof window.nbCostChip==="function"&&window.nbCostChip(1,{refs})));
   };
   return React.createElement("details",{className:"loc-nested-section loc-plate-cameras",open:parent?true:undefined},
-    React.createElement("summary",null,"Plate cameras",React.createElement("span",{className:"loc-spatial-status"+(storedAny||parent?" ready":"")},
+    React.createElement("summary",null,"Plate cameras \u00b7 where each panel is shot from",React.createElement("span",{className:"loc-spatial-status"+(storedAny||parent?" ready":"")},
       parent?(plan&&plan.unresolved.length?plan.unresolved.length+" view"+(plan.unresolved.length===1?"":"s")+" unresolved":"Planned")
         :storedAny?"Set":statedAny?"From the layout":"Suggested")),
     React.createElement("p",{className:"loc-layer-note"},parent
@@ -754,7 +754,8 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
       :base+" — outdoors it is used at most "+max+" m above this space's floor; mark it Set by hand to keep it higher";
   };
   return React.createElement("details",{className:"loc-spatial-assist loc-floorplan-fields"},
-    React.createElement("summary",null,"Floor plan numbers",React.createElement("small",null,"Approximate · metres")),
+    // (owner 2026-10-27: plain words) the measured numbers matter for Blender; the image model reads placements in words
+    React.createElement("summary",null,"Blender details",React.createElement("small",null,"Floor plan in metres · approximate")),
     React.createElement("p",{className:"loc-layer-note"},"Every number is an estimate you can change: footprints as corner points “x, y; x, y; …”, heights above the main floor, facings in degrees (0 = north, 90 = east). Changing a number makes the layout a draft to confirm again."),
     React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"Origin (0, 0, floor level)"),
       React.createElement("select",{className:"prop-select",disabled:readOnly,value:coords.origin&&coords.origin.anchorId||"",
@@ -910,7 +911,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   return React.createElement("details",{className:"loc-nested-section loc-spatial-plan",open,onToggle:e=>{
     if(e.target===e.currentTarget)setOpen(e.currentTarget.open);
   }},
-    React.createElement("summary",{ref:summaryRef},"Shared set layout",React.createElement("span",{className:"loc-spatial-status"+(confirmed?" ready":"")},
+    React.createElement("summary",{ref:summaryRef},"Floor plan \u00b7 where everything stands",React.createElement("span",{className:"loc-spatial-status"+(confirmed?" ready":"")},
       candidate?"Draft to review":confirmed?"Confirmed":check.complete?"Needs review":empty?"No layout yet":"Placements incomplete")),
     React.createElement("div",{className:"loc-spatial-review"},
       React.createElement("ol",{className:"loc-spatial-steps","aria-label":"Shared layout workflow"},
@@ -1714,11 +1715,11 @@ function CoverageViewsEditor({l,views,onUpdateView,onAdd,onRemove,onDraftStaging
   const list=Array.isArray(views)?views:[];
   return React.createElement("div",{className:"loc-coverage-views"},
     React.createElement("div",{className:"loc-layer-note"},
-      "Plan what the camera sees: what sits far away, in the middle, and close to the lens. Select a zone to edit its landmarks."),
+      "What the plate's main view (its top-left panel) shows, from far away to close to the lens. Click a box to change what's there."),
     list.map((v,index)=>React.createElement("div",{className:"loc-variant loc-camera-view",key:v.id},
       React.createElement("div",{className:"loc-variant-head"},
         React.createElement("div",{className:"loc-camera-view-title"},
-          index===0&&React.createElement("span",{className:"loc-primary-badge"},"Primary"),
+          index===0&&React.createElement("span",{className:"loc-primary-badge"},"Main view"),
           v.panel&&typeof LOC_PANEL_INFO!=="undefined"&&LOC_PANEL_INFO[v.panel]&&React.createElement("span",{className:"loc-primary-badge loc-panel-badge",
             title:"This camera makes the "+LOC_PANEL_INFO[v.panel].label.toLowerCase()+" panel of the plate (Plate cameras)"},"Plate · "+LOC_PANEL_INFO[v.panel].label.toLowerCase()),
           React.createElement(EditText,{value:v.name||"",placeholder:"Named camera view",
@@ -1775,7 +1776,7 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
   };
   return React.createElement("div",{className:"stage-wrap"},
     React.createElement("div",{className:"stage-toolbar"},
-      React.createElement("span",{className:"stage-map-title"},"View composition"),
+      React.createElement("span",{className:"stage-map-title"},"Main view \u00b7 far, middle, near"),
       onDraftStaging && React.createElement("button",{className:"art-draftall",disabled:draftingStage||!!draftBlock,onClick:()=>onDraftStaging(l),
         title:draftBlock||"Draft this view's composition from the script (writing credits) \u2014 asks first when one is already written, because it replaces it"},
         React.createElement(Icon.sparkles,{s:14}), draftingStage?"Drafting\u2026":"Draft view composition")),
@@ -1810,7 +1811,19 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
         title:s.floor||"Describe the surface underfoot",onClick:()=>setSelected({key:"floor"})},
         React.createElement(Icon.layers?Icon.layers:Icon.eye,{s:14}),React.createElement("b",null,"Floor"),
         React.createElement("span",null,s.floor||"Add ground surface"))),
-    React.createElement("p",{className:"stage-map-disclaimer"},"Camera-relative guide · not a measured floor plan."),
+    React.createElement("p",{className:"stage-map-disclaimer"},"Left and right here are the picture's left and right. Where things really stand is the floor plan."),
+    // which panel this is, and a composition drafted for another space (2026-10-27)
+    (()=>{ const tl = (typeof locationRequestedViews==="function") ? ((locationRequestedViews(l)||[]).find(v=>v && v.key==="TL")||{}).purpose : "";
+      if(!tl) return null;
+      // the room each names, of this place's rooms (Marmorica: the composition's Upper Deck vs the panel's CAR Deck)
+      const key = (x)=> (typeof _locNameKey==="function") ? " "+_locNameKey(x||"")+" " : "";
+      const rooms = (typeof locationChildrenOf==="function" ? (locationChildrenOf(l, ((window.turnContinuity||{}).locations)||[])||[]) : []).map(c=>c && c.name).filter(Boolean);
+      const roomIn = (x)=>{ const k = key(x); return rooms.filter(n=>k.indexOf(key(n))>=0).sort((a,b)=>b.length-a.length)[0] || ""; };
+      const vRoom = roomIn(s.viewLabel), tRoom = roomIn(tl);
+      const other = !!(s.viewLabel && vRoom && tRoom && vRoom!==tRoom);
+      return React.createElement("p",{className:"loc-layer-note stage-main-panel"+(other?" stage-layout-changed":""),role:other?"status":undefined},
+        "The plate's top-left panel: "+String(tl).replace(/\s+\u2014.*$/,"").slice(0,140)+"."
+        +(other ? " This composition was drafted for \u201c"+vRoom+"\u201d \u2014 re-draft it so the two match." : "")); })(),
     React.createElement("div",{className:"stage-zone-editor",key:isFloor?"floor":selected.plane+"-"+selected.col},
       React.createElement("div",{className:"stage-zone-editor-head"},React.createElement("b",null,selectedLabel),
         React.createElement("span",null,isFloor?"Surface underfoot":plane.term)),
@@ -1819,7 +1832,7 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
           placeholder:isFloor?"Ground material and texture\u2026":"Describe a fixed landmark or framing element. Leave empty for open space.",
           onCommit:val=>set(isFloor?{key:"floor",val}:{plane:selected.plane,col:selected.col,val})}))),
     React.createElement("details",{className:"loc-nested-section stage-view-details"},
-      React.createElement("summary",null,"Camera & framing details"),
+      React.createElement("summary",null,"Lens, scale and camera notes"),
       viewDetails,
       React.createElement("div",{className:"stage-meta-fields"},
         !lockViewLabel&&React.createElement("label",{className:"stage-meta-field"},

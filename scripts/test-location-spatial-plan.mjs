@@ -44,7 +44,9 @@ for(const prompt of [box.buildLocationRefPrompt(kitchen,{}),box.buildSimpleLocat
   box.buildLocationVariantPrompt(kitchen,{}, {time:"Night"}),box.buildLocationCoveragePrompt(kitchen,{name:"Kitchen"},{}),
   box.buildSluglineUnitPrompt(kitchen,{name:"Kitchen",time:"Dawn"},{}),box.buildLocationFromPhotoPrompt(kitchen,{})]){
   assert.match(prompt,/archway-to-fridge sightline/,"every generation mode carries fixed placement");
-  assert.match(prompt,/Unknown|unknown/,"unmeasured geometry stays explicit");
+  // (2026-10-27) the layout's open questions are for the review and Blender (the full contract above keeps them);
+  // an image prompt reads only what is placed, in words
+  assert.ok(!/"unresolved"/.test(prompt) && !/"coordinates"/.test(prompt),"no open questions or metre plan in an image prompt");
 }
 const spec=JSON.parse(box.buildLocationRefPrompt(kitchen,{}).split("\n").slice(1).join("\n"));
 assert.match(spec.fixture_projection_rule,/takes precedence/);
