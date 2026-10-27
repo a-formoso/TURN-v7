@@ -125,9 +125,11 @@ function _fmtSecs(n){ n=Number(n)||0; return (Math.round(n*10)/10).toString().re
    keep, and the clip's prompt is rewritten from those notes (ai.jsx aiFixTakePrompt — one writing call) with everything
    else left exactly as it was. The rewrite lands in the prompt box like an edit of your own (Undo puts the old one back);
    Regenerate renders the new take, and Takes compares the two. */
-function StageFixTake({ prompt, disabled, maxChars, onApply }){
-  const [open, setOpen] = React.useState(false);
-  const [notes, setNotes] = React.useState("");
+function StageFixTake({ prompt, disabled, maxChars, onApply, initialNotes, autoRun, onNotesOnly }){
+  // onNotesOnly (2026-10-27, the Takes page): the box only collects the notes and hands them on; the Shoot tab's box
+  // then rewrites its prompt (initialNotes + autoRun), once the prompt is there
+  const [open, setOpen] = React.useState(!!initialNotes || !!autoRun || !!onNotesOnly);
+  const [notes, setNotes] = React.useState(initialNotes||"");
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState("");
   const [done, setDone] = React.useState(null);   // { before, changes }
@@ -140,11 +142,20 @@ function StageFixTake({ prompt, disabled, maxChars, onApply }){
       setDone({ before:prompt, changes:r.changes||[] }); onApply(r.prompt);
     }finally{ setBusy(false); }
   };
+  const autoRef = React.useRef(!!autoRun);
+  const boxRef = React.useRef(null);
+  React.useEffect(()=>{ if((autoRun||onNotesOnly) && boxRef.current && boxRef.current.scrollIntoView) boxRef.current.scrollIntoView({block:"nearest",behavior:"smooth"}); }, []);
+  React.useEffect(()=>{
+    if(!autoRef.current || !String(prompt||"").trim() || notes.trim().length<4) return;
+    const t = setTimeout(()=>{ if(autoRef.current){ autoRef.current=false; run(); } }, 700);   // the prompt settles first
+    return ()=>clearTimeout(t);
+  }, [prompt]);
+  const submit = ()=>{ if(onNotesOnly){ if(notes.trim().length>=4) onNotesOnly(notes.trim()); } else run(); };
   if(!open) return _stEl("div",{className:"stage2-fixtake closed"},
-    _stEl("button",{type:"button",className:"stage2-prompt-view","data-testid":"stage-fix-take",disabled:!!disabled,
+    _stEl("button",{type:"button",className:"art-draftall ghost stage2-fixtake-open","data-testid":"stage-fix-take",disabled:!!disabled,
       title:"Say what's wrong with this take and what to keep; the prompt is rewritten from your notes, nothing else changes",
       onClick:()=>setOpen(true)}, "Fix this take\u2026"));
-  return _stEl("div",{className:"stage2-fixtake",role:"group","aria-label":"Fix this take"},
+  return _stEl("div",{ref:boxRef,className:"stage2-fixtake",role:"group","aria-label":"Fix this take"},
     _stEl("label",{htmlFor:"stage-fix-take-notes"},"What's wrong with this take, and what to keep?"),
     _stEl("textarea",{id:"stage-fix-take-notes",rows:3,value:notes,maxLength:1200,disabled:busy,
       placeholder:"e.g. The fall looks fake \u2014 make it a real stumble. Add a few models waiting along the runway. Keep the acting and the camera.",
@@ -152,11 +163,13 @@ function StageFixTake({ prompt, disabled, maxChars, onApply }){
     _stEl("div",{className:"stage2-fixtake-acts"},
       _stEl("button",{type:"button",className:"art-draftall","data-testid":"stage-fix-take-run",disabled:busy||disabled||notes.trim().length<4,
         title:"Rewrites only what your notes name; the references, the dialogue's words and the timings stay. Uses a little writing credit.",
-        onClick:run}, busy ? "Rewriting\u2026" : "Rewrite the prompt"),
+        onClick:submit}, busy ? "Rewriting\u2026" : "Rewrite the prompt"),
       done && _stEl("button",{type:"button",className:"art-draftall ghost",disabled:busy,
         title:"Put the prompt back as it was before this rewrite", onClick:()=>{ onApply(done.before); setDone(null); }}, "Undo"),
-      _stEl("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>{ setOpen(false); setErr(""); }}, "Close"),
-      _stEl("small",{className:"stage2-fixtake-note"},"Uses a little writing credit; nothing is rendered until you press Regenerate.")),
+      !onNotesOnly && _stEl("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>{ setOpen(false); setErr(""); }}, "Close"),
+      _stEl("small",{className:"stage2-fixtake-note"}, onNotesOnly
+        ? "Opens Shoot and rewrites the clip's prompt there (a little writing credit); nothing is rendered until you press Regenerate."
+        : "Uses a little writing credit; nothing is rendered until you press Regenerate.")),
     err && _stEl("p",{className:"stage2-fixtake-err",role:"alert"}, err),
     done && !err && _stEl("div",{className:"stage2-fixtake-done",role:"status"},
       _stEl("b",null,"Prompt rewritten \u2014 press Regenerate for the new take, then compare them in Takes."),
@@ -5398,8 +5411,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   }, [clip.id]);
   // ---- Reuse/Branch handoff from the VERSIONS tab: apply the take's settings to the
   // composer once, then consume — an explicit pick from the Versions view always wins.
+  const [fixRequest, setFixRequest] = React.useState(null);   // notes sent from Takes' "Fix this take" (2026-10-27)
   React.useEffect(()=>{
     if(!pendingReuse || pendingReuse.clipId!==clip.id) return;
+    if(pendingReuse.fixNotes){
+      setComposerTab("create"); setCreateTask("reference");
+      setFixRequest({ notes:pendingReuse.fixNotes, n:Date.now() });
+      if(onReuseConsumed) onReuseConsumed();
+      return;
+    }
     const m = pendingReuse.meta || {};
     // the take's visual source only when this clip can still use it now (2026-10-09 — a take made from halves
     // or a sheet that has since been cleared, gone out of date or left the board fell into a source it can't send)
@@ -6898,8 +6918,9 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     createTask==="reference" && multishotEditor,
     promptBlock,
     // a rendered take can be fixed from notes (2026-10-27)
-    !readOnly && createTask==="reference" && !!playerUrl && _stEl(StageFixTake,{ key:"fix-"+clip.id, prompt, maxChars:PANEL_PROMPT_MAX,
-      disabled:gening, onApply:(t)=>onPromptChange(t,0) }),
+    !readOnly && createTask==="reference" && !!playerUrl && _stEl(StageFixTake,{ key:"fix-"+clip.id+(fixRequest?"-"+fixRequest.n:""), prompt, maxChars:PANEL_PROMPT_MAX,
+      disabled:gening, onApply:(t)=>onPromptChange(t,0),
+      initialNotes:fixRequest?fixRequest.notes:"", autoRun:!!fixRequest }),
     composerNotices,
     composerBar(
       [ chooseDurationPill,
@@ -7606,8 +7627,9 @@ window.stageTakeNotes = stageTakeNotes;
 function _stageTakeRows(list){
   return (list||[]).map(t=> t && t.unavailable && !t.url ? { ...t, url:String(t.rawUrl||""), unavailable:true } : t).filter(t=>t && t.url);
 }
-function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, project }){
+function StageVersionsView({ clip, stageModel, onBack, onReuse, onFixTake, readOnly=false, project }){
   const clipId = clip && clip.id;
+  const [fixOpen, setFixOpen] = React.useState(false);
   const [takes, setTakes] = React.useState(()=> (clipId && typeof vidGetTakes==="function") ? _stageTakeRows(vidGetTakes(clipId)) : []);
   React.useEffect(()=>{ let alive=true;
     if(clipId && typeof vidLoadTakes==="function") vidLoadTakes(clipId).then(t=>{ if(alive) setTakes(_stageTakeRows(t)); });
@@ -7859,6 +7881,10 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
         _stEl("button",{className:"stage2-vtool",disabled:!sel||selMeta.seed==null,
           title:"Reuse settings AND pin this take's seed — Generate renders a controlled variation",
           onClick:async()=>{ if(sel&&await confirmSourceOverride(sel,"Branch",false)) onReuse(selMeta,true); }}, "Branch from this take"),
+        // FIX THIS TAKE from where you watch it (2026-10-27, owner: "I can't see a Fix this take button")
+        onFixTake && _stEl("button",{className:"stage2-vtool"+(fixOpen?" on":""),type:"button",disabled:readOnly||!sel,"data-testid":"takes-fix-take",
+          title:"Say what's wrong with this take and what to keep; the clip's prompt is rewritten from your notes in Shoot",
+          onClick:()=>setFixOpen(!fixOpen)}, "Fix this take\u2026"),
         _stEl("span",{className:"stage2-takes-gap"}),
         sel && !sel.unavailable && _stEl("a",{className:"stage2-vtool link",href:sel.url,target:"_blank",rel:"noreferrer",download:""},"Download / open"),
         // (2026-10-09, owner — Stage editor review, decision C) a collaborator deletes only takes they made; the
@@ -7868,6 +7894,8 @@ function StageVersionsView({ clip, stageModel, onBack, onReuse, readOnly=false, 
             title:readOnly?"View-only access — deleting a take requires edit access"
               : !mine ? "Only the person who made this take, or the film's owner, can delete it" : "Delete this take from the clip",
             onClick:()=>sel&&mine&&act.del(sel.url)}, "Delete take"); })()),
+      sel && fixOpen && onFixTake && !readOnly && _stEl(StageFixTake,{ key:"tfix-"+clipId, prompt:selPrompt, initialNotes:"",
+        onApply:()=>{}, onNotesOnly:(notes)=>{ setFixOpen(false); onFixTake(notes); } }),
       // the contact sheet
       _stEl("div",{className:"stage2-versions-list stage2-takes-sheet",role:"list","aria-label":"Takes of this clip"},
         list.map(t=>{ const m = t.meta||{}, badge = sheetBadge(t);
@@ -9677,7 +9705,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
           stageView==="versions"
             ? _stEl(StageVersionsView,{ key:"vers-"+clip.id, clip, stageModel, readOnly, project,
                 onBack:()=>setStageView("stage"),
-                onReuse:(meta,pin)=>{ setPendingReuse({ clipId:clip.id, meta, pin }); setStageView("stage"); } })
+                onReuse:(meta,pin)=>{ setPendingReuse({ clipId:clip.id, meta, pin }); setStageView("stage"); },
+                onFixTake:(notes)=>{ setPendingReuse({ clipId:clip.id, fixNotes:notes }); setStageView("stage"); } })
             : stageView==="timeline"
             ? _stEl(StageTimelineView,{ key:"tl", allClips, vids, staleVids, imgs, visualSource, selId, onSelectClip,
                 filmTitle:(project&&project.title)||"", auds, characters, oldLookVids, noteVids, identityVids, vidsLoaded,

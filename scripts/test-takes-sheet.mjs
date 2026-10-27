@@ -20,7 +20,8 @@ t("T2 the take in the film beside the picked one; Play both, the film's take mut
 t("T3 the action row says what it does: 'Use vN in the film', 'In the film', 'Check and use this take'", ()=>{
   assert.ok(has('flagged ? "Check and use this take" : leftOut ? "Left out \\u2014 shots changed" : sel&&sel.current ? "In the film" : "Use "+vno(sel).toLowerCase()+" in the film"'));
   assert.ok(stage.includes('"In the film now — the scene strip, Timeline, Mix and export use it."'));
-  assert.equal((v.match(/disabled:readOnly\|\|!sel/g)||[]).length, 3, "choose, approve and delete stay gated");
+  // (2026-10-27) Fix this take joins choose, approve and delete
+  assert.equal((v.match(/disabled:readOnly\|\|!sel/g)||[]).length, 4, "choose, approve, Fix this take and delete stay gated");
 });
 t("T4 the contact sheet: number, ★, In the film, a warning badge, a note mark", ()=>{
   assert.ok(has('className:"stage2-vcard"+(sel&&sel.url===t.url?" sel":"")+(usedByFilm(t)?" infilm":"")'));
@@ -31,5 +32,5 @@ t("T5 the details fold: settings, note, prompt and references, open unless close
   assert.ok(has('localStorage.getItem("turn_stage_take_details")!=="closed"') && has('"Version details"') && has('"Prompt used"') && has('"References used"'));
 });
 t("T6 Frances knows the contact sheet", ()=>{ assert.ok(ai.includes("THE CONTACT SHEET (2026-10-24, owner)") && !ai.includes("Branch from version (reuse")); });
-t("T7 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs69", "20261024-hs70", "20261025-hs71", "20261025-hs72", "20261025-hs73", "20261025-hs74", "20261025-hs75", "20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89", "20261026-hs90", "20261026-hs91", "20261026-hs92", "20261026-hs93", "20261027-hs94", "20261027-hs95", "20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
+t("T7 cache keys", ()=>{ ["stage.jsx","ai.jsx","script.jsx","styles.css"].forEach(f=>assert.ok(["20261024-hs69", "20261024-hs70", "20261025-hs71", "20261025-hs72", "20261025-hs73", "20261025-hs74", "20261025-hs75", "20261025-hs76", "20261025-hs77", "20261025-hs78", "20261025-hs79", "20261025-hs80", "20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89", "20261026-hs90", "20261026-hs91", "20261026-hs92", "20261026-hs93", "20261027-hs94", "20261027-hs95", "20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101", "20261027-hs102"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f)); });
 console.log(pass+" passed, 0 failed");

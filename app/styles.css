@@ -7130,6 +7130,8 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 /* Fix this take (2026-10-27): notes on a take rewrite the clip's prompt */
 .stage2-fixtake{display:grid;gap:8px;margin:8px 0 2px;padding:12px;border:1px solid var(--line-2);border-radius:var(--r-l);background:var(--bg-2)}
 .stage2-fixtake.closed{display:flex;justify-content:flex-end;margin:4px 0 0;padding:0;border:0;background:none}
+.stage2-fixtake-open{font-weight:650}
+.stage2-takes-a .stage2-fixtake,.stage2-versions .stage2-fixtake{margin:10px 0}
 .stage2-fixtake label{font:650 12.5px var(--f-ui);color:var(--txt-0)}
 .stage2-fixtake textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:64px;border:1px solid var(--line-3);border-radius:var(--r-m);
   background:var(--bg-1);color:var(--txt-0);font:500 13px/1.45 var(--f-ui);padding:9px 11px}

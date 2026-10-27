@@ -40,10 +40,21 @@ await t("…and refuses a rewrite that drops or invents a reference, changes not
   assert.match((await box.aiFixTakePrompt("", "the fall looks fake")).error, /no prompt/);
 });
 await t("the Stage shows Fix this take under the prompt once the clip has a take; the rewrite lands as an edit", () => {
-  assert.ok(stage.includes('!readOnly && createTask==="reference" && !!playerUrl && _stEl(StageFixTake,{ key:"fix-"+clip.id, prompt, maxChars:PANEL_PROMPT_MAX,'));
-  assert.ok(stage.includes("disabled:gening, onApply:(t)=>onPromptChange(t,0) })"));
+  // (2026-10-27) the key also carries a fix sent from Takes, and that one runs on its own
+  assert.ok(stage.includes('!readOnly && createTask==="reference" && !!playerUrl && _stEl(StageFixTake,{ key:"fix-"+clip.id+(fixRequest?"-"+fixRequest.n:""), prompt, maxChars:PANEL_PROMPT_MAX,'));
+  assert.ok(stage.includes('disabled:gening, onApply:(t)=>onPromptChange(t,0),\n      initialNotes:fixRequest?fixRequest.notes:"", autoRun:!!fixRequest })'));
   const comp = slice(stage, "function StageFixTake(", "/* CHOOSE DURATION");
   assert.ok(comp.includes('"Rewrite the prompt"') && comp.includes('onApply(done.before)') && comp.includes("nothing is rendered until you press Regenerate"));
+});
+await t("Takes has Fix this take too: its notes open Shoot, where the clip's prompt is rewritten", () => {
+  const vers = slice(stage, "function StageVersionsView(", "window.StageView");
+  assert.ok(vers.includes('"data-testid":"takes-fix-take"') && vers.includes('"Fix this take\\u2026"'));
+  assert.ok(vers.includes("onNotesOnly:(notes)=>{ setFixOpen(false); onFixTake(notes); }"));
+  assert.ok(stage.includes("onFixTake:(notes)=>{ setPendingReuse({ clipId:clip.id, fixNotes:notes }); setStageView(\"stage\"); }"));
+  assert.ok(stage.includes("if(pendingReuse.fixNotes){\n      setComposerTab(\"create\"); setCreateTask(\"reference\");\n      setFixRequest({ notes:pendingReuse.fixNotes, n:Date.now() });"));
+  const comp = slice(stage, "function StageFixTake(", "/* CHOOSE DURATION");
+  assert.ok(comp.includes("if(autoRef.current){ autoRef.current=false; run(); }") && comp.includes("if(onNotesOnly){ if(notes.trim().length>=4) onNotesOnly(notes.trim()); } else run();"));
+  assert.ok(ai.includes("and in Takes beside Reuse settings and Branch from this take"));
 });
 // 2. grey sheets
 await t("every character sheet is on plain mid-grey, overriding the render style's background", () => {
@@ -67,6 +78,6 @@ await t("an accent saved as a name gets its telltale sounds; one already describ
 });
 await t("Frances knows; the files are re-keyed", () => {
   assert.ok(ai.includes("FIX THIS TAKE (2026-10-27)") && ai.includes("CHARACTER SHEETS ON GREY (2026-10-27)") && ai.includes("ACCENTS BY THEIR SOUNDS (2026-10-27)") && ai.includes("STAGING IN THE STAGE PROMPT (2026-10-27)"));
-  ["stage.jsx", "stage-director-brief.js", "voices-ui.jsx", "artroom.jsx", "ai.jsx"].forEach(f => assert.ok(["20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101"].some(k => html.includes("app/" + f + "?v=" + k + '"')), f));
+  ["stage.jsx", "stage-director-brief.js", "voices-ui.jsx", "artroom.jsx", "ai.jsx"].forEach(f => assert.ok(["20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101", "20261027-hs102"].some(k => html.includes("app/" + f + "?v=" + k + '"')), f));
 });
 console.log(n + " passed, 0 failed");
