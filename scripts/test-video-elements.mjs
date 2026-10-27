@@ -97,5 +97,38 @@ const ui=readFileSync("app/video-elements.jsx","utf8");
 ok("the card asks first and names the price", /window\.appConfirm\(\{/.test(ui) && /confirmLabel:"Make it · "\+cost\.total\+" credits"/.test(ui));
 ok("TURN.html loads it after the Stage", /app\/stage\.jsx\?v=[^"]+"><\/script>\n<script type="text\/babel" src="app\/video-elements\.jsx\?v=/.test(html));
 ok("Frances knows", /name:"Video elements \(Characters and the Stage\)"/.test(readFileSync("app/ai.jsx","utf8")));
+// AUDITION LINES (2026-10-27): the line chosen on the card wins; the screenplay's is the fallback
+ok("a line chosen on the card is the one it says (cut to 20 words); too short a choice falls back to the screenplay",
+  box.veLine({...aurelio,videoElementLine:"  Every regular by the bumper, friend, never by the face. "},scenes,drafts)==="Every regular by the bumper, friend, never by the face."
+  && box.veLine({...aurelio,videoElementLine:Array(30).fill("word").join(" ")},scenes,drafts).split(" ").length===20
+  && box.veLine({...aurelio,videoElementLine:"Hi there"},scenes,drafts)===box.veScreenplayLine(aurelio,scenes,drafts));
+ok("their spoken lines, for writing the audition lines: not text messages, audio tags out",
+  JSON.stringify(box.veSpokenLines(aurelio,scenes,drafts))===JSON.stringify(["Every regular by the bumper, and none of them by the face.","Second line here for the record, friend."]));
+ok("the fold: Write audition lines, Use this, your own line, back to the screenplay; a different line already filmed is flagged",
+  ui.includes('"data-testid":"ve-write-lines"') && ui.includes('"Use this"') && ui.includes('"Use the screenplay line"')
+  && ui.includes("onUpdate(c.id, { auditionLines:r.lines.map(") && ui.includes("The video element says a different line. Make it again to film the one above."));
+{
+  const aiSrc=readFileSync("app/ai.jsx","utf8");
+  const start=aiSrc.indexOf("const AUDITION_KINDS = ["), end=aiSrc.indexOf("window.AUDITION_KINDS = AUDITION_KINDS;");
+  const b={ console }; b.window=b; vm.createContext(b);
+  let asked="";
+  b.aiAvailable=()=>true; b.scrubBrand=(x)=>x;
+  b.extractJSON=(t)=>JSON.parse(t);
+  b.window.claude={ complete:async({messages})=>{ asked=messages[0].content; return JSON.stringify({ lines:[
+    { kind:"signature", text:"“I count the cars twice, because the sea never counts them once.”" },
+    { kind:"everyday", text:"[sighs] Ramp's wet again. Mind the rail, signora, and keep the ticket out." },
+    { kind:"pressure", text:"No." } ] }); } };
+  vm.runInContext(aiSrc.slice(start,end)+"\nwindow.aiAuditionLines=aiAuditionLines;",b);
+  const r=await b.aiAuditionLines({ name:"Aurelio Bassi", role:"Mentor", conscious:"Keep the ferry running", lineLanguage:"Italian" },
+    { lines:["Every regular by the bumper."], voice:"older male voice, soft uvular R" });
+  ok("audition lines: signature and everyday kept (quotes and tags stripped), a too-short one dropped",
+    r.lines && r.lines.length===2 && r.lines[0].label==="Signature" && r.lines[0].text==="I count the cars twice, because the sea never counts them once."
+    && r.lines[1].text==="Ramp's wet again. Mind the rail, signora, and keep the ticket out.");
+  ok("the ask: who they are, how they sound, their screenplay lines not to reuse, 8–20 words, accent sounds, their language",
+    /What they want: Keep the ferry running/.test(asked) && /How they sound: older male voice, soft uvular R/.test(asked)
+    && /do not reuse them\)\n- Every regular by the bumper\./.test(asked) && /8 to 20 words each/.test(asked)
+    && /accent's telltale sounds/.test(asked) && /Written in Italian\./.test(asked) && /not shouting, not crying/.test(asked));
+  ok("Frances knows about audition lines", /AUDITION LINES \(2026-10-27\): 'Write audition lines' in the fold/.test(aiSrc));
+}
 console.log(pass+" passed, "+fail+" failed");
 process.exit(fail?1:0);

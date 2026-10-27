@@ -78,6 +78,6 @@ await t("an accent saved as a name gets its telltale sounds; one already describ
 });
 await t("Frances knows; the files are re-keyed", () => {
   assert.ok(ai.includes("FIX THIS TAKE (2026-10-27)") && ai.includes("CHARACTER SHEETS ON GREY (2026-10-27)") && ai.includes("ACCENTS BY THEIR SOUNDS (2026-10-27)") && ai.includes("STAGING IN THE STAGE PROMPT (2026-10-27)"));
-  ["stage.jsx", "stage-director-brief.js", "voices-ui.jsx", "artroom.jsx", "ai.jsx"].forEach(f => assert.ok(["20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101", "20261027-hs102", "20261027-hs103", "20261027-hs104"].some(k => html.includes("app/" + f + "?v=" + k + '"')), f));
+  ["stage.jsx", "stage-director-brief.js", "voices-ui.jsx", "artroom.jsx", "ai.jsx"].forEach(f => assert.ok(["20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101", "20261027-hs102", "20261027-hs103", "20261027-hs104", "20261027-hs105"].some(k => html.includes("app/" + f + "?v=" + k + '"')), f));
 });
 console.log(n + " passed, 0 failed");

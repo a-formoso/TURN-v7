@@ -11445,3 +11445,16 @@ video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:aut
 .ve-cost{opacity:.75;font-weight:400}
 .ve-use{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt-1);margin-top:8px;cursor:pointer}
 .ve-err{font-size:12px;color:var(--alert);margin-top:6px}
+.ve-pick{display:grid;gap:6px;margin:8px 0 10px;padding:10px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2)}
+.ve-chosen{font-size:12.5px;line-height:1.45;color:var(--txt-0)}
+.ve-src{color:var(--txt-3);font-size:11px}
+.ve-options{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.ve-option{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:start;font-size:12px;line-height:1.4;color:var(--txt-1);padding:6px 8px;border:1px solid var(--line-2);border-radius:var(--r-s,6px);background:var(--bg-1)}
+.ve-option b{grid-column:1;font-weight:650;color:var(--txt-0)}
+.ve-option span{grid-column:1}
+.ve-option .ve-use-line{grid-column:2;grid-row:1 / span 2;align-self:center}
+.ve-option.on{border-color:var(--hs-amber,var(--brand))}
+.ve-use-line{font:600 11.5px var(--f-ui);padding:4px 9px;border:1px solid var(--line-3);border-radius:999px;background:var(--bg-1);color:var(--txt-0);cursor:pointer}
+.ve-use-line:disabled{opacity:.6;cursor:default}
+.ve-pick-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.ve-note{color:var(--txt-3);font-size:11px}

@@ -42,6 +42,6 @@ t("the Stage reads the prompt version; the Color tab shows the conflicts; France
   assert.ok(stage.includes("const capture = (typeof turnCaptureForPrompt===\"function\") ? turnCaptureForPrompt(ctx.project)"));
   assert.ok(ui.includes('captureIssues.length>0 && React.createElement("div",{className:"sb-capture-warn",role:"status"},'));
   assert.ok(ai.includes("ONE LENS SOURCE (2026-10-25)"));
-  ["stylebible.jsx","stylebible-ui.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89", "20261026-hs90", "20261026-hs91", "20261026-hs92", "20261026-hs93", "20261027-hs94", "20261027-hs95", "20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101", "20261027-hs102", "20261027-hs103", "20261027-hs104"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
+  ["stylebible.jsx","stylebible-ui.jsx","stage.jsx"].forEach(f=>assert.ok(["20261025-hs81", "20261025-hs82", "20261025-hs83", "20261025-hs84", "20261025-hs85", "20261025-hs86", "20261026-hs87", "20261026-hs88", "20261026-hs89", "20261026-hs90", "20261026-hs91", "20261026-hs92", "20261026-hs93", "20261027-hs94", "20261027-hs95", "20261027-hs96", "20261027-hs97", "20261027-hs98", "20261027-hs99", "20261027-hs100", "20261027-hs101", "20261027-hs102", "20261027-hs103", "20261027-hs104", "20261027-hs105"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f));
 });
 console.log(pass+" passed, 0 failed");

@@ -15,9 +15,33 @@ function veId(c){ return VE_PREFIX+String((c&&c.id)||c||""); }
 function veLineAudioId(c){ return "ve-line-"+String((c&&c.id)||c||""); }
 const _veClean = (s)=> String(s||"").replace(/\[[^\]]*\]/g," ").replace(/\s+/g," ").trim();
 const _veCue = (s)=> String(s||"").replace(/\(.*?\)/g," ").replace(/[^A-Za-zÀ-ɏ' -]/g," ").replace(/\s+/g," ").trim().toUpperCase();
-/* the line it speaks: their first spoken screenplay line of 4–18 words (first sentences, up to 18 words); else the
-   opening of the voice master text */
+/* the line it speaks: the one chosen on the card (an audition line or your own — c.videoElementLine, 2026-10-27), else
+   their first spoken screenplay line of 4–18 words (first sentences, up to 18 words); else a pangram */
+const VE_LINE_MAX_WORDS = 20;      // ~8 s at an ordinary pace: the element's longest
 function veLine(c, scenes, drafts){
+  const own = _veClean(c && c.videoElementLine);
+  if(own && own.split(" ").length>=3) return own.split(" ").slice(0, VE_LINE_MAX_WORDS).join(" ");
+  return veScreenplayLine(c, scenes, drafts);
+}
+/* every line they speak in the screenplay (not text messages), in story order — what the audition lines are written from */
+function veSpokenLines(c, scenes, drafts, max){
+  const name = _veCue(c && c.name), first = name.split(" ")[0], out = [];
+  const isThem = (cue)=>{ const k = _veCue(cue); return !!k && (k===name || k===first || k.split(" ")[0]===first); };
+  const list = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes||[]) : (scenes||[]);
+  for(const s of list){
+    let speaker = "", paren = "";
+    for(const b of ((((drafts||{})[s && s.id])||{}).blocks || [])){
+      if(!b) continue;
+      if(b.type==="char"){ speaker = b.text; paren = ""; continue; }
+      if(b.type==="paren"){ paren = String(b.text||""); continue; }
+      if(b.type==="dia" && isThem(speaker) && !/\b(text|sms|message)\b/i.test(paren)){ const t = _veClean(b.text); if(t) out.push(t); }
+      if(b.type!=="paren") paren = "";
+      if(out.length>=(max||12)) return out;
+    }
+  }
+  return out;
+}
+function veScreenplayLine(c, scenes, drafts){
   const name = _veCue(c && c.name), first = name.split(" ")[0];
   const isThem = (cue)=>{ const k = _veCue(cue); return !!k && (k===name || k===first || k.split(" ")[0]===first); };
   const list = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(scenes||[]) : (scenes||[]);
@@ -172,6 +196,21 @@ function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate }){
   const hasSheet = !!((typeof nbGetImage==="function" && nbGetImage(c.id)) || (typeof nbGetMeta==="function" && nbGetMeta(c.id)));
   const locked = !!(c.voiceLock && c.voiceLock.voiceId);
   const line = veLine(c, scenes, drafts);
+  const ownLine = _veClean(c.videoElementLine);
+  const usingOwn = !!ownLine && ownLine.split(" ").length>=3;
+  const options = Array.isArray(c.auditionLines) ? c.auditionLines.filter(x=>x && x.text) : [];
+  const [writing, setWriting] = React.useState(false);
+  const writeLines = async ()=>{
+    if(writing || readOnly || typeof window.aiAuditionLines!=="function" || typeof onUpdate!=="function") return;
+    setWriting(true); setErr("");
+    try{
+      const r = await window.aiAuditionLines(c, { lines:veSpokenLines(c, scenes, drafts, 10),
+        voice:(typeof stageVoiceText==="function") ? String(stageVoiceText(c)||"") : "" });
+      if(!r || r.error){ setErr((r && r.error) || "The lines didn't come back. Try again."); return; }
+      onUpdate(c.id, { auditionLines:r.lines.map(x=>({ kind:x.kind, label:x.label, text:x.text })) });
+    }finally{ setWriting(false); }
+  };
+  const pick = (text)=>{ if(!readOnly && typeof onUpdate==="function") onUpdate(c.id, { videoElementLine:text ? _veClean(text).split(" ").slice(0, VE_LINE_MAX_WORDS).join(" ") : "" }); };
   const cost = veCost(c, line);
   const working = !!(busy || (gen && gen.gening));
   const make = async ()=>{
@@ -195,10 +234,32 @@ function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate }){
   const status = busy || (gen && gen.gening ? ("Rendering… "+String(gen.status||"").toLowerCase().replace(/_/g," ")) : "");
   return React.createElement(CardFold,{label:"Video element",defaultOpen:!!s.url,foldId:"ve-"+c.id},
     React.createElement("div",{className:"char-scalesheet-hint"},
-      "A few seconds of "+(c.name||"this character")+" saying one of their lines in their locked voice, made from their sheet. "
+      "A few seconds of "+(c.name||"this character")+" saying a line in their locked voice, made from their sheet. "
       +"The Stage sends it with every clip they're in, so their face moves and their voice sounds the same in every scene."),
     s.url && React.createElement("video",{className:"ve-video",src:s.url,controls:true,playsInline:true,preload:"metadata"}),
     s.url && s.line && React.createElement("div",{className:"ve-line"},"“"+s.line+"”"),
+    // THE LINE THEY SAY (2026-10-27): the screenplay's, an audition line written for them, or your own
+    React.createElement("div",{className:"ve-pick",role:"group","aria-label":"The line they say"},
+      React.createElement("div",{className:"obj-lab"},"The line they say"),
+      React.createElement("div",{className:"ve-chosen"},"“"+line+"”",
+        React.createElement("span",{className:"ve-src"}, usingOwn ? (options.some(x=>_veClean(x.text)===ownLine) ? " · audition line" : " · your line") : " · from the screenplay")),
+      options.length>0 && React.createElement("ul",{className:"ve-options"},
+        options.map((x,i)=>{ const on = usingOwn && _veClean(x.text)===ownLine;
+          return React.createElement("li",{key:x.kind||i,className:"ve-option"+(on?" on":"")},
+            React.createElement("b",null,(x.label||x.kind||"Line")+": "),
+            React.createElement("span",null,"“"+x.text+"”"),
+            !readOnly && React.createElement("button",{type:"button",className:"ve-use-line",disabled:on||working,
+              "aria-label":"Use the "+(x.label||"audition")+" line", onClick:()=>pick(x.text)}, on ? "In use" : "Use this")); })),
+      !readOnly && React.createElement(SheetField,{label:"Or write their line ("+VE_LINE_MAX_WORDS+" words at most)",value:ownLine,
+        placeholder:"e.g. a line that sounds like them", onCommit:val=>pick(val)}),
+      !readOnly && React.createElement("div",{className:"ve-pick-acts"},
+        React.createElement("button",{type:"button",className:"art-draftall ghost","data-testid":"ve-write-lines",disabled:writing||working,
+          title:"Writes three short lines in "+(c.name||"their")+"'s voice: Signature (what drives them), Everyday and Under pressure. Uses a little writing credit; nothing is filmed.",
+          onClick:writeLines}, React.createElement(Icon.sparkles,{s:12}), writing ? "Writing\u2026" : (options.length ? "Write new audition lines" : "Write audition lines")),
+        usingOwn && React.createElement("button",{type:"button",className:"ve-use-line",disabled:working,onClick:()=>pick("")},"Use the screenplay line"),
+        React.createElement("small",{className:"ve-note"},"Writing the lines uses a little writing credit; nothing is filmed until you make the video element.")),
+      s.url && s.line && _veClean(s.line)!==_veClean(line) && React.createElement("div",{className:"ve-need"},
+        "The video element says a different line. Make it again to film the one above.")),
     s.url && s.stale && React.createElement("div",{className:"sheet-undrafted",role:"status"},
       React.createElement(Icon.alert,{s:14}),
       React.createElement("span",null,"Out of date: "+s.why+" changed since it was made. The Stage still sends it until you make it again.")),
@@ -218,6 +279,9 @@ function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate }){
 window.VE_PREFIX = VE_PREFIX;
 window.veId = veId;
 window.veLine = veLine;
+window.veScreenplayLine = veScreenplayLine;
+window.veSpokenLines = veSpokenLines;
+window.VE_LINE_MAX_WORDS = VE_LINE_MAX_WORDS;
 window.veStatus = veStatus;
 window.veSeconds = veSeconds;
 window.vePrompt = vePrompt;
