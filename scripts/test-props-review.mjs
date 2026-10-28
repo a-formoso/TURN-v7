@@ -223,9 +223,10 @@ await test("F2 story events: beat / micro-beat / shot are picked from the chosen
   assert.ok(!card.includes('className:"prop-event-input"'), "no free-text id boxes");
   box.turnContinuity = { scenes:[], locations:[] };
 });
-await test("F3 the generation prompt is behind the card's ⋯ menu", ()=>{
-  assert.ok(card.includes('menuExtra:alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,'));
-  assert.ok(card.includes('(showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Generation prompt",defaultOpen:true},'));
+// (owner 2026-10-28) a folded section of the card, no longer behind its ⋯ menu
+await test("F3 the generation prompt is a folded section of the card", ()=>{
+  assert.ok(!card.includes('"Show the generation prompt"'));
+  assert.ok(card.includes('React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},'));
 });
 
 /* ═══ G ═══ */
@@ -240,7 +241,7 @@ await test("G1 Frances: no background builds, owners asked first, missing-only d
   assert.ok(/'Draft N specifications' \(only the cards with no spec yet/.test(all) && /'Redraft all\\u2026'|Redraft all…/.test(all));
   assert.ok(/'Generate N missing images'/.test(all) && /batches leave out objects marked Not in screenplay/.test(all));
   const tab = (F.find(f=>f.name==="Props (Art Room)")||{}).what || "";
-  assert.ok(/ONE SCENE/.test(tab) && /DELETING A PROP asks first/.test(tab) && /'More detail'/.test(tab) && /STORY EVENTS/.test(tab) && /'Show the generation prompt'/.test(tab));
+  assert.ok(/ONE SCENE/.test(tab) && /DELETING A PROP asks first/.test(tab) && /'More detail'/.test(tab) && /STORY EVENTS/.test(tab) && /folded 'Generation prompt' section/.test(tab));
   assert.ok(!/TURN|McKee|Claude|Anthropic/.test(tab));
 });
 await test("G2 new styles use theme tokens only", ()=>{

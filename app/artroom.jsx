@@ -5378,26 +5378,10 @@ function SceneContinuity({ scene, scenes, characters }){
 }
 window.SceneContinuity = SceneContinuity;
 
-/* ALWAYS SHOW PROMPTS (owner 2026-10-05): the cards' generation prompts sit behind each card's ⋯ menu;
-   this switch (the Art Room's ⋮ menu) opens them on every card. A PERSONAL setting on this device, not
-   the film's: collaborators share a film, and a view-only role can still choose how it reads. */
-const ART_ALWAYS_PROMPTS_KEY = "turn_art_always_prompts";
-function turnArtAlwaysPrompts(){ try{ return localStorage.getItem(ART_ALWAYS_PROMPTS_KEY)==="1"; }catch(e){ return false; } }
-function turnSetArtAlwaysPrompts(on){
-  try{ localStorage.setItem(ART_ALWAYS_PROMPTS_KEY, on ? "1" : "0"); }catch(e){}
-  try{ window.dispatchEvent(new CustomEvent("turn-art-prompts",{ detail:{ on:!!on } })); }catch(e){}
-}
-function useArtAlwaysPrompts(){
-  const [on, setOn] = React.useState(turnArtAlwaysPrompts);
-  React.useEffect(()=>{
-    const h = ()=>setOn(turnArtAlwaysPrompts());
-    window.addEventListener("turn-art-prompts", h); window.addEventListener("storage", h);
-    return ()=>{ window.removeEventListener("turn-art-prompts", h); window.removeEventListener("storage", h); };
-  },[]);
-  return on;
-}
-window.turnArtAlwaysPrompts = turnArtAlwaysPrompts; window.turnSetArtAlwaysPrompts = turnSetArtAlwaysPrompts;
-window.useArtAlwaysPrompts = useArtAlwaysPrompts;
+/* (owner 2026-10-28) the Film menu's "Always show prompts" is gone: every card has its prompt as a folded section of
+   its own (Master reference prompt / Generation prompt / Frame prompt / Image prompt / Shot prompt). The old switch's
+   device setting ("turn_art_always_prompts") is simply no longer read. */
+
 
 function CopyBox({ label, text }){
   const [copied, setCopied] = React.useState(false);
@@ -5846,8 +5830,6 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
   const states = c.states || [];
   const updateStates = (next)=> onUpdate(c.id, { states: next });
 
-  const [showPrompt, setShowPrompt] = React.useState(false);   // the ⋯ menu's "Show the sheet prompt"
-  const alwaysPrompts = useArtAlwaysPrompts();   // the ⋮ menu's "Always show prompts" opens it on every card
   /* cameo (locked likeness) — Increment A */
   const [cameoOpen, setCameoOpen] = React.useState(false);
   const [cameoMeta, setCameoMeta] = React.useState(()=> (typeof nbCameoMeta==="function") ? nbCameoMeta(c.id) : null);
@@ -6043,8 +6025,6 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       generateTitle: gen.likenessUsable ? ((gen.genUrl ? "Generate a fresh sheet" : "Generate the sheet")+" from the current spec, with the locked likeness's face") : undefined,
       referenceControls: React.createElement(SheetReferenceStrip,{ gen, loadRefs:collectAttachments, onView,
         refreshKey:[c.id,wornProps.map(p=>p.id).join(","),wornExclusionKey,sheetTick].join("|") }),
-      menuExtra:alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the sheet prompt" : "Show the sheet prompt", icon:Icon.eye,
-        onClick:()=>setShowPrompt(v=>!v) }],
       onDelete:onDelete?(()=>onDelete(c.id)):null, deleteLabel:"Delete character" }),
     React.createElement("div",{className:"sheet-body"},
       React.createElement("div",{className:"sheet-head"},
@@ -6531,9 +6511,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         scaleGenWrapped.genUrl && React.createElement("div",{className:"card-qa-row"},
           React.createElement(QaCheckButton,{ gen:scaleGenWrapped, name:(c.name||"")+" \u00b7 scale", noun:"scale sheet" }))),
 
-      // the sheet's prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03), or open on every
-      // card with "Always show prompts"; it's read-only (the "Leave out" field is under Look dev)
-      (showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Master reference prompt",defaultOpen:true},
+      // the sheet's prompt: a section of every card, folded (owner 2026-10-28 — it used to hide behind the card's ⋯ menu
+      // or the Film menu's "Always show prompts"); read-only (the "Leave out" field is under Look dev)
+      React.createElement(CardFold,{label:"Master reference prompt",defaultOpen:false},
         React.createElement(CopyBox,{label:"Reference-Guided Textual Character Sheet",text:promptText}),
         // The hybrid box always holds the prompt that generated the CURRENT sheet
         // (stored per version, so restoring an older version restores its prompt

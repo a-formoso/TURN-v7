@@ -1006,8 +1006,6 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const finalPrompt = combinedLocationPrompt(l, project, {});
   const spatialState=locationSpatialPlanState(l);
   const [layoutReviewRequest,setLayoutReviewRequest]=React.useState(0);
-  const [showPrompt,setShowPrompt]=React.useState(false);   // the ⋯ menu's "Show the generation prompt"
-  const alwaysPrompts=(typeof window.useArtAlwaysPrompts==="function") ? window.useArtAlwaysPrompts() : false;
   const sheetRef=React.useRef(null);
   const layoutFoldId="loc-layout-"+l.id;
   const reviewLayout=()=>{
@@ -1474,9 +1472,6 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         ...(gen.genUrl ? [{ label: panelEdit?"Close panel edit":"Edit a panel\u2026", placement:"beforeEdit",
           title:"Change just ONE view of the multi-angle plate, leaving the others untouched",
           onClick:()=> setPanelEdit(pe=> pe ? null : { idx:null, text:"" }) }] : []),
-        // the prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03); "Always show prompts" opens it everywhere
-        ...(alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,
-          onClick:()=>setShowPrompt(v=>!v) }]),
         // SAME PLACE, TWO NAMES (2026-10-14): merge with a card nothing points at (Fiorin Furnace and Furnace) — confirmed first
         ...(!readOnly && typeof onMergeLocations==="function" && (mergeChoices||[]).length ? [{ label:"Same place as\u2026", icon:Icon.layers,
           title:"This card and another one are the same place under two names \u2014 pick the other card, see what a merge keeps, and confirm. Nothing is generated or charged.",
@@ -1700,8 +1695,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement(SheetField,{label:"Leave out \u2014 what the plate must not show (negative prompt)",value:l.negativePrompt||d.negativePrompt,multiline:true,
           onCommit:val=>onUpdate(l.id,{negativePrompt:val})})),
 
-      // read-only: behind the card's ⋯ menu, or open on every card with "Always show prompts" (2026-10-05)
-      (showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:true},
+      // read-only, a folded section of every card (owner 2026-10-28 — it used to hide behind the ⋯ menu or the Film
+      // menu's "Always show prompts")
+      React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:false},
         React.createElement(CopyBox,{label:"Current specification \u2014 next generation",text:finalPrompt}),
         React.createElement("p",{className:"loc-layer-note"},"Built from this space's current specification. Selected reference instructions are added when you generate."),
         gen.genUrl&&gen.genMeta&&gen.genMeta.prompt&&React.createElement("details",{className:"loc-nested-section"},

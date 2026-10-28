@@ -182,9 +182,10 @@ await test("E2 removing an extra environment state asks first and deletes its pl
 await test("E3 the prompt is behind the ⋯ menu, beside 'Edit a panel…'; Generate says when it writes the layout first", ()=>{
   const card = between(ui, "function LocationSheet({", "function CoverageViewsEditor(");
   assert.ok(card.includes('label: panelEdit?"Close panel edit":"Edit a panel\\u2026", placement:"beforeEdit",'));
-  assert.ok(card.includes('...(alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,'));
+  // (owner 2026-10-28) the prompt is a folded section of the card, no longer a ⋯ menu item
+  assert.ok(!card.includes('"Show the generation prompt"'));
   assert.equal((card.match(/menuExtra:/g)||[]).length, 1, "one menu list (a second key would drop Edit a panel)");
-  assert.ok(card.includes('(showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:true},'));
+  assert.ok(card.includes('React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:false},'));
   assert.ok(card.includes("generateTitle:(!locStaged && !gen.slotHasRef"));
   assert.ok(art.includes("(generateTitle || (genUrl ? \"Generate a fresh sheet from the current spec\""));
 });
@@ -209,7 +210,7 @@ await test("F2 Frances: the new names, one-scene plates, missing-only, confirms,
   assert.ok(/'Design N locations'/.test(all) && /Redesign all/.test(all) && /'Generate N missing plates'/.test(all));
   const tab = (F.find(f=>f.name==="Locations (Art Room)")||{}).what || "";
   assert.ok(/'Slugline Units' are now shown as 'Rooms & times'/.test(tab) && /'Fixed landmarks'/.test(tab));
-  assert.ok(/ONE SCENE/.test(tab) && /'Stop after this one'/.test(tab) && /REMOVING a room & time/.test(tab) && /'Show the generation prompt'/.test(tab));
+  assert.ok(/ONE SCENE/.test(tab) && /'Stop after this one'/.test(tab) && /REMOVING a room & time/.test(tab) && /folded 'Generation Prompt' section/.test(tab));
   assert.ok(!/TURN|McKee|Claude|Anthropic/.test(tab));
 });
 

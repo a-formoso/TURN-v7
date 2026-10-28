@@ -495,7 +495,6 @@ function ShotPurpose({sh}){
 }
 
 function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, onDeleteShotReference, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra, readOnly=false }){
-  const alwaysPrompts = (typeof window.useArtAlwaysPrompts==="function") ? window.useArtAlwaysPrompts() : false;
   const loc = ctx.location;
   // who/what is in frame is DERIVED from the action text (single source of truth) — the
   // old manual tags are gone; this is what the prompt + references actually use.
@@ -1361,8 +1360,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           loc ? _el("span",null,"Location: ",_el("b",null,loc.name),(typeof stagingHasContent==="function"&&stagingHasContent(loc))?" \u00b7 depth grid inherited":" \u00b7 no depth grid staged")
               : _el("span",null,"No location resolved for this scene \u2014 set the scene's slugline / pull locations."))),
 
-      // "Always show prompts" (the Art Room ⋮ menu) opens it on every card; keyed so the switch takes effect at once
-      _el(CardFold,{key:"shot-prompt-"+(alwaysPrompts?"open":"fold"),label:"Shot prompt",defaultOpen:alwaysPrompts},
+      // a folded section of every shot card (2026-10-28: the Film menu's "Always show prompts" is gone)
+      _el(CardFold,{label:"Shot prompt",defaultOpen:false},
         _el(CopyBox,{label: isHead ? "Final frame prompt \u2014 master + grade + references" : "Final frame prompt \u2014 master + grade + reference frame + sheets",text:previewPrompt}))));
 }
 

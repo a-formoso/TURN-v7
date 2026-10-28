@@ -89,7 +89,7 @@ window.storyBriefShown = storyBriefShown;
 /* OverflowMenu — the top bar's "Film ⋯" menu (homepage style, owner 2026-10-16): in every room and at
    every width it holds the film's actions the bar no longer shows as buttons — New Story, the Story
    brief, Team, the exports (the Writers' Room's screenplay formats, the Art Room's shot list /
-   stripboard / art bible), the Art Room's "Always show prompts", Appearance (light / dark / system)
+   stripboard / art bible), Appearance (light / dark / system)
    and the admin-only Reset (Render styles and API keys moved to the account menu, 2026-10-22). On a phone it also lists the Art
    Room tabs. */
 const FILM_EXPORTS = [
@@ -100,11 +100,6 @@ const FILM_EXPORTS = [
 ];
 function OverflowMenu({ onNewStory, onImportScript, onImportDraft, project, scenes, drafts, onReset, room, artView, setArtView, artTabLocks, hiddenArtTabs, theme, onTheme }){
   const [open, setOpen] = React.useState(false);
-  // "Always show prompts" (owner 2026-10-05) — the Art Room's personal switch (artroom.jsx keeps it)
-  const readPrompts = ()=> typeof window.turnArtAlwaysPrompts==="function" && window.turnArtAlwaysPrompts();
-  const [alwaysPrompts, setAlwaysPrompts] = React.useState(readPrompts);
-  React.useEffect(()=>{ const h=()=>setAlwaysPrompts(readPrompts());
-    window.addEventListener("turn-art-prompts", h); return ()=>window.removeEventListener("turn-art-prompts", h); },[]);
   const ref = React.useRef(null);
   React.useEffect(()=>{
     if(!open) return;
@@ -219,18 +214,7 @@ function OverflowMenu({ onNewStory, onImportScript, onImportDraft, project, scen
             React.createElement("span",{className:"export-item-t"},
               React.createElement("span",{className:"t"},title),
               React.createElement("span",{className:"s"},sub))))),
-      // the Art Room's view switch: every card's generation prompt open (the menu stays open — it's a toggle)
-      room==="art" && typeof window.turnSetArtAlwaysPrompts==="function" && React.createElement(React.Fragment,null,
-        React.createElement("div",{className:"export-subhead"},"View"),
-        React.createElement("button",{type:"button",className:"export-item"+(alwaysPrompts?" on":""),role:"menuitemcheckbox",
-            "aria-checked":alwaysPrompts?"true":"false","data-testid":"art-always-prompts",
-            onClick:()=>window.turnSetArtAlwaysPrompts(!alwaysPrompts)},
-          React.createElement("span",{className:"export-item-ic"},React.createElement((alwaysPrompts?Icon.check:Icon.eye)||Icon.eye,{s:16})),
-          React.createElement("span",{className:"export-item-t"},
-            React.createElement("span",{className:"t"},"Always show prompts"+(alwaysPrompts?" \u00b7 On":"")),
-            React.createElement("span",{className:"s"},alwaysPrompts
-              ? "Every card shows its generation prompt \u2014 click to fold them back into each card's \u22ef menu"
-              : "Open every card's generation prompt (this device)")))),
+      // (owner 2026-10-28) no Always-show-prompts switch here any more: every card has its prompt as a folded section
       // APPEARANCE — the theme switch the bar used to carry as an icon (the menu stays open: it's a setting)
       onTheme && React.createElement(React.Fragment,null,
         React.createElement("div",{className:"export-subhead"},"Appearance"),

@@ -4,8 +4,6 @@
    That image goes with every shot frame and Stage clip whose action names the crowd. "Don't use" keeps a crowd out
    without touching the screenplay. */
 function CrowdSheet({ c, readOnly=false, onUpdateCrowd, onView }){
-  const [showPrompt, setShowPrompt] = React.useState(false);
-  const alwaysPrompts = (typeof window.useArtAlwaysPrompts==="function") ? window.useArtAlwaysPrompts() : false;
   const styleLine = ()=>{
     const cast = ((window.turnContinuity||{}).characters)||[];
     try{ return (typeof shotRenderStyleLine==="function" && typeof shotRenderStyleKey==="function")
@@ -29,9 +27,7 @@ function CrowdSheet({ c, readOnly=false, onUpdateCrowd, onView }){
     React.createElement(SheetFrame,{ gen, slotId:"crowdref-"+c.id, name:c.name, avatarColor:"#7a7f87",
       initials:String(c.name||"C").slice(0,2).toUpperCase(), drafted:true, drafting:false, onDraft:()=>{}, entity:{ ...c, kind:"crowd" }, onView,
       slotPlaceholder:"Drop a photo of the group", noun:"crowd reference", hideUploadButton:true,
-      specGate:{ ready:true, hint:"" },
-      menuExtra:alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the image prompt" : "Show the image prompt", icon:Icon.eye,
-        onClick:()=>setShowPrompt(v=>!v) }] }),
+      specGate:{ ready:true, hint:"" } }),
     React.createElement("div",{className:"sheet-body"},
       React.createElement("div",{className:"sheet-head"},
         React.createElement("div",{style:{flex:1,minWidth:0}},
@@ -55,7 +51,9 @@ function CrowdSheet({ c, readOnly=false, onUpdateCrowd, onView }){
         !readOnly && React.createElement("button",{type:"button",className:"art-draftall ghost",
           title:c.off ? "Give this crowd's image to its shots and Stage clips again" : "Keep this crowd's image out of its shots and Stage clips (the screenplay doesn't change)",
           onClick:()=>update({ off:!c.off })}, c.off ? "Use this crowd" : "Don't use this crowd")),
-      (showPrompt || alwaysPrompts) && React.createElement(CopyBox,{ label:"Image prompt", text:finalPrompt })));
+      // the prompt: a folded section of the card (owner 2026-10-28)
+      React.createElement(CardFold,{label:"Image prompt",defaultOpen:false},
+        React.createElement(CopyBox,{ label:"Image prompt", text:finalPrompt }))));
 }
 
 function CrowdSheets({ project, scenes, drafts, readOnly=false, onUpdateCrowd, sceneFilter, onView }){

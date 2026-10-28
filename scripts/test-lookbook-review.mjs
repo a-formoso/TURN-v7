@@ -196,17 +196,19 @@ await test("F1 Suggest a note: one writing call; names a touchstone only on a ha
 });
 
 /* ═══ G ═══ */
-await test("G1 the frame prompt is behind the ⋯ menu (no 'Reference prompt' fold on the card)", ()=>{
+// (owner 2026-10-28) the frame prompt is a folded section of the card ("Frame prompt"), no longer a ⋯ menu item
+await test("G1 the frame prompt is a folded 'Frame prompt' section (no 'Reference prompt' fold, no menu item)", ()=>{
   R.reset();
   const lc = box.LookbookView({ project:{}, lookbook:[cards[0]], note:"", onUpdate:noop, onAdd:noop, onDelete:noop, onSetNote:noop });
   const card = findAll(lc, n=>typeof n.type==="function" && n.props && n.props.c)[0];
   R.reset();
   const tree = card.type(card.props);
   assert.equal(findAll(tree, n=>n.type==="CardFold" && n.props.label==="Reference prompt").length, 0);
-  assert.equal(findAll(tree, n=>n.type==="CopyBox").length, 0, "hidden until asked");
-  assert.equal(findAll(tree, n=>n.type==="SheetFrame")[0].props.menuExtra[0].label, "Show the frame prompt");
-  R.reset({ 0:true });
-  assert.equal(findAll(card.type(card.props), n=>n.type==="CopyBox").length, 1, "shown from the menu");
+  const fold = findAll(tree, n=>n.type==="CardFold" && n.props.label==="Frame prompt");
+  assert.equal(fold.length, 1, "its own section");
+  assert.equal(fold[0].props.defaultOpen, false, "folded until opened");
+  assert.equal(findAll(fold[0], n=>n.type==="CopyBox").length, 1, "the prompt inside it");
+  assert.ok(!findAll(tree, n=>n.type==="SheetFrame")[0].props.menuExtra, "no 'Show the frame prompt' menu item");
 });
 await test("G2 Frances knows: missing frames and their price, Recently deleted, Suggest a note, Research again, the medium", ()=>{
   const ai = read("app/ai.jsx");

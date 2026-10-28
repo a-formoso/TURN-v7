@@ -1209,8 +1209,6 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, p.id]);
 
-  const [showPrompt, setShowPrompt] = React.useState(false);   // the ⋯ menu's "Show the generation prompt"
-  const alwaysPrompts = (typeof window.useArtAlwaysPrompts==="function") ? window.useArtAlwaysPrompts() : false;
   const [fitOpen, setFitOpen] = React.useState(false);   // the fitting view (owner sheet · prop sheet side by side)
   const [bindingOpen, setBindingOpen] = React.useState(false);
 
@@ -1326,8 +1324,6 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
       // against the OWNER's sheet (so the designs agree); it attaches to shots only
       // at CU/MCU/ECU/INSERT sizes where the item reads large. Batch generation
       // still skips worn items.
-      menuExtra:alwaysPrompts ? [] : [{ label:showPrompt ? "Hide the generation prompt" : "Show the generation prompt", icon:Icon.eye,
-        onClick:()=>setShowPrompt(v=>!v) }],
       onDelete:()=>onDelete(p.id), deleteLabel:"Delete prop" }),
     React.createElement("div",{className:"sheet-body"},
       React.createElement("div",{className:"sheet-head"},
@@ -1604,9 +1600,9 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
         React.createElement(SheetField,{label:"Leave out \u2014 what the sheet must not show (negative prompt)",value:p.negativePrompt||d.negativePrompt,multiline:true,
           onCommit:val=>onUpdate(p.id,{negativePrompt:val})})),
 
-      // the prompt is a power-user tool: behind the card's ⋯ menu (2026-10-03), or open on every card
-      // with "Always show prompts" (2026-10-05)
-      (showPrompt || alwaysPrompts) && React.createElement(CardFold,{label:"Generation prompt",defaultOpen:true},
+      // the prompt: a section of every card, folded (owner 2026-10-28 — it used to hide behind the card's ⋯ menu or
+      // the Film menu's "Always show prompts")
+      React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},
         React.createElement(CopyBox,{label:"4-panel object sheet (hero \u00b7 front \u00b7 side \u00b7 detail) \u2014 feed to your image tool",text:buildPropRefPrompt(p,project)}),
         React.createElement(CopyBox,{label:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt)
             ? "Final prompt \u2014 generated the CURRENT sheet" : "Final prompt \u2014 master + negative (sent at generation)",
