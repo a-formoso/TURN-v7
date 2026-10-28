@@ -192,6 +192,12 @@ const LOOKBOOK_ROUTING = {
   //  it was only ever flagged out of date. Removed 2026-10-05, owner.)
 };
 window.LOOKBOOK_ROUTING = LOOKBOOK_ROUTING;
+/* the departments a category's notes go to, by the names their tabs show (owner 2026-10-28) */
+const LOOKBOOK_DEPT_NAMES = { colorist:"Color", characters:"Characters (wardrobe)", locations:"Locations", props:"Props", shots:"Shots" };
+function lookbookDeptsFor(category){
+  return Object.keys(LOOKBOOK_ROUTING).filter(d=>LOOKBOOK_ROUTING[d].indexOf(category)>=0).map(d=>LOOKBOOK_DEPT_NAMES[d]||d);
+}
+window.lookbookDeptsFor = lookbookDeptsFor;
 
 /* Creation provenance is deliberately assigned only at creation time. Legacy cards
    without an origin stay unknown — callers must never infer/backfill them later. */
@@ -376,9 +382,11 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
   return React.createElement("div",{className:"sheet-card"+(batchActiveId===c.id?" batch-on":""),"data-look-card":c.id},
     React.createElement(SheetFrame,{ gen, slotId:"lookref-"+c.id, name:c.source||"Reference", avatarColor:"#6b7280",
       initials, drafted, drafting:false, onDraft:()=>{}, entity:c, onView,
-      slotPlaceholder:"Drop a reference image", noun:"reference frame",
+      // OPTIONAL PREVIEW (owner 2026-10-28): the image is for you to see the look; no department is sent it —
+      // the note below is what they read
+      slotPlaceholder:"Optional preview \u2014 nothing else uses the image", noun:"preview",
       hideUploadButton:true,
-      specGate:{ ready:drafted, hint:"Add a ‘what to borrow’ note first — it's what the frame is built from." },
+      specGate:{ ready:drafted, hint:"Add a ‘what to borrow’ note first — it's what the preview is built from." },
       onDelete:askDelete, deleteLabel:"Delete reference" }),
     React.createElement("div",{className:"sheet-body"},
       React.createElement("div",{className:"sheet-head"},
@@ -391,14 +399,17 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
 
       !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
         React.createElement(Icon.alert,{s:14}),
-        React.createElement("span",null,"No ‘what to borrow’ note yet — add one below, or let Suggest a note write it, then generate its mood frame.")),
+        React.createElement("span",null,"No ‘what to borrow’ note yet — add one below, or let Suggest a note write it. The note is what the departments read.")),
 
       React.createElement(CardFold,{label:"Reference",defaultOpen:true},
         React.createElement("div",{className:"sheet-field"},
           React.createElement("div",{className:"obj-lab"},"Category"),
           React.createElement("select",{className:"prop-select",value:c.category||"Palette",
             onChange:e=>update({category:e.target.value})},
-            (window.LOOKBOOK_CATEGORIES||[]).map(cat=>React.createElement("option",{key:cat,value:cat},cat)))),
+            (window.LOOKBOOK_CATEGORIES||[]).map(cat=>React.createElement("option",{key:cat,value:cat},cat))),
+          // where this card's note goes (owner 2026-10-28): the category decides, the preview image goes nowhere
+          React.createElement("div",{className:"lb-routes","data-testid":"lb-routes"},
+            "Its note goes to: "+(lookbookDeptsFor(c.category||"Palette").join(" \u00b7 ")||"no department")+".")),
         React.createElement(SheetField,{label:"What to borrow — the visual quality",value:c.note,multiline:true,
           placeholder:"The palette / lighting / lens / texture to draw from — abstract qualities, not the source's scenes…",
           onCommit:val=>update({note:val})}),
@@ -409,12 +420,12 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
           onClick:()=>onSuggestNote(c.id)},
           React.createElement(Icon.sparkles,{s:12}), suggesting ? "Suggesting…" : ((c.note||"").trim() ? "Suggest another note" : "Suggest a note")),
         // an editable setting that changes the frame: on the card, not behind the prompt (2026-10-05)
-        React.createElement(SheetField,{label:"Leave out — what the frame must not show (negative prompt)",value:c.negativePrompt||"",
+        React.createElement(SheetField,{label:"Leave out (negative prompt)",value:c.negativePrompt||"",
           onCommit:val=>onUpdate(c.id,{negativePrompt:val})})),
 
       // read-only, a folded section of every card (owner 2026-10-28)
-      React.createElement(CardFold,{label:"Frame prompt",defaultOpen:false},
-        React.createElement(CopyBox,{label:"Mood frame — feed to your image tool",text:finalPrompt}))));
+      React.createElement(CardFold,{label:"Preview prompt",defaultOpen:false},
+        React.createElement(CopyBox,{label:"Preview frame — feed to your image tool",text:finalPrompt}))));
 }
 
 /* ---- the Lookbook tab ---- */
@@ -478,7 +489,7 @@ function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSe
   const startMissingBatch = ()=>{
     if(batchActiveId) return;
     if(!drafted.length){ batch.setMsg("Add a ‘what to borrow’ note to a reference first — nothing is ready to render yet."); return; }
-    if(!missing.length){ batch.setMsg("Every reference with a note already has its mood frame — re-render one from its card."); return; }
+    if(!missing.length){ batch.setMsg("Every reference with a note already has its preview — re-render one from its card."); return; }
     batch.begin(missing.map(c=>c.id), list.length - missing.length);
   };
   // the look is there already: "Research again" offers to fill the gaps or start fresh
@@ -493,7 +504,7 @@ function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSe
         React.createElement("div",{style:{flex:1}},
           React.createElement(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Visual Researcher",
             React.createElement(window.InfoTip,{label:"About the Lookbook",
-              text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture — each can have a mood frame in that visual language (original frames, never copies of the named films), rendered in the film's own medium. 'Research the look' writes the statement and gathers the references. 'Generate missing frames' renders the frames you don't have yet."}))),
+              text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture, wardrobe, production design. The statement and each card's note are what the departments read: the category decides where a note goes (Color, Characters, Locations, Props, Shots). A card's image is an OPTIONAL PREVIEW of that look, for you only — no department is sent it, so you never need one. 'Research the look' writes the statement and gathers the references."}))),
         React.createElement("div",{className:"art-intro-actions"},
           // the header's "+" (add a reference by hand) went (owner 2026-10-21); an empty Lookbook keeps "Add by hand"
           onResearch && (hasResearch && onResearchFresh
@@ -508,14 +519,16 @@ function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSe
                   React.createElement("button",{type:"button",role:"menuitem",onClick:()=>{ setResearchMenu(false); onResearchFresh(); }},
                     React.createElement("b",null,"Research from scratch"),
                     React.createElement("span",null,"Writes a new statement and new references. Your hand-added cards stay; the researched ones move to Recently deleted."))))
-            : React.createElement("button",{className:"art-draftall ghost",onClick:onResearch,
-                title:"Visual Researcher — writes the look statement and gathers reference touchstones. Use Generate missing frames when you want to render the mood frames."},
+            : React.createElement("button",{className:"art-draftall",onClick:onResearch,
+                title:"Visual Researcher — writes the look statement and gathers reference touchstones"},
                 React.createElement(Icon.robot,{s:14}),"Research the look")),
-          React.createElement("button",{className:"art-draftall",disabled:!!batchActiveId||!missing.length,onClick:startMissingBatch,
-            title: missing.length ? "Render the mood frame for every reference that has a note and no frame yet ("+missing.length+")"
-              : (drafted.length ? "Every reference with a note has its mood frame — re-render one from its card" : "Add a ‘what to borrow’ note to a reference first")},
+          // OPTIONAL PREVIEWS (owner 2026-10-28): a quiet extra, never a to-do — nothing downstream uses the images,
+          // so the button only shows while some noted card has none (and says so)
+          (missing.length>0 || batchActiveId) && React.createElement("button",{className:"art-draftall ghost","data-testid":"lb-previews",
+            disabled:!!batchActiveId,onClick:startMissingBatch,
+            title:"Optional: render a preview image for each reference that has a note and no preview yet ("+missing.length+"). Only for you to see the look — no department uses the images."},
             React.createElement(Icon.sparkles,{s:14}),
-            batchActiveId ? "Rendering…" : (missing.length ? "Generate missing frames" : "All frames rendered"),
+            batchActiveId ? "Rendering…" : "Preview the look",
             missing.length>0 && typeof window.nbCostChip==="function" && window.nbCostChip(missing.length))))),
 
     // the north-star visual statement
@@ -534,7 +547,7 @@ function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSe
       : React.createElement("div",{className:"prop-empty"},
           React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon.image,{s:30})),
           React.createElement("div",{className:"art-soon-t"},"No references yet"),
-          React.createElement("div",{className:"art-soon-d"},"Build the film's visual brief first — ‘Research the look’ writes the statement and gathers reference touchstones (palette, lighting, lens, texture). Then use ‘Generate missing frames’ when you want mood frames. Or add one by hand."),
+          React.createElement("div",{className:"art-soon-d"},"Build the film's visual brief first — ‘Research the look’ writes the statement and gathers reference touchstones (palette, lighting, lens, texture). Their notes steer every department; preview images are optional. Or add one by hand."),
           React.createElement("div",{style:{display:"flex",gap:8,marginTop:16}},
             onResearch && React.createElement("button",{className:"art-draftall",onClick:onResearch},
               React.createElement(Icon.robot,{s:14}),"Research the look"),

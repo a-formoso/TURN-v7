@@ -329,6 +329,7 @@ button,input,select,textarea{font-family:inherit}
 /* Lookbook — the north-star visual statement block above the reference grid */
 .lb-statement{margin:0 0 18px;padding:14px 16px;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-l)}
 /* Lookbook review (2026-10-03): Suggest a note, the Research again menu */
+.lb-routes{margin-top:6px;font-size:11px;color:var(--txt-3)}
 .lb-suggest{display:inline-flex;align-items:center;gap:6px;margin-top:8px;height:28px;padding:0 10px;border:1px solid var(--line-2);
   border-radius:var(--r-m);background:var(--bg-2);color:var(--txt-1);font:600 11.5px var(--f-ui);cursor:pointer}
 .lb-suggest:hover:not(:disabled){border-color:var(--pos);color:var(--txt-0)}

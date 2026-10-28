@@ -3,8 +3,8 @@
    A  cards: two hand-added cards both stay; one touchstone in two categories both stay; the same
       touchstone for the same category is one card; deleted cards are kept but never read
    B  mood frames are rendered in the film's medium (photoreal until one is picked); no "--ar"
-   C  "Generate missing frames": only references with a note and no frame; the price is for all
-      of them; nothing to render → "All frames rendered"
+   C  "Preview the look" (optional previews, owner 2026-10-28): only references with a note and no
+      preview; the price is for all of them; nothing to render → no button at all
    D  deleting asks first and moves the card (with its frame) to Recently deleted; restore / delete
       forever; every write-back keeps the bin
    E  "Research again": fill the missing categories, or research from scratch (hand-added cards stay,
@@ -102,19 +102,18 @@ const viewWith = (framedMap, extra = {})=>{
   return box.LookbookView({ project:{}, lookbook:cards, note:"A cold film", onUpdate:noop, onAdd:noop, onDelete:noop, onSetNote:noop,
     onResearch:noop, onResearchFresh:noop, onRestore:noop, onPurge:noop, onSuggestNote:noop, ...extra });
 };
-const genBtn = (tree)=> findAll(tree, n=>n.type==="button" && hasClass("art-draftall")(n) && !hasClass("ghost")(n))[0];
-await test("C1 'Generate missing frames' renders only the noted cards without a frame, and is priced for all of them", ()=>{
+const genBtn = (tree)=> findAll(tree, n=>n.type==="button" && n.props && n.props["data-testid"]==="lb-previews")[0];
+await test("C1 'Preview the look' renders only the noted cards without a preview, and is priced for all of them", ()=>{
   const tree = viewWith({ r1:true });
   const b = genBtn(tree);
-  assert.match(textOf(b), /^Generate missing frames/);
+  assert.match(textOf(b), /^Preview the look/);
+  assert.ok(hasClass("ghost")(b), "a quiet optional button, not the tab's main one");
   assert.equal(findAll(b, n=>n.type==="chip")[0].props.count, 2, "r2 and r3: two frames' price");
   box.__begun = null; b.props.onClick();
   assert.deepEqual(J(box.__begun), { ids:["r2", "r3"], skipped:2 }, "r1 has its frame, r4 has no note");
 });
-await test("C2 every noted card has its frame: 'All frames rendered', no price, nothing re-rendered", ()=>{
-  const b = genBtn(viewWith({ r1:true, r2:true, r3:true }));
-  assert.match(textOf(b), /^All frames rendered$/); assert.equal(b.props.disabled, true);
-  assert.equal(findAll(b, n=>n.type==="chip").length, 0);
+await test("C2 every noted card has its preview: no previews button at all (never a to-do)", ()=>{
+  assert.equal(genBtn(viewWith({ r1:true, r2:true, r3:true })), undefined);
 });
 
 /* ═══ D ═══ */
@@ -196,15 +195,15 @@ await test("F1 Suggest a note: one writing call; names a touchstone only on a ha
 });
 
 /* ═══ G ═══ */
-// (owner 2026-10-28) the frame prompt is a folded section of the card ("Frame prompt"), no longer a ⋯ menu item
-await test("G1 the frame prompt is a folded 'Frame prompt' section (no 'Reference prompt' fold, no menu item)", ()=>{
+// (owner 2026-10-28) the frame prompt is a folded section of the card ("Preview prompt" since 2026-10-28), no longer a ⋯ menu item
+await test("G1 the preview prompt is a folded 'Preview prompt' section (no 'Reference prompt' fold, no menu item)", ()=>{
   R.reset();
   const lc = box.LookbookView({ project:{}, lookbook:[cards[0]], note:"", onUpdate:noop, onAdd:noop, onDelete:noop, onSetNote:noop });
   const card = findAll(lc, n=>typeof n.type==="function" && n.props && n.props.c)[0];
   R.reset();
   const tree = card.type(card.props);
   assert.equal(findAll(tree, n=>n.type==="CardFold" && n.props.label==="Reference prompt").length, 0);
-  const fold = findAll(tree, n=>n.type==="CardFold" && n.props.label==="Frame prompt");
+  const fold = findAll(tree, n=>n.type==="CardFold" && n.props.label==="Preview prompt");
   assert.equal(fold.length, 1, "its own section");
   assert.equal(fold[0].props.defaultOpen, false, "folded until opened");
   assert.equal(findAll(fold[0], n=>n.type==="CopyBox").length, 1, "the prompt inside it");
@@ -212,7 +211,7 @@ await test("G1 the frame prompt is a folded 'Frame prompt' section (no 'Referenc
 });
 await test("G2 Frances knows: missing frames and their price, Recently deleted, Suggest a note, Research again, the medium", ()=>{
   const ai = read("app/ai.jsx");
-  for(const s of ["'Generate missing frames' batch-renders every reference that has a note and NO frame yet", "LOOKBOOK UPDATES (2026-10-03): DELETING a reference asks first",
+  for(const s of ["'Preview the look' (a quiet button shown only while some noted reference has no preview) batch-renders every reference that has a note and NO preview yet", "MOOD FRAMES ARE OPTIONAL PREVIEWS (owner 2026-10-28)", "LOOKBOOK UPDATES (2026-10-03): DELETING a reference asks first",
     "'Suggest a note' (one writing call)", "'Research again' with two choices", "Mood frames are rendered in the FILM'S MEDIUM"])
     assert.ok(ai.includes(s), s);
   assert.ok(!/'Generate all frames' renders the mood frames/.test(ai));

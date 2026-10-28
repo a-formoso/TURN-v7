@@ -20,7 +20,7 @@ t("every card has its prompt as a folded section", ()=>{
   assert.ok(art.includes('React.createElement(CardFold,{label:"Master reference prompt",defaultOpen:false},'));
   assert.ok(props.includes('React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},'));
   assert.ok(locs.includes('React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:false},'));
-  assert.ok(look.includes('React.createElement(CardFold,{label:"Frame prompt",defaultOpen:false},'));
+  assert.ok(look.includes('React.createElement(CardFold,{label:"Preview prompt",defaultOpen:false},'));
   assert.ok(crowds.includes('React.createElement(CardFold,{label:"Image prompt",defaultOpen:false},'));
   assert.ok(shots.includes('_el(CardFold,{label:"Shot prompt",defaultOpen:false},'));
 });

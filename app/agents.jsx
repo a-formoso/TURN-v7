@@ -2438,7 +2438,7 @@ async function agentVisualResearcher(ctx){
     ctx.emit({k:"flag", t:"The writing model isn't available — the Visual Researcher needs it to research the look."});
     ctx.emit({k:"done", t:"Aborted."}); return;
   }
-  ctx.emit({k:"plan", t:"Researching the film's visual language — writing the look statement, gathering/deduping reference touchstones across every department (palette, lighting, lens, texture, plus wardrobe for the cast and production design for props & sets), and proposing the film's RENDER STYLE from the story (approval-gated — a yes sets every character/prop/location style dropdown in one pass). Use “Generate missing frames” afterwards when you want to render mood frames."});
+  ctx.emit({k:"plan", t:"Researching the film's visual language — writing the look statement, gathering/deduping reference touchstones across every department (palette, lighting, lens, texture, plus wardrobe for the cast and production design for props & sets), and proposing the film's RENDER STYLE from the story (approval-gated — a yes sets every character/prop/location style dropdown in one pass). It makes no images; the notes are what the departments read."});
 
   // 0) REPAIR — a lookbook that outgrew its 8-touchstone brief (the pre-guard
   // growth bug stacked +8 cards per re-run). Approval-gated: keeps every hand-added
@@ -2473,10 +2473,8 @@ async function agentVisualResearcher(ctx){
   // already settled). This also covers every "Run pre-production" re-run, which chains
   // this agent first. To research from scratch: Research again ▸ Research from scratch (lookbookFreshRef).
   if(typeof lb.researched==="function" && lb.researched()){
-    let todo=[]; try{ todo = await lb.toGenerate(); }catch(e){}
     ctx.emit({k:"observe", t:"This lookbook is already researched — the look statement is written and every category holds a noted touchstone. Skipping re-research so nothing duplicates."});
     ctx.emit({k:"done", t:"Visual research already complete — nothing re-run."
-      +(todo.length?(" “Generate missing frames” will render "+todo.length+" missing mood frame"+(todo.length!==1?"s":"")+"."):" Every mood frame is rendered.")
       +" To research the look from scratch, use Research again \u25b8 Research from scratch on the Lookbook tab."});
     return;
   }
@@ -2518,9 +2516,8 @@ async function agentVisualResearcher(ctx){
     }
   }
 
-  let todo=[];
-  try{ todo = await lb.toGenerate(); }catch(e){}
-  ctx.emit({k:"done", t:"Lookbook researched — "+((res&&res.added)||0)+" new reference"+((res&&res.added)===1?"":"s")+" added. "+(todo.length?("Generate missing frames will render "+todo.length+" missing mood frame"+(todo.length!==1?"s":"")+"."):"Every mood frame is already rendered.")});
+  // the notes are what the departments read; preview images are optional, never a to-do (owner 2026-10-28)
+  ctx.emit({k:"done", t:"Lookbook researched — "+((res&&res.added)||0)+" new reference"+((res&&res.added)===1?"":"s")+" added. Their notes now steer the departments; preview images are optional."});
 }
 
 async function agentDepartmentCoordinator(ctx){
@@ -3265,7 +3262,7 @@ const AGENTS = [
     blurb:"Builds the film's lookbook brief — writes the visual statement, gathers/dedupes reference touchstones (palette, lighting, lens, texture), and proposes the film's RENDER STYLE from the story (your approval sets every character/prop/location style dropdown in one pass). Use Generate missing frames afterwards to render the mood frames. The colour system (the Color tab) reads these references when it designs the palette.",
     // it asks before the render style and a trim (approval cards), so it isn't "on its own"
     asksApproval:true,
-    costLine:"It makes a writing call to research the look; mood frames are made from the Lookbook tab (image credits). What it used shows when it finishes.",
+    costLine:"It makes a writing call to research the look; it makes no images (optional previews are made from the Lookbook tab, with image credits). What it used shows when it finishes.",
     run:agentVisualResearcher },
   { id:"locscout", name:"Location Scout", icon:"globe", kind:"build", room:"art", autonomous:true,
     blurb:"Scouts your film's locations on its own \u2014 pulls every place from the sluglines, drafts each one's staging + depth-grid spec, generates the plate, and adds the time-of-day variants the script calls for. Also flags any scene whose slugline location has no card yet. Runs autonomously; press Stop anytime.",
