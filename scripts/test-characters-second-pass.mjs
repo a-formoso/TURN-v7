@@ -124,7 +124,7 @@ await test("F1 prices: Likeness 'Apply to sheet', the voice buttons, Surprise me
 await test("F2 copy: the likeness line, the scale hint, no vendor names, no 'Not approved'; dead code gone", ()=>{
   // (2026-10-10, owner — Likeness review) a sheet made with an OLDER likeness says so too
   assert.ok(art.includes('(gen.likenessStale ? "made with an earlier likeness \\u2014 regenerate to update" : "applied to the sheet")\n            : "regenerate to apply it to the sheet"'));
-  assert.ok(art.includes("for you to check heights. Shots use the heights and scale class written on the card") && !art.includes("Used as the scale reference in shots"));
+  assert.ok(art.includes("for you to check the size at a glance. Shots use the size written on the card") && !art.includes("Used as the scale reference in shots"));
   const userStrings = (src)=> (src.match(/"(?:[^"\\\n]|\\.)*"/g)||[]).filter(x=>/[a-z] [a-z]/i.test(x));
   for(const [f, src] of [["artroom", art], ["voices-ui", voices]])
     assert.deepEqual(userStrings(src).filter(x=>/ElevenLabs|fal\.ai|Google Search|GPT Image blocked/.test(x)), [], f);

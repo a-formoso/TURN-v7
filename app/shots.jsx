@@ -1893,6 +1893,43 @@ window.scaleInfoOf = scaleInfoOf; window.shotScaleClause = shotScaleClause; wind
 /* The SCALE SHEET prompt (the user's "height chart" / Option A): a full-body front view
    beside a vertical ruler whose markings come from the entity's scale class. Built from the
    character's body + texture + height; rendered FROM the master sheet so identity matches. */
+/* SIZE CHECKS (owner-approved 2026-10-28, scale plan step 4): familiar objects of known real size, so a scale sheet
+   shows the character beside things everyone knows (a coin, a grain of rice, a door, a house) and anyone can see at a
+   glance whether the size is right. mm = the size the words state. */
+const SCALE_KNOWN_OBJECTS = [
+  ["a red blood cell", 0.007, "7 \u00b5m across"], ["a pollen grain", 0.03, "30 \u00b5m across"], ["a human hair", 0.07, "70 \u00b5m thick"],
+  ["a grain of fine sand", 0.3, "0.3 mm across"], ["a grain of salt", 0.5, "0.5 mm across"], ["a grain of rice", 6, "6 mm long"],
+  ["a pea", 9, "9 mm across"], ["a coin", 24, "24 mm across"], ["a paperclip", 33, "33 mm long"], ["a matchstick", 45, "45 mm long"],
+  ["a hen's egg", 57, "57 mm tall"], ["a playing card", 89, "89 mm tall"], ["a coffee mug", 95, "95 mm tall"],
+  ["a drinks can", 122, "12 cm tall"], ["an adult's hand", 190, "19 cm long"], ["a wine bottle", 300, "30 cm tall"],
+  ["a chair seat", 450, "45 cm high"], ["a dining chair", 900, "90 cm tall"], ["a standard door", 2000, "2 m tall"],
+  ["a single-decker bus", 3000, "3 m tall"], ["a two-storey house", 7000, "7 m tall"], ["a ten-storey building", 30000, "30 m tall"],
+  ["a 100 m tower", 100000, "100 m tall"] ];
+function scaleKnownObjects(mm){
+  if(!(mm>0)) return [];
+  const used = new Set(), out = [];
+  [mm, mm*0.35, mm*0.1].forEach(target=>{
+    let best = null, bestD = Infinity;
+    SCALE_KNOWN_OBJECTS.forEach(o=>{
+      if(used.has(o[0]) || o[1]>mm*1.6) return;
+      const d = Math.abs(Math.log(o[1]/target));
+      if(d<bestD){ best = o; bestD = d; } });
+    if(best && bestD<=Math.log(2.5)){ used.add(best[0]); out.push({ name:best[0], mm:best[1], size:best[2] }); }
+  });
+  return out;
+}
+/* the true sizes a QA check measures an image against: everyone sized in it, smallest first, each with how many times
+   the smallest it is — only when it matters (two different sizes, or anyone not human-sized) */
+function qaTrueSizes(chars){
+  const sized = (chars||[]).filter(Boolean).map(c=>({ name:c.name||"", mm:heightMMOf(c), c })).filter(x=>x.name && x.mm>0)
+    .sort((a,b)=>a.mm-b.mm);
+  if(!sized.length) return [];
+  const differ = sized.length>1 && sized[sized.length-1].mm/sized[0].mm>=1.25;
+  if(!differ && sized.every(x=>scaleClassOf(x.c)==="A")) return [];
+  return sized.map(x=>({ name:x.name, mm:x.mm, size:_scaleSizeText(x.mm) }));
+}
+window.SCALE_KNOWN_OBJECTS = SCALE_KNOWN_OBJECTS; window.scaleKnownObjects = scaleKnownObjects; window.qaTrueSizes = qaTrueSizes;
+
 function buildScaleSheetPrompt(c){
   const info = scaleInfoOf(c);
   const clean = (x)=>String(x||"").replace(/\s+/g," ").trim().replace(/\.$/,"");
@@ -1911,11 +1948,17 @@ function buildScaleSheetPrompt(c){
       : cls==="C"
         ? "GIANT SCALE: metre markings are allowed. "
         : "";
+  // familiar objects at their exact real sizes beside the figure (scale plan step 4, 2026-10-28)
+  const _objs = scaleKnownObjects(heightMMOf(c));
+  const _known = _objs.length ? ("On the same floor line beside the figure, plain and unlabelled, drawn at their exact real sizes against the same ruler: "
+    +_objs.map(o=>o.name+" "+o.size).join(", ")+". ") : "";
   return "A full-body FRONT view of "+body+(tex?(", "+tex):"")+". "
-    + (ht?("The figure is "+ht+" tall. "):"")
+    // a size that already says which way it's measured ("15 mm long", "2 m tall") keeps its own word
+    + (ht?("The figure is "+ht+(/\b(tall|long|high|across|wide|wingspan|in length|in height)\b/i.test(ht)?"":" tall")+". "):"")
     + "They stand in a relaxed, neutral pose, head to toe fully in frame, against a solid light-grey studio background, "
     + "directly beside a VERTICAL measurement bar positioned on the LEFT edge. "
     + unitRule+"The bar strictly displays height markings for "+ruler+" in clear black text. "
+    + _known
     + "Soft, even studio lighting, sharp focus. No text anywhere except the ruler's numeric markings.";
 }
 window.buildScaleSheetPrompt = buildScaleSheetPrompt;

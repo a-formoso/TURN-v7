@@ -1251,6 +1251,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             // its repair buttons go through the shot rules (order, seeds, prop sheets, approval) — 2026-10-09
             window.QaCheckButton && _el(window.QaCheckButton,{ gen:genGuarded, name:beatLabel, noun:"shot frame", className:"shot-lock-btn",
               specFields:()=>({ action:(sh.action||""), composition:(sh.composition||"") }),
+              // who is how big in this frame (scale plan step 4, 2026-10-28) — nothing for same-size human casts
+              sizes:()=> (typeof qaTrueSizes==="function") ? qaTrueSizes(subjects) : [],
               onApplySpec:(patch)=>onUpdate(sh.id, (patch && patch.action!=null && spOpening) ? { ...patch, actionByHand:true } : patch) })))),
 
       // The beat card supplies its full screenplay and presence evidence here.

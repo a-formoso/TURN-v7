@@ -4237,7 +4237,7 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
 /* ---- QA button — lives in the card controls and in the shot head row.
    Self-contained: busy state, the vision
    read, and the report modal. Hidden until the card has a generated image. */
-function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script }){
+function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes }){
   const [busy, setBusy] = React.useState(false);
   const [report, setReport] = React.useState(null);
   // Apply-to-spec REGENERATES immediately (user ruling 2026-07-18: the current sheet
@@ -4290,7 +4290,9 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
     let rep = null;
     try{
       const sf = scriptFacts();
-      rep = await window.aiImageQA({ kind:noun||"sheet", name, url:gen.genUrl, prompt:contract,
+      // the true sizes it is measured against (scale plan step 4, 2026-10-28): a list, or made from the contract
+      let sz = []; try{ sz = typeof sizes==="function" ? (sizes(contract)||[]) : (Array.isArray(sizes) ? sizes : []); }catch(e){ sz = []; }
+      rep = await window.aiImageQA({ kind:noun||"sheet", name, url:gen.genUrl, prompt:contract, ...(sz.length ? { sizes:sz } : {}),
         ...(sf.facts.length ? { facts:sf.facts, spec:sf.spec, variant:(script&&script.variantLabel)||"", name:(script&&script.c&&script.c.name)||name } : {}) });
     }catch(e){
       const msg = (window.turnSafeError||((x)=>x))((e&&e.message)||"The QA read failed.");
@@ -6515,12 +6517,18 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       React.createElement(CardFold,{label:"Scale sheet",defaultOpen:false},
         React.createElement("div",{className:"char-scalesheet-hint"},
           React.createElement(Icon.sparkles,{s:12}),
-          "A full-body height chart on the "+((typeof scaleInfoOf==="function")?scaleInfoOf(c).label:"Human")+" ruler \u2014 rendered from the master sheet, for you to check heights. Shots use the heights and scale class written on the card (Identity \u25b8 Scale), not this image."),
+          "A full-body height chart on the "+((typeof scaleInfoOf==="function")?scaleInfoOf(c).label:"Human")+" ruler beside familiar objects at their real sizes (a coin, a door, a house\u2026) \u2014 rendered from the master sheet, for you to check the size at a glance. Shots use the size written on the card (Identity \u25b8 Size), not this image."),
         React.createElement(SheetFrame,{ gen:scaleGenWrapped, slotId:"charscale-"+c.id, name:(c.name||"")+" \u00b7 scale", avatarColor:c.color,
           initials:"H", drafted:true, drafting:false, onDraft:()=>{}, entity:c, onView,
           slotPlaceholder:"Generate the height chart", noun:"scale sheet", dropToImport:true }),
         scaleGenWrapped.genUrl && React.createElement("div",{className:"card-qa-row"},
-          React.createElement(QaCheckButton,{ gen:scaleGenWrapped, name:(c.name||"")+" \u00b7 scale", noun:"scale sheet" }))),
+          React.createElement(QaCheckButton,{ gen:scaleGenWrapped, name:(c.name||"")+" \u00b7 scale", noun:"scale sheet",
+            // the character's true size and the familiar objects the sheet was drawn with (scale plan step 4, 2026-10-28)
+            sizes:(contract)=>{
+              const mm = (typeof heightMMOf==="function") ? heightMMOf(c) : 0;
+              if(!(mm>0)) return [];
+              const objs = (typeof scaleKnownObjects==="function" ? scaleKnownObjects(mm) : []).filter(o=>String(contract||"").indexOf(o.name+" "+o.size)>=0);
+              return [{ name:c.name||"The character", mm, size:String(c.height||"").trim() }].concat(objs); } }))),
 
       // the sheet's prompt: a section of every card, folded (owner 2026-10-28 — it used to hide behind the card's ⋯ menu
       // or the Film menu's "Always show prompts"); read-only (the "Leave out" field is under Look dev)
