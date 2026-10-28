@@ -3497,6 +3497,10 @@ image-slot[id^="charref-"], image-slot[id^="propref-"], image-slot[id^="locref-"
 image-slot[id^="charref-"]:hover, image-slot[id^="propref-"]:hover, image-slot[id^="locref-"]:hover, image-slot[id^="locvar-"]:hover, image-slot[id^="shot-"]:hover, image-slot[id^="lookref-"]:hover{border-color:var(--pos-line)}
 image-slot[id^="charref-"][data-filled], image-slot[id^="propref-"][data-filled], image-slot[id^="locref-"][data-filled], image-slot[id^="locvar-"][data-filled], image-slot[id^="shot-"][data-filled], image-slot[id^="lookref-"][data-filled]{border:1px solid var(--line)}
 image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame), image-slot[id^="locref-"]::part(frame), image-slot[id^="locvar-"]::part(frame), image-slot[id^="shot-"]::part(frame), image-slot[id^="lookref-"]::part(frame){background:transparent}
+/* ONE dashed border (2026-10-28), like the drop zones on the Characters / Props / Locations cards: the slot's own inner
+   ring is hidden, so the border above is the only one; a drag over it lights it the way the drop zone does */
+image-slot[id^="charref-"]::part(ring), image-slot[id^="propref-"]::part(ring), image-slot[id^="locref-"]::part(ring), image-slot[id^="locvar-"]::part(ring), image-slot[id^="shot-"]::part(ring), image-slot[id^="lookref-"]::part(ring){display:none}
+image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], image-slot[id^="locref-"][data-over], image-slot[id^="locvar-"][data-over], image-slot[id^="shot-"][data-over], image-slot[id^="lookref-"][data-over]{border-color:var(--pos)}
 .sheet-frame-cap{display:flex;align-items:center;gap:7px;margin-top:10px;font-family:var(--f-mono);font-size:9.5px;
   letter-spacing:.04em;text-transform:uppercase;color:var(--txt-3)}
 /* lock caption colours — parent hover states must not override */
