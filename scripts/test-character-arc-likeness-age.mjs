@@ -394,7 +394,8 @@ await test("E2 the cast step asks for each member's age range and keeps only an 
   vm.runInContext(between(ai, "async function aiBuildStoryWorld(", "\nwindow.aiBuildStoryWorld")+";this.f=aiBuildStoryWorld;", box);
   const w = await box.f("A keeper", { title:"LIGHT", scenes:[{ no:1, title:"Dusk", driver:"maren" }] }, "film", null);
   assert.match(prompt, /AGE — give every cast member an AGE RANGE consistent with their IDENTITY and their place in the story: a short band such as "60s", "early 30s", "late teens" or "about 12"\. The screenplay introduces each person at this age\./);
-  assert.match(prompt, /"pronouns":"he\/him","age":"early 30s","voice"/);
+  // (2026-10-28) the true size rides after the age
+  assert.match(prompt, /"pronouns":"he\/him","age":"early 30s","size":"175 cm tall","voice"/);
   assert.deepEqual(w.cast.map(c=>c.ageRange||""), ["60s","early 40s","about 12","",""]);
   await box.f("A portrait", { title:"DOC", scenes:[] }, "documentary", null);
   assert.match(prompt, /"about 12" \(a real subject's age as the record gives it\)\./);

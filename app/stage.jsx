@@ -1918,10 +1918,12 @@ function buildClipData(scene, g, ctx, maxSec){
     .filter(v=>v.name&&(v.language||v.script));
   /* TRUE SIZES (2026-10-26, owner): the height the Art Room gives each of the clip's people and the size it gives each
      prop, so the video keeps them at real scale from shot to shot (only values someone wrote; nothing estimated) */
+  // (2026-10-28) each with its size in millimetres when it has a unit, so the prompt can say how they compare
+  const _mm = (t)=> typeof window.trueSizeMM==="function" ? window.trueSizeMM(t) : 0;
   const sizes = cast.map(c=>{ const h=String((ctx.charById[c.id]||{}).height||"").replace(/\s+/g," ").trim().slice(0,60);
-      return h ? { name:c.name, text:/\btall\b/i.test(h) ? h : h+" tall" } : null; })
+      return h ? { name:c.name, text:/\b(tall|long|high|across|wide)\b/i.test(h) ? h : h+" tall", mm:_mm(h) } : null; })
     .concat((clipProps||[]).filter(Boolean).map(p=>{ const r=(ctx.propById||{})[p.id]||{}, z=String(r.size||"").replace(/\s+/g," ").trim().slice(0,80);
-      return z ? { name:r.name||p.name, text:z } : null; })).filter(Boolean);
+      return z ? { name:r.name||p.name, text:z, mm:_mm(z) } : null; })).filter(Boolean);
   const compass = stageSetCompass(loc, ctx.locations);
   return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, capture, voices, languages, sourceCharacters, props:clipProps, loc, locSheet, sizes, compass, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
     dur:_clipDur(g, maxSec), lineShots };

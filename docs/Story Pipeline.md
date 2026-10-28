@@ -219,6 +219,13 @@ palette, sheet prompts) — that is drafted in the Art Room once the Lookbook ha
 > feature enrichment), and **Voice Design** builds its casting description from these fields before
 > any heuristic.
 
+> **Cast true size** *(approved 2026-10-28 by owner — "go ahead with step 1" of the scale plan)*: every cast
+> member is generated with their **true size, with its unit** — how tall, or how long for a creature that isn't
+> upright ("175 cm tall", "15 mm long", "40 m tall", "200 µm across") — consistent with what they are and with the
+> rest of the cast. It is saved on the card as the character's **Size** (set by the story; the writer can change it),
+> and the character's scale (human, critter, giant, microscopic) is worked out from it. A size without a unit is left
+> unset, never guessed. The Art Room's look drafting keeps a size the card already has.
+
 > **Cast pronouns** *(approved 2026-10-11 by owner)*: every cast member is generated with their
 > **pronouns** — he/him or she/her, consistent with their identity; they/them only for a character
 > the story itself makes non-binary (a documentary's real subject: the ones that person uses) —

@@ -1564,9 +1564,30 @@ const SCALE_CLASSES = {
        rule:"EXTREME GIGANTISM RULE — this subject is microscopic, so render the surrounding world as a COLOSSAL molecular / cellular realm seen from within: dust motes become boulders, a single water droplet a vast trembling wall held by surface tension, fibres and pollen grains become towering structures, and the very medium (air, water) becomes a tangible, visible environment.",
        keywords:["molecular","cellular","boulder-sized dust mote","surface-tension wall","fibrous canyon","particulate haze"] },
 };
-/* the scale class of an entity (character/prop): the explicit field wins; otherwise
-   derive a best-effort class from a numeric height, else default to Human. */
+/* TRUE SIZE (owner-approved 2026-10-28, "go ahead with step 1" — characters and creatures of every size, always at
+   their real scale): a size written WITH its unit ("175 cm tall", "15 mm long", "40 m tall", "5 ft 10 in", "200 µm")
+   is the truth, in millimetres; 0 when there is no number or no unit (a bare "175" says nothing on its own). */
+function trueSizeMM(text){
+  const t = String(text==null ? "" : text).replace(/,/g,".").replace(/\s+/g," ").trim().toLowerCase();
+  if(!t) return 0;
+  // feet and inches: 5 ft 10 in · 5'10" · 6 ft · 10 inches
+  const fi = /(\d+(?:\.\d+)?)\s*(?:ft|foot|feet|')\s*(?:(\d+(?:\.\d+)?)\s*(?:in|inch|inches|"|″)?)?/.exec(t);
+  if(fi) return Math.round((Number(fi[1])*304.8 + (fi[2] ? Number(fi[2])*25.4 : 0))*1000)/1000;
+  const m = /(\d+(?:\.\d+)?)\s*(µm|μm|um|microns?|micromet(?:re|er)s?|nm|nanomet(?:re|er)s?|mm|millimet(?:re|er)s?|cm|centimet(?:re|er)s?|km|kilomet(?:re|er)s?|m|met(?:re|er)s?|in|inch|inches)\b/.exec(t);
+  if(!m) return 0;
+  const n = Number(m[1]), u = m[2];
+  if(!(n>0)) return 0;
+  const k = /^(µm|μm|um|micro)/.test(u) ? 0.001 : /^(nm|nano)/.test(u) ? 0.000001 : /^(mm|milli)/.test(u) ? 1
+    : /^(cm|centi)/.test(u) ? 10 : /^(km|kilo)/.test(u) ? 1000000 : /^(in|inch)/.test(u) ? 25.4 : 1000;
+  return Math.round(n*k*1000000)/1000000;
+}
+/* the scale class a true size falls in: microscopic under 1 mm, critter under 60 cm, giant over 3 m, else human */
+function scaleClassFromMM(mm){ if(!(mm>0)) return ""; if(mm<1) return "D"; if(mm<600) return "B"; if(mm>3000) return "C"; return "A"; }
+/* the scale class of an entity (character/prop): its TRUE SIZE wins (2026-10-28) — the class is worked out from it,
+   not picked; without a size the explicit field, else a best-effort class from a bare number, else Human. */
 function scaleClassOf(entity){
+  const sized = scaleClassFromMM(trueSizeMM(entity && (entity.height || entity.heightCm || entity.size)));
+  if(sized) return sized;
   const raw = String((entity && entity.scaleClass) || "").trim();
   const u = raw.toUpperCase();
   // an explicit "Class X" is the STRONGEST signal — it wins even over a co-occurring descriptor
@@ -1767,6 +1788,8 @@ function shotScaleClause(subjects, props){
 // text; with no unit it's guessed from the scale class (giant→m, critter→mm, human→cm).
 function heightMMOf(entity){
   const hs = String((entity && (entity.height||entity.heightCm)) || "").trim();
+  // a size with its unit is the truth (2026-10-28); a bare number is read by the class below, as before
+  const sized = trueSizeMM(hs); if(sized>0) return sized;
   const num = parseFloat(hs.replace(/[^0-9.]/g,"")); if(!(isFinite(num) && num>0)) return 0;
   const cls = scaleClassOf(entity);
   if(/µm|μm|micron|micromet|\bum\b/i.test(hs)) return num*0.001;
@@ -1800,6 +1823,7 @@ function scaleRulerFor(entity){
   return ((window.SCALE_CLASSES&&window.SCALE_CLASSES[cls])||SCALE_CLASSES.A).ruler;
 }
 window.heightMMOf = heightMMOf; window.scaleRulerFor = scaleRulerFor;
+window.trueSizeMM = trueSizeMM; window.scaleClassFromMM = scaleClassFromMM; window.relativeHeightSentence = relativeHeightSentence;
 window.scaleMeasurementOf = scaleMeasurementOf; window.canonicalScaleLabel = canonicalScaleLabel;
 window.propPhysicalScaleLabel = propPhysicalScaleLabel; window.shotObjectScaleClause = shotObjectScaleClause;
 // Environment-scale directive for a LOCATION plate, keyed to its occupants' scale class.

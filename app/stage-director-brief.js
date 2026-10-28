@@ -473,9 +473,20 @@
       "Fixed geography: the set never turns, flips or mirrors between shots; only the camera moves."
         +(text(d.compass.frame)?" "+(/^north\b/i.test(text(d.compass.frame))?"":"North: ")+text(d.compass.frame).replace(/\.$/,"")+".":""),
       ...d.compass.lines.map(l=>text(l)+".")]):"";
+    /* HOW THEY COMPARE (2026-10-28, true sizes — a firefly beside a frog, a giant beside a house): with their sizes in
+       millimetres, the prompt says how many times bigger each is than the next smaller one, and the largest against
+       the smallest — a video model keeps a ratio better than two measurements */
+    const sized=(Array.isArray(d.sizes)?d.sizes:[]).filter(z=>z&&Number(z.mm)>0).slice().sort((a,b)=>b.mm-a.mm);
+    const times=(r)=>r>=10?String(Math.round(r)):String(Math.round(r*10)/10);
+    const compareLines=[];
+    for(let i=0;i<sized.length-1&&compareLines.length<4;i++){ const a=sized[i], b=sized[i+1], r=a.mm/b.mm;
+      if(r>=1.5) compareLines.push(text(a.name)+" is about "+times(r)+"\u00d7 the size of "+text(b.name)+"."); }
+    if(sized.length>=3){ const a=sized[0], b=sized[sized.length-1], r=a.mm/b.mm;
+      if(r>=3) compareLines.push(text(a.name)+" is about "+times(r)+"\u00d7 the size of "+text(b.name)+": keep that difference in every framing."); }
     const sizes=Array.isArray(d.sizes)&&d.sizes.length?section("TRUE SIZES",[
       "Keep these real sizes, and the differences between them, in every shot; never scale a person or object to fit the frame.",
-      ...d.sizes.slice(0,16).map(z=>text(z.name)+": "+text(z.text)+".")]):"";
+      ...d.sizes.slice(0,16).map(z=>text(z.name)+": "+text(z.text)+"."),
+      ...compareLines]):"";
     return [contract,section("ACTIVE REFERENCES",refsLines),sizes,openingState,compass,action,seedanceSceneTypeSection(d,list,opts),notes.acting,performance,lighting,seedanceHeroProps(d),captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
   }
   root.seedanceDirectorBrief=seedanceDirectorBrief;

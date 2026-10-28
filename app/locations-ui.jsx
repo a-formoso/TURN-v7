@@ -1598,6 +1598,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           placeholder:"Furniture and fixtures that remain part of the place\u2026",onUpdate}),
         React.createElement(LocationIdentityField,{l,field:"topology",label:"How the rooms connect",value:l.topology||"",
           placeholder:"Living Room \u2194 Kitchen: cased archway; Kitchen \u2192 Rear Yard: window over sink\u2026",onUpdate}),
+        // TRUE SIZES (2026-10-28): what everything else in the place is measured against
+        React.createElement(LocationIdentityField,{l,field:"keySizes",label:"Sizes of key features",value:l.keySizes||"",
+          placeholder:"With units: oak trunks about 1 m across and 20 m tall; the doorway 2 m high; raindrops about 4 mm\u2026",onUpdate}),
         React.createElement("div",{className:"loc-anchor-field"},
           React.createElement("div",{className:"loc-anchor-head"},
             React.createElement("span",{className:"loc-field-label"},

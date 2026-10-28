@@ -1146,6 +1146,9 @@ async function agentAdaptation(ctx){
     // the world build's AGE RANGE (2026-10-12, owner — Character fidelity step 7): set BY THE STORY, so the scene writer
     // introduces each person at a deliberate age ("AGES ARE CANON … from THIS list"); the writer can change it
     ...(c.ageRange ? { ageRange:c.ageRange, ageProvenance:"story", ageSource:"story" } : {}),
+    // the world build's TRUE SIZE (2026-10-28, owner — scale plan step 1): set BY THE STORY, with its unit; the scale
+    // class is worked out from it, and every image and clip keeps the cast at these sizes; the writer can change it
+    ...(c.height ? { height:c.height, heightProvenance:"story" } : {}),
   }));
   // dedup: the model sometimes splits one person into multiple entries (e.g. an
   // "expanded" later-act version). Merge cast members with the same name into one.
@@ -1162,6 +1165,7 @@ async function agentAdaptation(ctx){
         else if((c.role||"").length > (prev.role||"").length && !lead(prev.role)) prev.role = c.role;
         if(!prev.pronouns && c.pronouns){ prev.pronouns = c.pronouns; prev.pronounProvenance = "story"; prev.pronounSource = "story"; }
         if(!prev.ageRange && c.ageRange){ prev.ageRange = c.ageRange; prev.ageProvenance = "story"; prev.ageSource = "story"; }
+        if(!prev.height && c.height){ prev.height = c.height; prev.heightProvenance = "story"; }
         // a split entry may carry the voice details the kept one lacks
         if(c.voice){ const pv = prev.voice || {};
           const merged = {...c.voice, ...Object.fromEntries(Object.entries(pv).filter(([,v])=>String(v||"").trim()))};

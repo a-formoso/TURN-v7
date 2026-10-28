@@ -36,7 +36,7 @@ const slice=(src,a,b)=>{ const i=src.indexOf(a), j=src.indexOf(b,i+a.length); if
   ok("A the drafter is told the lengths and to quote lettering",
     ai.includes("LENGTHS: write each field as complete sentences within its limit") && ai.includes("never stop mid-sentence")
     && ai.includes("give its exact short text in quotes, e.g. a stencilled deck number \\\"3\\\""));
-  ok("A the limits: architecture 700, the rest 500 / 320", ai.includes("const LOC_FIELD_LIMITS = { architecture:700, materials:500, lighting:500, permanentDressing:500, topology:500, continuityAnchors:500, significance:320, style:160 };")
+  ok("A the limits: architecture 700, the rest 500 / 320", ai.includes("const LOC_FIELD_LIMITS = { architecture:700, materials:500, lighting:500, permanentDressing:500, topology:500, continuityAnchors:500, significance:320, style:160, keySizes:400 };")
     && ai.includes("architecture: clean(e.architecture||e.layout, LOC_FIELD_LIMITS.architecture),"));
 }
 // B

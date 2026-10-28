@@ -5166,6 +5166,8 @@ function buildLocationRefPrompt(l, project, opts){
       floor_ground_plane: clean(st.floor) || undefined,
       permanent_lighting_interfaces: lighting || undefined,
       permanent_dressing: clean(l.permanentDressing) || undefined,
+      // TRUE SIZES (2026-10-28): the real sizes of the place's defining features (a room's own, else its place's)
+      true_sizes: locationTrueSizesFor(l) ? { sizes:locationTrueSizesFor(l), rule:"render every feature at exactly these real sizes, and everyone in the place at their own true size against them" } : undefined,
       spatial_topology: clean(l.topology) || undefined,
       continuity_anchors: clean(l.continuityAnchors) ? {
         status:l.anchorsLocked===false?"editable":"LOCKED / binding",
@@ -5319,6 +5321,14 @@ function locationStoryTraces(l){
   return { items, words };
 }
 window.locationStoryTraces = locationStoryTraces;
+/* the sizes of a place's key features (2026-10-28, true sizes): the card's own, else the place it belongs to */
+function locationTrueSizesFor(l){
+  const own = String((l && l.keySizes) || "").replace(/\s+/g," ").trim();
+  if(own) return own.slice(0,400);
+  const parent = (typeof locationParentOf==="function") ? locationParentOf(l) : null;
+  return String((parent && parent.keySizes) || "").replace(/\s+/g," ").trim().slice(0,400);
+}
+window.locationTrueSizesFor = locationTrueSizesFor;
 function combinedLocationPrompt(l, project, opts){
   const extra = (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : "";
   // ONE AVOID list (2026-10-14): the default negative prompt already ends with the character negative — said once;
@@ -5391,6 +5401,8 @@ function buildLocationCoveragePrompt(l, sheet, project, opts){
       materials: clean(l.materials) || undefined,
       permanent_lighting_interfaces: clean(l.lighting) || undefined,
       permanent_dressing: clean(l.permanentDressing) || undefined,
+      // TRUE SIZES (2026-10-28): the real sizes of the place's defining features (a room's own, else its place's)
+      true_sizes: locationTrueSizesFor(l) ? { sizes:locationTrueSizesFor(l), rule:"render every feature at exactly these real sizes, and everyone in the place at their own true size against them" } : undefined,
       spatial_topology: clean(l.topology) || undefined,
       continuity_anchors: clean(l.continuityAnchors)?{status:l.anchorsLocked===false?"editable":"LOCKED / binding",rules:clean(l.continuityAnchors)}:undefined,
       dramatic_use: clean(l.significance) || undefined,
@@ -5460,6 +5472,8 @@ function buildSluglineUnitPrompt(l, u, project, opts){
       materials: clean(l.materials) || undefined,
       permanent_lighting_interfaces: clean(l.lighting) || undefined,
       permanent_dressing: clean(l.permanentDressing) || undefined,
+      // TRUE SIZES (2026-10-28): the real sizes of the place's defining features (a room's own, else its place's)
+      true_sizes: locationTrueSizesFor(l) ? { sizes:locationTrueSizesFor(l), rule:"render every feature at exactly these real sizes, and everyone in the place at their own true size against them" } : undefined,
       spatial_topology: clean(l.topology) || undefined,
       continuity_anchors: clean(l.continuityAnchors)?{status:l.anchorsLocked===false?"editable":"LOCKED / binding",rules:clean(l.continuityAnchors)}:undefined,
       dramatic_use: clean(l.significance) || undefined,

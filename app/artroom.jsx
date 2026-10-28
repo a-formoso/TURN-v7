@@ -41,9 +41,13 @@ window.paletteFromGradient = paletteFromGradient;
 /* deterministic visual defaults — so a sheet is never empty even before any
    model call. Generation applies these instantly; the sheet falls back to them. */
 function charVisualDefaults(c){
+  /* (2026-10-28, true sizes) the scale is worked out from the size; with no size, a non-human scale gets no invented
+     human height — a firefly's sheet used to be told "approx. 175 cm" */
+  const cls = (typeof scaleClassOf==="function") ? scaleClassOf(c) : "A";
+  const LABEL = { A:"Class A \u00b7 Human", B:"Class B \u00b7 Critter", C:"Class C \u00b7 Giant", D:"Class D \u00b7 Microscopic" };
   return {
-    scaleClass: c.scaleClass || "Class A \u00b7 Human",
-    height: c.height || "approx. 175 cm",
+    scaleClass: (typeof trueSizeMM==="function" && trueSizeMM(c.height)>0) ? LABEL[cls] : (c.scaleClass || "Class A \u00b7 Human"),
+    height: c.height || (cls==="A" ? "approx. 175 cm" : ""),
     negativePrompt: c.negativePrompt || "plastic skin, waxy texture, 3d render, cgi look, low resolution, blurry, deformed hands, extra fingers, warped face, text, watermark",
     palette: (c.palette && c.palette.length) ? c.palette : paletteFromGradient(c.color),
   };
@@ -1170,7 +1174,7 @@ function buildCharRefPrompt(c, project, props, o){
       distinguishing_features: feats ? clean(feats) : undefined,
       face_and_hair: _lk ? "from the attached likeness photos (see LIKENESS below) — not described in text" : undefined,
       why_this_look: clean(c.bodyRationale)||undefined,
-      height: v.height, scale: v.scaleClass,
+      height: v.height || undefined, scale: v.scaleClass,
       skin_surface_texture: clean(texture),
       tone: tone||undefined,
     },
@@ -1252,7 +1256,7 @@ function buildRefFromPhotoPrompt(c, project){
   if(c.role) s += "Role: "+c.role+". ";
   s += mask ? ("Wearing "+mask.replace(/\.$/,"")+acc+". ") : "";
   if(tone) s += tone+" tone. ";
-  s += "Character is "+v.height+" tall ("+v.scaleClass+"). ";
+  s += v.height ? "Character is "+(/\b(tall|long|high|across|wide)\b/i.test(v.height) ? v.height : v.height+" tall")+" ("+v.scaleClass+"). " : "Scale: "+v.scaleClass+". ";
   s += "RENDER STYLE: "+style.replace(/\.$/,"")+". ";
   s += "LAYOUT: a clean 3-panel casting reference sheet in 16:9 landscape with three equal-width tall vertical panels divided by thin clean vertical lines. Panel 1: close-up hero FACE PORTRAIT, front-facing, neutral controlled expression, head and shoulders, face fills most of the panel. Panel 2: full-body FRONT view at exactly the same figure height and scale as Panel 3 (same headroom, feet aligned), but with NO head and NO neck rendered \u2014 an invisible person wearing the clothes: inside the collar opening only the inside back of the collar or shirt, clean empty background above it, and no chin, jaw, mouth, neck or throat skin (the face is absent, never cropped or half-shown); arms relaxed. Panel 3: full-body BACK view, head-to-toe, facing away (no face visible). EXACTLY ONE face on the sheet \u2014 the panel-1 portrait; the missing head must not enlarge the front figure. No text, captions or info boxes anywhere on the image. ";
   s += "Do NOT add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, annotations or watermarks. "+CHAR_SHEET_BACKGROUND.charAt(0).toUpperCase()+CHAR_SHEET_BACKGROUND.slice(1)+", soft even studio lighting, the SAME identical face/build/wardrobe in every panel, sharp focus.";
@@ -6246,7 +6250,8 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           return React.createElement("div",{className:"char-phys"},
             Row("Apparent age",F.age,v2=>setPhys("age",v2),true,"age"),
             Row("Ethnicity",F.ethnicity,v2=>setPhys("ethnicity",v2),true,"ethnicity"),
-            Row("Height",c.height||v.height,v2=>onUpdate(c.id,{height:v2}),false,"height"),
+            // TRUE SIZE (2026-10-28): how tall — or long, for a creature — with its unit; the scale below follows it
+            Row("Size",c.height||v.height,v2=>onUpdate(c.id,{height:v2}),false,"height"),
             Row("Build",F.build,v2=>setPhys("build",v2),true,"build"),
             Row("Hair",F.hair,v2=>setPhys("hair",v2),true,"hair"),
             Row("Eyes",F.eyes,v2=>setPhys("eyes",v2),true,"eyes"),
@@ -6259,7 +6264,13 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             // (gigantism / miniaturization / microscopic). A/B/C/D; resolves any legacy free-text value.
             React.createElement("div",{className:"phys-row",key:"Scale"},
               React.createElement("span",{className:"phys-lab"},"Scale"),
-              React.createElement("select",{className:"prop-select char-style-select",
+              // worked out from the size when it has a unit (2026-10-28); picked by hand only without one
+              (typeof trueSizeMM==="function" && trueSizeMM(c.height)>0)
+                ? React.createElement("span",{className:"char-scale-derived","data-testid":"char-scale-derived",
+                    title:"Worked out from the character's size. Change the size to change it."},
+                    ({A:"Human scale",B:"Critter scale",C:"Giant scale",D:"Microscopic scale"})[scaleClassOf(c)]
+                      +" \u00b7 from its size ("+(typeof scaleMeasurementOf==="function" ? scaleMeasurementOf(c) : c.height)+")")
+                : React.createElement("select",{className:"prop-select char-style-select",
                 value:(typeof scaleClassOf==="function"?scaleClassOf(c):"A"),
                 title:"Scale class — sets the character's height range and how the world is rendered from their POV in shots",
                 onChange:e=>onUpdate(c.id,{scaleClass:e.target.value})},
