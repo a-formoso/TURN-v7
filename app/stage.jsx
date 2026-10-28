@@ -1925,7 +1925,12 @@ function buildClipData(scene, g, ctx, maxSec){
     .concat((clipProps||[]).filter(Boolean).map(p=>{ const r=(ctx.propById||{})[p.id]||{}, z=String(r.size||"").replace(/\s+/g," ").trim().slice(0,80);
       return z ? { name:r.name||p.name, text:z, mm:_mm(z) } : null; })).filter(Boolean);
   const compass = stageSetCompass(loc, ctx.locations);
-  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, capture, voices, languages, sourceCharacters, props:clipProps, loc, locSheet, sizes, compass, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
+  // POINT OF VIEW, LENS AND PHYSICS (2026-10-28, scale plan step 2): the clip's first shot's chosen point of view, else
+  // the smallest of its cast when they aren't all human-sized — the same text its shot frames get
+  const _castFull = cast.map(c=>(ctx.charById||{})[c.id]).filter(Boolean);
+  const scalePov = typeof window.shotScalePovClause==="function"
+    ? String(window.shotScalePovClause(shots[0]||{}, _castFull, Object.values(ctx.charById||{}))||"").replace(/^POINT OF VIEW AND PHYSICAL SCALE \u2014 /,"") : "";
+  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, capture, voices, languages, sourceCharacters, props:clipProps, loc, locSheet, sizes, scalePov, compass, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
     dur:_clipDur(g, maxSec), lineShots };
 }
 

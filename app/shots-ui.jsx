@@ -97,6 +97,21 @@ function CameraProfilePicker({ value, options, onChange, recommendedLabel }){
     menu);
 }
 
+/* POINT OF VIEW (2026-10-28, scale plan step 2): whose eyes this shot sees through — the camera's height, optics and
+   how big everything looks follow that character's true size. Shown only in a film whose cast isn't all human-sized;
+   Automatic = the smallest character in frame when the frame isn't all human-sized. */
+function ShotPovPicker({ sh, characters, onUpdate }){
+  const cast = (characters||[]).filter(c=>c && c.id && c.name);
+  const mixed = typeof scaleClassOf==="function" && cast.some(c=>scaleClassOf(c)!=="A");
+  if(!mixed) return null;
+  const sizeOf = (c)=> (typeof heightMMOf==="function" && heightMMOf(c)>0 && typeof scaleMeasurementOf==="function") ? " ("+scaleMeasurementOf(c)+")" : "";
+  return _el("label",{className:"shot-gsel shot-pov-pick","data-testid":"shot-pov-pick",
+      title:"Whose eyes this shot sees through: the camera's height, lens and how big everything looks follow that character's size"},
+    _el("span",{className:"shot-gsel-lab"},"Point of view"),
+    _el("select",{className:"prop-select",value:sh.povCharacterId||"",onChange:e=>onUpdate(sh.id,{ povCharacterId:e.target.value||"" })},
+      _el("option",{value:""},"Automatic \u2014 the smallest in frame"),
+      cast.map(c=>_el("option",{key:c.id,value:c.id},c.name+sizeOf(c)))));
+}
 function AdvancedCameraSettings({ sh, onUpdate }){
   const c = { camera:"auto", lensType:"auto", focalLength:"auto", aperture:"auto", shutter:"auto", iso:"auto", ...(sh.cameraSettings||{}) };
   const patch = (key,val)=> onUpdate(sh.id,{ cameraSettings:{ ...c, [key]:val } });
@@ -1253,6 +1268,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         _el(GrammarSelect,{label:"Move",value:sh.move,options:SHOT_MOVES,onChange:v=>onUpdate(sh.id,{move:v})}),
         _el(GrammarSelect,{label:"Lens",value:sh.lens,options:SHOT_LENSES,onChange:v=>onUpdate(sh.id,{lens:v})})),
 
+      _el(ShotPovPicker,{sh,characters:characters||(((window.turnContinuity||{}).characters)||[]),onUpdate}),
       _el(AdvancedCameraSettings,{sh,onUpdate}),
       _el(CardFold,{label:"Blender preview · rough blockout",defaultOpen:false},
         window.BlenderPreviewPanel

@@ -11462,3 +11462,4 @@ video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:aut
 
 /* (2026-10-28) a character's scale, worked out from its true size */
 .char-scale-derived{font-size:12px;color:var(--txt-1);padding-top:3px}
+.shot-pov-pick{margin:6px 0 2px}

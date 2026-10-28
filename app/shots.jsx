@@ -1780,6 +1780,58 @@ function shotScaleClause(subjects, props){
   }
   return "SCALE / POV — "+heightLine+" "+info.rule+" Lean on words like "+info.keywords.join(", ")+".";
 }
+/* POINT OF VIEW, LENS AND PHYSICS (owner-approved 2026-10-28, scale plan step 2): a firefly's world needs a camera a
+   centimetre above the ground with a macro lens, raindrops that hit like boulders, a frog that towers; a giant's needs
+   a high camera, long lenses and slow, heavy movement. From TRUE SIZES (trueSizeMM): whose eyes the camera has (the
+   shot's chosen point of view, else the smallest character in frame when the frame isn't all human-sized), the camera
+   and optics at that size, and how things move at the sizes in frame — written as what the viewer sees. Inert for an
+   all-human frame. */
+function _scaleSizeText(mm){
+  if(!(mm>0)) return "";
+  if(mm<1) return (Math.round(mm*1000))+" µm";
+  if(mm<10) return (Math.round(mm*10)/10)+" mm";
+  if(mm<1000) return (mm<100 ? Math.round(mm)+" mm" : (Math.round(mm/10))+" cm");
+  return (Math.round(mm/100)/10)+" m";
+}
+function shotPovEntity(sh, subjects, cast){
+  const list = (subjects||[]).filter(Boolean);
+  const pick = sh && sh.povCharacterId;
+  if(pick){ const c = list.concat(cast||[]).find(x=>x && x.id===pick); if(c) return c; }
+  const sized = list.map(c=>({ c, mm:heightMMOf(c) })).filter(x=>x.mm>0);
+  if(!sized.length || sized.every(x=>scaleClassOf(x.c)==="A")) return null;
+  return sized.sort((a,b)=>a.mm-b.mm)[0].c;
+}
+function scaleCameraText(c){
+  const mm = heightMMOf(c), name = (c && c.name) || "the subject";
+  if(!(mm>0)) return "";
+  const eye = _scaleSizeText(mm*0.9);
+  if(mm<1) return "The camera is at "+name+"'s microscopic scale: optics like a microscope or an extreme macro lens, depth of field thinner than a hair, the world beyond "+name+" a soft blur of colour; light scatters and glows through every translucent surface.";
+  if(mm<60) return "The camera is at "+name+"'s eye level, about "+eye+" above the surface it stands on: a macro or probe lens, very shallow depth of field, grass blades, leaves and stems rising like walls and trees, backlight blooming through them; tiny particles drift past close to the lens.";
+  if(mm<600) return "The camera is low, at "+name+"'s eye level about "+eye+" above the ground: a wide macro feel, shallow depth of field, everyday objects looming large.";
+  if(mm>3000) return "The camera is at "+name+"'s eye level, about "+eye+" up: long lenses that compress distance, atmospheric haze on everything far away, people, cars and trees small below; never the tilt-shift miniature look.";
+  return "";
+}
+function scalePhysicsText(subjects){
+  const sized = (subjects||[]).filter(Boolean).map(c=>({ c, mm:heightMMOf(c) })).filter(x=>x.mm>0);
+  const names = (pred)=> sized.filter(pred).map(x=>x.c.name||"the subject").join(" and ");
+  const out = [];
+  const micro = names(x=>x.mm<1), tiny = names(x=>x.mm>=1 && x.mm<60), small = names(x=>x.mm>=60 && x.mm<600), giant = names(x=>x.mm>3000);
+  if(micro) out.push("At "+micro+"'s microscopic size water is thick and sticky: a droplet is a vast trembling sphere, movement is jerky and viscous, and nothing falls — it drifts.");
+  if(tiny) out.push("At "+tiny+"'s size surface tension rules: a raindrop is a heavy wobbling sphere that can knock "+tiny+" down, dew beads hold their shape, air feels thick so falls are slow and harmless and landings bounce; movement is quick and twitchy, wings a blur.");
+  if(small) out.push("At "+small+"'s size movement is quick and darting, footfalls light, and rain falls big and heavy.");
+  if(giant) out.push("At "+giant+"'s size movement is slow and heavy: every step takes time, the ground shakes, dust and debris spread outward from each impact, and water splashes in slow towering sheets — never quick or floaty.");
+  return out.join(" ");
+}
+function shotScalePovClause(sh, subjects, cast){
+  const pov = shotPovEntity(sh, subjects, cast);
+  const camera = pov ? scaleCameraText(pov) : "";
+  const physics = scalePhysicsText(subjects);
+  if(!camera && !physics) return "";
+  return "POINT OF VIEW AND PHYSICAL SCALE — "+(pov ? "seen from "+(pov.name||"the subject")+"'s size ("+_scaleSizeText(heightMMOf(pov))+"). " : "")
+    +[camera ? camera.replace(/\.$/,"")+", unless this shot's own camera settings say otherwise." : "", physics].filter(Boolean).join(" ");
+}
+window.shotPovEntity = shotPovEntity; window.scaleCameraText = scaleCameraText; window.scalePhysicsText = scalePhysicsText;
+window.shotScalePovClause = shotScalePovClause;
 /* HEIGHT-AWARE measurement ruler for a scale sheet. The figure must read against the bar, so
    the markings span ~0 to a bit above the character's ACTUAL height, in the right unit
    (mm/cm/m) — a 14 mm insect gets a 0–20 mm ruler, not the coarse 0–40 cm class default.
@@ -2221,6 +2273,9 @@ function buildShotPrompt(sh, ctx){
   if(_scale) stage.push(_scale);
   const _objectScale = (typeof shotObjectScaleClause==="function") ? shotObjectScaleClause(subjects, [...propsAll, ...((ctx.carriedForward)||[]), ...((ctx.carriedTextOnly)||[])], _promptLoc) : "";
   if(_objectScale) stage.push(_objectScale);
+  // POINT OF VIEW, LENS AND PHYSICS at the sizes in frame (2026-10-28, scale plan step 2)
+  const _povScale = (typeof shotScalePovClause==="function") ? shotScalePovClause(sh, subjects, _chars) : "";
+  if(_povScale) stage.push(_povScale);
   // SCENE LOOK-AHEAD — stage for what's COMING (user ruling 2026-07-18): this frame
   // (especially the chain HEAD that seeds every later frame) must accommodate what
   // later beats of the same continuous scene will need — fixtures a later beat uses

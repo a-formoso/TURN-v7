@@ -487,7 +487,10 @@
       "Keep these real sizes, and the differences between them, in every shot; never scale a person or object to fit the frame.",
       ...d.sizes.slice(0,16).map(z=>text(z.name)+": "+text(z.text)+"."),
       ...compareLines]):"";
-    return [contract,section("ACTIVE REFERENCES",refsLines),sizes,openingState,compass,action,seedanceSceneTypeSection(d,list,opts),notes.acting,performance,lighting,seedanceHeroProps(d),captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
+    // POINT OF VIEW AND SCALE (2026-10-28, scale plan step 2): whose eyes the camera has, its optics, and the physics at
+    // the sizes in the clip — only when the clip isn't all human-sized
+    const scalePov=text(d.scalePov)?section("POINT OF VIEW AND SCALE",[text(d.scalePov)]):"";
+    return [contract,section("ACTIVE REFERENCES",refsLines),sizes,scalePov,openingState,compass,action,seedanceSceneTypeSection(d,list,opts),notes.acting,performance,lighting,seedanceHeroProps(d),captureSection(d),audio,seedanceVoiceLock(d,nativeVoices),notes.tells,ending,notes.negative].filter(Boolean).join("\n\n");
   }
   root.seedanceDirectorBrief=seedanceDirectorBrief;
 })(typeof window!=="undefined"?window:globalThis);
