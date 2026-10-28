@@ -1259,6 +1259,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         :masterLayoutSig.current?{plateLayoutSig:masterLayoutSig.current}:{}),
       // the written spec it was made from ("Description changed" — an edit keeps the one it started from)
       locSpecSig: mode==="edit" ? (gen.genMeta && gen.genMeta.locSpecSig) : (typeof locationSpecSig==="function" ? locationSpecSig(l) : undefined),
+      // the eye level it was drawn at (scale plan step 3, 2026-10-28) — an edit keeps the one it started from
+      ...(mode==="edit" ? (gen.genMeta && gen.genMeta.drawnAt ? {drawnAt:gen.genMeta.drawnAt} : {})
+        : (typeof locationDrawnAtMeta==="function" ? locationDrawnAtMeta(locationDrawnAtEntity(l)) : {})),
       // a sub-space's panels against its parent's plate, in the browser — free, never in the way of the save (2026-10-14)
       ...(l.parentLocation&&typeof locationCopyCheckMeta==="function"?await locationCopyCheckMeta(l,url,iso):{})
     }),
@@ -1527,7 +1530,17 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
               displaySideLabel),
             // resolved WORLD SCALE badge — makes the Auto derivation legible per card
             // (hidden at plain human scale; tooltip says what set it)
-            (typeof locationScaleClass==="function") && (()=>{
+            // DRAWN AT (scale plan step 3, 2026-10-28): whose eye level the plate is drawn from — what the plate
+            // recorded once there is one, else what the next one will use; nothing at plain human eye level
+            (typeof locationDrawnAtEntity==="function") && (()=>{
+              const rec = gen.genUrl && gen.genMeta && gen.genMeta.drawnAt;
+              const d = rec || locationDrawnAtMeta(locationDrawnAtEntity(l)).drawnAt;
+              if(!d || d.human || !d.mm) return null;
+              return React.createElement("span",{className:"loc-scale-badge","data-testid":"loc-drawn-at-badge",
+                title:(rec?"This plate was drawn at ":"The next plate is drawn at ")+locationDrawnAtLabel(d)
+                  +" — the eye level of whoever is in this place's scenes (Drawn at, below, changes it)."},
+                "\ud83d\udc41 "+locationDrawnAtLabel(d)); })()
+              || (typeof locationScaleClass==="function" && locationDrawnAtPick(l)!=="human") && (()=>{
               const cls = locationScaleClass(l, project||{});
               if(cls==="A") return null;
               const M = ({B:["\ud83d\udc01","Critter world"],C:["\ud83d\uddff","Giant world"],D:["\ud83d\udd2c","Microscopic world"]})[cls]||["",("Class "+cls)];
@@ -1601,6 +1614,21 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         // TRUE SIZES (2026-10-28): what everything else in the place is measured against
         React.createElement(LocationIdentityField,{l,field:"keySizes",label:"Sizes of key features",value:l.keySizes||"",
           placeholder:"With units: oak trunks about 1 m across and 20 m tall; the doorway 2 m high; raindrops about 4 mm\u2026",onUpdate}),
+        // DRAWN AT (scale plan step 3, 2026-10-28): whose eye level this place is drawn from — only in a film whose
+        // cast isn't all human-sized. A room follows its place unless it picks its own.
+        (()=>{
+          const chars = ((window.turnContinuity||{}).characters||[]).filter(c=>c && c.id && typeof heightMMOf==="function" && heightMMOf(c)>0
+            && typeof scaleClassOf==="function" && scaleClassOf(c)!=="A");
+          if(!chars.length && !l.drawnAt) return null;
+          return React.createElement("div",{className:"sheet-field"},
+            React.createElement("div",{className:"obj-lab"},"Drawn at"),
+            React.createElement("select",{className:"prop-select","data-testid":"loc-drawn-at",value:l.drawnAt||"",
+              title:"Whose eye level this place's plates are drawn from. Automatic: the point of view most of its scenes share; a room & time plate follows its own scenes, so human scenes here still get a human-scale plate.",
+              onChange:e=>onUpdate(l.id,{drawnAt:e.target.value})},
+              [["",l.parentLocation?"Same as "+(l.parentLocation.name||"its place"):"Automatic \u2014 whoever is in its scenes"],["human","Human eye level"]]
+                .concat(chars.map(c=>[c.id, (c.name||"Character")+"'s eye level"]))
+                .map(o=>React.createElement("option",{key:o[0],value:o[0]},o[1]))));
+        })(),
         React.createElement("div",{className:"loc-anchor-field"},
           React.createElement("div",{className:"loc-anchor-head"},
             React.createElement("span",{className:"loc-field-label"},
@@ -2519,8 +2547,11 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       ? { locationDependencyKind:gen.genMeta&&gen.genMeta.locationDependencyKind,
           locationParentId:gen.genMeta&&gen.genMeta.locationParentId,
           locationParentIso:gen.genMeta&&gen.genMeta.locationParentIso,
-          locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream }
-      : (_takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit")), _plateScriptSig(u.scriptText))),
+          locationUpstream:gen.genMeta&&gen.genMeta.locationUpstream,
+          ...(gen.genMeta&&gen.genMeta.drawnAt?{drawnAt:gen.genMeta.drawnAt}:{}) }
+      // with the eye level of this room & time's own scenes (scale plan step 3, 2026-10-28; an edit keeps its own)
+      : Object.assign(typeof locationDrawnAtMeta==="function" ? locationDrawnAtMeta(locationDrawnAtEntity(l,{sceneNos:u.sceneNos})) : {},
+          _takeDepSnap(depSnap) || locationAssetDependencySnapshot(l.id,locationRootIds(l),"slugline-unit")), _plateScriptSig(u.scriptText))),
     buildEdit: (instr)=> "Edit this "+role+" Slugline Unit plate for "+(u.name||l.name||"the location")+(u.time?(" at "+u.time):"")+". Apply ONLY: "+instr+". Keep it consistent with the parent location's architecture, materials and light."+locationSpatialPrompt(l),
   });
   const viewerEntity = {

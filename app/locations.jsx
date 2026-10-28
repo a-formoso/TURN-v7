@@ -5044,6 +5044,88 @@ function locationScaleClass(l, project){
 }
 window.locationScaleClass = locationScaleClass;
 
+/* DRAWN AT (scale plan step 3, 2026-10-28): a place is drawn from the eye level of whoever is in it. Each scene's
+   point of view is its smallest (or largest) sized character when its cast isn't all human-sized; a plate takes the
+   point of view most of its scenes share (a tie goes to the smaller one), so a firefly's forest gets grass blades like
+   trees, while the human scenes in the same forest get human-scale room & time plates. The card's "Drawn at" choice
+   (l.drawnAt: "" auto, "human", or a character id) overrides it; a plate records the one it was drawn at (meta.drawnAt). */
+function locationScenePov(sc, C){
+  if(!sc || typeof heightMMOf!=="function" || typeof scaleClassOf!=="function") return null;
+  const chars = C.characters || [];
+  const shots = (C.shots||[]).filter(sh=>sh && sh.sceneId===sc.id);
+  const ids = (typeof sceneRoster==="function") ? sceneRoster(sc, chars, C.drafts, shots) : (sc.driver ? [sc.driver] : []);
+  const sized = ids.map(id=>chars.find(c=>c&&c.id===id)).filter(Boolean).map(c=>({ c, mm:heightMMOf(c) })).filter(x=>x.mm>0);
+  if(!sized.length || sized.every(x=>scaleClassOf(x.c)==="A")) return null;
+  // a giant among people sees from up there; anyone smaller than a person sets the eye level low
+  const small = sized.filter(x=>x.mm<600).sort((a,b)=>a.mm-b.mm);
+  if(small.length) return small[0].c;
+  return sized.sort((a,b)=>b.mm-a.mm)[0].c;
+}
+function locationSceneList(l, opts){
+  const C = window.turnContinuity || {};
+  const scenes = C.scenes || [];
+  if(opts && Array.isArray(opts.sceneNos) && opts.sceneNos.length){
+    const nos = opts.sceneNos.map(String);
+    return scenes.filter(s=>s && s.no!=null && nos.indexOf(String(s.no))>=0);
+  }
+  let ids = Array.isArray(l && l.scenes) ? l.scenes.slice() : [];
+  if(!ids.length && l){   // a place known only through its rooms: their scenes
+    (C.locations||[]).forEach(x=>{ if(x && x.id!==l.id && locationParentOf(x)===l) (x.scenes||[]).forEach(id=>{ if(ids.indexOf(id)<0) ids.push(id); }); });
+    if(!ids.length){ const lk = locationKeyOf(l); (C.locations||[]).forEach(x=>{ if(x && String(x.parentKey||"")===lk) (x.scenes||[]).forEach(id=>{ if(ids.indexOf(id)<0) ids.push(id); }); }); }
+  }
+  return ids.map(id=>scenes.find(s=>s&&s.id===id)).filter(Boolean);
+}
+/* the card's pick: "" (auto), "human" or a character id — a room follows its place's pick */
+function locationDrawnAtPick(l){
+  const own = l && l.drawnAt ? l : ((typeof locationParentOf==="function" && locationParentOf(l)) || l);
+  return String((own && own.drawnAt) || "");
+}
+function locationDrawnAtEntity(l, opts){
+  opts = opts || {};
+  const C = window.turnContinuity || {};
+  const chars = C.characters || [];
+  const pick = locationDrawnAtPick(l);
+  if(pick==="human") return null;
+  const list = locationSceneList(l, opts);
+  if(pick){
+    const c = chars.find(x=>x && x.id===pick);
+    // a room & time plate keeps the pick only where that character is in its scenes
+    if(c && (!opts.sceneNos || list.some(sc=>((typeof sceneRoster==="function") ? sceneRoster(sc, chars, C.drafts, (C.shots||[]).filter(sh=>sh&&sh.sceneId===sc.id)) : [sc.driver]).indexOf(c.id)>=0)))
+      return (typeof heightMMOf==="function" && heightMMOf(c)>0) ? c : null;
+  }
+  const tally = new Map(); let human = 0;
+  list.forEach(sc=>{ const p = locationScenePov(sc, C); if(!p){ human++; return; } tally.set(p, (tally.get(p)||0)+1); });
+  const best = Array.from(tally.entries()).sort((a,b)=> b[1]-a[1] || heightMMOf(a[0])-heightMMOf(b[0]))[0];
+  return best && best[1]>=human ? best[0] : null;
+}
+function locationDrawnAtClause(ent){
+  if(!ent || typeof heightMMOf!=="function") return "";
+  const mm = heightMMOf(ent);
+  if(!(mm>0)) return "";
+  const size = (typeof _scaleSizeText==="function") ? _scaleSizeText(mm) : (mm+" mm");
+  const who = "a "+size+"-tall inhabitant";
+  const cam = (typeof scaleCameraText==="function") ? scaleCameraText({ ...ent, name:who }) : "";
+  const world = (typeof worldScaleClause==="function" && typeof scaleClassOf==="function") ? worldScaleClause(scaleClassOf(ent)) : "";
+  if(!cam && !world) return "";
+  return "DRAWN AT THE EYE LEVEL OF "+who.toUpperCase()+" (nobody is shown) — "+[cam, world].filter(Boolean).join(" ")
+    +" Every feature keeps its real size; only the viewpoint makes it loom or shrink.";
+}
+function locationDrawnAtMeta(ent){
+  if(!ent) return { drawnAt:{ human:true } };
+  return { drawnAt:{ id:ent.id||"", name:ent.name||"", mm:(typeof heightMMOf==="function" ? heightMMOf(ent) : 0)||0 } };
+}
+/* the words the card shows: "Flicker's eye level · 2 cm" / "Human eye level" */
+function locationDrawnAtLabel(d){
+  if(!d || d.human || !d.mm) return "Human eye level";
+  const size = (typeof _scaleSizeText==="function") ? _scaleSizeText(d.mm) : (d.mm+" mm");
+  return (d.name ? d.name+"'s eye level" : "Eye level")+" · "+size;
+}
+window.locationScenePov = locationScenePov; window.locationDrawnAtPick = locationDrawnAtPick;
+window.locationDrawnAtEntity = locationDrawnAtEntity;
+window.locationDrawnAtClause = locationDrawnAtClause;
+window.locationDrawnAtMeta = locationDrawnAtMeta;
+window.locationDrawnAtLabel = locationDrawnAtLabel;
+
 /* deterministic LOCATION coverage plate — full view of the place from several
    angles on one grid, so any shot set here matches geometry, materials & light.
    The plate stays grade-neutral (each shot applies its scene's look); `opts.time` specialises a variant. */
@@ -5235,9 +5317,12 @@ function buildLocationRefPrompt(l, project, opts){
   // WORLD SCALE — when this place is inhabited by a non-human-scale cast (critter / giant),
   // render the SPACE ITSELF at that scale (gigantism / miniaturization), so a bug's-world
   // location doesn't default to a human-scale room. Inert (Class A) for ordinary films.
-  const _wcls = (typeof locationScaleClass==="function") ? locationScaleClass(l, P) : "A";
+  // DRAWN AT (2026-10-28, scale plan step 3): the eye level of whoever is in this place's scenes, with its lens; the
+  // class-only world scale stays for a cast with no real sizes, and "Human eye level" on the card switches both off
+  const _drawn = locationDrawnAtClause(locationDrawnAtEntity(l));
+  const _wcls = (typeof locationScaleClass==="function" && locationDrawnAtPick(l)!=="human") ? locationScaleClass(l, P) : "A";
   const _wclause = (typeof worldScaleClause==="function") ? worldScaleClause(_wcls) : "";
-  if(_wclause) spec.world_scale = _wclause;
+  if(_drawn || _wclause) spec.world_scale = _drawn || _wclause;
   // THE PROMPT BUDGET (2026-10-14): compact JSON, then the fixed trimming order only while it is still too long for
   // its engine (opts.avoidChars: the AVOID list combinedLocationPrompt adds after it)
   const header = "Render this environment reference sheet EXACTLY as specified by this JSON spec (continuity fields are binding):\n";
@@ -5359,6 +5444,8 @@ function buildLocationVariantPrompt(l, project, opts){
   // grade-neutral, like the master plate — the scene grade is applied at the shot.
   s += "RENDER STYLE: "+v.renderStyle.replace(/\.$/,"")+". ";
   if(speciesCanon) s += speciesCanon+" ";
+  const _drawnV = locationDrawnAtClause(locationDrawnAtEntity(l));   // DRAWN AT (2026-10-28)
+  if(_drawnV) s += _drawnV+" ";
   s += "Single wide cinematic frame, the same space and architecture. "+rules+" Sharp focus, faithful to the specified render style.";
   const extra = (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : "";
   const neg = locationAvoidText(l.negativePrompt||v.negativePrompt||"", extra);   // once (2026-10-14)
@@ -5407,6 +5494,8 @@ function buildLocationCoveragePrompt(l, sheet, project, opts){
       continuity_anchors: clean(l.continuityAnchors)?{status:l.anchorsLocked===false?"editable":"LOCKED / binding",rules:clean(l.continuityAnchors)}:undefined,
       dramatic_use: clean(l.significance) || undefined,
     },
+    // DRAWN AT (2026-10-28): the eye level of whoever is in this sheet's own scenes
+    world_scale: locationDrawnAtClause(locationDrawnAtEntity(l, { sceneNos:sheet.sceneNos })) || undefined,
     ambient_species_canon: speciesCanon || undefined,
     render: {
       style: clean(v.renderStyle),
@@ -5478,6 +5567,9 @@ function buildSluglineUnitPrompt(l, u, project, opts){
       continuity_anchors: clean(l.continuityAnchors)?{status:l.anchorsLocked===false?"editable":"LOCKED / binding",rules:clean(l.continuityAnchors)}:undefined,
       dramatic_use: clean(l.significance) || undefined,
     },
+    // DRAWN AT (2026-10-28): the eye level of whoever is in this room & time's own scenes — human scenes in a
+    // firefly's forest get a human-scale plate
+    world_scale: locationDrawnAtClause(locationDrawnAtEntity(l, { sceneNos:u.sceneNos })) || undefined,
     ambient_species_canon: speciesCanon || undefined,
     render: {
       style: clean(v.renderStyle),
