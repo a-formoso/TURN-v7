@@ -385,7 +385,6 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
       // OPTIONAL PREVIEW (owner 2026-10-28): the image is for you to see the look; no department is sent it —
       // the note below is what they read
       slotPlaceholder:"Optional preview \u2014 nothing else uses the image", noun:"preview",
-      generateQuiet:true,   // an optional extra, not the card's job (owner 2026-10-28)
       hideUploadButton:true,
       specGate:{ ready:drafted, hint:"Add a ‘what to borrow’ note first — it's what the preview is built from." },
       onDelete:askDelete, deleteLabel:"Delete reference" }),

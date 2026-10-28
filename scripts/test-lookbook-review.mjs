@@ -112,12 +112,6 @@ await test("C1 'Preview the look' renders only the noted cards without a preview
   box.__begun = null; b.props.onClick();
   assert.deepEqual(J(box.__begun), { ids:["r2", "r3"], skipped:2 }, "r1 has its frame, r4 has no note");
 });
-await test("C3 each card's own Generate button is the quiet kind, not the room's amber call to action", ()=>{
-  const look = read("app/lookbook.jsx"), art = read("app/artroom.jsx"), css = read("app/styles.css");
-  assert.ok(look.includes("generateQuiet:true,"));
-  assert.ok(art.includes('+(generateQuiet?" quiet":"")'));
-  assert.ok(css.includes(".app.hs.room-art .sheet-gen-btn.quiet:not(.needs-review){background:var(--bg-2)"));
-});
 await test("C2 every noted card has its preview: no previews button at all (never a to-do)", ()=>{
   assert.equal(genBtn(viewWith({ r1:true, r2:true, r3:true })), undefined);
 });
