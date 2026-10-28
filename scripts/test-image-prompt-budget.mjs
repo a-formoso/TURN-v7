@@ -86,7 +86,7 @@ assert.ok(!("model" in box._locBudgetOpts([], {})), "no run pick: the picked eng
 assert.equal(box.locationPromptBudget({ model: "seedream-5-pro", reserve: 0 }), 30000);
 assert.equal(box.locationPromptBudget({ model: "gemini-nano-banana-2.1", reserve: 0 }), 40000);
 assert.match(ui, /rebuildPromptAfterAttachments:\(attach,mode,gopts\)=> mode==="final"\n\s+\? buildLocationCoveragePrompt\(l, v, project, _locBudgetOpts\(attach,gopts\)\)/);
-assert.equal((ui.match(/_locBudgetOpts\(attach,gopts\)/g) || []).length, 6, "the master plate, coverage, state, unit and Reverse views cards");   // + Reverse views (2026-10-28)
+assert.equal((ui.match(/_locBudgetOpts\(attach,gopts\)/g) || []).length, 5, "the master plate, coverage, state and unit cards");
 
 /* the master plate as the card makes it: its references (a room: the parent's matched panels cut out, or one small
    material panel — never its whole sheet (2026-10-14); a main location: its layout's plate), its screenplay pages (at

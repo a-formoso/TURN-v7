@@ -262,8 +262,7 @@ window.imageProxyOn = imageProxyOn;
 function slotAssetKind(slotId){
   const s = String(slotId||"");
   if(s.indexOf("propref-")===0) return "prop";
-  // locrev-: a location's Reverse views sheet (2026-10-28)
-  if(s.indexOf("locref-")===0 || s.indexOf("locvar-")===0 || s.indexOf("locrev-")===0) return "location";
+  if(s.indexOf("locref-")===0 || s.indexOf("locvar-")===0) return "location";
   if(s.indexOf("shot-")===0) return "shot";
   if(s.indexOf("charref-")===0) return "character";
   return "asset";

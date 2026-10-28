@@ -1202,17 +1202,6 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           (typeof locationUsesParentPlate==="function" && locationUsesParentPlate(loc))
             ? ((loc.name||"This room")+" borrows its parent's plate, which isn't ready yet. Generate "+(((typeof locationParentOf==="function"&&locationParentOf(loc))||{}).name||"the parent location")+"'s plate in Locations.")
             : "No full-frame room & time or extra-space plate is ready for this beat. Generate one in Locations — a cropped master plate won't be used in its place."),
-      // D (2026-10-28): the shot looks a way no panel of its location shows — say so, and where to fix it
-      (()=>{ if(!loc || sh.referenceLocationsSet || typeof shotLocationFacing!=="function") return null;
-        const f=shotLocationFacing(loc,sh);
-        if(!f.facing || f.panel) return null;
-        const way=(typeof locCompass==="function") ? locCompass(f.facing.yaw) : "that way";
-        return _el("div",{className:"shot-ref-quality-note","data-testid":"shot-facing-unseen"},
-          "This shot looks "+way+(f.facing.object?" (toward "+f.facing.object+")":f.facing.from==="reverse"?" (the reverse of the shot before)":"")
-          +", and no panel of "+(loc.name||"its location")+"'s plates shows that side, so the image model will imagine it. "
-          +(typeof locationHasReverse==="function" && locationHasReverse(loc)
-            ? "Set its plate cameras (Locations › Spatial Layout & Staging) so a panel faces that way."
-            : "Make its Reverse views in Locations › Spatial Layout & Staging.")); })(),
       _el("div",{className:"shot-head"},
         // Keep the compact header for status and review controls. Frame approval lives
         // in the image's existing Options menu, where its effect can be explained.

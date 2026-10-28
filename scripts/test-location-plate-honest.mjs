@@ -89,7 +89,7 @@ ok("E the main view's landmark is at an angle, not dead-centre", loc.includes("t
 ok("D no '8k / hyper realistic / commercial photography'", !/"8k ultra detailed"|"hyper realistic"|"photorealistic commercial photography"/.test(loc));
 // E
 ok("E the composition is the top-left panel, in the plate prompt and in its drafter",
-  loc.includes('fixture_projection_rule: opts.reverse ? undefined :"These fixtures describe ONLY the main (top-left) view"') && ai.includes("THE VIEW TO STAGE: the plate's MAIN view, its top-left panel"));
+  loc.includes('fixture_projection_rule:"These fixtures describe ONLY the main (top-left) view"') && ai.includes("THE VIEW TO STAGE: the plate's MAIN view, its top-left panel"));
 ok("E the place's description is said once", loc.includes("delete spec.location.identity_layers.place_identity;"));
 ok("E the card says which panel and when the composition was drafted for another space",
   ui.includes('"The plate\'s top-left panel: "') && ui.includes("This composition was drafted for \\u201c"));

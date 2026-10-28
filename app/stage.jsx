@@ -846,29 +846,6 @@ function stageSetCompass(loc, locations){
   if(lines.length<2) return null;
   return { frame:String(plan.frame||"").replace(/\s+/g," ").trim().slice(0,160), lines, anchors };
 }
-/* D (2026-10-28): the way a shot's Blender camera looks, in the layout's compass — only when its set is proven to share
-   the layout's north (the COMPASS rule below); null otherwise. Shots read it to pick the panel facing that way. */
-function stageShotCameraYaw(sh, loc, locations){
-  if(!sh || !sh.id || !loc) return null;
-  let cam=null, setPieces=[];
-  const ws=loc.id&&STAGE_STUDIO_SHOTS[loc.id];
-  const st=ws&&Array.isArray(ws.shots) ? ws.shots.find(x=>x&&x.id===sh.id) : null;
-  if(st&&st.camera&&!stageStarterCamera(st.camera)){
-    cam=st.camera; setPieces=(ws.objects||[]).filter(o=>o&&o.name&&o.kind!=="actor"&&o.kind!=="light"&&Array.isArray(o.position)).map(o=>({name:String(o.name),position:o.position}));
-  } else {
-    const meta=(typeof nbGetMeta==="function") ? nbGetMeta("blender-preview-"+sh.id) : null;
-    const c=meta&&meta.kind==="blender-preview"&&meta.sourceSpec ? (meta.actualCamera||meta.sourceSpec.camera) : null;
-    if(c&&!stageStarterCamera(c)){ cam=c; setPieces=(meta.sourceSpec.landmarks||[]).filter(l=>l&&l.label&&Array.isArray(l.position)).map(l=>({name:String(l.label),position:l.position})); }
-  }
-  if(!cam||!Array.isArray(cam.position)||!Array.isArray(cam.target)) return null;
-  const P=cam.position.map(Number), T=cam.target.map(Number), fx=T[0]-P[0], fy=T[1]-P[1];
-  if(!Number.isFinite(fx)||!Number.isFinite(fy)||Math.hypot(fx,fy)<1e-6) return null;
-  const compass=stageSetCompass(loc, locations), key=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
-  const aligned=!!(compass&&setPieces.some(o=>compass.anchors.some(a=>{ const ka=key(a.name), ko=key(o.name);
-    return ka&&ko&&(ka===ko||ka.indexOf(ko)>=0||ko.indexOf(ka)>=0)&&Math.hypot(a.xy[0]-Number(o.position[0]),a.xy[1]-Number(o.position[1]))<=1.5; })));
-  return aligned ? ((Math.atan2(fx,fy)*180/Math.PI)+360)%360 : null;
-}
-if(typeof window!=="undefined") window.stageShotCameraYaw = (sh, loc)=>stageShotCameraYaw(sh, loc, ((window.turnContinuity||{}).locations)||[]);
 function stageShotGeometry(sh, cast, loc, locations){
   if(!sh||!sh.id) return null;
   let cam=null, actors=[], source="", setPieces=[];
@@ -9440,11 +9417,6 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             if(!u && String(id).indexOf("ps-")===0 && typeof locationEnsureParentStyle==="function"){
               const room=(locations||[]).find(l=>l&&"ps-"+l.id===String(id));
               if(room) u = await locationEnsureParentStyle(room);
-            }
-            // a panel facing a shot's way (2026-10-28): cut from its sheet on first use ("pc-<sheet>-<panel>")
-            if(!u && /^pc-.+-(tl|tr|bl|br)$/.test(String(id)) && typeof locationEnsurePanelCut==="function"){
-              const m=/^pc-(.+)-(tl|tr|bl|br)$/.exec(String(id));
-              u = await locationEnsurePanelCut(m[1], m[2].toUpperCase());
             }
             if(alive && u) setImgs(prev=> prev[id] ? prev : ({...prev, [id]:u}));
             if(alive && u && propVariantIdsRef.current.has(id)) setPropVariantTick(t=>t+1);   // re-pick the prop's sheet

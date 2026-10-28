@@ -635,10 +635,6 @@ async function shotLoadLocationSpecImage(spec, grab, opts){
   if(typeof grab==="function"){
     try{ u = await grab(spec.id); }catch(e){ grabError=e; }
   }
-  // D (2026-10-28): the panel facing the shot's way, cut from its sheet when missing or old
-  if(spec.facingPanel && typeof locationEnsurePanelCut==="function"){
-    try{ const fresh=await locationEnsurePanelCut(spec.panelOf, spec.panelKey); if(fresh){ u=fresh; grabError=null; } }catch(e){ if(!u) grabError=e; }
-  }
   // a room that borrows its parent's plate: its panel is cut from the parent's current plate when missing or old
   if(spec.parentStyle && typeof locationEnsureParentStyle==="function"){
     const room=(((window.turnContinuity||{}).locations)||[]).find(l=>l&&String(l.id)===String(spec.locationId));
@@ -1536,37 +1532,9 @@ function shotLocationCoverageSpecs(loc, sh, scene, drafts){
      beat-scoped list. A missing/cold unit remains a genuine unit id and is
      resolved asynchronously by shotResolveLocationSpecImages; it never becomes
      a master plate or a synthetic crop. */
-  // D (2026-10-28): the panel that faces the way this shot looks, cut out on its own
-  const facing=shotLocationFacing(loc,sh);
-  if(facing.spec && !allHigh.some(x=>x.id===facing.spec.id)) allHigh.push(facing.spec);
   if(!allHigh.length) return [];
   return allHigh;
 }
-/* D — WHICH WAY THE SHOT LOOKS (owner-approved 2026-10-28): its direction (locations.jsx locationShotFacing — a
-   Blender camera, its written direction, or the reverse of the shot before) and the panel of the location's sheets
-   that faces that way (its main sheet or its Reverse views). → {facing, panel, spec} — facing null when nothing says
-   which way it looks; panel null when no panel faces that way (the shot card says so). */
-function shotLocationFacing(loc, sh){
-  if(!loc || !sh || typeof locationShotFacing!=="function") return {facing:null, panel:null, spec:null};
-  const C=window.turnContinuity||{};
-  const prev=(Array.isArray(C.shots)?C.shots:[]).filter(x=>x && x.sceneId===sh.sceneId && Number(x.order)<Number(sh.order))
-    .sort((a,b)=>Number(b.order)-Number(a.order))[0]||null;
-  let facing=null; try{ facing=locationShotFacing(loc, sh, {prevShot:prev}); }catch(e){}
-  if(!facing) return {facing:null, panel:null, spec:null};
-  const panel=(typeof locationPanelForFacing==="function") ? locationPanelForFacing(loc, facing.yaw) : null;
-  if(!panel) return {facing, panel:null, spec:null};
-  const way=(typeof locCompass==="function") ? locCompass(facing.yaw) : "";
-  const sheetName=panel.sheet==="reverse" ? "Reverse views" : "plate";
-  const id=(typeof locationPanelCutId==="function") ? locationPanelCutId(panel.assetId, panel.key) : "pc-"+panel.assetId+"-"+panel.key.toLowerCase();
-  return {facing, panel, spec:{id, category:"place", categoryLabel:"Panel facing this way", categories:["place"],
-    label:[shotLocationCatalogDisplayName(loc,Array.isArray(C.locations)?C.locations:null),"facing "+way].join(" · "),
-    description:"The panel of "+(loc.name||"this place")+"'s "+sheetName+" that looks "+way+", the way this shot looks.",
-    note:(loc.name||"This place")+" — the panel of its "+sheetName+" that looks "+way+", the way this shot looks: the walls, doors and fixtures it shows are what this shot sees; keep them, and frame as this shot's camera says",
-    locationId:String(loc.id), entityId:String(loc.id), baseId:id, facingPanel:true, panelOf:panel.assetId, panelKey:panel.key,
-    required:false, placeName:String(loc.name||""), source:"location-facing-panel",
-    assetRole:"derived_reference", assetSourceQuality:"location_panel_cut"}};
-}
-window.shotLocationFacing = shotLocationFacing;
 window.shotLocationSide = shotLocationSide;
 window.shotLocationUnitCandidates = shotLocationHeadingUnitCandidates;
 window.shotLocationBeatHeadings = shotLocationBeatHeadings;

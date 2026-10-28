@@ -179,70 +179,6 @@ function _locBudgetOpts(attach, gopts){
    were recorded can be given them without regenerating — each panel's direction set by hand (free), or "Read the
    cameras from this plate" (one writing call, priced on the button) — saved on the card for that plate version
    (l.plateCameras), so the rooms inside can cut out its panels; the plate's own prompt and layout are unchanged. */
-/* A · B — WHAT THE PLATES SEE (owner-approved 2026-10-28): a compass ring of the directions this space's panels look
-   (its main sheet, and its Reverse views sheet when it has one), the sides and the layout's objects no panel shows,
-   and — for a room that isn't on the floor plan — that its facings are unknown and where its layout is drafted. */
-function LocationCoverageRing({ l, onSelectLocation }){
-  const cov = (typeof locationViewCoverage==="function") ? locationViewCoverage(l) : null;
-  if(!cov) return null;
-  const R = 46, C = 60, arc = (i)=>{ const a0 = (i*10-90)*Math.PI/180, a1 = ((i+1)*10-90)*Math.PI/180;
-    return "M"+(C+R*Math.cos(a0)).toFixed(1)+" "+(C+R*Math.sin(a0)).toFixed(1)+" A"+R+" "+R+" 0 0 1 "+(C+R*Math.cos(a1)).toFixed(1)+" "+(C+R*Math.sin(a1)).toFixed(1); };
-  const ray = (yaw, len)=>{ const a = (yaw-90)*Math.PI/180; return [C+len*Math.cos(a), C+len*Math.sin(a)]; };
-  const owner = cov.ownerName && cov.ownerName!==l.name ? cov.ownerName : "";
-  return React.createElement("div",{className:"loc-coverage-ring","data-testid":"loc-coverage-ring"},
-    React.createElement("svg",{viewBox:"0 0 120 120",width:120,height:120,role:"img","aria-label":"Directions the plate's panels see: about "+cov.coveredDeg+" of 360 degrees"},
-      cov.bins.map((b,i)=>React.createElement("path",{key:i,d:arc(i),className:"loc-ring-seg"+(b?" seen":"")})),
-      cov.panels.map((p,i)=>{ const [x,y] = ray(p.yaw, 38); return React.createElement("line",{key:"p"+i,x1:C,y1:C,x2:x.toFixed(1),y2:y.toFixed(1),className:"loc-ring-ray"+(p.sheet==="reverse"?" rev":"")}); }),
-      [["N",0],["E",90],["S",180],["W",270]].map(([t,y])=>{ const [x,yy] = ray(y, 57); return React.createElement("text",{key:t,x:x.toFixed(1),y:(yy+3).toFixed(1),className:"loc-ring-lab",textAnchor:"middle"},t); })),
-    React.createElement("div",{className:"loc-coverage-ring-text"},
-      React.createElement("b",null, cov.known ? "The plates see about "+cov.coveredDeg+"° of 360°" : "Which way the panels face isn't known"),
-      !cov.onFloorPlan
-        ? React.createElement("p",null,(l.name||"This space")+" isn't on the floor plan yet, so its panels have no facing and nothing can tell which side of it a shot is looking at."
-            +(owner ? " Its floor plan is drafted on "+owner+": redraft "+owner+"'s floor plan (Floor plan · where everything stands) so it includes "+(l.name||"this room")+"." : " Draft its floor plan (Floor plan · where everything stands)."),
-            owner && typeof onSelectLocation==="function" && React.createElement("button",{type:"button",className:"art-draftall ghost loc-ring-open",
-              onClick:()=>{ const o = ((window.turnContinuity||{}).locations||[]).find(x=>x && x.name===cov.ownerName); if(o) onSelectLocation(o.id,"layout"); }},"Open "+owner+"'s floor plan"))
-        : !cov.known ? React.createElement("p",null,"Its plate's cameras aren't set yet (Plate cameras, above).")
-        : React.createElement(React.Fragment,null,
-            cov.unseenSides.length>0 && React.createElement("p",null,"Not seen: its "+cov.unseenSides.join(", ")+" side"+(cov.unseenSides.length>1?"s":"")+"."),
-            cov.unseenObjects.length>0 && React.createElement("p",null,"No panel shows: "+cov.unseenObjects.slice(0,6).join(", ")+"."),
-            !cov.unseenSides.length && !cov.unseenObjects.length && React.createElement("p",null,"Every side is seen by at least one panel."),
-            React.createElement("small",null, cov.hasReverse ? "Counting its Reverse views sheet." : "A Reverse views sheet (below) adds the other way round."))));
-}
-/* C — THE REVERSE VIEWS SHEET (owner-approved 2026-10-28): four more cameras where the main sheet's stand, looking the
-   other way, made from the main sheet so materials and light match. Optional: generated only when pressed (its price
-   on the button, like any plate). */
-function LocationReverseViews({ l, project, mainUrl, mainMeta, onView, readOnly=false }){
-  const id = (typeof locationReverseId==="function") ? locationReverseId(l) : l.id+"-rev";
-  const collect = async ()=>{
-    let u = mainUrl || "";
-    if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(l.id); }catch(e){} }
-    if(!u){ const e = new Error("Generate "+(l.name||"this place")+"'s main sheet first — its reverse views are made from it."); e.requiredReference = true; throw e; }
-    return [{ url:u, kind:"location", refId:l.id, required:true, ready:true, maxDim:1536,
-      note:(l.name||"this place")+" — its MAIN sheet: the same space. Keep its architecture, materials, fixtures, colour and light exactly; show what its cameras have behind them, never one of its views again" }];
-  };
-  const gen = useImageGen({
-    id, slotId:"locrev-"+id, entity:l,
-    buildFinal: ()=> combinedLocationPrompt(l, project, { reverse:true }),
-    rebuildPromptAfterAttachments:(attach,mode,gopts)=> mode==="final" ? combinedLocationPrompt(l, project, { ..._locBudgetOpts(attach,gopts), reverse:true }) : null,
-    buildSimple: ()=> buildSimpleLocationPrompt(l),
-    attachmentsInSimple:true,
-    referenceMaxDim:1536,
-    attachments: collect,
-    attachmentsText:(refs)=> refs && refs.length ? "REFERENCE IMAGES are attached in this order: "+refs.map((r,i)=>"Image "+(i+1)+" = "+r.note).join("; ")+"." : "",
-    metaExtra: async ()=>({ kind:"location-reverse", reverseOf:l.id, mainIso:String((mainMeta&&mainMeta.iso)||"") }),
-    buildEdit:(instr)=> "Edit this Reverse views sheet of "+(l.name||"the location")+". Apply ONLY: "+instr+". Keep it the same space as its main sheet."+locationSpatialPrompt(l),
-  });
-  const stale = !!(gen.genUrl && gen.genMeta && gen.genMeta.mainIso && mainMeta && mainMeta.iso && gen.genMeta.mainIso!==mainMeta.iso);
-  return React.createElement("details",{className:"loc-nested-section loc-reverse-views","data-testid":"loc-reverse-views",open:gen.genUrl?true:undefined},
-    React.createElement("summary",null,"Reverse views · the other way round",React.createElement("span",{className:"loc-spatial-status"+(gen.genUrl?" ready":"")},gen.genUrl?(stale?"Main sheet changed":"Made"):"Optional")),
-    React.createElement("p",{className:"loc-layer-note"},"Four more views from where the main sheet's cameras stand, each turned round to look the opposite way — the walls and doors behind them. Shots that look that way get these panels. Made from the main sheet, so it needs it first."),
-    stale && React.createElement("p",{className:"loc-layer-note stage-layout-changed",role:"status"},"Made from an older main sheet — regenerate it so the two match."),
-    React.createElement(SheetFrame,{ gen, slotId:"locrev-"+id, name:(l.name||"Location")+" · reverse views", avatarColor:locSwatch(l.intExt), initials:"RV",
-      drafted:true, drafting:false, entity:{ ...l, id, name:(l.name||"Location")+" · reverse views" }, onView, noun:"reverse views sheet", compact:true,
-      slotPlaceholder:"The other way round", generateRefs:1,
-      generateDisabled:!mainUrl || readOnly, generateDisabledLabel:"Generate the main sheet first",
-      generateDisabledTitle:"The reverse views are made from this place's main sheet: generate that first." }));
-}
 function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
   const [,refresh]=React.useReducer(n=>n+1,0);
   const [busy,setBusy]=React.useState("");
@@ -1717,9 +1653,6 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         count:!spatialState.ready?"layout needs review":locStaged?((typeof locationStagingLayoutChanged==="function"&&locationStagingLayoutChanged(l))?"layout changed":null):(stagingPrep?"staging\u2026":"drafts on first render")},
         React.createElement(LocationSpatialPlanEditor,{l,scenes,project,onUpdate,readOnly,reviewRequest:layoutReviewRequest,onReturnToImage:returnToImage}),
         React.createElement(LocationPlateCameras,{l,project,onUpdate,readOnly,plateMeta:gen.genUrl?gen.genMeta:null}),
-        // A · B · C (2026-10-28): what the plates see, and the other way round
-        React.createElement(LocationCoverageRing,{l,onSelectLocation}),
-        React.createElement(LocationReverseViews,{l,project,mainUrl:gen.genUrl,mainMeta:gen.genMeta,onView,readOnly}),
         React.createElement(LocationRoomLinks,{entries:roomLocations.map(owner=>({owner,key:owner.id,
           label:owner.name,detail:"Open room layout and staging"})),onSelectLocation,section:"layout"}),
         React.createElement(CoverageViewsEditor,{l,views:coverageViews,onUpdateView:updateCoverageView,
