@@ -4858,6 +4858,28 @@ function PropSheetReferenceModal({ prop, onClose }){
 }
 
 /* (the sheet-review helpers and their context were never used — removed 2026-10-06) */
+/* NO HAIRLINE BARS (2026-10-28): an Art Room frame shows its image whole on black; an image that is the frame's shape
+   to within a rounding error (2731x1536 in a 16:9 frame) left sub-pixel black slivers at its sides. Such an image is
+   marked data-fit="fill" and fills its frame (a crop under 3%, invisible); a clearly different shape still shows whole.
+   One listener for every sheet card and storyboard page, whenever an image (re)loads. */
+const FRAME_FIT_IMGS = "img.sheet-genimg, img.sb-comp-img, img.sb-page-img";
+// measured again whenever its frame changes size (a tab shown after the image loaded hidden, a layout still settling)
+const _frameFitWatch = (typeof ResizeObserver==="function")
+  ? new ResizeObserver(list=>list.forEach(en=>frameFitImage(en.target, true)))
+  : null;
+function frameFitImage(img, fromWatch){
+  if(!img || !img.naturalWidth || !img.naturalHeight) return;
+  if(!fromWatch && _frameFitWatch) _frameFitWatch.observe(img);
+  if(!img.clientWidth || !img.clientHeight) return;
+  const r = (img.naturalWidth/img.naturalHeight) / (img.clientWidth/img.clientHeight);
+  if(Math.abs(r-1)<0.03) img.setAttribute("data-fit","fill"); else img.removeAttribute("data-fit");
+}
+if(typeof document!=="undefined" && typeof document.addEventListener==="function" && !window.__turnFrameFit){
+  window.__turnFrameFit = true;
+  document.addEventListener("load", e=>{ const t=e.target; if(t && t.matches && t.matches(FRAME_FIT_IMGS)) frameFitImage(t); }, true);
+}
+window.frameFitImage = frameFitImage;
+
 function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs, draftNote }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, relatedClearIdsOf, relatedClearLabel, revertPrevious, layers, allModels } = gen;

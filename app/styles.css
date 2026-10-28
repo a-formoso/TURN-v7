@@ -2366,6 +2366,10 @@ html[data-theme="light"] .ag-errbar{background:oklch(0.62 0.16 30 / .1);border-c
 /* generated image + generate button */
 .sheet-genwrap{position:relative;width:100%;aspect-ratio:16/9;border-radius:var(--r-l);overflow:hidden;border:1px solid var(--line-2);background:#000}
 .sheet-genimg{display:block;width:100%;height:100%;object-fit:contain;cursor:zoom-in}
+/* NO HAIRLINE BARS (2026-10-28): an image the frame's own shape to within a rounding error (2731x1536 in a 16:9 frame)
+   fills it instead of leaving sub-pixel black slivers at its sides; a clearly different shape still shows whole
+   (data-fit is set by frameFitImage, artroom.jsx) */
+img.sheet-genimg[data-fit="fill"], img.sb-comp-img[data-fit="fill"], img.sb-page-img[data-fit="fill"]{object-fit:cover}
 /* full-view lightbox */
 /* Film Bible viewer (admin) — read-only continuity JSON */
 .bible-overlay{position:fixed;inset:0;z-index:122;background:rgba(0,0,0,.74);display:grid;place-items:center;padding:24px}
@@ -2792,6 +2796,11 @@ html[data-theme="light"] .cameo-note.warn{color:oklch(0.5 0.13 65)}
   border:1px solid oklch(0.62 0.18 295 / .4);background:oklch(0.62 0.18 295 / .1);color:oklch(0.82 0.12 296);
   font-family:var(--f-ui);font-size:12.5px;font-weight:600;cursor:pointer;transition:.12s;white-space:nowrap}
 .art-cameo-mgr:hover{background:oklch(0.62 0.18 295 / .2);color:oklch(0.88 0.1 296)}
+/* the Voices manager wears the card Voice button's teal, as Likenesses wears Likeness's purple (2026-10-28) */
+.art-voices-mgr{border-color:oklch(0.66 0.11 195 / .4);background:oklch(0.66 0.11 195 / .1);color:oklch(0.8 0.1 195)}
+.art-voices-mgr:hover{background:oklch(0.66 0.11 195 / .2);color:oklch(0.86 0.09 195)}
+html[data-theme="light"] .art-voices-mgr{border-color:oklch(0.52 0.1 195 / .5);background:oklch(0.56 0.11 195 / .1);color:oklch(0.4 0.09 195)}
+html[data-theme="light"] .art-voices-mgr:hover{background:oklch(0.56 0.11 195 / .18);color:oklch(0.32 0.09 195)}
 
 /* linked prop sheets (character card) */
 .linked-props{margin-top:10px}
