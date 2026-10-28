@@ -12,6 +12,8 @@
       researched ones go to Recently deleted, the statement is cleared, the agent opens next tick)
    F  "Suggest a note": one writing call; names a touchstone only on a hand-added card
    G  the frame prompt is behind the card's ⋯ menu; Frances knows all of it
+   H  a note from an image (owner 2026-10-28): drop your own picture in the one slot (newest wins); on an
+      upload, one vision call writes the note for the card's category; the note stays editable
      node scripts/test-lookbook-review.mjs */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -238,6 +240,87 @@ await test("G2 Frances knows: missing frames and their price, Recently deleted, 
     "'Suggest a note' (one writing call)", "'Research again' with two choices", "Mood frames are rendered in the FILM'S MEDIUM"])
     assert.ok(ai.includes(s), s);
   assert.ok(!/'Generate all frames' renders the mood frames/.test(ai));
+});
+
+/* ═══ H ═══ NOTE FROM AN IMAGE (owner 2026-10-28): one slot, newest wins; the note stays editable */
+const cardTree = (c, gen, extra = {})=>{
+  box.useImageGen = ()=>({ gening:false, genUrl:"", generate:noop, ...gen });
+  R.reset();
+  const lc = box.LookbookView({ project:{}, lookbook:[c], note:"", onUpdate:noop, onAdd:noop, onDelete:noop, onSetNote:noop,
+    onSuggestNote:noop, ...extra });
+  const card = findAll(lc, n=>typeof n.type==="function" && n.props && n.props.c)[0];
+  R.reset();
+  const tree = card.type(card.props);
+  box.useImageGen = ()=>({ gening:false, genUrl:"", generate:noop });
+  return tree;
+};
+const fromImageBtn = (tree)=> findAll(tree, n=>n.type==="button" && n.props && n.props["data-testid"]==="lb-note-from-image")[0];
+await test("H1 the slot takes your own image: drop or browse (one slot — an upload or a preview, newest wins)", ()=>{
+  const frame = findAll(cardTree(cards[0], {}), n=>n.type==="SheetFrame")[0];
+  assert.equal(frame.props.dropToImport, true, "the empty slot is a drop zone");
+  assert.equal(frame.props.hideUploadButton, undefined);
+  assert.equal(frame.props.slotPlaceholder, "Drop a reference image, or render a preview");
+  assert.equal(frame.props.noun, "image");
+});
+await test("H2 'Write the note from the image' shows only on an UPLOADED image, and sends that image", ()=>{
+  let got = null;
+  const onNoteFromImage = (id, url)=>{ got = { id, url }; };
+  const up = { genUrl:"data:image/png;base64,AAA", genMeta:{ uploaded:true } };
+  assert.equal(fromImageBtn(cardTree(cards[0], {}, { onNoteFromImage })), undefined, "no image, no button");
+  assert.equal(fromImageBtn(cardTree(cards[0], { genUrl:"data:x", genMeta:{ modelId:"nb" } }, { onNoteFromImage })), undefined,
+    "a rendered preview was made from the note: reading it back would go in a circle");
+  assert.equal(fromImageBtn(cardTree(cards[0], up, {})), undefined, "view-only: no handler, no button");
+  const b = fromImageBtn(cardTree(cards[0], up, { onNoteFromImage }));
+  assert.match(textOf(b), /Rewrite the note from the image/, "r1 has a note already");
+  assert.match(b.props.title, /one vision call\. You can edit the note afterwards\./);
+  b.props.onClick(); assert.deepEqual(got, { id:"r1", url:"data:image/png;base64,AAA" });
+  assert.match(textOf(fromImageBtn(cardTree(cards[3], up, { onNoteFromImage }))), /^Write the note from the image/);
+  const busy = fromImageBtn(cardTree(cards[0], up, { onNoteFromImage, readingImageId:"r1" }));
+  assert.equal(busy.props.disabled, true); assert.match(textOf(busy), /Reading the image…/);
+  const tree = cardTree(cards[3], up, { onNoteFromImage });
+  assert.match(textOf(findAll(tree, hasClass("sheet-undrafted"))[0]), /Write the note from the image reads your picture/,
+    "an uploaded image with no note still says the note is what departments read");
+  assert.ok(findAll(tree, n=>n.type==="SheetField" && /What to borrow/.test(n.props.label||""))[0].props.onCommit, "the note stays editable");
+});
+await test("H3 the vision read: the card's category, abstract qualities only, Palette hues sampled; names an unnamed card", async ()=>{
+  const ai = read("app/ai.jsx");
+  const start = ai.indexOf("function lookbookSampleHues("), end = ai.indexOf("window.aiLookbookNoteFromImage = aiLookbookNoteFromImage;");
+  assert.ok(start>0 && end>start);
+  const calls = [];
+  const sb = { console, window:{}, document:{},
+    aiAvailable:()=>true, writingProjectOf:p=>p||{}, genreTag:()=>"", writingLoglineOf:()=>"A courier crosses the city",
+    normalizeLookCat:c=>c||"Palette", turnDownscaleDataUrl:async u=>u+"#small", extractJSON:t=>JSON.parse(t),
+    clipSpecText:(t,n)=>String(t).slice(0,n), scrubBrand:t=>t, writingStamp:k=>({ kind:k }),
+    aiVisionComplete:async (messages, images, opts)=>{ calls.push({ prompt:messages[0].content, images, opts }); return sb.__reply; } };
+  vm.createContext(sb);
+  vm.runInContext(transform(ai.slice(start, end), "ai-slice.jsx")+"\nthis.lookbookSampleHues = ()=>Promise.resolve(['#102030','#d08040']);", sb);
+  sb.__reply = { vision:true, text:'{"note":"Teal shadows #102030 against amber skin #d08040.","source":"Sodium-lit night street"}' };
+  const r = await sb.aiLookbookNoteFromImage({ id:"a", category:"Palette", source:"Palette study", autoNamed:true }, "data:image/png;base64,AAA", { title:"Night" }, "A cold film");
+  assert.equal(r.note, "Teal shadows #102030 against amber skin #d08040."); assert.equal(r.source, "Sodium-lit night street");
+  assert.equal(r.writingProvenance.kind, "Lookbook note from image");
+  const c0 = calls[0];
+  assert.deepEqual(J(c0.images), ["data:image/png;base64,AAA#small"], "the downscaled upload is the one image sent");
+  assert.match(c0.prompt, /uploaded for the Palette category/);
+  assert.match(c0.prompt, /main hues, sampled from its pixels \(most common first\): #102030, #d08040/);
+  assert.match(c0.prompt, /never the picture's content: no people, faces, names, brands, logos, text or story/);
+  assert.match(c0.prompt, /short NAME .* never a person's or a film's name/);
+  // a named Lighting card: no hues, no new name
+  sb.__reply = { vision:true, text:'{"note":"Hard low side light.","source":"ignored"}' };
+  const r2 = await sb.aiLookbookNoteFromImage({ id:"b", category:"Lighting", source:"Caravaggio", autoNamed:false }, "data:x", {}, "");
+  assert.equal(r2.source, undefined, "a named card keeps its name");
+  assert.doesNotMatch(calls[1].prompt, /sampled from its pixels/); assert.doesNotMatch(calls[1].prompt, /short NAME/);
+  assert.match(calls[1].prompt, /The director calls this reference: "Caravaggio"/);
+  sb.__reply = { vision:false, text:"" };
+  assert.deepEqual(J(await sb.aiLookbookNoteFromImage({ id:"c", category:"Texture & grain" }, "data:x", {}, "")), { unsupported:true });
+});
+await test("H4 the app writes the note (and a name only on an unnamed card), for editors only; Frances knows", ()=>{
+  const app = read("app/app.jsx"), art = read("app/artroom.jsx"), ai = read("app/ai.jsx");
+  assert.ok(app.includes("const r = await window.aiLookbookNoteFromImage(card, url, project, lookbookNote);"));
+  assert.ok(app.includes("if(card.autoNamed && r.source) Object.assign(patch, { source:r.source, autoNamed:false });"));
+  assert.ok(app.includes("onLookbookNoteFromImage:roomReadOnly ? null : noteFromLookbookImage,readingLookbookImageId,"));
+  assert.ok(art.includes("onNoteFromImage:onLookbookNoteFromImage,readingImageId:readingLookbookImageId})"));
+  for(const s of ["A NOTE FROM AN IMAGE (owner 2026-10-28)", "The slot holds ONE image, newest wins", "The note stays fully editable afterwards",
+    "It isn't offered on a rendered preview"]) assert.ok(ai.includes(s), s);
 });
 
 console.log(`${checks} passed, ${failed} failed`);

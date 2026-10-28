@@ -2494,7 +2494,7 @@ if(_imageFeature) _imageFeature.what += " Image Details reports both the request
 if(_imageFeature) _imageFeature.what += " Master Character, Prop and Location image cards do not add reference-drift, drafting, saving or gating strips around the image. Generate and Draft controls communicate ordinary progress directly, while real generation failures and unsaved-image recovery remain actionable inline.";
 if(_imageFeature) _imageFeature.what += " In a Character card's sheet prompt (the card's folded 'Master reference prompt' section), the live text-only specification is labelled 'Reference-Guided Textual Character Sheet', while the saved generation prompt associated with the displayed image and its reference-image inputs is labelled 'Reference-Guided Hybrid Character Sheet (Text + Images)'.";
 const _lookbookFeature = APP_FEATURES.find(f=>f.name==="Lookbook (References) (Art Room)");
-if(_lookbookFeature) _lookbookFeature.what += " MOOD FRAMES ARE OPTIONAL PREVIEWS (owner 2026-10-28): a card's image (its mood frame, now called its preview) is only for you to see the look; NO department is sent it, and no character, prop, location, shot or colour work uses it. What steers them is TEXT: the visual statement (every department reads it as the overall look) and each card's note, routed by its category — each card says where its note goes ('Its note goes to: Color · Locations'). So a Lookbook with no previews works fully; the Color presets and every drafter work without them. Changing a card's note or category never rewrites the visual statement; it changes what the departments it routes to read next, and their drafted cards show as out of date until redrafted. 'Research the look' is the tab's main button; 'Preview the look' is optional.";
+if(_lookbookFeature) _lookbookFeature.what += " MOOD FRAMES ARE OPTIONAL PREVIEWS (owner 2026-10-28): a card's image (its mood frame, now called its preview) is only for you to see the look; NO department is sent it, and no character, prop, location, shot or colour work uses it. What steers them is TEXT: the visual statement (every department reads it as the overall look) and each card's note, routed by its category — each card says where its note goes ('Its note goes to: Color · Locations'). So a Lookbook with no previews works fully; the Color presets and every drafter work without them. Changing a card's note or category never rewrites the visual statement; it changes what the departments it routes to read next, and their drafted cards show as out of date until redrafted. 'Research the look' is the tab's main button; 'Preview the look' is optional. A NOTE FROM AN IMAGE (owner 2026-10-28): if you can't put the look into words, drop a picture of it (a still, a photo, a painting, a screenshot) on a card's image slot, or click the slot to browse; a card with an image replaces it from its \u22ef menu ('Replace with upload'). The slot holds ONE image, newest wins: your upload or a rendered preview, whichever came last. On a card whose image is an upload, 'Write the note from the image' (one vision call) reads the picture for the card's category and writes the 'what to borrow' note: the qualities to borrow (light, colour, lens, texture and so on), never the picture's content (no people, names, logos or text). A Palette card's note also names the image's main colours as hex codes, sampled from the picture itself. A card with no name yet gets a short name for the look. The note stays fully editable afterwards (it is still the only thing departments read; the image is never sent to them), and 'Rewrite the note from the image' writes it again. It isn't offered on a rendered preview, since that image was made from the note. View-only collaborators can't use it.";
 if(_lookbookFeature) _lookbookFeature.what += " LOOKBOOK UPDATES (2026-10-03): DELETING a reference asks first and moves it, with its mood frame, to 'Recently deleted' at the bottom of the Lookbook, where it can be restored or deleted forever. Each card has 'Suggest a note' (one writing call): it writes the card's 'what to borrow' note from the story and the visual statement \u2014 and, on a card added by hand with no touchstone yet, names one for its category. Once the look is researched, the button reads 'Research again' with two choices: 'Fill the missing categories' (keeps everything, adds one reference per empty category) or 'Research from scratch' (a new statement and new references; hand-added cards stay and the researched ones move to Recently deleted). Mood frames are rendered in the FILM'S MEDIUM \u2014 the render style most of its characters, props and locations use (photoreal until one is picked) \u2014 so an animated film gets animated mood frames. A card's frame prompt is its folded 'Frame prompt' section. Two references from the same touchstone in different categories both stay, and every card added by hand stays visible.";
 if(_lookbookFeature) _lookbookFeature.what += " Adding a reference by hand scrolls the new card into view. Until the user enters a custom source name, the card receives a useful category-led name that updates from its category and What to borrow note. Its Reference prompt explicitly labels the selected CATEGORY FOCUS and includes the VISUAL QUALITY TO BORROW verbatim, so the preview and generation always reflect the card's current inputs. Lookbook cards keep the body compact: they do not repeat the category beneath the source name and do not show a per-card QA check; Category remains editable inside the Reference section.";
 const _qaFeature = APP_FEATURES.find(f=>f.name==="QA check (per-card image QC, Art Room)");
@@ -7298,6 +7298,61 @@ async function aiSuggestLookbookNote(card, scenes, project, statement, cards){
   }catch(e){ return null; }
 }
 window.aiSuggestLookbookNote = aiSuggestLookbookNote;
+
+/* NOTE FROM AN IMAGE (owner 2026-10-28): a reference you have as a picture, not in words. One vision call reads the
+   card's UPLOADED image for its category and writes the "what to borrow" note (and names the card when it has no name
+   yet) — the image's qualities, never its content. A Palette card also gets the image's main hues, sampled here in the
+   browser (free). The note stays editable; the image is never sent to a department. */
+function lookbookSampleHues(dataUrl){
+  return new Promise((resolve)=>{
+    try{
+      const img = new Image();
+      img.onerror = ()=>resolve([]);
+      img.onload = ()=>{
+        try{
+          const W = img.naturalWidth||1, H = img.naturalHeight||1, s = Math.min(1, 40/Math.max(W,H));
+          const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(W*s)); c.height = Math.max(1, Math.round(H*s));
+          const cx = c.getContext("2d"); cx.drawImage(img, 0, 0, c.width, c.height);
+          const d = cx.getImageData(0, 0, c.width, c.height).data, q = v=>Math.min(255, Math.round(v/24)*24), buckets = {};
+          for(let i=0;i<d.length;i+=4){ if(d[i+3]<125) continue; const k = q(d[i])+","+q(d[i+1])+","+q(d[i+2]); buckets[k] = (buckets[k]||0)+1; }
+          const hex = p=>"#"+p.map(x=>x.toString(16).padStart(2,"0")).join("");
+          resolve(Object.keys(buckets).sort((a,b)=>buckets[b]-buckets[a]).slice(0,6).map(k=>hex(k.split(",").map(Number))));
+        }catch(e){ resolve([]); }
+      };
+      img.src = dataUrl;
+    }catch(e){ resolve([]); }
+  });
+}
+async function aiLookbookNoteFromImage(card, url, project, statement){
+  if(!aiAvailable() || !card || !url) return null;
+  const P = writingProjectOf(project);
+  const category = normalizeLookCat(card.category);
+  const img = await turnDownscaleDataUrl(url, 896);
+  if(!img) throw new Error("The image couldn't be prepared \u2014 reopen the card so it finishes loading, then try again.");
+  const hues = category==="Palette" ? await lookbookSampleHues(img) : [];
+  const named = !card.autoNamed && String(card.source||"").trim();
+  let ctx = "FILM: "+(P.title||"Untitled")+genreTag(P)+".\n";
+  if(writingLoglineOf(P)) ctx += "Logline: "+writingLoglineOf(P)+"\n";
+  if(String(statement||"").trim()) ctx += "The film's visual statement: "+String(statement).trim()+"\n";
+  if(named) ctx += "The director calls this reference: \""+named+"\"\n";
+  if(hues.length) ctx += "The image's main hues, sampled from its pixels (most common first): "+hues.join(", ")+"\n";
+  const prompt = ctx + "\nYou are the film's visual researcher. The attached IMAGE is a reference the director uploaded for the "+category+" category. "
+    +"Write the lookbook note: ONE or TWO sentences naming the SPECIFIC visual quality to borrow from it for "+category
+    +" (palette / light / lens / texture / composition / set dressing / costume language / atmosphere, as the category asks) \u2014 concrete enough that a department can act on it"
+    +(hues.length ? ", naming the key colours with their hex codes from the sampled hues" : "")+". "
+    +"Describe the QUALITIES only, never the picture's content: no people, faces, names, brands, logos, text or story.\n"
+    +(named ? "" : "Also give the card a short NAME (2\u20135 words) for the look itself, e.g. \"Sodium-lit night street\" \u2014 never a person's or a film's name.\n")
+    +'Return ONLY compact JSON: {"note":"..."'+(named ? "" : ',"source":"..."')+'}';
+  const res = await aiVisionComplete([{ role:"user", content:prompt }], [img], { maxTokens:400 });
+  if(!res.vision) return { unsupported:true };
+  const j = extractJSON(res.text);
+  if(!j) return null;
+  const note = clipSpecText(scrubBrand(String(j.note||"").trim()), 320);
+  if(!note) return null;
+  const source = named ? "" : clipSpecText(scrubBrand(String(j.source||"").trim()), 60);
+  return { ...(source ? { source } : {}), note, writingProvenance:writingStamp("Lookbook note from image") };
+}
+window.aiLookbookNoteFromImage = aiLookbookNoteFromImage;
 
 /* ---- ART ROOM ▸ CONTINUITY: scan the scenes a character appears in and propose the
    moments where their on-screen APPEARANCE visibly changes from the base look

@@ -341,7 +341,7 @@ async function generateLookbookFrame(c, project){
 window.generateLookbookFrame = generateLookbookFrame;
 
 /* ---- one reference card ---- */
-function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onSuggestNote, suggesting }){
+function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, onBatchDone, onSuggestNote, suggesting, onNoteFromImage, reading }){
   const finalPrompt = combinedLookbookPrompt(c, project);
   const drafted = lookbookCardDrafted(c);
   const initials = (c.source||"Ref").replace(/^the\s+/i,"").split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
@@ -382,10 +382,10 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
   return React.createElement("div",{className:"sheet-card"+(batchActiveId===c.id?" batch-on":""),"data-look-card":c.id},
     React.createElement(SheetFrame,{ gen, slotId:"lookref-"+c.id, name:c.source||"Reference", avatarColor:"#6b7280",
       initials, drafted, drafting:false, onDraft:()=>{}, entity:c, onView,
-      // OPTIONAL PREVIEW (owner 2026-10-28): the image is for you to see the look; no department is sent it —
-      // the note below is what they read
-      slotPlaceholder:"Optional preview \u2014 nothing else uses the image", noun:"preview",
-      hideUploadButton:true,
+      // ONE SLOT, NEWEST WINS (owner 2026-10-28): your own reference image (drop it, browse, or ⋯ Replace with upload)
+      // or a rendered preview — whichever came last. No department is sent it; the note below is what they read
+      slotPlaceholder:"Drop a reference image, or render a preview", noun:"image",
+      dropToImport:true,
       specGate:{ ready:drafted, hint:"Add a ‘what to borrow’ note first — it's what the preview is built from." },
       onDelete:askDelete, deleteLabel:"Delete reference" }),
     React.createElement("div",{className:"sheet-body"},
@@ -397,9 +397,12 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
                 ? {source:clean,autoNamed:false}
                 : {source:lookbookDefaultName(c),autoNamed:true}); }})))),
 
-      !drafted && !gen.genUrl && React.createElement("div",{className:"sheet-undrafted"},
+      // an uploaded image with no note still says so: the image alone reaches no department
+      !drafted && (!gen.genUrl || (gen.genMeta && gen.genMeta.uploaded)) && React.createElement("div",{className:"sheet-undrafted"},
         React.createElement(Icon.alert,{s:14}),
-        React.createElement("span",null,"No ‘what to borrow’ note yet — add one below, or let Suggest a note write it. The note is what the departments read.")),
+        React.createElement("span",null, (gen.genUrl && onNoteFromImage)
+          ? "No ‘what to borrow’ note yet — Write the note from the image reads your picture, or write it yourself below. The note is what the departments read."
+          : "No ‘what to borrow’ note yet — add one below, upload an image of the look, or let Suggest a note write it. The note is what the departments read.")),
 
       React.createElement(CardFold,{label:"Reference",defaultOpen:true},
         React.createElement("div",{className:"sheet-field"},
@@ -415,7 +418,14 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
           onCommit:val=>update({note:val})}),
         // one writing call (about a credit): drafts this card's note — and its touchstone when you
         // added the card by hand and haven't named one
-        onSuggestNote && React.createElement("button",{type:"button",className:"lb-suggest",disabled:!!suggesting,
+        // NOTE FROM AN IMAGE (owner 2026-10-28): only for an image you uploaded (reading back a preview made from the
+        // note would go in a circle) — one vision call; the note it writes stays editable
+        onNoteFromImage && gen.genUrl && gen.genMeta && gen.genMeta.uploaded && React.createElement("button",{type:"button",className:"lb-suggest","data-testid":"lb-note-from-image",
+          disabled:!!reading||!!suggesting||gen.gening,
+          title:"Write this reference's ‘what to borrow’ note from the image you uploaded"+(c.autoNamed?" (and name the card)":"")+" — one vision call. You can edit the note afterwards.",
+          onClick:()=>onNoteFromImage(c.id, gen.genUrl)},
+          React.createElement(Icon.image,{s:12}), reading ? "Reading the image…" : ((c.note||"").trim() ? "Rewrite the note from the image" : "Write the note from the image")),
+        onSuggestNote && React.createElement("button",{type:"button",className:"lb-suggest",disabled:!!suggesting||!!reading,
           title:"Write this reference's ‘what to borrow’ note from the story"+(c.autoNamed?" (and suggest a touchstone)":"")+" — one writing call",
           onClick:()=>onSuggestNote(c.id)},
           React.createElement(Icon.sparkles,{s:12}), suggesting ? "Suggesting…" : ((c.note||"").trim() ? "Suggest another note" : "Suggest a note")),
@@ -453,7 +463,7 @@ function useLookbookFramed(ids){
   },[key]);
   return framed;
 }
-function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDelete, onSetNote, onResearch, onResearchFresh, onRestore, onPurge, onSuggestNote, suggestingId }){
+function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDelete, onSetNote, onResearch, onResearchFresh, onRestore, onPurge, onSuggestNote, suggestingId, onNoteFromImage, readingImageId }){
   const [view, setView] = React.useState(null);
   const [researchMenu, setResearchMenu] = React.useState(false);
   const batch = useBatchGen();
@@ -504,7 +514,7 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
         React.createElement("div",{style:{flex:1}},
           React.createElement(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Visual Researcher",
             React.createElement(window.InfoTip,{label:"About the Lookbook",
-              text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture, wardrobe, production design. The statement and each card's note are what the departments read: the category decides where a note goes (Color, Characters, Locations, Props, Shots). A card's image is an OPTIONAL PREVIEW of that look, for you only — no department is sent it, so you never need one. 'Research the look' writes the statement and gathers the references."}))),
+              text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture, wardrobe, production design. The statement and each card's note are what the departments read: the category decides where a note goes (Color, Characters, Locations, Props, Shots). A card's image is for you only — no department is sent it. Drop in a picture of the look and 'Write the note from the image' turns it into words, or render an optional preview from the note. 'Research the look' writes the statement and gathers the references."}))),
         React.createElement("div",{className:"art-intro-actions"},
           // the header's "+" (add a reference by hand) went (owner 2026-10-21); an empty Lookbook keeps "Add by hand"
           onResearch && (hasResearch && onResearchFresh
@@ -543,7 +553,7 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
       ? React.createElement("div",{className:"sheet-grid"},
           list.map(c=>React.createElement(LookbookCard,{key:c.id,c,project,onUpdate,onDelete,
             onView:(url,ent)=>setView({url,character:ent}),batchActiveId,onBatchDone:batch.advance,
-            onSuggestNote, suggesting:suggestingId===c.id})),
+            onSuggestNote, suggesting:suggestingId===c.id, onNoteFromImage, reading:readingImageId===c.id})),
           // YOUR OWN REFERENCE (owner 2026-10-28): the last tile of the grid adds a card by hand — a touchstone
           // you choose, in one of the categories (the category still decides which departments read its note)
           !readOnly && onAdd && React.createElement("button",{type:"button",className:"lb-add-tile","data-testid":"lb-add",

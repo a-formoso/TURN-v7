@@ -4322,6 +4322,27 @@ function App(){
       setLookbook(ls=>ls.map(c=>c.id===id ? { ...c, ...patch } : c));
     } finally { setSuggestingLookbookId(null); }
   };
+  /* NOTE FROM AN IMAGE (owner 2026-10-28): one vision call writes the note from the card's uploaded image (ai.jsx
+     aiLookbookNoteFromImage); the note stays yours to edit */
+  const [readingLookbookImageId, setReadingLookbookImageId] = React.useState(null);
+  const noteFromLookbookImage = async (id, url)=>{
+    if(!canMutateSharedFilm()) return;
+    const card = (lookbook||[]).find(c=>c.id===id);
+    if(!card || !url || typeof window.aiLookbookNoteFromImage!=="function") return;
+    const film0 = projIdRef.current;
+    const toast = (m)=>{ if(typeof window.appToast==="function") window.appToast(m,"error"); };
+    setReadingLookbookImageId(id);
+    try{
+      const r = await window.aiLookbookNoteFromImage(card, url, project, lookbookNote);
+      if(projIdRef.current!==film0) return;   // never touches the film opened meanwhile
+      if(r && r.unsupported){ toast("Couldn't look at the image just now \u2014 try again in a moment, or write the note yourself."); return; }
+      if(!r || !r.note){ toast("Couldn't write a note from the image just now \u2014 try again in a moment."); return; }
+      const patch = { note:r.note, ...(r.writingProvenance ? { writingProvenance:r.writingProvenance } : {}) };
+      if(card.autoNamed && r.source) Object.assign(patch, { source:r.source, autoNamed:false });
+      setLookbook(ls=>ls.map(c=>c.id===id ? { ...c, ...patch } : c));
+    }catch(e){ toast((e && e.message) || "Couldn't write a note from the image just now."); }
+    finally { setReadingLookbookImageId(null); }
+  };
   // ---- Art Room: PROPS ----
   const updateProp = (id,patch)=>{
     if(!canMutateSharedFilm()) return;   // edit rights (2026-10-08) — background fixes on the tab no-op for viewers too
@@ -9706,6 +9727,7 @@ function App(){
             onDeleteLookbook:deleteLookbookCard,onSetLookbookNote:setLookbookNote,
             onRestoreLookbook:restoreLookbookCard,onPurgeLookbook:purgeLookbookCard,
             onSuggestLookbookNote:roomReadOnly ? null : suggestLookbookNote,suggestingLookbookId,
+            onLookbookNoteFromImage:roomReadOnly ? null : noteFromLookbookImage,readingLookbookImageId,
             staleTabs,onApplyLookbook:applyLookbook,onReviewLookbook:(dept)=>applyLookbook(dept,"review"),
             onUpdateChar:updateCharacter,onDraftVisuals:draftCharacterVisuals,onDraftAllVisuals:draftAllVisuals,
             // "Read the script" on the Characters tab (every character) and on a card (2026-10-12, Character fidelity)
