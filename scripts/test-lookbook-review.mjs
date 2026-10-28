@@ -4,7 +4,8 @@
       touchstone for the same category is one card; deleted cards are kept but never read
    B  mood frames are rendered in the film's medium (photoreal until one is picked); no "--ar"
    C  "Preview the look" (optional previews, owner 2026-10-28): only references with a note and no
-      preview; the price is for all of them; nothing to render → no button at all
+      preview; the price is for all of them; nothing to render → no button at all; the grid's last
+      tile "Add a reference" adds your own card (not for view-only, not on an empty Lookbook)
    D  deleting asks first and moves the card (with its frame) to Recently deleted; restore / delete
       forever; every write-back keeps the bin
    E  "Research again": fill the missing categories, or research from scratch (hand-added cards stay,
@@ -111,6 +112,28 @@ await test("C1 'Preview the look' renders only the noted cards without a preview
   assert.equal(findAll(b, n=>n.type==="chip")[0].props.count, 2, "r2 and r3: two frames' price");
   box.__begun = null; b.props.onClick();
   assert.deepEqual(J(box.__begun), { ids:["r2", "r3"], skipped:2 }, "r1 has its frame, r4 has no note");
+});
+await test("C4 the grid's last tile, 'Add a reference', adds your own card; hidden for view-only and on an empty Lookbook", ()=>{
+  const addTile = (tree)=> findAll(tree, n=>n.type==="button" && n.props && n.props["data-testid"]==="lb-add");
+  let added = 0;
+  const tree = viewWith({ r1:true }, { onAdd:()=>{ added++; return "look-new"; } });
+  const grid = findAll(tree, hasClass("sheet-grid"))[0];
+  const kids = grid.children.filter(Boolean);
+  const tile = kids[kids.length-1];
+  assert.equal(tile.props["data-testid"], "lb-add", "the grid's last cell");
+  assert.ok(hasClass("lb-add-tile")(tile));
+  assert.match(textOf(tile), /^Add a reference/);
+  assert.match(textOf(tile), /Pick its category and write what to borrow/);
+  tile.props.onClick(); assert.equal(added, 1, "one click, one hand-added card");
+  assert.equal(addTile(viewWith({}, { readOnly:true })).length, 0, "a view-only collaborator can't add");
+  R.reset({});
+  const empty = box.LookbookView({ project:{}, lookbook:[], note:"", onAdd:noop, onUpdate:noop, onDelete:noop, onResearch:noop });
+  assert.equal(addTile(empty).length, 0, "the empty state keeps its own 'Add by hand'");
+  assert.ok(textOf(empty).includes("Add by hand"));
+  assert.ok(read("app/artroom.jsx").includes("React.createElement(LookbookView,{project,lookbook,note:lookbookNote,readOnly,"));
+  const css = read("app/styles.css");
+  assert.ok(css.includes(".lb-add-tile{") && /\.lb-add-tile\{[^}]*border:1\.5px dashed var\(--line-3\)/.test(css), "one dashed border, like the empty slots");
+  assert.ok(read("app/ai.jsx").includes("the last tile of the grid, 'Add a reference', adds your own touchstone"), "Frances knows");
 });
 await test("C2 every noted card has its preview: no previews button at all (never a to-do)", ()=>{
   assert.equal(genBtn(viewWith({ r1:true, r2:true, r3:true })), undefined);

@@ -7864,7 +7864,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     lockedView
       ? React.createElement(ArtTabLock,{tab:artView,locks:tabLocks,onGo:setArtView})
     : artView==="lookbook" && LookbookView
-      ? React.createElement(LookbookView,{project,lookbook,note:lookbookNote,
+      ? React.createElement(LookbookView,{project,lookbook,note:lookbookNote,readOnly,
           onUpdate:onUpdateLookbook,onAdd:onAddLookbook,onDelete:onDeleteLookbook,onSetNote:onSetLookbookNote,onResearch,
           onResearchFresh,onRestore:onRestoreLookbook,onPurge:onPurgeLookbook,onSuggestNote:onSuggestLookbookNote,suggestingId:suggestingLookbookId})
     : artView==="characters"

@@ -453,7 +453,7 @@ function useLookbookFramed(ids){
   },[key]);
   return framed;
 }
-function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSetNote, onResearch, onResearchFresh, onRestore, onPurge, onSuggestNote, suggestingId }){
+function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDelete, onSetNote, onResearch, onResearchFresh, onRestore, onPurge, onSuggestNote, suggestingId }){
   const [view, setView] = React.useState(null);
   const [researchMenu, setResearchMenu] = React.useState(false);
   const batch = useBatchGen();
@@ -543,7 +543,14 @@ function LookbookView({ project, lookbook, note, onUpdate, onAdd, onDelete, onSe
       ? React.createElement("div",{className:"sheet-grid"},
           list.map(c=>React.createElement(LookbookCard,{key:c.id,c,project,onUpdate,onDelete,
             onView:(url,ent)=>setView({url,character:ent}),batchActiveId,onBatchDone:batch.advance,
-            onSuggestNote, suggesting:suggestingId===c.id})))
+            onSuggestNote, suggesting:suggestingId===c.id})),
+          // YOUR OWN REFERENCE (owner 2026-10-28): the last tile of the grid adds a card by hand — a touchstone
+          // you choose, in one of the categories (the category still decides which departments read its note)
+          !readOnly && onAdd && React.createElement("button",{type:"button",className:"lb-add-tile","data-testid":"lb-add",
+            onClick:addReference,title:"Add your own reference — pick its category, name the touchstone, write what to borrow"},
+            React.createElement("span",{className:"lb-add-ic"},React.createElement(Icon.plus,{s:18})),
+            React.createElement("span",{className:"lb-add-t"},"Add a reference"),
+            React.createElement("span",{className:"lb-add-d"},"Your own touchstone — a film, a photographer, a painting. Pick its category and write what to borrow.")))
       : React.createElement("div",{className:"prop-empty"},
           React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon.image,{s:30})),
           React.createElement("div",{className:"art-soon-t"},"No references yet"),

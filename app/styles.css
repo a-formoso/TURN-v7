@@ -10455,6 +10455,14 @@ html[data-theme="light"]{
 .app.hs.room-art .sheet-gen-btn:not(.needs-review){background:var(--win-amber-soft);border:1px solid var(--win-amber-line);color:var(--win-amber-ink);font-weight:600}
 .app.hs.room-art .sheet-gen-btn:not(.needs-review):hover:not(:disabled){background:rgba(242,154,67,.24);border-color:var(--win-amber);color:var(--win-amber-ink)}
 .app.hs.room-art .sheet-gen-btn:not(.needs-review) svg{color:var(--win-amber-ink)}
+/* the Lookbook's "Add a reference" tile (owner 2026-10-28): the grid's last cell, one dashed border like the empty image slots */
+.lb-add-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:260px;padding:24px;
+  background:transparent;border:1.5px dashed var(--line-3);border-radius:var(--r-l);color:var(--txt-1);font:inherit;text-align:center;cursor:pointer;transition:border-color .12s,background .12s}
+.lb-add-tile:hover{border-color:var(--pos-line);background:var(--bg-2);color:var(--txt-0)}
+.lb-add-tile:focus-visible{outline:2px solid var(--pos-line);outline-offset:2px}
+.lb-add-ic{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:var(--bg-2);border:1px solid var(--line-2);color:var(--txt-1)}
+.lb-add-t{font-weight:600;font-size:14px;color:var(--txt-0)}
+.lb-add-d{max-width:240px;font-size:12px;line-height:1.45;color:var(--txt-2)}
 .app.hs.room-art :is(.bd-filter-btn,.pager-num).on{background:var(--win-amber-soft);border-color:var(--win-amber-line);box-shadow:inset 0 0 0 1px var(--win-amber-line);color:var(--win-ink)}
 .app.hs.room-art .bd-filter-btn.on .bd-filter-n{color:var(--win-amber-ink)}
 .app.hs .nb-dock .nb-seg-btn.on,.app.hs .nb-seg-btn.on{background:var(--win-amber-soft);box-shadow:inset 0 0 0 1px var(--win-amber-line);color:var(--win-ink)}
