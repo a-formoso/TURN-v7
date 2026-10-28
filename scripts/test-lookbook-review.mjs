@@ -116,7 +116,7 @@ await test("C1 'Preview the look' renders only the noted cards without a preview
   box.__begun = null; b.props.onClick();
   assert.deepEqual(J(box.__begun), { ids:["r2", "r3"], skipped:2 }, "r1 has its frame, r4 has no note");
 });
-await test("C4 '+ Add a reference' above the visual statement adds your own card; hidden for view-only and on an empty Lookbook", ()=>{
+await test("C4 a '+' above the visual statement adds your own card; hidden for view-only and on an empty Lookbook", ()=>{
   const addBtn = (tree)=> findAll(tree, n=>n.type==="button" && n.props && n.props["data-testid"]==="lb-add");
   let added = 0;
   const tree = viewWith({ r1:true }, { onAdd:()=>{ added++; return "look-new"; } });
@@ -124,7 +124,8 @@ await test("C4 '+ Add a reference' above the visual statement adds your own card
   const row = scroll.findIndex(n=>hasClass("lb-add-row")(n)), statement = scroll.findIndex(n=>hasClass("lb-statement")(n));
   assert.ok(row>=0 && row===statement-1, "just above the visual statement");
   const b = addBtn(tree)[0];
-  assert.match(textOf(b), /^Add a reference$/);
+  assert.equal(textOf(b), "", "just the + sign"); assert.equal(b.props["aria-label"], "Add a reference");
+  assert.match(b.props.title, /^Add a reference — /);
   assert.ok(hasClass("ghost")(b));
   assert.equal(findAll(findAll(tree, hasClass("sheet-grid"))[0], hasClass("lb-add-tile")).length, 0, "no tile in the grid any more");
   b.props.onClick(); assert.equal(added, 1, "one click, one hand-added card");
@@ -135,8 +136,8 @@ await test("C4 '+ Add a reference' above the visual statement adds your own card
   assert.ok(textOf(empty).includes("Add by hand"));
   assert.ok(read("app/artroom.jsx").includes("React.createElement(LookbookView,{project,lookbook,note:lookbookNote,readOnly,"));
   const css = read("app/styles.css");
-  assert.ok(css.includes(".lb-add-row{display:flex;justify-content:flex-end;") && !css.includes(".lb-add-tile{"));
-  assert.ok(read("app/ai.jsx").includes("the '+ Add a reference' button just above the visual statement adds your own touchstone"), "Frances knows");
+  assert.ok(css.includes(".lb-add-row{display:flex;justify-content:flex-end;") && css.includes(".lb-add-row .lb-add{width:32px;padding:0;justify-content:center}") && !css.includes(".lb-add-tile{"));
+  assert.ok(read("app/ai.jsx").includes("the '+' button just above the visual statement (its tooltip says 'Add a reference') adds your own touchstone"), "Frances knows");
 });
 await test("C2 every noted card has its preview: no previews button at all (never a to-do)", ()=>{
   assert.equal(genBtn(viewWith({ r1:true, r2:true, r3:true })), undefined);
@@ -338,7 +339,8 @@ await test("H5 an upload, step by step: 1 pick the category (empty box, highligh
   const sel = findAll(f, n=>n.type==="select")[0];
   assert.equal(sel.props.value, "", "no category shown yet, so picking Palette counts too");
   assert.equal(findAll(sel, n=>n.type==="option")[0].props.disabled, true);
-  assert.match(textOf(findAll(f, hasClass("lb-routes"))[0]), /The category decides which departments read the note\./);
+  assert.equal(sel.props.title, "The category decides which departments read the note");
+  assert.equal(findAll(f, hasClass("lb-routes")).length, 0, "no line under the box: the departments are in the dropdown");
   let b = fromImageBtn(tree);
   assert.equal(b.props.disabled, true, "step 2 waits for step 1"); assert.match(b.props.title, /^Pick the category first/);
   assert.ok(!hasClass("lb-step-on")(b));
@@ -367,9 +369,48 @@ await test("H5 an upload, step by step: 1 pick the category (empty box, highligh
   // no upload: no steps
   assert.equal(stepNums(cardTree(fresh, {}, on)).length, 0);
 });
+await test("H7 the dropdown says who reads each category's note ('Lighting — for Color and Shots'); no line under the box", ()=>{
+  const tree = cardTree(cards[0], {});
+  const sel = findAll(tree, n=>n.type==="select" && n.props["data-testid"]==="lb-category-select")[0];
+  const opts = findAll(sel, n=>n.type==="option").map(o=>[o.props.value, textOf(o)]);
+  assert.deepEqual(J(opts), [["Palette","Palette — for Color"],["Lighting","Lighting — for Color and Shots"],["Lens & format","Lens & format — for Shots"],
+    ["Texture & grain","Texture & grain — for Color"],["Composition","Composition — for Shots"],["Production design","Production design — for Locations and Props"],
+    ["Wardrobe","Wardrobe — for Characters"],["Atmosphere","Atmosphere — for Color and Locations"]]);
+  assert.equal(sel.props.value, "Lighting"); assert.equal(sel.props.title, "Its note goes to Color and Shots");
+  assert.equal(findAll(tree, hasClass("lb-routes")).length, 0);
+  assert.ok(!read("app/styles.css").includes(".lb-routes{"));
+  assert.ok(read("app/ai.jsx").includes("every option names the departments that read it"), "Frances knows");
+});
+await test("H8 the note's buttons: one row, the Characters card's 'Suggest from script' size, no extra margin", ()=>{
+  const css = read("app/styles.css");
+  const rule = (sel)=> (css.match(new RegExp("(^|\\n)"+sel.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\{([^}]*)\\}"))||[])[2]||"";
+  const lb = rule(".lb-suggest"), st = rule(".state-suggest-btn,.state-add-btn");
+  for(const k of ["height:30px", "padding:0 11px", "font:600 11.5px var(--f-ui)"]){ assert.ok(lb.includes(k), "lb "+k); assert.ok(st.includes(k), "state "+k); }
+  assert.ok(!/margin-top/.test(lb), "no extra margin: the row keeps the section's 11px gaps");
+  assert.ok(css.includes(".lb-note-actions{display:flex;flex-wrap:wrap;gap:8px}"));
+  const up = { genUrl:"data:image/png;base64,AAA", genMeta:{ uploaded:true } };
+  const row = findAll(cardTree(cards[0], up, { onNoteFromImage:noop }), hasClass("lb-note-actions"));
+  assert.equal(row.length, 1);
+  assert.deepEqual(J(findAll(row[0], n=>n.type==="button").map(b=>b.props["data-testid"]||"suggest")), ["lb-note-from-image", "suggest"]);
+  assert.equal(findAll(cardTree(cards[0], {}, { onSuggestNote:null }), hasClass("lb-note-actions")).length, 0, "view-only: no empty row");
+});
+await test("H9 no note yet: the greyed-out Generate says to write or suggest the note (never 'Draft specification first')", ()=>{
+  const gate = findAll(cardTree(cards[3], {}), n=>n.type==="SheetFrame")[0].props.specGate;
+  assert.equal(gate.ready, false);
+  assert.equal(gate.label, "Write or suggest a note first");
+  assert.match(gate.title, /write it below, or use Suggest a note\. Have a picture of the look instead\? Drop it in the slot above\./);
+  assert.equal(findAll(cardTree(cards[0], {}), n=>n.type==="SheetFrame")[0].props.specGate.ready, true, "a note: the gate opens");
+  const art = read("app/artroom.jsx");
+  assert.ok(art.includes('specBlocked ? (specGate.label || "Draft specification first") :'), "other tabs keep their label");
+  assert.ok(art.includes(": (specBlocked && specGate.title) ? specGate.title"));
+  assert.ok(art.includes("disabled:gening||(drafting&&pendingGenerate)||(generateDisabled?!onResolveGenerationBlock:specBlocked),"), "still greyed out");
+});
 await test("H6 the card's sections sit inside them (indented), and the empty 'Leave out' field reads as a field", ()=>{
   const css = read("app/styles.css");
-  assert.ok(css.includes(".lb-card .sheet-fold-body{padding:2px 12px 12px 26px}"));
+  assert.ok(css.includes(".artroom .sheet-card .sheet-fold-body{padding:2px 12px 12px 20px}"), "every Art Room card, the Lookbook's first");
+  assert.ok(css.includes("padding:15px 6px 15px 0;margin:0;border-radius:var(--r-m);text-align:left;"), "the section header has no left padding: its arrow is on the card's edge");
+  assert.ok(css.includes(".artroom .sheet-card .sheet-fold-body > *{margin-top:0;margin-bottom:0}"), "one 11px rhythm inside a section");
+  assert.ok(css.includes(".artroom .sheet-card .sheet-body > .sheet-fold + .sheet-fold{margin-top:-11px}") && css.includes(".sheet-body{flex:1;min-width:0;padding:14px 15px;display:flex;flex-direction:column;gap:11px}"), "stacked sections: even rows, the header centred (closes the body's 11px gap)");
   const tree = cardTree(cards[0], {});
   assert.ok(hasClass("lb-card")(tree));
   assert.equal(findAll(tree, n=>n.type==="SheetField" && n.props.label==="Leave out (negative prompt)")[0].props.placeholder, "e.g. text, logos, people");

@@ -1,7 +1,7 @@
 /* character-identity-ui.jsx — reusable existing-film identity conflict notice.
    The Art Room can mount window.CharacterIdentityNotice on its own cards. */
 
-function CharacterIdentityNotice({ character, scenes, drafts, cast, onUpdate, readOnly }){
+function CharacterIdentityNotice({ character, scenes, drafts, cast, onUpdate, readOnly, inSection }){
   const [resolutionNote,setResolutionNote] = React.useState("");
   if(!character || typeof window.turnIdentityReport!=="function") return null;
 
@@ -57,7 +57,8 @@ function CharacterIdentityNotice({ character, scenes, drafts, cast, onUpdate, re
   const sourceName = source => source==="screenplay" ? "Screenplay"
     : source==="visual" ? "Visual spec" : "Profile";
   const style = {
-    margin:"12px 0 2px",padding:"11px 12px",border:"1px solid",
+    // inSection: inside an Art Room card section, whose 11px gap is the only spacing (owner 2026-10-28)
+    margin: inSection ? 0 : "12px 0 2px",padding:"11px 12px",border:"1px solid",
     borderColor:hasIssue?"var(--alert, #b55)":"var(--line)",
     borderRadius:"var(--r-m, 8px)",background:hasIssue?"color-mix(in srgb, var(--alert, #b55) 8%, transparent)":"var(--bg-2)",
     fontSize:11.5,lineHeight:1.45,color:"var(--txt-1)",

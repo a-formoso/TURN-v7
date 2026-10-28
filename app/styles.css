@@ -328,15 +328,27 @@ button,input,select,textarea{font-family:inherit}
 .viewnav .seg .seg-lab{display:inline}
 /* Lookbook — the north-star visual statement block above the reference grid */
 .lb-add-row{display:flex;justify-content:flex-end;margin:0 0 10px}
+.lb-add-row .lb-add{width:32px;padding:0;justify-content:center}   /* just the "+": a square, as tall as the buttons above it */
 .lb-statement{margin:0 0 18px;padding:14px 16px;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-l)}
 /* Lookbook review (2026-10-03): Suggest a note, the Research again menu */
-.lb-routes{margin-top:6px;font-size:11px;color:var(--txt-3)}
-.lb-suggest{display:inline-flex;align-items:center;gap:6px;margin-top:8px;height:28px;padding:0 10px;border:1px solid var(--line-2);
-  border-radius:var(--r-m);background:var(--bg-2);color:var(--txt-1);font:600 11.5px var(--f-ui);cursor:pointer}
-.lb-suggest:hover:not(:disabled){border-color:var(--pos);color:var(--txt-0)}
+/* the card's note buttons: one row, the same size as the Characters card's "Suggest from script" / "Add state"
+   (30px, 600 11.5px, sized to the label) — owner 2026-10-28; the row sits in the section's 11px rhythm (no extra margin) */
+.lb-note-actions{display:flex;flex-wrap:wrap;gap:8px}
+.lb-suggest{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border:1px solid var(--line-2);
+  border-radius:var(--r-m);background:var(--bg-4);color:var(--txt-1);font:600 11.5px var(--f-ui);cursor:pointer;transition:.12s}
+.lb-suggest:hover:not(:disabled){background:var(--bg-5);color:var(--txt-0)}
 .lb-suggest:disabled{opacity:.55;cursor:progress}
-/* the Lookbook card (owner 2026-10-28): a section's fields sit inside it — indented under its title, with side room */
-.lb-card .sheet-fold-body{padding:2px 12px 12px 26px}
+/* ART ROOM CARD SECTIONS (owner 2026-10-28, first on the Lookbook): what belongs to a section sits INSIDE it — indented
+   under its title (20px: the 12px arrow + its 8px gap, the header having no left padding) with room on the right — and
+   the section's 11px gap is its only rhythm:
+   the elements directly inside drop their own top/bottom margins. The card's top (name, header rows, strips) stays at the
+   card's edge, level with the sections' arrows. Every tab whose cards use sections: Lookbook, Characters, Props,
+   Locations, Shots (and the crowd / video-element sections inside them). */
+.artroom .sheet-card .sheet-fold-body{padding:2px 12px 12px 20px}
+.artroom .sheet-card .sheet-fold-body > *{margin-top:0;margin-bottom:0}
+/* stacked sections are even rows (owner 2026-10-28): the card's 11px gap between two sections is closed, so each header
+   sits centred between its line and the next one (15px above and below), not on top of an 11px gap */
+.artroom .sheet-card .sheet-body > .sheet-fold + .sheet-fold{margin-top:-11px}
 /* an upload, step by step: the numbered steps; the one you're on is highlighted */
 .lb-step-n{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:16px;height:16px;margin-right:6px;border-radius:50%;
   background:var(--bg-3);color:var(--txt-2);font:700 10px/1 var(--f-ui);vertical-align:-3px}
@@ -3622,7 +3634,7 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
 /* collapsible card sections */
 .sheet-fold{border-top:1px solid var(--line)}
 .sheet-fold-head{display:flex;align-items:center;gap:8px;width:100%;background:transparent;border:0;cursor:pointer;
-  padding:10px 6px;margin:0;border-radius:var(--r-m);text-align:left;transition:background .12s}
+  padding:15px 6px 15px 0;margin:0;border-radius:var(--r-m);text-align:left;transition:background .12s}   /* no left padding (owner 2026-10-28): the arrow sits on the card's edge, level with everything above it; 15px above and below keeps the rows as tall as before, the header centred */
 .sheet-fold-head:hover{background:var(--bg-2)}
 .sheet-fold-ic{display:flex;color:var(--txt-3)}
 .sheet-fold-count{margin-left:auto;font-family:var(--f-mono);font-size:9px;color:var(--txt-3)}

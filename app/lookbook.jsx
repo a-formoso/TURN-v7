@@ -193,7 +193,17 @@ const LOOKBOOK_ROUTING = {
 };
 window.LOOKBOOK_ROUTING = LOOKBOOK_ROUTING;
 /* the departments a category's notes go to, by the names their tabs show (owner 2026-10-28) */
-const LOOKBOOK_DEPT_NAMES = { colorist:"Color", characters:"Characters (wardrobe)", locations:"Locations", props:"Props", shots:"Shots" };
+const LOOKBOOK_DEPT_NAMES = { colorist:"Color", characters:"Characters", locations:"Locations", props:"Props", shots:"Shots" };
+/* the departments in words: "Color", "Color and Shots", "Color, Locations and Shots" */
+function lookbookDeptsText(category){
+  const d = lookbookDeptsFor(category);
+  return d.length<2 ? (d[0]||"") : d.slice(0,-1).join(", ")+" and "+d[d.length-1];
+}
+/* a category as the dropdown shows it, with who reads its note: "Lighting \u2014 for Color and Shots" (owner 2026-10-28) */
+function lookbookCategoryLabel(category){
+  const who = lookbookDeptsText(category);
+  return who ? category+" \u2014 for "+who : category;
+}
 function lookbookDeptsFor(category){
   return Object.keys(LOOKBOOK_ROUTING).filter(d=>LOOKBOOK_ROUTING[d].indexOf(category)>=0).map(d=>LOOKBOOK_DEPT_NAMES[d]||d);
 }
@@ -392,7 +402,10 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
       // or a rendered preview — whichever came last. No department is sent it; the note below is what they read
       slotPlaceholder:"Drop a reference image, or render a preview", noun:"image",
       dropToImport:true,
-      specGate:{ ready:drafted, hint:"Add a ‘what to borrow’ note first — it's what the preview is built from." },
+      // no note yet: the button stays greyed out and says what to do — the Lookbook has no "specification" (owner 2026-10-28)
+      specGate:{ ready:drafted, hint:"Add a ‘what to borrow’ note first — it's what the preview is built from.",
+        label:"Write or suggest a note first",
+        title:"A preview is built from the card's ‘what to borrow’ note: write it below, or use Suggest a note. Have a picture of the look instead? Drop it in the slot above." },
       onDelete:askDelete, deleteLabel:"Delete reference" }),
     React.createElement("div",{className:"sheet-body"},
       React.createElement("div",{className:"sheet-head"},
@@ -416,19 +429,21 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
         React.createElement("div",{className:"sheet-field"+(step===1?" lb-step-on":""),"data-testid":"lb-category"},
           React.createElement("div",{className:"obj-lab"},stepN(1),"Category"),
           // step 1: no category shown yet, so picking any one — Palette too — counts as your choice
-          React.createElement("select",{className:"prop-select",value:step===1 ? "" : (c.category||"Palette"),
+          // where a note goes is INSIDE the dropdown (owner 2026-10-28): each category names the departments that read
+          // its note ("Lighting \u2014 for Color and Shots"), so you see it while choosing; the preview image goes nowhere
+          React.createElement("select",{className:"prop-select","data-testid":"lb-category-select",value:step===1 ? "" : (c.category||"Palette"),
+            title: step===1 ? "The category decides which departments read the note"
+              : "Its note goes to "+(lookbookDeptsText(c.category||"Palette")||"no department"),
             onChange:e=>update({category:e.target.value, categoryPicked:true})},
             step===1 && React.createElement("option",{key:"",value:"",disabled:true},"Choose what this image is a reference for\u2026"),
-            (window.LOOKBOOK_CATEGORIES||[]).map(cat=>React.createElement("option",{key:cat,value:cat},cat))),
-          // where this card's note goes (owner 2026-10-28): the category decides, the preview image goes nowhere
-          React.createElement("div",{className:"lb-routes","data-testid":"lb-routes"}, step===1
-            ? "The category decides which departments read the note."
-            : "Its note goes to: "+(lookbookDeptsFor(c.category||"Palette").join(" \u00b7 ")||"no department")+".")),
+            (window.LOOKBOOK_CATEGORIES||[]).map(cat=>React.createElement("option",{key:cat,value:cat},lookbookCategoryLabel(cat))))),
         React.createElement(SheetField,{label:"What to borrow — the visual quality",value:c.note,multiline:true,
           placeholder:"The palette / lighting / lens / texture to draw from — abstract qualities, not the source's scenes…",
           onCommit:val=>update({note:val})}),
         // one writing call (about a credit): drafts this card's note — and its touchstone when you
         // added the card by hand and haven't named one
+        // the note's buttons on ONE row, sized like the Characters card's "Suggest from script" / "Add state" (owner 2026-10-28)
+        ((onNoteFromImage && uploaded) || onSuggestNote) && React.createElement("div",{className:"lb-note-actions"},
         // NOTE FROM AN IMAGE (owner 2026-10-28): only for an image you uploaded (reading back a preview made from the
         // note would go in a circle) — one vision call; the note it writes stays editable
         onNoteFromImage && uploaded && React.createElement("button",{type:"button",className:"lb-suggest"+(step===2?" lb-step-on":""),"data-testid":"lb-note-from-image",
@@ -440,7 +455,7 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
         onSuggestNote && React.createElement("button",{type:"button",className:"lb-suggest",disabled:!!suggesting||!!reading,
           title:"Write this reference's ‘what to borrow’ note from the story"+(c.autoNamed?" (and suggest a touchstone)":"")+" — one writing call",
           onClick:()=>onSuggestNote(c.id)},
-          React.createElement(Icon.sparkles,{s:12}), suggesting ? "Suggesting…" : ((c.note||"").trim() ? "Suggest another note" : "Suggest a note")),
+          React.createElement(Icon.sparkles,{s:12}), suggesting ? "Suggesting…" : ((c.note||"").trim() ? "Suggest another note" : "Suggest a note"))),
         // an editable setting that changes the frame: on the card, not behind the prompt (2026-10-05)
         React.createElement(SheetField,{label:"Leave out (negative prompt)",value:c.negativePrompt||"",placeholder:"e.g. text, logos, people",
           onCommit:val=>onUpdate(c.id,{negativePrompt:val})})),
@@ -553,13 +568,15 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
             batchActiveId ? "Rendering…" : "Preview the look",
             missing.length>0 && typeof window.nbCostChip==="function" && window.nbCostChip(missing.length))))),
 
-    // YOUR OWN REFERENCE (owner 2026-10-28): "+ Add a reference" above the visual statement adds a card by hand — a
+    // YOUR OWN REFERENCE (owner 2026-10-28): a "+" above the visual statement (just the sign — its name is in the
+    // tooltip and for screen readers) adds a card by hand — a
     // touchstone you choose, in one of the categories (the category still decides which departments read its note).
     // Once there are cards; the empty Lookbook keeps its own "Add by hand"
     list.length>0 && !readOnly && onAdd && React.createElement("div",{className:"lb-add-row"},
       React.createElement("button",{type:"button",className:"art-draftall ghost lb-add","data-testid":"lb-add",onClick:addReference,
-        title:"Add your own reference — upload an image of the look or name a touchstone, pick its category, write what to borrow"},
-        React.createElement(Icon.plus,{s:14}),"Add a reference")),
+        "aria-label":"Add a reference",
+        title:"Add a reference — upload an image of the look or name a touchstone, pick its category, write what to borrow"},
+        React.createElement(Icon.plus,{s:16}))),
     // the north-star visual statement
     React.createElement("div",{className:"lb-statement"},
       React.createElement(SheetField,{label:"Visual statement — the film's north star",value:note||"",multiline:true,

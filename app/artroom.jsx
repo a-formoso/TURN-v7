@@ -5222,6 +5222,8 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
       disabled:gening||(drafting&&pendingGenerate)||(generateDisabled?!onResolveGenerationBlock:specBlocked),
       title:generateDisabled
         ? (generateDisabledTitle||"Wait for the current generation to finish first.")
+        // a tab's own words for its gate (specGate.title / .label — the Lookbook: its note, owner 2026-10-28)
+        : (specBlocked && specGate.title) ? specGate.title
         : (!drafted && !genUrl && !slotHasRef)
         ? "Fills the text spec from the script first (writing credits), then generates the sheet in one step (image credits)"+(draftNote||"")
         : (generateTitle || (genUrl ? "Generate a fresh sheet from the current spec" : "Generate the sheet from the current spec"))},
@@ -5233,7 +5235,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
             gen.saving ? "Saving\u2026" : pendingGenerate ? "Drafting\u2026" :
             retrying ? "Retrying simplified\u2026" : "Generating\u2026")
         : React.createElement(React.Fragment,null,React.createElement(Icon.sparkles,{s:14}),
-            gen.pendingSave ? "Retry save" : specBlocked ? "Draft specification first" :
+            gen.pendingSave ? "Retry save" : specBlocked ? (specGate.label || "Draft specification first") :
             genUrl ? "Generate new image" :
             (slotHasRef ? "Generate from photo" :
             (!drafted ? "Draft & generate image" : "Generate image")),
@@ -6202,7 +6204,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                 identityProvenance:{ ...(c.identityProvenance||{}), pronouns:"user" }})},
               [["","set pronouns\u2026"],["he/him","he/him"],["she/her","she/her"],["they/them","they/them"]].map(function(o){return React.createElement("option",{key:o[0]||"unset",value:o[0],disabled:!o[0]},o[1]);})))),
           typeof window.CharacterIdentityNotice==="function" && React.createElement(window.CharacterIdentityNotice,{
-             character:c, scenes, drafts, cast:cast||[c], readOnly:!!readOnly,
+             character:c, scenes, drafts, cast:cast||[c], readOnly:!!readOnly, inSection:true,
             onUpdate:(id,patch)=>onUpdate(id, { ...(patch||{}), pronounProvenance:"user",
               identityProvenance:{ ...(c.identityProvenance||{}), pronouns:"user" } })
           }),
