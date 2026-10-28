@@ -4880,7 +4880,7 @@ if(typeof document!=="undefined" && typeof document.addEventListener==="function
 }
 window.frameFitImage = frameFitImage;
 
-function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs, draftNote }){
+function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs, draftNote, generateQuiet }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, relatedClearIdsOf, relatedClearLabel, revertPrevious, layers, allModels } = gen;
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
@@ -5218,7 +5218,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     referenceControls,
     // generate + (while running) stop sit on ONE row — full-width when idle, 50/50 while generating
     React.createElement("div",{className:"sheet-gen-row"},
-    React.createElement("button",{className:"sheet-gen-btn"+(generateDisabled&&!gening?(onResolveGenerationBlock?" needs-review":" waiting"):""),onClick:handleGenerateClick,
+    React.createElement("button",{className:"sheet-gen-btn"+(generateDisabled&&!gening?(onResolveGenerationBlock?" needs-review":" waiting"):"")+(generateQuiet?" quiet":""),onClick:handleGenerateClick,
       disabled:gening||(drafting&&pendingGenerate)||(generateDisabled?!onResolveGenerationBlock:specBlocked),
       title:generateDisabled
         ? (generateDisabledTitle||"Wait for the current generation to finish first.")
