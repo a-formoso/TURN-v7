@@ -11459,3 +11459,16 @@ video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:aut
 .ve-use-line:disabled{opacity:.6;cursor:default}
 .ve-pick-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .ve-note{color:var(--txt-3);font-size:11px}
+
+/* A — what the plates see (2026-10-28): a compass ring of the directions a location's panels look */
+.loc-coverage-ring{display:flex;gap:14px;align-items:flex-start;margin:10px 0;padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2)}
+.loc-coverage-ring svg{flex:0 0 auto}
+.loc-ring-seg{fill:none;stroke:var(--line-3);stroke-width:9}
+.loc-ring-seg.seen{stroke:var(--hs-amber,var(--brand))}
+.loc-ring-ray{stroke:var(--txt-2);stroke-width:1.2}
+.loc-ring-ray.rev{stroke-dasharray:3 2}
+.loc-ring-lab{font:600 9px var(--f-ui);fill:var(--txt-2)}
+.loc-coverage-ring-text{font-size:12px;line-height:1.45;color:var(--txt-1);display:grid;gap:4px}
+.loc-coverage-ring-text p{margin:0}
+.loc-coverage-ring-text small{color:var(--txt-3)}
+.loc-ring-open{justify-self:start;margin-top:4px}

@@ -3209,6 +3209,154 @@ window.locationSpaceOpenings = locationSpaceOpenings;
 window.locationDefaultPanelPoses = locationDefaultPanelPoses;
 window.locationStoredPanelViews = locationStoredPanelViews;
 window.locationPanelPoses = locationPanelPoses;
+
+/* ======================= VIEW COVERAGE (owner-approved 2026-10-28, "go ahead with A–D") =======================
+   Four panels can't show a whole space: Marmorica's CAR Deck saw ~150° of its 360°, and five of its rooms weren't on
+   the floor plan, so nobody knew which way their panels faced. A shot looking at a side no panel shows got the same
+   plate and the model invented that side.
+   A  locationViewCoverage: which directions a space's panels see (its main sheet + its Reverse views sheet), the
+      compass sides and the layout's objects no panel sees, and whether its panels' facings are known at all;
+   B  a space with no floor-plan footprint says so (its layout is drafted on the place that owns it);
+   C  the REVERSE VIEWS sheet ("<id>-rev"): four more cameras standing where the main sheet's do, looking the other
+      way (locationReversePanelPoses), made from the main sheet;
+   D  locationShotFacing + locationPanelForFacing: the way a shot looks (its written direction, a reverse of the
+      shot before, a Blender camera) → the panel of either sheet that faces that way, cut out on its own. */
+const LOC_REVERSE_SUFFIX = "-rev";
+function locationReverseId(l){ return String((l && l.id) || l || "") + LOC_REVERSE_SUFFIX; }
+function locationHasReverse(l){
+  const m = (typeof nbGetMeta==="function") ? nbGetMeta(locationReverseId(l)) : null;
+  return !!(m && m.iso);
+}
+/* the Reverse views sheet's four cameras: each main panel's camera, turned round (its facing + 180°) */
+function locationReversePanelPoses(l, locations){
+  return locationPanelPoses(l, locations).map(p=>({
+    ...p, sheet:"reverse",
+    pose:{ ...p.pose, yaw:p.pose.yaw==null ? null : locYaw(Number(p.pose.yaw)+180), target:undefined },
+    purpose:"the reverse of the main sheet's "+String(LOC_PANEL_INFO[p.key] ? LOC_PANEL_INFO[p.key].label : p.key).toLowerCase()
+      +" view: the same camera position, turned round to look the opposite way"+(p.pose.yaw==null ? "" : " (facing "+locCompass(locYaw(Number(p.pose.yaw)+180))+")")
+      +" — what stands behind that camera" }));
+}
+/* every panel whose facing is known, on the main sheet and (when it exists) the Reverse views sheet */
+function locationPanelFacings(l, locations, opts){
+  const o = opts || {};
+  const out = [];
+  locationPanelPoses(l, locations).forEach(p=>{ if(p.pose.yaw!=null) out.push({ sheet:"main", assetId:String(l.id), key:p.key,
+    yaw:Number(p.pose.yaw), hfov:locLensHfov(p.pose.lensMm), position:p.pose.position||null, stated:!!p.stated }); });
+  if(o.withReverse!==false && (o.reverse===true || locationHasReverse(l)))
+    locationReversePanelPoses(l, locations).forEach(p=>{ if(p.pose.yaw!=null) out.push({ sheet:"reverse", assetId:locationReverseId(l), key:p.key,
+      yaw:Number(p.pose.yaw), hfov:locLensHfov(p.pose.lensMm), position:p.pose.position||null, stated:!!p.stated }); });
+  return out;
+}
+const LOC_SIDES = [["north",0],["east",90],["south",180],["west",270]];
+function locationViewCoverage(l, locations, opts){
+  const list = _locList(locations);
+  let plan = null, space = null;
+  try{ plan = _locOwnerPlan(l, list).plan; space = _locCoordSpace(plan.coordinates, l); }catch(e){}
+  const panels = locationPanelFacings(l, list, opts);
+  const bins = new Array(36).fill(0);
+  panels.forEach(p=>{ for(let i=0;i<36;i++) if(Math.abs(locYawDiff(i*10+5, p.yaw))<=p.hfov/2) bins[i] = 1; });
+  const sectorSeen = (centre)=>{ let n = 0; for(let i=0;i<36;i++) if(Math.abs(locYawDiff(i*10+5, centre))<=45 && bins[i]) n++; return n/9; };
+  const unseenSides = panels.length ? LOC_SIDES.filter(([,c])=>sectorSeen(c)<0.3).map(([n])=>n) : [];
+  // the layout's objects in this space that no panel faces (from its camera, or the room's middle when not placed)
+  const fp = space && Array.isArray(space.footprint) && space.footprint.length>=3 ? space.footprint : null;
+  const mid = fp ? [fp.reduce((a,q)=>a+q[0],0)/fp.length, fp.reduce((a,q)=>a+q[1],0)/fp.length] : null;
+  const k = _locNameKey(l && l.name);
+  const objects = ((plan && plan.anchors) || []).filter(a=>a && Array.isArray(a.xy) && _locNameKey(a.space)===k);
+  const unseenObjects = panels.length && (mid || panels.some(p=>p.position)) ? objects.filter(a=>!panels.some(p=>{
+    const from = p.position ? [Number(p.position[0]), Number(p.position[1])] : mid;
+    if(!from || Math.hypot(a.xy[0]-from[0], a.xy[1]-from[1])<0.3) return false;
+    return Math.abs(locYawDiff(_locBearing(from, a.xy), p.yaw))<=p.hfov/2; })).map(a=>a.name) : [];
+  return { known:panels.length>0, onFloorPlan:!!fp, panels, bins, coveredDeg:bins.reduce((a,b)=>a+b,0)*10,
+    unseenSides, unseenObjects, hasReverse:locationHasReverse(l), ownerName:(plan && locationSpatialOwner(l,list).name) || "" };
+}
+/* D: the way a shot looks, in the layout's compass — null when nothing says so.
+   (1) a Blender camera (the Stage's helper, when its set is proven to share the layout's north); (2) its written
+   direction: a compass word, or a ship's fore/aft/port/starboard when the layout's frame makes forward north, or
+   "toward <an object of this space>"; (3) "reverse" of the shot before, turned round. */
+function locationShotFacing(l, sh, opts){
+  const o = opts || {};
+  if(!l || !sh) return null;
+  try{ if(typeof window.stageShotCameraYaw==="function"){ const y = window.stageShotCameraYaw(sh, l); if(y!=null) return { yaw:locYaw(y), from:"blender" }; } }catch(e){}
+  const text = String([sh.composition, sh.action, sh.directives].filter(Boolean).join(" ")).toLowerCase();
+  let plan = null; try{ plan = _locOwnerPlan(l).plan; }catch(e){}
+  const frame = String((plan && plan.frame) || "").toLowerCase();
+  const nautical = /\b(forward|bow)\b/.test(frame) && /\bnorth\b/.test(frame);
+  const dir = /\b(?:look(?:s|ing)?|fac(?:es|ing)|toward|towards|to(?:ward)?s? the|aim(?:ed|s|ing)? (?:at|toward))\s+(?:the\s+)?(north|south|east|west|forward|fore|aft|astern|the bow|the stern|bow|stern|port|starboard)\b/.exec(text);
+  const WORD = { north:0, east:90, south:180, west:270 };
+  const SHIP = { forward:0, fore:0, bow:0, "the bow":0, aft:180, astern:180, stern:180, "the stern":180, starboard:90, port:270 };
+  if(dir){ const w = dir[1]; if(WORD[w]!=null) return { yaw:WORD[w], from:"text" }; if(nautical && SHIP[w]!=null) return { yaw:SHIP[w], from:"text" }; }
+  // toward one of this space's objects, from the room's middle
+  try{
+    const space = _locCoordSpace(plan.coordinates, l), fp = space && space.footprint;
+    if(fp && fp.length>=3){
+      const mid = [fp.reduce((a,q)=>a+q[0],0)/fp.length, fp.reduce((a,q)=>a+q[1],0)/fp.length], k = _locNameKey(l.name);
+      const toward = /\b(?:look(?:s|ing)?|fac(?:es|ing)|toward|towards)\s+(?:the\s+)?([a-z][a-z' -]{2,40})/.exec(text);
+      if(toward){ const words = _locNameKey(toward[1]).split(" ").filter(w=>w.length>=4);
+        const a = (plan.anchors||[]).filter(x=>x && Array.isArray(x.xy) && _locNameKey(x.space)===k)
+          .find(x=>words.some(w=>(" "+_locNameKey(x.name)+" ").indexOf(" "+w+" ")>=0));
+        if(a && Math.hypot(a.xy[0]-mid[0], a.xy[1]-mid[1])>=0.5) return { yaw:_locBearing(mid, a.xy), from:"object", object:a.name }; }
+    }
+  }catch(e){}
+  if(/\breverse\b/.test(text) && o.prevShot && o.prevShot!==sh){
+    const prev = locationShotFacing(l, o.prevShot, { ...o, prevShot:null });
+    if(prev) return { yaw:locYaw(prev.yaw+180), from:"reverse" };
+  }
+  return null;
+}
+/* C: the Reverse views sheet's panel plan, in the prompt's views shape */
+function locationReverseViews(l, locations){
+  const poses = locationReversePanelPoses(l, locations), field = { TL:"top_left", TR:"top_right", BL:"bottom_left", BR:"bottom_right" };
+  const out = { layout:"exactly 4 views in a 2x2 grid \u2014 the REVERSE ANGLES of "+(l.name||"this place")+"'s main sheet (the attached main sheet): each panel stands where the same panel of the main sheet stands and looks the opposite way, so together the two sheets show every side of the space" };
+  poses.forEach(p=>{ out[field[p.key]] = p.purpose+(p.pose.yaw!=null || p.pose.position ? ". "+locationPoseText(p.pose, l.name||"", locationSpaceAnchors(l, locations)) : ""); });
+  out.rule = "the SAME space as the main sheet \u2014 the same architecture, materials, fixtures, scale and light; show what the main sheet's cameras have behind them, and never repeat a main-sheet view; no actors, no action, no lettering beyond what the spec quotes";
+  return out;
+}
+window.locationReverseViews = locationReverseViews;
+/* the panel of either sheet that faces a yaw (the closest within its half-width + 10°) — null when none does */
+function locationPanelForFacing(l, yaw, locations){
+  if(yaw==null) return null;
+  let best = null;
+  locationPanelFacings(l, locations).forEach(p=>{ const d = Math.abs(locYawDiff(yaw, p.yaw));
+    if(d<=p.hfov/2+10 && (!best || d<best.diff)) best = { ...p, diff:d }; });
+  return best;
+}
+/* D: one panel of a sheet, cut out and kept as its own asset ("pc-<sheet id>-<panel>"), so every path that loads images
+   by id (the shot frame, its thumbnails, the Stage) reads it; cut again when that sheet changes */
+function locationPanelCutId(assetId, key){ return "pc-"+String(assetId||"")+"-"+String(key||"").toLowerCase(); }
+async function locationEnsurePanelCut(assetId, key, opts){
+  const o = opts || {};
+  const id = locationPanelCutId(assetId, key);
+  const sheetUrl = await _locLoadPlate(assetId);
+  if(!sheetUrl || !LOC_PANEL_INFO[key]) return "";
+  const sMeta = (typeof nbGetMeta==="function" && nbGetMeta(assetId)) || {};
+  let cur = typeof nbGetMeta==="function" ? nbGetMeta(id) : null;
+  if(!cur && typeof nbLoadImage==="function"){ try{ await nbLoadImage(id); }catch(e){} cur = typeof nbGetMeta==="function" ? nbGetMeta(id) : null; }
+  if(cur && cur.panelOf===assetId && cur.panelKey===key && String(cur.panelIso||"")===String(sMeta.iso||"")){
+    const u = await _locLoadPlate(id); if(u) return u;
+  }
+  if(o.readOnly) return "";
+  let source = sheetUrl;
+  if(typeof oaiToDataUrl==="function"){ try{ source = (await oaiToDataUrl(sheetUrl)) || sheetUrl; }catch(e){} }
+  const url = typeof cropRegionAsDataUrl==="function" ? ((await cropRegionAsDataUrl(source, LOC_PANEL_INFO[key].crop, LOC_PANEL_CROP_MAX_DIM, LOC_PANEL_CROP_MIN_DIM)) || "") : "";
+  if(!url) return "";
+  if(typeof nbCommit==="function"){
+    const epoch = typeof nbEpoch==="function" ? nbEpoch() : null;
+    try{ const r = await nbCommit(id, url, { panelOf:assetId, panelKey:key, panelIso:sMeta.iso||"", kind:"location-panel-cut",
+      prompt:"Cut from "+assetId+" ("+key+" panel)" }, [], "location", epoch);
+      if(r && r.url && r.tier!=="stale" && r.tier!=="cancelled") return r.url;
+    }catch(e){}
+  }
+  return url;
+}
+window.locationPanelCutId = locationPanelCutId;
+window.locationEnsurePanelCut = locationEnsurePanelCut;
+window.locationReverseId = locationReverseId;
+window.locationHasReverse = locationHasReverse;
+window.locationReversePanelPoses = locationReversePanelPoses;
+window.locationPanelFacings = locationPanelFacings;
+window.locationViewCoverage = locationViewCoverage;
+window.locationShotFacing = locationShotFacing;
+window.locationPanelForFacing = locationPanelForFacing;
 window.locationPlatePanelRecord = locationPlatePanelRecord;
 window.locationPlatePanels = locationPlatePanels;
 window.locationPanelSightlines = locationPanelSightlines;
@@ -5193,15 +5341,17 @@ function buildLocationRefPrompt(l, project, opts){
       },
       tone: tone || undefined,
     },
-    fixtures: fixtures.length ? fixtures : undefined,
+    // the main view's composition is the MAIN sheet's (a Reverse views sheet looks the other way: none)
+    fixtures: (fixtures.length && !opts.reverse) ? fixtures : undefined,
     // (2026-10-27) the composition is the plate's MAIN view: the top-left panel
-    fixture_projection_rule:"These fixtures describe ONLY the main (top-left) view"+(clean(st.viewLabel) ? " \u2014 "+clean(st.viewLabel) : "")+". The shared set layout takes precedence over this composition. Other panels show the same fixed objects from their own cameras; do not restage or duplicate them.",
+    fixture_projection_rule: opts.reverse ? undefined :"These fixtures describe ONLY the main (top-left) view"+(clean(st.viewLabel) ? " \u2014 "+clean(st.viewLabel) : "")+". The shared set layout takes precedence over this composition. Other panels show the same fixed objects from their own cameras; do not restage or duplicate them.",
     environment_props: envProps.length ? envProps : undefined,
     ambient_species_canon: speciesCanon.length ? speciesCanon : undefined,
     /* PLATE CAMERAS (2026-10-13, Location coordinates): a room's four panels are its own cameras, each opening named
        with the view of the space beyond it (locationSubspaceViews); an owner space states the cameras that are SET —
        with none set its views are exactly as before */
-    views: subspacePlan ? locationSubspaceViews(l, subspacePlan, opts.panelRefs) : ownerCameraViews({
+    // C (2026-10-28): the Reverse views sheet — the main sheet's four cameras turned round
+    views: opts.reverse ? locationReverseViews(l, _C0.locations) : subspacePlan ? locationSubspaceViews(l, subspacePlan, opts.panelRefs) : ownerCameraViews({
       ...(panelPlan || {
         layout: "exactly 4 views in a 2x2 grid",
         top_left: "wide establishing THREE-QUARTER view at eye level from a front corner, looking diagonally across the space so two walls meet and the floor's depth and the ways in read \u2014 not a flat, straight-on symmetrical front view",
