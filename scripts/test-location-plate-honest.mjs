@@ -96,6 +96,20 @@ ok("E the card says which panel and when the composition was drafted for another
 // F
 ok("F plain labels", ui.includes('"Floor plan \\u00b7 where everything stands"') && ui.includes('"Plate cameras \\u00b7 where each panel is shot from"')
   && ui.includes('"Main view \\u00b7 far, middle, near"') && ui.includes('"Blender details"') && ui.includes('"Lens, scale and camera notes"') && ui.includes('"Main view"'));
-ok("Frances knows", /PLATES THAT SHOW THE LAYOUT \(2026-10-27\)/.test(ai));
+// STORY MOMENTS (2026-10-27, from the test run: the Lounge plate drew a scene's wet footprints)
+{
+  box.turnContinuity={locations:[],scenes:[{id:"s1"}],drafts:{s1:{blocks:[
+    {type:"action",text:"Amber night-lamps. Empty benches."},
+    {type:"action",text:"It stops on small, wet, bare footprints tracking in from the spray-slick deck."},
+    {type:"dia",text:"The blood on the deck is mine."},
+    {type:"action",text:"A mug lies smashed by the door."}]}}};
+  const t=box.locationStoryTraces({scenes:["s1"]});
+  ok("story moments come from action lines only (never dialogue), with the trace words",
+    t.items.length===2 && /footprints tracking in/.test(t.items[0]) && /smashed/.test(t.items[1]) && JSON.stringify(t.words)==='["footprints","broken glass"]', JSON.stringify(t));
+  ok("…and a quiet place has none", box.locationStoryTraces({scenes:[]}).items.length===0);
+  ok("the neutral plate is told to leave them out, and its AVOID list names them",
+    loc.includes('leave_out_story_moments: (()=>{ const t = locationStoryTraces(l);') && loc.includes("locationAvoidText(l.negativePrompt || locVisualDefaults(l).negativePrompt || \"\", extra, traces.words.join(\", \"))"));
+}
+ok("Frances knows", /PLATES THAT SHOW THE LAYOUT \(2026-10-27\)/.test(ai) && /STORY MOMENTS ARE LEFT OUT/.test(ai));
 console.log(pass+" passed, "+fail+" failed");
 process.exit(fail?1:0);

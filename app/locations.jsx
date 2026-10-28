@@ -5179,6 +5179,10 @@ function buildLocationRefPrompt(l, project, opts){
         affordances: _affordances.length ? _affordances : undefined,
         capacity: _capacity>1 ? ("the space must comfortably hold up to "+_capacity+" people at once when scenes play") : undefined,
       } : undefined,
+      // (2026-10-27) the screenplay's story moments left out of this neutral plate
+      leave_out_story_moments: (()=>{ const t = locationStoryTraces(l); return t.items.length ? {
+        rule:"these are moments in the story, not part of the place: this neutral plate shows none of them (no "+t.words.join(", ")+")",
+        from_the_screenplay:t.items } : undefined; })(),
       screenplay_context: screenplayContext || undefined,
       screenplay_of_scenes_not_attached: screenplayNotAttached.length ? screenplayNotAttached : undefined,
       screenplay_reference_contract: {
@@ -5280,10 +5284,47 @@ window.locationEnvironmentProps = locationEnvironmentProps;
 /* opts (2026-10-14): panelPlan / panelRefs (a room's views), screenplayPages (the attached pages' image numbers — the
    screenplay text becomes a pointer to them), model / maxChars / reserve (the prompt budget: its engine's limit less
    the reference list that follows) */
+/* STORY MOMENTS ARE NOT THE PLACE (owner 2026-10-27, from the Marmorica test run: the Lounge's master plate drew "small,
+   wet, bare footprints tracking in from the deck" — a moment of its scene): the traces the screenplay's ACTION leaves
+   in a place (footprints, spills, blood, broken glass, debris, smoke…) are found in its scenes' action lines and listed
+   for its neutral plates as things to leave out; a room & time or environment-state plate shows them when its state
+   says so. → { items:[the action sentence, short], words:[the trace nouns] } */
+const LOC_STORY_TRACES = [
+  [/\b(foot ?prints?|footmarks?|prints? of|tracks? of|wet (?:bare )?(?:prints?|feet))\b/i, "footprints"],
+  [/\b(puddles?|spill(?:s|ed)?|spilt)\b/i, "spills"],
+  [/\bblood\b/i, "blood"],
+  [/\b(broken glass|shattered|smashed|shards?)\b/i, "broken glass"],
+  [/\b(debris|scattered|strewn|litter(?:ed)?)\b/i, "debris"],
+  [/\b(smoke|smoulder(?:s|ing)?|smolder(?:s|ing)?|burning)\b/i, "smoke"],
+  [/\b(stain(?:s|ed)?|smear(?:s|ed)?)\b/i, "stains"],
+  [/\b(overturned|toppled|knocked over)\b/i, "overturned furniture"],
+];
+function locationStoryTraces(l){
+  const C = window.turnContinuity || {};
+  const own = new Set((Array.isArray(l && l.scenes) ? l.scenes : []).map(String));
+  const items = [], words = [];
+  (C.scenes||[]).filter(sc=>sc && own.has(String(sc.id))).forEach(sc=>{
+    const blocks = ((C.drafts||{})[sc.id]||{}).blocks || [];
+    blocks.filter(b=>b && b.type==="action").forEach(b=>{
+      String(b.text||"").split(/(?<=[.!?])\s+/).forEach(sent=>{
+        LOC_STORY_TRACES.forEach(([re, word])=>{
+          if(!re.test(sent)) return;
+          const t = sent.replace(/\s+/g," ").trim().slice(0,140);
+          if(items.length<6 && items.indexOf(t)<0) items.push(t);
+          if(words.indexOf(word)<0) words.push(word);
+        });
+      });
+    });
+  });
+  return { items, words };
+}
+window.locationStoryTraces = locationStoryTraces;
 function combinedLocationPrompt(l, project, opts){
   const extra = (typeof locationCharacterNegative==="function") ? locationCharacterNegative(project, l) : "";
-  // ONE AVOID list (2026-10-14): the default negative prompt already ends with the character negative — said once
-  const neg = locationAvoidText(l.negativePrompt || locVisualDefaults(l).negativePrompt || "", extra);
+  // ONE AVOID list (2026-10-14): the default negative prompt already ends with the character negative — said once;
+  // (2026-10-27) the screenplay's story traces too (footprints, spills…), never on a neutral plate
+  const traces = locationStoryTraces(l);
+  const neg = locationAvoidText(l.negativePrompt || locVisualDefaults(l).negativePrompt || "", extra, traces.words.join(", "));
   const avoid = neg ? (" AVOID: " + neg + ".") : "";
   return buildLocationRefPrompt(l, project, {...(opts||{}), avoidChars:avoid.length}) + avoid;
 }
