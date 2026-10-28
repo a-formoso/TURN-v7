@@ -4,8 +4,8 @@
       touchstone for the same category is one card; deleted cards are kept but never read
    B  mood frames are rendered in the film's medium (photoreal until one is picked); no "--ar"
    C  "Preview the look" (optional previews, owner 2026-10-28): only references with a note and no
-      preview; the price is for all of them; nothing to render → no button at all; the grid's last
-      tile "Add a reference" adds your own card (not for view-only, not on an empty Lookbook)
+      preview; the price is for all of them; nothing to render → no button at all; "+ Add a reference"
+      above the visual statement adds your own card (not for view-only, not on an empty Lookbook)
    D  deleting asks first and moves the card (with its frame) to Recently deleted; restore / delete
       forever; every write-back keeps the bin
    E  "Research again": fill the missing categories, or research from scratch (hand-added cards stay,
@@ -13,7 +13,8 @@
    F  "Suggest a note": one writing call; names a touchstone only on a hand-added card
    G  the frame prompt is behind the card's ⋯ menu; Frances knows all of it
    H  a note from an image (owner 2026-10-28): drop your own picture in the one slot (newest wins); on an
-      upload, one vision call writes the note for the card's category; the note stays editable
+      upload, one vision call writes the note for the card's category; the note stays editable; an upload
+      with no note walks you through it (1 pick the category, 2 write the note); the card's sections are indented
      node scripts/test-lookbook-review.mjs */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -115,27 +116,27 @@ await test("C1 'Preview the look' renders only the noted cards without a preview
   box.__begun = null; b.props.onClick();
   assert.deepEqual(J(box.__begun), { ids:["r2", "r3"], skipped:2 }, "r1 has its frame, r4 has no note");
 });
-await test("C4 the grid's last tile, 'Add a reference', adds your own card; hidden for view-only and on an empty Lookbook", ()=>{
-  const addTile = (tree)=> findAll(tree, n=>n.type==="button" && n.props && n.props["data-testid"]==="lb-add");
+await test("C4 '+ Add a reference' above the visual statement adds your own card; hidden for view-only and on an empty Lookbook", ()=>{
+  const addBtn = (tree)=> findAll(tree, n=>n.type==="button" && n.props && n.props["data-testid"]==="lb-add");
   let added = 0;
   const tree = viewWith({ r1:true }, { onAdd:()=>{ added++; return "look-new"; } });
-  const grid = findAll(tree, hasClass("sheet-grid"))[0];
-  const kids = grid.children.filter(Boolean);
-  const tile = kids[kids.length-1];
-  assert.equal(tile.props["data-testid"], "lb-add", "the grid's last cell");
-  assert.ok(hasClass("lb-add-tile")(tile));
-  assert.match(textOf(tile), /^Add a reference/);
-  assert.match(textOf(tile), /Pick its category and write what to borrow/);
-  tile.props.onClick(); assert.equal(added, 1, "one click, one hand-added card");
-  assert.equal(addTile(viewWith({}, { readOnly:true })).length, 0, "a view-only collaborator can't add");
+  const scroll = tree.children.filter(Boolean);
+  const row = scroll.findIndex(n=>hasClass("lb-add-row")(n)), statement = scroll.findIndex(n=>hasClass("lb-statement")(n));
+  assert.ok(row>=0 && row===statement-1, "just above the visual statement");
+  const b = addBtn(tree)[0];
+  assert.match(textOf(b), /^Add a reference$/);
+  assert.ok(hasClass("ghost")(b));
+  assert.equal(findAll(findAll(tree, hasClass("sheet-grid"))[0], hasClass("lb-add-tile")).length, 0, "no tile in the grid any more");
+  b.props.onClick(); assert.equal(added, 1, "one click, one hand-added card");
+  assert.equal(addBtn(viewWith({}, { readOnly:true })).length, 0, "a view-only collaborator can't add");
   R.reset({});
   const empty = box.LookbookView({ project:{}, lookbook:[], note:"", onAdd:noop, onUpdate:noop, onDelete:noop, onResearch:noop });
-  assert.equal(addTile(empty).length, 0, "the empty state keeps its own 'Add by hand'");
+  assert.equal(addBtn(empty).length, 0, "the empty state keeps its own 'Add by hand'");
   assert.ok(textOf(empty).includes("Add by hand"));
   assert.ok(read("app/artroom.jsx").includes("React.createElement(LookbookView,{project,lookbook,note:lookbookNote,readOnly,"));
   const css = read("app/styles.css");
-  assert.ok(css.includes(".lb-add-tile{") && /\.lb-add-tile\{[^}]*border:1\.5px dashed var\(--line-3\)/.test(css), "one dashed border, like the empty slots");
-  assert.ok(read("app/ai.jsx").includes("the last tile of the grid, 'Add a reference', adds your own touchstone"), "Frances knows");
+  assert.ok(css.includes(".lb-add-row{display:flex;justify-content:flex-end;") && !css.includes(".lb-add-tile{"));
+  assert.ok(read("app/ai.jsx").includes("the '+ Add a reference' button just above the visual statement adds your own touchstone"), "Frances knows");
 });
 await test("C2 every noted card has its preview: no previews button at all (never a to-do)", ()=>{
   assert.equal(genBtn(viewWith({ r1:true, r2:true, r3:true })), undefined);
@@ -274,11 +275,11 @@ await test("H2 'Write the note from the image' shows only on an UPLOADED image, 
   assert.match(textOf(b), /Rewrite the note from the image/, "r1 has a note already");
   assert.match(b.props.title, /one vision call\. You can edit the note afterwards\./);
   b.props.onClick(); assert.deepEqual(got, { id:"r1", url:"data:image/png;base64,AAA" });
-  assert.match(textOf(fromImageBtn(cardTree(cards[3], up, { onNoteFromImage }))), /^Write the note from the image/);
+  assert.match(textOf(fromImageBtn(cardTree(cards[3], up, { onNoteFromImage }))), /^2Write the note from the image$/, "a card with no note: step 2's number, then the label");
   const busy = fromImageBtn(cardTree(cards[0], up, { onNoteFromImage, readingImageId:"r1" }));
   assert.equal(busy.props.disabled, true); assert.match(textOf(busy), /Reading the image…/);
   const tree = cardTree(cards[3], up, { onNoteFromImage });
-  assert.match(textOf(findAll(tree, hasClass("sheet-undrafted"))[0]), /Write the note from the image reads your picture/,
+  assert.match(textOf(findAll(tree, hasClass("sheet-undrafted"))[0]), /Your image is in\. Two steps .*The note is what the departments read\./,
     "an uploaded image with no note still says the note is what departments read");
   assert.ok(findAll(tree, n=>n.type==="SheetField" && /What to borrow/.test(n.props.label||""))[0].props.onCommit, "the note stays editable");
 });
@@ -321,6 +322,58 @@ await test("H4 the app writes the note (and a name only on an unnamed card), for
   assert.ok(art.includes("onNoteFromImage:onLookbookNoteFromImage,readingImageId:readingLookbookImageId})"));
   for(const s of ["A NOTE FROM AN IMAGE (owner 2026-10-28)", "The slot holds ONE image, newest wins", "The note stays fully editable afterwards",
     "It isn't offered on a rendered preview"]) assert.ok(ai.includes(s), s);
+});
+
+await test("H5 an upload, step by step: 1 pick the category (empty box, highlighted, the button waits), then 2 write the note", ()=>{
+  const up = { genUrl:"data:image/png;base64,AAA", genMeta:{ uploaded:true } };
+  const on = { onNoteFromImage:noop };
+  const fresh = { id:"n1", source:"Palette study", category:"Palette", note:"", manual:true, autoNamed:true };
+  const catField = (tree)=> findAll(tree, n=>n.props && n.props["data-testid"]==="lb-category")[0];
+  const stepNums = (tree)=> findAll(tree, hasClass("lb-step-n")).map(n=>textOf(n)+(hasClass("on")(n)?"*":""));
+  // step 1
+  let tree = cardTree(fresh, up, on);
+  assert.match(textOf(findAll(tree, n=>n.props && n.props["data-testid"]==="lb-steps")[0]), /^Your image is in\. Two steps turn it into a reference: 1 · pick the category it's a reference for, then 2 · Write the note from the image\./);
+  let f = catField(tree);
+  assert.ok(hasClass("lb-step-on")(f), "the category is highlighted first");
+  const sel = findAll(f, n=>n.type==="select")[0];
+  assert.equal(sel.props.value, "", "no category shown yet, so picking Palette counts too");
+  assert.equal(findAll(sel, n=>n.type==="option")[0].props.disabled, true);
+  assert.match(textOf(findAll(f, hasClass("lb-routes"))[0]), /The category decides which departments read the note\./);
+  let b = fromImageBtn(tree);
+  assert.equal(b.props.disabled, true, "step 2 waits for step 1"); assert.match(b.props.title, /^Pick the category first/);
+  assert.ok(!hasClass("lb-step-on")(b));
+  assert.deepEqual(J(stepNums(tree)), ["1*", "2"]);
+  let got = null;
+  box.onUpdateCapture = null;
+  R.reset();
+  const lc = box.LookbookView({ project:{}, lookbook:[fresh], note:"", onUpdate:(id, patch)=>{ got = { id, patch }; }, onAdd:noop, onDelete:noop, onSetNote:noop, ...on });
+  box.useImageGen = ()=>({ gening:false, generate:noop, ...up });
+  const card = findAll(lc, n=>typeof n.type==="function" && n.props && n.props.c)[0]; R.reset();
+  findAll(catField(card.type(card.props)), n=>n.type==="select")[0].props.onChange({ target:{ value:"Palette" } });
+  box.useImageGen = ()=>({ gening:false, genUrl:"", generate:noop });
+  assert.deepEqual(J(got), { id:"n1", patch:{ category:"Palette", categoryPicked:true } }, "your pick is remembered");
+  // step 2
+  tree = cardTree({ ...fresh, categoryPicked:true }, up, on);
+  assert.ok(!hasClass("lb-step-on")(catField(tree)));
+  assert.equal(findAll(catField(tree), n=>n.type==="select")[0].props.value, "Palette");
+  b = fromImageBtn(tree);
+  assert.ok(hasClass("lb-step-on")(b), "the button is highlighted next"); assert.equal(b.props.disabled, false);
+  assert.deepEqual(J(stepNums(tree)), ["✓", "2*"]);
+  // a researched card has its category already: straight to step 2
+  assert.deepEqual(J(stepNums(cardTree({ ...cards[3], manual:false }, up, on))), ["✓", "2*"]);
+  // a note written: no steps at all
+  tree = cardTree(cards[0], up, on);
+  assert.equal(stepNums(tree).length, 0); assert.ok(!hasClass("lb-step-on")(fromImageBtn(tree)));
+  // no upload: no steps
+  assert.equal(stepNums(cardTree(fresh, {}, on)).length, 0);
+});
+await test("H6 the card's sections sit inside them (indented), and the empty 'Leave out' field reads as a field", ()=>{
+  const css = read("app/styles.css");
+  assert.ok(css.includes(".lb-card .sheet-fold-body{padding:2px 12px 12px 26px}"));
+  const tree = cardTree(cards[0], {});
+  assert.ok(hasClass("lb-card")(tree));
+  assert.equal(findAll(tree, n=>n.type==="SheetField" && n.props.label==="Leave out (negative prompt)")[0].props.placeholder, "e.g. text, logos, people");
+  assert.ok(read("app/ai.jsx").includes("the card walks you through it STEP BY STEP"), "Frances knows");
 });
 
 console.log(`${checks} passed, ${failed} failed`);

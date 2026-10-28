@@ -327,6 +327,7 @@ button,input,select,textarea{font-family:inherit}
 .viewnav .seg{gap:6px;padding:5px 11px}
 .viewnav .seg .seg-lab{display:inline}
 /* Lookbook — the north-star visual statement block above the reference grid */
+.lb-add-row{display:flex;justify-content:flex-end;margin:0 0 10px}
 .lb-statement{margin:0 0 18px;padding:14px 16px;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-l)}
 /* Lookbook review (2026-10-03): Suggest a note, the Research again menu */
 .lb-routes{margin-top:6px;font-size:11px;color:var(--txt-3)}
@@ -334,6 +335,18 @@ button,input,select,textarea{font-family:inherit}
   border-radius:var(--r-m);background:var(--bg-2);color:var(--txt-1);font:600 11.5px var(--f-ui);cursor:pointer}
 .lb-suggest:hover:not(:disabled){border-color:var(--pos);color:var(--txt-0)}
 .lb-suggest:disabled{opacity:.55;cursor:progress}
+/* the Lookbook card (owner 2026-10-28): a section's fields sit inside it — indented under its title, with side room */
+.lb-card .sheet-fold-body{padding:2px 12px 12px 26px}
+/* an upload, step by step: the numbered steps; the one you're on is highlighted */
+.lb-step-n{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:16px;height:16px;margin-right:6px;border-radius:50%;
+  background:var(--bg-3);color:var(--txt-2);font:700 10px/1 var(--f-ui);vertical-align:-3px}
+.lb-step-n.on{background:var(--win-amber,#F29A43);color:var(--win-on-amber,#2C2722)}
+.lb-step-n.done{background:var(--ok-soft);color:var(--ok)}
+.sheet-field.lb-step-on .prop-select{border-color:var(--win-amber,#F29A43);box-shadow:0 0 0 3px var(--win-amber-soft,rgba(242,154,67,.14))}
+.lb-suggest.lb-step-on{background:var(--win-amber-soft,rgba(242,154,67,.14));border-color:var(--win-amber-line,rgba(242,154,67,.5));color:var(--win-amber-ink,#9E5410)}
+.lb-suggest.lb-step-on:hover:not(:disabled){border-color:var(--win-amber,#F29A43);color:var(--win-amber-ink,#9E5410)}
+.lb-suggest:disabled .lb-step-n{opacity:.8}
+.sheet-undrafted .lb-step-now{color:var(--txt-0)}
 .lb-research{position:relative;display:inline-flex}
 .lb-research-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:60;width:min(320px,86vw);padding:6px;
   background:var(--bg-2);border:1px solid var(--line-2);border-radius:var(--r-l);box-shadow:0 14px 40px rgba(0,0,0,.18)}
@@ -10455,14 +10468,6 @@ html[data-theme="light"]{
 .app.hs.room-art .sheet-gen-btn:not(.needs-review){background:var(--win-amber-soft);border:1px solid var(--win-amber-line);color:var(--win-amber-ink);font-weight:600}
 .app.hs.room-art .sheet-gen-btn:not(.needs-review):hover:not(:disabled){background:rgba(242,154,67,.24);border-color:var(--win-amber);color:var(--win-amber-ink)}
 .app.hs.room-art .sheet-gen-btn:not(.needs-review) svg{color:var(--win-amber-ink)}
-/* the Lookbook's "Add a reference" tile (owner 2026-10-28): the grid's last cell, one dashed border like the empty image slots */
-.lb-add-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:260px;padding:24px;
-  background:transparent;border:1.5px dashed var(--line-3);border-radius:var(--r-l);color:var(--txt-1);font:inherit;text-align:center;cursor:pointer;transition:border-color .12s,background .12s}
-.lb-add-tile:hover{border-color:var(--pos-line);background:var(--bg-2);color:var(--txt-0)}
-.lb-add-tile:focus-visible{outline:2px solid var(--pos-line);outline-offset:2px}
-.lb-add-ic{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:var(--bg-2);border:1px solid var(--line-2);color:var(--txt-1)}
-.lb-add-t{font-weight:600;font-size:14px;color:var(--txt-0)}
-.lb-add-d{max-width:240px;font-size:12px;line-height:1.45;color:var(--txt-2)}
 .app.hs.room-art :is(.bd-filter-btn,.pager-num).on{background:var(--win-amber-soft);border-color:var(--win-amber-line);box-shadow:inset 0 0 0 1px var(--win-amber-line);color:var(--win-ink)}
 .app.hs.room-art .bd-filter-btn.on .bd-filter-n{color:var(--win-amber-ink)}
 .app.hs .nb-dock .nb-seg-btn.on,.app.hs .nb-seg-btn.on{background:var(--win-amber-soft);box-shadow:inset 0 0 0 1px var(--win-amber-line);color:var(--win-ink)}

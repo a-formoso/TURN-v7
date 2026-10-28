@@ -357,6 +357,12 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
   });
   // (a card you added by hand keeps a name that follows its category and note — app.jsx updateLookbookCard)
   const update = (patch)=>onUpdate(c.id, patch);
+  // AN UPLOAD, STEP BY STEP (owner 2026-10-28): an image you uploaded with no note yet → 1 pick the category it's a
+  // reference for (a card you added by hand, until you pick one), 2 Write the note from the image. The step you're on
+  // is highlighted; a researched card already has its category, so it starts at step 2.
+  const uploaded = !!(gen.genUrl && gen.genMeta && gen.genMeta.uploaded);
+  const step = (uploaded && !drafted && onNoteFromImage) ? ((c.manual && !c.categoryPicked) ? 1 : 2) : 0;
+  const stepN = (n)=> step ? React.createElement("span",{className:"lb-step-n"+(step===n?" on":step>n?" done":"")},step>n?"\u2713":String(n)) : null;
   const askDelete = async ()=>{
     const ok = !window.appConfirm || await window.appConfirm({
       title:"Delete “"+(c.source||"this reference")+"”?",
@@ -379,7 +385,7 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, c.id]);
 
-  return React.createElement("div",{className:"sheet-card"+(batchActiveId===c.id?" batch-on":""),"data-look-card":c.id},
+  return React.createElement("div",{className:"sheet-card lb-card"+(batchActiveId===c.id?" batch-on":""),"data-look-card":c.id},
     React.createElement(SheetFrame,{ gen, slotId:"lookref-"+c.id, name:c.source||"Reference", avatarColor:"#6b7280",
       initials, drafted, drafting:false, onDraft:()=>{}, entity:c, onView,
       // ONE SLOT, NEWEST WINS (owner 2026-10-28): your own reference image (drop it, browse, or ⋯ Replace with upload)
@@ -400,19 +406,24 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
       // an uploaded image with no note still says so: the image alone reaches no department
       !drafted && (!gen.genUrl || (gen.genMeta && gen.genMeta.uploaded)) && React.createElement("div",{className:"sheet-undrafted"},
         React.createElement(Icon.alert,{s:14}),
-        React.createElement("span",null, (gen.genUrl && onNoteFromImage)
-          ? "No ‘what to borrow’ note yet — Write the note from the image reads your picture, or write it yourself below. The note is what the departments read."
-          : "No ‘what to borrow’ note yet — add one below, upload an image of the look, or let Suggest a note write it. The note is what the departments read.")),
+        step
+          ? React.createElement("span",{"data-testid":"lb-steps"},"Your image is in. Two steps turn it into a reference: ",
+              React.createElement("b",{className:step===1?"lb-step-now":""},"1 \u00b7 pick the category it's a reference for"),", then ",
+              React.createElement("b",{className:step===2?"lb-step-now":""},"2 \u00b7 Write the note from the image"),". The note is what the departments read.")
+          : React.createElement("span",null,"No ‘what to borrow’ note yet — add one below, upload an image of the look, or let Suggest a note write it. The note is what the departments read.")),
 
       React.createElement(CardFold,{label:"Reference",defaultOpen:true},
-        React.createElement("div",{className:"sheet-field"},
-          React.createElement("div",{className:"obj-lab"},"Category"),
-          React.createElement("select",{className:"prop-select",value:c.category||"Palette",
-            onChange:e=>update({category:e.target.value})},
+        React.createElement("div",{className:"sheet-field"+(step===1?" lb-step-on":""),"data-testid":"lb-category"},
+          React.createElement("div",{className:"obj-lab"},stepN(1),"Category"),
+          // step 1: no category shown yet, so picking any one — Palette too — counts as your choice
+          React.createElement("select",{className:"prop-select",value:step===1 ? "" : (c.category||"Palette"),
+            onChange:e=>update({category:e.target.value, categoryPicked:true})},
+            step===1 && React.createElement("option",{key:"",value:"",disabled:true},"Choose what this image is a reference for\u2026"),
             (window.LOOKBOOK_CATEGORIES||[]).map(cat=>React.createElement("option",{key:cat,value:cat},cat))),
           // where this card's note goes (owner 2026-10-28): the category decides, the preview image goes nowhere
-          React.createElement("div",{className:"lb-routes","data-testid":"lb-routes"},
-            "Its note goes to: "+(lookbookDeptsFor(c.category||"Palette").join(" \u00b7 ")||"no department")+".")),
+          React.createElement("div",{className:"lb-routes","data-testid":"lb-routes"}, step===1
+            ? "The category decides which departments read the note."
+            : "Its note goes to: "+(lookbookDeptsFor(c.category||"Palette").join(" \u00b7 ")||"no department")+".")),
         React.createElement(SheetField,{label:"What to borrow — the visual quality",value:c.note,multiline:true,
           placeholder:"The palette / lighting / lens / texture to draw from — abstract qualities, not the source's scenes…",
           onCommit:val=>update({note:val})}),
@@ -420,17 +431,18 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
         // added the card by hand and haven't named one
         // NOTE FROM AN IMAGE (owner 2026-10-28): only for an image you uploaded (reading back a preview made from the
         // note would go in a circle) — one vision call; the note it writes stays editable
-        onNoteFromImage && gen.genUrl && gen.genMeta && gen.genMeta.uploaded && React.createElement("button",{type:"button",className:"lb-suggest","data-testid":"lb-note-from-image",
-          disabled:!!reading||!!suggesting||gen.gening,
-          title:"Write this reference's ‘what to borrow’ note from the image you uploaded"+(c.autoNamed?" (and name the card)":"")+" — one vision call. You can edit the note afterwards.",
+        onNoteFromImage && uploaded && React.createElement("button",{type:"button",className:"lb-suggest"+(step===2?" lb-step-on":""),"data-testid":"lb-note-from-image",
+          disabled:!!reading||!!suggesting||gen.gening||step===1,
+          title: step===1 ? "Pick the category first — the note is written for it."
+            : "Write this reference's ‘what to borrow’ note from the image you uploaded"+(c.autoNamed?" (and name the card)":"")+" — one vision call. You can edit the note afterwards.",
           onClick:()=>onNoteFromImage(c.id, gen.genUrl)},
-          React.createElement(Icon.image,{s:12}), reading ? "Reading the image…" : ((c.note||"").trim() ? "Rewrite the note from the image" : "Write the note from the image")),
+          stepN(2) || React.createElement(Icon.image,{s:12}), reading ? "Reading the image…" : ((c.note||"").trim() ? "Rewrite the note from the image" : "Write the note from the image")),
         onSuggestNote && React.createElement("button",{type:"button",className:"lb-suggest",disabled:!!suggesting||!!reading,
           title:"Write this reference's ‘what to borrow’ note from the story"+(c.autoNamed?" (and suggest a touchstone)":"")+" — one writing call",
           onClick:()=>onSuggestNote(c.id)},
           React.createElement(Icon.sparkles,{s:12}), suggesting ? "Suggesting…" : ((c.note||"").trim() ? "Suggest another note" : "Suggest a note")),
         // an editable setting that changes the frame: on the card, not behind the prompt (2026-10-05)
-        React.createElement(SheetField,{label:"Leave out (negative prompt)",value:c.negativePrompt||"",
+        React.createElement(SheetField,{label:"Leave out (negative prompt)",value:c.negativePrompt||"",placeholder:"e.g. text, logos, people",
           onCommit:val=>onUpdate(c.id,{negativePrompt:val})})),
 
       // read-only, a folded section of every card (owner 2026-10-28)
@@ -541,6 +553,13 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
             batchActiveId ? "Rendering…" : "Preview the look",
             missing.length>0 && typeof window.nbCostChip==="function" && window.nbCostChip(missing.length))))),
 
+    // YOUR OWN REFERENCE (owner 2026-10-28): "+ Add a reference" above the visual statement adds a card by hand — a
+    // touchstone you choose, in one of the categories (the category still decides which departments read its note).
+    // Once there are cards; the empty Lookbook keeps its own "Add by hand"
+    list.length>0 && !readOnly && onAdd && React.createElement("div",{className:"lb-add-row"},
+      React.createElement("button",{type:"button",className:"art-draftall ghost lb-add","data-testid":"lb-add",onClick:addReference,
+        title:"Add your own reference — upload an image of the look or name a touchstone, pick its category, write what to borrow"},
+        React.createElement(Icon.plus,{s:14}),"Add a reference")),
     // the north-star visual statement
     React.createElement("div",{className:"lb-statement"},
       React.createElement(SheetField,{label:"Visual statement — the film's north star",value:note||"",multiline:true,
@@ -553,14 +572,7 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
       ? React.createElement("div",{className:"sheet-grid"},
           list.map(c=>React.createElement(LookbookCard,{key:c.id,c,project,onUpdate,onDelete,
             onView:(url,ent)=>setView({url,character:ent}),batchActiveId,onBatchDone:batch.advance,
-            onSuggestNote, suggesting:suggestingId===c.id, onNoteFromImage, reading:readingImageId===c.id})),
-          // YOUR OWN REFERENCE (owner 2026-10-28): the last tile of the grid adds a card by hand — a touchstone
-          // you choose, in one of the categories (the category still decides which departments read its note)
-          !readOnly && onAdd && React.createElement("button",{type:"button",className:"lb-add-tile","data-testid":"lb-add",
-            onClick:addReference,title:"Add your own reference — pick its category, name the touchstone, write what to borrow"},
-            React.createElement("span",{className:"lb-add-ic"},React.createElement(Icon.plus,{s:18})),
-            React.createElement("span",{className:"lb-add-t"},"Add a reference"),
-            React.createElement("span",{className:"lb-add-d"},"Your own touchstone — a film, a photographer, a painting. Pick its category and write what to borrow.")))
+            onSuggestNote, suggesting:suggestingId===c.id, onNoteFromImage, reading:readingImageId===c.id})))
       : React.createElement("div",{className:"prop-empty"},
           React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon.image,{s:30})),
           React.createElement("div",{className:"art-soon-t"},"No references yet"),
