@@ -36,8 +36,14 @@ function propInheritedStyleKey(p){
 }
 window.propInheritedStyleKey = propInheritedStyleKey;
 
+/* "(Proposal)" / "[Proposal]" labels (owner 2026-10-29): the prop drafter was told unspecified design is a "PROPOSAL" and
+   wrote the word into the fields — it never reaches a prompt or the card (stored text is left as it is) */
+function propSpecClean(t){
+  return String(t==null?"":t).replace(/\s*[\(\[]\s*proposal(?:ed)?\s*[\)\]]\s*[:\-\u2013\u2014]?\s*/gi," ").replace(/^\s*proposal(?:ed)?\s*[:\u2014\u2013-]\s*/i,"").replace(/\s{2,}/g," ").trim();
+}
+window.propSpecClean = propSpecClean;
 function buildPropRefPrompt(p, project){
-  const clean = (x)=>String(x||"").replace(/\.$/,"").trim();
+  const clean = (x)=>propSpecClean(x).replace(/\.$/,"").trim();
   const name = p.name || "Object";
   const form = clean(p.form);
   const material = clean(p.material);
@@ -1376,6 +1382,20 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
               title:"Keep this object as a prop you own — it moves to Story props and batches can then draft it and make its image. It keeps its origin and its Not in screenplay badge.",
               onClick:()=>onUpdate(p.id, window.PropScreenplay.acceptPatch())},
               React.createElement(Icon.check,{s:12}),"Keep this prop")),
+          // the screenplay badges (2026-10-29: they were inside the evidence section's header)
+          (unverified || (!!savedSources.length && validSources.length<savedSources.length)) && React.createElement("div",{className:"prop-status-row","data-testid":"prop-screenplay-badges"},
+            unverified && React.createElement("span",{className:"prop-evidence-flag"},
+            React.createElement("span",{className:"prop-status-pill unverified",
+              title:propOriginLabel(p)+". The screenplay has not established this object"+(p.kind==="worn"?" \u2014 normal for wardrobe choices.":".")
+                +" Run Extract screenplay props and link a passage to this card to confirm it, or delete it if the story doesn't need it."},
+              React.createElement(Icon.alert,{s:10}),"Not in screenplay")),
+            // a reviewed passage the screenplay no longer has (a redraft rewrote it): said on the closed section too
+          !!savedSources.length && validSources.length<savedSources.length && React.createElement("span",{className:"prop-evidence-flag"},
+            React.createElement("span",{className:"prop-status-pill unverified",
+              title:"The screenplay changed: "+(savedSources.length-validSources.length)+" reviewed passage"+(savedSources.length-validSources.length!==1?"s are":" is")
+                +" no longer in it, so this object no longer counts as in "+((savedSources.length-validSources.length)!==1?"those scenes":"that scene")
+                +". Extract screenplay props again to review it; the object and its images are kept."},
+              React.createElement(Icon.alert,{s:10}),(savedSources.length-validSources.length)+" source"+(savedSources.length-validSources.length!==1?"s":"")+" changed"))),
           p.kind==="dressing" && React.createElement("div",{className:"prop-worn-note",
             title:"Two ways to place this fixture into its location's plate: open the plate's Edit panel and click this fixture's Set-dressing chip (inserts an edit instruction built from this card's spec), or \u2014 once this sheet is generated \u2014 use the chip's attach button to ALSO ride this sheet along as a reference image, locking the exact design."},
             React.createElement(Icon.sparkles,{s:12}),
@@ -1415,25 +1435,9 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           items: propScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0"), className:"prop-scene-chip",
             title:s.title||("Scene "+s.no), onClick:()=>onChipClick&&onChipClick(s.id) })) })),
 
-      React.createElement("details",{className:"prop-evidence"},
-        React.createElement("summary",{className:"prop-evidence-head"},
-          React.createElement(Icon.layers,{s:12}),
-          React.createElement("span",null,"Screenplay evidence"),
-          React.createElement("span",{className:"prop-evidence-summary"},
-            savedSources.length?(validSources.length+" reviewed"):[exactMentions?(exactMentions+" exact"):"",exactMentions&&possibleMentions?" · ":"",possibleMentions?(possibleMentions+" possible"):"",!screenplayMentions.length?"No screenplay matches":""].join("")),
-          // on its own line inside the summary, so it stays visible while the section is collapsed
-          unverified && React.createElement("span",{className:"prop-evidence-flag"},
-            React.createElement("span",{className:"prop-status-pill unverified",
-              title:propOriginLabel(p)+". The screenplay has not established this object"+(p.kind==="worn"?" \u2014 normal for wardrobe choices.":".")
-                +" Run Extract screenplay props and link a passage to this card to confirm it, or delete it if the story doesn't need it."},
-              React.createElement(Icon.alert,{s:10}),"Not in screenplay")),
-          // a reviewed passage the screenplay no longer has (a redraft rewrote it): said on the closed section too
-          !!savedSources.length && validSources.length<savedSources.length && React.createElement("span",{className:"prop-evidence-flag"},
-            React.createElement("span",{className:"prop-status-pill unverified",
-              title:"The screenplay changed: "+(savedSources.length-validSources.length)+" reviewed passage"+(savedSources.length-validSources.length!==1?"s are":" is")
-                +" no longer in it, so this object no longer counts as in "+((savedSources.length-validSources.length)!==1?"those scenes":"that scene")
-                +". Extract screenplay props again to review it; the object and its images are kept."},
-              React.createElement(Icon.alert,{s:10}),(savedSources.length-validSources.length)+" source"+(savedSources.length-validSources.length!==1?"s":"")+" changed"))),
+      // SCREENPLAY EVIDENCE (owner 2026-10-29): a section like the others; its count is the summary, and its badges sit
+      // under the name, so they show with it closed
+      React.createElement(CardFold,{label:"Screenplay evidence",count:savedSources.length?(validSources.length+" reviewed"):[exactMentions?(exactMentions+" exact"):"",exactMentions&&possibleMentions?" · ":"",possibleMentions?(possibleMentions+" possible"):"",!screenplayMentions.length?"No screenplay matches":""].join(""),defaultOpen:false},
         React.createElement("div",{className:"prop-origin-label"},propOriginLabel(p)),
         !!savedSources.length&&React.createElement("div",{className:"prop-evidence-list"},savedSources.map((s,i)=>React.createElement("div",{key:i,className:"prop-evidence-quote"},
           React.createElement("button",{className:"prop-evidence-jump",onClick:()=>onSourceClick&&onSourceClick({...s,beat:s.beat})},"Scene "+s.sceneNo+(s.beat?" · Beat "+s.beat:"")),
@@ -1486,8 +1490,12 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             title:"Merge all of these into THIS card \u2014 this card's art & spec are kept, their scenes are combined"},
             React.createElement(Icon.layers,{s:12}),"Merge \u2014 keep this card"))),
 
-      React.createElement(CardFold,{label:"Object",defaultOpen:(!drafted && !!p.manual)},
+      // STORY & OWNERSHIP (owner 2026-10-29): what it means and who has it — split out of "Object", with the former
+      // Narrative significance section
+      React.createElement(CardFold,{label:"Story & ownership",defaultOpen:(!drafted && !!p.manual)},
         window.PropScreenplay.nameIssue(p.name)&&React.createElement("p",{className:"prop-review-warning"},window.PropScreenplay.nameIssue(p.name)),
+        React.createElement(SheetField,{label:"What it means in the story",value:propSpecClean(p.detail),multiline:true,
+          placeholder:"Why this object matters \u2014 what it represents, how it's used\u2026",onCommit:val=>onUpdate(p.id,{detail:val})}),
         React.createElement("div",{className:"sheet-2col"},
           React.createElement("div",{className:"sheet-field"},
             React.createElement("div",{className:"obj-lab"},"Owner"),
@@ -1505,7 +1513,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
               React.createElement("option",{value:"dressing"},"Set dressing")))),
         React.createElement("div",{className:"sheet-props-note"},
           React.createElement(Icon.layers,{s:12}),
-          "Type is the default binding only. Story events can move this canonical prop between a body, a hand and a set without duplicating it."),
+          "Type is where it usually is. Story events (under Continuity) can move it between a person, a hand and a place \u2014 it stays one prop."),
         p.kind!=="worn" && React.createElement("label",{className:"sheet-field"},React.createElement("span",{className:"obj-lab"},"Reference image"),
           React.createElement("select",{className:"prop-select",value:(p.sheetTier==="own"||p.sheetTier==="text")?p.sheetTier:"",
             title:"Whether this object gets its own reference image. Text-only objects are described in shot prompts from this card's specification; batch generation and shot renders don't spend image credits on them.",
@@ -1530,21 +1538,8 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             React.createElement("option",{value:""},
               "Auto — "+(((typeof propHomeLocation==="function") && (propHomeLocation({...p, locationId:""})||{}).name) || "no single location from scenes")),
             (((window.turnContinuity||{}).locations)||[]).map(l=>React.createElement("option",{key:l.id,value:l.id},l.name||"Location")))),
-        React.createElement(SheetField,{label:"Form \u2014 shape & silhouette",value:p.form,multiline:true,
-          placeholder:"What it is and what it looks like \u2014 shape, size, silhouette\u2026",onCommit:val=>onUpdate(p.id,{form:val})}),
-        React.createElement(SheetField,{label:"Material & finish",value:p.material,multiline:true,
-          placeholder:"What it's made of \u2014 metal, plastic, fabric; sheen, wear, texture\u2026",onCommit:val=>onUpdate(p.id,{material:val})}),
-        React.createElement(SheetField,{label:"Identifying physical details",value:p.signatureFeature,multiline:true,placeholder:"Crushed spiral binding, chipped enamel, distinctive repair…",onCommit:val=>onUpdate(p.id,{signatureFeature:val})}),
-        React.createElement(SheetField,{label:"Physical dimensions",value:p.size,
-          placeholder:"~1.2 m tall \u00d7 ~60 cm wide \u00d7 ~45 cm deep \u00b7 or ~18 cm long \u00d7 ~7 cm diameter\u2026",onCommit:val=>onUpdate(p.id,{size:val})}),
-        // SCALE AGAINST THE OWNER — proportions relative to the body ("hangs to mid-
-        // thigh"); shot prompts carry it so the object never shrinks or grows next to them
-        p.ownerId && React.createElement(SheetField,{label:"Scale against "+(p.ownerName||"the owner"),value:p.scale,
-          placeholder:"hangs from her shoulder to mid-thigh \u00b7 the size of his forearm \u00b7 fills both hands\u2026",
-          title:"Proportions relative to the owner\u2019s body \u2014 shot prompts carry this so the object keeps its size next to them.",
-          onCommit:val=>onUpdate(p.id,{scale:val})}),
-        // MORE DETAIL (2026-10-03, owner — Props review): the fields most people never need
-        React.createElement("details",{className:"prop-more-fields"},React.createElement("summary",null,"More detail \u2014 other names, identity, custodian, origin, dimension source, content"),
+        // the fields most people never need (2026-10-03, owner — Props review)
+        React.createElement("details",{className:"prop-more-fields"},React.createElement("summary",null,"More detail \u2014 inventory group, other names, identity, custodian, origin"),
         React.createElement("label",{className:"sheet-field"},React.createElement("span",{className:"obj-lab"},"Inventory group"),
           // choosing a group for a proposal is keeping it (the user's explicit choice — 2026-10-12)
           React.createElement("select",{className:"prop-select",value:window.PropScreenplay.group(p),onChange:e=>onUpdate(p.id,proposed
@@ -1568,7 +1563,23 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
               React.createElement("optgroup",{label:"Characters"},(characters||[]).map(c=>React.createElement("option",{key:"c"+c.id,value:"character:"+c.id},c.name))),
               React.createElement("optgroup",{label:"Locations"},continuityLocations.map(l=>React.createElement("option",{key:"l"+l.id,value:"location:"+l.id},l.name)))))),
         React.createElement(SheetField,{label:"Owner / origin — canonical provenance",value:p.provenance||(typeof p.origin==="string"?p.origin:"")||p.ownerName||"",
-          placeholder:"Originally Yusuf's · stolen police issue · found in the Minicab…",onCommit:val=>onUpdate(p.id,{provenance:val})}),
+          placeholder:"Originally Yusuf's · stolen police issue · found in the Minicab…",onCommit:val=>onUpdate(p.id,{provenance:val})}))),
+
+      // PHYSICAL DESIGN (owner 2026-10-29): what it looks like — the fields the sheet is drawn from
+      React.createElement(CardFold,{label:"Physical design",defaultOpen:(!drafted && !!p.manual)},
+        React.createElement(SheetField,{label:"Form \u2014 shape & silhouette",value:propSpecClean(p.form),multiline:true,
+          placeholder:"What it is and what it looks like \u2014 shape, size, silhouette\u2026",onCommit:val=>onUpdate(p.id,{form:val})}),
+        React.createElement(SheetField,{label:"Material & finish",value:propSpecClean(p.material),multiline:true,
+          placeholder:"What it's made of \u2014 metal, plastic, fabric; sheen, wear, texture\u2026",onCommit:val=>onUpdate(p.id,{material:val})}),
+        React.createElement(SheetField,{label:"Identifying physical details",value:propSpecClean(p.signatureFeature),multiline:true,placeholder:"Crushed spiral binding, chipped enamel, distinctive repair…",onCommit:val=>onUpdate(p.id,{signatureFeature:val})}),
+        React.createElement(SheetField,{label:"Physical dimensions",value:propSpecClean(p.size),
+          placeholder:"~1.2 m tall \u00d7 ~60 cm wide \u00d7 ~45 cm deep \u00b7 or ~18 cm long \u00d7 ~7 cm diameter\u2026",onCommit:val=>onUpdate(p.id,{size:val})}),
+        // SCALE AGAINST THE OWNER — proportions relative to the body ("hangs to mid-
+        // thigh"); shot prompts carry it so the object never shrinks or grows next to them
+        p.ownerId && React.createElement(SheetField,{label:"Scale against "+(p.ownerName||"the owner"),value:p.scale,
+          placeholder:"hangs from her shoulder to mid-thigh \u00b7 the size of his forearm \u00b7 fills both hands\u2026",
+          title:"Proportions relative to the owner\u2019s body \u2014 shot prompts carry this so the object keeps its size next to them.",
+          onCommit:val=>onUpdate(p.id,{scale:val})}),
         // real-world measurement \u2014 the scale system sizes the object against the cast
         // in every shot from this ('Draft specification' drafts it; edit to correct)
         React.createElement("label",{className:"sheet-field"},React.createElement("span",{className:"obj-lab"},"Dimension source"),React.createElement("select",{className:"prop-select",value:p.sizeBasis||"estimated",onChange:e=>onUpdate(p.id,{sizeBasis:e.target.value})},
@@ -1576,11 +1587,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
         React.createElement("details",{className:"prop-content-fields"},React.createElement("summary",null,"Document, label or screen content"),
           React.createElement(SheetField,{label:"Established wording / visible content",value:p.contentNotes,multiline:true,placeholder:"Exact letter wording, call-log entries or label text. Leave unknown content unspecified.",onCommit:val=>onUpdate(p.id,{contentNotes:val})}),
           React.createElement(SheetField,{label:"Base content version",value:p.contentVersion,placeholder:"Original / clean copy / sealed",onCommit:val=>onUpdate(p.id,{contentVersion:val})}),
-          React.createElement("p",{className:"sheet-props-note"},"Later edits belong in Continuity → Updated events. Check important wording in the generated image; a prompt cannot guarantee legibility.")))),
-
-      React.createElement(CardFold,{label:"Narrative significance",defaultOpen:false},
-        React.createElement(SheetField,{label:"What it means in the story",value:p.detail,multiline:true,
-          placeholder:"Why this object matters \u2014 what it represents, how it's used\u2026",onCommit:val=>onUpdate(p.id,{detail:val})})),
+          React.createElement("p",{className:"sheet-props-note"},"Later edits belong in Continuity → Updated events. Check important wording in the generated image; a prompt cannot guarantee legibility."))),
 
       React.createElement(CardFold,{label:"Continuity \u00b7 story events",count:continuityEvents.length||null,defaultOpen:false},
         React.createElement("div",{className:"sheet-props-note"},
@@ -1594,18 +1601,18 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
 
       // the settings that change the sheet live ON the card (2026-10-05); the prompt itself is read-only
       React.createElement(CardFold,{label:"Look & exclusions",defaultOpen:false},
-        React.createElement(SheetField,{label:"Render style \u2014 edit freely",value:p.renderStyle||d.renderStyle,multiline:true,
+        React.createElement(SheetField,{label:"Render style text \u2014 the style picker above fills it; edit to fine-tune",value:p.renderStyle||d.renderStyle,multiline:true,
           placeholder:"photoreal product reference, 85mm, soft studio lighting\u2026",onCommit:val=>onUpdate(p.id,{renderStyle:val})}),
         p.contentNotes&&/\b(text|typography|label|branding)\b/i.test(p.negativePrompt||"")&&React.createElement("p",{className:"prop-review-warning"},"Your saved exclusions mention text or labels. Review them so they do not suppress required wording on this object."),
-        React.createElement(SheetField,{label:"Leave out \u2014 what the sheet must not show (negative prompt)",value:p.negativePrompt||d.negativePrompt,multiline:true,
+        React.createElement(SheetField,{label:"Leave out (negative prompt)",value:p.negativePrompt||d.negativePrompt,multiline:true,
           onCommit:val=>onUpdate(p.id,{negativePrompt:val})})),
 
       // the prompt: a section of every card, folded (owner 2026-10-28 — it used to hide behind the card's ⋯ menu or
       // the Film menu's "Always show prompts")
       React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},
-        React.createElement(CopyBox,{label:"4-panel object sheet (hero \u00b7 front \u00b7 side \u00b7 detail) \u2014 feed to your image tool",text:buildPropRefPrompt(p,project)}),
+        React.createElement(CopyBox,{label:"Prompt (text only) \u2014 the 4-panel object sheet: hero, front, side, detail",text:buildPropRefPrompt(p,project)}),
         React.createElement(CopyBox,{label:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt)
-            ? "Final prompt \u2014 generated the CURRENT sheet" : "Final prompt \u2014 master + negative (sent at generation)",
+            ? "Final prompt \u2014 the one behind the current sheet" : "Final prompt \u2014 sent at generation (with the Leave out list)",
           text:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt) || finalPrompt}))));
 }
 

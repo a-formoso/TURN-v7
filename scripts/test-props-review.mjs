@@ -200,14 +200,18 @@ await test("E3 the tab opens on All objects when there are no story props", ()=>
 
 /* ═══ F ═══ */
 const card = between(props, "function PropSheet({", "function PropExtractionReview(");
-await test("F1 the Object section: essentials first, the rest folded into 'More detail'", ()=>{
-  const obj = between(card, 'React.createElement(CardFold,{label:"Object"', 'React.createElement(CardFold,{label:"Narrative significance"');
-  const more = obj.indexOf('className:"prop-more-fields"');
+await test("F1 Story & ownership and Physical design (2026-10-29, was Object): essentials first, the rest folded", ()=>{
+  const own = between(card, 'React.createElement(CardFold,{label:"Story & ownership"', 'React.createElement(CardFold,{label:"Physical design"');
+  const phys = between(card, 'React.createElement(CardFold,{label:"Physical design"', 'React.createElement(CardFold,{label:"Continuity');
+  const more = own.indexOf('className:"prop-more-fields"');
   assert.ok(more > 0);
-  for(const f of ['"Owner"', '"Reference image"', 'label:"Form \\u2014 shape & silhouette"', 'label:"Material & finish"', 'label:"Physical dimensions"', '"Fixture of"'])
-    assert.ok(obj.indexOf(f) > 0 && obj.indexOf(f) < more, f+" stays open");
-  for(const f of ['"Inventory group"', 'label:"Other names for this same object"', '"Custodian"', '"Design association"', 'label:"Owner / origin — canonical provenance"', '"Dimension source"', 'className:"prop-content-fields"'])
-    assert.ok(obj.indexOf(f) > more, f+" is under More detail");
+  for(const f of ['label:"What it means in the story"', '"Owner"', '"Reference image"', '"Fixture of"'])
+    assert.ok(own.indexOf(f) > 0 && own.indexOf(f) < more, f+" stays open");
+  for(const f of ['"Inventory group"', 'label:"Other names for this same object"', '"Custodian"', '"Design association"', 'label:"Owner / origin — canonical provenance"'])
+    assert.ok(own.indexOf(f) > more, f+" is under More detail");
+  for(const f of ['label:"Form \\u2014 shape & silhouette"', 'label:"Material & finish"', 'label:"Physical dimensions"', '"Dimension source"', 'className:"prop-content-fields"'])
+    assert.ok(phys.indexOf(f) > 0, f+" is in Physical design");
+  assert.ok(!card.includes('label:"Object"') && !card.includes('label:"Narrative significance"'));
 });
 await test("F2 story events: beat / micro-beat / shot are picked from the chosen scene", ()=>{
   R.reset();
