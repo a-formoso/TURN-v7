@@ -7189,7 +7189,6 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
   /* READ THE SCRIPT (2026-10-12, Character fidelity step 2): the tab's button reads the screenplay for every character
      (writing calls, quoted in its title); Draft all reads it first for the characters it drafts that need it */
   const readingIds = readingFactIds || [];
-  const readingAny = list.some(c=> readingIds.indexOf(c.id)>=0);
   const scriptReady = (typeof charHasScript==="function") && charHasScript(scenes, drafts);
   const draftReaders = (scriptReady && typeof charFactsState==="function") ? list.filter(c=> !charVisualsDrafted(c) && charFactsState(c, scenes, drafts).needsRead) : [];
   const draftReadNote = (scriptReady && draftReaders.length)
@@ -7337,11 +7336,8 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
           onCast && React.createElement("button",{className:"art-draftall ghost secondary",disabled:!characters.length,onClick:()=>onCast({}),
             title:"Casting Director — drafts each character's look, finds their appearance changes, and generates the master sheet + every state variant, on its own"},
             React.createElement(Icon.robot,{s:14}),"Design the cast"),
-          (onReadScript && scriptReady && list.length>0) && React.createElement("button",{className:"art-draftall ghost secondary",disabled:readingAny||!!readOnly,
-            onClick:()=>onReadScript(null),"data-testid":"char-read-script-all",
-            title:"Read the script \u2014 lists what the screenplay states about every character (age, heritage only if stated, build, height, hair, distinguishing marks, injuries and wardrobe by scene), each with its quote, so their looks follow it. "
-              +charReadCostText(scenes, drafts, list)+" (writing credits). Nothing is drafted or generated."},
-            React.createElement(Icon.script,{s:14}), readingAny ? "Reading the script\u2026" : "Read the script"),
+          // (the header's "Read the script" went, owner 2026-10-29: every draft reads the script itself when a character's fact
+          // sheet is missing or out of date, and each card keeps its own Re-read)
           someUndrafted && React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:onDraftAll,
             title:"Draft the spec for any character that doesn't have one yet \u2014 identity, wardrobe, props & accessories, continuity and look dev (the master reference prompt builds from these). Specs only \u2014 no images; the manual alternative to Design the cast."+draftReadNote},
             React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":(eligibleAll>0?"Draft remaining":"Draft all (specs only)")),

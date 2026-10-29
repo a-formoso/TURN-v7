@@ -29,7 +29,7 @@ test("T3 the top rows' real actions are secondary; the quiet extras stay tertiar
   const look = read("app/lookbook.jsx"), art = read("app/artroom.jsx"), props = read("app/props.jsx"), shots = read("app/shots-ui.jsx");
   assert.ok(look.includes('{className:"art-draftall ghost secondary",onClick:()=>setResearchMenu(v=>!v),'), "Research again");
   assert.ok(art.includes('onCast && React.createElement("button",{className:"art-draftall ghost secondary",'), "Design the cast");
-  assert.ok(art.includes('(onReadScript && scriptReady && list.length>0) && React.createElement("button",{className:"art-draftall ghost secondary",'), "Read the script");
+  assert.ok(!art.includes('"data-testid":"char-read-script-all"'), "the header's Read the script went (2026-10-29)");
   assert.ok(art.includes('{className:"art-draftall"+(castStage==="draft"?" ghost secondary":""),'), "Generate N missing beside Draft all");
   assert.equal((props.match(/className:"art-draftall ghost secondary"/g)||[]).length, 2, "Extract screenplay props, Draft N specifications");
   assert.ok(shots.includes('_el("button",{className:"art-draftall ghost secondary",disabled:draftingAllShots||!ordered.length,onClick:handleDesignAll,'), "Design all shots");

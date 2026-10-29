@@ -508,8 +508,8 @@ await test("F1 Draft & generate and Draft all read the script first for whoever 
   assert.ok(app.includes("readCharacterFacts(Array.isArray(ids) ? (characters||[]).filter(c=>c && ids.indexOf(c.id)>=0) : (characters||[])); },"));
   assert.ok(art.includes("onReadScript:onReadCharacterScript,readingFactIds,"));
   assert.ok(art.includes("onReadScript:(onReadScript && scriptReady) ? (()=>onReadScript([c.id])) : null, readingFacts:readingIds.indexOf(c.id)>=0,"));
-  assert.ok(art.includes('"data-testid":"char-read-script-all"'));
-  assert.ok(art.includes('+charReadCostText(scenes, drafts, list)+" (writing credits). Nothing is drafted or generated."'));
+  // (owner 2026-10-29) the tab's "Read the script" went: drafting reads it when needed, and each card keeps its Re-read
+  assert.ok(!art.includes('"data-testid":"char-read-script-all"'));
   assert.ok(art.includes('" It reads the script first for "+draftReaders.length+" character"'), "Draft all quotes it");
 });
 // the Casting Director, lifted from agents.jsx
