@@ -286,6 +286,60 @@ function findDuplicateProps(props){
 }
 window.findDuplicateProps = findDuplicateProps;
 
+/* POSSIBLY THE SAME OBJECT (owner 2026-10-29, the Props review): one object saved under two people — the sealed letter
+   Nives carries to Aurelio, made once from each character brief. findDuplicateProps only pairs the same owner and the
+   same name, so these never met. A pair here is a carried (or set-dressing) object under a DIFFERENT owner whose name
+   shares most of its words with this one's (two or more of them; the other names count too). Worn items are left out:
+   two people in one uniform wear two badges. A suggestion only — "Keep separate" (distinctFrom, saved on both cards)
+   ends it, and a merge asks first. Returns id -> the ids it may be. */
+const PROP_SAME_STOP = new Set(["the","and","with","from","for","his","her","their","its","own","that","this","into","onto","left","right","small","large","old","new","plain"]);
+function propNameWords(t){
+  return new Set(String(t||"").toLowerCase().replace(/[\u2019']s\b/g,"").split(/[^a-z0-9]+/)
+    .filter(w=>w.length>=3 && !PROP_SAME_STOP.has(w)));
+}
+function findPossibleSameProps(props){
+  const list = (props||[]).filter(p=>p && p.id && (p.kind||"carried")!=="worn");
+  const words = {}; list.forEach(p=>{ words[p.id] = [p.name, ...(p.aliases||[])].map(propNameWords).filter(w=>w.size); });
+  const out = {};
+  const near = (a,b)=> words[a.id].some(wa=>words[b.id].some(wb=>{
+    let n=0; wa.forEach(w=>{ if(wb.has(w)) n++; });
+    return n>=2 && n/Math.min(wa.size, wb.size) >= 0.6;
+  }));
+  for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++){
+    const a=list[i], b=list[j];
+    if((a.ownerId||"")===(b.ownerId||"") && (a.locationId||"")===(b.locationId||"")) continue;   // findDuplicateProps' pair
+    if((a.distinctFrom||[]).indexOf(b.id)>=0 || (b.distinctFrom||[]).indexOf(a.id)>=0) continue;
+    if(!near(a,b)) continue;
+    (out[a.id]=out[a.id]||[]).push(b.id); (out[b.id]=out[b.id]||[]).push(a.id);
+  }
+  return out;
+}
+window.findPossibleSameProps = findPossibleSameProps;
+
+/* A SHORT NAME (owner 2026-10-29): a card made from a character brief is named with the whole description ("Old
+   steel-cased wristwatch on a cracked brown leather strap, left wrist"). The card offers the part before its first
+   placement clause ("Old steel-cased wristwatch"); the full text stays as one of its other names (so the character's
+   list still finds it and it is never made again from the brief) and, when the card has no form yet, as its form. */
+const PROP_NAME_CUT = /\s*(?:,|;|\s\u2014\s|\s-\s|\s(?:on|in|with|pinned|addressed|worn|tucked|hanging|around|at|from|under|inside|attached|clipped|kept|carried|slung|strapped|held)\s)/i;
+function propShortName(name){
+  const n = String(name||"").trim();
+  if(n.length <= 40) return "";
+  const m = n.search(PROP_NAME_CUT);
+  if(m < 0) return "";
+  const short = n.slice(0, m).trim().replace(/[\s,.;:\-\u2014]+$/,"");
+  const words = short.split(/\s+/).filter(Boolean);
+  if(!words.length || (words.length < 2 && short.length < 4) || short.length > n.length - 8) return "";
+  return short;
+}
+window.propShortName = propShortName;
+function propShortNamePatch(p){
+  const short = propShortName(p && p.name);
+  if(!short) return null;
+  const aliases = Array.from(new Set([...(p.aliases||[]), p.name].map(x=>String(x||"").trim()).filter(Boolean)));
+  return { name:short, aliases, shortenedFrom:p.name, ...(String(p.form||"").trim() ? {} : { form:p.name }) };
+}
+window.propShortNamePatch = propShortNamePatch;
+
 /* A character brief's items (owner 2026-10-12: carried props come from the screenplay). WORN items —
    the watch, the scarf, the jewellery that come from designing how a character looks — become worn
    cards. A CARRIED item becomes a PROPOSAL, never a story prop: it is saved in the group "proposed"
@@ -300,7 +354,8 @@ function propsFromCast(characters, existing, scenes, drafts){
     ? window.PropScreenplay.characterScenes(ownerId,name,scenes,drafts,characters) : null;
   // signature = ownerId + normalised name, so a prop already on the tab isn't re-added
   const sig = (ownerId,name)=> (ownerId||"")+"::"+String(name||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
-  const seen = new Set(have.map(p=> sig(p.ownerId, p.name)));
+  // a card's other names count too: a card given a short name (propShortNamePatch) keeps the brief's text there
+  const seen = new Set(have.flatMap(p=> [p.name, ...(p.aliases||[])].map(n=>sig(p.ownerId, n))));
   const out = [];
   (characters||[]).forEach(c=>{
     const add = (text, sourceKind)=> splitPropItems(text).forEach(item=>{
@@ -536,7 +591,15 @@ function propOwnerAttachments(p){
     for(const r of (Array.isArray(p.referenceImages)?p.referenceImages:[]).filter(Boolean).slice(0,6)){
       // A linked sheet may have been regenerated since it was attached. Resolve the
       // canonical entity now instead of reusing the URL captured at attach time.
+      // A CROP (an item selected out of a sheet) is its own picture: it is sent as it was cut, never swapped for the
+      // whole sheet it came from (2026-10-29 — it was, so the model got the full sheet instead of the watch)
       let refUrl = "";
+      if(r.cropped && r.url){
+        out.push({ url:r.url, kind:"prop-reference-crop",
+          note:(r.note||"selected item")+" \u2014 cut from "+(r.sourceName||"another Art Room sheet")+": match this item's design",
+          refId:r.id || r.url });
+        continue;
+      }
       if(r.sourceEntityId){
         try{ refUrl = (typeof nbGetImage==="function") ? nbGetImage(r.sourceEntityId) : ""; }catch(e){}
         if(!refUrl && typeof nbLoadImage==="function"){
@@ -1062,7 +1125,7 @@ async function propOwnerHasSheet(p){
 window.propOwnerHasSheet = propOwnerHasSheet;
 const PROP_HERO_MAX = 3;
 window.PROP_HERO_MAX = PROP_HERO_MAX;
-function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete, onDraft, onEnsureOwner, batchOwnerChoice, drafting, onView, batchActiveId, onBatchDone, onChipClick, onSourceClick, dupIds, dupProps, onMerge, derivedScenes, heroCount=0 }){
+function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete, onDraft, onEnsureOwner, batchOwnerChoice, drafting, onView, batchActiveId, onBatchDone, onChipClick, onSourceClick, dupIds, dupProps, onMerge, sameProps, derivedScenes, heroCount=0 }){
   const d = propDefaults(p);
   const finalPrompt = combinedPropPrompt(p, project);
   const drafted = propVisualsDrafted(p);
@@ -1367,6 +1430,15 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
               label:"How worn prop sheets work",
               text:"Worn items are rendered on "+(p.ownerName||"the character")+"'s character sheet and that remains the canon for wide and medium shots. Generate a separate macro sheet here only when the item needs to read clearly in a close-up. The macro sheet uses the owner sheet as visual context and attaches to CU, MCU, ECU and INSERT shots. Batch generation skips these optional macro sheets."
             })),
+          // A SHORT NAME (owner 2026-10-29): a name that is a whole description is offered its first part
+          (!p.longNameOk && propShortName(p.name)) && React.createElement("div",{className:"prop-status-row prop-shortname-row","data-testid":"prop-short-name"},
+            React.createElement("span",{className:"prop-shortname-text"},"Long name \u2014 shorten it to ",
+              React.createElement("b",null,"\u201c"+propShortName(p.name)+"\u201d"),"? The full description stays on the card."),
+            React.createElement("button",{type:"button",className:"char-draft-btn ghost",
+              title:"Rename the card; the full description is kept under Other names (so the character's list still finds it) and, if the card has no form yet, as its form",
+              onClick:()=>{ const patch = propShortNamePatch(p); if(patch) onUpdate(p.id, patch); }},"Shorten"),
+            React.createElement("button",{type:"button",className:"char-draft-btn ghost",title:"Keep the long name and stop suggesting a shorter one",
+              onClick:()=>onUpdate(p.id,{longNameOk:true})},"Keep")),
           (p.kind!=="worn" && tier.tier==="text") && React.createElement("div",{className:"prop-status-row"},
             React.createElement("span",{className:"prop-status-pill",
               title:"Text only ("+tier.reason.toLowerCase()+"). Shots describe this object from its specification instead of attaching an image, and batch generation skips it. Change it in Object → Reference image, or generate an image on this card — an existing image is always used."},
@@ -1376,7 +1448,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           // screenplay props finds it in the screenplay; batches and agents never pay for it.
           proposed && React.createElement("div",{className:"prop-status-row prop-proposed-row"},
             React.createElement("span",{className:"prop-status-pill unverified",
-              title:propOriginLabel(p)+". The screenplay doesn't name this carried object, so it isn't a story prop: Generate all images, Draft all specifications and the agents leave it alone. Run Extract screenplay props — if the screenplay names it, link the passage and it becomes a story prop. Or keep it as your own prop, or delete it."},
+              title:propOriginLabel(p)+". The screenplay doesn't name this carried object, so it isn't a story prop: Generate all images, Draft all specifications and the agents leave it alone. Read the screenplay for props (Draft specifications offers it first; afterwards Read the screenplay again) — if the screenplay names it, link the passage and it becomes a story prop. Or keep it as your own prop, or delete it."},
               React.createElement(Icon.alert,{s:10}),"Proposed — not in the screenplay"),
             React.createElement("button",{type:"button",className:"char-draft-btn ghost",
               title:"Keep this object as a prop you own — it moves to Story props and batches can then draft it and make its image. It keeps its origin and its Not in screenplay badge.",
@@ -1387,14 +1459,14 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             unverified && React.createElement("span",{className:"prop-evidence-flag"},
             React.createElement("span",{className:"prop-status-pill unverified",
               title:propOriginLabel(p)+". The screenplay has not established this object"+(p.kind==="worn"?" \u2014 normal for wardrobe choices.":".")
-                +" Run Extract screenplay props and link a passage to this card to confirm it, or delete it if the story doesn't need it."},
+                +" Read the screenplay for props and link a passage to this card to confirm it, or delete it if the story doesn't need it."},
               React.createElement(Icon.alert,{s:10}),"Not in screenplay")),
             // a reviewed passage the screenplay no longer has (a redraft rewrote it): said on the closed section too
           !!savedSources.length && validSources.length<savedSources.length && React.createElement("span",{className:"prop-evidence-flag"},
             React.createElement("span",{className:"prop-status-pill unverified",
               title:"The screenplay changed: "+(savedSources.length-validSources.length)+" reviewed passage"+(savedSources.length-validSources.length!==1?"s are":" is")
                 +" no longer in it, so this object no longer counts as in "+((savedSources.length-validSources.length)!==1?"those scenes":"that scene")
-                +". Extract screenplay props again to review it; the object and its images are kept."},
+                +". Read the screenplay again to review it; the object and its images are kept."},
               React.createElement(Icon.alert,{s:10}),(savedSources.length-validSources.length)+" source"+(savedSources.length-validSources.length!==1?"s":"")+" changed"))),
           p.kind==="dressing" && React.createElement("div",{className:"prop-worn-note",
             title:"Two ways to place this fixture into its location's plate: open the plate's Edit panel and click this fixture's Set-dressing chip (inserts an edit instruction built from this card's spec), or \u2014 once this sheet is generated \u2014 use the chip's attach button to ALSO ride this sheet along as a reference image, locking the exact design."},
@@ -1489,6 +1561,33 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           React.createElement("button",{className:"prop-dup-merge",onClick:()=>onMerge&&onMerge(dupIds, p.id),
             title:"Merge all of these into THIS card \u2014 this card's art & spec are kept, their scenes are combined"},
             React.createElement(Icon.layers,{s:12}),"Merge \u2014 keep this card"))),
+      // POSSIBLY THE SAME OBJECT under another owner (owner 2026-10-29): merge it, or keep them apart
+      (sameProps && sameProps.length>0) && React.createElement("div",{className:"prop-dup-warn prop-same-warn","data-testid":"prop-possibly-same"},
+        React.createElement("div",{className:"prop-dup-head"},
+          React.createElement(Icon.alert,{s:14}),
+          React.createElement("span",null,"Possibly the same object as ",
+            sameProps.map((d,i)=>React.createElement(React.Fragment,{key:d.id},i?", ":"",
+              React.createElement("b",null,d.name),
+              (d.ownerName||d.kind==="dressing") ? " ("+(d.kind==="dressing"?"set dressing":d.ownerName)+")" : "")),
+            ". If it's one object that changes hands, merge them and add the hand-over under Continuity.")),
+        React.createElement("div",{className:"prop-dup-cards"},
+          sameProps.map(d=>{
+            const u = (typeof nbGetImage==="function") ? nbGetImage(d.id) : "";
+            return React.createElement("div",{key:d.id,className:"prop-dup-card"},
+              u ? React.createElement("img",{src:u,alt:d.name,onClick:()=>onView&&onView(u,d)})
+                : React.createElement("div",{className:"prop-dup-noimg"},React.createElement(Icon.image,{s:14})),
+              React.createElement("span",{className:"prop-dup-name",title:d.name},d.name));
+          })),
+        React.createElement("div",{className:"prop-dup-acts"},
+          React.createElement("button",{className:"prop-dup-merge",onClick:()=>onMerge&&onMerge([p.id, ...sameProps.map(d=>d.id)], p.id),
+            title:"Merge into THIS card \u2014 its owner, art & spec are kept; the other card's scenes, story events, sources, other names and references join it (you're asked first)"},
+            React.createElement(Icon.layers,{s:12}),"Merge \u2014 keep this card"),
+          React.createElement("button",{className:"char-draft-btn ghost",
+            title:"They are different objects \u2014 stop suggesting this",
+            onClick:()=>{ const ids = sameProps.map(d=>d.id);
+              onUpdate(p.id,{distinctFrom:Array.from(new Set([...(p.distinctFrom||[]), ...ids]))});
+              sameProps.forEach(d=>onUpdate(d.id,{distinctFrom:Array.from(new Set([...(d.distinctFrom||[]), p.id]))})); }},
+            "Keep separate"))),
 
       // STORY & OWNERSHIP (owner 2026-10-29): what it means and who has it — split out of "Object", with the former
       // Narrative significance section
@@ -1678,7 +1777,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   const extractProps=async(opts)=>{
     if(extraction)return;
     const gate=extractionRun.current;
-    const ok=(opts&&opts.confirmed)||typeof window.appConfirm!=="function"||await window.appConfirm({title:"Extract screenplay props?",body:"The writing model will read every screenplay scene and propose objects with exact source passages. This uses writing-model credits, not image credits. Nothing is added until you review and apply it.",confirmLabel:"Extract props"});
+    const ok=(opts&&opts.confirmed)||typeof window.appConfirm!=="function"||await window.appConfirm({title:(((props||[]).some(p=>p&&(p.screenplaySources||[]).length)||extractedOnce.current)?"Read the screenplay again?":"Extract screenplay props?"),body:"The writing model will read every screenplay scene and propose objects with exact source passages. This uses writing-model credits, not image credits. Nothing is added until you review and apply it.",confirmLabel:"Extract props"});
     if(!ok||gate!==extractionRun.current){ pendingDraft.current=null; return; }
     const run=++extractionRun.current;setExtraction({done:0,total:0});setExtractionError("");setReview(null);
     try{
@@ -1801,10 +1900,8 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   const kindCountBase = (sceneFilter ? list.filter(p=>inScene(p, sceneFilter)) : list).filter(matchesQuery);
   // carried props with no owner — they'd generate WORLD-GENERIC (no character anchor)
   const unassignedCarried = list.filter(p=> kindOf(p)==="carried" && !p.ownerId);
-  // "unverified" is a view, not a group: objects the screenplay hasn't established yet.
   // "proposed" IS a group (PropScreenplay.group): carried objects nobody established (2026-10-12)
-  const inView = (p)=> inventoryGroup==="all" || (inventoryGroup==="unverified"
-    ? window.PropScreenplay.notInScreenplay(p) : window.PropScreenplay.group(p)===inventoryGroup);
+  const inView = (p)=> inventoryGroup==="all" || window.PropScreenplay.group(p)===inventoryGroup;
   const shown = kindCountBase.filter(inView);
   // NEVER AN EMPTY FIRST VIEW (2026-10-03): with no story props but other objects (all wardrobe,
   // say), open on All objects instead of "No objects in this view"
@@ -1818,6 +1915,8 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   const dupSets = (typeof findDuplicateProps==="function") ? findDuplicateProps(list) : {};
   const dupForId = {}; Object.values(dupSets).forEach(ids=> ids.forEach(id=>{ dupForId[id]=ids; }));
   const byId = {}; list.forEach(p=>{ byId[p.id]=p; });
+  // the same object under another owner (2026-10-29) — a suggestion on each card
+  const sameFor = (typeof findPossibleSameProps==="function") ? findPossibleSameProps(list) : {};
 
   // one-time sanity pass: correct props whose NAME unambiguously contradicts their
   // worn/carried kind (e.g. a phone mis-filed as "worn"). Skips any the user has
@@ -1970,6 +2069,8 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   // proposals aren't drafted by Draft all (2026-10-12) — they aren't counted on its button either
   const undraftedN = list.filter(p=>!propVisualsDrafted(p) && !window.PropScreenplay.nameIssue(p.name) && !window.PropScreenplay.isProposal(p)).length;
   const sceneNoOf = (sid)=>{ const s=(scenes||[]).find(x=>x.id===sid); return s?s.no:sid; };
+  const draftBtnShown = undraftedN>0 || (!list.length && castHasProps);
+  const screenplayRead = extracted || extractedOnce.current;
 
   return React.createElement("div",{className:"art-scroll"},
     view && React.createElement(ImageLightbox,{url:view.url,character:view.character,onClose:()=>setView(null)}),
@@ -1986,9 +2087,12 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
                 "Continuity objects \u2014 the things characters wear and carry, plus the set dressing the camera sees. Carried and set-dressing props get their own multi-view reference image (worn items render on their owner's character sheet instead). Draft all specifications fills the design fields and maps scene appearances; Generate all images then renders the drafted objects that need their own image \u2014 objects the screenplay only shows once, never handled, are TEXT ONLY and described in shot prompts instead. Each card records whether it came from an explicit screenplay extraction, a department proposal based on a character brief, or manual entry; objects the screenplay hasn't established carry a Not in screenplay badge. Carried props come from the screenplay: a carried item from a character brief waits under Proposed \u2014 not in the screenplay (batches and agents leave it alone) until you keep it or Extract screenplay props finds it. Matching screenplay words are shown separately as discovery evidence, not proof of origin or object identity.")}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{items:trashItems,kind:"prop",onRestore,onPurge,compact:true}),
-          React.createElement("button",{className:"art-draftall ghost secondary",disabled:!!extraction||draftingAll||!scenes.length,onClick:extractProps,
-            title:"Read every scene with the writing model and propose the story's objects for your review (writing credits, no images)"},React.createElement(Icon.layers,{s:14}),extraction?"Reading screenplay…":"Extract screenplay props"),
-          (undraftedN>0 || (!list.length && castHasProps)) && React.createElement("button",{className:"art-draftall ghost secondary",disabled:draftingAll||!!extraction,onClick:()=>draftAllFlow(),
+          // READ AGAIN (owner 2026-10-29): before the film's screenplay has been read for props, Draft N specifications
+          // offers the read first, so this button waits until then — unless there is no Draft button to offer it
+          (screenplayRead || !draftBtnShown) && React.createElement("button",{className:"art-draftall ghost secondary","data-testid":"prop-read-screenplay",disabled:!!extraction||draftingAll||!scenes.length,onClick:extractProps,
+            title:(screenplayRead ? "Read every scene again after script changes" : "Read every scene")+" with the writing model and propose the story's objects for your review (writing credits, no images)"},React.createElement(Icon.layers,{s:14}),
+            extraction?"Reading screenplay…":(screenplayRead?"Read the screenplay again":"Extract screenplay props")),
+          draftBtnShown && React.createElement("button",{className:"art-draftall ghost secondary",disabled:draftingAll||!!extraction,onClick:()=>draftAllFlow(),
             title:"Read the screenplay for its props first (Extract screenplay props, for your review \u2014 once per film), then draft the specification of every prop that doesn't have one yet (finished and edited cards and proposals are left alone) and map each prop to its scene appearances \u2014 writing credits, no images"},
             React.createElement(Icon.sparkles,{s:14}), draftingAll?"Drafting\u2026":(list.length ? "Draft "+undraftedN+" specification"+(undraftedN!==1?"s":"") : "Draft all specifications")),
           (list.length>0 && !undraftedN) && React.createElement("button",{className:"art-draftall ghost",disabled:draftingAll||!!extraction,onClick:()=>draftAllFlow("redraft"),
@@ -2019,11 +2123,12 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
       React.createElement("label",{className:"loc-slate-cell loc-slate-show"},
         React.createElement("span",{className:"loc-slate-lab"},"Show"),
         React.createElement("select",{className:"prop-select",value:inventoryGroup,"aria-label":"Prop inventory group",onChange:e=>setInventoryGroup(e.target.value)},
+        // (owner 2026-10-29) All objects first, then the three groups, which never overlap; "Not in screenplay" went
+        // from this list — it cut across the groups, and the badge on each card already says it
+        React.createElement("option",{value:"all"},"All objects ("+list.length+")"),
         React.createElement("option",{value:"story"},"Story props ("+list.filter(p=>window.PropScreenplay.group(p)==="story").length+")"),
         React.createElement("option",{value:"accessories"},"Wardrobe & accessories ("+list.filter(p=>window.PropScreenplay.group(p)==="accessories").length+")"),
-        React.createElement("option",{value:"proposed"},"Proposed \u2014 not in the screenplay ("+proposalN+")"),
-        React.createElement("option",{value:"all"},"All objects ("+list.length+")"),
-        React.createElement("option",{value:"unverified"},"Not in screenplay ("+list.filter(p=>window.PropScreenplay.notInScreenplay(p)).length+")"))),
+        React.createElement("option",{value:"proposed"},"Proposed \u2014 not in the screenplay ("+proposalN+")"))),
       list.length>0 && React.createElement("div",{className:"loc-slate-cell loc-slate-style"},
         React.createElement("span",{className:"loc-slate-lab"}, allStyling ? ("Inventing\u2026 "+allStyling.i+"/"+allStyling.total) : "Style \u00b7 all"),
         React.createElement("div",{className:"char-style-all",
@@ -2079,7 +2184,8 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
                   drafting:draftingId===p.id||(draftingIds||[]).indexOf(p.id)>=0||draftingAll,onView:(url,pr)=>setView({url,character:pr}),
                    batchActiveId,onBatchDone:batch.advance,onChipClick:(sid)=>setSceneFilter(sid),onSourceClick,
                   derivedScenes:effMap[p.id],heroCount:(props||[]).filter(x=>x&&x.hero).length,
-                  dupIds:dupForId[p.id],dupProps:(dupForId[p.id]||[]).filter(id=>id!==p.id).map(id=>byId[id]).filter(Boolean),onMerge:onMergeProps}))),
+                  dupIds:dupForId[p.id],dupProps:(dupForId[p.id]||[]).filter(id=>id!==p.id).map(id=>byId[id]).filter(Boolean),onMerge:onMergeProps,
+                  sameProps:(sameFor[p.id]||[]).map(id=>byId[id]).filter(Boolean)}))),
               React.createElement(PagerBar,{pager,noun:"prop"}))
           : q
             ? React.createElement("div",{className:"prop-empty"},
@@ -2091,11 +2197,9 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
                 React.createElement("button",{className:"art-draftall",style:{marginTop:16},onClick:()=>setQuery("")},"Clear search"))
             : React.createElement("div",{className:"prop-empty"},
                 React.createElement("div",{className:"art-soon-t"},"No objects in this view"),
-                React.createElement("div",{className:"art-soon-d"},inventoryGroup==="unverified"
-                  ? "Every object here is established by the screenplay or was added by hand."
-                  : inventoryGroup==="proposed"
+                React.createElement("div",{className:"art-soon-d"},inventoryGroup==="proposed"
                   ? "No proposals \u2014 every carried object here comes from the screenplay, was added by hand, or is one you kept."
-                  : "Extract screenplay props to find story objects. Existing wardrobe accessories remain available in All objects."),
+                  : "Read the screenplay for props to find story objects. Existing wardrobe accessories remain available in All objects."),
                 React.createElement("button",{className:"art-draftall",style:{marginTop:16},onClick:()=>{setSceneFilter("");setInventoryGroup("all");}},"Show all objects")))
       : React.createElement("div",{className:"prop-empty"},
           React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon.box,{s:30})),

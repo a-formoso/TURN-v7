@@ -7858,6 +7858,21 @@ button.stage2-au-block:disabled{cursor:default}
 .prop-ref-pick b{font:700 12px/1.2 var(--f-ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt-0)}
 .prop-ref-pick em{font:700 9px/1 var(--f-mono);font-style:normal;text-transform:uppercase;letter-spacing:.08em;color:var(--txt-3)}
 .region-edit-empty{height:100%;min-height:260px;display:grid;place-items:center;text-align:center;color:var(--txt-3);font:600 12px/1.4 var(--f-ui)}
+/* crops as references (2026-10-29): the cut-out view on a prop card's "Take a reference from a sheet…", the cut's size,
+   the small-cut note and the clean-up box */
+.prop-sheet-ref-panel .prop-ref-crop-canvas{display:grid;place-items:center;overflow:hidden;background:#0b0b0d}
+.prop-ref-crop-canvas .region-edit-imagebox,.prop-ref-crop-canvas .region-edit-imagebox img{max-width:100%;max-height:calc(100vh - 140px)}
+.prop-ref-mode{display:flex;gap:6px}
+.prop-ref-mode .char-draft-btn{flex:1;justify-content:center}
+.prop-ref-mode .char-draft-btn.on{border-color:var(--accent);background:var(--accent-soft);color:var(--txt-0)}
+.prop-crop-small{font:500 11.5px/1.45 var(--f-ui);color:var(--win-amber-ink,var(--accent));padding:7px 9px;border:1px solid var(--win-amber-line,var(--accent-line));border-radius:var(--r-m);background:var(--win-amber-soft,var(--accent-soft))}
+.prop-crop-clean{display:flex;gap:9px;align-items:flex-start;font:500 12px/1.45 var(--f-ui);color:var(--txt-1);cursor:pointer}
+.prop-crop-clean input{margin-top:2px;accent-color:var(--accent);flex:0 0 auto}
+.prop-crop-clean b{color:var(--txt-0)}
+.prop-crop-clean-cost{display:inline-block;margin-left:6px;vertical-align:1px}
+.prop-shortname-row{gap:8px;flex-wrap:wrap}
+.prop-shortname-text{font:500 12px/1.4 var(--f-ui);color:var(--txt-2);flex:1 1 220px;min-width:0}
+.prop-shortname-text b{color:var(--txt-0);font-weight:650}
 .region-edit-empty p{margin:8px 0 0}
 @media (max-width:900px){
   .region-edit-head{max-width:78vw}

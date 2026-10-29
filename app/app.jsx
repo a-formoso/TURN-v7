@@ -1659,10 +1659,13 @@ function App(){
       setProps(ps=>ps.map(p=>{
         if(!p || p.id!==propId) return p;
         const refs = Array.isArray(p.referenceImages) ? p.referenceImages : [];
+        // a whole sheet replaces the same sheet attached before; CROPS (2026-10-29) sit side by side — the letter and
+        // the watch cut from one character sheet are two references, not one replacing the other
+        const sameSheet = (r)=> !ref.cropped && !r.cropped && ref.sourceEntityId && r.sourceEntityId===ref.sourceEntityId;
         const next = [{ ...ref }, ...refs.filter(r=>r
           && r.id!==ref.id
           && r.url!==ref.url
-          && (!ref.sourceEntityId || r.sourceEntityId!==ref.sourceEntityId))].slice(0,8);
+          && !sameSheet(r))].slice(0,8);
         return { ...p, referenceImages: next };
       }));
       return true;
@@ -1687,9 +1690,10 @@ function App(){
     };
     window.turnRemovePropReference = (propId, refId)=>{
       if(!propId || !refId) return false;
+      // a crop goes by its own id; detaching a whole sheet by its entity id leaves the crops cut from it (2026-10-29)
       setProps(ps=>ps.map(p=> p && p.id===propId
         ? { ...p, referenceImages:(Array.isArray(p.referenceImages)?p.referenceImages:[]).filter(r=>r
-            && r.id!==refId && r.sourceEntityId!==refId && r.url!==refId) }
+            && r.id!==refId && (r.cropped || r.sourceEntityId!==refId) && r.url!==refId) }
         : p));
       return true;
     };
@@ -4350,7 +4354,9 @@ function App(){
     // the matching worn/carried bullet on its owner's character card, so the two never drift.
     if(patch && Object.prototype.hasOwnProperty.call(patch,"name")){
       const prev = (props||[]).find(p=>p.id===id);
-      if(prev && prev.ownerId && String(prev.name||"").trim() !== String(patch.name||"").trim()){
+      // a SHORT NAME (patch.shortenedFrom, 2026-10-29) leaves the character's own list as it is: the brief keeps the
+      // full description, which the card keeps under its other names
+      if(prev && prev.ownerId && !patch.shortenedFrom && String(prev.name||"").trim() !== String(patch.name||"").trim()){
         syncCharBulletRename(prev.ownerId, prev.name, patch.name);
       }
     }
@@ -4481,7 +4487,7 @@ function App(){
     if(!charId || !target) return;
     // SOFT (2026-10-03): the prop cards go to the Props tab's Recently Deleted with their sheets
     // (restorable; "Delete forever" there clears the images) — it used to clear them for good.
-    const victims = (props||[]).filter(p=> p.ownerId===charId && norm(p.name)===target);
+    const victims = (props||[]).filter(p=> p.ownerId===charId && [p.name, ...(p.aliases||[])].some(n=>norm(n)===target));
     if(!victims.length) return;
     const ids = new Set(victims.map(p=>p.id));
     setProps(ps=> ps.filter(p=>!ids.has(p.id)));
@@ -4558,7 +4564,13 @@ function App(){
   const renameOwnedProp = (charId, oldText, newText)=>{
     const from = _normPropName(oldText), to = String(newText||"").trim();
     if(!charId || !from || !to) return;
-    setProps(ps=>ps.map(p=> (p.ownerId===charId && _normPropName(p.name)===from && p.name!==to) ? {...p, name:to} : p));
+    setProps(ps=>ps.map(p=>{
+      if(p.ownerId!==charId) return p;
+      if(_normPropName(p.name)===from) return p.name!==to ? {...p, name:to} : p;
+      // a card given a short name keeps the brief's text under its other names: that text follows the brief (2026-10-29)
+      const al = p.aliases||[];
+      return al.some(a=>_normPropName(a)===from) ? {...p, aliases:al.map(a=>_normPropName(a)===from ? to : a)} : p;
+    }));
   };
   // RENAME SYNC (prop card → character bullet): replace the matching worn/carried item
   // in the owner's accessories/props text, preserving every other item.

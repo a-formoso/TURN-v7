@@ -1118,10 +1118,11 @@ function buildCharRefPrompt(c, project, props, o){
     const rel = clean(p.relation);   // how the owner relates to it — wear with a meaning
     return clean(p.name) + (tail ? (" ("+tail+(rel?("; "+rel):"")+")") : (rel ? (" ("+rel+")") : "")); };
   const wornDescs = worn.map(propDesc).filter(Boolean);
-  const wornKeys = new Set(worn.map(p=>_norm(p.name)));
+  // a card's other names count (2026-10-29): a card given a short name keeps the brief's full text there
+  const wornKeys = new Set(worn.flatMap(p=>[p.name, ...(p.aliases||[])].map(_norm)));
   // CARRIED prop names never render on the neutral sheet (hands stay empty; they attach
   // at the SHOT level) — even when one was typed into the Accessories text by mistake
-  const carriedKeys = new Set((props||[]).filter(p=>p && p.ownerId===c.id && p.kind==="carried").map(p=>_norm(p.name)));
+  const carriedKeys = new Set((props||[]).filter(p=>p && p.ownerId===c.id && p.kind==="carried").flatMap(p=>[p.name, ...(p.aliases||[])].map(_norm)));
   // any accessories-text items NOT already covered by a worn-prop card (so nothing is lost)
   const accExtra = (typeof splitListItems==="function" ? splitListItems(acc) : (acc?[acc]:[]))
     .filter(it=> it && !wornKeys.has(_norm(it)) && !carriedKeys.has(_norm(it)));
@@ -4670,70 +4671,137 @@ function cropRegionAsDataUrl(url, rect, maxDim, minDim){
   });
 }
 
-function PropReferenceModal({ url, name, noun, entity, onClose }){
-  useEscapeClose(onClose);
-  const propList = ((window.turnContinuity||{}).props||[]).filter(p=>p&&p.id);
-  const [rect, setRect] = React.useState({ x:24, y:24, w:28, h:32 });
-  const [drag, setDrag] = React.useState(null);
-  const [targetId, setTargetId] = React.useState(()=> (propList[0]&&propList[0].id)||"__new");
-  const [newName, setNewName] = React.useState("");
-  const [note, setNote] = React.useState("");
-  const [saving, setSaving] = React.useState(false);
+/* CROPS AS REFERENCES (owner 2026-10-29 — "Attach item to prop…" on a character card, and "Take a reference from a
+   sheet…" on a prop card): the item cut out of a sheet is ENLARGED to a reference size (at least 1024 px on its long
+   side, at most 1536) so the image model sees the item, not a speck; the cut's real size is shown, and a small cut is
+   said to be soft. "Clean up the crop" (optional, one image, priced on the box) has the image model redraw just the
+   item — sharp, alone, on a plain background — and that picture is attached instead of the raw cut. */
+const PROP_CROP_MIN_DIM = 1024, PROP_CROP_MAX_DIM = 1536, PROP_CROP_SMALL = 256;
+function propCropSourcePx(nat, rect){
+  if(!nat || !nat.w || !nat.h || !rect) return null;
+  return { w:Math.max(1, Math.round(rect.w/100*nat.w)), h:Math.max(1, Math.round(rect.h/100*nat.h)) };
+}
+function propCropSizeLine(px){
+  if(!px) return "";
+  const long = Math.max(px.w, px.h);
+  const sent = Math.min(PROP_CROP_MAX_DIM, Math.max(long, PROP_CROP_MIN_DIM));
+  return "The cut is "+px.w+" × "+px.h+" px of the sheet"+(sent>long ? " — sent enlarged to "+sent+" px on its long side." : ".");
+}
+async function propCleanCrop(cropUrl, itemName, note, assetId){
+  if(typeof window.nbGenerate!=="function") throw new Error("Image generation isn't available just now — nothing was charged.");
+  const what = String(itemName||"").trim() || "the object";
+  const prompt = "The attached picture is a cut-out of one object ("+what+")"+(String(note||"").trim() ? (" — "+String(note).trim().replace(/\.$/,"")) : "")+". "
+    +"Redraw ONLY this object, alone, centred and filling most of the frame, sharp and fully detailed, on a flat off-white background with a soft contact shadow. "
+    +"Keep its exact design — shape, proportions, materials, colours, wear and markings — as in the picture. No hands, no person, no other objects, no text or labels.";
+  const out = await window.nbGenerate(prompt, { referenceImage:cropUrl, aspectRatio:"1:1", baseMaxDim:PROP_CROP_MAX_DIM,
+    ...(assetId ? { assetId } : {}), assetPurpose:"prop-reference-cleanup" });
+  if(!out) throw new Error("The clean-up didn't come back — try again in a moment.");
+  if(typeof window.turnDownscaleDataUrl!=="function") return out;
+  try{ return (await window.turnDownscaleDataUrl(out, PROP_CROP_MAX_DIM)) || out; }catch(e){ return out; }
+}
+window.propCleanCrop = propCleanCrop;
+/* the drag-a-box image, shared by both dialogs */
+function PropCropBox({ url, alt, rect, setRect, onNatural, hint, fallback }){
   const boxRef = React.useRef(null);
-  React.useEffect(()=>{
-    if(targetId || !propList.length) return;
-    setTargetId(propList[0].id);
-  },[propList.length, targetId]);
+  const [drag, setDrag] = React.useState(null);
   const clamp = (n,min,max)=> Math.max(min, Math.min(max, n));
   const point = (e)=>{
     const r = boxRef.current && boxRef.current.getBoundingClientRect();
     if(!r) return null;
-    return {
-      x: clamp(((e.clientX-r.left)/r.width)*100, 0, 100),
-      y: clamp(((e.clientY-r.top)/r.height)*100, 0, 100)
-    };
+    return { x: clamp(((e.clientX-r.left)/r.width)*100, 0, 100), y: clamp(((e.clientY-r.top)/r.height)*100, 0, 100) };
   };
   const start = (e)=>{ e.preventDefault(); const p=point(e); if(!p) return; setDrag(p); setRect({ x:p.x, y:p.y, w:0, h:0 }); };
   React.useEffect(()=>{
     if(!drag) return;
     const move = (e)=>{ e.preventDefault(); const p=point(e); if(!p) return;
       setRect({ x:Math.min(drag.x,p.x), y:Math.min(drag.y,p.y), w:Math.abs(p.x-drag.x), h:Math.abs(p.y-drag.y) }); };
-    const end = ()=>{ setDrag(null); setRect(r=> r.w<3||r.h<3 ? { x:24, y:24, w:28, h:32 } : r); };
+    const end = ()=>{ setDrag(null); setRect(r=> r.w<3||r.h<3 ? (fallback||{ x:24, y:24, w:28, h:32 }) : r); };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
     return ()=>{ window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
   },[drag]);
   const pct = (n)=> String(Math.round(n));
+  return React.createElement(React.Fragment,null,
+    React.createElement("div",{className:"region-edit-imagebox",ref:boxRef,onPointerDown:start},
+      React.createElement("img",{src:url,alt:alt||"selected image",draggable:false,
+        onLoad:e=>{ const im=e.currentTarget; if(onNatural) onNatural({ w:im.naturalWidth, h:im.naturalHeight }); }}),
+      React.createElement("div",{className:"region-edit-rect",style:{
+        left:pct(rect.x)+"%", top:pct(rect.y)+"%", width:pct(rect.w)+"%", height:pct(rect.h)+"%" }})),
+    React.createElement("div",{className:"region-edit-hint"},hint||"Drag around the item"));
+}
+/* the cut's size, the small-cut warning and the clean-up box, shared by both dialogs */
+function PropCropExtras({ px, clean, setClean, disabled }){
+  const small = px && Math.max(px.w, px.h) < PROP_CROP_SMALL;
+  return React.createElement(React.Fragment,null,
+    px && React.createElement("div",{className:"region-edit-coords","data-testid":"prop-crop-size"},propCropSizeLine(px)),
+    small && React.createElement("div",{className:"prop-crop-small",role:"note"},
+      "A small cut — enlarging it can't add detail, so the model sees it soft. A close-up or scale-sheet panel works better, or clean it up below."),
+    React.createElement("label",{className:"prop-crop-clean","data-testid":"prop-crop-clean"},
+      React.createElement("input",{type:"checkbox",checked:!!clean,disabled:!!disabled,onChange:e=>setClean(e.target.checked)}),
+      React.createElement("span",null,
+        React.createElement("b",null,"Clean up the crop"),
+        " — the image model redraws just the item, sharp and on its own on a plain background, and that is attached instead of the cut.",
+        typeof window.nbCostChip==="function" && React.createElement("span",{className:"prop-crop-clean-cost"},window.nbCostChip(1, { refs:1 })))));
+}
+
+function PropReferenceModal({ url, name, noun, entity, onClose }){
+  useEscapeClose(onClose);
+  const propList = ((window.turnContinuity||{}).props||[]).filter(p=>p&&p.id);
+  // this character's own props first: the item is most often theirs
+  const ownerFirst = propList.filter(p=>entity && p.ownerId===entity.id).concat(propList.filter(p=>!(entity && p.ownerId===entity.id)));
+  const FALLBACK = { x:24, y:24, w:28, h:32 };
+  const [rect, setRect] = React.useState(FALLBACK);
+  const [nat, setNat] = React.useState(null);
+  const [targetId, setTargetId] = React.useState(()=> (ownerFirst[0]&&ownerFirst[0].id)||"__new");
+  const [newName, setNewName] = React.useState("");
+  const [note, setNote] = React.useState("");
+  const [clean, setClean] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState("");
+  React.useEffect(()=>{
+    if(targetId || !ownerFirst.length) return;
+    setTargetId(ownerFirst[0].id);
+  },[ownerFirst.length, targetId]);
+  const pct = (n)=> String(Math.round(n));
   const target = propList.find(p=>p.id===targetId);
   const attach = async ()=>{
     if((!targetId || (targetId==="__new" && !newName.trim())) || saving) return;
-    setSaving(true);
-    const cropped = await cropRegionAsDataUrl(url, rect, 1024);
-    const ref = {
-      id:"pref-"+Date.now().toString(36),
-      url:cropped || url,
-      sourceUrl:url,
-      sourceEntityId:entity&&entity.id,
-      sourceName:name||((entity&&entity.name)||noun)||"Art Room sheet",
-      sourceKind:noun||"sheet",
-      note:note.trim() || ("Selected item from "+(name||noun||"Art Room sheet")),
-      cropped:!!cropped,
-      region:{ x:Math.round(rect.x), y:Math.round(rect.y), w:Math.round(rect.w), h:Math.round(rect.h) }
-    };
-    let ok = false, label = (target&&target.name)||"prop";
-    if(targetId==="__new"){
-      const card = typeof window.turnCreatePropFromReference==="function"
-        ? window.turnCreatePropFromReference(ref, { name:newName.trim() }) : null;
-      ok = !!card; label = (card&&card.name)||newName.trim();
-    } else {
-      ok = typeof window.turnAttachPropReference==="function" && window.turnAttachPropReference(targetId, ref);
-    }
-    setSaving(false);
-    if(ok && typeof window.appToast==="function") window.appToast((targetId==="__new"?"Created ":"Attached selected item to ")+label+" as a consistency reference.","success");
-    if(ok) onClose && onClose();
+    setSaving(true); setErr("");
+    try{
+      let cropped = await cropRegionAsDataUrl(url, rect, PROP_CROP_MAX_DIM, PROP_CROP_MIN_DIM);
+      if(clean && !cropped){ setErr("Couldn't cut the item out of this image, so nothing was cleaned up or charged. Try again, or attach it without the clean-up."); return; }
+      let cleaned = false;
+      if(clean){
+        cropped = await propCleanCrop(cropped, targetId==="__new" ? newName.trim() : (target&&target.name), note, targetId==="__new" ? undefined : targetId);
+        cleaned = true;
+      }
+      const ref = {
+        id:"pref-"+Date.now().toString(36),
+        url:cropped || url,
+        sourceUrl:url,
+        sourceEntityId:entity&&entity.id,
+        sourceName:name||((entity&&entity.name)||noun)||"Art Room sheet",
+        sourceKind:noun||"sheet",
+        note:note.trim() || ("Selected item from "+(name||noun||"Art Room sheet")),
+        cropped:!!cropped,
+        ...(cleaned ? { cleaned:true } : {}),
+        region:{ x:Math.round(rect.x), y:Math.round(rect.y), w:Math.round(rect.w), h:Math.round(rect.h) }
+      };
+      let ok = false, label = (target&&target.name)||"prop";
+      if(targetId==="__new"){
+        const card = typeof window.turnCreatePropFromReference==="function"
+          ? window.turnCreatePropFromReference(ref, { name:newName.trim() }) : null;
+        ok = !!card; label = (card&&card.name)||newName.trim();
+      } else {
+        ok = typeof window.turnAttachPropReference==="function" && window.turnAttachPropReference(targetId, ref);
+      }
+      if(ok && typeof window.appToast==="function") window.appToast((targetId==="__new"?"Created ":"Attached the selected item to ")+label+" as a reference"+(cleaned?" (cleaned up)":"")+".","success");
+      if(ok) onClose && onClose();
+    }catch(e){ setErr((e && e.message) || "Couldn't attach the item just now."); }
+    finally{ setSaving(false); }
   };
   const portalTarget = typeof document!=="undefined" && (document.body || document.documentElement);
-  const modal = React.createElement("div",{className:"region-edit-overlay",role:"dialog","aria-modal":"true","aria-label":"Attach item to prop",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
+  const modal = React.createElement("div",{className:"region-edit-overlay",role:"dialog","aria-modal":"true","aria-label":"Attach item to prop",onMouseDown:(e)=>{ if(e.target===e.currentTarget && !saving) onClose(); }},
     React.createElement("div",{className:"region-edit-panel"},
       React.createElement("div",{className:"region-edit-head"},
         React.createElement("div",null,
@@ -4742,17 +4810,14 @@ function PropReferenceModal({ url, name, noun, entity, onClose }){
         React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:18}))),
       React.createElement("div",{className:"region-edit-body"},
         React.createElement("div",{className:"region-edit-canvas"},
-          React.createElement("div",{className:"region-edit-imagebox",ref:boxRef,onPointerDown:start},
-            React.createElement("img",{src:url,alt:name||"selected image",draggable:false}),
-            React.createElement("div",{className:"region-edit-rect",style:{
-              left:pct(rect.x)+"%", top:pct(rect.y)+"%", width:pct(rect.w)+"%", height:pct(rect.h)+"%" }})),
-          React.createElement("div",{className:"region-edit-hint"},"Drag around the item you want the prop to inherit")),
+          React.createElement(PropCropBox,{url,alt:name,rect,setRect,onNatural:setNat,fallback:FALLBACK,
+            hint:"Drag around the item you want the prop to inherit"})),
         React.createElement("div",{className:"region-edit-side"},
           React.createElement("label",{className:"region-edit-field"},
             React.createElement("span",null,"Target prop"),
             React.createElement("select",{className:"prop-select region-prop-select",value:targetId,onChange:e=>setTargetId(e.target.value)},
               React.createElement("option",{value:"__new"},"+ Create new prop from selection"),
-              propList.map(p=>React.createElement("option",{key:p.id,value:p.id},(p.name||"Unnamed prop")+(p.ownerName?(" \u00b7 "+p.ownerName):""))))),
+              ownerFirst.map(p=>React.createElement("option",{key:p.id,value:p.id},(p.name||"Unnamed prop")+(p.ownerName?(" · "+p.ownerName):""))))),
           targetId==="__new" && React.createElement("label",{className:"region-edit-field"},
             React.createElement("span",null,"New prop name"),
             React.createElement("input",{className:"prop-select region-text-input",value:newName,onChange:e=>setNewName(e.target.value),
@@ -4763,20 +4828,25 @@ function PropReferenceModal({ url, name, noun, entity, onClose }){
               placeholder:"What should this prop borrow from the selected item? e.g. patina, material, scale, handmade construction..." })),
           React.createElement("div",{className:"region-edit-coords"},
             "Region: left "+pct(rect.x)+"%, top "+pct(rect.y)+"%, width "+pct(rect.w)+"%, height "+pct(rect.h)+"%"),
+          React.createElement(PropCropExtras,{px:propCropSourcePx(nat, rect),clean,setClean,disabled:saving}),
+          err && React.createElement("p",{className:"prop-review-warning",role:"alert"},err),
           React.createElement("div",{className:"region-edit-note"},
-            "The selected crop is saved on the target prop and rides as a reference on future prop generations/edits, helping the prop belong to this character or location world."),
+            "The selected crop is saved on the target prop and rides as a reference on its future generations and edits, so the prop matches what this sheet shows."),
           React.createElement("div",{className:"region-edit-acts"},
-            React.createElement("button",{className:"sheet-edit-cancel",onClick:onClose},"Cancel"),
+            React.createElement("button",{className:"sheet-edit-cancel",onClick:onClose,disabled:saving},"Cancel"),
             React.createElement("button",{className:"sheet-edit-apply",disabled:!targetId||(targetId==="__new"&&!newName.trim())||saving,onClick:attach},
-              React.createElement(Icon.target,{s:12}), saving?"Attaching\u2026":(targetId==="__new"?"Create prop":"Attach to prop"))))),
+              React.createElement(Icon.target,{s:12}), saving?(clean?"Cleaning up…":"Attaching…"):(targetId==="__new"?"Create prop":"Attach to prop"))))),
     ));
   return portalTarget ? ReactDOM.createPortal(modal, portalTarget) : modal;
 }
 
+/* TAKE A REFERENCE FROM A SHEET (owner 2026-10-29): on every prop card's ⋯ menu, image or not. It opens on the
+   owner's character sheet; any character, prop or location sheet can be picked. "Just the item" cuts the item out
+   (enlarged, optionally cleaned up, as above); "Whole sheet" attaches the sheet for likeness, taste and materials. */
 function PropSheetReferenceModal({ prop, onClose }){
   useEscapeClose(onClose);
   const graph = window.turnContinuity || {};
-  const currentPropId = prop && prop.id;
+  const currentPropId = prop && prop.id, ownerId = prop && prop.ownerId;
   const attachedRefs = Array.isArray(prop && prop.referenceImages) ? prop.referenceImages.filter(Boolean) : [];
   const candidates = [
     ...((graph.characters||[]).filter(Boolean).map(c=>({ id:c.id, name:c.name||"Unnamed character", kind:"character",
@@ -4784,9 +4854,19 @@ function PropSheetReferenceModal({ prop, onClose }){
     ...((graph.props||[]).filter(p=>p&&p.id&&p.id!==currentPropId).map(p=>({ id:p.id, name:p.name||"Unnamed prop", kind:"prop", note:(p.name||"Prop")+" prop sheet" }))),
     ...((graph.locations||[]).filter(Boolean).map(l=>({ id:l.id||l.key, name:l.name||"Unnamed location", kind:"location", note:(l.name||"Location")+" location plate" })))
   ].filter(x=>x&&x.id);
+  // the owner's sheet first — the item is most often on it
+  candidates.sort((a,b)=> (b.id===ownerId?1:0) - (a.id===ownerId?1:0));
+  const FALLBACK = { x:30, y:30, w:30, h:30 };
   const [rows, setRows] = React.useState([]);
+  const [loaded, setLoaded] = React.useState(false);
   const [selected, setSelected] = React.useState("");
+  const [mode, setMode] = React.useState("item");      // "item" (cut it out) | "whole"
+  const [rect, setRect] = React.useState(FALLBACK);
+  const [nat, setNat] = React.useState(null);
   const [note, setNote] = React.useState("");
+  const [clean, setClean] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState("");
   React.useEffect(()=>{
     let alive = true;
     (async ()=>{
@@ -4798,31 +4878,43 @@ function PropSheetReferenceModal({ prop, onClose }){
         if(url) out.push({ ...c, url });
       }
       if(alive){
-        setRows(out);
+        setRows(out); setLoaded(true);
         setSelected(s=> s || (out[0] && out[0].id) || "");
       }
     })();
     return ()=>{ alive = false; };
   },[currentPropId, candidates.length]);
   const picked = rows.find(r=>r.id===selected);
-  const pickedAttachment = picked && attachedRefs.find(ref=>ref && (
+  const pick = (id)=>{ setSelected(id); setNat(null); setRect(FALLBACK); setErr(""); };
+  // a WHOLE sheet attached before (crops cut from it are their own references)
+  const pickedAttachment = picked && attachedRefs.find(ref=>ref && !ref.cropped && (
     ref.sourceEntityId===picked.id || ref.url===picked.url || ref.sourceUrl===picked.url
   ));
-  const attach = ()=>{
-    if(!picked || !prop || !prop.id) return;
-    const ref = {
-      id:"pref-"+Date.now().toString(36),
-      url:picked.url,
-      sourceUrl:picked.url,
-      sourceEntityId:picked.id,
-      sourceName:picked.name,
-      sourceKind:picked.kind,
-      note:note.trim() || picked.note,
-      cropped:false
-    };
-    const ok = typeof window.turnAttachPropReference==="function" && window.turnAttachPropReference(prop.id, ref);
-    if(ok && typeof window.appToast==="function") window.appToast("Attached "+picked.name+" to "+(prop.name||"this prop")+" as a consistency reference.","success");
-    if(ok) onClose && onClose();
+  const wholeOn = (r)=> attachedRefs.some(ref=>ref && !ref.cropped && (ref.sourceEntityId===r.id||ref.url===r.url||ref.sourceUrl===r.url));
+  const itemNote = picked ? ((prop&&prop.name)||"This prop")+" as it appears on "+picked.name+"'s "+picked.kind+" sheet" : "";
+  const attach = async ()=>{
+    if(!picked || !prop || !prop.id || saving) return;
+    setSaving(true); setErr("");
+    try{
+      let ref;
+      if(mode==="whole"){
+        ref = { id:"pref-"+Date.now().toString(36), url:picked.url, sourceUrl:picked.url, sourceEntityId:picked.id,
+          sourceName:picked.name, sourceKind:picked.kind, note:note.trim() || picked.note, cropped:false };
+      } else {
+        let cut = await cropRegionAsDataUrl(picked.url, rect, PROP_CROP_MAX_DIM, PROP_CROP_MIN_DIM);
+        if(!cut){ setErr("Couldn't cut the item out of this sheet"+(clean?", so nothing was cleaned up or charged":"")+". Try again, or attach the whole sheet."); return; }
+        if(clean) cut = await propCleanCrop(cut, prop.name, note, prop.id);
+        ref = { id:"pref-"+Date.now().toString(36), url:cut, sourceUrl:picked.url, sourceEntityId:picked.id,
+          sourceName:picked.name, sourceKind:picked.kind, note:note.trim() || itemNote, cropped:true,
+          ...(clean ? { cleaned:true } : {}),
+          region:{ x:Math.round(rect.x), y:Math.round(rect.y), w:Math.round(rect.w), h:Math.round(rect.h) } };
+      }
+      const ok = typeof window.turnAttachPropReference==="function" && window.turnAttachPropReference(prop.id, ref);
+      if(ok && typeof window.appToast==="function") window.appToast((mode==="whole" ? "Attached "+picked.name+"'s sheet" : "Attached the item from "+picked.name+"'s sheet"+(clean?" (cleaned up)":""))
+        +" to "+(prop.name||"this prop")+" as a reference.","success");
+      if(ok) onClose && onClose();
+    }catch(e){ setErr((e && e.message) || "Couldn't attach the reference just now."); }
+    finally{ setSaving(false); }
   };
   const detach = ()=>{
     if(!pickedAttachment || !prop || !prop.id) return;
@@ -4831,41 +4923,61 @@ function PropSheetReferenceModal({ prop, onClose }){
     if(ok && typeof window.appToast==="function") window.appToast("Detached "+picked.name+" from "+(prop.name||"this prop")+".","success");
     if(ok) onClose && onClose();
   };
-  return ReactDOM.createPortal(React.createElement("div",{className:"region-edit-overlay",role:"dialog","aria-modal":"true","aria-label":"Attach reference to prop",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
+  const cropping = mode==="item" && !!picked;
+  return ReactDOM.createPortal(React.createElement("div",{className:"region-edit-overlay",role:"dialog","aria-modal":"true","aria-label":"Take a reference from a sheet",onMouseDown:e=>{ if(e.target===e.currentTarget && !saving) onClose(); }},
     React.createElement("div",{className:"region-edit-panel prop-sheet-ref-panel"},
       React.createElement("div",{className:"region-edit-head"},
         React.createElement("div",null,
-          React.createElement("div",{className:"region-edit-title"},"Attach reference to prop"),
+          React.createElement("div",{className:"region-edit-title"},"Take a reference from a sheet"),
           React.createElement("div",{className:"region-edit-sub"},prop && prop.name ? prop.name : "Prop")),
         React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:18}))),
       React.createElement("div",{className:"region-edit-body"},
-        React.createElement("div",{className:"region-edit-canvas prop-ref-list-canvas"},
-          rows.length
+        React.createElement("div",{className:"region-edit-canvas"+(cropping?" prop-ref-crop-canvas":" prop-ref-list-canvas")},
+          cropping
+            ? React.createElement(PropCropBox,{key:picked.id,url:picked.url,alt:picked.name,rect,setRect,onNatural:setNat,fallback:FALLBACK,
+                hint:"Drag around "+((prop&&prop.name)||"the item")})
+            : rows.length
             ? React.createElement("div",{className:"prop-ref-picker"},
                 rows.map(r=>React.createElement("button",{key:r.kind+":"+r.id,
-                  className:"prop-ref-pick"+(selected===r.id?" on":"")+(attachedRefs.some(ref=>ref&&(ref.sourceEntityId===r.id||ref.url===r.url||ref.sourceUrl===r.url))?" attached":""),
-                  onClick:()=>{ setSelected(r.id); setNote(r.note); }},
+                  className:"prop-ref-pick"+(selected===r.id?" on":"")+(wholeOn(r)?" attached":""),
+                  onClick:()=>pick(r.id)},
                   React.createElement("img",{src:r.url,alt:r.name}),
                   React.createElement("span",null,
                     React.createElement("b",null,r.name),
-                    React.createElement("em",null,r.kind+(attachedRefs.some(ref=>ref&&(ref.sourceEntityId===r.id||ref.url===r.url||ref.sourceUrl===r.url))?" \u00b7 attached":""))))))
+                    React.createElement("em",null,r.kind+(r.id===ownerId?" · owner":"")+(wholeOn(r)?" · attached":""))))))
             : React.createElement("div",{className:"region-edit-empty"},
                 React.createElement(Icon.image,{s:28}),
-                React.createElement("p",null,"No generated character, prop or location sheets found yet."))),
+                React.createElement("p",null,loaded ? "No character, prop or location sheet has an image yet." : "Looking for sheets…"))),
         React.createElement("div",{className:"region-edit-side"},
+          rows.length>0 && React.createElement("label",{className:"region-edit-field"},
+            React.createElement("span",null,"Sheet"),
+            React.createElement("select",{className:"prop-select region-prop-select","data-testid":"prop-ref-sheet",value:selected,onChange:e=>pick(e.target.value)},
+              rows.map(r=>React.createElement("option",{key:r.kind+":"+r.id,value:r.id},r.name+" · "+r.kind+(r.id===ownerId?" (owner)":""))))),
+          rows.length>0 && React.createElement("div",{className:"region-edit-field"},
+            React.createElement("span",null,"Use"),
+            React.createElement("div",{className:"prop-ref-mode",role:"group","aria-label":"What to attach"},
+              React.createElement("button",{type:"button",className:"char-draft-btn ghost"+(mode==="item"?" on":""),"aria-pressed":mode==="item"?"true":"false",
+                onClick:()=>setMode("item")},"Just the item"),
+              React.createElement("button",{type:"button",className:"char-draft-btn ghost"+(mode==="whole"?" on":""),"aria-pressed":mode==="whole"?"true":"false",
+                onClick:()=>setMode("whole")},"Whole sheet"))),
           React.createElement("label",{className:"region-edit-field"},
             React.createElement("span",null,"Reference note"),
             React.createElement("textarea",{value:note,onChange:e=>setNote(e.target.value),
-              placeholder:"What should this prop inherit? e.g. likeness, owner taste, material patina, set-dressing world..." })),
-          picked && React.createElement("div",{className:"region-edit-coords"},
+              placeholder:cropping ? (itemNote || "What should this prop take from the item?") : "What should this prop inherit? e.g. likeness, owner taste, material patina, set-dressing world..." })),
+          cropping && React.createElement(PropCropExtras,{px:propCropSourcePx(nat, rect),clean,setClean,disabled:saving}),
+          !cropping && picked && React.createElement("div",{className:"region-edit-coords"},
             "Source: "+picked.kind+" sheet · "+picked.name),
-          React.createElement("div",{className:"region-edit-note"},
-            "Use this for whole-sheet influence: a character likeness for a photo prop, an owner's taste and wear patterns, a location's materials, or another prop's construction language."),
+          err && React.createElement("p",{className:"prop-review-warning",role:"alert"},err),
+          React.createElement("div",{className:"region-edit-note"}, cropping
+            ? "Cut the prop out of a sheet that shows it — its owner's character sheet, a close-up or a location plate. The cut rides on this prop's future generations and edits."
+            : "Use this for whole-sheet influence: a character likeness for a photo prop, an owner's taste and wear patterns, a location's materials, or another prop's construction language."),
           React.createElement("div",{className:"region-edit-acts"},
-            React.createElement("button",{className:"sheet-edit-cancel",onClick:onClose},"Cancel"),
-            React.createElement("button",{className:"sheet-edit-apply"+(pickedAttachment?" danger":""),disabled:!picked,onClick:pickedAttachment?detach:attach},
-              pickedAttachment?React.createElement(Icon.x,{s:12}):React.createElement(Icon.layers,{s:12}),
-              pickedAttachment?"Detach reference":"Attach reference"))))),
+            React.createElement("button",{className:"sheet-edit-cancel",onClick:onClose,disabled:saving},"Cancel"),
+            (mode==="whole" && pickedAttachment)
+              ? React.createElement("button",{className:"sheet-edit-apply danger",onClick:detach},React.createElement(Icon.x,{s:12}),"Detach sheet")
+              : React.createElement("button",{className:"sheet-edit-apply",disabled:!picked||saving,onClick:attach},
+                  React.createElement(Icon.layers,{s:12}),
+                  saving ? (cropping && clean ? "Cleaning up…" : "Attaching…") : (cropping ? "Attach the item" : "Attach the sheet")))))),
     ), document.body);
 }
 
@@ -5086,10 +5198,11 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
             title:"Select an item in this image and attach that crop to an existing prop as a consistency reference.",
             onClick:()=>{ setPropRefOpen(true); setMenuOpen(false); }},
             React.createElement(Icon.box,{s:14}),"Attach item to prop\u2026"),
-          genUrl && isPropCardMenu && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
-            title:"Attach an existing character, prop or location sheet as a consistency reference for future prop generations and edits.",
+          // (owner 2026-10-29) on every prop card, image or not: cut the item out of its owner's sheet (or any sheet)
+          isPropCardMenu && React.createElement("button",{className:"sheet-tools-item","data-testid":"sheet-menu-take-ref",disabled:gening,
+            title:"Cut this prop out of its owner's character sheet (or any character, prop or location sheet), or attach a whole sheet, as a reference for its future generations and edits.",
             onClick:()=>{ setSheetRefOpen(true); setMenuOpen(false); }},
-            React.createElement(Icon.layers,{s:14}),"Attach reference to prop\u2026"),
+            React.createElement(Icon.layers,{s:14}),"Take a reference from a sheet\u2026"),
           // import a finished sheet generated outside the app (e.g. in ChatGPT)
           importSheet && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Import a finished image you generated elsewhere, at full resolution — it becomes this "+noun,
@@ -5365,7 +5478,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
       })}),
     propRefOpen && genUrl && React.createElement(PropReferenceModal,{url:genUrl,name,noun,entity,
       onClose:()=>setPropRefOpen(false)}),
-    sheetRefOpen && genUrl && entity && React.createElement(PropSheetReferenceModal,{prop:entity,
+    sheetRefOpen && entity && React.createElement(PropSheetReferenceModal,{prop:entity,
       onClose:()=>setSheetRefOpen(false)}));
 }
 window.SheetFrame = SheetFrame;

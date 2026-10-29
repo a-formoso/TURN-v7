@@ -37,7 +37,7 @@ test("M3 Escape closes the menu and the image editors, which are dialogs", ()=>{
     const i = art.indexOf(fn); assert.ok(i>0, fn);
     assert.ok(art.slice(i, i+400).includes("useEscapeClose(onClose);"), fn+" closes on Escape");
   }
-  for(const lab of ['"aria-label":"Select area & edit"', '"aria-label":"Attach item to prop"', '"aria-label":"Attach reference to prop"'])
+  for(const lab of ['"aria-label":"Select area & edit"', '"aria-label":"Attach item to prop"', '"aria-label":"Take a reference from a sheet"'])
     assert.ok(art.includes('role:"dialog","aria-modal":"true",'+lab), lab);
 });
 test("M4 Frances knows the menu", ()=>{

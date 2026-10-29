@@ -29,7 +29,7 @@ await test("stale wording is gone: Shot List, table-read, 'boards every scene'",
   assert.ok(read("app/app.jsx").includes('viewLabel:"View Shots"'));
 });
 await test("one orange action in the Props header; tab titles keep one line",()=>{
-  assert.ok(props.includes('React.createElement("button",{className:"art-draftall ghost secondary",disabled:!!extraction||draftingAll||!scenes.length,onClick:extractProps,'));
+  assert.ok(props.includes('React.createElement("button",{className:"art-draftall ghost secondary","data-testid":"prop-read-screenplay",disabled:!!extraction||draftingAll||!scenes.length,onClick:extractProps,'));
   assert.ok(/\.art-intro-row\{[^}]*flex-wrap:wrap/.test(css)&&css.includes(".art-intro-row .art-intro-t{white-space:nowrap}"));
 });
 await test("props and locations show 'Photoreal - Cinematic' for the photoreal style",()=>{
