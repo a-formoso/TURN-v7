@@ -4439,7 +4439,17 @@ function ScriptCheckButton({ gen, c, drafts, sceneId, variantLabel, noun, onUpda
 }
 window.ScriptCheckButton = ScriptCheckButton; window.CharacterScriptCheckReport = CharacterScriptCheckReport;
 
+/* Escape closes an image editor (owner 2026-10-29 — the ⋯ menu review: they only closed by clicking outside or Cancel);
+   a window open on top of it (a confirm) gets the key first */
+function useEscapeClose(onClose){
+  React.useEffect(()=>{
+    const h=(e)=>{ if(e.key==="Escape" && !document.querySelector(".appconfirm")){ e.stopPropagation(); onClose && onClose(); } };
+    document.addEventListener("keydown", h);
+    return ()=>document.removeEventListener("keydown", h);
+  },[onClose]);
+}
 function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApply, costOptsFor }){
+  useEscapeClose(onClose);
   const [rect, setRect] = React.useState({ x:24, y:24, w:44, h:36 });
   const [drag, setDrag] = React.useState(null);
   const [text, setText] = React.useState("");
@@ -4578,7 +4588,7 @@ function RegionEditModal({ url, name, noun, entity, editPropRefs, onClose, onApp
 
   const portalTarget = (typeof document!=="undefined" && (document.body || document.documentElement)) || null;
   const sideStyle = sidePos ? { left:sidePos.left, top:sidePos.top, right:"auto", bottom:"auto" } : null;
-  const modal = React.createElement("div",{className:"region-edit-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
+  const modal = React.createElement("div",{className:"region-edit-overlay",role:"dialog","aria-modal":"true","aria-label":"Select area & edit",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"region-edit-panel"},
       React.createElement("div",{className:"region-edit-head"},
         React.createElement("div",null,
@@ -4661,6 +4671,7 @@ function cropRegionAsDataUrl(url, rect, maxDim, minDim){
 }
 
 function PropReferenceModal({ url, name, noun, entity, onClose }){
+  useEscapeClose(onClose);
   const propList = ((window.turnContinuity||{}).props||[]).filter(p=>p&&p.id);
   const [rect, setRect] = React.useState({ x:24, y:24, w:28, h:32 });
   const [drag, setDrag] = React.useState(null);
@@ -4722,7 +4733,7 @@ function PropReferenceModal({ url, name, noun, entity, onClose }){
     if(ok) onClose && onClose();
   };
   const portalTarget = typeof document!=="undefined" && (document.body || document.documentElement);
-  const modal = React.createElement("div",{className:"region-edit-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
+  const modal = React.createElement("div",{className:"region-edit-overlay",role:"dialog","aria-modal":"true","aria-label":"Attach item to prop",onMouseDown:(e)=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"region-edit-panel"},
       React.createElement("div",{className:"region-edit-head"},
         React.createElement("div",null,
@@ -4763,6 +4774,7 @@ function PropReferenceModal({ url, name, noun, entity, onClose }){
 }
 
 function PropSheetReferenceModal({ prop, onClose }){
+  useEscapeClose(onClose);
   const graph = window.turnContinuity || {};
   const currentPropId = prop && prop.id;
   const attachedRefs = Array.isArray(prop && prop.referenceImages) ? prop.referenceImages.filter(Boolean) : [];
@@ -4819,7 +4831,7 @@ function PropSheetReferenceModal({ prop, onClose }){
     if(ok && typeof window.appToast==="function") window.appToast("Detached "+picked.name+" from "+(prop.name||"this prop")+".","success");
     if(ok) onClose && onClose();
   };
-  return ReactDOM.createPortal(React.createElement("div",{className:"region-edit-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
+  return ReactDOM.createPortal(React.createElement("div",{className:"region-edit-overlay",role:"dialog","aria-modal":"true","aria-label":"Attach reference to prop",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"region-edit-panel prop-sheet-ref-panel"},
       React.createElement("div",{className:"region-edit-head"},
         React.createElement("div",null,
@@ -4987,8 +4999,9 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
   React.useEffect(()=>{
     if(!menuOpen) return;
     const handler = e=>{ if(menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
-    document.addEventListener("mousedown", handler);
-    return ()=>document.removeEventListener("mousedown", handler);
+    const onKey = e=>{ if(e.key==="Escape") setMenuOpen(false); };   // (2026-10-29) Escape closes the menu too
+    document.addEventListener("mousedown", handler); document.addEventListener("keydown", onKey);
+    return ()=>{ document.removeEventListener("mousedown", handler); document.removeEventListener("keydown", onKey); };
   },[menuOpen]);
 
   /* draft-then-generate: when generating an undrafted card, run Draft first then auto-generate */
@@ -5046,11 +5059,12 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
         menuOpen && React.createElement("div",{className:"sheet-tools-dropdown"},
           canOpenDetails && React.createElement("button",{className:"sheet-tools-item",onClick:()=>{ setDetailsOpen(true); setMenuOpen(false); }},
             React.createElement(Icon.info,{s:14}),"Details"),
-          (genUrl && (forceRemaster || remasterEligible(genMeta))) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
-            title:"Re-render the CURRENT image as a fresh, clean, full-quality version \u2014 same design, artifacts and noise removed (stacked edits degrade like a photocopy of a photocopy). Lands as a new version; the old one stays in history.",
-            onClick:()=>{ setMenuOpen(false); generate({ editInstruction: (typeof remasterInstruction==="function")?remasterInstruction(noun):"Reproduce this image exactly, clean and artifact-free." }); }},
-            React.createElement(Icon.sparkles,{s:14}),"Remaster \u2014 clean re-render",
-            typeof window.nbCostChip==="function" && window.nbCostChip(1, editCostOpts(0))),
+          // (owner 2026-10-29 — the ⋯ menu review) the full-size viewer: its earlier versions underneath and Download at the
+          // size you choose — until now only clicking the image itself opened it
+          genUrl && onView && React.createElement("button",{className:"sheet-tools-item","data-testid":"sheet-menu-view",
+            title:"Open the image full size \u2014 its earlier versions underneath, and Download at the size you choose",
+            onClick:()=>{ setMenuOpen(false); onView(genUrl, entity); }},
+            React.createElement(Icon.maximize,{s:14}),"View full size & download"),
           ...(menuItemsBeforeEdit||[]).map((m,i)=>
             React.createElement("button",{key:"mb"+i,className:"sheet-tools-item",disabled:gening||m.disabled,title:m.title,
               onClick:()=>{ setMenuOpen(false); m.onClick&&m.onClick(); }},
@@ -5062,6 +5076,12 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
             title:"Draw a rectangle on the image, write a localized edit prompt, and optionally attach a prop sheet or uploaded reference image.",
             onClick:()=>{ setRegionEditOpen(true); setMenuOpen(false); }},
             React.createElement(Icon.target,{s:14}),"Select area & edit"),
+          // Remaster sits with the edits it cleans up after (2026-10-29)
+          (genUrl && (forceRemaster || remasterEligible(genMeta))) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
+            title:"Re-render the CURRENT image as a fresh, clean, full-quality version \u2014 same design, artifacts and noise removed (stacked edits degrade like a photocopy of a photocopy). Lands as a new version; the old one stays in history.",
+            onClick:()=>{ setMenuOpen(false); generate({ editInstruction: (typeof remasterInstruction==="function")?remasterInstruction(noun):"Reproduce this image exactly, clean and artifact-free." }); }},
+            React.createElement(Icon.sparkles,{s:14}),"Remaster \u2014 clean re-render",
+            typeof window.nbCostChip==="function" && window.nbCostChip(1, editCostOpts(0))),
           genUrl && !isPropCardMenu && (((window.turnContinuity||{}).props||[]).length>0) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Select an item in this image and attach that crop to an existing prop as a consistency reference.",
             onClick:()=>{ setPropRefOpen(true); setMenuOpen(false); }},
@@ -5103,7 +5123,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
                 : window.confirm ? window.confirm(opts.title+"\n\n"+opts.body) : false;
               if(ok) clearGen();
             }},
-            React.createElement(Icon.x,{s:14}),"Clear"),
+            React.createElement(Icon.x,{s:14}),"Clear image\u2026"),   // (2026-10-29) it deletes the image and every version, after asking
           onDelete && React.createElement("button",{className:"sheet-tools-item danger",onClick:async ()=>{
               setMenuOpen(false);
               if(/location/i.test(deleteLabel||"")){
