@@ -7321,10 +7321,10 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
           // development; the Art Room designs only what the story establishes.
           // ONE primary per stage: "Design the cast" leads while specs are missing,
           // "Generate all" leads once everything is drafted; the rest are ghosts.
-          onCast && React.createElement("button",{className:"art-draftall ghost",disabled:!characters.length,onClick:()=>onCast({}),
+          onCast && React.createElement("button",{className:"art-draftall ghost secondary",disabled:!characters.length,onClick:()=>onCast({}),
             title:"Casting Director — drafts each character's look, finds their appearance changes, and generates the master sheet + every state variant, on its own"},
             React.createElement(Icon.robot,{s:14}),"Design the cast"),
-          (onReadScript && scriptReady && list.length>0) && React.createElement("button",{className:"art-draftall ghost",disabled:readingAny||!!readOnly,
+          (onReadScript && scriptReady && list.length>0) && React.createElement("button",{className:"art-draftall ghost secondary",disabled:readingAny||!!readOnly,
             onClick:()=>onReadScript(null),"data-testid":"char-read-script-all",
             title:"Read the script \u2014 lists what the screenplay states about every character (age, heritage only if stated, build, height, hair, distinguishing marks, injuries and wardrobe by scene), each with its quote, so their looks follow it. "
               +charReadCostText(scenes, drafts, list)+" (writing credits). Nothing is drafted or generated."},
@@ -7332,7 +7332,7 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
           someUndrafted && React.createElement("button",{className:"art-draftall",disabled:draftingAll,onClick:onDraftAll,
             title:"Draft the spec for any character that doesn't have one yet \u2014 identity, wardrobe, props & accessories, continuity and look dev (the master reference prompt builds from these). Specs only \u2014 no images; the manual alternative to Design the cast."+draftReadNote},
             React.createElement(Icon.sparkles,{s:14}), draftingAll?"Designing\u2026":(eligibleAll>0?"Draft remaining":"Draft all (specs only)")),
-          missingAll.length>0 && React.createElement("button",{className:"art-draftall"+(castStage==="draft"?" ghost":""),disabled:!!batchActiveId,onClick:()=>startAllBatch(true),
+          missingAll.length>0 && React.createElement("button",{className:"art-draftall"+(castStage==="draft"?" ghost secondary":""),disabled:!!batchActiveId,onClick:()=>startAllBatch(true),
             title:"Generate the reference sheet for every drafted character that doesn't have one yet \u2014 existing sheets are left as they are"},
             React.createElement(Icon.sparkles,{s:14}),
             batchActiveId?"Generating\u2026":("Generate "+missingAll.length+" missing sheet"+(missingAll.length!==1?"s":"")),

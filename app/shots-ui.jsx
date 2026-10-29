@@ -2902,7 +2902,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
           // "Export shot list" lives in the top bar's ⋮ menu now (window.turnExportShotList)
           window.RecentlyDeleted && _el(window.RecentlyDeleted,{items:trashItems,kind:"shot",onRestore,onPurge,compact:true}),
           microCleanupButton,
-          _el("button",{className:"art-draftall ghost",disabled:draftingAllShots||!ordered.length,onClick:handleDesignAll,
+          _el("button",{className:"art-draftall ghost secondary",disabled:draftingAllShots||!ordered.length,onClick:handleDesignAll,
             title:"Draft one opening keyframe per beat for every scene that has no shots yet \u2014 size, angle, move and lens per beat (writing credits, one call per scene) \u2014 asks first"},
             _el(Icon.sparkles,{s:14}), draftingAllShots?"Designing\u2026":"Design all shots"),
           _el("label",{className:"shot-check-each",title:"Pause a scene or film run after each new frame so you can approve it (or regenerate it) before it becomes the next shot's starting point. Off: every frame is approved automatically and the run continues."},

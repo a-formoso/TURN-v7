@@ -116,13 +116,14 @@ await test("C1 'Preview the look' renders only the noted cards without a preview
   box.__begun = null; b.props.onClick();
   assert.deepEqual(J(box.__begun), { ids:["r2", "r3"], skipped:2 }, "r1 has its frame, r4 has no note");
 });
-await test("C4 a '+' above the visual statement adds your own card; hidden for view-only and on an empty Lookbook", ()=>{
+await test("C4 a '+' at the end of the header's row adds your own card; hidden for view-only and on an empty Lookbook", ()=>{
   const addBtn = (tree)=> findAll(tree, n=>n.type==="button" && n.props && n.props["data-testid"]==="lb-add");
   let added = 0;
   const tree = viewWith({ r1:true }, { onAdd:()=>{ added++; return "look-new"; } });
-  const scroll = tree.children.filter(Boolean);
-  const row = scroll.findIndex(n=>hasClass("lb-add-row")(n)), statement = scroll.findIndex(n=>hasClass("lb-statement")(n));
-  assert.ok(row>=0 && row===statement-1, "just above the visual statement");
+  const actions = findAll(tree, hasClass("art-intro-actions"))[0];
+  const row = actions.children.filter(Boolean);
+  assert.equal(row[row.length-1].props["data-testid"], "lb-add", "the last button of the header's row");
+  assert.equal(findAll(tree, hasClass("lb-add-row")).length, 0, "no row of its own any more");
   const b = addBtn(tree)[0];
   assert.equal(textOf(b), "", "just the + sign"); assert.equal(b.props["aria-label"], "Add a reference");
   assert.match(b.props.title, /^Add a reference — /);
@@ -136,8 +137,9 @@ await test("C4 a '+' above the visual statement adds your own card; hidden for v
   assert.ok(textOf(empty).includes("Add by hand"));
   assert.ok(read("app/artroom.jsx").includes("React.createElement(LookbookView,{project,lookbook,note:lookbookNote,readOnly,"));
   const css = read("app/styles.css");
-  assert.ok(css.includes(".lb-add-row{display:flex;justify-content:flex-end;") && css.includes(".lb-add-row .lb-add{width:32px;padding:0;justify-content:center}") && !css.includes(".lb-add-tile{"));
-  assert.ok(read("app/ai.jsx").includes("the '+' button just above the visual statement (its tooltip says 'Add a reference') adds your own touchstone"), "Frances knows");
+  assert.ok(css.includes(".art-intro-actions .lb-add{width:32px;padding:0;justify-content:center}") && !css.includes(".lb-add-row") && !css.includes(".lb-add-tile{"));
+  assert.ok(css.includes(".rd-trigger{position:relative;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;"), "Locations' Recently deleted button: the same 32px");
+  assert.ok(read("app/ai.jsx").includes("the '+' button at the end of the tab's top row of buttons (its tooltip says 'Add a reference') adds your own touchstone"), "Frances knows");
 });
 await test("C2 every noted card has its preview: no previews button at all (never a to-do)", ()=>{
   assert.equal(genBtn(viewWith({ r1:true, r2:true, r3:true })), undefined);

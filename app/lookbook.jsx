@@ -546,7 +546,7 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
           // the header's "+" (add a reference by hand) went (owner 2026-10-21); an empty Lookbook keeps "Add by hand"
           onResearch && (hasResearch && onResearchFresh
             ? React.createElement("div",{className:"lb-research"},
-                React.createElement("button",{className:"art-draftall ghost",onClick:()=>setResearchMenu(v=>!v),"aria-haspopup":"menu","aria-expanded":researchMenu?"true":"false",
+                React.createElement("button",{className:"art-draftall ghost secondary",onClick:()=>setResearchMenu(v=>!v),"aria-haspopup":"menu","aria-expanded":researchMenu?"true":"false",
                   title:"Run the Visual Researcher again"},
                   React.createElement(Icon.robot,{s:14}),"Research again",React.createElement(Icon.chevD,{s:12})),
                 researchMenu && React.createElement("div",{className:"lb-research-menu",role:"menu"},
@@ -566,17 +566,16 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
             title:"Optional: render a preview image for each reference that has a note and no preview yet ("+missing.length+"). Only for you to see the look — no department uses the images."},
             React.createElement(Icon.sparkles,{s:14}),
             batchActiveId ? "Rendering…" : "Preview the look",
-            missing.length>0 && typeof window.nbCostChip==="function" && window.nbCostChip(missing.length))))),
+            missing.length>0 && typeof window.nbCostChip==="function" && window.nbCostChip(missing.length)),
+          // YOUR OWN REFERENCE (owner 2026-10-28): a "+" at the end of the header's row, as tall as its neighbours (just the
+          // sign — its name is in the tooltip and for screen readers), adds a card by hand — a touchstone you choose, in one
+          // of the categories (the category still decides which departments read its note). Once there are cards; the
+          // empty Lookbook keeps its own "Add by hand"
+          list.length>0 && !readOnly && onAdd && React.createElement("button",{type:"button",className:"art-draftall ghost lb-add","data-testid":"lb-add",onClick:addReference,
+            "aria-label":"Add a reference",
+            title:"Add a reference — upload an image of the look or name a touchstone, pick its category, write what to borrow"},
+            React.createElement(Icon.plus,{s:16}))))),
 
-    // YOUR OWN REFERENCE (owner 2026-10-28): a "+" above the visual statement (just the sign — its name is in the
-    // tooltip and for screen readers) adds a card by hand — a
-    // touchstone you choose, in one of the categories (the category still decides which departments read its note).
-    // Once there are cards; the empty Lookbook keeps its own "Add by hand"
-    list.length>0 && !readOnly && onAdd && React.createElement("div",{className:"lb-add-row"},
-      React.createElement("button",{type:"button",className:"art-draftall ghost lb-add","data-testid":"lb-add",onClick:addReference,
-        "aria-label":"Add a reference",
-        title:"Add a reference — upload an image of the look or name a touchstone, pick its category, write what to borrow"},
-        React.createElement(Icon.plus,{s:16}))),
     // the north-star visual statement
     React.createElement("div",{className:"lb-statement"},
       React.createElement(SheetField,{label:"Visual statement — the film's north star",value:note||"",multiline:true,

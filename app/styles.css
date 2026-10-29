@@ -327,8 +327,7 @@ button,input,select,textarea{font-family:inherit}
 .viewnav .seg{gap:6px;padding:5px 11px}
 .viewnav .seg .seg-lab{display:inline}
 /* Lookbook — the north-star visual statement block above the reference grid */
-.lb-add-row{display:flex;justify-content:flex-end;margin:0 0 10px}
-.lb-add-row .lb-add{width:32px;padding:0;justify-content:center}   /* just the "+": a square, as tall as the buttons above it */
+.art-intro-actions .lb-add{width:32px;padding:0;justify-content:center}   /* the Lookbook's "+": a square, in the header's row, as tall as its neighbours */
 .lb-statement{margin:0 0 18px;padding:14px 16px;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-l)}
 /* Lookbook review (2026-10-03): Suggest a note, the Research again menu */
 /* the card's note buttons: one row, the same size as the Characters card's "Suggest from script" / "Add state"
@@ -5902,7 +5901,7 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
   border-radius:var(--r-m);border:1px solid var(--line-2);background:var(--bg-1);color:var(--txt-3);cursor:pointer}
 .rd-purge:hover{color:var(--neg-ink);border-color:var(--neg);background:var(--bg-2)}
 .recently-deleted.rd-compact{position:relative;margin:0;border:0;border-radius:0;background:none;overflow:visible}
-.rd-trigger{position:relative;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;
+.rd-trigger{position:relative;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;   /* the header row's 32px (owner 2026-10-29) */
   padding:0;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-1);color:var(--txt-2);cursor:pointer}
 .rd-trigger:hover,.rd-compact.open .rd-trigger{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-soft)}
 .rd-trigger .rd-count{position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 4px;
@@ -11502,3 +11501,19 @@ video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:aut
 /* (2026-10-28) a character's scale, worked out from its true size */
 .char-scale-derived{font-size:12px;color:var(--txt-1);padding-top:3px}
 .shot-pov-pick{margin:6px 0 2px}
+
+/* BUTTON TIERS (owner 2026-10-29, option A — "the grey buttons go almost unnoticed, specially in light mode"):
+   PRIMARY   .art-draftall              amber fill — the next step; at most one in a row
+   SECONDARY .art-draftall.ghost.secondary  amber tint — the other real actions in a tab's top row
+   TERTIARY  .art-draftall.ghost (and the cards' small buttons)  white with a clearly darker edge — the quiet extras
+   The edge mixes the secondary text colour into the hairline, so it reads in light and dark mode alike. */
+:root{--btn-edge:color-mix(in srgb, var(--txt-2) 25%, var(--line-2))}
+.art-draftall.ghost,
+.app.hs.room-art :is(.char-draft-btn,.sb-card-btn,.rs-trigger),
+.lb-suggest,.state-add-btn,.rd-trigger{border-color:var(--btn-edge)}
+.art-draftall.ghost:hover:not(:disabled),
+.app.hs.room-art :is(.char-draft-btn,.sb-card-btn,.rs-trigger):hover:not(:disabled),
+.lb-suggest:hover:not(:disabled),.state-add-btn:hover{border-color:var(--txt-3)}
+.art-draftall.ghost.secondary{background:var(--win-amber-soft,var(--accent-soft));border-color:var(--win-amber-line,var(--accent-line));color:var(--win-amber-ink,var(--accent))}
+.art-draftall.ghost.secondary:hover:not(:disabled){background:rgba(242,154,67,.24);border-color:var(--win-amber,var(--accent));color:var(--win-amber-ink,var(--accent))}
+.art-draftall.ghost.secondary .nb-cost{background:transparent;border-color:currentColor}
