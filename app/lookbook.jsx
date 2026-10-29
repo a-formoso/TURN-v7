@@ -209,6 +209,59 @@ function lookbookDeptsFor(category){
 }
 window.lookbookDeptsFor = lookbookDeptsFor;
 
+/* ONE HOME FOR REFERENCE IMAGES (owner 2026-10-29: the Color tab's stills merge into the Lookbook). An image you
+   UPLOADED on a card whose category goes to Color (Palette, Lighting, Texture & grain, Atmosphere) is one of the
+   Colorist's reference stills — its 384px copy and its sampled hues, exactly as the Color tab's stills were. A rendered
+   preview is not (it was made from the note, which the Colorist reads already). Stills saved on the Color tab before
+   keep working; the tab takes no new uploads. Up to 8 stills in all. */
+function lookbookColorCards(lookbook){
+  const cats = LOOKBOOK_ROUTING.colorist || [];
+  return lookbookLive(lookbook).filter(c=> cats.indexOf(c.category||"Palette")>=0);
+}
+function lookbookCardUploaded(id){
+  try{ const m = (typeof nbGetMeta==="function") ? nbGetMeta(id) : null; return !!(m && m.uploaded); }catch(e){ return false; }
+}
+/* how many of them are known now (the image store answers for what it has loaded — useLookbookColorStillCount loads them) */
+function lookbookColorStillCount(lookbook){
+  return lookbookColorCards(lookbook).filter(c=>{
+    let has = false; try{ has = !!(typeof nbGetImage==="function" && nbGetImage(c.id)); }catch(e){}
+    return has && lookbookCardUploaded(c.id);
+  }).length;
+}
+async function lookbookColorStills(lookbook, max){
+  const room = max==null ? 8 : max, out = [];
+  for(const c of lookbookColorCards(lookbook)){
+    if(out.length>=room) break;
+    let url = "";
+    try{ url = (typeof nbGetImage==="function" && nbGetImage(c.id)) || ""; if(!url && typeof nbLoadImage==="function") url = (await nbLoadImage(c.id)) || ""; }catch(e){}
+    if(!url || !lookbookCardUploaded(c.id)) continue;
+    const view = (typeof turnDownscaleDataUrl==="function") ? await turnDownscaleDataUrl(url, 384) : null;
+    if(!view) continue;
+    let colors = [];
+    try{ colors = (typeof lookbookSampleHues==="function") ? await lookbookSampleHues(view) : []; }catch(e){}
+    out.push({ id:"lb-"+c.id, view, colors, source:c.source||"", fromLookbook:true });
+  }
+  return out;
+}
+function useLookbookColorStillCount(lookbook){
+  const cards = lookbookColorCards(lookbook), key = cards.map(c=>c.id).join("|");
+  const [n, setN] = React.useState(()=>lookbookColorStillCount(lookbook));
+  React.useEffect(()=>{
+    let live = true;
+    const check = async ()=>{
+      for(const c of cards){ try{ if(!(typeof nbGetImage==="function" && nbGetImage(c.id)) && typeof nbLoadImage==="function") await nbLoadImage(c.id); }catch(e){} }
+      if(live) setN(lookbookColorStillCount(lookbook));
+    };
+    check();
+    window.addEventListener("nb-gen-done", check);
+    return ()=>{ live = false; window.removeEventListener("nb-gen-done", check); };
+  },[key]);
+  return n;
+}
+window.lookbookColorStills = lookbookColorStills;
+window.lookbookColorStillCount = lookbookColorStillCount;
+window.useLookbookColorStillCount = useLookbookColorStillCount;
+
 /* Creation provenance is deliberately assigned only at creation time. Legacy cards
    without an origin stay unknown — callers must never infer/backfill them later. */
 function artRoomPropOrigin(kind, source){
@@ -399,7 +452,8 @@ function LookbookCard({ c, project, onUpdate, onDelete, onView, batchActiveId, o
     React.createElement(SheetFrame,{ gen, slotId:"lookref-"+c.id, name:c.source||"Reference", avatarColor:"#6b7280",
       initials, drafted, drafting:false, onDraft:()=>{}, entity:c, onView,
       // ONE SLOT, NEWEST WINS (owner 2026-10-28): your own reference image (drop it, browse, or ⋯ Replace with upload)
-      // or a rendered preview — whichever came last. No department is sent it; the note below is what they read
+      // or a rendered preview — whichever came last. The note below is what the departments read; an UPLOADED image on a
+      // card that goes to Color is also one of the Colorist's reference stills (lookbookColorStills, owner 2026-10-29)
       slotPlaceholder:"Drop a reference image, or render a preview", noun:"image",
       dropToImport:true,
       // no note yet: the button stays greyed out and says what to do — the Lookbook has no "specification" (owner 2026-10-28)
@@ -541,7 +595,7 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
         React.createElement("div",{style:{flex:1}},
           React.createElement(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Visual Researcher",
             React.createElement(window.InfoTip,{label:"About the Lookbook",
-              text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture, wardrobe, production design. The statement and each card's note are what the departments read: the category decides where a note goes (Color, Characters, Locations, Props, Shots). A card's image is for you only — no department is sent it. Drop in a picture of the look and 'Write the note from the image' turns it into words, or render an optional preview from the note. 'Research the look' writes the statement and gathers the references."}))),
+              text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture, wardrobe, production design. The statement and each card's note are what the departments read: the category decides where a note goes (Color, Characters, Locations, Props, Shots). Drop in a picture of the look and 'Write the note from the image' turns it into words, or render an optional preview from the note. A picture you drop on a Palette, Lighting, Texture & grain or Atmosphere card is also shown to the Colorist when it lights the film (a rendered preview isn't — it was made from the note); no other department is sent a card's image. 'Research the look' writes the statement and gathers the references."}))),
         React.createElement("div",{className:"art-intro-actions"},
           // the header's "+" (add a reference by hand) went (owner 2026-10-21); an empty Lookbook keeps "Add by hand"
           onResearch && (hasResearch && onResearchFresh

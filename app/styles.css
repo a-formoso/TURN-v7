@@ -11627,3 +11627,11 @@ html[data-theme="light"] .hd-root :is(.hd-body,.hd-feature-band,.hd-foot) :is(.h
   --lpw-ink:#0F1012; --lpw-ink-2:#3C3F44; --lpw-sub:#5D6066; --lpw-black:#0E0F12;
   --lpw-amber-soft:rgba(242,154,67,.14); --lpw-amber-ink:#9E5410; --lpw-amber-display:#C56C0C;
 }
+
+/* the Color tab's references: reference stills live in the Lookbook now (owner 2026-10-29) */
+.sb-lb-stills{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:10px 0 0;font-size:12px;line-height:1.5;color:var(--txt-2)}
+.sb-lb-stills > svg{flex:0 0 auto;color:var(--txt-3)}
+.sb-lb-stills > span{flex:1 1 240px}
+.sb-lb-go{flex:0 0 auto;height:28px;padding:0 11px;border:1px solid var(--btn-edge);border-radius:var(--r-m);background:var(--bg-4);color:var(--txt-1);font:600 11.5px var(--f-ui);cursor:pointer}
+.sb-lb-go:hover{border-color:var(--txt-3);color:var(--txt-0)}
+.sb-lb-saved{margin:10px 0 0;font-size:11.5px;color:var(--txt-3)}

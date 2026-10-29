@@ -7900,6 +7900,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onAddRefImages:readOnly?null:onAddStyleRefImages,onRemoveRefImage:readOnly?null:onRemoveStyleRefImage,onColorist:readOnly?null:onColorist,
           onSetFilmStock:readOnly?null:onSetFilmStock,onSetCapture:readOnly?null:onSetCapture,onUpdatePreset:readOnly?null:onUpdatePreset,onDeletePreset:readOnly?null:onDeletePreset,
           lookbookStale:!!_stale.stylebible,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("colorist"),
+          lookbook, onGoLookbook:()=>setArtView("lookbook"),
           refsOwned:!!colorRefsOwned,onUseLookbookRefs:readOnly?null:onUseLookbookColorRefs,onKeepRefs:readOnly?null:onKeepColorRefs})
     : artView==="shots" && window.ShotList
        ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,

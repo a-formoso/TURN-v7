@@ -39,7 +39,7 @@ await test("7a the references are the Lookbook's brief until the user takes the 
 await test("7b the write-through and the Colorist both use it; the contradicting comment is gone", () => {
   assert.ok(app.includes("const { refs:next, brief } = colorRefsFor(sb, lookbook, lookbookNote);"));
   assert.ok(app.includes("return { refs:String(colorRefsFor(sb, lookbook, lookbookNote).refs||\"\").trim(), refImages:sb.refImages||[] }; },"));
-  assert.ok(app.includes("return window.aiAssignSceneStyles(scenes, seed, drafts, { ...project, styleBible:{ ...((project&&project.styleBible)||{}), refs } }); },"));
+  assert.ok(app.includes("return window.aiAssignSceneStyles(scenes, seed, drafts, { ...project, styleBible:{ ...((project&&project.styleBible)||{}), refs, refImages } }); },"))   // + the stills (owner 2026-10-29: the Lookbook's too);
   assert.ok(!app.includes("No write-through: the Colorist reads the lookbook LIVE"));
 });
 

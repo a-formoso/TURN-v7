@@ -120,7 +120,8 @@ await test("B4 deleting a look and removing a still can be undone; clearing the 
   assert.equal(b.project.styleBible.refImages.length, 2, "stills picked in another film don't land here");
   b.__h.addStyleRefImages([{ id:"r3" }], "film-1");
   assert.equal(b.project.styleBible.refImages.length, 3);
-  assert.ok(ui.includes("onAddRefImages(out, film0);") && app.includes("window.turnOpenFilmId = currentProjectId;"));
+  // (owner 2026-10-29) the Color tab takes no new uploads — reference stills live in the Lookbook; the film guard stays
+  assert.ok(!ui.includes("onAddRefImages(out, film0);") && ui.includes('"data-testid":"sb-lb-stills"') && app.includes("window.turnOpenFilmId = currentProjectId;"));
   assert.ok(ai.includes('if(opts && opts.action && typeof opts.action.onClick==="function"){') && css.includes(".turn-toast-act{"));
 });
 await test("B5 deleting a scene removes (and Undo restores) its hand-pick mark and reason too", ()=>{

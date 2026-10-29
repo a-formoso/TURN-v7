@@ -8990,7 +8990,11 @@ function App(){
         designStyles: async ()=>{ const sb=(typeof styleBibleOf==="function")?styleBibleOf(project):{};
           const seed=(sb.presets&&sb.presets.length)?sb.presets:(window.STYLE_PRESETS_DEFAULT||[]);
           const refs=colorRefsFor(sb, lookbook, lookbookNote).refs;
-          return window.aiAssignSceneStyles(scenes, seed, drafts, { ...project, styleBible:{ ...((project&&project.styleBible)||{}), refs } }); },
+          // the stills: any saved on the Color tab before, then the Lookbook's uploaded images for Color (owner 2026-10-29)
+          const saved=(sb.refImages||[]).slice(0,8);
+          const fromLookbook=(typeof window.lookbookColorStills==="function") ? await window.lookbookColorStills(lookbook, 8-saved.length) : [];
+          const refImages=[...saved, ...fromLookbook].slice(0,8);
+          return window.aiAssignSceneStyles(scenes, seed, drafts, { ...project, styleBible:{ ...((project&&project.styleBible)||{}), refs, refImages } }); },
         applyStyles: (res)=> _w.applyStyleResult(res, null, { redoManual:_redoManual0 }),
         // what this run keeps: your film stock (unless it redoes your picks)
         keepsFilmStock: ()=>{ const sb=(project&&project.styleBible)||{}; return !_redoManual0 && !!sb.filmStockManual ? (sb.filmStock||"none") : ""; },
@@ -9891,12 +9895,14 @@ function App(){
       introExtra: (()=>{ const sb=(typeof styleBibleOf==="function")?styleBibleOf(project):{};
         // what the run will READ (colorRefsFor — the Lookbook's notes when the field is empty), and what it costs
         const refs=String(colorRefsFor(sb, lookbook, lookbookNote).refs||"").trim(); const imgs=sb.refImages||[];
-        const viewN = imgs.filter(r=>r && r.view).length;
+        // the stills it looks at: the Color tab's saved ones and the Lookbook's uploaded images for Color (owner 2026-10-29)
+        const lbN = (typeof window.lookbookColorStillCount==="function") ? window.lookbookColorStillCount(lookbook) : 0;
+        const viewN = Math.min(8, imgs.filter(r=>r && r.view).length + lbN);
         const cost = React.createElement("div",{className:"ag-intro-note ag-coloref-cost"}, React.createElement(Icon.sparkles,{s:12}),
           "Cost: one writing call"+(viewN ? ", which looks at your "+viewN+" reference still"+(viewN!==1?"s":"")+" (a vision call \u2014 a little more)" : "")
           +", spent when you press Run. Nothing is applied until you approve it.");
-        if(!refs && !imgs.length) return React.createElement(React.Fragment,null, React.createElement("div",{className:"ag-coloref empty"},
-          React.createElement(Icon.image,{s:14}), "No visual references yet \u2014 research the look in the Lookbook tab, or add films, photographers or reference stills on the Color tab's Visual references bar, to steer the palette."), cost);
+        if(!refs && !imgs.length && !lbN) return React.createElement(React.Fragment,null, React.createElement("div",{className:"ag-coloref empty"},
+          React.createElement(Icon.image,{s:14}), "No visual references yet \u2014 research the look in the Lookbook tab (drop a picture on a Palette, Lighting, Texture & grain or Atmosphere card to show it to the Colorist), or add films, photographers or paintings on the Color tab's Visual references bar, to steer the palette."), cost);
         return React.createElement(React.Fragment,null, cost, React.createElement("div",{className:"ag-coloref"},
           React.createElement("div",{className:"ag-coloref-lab"}, React.createElement(Icon.sparkles,{s:12}), "Designing from your references"),
           refs && React.createElement("div",{className:"ag-coloref-txt"}, refs),

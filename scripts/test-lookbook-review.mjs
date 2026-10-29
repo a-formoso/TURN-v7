@@ -419,5 +419,47 @@ await test("H6 the card's sections sit inside them (indented), and the empty 'Le
   assert.ok(read("app/ai.jsx").includes("the card walks you through it STEP BY STEP"), "Frances knows");
 });
 
+/* ═══ I ═══ ONE HOME FOR REFERENCE IMAGES (owner 2026-10-29): the Lookbook's uploads for Color are the Colorist's stills */
+await test("I1 only an UPLOADED image on a card that goes to Color is a still; rendered previews and other categories aren't", async ()=>{
+  const meta = { a:{ uploaded:true }, b:{ modelId:"nb" }, c:{ uploaded:true }, d:{ uploaded:true }, e:{ uploaded:true } };
+  const imgs = { a:"data:image/png;base64,A", b:"data:image/png;base64,B", c:"data:image/png;base64,C", e:"data:image/png;base64,E" };
+  Object.assign(box, { nbGetMeta:(id)=>meta[id]||null, nbGetImage:(id)=>imgs[id]||"", nbLoadImage:async (id)=>imgs[id]||"",
+    turnDownscaleDataUrl:async (u, w)=>u+"@"+w, lookbookSampleHues:async ()=>["#102030"] });
+  const lb = [
+    { id:"a", source:"Hopper", category:"Palette", note:"x" },              // uploaded, goes to Color → yes
+    { id:"b", source:"Preview", category:"Lighting", note:"x" },            // rendered preview → no
+    { id:"c", source:"Wardrobe ref", category:"Wardrobe", note:"x" },       // uploaded, but goes to Characters → no
+    { id:"d", source:"No image yet", category:"Atmosphere", note:"x" },     // uploaded meta but no image → no
+    { id:"e", source:"Deleted", category:"Texture & grain", note:"x", deletedAt:"2026-10-29T00:00:00Z" },   // deleted → no
+  ];
+  const st = await box.lookbookColorStills(lb);
+  assert.deepEqual(J(st), [{ id:"lb-a", view:"data:image/png;base64,A@384", colors:["#102030"], source:"Hopper", fromLookbook:true }]);
+  assert.equal(box.lookbookColorStillCount(lb), 1);
+  const many = Array.from({ length:10 }, (_, i)=>({ id:"m"+i, category:"Palette", note:"x" }));
+  many.forEach(c=>{ meta[c.id] = { uploaded:true }; imgs[c.id] = "data:image/png;base64,M"; });
+  assert.equal((await box.lookbookColorStills(many)).length, 8, "up to 8");
+  assert.equal((await box.lookbookColorStills(many, 3)).length, 3, "the room the saved stills leave");
+});
+await test("I2 'Light the film' sends the saved stills, then the Lookbook's, 8 in all; the cost line counts both", ()=>{
+  const app = read("app/app.jsx");
+  assert.ok(app.includes("const fromLookbook=(typeof window.lookbookColorStills===\"function\") ? await window.lookbookColorStills(lookbook, 8-saved.length) : [];"));
+  assert.ok(app.includes("const refImages=[...saved, ...fromLookbook].slice(0,8);"));
+  assert.ok(app.includes("styleBible:{ ...((project&&project.styleBible)||{}), refs, refImages } }); },"));
+  assert.ok(app.includes("const viewN = Math.min(8, imgs.filter(r=>r && r.view).length + lbN);"));
+  const ai = read("app/ai.jsx");
+  assert.ok(ai.includes("const refViews = (((project&&project.styleBible&&project.styleBible.refImages)||[])"), "the Colorist reads the list it is handed");
+});
+await test("I3 the Color tab takes no uploads: it counts the Lookbook's stills, opens the Lookbook, and keeps the old ones", ()=>{
+  const ui = read("app/stylebible-ui.jsx"), art = read("app/artroom.jsx"), look = read("app/lookbook.jsx"), ai = read("app/ai.jsx");
+  assert.ok(!ui.includes('React.createElement(Icon.image,{s:14}), "Image")') && !ui.includes('type:"file"'), "no Image button, no file picker");
+  assert.ok(ui.includes('"data-testid":"sb-lb-stills"') && ui.includes('"Open the Lookbook"'));
+  assert.ok(ui.includes("Saved here before \\u2014 the Colorist still looks at these too:"));
+  assert.ok(ui.includes("window.useLookbookColorStillCount(lookbook||[])"));
+  assert.ok(art.includes('lookbook, onGoLookbook:()=>setArtView("lookbook"),'));
+  assert.ok(look.includes("is also shown to the Colorist when it lights the film (a rendered preview isn't"), "the Lookbook's ⓘ says so");
+  assert.ok(ai.includes("ONE HOME FOR REFERENCE IMAGES (owner 2026-10-29): reference stills live in the Lookbook."), "Frances knows");
+  assert.ok(ai.includes("The one exception is a picture you UPLOAD on a card that goes to Color"));
+});
+
 console.log(`${checks} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

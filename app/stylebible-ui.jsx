@@ -288,7 +288,7 @@ function StyleRefImages({ refImages, onRemoveRefImage }){
    photographers or paintings whose look they want. 'Light the film' then
    translates that cinematography into this film's bespoke palette. Local state so
    typing is smooth; commits on blur / Enter. */
-function StyleRefsField({ value, onCommit, refImages, onAddRefImages, onRemoveRefImage, onLight, lightDisabled, manualCount }){
+function StyleRefsField({ value, onCommit, refImages, onAddRefImages, onRemoveRefImage, onLight, lightDisabled, manualCount, lookbookStills, onGoLookbook }){
   const [v, setV] = React.useState(value||"");
   const [redoManual, setRedoManual] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
@@ -298,30 +298,18 @@ function StyleRefsField({ value, onCommit, refImages, onAddRefImages, onRemoveRe
   const commit = ()=>{ const t=(v||"").trim(); if(t!==((value||"").trim())) onCommit && onCommit(t);
     setSaved(true); if(tRef.current) clearTimeout(tRef.current); tRef.current = setTimeout(()=>setSaved(false), 2400); return t; };
   const imgs = refImages||[];
-  const fileRef = React.useRef(null);
-  const onFiles = async (e)=>{
-    const files=[...((e.target&&e.target.files)||[])]; if(e.target) e.target.value="";
-    if(!files.length || !onAddRefImages) return;
-    const film0 = window.turnOpenFilmId;   // they land only on the film open when you picked them (2026-10-08)
-    const room=Math.max(0, 8-imgs.length), out=[];
-    for(const f of files.slice(0,room)){ try{ out.push(await extractImageRef(f)); }catch(err){} }
-    if(out.length) onAddRefImages(out, film0);
-  };
   return React.createElement("div",{style:{margin:"0 0 16px"}},
     React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,fontFamily:"var(--f-mono)",fontSize:11,
       letterSpacing:".06em",textTransform:"uppercase",color:"var(--txt-3)",marginBottom:6}},
       React.createElement(Icon.sparkles,{s:12}),"Visual references — optional look targets",
       React.createElement(InfoTip,{label:"About visual references",
-        text:"Auto-filled from your Lookbook (and re-synced when it changes) until you edit it — then your version wins. Add films, photographers or paintings you love, then click “Light the film” — it saves your edits and the Colorist translates their cinematography (palette, light, lens, texture) into this film's looks."})),
+        text:"Auto-filled from your Lookbook (and re-synced when it changes) until you edit it — then your version wins. Add films, photographers or paintings you love, then click “Light the film” — it saves your edits and the Colorist translates their cinematography (palette, light, lens, texture) into this film's looks. Reference stills live in the Lookbook."})),
     React.createElement("div",{className:"sb-refbar"},
       React.createElement("textarea",{value:v,rows:3,
         placeholder:"Auto-filled from your Lookbook as you research the look — or write your own (films, photographers, paintings: e.g. Her, Blade Runner 2049, Gregory Crewdson)",
         onChange:e=>{ setV(e.target.value); if(saved) setSaved(false); }, onBlur:commit,
         onKeyDown:e=>{ if(e.key==="Enter" && (e.metaKey||e.ctrlKey)){ e.preventDefault(); commit(); e.target.blur(); } }}),
-      onAddRefImages && React.createElement("button",{className:"sb-refbar-btn",disabled:imgs.length>=8,
-        onClick:()=>fileRef.current&&fileRef.current.click(),
-        title:imgs.length>=8?"Up to 8 reference images":"Add reference stills \u2014 the Colorist looks at them (light, contrast, texture) and their sampled palette when it lights the film"},
-        React.createElement(Icon.image,{s:14}), "Image"),
+      // (no "Image" upload here any more — reference stills are dropped on Lookbook cards; owner 2026-10-29)
       // ONE button does both: saves whatever is in the box, then sends the Colorist —
       // the old separate Save + "Light the film above" two-step confused users (and
       // pressing Light with unsaved text silently used the STALE saved refs).
@@ -338,7 +326,14 @@ function StyleRefsField({ value, onCommit, refImages, onAddRefImages, onRemoveRe
     (onLight && manualCount>0) && React.createElement("label",{className:"sb-redo"},
       React.createElement("input",{type:"checkbox",checked:redoManual,onChange:e=>setRedoManual(e.target.checked)}),
       React.createElement("span",null,"Also redo the "+manualCount+" scene"+(manualCount!==1?"s":"")+" I set by hand (\u270b) \u2014 otherwise they keep their look")),
-    React.createElement("input",{type:"file",accept:"image/*",multiple:true,ref:fileRef,style:{display:"none"},onChange:onFiles}),
+    // the Lookbook's images the Colorist looks at, and where to add more
+    React.createElement("div",{className:"sb-lb-stills","data-testid":"sb-lb-stills"},
+      React.createElement(Icon.image,{s:13}),
+      React.createElement("span",null, (lookbookStills||0)>0
+        ? (lookbookStills+" reference still"+(lookbookStills!==1?"s":"")+" from the Lookbook \u2014 the Colorist looks at them when it lights the film.")
+        : "Reference stills live in the Lookbook: drop a picture on a Palette, Lighting, Texture & grain or Atmosphere card and the Colorist looks at it when it lights the film."),
+      onGoLookbook && React.createElement("button",{type:"button",className:"sb-lb-go",onClick:onGoLookbook},"Open the Lookbook")),
+    imgs.length>0 && React.createElement("div",{className:"sb-lb-saved"},"Saved here before \u2014 the Colorist still looks at these too:"),
     imgs.length>0 && React.createElement(StyleRefImages,{refImages,onRemoveRefImage}),
     saved && React.createElement("div",{style:{fontSize:11.5,color:"var(--pos)",marginTop:6,lineHeight:1.5}},
       "References saved — “Light the film” designs the palette from them."));
@@ -375,7 +370,9 @@ window.InfoTip = InfoTip;
    film-strip + look cards. "Light the film" (the Colorist) writes the scene→look map
    (scene-level, the source of truth); characters / locations / shots merely READ it. */
 function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRefImages, onRemoveRefImage, onColorist, lookbookStale, onApplyLookbook,
-  onSetFilmStock, onSetCapture, onUpdatePreset, onDeletePreset, refsOwned=false, onUseLookbookRefs, onKeepRefs }){
+  onSetFilmStock, onSetCapture, onUpdatePreset, onDeletePreset, refsOwned=false, onUseLookbookRefs, onKeepRefs, lookbook, onGoLookbook }){
+  // the Lookbook's uploaded images for Color (owner 2026-10-29) — counted with the saved stills on the slate
+  const lookbookStills = (typeof window.useLookbookColorStillCount==="function") ? window.useLookbookColorStillCount(lookbook||[]) : 0;
   const { presets, sceneStyles, sceneStylesManual, refs, refImages, filmStock, paletteWhy } = styleBibleOf(project);
   const scenesFor = (pid)=> scenesInStoryOrder((scenes||[]).filter(s=>sceneStyles[s.id]===pid));
   // NOT LIT YET: until the Colorist (or an edit) gives the film its own looks, the starter set is
@@ -464,11 +461,11 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
       onSetRefs && React.createElement("div",{className:"loc-slate-cell sb-target"},
         React.createElement("span",{className:"loc-slate-lab"},"Look target",
           React.createElement(InfoTip,{label:"About the look target",
-            text:"Auto-filled from your Lookbook (and re-synced when it changes) until you edit it \u2014 then your version wins. Add films, photographers or paintings you love, and reference stills; 'Light the film' translates their cinematography (palette, light, lens, texture) into this film's looks."})),
+            text:"Auto-filled from your Lookbook (and re-synced when it changes) until you edit it \u2014 then your version wins. Add films, photographers or paintings you love; 'Light the film' translates their cinematography (palette, light, lens, texture) into this film's looks. Reference stills live in the Lookbook: a picture dropped on a Palette, Lighting, Texture & grain or Atmosphere card is shown to the Colorist too."})),
         React.createElement("div",{className:"sb-target-row"},
           React.createElement("span",{className:"sb-target-line"+(refsLine?"":" empty"),title:refsLine||""},
             refsLine || "None yet \u2014 films, photographers or paintings you love"),
-          (refImages||[]).length>0 && React.createElement("span",{className:"sb-target-imgs"}," \u00b7 "+(refImages||[]).length+" still"+((refImages||[]).length!==1?"s":"")),
+          ((refImages||[]).length+lookbookStills)>0 && React.createElement("span",{className:"sb-target-imgs"}," \u00b7 "+Math.min(8,(refImages||[]).length+lookbookStills)+" still"+(Math.min(8,(refImages||[]).length+lookbookStills)!==1?"s":"")),
           React.createElement("button",{type:"button",className:"sb-target-edit","aria-expanded":refsOpen?"true":"false",
             onClick:()=>setRefsOpen(o=>!o)}, refsOpen ? "Done" : "Edit")))),
     (onSetCapture && captureOpen) && React.createElement("div",{className:"sb-target-panel sb-capture-panel"},
@@ -478,7 +475,7 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
     // the look target's editor, under the slate
     (onSetRefs && refsOpen) && React.createElement("div",{className:"sb-target-panel"},
       React.createElement(StyleRefsField,{value:refs,onCommit:(t)=>{ latestRefs.current = t; onSetRefs(t); },
-        refImages,onAddRefImages,onRemoveRefImage,manualCount,onLight:null}),
+        refImages,onAddRefImages,onRemoveRefImage,manualCount,onLight:null,lookbookStills,onGoLookbook}),
       manualCount>0 && React.createElement("label",{className:"sb-redo"},
         React.createElement("input",{type:"checkbox",checked:redoManual,onChange:e=>setRedoManual(e.target.checked)}),
         React.createElement("span",null,"When I light the film, also redo the "+manualCount+" scene"+(manualCount!==1?"s":"")+" I set by hand (\u270b) \u2014 otherwise they keep their look"))),
