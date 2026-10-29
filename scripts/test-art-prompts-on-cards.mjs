@@ -17,7 +17,7 @@ t("the switch is gone from the code (nothing reads it)", ()=>{
   for(const src of [art, props, locs, look, crowds, shots]) assert.ok(!/useArtAlwaysPrompts|turnArtAlwaysPrompts|showPrompt/.test(src));
 });
 t("every card has its prompt as a folded section", ()=>{
-  assert.ok(art.includes('React.createElement(CardFold,{label:"Master reference prompt",defaultOpen:false},'));
+  assert.ok(art.includes('React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},'));
   assert.ok(props.includes('React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},'));
   assert.ok(locs.includes('React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:false},'));
   assert.ok(look.includes('React.createElement(CardFold,{label:"Preview prompt",defaultOpen:false},'));

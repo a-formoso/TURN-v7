@@ -198,7 +198,10 @@ function useVideoElementUrls(cast){
 }
 
 /* THE CARD'S FOLD: Characters › a character › Video element */
-function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate }){
+function VideoElementBare({ children }){
+  return React.createElement("div",{className:"ve-bare"}, React.createElement("div",{className:"ve-sub"},"Video element"), children);
+}
+function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate, bare=false }){
   useVideoElement(c);
   const [, setLineTick] = React.useState(0);
   React.useEffect(()=>{ let alive = true;
@@ -251,7 +254,8 @@ function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate }){
     finally{ setBusy(""); }
   };
   const status = busy || (gen && gen.gening ? ("Rendering… "+String(gen.status||"").toLowerCase().replace(/_/g," ")) : "");
-  return React.createElement(CardFold,{label:"Video element",defaultOpen:!!s.url,foldId:"ve-"+c.id},
+  // bare (owner 2026-10-29): inside the character card's "Voice & video" section, under its own small heading
+  return React.createElement(bare ? VideoElementBare : CardFold, bare ? {} : {label:"Video element",defaultOpen:!!s.url,foldId:"ve-"+c.id},
     React.createElement("div",{className:"char-scalesheet-hint"},
       "A few seconds of "+(c.name||"this character")+" saying a line in their locked voice, made from their sheet. "
       +"The Stage sends it with every clip they're in, so their face moves and their voice sounds the same in every scene."),

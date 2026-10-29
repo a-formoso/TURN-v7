@@ -251,7 +251,7 @@ await test("E5 the dead 'linked props have no sheet' warning is gone", ()=>{
 // (owner 2026-10-28) a folded section of the card, no longer behind its ⋯ menu
 await test("E6 the sheet prompt is a folded section of the card", ()=>{
   assert.ok(!card.includes('"Show the sheet prompt"'));
-  assert.ok(card.includes('React.createElement(CardFold,{label:"Master reference prompt",defaultOpen:false},'));
+  assert.ok(card.includes('React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},'))   // renamed 2026-10-29 (was Master reference prompt);
 });
 await test("E7 one render-style control: Look dev has no free-text style; the photo-based sheet follows the picker", ()=>{
   assert.ok(!card.includes('label:"Render style",value:c.renderStyle'));
@@ -291,7 +291,7 @@ await test("F1 Frances: no silent drafting, the preview and its scopes, missing 
   assert.ok(/he\/him, she\/her or they\/them/.test(cs));
   assert.ok(/moves that item's matching prop card \(with any generated reference sheet\) to the Props tab's Recently Deleted/.test(cs));
   const cards = (F.find(f=>f.name==="Character Sheets (Art Room)")||{}).what || "";
-  assert.ok(/ONE RENDER-STYLE CONTROL/.test(cards) && /folded 'Master reference prompt' section/.test(cards) && /'LIKENESS' \(was 'Cast'\)/.test(cards) && /DELETING A CHARACTER asks first/.test(cards));
+  assert.ok(/ONE RENDER-STYLE CONTROL/.test(cards) && /folded 'Generation prompt' section/.test(cards) && /'LIKENESS' \(was 'Cast'\)/.test(cards) && /DELETING A CHARACTER asks first/.test(cards));
   assert.ok(/'Likeness' locks a real person's face/.test(all))   // (2026-10-10, Likeness review: the entry was rewritten);
   assert.ok(!/TURN|McKee|Claude|Anthropic/.test(cards));
 });

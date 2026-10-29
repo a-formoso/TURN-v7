@@ -718,7 +718,7 @@ html[data-theme="light"] :is(.seg,.theme-opt,.nb-seg-btn,.board-mode-btn,.sb-mod
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
 .char-head-name.edit-in{font-family:var(--f-display);font-size:18px;font-weight:600;color:var(--txt-0);padding:2px 6px}
 .char-head-role.edit-in{font-family:var(--f-mono);font-size:10.5px;color:var(--txt-2);letter-spacing:.04em;text-transform:uppercase;padding:2px 6px}
-.char-draft-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:var(--r-m);
+.char-draft-btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:var(--r-m);
   border:1px solid var(--line-2);background:var(--bg-3);color:var(--txt-1);font-family:var(--f-ui);font-size:11px;font-weight:600;cursor:pointer;transition:.12s}
 .char-draft-btn:hover:not(:disabled){background:var(--bg-4);color:var(--txt-0)}
 .char-draft-btn:disabled{opacity:.55;cursor:default}
@@ -2573,7 +2573,7 @@ img.sheet-genimg[data-fit="fill"], img.sb-comp-img[data-fit="fill"], img.sb-page
 
 /* ── Cameo: "Cast yourself" likeness capture ───────────────────────────── */
 .sheet-head-acts{display:flex;align-items:center;gap:7px;flex:0 0 auto}
-.char-cameo-btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:var(--r-m);
+.char-cameo-btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:var(--r-m);
   border:1px solid oklch(0.62 0.18 295 / .4);background:oklch(0.62 0.18 295 / .1);color:oklch(0.82 0.12 296);
   font-family:var(--f-ui);font-size:11px;font-weight:600;cursor:pointer;transition:.12s;white-space:nowrap}
 .char-cameo-btn:hover:not(:disabled){background:oklch(0.62 0.18 295 / .2);color:oklch(0.88 0.1 296)}
@@ -6162,7 +6162,7 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
 .sheet-scenes-lab{white-space:nowrap}
 
 /* "Voice" control on the character card (teal — distinct from Cameo's purple). app/artroom.jsx */
-.char-voice-btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:var(--r-m);
+.char-voice-btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:var(--r-m);
   border:1px solid oklch(0.66 0.11 195 / .4);background:oklch(0.66 0.11 195 / .1);color:oklch(0.8 0.1 195);
   font-family:var(--f-ui);font-size:11px;font-weight:600;cursor:pointer;transition:.12s;white-space:nowrap}
 .char-voice-btn:hover{background:oklch(0.66 0.11 195 / .2);color:oklch(0.86 0.09 195)}
@@ -11635,3 +11635,22 @@ html[data-theme="light"] .hd-root :is(.hd-body,.hd-feature-band,.hd-foot) :is(.h
 .sb-lb-go{flex:0 0 auto;height:28px;padding:0 11px;border:1px solid var(--btn-edge);border-radius:var(--r-m);background:var(--bg-4);color:var(--txt-1);font:600 11.5px var(--f-ui);cursor:pointer}
 .sb-lb-go:hover{border-color:var(--txt-3);color:var(--txt-0)}
 .sb-lb-saved{margin:10px 0 0;font-size:11.5px;color:var(--txt-3)}
+
+/* THE CHARACTER CARD (owner 2026-10-29): the card's buttons are one height (30px — Likeness, Voice, QA check, Re-read…,
+   as the cards' "Suggest from script"); "Voice & video" holds the video element under its own small heading, after a
+   hairline */
+.ve-bare{display:flex;flex-direction:column;gap:11px;padding-top:11px;border-top:1px solid var(--line)}
+.ve-sub{font:500 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--txt-2)}
+
+/* LOADING PLACEHOLDER (owner 2026-10-29): until a card's image has loaded, its frame is a light, softly moving panel that
+   says "Loading image…" — not the black letterbox it keeps for images that don't fill it */
+.sheet-genwrap.loading{background:var(--bg-3)}
+.sheet-genwrap.loading::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(100deg,transparent 30%,color-mix(in srgb, var(--bg-1) 70%, transparent) 50%,transparent 70%);
+  background-size:220% 100%;animation:genwrap-shimmer 1.4s ease-in-out infinite}
+.sheet-genwrap.loading::after{content:"Loading image\2026";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;font:500 12px var(--f-ui);color:var(--txt-3)}
+.sheet-genwrap.loading .sheet-genimg{opacity:0}
+.sheet-genimg{transition:opacity .18s}
+@keyframes genwrap-shimmer{from{background-position:120% 0}to{background-position:-120% 0}}
+@media (prefers-reduced-motion:reduce){ .sheet-genwrap.loading::before{animation:none} }

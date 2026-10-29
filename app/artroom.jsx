@@ -4887,6 +4887,10 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
   // (legacy meta, or any path that didn't record it) measure the actual image's pixels
   // so a real resolution still appears — for generations AND uploads alike.
   const [measRes, setMeasRes] = React.useState("");
+  // LOADING PLACEHOLDER (owner 2026-10-29): a big sheet takes a moment to arrive — a light "Loading image…" until it
+  // has, not the frame's black letterbox; it starts again whenever the image changes
+  const [imgLoaded, setImgLoaded] = React.useState(false);
+  React.useEffect(()=>{ setImgLoaded(false); },[genUrl]);
   React.useEffect(()=>{
     if(!genUrl || (genMeta && genMeta.size)){ setMeasRes(""); return; }
     let alive=true; const im=new Image();
@@ -5010,9 +5014,14 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
   return React.createElement("div",{className:"sheet-frame"},
     React.createElement("div",{className:"sheet-media",style:{position:"relative"}},
     genUrl
-      ? React.createElement("div",{className:"sheet-genwrap"},
+      ? React.createElement("div",{className:"sheet-genwrap"+(imgLoaded?"":" loading"),"data-testid":"sheet-genwrap"},
           React.createElement("img",{className:"sheet-genimg",src:genUrl,alt:name+" "+noun,
             decoding:"async",loading:"lazy",
+            // "loaded" isn't "painted": a big sheet still decodes after its load event (decoding:async), showing black —
+            // the placeholder stays until the decode is done
+            onLoad:(e)=>{ const im=e.currentTarget; const done=()=>setImgLoaded(true);
+              if(im && typeof im.decode==="function") im.decode().then(done, done); else done(); },
+            onError:()=>setImgLoaded(true),
             onClick:()=>onView&&onView(genUrl, entity)}))
       : dropToImport
         // the drop zone IS the upload: drop a finished frame or click to browse \u2014 imported at
@@ -6210,7 +6219,10 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           }),
         // WHAT THE SCRIPT SAYS (2026-10-12, Character fidelity step 2): the fact sheet, each fact with its quote
         React.createElement(CharScriptFactsPanel,{ c, drafts, state:fst, reading:readingFacts, readOnly,
-          onRead:onReadScript, readCost }),
+          onRead:onReadScript, readCost })),
+
+      // BODY & FEATURES (owner 2026-10-29): what they look like — split out of Identity (who they are)
+      React.createElement(CardFold,{label:"Body & features",defaultOpen:false},
         // physical identity as a clean LABELLED LIST (each field editable), instead of one
         // run-on paragraph. Edits update the structured `physique` (the source the prompt
         // reads) AND recompose `coreBody` so downstream/legacy readers stay in sync.
@@ -6310,6 +6322,23 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement(SheetField,{label:"Texture \u2014 skin & material detail",value:c.materialTexture,multiline:true,
           placeholder:"Pore texture, subsurface scattering, blemishes, lighting\u2026",onCommit:val=>onUpdate(c.id,{materialTexture:val})})),
 
+      // the height chart, right after the size and scale it draws (owner 2026-10-29)
+      React.createElement(CardFold,{label:"Scale sheet",defaultOpen:false},
+        React.createElement("div",{className:"char-scalesheet-hint"},
+          React.createElement(Icon.sparkles,{s:12}),
+          "A full-body height chart on the "+((typeof scaleInfoOf==="function")?scaleInfoOf(c).label:"Human")+" ruler beside familiar objects at their real sizes (a coin, a door, a house\u2026) \u2014 rendered from the master sheet, for you to check the size at a glance. Shots use the size written on the card (Identity \u25b8 Size), not this image."),
+        React.createElement(SheetFrame,{ gen:scaleGenWrapped, slotId:"charscale-"+c.id, name:(c.name||"")+" \u00b7 scale", avatarColor:c.color,
+          initials:"H", drafted:true, drafting:false, onDraft:()=>{}, entity:c, onView,
+          slotPlaceholder:"Generate the height chart", noun:"scale sheet", dropToImport:true }),
+        scaleGenWrapped.genUrl && React.createElement("div",{className:"card-qa-row"},
+          React.createElement(QaCheckButton,{ gen:scaleGenWrapped, name:(c.name||"")+" \u00b7 scale", noun:"scale sheet",
+            // the character's true size and the familiar objects the sheet was drawn with (scale plan step 4, 2026-10-28)
+            sizes:(contract)=>{
+              const mm = (typeof heightMMOf==="function") ? heightMMOf(c) : 0;
+              if(!(mm>0)) return [];
+              const objs = (typeof scaleKnownObjects==="function" ? scaleKnownObjects(mm) : []).filter(o=>String(contract||"").indexOf(o.name+" "+o.size)>=0);
+              return [{ name:c.name||"The character", mm, size:String(c.height||"").trim() }].concat(objs); } }))),
+
       React.createElement(CardFold,{label:"Wardrobe",defaultOpen:false},
         // (2026-10-12, Character fidelity) where the wardrobe comes from; the script's wardrobe asks before it changes
         (()=>{ const o = charFieldOrigin(c, "wardrobe", { drafts });
@@ -6323,11 +6352,11 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             onUpdate(c.id,{wardrobeMask:val});
           };
           return React.createElement(SheetField,{key:"wardrobe-"+rowKeyTick,
-            label:React.createElement(React.Fragment,null,"Public \u2014 the mask", o.kind ? React.createElement("span",{className:"char-origin "+o.kind,title:o.title,tabIndex:0,"data-origin":o.kind,"aria-label":o.label+(o.title?". "+o.title:"")},o.label) : null),
+            label:React.createElement(React.Fragment,null,"Public outfit", o.kind ? React.createElement("span",{className:"char-origin "+o.kind,title:o.title,tabIndex:0,"data-origin":o.kind,"aria-label":o.label+(o.title?". "+o.title:"")},o.label) : null),
             value:vfield(c,"wardrobeMask","wardrobe"),multiline:true,
-            placeholder:"Armour / public clothes \u2014 the social persona\u2026",onCommit:commit}); })(),
-        React.createElement(SheetField,{label:"Private \u2014 the true self",value:c.wardrobeInner,multiline:true,
-          placeholder:"Softer, personal clothing \u2014 who they really are\u2026",onCommit:val=>onUpdate(c.id,{wardrobeInner:val})})),
+            placeholder:"What they wear in front of others \u2014 their armour, the social persona\u2026",onCommit:commit}); })(),
+        React.createElement(SheetField,{label:"Private outfit",value:c.wardrobeInner,multiline:true,
+          placeholder:"What they wear alone \u2014 softer, personal clothing that shows who they really are\u2026",onCommit:val=>onUpdate(c.id,{wardrobeInner:val})})),
 
       React.createElement(CardFold,{label:"Props & accessories",defaultOpen:false,foldId:"props-"+c.id},
         React.createElement("div",{className:"sheet-props-note"},
@@ -6492,7 +6521,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       React.createElement(CardFold,{label:"Continuity \u00b7 appearance states",count:states.length||null,defaultOpen:false},
         React.createElement("div",{className:"sheet-props-note"},
           React.createElement(Icon.sparkles,{s:12}),
-          "Moments where this character's look changes \u2014 wounds, costume shifts, time jumps. Each can become its own v2 sheet."),
+          "Moments where this character's look changes \u2014 wounds, costume shifts, time jumps. Each can get its own sheet."),
         React.createElement("div",{className:"state-actions"},
           React.createElement("button",{className:"state-suggest-btn",disabled:suggestingStates,onClick:()=>onSuggestStates&&onSuggestStates(c)},
             suggestingStates
@@ -6512,17 +6541,18 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
               "No appearance states yet \u2014 the base sheet covers the whole film. ",
               "Use \u201cSuggest from script\u201d to find where the look changes, or add one by hand.")),
 
-      React.createElement(CardFold,{label:"Look dev",defaultOpen:false},
+      React.createElement(CardFold,{label:"Look & exclusions",defaultOpen:false},
         React.createElement("div",{className:"sheet-field"},
           React.createElement("div",{className:"obj-lab"},"Colour palette \u00b7 base \u2192 climax"),
           React.createElement(PaletteRow,{palette})),
         // an editable setting that changes the sheet, so it lives on the card, not behind the prompt (2026-10-05)
-        React.createElement(SheetField,{label:"Leave out \u2014 what the sheet must not show (negative prompt)",value:c.negativePrompt||v.negativePrompt,multiline:true,
+        React.createElement(SheetField,{label:"Leave out (negative prompt)",value:c.negativePrompt||v.negativePrompt,multiline:true,
           onCommit:val=>onUpdate(c.id,{negativePrompt:val})})),
 
       // SPOKEN LANGUAGE (2026-10-24, from the Anerneq study): lines in another or an invented language;
       // Cyrillic letters spell them by sound for the video model, which keeps English pronunciation out
-      React.createElement(CardFold,{label:"Spoken language",defaultOpen:!!(c.lineLanguage||c.lineScript)},
+      // VOICE & VIDEO (owner 2026-10-29): the language of their lines and their video element — both only feed the Stage
+      React.createElement(CardFold,{label:"Voice & video",defaultOpen:!!(c.lineLanguage||c.lineScript),foldId:"voice-"+c.id},
         React.createElement(SheetField,{label:"Speaks \u2014 the language of their lines (blank = the script's language)",value:c.lineLanguage||"",
           placeholder:"e.g. Kalaallisut, or an invented language",onCommit:val=>onUpdate(c.id,{lineLanguage:String(val||"").trim()})}),
         React.createElement("div",{className:"sheet-field"},
@@ -6533,35 +6563,18 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             React.createElement("option",{value:""},"As written in the script"),
             React.createElement("option",{value:"cyrillic"},"Spelled in Cyrillic letters (keeps English sounds out)")),
           React.createElement("div",{className:"char-scalesheet-hint"},
-            "For lines the video model voices itself (no recorded voice). Write the line as it sounds in the script; Cyrillic letters stop the model reading it as English. The letters are never shown, and the script isn't changed."))),
-
-      // VIDEO ELEMENT (2026-10-27): a few seconds of them speaking in their locked voice, sent with their Stage clips
-      window.VideoElementFold && React.createElement(window.VideoElementFold,{ c, readOnly, scenes, drafts, onUpdate }),
-
-      React.createElement(CardFold,{label:"Scale sheet",defaultOpen:false},
-        React.createElement("div",{className:"char-scalesheet-hint"},
-          React.createElement(Icon.sparkles,{s:12}),
-          "A full-body height chart on the "+((typeof scaleInfoOf==="function")?scaleInfoOf(c).label:"Human")+" ruler beside familiar objects at their real sizes (a coin, a door, a house\u2026) \u2014 rendered from the master sheet, for you to check the size at a glance. Shots use the size written on the card (Identity \u25b8 Size), not this image."),
-        React.createElement(SheetFrame,{ gen:scaleGenWrapped, slotId:"charscale-"+c.id, name:(c.name||"")+" \u00b7 scale", avatarColor:c.color,
-          initials:"H", drafted:true, drafting:false, onDraft:()=>{}, entity:c, onView,
-          slotPlaceholder:"Generate the height chart", noun:"scale sheet", dropToImport:true }),
-        scaleGenWrapped.genUrl && React.createElement("div",{className:"card-qa-row"},
-          React.createElement(QaCheckButton,{ gen:scaleGenWrapped, name:(c.name||"")+" \u00b7 scale", noun:"scale sheet",
-            // the character's true size and the familiar objects the sheet was drawn with (scale plan step 4, 2026-10-28)
-            sizes:(contract)=>{
-              const mm = (typeof heightMMOf==="function") ? heightMMOf(c) : 0;
-              if(!(mm>0)) return [];
-              const objs = (typeof scaleKnownObjects==="function" ? scaleKnownObjects(mm) : []).filter(o=>String(contract||"").indexOf(o.name+" "+o.size)>=0);
-              return [{ name:c.name||"The character", mm, size:String(c.height||"").trim() }].concat(objs); } }))),
+            "For lines the video model voices itself (no recorded voice). Write the line as it sounds in the script; Cyrillic letters stop the model reading it as English. The letters are never shown, and the script isn't changed.")),
+        // VIDEO ELEMENT (2026-10-27): a few seconds of them speaking in their locked voice, sent with their Stage clips
+        window.VideoElementFold && React.createElement(window.VideoElementFold,{ c, readOnly, scenes, drafts, onUpdate, bare:true })),
 
       // the sheet's prompt: a section of every card, folded (owner 2026-10-28 — it used to hide behind the card's ⋯ menu
       // or the Film menu's "Always show prompts"); read-only (the "Leave out" field is under Look dev)
-      React.createElement(CardFold,{label:"Master reference prompt",defaultOpen:false},
-        React.createElement(CopyBox,{label:"Reference-Guided Textual Character Sheet",text:promptText}),
+      React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},
+        React.createElement(CopyBox,{label:"Prompt (text only)",text:promptText}),
         // The hybrid box always holds the prompt that generated the CURRENT sheet
         // (stored per version, so restoring an older version restores its prompt
         // here too); before any sheet exists it previews the next generation.
-        React.createElement(CopyBox,{label:"Reference-Guided Hybrid Character Sheet (Text + Images)",
+        React.createElement(CopyBox,{label:"Prompt with reference images",
           text:(gen.genUrl && gen.genMeta && gen.genMeta.prompt) || finalPrompt})),
 
       cameoOpen && React.createElement(CameoModal,{ character:c,

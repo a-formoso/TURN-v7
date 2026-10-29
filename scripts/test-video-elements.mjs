@@ -108,7 +108,7 @@ ok("the Stage offers each on-screen character's element (on for Seedance 2.5, of
   /identityCast\.forEach\(c=>\{ const a=window\.veStageAsset\(c,\{ offByDefault:modelId!=="seedance-2\.5" \}\); if\(a\) out\.push\(a\); \}\)/.test(stage)
   && /window\.useVideoElementUrls\(identityCast\)/.test(stage) && /\[clip\.id, activeShot\.id, veTick,/.test(stage));
 ok("the Stage gives it its own role line (not 'the previous clip')", /if\(k\.indexOf\("ve:"\)===0 && typeof window\.veRoleLine==="function"\) return window\.veRoleLine\(T,a\);\n  if\(a\.kind==="video"\)/.test(stage));
-ok("the character card has the Video element fold", /window\.VideoElementFold && React\.createElement\(window\.VideoElementFold,\{ c, readOnly, scenes, drafts, onUpdate \}\)/.test(art));
+ok("the character card has the Video element, inside Voice & video (2026-10-29)", /window\.VideoElementFold && React\.createElement\(window\.VideoElementFold,\{ c, readOnly, scenes, drafts, onUpdate, bare:true \}\)\)/.test(art));
 const ui=readFileSync("app/video-elements.jsx","utf8");
 ok("the card asks first and names the price", /window\.appConfirm\(\{/.test(ui) && /confirmLabel:"Make it · "\+cost\.total\+" credits"/.test(ui));
 ok("TURN.html loads it after the Stage", /app\/stage\.jsx\?v=[^"]+"><\/script>\n<script type="text\/babel" src="app\/video-elements\.jsx\?v=/.test(html));
