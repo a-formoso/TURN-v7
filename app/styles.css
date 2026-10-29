@@ -10800,7 +10800,7 @@ html[data-theme="dark"] .spine-hs{--sp-zero:rgba(255,255,255,.16)}
    Below each room's header the ground is the DESK — the homepage's warm paper, a step deeper — and the cards on it turn
    white (the light theme's bone tokens are re-pointed inside the work area only), so they lift off it; the header and
    the top bar stay paper. Dark theme: the desk is a step darker than the header; cards keep their lighter grounds. */
-.app.hs{--hs-desk:#F3F1EC}
+.app.hs{--hs-desk:#1C1B1A}   /* near-black (owner 2026-10-29; was #F3F1EC): the light theme's desk — see THE DARK DESK at the end */
 html[data-theme="dark"] .app.hs{--hs-desk:color-mix(in oklab, var(--bg-1) 70%, #000)}
 .app.hs.room-writers,.app.hs.room-art,.app.hs.room-stage{background:var(--hs-desk)}
 .app.hs.room-writers .body,.app.hs.room-writers .canvas,.app.hs.room-writers .rail,.app.hs.room-writers .inspector,.app.hs.room-writers .strip,
@@ -10814,7 +10814,7 @@ html[data-theme="light"] .app.hs.room-stage .stage2-body{
 }
 /* HOME, the same (owner 2026-10-19 — "if it applies to the dashboard, you can also do that"): the hero on paper, the
    films and everything below it on the desk, their cards white (light theme) */
-.hd-root{--hd-desk:#F3F1EC}
+.hd-root{--hd-desk:#1C1B1A}   /* Home's desk matches the rooms' (owner 2026-10-29) */
 html[data-theme="dark"] .hd-root{--hd-desk:color-mix(in oklab, var(--bg-1) 70%, #000)}
 .hd-root .hd-scroll{background:var(--hd-desk)}
 .hd-root .hd-head{background:var(--lpw-bg);box-shadow:0 0 0 24px var(--lpw-bg);clip-path:inset(0 -24px)}   /* paper into the scrollbar gutters too */
@@ -11517,3 +11517,113 @@ video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:aut
 .art-draftall.ghost.secondary{background:var(--win-amber-soft,var(--accent-soft));border-color:var(--win-amber-line,var(--accent-line));color:var(--win-amber-ink,var(--accent))}
 .art-draftall.ghost.secondary:hover:not(:disabled){background:rgba(242,154,67,.24);border-color:var(--win-amber,var(--accent));color:var(--win-amber-ink,var(--accent))}
 .art-draftall.ghost.secondary .nb-cost{background:transparent;border-color:currentColor}
+
+/* THE DARK DESK (owner 2026-10-29: "go with #1C1B1A, near-black" — "apply it to all rooms and Home"). In the LIGHT theme
+   the desk is near-black in every room — the Art Room's work area, the Writers' Room's canvas and strip, the Stage's
+   middle column (their paper sidebars and headers stay paper) — and on Home (.hd-desk below); the cards on it stay light. Done with the theme's own colour settings, not element by element: the desk takes the
+   DARK theme's settings (so everything that sits on it — the top-row buttons, empty states, batch bars, loose labels —
+   gets its dark-theme look), and every surface on the desk takes the LIGHT ones back (cards, the statement, the filter
+   slates, scene cards, looks, storyboard sheets, the Breakdown's strips, menus and dialogs). Values copied from the
+   theme blocks above (:root / html[data-theme="light"] / .app.hs / the window family); --btn-edge is re-declared on
+   both sides because a setting built from others is fixed where it is declared. The header and top bar stay paper. */
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main){
+  color-scheme:dark; color:var(--hs-ink);
+  --bg-0:#08090b; --bg-1:#0e0f12; --bg-2:#15161a; --bg-3:#1c1d22; --bg-4:#24262c; --bg-5:#2d2f37;
+  --line:rgba(255,255,255,.06); --line-2:rgba(255,255,255,.1); --line-3:rgba(255,255,255,.16); --txt-0:#f3f1ec;
+  --txt-1:#b6b3ab; --txt-2:#9a968e; --txt-3:#88857d; --pos:oklch(0.76 0.145 62);
+  --pos-soft:oklch(0.76 0.145 62 / .16); --pos-line:oklch(0.76 0.145 62 / .5); --neg:oklch(0.72 0.10 232);
+  --neg-soft:oklch(0.72 0.10 232 / .16); --neg-line:oklch(0.72 0.10 232 / .5); --pos-ink:var(--pos);
+  --neg-ink:var(--neg); --accent-ink:var(--accent); --alert:oklch(0.64 0.17 27);
+  --alert-soft:oklch(0.64 0.17 27 / .15); --prog:oklch(0.74 0.12 300); --prog-soft:oklch(0.74 0.12 300 / .15);
+  --ok:oklch(0.74 0.13 155); --ok-soft:oklch(0.74 0.13 155 / .14); --ok-line:oklch(0.74 0.13 155 / .45);
+  --danger-line:oklch(0.64 0.17 27 / .45); --danger-ink:oklch(0.74 0.14 27);
+  --shadow-pop:0 18px 50px -12px rgba(0,0,0,.7),0 2px 8px rgba(0,0,0,.5); --hs-paper:var(--bg-1);
+  --hs-glass:rgba(14,15,18,.86); --hs-surface:var(--bg-3); --hs-bone:var(--bg-2); --hs-bone-2:var(--bg-3);
+  --hs-line:rgba(255,255,255,.07); --hs-line-2:rgba(255,255,255,.12); --hs-line-3:rgba(255,255,255,.2);
+  --hs-ink:var(--txt-0); --hs-ink-2:var(--txt-1); --hs-sub:#8F8C85; --hs-amber-soft:rgba(242,154,67,.12);
+  --hs-amber-ink:var(--hs-amber); --hs-amber-display:var(--hs-amber); --hs-blue-display:var(--hs-fall);
+  --bg-0:var(--bg-1); --win-surface:var(--bg-2); --win-bone:var(--bg-3); --win-bone-2:var(--bg-4);
+  --win-line:rgba(255,255,255,.08); --win-line-2:rgba(255,255,255,.13); --win-line-3:rgba(255,255,255,.22);
+  --win-ink:var(--txt-0); --win-ink-2:var(--txt-1); --win-sub:#8F8C85; --win-scrim:rgba(0,0,0,.6);
+  --win-shadow:0 24px 60px -20px rgba(0,0,0,.7); --win-amber:#F29A43; --win-amber-hover:#E88A33;
+  --win-on-amber:#2C2722; --win-amber-soft:rgba(242,154,67,.14); --win-amber-line:rgba(242,154,67,.5);
+  --win-amber-ink:#F29A43; --win-err:#F08A80; --win-err-fill:#C9473C; --win-focus:rgba(255,255,255,.14);
+  --hs-desk:#1C1B1A; --btn-edge:color-mix(in srgb, var(--txt-2) 30%, var(--line-2));
+}
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) :is(.scard,.sp-page,.stage2-console,.stage2-vers,.stage2-tl,.stage2-au,.sheet-card,.lb-statement,.recently-deleted,.loc-slate,.sb-card,.shot-scene-card,.sb-sheet,.sb-side,.bd-line,.bd-sw,.lb-research-menu,.rd-popover,[role="dialog"],[role="menu"],.appconfirm-scrim,.ag-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim){
+  color-scheme:light; color:var(--hs-ink);
+  --bg-0:#EBEBE8; --bg-1:#F1F1EE; --bg-2:#FCFCFB; --bg-3:#F6F6F4; --bg-4:#FFFFFF; --bg-5:#FFFFFF;
+  --line:rgba(15,16,18,.07); --line-2:rgba(15,16,18,.12); --line-3:rgba(15,16,18,.20); --txt-0:#24262B;
+  --txt-1:#474B51; --txt-2:#5E6268; --txt-3:#666A70; --pos:oklch(0.62 0.162 62);
+  --pos-soft:oklch(0.62 0.162 62 / .14); --pos-line:oklch(0.62 0.162 62 / .42); --neg:oklch(0.54 0.112 232);
+  --neg-soft:oklch(0.54 0.112 232 / .14); --neg-line:oklch(0.54 0.112 232 / .42); --pos-ink:#8F4C0E;
+  --neg-ink:#006A90; --accent-ink:#8F4C0E; --alert:oklch(0.55 0.19 27); --alert-soft:oklch(0.55 0.19 27 / .12);
+  --prog:oklch(0.52 0.14 300); --prog-soft:oklch(0.52 0.14 300 / .12); --ok:oklch(0.5 0.12 155);
+  --ok-soft:oklch(0.5 0.12 155 / .12); --ok-line:oklch(0.5 0.12 155 / .4); --danger-line:oklch(0.55 0.19 27 / .4);
+  --danger-ink:oklch(0.5 0.19 27); --shadow-pop:0 16px 44px -14px rgba(15,16,18,.20),0 2px 8px rgba(15,16,18,.10);
+  --bg-0:#FCFCFB; --bg-1:#FCFCFB; --bg-2:#F6F6F4; --bg-3:#F1F1EE; --bg-4:#FFFFFF; --bg-5:#FFFFFF; --line:#E8E8E5;
+  --line-2:#E1E1DD; --line-3:#D6D6D1; --txt-0:#0F1012; --txt-1:#3C3F44; --txt-2:#5D6066; --txt-3:#5D6066;
+  --bg-2:#FFFFFF; --bg-3:#FAFAF8; --hs-bone:#FFFFFF; --hs-bone-2:#FAFAF8; --hs-paper:#FCFCFB;
+  --hs-glass:rgba(252,252,251,.86); --hs-surface:#FFFFFF; --hs-bone:#F6F6F4; --hs-bone-2:#F1F1EE; --hs-line:#E8E8E5;
+  --hs-line-2:#E1E1DD; --hs-line-3:#D6D6D1; --hs-ink:#0F1012; --hs-ink-2:#3C3F44; --hs-sub:#5D6066;
+  --hs-amber-soft:rgba(242,154,67,.14); --hs-amber-ink:#9E5410; --hs-amber-display:#C56C0C;
+  --hs-blue-display:#2F7FA6; --win-surface:#FFFFFF; --win-bone:#F6F6F4; --win-bone-2:#F1F1EE; --win-line:#E8E8E5;
+  --win-line-2:#E1E1DD; --win-line-3:#D6D6D1; --win-ink:#0F1012; --win-ink-2:#3C3F44; --win-sub:#5D6066;
+  --win-scrim:rgba(15,16,18,.42); --win-shadow:0 24px 60px -20px rgba(15,16,18,.45); --win-amber-ink:#9E5410;
+  --win-err:#B3261E; --win-err-fill:#B3261E; --win-focus:rgba(15,16,18,.08);
+  --btn-edge:color-mix(in srgb, var(--txt-2) 25%, var(--line-2));
+}
+
+/* the few desk-level pieces with their own fixed light-theme colours (html[data-theme="light"] .x rules above) take their
+   dark-theme look on the desk: the Lookbook-changed notice and its buttons, and the Voices manager */
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) .lb-stale-notice:not(:is(.scard,.sp-page,.stage2-console,.stage2-vers,.stage2-tl,.stage2-au,.sheet-card,.lb-statement,.recently-deleted,.loc-slate,.sb-card,.shot-scene-card,.sb-sheet,.sb-side,.bd-line,.bd-sw,.lb-research-menu,.rd-popover,[role="dialog"],[role="menu"],.appconfirm-scrim,.ag-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim) *){background:oklch(0.72 0.13 60 / .13);border-color:oklch(0.72 0.13 60 / .34);color:oklch(0.86 0.1 72)}
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) .lb-stale-notice:not(:is(.scard,.sp-page,.stage2-console,.stage2-vers,.stage2-tl,.stage2-au,.sheet-card,.lb-statement,.recently-deleted,.loc-slate,.sb-card,.shot-scene-card,.sb-sheet,.sb-side,.bd-line,.bd-sw,.lb-research-menu,.rd-popover,[role="dialog"],[role="menu"],.appconfirm-scrim,.ag-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim) *) > svg{color:oklch(0.78 0.15 64)}
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) .lb-stale-notice:not(:is(.scard,.sp-page,.stage2-console,.stage2-vers,.stage2-tl,.stage2-au,.sheet-card,.lb-statement,.recently-deleted,.loc-slate,.sb-card,.shot-scene-card,.sb-sheet,.sb-side,.bd-line,.bd-sw,.lb-research-menu,.rd-popover,[role="dialog"],[role="menu"],.appconfirm-scrim,.ag-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim) *) b{color:var(--txt-0)}
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) .lb-stale-btn:not(:is(.scard,.sp-page,.stage2-console,.stage2-vers,.stage2-tl,.stage2-au,.sheet-card,.lb-statement,.recently-deleted,.loc-slate,.sb-card,.shot-scene-card,.sb-sheet,.sb-side,.bd-line,.bd-sw,.lb-research-menu,.rd-popover,[role="dialog"],[role="menu"],.appconfirm-scrim,.ag-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim) *){border-color:oklch(0.72 0.13 60 / .5);background:oklch(0.72 0.13 60 / .2);color:oklch(0.9 0.08 75)}
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) .lb-stale-btn:not(:is(.scard,.sp-page,.stage2-console,.stage2-vers,.stage2-tl,.stage2-au,.sheet-card,.lb-statement,.recently-deleted,.loc-slate,.sb-card,.shot-scene-card,.sb-sheet,.sb-side,.bd-line,.bd-sw,.lb-research-menu,.rd-popover,[role="dialog"],[role="menu"],.appconfirm-scrim,.ag-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim) *):hover{background:oklch(0.72 0.13 60 / .34)}
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) .lb-stale-btn.ghost:not(:is(.scard,.sp-page,.stage2-console,.stage2-vers,.stage2-tl,.stage2-au,.sheet-card,.lb-statement,.recently-deleted,.loc-slate,.sb-card,.shot-scene-card,.sb-sheet,.sb-side,.bd-line,.bd-sw,.lb-research-menu,.rd-popover,[role="dialog"],[role="menu"],.appconfirm-scrim,.ag-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim) *){background:transparent}
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) .lb-stale-btn.ghost:not(:is(.scard,.sp-page,.stage2-console,.stage2-vers,.stage2-tl,.stage2-au,.sheet-card,.lb-statement,.recently-deleted,.loc-slate,.sb-card,.shot-scene-card,.sb-sheet,.sb-side,.bd-line,.bd-sw,.lb-research-menu,.rd-popover,[role="dialog"],[role="menu"],.appconfirm-scrim,.ag-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim) *):hover{background:oklch(0.72 0.13 60 / .18)}
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) .art-voices-mgr:not(:is(.scard,.sp-page,.stage2-console,.stage2-vers,.stage2-tl,.stage2-au,.sheet-card,.lb-statement,.recently-deleted,.loc-slate,.sb-card,.shot-scene-card,.sb-sheet,.sb-side,.bd-line,.bd-sw,.lb-research-menu,.rd-popover,[role="dialog"],[role="menu"],.appconfirm-scrim,.ag-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim) *){border-color:oklch(0.66 0.11 195 / .4);background:oklch(0.66 0.11 195 / .1);color:oklch(0.8 0.1 195)}
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) .art-voices-mgr:not(:is(.scard,.sp-page,.stage2-console,.stage2-vers,.stage2-tl,.stage2-au,.sheet-card,.lb-statement,.recently-deleted,.loc-slate,.sb-card,.shot-scene-card,.sb-sheet,.sb-side,.bd-line,.bd-sw,.lb-research-menu,.rd-popover,[role="dialog"],[role="menu"],.appconfirm-scrim,.ag-overlay,.cameo-overlay,.shot-ref-dialog-scrim,.shot-notice-scrim) *):hover{background:oklch(0.66 0.11 195 / .2);color:oklch(0.86 0.09 195)}
+
+/* the selected scene tile's amber tint is see-through: on the dark desk it sits on white, as it does on the light one */
+html[data-theme="light"] :is(.app.hs.room-art .artroom,.app.hs.room-writers .canvas,.app.hs.room-writers .strip,.app.hs.room-stage .stage2-main) :is(.spine-hs .stile.sel,.board-pan .scard.sel){background:linear-gradient(var(--hs-amber-soft),var(--hs-amber-soft)),#FFFFFF}
+
+/* HOME'S DARK DESK (owner 2026-10-29, "apply it to all rooms and Home"): the films, the features band and the footer sit
+   on the near-black desk under the paper hero; Home's own colour family (--lpw-*) takes its dark-theme values there (the
+   ones html[data-theme="dark"] .hd-root uses), and the white surfaces on it — the New project tile and the features
+   panel — keep the light ones. */
+html[data-theme="light"] .hd-root :is(.hd-body,.hd-feature-band,.hd-foot){
+  color-scheme:dark; color:var(--lpw-ink);
+  --bg-0:#08090b; --bg-1:#0e0f12; --bg-2:#15161a; --bg-3:#1c1d22; --bg-4:#24262c; --bg-5:#2d2f37;
+  --line:rgba(255,255,255,.06); --line-2:rgba(255,255,255,.1); --line-3:rgba(255,255,255,.16); --txt-0:#f3f1ec;
+  --txt-1:#b6b3ab; --txt-2:#9a968e; --txt-3:#88857d; --pos:oklch(0.76 0.145 62);
+  --pos-soft:oklch(0.76 0.145 62 / .16); --pos-line:oklch(0.76 0.145 62 / .5); --neg:oklch(0.72 0.10 232);
+  --neg-soft:oklch(0.72 0.10 232 / .16); --neg-line:oklch(0.72 0.10 232 / .5); --pos-ink:var(--pos);
+  --neg-ink:var(--neg); --accent-ink:var(--accent); --alert:oklch(0.64 0.17 27);
+  --alert-soft:oklch(0.64 0.17 27 / .15); --prog:oklch(0.74 0.12 300); --prog-soft:oklch(0.74 0.12 300 / .15);
+  --ok:oklch(0.74 0.13 155); --ok-soft:oklch(0.74 0.13 155 / .14); --ok-line:oklch(0.74 0.13 155 / .45);
+  --danger-line:oklch(0.64 0.17 27 / .45); --danger-ink:oklch(0.74 0.14 27);
+  --shadow-pop:0 18px 50px -12px rgba(0,0,0,.7),0 2px 8px rgba(0,0,0,.5); --hs-paper:var(--bg-1);
+  --hs-glass:rgba(14,15,18,.86); --hs-surface:var(--bg-3); --hs-bone:var(--bg-2); --hs-bone-2:var(--bg-3);
+  --hs-line:rgba(255,255,255,.07); --hs-line-2:rgba(255,255,255,.12); --hs-line-3:rgba(255,255,255,.2);
+  --hs-ink:var(--txt-0); --hs-ink-2:var(--txt-1); --hs-sub:#8F8C85; --hs-amber-soft:rgba(242,154,67,.12);
+  --hs-amber-ink:var(--hs-amber); --hs-amber-display:var(--hs-amber); --hs-blue-display:var(--hs-fall);
+  --bg-0:var(--bg-1); --win-surface:var(--bg-2); --win-bone:var(--bg-3); --win-bone-2:var(--bg-4);
+  --win-line:rgba(255,255,255,.08); --win-line-2:rgba(255,255,255,.13); --win-line-3:rgba(255,255,255,.22);
+  --win-ink:var(--txt-0); --win-ink-2:var(--txt-1); --win-sub:#8F8C85; --win-scrim:rgba(0,0,0,.6);
+  --win-shadow:0 24px 60px -20px rgba(0,0,0,.7); --win-amber:#F29A43; --win-amber-hover:#E88A33;
+  --win-on-amber:#2C2722; --win-amber-soft:rgba(242,154,67,.14); --win-amber-line:rgba(242,154,67,.5);
+  --win-amber-ink:#F29A43; --win-err:#F08A80; --win-err-fill:#C9473C; --win-focus:rgba(255,255,255,.14);
+  --lpw-bg:#0e0f12; --lpw-glass:rgba(14,15,18,.86); --lpw-surface:#1c1d22; --lpw-card:#15161a; --lpw-card-2:#1c1d22;
+  --lpw-line:rgba(255,255,255,.07); --lpw-line-2:rgba(255,255,255,.12); --lpw-line-3:rgba(255,255,255,.2);
+  --lpw-ink:#f3f1ec; --lpw-ink-2:#b6b3ab; --lpw-sub:#8F8C85; --lpw-black:#08090b;
+  --lpw-amber-soft:rgba(242,154,67,.12); --lpw-amber-ink:#F29A43; --lpw-amber-display:#F29A43;
+}
+html[data-theme="light"] .hd-root :is(.hd-body,.hd-feature-band,.hd-foot) :is(.hd-card-new-art,.hd-features,[role="dialog"],[role="menu"]){
+  color-scheme:light; color:var(--lpw-ink);
+  --lpw-bg:#FCFCFB; --lpw-glass:rgba(252,252,251,.86); --lpw-surface:#FFFFFF; --lpw-card:#FFFFFF; --lpw-card-2:#FAFAF8;
+  --lpw-line:#E8E8E5; --lpw-line-2:#E1E1DD; --lpw-line-3:#D6D6D1;
+  --lpw-ink:#0F1012; --lpw-ink-2:#3C3F44; --lpw-sub:#5D6066; --lpw-black:#0E0F12;
+  --lpw-amber-soft:rgba(242,154,67,.14); --lpw-amber-ink:#9E5410; --lpw-amber-display:#C56C0C;
+}
