@@ -74,7 +74,7 @@ function makeWindow(setup, shared){
     locationPlateRefCount:(l)=> ({ n: l.refs==null ? 2 : l.refs, exact: l.refsExact!==false }),
     sluglineUnitPlateRefCount:(l, u)=> ({ n: u.refs==null ? 3 : u.refs, exact:true }),
     nbGetCameoAngles:(cid)=> (s.cameos||{})[cid] || [],
-    PropScreenplay:{ notInScreenplay:(p)=> !!p.notInScript },
+    PropScreenplay:{ notInScreenplay:(p)=> !!p.notInScript, isStoryProp:(p)=> !p.notInScript },   // (2026-10-29) a card that isn't a story prop isn't made
     BILLING_EMAIL:"billing@example.test",
     turnFilmPaidByOwner: s.shared ? ()=>true : undefined, turnFilmBudget: s.budget || null,
     aiPropVisuals: async (p)=>{ log.push("WRITE design "+p.id); if(s.onPropDesign) return s.onPropDesign(p, sb); return s.propDraftNull ? null : { form:"f", material:"m" }; },
@@ -367,7 +367,7 @@ await test("C what the plan can't make is not priced, and is named in the questi
   const r = await w.run(needs);
   assert.match(w.asks[0].body, /^1 reference image — about 5 credits\./);
   assert.deepEqual(J(w.asks[0].items), ["Knife"]);
-  assert.equal(w.asks[0].note, "Not made here: Back room — needs its set layout reviewed (Locations); Gone · NIGHT — needs its location card — the place it belongs to is gone (Locations); Coin — needs an owner (Props); Lamp — isn't in the screenplay (Props).");
+  assert.equal(w.asks[0].note, "Not made here: Back room — needs its set layout reviewed (Locations); Gone · NIGHT — needs its location card — the place it belongs to is gone (Locations); Coin — needs an owner (Props); Lamp — isn't a story prop (Props).");
   assert.ok(!w.log.some(l=>/IMG (plate R|unit|prop X|prop Y)/.test(l)));
   assert.equal(r.blocked, 4);
   assert.match(w.last(), /^Scene 03: 1 reference image made\. Not made here: Back room/);

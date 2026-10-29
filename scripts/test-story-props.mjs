@@ -13,6 +13,9 @@
    7  Extract screenplay props is the first Props step (Props Master, Art Coordinator, Draft all
       specifications), through the review / propose(); its cost is said
    8  existing films: nothing migrated; Frances and the pipeline doc know it
+   (2026-10-29, owner — "What is a prop", "go ahead with all six") the brief-derived cards of 2 · 3 · 4 · 8 are now
+   NOT STORY PROPS (one group, "other"), never created by the app any more; the checks below test that version.
+   The full rule is scripts/test-what-is-a-prop.mjs.
      node scripts/test-story-props.mjs */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -98,17 +101,18 @@ await test("1c 'invent freely' stays for wardrobe and worn accessories only", ()
 });
 
 /* ═══ 2 — character-brief items ═══ */
-await test("2a worn items become worn cards (Wardrobe & accessories), not proposals", ()=>{
+await test("2a an older worn card from a brief is costume: Not story props (2026-10-29)", ()=>{
   const w = byName("Silver watch");
-  assert.equal(w.kind, "worn"); assert.equal(P.group(w), "accessories"); assert.equal(P.isProposal(w), false);
+  assert.equal(w.kind, "worn"); assert.equal(P.group(w), "other"); assert.equal(P.isStoryProp(w), false);
+  assert.match(P.notPropReason(w), /^Costume from Mara's look/);
   const ring = byName("Signet ring");                       // listed under props, but a worn object
-  assert.equal(ring.kind, "worn"); assert.equal(P.isProposal(ring), false);
+  assert.equal(ring.kind, "worn"); assert.equal(P.isStoryProp(ring), false);
 });
-await test("2b a carried item from a brief is a PROPOSAL in its own group, never a story prop", ()=>{
+await test("2b a carried item from a brief is never a story prop (Not story props)", ()=>{
   for(const n of ["Smartphone", "Leather satchel"]){       // a bag filed as an accessory is still carried
     const c = byName(n);
     assert.equal(c.kind, "carried", n); assert.equal(c.inventoryGroup, "proposed", n);
-    assert.equal(P.isProposal(c), true, n); assert.equal(P.group(c), "proposed", n); assert.equal(P.notInScreenplay(c), true, n);
+    assert.equal(P.isProposal(c), true, n); assert.equal(P.group(c), "other", n); assert.equal(P.notInScreenplay(c), true, n);
     assert.equal(c.origin.characterId, "m", n);            // its design origin is recorded
   }
   assert.equal(seeded.filter(p=>P.group(p)==="story").length, 0, "nothing from a brief lands in Story props");
@@ -120,58 +124,54 @@ await test("2c keeping a proposal is the user's choice: Story props, design orig
   assert.equal(P.notInScreenplay(c), true); assert.equal(c.origin.kind, "props");
   assert.match(box.propOriginLabel(c), /design proposal from Mara's character brief/);
 });
-await test("2d Extract finding it in the screenplay makes it a story prop with its evidence", ()=>{
+await test("2d Extract finding it in the screenplay — and something happening to it — makes it a story prop with its evidence", ()=>{
   const prop = byName("Smartphone");
   const decision = { target:prop.id, name:"Smartphone", aliases:[], kind:"carried", inventoryGroup:"story", ownerId:"m", ownerName:"Mara",
     locationId:"", screenplaySources:[{ sceneId:"s2", sceneNo:2, block:1, quote:"Mara drops the smartphone in the gutter.", presence:"handled" }],
+    storyChanges:[{ what:"dropped", sceneId:"s2", sceneNo:2, quote:"Mara drops the smartphone in the gutter." }],
     continuityEvents:[], includeEvents:false, contentNotes:"", identityNote:"", warnings:[] };
   const out = P.accept(seeded, [decision], drafts), linked = out.find(p=>p.id===prop.id);
   assert.equal(P.isProposal(linked), false); assert.equal(P.group(linked), "story"); assert.equal(P.notInScreenplay(linked), false);
   assert.deepEqual(J(linked.scenes), ["s2"]); assert.equal(linked.origin.kind, "props", "the design origin is kept");
   assert.equal(out.length, seeded.length, "linked, not duplicated");
 });
-await test("2e the card: a 'Proposed — not in the screenplay' badge and 'Keep this prop'; a group pick keeps it too", ()=>{
+await test("2e the card: a 'Not a story prop' badge with the reason and 'Keep as a story prop'", ()=>{
   R.reset(); let patch = null;
   const tree = box.PropSheet({ p:byName("Smartphone"), project:{}, characters:cast, scenes, drafts, onUpdate:(id, x)=>{ patch = x; }, onDelete:noop, onDraft:noop });
-  assert.ok(textOf(tree).includes("Proposed — not in the screenplay"));
-  const keep = buttons(tree).find(b=>textOf(b)==="Keep this prop");
+  assert.ok(textOf(tree).includes("Not a story prop")); assert.ok(textOf(tree).includes("A guess from Mara's write-up"));
+  const keep = buttons(tree).find(b=>textOf(b)==="Keep as a story prop");
   assert.ok(keep); keep.props.onClick();
-  assert.equal(patch.proposalAccepted, true); assert.equal(patch.inventoryGroup, "story");
-  const sel = findAll(tree, n=>n.type==="select" && findAll(n, o=>o.type==="option" && o.props.value==="proposed").length)[0];
-  assert.ok(sel && sel.props.value==="proposed"); sel.props.onChange({ target:{ value:"accessories" } });
-  assert.equal(patch.proposalAccepted, true); assert.equal(patch.inventoryGroup, "accessories");
-  R.reset();
-  const worn = box.PropSheet({ p:byName("Silver watch"), project:{}, characters:cast, scenes, drafts, onUpdate:noop, onDelete:noop, onDraft:noop });
-  assert.ok(!buttons(worn).some(b=>textOf(b)==="Keep this prop"), "worn items are never proposals");
+  assert.equal(patch.keptAsProp, true); assert.equal(patch.inventoryGroup, "story");
+  assert.ok(!findAll(tree, n=>n.type==="select" && findAll(n, o=>o.type==="option" && o.props.value==="proposed").length).length, "no group select any more");
 });
-await test("2f the Props tab's Show menu has the Proposed group, counted", ()=>{
+await test("2f the Props tab's Show menu: All objects, Story props, Not story props — counted", ()=>{
   R.reset();
   const tree = box.PropSheets({ project:{}, props:seeded, characters:cast, scenes, drafts, onUpdate:noop, onDraft:noop, onDraftAll:noop, onAdd:noop,
     onImportProps:noop, onDelete:noop, castHasProps:true, trashItems:[] });
-  const opt = findAll(tree, n=>n.type==="option" && n.props.value==="proposed")[0];
-  assert.ok(opt); assert.equal(textOf(opt), "Proposed — not in the screenplay (2)");
+  const opts = findAll(tree, n=>n.type==="option" && ["all","story","other"].includes(n.props.value)).map(textOf);
+  assert.deepEqual(opts, ["All objects (4)", "Story props (0)", "Not story props (4)"]);
 });
 
 /* ═══ 3 — the worn/carried tidy ═══ */
-await test("3a an item moved to carried becomes a proposal unless the screenplay established it", ()=>{
+await test("3a an item moved to carried isn't a story prop unless the screenplay makes it one", ()=>{
   const flipped = { id:"x", name:"Leather tote bag", kind:"carried", inventoryGroup:"accessories", ownerId:"m", fromCast:true };
-  assert.equal(P.isProposal(flipped), true); assert.equal(P.group(flipped), "proposed");
-  const proven = { ...flipped, screenplaySources:[{ sceneId:"s1", block:1, quote:"q", presence:"handled" }] };
-  assert.equal(P.isProposal(proven), false); assert.equal(P.group(proven), "accessories");
+  assert.equal(P.isProposal(flipped), true); assert.equal(P.group(flipped), "other");
+  const proven = { ...flipped, screenplaySources:[{ sceneId:"s1", sceneNo:1, block:1, quote:"q", presence:"handled" }, { sceneId:"s2", sceneNo:2, block:1, quote:"r", presence:"visible" }] };
+  assert.equal(P.isProposal(proven), false); assert.equal(P.group(proven), "story");
   const heal = between(app, "if(typeof window.turnReclassifyWornCarried!==\"function\") return;", "},[characters, hydrationTick]);");
   assert.ok(heal.includes("return hit ? { ...pr, kind:\"carried\" } : pr;"), "the tidy only flips the kind; the proposal follows from it");
-  assert.ok(heal.includes("listed under Proposed until the screenplay names them or you keep them"));
+  assert.ok(heal.includes("under Not story props until the screenplay makes them story props or you keep them"));
 });
 
 /* ═══ 4 — nothing pays for a proposal ═══ */
-await test("4a batchSkip: a proposal on ANY film; worn and kept cards never; set dressing only once the screenplay was read", ()=>{
+await test("4a batchSkip: anything that isn't a story prop, on any film; kept and hand-made cards never (2026-10-29)", ()=>{
   const prop = byName("Smartphone"), worn = byName("Silver watch");
   assert.equal(P.batchSkip(prop, false), true); assert.equal(P.batchSkip(prop, true), true);
-  assert.equal(P.batchSkip(worn, true), false);
+  assert.equal(P.batchSkip(worn, true), true, "costume isn't paid for");
   assert.equal(P.batchSkip({ ...prop, proposalAccepted:true }, true), false);
   assert.equal(P.batchSkip({ id:"h", name:"Key", kind:"carried", manual:true }, true), false);
   const dress = { id:"d", name:"Bench", kind:"dressing" };
-  assert.equal(P.batchSkip(dress, false), false); assert.equal(P.batchSkip(dress, true), true);
+  assert.equal(P.batchSkip(dress, false), true); assert.equal(P.batchSkip(dress, true), true);
 });
 await test("4b the Props tab: proposals aren't counted for drafting or generated; the reason is said", ()=>{
   R.reset();
@@ -184,16 +184,16 @@ await test("4b the Props tab: proposals aren't counted for drafting or generated
   const undrafted = box.PropSheets({ project:{}, props:[byName("Smartphone"), { id:"o", name:"Old key", kind:"carried", ownerId:"m", manual:true }], characters:cast, scenes, drafts,
     onUpdate:noop, onDraft:noop, onDraftAll:noop, onAdd:noop, onImportProps:noop, onDelete:noop, castHasProps:true, trashItems:[] });
   assert.ok(buttons(undrafted).some(b=>textOf(b)==="Draft 1 specification"), buttons(undrafted).map(textOf).join(" | "));
-  assert.ok(props.includes("every carried object here is a proposal the screenplay doesn't name. Keep the ones you want, or run Extract screenplay props."));
+  assert.ok(props.includes("none of these objects is a story prop. Read the screenplay for props, or keep a card as a story prop."));
 });
 await test("4c Draft all specifications, the Props Master, the Coordinator's estimate, Make what this scene needs and the Breakdown skip proposals", ()=>{
-  const da = between(app, "  const draftAllProps = async (mode)=>{", "  // Pull standalone prop cards");
+  const da = between(app, "  const draftAllProps = async (mode)=>{", "  // (owner 2026-10-29) the Props tab is no longer filled from the cast");
   assert.ok(da.includes(".filter(p=>!_isProposal(p));") && da.includes("const n = (props||[]).filter(p=>!_isProposal(p)).length;"));
   const pm = between(app, "    const propmaster = {", "    // ---- Location Scout surface");
   assert.ok(pm.includes("const todo = _propWork.filter(p=>(force || !_propDrafted(p)) && !(PSd && PSd.isProposal && PSd.isProposal(p)));"));
   assert.ok(pm.includes("if(PS && PS.isProposal && PS.isProposal(p)) continue;") && pm.includes("if(PS && PS.batchSkip(p, extracted)) continue;"));
   assert.ok(pm.indexOf("if(PS && PS.isProposal && PS.isProposal(p)) continue;") < pm.indexOf("const has = await _grabImg(p.id);"), "not even a forced refresh");
-  assert.ok(app.includes("if(PS && typeof PS.isProposal===\"function\" && PS.isProposal(p)) return \"is a proposal the screenplay doesn't name (Props)\";"));
+  assert.ok(app.includes("if(PS && typeof PS.isStoryProp===\"function\" && !PS.isStoryProp(p)) return \"isn't a story prop (Props)\";"));
   assert.ok(between(art, "function CoordConfirm(", "window.CoordConfirm").includes("window.PropScreenplay.batchSkip(p, P.some(x=>x && (x.screenplaySources||[]).length))"));
   assert.ok(bd.includes("PS.batchSkip(p, extracted)"));
 });
@@ -244,7 +244,7 @@ const runPM = async ({ extracted=false, canExtract=true, ok=true, draftOnly=fals
 };
 await test("7a the Props Master reads the screenplay FIRST and adds what it names only after propose() says yes", async ()=>{
   const r = await runPM();
-  assert.deepEqual(r.log, ["extract", "apply:2", "deriveCast", "draft"]);
+  assert.deepEqual(r.log, ["extract", "apply:2", "draft"], "no cards from the character briefs (2026-10-29)");
   assert.equal(r.proposals.length, 1); assert.equal(r.proposals[0].title, "Add 2 screenplay props"); assert.equal(r.proposals[0].writes, "art");
   assert.match(r.proposals[0].rationale, /Smartphone \(Sc 2: “Mara drops the smartphone in the gutter\.”\)/);
   assert.match(r.proposals[0].rationale, /1 only mentioned, left out/);
@@ -253,7 +253,7 @@ await test("7a the Props Master reads the screenplay FIRST and adds what it name
 });
 await test("7b declined → nothing added; already read → not read again; Re-draft only → no read", async ()=>{
   let r = await runPM({ ok:false });
-  assert.deepEqual(r.log, ["extract", "deriveCast", "draft"]); assert.ok(r.steps.some(s=>/Declined — nothing from the screenplay read was added/.test(s.t)));
+  assert.deepEqual(r.log, ["extract", "draft"]); assert.ok(r.steps.some(s=>/Declined — nothing from the screenplay read was added/.test(s.t)));
   r = await runPM({ extracted:true });
   assert.ok(!r.log.includes("extract") && r.proposals.length===0); assert.ok(r.steps.some(s=>/already been read for props — not read again/.test(s.t)));
   r = await runPM({ draftOnly:true }); assert.ok(!r.log.includes("extract"));
@@ -311,18 +311,18 @@ await test("7f no candidates → the draft goes on; a film already read → no q
 });
 
 /* ═══ 8 — existing films, Frances, the pipeline doc ═══ */
-await test("8a existing cards are never moved or rewritten on load: the Proposed group is display only", ()=>{
+await test("8a existing cards are never moved or rewritten on load: the group is display only", ()=>{
   const legacy = { id:"old", name:"Briefcase", kind:"carried", inventoryGroup:"story", fromCast:true };
   const before = JSON.stringify(legacy);
-  assert.equal(P.group(legacy), "proposed"); assert.equal(JSON.stringify(legacy), before);
+  assert.equal(P.group(legacy), "other"); assert.equal(JSON.stringify(legacy), before);
   assert.ok(!/inventoryGroup\s*:\s*"proposed"/.test(app), "the app never writes the group onto saved cards");
 });
 await test("8b Frances knows it (a dated block), and the pipeline doc records the owner's approval on step 9", ()=>{
   const blk = between(ai, "/* CARRIED PROPS COME FROM THE STORY (owner 2026-10-12", "/* the public view of every entry, memoised");
-  for(const s of ["PROPOSED \\u2014 NOT IN THE SCREENPLAY", "Keep this prop", "NOTHING PAYS FOR A PROPOSAL", "EXTRACT FIRST", "Read the screenplay for its props first?",
+  for(const s of ["PROPS COME FROM THE SCREENPLAY", "WHAT IS A PROP", "EXTRACT FIRST", "Read the screenplay for its props first?",
     "invents wardrobe and worn accessories, never carried objects", "an object word alone"]) assert.ok(blk.includes(s), s);
   assert.ok(!/McKee|Anthropic|Claude|TURN\b/.test(blk));
-  assert.ok(doc.includes("*(approved 2026-10-12 by owner") && doc.includes("**Extract screenplay props is the first\n    Props step**"));
+  assert.ok(doc.includes("*(approved 2026-10-29 by owner") && doc.includes("**Extract screenplay props is the first Props step** *(2026-10-12, still in force)*"));
 });
 
 console.log(failed ? (checks+" checks passed, "+failed+" FAILED") : (checks+" checks passed"));

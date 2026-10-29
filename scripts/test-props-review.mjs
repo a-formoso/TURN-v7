@@ -78,14 +78,11 @@ await test("A1 the background worn-item build waits unless window.TURN_WORN_PROP
   assert.ok(app.includes("onBuildWornProps:(c)=>{ if(c && wornBuildRef.current) wornBuildRef.current(c.id); },"));
   assert.ok(!/TURN_WORN_PROP_AUTO\s*=\s*true/.test(app + read("TURN.html")), "nothing turns it on");
 });
-await test("A2 the character card offers 'Make N worn-item sheets' with the price, only once it has a sheet", ()=>{
+await test("A2 (2026-10-29) no 'Make N worn-item sheets' or 'Create card': costume is drawn on the character's sheet", ()=>{
   const card = between(art, "function CharacterSheet({", "function CharacterSheets(");
-  assert.ok(card.includes("const missingWorn = linkedRows.filter(r=> !r.orphan && r.src===\"worn\" && !(r.prop && ownedSheetMap[r.prop.id])).length;"));
-  assert.ok(card.indexOf("const missingWorn") > card.indexOf("const [ownedSheetMap, setOwnedSheetMap]"), "declared after the sheet map (no TDZ)");
-  assert.ok(card.includes('(onBuildWornProps && missingWorn>0 && gen.genUrl) && React.createElement("button",{className:"linked-props-make",'));
-  assert.ok(card.includes('("Make "+missingWorn+" worn-item sheet"+(missingWorn!==1?"s":""))'));
-  assert.ok(card.includes("window.nbCostChip(missingWorn)"));
-  for(const f of ["function CharacterSheets(", "function ArtRoom("]) assert.ok(between(art, f, "){").includes("onBuildWornProps"), f);
+  assert.ok(!card.includes('"linked-props-make"') && !card.includes('"Create card"'));
+  assert.ok(card.includes("const linkedRows = linkInfo.rows.filter(rowShown);"), "only story props (or cards with a sheet) are listed");
+  assert.ok(card.indexOf("const linkedRows") > card.indexOf("const [ownedSheetMap, setOwnedSheetMap]"), "declared after the sheet map (no TDZ)");
 });
 
 /* ═══ B ═══ */
@@ -124,7 +121,7 @@ await test("C1 the header drafts only the missing specs; 'Redraft all…' once n
   assert.ok(r && hasClass("ghost")(r)); r.props.onClick(); assert.equal(box.__draftAll, "redraft");
 });
 await test("C2 the app: only cards with no spec are sent; Redraft asks first; a failure is said", ()=>{
-  const fx = between(app, "  const draftAllProps = async (mode)=>{", "  // Pull standalone prop cards");
+  const fx = between(app, "  const draftAllProps = async (mode)=>{", "  // (owner 2026-10-29) the Props tab is no longer filled from the cast");
   assert.ok(fx.includes('const redraft = mode==="redraft";'));
   assert.ok(fx.includes("const toDraft = (redraft ? working"));
   assert.ok(fx.includes(".filter(p=>!_isProposal(p));"), "a proposal is never drafted by Draft all (2026-10-12)");
@@ -146,10 +143,10 @@ await test("D1 'Generate N missing images' prices only drafted, anchored, screen
   await b.props.onClick();
   assert.deepEqual(J(box.__begun), { ids:["b"], skipped:0 }); assert.equal(confirms.length, 0, "Ana has a sheet → no question");
 });
-await test("D1b before any extraction, 'Not in screenplay' set dressing and kept cards still batch; a carried PROPOSAL never does (2026-10-12)", ()=>{
+await test("D1b (2026-10-29) only story props batch: a kept card does; unproven set dressing or carried cards never do", ()=>{
   images = new Set(["ana"]);
   const tree = sheets([P("a", { manual:false }), P("b", { manual:false, kind:"dressing" }), P("c", { manual:false, proposalAccepted:true })]);
-  const b = buttons(tree).find(x=>/Generate 2 missing images/.test(textOf(x)));
+  const b = buttons(tree).find(x=>/Generate 1 missing image$/.test(textOf(x)));
   assert.ok(b, buttons(tree).map(textOf).join(" | "));
 });
 await test("D2 a batch asks once about owners without a sheet, with their names and price; Cancel starts nothing", async ()=>{
@@ -207,7 +204,8 @@ await test("F1 Story & ownership and Physical design (2026-10-29, was Object): e
   assert.ok(more > 0);
   for(const f of ['label:"What it means in the story"', '"Owner"', '"Reference image"', '"Fixture of"'])
     assert.ok(own.indexOf(f) > 0 && own.indexOf(f) < more, f+" stays open");
-  for(const f of ['"Inventory group"', 'label:"Other names for this same object"', '"Custodian"', '"Design association"', 'label:"Owner / origin — canonical provenance"'])
+  assert.ok(!own.includes('"Inventory group"'), "the group follows from the tests (2026-10-29)");
+  for(const f of ['label:"Other names for this same object"', '"Custodian"', '"Design association"', 'label:"Owner / origin — canonical provenance"'])
     assert.ok(own.indexOf(f) > more, f+" is under More detail");
   for(const f of ['label:"Form \\u2014 shape & silhouette"', 'label:"Material & finish"', 'label:"Physical dimensions"', '"Dimension source"', 'className:"prop-content-fields"'])
     assert.ok(phys.indexOf(f) > 0, f+" is in Physical design");
@@ -240,10 +238,10 @@ await test("G1 Frances: no background builds, owners asked first, missing-only d
   vm.runInContext(s + "\n;this.__F = APP_FEATURES;", fb);
   const F = fb.__F, all = F.map(f=>f.what).join("\n");
   assert.ok(!/Generate all images|still build in the background|This is now GUARANTEED: if you generate a prop/.test(all));
-  assert.ok(/NOTHING BUILDS IN THE BACKGROUND/.test(all) && /'Make N worn-item sheets'/.test(all));
+  assert.ok(/NOTHING BUILDS IN THE BACKGROUND/.test(all) && /only a worn STORY prop gets a sheet of its own/.test(all));
   assert.ok(/Kinolot ASKS FIRST/.test(all) && /A batch asks once for all the owners it would need/.test(all));
   assert.ok(/'Draft N specifications' \(only the cards with no spec yet/.test(all) && /'Redraft all\\u2026'|Redraft all…/.test(all));
-  assert.ok(/'Generate N missing images'/.test(all) && /batches leave out objects marked Not in screenplay/.test(all));
+  assert.ok(/'Generate N missing images'/.test(all) && /Batches and agents leave out every card that isn't a story prop/.test(all));
   const tab = (F.find(f=>f.name==="Props (Art Room)")||{}).what || "";
   assert.ok(/ONE SCENE/.test(tab) && /DELETING A PROP asks first/.test(tab) && /'More detail'/.test(tab) && /STORY EVENTS/.test(tab) && /folded 'Generation prompt' section/.test(tab));
   assert.ok(!/TURN|McKee|Claude|Anthropic/.test(tab));

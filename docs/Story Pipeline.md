@@ -494,31 +494,45 @@ Each entity gets a canonical, reusable reference so every generated image stays 
 - **"Draft all" batch drafters are consistent across tabs.** Each tab's primary action fills every
   card's full written spec from the script in one pass — the same fields the per-card "Draft details"
   writes, and exactly what the **Master reference prompt** is built from:
-  - **Draft all specifications** (Props) → Object, Narrative significance, Generation prompt. It first
-    adds any missing worn/carried items from the character briefs as proposals (each marked **Not in
-    screenplay** until a screenplay passage is linked to it), then drafts the specs, then maps every prop
-    to its scenes: reviewed passages give exact scenes, worn items follow their owner's on-screen
-    presence, and unconfirmed cards map to the scenes whose action text names them. Mapping uses no
-    model call and refreshes by itself after a script change, so there's no "Pull from cast" or
-    "Re-map scenes" button. Screenplay objects come only from **Extract screenplay props**, which
-    proposes them for review and adds nothing until applied.
-    *(approved 2026-10-12 by owner — "carried props must be derived from the story as much as possible";
-    this note supersedes the parts of this step it contradicts)* **Extract screenplay props is the first
-    Props step**: when the film's screenplay hasn't been read for props yet, Draft all specifications
-    first offers to extract (writing credits; the review opens and drafting continues once it is applied
-    or discarded), and the Props Master and the Art Coordinator's Props step read the screenplay first
-    and propose what it names through their approval card (Run pre-production approves it automatically,
-    as it does its other steps) — so the real carried props exist before anything else. The character
-    briefs then add their **worn** items (the watch, scarf, jewellery that come from designing the look)
-    as cards; a **carried** item from a brief — or one the worn/carried tidy moves to carried, or one made
-    with "Attach item to prop…" from a generated image (design origin, **Not in screenplay**) — is a
-    **proposal** in its own group, **Proposed — not in the screenplay**, not a story prop, until the user
-    keeps it (their explicit choice; it keeps its design origin) or Extract finds it in the screenplay
-    (then it is a story prop with its passage). No batch or agent drafts or generates a proposal, on any
-    film; a card's own buttons still work. Unconfirmed cards map only to scenes whose action names them
-    by their **exact** name. The character look drafter lists carried items only when the screenplay text
-    it is given names them; it invents wardrobe and worn accessories only. Existing films are not
-    migrated: an older carried card with no passage just shows in the Proposed group.
+  - **Draft all specifications** (Props) → Story & ownership, Physical design, Generation prompt.
+    *(approved 2026-10-29 by owner — "go ahead with all six, update the pipeline doc"; this replaces the
+    2026-10-12 note that character briefs add worn cards and carried proposals)* **What is a prop.** A film
+    crew's script breakdown sends every object to one of four places: **costume** (anything worn — watches,
+    badges, rings, uniforms; drawn on the character's sheet from its wardrobe and accessories text), **set
+    dressing** (sits in the place and nobody uses it — part of the location), **background props** (ordinary
+    things handled once — the shot describes them in words) and **hero props** (the few objects the story
+    depends on). Only hero props become prop cards.
+    1. **Only the screenplay creates props.** Character briefs no longer make cards (worn or carried), and the
+       "Proposed — not in the screenplay" group is gone. "Attach item to prop…" attaches a crop to an existing
+       story prop only.
+    2. **The tests.** An object the screenplay names is a story prop when it passes at least one: it **returns**
+       (seen in two or more scenes), something **happens** to it (handed over, opened, read, hidden, broken,
+       found…), or the **story turns** on it (a setup/payoff, part of a scene's turn, or dialogue about it). The
+       read reports what happens and the turn with exact passages; the app, not the model, applies the tests.
+       Anything else stays words in the shot — no card, nothing to pay for.
+    3. **Each card says why** ("Why it's a prop: Returns in scenes 2, 3 and 6 · changes hands in 6"). In the
+       review, the objects that didn't pass are listed collapsed under "Not props — left to the shot", each
+       with "Make it a prop".
+    4. **One object, one card.** The read follows an object across the whole film; when it can't tell whether
+       two passages are the same object, the review asks once ("Is the letter in scene 6 the one from scene
+       2?" — Yes, the same / No, a different one) instead of making two cards.
+    5. **A worn item can still be a story prop** when the screenplay makes it matter (a wedding band taken off
+       in a key scene) — because the tests pass, not because a character wears it.
+    6. **Nothing is deleted on its own.** Existing cards that fail the tests (costume, write-up guesses,
+       objects named once) show under **Not story props** with the reason and "Keep as a story prop"; one
+       button moves them all to Recently deleted, where they can be restored. Stored cards are never migrated.
+    A card made by hand, or kept, is a story prop by the user's choice. Draft all specifications, Generate all
+    images, the Props Master and Run pre-production draft and generate **story props only**.
+    **Extract screenplay props is the first Props step** *(2026-10-12, still in force)*: when the film's
+    screenplay hasn't been read for props yet, Draft all specifications first offers to extract (writing
+    credits; the review opens and drafting continues once it is applied or discarded), and the Props Master
+    and the Art Coordinator's Props step read the screenplay first and propose the story props through their
+    approval card (Run pre-production approves it automatically, as it does its other steps). Drafting then
+    maps every prop to its scenes: reviewed passages give exact scenes, worn items follow their owner's
+    on-screen presence, and other cards map only to scenes whose action names them by their **exact** name.
+    Mapping uses no model call and refreshes by itself after a script change. The character look drafter
+    lists carried items only when the screenplay text it is given names them; it invents wardrobe and worn
+    accessories only.
     **Generate all images** then skips objects marked **Text only** (seen once and never handled), which
     shots describe in words instead of attaching an image.
   - **Draft all characters** → Identity, Wardrobe, Props & accessories, Continuity (appearance states,

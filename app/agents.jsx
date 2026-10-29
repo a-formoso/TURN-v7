@@ -2234,8 +2234,8 @@ async function agentPropsMaster(ctx){
     ctx.emit({k:"done", t:"Nothing to do."}); return;
   }
   ctx.emit({k:"plan", t: ctx.draftOnly
-    ? "Re-drafting existing prop specifications from the updated Lookbook. Specs only — generated sheets stay untouched. Proposals (carried objects the screenplay doesn't name) are left alone."
-    : "Carried props come from the screenplay. First it reads the screenplay for its props (Extract screenplay props — a writing call for each screenplay section, writing credits; skipped when this film's screenplay was already read) and proposes what it finds, with the passages, for your approval. Then it adds the worn items from the character briefs (their carried items stay proposals until the screenplay names them or you keep them), drafts the specs that are missing and generates the images that are missing. Proposals are never drafted or generated."});
+    ? "Re-drafting existing prop specifications from the updated Lookbook. Specs only — generated sheets stay untouched. Cards that aren't story props are left alone."
+    : "Props come from the screenplay, and only the ones the story depends on. First it reads the screenplay for its props (Extract screenplay props — a writing call for each screenplay section, writing credits; skipped when this film's screenplay was already read) and proposes the objects that come back, that something happens to, or that the story turns on, with the passages, for your approval. Costume stays on the character sheets, set dressing in the locations, objects used once in the shot's words. Then it drafts the specs that are missing and generates the images that are missing. Cards that aren't story props are never drafted or generated."});
 
   // 0) EXTRACT FIRST (owner 2026-10-12): real carried props exist before anything else. The read
   //    only PROPOSES — its objects are added after propose() says yes (Run pre-production approves
@@ -2265,7 +2265,7 @@ async function agentPropsMaster(ctx){
             reason:"Carried props come from the screenplay. Each of these is named in it, with the exact passage.",
             rationale:names+(mentions?(" — "+mentions+" only mentioned, left out."):"")+" To choose object by object, reject this and use Props → Extract screenplay props.",
             before:"Not on the Props board",
-            after:(newN?newN+" new object"+(newN!==1?"s":""):"")+(newN&&linkN?" · ":"")+(linkN?linkN+" existing card"+(linkN!==1?"s":"")+" linked to the passage (a proposal becomes a story prop)":"") });
+            after:(newN?newN+" new object"+(newN!==1?"s":""):"")+(newN&&linkN?" · ":"")+(linkN?linkN+" existing card"+(linkN!==1?"s":"")+" linked to the passage":"") });
           if(ctx.cancelled()) return;
           if(ok){
             try{ const r = pm.applyExtraction(found) || {};
@@ -2278,13 +2278,7 @@ async function agentPropsMaster(ctx){
   }
   if(ctx.cancelled()) return;
 
-  // 1) character-brief items: worn ones become cards, carried ones PROPOSALS (never story props)
-  ctx.emit({k:"act", t:"Adding the character briefs' worn items; their carried items become proposals…"});
-  let castN=0;
-  try{ castN = pm.deriveCast(); }catch(e){ ctx.emit({k:"flag", t:"Couldn't read the cast's briefs for their props ("+agentErrText(e)+") — continuing with the props already on the board."}); }
-  if(ctx.cancelled()) return;
-  ctx.emit({k:"observe", t:"Added "+castN+" item"+(castN!==1?"s":"")+" from the character briefs. A carried item the screenplay doesn't name is a proposal: it isn't drafted or generated until you keep it on its card."});
-  if(ctx.cancelled()) return;
+  // 1) (owner 2026-10-29) no cards from the character briefs: a character's worn items are its costume
 
   // 2) draft prop specs (force = re-draft ALL, applying the current Lookbook)
   const redraftSpecs = ctx.force || ctx.draftOnly;
@@ -2303,7 +2297,7 @@ async function agentPropsMaster(ctx){
   // updated Lookbook — stop before generation so every existing sheet stays untouched.
   if(ctx.draftOnly){
     if(ctx.art.markApplied && drafted>0) ctx.art.markApplied("props");
-    ctx.emit({k:"done", t:"Props re-drafted — "+castN+" brief item"+(castN!==1?"s":"")+", "+drafted+" spec"+(drafted!==1?"s":"")+" updated from the Lookbook. Sheets left untouched — regenerate them from the Props tab when ready."});
+    ctx.emit({k:"done", t:"Props re-drafted — "+drafted+" spec"+(drafted!==1?"s":"")+" updated from the Lookbook. Sheets left untouched — regenerate them from the Props tab when ready."});
     return;
   }
 
@@ -2313,7 +2307,7 @@ async function agentPropsMaster(ctx){
   catch(e){ ctx.emit({k:"flag", t:"Couldn't list the props that still need a sheet ("+agentErrText(e)+") — nothing was generated."}); ctx.emit({k:"done", t:"Props stopped before generating."}); return; }
   if(!todo.length){
     if(ctx.art.markApplied && ctx.force && drafted>0) ctx.art.markApplied("props");
-    ctx.emit({k:"done", t:"Props ready — "+castN+" brief item"+(castN!==1?"s":"")+", "+drafted+" drafted; every drafted prop that needs its own image already has one."}); return;
+    ctx.emit({k:"done", t:"Props ready — "+drafted+" drafted; every drafted prop that needs its own image already has one."}); return;
   }
   ctx.emit({k:"act", t:"Generating "+todo.length+" prop sheet"+(todo.length!==1?"s":"")+"…"});
   let sheets=0;
@@ -2328,7 +2322,7 @@ async function agentPropsMaster(ctx){
     catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(p.name||"the prop")+"'s sheet: "+agentErrText(e)+". Moving on."}); }
   }
   if(ctx.art.markApplied && ctx.force && drafted>0) ctx.art.markApplied("props");
-  ctx.emit({k:"done", t:"Props mastered — "+castN+" brief item"+(castN!==1?"s":"")+", "+drafted+" drafted, "+sheets+" sheet"+(sheets!==1?"s":"")+" generated. Worn props that changed show on their owner's sheet as a wardrobe update."});
+  ctx.emit({k:"done", t:"Props mastered — "+drafted+" drafted, "+sheets+" sheet"+(sheets!==1?"s":"")+" generated. Worn props that changed show on their owner's sheet as a wardrobe update."});
 }
 
 async function agentLocationScout(ctx){
@@ -2534,7 +2528,7 @@ async function agentDepartmentCoordinator(ctx){
     ["Colour",     agentColorist],
     ["Shots",      agentShotDesigner],
   ];
-  ctx.emit({k:"plan", t:"Running the whole pre-production pipeline in dependency order — the lookbook first (it steers the look), then the CAST, then the PROPS (it first reads the screenplay for its props \u2014 writing credits, once per film \u2014 and adds the objects it names; carried items from the character briefs stay proposals and are never drafted or generated; each worn/owned prop references its owner's sheet so it matches that character), then DRESSING the cast in their finalized worn props, then locations, then the colour system, then shot coverage. It runs end to end WITHOUT stopping — the Lookbook's render-style pick (it fills the style on every character, prop and location that has none yet; a style you set stays), the screenplay props the Props step finds, the colour system and the shot coverage are applied automatically, no approval needed. Press Stop anytime."});
+  ctx.emit({k:"plan", t:"Running the whole pre-production pipeline in dependency order — the lookbook first (it steers the look), then the CAST, then the PROPS (it first reads the screenplay for its props \u2014 writing credits, once per film \u2014 and adds only the objects the story depends on: ones that come back, that something happens to, or that the story turns on; each owned prop references its owner's sheet so it matches that character), then DRESSING the cast in their finalized worn props, then locations, then the colour system, then shot coverage. It runs end to end WITHOUT stopping — the Lookbook's render-style pick (it fills the style on every character, prop and location that has none yet; a style you set stays), the screenplay props the Props step finds, the colour system and the shot coverage are applied automatically, no approval needed. Press Stop anytime."});
   // each sub-agent emits its own k:"done" when its stage finishes — relabel those to k:"ok"
   // so each stage reads as one completed step and only THIS coordinator emits the final done.
   // propose() is auto-approved so the two gated steps (Colour, Shots) apply without pausing.
@@ -3254,7 +3248,7 @@ const AGENTS = [
     blurb:"Designs your whole cast on its own \u2014 drafts each character's look, finds their appearance changes, then generates the master sheet (with prop + likeness references) and every state variant. Runs autonomously; press Stop anytime.",
     costLine:"It uses writing credits to read the screenplay for the looks it drafts (when a character's hasn't been read, or changed since) and for its specs, and image credits for each sheet it makes \u2014 only what's missing is made, and what it used (writing calls and images) shows when it finishes.", run:agentCastingDirector },
   { id:"propsmaster", name:"Props Master", icon:"box", kind:"build", room:"art", autonomous:true,
-    blurb:"Reads the screenplay for its props first (Extract screenplay props) and asks you before adding what it finds; then adds the worn items listed in the cast's character briefs (their carried items stay proposals until the screenplay names them or you keep them), drafts every prop's spec, and generates the reference images for the props that need their own (text-only objects are described in shots instead), each owned prop referencing its owner's character sheet so it matches that character's look (runs after the cast). Proposals are never drafted or generated. Press Stop anytime.",
+    blurb:"Reads the screenplay for its props first (Extract screenplay props) and asks you before adding the objects the story depends on \u2014 ones that come back, that something happens to, or that the story turns on (costume stays on the character sheets, set dressing in the locations); then drafts every prop's spec, and generates the reference images for the props that need their own (text-only objects are described in shots instead), each owned prop referencing its owner's character sheet so it matches that character's look (runs after the cast). Cards that aren't story props are never drafted or generated. Press Stop anytime.",
     // it asks before adding the screenplay's props (an approval card), so it isn't "on its own" (2026-10-12)
     asksApproval:true,
     costLine:"It uses writing credits to read the screenplay for its props (once per film) and for its specs, and image credits for each sheet it makes \u2014 only what's missing is made, and what it used (writing calls and images) shows when it finishes.", run:agentPropsMaster },

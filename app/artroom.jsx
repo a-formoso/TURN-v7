@@ -4746,14 +4746,16 @@ function PropCropExtras({ px, clean, setClean, disabled }){
 
 function PropReferenceModal({ url, name, noun, entity, onClose }){
   useEscapeClose(onClose);
-  const propList = ((window.turnContinuity||{}).props||[]).filter(p=>p&&p.id);
+  // (owner 2026-10-29) only story props: a crop is attached to a prop the screenplay made — it no longer
+  // creates a card of its own
+  const _PSr = window.PropScreenplay;
+  const propList = ((window.turnContinuity||{}).props||[]).filter(p=>p&&p.id&&(!_PSr || _PSr.isStoryProp(p)));
   // this character's own props first: the item is most often theirs
   const ownerFirst = propList.filter(p=>entity && p.ownerId===entity.id).concat(propList.filter(p=>!(entity && p.ownerId===entity.id)));
   const FALLBACK = { x:24, y:24, w:28, h:32 };
   const [rect, setRect] = React.useState(FALLBACK);
   const [nat, setNat] = React.useState(null);
-  const [targetId, setTargetId] = React.useState(()=> (ownerFirst[0]&&ownerFirst[0].id)||"__new");
-  const [newName, setNewName] = React.useState("");
+  const [targetId, setTargetId] = React.useState(()=> (ownerFirst[0]&&ownerFirst[0].id)||"");
   const [note, setNote] = React.useState("");
   const [clean, setClean] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -4765,14 +4767,14 @@ function PropReferenceModal({ url, name, noun, entity, onClose }){
   const pct = (n)=> String(Math.round(n));
   const target = propList.find(p=>p.id===targetId);
   const attach = async ()=>{
-    if((!targetId || (targetId==="__new" && !newName.trim())) || saving) return;
+    if(!targetId || !target || saving) return;
     setSaving(true); setErr("");
     try{
       let cropped = await cropRegionAsDataUrl(url, rect, PROP_CROP_MAX_DIM, PROP_CROP_MIN_DIM);
       if(clean && !cropped){ setErr("Couldn't cut the item out of this image, so nothing was cleaned up or charged. Try again, or attach it without the clean-up."); return; }
       let cleaned = false;
       if(clean){
-        cropped = await propCleanCrop(cropped, targetId==="__new" ? newName.trim() : (target&&target.name), note, targetId==="__new" ? undefined : targetId);
+        cropped = await propCleanCrop(cropped, target&&target.name, note, targetId);
         cleaned = true;
       }
       const ref = {
@@ -4788,14 +4790,8 @@ function PropReferenceModal({ url, name, noun, entity, onClose }){
         region:{ x:Math.round(rect.x), y:Math.round(rect.y), w:Math.round(rect.w), h:Math.round(rect.h) }
       };
       let ok = false, label = (target&&target.name)||"prop";
-      if(targetId==="__new"){
-        const card = typeof window.turnCreatePropFromReference==="function"
-          ? window.turnCreatePropFromReference(ref, { name:newName.trim() }) : null;
-        ok = !!card; label = (card&&card.name)||newName.trim();
-      } else {
-        ok = typeof window.turnAttachPropReference==="function" && window.turnAttachPropReference(targetId, ref);
-      }
-      if(ok && typeof window.appToast==="function") window.appToast((targetId==="__new"?"Created ":"Attached the selected item to ")+label+" as a reference"+(cleaned?" (cleaned up)":"")+".","success");
+      ok = typeof window.turnAttachPropReference==="function" && window.turnAttachPropReference(targetId, ref);
+      if(ok && typeof window.appToast==="function") window.appToast("Attached the selected item to "+label+" as a reference"+(cleaned?" (cleaned up)":"")+".","success");
       if(ok) onClose && onClose();
     }catch(e){ setErr((e && e.message) || "Couldn't attach the item just now."); }
     finally{ setSaving(false); }
@@ -4815,13 +4811,10 @@ function PropReferenceModal({ url, name, noun, entity, onClose }){
         React.createElement("div",{className:"region-edit-side"},
           React.createElement("label",{className:"region-edit-field"},
             React.createElement("span",null,"Target prop"),
-            React.createElement("select",{className:"prop-select region-prop-select",value:targetId,onChange:e=>setTargetId(e.target.value)},
-              React.createElement("option",{value:"__new"},"+ Create new prop from selection"),
-              ownerFirst.map(p=>React.createElement("option",{key:p.id,value:p.id},(p.name||"Unnamed prop")+(p.ownerName?(" · "+p.ownerName):""))))),
-          targetId==="__new" && React.createElement("label",{className:"region-edit-field"},
-            React.createElement("span",null,"New prop name"),
-            React.createElement("input",{className:"prop-select region-text-input",value:newName,onChange:e=>setNewName(e.target.value),
-              placeholder:"e.g. phone on counter, worn locket, framed photograph..." })),
+            propList.length
+              ? React.createElement("select",{className:"prop-select region-prop-select",value:targetId,onChange:e=>setTargetId(e.target.value)},
+                  ownerFirst.map(p=>React.createElement("option",{key:p.id,value:p.id},(p.name||"Unnamed prop")+(p.ownerName?(" · "+p.ownerName):""))))
+              : React.createElement("p",{className:"prop-review-warning","data-testid":"prop-ref-no-props"},"No story props yet \u2014 read the screenplay for props on the Props tab first. Only objects the story depends on are props.")),
           React.createElement("label",{className:"region-edit-field"},
             React.createElement("span",null,"Reference note"),
             React.createElement("textarea",{value:note,onChange:e=>setNote(e.target.value),
@@ -4834,8 +4827,8 @@ function PropReferenceModal({ url, name, noun, entity, onClose }){
             "The selected crop is saved on the target prop and rides as a reference on its future generations and edits, so the prop matches what this sheet shows."),
           React.createElement("div",{className:"region-edit-acts"},
             React.createElement("button",{className:"sheet-edit-cancel",onClick:onClose,disabled:saving},"Cancel"),
-            React.createElement("button",{className:"sheet-edit-apply",disabled:!targetId||(targetId==="__new"&&!newName.trim())||saving,onClick:attach},
-              React.createElement(Icon.target,{s:12}), saving?(clean?"Cleaning up…":"Attaching…"):(targetId==="__new"?"Create prop":"Attach to prop"))))),
+            React.createElement("button",{className:"sheet-edit-apply",disabled:!targetId||!target||saving,onClick:attach},
+              React.createElement(Icon.target,{s:12}), saving?(clean?"Cleaning up…":"Attaching…"):"Attach to prop")))),
     ));
   return portalTarget ? ReactDOM.createPortal(modal, portalTarget) : modal;
 }
@@ -5875,6 +5868,8 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
   /* props this character owns (carried/worn) — their generated sheets become extra
      visual references when generating this character's sheet */
   const ownedProps = (props||[]).filter(p=>p.ownerId===c.id);
+  /* which owned props currently have a generated sheet (for the linked-props indicator) */
+  const [ownedSheetMap, setOwnedSheetMap] = React.useState({});
   /* CUSTODY handovers TO this character (canonical owner is someone else) — informational
      chips only; the prop's card, sheets and style anchor stay with its owner. */
   const handoversTo = (p)=> (typeof propHandoverEvents==="function" ? propHandoverEvents(p, scenes) : [])
@@ -5952,8 +5947,13 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     orphans.forEach(p=> rows.push({ key:"o-"+p.id, name:p.name, prop:p, orphan:true }));
     return { rows, orphans };
   },[c.accessories, c.props, ownedProps.map(p=>p.id).join(",")]);
-  const linkedRows = linkInfo.rows;
-  const orphanProps = linkInfo.orphans;
+  /* (owner 2026-10-29) a character's worn and carried items are costume and the shot's words unless the
+     screenplay makes one a story prop: the list shows this character's STORY props (and any card that already
+     has a sheet, so an existing visual lock stays in view); an item with no story card isn't listed */
+  const _PSc = window.PropScreenplay;
+  const rowShown = (r)=> !!r.prop && (!_PSc || _PSc.isStoryProp(r.prop) || !!ownedSheetMap[r.prop.id]);
+  const linkedRows = linkInfo.rows.filter(rowShown);
+  const orphanProps = [];
   const collectAttachments = async ()=>{
     const out = [];
     for(const p of includedWornProps){
@@ -5963,8 +5963,6 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     }
     return out;
   };
-  /* which owned props currently have a generated sheet (for the linked-props indicator) */
-  const [ownedSheetMap, setOwnedSheetMap] = React.useState({});
   // every image a fresh master sends (GPT Image charges each): the likeness photos + the worn-item sheets
   const wornSheetCount = includedWornProps.filter(p=>ownedSheetMap[p.id]).length;
   const cardGenerateRefs = ()=> (window.turnLikenessRefCount||(()=>0))(c.id) + wornSheetCount;
@@ -6524,15 +6522,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         linkedRows.length>0 && React.createElement("div",{className:"linked-props"},
           React.createElement("div",{className:"linked-props-head"},
             React.createElement("div",{className:"obj-lab",style:{margin:0}},
-              "Linked prop sheets \u2014 worn items attach to this sheet; carried attach at the shot"),
-            // ON DEMAND (2026-10-03, owner): worn-item sheets are made only from here — they used to
-            // build on their own (with a master re-bake) the moment this sheet first landed
-            (onBuildWornProps && missingWorn>0 && gen.genUrl) && React.createElement("button",{className:"linked-props-make",
-              disabled:wornBuilding||gen.gening,onClick:()=>onBuildWornProps(c),
-              title:"Make the reference sheet for each worn item that doesn't have one (drafting its design first if needed), using this character's sheet as the reference. Then use \u201cUpdate sheet with new wardrobe\u201d if you want "+(c.name||"them")+" to wear them."},
-              React.createElement(Icon.sparkles,{s:12}),
-              wornBuilding ? "Making worn-item sheets\u2026" : ("Make "+missingWorn+" worn-item sheet"+(missingWorn!==1?"s":"")),
-              (!wornBuilding && typeof window.nbCostChip==="function") && window.nbCostChip(missingWorn)),
+              "Story props \u2014 worn ones attach to this sheet; carried ones attach at the shot"),
+            // (owner 2026-10-29) no "Make N worn-item sheets": costume is drawn on this sheet; a worn STORY prop
+            // makes its own sheet from its row below or its Props card
             orphanProps.length>0 && onRemoveOwnedItem && React.createElement("button",{className:"linked-props-clean",
               title:"Remove the prop cards below that aren't in the worn/carried lists above",
               onClick:async ()=>{
@@ -6591,16 +6583,6 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                       onClick:(e)=>{ e.stopPropagation(); onView&&onView(ownedSheetMap[row.prop.id],row.prop); }},
                       React.createElement("img",{src:ownedSheetMap[row.prop.id],alt:""}))
                   : React.createElement(Icon.box,{s:12}),
-                // NO CARD YET (e.g. a character added after "Design all props" ran):
-                // one free press derives the prop card in place — then this same row
-                // offers Draft details / Generate.
-                (!row.prop && !row.orphan && onCreateOwnedProp) && React.createElement("button",{
-                  className:"linked-prop-gen",
-                  title:"Create this item's prop card (owner + worn/carried derived automatically) — free, no generation. Then draft its specification and generate an image.",
-                  onClick:(e)=>{ e.stopPropagation();
-                    const made = onCreateOwnedProp(c.id, row.name, row.src);
-                    if(made && typeof window.appToast==="function") window.appToast("\u201c"+made.name+"\u201d card created ("+(made.kind==="dressing"?"set dressing":made.kind)+") \u2014 now draft its specification, then generate an image.","success"); }},
-                  React.createElement(Icon.plus,{s:12}),"Create card"),
                 // INLINE generation — the sheet is built against THIS character's own
                 // sheet (the owner reference), so it must exist first. Undrafted props
                 // draft first (separate press: the fresh fields must land in state

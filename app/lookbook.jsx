@@ -597,6 +597,9 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
             React.createElement(window.InfoTip,{label:"About the Lookbook",
               text:"The film's visual north star, built first so it can steer everything downstream. A short visual statement plus reference touchstones — palette, lighting, lens, texture, wardrobe, production design. The statement and each card's note are what the departments read: the category decides where a note goes (Color, Characters, Locations, Props, Shots). Drop in a picture of the look and 'Write the note from the image' turns it into words, or render an optional preview from the note. A picture you drop on a Palette, Lighting, Texture & grain or Atmosphere card is also shown to the Colorist when it lights the film (a rendered preview isn't — it was made from the note); no other department is sent a card's image. 'Research the look' writes the statement and gathers the references."}))),
         React.createElement("div",{className:"art-intro-actions"},
+          // the restore bin (Restore / Delete forever) as the compact header button, like Props (owner 2026-10-29)
+          (deleted.length>0 && window.RecentlyDeleted) && React.createElement(window.RecentlyDeleted,{
+            items:deleted, kind:"reference", onRestore, onPurge, compact:true }),
           // the header's "+" (add a reference by hand) went (owner 2026-10-21); an empty Lookbook keeps "Add by hand"
           onResearch && (hasResearch && onResearchFresh
             ? React.createElement("div",{className:"lb-research"},
@@ -652,8 +655,6 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
               React.createElement(Icon.robot,{s:14}),"Research the look"),
             React.createElement("button",{className:"art-draftall ghost",onClick:addReference},
               React.createElement(Icon.plus,{s:14}),"Add by hand"))),
-    // the restore bin (Restore / Delete forever), like Characters, Props and Locations
-    deleted.length>0 && window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
-      items:deleted, kind:"reference", onRestore, onPurge }));
+    null);
 }
 window.LookbookView = LookbookView;

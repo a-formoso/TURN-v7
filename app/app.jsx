@@ -4520,7 +4520,7 @@ function App(){
       return hit ? { ...pr, kind:"carried" } : pr;
     }));
     if(typeof window.appToast==="function")
-      window.appToast(patches.length+" character card"+(patches.length>1?"s":"")+" tidied automatically — carried objects (bags, phones, documents) moved off the worn list; their prop cards are now carried-type, listed under Proposed until the screenplay names them or you keep them.","info");
+      window.appToast(patches.length+" character card"+(patches.length>1?"s":"")+" tidied automatically — carried objects (bags, phones, documents) moved off the worn list; their prop cards are now carried-type, under Not story props until the screenplay makes them story props or you keep them.","info");
   },[characters, hydrationTick]);
   // COMMA-SPLIT REPAIR (2026-10-05, owner): the old splitter cut items at every comma, so "a steel
   // wristwatch with a cracked, heat-fogged crystal" became two cast-derived prop cards. With the
@@ -4610,9 +4610,10 @@ function App(){
   };
   // "Draft all props" — the full props pipeline in one click:
   //   0) (2026-10-12, owner) the Props tab first runs Extract screenplay props, for review (props.jsx draftAllFlow)
-  //   1) SYNC any missing cards from the cast (worn cards; carried items as PROPOSALS, dedup by owner+name)
-  //   2) DRAFT every card's spec (form/material/significance/look dev) from the script — never a
-  //      proposal (a carried object the screenplay doesn't name: PropScreenplay.isProposal)
+  //   1) (owner 2026-10-29) no cards from the cast any more — only the screenplay read makes props; a
+  //      character's worn items are its costume, drawn on its sheet
+  //   2) DRAFT every card's spec (form/material/significance/look dev) from the script — only story props
+  //      (PropScreenplay.isProposal = not a story prop)
   //   3) MAP every card to the scenes it appears in (reviewed sources, worn -> owner
   //      presence, anything the screenplay hasn't established -> scenes whose text
   //      names it; deterministic, no model call)
@@ -4633,12 +4634,7 @@ function App(){
     }
     setDraftingAllProps(true);
     try{
-      // 1) sync from cast
       let working = props;
-      if(typeof propsFromCast==="function"){
-        const derived = propsFromCast(characters, [...(props||[]), ...((trash&&trash.props)||[])], scenes, drafts);   // (never one in Recently deleted)
-        if(derived.length){ working = [...props, ...derived]; setProps(working); setPropsSeeded(true); }
-      }
       // 2) draft specs
       const toDraft = (redraft ? working
         : working.filter(p=> !(typeof propVisualsDrafted==="function" ? propVisualsDrafted(p) : (String(p.form||"").trim() && String(p.material||"").trim()))))
@@ -4662,26 +4658,8 @@ function App(){
     }
     setDraftingAllProps(false);
   };
-  // Pull standalone prop cards out of the cast's existing "Props & accessories"
-  // fields (worn -> kind "worn", carried -> kind "carried"). Dedups against
-  // what's already in the tab, so it's safe to call repeatedly.
-  const seedPropsFromCast = React.useCallback(()=>{
-    if(typeof propsFromCast!=="function") return;
-    const derived = propsFromCast(characters, [...(props||[]), ...((trash&&trash.props)||[])], scenes, drafts);
-    setPropsSeeded(true);
-    if(derived.length) setProps(ps=>[...ps, ...derived]);
-  },[characters, props, trash]);
-  // auto-seed once per story: when you first open the Art Room with an empty
-  // Props tab while the cast already carries items, fill it from them. Never behind a LOCKED
-  // Props tab (it shows only its lock card): seeding there would add cards the user never saw,
-  // and a tab with content is never locked, so the lock would vanish on its own.
-  React.useEffect(()=>{
-    if(propsSeeded || hydratingRef.current) return;
-    if(room!=="art" || artView!=="props") return;
-    if(artTabLocked("props")) return;
-    if(props.length) { setPropsSeeded(true); return; }   // user already has props -> don't auto-pull
-    if(typeof castHasProps==="function" && castHasProps(characters)) seedPropsFromCast();
-  },[room, artView, propsSeeded, props.length, characters, seedPropsFromCast, hydrationTick, artTabLocks]);
+  // (owner 2026-10-29) the Props tab is no longer filled from the cast's "Props & accessories": only the
+  // screenplay read makes props, so opening an empty Props tab adds nothing.
 
   /* MAKE WHAT THIS SCENE NEEDS (2026-10-03, owner — Shots review): the missing reference images a
      scene's frames attach, made in dependency order — location plates (a parent first), then room &
@@ -4770,8 +4748,7 @@ function App(){
       if(!p) return "its prop card is gone (Props)";
       if((p.kind||"carried")==="carried" && !p.ownerId) return "needs an owner (Props)";
       const PS = window.PropScreenplay;
-      if(PS && typeof PS.isProposal==="function" && PS.isProposal(p)) return "is a proposal the screenplay doesn't name (Props)";
-      if(PS && typeof PS.notInScreenplay==="function" && L.extracted && (p.kind||"carried")!=="worn" && !p.proposalAccepted && PS.notInScreenplay(p)) return "isn't in the screenplay (Props)";
+      if(PS && typeof PS.isStoryProp==="function" && !PS.isStoryProp(p)) return "isn't a story prop (Props)";
       return "";
     }
     return "can't be made here";
@@ -5146,11 +5123,11 @@ function App(){
       if(prior.status==="running" && prior.startedAt
         && Date.now()-new Date(prior.startedAt).getTime()<30*60*1000) return;
 
-      const derived = (typeof propsFromCast==="function")
-        ? propsFromCast(characters, [...(props||[]), ...((trash&&trash.props)||[])], scenes, drafts)
-          .filter(p=>p && p.ownerId===charId && p.kind==="worn") : [];
-      const worn = [...(props||[]).filter(p=>p && p.ownerId===charId && p.kind==="worn"), ...derived]
-        .filter((p,i,all)=>all.findIndex(x=>x.id===p.id)===i);
+      // (owner 2026-10-29) only worn STORY props get sheets of their own — no cards are made from the cast;
+      // costume is drawn on the character's sheet
+      const derived = [];
+      const _PSw = window.PropScreenplay;
+      const worn = (props||[]).filter(p=>p && p.ownerId===charId && p.kind==="worn" && (!_PSw || _PSw.isStoryProp(p)));
       const startedAt = new Date().toISOString();
       const setBootstrap = (patch)=>setCharacters(cs=>cs.map(c=>c.id===charId
         ? { ...c, wornPropBootstrap:{ ...(c.wornPropBootstrap||{}), ...patch } } : c));
@@ -8643,13 +8620,8 @@ function App(){
           return [...ps.map(p=> changed[p.id] ? relink(p) : p), ...added.filter(a=>!have.has(a.id))]; });
         return { added:added.length, linked:Object.keys(changed).length };
       },
-      // pull the cast's own worn/carried items in (dedup handled by propsFromCast; carried = proposals)
-      deriveCast: ()=>{
-        if(typeof propsFromCast!=="function") return 0;
-        const add = propsFromCast(characters, [..._propWork, ...((trash&&trash.props)||[])], scenes, drafts);
-        if(add.length){ _propWork = [..._propWork, ...add]; _w.setProps(ps=>[...ps, ...add]); _w.setPropsSeeded(true); }
-        return add.length;
-      },
+      // (owner 2026-10-29) nothing is pulled in from the cast's briefs any more — only the screenplay makes props
+      deriveCast: ()=> 0,
       // draft form/material/detail/renderStyle for every undrafted prop
       draftSpecs: async (force)=>{
         if(typeof aiDesignPropBible!=="function") return 0;

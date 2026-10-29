@@ -23,17 +23,17 @@ const box = { window:{} }; vm.createContext(box);
 vm.runInContext(props.slice(props.indexOf("const PROP_SAME_STOP"), props.indexOf("/* A character brief's items"))
   +"\nthis.same = findPossibleSameProps; this.short = propShortName; this.patch = propShortNamePatch;", box);
 
-test("F1 Show: All objects first, then Story props, Wardrobe & accessories, Proposed; no 'Not in screenplay' view", ()=>{
+test("F1 Show (2026-10-29, What is a prop): All objects, Story props, Not story props — two groups that never overlap", ()=>{
   const at = (k)=>{ const i = sheets.indexOf(k); assert.ok(i>0, k); return i; };
-  const order = ['{value:"all"},"All objects ("', '{value:"story"},"Story props ("', '{value:"accessories"},"Wardrobe & accessories ("', '{value:"proposed"},"Proposed'].map(at);
+  const order = ['{value:"all"},"All objects ("', '{value:"story"},"Story props ("', '{value:"other"},"Not story props ("'].map(at);
   assert.deepEqual(order, [...order].sort((a,b)=>a-b));
-  assert.ok(!sheets.includes('{value:"unverified"}') && !sheets.includes('inventoryGroup==="unverified"'));
-  assert.ok(sheets.includes('const inView = (p)=> inventoryGroup==="all" || window.PropScreenplay.group(p)===inventoryGroup;'));
+  assert.ok(!sheets.includes('{value:"accessories"}') && !sheets.includes('{value:"proposed"}') && !sheets.includes('{value:"unverified"}'));
+  assert.ok(sheets.includes('const inView = (p)=> inventoryGroup==="all" || groupOf(p)===inventoryGroup;'));
 });
 test("F2 the read button: hidden before the first read while Draft N specifications is there; then 'Read the screenplay again'", ()=>{
-  assert.ok(sheets.includes("const draftBtnShown = undraftedN>0 || (!list.length && castHasProps);"));
+  assert.ok(sheets.includes("const draftBtnShown = undraftedN>0;"));
   assert.ok(sheets.includes("const screenplayRead = extracted || extractedOnce.current;"));
-  assert.ok(sheets.includes('(screenplayRead || !draftBtnShown) && React.createElement("button",{className:"art-draftall ghost secondary","data-testid":"prop-read-screenplay",'));
+  assert.ok(sheets.includes('(screenplayRead || !draftBtnShown) && (list.length>0 || !(scenes||[]).length) && React.createElement("button",{className:"art-draftall ghost secondary","data-testid":"prop-read-screenplay",'));
   assert.ok(sheets.includes('(screenplayRead?"Read the screenplay again":"Extract screenplay props")'));
   assert.ok(sheets.includes('draftBtnShown && React.createElement("button",{className:"art-draftall ghost secondary",disabled:draftingAll||!!extraction,onClick:()=>draftAllFlow(),'));
 });
@@ -115,7 +115,7 @@ test("F10 'Take a reference from a sheet…' is on every prop card's menu, image
   assert.ok(art.includes('const [mode, setMode] = React.useState("item");'));
 });
 test("F11 Frances knows it", ()=>{
-  assert.ok(ai.includes("The Show dropdown lists All objects first, then the three groups, which never overlap"));
+  assert.ok(ai.includes("The Show dropdown lists All objects, then the two groups, which never overlap: Story props and Not story props"));
   assert.ok(ai.includes("once the film has been read the button says 'Read the screenplay again'"));
   assert.ok(ai.includes("POSSIBLY THE SAME OBJECT (owner 2026-10-29)") && ai.includes("A SHORT NAME: a card whose name is a whole description"));
   assert.ok(ai.includes("CROPS AS REFERENCES (owner 2026-10-29)") && ai.includes("'Clean up the crop' (optional, a checkbox with its price: one image)"));

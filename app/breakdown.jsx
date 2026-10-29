@@ -48,7 +48,8 @@ function breakdownRows({ scenes, characters, props, locations, shots, drafts, im
     try{ if(PS && typeof PS.batchSkip==="function" ? PS.batchSkip(p, extracted)
       : (extracted && PS && typeof PS.notInScreenplay==="function" && PS.notInScreenplay(p))) return "screenplay"; }catch(e){}
     return ""; };
-  const BLOCK_TEXT = { owner:"needs an owner", screenplay:"not in the screenplay" };
+  // (owner 2026-10-29) a card that isn't a story prop isn't made — said in those words
+  const BLOCK_TEXT = { owner:"needs an owner", screenplay:"not a story prop" };
   let prevKind = "";
   const res = ordered.map(scene=>{
     const slug = bdSlug(scene.loc);
@@ -630,10 +631,10 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
               if(!p.needs) return _bdEl("button",{key:p.id,type:"button",className:"bd-chip text",onClick:()=>go("props"),title:p.name+" \u2014 text only: shots describe it from its specification"},
                 _bdEl("span",{className:"bd-chip-t"},p.name), _bdEl("span",{className:"bd-chip-sub"}," \u00b7 text"));
               // decision C (2026-10-09): what it needs is an owner, or a screenplay mention — set on its card
-              const blk = p.blocked==="owner" ? "needs an owner" : p.blocked==="screenplay" ? "not in the screenplay" : "";
+              const blk = p.blocked==="owner" ? "needs an owner" : p.blocked==="screenplay" ? "not a story prop" : "";
               return chip(p.id, blk ? [p.name, _bdEl("span",{key:"s",className:"bd-chip-sub"}," \u2014 "+blk)] : p.name, ok, "props",
                 ok==="unused" ? (p.ready ? p.name+" \u2014 sheet ready" : p.name)+NOT_IN_FRAME
-                : blk ? p.name+" \u2014 "+(p.blocked==="owner" ? "needs an owner: choose who carries it on its card, then make its sheet" : "not in the screenplay: it's made from its own card, once you confirm it there")
+                : blk ? p.name+" \u2014 "+(p.blocked==="owner" ? "needs an owner: choose who carries it on its card, then make its sheet" : "not a story prop: it's made from its own card, once you keep it there as a story prop")
                 : p.name+" \u2014 "+(p.ready ? "sheet ready" : "needs its prop sheet")+(p.owner ? " \u00b7 "+p.kind+" by "+p.owner : "")); }),
             more(props, allProps, setAllProps))),
         _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Shots"),
@@ -824,7 +825,7 @@ function exportStripboard(rows, project, opts){
     // "○ not made yet" follows the chip's status, as the tab shows it (2026-10-09): an item no frame uses isn't owed
     const owed = (x)=> x.status ? (x.status==="missing" || x.status==="owner") : !x.ready;
     const cast = r.cast.map(c=> _bdEsc(c.name)+(c.state?' <i>('+_bdEsc(c.state)+')</i>':"")+(owed(c)?" ○":"")).join(", ");
-    const props = r.props.map(p=> _bdEsc(p.name)+(p.needs&&owed(p)?" \u25cb":"")+(p.blocked==="owner"?" <i>(needs an owner)</i>":p.blocked==="screenplay"?" <i>(not in the screenplay)</i>":"")).join(", ");
+    const props = r.props.map(p=> _bdEsc(p.name)+(p.needs&&owed(p)?" \u25cb":"")+(p.blocked==="owner"?" <i>(needs an owner)</i>":p.blocked==="screenplay"?" <i>(not a story prop)</i>":"")).join(", ");
     const worn = r.wardrobe.map(p=> _bdEsc(p.name)+(p.owner?' <i>('+_bdEsc(p.owner)+')</i>':"")+(owed(p)?" ○":"")).join(", ");
     const notes = (r.notes||[]).map(n=>n.text).join("; ");
     const old = Number(r.shots.approvedOld)||0;

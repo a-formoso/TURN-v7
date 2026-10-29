@@ -143,11 +143,9 @@ await test("C3 merge asks, keeps the others' work, bins them restorably and poin
   assert.ok(m.includes("mergedInto:survivor.id") && !m.includes("nbClearAsset"));
   assert.ok(m.includes("referencePropIds:swap(sh.referencePropIds), refOff:swap(sh.refOff), props:swap(sh.props)"));
 });
-await test("C4 a deleted prop doesn't come back from the cast", ()=>{
-  const n = (app.match(/propsFromCast\(characters, \[\.\.\.\(props\|\|\[\]\), \.\.\.\(\(trash&&trash\.props\)\|\|\[\]\)\]/g)||[]).length;
-  assert.equal(n, 3);
-  assert.ok(app.includes("propsFromCast(characters, [..._propWork, ...((trash&&trash.props)||[])], scenes, drafts)"));
-  assert.ok(app.includes("},[characters, props, trash]);"));
+await test("C4 a deleted prop doesn't come back from the cast — nothing is made from the cast any more (2026-10-29)", ()=>{
+  assert.equal((app.match(/propsFromCast\(/g)||[]).length, 0);
+  assert.ok(app.includes("deriveCast: ()=> 0,"));
 });
 
 /* ═══ D ═══ */

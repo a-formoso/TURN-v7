@@ -22,8 +22,10 @@ test("same-named set objects in different locations are distinct",()=>assert.dee
 test("same owner's separate phones survive seeding",()=>assert.equal(box.propsFromCast([{id:"m",props:"Work phone; Personal phone"}],[]).length,2));
 test("incomplete legacy names are flagged, not guessed",()=>assert.ok(P.nameIssue("Plain…")));
 test("incomplete cast fragments are not imported",()=>assert.equal(box.propsFromCast([{id:"m",accessories:"Plain…; black belt"}],[]).length,1));
-test("ordinary accessories are grouped without deleting cards",()=>assert.equal(P.group({kind:"worn",name:"Black belt"}),"accessories"));
-test("pocketed card remains a story object",()=>assert.equal(P.group({kind:"worn",name:"index card in jacket pocket"}),"story"));
+// (2026-10-29) costume and an unproven card are Not story props, shown in their own group, never deleted
+test("ordinary accessories are grouped without deleting cards",()=>assert.equal(P.group({kind:"worn",name:"Black belt"}),"other"));
+test("a card that returns in two scenes is a story object",()=>assert.equal(P.group({kind:"worn",name:"index card in jacket pocket",
+  screenplaySources:[{sceneId:"a",sceneNo:1,presence:"handled"},{sceneId:"b",sceneNo:2,presence:"visible"}]}),"story"));
 test("exact source validation rejects hallucinated quotes",()=>assert.equal(parsed.candidates.length,2));
 test("dialogue mention cannot become physical presence",()=>assert.equal(parsed.candidates[1].screenplaySources[0].presence,"mentioned"));
 test("source beat is read from screenplay, not guessed",()=>assert.equal(proposal.screenplaySources[1].beat,2));
