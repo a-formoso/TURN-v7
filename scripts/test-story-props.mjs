@@ -128,7 +128,8 @@ await test("2d Extract finding it in the screenplay — and something happening 
   const prop = byName("Smartphone");
   const decision = { target:prop.id, name:"Smartphone", aliases:[], kind:"carried", inventoryGroup:"story", ownerId:"m", ownerName:"Mara",
     locationId:"", screenplaySources:[{ sceneId:"s2", sceneNo:2, block:1, quote:"Mara drops the smartphone in the gutter.", presence:"handled" }],
-    storyChanges:[{ what:"dropped", sceneId:"s2", sceneNo:2, quote:"Mara drops the smartphone in the gutter." }],
+    storyChanges:[{ what:"lost", sceneId:"s2", sceneNo:2, quote:"Mara drops the smartphone in the gutter." }],
+    storyTurn:{ reason:"Losing it cuts her off.", sceneId:"s2", sceneNo:2, quote:"Mara drops the smartphone in the gutter." },
     continuityEvents:[], includeEvents:false, contentNotes:"", identityNote:"", warnings:[] };
   const out = P.accept(seeded, [decision], drafts), linked = out.find(p=>p.id===prop.id);
   assert.equal(P.isProposal(linked), false); assert.equal(P.group(linked), "story"); assert.equal(P.notInScreenplay(linked), false);

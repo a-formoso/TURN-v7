@@ -502,22 +502,40 @@ Each entity gets a canonical, reusable reference so every generated image stays 
     dressing** (sits in the place and nobody uses it — part of the location), **background props** (ordinary
     things handled once — the shot describes them in words) and **hero props** (the few objects the story
     depends on). Only hero props become prop cards.
+    **How film crews sort objects** *(owner 2026-10-30 — "ensure this is applied for props and adopted in the UI";
+    the owner's words, shown on the Props tab — open while it is empty — and at the top of the review, which files
+    what isn't a prop under the other three places, each with "Make it a prop")*: when a crew breaks down a
+    script, every object it names goes to one of four places —
+    - *Costume:* anything worn (watches, badges, rings, uniforms). The costume department handles it, not props.
+    - *Set dressing:* objects that sit in the room and nobody uses. The set decorator handles them as part of
+      the location.
+    - *Background props:* ordinary things handled once, like a cup of coffee or a pen. They're bought, not
+      designed, and nobody tracks them.
+    - *Hero props:* the few objects the story depends on. These get designed, made carefully, often in copies,
+      and tracked scene by scene.
     1. **Only the screenplay creates props.** Character briefs no longer make cards (worn or carried), and the
        "Proposed — not in the screenplay" group is gone. "Attach item to prop…" attaches a crop to an existing
        story prop only.
-    2. **The tests.** An object the screenplay names is a story prop when it passes at least one: it **returns**
-       (seen in two or more scenes), something **happens** to it (handed over, opened, read, hidden, broken,
-       found…), or the **story turns** on it (a setup/payoff, part of a scene's turn, or dialogue about it). The
-       read reports what happens and the turn with exact passages; the app, not the model, applies the tests.
-       Anything else stays words in the shot — no card, nothing to pay for.
+    2. **The tests** *(tightened 2026-10-30 by owner — "yes, tighten the rules and update the pipeline doc")*.
+       An object the screenplay names is a story prop when it **returns** (seen in two or more scenes), or — when
+       it is in one scene only — it passes **both** of the others: something that **matters happens** to it (it
+       changes hands, is taken, hidden, found, lost, stolen, broken or destroyed) **and** the **story turns** on it
+       (a setup/payoff, part of a scene's turn, or dialogue about it). Using something once — eating it,
+       punching it, opening or raising it, putting it down, pocketing it — is not something that matters
+       happening to it. **Part of the place** (a door, ramp, chain, locker, curtain, railing) is set dressing and
+       never a prop, whatever happens to it; **marks** (footprints, stains) aren't objects. The read reports
+       what happens and the turn with exact passages; the app, not the model, applies the tests. Anything else
+       stays words in the shot — no card, nothing to pay for.
     3. **Each card says why** ("Why it's a prop: Returns in scenes 2, 3 and 6 · changes hands in 6"). In the
        review, the objects that didn't pass are listed collapsed under "Not props — left to the shot", each
        with "Make it a prop".
     4. **One object, one card.** The read follows an object across the whole film; when it can't tell whether
        two passages are the same object, the review asks once ("Is the letter in scene 6 the one from scene
-       2?" — Yes, the same / No, a different one) instead of making two cards.
-    5. **A worn item can still be a story prop** when the screenplay makes it matter (a wedding band taken off
-       in a key scene) — because the tests pass, not because a character wears it.
+       2?" — Yes, the same / No, a different one) instead of making two cards — and only when the answer matters
+       (one of them is a prop, or the two together would be; never for set dressing or costume nobody uses).
+    5. **A worn item can still be a story prop** when the screenplay makes it matter — something that matters
+       happens to it (a jacket handed to someone who needs it, a wedding band taken off) and it returns or the
+       story turns on it. Being worn in many scenes is costume continuity, not a reason.
     6. **Nothing is deleted on its own.** Existing cards that fail the tests (costume, write-up guesses,
        objects named once) show under **Not story props** with the reason and "Keep as a story prop"; one
        button moves them all to Recently deleted, where they can be restored. Stored cards are never migrated.

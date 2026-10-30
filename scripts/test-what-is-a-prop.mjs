@@ -78,18 +78,37 @@ await test("2a returns in two scenes → a story prop, and it says why", ()=>{
   assert.equal(P.isStoryProp(letter, drafts), true); assert.equal(P.group(letter, drafts), "story");
   assert.deepEqual(J(P.significance(letter, drafts).reasons), ["Returns in scenes 2 and 6"]);
 });
-await test("2b something happens to it → a story prop (story events and the read's changes count)", ()=>{
+await test("2b only a change that matters counts (changes hands, hidden, found, lost, broken…) — using something doesn't", ()=>{
   const ev = { id:"x", name:"Ticket", screenplaySources:[src("s2",2,"q")], continuityEvents:[{ type:"handed_over", sceneId:"s2", source:{ sceneNo:2 } }] };
-  assert.deepEqual(J(P.significance(ev).reasons), ["changes hands in 2"]);
+  assert.deepEqual(J(P.significance(ev).reasons), ["changes hands in 2"]); assert.equal(P.significance(ev).tests.changes, true);
   const ch = { id:"y", name:"Ticket", screenplaySources:[src("s2",2,"q")], storyChanges:[{ what:"opened", sceneNo:6 }, { what:"opened", sceneNo:2 }] };
-  assert.deepEqual(J(P.significance(ch).reasons), ["opened in 2 and 6"]);
+  assert.deepEqual(J(P.significance(ch).reasons), [], "opening is using it");
+  // (owner 2026-10-30) the words of the last read: eaten, punched, put down, pocketed, raised, opened — not changes;
+  // handed over, hidden, found, lost, stolen, broken, destroyed — changes that matter
+  for(const w of ["eaten","punched","put down","pocketed","raised and sealed","opened","keyed","dropped","folded","used up","altered"]) assert.equal(P.strongChange(w), false, w);
+  for(const w of ["handed over","changes hands","gives it to Nives","hidden","hides it","found","lost","stolen","broken","opened (wax seal broken)","torn up","burned","destroyed","thrown overboard","taken","recovered","damaged"]) assert.equal(P.strongChange(w), true, w);
+  for(const t of ["consumed","placed","updated"]) assert.equal(P.significance({ screenplaySources:[src("s2",2,"q")], continuityEvents:[{ type:t, sceneId:"s2", source:{ sceneNo:2 } }] }).tests.changes, false, t);
 });
-await test("2c the story turns on it → a story prop; one scene, nothing happens → not", ()=>{
+await test("2c one scene needs both: a change that matters AND the story turns on it", ()=>{
   const turn = { id:"t", name:"Key", screenplaySources:[src("s3",3,"q")], storyTurn:{ reason:"It opens the cabin later." } };
-  assert.equal(P.isStoryProp(turn), true); assert.deepEqual(J(P.significance(turn).reasons), ["the story turns on it: It opens the cabin later"]);
+  assert.equal(P.isStoryProp(turn), false, "a turn alone, in one scene, isn't enough");
+  assert.deepEqual(J(P.significance(turn).reasons), ["the story turns on it: It opens the cabin later"]);
+  assert.equal(P.notPropReason(turn), "Named once — in scene 3 only, and it never changes hands, is hidden, found, lost or destroyed");
+  const handed = { id:"h", name:"Pen", screenplaySources:[src("s3",3,"q")], storyChanges:[{ what:"handed over", sceneNo:3 }] };
+  assert.equal(P.isStoryProp(handed), false); assert.equal(P.notPropReason(handed), "Named once — in scene 3 only, and the story doesn't turn on it");
+  assert.equal(P.isStoryProp({ ...handed, storyTurn:{ reason:"Signing with it is the turn." } }), true, "both → a story prop");
   const cup = { id:"c", name:"Cup of coffee", propRole:"background", screenplaySources:[src("s3",3,"Aurelio drinks a cup of coffee at the rail.")] };
   assert.equal(P.isStoryProp(cup, drafts), false); assert.equal(P.group(cup, drafts), "other");
-  assert.equal(P.notPropReason(cup, drafts), "Background prop — in scene 3 only, and nothing happens to it");
+  assert.equal(P.notPropReason(cup, drafts), "Background prop — in scene 3 only, and nothing that matters happens to it");
+  // part of the place is never a prop; costume only when something that matters happens to it
+  const ramp = { name:"Ferry car ramp", propRole:"dressing", screenplaySources:[src("s2",2,"q"), src("s6",6,"q")], storyChanges:[{ what:"destroyed", sceneNo:6 }], storyTurn:{ reason:"r" } };
+  assert.equal(P.isStoryProp(ramp), false); assert.equal(P.notPropReason(ramp), "Set dressing — part of the place; the location and the shot describe it");
+  const shoes = { name:"Worn shoes", propRole:"costume", screenplaySources:[src("s2",2,"q"), src("s6",6,"q")] };
+  assert.equal(P.isStoryProp(shoes), false, "worn in two scenes is costume continuity");
+  assert.equal(P.notPropReason(shoes), "Costume — worn, and it never changes hands, is hidden, found, lost or destroyed");
+  assert.equal(P.isStoryProp({ ...shoes, storyChanges:[{ what:"handed over (draped over Nives's shoulders)", sceneNo:6 }] }), true, "a jacket handed over, worn in two scenes");
+  assert.equal(P.isStoryProp({ ...shoes, screenplaySources:[src("s6",6,"q")], storyChanges:[{ what:"handed over", sceneNo:6 }] }), false);
+  assert.equal(P.isStoryProp({ ...shoes, kind:"worn", propRole:undefined, screenplaySources:[src("s6",6,"q")], storyChanges:[{ what:"taken off and hidden", sceneNo:6 }], storyTurn:{ reason:"r" } }), true, "older cards: worn = costume");
   assert.equal(P.significance({ ...cup, screenplaySources:[src("s3",3,"q","mentioned")] }).sceneNos.length, 0, "a mention isn't an appearance");
 });
 await test("2d the user's choice: made by hand or kept → a story prop; acceptPatch keeps it", ()=>{
@@ -168,7 +187,7 @@ await test("3c the review panel: why, the question with its two buttons, Not pro
   const t = textOf(tree);
   assert.ok(t.includes("Why it's a prop: Returns in scenes 2 and 6"));
   assert.ok(t.includes("Is the ticket stub in scene 6 the one from scene 2?"), "an open question stays in the main list");
-  assert.ok(t.includes("Not props — left to the shot (1)") && t.includes("Background prop — used once · scene 3"));
+  assert.ok(t.includes("Not props — left to the shot (1)") && t.includes("Background props (1)") && t.includes("Background prop — in scene 3 only, and nothing that matters happens to it"));
   assert.ok(t.includes("Only objects the story depends on become props"));
   buttons(tree).find(b=>textOf(b)==="Yes, the same").props.onClick();
   assert.equal(next.candidates.length, 3); assert.equal(next.candidates.find(c=>c.name==="Ticket").target, "new");
@@ -262,15 +281,16 @@ await test("1d 'Attach item to prop…' attaches to an existing story prop only,
 /* ═══ 5 — worn story props ═══ */
 await test("5 a worn item the screenplay makes matter is a story prop", ()=>{
   const ring = { id:"r", name:"Wedding band", kind:"worn", ownerId:"niv", screenplaySources:[src("s6",6,"q","worn")],
-    storyChanges:[{ what:"taken off", sceneNo:6 }] };
-  assert.equal(P.isStoryProp(ring), true); assert.deepEqual(J(P.significance(ring).reasons), ["taken off in 6"]);
-  assert.equal(P.isStoryProp({ ...ring, storyChanges:[] }), false, "worn once, nothing happens → costume");
+    storyChanges:[{ what:"taken off and hidden", sceneNo:6 }], storyTurn:{ reason:"She hides it from him." } };
+  assert.equal(P.isStoryProp(ring), true); assert.deepEqual(J(P.significance(ring).reasons), ["taken off and hidden in 6", "the story turns on it: She hides it from him"]);
+  assert.equal(P.isStoryProp({ ...ring, storyChanges:[] }), false, "worn once, nothing that matters happens → costume");
+  assert.equal(P.isStoryProp({ ...ring, storyTurn:null }), false, "(2026-10-30) one scene, no turn → costume");
 });
 
 /* ═══ + — the doc, Frances, the Lookbook bin, the cache keys ═══ */
 await test("+a the pipeline doc records the owner's approval and the six points", ()=>{
   const step = between(doc, "*(approved 2026-10-29 by owner — \"go ahead with all six, update the pipeline doc\"", "  - **Draft all characters**");
-  for(const s of ["**costume**", "**set\n    dressing**", "**background props**", "**hero props**", "**Only the screenplay creates props.**", "**The tests.**",
+  for(const s of ["**costume**", "**set\n    dressing**", "**background props**", "**hero props**", "**Only the screenplay creates props.**", "**The tests**",
     "**Each card says why**", "**One object, one card.**", "**A worn item can still be a story prop**", "**Nothing is deleted on its own.**"])
     assert.ok(step.includes(s), s);
 });
@@ -292,7 +312,81 @@ await test("+c the Lookbook's Recently deleted is the compact header button, as 
 });
 await test("+d the changed files load with fresh keys", ()=>{
   for(const f of ["app/prop-screenplay.js", "app/props.jsx", "app/artroom.jsx", "app/app.jsx", "app/ai.jsx", "app/agents.jsx", "app/lookbook.jsx", "app/breakdown.jsx", "app/styles.css"])
-    assert.ok(["20261029-hs144", "20261030-hs145"].some(k=>html.includes(f+'?v='+k+'"')), f);
+    assert.ok(["20261029-hs144", "20261030-hs145", "20261030-hs146"].some(k=>html.includes(f+'?v='+k+'"')), f);
+});
+
+/* ═══ 7 — tighter rules + how film crews sort objects (owner 2026-10-30: "yes, tighten the rules and update the
+   pipeline doc"; "can we ensure this is applied for props and adopted in the UI: How film crews sort objects…") ═══ */
+await test("7a the same-object question is asked only when the answer matters", ()=>{
+  // two costume halves nobody does anything with: no question
+  const shoeA = cand(0, "Aurelio's shoes", [src("s2",2,"a","worn")], { propRole:"costume" });
+  const shoeB = cand(1, "Aurelio's shoes", [src("s6",6,"b","worn")], { propRole:"costume", maybeSameAs:"candidate-0" });
+  assert.equal(P.sameQuestion(shoeB, [shoeA, shoeB], []), null);
+  // part of the place: never asked, even when the two together would return
+  const rampA = cand(2, "Car ramp", [src("s2",2,"a")], { propRole:"dressing" });
+  const rampB = cand(3, "Car ramp", [src("s6",6,"b")], { propRole:"dressing", maybeSameAs:"candidate-2" });
+  assert.equal(P.sameQuestion(rampB, [rampA, rampB], []), null);
+  // two single-scene halves that together return: asked
+  const tA = cand(4, "Ticket", [src("s2",2,"a")]), tB = cand(5, "Ticket stub", [src("s6",6,"b")], { maybeSameAs:"candidate-4" });
+  assert.match(P.sameQuestion(tB, [tA, tB], []).text, /^Is the ticket stub in scene 6 the one from scene 2\?$/);
+  // a jacket handed over in one scene, worn in another: together it is a prop → asked
+  const jA = cand(6, "Jacket", [src("s2",2,"a","worn")], { propRole:"costume" });
+  const jB = cand(7, "Jacket", [src("s6",6,"b","handled")], { propRole:"costume", maybeSameAs:"candidate-6", storyChanges:[{ what:"handed over", sceneNo:6 }] });
+  assert.ok(P.sameQuestion(jB, [jA, jB], []));
+});
+await test("7b the read: parts of the place are set dressing, marks aren't objects; settle uses the new rules", ()=>{
+  const fn = between(ai, "async function aiExtractScreenplayProps(", "window.aiExtractScreenplayProps=aiExtractScreenplayProps;");
+  assert.ok(fn.includes("AND any part of the place itself (doors, ramps, gangways, chains, lockers, cupboards, curtains, railings, fixtures, built-in furniture), even when someone opens, raises or lowers it."));
+  assert.ok(fn.includes("Marks and traces (footprints, stains, scratches, wet patches) are not objects: leave them out."));
+  const cs = P.settleCandidates([cand(0, "Port-bar panino", [src("s2",2,"a")], { storyChanges:[{ what:"eaten", sceneNo:2 }] }),
+    cand(1, "Incident log", [src("s3",3,"b")], { storyChanges:[{ what:"handed over", sceneNo:3 }], storyTurn:{ reason:"Not signing it is the turn.", sceneNo:3 } }),
+    cand(2, "Locker curtain", [src("s3",3,"c")], { propRole:"dressing", storyChanges:[{ what:"torn", sceneNo:3 }], storyTurn:{ reason:"r", sceneNo:3 } })], []);
+  assert.deepEqual(J(cs.map(c=>[c.name, c.target, !!c.notProp])), [["Port-bar panino","skip",true],["Incident log","new",false],["Locker curtain","skip",true]]);
+});
+await test("7c how film crews sort objects — the owner's four places, on the Props tab and in the review", ()=>{
+  const sort = J(box.PROP_CREW_SORT);
+  assert.deepEqual(sort.map(c=>c.name), ["Costume","Set dressing","Background props","Hero props"]);
+  assert.equal(sort[0].text, "Anything worn (watches, badges, rings, uniforms). The costume department handles it, not props.");
+  assert.equal(sort[1].text, "Objects that sit in the room and nobody uses. The set decorator handles them as part of the location.");
+  assert.equal(sort[2].text, "Ordinary things handled once, like a cup of coffee or a pen. They\u2019re bought, not designed, and nobody tracks them.");
+  assert.equal(sort[3].text, "The few objects the story depends on. These get designed, made carefully, often in copies, and tracked scene by scene.");
+  const note = box.PropCrewSortNote({ open:true }), t = textOf(note);
+  assert.equal(note.props.open, true); assert.equal(box.PropCrewSortNote({}).props.open, undefined);
+  assert.ok(t.startsWith("How film crews sort objectsWhen a crew breaks down a script, every object it names goes to one of four places:"));
+  assert.ok(t.includes("Hero props: The few objects the story depends on.") && t.includes("Only these become cards on this tab."));
+  // on the tab (open while it's empty, hidden while a review is open — the review shows it) and in the review
+  assert.ok(props.includes("!review && window.PropCrewSortNote && React.createElement(window.PropCrewSortNote,{open:!list.length}),"));
+  assert.ok(props.includes("window.PropCrewSortNote && h(window.PropCrewSortNote,null),"));
+});
+await test("7d the review files what isn't a prop where a crew does: costume, set dressing, background props", ()=>{
+  R.reset();
+  const cs = P.settleCandidates([cand(0, "Sealed letter", [src("s2",2,"a"), src("s6",6,"b")]),
+    cand(1, "Cup of coffee", [src("s3",3,"c")], { propRole:"background" }),
+    cand(2, "Car ramp", [src("s2",2,"d")], { propRole:"dressing" }),
+    cand(3, "Wool coat", [src("s3",3,"e","worn")], { propRole:"costume" }),
+    cand(4, "Ticket", [src("s2",2,"f")], { propRole:"hero" })], []);
+  const tree = box.PropExtractionReview({ review:{ candidates:cs, failures:[], rejected:0 }, onChange:noop, onApply:noop, onClose:noop, props:[], characters:cast, locations:[] });
+  const t = textOf(tree);
+  assert.ok(t.includes("Hero props (1) — The few objects the story depends on."));
+  assert.ok(props.includes('h("b",null,"Hero props ("+propsList.filter(p=>p.target!=="skip").length+")")'), "counts what will be added, not the open questions");
+  assert.ok(t.includes("Not props — left to the shot (4)"));
+  const group = (id)=> textOf(findAll(tree, n=>n.props && n.props["data-testid"]==="prop-review-place-"+id)[0]);
+  assert.ok(group("costume").startsWith("Costume (1) — Anything worn") && group("costume").includes("Wool coat") && group("costume").includes("Costume — worn, and it never changes hands"));
+  assert.ok(group("dressing").startsWith("Set dressing (1) — Objects that sit in the room") && group("dressing").includes("Car ramp") && group("dressing").includes("Set dressing — part of the place"));
+  assert.ok(group("background").startsWith("Background props (2) — Ordinary things handled once") && group("background").includes("Cup of coffee") && group("background").includes("Ticket") && group("background").includes("Named once — in scene 2 only"));
+  assert.equal(findAll(tree, n=>n.props && n.props["data-testid"]==="prop-review-make").length, 4, "each can still be made a prop");
+});
+await test("7e the doc, Frances and the info tip carry the tighter rules", ()=>{
+  const step = between(doc, "*(approved 2026-10-29 by owner", "  - **Draft all characters**");
+  for(const s of ["*(tightened 2026-10-30 by owner — \"yes, tighten the rules and update the pipeline doc\")*", "passes **both** of the others",
+    "**Part of the place**", "**marks**", "and only when the answer matters", "Being worn in many scenes is costume continuity, not a reason.",
+    "**How film crews sort objects**"]) assert.ok(step.includes(s), s);
+  const s2 = between(ai, "const APP_FEATURES = [", "function appBrief(){");
+  const fb = { console }; fb.window = fb; vm.createContext(fb); vm.runInContext(s2 + "\n;this.__F = APP_FEATURES;", fb);
+  const tab = fb.__F.find(f=>f.name==="Props (Art Room)").what;
+  for(const x of ["TIGHTER RULES (owner 2026-10-30)", "eating it, punching it, opening or raising it", "HOW FILM CREWS SORT OBJECTS", "Only these become cards"]) assert.ok(tab.includes(x), x);
+  assert.ok(props.includes("or \\u2014 in one scene \\u2014 changes hands, is hidden, found, lost or destroyed and the story turns on it."));
+  for(const f of ["app/prop-screenplay.js", "app/props.jsx", "app/ai.jsx", "app/styles.css"]) assert.ok(["20261030-hs146"].some(k=>html.includes(f+'?v='+k+'"')), f);
 });
 
 console.log(failed ? (checks+" checks passed, "+failed+" FAILED") : (checks+" checks passed"));

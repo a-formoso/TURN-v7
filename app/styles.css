@@ -11699,3 +11699,14 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .art-bg-jobs .abj-row{display:flex;align-items:center;gap:10px}
 .art-bg-jobs .abj-text{flex:1;min-width:0;line-height:1.3}
 .art-bg-jobs .abj-text b{color:var(--txt-0);font-weight:600}
+/* (owner 2026-10-30) how film crews sort objects — on the Props tab and in the review */
+.prop-crew-sort{margin:4px 0 14px;padding:10px 14px;border:1px solid var(--line-2);border-radius:10px;background:var(--bg-2);font-size:13px;color:var(--txt-1)}
+.prop-crew-sort summary{cursor:pointer;font-weight:600;color:var(--txt-0)}
+.prop-crew-sort .prop-crew-lead{margin:8px 0 6px}
+.prop-crew-sort ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px;line-height:1.4}
+.prop-crew-sort b{color:var(--txt-0)}
+.prop-crew-sort .prop-crew-hero{color:var(--txt-0)}
+.prop-crew-sort .prop-crew-here{color:var(--pos-ink);font-weight:600}
+.prop-review-place{margin:10px 0 6px;font-size:13px;color:var(--txt-2);line-height:1.4}
+.prop-review-place b{color:var(--txt-0)}
+.prop-review-placegroup + .prop-review-placegroup{margin-top:10px}

@@ -48,6 +48,15 @@
   const ROLES=["hero","costume","dressing","background"];
   const EVENT_WORDS={acquired:"taken",handed_over:"changes hands",placed:"put down",removed:"taken away",updated:"altered",
     damaged:"damaged",destroyed:"destroyed",consumed:"used up",recovered:"recovered"};
+  /* TIGHTER (owner 2026-10-30 — "tighten the rules"): only a change that matters counts — it changes hands, is
+     taken, hidden, found, lost, stolen, broken or destroyed. Eating, punching, opening, raising, putting down or
+     pocketing something is using it, not a change (the shot describes it). */
+  const STRONG_EVENTS=new Set(["acquired","handed_over","removed","damaged","destroyed","recovered"]);
+  const STRONG_EVENT_WORDS=new Set(["taken","changes hands","taken away","damaged","destroyed","recovered"]);
+  const STRONG_WORDS=/\b(hand(s|ed|ing)?\s+(it\s+|them\s+)?(over|back|to)\b|gives?\b|gave\b|given\b|pass(es|ed)?\s+(it\s+)?(to|over|back)\b|changes?\s+hands|swap|exchang|trade[sd]?\b|steal|stole|snatch|confiscat|takes?\s+(it\s+)?from\b|took\s+(it\s+)?from\b|taken\s+from\b|hid\b|hides?\b|hidden|hiding|conceal|stash|buri(ed|es)|bury|found|finds?\b|discover|recover|retriev|lost\b|loses?\b|left\s+behind|abandon|throw[sn]?\s+(it\s+)?(away|overboard)|threw\s+(it\s+)?(away|overboard)|broke\b|broken|breaks?\b|smash|shatter|tore\b|torn|tears?\s+(up|apart)|rip(s|ped)?\b|shred|burn|destroy|damag|sank|sunk|sinks?\b)/i;
+  const strongChange=(what)=>{ const w=String(what||"").trim().toLowerCase(); return STRONG_EVENT_WORDS.has(w) || STRONG_WORDS.test(w); };
+  // the breakdown role (what the read said it is); older cards without one go by their kind
+  const roleOf=(p)=> p&&ROLES.includes(p.propRole) ? p.propRole : ((p&&p.kind)==="worn"?"costume":(p&&p.kind)==="dressing"?"dressing":"hero");
   const sceneNoIn=(p,id)=>{ const e=(p.screenplaySources||[]).find(x=>x&&x.sceneId===id); return e&&e.sceneNo!=null?e.sceneNo:null; };
   const numSort=(a,b)=>(Number(a)||0)-(Number(b)||0)||String(a).localeCompare(String(b));
   function significance(p,drafts){
@@ -55,19 +64,27 @@
     const src=(drafts?sources(p,drafts):(p.screenplaySources||[])).filter(e=>e&&physical.has(e.presence));
     const sceneNos=uniq(src.map(e=>e.sceneNo!=null?e.sceneNo:e.sceneId)).sort(numSort);
     const changes=[];
-    const addChange=(what,no)=>{ if(what && !changes.some(c=>c.what===what&&String(c.sceneNo)===String(no))) changes.push({what,sceneNo:no}); };
-    (p.continuityEvents||[]).forEach(e=>{ if(e&&EVENT_WORDS[e.type]) addChange(EVENT_WORDS[e.type], (e.source&&e.source.sceneNo!=null)?e.source.sceneNo:sceneNoIn(p,e.sceneId)); });
-    (p.storyChanges||[]).forEach(c=>{ if(c) addChange(String(c.what||"").trim(), c.sceneNo); });
+    const addChange=(what,no,strong)=>{ if(what && !changes.some(c=>c.what===what&&String(c.sceneNo)===String(no))) changes.push({what,sceneNo:no,strong:!!strong}); };
+    (p.continuityEvents||[]).forEach(e=>{ if(e&&EVENT_WORDS[e.type]) addChange(EVENT_WORDS[e.type], (e.source&&e.source.sceneNo!=null)?e.source.sceneNo:sceneNoIn(p,e.sceneId), STRONG_EVENTS.has(e.type)); });
+    (p.storyChanges||[]).forEach(c=>{ if(c){ const w=String(c.what||"").trim(); addChange(w, c.sceneNo, strongChange(w)); } });
+    const strong=changes.filter(c=>c.strong);
     const turn=p.storyTurn&&String(p.storyTurn.reason||"").trim()?p.storyTurn:null;
-    const tests={returns:sceneNos.length>=2,changes:changes.length>0,turns:!!turn};
+    const role=roleOf(p);
+    const tests={returns:sceneNos.length>=2,changes:strong.length>0,turns:!!turn};
+    /* the rules (owner 2026-10-30): part of the place is never a prop; a worn item is one only when something that
+       matters happens to it and it returns or the story turns on it; anything else passes when it returns in two or
+       more scenes, or — in one scene — when something that matters happens to it AND the story turns on it */
+    const pass = role==="dressing" ? false
+      : role==="costume" ? (tests.changes && (tests.returns || tests.turns))
+      : (tests.returns || (tests.changes && tests.turns));
     const reasons=[];
     if(tests.returns) reasons.push("Returns in scenes "+listNos(sceneNos));
     if(tests.changes){
-      const byWhat={}; changes.forEach(c=>{ (byWhat[c.what]=byWhat[c.what]||[]).push(c.sceneNo); });
+      const byWhat={}; strong.forEach(c=>{ (byWhat[c.what]=byWhat[c.what]||[]).push(c.sceneNo); });
       reasons.push(Object.keys(byWhat).map(w=>{ const nos=byWhat[w].filter(n=>n!=null); return w+(nos.length?" in "+listNos(uniq(nos).sort(numSort)):""); }).join(", "));
     }
     if(tests.turns) reasons.push("the story turns on it: "+String(turn.reason).trim().replace(/\.$/,""));
-    return {pass:tests.returns||tests.changes||tests.turns,tests,sceneNos,changes,turn,reasons};
+    return {pass,tests,role,sceneNos,changes,turn,reasons};
   }
   function listNos(nos){ const a=nos.map(String); return a.length<2?a.join(""):a.slice(0,-1).join(", ")+" and "+a[a.length-1]; }
   // the user's own choice: a card made by hand, or one they kept (older "Keep this prop" included)
@@ -89,10 +106,19 @@
       if(o.kind==="design") return "Cut from an image \u2014 the screenplay doesn't name it";
       return "A guess"+(who?" from "+who+"'s write-up":"")+" \u2014 the screenplay doesn't name it";
     }
-    const sig=significance(p,drafts);
-    const role=p.propRole&&ROLES.includes(p.propRole)?p.propRole:((p.kind||"carried")==="worn"?"costume":p.kind==="dressing"?"dressing":"background");
+    return whyNot(significance(p,drafts));
+  }
+  // why an object the screenplay names didn't pass, in a few words (2026-10-30 rules)
+  function whyNot(sig){
+    const role=sig.role, t=sig.tests;
+    if(role==="dressing") return "Set dressing \u2014 part of the place; the location and the shot describe it";
     const where=sig.sceneNos.length?("scene "+listNos(sig.sceneNos)):"the screenplay";
-    return ROLE_LABEL[role]+" \u2014 in "+where+" only, and nothing happens to it";
+    if(role==="costume") return t.changes ? "Costume \u2014 in "+where+" only, and the story doesn't turn on it"
+      : "Costume \u2014 worn, and it never changes hands, is hidden, found, lost or destroyed";
+    const label=role==="hero"?"Named once":ROLE_LABEL[role];
+    if(t.changes) return label+" \u2014 in "+where+" only, and the story doesn't turn on it";
+    if(t.turns) return label+" \u2014 in "+where+" only, and it never changes hands, is hidden, found, lost or destroyed";
+    return label+" \u2014 in "+where+" only, and nothing that matters happens to it";
   }
   const ROLE_LABEL={hero:"Named once",costume:"Costume",dressing:"Set dressing",background:"Background prop"};
   /* Display group: "story" or "other" (Not story props). Stored inventoryGroup values ("accessories",
@@ -282,6 +308,14 @@
     const id=c&&c.maybeSameAs; if(!id||c.sameAnswered) return null;
     const other=(cands||[]).find(x=>x.reviewId===id&&x!==c) || (existing||[]).find(x=>x.id===id);
     if(!other) return null;
+    // (2026-10-30) asked only when the answer matters: one of them is a prop, or the two together would be one
+    // (never for part of the place, or for costume nobody does anything with)
+    const sigOf=(x)=> x.reviewId ? candidateSignificance(x,existing) : significance(x);
+    const both={...c,propRole:(roleOf(c)==="hero"||roleOf(other)==="hero")?"hero":roleOf(c),
+      screenplaySources:[...(c.screenplaySources||[]),...(other.screenplaySources||[])],
+      continuityEvents:[...(c.continuityEvents||[]),...(other.continuityEvents||[])],
+      storyChanges:[...(c.storyChanges||[]),...(other.storyChanges||[])],storyTurn:c.storyTurn||other.storyTurn||null,target:"new"};
+    if(!(sigOf(c).pass || sigOf(other).pass || candidateSignificance(both,existing).pass)) return null;
     const nos=x=>uniq((x.screenplaySources||[]).map(s=>s.sceneNo).filter(n=>n!=null)).sort(numSort);
     const mine=nos(c), theirs=nos(other);
     return {otherId:other.reviewId||other.id,isCard:!other.reviewId,
@@ -297,5 +331,5 @@
       return settleCandidates(cands.filter(x=>x!==c).map(x=>x===other?merged:x),existing); }
     return settleCandidates(cands.map(x=>x===c?{...x,target:c.maybeSameAs,priorTarget:c.maybeSameAs,sameAnswered:"same"}:x),existing);
   }
-  root.PropScreenplay={significance,isStoryProp,storyChoice,notPropReason,ROLES,mergeCandidate,candidateSignificance,settleCandidates,sameQuestion,answerSame,sourceValid,locate,sources,scenesFor,characterScenes,group,nameIssue,notInScreenplay,isProposal,acceptPatch,batchSkip,sheetTier,sourceKey,mergeBy,chunks,normalizeResult,accept,physical};
+  root.PropScreenplay={significance,isStoryProp,storyChoice,notPropReason,whyNot,strongChange,roleOf,ROLES,mergeCandidate,candidateSignificance,settleCandidates,sameQuestion,answerSame,sourceValid,locate,sources,scenesFor,characterScenes,group,nameIssue,notInScreenplay,isProposal,acceptPatch,batchSkip,sheetTier,sourceKey,mergeBy,chunks,normalizeResult,accept,physical};
 })(window);

@@ -24,8 +24,13 @@ test("incomplete legacy names are flagged, not guessed",()=>assert.ok(P.nameIssu
 test("incomplete cast fragments are not imported",()=>assert.equal(box.propsFromCast([{id:"m",accessories:"Plain…; black belt"}],[]).length,1));
 // (2026-10-29) costume and an unproven card are Not story props, shown in their own group, never deleted
 test("ordinary accessories are grouped without deleting cards",()=>assert.equal(P.group({kind:"worn",name:"Black belt"}),"other"));
-test("a card that returns in two scenes is a story object",()=>assert.equal(P.group({kind:"worn",name:"index card in jacket pocket",
+test("a card that returns in two scenes is a story object",()=>assert.equal(P.group({kind:"carried",name:"index card in jacket pocket",
   screenplaySources:[{sceneId:"a",sceneNo:1,presence:"handled"},{sceneId:"b",sceneNo:2,presence:"visible"}]}),"story"));
+// (2026-10-30) something worn that returns is costume continuity until something that matters happens to it
+test("a worn item that returns is costume",()=>assert.equal(P.group({kind:"worn",name:"Wedding band",
+  screenplaySources:[{sceneId:"a",sceneNo:1,presence:"worn"},{sceneId:"b",sceneNo:2,presence:"visible"}]}),"other"));
+test("a worn item taken off and hidden in a returning story is a prop",()=>assert.equal(P.group({kind:"worn",name:"Wedding band",
+  screenplaySources:[{sceneId:"a",sceneNo:1,presence:"worn"},{sceneId:"b",sceneNo:2,presence:"handled"}],storyChanges:[{what:"taken off and hidden",sceneNo:2}]}),"story"));
 test("exact source validation rejects hallucinated quotes",()=>assert.equal(parsed.candidates.length,2));
 test("dialogue mention cannot become physical presence",()=>assert.equal(parsed.candidates[1].screenplaySources[0].presence,"mentioned"));
 test("source beat is read from screenplay, not guessed",()=>assert.equal(proposal.screenplaySources[1].beat,2));

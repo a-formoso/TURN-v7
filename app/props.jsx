@@ -1720,6 +1720,28 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
    asks once ("Is the letter in scene 6 the one from scene 2?") instead of making two cards. */
 const PROP_ROLE_TEXT = { costume:"Costume — drawn on the character's sheet", dressing:"Set dressing — part of the location",
   background:"Background prop — used once", hero:"Named, but nothing depends on it" };
+/* HOW FILM CREWS SORT OBJECTS (owner 2026-10-30, the owner's own words): every object a script names goes to one of
+   four places, and only hero props are cards here. Shown on the Props tab and in the review, which files what isn't
+   a prop under the other three. */
+const CREW_SORT = [
+  { id:"costume", name:"Costume", text:"Anything worn (watches, badges, rings, uniforms). The costume department handles it, not props." },
+  { id:"dressing", name:"Set dressing", text:"Objects that sit in the room and nobody uses. The set decorator handles them as part of the location." },
+  { id:"background", name:"Background props", text:"Ordinary things handled once, like a cup of coffee or a pen. They\u2019re bought, not designed, and nobody tracks them." },
+  { id:"hero", name:"Hero props", text:"The few objects the story depends on. These get designed, made carefully, often in copies, and tracked scene by scene." }];
+window.PROP_CREW_SORT = CREW_SORT;
+// which of the three other places an object that isn't a prop goes to (a failed "hero" is a background prop)
+const crewPlaceOf = (p)=>{ const r = window.PropScreenplay && window.PropScreenplay.roleOf ? window.PropScreenplay.roleOf(p) : p.propRole;
+  return r==="costume" || r==="dressing" ? r : "background"; };
+function CrewSortNote({ open }){
+  const h = React.createElement;
+  return h("details",{className:"prop-crew-sort","data-testid":"prop-crew-sort",open:open||undefined},
+    h("summary",null,"How film crews sort objects"),
+    h("p",{className:"prop-crew-lead"},"When a crew breaks down a script, every object it names goes to one of four places:"),
+    h("ul",null, CREW_SORT.map(c=>h("li",{key:c.id,className:"prop-crew-"+c.id},
+      h("b",null,c.name+": "), c.text, c.id==="hero" && h("span",{className:"prop-crew-here"}," Only these become cards on this tab.")))));
+}
+window.PropCrewSortNote = CrewSortNote;
+
 function PropExtractionReview({review,onChange,onApply,onClose,props,characters,locations,error,continueNote}){
   const h=React.createElement, PS=window.PropScreenplay;
   const setCands=(cands)=>onChange({...review,candidates:cands});
@@ -1766,8 +1788,9 @@ function PropExtractionReview({review,onChange,onApply,onClose,props,characters,
   const scenesOf=(p)=>Array.from(new Set(p.screenplaySources.map(s=>s.sceneNo).filter(n=>n!=null)));
   return h("section",{className:"prop-extract-review","aria-label":"Review screenplay props"},
     h("div",{className:"prop-extract-heading"},h("div",null,h("h3",null,"Review screenplay props"),
-      h("p",null,"Only objects the story depends on become props: they come back, something happens to them, or the story turns on them. Costume, set dressing and objects used once stay in the words of the shot. Existing images and design fields are preserved.")),
+      h("p",null,"Only objects the story depends on become props: they come back in two or more scenes, or — in one scene — they change hands, are hidden, found, lost or destroyed and the story turns on them. Costume becomes a prop only when something like that happens to it; part of the place never does. Everything else stays in the words of the shot. Existing images and design fields are preserved.")),
       h("button",{className:"char-draft-btn ghost",onClick:onClose},"Discard proposals")),
+    window.PropCrewSortNote && h(window.PropCrewSortNote,null),
     continueNote&&h("p",{role:"status"},continueNote),
     !!review.failures.length&&h("div",{className:"prop-review-warning",role:"alert"},"Partial extraction — these sections could not be read. You can apply the successful proposals, then retry extraction. ",review.failures.join(" · ")),
     !!review.rejected&&h("p",{className:"prop-review-warning"},review.rejected+" unverified or incomplete result(s) were excluded. Only exact screenplay passages are accepted as evidence."),
@@ -1776,15 +1799,22 @@ function PropExtractionReview({review,onChange,onApply,onClose,props,characters,
     h("div",{className:"prop-review-actions"},h("span",null,selected.length+" selected · no images will be generated"+(questions.length?" · "+questions.length+" question"+(questions.length!==1?"s":"")+" about the same object":"")),
       h("button",{className:"art-draftall",disabled:!selected.length,onClick:onApply},"Apply "+selected.length+" reviewed proposal"+(selected.length!==1?"s":""))),
     error&&h("p",{role:"alert",className:"prop-review-warning"},error),
+    !!propsList.length&&h("div",{className:"prop-review-place","data-testid":"prop-review-hero"},
+      // the count is what will be added or linked; an object with an open question waits for its answer
+      h("b",null,"Hero props ("+propsList.filter(p=>p.target!=="skip").length+")"),h("span",null," \u2014 "+CREW_SORT[3].text)),
     h("div",{className:"prop-review-list"},propsList.map(item)),
+    // (owner 2026-10-30) what isn't a prop, filed where a crew files it: costume, set dressing, background props
     !!notProps.length&&h("details",{className:"prop-review-notprops","data-testid":"prop-review-notprops"},
       h("summary",null,"Not props — left to the shot ("+notProps.length+")"),
       h("p",{className:"prop-review-note"},"The shot describes these in words. Make one a prop if the story needs it designed."),
-      notProps.map(p=>h("div",{key:p.reviewId,className:"prop-review-notprop"},
-        h("span",{className:"prop-review-notprop-name"},p.name),
-        h("span",{className:"prop-review-notprop-role"},(PROP_ROLE_TEXT[p.propRole]||PROP_ROLE_TEXT.hero)+(scenesOf(p).length?" · scene "+scenesOf(p).join(", "):"")),
-        h("button",{type:"button",className:"char-draft-btn ghost","data-testid":"prop-review-make",onClick:()=>setCands(settle(review.candidates.map(x=>x===p?{...x,keptAsProp:true,notProp:false,target:x.priorTarget||"new"}:x)))},
-          React.createElement(Icon.plus,{s:12}),"Make it a prop")))),
+      CREW_SORT.slice(0,3).map(place=>{ const inPlace=notProps.filter(p=>crewPlaceOf(p)===place.id); if(!inPlace.length) return null;
+        return h("div",{key:place.id,className:"prop-review-placegroup","data-testid":"prop-review-place-"+place.id},
+          h("div",{className:"prop-review-place"},h("b",null,place.name+" ("+inPlace.length+")"),h("span",null," \u2014 "+place.text)),
+          inPlace.map(p=>h("div",{key:p.reviewId,className:"prop-review-notprop"},
+            h("span",{className:"prop-review-notprop-name"},p.name),
+            h("span",{className:"prop-review-notprop-role"},PS.whyNot ? PS.whyNot(PS.candidateSignificance(p,props)) : ((PROP_ROLE_TEXT[p.propRole]||PROP_ROLE_TEXT.hero)+(scenesOf(p).length?" · scene "+scenesOf(p).join(", "):""))),
+            h("button",{type:"button",className:"char-draft-btn ghost","data-testid":"prop-review-make",onClick:()=>setCands(settle(review.candidates.map(x=>x===p?{...x,keptAsProp:true,notProp:false,target:x.priorTarget||"new"}:x)))},
+              React.createElement(Icon.plus,{s:12}),"Make it a prop")))); })),
     !!mentions.length&&h("details",{className:"prop-review-notprops"},
       h("summary",null,"Only mentioned, never seen ("+mentions.length+")"),
       h("div",{className:"prop-review-list"},mentions.map(item)))
@@ -2141,7 +2171,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
             ((typeof roomCopy==="function" && roomCopy(project,"props").title) || "Props Master"),
             React.createElement(window.InfoTip,{label:"About Props",
               text:((typeof roomCopy==="function" && roomCopy(project,"props").tip) ||
-                "Story props \u2014 the objects the story depends on, read from the screenplay. A film crew sorts every object in the script four ways: costume (worn \u2014 drawn on the character\u2019s sheet), set dressing (part of the location), background props (used once \u2014 the shot describes them) and hero props. Only hero props get a card: an object the screenplay names that comes back in two or more scenes, that something happens to (handed over, opened, hidden, broken\u2026), or that the story turns on. Each card says why. Cards that aren\u2019t story props sit under Not story props, where you can keep one or move them to Recently deleted. Draft specifications fills the design fields; Generate missing images renders the drafted props that need their own image.")}))),
+                "Story props \u2014 the objects the story depends on, read from the screenplay. A film crew sorts every object in the script four ways: costume (worn \u2014 drawn on the character\u2019s sheet), set dressing (part of the location), background props (used once \u2014 the shot describes them) and hero props. Only hero props get a card: an object the screenplay names that comes back in two or more scenes, or \u2014 in one scene \u2014 changes hands, is hidden, found, lost or destroyed and the story turns on it. A worn item is a prop only when something like that happens to it; part of the place never is. Each card says why. Cards that aren\u2019t story props sit under Not story props, where you can keep one or move them to Recently deleted. Draft specifications fills the design fields; Generate missing images renders the drafted props that need their own image.")}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{items:trashItems,kind:"prop",onRestore,onPurge,compact:true}),
           // READ AGAIN (owner 2026-10-29): before the film's screenplay has been read for props, Draft N specifications
@@ -2164,6 +2194,8 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
           (!missingAll.length && eligibleAll>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId,onClick:()=>startAllBatch(false),
             title:"Regenerate the images of the drafted props \u2014 you'll be asked before anything is redone, with the price"},
             React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Regenerate images\u2026")))),
+    // how a crew sorts objects (owner 2026-10-30): open while the tab is empty, a one-line summary otherwise
+    !review && window.PropCrewSortNote && React.createElement(window.PropCrewSortNote,{open:!list.length}),
     extraction&&React.createElement("div",{className:"prop-review-actions",role:"status"},
       React.createElement("span",null,"Reading screenplay "+extraction.done+" / "+extraction.total+(extraction.sceneNo?" · Scene "+extraction.sceneNo:"")),
       React.createElement("button",{className:"char-draft-btn ghost",onClick:()=>{extractionRun.current++;pendingDraft.current=null;setExtraction(null);}},"Cancel")),
@@ -2180,7 +2212,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
     (notStory.length>0 && inventoryGroup!=="other") && React.createElement("div",{className:"prop-notstory-note","data-testid":"prop-notstory-note"},
       React.createElement("span",{className:"prop-notstory-text"},
         React.createElement("b",null,notStory.length!==1 ? notStory.length+" cards aren't story props" : "1 card isn't a story prop"),
-        " \u2014 costume from a character's look, guesses from the write-ups, or objects named once that nothing happens to. Shots and character sheets describe them in words."),
+        " \u2014 costume, set dressing, or objects the story doesn't depend on (used once, nothing that matters happens to them), plus older cards from a character's look or write-up. Shots and character sheets describe them in words."),
       React.createElement("button",{type:"button",className:"char-draft-btn ghost",onClick:()=>setInventoryGroup("other")},"Show them"),
       onDelete && React.createElement("button",{type:"button",className:"char-draft-btn ghost","data-testid":"prop-notstory-bin",onClick:binNotStory},"Move them to Recently deleted")),
     (inventoryGroup==="other" && notStory.length>0) && React.createElement("div",{className:"prop-notstory-note"},
