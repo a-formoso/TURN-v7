@@ -2279,11 +2279,13 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   onRemoveMicroBeatShots, onMakeSceneNeeds, readOnly=false }){
   const [view, setView] = React.useState(null);
   const deleteShotReferenceHandler = readOnly ? null : onDeleteShotReference;
-  const batch = useBatchGen();
+  const batch = useBatchGen("shots");
   const batchActiveId = batch.activeId;
   // the rolling-keyframe CHAIN: render a scene's shots in order, each seeded by the previous
   // frame. Each rendered frame auto-locks (becomes the approved seed) and the chain continues.
   const [chain, setChain] = React.useState(null);   // { ids, idx, total } | null while running
+  // (2026-10-30) a chain keeps the Shots tab alive in the background between its steps too (turnArtJobs)
+  (window.useArtJob||(()=>{}))("shots:chain", chain ? { label:"Rendering shots in order", detail:(chain.idx+1)+" of "+chain.total } : null);
   const chainRef = React.useRef(null); chainRef.current = chain;
   const chainStartingRef = React.useRef(false);
   // Legacy micro-beat cleanup is an explicit, non-generating action. Keep the

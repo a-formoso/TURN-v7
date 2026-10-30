@@ -11689,3 +11689,13 @@ html[data-theme="light"] .hd-root :is(.hd-body,.hd-feature-band,.hd-foot) :is(.h
 .prop-notstory-text{flex:1 1 260px;min-width:0}
 .prop-notstory-text b{color:var(--txt-0);font-weight:600}
 .prop-notstory-note .char-draft-btn{flex:0 0 auto}
+
+/* (2026-10-30) background work: a tab still working while another is on screen, and the bar in the other rooms */
+.seg-job-dot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:var(--pos);margin-left:1px;box-shadow:0 0 0 2px rgba(0,0,0,.25);animation:segAttnPulse 1.8s ease-in-out infinite}
+html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
+.art-bg-jobs{position:fixed;left:16px;bottom:22px;z-index:69;display:flex;align-items:center;gap:10px;max-width:min(460px,calc(100vw - 32px));
+  padding:10px 12px;border-radius:12px;background:var(--bg-2);border:1px solid var(--line-2);box-shadow:var(--shadow-pop);font-size:13px;color:var(--txt-1)}
+.art-bg-jobs .abj-list{display:flex;flex-direction:column;gap:6px;min-width:0}
+.art-bg-jobs .abj-row{display:flex;align-items:center;gap:10px}
+.art-bg-jobs .abj-text{flex:1;min-width:0;line-height:1.3}
+.art-bg-jobs .abj-text b{color:var(--txt-0);font-weight:600}

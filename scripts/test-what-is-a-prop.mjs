@@ -292,7 +292,7 @@ await test("+c the Lookbook's Recently deleted is the compact header button, as 
 });
 await test("+d the changed files load with fresh keys", ()=>{
   for(const f of ["app/prop-screenplay.js", "app/props.jsx", "app/artroom.jsx", "app/app.jsx", "app/ai.jsx", "app/agents.jsx", "app/lookbook.jsx", "app/breakdown.jsx", "app/styles.css"])
-    assert.ok(["20261029-hs144"].some(k=>html.includes(f+'?v='+k+'"')), f);
+    assert.ok(["20261029-hs144", "20261030-hs145"].some(k=>html.includes(f+'?v='+k+'"')), f);
 });
 
 console.log(failed ? (checks+" checks passed, "+failed+" FAILED") : (checks+" checks passed"));

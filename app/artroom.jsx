@@ -3412,7 +3412,40 @@ window.useImageGen = useImageGen;
    those that already have a sheet vs. not, and surfaces a choice (generate missing /
    regenerate all) when some already exist. Drives both the per-scene batch and the
    tab-wide "Generate all". */
-function useBatchGen(){
+/* WORK KEEPS RUNNING IN THE BACKGROUND (owner 2026-10-30): a tab with work in progress — an image batch, the Props
+   tab's screenplay read or its review — reports it here, and the Art Room keeps that tab mounted (hidden) while you
+   look at another tab or another room, so the work isn't dropped when you leave. Switching films still stops it
+   (the Art Room is keyed by the film). Entries: {tab: {label, detail}}. */
+(function(){
+  const jobs = {}, subs = new Set();
+  const notify = ()=> subs.forEach(fn=>{ try{ fn(); }catch(e){} });
+  window.turnArtJobs = {
+    set(tab, job){
+      if(!tab) return;
+      const prev = jobs[tab];
+      if(!job){ if(!prev) return; delete jobs[tab]; notify(); return; }
+      if(prev && prev.label===job.label && prev.detail===job.detail) return;
+      jobs[tab] = { label:job.label||"", detail:job.detail||"" }; notify();
+    },
+    get(){ return { ...jobs }; },
+    subscribe(fn){ subs.add(fn); return ()=>subs.delete(fn); }
+  };
+})();
+// re-render when a tab's background work starts, changes or ends
+function useArtJobs(){
+  const [, setTick] = React.useState(0);
+  React.useEffect(()=> window.turnArtJobs.subscribe(()=>setTick(t=>t+1)), []);
+  return window.turnArtJobs.get();
+}
+window.useArtJobs = useArtJobs;
+// a tab reports its work (null = none); cleared when the tab unmounts
+function useArtJob(tab, job){
+  const label = job ? job.label : "", detail = job ? job.detail : "";
+  React.useEffect(()=>{ window.turnArtJobs.set(tab, job ? { label, detail } : null); }, [tab, !!job, label, detail]);
+  React.useEffect(()=> ()=> window.turnArtJobs.set(tab, null), [tab]);
+}
+window.useArtJob = useArtJob;
+function useBatchGen(tab){
   const [queue, setQueue] = React.useState([]);
   const [activeId, setActiveId] = React.useState(null);
   const [total, setTotal] = React.useState(0);
@@ -3509,6 +3542,8 @@ function useBatchGen(){
     setQueue([]); setActiveId(null); setTotal(0); setPreparing(false); setPrompt(null);
     setMsg("Cancelled.");
   };
+  // a running batch keeps its tab alive while you look elsewhere (see turnArtJobs)
+  useArtJob(tab, (activeId || preparing) ? { label:"Generating images", detail:(activeId && total) ? Math.min(total, total-queue.length+1)+" of "+total : "" } : null);
   return { activeId, msg, prompt, preparing, setPrompt, setMsg, advance, run, begin, cancel, total };
 }
 window.useBatchGen = useBatchGen;
@@ -7259,7 +7294,7 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
       try{ const r = await aiSurpriseRenderStyle(need[i], project); if(r) onUpdate(need[i].id, { surpriseRender:r }); }catch(e){} }
     setAllStyling(null);
   };
-  const batch = useBatchGen();
+  const batch = useBatchGen("characters");
   const batchActiveId = batch.activeId;
   const list = characters || [];
   const q = query.trim().toLowerCase();
@@ -7915,8 +7950,9 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   shots, beatsMap, onMakeSceneNeeds, onOpenStage, wardrobeIds, colorRefsOwned, onUseLookbookColorRefs, onKeepColorRefs, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch,
   onResearchFresh, onRestoreLookbook, onPurgeLookbook, onSuggestLookbookNote, suggestingLookbookId, onLookbookNoteFromImage, readingLookbookImageId,
-  staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false, projectLoading=false }){
+  staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false, projectLoading=false, hidden=false }){
   const _stale = staleTabs || {};
+  const artJobs = (window.useArtJobs || (()=>({})))();   // tabs with background work (see turnArtJobs)
   const PropSheets = window.PropSheets;
   const LocationSheets = window.LocationSheets;
   const LookbookView = window.LookbookView;
@@ -7953,11 +7989,11 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     return [];
   };
   React.useEffect(()=>{
-    if(typeof nbPreloadFor!=="function") return;
+    if(hidden || typeof nbPreloadFor!=="function") return;
     const ids = tabPreloadIds();
     if(!ids.length) return;
     if(typeof nbPrefetchAll==="function") nbPrefetchAll().then(()=>nbPreloadFor(ids)); else nbPreloadFor(ids);
-  },[artView, projId, lockedView, (characters||[]).length, (props||[]).length, (locations||[]).length, (shots||[]).length, (lookbook||[]).length]);
+  },[hidden, artView, projId, lockedView, (characters||[]).length, (props||[]).length, (locations||[]).length, (shots||[]).length, (lookbook||[]).length]);
 
   /* VIEW-ONLY ROLES SEE THE STORYBOARDS (2026-10-09, owner — Storyboards review): a read-only role and a Stage
      editor page, view and export the board. On the Storyboards tab the boundary moves onto the tools wrapper (as
@@ -7967,8 +8003,69 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
      other tabs from its chips and export both documents; BreakdownView hides Make and Render for them (readOnly). */
   const viewableTab = !lockedView && ((artView==="storyboard" && !!window.StoryboardView) || (artView==="breakdown" && !!window.BreakdownView));
   const rootInert = readOnly && !lockedView && !viewableTab;
+  // one tab's page (the visible one, or one kept alive for its background work)
+  const renderTab = (tab)=> (
+    (tab===artView && lockedView)
+      ? React.createElement(ArtTabLock,{tab:tab,locks:tabLocks,onGo:setArtView})
+    : tab==="lookbook" && LookbookView
+      ? React.createElement(LookbookView,{project,lookbook,note:lookbookNote,readOnly,
+          onUpdate:onUpdateLookbook,onAdd:onAddLookbook,onDelete:onDeleteLookbook,onSetNote:onSetLookbookNote,onResearch,
+          onResearchFresh,onRestore:onRestoreLookbook,onPurge:onPurgeLookbook,onSuggestNote:onSuggestLookbookNote,suggestingId:suggestingLookbookId,
+          onNoteFromImage:onLookbookNoteFromImage,readingImageId:readingLookbookImageId})
+    : tab==="characters"
+      ? React.createElement(CharacterSheets,{readOnly,wardrobeIds:wardrobeIds||[],project,characters,scenes,props,drafts,shots,beatsMap,onUpdate:onUpdateChar,
+          onDraftProp,onCreateOwnedProp,
+          onDraft:onDraftVisuals,onDraftAll:onDraftAllVisuals,draftingId:draftingVisualId,draftingAll:draftingAllVisuals,draftingIds:draftingVisualIds,
+          onReadScript:onReadCharacterScript,readingFactIds,
+          trashItems:(trash&&trash.characters)||[],onRestore:onRestoreChar,onPurge:onPurgeChar,
+          onSuggestStates,suggestingStatesId,onBuildWornProps,onRemoveOwnedItem,onRenameOwnedItem,onDelete:onDeleteCharacter,onCast,
+          lookbookStale:!!_stale.characters,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("characters"),
+          onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("characters","draft"),
+          lookbook,lookbookNote,onOpenLookbook:setArtView?()=>setArtView("lookbook"):null,onUpdateCrowd})
+    : tab==="props" && PropSheets
+      ? React.createElement(PropSheets,{project,props,characters,scenes,drafts,onSourceClick,onUpdate:onUpdateProp,onDraft:onDraftProp,
+          onDraftAll:onDraftAllProps,onAdd:onAddProp,onImportProps,onDelete:onDeleteProp,draftingId:draftingPropId,draftingIds:draftingPropIds,draftingAll:draftingAllProps,
+          trashItems:(trash&&trash.props)||[],onRestore:onRestoreProp,onPurge:onPurgeProp,onEnsureOwner,
+          castHasProps,onMergeProps,noPropsConfirmed,onSetNoProps,
+          lookbookStale:!!_stale.props,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("props"),
+          onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("props","draft")})
+    : tab==="locations" && LocationSheets
+      ? React.createElement(LocationSheets,{project,locations,scenes,drafts,onUpdate:onUpdateLocation,onDraft:onDraftLocation,sluglineUnits,onUpdateUnit,onRemoveUnit,readOnly,
+          onDraftAll:onDraftAllLocs,onDelete:onDeleteLocation,draftingIds:draftingLocIds,draftingAll:draftingAllLocs,
+          onMergeLocations,onPlaceDecision:onLocationPlaceDecision,onSharedHeadDecision,
+          trashItems:(trash&&trash.locations)||[],onRestore:onRestoreLoc,onPurge:onPurgeLoc,
+          scriptHasLocs,onDraftStaging,draftingStageId,
+          lookbookStale:!!_stale.locations,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("locations"),
+          onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("locations","draft")})
+      : tab==="stylebible" && window.StyleBibleView
+      ? React.createElement(window.StyleBibleView,{project,scenes,onSetRefs:readOnly?null:onSetStyleRefs,onSetScenePreset:readOnly?null:onSetScenePreset,
+          onAddRefImages:readOnly?null:onAddStyleRefImages,onRemoveRefImage:readOnly?null:onRemoveStyleRefImage,onColorist:readOnly?null:onColorist,
+          onSetFilmStock:readOnly?null:onSetFilmStock,onSetCapture:readOnly?null:onSetCapture,onUpdatePreset:readOnly?null:onUpdatePreset,onDeletePreset:readOnly?null:onDeletePreset,
+          lookbookStale:!!_stale.stylebible,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("colorist"),
+          lookbook, onGoLookbook:()=>setArtView("lookbook"),
+          refsOwned:!!colorRefsOwned,onUseLookbookRefs:readOnly?null:onUseLookbookColorRefs,onKeepRefs:readOnly?null:onKeepColorRefs})
+    : tab==="shots" && window.ShotList
+       ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
+           onUpdateShot,onAddShot,onDeleteShot,onDeleteShotReference:readOnly?null:onDeleteShotReference,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,
+          onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,readOnly,
+          onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,
+          trashItems:(trash&&trash.shots)||[],onRestore:readOnly?null:onRestoreShot,onPurge:readOnly?null:onPurgeShot,
+          lookbookStale:!!_stale.shots,
+          onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("shots"):null})
+      : tab==="storyboard" && window.StoryboardView
+      ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot,readOnly})
+      : tab==="breakdown" && window.BreakdownView
+      ? React.createElement(window.BreakdownView,{loading:!!projectLoading,project,scenes,characters,props,locations,shots,drafts,setArtView,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,onOpenStage,readOnly})
+      : React.createElement(ArtComingSoon,{tab:tab}));
+  /* BACKGROUND WORK (owner 2026-10-30): a tab whose work is still running (an image batch, the screenplay read or its
+     review — turnArtJobs) stays mounted, hidden, while another tab or room is on screen, so leaving doesn't stop it.
+     Every tab sits in a keyed pane so the same page comes back when you return; display:contents keeps the layout. */
+  const jobTabs = Array.from(new Set(Object.keys(artJobs).map(k=>k.split(":")[0]))).filter(t=> hidden || t!==artView);
+  const panes = [ ...(hidden ? [] : [artView]), ...jobTabs ];
   return React.createElement("div",{
     className:"artroom"+(readOnly?" is-readonly":"")+(lockedView?" is-locked":""),
+    // outside the Art Room it stays mounted only for a tab's background work, and shows nothing
+    style:hidden ? { display:"none" } : undefined, "aria-hidden":hidden ? "true" : undefined,
     "aria-disabled":rootInert?"true":undefined,
     /* Art cards own several direct image-generation/edit controls rather than
        routing every mutation through App callbacks. `inert` is therefore the
@@ -7982,62 +8079,13 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
     React.createElement("div",{className:"artroom-tools",inert:(readOnly && (lockedView || viewableTab))?"":undefined},
       // fixed engine dock — Model / Aspect / Resolution, always reachable while
       // scrolling at every viewport
-      React.createElement(NbDock,null),
+      !hidden && React.createElement(NbDock,null),
       // Blender Studio is always open (it reads the locations, not a visual step): never behind a lock
-      window.BlenderStudioHost&&React.createElement(window.BlenderStudioHost,{key:"studio-"+projId,
+      !hidden && window.BlenderStudioHost&&React.createElement(window.BlenderStudioHost,{key:"studio-"+projId,
         locations,characters,props,scenes,drafts,sluglineUnits,readOnly})),
-    // (pre-production readiness strip removed — user ruling 2026-07-19)
-    lockedView
-      ? React.createElement(ArtTabLock,{tab:artView,locks:tabLocks,onGo:setArtView})
-    : artView==="lookbook" && LookbookView
-      ? React.createElement(LookbookView,{project,lookbook,note:lookbookNote,readOnly,
-          onUpdate:onUpdateLookbook,onAdd:onAddLookbook,onDelete:onDeleteLookbook,onSetNote:onSetLookbookNote,onResearch,
-          onResearchFresh,onRestore:onRestoreLookbook,onPurge:onPurgeLookbook,onSuggestNote:onSuggestLookbookNote,suggestingId:suggestingLookbookId,
-          onNoteFromImage:onLookbookNoteFromImage,readingImageId:readingLookbookImageId})
-    : artView==="characters"
-      ? React.createElement(CharacterSheets,{readOnly,wardrobeIds:wardrobeIds||[],project,characters,scenes,props,drafts,shots,beatsMap,onUpdate:onUpdateChar,
-          onDraftProp,onCreateOwnedProp,
-          onDraft:onDraftVisuals,onDraftAll:onDraftAllVisuals,draftingId:draftingVisualId,draftingAll:draftingAllVisuals,draftingIds:draftingVisualIds,
-          onReadScript:onReadCharacterScript,readingFactIds,
-          trashItems:(trash&&trash.characters)||[],onRestore:onRestoreChar,onPurge:onPurgeChar,
-          onSuggestStates,suggestingStatesId,onBuildWornProps,onRemoveOwnedItem,onRenameOwnedItem,onDelete:onDeleteCharacter,onCast,
-          lookbookStale:!!_stale.characters,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("characters"),
-          onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("characters","draft"),
-          lookbook,lookbookNote,onOpenLookbook:setArtView?()=>setArtView("lookbook"):null,onUpdateCrowd})
-    : artView==="props" && PropSheets
-      ? React.createElement(PropSheets,{project,props,characters,scenes,drafts,onSourceClick,onUpdate:onUpdateProp,onDraft:onDraftProp,
-          onDraftAll:onDraftAllProps,onAdd:onAddProp,onImportProps,onDelete:onDeleteProp,draftingId:draftingPropId,draftingIds:draftingPropIds,draftingAll:draftingAllProps,
-          trashItems:(trash&&trash.props)||[],onRestore:onRestoreProp,onPurge:onPurgeProp,onEnsureOwner,
-          castHasProps,onMergeProps,noPropsConfirmed,onSetNoProps,
-          lookbookStale:!!_stale.props,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("props"),
-          onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("props","draft")})
-    : artView==="locations" && LocationSheets
-      ? React.createElement(LocationSheets,{project,locations,scenes,drafts,onUpdate:onUpdateLocation,onDraft:onDraftLocation,sluglineUnits,onUpdateUnit,onRemoveUnit,readOnly,
-          onDraftAll:onDraftAllLocs,onDelete:onDeleteLocation,draftingIds:draftingLocIds,draftingAll:draftingAllLocs,
-          onMergeLocations,onPlaceDecision:onLocationPlaceDecision,onSharedHeadDecision,
-          trashItems:(trash&&trash.locations)||[],onRestore:onRestoreLoc,onPurge:onPurgeLoc,
-          scriptHasLocs,onDraftStaging,draftingStageId,
-          lookbookStale:!!_stale.locations,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("locations"),
-          onApplyLookbookDraftOnly:()=>onApplyLookbook&&onApplyLookbook("locations","draft")})
-      : artView==="stylebible" && window.StyleBibleView
-      ? React.createElement(window.StyleBibleView,{project,scenes,onSetRefs:readOnly?null:onSetStyleRefs,onSetScenePreset:readOnly?null:onSetScenePreset,
-          onAddRefImages:readOnly?null:onAddStyleRefImages,onRemoveRefImage:readOnly?null:onRemoveStyleRefImage,onColorist:readOnly?null:onColorist,
-          onSetFilmStock:readOnly?null:onSetFilmStock,onSetCapture:readOnly?null:onSetCapture,onUpdatePreset:readOnly?null:onUpdatePreset,onDeletePreset:readOnly?null:onDeletePreset,
-          lookbookStale:!!_stale.stylebible,onApplyLookbook:()=>onApplyLookbook&&onApplyLookbook("colorist"),
-          lookbook, onGoLookbook:()=>setArtView("lookbook"),
-          refsOwned:!!colorRefsOwned,onUseLookbookRefs:readOnly?null:onUseLookbookColorRefs,onKeepRefs:readOnly?null:onKeepColorRefs})
-    : artView==="shots" && window.ShotList
-       ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
-           onUpdateShot,onAddShot,onDeleteShot,onDeleteShotReference:readOnly?null:onDeleteShotReference,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,
-          onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,readOnly,
-          onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,
-          trashItems:(trash&&trash.shots)||[],onRestore:readOnly?null:onRestoreShot,onPurge:readOnly?null:onPurgeShot,
-          lookbookStale:!!_stale.shots,
-          onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("shots"):null})
-      : artView==="storyboard" && window.StoryboardView
-      ? React.createElement(window.StoryboardView,{project,scenes,shots,characters,props,locations,beatsMap,setArtView,onUpdateShot,readOnly})
-      : artView==="breakdown" && window.BreakdownView
-      ? React.createElement(window.BreakdownView,{loading:!!projectLoading,project,scenes,characters,props,locations,shots,drafts,setArtView,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,onOpenStage,readOnly})
-      : React.createElement(ArtComingSoon,{tab:artView}));
+    panes.map(tab=> React.createElement("div",{key:"pane-"+tab,className:"art-tab-pane","data-art-pane":tab,
+      style:{ display: (!hidden && tab===artView) ? "contents" : "none" }, "aria-hidden":(!hidden && tab===artView) ? undefined : "true"},
+      // a hidden pane tells its tab so (its department name stays out of the page heading — ArtDeptTitle)
+      window.ArtPaneHidden ? React.createElement(window.ArtPaneHidden.Provider,{value:hidden || tab!==artView}, renderTab(tab)) : renderTab(tab))));
 }
 window.ArtRoom = ArtRoom;

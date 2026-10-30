@@ -251,7 +251,7 @@ const ART_SUBS = {
   shots:"Every beat broken into shots, with their frames rendered in order.",
   storyboard:"Each scene's boards, composed from its rendered shot frames.",
   breakdown:"What every scene still needs before it can be shot." };
-function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen, onToggleRail, onToggleInsp, onCoordinate, onProductionCheck, productionReadOnly, onAgents, staleTabs, attnTabs, hiddenTabs, tabLocks, readOnly }){
+function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen, onToggleRail, onToggleInsp, onCoordinate, onProductionCheck, productionReadOnly, onAgents, staleTabs, attnTabs, hiddenTabs, tabLocks, readOnly, jobTabs }){
   // The Stage is a single full-width assembly view — no sub-view tabs (don't fall through
   // to the Writers' Room tabs); its own header carries the context.
   if(room==="stage") return null;
@@ -282,14 +282,18 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
           // it marks a waiting one-tap action, not just drift
           const attn = !locked && inArt && attnTabs && attnTabs[id];
           const stale = !locked && inArt && staleTabs && staleTabs[id];
+          // (2026-10-30) a tab still working while you look at another one (turnArtJobs) — e.g. "Generating images · 3 of 8"
+          const job = inArt && cur!==id && jobTabs && jobTabs[id];
            return React.createElement("button",{key:id,className:`seg ${cur===id?"on":""}${locked?" locked":""}`,onClick:()=>setCur(id),
              "aria-current":cur===id?"page":undefined,
             "aria-label": locked ? (lab+" (locked)") : undefined,
             title: locked ? (lab+" \u2014 locked. "+lock.waitingFor)
+              : job ? (lab+" \u2014 still working: "+job)
               : attn ? (lab+" — a character sheet is waiting to wear its new props: tap \u201cUpdate sheet with new wardrobe\u201d on the card")
               : (stale ? (lab+" — the Lookbook changed since this was drafted") : lab)},
             React.createElement(Ic,{s:14}),React.createElement("span",{className:"seg-lab"},lab),
             locked ? React.createElement("span",{className:"seg-lock","aria-hidden":"true"},React.createElement(Icon.padlock||Icon.alert,{s:12}))
+              : job ? React.createElement("span",{className:"seg-job-dot","aria-label":"still working"})
               : attn ? React.createElement("span",{className:"seg-attn-dot"})
               : (stale && React.createElement("span",{className:"seg-stale-dot"})));
         });
@@ -353,10 +357,15 @@ window.ViewNav = ViewNav;
 /* ArtDeptTitle — an Art Room tab's department name and its \u24d8 ("Storyboard Artist"), shown in the page heading's eyebrow
    ("02 \u00b7 PRE-PRODUCTION \u00b7 STORYBOARD ARTIST \u24d8", owner 2026-10-24) instead of a row of its own. With no heading on
    the page it renders where it stands, as before. */
+/* a tab kept alive for its background work (ArtRoom, 2026-10-30) is hidden: its department name stays out of the heading */
+const ArtPaneHidden = (typeof React.createContext==="function") ? React.createContext(false) : null;
+window.ArtPaneHidden = ArtPaneHidden;
 function ArtDeptTitle({ className, style, children }){
+  const paneHidden = (ArtPaneHidden && typeof React.useContext==="function") ? React.useContext(ArtPaneHidden) : false;
   const find = ()=> (typeof document!=="undefined" && document.getElementById) ? document.getElementById("art-dept-slot") : null;
   const [slot, setSlot] = React.useState(find);
   React.useEffect(()=>{ const s = find(); if(s!==slot) setSlot(s); });
+  if(paneHidden) return null;
   if(slot && slot.isConnected && typeof ReactDOM!=="undefined" && ReactDOM.createPortal)
     return ReactDOM.createPortal(React.createElement("span",{className:"art-dept"},
       React.createElement("span",{className:"art-dept-sep","aria-hidden":"true"},":"), children), slot);

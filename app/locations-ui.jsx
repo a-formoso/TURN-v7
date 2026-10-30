@@ -2700,7 +2700,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
   const [query, setQuery] = React.useState("");               // free-text name search
   const [searchOpen, setSearchOpen] = React.useState(false);  // collapsible search: icon-only until clicked
   const searchRef = React.useRef(null);
-  const batch = useBatchGen();
+  const batch = useBatchGen("locations");
   const batchActiveId = batch.activeId;
   const rawLocations = locations || [];
   const locationFold = (typeof deriveSubspaceFold==="function") ? deriveSubspaceFold(scenes||[],drafts||{}) : {};

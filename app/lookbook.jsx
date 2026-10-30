@@ -547,7 +547,7 @@ function useLookbookFramed(ids){
 function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDelete, onSetNote, onResearch, onResearchFresh, onRestore, onPurge, onSuggestNote, suggestingId, onNoteFromImage, readingImageId }){
   const [view, setView] = React.useState(null);
   const [researchMenu, setResearchMenu] = React.useState(false);
-  const batch = useBatchGen();
+  const batch = useBatchGen("lookbook");
   const batchActiveId = batch.activeId;
   const list = dedupeLookbookCards(lookbook || []);
   const deleted = lookbookDeleted(lookbook || []).map(c=>({ ...c, name:c.source||"Reference", _deletedAt:c.deletedAt }));

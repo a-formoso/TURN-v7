@@ -114,7 +114,7 @@ await test("the stripboard and the art department bible print through the docume
 
 await test("the tab and the ⋮ menu exports are wired",()=>{
   assert.ok(art.includes('{ id:"breakdown",  label:"Breakdown",   icon:"grid" },'));
-  assert.ok(art.includes('artView==="breakdown" && window.BreakdownView'));
+  assert.ok(art.includes('tab==="breakdown" && window.BreakdownView'));   // (2026-10-30) each tab from renderTab(tab)
   assert.ok(art.includes("window.turnExportArtBible = ()=> window.exportArtBible && window.exportArtBible({ project, characters, props, locations, scenes, drafts, shots });"));
   assert.ok(chrome.includes('["strip","Export stripboard"')&&chrome.includes('["bible","Export art department bible"')&&chrome.includes('["shots","Export shot list"'));
   assert.ok(/src="app\/breakdown\.jsx\?v=[^"]+"/.test(html));

@@ -1802,7 +1802,9 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   const setInventoryGroup = (g)=>{ groupPicked.current = true; setInventoryGroupRaw(g); };
   const [extraction,setExtraction]=React.useState(null), [review,setReview]=React.useState(null), [extractionError,setExtractionError]=React.useState("");
   const extractionRun=React.useRef(0);
-  const scopeKey=JSON.stringify([project&&project.id,project&&project.title,(scenes||[]).map(s=>s.id)]);
+  // (2026-10-30) only another film ends the read: it keeps going while you work elsewhere, scene edits included —
+  // Apply checks every passage against the screenplay as it is then
+  const scopeKey=JSON.stringify([project&&project.id]);
   React.useEffect(()=>{extractionRun.current++;setReview(null);setExtraction(null);setExtractionError("");return ()=>{extractionRun.current++;};},[scopeKey]);
   // EXTRACT FIRST (owner 2026-10-12): "Draft all specifications" starts by reading the screenplay for its
   // props, so the real carried props exist before anything else. The extraction still only PROPOSES: the
@@ -1813,6 +1815,9 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   const releaseDraft=()=>{ const q=pendingDraft.current; pendingDraft.current=null; if(q) setDraftQueued({mode:q.mode}); };
   React.useEffect(()=>{ if(!draftQueued) return; const m=draftQueued.mode; setDraftQueued(null); onDraftAll(m); },[draftQueued]);
   React.useEffect(()=>{ pendingDraft.current=null; },[scopeKey]);
+  // the read and its waiting review keep this tab alive while you look at another tab or room (turnArtJobs)
+  (window.useArtJob||(()=>{}))("props:read", extraction ? { label:"Reading the screenplay", detail:extraction.total ? extraction.done+" / "+extraction.total : "" }
+    : review ? { label:"Props ready to review", detail:"" } : null);
   const extractProps=async(opts)=>{
     if(extraction)return;
     const gate=extractionRun.current;
@@ -1849,7 +1854,7 @@ function PropSheets({ project, props, characters, scenes, drafts, onUpdate, onDr
   };
   const [searchOpen, setSearchOpen] = React.useState(false);  // collapsible search: icon-only until clicked
   const searchRef = React.useRef(null);
-  const batch = useBatchGen();
+  const batch = useBatchGen("props");
   const batchActiveId = batch.activeId;
   const list = props || [];
   // the tab names for the "No props in this story" copy, as the lock copy names them (the tab bar's

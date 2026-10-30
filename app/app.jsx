@@ -4367,6 +4367,10 @@ function App(){
   const [draftingPropIds, setDraftingPropIds] = React.useState([]);
   const draftingPropIdsRef = React.useRef([]); draftingPropIdsRef.current = draftingPropIds;
   const [draftingAllProps, setDraftingAllProps] = React.useState(false);
+  // Art Room tabs still working in the background (an image batch, the props screenplay read or its review)
+  const artJobs = (window.useArtJobs || (()=>({})))();
+  const artJobText = (j)=> j ? j.label+(j.detail ? " \u00b7 "+j.detail : "") : "";
+  const artJobTabs = {}; Object.keys(artJobs).forEach(k=>{ const t=k.split(":")[0]; artJobTabs[t] = artJobTabs[t] ? artJobTabs[t]+"; "+artJobText(artJobs[k]) : artJobText(artJobs[k]); });
   // "No props in this story" (2026-09-27, owner-approved — docs/Story Pipeline.md step 9): with no
   // props at all, this explicit mark is what unlocks the Locations tab (see app/art-tab-locks.js).
   // It lives on `project` (saved per film / episode, merged key by key, writable by the owner and
@@ -9650,7 +9654,7 @@ function App(){
               onClick:()=>setProject(p=>({ ...p, importStripHidden:true }))}, Icon.x&&React.createElement(Icon.x,{s:13})))));
     })(),
     room==="art" && React.createElement(ViewNav,{room,view,setView,artView,setArtView,staleTabs,
-      attnTabs:{ characters: wardrobeAttn },tabLocks:artTabLocks,
+      attnTabs:{ characters: wardrobeAttn },tabLocks:artTabLocks,jobTabs:artJobTabs,
       readOnly:roomReadOnly,
       hiddenTabs:(typeof tabHidden==="function") ? Object.fromEntries((window.ART_TABS||[]).map(t=>[t.id, tabHidden(project, t.id)])) : null,
       railOpen,inspOpen,onToggleRail:toggleRail,onToggleInsp:toggleInsp,
@@ -9699,51 +9703,7 @@ function App(){
           // hard gate: the Art Room is downstream of the story, so with no scenes
           // show the onboarding instead of empty (and partly broken) tabs.
           ? React.createElement("div",{className:"canvas"}, emptyCanvas())
-          : React.createElement(ArtRoom,{key:(cloudMode?currentProjectId:"local"),artView,setArtView,project,projectLoading,characters,scenes,props,drafts,trash,
-            readOnly:roomReadOnly,canReview:!roomReadOnly,onSourceClick:openArtSource,tabLocks:artTabLocks,
-            noPropsConfirmed:!!(project && project.noPropsConfirmed),onSetNoProps:roomReadOnly?null:setNoPropsConfirmed,
-            onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,
-            onRestoreLoc:restoreLocation,onPurgeLoc:purgeLocation,onRestoreShot:restoreShot,onPurgeShot:purgeShot,onEnsureOwner:ensureOwnerSheet,
-            onColorist:(refs, opts)=>{ if(!canMutateSharedFilm()) return; if(typeof refs==="string") setStyleRefs(refs.trim());
-              coloristRedoManualRef.current = !!(opts && opts.redoManual); setColoristOpen(true); },
-            // "Design the cast" opens its preview first (what it makes + the price, 2026-10-03)
-            // a role that can't change the Art Room is told, and nothing opens (2026-10-09)
-            onCast:(opts)=>{ if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; } if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },
-            onResearch:()=>{ if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; } setResearchOpen(true); },
-            onResearchFresh:roomReadOnly ? null : researchLookbookFresh,
-            lookbook,lookbookNote,onUpdateLookbook:updateLookbookCard,onAddLookbook:addLookbookCard,
-            onDeleteLookbook:deleteLookbookCard,onSetLookbookNote:setLookbookNote,
-            onRestoreLookbook:restoreLookbookCard,onPurgeLookbook:purgeLookbookCard,
-            onSuggestLookbookNote:roomReadOnly ? null : suggestLookbookNote,suggestingLookbookId,
-            onLookbookNoteFromImage:roomReadOnly ? null : noteFromLookbookImage,readingLookbookImageId,
-            staleTabs,onApplyLookbook:applyLookbook,onReviewLookbook:(dept)=>applyLookbook(dept,"review"),
-            onUpdateChar:updateCharacter,onDraftVisuals:draftCharacterVisuals,onDraftAllVisuals:draftAllVisuals,
-            // "Read the script" on the Characters tab (every character) and on a card (2026-10-12, Character fidelity)
-            onReadCharacterScript:(ids)=>{ if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; }
-              readCharacterFacts(Array.isArray(ids) ? (characters||[]).filter(c=>c && ids.indexOf(c.id)>=0) : (characters||[])); },
-            readingFactIds,
-            draftingVisualId,draftingAllVisuals,draftingVisualIds,onDeleteCharacter:deleteCharacter,
-            onSuggestStates:suggestCharacterStates,suggestingStatesId,onRemoveOwnedItem:removeOwnedProp,
-            onBuildWornProps:(c)=>{ if(c && wornBuildRef.current) wornBuildRef.current(c.id); },onRenameOwnedItem:renameOwnedProp,
-            onUpdateProp:updateProp,onDraftProp:draftPropVisuals,onDraftAllProps:draftAllProps,onCreateOwnedProp:createOwnedProp,
-            onAddProp:addProp,onImportProps:importScreenplayProps,onDeleteProp:deleteProp,draftingPropId,draftingPropIds,draftingAllProps,onMergeProps:mergeProps,
-            castHasProps:(typeof castHasProps==="function" && castHasProps(characters)),
-            locations,onUpdateLocation:updateLocation,onDraftLocation:draftLocationVisuals,onDraftAllLocs:draftAllLocations,
-            onDeleteLocation:deleteLocation,draftingLocIds,draftingAllLocs,
-            onMergeLocations:mergeLocations,onLocationPlaceDecision:decideLocationPlace,onSharedHeadDecision:decideSharedHead,
-            scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
-            sluglineUnits,onUpdateUnit:updateSlugUnitOverlay,onRemoveUnit:removeSlugUnitOverlay,
-            onSetStyleRefs:setStyleRefs,onUpdateCrowd:updateCrowd,onSetScenePreset:setScenePreset,onSetFilmStock:setFilmStock,onSetCapture:setStyleCapture,
-            colorRefsOwned:!!(typeof colorRefsFor==="function" && colorRefsFor((project&&project.styleBible)||{}, lookbook, lookbookNote).owned),
-            onUseLookbookColorRefs:useLookbookColorRefs,onKeepColorRefs:keepOwnColorRefs,
-            onUpdatePreset:updateStylePreset,onDeletePreset:deleteStylePreset,
-            onAddStyleRefImages:addStyleRefImages,onRemoveStyleRefImage:removeStyleRefImage,
-            onDraftStaging:draftLocationStaging,draftingStageId,
-            shots,beatsMap,onUpdateShot:updateShot,onAddShot:addShot,onDeleteShot:deleteShot,onSplitBeat:splitBeatCoverage,splittingBeat,
-            onRefineBeat:refineBeatFromScreenplay,refiningBeat,onRemoveMicroBeatShots:removeMicroBeatShots,onMakeSceneNeeds:makeSceneNeeds,
-            onOpenStage:()=>guardedSetRoom("stage"), wardrobeIds,
-            onDeleteShotReference:deleteShotReference,
-            onDraftSceneShots:draftSceneShots,draftingSceneShots,onDraftAllShots:draftAllShots,draftingAllShots}))
+          : null)
         : React.createElement(React.Fragment,null,
       // scrim behind any open overlay drawer
       ((railDrawer&&railOpen)||(inspDrawer&&inspOpen)) && React.createElement("div",{className:"scrim",
@@ -9837,7 +9797,55 @@ function App(){
             ? inspectorEl
             : React.createElement(CollapsedStrip,{side:"right",label:"Inspector",icon:Icon.panelRight,
                 onExpand:openInsp}));
-      })())),
+      })()),
+      /* BACKGROUND WORK (owner 2026-10-30): the Art Room has its own slot so it can stay mounted, hidden, while
+         another room is on screen and one of its tabs is still working (an image batch, the screenplay read or its
+         review — turnArtJobs). Leaving the room no longer stops that work; switching films still does. */
+      scenes.length>0 && (room==="art" || Object.keys(artJobs).length>0) && React.createElement(ArtRoom,{key:(cloudMode?currentProjectId:"local"),hidden:room!=="art",artView,setArtView,project,projectLoading,characters,scenes,props,drafts,trash,
+            readOnly:roomReadOnly,canReview:!roomReadOnly,onSourceClick:openArtSource,tabLocks:artTabLocks,
+            noPropsConfirmed:!!(project && project.noPropsConfirmed),onSetNoProps:roomReadOnly?null:setNoPropsConfirmed,
+            onRestoreChar:restoreCharacter,onPurgeChar:purgeCharacter,onRestoreProp:restoreProp,onPurgeProp:purgeProp,
+            onRestoreLoc:restoreLocation,onPurgeLoc:purgeLocation,onRestoreShot:restoreShot,onPurgeShot:purgeShot,onEnsureOwner:ensureOwnerSheet,
+            onColorist:(refs, opts)=>{ if(!canMutateSharedFilm()) return; if(typeof refs==="string") setStyleRefs(refs.trim());
+              coloristRedoManualRef.current = !!(opts && opts.redoManual); setColoristOpen(true); },
+            // "Design the cast" opens its preview first (what it makes + the price, 2026-10-03)
+            // a role that can't change the Art Room is told, and nothing opens (2026-10-09)
+            onCast:(opts)=>{ if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; } if(!turnCastDraftingBlocksAgent(draftingAllVisualsRef.current, "Design the cast")) setCastConfirm(opts||{}); },
+            onResearch:()=>{ if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; } setResearchOpen(true); },
+            onResearchFresh:roomReadOnly ? null : researchLookbookFresh,
+            lookbook,lookbookNote,onUpdateLookbook:updateLookbookCard,onAddLookbook:addLookbookCard,
+            onDeleteLookbook:deleteLookbookCard,onSetLookbookNote:setLookbookNote,
+            onRestoreLookbook:restoreLookbookCard,onPurgeLookbook:purgeLookbookCard,
+            onSuggestLookbookNote:roomReadOnly ? null : suggestLookbookNote,suggestingLookbookId,
+            onLookbookNoteFromImage:roomReadOnly ? null : noteFromLookbookImage,readingLookbookImageId,
+            staleTabs,onApplyLookbook:applyLookbook,onReviewLookbook:(dept)=>applyLookbook(dept,"review"),
+            onUpdateChar:updateCharacter,onDraftVisuals:draftCharacterVisuals,onDraftAllVisuals:draftAllVisuals,
+            // "Read the script" on the Characters tab (every character) and on a card (2026-10-12, Character fidelity)
+            onReadCharacterScript:(ids)=>{ if(artRoomReadOnlyRef.current){ _mutationNotice("art"); return; }
+              readCharacterFacts(Array.isArray(ids) ? (characters||[]).filter(c=>c && ids.indexOf(c.id)>=0) : (characters||[])); },
+            readingFactIds,
+            draftingVisualId,draftingAllVisuals,draftingVisualIds,onDeleteCharacter:deleteCharacter,
+            onSuggestStates:suggestCharacterStates,suggestingStatesId,onRemoveOwnedItem:removeOwnedProp,
+            onBuildWornProps:(c)=>{ if(c && wornBuildRef.current) wornBuildRef.current(c.id); },onRenameOwnedItem:renameOwnedProp,
+            onUpdateProp:updateProp,onDraftProp:draftPropVisuals,onDraftAllProps:draftAllProps,onCreateOwnedProp:createOwnedProp,
+            onAddProp:addProp,onImportProps:importScreenplayProps,onDeleteProp:deleteProp,draftingPropId,draftingPropIds,draftingAllProps,onMergeProps:mergeProps,
+            castHasProps:(typeof castHasProps==="function" && castHasProps(characters)),
+            locations,onUpdateLocation:updateLocation,onDraftLocation:draftLocationVisuals,onDraftAllLocs:draftAllLocations,
+            onDeleteLocation:deleteLocation,draftingLocIds,draftingAllLocs,
+            onMergeLocations:mergeLocations,onLocationPlaceDecision:decideLocationPlace,onSharedHeadDecision:decideSharedHead,
+            scriptHasLocs:(typeof scriptHasLocations==="function" && scriptHasLocations(scenes)),
+            sluglineUnits,onUpdateUnit:updateSlugUnitOverlay,onRemoveUnit:removeSlugUnitOverlay,
+            onSetStyleRefs:setStyleRefs,onUpdateCrowd:updateCrowd,onSetScenePreset:setScenePreset,onSetFilmStock:setFilmStock,onSetCapture:setStyleCapture,
+            colorRefsOwned:!!(typeof colorRefsFor==="function" && colorRefsFor((project&&project.styleBible)||{}, lookbook, lookbookNote).owned),
+            onUseLookbookColorRefs:useLookbookColorRefs,onKeepColorRefs:keepOwnColorRefs,
+            onUpdatePreset:updateStylePreset,onDeletePreset:deleteStylePreset,
+            onAddStyleRefImages:addStyleRefImages,onRemoveStyleRefImage:removeStyleRefImage,
+            onDraftStaging:draftLocationStaging,draftingStageId,
+            shots,beatsMap,onUpdateShot:updateShot,onAddShot:addShot,onDeleteShot:deleteShot,onSplitBeat:splitBeatCoverage,splittingBeat,
+            onRefineBeat:refineBeatFromScreenplay,refiningBeat,onRemoveMicroBeatShots:removeMicroBeatShots,onMakeSceneNeeds:makeSceneNeeds,
+            onOpenStage:()=>guardedSetRoom("stage"), wardrobeIds,
+            onDeleteShotReference:deleteShotReference,
+            onDraftSceneShots:draftSceneShots,draftingSceneShots,onDraftAllShots:draftAllShots,draftingAllShots})),
 
     // Agents — Writers' Room modal
     agentsOpen && !writersRoomBlocked && React.createElement(AgentsPanel,{
@@ -10147,6 +10155,16 @@ function App(){
         React.createElement(Icon.x,{s:14}))),
 
     // ART UNDO chip (2026-10-02): in the Art Room, after an Art Room agent changed its specs
+    // (2026-10-30) Art Room work still running while you're in another room — where it is, how far, and a way back
+    room!=="art" && scenes.length>0 && Object.keys(artJobTabs).length>0 && React.createElement("div",{className:"art-bg-jobs",role:"status","data-testid":"art-bg-jobs"},
+      React.createElement("span",{className:"ns-spin"}),
+      React.createElement("div",{className:"abj-list"},
+        Object.keys(artJobTabs).map(t=>React.createElement("div",{key:t,className:"abj-row"},
+          React.createElement("span",{className:"abj-text"},
+            React.createElement("b",null,"Art Room \u00b7 "+(((window.ART_TABS||[]).find(x=>x.id===t)||{}).label||t)),
+            " \u2014 "+artJobTabs[t]),
+          React.createElement("button",{type:"button",className:"char-draft-btn ghost",
+            onClick:()=>{ if(guardedSetRoom("art")) setArtView(t); }},"Open"))))),
     room==="art" && !artRoomReadOnly && artUndoHere.length>0 && React.createElement("div",{className:"agent-undo art-undo"+((!writersRoomBlocked && agentUndoHere.length>0 && agentUndoHere[agentUndoHere.length-1].label!=="Adaptation")?" stacked":"")},
       React.createElement("span",{className:"au-ic"},React.createElement(Icon.undo,{s:16})),
       React.createElement("div",{className:"au-text"},
