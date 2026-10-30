@@ -539,6 +539,13 @@ Each entity gets a canonical, reusable reference so every generated image stays 
     6. **Nothing is deleted on its own.** Existing cards that fail the tests (costume, write-up guesses,
        objects named once) show under **Not story props** with the reason and "Keep as a story prop"; one
        button moves them all to Recently deleted, where they can be restored. Stored cards are never migrated.
+    7. **The card's badge** *(owner 2026-10-30 — "they should have either costume, set dressing, background props,
+       or hero props as a badge"; "Hero by default")*: every prop card names its place beside its name — **Hero
+       prop**, **Costume**, **Set dressing** or **Background prop** — replacing the old carried / worn / dressing
+       label; hovering it shows what that place means plus the owner (or, for set dressing, the location). A card
+       the read adds is a Hero prop; an object kept with "Make it a prop" keeps its own place. The ★ that keeps an
+       object identical in every Stage clip (up to 3 a film) is named **"Keep exact on the Stage"**, separate
+       from the badge.
     A card made by hand, or kept, is a story prop by the user's choice. Draft all specifications, Generate all
     images, the Props Master and Run pre-production draft and generate **story props only**.
     **Extract screenplay props is the first Props step** *(2026-10-12, still in force)*: when the film's

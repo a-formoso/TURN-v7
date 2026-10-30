@@ -87,6 +87,15 @@
     return {pass,tests,role,sceneNos,changes,turn,reasons};
   }
   function listNos(nos){ const a=nos.map(String); return a.length<2?a.join(""):a.slice(0,-1).join(", ")+" and "+a[a.length-1]; }
+  /* THE CARD'S BADGE (owner 2026-10-30 — "costume, set dressing, background props, or hero props as a badge"): where
+     a crew files the object. A story prop the read called a hero (or one made by hand) is a hero prop; costume and set
+     dressing keep their place; anything else — a background prop, or a "hero" that didn't pass — is a background prop. */
+  function category(p,drafts){
+    const r=roleOf(p);
+    if(r==="costume"||r==="dressing"||r==="background") return r;
+    return isStoryProp(p,drafts) ? "hero" : "background";
+  }
+  const CATEGORY_LABEL={hero:"Hero prop",costume:"Costume",dressing:"Set dressing",background:"Background prop"};
   // the user's own choice: a card made by hand, or one they kept (older "Keep this prop" included)
   function storyChoice(p){ const o=p&&p.origin&&typeof p.origin==="object"?p.origin:null;
     return !!p && !!(p.manual || (o&&o.kind==="manual") || p.keptAsProp || p.proposalAccepted); }
@@ -331,5 +340,5 @@
       return settleCandidates(cands.filter(x=>x!==c).map(x=>x===other?merged:x),existing); }
     return settleCandidates(cands.map(x=>x===c?{...x,target:c.maybeSameAs,priorTarget:c.maybeSameAs,sameAnswered:"same"}:x),existing);
   }
-  root.PropScreenplay={significance,isStoryProp,storyChoice,notPropReason,whyNot,strongChange,roleOf,ROLES,mergeCandidate,candidateSignificance,settleCandidates,sameQuestion,answerSame,sourceValid,locate,sources,scenesFor,characterScenes,group,nameIssue,notInScreenplay,isProposal,acceptPatch,batchSkip,sheetTier,sourceKey,mergeBy,chunks,normalizeResult,accept,physical};
+  root.PropScreenplay={significance,isStoryProp,storyChoice,notPropReason,whyNot,strongChange,roleOf,category,CATEGORY_LABEL,ROLES,mergeCandidate,candidateSignificance,settleCandidates,sameQuestion,answerSame,sourceValid,locate,sources,scenesFor,characterScenes,group,nameIssue,notInScreenplay,isProposal,acceptPatch,batchSkip,sheetTier,sourceKey,mergeBy,chunks,normalizeResult,accept,physical};
 })(window);

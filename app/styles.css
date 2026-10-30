@@ -11710,3 +11710,12 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .prop-review-place{margin:10px 0 6px;font-size:13px;color:var(--txt-2);line-height:1.4}
 .prop-review-place b{color:var(--txt-0)}
 .prop-review-placegroup + .prop-review-placegroup{margin-top:10px}
+/* (owner 2026-10-30) the card's badge: where a crew files the object */
+.prop-kind-badge.prop-cat-hero{background:var(--pos-soft);color:var(--pos-ink);border:1px solid var(--pos-line)}
+.prop-kind-badge.prop-cat-costume{background:oklch(0.62 0.12 285 / .18);color:oklch(0.78 0.1 285);border:1px solid oklch(0.62 0.12 285 / .35)}
+.prop-kind-badge.prop-cat-dressing{background:oklch(0.6 0.11 150 / .16);color:oklch(0.72 0.1 150);border:1px solid oklch(0.6 0.11 150 / .35)}
+.prop-kind-badge.prop-cat-background{background:var(--bg-3);color:var(--txt-2);border:1px solid var(--line-2)}
+[data-theme="light"] .prop-kind-badge.prop-cat-costume{color:oklch(0.44 0.12 285)}
+[data-theme="light"] .prop-kind-badge.prop-cat-dressing{color:oklch(0.45 0.1 150)}
+.prop-binding-pop .prop-cat-what{display:block;margin-bottom:6px;font-family:var(--f-ui);text-transform:none;letter-spacing:0;font-weight:400;white-space:normal}
+.prop-binding-pop:has(.prop-cat-what){width:250px;white-space:normal}

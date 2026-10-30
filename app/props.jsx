@@ -1401,33 +1401,39 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
       React.createElement("div",{className:"sheet-head"},
         React.createElement("div",{style:{flex:1,minWidth:0}},
           React.createElement("div",{className:"prop-name-row"},
-            React.createElement("button",{type:"button",
-              className:"prop-kind-badge prop-binding-badge "+(p.kind==="worn"?"worn":p.kind==="dressing"?"dressing":"carried")+(bindingOpen?" open":""),
-              "aria-label":(p.kind==="dressing"?"Set dressing location: ":"Prop owner: ")+(p.kind==="dressing"
+            /* THE BADGE (owner 2026-10-30): where a crew files the object — Hero prop, Costume, Set dressing or Background
+               prop — in place of carried / worn / dressing. It still shows the owner (or, for set dressing, the location). */
+            (()=>{ const cat = (window.PropScreenplay && window.PropScreenplay.category) ? window.PropScreenplay.category(p) : "hero";
+              const place = (window.PROP_CREW_SORT||[]).find(c=>c.id===cat) || {};
+              return React.createElement("button",{type:"button","data-testid":"prop-category-badge","data-category":cat,
+              className:"prop-kind-badge prop-binding-badge prop-cat-"+cat+(bindingOpen?" open":""),
+              "aria-label":((window.PropScreenplay && window.PropScreenplay.CATEGORY_LABEL) ? window.PropScreenplay.CATEGORY_LABEL[cat] : cat)+" \u00b7 "+(p.kind==="dressing"?"Location: ":"Owner: ")+(p.kind==="dressing"
                 ? (((typeof propHomeLocation==="function") && (propHomeLocation(p)||{}).name) || "No location assigned")
                 : (p.ownerName||"Unassigned")),
               "aria-expanded":bindingOpen?"true":"false",
               onClick:(e)=>{ e.stopPropagation(); setBindingOpen(v=>!v); },
               onBlur:()=>setBindingOpen(false)},
-              React.createElement("span",{className:"prop-binding-label"},p.kind==="dressing" ? "set dressing" : (p.kind||"carried")),
+              React.createElement("span",{className:"prop-binding-label"},(window.PropScreenplay && window.PropScreenplay.CATEGORY_LABEL) ? window.PropScreenplay.CATEGORY_LABEL[cat] : cat),
               React.createElement("span",{className:"prop-binding-owner-icon","aria-hidden":"true"},
                 React.createElement(p.kind==="dressing"?Icon.globe:Icon.user,{s:8})),
               React.createElement("span",{className:"prop-binding-pop",role:"tooltip"},
+                place.text && React.createElement("span",{className:"prop-cat-what"},place.text),
                 React.createElement("b",null,p.kind==="dressing"?"Location":"Owner"),
                 React.createElement("span",null,p.kind==="dressing"
                   ? (((typeof propHomeLocation==="function") && (propHomeLocation(p)||{}).name) || "No location assigned")
-                  : (p.ownerName||"Unassigned")))),
+                  : (p.ownerName||"Unassigned")))); })(),
             React.createElement("div",{className:"sheet-name",title:p.name||""},
               React.createElement(EditText,{value:p.name,placeholder:"Prop name\u2026",onCommit:val=>onUpdate(p.id,{name:val})})),
-            // HERO PROP (2026-10-24, from the Anerneq study): up to three objects the film turns on are
-            // described in full in every Stage clip they're in, so they never drift between takes
+            // EXACT ON THE STAGE (2026-10-24, from the Anerneq study; renamed 2026-10-30 — "Hero prop" is now the badge):
+            // up to three objects are described in full in every Stage clip they're in, so they never drift between takes.
+            // Stored as p.hero (never migrated).
             (()=>{ const full = !p.hero && heroCount>=PROP_HERO_MAX;
               return React.createElement("button",{type:"button",className:"prop-hero-btn"+(p.hero?" on":""),
-                "aria-pressed":p.hero?"true":"false","aria-label":p.hero?"Hero prop \u2014 click to unmark":"Mark as a hero prop",
+                "aria-pressed":p.hero?"true":"false","aria-label":p.hero?"Kept exact on the Stage \u2014 click to unmark":"Keep exact on the Stage",
                 disabled:full,
-                title:p.hero ? "Hero prop: described in full (form, material, identifying details, size) in every Stage clip it's in, so it never changes between takes. Click to unmark."
-                  : full ? "Up to "+PROP_HERO_MAX+" hero props a film \u2014 unmark one first."
-                  : "Mark as a hero prop: one of the few objects the film turns on. It's described in full in every Stage clip it's in, so it never changes between takes (up to "+PROP_HERO_MAX+").",
+                title:p.hero ? "Kept exact on the Stage: described in full (form, material, identifying details, size) in every Stage clip it's in, so it never changes between takes. Click to unmark."
+                  : full ? "Up to "+PROP_HERO_MAX+" props a film are kept exact on the Stage \u2014 unmark one first."
+                  : "Keep exact on the Stage: it's described in full in every Stage clip it's in, so it never changes between takes (up to "+PROP_HERO_MAX+" a film).",
                 onClick:(e)=>{ e.stopPropagation(); if(!full) onUpdate(p.id,{hero:!p.hero}); }},"\u2605"); })(),
             p.kind==="worn" && window.InfoTip && React.createElement(window.InfoTip,{
               label:"How worn prop sheets work",

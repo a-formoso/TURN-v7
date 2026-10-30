@@ -312,7 +312,7 @@ await test("+c the Lookbook's Recently deleted is the compact header button, as 
 });
 await test("+d the changed files load with fresh keys", ()=>{
   for(const f of ["app/prop-screenplay.js", "app/props.jsx", "app/artroom.jsx", "app/app.jsx", "app/ai.jsx", "app/agents.jsx", "app/lookbook.jsx", "app/breakdown.jsx", "app/styles.css"])
-    assert.ok(["20261029-hs144", "20261030-hs145", "20261030-hs146"].some(k=>html.includes(f+'?v='+k+'"')), f);
+    assert.ok(["20261029-hs144", "20261030-hs145", "20261030-hs146", "20261030-hs147"].some(k=>html.includes(f+'?v='+k+'"')), f);
 });
 
 /* ═══ 7 — tighter rules + how film crews sort objects (owner 2026-10-30: "yes, tighten the rules and update the
@@ -386,7 +386,44 @@ await test("7e the doc, Frances and the info tip carry the tighter rules", ()=>{
   const tab = fb.__F.find(f=>f.name==="Props (Art Room)").what;
   for(const x of ["TIGHTER RULES (owner 2026-10-30)", "eating it, punching it, opening or raising it", "HOW FILM CREWS SORT OBJECTS", "Only these become cards"]) assert.ok(tab.includes(x), x);
   assert.ok(props.includes("or \\u2014 in one scene \\u2014 changes hands, is hidden, found, lost or destroyed and the story turns on it."));
-  for(const f of ["app/prop-screenplay.js", "app/props.jsx", "app/ai.jsx", "app/styles.css"]) assert.ok(["20261030-hs146"].some(k=>html.includes(f+'?v='+k+'"')), f);
+  for(const f of ["app/prop-screenplay.js", "app/props.jsx", "app/ai.jsx", "app/styles.css"]) assert.ok(["20261030-hs146", "20261030-hs147"].some(k=>html.includes(f+'?v='+k+'"')), f);
+});
+
+/* ═══ 8 — the card's badge (owner 2026-10-30: "costume, set dressing, background props, or hero props as a badge that
+   replaces the selected element") ═══ */
+await test("8a each card's place: a story prop the read called a hero is a Hero prop; costume, set dressing, background keep theirs", ()=>{
+  const two = [src("s2",2,"a"), src("s6",6,"b")];
+  assert.equal(P.category({ propRole:"hero", screenplaySources:two }), "hero");
+  assert.equal(P.category({ propRole:"hero", screenplaySources:[src("s2",2,"a")] }), "background", "a 'hero' that didn't pass is a background prop");
+  assert.equal(P.category({ propRole:"background", keptAsProp:true, screenplaySources:[src("s3",3,"c")] }), "background", "kept with Make it a prop");
+  assert.equal(P.category({ propRole:"costume", screenplaySources:two, storyChanges:[{ what:"handed over", sceneNo:6 }] }), "costume");
+  assert.equal(P.category({ propRole:"dressing", keptAsProp:true }), "dressing");
+  assert.equal(P.category({ manual:true, kind:"carried", name:"Key" }), "hero", "made by hand");
+  assert.equal(P.category({ kind:"worn", name:"Badge" }), "costume", "older cards go by their kind");
+  assert.deepEqual(J(P.CATEGORY_LABEL), { hero:"Hero prop", costume:"Costume", dressing:"Set dressing", background:"Background prop" });
+});
+await test("8b the badge replaces carried / worn / dressing, and still shows the owner", ()=>{
+  R.reset();
+  const card = box.PropSheet({ p:{ id:"l", name:"Sealed letter", kind:"carried", propRole:"hero", ownerId:"aur", ownerName:"Aurelio", screenplaySources:[src("s2",2,"Nives hands Aurelio a sealed letter."), src("s6",6,"Aurelio tears the letter open and reads it.")] },
+    project:{}, characters:cast, scenes, drafts, onUpdate:noop, onDelete:noop, onDraft:noop });
+  const b = findAll(card, n=>n.props && n.props["data-testid"]==="prop-category-badge")[0];
+  assert.equal(b.props["data-category"], "hero"); assert.match(b.props.className, /prop-kind-badge prop-binding-badge prop-cat-hero/);
+  assert.equal(b.props["aria-label"], "Hero prop · Owner: Aurelio");
+  const t = textOf(b); assert.ok(t.startsWith("Hero prop") && t.includes("The few objects the story depends on.") && t.includes("Aurelio"));
+  assert.ok(!/\bcarried\b/i.test(textOf(findAll(b, n=>n.props && n.props.className==="prop-binding-label")[0])));
+  R.reset();
+  const kept = box.PropSheet({ p:{ id:"c", name:"Cup of coffee", kind:"carried", propRole:"background", keptAsProp:true, screenplaySources:[src("s3",3,"Aurelio drinks a cup of coffee at the rail.")] },
+    project:{}, characters:cast, scenes, drafts, onUpdate:noop, onDelete:noop, onDraft:noop });
+  const kb = findAll(kept, n=>n.props && n.props["data-testid"]==="prop-category-badge")[0];
+  assert.equal(kb.props["data-category"], "background"); assert.ok(textOf(kb).startsWith("Background prop"));
+  assert.ok(!props.includes('React.createElement("span",{className:"prop-binding-label"},p.kind==="dressing" ? "set dressing" : (p.kind||"carried"))'), "the old label is gone");
+});
+await test("8c the star is 'Keep exact on the Stage' — 'Hero prop' is the badge now (stored hero stays)", ()=>{
+  assert.ok(props.includes('"aria-label":p.hero?"Kept exact on the Stage \\u2014 click to unmark":"Keep exact on the Stage",'));
+  assert.ok(!props.includes("Mark as a hero prop"));
+  assert.ok(props.includes("onUpdate(p.id,{hero:!p.hero})"), "same stored field");
+  assert.ok(ai.includes('APP_FEATURES.push({ name:"Exact props on the Stage and spoken language"') && ai.includes("It is separate from the card's Hero prop badge."));
+  assert.ok(ai.includes("THE CARD'S BADGE (owner 2026-10-30)"));
 });
 
 console.log(failed ? (checks+" checks passed, "+failed+" FAILED") : (checks+" checks passed"));
