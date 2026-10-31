@@ -14,6 +14,24 @@ The browser panel mounts only for an admin on localhost; the server additionally
 requires an explicit account-ID allowlist and film-owner access. No customer
 render tariff or credit debit is introduced by this pilot.
 
+**Current status:** steps 1–5 are verified, and step 6's pilot verification is
+complete. Publication is pending a separate release decision; keep the live
+website unchanged. The milestone is a saved-plan blockout preview, not finished
+location artwork or a generally available render service.
+
+| Step | Verified result |
+| --- | --- |
+| 1. Cloud renderer | Published worker rendered and verified the four-camera fixture. |
+| 2. Saved jobs | Requests persist; duplicate identities are idempotent; access is owner restricted. |
+| 3. Worker connection | Authenticated Kinolot requests run on the separate Replit worker, one at a time. |
+| 4. Durable results | Private images survive worker restart; an interrupted lease recovered on attempt two. |
+| 5. Locations preview | The saved car-deck plan built through the real button, survived page reload, and returned four labelled views in 209.5506 seconds. |
+| 6. Verify and release | Verification passes below; website publication remains pending. |
+
+The activation and follow-up entries below are chronological evidence. Statements
+about pending floor-plan corrections or browser access describe those earlier
+stages, not the current status above.
+
 **Account-restricted cloud activation (owner approved, 31 October 2026):** the
 owner explicitly approved using the existing Kinolot Supabase project
 `vubenblfdzginlqiglzw` with the separate Replit worker, while keeping the live
@@ -105,6 +123,58 @@ show the raised ramp. The final shared-plan revision contains the explicit
 camera corrections and still has zero blocking input issues. The browser button
 interaction remains unverified while Local browser use is disabled.
 
+**Authenticated saved-plan UI verification (31 October 2026):** browser access
+was restored and the local Locations panel's **Rebuild set** button was tested
+against the saved car-deck plan. The initial retained page used an older exporter
+without the new estimate note; after refreshing, its geometry still matched but
+its scene hash correctly differed. A fresh build with the current app completed
+on attempt one in **209.5506 seconds**, with 58 shapes and twelve private PNGs.
+Its scene hash matches an independent export of the current saved plan. All four
+640 × 360 colour images loaded in Kinolot, with labelled camera directions and no
+outdated-revision warning. Reopening the page while rendering recovered the
+running request without another submission. A local server interruption during
+the earlier refresh was resolved by restarting the existing development server;
+the cloud request survived it. The film document remained unchanged throughout
+these UI checks. This completes step 5's saved-plan interaction check. Step 6
+still requires a release review; the live website was not published or changed,
+and the separate worker remains published under the existing pilot approval.
+
+**Final pilot release review (31 October 2026):** the existing 63 cloud-render
+checks passed, followed by **40 additional offline release-boundary checks** in
+`scripts/test-cloud-render-release.mjs`. These cover incomplete configuration,
+allowlisted accounts without film ownership, missing saved locations, access
+lost before claim or during upload, recovering the next authorised job, denied
+fresh reads after access loss, all four privileged worker RPCs and direct job
+CRUD under browser roles, and rolling daily limits. No real user permissions
+were revoked and no additional cloud renders were needed for this review.
+
+Read-only checks of the deployed database confirmed queue RLS, denied direct
+browser table/RPC access and a private asset bucket. An existing render could
+not be downloaded through either the public route or an unsigned browser-role
+request. There were no queued/running jobs at the review snapshot. The worker's
+backed-up integration revision `90abd55` passed all eight transport/supervisor
+tests. Location coordinates, floor-plan review, shared-layout prompts and the
+desktop Studio handoff regression suites passed, along with all 46 brand checks.
+The production build passed (89 JavaScript files, 11 assets); its compiled pilot
+gate remains off on published hosts and for non-admin local users.
+
+**Release boundary:** this review approves no host or account expansion. The
+existing frontend deliberately mounts only on localhost for an admin; publishing
+this branch alone does not enable cloud previews on the live website. A future
+live pilot needs an explicit approved host/account gate and its own acceptance
+check. Team access, a customer render tariff, job/result retention and wider
+capacity are not implemented by this owner-only pilot. The cloud builder still
+uses simplified geometry; detailed fixtures, image-model styling and acceptance
+of the resulting artwork are separate product work. Worker scratch outputs are
+retained locally and are not durable app downloads. Keep the current worker and
+account restrictions in place until a specific release scope is approved.
+
+For an application rollback, keep the previously published website artifact; the
+queue and its function are additive and no rollback needs to remove saved film
+data. For pilot shutdown, the server flag `BLENDER_RENDER_ENABLED=false` rejects
+new browser and worker requests. This flag is a separate operational action;
+do not change it or unpublish the paid worker as routine review cleanup.
+
 1. Apply `blender-render-jobs.sql` to a **staging** Supabase project first. It
    creates only the new service-role-only job table and RPCs. It does not alter
    existing project, team, billing or generation tables.
@@ -140,8 +210,9 @@ storage results are attached to the job. No image model is called. Colour,
 depth-guide and object-ID PNGs are persisted; raw EXR and editable Blender files
 remain local to the worker in this first integration and are not app downloads.
 
-The local test `node scripts/test-cloud-render.mjs` executes the actual migration
-and RPCs in PGlite with denied browser-role access. For a real Blender round trip,
+The local tests `node scripts/test-cloud-render.mjs` and
+`node scripts/test-cloud-render-release.mjs` execute the actual migration and
+RPCs in PGlite with denied browser-role access. For a real Blender round trip,
 run `node scripts/test-cloud-render-roundtrip.mjs --worker-dir /path/to/worker`.
 That uses a loopback-only test server, PostgreSQL, test identity and test storage;
 it does not verify a deployed Supabase environment or a real account session.
