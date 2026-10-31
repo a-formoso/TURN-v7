@@ -119,5 +119,14 @@ try{
   box.sbClient=()=>({auth:{getSession:async()=>({data:{session:{access_token:"test",user:{id:other}}}})}});
   await assert.rejects(box.KinolotCloudRender.request("job.create",{projectId:project},scope),/Sign in again/);checks++;
   check(fetches,0,"Wrong-film and changed-session requests have no network side effects");
+  // An existing result stays honest when the current layout cannot be exported.
+  const uiStates=[{status:"completed",notes:["Prototype dimensions require review."]},true,false,"","",0];
+  box.React={useState:()=>[uiStates.shift(),()=>{}],useEffect:()=>{},useRef:v=>({current:v}),
+    createElement:(type,props,...children)=>({type,props,children})};
+  box.KinolotCloudRender.buildScene=()=>{throw Error("Check the opening height.");};
+  vm.runInContext(readFileSync(new URL("../app/blender-render-ui.jsx",import.meta.url),"utf8"),box);
+  const ui=JSON.stringify(box.LocationCloudRender({location:room}));
+  check(ui.includes("Render notes")&&ui.includes("Prototype dimensions require review.")&&ui.includes("cannot be compared with the current floor plan"),true,
+    "Saved render assumptions and unavailable layout comparison remain visible");
   console.log("PASS cloud render: "+checks+" protocol, SQL permission, persistence and geometry checks");
 }finally{await h.pg.close();}

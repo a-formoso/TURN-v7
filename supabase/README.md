@@ -14,6 +14,33 @@ The browser panel mounts only for an admin on localhost; the server additionally
 requires an explicit account-ID allowlist and film-owner access. No customer
 render tariff or credit debit is introduced by this pilot.
 
+**Account-restricted cloud activation (owner approved, 31 October 2026):** the
+owner explicitly approved using the existing Kinolot Supabase project
+`vubenblfdzginlqiglzw` with the separate Replit worker, while keeping the live
+website release unchanged. The isolated queue migration and `blender-render`
+function are installed there; only the verified admin account is allowlisted.
+The worker uses the `cloud-render.replit` profile and three scoped deployment
+values listed below, with no service-role key or end-user session on Replit.
+Changing project secrets can increment existing function revision numbers even
+though their source deployment timestamps remain unchanged; no existing function
+source was redeployed for this activation.
+
+The first real authenticated browser request rendered the reviewed 269-object
+car-deck **prototype**, not a fresh export of the saved floor plan. It completed
+on the published worker in **275.5463 seconds** (Blender **5.2.3 LTS**, CPU,
+640 × 360 per panel), on attempt one, with twelve privately stored PNGs and
+matching scene/camera verification. A fresh authenticated read recovered it in
+the local Kinolot location card. Anonymous requests and incorrect worker secrets
+were rejected, and the real signed-in browser could not claim worker jobs.
+The original fixtures and the film's saved layout/artwork were not changed.
+
+The saved floor plan still needs opening-height and object-dimension review
+before it can produce a new geometry export. Render notes identify the
+prototype's design assumptions; an invalid current layout cannot be compared
+with an earlier saved preview. This activation does not make the feature
+generally available or publish the development website. Staging remains the
+recommended default for subsequent rollout and migration testing.
+
 1. Apply `blender-render-jobs.sql` to a **staging** Supabase project first. It
    creates only the new service-role-only job table and RPCs. It does not alter
    existing project, team, billing or generation tables.
