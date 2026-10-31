@@ -1092,6 +1092,8 @@ function normalizeLocationSpatialPlan(value){
     const xy=_locVec(a.xy,2),z=_locNum(a.z,-500,500),facing=locYaw(a.facing);
     if(xy)out.xy=xy; if(z!=null)out.z=z; if(facing!=null)out.facing=facing;
     if(xy||z!=null||facing!=null)out.posBasis=_locBasis(a.posBasis,"design");
+    const size=_locVec(a.size,3);
+    if(size&&size.every(n=>n>=0.01&&n<=1000)){out.size=size;out.sizeBasis=_locBasis(a.sizeBasis,"design");}
     return out;
   });
   const coordinates=normalizeLocationCoordinates(p.coordinates);

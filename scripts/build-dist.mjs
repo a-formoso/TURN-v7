@@ -26,6 +26,7 @@ const DIST = join(ROOT, "dist");
 // source. This does not run Blender or contact the relay.
 await import("./build-blender-addon.mjs");
 cpSync(join(APP, "blender-contract.js"), join(ROOT, "supabase", "functions", "blender-bridge", "shared-contract.js"));
+cpSync(join(APP, "blender-render-contract.js"), join(ROOT, "supabase", "functions", "blender-render", "scene-contract.js"));
 // One storage-key parser for the app and the three Edge Functions that build or
 // check object keys (readable folders, 2026-09-27). Byte-for-byte copies;
 // scripts/test-storage-keys.mjs fails if one drifts.

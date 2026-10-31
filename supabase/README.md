@@ -7,6 +7,59 @@ cross-device access, and multiple projects all work.
 
 ## What you run (once)
 
+### Cloud set preview — development pilot (31 October 2026)
+
+This is separate from the desktop add-on relay. The live website is unchanged.
+The browser panel mounts only for an admin on localhost; the server additionally
+requires an explicit account-ID allowlist and film-owner access. No customer
+render tariff or credit debit is introduced by this pilot.
+
+1. Apply `blender-render-jobs.sql` to a **staging** Supabase project first. It
+   creates only the new service-role-only job table and RPCs. It does not alter
+   existing project, team, billing or generation tables.
+2. Run the build to copy `app/blender-render-contract.js` into the new function.
+   Deploy **only** `blender-render` to that staging project with JWT verification
+   disabled at the platform gateway (`supabase functions deploy blender-render
+   --no-verify-jwt`). Its handler independently verifies every browser access
+   token through the existing Auth adapter, and every worker request with its
+   own scoped secret. Do not redeploy `blender-bridge` or `image-proxy` for this.
+3. In the staging function's secrets, configure `BLENDER_RENDER_ENABLED=true`,
+   `BLENDER_RENDER_ALLOWED_USERS` (comma-separated account UUIDs), and a newly
+   generated, random `BLENDER_RENDER_WORKER_SECRET` of at least 32 characters.
+   Leaving any of these unconfigured fails closed. Never put the worker secret
+   or a service-role key in browser code, Git, a URL or a chat message.
+4. In the separate worker project's deployment secrets, configure
+   `BLENDER_RENDER_ENDPOINT` (the staging function URL), the same scoped worker
+   secret, and `BLENDER_RENDER_API_KEY` (the project's publishable/anon key if
+   required by its gateway). The worker needs **no Supabase service-role key**.
+   Use its `cloud-render.replit` deployment profile only after these are ready.
+5. Test the saved floor plan in a development build configured for that staging
+   project. The location and film must already exist in cloud storage. Fixed
+   objects need explicit positions and dimensions; saved centre heights are
+   preserved. Missing heights stand on that room's floor and are noted. Floor
+   polygons, door/window cuts, ceiling levels and four camera poses are data.
+6. Review one complete request, leave/reopen the location, then test cancellation,
+   duplicate submission, permission loss and worker restart before rollout.
+
+The queue accepts at most three active requests and thirty requests per account
+per day. A worker claims only one job globally; heartbeats renew a two-minute
+lease. An interrupted lease can be retried once, then becomes a failed job.
+Completion validates the scene hash, cameras and all twelve PNGs before private
+storage results are attached to the job. No image model is called. Colour,
+depth-guide and object-ID PNGs are persisted; raw EXR and editable Blender files
+remain local to the worker in this first integration and are not app downloads.
+
+The local test `node scripts/test-cloud-render.mjs` executes the actual migration
+and RPCs in PGlite with denied browser-role access. For a real Blender round trip,
+run `node scripts/test-cloud-render-roundtrip.mjs --worker-dir /path/to/worker`.
+That uses a loopback-only test server, PostgreSQL, test identity and test storage;
+it does not verify a deployed Supabase environment or a real account session.
+
+The owner has approved keeping the separate two-core worker published at the
+quoted **$50/month** while integrating it. Do not unpublish it as routine cleanup.
+Replit's Pause control continues billing; Unpublish removes the deployment and
+its publication history and is a separate, destructive confirmation step.
+
 1. **SQL Editor → run `schema.sql`** — creates the `turn_projects` and
    `turn_generations` tables (in the `public` schema, `turn_`-prefixed), with RLS
    and triggers.
