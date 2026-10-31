@@ -252,5 +252,15 @@ approval=await sandbox.cloudSetAssetApproval("film","user","asset",
 ok("stale approval is explicitly refused without mutation",
   approval.ok===false && row.meta.approval.at===approvedAt);
 
+reset(old);
+result=await sandbox.cloudCommit("film","user","asset",png,{iso:"reviewed"},[],"location",undefined,undefined,{exists:true,iso:"outdated"});
+ok("reviewed replacement refuses a stale base before uploading",result.tier==="error"&&uploads.length===0&&row.meta.iso===old.meta.iso);
+reset(old);
+result=await sandbox.cloudCommit("film","user","asset",png,{iso:"reviewed"},[],"location",undefined,undefined,{exists:false,iso:""});
+ok("reviewed first artwork cannot replace an image created in the meantime",result.tier==="error"&&uploads.length===0);
+reset(old);
+result=await sandbox.cloudCommit("film","user","asset",png,{iso:"reviewed"},[],"location",undefined,undefined,{exists:true,iso:old.meta.iso});
+ok("reviewed replacement with the exact base preserves prior artwork",result.tier==="cloud"&&row.history[0].storage_path===old.storage_path);
+
 console.log(fail?`${fail} failed (${pass} passed)`:`${pass} passed, 0 failed`);
 process.exit(fail?1:0);

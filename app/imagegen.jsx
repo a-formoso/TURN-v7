@@ -2289,10 +2289,10 @@ async function nbCommitImageDimensions(src){
     im.onload=()=>resolve(im.naturalWidth&&im.naturalHeight ? { w:im.naturalWidth, h:im.naturalHeight } : null);
     im.onerror=()=>resolve(null); im.src=src; });
 }
-function nbCommit(id, dataUrl, meta, refs, kind, epoch, cancelled){
-  return _nbSerial(id, ()=>_nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled));
+function nbCommit(id, dataUrl, meta, refs, kind, epoch, cancelled, expected){
+  return _nbSerial(id, ()=>_nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled, expected));
 }
-async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled){
+async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled, expected){
   // the scope moved while this was generating — the result belongs to a film that is no
   // longer open, and this id means something different here. Drop it rather than clobber.
   // _stale() is RE-CHECKED after every await below: a film switch during any of those
@@ -2328,7 +2328,7 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled){
     const _scope = _scopeFor(id), _uid = _nbUid;
     if(_cxl()) return { tier:"cancelled", url:dataUrl };   // last checkpoint BEFORE the write
     let r;
-    try{ r = await window.cloudCommit(_scope, _uid, id, dataUrl, meta, refs, kind, _cxl); }
+    try{ r = await window.cloudCommit(_scope, _uid, id, dataUrl, meta, refs, kind, _cxl, undefined, expected); }
     catch(e){ return {tier:"error",url:dataUrl,error:(e&&e.message)||"cloud save failed"}; }
     // the write itself landed in the scope captured above (its correct home) — but if
     // the film switched during it, the session caches now belong to the NEW film:
@@ -2351,12 +2351,15 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled){
     return r&&r.tier==="error" ? r
       : { tier:"error", url:dataUrl, error:(r&&r.error)||"cloud save failed" };
   }
+  const matchesExpected=()=>!expected||(!!localGetImage(id)===expected.exists&&(localGetMeta(id)?.iso||"")===expected.iso);
+  if(!matchesExpected())return {tier:"error",url:dataUrl,error:"The artwork changed. Reopen the review before replacing it."};
   const prev = localGetImage(id);
   if(prev){
     const hist = await localGetHistory(id);
     const prevRefs = await localGetRefs(id);
     if(_stale()) return { tier:"stale", url:dataUrl };
     if(_cxl())   return { tier:"cancelled", url:dataUrl };
+    if(!matchesExpected())return {tier:"error",url:dataUrl,error:"The artwork changed. Reopen the review before replacing it."};
     hist.unshift({ url:prev, meta:localGetMeta(id), refs:prevRefs });
     await localSetHistory(id, hist.slice(0,12));
   }

@@ -3291,7 +3291,7 @@ async function cloudFinishPending(projectId,uid,entityId,row,options){
 }
 /* commit a new generation: upload image, roll the previous one into history,
    upload + store reference images, persist metadata. refs in = [{kind,label,url}]. */
-async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, cancelled, diagnostics){
+async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, cancelled, diagnostics, expected){
   const uploadDiagnostics=(diagnostics&&typeof diagnostics==="object")?diagnostics:{};
   const withDiagnostics=(result)=>{
     if(!Object.keys(uploadDiagnostics).length) return result;
@@ -3358,6 +3358,10 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
     return commitError(uploadDiagnostics.message||"Cloud generation could not be read.");
   }
   if(_cxl()) return { tier:"cancelled", url:dataUrl };
+  // A reviewed draft may replace only the artwork version it was proposed against.
+  // The existing row CAS below also fences edits that arrive during upload.
+  if(expected&&(!!row?.storage_path!==expected.exists||(row?.meta?.iso||"")!==expected.iso))
+    return commitError("The artwork changed. Reopen the review before replacing it.");
   let purgeReceipts=[];
   try{
     /* One bounded preflight receipt read prevents supported writers from

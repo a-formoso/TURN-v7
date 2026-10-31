@@ -73,6 +73,7 @@ function LocationCloudRender({location,readOnly=false}){
     job?.result&&E("div",{className:"loc-cloud-render-grid"},["TL","TR","BL","BR"].map(p=>E("figure",{key:p},
       E("img",{src:job.result.images["colour_"+p],alt:labels[p]+" camera view of "+(location.name||"this location")}),
       E("figcaption",null,labels[p]+" · facing "+Math.round((Math.atan2(job.result.report.cameras[p].direction[0],job.result.report.cameras[p].direction[1])*180/Math.PI+360)%360)+"°")))),
-    job?.result&&E("small",{className:"loc-layer-note"},"Rendered in "+Math.round(job.result.report.wallSeconds)+" seconds. Geometry and camera report verified."));
+    job?.result&&E("small",{className:"loc-layer-note"},"Rendered in "+Math.round(job.result.report.wallSeconds)+" seconds. Geometry and camera report verified."),
+    capable&&window.LocationSetStyle&&E(window.LocationSetStyle,{key:scopeKey,location,job,sceneHash,readOnly}));
 }
 window.LocationCloudRender=LocationCloudRender;

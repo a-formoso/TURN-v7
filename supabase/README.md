@@ -210,6 +210,51 @@ was changed for this detail pass; no paid image model or new hosting was used.
 The renders remain a simple-material set preview, with fine wear, texture and
 finished look development still separate work.
 
+#### Reviewed style drafts (local development only)
+
+The optional **Style preview** below Cloud set preview uses the current image
+engine with one exact 2×2 grid assembled from a completed, current Blender job.
+It includes the location's materials, lighting, inherited render style, location
+and colour lookbook briefs, and optional surface notes. The engine, quality,
+effective resolution and credit estimate are shown before submission. This uses
+the existing authenticated image proxy and its billing/plan gates; it does not
+require a worker, function or database deployment.
+
+Drafts save under a separate `cloud-set-style-<location id>` generation, together
+with a private snapshot of the exact Blender input and provenance. **Review draft**
+opens a native dialog with a camera selector and a source reveal slider. Both
+images must load and the user must acknowledge reviewing all four views before
+**Use as location artwork** is enabled. Acceptance uses normal location image
+storage and version history; it checks the original artwork ISO before uploading
+and uses the existing database row CAS during upload. Layout, cameras, lookbook,
+style-brief, film, account and read-only changes prevent stale acceptance.
+Rejection records a verdict on that exact draft without changing location art.
+An already-used draft cannot be used twice or rejected as if it were still pending.
+
+There are no automatic image retries. An interrupted/ambiguous submission keeps a
+scoped browser marker; starting another requires explicit acknowledgement. If the
+image completes but saving fails, **Retry saving draft** reuses its in-memory pixels
+without another provider call. Keep the film and page open during generation and
+save recovery. Saved drafts and their reference snapshots survive reload; an image
+response lost by closing the browser mid-generation is not a durable image job.
+The original Blender job may restore a missing optional reference snapshot, but an
+explicitly purged reference is never resurrected.
+
+The local-host/admin gate and the renderer's server capability check retain the
+account-restricted pilot. The live website remains unchanged. Styled images can
+move markings, invent fixtures or alter other geometry: this is a human-reviewed
+artwork workflow, not a depth-conditioned geometry guarantee.
+
+Validation: `node scripts/test-cloud-set-style.mjs` covers generation, independent
+draft persistence, reloading, actual review handlers with disposable adapters,
+rejection, acceptance/history, revision races, scope changes, image-loading gates,
+save recovery, duplicate prevention and ambiguous-request acknowledgement. The
+storage regression includes the real `cloudCommit` expected-version check.
+`STYLE_TEST_DIST=1 node scripts/test-cloud-set-style.mjs` repeats the checks against
+the compiled production files. The new interface still needs a real-browser pass:
+browser origin permission for local Kinolot was declined during this implementation.
+No real project artwork was replaced to test acceptance.
+
 1. Apply `blender-render-jobs.sql` to a **staging** Supabase project first. It
    creates only the new service-role-only job table and RPCs. It does not alter
    existing project, team, billing or generation tables.
