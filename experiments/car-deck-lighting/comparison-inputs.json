@@ -1,0 +1,23 @@
+{
+  "sceneSha256": "750a3cb056a8b1104165c07e0dbfbf849d0993e00670e0d1d59072fa602ff3db",
+  "panel": "TL",
+  "size": [
+    640,
+    360
+  ],
+  "files": {
+    "matched_TL.png": "9316f3dbb5b00a5dd4c78b4416d4c6c5b038ce28f594671d9afb869a7c75c9fa",
+    "depth_TL.png": "ffd826c1319dc8fadac05312f28e7af787d1cc6ff88306bbc03aa158468a1d7a",
+    "id_TL.png": "e3cd41ad853c3a144e8deabcfb9f7f6aa0c9fd95761988395ba8d5400e9f4948",
+    "outline_TL.png": "5ae0f574edff605f384cfcb22b2d170352cdf08d829e158e63fcc9bca2893927"
+  },
+  "depthAndIdSource": "Earlier cloud technical passes from the identical saved scene and camera; independent of lighting.",
+  "outlineMethod": "White boundaries between different object-ID pixels on black. Object boundaries only; not every mesh edge.",
+  "modelInputOrder": [
+    "matched_TL.png",
+    "outline_TL.png",
+    "depth_TL.png"
+  ],
+  "modelRuns": [],
+  "note": "Reference images are guidance, not an enforced depth/edge conditioning mechanism."
+}

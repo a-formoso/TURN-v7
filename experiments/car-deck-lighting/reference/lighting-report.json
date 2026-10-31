@@ -1,0 +1,99 @@
+{
+  "profiles": [
+    {
+      "id": "matched",
+      "view": "AgX",
+      "exposure": 0.0,
+      "power": 300,
+      "size": 0.28,
+      "colour": [
+        1,
+        0.6,
+        0.28
+      ],
+      "world": 0.15,
+      "emission": 1.5,
+      "frames": [
+        "matched_TL.png",
+        "matched_TR.png",
+        "matched_BL.png",
+        "matched_BR.png"
+      ],
+      "seconds": 117.938,
+      "look": "AgX - Medium High Contrast",
+      "gamma": 1.0
+    }
+  ],
+  "cameras": {
+    "TL": {
+      "position": [
+        0.0,
+        0.6000000238418579,
+        1.600000023841858
+      ],
+      "direction": [
+        0.5735764503479004,
+        0.8191521167755127,
+        5.960464477539063e-08
+      ],
+      "lensMm": 24.0,
+      "sensorWidthMm": 36.0,
+      "width": 640,
+      "height": 360
+    },
+    "TR": {
+      "position": [
+        -6.199999809265137,
+        1.0,
+        2.799999952316284
+      ],
+      "direction": [
+        0.32239973545074463,
+        0.9363168478012085,
+        -0.13917306065559387
+      ],
+      "lensMm": 20.0,
+      "sensorWidthMm": 36.0,
+      "width": 640,
+      "height": 360
+    },
+    "BL": {
+      "position": [
+        4.800000190734863,
+        8.0,
+        1.600000023841858
+      ],
+      "direction": [
+        -0.4972609281539917,
+        -0.8612812161445618,
+        -0.1045285165309906
+      ],
+      "lensMm": 24.0,
+      "sensorWidthMm": 36.0,
+      "width": 640,
+      "height": 360
+    },
+    "BR": {
+      "position": [
+        0.0,
+        16.799999237060547,
+        1.600000023841858
+      ],
+      "direction": [
+        -8.72098198101412e-08,
+        -0.9975640773773193,
+        -0.06975647807121277
+      ],
+      "lensMm": 24.0,
+      "sensorWidthMm": 36.0,
+      "width": 640,
+      "height": 360
+    }
+  },
+  "blenderVersion": "4.5.12 LTS",
+  "device": "CPU",
+  "samples": 32,
+  "sourceSha256": "750a3cb056a8b1104165c07e0dbfbf849d0993e00670e0d1d59072fa602ff3db",
+  "objects": 236,
+  "wallSeconds": 123.077
+}
