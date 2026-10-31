@@ -9,15 +9,70 @@
     "matched_TL.png": "9316f3dbb5b00a5dd4c78b4416d4c6c5b038ce28f594671d9afb869a7c75c9fa",
     "depth_TL.png": "ffd826c1319dc8fadac05312f28e7af787d1cc6ff88306bbc03aa158468a1d7a",
     "id_TL.png": "e3cd41ad853c3a144e8deabcfb9f7f6aa0c9fd95761988395ba8d5400e9f4948",
-    "outline_TL.png": "5ae0f574edff605f384cfcb22b2d170352cdf08d829e158e63fcc9bca2893927"
+    "outline_TL.png": "43e6684898e3dee208570778507fed94c7918e41c0de42e9ff64c8a215fa9d44"
   },
   "depthAndIdSource": "Earlier cloud technical passes from the identical saved scene and camera; independent of lighting.",
-  "outlineMethod": "White boundaries between different object-ID pixels on black. Object boundaries only; not every mesh edge.",
+  "outlineMethod": "White boundaries between object-ID pixels whose colours differ by more than 8 in a channel (the ID pass is dithered by +-1), on black. Object boundaries only; not every mesh edge.",
   "modelInputOrder": [
     "matched_TL.png",
     "outline_TL.png",
     "depth_TL.png"
   ],
-  "modelRuns": [],
+  "modelRuns": [
+    {
+      "date": "2026-10-31",
+      "engine": "Nano Banana 2.1",
+      "modelId": "gemini-nano-banana-2.1",
+      "settings": {
+        "imageSize": "2K",
+        "aspectRatio": "16:9"
+      },
+      "outline": "noisy (before the tolerance fix)",
+      "seconds": 33.0,
+      "estimateCredits": 7,
+      "returnedPixels": [
+        2731,
+        1536
+      ],
+      "finding": "Camera kept; pillars, vent and cabinet close. Invented ceiling pipes and a lit opening with hazard blocks at the far end; walls much brighter, warm mood lost."
+    },
+    {
+      "date": "2026-10-31",
+      "engine": "GPT Image 2.5 Sunburst",
+      "modelId": "gpt-image-2.5-sunburst",
+      "settings": {
+        "imageSize": "2K",
+        "aspectRatio": "16:9",
+        "quality": "high"
+      },
+      "outline": "noisy (before the tolerance fix)",
+      "seconds": 40.6,
+      "estimateCredits": 13,
+      "returnedPixels": [
+        2048,
+        1152
+      ],
+      "finding": "Closest to Blender: beams, pillars, vent, cabinet and lane line follow the outlines; warm dim mood kept; glossy walls and wet sheen added."
+    },
+    {
+      "date": "2026-10-31",
+      "engine": "Nano Banana 2.1",
+      "modelId": "gemini-nano-banana-2.1",
+      "settings": {
+        "imageSize": "2K",
+        "aspectRatio": "16:9"
+      },
+      "outline": "clean (tolerance 8)",
+      "outlineSha256": "43e6684898e3dee208570778507fed94c7918e41c0de42e9ff64c8a215fa9d44",
+      "seconds": 31.1,
+      "estimateCredits": 7,
+      "returnedPixels": [
+        2731,
+        1536
+      ],
+      "finding": "The invented far-end opening is gone and the cabinet sits in its outline; ceiling pipes still added, walls still much brighter and the solid yellow lane line becomes dashes."
+    }
+  ],
+  "modelRunsNote": "One call per engine through Kinolot's image path (signed-in admin, no retries). Estimates from the app's pricing; actual charges not read. Single samples: a second call can differ.",
   "note": "Reference images are guidance, not an enforced depth/edge conditioning mechanism."
 }

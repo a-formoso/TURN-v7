@@ -36,7 +36,11 @@ python3 -m venv /tmp/kinolot-guide-venv
 
 Depth and object-ID inputs are earlier cloud technical passes from this identical scene/camera. They were not rerendered in the new lighting run. Lighting does not change their geometry. The outline shows boundaries between object IDs, not all edges within each mesh. `comparison-inputs.json` records the scene and image checksums.
 
-## Next comparison — not run yet
+## Comparison results (31 October 2026)
+
+The TL view was run once each through Kinolot's image path; settings, timings and findings are in `comparison-inputs.json` → `modelRuns`, and the images and sheets in ignored `output/model-comparison/`. The first two runs were sent the old outline, which was ~64% noise: the ID pass is dithered by ±1 and `prepare_guides.py` treated any difference as a boundary. It now uses a tolerance of 8 (10.9% boundary pixels, two pixels wide). **GPT Image 2.5 Sunburst kept the Blender structure and the warm mood best.** Nano Banana 2.1 with the clean outline no longer invented the far-end opening and placed the cabinet correctly, but still added ceiling pipes, brightened the walls and dashed the yellow lane line. These are single samples, not a benchmark.
+
+## Comparison protocol (first runs recorded above)
 
 Use Kinolot's existing authenticated image path, with the owner's authorised account. Higgsfield is not required. Do not extract browser credentials or use a privileged API to bypass browser access restrictions.
 
