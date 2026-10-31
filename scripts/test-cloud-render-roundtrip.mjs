@@ -16,7 +16,7 @@ const root=new URL("../",import.meta.url),read=p=>readFileSync(new URL(p,root),"
 const h=await harness();let base="";
 const sandbox={console,crypto,TextEncoder,URL,location:{hostname:"localhost"},turnIsAdmin:true,scenesInStoryOrder:x=>x||[],nbGetMeta:()=>null,nbGetImage:()=>""};sandbox.window=sandbox;
 vm.createContext(sandbox);
-for(const f of ["locations.jsx","blender-render-contract.js","blender-render.js"])vm.runInContext(read("app/"+f),sandbox);
+for(const f of ["locations.jsx","blender-render-contract.js","blender-set-detail.js","blender-render.js"])vm.runInContext(read("app/"+f),sandbox);
 const room={id:"roundtrip-room",key:"roundtrip-room",name:"Integration test room",spatialPlan:{frame:"Facing north",status:"reviewed",source:{assetId:"roundtrip-room",iso:""},
   anchors:[{id:"cabinet",name:"Cabinet",space:"Integration test room",placement:"Centre",xy:[0,0],z:3.5,size:[2,1,1],sizeBasis:"user"}],
   coordinates:{spaces:[{id:"roundtrip-room",name:"Integration test room",floorZ:3,ceilingH:3,footprint:[[-5,-5],[5,-5],[5,5],[2,5],[2,4],[-5,4]],
@@ -28,13 +28,13 @@ const scene=sandbox.KinolotCloudRender.buildScene(room);
 let submitted=waitForUI?null:await h.request("job.create",{projectId:project,locationId:room.id,requestId:crypto.randomUUID(),scene});
 if(submitted)assert.equal(submitted.status,200);
 h.storage.sign=async path=>base+"/artifact/"+encodeURIComponent(path);
-const publicFiles=new Set(["app/locations.jsx","app/blender-render-contract.js","app/blender-render.js","app/blender-render-ui.jsx","app/blender-preview.css"]);
+const publicFiles=new Set(["app/locations.jsx","app/blender-render-contract.js","app/blender-set-detail.js","app/blender-render.js","app/blender-render-ui.jsx","app/blender-preview.css"]);
 const html=()=>`<!doctype html><html><head><meta charset="utf-8"><title>Kinolot cloud preview — offline integration test</title>
 <link rel="stylesheet" href="/app/blender-preview.css"><style>body{background:#18191d;color:#eee;font:15px system-ui;margin:36px auto;max-width:1050px;padding:0 18px}button{padding:9px 14px;background:#c4a66e;color:#151515;border:0;border-radius:5px;cursor:pointer}button:disabled{opacity:.4;cursor:default}.loc-layer-note{color:#aaa}.loc-spatial-error{color:#edb07c}small{display:block}.test-note{background:#30323a;padding:15px;border-radius:8px}</style>
 <script src="https://unpkg.com/react@18/umd/react.development.js"></script><script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script></head><body><h1>Cloud set preview</h1><p class="test-note">Offline integration proof: real local Blender and PostgreSQL, with test identity and test storage. This is not a live film or a cloud deployment.</p><div id="preview"></div>
 <script>window.turnIsAdmin=true;window.nbGetMeta=()=>null;window.nbGetImage=()=>"";window.scenesInStoryOrder=x=>x||[];window.fixture=${JSON.stringify(room).replace(/</g,"\\u003c")};window.turnContinuity={locations:[window.fixture]};const scope={uid:${JSON.stringify(owner)},projectId:${JSON.stringify(project)},epoch:1};window.BlenderPreview={scope:()=>scope,isCurrent:s=>s.projectId===scope.projectId&&s.uid===scope.uid};window.sbClient=()=>({auth:{getSession:async()=>({data:{session:{access_token:"owner-session",user:{id:scope.uid}}}})}});window.KINOLOT_RENDER_DEV_ENDPOINT=location.origin+"/render";</script>
-<script src="/app/locations.jsx"></script><script src="/app/blender-render-contract.js"></script><script src="/app/blender-render.js"></script><script type="text/babel" src="/app/blender-render-ui.jsx"></script>
+<script src="/app/locations.jsx"></script><script src="/app/blender-render-contract.js"></script><script src="/app/blender-set-detail.js"></script><script src="/app/blender-render.js"></script><script type="text/babel" src="/app/blender-render-ui.jsx"></script>
 <script type="text/babel">ReactDOM.createRoot(document.getElementById("preview")).render(React.createElement(LocationCloudRender,{location:window.fixture}));</script></body></html>`;
 const server=createServer(async(req,res)=>{
   try{

@@ -79,7 +79,7 @@ try{
   const box={console,crypto,TextEncoder,URL,location:{hostname:"localhost"},turnIsAdmin:true,localStorage:{getItem:()=>null,setItem:()=>{}},
     scenesInStoryOrder:x=>x||[],nbGetMeta:()=>null,nbGetImage:()=>""};box.window=box;
   vm.createContext(box);
-  for(const file of ["locations.jsx","blender-render-contract.js","blender-render.js"])vm.runInContext(readFileSync(new URL("../app/"+file,import.meta.url),"utf8"),box);
+  for(const file of ["locations.jsx","blender-render-contract.js","blender-set-detail.js","blender-render.js"])vm.runInContext(readFileSync(new URL("../app/"+file,import.meta.url),"utf8"),box);
   const room={id:"room",key:"room",name:"Raised room",spatialPlan:{status:"reviewed",source:{assetId:"room",iso:""},frame:"North",
     anchors:[{id:"cabinet",name:"Cabinet",space:"Raised room",placement:"Centre",xy:[0,0],z:3.5,size:[2,1,1],sizeBasis:"user"}],
     coordinates:{spaces:[{id:"room",name:"Raised room",footprint:[[-5,-5],[5,-5],[5,5],[-5,5]],floorZ:3,ceilingH:3,

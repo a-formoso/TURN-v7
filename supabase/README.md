@@ -175,6 +175,41 @@ data. For pilot shutdown, the server flag `BLENDER_RENDER_ENABLED=false` rejects
 new browser and worker requests. This flag is a separate operational action;
 do not change it or unpublish the paid worker as routine review cleanup.
 
+**Saved-plan car-deck detail (owner approved, 31 October 2026):** the local
+builder now applies a deterministic car-deck detail profile to a rectangular
+saved vehicle deck with a raised stern ramp and lane markings. It retains all
+saved anchor centres, camera poses, footprints, wall openings and ceiling levels.
+The profile adds ramp ribs, hydraulic/chain detail, hazard striping, bulkhead
+finishes, transverse beams, door frames, a red hose cabinet, vent louvres, a
+wall-mounted deck numeral, shaped chocks, lane arrows and distributed warm
+practicals. Repeated fixtures, lane spacing, surface finishes and mounting offsets
+are proposed design detail, disclosed in Render notes. It does not close an open
+doorway or turn a saved lowered ramp upright. Other rooms keep the basic builder.
+
+The actual saved Marmorica plan exports **236 shapes, 16 materials and eight
+lights**, within the existing worker contract; the worker and deployed function
+need no code changes. No film document edits or image-model calls are needed.
+The final local 320 × 180-per-panel smoke render passed in **82.3593 seconds**
+on the installed Mac Blender, after reducing excessive floor glare. An initial
+sandboxed local startup crashed before executing the scene; two later local
+tests of the same installed Blender with normal execution access passed. All **80
+detail invariant checks**, the 63 cloud protocol/geometry checks and the 40 release
+boundary checks pass. The production build passes with 90 JavaScript files and
+11 assets; the compiled exporter reproduces the reviewed scene exactly and keeps
+the live-host pilot gate disabled.
+
+The final set was submitted through local Kinolot's authenticated **Rebuild set**
+button and completed on the unchanged published worker in **243.8963 seconds**,
+on attempt one, with the expected 236 shapes and twelve privately stored PNGs.
+The exact scene hash matched the reviewed exporter output. All four 640 × 360
+colour images loaded back in Kinolot with the saved camera labels and no outdated
+revision warning. Visual inspection confirmed the richer ramp, steelwork, cabinet,
+vent and markings in the same set from all four cameras. A fresh document read
+confirmed the film remained unchanged. No website, function or worker deployment
+was changed for this detail pass; no paid image model or new hosting was used.
+The renders remain a simple-material set preview, with fine wear, texture and
+finished look development still separate work.
+
 1. Apply `blender-render-jobs.sql` to a **staging** Supabase project first. It
    creates only the new service-role-only job table and RPCs. It does not alter
    existing project, team, billing or generation tables.

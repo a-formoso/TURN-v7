@@ -125,7 +125,9 @@
         wall:{baseColor:[0.55,0.58,0.6],metallic:0.05,roughness:0.7},
         dressing:{baseColor:[0.46,0.34,0.2],metallic:0.05,roughness:0.6},
       }};
-    return C().validateScene(scene);
+    if(!root.KinolotSetDetail)throw new Error("The set detail builder did not load. Refresh this page before building.");
+    return root.KinolotSetDetail.build(C().validateScene(scene),{space:spaces.find(s=>s.id===location.id),
+      anchors:plan.anchors.filter(a=>(root.locationAnchorSpaceOf(a,family)||owner).id===location.id)});
   }
   function endpoint(){
     if(local()&&root.KINOLOT_RENDER_DEV_ENDPOINT){
