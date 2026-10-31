@@ -86,7 +86,7 @@
     if(reference?.deleted)throw Error("This draft's comparison source was removed. Generate a new draft before reviewing.");
     let source=reference?.url||"";
     if(!source){
-      const old=await root.KinolotCloudRender.request("job.get",{jobId:d.meta.sourceJobId},s);
+      const old=await root.KinolotCloudRender.request("job.get",{projectId:s.projectId,jobId:d.meta.sourceJobId},s);
       if(old.job?.sceneHash!==d.meta.sceneHash||old.job?.locationId!==id)throw Error("The Blender comparison source could not be verified.");
       source=await compose(old.job);assertScope(s);
     }
@@ -103,7 +103,7 @@
     const guard=()=>{try{assertScope(s);return sceneKey(live(id))===revision&&briefKey(live(id))===brief;}catch(_){return false;}};
     const assert=()=>{if(!guard())throw Error("The layout or style brief changed. This draft was not adopted; check usage before retrying.");};
     await root.KinolotCloudRender.request("capabilities",{projectId:s.projectId},s);assert();
-    const original=await root.KinolotCloudRender.request("job.get",{jobId:job?.id},s);assert();
+    const original=await root.KinolotCloudRender.request("job.get",{projectId:s.projectId,jobId:job?.id},s);assert();
     const hash=await root.KinolotRenderContract.hash(revision);assert();
     if(original.job?.status!=="completed"||original.job.locationId!==id||original.job.sceneHash!==hash)
       throw Error("Build the current floor plan before generating a style draft.");
@@ -154,7 +154,7 @@
   async function reject(id,draft,s){return locked(id,s,async()=>{
     const current=await details(slot(id),s);verify(current.meta,id,s);
     if(current.meta.iso!==draft.meta.iso)throw Error("A newer draft is available. Reopen the review.");
-    if(current.meta.approval?.iso===current.meta.iso&&current.meta.approval.approved)
+    if(current.meta.approval&&current.meta.approval.iso===current.meta.iso&&current.meta.approval.approved)
       throw Error("This draft has already been used. Review the current location artwork.");
     const result=await root.nbSetAssetApproval(slot(id),draft.meta.iso,false,"cloud-set-style-rejected");assertScope(s);
     if(!result?.ok)throw Error(result?.error||"The rejection could not be saved.");announce(id,true);return result;
@@ -164,7 +164,7 @@
     const current=await load(id,s);if(!current)throw Error("The draft is no longer available.");
     if(current.meta.iso!==draft.meta.iso)throw Error("A newer draft is available. Reopen the review.");
     const meta=current.meta,approval=meta.approval;
-    if(approval?.iso===meta.iso&&!approval.approved)throw Error("This draft was rejected. Generate a new draft.");
+    if(approval&&approval.iso===meta.iso&&!approval.approved)throw Error("This draft was rejected. Generate a new draft.");
     const revision=sceneKey(live(id)),brief=meta.briefKey;
     if(await root.KinolotRenderContract.hash(revision)!==meta.sceneHash)throw Error("The layout changed. Generate a current draft before accepting.");
     const guard=()=>{try{assertScope(s);return sceneKey(live(id))===revision&&briefKey(live(id))===brief;}catch(_){return false;}};
@@ -173,7 +173,7 @@
     if(!guard())throw Error("The location changed while its review was open.");
     const target=await details(id,s);
     if(target.meta?.styleDraftIso===meta.iso)return {url:target.url,alreadyAccepted:true};
-    if(approval?.iso===meta.iso&&approval.approved)throw Error("This draft has already been used. Review the current location artwork.");
+    if(approval&&approval.iso===meta.iso&&approval.approved)throw Error("This draft has already been used. Review the current location artwork.");
     const expected=meta.baseArtwork,now=version(target);
     if(!expected||now.exists!==expected.exists||now.iso!==expected.iso)throw Error("The location artwork changed. Keep that version or generate a new style draft.");
     const outputMeta={...meta,kind:"location",mode:"final",iso:new Date().toISOString(),styleDraftIso:meta.iso,

@@ -35,7 +35,8 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
   },[review]);
   const pending=scope?api.pending(scope,location.id):null;
   const stale=!!draft&&(!sceneHash||draft.meta.sceneHash!==sceneHash||draft.meta.briefKey!==brief);
-  const approval=draft?.meta?.approval,decided=approval?.iso===draft?.meta?.iso;
+  // No draft yet means no decision: two missing values must not count as a match.
+  const approval=draft?.meta?.approval,decided=!!approval&&!!draft.meta.iso&&approval.iso===draft.meta.iso;
   const accepted=decided&&approval.approved,rejected=decided&&!approval.approved;
   const valid=()=>alive.current&&current.current===scopeKey;
   async function generate(){

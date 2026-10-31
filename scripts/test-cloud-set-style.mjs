@@ -25,7 +25,10 @@ function harness(){
     BlenderPreview:{scope:()=>scope,isCurrent:s=>s.uid===current.uid&&s.projectId===current.projectId&&s.epoch===current.epoch},
     KinolotRenderContract:{canonical:JSON.stringify,hash:async s=>Buffer.from(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s))).toString("hex")},
     KinolotCloudRender:{enabled:()=>b.location.hostname==="localhost"&&b.turnIsAdmin,buildScene:()=>clone(scene),request:async(action,body)=>{
-      calls.push(action);if(!allowed)throw Error("Pilot access denied");if(action==="capabilities")return {};return {job:clone(job)};
+      calls.push(action);if(!allowed)throw Error("Pilot access denied");if(action==="capabilities")return {};
+      // As the real service does: a job is only found inside the film it belongs to.
+      if(/^job\.(get|cancel)$/.test(action)&&body?.projectId!==scope.projectId)throw Error("Render request not found in this film.");
+      return {job:clone(job)};
     }},
     nbLoadDetailsAsset:async id=>clone(store.get(id)||{id,url:"",meta:null,refs:[]}),
     nbGenerate:async(prompt,opts)=>{
@@ -182,5 +185,19 @@ for(const phase of ["prepare","response"]){
   tree=render({sceneHash:"changed"});ok(button(tree,"Use as location artwork").props.disabled,"Stale camera/layout revision disables acceptance in the interface");
   tree=render();await button(tree,"Use as location artwork").props.onClick();
   ok(h.store.get("room").meta.styleDraftIso===d.meta.iso,"Actual acceptance button handler adopts the reviewed pixels in disposable storage");
+}
+{
+  // A location with a finished Blender job but no style draft yet (every location, the first time): the panel renders.
+  const h=harness(),job=await h.ready();
+  h.b.nbOaiQualityLabel=x=>x;
+  const states=[null,false,false,"","","",false,false,false,"all",50,0,0];let index=0;
+  h.b.React={useState:initial=>{const i=index++;if(states[i]===undefined)states[i]=initial;return [states[i],v=>{states[i]=typeof v==="function"?v(states[i]):v;}];},
+    useRef:v=>({current:v}),useEffect(){},createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!==false&&x!=null)})};
+  vm.runInContext(readFileSync(compiled?"dist/app/blender-style-ui.js":"app/blender-style-ui.jsx","utf8"),h.b);
+  let tree=null,error=null;
+  try{tree=h.b.LocationSetStyle({location:h.b.turnContinuity.locations[0],job,sceneHash:job.sceneHash});}catch(e){error=e;}
+  ok(!error&&tree,"The panel renders before any style draft exists ("+(error&&error.message)+")");
+  const find=(node,test)=>{if(!node||typeof node!=="object")return null;if(test(node))return node;for(const child of node.children||[]){const result=find(child,test);if(result)return result;}return null;};
+  ok(!find(tree,n=>n.type==="button"&&n.children.includes("Use as location artwork")),"Without a draft there is nothing to accept");
 }
 console.log("PASS cloud set styling: "+checks+" generation, review, persistence, race, ownership and no-retry checks");
