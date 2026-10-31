@@ -71,6 +71,25 @@
         1536
       ],
       "finding": "The invented far-end opening is gone and the cabinet sits in its outline; ceiling pipes still added, walls still much brighter and the solid yellow lane line becomes dashes."
+    },
+    {
+      "date": "2026-10-31",
+      "engine": "GPT Image 2.5 Sunburst",
+      "modelId": "gpt-image-2.5-sunburst",
+      "settings": {
+        "imageSize": "2K",
+        "aspectRatio": "16:9",
+        "quality": "high"
+      },
+      "outline": "clean (tolerance 8)",
+      "outlineSha256": "43e6684898e3dee208570778507fed94c7918e41c0de42e9ff64c8a215fa9d44",
+      "seconds": 38.5,
+      "estimateCredits": 13,
+      "returnedPixels": [
+        2048,
+        1152
+      ],
+      "finding": "Almost the same as its noisy-outline run: beams, pillars, vent and cabinet follow the outlines, warm dim mood kept, solid lane line kept; walls slightly less glossy. The floor arrow and lane line sit a little above their outlines in both runs."
     }
   ],
   "modelRunsNote": "One call per engine through Kinolot's image path (signed-in admin, no retries). Estimates from the app's pricing; actual charges not read. Single samples: a second call can differ.",
