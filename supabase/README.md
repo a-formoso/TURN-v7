@@ -98,6 +98,13 @@ proposed design camera choices, not surveyed measurements. A second backend
 render verifies these saved poses; a successful file check alone is not treated
 as proof that a frame is useful.
 
+The camera-corrected saved-plan render passed on attempt one in **207.9718
+seconds**, with twelve matching PNGs stored and retrieved. Visual inspection
+confirmed the bottom-left view is no longer occluded and both reverse views
+show the raised ramp. The final shared-plan revision contains the explicit
+camera corrections and still has zero blocking input issues. The browser button
+interaction remains unverified while Local browser use is disabled.
+
 1. Apply `blender-render-jobs.sql` to a **staging** Supabase project first. It
    creates only the new service-role-only job table and RPCs. It does not alter
    existing project, team, billing or generation tables.
