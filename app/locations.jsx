@@ -1094,6 +1094,7 @@ function normalizeLocationSpatialPlan(value){
     if(xy||z!=null||facing!=null)out.posBasis=_locBasis(a.posBasis,"design");
     const size=_locVec(a.size,3);
     if(size&&size.every(n=>n>=0.01&&n<=1000)){out.size=size;out.sizeBasis=_locBasis(a.sizeBasis,"design");}
+    if(a.zBasis==="centre"||a.zBasis==="base")out.zBasis=a.zBasis;
     return out;
   });
   const coordinates=normalizeLocationCoordinates(p.coordinates);
@@ -1101,7 +1102,28 @@ function normalizeLocationSpatialPlan(value){
     sightlines:text(p.sightlines,1000),unresolved:text(p.unresolved,1000),
     status:p.status==="reviewed"?"reviewed":"draft",
     source:{assetId:text(p.source&&p.source.assetId,160),iso:text(p.source&&p.source.iso,160)},
+    ...(p.heights==="centre"?{heights:"centre"}:{}),
     ...(coordinates?{coordinates}:{})};
+}
+/* HEIGHT CONVENTIONS (2026-10-31, cloud set preview). A plan drafted from now on carries heights:"centre": an object's
+   z is its centre and every sill / head is above the main floor. Older drafts stored an object's base and a raised
+   room's sill / head from that room's own floor. Saved plans are read through these two, never rewritten. An anchor's
+   own zBasis wins; in an unmarked plan an anchor that already has a size was saved with a centre height (sizes and
+   centre heights arrived together, before the marker: The Last Crossing's Marmorica, 2026-10-31), one without keeps
+   its base. */
+function locationAnchorHeightBasis(a,plan){
+  if(a&&(a.zBasis==="centre"||a.zBasis==="base"))return a.zBasis;
+  if(plan&&plan.heights==="centre")return "centre";
+  return a&&a.size?"centre":"base";
+}
+// An unmarked raised room's sill / head that only fits once lifted by the room's floor was read from that floor.
+// Values that already fit are main-floor heights, so a plan corrected by hand is never lifted twice.
+function locationOpeningHeights(o,space,plan){
+  const f=space&&space.floorZ;
+  if(plan&&plan.heights==="centre"||!o||!f||!Number.isFinite(o.sillZ)||!Number.isFinite(o.headZ))return o;
+  const top=space.openSky||!Number.isFinite(space.ceilingH)?Infinity:f+space.ceilingH;
+  const fits=(sill,head)=>sill>=f-1e-6&&head<=top+1e-6&&head>sill;
+  return !fits(o.sillZ,o.headZ)&&fits(o.sillZ+f,o.headZ+f)?{...o,sillZ:o.sillZ+f,headZ:o.headZ+f}:o;
 }
 function locationSpatialSource(owner){
   const meta=typeof nbGetMeta==="function"?nbGetMeta(owner.id):null;

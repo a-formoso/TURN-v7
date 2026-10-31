@@ -15,11 +15,15 @@
     const opening=savedOpening(anchor,space);
     return root.locationAnchorIsOpening(anchor)||!!opening&&["window","glass"].includes(opening.kind);
   }
+  // Saved heights are read through the floor plan's conventions (locations.jsx), never rewritten.
+  function renderSpaces(plan){
+    return (plan.coordinates?.spaces||[]).map(s=>({...s,openings:(s.openings||[]).map(o=>root.locationOpeningHeights(o,s,plan))}));
+  }
   function inputIssues(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
     const state=root.locationSpatialPlanState(location,list);
     if(!state.ready)return [state.reason];
-    const {owner,plan}=state,spaces=plan.coordinates?.spaces||[],issues=[];
+    const {owner,plan}=state,spaces=renderSpaces(plan),issues=[];
     if(!spaces.length)return ["Add the location's footprint to the floor plan first."];
     if(!spaces.some(s=>s.id===location.id&&s.footprint.length>=3))issues.push("Add this space's footprint to the floor plan first.");
     for(const s of spaces){
@@ -59,10 +63,10 @@
     if(!state.ready)throw new Error(state.reason);
     const coords=plan.coordinates;
     if(!coords||!coords.spaces.length)throw new Error("Add the location's footprint to the floor plan first.");
-    const spaces=coords.spaces,objects=[],lights=[],notes=["Floor plan dimensions are estimates, not a survey.","Wall and floor thicknesses are proposed at 0.15 m. Materials and lighting are a preview treatment."];
+    const spaces=renderSpaces(plan),objects=[],lights=[],notes=["Floor plan dimensions are estimates, not a survey.","Wall and floor thicknesses are proposed at 0.15 m. Materials and lighting are a preview treatment."];
     if(plan.anchors.some(a=>a.sizeBasis==="design"))notes.push("Object sizes marked proposed design are working estimates. Grouped dressing is represented by a single simplified proxy; repeated units and fine details are not modelled in this preview.");
     if(!spaces.some(s=>s.id===location.id&&s.footprint.length>=3))throw new Error("Add this space's footprint to the floor plan first.");
-    const family=root.locationSpatialFamily(owner,list);
+    const family=root.locationSpatialFamily(owner,list);let baseNote=false;
     const add=(id,name,position,size,rotation=[0,0,0],extra={})=>objects.push({id,name:tidy(name),position,size,rotation,kind:"box",material:"wall",...extra});
     spaces.forEach((s,si)=>{
       const poly=C().polygon(s.footprint),xs=poly.map(p=>p[0]),ys=poly.map(p=>p[1]);
@@ -107,11 +111,18 @@
         return;
       }
       if(!anchor.xy||!anchor.size)throw new Error("Set the floor plan position and width, depth and height for "+(anchor.name||"each fixed object")+".");
-      const z=finite(anchor.z)?anchor.z:sp.floorZ+anchor.size[2]/2;
+      const h=anchor.size[2];let z=sp.floorZ+h/2;
       if(!finite(anchor.z))notes.push(tidy(anchor.name,80)+" has no saved centre height; it stands on its room's floor in this preview.");
+      else if(root.locationAnchorHeightBasis(anchor,plan)==="base"){
+        // An older plan's base height: the object stands on it, and never rises through its room's ceiling.
+        z=anchor.z+h/2;
+        if(!sp.openSky&&finite(sp.ceilingH))z=Math.max(sp.floorZ+h/2,Math.min(z,sp.floorZ+sp.ceilingH-h/2));
+        baseNote=true;
+      }else z=anchor.z;
       add("anchor-"+i,anchor.name,[anchor.xy[0],anchor.xy[1],z],anchor.size,[0,0,-(anchor.facing||0)*Math.PI/180],
         {anchorId:anchor.id,material:"dressing",basis:anchor.sizeBasis||"design"});
     });
+    if(baseNote)notes.push("This floor plan saves objects' base heights; the preview stands each object on its saved height.");
     if(lights.length>16)throw new Error("This preview supports up to sixteen spaces.");
     const cameras={};
     root.locationPanelPoses(location,list).forEach(p=>{

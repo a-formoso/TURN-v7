@@ -7,8 +7,17 @@ const bad=(message,code="bad_request",status=400)=>new RenderError(status,code,m
 const uuid=v=>typeof v==="string"&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
 const panels=["TL","TR","BL","BR"];
 const imageNames=["colour","depth","id"].flatMap(kind=>panels.map(p=>kind+"_"+p));
-const CORS={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,apikey,content-type","Access-Control-Allow-Methods":"POST,OPTIONS","Cache-Control":"no-store"};
-const reply=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{...CORS,"Content-Type":"application/json"}});
+// CORS answers only the app's own hosts (https) and local development, as invite-collaborator does. The worker
+// calls from a server, where CORS does not apply.
+const APP_HOSTS=["kinolot.infinitestudioai.com","cinema.infinitestudioai.com","kinolot.replit.app"],DEV_HOSTS=["localhost","127.0.0.1","[::1]"];
+export function corsFor(origin){
+  const base={"Access-Control-Allow-Headers":"authorization,apikey,content-type","Access-Control-Allow-Methods":"POST,OPTIONS","Cache-Control":"no-store",Vary:"Origin"};
+  let u;try{u=new URL(String(origin||""));}catch(_){u=null;}
+  if(!u||u.origin!==String(origin))return base;
+  const ok=APP_HOSTS.includes(u.hostname)&&u.protocol==="https:"&&!u.port||DEV_HOSTS.includes(u.hostname)&&/^https?:$/.test(u.protocol);
+  return ok?{...base,"Access-Control-Allow-Origin":u.origin}:base;
+}
+const reply=(value,status=200,cors=corsFor(""))=>new Response(JSON.stringify(value),{status,headers:{...cors,"Content-Type":"application/json"}});
 async function bodyJSON(request,max){
   const reader=request.body?.getReader();if(!reader)throw bad("A request is required.");
   const chunks=[];let size=0;
@@ -160,7 +169,8 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
     throw bad("Unknown action.");
   }
   async function handle(request){
-    if(request.method==="OPTIONS")return new Response(null,{status:204,headers:CORS});
+    const cors=corsFor(request.headers.get("origin"));
+    if(request.method==="OPTIONS")return new Response(null,{status:204,headers:cors});
     try{
       if(request.method!=="POST")throw bad("POST required.","method_not_allowed",405);
       if(!enabled||!allowed.size||workerSecret.length<32)throw bad("Cloud rendering is not enabled for this environment.","unavailable",503);
@@ -176,10 +186,10 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
         if(!allowed.has(user.id))throw bad("Cloud set previews are limited to the development pilot.","forbidden",403);
       }
       const body=await bodyJSON(request,worker?12582912:262144);
-      return reply(await dispatch(body,user,!!worker));
+      return reply(await dispatch(body,user,!!worker),200,cors);
     }catch(e){
       const safe=e instanceof RenderError?e:bad("The render service could not finish this request.","service_error",503);
-      return reply({error:safe.message,code:safe.code},safe.status);
+      return reply({error:safe.message,code:safe.code},safe.status,cors);
     }
   }
   return {handle};

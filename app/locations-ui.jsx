@@ -869,6 +869,8 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     if(candidate)setCandidate(next);else onUpdate(owner.id,{spatialPlan:next});
   };
   const anchorChange=(id,patch)=>change({anchors:plan.anchors.map(a=>a.id===id?{...a,...patch}:a)});
+  // editing an older plan's object records how its height was meant, so adding a size never re-reads it
+  const heightBasis=a=>a.zBasis||plan.heights==="centre"?{}:{zBasis:locationAnchorHeightBasis(a,plan)};
   const draft=async()=>{
     if(readOnly||busy)return;
     const epoch=typeof nbEpoch==="function"?nbEpoch():null;
@@ -971,11 +973,12 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         React.createElement("div",{className:"loc-cam-fields loc-anchor-coords"},
           React.createElement(LocCoordInput,{label:"Floor plan position",value:a.xy?a.xy.map(_locFmt).join(", "):"",placeholder:"x, y",mode:"text",
             hint:"metres from the origin (approximate)",onCommit:v=>anchorChange(a.id,{xy:_locParseVec(v,2)||undefined})}),
-          React.createElement(LocCoordInput,{label:"Height",value:_locFmt(a.z),placeholder:"0",hint:"object centre, m above the main floor",
-            onCommit:v=>{const z=_locParseNum(v);anchorChange(a.id,{z:z==null?undefined:z});}}),
+          React.createElement(LocCoordInput,{label:"Height",value:_locFmt(a.z),placeholder:"0",
+            hint:(locationAnchorHeightBasis(a,plan)==="base"?"object base":"object centre")+", m above the main floor",
+            onCommit:v=>{const z=_locParseNum(v);anchorChange(a.id,{z:z==null?undefined:z,...heightBasis(a)});}}),
           !(typeof locationAnchorIsOpening==="function"&&locationAnchorIsOpening(a))&&React.createElement(LocCoordInput,{
             label:"Object dimensions",value:a.size?a.size.map(_locFmt).join(", "):"",placeholder:"width, depth, height",mode:"text",
-            hint:"metres; measured or proposed blockout dimensions",onCommit:v=>anchorChange(a.id,{size:_locParseVec(v,3)||undefined,sizeBasis:"user"})}),
+            hint:"metres; measured or proposed blockout dimensions",onCommit:v=>anchorChange(a.id,{size:_locParseVec(v,3)||undefined,sizeBasis:"user",...heightBasis(a)})}),
           !(typeof locationAnchorIsOpening==="function"&&locationAnchorIsOpening(a))&&React.createElement(LocCoordInput,{label:"Front faces",value:_locFmt(a.facing),
             placeholder:"degrees",hint:a.facing!=null?locCompass(a.facing):"0 = north, 90 = east",
             onCommit:v=>{const f=_locParseNum(v);anchorChange(a.id,{facing:f==null?undefined:f});}}),

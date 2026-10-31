@@ -210,6 +210,17 @@ was changed for this detail pass; no paid image model or new hosting was used.
 The renders remain a simple-material set preview, with fine wear, texture and
 finished look development still separate work.
 
+**Height conventions (review fix, 31 October 2026):** saved floor plans are read, never rewritten. A plan drafted
+from now on carries `heights: "centre"` (an object's `z` is its centre; every sill/head is above the main floor).
+Older drafts stored an object's base and a raised room's sill/head from that room's own floor; the builder reads
+them that way (`locationAnchorHeightBasis` / `locationOpeningHeights` in `app/locations.jsx`): a base height stands
+the object on it (never through its ceiling), and an unmarked sill/head that only fits once lifted by its room's
+floor is lifted. An unmarked object that already has a size was saved with a centre height (sizes arrived with
+centres, before the marker), and opening heights that already fit are never lifted again, so Marmorica's
+hand-corrected plan builds exactly as before. Editing an older object's Height or dimensions records its `zBasis`.
+The function's CORS now answers only the app's hosts and local development; that change reaches the deployed
+`blender-render` only with a redeploy, which needs the owner's approval. Test: `node scripts/test-cloud-render-heights.mjs`.
+
 #### Reviewed style drafts (local development only)
 
 The optional **Style preview** below Cloud set preview uses the current image

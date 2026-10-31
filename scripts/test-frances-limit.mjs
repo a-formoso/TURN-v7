@@ -917,7 +917,7 @@ await test("F3 docs: the MUSE Protocol doc and supabase/README.md say how the li
     "`node scripts/test-frances-limit.mjs`", "`frances-daily-limit.sql` (see **Frances's daily question limit** below",
     "**Bursts are refused, not served.**", "`{ error: \"frances_busy\", message }`", "longer than 8 seconds",
     "**But Frances's own facts name the number too:** in the same change, update the Frances entry in `APP_FEATURES` (app/ai.jsx", "`FRANCES_DAILY_LIMIT` and `FRANCES_PLAN_LIMITS` in app/ai.jsx, then bump `app/ai.jsx?v=` in `TURN.html`"]) assert.ok(rd.includes(s), "README: "+s);
-  assert.ok(!/3 seconds/.test(rd), "the old 3-second timeout is gone from the README");
+  assert.ok(!/(^|[^\d.])3 seconds/.test(rd), "the old 3-second timeout is gone from the README");
   const head = SQL.slice(0, SQL.indexOf("begin;"));
   for(const s of ["HOW TO RUN", "HOW TO REMOVE IT", "FAILS OPEN", "FRANCES_DAILY_LIMIT", "rows 10-50", "Safe to re-run", "BUSY:", "within 8 s", "1 s lock_timeout"]) assert.ok(head.replace(/\n--\s+/g, " ").includes(s), "SQL header: "+s);
 });
