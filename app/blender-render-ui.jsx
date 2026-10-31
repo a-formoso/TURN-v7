@@ -3,8 +3,8 @@ function LocationCloudRender({location,readOnly=false}){
   const api=window.KinolotCloudRender,show=!!api&&api.enabled();
   const [job,setJob]=React.useState(null),[capable,setCapable]=React.useState(false),[busy,setBusy]=React.useState(false);
   const [message,setMessage]=React.useState(""),[sceneHash,setSceneHash]=React.useState(""),[refresh,setRefresh]=React.useState(0);
-  let scope=null,scene=null,reason="";
-  try{if(show){scope=window.BlenderPreview.scope();scene=api.buildScene(location);}}catch(e){reason=e.message;}
+  let scope=null,scene=null,reason="",inputIssues=[];
+  try{if(show){scope=window.BlenderPreview.scope();inputIssues=api.inputIssues?api.inputIssues(location):[];scene=api.buildScene(location);}}catch(e){reason=e.message;}
   const scopeKey=scope?[scope.uid,scope.projectId,scope.epoch,location.id].join(":"):"";
   const sceneKey=scene?window.KinolotRenderContract.canonical(scene):"";
   const current=React.useRef({scopeKey,sceneKey});current.current={scopeKey,sceneKey};
@@ -60,6 +60,7 @@ function LocationCloudRender({location,readOnly=false}){
     E("div",{className:"loc-cloud-render-head"},E("h4",null,"Cloud set preview"),E("small",null,"Development pilot")),
     E("p",{className:"loc-layer-note"},"Build four views from this saved floor plan. These previews are separate from your location artwork."),
     reason&&E("p",{className:"loc-layer-note"},reason),
+    inputIssues.length>1&&E("details",null,E("summary",null,"Review render inputs ("+inputIssues.length+")"),E("ul",{tabIndex:0,"aria-label":"Render input issues"},inputIssues.map((issue,i)=>E("li",{key:i},issue)))),
     E("div",{className:"loc-cloud-render-actions"},
       E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||!capable||!sceneHash||!!running,onClick:submit},busy?"Sending…":job&&job.status==="completed"?"Rebuild set":"Build set"),
       E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>setRefresh(n=>n+1)},"Check status"),
@@ -68,7 +69,7 @@ function LocationCloudRender({location,readOnly=false}){
     stale&&E("p",{className:"loc-spatial-error"},"The layout or cameras changed. This preview shows the earlier revision."),
     job&&!scene&&reason&&E("p",{className:"loc-spatial-error"},"This saved preview cannot be compared with the current floor plan until the layout issues above are resolved."),
     message&&E("p",{role:"alert",className:"loc-spatial-error"},message),
-    job?.notes?.length>0&&E("details",null,E("summary",null,"Render notes"),E("ul",null,job.notes.map((note,i)=>E("li",{key:i},note)))),
+    job?.notes?.length>0&&E("details",null,E("summary",null,"Render notes"),E("ul",{tabIndex:0,"aria-label":"Saved render notes"},job.notes.map((note,i)=>E("li",{key:i},note)))),
     job?.result&&E("div",{className:"loc-cloud-render-grid"},["TL","TR","BL","BR"].map(p=>E("figure",{key:p},
       E("img",{src:job.result.images["colour_"+p],alt:labels[p]+" camera view of "+(location.name||"this location")}),
       E("figcaption",null,labels[p]+" · facing "+Math.round((Math.atan2(job.result.report.cameras[p].direction[0],job.result.report.cameras[p].direction[1])*180/Math.PI+360)%360)+"°")))),

@@ -7,13 +7,60 @@
   function enabled(){return local()&&root.turnIsAdmin===true;}
   const tidy=(s,max=160)=>String(s||"").replace(/[\u0000-\u001f]/g," ").trim().slice(0,max);
   const finite=(n)=>typeof n==="number"&&Number.isFinite(n);
+  function savedOpening(anchor,space){
+    return (space?.openings||[]).find(o=>o.id===anchor.id||tidy(o.name).toLowerCase()===tidy(anchor.name).toLowerCase());
+  }
+  function isOpening(anchor,space){
+    // A saved window/glass aperture is authoritative even when its descriptive name is ambiguous.
+    const opening=savedOpening(anchor,space);
+    return root.locationAnchorIsOpening(anchor)||!!opening&&["window","glass"].includes(opening.kind);
+  }
+  function inputIssues(location,list){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    const state=root.locationSpatialPlanState(location,list);
+    if(!state.ready)return [state.reason];
+    const {owner,plan}=state,spaces=plan.coordinates?.spaces||[],issues=[];
+    if(!spaces.length)return ["Add the location's footprint to the floor plan first."];
+    if(!spaces.some(s=>s.id===location.id&&s.footprint.length>=3))issues.push("Add this space's footprint to the floor plan first.");
+    for(const s of spaces){
+      let poly;try{poly=C().polygon(s.footprint);}catch(e){issues.push((s.name||"Space")+": "+e.message);continue;}
+      if(s.openSky)continue;
+      if(!finite(s.ceilingH)){issues.push("Set the ceiling height for "+(s.name||"this space")+" in the floor plan.");continue;}
+      for(const o of s.openings||[]){
+        if(!o.centre||!finite(o.width)||!finite(o.sillZ)||!finite(o.headZ)){
+          issues.push("Set the centre, width, sill and head for "+(o.name||"each opening")+".");continue;
+        }
+        const a=poly[o.edge],b=poly[(o.edge+1)%poly.length];
+        if(!a||!b){issues.push("Check the wall placement of "+(o.name||"this opening")+".");continue;}
+        const length=Math.hypot(b[0]-a[0],b[1]-a[1]),u=[(b[0]-a[0])/length,(b[1]-a[1])/length];
+        const x=(o.centre[0]-a[0])*u[0]+(o.centre[1]-a[1])*u[1],distance=Math.abs((o.centre[0]-a[0])*u[1]-(o.centre[1]-a[1])*u[0]);
+        if(o.sillZ<s.floorZ||o.headZ>s.floorZ+s.ceilingH||o.headZ<=o.sillZ)
+          issues.push("Check the sill and head heights for "+(o.name||"this opening")+" in "+(s.name||"its room")+"; heights are measured above the main floor.");
+        if(distance>0.25||x-o.width/2<0||x+o.width/2>length)
+          issues.push("Check the dimensions and wall placement of "+(o.name||"this opening")+".");
+      }
+    }
+    const family=root.locationSpatialFamily(owner,list);
+    for(const a of plan.anchors){
+      const room=root.locationAnchorSpaceOf(a,family)||owner,space=spaces.find(s=>s.id===room.id);
+      if(!space){issues.push("Add the footprint for "+(room.name||"each object's room")+".");continue;}
+      if(isOpening(a,space)){
+        if(!savedOpening(a,space))issues.push("Add "+a.name+" to its room's floor-plan openings, with its dimensions.");
+      }else if(!a.xy||!a.size)issues.push("Set the floor plan position and width, depth and height for "+(a.name||"each fixed object")+".");
+    }
+    if(spaces.filter(s=>!s.openSky).length>16)issues.push("This preview supports up to sixteen spaces.");
+    for(const p of root.locationPanelPoses(location,list))if(!p.pose.position)issues.push("Set all four camera positions in the floor plan.");
+    return Array.from(new Set(issues));
+  }
   function buildScene(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
+    const issues=inputIssues(location,list);if(issues.length)throw new Error(issues[0]);
     const state=root.locationSpatialPlanState(location,list),owner=state.owner,plan=state.plan;
     if(!state.ready)throw new Error(state.reason);
     const coords=plan.coordinates;
     if(!coords||!coords.spaces.length)throw new Error("Add the location's footprint to the floor plan first.");
     const spaces=coords.spaces,objects=[],lights=[],notes=["Floor plan dimensions are estimates, not a survey.","Wall and floor thicknesses are proposed at 0.15 m. Materials and lighting are a preview treatment."];
+    if(plan.anchors.some(a=>a.sizeBasis==="design"))notes.push("Object sizes marked proposed design are working estimates. Grouped dressing is represented by a single simplified proxy; repeated units and fine details are not modelled in this preview.");
     if(!spaces.some(s=>s.id===location.id&&s.footprint.length>=3))throw new Error("Add this space's footprint to the floor plan first.");
     const family=root.locationSpatialFamily(owner,list);
     const add=(id,name,position,size,rotation=[0,0,0],extra={})=>objects.push({id,name:tidy(name),position,size,rotation,kind:"box",material:"wall",...extra});
@@ -55,8 +102,8 @@
     plan.anchors.forEach((anchor,i)=>{
       const room=root.locationAnchorSpaceOf(anchor,family)||owner,sp=spaces.find(s=>s.id===room.id);
       if(!sp)throw new Error("Add the footprint for "+(room.name||"each object's room")+".");
-      if(root.locationAnchorIsOpening(anchor)){
-        if(!(sp.openings||[]).some(o=>o.id===anchor.id||tidy(o.name).toLowerCase()===tidy(anchor.name).toLowerCase()))throw new Error("Add "+anchor.name+" to its room's floor-plan openings, with its dimensions.");
+      if(isOpening(anchor,sp)){
+        if(!savedOpening(anchor,sp))throw new Error("Add "+anchor.name+" to its room's floor-plan openings, with its dimensions.");
         return;
       }
       if(!anchor.xy||!anchor.size)throw new Error("Set the floor plan position and width, depth and height for "+(anchor.name||"each fixed object")+".");
@@ -117,5 +164,5 @@
     try{root.localStorage.setItem(key,JSON.stringify(value));}catch(_){}
     return requestId;
   }
-  root.KinolotCloudRender={enabled,buildScene,request,requestIdentity};
+  root.KinolotCloudRender={enabled,inputIssues,buildScene,request,requestIdentity};
 })(typeof window!=="undefined"?window:globalThis);

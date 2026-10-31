@@ -119,6 +119,18 @@ try{
   box.sbClient=()=>({auth:{getSession:async()=>({data:{session:{access_token:"test",user:{id:other}}}})}});
   await assert.rejects(box.KinolotCloudRender.request("job.create",{projectId:project},scope),/Sign in again/);checks++;
   check(fetches,0,"Wrong-film and changed-session requests have no network side effects");
+  const reviewRoom=structuredClone(room);
+  delete reviewRoom.spatialPlan.anchors[0].size;
+  reviewRoom.spatialPlan.coordinates.spaces[0].openings[0].sillZ=0;
+  const reviewBefore=JSON.stringify(reviewRoom),issues=box.KinolotCloudRender.inputIssues(reviewRoom,[reviewRoom]);
+  check(issues.some(s=>s.includes("sill and head heights"))&&issues.some(s=>s.includes("width, depth and height")),true,
+    "Input review lists independent opening-height and object-dimension problems together");
+  check(JSON.stringify(reviewRoom),reviewBefore,"Reviewing render inputs never changes the saved layout");
+  const windowRoom=structuredClone(room);
+  windowRoom.spatialPlan.anchors.push({id:"porthole",name:"Single round porthole",space:room.name,placement:"East of door",xy:[3,-5],z:4.2});
+  windowRoom.spatialPlan.coordinates.spaces[0].openings.push({id:"porthole",kind:"window",name:"Porthole",centre:[3,-5],width:1,sillZ:3.8,headZ:4.6});
+  const windowScene=box.KinolotCloudRender.buildScene(windowRoom,[windowRoom]);
+  check(windowScene.objects.some(o=>o.anchorId==="porthole"),false,"A saved window aperture is not replaced by an opaque object when its name is ambiguous");
   // An existing result stays honest when the current layout cannot be exported.
   const uiStates=[{status:"completed",notes:["Prototype dimensions require review."]},true,false,"","",0];
   box.React={useState:()=>[uiStates.shift(),()=>{}],useEffect:()=>{},useRef:v=>({current:v}),

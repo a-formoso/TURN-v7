@@ -126,8 +126,8 @@ await test("7 Frances knows, without naming anything internal", ()=>{
 
 await test("cache keys moved for every changed file", ()=>{
   for(const f of ["artroom.jsx","props.jsx","lookbook.jsx","locations-ui.jsx","shots-ui.jsx","chrome.jsx","ai.jsx","app.jsx"])
-    assert.ok(["20261030-hs145", "20261030-hs146", "20261030-hs147", "20261031-cloud1", "20261031-cloud2"].some(k=>html.includes("app/"+f+"?v="+k+'"')), f);
-  assert.ok(["20261030-hs145", "20261030-hs146", "20261030-hs147", "20261031-cloud1", "20261031-cloud2"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+    assert.ok(["20261030-hs145", "20261030-hs146", "20261030-hs147", "20261031-cloud1", "20261031-cloud2", "20261031-cloud3"].some(k=>html.includes("app/"+f+"?v="+k+'"')), f);
+  assert.ok(["20261030-hs145", "20261030-hs146", "20261030-hs147", "20261031-cloud1", "20261031-cloud2", "20261031-cloud3"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 
 console.log(`\n${checks} passed, ${failed} failed`);

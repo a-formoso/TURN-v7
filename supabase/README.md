@@ -41,6 +41,63 @@ with an earlier saved preview. This activation does not make the feature
 generally available or publish the development website. Staging remains the
 recommended default for subsequent rollout and migration testing.
 
+**Cloud reliability follow-up (31 October 2026):** the deployed endpoint and
+published worker now also passed repeated submission of the same request,
+cancellation of a running job, successful processing after that cancellation,
+and an interrupted-render restart. The interrupted job remained in the database,
+was reclaimed on attempt two after its lease expired, and completed with twelve
+private PNGs (**268.9289 seconds** for the recovered render). The first completed
+job's images still loaded through a fresh authorised read after the restart.
+Malformed geometry was rejected before queueing, and the real signed-in browser
+was denied direct access to the job table. The film document fingerprint stayed
+unchanged. The worker was resumed and remains published; the website release was
+not changed. These checks complete the restart verification for step 4, while
+step 5 still needs an approved floor-plan export and step 6 is not a release.
+
+The development panel now groups render-input problems in one review list,
+without modifying the layout. The current shared Marmorica plan has five invalid
+opening-height records and twelve fixed objects without explicit dimensions.
+Saved window/glass apertures are recognised from their coordinate records even
+when their descriptive names are ambiguous, so the porthole is not exported as
+an opaque object. The local protocol/geometry regression suite has **63 checks**.
+
+**Saved-plan corrections (owner approved, 31 October 2026):** the owner authorised
+fixing the saved shared plan and choosing sensible working dimensions. Only
+Marmorica's canonical shared `spatialPlan` was updated, with a whole-document
+conflict guard and a normal document revision increment. Other film fields and
+child plans were preserved. Ten opening-height records were converted from their
+apparent room-relative heights to the main-floor coordinate system; five are
+closed-room render blockers and five describe outdoor openings. Twelve missing
+sizes were added with `sizeBasis: design`. Floor-standing proxies were lifted by
+half their proposed height so saved heights denote centres. The ramp is a raised
+panel, following the saved scene specification rather than the earlier lowered
+prototype. Repeated dressing remains a single simplified proxy, explicitly
+identified in the render notes. The freshly saved plan passes input review with
+zero blockers and exports 58 shapes and four cameras through the actual Build set
+exporter. The original shared plan and the change list are retained locally.
+
+Local browser control was disabled during this follow-up. The saved-plan scene
+was therefore submitted through the backend queue for the published worker; this
+does not constitute a verified browser click on Build set. The literal UI test
+remains pending until Local browser use is enabled. No live website publication
+or existing generation-function redeployment is part of this change.
+
+The backend saved-plan test completed on attempt one in **180.5808 seconds**,
+with the expected **58 shapes**, exact exported scene hash and four camera
+reports, and twelve private PNGs retrieved successfully for inspection. This
+uses the corrected saved plan, not the earlier fixed prototype. The remaining
+verification is the literal authenticated Build set button interaction once
+browser control is enabled.
+
+Visual inspection of that first saved-plan render found the old bottom-left
+camera outside the newly raised ramp, producing an occluded frame. The owner-
+authorised floor-plan fixes therefore also save explicit car-deck camera poses:
+all four cameras stand inside the deck, the high corner camera is clear of the
+wall, and both rear views look toward the ramp with a wider lens. These are
+proposed design camera choices, not surveyed measurements. A second backend
+render verifies these saved poses; a successful file check alone is not treated
+as proof that a frame is useful.
+
 1. Apply `blender-render-jobs.sql` to a **staging** Supabase project first. It
    creates only the new service-role-only job table and RPCs. It does not alter
    existing project, team, billing or generation tables.
