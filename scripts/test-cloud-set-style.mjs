@@ -200,4 +200,35 @@ for(const phase of ["prepare","response"]){
   const find=(node,test)=>{if(!node||typeof node!=="object")return null;if(test(node))return node;for(const child of node.children||[]){const result=find(child,test);if(result)return result;}return null;};
   ok(!find(tree,n=>n.type==="button"&&n.children.includes("Use as location artwork")),"Without a draft there is nothing to accept");
 }
+{
+  // Engine choice (owner 2026-10-31): Nano Banana 2.1 by default, GPT Image 2.5 Sunburst at High on request.
+  const h=harness(),job=await h.ready(),api=h.api();
+  h.b.isGptImageModel=m=>/^gpt-image/.test(m);
+  ok(api.ENGINES[0]==="gemini-nano-banana-2.1"&&api.ENGINES[1]==="gpt-image-2.5-sunburst","Style preview offers Nano Banana 2.1 first and GPT Image 2.5 Sunburst");
+  ok(api.settings().model==="gemini-nano-banana-2.1"&&api.settings().quality===undefined,"The default style engine is Nano Banana 2.1, whatever the top bar's engine");
+  const sun=api.settings("gpt-image-2.5-sunburst");
+  ok(sun.model==="gpt-image-2.5-sunburst"&&sun.quality==="high","Sunburst runs at High, the tested setting");
+  ok(api.settings("some-other-engine").model==="gemini-nano-banana-2.1","An unknown engine falls back to the default");
+  h.b.nbPlanImageChoice=(model,res)=>({model:"gemini-nano-banana-2.1",res:"1K",limited:true});
+  ok(api.settings("gpt-image-2.5-sunburst").model==="gemini-nano-banana-2.1","The plan gate still decides what really runs");
+  h.b.nbPlanImageChoice=(model,res)=>({model,res});
+  h.b.nbOaiQualityLabel=x=>x;
+  const states=[null,false,false,"","","",false,false,false,"all",50,0,0];let index=0;
+  h.b.React={useState:initial=>{const i=index++;if(states[i]===undefined)states[i]=initial;return [states[i],v=>{states[i]=typeof v==="function"?v(states[i]):v;}];},
+    useRef:v=>({current:v}),useEffect(){},createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!==false&&x!=null)})};
+  vm.runInContext(readFileSync(compiled?"dist/app/blender-style-ui.js":"app/blender-style-ui.jsx","utf8"),h.b);
+  const find=(node,test)=>{if(!node||typeof node!=="object")return null;if(test(node))return node;for(const child of node.children||[]){const result=find(child,test);if(result)return result;}return null;};
+  const render=()=>{index=0;return h.b.LocationSetStyle({location:h.b.turnContinuity.locations[0],job,sceneHash:job.sceneHash});};
+  let tree=render(),select=find(tree,n=>n.type==="select");
+  ok(select&&select.props.value==="gemini-nano-banana-2.1"&&select.children.filter(c=>c.type==="option").length===2,"The panel shows an engine choice, set to Nano Banana 2.1");
+  const seen=[];h.hook(async(phase,opts)=>{if(phase==="prepare")seen.push([opts.model,opts.quality]);});
+  select.props.onChange({target:{value:"gpt-image-2.5-sunburst"}});tree=render();
+  ok(find(tree,n=>n.type==="select").props.value==="gpt-image-2.5-sunburst","Choosing Sunburst updates the panel");
+  const go=find(tree,n=>n.type==="button"&&String(n.children[0]||"").startsWith("Generate style draft"));
+  ok(go&&go.children.join("")==="Generate style draft \u00b7 7 credits","The button shows the chosen engine's estimate");
+  ok(!find(tree,n=>n.type==="p"&&n.children.some(c=>/estimated/.test(c))),"No separate estimate line");
+  ok(find(tree,n=>n.type==="select").children.every(o=>o.children.length===1&&o.children[0]==="Image engine"),"Options are just the engine names");
+  await go.props.onClick();
+  ok(seen.length===1&&seen[0][0]==="gpt-image-2.5-sunburst"&&seen[0][1]==="high","Generate sends the chosen engine (Sunburst at High) in one paid call");
+}
 console.log("PASS cloud set styling: "+checks+" generation, review, persistence, race, ownership and no-retry checks");

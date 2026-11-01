@@ -40,9 +40,14 @@
     assertScope(s);
     const record=await root.nbLoadDetailsAsset(id,"");assertScope(s);return record;
   }
-  function settings(){
-    const choice=root.nbPlanImageChoice(root.nbGetModel(),root.nbGetRes()),model=choice.model;
-    const quality=root.isGptImageModel(model)?root.nbGetOaiQuality(model):undefined;
+  // Style preview's own engines (owner 2026-10-31): Nano Banana 2.1 by default; GPT Image 2.5 Sunburst at High kept
+  // the Blender structure and light best in the car-deck comparison, at more credits (11 vs 7 at 2K). The plan gate still
+  // decides what really runs, and the line under the notes names it.
+  const ENGINES=["gemini-nano-banana-2.1","gpt-image-2.5-sunburst"];
+  function settings(engine){
+    const wanted=ENGINES.includes(engine)?engine:ENGINES[0];
+    const choice=root.nbPlanImageChoice(wanted,root.nbGetRes()),model=choice.model;
+    const quality=root.isGptImageModel(model)?"high":undefined;
     const credits=root.nbImageCostText(1,{model,res:choice.res,quality,aspect:"16:9",refs:1,ground:false});
     return {model,imageSize:choice.res,quality,aspectRatio:"16:9",credits};
   }
@@ -187,5 +192,5 @@
     const recorded=await root.nbSetAssetApproval(slot(id),meta.iso,true,"cloud-set-style-accepted");
     announce(id,true);return {...saved,reviewRecorded:!!recorded?.ok};
   });}
-  root.KinolotSetStyle={enabled,slot,pending,settings,appearance,briefKey,sceneKey,prompt,compose,load,generate,retrySave,accept,reject};
+  root.KinolotSetStyle={ENGINES,enabled,slot,pending,settings,appearance,briefKey,sceneKey,prompt,compose,load,generate,retrySave,accept,reject};
 })(typeof window!=="undefined"?window:globalThis);

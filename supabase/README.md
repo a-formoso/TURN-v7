@@ -223,8 +223,11 @@ The function's CORS now answers only the app's hosts and local development; that
 
 #### Reviewed style drafts (local development only)
 
-The optional **Style preview** below Cloud set preview uses the current image
-engine with one exact 2×2 grid assembled from a completed, current Blender job.
+The optional **Style preview** below Cloud set preview uses its own **Engine**
+choice: Nano Banana 2.1 by default, or GPT Image 2.5 Sunburst at High, which kept
+the Blender structure and light best in the car-deck comparison at more credits
+(11 vs 7 at 2K) (owner 31 October 2026; the plan gate still decides what runs). It sends
+one exact 2×2 grid assembled from a completed, current Blender job.
 It includes the location's materials, lighting, inherited render style, location
 and colour lookbook briefs, and optional surface notes. The engine, quality,
 effective resolution and credit estimate are shown before submission. This uses

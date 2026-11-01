@@ -8,7 +8,7 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
   const dialog=React.useRef(null),alive=React.useRef(true);
   const operating=React.useRef(false);
   let scope=null,choice=null,brief="",reason="";
-  try{scope=window.BlenderPreview.scope();choice=api.settings();brief=api.briefKey(location);}catch(e){reason=e.message;}
+  try{scope=window.BlenderPreview.scope();brief=api.briefKey(location);}catch(e){reason=e.message;}
   const scopeKey=scope?[scope.uid,scope.projectId,scope.epoch,location.id].join(":"):"";
   const current=React.useRef(scopeKey);current.current=scopeKey;
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
@@ -29,6 +29,8 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
   },[location.id]);
   const [,setSettingsTick]=React.useState(0);
   const [imagesReady,setImagesReady]=React.useState({source:false,draft:false});
+  const [engine,setEngine]=React.useState(api.ENGINES[0]);
+  try{choice=api.settings(engine);}catch(e){reason=reason||e.message;}
   React.useEffect(()=>{
     const el=dialog.current;if(!el||!review)return;
     if(!el.open)el.showModal();return ()=>{if(el.open)el.close();};
@@ -75,11 +77,14 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
     E("h4",null,"Style preview"),
     E("p",{className:"loc-layer-note"},"Try the location's materials and look over the four Blender views. Review every view before replacing artwork; image styling can move or invent details."),
     E("label",{className:"loc-style-notes"},"Surface notes (optional)",E("textarea",{value:notes,maxLength:1000,disabled:readOnly||busy,onChange:e=>setNotes(e.target.value),placeholder:"For example, subtle salt streaks and less floor glare."})),
-    choice&&E("p",{className:"loc-layer-note"},window.nbModelLabel(choice.model)+" · "+choice.imageSize+" · 16:9"+(choice.quality?" · "+window.nbOaiQualityLabel(choice.quality):"")+" · estimated "+(choice.credits||"unavailable")+" credits"),
+    E("label",{className:"loc-style-notes"},"Engine",
+      E("select",{value:engine,disabled:readOnly||busy,onChange:e=>setEngine(e.target.value)},
+        api.ENGINES.map(id=>E("option",{key:id,value:id},window.nbModelLabel(id))))),
     pending&&!pending.active&&!pending.hasUnsaved&&E("label",{className:"loc-style-check"},E("input",{type:"checkbox",checked:retry,disabled:readOnly||busy,onChange:e=>setRetry(e.target.checked)}),"An earlier request may still finish. I checked usage and want to start a new paid request."),
     pending?.hasUnsaved&&E("p",{className:"loc-layer-note"},"The image finished, but its save was not confirmed. Keep this page open and retry saving without generating or charging for another image."),
     E("div",{className:"loc-cloud-render-actions"},
-      E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||!(Number(choice?.credits)>0)||!sceneHash||job?.status!=="completed"||job.sceneHash!==sceneHash||!!pending?.active||!!pending?.hasUnsaved||!!pending&&!retry,onClick:generate},busy?"Working…":draft?"Generate another style draft":"Generate style draft"),
+      E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||!(Number(choice?.credits)>0)||!sceneHash||job?.status!=="completed"||job.sceneHash!==sceneHash||!!pending?.active||!!pending?.hasUnsaved||!!pending&&!retry,onClick:generate},busy?"Working…":(draft?"Generate another style draft":"Generate style draft")
+        +(Number(choice?.credits)>0?" \u00b7 "+choice.credits+" credits":"")),
       pending?.hasUnsaved&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:retrySave},"Retry saving draft"),
       draft&&E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>{setChecked(false);setImagesReady({source:false,draft:false});setReview(true);}},"Review draft"),
       E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>setTick(n=>n+1)},"Refresh draft")),
