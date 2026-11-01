@@ -569,7 +569,10 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const approvedButStale = !!(sh.locked && gen.genUrl && frameSourceStatus==="stale"
     && !(typeof shotSourceOverrideCurrent==="function" && shotSourceOverrideCurrent(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId]))));
   // the beat's screenplay: what the frame reads when the card's Action / Dialogue aren't your own words
-  const beatSrc = (typeof window.shotBeatSource==="function")
+  // (a moment shot reads its own moment, as its prompt does)
+  const beatSrc = (typeof window.shotMomentSource==="function")
+    ? window.shotMomentSource(scene, sh, ctx, Object.values((ctx&&ctx.charById)||{}))
+    : (typeof window.shotBeatSource==="function")
     ? window.shotBeatSource(scene, sh.beatN, ctx, Object.values((ctx&&ctx.charById)||{})) : null;
   const spOpening = (beatSrc && beatSrc.hasSource) ? String(beatSrc.openingAction||"").replace(/\s+/g," ").trim() : "";
   const actionFromScript = !!spOpening && !(sh.actionByHand && String(sh.action||"").trim());
@@ -974,7 +977,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // following prevShot here would leave an excluded seed thumbnail stale forever.
   // CROWDS (2026-10-27): the group image of each crowd this shot's action names
   const crowdSpecs = (typeof shotCrowdSpecs==="function") ? shotCrowdSpecs(sh, { project:ctx.project, scene }) : [];
-  const _liveRefIdsKey = [seedCandidate&&seedCandidate.id, ...liveLocationRefIds(), ...crowdSpecs.map(s=>s.id),
+  const _partStateIds = (typeof shotPartStateIds==="function")
+    ? (shotPartStateIds(loc||null, sh, scene, ctx.drafts||(window.turnContinuity||{}).drafts||{})||[]) : [];
+  const _liveRefIdsKey = [seedCandidate&&seedCandidate.id, ...liveLocationRefIds(), ..._partStateIds, ...crowdSpecs.map(s=>s.id),
     ...characterReferenceSpecs.flatMap(s=>[s&&s.id,s&&s.baseId]), ...inProps.map(p=>p.id)].filter(Boolean).join("|");
   React.useEffect(()=>{
     const matches = (detail)=>{
@@ -989,6 +994,21 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     window.addEventListener("nb-prefetched", onChanged);
     return ()=>{ window.removeEventListener("nb-gen-done", onChanged); window.removeEventListener("nb-prefetched", onChanged); };
   },[_liveRefIdsKey]);
+  // a moving part's state image the card hasn't got yet (it can load before the card listens): fetch it once, then redraw
+  React.useEffect(()=>{
+    let alive=true;
+    const live=liveLocationRefIds();
+    const missing=_partStateIds.filter(id=>live.indexOf(id)<0);
+    if(!missing.length) return;
+    (async()=>{
+      for(const id of missing){
+        let has=(typeof nbGetMeta==="function"&&nbGetMeta(id))||(typeof nbGetImage==="function"&&nbGetImage(id));
+        if(!has&&typeof nbLoadImage==="function"){ try{ has=await nbLoadImage(id); }catch(e){} }
+        if(has&&alive){ setRefAssetBump(b=>b+1); return; }
+      }
+    })();
+    return ()=>{ alive=false; };
+  },[_partStateIds.join("|")]);
   const _refKey = [sh.id, sh.anchor?1:0, seedCandidate&&seedCandidate.id, seedCandidate&&seedCandidate.locked?1:0, prevSeedBump, refAssetBump, loc&&loc.id,
     sh.referenceLocationsSet?1:0, (sh.referenceLocationIds||[]).join(","), locationReferenceChoices.map(x=>x.id+":"+x.label).join("|"),
     _locSpecKey, locWeight,

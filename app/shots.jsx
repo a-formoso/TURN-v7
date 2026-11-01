@@ -1418,21 +1418,52 @@ function shotLocationReferenceChoices(loc,sh,scene,drafts){
 /* A MOVING PART'S STATE IMAGE (2026-11-01): when the shot's moment has parts out of their usual state and that state
    has its own image ("Stern ramp lowered", made in the location's step 5), it stands in for this location's plate,
    room & time and time-of-day references, which show the usual state. Without the image nothing changes (the prompt
-   still states the part). */
+   still states the part). The parts can sit on a ROOM of the scene's location (the CAR Deck of the ship
+   "Marmorica"), so every location a reference belongs to is checked, not only the scene's. */
 function shotLocationCoverageSpecs(loc, sh, scene, drafts){
-  const specs=shotLocationCoverageSpecsBase(loc, sh, scene, drafts);
-  const part=shotPartStateSpec(loc, sh, scene);
-  if(!part) return specs;
-  const mine=s=>s && String(s.locationId||s.entityId||"")===String(loc.id) && ["place","unit","state"].indexOf(s.category)>=0;
-  if(sh && sh.referenceLocationsSet && !specs.some(mine)) return specs;
-  return [{...part,required:specs.some(s=>mine(s)&&s.required)}].concat(specs.filter(s=>!mine(s)));
+  let specs=shotLocationCoverageSpecsBase(loc, sh, scene, drafts);
+  const all=((window.turnContinuity||{}).locations)||[];
+  const kinds=["place","unit","state"];
+  const locOf=s=>String(s&&(s.locationId||s.entityId)||"");
+  const ids=[];
+  if(loc&&loc.id&&!(sh&&sh.referenceLocationsSet)) ids.push(String(loc.id));
+  specs.forEach(s=>{ const id=locOf(s); if(id&&kinds.indexOf(s.category)>=0&&ids.indexOf(id)<0) ids.push(id); });
+  ids.forEach(id=>{
+    const l=shotPartLocation(loc,id,all);
+    const part=l&&shotPartStateSpec(l, sh, scene);
+    if(!part) return;
+    const mine=s=>s && locOf(s)===id && kinds.indexOf(s.category)>=0;
+    if(sh && sh.referenceLocationsSet && !specs.some(mine)) return;
+    const at=specs.findIndex(mine);
+    const rest=specs.filter(s=>!mine(s));
+    rest.splice(Math.max(0,Math.min(at,rest.length)),0,{...part,required:specs.some(s=>mine(s)&&s.required)});
+    specs=rest;
+  });
+  return specs;
 }
-function shotPartStateSpec(loc, sh, scene){
+function shotPartLocation(loc, id, all){
+  return (loc&&String(loc.id)===id)?loc:(all||[]).find(x=>x&&String(x.id)===id)||null;
+}
+function shotPartStateAt(loc, sh, scene){
   if(!loc||!scene||!sh||typeof locationMovingPartsAt!=="function"||typeof locationPartStateKey!=="function") return null;
   const n=(typeof window.shotMomentNumber==="function"&&window.shotMomentNumber(sh))||1;
   const states=locationMovingPartsAt(loc,{sceneId:scene.id,beatN:sh.beatN,moment:n},((window.turnContinuity||{}).scenes));
   const key=locationPartStateKey(states), id=locationPartStateAssetId(loc,key);
-  if(!id) return null;
+  return id?{states,key,id}:null;
+}
+/* the state images a card should listen for (they can arrive after the card first draws, e.g. after a reload) */
+function shotPartStateIds(loc, sh, scene, drafts){
+  const all=((window.turnContinuity||{}).locations)||[], ids=[];
+  const locIds=loc&&loc.id?[String(loc.id)]:[];
+  (shotLocationCoverageSpecsBase(loc, sh, scene, drafts)||[]).forEach(s=>{ const id=String(s&&(s.locationId||s.entityId)||""); if(id&&locIds.indexOf(id)<0) locIds.push(id); });
+  locIds.forEach(id=>{ const at=shotPartStateAt(shotPartLocation(loc,id,all), sh, scene); if(at&&ids.indexOf(at.id)<0) ids.push(at.id); });
+  return ids;
+}
+window.shotPartStateIds=shotPartStateIds;
+function shotPartStateSpec(loc, sh, scene){
+  const at=shotPartStateAt(loc, sh, scene);
+  if(!at) return null;
+  const {states,key,id}=at;
   const has=(typeof nbGetMeta==="function"&&nbGetMeta(id))||(typeof nbGetImage==="function"&&nbGetImage(id));
   if(!has) return null;
   const label=locationPartStateLabel(states);

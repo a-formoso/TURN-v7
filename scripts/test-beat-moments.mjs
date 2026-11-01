@@ -124,4 +124,5 @@ check(/momentSpecs: Array\.isArray\(raw\.momentSpecs\)/.test(read("app/shots.jsx
 check(/setTrash\(t=>\(\{\.\.\.t,shots:\[\.\.\.parts\.map\(_trashStamp\)/.test(app),"Join moves the moment shots to Recently deleted (images kept)");
 check(/\.bc-moments\{/.test(css),"The moments line is styled");
 check(/onSplitMoments:readOnly\?null:onSplitMoments,onJoinMoments:readOnly\?null:onJoinMoments,onSplitAllMoments:readOnly\?null:onSplitAllMoments/.test(read("app/artroom.jsx")),"The Art Room passes the split, the join and split-all to the Shots tab");
+check(/const beatSrc = \(typeof window\.shotMomentSource==="function"\)\s*\? window\.shotMomentSource\(scene, sh, ctx,/.test(read("app/shots-ui.jsx")),"A moment card's Action and Dialogue show its own moment, not the beat's first");
 console.log(`PASS beat moments: ${checks} split, prompt, chain and Stage checks`);

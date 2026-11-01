@@ -78,10 +78,19 @@ check(/except the moving parts set for this instant \("\+_partsMoved\.join\("; "
   box.shotLocationCoverageSpecsBase=()=>[placeSpec,{id:"deck-x",category:"coverage",locationId:"deck"}];
   const swapped=box.shotLocationCoverageSpecs(loc,{...shot,referenceLocationsSet:true,referenceLocationIds:["deck"]},scene,drafts);
   check(swapped.map(x=>x.id).join()==="deck-parts-stern-ramp-lowered,deck-x"&&swapped[0].required,"It stands in for the plate a director picked, keeping any extra space");
+  // the scene's location is the ship and the parts are on its CAR Deck room (The Last Crossing, 2026-11-01)
+  const ship={id:"ship",name:"Marmorica",scenes:["s1"]};
+  box.shotLocationCoverageSpecsBase=()=>[{id:"ship-x",category:"coverage",locationId:"ship"},placeSpec];
+  const inRoom=box.shotLocationCoverageSpecs(ship,{...shot,referenceLocationsSet:true,referenceLocationIds:["deck"]},scene,drafts);
+  check(inRoom.map(x=>x.id).join()==="ship-x,deck-parts-stern-ramp-lowered","A room's state image replaces the room's plate when the scene's location is the building around it");
+  const autoRoom=box.shotLocationCoverageSpecs(ship,shot,scene,drafts);
+  check(autoRoom.some(x=>x.id==="deck-parts-stern-ramp-lowered")&&!autoRoom.some(x=>x.id==="deck"),"The same on an automatic reference list");
   check(box.shotLocationCoverageSpecs(loc,{...shot,sceneId:"s2"},{...scene,id:"s2",no:2},drafts).every(x=>x.category!=="parts"),"A shot at a moment in the usual state keeps the location image");
   box.shotLocationCoverageSpecsBase=real;
   box.nbGetMeta=()=>null;
 }
+check(/\.\.\.liveLocationRefIds\(\), \.\.\._partStateIds,/.test(read("app/shots-ui.jsx")),"A shot card redraws its references when a state image arrives after it first drew (after a reload)");
+check(/const missing=_partStateIds\.filter\(id=>live\.indexOf\(id\)<0\);[\s\S]{0,260}has=await nbLoadImage\(id\)/.test(read("app/shots-ui.jsx")),"A card that missed the state image's arrival fetches it itself");
 const style=read("app/blender-style.js"),styleUi=read("app/blender-style-ui.jsx");
 check(/const assetOf=t=>t\.key\?root\.locationPartStateAssetId\(live\(t\.loc\),t\.key\):t\.loc;/.test(style)&&/root\.nbCommit\(asset,pixels,outputMeta,/.test(style),"Accepting a state's draft saves it as the state's image, never the location image");
 check(/sceneKey\(live\(t\.loc\),t\.at\)/.test(style)&&/stateKey:t\.key/.test(style)&&/\(meta\.stateKey\|\|""\)!==t\.key/.test(style),"A state's draft is checked against the set built at its moment, and never mixed up with the usual one");
