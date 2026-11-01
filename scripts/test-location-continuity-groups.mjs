@@ -220,25 +220,26 @@ ok("unit cards live on their matching subspace workspace",
 ok("place identity fields stay separate from unit environment notes",
   ui.includes('label:"Permanent lighting & daylight interfaces"')&&
   ui.includes('label:"Environment notes"')&&ui.includes('"Fixed landmarks"'));
+// ONE NUMBERED PATH PER CARD (owner 2026-11-01): 1 Describe (with significance, screenplay evidence, look) ·
+// 2 Floor plan · 3 Cameras · 4 Build / 5 Style (pilot) · Rooms & times · More (tools and the prompt)
+const step=t=>'label:"'+t.replace("·","\\u00b7")+'"';
 ok("location folds use the approved filmmaker-facing names",
   // plainer names (owner 2026-10-03): Slugline Units → Rooms & times
-  ["The Space","Narrative Significance","Screenplay Evidence","Rooms & times","Spatial Layout & Staging","Generation Prompt"]
-    .every(label=>ui.includes('label:"'+label+'"')));
-ok("location folds follow identity to screenplay to view to generation order",
-  ["label:\"The Space\"","label:\"Narrative Significance\"","label:\"Screenplay Evidence\"","label:\"Rooms & times\"",
-    "label:\"Spatial Layout & Staging\"","label:\"Generation Prompt\""]
+  [step("1 · Describe the place"),'label:"Narrative significance"','label:"Screenplay evidence"','label:"Rooms & times"',step("2 · Floor plan"),
+    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"More"','label:"Generation Prompt"'].every(token=>ui.includes(token)));
+ok("location folds follow describe to floor plan to cameras to build to style, then rooms & times and More",
+  [step("1 · Describe the place"),'label:"Narrative significance"','label:"Screenplay evidence"','label:"Look & exclusions"',step("2 · Floor plan"),
+    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"Rooms & times"','label:"More"','label:"Generation Prompt"']
     .map(token=>ui.indexOf(token)).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
-// 2026-10-05 (owner): the settings that change the plate sit ON the card in "Look & exclusions",
-// just before the read-only Generation Prompt
 ok("location style fine-tuning is in Look & exclusions (before Generation Prompt) without a separate Look dev fold",
   !ui.includes('label:"Look dev"')&&
   ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('label:"Look & exclusions"')&&
   ui.indexOf('label:"Look & exclusions"')<ui.indexOf('label:"Generation Prompt"')&&
   ui.includes('label:"Render style instructions"'));
-ok("topology and anchors stay nested inside The Space",
-  ui.indexOf('field:"topology",label:"How the rooms connect"')>ui.indexOf('label:"The Space"')&&
+ok("topology and anchors stay in the space, inside 1 · Describe the place",
+  ui.indexOf('field:"topology",label:"How the rooms connect"')>ui.indexOf(step("1 · Describe the place"))&&
   ui.indexOf('"Fixed landmarks"')>ui.indexOf('field:"topology",label:"How the rooms connect"')&&
-  ui.indexOf('"Fixed landmarks"')<ui.indexOf('label:"Narrative Significance"'));
+  ui.indexOf('"Fixed landmarks"')<ui.indexOf('label:"Narrative significance"'));
 ok("location folds provide concise definitions without expanding the headings",
   ui.includes("function LocationSectionHelp")&&
   ui.includes('label:"About The Space"')&&ui.includes("persistent physical location")&&
@@ -277,7 +278,7 @@ ok("MUSE capability manifest names the approved location architecture",
   ai.includes('{ name:"Location Generation Prompt"')&&
   ai.includes("organizes production work into five explicit layers")&&
   ai.includes("one card represents each established continuity root")&&
-  ai.includes("Screenplay Evidence -> Slugline Units -> Spatial Layout & Staging")&&
+  ai.includes("1 · Describe the place (the space, Narrative significance, Screenplay evidence, Look & exclusions) -> 2 · Floor plan -> 3 · Cameras")&&
   ai.includes("TIME-OF-DAY VARIANTS own only persistent environment changes")&&
   ai.includes("COVERAGE VIEWS own reusable visual interpretations tied to Slugline Units")&&
   ai.includes("Screenplay Evidence shows actual source passages")&&

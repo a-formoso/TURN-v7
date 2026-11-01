@@ -26,7 +26,7 @@ const issues=cams=>box.KinolotCloudRender.inputIssues(office(cams));
 check(issues(good).length===0,"Four cameras inside the room, clear of walls and objects, pass");
 {
   const found=issues([{position:[5,1.5,6]},good[1],good[2],good[3]]);
-  check(found.some(i=>/Top-left camera stands outside Ferry - Office/.test(i)),"A camera outside its room is flagged");
+  check(found.some(i=>/Top-left camera: it stands outside Ferry - Office/.test(i)),"A camera outside its room is flagged");
 }
 check(issues([{position:[0.1,1.5,6]},good[1],good[2],good[3]]).some(i=>/within 25 cm of a wall/.test(i)),"A camera inside the wall (10 cm from its line) is flagged");
 check(issues([{position:[0.6,1.5,4.5]},good[1],good[2],good[3]]).some(i=>/between the floor and the ceiling/.test(i)),"A camera at floor level is flagged");
@@ -36,6 +36,12 @@ check(issues([{position:[3.4,1.5,6]},good[1],good[2],good[3]]).length===0,"A cam
 {
   const l=office([{position:[5,1.5,6]},good[1],good[2],good[3]]);
   assert.throws(()=>box.KinolotCloudRender.buildScene(l),/stands outside/);checks++;
+  const tagged=box.KinolotCloudRender.inputIssueList(l);
+  check(tagged.length===1&&tagged[0].step===3&&tagged[0].panel==="TL","A camera problem is tagged for step 3 · Cameras, with its panel");
+  const per=box.KinolotCloudRender.cameraProblems(l);
+  check(Object.keys(per).join()==="TL"&&/^It stands outside Ferry - Office/.test(per.TL),"Each camera's own problem is available for its row in step 3");
+  const noFloor={...l,spatialPlan:{...l.spatialPlan,status:"draft"}};box.turnContinuity={locations:[noFloor]};
+  check(box.KinolotCloudRender.inputIssueList(noFloor).every(i=>i.step===2),"An unconfirmed floor plan is a step 2 · Floor plan issue");
 }
 
 // Render time estimate: the worker's measured runs, or this location's own last render.
@@ -70,5 +76,7 @@ const job=(status,extra={})=>({id:"j1",status,progress:status==="running"?"rende
   check(text(n).startsWith("Rendering · 2:00 of about 4:04")&&bar(n)===49,"A job found already running (a reload) counts from its request");
 }
 const ui=read("app/blender-render-ui.jsx");
-check(/running&&renderProgress\(/.test(ui)&&/job&&!running&&E\("p",\{role:"status"/.test(ui),"The panel shows the progress while queued or running, and the plain status otherwise");
+check(/running&&renderProgress\(/.test(ui)&&/job&&!running&&job\.status!=="completed"&&E\("p",\{role:"status"/.test(ui),"The panel shows the progress while queued or running, and a failure or cancellation otherwise");
+check(/issues\.length>0&&cloudFixList\(location,issues\)/.test(ui)&&/"Go to "\+issue\.step\+" · "\+LOCATION_STEP_NAMES\[issue\.step\]/.test(ui),"What stops the build is listed, each with a Go to step button");
+check(!/layout issues above/.test(ui),"No more 'the layout issues above'");
 console.log(`PASS cloud render cameras and progress: ${checks} camera-placement, estimate and progress checks`);

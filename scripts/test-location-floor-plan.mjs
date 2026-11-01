@@ -84,7 +84,9 @@ box.turnContinuity={locations:[furnace,office],scenes:[],drafts:{}};
   deq(proposal.coordinates.spaces.map(s=>[s.id,s.name]),[["office","Furnace Office"],["furnace","Furnace"]],"spaces named in the draft become this family's ids");
   assert.equal(proposal.coordinates.spaces[0].openings[0].connectsTo,"furnace");
   assert.equal(proposal.coordinates.spaces[0].openings[0].yaw,180);
-  deq(proposal.coordinates.cameras.map(c=>[c.spaceId,c.panel,c.basis]),[["furnace","TR","observed"],["office","TL","design"]]);
+  // the draft's cameras, then the saved ones it didn't propose (a new draft keeps what was set, owner 2026-11-01)
+  deq(proposal.coordinates.cameras.map(c=>[c.spaceId,c.panel,c.basis]),[["furnace","TR","observed"],["office","TL","design"],["furnace","TL","observed"],["furnace","BL","observed"]]);
+  assert.equal(proposal.keptOnRedraft.cameras.length,3,"the review lists the saved cameras it kept");
   assert.equal(proposal.anchors[0].facing,180);assert.equal(proposal.anchors[0].posBasis,"observed");
   // the words keep their 12,000-character limit; the numbers have their own 9,000
   const big={...proposal,coordinates:{...proposal.coordinates,spaces:Array.from({length:16},(_,i)=>({id:"s"+i,name:"Space "+i,

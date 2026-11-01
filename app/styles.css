@@ -11719,3 +11719,29 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 [data-theme="light"] .prop-kind-badge.prop-cat-dressing{color:oklch(0.45 0.1 150)}
 .prop-binding-pop .prop-cat-what{display:block;margin-bottom:6px;font-family:var(--f-ui);text-transform:none;letter-spacing:0;font-weight:400;white-space:normal}
 .prop-binding-pop:has(.prop-cat-what){width:250px;white-space:normal}
+
+/* ONE NUMBERED PATH PER LOCATION CARD (owner 2026-11-01): the step guide, the numbered folds' sub-headings, the fix
+   lists that say which step to go to, and a camera's own problem in 3 · Cameras */
+.loc-steps{margin:10px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--bg-2)}
+.loc-steps-next{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;line-height:1.45;color:var(--txt-1)}
+.loc-steps-next.done{color:var(--pos-ink)}
+.loc-steps-next-label{font-family:var(--f-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);flex:none}
+.loc-steps-next-text{flex:1 1 160px;min-width:0}
+.loc-steps-next-text b{color:var(--txt-0);font-weight:600}
+.loc-steps-list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.loc-step{display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 4px;border:1px solid var(--line);border-radius:999px;
+  background:var(--bg-1);color:var(--txt-2);font:inherit;font-size:11.5px;cursor:pointer}
+.loc-step:hover{border-color:var(--line-3);color:var(--txt-0)}
+.loc-step-n{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--bg-3);color:var(--txt-1);font-size:10.5px;font-weight:600}
+.loc-step.done .loc-step-n{background:var(--pos);color:var(--ink-on-accent)}
+.loc-step.next{border-color:var(--accent);color:var(--txt-0)}
+.loc-step.next .loc-step-n{background:var(--accent);color:var(--ink-on-accent)}
+.loc-step-actions{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 10px}
+.loc-step-sub{margin:12px 0 4px;font-size:12px;font-weight:600;color:var(--txt-0)}
+.loc-step-fixes{margin:10px 0;padding:10px 12px;border:1px solid var(--alert);border-radius:var(--r-m);font-size:12px;line-height:1.45}
+.loc-step-fixes-head{margin:0 0 6px;font-weight:600;color:var(--txt-0)}
+.loc-step-fixes ul{margin:0;padding:0;list-style:none;display:grid;gap:8px}
+.loc-step-fixes li{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.loc-step-fixes li>span{flex:1 1 180px;min-width:0}
+.loc-step-go{flex:none}
+.loc-cam-problem{margin:4px 0}

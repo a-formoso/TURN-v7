@@ -138,7 +138,8 @@ try{
   box.KinolotCloudRender.buildScene=()=>{throw Error("Check the opening height.");};
   vm.runInContext(readFileSync(new URL("../app/blender-render-ui.jsx",import.meta.url),"utf8"),box);
   const ui=JSON.stringify(box.LocationCloudRender({location:room}));
-  check(ui.includes("Render notes")&&ui.includes("Prototype dimensions require review.")&&ui.includes("cannot be compared with the current floor plan"),true,
-    "Saved render assumptions and unavailable layout comparison remain visible");
+  check(ui.includes("Render notes")&&ui.includes("Prototype dimensions require review.")&&ui.includes("Before you can build")
+    &&ui.includes("Check the opening height.")&&ui.includes("Go to 2 · Floor plan")&&ui.includes("from an earlier floor plan"),true,
+    "Saved render assumptions stay visible; what stops a build is listed with the step that fixes it");
   console.log("PASS cloud render: "+checks+" protocol, SQL permission, persistence and geometry checks");
 }finally{await h.pg.close();}

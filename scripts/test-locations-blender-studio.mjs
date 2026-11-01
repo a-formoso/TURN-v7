@@ -107,17 +107,20 @@ const directClass=needle=>bodyChildren.find(n=>createElement(n)&&
 const directFold=label=>bodyChildren.find(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")===label);
 const studioIndex=childIndex(directStudio),headIndex=childIndex(directClass("sheet-head")),
   styleIndex=childIndex(directClass("char-style-row")),scenesIndex=childIndex(directClass("location-scenes")),
-  viewsIndex=childIndex(directFold("Spatial Layout & Staging")),
-  promptIndex=childIndex(directFold("Generation Prompt"));
+  // one numbered path per card (owner 2026-11-01): 2 · Floor plan; tools and the prompt under More, at the end
+  viewsIndex=childIndex(directFold("2 \u00b7 Floor plan")),
+  promptIndex=childIndex(directFold("More"));
 for(const [name,index] of [["header",headIndex],["render style",styleIndex],["scene chips",scenesIndex],
-  ["Spatial Layout & Staging",viewsIndex],["Generation Prompt",promptIndex]])
+  ["2 · Floor plan",viewsIndex],["More",promptIndex]])
   assert.ok(index>=0,`LocationSheet retains ${name} before/after Studio`);
-const spatialFold=directFold("Spatial Layout & Staging");
-assert.ok(spatialFold.start<directStudio.start&&spatialFold.end>directStudio.end,
-  "the compact Blender handoff is inside Spatial Layout & Staging");
+const spatialFold=directFold("2 \u00b7 Floor plan"),moreFold=directFold("More");
+assert.ok(moreFold.start<directStudio.start&&moreFold.end>directStudio.end,
+  "the compact desktop Blender handoff is under More");
+assert.ok(astCalls.some(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")==="Generation Prompt"&&n.start>moreFold.start&&n.end<moreFold.end),
+  "Generation Prompt is under More");
 assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   n.start>spatialFold.start&&n.end<spatialFold.end),
-  "Spatial Layout & Staging has no standalone help icon or empty help row");
+  "2 · Floor plan has no standalone help icon or empty help row");
 const unitsFold=directFold("Rooms & times");   // plainer name, owner 2026-10-03
 assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   n.start>unitsFold.start&&n.end<unitsFold.end),
@@ -126,8 +129,11 @@ assert.ok(viewsIndex<promptIndex,"set preparation still precedes Generation Prom
 assert.equal(directFold("Look dev"),undefined,"locations no longer have a standalone Look dev fold");
 // 2026-10-05 (owner): the editable style settings moved ON the card, into "Look & exclusions"
 // (collapsed), just before the read-only Generation Prompt
-const lookFold=directFold("Look & exclusions");
-assert.ok(lookFold&&childIndex(lookFold)<promptIndex,"Look & exclusions sits before Generation Prompt");
+// …and since 2026-11-01 inside 1 · Describe the place, still before the prompt (under More)
+const describeFold=directFold("1 \u00b7 Describe the place");
+const lookFold=astCalls.find(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")==="Look & exclusions");
+assert.ok(lookFold&&describeFold&&lookFold.start>describeFold.start&&lookFold.end<describeFold.end&&childIndex(describeFold)<promptIndex,
+  "Look & exclusions sits in 1 · Describe the place, before Generation Prompt");
 assert.ok(lookFold.arguments[1].properties.some(p=>p.key&&p.key.name==="defaultOpen"&&p.value&&p.value.value===false),"Look & exclusions starts collapsed");
 const styleDetails=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
   propValue(n.arguments[1],"className")==="loc-render-style-details");

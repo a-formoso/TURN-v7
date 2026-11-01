@@ -1743,6 +1743,42 @@ function locationLowerDraftOutdoorCameras(plan, family, locations){
   return {plan:lowered.length ? {...plan, coordinates:{...coords, cameras}} : plan, lowered};
 }
 /* the review's words for what the draft lowered (Shared set layout, while the draft is untouched) */
+/* ONE NUMBERED PATH PER LOCATION CARD (owner 2026-11-01): 1 Describe · 2 Floor plan · 3 Cameras · 4 Build the set ·
+   5 Style it (the cloud set pilot) · 6 Location image. Each step is a card fold; step 2 keeps the layout fold's id so
+   every older link to it still opens it. */
+function locationStepFoldId(l,step){
+  const id=l&&l.id;if(!id)return "";
+  return step===2?"loc-layout-"+id:step===6?"loc-step6-"+id:"loc-step"+step+"-"+id;
+}
+/* A NEW DRAFT KEEPS WHAT WAS SET (owner 2026-11-01 — "keep them on redraft"): re-drafting the floor plan replaced it
+   whole, so cameras placed by hand or by a fix, and rooms the draft didn't return, were lost on confirm (The Last
+   Crossing's Marmorica lost all 12 cameras and its Passenger Lounge). The draft now keeps every saved camera that has a
+   position (it wins over the draft's proposal for that room and panel), every saved room the draft left out, and a room
+   whose shape was set by hand; kept lists them for the review. */
+function locationKeepOnRedraft(draft,saved){
+  const sc=saved&&saved.coordinates,dc=draft&&draft.coordinates;
+  if(!sc||!dc)return {plan:draft,kept:{spaces:[],cameras:[]}};
+  const kept={spaces:[],cameras:[]},spaces=(dc.spaces||[]).slice();
+  for(const sp of sc.spaces||[]){
+    const i=spaces.findIndex(x=>x.id===sp.id);
+    if(i<0){if(spaces.length<16){spaces.push(sp);kept.spaces.push(sp.name||sp.id);}}
+    else if(sp.basis==="user"){spaces[i]=sp;kept.spaces.push(sp.name||sp.id);}
+  }
+  const ids=new Set(spaces.map(x=>x.id)),cameras=(dc.cameras||[]).slice();
+  for(const c of sc.cameras||[]){
+    if(!c||!Array.isArray(c.position)||!ids.has(c.spaceId))continue;
+    const i=cameras.findIndex(x=>x.spaceId===c.spaceId&&x.panel===c.panel);
+    if(i<0)cameras.push(c);else cameras[i]=c;
+    kept.cameras.push({spaceName:(spaces.find(x=>x.id===c.spaceId)||{}).name||"",panel:c.panel});
+  }
+  return {plan:{...draft,coordinates:{...dc,spaces,cameras}},kept};
+}
+function locationKeptOnRedraftText(kept){
+  const sp=(kept&&kept.spaces)||[],cams=(kept&&kept.cameras)||[];
+  if(!sp.length&&!cams.length)return "";
+  return "Kept from the saved floor plan: "+[sp.length?(sp.length===1?"the room ":"the rooms ")+sp.join(", "):"",
+    cams.length?cams.length+" camera"+(cams.length===1?"":"s")+" you or a fix placed":""].filter(Boolean).join(" and ")+".";
+}
 function locationLoweredCamerasText(lowered){
   const xs = Array.isArray(lowered) ? lowered.filter(x=>x && LOC_PANEL_INFO[x.panel]) : [];
   if(!xs.length) return "";

@@ -635,6 +635,16 @@ Each entity gets a canonical, reusable reference so every generated image stays 
   part stay as derived) or **Keep separate** (two places, never folded by name). Any card also has **Same place
   as…** for a pair nothing points at. The decision is stored on the cards and every derivation from the
   sluglines reads it, so a merged-away name never comes back as a card; on a Show it holds in every episode.
+  **The card is one numbered path *(approved 2026-11-01 by owner — "Yes, as proposed")*.** A step guide at the top
+  of every location card says what to do next ("Next · 3 Cameras — the bottom-left camera stands outside the
+  room", with **Go**) and shows each step as done ✓, next ● or later ○. The steps, in order: **1 · Describe the
+  place** (the written spec: the space, narrative significance, screenplay evidence, look & exclusions) → **2 ·
+  Floor plan** (the shared layout: rooms, objects, sizes; confirmed before anything is generated) → **3 · Cameras**
+  (the four plate cameras, each inside its room, clear of walls and objects) → **4 · Build the set** and **5 · Style
+  it** (the cloud Blender set and its optional image-model look — pilot only, and only for a space with its own room
+  on the floor plan) → **6 · Location image** (the plate at the top of the card). Rooms & times and **More** (scene
+  dressing & blocking, Build in Blender, QA check, the generation prompt) follow the steps. A problem that stops a
+  later step names the step that fixes it, with a Go button. *Spec before render* above is step 1 before step 6.
 - **Style Bible grade is NOT baked into location plates.** A location can span scenes with different
   looks, so its coverage plate renders **grade-neutral**; the card shows only an informational chip of
   which preset(s) its scenes use. The 60/30/10 Style Bible grade is a per-scene property applied
@@ -702,6 +712,7 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
 ---
 
 ## Change log
+- *(2026-11-01 — Step 9, Locations, by owner approval)* — **the location card is one numbered path**: a step guide (what to do next, with Go) and the steps 1 Describe · 2 Floor plan · 3 Cameras · 4 Build the set · 5 Style it (cloud set pilot) · 6 Location image, then Rooms & times and More. No pipeline step was added or removed; the order makes Spec before render visible.
 - *(2026-10-18 — Entry B added by owner approval)* — **Import a screenplay**: a second way in for a finished script, read into the pipeline word for word and joining at Step 4; no existing step changed (`docs/Script Import Plan.md`).
 - *(created)* — initial pipeline codified from the manager's 8-step spec + the Three Pillars of Research.
 - *(Step 2 shipped)* — Research → Synopsis built into the New Story flow: 3-pillar research + editable

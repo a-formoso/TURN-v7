@@ -32,35 +32,45 @@
   // Each camera must stand inside its own room, clear of the walls (0.15 m thick, centred on the footprint edge),
   // between floor and ceiling, and outside every object, or the frame shows the inside of a wall or a box.
   const CAMERA_WALL_CLEARANCE=0.25;
-  function cameraIssues(location,list,plan,spaces,family,owner){
-    const sp=spaces.find(s=>s.id===location.id);if(!sp||!(sp.footprint||[]).length)return [];
-    let poly;try{poly=C().polygon(sp.footprint);}catch(_){return [];}
-    const room=sp.name||location.name||"this room",issues=[];
+  // Per camera: what is wrong with where it stands (no entry = fine). Step 3 · Cameras shows these beside each camera.
+  function cameraProblemsIn(location,list,plan,spaces,family,owner){
+    // Only a location with its own room on the floor plan places cameras in it (a whole location's plate doesn't).
+    const out={},poses=root.locationPanelPoses(location,list);
+    const sp=spaces.find(s=>s.id===location.id);if(!sp||!(sp.footprint||[]).length)return out;
+    for(const p of poses)if(!p.pose.position)out[p.key]="It has no position yet.";
+    let poly;try{poly=C().polygon(sp.footprint);}catch(_){return out;}
+    const room=sp.name||location.name||"this room";
     const inside=(x,y)=>{let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];
       if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])c=!c;}return c;};
     const wall=(x,y)=>Math.min(...poly.map((a,i)=>{const b=poly[(i+1)%poly.length],dx=b[0]-a[0],dy=b[1]-a[1];
       const t=Math.max(0,Math.min(1,((x-a[0])*dx+(y-a[1])*dy)/(dx*dx+dy*dy)));return Math.hypot(x-a[0]-t*dx,y-a[1]-t*dy);}));
     const objects=plan.anchors.filter(a=>a.xy&&a.size&&(root.locationAnchorSpaceOf(a,family)||owner).id===sp.id&&!isOpening(a,sp));
-    for(const p of root.locationPanelPoses(location,list)){
+    for(const p of poses){
       const pos=p.pose.position;if(!pos)continue;
-      const name=(p.label||p.key)+" camera",[x,y,z]=pos;
-      if(!inside(x,y)){issues.push("The "+name+" stands outside "+room+". Move it inside the room under Plate cameras.");continue;}
-      if(wall(x,y)<CAMERA_WALL_CLEARANCE)issues.push("The "+name+" is within "+Math.round(CAMERA_WALL_CLEARANCE*100)+" cm of a wall of "+room+". Move it further into the room.");
-      if(z<sp.floorZ+0.2||(!sp.openSky&&finite(sp.ceilingH)&&z>sp.floorZ+sp.ceilingH-0.1))
-        issues.push("The "+name+" is not between the floor and the ceiling of "+room+". Check its height.");
+      const [x,y,z]=pos;
+      if(!inside(x,y)){out[p.key]="It stands outside "+room+". Move it inside the room.";continue;}
+      if(wall(x,y)<CAMERA_WALL_CLEARANCE){out[p.key]="It is within "+Math.round(CAMERA_WALL_CLEARANCE*100)+" cm of a wall of "+room+", so it sees the inside of the wall. Move it further into the room.";continue;}
+      if(z<sp.floorZ+0.2||(!sp.openSky&&finite(sp.ceilingH)&&z>sp.floorZ+sp.ceilingH-0.1)){out[p.key]="It is not between the floor and the ceiling of "+room+". Check its height.";continue;}
       const hit=objects.find(a=>{const r=-(a.facing||0)*Math.PI/180,dx=x-a.xy[0],dy=y-a.xy[1];
         const u=dx*Math.cos(r)+dy*Math.sin(r),v=-dx*Math.sin(r)+dy*Math.cos(r),cz=anchorCentreZ(a,sp,plan).z;
         return Math.abs(u)<a.size[0]/2&&Math.abs(v)<a.size[1]/2&&Math.abs(z-cz)<a.size[2]/2;});
-      if(hit)issues.push("The "+name+" stands inside "+tidy(hit.name,80)+". Move it clear of the object.");
+      if(hit)out[p.key]="It stands inside "+tidy(hit.name,80)+". Move it clear of the object.";
     }
-    return issues;
+    return out;
   }
-  function inputIssues(location,list){
+  function cameraProblems(location,list){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    const state=root.locationSpatialPlanState(location,list);if(!state.ready)return {};
+    const spaces=renderSpaces(state.plan);
+    return cameraProblemsIn(location,list,state.plan,spaces,root.locationSpatialFamily(state.owner,list),state.owner);
+  }
+  // Each issue names the card step that fixes it: 2 · Floor plan or 3 · Cameras.
+  function inputIssueList(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
     const state=root.locationSpatialPlanState(location,list);
-    if(!state.ready)return [state.reason];
+    if(!state.ready)return [{step:2,text:state.reason}];
     const {owner,plan}=state,spaces=renderSpaces(plan),issues=[];
-    if(!spaces.length)return ["Add the location's footprint to the floor plan first."];
+    if(!spaces.length)return [{step:2,text:"Add the location's footprint to the floor plan first."}];
     if(!spaces.some(s=>s.id===location.id&&s.footprint.length>=3))issues.push("Add this space's footprint to the floor plan first.");
     for(const s of spaces){
       let poly;try{poly=C().polygon(s.footprint);}catch(e){issues.push((s.name||"Space")+": "+e.message);continue;}
@@ -89,10 +99,13 @@
       }else if(!a.xy||!a.size)issues.push("Set the floor plan position and width, depth and height for "+(a.name||"each fixed object")+".");
     }
     if(spaces.filter(s=>!s.openSky).length>16)issues.push("This preview supports up to sixteen spaces.");
-    for(const p of root.locationPanelPoses(location,list))if(!p.pose.position)issues.push("Set all four camera positions in the floor plan.");
-    issues.push(...cameraIssues(location,list,plan,spaces,family,owner));
-    return Array.from(new Set(issues));
+    const tagged=Array.from(new Set(issues)).map(text=>({step:2,text}));
+    const labels=Object.fromEntries(root.locationPanelPoses(location,list).map(p=>[p.key,p.label||p.key]));
+    for(const [key,problem] of Object.entries(cameraProblemsIn(location,list,plan,spaces,family,owner)))
+      tagged.push({step:3,panel:key,text:"The "+labels[key]+" camera: "+problem.charAt(0).toLowerCase()+problem.slice(1)});
+    return tagged;
   }
+  function inputIssues(location,list){return inputIssueList(location,list).map(i=>i.text);}
   function buildScene(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
     const issues=inputIssues(location,list);if(issues.length)throw new Error(issues[0]);
@@ -158,7 +171,7 @@
     if(lights.length>16)throw new Error("This preview supports up to sixteen spaces.");
     const cameras={};
     root.locationPanelPoses(location,list).forEach(p=>{
-      if(!p.pose.position)throw new Error("Set all four camera positions in the floor plan.");
+      if(!p.pose.position)throw new Error("The "+(p.label||p.key)+" camera has no position yet.");
       cameras[p.key]={position:p.pose.position,yaw:p.pose.yaw,pitch:p.pose.pitch,lensMm:p.pose.lensMm};
       if(p.source==="suggested")notes.push(p.label+" uses the suggested camera position; edit it under Camera views.");
     });
@@ -215,5 +228,13 @@
     if(finite(lastSeconds)&&lastSeconds>0)return Math.round(lastSeconds);
     return Math.max(60,Math.round(25+0.93*(Number(objects)||0)));
   }
-  root.KinolotCloudRender={enabled,inputIssues,buildScene,request,requestIdentity,estimateSeconds};
+  // The location card's step guide reads each location's latest build (set by the build and style steps).
+  const jobs=new Map();
+  function noteJob(locationId,state){
+    const before=JSON.stringify(jobs.get(locationId)||null);
+    if(state)jobs.set(locationId,state);else jobs.delete(locationId);
+    if(JSON.stringify(state||null)!==before)root.dispatchEvent?.(new CustomEvent("kinolot-cloud-job",{detail:{locationId}}));
+  }
+  const jobState=locationId=>jobs.get(locationId)||null;
+  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds};
 })(typeof window!=="undefined"?window:globalThis);
