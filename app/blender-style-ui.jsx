@@ -30,6 +30,11 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
   const [,setSettingsTick]=React.useState(0);
   const [imagesReady,setImagesReady]=React.useState({source:false,draft:false});
   const [engine,setEngine]=React.useState(api.ENGINES[0]);
+  const [phase,setPhase]=React.useState(""),[phaseAt,setPhaseAt]=React.useState(0),[now,setNow]=React.useState(0);
+  const step=p=>{if(valid()){setPhase(p);setPhaseAt(Date.now());setNow(Date.now());}};
+  React.useEffect(()=>{
+    if(!phase)return;const timer=setInterval(()=>setNow(Date.now()),1000);return ()=>clearInterval(timer);
+  },[phase]);
   try{choice=api.settings(engine);}catch(e){reason=reason||e.message;}
   React.useEffect(()=>{
     const el=dialog.current;if(!el||!review)return;
@@ -42,10 +47,10 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
   const accepted=decided&&approval.approved,rejected=decided&&!approval.approved;
   const valid=()=>alive.current&&current.current===scopeKey;
   async function generate(){
-    if(busy||readOnly||!scope||!choice)return;operating.current=true;setBusy(true);setError("");setNotice("");
-    try{const d=await api.generate(location.id,job,scope,{settings:choice,notes,retryConfirmed:retry});if(valid()){setDraft(d);setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
+    if(busy||readOnly||!scope||!choice)return;operating.current=true;setBusy(true);setError("");setNotice("");step("preparing");
+    try{const d=await api.generate(location.id,job,scope,{settings:choice,notes,retryConfirmed:retry,onPhase:step});if(valid()){setDraft(d);setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
     catch(e){if(valid())setError(e.message);}
-    finally{operating.current=false;if(valid())setBusy(false);}
+    finally{operating.current=false;if(valid()){setBusy(false);setPhase("");}}
   }
   async function decide(use){
     if(busy||readOnly||!scope||!draft)return;operating.current=true;setBusy(true);setError("");
@@ -60,10 +65,10 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
     finally{operating.current=false;if(valid())setBusy(false);}
   }
   async function retrySave(){
-    if(busy||readOnly||!scope)return;operating.current=true;setBusy(true);setError("");
+    if(busy||readOnly||!scope)return;operating.current=true;setBusy(true);setError("");step("saving");
     try{const d=await api.retrySave(location.id,scope);if(valid()){setDraft(d);setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
     catch(e){if(valid())setError(e.message);}
-    finally{operating.current=false;if(valid())setBusy(false);}
+    finally{operating.current=false;if(valid()){setBusy(false);setPhase("");}}
   }
   const E=React.createElement;
   const controls=()=>E("div",{className:"loc-cloud-render-actions"},
@@ -81,18 +86,21 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
       E("select",{value:engine,disabled:readOnly||busy,onChange:e=>setEngine(e.target.value)},
         api.ENGINES.map(id=>E("option",{key:id,value:id},window.nbModelLabel(id))))),
     pending&&!pending.active&&!pending.hasUnsaved&&E("label",{className:"loc-style-check"},E("input",{type:"checkbox",checked:retry,disabled:readOnly||busy,onChange:e=>setRetry(e.target.checked)}),"An earlier request may still finish. I checked usage and want to start a new paid request."),
-    pending?.hasUnsaved&&E("p",{className:"loc-layer-note"},"The image finished, but its save was not confirmed. Keep this page open and retry saving without generating or charging for another image."),
+    !busy&&pending?.hasUnsaved&&E("p",{className:"loc-layer-note"},"The image finished, but its save was not confirmed. Keep this page open and retry saving without generating or charging for another image."),
     E("div",{className:"loc-cloud-render-actions"},
       E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||!(Number(choice?.credits)>0)||!sceneHash||job?.status!=="completed"||job.sceneHash!==sceneHash||!!pending?.active||!!pending?.hasUnsaved||!!pending&&!retry,onClick:generate},busy?"Working…":draft?"Generate another style draft":"Generate style draft",
         // the same credit chip as Generate new image, priced for the chosen engine
         !busy&&Number(choice?.credits)>0&&window.nbCostChip&&window.nbCostChip(1,{model:choice.model,res:choice.imageSize,quality:choice.quality,aspect:"16:9",refs:1,ground:false})),
       pending?.hasUnsaved&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:retrySave},"Retry saving draft"),
-      draft&&E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>{setChecked(false);setImagesReady({source:false,draft:false});setReview(true);}},"Review draft"),
-      E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>setTick(n=>n+1)},"Refresh draft")),
-    (busy||pending?.active)&&E("p",{role:"status",className:"loc-layer-note"},"Generating or saving the style draft. Keep this film open. No automatic image retries are made."),
+      draft&&!decided&&!stale&&E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>{setChecked(false);setImagesReady({source:false,draft:false});setReview(true);}},"Review draft")),
+    phase&&styleProgress({phase,since:phaseAt,now,model:choice?.model,api}),
+    !phase&&pending?.active&&E("p",{role:"status",className:"loc-layer-note"},"A style draft for this location is being generated or saved."),
     loading&&E("p",{role:"status",className:"loc-layer-note"},"Loading saved style draft…"),
-    draft&&E("p",{role:"status",className:"loc-layer-note"},accepted?"This draft was used as location artwork.":rejected?"This draft was rejected.":"A style draft is saved separately. Location artwork is unchanged."),
-    stale&&E("p",{className:"loc-spatial-error"},"The layout, cameras or style brief changed. Generate a current draft before accepting."),
+    // one plain sentence: where the draft stands and what to click (owner 2026-11-01)
+    draft&&(decided||!stale)&&E("p",{role:"status",className:"loc-layer-note"},accepted?"This draft became the location image.":rejected?"You rejected this draft.":
+      "Your draft is ready. Click Review draft to compare it with the Blender views. The location image only changes if you choose Use as location artwork."),
+    draft&&!decided&&stale&&E("p",{className:"loc-spatial-error"},
+      "This draft is out of date: the set or its look changed after it was made, so it can't become the location image. Click Generate another style draft to make a new one."),
     notice&&E("p",{role:"status",className:"loc-layer-note"},notice),
     problem&&E("p",{role:"alert",className:"loc-spatial-error"},problem),
     review&&draft&&E("dialog",{ref:dialog,className:"loc-style-dialog","aria-label":"Review style draft against Blender",onCancel:()=>setReview(false)},
@@ -112,5 +120,23 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
       !decided&&controls(),
       decided&&E("p",null,accepted?"Already used as location artwork.":"Rejected. Generate a new draft to try again."),
       E("p",{className:"loc-layer-note"},"Using this draft replaces the location image and keeps the previous image in version history. Rejecting it does not refund image generation credits.")));
+}
+/* Time-based, like the set render: the image engine reports no progress, so the bar runs against its measured time
+   and stops short of full until the draft is saved. */
+function styleProgress({phase,since,now,model,api}){
+  const E=React.createElement,clock=s=>Math.floor(s/60)+":"+String(Math.floor(s%60)).padStart(2,"0");
+  const elapsed=Math.max(0,((now||since)-since)/1000),estimate=api.estimateSeconds(model);
+  let pct,text;
+  if(phase==="saving"){pct=96;text="Saving the draft — almost done.";}
+  else if(phase==="preparing"){pct=2;text="Preparing the four Blender views…";}
+  else{
+    pct=Math.min(95,Math.max(3,Math.round(elapsed/estimate*100)));
+    text=elapsed<=estimate?"Generating with "+window.nbModelLabel(model)+" · "+clock(elapsed)+" of about "+clock(estimate)+". Keep this film open."
+      :"Taking longer than usual · "+clock(elapsed)+" so far. Keep this film open.";
+  }
+  return E("div",{className:"loc-cloud-progress",role:"status"},
+    E("div",{className:"loc-cloud-progress-bar",role:"progressbar","aria-label":"Style draft progress","aria-valuemin":0,"aria-valuemax":100,"aria-valuenow":pct},
+      E("span",{style:{width:pct+"%"}})),
+    E("p",{className:"loc-layer-note"},text));
 }
 window.LocationSetStyle=LocationSetStyle;

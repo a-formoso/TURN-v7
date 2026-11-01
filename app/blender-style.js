@@ -44,6 +44,9 @@
   // the Blender structure and light best in the car-deck comparison, at more credits (11 vs 7 at 2K). The plan gate still
   // decides what really runs, and the line under the notes names it.
   const ENGINES=["gemini-nano-banana-2.1","gpt-image-2.5-sunburst"];
+  // Seconds an image took in the 31 October runs (Nano Banana 2.1 31-33 s, Sunburst High 38-41 s), plus preparing the grid.
+  const ENGINE_SECONDS={"gemini-nano-banana-2.1":35,"gpt-image-2.5-sunburst":45};
+  const estimateSeconds=model=>ENGINE_SECONDS[model]||45;
   function settings(engine){
     const wanted=ENGINES.includes(engine)?engine:ENGINES[0];
     const choice=root.nbPlanImageChoice(wanted,root.nbGetRes()),model=choice.model;
@@ -117,7 +120,7 @@
     const choice=options.settings||settings();if(!(Number(choice.credits)>0))throw Error("The image estimate is unavailable. Refresh before generating.");
     const text=prompt(l,options.notes||""),metaOut={};
     const record={requestId:root.crypto.randomUUID(),startedAt:new Date().toISOString(),phase:"generating"};
-    marker(s,id,record);announce(id);
+    marker(s,id,record);announce(id);options.onPhase?.("generating");
     try{
       const url=await root.nbGenerate(text,{model:choice.model,imageSize:choice.imageSize,quality:choice.quality,aspectRatio:"16:9",
         referenceImage:grid,baseMaxDim:1536,referenceMaxDim:1536,referencesNumbered:true,groundSearch:false,noRetry:true,
@@ -126,7 +129,7 @@
           const latest=version(await details(id,s));assert();
           if(latest.exists!==base.exists||latest.iso!==base.iso)throw Error("The location artwork changed before generation. Refresh before starting another request.");
         }});
-      assert();
+      assert();options.onPhase?.("saving");
       const meta={schema:1,kind:"cloud-set-style-draft",projectId:s.projectId,locationId:id,sourceJobId:original.job.id,
         sceneHash:hash,briefKey:brief,baseArtwork:base,prompt:text,modelId:choice.model,
         modelLabel:root.nbModelLabel(choice.model),quality:choice.quality,size:metaOut.imageSize||choice.imageSize,aspect:"16:9",
@@ -136,20 +139,20 @@
       const refs=[{kind:"blender-style-source",label:"Exact Blender camera grid",url:grid}];
       unsaved.set(key(s,id),{url,meta,refs,source:grid,scope:s,revision,brief});
       const saved=await root.nbCommit(slot(id),url,meta,refs,"location",s.epoch,()=>!guard());
-      assert();if(saved?.tier!=="cloud")throw Error("The style draft save was not confirmed. Refresh drafts before generating again.");
+      assert();if(saved?.tier!=="cloud")throw Error("The style draft save was not confirmed. Reload this page to check for it before generating again.");
       unsaved.delete(key(s,id));marker(s,id,null);announce(id,true);return {url:saved.url||url,meta,refs,source:grid};
     }catch(e){marker(s,id,{...record,phase:"uncertain"});throw e;}
   });}
   async function retrySave(id,s){return locked(id,s,async()=>{
     const entry=unsaved.get(key(s,id));
-    if(!entry||entry.scope.epoch!==s.epoch)throw Error("The unsaved pixels are no longer in this session. Refresh drafts and check usage before generating again.");
+    if(!entry||entry.scope.epoch!==s.epoch)throw Error("The unsaved pixels are no longer in this session. Reload this page and check usage before generating again.");
     const guard=()=>{try{assertScope(s);return sceneKey(live(id))===entry.revision&&briefKey(live(id))===entry.brief;}catch(_){return false;}};
     if(!guard())throw Error("The location changed. These unsaved pixels cannot be adopted.");
     await root.KinolotCloudRender.request("capabilities",{projectId:s.projectId},s);
     const current=await details(slot(id),s);let result;
     if(current?.meta?.iso===entry.meta.iso)result=await load(id,s);
     else{
-      if(current?.meta?.iso>entry.meta.iso)throw Error("A newer draft was saved. Refresh drafts before continuing.");
+      if(current?.meta?.iso>entry.meta.iso)throw Error("A newer draft was saved. Reload this page before continuing.");
       const saved=await root.nbCommit(slot(id),entry.url,entry.meta,entry.refs,"location",s.epoch,()=>!guard());
       if(saved?.tier!=="cloud")throw Error("The draft still could not be saved. No new image was generated.");
       result={...entry,url:saved.url||entry.url};
@@ -192,5 +195,5 @@
     const recorded=await root.nbSetAssetApproval(slot(id),meta.iso,true,"cloud-set-style-accepted");
     announce(id,true);return {...saved,reviewRecorded:!!recorded?.ok};
   });}
-  root.KinolotSetStyle={ENGINES,enabled,slot,pending,settings,appearance,briefKey,sceneKey,prompt,compose,load,generate,retrySave,accept,reject};
+  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,pending,settings,appearance,briefKey,sceneKey,prompt,compose,load,generate,retrySave,accept,reject};
 })(typeof window!=="undefined"?window:globalThis);

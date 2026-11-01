@@ -235,4 +235,32 @@ for(const phase of ["prepare","response"]){
   await go.props.onClick();
   ok(seen.length===1&&seen[0][0]==="gpt-image-2.5-sunburst"&&seen[0][1]==="high","Generate sends the chosen engine (Sunburst at High) in one paid call");
 }
+{
+  // Progress while a draft is made, and only the buttons that do something.
+  const h=harness(),job=await h.ready();
+  h.b.nbOaiQualityLabel=x=>x;h.b.nbModelLabel=m=>m==="gpt-image-2.5-sunburst"?"GPT Image 2.5 Sunburst":"Nano Banana 2.1";
+  const api=h.api();
+  ok(api.estimateSeconds("gemini-nano-banana-2.1")===35&&api.estimateSeconds("gpt-image-2.5-sunburst")===45,"Measured image times give the estimate");
+  const phases=[];h.hook(async(p)=>{if(p==="prepare")phases.push("submitted");});
+  await api.generate("room",job,h.scope,{onPhase:p=>phases.push(p)});
+  ok(phases.join(",")==="generating,submitted,saving","The draft reports generating before the paid call and saving after it");
+  h.b.React={useState:v=>[v,()=>{}],useEffect(){},useRef:v=>({current:v}),
+    createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!==false&&x!=null)})};
+  vm.runInContext(readFileSync(compiled?"dist/app/blender-style-ui.js":"app/blender-style-ui.jsx","utf8"),h.b);
+  const text=n=>JSON.stringify(n);const bar=n=>JSON.stringify(n).match(/"aria-valuenow":(\d+)/)[1]*1;
+  const t=Date.parse("2026-11-01T12:00:00Z");
+  let n=h.b.styleProgress({phase:"generating",since:t,now:t+12000,model:"gemini-nano-banana-2.1",api});
+  ok(/Generating with Nano Banana 2.1 · 0:12 of about 0:35/.test(text(n))&&bar(n)===34,"Generating: engine, time so far, estimate and the bar");
+  n=h.b.styleProgress({phase:"generating",since:t,now:t+70000,model:"gpt-image-2.5-sunburst",api});
+  ok(/Taking longer than usual · 1:10 so far/.test(text(n))&&bar(n)===95,"Past the estimate: says so; the bar stops short");
+  n=h.b.styleProgress({phase:"saving",since:t,now:t+1000,model:"gemini-nano-banana-2.1",api});
+  ok(/Saving the draft/.test(text(n))&&bar(n)===96,"Saving: almost done, never 100%");
+  const ui=readFileSync(compiled?"dist/app/blender-style-ui.js":"app/blender-style-ui.jsx","utf8");
+  ok(!/Refresh draft/.test(ui),"No Refresh draft button: the panel reloads the draft itself");
+  ok(/draft&&!decided&&!stale&&E\("button"/.test(ui)||compiled,"Review draft only while the draft is undecided and current");
+  ok(ui.includes("This draft is out of date: the set or its look changed after it was made, so it can't become the location image. Click Generate another style draft to make a new one."),
+    "An out-of-date draft says why and which button to click");
+  ok(!ui.includes("style brief changed"),"No more 'layout, cameras or style brief changed'");
+  ok(/!busy&&pending\?\.hasUnsaved/.test(ui)||compiled,"The unsaved warning waits until saving has finished");
+}
 console.log("PASS cloud set styling: "+checks+" generation, review, persistence, race, ownership and no-retry checks");
