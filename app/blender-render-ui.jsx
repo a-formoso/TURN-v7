@@ -128,22 +128,25 @@ function momentPicker(location,api,disabled){
   return E("label",{className:"loc-cam-field loc-cloud-moment"},E("span",null,"Build at"),
     E("select",{className:"prop-select",value:key,disabled,onChange:e=>api.setBuildMoment(location.id,e.target.value)},
       list.map(m=>E("option",{key:m.key,value:m.key},m.label))),
-    E("small",null,"The moving parts are built as they are at that moment. The location image is styled from the usual state."));
+    E("small",null,"The moving parts are built as they are at that moment. Styled in step 5, it becomes that state's own image, which shots at those moments use; the usual state makes the location image."));
 }
 /* Step 5 · Style it: the image-model look over the built set; it needs a current build from step 4. */
 function LocationStyleStep({location,readOnly=false}){
   const c=useCloudSetJob(location);
   if(!c.show)return null;
   const E=React.createElement,ready=c.job&&c.job.status==="completed"&&c.job.result&&!c.stale&&!c.issues.length;
-  // the location image shows the set as the description has it, so only the usual state is styled
-  if(c.at)return E("div",{className:"loc-step-fixes"},
-    E("p",{className:"loc-step-fixes-head"},"Step 4 builds the set at a story moment. Choose Usual state there and rebuild to style the location image."),
-    E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,4)},"Go to 4 · Build the set"));
+  // built at a story moment: the styled draft becomes that moving-part state's own image, never the location image
+  let target=location.id;
+  if(c.at&&typeof window.locationMovingPartsAt==="function"){
+    const states=window.locationMovingPartsAt(location,c.at);
+    const key=window.locationPartStateKey(states);
+    if(key)target={loc:location.id,at:c.at,key,label:window.locationPartStateLabel(states)};
+  }
   if(!c.capable)return E("p",{className:"loc-layer-note"},c.message||"Checking the built set…");
   if(!ready)return E("div",{className:"loc-step-fixes"},
     E("p",{className:"loc-step-fixes-head"},c.job&&c.job.status==="completed"?"Rebuild the set first: its views are from an earlier floor plan or cameras.":"Build the set first."),
     E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,4)},"Go to 4 · Build the set"));
-  return window.LocationSetStyle?E(window.LocationSetStyle,{key:c.scopeKey,location,job:c.job,sceneHash:c.sceneHash,readOnly}):null;
+  return window.LocationSetStyle?E(window.LocationSetStyle,{key:c.scopeKey+":"+(target.key||""),location,target,job:c.job,sceneHash:c.sceneHash,readOnly}):null;
 }
 /* How long is left: queued (one worker renders one set at a time), then rendering against an estimate from the set's
    size or this location's last render, then saving. The bar never claims 100% before the views are saved. */

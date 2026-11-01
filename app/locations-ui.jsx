@@ -213,6 +213,24 @@ function LocationMovingParts({l,scenes,drafts,onUpdate,readOnly=false}){
   const keep=()=>{const ids=new Set(pending.map(p=>p.id));save(parts.filter(p=>!ids.has(p.id)).concat(pending));setPending(null);};
   const addPart=()=>save(parts.concat([{id:"part-"+Date.now().toString(36),name:"New part",states:[{id:"closed",label:"Closed",pose:"as-built"},{id:"open",label:"Open",pose:"open"}],usual:"closed",changes:[],source:"user"}]));
   const field=(label,input)=>E("label",{className:"loc-cam-field"},E("span",null,label),input);
+  /* each state other than the usual one can have its own image, made from the set built at that moment (steps 4–5,
+     cloud set pilot); shots at those moments use it in place of the location image */
+  const cloud=window.KinolotCloudRender,pilot=!!(cloud&&cloud.enabled&&cloud.enabled());
+  const stateImages=()=>{
+    const list=pilot&&cloud.buildMoments?cloud.buildMoments(l).slice(1):[];
+    if(!list.length) return null;
+    return E("div",{className:"loc-part-states","data-testid":"location-part-state-images"},
+      E("p",{className:"loc-field-label"},"State images"),
+      list.map(m=>{
+        const states=locationMovingPartsAt(l,m.at),key=locationPartStateKey(states),id=locationPartStateAssetId(l,key);
+        const url=typeof nbGetImage==="function"?nbGetImage(id):"";
+        return E("div",{key:m.key,className:"loc-part-state"},
+          url?E("img",{src:url,alt:locationPartStateLabel(states)}):null,
+          E("span",null,locationPartStateLabel(states)+(url?" \u2014 shots at these moments use this image.":" \u2014 no image yet; shots use the location image and are told the state.")),
+          !readOnly&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>{cloud.setBuildMoment(l.id,m.key);
+            if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,url?5:4);}},url?"Restyle (step 5)":"Make it: build at this moment (step 4)"));
+      }));
+  };
   const partView=(p,i)=>E("details",{key:p.id+i,className:"loc-nested-section loc-part",open:true},
     E("summary",null,p.name+" · usually "+((p.states.find(s=>s.id===p.usual)||{}).label||"").toLowerCase()+" · "+p.changes.length+" change"+(p.changes.length===1?"":"s")),
     E("div",{className:"loc-cam-fields"},
@@ -243,6 +261,7 @@ function LocationMovingParts({l,scenes,drafts,onUpdate,readOnly=false}){
   return E("div",{className:"loc-moving-parts","data-testid":"location-moving-parts"},
     E("p",{className:"loc-layer-note"},"Parts of this set the screenplay moves, such as a ramp lowered for the cars and raised to seal the hold. Each shot shows the part as it is at its moment."),
     parts.map(partView),
+    stateImages(),
     pending&&pending.length>0&&E("div",{className:"loc-map-check",role:"status"},
       E("p",null,"Found in the screenplay: "+pending.map(p=>p.name+" ("+p.changes.map(c=>momentLabel(c)+" "+c.state).join(", ")+")").join("; ")+"."),
       E("button",{type:"button",className:"art-draftall",onClick:keep},"Keep"),

@@ -3,8 +3,14 @@
   "use strict";
   const active=new Set(),memory=new Map(),unsaved=new Map(),PANELS=["TL","TR","BL","BR"];
   const enabled=()=>!!root.KinolotCloudRender?.enabled();
-  const slot=id=>"cloud-set-style-"+String(id);
-  const key=(s,id)=>["kinolot-style-request",s.uid,s.projectId,id].join(":");
+  /* What a draft styles (2026-11-01): a location id = its usual set, which becomes the location image; or a target
+     {loc, at, key, label} = the set built at a story moment whose moving parts differ ("Stern ramp lowered"), which
+     becomes that state's own image (locationPartStateAssetId) and never touches the location image. */
+  const T=id=>id&&typeof id==="object"?{loc:String(id.loc),at:id.at||null,key:String(id.key||""),label:String(id.label||"")}
+    :{loc:String(id),at:null,key:"",label:""};
+  const slot=id=>{const t=T(id);return "cloud-set-style-"+t.loc+(t.key?"-parts-"+t.key.toLowerCase().replace(/[^a-z0-9]+/g,"-").slice(0,80):"");};
+  const assetOf=t=>t.key?root.locationPartStateAssetId(live(t.loc),t.key):t.loc;
+  const key=(s,id)=>["kinolot-style-request",s.uid,s.projectId,slot(id)].join(":");
   function pending(s,id){
     const k=key(s,id);let value=memory.get(k)||null;
     try{value=JSON.parse(root.localStorage.getItem(k)||"null")||value;}catch(_){}
@@ -15,7 +21,7 @@
     const k=key(s,id);value?memory.set(k,value):memory.delete(k);
     try{value?root.localStorage.setItem(k,JSON.stringify(value)):root.localStorage.removeItem(k);}catch(_){}
   }
-  function announce(id,saved=false){root.dispatchEvent?.(new CustomEvent("kinolot-style-changed",{detail:{id,saved}}));}
+  function announce(id,saved=false){root.dispatchEvent?.(new CustomEvent("kinolot-style-changed",{detail:{id:T(id).loc,saved}}));}
   function assertScope(s){
     if(!enabled()||!root.BlenderPreview.isCurrent(s))throw Error("The open film or sign-in changed. Reopen the style preview.");
     if(typeof root.turnArtRoomWritable==="function"&&!root.turnArtRoomWritable())throw Error("This film is read-only.");
@@ -30,7 +36,7 @@
       exclusions:l.negativePrompt||"",lookbook:["locations","colorist"].map(d=>root.turnLookbookBriefFor?.(d)||"").join("\n")};
   }
   const briefKey=l=>root.KinolotRenderContract.canonical(appearance(l));
-  const sceneKey=l=>root.KinolotRenderContract.canonical(root.KinolotCloudRender.buildScene(l));
+  const sceneKey=(l,at)=>root.KinolotRenderContract.canonical(root.KinolotCloudRender.buildScene(l,undefined,at||undefined));
   function version(details){
     const exists=!!details?.url,iso=details?.meta?.iso||"";
     if(exists&&!iso)throw Error("The existing artwork version could not be verified. Refresh before styling.");
@@ -95,7 +101,8 @@
     return canvas.toDataURL("image/png");
   }
   function verify(meta,id,s){
-    if(meta?.kind!=="cloud-set-style-draft"||meta.schema!==1||meta.projectId!==s.projectId||meta.locationId!==id||!meta.iso)
+    const t=T(id);
+    if(meta?.kind!=="cloud-set-style-draft"||meta.schema!==1||meta.projectId!==s.projectId||meta.locationId!==t.loc||(meta.stateKey||"")!==t.key||!meta.iso)
       throw Error("This style draft does not belong to the open location.");
   }
   async function load(id,s){
@@ -105,7 +112,7 @@
     let source=reference?.url||"";
     if(!source){
       const old=await root.KinolotCloudRender.request("job.get",{projectId:s.projectId,jobId:d.meta.sourceJobId},s);
-      if(old.job?.sceneHash!==d.meta.sceneHash||old.job?.locationId!==id)throw Error("The Blender comparison source could not be verified.");
+      if(old.job?.sceneHash!==d.meta.sceneHash||old.job?.locationId!==T(id).loc)throw Error("The Blender comparison source could not be verified.");
       source=await compose(old.job);assertScope(s);
     }
     return {...d,source};
@@ -117,18 +124,23 @@
   }
   async function generate(id,job,s,options={}){return locked(id,s,async()=>{
     if(pending(s,id)&&!options.retryConfirmed)throw Error("An earlier image request may still finish. Check its usage before starting another paid request.");
-    let l=live(id),revision=sceneKey(l),brief=briefKey(l);
-    const guard=()=>{try{assertScope(s);return sceneKey(live(id))===revision&&briefKey(live(id))===brief;}catch(_){return false;}};
+    const t=T(id);
+    let l=live(t.loc),revision=sceneKey(l,t.at),brief=briefKey(l);
+    const guard=()=>{try{assertScope(s);return sceneKey(live(t.loc),t.at)===revision&&briefKey(live(t.loc))===brief;}catch(_){return false;}};
     const assert=()=>{if(!guard())throw Error("The layout or style brief changed. This draft was not adopted; check usage before retrying.");};
     await root.KinolotCloudRender.request("capabilities",{projectId:s.projectId},s);assert();
     const original=await root.KinolotCloudRender.request("job.get",{projectId:s.projectId,jobId:job?.id},s);assert();
     const hash=await root.KinolotRenderContract.hash(revision);assert();
-    if(original.job?.status!=="completed"||original.job.locationId!==id||original.job.sceneHash!==hash)
+    if(original.job?.status!=="completed"||original.job.locationId!==t.loc||original.job.sceneHash!==hash)
       throw Error("Build the current floor plan before generating a style draft.");
-    const base=version(await details(id,s));assert();
+    const base=version(await details(assetOf(t),s));assert();
     const grid=await compose(original.job);assert();
     const choice=options.settings||settings();if(!(Number(choice.credits)>0))throw Error("The image estimate is unavailable. Refresh before generating.");
-    const text=prompt(l,options.notes||""),metaOut={};
+    // the set is built at a story moment: say which parts are not in their usual state, so the look keeps them
+    const moved=t.key&&typeof root.locationMovingPartsAt==="function"?root.locationMovingPartsAt(l,t.at).filter(p=>p.differs&&p.state)
+      .map(p=>p.name+" "+p.state.label.toLowerCase()+(p.state.look?" — "+p.state.look:"")).join("; "):"";
+    const text=prompt(l,options.notes||"")+(moved?"\nMOVING PARTS AT THIS MOMENT (as built in the source): "+moved
+      +". Where the source opens to the outside, paint the exterior beyond as described (keep its position and size).":""),metaOut={};
     const record={requestId:root.crypto.randomUUID(),startedAt:new Date().toISOString(),phase:"generating"};
     marker(s,id,record);announce(id);options.onPhase?.("generating");
     try{
@@ -136,11 +148,12 @@
         referenceImage:grid,baseMaxDim:1536,referenceMaxDim:1536,referencesNumbered:true,groundSearch:false,noRetry:true,
         projectId:s.projectId,assetId:slot(id),assetPurpose:"cloud-set-style",metaOut,beforeSubmit:async()=>{
           assert();await root.KinolotCloudRender.request("capabilities",{projectId:s.projectId},s);assert();
-          const latest=version(await details(id,s));assert();
+          const latest=version(await details(assetOf(t),s));assert();
           if(latest.exists!==base.exists||latest.iso!==base.iso)throw Error("The location artwork changed before generation. Refresh before starting another request.");
         }});
       assert();options.onPhase?.("saving");
-      const meta={schema:1,kind:"cloud-set-style-draft",projectId:s.projectId,locationId:id,sourceJobId:original.job.id,
+      const meta={schema:1,kind:"cloud-set-style-draft",projectId:s.projectId,locationId:t.loc,sourceJobId:original.job.id,
+        ...(t.key?{stateKey:t.key,stateLabel:t.label,stateAt:t.at}:{}),
         sceneHash:hash,briefKey:brief,baseArtwork:base,prompt:text,modelId:choice.model,
         modelLabel:root.nbModelLabel(choice.model),quality:choice.quality,size:metaOut.imageSize||choice.imageSize,aspect:"16:9",
         mode:"draft",iso:new Date().toISOString(),notes:String(options.notes||"").slice(0,1000),
@@ -156,7 +169,8 @@
   async function retrySave(id,s){return locked(id,s,async()=>{
     const entry=unsaved.get(key(s,id));
     if(!entry||entry.scope.epoch!==s.epoch)throw Error("The unsaved pixels are no longer in this session. Reload this page and check usage before generating again.");
-    const guard=()=>{try{assertScope(s);return sceneKey(live(id))===entry.revision&&briefKey(live(id))===entry.brief;}catch(_){return false;}};
+    const t=T(id);
+    const guard=()=>{try{assertScope(s);return sceneKey(live(t.loc),t.at)===entry.revision&&briefKey(live(t.loc))===entry.brief;}catch(_){return false;}};
     if(!guard())throw Error("The location changed. These unsaved pixels cannot be adopted.");
     await root.KinolotCloudRender.request("capabilities",{projectId:s.projectId},s);
     const current=await details(slot(id),s);let result;
@@ -183,13 +197,14 @@
     if(current.meta.iso!==draft.meta.iso)throw Error("A newer draft is available. Reopen the review.");
     const meta=current.meta,approval=meta.approval;
     if(approval&&approval.iso===meta.iso&&!approval.approved)throw Error("This draft was rejected. Generate a new draft.");
-    const revision=sceneKey(live(id)),brief=meta.briefKey;
+    const t=T(id),asset=assetOf(t);
+    const revision=sceneKey(live(t.loc),t.at),brief=meta.briefKey;
     if(await root.KinolotRenderContract.hash(revision)!==meta.sceneHash)throw Error("The layout changed. Generate a current draft before accepting.");
-    const guard=()=>{try{assertScope(s);return sceneKey(live(id))===revision&&briefKey(live(id))===brief;}catch(_){return false;}};
+    const guard=()=>{try{assertScope(s);return sceneKey(live(t.loc),t.at)===revision&&briefKey(live(t.loc))===brief;}catch(_){return false;}};
     if(!guard())throw Error("The layout or style brief changed. Generate a current draft before accepting.");
     await root.KinolotCloudRender.request("capabilities",{projectId:s.projectId},s);
     if(!guard())throw Error("The location changed while its review was open.");
-    const target=await details(id,s);
+    const target=await details(asset,s);
     if(target.meta?.styleDraftIso===meta.iso)return {url:target.url,alreadyAccepted:true};
     if(approval&&approval.iso===meta.iso&&approval.approved)throw Error("This draft has already been used. Review the current location artwork.");
     const expected=meta.baseArtwork,now=version(target);
@@ -200,13 +215,13 @@
     // a saved draft comes back as a signed storage address; the location image is saved from the pixels themselves
     const pixels=await imageData(current.url);assertScope(s);
     if(!guard())throw Error("The location changed while its review was open.");
-    const saved=await root.nbCommit(id,pixels,outputMeta,[{kind:"blender-style-source",label:"Reviewed Blender camera grid",url:current.source}],
+    const saved=await root.nbCommit(asset,pixels,outputMeta,[{kind:"blender-style-source",label:"Reviewed Blender camera grid",url:current.source}],
       "location",s.epoch,()=>!guard(),expected);
     if(saved?.tier!=="cloud")throw Error(saved?.error||"The image save was not confirmed. Reload this page and try again.");
     assertScope(s);
-    root.dispatchEvent?.(new CustomEvent("nb-gen-done",{detail:{id,url:saved.url}}));
+    root.dispatchEvent?.(new CustomEvent("nb-gen-done",{detail:{id:asset,url:saved.url}}));
     const recorded=await root.nbSetAssetApproval(slot(id),meta.iso,true,"cloud-set-style-accepted");
     announce(id,true);return {...saved,reviewRecorded:!!recorded?.ok};
   });}
-  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,pending,settings,appearance,briefKey,sceneKey,prompt,compose,load,generate,retrySave,accept,reject};
+  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,assetOf:t=>assetOf(T(t)),pending,settings,appearance,briefKey,sceneKey,prompt,compose,load,generate,retrySave,accept,reject};
 })(typeof window!=="undefined"?window:globalThis);

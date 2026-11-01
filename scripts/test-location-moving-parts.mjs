@@ -64,6 +64,30 @@ check(/raised and sealing the hold/.test(usual)&&!/MOVING PARTS/.test(usual),"A 
 const shots=read("app/shots.jsx");
 check(/except the moving parts set for this instant \("\+_partsMoved\.join\("; "\)\+"\), which this reference may show otherwise/.test(shots),"The set reference is told the moving parts may differ from it");
 
+// 2b · a state's own image (owner 2026-11-01, "go ahead with the state images")
+{
+  const st=box.locationMovingPartsAt(deck,{sceneId:"s1",beatN:1,moment:1},scenes);
+  check(box.locationPartStateKey(st)==="stern-ramp.lowered"&&box.locationPartStateLabel(st)==="Stern ramp lowered","A state is keyed and named by the parts out of their usual state");
+  check(box.locationPartStateAssetId(deck,"stern-ramp.lowered")==="deck-parts-stern-ramp-lowered"&&box.locationPartStateAssetId(deck,"")==="","Its image has its own asset id; the usual state has none (it is the location image)");
+  check(box.shotLocationCoverageSpecs(loc,shot,scene,drafts).every(x=>x.category!=="parts"),"No state image yet: the shot keeps its usual references");
+  box.nbGetMeta=id=>id==="deck-parts-stern-ramp-lowered"?{iso:"x"}:null;
+  const specs=box.shotLocationCoverageSpecs(loc,shot,scene,drafts);
+  check(specs[0]&&specs[0].id==="deck-parts-stern-ramp-lowered"&&specs[0].category==="parts","With the image, a shot at that moment attaches the 'Stern ramp lowered' image");
+  const placeSpec={id:"deck",category:"place",locationId:"deck",required:true,note:"Deck place"};
+  const real=box.shotLocationCoverageSpecsBase;
+  box.shotLocationCoverageSpecsBase=()=>[placeSpec,{id:"deck-x",category:"coverage",locationId:"deck"}];
+  const swapped=box.shotLocationCoverageSpecs(loc,{...shot,referenceLocationsSet:true,referenceLocationIds:["deck"]},scene,drafts);
+  check(swapped.map(x=>x.id).join()==="deck-parts-stern-ramp-lowered,deck-x"&&swapped[0].required,"It stands in for the plate a director picked, keeping any extra space");
+  check(box.shotLocationCoverageSpecs(loc,{...shot,sceneId:"s2"},{...scene,id:"s2",no:2},drafts).every(x=>x.category!=="parts"),"A shot at a moment in the usual state keeps the location image");
+  box.shotLocationCoverageSpecsBase=real;
+  box.nbGetMeta=()=>null;
+}
+const style=read("app/blender-style.js"),styleUi=read("app/blender-style-ui.jsx");
+check(/const assetOf=t=>t\.key\?root\.locationPartStateAssetId\(live\(t\.loc\),t\.key\):t\.loc;/.test(style)&&/root\.nbCommit\(asset,pixels,outputMeta,/.test(style),"Accepting a state's draft saves it as the state's image, never the location image");
+check(/sceneKey\(live\(t\.loc\),t\.at\)/.test(style)&&/stateKey:t\.key/.test(style)&&/\(meta\.stateKey\|\|""\)!==t\.key/.test(style),"A state's draft is checked against the set built at its moment, and never mixed up with the usual one");
+check(/MOVING PARTS AT THIS MOMENT \(as built in the source\)/.test(style),"The style draft is told which parts are moved at its moment");
+check(/"Use as the \\u201c"\+partState\.label\+"\\u201d image"/.test(styleUi),"The button says which image the draft becomes");
+check(/data-testid":"location-part-state-images"/.test(read("app/locations-ui.jsx")),"Moving parts lists each state's image, or how to make it");
 // 3 · the screenplay read (a fake model; a change must quote its own moment)
 {
   const ai=read("app/ai.jsx");
@@ -103,6 +127,9 @@ check(slab(raised).size[2]===3.8&&raised.objects.some(o=>o.name==="Raised ramp r
 const d=slab(down);
 check(d.size[1]===3.8&&d.size[2]===.25&&d.position[1]<0&&d.position[1]>-2.5&&d.position[2]<0,"Lowered: the ramp lies outward from the aft wall, falling toward the quay");
 check(Math.abs(d.rotation[0]+8*Math.PI/180)<1e-9,"Lowered with an 8° fall");
+const quay=down.objects.find(o=>/^Quay beyond/.test(o.name)),night=down.objects.find(o=>/^Night beyond/.test(o.name));
+check(quay&&night&&quay.position[1]<-10&&night.position[1]<-30&&down.materials.quay&&down.materials.night,"Beyond a lowered part: a quay and a night backdrop, so the opening reads as outside");
+check(!raised.objects.some(o=>/^Quay beyond|^Night beyond/.test(o.name))&&!raised.materials.quay,"The usual set is unchanged (its builds stay current)");
 check(!down.objects.some(o=>o.name==="Raised ramp rib")&&down.objects.some(o=>o.name==="Transverse steel beam web"),"Lowered: no raised-ramp assembly, the hold keeps its detail");
 check(down.notes.some(n=>/Stern ramp lowered at this moment/.test(n)),"The build says the part is posed for the moment");
 check(JSON.stringify(R.buildScene(fixture,undefined,{sceneId:"s2",beatN:1,moment:1}))===JSON.stringify(raised),"A moment in the usual state builds the usual set");
@@ -118,5 +145,5 @@ const ui=read("app/locations-ui.jsx"),cloud=read("app/blender-render-ui.jsx");
 check(/function LocationMovingParts/.test(ui)&&/label:"Moving parts",foldId:"loc-parts-"\+l\.id/.test(ui),"The location card has a Moving parts section");
 check(/Read from the screenplay \(writing credits\)/.test(ui)&&/"Keep"\)/.test(ui)&&/"Discard"\)/.test(ui),"The read is reviewed before anything is saved, and its price is named");
 check(/momentPicker\(location,api,/.test(cloud)&&/E\("span",null,"Build at"\)/.test(cloud),"Step 4 builds the set at a chosen moment");
-check(/Choose Usual state there and rebuild to style the location image/.test(cloud),"Step 5 styles only the usual state");
+check(/if\(key\)target=\{loc:location\.id,at:c\.at,key,label:window\.locationPartStateLabel\(states\)\};/.test(cloud),"Step 5 styles the set at the chosen moment as that state's image");
 console.log(`PASS location moving parts: ${checks} state, prompt, read and set checks`);

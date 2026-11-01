@@ -650,7 +650,9 @@ Each entity gets a canonical, reusable reference so every generated image stays 
   and **changes at story moments** (scene · beat · moment; "during" a moment = its frame still shows the state
   before). Read from the screenplay (writing credits, reviewed before saving; each change must quote its moment) or set
   by hand. Shots state each part that is not in its usual state at their moment; the cloud set can be built at a
-  moment; the location image stays the usual state.
+  moment; the location image stays the usual state. **State images** (owner 2026-11-01): a non-usual state can have
+  its own image — the set built at that moment and styled (steps 4–5) — which shots at those moments attach in place
+  of the location's plate.
 - **Style Bible grade is NOT baked into location plates.** A location can span scenes with different
   looks, so its coverage plate renders **grade-neutral**; the card shows only an informational chip of
   which preset(s) its scenes use. The 60/30/10 Style Bible grade is a per-scene property applied

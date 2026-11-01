@@ -1100,9 +1100,10 @@ const SHOT_LOCATION_CATEGORY_LABELS={
   unit:"Slugline Unit",
   coverage:"Required Space Plate",
   state:"Time-of-Day Variant",
+  parts:"Moving parts",
   unknown:"Unavailable location reference",
 };
-const SHOT_LOCATION_CATEGORY_ORDER={place:0,unit:1,coverage:2,state:3,unknown:9};
+const SHOT_LOCATION_CATEGORY_ORDER={place:0,parts:0,unit:1,coverage:2,state:3,unknown:9};
 function shotLocationCategoryLabel(category){
   return SHOT_LOCATION_CATEGORY_LABELS[String(category||"").toLowerCase()]
     || "Location reference";
@@ -1414,7 +1415,34 @@ function shotLocationReferenceChoices(loc,sh,scene,drafts){
     selected.push(spec?{...spec,outOfScene:!sceneIds.has(id)}:shotLocationUnknownSpec(id,loc)); });
   return selected.concat(sceneCatalog.filter(s=>!seen.has(String(s.id))).map(s=>({...s})));
 }
+/* A MOVING PART'S STATE IMAGE (2026-11-01): when the shot's moment has parts out of their usual state and that state
+   has its own image ("Stern ramp lowered", made in the location's step 5), it stands in for this location's plate,
+   room & time and time-of-day references, which show the usual state. Without the image nothing changes (the prompt
+   still states the part). */
 function shotLocationCoverageSpecs(loc, sh, scene, drafts){
+  const specs=shotLocationCoverageSpecsBase(loc, sh, scene, drafts);
+  const part=shotPartStateSpec(loc, sh, scene);
+  if(!part) return specs;
+  const mine=s=>s && String(s.locationId||s.entityId||"")===String(loc.id) && ["place","unit","state"].indexOf(s.category)>=0;
+  if(sh && sh.referenceLocationsSet && !specs.some(mine)) return specs;
+  return [{...part,required:specs.some(s=>mine(s)&&s.required)}].concat(specs.filter(s=>!mine(s)));
+}
+function shotPartStateSpec(loc, sh, scene){
+  if(!loc||!scene||!sh||typeof locationMovingPartsAt!=="function"||typeof locationPartStateKey!=="function") return null;
+  const n=(typeof window.shotMomentNumber==="function"&&window.shotMomentNumber(sh))||1;
+  const states=locationMovingPartsAt(loc,{sceneId:scene.id,beatN:sh.beatN,moment:n},((window.turnContinuity||{}).scenes));
+  const key=locationPartStateKey(states), id=locationPartStateAssetId(loc,key);
+  if(!id) return null;
+  const has=(typeof nbGetMeta==="function"&&nbGetMeta(id))||(typeof nbGetImage==="function"&&nbGetImage(id));
+  if(!has) return null;
+  const label=locationPartStateLabel(states);
+  return {id,category:"parts",categoryLabel:"Moving parts",categories:["parts"],label:(loc.name||"Location")+" · "+label,
+    note:(loc.name||"location")+" with "+label+" — its moving parts as they are at this instant",
+    locationId:String(loc.id),entityId:String(loc.id),baseId:id,partsKey:key,partsLabel:label,
+    source:"moving-part-state",assetRole:"derived_reference",assetSourceQuality:"location_parts_state_full_frame"};
+}
+window.shotPartStateSpec=shotPartStateSpec;
+function shotLocationCoverageSpecsBase(loc, sh, scene, drafts){
   sh=sh||{};
   /* Automatic inference has no safe location scope without a current card.
      Explicit IDs are different: resolve them against the shared current-film
@@ -2520,12 +2548,14 @@ function buildShotPrompt(sh, ctx){
    const _locSpecs = _promptLocSpecs;
   const _partsMoved = (_partStates||[]).filter(p=>p&&p.state&&p.differs).map(p=>p.name.toLowerCase()+": "+p.state.label.toLowerCase());
   const _locLabels = _locSpecs.filter(s=>_refOff.indexOf(s.id)<0).map(s=>s.note+" — "
-    + (s.category==="place"
+    + (s.category==="parts"
+      ? "this place with its moving parts as they are at this instant; reproduce its architecture, surfaces, fixtures and the parts' state exactly"
+      : s.category==="place"
       ? "a design reference for binding place identity; if compound, preserve its multi-panel meaning and never treat it as a full-frame crop"
       : (s.category==="state"
         ? "the authoritative Time-of-Day Variant for this place; preserve its exact light, dressing and condition"
         : (locWeight==="ambient" ? "a background reference for the grade and surfaces only; the character fills this tight frame" : "reproduce its architecture, surfaces, fixtures, sightlines and signage exactly")))
-    + (_partsMoved.length ? "; except the moving parts set for this instant ("+_partsMoved.join("; ")+"), which this reference may show otherwise" : ""));
+    + (_partsMoved.length && s.category!=="parts" ? "; except the moving parts set for this instant ("+_partsMoved.join("; ")+"), which this reference may show otherwise" : ""));
   const _castLabels = subjects.filter(c=>_refOff.indexOf(c.id)<0).map(c=> {
     const scale = (typeof canonicalScaleLabel==="function") ? canonicalScaleLabel(c) : (c.name||"character");
     // (2026-10-12, Character fidelity) the script's distinguishing features ride with the sheet (face marks drop with a likeness)

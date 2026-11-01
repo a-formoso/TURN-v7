@@ -1836,6 +1836,19 @@ function locationMovingPartsClause(states){
   });
   return bits.length ? "MOVING PARTS AT THIS INSTANT (binding — where the location description or the set reference shows them otherwise, follow this): "+bits.join("; ") : "";
 }
+/* STATE IMAGES (owner 2026-11-01, "go ahead with the state images"): a set of moving-part states other than the usual
+   one ("Stern ramp lowered") can have its own location image — the cloud set built at that moment and styled. Its key
+   names the parts not in their usual state; shots at a moment with that key attach it instead of the usual plate. */
+function locationPartStateKey(states){
+  return (states||[]).filter(s=>s&&s.differs&&s.state).map(s=>s.id+"."+s.state.id).sort().join("+");
+}
+function locationPartStateLabel(states){
+  return (states||[]).filter(s=>s&&s.differs&&s.state).map(s=>s.name+" "+s.state.label.toLowerCase()).join(", ");
+}
+function locationPartStateAssetId(l,key){
+  const k=String(key||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,80);
+  return l&&l.id&&k ? String(l.id)+"-parts-"+k : "";
+}
 // A staging cell that describes a moving part in another state is replaced by the part in its current state.
 function locationMovingPartCell(text,states){
   const t=String(text||"");if(!t)return t;

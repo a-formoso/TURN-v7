@@ -151,7 +151,8 @@
       if((best.P[0]+n[0]-cx)**2+(best.P[1]+n[1]-cy)**2<(best.P[0]-cx)**2+(best.P[1]-cy)**2)n=[-n[0],-n[1]];
       const fall=8*Math.PI/180,yaw=Math.atan2(-n[0],n[1]);
       const out=(h/2)*Math.cos(fall)-(d/2)*Math.sin(fall),down=-(h/2)*Math.sin(fall)-(d/2)*Math.cos(fall);
-      return {position:[best.P[0]+n[0]*out,best.P[1]+n[1]*out,sp.floorZ+down],size:[w,h,d],rotation:[-fall,0,yaw]};
+      return {position:[best.P[0]+n[0]*out,best.P[1]+n[1]*out,sp.floorZ+down],size:[w,h,d],rotation:[-fall,0,yaw],
+        outside:{P:best.P,n,yaw,reach:h*Math.cos(fall),dropZ:sp.floorZ-h*Math.sin(fall)}};
     }
     const r0=-(anchor.facing||0)*Math.PI/180,left=[anchor.xy[0]-Math.cos(r0)*w/2,anchor.xy[1]-Math.sin(r0)*w/2];
     const swing=r=>[left[0]+Math.cos(r)*w/2,left[1]+Math.sin(r)*w/2];
@@ -170,7 +171,7 @@
     const spaces=renderSpaces(plan),objects=[],lights=[],notes=["Floor plan dimensions are estimates, not a survey.","Wall and floor thicknesses are proposed at 0.15 m. Materials and lighting are a preview treatment."];
     if(plan.anchors.some(a=>a.sizeBasis==="design"))notes.push("Object sizes marked proposed design are working estimates. Grouped dressing is represented by a single simplified proxy; repeated units and fine details are not modelled in this preview.");
     if(!spaces.some(s=>s.id===location.id&&s.footprint.length>=3))throw new Error("Add this space's footprint to the floor plan first.");
-    const family=root.locationSpatialFamily(owner,list);let baseNote=false;
+    const family=root.locationSpatialFamily(owner,list);let baseNote=false;const outsides=[];
     const add=(id,name,position,size,rotation=[0,0,0],extra={})=>objects.push({id,name:tidy(name),position,size,rotation,kind:"box",material:"wall",...extra});
     spaces.forEach((s,si)=>{
       const poly=C().polygon(s.footprint),xs=poly.map(p=>p[0]),ys=poly.map(p=>p[1]);
@@ -222,10 +223,18 @@
       if(posed&&posed.pose==="hidden"){notes.push(tidy(posed.label,120)+": not built at this moment.");return;}
       const shape=posed?posedAnchor(anchor,sp,z,posed.pose):{position:[anchor.xy[0],anchor.xy[1],z],size:anchor.size,rotation:[0,0,-(anchor.facing||0)*Math.PI/180]};
       if(posed)notes.push(tidy(posed.label,120)+" at this moment (a moving part).");
+      if(shape.outside)outsides.push(shape.outside);
       add("anchor-"+i,anchor.name,shape.position,shape.size,shape.rotation,
         {anchorId:anchor.id,material:"dressing",basis:anchor.sizeBasis||"design"});
     });
     if(baseNote)notes.push("This floor plan saves objects' base heights; the preview stands each object on its saved height.");
+    // a lowered part opens the room: a plain quay to land on and a dark night backdrop, so the opening reads as outside
+    outsides.forEach((o,k)=>{
+      const at=d=>[o.P[0]+o.n[0]*d,o.P[1]+o.n[1]*d];
+      add("outside-ground-"+k,"Quay beyond the lowered part (stand-in)",[...at(o.reach+12.5),o.dropZ-0.15],[60,25,0.3],[0,0,o.yaw],{material:"quay",basis:"design"});
+      add("outside-backdrop-"+k,"Night beyond the opening (stand-in)",[...at(o.reach+40),o.dropZ+12],[120,0.3,30],[0,0,o.yaw],{material:"night",basis:"design"});
+    });
+    if(outsides.length)notes.push("Beyond the lowered part: a plain quay and a dark night backdrop stand in for the outside.");
     if(lights.length>16)throw new Error("This preview supports up to sixteen spaces.");
     const cameras={};
     root.locationPanelPoses(location,list).forEach(p=>{
@@ -238,6 +247,7 @@
         floor:{baseColor:[0.22,0.25,0.28],metallic:0.1,roughness:0.65},
         wall:{baseColor:[0.55,0.58,0.6],metallic:0.05,roughness:0.7},
         dressing:{baseColor:[0.46,0.34,0.2],metallic:0.05,roughness:0.6},
+        ...(outsides.length?{quay:{baseColor:[0.07,0.07,0.075],metallic:0.05,roughness:0.9},night:{baseColor:[0.008,0.01,0.018],metallic:0,roughness:1}}:{}),
       }};
     if(!root.KinolotSetDetail)throw new Error("The set detail builder did not load. Refresh this page before building.");
     return root.KinolotSetDetail.build(C().validateScene(scene),{space:spaces.find(s=>s.id===location.id),

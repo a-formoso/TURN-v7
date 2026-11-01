@@ -1,6 +1,8 @@
 /* Optional, reviewed styling of a completed cloud set; never auto-adopts artwork. */
-function LocationSetStyle({location,job,sceneHash,readOnly=false}){
+function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
   const api=window.KinolotSetStyle;
+  // what this draft becomes: the location image, or a moving-part state's own image ("Stern ramp lowered")
+  const goal=target||location.id,partState=goal&&typeof goal==="object"?goal:null;
   const [draft,setDraft]=React.useState(null),[busy,setBusy]=React.useState(false),[loading,setLoading]=React.useState(true);
   const [error,setError]=React.useState(""),[notice,setNotice]=React.useState(""),[notes,setNotes]=React.useState("");
   const [review,setReview]=React.useState(false),[checked,setChecked]=React.useState(false),[retry,setRetry]=React.useState(false);
@@ -9,12 +11,12 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
   const operating=React.useRef(false);
   let scope=null,choice=null,brief="",reason="";
   try{scope=window.BlenderPreview.scope();brief=api.briefKey(location);}catch(e){reason=e.message;}
-  const scopeKey=scope?[scope.uid,scope.projectId,scope.epoch,location.id].join(":"):"";
+  const scopeKey=scope?[scope.uid,scope.projectId,scope.epoch,location.id,partState?partState.key:""].join(":"):"";
   const current=React.useRef(scopeKey);current.current=scopeKey;
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
   React.useEffect(()=>{
     let live=true;setDraft(null);setLoading(true);setError("");setNotice("");setChecked(false);setReview(false);setRetry(false);
-    if(scope)api.load(location.id,scope).then(d=>{if(live)setDraft(d);}).catch(e=>{if(live)setError(e.message);}).finally(()=>{if(live)setLoading(false);});
+    if(scope)api.load(goal,scope).then(d=>{if(live)setDraft(d);}).catch(e=>{if(live)setError(e.message);}).finally(()=>{if(live)setLoading(false);});
     else setLoading(false);
     return ()=>{live=false;};
   },[scopeKey,tick]);
@@ -40,7 +42,7 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
     const el=dialog.current;if(!el||!review)return;
     if(!el.open)el.showModal();return ()=>{if(el.open)el.close();};
   },[review]);
-  const pending=scope?api.pending(scope,location.id):null;
+  const pending=scope?api.pending(scope,goal):null;
   const stale=!!draft&&(!sceneHash||draft.meta.sceneHash!==sceneHash||draft.meta.briefKey!==brief);
   // No draft yet means no decision: two missing values must not count as a match.
   const approval=draft?.meta?.approval,decided=!!approval&&!!draft.meta.iso&&approval.iso===draft.meta.iso;
@@ -48,17 +50,17 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
   const valid=()=>alive.current&&current.current===scopeKey;
   async function generate(){
     if(busy||readOnly||!scope||!choice)return;operating.current=true;setBusy(true);setError("");setNotice("");step("preparing");
-    try{const d=await api.generate(location.id,job,scope,{settings:choice,notes,retryConfirmed:retry,onPhase:step});if(valid()){setDraft(d);setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
+    try{const d=await api.generate(goal,job,scope,{settings:choice,notes,retryConfirmed:retry,onPhase:step});if(valid()){setDraft(d);setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
     catch(e){if(valid())setError(e.message);}
     finally{operating.current=false;if(valid()){setBusy(false);setPhase("");}}
   }
   async function decide(use){
     if(busy||readOnly||!scope||!draft)return;operating.current=true;setBusy(true);setError("");
     try{
-      const result=use?await api.accept(location.id,draft,scope,checked):await api.reject(location.id,draft,scope);
+      const result=use?await api.accept(goal,draft,scope,checked):await api.reject(goal,draft,scope);
       if(valid()){
-        setNotice(use?"Location artwork updated. Its previous image remains in version history.":"Draft rejected. Location artwork was not changed.");
-        setDraft(await api.load(location.id,scope));setReview(false);setChecked(false);
+        setNotice(use?(partState?"Saved as the \u201c"+partState.label+"\u201d image. Shots at those moments use it in place of the location image.":"Location artwork updated. Its previous image remains in version history."):"Draft rejected. Location artwork was not changed.");
+        setDraft(await api.load(goal,scope));setReview(false);setChecked(false);
         if(use&&result.reviewRecorded===false)setNotice("Artwork saved. Refresh to verify the draft's review marker before any further action.");
       }
     }catch(e){if(valid())setError(e.message);}
@@ -66,13 +68,13 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
   }
   async function retrySave(){
     if(busy||readOnly||!scope)return;operating.current=true;setBusy(true);setError("");step("saving");
-    try{const d=await api.retrySave(location.id,scope);if(valid()){setDraft(d);setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
+    try{const d=await api.retrySave(goal,scope);if(valid()){setDraft(d);setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
     catch(e){if(valid())setError(e.message);}
     finally{operating.current=false;if(valid()){setBusy(false);setPhase("");}}
   }
   const E=React.createElement;
   const controls=()=>E("div",{className:"loc-cloud-render-actions"},
-    E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||stale||decided||!checked||!draft?.source||!imagesReady.source||!imagesReady.draft,onClick:()=>decide(true)},"Use as location artwork"),
+    E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||stale||decided||!checked||!draft?.source||!imagesReady.source||!imagesReady.draft,onClick:()=>decide(true)},partState?"Use as the \u201c"+partState.label+"\u201d image":"Use as location artwork"),
     E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy||decided,onClick:()=>decide(false)},"Reject draft"));
   const label={all:"All four views",TL:"Top left",TR:"Top right",BL:"Bottom left",BR:"Bottom right"};
   const position={all:[0,0],TL:[0,0],TR:[-100,0],BL:[0,-100],BR:[-100,-100]}[camera];
@@ -80,7 +82,9 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
   const problem=reason||error;
   return E("section",{className:"loc-style-preview","data-testid":"location-style-preview"},
     E("h4",null,"Style preview"),
-    E("p",{className:"loc-layer-note"},"Try the location's materials and look over the four Blender views. Review every view before replacing artwork; image styling can move or invent details."),
+    E("p",{className:"loc-layer-note"},partState
+      ?"This set is built at a story moment: "+partState.label+". The styled draft becomes that state's own image; shots at those moments use it in place of the location image, which stays as it is."
+      :"Try the location's materials and look over the four Blender views. Review every view before replacing artwork; image styling can move or invent details."),
     E("label",{className:"loc-style-notes"},"Surface notes (optional)",E("textarea",{value:notes,maxLength:1000,disabled:readOnly||busy,onChange:e=>setNotes(e.target.value),placeholder:"For example, subtle salt streaks and less floor glare."})),
     E("label",{className:"loc-style-notes"},"Engine",
       E("select",{value:engine,disabled:readOnly||busy,onChange:e=>setEngine(e.target.value)},
@@ -97,8 +101,9 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
     !phase&&pending?.active&&E("p",{role:"status",className:"loc-layer-note"},"A style draft for this location is being generated or saved."),
     loading&&E("p",{role:"status",className:"loc-layer-note"},"Loading saved style draft…"),
     // one plain sentence: where the draft stands and what to click (owner 2026-11-01)
-    draft&&(decided||!stale)&&E("p",{role:"status",className:"loc-layer-note"},accepted?"This draft became the location image.":rejected?"You rejected this draft.":
-      "Your draft is ready. Click Review draft to compare it with the Blender views. The location image only changes if you choose Use as location artwork."),
+    draft&&(decided||!stale)&&E("p",{role:"status",className:"loc-layer-note"},accepted?(partState?"This draft became the \u201c"+partState.label+"\u201d image.":"This draft became the location image."):rejected?"You rejected this draft.":
+      partState?"Your draft is ready. Click Review draft to compare it with the Blender views. It becomes the \u201c"+partState.label+"\u201d image only if you choose to use it."
+      :"Your draft is ready. Click Review draft to compare it with the Blender views. The location image only changes if you choose Use as location artwork."),
     draft&&!decided&&stale&&E("p",{className:"loc-spatial-error"},
       "This draft is out of date: the set or its look changed after it was made, so it can't become the location image. Click Generate another style draft to make a new one."),
     notice&&E("p",{role:"status",className:"loc-layer-note"},notice),
@@ -119,7 +124,7 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
       !decided&&E("label",{className:"loc-style-check"},E("input",{type:"checkbox",checked,disabled:readOnly||busy||stale||!imagesReady.source||!imagesReady.draft,onChange:e=>setChecked(e.target.checked)}),"I checked all four views against Blender and accept any visual differences."),
       !decided&&controls(),
       decided&&E("p",null,accepted?"Already used as location artwork.":"Rejected. Generate a new draft to try again."),
-      E("p",{className:"loc-layer-note"},"Using this draft replaces the location image and keeps the previous image in version history. Rejecting it does not refund image generation credits.")));
+      E("p",{className:"loc-layer-note"},(partState?"Using this draft saves it as the \u201c"+partState.label+"\u201d image; the location image is not changed.":"Using this draft replaces the location image and keeps the previous image in version history.")+" Rejecting it does not refund image generation credits.")));
 }
 /* Time-based, like the set render: the image engine reports no progress, so the bar runs against its measured time
    and stops short of full until the draft is saved. */

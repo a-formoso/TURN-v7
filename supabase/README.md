@@ -228,6 +228,14 @@ request waits or renders, the panel shows a bar and the time so far against an e
 render, or 25 s + 0.93 s per shape from the worker's measured runs (58 shapes 78 s, 236 shapes 244 s). It never
 shows 100% before the views are saved. Test: `node scripts/test-cloud-render-cameras.mjs`.
 
+**Moving parts and state images (1 November 2026):** a location's moving parts (`movingParts`: states, a usual state,
+changes at scene · beat · moment) can be built at a story moment: step 4's Build at poses a part linked to a
+floor-plan object (lowered = hinged at its nearest wall and laid outward with an 8° fall, plus a quay and a night
+backdrop beyond; swung open; not there). The usual state's scene is unchanged, so existing builds stay current. Styled
+in step 5, that build becomes the state's own image (`<location id>-parts-<state key>`), never the location image;
+shots at moments in that state attach it in place of the location's plate. No server change. Test:
+`node scripts/test-location-moving-parts.mjs`.
+
 #### Reviewed style drafts (local development only)
 
 The optional **Style preview** below Cloud set preview uses its own **Engine**
