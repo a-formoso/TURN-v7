@@ -22,6 +22,7 @@ function harness(){
     locVisualDefaults:()=>({renderStyle:"cinematic"}),turnLookbookBriefFor:()=>brief,
     nbPlanImageChoice:(model,res)=>({model,res}),nbGetModel:()=>"test-image",nbGetRes:()=>"2K",isGptImageModel:()=>false,
     nbGetOaiQuality:()=>"high",nbImageCostText:()=>"7",nbModelLabel:()=>"Image engine",
+    nbCostChip:(count,opts)=>({type:"span",props:{className:"nb-cost","data-model":opts.model,"data-quality":opts.quality},children:["7"]}),
     BlenderPreview:{scope:()=>scope,isCurrent:s=>s.uid===current.uid&&s.projectId===current.projectId&&s.epoch===current.epoch},
     KinolotRenderContract:{canonical:JSON.stringify,hash:async s=>Buffer.from(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s))).toString("hex")},
     KinolotCloudRender:{enabled:()=>b.location.hostname==="localhost"&&b.turnIsAdmin,buildScene:()=>clone(scene),request:async(action,body)=>{
@@ -225,7 +226,10 @@ for(const phase of ["prepare","response"]){
   select.props.onChange({target:{value:"gpt-image-2.5-sunburst"}});tree=render();
   ok(find(tree,n=>n.type==="select").props.value==="gpt-image-2.5-sunburst","Choosing Sunburst updates the panel");
   const go=find(tree,n=>n.type==="button"&&String(n.children[0]||"").startsWith("Generate style draft"));
-  ok(go&&go.children.join("")==="Generate style draft \u00b7 7 credits","The button shows the chosen engine's estimate");
+  const chip=go&&go.children.find(c=>c&&c.props&&c.props.className==="nb-cost");
+  ok(go.children[0]==="Generate style draft"&&chip&&chip.children[0]==="7"&&chip.props["data-model"]==="gpt-image-2.5-sunburst"&&chip.props["data-quality"]==="high",
+    "The button carries the same credit chip as Generate new image, priced for the chosen engine");
+  ok(!go.children.some(c=>typeof c==="string"&&/credits/.test(c)),"No 'credits' text on the button");
   ok(!find(tree,n=>n.type==="p"&&n.children.some(c=>/estimated/.test(c))),"No separate estimate line");
   ok(find(tree,n=>n.type==="select").children.every(o=>o.children.length===1&&o.children[0]==="Image engine"),"Options are just the engine names");
   await go.props.onClick();

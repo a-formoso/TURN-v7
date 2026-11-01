@@ -83,8 +83,9 @@ function LocationSetStyle({location,job,sceneHash,readOnly=false}){
     pending&&!pending.active&&!pending.hasUnsaved&&E("label",{className:"loc-style-check"},E("input",{type:"checkbox",checked:retry,disabled:readOnly||busy,onChange:e=>setRetry(e.target.checked)}),"An earlier request may still finish. I checked usage and want to start a new paid request."),
     pending?.hasUnsaved&&E("p",{className:"loc-layer-note"},"The image finished, but its save was not confirmed. Keep this page open and retry saving without generating or charging for another image."),
     E("div",{className:"loc-cloud-render-actions"},
-      E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||!(Number(choice?.credits)>0)||!sceneHash||job?.status!=="completed"||job.sceneHash!==sceneHash||!!pending?.active||!!pending?.hasUnsaved||!!pending&&!retry,onClick:generate},busy?"Working…":(draft?"Generate another style draft":"Generate style draft")
-        +(Number(choice?.credits)>0?" \u00b7 "+choice.credits+" credits":"")),
+      E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||!(Number(choice?.credits)>0)||!sceneHash||job?.status!=="completed"||job.sceneHash!==sceneHash||!!pending?.active||!!pending?.hasUnsaved||!!pending&&!retry,onClick:generate},busy?"Working…":draft?"Generate another style draft":"Generate style draft",
+        // the same credit chip as Generate new image, priced for the chosen engine
+        !busy&&Number(choice?.credits)>0&&window.nbCostChip&&window.nbCostChip(1,{model:choice.model,res:choice.imageSize,quality:choice.quality,aspect:"16:9",refs:1,ground:false})),
       pending?.hasUnsaved&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:retrySave},"Retry saving draft"),
       draft&&E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>{setChecked(false);setImagesReady({source:false,draft:false});setReview(true);}},"Review draft"),
       E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:()=>setTick(n=>n+1)},"Refresh draft")),
