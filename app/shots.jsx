@@ -601,6 +601,10 @@ async function shotGrabImage(id){
   // For downstream references, a signed remote URL is still a better source than
   // silently falling back to a cropped master-plate quadrant.
   if(!u && typeof nbRemoteImageUrl==="function"){ try{ u = await nbRemoteImageUrl(id); }catch(e){} }
+  // an expired signed link would be dropped from the render as "no image" — fetch a fresh one for the same asset
+  if(u && typeof nbSignedUrlStale==="function" && nbSignedUrlStale(u) && typeof nbRefreshImage==="function"){
+    try{ u = (await nbRefreshImage(id, u)) || u; }catch(e){}
+  }
   return u || "";
 }
 window.shotGrabImage = shotGrabImage;

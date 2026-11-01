@@ -1068,9 +1068,23 @@ async function nbCloudLoadRecord(scope,id,projectId){
   if((!r||!r.path)&&scope!==projectId)r=await one(projectId);
   return r;
 }
+/* A signed storage link carries its expiry in its token; one that has run out (or will within a minute) is
+   refreshed before it's used as a render reference (2026-11-01: an expired link made a render drop its set image). */
+function nbSignedUrlStale(u){
+  const m=String(u||"").match(/^https?:\/\/[^?]+\/object\/sign\/[^?]*\?(?:[^#]*&)?token=([^&#]+)/);
+  if(!m) return false;
+  try{
+    const part=m[1].split(".")[1]||"";
+    const claims=JSON.parse(atob(part.replace(/-/g,"+").replace(/_/g,"/")+"===".slice((part.length+3)%4)));
+    return !!(claims&&claims.exp)&&claims.exp*1000<Date.now()+60000;
+  }catch(e){ return false; }
+}
+window.nbSignedUrlStale=nbSignedUrlStale;
 async function nbLoadImage(id){
   if(_nbBackend==="cloud"){
-    if(_cloudUrlCache.get(id)) return _cloudUrlCache.get(id);
+    const cached=_cloudUrlCache.get(id);
+    if(cached && nbSignedUrlStale(cached)) return nbRefreshImage(id, cached);
+    if(cached) return cached;
     const projectAtStart=_nbProject, scopeAtStart=_scopeFor(id);
     const key=[projectAtStart,scopeAtStart,id].join("|");
     if(_nbCloudLoadPending.has(key))return _nbCloudLoadPending.get(key);
