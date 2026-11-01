@@ -36,6 +36,16 @@
     if(exists&&!iso)throw Error("The existing artwork version could not be verified. Refresh before styling.");
     return {exists,iso};
   }
+  // The draft's own image, as data: a data URL as it is, a stored image downloaded once (never regenerated).
+  async function imageData(url){
+    if(/^data:image\//i.test(String(url||"")))return url;
+    let blob;
+    try{const r=await root.fetch(url);if(!r.ok)throw Error(String(r.status));blob=await r.blob();}
+    catch(_){throw Error("The draft image could not be downloaded. Check your connection and try again.");}
+    if(!blob||!blob.size||!/^image\//i.test(blob.type||""))throw Error("The draft image could not be read. Generate another style draft.");
+    return await new Promise((resolve,reject)=>{const f=new root.FileReader();f.onload=()=>resolve(f.result);
+      f.onerror=()=>reject(Error("The draft image could not be read. Generate another style draft."));f.readAsDataURL(blob);});
+  }
   async function details(id,s){
     assertScope(s);
     const record=await root.nbLoadDetailsAsset(id,"");assertScope(s);return record;
@@ -187,9 +197,12 @@
     const outputMeta={...meta,kind:"location",mode:"final",iso:new Date().toISOString(),styleDraftIso:meta.iso,
       styleReview:{reviewedAt:new Date().toISOString(),sourceJobId:meta.sourceJobId,sceneHash:meta.sceneHash},version:(Number(target.meta?.version)||0)+1};
     delete outputMeta.approval;
-    const saved=await root.nbCommit(id,current.url,outputMeta,[{kind:"blender-style-source",label:"Reviewed Blender camera grid",url:current.source}],
+    // a saved draft comes back as a signed storage address; the location image is saved from the pixels themselves
+    const pixels=await imageData(current.url);assertScope(s);
+    if(!guard())throw Error("The location changed while its review was open.");
+    const saved=await root.nbCommit(id,pixels,outputMeta,[{kind:"blender-style-source",label:"Reviewed Blender camera grid",url:current.source}],
       "location",s.epoch,()=>!guard(),expected);
-    if(saved?.tier!=="cloud")throw Error(saved?.error||"The artwork save was not confirmed. Refresh before trying acceptance again.");
+    if(saved?.tier!=="cloud")throw Error(saved?.error||"The image save was not confirmed. Reload this page and try again.");
     assertScope(s);
     root.dispatchEvent?.(new CustomEvent("nb-gen-done",{detail:{id,url:saved.url}}));
     const recorded=await root.nbSetAssetApproval(slot(id),meta.iso,true,"cloud-set-style-accepted");

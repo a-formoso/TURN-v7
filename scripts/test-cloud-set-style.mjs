@@ -263,4 +263,24 @@ for(const phase of ["prepare","response"]){
   ok(!ui.includes("style brief changed"),"No more 'layout, cameras or style brief changed'");
   ok(/!busy&&pending\?\.hasUnsaved/.test(ui)||compiled,"The unsaved warning waits until saving has finished");
 }
+{
+  // A draft read back from storage is a signed address, not data: Use as location artwork downloads its pixels
+  // and saves those (the error "The generated image data is invalid…" came from passing the address).
+  const h=harness(),job=await h.ready(),d=await h.api().generate("room",job,h.scope);
+  const slot=h.api().slot("room");h.store.set(slot,{...h.store.get(slot),url:"https://storage.test/draft.png"});
+  const fetched=[];
+  h.b.fetch=async u=>{fetched.push(u);return {ok:true,blob:async()=>new Blob([Buffer.from("PIXELS")],{type:"image/png"})};};
+  h.b.FileReader=class{readAsDataURL(b){b.arrayBuffer().then(a=>{this.result="data:image/png;base64,"+Buffer.from(a).toString("base64");this.onload();});}};
+  const stored=await h.api().load("room",h.scope);
+  await h.api().accept("room",stored,h.scope,true);
+  ok(fetched.includes("https://storage.test/draft.png")&&h.store.get("room").url==="data:image/png;base64,"+Buffer.from("PIXELS").toString("base64"),
+    "A stored draft's pixels are downloaded and saved as the location image");
+  const h2=harness(),job2=await h2.ready(),d2=await h2.api().generate("room",job2,h2.scope);
+  const slot2=h2.api().slot("room");h2.store.set(slot2,{...h2.store.get(slot2),url:"https://storage.test/gone.png"});
+  h2.b.fetch=async()=>({ok:false,status:404});
+  await rejects(async()=>h2.api().accept("room",await h2.api().load("room",h2.scope),h2.scope,true),/could not be downloaded/);
+  ok(h2.store.get("room").url==="original-artwork","A draft that can't be downloaded leaves the location image unchanged");
+  h2.b.fetch=async()=>({ok:true,blob:async()=>new Blob(["<html>"],{type:"text/html"})});
+  await rejects(async()=>h2.api().accept("room",await h2.api().load("room",h2.scope),h2.scope,true),/could not be read/);
+}
 console.log("PASS cloud set styling: "+checks+" generation, review, persistence, race, ownership and no-retry checks");
