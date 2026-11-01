@@ -6425,6 +6425,16 @@ function App(){
   const commitBeatKeyframes=(made,assertCurrent)=>{
     assertCurrent();
     const merged=window.mergeBeatKeyframes(shotsLiveRef.current,made);
+    // drafted beats come out in their moments (owner 2026-11-01); a beat joined by hand stays joined
+    if(typeof window.beatMomentShots==="function"){
+      const stamp=Date.now().toString(36);
+      Array.from(new Set((made||[]).map(sh=>sh&&sh.sceneId))).forEach(id=>{
+        const sc=(scenesRef.current||scenes).find(x=>x.id===id);
+        const beatNs=Array.from(new Set((made||[]).filter(sh=>sh&&sh.sceneId===id).map(sh=>Number(sh.beatN))));
+        if(sc) merged.shots=window.beatMomentShots(sc,merged.shots,{drafts:draftsRef.current||drafts,
+          characters:charactersRef.current||characters,beatsMap,props,beats:beatNs,stamp}).shots;
+      });
+    }
     if(merged.archived.length) setTrash(t=>({...t,shots:[
       ...merged.archived.map(_trashStamp),
       ...(t.shots||[]).filter(sh=>!merged.archived.some(a=>a.id===sh.id))
@@ -6490,39 +6500,30 @@ function App(){
      shot keeps its ID and images and becomes moment 1; each later moment gets its own shot, chained from the moment
      before. Free — no specification or image is generated. Join puts the moment shots in Recently deleted. */
   const splitBeatIntoMoments = (scene, beatN)=>{
-    if(!scene || !canMutateSharedFilm()) return;
-    const C={drafts:draftsRef.current||drafts,characters:charactersRef.current||characters,beatsMap};
-    const moments=typeof window.shotBeatMoments==="function" ? window.shotBeatMoments(scene,beatN,C) : [];
+    if(!scene || !canMutateSharedFilm() || typeof window.beatMomentShots!=="function") return;
     const inBeat=shotsLiveRef.current.filter(x=>x.sceneId===scene.id&&Number(x.beatN)===Number(beatN));
     const primary=typeof shotPrimaryOf==="function" ? shotPrimaryOf(inBeat) : inBeat[0];
-    if(moments.length<2 || !primary || inBeat.some(x=>x.keyframeMode==="moment")){
-      if(window.appToast) window.appToast(moments.length<2 ? "This beat's screenplay is one moment; there is nothing to split." : !primary ? "Draft the beat's opening frame first." : "This beat is already split into moments.","info");
-      return;
-    }
-    const of=moments.length, base=Number(primary.order)||0, stamp=Date.now().toString(36);
-    const charMap=(C.characters||[]).reduce((m,c)=>(m[c.id]=c,m),{}), propMap=(props||[]).reduce((m,p)=>(m[p.id]=p,m),{});
-    const made=moments.slice(1).map(m=>{
-      const line=(m.dialogue||[]).find(d=>d&&d.delivery==="in-room"&&(!d.speakerId||m.openingCharacterIds.indexOf(d.speakerId)>=0));
-      const sh={ id:"shot-"+scene.id+"-"+beatN+"-moment"+m.moment.n+"-"+stamp, sceneId:scene.id, beatN:Number(beatN),
-        order:base+m.moment.n/100, keyframeMode:"moment", moment:{n:m.moment.n,of},
-        // a moment that names nobody (a ramp closing, a car arriving) reads as a wide; a person's moment as a medium
-        size:(m.namedCharacterIds||[]).length?"MS":"WS",
-        angle:"eye", move:"static", lens:"50", composition:"",
-        subjects:m.openingCharacterIds.slice(), referenceCharactersSet:true, referenceCharacterIds:m.openingCharacterIds.slice(),
-        locationId:primary.locationId||"", referenceLocationsSet:!!primary.referenceLocationsSet,
-        referenceLocationIds:Array.isArray(primary.referenceLocationIds)?primary.referenceLocationIds.slice():[],
-        locationSide:primary.locationSide, props:[], action:m.openingAction, dialogue:line?line.text:"",
-        covers:[], beatPlan:null, negativePrompt:"", specRev:1,
-        sourceScreenplayRev:m.sourceRev||"", beatScript:m.text, remoteCharacterIds:(m.remoteCharacterIds||[]).slice() };
-      if(typeof inFrameProps==="function") sh.props=inFrameProps(sh,scene,charMap,propMap);
-      // a line already voiced on the opening shot goes with the moment that speaks it (no second voicing)
-      const words=t=>String(t||"").replace(/\s+/g," ").trim().replace(/^["\u201c]|["\u201d]$/g,"");
-      if(line && primary.lineAudio && words(primary.lineAudio.text)===words(line.text)) sh.lineAudio={...primary.lineAudio};
-      sh.specHash=typeof shotSpecFingerprint==="function" ? shotSpecFingerprint(sh) : "";
-      return sh;
+    if(!primary){ if(window.appToast) window.appToast("Draft the beat's opening frame first.","info"); return; }
+    // a beat joined by hand can be split again from its card
+    const live=shotsLiveRef.current.map(x=>x.id===primary.id&&x.momentsJoined ? (({momentsJoined,...rest})=>rest)(x) : x);
+    const out=window.beatMomentShots(scene,live,{drafts:draftsRef.current||drafts,characters:charactersRef.current||characters,
+      beatsMap,props,beats:[Number(beatN)]});
+    if(!out.added){ if(window.appToast) window.appToast("This beat's screenplay is one moment, or it is already split.","info"); return; }
+    shotsLiveRef.current=out.shots; setShots(out.shots);
+    if(window.appToast) window.appToast("Beat "+beatN+" is now "+(out.added+1)+" shots, one per moment. Its opening frame shows moment 1; generate the others in order. No credits were used.","ok");
+  };
+  // every beat of the film in its moments (free); beats joined by hand stay joined
+  const splitAllBeatMoments = async ()=>{
+    if(!canMutateSharedFilm() || typeof window.beatMomentShots!=="function") return;
+    let list=shotsLiveRef.current, added=0, beatsSplit=0;
+    const stamp=Date.now().toString(36);
+    (scenesInStoryOrder(scenesRef.current||scenes)||[]).forEach(sc=>{
+      const out=window.beatMomentShots(sc,list,{drafts:draftsRef.current||drafts,characters:charactersRef.current||characters,beatsMap,props,stamp});
+      list=out.shots; added+=out.added; beatsSplit+=out.split.length;
     });
-    setShots(ss=>ss.map(x=>x.id===primary.id ? {...x,moment:{n:1,of}} : x).concat(made));
-    if(window.appToast) window.appToast("Beat "+beatN+" is now "+of+" shots, one per moment. Its opening frame shows moment 1; generate the others in order. No credits were used.","ok");
+    if(!added){ if(window.appToast) window.appToast("Every beat is already in its moments. Nothing was changed.","info"); return; }
+    shotsLiveRef.current=list; setShots(list);
+    if(window.appToast) window.appToast(beatsSplit+" beat"+(beatsSplit===1?"":"s")+" split into moments: "+added+" new shot"+(added===1?"":"s")+". No credits were used; generate their frames in order.","ok");
   };
   const joinBeatMoments = async (scene, beatN)=>{
     if(!scene || !canMutateSharedFilm()) return;
@@ -6536,8 +6537,9 @@ function App(){
     if(!ok) return;
     const ids=new Set(parts.map(x=>x.id));
     setTrash(t=>({...t,shots:[...parts.map(_trashStamp),...(t.shots||[]).filter(x=>!ids.has(x.id))]}));
+    // the opening shot remembers the join, so a later redraft doesn't split the beat again
     setShots(ss=>ss.filter(x=>!ids.has(x.id)).map(x=>x.sceneId===scene.id&&Number(x.beatN)===Number(beatN)&&x.moment
-      ? (({moment,...rest})=>rest)(x) : x));
+      ? {...(({moment,...rest})=>rest)(x),momentsJoined:true} : x));
   };
   // Derive scene keyframes. Explicit replacement archives alternatives, never media.
   // Returns a STRUCTURED OUTCOME ({status:"designed"|"fallback"|"failed", sceneId, label,
@@ -9896,7 +9898,7 @@ function App(){
             onUpdatePreset:updateStylePreset,onDeletePreset:deleteStylePreset,
             onAddStyleRefImages:addStyleRefImages,onRemoveStyleRefImage:removeStyleRefImage,
             onDraftStaging:draftLocationStaging,draftingStageId,
-            shots,beatsMap,onUpdateShot:updateShot,onAddShot:addShot,onDeleteShot:deleteShot,onSplitBeat:splitBeatCoverage,splittingBeat,onSplitMoments:splitBeatIntoMoments,onJoinMoments:joinBeatMoments,
+            shots,beatsMap,onUpdateShot:updateShot,onAddShot:addShot,onDeleteShot:deleteShot,onSplitBeat:splitBeatCoverage,splittingBeat,onSplitMoments:splitBeatIntoMoments,onJoinMoments:joinBeatMoments,onSplitAllMoments:splitAllBeatMoments,
             onRefineBeat:refineBeatFromScreenplay,refiningBeat,onRemoveMicroBeatShots:removeMicroBeatShots,onMakeSceneNeeds:makeSceneNeeds,
             onOpenStage:()=>guardedSetRoom("stage"), wardrobeIds,
             onDeleteShotReference:deleteShotReference,

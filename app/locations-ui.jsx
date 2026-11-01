@@ -211,7 +211,7 @@ function LocationMovingParts({l,scenes,drafts,onUpdate,readOnly=false}){
     finally{setBusy(false);}
   }
   const keep=()=>{const ids=new Set(pending.map(p=>p.id));save(parts.filter(p=>!ids.has(p.id)).concat(pending));setPending(null);};
-  const addPart=()=>save(parts.concat([{name:"New part",states:[{id:"closed",label:"Closed",pose:"as-built"},{id:"open",label:"Open",pose:"open"}],usual:"closed",changes:[],source:"user"}]));
+  const addPart=()=>save(parts.concat([{id:"part-"+Date.now().toString(36),name:"New part",states:[{id:"closed",label:"Closed",pose:"as-built"},{id:"open",label:"Open",pose:"open"}],usual:"closed",changes:[],source:"user"}]));
   const field=(label,input)=>E("label",{className:"loc-cam-field"},E("span",null,label),input);
   const partView=(p,i)=>E("details",{key:p.id+i,className:"loc-nested-section loc-part",open:true},
     E("summary",null,p.name+" · usually "+((p.states.find(s=>s.id===p.usual)||{}).label||"").toLowerCase()+" · "+p.changes.length+" change"+(p.changes.length===1?"":"s")),

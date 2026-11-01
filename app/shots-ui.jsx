@@ -2331,7 +2331,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
 }
 
 function ShotList({ project, scenes, characters, props, locations, shots, beatsMap,
-  onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onSplitMoments, onJoinMoments, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots,
+  onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onSplitMoments, onJoinMoments, onSplitAllMoments, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots,
   trashItems, onRestore, onPurge, lookbookStale, onReviewLookbook,
   onRemoveMicroBeatShots, onMakeSceneNeeds, readOnly=false }){
   const [view, setView] = React.useState(null);
@@ -2964,6 +2964,10 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
           _el("button",{className:"art-draftall ghost secondary",disabled:draftingAllShots||!ordered.length,onClick:handleDesignAll,
             title:"Draft one opening keyframe per beat for every scene that has no shots yet \u2014 size, angle, move and lens per beat (writing credits, one call per scene) \u2014 asks first"},
             _el(Icon.sparkles,{s:14}), draftingAllShots?"Designing\u2026":"Design all shots"),
+          onSplitAllMoments && ordered.length>0 && _el("button",{className:"art-draftall ghost secondary","data-testid":"split-all-moments",
+            disabled:draftingAllShots||!!chain||!!batchActiveId,onClick:onSplitAllMoments,
+            title:"Give every beat whose screenplay holds several moments one shot per moment (free; nothing is generated). Beats you joined by hand stay joined. New drafts are split automatically."},
+            "Split beats into moments"),
           _el("label",{className:"shot-check-each",title:"Pause a scene or film run after each new frame so you can approve it (or regenerate it) before it becomes the next shot's starting point. Off: every frame is approved automatically and the run continues."},
             _el("input",{type:"checkbox",checked:checkEach,onChange:e=>setCheckEach(e.target.checked)}),
             _el("span",null,"Check each frame")),

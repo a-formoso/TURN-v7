@@ -81,6 +81,8 @@ check(box.sceneShotsDependencyOrdered(all.slice().reverse()).map(s=>s.id).join()
 const merged=box.mergeBeatKeyframes(all,[{...primary,id:"new",composition:"Wider"}]);
 check(merged.archived.length===0&&merged.shots.filter(s=>s.keyframeMode==="moment").length===3,"Redrafting the opening keeps the beat's moment shots");
 
+{ const lane=[{...primary,moment:{n:1,of:4}},m(2),m(3),m(4)];
+check(box.shotBeatDisplayLabel(m(3),lane)==="Beat 1 · Moment 3"&&box.shotBeatDisplayLabel(lane[0],lane)==="Beat 1 · Moment 1","Shots of a split beat are named by moment, never 'Alternative'"); }
 // 5 · the Stage
 box.shotSceneContextPlan=box.shotSceneContextPlan||(()=>null);
 const ref=box.stageScreenplayReference(scene,[m(2),m(3)],{drafts,characters,beatsMap:{}});
@@ -95,8 +97,31 @@ check(/g\.shotScreenplayFor\(scene,sh,/.test(refs),"Stage references read a mome
 const ui=read("app/shots-ui.jsx"),app=read("app/app.jsx"),css=read("app/styles.css");
 check(/"Split into "\+list\.length\+" shots"/.test(ui)&&/"Join into one shot"/.test(ui)&&/function MomentShotCard/.test(ui),"A beat card offers the split, a split beat a join, and each moment its own card");
 check(/const splitBeatIntoMoments = /.test(app)&&/const joinBeatMoments = async/.test(app)&&/onSplitMoments:splitBeatIntoMoments,onJoinMoments:joinBeatMoments/.test(app),"The split and the join are wired");
-check(/if\(line && primary\.lineAudio && words\(primary\.lineAudio\.text\)===words\(line\.text\)\) sh\.lineAudio=\{\.\.\.primary\.lineAudio\};/.test(app),"A line voiced on the opening shot goes with the moment that speaks it");
+// 7 · split by default (owner 2026-11-01: "for future projects as well as anything we are doing now")
+{
+  const voiced={...primary,lineAudio:{text:"Last one, Bassi.",voiceId:"v"},momentSpecs:[{moment:2,size:"CU",angle:"high",lens:"85",composition:"Tight on the punch."},{moment:9,size:"WS"}]};
+  const others=[{id:"b2",sceneId:"final",beatN:2,keyframeMode:"beat-opening",order:1}];
+  const out=box.beatMomentShots(scene,[voiced,...others],{...opts,stamp:"t"});
+  const ids=out.shots.map(x=>x.id);
+  check(out.added===3&&out.split.join()==="1"&&ids.join()==="p,b2,shot-final-1-moment2-t,shot-final-1-moment3-t,shot-final-1-moment4-t","Every beat with several moments gets a shot per moment; a beat with one moment is left as it is");
+  const p1=out.shots[0],m2=out.shots[2],m3=out.shots[3],m4=out.shots[4];
+  check(p1.moment.n===1&&p1.moment.of===4&&!p1.momentSpecs,"The opening shot is moment 1; the drafted moment cameras are used and dropped");
+  check(m2.size==="CU"&&m2.angle==="high"&&m2.lens==="85"&&m2.composition==="Tight on the punch.","A later moment takes the camera the writing call drafted for it");
+  check(m4.size==="WS"&&m3.size==="MS","Without a drafted camera: a wide when the moment names nobody, else a medium");
+  check(m3.lineAudio&&m3.lineAudio.voiceId==="v"&&!m2.lineAudio,"A line voiced on the opening shot goes with the moment that speaks it");
+  check(box.beatMomentShots(scene,out.shots,opts).added===0,"Splitting again adds nothing");
+  const refreshed=box.beatMomentShots(scene,out.shots.map(x=>x.id==="p"?{...x,momentSpecs:[{moment:2,size:"MCU"}]}:x),opts).shots;
+  check(refreshed.find(x=>x.id===m2.id).size==="MCU"&&refreshed.find(x=>x.id===m2.id).specRev===2,"A redraft refreshes an already split beat's moment cameras");
+  check(box.beatMomentShots(scene,[{...primary,momentsJoined:true}],opts).added===0,"A beat joined by hand stays joined");
+  check(box.beatMomentShots(scene,[primary],{...opts,beats:[4]}).added===0,"Only the beats asked for are split");
+}
+check(/drafted beats come out in their moments/.test(app)&&/merged\.shots=window\.beatMomentShots\(sc,merged\.shots,/.test(app),"Drafting (Design all shots, a scene's or a beat's redraft, the Shot Designer) splits beats into their moments");
+check(/const splitAllBeatMoments = async/.test(app)&&/onSplitAllMoments:splitAllBeatMoments/.test(app)&&/"Split beats into moments"/.test(ui),"Split beats into moments converts a film drafted before");
+check(/momentsJoined:true\} : x\)\);/.test(app),"Join remembers itself, so a redraft keeps the beat whole");
+const aiSrc=read("app/ai.jsx");
+check(/MOMENTS \(each becomes its own shot; moment 1 is this row's opening keyframe\)/.test(aiSrc)&&/also return momentSpecs: one row per moment AFTER the first/.test(aiSrc),"The keyframe writing call drafts each later moment's camera");
+check(/momentSpecs: Array\.isArray\(raw\.momentSpecs\)/.test(read("app/shots.jsx")),"The drafted moment cameras survive normalizing");
 check(/setTrash\(t=>\(\{\.\.\.t,shots:\[\.\.\.parts\.map\(_trashStamp\)/.test(app),"Join moves the moment shots to Recently deleted (images kept)");
 check(/\.bc-moments\{/.test(css),"The moments line is styled");
-check(/onSplitMoments:readOnly\?null:onSplitMoments,onJoinMoments:readOnly\?null:onJoinMoments/.test(read("app/artroom.jsx")),"The Art Room passes the split and the join to the Shots tab");
+check(/onSplitMoments:readOnly\?null:onSplitMoments,onJoinMoments:readOnly\?null:onJoinMoments,onSplitAllMoments:readOnly\?null:onSplitAllMoments/.test(read("app/artroom.jsx")),"The Art Room passes the split, the join and split-all to the Shots tab");
 console.log(`PASS beat moments: ${checks} split, prompt, chain and Stage checks`);

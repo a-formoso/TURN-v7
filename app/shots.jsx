@@ -451,8 +451,10 @@ function shotBeatLabel(sh){
 function shotBeatRoleLabel(sh,beatShots){
   const list=Array.isArray(beatShots) ? beatShots : (sh ? [sh] : []);
   const primary=shotPrimaryOf(list);
-  if(!primary || shotSameIdentity(primary,sh)) return primary ? "Opening" : "";
-  const alternatives=list.filter(x=>x && !shotSameIdentity(x,primary));
+  // a split beat names its shots by moment ("Moment 2"), never "Alternative" (2026-11-01)
+  if(sh && sh.keyframeMode==="moment" && sh.moment && sh.moment.n) return "Moment "+sh.moment.n;
+  if(!primary || shotSameIdentity(primary,sh)) return primary ? (primary.moment&&primary.moment.of>1 ? "Moment 1" : "Opening") : "";
+  const alternatives=list.filter(x=>x && !shotSameIdentity(x,primary) && x.keyframeMode!=="moment");
   const index=alternatives.findIndex(x=>shotSameIdentity(x,sh));
   return "Alternative "+(index>=0 ? index+1 : 1);
 }
@@ -2215,6 +2217,87 @@ window.shotScopedStyleField=shotScopedStyleField;
  }
  window.shotMomentSource=shotMomentSource;
  window.shotBeatMomentList=shotBeatMomentList;
+
+/* EVERY BEAT IN ITS MOMENTS (owner 2026-11-01: "I like the idea of splitting the beats into moments — ensure this is
+   implemented for future projects as well as anything we are doing now"). Given a scene's shots, each beat whose
+   screenplay holds 2+ moments gets one shot per moment: the beat's opening shot (keeps its ID and images) becomes
+   moment 1, each later moment a "moment" shot after it. A beat already split only has its moment shots' camera
+   refreshed from the opening shot's drafted momentSpecs (one row per later moment, from the same writing call). A
+   beat joined by hand (momentsJoined) is left alone. Pure: returns the new full list; `added` counts new shots.
+   opts: {drafts, characters, beatsMap, props, beats:[n…] (only these), stamp} */
+const MOMENT_SIZES=new Set(["EWS","WS","FS","MWS","MS","MCU","CU","ECU","INSERT"]),
+  MOMENT_ANGLES=new Set(["eye","high","low","top","dutch","ots","pov"]),
+  MOMENT_MOVES=new Set(["static","pan","tilt","push","pull","track","handheld","crane","steadi"]);
+function shotMomentSpecOf(primary, n){
+  const row=(Array.isArray(primary&&primary.momentSpecs)?primary.momentSpecs:[]).find(r=>r&&Number(r.moment)===n);
+  if(!row) return null;
+  const txt=(v,max)=>String(v==null?"":v).replace(/\s+/g," ").trim().slice(0,max);
+  const out={};
+  if(MOMENT_SIZES.has(String(row.size||"").toUpperCase())) out.size=String(row.size).toUpperCase();
+  if(MOMENT_ANGLES.has(String(row.angle||"").toLowerCase())) out.angle=String(row.angle).toLowerCase();
+  if(MOMENT_MOVES.has(String(row.move||"").toLowerCase())) out.move=String(row.move).toLowerCase();
+  if(/^\d{2,3}$/.test(String(row.lens||""))) out.lens=String(row.lens);
+  if(txt(row.composition,240)) out.composition=txt(row.composition,240);
+  if(txt(row.purpose,160)) out.purpose=txt(row.purpose,160);
+  return out;
+}
+function beatMomentShots(scene, shots, opts){
+  opts=opts||{};
+  const list=Array.isArray(shots)?shots.slice():[];
+  if(!scene||typeof window.shotBeatMoments!=="function") return {shots:list,added:0,split:[]};
+  const mopts={drafts:opts.drafts||{},characters:opts.characters||[],beatsMap:opts.beatsMap||{}};
+  const charMap=(opts.characters||[]).reduce((m,c)=>(m[c.id]=c,m),{}), propMap=(opts.props||[]).reduce((m,p)=>(m[p.id]=p,m),{});
+  const stamp=opts.stamp||Date.now().toString(36);
+  const fp=sh=>{ sh.specHash=typeof shotSpecFingerprint==="function"?shotSpecFingerprint(sh):""; return sh; };
+  const words=t=>String(t||"").replace(/\s+/g," ").trim().replace(/^["“]|["”]$/g,"");
+  const beats=Array.from(new Set(list.filter(s=>s&&s.sceneId===scene.id&&Number(s.beatN)>0).map(s=>Number(s.beatN))))
+    .filter(n=>!Array.isArray(opts.beats)||opts.beats.indexOf(n)>=0);
+  let added=0; const split=[];
+  beats.forEach(n=>{
+    const inBeat=list.filter(s=>s&&s.sceneId===scene.id&&Number(s.beatN)===n);
+    const primary=shotPrimaryOf(inBeat);
+    if(!primary||primary.keyframeMode!=="beat-opening"||primary.momentsJoined) return;
+    let ms=[]; try{ ms=window.shotBeatMoments(scene,n,mopts); }catch(e){ ms=[]; }
+    const pi=list.indexOf(primary);
+    const existing=inBeat.filter(s=>s.keyframeMode==="moment");
+    if(ms.length<2){ if(!existing.length&&primary.momentSpecs){ const p={...primary}; delete p.momentSpecs; list[pi]=p; } return; }
+    const of=ms.length, base=Number(primary.order)||0;
+    if(existing.length){
+      // already split: refresh the camera the opening's redraft proposed for each later moment
+      existing.forEach(sh=>{
+        const spec=shotMomentSpecOf(primary,Number(sh.moment&&sh.moment.n));
+        if(!spec) return;
+        const changed=Object.keys(spec).some(k=>sh[k]!==spec[k]);
+        if(!changed) return;
+        const next=fp({...sh,...spec,specRev:(Number(sh.specRev)||1)+1,locked:false,approved:false});
+        list[list.indexOf(sh)]=next;
+      });
+    }else{
+      ms.slice(1).forEach(m=>{
+        const line=(m.dialogue||[]).find(d=>d&&d.delivery==="in-room"&&(!d.speakerId||m.openingCharacterIds.indexOf(d.speakerId)>=0));
+        const sh={ id:"shot-"+scene.id+"-"+n+"-moment"+m.moment.n+"-"+stamp, sceneId:scene.id, beatN:n,
+          order:base+m.moment.n/100, keyframeMode:"moment", moment:{n:m.moment.n,of},
+          // a moment that names nobody (a ramp closing, a car arriving) reads as a wide; a person's moment as a medium
+          size:(m.namedCharacterIds||[]).length?"MS":"WS", angle:"eye", move:"static", lens:"50", composition:"",
+          ...shotMomentSpecOf(primary,m.moment.n),
+          subjects:m.openingCharacterIds.slice(), referenceCharactersSet:true, referenceCharacterIds:m.openingCharacterIds.slice(),
+          locationId:primary.locationId||"", referenceLocationsSet:!!primary.referenceLocationsSet,
+          referenceLocationIds:Array.isArray(primary.referenceLocationIds)?primary.referenceLocationIds.slice():[],
+          locationSide:primary.locationSide, props:[], action:m.openingAction, dialogue:line?line.text:"",
+          covers:[], beatPlan:null, negativePrompt:"", specRev:1,
+          sourceScreenplayRev:m.sourceRev||"", beatScript:m.text, remoteCharacterIds:(m.remoteCharacterIds||[]).slice() };
+        if(typeof inFrameProps==="function") sh.props=inFrameProps(sh,scene,charMap,propMap);
+        // a line already voiced on the opening shot goes with the moment that speaks it (no second voicing)
+        if(line && primary.lineAudio && words(primary.lineAudio.text)===words(line.text)) sh.lineAudio={...primary.lineAudio};
+        list.push(fp(sh)); added++;
+      });
+      split.push(n);
+    }
+    const p={...list[pi],moment:{n:1,of}}; delete p.momentSpecs; list[pi]=p;
+  });
+  return {shots:list,added,split};
+}
+window.beatMomentShots=beatMomentShots;
  function shotScreenplaySlice(scene, beatN, ctx){
    const source=shotBeatSource(scene,beatN,ctx);
    if(!source||!source.hasSource) return "";
@@ -3615,6 +3698,8 @@ function normalizeShot(raw, scene, idx, locations, props, characters, beats, dra
     // another may render it, and Details must preserve both facts.
     writingProvenance: raw.writingProvenance && raw.writingProvenance.model
       ? { ...raw.writingProvenance } : undefined,
+    // the camera the writing call drafted for the beat's later moments (beatMomentShots reads it, then drops it)
+    momentSpecs: Array.isArray(raw.momentSpecs) && raw.momentSpecs.length ? raw.momentSpecs.slice(0,12) : undefined,
     // no dur: a drafted shot stays on AUTO — its length can't be predicted, only
     // budgeted (dialogue-anchored estimate via shotDur); the user pins by hand
     negativePrompt:"",
