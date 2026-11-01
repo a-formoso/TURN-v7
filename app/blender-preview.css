@@ -111,6 +111,10 @@ html[data-theme="light"] .bp-pair-code,.bp-panel{box-shadow:0 1px 2px rgba(24,25
 .loc-cloud-render{margin:18px 0;padding:16px;border:1px solid var(--line,#444);border-radius:10px}
 .loc-cloud-render-head,.loc-cloud-render-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .loc-cloud-render-head h4{margin:0}.loc-cloud-render-head small{opacity:.65}
+.loc-cloud-progress{margin-top:10px}.loc-cloud-progress .loc-layer-note{margin:6px 0 0}
+.loc-cloud-progress-bar{height:6px;border-radius:3px;background:var(--bg-3,#ddd);overflow:hidden}
+.loc-cloud-progress-bar span{display:block;height:100%;background:var(--accent,oklch(0.76 0.145 62));transition:width 1s linear}
+@media (prefers-reduced-motion:reduce){.loc-cloud-progress-bar span{transition:none}}
 .loc-cloud-render-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}
 .loc-cloud-render-grid figure{margin:0;min-width:0}.loc-cloud-render-grid img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#111}
 .loc-cloud-render-grid figcaption{font-size:11px;opacity:.7;padding:5px 0}

@@ -19,6 +19,42 @@
   function renderSpaces(plan){
     return (plan.coordinates?.spaces||[]).map(s=>({...s,openings:(s.openings||[]).map(o=>root.locationOpeningHeights(o,s,plan))}));
   }
+  // An object's centre height in the preview, read through the floor plan's height conventions.
+  function anchorCentreZ(anchor,sp,plan){
+    const h=anchor.size[2];
+    if(!finite(anchor.z))return {z:sp.floorZ+h/2,missing:true};
+    if(root.locationAnchorHeightBasis(anchor,plan)!=="base")return {z:anchor.z};
+    // An older plan's base height: the object stands on it, and never rises through its room's ceiling.
+    let z=anchor.z+h/2;
+    if(!sp.openSky&&finite(sp.ceilingH))z=Math.max(sp.floorZ+h/2,Math.min(z,sp.floorZ+sp.ceilingH-h/2));
+    return {z,base:true};
+  }
+  // Each camera must stand inside its own room, clear of the walls (0.15 m thick, centred on the footprint edge),
+  // between floor and ceiling, and outside every object, or the frame shows the inside of a wall or a box.
+  const CAMERA_WALL_CLEARANCE=0.25;
+  function cameraIssues(location,list,plan,spaces,family,owner){
+    const sp=spaces.find(s=>s.id===location.id);if(!sp||!(sp.footprint||[]).length)return [];
+    let poly;try{poly=C().polygon(sp.footprint);}catch(_){return [];}
+    const room=sp.name||location.name||"this room",issues=[];
+    const inside=(x,y)=>{let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];
+      if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])c=!c;}return c;};
+    const wall=(x,y)=>Math.min(...poly.map((a,i)=>{const b=poly[(i+1)%poly.length],dx=b[0]-a[0],dy=b[1]-a[1];
+      const t=Math.max(0,Math.min(1,((x-a[0])*dx+(y-a[1])*dy)/(dx*dx+dy*dy)));return Math.hypot(x-a[0]-t*dx,y-a[1]-t*dy);}));
+    const objects=plan.anchors.filter(a=>a.xy&&a.size&&(root.locationAnchorSpaceOf(a,family)||owner).id===sp.id&&!isOpening(a,sp));
+    for(const p of root.locationPanelPoses(location,list)){
+      const pos=p.pose.position;if(!pos)continue;
+      const name=(p.label||p.key)+" camera",[x,y,z]=pos;
+      if(!inside(x,y)){issues.push("The "+name+" stands outside "+room+". Move it inside the room under Plate cameras.");continue;}
+      if(wall(x,y)<CAMERA_WALL_CLEARANCE)issues.push("The "+name+" is within "+Math.round(CAMERA_WALL_CLEARANCE*100)+" cm of a wall of "+room+". Move it further into the room.");
+      if(z<sp.floorZ+0.2||(!sp.openSky&&finite(sp.ceilingH)&&z>sp.floorZ+sp.ceilingH-0.1))
+        issues.push("The "+name+" is not between the floor and the ceiling of "+room+". Check its height.");
+      const hit=objects.find(a=>{const r=-(a.facing||0)*Math.PI/180,dx=x-a.xy[0],dy=y-a.xy[1];
+        const u=dx*Math.cos(r)+dy*Math.sin(r),v=-dx*Math.sin(r)+dy*Math.cos(r),cz=anchorCentreZ(a,sp,plan).z;
+        return Math.abs(u)<a.size[0]/2&&Math.abs(v)<a.size[1]/2&&Math.abs(z-cz)<a.size[2]/2;});
+      if(hit)issues.push("The "+name+" stands inside "+tidy(hit.name,80)+". Move it clear of the object.");
+    }
+    return issues;
+  }
   function inputIssues(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
     const state=root.locationSpatialPlanState(location,list);
@@ -54,6 +90,7 @@
     }
     if(spaces.filter(s=>!s.openSky).length>16)issues.push("This preview supports up to sixteen spaces.");
     for(const p of root.locationPanelPoses(location,list))if(!p.pose.position)issues.push("Set all four camera positions in the floor plan.");
+    issues.push(...cameraIssues(location,list,plan,spaces,family,owner));
     return Array.from(new Set(issues));
   }
   function buildScene(location,list){
@@ -111,14 +148,9 @@
         return;
       }
       if(!anchor.xy||!anchor.size)throw new Error("Set the floor plan position and width, depth and height for "+(anchor.name||"each fixed object")+".");
-      const h=anchor.size[2];let z=sp.floorZ+h/2;
-      if(!finite(anchor.z))notes.push(tidy(anchor.name,80)+" has no saved centre height; it stands on its room's floor in this preview.");
-      else if(root.locationAnchorHeightBasis(anchor,plan)==="base"){
-        // An older plan's base height: the object stands on it, and never rises through its room's ceiling.
-        z=anchor.z+h/2;
-        if(!sp.openSky&&finite(sp.ceilingH))z=Math.max(sp.floorZ+h/2,Math.min(z,sp.floorZ+sp.ceilingH-h/2));
-        baseNote=true;
-      }else z=anchor.z;
+      const {z,missing,base}=anchorCentreZ(anchor,sp,plan);
+      if(missing)notes.push(tidy(anchor.name,80)+" has no saved centre height; it stands on its room's floor in this preview.");
+      if(base)baseNote=true;
       add("anchor-"+i,anchor.name,[anchor.xy[0],anchor.xy[1],z],anchor.size,[0,0,-(anchor.facing||0)*Math.PI/180],
         {anchorId:anchor.id,material:"dressing",basis:anchor.sizeBasis||"design"});
     });
@@ -177,5 +209,11 @@
     try{root.localStorage.setItem(key,JSON.stringify(value));}catch(_){}
     return requestId;
   }
-  root.KinolotCloudRender={enabled,inputIssues,buildScene,request,requestIdentity};
+  // Render time from the pilot worker's measured runs (2 CPU cores, 640 x 360, four cameras): 58 shapes took 78 s and
+  // 236 shapes took 244 s. A location's own last render, when known, is the better guess.
+  function estimateSeconds(objects,lastSeconds){
+    if(finite(lastSeconds)&&lastSeconds>0)return Math.round(lastSeconds);
+    return Math.max(60,Math.round(25+0.93*(Number(objects)||0)));
+  }
+  root.KinolotCloudRender={enabled,inputIssues,buildScene,request,requestIdentity,estimateSeconds};
 })(typeof window!=="undefined"?window:globalThis);

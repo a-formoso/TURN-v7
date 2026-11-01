@@ -221,6 +221,13 @@ hand-corrected plan builds exactly as before. Editing an older object's Height o
 The function's CORS now answers only the app's hosts and local development; that change reaches the deployed
 `blender-render` only with a redeploy, which needs the owner's approval. Test: `node scripts/test-cloud-render-heights.mjs`.
 
+**Camera check and progress (1 November 2026):** before a set is built, each of the location's four cameras must
+stand inside its room, at least 25 cm from the footprint's edges (walls are 0.15 m thick on that line), between
+floor and ceiling, and outside every object; otherwise Review render inputs names the camera and the fix. While a
+request waits or renders, the panel shows a bar and the time so far against an estimate: this location's last
+render, or 25 s + 0.93 s per shape from the worker's measured runs (58 shapes 78 s, 236 shapes 244 s). It never
+shows 100% before the views are saved. Test: `node scripts/test-cloud-render-cameras.mjs`.
+
 #### Reviewed style drafts (local development only)
 
 The optional **Style preview** below Cloud set preview uses its own **Engine**
