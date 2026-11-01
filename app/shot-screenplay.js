@@ -517,7 +517,112 @@
     for(let i=0;i<str.length;i++){ h=((h<<5)-h+str.charCodeAt(i))|0; }
     return draft.blocks.length+":"+(h>>>0).toString(36);
   };
+  /* A BEAT'S MOMENTS (2026-11-01, owner: "Headlights crawl up the ramp into the hold" never reached the frame). One
+     opening keyframe shows a beat's first instant; a beat whose screenplay holds several separate events can be split
+     into one shot per moment. A moment starts at an action paragraph and takes the dialogue after it. A paragraph
+     that carries on the one before stays in its moment: one that starts with a pronoun ("He waves it through"), with
+     a sound in capitals ("CLICK. A dented white Panda."), or that is two words or fewer ("Stops."). Pure: the same
+     screenplay always gives the same moments. */
+  const CONTINUES=/^(?:he|she|they|his|her|their|him|them)\b/i, SOUND_CUE=/^[A-Z][A-Z'-]+[.!]/;
+  function momentContinues(text){
+    const t=clean(text);
+    return CONTINUES.test(t) || SOUND_CUE.test(t) || t.split(/\s+/).filter(Boolean).length<=2;
+  }
+  function shotBeatMoments(scene, beatN, options){
+    const opts=arguments.length<3 || options===undefined ? (root.turnContinuity||{}) : (options||{});
+    const source=shotBeatScreenplay(scene,beatN,opts);
+    if(!source || !source.hasSource) return [];
+    const chars=charsArray(opts.characters);
+    const moments=[];
+    let cur=null;
+    const open=()=>{ cur={n:moments.length+1,blocks:[]}; moments.push(cur); return cur; };
+    (source.blocks||[]).forEach(b=>{
+      const type=String(b&&b.type||"").toLowerCase(), t=clean(blockText(b));
+      if(!t || type==="scene") return;
+      if(type==="action" || type==="trans"){
+        if(!cur || !momentContinues(t)) open();
+      }else if(!cur) open();
+      cur.blocks.push(b);
+    });
+    if(moments.length<2) return moments.map(m=>momentView(m,1,source,chars,[]));
+    let present=[];
+    return moments.map(m=>{
+      const v=momentView(m,moments.length,source,chars,present);
+      present=uniq(present.concat(v.physicalCharacterIds));
+      return v;
+    });
+  }
+  // One moment in the shape shotBeatScreenplay returns, restricted to the moment's own blocks and lines.
+  function momentView(m, of, source, chars, present){
+    const idx=new Set(m.blocks.map(b=>b.evidence&&b.evidence.blockIndex));
+    const firstAction=m.blocks.find(b=>/^(action|trans)$/i.test(String(b.type||"")));
+    const dialogue=(source.dialogue||[]).filter(d=>idx.has(d.evidence&&d.evidence.blockIndex));
+    const remote=source.remoteCharacterIds||[];
+    const physical=[];
+    m.blocks.forEach(b=>{
+      if(/^(action|trans)$/i.test(String(b.type||""))) classifyAction(blockText(b),chars).physical.forEach(id=>add(physical,id));
+    });
+    dialogue.forEach(d=>{ if(d.speakerId && d.delivery==="in-room") add(physical,d.speakerId); });
+    const inFrame=m.n===1 ? (source.openingCharacterIds||[]).slice()
+      // a moment that names nobody ("The ramp GROANS up…") keeps the people already there
+      : (physical.length ? physical : (source.openingCharacterIds||[]).concat(present||[]));
+    const openingAction=firstAction ? (m.n===1 ? source.openingAction : clean(blockText(firstAction))) : "";
+    return {
+      hasSource:true, moment:{n:m.n,of},
+      blocks:m.blocks,
+      text:m.blocks.map(blockText).join("\n"),
+      openingAction:openingAction||"",
+      openingCharacterIds:uniq(inFrame).filter(id=>remote.indexOf(id)<0),
+      physicalCharacterIds:uniq(physical.length?physical:inFrame).filter(id=>remote.indexOf(id)<0),
+      namedCharacterIds:physical.filter(id=>remote.indexOf(id)<0),
+      remoteCharacterIds:remote.slice(),
+      mentionedCharacterIds:(source.mentionedCharacterIds||[]).slice(),
+      sourceRev:source.sourceRev, sceneHeading:source.sceneHeading,
+      dialogue
+    };
+  }
+  /* The screenplay a SHOT shows: its moment's when the beat was split, else the whole beat. A beat-opening shot of a
+     split beat (moment 1) shows moment 1 only — its Stage clip performs that moment, not the whole beat. */
+  function shotMomentNumber(sh){
+    const n=Number(sh&&sh.moment&&sh.moment.n);
+    return Number.isFinite(n)&&n>0 ? n : 0;
+  }
+  function shotScreenplayFor(scene, sh, options){
+    const n=shotMomentNumber(sh);
+    const beatN=sh&&sh.beatN;
+    if(!n) return arguments.length<3 ? shotBeatScreenplay(scene,beatN) : shotBeatScreenplay(scene,beatN,options);
+    const list=arguments.length<3 ? shotBeatMoments(scene,beatN) : shotBeatMoments(scene,beatN,options);
+    return list.find(m=>m.moment.n===n) || null;
+  }
+
+  /* What a clip performs of one beat: the whole beat, or — when its shots are moments of a split beat — only those
+     moments, in order (a Stage clip holding moments 2 and 3 performs those two, not the headlights of moment 1). */
+  function shotScreenplayForShots(scene, shots, options){
+    const list=(shots||[]).filter(Boolean);
+    const first=list[0];
+    const read=sh=>arguments.length<3 ? shotScreenplayFor(scene,sh) : shotScreenplayFor(scene,sh,options);
+    if(!first || !list.some(sh=>shotMomentNumber(sh))) return first ? read({beatN:first.beatN}) : null;
+    if(!list.every(sh=>shotMomentNumber(sh))) return read({beatN:first.beatN});
+    const seen=new Set();
+    const parts=list.slice().sort((a,b)=>shotMomentNumber(a)-shotMomentNumber(b))
+      .filter(sh=>!seen.has(shotMomentNumber(sh)) && seen.add(shotMomentNumber(sh))).map(read).filter(p=>p&&p.hasSource);
+    if(!parts.length) return null;
+    const head=parts[0], tail=parts[parts.length-1];
+    return {...head,
+      moment:{n:head.moment.n,to:tail.moment.n,of:head.moment.of},
+      blocks:parts.flatMap(p=>p.blocks), text:parts.map(p=>p.text).join("\n"),
+      physicalCharacterIds:uniq(parts.flatMap(p=>p.physicalCharacterIds)),
+      dialogue:parts.flatMap(p=>p.dialogue)};
+  }
+  // an opening keyframe: a beat's opening, or a moment's of a split beat
+  function shotIsOpeningFrame(sh){ return !!sh && (sh.keyframeMode==="beat-opening" || sh.keyframeMode==="moment"); }
+
   root.shotBeatScreenplay=shotBeatScreenplay;
+  root.shotScreenplayForShots=shotScreenplayForShots;
+  root.shotIsOpeningFrame=shotIsOpeningFrame;
+  root.shotBeatMoments=shotBeatMoments;
+  root.shotMomentNumber=shotMomentNumber;
+  root.shotScreenplayFor=shotScreenplayFor;
   root.shotScreenplayNamesInText=namesInText;
   root.shotScreenplayDelivery=deliveryFor;
 })(typeof window!=="undefined" ? window : globalThis);

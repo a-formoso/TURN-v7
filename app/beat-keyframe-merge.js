@@ -62,8 +62,10 @@
       }
       updates.push(merged);
     });
-    const archived=old.filter(sh=>touched.has(key(sh))&&!used.has(sh.id));
-    const shots=old.filter(sh=>!touched.has(key(sh))).concat(updates);
+    // a beat split into moments keeps its moment shots: a redraft of the opening is not a join (2026-11-01)
+    const moment=sh=>sh&&sh.keyframeMode==="moment";
+    const archived=old.filter(sh=>touched.has(key(sh))&&!used.has(sh.id)&&!moment(sh));
+    const shots=old.filter(sh=>!touched.has(key(sh))||moment(sh)).concat(updates);
     return {shots,archived,updated:updates};
   }
   root.mergeBeatKeyframes=mergeBeatKeyframes;

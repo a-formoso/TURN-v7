@@ -86,7 +86,17 @@
     const fullText = formatSceneBlocks(scene,blocks);
     const exactText = blocks.filter(meaningful).map(b=>String(b.text)).join("\n");
     const targetBeat = sh && sh.beatN != null && sh.beatN !== "" ? Number(sh.beatN) : null;
-    const targetBlocks = blocks.filter(b=>targetBeat != null && beatOf(b)===targetBeat);
+    let targetBlocks = blocks.filter(b=>targetBeat != null && beatOf(b)===targetBeat);
+    // a shot of a split beat targets its own moment (2026-11-01)
+    const momentN = typeof root.shotMomentNumber==="function" ? root.shotMomentNumber(sh) : 0;
+    if(momentN && typeof root.shotScreenplayFor==="function"){
+      let own=null;
+      try{ own=root.shotScreenplayFor(scene,sh,{drafts:{[scene.id]:draft},characters:[],beatsMap:{}}); }catch(e){ own=null; }
+      if(own && own.hasSource){
+        const idx=new Set((own.blocks||[]).map(b=>b.evidence&&b.evidence.blockIndex));
+        targetBlocks = blocks.filter((b,i)=>idx.has(i));
+      }
+    }
     const targetText = formatSceneBlocks(scene,targetBlocks);
     const sceneSourceRev = hash({
       sceneId:scene.id || "", sceneNo:scene.no == null ? "" : scene.no,
@@ -95,7 +105,7 @@
     const filmKey = filmKeyOf(ctx,scene);
     const filmEpoch = epochOf(ctx);
     const refId = "screenplay-context:"+filmKey+":"+String(scene.id||"scene")+":"+sceneSourceRev
-      +":beat-"+(targetBeat == null ? "none" : targetBeat)
+      +":beat-"+(targetBeat == null ? "none" : targetBeat)+(momentN ? ":moment-"+momentN : "")
       +":epoch-"+(filmEpoch == null ? "none" : filmEpoch);
     const callerDisabled = options.images === false || options.includeImages === false
       || ctx.sceneContextImages === false || ctx.screenplayContextImages === false

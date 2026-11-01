@@ -1779,6 +1779,71 @@ function locationKeptOnRedraftText(kept){
   return "Kept from the saved floor plan: "+[sp.length?(sp.length===1?"the room ":"the rooms ")+sp.join(", "):"",
     cams.length?cams.length+" camera"+(cams.length===1?"":"s")+" you or a fix placed":""].filter(Boolean).join(" and ")+".";
 }
+/* MOVING PARTS (owner 2026-11-01 — "Headlights crawl up the ramp into the hold" came out with the ramp shut): a part of
+   the set that the screenplay moves — a ferry's stern ramp, a shutter, a drawbridge — has named states, a usual state
+   (the one the location's text, plate and built set show) and changes at a moment of the story (scene, beat, moment of
+   the beat). A change marked `during` happens inside that moment: its opening frame still shows the state before.
+   Shots state the part when it differs from the usual one; the cloud set can be built in any moment's state. */
+const LOC_PART_POSES=["as-built","lowered","open","hidden"];
+function normalizeLocationMovingParts(value){
+  const clean=v=>String(v==null?"":v).replace(/\s+/g," ").trim();
+  const slug=v=>clean(v).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,40);
+  return (Array.isArray(value)?value:[]).slice(0,8).map(p=>{
+    const states=(Array.isArray(p&&p.states)?p.states:[]).slice(0,4).map(s=>({id:slug(s&&(s.id||s.label)),label:clean(s&&(s.label||s.id)).slice(0,40),
+      look:clean(s&&s.look).slice(0,300),pose:LOC_PART_POSES.includes(s&&s.pose)?s.pose:"as-built"})).filter(s=>s.id);
+    if(!clean(p&&p.name)||states.length<2)return null;
+    const ids=states.map(s=>s.id),usual=ids.includes(slug(p.usual))?slug(p.usual):ids[0];
+    const changes=(Array.isArray(p.changes)?p.changes:[]).map(c=>({sceneId:clean(c&&c.sceneId),beatN:Math.max(1,Math.round(Number(c&&c.beatN))||1),
+      moment:Math.max(1,Math.round(Number(c&&c.moment))||1),state:slug(c&&c.state),during:!!(c&&c.during),evidence:clean(c&&c.evidence).slice(0,300)}))
+      .filter(c=>c.sceneId&&ids.includes(c.state)).slice(0,40);
+    return {id:slug(p.id||p.name),name:clean(p.name).slice(0,60),anchorId:clean(p.anchorId),states,usual,changes,
+      ...(p.source==="user"||p.source==="read"?{source:p.source}:{})};
+  }).filter(Boolean);
+}
+function _locStoryIndex(sceneId,scenes){
+  const list=(scenes||((window.turnContinuity||{}).scenes)||[]).slice().sort((a,b)=>(Number(a&&a.no)||9999)-(Number(b&&b.no)||9999));
+  const i=list.findIndex(s=>s&&s.id===sceneId);return i<0?999999:i;
+}
+// [scene, beat, moment] in story order; -1, 0 or 1
+function _locMomentCompare(a,b,scenes){
+  const x=[_locStoryIndex(a.sceneId,scenes),a.beatN,a.moment],y=[_locStoryIndex(b.sceneId,scenes),b.beatN,b.moment];
+  for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]<y[i]?-1:1;
+  return 0;
+}
+/* Each moving part's state at a frame's opening instant: the latest change before it (a change at this very moment
+   counts unless it happens during the moment, which is reported as `during`). */
+function locationMovingPartsAt(l,at,scenes){
+  const parts=normalizeLocationMovingParts(l&&l.movingParts);
+  if(!parts.length||!at||!at.sceneId)return [];
+  const target={sceneId:at.sceneId,beatN:Number(at.beatN)||1,moment:Number(at.moment)||1};
+  return parts.map(p=>{
+    let state=p.usual,during=null;
+    p.changes.slice().sort((a,b)=>_locMomentCompare(a,b,scenes)).forEach(c=>{
+      const cmp=_locMomentCompare(c,target,scenes);
+      if(cmp<0||(cmp===0&&!c.during))state=c.state;
+      else if(cmp===0&&c.during)during=c.state;
+    });
+    const of=id=>p.states.find(s=>s.id===id);
+    return {id:p.id,name:p.name,anchorId:p.anchorId,state:of(state),usual:of(p.usual),differs:state!==p.usual,
+      during:during&&during!==state?of(during):null};
+  });
+}
+// The binding line a shot frame carries, for the parts not in their usual state or moving in this moment.
+function locationMovingPartsClause(states){
+  const bits=(states||[]).filter(s=>s&&s.state&&(s.differs||s.during)).map(s=>{
+    const now=s.name+" — "+s.state.label.toLowerCase()+(s.state.look?": "+s.state.look.replace(/\.$/,""):"");
+    return s.during ? now+" at this instant; it starts to move to "+s.during.label.toLowerCase()+" during this shot, so show it "+s.state.label.toLowerCase()+" here" : now;
+  });
+  return bits.length ? "MOVING PARTS AT THIS INSTANT (binding — where the location description or the set reference shows them otherwise, follow this): "+bits.join("; ") : "";
+}
+// A staging cell that describes a moving part in another state is replaced by the part in its current state.
+function locationMovingPartCell(text,states){
+  const t=String(text||"");if(!t)return t;
+  const toks=n=>String(n||"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").split(/\s+/).filter(w=>w.length>=3&&!/^(the|and|with)$/.test(w));
+  const low=t.toLowerCase();
+  const hit=(states||[]).find(s=>s&&s.state&&s.differs&&toks(s.name).length&&toks(s.name).every(w=>low.indexOf(w)>=0));
+  return hit ? hit.name+" — "+hit.state.label.toLowerCase()+(hit.state.look?": "+hit.state.look.replace(/\.$/,""):"") : t;
+}
 function locationLoweredCamerasText(lowered){
   const xs = Array.isArray(lowered) ? lowered.filter(x=>x && LOC_PANEL_INFO[x.panel]) : [];
   if(!xs.length) return "";

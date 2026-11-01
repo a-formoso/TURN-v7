@@ -1904,7 +1904,8 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
    available for migration/test dependencies, while this is the live one-card model. */
 function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
   onAddShot, onUpdate, onDelete, onView, onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone,
-  batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat, draftingBlocked, readOnly=false }){
+  batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat, draftingBlocked, readOnly=false,
+  momentShots=[], onSplitMoments, onJoinMoments }){
   const continuity=window.turnContinuity||{};
   const source=typeof window.shotBeatScreenplay==="function"
     ? window.shotBeatScreenplay(scene,L.n,{drafts:ctx.drafts||continuity.drafts||{},characters,beatsMap:bm}) : null;
@@ -1951,6 +1952,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
       L.shots.some(x=>x&&x.beatRemoved) && _el("span",{className:"beat-lane-gone",title:"These shots belonged to a beat that was deleted in the Beats tab \u2014 they now sit with the beat before it. Restore the beat (Undo in the Beats tab) to give them back, or redesign or move them."},Icon.alert&&_el(Icon.alert,{s:10}),"From a deleted beat"),
       !displayed&&_el("span",{className:"beat-opening-chip"},"Not drafted")),
     stale&&_el("div",{className:"bc-stale"},"Screenplay changed since this opening keyframe was drafted. Review Scripted, then use Draft specification before regenerating. Your existing image is retained."),
+    beatMomentsLine({L,scene,ctx,characters,bm,primary,momentShots,onSplitMoments,onJoinMoments,busy:!!renderBusy||!!draftingBlocked,readOnly}),
   );
   // Older alternatives keep their own IDs, images and generator state. Access
   // belongs in the existing card menu rather than a permanent Frame selector.
@@ -1976,8 +1978,53 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
           refineControl)));
 }
 
+/* A BEAT'S MOMENTS (owner 2026-11-01): one opening frame shows only a beat's first moment. When the screenplay holds
+   more, the card says so and offers one shot per moment (free; nothing is generated). A split beat says which
+   moment its opening frame is and can be joined again. */
+function beatMomentsLine({L,scene,ctx,characters,bm,primary,momentShots,onSplitMoments,onJoinMoments,busy,readOnly}){
+  const list=typeof window.shotBeatMoments==="function"
+    ? window.shotBeatMoments(scene,L.n,{drafts:ctx.drafts||(window.turnContinuity||{}).drafts||{},characters,beatsMap:bm}) : [];
+  const split=(momentShots||[]).length>0;
+  if(!split && list.length<2) return null;
+  const quote=t=>{ const x=String(t||"").replace(/\s+/g," ").trim().replace(/\.$/,"");
+    return "\u201c"+x.slice(0,90)+(x.length>90?"\u2026":"")+"\u201d"; };
+  if(split){
+    const of=Number(primary&&primary.moment&&primary.moment.of)||momentShots.length+1;
+    return _el("div",{className:"bc-moments","data-testid":"beat-moments"},
+      _el("span",null,"Moment 1 of "+of+": this frame shows "+quote(list[0]&&list[0].openingAction)+"."),
+      list.length&&list.length!==of&&_el("span",{className:"bc-moments-changed"}," The screenplay changed: this beat now has "+list.length+" moments. Join and split again to match."),
+      onJoinMoments&&!readOnly&&_el("button",{type:"button",className:"beat-lane-btn ghost",disabled:busy,
+        title:"Show this beat as one opening frame again. The moment shots move to Recently deleted; images are kept.",
+        onClick:()=>onJoinMoments(scene,L.n)},"Join into one shot"));
+  }
+  return _el("div",{className:"bc-moments","data-testid":"beat-moments"},
+    _el("span",null,"This beat has "+list.length+" moments in the screenplay. One frame shows only the first: "+quote(list[0].openingAction)+"."),
+    onSplitMoments&&!readOnly&&_el("button",{type:"button",className:"beat-lane-btn",disabled:busy||!primary,
+      title:primary?"Give each moment its own shot. Free: no description or image is generated.":"Draft the beat's opening frame first.",
+      onClick:()=>onSplitMoments(scene,L.n)},"Split into "+list.length+" shots"));
+}
+function MomentShotCard({ sh, L, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead, onUpdate, onDelete, onView,
+  onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, readOnly=false }){
+  const source=typeof window.shotMomentSource==="function" ? window.shotMomentSource(scene,sh,ctx,characters) : null;
+  const n=Number(sh.moment&&sh.moment.n)||0, of=Number(sh.moment&&sh.moment.of)||0;
+  const label="Moment "+n+" of "+of;
+  const beatContext=_el("div",{className:"shot-beat-context-head"},
+    _el("span",{className:"beat-lane-no"},"Beat "+L.n+" \u00b7 "+label));
+  const scriptedContent=_el("details",{className:"shot-beat-script bc-scripted"},
+    _el("summary",null,_el("span",{className:"shot-beat-script-lab"},"Scripted")),
+    source&&source.hasSource ? _el("div",{className:"bc-screenplay-copy"},source.text)
+      : _el("div",{className:"bc-source-empty"},"This moment is no longer in the beat's screenplay. Join the beat and split it again."));
+  const prevShot=(typeof seedShotOf==="function")?seedShotOf(sh,ordered):null;
+  const shotIndex=ordered.findIndex(x=>x.id===sh.id);
+  return _el(ShotCard,{key:sh.id,sh,scene,ctx,characters,propsAvail,beatText:(source&&source.openingAction)||sh.action,
+    sceneShots:ordered,plan:null,prevShot,laterShots:(shotIndex>=0?ordered.slice(shotIndex+1):[]),
+    isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,onUpdate,onDelete,onView,onDeleteShotReference,
+    batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
+    subLabel:label,beatContext,scriptedContent,readOnly});
+}
+
 function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, pager, onUpdate, onDelete, onView,
-  onDeleteShotReference, onAddShot, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftScene, draftingScene, draftingBlocked, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
+  onDeleteShotReference, onAddShot, onSplitBeat, splittingBeat, onSplitMoments, onJoinMoments, onRefineBeat, refiningBeat, onDraftScene, draftingScene, draftingBlocked, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
   onRenderScene, renderBusy, queueMode, onStopChain, scenePlan, onMakeSceneNeeds, readOnly=false }){
   const loc = ctx.location;
   // WHAT THIS SCENE NEEDS (2026-10-03, owner — Shots review): the reference images its frames
@@ -2264,17 +2311,27 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
       return _el(React.Fragment,null,
         _el("div",{key:"beat-grid",className:"beat-grid-wrap"+(draftingScene?" drafting":"")},
           _el("div",{className:"beat-card-grid"},
-            lanes.map((L,Li)=> _el(OpeningBeatCard,{key:"bc"+(L.canonical?"c":"o")+L.n, L, lanesLen:lanes.length, bm, scene, ctx, characters, propsAvail,
+            lanes.map((L,Li)=>{
+              // a split beat: its moment shots get cards of their own after the opening card
+              const momentShots=L.shots.filter(sh=>sh.keyframeMode==="moment")
+                .sort((a,b)=>Number(a.moment&&a.moment.n)-Number(b.moment&&b.moment.n));
+              const Lopen=momentShots.length ? {...L,shots:L.shots.filter(sh=>sh.keyframeMode!=="moment")} : L;
+              return _el(React.Fragment,{key:"bc"+(L.canonical?"c":"o")+L.n},
+                _el(OpeningBeatCard,{L:Lopen, lanesLen:lanes.length, bm, scene, ctx, characters, propsAvail,
               ordered, firstId, toggleHead, onAddShot, onUpdate, onDelete, onView, onDeleteShotReference,
               onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, openShotId, setOpenShotId,
               sceneStart:(!_sceneRendered && Li===0), onRenderScene, renderBusy, nextShotId:_nextShotId,
               onRefineBeat,refiningBeat:refiningBeat===scene.id+"#"+L.n,
-               draftingBlocked:!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat,readOnly })))));
+               draftingBlocked:!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat,readOnly,
+               momentShots, onSplitMoments, onJoinMoments }),
+                momentShots.map(sh=>_el(MomentShotCard,{key:sh.id, sh, L, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
+                  onUpdate, onDelete, onView, onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, readOnly})));
+            }))));
     })());
 }
 
 function ShotList({ project, scenes, characters, props, locations, shots, beatsMap,
-  onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots,
+  onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onSplitMoments, onJoinMoments, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots,
   trashItems, onRestore, onPurge, lookbookStale, onReviewLookbook,
   onRemoveMicroBeatShots, onMakeSceneNeeds, readOnly=false }){
   const [view, setView] = React.useState(null);
@@ -2952,7 +3009,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         onPrev:()=>setPIdx(i=>Math.max(0,i-1)), onNext:()=>setPIdx(i=>Math.min(scenesWithShots.length-1,i+1)) },
       ctx:ctxFor(scene),characters:characters||[],beatsMap,propsAvail:(typeof propsForScene==="function")?propsForScene(props,scene.id):[],
       onUpdate:onUpdateShot,onDelete:onDeleteShot,onDeleteShotReference:deleteShotReferenceHandler,onView:(url,e)=>setView({url,character:e}),
-      onAddShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===scene.id,
+      onAddShot,onSplitBeat,splittingBeat,onSplitMoments,onJoinMoments,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===scene.id,
       draftingBlocked:!!readOnly||!!draftingAllShots||!!draftingSceneShots,
       batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,
       onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,scenePlan:scenePlanFor(scene),
@@ -2965,7 +3022,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         ctx:ctxFor(runnerScene),characters:characters||[],beatsMap,
         propsAvail:(typeof propsForScene==="function")?propsForScene(props,runnerScene.id):[],
         onUpdate:onUpdateShot,onDelete:onDeleteShot,onDeleteShotReference:deleteShotReferenceHandler,onView:(url,e)=>setView({url,character:e}),
-        onAddShot,onSplitBeat,splittingBeat,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===runnerScene.id,
+        onAddShot,onSplitBeat,splittingBeat,onSplitMoments,onJoinMoments,onRefineBeat,refiningBeat,onDraftScene:onDraftSceneShots,draftingScene:draftingSceneShots===runnerScene.id,
         draftingBlocked:!!readOnly||!!draftingAllShots||!!draftingSceneShots,
         batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,
          onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,scenePlan:scenePlanFor(runnerScene),open:true,onToggle:()=>{},readOnly})));

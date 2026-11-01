@@ -12,12 +12,15 @@
     for(let i=0;i<s.length;i++)h=Math.imul(h^s.charCodeAt(i),16777619);
     return (h>>>0).toString(36);
   };
-  const beatOpening=sh=>!!(sh&&sh.keyframeMode==="beat-opening");
+  const beatOpening=sh=>!!(sh&&(sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment"));
   const sourceFor=(sh,opts)=>{
     opts=opts||{};
     if(opts.scene&&typeof root.shotBeatScreenplay==="function"){
       try{
-        const live=root.shotBeatScreenplay(opts.scene,sh&&sh.beatN,{
+        // a moment of a split beat is timed on its own moment (2026-11-01)
+        const read=typeof root.shotScreenplayFor==="function" ? root.shotScreenplayFor
+          : (scene,s,o)=>root.shotBeatScreenplay(scene,s&&s.beatN,o);
+        const live=read(opts.scene,sh||{},{
           drafts:opts.drafts||{},characters:opts.characters||[],beatsMap:opts.beatsMap||{}});
         if(live&&live.hasSource)return live;
       }catch(e){}

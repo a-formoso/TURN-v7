@@ -106,8 +106,62 @@
     return tagged;
   }
   function inputIssues(location,list){return inputIssueList(location,list).map(i=>i.text);}
-  function buildScene(location,list){
+  /* MOVING PARTS (2026-11-01): a part linked to a floor-plan object can be built in its state at a story moment —
+     lowered (hinged at its base on the nearest wall, laid outward with an 8° fall), swung open (90° about one side,
+     into the room) or not there. `at` = {sceneId, beatN, moment}; none = the usual state the floor plan describes. */
+  function partPoses(location,at){
+    if(!at||typeof root.locationMovingPartsAt!=="function")return {};
+    const out={};
+    root.locationMovingPartsAt(location,at).forEach(p=>{if(p.anchorId&&p.state&&p.state.pose!=="as-built")out[p.anchorId]={pose:p.state.pose,label:p.name+" "+p.state.label.toLowerCase()};});
+    return out;
+  }
+  // The story moments a set can be built at: the usual state, then each moment that leaves a different set of states.
+  function buildMoments(location){
+    const parts=typeof root.normalizeLocationMovingParts==="function"?root.normalizeLocationMovingParts(location&&location.movingParts):[];
+    const out=[{key:"",at:null,label:"Usual state"}],seen=new Set(["[]"]);
+    parts.forEach(p=>p.changes.forEach(c=>{
+      const at={sceneId:c.sceneId,beatN:c.beatN,moment:c.moment+(c.during?1:0)};
+      const poses=partPoses(location,at),sig=JSON.stringify(Object.keys(poses).sort().map(k=>[k,poses[k].pose]));
+      if(seen.has(sig))return;seen.add(sig);
+      const sc=((root.turnContinuity||{}).scenes||[]).find(x=>x.id===c.sceneId);
+      out.push({key:[c.sceneId,at.beatN,at.moment].join(":"),at,
+        label:"Scene "+(sc?sc.no:"?")+" · beat "+at.beatN+" · moment "+at.moment+" — "+Object.values(poses).map(v=>v.label).join(", ")});
+    }));
+    return out;
+  }
+  const chosen=new Map();
+  function setBuildMoment(locationId,key){
+    if(key)chosen.set(locationId,key);else chosen.delete(locationId);
+    root.dispatchEvent?.(new CustomEvent("kinolot-set-moment",{detail:{locationId}}));
+  }
+  function buildMoment(location){
+    const key=chosen.get(location&&location.id)||"";
+    return (buildMoments(location).find(m=>m.key===key)||{at:null}).at;
+  }
+  function posedAnchor(anchor,sp,z,pose){
+    const [w,d,h]=anchor.size,poly=C().polygon(sp.footprint);
+    const cx=poly.reduce((n,p)=>n+p[0],0)/poly.length,cy=poly.reduce((n,p)=>n+p[1],0)/poly.length;
+    if(pose==="lowered"){
+      let best=null;
+      poly.forEach((a,i)=>{const b=poly[(i+1)%poly.length],dx=b[0]-a[0],dy=b[1]-a[1];
+        const t=Math.max(0,Math.min(1,((anchor.xy[0]-a[0])*dx+(anchor.xy[1]-a[1])*dy)/(dx*dx+dy*dy)));
+        const P=[a[0]+t*dx,a[1]+t*dy],dist=Math.hypot(anchor.xy[0]-P[0],anchor.xy[1]-P[1]);
+        if(!best||dist<best.dist)best={P,dist,dx,dy};});
+      const len=Math.hypot(best.dx,best.dy);let n=[best.dy/len,-best.dx/len];
+      if((best.P[0]+n[0]-cx)**2+(best.P[1]+n[1]-cy)**2<(best.P[0]-cx)**2+(best.P[1]-cy)**2)n=[-n[0],-n[1]];
+      const fall=8*Math.PI/180,yaw=Math.atan2(-n[0],n[1]);
+      const out=(h/2)*Math.cos(fall)-(d/2)*Math.sin(fall),down=-(h/2)*Math.sin(fall)-(d/2)*Math.cos(fall);
+      return {position:[best.P[0]+n[0]*out,best.P[1]+n[1]*out,sp.floorZ+down],size:[w,h,d],rotation:[-fall,0,yaw]};
+    }
+    const r0=-(anchor.facing||0)*Math.PI/180,left=[anchor.xy[0]-Math.cos(r0)*w/2,anchor.xy[1]-Math.sin(r0)*w/2];
+    const swing=r=>[left[0]+Math.cos(r)*w/2,left[1]+Math.sin(r)*w/2];
+    const a=swing(r0+Math.PI/2),b=swing(r0-Math.PI/2);
+    const r1=(a[0]-cx)**2+(a[1]-cy)**2<=(b[0]-cx)**2+(b[1]-cy)**2?r0+Math.PI/2:r0-Math.PI/2;
+    return {position:[...swing(r1),z],size:anchor.size,rotation:[0,0,r1]};
+  }
+  function buildScene(location,list,at){
     list=list||((root.turnContinuity||{}).locations)||[];
+    const poses=partPoses(location,at);
     const issues=inputIssues(location,list);if(issues.length)throw new Error(issues[0]);
     const state=root.locationSpatialPlanState(location,list),owner=state.owner,plan=state.plan;
     if(!state.ready)throw new Error(state.reason);
@@ -164,7 +218,11 @@
       const {z,missing,base}=anchorCentreZ(anchor,sp,plan);
       if(missing)notes.push(tidy(anchor.name,80)+" has no saved centre height; it stands on its room's floor in this preview.");
       if(base)baseNote=true;
-      add("anchor-"+i,anchor.name,[anchor.xy[0],anchor.xy[1],z],anchor.size,[0,0,-(anchor.facing||0)*Math.PI/180],
+      const posed=poses[anchor.id];
+      if(posed&&posed.pose==="hidden"){notes.push(tidy(posed.label,120)+": not built at this moment.");return;}
+      const shape=posed?posedAnchor(anchor,sp,z,posed.pose):{position:[anchor.xy[0],anchor.xy[1],z],size:anchor.size,rotation:[0,0,-(anchor.facing||0)*Math.PI/180]};
+      if(posed)notes.push(tidy(posed.label,120)+" at this moment (a moving part).");
+      add("anchor-"+i,anchor.name,shape.position,shape.size,shape.rotation,
         {anchorId:anchor.id,material:"dressing",basis:anchor.sizeBasis||"design"});
     });
     if(baseNote)notes.push("This floor plan saves objects' base heights; the preview stands each object on its saved height.");
@@ -236,5 +294,6 @@
     if(JSON.stringify(state||null)!==before)root.dispatchEvent?.(new CustomEvent("kinolot-cloud-job",{detail:{locationId}}));
   }
   const jobState=locationId=>jobs.get(locationId)||null;
-  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds};
+  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds,
+    buildMoments,setBuildMoment,buildMoment};
 })(typeof window!=="undefined"?window:globalThis);

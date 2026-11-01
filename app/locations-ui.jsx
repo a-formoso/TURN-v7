@@ -179,6 +179,94 @@ function _locBudgetOpts(attach, gopts){
    were recorded can be given them without regenerating — each panel's direction set by hand (free), or "Read the
    cameras from this plate" (one writing call, priced on the button) — saved on the card for that plate version
    (l.plateCameras), so the rooms inside can cut out its panels; the plate's own prompt and layout are unchanged. */
+/* MOVING PARTS (owner 2026-11-01): the parts of this set the screenplay moves — a stern ramp lowered for the cars and
+   raised to seal the hold. Each part has its states, the usual one (what the description, plate and set show) and the
+   moments it changes. Shots show each part as it is at their moment; Build the set can build it in any moment's state.
+   Read from the screenplay (one writing call) proposes them for review; every field can be set by hand. */
+function LocationMovingParts({l,scenes,drafts,onUpdate,readOnly=false}){
+  const E=React.createElement;
+  const parts=typeof normalizeLocationMovingParts==="function"?normalizeLocationMovingParts(l.movingParts):[];
+  const [pending,setPending]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState("");
+  const save=list=>onUpdate(l.id,{movingParts:normalizeLocationMovingParts(list)});
+  const patchPart=(i,patch)=>save(parts.map((p,j)=>j===i?{...p,...patch,source:"user"}:p));
+  const C=window.turnContinuity||{};
+  const locScenes=(scenes||C.scenes||[]).filter(s=>s&&(l.scenes||[]).indexOf(s.id)>=0).sort((a,b)=>(Number(a.no)||0)-(Number(b.no)||0));
+  const momentsOf=(sc)=>{
+    const opts={drafts:drafts||C.drafts||{},characters:C.characters||[],beatsMap:C.beatsMap||{}};
+    const rows=typeof window.shotScreenplayBeatRows==="function"?window.shotScreenplayBeatRows(sc,opts):[];
+    return rows.flatMap(r=>(window.shotBeatMoments?window.shotBeatMoments(sc,r.n,opts):[]).map(m=>({beatN:r.n,moment:m.moment.n,text:m.openingAction||m.text})));
+  };
+  const allMoments=locScenes.flatMap(sc=>momentsOf(sc).map(m=>({...m,scene:sc})));
+  const momentLabel=c=>{const sc=locScenes.find(x=>x.id===c.sceneId)||(scenes||[]).find(x=>x.id===c.sceneId);
+    return "Scene "+(sc?sc.no:"?")+" · beat "+c.beatN+" · moment "+c.moment;};
+  const anchors=typeof locationSpaceAnchors==="function"?(()=>{try{return locationSpaceAnchors(l);}catch(e){return [];}})():[];
+  async function read(){
+    if(busy||typeof window.aiReadLocationMovingParts!=="function")return;
+    setBusy(true);setError("");
+    try{
+      const found=await window.aiReadLocationMovingParts(l,{scenes,drafts});
+      setPending(found);
+      if(!found.length)setError("The screenplay doesn't move any part of this set. Nothing was changed.");
+    }catch(e){setError(String(e&&e.message||e));}
+    finally{setBusy(false);}
+  }
+  const keep=()=>{const ids=new Set(pending.map(p=>p.id));save(parts.filter(p=>!ids.has(p.id)).concat(pending));setPending(null);};
+  const addPart=()=>save(parts.concat([{name:"New part",states:[{id:"closed",label:"Closed",pose:"as-built"},{id:"open",label:"Open",pose:"open"}],usual:"closed",changes:[],source:"user"}]));
+  const field=(label,input)=>E("label",{className:"loc-cam-field"},E("span",null,label),input);
+  const partView=(p,i)=>E("details",{key:p.id+i,className:"loc-nested-section loc-part",open:true},
+    E("summary",null,p.name+" · usually "+((p.states.find(s=>s.id===p.usual)||{}).label||"").toLowerCase()+" · "+p.changes.length+" change"+(p.changes.length===1?"":"s")),
+    E("div",{className:"loc-cam-fields"},
+      field("Name",E("input",{className:"prop-select",type:"text",defaultValue:p.name,key:p.name,disabled:readOnly,onBlur:e=>e.target.value.trim()&&e.target.value!==p.name&&patchPart(i,{name:e.target.value})})),
+      field("Floor-plan object",E("select",{className:"prop-select",value:p.anchorId||"",disabled:readOnly,onChange:e=>patchPart(i,{anchorId:e.target.value})},
+        E("option",{value:""},"None"),anchors.map(a=>E("option",{key:a.id,value:a.id},a.name)))),
+      field("Usual state",E("select",{className:"prop-select",value:p.usual,disabled:readOnly,onChange:e=>patchPart(i,{usual:e.target.value})},
+        p.states.map(s=>E("option",{key:s.id,value:s.id},s.label))))),
+    E("p",{className:"loc-layer-note"},"The usual state is the one the description, the location image and the built set show."),
+    p.states.map((st,k)=>E("div",{key:st.id,className:"loc-cam-fields"},
+      field("State",E("input",{className:"prop-select",type:"text",defaultValue:st.label,key:st.label,disabled:readOnly,
+        onBlur:e=>e.target.value.trim()&&e.target.value!==st.label&&patchPart(i,{states:p.states.map((x,m)=>m===k?{...x,label:e.target.value}:x)})})),
+      field("In the built set",E("select",{className:"prop-select",value:st.pose,disabled:readOnly||!p.anchorId,
+        title:p.anchorId?"":"Link the part to a floor-plan object to build it in this state",
+        onChange:e=>patchPart(i,{states:p.states.map((x,m)=>m===k?{...x,pose:e.target.value}:x)})},
+        [["as-built","As in the floor plan"],["lowered","Lowered (hinged at its base, laid outward)"],["open","Swung open"],["hidden","Not there"]].map(([v,t])=>E("option",{key:v,value:v},t)))),
+      E("label",{className:"loc-cam-field",style:{gridColumn:"1 / -1"}},E("span",null,"What it looks like"),
+        E("input",{className:"prop-select",type:"text",defaultValue:st.look,key:st.look,disabled:readOnly,placeholder:"One sentence for the shot prompt",
+          onBlur:e=>e.target.value!==st.look&&patchPart(i,{states:p.states.map((x,m)=>m===k?{...x,look:e.target.value}:x)})})))),
+    E("p",{className:"loc-field-label"},"Changes"),
+    p.changes.length?E("ul",{className:"loc-part-changes"},p.changes.map((c,k)=>E("li",{key:k},
+      E("span",null,momentLabel(c)+": "+((p.states.find(s=>s.id===c.state)||{}).label||c.state).toLowerCase()+(c.during?" during the moment":" as it opens")),
+      c.evidence&&E("small",null," “"+c.evidence+"”"),
+      !readOnly&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>patchPart(i,{changes:p.changes.filter((_,m)=>m!==k)})},"Remove"))))
+      :E("p",{className:"loc-layer-note"},"No changes: the part stays in its usual state in every shot."),
+    !readOnly&&allMoments.length>0&&E(MovingPartChangeAdder,{p,allMoments,onAdd:c=>patchPart(i,{changes:p.changes.concat([c])})}),
+    !readOnly&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>save(parts.filter((_,j)=>j!==i))},"Remove this part"));
+  return E("div",{className:"loc-moving-parts","data-testid":"location-moving-parts"},
+    E("p",{className:"loc-layer-note"},"Parts of this set the screenplay moves, such as a ramp lowered for the cars and raised to seal the hold. Each shot shows the part as it is at its moment."),
+    parts.map(partView),
+    pending&&pending.length>0&&E("div",{className:"loc-map-check",role:"status"},
+      E("p",null,"Found in the screenplay: "+pending.map(p=>p.name+" ("+p.changes.map(c=>momentLabel(c)+" "+c.state).join(", ")+")").join("; ")+"."),
+      E("button",{type:"button",className:"art-draftall",onClick:keep},"Keep"),
+      E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setPending(null)},"Discard")),
+    error&&E("p",{className:"loc-spatial-error",role:"alert"},error),
+    !readOnly&&E("div",{className:"loc-step-actions"},
+      E("button",{type:"button",className:"art-draftall",disabled:busy||!locScenes.length,onClick:read,
+        title:"Reads this location's scenes for parts of the set that move. One writing call (writing credits); you review before anything is saved."},
+        busy?"Reading\u2026":"Read from the screenplay (writing credits)"),
+      E("button",{type:"button",className:"art-draftall ghost",onClick:addPart},"Add a moving part")));
+}
+function MovingPartChangeAdder({p,allMoments,onAdd}){
+  const E=React.createElement;
+  const [pick,setPick]=React.useState(0),[state,setState]=React.useState(p.states[1]?p.states[1].id:p.states[0].id),[during,setDuring]=React.useState(false);
+  const m=allMoments[pick]||allMoments[0];
+  return E("div",{className:"loc-cam-fields"},
+    E("label",{className:"loc-cam-field"},E("span",null,"At"),E("select",{className:"prop-select",value:pick,onChange:e=>setPick(Number(e.target.value))},
+      allMoments.map((x,k)=>E("option",{key:k,value:k},"Scene "+x.scene.no+" · beat "+x.beatN+" · moment "+x.moment+" \u2014 "+String(x.text||"").slice(0,50))))),
+    E("label",{className:"loc-cam-field"},E("span",null,"Becomes"),E("select",{className:"prop-select",value:state,onChange:e=>setState(e.target.value)},
+      p.states.map(s=>E("option",{key:s.id,value:s.id},s.label)))),
+    E("label",{className:"loc-cam-field loc-cam-check"},E("span",null,"Moves during this moment"),
+      E("input",{type:"checkbox",checked:during,onChange:e=>setDuring(e.target.checked)})),
+    E("button",{type:"button",className:"art-draftall ghost",onClick:()=>m&&onAdd({sceneId:m.scene.id,beatN:m.beatN,moment:m.moment,state,during})},"Add change"));
+}
 function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
   const [,refresh]=React.useReducer(n=>n+1,0);
   const [busy,setBusy]=React.useState("");
@@ -1732,6 +1820,11 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             React.createElement("p",{className:"loc-layer-note"},"Extra empty-set references required by the screenplay, such as an exterior, threshold or connecting space."),
             coverageSheets.map((v,i)=>React.createElement(LocationCoverageSheet,{key:v.id,l,v,project,scenes,drafts,
               previousSheets:coverageSheets.slice(0,i),parentGenUrl:gen.genUrl,onView}))))),
+
+      // parts of the set the screenplay moves, and when (owner 2026-11-01)
+      React.createElement(CardFold,{label:"Moving parts",foldId:"loc-parts-"+l.id,defaultOpen:false,
+          count:(Array.isArray(l.movingParts)&&l.movingParts.length)||undefined},
+        React.createElement(LocationMovingParts,{l,scenes,drafts,onUpdate,readOnly})),
 
       // reference and tools, after the steps
       React.createElement(CardFold,{label:"More",foldId:"loc-more-"+l.id,defaultOpen:false},

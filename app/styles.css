@@ -704,6 +704,9 @@ html[data-theme="light"] :is(.seg,.theme-opt,.nb-seg-btn,.board-mode-btn,.sb-mod
 .bc-scripted[open] summary:after{content:"−"}
 .bc-scripted > .shot-purpose{margin:0;padding:8px 11px 10px}
 .bc-source-note{margin:8px 11px;color:var(--txt-2);font-size:11px;line-height:1.5}
+.bc-moments{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0 0 7px;padding:8px 10px;border-radius:var(--r-m);border:1px solid var(--line-1);color:var(--txt-1);font-size:11px;line-height:1.4}
+.bc-moments>span{flex:1 1 200px}
+.bc-moments-changed{color:var(--txt-2)}
 .shot-review-actions{display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap}
 .opening-beat-empty{min-height:170px}
 @media(max-width:640px){

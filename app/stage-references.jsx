@@ -197,7 +197,10 @@
       let cast=[];
       let screenplay=null;
       try{
-        screenplay=typeof g.shotBeatScreenplay==="function"
+        // a moment of a split beat reads its own moment (2026-11-01)
+        screenplay=typeof g.shotScreenplayFor==="function"
+          ?g.shotScreenplayFor(scene,sh,{drafts:ctx.drafts||{},characters:Object.values(chars),beatsMap:ctx.beatsMap||{}})
+          :typeof g.shotBeatScreenplay==="function"
           ?g.shotBeatScreenplay(scene,sh.beatN,{drafts:ctx.drafts||{},characters:Object.values(chars),beatsMap:ctx.beatsMap||{}})
           :null;
       }catch(e){screenplay=null;}
@@ -207,11 +210,11 @@
          shots may use physical cast from the authored beat, but never remote-only
          participants. */
       try{
-        const missingCanonical=sh.keyframeMode==="beat-opening"&&(!screenplay||!screenplay.hasSource);
+        const missingCanonical=(sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment")&&(!screenplay||!screenplay.hasSource);
         cast=missingCanonical
           ?[]
           :screenplay&&screenplay.hasSource
-          ?(sh.keyframeMode==="beat-opening"
+          ?((sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment")
             ?arr(screenplay.openingCharacterIds)
             :(sh.referenceCharactersSet
               ?arr(sh.referenceCharacterIds).filter(id=>arr(screenplay.physicalCharacterIds).indexOf(id)>=0)
@@ -220,9 +223,9 @@
             ?g.inFrameCast(sh,scene,Object.values(chars))
             :(sh.referenceCharactersSet?arr(sh.referenceCharacterIds):arr(sh.subjects)));
       }catch(e){cast=screenplay&&screenplay.hasSource
-        ?(sh.keyframeMode==="beat-opening"?arr(screenplay.openingCharacterIds):arr(screenplay.physicalCharacterIds))
-        :(sh.keyframeMode==="beat-opening"?[]:arr(sh.subjects));}
-      if(sh.keyframeMode==="beat-opening"&&(!screenplay||!screenplay.hasSource))
+        ?((sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment")?arr(screenplay.openingCharacterIds):arr(screenplay.physicalCharacterIds))
+        :((sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment")?[]:arr(sh.subjects));}
+      if((sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment")&&(!screenplay||!screenplay.hasSource))
         warn(sh.id,"screenplay","missing-screenplay-helper",
           "Canonical screenplay source is unavailable for this beat-opening shot; stale subjects were not packaged","error");
       shotRow.openingCharacterIds=screenplay&&screenplay.hasSource?arr(screenplay.openingCharacterIds):[];
@@ -244,7 +247,7 @@
             return;
           }
           const allowedIds=screenplay&&screenplay.hasSource
-            ?(sh.keyframeMode==="beat-opening"?arr(screenplay.openingCharacterIds):arr(screenplay.physicalCharacterIds))
+            ?((sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment")?arr(screenplay.openingCharacterIds):arr(screenplay.physicalCharacterIds))
             :[];
           if(screenplay&&screenplay.hasSource&&allowedIds.indexOf(c.id)<0){
             warn(sh.id,c.id,"offscreen-character-reference",
@@ -296,7 +299,7 @@
       });
       if(sh.referenceCharactersSet&&screenplay&&screenplay.hasSource)
         uniq(sh.referenceCharacterIds).forEach(id=>{
-          const allowedIds=sh.keyframeMode==="beat-opening"
+          const allowedIds=(sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment")
             ?arr(screenplay.openingCharacterIds):arr(screenplay.physicalCharacterIds);
           if(allowedIds.indexOf(id)<0)
             warn(sh.id,id,"offscreen-character-reference",

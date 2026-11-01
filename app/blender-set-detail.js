@@ -29,8 +29,10 @@
     const names=new Map((anchors||[]).map(a=>[a.id,(a.id+" "+a.name).toLowerCase()]));
     const find=re=>source.objects.find(o=>o.anchorId&&re.test(names.get(o.anchorId)||""));
     const ramp=find(/stern.*ramp/),lanes=find(/lane.*(line|mark)/);
-    // This assembly describes a raised ramp; never turn a saved lowered ramp upright.
-    if(!ramp||!lanes||ramp.size[2]<1||ramp.size[2]<=ramp.size[1]*2)return source;
+    if(!ramp||!lanes)return source;
+    // The ramp assembly describes a raised ramp; a lowered one (a moving part's state, or a saved flat ramp) keeps its
+    // plain slab and the hold keeps the rest of its detail.
+    const rampRaised=ramp.size[2]>=1&&ramp.size[2]>ramp.size[1]*2;
     const scene=JSON.parse(JSON.stringify(source)),parts=[],replace=new Map();
     Object.assign(scene.materials,palette);
     const part=(base,key,label,offset,size,material,rotation=[0,0,0],kind="box",extra={})=>{
@@ -83,6 +85,7 @@
       part(door,"grab","Door grab rail",[w/2+.18,winding*.16,-.1],[.04,.04,Math.min(.7,h*.5)],"edgeMetal",[0,0,0],"cylinder");
     }
     // Ramp body and assemblies retain its saved transform and full closed-height silhouette.
+    if(rampRaised){
     const [rw,rd,rh]=ramp.size;
     replace.set(ramp.id,{...ramp,material:"rampGreen",size:[rw,rd*.30,rh]});
     for(const side of [-1,1]){
@@ -97,6 +100,7 @@
     part(ramp,"hinge","Ramp hinge barrel",[0,-rd*.2,-rh/2+.075],[.12,.12,rw*.90],"edgeMetal",[0,Math.PI/2,0],"cylinder");
     for(let n=0;n<20;n++)part(ramp,"hazard"+n,"Ramp hazard stripe",[(n-9.5)*rw*.044,-rd*.46,-rh*.375],
       [rw*.035,.012,rh*.055],n%2?"safetyBlack":"safetyYellow",[0,.55,0]);
+    }else replace.set(ramp.id,{...ramp,material:"rampGreen"});
 
     const hose=find(/hose.*(cabinet|reel)/);
     if(hose){

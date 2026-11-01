@@ -986,7 +986,8 @@ function stageClipActing(scene, shots, cast, ctx){
    does not provide a second parser: shipped load order must expose that helper
    before this module, and beat-opening shots fail explicitly when it is absent. */
 function stageBeatOpeningShot(sh){
-  return !!(sh&&sh.keyframeMode==="beat-opening");
+  // a moment of a split beat is an opening keyframe too: its clip performs that moment (2026-11-01)
+  return !!(sh&&(sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment"));
 }
 function stageDeliveryIsRemote(delivery){
   const d=String(delivery||"").trim().toLowerCase().replace(/\s+/g,"-");
@@ -1001,10 +1002,12 @@ function stageBeatSource(scene,sh,ctx){
   const helper=typeof window.shotBeatScreenplay==="function" ? window.shotBeatScreenplay : null;
   if(!helper)return stageBeatOpeningShot(sh) ? {hasSource:false,missing:true} : null;
   let live=null;
-  try{ live=helper(scene,sh&&sh.beatN,{drafts:ctx.drafts||{},characters:ctx.characters||[],
-    beatsMap:ctx.beatsMap||{}}); }catch(e){ live=null; }
+  const opts={drafts:ctx.drafts||{},characters:ctx.characters||[],beatsMap:ctx.beatsMap||{}};
+  // a shot of a split beat reads its own moment; every other shot its beat
+  try{ live=Array.isArray(sh) ? window.shotScreenplayForShots(scene,sh,opts)
+    : (typeof window.shotScreenplayFor==="function" ? window.shotScreenplayFor(scene,sh||{},opts) : helper(scene,sh&&sh.beatN,opts)); }catch(e){ live=null; }
   if(live&&live.hasSource)return live;
-  return stageBeatOpeningShot(sh) ? {hasSource:false,missing:true} : null;
+  return (Array.isArray(sh) ? sh.some(stageBeatOpeningShot) : stageBeatOpeningShot(sh)) ? {hasSource:false,missing:true} : null;
 }
 /*
  * Ordinary Stage shots are not beat-opening keyframes, so their historical
@@ -1814,10 +1817,11 @@ function buildClipData(scene, g, ctx, maxSec){
   const clipDialogueLines=Array.from(clipDialogueByBeat.values()).flat();
   const beatDialogues = {};
   const beatScripts = {};
+  const shotScripts = {};
   const remoteCharacterIds = [];
   _uniq(shots.map(sh=>sh&&sh.beatN).filter(Boolean)).forEach(n=>{
     const beatShots=shots.filter(sh=>Number(sh&&sh.beatN)===Number(n));
-    const src=stageBeatSource(scene,beatShots[0],ctx);
+    const src=stageBeatSource(scene,beatShots,ctx);
     const panelDialogue=panelLines.filter(p=>Number(p&&p.beatN)===Number(n))
       .flatMap(p=>(Array.isArray(p.dialogueLines)&&p.dialogueLines.length
         ? p.dialogueLines : (String(p&&p.dialogue||"").trim() ? [p] : []))
@@ -1882,6 +1886,14 @@ function buildClipData(scene, g, ctx, maxSec){
         remoteCharacterIds:src.remoteCharacterIds||[],mentionedCharacterIds:src.mentionedCharacterIds||[]};
       (src.remoteCharacterIds||[]).forEach(id=>{if(remoteCharacterIds.indexOf(id)<0)remoteCharacterIds.push(id);});
     }
+    // each moment shot's own screenplay, so one cut never performs another moment's action
+    beatShots.filter(sh=>sh&&sh.keyframeMode==="moment"||(sh&&sh.moment)).forEach(sh=>{
+      const own=stageBeatSource(scene,sh,ctx);
+      if(own&&own.hasSource)shotScripts[sh.id]={hasSource:true,text:String(own.text||""),blocks:own.blocks||[],sceneHeading:String(own.sceneHeading||""),
+        openingAction:String(own.openingAction||""),sourceRev:String(own.sourceRev||""),dialogue:own.dialogue||[],moment:own.moment,
+        openingCharacterIds:own.openingCharacterIds||[],physicalCharacterIds:own.physicalCharacterIds||[],
+        remoteCharacterIds:own.remoteCharacterIds||[],mentionedCharacterIds:own.mentionedCharacterIds||[]};
+    });
   });
   /*
    * stage-plan's timing helper intentionally reads beatPlan.micro.  Give the
@@ -1930,7 +1942,7 @@ function buildClipData(scene, g, ctx, maxSec){
   const _castFull = cast.map(c=>(ctx.charById||{})[c.id]).filter(Boolean);
   const scalePov = typeof window.shotScalePovClause==="function"
     ? String(window.shotScalePovClause(shots[0]||{}, _castFull, Object.values(ctx.charById||{}))||"").replace(/^POINT OF VIEW AND PHYSICAL SCALE \u2014 /,"") : "";
-  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, capture, voices, languages, sourceCharacters, props:clipProps, loc, locSheet, sizes, scalePov, compass, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, remoteCharacterIds,
+  return { shots, promptShots, screenplayDirectionIssues, clipDialogueByBeat, clipDialogueLines, first, cast, acting, capture, voices, languages, sourceCharacters, props:clipProps, loc, locSheet, sizes, scalePov, compass, preset, lookText, camera, cameraProfile, lighting, lead, prompt, chips, setting, panelLines, protect, beatDialogues, beatScripts, shotScripts, remoteCharacterIds,
     dur:_clipDur(g, maxSec), lineShots };
 }
 
@@ -3039,7 +3051,7 @@ function seedanceBeatOpeningPrompt(clip, shots, activeShot, audioRefsOn, audioIn
   const d=(clip&&clip.data)||{}, list=shots&&shots.length?shots:(d.shots||[]);
   const sh=list[0]||activeShot||{};
   const scripts=d.beatScripts||{};
-  const src=scripts[sh.beatN]||{};
+  const src=(d.shotScripts&&d.shotScripts[sh.id])||scripts[sh.beatN]||{};
   const full=String(src.text||"").trim();
   if(!src.hasSource&&(!full||src.missing))
     return "BLOCKED: this beat's screenplay couldn't be read, so it isn't rendered from older shot text. Reload the app and try again.";
@@ -3148,7 +3160,7 @@ function seedanceRecipePrompt(recipeId, clip, shots, activeShot, audioRefsOn, au
      ?"\nCOVERAGE LOCK: one continuous shot; no invented cuts, inserts, montage or later keyframes."
      :"\nCOVERAGE LOCK: use only the listed authored shots; each beat-opening unit remains continuous within its own shot."):"";
    const delivery=beatOpening?list.filter(stageBeatOpeningShot).map(sh=>{
-     const src=scoped.data.beatScripts&&scoped.data.beatScripts[sh.beatN];
+     const src=(scoped.data.shotScripts&&scoped.data.shotScripts[sh.id])||(scoped.data.beatScripts&&scoped.data.beatScripts[sh.beatN]);
      const words=_seedanceDialogueClause(sh,{dialogueLines:src&&src.dialogue||[]},scoped.data,refs);
      return words?"EXACT DELIVERY: "+words:"";
    }).filter(Boolean).join("\n"):"";

@@ -4,8 +4,15 @@ function useCloudSetJob(location){
   const api=window.KinolotCloudRender,show=!!api&&api.enabled();
   const [job,setJob]=React.useState(null),[capable,setCapable]=React.useState(false),[busy,setBusy]=React.useState(false);
   const [message,setMessage]=React.useState(""),[sceneHash,setSceneHash]=React.useState(""),[refresh,setRefresh]=React.useState(0);
+  // the story moment the set is built at (a moving part's state); step 4 and step 5 read the same choice
+  const [,setMomentTick]=React.useState(0);
+  React.useEffect(()=>{
+    const h=e=>{if(e&&e.detail&&e.detail.locationId===location.id)setMomentTick(n=>n+1);};
+    window.addEventListener("kinolot-set-moment",h);return ()=>window.removeEventListener("kinolot-set-moment",h);
+  },[location.id]);
+  const at=show&&api.buildMoment?api.buildMoment(location):null;
   let scope=null,scene=null,issues=[];
-  try{if(show){scope=window.BlenderPreview.scope();issues=api.inputIssueList?api.inputIssueList(location):[];scene=api.buildScene(location);}}
+  try{if(show){scope=window.BlenderPreview.scope();issues=api.inputIssueList?api.inputIssueList(location):[];scene=api.buildScene(location,undefined,at);}}
   catch(e){if(!issues.length)issues=[{step:2,text:e.message}];}
   const scopeKey=scope?[scope.uid,scope.projectId,scope.epoch,location.id].join(":"):"";
   const sceneKey=scene?window.KinolotRenderContract.canonical(scene):"";
@@ -42,7 +49,7 @@ function useCloudSetJob(location){
     if(!show||!api.noteJob)return;
     api.noteJob(location.id,job?{status:job.status,current:job.status==="completed"&&!!sceneHash&&!stale&&!issues.length}:null);
   },[show,location.id,job&&job.id,job&&job.status,sceneHash,stale,issues.length]);
-  return {api,show,scope,scene,issues,scopeKey,sceneKey,current,job,setJob,capable,busy,setBusy,message,setMessage,sceneHash,stale,
+  return {api,show,scope,scene,issues,scopeKey,sceneKey,current,job,setJob,capable,busy,setBusy,message,setMessage,sceneHash,stale,at,
     refresh:()=>setRefresh(n=>n+1)};
 }
 // "Go to step N" — the card's numbered folds open and scroll on nb-open-fold (CardFold)
@@ -97,13 +104,14 @@ function LocationCloudRender({location,readOnly=false}){
   return E("section",{className:"loc-cloud-render","data-testid":"location-cloud-render"},
     E("p",{className:"loc-layer-note"},"Builds the room in 3D from the floor plan and cameras, and renders the four views. Free during the pilot; separate from the location image."),
     issues.length>0&&cloudFixList(location,issues),
+    momentPicker(location,api,readOnly||busy||!!running),
     E("div",{className:"loc-cloud-render-actions"},
       E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||!c.capable||!sceneHash||!!running||issues.length>0,onClick:submit},
         busy?"Sending…":job&&job.status==="completed"?"Rebuild set":"Build set"),
       running&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:cancel},"Cancel")),
     running&&renderProgress(job,{now,started:runningSince.current,objects:scene?scene.objects.length:0,lastSeconds,api}),
     job&&!running&&job.status!=="completed"&&E("p",{role:"status",className:"loc-layer-note"},({failed:job.error||"The render did not finish.",cancelled:"Request cancelled."})[job.status]),
-    job&&job.status==="completed"&&(stale||issues.length>0)&&E("p",{className:"loc-spatial-error"},"These views are from an earlier floor plan or cameras. Rebuild to see the current ones."),
+    job&&job.status==="completed"&&(stale||issues.length>0)&&E("p",{className:"loc-spatial-error"},"These views are from another version of the set: an earlier floor plan or cameras, or another moment's moving parts. Rebuild to see the current ones."),
     c.message&&E("p",{role:"alert",className:"loc-spatial-error"},c.message),
     job?.result&&E("div",{className:"loc-cloud-render-grid"},["TL","TR","BL","BR"].map(p=>E("figure",{key:p},
       E("img",{src:job.result.images["colour_"+p],alt:labels[p]+" camera view of "+(location.name||"this location")}),
@@ -111,11 +119,26 @@ function LocationCloudRender({location,readOnly=false}){
     job?.result&&E("small",{className:"loc-layer-note"},"Rendered in "+Math.round(job.result.report.wallSeconds)+" seconds."),
     job?.notes?.length>0&&E("details",null,E("summary",null,"Render notes"),E("ul",{tabIndex:0,"aria-label":"Saved render notes"},job.notes.map((note,i)=>E("li",{key:i},note)))));
 }
+/* Moving parts (2026-11-01): which story moment the set is built at. Only shown when a part of this set moves. */
+function momentPicker(location,api,disabled){
+  const list=api.buildMoments?api.buildMoments(location):[];
+  if(list.length<2)return null;
+  const E=React.createElement,at=api.buildMoment(location);
+  const key=at?[at.sceneId,at.beatN,at.moment].join(":"):"";
+  return E("label",{className:"loc-cam-field loc-cloud-moment"},E("span",null,"Build at"),
+    E("select",{className:"prop-select",value:key,disabled,onChange:e=>api.setBuildMoment(location.id,e.target.value)},
+      list.map(m=>E("option",{key:m.key,value:m.key},m.label))),
+    E("small",null,"The moving parts are built as they are at that moment. The location image is styled from the usual state."));
+}
 /* Step 5 · Style it: the image-model look over the built set; it needs a current build from step 4. */
 function LocationStyleStep({location,readOnly=false}){
   const c=useCloudSetJob(location);
   if(!c.show)return null;
   const E=React.createElement,ready=c.job&&c.job.status==="completed"&&c.job.result&&!c.stale&&!c.issues.length;
+  // the location image shows the set as the description has it, so only the usual state is styled
+  if(c.at)return E("div",{className:"loc-step-fixes"},
+    E("p",{className:"loc-step-fixes-head"},"Step 4 builds the set at a story moment. Choose Usual state there and rebuild to style the location image."),
+    E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,4)},"Go to 4 · Build the set"));
   if(!c.capable)return E("p",{className:"loc-layer-note"},c.message||"Checking the built set…");
   if(!ready)return E("div",{className:"loc-step-fixes"},
     E("p",{className:"loc-step-fixes-head"},c.job&&c.job.status==="completed"?"Rebuild the set first: its views are from an earlier floor plan or cameras.":"Build the set first."),

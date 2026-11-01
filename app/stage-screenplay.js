@@ -166,6 +166,15 @@
       let source;
       try{
         source = screenplayBeat(scene,beat,ctx,drafts);
+        // the moments of a split beat this clip films, not the whole beat (2026-11-01)
+        const beatShots = selectedShots.filter(sh => positiveBeat(sh && sh.beatN) === beat);
+        if(source && source.hasSource && typeof root.shotScreenplayForShots === "function"
+          && beatShots.length && beatShots.every(sh => typeof root.shotMomentNumber === "function" && root.shotMomentNumber(sh))){
+          const scoped = drafts === undefined && !own(ctx,"drafts")
+            ? root.shotScreenplayForShots(scene,beatShots)
+            : root.shotScreenplayForShots(scene,beatShots,{drafts,characters:charsOf(ctx),beatsMap:(ctx && ctx.beatsMap) || {}});
+          if(scoped && scoped.hasSource) source = scoped;
+        }
       }catch(error){
         targetHasSource = false;
         addError(errors,"Could not map target beat "+beat+" in scene "+scene.id+": "

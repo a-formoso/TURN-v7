@@ -219,7 +219,10 @@
     const list=(shots&&shots.length?shots:d.shots||[]).filter(Boolean);
     const beats=unique(list.map(sh=>Number(sh.beatN)>0?Number(sh.beatN):null));
     const panels=d.panelLines||[],scripts=d.beatScripts||{};
-    const opening=list.some(sh=>sh.keyframeMode==="beat-opening");
+    const openingFrame=sh=>!!sh&&(sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment");
+    const opening=list.some(openingFrame);
+    // a moment of a split beat performs its own moment's screenplay (2026-11-01)
+    const scriptOf=sh=>(d.shotScripts&&d.shotScripts[sh.id])||scripts[sh.beatN];
     const continuous=list.length===1;
     const suppliedPlan=opts.renderPlan&&Array.isArray(opts.renderPlan.units)?opts.renderPlan:null;
     const duration=Number(opts.durationSec)||Number(suppliedPlan&&suppliedPlan.durationSec)||Number(d.dur)||0;
@@ -229,15 +232,15 @@
     // one shared fact reads once, even when every shot of the clip reports it
     if(d.screenplayDirectionIssues&&d.screenplayDirectionIssues.some(x=>x.blocking))
       return "BLOCKED: "+unique(d.screenplayDirectionIssues.filter(x=>x.blocking).map(x=>text(x.message))).join(" ");
-    if(list.some(sh=>sh.keyframeMode==="beat-opening"
-      &&(!scripts[sh.beatN]||!scripts[sh.beatN].hasSource||!text(scripts[sh.beatN].text))))
+    if(list.some(sh=>openingFrame(sh)
+      &&(!scriptOf(sh)||!scriptOf(sh).hasSource||!text(scriptOf(sh).text))))
       return "BLOCKED: canonical screenplay source is unavailable for this beat-opening shot.";
     if(limit>0&&duration>limit)
       return "BLOCKED: selected coverage requires "+duration+"s, exceeding the "+limit+"s model limit. Do not omit action, shorten dialogue or invent a split.";
     const units=list.map((sh,i)=>{
       const p=panels.find(p=>p.shotId===sh.id)||{};
-      const source=scripts[sh.beatN]||{};
-      const canonicalOpening=sh.keyframeMode==="beat-opening";
+      const source=scriptOf(sh)||{};
+      const canonicalOpening=openingFrame(sh);
       const blocks=canonicalOpening?(source.blocks||[]):(p.actionBlocks||[]);
       const actions=blocks.filter(b=>/^(action|trans)$/i.test(b.type||"")&&text(b.text));
       const localDialogue=canonicalOpening?(source.dialogue||[]):(p.dialogueLines||[]);
@@ -269,7 +272,7 @@
     const token=a=>typeof stageAssetMention==="function"?stageAssetMention(a):"";
     const name=(id)=>text((d.sourceCharacters||d.cast||[]).find(c=>c.id===id)?.name);
     const first=units[0],source=first&&first.source||{};
-    const firstOpening=!!(first&&first.sh.keyframeMode==="beat-opening");
+    const firstOpening=!!(first&&openingFrame(first.sh));
     const openingNames=(source.openingCharacterIds||[]).map(name).filter(Boolean);
     const laterNames=(source.physicalCharacterIds||[]).filter(id=>!(source.openingCharacterIds||[]).includes(id)).map(name).filter(Boolean);
     const startAsset=assets.find(a=>a.key==="frame")

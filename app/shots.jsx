@@ -565,6 +565,13 @@ function seedShotOf(sh, sceneShots){
   const groupIndex=groups.findIndex(group=>group.key===beatKey);
   const own=groupIndex>=0 ? groups[groupIndex] : null;
   const ownPrimary=own ? shotPrimaryOf(own.shots) : null;
+  // a split beat's moments chain one into the next: moment 3 carries moment 2's frame forward (2026-11-01)
+  const momentN=Number(sh.keyframeMode==="moment"&&sh.moment&&sh.moment.n)||0;
+  if(momentN>1 && own){
+    const before=own.shots.filter(x=>x.keyframeMode==="moment"&&Number(x.moment&&x.moment.n)<momentN)
+      .sort((a,b)=>Number(b.moment.n)-Number(a.moment.n))[0];
+    if(before) return before;
+  }
   if(ownPrimary && !shotSameIdentity(ownPrimary,sh)) return ownPrimary;
   if(i<=0) return null;
   if(groupIndex>0){
@@ -1979,9 +1986,16 @@ window.propsForScene = propsForScene;
    it is in frame: wides show the whole grid (walls + floor); tighter sizes pull the
    subject (midground centre) and any foreground veil. Returns a short clause that
    tells the model which depth planes to feature for THIS shot. */
-function shotFramingClause(location, sizeId){
+function shotFramingClause(location, sizeId, partStates){
   if(!location || typeof stagingOf!=="function" || (typeof stagingHasContent==="function" && !stagingHasContent(location))) return "";
-  const s = stagingOf(location);
+  const s0 = stagingOf(location);
+  // a moving part shown in another state than its usual one is described as it is now (2026-11-01: "stern ramp, raised
+  // and sealing the hold" kept the headlights out of a frame where the ramp is down)
+  const cell = (typeof locationMovingPartCell==="function" && (partStates||[]).some(p=>p&&p.differs))
+    ? (t)=>locationMovingPartCell(t, partStates) : (t)=>t;
+  const s = { ...s0, bg:{...s0.bg, center:cell(s0.bg.center), left:cell(s0.bg.left), right:cell(s0.bg.right)},
+    mid:{...s0.mid, center:cell(s0.mid.center), left:cell(s0.mid.left), right:cell(s0.mid.right)},
+    fg:{...s0.fg, left:cell(s0.fg.left), right:cell(s0.fg.right)} };
   const wide = ["EWS","WS","FS","MWS"].indexOf(sizeId)>=0;
   const bits = [];
   if(wide){
@@ -2182,6 +2196,25 @@ window.shotScopedStyleField=shotScopedStyleField;
         beatsMap:ctx.beatsMap||{}} : undefined;
    try{ return window.shotBeatScreenplay(scene,beatN,opts); }catch(e){ return null; }
  }
+ /* the screenplay a SHOT shows (2026-11-01): its own moment when its beat was split into moments, else the beat */
+ function shotSourceOptions(scene, ctx, chars){
+   ctx=ctx||{};
+   return Object.prototype.hasOwnProperty.call(ctx,"drafts")
+     ? {drafts:(Array.isArray(ctx.drafts)||(ctx.drafts&&Array.isArray(ctx.drafts.blocks))) ? {[scene.id]:ctx.drafts} : (ctx.drafts||{}),
+        characters:chars||Object.values(ctx.charById||{}), beatsMap:ctx.beatsMap||{}} : undefined;
+ }
+ function shotMomentSource(scene, sh, ctx, chars){
+   if(!(typeof window.shotMomentNumber==="function" && window.shotMomentNumber(sh)) || !scene) return shotBeatSource(scene,sh&&sh.beatN,ctx,chars);
+   const opts=shotSourceOptions(scene,ctx,chars);
+   try{ return opts ? window.shotScreenplayFor(scene,sh,opts) : window.shotScreenplayFor(scene,sh); }catch(e){ return null; }
+ }
+ function shotBeatMomentList(scene, beatN, ctx, chars){
+   if(typeof window.shotBeatMoments!=="function" || !scene) return [];
+   const opts=shotSourceOptions(scene,ctx,chars);
+   try{ return opts ? window.shotBeatMoments(scene,beatN,opts) : window.shotBeatMoments(scene,beatN); }catch(e){ return []; }
+ }
+ window.shotMomentSource=shotMomentSource;
+ window.shotBeatMomentList=shotBeatMomentList;
  function shotScreenplaySlice(scene, beatN, ctx){
    const source=shotBeatSource(scene,beatN,ctx);
    if(!source||!source.hasSource) return "";
@@ -2201,7 +2234,7 @@ function buildShotPrompt(sh, ctx){
   // in-frame cast & props are DERIVED from the action text (inFrameCast/inFrameProps),
   // not the stored tags — so they're always accurate to what the frame actually shows.
    const _chars = Object.values(charById);
-   const screenplaySource=shotBeatSource(scene,sh&&sh.beatN,ctx,_chars);
+   const screenplaySource=shotMomentSource(scene,sh,ctx,_chars);
    const subjects = ((typeof inFrameCast==="function") ? inFrameCast(sh, scene, _chars, ctx) : (sh.subjects||[])).map(id=>charById[id]).filter(Boolean);
    const propsAll = ((typeof inFrameProps==="function") ? inFrameProps(sh, scene, charById, propById, ctx) : (sh.props||[])).map(id=>propById[id]).filter(Boolean);
   // ATTACHED prop sheets (the image-map entries): dressing sheets ride only on tight
@@ -2301,14 +2334,21 @@ function buildShotPrompt(sh, ctx){
     const actionByHand = !!(sh && sh.actionByHand && clean(sh.action));
     const openingAction=(screenplaySource&&screenplaySource.hasSource && !actionByHand)
       ? String(screenplaySource.openingAction||"").replace(/\s+/g," ").trim() : clean(sh.action);
-   if(openingAction)         stage.push(cap(openingAction));
+   if(openingAction)         stage.push(cap(openingAction.replace(/\.$/,"")));
   if(clean(screenDir.composition)) stage.push(cap(clean(screenDir.composition)));
   if(clean(screenDir.clause)) stage.push(clean(screenDir.clause));
   // the director's OWN words (the card's Director's-notes field): appended as their
   // own clause so they COMPOSE with the derived prompt, never replacing any part of it
   if(clean(sh.directives)) stage.push("DIRECTOR'S NOTES (binding): "+clean(sh.directives));
-  const _depth = (typeof shotFramingClause==="function") ? clean(shotFramingClause(_promptLoc, sh.size)) : "";
+  // MOVING PARTS at this frame's instant (the beat's moment; an unsplit beat's opening is moment 1)
+  const _partLoc = (loc && Array.isArray(loc.movingParts) && loc.movingParts.length) ? loc : _promptLoc;
+  const _momentN = (screenplaySource && screenplaySource.moment && screenplaySource.moment.n) || 1;
+  const _partStates = (typeof locationMovingPartsAt==="function" && _partLoc && scene.id)
+    ? locationMovingPartsAt(_partLoc, {sceneId:scene.id, beatN:sh.beatN, moment:_momentN}, ctx.scenes || (window.turnContinuity||{}).scenes) : [];
+  const _depth = (typeof shotFramingClause==="function") ? clean(shotFramingClause(_promptLoc, sh.size, _partStates)) : "";
   if(_depth) stage.push(_depth);
+  const _partsLine = (typeof locationMovingPartsClause==="function") ? clean(locationMovingPartsClause(_partStates)) : "";
+  if(_partsLine) stage.push(_partsLine);
   // SCALE / POV — when an in-frame subject isn't human-scale, recontextualize the world
   // from its perspective (gigantism / miniaturization), or render relative scale for a
   // mixed-scale frame. All-human frames add nothing (inert).
@@ -2357,16 +2397,25 @@ function buildShotPrompt(sh, ctx){
       +" — anonymous, behind and around the cast, the same faces from shot to shot; none of them is a named character");
   if(subjects.length && !_shotCrowds.length && !_crowdRx.test(String(sh.action||"")+" "+String(sh.composition||""))){
     stage.push("Exactly "+subjects.length+" "+(subjects.length===1?"person":"people")+" in frame — ONLY "
-      + subjects.map(c=>c.name).join(" and ")+"; no bystanders, no extras, no additional figures");
+      + subjects.map(c=>c.name).join(" and ")+"; no bystanders, no extras, no additional figures"
+      // the count is people only: a car, a ramp or a machine the action names stays in frame (2026-11-01)
+      +(/\b(?:car|cars|van|truck|lorry|panda|vehicle|bus|bike|motorbike|scooter|taxi|tractor|headlights?|forklift|train|boat)\b/i.test(String(openingAction||sh.action||""))
+        ? " (vehicles and machines the action names are not people and stay in frame)" : ""));
   }
   // FIRST-FRAME BIAS: this still seeds the beat's VIDEO clip, so stage its opening
   // instant, not its peak — and never freeze a mouth mid-vowel (bad start frame,
   // bad lip-sync anchor; the audio drives the mouth once the clip moves).
-  stage.push("Stage the beat's OPENING instant — the action just beginning, not its peak; this frame starts the moving clip");
+  stage.push(screenplaySource&&screenplaySource.moment&&screenplaySource.moment.of>1
+    ? "Stage the OPENING instant of moment "+screenplaySource.moment.n+" of "+screenplaySource.moment.of+" in this beat — this moment's action just beginning, not its peak, and nothing from the beat's other moments; this frame starts the moving clip"
+    : "Stage the beat's OPENING instant — the action just beginning, not its peak; this frame starts the moving clip");
    let openingDialogue=clean(sh.dialogue);
    if(screenplaySource&&screenplaySource.hasSource){
      const openingIds=new Set(screenplaySource.openingCharacterIds||[]);
-     const firstLine=(screenplaySource.dialogue||[]).find(d=>d&&d.delivery==="in-room"
+     // a line spoken after the opening moment is not this frame's (2026-11-01: the headlights frame of "Final Ramp"
+     // was told Ottavio is about to say "Last one, Bassi", which comes three paragraphs later)
+     const _moments=screenplaySource.moment ? null : shotBeatMomentList(scene,sh&&sh.beatN,ctx,_chars);
+     const _lines=_moments&&_moments.length>1 ? (_moments[0].dialogue||[]) : (screenplaySource.dialogue||[]);
+     const firstLine=_lines.find(d=>d&&d.delivery==="in-room"
        && (!d.speakerId || openingIds.has(d.speakerId)));
      openingDialogue=firstLine ? clean(firstLine.text) : "";
    }
@@ -2386,12 +2435,14 @@ function buildShotPrompt(sh, ctx){
   // mirror the real attachment list or the numbered map mislabels the files)
   const _refOff = _promptRefOff;
    const _locSpecs = _promptLocSpecs;
+  const _partsMoved = (_partStates||[]).filter(p=>p&&p.state&&p.differs).map(p=>p.name.toLowerCase()+": "+p.state.label.toLowerCase());
   const _locLabels = _locSpecs.filter(s=>_refOff.indexOf(s.id)<0).map(s=>s.note+" — "
     + (s.category==="place"
       ? "a design reference for binding place identity; if compound, preserve its multi-panel meaning and never treat it as a full-frame crop"
       : (s.category==="state"
         ? "the authoritative Time-of-Day Variant for this place; preserve its exact light, dressing and condition"
-        : (locWeight==="ambient" ? "a background reference for the grade and surfaces only; the character fills this tight frame" : "reproduce its architecture, surfaces, fixtures, sightlines and signage exactly"))));
+        : (locWeight==="ambient" ? "a background reference for the grade and surfaces only; the character fills this tight frame" : "reproduce its architecture, surfaces, fixtures, sightlines and signage exactly")))
+    + (_partsMoved.length ? "; except the moving parts set for this instant ("+_partsMoved.join("; ")+"), which this reference may show otherwise" : ""));
   const _castLabels = subjects.filter(c=>_refOff.indexOf(c.id)<0).map(c=> {
     const scale = (typeof canonicalScaleLabel==="function") ? canonicalScaleLabel(c) : (c.name||"character");
     // (2026-10-12, Character fidelity) the script's distinguishing features ride with the sheet (face marks drop with a likeness)
@@ -3233,14 +3284,16 @@ window.scanTextForChars = scanTextForChars;
    character who isn't in the frame. */
 function inFrameCast(sh, scene, characters, ctx){
   const valid = id=>(characters||[]).some(c=>c&&c.id===id);
-  const source=(typeof shotBeatSource==="function")
-    ? shotBeatSource(scene,sh&&sh.beatN,ctx,characters) : null;
+  const source=(typeof shotMomentSource==="function")
+    ? shotMomentSource(scene,sh,ctx,characters) : null;
+  // a moment shot (a split beat) is an opening keyframe of its own moment
+  const opening=!!sh && (sh.keyframeMode==="beat-opening" || sh.keyframeMode==="moment");
   if(source&&source.hasSource){
-    const physical=new Set((sh&&sh.keyframeMode==="beat-opening"
+    const physical=new Set((opening
       ? source.openingCharacterIds : source.physicalCharacterIds)||[]);
     const requested=sh&&sh.referenceCharactersSet
       ? (Array.isArray(sh.referenceCharacterIds)?sh.referenceCharacterIds:[])
-      : ((sh&&sh.keyframeMode==="beat-opening") ? source.openingCharacterIds
+      : (opening ? source.openingCharacterIds
         : ((sh&&sh.subjects)||[]));
     return Array.from(new Set(requested.filter(id=>valid(id)&&physical.has(id))));
   }
