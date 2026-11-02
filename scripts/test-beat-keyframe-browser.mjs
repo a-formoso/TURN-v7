@@ -53,7 +53,7 @@ async function prep(){
   }
   await writeFile(`${FIX}/beat-keyframe.html`,html());
 }
-function html(){return `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=stylesheet href=/styles.css><style>body{overflow:auto;background:#08090b;padding:24px}.beat-card-grid{max-width:980px;margin:auto}#seed-root{margin-top:1200px}</style></head><body><div id=root></div><div id=classic-root></div><div id=seed-root></div><div id=progress-root></div><script src=/react.js></script><script src=/react-dom.js></script><script>
+function html(){return `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link rel=stylesheet href=/styles.css><style>body{overflow:auto;background:#08090b;padding:24px}.beat-card-grid{max-width:980px;margin:auto}#seed-root{margin-top:2400px;padding-bottom:1200px}</style></head><body><div id=root></div><div id=classic-root></div><div id=seed-root></div><div id=progress-root></div><script src=/react.js></script><script src=/react-dom.js></script><script>
  window.__fixture={calls:[],confirmations:[],errors:[],mounts:[]};window.addEventListener("error",e=>__fixture.errors.push(String(e.message)));window.addEventListener("unhandledrejection",e=>__fixture.errors.push(String(e.reason&&e.reason.message||e.reason)));
 window.Icon=new Proxy({}, {get:(_,n)=>({s=12})=>React.createElement("svg",{"data-i":n,width:s,height:s})});
 const px="data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#263d42"/></svg>');
@@ -184,8 +184,15 @@ async function main(){
       "primary camera controls remain visible by default");
     assert.equal(await c.eval("document.querySelectorAll('.sheet-frame').length"),1,
       "the production SheetFrame source is rendered in the isolated fixture");
-    assert.equal(await c.eval("document.querySelectorAll('.sheet-frame .sheet-gen-btn').length"),1,
+    // (2026-11-02) the shot card reads in numbered steps: SheetFrame draws its one Generate control into "3 · Generate"
+    assert.equal(await c.eval("document.querySelectorAll('.sheet-card.shot-card .sheet-gen-btn').length"),1,
       "the production SheetFrame keeps its single Generate control");
+    assert.equal(await c.eval("document.querySelectorAll('.shot-step[data-step=\"3\"] .shot-gen-host .sheet-gen-btn').length"),1,
+      "the Generate control sits in the card's numbered 3 · Generate part");
+    assert.deepEqual(await c.eval("[...document.querySelectorAll('.sheet-card.shot-card[data-shot-card=\"opening-1\"] .shot-step-t')].map(x=>x.textContent)"),
+      ["What this frame shows","Camera","Generate"],"the three numbered parts, in the order you use them");
+    assert.equal(await c.eval("!!document.querySelector('.sheet-card.shot-card[data-shot-card=\"opening-1\"] .shot-top .shot-next')"),true,
+      "the card says the one thing to do now at the top");
 
     const primary=".sheet-card.shot-card[data-shot-card=\"opening-1\"]";
     const choosePrimaryImageOption=async label=>{
@@ -194,14 +201,14 @@ async function main(){
       await c.eval(`[...document.querySelectorAll('${primary} .sheet-tools-item')].find(x=>x.textContent.trim()===${JSON.stringify(label)}).click()`);
     };
     await wait(()=>c.eval("!!document.querySelector('.coverage-refs')"),"reference controls");
-    const refPlacement=await c.eval(`(()=>{const card=document.querySelector('${primary}'),frame=card.querySelector('.sheet-frame'),refs=frame.querySelector('.shot-refs.coverage-refs'),row=frame.querySelector('.shot-refs-row.coverage-refs-row'),gen=frame.querySelector('.sheet-gen-row');return {
+    const refPlacement=await c.eval(`(()=>{const card=document.querySelector('${primary}'),frame=card.querySelector('.shot-gen-host'),refs=frame.querySelector('.shot-refs.coverage-refs'),row=frame.querySelector('.shot-refs-row.coverage-refs-row'),gen=frame.querySelector('.sheet-gen-row');return {
       inFrame:!!refs&&refs.parentElement===frame,header:refs&&refs.querySelector('.shot-refs-lab')?.textContent.trim(),
       row:!!row&&row.parentElement===refs,thumbs:refs?refs.querySelectorAll('.shot-ref-thumb').length:0,
       beforeGenerate:!!(refs&&gen&&(refs.compareDocumentPosition(gen)&Node.DOCUMENT_POSITION_FOLLOWING)),
-      bodyRefs:card.querySelectorAll('.sheet-body .shot-refs').length
+      bodyRefs:card.querySelectorAll('.sheet-body .shot-refs:not(.shot-gen-host .shot-refs)').length
     }})()`);
     assert.deepEqual(refPlacement,{inFrame:true,header:"Reference images",row:true,thumbs:1,beforeGenerate:true,bodyRefs:0},
-      "selectable reference images use the production SheetFrame slot above Generate, not the body");
+      "selectable reference images sit right above Generate, in the card\u2019s 3 \u00b7 Generate part");
     assert.equal(await c.eval("document.querySelector('.coverage-refs .shot-ref-tick').getAttribute('aria-pressed')"),"true",
       "included reference controls expose their current toggle state");
     assert.deepEqual(await c.eval(`(()=>{const thumb=document.querySelector('.coverage-refs .shot-ref-thumb'),preview=thumb.querySelector('.shot-ref-preview');return {wrapper:thumb.tagName,preview:preview.tagName,label:preview.getAttribute('aria-label')}})()`),
@@ -366,10 +373,10 @@ async function main(){
     const seedPicker="#seed-root .shot-location-picker-menu";
     const peerPicker=primary+" .shot-location-picker-menu";
     await wait(()=>c.eval(`!!document.querySelector('${peerPicker}')`),"second card location picker");
-    const pointerClick=async selector=>{
+    const pointerClick=async (selector,block="center")=>{
       let point=null;
       for(let attempt=0;attempt<4&&!point?.targetHit;attempt++){
-       point=await c.eval(`(async()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)return null;el.scrollIntoView({block:'center',inline:'nearest'});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,hit=document.elementFromPoint(x,y);return {x,y,width:r.width,height:r.height,targetHit:!!(r.width&&r.height&&hit&&(hit===el||el.contains(hit)))};})()`);
+       point=await c.eval(`(async()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)return null;el.scrollIntoView({block:${JSON.stringify(block)},inline:'nearest'});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,hit=document.elementFromPoint(x,y);return {x,y,width:r.width,height:r.height,targetHit:!!(r.width&&r.height&&hit&&(hit===el||el.contains(hit)))};})()`);
        if(!point?.targetHit) await new Promise(resolve=>setTimeout(resolve,50));
       }
       assert.ok(point?.targetHit,`pointer target is not hit-testable after scrolling: ${selector} (${JSON.stringify(point)})`);
@@ -405,7 +412,8 @@ async function main(){
     await wait(()=>c.eval("document.querySelectorAll('.shot-location-picker-menu[open]').length===0"),"blank-area pointer dismisses menu");
     await pointerClick(seedPicker+" > summary");
     await wait(()=>c.eval(`document.querySelector('${seedPicker}').open`),"reopen for outside control");
-    await pointerClick(primary+' [data-qa="check"]');
+    // (2026-11-02) QA check now sits under the card's numbered parts, below the open menu's reach — scroll it to the bottom edge
+    await pointerClick(primary+' [data-qa="check"]',"end");
     await wait(()=>c.eval("document.querySelectorAll('.shot-location-picker-menu[open]').length===0"),"outside control dismisses menu");
     assert.deepEqual(await c.eval("window.__fixture.calls.map(x=>x[0])"),["qa"],
       "outside dismissal does not swallow the clicked action or alter saved references");
@@ -488,7 +496,9 @@ async function main(){
     // actually inside the captured viewport.
     await c.call("Emulation.setDeviceMetricsOverride",{width:1280,height:900,deviceScaleFactor:1,mobile:false});
     await c.eval(`(()=>{const p=document.querySelector('#seed-root ${seedCard} .shot-location-picker');p.scrollIntoView({block:"center"});p.querySelector('summary').click()})()`);
-    await wait(()=>c.eval(`(()=>{const d=document.querySelector('#seed-root ${seedCard} details.shot-location-picker-menu'),p=d&&d.querySelector('.shot-location-picker-panel'),r=p&&p.getBoundingClientRect();return !!d?.open&&!!r&&r.top>=0&&r.bottom<=innerHeight})()`),"desktop open chooser in viewport");
+    // (2026-11-02) the chooser now sits in the card's "3 · Generate" part, under the frame: the frame image loading
+    // above it can move it after the first scroll, so bring it back to the middle before measuring
+    await wait(()=>c.eval(`(()=>{const d=document.querySelector('#seed-root ${seedCard} details.shot-location-picker-menu'),p=d&&d.querySelector('.shot-location-picker-panel');if(d&&d.open)d.closest('.shot-location-picker').scrollIntoView({block:"center"});const r=p&&p.getBoundingClientRect();return !!d?.open&&!!r&&r.top>=0&&r.bottom<=innerHeight})()`),"desktop open chooser in viewport");
      const desktopPickerGeometry=await c.eval(`(()=>{const card=document.querySelector('#seed-root ${seedCard}'),menu=card.querySelector('.shot-location-picker-menu'),panel=menu.querySelector('.shot-location-picker-panel'),summary=menu.querySelector('summary'),cr=card.getBoundingClientRect(),pr=panel.getBoundingClientRect(),sr=summary.getBoundingClientRect();return {
        rightDelta:Math.abs(pr.right-sr.right),
        inset:pr.left>=cr.left+8&&pr.right<=cr.right-8,

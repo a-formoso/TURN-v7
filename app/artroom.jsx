@@ -5032,7 +5032,7 @@ if(typeof document!=="undefined" && typeof document.addEventListener==="function
 }
 window.frameFitImage = frameFitImage;
 
-function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs, draftNote }){
+function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs, draftNote, genHost }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, relatedClearIdsOf, relatedClearLabel, revertPrevious, layers, allModels } = gen;
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
@@ -5385,6 +5385,9 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
       layers>0 && React.createElement("div",{className:"sheet-edit-layers"},
         React.createElement(Icon.history,{s:10}),
         layers+" earlier version"+(layers!==1?"s":"")+" \u00b7 see all in the \u2026 menu \u203a Details")),
+    /* the references + Generate row can be drawn somewhere else on the card (genHost, a DOM node: the shot card puts
+       them in its numbered "3 · Generate" part, owner 2026-11-02) — same buttons, same state, just placed there */
+    (()=>{ const _genBlock=React.createElement(React.Fragment,null,
     referenceControls,
     // generate + (while running) stop sit on ONE row — full-width when idle, 50/50 while generating
     React.createElement("div",{className:"sheet-gen-row"},
@@ -5414,7 +5417,8 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     // Stop an in-flight generation — discards the result so it won't commit over the frame.
     gening && React.createElement("button",{className:"sheet-gen-stop",onClick:()=> onStop ? onStop() : (cancelGen && cancelGen()),
       title:"Stop this generation — nothing will be saved over the current frame"},
-      React.createElement(Icon.x,{s:14}),"Stop")),
+      React.createElement(Icon.x,{s:14}),"Stop")));
+      return genHost ? ReactDOM.createPortal(_genBlock, genHost) : _genBlock; })(),
     // import a finished, full-res sheet generated outside the app (ChatGPT, etc.)
     React.createElement("input",{ref:uploadRef,type:"file",accept:"image/png,image/jpeg,image/webp,image/avif",
       style:{display:"none"},onChange:onUploadPicked}),
