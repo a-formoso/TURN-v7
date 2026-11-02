@@ -11758,3 +11758,5 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .shot-card .shot-steps{margin:0 0 12px}
 .shot-next-why{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
 .shot-steps .shot-seed-line{margin-top:7px;padding:0}
+/* shot-card field labels (owner 2026-11-02): the name in capitals, the explanation in plain case */
+.obj-lab .obj-lab-rest{text-transform:none;letter-spacing:.01em}

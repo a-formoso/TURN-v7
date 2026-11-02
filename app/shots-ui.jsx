@@ -509,6 +509,15 @@ function ShotPurpose({sh}){
     sh.purpose&&_el("span",{className:"shot-purpose-t"},sh.purpose));
 }
 
+// a shot-card field label: its name in capitals, the explanation after it in plain case (owner 2026-11-02)
+function shotFieldLabel(text, key){
+  const t=String(text||"");
+  if(!key || t.indexOf(key)!==0) return t;
+  return _el(React.Fragment,null,
+    _el("span",{className:"obj-lab-key"},key),
+    _el("span",{className:"obj-lab-rest"},t.slice(key.length)));
+}
+
 function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, onDeleteShotReference, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra, readOnly=false }){
   const loc = ctx.location;
   // who/what is in frame is DERIVED from the action text (single source of truth) — the
@@ -1302,8 +1311,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       // a closed fold is a warning nobody sees.
       _el(CardFold,{label:"Action \u00b7 composition \u00b7 dialogue",defaultOpen:!!dropped},
         // the action — what we see in this frame
-        _el(SheetField,{label: actionFromScript ? "Action \u2014 what we see in this frame (the screenplay's opening; edit it to use your own words)"
-            : spOpening ? "Action \u2014 your words (the frame uses them instead of the screenplay's opening)" : "Action \u2014 what we see in this frame",
+        _el(SheetField,{label: shotFieldLabel(actionFromScript ? "Action \u2014 what we see in this frame (the screenplay's opening; edit it to use your own words)"
+            : spOpening ? "Action \u2014 your words (the frame uses them instead of the screenplay's opening)" : "Action \u2014 what we see in this frame", "Action"),
           value: actionFromScript ? spOpening : sh.action, multiline:true,
           placeholder:"One vivid present-tense beat of on-screen action\u2026",onCommit:commitAction}),
         (!actionFromScript && spOpening) && _el("div",{className:"shot-action-src"},
@@ -1317,7 +1326,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           " \u2014 named in covered micro-beats, missing from the action"),
 
         // composition (the depth-grid "vary" layer) + dialogue
-        _el(SheetField,{label:"Composition \u2014 framing, blocking, depth, eyeline",value:sh.composition,multiline:true,
+        _el(SheetField,{label:shotFieldLabel("Composition \u2014 framing, blocking, depth, eyeline","Composition"),value:sh.composition,multiline:true,
           placeholder:"Where subjects sit in frame, foreground/background, eyeline\u2026",onCommit:v=>onUpdate(sh.id,{composition:v})}),
         // multiline: dialogue lines routinely outgrow a single-line input, which clipped
         // them visually (the full text was stored, just unreadable/uneditable)
@@ -1325,25 +1334,25 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         // shown here, read-only, with where to change it (2026-10-05); a beat without one keeps the field
         spLine!==undefined
           ? _el("div",{className:"sheet-field shot-dialogue-src"},
-              _el("div",{className:"obj-lab"},"Dialogue \u2014 from the screenplay"),
+              _el("div",{className:"obj-lab"},shotFieldLabel("Dialogue \u2014 from the screenplay","Dialogue")),
               _el("div",{className:"shot-dialogue-line"}, spLine && spLine.text
                 ? ((spLine.speaker ? String(spLine.speaker).toUpperCase()+": " : "")+"\u201c"+String(spLine.text).trim()+"\u201d")
                 : "No line is spoken as this frame opens."),
               _el("div",{className:"shot-inframe-hint"},"Change spoken lines in the Writers' Room script \u2014 voices and lip-sync follow it."))
-          : _el(SheetField,{label:"Dialogue (optional)",value:sh.dialogue,multiline:true,
+          : _el(SheetField,{label:shotFieldLabel("Dialogue (optional)","Dialogue"),value:sh.dialogue,multiline:true,
               placeholder:"A short line spoken in this beat\u2026",onCommit:v=>onUpdate(sh.id,{dialogue:v})}),
 
         // the director's own prompt words — compiled into the spec as custom_directives
         // on every rebuild, so they survive sheet/style changes and never fork the prompt
-        _el(SheetField,{label:"Director's notes \u2014 extra prompt directives (optional)",value:sh.directives,multiline:true,
+        _el(SheetField,{label:shotFieldLabel("Director's notes \u2014 extra prompt directives (optional)","Director's notes"),value:sh.directives,multiline:true,
           placeholder:"Your own words for the generator \u2014 atmosphere, camera nuance, performance notes\u2026 These compose INTO the prompt; the derived spec (references, cast, style) stays intact.",
           onCommit:v=>onUpdate(sh.id,{directives:v})}),
         // on the card like the other tabs' "Leave out" (2026-10-05); the frame reads it, a Stage take doesn't
-        _el(SheetField,{label:"Leave out (negative prompt)",value:sh.negativePrompt||"",multiline:true,
+        _el(SheetField,{label:shotFieldLabel("Leave out (negative prompt)","Leave out"),value:sh.negativePrompt||"",multiline:true,
           placeholder:shotNegativePrompt({}),onCommit:v=>onUpdate(sh.id,{negativePrompt:v})}),
         // the Stage's own "leave out" (2026-10-24): what the video take must not do —
         // the clip prompt's NEGATIVE block; frames don't read it, so it never stales one
-        _el(SheetField,{label:"Must not happen \u2014 what the video take must avoid (optional)",value:sh.mustNot||"",multiline:true,
+        _el(SheetField,{label:shotFieldLabel("Must not happen \u2014 what the video take must avoid (optional)","Must not happen"),value:sh.mustNot||"",multiline:true,
           placeholder:"e.g. She never smiles. The cup stays on the table. Nobody looks into the lens.",
           onCommit:v=>onUpdate(sh.id,{mustNot:v})})),
 
