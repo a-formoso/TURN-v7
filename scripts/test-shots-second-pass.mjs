@@ -97,7 +97,7 @@ await test("C1 Action says whose words the frame uses; 'Use the screenplay's' go
 await test("C2 Dialogue on a screenplay beat is the screenplay's line, read-only; 'Leave out' is on the card", ()=>{
   assert.ok(card.includes('"Dialogue \\u2014 from the screenplay"') && card.includes('"No line is spoken as this frame opens."'));
   assert.ok(card.includes("spLine!==undefined"));
-  const notes = between(card, 'label:"Action \\u00b7 composition \\u00b7 dialogue \\u00b7 notes"', 'label:"In frame"');
+  const notes = between(card, 'label:"Action \\u00b7 composition \\u00b7 dialogue"', 'label:"In frame"');
   assert.ok(notes.includes('label:"Leave out (negative prompt)"'));
   const prompt = between(card, 'label:"Shot prompt"', "\n}");
   assert.ok(!/SheetField/.test(prompt), "the prompt fold is read-only now");

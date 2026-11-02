@@ -1300,7 +1300,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       // SheetField commits on blur, so collapsing loses only uncommitted drafts.
       // The dropped-subjects warning forces the fold open: a warning hidden behind
       // a closed fold is a warning nobody sees.
-      _el(CardFold,{label:"Action \u00b7 composition \u00b7 dialogue \u00b7 notes",defaultOpen:!!dropped},
+      _el(CardFold,{label:"Action \u00b7 composition \u00b7 dialogue",defaultOpen:!!dropped},
         // the action — what we see in this frame
         _el(SheetField,{label: actionFromScript ? "Action \u2014 what we see in this frame (the screenplay's opening; edit it to use your own words)"
             : spOpening ? "Action \u2014 your words (the frame uses them instead of the screenplay's opening)" : "Action \u2014 what we see in this frame",
@@ -1412,7 +1412,10 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
               // who is how big in this frame (scale plan step 4, 2026-10-28) — nothing for same-size human casts
               sizes:()=> (typeof qaTrueSizes==="function") ? qaTrueSizes(subjects) : [],
               onApplySpec:(patch)=>onUpdate(sh.id, (patch && patch.action!=null && spOpening) ? { ...patch, actionByHand:true } : patch) })))),
-      _el(CardFold,{label:"More tools \u00b7 Blender, shot prompt",defaultOpen:false},
+      // the shot prompt has its own section (owner 2026-11-02), read-only, before the tools
+      _el(CardFold,{label:"Shot prompt",defaultOpen:false},
+        _el(CopyBox,{label: isHead ? "Final frame prompt \u2014 master + grade + references" : "Final frame prompt \u2014 master + grade + reference frame + sheets",text:previewPrompt})),
+      _el(CardFold,{label:"More tools \u00b7 Blender",defaultOpen:false},
       _el(CardFold,{label:"Blender preview · rough blockout",defaultOpen:false},
         window.BlenderPreviewPanel
           ? _el(window.BlenderPreviewPanel,{shot:sh,scene,location:loc,subjects,props:inProps,readOnly,onUpdate})
@@ -1445,9 +1448,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           ...inProps.filter(actual).map(p=>({entityId:p.id,label:p.name||"Prop",kind:"prop"}))].filter(Boolean);
         return window.BlenderStudioLaunch && _el(window.BlenderStudioLaunch,
           {location:studioTarget||null,shot:sh,references:studioRefs,readOnly});
-      })(),
-      _el(CardFold,{label:"Shot prompt",defaultOpen:false},
-        _el(CopyBox,{label: isHead ? "Final frame prompt \u2014 master + grade + references" : "Final frame prompt \u2014 master + grade + reference frame + sheets",text:previewPrompt})))));
+      })())));
 }
 
 const CONF_LABELS = ["Inner","Personal","Extra-personal"];
