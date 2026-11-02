@@ -184,15 +184,13 @@ async function main(){
       "primary camera controls remain visible by default");
     assert.equal(await c.eval("document.querySelectorAll('.sheet-frame').length"),1,
       "the production SheetFrame source is rendered in the isolated fixture");
-    // (2026-11-02) the shot card reads in numbered steps: SheetFrame draws its one Generate control into "3 · Generate"
-    assert.equal(await c.eval("document.querySelectorAll('.sheet-card.shot-card .sheet-gen-btn').length"),1,
+    assert.equal(await c.eval("document.querySelectorAll('.sheet-frame .sheet-gen-btn').length"),1,
       "the production SheetFrame keeps its single Generate control");
-    assert.equal(await c.eval("document.querySelectorAll('.shot-step[data-step=\"3\"] .shot-gen-host .sheet-gen-btn').length"),1,
-      "the Generate control sits in the card's numbered 3 · Generate part");
-    assert.deepEqual(await c.eval("[...document.querySelectorAll('.sheet-card.shot-card[data-shot-card=\"opening-1\"] .shot-step-t')].map(x=>x.textContent)"),
-      ["What this frame shows","Camera","Generate"],"the three numbered parts, in the order you use them");
-    assert.equal(await c.eval("!!document.querySelector('.sheet-card.shot-card[data-shot-card=\"opening-1\"] .shot-top .shot-next')"),true,
-      "the card says the one thing to do now at the top");
+    // (2026-11-02) steps like a location card: the Locations step guide, and the card's parts as numbered fold rows
+    assert.deepEqual(await c.eval("[...document.querySelectorAll('.sheet-card.shot-card[data-shot-card=\\\"opening-1\\\"] [data-testid=shot-step-guide] .loc-step-name')].map(x=>x.textContent)"),
+      ["What it shows","Camera","Frame","Approve"],"the shot's four steps, in the order you do them");
+    assert.equal(await c.eval("[...document.querySelectorAll('.sheet-card.shot-card[data-shot-card=\\\"opening-1\\\"] .sheet-fold-head .sheet-sec, .sheet-card.shot-card[data-shot-card=\\\"opening-1\\\"] details > summary')].map(x=>x.textContent).filter(t=>/^\\d \\u00b7 /.test(t)).join('|')"),
+      "1 \u00b7 What this frame shows|2 \u00b7 Camera","the card's parts are numbered fold rows, like the other tabs' cards");
 
     const primary=".sheet-card.shot-card[data-shot-card=\"opening-1\"]";
     const choosePrimaryImageOption=async label=>{
@@ -201,14 +199,14 @@ async function main(){
       await c.eval(`[...document.querySelectorAll('${primary} .sheet-tools-item')].find(x=>x.textContent.trim()===${JSON.stringify(label)}).click()`);
     };
     await wait(()=>c.eval("!!document.querySelector('.coverage-refs')"),"reference controls");
-    const refPlacement=await c.eval(`(()=>{const card=document.querySelector('${primary}'),frame=card.querySelector('.shot-gen-host'),refs=frame.querySelector('.shot-refs.coverage-refs'),row=frame.querySelector('.shot-refs-row.coverage-refs-row'),gen=frame.querySelector('.sheet-gen-row');return {
+    const refPlacement=await c.eval(`(()=>{const card=document.querySelector('${primary}'),frame=card.querySelector('.sheet-frame'),refs=frame.querySelector('.shot-refs.coverage-refs'),row=frame.querySelector('.shot-refs-row.coverage-refs-row'),gen=frame.querySelector('.sheet-gen-row');return {
       inFrame:!!refs&&refs.parentElement===frame,header:refs&&refs.querySelector('.shot-refs-lab')?.textContent.trim(),
       row:!!row&&row.parentElement===refs,thumbs:refs?refs.querySelectorAll('.shot-ref-thumb').length:0,
       beforeGenerate:!!(refs&&gen&&(refs.compareDocumentPosition(gen)&Node.DOCUMENT_POSITION_FOLLOWING)),
-      bodyRefs:card.querySelectorAll('.sheet-body .shot-refs:not(.shot-gen-host .shot-refs)').length
+      bodyRefs:card.querySelectorAll('.sheet-body .shot-refs').length
     }})()`);
     assert.deepEqual(refPlacement,{inFrame:true,header:"Reference images",row:true,thumbs:1,beforeGenerate:true,bodyRefs:0},
-      "selectable reference images sit right above Generate, in the card\u2019s 3 \u00b7 Generate part");
+      "selectable reference images use the production SheetFrame slot above Generate, not the body");
     assert.equal(await c.eval("document.querySelector('.coverage-refs .shot-ref-tick').getAttribute('aria-pressed')"),"true",
       "included reference controls expose their current toggle state");
     assert.deepEqual(await c.eval(`(()=>{const thumb=document.querySelector('.coverage-refs .shot-ref-thumb'),preview=thumb.querySelector('.shot-ref-preview');return {wrapper:thumb.tagName,preview:preview.tagName,label:preview.getAttribute('aria-label')}})()`),

@@ -11753,32 +11753,8 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .loc-step-go{flex:none}
 .loc-cam-problem{margin:4px 0}
 
-/* SHOT CARD IN THREE NUMBERED STEPS (owner 2026-11-02: "What am I supposed to do here? … numbers … the right order").
-   The top says the one thing to do now (with its button); below the frame: 1 What this frame shows · 2 Camera ·
-   3 Generate; the rest is the quiet tool row and the More tools fold. */
-.shot-card .shot-top{padding:14px 15px 0}
-.shot-card .shot-top .shot-beat-context{margin:0 0 10px}
-.shot-next{border:1px solid var(--line-2);border-radius:var(--r-m);padding:9px 11px;margin:0 0 12px;background:var(--bg-2)}
-.shot-next-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.shot-next-text{flex:1 1 180px;min-width:0}
-.shot-next-head{display:flex;align-items:center;gap:5px;font-weight:600;font-size:13px;color:var(--txt-1,inherit)}
-.shot-next-sub{font-size:12px;line-height:1.45;color:var(--txt-2);margin-top:2px}
-.shot-next.todo,.shot-next.review{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,transparent)}
-.shot-next.todo .shot-next-head,.shot-next.review .shot-next-head{color:var(--accent-ink)}
-.shot-next.warn{border-color:var(--danger);background:rgba(216,107,97,.08)}
-.shot-next.warn .shot-next-head{color:var(--danger-ink)}
-.shot-next.done{border-color:var(--pos,var(--ok));background:color-mix(in srgb,var(--pos,var(--ok)) 8%,transparent)}
-.shot-next.done .shot-next-head{color:var(--pos-ink,var(--ok))}
-.shot-next-btn{flex:none;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:999px;
-  padding:6px 13px;font:600 12px/1 var(--f-ui,inherit);cursor:pointer}
-.shot-next-btn.ghost{background:transparent;color:var(--accent-ink)}
-.shot-next-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.shot-next-why{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
-.shot-next .shot-seed-line{margin-top:6px;padding:0}
-.shot-step{border-top:1px solid var(--line);padding:11px 0 4px}
-.shot-step:first-child{border-top:0;padding-top:2px}
-.shot-step-head{display:flex;align-items:center;gap:8px;margin:0 0 9px;font-weight:600;font-size:12.5px;letter-spacing:.01em}
-.shot-step-n{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;
-  background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent-ink);font:700 11px/1 var(--f-mono,inherit)}
-.shot-step .shot-gen-host:empty{display:none}
-.shot-card .sheet-body > .shot-head{border-top:1px solid var(--line);padding-top:10px;margin-top:4px}
+/* SHOT CARD STEPS (owner 2026-11-02: "numbers … the right order", then "keep the same consistency as the other tab
+   cards"): the Locations step guide (.loc-steps) and numbered fold rows; only the why-chips are the shot's own */
+.shot-card .shot-steps{margin:0 0 12px}
+.shot-next-why{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.shot-steps .shot-seed-line{margin-top:7px;padding:0}

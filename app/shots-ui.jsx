@@ -562,8 +562,6 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const previewPrompt = isHead ? finalPrompt : chainPrompt;
 
   const gen = useImageGen(framePack.opts);
-  // the card's "3 · Generate" part: SheetFrame draws its references + Generate row into this node (2026-11-02)
-  const [genHost, setGenHost] = React.useState(null);
   const frameSourceStatus = gen.genUrl && typeof shotAssetProvenanceStatus==="function"
     ? shotAssetProvenanceStatus(sh,(((window.turnContinuity||{}).drafts||{})[sh.sceneId]),gen.genMeta) : "";
   // APPROVED BUT OUT OF DATE (2026-10-05, owner — Shots review): editing an approved shot used to make
@@ -1167,35 +1165,52 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             off ? "+" : "✓")); })),
     refWarn);
 
-  /* THE NEXT STEP, SAID ONCE AT THE TOP (owner 2026-11-02: "What am I supposed to do here? … numbers … which item to
-     generate first … make it simpler"): one line says what to do now and carries its button; the card below is three
-     numbered parts in the order you use them (1 What this frame shows · 2 Camera · 3 Generate) and the rest is folded
-     under More tools. Nothing here changes how a frame renders. */
-  const goToGenerate = ()=>{ if(genHost){ try{ genHost.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} } };
+  /* THE STEPS, LIKE A LOCATION CARD'S (owner 2026-11-02: "What am I supposed to do here? … numbers … which item to
+     generate first … make it simpler", then "keep the same consistency as the other tab cards"): the Locations step
+     guide's own NEXT box and numbered pills (1 What it shows · 2 Camera · 3 Frame · 4 Approve), and the card's parts as
+     the same numbered fold rows. Nothing here changes how a frame renders. */
+  const shotFoldId = (n)=>"shot-step-"+sh.id+"-"+n;
   const shotStale = !!(gen.genUrl && (continuityNeedsRefresh || characterSheetsChanged || locationChanged || propDependenciesStale));
-  const nextStep = gen.gening ? { tone:"busy", head:"Rendering this frame\u2026", sub:"It saves itself when it\u2019s done." }
-    : (_missCast.length || _missLoc.length) ? { tone:"warn", head:"Make what\u2019s missing first",
-        sub:"A reference this frame needs isn\u2019t made yet \u2014 see 3 \u00b7 Generate.", go:true }
-    : waitingForShot ? { tone:"wait", head:"Waiting for another shot", sub:"This one can start when the render in progress finishes." }
-    // a frame that exists but hasn't loaded yet (slow or offline) never reads "generate" — that would spend credits on it again
-    : (!gen.genUrl && (sh.locked || (typeof nbGetMeta==="function" && !!nbGetMeta(sh.id))))
-      ? { tone:"wait", head:"Loading this frame\u2026", sub:sh.locked ? "It\u2019s approved \u2014 the picture appears in a moment." : "The picture appears in a moment." }
-    : !gen.genUrl ? { tone:"todo", head:"Next: generate this frame", sub:"Check 1 and 2 below, then press Generate image in 3.", go:true }
-    : sh.locked ? (approvedButStale
-        ? { tone:"warn", head:"Out of date since you approved it", sub:"Generate it again in 3 \u2014 or unlock it, then approve it again to keep it.",
-            act:{ label:"Unlock to re-approve", title:"Unlock this frame; then approve it again (it asks before keeping an out-of-date frame).", fn:toggleFrameApproval } }
-        : { tone:"done", head:"Approved", sub:"The next shot builds on this frame." })
-    : { tone:shotStale?"warn":"review", head:"Next: check this frame",
-        sub:"Happy with it? Approve it. Not right? Add a director\u2019s note in 1 and generate again.",
-        act:{ label:"Approve frame", title:"Approve this frame: ordered runs keep it, and the next shot builds on it.", fn:toggleFrameApproval } };
-  const nextPanel = _el("div",{className:"shot-next "+nextStep.tone,role:"status","data-testid":"shot-next"},
-    _el("div",{className:"shot-next-row"},
-      _el("div",{className:"shot-next-text"},
-        _el("div",{className:"shot-next-head"},nextStep.tone==="done"&&Icon.check&&_el(Icon.check,{s:12}),nextStep.head),
-        _el("div",{className:"shot-next-sub"},nextStep.sub)),
-      !readOnly && nextStep.act && _el("button",{type:"button",className:"shot-next-btn",title:nextStep.act.title,onClick:nextStep.act.fn},nextStep.act.label),
-      !readOnly && !nextStep.act && nextStep.go && genHost && _el("button",{type:"button",className:"shot-next-btn ghost",onClick:goToGenerate},"Go to 3 \u2193")),
-    // why it may be out of date, and how the frame was made — the long lines, kept short and inside this one box
+  // a frame that exists but hasn't loaded yet (slow or offline) never reads "generate" — that would spend credits on it again
+  const frameLoading = !gen.genUrl && !gen.gening && (sh.locked || (typeof nbGetMeta==="function" && !!nbGetMeta(sh.id)));
+  const missingRefs = _missCast.length>0 || _missLoc.length>0;
+  const shotSteps = [
+    {n:1,name:"What it shows",done:!!(spOpening || String(sh.action||"").trim()),
+      todo:"Write the action \u2014 what we see in this frame."},
+    {n:2,name:"Camera",done:!!sh.size,todo:"Choose the size, angle, move and lens."},
+    {n:3,name:"Frame",done:!!gen.genUrl && !(sh.locked ? approvedButStale : false),
+      todo:gen.gening ? "Rendering this frame\u2026 it saves itself when it\u2019s done."
+        : missingRefs ? "Make what\u2019s missing first \u2014 see the note under the reference images."
+        : waitingForShot ? "Waiting for another shot to finish rendering."
+        : frameLoading ? (sh.locked ? "Loading the approved frame\u2026" : "Loading this frame\u2026")
+        : approvedButStale ? "Out of date since you approved it: generate it again \u2014 or unlock it and approve it again to keep it."
+        : "Generate the frame under the image at the top of the card."},
+    {n:4,name:"Approve",done:!!(sh.locked && gen.genUrl && !approvedButStale),
+      todo:(shotStale ? "It may be out of date (below). " : "")+"Happy with the frame? Approve it. Not right? Add a director\u2019s note in 1 and generate again."}];
+  if(frameLoading){ shotSteps[2].done=false; }
+  const nextShotStep = shotSteps.find(x=>!x.done);
+  const goShotStep = (n)=>{
+    if(n<=2){ window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:shotFoldId(n)})); return; }
+    const card = document.querySelector('[data-shot-card="'+sh.id+'"]');
+    const btn = card && card.querySelector(".sheet-gen-btn");
+    try{ (btn||card).scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
+  };
+  const busyStep = nextShotStep && nextShotStep.n===3 && (gen.gening || waitingForShot || frameLoading);
+  const shotStepGuide = _el("div",{className:"loc-steps shot-steps","data-testid":"shot-step-guide"},
+    nextShotStep ? _el("div",{className:"loc-steps-next"},
+      _el("span",{className:"loc-steps-next-label"},"Next"),
+      _el("span",{className:"loc-steps-next-text"},_el("b",null,nextShotStep.n+" \u00b7 "+nextShotStep.name+" \u2014 "),nextShotStep.todo),
+      !readOnly && !busyStep && (nextShotStep.n===4
+        ? _el("button",{type:"button",className:"art-draftall loc-step-go",title:"Approve this frame: ordered runs keep it, and the next shot builds on it.",onClick:toggleFrameApproval},"Approve")
+        : (nextShotStep.n===3 && approvedButStale)
+        ? _el("button",{type:"button",className:"art-draftall loc-step-go",title:"Unlock this frame; then approve it again (it asks before keeping an out-of-date frame).",onClick:toggleFrameApproval},"Unlock")
+        : _el("button",{type:"button",className:"art-draftall loc-step-go",onClick:()=>goShotStep(nextShotStep.n)},"Go")))
+      : _el("div",{className:"loc-steps-next done"},_el("span",{className:"loc-steps-next-text"},"Approved \u2014 the next shot builds on this frame.")),
+    _el("ol",{className:"loc-steps-list","aria-label":"Steps for this shot"},shotSteps.map(st=>_el("li",{key:st.n},
+      _el("button",{type:"button",className:"loc-step"+(st.done?" done":(nextShotStep&&nextShotStep.n===st.n)?" next":""),onClick:()=>goShotStep(st.n),
+        title:(st.done?"Done":(nextShotStep&&nextShotStep.n===st.n)?"Next":"Later")+(st.todo&&!st.done?" \u2014 "+st.todo:"")},
+        _el("span",{className:"loc-step-n"},st.done?"\u2713":st.n),_el("span",{className:"loc-step-name"},st.name))))),
+    // why a frame may be out of date — said once, inside the guide
     (gen.genUrl && (characterSheetsChanged || locationChanged || propDependenciesStale)) && _el("div",{className:"shot-next-why"},
           gen.genUrl && characterSheetsChanged && _el("span",{className:"shot-source-badge stale",
             title:"A character sheet this frame used was regenerated after the frame was made (a new master, variant or likeness). The frame stays as it is until you regenerate it."},
@@ -1220,14 +1235,12 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         seedWasUnapproved && _el("span",{className:"shot-seed-exception"},
           (continuityNeedsRefresh?" · ":"")+"Director override — rendered from an unapproved continuity frame.")));
 
+
   return _el("div",{className:"sheet-card shot-card"+(batchActiveId===sh.id?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id},
-    _el("div",{className:"shot-top"},
-      beatContext && _el("div",{className:"shot-beat-context"},beatContext),
-      nextPanel),
     _el(SheetFrame,{ gen:genGuarded, slotId:"shot-"+sh.id, name:beatLabel, avatarColor:"linear-gradient(135deg,#7a6cae,#2a2440)",
       initials, drafted:true, drafting:false, onDraft:()=>{}, entity:sh, onView,
       slotPlaceholder:"Generate or drop a frame", noun:"frame", dropToImport:true, onStop:onStopChain,
-      referenceControls, genHost,
+      referenceControls,
       generateDisabled:waitingForShot,
       generateDisabledLabel:"Wait for current shot",
       generateDisabledTitle:"Another shot is generating. Wait for it to finish before starting this frame.",
@@ -1271,8 +1284,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         onDelete(sh.id);
       }, deleteLabel:"Delete shot" }),
     _el("div",{className:"sheet-body"},
-      _el("div",{className:"shot-step","data-step":"1"},
-        _el("div",{className:"shot-step-head"},_el("span",{className:"shot-step-n","aria-hidden":"true"},"1"),_el("span",{className:"shot-step-t"},"What this frame shows")),
+      /* Compact beat metadata stays in the real card body; its screenplay
+         evidence is grouped in Scripted below, never in a duplicate preview. */
+      beatContext && _el("div",{className:"shot-beat-context"},beatContext),
+      shotStepGuide,
+      _el(CardFold,{label:"1 \u00b7 What this frame shows",foldId:shotFoldId(1),defaultOpen:false,count:shotSteps[0].done?"\u2713 done":"next"},
       // The beat card supplies its full screenplay and presence evidence here.
       // Other callers retain their existing read-only source excerpt.
       scriptedContent || ((beatText||sh.purpose||(sh.covers||[]).length>0) && _el("div",{className:"shot-beat-script",
@@ -1351,8 +1367,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           _el(Icon.globe,{s:12}),
           loc ? _el("span",null,"Location: ",_el("b",null,loc.name),(typeof stagingHasContent==="function"&&stagingHasContent(loc))?" \u00b7 depth grid inherited":" \u00b7 no depth grid staged")
               : _el("span",null,"No location resolved for this scene \u2014 set the scene's slugline / pull locations.")))),
-      _el("div",{className:"shot-step","data-step":"2"},
-        _el("div",{className:"shot-step-head"},_el("span",{className:"shot-step-n","aria-hidden":"true"},"2"),_el("span",{className:"shot-step-t"},"Camera")),
+      // the camera stays open by default (primary controls visible on every card)
+      _el(CardFold,{label:"2 \u00b7 Camera",foldId:shotFoldId(2),defaultOpen:true,count:shotSteps[1].done?"\u2713 done":"next"},
       // cinematographer grammar
       _el("div",{className:"shot-grammar-grid"},
         _el(GrammarSelect,{label:"Size",value:sh.size,options:SHOT_SIZES,onChange:v=>onUpdate(sh.id,{size:v})}),
@@ -1361,15 +1377,12 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         _el(GrammarSelect,{label:"Lens",value:sh.lens,options:SHOT_LENSES,onChange:v=>onUpdate(sh.id,{lens:v})})),
       _el(ShotPovPicker,{sh,characters:characters||(((window.turnContinuity||{}).characters)||[]),onUpdate}),
       _el(AdvancedCameraSettings,{sh,onUpdate})),
-      _el("div",{className:"shot-step","data-step":"3"},
-        _el("div",{className:"shot-step-head"},_el("span",{className:"shot-step-n","aria-hidden":"true"},"3"),_el("span",{className:"shot-step-t"},"Generate")),
-        _el("div",{className:"shot-gen-host",ref:setGenHost}),
       refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
           (typeof locationUsesParentPlate==="function" && locationUsesParentPlate(loc))
             ? ((loc.name||"This room")+" borrows its parent's plate, which isn't ready yet. Generate "+(((typeof locationParentOf==="function"&&locationParentOf(loc))||{}).name||"the parent location")+"'s plate in Locations.")
-            : "No full-frame room & time or extra-space plate is ready for this beat. Generate one in Locations — a cropped master plate won't be used in its place.")),
-      // everything else, quiet and below the three steps (owner 2026-11-02: "make it simpler … in the right order")
+            : "No full-frame room & time or extra-space plate is ready for this beat. Generate one in Locations — a cropped master plate won't be used in its place."),
+      // everything else, quiet and below the numbered parts (owner 2026-11-02: "make it simpler … in the right order")
       _el("div",{className:"shot-head"},
         // Keep the compact header for status and review controls. Frame approval lives
         // in the image's existing Options menu, where its effect can be explained.
