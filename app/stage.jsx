@@ -1055,7 +1055,10 @@ function stageCurrentScreenplayDirection(scene,sh,ctx,peerShots,clipBeatComplete
   const covers=Array.isArray(sh&&sh.covers)
     ? sh.covers.map(Number).filter(Number.isFinite) : [];
   const completeBeat=!!clipBeatComplete;
-  const wholeBeat=completeBeat&&group.length===1&&group[0]&&group[0].id===sh.id;
+  /* a moment of a split beat (and its opening shot) reads only its own moment's screenplay, so its clip performs that
+     whole moment — it needs no Covers (2026-11-03: Final Ramp's moment clips were blocked as "partial" beats) */
+  const ownMoment=stageBeatOpeningShot(sh)&&!!(source.moment&&Number(source.moment.n)>0);
+  const wholeBeat=ownMoment||(completeBeat&&group.length===1&&group[0]&&group[0].id===sh.id);
   /*
    * Covers index the shot's STORED coverage plan when one exists (beatPlan.micro —
    * the moments the shots were drafted against, often an AI paraphrase of the
@@ -1175,7 +1178,8 @@ function stageCurrentScreenplayDirection(scene,sh,ctx,peerShots,clipBeatComplete
     if(localExplicit.error)
       return issue(localExplicit.error,"screenplay-dialogue-review");
     const assigned=new Set();
-    const assignments=(group.length?group:[sh]).map(candidate=>explicitDialogueFor(candidate));
+    // a moment's lines are its own: the other moments of the beat read other lines (2026-11-03)
+    const assignments=((ownMoment||!group.length)?[sh]:group).map(candidate=>explicitDialogueFor(candidate));
     for(const assignment of assignments){
       if(assignment.error)
         return issue(assignment.error,"screenplay-dialogue-review");
@@ -2270,7 +2274,8 @@ function stageClipReadiness(clip, ctx, imgs, drafts, opts){
   let needs = [];
   if(typeof sceneReferenceNeeds==="function" && shots.length){
     const location = (typeof locationForScene==="function") ? locationForScene((ctx||{}).locations||[], scene.id) : null;
-    try{ needs = sceneReferenceNeeds(shots, { ...(ctx||{}), scene, location }, has) || []; }catch(e){ needs = []; }
+    // a reference still downloading isn't missing (2026-11-03: "missing: Marmorica, AURELIO BASSI" while they loaded)
+    try{ needs = sceneReferenceNeeds(shots, { ...(ctx||{}), scene, location }, id=>has(id)||loadingOf(id)) || []; }catch(e){ needs = []; }
   }
   const n = (k, one, many)=> k+" "+(k===1?one:many);
   const issues = [];
@@ -9424,6 +9429,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
        "" just like an image that doesn't exist, and nothing asked again). Empty ids are retried after 4 s and 12 s;
        their state isn't reset to loading meanwhile, so an image that really doesn't exist doesn't flicker. */
     const timers = [];
+    const knownImage = (id)=>{ const sh=(shots||[]).find(x=>x && x.id===id);
+      return !!((sh && sh.locked) || (typeof nbGetMeta==="function" && nbGetMeta(id))); };
     const run = async (list, attempt)=>{
       const limit = 8, empty = [];
       let idx = 0;
@@ -9439,9 +9446,16 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             }
             if(alive && u) setImgs(prev=> prev[id] ? prev : ({...prev, [id]:u}));
             if(alive && u && propVariantIdsRef.current.has(id)) setPropVariantTick(t=>t+1);   // re-pick the prop's sheet
-            if(alive && (u || attempt===0)) setImageLoadState(prev=>({...prev,[id]:u?"ready":"unavailable"}));
+            // a frame known to exist (approved, or with its saved details) stays "loading" while it is asked again, so a
+            // slow first answer never reads "not made yet" (2026-11-03); the last failed try says unavailable
+            const known = knownImage(id), last = attempt>=2;
+            if(alive && u) setImageLoadState(prev=>({...prev,[id]:"ready"}));
+            else if(alive && (attempt===0 || (known && last))) setImageLoadState(prev=>({...prev,[id]:known && !last ? "loading" : "unavailable"}));
             if(!u) empty.push(id);
-          }catch(e){ if(alive && attempt===0) setImageLoadState(prev=>({...prev,[id]:"error"})); empty.push(id); }
+          }catch(e){
+            const known = knownImage(id), last = attempt>=2;
+            if(alive && (attempt===0 || (known && last))) setImageLoadState(prev=>({...prev,[id]:known && !last ? "loading" : "error"}));
+            empty.push(id); }
         }
       };
       await Promise.all(Array.from({length:Math.min(limit, list.length)}, worker));
@@ -9635,9 +9649,11 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             const voiceNote = (!rendered && !unknown && p.ready)
               ? stageClipVoiceNote(c, auds, characters||[], clipAudioModes[c.id] || (shootMemRef.current.get(c.id)||{}).dialogueAudio || "locked", railModel.audioRefs!==false) : "";
             const issueText = [ready && ready.issues.length ? String(ready.text||"").replace(/^\s*[—-]\s*/,"") : "", voiceNote].filter(Boolean).join(" · ");
-            const st = rendered ? "ok" : unknown ? "todo" : !p.ready ? "warn" : (issueText ? "warn" : "todo");
+            // a frame still downloading is "Loading…", never "No frame" (2026-11-03: a slow load listed made frames as missing)
+            const frameLoading = !p.ready && ((c.g&&c.g.shots)||[]).some(sh=>sh && (imageLoadState||{})[sh.id]==="loading");
+            const st = rendered ? "ok" : (unknown || frameLoading) ? "todo" : !p.ready ? "warn" : (issueText ? "warn" : "todo");
             const stText = rendered ? (noted ? "Rendered · take notes" : "Rendered")
-              : unknown ? "Loading…"
+              : (unknown || frameLoading) ? "Loading…"
               : !p.ready ? "No frame — Shots"
               : (issueText || "Ready to render");
             const shotsIn = (c.g&&c.g.shots)||[];

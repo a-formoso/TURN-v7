@@ -159,4 +159,21 @@ check(/const beatSrc = \(typeof window\.shotMomentSource==="function"\)\s*\? win
   check(!kept.removed.length&&!kept.renumbered.length&&kept.added===0,"A beat split correctly is left as it is");
   check(/const trashMomentRepeats=/.test(app)&&/trashMomentRepeats\(out\.removed\)/.test(app)&&/trashMomentRepeats\(removed\)/.test(app)&&/merged\.archived=\[\.\.\.merged\.archived,\.\.\.out\.removed\]/.test(app),"Every split path keeps removed cards in Recently deleted");
 }
+// 9 · the Stage renders each moment as a whole (2026-11-03: Final Ramp's 01A was blocked as a "partial beat" with no
+// Covers, and 01C because the opening shot still carried moment 3's line from before the split)
+{
+  const st=read("app/stage.jsx");
+  const fn=(name,end)=>st.slice(st.indexOf("function "+name+"("),st.indexOf(end,st.indexOf("function "+name+"(")));
+  vm.runInContext([fn("stageBeatOpeningShot","\nfunction stageDeliveryIsRemote"),fn("stageDeliveryIsRemote","\nfunction stageDeliveryIsText"),
+    fn("stageDeliveryIsText","\nfunction stageBeatSource"),fn("stageBeatSource","\n/*"),
+    fn("stageCurrentScreenplayDirection","\nfunction stageDialogueAssignmentKey")].join("\n")
+    +"\nthis.stageCurrentScreenplayDirection=stageCurrentScreenplayDirection;",box);
+  const sctx={drafts,characters,beatsMap:{}};
+  const p1={...primary,moment:{n:1,of:4},dialogue:"Last one, Bassi."}, peers=[p1,m(2),{...m(3),dialogue:"Last one, Bassi."},m(4)];
+  const d1=box.stageCurrentScreenplayDirection(scene,p1,sctx,peers,false);
+  check(d1&&!d1.blocked&&/Headlights/.test(d1.text||d1.script||JSON.stringify(d1)),"A split beat's opening clip renders moment 1 whole, without Covers");
+  const d3=box.stageCurrentScreenplayDirection(scene,peers[2],sctx,peers,false);
+  check(d3&&!d3.blocked,"Moment 3's line is its own, even though the opening shot still carries it from before the split");
+  check(/const ownMoment=stageBeatOpeningShot\(sh\)&&/.test(st)&&/\(\(ownMoment\|\|!group\.length\)\?\[sh\]:group\)/.test(st),"The Stage reads a moment as its own unit");
+}
 console.log(`PASS beat moments: ${checks} split, prompt, chain and Stage checks`);
