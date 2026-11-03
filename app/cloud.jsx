@@ -1688,7 +1688,9 @@ function _shotsMergePerShot(base, local, remote){
   const idOf = s=> s && s.id!=null ? String(s.id) : null;
   if([base, local, remote].some(list=>list.some(s=>idOf(s)==null))) return local;   // no ids: the old whole-list save
   const B = new Map(base.map(s=>[idOf(s), s])), L = new Map(local.map(s=>[idOf(s), s])), R = new Map(remote.map(s=>[idOf(s), s]));
-  const same = (a,b)=> _shotsJson(a)===_shotsJson(b);
+  // key order is not a change (2026-11-03): the cloud's copy comes back with its keys in another order, which made
+  // every shot look edited there — so a shot removed here (Join, a repeated moment card) came back on the next save
+  const same = (a,b)=> _seriesJsonSame(a,b);
   const pick = (id)=>{
     const b = B.get(id), l = L.get(id), r = R.get(id);
     if(l && r){
