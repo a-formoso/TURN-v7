@@ -6431,8 +6431,12 @@ function App(){
       Array.from(new Set((made||[]).map(sh=>sh&&sh.sceneId))).forEach(id=>{
         const sc=(scenesRef.current||scenes).find(x=>x.id===id);
         const beatNs=Array.from(new Set((made||[]).filter(sh=>sh&&sh.sceneId===id).map(sh=>Number(sh.beatN))));
-        if(sc) merged.shots=window.beatMomentShots(sc,merged.shots,{drafts:draftsRef.current||drafts,
-          characters:charactersRef.current||characters,beatsMap,props,beats:beatNs,stamp}).shots;
+        if(!sc) return;
+        const out=window.beatMomentShots(sc,merged.shots,{drafts:draftsRef.current||drafts,
+          characters:charactersRef.current||characters,beatsMap,props,beats:beatNs,stamp});
+        merged.shots=out.shots;
+        // a moment card that repeated another moment goes to Recently deleted (2026-11-03)
+        if(out.removed&&out.removed.length) merged.archived=[...merged.archived,...out.removed];
       });
     }
     if(merged.archived.length) setTrash(t=>({...t,shots:[
@@ -6442,6 +6446,17 @@ function App(){
     shotsLiveRef.current=merged.shots;
     setShots(merged.shots);
     return merged;
+  };
+  // moment cards that repeated another moment (2026-11-03): kept in Recently deleted, never thrown away
+  const trashMomentRepeats=(removed)=>{
+    if(!removed||!removed.length) return;
+    const ids=new Set(removed.map(x=>x.id));
+    setTrash(t=>({...t,shots:[...removed.map(_trashStamp),...(t.shots||[]).filter(x=>!ids.has(x.id))]}));
+  };
+  const momentRepeatsNote=(removed,renumbered)=>{
+    const r=(removed||[]).length, n=(renumbered||[]).length;
+    return (r ? r+" repeated moment card"+(r===1?"":"s")+" moved to Recently deleted in Shots (images kept). " : "")
+      +(n ? n+" moment card"+(n===1?"":"s")+" renumbered. " : "")+"No credits were used.";
   };
   const [splittingBeat, setSplittingBeat] = React.useState(null);
   const [refiningBeat, setRefiningBeat] = React.useState(null);
@@ -6508,22 +6523,29 @@ function App(){
     const live=shotsLiveRef.current.map(x=>x.id===primary.id&&x.momentsJoined ? (({momentsJoined,...rest})=>rest)(x) : x);
     const out=window.beatMomentShots(scene,live,{drafts:draftsRef.current||drafts,characters:charactersRef.current||characters,
       beatsMap,props,beats:[Number(beatN)]});
-    if(!out.added){ if(window.appToast) window.appToast("This beat's screenplay is one moment, or it is already split.","info"); return; }
+    const fixed=(out.removed||[]).length+(out.renumbered||[]).length;
+    if(!out.added && !fixed){ if(window.appToast) window.appToast("This beat's screenplay is one moment, or it is already split.","info"); return; }
+    trashMomentRepeats(out.removed);
     shotsLiveRef.current=out.shots; setShots(out.shots);
+    if(!out.added){ if(window.appToast) window.appToast(momentRepeatsNote(out.removed,out.renumbered),"ok"); return; }
     if(window.appToast) window.appToast("Beat "+beatN+" is now "+(out.added+1)+" shots, one per moment. Its opening frame shows moment 1; generate the others in order. No credits were used.","ok");
   };
   // every beat of the film in its moments (free); beats joined by hand stay joined
   const splitAllBeatMoments = async ()=>{
     if(!canMutateSharedFilm() || typeof window.beatMomentShots!=="function") return;
-    let list=shotsLiveRef.current, added=0, beatsSplit=0;
+    let list=shotsLiveRef.current, added=0, beatsSplit=0, removed=[], renumbered=[];
     const stamp=Date.now().toString(36);
     (scenesInStoryOrder(scenesRef.current||scenes)||[]).forEach(sc=>{
       const out=window.beatMomentShots(sc,list,{drafts:draftsRef.current||drafts,characters:charactersRef.current||characters,beatsMap,props,stamp});
       list=out.shots; added+=out.added; beatsSplit+=out.split.length;
+      removed=removed.concat(out.removed||[]); renumbered=renumbered.concat(out.renumbered||[]);
     });
-    if(!added){ if(window.appToast) window.appToast("Every beat is already in its moments. Nothing was changed.","info"); return; }
+    if(!added && !removed.length && !renumbered.length){ if(window.appToast) window.appToast("Every beat is already in its moments. Nothing was changed.","info"); return; }
+    trashMomentRepeats(removed);
     shotsLiveRef.current=list; setShots(list);
-    if(window.appToast) window.appToast(beatsSplit+" beat"+(beatsSplit===1?"":"s")+" split into moments: "+added+" new shot"+(added===1?"":"s")+". No credits were used; generate their frames in order.","ok");
+    const fixNote=(removed.length||renumbered.length) ? " "+momentRepeatsNote(removed,renumbered).replace(/ No credits were used\.$/,"") : "";
+    if(!added){ if(window.appToast) window.appToast(momentRepeatsNote(removed,renumbered),"ok"); return; }
+    if(window.appToast) window.appToast(beatsSplit+" beat"+(beatsSplit===1?"":"s")+" split into moments: "+added+" new shot"+(added===1?"":"s")+". No credits were used; generate their frames in order."+fixNote,"ok");
   };
   const joinBeatMoments = async (scene, beatN)=>{
     if(!scene || !canMutateSharedFilm()) return;

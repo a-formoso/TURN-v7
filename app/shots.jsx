@@ -2315,7 +2315,26 @@ function beatMomentShots(scene, shots, opts){
   const words=t=>String(t||"").replace(/\s+/g," ").trim().replace(/^["“]|["”]$/g,"");
   const beats=Array.from(new Set(list.filter(s=>s&&s.sceneId===scene.id&&Number(s.beatN)>0).map(s=>Number(s.beatN))))
     .filter(n=>!Array.isArray(opts.beats)||opts.beats.indexOf(n)>=0);
-  let added=0; const split=[];
+  let added=0; const split=[], removed=[], renumbered=[];
+  const norm=t=>String(t||"").replace(/\s+/g," ").trim().toLowerCase();
+  const makeMoment=(m,n,of,primary,base)=>{
+    const line=(m.dialogue||[]).find(d=>d&&d.delivery==="in-room"&&(!d.speakerId||m.openingCharacterIds.indexOf(d.speakerId)>=0));
+    const sh={ id:"shot-"+scene.id+"-"+n+"-moment"+m.moment.n+"-"+stamp, sceneId:scene.id, beatN:n,
+      order:base+m.moment.n/100, keyframeMode:"moment", moment:{n:m.moment.n,of},
+      // a moment that names nobody (a ramp closing, a car arriving) reads as a wide; a person's moment as a medium
+      size:(m.namedCharacterIds||[]).length?"MS":"WS", angle:"eye", move:"static", lens:"50", composition:"",
+      ...shotMomentSpecOf(primary,m.moment.n),
+      subjects:m.openingCharacterIds.slice(), referenceCharactersSet:true, referenceCharacterIds:m.openingCharacterIds.slice(),
+      locationId:primary.locationId||"", referenceLocationsSet:!!primary.referenceLocationsSet,
+      referenceLocationIds:Array.isArray(primary.referenceLocationIds)?primary.referenceLocationIds.slice():[],
+      locationSide:primary.locationSide, props:[], action:m.openingAction, dialogue:line?line.text:"",
+      covers:[], beatPlan:null, negativePrompt:"", specRev:1,
+      sourceScreenplayRev:m.sourceRev||"", beatScript:m.text, remoteCharacterIds:(m.remoteCharacterIds||[]).slice() };
+    if(typeof inFrameProps==="function") sh.props=inFrameProps(sh,scene,charMap,propMap);
+    // a line already voiced on the opening shot goes with the moment that speaks it (no second voicing)
+    if(line && primary.lineAudio && words(primary.lineAudio.text)===words(line.text)) sh.lineAudio={...primary.lineAudio};
+    return fp(sh);
+  };
   beats.forEach(n=>{
     const inBeat=list.filter(s=>s&&s.sceneId===scene.id&&Number(s.beatN)===n);
     const primary=shotPrimaryOf(inBeat);
@@ -2323,11 +2342,39 @@ function beatMomentShots(scene, shots, opts){
     let ms=[]; try{ ms=window.shotBeatMoments(scene,n,mopts); }catch(e){ ms=[]; }
     const pi=list.indexOf(primary);
     const existing=inBeat.filter(s=>s.keyframeMode==="moment");
+    /* NO REPEATED CARDS (2026-11-03, owner): the moments of an already split beat are matched again by their action —
+       a moment shot showing the opening frame's moment, or a moment the screenplay no longer has, goes to Recently
+       deleted (images and takes stay on its ID); the others take their moment's number. */
+    if(existing.length){
+      const of2=Math.max(1,ms.length), taken=new Set([1]);
+      const firstAction=sh=>{ const b=String(sh.beatScript||"").split("\n").map(x=>x.trim()).find(Boolean); return b||""; };
+      const matchOf=sh=>{
+        if(sh.actionByHand){ const k=Number(sh.moment&&sh.moment.n); return ms.find(m=>m.moment.n===k)||null; }
+        return ms.find(m=>norm(m.openingAction)&&(norm(m.openingAction)===norm(sh.action)||norm(m.openingAction)===norm(firstAction(sh))))
+          || ms.find(m=>m.moment.n===Number(sh.moment&&sh.moment.n)&&!norm(sh.action))||null;
+      };
+      existing.slice().sort((a,b)=>(Number(a.order)||0)-(Number(b.order)||0)).forEach(sh=>{
+        const m=ms.length>=2 ? matchOf(sh) : null;
+        const at=list.indexOf(sh);
+        if(!m || taken.has(m.moment.n)){ removed.push(sh); list.splice(at,1); return; }
+        taken.add(m.moment.n);
+        if(Number(sh.moment&&sh.moment.n)!==m.moment.n || Number(sh.moment&&sh.moment.of)!==of2){
+          list[at]={...sh,moment:{n:m.moment.n,of:of2},order:(Number(primary.order)||0)+m.moment.n/100};
+          renumbered.push(sh.id);
+        }
+      });
+      if(ms.length<2){
+        const p={...list[list.indexOf(primary)]}; delete p.moment; delete p.momentSpecs; list[list.indexOf(primary)]=p;
+        return;
+      }
+      ms.slice(1).forEach(m=>{ if(!taken.has(m.moment.n)){ list.push(makeMoment(m,n,ms.length,primary,Number(primary.order)||0)); added++; } });
+    }
     if(ms.length<2){ if(!existing.length&&primary.momentSpecs){ const p={...primary}; delete p.momentSpecs; list[pi]=p; } return; }
     const of=ms.length, base=Number(primary.order)||0;
+    const live=list.filter(s=>s&&s.sceneId===scene.id&&Number(s.beatN)===n&&s.keyframeMode==="moment");
     if(existing.length){
       // already split: refresh the camera the opening's redraft proposed for each later moment
-      existing.forEach(sh=>{
+      live.forEach(sh=>{
         const spec=shotMomentSpecOf(primary,Number(sh.moment&&sh.moment.n));
         if(!spec) return;
         const changed=Object.keys(spec).some(k=>sh[k]!==spec[k]);
@@ -2336,29 +2383,13 @@ function beatMomentShots(scene, shots, opts){
         list[list.indexOf(sh)]=next;
       });
     }else{
-      ms.slice(1).forEach(m=>{
-        const line=(m.dialogue||[]).find(d=>d&&d.delivery==="in-room"&&(!d.speakerId||m.openingCharacterIds.indexOf(d.speakerId)>=0));
-        const sh={ id:"shot-"+scene.id+"-"+n+"-moment"+m.moment.n+"-"+stamp, sceneId:scene.id, beatN:n,
-          order:base+m.moment.n/100, keyframeMode:"moment", moment:{n:m.moment.n,of},
-          // a moment that names nobody (a ramp closing, a car arriving) reads as a wide; a person's moment as a medium
-          size:(m.namedCharacterIds||[]).length?"MS":"WS", angle:"eye", move:"static", lens:"50", composition:"",
-          ...shotMomentSpecOf(primary,m.moment.n),
-          subjects:m.openingCharacterIds.slice(), referenceCharactersSet:true, referenceCharacterIds:m.openingCharacterIds.slice(),
-          locationId:primary.locationId||"", referenceLocationsSet:!!primary.referenceLocationsSet,
-          referenceLocationIds:Array.isArray(primary.referenceLocationIds)?primary.referenceLocationIds.slice():[],
-          locationSide:primary.locationSide, props:[], action:m.openingAction, dialogue:line?line.text:"",
-          covers:[], beatPlan:null, negativePrompt:"", specRev:1,
-          sourceScreenplayRev:m.sourceRev||"", beatScript:m.text, remoteCharacterIds:(m.remoteCharacterIds||[]).slice() };
-        if(typeof inFrameProps==="function") sh.props=inFrameProps(sh,scene,charMap,propMap);
-        // a line already voiced on the opening shot goes with the moment that speaks it (no second voicing)
-        if(line && primary.lineAudio && words(primary.lineAudio.text)===words(line.text)) sh.lineAudio={...primary.lineAudio};
-        list.push(fp(sh)); added++;
-      });
+      ms.slice(1).forEach(m=>{ list.push(makeMoment(m,n,of,primary,base)); added++; });
       split.push(n);
     }
-    const p={...list[pi],moment:{n:1,of}}; delete p.momentSpecs; list[pi]=p;
+    const at=list.indexOf(list.find(s=>s&&s.id===primary.id));
+    const p={...list[at],moment:{n:1,of}}; delete p.momentSpecs; list[at]=p;
   });
-  return {shots:list,added,split};
+  return {shots:list,added,split,removed,renumbered};
 }
 window.beatMomentShots=beatMomentShots;
  function shotScreenplaySlice(scene, beatN, ctx){

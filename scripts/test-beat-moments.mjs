@@ -115,7 +115,7 @@ check(/const splitBeatIntoMoments = /.test(app)&&/const joinBeatMoments = async/
   check(box.beatMomentShots(scene,[{...primary,momentsJoined:true}],opts).added===0,"A beat joined by hand stays joined");
   check(box.beatMomentShots(scene,[primary],{...opts,beats:[4]}).added===0,"Only the beats asked for are split");
 }
-check(/drafted beats come out in their moments/.test(app)&&/merged\.shots=window\.beatMomentShots\(sc,merged\.shots,/.test(app),"Drafting (Design all shots, a scene's or a beat's redraft, the Shot Designer) splits beats into their moments");
+check(/drafted beats come out in their moments/.test(app)&&/const out=window\.beatMomentShots\(sc,merged\.shots,/.test(app)&&/merged\.shots=out\.shots;/.test(app),"Drafting (Design all shots, a scene's or a beat's redraft, the Shot Designer) splits beats into their moments");
 check(/const splitAllBeatMoments = async/.test(app)&&/onSplitAllMoments:splitAllBeatMoments/.test(app)&&/"Split beats into moments"/.test(ui),"Split beats into moments converts a film drafted before");
 check(/momentsJoined:true\} : x\)\);/.test(app),"Join remembers itself, so a redraft keeps the beat whole");
 const aiSrc=read("app/ai.jsx");
@@ -125,4 +125,38 @@ check(/setTrash\(t=>\(\{\.\.\.t,shots:\[\.\.\.parts\.map\(_trashStamp\)/.test(ap
 check(/\.bc-moments\{/.test(css),"The moments line is styled");
 check(/onSplitMoments:readOnly\?null:onSplitMoments,onJoinMoments:readOnly\?null:onJoinMoments,onSplitAllMoments:readOnly\?null:onSplitAllMoments/.test(read("app/artroom.jsx")),"The Art Room passes the split, the join and split-all to the Shots tab");
 check(/const beatSrc = \(typeof window\.shotMomentSource==="function"\)\s*\? window\.shotMomentSource\(scene, sh, ctx,/.test(read("app/shots-ui.jsx")),"A moment card's Action and Dialogue show its own moment, not the beat's first");
+// 8 · no repeated cards (owner 2026-11-03): lines before a beat's first action have no picture of their own
+{
+  const lead={id:"lead",no:3,title:"Purser"};
+  const D=(beat,type,text)=>({beat,type,text});
+  const lb=[D(2,"char","OTTAVIO"),D(2,"dia","Portoferraio, Marmorica. Repeat procedure for ticketless passengers."),
+    D(2,"char","PORT POLICE (V.O.)"),D(2,"paren","(filtered)"),D(2,"dia","Met at the ramp. Every one."),
+    A(2,"Ottavio holds Aurelio's eyes through every word."),D(2,"char","AURELIO"),D(2,"dia","Quiet night. I'll sweep the upper deck."),
+    A(2,"He is already half-turned to the door."),
+    D(5,"char","OTTAVIO (V.O.)"),D(5,"paren","(filtered, from Aurelio's belt)"),D(5,"dia","Possible stowaway, stern sector."),
+    A(5,"The lifejacket locker BANGS open. Nives bolts barefoot across wet steel."),
+    A(5,"Aurelio halts three steps short, ticket punch still in his fist.")];
+  const lopts={drafts:{lead:{version:1,blocks:lb}},characters,beatsMap:{}};
+  const two=box.shotBeatMoments(lead,2,lopts);
+  check(two.length===1&&/Portoferraio/.test(two[0].text)&&two[0].openingAction==="Ottavio holds Aurelio's eyes through every word.","A radio call before the first action joins that action's moment (one moment, no empty moment 1)");
+  const five=box.shotBeatMoments(lead,5,lopts);
+  check(five.length===2&&/Possible stowaway/.test(five[0].text)&&/locker BANGS/.test(five[0].openingAction)&&/Aurelio halts/.test(five[1].openingAction),"A voice-over before the first action is heard over moment 1");
+  // a beat split before the fix: moment 1 (the call) + moments 2 and 3 → the repeat goes to Recently deleted, the rest renumbered
+  const p5={id:"p5",sceneId:"lead",beatN:5,keyframeMode:"beat-opening",order:4,moment:{n:1,of:3},action:"The lifejacket locker BANGS open. Nives bolts barefoot across wet steel."};
+  const r2={id:"r2",sceneId:"lead",beatN:5,keyframeMode:"moment",order:4.02,moment:{n:2,of:3},action:"The lifejacket locker BANGS open. Nives bolts barefoot across wet steel.",beatScript:"The lifejacket locker BANGS open. Nives bolts barefoot across wet steel."};
+  const r3={id:"r3",sceneId:"lead",beatN:5,keyframeMode:"moment",order:4.03,moment:{n:3,of:3},action:"Aurelio halts three steps short, ticket punch still in his fist.",beatScript:"Aurelio halts three steps short, ticket punch still in his fist."};
+  const fx=box.beatMomentShots(lead,[p5,r2,r3],{...lopts,stamp:"f"});
+  check(fx.removed.map(x=>x.id).join()==="r2"&&fx.added===0,"The moment card that repeated the opening frame is removed (the app keeps it in Recently deleted)");
+  const nr3=fx.shots.find(x=>x.id==="r3"), np5=fx.shots.find(x=>x.id==="p5");
+  check(nr3.moment.n===2&&nr3.moment.of===2&&np5.moment.n===1&&np5.moment.of===2&&fx.renumbered.join()==="r3","The others take their moment's number");
+  // a beat that is now one moment: its moment card goes, the opening shot is a plain beat opening again
+  const p2={id:"p2",sceneId:"lead",beatN:2,keyframeMode:"beat-opening",order:1,moment:{n:1,of:2},action:"Ottavio holds Aurelio's eyes through every word."};
+  const q2={id:"q2",sceneId:"lead",beatN:2,keyframeMode:"moment",order:1.02,moment:{n:2,of:2},action:"Ottavio holds Aurelio's eyes through every word."};
+  const fy=box.beatMomentShots(lead,[p2,q2],{...lopts,stamp:"g"});
+  check(fy.removed.map(x=>x.id).join()==="q2"&&fy.shots.length===1&&!fy.shots[0].moment,"A beat that is one moment again keeps only its opening shot");
+  // Final Ramp's split is untouched
+  const kept=box.beatMomentShots(scene,box.beatMomentShots(scene,[primary],{...opts,stamp:"k"}).shots,opts);
+  check(!kept.removed.length&&!kept.renumbered.length&&kept.added===0,"A beat split correctly is left as it is");
+  check(/const trashMomentRepeats=/.test(app)&&/trashMomentRepeats\(out\.removed\)/.test(app)&&/trashMomentRepeats\(removed\)/.test(app)&&/merged\.archived=\[\.\.\.merged\.archived,\.\.\.out\.removed\]/.test(app),"Every split path keeps removed cards in Recently deleted");
+}
 console.log(`PASS beat moments: ${checks} split, prompt, chain and Stage checks`);

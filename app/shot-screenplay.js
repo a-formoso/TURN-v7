@@ -521,8 +521,10 @@
      opening keyframe shows a beat's first instant; a beat whose screenplay holds several separate events can be split
      into one shot per moment. A moment starts at an action paragraph and takes the dialogue after it. A paragraph
      that carries on the one before stays in its moment: one that starts with a pronoun ("He waves it through"), with
-     a sound in capitals ("CLICK. A dented white Panda."), or that is two words or fewer ("Stops."). Pure: the same
-     screenplay always gives the same moments. */
+     a sound in capitals ("CLICK. A dented white Panda."), or that is two words or fewer ("Stops."). Lines spoken before
+     the beat's first action paragraph have no picture of their own: they join that first moment and are heard over it
+     (2026-11-03, owner: "no repeated cards" — a lead-in radio call made a moment 1 that showed moment 2's action). Pure:
+     the same screenplay always gives the same moments. */
   const CONTINUES=/^(?:he|she|they|his|her|their|him|them)\b/i, SOUND_CUE=/^[A-Z][A-Z'-]+[.!]/;
   function momentContinues(text){
     const t=clean(text);
@@ -540,7 +542,8 @@
       const type=String(b&&b.type||"").toLowerCase(), t=clean(blockText(b));
       if(!t || type==="scene") return;
       if(type==="action" || type==="trans"){
-        if(!cur || !momentContinues(t)) open();
+        const curHasAction=!!cur && cur.blocks.some(x=>/^(action|trans)$/i.test(String(x&&x.type||"")));
+        if(!cur || (curHasAction && !momentContinues(t))) open();
       }else if(!cur) open();
       cur.blocks.push(b);
     });
