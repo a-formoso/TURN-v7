@@ -11925,3 +11925,45 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
   .art-intro-actions:has(> .shot-check-each) > .shot-check-each{grid-column:2;order:-1;align-self:center;justify-self:start}
   .art-intro-actions:has(> .shot-check-each):not(:has(> .rd-compact)) > .shot-check-each{grid-column:1 / -1}
 }
+
+/* ============================ MOBILE STEP 4 — THE STAGE (owner 2026-11-03) ============================ */
+/* THE SCENE LIST ON A NARROW SCREEN (stage.jsx compactRail, ≤860px where it stacks above the console): one row of
+   scene buttons and the open scene's clips as one row beneath — it was a 138–154px box with its own scrollbar */
+.stage2-rail.compact{max-height:none;overflow:visible;padding:8px 12px 10px}
+.stage2-rail.compact .stage2-rail-head{margin-bottom:6px}
+.stage2-scene-tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:0 0 6px;margin:0 -2px}
+.stage2-scene-tabs::-webkit-scrollbar{display:none}
+.stage2-scene-tab{flex:0 0 auto;max-width:220px;border:1px solid var(--hs-line,var(--line));border-radius:10px;background:var(--hs-surface,var(--bg-2));overflow:hidden}
+.stage2-scene-tab.on{border-color:var(--hs-amber,var(--accent))}
+.stage2-scene-tab .stage2-scene-headrow{padding:7px 10px 5px;border-radius:0}
+.stage2-scene-tab .stage2-scene-ttl{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stage2-rail.compact > .stage2-clip-cards{flex-direction:row;overflow-x:auto;scrollbar-width:none;padding:2px 0 4px;gap:7px;align-items:flex-start}
+.stage2-rail.compact > .stage2-clip-cards::-webkit-scrollbar{display:none}
+.stage2-rail.compact > .stage2-clip-cards .stage2-clip-card{flex:0 0 176px;min-width:0}
+.stage2-rail.compact > .stage2-clip-cards .stage2-beat-row{max-width:100%}
+.stage2-rail.compact > .stage2-rail-mini{padding:2px 0 4px}
+
+/* ONE SCROLLING PAGE WITH ITS TABS IN VIEW: on a phone (and a short screen) the whole Stage scrolls as one page; its
+   tabs stay pinned at the top while the heading folds away (app.jsx useHeadAutoHide) */
+@media (max-width:640px), (max-height:520px){
+  .app.hs .stage2-root > .stage-head{position:sticky;top:0;z-index:6;background:var(--hs-paper,var(--bg-1))}
+}
+@media (max-height:520px){
+  .stage2-root{overflow:auto}
+  .stage2-body{min-height:auto;overflow:visible}
+  .stage2-main{overflow:visible}
+  .stage2-console{overflow:visible}
+}
+/* THE MIX'S LANES ZOOM (Fit / 2× / 4×, as the Timeline): zoomed, the lanes scroll sideways and their names stay put */
+.stage2-au-zoombar{margin-bottom:6px}
+.stage2-au-scroll.zoomed{overflow-x:auto;padding-bottom:6px}
+.stage2-au-scroll.zoomed .stage2-au-lanes{min-width:calc(100% * var(--au-zoom,1) - 28px)}
+.stage2-au-scroll.zoomed :is(.stage2-au-lh,.stage2-au-corner){position:sticky;left:0;z-index:3;background:var(--hs-paper,var(--bg-1))}
+/* a warning with buttons on a phone: its words take the full width and its buttons sit underneath (the text was
+   squeezed into a narrow column beside "Make what this clip needs" and "Open in Shots") */
+@media (max-width:640px){
+  .stage2-warn{flex-wrap:wrap;row-gap:6px}
+  .stage2-warn .stage2-warn-text{flex:1 1 calc(100% - 20px)}
+  .stage2-warn .stage2-warn-act{margin-left:18px}
+  .stage2-warn .stage2-warn-act + .stage2-warn-act{margin-left:0}
+}

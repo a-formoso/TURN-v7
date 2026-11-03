@@ -398,8 +398,11 @@ function useHeadAutoHide(on, resetKey){
       acc += d;
       if(acc > 24) set(true); else if(acc < -48) set(false);
     };
+    // a view inside a room (the Stage's Shoot / Takes / Timeline / Mix) starts unfolded too
+    const unfold = ()=>set(false);
     document.addEventListener("scroll", onScroll, true);
-    return ()=>document.removeEventListener("scroll", onScroll, true);
+    window.addEventListener("turn-head-unfold", unfold);
+    return ()=>{ document.removeEventListener("scroll", onScroll, true); window.removeEventListener("turn-head-unfold", unfold); };
   },[on]);
   return on && hidden;
 }

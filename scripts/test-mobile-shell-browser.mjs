@@ -9,6 +9,8 @@
  *   · on a phone or a short screen, scrolling a room's page folds its heading away, leaving at least 70% of the screen
  *     below the tabs; scrolling back to the top brings the heading back;
  *   · on a desktop nothing folds and the engine pickers stay in the bar.
+ *   · (step 4, the Stage) up to 860px wide its scene list is a compact strip with no scrollbar of its own; in every room
+ *     the tabs stay in view while the heading is folded.
  *   · (step 3, the Art Room) every tab's page never scrolls sideways at any size.
  *   · (step 2, the Writers' Room) the Script view opens on scene 1: its page never scrolls sideways; before the heading
  *     folds it leaves at least half the screen.
@@ -98,7 +100,9 @@ const PROBE = `(()=>{
   // the room's heading (with its tabs): what the shared frame keeps above the page
   const head=document.querySelector(".app .art-head, .app .wr-head, .app .stage-head");
   const headBottom=head ? Math.round(head.getBoundingClientRect().bottom) : 0;
-  return { W, H, docW:document.documentElement.scrollWidth, wide:wide.slice(0,8), overlaps, headBottom,
+  const tabs=document.querySelector(".app .art-tabs-row, .app .wr-tabs, .app .stage-tabs");
+  const tabsTop=tabs ? Math.round(tabs.getBoundingClientRect().top) : null;
+  return { W, H, docW:document.documentElement.scrollWidth, wide:wide.slice(0,8), overlaps, headBottom, tabsTop,
     app:(document.querySelector(".app")||{}).className||"", crashed:/render crash|Something went wrong/i.test(document.body.innerText),
     main: main ? {cls:String(main.className).split(" ")[0], h:main.clientHeight, top:Math.round(main.getBoundingClientRect().top),
       sideways:main.scrollWidth-main.clientWidth} : null,
@@ -178,6 +182,12 @@ async function main(){
         if(size.w<=700) check(!top.enginesInBar || top.enginesToggle, `${tag}: the engines fold into the Engines button on a phone`);
         if(size.w>=1100) check(!top.enginesToggle, `${tag}: no Engines button on a desktop`);
         check(!top.app.includes("head-hidden"), `${tag}: the heading starts unfolded`);
+        // (step 4) the Stage: up to 860px the scene list is a compact strip with no scrollbar of its own
+        if(id==="stage" && size.w<=860){
+          const rail=await c.eval(`(()=>{ const r=document.querySelector(".stage2-rail"); if(!r) return null; const cs=getComputedStyle(r);
+            return {compact:r.classList.contains("compact"), inner:/(auto|scroll)/.test(cs.overflowY) && r.scrollHeight>r.clientHeight+2, h:Math.round(r.getBoundingClientRect().height)}; })()`);
+          check(rail && rail.compact && !rail.inner && rail.h<=230, `${tag}: the scene list is a compact strip without its own scrollbar (${JSON.stringify(rail)})`);
+        }
         // (step 3) every Art Room tab: its page never scrolls sideways
         if(id==="art"){
           const tabs=await c.eval(`[...document.querySelectorAll(".art-tabs-row .seg")].map(x=>x.textContent.replace(/\\s+/g," ").trim())`);
@@ -211,6 +221,8 @@ async function main(){
           await sleep(700);
           const back=await c.eval(PROBE);
           check(!back.app.includes("head-hidden"), `${tag}: back at the top, the heading returns`);
+          // the room's tabs are on screen while folded (the Stage's tabs used to scroll away with its page)
+          check(down.tabsTop!==null && down.tabsTop>=0 && down.tabsTop<size.h*0.4, `${tag}: the tabs stay in view while the heading is folded (top ${down.tabsTop})`);
         }else{
           check(!down.app.includes("head-hidden"), `${tag}: the heading never folds at this size`);
         }

@@ -8639,6 +8639,8 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
   // mix settings survive the session — per film, on this device
   const mixKey = stageMixKey();
   const [gain, setGain] = React.useState(()=>stageMixSettings().gain);
+  // the lanes' zoom (mobile step 4, 2026-11-03): a phone squeezed a scene into ~250px and its clips read "0…"
+  const [auZoom, setAuZoom] = React.useState(1);
   const [mute, setMute] = React.useState(()=>stageMixSettings().mute);
   const [gainSet, setGainSet] = React.useState(()=>stageMixSettings().set);
   React.useEffect(()=>{ try{ localStorage.setItem(mixKey, JSON.stringify({ gain, mute, set:gainSet })); }catch(e){} },[gain,mute,gainSet,mixKey]);
@@ -8864,7 +8866,13 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
         : _stEl("div",{className:"stage2-tl-empty"}, emptyText)),
     voiceNotes.length>0 && _stEl("div",{className:"stage2-au-note"},
       "A voice was re-locked after "+voiceNotes.map(stageClipBeatName).join(", ")+(voiceNotes.length!==1?" were":" was")+" rendered — the take still speaks in the earlier voice."),
-    sceneClips.length>0 && _stEl("div",{className:"stage2-au-lanes","data-testid":"mix-lanes"},
+    sceneClips.length>0 && _stEl("div",{className:"stage2-tl-trackbar stage2-au-zoombar"},
+      _stEl("span",{className:"stage2-tl-trackbar-lab"},"The scene · "+_fmtSecs(Math.round(sceneRun))),
+      _stEl("div",{className:"stage2-seg",role:"group","aria-label":"Lane zoom"},
+        [[1,"Fit"],[2,"2×"],[4,"4×"]].map(([z,l])=>_stEl("button",{key:z,type:"button","aria-pressed":auZoom===z?"true":"false",
+          className:"stage2-seg-btn"+(auZoom===z?" on":""),title:z===1?"The whole scene in the width":"Zoom the lanes "+l,onClick:()=>setAuZoom(z)},l)))),
+    sceneClips.length>0 && _stEl("div",{className:"stage2-au-scroll"+(auZoom>1?" zoomed":"")},
+    _stEl("div",{className:"stage2-au-lanes","data-testid":"mix-lanes",style:auZoom>1?{"--au-zoom":auZoom}:undefined},
       _stEl("span",{className:"stage2-au-corner"}),
       _stEl("div",{className:"stage2-au-ruler","aria-hidden":"true"},
         ticks.map(t=>_stEl("span",{key:t,className:"stage2-tl-tick",style:{left:pct(t)}}, _fmtSecs(t)))),
@@ -8896,7 +8904,7 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
       laneHead("amb","Ambience", bedActions("amb")),
       bedTrack("amb", true),
       laneHead("music","Music", bedActions("music")),
-      bedTrack("music", false)),
+      bedTrack("music", false))),
     sceneClips.length>0 && _stEl("div",{className:"stage2-tl-legend","aria-hidden":"true"},
       _stEl("span",null,_stEl("i",{className:"k-line"}),"Voiced line"),
       _stEl("span",null,_stEl("i",{className:"k-line off"}),"Not voiced yet"),
@@ -9072,6 +9080,20 @@ function stageShotRuntime(sh){
   if(ms) return Math.max(1, Math.round((Number(ms)/1000)*10)/10);
   if(typeof shotDur==="function") return Math.max(1, Number(shotDur(sh))||5);
   return Math.max(1, Number(sh&&sh.dur)||5);
+}
+
+/* a media query's answer, kept current as the window changes */
+function useStageMedia(q){
+  const get = ()=>{ try{ return typeof window!=="undefined" && !!window.matchMedia && window.matchMedia(q).matches; }catch(e){ return false; } };
+  const [on, setOn] = React.useState(get);
+  React.useEffect(()=>{
+    if(typeof window==="undefined" || !window.matchMedia) return undefined;
+    const m = window.matchMedia(q), h = ()=>setOn(m.matches);
+    h();
+    if(m.addEventListener) m.addEventListener("change", h); else if(m.addListener) m.addListener(h);
+    return ()=>{ if(m.removeEventListener) m.removeEventListener("change", h); else if(m.removeListener) m.removeListener(h); };
+  },[q]);
+  return on;
 }
 
 function StageView({ project, scenes, shots, characters, locations, props, beatsMap, drafts, creditBalance, readOnly=false, onMakeSceneNeeds, onVoiceLine, onUpdateShot, onStageNav, onStageSettings }){
@@ -9429,8 +9451,10 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
        "" just like an image that doesn't exist, and nothing asked again). Empty ids are retried after 4 s and 12 s;
        their state isn't reset to loading meanwhile, so an image that really doesn't exist doesn't flicker. */
     const timers = [];
+    // an APPROVED shot frame the film's image check hasn't found missing; saved details alone prove nothing (an
+    // appearance variant can be approved before its image exists — that must read missing, not loading)
     const knownImage = (id)=>{ const sh=(shots||[]).find(x=>x && x.id===id);
-      return !!((sh && sh.locked) || (typeof nbGetMeta==="function" && nbGetMeta(id))); };
+      return !!(sh && sh.locked && !(typeof window.nbImageKnownMissing==="function" && window.nbImageKnownMissing(id))); };
     const run = async (list, attempt)=>{
       const limit = 8, empty = [];
       let idx = 0;
@@ -9570,6 +9594,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   // the Scenes rail collapses to the same vertical strip the Writers' Room panels use. ABOVE the
   // empty-film return (2026-10-05): a hook after it threw "Rendered more hooks" when a film gained
   // its first shots (or lost its last) while the Stage was open
+  // the scene list stacks above the console up to 860px wide; there it is a compact strip (mobile step 4, 2026-11-03)
+  const compactRail = useStageMedia("(max-width:860px)");
   const [railOpen, _setRailOpen] = React.useState(()=>{ try{ return localStorage.getItem("turn_stage_rail_open")!=="0"; }catch(e){ return true; } });
   const setRailOpen = (v)=>{ _setRailOpen(v); try{ localStorage.setItem("turn_stage_rail_open", v?"1":"0"); }catch(e){} };
 
@@ -9598,7 +9624,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     setSelId(clipId);
     setSelShotId(c && (c.g.shots||[])[0] ? c.g.shots[0].id : null);
   };
-  const sceneRow = (scene)=>{
+  /* part: "head" (the scene's button and progress bar), "body" (its clips), or the whole block (the side rail) */
+  const sceneRow = (scene, part)=>{
     const sceneClips = allClips.filter(c=>c.scene.id===scene.id);
     const sceneShots = shotsByScene[scene.id]||[];
     /* THE SCENE'S LENGTH IS ITS CLIPS' (live run 2026-10-25: the rail summed the shots' planning guesses — "20s" — while
@@ -9608,8 +9635,8 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
     const done = sceneClips.filter(c=>clipVideoReady(c, vids)).length;
     const total = sceneClips.length;
     const allDone = total>0 && done===total;
-    return _stEl("div",{key:scene.id,className:"stage2-scene-block"},
-      _stEl("button",{type:"button",className:"stage2-scene-headrow"+(selectedScene.id===scene.id?" on":"")+(allDone?" done":""),
+    const headParts = [
+      _stEl("button",{key:"h",type:"button",className:"stage2-scene-headrow"+(selectedScene.id===scene.id?" on":"")+(allDone?" done":""),
           onClick:()=>{ if(sceneClips[0]) onSelectClip(sceneClips[0].id); },
           title:"Select Scene "+_pad2(scene.no)+" · "+done+" of "+total+" clip"+(total!==1?"s":"")+" rendered · "+_fmtSecs(sceneDur)+" runtime"},
         _stEl("span",{className:"tree-scene-no"}, _pad2(scene.no)),
@@ -9620,7 +9647,9 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
       _stEl("div",{className:"stage2-scene-bar"+(allDone?" done":""),role:"progressbar",
           "aria-valuenow":done,"aria-valuemin":0,"aria-valuemax":total,
           "aria-label":"Scene "+_pad2(scene.no)+" render progress"},
-        _stEl("div",{className:"stage2-scene-bar-fill",style:{width:(total?Math.round(done/total*100):0)+"%"}})),
+        _stEl("div",{className:"stage2-scene-bar-fill",style:{width:(total?Math.round(done/total*100):0)+"%"}}))];
+    if(part==="head") return _stEl("div",{key:scene.id,className:"stage2-scene-tab"+(selectedScene.id===scene.id?" on":"")},headParts);
+    const body = (
       /* CLIPS YOU CAN SEE (2026-10-24, owner — rail option A): every scene shows a mini strip of its clips
          (the frame each renders from; ✓ once rendered; a dashed box when there's no frame yet); the OPEN scene
          lists its clips as cards — the unit Generate renders — with the clip code and length, its state in
@@ -9683,8 +9712,10 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
                     _stEl("span",{className:"stage2-beat-name"},beatNm||"—")); })));
           }));
       })());
+    if(part==="body") return body;
+    return _stEl("div",{key:scene.id,className:"stage2-scene-block"}, headParts, body);
   };
-  const rail = _stEl("div",{className:"stage2-rail"},
+  const rail = _stEl("div",{className:"stage2-rail"+(compactRail?" compact":"")},
     _stEl("div",{className:"stage2-rail-head"},
       Icon.layers&&_stEl(Icon.layers,{s:12}), _stEl("span",null,"Scenes"),
       // L1: how many scenes are fully shot
@@ -9692,7 +9723,15 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
         return cs.length>0 && cs.every(c=>clipVideoReady(c, vids)); }).length+" of "+scenesWithShots.length+" shot"),
       _stEl("button",{className:"panel-collapse",onClick:()=>setRailOpen(false),title:"Collapse scenes"},
         Icon.chevL&&_stEl(Icon.chevL,{s:14}))),
-    _stEl("div",{className:"stage2-scene-list"}, scenesWithShots.map(sceneRow)));
+    compactRail
+      /* A NARROW SCREEN (owner 2026-11-03, mobile step 4): the scenes as one row of buttons and the open scene's clips
+         as one row beneath — no box with its own scrollbar above the console */
+      ? _stEl(React.Fragment,null,
+          _stEl("div",{className:"stage2-scene-tabs",ref:(el)=>{ if(!el) return; const on=el.querySelector(".stage2-scene-tab.on");
+              if(on && el.scrollWidth>el.clientWidth) el.scrollLeft=Math.max(0,on.offsetLeft-el.offsetLeft-12); }},
+            scenesWithShots.map(sc=>sceneRow(sc,"head"))),
+          sceneRow(selectedScene,"body"))
+      : _stEl("div",{className:"stage2-scene-list"}, scenesWithShots.map(sc=>sceneRow(sc))));
   const railStrip = (typeof CollapsedStrip!=="undefined")
     ? _stEl(CollapsedStrip,{ side:"left", label:"Scenes", icon:Icon.panelLeft||Icon.layers, onExpand:()=>setRailOpen(true) })
     : _stEl("button",{className:"strip left",onClick:()=>setRailOpen(true),title:"Expand scenes"},
@@ -9735,7 +9774,7 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
             const on = stageView===id;
             // the current tab is marked for assistive tech, and keeps its own description (2026-10-09)
             return _stEl("button",{key:id,type:"button",className:"seg"+(on?" on":""),"aria-pressed":on?"true":"false",
-              onClick:()=>setStageView(id),
+              onClick:()=>{ setStageView(id); try{ window.dispatchEvent(new CustomEvent("turn-head-unfold")); }catch(e){} },
               title: tip},
               Ic&&_stEl(Ic,{s:14}),_stEl("span",{className:"seg-lab"},label)); })))));
     // the view tabs span the FULL app width above the rail+console split — the same
