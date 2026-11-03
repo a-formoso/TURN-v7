@@ -11834,8 +11834,9 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
   .app.hs ~ .muse-dock-wrap,.app.hs .muse-dock-wrap{right:12px;bottom:14px}
   .muse-dock-wrap .muse-bubble{width:46px;height:46px}
   .muse-dock-wrap .muse-bubble .ai-orb{width:34px;height:34px}
-  .muse-dock-wrap{transition:transform .24s ease,opacity .24s ease}
-  .app.hs.head-hidden .muse-dock-wrap{transform:translateX(30px);opacity:.55}
+  .muse-dock-wrap .muse-bubble{transition:transform .24s ease,opacity .24s ease}
+  /* only the closed button tucks away: an open Frances window stays whole and opaque (2026-11-03, step 5) */
+  .app.hs.head-hidden .muse-dock-wrap .muse-bubble:not(.open){transform:translateX(30px);opacity:.55}
 }
 
 /* ============================ MOBILE STEP 2 — THE WRITERS' ROOM (owner 2026-11-03) ============================ */
@@ -11966,4 +11967,13 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
   .stage2-warn .stage2-warn-text{flex:1 1 calc(100% - 20px)}
   .stage2-warn .stage2-warn-act{margin-left:18px}
   .stage2-warn .stage2-warn-act + .stage2-warn-act{margin-left:0}
+}
+
+/* ============================ MOBILE STEP 5 — HOME AND THE WINDOWS (owner 2026-11-03) ============================ */
+/* the Premiere card: on a narrow screen the film's format and "Updated …" sit under its title instead of on top of it */
+@media (max-width:560px){
+  .hd-root .hd-head .hd-hero-media-cap{left:16px;right:16px;bottom:34px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hd-hero-media-meta{left:16px;right:16px;bottom:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* "Your finished film will play here" gives way to them (the badge and the play button say it) */
+  .hd-hero-media-note{display:none}
 }

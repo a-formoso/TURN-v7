@@ -9,6 +9,7 @@
  *   · on a phone or a short screen, scrolling a room's page folds its heading away, leaving at least 70% of the screen
  *     below the tabs; scrolling back to the top brings the heading back;
  *   · on a desktop nothing folds and the engine pickers stay in the bar.
+ *   · (step 5) on a phone, Frances's window opens whole and opaque while the page is scrolled down.
  *   · (step 4, the Stage) up to 860px wide its scene list is a compact strip with no scrollbar of its own; in every room
  *     the tabs stay in view while the heading is folded.
  *   · (step 3, the Art Room) every tab's page never scrolls sideways at any size.
@@ -217,6 +218,15 @@ async function main(){
           check(share>=0.7, `${tag}: the page has most of the screen once the heading folds (${Math.round(share*100)}%: the heading ends at ${down.headBottom}px of ${size.h})`);
           await c.call("Page.captureScreenshot",{format:"png"}).then(async r=>{ const {writeFile}=await import("node:fs/promises");
             await writeFile(`${OUT}/${size.name.replace(/\s+/g,"-")}-${id}-folded.png`,Buffer.from(r.data,"base64")); });
+          // (step 5) Frances opened while the heading is folded: her window is whole and opaque (only the closed button tucks away)
+          if(id==="art" && size.w<=700){
+            const fr=await c.eval(`(async()=>{ const b=document.querySelector(".muse-bubble"); if(!b) return null; b.click(); await new Promise(r=>setTimeout(r,700));
+              const d=document.querySelector(".muse-dock"); if(!d) return {open:false}; const r=d.getBoundingClientRect();
+              let op=1; for(let e=d;e&&e!==document.body;e=e.parentElement) op*=Number(getComputedStyle(e).opacity)||0;
+              const out={open:true,left:Math.round(r.left),right:Math.round(r.right),op:Math.round(op*100)/100};
+              b.click(); await new Promise(r=>setTimeout(r,400)); return out; })()`);
+            check(fr && fr.open && fr.left>=0 && fr.right<=size.w && fr.op>=0.99, `${tag}: Frances's window opens whole and opaque while the page is scrolled (${JSON.stringify(fr)})`);
+          }
           await c.eval(`(()=>{ const m=[...document.querySelectorAll(".app *")].find(e=>String(e.className).split(" ")[0]===${JSON.stringify(top.main.cls)}); if(m) m.scrollTop=0; })()`);
           await sleep(700);
           const back=await c.eval(PROBE);
