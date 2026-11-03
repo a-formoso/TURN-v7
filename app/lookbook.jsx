@@ -650,7 +650,8 @@ function LookbookView({ project, lookbook, note, readOnly, onUpdate, onAdd, onDe
           React.createElement("div",{className:"art-soon-ic"},React.createElement(Icon.image,{s:30})),
           React.createElement("div",{className:"art-soon-t"},"No references yet"),
           React.createElement("div",{className:"art-soon-d"},"Build the film's visual brief first — ‘Research the look’ writes the statement and gathers reference touchstones (palette, lighting, lens, texture). Their notes steer every department; preview images are optional. Or add one by hand."),
-          React.createElement("div",{style:{display:"flex",gap:8,marginTop:16}},
+          // the two buttons wrap on a narrow phone (mobile step 3, 2026-11-03)
+          React.createElement("div",{style:{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:8,marginTop:16}},
             onResearch && React.createElement("button",{className:"art-draftall",onClick:onResearch},
               React.createElement(Icon.robot,{s:14}),"Research the look"),
             React.createElement("button",{className:"art-draftall ghost",onClick:addReference},

@@ -7157,7 +7157,8 @@ function ImageLightbox({ url, character, onClose, siblings, startIndex }){
     React.createElement("div",{className:"lb-panel"+(versions.length>1?" has-strip":""),
       onTouchStart, onTouchEnd},
       React.createElement("div",{className:"lb-head"},
-        React.createElement("span",{className:"lb-title"},(eChar?eChar.name:"Character sheet")
+        // a shot frame has no name: it read "undefined" (2026-11-03)
+        React.createElement("span",{className:"lb-title"},(eChar?(eChar.name||eChar.title||eChar.label||"Frame"):"Character sheet")
           +(sibs?(" · "+(Math.min(sIdx, sibs.length-1)+1)+"/"+sibs.length):"")
           +((idx>=0 && versions.length>1)?(" · "+versions[idx].label):"")),
         React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:18}))),
@@ -7720,7 +7721,7 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
       React.createElement("div",{className:"cc-model"},
         React.createElement(Icon.sparkles,{s:12}),
         React.createElement("span",null,"Writes with ",React.createElement("b",null,midLabel+(midRec?" · recommended":"")),
-          " — switch it in the Writing dock on the right edge before you run. The run starts as soon as you press Run.")),
+          " — switch it under the writing engine in the top bar (Engines on a phone) before you run. The run starts as soon as you press Run.")),
       React.createElement("div",{className:"cc-foot"},
         React.createElement("button",{className:"ns-btn ghost",onClick:onCancel},"Cancel"),
         React.createElement("button",{className:"ns-btn primary",onClick:onConfirm},

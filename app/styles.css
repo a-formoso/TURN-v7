@@ -11880,3 +11880,48 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .app.hs.vp-short .art-head .tb-btn{height:38px}
 .app.hs.vp-short .follow-row{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
 .app.hs.vp-short .follow-row::-webkit-scrollbar{display:none}
+
+/* ============================ MOBILE STEP 3 — THE ART ROOM (owner 2026-11-03) ============================ */
+/* the Color tab's look cards: never wider than the page (a fixed 330px column pushed a 320px phone sideways) */
+.sb-grid{grid-template-columns:repeat(auto-fill,minmax(min(330px,100%),1fr))}
+/* the heading's department ("Visual Researcher") takes its own line on a narrow phone, without a stray colon */
+@media (max-width:400px){
+  .art-eyebrow .art-dept-slot{flex-basis:100%;margin-top:5px}
+  .art-eyebrow .art-dept-sep{display:none}
+}
+/* the main action keeps its label on one line on the narrowest phones */
+@media (max-width:360px){
+  .app.hs .art-head .art-head-actions .vn-cta{white-space:nowrap;font-size:13px;padding:0 10px}
+}
+/* the image region editors on a phone: the settings panel (a 330px floating box, past a 320px screen's edge) becomes a
+   sheet along the bottom and the image sits above it; the prop sheet's editor runs in one column */
+@media (max-width:700px){
+  .region-edit-side{left:8px !important;right:8px !important;top:auto !important;bottom:8px !important;width:auto !important;max-height:46vh}
+  .region-edit-canvas{inset:58px 8px calc(46vh + 20px) 8px}
+  .region-edit-imagebox,.region-edit-imagebox img{max-width:calc(100vw - 16px);max-height:calc(54vh - 90px)}
+  .prop-sheet-ref-panel .region-edit-body{grid-template-columns:1fr;padding:64px 14px 20px;overflow:auto}
+  .prop-sheet-ref-panel .region-edit-side{position:static;max-height:none}
+  .prop-sheet-ref-panel .region-edit-canvas{inset:auto}
+}
+/* THE IMAGE VIEWER on a phone (2026-11-03): it filled 100vw inside a 14px padded overlay (meant for the details
+   window) and ran past the right edge; the image may now use the whole width; the download row wraps on the screen */
+.lb-panel{width:100%;height:100%}
+@media (max-width:480px){
+  .lb-overlay:has(> .lb-panel){padding:0}
+  .lb-imgwrap{padding:56px 8px 120px}
+  .lb-panel.has-strip .lb-imgwrap{padding-bottom:170px}
+  .lb-img{max-width:100%;max-height:calc(100dvh - 190px)}
+  .lb-foot{max-width:calc(100vw - 16px);border-radius:16px;padding:4px 6px;row-gap:6px}
+  .lb-foot-lab:first-child{margin-left:6px}
+  .lb-strip{padding:0 8px}
+  .lb-title{max-width:calc(100vw - 110px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+/* the Shots toolbar on a phone: the Recently deleted bin and "Check each frame" share the first row (the buttons keep
+   one full-width row each, as the other tabs do) */
+@media (max-width:700px){
+  .art-intro-actions:has(> .shot-check-each){grid-template-columns:auto minmax(0,1fr)}
+  .art-intro-actions:has(> .shot-check-each) > *{grid-column:1 / -1}
+  .art-intro-actions:has(> .shot-check-each) > .rd-compact{grid-column:1;order:-2}
+  .art-intro-actions:has(> .shot-check-each) > .shot-check-each{grid-column:2;order:-1;align-self:center;justify-self:start}
+  .art-intro-actions:has(> .shot-check-each):not(:has(> .rd-compact)) > .shot-check-each{grid-column:1 / -1}
+}

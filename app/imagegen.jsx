@@ -1185,6 +1185,10 @@ function nbPreloadBytes(urls){
    project), so ANY Art Room tab paints without a per-card DB + signed-URL call. URLs only —
    bytes are loaded on render (or via nbPreloadFor for the active tab). */
 let _prefetchAllProj = null, _prefetchAllPromise = null;
+/* WHAT THE FILM HOLDS (2026-11-03): the ids the last complete check found, for the film it checked. On a slow
+   connection an image can still be downloading long after the film opened; without this, an approved frame that
+   hadn't arrived yet read as "not rendered" and Render Scene would have made it again (and charged for it). */
+let _prefetchKnownProj = null, _prefetchKnownIds = null;
 function nbResetPrefetchAll(){ _prefetchAllProj = null; _prefetchAllPromise = null; }
 /* A FAILED CHECK IS SAID (2026-10-09, owner — Breakdown review): the promise resolves { ok:true } or { ok:false } (never
    rejects — every caller fires and forgets it, or chains .then); a failed or timed-out query is FORGOTTEN, so the next
@@ -1216,6 +1220,7 @@ async function nbPrefetchAll(){
     }
     // a film switched mid-check: its urls aren't this film's
     if(proj!==_nbProject) return { ok:false, error:"film changed" };
+    _prefetchKnownProj = proj; _prefetchKnownIds = new Set(Object.keys(map));
     const got = [];
     for(const id in map){ const u = await cloudHydrate(id, map[id]); if(u) got.push(id); }
     if(got.length) window.dispatchEvent(new CustomEvent("nb-prefetched",{ detail:{ ids:got } }));
@@ -1225,6 +1230,16 @@ async function nbPrefetchAll(){
   return mine;
 }
 window.nbPrefetchAll = nbPrefetchAll;
+/* Is this image known to be MISSING from the open film? true only after a complete check of this film found no such
+   image (and it isn't on this device either); false when it exists or isn't known yet (the check hasn't finished). */
+function nbImageKnownMissing(id){
+  if(!id) return false;
+  if(typeof nbGetImage==="function" && nbGetImage(id)) return false;
+  if(_nbBackend!=="cloud") return true;
+  if(_prefetchKnownProj!==_nbProject || !_prefetchKnownIds) return false;
+  return !_prefetchKnownIds.has(String(id));
+}
+window.nbImageKnownMissing = nbImageKnownMissing;
 
 /* Preload image BYTES for entity ids whose URLs are already cached — used for the tab on
    screen so it paints instantly. Capped to a couple screenfuls to bound bandwidth on big
@@ -1428,6 +1443,7 @@ async function _nbInvalidateCloudPurgeCache(id,target,epoch,warning,retryable,st
       ||Number(cachedMeta.version)===Number(target.version)));
   if(sameMeta||cachedUrl===target.url){
      _cloudUrlCache.delete(id);
+     if(_prefetchKnownIds) _prefetchKnownIds.delete(String(id));   // purged: the film no longer holds it
      /* Keep tombstone/specification evidence in the metadata cache.  A warning
         must leave the UI with a retryable placeholder, not erase the identity
         needed to retry after reload. */
@@ -2390,6 +2406,7 @@ async function _nbClearAssetInner(id){
     if(typeof window.cloudClear!=="function") throw new Error("cloud clear unavailable");
     const cloudResult=await window.cloudClear(_scopeFor(id), id);
     _cloudUrlCache.delete(id); _cloudMetaCache.delete(id);
+    if(_prefetchKnownIds) _prefetchKnownIds.delete(String(id));   // the film no longer holds it
     try{ await idbDel(nbCloudKey(id)); }catch(e){}   // drop the cached bytes too
     const old = _objUrls.get(id); if(old){ try{ URL.revokeObjectURL(old.url); }catch(e){} _objUrls.delete(id); }
     try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, ids:[id], url:"" } })); }catch(e){}

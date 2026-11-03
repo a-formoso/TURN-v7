@@ -392,7 +392,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
       // model picker sits at the header's right edge — the SAME spot as the New Story
       // window's picker, so the badge doesn't jump around between steps of one flow
       React.createElement("span",{className:"ag-runner-model",
-          title:"The writing model this agent runs on"+(_mid===_rec?" (recommended for this work)":"")+". Change it in the Writing dock on the right edge, between runs."},
+          title:"The writing model this agent runs on"+(_mid===_rec?" (recommended for this work)":"")+". Change it with the writing engine in the top bar (Engines on a phone), between runs."},
           _midLabel + (_mid===_rec ? " \u00b7 recommended" : "")),
       React.createElement("button",{className:"ag-x",onClick:onClose,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:16}))),
 

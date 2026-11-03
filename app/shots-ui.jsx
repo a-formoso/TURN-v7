@@ -2308,10 +2308,11 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
     (()=>{
         const meta=(id)=>(typeof nbGetMeta==="function")?nbGetMeta(id):null;
         const drafts=((window.turnContinuity||{}).drafts||{});
-        let framed=0, approved=0, staleSeed=0, staleSrc=0, oldLook=0;
+        let framed=0, approved=0, staleSeed=0, staleSrc=0, oldLook=0, loading=0;
         ordered.forEach(s=>{
           const u=(typeof nbGetImage==="function")?nbGetImage(s.id):"";
-          if(!u) return;
+          // an approved frame still downloading is "loading", not "to render" (2026-11-03)
+          if(!u){ if(s.locked && typeof window.nbImageKnownMissing==="function" && !window.nbImageKnownMissing(s.id)){ loading++; approved++; } return; }
           framed++;
           // made with an earlier colour look / film stock (frames from before this was recorded aren't counted)
           const m=meta(s.id); if(m && typeof shotLookIsEarlier==="function" && shotLookIsEarlier(m.lookSig, ctx.project, scene.id)) oldLook++;
@@ -2322,8 +2323,8 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
           if(st==="stale" && !ov) staleSrc++;
           if(typeof shotChainStatus==="function" && shotChainStatus(s, ordered, meta)==="stale") staleSeed++;
         });
-        const unrendered=ordered.length-framed, refresh=staleSeed+staleSrc;
-        const todo=[unrendered>0 && unrendered+" to render", refresh>0 && refresh+" to refresh", oldLook>0 && oldLook+" earlier look"].filter(Boolean);
+        const unrendered=ordered.length-framed-loading, refresh=staleSeed+staleSrc;
+        const todo=[unrendered>0 && unrendered+" to render", loading>0 && loading+" loading", refresh>0 && refresh+" to refresh", oldLook>0 && oldLook+" earlier look"].filter(Boolean);
         const why=[unrendered>0 && unrendered+" with no frame yet — 'Render Scene in order' renders them in chain order",
           staleSeed>0 && staleSeed+" frame"+(staleSeed===1?" needs":"s need")+" continuity refresh: its continuity source changed, moved or was removed (re-rendered by 'Render Scene in order')",
           staleSrc>0 && staleSrc+" frame"+(staleSrc===1?" needs":"s need")+" source refresh: rendered before its shot specification or screenplay beat changed",
@@ -2669,7 +2670,10 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   // an approved frame with NO recorded source (made before stamps, or an upload) is unknown, not out of
   // date — it counts as done, like an unknown chain (2026-10-09: runs re-rendered such frames and called
   // them "approved frames whose shot changed")
-  const shotIsDone = (s)=>{ if(!(s && s.locked && shotHasFrame(s.id))) return false;
+  // an approved frame still downloading counts as there (2026-11-03): only a frame the film's check found missing is
+  // not — a slow load must never put an approved frame back in a paid render run
+  const shotIsDone = (s)=>{ if(!(s && s.locked && (shotHasFrame(s.id)
+      || (typeof window.nbImageKnownMissing==="function" && !window.nbImageKnownMissing(s.id))))) return false;
     const st = shotFrameStatus(s);
     return (st==="current" || st==="unverified" || shotHasOverride(s)) && shotChainOk(s); };
   // Advance to the next shot. Normal scene/all runs retain shots that are already done

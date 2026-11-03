@@ -9,6 +9,7 @@
  *   · on a phone or a short screen, scrolling a room's page folds its heading away, leaving at least 70% of the screen
  *     below the tabs; scrolling back to the top brings the heading back;
  *   · on a desktop nothing folds and the engine pickers stay in the bar.
+ *   · (step 3, the Art Room) every tab's page never scrolls sideways at any size.
  *   · (step 2, the Writers' Room) the Script view opens on scene 1: its page never scrolls sideways; before the heading
  *     folds it leaves at least half the screen.
  * Run: CHROMIUM="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" node scripts/test-mobile-shell-browser.mjs
@@ -177,6 +178,18 @@ async function main(){
         if(size.w<=700) check(!top.enginesInBar || top.enginesToggle, `${tag}: the engines fold into the Engines button on a phone`);
         if(size.w>=1100) check(!top.enginesToggle, `${tag}: no Engines button on a desktop`);
         check(!top.app.includes("head-hidden"), `${tag}: the heading starts unfolded`);
+        // (step 3) every Art Room tab: its page never scrolls sideways
+        if(id==="art"){
+          const tabs=await c.eval(`[...document.querySelectorAll(".art-tabs-row .seg")].map(x=>x.textContent.replace(/\\s+/g," ").trim())`);
+          for(const t of tabs){
+            await c.eval(`(()=>{ const b=[...document.querySelectorAll(".art-tabs-row .seg")].find(x=>x.textContent.replace(/\\s+/g," ").trim()===${JSON.stringify(t)}); b&&b.click(); })()`);
+            await sleep(1200);
+            const side=await c.eval(`(()=>{ const a=document.querySelector(".artroom"); return a ? a.scrollWidth-a.clientWidth : 0; })()`);
+            check(side<=1, `${tag} · ${t}: the tab's page never scrolls sideways (+${side}px)`);
+          }
+          await c.eval(`(()=>{ const b=[...document.querySelectorAll(".art-tabs-row .seg")].find(x=>/Characters/.test(x.textContent)); b&&b.click(); })()`);
+          await sleep(1200);
+        }
         if(!top.main){ check(false,`${tag}: found no scrolling page`); continue; }
         check(top.main.sideways<=1 && top.scriptSideways<=1, `${tag}: the page never scrolls sideways (${top.main.cls} +${top.main.sideways}px, script +${top.scriptSideways}px)`);
         // before it folds, the heading leaves at least half the screen (a sideways phone: one row of tabs and actions)
