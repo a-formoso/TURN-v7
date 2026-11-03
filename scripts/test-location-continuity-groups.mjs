@@ -227,9 +227,9 @@ ok("location folds use the approved filmmaker-facing names",
   // plainer names (owner 2026-10-03): Slugline Units → Rooms & times
   [step("1 · Describe the place"),'label:"Narrative significance"','label:"Screenplay evidence"','label:"Rooms & times"',step("2 · Floor plan"),
     step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"More"','label:"Generation Prompt"'].every(token=>ui.includes(token)));
-ok("location folds follow describe to floor plan to cameras to build to style, then rooms & times and More",
+ok("location folds follow describe to floor plan to cameras to build to style, then rooms & times, the prompt and More",
   [step("1 · Describe the place"),'label:"Narrative significance"','label:"Screenplay evidence"','label:"Look & exclusions"',step("2 · Floor plan"),
-    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"Rooms & times"','label:"More"','label:"Generation Prompt"']
+    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"Rooms & times"','label:"Generation Prompt"','label:"More"']
     .map(token=>ui.indexOf(token)).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
 ok("location style fine-tuning is in Look & exclusions (before Generation Prompt) without a separate Look dev fold",
   !ui.includes('label:"Look dev"')&&

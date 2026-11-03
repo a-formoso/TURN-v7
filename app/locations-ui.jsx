@@ -1845,6 +1845,14 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           count:(Array.isArray(l.movingParts)&&l.movingParts.length)||undefined},
         React.createElement(LocationMovingParts,{l,scenes,drafts,onUpdate,readOnly})),
 
+      // read-only, a folded section of every card (owner 2026-10-28 — it used to hide behind the ⋯ menu or the Film
+      // menu's "Always show prompts"); its own section, not inside More (owner 2026-11-03)
+      React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:false},
+        React.createElement(CopyBox,{label:"Current specification \u2014 next generation",text:finalPrompt}),
+        React.createElement("p",{className:"loc-layer-note"},"Built from this space's current specification. Selected reference instructions are added when you generate."),
+        gen.genUrl&&gen.genMeta&&gen.genMeta.prompt&&React.createElement("details",{className:"loc-nested-section"},
+          React.createElement("summary",null,"Prompt used for the current plate"),
+          React.createElement(CopyBox,{label:"Saved generation prompt",text:gen.genMeta.prompt}))),
       // reference and tools, after the steps
       React.createElement(CardFold,{label:"More",foldId:"loc-more-"+l.id,defaultOpen:false},
         sceneSetups.length>0&&React.createElement("details",{className:"loc-nested-section"},
@@ -1871,15 +1879,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         window.QaCheckButton && React.createElement("div",{className:"loc-step-actions"},
           React.createElement(window.QaCheckButton,{ gen, name:l.name, noun:"location plate",
             specFields:()=>({ architecture:(l.architecture||""), materials:(l.materials||""), lighting:(l.lighting||"") }),
-            onApplySpec:(patch)=>onUpdate(l.id, patch) })),
-      // read-only, a folded section of every card (owner 2026-10-28 — it used to hide behind the ⋯ menu or the Film
-      // menu's "Always show prompts")
-      React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:false},
-        React.createElement(CopyBox,{label:"Current specification \u2014 next generation",text:finalPrompt}),
-        React.createElement("p",{className:"loc-layer-note"},"Built from this space's current specification. Selected reference instructions are added when you generate."),
-        gen.genUrl&&gen.genMeta&&gen.genMeta.prompt&&React.createElement("details",{className:"loc-nested-section"},
-          React.createElement("summary",null,"Prompt used for the current plate"),
-          React.createElement(CopyBox,{label:"Saved generation prompt",text:gen.genMeta.prompt}))))));
+            onApplySpec:(patch)=>onUpdate(l.id, patch) })))));
 }
 
 /* ONE NUMBERED PATH PER LOCATION CARD (owner 2026-11-01 — "make it simpler … numbers … which item to generate first"):

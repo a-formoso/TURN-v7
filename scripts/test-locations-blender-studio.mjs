@@ -116,8 +116,10 @@ for(const [name,index] of [["header",headIndex],["render style",styleIndex],["sc
 const spatialFold=directFold("2 \u00b7 Floor plan"),moreFold=directFold("More");
 assert.ok(moreFold.start<directStudio.start&&moreFold.end>directStudio.end,
   "the compact desktop Blender handoff is under More");
-assert.ok(astCalls.some(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")==="Generation Prompt"&&n.start>moreFold.start&&n.end<moreFold.end),
-  "Generation Prompt is under More");
+// its own section since 2026-11-03 (owner): a top-level fold just before More, not inside it
+const promptFold=directFold("Generation Prompt");
+assert.ok(promptFold&&childIndex(promptFold)===childIndex(moreFold)-1,
+  "Generation Prompt is its own section, just before More");
 assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   n.start>spatialFold.start&&n.end<spatialFold.end),
   "2 · Floor plan has no standalone help icon or empty help row");
