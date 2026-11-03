@@ -9728,7 +9728,9 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
           _stEl("h1",{className:"wr-title"},headTitle[0],_stEl("em",null,headTitle[1])),
           _stEl("p",{className:"wr-sub"},headSub)),
         _stEl("div",{className:"wr-head-side"},
-          _stEl("nav",{className:"segmented stage-tabs","aria-label":"Stage views"},
+          _stEl("nav",{className:"segmented stage-tabs","aria-label":"Stage views",
+            onScroll:(e)=>window.turnTabEdgeFade && window.turnTabEdgeFade(e.currentTarget),
+            ref:(el)=>{ if(el && window.turnTabEdgeFade) window.turnTabEdgeFade(el); }},
           stageTabs.map(([label,id,Ic,tip])=>{
             const on = stageView===id;
             // the current tab is marked for assistive tech, and keeps its own description (2026-10-09)

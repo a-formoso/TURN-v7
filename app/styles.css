@@ -11760,3 +11760,80 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .shot-steps .shot-seed-line{margin-top:7px;padding:0}
 /* shot-card field labels (owner 2026-11-02): the name in capitals, the explanation in plain case */
 .obj-lab .obj-lab-rest{text-transform:none;letter-spacing:.01em}
+
+/* ============================ MOBILE STEP 1 — THE SHARED FRAME (owner 2026-11-03) ============================
+   "Make the app mobile responsive / friendly": on a phone the room's heading kept ~40% of the screen, the engine
+   pickers sat on the room switcher, and a phone held sideways left 66px to work in. */
+
+/* 1 · THE ENGINES BUTTON: on a phone the writing and image pickers fold into one button; it opens them as a row
+   under the bar (chrome.jsx TopBar). On wider screens the wrapper is invisible and the slot sits in the bar. */
+.tb-engines-wrap{display:contents}
+.tb-engines-toggle{display:none}
+@media (max-width:700px){
+  .app.hs .tb-engines-wrap{display:block;position:relative;flex:0 0 auto}
+  .app.hs .tb-engines-wrap:has(.tb-engines:empty){display:none}
+  .app.hs .tb-engines-toggle{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;padding:0;
+    border:1px solid var(--hs-line);border-radius:9px;background:var(--hs-bone);color:var(--hs-ink);cursor:pointer}
+  .app.hs .tb-engines-wrap.open .tb-engines-toggle{background:var(--hs-bone-2)}
+  .app.hs .tb-engines-wrap .tb-engines{display:none}
+  .app.hs .tb-engines-wrap.open .tb-engines{display:flex;position:fixed;top:62px;left:8px;right:8px;height:44px;z-index:80;
+    box-shadow:var(--shadow-pop)}
+  .app.hs .tb-engines-wrap.open .nb-dock.in-topbar{flex:1 1 0;min-width:0}
+  .app.hs .tb-engines-wrap.open .nb-dock.in-topbar .nb-dock-toggle{width:100%;justify-content:center}
+  .app.hs .tb-engines-wrap.open .nb-dock.in-topbar .tb-engine-name{max-width:none}
+  .app.hs .tb-engines-wrap.open .nb-dock.in-topbar .nb-dock-panel{top:114px;max-height:calc(100dvh - 130px)}
+}
+
+/* 2 · THE HEADING FOLDS AWAY WHILE YOU WORK (app.jsx useHeadAutoHide): scrolling a room's page down folds the
+   eyebrow, title, line and actions; the tabs stay. Phones and short screens only. */
+@media (max-width:700px), (max-height:520px){
+  .app.hs .wr-head-copy{max-height:420px;transition:max-height .24s ease,opacity .18s ease,margin .24s ease}
+  .app.hs .wr-actions{max-height:200px;transition:max-height .24s ease,opacity .18s ease,margin .24s ease}
+  .app.hs .wr-head-in{transition:padding .24s ease}
+  .app.hs.head-hidden .wr-head-copy,
+  .app.hs.head-hidden .wr-actions{max-height:0;opacity:0;margin-top:0;margin-bottom:0;overflow:hidden;pointer-events:none}
+  .app.hs.head-hidden .wr-head-in{padding-top:4px;padding-bottom:0;gap:0}
+  .app.hs.head-hidden .wr-head-side{gap:0}
+  .app.hs.head-hidden .art-head-top{gap:0;margin-bottom:0}
+}
+@media (prefers-reduced-motion:reduce){
+  .app.hs .wr-head-copy,.app.hs .wr-actions,.app.hs .wr-head-in{transition:none}
+}
+/* a short screen (a phone held sideways) never shows the title block: the open tab says where you are */
+.app.hs.vp-short .wr-head-copy{display:none}
+.app.hs.vp-short .wr-head-in{padding-top:8px;padding-bottom:0;gap:8px}
+.app.hs.vp-short .art-head-top{margin-bottom:8px}
+.app.hs.vp-short.head-hidden .wr-head-in{padding-top:4px}
+.app.hs.vp-short.head-hidden .art-head-top{margin-bottom:0}
+/* and the phone's 56px top bar (a wide-but-short screen had the desktop's 64px) */
+.app.hs.vp-short .topbar{height:56px;flex:0 0 56px}
+
+/* 3 · ONE ROW OF ACTIONS on a phone: the Art Room's two tools as icons beside its main action; the Writers' Room's
+   panel toggles, Open script and Story Editors on one line */
+@media (max-width:700px){
+  .app.hs .art-head .art-head-actions{flex-wrap:nowrap;gap:8px}
+  .app.hs .art-head .art-head-actions .vn-studio{flex:0 0 44px;width:44px;padding:0}
+  .app.hs .art-head .art-head-actions .vn-studio .vn-cta-lab{display:none}
+  .app.hs .art-head .art-head-actions .vn-cta{flex:1 1 auto;min-width:0}
+  .app.hs .wr-actions{flex-wrap:nowrap;gap:8px}
+  .app.hs .wr-actions .hs-btn{flex:1 1 0;min-width:0;padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .app.hs .wr-actions .wr-paneltoggle{flex:0 0 42px}
+  .app.hs .wr-actions .wr-arrow{display:none}
+}
+
+/* 4 · TAB STRIPS THAT SCROLL SAY SO: a soft edge where more tabs sit off screen (chrome.jsx / stage.jsx set
+   .fade-l / .fade-r from the strip's scroll position) */
+@media (max-width:700px){
+  .app.hs .art-head .art-tabs-row.fade-r,.app.hs .stage-head .stage-tabs.fade-r{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 32px),transparent)}
+  .app.hs .art-head .art-tabs-row.fade-l,.app.hs .stage-head .stage-tabs.fade-l{-webkit-mask-image:linear-gradient(90deg,transparent,#000 32px);mask-image:linear-gradient(90deg,transparent,#000 32px)}
+  .app.hs .art-head .art-tabs-row.fade-l.fade-r,.app.hs .stage-head .stage-tabs.fade-l.fade-r{-webkit-mask-image:linear-gradient(90deg,transparent,#000 32px,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(90deg,transparent,#000 32px,#000 calc(100% - 32px),transparent)}
+}
+
+/* 5 · FRANCES STEPS ASIDE: a smaller button on a phone, and half tucked off the edge while a page scrolls down */
+@media (max-width:700px){
+  .app.hs ~ .muse-dock-wrap,.app.hs .muse-dock-wrap{right:12px;bottom:14px}
+  .muse-dock-wrap .muse-bubble{width:46px;height:46px}
+  .muse-dock-wrap .muse-bubble .ai-orb{width:34px;height:34px}
+  .muse-dock-wrap{transition:transform .24s ease,opacity .24s ease}
+  .app.hs.head-hidden .muse-dock-wrap{transform:translateX(30px);opacity:.55}
+}

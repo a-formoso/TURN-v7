@@ -356,6 +356,54 @@ function useViewport(){
   return vp;
 }
 
+/* A SHORT SCREEN (owner 2026-11-03, mobile step 1): a phone held sideways is ~375px tall — width alone called it a
+   tablet and the room's heading left 66px to work in. Anything this short gets the phone header behaviour. */
+function useShortScreen(){
+  const get = ()=> typeof window!=="undefined" && window.innerHeight <= 520;
+  const [short, setShort] = React.useState(get);
+  React.useEffect(()=>{
+    let raf;
+    const onR = ()=>{ cancelAnimationFrame(raf); raf = requestAnimationFrame(()=>setShort(get())); };
+    window.addEventListener("resize", onR);
+    return ()=>{ window.removeEventListener("resize", onR); cancelAnimationFrame(raf); };
+  },[]);
+  return short;
+}
+/* THE HEADING STEPS ASIDE WHILE YOU WORK (owner 2026-11-03, mobile step 1): on a phone the room's heading (eyebrow,
+   title, line and actions) kept ~40% of the screen. Scrolling a room's page down folds it away — the tabs stay —
+   and scrolling up (or reaching the top) brings it back. Any tall scrolling area in the room counts; menus, windows
+   and the heading itself don't. A fold changes the area's height, so the next 400 ms of scroll (the browser's own
+   clamp) are ignored, or a page near its end would fold and unfold. resetKey: a new room or tab starts unfolded. */
+function useHeadAutoHide(on, resetKey){
+  const [hidden, setHidden] = React.useState(false);
+  React.useEffect(()=>{ setHidden(false); }, [resetKey, on]);
+  React.useEffect(()=>{
+    if(!on || typeof document==="undefined") return undefined;
+    const last = new WeakMap();
+    let acc = 0, cur = false, lockUntil = 0;
+    const set = (v)=>{ if(v===cur) return; cur = v; acc = 0; lockUntil = Date.now()+400; setHidden(v); };
+    const onScroll = (e)=>{
+      const el = e.target;
+      if(!el || el.nodeType!==1 || typeof el.closest!=="function") return;
+      if(!el.closest(".app") || el.closest(".topbar, .viewnav, .wr-head, .stage-head, [role=dialog], .modal, .muse-dock-wrap, .scrim")) return;
+      if(el.clientHeight < 100 || el.scrollHeight - el.clientHeight < 240) return;
+      // an area seen for the first time counts from its top, so one long swipe already folds the heading
+      const y = el.scrollTop, prev = last.has(el) ? last.get(el) : 0;
+      last.set(el, y);
+      if(Date.now() < lockUntil) return;
+      if(y < 24){ set(false); return; }
+      const d = y - prev;
+      if(!d) return;
+      if((d > 0) !== (acc > 0)) acc = 0;
+      acc += d;
+      if(acc > 24) set(true); else if(acc < -48) set(false);
+    };
+    document.addEventListener("scroll", onScroll, true);
+    return ()=>document.removeEventListener("scroll", onScroll, true);
+  },[on]);
+  return on && hidden;
+}
+
 /* ============================================================================
    THE FILM BIBLE — one canonical JSON the whole studio reads from.
 
@@ -9393,6 +9441,10 @@ function App(){
         React.createElement("stop",{offset:"1",stopColor:"#F29A43"}))),
     React.createElement("path",{className:"lp-splash-track",d:"M2 14 C14 2 26 2 38 14 S62 26 74 14 S98 2 118 14"}),
     React.createElement("path",{className:"lp-splash-wave",d:"M2 14 C14 2 26 2 38 14 S62 26 74 14 S98 2 118 14",stroke:"url(#lpSplashG)"}));
+  // phones and short screens: the room's heading folds away while its page scrolls down (mobile step 1) —
+  // above the sign-in splash and the landing page, which return early: hooks run on every render
+  const shortScreen = useShortScreen();
+  const headHidden = useHeadAutoHide(vp==="mobile" || shortScreen, room+"|"+view+"|"+artView);
   if(authGate && !authReady){
     return React.createElement("div",{className:"lp-splash",role:"status","aria-live":"polite"},
       React.createElement("span",{className:"lp-logo"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot"),
@@ -9447,7 +9499,7 @@ function App(){
   const newStoryEpisodeFormat=newStoryFormatEntry&&newStoryFormatEntry.id
     ? String(newStoryFormatEntry.id) : (newStoryBuildsCurrentEpisode?"series":undefined);
 
-  return React.createElement("div",{className:`app hs room-${room} vp-${vp} ${densClass} ${premiumClass}`+(roomReadOnly?" is-readonly":"")},
+  return React.createElement("div",{className:`app hs room-${room} vp-${vp} ${densClass} ${premiumClass}`+(shortScreen?" vp-short":"")+(headHidden?" head-hidden":"")+(roomReadOnly?" is-readonly":"")},
     window.ConfirmHost && React.createElement(window.ConfirmHost,null),
     /* VIEW-ONLY BANNER — say it UP FRONT. RLS rejects this user's writes, so without a
        standing notice they could work for an hour and only discover it from a failed save. */

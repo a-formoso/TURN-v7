@@ -327,10 +327,12 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
             studioBtn, productionBtn, cta)),
         React.createElement("nav",{className:"art-tabs","aria-label":"Art Room views"},
           // on a narrow screen the row scrolls sideways: keep the open tab in view
-          React.createElement("div",{className:"segmented art-tabs-row",ref:(el)=>{
-            if(!el || el.scrollWidth<=el.clientWidth) return;
-            const on = el.querySelector(".seg.on");
-            if(on) el.scrollLeft = Math.max(0, on.offsetLeft - el.offsetLeft - 16); }},tabButtons))));
+          React.createElement("div",{className:"segmented art-tabs-row",onScroll:(e)=>turnTabEdgeFade(e.currentTarget),ref:(el)=>{
+            if(!el) return;
+            if(el.scrollWidth>el.clientWidth){
+              const on = el.querySelector(".seg.on");
+              if(on) el.scrollLeft = Math.max(0, on.offsetLeft - el.offsetLeft - 16); }
+            turnTabEdgeFade(el); }},tabButtons))));
   }
   // viewnav-art: the Art Room's eight tabs + three actions need their own narrow-width rule (styles.css)
   return React.createElement("nav",{className:"viewnav"+(inArt?" viewnav-art":""),"aria-label":inArt?"Art Room views":"Writers' Room views"},
@@ -776,6 +778,15 @@ function useTopbarEngineSlot(){
   return slot && slot.isConnected ? slot : null;
 }
 window.useTopbarEngineSlot = useTopbarEngineSlot;
+/* a tab strip that scrolls sideways shows a soft edge where more tabs sit off screen (mobile step 1, 2026-11-03):
+   .fade-l / .fade-r from its scroll position (styles.css) */
+function turnTabEdgeFade(el){
+  if(!el || !el.classList) return;
+  const max = el.scrollWidth - el.clientWidth;
+  el.classList.toggle("fade-l", max > 2 && el.scrollLeft > 2);
+  el.classList.toggle("fade-r", max > 2 && el.scrollLeft < max - 2);
+}
+window.turnTabEdgeFade = turnTabEdgeFade;
 function turnWatchTopbarLayer(bar){
   if(!bar || typeof bar.querySelector!=="function" || typeof MutationObserver!=="function") return undefined;
   const sync = ()=>{
@@ -806,6 +817,16 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
   // tell the engine pickers their slot is in the page (they mount in the same commit, before it exists)
   const engineSlotRef = React.useRef(null);
   React.useEffect(()=>{ try{ window.dispatchEvent(new CustomEvent("turn-engine-slot")); }catch(e){} },[]);
+  // the phone's Engines row closes on a tap outside it (an engine's own menu sits inside it)
+  const [enginesOpen, setEnginesOpen] = React.useState(false);
+  const enginesWrapRef = React.useRef(null);
+  React.useEffect(()=>{
+    if(!enginesOpen) return undefined;
+    const h = (e)=>{ const w = enginesWrapRef.current; if(w && !w.contains(e.target)) setEnginesOpen(false); };
+    document.addEventListener("pointerdown", h, true);
+    return ()=>document.removeEventListener("pointerdown", h, true);
+  },[enginesOpen]);
+  React.useEffect(()=>{ setEnginesOpen(false); },[room]);
   return React.createElement("div",{className:"topbar",ref:barRef},
     bibleOpen && onViewBible && React.createElement(FilmBibleModal,{ getBible:onViewBible, onClose:()=>setBibleOpen(false) }),
     briefOpen && React.createElement(StoryBriefModal,{ project, onClose:()=>setBriefOpen(false), onRebuild:onRebuildFromBrief }),
@@ -830,7 +851,13 @@ function TopBar({ room, setRoom, project, scenes, drafts, onReset, onNewStory, o
       // "Film ⋯" menu and the account. The engine pickers render INTO this slot (aiwriter.jsx WritingDock,
       // artroom.jsx NbDock, through useTopbarEngineSlot) — the Writers' Room shows its writing engine, the
       // Art Room its writing and image engines; the slot hides itself when no room puts one there.
-      React.createElement("div",{className:"tb-engines",id:TOPBAR_ENGINE_SLOT_ID,ref:engineSlotRef,role:"group","aria-label":"Engines"}),
+      // ON A PHONE the engines fold into one Engines button (owner 2026-11-03, mobile step 1: the pickers sat on top of
+      // the room switcher); it opens them as a row under the bar. The slot stays in the page, so the pickers keep it.
+      React.createElement("div",{className:"tb-engines-wrap"+(enginesOpen?" open":""),ref:enginesWrapRef},
+        React.createElement("button",{type:"button",className:"tb-engines-toggle","aria-label":"Engines","aria-expanded":enginesOpen?"true":"false",
+          title:"The writing and image engines",onClick:()=>setEnginesOpen(o=>!o)},
+          React.createElement(Icon.sparkles,{s:16})),
+        React.createElement("div",{className:"tb-engines",id:TOPBAR_ENGINE_SLOT_ID,ref:engineSlotRef,role:"group","aria-label":"Engines"})),
       presenceSlot || null,      // who else has this film open right now
       notifySlot || null,        // the owner's bell: who joined your films (team.jsx TeamNotifications)
       // Team opens from the Film menu (window.turnTeamMenu); the button stays mounted, hidden, because
