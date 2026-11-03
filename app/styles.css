@@ -11837,3 +11837,46 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
   .muse-dock-wrap{transition:transform .24s ease,opacity .24s ease}
   .app.hs.head-hidden .muse-dock-wrap{transform:translateX(30px);opacity:.55}
 }
+
+/* ============================ MOBILE STEP 2 — THE WRITERS' ROOM (owner 2026-11-03) ============================ */
+/* These follow the SCRIPT PAGE's own width, not the window's: on a tablet the docked panels leave the page phone-narrow
+   (351px at 768 wide) and it scrolled sideways. */
+.script-scroll{container-type:inline-size;container-name:script}
+@container script (max-width:560px){
+  /* the scene's story-state cells: the place on its own line, the others share the next (the one-line row wrapped
+     a location like "HEART O' THE CITY HOTEL" into a narrow column) */
+  .sp-carry{flex-wrap:wrap;justify-content:center}
+  .sp-carry .cell{flex:1 1 calc(50% - 4px);min-width:calc(50% - 4px)}
+  .sp-carry .cell:first-child{flex-basis:100%}
+  /* a scene transition wraps: where the cut goes sits under the cut's description, never past the page's edge */
+  .sp-trans{flex-wrap:wrap;row-gap:6px}
+  .sp-trans .tgloss{flex:1 1 0;min-width:0}
+  .sp-trans .tdir{flex-basis:100%;margin-left:0;white-space:normal}
+  /* the ✕ that removes a line keeps its own lane at the right, clear of the text */
+  .sp-editwrap{padding-right:26px}
+  .sp-del-btn{opacity:.75}
+  /* the toolbar: its strips stack, centred, each no wider than the page (as on a phone) */
+  .script-head{flex-direction:column;align-items:stretch;gap:10px}
+  .script-tools{flex-direction:column;align-items:center;gap:8px}
+  .st-group{max-width:100%}
+  .draft-btn .redraft-long{display:none}
+}
+/* "Done editing" reads "Done" on a narrow screen (the toolbar strip scrolls sideways) */
+@media (max-width:480px){ .draft-btn .draft-btn-more{display:none} }
+/* the narrowest phones (≤360px): the Script toolbar's strips drop their small icons and keep each label on one line */
+@media (max-width:360px){
+  .st-group.a>* svg,.st-group.b .draft-btn svg{display:none}
+  .st-group.a>*,.st-group.b>*,.st-group.b .script-scenestep{white-space:nowrap}
+  .st-group.a>*,.st-group.b .draft-btn{padding-left:9px;padding-right:9px}
+}
+/* A SHORT SCREEN (a phone held sideways): the heading's tabs and actions share one row, and the Spine's Follow chips
+   scroll sideways in one line, as on an upright phone */
+.app.hs.vp-short .wr-head-side{flex-direction:row;align-items:center;justify-content:space-between;width:100%;margin-left:0;gap:12px}
+.app.hs.vp-short .wr-actions .hs-btn{height:38px}
+.app.hs.vp-short .wr-actions .wr-paneltoggle{width:38px;height:38px}
+.app.hs.vp-short .art-head-in{display:flex;flex-wrap:nowrap;align-items:center;gap:12px}
+.app.hs.vp-short .art-head-in .art-tabs{flex:1 1 auto;min-width:0;order:1}
+.app.hs.vp-short .art-head-in .art-head-top{order:2;margin-bottom:0;flex:0 0 auto}
+.app.hs.vp-short .art-head .tb-btn{height:38px}
+.app.hs.vp-short .follow-row{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.app.hs.vp-short .follow-row::-webkit-scrollbar{display:none}

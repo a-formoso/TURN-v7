@@ -9,6 +9,8 @@
  *   · on a phone or a short screen, scrolling a room's page folds its heading away, leaving at least 70% of the screen
  *     below the tabs; scrolling back to the top brings the heading back;
  *   · on a desktop nothing folds and the engine pickers stay in the bar.
+ *   · (step 2, the Writers' Room) the Script view opens on scene 1: its page never scrolls sideways; before the heading
+ *     folds it leaves at least half the screen.
  * Run: CHROMIUM="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" node scripts/test-mobile-shell-browser.mjs
  */
 import assert from "node:assert/strict";
@@ -78,7 +80,8 @@ const PROBE = `(()=>{
   const inScroller=e=>{ for(let p=e.parentElement;p&&p!==document.body;p=p.parentElement){ const cs=getComputedStyle(p);
     if(/(auto|scroll)/.test(cs.overflowX)) return true; if(cs.overflowX==="hidden"&&p.getBoundingClientRect().right<=W+2) return true; } return false; };
   const wide=[];
-  document.querySelectorAll(".app *").forEach(e=>{ const r=e.getBoundingClientRect(); if(!r.width||!r.height) return;
+  // (Frances's button tucks half off the edge on purpose while a page scrolls)
+  document.querySelectorAll(".app *").forEach(e=>{ if(e.closest(".muse-dock-wrap")) return; const r=e.getBoundingClientRect(); if(!r.width||!r.height) return;
     if(r.right>W+2 && !inScroller(e)){ const pe=e.parentElement; if(pe && pe.getBoundingClientRect().right>W+2 && !inScroller(pe)) return;
       wide.push((typeof e.className==="string"&&e.className.trim()?"."+e.className.trim().split(/\\s+/).slice(0,2).join("."):e.tagName)+" →"+Math.round(r.right)); } });
   const bar=[...document.querySelectorAll(".topbar button")].filter(b=>{ const r=b.getBoundingClientRect(); return b.offsetParent && r.width>0 && r.height>0 && r.top<60; });
@@ -96,7 +99,10 @@ const PROBE = `(()=>{
   const headBottom=head ? Math.round(head.getBoundingClientRect().bottom) : 0;
   return { W, H, docW:document.documentElement.scrollWidth, wide:wide.slice(0,8), overlaps, headBottom,
     app:(document.querySelector(".app")||{}).className||"", crashed:/render crash|Something went wrong/i.test(document.body.innerText),
-    main: main ? {cls:String(main.className).split(" ")[0], h:main.clientHeight, top:Math.round(main.getBoundingClientRect().top)} : null,
+    main: main ? {cls:String(main.className).split(" ")[0], h:main.clientHeight, top:Math.round(main.getBoundingClientRect().top),
+      sideways:main.scrollWidth-main.clientWidth} : null,
+    // the Script view's page (a scene is open): nothing in it may push it sideways
+    scriptSideways:(()=>{ const sc=document.querySelector(".script-scroll"); return sc ? sc.scrollWidth-sc.clientWidth : 0; })(),
     enginesInBar: !!document.querySelector(".topbar .tb-engines") && getComputedStyle(document.querySelector(".topbar .tb-engines")).display!=="none",
     enginesToggle: !!document.querySelector(".tb-engines-toggle") && getComputedStyle(document.querySelector(".tb-engines-toggle")).display!=="none" };
 })()`;
@@ -122,7 +128,7 @@ async function sampleStory(){
     Array.from(new Set(beats)).forEach((n,i)=>shots.push({id:`shot-${sc.id}-${n}`,sceneId:sc.id,beatN:n,order:i,keyframeMode:"beat-opening",
       size:"MS",angle:"eye",move:"static",lens:"35",action:"",composition:"",subjects:[],props:[],covers:[],specRev:1})); });
   return {scenes:D.SCENES,characters:D.CHARACTERS,props:D.PROPS,project:D.PROJECT,beatsMap:D.BEATS,drafts:D.SCREENPLAY,
-    continuityMap:D.CONTINUITY,shots,room:"writers",view:"script",artView:"characters"};
+    continuityMap:D.CONTINUITY,shots,room:"writers",view:"script",artView:"characters",selId:"s1"};
 }
 
 async function main(){
@@ -172,6 +178,9 @@ async function main(){
         if(size.w>=1100) check(!top.enginesToggle, `${tag}: no Engines button on a desktop`);
         check(!top.app.includes("head-hidden"), `${tag}: the heading starts unfolded`);
         if(!top.main){ check(false,`${tag}: found no scrolling page`); continue; }
+        check(top.main.sideways<=1 && top.scriptSideways<=1, `${tag}: the page never scrolls sideways (${top.main.cls} +${top.main.sideways}px, script +${top.scriptSideways}px)`);
+        // before it folds, the heading leaves at least half the screen (a sideways phone: one row of tabs and actions)
+        if(size.fold) check(size.h-Math.max(0,top.headBottom)>=size.h*0.5, `${tag}: the unfolded heading leaves half the screen (it ends at ${top.headBottom}px of ${size.h})`);
         // scroll the room's page down, as a person would
         await c.eval(`(async()=>{ const m=[...document.querySelectorAll(".app *")].find(e=>String(e.className).split(" ")[0]===${JSON.stringify(top.main.cls)}&&e.clientHeight===${top.main.h}); if(!m) return;
           for(let i=1;i<=6;i++){ m.scrollTop=i*90; await new Promise(r=>setTimeout(r,60)); } })()`);

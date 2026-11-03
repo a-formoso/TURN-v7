@@ -1665,7 +1665,8 @@ function ScriptView({ scene, beats, drafts, scenes, onSelectScene, onDraftOne, o
     { className:`draft-btn sm ${editing?"":"ghost"}`, onClick:()=>setEditing(e=>!e), disabled:readOnly||polishing,
       title: editing?"Finish editing the screenplay":"Edit the screenplay text directly" },
     React.createElement(editing?Icon.check:Icon.pencil,{s:14}),
-    editing ? "Done editing" : "Edit") : null;
+    // a phone shows "Done" (mobile step 2, 2026-11-03: "Done editing" ran past the toolbar's edge)
+    editing ? React.createElement(React.Fragment,null,"Done",React.createElement("span",{className:"draft-btn-more"}," editing")) : "Edit") : null;
 
   // several scenes out of date: redraft them all from the header. Declared BEFORE `header`,
   // which renders it (2026-09-28: it sat below, so the lowered `var` was still undefined when
