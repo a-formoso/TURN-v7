@@ -130,6 +130,9 @@ await test("C3 Design all asks with the cost, drafts from the current inputs; vo
   assert.ok(da.includes("const todo0 = open0.filter(written), unwritten0 = open0.filter(s=>!written(s));")
     && da.includes("const todo = ordered.filter(s=>!have.has(s.id) && written(s));")
     && da.includes("written yet and ") && da.includes("The scenes without shots aren't written yet"));
+  // (2026-11-03) a film's first shots follow the Lookbook as it is now: no "Lookbook review needed" right away
+  assert.ok(da.includes("const firstShots = !(shotsLiveRef.current||shots).length;")
+    && da.includes('if(firstShots && results.some(r=>r && (r.status==="designed" || r.status==="fallback")) && (shotsLiveRef.current||[]).length) markApplied("shots");'));
 });
 await test("C4 rights follow the role's right to save shots, whatever room is open", ()=>{
   assert.ok(app.includes('window.teamCanWriteSection(writeRole, "shots")') && app.includes("const canMutateShots = ()=> projectLoadingRef.current ? _projectLoadingNotice()"));

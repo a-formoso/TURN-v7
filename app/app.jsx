@@ -6779,6 +6779,9 @@ function App(){
     setDraftingAllShots(true);
     const results = [];
     const epoch=typeof nbEpoch==="function"?nbEpoch():null;
+    // a film's FIRST shots are drafted from the Lookbook as it is now — Shots follows it (2026-11-03, "Slack Water":
+    // the very first design showed "Lookbook review needed"); later designs leave the review to you
+    const firstShots = !(shotsLiveRef.current||shots).length;
     try{
       const ordered = scenesInStoryOrder(scenesRef.current||scenes);
       const have = new Set((shotsLiveRef.current||shots).map(s=>s.sceneId));
@@ -6793,6 +6796,7 @@ function App(){
       }
     }catch(e){}
     setDraftingAllShots(false);
+    if(firstShots && results.some(r=>r && (r.status==="designed" || r.status==="fallback")) && (shotsLiveRef.current||[]).length) markApplied("shots");
     // HONEST COMPLETION SUMMARY (review finding): name the scenes that failed and how to
     // retry. Failed scenes still have no shots, so 'Design all shots' again retries JUST them.
     if(results.length && typeof window.appToast==="function"){
