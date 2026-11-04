@@ -4345,10 +4345,26 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     return base+" · "+(a.audioIssue||"missing; generate this source asset first");
   };
   const tagOrder = (a)=>Number((String(a&&a.tag||"").match(/\d+$/)||[9999])[0]);
-  const onImages = tagged.filter(a=>a.kind==="image" && on(a)).sort((a,b)=>tagOrder(a)-tagOrder(b));
+  /* THE WORKFLOW CHOICE IS WHAT IS SENT (2026-11-03, test film "Slack Water": a likeness refusal advised "set Workflow
+     to Image to Video (the shot frame only)", but the choice only changed its label — every ticked reference still
+     went). A workflow picked by hand now limits the render: Text to Video sends no media, Image to Video the shot
+     frame only, Video to Video the videos only; All references (and the automatic choice) send everything ticked. */
+  const [modeOverride, setModeOverride] = React.useState(null);
+  const rawOnImages = tagged.filter(a=>a.kind==="image" && on(a)).sort((a,b)=>tagOrder(a)-tagOrder(b));
+  const rawOnVideos = tagged.filter(a=>a.kind==="video" && on(a)).sort((a,b)=>tagOrder(a)-tagOrder(b));
+  const rawOnAudios = tagged.filter(a=>a.kind==="audio" && on(a)).sort((a,b)=>tagOrder(a)-tagOrder(b));
+  const wfTextOnly = modeOverride==="t2v", wfFrameOnly = modeOverride==="i2v", wfVideoOnly = modeOverride==="v2v";
+  const onImages = (wfTextOnly || wfVideoOnly) ? []
+    : wfFrameOnly ? rawOnImages.filter(a=>a.referenceKind!=="screenplay" && a.url===startFrame).slice(0,1)
+    : rawOnImages;
   const includedScreenplayImages = onImages.filter(a=>a.referenceKind==="screenplay");
-  const onVideos = tagged.filter(a=>a.kind==="video" && on(a)).sort((a,b)=>tagOrder(a)-tagOrder(b));
-  const onAudios = tagged.filter(a=>a.kind==="audio" && on(a)).sort((a,b)=>tagOrder(a)-tagOrder(b));
+  const onVideos = (wfTextOnly || wfFrameOnly) ? [] : rawOnVideos;
+  const onAudios = (wfTextOnly || wfFrameOnly || wfVideoOnly) ? [] : rawOnAudios;
+  // does the workflow send this ticked reference? (the prompt describes only what is sent)
+  const wfKeeps = (a)=> a.kind==="image" ? onImages.indexOf(a)>=0 : a.kind==="video" ? onVideos.indexOf(a)>=0
+    : a.kind==="audio" ? onAudios.indexOf(a)>=0 : true;
+  // how many ticked references this workflow leaves out (said under the Workflow buttons)
+  const wfLeftOut = (rawOnImages.length-onImages.length)+(rawOnVideos.length-onVideos.length)+(rawOnAudios.length-onAudios.length);
   // the line-audio files that will REALLY attach (order = @AudioN order) — the recipes
   // number their lip-sync tags from this, so a deselected line drops out consistently
   const audioIncluded = onAudios.map(a=>a.shotId).filter(Boolean);
@@ -4382,7 +4398,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     return n;
   });
   const onAssets = tagged.filter(on);
-  const promptRefAssets = tagged.filter(a=>a.kind!=="text" && on(a));
+  const promptRefAssets = tagged.filter(a=>a.kind!=="text" && on(a) && wfKeeps(a));
   const promptRefs = stagePromptMentionContext(promptRefAssets, d);
   const promptRefSig = promptRefAssets.map(a=>a.key+":"+stageAssetMention(a)).join("|");
   // NB: `model` is only declared further below — resolve from modelId here instead
@@ -4856,7 +4872,6 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     const out = [], re = /@(image|video|audio)\d+/gi; let mm;
     while((mm = re.exec(prompt))){ if(!known.has(mm[0].toLowerCase()) && out.indexOf(mm[0])<0) out.push(mm[0]); }
     return out; })();
-  const [modeOverride, setModeOverride] = React.useState(null);
   const [voicingClip, setVoicingClip] = React.useState(false);
   const [maxImg, setMaxImg] = React.useState(null);   // {url,label,kind} — maximised reference viewer
   // the viewer is a dialog: Escape closes it and focus moves to Close, then back (2026-10-09)
@@ -4959,11 +4974,14 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
   React.useEffect(()=>{ const k = clip.id+"|"+activeShot.id; if(resetKeyRef.current===k) return; resetKeyRef.current = k;
     setSeedInput(""); setLastSeed(null); setEndFrameId(""); setDurationOverride(null); setAspectOverride(null); setBatchN(1); }, [clip.id, activeShot.id]);
   // mode auto-inferred from which asset kinds are on (overridable in the selector)
-  const autoMode = (()=>{ const hasI=onImages.length>0, hasV=onVideos.length>0, hasA=onAudios.length>0;
+  // from what is ticked: the shot frame alone is Image to Video; any other image (a character sheet, a location view)
+  // makes it All references — the honest name for what is sent (2026-11-03)
+  const autoMode = (()=>{ const hasI=rawOnImages.length>0, hasV=rawOnVideos.length>0, hasA=rawOnAudios.length>0;
+    const frameOnly = rawOnImages.length===1 && rawOnImages[0].referenceKind!=="screenplay" && rawOnImages[0].url===startFrame;
     if(hasV && (hasI||hasA)) return "multimodal";
     if(hasA && hasI) return "multimodal";
     if(hasV) return "v2v";
-    if(hasI) return "i2v";
+    if(hasI) return frameOnly ? "i2v" : "multimodal";
     return "t2v"; })();
   const mode = modeOverride || autoMode;
   const MODES = [["t2v","Text to Video"],["i2v","Image to Video"],["v2v","Video to Video"],["multimodal","All references"]];
@@ -7352,8 +7370,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       MODES.map(([id,label])=>_stEl("button",{key:id,type:"button",
         className:"sd-gen-mode "+(mode===id?"on":""),
         onClick:()=>setModeOverride(id===autoMode?null:id),
-        title:id===autoMode?"Auto-selected from current inputs":"Use "+label},
+        title:id===autoMode?"Auto-selected from current inputs"
+          :id==="t2v"?"Text to Video: send no images, videos or voice files"
+          :id==="i2v"?"Image to Video: send the shot frame only"
+          :id==="v2v"?"Video to Video: send the videos only"
+          :"All references: send everything ticked"},
         label.split(" ").map((w,i)=>_stEl(React.Fragment,{key:w+i},i===2?_stEl("br",null):null,w+(i===label.split(" ").length-1?"":" ")))))),
+    wfLeftOut>0 && _stEl("div",{className:"sd-gen-mode-note","data-testid":"stage-workflow-left-out"},
+      (wfTextOnly ? "Text to Video sends no media" : wfFrameOnly ? "Image to Video sends the shot frame only" : "Video to Video sends the videos only")
+        +" \u2014 "+wfLeftOut+" ticked reference"+(wfLeftOut!==1?"s stay":" stays")+" out of this render."),
     _stEl("label",{className:"sd-gen-label"},"Advanced"),
     // Grouping is separate from the beat's camera cuts. Keep historical take
     // access available without exposing this as a routine composer choice.
@@ -8867,7 +8892,7 @@ function StageAudioView({ allClips, vids, staleVids, identityVids, noteVids, vid
     voiceNotes.length>0 && _stEl("div",{className:"stage2-au-note"},
       "A voice was re-locked after "+voiceNotes.map(stageClipBeatName).join(", ")+(voiceNotes.length!==1?" were":" was")+" rendered — the take still speaks in the earlier voice."),
     sceneClips.length>0 && _stEl("div",{className:"stage2-tl-trackbar stage2-au-zoombar"},
-      _stEl("span",{className:"stage2-tl-trackbar-lab"},"The scene · "+_fmtSecs(Math.round(sceneRun))),
+      _stEl("span",{className:"stage2-tl-trackbar-lab"},"The scene · "+(()=>{ const t=Math.round(sceneRun); return Math.floor(t/60)+":"+String(t%60).padStart(2,"0"); })()),
       _stEl("div",{className:"stage2-seg",role:"group","aria-label":"Lane zoom"},
         [[1,"Fit"],[2,"2×"],[4,"4×"]].map(([z,l])=>_stEl("button",{key:z,type:"button","aria-pressed":auZoom===z?"true":"false",
           className:"stage2-seg-btn"+(auZoom===z?" on":""),title:z===1?"The whole scene in the width":"Zoom the lanes "+l,onClick:()=>setAuZoom(z)},l)))),
@@ -9002,6 +9027,15 @@ function clipBeatName(clip, beatsMap, drafts){
   const rows = ((beatsMap||{})[clip.scene.id]||{}).rows || [];
   const shots = (clip.g.shots||[]);
   const ns = _uniq(shots.map(sh=>sh.beatN).filter(Boolean));
+  /* a clip of ONE moment of a split beat is named by that moment's own action (2026-11-03, test film "Slack Water": parts
+     2–4 of beat 1 all read "Black glass. Grey fog…", the beat's first line) */
+  if(shots.length===1 && typeof window.shotMomentNumber==="function" && window.shotMomentNumber(shots[0])>0
+    && typeof window.shotScreenplayFor==="function"){
+    let own = "";
+    try{ const src = window.shotScreenplayFor(clip.scene, shots[0], {drafts:drafts||{}, characters:((window.turnContinuity||{}).characters)||[], beatsMap:beatsMap||{}});
+      own = String((src && src.openingAction) || "").replace(/\s+/g," ").trim(); }catch(e){ own = ""; }
+    if(own) return own.length>34 ? own.slice(0,33).replace(/\s+\S*$/,"")+"\u2026" : own;
+  }
   const scriptNames = ns.map(n=>screenplayBeatTitle(clip.scene, drafts, n, 34)).filter(Boolean);
   if(scriptNames.length) return scriptNames[0] + (scriptNames.length>1 ? (" +"+(scriptNames.length-1)) : "");
   const shotNames = shots.map(sh=>_firstWords(sh.action||sh.dialogue||"", 5)).filter(Boolean);

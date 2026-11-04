@@ -190,4 +190,13 @@ check(/const beatSrc = \(typeof window\.shotMomentSource==="function"\)\s*\? win
   const refs=read("app/stage-references.jsx");
   check(/if\(sh\.referenceCharactersSet&&!sh\.referenceCharactersAuto&&screenplay&&screenplay\.hasSource\)/.test(refs),"The Stage never warns about an auto cast as a manual selection");
 }
+// 11 · a one-moment clip is named by its own moment (2026-11-03): beat 1's parts 2–4 all read the beat's first line
+check(/a clip of ONE moment of a split beat is named by that moment's own action/.test(stage)
+  && /const src = window\.shotScreenplayFor\(clip\.scene, shots\[0\]/.test(stage),"A one-moment clip is named by its moment's own action");
+// 12 · the Stage's Workflow is what is sent (2026-11-03): Image to Video sends the shot frame only, Text to Video nothing
+check(/const onImages = \(wfTextOnly \|\| wfVideoOnly\) \? \[\]\s*: wfFrameOnly \? rawOnImages\.filter\(a=>a\.referenceKind!=="screenplay" && a\.url===startFrame\)\.slice\(0,1\)/.test(stage)
+  && /const onAudios = \(wfTextOnly \|\| wfFrameOnly \|\| wfVideoOnly\) \? \[\] : rawOnAudios;/.test(stage),"A workflow picked by hand limits what the render sends");
+check(/if\(hasI\) return frameOnly \? "i2v" : "multimodal";/.test(stage),"The automatic workflow says All references when sheets ride along");
+check(/data-testid":"stage-workflow-left-out"/.test(stage),"The Stage says how many ticked references the workflow leaves out");
+check(/const promptRefAssets = tagged\.filter\(a=>a\.kind!=="text" && on\(a\) && wfKeeps\(a\)\);/.test(stage),"The prompt describes only the references the workflow sends");
 console.log(`PASS beat moments: ${checks} split, prompt, chain and Stage checks`);

@@ -11977,3 +11977,6 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
   /* "Your finished film will play here" gives way to them (the badge and the play button say it) */
   .hd-hero-media-note{display:none}
 }
+
+/* the Stage's Workflow: what a hand-picked workflow leaves out of the render (2026-11-03) */
+.sd-gen-mode-note{margin-top:6px;font-size:11.5px;line-height:1.4;color:var(--txt-2)}
