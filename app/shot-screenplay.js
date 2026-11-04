@@ -172,6 +172,17 @@
        elsewhere in the sentence. */
     if(n && new RegExp("\\b(?:"+nr+")\\s+(?:is|remains?)\\s+(?:absent|away|elsewhere|off[- ]screen|not\\s+(?:here|present))\\b","i").test(raw))
       return true;
+    /* KNOWN ONLY BY A DISTANT THING OF THEIRS (2026-11-03, test film "Slack Water": "Across the strait, the light kept by
+       KESTER LUMSDEN (early 60s) stays a dead grey smear" put Kester in the lantern room in 16 of 20 frames). A name
+       that is the KEEPER or OWNER of an object ("kept by Kester", "Kester's light") in a sentence that sets it far away
+       ("across the strait", "on the far shore", "in the distance") is not a body in frame. A name that acts ("Kester rows
+       across the strait") was already decided above. */
+    if(n){
+      const sentence = raw.split(/(?<=[.!?])\s+/).find(x=>new RegExp("\\b(?:"+nr+")\\b","i").test(x)) || raw;
+      const far = /\b(?:across\s+(?:the\s+)?(?:strait|water|sea|bay|harbou?r|river|channel|lake|sound|estuary|valley|gorge)|on\s+the\s+(?:far|other|opposite)\s+(?:shore|side|bank|coast)|from\s+the\s+(?:far|other|opposite)\s+(?:shore|side|bank|coast)|in\s+the\s+distance|far\s+(?:off|away)|on\s+the\s+horizon|miles\s+(?:off|away))\b/i.test(sentence);
+      const owner = new RegExp("\\b(?:kept|tended|manned|owned|worked|run|lit)\\s+by\\s+(?:"+nr+")\\b|\\b(?:"+nr+")(?:'s|\u2019s)\\s+(?:light|lamp|beam|tower|lighthouse|window|windows|signal|flash|torch|house|cottage|boat|ship|fire)\\b","i").test(sentence);
+      if(far && owner) return true;
+    }
     return false;
   }
 

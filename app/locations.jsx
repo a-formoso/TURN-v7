@@ -1439,6 +1439,47 @@ function _locInside(pt, poly){
   }
   return inside;
 }
+/* A STATION CAMERA STAYS IN ITS ROOM (2026-11-03, test film "Slack Water"): a key-station camera stands 1.8 m back
+   from its object, but in a small room that put it ON or past the wall (the lantern room's burner, 1.8 m from the
+   north wall: "It stands outside the room"). The back-off now stops 0.3 m inside the walls, never closer than 0.6 m to
+   the object; with no room outline (or nowhere that clear) it keeps the 1.8 m. */
+const LOC_STATION_BACK = 1.8, LOC_STATION_MIN_BACK = 0.6, LOC_STATION_WALL_CLEAR = 0.3;
+function _locWallDistance(pt, poly){
+  let best = Infinity;
+  for(let i=0;i<poly.length;i++){
+    const a = poly[i], b = poly[(i+1)%poly.length], dx = b[0]-a[0], dy = b[1]-a[1];
+    const t = Math.max(0, Math.min(1, ((pt[0]-a[0])*dx+(pt[1]-a[1])*dy)/((dx*dx+dy*dy)||1e-9)));
+    best = Math.min(best, Math.hypot(pt[0]-a[0]-t*dx, pt[1]-a[1]-t*dy));
+  }
+  return best;
+}
+function _locStationBackOff(xy, d, geo, strict){
+  const at = (k)=>[xy[0]-d[0]*k, xy[1]-d[1]*k];
+  const poly = geo && geo.poly;
+  if(!poly || poly.length<3) return strict ? null : at(LOC_STATION_BACK);
+  for(let k=LOC_STATION_BACK; k>=LOC_STATION_MIN_BACK-1e-9; k-=0.05){
+    const p = at(k);
+    if(_locInside(p, poly) && _locWallDistance(p, poly)>=LOC_STATION_WALL_CLEAR) return [Math.round(p[0]*100)/100, Math.round(p[1]*100)/100];
+  }
+  return strict ? null : at(LOC_STATION_BACK);
+}
+/* where a station camera stands looking `yaw` at xy — or, when that puts it outside the room (an object set INTO a
+   wall: a window pane faces out to sea, so "in front of it" is over the water), on the room's side of it, looking
+   back the other way. → {xy, yaw} */
+function _locStationPlace(xy, yaw, geo){
+  const first = _locStationBackOff(xy, _locDir(yaw), geo, true);
+  if(first) return {xy:first, yaw};
+  const back = locYaw(yaw+180), other = _locStationBackOff(xy, _locDir(back), geo, true);
+  if(other) return {xy:other, yaw:back};
+  return {xy:_locStationBackOff(xy, _locDir(yaw), geo), yaw};
+}
+/* any compass word in a station's words ("North-west to west run of the masonry") → its yaw, or null */
+function _locCompassYawInText(text){
+  const m = String(text||"").toLowerCase().match(/\b((?:north|south)[\s-]?(?:east|west)|north|south|east|west)\b/);
+  if(!m) return null;
+  const at = LOC_COMPASS.indexOf(m[1].replace(/\s/,"-"));
+  return at>=0 ? at*45 : null;
+}
 /* the outward facing (yaw) of a footprint edge — the normal pointing away from the space's centre */
 function _locEdgeYaw(poly, edge){
   if(!poly || poly.length<3 || edge==null || edge<0 || edge>=poly.length) return null;
@@ -1698,8 +1739,9 @@ function _locStationPose(a, geo){
   };
   const yaw = yawOf();
   let position = null;
-  if(a.xy && yaw!=null){ const d = _locDir(yaw); position = [a.xy[0]-d[0]*1.8, a.xy[1]-d[1]*1.8, geo.floorZ+1.5]; }
-  return _locPose({position, yaw, pitch:-12, lensMm:35, target:a.id, place:position ? "" : "in front of "+(a.name||a.id),
+  let camYaw = yaw;
+  if(a.xy && yaw!=null){ const at = _locStationPlace(a.xy, yaw, geo); camYaw = at.yaw; position = [at.xy[0], at.xy[1], geo.floorZ+1.5]; }
+  return _locPose({position, yaw:camYaw, pitch:-12, lensMm:35, target:a.id, place:position ? "" : "in front of "+(a.name||a.id),
     basis:a.posBasis || "design"});
 }
 /* ---- OUTDOOR PARTS GET OUTDOOR CAMERAS (2026-10-14, owner — "go ahead with all of it") -----------------------------
@@ -1900,11 +1942,19 @@ function locationStagingStations(l){
 function _locStagedStationPose(text, anchor, geo){
   const look = _locLookYawFromText(text);
   if(anchor && anchor.xy && look!=null){
-    const d = _locDir(look);
-    return _locPose({position:[anchor.xy[0]-d[0]*1.8, anchor.xy[1]-d[1]*1.8, geo.floorZ+1.5], yaw:look, pitch:-8, lensMm:35,
+    const at = _locStationPlace(anchor.xy, look, geo);
+    return _locPose({position:[at.xy[0], at.xy[1], geo.floorZ+1.5], yaw:at.yaw, pitch:-8, lensMm:35,
       target:anchor.id, basis:anchor.posBasis || "design"});
   }
   if(anchor){ const p = _locStationPose(anchor, geo); return (look!=null && p.yaw==null) ? {...p, yaw:look} : p; }
+  /* a station the floor plan has no object for ("North-west to west run of the masonry"): it is still in this room —
+     the camera stands back from the room's centre, facing the way the words say (2026-11-03: it had no position at all) */
+  const toward = look!=null ? look : _locCompassYawInText(text);
+  if(toward!=null && geo && geo.centre && geo.poly && _locInside(geo.centre, geo.poly)){
+    // back from the centre (an object often stands there — the lantern room's burner), facing the wall run
+    const at = _locStationPlace(geo.centre, toward, geo);
+    return _locPose({position:[at.xy[0], at.xy[1], geo.floorZ+1.5], yaw:at.yaw, pitch:-8, lensMm:35, basis:"design"});
+  }
   return _locPose({yaw:look, pitch:-12, lensMm:35, place:"in front of "+String(text).slice(0,80)});
 }
 /* does camera c repeat view p — the same way (within 30°), the same height band (within 2 m) and, with positions,

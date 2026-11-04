@@ -2324,7 +2324,9 @@ function beatMomentShots(scene, shots, opts){
       // a moment that names nobody (a ramp closing, a car arriving) reads as a wide; a person's moment as a medium
       size:(m.namedCharacterIds||[]).length?"MS":"WS", angle:"eye", move:"static", lens:"50", composition:"",
       ...shotMomentSpecOf(primary,m.moment.n),
-      subjects:m.openingCharacterIds.slice(), referenceCharactersSet:true, referenceCharacterIds:m.openingCharacterIds.slice(),
+      // the moment's cast as the screenplay gives it — marked AUTO (2026-11-03): it follows the screenplay, and a re-read
+      // that changes who is there changes it; only a pick made by hand pins it
+      subjects:m.openingCharacterIds.slice(), referenceCharactersSet:true, referenceCharactersAuto:true, referenceCharacterIds:m.openingCharacterIds.slice(),
       locationId:primary.locationId||"", referenceLocationsSet:!!primary.referenceLocationsSet,
       referenceLocationIds:Array.isArray(primary.referenceLocationIds)?primary.referenceLocationIds.slice():[],
       locationSide:primary.locationSide, props:[], action:m.openingAction, dialogue:line?line.text:"",
@@ -3411,7 +3413,7 @@ function deriveShotsHeuristic(scene, beats, locations, props, characters, drafts
       remoteCharacterIds:(source.remoteCharacterIds||[]).slice(),
       sourceMetadata:{sceneHeading:source.sceneHeading||"",sourceRev:source.sourceRev||"",
         evidence:source.blocks||[]},
-      covers:[], beatPlan:null, referenceCharactersSet:true,
+      covers:[], beatPlan:null, referenceCharactersSet:true, referenceCharactersAuto:true,
       referenceCharacterIds:(source.openingCharacterIds||[]).slice(), specRev:1
     };
     if(typeof inFrameProps==="function")
@@ -3470,7 +3472,8 @@ function inFrameCast(sh, scene, characters, ctx){
   if(source&&source.hasSource){
     const physical=new Set((opening
       ? source.openingCharacterIds : source.physicalCharacterIds)||[]);
-    const requested=sh&&sh.referenceCharactersSet
+    // an AUTO pin (the cast the screenplay gave when the shot was made) follows the screenplay; a pick made by hand wins
+    const requested=sh&&sh.referenceCharactersSet&&!sh.referenceCharactersAuto
       ? (Array.isArray(sh.referenceCharacterIds)?sh.referenceCharacterIds:[])
       : (opening ? source.openingCharacterIds
         : ((sh&&sh.subjects)||[]));
@@ -3769,6 +3772,7 @@ function normalizeShot(raw, scene, idx, locations, props, characters, beats, dra
     referenceLocationsSet: !!raw.referenceLocationsSet,
     referenceLocationIds: Array.isArray(raw.referenceLocationIds) ? raw.referenceLocationIds.filter(Boolean) : [],
     referenceCharactersSet: !!raw.referenceCharactersSet,
+    ...(raw.referenceCharactersSet && raw.referenceCharactersAuto ? {referenceCharactersAuto:true} : {}),
     referenceCharacterIds: _screenplayKeyframe
       ? requestedSubjects.slice()
       : (Array.isArray(raw.referenceCharacterIds) ? raw.referenceCharacterIds.filter(Boolean) : []),

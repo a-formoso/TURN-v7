@@ -1842,7 +1842,7 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
          _el("button",{type:"button",className:"appconfirm-btn primary",disabled:addDisabled,onClick:()=>onAdd({
           ...(seed||{}),
            referenceLocationsSet:locationMode!=="auto",referenceLocationIds:locationMode==="auto"?[]:selectedLocations,
-          referenceCharactersSet:true,referenceCharacterIds:selectedCharacters,
+          referenceCharactersSet:true,referenceCharactersAuto:false,referenceCharacterIds:selectedCharacters,
         })},_el(Icon.plus,{s:12}),"Add shot"))));
   return window.ReactDOM&&window.ReactDOM.createPortal ? window.ReactDOM.createPortal(modal,document.body) : modal;
 }

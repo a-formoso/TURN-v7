@@ -284,20 +284,21 @@
          manual selections; this warning explains why the filtered stale tag is gone. */
       if(screenplay&&screenplay.hasSource&&screenplay.remoteCharacterIds.length)
         screenplay.remoteCharacterIds.forEach(id=>{
-          if(!sh.referenceCharactersSet && arr(sh.subjects).indexOf(id)>=0)
+          if((!sh.referenceCharactersSet||sh.referenceCharactersAuto) && arr(sh.subjects).indexOf(id)>=0)
             warn(sh.id,id,"remote-character-not-in-frame",
               "This screenplay participant is remote/offscreen and is kept as voice/script only; no body or identity image is attached","warning");
         });
       /* inFrameCast correctly filters stale ids from its visual cast. Preserve the
          director's explicit selection as an error descriptor instead of losing it. */
-      if(sh.referenceCharactersSet)uniq(sh.referenceCharacterIds).forEach(id=>{
+      // an AUTO pin (2026-11-03) is the screenplay's cast, not a director's selection: nothing to preserve or warn about
+      if(sh.referenceCharactersSet&&!sh.referenceCharactersAuto)uniq(sh.referenceCharacterIds).forEach(id=>{
         if(chars[id]||off(sh,id,id))return;
         const got=put("character",{assetId:id,baseId:id,entityId:id,
           role:"master",source:"manual-selection",required:true},sh);
         if(got)shotRow.characters.push(got);
         warn(sh.id,id,"missing-selected-character","Manually selected character no longer exists","error");
       });
-      if(sh.referenceCharactersSet&&screenplay&&screenplay.hasSource)
+      if(sh.referenceCharactersSet&&!sh.referenceCharactersAuto&&screenplay&&screenplay.hasSource)
         uniq(sh.referenceCharacterIds).forEach(id=>{
           const allowedIds=(sh.keyframeMode==="beat-opening"||sh.keyframeMode==="moment")
             ?arr(screenplay.openingCharacterIds):arr(screenplay.physicalCharacterIds);

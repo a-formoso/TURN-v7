@@ -6706,7 +6706,7 @@ function App(){
   // Actions written by hand, hand-picked characters
   const redraftReplaces = (list)=>{
     const L = list||[], n = (f)=> L.filter(f).length;
-    const approved = n(x=>x && (x.locked||x.approved)), byHand = n(x=>x && x.actionByHand), picks = n(x=>x && x.referenceCharactersSet);
+    const approved = n(x=>x && (x.locked||x.approved)), byHand = n(x=>x && x.actionByHand), picks = n(x=>x && x.referenceCharactersSet && !x.referenceCharactersAuto);   // an AUTO pin is the screenplay's, not a pick
     const bits = [];
     if(approved) bits.push(approved+" approved frame"+(approved!==1?"s":"")+" (unapproved where the shot changes)");
     if(byHand) bits.push(byHand+" Action"+(byHand!==1?"s":"")+" you wrote by hand");
@@ -6757,12 +6757,21 @@ function App(){
     if(!canDesignShots()) return;
     const ordered0 = scenesInStoryOrder(scenes);
     const have0 = new Set(shots.map(s=>s.sceneId));
-    const todo0 = ordered0.filter(s=>!have0.has(s.id));
-    if(!todo0.length){ if(typeof window.appToast==="function") window.appToast("Every scene already has its keyframes \u2014 re-draft a scene from its own header.","info"); return; }
+    /* ONLY WRITTEN SCENES (2026-11-03, test film "Slack Water": a film written one scene at a time offered keyframes
+       for its 7 unwritten scenes too, drafted from their one-line summaries — shots that go out of date the moment the
+       scene is written). A scene with a screenplay or beats is designed; the others are named and left for later. */
+    const written = (sc)=>{ const d = (draftsRef.current||drafts||{})[sc.id], b = (beatsMap||{})[sc.id];
+      return !!((d && Array.isArray(d.blocks) && d.blocks.length) || (b && Array.isArray(b.rows) && b.rows.length)); };
+    const open0 = ordered0.filter(s=>!have0.has(s.id));
+    const todo0 = open0.filter(written), unwritten0 = open0.filter(s=>!written(s));
+    if(!todo0.length){ if(typeof window.appToast==="function") window.appToast(unwritten0.length
+        ? "The scenes without shots aren't written yet \u2014 write their screenplay in the Writers' Room, then design their shots."
+        : "Every scene already has its keyframes \u2014 re-draft a scene from its own header.","info"); return; }
     // ASKS FIRST, WITH WHAT IT SPENDS (2026-10-09, owner — Shots review): one writing call per scene
     if(typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({ title:"Draft keyframes for "+todo0.length+" scene"+(todo0.length!==1?"s":"")+" (writing credits)?",
-        body:"One writing call per scene that has no shots yet \u2014 "+todo0.length+" call"+(todo0.length!==1?"s":"")+", three at a time. Scenes that already have shots are left as they are. No images are made.",
+        body:"One writing call per scene that has no shots yet \u2014 "+todo0.length+" call"+(todo0.length!==1?"s":"")+(todo0.length>3?", three at a time":"")+". Scenes that already have shots are left as they are. No images are made."
+          +(unwritten0.length ? " "+unwritten0.length+" scene"+(unwritten0.length!==1?"s aren't":" isn't")+" written yet and "+(unwritten0.length!==1?"are":"is")+" left for later: write "+(unwritten0.length!==1?"their":"its")+" screenplay first." : ""),
         items:todo0.slice(0,12).map(sc=>"Scene "+String(sc.no||"").padStart(2,"0")+(sc.title?" \u00b7 "+sc.title:"")),
         confirmLabel:"Draft "+todo0.length, cancelLabel:"Cancel" });
       if(!ok) return;
@@ -6773,7 +6782,7 @@ function App(){
     try{
       const ordered = scenesInStoryOrder(scenesRef.current||scenes);
       const have = new Set((shotsLiveRef.current||shots).map(s=>s.sceneId));
-      const todo = ordered.filter(s=>!have.has(s.id));   // non-destructive: skip scenes already broken down
+      const todo = ordered.filter(s=>!have.has(s.id) && written(s));   // non-destructive: skip scenes already broken down (and unwritten ones)
       for(let i=0;i<todo.length;i+=3){
         if(epoch!==null && (typeof nbEpoch!=="function" || nbEpoch()!==epoch)) break;
         const batch = await Promise.all(todo.slice(i,i+3).map(sc=>

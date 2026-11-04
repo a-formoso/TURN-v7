@@ -176,4 +176,18 @@ check(/const beatSrc = \(typeof window\.shotMomentSource==="function"\)\s*\? win
   check(d3&&!d3.blocked,"Moment 3's line is its own, even though the opening shot still carries it from before the split");
   check(/const ownMoment=stageBeatOpeningShot\(sh\)&&/.test(st)&&/\(\(ownMoment\|\|!group\.length\)\?\[sh\]:group\)/.test(st),"The Stage reads a moment as its own unit");
 }
+// 10 · a screenplay-given cast is AUTO (2026-11-03, "Slack Water"): it follows the screenplay; only a hand pick pins it
+{
+  const made=box.beatMomentShots(scene,[{...primary,referenceCharactersSet:true,referenceCharactersAuto:true}],{...opts,stamp:"a"}).shots.filter(x=>x.keyframeMode==="moment");
+  check(made.length===3 && made.every(x=>x.referenceCharactersSet===true && x.referenceCharactersAuto===true),"A moment's cast is marked as the screenplay's (auto)");
+  // the screenplay now has nobody in moment 2's place but Aurelio; an auto pin that says Ottavio too follows the screenplay
+  const m2=made.find(x=>x.moment.n===2);
+  const ids=box.inFrameCast({...m2,referenceCharacterIds:["aurelio","ottavio"]},scene,characters,opts);
+  check(JSON.stringify(ids)==='["aurelio"]',"An auto pin follows the screenplay ("+JSON.stringify(ids)+")");
+  const hand=box.inFrameCast({...m2,referenceCharactersAuto:false,referenceCharacterIds:[]},scene,characters,opts);
+  check(JSON.stringify(hand)==="[]","A hand pick (no one) still wins over the screenplay");
+  check(/picks = n\(x=>x && x\.referenceCharactersSet && !x\.referenceCharactersAuto\)/.test(app),"A re-draft only counts casts picked by hand");
+  const refs=read("app/stage-references.jsx");
+  check(/if\(sh\.referenceCharactersSet&&!sh\.referenceCharactersAuto&&screenplay&&screenplay\.hasSource\)/.test(refs),"The Stage never warns about an auto cast as a manual selection");
+}
 console.log(`PASS beat moments: ${checks} split, prompt, chain and Stage checks`);

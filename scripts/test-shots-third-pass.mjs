@@ -126,6 +126,10 @@ await test("C3 Design all asks with the cost, drafts from the current inputs; vo
   const one = between(app, "  const draftOneSceneShots = async (scene, replace)=>{", "  const [draftingSceneShots");
   assert.ok(one.includes("const L = keyframeInputsRef.current || {};") && one.includes("draftsRef.current||drafts"));
   assert.ok(app.includes("  const voiceLine = async (shot)=>{\n    if(!canMutateShots()) return;") && !app.includes("const voiceAllLines"));
+  // (2026-11-03) only written scenes (a screenplay or beats) are designed; the unwritten ones are named and left for later
+  assert.ok(da.includes("const todo0 = open0.filter(written), unwritten0 = open0.filter(s=>!written(s));")
+    && da.includes("const todo = ordered.filter(s=>!have.has(s.id) && written(s));")
+    && da.includes("written yet and ") && da.includes("The scenes without shots aren't written yet"));
 });
 await test("C4 rights follow the role's right to save shots, whatever room is open", ()=>{
   assert.ok(app.includes('window.teamCanWriteSection(writeRole, "shots")') && app.includes("const canMutateShots = ()=> projectLoadingRef.current ? _projectLoadingNotice()"));
