@@ -30,6 +30,21 @@ job's status does it (`blender-render-billing.sql`). One renderer (the Replit wo
 4. Publish the app (Replit). Before the server is open, the published card would tell non-pilot accounts the
    preview is limited to the pilot — so publish last.
 
+**Control discovery and connection recovery (5 November):** steps 4 and 5 stay visible when `setBuild` is on,
+including parent locations and cards without their own footprint. Step 4 routes to an existing room's build fold or
+step 2 to add a footprint; it does not invent geometry, modify the saved plan or submit a build. Step 5 explains that
+the room must be built first. For an existing room, **Check status** reloads capabilities and the latest saved job
+after a connection error, without rendering or charging; read-only members may refresh too. The Style it connection
+error offers the same recovery. Regression: `node scripts/test-cloud-set-controls.mjs`.
+
+Verification for this restoration: source and compiled control checks passed, along with the 89 style-workflow,
+13 paid-release and 34 billing-database checks. The production build passed. The current worker source also passed
+an isolated Mac Blender → HTTP → PostgreSQL queue → authenticated-image-read test (12 images, 202.2812 seconds).
+That was test identity/storage, not a new published Replit render. A read-only production check found both public
+build switches enabled and the billing columns, submit overload and trigger installed; the Replit workspace's
+existing credentials authenticated successfully against the service. No production records or settings were
+changed for this review. A fresh published render and actual-interface review remain release checks.
+
 ### Cloud set preview — development pilot (31 October 2026)
 
 This is separate from the desktop add-on relay. The live website is unchanged.

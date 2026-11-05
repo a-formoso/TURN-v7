@@ -121,6 +121,8 @@ function LocationCloudRender({location,readOnly=false}){
     E("div",{className:"loc-cloud-render-actions"},
       E("button",{type:"button",className:"art-draftall",disabled:readOnly||!canBuild||busy||!c.capable||!sceneHash||!!running||issues.length>0,onClick:submit},
         busy?"Sending…":job&&job.status==="completed"?"Rebuild set":"Build set",!busy&&chip),
+      E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:c.refresh,
+        title:"Refresh the renderer connection and saved views without starting or charging for a build"},"Check status"),
       running&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!canBuild||busy,onClick:cancel,
         title:paid?"Stop this build \u2014 its credits are given back":undefined},"Cancel")),
     running&&renderProgress(job,{now,started:runningSince.current,objects:scene?scene.objects.length:0,lastSeconds,api}),
@@ -157,7 +159,9 @@ function LocationStyleStep({location,readOnly=false}){
     const key=window.locationPartStateKey(states);
     if(key)target={loc:location.id,at:c.at,key,label:window.locationPartStateLabel(states)};
   }
-  if(!c.capable)return E("p",{className:"loc-layer-note"},c.message||"Checking the built set…");
+  if(!c.capable)return E("div",null,
+    E("p",{className:"loc-layer-note",role:c.message?"alert":"status"},c.message||"Checking the built set…"),
+    c.message&&E("button",{type:"button",className:"art-draftall ghost",onClick:c.refresh},"Check status"));
   if(!ready)return E("div",{className:"loc-step-fixes"},
     E("p",{className:"loc-step-fixes-head"},c.job&&c.job.status==="completed"?"Rebuild the set first: its views are from an earlier floor plan or cameras.":"Build the set first."),
     E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,4)},"Go to 4 · Build the set"));

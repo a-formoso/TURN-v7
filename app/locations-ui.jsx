@@ -106,6 +106,18 @@ function LocationRoomLinks({entries,onSelectLocation,section}){
       React.createElement(Icon.chevR,{s:14}))));
 }
 
+// Keep the cloud workflow discoverable even before this card has its own footprint.
+// A parent set can route to an existing room without inventing geometry or changing saved plans.
+function LocationCloudBuildSetup({location,rooms,onSelectLocation}){
+  const E=React.createElement;
+  return E("div",{className:"loc-step-fixes","data-testid":"cloud-set-room-setup"},
+    E("p",{className:"loc-step-fixes-head"},rooms.length
+      ?"Choose a room to build, or add this location's own footprint in step 2."
+      :"Add this location's footprint in step 2 before building its four camera views."),
+    E(LocationRoomLinks,{entries:rooms.map(owner=>({owner,key:owner.id,label:owner.name,detail:"Open Build the set"})),onSelectLocation,section:"build"}),
+    E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep(location,2)},"Go to 2 · Floor plan"));
+}
+
 /* One visible plate per screenplay unit. Environmental notes share that unit's
    editor and generator; only independent authored states get another card. */
 function locationEnvironmentPresentation(l,units){
@@ -1573,10 +1585,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   },[l.staging]);
 
   // ONE NUMBERED PATH PER CARD (owner 2026-11-01): where each step stands, for the guide and the numbered folds
-  // building the set is per room: a whole location without a room of its own on the floor plan has no 4 / 5
+  // Build per room, but keep steps 4 / 5 visible on parent and unfinished cards with setup guidance.
   const ownRoom=!!(((spatialState.plan.coordinates||{}).spaces||[]).some(s=>s.id===l.id&&(s.footprint||[]).length>=3));
-  const cloudPilot=!!(ownRoom&&window.KinolotCloudRender&&window.KinolotCloudRender.enabled()&&window.LocationCloudRender);
-  const cloudJob=useLocationCloudJob(l,cloudPilot);
+  const cloudPilot=!!(window.KinolotCloudRender&&window.KinolotCloudRender.enabled()&&window.LocationCloudRender);
+  const cloudJob=useLocationCloudJob(l,cloudPilot&&ownRoom);
   const cardSteps=locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob});
   const stepCount=n=>{const st=cardSteps.find(x=>x.n===n);return !st?null:st.done?"\u2713 done":st.next?"next":st.optional?"optional":null;};
   return React.createElement("div",{ref:sheetRef,className:(embedded?"loc-workspace-sheet":"sheet-card")+(batchActiveId===l.id?" batch-on":""),"data-location-card":l.id},
@@ -1810,11 +1822,15 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           onAdd:addCoverageView,onRemove:removeCoverageView,onDraftStaging,draftingStage}),
       ),
 
-      // the cloud set pilot: build the set in 3D, then style it (owner-only, local development)
-      cloudPilot&&React.createElement(CardFold,{label:"4 \u00b7 Build the set",foldId:locationStepFoldId(l,4),count:stepCount(4)},
-        React.createElement(window.LocationCloudRender,{location:l,readOnly})),
-      cloudPilot&&React.createElement(CardFold,{label:"5 \u00b7 Style it",foldId:locationStepFoldId(l,5),count:stepCount(5)},
-        React.createElement(window.LocationStyleStep,{location:l,readOnly})),
+      // Cloud rendering and styling use the same saved room, with server-enforced plan and film permissions.
+      cloudPilot&&React.createElement(CardFold,{label:"4 \u00b7 Build the set",foldId:locationStepFoldId(l,4),count:stepCount(4),defaultOpen:initialSection==="build"},
+        ownRoom?React.createElement(window.LocationCloudRender,{location:l,readOnly})
+          :React.createElement(LocationCloudBuildSetup,{location:l,rooms:roomLocations,onSelectLocation})),
+      cloudPilot&&React.createElement(CardFold,{label:"5 \u00b7 Style it",foldId:locationStepFoldId(l,5),count:stepCount(5),defaultOpen:initialSection==="style"},
+        ownRoom?React.createElement(window.LocationStyleStep,{location:l,readOnly})
+          :React.createElement("div",{className:"loc-step-fixes"},
+            React.createElement("p",{className:"loc-step-fixes-head"},"Choose a room and build its set before styling the views."),
+            React.createElement("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set"))),
 
       // foldId: a shot's missing room & time view opens this fold from the Shots tab (2026-10-20)
       React.createElement(CardFold,{label:"Rooms & times",foldId:"loc-units-"+l.id,defaultOpen:initialSection==="units"||initialSection==="environments"},
