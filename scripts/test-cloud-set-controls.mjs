@@ -80,4 +80,9 @@ for(const readOnly of [false,true]){
 assert.equal(refreshes,4);assert.equal(requests,0);
 state.busy=true;
 assert.equal(button(box.LocationCloudRender({location}),"Check status").props.disabled,true);
+state.busy=false;state.capable=true;state.job={id:"old",status:"completed",sceneHash:"older"};state.stale=true;
+box.LocationSetStyle="saved-style-panel";
+const archived=nodes(box.LocationStyleStep({location})).find(n=>n.type==="saved-style-panel");
+assert.ok(archived,"saved comparisons stay mounted while a rebuild is required");
+assert.equal(archived.props.sceneHash,"","an outdated build cannot enable new styling or acceptance");
 console.log("PASS cloud set controls: parent/unfinished-room discovery, room routing, both fold prerequisites, and read-only connection recovery");

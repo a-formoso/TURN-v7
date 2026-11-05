@@ -162,10 +162,11 @@ function LocationStyleStep({location,readOnly=false}){
   if(!c.capable)return E("div",null,
     E("p",{className:"loc-layer-note",role:c.message?"alert":"status"},c.message||"Checking the built set…"),
     c.message&&E("button",{type:"button",className:"art-draftall ghost",onClick:c.refresh},"Check status"));
-  if(!ready)return E("div",{className:"loc-step-fixes"},
+  const setup=!ready&&E("div",{className:"loc-step-fixes"},
     E("p",{className:"loc-step-fixes-head"},c.job&&c.job.status==="completed"?"Rebuild the set first: its views are from an earlier floor plan or cameras.":"Build the set first."),
     E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,4)},"Go to 4 · Build the set"));
-  return window.LocationSetStyle?E(window.LocationSetStyle,{key:c.scopeKey+":"+(target.key||""),location,target,job:c.job,sceneHash:c.sceneHash,readOnly}):null;
+  return E("div",null,setup,window.LocationSetStyle?E(window.LocationSetStyle,{key:c.scopeKey+":"+(target.key||""),location,target,
+    job:c.job,sceneHash:ready?c.sceneHash:"",readOnly}):null);
 }
 /* How long is left: queued (one worker renders one set at a time), then rendering against an estimate from the set's
    size or this location's last render, then saving. The bar never claims 100% before the views are saved. */

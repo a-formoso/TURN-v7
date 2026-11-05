@@ -22,9 +22,9 @@
     try{value?root.localStorage.setItem(k,JSON.stringify(value)):root.localStorage.removeItem(k);}catch(_){}
   }
   function announce(id,saved=false){root.dispatchEvent?.(new CustomEvent("kinolot-style-changed",{detail:{id:T(id).loc,saved}}));}
-  function assertScope(s){
+  function assertScope(s,write=true){
     if(!enabled()||!root.BlenderPreview.isCurrent(s))throw Error("The open film or sign-in changed. Reopen the style preview.");
-    if(typeof root.turnArtRoomWritable==="function"&&!root.turnArtRoomWritable())throw Error("This film is read-only.");
+    if(write&&typeof root.turnArtRoomWritable==="function"&&!root.turnArtRoomWritable())throw Error("This film is read-only.");
   }
   function live(id){
     const l=(root.turnContinuity?.locations||[]).find(l=>l.id===id);
@@ -53,8 +53,8 @@
       f.onerror=()=>reject(Error("The draft image could not be read. Generate another style draft."));f.readAsDataURL(blob);});
   }
   async function details(id,s){
-    assertScope(s);
-    const record=await root.nbLoadDetailsAsset(id,"");assertScope(s);return record;
+    assertScope(s,false);
+    const record=await root.nbLoadDetailsAsset(id,"");assertScope(s,false);return record;
   }
   // Style preview's own engines (owner 2026-10-31): Nano Banana 2.1 by default; GPT Image 2.5 Sunburst at High kept
   // the Blender structure and light best in the car-deck comparison, at more credits (11 vs 7 at 2K). The plan gate still
@@ -113,9 +113,27 @@
     if(!source){
       const old=await root.KinolotCloudRender.request("job.get",{projectId:s.projectId,jobId:d.meta.sourceJobId},s);
       if(old.job?.sceneHash!==d.meta.sceneHash||old.job?.locationId!==T(id).loc)throw Error("The Blender comparison source could not be verified.");
-      source=await compose(old.job);assertScope(s);
+      source=await compose(old.job);assertScope(s,false);
     }
     return {...d,source};
+  }
+  // Inspection only: reuse saved versions, never generate, promote or recreate deleted references.
+  // Pair the same source job and exact prompt; an older matching pair beats unrelated newer images.
+  async function comparisonPair(id,s){
+    const saved=await details(slot(id),s),versions=[saved,...(saved?.history||[])].filter(d=>d?.url);
+    const drafts=versions.filter(d=>{
+      try{verify(d.meta,id,s);}catch(_){return false;}
+      return ENGINES.includes(d.meta.modelId)&&typeof d.meta.sourceJobId==="string"&&!!d.meta.sourceJobId
+        &&typeof d.meta.sceneHash==="string"&&!!d.meta.sceneHash&&typeof d.meta.prompt==="string"&&!!d.meta.prompt
+        &&typeof d.meta.briefKey==="string"&&!!d.meta.briefKey
+        &&!d.refs?.some(r=>r.kind==="blender-style-source"&&r.deleted);
+    });
+    const same=(a,b)=>["sourceJobId","sceneHash","briefKey","prompt"].every(k=>a.meta[k]===b.meta[k]);
+    for(const a of drafts){
+      const b=drafts.find(d=>d.meta.modelId!==a.meta.modelId&&same(a,d));
+      if(b){assertScope(s,false);return {left:a.meta.modelId===ENGINES[0]?a:b,right:a.meta.modelId===ENGINES[0]?b:a};}
+    }
+    return null;
   }
   async function locked(id,s,fn){
     assertScope(s);const k=key(s,id);if(active.has(k))throw Error("A style request for this location is already in progress.");
@@ -223,5 +241,5 @@
     const recorded=await root.nbSetAssetApproval(slot(id),meta.iso,true,"cloud-set-style-accepted");
     announce(id,true);return {...saved,reviewRecorded:!!recorded?.ok};
   });}
-  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,assetOf:t=>assetOf(T(t)),pending,settings,appearance,briefKey,sceneKey,prompt,compose,load,generate,retrySave,accept,reject};
+  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,assetOf:t=>assetOf(T(t)),pending,settings,appearance,briefKey,sceneKey,prompt,compose,load,comparisonPair,generate,retrySave,accept,reject};
 })(typeof window!=="undefined"?window:globalThis);

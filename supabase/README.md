@@ -45,6 +45,16 @@ build switches enabled and the billing columns, submit overload and trigger inst
 existing credentials authenticated successfully against the service. No production records or settings were
 changed for this review. A fresh published render and actual-interface review remain release checks.
 
+**Saved comparisons:** Style it now exposes **Compare with Blender** for accepted, rejected and outdated drafts,
+and keeps saved comparisons reachable while a rebuild is required. Such older drafts still cannot replace artwork.
+**Compare engines** reads the current draft and its existing version history, and chooses a saved pair from the two
+offered engines only when source job, scene revision, look brief and exact prompt match. No generation, adoption or
+extra image copy occurs. Engine settings are labelled; the camera selector and reveal slider work in either mode.
+The engine comparison has no artwork acceptance/rejection controls. A missing matching pair leaves its button
+disabled with instructions to generate each draft explicitly at its displayed price. Existing history retention
+limits apply. Purged references, other films and other moving-part states are excluded. Tests cover read-only
+inspection and unchanged write fences (`test-cloud-set-style`: 109 checks).
+
 ### Cloud set preview — development pilot (31 October 2026)
 
 This is separate from the desktop add-on relay. The live website is unchanged.

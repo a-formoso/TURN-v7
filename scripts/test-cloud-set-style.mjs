@@ -186,6 +186,16 @@ for(const phase of ["prepare","response"]){
   tree=render({sceneHash:"changed"});ok(button(tree,"Use as location artwork").props.disabled,"Stale camera/layout revision disables acceptance in the interface");
   tree=render();await button(tree,"Use as location artwork").props.onClick();
   ok(h.store.get("room").meta.styleDraftIso===d.meta.iso,"Actual acceptance button handler adopts the reviewed pixels in disposable storage");
+  states[0]=await h.api().load("room",h.scope);tree=render();
+  ok(button(tree,"Compare with Blender"),"An accepted draft remains available for comparison");
+  states[0].meta.approval.approved=false;tree=render({sceneHash:"older"});
+  ok(button(tree,"Compare with Blender"),"Rejected or outdated drafts remain available for inspection");
+  states[18]={left:{url:"saved-nano",meta:{modelId:h.api().ENGINES[0],sceneHash:job.sceneHash}},right:{url:"saved-gpt",meta:{modelId:h.api().ENGINES[1]}}};
+  tree=render();button(tree,"Compare engines").props.onClick();tree=render();
+  ok(find(tree,n=>n.type==="img"&&n.props.src==="saved-nano")&&find(tree,n=>n.type==="img"&&n.props.src==="saved-gpt"),"Engine comparison displays both saved results");
+  ok(!button(tree,"Use as location artwork")&&!button(tree,"Reject draft"),"Engine comparison has no artwork mutation controls");
+  states[18]=null;tree=render();
+  ok(!button(tree,"Use as location artwork"),"Losing the engine pair cannot fall through to artwork acceptance");
 }
 {
   // A location with a finished Blender job but no style draft yet (every location, the first time): the panel renders.
@@ -200,6 +210,8 @@ for(const phase of ["prepare","response"]){
   ok(!error&&tree,"The panel renders before any style draft exists ("+(error&&error.message)+")");
   const find=(node,test)=>{if(!node||typeof node!=="object")return null;if(test(node))return node;for(const child of node.children||[]){const result=find(child,test);if(result)return result;}return null;};
   ok(!find(tree,n=>n.type==="button"&&n.children.includes("Use as location artwork")),"Without a draft there is nothing to accept");
+  ok(find(tree,n=>n.type==="button"&&n.children.includes("Compare with Blender"))?.props.disabled,"Blender comparison remains discoverable before a draft exists");
+  ok(find(tree,n=>n.type==="button"&&n.children.includes("Compare engines"))?.props.disabled,"Engine comparison remains discoverable before a matching pair exists");
 }
 {
   // Engine choice (owner 2026-10-31): Nano Banana 2.1 by default, GPT Image 2.5 Sunburst at High on request.
@@ -257,7 +269,7 @@ for(const phase of ["prepare","response"]){
   ok(/Saving the draft/.test(text(n))&&bar(n)===96,"Saving: almost done, never 100%");
   const ui=readFileSync(compiled?"dist/app/blender-style-ui.js":"app/blender-style-ui.jsx","utf8");
   ok(!/Refresh draft/.test(ui),"No Refresh draft button: the panel reloads the draft itself");
-  ok(/draft&&!decided&&!stale&&E\("button"/.test(ui)||compiled,"Review draft only while the draft is undecided and current");
+  ok(ui.includes("Compare with Blender")&&ui.includes("Compare engines"),"Both comparison controls are discoverable");
   ok(ui.includes("This draft is out of date: the set or its look changed after it was made, so it can't become the location image. Click Generate another style draft to make a new one."),
     "An out-of-date draft says why and which button to click");
   ok(!ui.includes("style brief changed"),"No more 'layout, cameras or style brief changed'");
@@ -283,4 +295,29 @@ for(const phase of ["prepare","response"]){
   h2.b.fetch=async()=>({ok:true,blob:async()=>new Blob(["<html>"],{type:"text/html"})});
   await rejects(async()=>h2.api().accept("room",await h2.api().load("room",h2.scope),h2.scope,true),/could not be read/);
 }
-console.log("PASS cloud set styling: "+checks+" generation, review, persistence, race, ownership and no-retry checks");
+{
+  const h=harness(),job=await h.ready(),api=h.api();
+  const a=await api.generate("room",job,h.scope,{settings:api.settings(api.ENGINES[0])});
+  const b=await api.generate("room",job,h.scope,{settings:api.settings(api.ENGINES[1])});
+  const before=h.calls.filter(x=>x==="paid-image").length,writes=h.writes.length;
+  const pair=await api.comparisonPair("room",h.scope);
+  ok(pair.left.meta.modelId===api.ENGINES[0]&&pair.right.meta.modelId===api.ENGINES[1],"Saved current/history versions form an ordered engine pair");
+  ok(h.calls.filter(x=>x==="paid-image").length===before&&h.writes.length===writes,"Comparison does not generate, bill, copy or adopt images");
+  const row=h.store.get(api.slot("room"));
+  for(const k of ["sourceJobId","sceneHash","briefKey","prompt"]){
+    const old=row.meta[k];row.meta[k]="different";
+    ok(await api.comparisonPair("room",h.scope)===null,"Engine comparison refuses mismatched "+k);row.meta[k]=old;
+  }
+  row.meta.projectId="another-film";
+  ok(await api.comparisonPair("room",h.scope)===null,"Cross-film versions cannot become comparison inputs");row.meta.projectId=h.scope.projectId;
+  row.refs[0]={kind:"blender-style-source",deleted:true,url:""};
+  ok(await api.comparisonPair("room",h.scope)===null,"A purged source is not restored for comparison");row.refs=b.refs;
+  row.history.unshift({...a,meta:{...a.meta,stateKey:"another-state"}});
+  ok((await api.comparisonPair("room",h.scope)).left.meta.iso===a.meta.iso,"Another moving-part state cannot displace the matching version");
+  h.readonly();
+  ok(await api.comparisonPair("room",h.scope),"Read-only film access may inspect a saved comparison");
+  ok(await api.load("room",h.scope),"Read-only film access may load the Blender comparison");
+  await rejects(()=>api.generate("room",job,h.scope),/read-only/);
+  h.changeScope();await rejects(()=>api.comparisonPair("room",h.scope),/sign-in changed/);
+}
+console.log("PASS cloud set styling: "+checks+" generation, comparison, persistence, race, ownership and no-retry checks");
