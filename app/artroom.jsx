@@ -5192,6 +5192,14 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               shape:"rounded",radius:"10",placeholder:slotPlaceholder||"Drop reference art"}),
             slotHasRef && React.createElement("div",{className:"sheet-ref-pill"},
               React.createElement(Icon.bolt,{s:10,sw:2}),"Reference art active \u00b7 guides generation")),
+    /* (2026-11-05, owner: "fix this" — a crowd's first image) while a card's FIRST image is being made or saved, the
+       frame says so instead of inviting a drop ("Drop a photo of the group" under "Generating…") */
+    !genUrl && (gening || (drafting && pendingGenerate)) && React.createElement("div",{className:"sheet-busy"+(slotHasRef?" over-ref":""),
+      "data-testid":"sheet-busy",role:"status","aria-live":"polite"},
+      React.createElement("span",{className:"sheet-busy-spin","aria-hidden":"true"}),
+      React.createElement("div",{className:"sheet-busy-cap"},
+        gen.saving ? "Saving the image\u2026" : pendingGenerate ? "Drafting the spec first\u2026"
+          : retrying ? "Retrying with a simpler prompt\u2026" : "Generating the image\u2026")),
     (genUrl || onDelete || importSheet || canOpenDetails) && React.createElement("div",{className:"sheet-gen-tools",style:{top:8,right:8}},
       React.createElement("div",{className:"sheet-tools-menu",ref:menuRef},
         React.createElement("button",{className:"sheet-gen-tool",onClick:()=>setMenuOpen(m=>!m),title:"Options"},
@@ -5434,7 +5442,8 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
       // useless "simplified prompt" retry.
       const browserGate = /can't be generated directly in the browser|cross-origin/i.test(genErr||"");
       const cur = (typeof nbGetModel==="function") ? nbGetModel() : "";
-      const other = allModels.find(m=>m.id!==cur);
+      // never offer the engine the error is about (2026-11-05: "Try GPT Image 2.6 Flare" under Flare's own refusal)
+      const other = allModels.find(m=>m.id!==cur && !String(genErr).includes(m.label) && !String(genErr).includes('"'+m.id+'"'));
       return React.createElement("div",{className:"sheet-gen-err"},
       React.createElement("div",{className:"sheet-gen-err-msg"},genErr),
       React.createElement("div",{className:"sheet-gen-err-acts"},

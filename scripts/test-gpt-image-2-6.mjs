@@ -9,6 +9,8 @@
      D  prompt limit 31,500 like 2.5; the quality preference is the one 2.5 uses; storyboard edits read it
      E  the dock chip, the price-drift watcher (both endpoints) and its labels
      F  Frances: "Flare 2.6" / "Sunburst 2.6" beside 2.5's "Flare" / "Sunburst"; no vendor name reaches her
+     G  an engine the server doesn't serve yet (2.6 picked before image-proxy was deployed) is said plainly — nothing
+        sent, nothing charged — and the card never offers the engine that just failed
 
    node scripts/test-gpt-image-2-6.mjs */
 import assert from "node:assert/strict";
@@ -160,7 +162,7 @@ await test("E the dock chip, the price-drift watcher (both 2.6 endpoints, $30/1M
   }
   assert.ok(watchUi.includes('"gpt-image-2.6-flare": "GPT Image 2.6 Flare",') && watchUi.includes('"gpt-image-2.6-sunburst": "GPT Image 2.6 Sunburst",'));
   for (const f of ["pricing", "imagegen", "artroom", "storyboard", "ai", "script", "pricing-watch"])
-    assert.ok(["20261105-gpt26"].some((k) => html.includes('src="app/' + f + '.jsx?v=' + k + '"')), f + ".jsx has a new key");
+    assert.ok(["20261105-gpt26", "20261105-gpt26b", "20261105-busy1", "20261105-busy2"].some((k) => html.includes('src="app/' + f + '.jsx?v=' + k + '"')), f + ".jsx has a new key");
 });
 
 await test("F Frances: 'Flare 2.6' / 'Sunburst 2.6' beside 2.5's 'Flare' / 'Sunburst'; the facts reach her without a vendor name", () => {
@@ -173,6 +175,25 @@ await test("F Frances: 'Flare 2.6' / 'Sunburst 2.6' beside 2.5's 'Flare' / 'Sunb
   assert.ok(!/GPT|OpenAI/i.test(w), "no vendor name");
   const full = b.APP_FEATURES.find((f) => f.name === "Generating images (Art Room)").what;
   assert.ok(full.includes("At High, Extra high and Max a 2.6 image costs the same credits as on 2.5; at Low and Medium it costs more"), "the manifest records the price difference");
+});
+
+await test("G an engine the server doesn't serve yet is said plainly; the card's 'Try …' never names the engine that failed", async () => {
+  const b = box();
+  b.fetch = async () => ({ ok: false, status: 400, headers: { get: () => "application/json" },
+    json: async () => ({ error: 'Image model "gpt-image-2.6-flare" is not supported by the image-quality schema.', code: "UNSUPPORTED_IMAGE_QUALITY" }),
+    text: async () => JSON.stringify({ error: 'Image model "gpt-image-2.6-flare" is not supported by the image-quality schema.', code: "UNSUPPORTED_IMAGE_QUALITY" }) });
+  b.turnCloudSession = () => ({ access_token: "t" }); b.cloudAccessToken = async () => "t";
+  run(b, "app/pricing.jsx"); run(b, "app/plans.jsx"); run(b, "app/imagegen.jsx");
+  const src = read("app/imagegen.jsx");
+  assert.ok(src.includes('if(status===400 && /is not supported by the image-quality schema|is not allowed on the fal proxy/i.test(String(relayed||""))){'));
+  assert.ok(src.includes(`const e = new Error(nbModelLabel(model)+" isn't on the image server yet \\u2014 nothing was sent and nothing was charged. Pick another engine for now.");`));
+  assert.ok(artSrc.includes(`const other = allModels.find(m=>m.id!==cur && !String(genErr).includes(m.label) && !String(genErr).includes('"'+m.id+'"'));`));
+  // the rule itself: with Nano Banana picked and Flare 2.6's refusal on the card, the offer is 2.6 Sunburst, not Flare
+  const models = plain(A.NB_MODELS), cur = NB21;
+  const pick = (genErr) => models.find((m) => m.id !== cur && !String(genErr).includes(m.label) && !String(genErr).includes('"' + m.id + '"'));
+  assert.equal(pick("GPT Image 2.6 Flare isn't on the image server yet \u2014 nothing was sent and nothing was charged.").id, S26);
+  assert.equal(pick('The image server rejected this request (400): Image model "gpt-image-2.6-flare" is not supported').id, S26);
+  assert.equal(pick("The image took longer than the server allows.").id, F26, "an unrelated error offers the first other engine, as before");
 });
 
 console.log(`\n${checks} checks passed${failed ? `, ${failed} FAILED` : ""}`);

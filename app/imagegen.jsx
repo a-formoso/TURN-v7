@@ -2953,6 +2953,13 @@ async function proxyGenerate(prompt, opts, provider){
         + (relayed ? " Server said: "+_safe(relayed)
                    : " High-quality GPT Image renders can take several minutes — try again, or drop the quality/resolution a notch for a faster render."));
     }
+    /* AN ENGINE THE SERVER DOESN'T SERVE YET (2026-11-05: GPT Image 2.6 was picked before image-proxy was deployed
+       with it) — refused before any hold, so it is said plainly, never as the raw schema error */
+    if(status===400 && /is not supported by the image-quality schema|is not allowed on the fal proxy/i.test(String(relayed||""))){
+      const e = new Error(nbModelLabel(model)+" isn't on the image server yet \u2014 nothing was sent and nothing was charged. Pick another engine for now.");
+      e.engineUnavailable = true; e.model = model;
+      throw e;
+    }
     if(relayed) throw new Error(_safe("The image server rejected this request"
       +(status?" ("+status+")":"")+": "+relayed));
     throw new Error(_safe("Couldn't reach the image service: "+((error && error.message) || "unknown error")+"."));
