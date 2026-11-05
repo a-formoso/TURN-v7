@@ -84,8 +84,10 @@ const G = box(); run(G, "app/imagegen.jsx");
 
 /* ═══ A ═══ */
 await test("A the picker: exactly Nano Banana 2.1, GPT Image 2.5 Flare, GPT Image 2.5 Sunburst, Seedream 5 Pro — in that order", () => {
+  // (2026-11-05, owner) GPT Image 2.6 Flare / Sunburst added above 2.5 — test-gpt-image-2-6.mjs
   assert.deepEqual(plain(A.NB_MODELS.map((m) => [m.id, m.label])), [
-    [NB21, "Nano Banana 2.1"], [FLARE, "GPT Image 2.5 Flare"], [SUN, "GPT Image 2.5 Sunburst"], [SEED, "Seedream 5 Pro"]]);
+    [NB21, "Nano Banana 2.1"], ["gpt-image-2.6-flare", "GPT Image 2.6 Flare"], ["gpt-image-2.6-sunburst", "GPT Image 2.6 Sunburst"],
+    [FLARE, "GPT Image 2.5 Flare"], [SUN, "GPT Image 2.5 Sunburst"], [SEED, "Seedream 5 Pro"]]);
   assert.deepEqual(plain(A.NB_MODELS.find((m) => m.id === SEED)), { id: SEED, label: "Seedream 5 Pro", provider: "fal", family: "seedream",
     falModel: "bytedance/seedream/v5/pro/text-to-image", falEditModel: "bytedance/seedream/v5/pro/edit", maxRes: "2K", maxRefs: 10,
     note: "rich detail · strong likeness" });
@@ -111,7 +113,7 @@ await test("A the picker: exactly Nano Banana 2.1, GPT Image 2.5 Flare, GPT Imag
 /* ═══ B ═══ */
 await test("B the app's and the server's image tables agree, GPT Image 2.5 at fal's 1024x1024 rates", () => {
   assert.deepEqual(plain(A.TURN_PRICING.image.providerUsd), plain(srv.IMAGE_PROVIDER_USD), "the whole table");
-  assert.deepEqual(Object.keys(srv.IMAGE_PROVIDER_USD), [NB21, FLARE, SUN, SEED]);
+  assert.deepEqual(Object.keys(srv.IMAGE_PROVIDER_USD), [NB21, "gpt-image-2.6-flare", "gpt-image-2.6-sunburst", FLARE, SUN, SEED]);
   const gpt = { default: 0.05268, auto: 0.21072, low: 0.00588, medium: 0.01317, high: 0.05268, xhigh: 0.09366, max: 0.21072 };
   for (const m of [FLARE, SUN]) assert.deepEqual(plain(srv.IMAGE_PROVIDER_USD[m]), gpt, m);
   assert.deepEqual(plain(srv.IMAGE_PROVIDER_USD[SEED]), { standard: 0.0675, large: 0.135, extraRef: 0.0045 });

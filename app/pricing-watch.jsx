@@ -27,6 +27,8 @@
   const MODEL_LABELS = {
     // the image engines (2026-10-11, owner — image engines)
     "gemini-nano-banana-2.1": "Nano Banana 2.1",
+    "gpt-image-2.6-flare": "GPT Image 2.6 Flare",
+    "gpt-image-2.6-sunburst": "GPT Image 2.6 Sunburst",
     "gpt-image-2.5-flare": "GPT Image 2.5 Flare",
     "gpt-image-2.5-sunburst": "GPT Image 2.5 Sunburst",
     "seedream-5-pro": "Seedream 5 Pro",

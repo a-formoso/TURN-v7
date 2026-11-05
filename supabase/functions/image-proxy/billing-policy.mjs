@@ -11,7 +11,7 @@
      writer   Writers' Room: every writing engine; voice for the New Story interview (speech and
               transcription, the voice list); images up to 2K on any engine (dashboard key art —
               the Art Room itself is Director's). The engines (2026-10-11, owner): Nano Banana 2.1,
-              GPT Image 2.5 Flare / Sunburst and Seedream 5 Pro — no engine is plan-only; Seedream 5
+              GPT Image 2.5 / 2.6 Flare / Sunburst and Seedream 5 Pro — no engine is plan-only; Seedream 5
               Pro has GPT Image 2.5 Sunburst's access and tops out at 2K for every plan (index.ts
               renders a 4K request at 2K before this gate).
      director Writers' Room + Art Room: every image engine up to 4K, the character voice tools

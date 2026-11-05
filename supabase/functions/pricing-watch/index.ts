@@ -160,6 +160,54 @@ const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = 
     },
   },
   {
+    // GPT Image 2.6 Flare / Sunburst (2026-11-05, owner) — token-priced like 2.5, at the same $30/1M
+    // image-output-token rate; the committed rows are OpenAI's token calculator at 1024x1024 (low $0.02469,
+    // medium $0.04347 — more tokens than 2.5 — high $0.05268, xhigh $0.09366, max $0.21072). Each endpoint
+    // is watched on its own.
+    slug: "openai/gpt-image-2.6/flare/text-to-image",
+    run(t, c) {
+      const rate = firstMatch(t, /Image tokens \(per 1M\):[^\n]*?\$\s*([\d.,]+)\s*output/i);
+      c.rate(
+        "gpt-image-2.6-flare-image-output-tokens",
+        rate,
+        "$/1M image output tokens",
+        30,
+        [
+          "image.providerUsd.gpt-image-2.6-flare.default",
+          "image.providerUsd.gpt-image-2.6-flare.auto",
+          "image.providerUsd.gpt-image-2.6-flare.low",
+          "image.providerUsd.gpt-image-2.6-flare.medium",
+          "image.providerUsd.gpt-image-2.6-flare.high",
+          "image.providerUsd.gpt-image-2.6-flare.xhigh",
+          "image.providerUsd.gpt-image-2.6-flare.max",
+        ],
+        "derived: table × (new rate / reference rate)",
+      );
+    },
+  },
+  {
+    slug: "openai/gpt-image-2.6/sunburst/text-to-image",
+    run(t, c) {
+      const rate = firstMatch(t, /Image tokens \(per 1M\):[^\n]*?\$\s*([\d.,]+)\s*output/i);
+      c.rate(
+        "gpt-image-2.6-sunburst-image-output-tokens",
+        rate,
+        "$/1M image output tokens",
+        30,
+        [
+          "image.providerUsd.gpt-image-2.6-sunburst.default",
+          "image.providerUsd.gpt-image-2.6-sunburst.auto",
+          "image.providerUsd.gpt-image-2.6-sunburst.low",
+          "image.providerUsd.gpt-image-2.6-sunburst.medium",
+          "image.providerUsd.gpt-image-2.6-sunburst.high",
+          "image.providerUsd.gpt-image-2.6-sunburst.xhigh",
+          "image.providerUsd.gpt-image-2.6-sunburst.max",
+        ],
+        "derived: table × (new rate / reference rate)",
+      );
+    },
+  },
+  {
     // GPT Image 2.5 Flare — token-priced. The committed quality rows are fal's
     // canonical 1024x1024 prices at the $30/1M image-output-token rate (2026-10-11:
     // low $0.00588, medium $0.01317, high $0.05268, xhigh $0.09366, max $0.21072 —

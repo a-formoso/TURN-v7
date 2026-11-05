@@ -3218,7 +3218,7 @@ function useImageGen(opts){
     const onStart = (e)=>{ if(!alive || !e.detail || e.detail.id!==id) return; setGening(true); setGenErr(""); };
     window.addEventListener("nb-gen-start", onStart);
     const onSaving=e=>{ if(alive&&e.detail&&e.detail.id===id)setSaving(true); };
-    const onPending=e=>{ if(alive&&e.detail&&e.detail.id===id){setPendingSave({...nbPendingSheetSave(id)}); if(e.detail.error)setGenErr(e.detail.error);} };
+    const onPending=e=>{ if(alive&&e.detail&&e.detail.id===id){{ const p=nbPendingSheetSave(id); setPendingSave(p?{...p}:null); } if(e.detail.error)setGenErr(e.detail.error);} };
     const onApproval=e=>{ if(alive&&e.detail&&e.detail.id===id&&typeof nbGetMeta==="function")setGenMeta(nbGetMeta(id)); };
     window.addEventListener("nb-gen-saving",onSaving);
     window.addEventListener("nb-save-pending",onPending);
@@ -5606,6 +5606,7 @@ function CopyBox({ label, text }){
         document.body.removeChild(ta);
       }catch(e){ ok = false; }
     }
+    if(!ok){ if(typeof window.appToast==="function") window.appToast("Couldn't copy — select the text and copy it by hand.","error"); return; }
     setCopied(true); setTimeout(()=>setCopied(false), 1400);
   };
   const [open, setOpen] = React.useState(false);
@@ -6968,8 +6969,10 @@ function NbDock(){
   const aspect = (typeof nbGetAspect==="function") ? nbGetAspect() : "16:9";
   const resv   = (typeof nbGetRes==="function") ? nbGetRes() : "2K";
   // (2026-10-09) each engine has its own chip (a different price) and GPT Image shows its quality — what the price
-  // follows. The engines (2026-10-11): Nano Banana 2.1, GPT Image 2.5 Flare / Sunburst, Seedream 5 Pro
-  const short  = model==="gpt-image-2.5-flare" ? "GPT F"
+  // follows. The engines (2026-10-11): Nano Banana 2.1, GPT Image 2.6 (2026-11-05) and 2.5 Flare / Sunburst, Seedream 5 Pro
+  const short  = model==="gpt-image-2.6-flare" ? "GPT F2.6"
+    : model==="gpt-image-2.6-sunburst" ? "GPT S2.6"
+    : model==="gpt-image-2.5-flare" ? "GPT F"
     : model==="gpt-image-2.5-sunburst" ? "GPT S"
     : model==="seedream-5-pro" ? "SD5"
     : model==="gemini-nano-banana-2.1" ? "NB2.1"
@@ -7279,17 +7282,18 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
     ? (cast[0].renderStyleKey||defaultStyleKey) : "";
   const applyStyleAll = async (key)=>{
     if(!key || allStyling) return;
-    cast.forEach(c=> onUpdate(c.id, { renderStyleKey:key }));
-    if(key!=="surprise") return;
-    if(!(typeof aiSurpriseRenderStyle==="function" && typeof aiAvailable==="function" && aiAvailable())) return;
+    const setAll = ()=> cast.forEach(c=> onUpdate(c.id, { renderStyleKey:key }));
+    if(key!=="surprise") { setAll(); return; }
+    if(!(typeof aiSurpriseRenderStyle==="function" && typeof aiAvailable==="function" && aiAvailable())) { setAll(); return; }
     const need = cast.filter(c=>!(c.surpriseRender && c.surpriseRender.render));
-    if(!need.length) return;
+    if(!need.length) { setAll(); return; }
     let ok = true;
     if(typeof window.appConfirm==="function") ok = await window.appConfirm({
       title:"Invent a surprise style for "+need.length+" character"+(need.length!==1?"s":"")+"?",
       body:"Each character gets its OWN bespoke fused style invented from its bible — that's "+need.length+" AI call"+(need.length!==1?"s":"")+".",
       confirmLabel:"Invent styles" });
     if(!ok) return;
+    setAll();
     setAllStyling({ i:0, total:need.length });
     for(let i=0;i<need.length;i++){ setAllStyling({ i:i+1, total:need.length });
       try{ const r = await aiSurpriseRenderStyle(need[i], project); if(r) onUpdate(need[i].id, { surpriseRender:r }); }catch(e){} }
@@ -7775,9 +7779,15 @@ function CastConfirm({ characters, props, scenes, drafts, sceneId, sceneNo, scen
      counts them; and a likeness this person can't use here is said before the run starts */
   const _img = (id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
   const planChars = C.filter(c=>c && plan.ids.indexOf(c.id)>=0);
-  const lkAny = planChars.some(c=> (window.turnLikenessRefCount||(()=>0))(c.id)>0);
+  // characters whose sheets would be refused: they're named here with a one-click fix, and left out of the run
+  const blocked = planChars.map(c=>({ c, b:turnIdentityBlock(c, C) })).filter(x=>x.b);
+  const blockedIds = new Set(blocked.map(x=>x.c.id));
+  // the price counts only what the run makes — a left-out character costs nothing
+  const runPlan = castDesignPlan(C.filter(c=>c && !blockedIds.has(c.id)), scope, sceneIds, withVariants);
+  const runChars = planChars.filter(c=>!blockedIds.has(c.id));
+  const lkAny = runChars.some(c=> (window.turnLikenessRefCount||(()=>0))(c.id)>0);
   const lkRefs = [];
-  if(lkAny) planChars.forEach(c=>{
+  if(lkAny) runChars.forEach(c=>{
     const lk = (window.turnLikenessRefCount||(()=>0))(c.id);
     const ex = new Set(Array.isArray(c.wornReferenceExclusions) ? c.wornReferenceExclusions : []);
     const worn = (props||[]).filter(p=>p && p.ownerId===c.id && p.kind!=="carried" && !ex.has(p.id) && _img(p.id)).length;
@@ -7785,9 +7795,6 @@ function CastConfirm({ characters, props, scenes, drafts, sceneId, sceneNo, scen
     if(withVariants) ((c.states)||[]).filter(st=>st && st.sceneId && !_img(c.id+":"+st.id)).forEach(()=> lkRefs.push(lk + 1));
   });
   const lkUnavailable = planChars.map(c=> (window.turnLikenessUnavailableText||(()=>""))(c.id, c.name)).filter(Boolean);
-  // characters whose sheets would be refused: they're named here with a one-click fix, and left out of the run
-  const blocked = planChars.map(c=>({ c, b:turnIdentityBlock(c, C) })).filter(x=>x.b);
-  const blockedIds = new Set(blocked.map(x=>x.c.id));
   const suggestable = blocked.filter(x=>x.b.suggest && typeof onSetPronouns==="function");
   const runIds = plan.ids.filter(id=>!blockedIds.has(id));
   const count = (sc)=> castDesignPlan(C, sc, sceneIds, false).n;
@@ -7805,15 +7812,15 @@ function CastConfirm({ characters, props, scenes, drafts, sceneId, sceneNo, scen
     && !charVisualsDrafted(c) && window.charFactsState(c, scenes, drafts).needsRead) : [];
   const readCalls = readers.length ? charFactCallCount(scenes, drafts, readers) : 0;
   // the Script check reads a sheet against the facts: offered when someone making a sheet has (or will have) a fact sheet
-  const canCheck = plan.sheets>0 && planChars.some(c=> !blockedIds.has(c.id) && !_img(c.id)
+  const canCheck = runPlan.sheets>0 && planChars.some(c=> !blockedIds.has(c.id) && !_img(c.id)
     && ((c.scriptFacts && Array.isArray(c.scriptFacts.facts) && c.scriptFacts.facts.length) || readers.indexOf(c)>=0));
   const checking = withCheck && canCheck;
   const lines = [
     { id:"read", label:"Read the script first ("+readers.length+" character"+(readers.length!==1?"s":"")+")", unit:"writing call", n:readCalls, writing:true },
-    { id:"specs", label:"Looks to draft", unit:"spec", n:plan.specs, writing:true },
-    { id:"sheets", label:"Master sheets", unit:"sheet", n:plan.sheets },
-    { id:"check", label:"Script checks of the new sheets", unit:"vision read", n:checking ? plan.sheets : 0, writing:true },
-    { id:"variants", label:"Appearance variants", unit:"variant", n:plan.variants },
+    { id:"specs", label:"Looks to draft", unit:"spec", n:runPlan.specs, writing:true },
+    { id:"sheets", label:"Master sheets", unit:"sheet", n:runPlan.sheets },
+    { id:"check", label:"Script checks of the new sheets", unit:"vision read", n:checking ? runPlan.sheets : 0, writing:true },
+    { id:"variants", label:"Appearance variants", unit:"variant", n:runPlan.variants },
   ].filter(l=>l.n>0);
   const nothing = !plan.n || (!plan.specs && !plan.images && !plan.noStates);
   // a real dialog: Escape cancels, focus moves in, and the scene pager behind it keeps still (2026-10-09)
@@ -7842,16 +7849,16 @@ function CastConfirm({ characters, props, scenes, drafts, sceneId, sceneNo, scen
         ? note("check", plan.n ? "Everything in this choice already exists \u2014 there's nothing to make." : "No characters in this choice.", "ok")
         : React.createElement(React.Fragment,null,
             React.createElement("div",{className:"cc-est"},
-              React.createElement("span",{className:"cc-est-n"}, String(plan.images)),
-              React.createElement("span",{className:"cc-est-l"}, "image"+(plan.images===1?"":"s")+" to generate"),
-              plan.images>0 && (lkAny && lkRefs.length===plan.images
+              React.createElement("span",{className:"cc-est-n"}, String(runPlan.images)),
+              React.createElement("span",{className:"cc-est-l"}, "image"+(runPlan.images===1?"":"s")+" to generate"),
+              runPlan.images>0 && (lkAny && lkRefs.length===runPlan.images
                 ? React.createElement(window.LikenessBatchCost,{ refs:lkRefs })
-                : (typeof window.nbCostChip==="function" && window.nbCostChip(plan.images)))),
+                : (typeof window.nbCostChip==="function" && window.nbCostChip(runPlan.images)))),
             lines.length>0 && React.createElement("ul",{className:"cc-list"},
               lines.map(l=>React.createElement("li",{key:l.id},
                 React.createElement("span",{className:"cc-list-lab"}, l.label),
                 React.createElement("span",{className:"cc-list-n"}, l.n+" "+l.unit+(l.n===1?"":"s")+(l.writing?" \u00b7 writing credits":""))))),
-            plan.noStates>0 && note("alert", plan.noStates+" character"+(plan.noStates!==1?"s have":" has")+" no appearance changes listed yet \u2014 each one it finds adds one image."),
+            runPlan.noStates>0 && note("alert", runPlan.noStates+" character"+(runPlan.noStates!==1?"s have":" has")+" no appearance changes listed yet \u2014 each one it finds adds one image."),
             lkAny && note("info","The price counts each likeness's photos \u2014 they go with every sheet of that character.","info"),
             ...lkUnavailable.map((t,i)=> React.createElement("div",{key:"lku"+i,className:"cc-note"},
               React.createElement(Icon.alert,{s:12}), React.createElement("span",null,t))),

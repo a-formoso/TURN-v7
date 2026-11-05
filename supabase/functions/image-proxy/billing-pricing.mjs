@@ -496,6 +496,10 @@ export const IMAGE_SIZES = Object.freeze(["1K", "2K", "4K"]);
        1024x1024 row: low $0.00588, medium $0.01317, high $0.05268, xhigh $0.09366, max $0.21072 — 2026-10-11, the
        low / medium / high rows were below fal's and are now fal's own), scaled with output size
        (gptImageSizeFactor); "default" is high, "auto" is estimated at max.
+     GPT Image 2.6 Flare / Sunburst (2026-11-05, owner — added beside 2.5): the same token rates ($30 / 1M image
+       output) but more output tokens at low (x4.2) and medium (x3.3) — OpenAI's own token calculator (the image
+       generation guide): 1024x1024 low $0.02469, medium $0.04347; high / xhigh / max as 2.5. Its reasoning effort
+       ("complexity") has no separate fee.
      Seedream 5 Pro (2026-10-11, owner): fal's tentative per-image price by the OUTPUT'S PIXEL AREA — $0.0675 up to
        1536x1536 ("standard"), $0.135 above it up to 2048x2048 ("large") — plus, on the edit route (references),
        $0.0045 for each input image after the first ("extraRef"). The tier comes from the exact width x height the
@@ -504,6 +508,8 @@ export const IMAGE_SIZES = Object.freeze(["1K", "2K", "4K"]);
    both. */
 export const IMAGE_PROVIDER_USD = Object.freeze({
   "gemini-nano-banana-2.1": { "1K": 0.05, "2K": 0.07, "4K": 0.15 },
+  "gpt-image-2.6-flare": { default: 0.05268, auto: 0.21072, low: 0.02469, medium: 0.04347, high: 0.05268, xhigh: 0.09366, max: 0.21072 },
+  "gpt-image-2.6-sunburst": { default: 0.05268, auto: 0.21072, low: 0.02469, medium: 0.04347, high: 0.05268, xhigh: 0.09366, max: 0.21072 },
   "gpt-image-2.5-flare": { default: 0.05268, auto: 0.21072, low: 0.00588, medium: 0.01317, high: 0.05268, xhigh: 0.09366, max: 0.21072 },
   "gpt-image-2.5-sunburst": { default: 0.05268, auto: 0.21072, low: 0.00588, medium: 0.01317, high: 0.05268, xhigh: 0.09366, max: 0.21072 },
   "seedream-5-pro": { standard: 0.0675, large: 0.135, extraRef: 0.0045 },
@@ -543,10 +549,13 @@ export const IMAGE_WEB_SEARCH_USD = 0.015;          // fal Nano Banana web searc
 export const GOOGLE_GROUNDING_USD = 0.035;          // direct Google search grounding, per request (conservative)
 export const GPT_IMAGE_REFERENCE_USD = 0.012;       // per reference image (~1,500 image input tokens at $8 / 1M)
 export const GPT_IMAGE_BASELINE_MP = Object.freeze({
+  "gpt-image-2.6-flare": 1024 * 1024 / 1e6,
+  "gpt-image-2.6-sunburst": 1024 * 1024 / 1e6,
   "gpt-image-2.5-flare": 1024 * 1024 / 1e6,          // canonical 1024-square
   "gpt-image-2.5-sunburst": 1024 * 1024 / 1e6,
 });
-/* fal's two GPT Image 2 points ($0.158 at 2.07 MP, $0.401 at 8.29 MP) fit cost ∝ MP^0.672 — kept for 2.5. */
+/* fal's two GPT Image 2 points ($0.158 at 2.07 MP, $0.401 at 8.29 MP) fit cost ∝ MP^0.672 — kept for 2.5 and 2.6
+   (2.6 multiplies 2.5's tokens by a constant per quality, so it scales with size the same way). */
 export const GPT_IMAGE_SIZE_EXPONENT = 0.672;
 
 /** GPT Image output pixels for TURN's aspect + resolution tier (the proxy's sizeForAspect). */
@@ -617,7 +626,7 @@ export const IMAGE_PROMPT_MAX_CHARS = 40000;
    33,577 characters came back from fal as a raw refusal: fal's schema for GPT Image 2.5 Flare and Sunburst stops
    at 32,000 characters (OpenAI's own limit for its image models). Each engine has its own ceiling here, a margin
    under what its provider takes:
-     GPT Image 2.5 Flare / Sunburst — fal maxLength 32,000 → 31,500;
+     GPT Image 2.5 and 2.6 Flare / Sunburst — fal maxLength 32,000 → 31,500;
      Nano Banana 2.1 — fal maxLength 50,000 → held at IMAGE_PROMPT_MAX_CHARS (40,000);
      Seedream 5 Pro — fal publishes no maxLength and BytePlus advises short prompts (long ones "may scatter
        information") → 30,000.
@@ -626,6 +635,8 @@ export const IMAGE_PROMPT_MAX_CHARS = 40000;
    under it and proxyGenerate trims what is left in a fixed order (imagegen.jsx nbFitImagePrompt) — nobody is
    ever asked to shorten a prompt. An engine missing here gets IMAGE_PROMPT_MAX_CHARS. */
 export const IMAGE_PROMPT_LIMITS = Object.freeze({
+  "gpt-image-2.6-flare": 31500,
+  "gpt-image-2.6-sunburst": 31500,
   "gpt-image-2.5-flare": 31500,
   "gpt-image-2.5-sunburst": 31500,
   "gemini-nano-banana-2.1": IMAGE_PROMPT_MAX_CHARS,

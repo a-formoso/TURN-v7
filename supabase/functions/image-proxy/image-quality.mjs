@@ -12,6 +12,9 @@ const GPT_IMAGE_25_QUALITIES = ["default", "auto", "low", "medium", "high", "xhi
 /* GPT Image 2 was removed (2026-10-11, owner — image engines): index.ts maps its id to GPT Image 2.5 Sunburst
    (billing-pricing.mjs canonicalImageModel) BEFORE this validation, so its low / medium / high still validate. */
 export const IMAGE_QUALITY_CAPABILITIES = Object.freeze({
+  // GPT Image 2.6 (2026-11-05) takes 2.5's quality values
+  "gpt-image-2.6-flare": Object.freeze([...GPT_IMAGE_25_QUALITIES]),
+  "gpt-image-2.6-sunburst": Object.freeze([...GPT_IMAGE_25_QUALITIES]),
   "gpt-image-2.5-flare": Object.freeze([...GPT_IMAGE_25_QUALITIES]),
   "gpt-image-2.5-sunburst": Object.freeze([...GPT_IMAGE_25_QUALITIES]),
 });
@@ -156,7 +159,7 @@ export function mergeImagePricingOverrides(baseTable, config) {
     }
   }
 
-  for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
+  for (const model of Object.keys(IMAGE_QUALITY_CAPABILITIES)) {
     const target = merged[model];
     if (!target) continue;
     if (Number.isFinite(Number(target.high))) target.default = Number(target.high);
@@ -174,9 +177,6 @@ export function mergeImagePricingOverrides(baseTable, config) {
 export function imageQualityOptions() {
   return {
     imageQualitySchema: 1,
-    imageQualities: {
-      "gpt-image-2.5-flare": [...IMAGE_QUALITY_CAPABILITIES["gpt-image-2.5-flare"]],
-      "gpt-image-2.5-sunburst": [...IMAGE_QUALITY_CAPABILITIES["gpt-image-2.5-sunburst"]],
-    },
+    imageQualities: Object.fromEntries(Object.entries(IMAGE_QUALITY_CAPABILITIES).map(([m, q]) => [m, [...q]])),
   };
 }

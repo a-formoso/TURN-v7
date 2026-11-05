@@ -85,12 +85,17 @@
       // GPT Image 2.5 rows are fal's canonical 1024x1024 prices (2026-10-11: low $0.00588, medium $0.01317,
       // high $0.05268, xhigh $0.09366, max $0.21072 — low / medium / high used to sit below fal's) and scale
       // with output size (turnGptImageSizeFactor); default is high, auto is estimated at max.
+      // GPT Image 2.6 Flare / Sunburst (2026-11-05, owner — added beside 2.5): the same token rates, more output
+      // tokens at low (x4.2) and medium (x3.3) — OpenAI's token calculator at 1024x1024: low $0.02469, medium
+      // $0.04347; high / xhigh / max as 2.5. Its reasoning effort has no separate fee.
       // Seedream 5 Pro (2026-10-11): fal's tentative price by OUTPUT AREA — $0.0675 up to 1536x1536 ("standard"),
       // $0.135 above it up to 2048x2048 ("large") — plus $0.0045 for each reference image after the first
       // ("extraRef"); the tier follows the exact size sent (turnSeedreamImageDimensions; no 4K — a 4K pick
       // renders at 2K).
       providerUsd: {
         "gemini-nano-banana-2.1":      { "1K":0.05, "2K":0.07, "4K":0.15 },
+        "gpt-image-2.6-flare":         { default:0.05268, auto:0.21072, low:0.02469, medium:0.04347, high:0.05268, xhigh:0.09366, max:0.21072 },
+        "gpt-image-2.6-sunburst":      { default:0.05268, auto:0.21072, low:0.02469, medium:0.04347, high:0.05268, xhigh:0.09366, max:0.21072 },
         "gpt-image-2.5-flare":         { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
         "gpt-image-2.5-sunburst":      { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
         "seedream-5-pro":              { standard:0.0675, large:0.135, extraRef:0.0045 },
@@ -218,7 +223,8 @@
   }
   /* GPT Image cost scales with output size: fal's two GPT Image 2 points ($0.158 at 2.07 MP,
      $0.401 at 8.29 MP) fit cost ∝ MP^0.672 — kept for 2.5. Mirrors billing-pricing.mjs gptImageSizeFactor. */
-  const GPT_IMAGE_BASELINE_MP = { "gpt-image-2.5-flare":1024*1024/1e6, "gpt-image-2.5-sunburst":1024*1024/1e6 };
+  const GPT_IMAGE_BASELINE_MP = { "gpt-image-2.6-flare":1024*1024/1e6, "gpt-image-2.6-sunburst":1024*1024/1e6,
+    "gpt-image-2.5-flare":1024*1024/1e6, "gpt-image-2.5-sunburst":1024*1024/1e6 };
   const GPT_IMAGE_SIZES = {
     "16:9": { "1K":"1280x720", "2K":"2048x1152", "4K":"3840x2160" },
     "9:16": { "1K":"720x1280", "2K":"1152x2048", "4K":"2160x3840" },
@@ -259,12 +265,14 @@
   }
   /* PROMPT LIMITS PER IMAGE ENGINE (2026-10-14, owner — "go ahead with all of it"): the longest prompt each engine is
      sent — the SAME table as supabase/functions/image-proxy/billing-pricing.mjs IMAGE_PROMPT_LIMITS (the server
-     refuses a longer prompt with prompt_too_long before any hold). GPT Image 2.5: fal stops at 32,000 → 31,500;
+     refuses a longer prompt with prompt_too_long before any hold). GPT Image 2.5 and 2.6: fal stops at 32,000 → 31,500;
      Nano Banana 2.1: fal's 50,000, held at the 40,000 every image route allows; Seedream 5 Pro: no published limit,
      short prompts advised → 30,000. The prompt builders fit themselves under it and proxyGenerate trims what is
      left (imagegen.jsx nbFitImagePrompt) — nobody is ever asked to shorten a prompt. */
   const IMAGE_PROMPT_MAX_CHARS = 40000;
   const IMAGE_PROMPT_LIMITS = Object.freeze({
+    "gpt-image-2.6-flare": 31500,
+    "gpt-image-2.6-sunburst": 31500,
     "gpt-image-2.5-flare": 31500,
     "gpt-image-2.5-sunburst": 31500,
     "gemini-nano-banana-2.1": IMAGE_PROMPT_MAX_CHARS,

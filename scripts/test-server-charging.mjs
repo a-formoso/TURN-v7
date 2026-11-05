@@ -3301,7 +3301,7 @@ async function proxySection() {
     });
 
     await test("F39b (2026-10-14) each image engine's own prompt limit (billing-pricing.mjs IMAGE_PROMPT_LIMITS — GPT Image 2.5 31,500 under fal's 32,000, Seedream 5 Pro 30,000, Nano Banana 2.1 40,000) is refused with prompt_too_long before any hold or provider call; a prompt at the limit renders", async () => {
-      assert.deepEqual({ ...P.IMAGE_PROMPT_LIMITS }, { "gpt-image-2.5-flare": 31500, "gpt-image-2.5-sunburst": 31500, "gemini-nano-banana-2.1": 40000, "seedream-5-pro": 30000 });
+      assert.deepEqual({ ...P.IMAGE_PROMPT_LIMITS }, { "gpt-image-2.6-flare": 31500, "gpt-image-2.6-sunburst": 31500, "gpt-image-2.5-flare": 31500, "gpt-image-2.5-sunburst": 31500, "gemini-nano-banana-2.1": 40000, "seedream-5-pro": 30000 });
       assert.equal(P.imagePromptMaxChars("gpt-image-2"), 31500, "a retired id is held to its successor's limit");
       assert.equal(P.imagePromptMaxChars("some-unknown-model"), 40000);
       for (const [model, provider] of [["gpt-image-2.5-flare", "fal"], ["gpt-image-2.5-sunburst", "fal"], ["gpt-image-2", "fal"], ["seedream-5-pro", "fal"], ["gemini-nano-banana-2.1", "fal"]]) {

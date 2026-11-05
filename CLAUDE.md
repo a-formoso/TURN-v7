@@ -84,7 +84,7 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   (`context: {projectId, assetId, purpose}`, from `imagegen.jsx` `proxyGenerate`); the proxy records them with the
   hold's `holdRef` on the usage row (`request-context.mjs`) — browser-supplied, so attribution only, never billing.
   **Image prompts** have a limit per engine (`billing-pricing.mjs` `IMAGE_PROMPT_LIMITS` = `app/pricing.jsx`
-  `TURN_IMAGE_PROMPT_LIMITS`, owner 2026-10-14): GPT Image 2.5 Flare / Sunburst 31,500 (fal takes 32,000), Seedream 5
+  `TURN_IMAGE_PROMPT_LIMITS`, owner 2026-10-14): GPT Image 2.5 and 2.6 Flare / Sunburst 31,500 (fal takes 32,000), Seedream 5
   Pro 30,000, Nano Banana 2.1 and any other engine 40,000 (`IMAGE_PROMPT_MAX_CHARS`, the ceiling). A longer prompt gets
   a 400 `prompt_too_long` before the hold; the app's builders fit themselves and `proxyGenerate` trims what's left in
   a fixed order (`imagegen.jsx` `nbFitImagePrompt`) — users are never asked to shorten a prompt.

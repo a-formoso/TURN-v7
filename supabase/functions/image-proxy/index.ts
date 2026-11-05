@@ -230,14 +230,19 @@ async function stockVoiceCategory(voiceId: string, key: string): Promise<string>
 }
 let legacyImageModelLogged = false;
 /* The fal image models this proxy serves, and the fal routes they map to. THE ENGINES (2026-10-11, owner — image
-   engines): exactly these four. Nano Banana 2, Nano Banana Pro and GPT Image 2 were removed (a locked likeness
-   rendered the wrong face on them); an older app naming one is served on its successor (canonicalImageModel). */
+   engines; GPT Image 2.6 Flare / Sunburst added 2026-11-05, owner): exactly these six. Nano Banana 2, Nano Banana
+   Pro and GPT Image 2 were removed (a locked likeness rendered the wrong face on them); an older app naming one is
+   served on its successor (canonicalImageModel). */
 const FAL_IMAGE_MODELS: Record<string, { base: string; edit?: string; family: "nano" | "openai" | "seedream" }> = {
   // NOTE the namespace: Nano Banana 2.1 (2026-10-10, owner — it replaced Nano Banana 2 Lite) is published
   // under google/, not fal-ai/, like Lite was. Its text-to-image route takes no image_urls; a render WITH
   // references goes to its /edit route (up to 14 reference images). Lite's old id is mapped to this one
   // before routing (canonicalImageModel), so an older app keeps working.
   "gemini-nano-banana-2.1":      { base: "google/nano-banana-2.1", edit: "google/nano-banana-2.1/edit", family: "nano" },
+  // GPT Image 2.6 (fal, 2026-11-04): 2.5's inputs, sizes, qualities and 32,000-character prompt, plus a
+  // `reasoning_effort` (OpenAI `complexity`, no separate fee) left at its default (high) — nothing extra is sent
+  "gpt-image-2.6-flare":         { base: "openai/gpt-image-2.6/flare/text-to-image", edit: "openai/gpt-image-2.6/flare/edit", family: "openai" },
+  "gpt-image-2.6-sunburst":      { base: "openai/gpt-image-2.6/sunburst/text-to-image", edit: "openai/gpt-image-2.6/sunburst/edit", family: "openai" },
   "gpt-image-2.5-flare":         { base: "openai/gpt-image-2.5/flare/text-to-image", edit: "openai/gpt-image-2.5/flare/edit", family: "openai" },
   "gpt-image-2.5-sunburst":      { base: "openai/gpt-image-2.5/sunburst/text-to-image", edit: "openai/gpt-image-2.5/sunburst/edit", family: "openai" },
   // Seedream 5 Pro (2026-10-11, owner): text-to-image without references; WITH references the edit route, whose
@@ -2613,7 +2618,7 @@ Deno.serve(async (req) => {
   };
   const runImage = async (): Promise<Response> => {
 
-  // ── provider: fal.ai image broker (Nano Banana 2.1, GPT Image 2.5, Seedream 5 Pro) ──
+  // ── provider: fal.ai image broker (Nano Banana 2.1, GPT Image 2.6 / 2.5, Seedream 5 Pro) ──
   if (imageProvider === "fal") {
     const falKey = providerKey("fal", "FAL_KEY");
     if (!falKey) return json({ error: missingKey("fal.ai", "FAL_KEY") }, 500);

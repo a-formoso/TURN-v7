@@ -7,11 +7,12 @@ const NB_KEY = "turn-nanobanana-key";
 const NB_MODEL_KEY = "turn-nb-model";
 const NB_AR_KEY = "turn-nb-aspect";
 /* Preserve the existing medium preference. GPT Image 2.5 adds model-specific
-   tiers; "default" means omit the provider field (currently high), not auto. */
+   tiers; "default" means omit the provider field (currently high), not auto.
+   GPT Image 2.6 (2026-11-05) takes the same tiers and shares 2.5's saved choice. */
 const OAI_Q_KEY = "turn-oai-quality";
 const OAI_QUALITIES = ["low","medium","high"];
 const OAI_25_QUALITIES = ["default","auto","low","medium","high","xhigh","max"];
-function isGptImage25Model(model){ return /^gpt-image-2\.5-(flare|sunburst)$/.test(String(model||"")); }
+function isGptImage25Model(model){ return /^gpt-image-2\.[56]-(flare|sunburst)$/.test(String(model||"")); }
 function nbOaiQualityChoices(model){ return (isGptImage25Model(model||nbGetModel())?OAI_25_QUALITIES:OAI_QUALITIES).slice(); }
 function nbOaiQualityLabel(q){
   return ({default:"Default (High)",auto:"Auto",low:"Low",medium:"Medium",high:"High",xhigh:"Extra high (xhigh)",max:"Max"})[q]||String(q||"");
@@ -89,7 +90,7 @@ async function nbRefreshImageQualityCapabilities(options){
       let body=null;
       try{ body=JSON.parse(await response.text()); }catch(e){}
       if(body&&body.imageQualitySchema===1&&body.imageQualities&&typeof body.imageQualities==="object"){
-        for(const model of ["gpt-image-2.5-flare","gpt-image-2.5-sunburst"]){
+        for(const model of ["gpt-image-2.6-flare","gpt-image-2.6-sunburst","gpt-image-2.5-flare","gpt-image-2.5-sunburst"]){
           const values=body.imageQualities[model];
           if(Array.isArray(values)) state.qualities[model]=OAI_25_QUALITIES.filter(q=>values.includes(q));
         }
@@ -129,12 +130,15 @@ window.nbRequireImageQuality=nbRequireImageQuality;
 /* selectable models. provider:"fal" means the browser always calls the Supabase
    proxy; the proxy then maps this UI id to fal.ai's provider route. */
 const _imageProxyOn = !!(window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxy);
-/* THE ENGINES (2026-10-11, owner — image engines): exactly these four, in this order. Nano Banana 2, Nano Banana
+/* THE ENGINES (2026-10-11, owner — image engines): exactly these, in this order (GPT Image 2.6 Flare / Sunburst
+   added 2026-11-05, owner — beside 2.5, which stays for films already made on it). Nano Banana 2, Nano Banana
    Pro and GPT Image 2 were removed — a locked likeness rendered the wrong face on them. Seedream 5 Pro renders 1K
    and 2K only (maxRes: a 4K pick renders at 2K and says so) and takes at most 10 reference images (maxRefs); it
    has no quality setting and no grounding. */
 const NB_MODELS = [
   { id:"gemini-nano-banana-2.1",      label:"Nano Banana 2.1",    provider:"fal", family:"nano",   falModel:"google/nano-banana-2.1", falEditModel:"google/nano-banana-2.1/edit", note:"fast \u00b7 lowest cost" },
+  { id:"gpt-image-2.6-flare",         label:"GPT Image 2.6 Flare", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.6/flare/text-to-image", falEditModel:"openai/gpt-image-2.6/flare/edit", note:"newest \u00b7 fastest GPT Image" },
+  { id:"gpt-image-2.6-sunburst",      label:"GPT Image 2.6 Sunburst", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.6/sunburst/text-to-image", falEditModel:"openai/gpt-image-2.6/sunburst/edit", note:"newest \u00b7 maximum precision" },
   { id:"gpt-image-2.5-flare",         label:"GPT Image 2.5 Flare", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/flare/text-to-image", falEditModel:"openai/gpt-image-2.5/flare/edit", note:"fastest GPT Image 2.5" },
   { id:"gpt-image-2.5-sunburst",      label:"GPT Image 2.5 Sunburst", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/sunburst/text-to-image", falEditModel:"openai/gpt-image-2.5/sunburst/edit", note:"maximum precision and fidelity" },
   { id:"seedream-5-pro",              label:"Seedream 5 Pro",     provider:"fal", family:"seedream", falModel:"bytedance/seedream/v5/pro/text-to-image", falEditModel:"bytedance/seedream/v5/pro/edit", maxRes:"2K", maxRefs:10, note:"rich detail \u00b7 strong likeness" },
@@ -361,7 +365,9 @@ window.nbHasKeyForModel = nbHasKeyForModel; window.nbHasKeyForCurrent = nbHasKey
    one place. Shown on Generate buttons so cost is visible BEFORE a render —
    the server deducts whole credits after a successful image generation. */
 const NB_IMG_USD = (window.turnImageProviderUsdTable && window.turnImageProviderUsdTable()) || {
-  // fallback copy of app/pricing.jsx (fal prices, 2026-10-11 — the server's table)
+  // fallback copy of app/pricing.jsx (fal prices, 2026-10-11 — the server's table; GPT Image 2.6 2026-11-05)
+  "gpt-image-2.6-flare":         { default:0.05268, auto:0.21072, low:0.02469, medium:0.04347, high:0.05268, xhigh:0.09366, max:0.21072 },
+  "gpt-image-2.6-sunburst":      { default:0.05268, auto:0.21072, low:0.02469, medium:0.04347, high:0.05268, xhigh:0.09366, max:0.21072 },
   "gemini-nano-banana-2.1":      { "1K":0.05, "2K":0.07, "4K":0.15 },
   "gpt-image-2.5-flare":         { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
   "gpt-image-2.5-sunburst":      { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
@@ -2777,8 +2783,8 @@ const _SOFTEN_MAP = [
   [/\bgor(e|y)\b/gi, "practical special-effects detailing"],
   [/\bmutilat(ed|ion)\b/gi, "damaged (prosthetic effect)"],
   [/\bgraphic violence\b/gi, "cinematic action staging"],
-  [/\bcorpse|dead body\b/gi, "still figure (film prop)"],
-  [/\bnude|naked\b/gi, "in plain neutral clothing"],
+  [/\b(?:corpse|dead body)\b/gi, "still figure (film prop)"],
+  [/\b(?:nude|naked)\b/gi, "in plain neutral clothing"],
 ];
 function softenImagePrompt(p){
   let s = String(p||""), changed = false;
@@ -3040,7 +3046,7 @@ async function nbDownload(dataUrl, res, filename){
   await new Promise((resolve)=>{
     let settled = false;
     const done = ()=>{ if(!settled){ settled = true; resolve(); } };
-    const fail = ()=>{ direct(); done(); };
+    const fail = ()=>{ if(settled) return; direct(); done(); };
     const img = new Image();
     img.crossOrigin = "anonymous";                 // so the canvas isn't tainted when CORS allows
     const guard = setTimeout(fail, 15000);          // never hang the UI
@@ -3053,6 +3059,7 @@ async function nbDownload(dataUrl, res, filename){
         cv.getContext("2d").drawImage(img, 0, 0, w, h);
         cv.toBlob((blob)=>{
           clearTimeout(guard);
+          if(settled) return;                       // the 15 s guard already handed over the original
           if(!blob){ fail(); return; }              // tainted canvas -> null blob
           try{
             const a = document.createElement("a");

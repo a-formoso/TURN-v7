@@ -8,7 +8,7 @@ import {
   validateImageQuality,
 } from "../supabase/functions/image-proxy/image-quality.mjs";
 
-for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
+for (const model of ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
   assert.deepEqual(IMAGE_QUALITY_CAPABILITIES[model],
     ["default", "auto", "low", "medium", "high", "xhigh", "max"]);
 
@@ -73,6 +73,9 @@ assert.equal(validateImageQuality("seedream-5-pro", "high").providerQuality, und
 assert.deepEqual(imageQualityOptions(), {
   imageQualitySchema: 1,
   imageQualities: {
+    // GPT Image 2.6 (2026-11-05) takes 2.5's values
+    "gpt-image-2.6-flare": ["default", "auto", "low", "medium", "high", "xhigh", "max"],
+    "gpt-image-2.6-sunburst": ["default", "auto", "low", "medium", "high", "xhigh", "max"],
     "gpt-image-2.5-flare": ["default", "auto", "low", "medium", "high", "xhigh", "max"],
     "gpt-image-2.5-sunburst": ["default", "auto", "low", "medium", "high", "xhigh", "max"],
   },

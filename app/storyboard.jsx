@@ -1021,7 +1021,7 @@ function StoryboardComposite({ scene, page, ctx, beatsMap, onView, onUpdateShot,
   // picker's quality at the picker's aspect, not the forced "medium" at the sheet's format)
   const panelEditEngine = ()=>{
     const model = typeof nbGetModel==="function" ? nbGetModel() : undefined;
-    const quality = /^gpt-image-2\.5-/.test(model||"") && typeof nbGetOaiQuality==="function" ? nbGetOaiQuality(model) : "medium";
+    const quality = /^gpt-image-2\.[56]-/.test(model||"") && typeof nbGetOaiQuality==="function" ? nbGetOaiQuality(model) : "medium";
     return { model, quality };
   };
   // may this role change a shot frame? (it saves shots, which an Art Room role without that right can't)
