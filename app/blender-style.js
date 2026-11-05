@@ -56,12 +56,13 @@
     assertScope(s,false);
     const record=await root.nbLoadDetailsAsset(id,"");assertScope(s,false);return record;
   }
-  // Style preview's own engines (owner 2026-10-31): Nano Banana 2.1 by default; GPT Image 2.5 Sunburst at High kept
-  // the Blender structure and light best in the car-deck comparison, at more credits (11 vs 7 at 2K). The plan gate still
-  // decides what really runs, and the line under the notes names it.
-  const ENGINES=["gemini-nano-banana-2.1","gpt-image-2.5-sunburst"];
+  // Style preview's own engines: 2.6 replaces 2.5 in the picker. Existing 2.5 drafts stay inspectable.
+  // The plan gate still decides what really runs, and the line under the notes names it.
+  const ENGINES=["gemini-nano-banana-2.1","gpt-image-2.6-sunburst"];
+  const SAVED_ENGINES=[...ENGINES,"gpt-image-2.5-sunburst"];
   // Seconds an image took in the 31 October runs (Nano Banana 2.1 31-33 s, Sunburst High 38-41 s), plus preparing the grid.
   const ENGINE_SECONDS={"gemini-nano-banana-2.1":35,"gpt-image-2.5-sunburst":45};
+  // New engines use a provisional estimate until measured; these are not provider progress reports.
   const estimateSeconds=model=>ENGINE_SECONDS[model]||45;
   function settings(engine){
     const wanted=ENGINES.includes(engine)?engine:ENGINES[0];
@@ -123,7 +124,7 @@
     const saved=await details(slot(id),s),versions=[saved,...(saved?.history||[])].filter(d=>d?.url);
     const drafts=versions.filter(d=>{
       try{verify(d.meta,id,s);}catch(_){return false;}
-      return ENGINES.includes(d.meta.modelId)&&typeof d.meta.sourceJobId==="string"&&!!d.meta.sourceJobId
+      return SAVED_ENGINES.includes(d.meta.modelId)&&typeof d.meta.sourceJobId==="string"&&!!d.meta.sourceJobId
         &&typeof d.meta.sceneHash==="string"&&!!d.meta.sceneHash&&typeof d.meta.prompt==="string"&&!!d.meta.prompt
         &&typeof d.meta.briefKey==="string"&&!!d.meta.briefKey
         &&!d.refs?.some(r=>r.kind==="blender-style-source"&&r.deleted);
@@ -131,7 +132,8 @@
     const same=(a,b)=>["sourceJobId","sceneHash","briefKey","prompt"].every(k=>a.meta[k]===b.meta[k]);
     for(const a of drafts){
       const b=drafts.find(d=>d.meta.modelId!==a.meta.modelId&&same(a,d));
-      if(b){assertScope(s,false);return {left:a.meta.modelId===ENGINES[0]?a:b,right:a.meta.modelId===ENGINES[0]?b:a};}
+      if(b){assertScope(s,false);const ordered=[a,b].sort((x,y)=>SAVED_ENGINES.indexOf(x.meta.modelId)-SAVED_ENGINES.indexOf(y.meta.modelId));
+        return {left:ordered[0],right:ordered[1]};}
     }
     return null;
   }

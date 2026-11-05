@@ -214,16 +214,21 @@ for(const phase of ["prepare","response"]){
   ok(find(tree,n=>n.type==="button"&&n.children.includes("Compare engines"))?.props.disabled,"Engine comparison remains discoverable before a matching pair exists");
 }
 {
-  // Engine choice (owner 2026-10-31): Nano Banana 2.1 by default, GPT Image 2.5 Sunburst at High on request.
+  // Engine choice (owner 2026-10-31): Nano Banana 2.1 by default, GPT Image 2.6 Sunburst at High on request.
   const h=harness(),job=await h.ready(),api=h.api();
   h.b.isGptImageModel=m=>/^gpt-image/.test(m);
-  ok(api.ENGINES[0]==="gemini-nano-banana-2.1"&&api.ENGINES[1]==="gpt-image-2.5-sunburst","Style preview offers Nano Banana 2.1 first and GPT Image 2.5 Sunburst");
+  ok(api.ENGINES[0]==="gemini-nano-banana-2.1"&&api.ENGINES[1]==="gpt-image-2.6-sunburst","Style preview offers Nano Banana 2.1 first and GPT Image 2.6 Sunburst");
   ok(api.settings().model==="gemini-nano-banana-2.1"&&api.settings().quality===undefined,"The default style engine is Nano Banana 2.1, whatever the top bar's engine");
-  const sun=api.settings("gpt-image-2.5-sunburst");
-  ok(sun.model==="gpt-image-2.5-sunburst"&&sun.quality==="high","Sunburst runs at High, the tested setting");
+  const sun=api.settings("gpt-image-2.6-sunburst");
+  ok(sun.model==="gpt-image-2.6-sunburst"&&sun.quality==="high","Sunburst runs at High by default");
+  ok(!api.ENGINES.includes("gpt-image-2.5-sunburst"),"Style preview removes 2.5 from new-generation choices");
+  ok(!api.ENGINES.includes("gpt-image-2.6-flare"),"Style preview adds only 2.6 Sunburst, not Flare");
+  for(const model of ["gpt-image-2.6-sunburst"]){
+    ok(api.ENGINES.includes(model)&&api.settings(model).model===model&&api.settings(model).quality==="high","Style preview offers "+model+" at High");
+  }
   ok(api.settings("some-other-engine").model==="gemini-nano-banana-2.1","An unknown engine falls back to the default");
   h.b.nbPlanImageChoice=(model,res)=>({model:"gemini-nano-banana-2.1",res:"1K",limited:true});
-  ok(api.settings("gpt-image-2.5-sunburst").model==="gemini-nano-banana-2.1","The plan gate still decides what really runs");
+  ok(api.settings("gpt-image-2.6-sunburst").model==="gemini-nano-banana-2.1","The plan gate still decides what really runs");
   h.b.nbPlanImageChoice=(model,res)=>({model,res});
   h.b.nbOaiQualityLabel=x=>x;
   const states=[null,false,false,"","","",false,false,false,"all",50,0,0];let index=0;
@@ -233,19 +238,27 @@ for(const phase of ["prepare","response"]){
   const find=(node,test)=>{if(!node||typeof node!=="object")return null;if(test(node))return node;for(const child of node.children||[]){const result=find(child,test);if(result)return result;}return null;};
   const render=()=>{index=0;return h.b.LocationSetStyle({location:h.b.turnContinuity.locations[0],job,sceneHash:job.sceneHash});};
   let tree=render(),select=find(tree,n=>n.type==="select");
-  ok(select&&select.props.value==="gemini-nano-banana-2.1"&&select.children.filter(c=>c.type==="option").length===2,"The panel shows an engine choice, set to Nano Banana 2.1");
+  ok(select&&select.props.value==="gemini-nano-banana-2.1"&&select.children.filter(c=>c.type==="option").length===2,"The panel shows both engine choices, set to Nano Banana 2.1");
   const seen=[];h.hook(async(phase,opts)=>{if(phase==="prepare")seen.push([opts.model,opts.quality]);});
-  select.props.onChange({target:{value:"gpt-image-2.5-sunburst"}});tree=render();
-  ok(find(tree,n=>n.type==="select").props.value==="gpt-image-2.5-sunburst","Choosing Sunburst updates the panel");
+  select.props.onChange({target:{value:"gpt-image-2.6-sunburst"}});tree=render();
+  ok(find(tree,n=>n.type==="select").props.value==="gpt-image-2.6-sunburst","Choosing Sunburst updates the panel");
   const go=find(tree,n=>n.type==="button"&&String(n.children[0]||"").startsWith("Generate style draft"));
   const chip=go&&go.children.find(c=>c&&c.props&&c.props.className==="nb-cost");
-  ok(go.children[0]==="Generate style draft"&&chip&&chip.children[0]==="7"&&chip.props["data-model"]==="gpt-image-2.5-sunburst"&&chip.props["data-quality"]==="high",
+  ok(go.children[0]==="Generate style draft"&&chip&&chip.children[0]==="7"&&chip.props["data-model"]==="gpt-image-2.6-sunburst"&&chip.props["data-quality"]==="high",
     "The button carries the same credit chip as Generate new image, priced for the chosen engine");
   ok(!go.children.some(c=>typeof c==="string"&&/credits/.test(c)),"No 'credits' text on the button");
   ok(!find(tree,n=>n.type==="p"&&n.children.some(c=>/estimated/.test(c))),"No separate estimate line");
   ok(find(tree,n=>n.type==="select").children.every(o=>o.children.length===1&&o.children[0]==="Image engine"),"Options are just the engine names");
   await go.props.onClick();
-  ok(seen.length===1&&seen[0][0]==="gpt-image-2.5-sunburst"&&seen[0][1]==="high","Generate sends the chosen engine (Sunburst at High) in one paid call");
+  ok(seen.length===1&&seen[0][0]==="gpt-image-2.6-sunburst"&&seen[0][1]==="high","Generate sends the chosen engine (Sunburst at High) in one paid call");
+  for(const model of ["gpt-image-2.6-sunburst"]){
+    find(render(),n=>n.type==="select").props.onChange({target:{value:model}});tree=render();
+    const generate=find(tree,n=>n.type==="button"&&/^Generate (another )?style draft$/.test(String(n.children[0]||"")));
+    const price=generate.children.find(c=>c?.props?.className==="nb-cost");
+    ok(price.props["data-model"]===model&&price.props["data-quality"]==="high","The selected 2.6 engine drives the price chip");
+    const before=seen.length;await generate.props.onClick();
+    ok(seen.length===before+1&&seen.at(-1)[0]===model&&seen.at(-1)[1]==="high","The selected 2.6 engine is sent once at High");
+  }
 }
 {
   // Progress while a draft is made, and only the buttons that do something.
@@ -319,5 +332,14 @@ for(const phase of ["prepare","response"]){
   ok(await api.load("room",h.scope),"Read-only film access may load the Blender comparison");
   await rejects(()=>api.generate("room",job,h.scope),/read-only/);
   h.changeScope();await rejects(()=>api.comparisonPair("room",h.scope),/sign-in changed/);
+}
+{
+  const h=harness(),job=await h.ready(),api=h.api();
+  const draft=await api.generate("room",job,h.scope,{settings:api.settings("gpt-image-2.6-sunburst")});
+  const row=h.store.get(api.slot("room"));
+  row.history=[{...draft,meta:{...draft.meta,modelId:"gpt-image-2.5-sunburst",iso:"2026-10-31T12:00:00.000Z"}}];
+  const before=h.calls.filter(x=>x==="paid-image").length,pair=await api.comparisonPair("room",h.scope);
+  ok(pair.left.meta.modelId==="gpt-image-2.6-sunburst"&&pair.right.meta.modelId==="gpt-image-2.5-sunburst","Existing 2.5 drafts remain comparable after removal from the picker");
+  ok(h.calls.filter(x=>x==="paid-image").length===before,"Inspecting an existing 2.5 comparison makes no image call");
 }
 console.log("PASS cloud set styling: "+checks+" generation, comparison, persistence, race, ownership and no-retry checks");

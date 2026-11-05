@@ -112,7 +112,7 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
       E("button",{type:"button",className:"art-draftall ghost",disabled:busy||!pair,onClick:()=>{setCompareMode("engines");setReview(true);}},"Compare engines")),
     E("p",{className:"loc-layer-note"},pair
       ?"Compare engines shows saved results made from the same Blender build and prompt. Opening either comparison uses no generation credits."
-      :"To compare engines, save a draft with each engine using the same Blender build and surface notes. Each generation has its own displayed price; comparisons use no generation credits."),
+      :"To compare engines, save drafts with two different engines using the same Blender build and surface notes. Each generation has its own displayed price; comparisons use no generation credits."),
     phase&&styleProgress({phase,since:phaseAt,now,model:choice?.model,api}),
     !phase&&pending?.active&&E("p",{role:"status",className:"loc-layer-note"},"A style draft for this location is being generated or saved."),
     loading&&E("p",{role:"status",className:"loc-layer-note"},"Loading saved style draft…"),

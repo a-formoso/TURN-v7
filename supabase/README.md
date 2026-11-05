@@ -47,13 +47,19 @@ changed for this review. A fresh published render and actual-interface review re
 
 **Saved comparisons:** Style it now exposes **Compare with Blender** for accepted, rejected and outdated drafts,
 and keeps saved comparisons reachable while a rebuild is required. Such older drafts still cannot replace artwork.
-**Compare engines** reads the current draft and its existing version history, and chooses a saved pair from the two
+**Compare engines** reads the current draft and its existing version history, and chooses a saved pair from different
 offered engines only when source job, scene revision, look brief and exact prompt match. No generation, adoption or
 extra image copy occurs. Engine settings are labelled; the camera selector and reveal slider work in either mode.
 The engine comparison has no artwork acceptance/rejection controls. A missing matching pair leaves its button
 disabled with instructions to generate each draft explicitly at its displayed price. Existing history retention
 limits apply. Purged references, other films and other moving-part states are excluded. Tests cover read-only
-inspection and unchanged write fences (`test-cloud-set-style`: 109 checks).
+inspection and unchanged write fences (`test-cloud-set-style`: 116 checks).
+
+**Style preview engines:** Nano Banana 2.1 remains the default; GPT Image 2.6 Sunburst replaces 2.5
+in the picker and uses the existing image-engine routes, plan gates and pricing at High quality. Existing 2.5
+drafts stay available for Blender review and saved-engine comparison.
+Saved results from different supported engines can be compared when their source build and exact prompt match.
+Adding these choices starts no image generation or deployment.
 
 **Camera proposals in step 3:** **Suggest four cameras** is available for parent or child rooms with a reviewed
 footprint, even if cameras have already been saved. The free deterministic client proposes clear camera origins
@@ -296,9 +302,9 @@ shots at moments in that state attach it in place of the location's plate. No se
 #### Reviewed style drafts (local development only)
 
 The optional **Style preview** below Cloud set preview uses its own **Engine**
-choice: Nano Banana 2.1 by default, or GPT Image 2.5 Sunburst at High, which kept
+choice: Nano Banana 2.1 by default or GPT Image 2.6 Sunburst at High. Existing 2.5 drafts stay inspectable. In the earlier comparison, the 2.5 model kept
 the Blender structure and light best in the car-deck comparison at more credits
-(11 vs 7 at 2K) (owner 31 October 2026; the plan gate still decides what runs). It sends
+(11 vs 7 at 2K) (owner 31 October 2026; the plan gate still decides what runs). The 2.6 choice uses existing engine configuration and has not been benchmarked here. It sends
 one exact 2×2 grid assembled from a completed, current Blender job.
 It includes the location's materials, lighting, inherited render style, location
 and colour lookbook briefs, and optional surface notes. The engine, quality,
