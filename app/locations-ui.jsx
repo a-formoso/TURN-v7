@@ -333,6 +333,9 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
     proposal&&!stale&&proposal.warnings.map((note,i)=>E("p",{key:i,className:"loc-layer-note"},note)),
     stale&&E("p",{role:"alert",className:"loc-spatial-error"},"The film, floor plan or cameras changed. Suggest four cameras again before applying."),
     error&&E("p",{role:"alert",className:"loc-spatial-error"},error),
+    !proposal&&state.ready&&ownRoom&&api.enabled?.()&&Object.keys(api.cameraProblems(l,list)).length===0&&E("div",{className:"loc-step-actions"},
+      E("p",{className:"loc-layer-note"},"Camera position checks pass. Review the four views on the map, then continue to Build set. Composition notes below are optional."),
+      E("button",{type:"button",className:"art-draftall",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set")),
     E("p",{className:"loc-layer-note"},"Suggesting and reviewing cameras uses no credits and starts no render."));
 }
 function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
@@ -1597,6 +1600,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     const name="Camera view "+(coverageViews.length+1);
     saveCoverageViews(coverageViews.concat([{id,name,purpose:"",cameraPosition:"",target:"",visibleAnchors:"",
       lens:"",staging:{...base,viewLabel:name}}]));
+    return id;
   };
   const removeCoverageView = (vid)=>{
     if(coverageViews.length<=1) return;
@@ -1858,7 +1862,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement(LocationCameraSuggestions,{l,onUpdate,readOnly}),
         React.createElement(LocationPlateCameras,{l,project,onUpdate,readOnly,plateMeta:gen.genUrl?gen.genMeta:null}),
         React.createElement(CoverageViewsEditor,{l,views:coverageViews,onUpdateView:updateCoverageView,
-          onAdd:addCoverageView,onRemove:removeCoverageView,onDraftStaging,draftingStage}),
+          onAdd:addCoverageView,onRemove:removeCoverageView,onDraftStaging,draftingStage,readOnly}),
       ),
 
       // Cloud rendering and styling use the same saved room, with server-enforced plan and film permissions.
@@ -2003,41 +2007,60 @@ function LocationStepGuide({l,steps}){
 
 /* Camera-relative composition, not a measured room plan. The visual editor
    keeps the existing depth-grid fields used by generation and Blender. */
-function CoverageViewsEditor({l,views,onUpdateView,onAdd,onRemove,onDraftStaging,draftingStage}){
+function CoverageViewsEditor({l,views,onUpdateView,onAdd,onRemove,onDraftStaging,draftingStage,readOnly=false}){
   const list=Array.isArray(views)?views:[];
-  return React.createElement("div",{className:"loc-coverage-views"},
+  const [selectedId,setSelectedId]=React.useState("");
+  React.useEffect(()=>setSelectedId(""),[l.id]);
+  const selected=list.find(v=>v.id===selectedId)||list[0];
+  const update=(id,patch)=>{if(!readOnly)onUpdateView(id,patch);};
+  const title=(v,index)=>v.panel&&LOC_PANEL_INFO[v.panel]?LOC_PANEL_INFO[v.panel].label:index===0?"Top left · main view":v.name||"Extra view";
+  const written=v=>[v.staging?.floor,...Object.values(v.staging?.bg||{}),...Object.values(v.staging?.mid||{}),...Object.values(v.staging?.fg||{})].some(x=>String(x||"").trim());
+  return React.createElement("details",{className:"loc-nested-section loc-composition-notes","data-testid":"optional-composition-notes"},
+    React.createElement("summary",null,"Composition notes (optional)",draftingStage&&React.createElement("span",{className:"loc-spatial-status",role:"status"},"Drafting top-left…")),
+    React.createElement("div",{className:"loc-coverage-views"},
     React.createElement("div",{className:"loc-layer-note"},
-      "What the plate's main view (its top-left panel) shows, from far away to close to the lens. Click a box to change what's there."),
-    list.map((v,index)=>React.createElement("div",{className:"loc-variant loc-camera-view",key:v.id},
+      "Written notes about what appears near or far from the camera, for image generation and shot planning. They do not place the Blender cameras and are not required for Build set."),
+    React.createElement("p",{className:"loc-layer-note"},"Draft top-left composition writes only the main view's notes using writing credits. It does not fill the other views or generate an image."),
+    list.length>0&&React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"View notes"),
+      React.createElement("select",{className:"prop-select",value:selected?.id||"",onChange:e=>setSelectedId(e.target.value)},
+        list.map((v,index)=>React.createElement("option",{key:v.id,value:v.id},title(v,index)+(written(v)?" · notes saved":" · not described"))))),
+    list.flatMap((v,index)=>v!==selected?[]:[React.createElement("fieldset",{className:"loc-variant loc-camera-view loc-composition-editor",key:v.id,disabled:readOnly},
       React.createElement("div",{className:"loc-variant-head"},
         React.createElement("div",{className:"loc-camera-view-title"},
           index===0&&React.createElement("span",{className:"loc-primary-badge"},"Main view"),
           v.panel&&typeof LOC_PANEL_INFO!=="undefined"&&LOC_PANEL_INFO[v.panel]&&React.createElement("span",{className:"loc-primary-badge loc-panel-badge",
             title:"This camera makes the "+LOC_PANEL_INFO[v.panel].label.toLowerCase()+" panel of the plate (Plate cameras)"},"Plate · "+LOC_PANEL_INFO[v.panel].label.toLowerCase()),
           React.createElement(EditText,{value:v.name||"",placeholder:"Named camera view",
-            onCommit:name=>onUpdateView(v.id,{name,staging:{...(v.staging||{}),viewLabel:name}})})),
-        list.length>1&&React.createElement("button",{className:"loc-variant-x",title:"Remove camera view",
-          onClick:()=>onRemove(v.id)},React.createElement(Icon.x,{s:12}))),
+            onCommit:name=>update(v.id,{name,staging:{...(v.staging||{}),viewLabel:name}})})),
+        index>0&&!v.panel&&React.createElement("button",{className:"loc-variant-x",disabled:readOnly,title:"Remove extra view notes",
+          onClick:()=>{if(!readOnly)onRemove(v.id);}},React.createElement(Icon.x,{s:12}))),
+      !written(v)&&React.createElement("p",{className:"loc-layer-note",role:"note"},"No composition notes yet. This does not mean the camera sees an empty room. The floor plan and saved camera settings still define its Blender view."),
       React.createElement(StagingGrid,{l,value:v.staging,cameraPosition:v.cameraPosition,target:v.target,
-        onChange:staging=>onUpdateView(v.id,{staging,lens:staging.lens||""}),
-        lockViewLabel:true,onDraftStaging:index===0?onDraftStaging:null,draftingStage:index===0&&draftingStage,
+        onChange:staging=>update(v.id,{staging,lens:staging.lens||""}),
+        viewTitle:title(v,index),mainView:index===0,
+        lockViewLabel:true,onDraftStaging:index===0&&!readOnly?onDraftStaging:null,draftingStage:index===0&&draftingStage,
         viewDetails:React.createElement("div",{className:"loc-camera-view-fields"},
         React.createElement(SheetField,{label:"Purpose / framing",value:v.purpose||"",multiline:true,
           placeholder:"Reusable master, doorway two-shot, kitchen counter profile\u2026",
-          onCommit:purpose=>onUpdateView(v.id,{purpose})}),
+          onCommit:purpose=>update(v.id,{purpose})}),
         React.createElement(SheetField,{label:"Camera position",value:v.cameraPosition||"",multiline:false,
-          placeholder:"Hallway threshold, eye height\u2026",onCommit:cameraPosition=>onUpdateView(v.id,{cameraPosition})}),
+          placeholder:"Hallway threshold, eye height\u2026",onCommit:cameraPosition=>update(v.id,{cameraPosition})}),
         React.createElement(SheetField,{label:"Target",value:v.target||"",multiline:false,
-          placeholder:"Kitchen table / north wall\u2026",onCommit:target=>onUpdateView(v.id,{target})}),
+          placeholder:"Kitchen table / north wall\u2026",onCommit:target=>update(v.id,{target})}),
         React.createElement(SheetField,{label:"Visible fixed landmarks",value:v.visibleAnchors||"",multiline:true,
           placeholder:"Cased archway, sink window, three-pane front door\u2026",
-          onCommit:visibleAnchors=>onUpdateView(v.id,{visibleAnchors})}))}))),
-    React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:onAdd},
-      React.createElement(Icon.plus,{s:14}),"Add camera view"));
+          onCommit:visibleAnchors=>update(v.id,{visibleAnchors})}))}))]),
+    React.createElement("button",{className:"art-draftall ghost loc-variant-add",disabled:readOnly,
+      title:"Adds written notes for another angle; it does not add a camera to the four-panel Blender render",
+      onClick:()=>{if(readOnly)return;const id=onAdd();if(typeof id==="string")setSelectedId(id);}},
+      React.createElement(Icon.plus,{s:14}),"Add extra view notes"),
+    React.createElement("p",{className:"loc-layer-note"},"Extra view notes are for planning other angles. The Blender build still renders the four plate cameras.")));
 }
-function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChange, lockViewLabel=false, cameraPosition="",target="",viewDetails }){
+function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChange, lockViewLabel=false, cameraPosition="",target="",viewDetails,viewTitle="Main view",mainView=true }){
   const source=value?{...l,staging:value}:l;
   const s = (typeof stagingOf==="function") ? stagingOf(source) : (source.staging||{bg:{},mid:{},fg:{}});
+  const hasNotes=[s.floor,...Object.values(s.bg||{}),...Object.values(s.mid||{}),...Object.values(s.fg||{})].some(x=>String(x||"").trim());
+  const emptyText=hasNotes?"Open space":"Not described";
   const [selected,setSelected]=React.useState({plane:"bg",col:"center"});
   const planes=[{key:"bg",label:"Far",term:"Background"},{key:"mid",label:"Middle",term:"Midground"},{key:"fg",label:"Near",term:"Foreground"}];
   const columns=[{key:"left",label:"Left"},{key:"center",label:"Centre"},{key:"right",label:"Right"}];
@@ -2068,10 +2091,10 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
   };
   return React.createElement("div",{className:"stage-wrap"},
     React.createElement("div",{className:"stage-toolbar"},
-      React.createElement("span",{className:"stage-map-title"},"Main view \u00b7 far, middle, near"),
+      React.createElement("span",{className:"stage-map-title"},viewTitle+" \u00b7 far, middle, near"),
       onDraftStaging && React.createElement("button",{className:"art-draftall",disabled:draftingStage||!!draftBlock,onClick:()=>onDraftStaging(l),
-        title:draftBlock||"Draft this view's composition from the script (writing credits) \u2014 asks first when one is already written, because it replaces it"},
-        React.createElement(Icon.sparkles,{s:14}), draftingStage?"Drafting\u2026":"Draft view composition")),
+        title:draftBlock||"Draft the main top-left view only (writing credits). Other views and Blender camera positions are unchanged; asks before replacing existing notes"},
+        React.createElement(Icon.sparkles,{s:14}), draftingStage?"Drafting\u2026":"Draft top-left composition")),
     draftBlock&&React.createElement("p",{className:"loc-layer-note stage-draft-wait",role:"status"},draftBlock),
     layoutChanged&&React.createElement("p",{className:"loc-layer-note stage-layout-changed",role:"status"},"Layout changed \u2014 re-draft view composition"),
     React.createElement("div",{className:"stage-composition",role:"group","aria-label":"Camera-relative composition for "+(s.viewLabel||l.name||"this view")},
@@ -2090,11 +2113,11 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
               React.createElement(Icon.camera?Icon.camera:Icon.eye,{s:23}),React.createElement("b",null,"Camera"));
             const text=String((s[p.key]||{})[c.key]||"").trim(), active=!isFloor&&selected.plane===p.key&&selected.col===c.key;
             return React.createElement("button",{key:c.key,type:"button",className:"stage-zone"+(text?" filled":"")+(active?" selected":""),
-              "aria-label":p.label+" "+c.label.toLowerCase()+": "+(text||"Open space"),"aria-pressed":active,
-              title:p.term+" · "+c.label+"\n"+(text||"Open space — select to add a landmark"),
+              "aria-label":p.label+" "+c.label.toLowerCase()+": "+(text||emptyText),"aria-pressed":active,
+              title:p.term+" · "+c.label+"\n"+(text||emptyText+" — select to add a landmark"),
               onClick:()=>setSelected({plane:p.key,col:c.key})},
               React.createElement("span",{className:"stage-zone-mark","aria-hidden":true},text?"▰":"+"),
-              React.createElement("span",{className:"stage-zone-text"},text||"Open space"));
+              React.createElement("span",{className:"stage-zone-text"},text||emptyText));
           })))),
       React.createElement("div",{className:"stage-map-camera-caption"},
         React.createElement("span",null,s.lens||"Lens not set"),
@@ -2105,7 +2128,7 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
         React.createElement("span",null,s.floor||"Add ground surface"))),
     React.createElement("p",{className:"stage-map-disclaimer"},"Left and right here are the picture's left and right. Where things really stand is the floor plan."),
     // which panel this is, and a composition drafted for another space (2026-10-27)
-    (()=>{ const tl = (typeof locationRequestedViews==="function") ? ((locationRequestedViews(l)||[]).find(v=>v && v.key==="TL")||{}).purpose : "";
+    (()=>{ if(!mainView)return null;const tl = (typeof locationRequestedViews==="function") ? ((locationRequestedViews(l)||[]).find(v=>v && v.key==="TL")||{}).purpose : "";
       if(!tl) return null;
       // the room each names, of this place's rooms (Marmorica: the composition's Upper Deck vs the panel's CAR Deck)
       const key = (x)=> (typeof _locNameKey==="function") ? " "+_locNameKey(x||"")+" " : "";

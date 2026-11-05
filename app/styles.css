@@ -3977,6 +3977,9 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
 .loc-space-provenance.derived-action{color:var(--pos-ink)}
 .loc-space-provenance.mixed{color:var(--txt-2)}
 .loc-coverage-views{display:flex;flex-direction:column;gap:10px}
+.loc-composition-notes>.loc-coverage-views{margin-top:12px}
+.loc-composition-editor{min-width:0;border:0;margin:0;padding:12px}
+.loc-composition-notes>.loc-coverage-views>.loc-cam-field{max-width:100%}
 .loc-camera-view{background:color-mix(in oklab,var(--bg-1),var(--pos) 3%)}
 .loc-camera-view-title{display:flex;align-items:center;gap:7px;min-width:0;flex:1}
 .loc-camera-view-title .edit-in{min-width:0;flex:1;font-family:var(--f-mono);font-size:11px;

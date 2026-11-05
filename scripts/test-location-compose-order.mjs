@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* VIEW COMPOSITION FOLLOWS THE SHARED LAYOUT (owner 2026-10-12, "go ahead with all of it").
-   1. "Draft view composition" waits while the shared layout is drafting / waiting to be confirmed / not ready;
+   1. "Draft top-left composition" waits while the shared layout is drafting / waiting to be confirmed / not ready;
       hand edits stay open.
    2. A drafted composition records the layout it came from (staging.layoutSig) and says
       "Layout changed — re-draft view composition" when that layout changes later (never a block).
@@ -93,7 +93,7 @@ assert.equal(box.locationLayoutDraftPending("house"),false,"discarding (or confi
 
 /* the composition button: disabled with the reason; hand edits stay open */
 const gridProps=(over={})=>({l:room,value:null,onDraftStaging:noop,draftingStage:false,onChange:noop,...over});
-const draftCompose=t=>flat(t).find(n=>n.type==="button"&&/Draft view composition|Drafting/.test(text(n)));
+const draftCompose=t=>flat(t).find(n=>n.type==="button"&&/Draft top-left composition|Drafting/.test(text(n)));
 hooks=[];tree=render(box.StagingGrid,gridProps());
 assert.equal(draftCompose(tree).props.disabled,false);
 assert.ok(!text(tree).includes(WAIT));

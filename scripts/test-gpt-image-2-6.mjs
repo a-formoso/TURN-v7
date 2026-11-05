@@ -162,7 +162,7 @@ await test("E the dock chip, the price-drift watcher (both 2.6 endpoints, $30/1M
   }
   assert.ok(watchUi.includes('"gpt-image-2.6-flare": "GPT Image 2.6 Flare",') && watchUi.includes('"gpt-image-2.6-sunburst": "GPT Image 2.6 Sunburst",'));
   for (const f of ["pricing", "imagegen", "artroom", "storyboard", "ai", "script", "pricing-watch"])
-    assert.ok(["20261105-gpt26", "20261105-gpt26b", "20261105-busy1", "20261105-busy2", "20261105-set1", "20261105-set2", "20261105-set3", "20261105-set4", "20261105-set5", "20261105-set6"].some((k) => html.includes('src="app/' + f + '.jsx?v=' + k + '"')), f + ".jsx has a new key");
+    assert.ok(["20261105-gpt26", "20261105-gpt26b", "20261105-busy1", "20261105-busy2", "20261105-set1", "20261105-set2", "20261105-set3", "20261105-set4", "20261105-set5", "20261105-set6", "20261105-set7"].some((k) => html.includes('src="app/' + f + '.jsx?v=' + k + '"')), f + ".jsx has a new key");
 });
 
 await test("F Frances: 'Flare 2.6' / 'Sunburst 2.6' beside 2.5's 'Flare' / 'Sunburst'; the facts reach her without a vendor name", () => {

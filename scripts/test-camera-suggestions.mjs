@@ -27,6 +27,7 @@ function verify(l){
   b.turnContinuity.locations=b.turnContinuity.locations.map(x=>x.id===l.id?next:x);
   ok(Object.keys(api.cameraProblems(next)).length===0,"all four proposed cameras pass the actual room/wall/height/object validator");
   ok(b.locationPanelPoses(next).length===4&&b.locationPanelPoses(next).every(x=>x.pose.position&&x.pose.yaw!=null),"every panel has a numeric position and facing");
+  ok(Object.keys(api.buildScene(next).cameras).length===4,"All four Blender views build without drafting composition notes");
   ok(views.find(v=>v.id==="authored").purpose==="Keep this note","applying keeps authored coverage notes");
   return {p,next};
 }
@@ -78,5 +79,9 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   button(beforeSwitch,"Use these cameras").props.onClick();ok(writes.length===0,"an old handler rereads current saved camera data before applying");b.turnContinuity.locations=[l];
   button(render(),"Suggest four cameras").props.onClick();tree=render();button(tree,"Use these cameras").props.onClick();
   ok(writes.length===1&&writes[0].id===l.id&&Object.keys(writes[0].patch).join()==="coverageViews","Use saves this room's camera settings exactly once");
+  l.coverageViews=writes[0].patch.coverageViews;
+  b.turnContinuity.locations=[l];let destination=null;b.goToLocationStep=(location,step)=>destination={location,step};
+  tree=render();button(tree,"Go to 4 · Build the set").props.onClick();
+  ok(destination?.location===l&&destination.step===4&&writes.length===1,"Ready cameras offer a direct build-step route without saving or drafting notes");
 }
 console.log("PASS camera suggestions: "+checks+" deterministic placement, validation, scope and preview/apply checks");

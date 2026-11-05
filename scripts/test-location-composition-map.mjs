@@ -12,8 +12,9 @@ const React={createElement:(type,props,...children)=>({type,props:props||{},chil
 const box={console,React,localStorage:{getItem:()=>null},window:null,
   EditText:function EditText(){},SheetField:function SheetField(){},Icon:{sparkles:noop,camera:noop,eye:noop,layers:noop,x:noop,plus:noop}};
 box.window=box;vm.createContext(box);
-vm.runInContext(readFileSync("app/locations.jsx","utf8"),box);
-vm.runInContext(readFileSync("app/locations-ui.jsx","utf8"),box);
+const compiled=process.env.COMPOSITION_TEST_DIST==="1";
+vm.runInContext(readFileSync(compiled?"dist/app/locations.js":"app/locations.jsx","utf8"),box);
+vm.runInContext(readFileSync(compiled?"dist/app/locations-ui.js":"app/locations-ui.jsx","utf8"),box);
 const flatten=n=>!n||typeof n!=="object"?[]:[n,...(n.children||[]).flatMap(flatten)];
 const hasClass=(n,name)=>(n.props.className||"").split(" ").includes(name);
 const byClass=(tree,name)=>flatten(tree).find(n=>hasClass(n,name));
@@ -64,7 +65,7 @@ zones(tree).find(n=>n.props["aria-label"].startsWith("Middle centre:")).props.on
 assert.equal(editor(tree).props.value,"");
 assert.ok(zones(tree).find(n=>n.props["aria-pressed"]).props["aria-label"].endsWith("Open space"));
 editor(tree).props.onCommit("");assert.equal(saved.mid.center,"");
-const draftButton=flatten(tree).find(n=>n.type==="button"&&text(n)==="Draft view composition");
+const draftButton=flatten(tree).find(n=>n.type==="button"&&text(n)==="Draft top-left composition");
 draftButton.props.onClick();assert.equal(drafted,1);
 assert.equal(flatten(box.StagingGrid({...props,draftingStage:true})).find(n=>n.type==="button"&&text(n)==="Drafting…").props.disabled,true);
 assert.equal(text(byClass(box.StagingGrid({...props,target:"North wall",cameraPosition:"Doorway"}),"stage-map-direction")),"Looking toward: North wall");
@@ -73,25 +74,44 @@ assert.ok(text(byClass(box.StagingGrid({...props,cameraPosition:"Doorway"}),"sta
 let patch,added=0,removed;
 const views=[{id:"v1",name:"Wide",staging,purpose:"Establish the kitchen",target:"Window",cameraPosition:"Doorway"},
   {id:"v2",name:"Reverse",staging:{...staging,viewLabel:"Reverse"}}];
-const viewTree=box.CoverageViewsEditor({l,views,onUpdateView:(id,value)=>patch={id,value},onDraftStaging:noop,
-  onAdd:()=>added++,onRemove:id=>removed=id});
-const maps=flatten(viewTree).filter(n=>n.type===box.StagingGrid);
-assert.equal(maps.length,2);
+const viewProps={l,views,onUpdateView:(id,value)=>patch={id,value},onDraftStaging:noop,
+  onAdd:()=>added++,onRemove:id=>removed=id};
+const beforeViews=JSON.stringify(views);
+let viewTree=box.CoverageViewsEditor(viewProps);
+let maps=flatten(viewTree).filter(n=>n.type===box.StagingGrid);
+assert.equal(viewTree.type,"details");assert.notEqual(viewTree.props.open,true,"Optional notes start collapsed");
+assert.equal(maps.length,1,"Only one composition editor is mounted at a time");
 assert.equal(maps[0].props.target,"Window");assert.equal(maps[0].props.cameraPosition,"Doorway");
-assert.ok(text(byClass(viewTree,"loc-layer-note")).startsWith("What the plate's main view (its top-left panel) shows"));
-assert.equal(maps[0].props.onDraftStaging,noop);assert.equal(maps[1].props.onDraftStaging,null);
-maps[1].props.onChange({...staging,lens:"50mm"});
-assert.equal(patch.id,"v2","edits stay scoped to the selected coverage view");assert.equal(patch.value.lens,"50mm");
+assert.ok(text(viewTree).includes("not required for Build set"));
+assert.ok(text(viewTree).includes("writes only the main view"));
+assert.equal(maps[0].props.onDraftStaging,noop);
 const detailFields=flatten(maps[0].props.viewDetails).filter(n=>n.type===box.SheetField);
 assert.deepEqual(detailFields.map(n=>n.props.label),["Purpose / framing","Camera position","Target","Visible fixed landmarks"]);
 detailFields[2].props.onCommit("Archway");assert.equal(patch.id,"v1");assert.equal(patch.value.target,"Archway");
-flatten(viewTree).find(n=>n.type==="button"&&text(n)==="Add camera view").props.onClick();assert.equal(added,1);
-flatten(viewTree).filter(n=>n.props.title==="Remove camera view")[1].props.onClick();assert.equal(removed,"v2");
+patch=null;
+flatten(viewTree).find(n=>n.type==="select").props.onChange({target:{value:"v2"}});
+viewTree=box.CoverageViewsEditor(viewProps);maps=flatten(viewTree).filter(n=>n.type===box.StagingGrid);
+assert.equal(maps.length,1);assert.equal(maps[0].props.onDraftStaging,null,"Other views do not offer the top-left-only draft action");
+assert.equal(maps[0].props.viewTitle,"Reverse");assert.equal(maps[0].props.mainView,false);
+assert.equal(patch,null,"Switching views changes no saved data");
+maps[0].props.onChange({...staging,lens:"50mm"});
+assert.equal(patch.id,"v2","edits stay scoped to the selected coverage view");assert.equal(patch.value.lens,"50mm");
+flatten(viewTree).find(n=>n.type==="button"&&text(n)==="Add extra view notes").props.onClick();assert.equal(added,1);
+flatten(viewTree).find(n=>n.props.title==="Remove extra view notes").props.onClick();assert.equal(removed,"v2");
+const readonlyTree=box.CoverageViewsEditor({...viewProps,readOnly:true});patch=null;
+flatten(readonlyTree).find(n=>n.type===box.StagingGrid).props.onChange({...staging,lens:"85mm"});
+assert.equal(patch,null,"Read-only note handlers cannot write");
+assert.equal(flatten(readonlyTree).find(n=>n.type==="button"&&text(n)==="Add extra view notes").props.disabled,true);
+const plateView={id:"v2",name:"Top right panel",panel:"TR",staging:{lens:"24 mm"}};
+const plateTree=box.CoverageViewsEditor({...viewProps,views:[views[0],plateView]});
+assert.ok(!flatten(plateTree).find(n=>n.props.title==="Remove extra view notes"),"Composition controls cannot delete a saved plate camera");
+assert.ok(text(plateTree).includes("does not mean the camera sees an empty room"));
+assert.equal(JSON.stringify(views),beforeViews,"Inspection and mocked edits leave original view records intact");
 
 selection=undefined;
 const emptyTree=box.StagingGrid({l:{id:"empty",name:"Empty"},onUpdate:(id,value)=>patch={id,value}});
 assert.equal(editor(emptyTree).props.value,"");
-assert.ok(zones(emptyTree).every(n=>n.props["aria-label"].endsWith("Open space")));
+assert.ok(zones(emptyTree).every(n=>n.props["aria-label"].endsWith("Not described")),"An unwritten grid is not presented as an empty physical room");
 editor(emptyTree).props.onCommit("Distant ridge");
 assert.equal(patch.id,"empty");assert.equal(patch.value.staging.bg.center,"Distant ridge");
 assert.equal(patch.value.staging.mid.center,"");

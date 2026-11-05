@@ -65,6 +65,8 @@ Adding these choices starts no image generation or deployment.
 
 **Generation requirements:** Both comparisons display the exact saved styling prompt. New style drafts retain the verified numerical source scene in their metadata; loading checks its hash against the original build revision. The review shows shape dimensions/positions, cameras, lights and notes. Older drafts explicitly disclose when this snapshot is absent. No current plan is substituted for a historical input. The existing private generation storage and version history carry these records; no schema or worker deployment is required.
 
+**Compact camera workflow:** Step 3 keeps the overhead map first and offers Go to 4 · Build the set when the current cameras pass checks. Composition notes are optional, collapsed by default and show one selected view at a time. Draft top-left composition only writes that main view (writing credits); it does not place Blender cameras, fill all four grids or create images. Unwritten grids say Not described. Add extra view notes adds written planning, not an extra camera in the Blender four-view build. This editor preserves existing saved views and cannot remove a plate-camera entry.
+
 **Camera proposals in step 3:** **Suggest four cameras** is available for parent or child rooms with a reviewed
 footprint, even if cameras have already been saved. The free deterministic client proposes clear camera origins
 within the footprint and between floor and ceiling, using saved object dimensions and the existing suggested
