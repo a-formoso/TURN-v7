@@ -6,7 +6,10 @@ export function createRenderDatabase(admin){
     if(r.error){
       const message=String(r.error.message||"");
       if(/request_conflict/.test(message))throw new RenderError(409,"request_conflict","This request identity already belongs to another set revision.");
-      if(/queue_full|daily_limit/.test(message))throw new RenderError(429,"render_limit","The preview queue limit was reached. Wait for an existing request to finish.");
+      if(/queue_busy/.test(message))throw new RenderError(429,"queue_busy","Many sets are being built right now. Try again in a few minutes — nothing was charged.");
+      if(/queue_full/.test(message))throw new RenderError(429,"render_limit","You have three builds waiting already. Wait for one to finish — nothing was charged.");
+      if(/daily_limit/.test(message))throw new RenderError(429,"render_limit","That's 30 builds today, the daily limit. Try again tomorrow — nothing was charged.");
+      if(/hold_missing/.test(message))throw new RenderError(503,"billing_unavailable","Credits can't be checked right now. Please try again in a minute.");
       if(/lease_expired/.test(message))throw new RenderError(409,"lease_expired","This render lease expired.");
       throw new Error("Render database unavailable");
     }
@@ -14,7 +17,21 @@ export function createRenderDatabase(admin){
   }
   async function one(query){const r=await query.maybeSingle();if(r.error)throw new Error("Render database unavailable");return r.data||null;}
   return {
-    submit:a=>rpc("turn_submit_blender_render_job",{p_project:a.project,p_owner:a.owner,p_actor:a.actor,p_location:a.location,p_request:a.request,p_scene:a.scene,p_hash:a.hash}),
+    // with a hold (Build the set for paying plans, blender-render-billing.sql) the 8-argument submit; the pilot's own
+    // 7-argument one otherwise, so the pilot keeps working on a database without that file
+    submit:a=>rpc("turn_submit_blender_render_job",{p_project:a.project,p_owner:a.owner,p_actor:a.actor,p_location:a.location,p_request:a.request,p_scene:a.scene,p_hash:a.hash,
+      ...(a.hold?{p_hold:a.hold}:{})}),
+    byRequest:(actor,request)=>one(admin.from("turn_blender_render_jobs").select("*").eq("actor_id",actor).eq("request_id",request)),
+    async activeCount(){
+      const r=await admin.from("turn_blender_render_jobs").select("id",{count:"exact",head:true}).in("status",["queued","running"]);
+      if(r.error)throw new Error("Render database unavailable");return r.count||0;
+    },
+    // builds ahead of a waiting one: the one rendering, and those queued before it
+    async ahead(row){
+      const r=await admin.from("turn_blender_render_jobs").select("id",{count:"exact",head:true})
+        .or(`status.eq.running,and(status.eq.queued,created_at.lt."${row.created_at}")`);
+      if(r.error)throw new Error("Render database unavailable");return r.count||0;
+    },
     claim:hash=>rpc("turn_claim_blender_render_job",{p_hash:hash}),
     touch:async(id,hash,progress)=>!!await rpc("turn_touch_blender_render_job",{p_job:id,p_hash:hash,p_progress:progress}),
     finish:(id,hash,status,result,error)=>rpc("turn_finish_blender_render_job",{p_job:id,p_hash:hash,p_status:status,p_result:result,p_error:error}),

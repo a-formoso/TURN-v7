@@ -26,4 +26,9 @@ window.TURN_SUPABASE = {
      this client write only the old form (the client kill switch; the server one is
      in the SQL file's header). Files already stored keep working either way. */
   readableStorageKeys: true,
+  /* Build the set (2026-11-05, owner — paying plans): TRUE shows a location card's "4 · Build the set" / "5 · Style it"
+     to everyone in the Art Room (Director and Producer; on a shared film the owner and its Art director build). The
+     server decides who may build and charges it (blender-render with BLENDER_RENDER_OPEN=true); FALSE leaves the
+     owner-only local pilot. Publish this only after the server is open. */
+  setBuild: true,
 };

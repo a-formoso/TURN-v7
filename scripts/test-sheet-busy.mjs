@@ -61,7 +61,7 @@ ok("its styles: over the media, centred, a spinner; reduced motion slows it", ()
   assert.ok(css.includes(".sheet-media .sheet-busy.over-ref{background:color-mix(in oklab, var(--bg-2) 72%, transparent)}"));
   assert.ok(css.includes("@media (prefers-reduced-motion: reduce){ .sheet-busy-spin{animation-duration:2.4s} }"));
   const html = readFileSync(new URL("../TURN.html", import.meta.url), "utf8");
-  for (const f of ["app/styles.css", "app/artroom.jsx"]) assert.ok(["20261105-busy1", "20261105-busy2"].some((k) => html.includes(f + "?v=" + k + '"')), f);
+  for (const f of ["app/styles.css", "app/artroom.jsx"]) assert.ok(["20261105-busy1", "20261105-busy2", "20261105-set1"].some((k) => html.includes(f + "?v=" + k + '"')), f);
 });
 ok("Frances knows: the busy frame and the plain 'not on the image server yet' refusal", () => {
   const ai = readFileSync(new URL("../app/ai.jsx", import.meta.url), "utf8");

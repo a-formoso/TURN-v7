@@ -101,6 +101,9 @@
         "seedream-5-pro":              { standard:0.0675, large:0.135, extraRef:0.0045 },
       },
     },
+    // BUILD THE SET (2026-11-05, owner): one build of a location's 3D set (four camera views) on the studio's
+    // renderer — 15 credits at today's unit, the same as blender-render/core.mjs SET_BUILD_USD, which holds it
+    setBuild: { providerUsd: 0.15 },
     video: {
       note: "Provider USD per output second. Stage converts this into the credit cost it shows; the server holds that cost before the job and settles it when the render finishes (refunded if it fails).",
       // with video references fal multiplies the price by 0.6 and bills the input seconds too —
@@ -291,6 +294,8 @@
     if(!Number.isFinite(n) || n <= 0) return 1;
     return Math.max(1, Math.ceil(n / TURN_PRICING.credit.visibleProviderUsd - 1e-9));
   }
+  /* one Build the set, in credits at the live unit (the server's own answer, capabilities.credits, wins when known) */
+  function turnSetBuildCredits(){ return turnCreditCost(TURN_PRICING.setBuild.providerUsd); }
   function turnVideoCreditRate(modelId, tierId, resolution){
     const usd = (((TURN_PRICING.video.providerUsdPerSecond[modelId]||{})[tierId]||{})[resolution]);
     return Number(usd)>0 ? Number(usd) / TURN_PRICING.credit.baseProviderUsd : null;
@@ -376,6 +381,7 @@
   window.TURN_IMAGE_PROMPT_MAX_CHARS = IMAGE_PROMPT_MAX_CHARS;
   window.turnImagePromptMaxChars = turnImagePromptMaxChars;
   window.turnCreditCost = turnCreditCost;
+  window.turnSetBuildCredits = turnSetBuildCredits;
   window.turnVideoCreditRate = turnVideoCreditRate;
   window.turnVideoCreditRates = turnVideoCreditRates;
   window.turnCreditPackEconomics = turnCreditPackEconomics;

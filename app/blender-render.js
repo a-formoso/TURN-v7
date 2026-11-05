@@ -4,7 +4,9 @@
   const C=()=>root.KinolotRenderContract;
   const requestCache=new Map();
   const local=()=>!!root.location&&["localhost","127.0.0.1","::1"].includes(root.location.hostname);
-  function enabled(){return local()&&root.turnIsAdmin===true;}
+  // Build the set (owner 2026-11-05): open to paying plans when the app's config says so (supabase-config.js setBuild) —
+  // the Art Room itself is Director's, and the server decides who builds and charges it; otherwise the owner-only pilot
+  function enabled(){return (root.TURN_SUPABASE||{}).setBuild===true||local()&&root.turnIsAdmin===true;}
   const tidy=(s,max=160)=>String(s||"").replace(/[\u0000-\u001f]/g," ").trim().slice(0,max);
   const finite=(n)=>typeof n==="number"&&Number.isFinite(n);
   function savedOpening(anchor,space){

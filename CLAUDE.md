@@ -95,6 +95,10 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   charged only if it finished).
 - **Stale holds:** `turn_release_stale_holds(30)` (same cron) releases a hold with no provider job after 30 minutes; a
   hold with a `provider_ref` is left to the reconciliation and settled at the held amount only as a last resort after 30 days.
+- **Build the set (owner 2026-11-05):** a location's cloud set build is 15 credits (`blender-render/core.mjs`
+  `SET_BUILD_USD` $0.15 at the live unit), Director and up (owner or Art director on a shared film, the owner paying),
+  held before queueing (`setbuild:` holds) and settled / released by the job's status (`supabase/blender-render-billing.sql`
+  trigger); one worker, queue capped at 12. Switches: `BLENDER_RENDER_OPEN` (server), `setBuild` (app config).
 - **Two balances:** plan credits (reset at renewal, end with the plan) and pack lots (`turn_credit_lots`, 12 months,
   never reset); spent plan first, then the soonest-expiring lot. `turn_credits.remaining` is the total (a trigger).
   Packs: 250/$10, 1,000/$35, 3,000/$99, any signed-in account, on sale only from the switch day. An old-unit pack

@@ -7,6 +7,29 @@ cross-device access, and multiple projects all work.
 
 ## What you run (once)
 
+### Build the set for paying plans (owner 5 November 2026)
+
+The cloud set preview below opens to **Director and Producer**: a location card's **4 · Build the set** /
+**5 · Style it** show to everyone in the Art Room (`app/supabase-config.js` `setBuild: true`). One build costs
+**15 credits** (`blender-render/core.mjs` `SET_BUILD_USD` = $0.15 at the live unit = `app/pricing.jsx`
+`turnSetBuildCredits`), HELD before queueing (ref `setbuild:<request>:<scene>`, through blender-bridge's
+`authorizeCredit`: the Director plan gate; on a shared film the **owner or its Art director** builds and the owner pays
+within that person's monthly budget), **charged** when the four views arrive and **given back** when the build fails,
+is cancelled, stops twice, or the renderer doesn't reach it (queued 2 hours / lease gone 30 minutes) — a trigger on the
+job's status does it (`blender-render-billing.sql`). One renderer (the Replit worker, Reserved VM 2 vCPU / 8 GiB, about
+3½ minutes a build) builds one set at a time: the whole queue is capped at **12** (a 13th is refused before any hold),
+3 waiting per account, 30 a day. Other roles see what was built. Tests: `test-set-build-db`, `test-set-build-release`.
+
+**Turn it on (owner's go-ahead for each production step), in this order:**
+1. *(Mac, SQL Editor)* Run `supabase/blender-render-billing.sql` (additive: two columns, an 8-argument submit beside
+   the pilot's, the billing trigger, the expiry function and its 10-minute pg_cron job). Its last rows must all read `ok`.
+2. *(Mac)* `npx -y supabase@2.117.0 functions deploy blender-render --project-ref vubenblfdzginlqiglzw --use-api --no-verify-jwt`
+   (it bundles blender-bridge's adapter; blender-bridge itself needs no deploy). Still the pilot until step 3.
+3. *(Mac)* `npx -y supabase@2.117.0 secrets set BLENDER_RENDER_OPEN=true --project-ref vubenblfdzginlqiglzw`.
+   `BLENDER_RENDER_ENABLED=false` still stops every new build; removing `BLENDER_RENDER_OPEN` returns to the pilot.
+4. Publish the app (Replit). Before the server is open, the published card would tell non-pilot accounts the
+   preview is limited to the pilot — so publish last.
+
 ### Cloud set preview — development pilot (31 October 2026)
 
 This is separate from the desktop add-on relay. The live website is unchanged.

@@ -28,29 +28,51 @@ async function bodyJSON(request,max){
   if(!body||typeof body!=="object"||Array.isArray(body))throw bad("Invalid request data.");return body;
 }
 
-export function createRenderService({auth,db,storage,contract,png,enabled=false,allowedUsers=[],workerSecret="",now=()=>Date.now()}={}){
+/* BUILD THE SET FOR PAYING PLANS (owner 2026-11-05). With `open` (BLENDER_RENDER_OPEN=true) any Director or Producer
+   account builds its own films' sets, and an Art director builds on a shared film with the owner paying within their
+   budget — `billing` is blender-bridge's supabase-adapter (authorizeCredit: the plan gate, the film payer and the HOLD;
+   releaseCredit; creditUnit). One build costs SET_BUILD_USD at the live credit unit (15 credits; app/pricing.jsx
+   turnSetBuildCredits), held before queueing (ref "setbuild:<request id>:<scene>") and settled or given back by the
+   job's own status (supabase/blender-render-billing.sql). One renderer builds one set at a time: the whole queue is
+   capped at SET_BUILD_QUEUE_CAP. Without `open` this is the owner-only pilot: allowlisted accounts, their own films,
+   no charge. */
+export const SET_BUILD_USD=0.15;
+export const SET_BUILD_QUEUE_CAP=12;
+const BILLING_STATUS={insufficient_credits:402,owner_insufficient:402,budget_reached:402,account_frozen:402,
+  tier_required:403,plan_required:403,owner_plan:403,film_role:403,team_paused:403,film_access:403};
+export function createRenderService({auth,db,storage,contract,png,enabled=false,allowedUsers=[],workerSecret="",open=false,billing=null,now=()=>Date.now()}={}){
   const allowed=new Set(allowedUsers);
+  const configured=()=>enabled&&workerSecret.length>=32&&(open?!!billing:allowed.size>0);
   async function access(projectId,user,write=true){
     if(!uuid(projectId))throw bad("Invalid film identity.");
     const a=await auth.getProjectAccess(projectId,user);
-    // Owner-only development pilot. Team rollout and a user render tariff are separate decisions.
-    if(!a?.exists||a.ownerId!==user.id||!a.canWrite||(write&&a.canWrite!==true))throw bad("This preview requires the film owner's access.","forbidden",403);
-    return a;
+    if(!a?.exists)throw bad("This film wasn't found.","forbidden",403);
+    if(a.ownerId===user.id&&a.canWrite===true)return a;
+    // open: a collaborator whose role builds sets (Art director — turn_film_payer '3d'), or reads them (any member)
+    if(open&&(write?a.canWrite===true:(a.canRead===true||a.canWrite===true)))return a;
+    throw bad(open?"Your role on this film doesn't include building the set.":"This preview requires the film owner's access.","forbidden",403);
   }
   async function workerAccess(){
-    if(!enabled||!workerSecret||!allowed.size)throw bad("Cloud rendering is not configured.","unavailable",503);
+    if(!configured())throw bad("Cloud rendering is not configured.","unavailable",503);
   }
   async function validActor(row){
     const actor=await auth.getUserById(row.actor_id);
-    if(!actor||!allowed.has(actor.id))throw bad("The render owner no longer has access.","forbidden",403);
+    if(!actor||(!open&&!allowed.has(actor.id)))throw bad("The render owner no longer has access.","forbidden",403);
     const a=await access(row.project_id,actor);
     if(a.ownerId!==row.owner_id)throw bad("The film owner changed.","forbidden",403);
+  }
+  async function price(){
+    const unit=await billing.creditUnit();
+    if(!(Number(unit)>0))throw bad("Credits can't be checked right now. Please try again in a minute.","billing_unavailable",503);
+    return Math.max(1,Math.ceil(SET_BUILD_USD/unit-1e-9));
   }
   async function publicJob(row){
     if(!row)return null;
     const job={id:row.id,projectId:row.project_id,locationId:row.location_id,sceneHash:row.scene_hash,
       status:row.status,progress:row.progress,attempts:row.attempts,createdAt:row.created_at,
-      updatedAt:row.updated_at,error:row.error||null,notes:row.scene.notes};
+      updatedAt:row.updated_at,error:row.error||null,notes:row.scene.notes,
+      credits:Number.isFinite(row.credits)?row.credits:null};
+    if(row.status==="queued"&&db.ahead)job.queueAhead=await db.ahead(row).catch(()=>null);
     if(row.status==="completed"){
       const images={};
       await Promise.all(Object.entries(row.result.images).map(async([name,path])=>{images[name]=await storage.sign(path,900);}));
@@ -84,12 +106,13 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
     return {inputSha256:r.inputSha256,objects:r.objects,width:640,height:360,blenderVersion:r.blenderVersion,
       wallSeconds:r.wallSeconds,peakChildRssMiB:r.peakChildRssMiB,cameras};
   }
-  async function dispatch(body,user,isWorker){
+  async function dispatch(body,user,isWorker,token=""){
     const action=body.action;
     if(action==="capabilities"&&!isWorker){
-      await access(body.projectId,user);
+      const a=await access(body.projectId,user,false);
       await db.latest(body.projectId,"__readiness_probe__");
-      return {enabled:true,ownerPilot:true,width:640,height:360};
+      return {enabled:true,ownerPilot:!open,open:!!open,width:640,height:360,queueCap:SET_BUILD_QUEUE_CAP,
+        canBuild:a.ownerId===user.id||a.canWrite===true,credits:open?await price():0};
     }
     if(typeof action!=="string")throw bad("An action is required.");
     if(isWorker){
@@ -151,11 +174,38 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
       if(!await auth.hasLocation(body.projectId,body.locationId))throw bad("Save this location in the cloud film before rendering it.","location_missing",409);
       try{contract.validateScene(body.scene);}catch(e){throw bad(e.message);}
       const hash=await contract.hash(body.scene);
-      const row=await db.submit({project:body.projectId,owner:a.ownerId,actor:user.id,location:body.locationId,request:body.requestId,scene:body.scene,hash});
-      return {job:await publicJob(row)};
+      const submit=hold=>db.submit({project:body.projectId,owner:a.ownerId,actor:user.id,location:body.locationId,request:body.requestId,scene:body.scene,hash,hold});
+      if(!open)return {job:await publicJob(await submit(null))};
+      // a request already queued answers as itself (a retried click), before any new hold
+      const known=db.byRequest?await db.byRequest(user.id,body.requestId):null;
+      if(known){
+        if(known.project_id!==body.projectId||known.location_id!==body.locationId||known.scene_hash!==hash)
+          throw bad("This request identity already belongs to another set revision.","request_conflict",409);
+        return {job:await publicJob(known)};
+      }
+      if(db.activeCount&&await db.activeCount()>=SET_BUILD_QUEUE_CAP)
+        throw bad("Many sets are being built right now. Try again in a few minutes — nothing was charged.","queue_busy",429);
+      const credits=await price();
+      const held=await billing.authorizeCredit({token,cost:credits,eventId:body.requestId+":"+hash.slice(0,16),
+        projectId:body.projectId,ownerId:a.ownerId,refPrefix:"setbuild:",reason:"set-build"});
+      if(!held||held.ok!==true){
+        const code=String(held&&held.code||"billing_unavailable");
+        const message=code==="tier_required"||code==="plan_required"?"Building the set needs the Director or Producer plan."
+          :code==="insufficient_credits"?"Building the set needs "+credits+" credits, and this account doesn't have enough. Top up or change plan to build it."
+          :String(held&&held.message||"Credits can't be checked right now. Please try again in a minute.");
+        throw bad(message,code,BILLING_STATUS[code]||503);
+      }
+      if(!held.holdRef)throw bad("Credits can't be checked right now. Please try again in a minute.","billing_unavailable",503);
+      try{return {job:await publicJob(await submit(held.holdRef))};}
+      catch(e){
+        // give the hold back unless the job exists after all (a lost answer after the insert)
+        const made=db.byRequest?await db.byRequest(user.id,body.requestId).catch(()=>null):null;
+        if(!made||made.hold_ref!==held.holdRef)await billing.releaseCredit({holdRef:held.holdRef}).catch(()=>{});
+        throw e;
+      }
     }
     if(action==="job.latest"){
-      await access(body.projectId,user);
+      await access(body.projectId,user,false);
       if(typeof body.locationId!=="string"||body.locationId.length>160)throw bad("Invalid location.");
       return {job:await publicJob(await db.latest(body.projectId,body.locationId))};
     }
@@ -163,7 +213,7 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
     const row=await db.get(body.jobId);
     if(!row)throw bad("Render request not found.","not_found",404);
     if(body.projectId!==row.project_id)throw bad("Render request not found in this film.","not_found",404);
-    await access(row.project_id,user);
+    await access(row.project_id,user,action!=="job.get");
     if(action==="job.get")return {job:await publicJob(row)};
     if(action==="job.cancel")return {job:await publicJob(await db.cancel(row.id))};
     throw bad("Unknown action.");
@@ -173,7 +223,7 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
     if(request.method==="OPTIONS")return new Response(null,{status:204,headers:cors});
     try{
       if(request.method!=="POST")throw bad("POST required.","method_not_allowed",405);
-      if(!enabled||!allowed.size||workerSecret.length<32)throw bad("Cloud rendering is not enabled for this environment.","unavailable",503);
+      if(!configured())throw bad("Cloud rendering is not enabled for this environment.","unavailable",503);
       const header=request.headers.get("authorization")||"",worker=/^Worker (.+)$/.exec(header);
       let user=null;
       if(worker){
@@ -183,10 +233,11 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
         const bearer=/^Bearer (\S+)$/.exec(header);
         user=bearer?await auth.getUserByAccessToken(bearer[1]):null;
         if(!user)throw bad("Sign in to render a set.","unauthorized",401);
-        if(!allowed.has(user.id))throw bad("Cloud set previews are limited to the development pilot.","forbidden",403);
+        if(!open&&!allowed.has(user.id))throw bad("Cloud set previews are limited to the development pilot.","forbidden",403);
       }
       const body=await bodyJSON(request,worker?12582912:262144);
-      return reply(await dispatch(body,user,!!worker),200,cors);
+      const token=worker?"":(/^Bearer (\S+)$/.exec(header)||[])[1]||"";
+      return reply(await dispatch(body,user,!!worker,token),200,cors);
     }catch(e){
       const safe=e instanceof RenderError?e:bad("The render service could not finish this request.","service_error",503);
       return reply({error:safe.message,code:safe.code},safe.status,cors);

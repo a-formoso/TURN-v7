@@ -369,7 +369,9 @@ export function createSupabaseAdapter({
     }
     return held && !held.error ? rpcObject(held.data, "turn_hold_credits_for_film") : null;
   }
-  async function authorizeCredit({ token, cost, eventId, projectId = null, ownerId = null }) {
+  // refPrefix / reason (2026-11-05, Build the set: blender-render holds "setbuild:<request id>", reason "set-build") —
+  // a prefix of its own keeps studio-reconcile.mjs (which lists only "studio:" holds) away from those holds.
+  async function authorizeCredit({ token, cost, eventId, projectId = null, ownerId = null, refPrefix = "studio:", reason = "blender-studio" }) {
     if (!token) return { ok: false, message: "Generation authorization expired." };
     const client = createClient(url, anonKey, {
       global: { headers: { Authorization: `Bearer ${token}` } },
@@ -405,8 +407,8 @@ export function createSupabaseAdapter({
         return filmRefusal("owner_plan");
       if ((Number(orow && orow.remaining) || 0) < required) return filmRefusal("owner_insufficient");
       if (!eventId) return { ok: true, remaining: null };
-      const ref = `studio:${eventId}`;
-      const h = await holdForFilm({ owner: fp.payer, actor: user.id, memberId: fp.member_id, projectId, amount: required, ref, reason: "blender-studio" });
+      const ref = `${refPrefix}${eventId}`;
+      const h = await holdForFilm({ owner: fp.payer, actor: user.id, memberId: fp.member_id, projectId, amount: required, ref, reason });
       if (!h) return { ok: false, code: "billing_unavailable", message: "Credits can't be checked right now. Please try again in a minute." };
       if (h.ok === false || h.ok === "false") return filmHoldRefusal(h, required);
       return { ok: true, remaining: null, holdRef: ref };   // the owner's balance is never shown to a collaborator
@@ -434,9 +436,9 @@ export function createSupabaseAdapter({
     if (remaining < required) return { ok: false, code: "insufficient_credits", message: `This generation needs ${formatCredits(required)} credits, but this account has ${formatCredits(remaining)}.` };
     if (!eventId) return { ok: true, remaining };
     // the HOLD — atomic and idempotent per ref, so a retried submit holds once
-    const ref = `studio:${eventId}`;
+    const ref = `${refPrefix}${eventId}`;
     let held;
-    try { held = await admin.rpc("turn_hold_credits", { uid: user.id, amount: required, ref, reason: "blender-studio" }); }
+    try { held = await admin.rpc("turn_hold_credits", { uid: user.id, amount: required, ref, reason }); }
     catch (e) { held = { error: e }; }
     if (held?.error) {
       if (missingFunction(held.error)) return { ok: true, remaining };   // before billing-v2.sql: the older settlement
