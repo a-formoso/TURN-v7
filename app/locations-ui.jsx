@@ -298,6 +298,43 @@ function MovingPartChangeAdder({p,allMoments,onAdd}){
       E("input",{type:"checkbox",checked:during,onChange:e=>setDuring(e.target.checked)})),
     E("button",{type:"button",className:"art-draftall ghost",onClick:()=>m&&onAdd({sceneId:m.scene.id,beatN:m.beatN,moment:m.moment,state,during})},"Add change"));
 }
+function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
+  const api=window.KinolotCloudRender,E=React.createElement;
+  const [proposal,setProposal]=React.useState(null),[error,setError]=React.useState(""),[selected,setSelected]=React.useState("");
+  const list=((window.turnContinuity||{}).locations)||[],state=locationSpatialPlanState(l,list);
+  const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0;
+  React.useEffect(()=>{setProposal(null);setError("");setSelected("");},[l.id,epoch]);
+  if(!api?.proposeCameras)return null;
+  const ownRoom=(state.plan.coordinates?.spaces||[]).some(s=>s.id===l.id&&s.footprint?.length>=3);
+  let mapList=list,stale=false;
+  if(proposal){
+    try{const views=api.cameraProposalViews(l,proposal,list);mapList=list.map(x=>x.id===l.id?{...x,coverageViews:views}:x);}
+    catch(_){stale=true;}
+  }
+  const map=locationFloorPlanScene(state.owner,state.plan,mapList);
+  if(proposal&&!stale)map.cameras=map.cameras.map(c=>c.spaceId===l.id?{...c,source:"suggested"}:c);
+  const suggest=()=>{if(readOnly)return;setError("");try{setProposal(api.proposeCameras(l,list));setSelected(l.id+":TL");}catch(e){setError(e.message);}};
+  const apply=()=>{if(readOnly||!proposal||typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())return;try{
+    const currentList=((window.turnContinuity||{}).locations)||[],currentLocation=currentList.find(x=>x.id===l.id);
+    if(!currentLocation)throw Error("The open location changed. Suggest four cameras again.");
+    const views=api.cameraProposalViews(currentLocation,proposal,currentList);
+    onUpdate(l.id,{coverageViews:views});setProposal(null);setError("");}catch(e){setError(e.message);}};
+  return E("div",{className:"loc-map-wrap","data-testid":"camera-suggestions"},
+    E("h4",{className:"loc-spatial-heading"},proposal&&!stale?"Proposed cameras · overhead view":"Cameras · overhead view"),
+    E("p",{className:"loc-layer-note"},"TL, TR, BL and BR name the four image panels, not corners of the room. Select a camera on the map to inspect its position and viewing cone."),
+    E(LocationFloorPlanMap,{scene:map,selected,onSelect:setSelected,spaceId:l.id}),
+    E("div",{className:"loc-step-actions"},
+      E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!state.ready||!ownRoom,onClick:suggest,
+        title:"Free camera placement from the saved footprint and known object sizes; review before saving"},"Suggest four cameras"),
+      proposal&&E("button",{type:"button",className:"art-draftall",disabled:readOnly||stale,onClick:apply},"Use these cameras"),
+      proposal&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>{setProposal(null);setError("");}},"Discard proposal")),
+    (!state.ready||!ownRoom)&&E("p",{className:"loc-layer-note"},!state.ready?state.reason:"Choose a room with a footprint, or add this location's footprint in step 2."),
+    proposal&&!stale&&E("p",{className:"loc-layer-note"},"Preview only. Use these cameras saves all four proposed views for this room. Your current cameras remain in place until you choose it."),
+    proposal&&!stale&&proposal.warnings.map((note,i)=>E("p",{key:i,className:"loc-layer-note"},note)),
+    stale&&E("p",{role:"alert",className:"loc-spatial-error"},"The film, floor plan or cameras changed. Suggest four cameras again before applying."),
+    error&&E("p",{role:"alert",className:"loc-spatial-error"},error),
+    E("p",{className:"loc-layer-note"},"Suggesting and reviewing cameras uses no credits and starts no render."));
+}
 function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
   const [,refresh]=React.useReducer(n=>n+1,0);
   const [busy,setBusy]=React.useState("");
@@ -338,13 +375,6 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
     Object.keys(next).forEach(k=>{if(next[k]==null||next[k]==="")delete next[k];});
     delete next.basis;
     save(p.key,Object.keys(next).length?{...next,basis:"user"}:null);
-  };
-  const useSuggested=()=>{
-    if(readOnly)return;
-    let tmp={...l};
-    panels.filter(p=>p.suggestedPose&&p.suggestedPose.yaw!=null).forEach(p=>{
-      tmp={...tmp,coverageViews:locationCoverageViewsWithPose(tmp,p.key,{...p.suggestedPose,basis:"design"})};});
-    onUpdate(l.id,{coverageViews:tmp.coverageViews||[]});
   };
   const makeView=async(openingId)=>{
     if(readOnly||busy)return;
@@ -498,8 +528,6 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
         React.createElement("span",{className:"loc-cam-lead-buttons"},
           React.createElement("button",{type:"button",className:"art-draftall ghost loc-cam-make",disabled:readOnly,onClick:()=>setLead(o.id,parent.id)},"It opens onto "+parent.name),
           React.createElement("button",{type:"button",className:"art-draftall ghost loc-cam-make",disabled:readOnly,onClick:()=>setLead(o.id,"elsewhere")},"Somewhere else"))))),
-    !parent&&!statedAny&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly,onClick:useSuggested},
-      "Use the suggested cameras"),
     React.createElement("div",{className:"loc-cam-grid"},
       (plan?plan.panels:panels).map(p=>React.createElement("div",{key:p.key,className:"loc-cam-panel"},
         React.createElement("div",{className:"loc-cam-head"},React.createElement("b",null,p.label),
@@ -801,7 +829,7 @@ function LocationFloorPlanMap({scene,selected,onSelect,spaceId=""}){
   }).filter(Boolean);
   const hidden=scene.noPosition.filter(shown);
   const detail=selCam?selCam.label+": "+locationPoseText({position:selCam.position,yaw:selCam.yaw,pitch:selCam.pitch,lensMm:selCam.lensMm},"",[])
-      +" Field of view "+Math.round(selCam.hfov)+"°."+(selCam.source==="set"?" Set by hand in Plate cameras.":selCam.source==="layout"?" From the floor plan.":" Suggested.")
+      +" Field of view "+Math.round(selCam.hfov)+"°."+(selCam.source==="set"?" Saved on this room's camera card.":selCam.source==="layout"?" From the floor plan.":" Suggested.")
       +(selCam.lowered?" Lowered to "+selCam.lowered.to+" m ("+(selCam.lowered.source==="layout"?"the floor plan says ":"saved at ")+selCam.lowered.from+" m) — outdoor cameras stay at eye level or a low high-angle.":"")
       +(selCam.heightWarning?" "+selCam.heightWarning.height+" m up, as set by hand — outdoor cameras stay at eye level or a low high-angle (at most about "+selCam.heightWarning.max+" m).":"")
       +(selCam.outlier?" Far outside every footprint — check this position.":"")
@@ -1817,6 +1845,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       ),
 
       React.createElement(CardFold,{label:"3 \u00b7 Cameras",foldId:locationStepFoldId(l,3),count:stepCount(3)},
+        React.createElement(LocationCameraSuggestions,{l,onUpdate,readOnly}),
         React.createElement(LocationPlateCameras,{l,project,onUpdate,readOnly,plateMeta:gen.genUrl?gen.genMeta:null}),
         React.createElement(CoverageViewsEditor,{l,views:coverageViews,onUpdateView:updateCoverageView,
           onAdd:addCoverageView,onRemove:removeCoverageView,onDraftStaging,draftingStage}),

@@ -35,9 +35,9 @@
   // between floor and ceiling, and outside every object, or the frame shows the inside of a wall or a box.
   const CAMERA_WALL_CLEARANCE=0.25;
   // Per camera: what is wrong with where it stands (no entry = fine). Step 3 · Cameras shows these beside each camera.
-  function cameraProblemsIn(location,list,plan,spaces,family,owner){
+  function cameraProblemsIn(location,list,plan,spaces,family,owner,proposed){
     // Only a location with its own room on the floor plan places cameras in it (a whole location's plate doesn't).
-    const out={},poses=root.locationPanelPoses(location,list);
+    const out={},poses=proposed||root.locationPanelPoses(location,list);
     const sp=spaces.find(s=>s.id===location.id);if(!sp||!(sp.footprint||[]).length)return out;
     for(const p of poses)if(!p.pose.position)out[p.key]="It has no position yet.";
     let poly;try{poly=C().polygon(sp.footprint);}catch(_){return out;}
@@ -65,6 +65,75 @@
     const state=root.locationSpatialPlanState(location,list);if(!state.ready)return {};
     const spaces=renderSpaces(state.plan);
     return cameraProblemsIn(location,list,state.plan,spaces,root.locationSpatialFamily(state.owner,list),state.owner);
+  }
+  function cameraProposalKey(location,list){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    const state=root.locationSpatialPlanState(location,list);
+    return C().canonical({locationId:location.id,plan:state.plan,views:location.coverageViews||[],
+      family:root.locationSpatialFamily(state.owner,list).map(l=>({id:l.id,name:l.name})),
+      epoch:typeof root.nbEpoch==="function"?root.nbEpoch():0});
+  }
+  // Bounded, deterministic placement. This creates a proposal only; the card explicitly applies it later.
+  function proposeCameras(location,list){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    const state=root.locationSpatialPlanState(location,list);
+    if(!state.ready)throw Error(state.reason||"Review the floor plan in step 2 first.");
+    const {owner,plan}=state,spaces=renderSpaces(plan),sp=spaces.find(s=>s.id===location.id);
+    if(!sp)throw Error("Add this room's footprint in step 2 first.");
+    const poly=C().polygon(sp.footprint),family=root.locationSpatialFamily(owner,list);
+    if(!sp.openSky&&!finite(sp.ceilingH))throw Error("Set this room's ceiling height in step 2 first.");
+    const xs=poly.map(p=>p[0]),ys=poly.map(p=>p[1]),x0=Math.min(...xs),y0=Math.min(...ys),w=Math.max(...xs)-x0,d=Math.max(...ys)-y0;
+    const inside=(x,y)=>{let yes=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+      const a=poly[i],b=poly[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])yes=!yes;}return yes;};
+    const rounded=n=>Math.round(n*100)/100;
+    const clampHeight=h=>sp.floorZ+(sp.openSky?Math.min(6,h):Math.max(.25,Math.min(sp.ceilingH-.25,h)));
+    const eye=clampHeight(1.6),high=clampHeight(sp.openSky?3:Math.max(1.6,sp.ceilingH*.75));
+    const seeds=[];
+    for(let i=1;i<20;i++)for(let j=1;j<20;j++)seeds.push([x0+w*i/20,y0+d*j/20]);
+    // Edge samples also find narrow arms of a concave footprint that a coarse box grid could miss.
+    poly.forEach((a,i)=>{const b=poly[(i+1)%poly.length],dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy);
+      for(const t of [.2,.5,.8])for(const inset of [.35,.75])for(const sign of [-1,1])
+        seeds.push([a[0]+dx*t-sign*dy/len*inset,a[1]+dy*t+sign*dx/len*inset]);});
+    const used=[],panels=[],spacing=Math.min(.6,Math.max(.15,Math.min(w,d)*.15));
+    const defaults=Object.fromEntries(root.locationPanelPoses(location,list).map(p=>[p.key,{pose:p.suggestedPose}]));
+    const desired=[[.1,.1],[.1,.9],[.9,.9],[.9,.1]],keys=["TL","TR","BL","BR"];
+    for(let i=0;i<4;i++){
+      const wanted=defaults[keys[i]]?.pose||{},z=rounded(wanted.position&&finite(wanted.position[2])
+        ?clampHeight(wanted.position[2]-sp.floorZ):(i===1?high:eye)),seen=new Set();
+      const clear=seeds.map(p=>[rounded(p[0]),rounded(p[1]),z]).filter(p=>{
+        const k=p.join(",");if(seen.has(k)||!inside(p[0],p[1]))return false;seen.add(k);
+        return !Object.keys(cameraProblemsIn(location,list,plan,spaces,family,owner,[{key:keys[i],pose:{position:p}}])).length;});
+      const candidates=clear.filter(p=>used.every(a=>Math.hypot(a[0]-p[0],a[1]-p[1])>=spacing));
+      if(!candidates.length)throw Error("There isn't enough clear space for four camera positions. Check the room footprint and object sizes in step 2.");
+      const preferred=wanted.position||[x0+w*desired[i][0],y0+d*desired[i][1]];
+      const score=p=>((p[0]-preferred[0])/w)**2+((p[1]-preferred[1])/d)**2;
+      candidates.sort((a,b)=>score(a)-score(b));const at=candidates[0];used.push(at);
+      // Aim within the room; sampled sight lines cannot cross a concave footprint's outside wall.
+      const targets=clear.filter(p=>Math.hypot(p[0]-at[0],p[1]-at[1])>.1&&Array.from({length:19},(_,j)=>(j+1)/20)
+        .every(t=>inside(at[0]+(p[0]-at[0])*t,at[1]+(p[1]-at[1])*t)));
+      const aimScore=p=>{const dx=p[0]-at[0],dy=p[1]-at[1],distance=Math.hypot(dx,dy);
+        return distance/Math.max(w,d)+(finite(wanted.yaw)?2*(dx*Math.sin(wanted.yaw*Math.PI/180)+dy*Math.cos(wanted.yaw*Math.PI/180))/distance:0);};
+      targets.sort((a,b)=>aimScore(b)-aimScore(a));
+      if(!targets.length)throw Error("A clear view across this room couldn't be proposed. Check the footprint in step 2.");
+      const aim=targets[0],dist=Math.hypot(aim[0]-at[0],aim[1]-at[1]);
+      panels.push({key:keys[i],pose:{position:at,yaw:rounded((Math.atan2(aim[0]-at[0],aim[1]-at[1])*180/Math.PI+360)%360),
+        pitch:rounded(Math.max(-45,Math.min(15,finite(wanted.pitch)?wanted.pitch:Math.atan2(clampHeight(.9)-z,dist)*180/Math.PI))),
+        lensMm:wanted.lensMm||(i===1?20:24),basis:"design"}});
+    }
+    const warnings=["Proposed positions avoid the saved walls and sized objects. Review the framing and any objects without dimensions before building."];
+    return {key:cameraProposalKey(location,list),panels,warnings};
+  }
+  function cameraProposalViews(location,proposal,list){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    if(!proposal||proposal.key!==cameraProposalKey(location,list))throw Error("The film, floor plan or cameras changed. Suggest four cameras again.");
+    if(!Array.isArray(proposal.panels)||proposal.panels.length!==4||["TL","TR","BL","BR"].some(k=>proposal.panels.filter(p=>p.key===k).length!==1))
+      throw Error("Four proposed camera views are required.");
+    const state=root.locationSpatialPlanState(location,list);
+    if(!state.ready||Object.keys(cameraProblemsIn(location,list,state.plan,renderSpaces(state.plan),root.locationSpatialFamily(state.owner,list),state.owner,proposal.panels)).length)
+      throw Error("These camera positions no longer fit the room. Suggest four cameras again.");
+    let next=location;
+    for(const p of proposal.panels)next={...next,coverageViews:root.locationCoverageViewsWithPose(next,p.key,p.pose)};
+    return next.coverageViews;
   }
   // Each issue names the card step that fixes it: 2 · Floor plan or 3 · Cameras.
   function inputIssueList(location,list){
@@ -306,6 +375,6 @@
     if(JSON.stringify(state||null)!==before)root.dispatchEvent?.(new CustomEvent("kinolot-cloud-job",{detail:{locationId}}));
   }
   const jobState=locationId=>jobs.get(locationId)||null;
-  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds,
+  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,cameraProposalKey,proposeCameras,cameraProposalViews,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds,
     buildMoments,setBuildMoment,buildMoment};
 })(typeof window!=="undefined"?window:globalThis);

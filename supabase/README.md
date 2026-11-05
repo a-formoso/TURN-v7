@@ -55,6 +55,15 @@ disabled with instructions to generate each draft explicitly at its displayed pr
 limits apply. Purged references, other films and other moving-part states are excluded. Tests cover read-only
 inspection and unchanged write fences (`test-cloud-set-style`: 109 checks).
 
+**Camera proposals in step 3:** **Suggest four cameras** is available for parent or child rooms with a reviewed
+footprint, even if cameras have already been saved. The free deterministic client proposes clear camera origins
+within the footprint and between floor and ceiling, using saved object dimensions and the existing suggested
+framing. A bounded search also samples polygon edges for narrow/concave rooms. The overhead map previews the four
+poses before saving. **Use these cameras** updates only that selected room's `coverageViews`, preserving authored
+coverage notes; **Discard proposal** makes no saved change. The proposal is invalidated by changed floor-plan,
+camera or film-epoch data. It never edits floor-plan objects, starts a render or invokes an AI provider. Missing
+object dimensions and actual composition remain review items. Tests: `scripts/test-camera-suggestions.mjs`.
+
 ### Cloud set preview — development pilot (31 October 2026)
 
 This is separate from the desktop add-on relay. The live website is unchanged.

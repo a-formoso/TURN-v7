@@ -131,15 +131,18 @@ const cv=writes[0].patch.coverageViews;
 assert.equal(cv[0].panel,"TL");assert.equal(cv[0].pose.yaw,200);assert.equal(cv[0].pose.basis,"user");
 assert.match(cv[0].cameraPosition,/facing south \(200°\)/);
 
-/* an owner: suggestions until set; one click stores them (free) */
+/* an owner: suggestions until set; saving now belongs to the reviewed four-camera proposal. */
 writes.length=0;hooks=[];
 tree=render({...props,l:furnace,plateMeta:{iso:"f1"}});
 t=text(tree);
 assert.match(t,/Suggested/);
 assert.match(t,/Until a camera is set, the plate prompt is unchanged/);
-const use=flat(tree).find(n=>n.type==="button"&&text(n)==="Use the suggested cameras");
-use.props.onClick();
-const ov=writes[0].patch.coverageViews;
+assert.equal(flat(tree).find(n=>n.type==="button"&&text(n)==="Use the suggested cameras"),undefined);
+assert.equal(writes.length,0,"opening camera details never applies suggestions");
+let proposed=furnace;
+for(const p of box.locationPanelPoses(furnace).filter(p=>p.suggestedPose.yaw!=null))
+  proposed={...proposed,coverageViews:box.locationCoverageViewsWithPose(proposed,p.key,{...p.suggestedPose,basis:"design"})};
+const ov=proposed.coverageViews;
 assert.deepEqual(JSON.parse(JSON.stringify(ov.map(v=>[v.panel,v.pose.yaw]))),[["TL",35],["TR",45],["BL",0],["BR",180]],   // TL three-quarter (2026-10-27)
   "the suggestions with a known facing are stored (the stations face the walls their anchors are on)");
 assert.equal(ov[0].pose.basis,"design");
