@@ -127,7 +127,8 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
     review&&(engineView?pair:draft)&&E("dialog",{ref:dialog,className:"loc-style-dialog","aria-label":engineView?"Compare saved image engines":"Review style draft against Blender",onCancel:()=>setReview(false)},
       E("div",{className:"loc-cloud-render-head"},E("h3",null,engineView?"Compare saved engines":"Review style draft"),E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setReview(false)},"Close review")),
       E("p",null,engineView?"These saved results use the same source build and prompt. Compare every camera; engine quality and size are shown in the labels. This comparison does not replace artwork."
-        :"Check openings, fixture positions, ramp state, beams and markings in all four views. The source is authoritative."),
+        :"Check the Blender set against the intended floor plan first, then check openings, object positions, lighting and markings in the styled image. A styling model can preserve a mistake in the Blender set."),
+      E(StyleGenerationDetails,{meta:engineView?pair?.left.meta:draft?.meta,shared:engineView}),
       E("div",{className:"loc-style-toolbar"},
         E("label",null,"Camera",E("select",{value:camera,onChange:e=>setCamera(e.target.value)},Object.entries(label).map(([value,text])=>E("option",{key:value,value},text)))),
         E("label",null,leftLabel+" revealed: "+wipe+"%",E("input",{type:"range",min:0,max:100,value:wipe,onChange:e=>setWipe(Number(e.target.value)),"aria-label":engineView?"Left engine revealed":"Blender source revealed"}))),
@@ -143,6 +144,30 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
       !engineView&&!decided&&controls(),
       !engineView&&decided&&E("p",null,accepted?"Already used as location artwork.":"Rejected. Generate a new draft to try again."),
       !engineView&&E("p",{className:"loc-layer-note"},(partState?"Using this draft saves it as the \u201c"+partState.label+"\u201d image; the location image is not changed.":"Using this draft replaces the location image and keeps the previous image in version history.")+" Rejecting it does not refund image generation credits.")));
+}
+function StyleGenerationDetails({meta,shared=false}){
+  const E=React.createElement,scene=meta?.sourceScene;
+  const vec=v=>Array.isArray(v)?v.map(n=>typeof n==="number"?Math.round(n*1000)/1000:n).join(", "):"Not recorded";
+  return E("details",{className:"loc-nested-section loc-style-requirements"},
+    E("summary",null,"Generation requirements"),
+    E("p",{className:"loc-layer-note"},shared?"The two saved results used this same prompt and Blender build.":"These are the saved inputs for this draft, including any surface notes used at generation time."),
+    E("h4",null,shared?"Shared styling prompt":"Saved styling prompt"),
+    meta?.prompt?E("pre",{style:{whiteSpace:"pre-wrap",overflowWrap:"anywhere",maxHeight:"22rem",overflow:"auto"}},meta.prompt)
+      :E("p",null,"The original prompt was not saved with this older draft."),
+    E("details",null,E("summary",null,"Blender build inputs"),
+      E("p",{className:"loc-layer-note"},"Blender builds from numbers rather than a text prompt. Positions and sizes below are in metres; camera facing and tilt are in degrees. Inspect the source render against the intended room before styling."),
+      scene&&Array.isArray(scene.objects)?E(React.Fragment,null,
+        E("p",null,scene.name),
+        E("div",{style:{maxHeight:"22rem",overflow:"auto"}},E("table",null,
+          E("thead",null,E("tr",null,["Built shape","Position (x, y, height)","Size (width, depth, height)","Rotation (degrees)"].map(t=>E("th",{key:t},t)))),
+          E("tbody",null,scene.objects.map(o=>E("tr",{key:o.id},E("td",null,o.name),E("td",null,vec(o.position)),E("td",null,vec(o.size)),E("td",null,vec(o.rotation?.map(r=>r*180/Math.PI)))))))),
+        E("h4",null,"Camera settings"),
+        E("ul",null,Object.entries(scene.cameras||{}).map(([panel,c])=>E("li",{key:panel},panel+": position "+vec(c.position)+"; facing "+c.yaw+"°; tilt "+c.pitch+"°; lens "+c.lensMm+" mm"))),
+        E("h4",null,"Lights"),
+        E("ul",null,(scene.previewLights||[]).map((l,i)=>E("li",{key:i},"Position "+vec(l.position)+"; power "+l.powerWatts+" W; size "+l.sizeMetres+" m"))),
+        E("h4",null,"Build notes and assumptions"),
+        E("ul",null,(scene.notes||[]).map((n,i)=>E("li",{key:i},n))))
+        :E("p",null,"This older draft has no saved numeric build snapshot. Its saved reference can still be inspected, but today's floor plan may differ from the original build.")));
 }
 /* Time-based, like the set render: the image engine reports no progress, so the bar runs against its measured time
    and stops short of full until the draft is saved. */

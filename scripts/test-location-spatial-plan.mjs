@@ -99,14 +99,23 @@ assert.match(prompt,/EVERY panel jointly/);
 assert.match(prompt,/Do not invent metric dimensions/);
 assert.match(prompt,/Keep the table in front of the fridge/);
 assert.equal(house.spatialPlan.status,"reviewed","draft proposal never overwrites saved plan");
+assert.match(prompt,/renderShape sports-net/);
+const oldShape=house.spatialPlan.anchors[0].renderShape,oldMesh=house.spatialPlan.anchors[0].netMeshHeight;
+house.spatialPlan.anchors[0].renderShape="sports-net";house.spatialPlan.anchors[0].netMeshHeight=.7;
+const refined=await box.aiDraftLocationSpatialPlan(kitchen,[],{});
+assert.equal(refined.anchors.find(a=>a.id===house.spatialPlan.anchors[0].id).renderShape,"sports-net","Layout refinement preserves explicit shape choices");
+assert.equal(refined.anchors.find(a=>a.id===house.spatialPlan.anchors[0].id).netMeshHeight,.7,"Layout refinement preserves explicit mesh height");
+if(oldShape===undefined)delete house.spatialPlan.anchors[0].renderShape;else house.spatialPlan.anchors[0].renderShape=oldShape;
+if(oldMesh===undefined)delete house.spatialPlan.anchors[0].netMeshHeight;else house.spatialPlan.anchors[0].netMeshHeight=oldMesh;
 box.aiVisionComplete=async()=>({vision:false,text:JSON.stringify(draft)});
 await assert.rejects(box.aiDraftLocationSpatialPlan(house,[],{}),/did not read the image/);
 assert.equal(textCalls,0,"no silent blind-text fallback for an existing image");
 image="";iso="";
 await box.aiDraftLocationSpatialPlan(house,[],{});assert.equal(textCalls,1,"new places can be designed before their first image");
+const visionBeforeSwitch=visionCalls;
 image="plate";box.turnDownscaleDataUrl=async()=>{epoch++;return "data";};
 await assert.rejects(box.aiDraftLocationSpatialPlan(house,[],{}),/film changed/);
-assert.equal(visionCalls,1,"project switches block subsequent paid vision calls");
+assert.equal(visionCalls,visionBeforeSwitch,"project switches block subsequent paid vision calls");
 
 // The Blender context keeps the physical plan even when scene history is huge.
 const plan=box.locationProductionPlan(kitchen,[]);

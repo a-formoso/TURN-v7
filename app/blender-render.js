@@ -168,6 +168,8 @@
       if(isOpening(a,space)){
         if(!savedOpening(a,space))issues.push("Add "+a.name+" to its room's floor-plan openings, with its dimensions.");
       }else if(!a.xy||!a.size)issues.push("Set the floor plan position and width, depth and height for "+(a.name||"each fixed object")+".");
+      if(root.KinolotSetDetail?.anchorShape(a)==="sports-net"&&a.size&&a.netMeshHeight>a.size[2])
+        issues.push("Net mesh height for "+a.name+" must not exceed its overall object height.");
     }
     if(spaces.filter(s=>!s.openSky).length>16)issues.push("This preview supports up to sixteen spaces.");
     const tagged=Array.from(new Set(issues)).map(text=>({step:2,text}));
@@ -321,8 +323,13 @@
         ...(outsides.length?{quay:{baseColor:[0.07,0.07,0.075],metallic:0.05,roughness:0.9},night:{baseColor:[0.008,0.01,0.018],metallic:0,roughness:1}}:{}),
       }};
     if(!root.KinolotSetDetail)throw new Error("The set detail builder did not load. Refresh this page before building.");
-    return root.KinolotSetDetail.build(C().validateScene(scene),{space:spaces.find(s=>s.id===location.id),
-      anchors:plan.anchors.filter(a=>(root.locationAnchorSpaceOf(a,family)||owner).id===location.id)});
+    const detailed=root.KinolotSetDetail.build(C().validateScene(scene),{space:spaces.find(s=>s.id===location.id),
+      anchors:plan.anchors.filter(a=>(root.locationAnchorSpaceOf(a,family)||owner).id===location.id),allAnchors:plan.anchors});
+    const proxies=detailed.objects.filter(o=>o.anchorId&&o.kind==="box"&&o.material==="dressing"
+      &&!plan.anchors.find(a=>a.id===o.anchorId)?.renderShape);
+    if(proxies.length)detailed.notes.push("Simplified solid blocks: "+proxies.slice(0,4).map(o=>tidy(o.name,65)).join(", ")
+      +(proxies.length>4?" and "+(proxies.length-4)+" more":"")+". These show object bounds, not confirmed shapes. Review Set shape in step 2; a block cannot represent mesh, openings or detailed furniture.");
+    return C().validateScene(detailed);
   }
   function endpoint(){
     if(local()&&root.KINOLOT_RENDER_DEV_ENDPOINT){

@@ -77,6 +77,7 @@
       +"Preserve the equal four panels, exact framing, perspectives, silhouettes, wall openings, fixtures and all markings. "
       +"Each panel is a different camera of one shared set. Change materials, surface finish and atmosphere only. "
       +"Do not add, move, resize or remove objects. Keep every light fitting at its source position; do not invent visible lamps. "
+      +"Keep netting and mesh open and see-through; never fill their gaps with solid walls or panels. "
       +"Keep doors and ramps in their exact source state. Keep arrow directions, lane edges, beam spacing and cabinet proportions. "
       +"No new people, vehicles, furnishings, doors, windows, signs, captions, borders or panel labels. "
       +"Use consistent materials and restrained wear across the four views. Source geometry takes priority over any conflicting style words.\n"
@@ -108,6 +109,9 @@
   }
   async function load(id,s){
     const d=await details(slot(id),s);if(!d?.url)return null;verify(d.meta,id,s);
+    if(d.meta.sourceScene&&await root.KinolotRenderContract.hash(d.meta.sourceScene)!==d.meta.sceneHash)
+      throw Error("The saved Blender build inputs could not be verified. Refresh the draft.");
+    assertScope(s,false);
     const reference=d.refs?.find(r=>r.kind==="blender-style-source");
     if(reference?.deleted)throw Error("This draft's comparison source was removed. Generate a new draft before reviewing.");
     let source=reference?.url||"";
@@ -131,7 +135,9 @@
     });
     const same=(a,b)=>["sourceJobId","sceneHash","briefKey","prompt"].every(k=>a.meta[k]===b.meta[k]);
     for(const a of drafts){
+      if(a.meta.sourceScene&&await root.KinolotRenderContract.hash(a.meta.sourceScene)!==a.meta.sceneHash)continue;
       const b=drafts.find(d=>d.meta.modelId!==a.meta.modelId&&same(a,d));
+      if(b?.meta.sourceScene&&await root.KinolotRenderContract.hash(b.meta.sourceScene)!==b.meta.sceneHash)continue;
       if(b){assertScope(s,false);const ordered=[a,b].sort((x,y)=>SAVED_ENGINES.indexOf(x.meta.modelId)-SAVED_ENGINES.indexOf(y.meta.modelId));
         return {left:ordered[0],right:ordered[1]};}
     }
@@ -174,7 +180,7 @@
       assert();options.onPhase?.("saving");
       const meta={schema:1,kind:"cloud-set-style-draft",projectId:s.projectId,locationId:t.loc,sourceJobId:original.job.id,
         ...(t.key?{stateKey:t.key,stateLabel:t.label,stateAt:t.at}:{}),
-        sceneHash:hash,briefKey:brief,baseArtwork:base,prompt:text,modelId:choice.model,
+        sceneHash:hash,sourceScene:JSON.parse(revision),briefKey:brief,baseArtwork:base,prompt:text,modelId:choice.model,
         modelLabel:root.nbModelLabel(choice.model),quality:choice.quality,size:metaOut.imageSize||choice.imageSize,aspect:"16:9",
         mode:"draft",iso:new Date().toISOString(),notes:String(options.notes||"").slice(0,1000),
         platePanels:root.locationPlatePanelRecord?.(l),plateLayoutSig:root.locationPlateLayoutSig?.(l,{panels:true}),

@@ -53,13 +53,17 @@ extra image copy occurs. Engine settings are labelled; the camera selector and r
 The engine comparison has no artwork acceptance/rejection controls. A missing matching pair leaves its button
 disabled with instructions to generate each draft explicitly at its displayed price. Existing history retention
 limits apply. Purged references, other films and other moving-part states are excluded. Tests cover read-only
-inspection and unchanged write fences (`test-cloud-set-style`: 116 checks).
+inspection and unchanged write fences (`test-cloud-set-style`: 125 checks).
 
 **Style preview engines:** Nano Banana 2.1 remains the default; GPT Image 2.6 Sunburst replaces 2.5
 in the picker and uses the existing image-engine routes, plan gates and pricing at High quality. Existing 2.5
 drafts stay available for Blender review and saved-engine comparison.
 Saved results from different supported engines can be compared when their source build and exact prompt match.
 Adding these choices starts no image generation or deployment.
+
+**Shared shape review and nets:** The saved floor-plan object field `renderShape` accepts `box` or `sports-net`; omitted means Automatic. Named volleyball/badminton/tennis/court nets use a bounded assembly of open strands and supports, using only existing worker shapes. Explicit choices survive layout refinement. Saved position, overall dimensions and rotation are retained. Optional `netMeshHeight` sets the mesh depth down from the top (blank proposes 0.9 m, capped to overall height), leaving support legs below. An explicit mesh height greater than overall height blocks submission. Mesh spacing/thickness remain proposed design detail. Unclassified solid proxies are named before Build set with a Review object shapes link. This does not claim every object has a detailed or accurate model. Tests: `scripts/test-cloud-set-nets.mjs`.
+
+**Generation requirements:** Both comparisons display the exact saved styling prompt. New style drafts retain the verified numerical source scene in their metadata; loading checks its hash against the original build revision. The review shows shape dimensions/positions, cameras, lights and notes. Older drafts explicitly disclose when this snapshot is absent. No current plan is substituted for a historical input. The existing private generation storage and version history carry these records; no schema or worker deployment is required.
 
 **Camera proposals in step 3:** **Suggest four cameras** is available for parent or child rooms with a reviewed
 footprint, even if cameras have already been saved. The free deterministic client proposes clear camera origins

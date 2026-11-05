@@ -94,10 +94,10 @@ const door=(sillZ,headZ)=>({id:"office-door",name:"Office door",kind:"door",edge
   check(/locationAnchorHeightBasis\(a,plan\)==="base"\?"object base":"object centre"/.test(ui),"The Height field says whether it is the object's base or centre");
 }
 
-// 6. Frances: the owner-only pilot isn't described to users; the editor's dimensions are.
+// 6. Frances: builds are now open to Director/Producer (owner decision 5 November); dimensions stay documented.
 {
   const ai=read("app/ai.jsx");
-  check(!/Cloud set preview|Style preview|Review draft/.test(ai.slice(ai.indexOf("const APP_FEATURES"))),"The development pilot is not in Frances's feature list");
+  check(ai.includes('name:"Build the set (Locations)"')&&/Who can build: Director and Producer/.test(ai),"Frances describes the current paid-plan build feature");
   check(/Floor plan position, Height, Object dimensions, Front faces/.test(ai),"Frances knows each object has dimensions");
   check(/older floor plan keeps the object's base height/.test(ai),"Frances can explain base vs centre heights");
 }

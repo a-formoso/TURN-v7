@@ -24,7 +24,7 @@ function harness(){
     nbGetOaiQuality:()=>"high",nbImageCostText:()=>"7",nbModelLabel:()=>"Image engine",
     nbCostChip:(count,opts)=>({type:"span",props:{className:"nb-cost","data-model":opts.model,"data-quality":opts.quality},children:["7"]}),
     BlenderPreview:{scope:()=>scope,isCurrent:s=>s.uid===current.uid&&s.projectId===current.projectId&&s.epoch===current.epoch},
-    KinolotRenderContract:{canonical:JSON.stringify,hash:async s=>Buffer.from(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s))).toString("hex")},
+    KinolotRenderContract:{canonical:JSON.stringify,hash:async s=>Buffer.from(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(typeof s==="string"?s:JSON.stringify(s)))).toString("hex")},
     KinolotCloudRender:{enabled:()=>b.location.hostname==="localhost"&&b.turnIsAdmin,buildScene:()=>clone(scene),request:async(action,body)=>{
       calls.push(action);if(!allowed)throw Error("Pilot access denied");if(action==="capabilities")return {};
       // As the real service does: a job is only found inside the film it belongs to.
@@ -68,6 +68,8 @@ function harness(){
   assert.deepEqual(h.store.get("room"),original);checks++;
   ok(h.writes.length===1&&h.writes[0].id!=="room","Generation writes only a separate draft");
   ok(d.meta.sceneHash===job.sceneHash&&d.source.startsWith("data:"),"Draft retains exact source revision and comparison pixels");
+  ok(await h.b.KinolotRenderContract.hash(d.meta.sourceScene)===job.sceneHash,"A new draft snapshots the exact verified numerical build inputs");
+  ok(d.meta.prompt.includes("Keep netting and mesh open and see-through"),"Styling explicitly preserves the source mesh openings");
   h.reload();const restored=await h.api().load("room",h.scope);
   ok(restored.meta.iso===d.meta.iso&&restored.source===d.source,"Reload restores the draft and original comparison");
   await rejects(()=>h.api().accept("room",restored,h.scope,false),/Review all four/);
@@ -79,6 +81,17 @@ function harness(){
   const count=h.writes.length;await h.api().accept("room",restored,h.scope,true);
   ok(h.writes.length===count,"Repeated acceptance is idempotent");
   await rejects(()=>h.api().reject("room",restored,h.scope),/already been used/);
+}
+{
+  const h=harness(),job=await h.ready(),api=h.api();
+  await api.generate("room",job,h.scope);
+  const row=h.store.get(api.slot("room")),snapshot=clone(row.meta.sourceScene);
+  row.meta.sourceScene.layout=999;
+  await rejects(()=>api.load("room",h.scope),/build inputs could not be verified/);
+  row.meta.sourceScene=snapshot;
+  ok(await api.load("room",h.scope),"An intact build snapshot loads successfully");
+  delete row.meta.sourceScene;
+  ok(await api.load("room",h.scope),"Older drafts without a numeric snapshot remain inspectable");
 }
 {
   const h=harness(),job=await h.ready();
@@ -175,6 +188,11 @@ for(const phase of ["prepare","response"]){
   ok(button(tree,"Use as location artwork").props.disabled,"Real review component disables acceptance until checked");
   ok(find(tree,n=>n.type==="dialog"&&n.props["aria-label"]==="Review style draft against Blender"),"Review uses an accessible native dialog");
   ok(find(tree,n=>n.type==="img"&&n.props.src===d.source),"Comparison displays the exact saved source");
+  ok(find(tree,n=>n.type===h.b.StyleGenerationDetails)?.props.meta===d.meta,"The Blender comparison receives the saved draft requirements");
+  const requirements=h.b.StyleGenerationDetails({meta:{...d.meta,sourceScene:{name:"Original test set",objects:[{id:"net",name:"Saved net strand",position:[1,2,3],size:[.01,.01,1]}],cameras:{TL:{position:[0,0,1.6],yaw:0,pitch:-5,lensMm:24}},previewLights:[{position:[0,0,3],powerWatts:100,sizeMetres:1}],notes:["Original assumption"]}}});
+  const contents=n=>typeof n==="string"?n:(n?.children||[]).map(contents).join(" ");
+  ok(contents(requirements).includes(d.meta.prompt)&&contents(requirements).includes("Saved net strand")&&contents(requirements).includes("Original assumption"),"Requirements show the exact saved prompt, build geometry and assumptions");
+  ok(contents(h.b.StyleGenerationDetails({meta:{prompt:"Legacy exact prompt"}})).includes("no saved numeric build snapshot"),"An older draft explicitly discloses that its original numeric inputs are unavailable");
   states[7]=true;tree=render();ok(button(tree,"Use as location artwork").props.disabled,"Even a checked review cannot accept images that have not loaded");
   find(tree,n=>n.type==="img"&&n.props.src===d.source).props.onLoad();
   find(tree,n=>n.type==="img"&&n.props.src===d.url).props.onLoad();
@@ -193,6 +211,7 @@ for(const phase of ["prepare","response"]){
   states[18]={left:{url:"saved-nano",meta:{modelId:h.api().ENGINES[0],sceneHash:job.sceneHash}},right:{url:"saved-gpt",meta:{modelId:h.api().ENGINES[1]}}};
   tree=render();button(tree,"Compare engines").props.onClick();tree=render();
   ok(find(tree,n=>n.type==="img"&&n.props.src==="saved-nano")&&find(tree,n=>n.type==="img"&&n.props.src==="saved-gpt"),"Engine comparison displays both saved results");
+  ok(find(tree,n=>n.type===h.b.StyleGenerationDetails)?.props.meta===states[18].left.meta&&find(tree,n=>n.type===h.b.StyleGenerationDetails)?.props.shared,"Engine comparison shows its saved shared requirements, not current editor notes");
   ok(!button(tree,"Use as location artwork")&&!button(tree,"Reject draft"),"Engine comparison has no artwork mutation controls");
   states[18]=null;tree=render();
   ok(!button(tree,"Use as location artwork"),"Losing the engine pair cannot fall through to artwork acceptance");

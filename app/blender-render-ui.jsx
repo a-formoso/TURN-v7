@@ -117,6 +117,8 @@ function LocationCloudRender({location,readOnly=false}){
       :"Builds the room in 3D from the floor plan and cameras, and renders the four views. Free during the pilot; separate from the location image."),
     !canBuild&&E("p",{className:"loc-layer-note","data-testid":"set-build-role"},"The film's owner or its Art director builds the set; you can see what they built."),
     issues.length>0&&cloudFixList(location,issues),
+    (scene?.notes||[]).filter(n=>n.startsWith("Simplified solid blocks:")).map((n,i)=>E("div",{key:i,className:"loc-layer-note","data-testid":"set-shape-review",role:"note"},
+      E("p",null,n),E("button",{type:"button",className:"art-draftall ghost",onClick:()=>goToLocationStep(location,2)},"Review object shapes"))),
     momentPicker(location,api,readOnly||busy||!!running),
     E("div",{className:"loc-cloud-render-actions"},
       E("button",{type:"button",className:"art-draftall",disabled:readOnly||!canBuild||busy||!c.capable||!sceneHash||!!running||issues.length>0,onClick:submit},

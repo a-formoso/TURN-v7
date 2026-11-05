@@ -23,7 +23,48 @@
     if(p.some(v=>![x0,x1].includes(v[0])||![y0,y1].includes(v[1])))return null;
     return {x0,x1,y0,y1,width:x1-x0,length:y1-y0};
   }
-  function build(source,{space,anchors}={}){
+  function anchorShape(anchor){
+    if(anchor?.renderShape)return anchor.renderShape;
+    const name=String(anchor?.name||"");
+    // Recognise named court nets, never a basketball hoop, a netball court or an object merely placed by a net.
+    return /\bnet\b/i.test(name)&&/\b(volleyball|badminton|tennis|sports|court|divider|dividing)\b/i.test(name)
+      &&!/(basketball|hoop|netball|cabinet|storage|rack)/i.test(name)?"sports-net":"box";
+  }
+  function buildNets(source,anchors){
+    const byId=new Map((anchors||[]).map(a=>[a.id,a]));
+    if(!source.objects.some(o=>o.anchorId&&anchorShape(byId.get(o.anchorId))==="sports-net"))return source;
+    const scene=JSON.parse(JSON.stringify(source)),objects=[];
+    scene.materials.netCord={baseColor:[.035,.045,.05],roughness:.82};
+    scene.materials.netTape={baseColor:[.8,.8,.72],roughness:.78};
+    for(const base of scene.objects){
+      if(!base.anchorId||anchorShape(byId.get(base.anchorId))!=="sports-net"){objects.push(base);continue;}
+      const [w,d,h]=base.size,alongX=w>=d,span=Math.max(w,d),depth=Math.min(w,d);
+      const meshH=Math.min(h,byId.get(base.anchorId)?.netMeshHeight||.9),meshZ=h/2-meshH/2;
+      const pole=Math.max(.001,Math.min(.06,depth,span*.04)),cord=Math.max(.001,Math.min(.012,depth,h*.05)),tape=Math.max(.001,Math.min(.04,h*.08));
+      const countX=Math.max(2,Math.min(40,Math.ceil(span/.15))),countZ=Math.max(2,Math.min(16,Math.ceil(meshH/.15)));
+      let n=0;
+      const part=(label,u,z,width,height,thickness,material)=>{
+        let x=alongX?u:0,y=alongX?0:u;
+        const [rx,ry,rz]=base.rotation,y1=y*Math.cos(rx)-z*Math.sin(rx),z1=y*Math.sin(rx)+z*Math.cos(rx);
+        const x1=x*Math.cos(ry)+z1*Math.sin(ry),z2=-x*Math.sin(ry)+z1*Math.cos(ry);
+        x=x1*Math.cos(rz)-y1*Math.sin(rz);y=x1*Math.sin(rz)+y1*Math.cos(rz);
+        objects.push({...base,id:(base.id+"-net-"+n++).slice(0,100),name:(base.name+" · "+label).slice(0,160),kind:"box",material,
+          size:alongX?[width,thickness,height]:[thickness,width,height],
+          position:[base.position[0]+x,base.position[1]+y,base.position[2]+z2].map(round)});
+      };
+      part("left support",-span/2+pole/2,0,pole,h,pole,"netTape");
+      part("right support",span/2-pole/2,0,pole,h,pole,"netTape");
+      part("top tape",0,h/2-tape/2,span,tape,cord,"netTape");
+      part("bottom cord",0,h/2-meshH+cord/2,span,cord,cord,"netCord");
+      for(let i=1;i<countX;i++)part("vertical mesh strand",-span/2+span*i/countX,meshZ,cord,meshH,cord,"netCord");
+      for(let i=1;i<countZ;i++)part("horizontal mesh strand",0,h/2-meshH+meshH*i/countZ,span,cord,cord,"netCord");
+    }
+    scene.objects=objects;
+    scene.notes.push("Sports nets use open mesh and supports within saved bounds. Unless Net mesh height is set, the mesh occupies the top 0.9 m (limited to overall height), a proposed design. Spacing and cord thickness are preview detail; review against the intended game.");
+    return root.KinolotRenderContract.validateScene(scene);
+  }
+  function build(source,{space,anchors,allAnchors}={}){
+    source=buildNets(source,allAnchors||anchors);
     const bounds=rectangle(space);
     if(!bounds||!/\b(car|vehicle)[ -]*deck\b/i.test(space.name||"")||bounds.width<6||bounds.length<10)return source;
     const names=new Map((anchors||[]).map(a=>[a.id,(a.id+" "+a.name).toLowerCase()]));
@@ -167,5 +208,5 @@
     scene.notes.push("Lane spacing and repeated beams/lamp fittings are proposed within the saved deck. Wall signs sit on the inner face of the proposed 0.15 m bulkhead. Other grouped dressing remains simplified.");
     return root.KinolotRenderContract.validateScene(scene);
   }
-  root.KinolotSetDetail={build};
+  root.KinolotSetDetail={build,anchorShape};
 })(typeof window!=="undefined"?window:globalThis);
