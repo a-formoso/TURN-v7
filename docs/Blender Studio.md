@@ -138,7 +138,9 @@ confirm or edit. Closed object rows show their fixed placements for quick review
 open them to edit placements and evidence. The camera composition grid is unchanged.
 
 **Draft specification** writes the location description; it does not fill the
-shared placement fields. An empty layout says **No layout yet** and puts
+shared placement fields. The floor-plan progress strip reads **Draft**,
+**Measurements**, **Cameras**. The empty-state heading is **Draft the floor plan**;
+a populated draft says **Review the floor plan**. An empty layout says **No layout yet** and puts
 **Draft floor plan** at the top, with its writing-credit disclosure and a
 manual-entry alternative. Partly filled layouts say **Placements incomplete**.
 Once drafted, the populated fields say **Draft to review** and the top action
