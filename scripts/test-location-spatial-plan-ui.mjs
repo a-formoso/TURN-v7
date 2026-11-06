@@ -291,5 +291,11 @@ flat(tree).find(n=>n.type==='fieldset').props.ref.current={querySelector:selecto
 const beforeFocus=JSON.stringify(flow);button(tree,'Enter missing dimensions').props.onClick();
 assert.ok(objectGroup.open&&objectRow.open&&rowScrolled===1&&dimensionFocused===1,'Repair opens the named object and focuses its size input');
 assert.equal(JSON.stringify(flow),beforeFocus,'Opening the precise field leaves measurements unchanged');
+// A model can still omit a requested field: expose it during draft review rather than only after confirmation.
+box.aiDraftLocationSpatialPlan=async()=>({...structuredClone(flow.spatialPlan),status:'draft',source:box.locationSpatialPlanState(flow).source});
+const beforeIncompleteDraft=JSON.stringify(flow);
+await button(tree,'Draft floor plan').props.onClick();tree=flowEditor();
+assert.match(text(cls(tree,'loc-draft-measurements')),/Object dimensions \(width, depth, height\)/,'An incomplete proposal shows the missing dimensions before confirmation');
+assert.equal(JSON.stringify(flow),beforeIncompleteDraft,'Reviewing incomplete AI output does not write it to the saved plan');
 
 console.log("PASS shared-layout review hierarchy, empty/ready/stale/read-only states, parent ownership, optional draft/discard, navigation focus and readable placements");

@@ -319,3 +319,8 @@ Missing object measurements name only the missing **Floor plan position** or
 (or recorded base) above the floor, not the object's physical height. The repair
 action opens the named object and focuses the missing field; it does not invent
 values or edit saved measurements.
+
+Floor-plan drafting includes an explicit checklist for object position and size,
+room outlines and levels, opening dimensions and types, and all four cameras.
+Estimates remain proposed design values; unresolved fields are named. Missing
+build measurements are displayed while reviewing the draft, before confirmation.

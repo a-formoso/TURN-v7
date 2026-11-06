@@ -1008,6 +1008,12 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   const confirmed=!candidate&&state.ready;
   let renderIssues=[];
   if(confirmed&&window.KinolotCloudRender?.inputIssueList)try{renderIssues=window.KinolotCloudRender.inputIssueList(l).filter(i=>i.step===2);}catch(_){}
+  let draftIssues=[];
+  if(candidate&&window.KinolotCloudRender?.enabled?.()&&window.KinolotCloudRender?.inputIssueList)try{
+    const reviewed=normalizeLocationSpatialPlan({...candidate,status:"reviewed",source:state.source});
+    const list=(((window.turnContinuity||{}).locations)||[]).map(item=>item.id===owner.id?{...item,spatialPlan:reviewed}:item);
+    draftIssues=window.KinolotCloudRender.inputIssueList(l.id===owner.id?{...l,spatialPlan:reviewed}:l,list).filter(i=>i.step===2);
+  }catch(e){draftIssues=[{step:2,text:e.message||"Review this draft's measurements before building."}];}
   // the map's scene, once per render: drawn below and read for "Check these positions" on a draft (never blocking)
   const mapScene=typeof locationFloorPlanScene==="function"?locationFloorPlanScene(owner,plan):null;
   const checkPositions=!confirmed&&typeof locationFloorPlanCheckText==="function"?locationFloorPlanCheckText(mapScene):"";
@@ -1172,6 +1178,9 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
           "aria-current":i===(confirmed?(renderIssues.length?1:2):0)?"step":undefined},React.createElement("span",null,i+1),step))),
       React.createElement("strong",null,confirmed?(renderIssues.length?"Placements confirmed · measurements needed":"Floor plan confirmed"):empty?"Draft the floor plan":"Review the floor plan"),
       React.createElement("p",null,confirmed?(renderIssues.length?"Placements are confirmed, but measurements still need attention. Open Edit floor plan to finish them.":"The floor plan is confirmed. You can reopen it to edit, or continue to Cameras."):reviewHint),
+      candidate&&draftIssues.length>0&&React.createElement("div",{className:"loc-step-fixes loc-draft-measurements",role:"note"},
+        React.createElement("b",null,"This draft still needs measurements:"),
+        React.createElement("ul",null,draftIssues.slice(0,6).map((issue,i)=>React.createElement("li",{key:i},issue.text)))),
       confirmed&&renderIssues.length>0&&React.createElement("div",{className:"loc-step-fixes",role:"note"},
         React.createElement("b",null,"Before Build set can run:"),React.createElement("ul",null,renderIssues.slice(0,6).map((i,n)=>React.createElement("li",{key:n},i.text)))),
       !empty&&React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm"+(alreadyConfirmed?" ghost":""),"aria-expanded":editorOpen,"aria-controls":"loc-plan-editor-"+l.id,title:editorOpen?"Collapse floor plan editor":readOnly?"View floor plan":confirmed&&!renderIssues.length?"Edit this confirmed floor plan":"Edit floor plan",onClick:()=>{editOrigin.current="manual";setOpen(true);setEditorOpen(!editorOpen);if(!editorOpen)setEditFocus(n=>n+1);}},
