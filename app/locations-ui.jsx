@@ -1860,9 +1860,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       referenceControls: masterRefs.length>0 && React.createElement(CoverageReferenceStrip,{ refs:masterRefs, excludedIds:masterRefOff, onToggle:toggleMasterRef, onView }),
       generateRefs: masterGenerateRefs,
       generateDisabled:!spatialState.ready||!!l.parentLocation&&(!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready&&!r.preview)),
-      generateDisabledLabel:!spatialState.ready?"Review shared layout":"Generate parent plate first",
+      generateDisabledLabel:!spatialState.ready?"Review floor plan":"Generate parent plate first",
       onResolveGenerationBlock:!spatialState.ready?reviewLayout:undefined,
-      generateDisabledTitle:!spatialState.ready?"Open the shared layout to review and confirm it. No image will be generated.":"Generate or restore the whole location's plate first so this room can match its visual design.",
+      generateDisabledTitle:!spatialState.ready?"Open the floor plan to review and confirm it. No image will be generated.":"Generate or restore the whole location's plate first so this room can match its visual design.",
       // say it when Generate also writes the layout first (a small writing charge on top of the plate)
       generateTitle:(!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable())
         ? "Writes this place's view composition first \u2014 a small writing charge \u2014 then generates the plate from it" : undefined,

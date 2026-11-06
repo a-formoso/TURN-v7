@@ -126,7 +126,7 @@ room/object names, fixed relational placements, observed/script/design evidence,
 supporting panels, doorway sightlines and unresolved geometry. Camera grids are
 projections of this plan and cannot move its furniture.
 
-The image card's **Review shared layout** button opens and scrolls directly to
+The image card's **Review floor plan** button opens and scrolls directly to
 this section. A layout that needs review expands automatically when Spatial Layout
 & Staging opens. The workflow is **Review → Confirm → Generate**: compare the
 placements against the reference panels, then use **Confirm floor plan** at

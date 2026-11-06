@@ -64,7 +64,7 @@ let tree=frame(),clicks=0,prevented=0;
 {
   let reviews=0,generations=0,drafts=0;
   const genButton=t=>find(t,n=>n.props.className?.split(" ").includes("sheet-gen-btn"));
-  const blocked={generateDisabled:true,generateDisabledLabel:"Review shared layout",
+  const blocked={generateDisabled:true,generateDisabledLabel:"Review floor plan",
     onResolveGenerationBlock:()=>reviews++,onDraft:()=>drafts++,drafted:false,specGate:{ready:false}};
   const gen={generate:()=>generations++};
   let button=genButton(frame(gen,blocked));
