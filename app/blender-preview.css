@@ -190,3 +190,8 @@ html[data-theme="light"] .bp-pair-code,.bp-panel{box-shadow:0 1px 2px rgba(24,25
 .loc-confirm-status{font:400 11px/1.5 var(--f-ui);color:var(--txt-2)}
 .loc-confirm-result{padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--bg-2);font:400 12px/1.5 var(--f-ui);color:var(--txt-1)}
 .loc-confirm-result p{margin:0 0 6px}.loc-confirm-result ul{margin:4px 0 10px;padding-left:18px}.loc-confirm-result .art-draftall{margin-right:6px}
+
+.loc-measurement-repair{padding:10px;border:1px solid var(--line);border-radius:6px;font:400 12px/1.5 var(--f-ui)}
+.loc-repair-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px}
+.loc-repair-table th,.loc-repair-table td{padding:7px 5px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.loc-repair-table th:first-child{width:48%}.loc-repair-table th{font-weight:500}.loc-repair-table small{display:block;margin-top:3px;color:var(--txt-2);font-weight:400}

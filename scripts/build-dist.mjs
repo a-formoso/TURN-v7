@@ -85,7 +85,7 @@ for(const name of studioOrder){
   if(at<0||at<=prior) throw new Error("Blender Studio script order is incomplete: "+name);
   prior=at;
 }
-const angleOrder=["app/locations.jsx","app/location-camera-history.js","app/camera-angle-preview.js","app/camera-angle-preview-ui.jsx","app/locations-ui.jsx"];
+const angleOrder=["app/locations.jsx","app/location-camera-history.js","app/location-measurement-repair.js","app/camera-angle-preview.js","app/camera-angle-preview-ui.jsx","app/locations-ui.jsx"];
 prior=-1;
 for(const name of angleOrder){
   const at=html.indexOf(name);

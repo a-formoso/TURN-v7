@@ -1,6 +1,6 @@
 /* Bounded camera-action provenance. Data only; never infers historical actors or triggers rendering. */
 (function(root){
-  const labels={"camera-edit":"Edited camera settings","camera-reset":"Returned to the planned camera","suggested-cameras":"Applied suggested cameras","angle-assigned":"Assigned a previewed camera angle","floor-plan-edit":"Edited the floor plan","layout-proposal":"Confirmed a proposed floor plan","reference-cameras":"Updated reference camera settings","view-settings":"Edited view settings","location-settings":"Updated location settings"};
+  const labels={"measurement-repair":"Applied proposed measurement repairs","camera-edit":"Edited camera settings","camera-reset":"Returned to the planned camera","suggested-cameras":"Applied suggested cameras","angle-assigned":"Assigned a previewed camera angle","floor-plan-edit":"Edited the floor plan","layout-proposal":"Confirmed a proposed floor plan","reference-cameras":"Updated reference camera settings","view-settings":"Edited view settings","location-settings":"Updated location settings"};
   const pose=p=>({position:Array.isArray(p?.position)?p.position.slice(0,3):null,yaw:p?.yaw??0,pitch:p?.pitch??0,lensMm:p?.lensMm??24,target:String(p?.target||"").slice(0,160)});
   const near=(a,b,e)=>a==null&&b==null||typeof a==="number"&&typeof b==="number"&&Math.abs(a-b)<=e;
   function same(a,b){if(!a||!b)return a===b;

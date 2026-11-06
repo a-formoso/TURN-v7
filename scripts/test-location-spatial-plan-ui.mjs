@@ -158,7 +158,7 @@ assert.ok(flat(contained).includes(button(tree,"Confirm shared layout")),"Confir
 assert.ok(contained.children.indexOf(cls(tree,"loc-spatial-assist"))>contained.children.indexOf(cls(tree,"loc-plan-connections")),"Optional AI help follows the three editing sections");
 assert.equal(writes.length,0,"Opening the contained editor never alters saved layout data");
 // Follow the real edit callbacks through a disposable narrow bus plan into the exact Build-set scene.
-for(const f of ["blender-render-contract.js","blender-set-detail.js","blender-render.js"])vm.runInContext(source(f),box);
+for(const f of ["blender-render-contract.js","blender-set-detail.js","blender-render.js","location-measurement-repair.js"])vm.runInContext(source(f),box);
 box.TURN_SUPABASE={setBuild:true};
 let flow={...structuredClone(bus),spatialPlan:{...structuredClone(bus.spatialPlan),anchors:[{id:"seat",space:"School Bus",name:"Seat",placement:"Near the rear",basis:"design",evidence:"Test fixture",xy:[0,3],z:0}]}};
 box.turnContinuity={locations:[flow]};
@@ -207,12 +207,23 @@ flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,status:"reviewed",coordinat
 reset();tree=flowEditor();button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();
 assert.match(text(cls(tree,"loc-confirm-result")),/above the ceiling/);
 assert.match(text(cls(tree,"loc-confirm-status")),/measurements needed/,"Confirmation status does not hide unresolved 3D measurements");
-assert.ok(button(tree,"Fix room measurements"),"Confirmation explains how to repair a remaining opening-height problem");
+assert.ok(button(tree,"Edit measurements manually"),"Confirmation explains how to repair a remaining opening-height problem");
 const repairMetric={open:false,scrollIntoView:noop,querySelector:()=>({focus:noop})};
 flat(tree).find(n=>n.type==="fieldset").props.ref.current={querySelector:selector=>selector===".loc-plan-metrics"?repairMetric:null};
-button(tree,"Fix room measurements").props.onClick();assert.equal(repairMetric.open,true,"The repair action opens the actual measurement fields");
+button(tree,"Edit measurements manually").props.onClick();assert.equal(repairMetric.open,true,"The repair action opens the actual measurement fields");
 
 assert.equal(button(tree,"Continue to 3 · Cameras"),undefined,"Approval must not hide an invalid measurement");
+// A repair preview must show real before/after values, write nothing, and apply only on explicit confirmation.
+const savedBeforeRepair=JSON.stringify(flow);button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
+assert.equal(JSON.stringify(flow),savedBeforeRepair,"Opening a repair preview does not save changes");
+assert.ok(cls(tree,"loc-measurement-repair"));assert.match(text(tree),/Before/);assert.match(text(tree),/After/);
+assert.ok(button(tree,"Apply fixes & confirm"));button(tree,"Discard fixes").props.onClick();tree=flowEditor();
+assert.equal(JSON.stringify(flow),savedBeforeRepair,"Discarding fixes preserves the saved plan");
+button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
+button(tree,"Apply fixes & confirm").props.onClick();tree=flowEditor();
+assert.equal(box.KinolotCloudRender.inputIssueList(flow).filter(i=>i.step===2).length,0,"Applying the shown repairs corrects the measurement blocker");
+assert.match(text(cls(tree,"loc-confirm-result")),/Applied/);assert.match(text(cls(tree,"loc-confirm-result")),/Ready for cameras/);
+assert.equal(flow.spatialPlan.status,"reviewed");
 // A stale click must approve the current saved data, never overwrite a newer saved edit.
 reset();tree=flowEditor();const oldConfirm=button(tree,"Confirm shared layout");
 flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,frame:"A newer saved viewing direction"}});
@@ -228,4 +239,13 @@ button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();assert.ma
 box.turnArtRoomWritable=()=>true;
 reset();tree=render({l:flow,onUpdate:()=>{throw Error("Local confirmation failed");}});button(tree,"Confirm shared layout").props.onClick();tree=render({l:flow,onUpdate:noop});
 assert.match(text(tree),/Local confirmation failed/,"A failed update reports an error instead of silently ignoring the click");
+// A repair that becomes stale or loses access must never apply to the saved film.
+flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,status:"reviewed",coordinates:{...flow.spatialPlan.coordinates,spaces:flow.spatialPlan.coordinates.spaces.map(sp=>({...sp,openings:sp.openings.map(o=>({...o,headZ:4}))}))}}});
+reset();tree=flowEditor();button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
+const pendingApply=button(tree,"Apply fixes & confirm");flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,frame:"Concurrent edit during repair preview"}});const concurrent=JSON.stringify(flow);
+pendingApply.props.onClick();assert.equal(JSON.stringify(flow),concurrent);tree=flowEditor();assert.match(text(tree),/saved layout changed/);
+button(tree,"Discard fixes").props.onClick();tree=flowEditor();button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
+box.turnArtRoomWritable=()=>false;const guarded=JSON.stringify(flow);button(tree,"Apply fixes & confirm").props.onClick();assert.equal(JSON.stringify(flow),guarded);box.turnArtRoomWritable=()=>true;
+box.nbEpoch=()=>2;button(tree,"Apply fixes & confirm").props.onClick();assert.equal(JSON.stringify(flow),guarded,"A proposal cannot cross a film switch");box.nbEpoch=()=>1;
+
 console.log("PASS shared-layout review hierarchy, empty/ready/stale/read-only states, parent ownership, optional draft/discard, navigation focus and readable placements");

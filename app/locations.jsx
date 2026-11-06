@@ -3424,7 +3424,7 @@ window.LOC_PANEL_KEYS = LOC_PANEL_KEYS;
 window.LOC_PANEL_INFO = LOC_PANEL_INFO;
 window.LOCATION_COORDINATE_CONVENTION = LOCATION_COORDINATE_CONVENTION;
 window.locYaw = locYaw; window.locYawDiff = locYawDiff; window.locCompass = locCompass; window.locLensHfov = locLensHfov;
-window.locWallYawFromText = locWallYawFromText;
+window.locWallYawFromText = locWallYawFromText; window.locationFootprintEdgeYaw = _locEdgeYaw;
 window.locationAnchorIsOpening = locationAnchorIsOpening;
 window.normalizeLocationCameraPose = normalizeLocationCameraPose;
 window.normalizeLocationCoordinates = normalizeLocationCoordinates;
