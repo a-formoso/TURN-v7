@@ -983,6 +983,7 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
 function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,reviewRequest=0,onReturnToImage}){
   const repairRequest=window.KinolotFloorPlanEditRequests?.get(l.id)||0;
   const fieldsRef=React.useRef(null),[editFocus,setEditFocus]=React.useState(repairRequest);
+  const editOrigin=React.useRef(repairRequest?"repair":"manual");
   const [candidate,setCandidate]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState("");
   const [,refresh]=React.useReducer(n=>n+1,0);
   const state=locationSpatialPlanState(l),owner=state.owner,plan=candidate||state.plan;
@@ -1022,14 +1023,15 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   },[owner.id,busy,!!candidate]);
   React.useEffect(()=>{if(reviewRequest){setOpen(true);summaryRef.current?.focus({preventScroll:true});}},[reviewRequest]);
   React.useEffect(()=>{
-    const edit=e=>{if(e.detail?.locationId===l.id){setOpen(true);setEditFocus(n=>n+1);}};
+    const edit=e=>{if(e.detail?.locationId===l.id){editOrigin.current="repair";setOpen(true);setEditFocus(n=>n+1);}};
     window.addEventListener("kinolot-edit-floor-plan",edit);return ()=>window.removeEventListener("kinolot-edit-floor-plan",edit);
   },[l.id]);
   React.useEffect(()=>{if(!editFocus||!open)return;
     const timer=setTimeout(()=>{
       const metric=renderIssues.some(i=>/footprint|ceiling|sill|head heights|wall placement/i.test(i.text));
-      const target=fieldsRef.current?.querySelector(metric?".loc-plan-metrics":".loc-plan-objects")||fieldsRef.current;
-      if(target){target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});(target.querySelector?.("summary")||target).focus?.({preventScroll:true});}
+      const selector=editOrigin.current==="manual"?".loc-plan-editor-start":metric?".loc-plan-metrics":".loc-plan-objects";
+      const target=fieldsRef.current?.querySelector(selector)||fieldsRef.current;
+      if(target){if(selector!==".loc-plan-editor-start")target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});(target.querySelector?.("summary")||target).focus?.({preventScroll:true});}
       window.KinolotFloorPlanEditRequests?.delete(l.id);
     },100);
     return ()=>clearTimeout(timer);
@@ -1096,7 +1098,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       React.createElement("p",null,confirmed?"The placements are confirmed, not locked. You can still edit objects, footprints and dimensions below; changes need confirmation again. A 3D build also needs complete measurements.":reviewHint),
       confirmed&&renderIssues.length>0&&React.createElement("div",{className:"loc-step-fixes",role:"note"},
         React.createElement("b",null,"Before Build set can run:"),React.createElement("ul",null,renderIssues.slice(0,6).map((i,n)=>React.createElement("li",{key:n},i.text)))),
-      confirmed&&React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm",onClick:()=>{setOpen(true);setEditFocus(n=>n+1);}},readOnly?"View floor plan":"Edit floor plan"),
+      confirmed&&React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm",onClick:()=>{editOrigin.current="manual";setOpen(true);setEditFocus(n=>n+1);}},readOnly?"View floor plan":"Edit floor plan"),
       confirmed&&window.KinolotCloudRender?.enabled?.()&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",onClick:()=>window.goToLocationStep(l,4)},"Back to 4 · Build the set"),
       confirmed
         ? onReturnToImage&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",onClick:onReturnToImage},"Back to image",React.createElement(Icon.chevR,{s:14}))
@@ -1114,7 +1116,16 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     mapScene&&React.createElement("div",{className:"loc-map-wrap"},
       React.createElement("h4",{className:"loc-spatial-heading"},candidate?"Top-down map \u2014 draft to review":"Top-down map"),
       React.createElement(LocationFloorPlanMap,{scene:mapScene,selected:mapSel,onSelect:setMapSel,spaceId:l.id})),
-    React.createElement("fieldset",{ref:fieldsRef,tabIndex:-1,disabled:readOnly||busy},
+    React.createElement("fieldset",{className:"loc-plan-editor",ref:fieldsRef,tabIndex:-1,disabled:readOnly||busy},
+      React.createElement("div",{className:"loc-plan-editor-start",tabIndex:-1},
+        React.createElement("h4",{className:"loc-spatial-heading"},readOnly?"View floor plan":"Edit floor plan"),
+        React.createElement("p",{className:"loc-layer-note"},"Choose what to change below: object positions and sizes, room outlines and openings, or connections and unknowns. Confirm the shared layout again after editing."),
+        React.createElement("div",{className:"loc-step-actions"},
+          [[".loc-plan-objects","Objects & placements"],[".loc-plan-metrics","Room sizes & openings"],[".loc-plan-connections","Connections & unknowns"]].map(([selector,label])=>
+            React.createElement("button",{key:selector,type:"button",className:"art-draftall ghost",onClick:()=>{
+              const target=fieldsRef.current?.querySelector(selector);if(!target)return;
+              target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});target.querySelector?.("summary")?.focus?.({preventScroll:true});
+            }},label)))),
       !empty&&React.createElement("details",{className:"loc-spatial-assist"},
         React.createElement("summary",null,"Need help? Draft with AI",React.createElement("small",null,"Optional")),
         React.createElement("p",{className:"loc-layer-note"},"Use only if the layout is missing or needs a new proposal. Reads all parent panels and your corrections below. Uses writing-model credits; no images are generated."),
@@ -1176,7 +1187,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         onClick:()=>change({anchors:[...plan.anchors,{id:"anchor-"+Date.now().toString(36),space:l.name||"",name:"",placement:"",basis:"design",evidence:""}]})},"Add fixed anchor")),
       React.createElement("details",{className:"loc-nested-section loc-plan-metrics"},React.createElement("summary",null,"Room footprints, dimensions & openings"),
       typeof locationSpatialFamily==="function"&&React.createElement(LocationFloorPlanFields,{plan,family:locationSpatialFamily(owner),change,readOnly})),
-      React.createElement("details",{className:"loc-nested-section"},React.createElement("summary",null,"Connections & unresolved details"),
+      React.createElement("details",{className:"loc-nested-section loc-plan-connections"},React.createElement("summary",null,"Connections & unresolved details"),
       field("Connections & doorway sightlines",plan.sightlines,value=>change({sightlines:value}),"Which rooms connect? What objects are visible through each opening?"),
       field("Unknowns / conflicts to resolve in 3D",plan.unresolved,value=>change({unresolved:value}),"Unseen walls, conflicting panels, dimensions that still need measurement…")),
       React.createElement("p",{className:"loc-layer-note"},"Check placements across all source panels and explicitly resolve any disagreement in Layout corrections. Floor plan numbers are approximate estimates for a 3D blockout \u2014 never a survey; unknown dimensions stay in Unknowns. A new parent plate requires another review."),

@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
 
+const compiled=process.env.PLAN_UI_TEST_DIST==="1";
+const source=f=>readFileSync((compiled?"dist/app/":"app/")+f.replace(/\.jsx$/,compiled?".js":".jsx"),"utf8");
 const noop=()=>{};
 let hooks=[],cursor=0,effects=[],writes=[],aiCalls=0,returned=0,timers=[];
 const React={
@@ -18,8 +20,8 @@ const box={console,React,localStorage:{getItem:()=>null},Icon:new Proxy({},{get:
   addEventListener:noop,removeEventListener:noop,nbEpoch:()=>1,nbGetMeta:()=>({iso:"v1"}),
   setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout:noop};
 box.window=box;vm.createContext(box);
-vm.runInContext(readFileSync("app/locations.jsx","utf8"),box);
-vm.runInContext(readFileSync("app/locations-ui.jsx","utf8"),box);
+vm.runInContext(source("locations.jsx"),box);
+vm.runInContext(source("locations-ui.jsx"),box);
 const plan={status:"draft",source:{assetId:"house",iso:"v1"},frame:"From archway toward kitchen",
   anchors:[{id:"table",space:"Kitchen",name:"Table",placement:"In front of fridge",basis:"observed",evidence:"Both upper panels"}],sightlines:"Open archway",unresolved:"Dimensions unmeasured"};
 const house={id:"house",name:"House",spatialPlan:plan};
@@ -121,7 +123,7 @@ const bus={id:"bus",key:"bus",name:"School Bus",spatialPlan:{...plan,status:"rev
 box.turnContinuity={locations:[bus]};
 box.KinolotCloudRender={inputIssueList:()=>[{step:2,text:"Add the School Bus footprint to the floor plan first."}]};
 const navigation=[];box.CustomEvent=class{constructor(type,opts){this.type=type;this.detail=opts.detail;}};box.dispatchEvent=e=>navigation.push(e);
-vm.runInContext(readFileSync("app/blender-render-ui.jsx","utf8"),box);
+vm.runInContext(source("blender-render-ui.jsx"),box);
 box.goToLocationStep(bus,2);
 assert.ok(box.KinolotFloorPlanEditRequests.get("bus"),"Repair is recorded before the closed editor mounts");
 assert.deepEqual(navigation.map(e=>e.type),["nb-open-fold","kinolot-edit-floor-plan"]);
@@ -136,4 +138,21 @@ timers.splice(0).forEach(f=>f());
 assert.equal(metric.open,true);assert.equal(scrolled,1);assert.equal(fieldFocused,1);
 assert.equal(box.KinolotFloorPlanEditRequests.has("bus"),false,"A consumed request does not keep forcing the editor open later");
 assert.equal(writes.length,0,"Opening repairs never edits a saved film");
+// A general edit starts at a labelled guide; repair navigation still targets the missing metrics.
+reset();timers=[];box.KinolotFloorPlanEditRequests?.clear();tree=render({l:bus});
+button(tree,"Edit floor plan").props.onClick();tree=render({l:bus});
+let manualScroll=0,manualFocus=0;const requested=[];
+const start={scrollIntoView:()=>manualScroll++,focus:()=>manualFocus++};
+const objects={open:false,scrollIntoView:noop,querySelector:()=>({focus:noop})};
+const rooms={open:false,scrollIntoView:noop,querySelector:()=>({focus:noop})};
+const links={open:false,scrollIntoView:noop,querySelector:()=>({focus:noop})};
+const groups={".loc-plan-editor-start":start,".loc-plan-objects":objects,".loc-plan-metrics":rooms,".loc-plan-connections":links};
+flat(tree).find(n=>n.type==="fieldset").props.ref.current={querySelector:selector=>{requested.push(selector);return groups[selector];}};
+timers.splice(0).forEach(f=>f());
+assert.deepEqual(requested,[".loc-plan-editor-start"],"General editing does not jump directly to a lower metrics fold");
+assert.equal(manualScroll,1);assert.equal(manualFocus,1);assert.match(text(cls(tree,"loc-plan-editor-start")),/Choose what to change/);
+button(tree,"Room sizes & openings").props.onClick();assert.equal(rooms.open,true);assert.equal(objects.open,false);assert.equal(links.open,false);
+button(tree,"Objects & placements").props.onClick();assert.equal(objects.open,true);
+button(tree,"Connections & unknowns").props.onClick();assert.equal(links.open,true);
+assert.equal(writes.length,0,"Editor navigation and shortcuts never alter saved layout data");
 console.log("PASS shared-layout review hierarchy, empty/ready/stale/read-only states, parent ownership, optional draft/discard, navigation focus and readable placements");
