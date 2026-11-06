@@ -129,7 +129,7 @@ projections of this plan and cannot move its furniture.
 The image card's **Review shared layout** button opens and scrolls directly to
 this section. A layout that needs review expands automatically when Spatial Layout
 & Staging opens. The workflow is **Review → Confirm → Generate**: compare the
-placements against the reference panels, then use **Confirm shared layout** at
+placements against the reference panels, then use **Confirm floor plan** at
 the top (also repeated after the fields). Confirmation uses no credits and does
 not generate an image. **Back to image** returns to the generation control;
 other prerequisites, such as a missing parent plate, still apply. Incomplete
@@ -144,7 +144,7 @@ a populated draft says **Review the floor plan**. An empty layout says **No layo
 **Draft floor plan** at the top, with its writing-credit disclosure and a
 manual-entry alternative. Partly filled layouts say **Placements incomplete**.
 Once drafted, the populated fields say **Draft to review** and the top action
-becomes **Confirm shared layout**. For existing layouts, optional redrafting
+becomes **Confirm floor plan**. For existing layouts, optional redrafting
 remains under **Need help? Draft with AI**. Enter corrections in the review
 fields, then use **Draft floor plan** to propose a new plan.
 This is an explicit writing-model call: with a parent plate it reads all panels together,
@@ -313,3 +313,9 @@ The interoperability test packages the actual Python add-on, connects it to the
 actual JavaScript relay with fake auth/storage/provider boundaries, and runs
 native Blender rendering/import. It does not spend provider credits or establish
 that a particular live provider account can generate successfully.
+
+Missing object measurements name only the missing **Floor plan position** or
+**Object dimensions (width, depth, height)**. **Vertical position** is the centre
+(or recorded base) above the floor, not the object's physical height. The repair
+action opens the named object and focuses the missing field; it does not invent
+values or edit saved measurements.

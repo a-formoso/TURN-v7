@@ -13,9 +13,9 @@
     return (space?.openings||[]).find(o=>o.id===anchor.id||tidy(o.name).toLowerCase()===tidy(anchor.name).toLowerCase());
   }
   function isOpening(anchor,space){
-    // A saved window/glass aperture is authoritative even when its descriptive name is ambiguous.
+    // Explicit floor-plan apertures are authoritative even when their descriptive names are ambiguous.
     const opening=savedOpening(anchor,space);
-    return root.locationAnchorIsOpening(anchor)||!!opening&&["window","glass"].includes(opening.kind);
+    return root.locationAnchorIsOpening(anchor)||!!opening&&["window","glass","door","arch"].includes(opening.kind);
   }
   // Saved heights are read through the floor plan's conventions (locations.jsx), never rewritten.
   function renderSpaces(plan){
@@ -140,7 +140,7 @@
     list=list||((root.turnContinuity||{}).locations)||[];
     const state=root.locationSpatialPlanState(location,list);
     if(!state.ready)return [{step:2,text:state.reason}];
-    const {owner,plan}=state,spaces=renderSpaces(plan),issues=[];
+    const {owner,plan}=state,spaces=renderSpaces(plan),issues=[],objectIssues=[];
     if(!spaces.length)return [{step:2,text:"Add the location's footprint to the floor plan first."}];
     if(!spaces.some(s=>s.id===location.id&&s.footprint.length>=3))issues.push("Add this space's footprint to the floor plan first.");
     for(const s of spaces){
@@ -169,12 +169,16 @@
       if(!space){issues.push("Add the footprint for "+(room.name||"each object's room")+".");continue;}
       if(isOpening(a,space)){
         if(!savedOpening(a,space))issues.push("Add "+a.name+" to its room's floor-plan openings, with its dimensions.");
-      }else if(!a.xy||!a.size)issues.push("Set the floor plan position and width, depth and height for "+(a.name||"each fixed object")+".");
+      }else{
+        const missing=[!a.xy&&{key:"xy",label:"Floor plan position"},!a.size&&{key:"size",label:"Object dimensions (width, depth, height)"}].filter(Boolean);
+        if(missing.length)objectIssues.push({step:2,anchorId:a.id,fields:missing.map(f=>f.key),
+          text:"Set "+missing.map(f=>f.label).join(" and ")+" for "+(a.name||"this fixed object")+"."});
+      }
       if(root.KinolotSetDetail?.anchorShape(a)==="sports-net"&&a.size&&a.netMeshHeight>a.size[2])
         issues.push("Net mesh height for "+a.name+" must not exceed its overall object height.");
     }
     if(spaces.filter(s=>!s.openSky).length>16)issues.push("This preview supports up to sixteen spaces.");
-    const tagged=Array.from(new Set(issues)).map(text=>({step:2,text}));
+    const tagged=Array.from(new Set(issues)).map(text=>({step:2,text})).concat(objectIssues);
     const labels=Object.fromEntries(root.locationPanelPoses(location,list).map(p=>[p.key,p.label||p.key]));
     for(const [key,problem] of Object.entries(cameraProblemsIn(location,list,plan,spaces,family,owner)))
       tagged.push({step:3,panel:key,text:"The "+labels[key]+" camera: "+problem.charAt(0).toLowerCase()+problem.slice(1)});

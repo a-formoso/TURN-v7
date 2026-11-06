@@ -157,7 +157,7 @@ window.LocationBlenderStudioSection=LocationBlenderStudioSection;
 
 function LocationSpatialAnchorEditor({anchor,onRemove,children}){
   const [open,setOpen]=React.useState(!anchor.name);
-  return React.createElement("details",{className:"loc-spatial-anchor",open,onToggle:e=>setOpen(e.currentTarget.open)},
+  return React.createElement("details",{className:"loc-spatial-anchor","data-floor-plan-anchor":anchor.id,open,onToggle:e=>setOpen(e.currentTarget.open)},
     React.createElement("summary",null,React.createElement("span",{className:"loc-spatial-anchor-summary"},
       React.createElement("span",null,anchor.name||"New fixed anchor",
         anchor.space&&React.createElement("small",null," · "+anchor.space)),
@@ -593,8 +593,8 @@ function _locParseVec(text,n){
 }
 function _locParseNum(text){ const t=String(text==null?"":text).trim(); if(!t)return null; const n=Number(t); return Number.isFinite(n)?n:null; }
 /* a text field that commits on leaving it (numbers typed as text, so "1.2, -3" works on every phone keyboard) */
-function LocCoordInput({label,value,placeholder,onCommit,hint,disabled,mode="decimal"}){
-  return React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,label),
+function LocCoordInput({label,value,placeholder,onCommit,hint,disabled,mode="decimal",fieldKey}){
+  return React.createElement("label",{className:"loc-cam-field","data-floor-plan-field":fieldKey},React.createElement("span",null,label),
     React.createElement("input",{className:"prop-select",type:"text",inputMode:mode,disabled,key:String(value),defaultValue:value,
       placeholder:placeholder||"",onBlur:e=>{if(e.target.value!==value)onCommit(e.target.value);}}),
     hint&&React.createElement("small",null,hint));
@@ -1055,7 +1055,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   },[l.id]);
   React.useEffect(()=>{if(!editFocus||!open||!editorOpen)return;
     const timer=setTimeout(()=>{
-      const metric=renderIssues.some(i=>/footprint|ceiling|sill|head heights|wall placement|openings|opening top|opening bottom/i.test(i.text));
+      const metric=renderIssues.some(i=>!i.anchorId&&/footprint|ceiling|sill|head heights|wall placement|openings|opening top|opening bottom/i.test(i.text));
       const selector=editOrigin.current==="manual"?".loc-plan-editor-start":metric?".loc-plan-metrics":".loc-plan-objects";
       const target=fieldsRef.current?.querySelector(selector)||fieldsRef.current;
       if(target){if(selector!==".loc-plan-editor-start")target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});(target.querySelector?.("summary")||target).focus?.({preventScroll:true});}
@@ -1090,7 +1090,15 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     }catch(e){if(alive.current&&(typeof nbEpoch!=="function"||nbEpoch()===epoch))setError(e.message||"Could not draft the layout.");}
     finally{if(alive.current)setBusy(false);}
   };
-  const revealGroup=selector=>{const target=fieldsRef.current?.querySelector(selector);if(!target)return;target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});target.querySelector?.("summary")?.focus?.({preventScroll:true});};
+  const revealGroup=selector=>{const target=fieldsRef.current?.querySelector(selector);if(!target)return;target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});target.querySelector?.("summary")?.focus?.({preventScroll:true});return target;};
+  const revealObjectMeasurement=()=>{
+    const group=revealGroup(".loc-plan-objects");
+    const row=Array.from(group?.querySelectorAll?.("[data-floor-plan-anchor]")||[]).find(el=>el.getAttribute("data-floor-plan-anchor")===objectFixIssue?.anchorId);
+    if(!row)return;
+    row.open=true;row.scrollIntoView?.({behavior:"smooth",block:"center"});
+    const field=objectFixIssue.fields[0]==="size"?"size":"xy";
+    row.querySelector?.('[data-floor-plan-field="'+field+'"] input')?.focus?.({preventScroll:true});
+  };
   const suggestRepairs=()=>{
     setError("");
     try{
@@ -1143,12 +1151,13 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     }catch(e){setError(e?.message||"Could not confirm the layout. Please try again.");}
   };
   const confirmationNow=confirmation&&confirmation.sig===locationSpatialPlanSig(plan)&&!state.stale?confirmation:null;
+  const objectFixIssue=confirmationNow?.issues.find(i=>i.anchorId&&i.fields?.length);
   const field=(label,value,onChange,placeholder)=>React.createElement("label",{className:"loc-spatial-field"},
     React.createElement("span",null,label),React.createElement("textarea",{className:"prop-select",value,
       rows:Math.min(8,Math.max(2,Math.ceil((value||placeholder||"").length/42))),placeholder,onChange:e=>onChange(e.target.value)}));
   const alreadyConfirmed=confirmed&&!renderIssues.length;
   const confirmButton=()=>alreadyConfirmed?React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",disabled:busy,title:"Close the editor; this layout is already confirmed.",onClick:()=>finishEditing()},"Done editing"):React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm",
-    disabled:readOnly||busy||!check.complete,title:readOnly?"This film is read-only.":busy?"Wait for the layout draft to finish.":!check.complete?reviewHint:"Approve the saved placements; remaining measurements will be checked.",onClick:confirm},React.createElement(Icon.check,{s:14}),measurementRepair&&candidate?"Apply fixes & confirm":"Confirm shared layout");
+    disabled:readOnly||busy||!check.complete,title:readOnly?"This film is read-only.":busy?"Wait for the layout draft to finish.":!check.complete?reviewHint:"Approve the saved placements; remaining measurements will be checked.",onClick:confirm},React.createElement(Icon.check,{s:14}),measurementRepair&&candidate?"Apply fixes & confirm":"Confirm floor plan");
   const draftButton=(primary=false)=>React.createElement("button",{type:"button",
     className:"art-draftall"+(primary?" loc-spatial-confirm":" ghost"),disabled:readOnly||busy,onClick:draft},
     React.createElement(Icon.sparkles,{s:14}),busy?"Drafting floor plan…":"Draft floor plan");
@@ -1161,16 +1170,16 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       React.createElement("ol",{className:"loc-spatial-steps","aria-label":"Shared layout workflow"},
         ["Draft","Measurements","Cameras"].map((step,i)=>React.createElement("li",{key:step,
           "aria-current":i===(confirmed?(renderIssues.length?1:2):0)?"step":undefined},React.createElement("span",null,i+1),step))),
-      React.createElement("strong",null,confirmed?(renderIssues.length?"Placements confirmed · measurements needed":"Shared layout confirmed"):empty?"Draft the floor plan":"Review the floor plan"),
-      React.createElement("p",null,confirmed?(renderIssues.length?"Placements are confirmed, but measurements still need attention. Open Edit floor plan to finish them.":"The shared layout is confirmed. You can reopen it to edit, or continue to Cameras."):reviewHint),
+      React.createElement("strong",null,confirmed?(renderIssues.length?"Placements confirmed · measurements needed":"Floor plan confirmed"):empty?"Draft the floor plan":"Review the floor plan"),
+      React.createElement("p",null,confirmed?(renderIssues.length?"Placements are confirmed, but measurements still need attention. Open Edit floor plan to finish them.":"The floor plan is confirmed. You can reopen it to edit, or continue to Cameras."):reviewHint),
       confirmed&&renderIssues.length>0&&React.createElement("div",{className:"loc-step-fixes",role:"note"},
         React.createElement("b",null,"Before Build set can run:"),React.createElement("ul",null,renderIssues.slice(0,6).map((i,n)=>React.createElement("li",{key:n},i.text)))),
       !empty&&React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm"+(alreadyConfirmed?" ghost":""),"aria-expanded":editorOpen,"aria-controls":"loc-plan-editor-"+l.id,title:editorOpen?"Collapse floor plan editor":readOnly?"View floor plan":confirmed&&!renderIssues.length?"Edit this confirmed floor plan":"Edit floor plan",onClick:()=>{editOrigin.current="manual";setOpen(true);setEditorOpen(!editorOpen);if(!editorOpen)setEditFocus(n=>n+1);}},
-        confirmed&&!renderIssues.length&&React.createElement(Icon.check,{s:14}),readOnly?"View floor plan":confirmed&&!renderIssues.length?"Shared layout confirmed":"Edit floor plan"),
+        confirmed&&!renderIssues.length&&React.createElement(Icon.check,{s:14}),readOnly?"View floor plan":confirmed&&!renderIssues.length?"Floor plan confirmed":"Edit floor plan"),
       confirmed&&!renderIssues.length&&window.KinolotCloudRender?.enabled?.()&&React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm",onClick:()=>window.goToLocationStep(l,3)},"Continue to 3 · Cameras"),
       confirmationNow&&!confirmationNow.issues.length&&React.createElement("div",{className:"loc-confirm-result",role:"status"},
         confirmationNow.repairCount>0&&React.createElement("p",null,"Applied "+confirmationNow.repairCount+" displayed corrections and rechecked the plan."),
-        React.createElement("p",null,confirmationNow.measured?"Shared layout confirmed. Ready for cameras.":"Shared layout confirmed.")),
+        React.createElement("p",null,confirmationNow.measured?"Floor plan confirmed. Ready for cameras.":"Floor plan confirmed.")),
       !confirmed&&empty?draftButton(true):null,
       React.createElement("small",null,readOnly?"View only — ask an editor to prepare or confirm this layout.":empty
         ? "Reads the parent image when available; otherwise uses the written specification. Also drafts an approximate floor plan in metres (footprints, windows and doors, object positions, each panel's camera) \u2014 every number editable. Uses writing-model credits, not image credits. Review and confirm the result before generating."
@@ -1196,7 +1205,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       React.createElement("summary",null,"Objects & placements · "+plan.anchors.length),
       React.createElement("h4",{className:"loc-spatial-heading"},empty?"Or enter placements manually":"Review & edit placements"),
       React.createElement("p",{className:"loc-layer-note"},empty
-        ? "Set a viewing direction and add at least one fixed object with its room, name and placement. Confirm shared layout becomes available once these are filled."
+        ? "Set a viewing direction and add at least one fixed object with its room, name and placement. Confirm floor plan becomes available once these are filled."
         : "Check where each object stays. Open an object to edit its placement or supporting evidence."),
       field("Layout corrections / instructions",owner.spatialNotes||"",value=>{
         setCandidate(null);setConfirmation(null);setMeasurementRepair(null);onUpdate(owner.id,{spatialNotes:value.slice(0,2000),spatialPlan:{...state.plan,status:"draft"}});
@@ -1222,13 +1231,13 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
               React.createElement("option",{key:y,value:String(y)},locCompass(y)+" ("+Math.round(y)+"\u00b0)")))),
         // where it stands on the floor plan (step B): approximate metres, with where the numbers came from
         React.createElement("div",{className:"loc-cam-fields loc-anchor-coords"},
-          React.createElement(LocCoordInput,{label:"Floor plan position",value:a.xy?a.xy.map(_locFmt).join(", "):"",placeholder:"x, y",mode:"text",
+          React.createElement(LocCoordInput,{label:"Floor plan position",fieldKey:"xy",value:a.xy?a.xy.map(_locFmt).join(", "):"",placeholder:"x, y",mode:"text",
             hint:"metres from the origin (approximate)",onCommit:v=>anchorChange(a.id,{xy:_locParseVec(v,2)||undefined})}),
-          React.createElement(LocCoordInput,{label:"Height",value:_locFmt(a.z),placeholder:"0",
+          React.createElement(LocCoordInput,{label:"Vertical position",value:_locFmt(a.z),placeholder:"0",
             hint:(locationAnchorHeightBasis(a,plan)==="base"?"object base":"object centre")+", m above the main floor",
             onCommit:v=>{const z=_locParseNum(v);anchorChange(a.id,{z:z==null?undefined:z,...heightBasis(a)});}}),
           !(typeof locationAnchorIsOpening==="function"&&locationAnchorIsOpening(a))&&React.createElement(LocCoordInput,{
-            label:"Object dimensions",value:a.size?a.size.map(_locFmt).join(", "):"",placeholder:"width, depth, height",mode:"text",
+            label:"Object dimensions",fieldKey:"size",value:a.size?a.size.map(_locFmt).join(", "):"",placeholder:"width, depth, height",mode:"text",
             hint:"metres; measured or proposed blockout dimensions",onCommit:v=>anchorChange(a.id,{size:_locParseVec(v,3)||undefined,sizeBasis:"user",...heightBasis(a)})}),
           !(typeof locationAnchorIsOpening==="function"&&locationAnchorIsOpening(a))&&React.createElement("label",{className:"loc-cam-field"},
             React.createElement("span",null,"Set shape"),
@@ -1247,7 +1256,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       React.createElement("button",{className:"art-draftall ghost",disabled:plan.anchors.length>=24,
         onClick:()=>change({anchors:[...plan.anchors,{id:"anchor-"+Date.now().toString(36),space:l.name||"",name:"",placement:"",basis:"design",evidence:""}]})},"Add fixed anchor")),
       React.createElement("details",{className:"loc-nested-section loc-plan-metrics"},React.createElement("summary",null,"Room sizes & openings"),
-      React.createElement("p",{className:"loc-layer-note"},"Edit the fields below, or add the missing room to start its outline. Changes become a draft; use Confirm shared layout at the bottom when finished."),
+      React.createElement("p",{className:"loc-layer-note"},"Edit the fields below, or add the missing room to start its outline. Changes become a draft; use Confirm floor plan at the bottom when finished."),
       typeof locationSpatialFamily==="function"&&React.createElement(LocationFloorPlanFields,{plan,family:locationSpatialFamily(owner),change,readOnly})),
       React.createElement("details",{className:"loc-nested-section loc-plan-connections"},React.createElement("summary",null,"Connections & unknowns"),
       field("Connections & doorway sightlines",plan.sightlines,value=>change({sightlines:value}),"Which rooms connect? What objects are visible through each opening?"),
@@ -1258,7 +1267,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         draftButton()),
       React.createElement("p",{className:"loc-layer-note"},"Check placements across all source panels and explicitly resolve any disagreement in Layout corrections. Floor plan numbers are approximate estimates for a 3D blockout \u2014 never a survey; unknown dimensions stay in Unknowns. A new parent plate requires another review."),
       !empty&&React.createElement("div",{className:"loc-spatial-footer"},
-        React.createElement("p",{className:"loc-layer-note"},alreadyConfirmed?"No confirmation is needed unless you change the plan. Done editing closes this editor without saving the same approval again.":"Changes save when you leave a field. Confirm shared layout approves those saved edits; it does not fill missing measurements or generate images."),
+        React.createElement("p",{className:"loc-layer-note"},alreadyConfirmed?"No confirmation is needed unless you change the plan. Done editing closes this editor without saving the same approval again.":"Changes save when you leave a field. Confirm floor plan approves those saved edits; it does not fill missing measurements or generate images."),
         confirmed&&renderIssues.length>0&&React.createElement("p",{className:"loc-layer-note",role:"status"},"Still needed for the 3D build: "+renderIssues.map(i=>i.text).join(" ")),
         measurementRepair&&candidate&&React.createElement("div",{className:"loc-measurement-repair",role:"region","aria-label":"Before and after measurement fixes"},
           React.createElement("p",null,measurementRepair.changes.length+" suggested corrections. Your saved plan is unchanged until Apply fixes & confirm. These blockout estimates fit the current room; check that they match your intended set."),
@@ -1275,10 +1284,11 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
           confirmationNow.repairCount>0&&React.createElement("p",null,"Applied "+confirmationNow.repairCount+" displayed corrections and rechecked the plan."),
           React.createElement("p",null,"Placements confirmed. Measurements still need correction before building."),
           confirmationNow.issues.length>0&&React.createElement("ul",null,confirmationNow.issues.slice(0,6).map((issue,i)=>React.createElement("li",{key:i},issue.text))),
-          confirmationNow.issues.some(i=>/footprint|ceiling|opening|sill|head heights|wall placement/i.test(i.text))&&React.createElement("div",{className:"loc-plan-actions"},
+          confirmationNow.issues.some(i=>!i.anchorId&&/footprint|ceiling|opening|sill|head heights|wall placement/i.test(i.text))&&React.createElement("div",{className:"loc-plan-actions"},
             window.KinolotMeasurementRepair&&React.createElement("button",{type:"button",className:"art-draftall",onClick:suggestRepairs},"Suggest measurement fixes"),
             React.createElement("button",{type:"button",className:"art-draftall ghost",onClick:()=>revealGroup(".loc-plan-metrics")},"Edit measurements manually")),
-          confirmationNow.issues.some(i=>!/footprint|ceiling|opening|sill|head heights|wall placement/i.test(i.text))&&React.createElement("button",{type:"button",className:"art-draftall ghost",onClick:()=>revealGroup(".loc-plan-objects")},"Edit object placements")),
+          confirmationNow.issues.some(i=>i.anchorId||!/footprint|ceiling|opening|sill|head heights|wall placement/i.test(i.text))&&React.createElement("button",{type:"button",className:"art-draftall ghost",onClick:revealObjectMeasurement},
+            objectFixIssue?.fields[0]==="size"?"Enter missing dimensions":objectFixIssue?.fields[0]==="xy"?"Enter missing position":"Edit object placements")),
         error&&React.createElement("p",{className:"loc-spatial-error"},error))));
 }
 

@@ -40,20 +40,20 @@ let tree=render();
 assert.equal(tree.props.open,true,"unreviewed layout opens when the outer fold is opened");
 assert.equal(cls(tree,"loc-spatial-assist").props.open,undefined,"paid drafting is collapsed and optional");
 assert.match(text(cls(tree,"loc-spatial-assist")),/Optional/);
-assert.ok(flat(tree).indexOf(button(tree,"Confirm shared layout"))>flat(tree).indexOf(button(tree,"Draft floor plan")),"The single approval action follows the optional AI helper inside the editor");
-assert.equal(flat(tree).filter(n=>n.type==="button"&&text(n)==="Confirm shared layout").length,1);
-assert.equal(button(tree,"Confirm shared layout").props.disabled,false);
+assert.ok(flat(tree).indexOf(button(tree,"Confirm floor plan"))>flat(tree).indexOf(button(tree,"Draft floor plan")),"The single approval action follows the optional AI helper inside the editor");
+assert.equal(flat(tree).filter(n=>n.type==="button"&&text(n)==="Confirm floor plan").length,1);
+assert.equal(button(tree,"Confirm floor plan").props.disabled,false);
 assert.match(text(tree),/Confirmation uses no credits and does not generate an image/);
 assert.equal(writes.length,0);assert.equal(aiCalls,0,"opening never drafts or approves");
-button(tree,"Confirm shared layout").props.onClick();
+button(tree,"Confirm floor plan").props.onClick();
 assert.equal(writes.length,1);assert.equal(writes[0].id,"house","room review confirms its parent's plan");
 assert.equal(writes[0].patch.spatialPlan.status,"reviewed");assert.equal(aiCalls,0);
 assert.equal(house.spatialPlan.status,"draft","source fixture remains untouched");
 
 reset();tree=render({readOnly:true});
-assert.equal(button(tree,"Confirm shared layout").props.disabled,true);
+assert.equal(button(tree,"Confirm floor plan").props.disabled,true);
 assert.equal(flat(tree).find(n=>n.type==="fieldset").props.disabled,true);
-button(tree,"Confirm shared layout").props.onClick();await button(tree,"Draft floor plan").props.onClick();
+button(tree,"Confirm floor plan").props.onClick();await button(tree,"Draft floor plan").props.onClick();
 assert.equal(writes.length,0);assert.equal(aiCalls,0);
 
 reset();house.spatialPlan={};tree=render();
@@ -61,7 +61,7 @@ assert.match(text(tree),/No layout yet/);
 assert.match(text(tree),/Draft specification writes the location description/);
 assert.match(text(tree),/Uses writing-model credits, not image credits/);
 assert.match(text(tree),/Or enter placements manually/);
-assert.equal(button(tree,"Confirm shared layout"),undefined,"an empty layout offers preparation, not a dead confirm button");
+assert.equal(button(tree,"Confirm floor plan"),undefined,"an empty layout offers preparation, not a dead confirm button");
 assert.equal(cls(tree,"loc-spatial-assist"),undefined,"the initial draft action is not hidden in another disclosure");
 assert.ok(flat(cls(tree,"loc-spatial-review")).includes(button(tree,"Draft floor plan")),
   "empty layouts put the draft action at the top");
@@ -70,7 +70,7 @@ assert.match(text(tree),/Draft to review/);
 assert.equal(flat(tree).find(n=>n.type==="textarea"&&n.props.value==="Candidate frame").props.value,"Candidate frame");
 assert.equal(flat(tree).find(n=>n.type==="textarea"&&n.props.value==="In front of fridge").props.value,"In front of fridge",
   "drafting fills object placements as well as the viewing direction");
-assert.equal(button(tree,"Confirm shared layout").props.disabled,false);
+assert.equal(button(tree,"Confirm floor plan").props.disabled,false);
 assert.equal(writes.length,0,"filling draft fields does not silently confirm or save geometry");
 
 reset();tree=render({readOnly:true});
@@ -82,13 +82,13 @@ assert.equal(aiCalls,readOnlyCalls,"empty-state action also enforces read-only a
 reset();house.spatialPlan={frame:"Facing the window"};tree=render();
 assert.match(text(tree),/Placements incomplete/);
 assert.match(text(tree),/Each object needs a room, name and fixed placement/);
-assert.equal(button(tree,"Confirm shared layout").props.disabled,true);
+assert.equal(button(tree,"Confirm floor plan").props.disabled,true);
 
 reset();house.spatialPlan={...plan,status:"reviewed"};tree=render();
-assert.equal(tree.props.open,false);assert.equal(button(tree,"Confirm shared layout"),undefined,"An unchanged approved plan does not request approval again");
+assert.equal(tree.props.open,false);assert.equal(button(tree,"Confirm floor plan"),undefined,"An unchanged approved plan does not request approval again");
 assert.ok(button(tree,"Done editing"),"Unchanged approved plans offer a close action");
-assert.ok(button(tree,"Shared layout confirmed"),"A confirmed layout has a checked, editable status action");
-assert.equal(button(tree,"Shared layout confirmed").props['aria-expanded'],false);
+assert.ok(button(tree,"Floor plan confirmed"),"A confirmed layout has a checked, editable status action");
+assert.equal(button(tree,"Floor plan confirmed").props['aria-expanded'],false);
 assert.equal(cls(tree,"loc-plan-editor").props.hidden,true,"The confirmed editor starts folded");
 assert.match(text(tree),/reopen it to edit/);
 assert.equal(button(tree,"Back to image"),undefined,"Floor-plan repair does not send users back to artwork");assert.equal(writes.length,0);
@@ -107,7 +107,7 @@ assert.match(text(tree),/saved layout is unchanged until you confirm/);
 button(tree,"Discard draft").props.onClick();tree=render();
 assert.equal(button(tree,"Discard draft"),undefined);assert.equal(writes.length,0);
 await button(tree,"Draft floor plan").props.onClick();tree=render();
-button(tree,"Confirm shared layout").props.onClick();
+button(tree,"Confirm floor plan").props.onClick();
 assert.equal(writes[0].patch.spatialPlan.frame,"Candidate frame");
 
 reset();house.spatialPlan={};box.aiDraftLocationSpatialPlan=async()=>{throw new Error("Reference image could not be read");};
@@ -157,7 +157,7 @@ for(const group of ["loc-plan-objects","loc-plan-metrics","loc-plan-connections"
  assert.equal(cls(tree,group).type,"details","The section can open and fold in place");
 }
 for(const label of ["Objects & placements","Room sizes & openings","Connections & unknowns"])assert.equal(button(tree,label),undefined,"No duplicate shortcut: "+label);
-assert.ok(flat(contained).includes(button(tree,"Confirm shared layout")),"Confirmation stays in the same edit area");
+assert.ok(flat(contained).includes(button(tree,"Confirm floor plan")),"Confirmation stays in the same edit area");
 assert.ok(contained.children.indexOf(cls(tree,"loc-spatial-assist"))>contained.children.indexOf(cls(tree,"loc-plan-connections")),"Optional AI help follows the three editing sections");
 assert.equal(writes.length,0,"Opening the contained editor never alters saved layout data");
 // Follow the real edit callbacks through a disposable narrow bus plan into the exact Build-set scene.
@@ -183,7 +183,7 @@ assert.equal(flow.spatialPlan.coordinates.spaces[0].footprint.length,4);assert.d
 reset();
 function commitField(tree,label,value){const field=flat(tree).find(n=>n.type===box.LocCoordInput&&n.props.label===label);assert.ok(field,"Editable field: "+label);const input=flat(box.LocCoordInput(field.props)).find(n=>n.type==="input");input.props.onBlur({target:{value}});}
 commitField(metrics(),"Ceiling height","2.4");commitField(flowEditor(),"Object dimensions","0.5, 0.8, 0.8");
-tree=flowEditor();assert.ok(button(tree,"Confirm shared layout"),"Editing leaves a visible confirmation action");button(tree,"Confirm shared layout").props.onClick();
+tree=flowEditor();assert.ok(button(tree,"Confirm floor plan"),"Editing leaves a visible confirmation action");button(tree,"Confirm floor plan").props.onClick();
 assert.equal(flow.spatialPlan.status,"reviewed");
 assert.equal(box.KinolotCloudRender.inputIssueList(flow).filter(i=>i.step===2).length,0,"The saved plan now passes the actual measurement validator");
 tree=flowEditor();assert.ok(button(tree,"Continue to 3 · Cameras"),"A measured, confirmed plan leads directly to cameras");
@@ -200,19 +200,19 @@ assert.equal(box.KinolotCloudRender.inputIssueList(flow).length,0,"Steps 2, 3 an
 hooks=[];cursor=0;let illicit=0;const readonlyOutline=box.LocationRoomOutline({space:{},onCreate:()=>illicit++,readOnly:true});
 button(readonlyOutline,"Create rectangular outline").props.onClick();assert.equal(illicit,0);
 // Successful confirmation collapses the editor, closes its folds and returns focus to the visible result.
-reset();timers=[];tree=flowEditor();button(tree,"Shared layout confirmed").props.onClick();tree=flowEditor();
+reset();timers=[];tree=flowEditor();button(tree,"Floor plan confirmed").props.onClick();tree=flowEditor();
 assert.equal(cls(tree,"loc-plan-editor").props.hidden,false,"The checked status remains an edit action");
-assert.match(button(tree,"Shared layout confirmed").props.className,/ghost/,"The confirmed status is secondary");
+assert.match(button(tree,"Floor plan confirmed").props.className,/ghost/,"The confirmed status is secondary");
 assert.doesNotMatch(button(tree,"Continue to 3 · Cameras").props.className,/ghost/,"Cameras is the primary next action");
 const unchangedPlan=JSON.stringify(flow);button(tree,"Done editing").props.onClick();tree=flowEditor();
 assert.equal(JSON.stringify(flow),unchangedPlan,"Done editing closes without writing another approval");assert.equal(cls(tree,"loc-plan-editor").props.hidden,true);
-button(tree,"Shared layout confirmed").props.onClick();tree=flowEditor();commitField(tree,"Object dimensions","0.5, 0.8, 0.9");tree=flowEditor();
-assert.ok(button(tree,"Confirm shared layout"),"An actual edit restores the confirmation action");assert.equal(button(tree,"Done editing"),undefined);
+button(tree,"Floor plan confirmed").props.onClick();tree=flowEditor();commitField(tree,"Object dimensions","0.5, 0.8, 0.9");tree=flowEditor();
+assert.ok(button(tree,"Confirm floor plan"),"An actual edit restores the confirmation action");assert.equal(button(tree,"Done editing"),undefined);
 timers=[];
 const openGroups=[{open:true},{open:true},{open:true}];let returnedTop=0,returnedFocus=0;
 cls(tree,"loc-plan-editor").props.ref.current={querySelectorAll:()=>openGroups,querySelector:()=>null};
 cls(tree,"loc-spatial-review").props.ref.current={scrollIntoView:opts=>{assert.equal(opts.behavior,"smooth");returnedTop++;},focus:opts=>{assert.equal(opts.preventScroll,true);returnedFocus++;}};
-button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();
+button(tree,"Confirm floor plan").props.onClick();tree=flowEditor();
 assert.ok(cls(tree,"loc-confirm-result"),"A confirmation click must produce visible local feedback");
 assert.ok(flat(cls(tree,"loc-spatial-review")).includes(cls(tree,"loc-confirm-result")),"Success is visible above the folded editor");
 assert.match(text(cls(tree,"loc-confirm-result")),/Ready for cameras/);
@@ -222,15 +222,15 @@ timers.splice(0).forEach(fn=>fn());assert.equal(returnedTop,1);assert.equal(retu
 button(tree,"Continue to 3 · Cameras").props.onClick();assert.equal(navigation.at(-1).detail,"loc-step3-"+flow.id,"Continue opens the current location's Cameras section");
 commitField(flowEditor(),"Object dimensions","0.5, 0.8, 1");tree=flowEditor();
 assert.match(text(cls(tree,"loc-confirm-status")),/Unconfirmed edits/);assert.equal(cls(tree,"loc-confirm-result"),undefined,"A later edit clears the old successful confirmation");
-button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();
+button(tree,"Confirm floor plan").props.onClick();tree=flowEditor();
 
 // Existing invalid measurements remain blocked and receive an actionable explanation.
 flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,status:"reviewed",coordinates:{...flow.spatialPlan.coordinates,spaces:flow.spatialPlan.coordinates.spaces.map(sp=>({...sp,openings:[{id:"entry",name:"Folding entry door",kind:"door",edge:0,centre:[0,-5],width:.8,sillZ:0,headZ:3}]}))}}});
-reset();tree=flowEditor();button(tree,"Edit floor plan").props.onClick();tree=flowEditor();button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();
+reset();tree=flowEditor();button(tree,"Edit floor plan").props.onClick();tree=flowEditor();button(tree,"Confirm floor plan").props.onClick();tree=flowEditor();
 assert.match(text(cls(tree,"loc-confirm-result")),/above the ceiling/);
 assert.equal(cls(tree,"loc-plan-editor").props.hidden,false,"Remaining measurements keep the editor open for repair");
 assert.match(text(cls(tree,"loc-confirm-status")),/measurements needed/,"Confirmation status does not hide unresolved 3D measurements");
-assert.equal(button(tree,"Shared layout confirmed"),undefined,"Incomplete geometry never gets a completed status");
+assert.equal(button(tree,"Floor plan confirmed"),undefined,"Incomplete geometry never gets a completed status");
 assert.ok(button(tree,"Edit measurements manually"),"Confirmation explains how to repair a remaining opening-height problem");
 const repairMetric={open:false,scrollIntoView:noop,querySelector:()=>({focus:noop})};
 flat(tree).find(n=>n.type==="fieldset").props.ref.current={querySelector:selector=>selector===".loc-plan-metrics"?repairMetric:null};
@@ -243,38 +243,53 @@ assert.equal(JSON.stringify(flow),savedBeforeRepair,"Opening a repair preview do
 assert.ok(cls(tree,"loc-measurement-repair"));assert.match(text(tree),/Before/);assert.match(text(tree),/After/);
 assert.ok(button(tree,"Apply fixes & confirm"));button(tree,"Discard fixes").props.onClick();tree=flowEditor();
 assert.equal(JSON.stringify(flow),savedBeforeRepair,"Discarding fixes preserves the saved plan");
-button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
+button(tree,"Confirm floor plan").props.onClick();tree=flowEditor();button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
 button(tree,"Apply fixes & confirm").props.onClick();tree=flowEditor();
 assert.equal(box.KinolotCloudRender.inputIssueList(flow).filter(i=>i.step===2).length,0,"Applying the shown repairs corrects the measurement blocker");
 assert.match(text(cls(tree,"loc-confirm-result")),/Applied/);assert.match(text(cls(tree,"loc-confirm-result")),/Ready for cameras/);
 assert.equal(flow.spatialPlan.status,"reviewed");
 assert.equal(cls(tree,"loc-plan-editor").props.hidden,true,"Apply fixes & confirm completes the flow without another confirmation click");
-assert.ok(button(tree,"Shared layout confirmed"));
+assert.ok(button(tree,"Floor plan confirmed"));
 // A stale click must approve the current saved data, never overwrite a newer saved edit.
 flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,status:"draft"}});
-reset();tree=flowEditor();const oldConfirm=button(tree,"Confirm shared layout");
+reset();tree=flowEditor();const oldConfirm=button(tree,"Confirm floor plan");
 flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,frame:"A newer saved viewing direction"}});
 oldConfirm.props.onClick();assert.equal(flow.spatialPlan.frame,"A newer saved viewing direction");
 tree=flowEditor();assert.match(text(tree),/changed since this view was shown/,"An unseen concurrent edit asks for review rather than approving stale data");
 // Rendered React state can lead the legacy global mirror until its passive effect runs.
 const visible={...flow,spatialPlan:{...flow.spatialPlan,frame:"The latest visible numeric edit"}};
-reset();tree=render({l:visible,onUpdate:flowUpdate});button(tree,"Confirm shared layout").props.onClick();
+reset();tree=render({l:visible,onUpdate:flowUpdate});button(tree,"Confirm floor plan").props.onClick();
 assert.equal(flow.spatialPlan.frame,"The latest visible numeric edit","Confirmation preserves a visible edit even when the global mirror has not caught up");
 
 flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,status:"draft"}});
 reset();tree=flowEditor();box.turnArtRoomWritable=()=>false;const protectedPlan=JSON.stringify(flow);
-button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();assert.match(text(tree),/read-only/);assert.equal(JSON.stringify(flow),protectedPlan);assert.equal(cls(tree,"loc-confirm-result"),undefined);
+button(tree,"Confirm floor plan").props.onClick();tree=flowEditor();assert.match(text(tree),/read-only/);assert.equal(JSON.stringify(flow),protectedPlan);assert.equal(cls(tree,"loc-confirm-result"),undefined);
 box.turnArtRoomWritable=()=>true;
-reset();tree=render({l:flow,onUpdate:()=>{throw Error("Local confirmation failed");}});button(tree,"Confirm shared layout").props.onClick();tree=render({l:flow,onUpdate:noop});
+reset();tree=render({l:flow,onUpdate:()=>{throw Error("Local confirmation failed");}});button(tree,"Confirm floor plan").props.onClick();tree=render({l:flow,onUpdate:noop});
 assert.match(text(tree),/Local confirmation failed/,"A failed update reports an error instead of silently ignoring the click");
 assert.equal(cls(tree,"loc-plan-editor").props.hidden,false,"A failed update never folds away the user's editor");
 // A repair that becomes stale or loses access must never apply to the saved film.
 flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,status:"reviewed",coordinates:{...flow.spatialPlan.coordinates,spaces:flow.spatialPlan.coordinates.spaces.map(sp=>({...sp,openings:sp.openings.map(o=>({...o,headZ:4}))}))}}});
-reset();tree=flowEditor();button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
+reset();tree=flowEditor();button(tree,"Confirm floor plan").props.onClick();tree=flowEditor();button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
 const pendingApply=button(tree,"Apply fixes & confirm");flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,frame:"Concurrent edit during repair preview"}});const concurrent=JSON.stringify(flow);
 pendingApply.props.onClick();assert.equal(JSON.stringify(flow),concurrent);tree=flowEditor();assert.match(text(tree),/saved layout changed/);
-button(tree,"Discard fixes").props.onClick();tree=flowEditor();button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
+button(tree,"Discard fixes").props.onClick();tree=flowEditor();button(tree,"Confirm floor plan").props.onClick();tree=flowEditor();button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
 box.turnArtRoomWritable=()=>false;const guarded=JSON.stringify(flow);button(tree,"Apply fixes & confirm").props.onClick();assert.equal(JSON.stringify(flow),guarded);box.turnArtRoomWritable=()=>true;
 box.nbEpoch=()=>2;button(tree,"Apply fixes & confirm").props.onClick();assert.equal(JSON.stringify(flow),guarded,"A proposal cannot cross a film switch");box.nbEpoch=()=>1;
+
+// Missing object dimensions must identify the actual input, not send the user to a generic fold.
+flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,status:'draft',anchors:[{id:'alcove',space:'School Bus',name:'Open tiled shower alcove mouth',placement:'East side',xy:[.7,3],z:1.1,basis:'design'}],coordinates:{...flow.spatialPlan.coordinates,spaces:flow.spatialPlan.coordinates.spaces.map(sp=>({...sp,openings:[]}))}}});
+reset();tree=flowEditor();button(tree,'Confirm floor plan').props.onClick();tree=flowEditor();
+const missingText=text(cls(tree,'loc-confirm-result'));
+assert.match(missingText,/Set Object dimensions \(width, depth, height\) for Open tiled shower alcove mouth/);
+assert.doesNotMatch(missingText,/Set Floor plan position/,'An existing position is not reported missing');
+assert.ok(flat(tree).some(n=>n.type===box.LocCoordInput&&n.props.label==='Vertical position'));
+let dimensionFocused=0,rowScrolled=0;
+const objectRow={open:false,getAttribute:()=> 'alcove',scrollIntoView:()=>rowScrolled++,querySelector:selector=>selector==='[data-floor-plan-field="size"] input'?{focus:()=>dimensionFocused++}:null};
+const objectGroup={open:false,scrollIntoView:noop,querySelector:()=>({focus:noop}),querySelectorAll:()=>[objectRow]};
+flat(tree).find(n=>n.type==='fieldset').props.ref.current={querySelector:selector=>selector==='.loc-plan-objects'?objectGroup:null};
+const beforeFocus=JSON.stringify(flow);button(tree,'Enter missing dimensions').props.onClick();
+assert.ok(objectGroup.open&&objectRow.open&&rowScrolled===1&&dimensionFocused===1,'Repair opens the named object and focuses its size input');
+assert.equal(JSON.stringify(flow),beforeFocus,'Opening the precise field leaves measurements unchanged');
 
 console.log("PASS shared-layout review hierarchy, empty/ready/stale/read-only states, parent ownership, optional draft/discard, navigation focus and readable placements");

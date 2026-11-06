@@ -188,6 +188,6 @@ assert.notEqual(box.locationStagingBasis(s0),box.locationStagingBasis({...room,s
 
 /* ---- Frances knows ---- */
 for(const phrase of ["Waiting for the shared layout \\u2014 confirm it first.","Layout changed \\u2014 re-draft view composition",
-  "Use the new view composition?","only for places whose shared layout is confirmed"])
+  "Use the new view composition?","only for places whose floor plan is confirmed"])
   assert.ok(ai.includes(phrase),"APP_FEATURES: "+phrase);
 console.log("PASS view composition waits for the shared layout, remembers it, batch paths check it first, edits kept, failures said");

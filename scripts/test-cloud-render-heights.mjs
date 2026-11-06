@@ -102,7 +102,7 @@ const door=(sillZ,headZ)=>({id:"office-door",name:"Office door",kind:"door",edge
 {
   const ai=read("app/ai.jsx");
   check(ai.includes('name:"Build the set (Locations)"')&&/Who can build: Director and Producer/.test(ai),"Frances describes the current paid-plan build feature");
-  check(/Floor plan position, Height, Object dimensions, Front faces/.test(ai),"Frances knows each object has dimensions");
+  check(/Floor plan position, Vertical position, Object dimensions, Front faces/.test(ai),"Frances knows each object has dimensions");
   check(/older floor plan keeps the object's base height/.test(ai),"Frances can explain base vs centre heights");
 }
 
@@ -113,5 +113,22 @@ const door=(sillZ,headZ)=>({id:"office-door",name:"Office door",kind:"door",edge
   for(const o of ["https://evil.example","http://kinolot.infinitestudioai.com","https://kinolot.infinitestudioai.com:444","https://kinolot.infinitestudioai.com.evil.example","null",""])
     check(!("Access-Control-Allow-Origin" in corsFor(o)),"No CORS for "+(o||"(no origin)"));
   check(!/"Access-Control-Allow-Origin":"\*"/.test(read("supabase/functions/blender-render/core.mjs")),"No wildcard origin remains");
+}
+// Missing size is not a missing position or vertical-placement value.
+{
+  const deck=family([{id:'alcove',name:'Open tiled shower alcove mouth',xy:[3,8],z:1.1}],[], 'centre');
+  const before=JSON.stringify(deck),issues=box.KinolotCloudRender.inputIssueList(deck).filter(i=>i.anchorId==='alcove');
+  check(issues.length===1&&issues[0].fields.join(',')==='size','Only the absent physical dimensions are identified');
+  check(issues[0].text.includes('Object dimensions (width, depth, height)')&&!issues[0].text.includes('Floor plan position'),'A known position is not incorrectly requested again');
+  check(JSON.stringify(deck)===before,'Validation does not replace the saved vertical position or other fields');
+  const a=deck.spatialPlan.anchors[0];a.size=[1,.3,2.2];delete a.xy;
+  const position=box.KinolotCloudRender.inputIssueList(deck).find(i=>i.anchorId==='alcove');
+  check(position.fields.join(',')==='xy'&&!position.text.includes('Object dimensions'),'A known size is preserved when only the position is missing');
+  const opening=family([{id:'alcove',space:'Ferry - Office',name:'Open tiled shower alcove mouth',xy:[0,20],z:5.4}],
+    [{id:'alcove',name:'Open tiled shower alcove mouth',kind:'arch',edge:0,centre:[0,20],width:1,sillZ:4.4,headZ:6.4}], 'centre');
+  box.turnContinuity.locations[1].parentKey='deck';
+  check(!box.locationAnchorIsOpening(opening.spatialPlan.anchors[0]),'The test covers an ambiguous name rather than a lexical door/window match');
+  check(!box.KinolotCloudRender.inputIssueList(opening).some(i=>i.anchorId==='alcove'),'An explicitly saved arch does not require an extra solid object size');
+  check(!box.KinolotCloudRender.buildScene(opening).objects.some(o=>o.anchorId==='alcove'),'The explicit opening is not blocked by a fabricated solid object');
 }
 console.log(`PASS cloud render heights: ${checks} height-convention, no-double-lift, editor, Frances and CORS checks`);
