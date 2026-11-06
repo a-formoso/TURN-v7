@@ -114,6 +114,8 @@ function LocationCloudRender({location,readOnly=false}){
   const paid=!!(caps&&caps.open),credits=paid?(Number(caps.credits)>0?Number(caps.credits)
     :(typeof window.turnSetBuildCredits==="function"?window.turnSetBuildCredits():0)):0;
   const canBuild=!caps||caps.canBuild!==false;
+  const statusRelevant=!!job||busy||!!c.message;
+  const refreshLabel=job||busy?"Refresh render status":c.capable?"Check render request":"Retry renderer connection";
   const chip=paid&&credits>0&&E("span",{className:"nb-cost","data-testid":"set-build-cost",
     title:"≈ "+credits+" generation credits a build — held when it's queued, charged when the four views arrive, given back if it fails or you cancel"},String(credits));
   return E("section",{className:"loc-cloud-render","data-testid":"location-cloud-render"},
@@ -122,19 +124,17 @@ function LocationCloudRender({location,readOnly=false}){
       :"Builds the room in 3D from the floor plan and cameras, and renders the four views. Free during the pilot; separate from the location image."),
     !canBuild&&E("p",{className:"loc-layer-note","data-testid":"set-build-role"},"The film's owner or its Art director builds the set; you can see what they built."),
     issues.length>0&&cloudFixList(location,issues),
-    (scene?.notes||[]).filter(n=>n.startsWith("Simplified solid blocks:")).map((n,i)=>E("div",{key:i,className:"loc-layer-note","data-testid":"set-shape-review",role:"note"},
-      E("p",null,n),E("button",{type:"button",className:"art-draftall ghost",onClick:()=>goToLocationStep(location,2)},"Review object shapes"))),
     momentPicker(location,api,readOnly||busy||!!running),
     E("div",{className:"loc-cloud-render-actions"},
       E("button",{type:"button",className:"art-draftall",disabled:readOnly||!canBuild||busy||!c.capable||!sceneHash||!!running||issues.length>0,onClick:submit},
         busy?"Sending…":job&&job.status==="completed"?"Rebuild set":"Build set",!busy&&chip),
-      E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:c.refresh,
-        title:"Refresh the worker connection and this location's saved render job; no render or credit charge"},"Refresh render status"),
+      statusRelevant&&E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:c.refresh,
+        title:"Checks the connection and saved requests without starting or charging for a render"},refreshLabel),
       running&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!canBuild||busy,onClick:cancel,
         title:paid?"Stop this build \u2014 its credits are given back":undefined},"Cancel")),
     E("small",{className:"loc-layer-note",role:"status"},c.capable?"Renderer connected · "+(job?"Render job: "+job.status:"No saved render job"):
       c.message?"Renderer connection needs attention":"Checking the renderer connection…"),
-    E("small",{className:"loc-layer-note"},"Refresh render status checks the worker connection and retrieves this location's latest job and images. It does not start a render or use credits."),
+    statusRelevant&&E("small",{className:"loc-layer-note"},"This check reloads the connection and any saved request or images. It does not start a render or use credits."),
     running&&renderProgress(job,{now,started:runningSince.current,objects:scene?scene.objects.length:0,lastSeconds,api}),
     job&&!running&&job.status!=="completed"&&E("p",{role:"status",className:"loc-layer-note"},({failed:(job.error||"The render did not finish.")+(paid&&job.credits?" Its credits were given back.":""),
       cancelled:"Request cancelled."+(paid&&job.credits?" Its credits were given back.":"")})[job.status]),
@@ -144,6 +144,9 @@ function LocationCloudRender({location,readOnly=false}){
       E("img",{src:job.result.images["colour_"+p],alt:labels[p]+" camera view of "+(location.name||"this location")}),
       E("figcaption",null,labels[p]+" · facing "+Math.round((Math.atan2(job.result.report.cameras[p].direction[0],job.result.report.cameras[p].direction[1])*180/Math.PI+360)%360)+"°")))),
     job?.result&&E("small",{className:"loc-layer-note"},"Rendered in "+Math.round(job.result.report.wallSeconds)+" seconds."),
+    job?.status==="completed"&&job?.result&&E("div",{className:"loc-cloud-render-actions","data-testid":"render-shape-review"},
+      E("p",{className:"loc-layer-note"},"Want to change the objects? Edit their shapes in Floor plan, then rebuild these views."),
+      E("button",{type:"button",className:"art-draftall ghost",onClick:()=>goToLocationStep(location,2)},"Edit object shapes")),
     job?.notes?.length>0&&E("details",null,E("summary",null,"Render notes"),E("ul",{tabIndex:0,"aria-label":"Saved render notes"},job.notes.map((note,i)=>E("li",{key:i},note)))));
 }
 /* Moving parts (2026-11-01): which story moment the set is built at. Only shown when a part of this set moves. */
@@ -171,7 +174,7 @@ function LocationStyleStep({location,readOnly=false}){
   }
   if(!c.capable)return E("div",null,
     E("p",{className:"loc-layer-note",role:c.message?"alert":"status"},c.message||"Checking the built set…"),
-    c.message&&E("button",{type:"button",className:"art-draftall ghost",onClick:c.refresh},"Refresh render status"));
+    c.message&&E("button",{type:"button",className:"art-draftall ghost",onClick:c.refresh},c.job?"Refresh render status":"Retry renderer connection"));
   const setup=!ready&&E("div",{className:"loc-step-fixes"},
     E("p",{className:"loc-step-fixes-head"},c.job&&c.job.status==="completed"?"Rebuild the set first: its views are from an earlier floor plan or cameras.":"Build the set first."),
     E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,4)},"Go to 4 · Build the set"));

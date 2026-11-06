@@ -67,20 +67,48 @@ const state={api:{},show:true,scope:{},scene:{objects:[]},issues:[],scopeKey:"te
   caps:{open:true,canBuild:true,credits:15},capable:false,message:"Renderer unavailable",refresh:()=>refreshes++,
   setBusy:noop,setMessage:noop,setJob:noop};
 state.api.request=()=>{requests++;throw Error("A status click must not submit a paid request");};
+state.api.estimateSeconds=()=>60;
 box.useCloudSetJob=()=>state;
 for(const readOnly of [false,true]){
   const tree=box.LocationCloudRender({location,readOnly});
-  assert.equal(button(tree,"Refresh render status").props.disabled,false);
+  assert.equal(button(tree,"Retry renderer connection").props.disabled,false);
   assert.equal(nodes(tree).find(n=>n.type==="button"&&text(n).startsWith("Build set")).props.disabled,true,
     "unavailable connection cannot build");
-  button(tree,"Refresh render status").props.onClick();
+  button(tree,"Retry renderer connection").props.onClick();
   const style=box.LocationStyleStep({location,readOnly});
-  button(style,"Refresh render status").props.onClick();
+  button(style,"Retry renderer connection").props.onClick();
 }
 assert.equal(refreshes,4);assert.equal(requests,0);
+state.message="";
+for(const capable of [false,true]){
+  state.capable=capable;const initial=box.LocationCloudRender({location});
+  assert.equal(button(initial,"Refresh render status"),undefined,"No render-status action appears before a job exists");
+  assert.equal(button(initial,"Retry renderer connection"),undefined,"Normal loading and readiness need no recovery action");
+  assert.equal(button(initial,"Check render request"),undefined);
+}
+state.message="The request could not be confirmed";
+button(box.LocationCloudRender({location}),"Check render request").props.onClick();
+assert.equal(refreshes,5);assert.equal(requests,0,"An uncertain request can be checked without submitting another build");
+state.message="";
+state.scene.notes=["Simplified solid blocks: Bench. These show object bounds, not confirmed shapes."];
+const represented=box.LocationCloudRender({location});
+const shapeNote=nodes(represented).find(n=>n.props['data-testid']==='set-shape-review');
+assert.equal(shapeNote,undefined,"Generic blocks do not add an extra pre-build review step");
+assert.equal(button(represented,"Review object shapes"),undefined,"Approximate shapes do not appear as a new repair requirement");
+assert.equal(button(represented,"Edit object shapes"),undefined,"The edit shortcut waits for rendered results");
+state.scene.notes=[];
+for(const status of ["queued","running","completed","failed","cancelled"]){
+  state.job={id:"test",status};
+  assert.ok(button(box.LocationCloudRender({location}),"Refresh render status"),"Existing "+status+" jobs retain status refresh");
+  assert.equal(button(box.LocationCloudRender({location}),"Edit object shapes"),undefined,"Shape editing is not prompted until rendered results exist");
+}
+state.job=null;
 state.busy=true;
 assert.equal(button(box.LocationCloudRender({location}),"Refresh render status").props.disabled,true);
 state.busy=false;state.capable=true;state.job={id:"old",status:"completed",sceneHash:"older"};state.stale=true;
+state.job.result={images:{},report:{wallSeconds:60,cameras:Object.fromEntries(["TL","TR","BL","BR"].map(k=>[k,{direction:[0,1,0]}]))}};
+const completed=box.LocationCloudRender({location});
+button(completed,"Edit object shapes").props.onClick();assert.deepEqual(box.events.pop(),[location.id,2],"Completed results offer an optional path back to shape editing before rebuilding");
 box.LocationSetStyle="saved-style-panel";
 const archived=nodes(box.LocationStyleStep({location})).find(n=>n.type==="saved-style-panel");
 assert.ok(archived,"saved comparisons stay mounted while a rebuild is required");
