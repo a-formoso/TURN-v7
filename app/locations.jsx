@@ -1094,7 +1094,7 @@ function normalizeLocationSpatialPlan(value){
     if(xy||z!=null||facing!=null)out.posBasis=_locBasis(a.posBasis,"design");
     const size=_locVec(a.size,3);
     if(size&&size.every(n=>n>=0.01&&n<=1000)){out.size=size;out.sizeBasis=_locBasis(a.sizeBasis,"design");}
-    if(a.renderShape==="sports-net"||a.renderShape==="box")out.renderShape=a.renderShape;
+    if(["sports-net","box","bed","pillow","nightstand","wardrobe","table","chair"].includes(a.renderShape))out.renderShape=a.renderShape;
     const netMeshHeight=_locNum(a.netMeshHeight,.01,1000);if(netMeshHeight!=null)out.netMeshHeight=netMeshHeight;
     if(a.zBasis==="centre"||a.zBasis==="base")out.zBasis=a.zBasis;
     return out;

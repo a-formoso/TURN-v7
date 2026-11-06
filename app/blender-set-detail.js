@@ -27,8 +27,93 @@
     if(anchor?.renderShape)return anchor.renderShape;
     const name=String(anchor?.name||"");
     // Recognise named court nets, never a basketball hoop, a netball court or an object merely placed by a net.
-    return /\bnet\b/i.test(name)&&/\b(volleyball|badminton|tennis|sports|court|divider|dividing)\b/i.test(name)
-      &&!/(basketball|hoop|netball|cabinet|storage|rack)/i.test(name)?"sports-net":"box";
+    if(/\bnet\b/i.test(name)&&/\b(volleyball|badminton|tennis|sports|court|divider|dividing)\b/i.test(name)
+      &&!/(basketball|hoop|netball|cabinet|storage|rack)/i.test(name))return "sports-net";
+    // Match the object itself, not a neighbouring object in its placement description.
+    const subject=name.split(/\b(?:beside|near|above|under|behind|in front of|next to|by)\b/i)[0];
+    if(/\b(?:bed|chair|desk|table|wardrobe)\b.*(?: and | \+ | \/ ).*\b(?:bed|chair|desk|table|wardrobe)\b/i.test(subject))return "box";
+    if(/\b(?:bedside|nightstand|night stand)\b/i.test(subject))return "nightstand";
+    if(/\b(?:wardrobe|armoire)\b/i.test(subject))return "wardrobe";
+    if(/\b(?:pillow|pillows)\b/i.test(subject)&&(!/\bbed\b/i.test(subject)||/\bbed pillows?\b/i.test(subject)))return "pillow";
+    if(/\bbed\b/i.test(subject)&&! /\b(?:bunk|sofa|folding|bedspread|bedroom|pet|dog|cat)\b/i.test(subject)
+      &&(!/\bframe\b/i.test(subject)||/\bmattress\b/i.test(subject))
+      &&(!/\bheadboard\b/i.test(subject)||/\b(?:no headboard|without (?:a )?headboard)\b/i.test(subject)))return "bed";
+    if(/\b(?:desk|table)\b/i.test(subject)&&! /\b(?:lamp|light|cloth|tennis|pool|billiard|folding|wall|dressing)\b/i.test(subject))return "table";
+    if(/\bchair\b/i.test(subject)&&! /\b(?:wheelchair|armchair|driver|office|folding|rocking)\b/i.test(subject))return "chair";
+    return "box";
+  }
+  // Assemblies replace only an existing anchor. Every component stays inside its saved local envelope;
+  // rooms, openings, other anchors and camera poses are never moved to make furniture fit.
+  function buildFurniture(source,anchors){
+    const byId=new Map((anchors||[]).map(a=>[a.id,a]));
+    const supported=["bed","pillow","nightstand","wardrobe","table","chair"];
+    const eligible=o=>o.anchorId&&supported.includes(anchorShape(byId.get(o.anchorId)));
+    if(!source.objects.some(eligible))return source;
+    const scene=JSON.parse(JSON.stringify(source)),objects=[];
+    Object.assign(scene.materials,{
+      furnitureWood:{baseColor:[.44,.31,.18],roughness:.68},
+      bedLinen:{baseColor:[.72,.73,.66],roughness:.94},
+      mattressFabric:{baseColor:[.81,.8,.72],roughness:.94},
+      furnitureMetal:{baseColor:[.16,.18,.19],metallic:.45,roughness:.4}
+    });
+    const roundedFootprint=[[-.4,-.5],[.4,-.5],[.5,-.4],[.5,.4],[.4,.5],[-.4,.5],[-.5,.4],[-.5,-.4]];
+    const kinds=new Set();
+    for(const base of scene.objects){
+      if(!eligible(base)||Math.min(...base.size)<(anchorShape(byId.get(base.anchorId))==="pillow"?.001:.2)){objects.push(base);continue;}
+      const shape=anchorShape(byId.get(base.anchorId)),[w,d,h]=base.size;
+      kinds.add(shape);let n=0;
+      // Fractional offsets are from the saved centre. Rotate offsets with the complete saved transform.
+      const part=(label,at,size,material="furnitureWood",soft=false)=>{
+        const local=at.map((v,i)=>v*base.size[i]);
+        let [x,y,z]=local;const [rx,ry,rz]=base.rotation;
+        const y1=y*Math.cos(rx)-z*Math.sin(rx),z1=y*Math.sin(rx)+z*Math.cos(rx);
+        const x1=x*Math.cos(ry)+z1*Math.sin(ry),z2=-x*Math.sin(ry)+z1*Math.cos(ry);
+        x=x1*Math.cos(rz)-y1*Math.sin(rz);y=x1*Math.sin(rz)+y1*Math.cos(rz);
+        objects.push({...base,id:(base.id+"-furniture-"+n++).slice(0,100),name:(base.name+" · "+label).slice(0,160),
+          kind:soft?"prism":"box",material,position:[base.position[0]+x,base.position[1]+y,base.position[2]+z2].map(round),
+          size:size.map((v,i)=>round(v*base.size[i])),basis:"design",...(soft?{footprint:roundedFootprint.map(p=>p.slice())}:{})});
+      };
+      if(shape==="bed"){
+        // The long saved axis is the bed's length; the head is at its negative end before facing rotation.
+        const alongY=d>=w,bedPart=(label,at,size,material,soft)=>part(label,alongY?at:[at[1],at[0],at[2]],alongY?size:[size[1],size[0],size[2]],material,soft);
+        bedPart("bed frame",[0,0,-.29],[1,1,.42]);
+        bedPart("mattress",[0,.015,.025],[.94,.94,.21],"mattressFabric",true);
+        bedPart("cover",[0,.13,.145],[.95,.71,.03],"bedLinen",true);
+        const description=(byId.get(base.anchorId)?.name||"")+" "+(byId.get(base.anchorId)?.placement||"");
+        if(!/\b(?:no headboard|without (?:a )?headboard)\b/i.test(description))bedPart("headboard",[0,-.47,0],[1,.06,1]);
+        const separatePillow=(anchors||[]).some(a=>{
+          if(!a.xy||a.space!==byId.get(base.anchorId)?.space||anchorShape(a)!=="pillow")return false;
+          const angle=base.rotation[2],x=a.xy[0]-base.position[0],y=a.xy[1]-base.position[1];
+          return Math.abs(Math.cos(angle)*x+Math.sin(angle)*y)<=w/2&&Math.abs(-Math.sin(angle)*x+Math.cos(angle)*y)<=d/2;
+        });
+        const bare=/\b(?:no pillows?|without (?:a )?pillows?|bare bed)\b/i.test(description);
+        if(!separatePillow&&!bare){
+          const count=Math.min(w,d)>1.2?2:1;
+          for(let i=0;i<count;i++)bedPart("pillow "+(i+1),[(i-(count-1)/2)*.45,-.3,.235],[count===2?.4:.72,.22,.15],"mattressFabric",true);
+        }
+      }else if(shape==="pillow")part("cushion",[0,0,0],[1,1,1],"mattressFabric",true);
+      else if(shape==="table"){
+        part("tabletop",[0,0,.45],[1,1,.1]);
+        for(const x of [-.42,.42])for(const y of [-.42,.42])part("leg",[x,y,-.05],[.10,.10,.90]);
+      }else if(shape==="chair"){
+        part("seat",[0,.025,-.015],[1,.95,.09]);
+        part("backrest",[0,-.45,.25],[1,.10,.5]);
+        for(const x of [-.4,.4])for(const y of [-.38,.38])part("leg",[x,y,-.265],[.10,.10,.47]);
+      }else{
+        // Cabinet shell and inset fronts: an identifiable cupboard/drawer, not an uninterrupted box.
+        part("cabinet body",[0,0,0],[1,.94,1]);
+        const doors=shape==="wardrobe"?2:1;
+        for(let i=0;i<doors;i++){
+          const x=doors===2?(i===0?-.245:.245):0;
+          part(doors===2?"door "+(i+1):"drawer front",[x,.48,shape==="nightstand"?.19:0],[doors===2?.475:.94,.04,shape==="nightstand"?.48:.94]);
+          part("handle",[doors===2?(i===0?-.045:.045):0,.497,shape==="nightstand"?.19:0],[Math.min(.025,.018/w),.006,Math.min(.16,.12/h)],"furnitureMetal");
+        }
+      }
+    }
+    if(!kinds.size)return source;
+    scene.objects=objects;
+    scene.notes.push("Furniture assemblies ("+[...kinds].join(", ")+") follow saved object bounds and facing. Internal proportions, bedding and joinery are proposed design detail, not surveyed furniture. Unsupported or ambiguous objects remain blocks; an explicit Solid block choice disables automatic furniture shaping.");
+    return root.KinolotRenderContract.validateScene(scene);
   }
   function buildNets(source,anchors){
     const byId=new Map((anchors||[]).map(a=>[a.id,a]));
@@ -65,6 +150,7 @@
   }
   function build(source,{space,anchors,allAnchors}={}){
     source=buildNets(source,allAnchors||anchors);
+    source=buildFurniture(source,allAnchors||anchors);
     const bounds=rectangle(space);
     if(!bounds||!/\b(car|vehicle)[ -]*deck\b/i.test(space.name||"")||bounds.width<6||bounds.length<10)return source;
     const names=new Map((anchors||[]).map(a=>[a.id,(a.id+" "+a.name).toLowerCase()]));

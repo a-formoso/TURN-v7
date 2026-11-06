@@ -97,6 +97,23 @@
     const used=[],panels=[],spacing=Math.min(.6,Math.max(.15,Math.min(w,d)*.15));
     const defaults=Object.fromEntries(root.locationPanelPoses(location,list).map(p=>[p.key,{pose:p.suggestedPose}]));
     const desired=[[.1,.1],[.1,.9],[.9,.9],[.9,.1]],keys=["TL","TR","BL","BR"];
+    const roomAnchors=plan.anchors.filter(a=>a.xy&&a.size&&!isOpening(a,sp)&&(root.locationAnchorSpaceOf(a,family)||owner).id===sp.id);
+    const featureUses=new Map();
+    // A clear standing position alone is insufficient: aim at an identifiable saved feature rather than empty wall.
+    // Test the line to each feature against the other saved, rotated object bounds.
+    const blocked=(at,target,skip)=>roomAnchors.some(a=>{
+      if(a.id===skip)return false;
+      const angle=(a.facing||0)*Math.PI/180,c=Math.cos(angle),s=Math.sin(angle),centreZ=anchorCentreZ(a,sp,plan).z;
+      const local=p=>{const x=p[0]-a.xy[0],y=p[1]-a.xy[1];return [c*x-s*y,s*x+c*y,p[2]-centreZ];};
+      const p=local(at),q=local(target);let lo=0,hi=1;
+      for(let axis=0;axis<3;axis++){
+        const delta=q[axis]-p[axis],half=a.size[axis]/2;
+        if(Math.abs(delta)<1e-8){if(Math.abs(p[axis])>half)return false;continue;}
+        const u=(-half-p[axis])/delta,v=(half-p[axis])/delta;
+        lo=Math.max(lo,Math.min(u,v));hi=Math.min(hi,Math.max(u,v));if(lo>hi)return false;
+      }
+      return hi>.001&&lo<.999;
+    });
     for(let i=0;i<4;i++){
       const wanted=defaults[keys[i]]?.pose||{},z=rounded(wanted.position&&finite(wanted.position[2])
         ?clampHeight(wanted.position[2]-sp.floorZ):(i===1?high:eye)),seen=new Set();
@@ -105,7 +122,10 @@
         return !Object.keys(cameraProblemsIn(location,list,plan,spaces,family,owner,[{key:keys[i],pose:{position:p}}])).length;});
       const candidates=clear.filter(p=>used.every(a=>Math.hypot(a[0]-p[0],a[1]-p[1])>=spacing));
       if(!candidates.length)throw Error("There isn't enough clear space for four camera positions. Check the room footprint and object sizes in step 2.");
-      const preferred=wanted.position||[x0+w*desired[i][0],y0+d*desired[i][1]];
+      let preferred=wanted.position||[x0+w*desired[i][0],y0+d*desired[i][1]];
+      // A high view from the same corner as the first wide adds little coverage. Propose the reverse side.
+      if(i===1&&Math.hypot((preferred[0]-used[0][0])/w,(preferred[1]-used[0][1])/d)<.5)
+        preferred=[2*x0+w-used[0][0],2*y0+d-used[0][1]];
       const score=p=>((p[0]-preferred[0])/w)**2+((p[1]-preferred[1])/d)**2;
       candidates.sort((a,b)=>score(a)-score(b));const at=candidates[0];used.push(at);
       // Aim within the room; sampled sight lines cannot cross a concave footprint's outside wall.
@@ -115,12 +135,21 @@
         return distance/Math.max(w,d)+(finite(wanted.yaw)?2*(dx*Math.sin(wanted.yaw*Math.PI/180)+dy*Math.cos(wanted.yaw*Math.PI/180))/distance:0);};
       targets.sort((a,b)=>aimScore(b)-aimScore(a));
       if(!targets.length)throw Error("A clear view across this room couldn't be proposed. Check the footprint in step 2.");
-      const aim=targets[0],dist=Math.hypot(aim[0]-at[0],aim[1]-at[1]);
+      let aim=targets[0],aimZ=clampHeight(.9);
+      const features=roomAnchors.map(a=>({id:a.id,point:[...a.xy,anchorCentreZ(a,sp,plan).z+a.size[2]*.15],area:a.size[0]*a.size[1]}))
+        .filter(a=>Math.hypot(a.point[0]-at[0],a.point[1]-at[1])>.45
+          &&Array.from({length:19},(_,j)=>(j+1)/20).every(t=>inside(at[0]+(a.point[0]-at[0])*t,at[1]+(a.point[1]-at[1])*t))
+          &&!blocked(at,a.point,a.id));
+      const featureScore=a=>Math.log1p(a.area)*2-(featureUses.get(a.id)||0)*.75
+        +Math.min(2,Math.hypot(a.point[0]-at[0],a.point[1]-at[1]))*.15;
+      features.sort((a,b)=>featureScore(b)-featureScore(a));
+      if(features.length){const feature=features[0];aim=feature.point;aimZ=feature.point[2];featureUses.set(feature.id,(featureUses.get(feature.id)||0)+1);}
+      const dist=Math.hypot(aim[0]-at[0],aim[1]-at[1]);
       panels.push({key:keys[i],pose:{position:at,yaw:rounded((Math.atan2(aim[0]-at[0],aim[1]-at[1])*180/Math.PI+360)%360),
-        pitch:rounded(Math.max(-45,Math.min(15,finite(wanted.pitch)?wanted.pitch:Math.atan2(clampHeight(.9)-z,dist)*180/Math.PI))),
+        pitch:rounded(Math.max(-45,Math.min(15,features.length?Math.atan2(aimZ-z,dist)*180/Math.PI:finite(wanted.pitch)?wanted.pitch:Math.atan2(aimZ-z,dist)*180/Math.PI))),
         lensMm:wanted.lensMm||(i===1?20:24),basis:"design"}});
     }
-    const warnings=["Proposed positions avoid the saved walls and sized objects. Review the framing and any objects without dimensions before building."];
+    const warnings=["Proposed positions avoid the saved walls and sized objects and aim at visible sized furniture where possible. Review all four camera previews before building; a clear position does not guarantee useful framing or full room coverage."];
     return {key:cameraProposalKey(location,list),panels,warnings};
   }
   function cameraProposalViews(location,proposal,list){

@@ -18,7 +18,9 @@ const fixture={id:"deck",key:"deck",name:"Ferry - CAR Deck",spatialPlan:{status:
     {id:"sodium-lights",name:"Sodium-vapour fittings",xy:[0,15],z:3.6,size:[.35,.6,.2],facing:0},
   ].map(a=>({...a,space:"Ferry - CAR Deck",placement:"Saved placement",sizeBasis:"design",posBasis:"design"})),
   coordinates:{spaces:[{id:"deck",name:"Ferry - CAR Deck",floorZ:0,ceilingH:4,footprint:[[-7,0],[7,0],[7,40],[-7,40]],
-    openings:[{id:"stern-ramp",name:"Stern ramp",kind:"door",centre:[0,0],width:6,sillZ:0,headZ:3.8},
+    openings:[
+    // The aperture and the solid moving ramp are separate records: a door opening is not a solid ramp.
+    {id:"stern-aperture",name:"Stern opening",kind:"door",centre:[0,0],width:6,sillZ:0,headZ:3.8},
       {id:"stair-door",name:"Stair door",kind:"door",centre:[-7,12],width:.9,sillZ:.1,headZ:2}]}],
     cameras:[{panel:"TL",position:[0,.6,1.6],yaw:35,pitch:0,lensMm:24},{panel:"TR",position:[-6.2,1,2.8],yaw:19,pitch:-8,lensMm:20},
       {panel:"BL",position:[4.8,8,1.6],yaw:210,pitch:-6,lensMm:24},{panel:"BR",position:[0,16.8,1.6],yaw:180,pitch:-4,lensMm:24}].map(c=>({...c,spaceId:"deck"}))}}};

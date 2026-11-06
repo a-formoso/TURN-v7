@@ -324,3 +324,22 @@ Floor-plan drafting includes an explicit checklist for object position and size,
 room outlines and levels, opening dimensions and types, and all four cameras.
 Estimates remain proposed design values; unresolved fields are named. Missing
 build measurements are displayed while reviewing the draft, before confirmation.
+
+### Furniture in Build the set
+
+The shared scene builder recognises named beds, pillows, bedside cabinets, wardrobes,
+desks/tables and simple chairs. The Floor plan object editor also offers explicit
+Set shape choices; Solid block preserves the original proxy. Each assembly uses the
+saved outer dimensions, centre and facing. Bed length follows its longer local axis;
+the head is at that axis's negative end before facing rotation. Mattress, headboard,
+proposed pillows, table/chair legs and cabinet fronts provide recognisable silhouettes.
+A separately positioned pillow on the bed is not duplicated, and explicit no-pillow
+notes suppress the proposed pillow. Internal proportions and detail are design estimates.
+Unsupported, grouped or ambiguous furnishings remain blocks; this is not a furniture
+reconstruction or a guarantee of photorealism. No new objects or cameras are saved by
+building. Existing saved camera poses are retained exactly.
+
+Suggest four cameras now aims at visible sized furniture where possible, checking
+other object bounds along the line of sight. This changes only a new proposal; Use
+these cameras remains the explicit save action. Review each camera preview: a clear
+standing position does not guarantee useful framing or complete room coverage.
