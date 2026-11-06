@@ -67,6 +67,17 @@ Adding these choices starts no image generation or deployment.
 
 **Compact camera workflow:** Step 3 keeps the overhead map first and offers Go to 4 · Build the set when the current cameras pass checks. Composition notes are optional, collapsed by default and show one selected view at a time. Draft top-left composition only writes that main view (writing credits); it does not place Blender cameras, fill all four grids or create images. Unwritten grids say Not described. Add extra view notes adds written planning, not an extra camera in the Blender four-view build. This editor preserves existing saved views and cannot remove a plate-camera entry.
 
+**Next camera release scope (owner, 6 November):** Per-view note drafting for all four cameras, plus real extra-camera
+previews before assigning them to a panel, remain unimplemented. A candidate preview must keep the current four
+cameras intact and show its camera marker, direction, selected destination panel and that panel's existing view
+together. Replacing a panel needs an explicit choice; a note alone must never be presented as a rendered camera.
+Once this workflow is implemented and verified, update the homepage subscription cards **and** the in-app Plans
+cards to describe cloud set building, camera previews and location styling for **Director and Producer only**.
+Writer stays excluded. These are Art Room capabilities included in both plans; this does not claim a separate
+Stage integration. Both card surfaces use `turnPlanCardFeatures` in `app/plans.jsx`, including admin-edited copy.
+Do not advertise the pending camera-preview capability before it works, or publish the live site as part of this
+development work without release authorization.
+
 **Camera proposals in step 3:** **Suggest four cameras** is available for parent or child rooms with a reviewed
 footprint, even if cameras have already been saved. The free deterministic client proposes clear camera origins
 within the footprint and between floor and ceiling, using saved object dimensions and the existing suggested
