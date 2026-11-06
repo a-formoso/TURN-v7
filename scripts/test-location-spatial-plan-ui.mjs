@@ -143,18 +143,20 @@ reset();timers=[];box.KinolotFloorPlanEditRequests?.clear();tree=render({l:bus})
 button(tree,"Edit floor plan").props.onClick();tree=render({l:bus});
 let manualScroll=0,manualFocus=0;const requested=[];
 const start={scrollIntoView:()=>manualScroll++,focus:()=>manualFocus++};
-const objects={open:false,scrollIntoView:noop,querySelector:()=>({focus:noop})};
-const rooms={open:false,scrollIntoView:noop,querySelector:()=>({focus:noop})};
-const links={open:false,scrollIntoView:noop,querySelector:()=>({focus:noop})};
-const groups={".loc-plan-editor-start":start,".loc-plan-objects":objects,".loc-plan-metrics":rooms,".loc-plan-connections":links};
+const groups={".loc-plan-editor-start":start};
 flat(tree).find(n=>n.type==="fieldset").props.ref.current={querySelector:selector=>{requested.push(selector);return groups[selector];}};
 timers.splice(0).forEach(f=>f());
 assert.deepEqual(requested,[".loc-plan-editor-start"],"General editing does not jump directly to a lower metrics fold");
-assert.equal(manualScroll,1);assert.equal(manualFocus,1);assert.match(text(cls(tree,"loc-plan-editor-start")),/Choose what to change/);
-button(tree,"Room sizes & openings").props.onClick();assert.equal(rooms.open,true);assert.equal(objects.open,false);assert.equal(links.open,false);
-button(tree,"Objects & placements").props.onClick();assert.equal(objects.open,true);
-button(tree,"Connections & unknowns").props.onClick();assert.equal(links.open,true);
-assert.equal(writes.length,0,"Editor navigation and shortcuts never alter saved layout data");
+assert.equal(manualScroll,1);assert.equal(manualFocus,1);assert.match(text(cls(tree,"loc-plan-editor-start")),/Open a section below/);
+const contained=cls(tree,"loc-plan-editor");
+for(const group of ["loc-plan-objects","loc-plan-metrics","loc-plan-connections"]){
+ assert.ok(contained.children.includes(cls(tree,group)),"The "+group+" fold is directly inside the edit area");
+ assert.equal(cls(tree,group).type,"details","The section can open and fold in place");
+}
+for(const label of ["Objects & placements","Room sizes & openings","Connections & unknowns"])assert.equal(button(tree,label),undefined,"No duplicate shortcut: "+label);
+assert.ok(flat(contained).includes(button(tree,"Confirm shared layout")),"Confirmation stays in the same edit area");
+assert.ok(contained.children.indexOf(cls(tree,"loc-spatial-assist"))>contained.children.indexOf(cls(tree,"loc-plan-connections")),"Optional AI help follows the three editing sections");
+assert.equal(writes.length,0,"Opening the contained editor never alters saved layout data");
 // Follow the real edit callbacks through a disposable narrow bus plan into the exact Build-set scene.
 for(const f of ["blender-render-contract.js","blender-set-detail.js","blender-render.js"])vm.runInContext(source(f),box);
 box.TURN_SUPABASE={setBuild:true};
