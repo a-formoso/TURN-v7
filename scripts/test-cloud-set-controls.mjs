@@ -70,16 +70,16 @@ state.api.request=()=>{requests++;throw Error("A status click must not submit a 
 box.useCloudSetJob=()=>state;
 for(const readOnly of [false,true]){
   const tree=box.LocationCloudRender({location,readOnly});
-  assert.equal(button(tree,"Check status").props.disabled,false);
+  assert.equal(button(tree,"Refresh render status").props.disabled,false);
   assert.equal(nodes(tree).find(n=>n.type==="button"&&text(n).startsWith("Build set")).props.disabled,true,
     "unavailable connection cannot build");
-  button(tree,"Check status").props.onClick();
+  button(tree,"Refresh render status").props.onClick();
   const style=box.LocationStyleStep({location,readOnly});
-  button(style,"Check status").props.onClick();
+  button(style,"Refresh render status").props.onClick();
 }
 assert.equal(refreshes,4);assert.equal(requests,0);
 state.busy=true;
-assert.equal(button(box.LocationCloudRender({location}),"Check status").props.disabled,true);
+assert.equal(button(box.LocationCloudRender({location}),"Refresh render status").props.disabled,true);
 state.busy=false;state.capable=true;state.job={id:"old",status:"completed",sceneHash:"older"};state.stale=true;
 box.LocationSetStyle="saved-style-panel";
 const archived=nodes(box.LocationStyleStep({location})).find(n=>n.type==="saved-style-panel");

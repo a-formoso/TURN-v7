@@ -65,7 +65,7 @@ zones(tree).find(n=>n.props["aria-label"].startsWith("Middle centre:")).props.on
 assert.equal(editor(tree).props.value,"");
 assert.ok(zones(tree).find(n=>n.props["aria-pressed"]).props["aria-label"].endsWith("Open space"));
 editor(tree).props.onCommit("");assert.equal(saved.mid.center,"");
-const draftButton=flatten(tree).find(n=>n.type==="button"&&text(n)==="Draft top-left composition");
+const draftButton=flatten(tree).find(n=>n.type==="button"&&text(n)==="Draft notes for this view");
 draftButton.props.onClick();assert.equal(drafted,1);
 assert.equal(flatten(box.StagingGrid({...props,draftingStage:true})).find(n=>n.type==="button"&&text(n)==="Drafting…").props.disabled,true);
 assert.equal(text(byClass(box.StagingGrid({...props,target:"North wall",cameraPosition:"Doorway"}),"stage-map-direction")),"Looking toward: North wall");
@@ -83,15 +83,15 @@ assert.equal(viewTree.type,"details");assert.notEqual(viewTree.props.open,true,"
 assert.equal(maps.length,1,"Only one composition editor is mounted at a time");
 assert.equal(maps[0].props.target,"Window");assert.equal(maps[0].props.cameraPosition,"Doorway");
 assert.ok(text(viewTree).includes("not required for Build set"));
-assert.ok(text(viewTree).includes("writes only the main view"));
-assert.equal(maps[0].props.onDraftStaging,noop);
+assert.ok(text(viewTree).includes("changes only this view"));
+assert.equal(typeof maps[0].props.onDraftStaging,"function");
 const detailFields=flatten(maps[0].props.viewDetails).filter(n=>n.type===box.SheetField);
 assert.deepEqual(detailFields.map(n=>n.props.label),["Purpose / framing","Camera position","Target","Visible fixed landmarks"]);
 detailFields[2].props.onCommit("Archway");assert.equal(patch.id,"v1");assert.equal(patch.value.target,"Archway");
 patch=null;
 flatten(viewTree).find(n=>n.type==="select").props.onChange({target:{value:"v2"}});
 viewTree=box.CoverageViewsEditor(viewProps);maps=flatten(viewTree).filter(n=>n.type===box.StagingGrid);
-assert.equal(maps.length,1);assert.equal(maps[0].props.onDraftStaging,null,"Other views do not offer the top-left-only draft action");
+assert.equal(maps.length,1);assert.equal(typeof maps[0].props.onDraftStaging,"function","Every selected view offers drafting");
 assert.equal(maps[0].props.viewTitle,"Reverse");assert.equal(maps[0].props.mainView,false);
 assert.equal(patch,null,"Switching views changes no saved data");
 maps[0].props.onChange({...staging,lens:"50mm"});

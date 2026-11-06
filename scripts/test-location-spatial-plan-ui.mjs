@@ -5,7 +5,7 @@ import {readFileSync} from "node:fs";
 import vm from "node:vm";
 
 const noop=()=>{};
-let hooks=[],cursor=0,effects=[],writes=[],aiCalls=0,returned=0;
+let hooks=[],cursor=0,effects=[],writes=[],aiCalls=0,returned=0,timers=[];
 const React={
   createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity)}),
   useState:init=>{const i=cursor++;if(!(i in hooks))hooks[i]=typeof init==="function"?init():init;
@@ -15,7 +15,8 @@ const React={
   useEffect:(fn,deps)=>{const i=cursor++;if(!hooks[i]||deps.some((d,j)=>d!==hooks[i][j]))effects.push(fn);hooks[i]=deps;}
 };
 const box={console,React,localStorage:{getItem:()=>null},Icon:new Proxy({},{get:()=>noop}),
-  addEventListener:noop,removeEventListener:noop,nbEpoch:()=>1,nbGetMeta:()=>({iso:"v1"})};
+  addEventListener:noop,removeEventListener:noop,nbEpoch:()=>1,nbGetMeta:()=>({iso:"v1"}),
+  setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout:noop};
 box.window=box;vm.createContext(box);
 vm.runInContext(readFileSync("app/locations.jsx","utf8"),box);
 vm.runInContext(readFileSync("app/locations-ui.jsx","utf8"),box);
@@ -83,6 +84,8 @@ assert.equal(button(tree,"Confirm shared layout").props.disabled,true);
 
 reset();house.spatialPlan={...plan,status:"reviewed"};tree=render();
 assert.equal(tree.props.open,false);assert.equal(button(tree,"Confirm shared layout"),undefined);
+assert.ok(button(tree,"Edit floor plan"),"A confirmed layout remains explicitly editable");
+assert.match(text(tree),/placements are confirmed, not locked/);
 button(tree,"Back to image").props.onClick();assert.equal(returned,1);assert.equal(writes.length,0);
 let focused=0;
 tree.children[0].props.ref.current={focus:()=>focused++};
@@ -111,4 +114,26 @@ assert.equal(writes.length,0);
 reset();tree=box.LocationSpatialAnchorEditor({anchor:plan.anchors[0],onRemove:noop});
 assert.equal(tree.props.open,false);assert.match(text(tree.children[0]),/In front of fridge/,
   "collapsed object exposes placement, not just its name");
+
+// A Build-set repair link must survive the outer fold not having mounted its editor yet.
+const bus={id:"bus",key:"bus",name:"School Bus",spatialPlan:{...plan,status:"reviewed",source:{assetId:"bus",iso:"v1"},
+  anchors:plan.anchors.map(a=>({...a,space:"School Bus"}))}};
+box.turnContinuity={locations:[bus]};
+box.KinolotCloudRender={inputIssueList:()=>[{step:2,text:"Add the School Bus footprint to the floor plan first."}]};
+const navigation=[];box.CustomEvent=class{constructor(type,opts){this.type=type;this.detail=opts.detail;}};box.dispatchEvent=e=>navigation.push(e);
+vm.runInContext(readFileSync("app/blender-render-ui.jsx","utf8"),box);
+box.goToLocationStep(bus,2);
+assert.ok(box.KinolotFloorPlanEditRequests.get("bus"),"Repair is recorded before the closed editor mounts");
+assert.deepEqual(navigation.map(e=>e.type),["nb-open-fold","kinolot-edit-floor-plan"]);
+reset();timers=[];tree=render({l:bus});
+assert.equal(tree.props.open,true,"A confirmed layout opens on a pending build repair");
+assert.match(text(tree),/Add the School Bus footprint/);
+assert.equal(flat(tree).find(n=>n.type==="fieldset").props.disabled,false,"Confirmed data is not locked for an editor");
+let scrolled=0,fieldFocused=0;
+const metric={open:false,scrollIntoView:()=>scrolled++,querySelector:()=>({focus:()=>fieldFocused++})};
+flat(tree).find(n=>n.type==="fieldset").props.ref.current={querySelector:()=>metric};
+timers.splice(0).forEach(f=>f());
+assert.equal(metric.open,true);assert.equal(scrolled,1);assert.equal(fieldFocused,1);
+assert.equal(box.KinolotFloorPlanEditRequests.has("bus"),false,"A consumed request does not keep forcing the editor open later");
+assert.equal(writes.length,0,"Opening repairs never edits a saved film");
 console.log("PASS shared-layout review hierarchy, empty/ready/stale/read-only states, parent ownership, optional draft/discard, navigation focus and readable placements");

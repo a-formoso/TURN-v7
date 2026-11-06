@@ -204,7 +204,7 @@ await test("D2 Surprise me: says it costs, switches only once a style comes back
 });
 await test("D3 drafting asks before replacing what's written; a failed design isn't retried and is reported", ()=>{
   assert.ok(app.includes('title:"Draft \\u201c"+(l.name||"this location")+"\\u201d again?"') && app.includes('title:"Draft the view composition again?"'));
-  assert.ok(ui.includes('"Draft top-left composition"'));
+  assert.ok(ui.includes('"Draft notes for this view"'));
   const d = between(ai, "async function aiDesignLocationBible(", "window.aiDesignLocationBible = aiDesignLocationBible;");
   assert.ok(d.includes("}catch(e){ lastError = e; return null; }") && d.includes("if(part&&!Object.keys(part).length)part=await runBatch(items);"));
   assert.ok(d.includes("if(!Object.keys(out).length && lastError) throw lastError;"));

@@ -1220,6 +1220,25 @@ function locationStagingLayoutChanged(l){
 function locationStagingBasis(l){
   return JSON.stringify(typeof stagingOf==="function"?stagingOf(l||{}):((l&&l.staging)||{}));
 }
+function locationCompositionTarget(l,viewId){
+  const views=locationCoverageViews(l),index=viewId?views.findIndex(v=>v.id===viewId):0;
+  if(index<0)throw Error("This camera view was removed. Choose another view.");
+  return {view:views[index],index};
+}
+function locationCompositionCameraSig(l,viewId){
+  const {view,index}=locationCompositionTarget(l,viewId),panel=view.panel||(index===0?"TL":"");
+  const pose=panel?locationPanelPoses(l).find(p=>p.key===panel)?.pose:view.pose;
+  return JSON.stringify({panel,pose:pose||null,cameraPosition:view.cameraPosition||"",target:view.target||""});
+}
+function locationWithViewComposition(l,staging,viewId){
+  const {view,index}=locationCompositionTarget(l,viewId);
+  if(!(l.coverageViews||[]).length)return {...l,staging};
+  const coverageViews=locationCoverageViews(l).map(v=>v.id===view.id?{...v,staging:{...staging,viewLabel:v.name}}:v);
+  return {...l,coverageViews,...(index===0?{staging:coverageViews[0].staging}:{})};
+}
+window.locationCompositionTarget=locationCompositionTarget;
+window.locationCompositionCameraSig=locationCompositionCameraSig;
+window.locationWithViewComposition=locationWithViewComposition;
 function locationSpatialContract(l,locations){
   const owner=locationSpatialOwner(l,locations);
   const live=(locations||((window.turnContinuity||{}).locations)||[]).find(x=>x.id===owner.id)||owner;
@@ -4020,7 +4039,7 @@ function locationCoverageViews(l){
       target:String(v.target||""),visibleAnchors:String(v.visibleAnchors||""),
       lens:String(v.lens||staging.lens||""),
       // the layout it was drafted from survives grid edits (2026-10-12)
-      staging:{...staging,viewLabel:name,lens:String(v.lens||staging.lens||""),...(raw.layoutSig?{layoutSig:String(raw.layoutSig)}:{})},legacy:false};
+      staging:{...staging,viewLabel:name,lens:String(v.lens||staging.lens||""),...(raw.layoutSig?{layoutSig:String(raw.layoutSig)}:{}),...(raw.cameraSig?{cameraSig:String(raw.cameraSig)}:{})},legacy:false};
   });
 }
 function locationProductionPlan(l,units){

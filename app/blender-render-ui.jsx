@@ -58,8 +58,13 @@ function useCloudSetJob(location){
 }
 // "Go to step N" — the card's numbered folds open and scroll on nb-open-fold (CardFold)
 function goToLocationStep(location,step){
+  if(step===2){
+    const requests=window.KinolotFloorPlanEditRequests||(window.KinolotFloorPlanEditRequests=new Map());
+    requests.set(location.id,(requests.get(location.id)||0)+1);
+  }
   const id=typeof locationStepFoldId==="function"?locationStepFoldId(location,step):"";
   if(id)window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:id}));
+  if(step===2)window.dispatchEvent(new CustomEvent("kinolot-edit-floor-plan",{detail:{locationId:location.id}}));
 }
 const LOCATION_STEP_NAMES={1:"Describe",2:"Floor plan",3:"Cameras",4:"Build the set",5:"Style it"};
 // What stops the build, each with the step that fixes it.
@@ -124,9 +129,12 @@ function LocationCloudRender({location,readOnly=false}){
       E("button",{type:"button",className:"art-draftall",disabled:readOnly||!canBuild||busy||!c.capable||!sceneHash||!!running||issues.length>0,onClick:submit},
         busy?"Sending…":job&&job.status==="completed"?"Rebuild set":"Build set",!busy&&chip),
       E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:c.refresh,
-        title:"Refresh the renderer connection and saved views without starting or charging for a build"},"Check status"),
+        title:"Refresh the worker connection and this location's saved render job; no render or credit charge"},"Refresh render status"),
       running&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!canBuild||busy,onClick:cancel,
         title:paid?"Stop this build \u2014 its credits are given back":undefined},"Cancel")),
+    E("small",{className:"loc-layer-note",role:"status"},c.capable?"Renderer connected · "+(job?"Render job: "+job.status:"No saved render job"):
+      c.message?"Renderer connection needs attention":"Checking the renderer connection…"),
+    E("small",{className:"loc-layer-note"},"Refresh render status checks the worker connection and retrieves this location's latest job and images. It does not start a render or use credits."),
     running&&renderProgress(job,{now,started:runningSince.current,objects:scene?scene.objects.length:0,lastSeconds,api}),
     job&&!running&&job.status!=="completed"&&E("p",{role:"status",className:"loc-layer-note"},({failed:(job.error||"The render did not finish.")+(paid&&job.credits?" Its credits were given back.":""),
       cancelled:"Request cancelled."+(paid&&job.credits?" Its credits were given back.":"")})[job.status]),
@@ -163,7 +171,7 @@ function LocationStyleStep({location,readOnly=false}){
   }
   if(!c.capable)return E("div",null,
     E("p",{className:"loc-layer-note",role:c.message?"alert":"status"},c.message||"Checking the built set…"),
-    c.message&&E("button",{type:"button",className:"art-draftall ghost",onClick:c.refresh},"Check status"));
+    c.message&&E("button",{type:"button",className:"art-draftall ghost",onClick:c.refresh},"Refresh render status"));
   const setup=!ready&&E("div",{className:"loc-step-fixes"},
     E("p",{className:"loc-step-fixes-head"},c.job&&c.job.status==="completed"?"Rebuild the set first: its views are from an earlier floor plan or cameras.":"Build the set first."),
     E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,4)},"Go to 4 · Build the set"));

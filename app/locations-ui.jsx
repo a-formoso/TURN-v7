@@ -980,13 +980,17 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
 }
 
 function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,reviewRequest=0,onReturnToImage}){
+  const repairRequest=window.KinolotFloorPlanEditRequests?.get(l.id)||0;
+  const fieldsRef=React.useRef(null),[editFocus,setEditFocus]=React.useState(repairRequest);
   const [candidate,setCandidate]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState("");
   const [,refresh]=React.useReducer(n=>n+1,0);
   const state=locationSpatialPlanState(l),owner=state.owner,plan=candidate||state.plan;
-  const [open,setOpen]=React.useState(!state.ready);
+  const [open,setOpen]=React.useState(!state.ready||!!repairRequest);
   const summaryRef=React.useRef(null);
   const [mapSel,setMapSel]=React.useState("");   // the selected panel camera on the top-down map ("spaceId:TL")
   const confirmed=!candidate&&state.ready;
+  let renderIssues=[];
+  if(confirmed&&window.KinolotCloudRender?.inputIssueList)try{renderIssues=window.KinolotCloudRender.inputIssueList(l).filter(i=>i.step===2);}catch(_){}
   // the map's scene, once per render: drawn below and read for "Check these positions" on a draft (never blocking)
   const mapScene=typeof locationFloorPlanScene==="function"?locationFloorPlanScene(owner,plan):null;
   const checkPositions=!confirmed&&typeof locationFloorPlanCheckText==="function"?locationFloorPlanCheckText(mapScene):"";
@@ -1016,6 +1020,19 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     return ()=>setLocationLayoutDraftPending(id,token,false);
   },[owner.id,busy,!!candidate]);
   React.useEffect(()=>{if(reviewRequest){setOpen(true);summaryRef.current?.focus({preventScroll:true});}},[reviewRequest]);
+  React.useEffect(()=>{
+    const edit=e=>{if(e.detail?.locationId===l.id){setOpen(true);setEditFocus(n=>n+1);}};
+    window.addEventListener("kinolot-edit-floor-plan",edit);return ()=>window.removeEventListener("kinolot-edit-floor-plan",edit);
+  },[l.id]);
+  React.useEffect(()=>{if(!editFocus||!open)return;
+    const timer=setTimeout(()=>{
+      const metric=renderIssues.some(i=>/footprint|ceiling|sill|head heights|wall placement/i.test(i.text));
+      const target=fieldsRef.current?.querySelector(metric?".loc-plan-metrics":".loc-plan-objects")||fieldsRef.current;
+      if(target){target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});(target.querySelector?.("summary")||target).focus?.({preventScroll:true});}
+      window.KinolotFloorPlanEditRequests?.delete(l.id);
+    },100);
+    return ()=>clearTimeout(timer);
+  },[editFocus,open]);
   React.useEffect(()=>{const changed=()=>refresh();window.addEventListener("nb-gen-done",changed);
     return ()=>window.removeEventListener("nb-gen-done",changed);},[]);
   const change=patch=>{
@@ -1075,7 +1092,11 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         [empty?"Prepare":"Review","Confirm","Generate"].map((step,i)=>React.createElement("li",{key:step,
           "aria-current":i===(confirmed?2:0)?"step":undefined},React.createElement("span",null,i+1),step))),
       React.createElement("strong",null,confirmed?"Shared layout confirmed":empty?"Create the shared layout":"Review the shared layout"),
-      React.createElement("p",null,confirmed?"The shared layout is ready. Return to the image to generate when you are ready.":reviewHint),
+      React.createElement("p",null,confirmed?"The placements are confirmed, not locked. You can still edit objects, footprints and dimensions below; changes need confirmation again. A 3D build also needs complete measurements.":reviewHint),
+      confirmed&&renderIssues.length>0&&React.createElement("div",{className:"loc-step-fixes",role:"note"},
+        React.createElement("b",null,"Before Build set can run:"),React.createElement("ul",null,renderIssues.slice(0,6).map((i,n)=>React.createElement("li",{key:n},i.text)))),
+      confirmed&&React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm",onClick:()=>{setOpen(true);setEditFocus(n=>n+1);}},readOnly?"View floor plan":"Edit floor plan"),
+      confirmed&&window.KinolotCloudRender?.enabled?.()&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",onClick:()=>window.goToLocationStep(l,4)},"Back to 4 · Build the set"),
       confirmed
         ? onReturnToImage&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",onClick:onReturnToImage},"Back to image",React.createElement(Icon.chevR,{s:14}))
         : empty?draftButton(true):confirmButton(),
@@ -1092,12 +1113,14 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     mapScene&&React.createElement("div",{className:"loc-map-wrap"},
       React.createElement("h4",{className:"loc-spatial-heading"},candidate?"Top-down map \u2014 draft to review":"Top-down map"),
       React.createElement(LocationFloorPlanMap,{scene:mapScene,selected:mapSel,onSelect:setMapSel,spaceId:l.id})),
-    React.createElement("fieldset",{disabled:readOnly||busy},
+    React.createElement("fieldset",{ref:fieldsRef,tabIndex:-1,disabled:readOnly||busy},
       !empty&&React.createElement("details",{className:"loc-spatial-assist"},
         React.createElement("summary",null,"Need help? Draft with AI",React.createElement("small",null,"Optional")),
         React.createElement("p",{className:"loc-layer-note"},"Use only if the layout is missing or needs a new proposal. Reads all parent panels and your corrections below. Uses writing-model credits; no images are generated."),
         draftButton()),
       busy&&React.createElement("p",{role:"status",className:"loc-layer-note"},"Reading the reference panels. Your draft will appear here for review…"),
+      React.createElement("details",{className:"loc-nested-section loc-plan-objects",open:empty?true:undefined},
+      React.createElement("summary",null,"Fixed objects & placements · "+plan.anchors.length),
       React.createElement("h4",{className:"loc-spatial-heading"},empty?"Or enter placements manually":"Review & edit placements"),
       React.createElement("p",{className:"loc-layer-note"},empty
         ? "Set a viewing direction and add at least one fixed object with its room, name and placement. Confirm shared layout becomes available once these are filled."
@@ -1149,10 +1172,12 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
             onCommit:v=>{const f=_locParseNum(v);anchorChange(a.id,{facing:f==null?undefined:f});}}),
           (a.xy||a.z!=null||a.facing!=null)&&React.createElement(LocBasisSelect,{label:"Position basis",value:a.posBasis,onChange:v=>anchorChange(a.id,{posBasis:v})})))),
       React.createElement("button",{className:"art-draftall ghost",disabled:plan.anchors.length>=24,
-        onClick:()=>change({anchors:[...plan.anchors,{id:"anchor-"+Date.now().toString(36),space:l.name||"",name:"",placement:"",basis:"design",evidence:""}]})},"Add fixed anchor"),
-      typeof locationSpatialFamily==="function"&&React.createElement(LocationFloorPlanFields,{plan,family:locationSpatialFamily(owner),change,readOnly}),
+        onClick:()=>change({anchors:[...plan.anchors,{id:"anchor-"+Date.now().toString(36),space:l.name||"",name:"",placement:"",basis:"design",evidence:""}]})},"Add fixed anchor")),
+      React.createElement("details",{className:"loc-nested-section loc-plan-metrics"},React.createElement("summary",null,"Room footprints, dimensions & openings"),
+      typeof locationSpatialFamily==="function"&&React.createElement(LocationFloorPlanFields,{plan,family:locationSpatialFamily(owner),change,readOnly})),
+      React.createElement("details",{className:"loc-nested-section"},React.createElement("summary",null,"Connections & unresolved details"),
       field("Connections & doorway sightlines",plan.sightlines,value=>change({sightlines:value}),"Which rooms connect? What objects are visible through each opening?"),
-      field("Unknowns / conflicts to resolve in 3D",plan.unresolved,value=>change({unresolved:value}),"Unseen walls, conflicting panels, dimensions that still need measurement…"),
+      field("Unknowns / conflicts to resolve in 3D",plan.unresolved,value=>change({unresolved:value}),"Unseen walls, conflicting panels, dimensions that still need measurement…")),
       React.createElement("p",{className:"loc-layer-note"},"Check placements across all source panels and explicitly resolve any disagreement in Layout corrections. Floor plan numbers are approximate estimates for a 3D blockout \u2014 never a survey; unknown dimensions stay in Unknowns. A new parent plate requires another review."),
       !confirmed&&!empty&&React.createElement("div",{className:"loc-spatial-footer"},
         React.createElement("p",{className:"loc-layer-note"},check.complete?"Finished checking? Confirm this layout to enable image generation.":reviewHint),
@@ -2016,11 +2041,11 @@ function CoverageViewsEditor({l,views,onUpdateView,onAdd,onRemove,onDraftStaging
   const title=(v,index)=>v.panel&&LOC_PANEL_INFO[v.panel]?LOC_PANEL_INFO[v.panel].label:index===0?"Top left · main view":v.name||"Extra view";
   const written=v=>[v.staging?.floor,...Object.values(v.staging?.bg||{}),...Object.values(v.staging?.mid||{}),...Object.values(v.staging?.fg||{})].some(x=>String(x||"").trim());
   return React.createElement("details",{className:"loc-nested-section loc-composition-notes","data-testid":"optional-composition-notes"},
-    React.createElement("summary",null,"Composition notes (optional)",draftingStage&&React.createElement("span",{className:"loc-spatial-status",role:"status"},"Drafting top-left…")),
+    React.createElement("summary",null,"Composition notes (optional)",draftingStage&&React.createElement("span",{className:"loc-spatial-status",role:"status"},"Drafting view notes…")),
     React.createElement("div",{className:"loc-coverage-views"},
     React.createElement("div",{className:"loc-layer-note"},
       "Written notes about what appears near or far from the camera, for image generation and shot planning. They do not place the Blender cameras and are not required for Build set."),
-    React.createElement("p",{className:"loc-layer-note"},"Draft top-left composition writes only the main view's notes using writing credits. It does not fill the other views or generate an image."),
+    React.createElement("p",{className:"loc-layer-note"},"Draft notes for this view uses the selected camera and confirmed floor plan. Each draft uses writing credits; it changes only this view's notes and generates no image."),
     list.length>0&&React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"View notes"),
       React.createElement("select",{className:"prop-select",value:selected?.id||"",onChange:e=>setSelectedId(e.target.value)},
         list.map((v,index)=>React.createElement("option",{key:v.id,value:v.id},title(v,index)+(written(v)?" · notes saved":" · not described"))))),
@@ -2035,10 +2060,11 @@ function CoverageViewsEditor({l,views,onUpdateView,onAdd,onRemove,onDraftStaging
         index>0&&!v.panel&&React.createElement("button",{className:"loc-variant-x",disabled:readOnly,title:"Remove extra view notes",
           onClick:()=>{if(!readOnly)onRemove(v.id);}},React.createElement(Icon.x,{s:12}))),
       !written(v)&&React.createElement("p",{className:"loc-layer-note",role:"note"},"No composition notes yet. This does not mean the camera sees an empty room. The floor plan and saved camera settings still define its Blender view."),
+      v.staging?.cameraSig&&v.staging.cameraSig!==locationCompositionCameraSig(l,v.id)&&React.createElement("p",{className:"loc-layer-note stage-layout-changed",role:"status"},"Camera changed — draft this view's notes again to match its new angle."),
       React.createElement(StagingGrid,{l,value:v.staging,cameraPosition:v.cameraPosition,target:v.target,
         onChange:staging=>update(v.id,{staging,lens:staging.lens||""}),
         viewTitle:title(v,index),mainView:index===0,
-        lockViewLabel:true,onDraftStaging:index===0&&!readOnly?onDraftStaging:null,draftingStage:index===0&&draftingStage,
+        lockViewLabel:true,onDraftStaging:!readOnly&&typeof onDraftStaging==="function"?()=>onDraftStaging(l,v.id):null,draftingStage,
         viewDetails:React.createElement("div",{className:"loc-camera-view-fields"},
         React.createElement(SheetField,{label:"Purpose / framing",value:v.purpose||"",multiline:true,
           placeholder:"Reusable master, doorway two-shot, kitchen counter profile\u2026",
@@ -2093,8 +2119,8 @@ function StagingGrid({ l, onUpdate, onDraftStaging, draftingStage, value, onChan
     React.createElement("div",{className:"stage-toolbar"},
       React.createElement("span",{className:"stage-map-title"},viewTitle+" \u00b7 far, middle, near"),
       onDraftStaging && React.createElement("button",{className:"art-draftall",disabled:draftingStage||!!draftBlock,onClick:()=>onDraftStaging(l),
-        title:draftBlock||"Draft the main top-left view only (writing credits). Other views and Blender camera positions are unchanged; asks before replacing existing notes"},
-        React.createElement(Icon.sparkles,{s:14}), draftingStage?"Drafting\u2026":"Draft top-left composition")),
+        title:draftBlock||"Draft the selected view from its camera and confirmed floor plan (writing credits). Other views and camera positions stay unchanged; asks before replacing existing notes"},
+        React.createElement(Icon.sparkles,{s:14}), draftingStage?"Drafting\u2026":"Draft notes for this view")),
     draftBlock&&React.createElement("p",{className:"loc-layer-note stage-draft-wait",role:"status"},draftBlock),
     layoutChanged&&React.createElement("p",{className:"loc-layer-note stage-layout-changed",role:"status"},"Layout changed \u2014 re-draft view composition"),
     React.createElement("div",{className:"stage-composition",role:"group","aria-label":"Camera-relative composition for "+(s.viewLabel||l.name||"this view")},

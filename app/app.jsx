@@ -5695,13 +5695,16 @@ function App(){
   };
   // draft a location's depth-grid staging from the script
   const [draftingStageId, setDraftingStageId] = React.useState(null);
-  const draftLocationStaging = async (l)=>{
+  const draftLocationStaging = async (l,viewId)=>{
     if(draftingStageId || !(typeof aiDraftStaging==="function")) return;
     if(!canMutateSharedFilm()) return;
     // a view composition already written: ask first — it replaces the camera views, edits included (2026-10-08)
-    if(typeof stagingHasContent==="function" && stagingHasContent(l) && typeof window.appConfirm==="function"){
+    let target;try{target=locationCompositionTarget(l,viewId);}catch(e){window.appToast?.(e.message);return;}
+    const targetLoc={...l,staging:target.view.staging};
+    const ts=targetLoc.staging||{},hasWrittenNotes=[ts.scaleClass,ts.floor,...Object.values(ts.bg||{}),...Object.values(ts.mid||{}),...Object.values(ts.fg||{})].some(x=>String(x||"").trim());
+    if(hasWrittenNotes && typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({ title:"Draft the view composition again?",
-        body:"\u201c"+(l.name||"This location")+"\u201d\u2019s camera views are written again from the screenplay, replacing the current ones \u2014 your edits included. This uses writing credits.",
+        body:"Only \u201c"+target.view.name+"\u201d is written again, replacing its current composition notes, including your edits. Other views and all camera positions stay as they are. This uses writing credits.",
         confirmLabel:"Draft again", cancelLabel:"Cancel" });
       if(!ok) return;
     }
@@ -5711,16 +5714,20 @@ function App(){
     const block = (typeof locationStagingDraftBlock==="function") ? locationStagingDraftBlock(l) : "";
     if(block){ if(typeof window.appToast==="function") window.appToast(block); return; }
     const liveLoc = ()=> (locationsRef.current || []).find(x=>x.id===l.id) || null;   // (declared below; read at run time)
-    const basisOf = (x)=> (typeof locationStagingBasis==="function") ? locationStagingBasis(x) : JSON.stringify((x&&x.staging)||null);
+    const basisOf = (x)=> {try{return locationStagingBasis({...x,staging:locationCompositionTarget(x,target.view.id).view.staging});}catch(_){return "removed";}};
     const basis = basisOf(liveLoc() || l);
+    const camera0=locationCompositionCameraSig(liveLoc()||l,target.view.id),layout0=locationStagingLayoutSig(liveLoc()||l);
     const name = l.name || "this location";
     setDraftingStageId(l.id);
     const film0 = projIdRef.current;
     try{
-      const staging = await aiDraftStaging(l, scenes, project, { throwErrors:true });
+      const staging = await aiDraftStaging(l, scenes, project, { throwErrors:true,viewId:target.view.id });
       if(!staging || projIdRef.current!==film0) return;
       const now = liveLoc();
       if(!now) return;   // removed meanwhile
+      if(!canMutateSharedFilm())return;
+      if(locationCompositionCameraSig(now,target.view.id)!==camera0||locationStagingLayoutSig(now)!==layout0)
+        throw Error("The camera or floor plan changed during drafting. Draft this view again; the new notes were not applied.");
       if(basisOf(now)!==basis){
         // edited while it ran: the edits stay unless the user picks the draft
         const take = typeof window.appConfirm==="function" && await window.appConfirm({ title:"Use the new view composition?",
@@ -5733,7 +5740,16 @@ function App(){
         }
         if(projIdRef.current!==film0) return;
       }
-      setLocations(ls=>ls.map(x=>x.id===l.id?{...x, staging}:x));
+      if(!canMutateSharedFilm()||projIdRef.current!==film0)return;
+      const latest=liveLoc();
+      if(!latest||locationCompositionCameraSig(latest,target.view.id)!==camera0||locationStagingLayoutSig(latest)!==layout0)
+        throw Error("The camera or floor plan changed. The new notes were not applied.");
+      const acceptedBasis=basisOf(latest);
+      setLocations(ls=>ls.map(x=>{
+        if(x.id!==l.id||projIdRef.current!==film0||!canMutateSharedFilm())return x;
+        try{if(basisOf(x)!==acceptedBasis||locationCompositionCameraSig(x,target.view.id)!==camera0||locationStagingLayoutSig(x)!==layout0)return x;
+          return locationWithViewComposition(x,staging,target.view.id);}catch(_){return x;}
+      }));
     }catch(e){
       if(projIdRef.current===film0 && typeof window.appToast==="function"){
         const why = (typeof window.agentErrText==="function") ? window.agentErrText(e) : "an unexpected error";
@@ -9429,8 +9445,8 @@ function App(){
     } :
     (room==="art" && draftingStageId) ? {
       role:"Location Scout",
-      title:"Drafting location staging",
-      detail:"Turning the location into a practical depth grid for consistent camera blocking."
+      title:"Drafting camera-view notes",
+      detail:"Writing composition notes for the selected camera from the confirmed floor plan. Other views and camera positions stay as they are; no image is generated."
     } : null;
   // ── Signed-out gate: show the commercial landing page instead of the app. The
   //    departments (spine, Writers' Room, Art Room, Agents) are never exposed until

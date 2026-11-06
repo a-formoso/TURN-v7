@@ -33,7 +33,7 @@ job's status does it (`blender-render-billing.sql`). One renderer (the Replit wo
 **Control discovery and connection recovery (5 November):** steps 4 and 5 stay visible when `setBuild` is on,
 including parent locations and cards without their own footprint. Step 4 routes to an existing room's build fold or
 step 2 to add a footprint; it does not invent geometry, modify the saved plan or submit a build. Step 5 explains that
-the room must be built first. For an existing room, **Check status** reloads capabilities and the latest saved job
+the room must be built first. For an existing room, **Refresh render status** reloads capabilities and the latest saved job
 after a connection error, without rendering or charging; read-only members may refresh too. The Style it connection
 error offers the same recovery. Regression: `node scripts/test-cloud-set-controls.mjs`.
 
@@ -65,10 +65,13 @@ Adding these choices starts no image generation or deployment.
 
 **Generation requirements:** Both comparisons display the exact saved styling prompt. New style drafts retain the verified numerical source scene in their metadata; loading checks its hash against the original build revision. The review shows shape dimensions/positions, cameras, lights and notes. Older drafts explicitly disclose when this snapshot is absent. No current plan is substituted for a historical input. The existing private generation storage and version history carry these records; no schema or worker deployment is required.
 
-**Compact camera workflow:** Step 3 keeps the overhead map first and offers Go to 4 · Build the set when the current cameras pass checks. Composition notes are optional, collapsed by default and show one selected view at a time. Draft top-left composition only writes that main view (writing credits); it does not place Blender cameras, fill all four grids or create images. Unwritten grids say Not described. Add extra view notes adds written planning, not an extra camera in the Blender four-view build. This editor preserves existing saved views and cannot remove a plate-camera entry.
+**Compact camera workflow:** Step 3 keeps the overhead map first and offers Go to 4 · Build the set when the current cameras pass checks. Composition notes are optional, collapsed by default and show one selected view at a time. Draft notes for this view writes only the selected camera's composition (writing credits); it does not place Blender cameras, fill all four grids or create images. Unwritten grids say Not described. Add extra view notes adds written planning, not an extra camera in the Blender four-view build. This editor preserves existing saved views and cannot remove a plate-camera entry.
 
-**Next camera release scope (owner, 6 November):** Per-view note drafting for all four cameras, plus real extra-camera
-previews before assigning them to a panel, remain unimplemented. A candidate preview must keep the current four
+**Per-view drafting (6 November):** Every selected view has Draft notes for this view. The prompt uses its pose/viewpoint and the shared layout; the App updates the selected `coverageViews` entry, syncing legacy root staging only for the main view. Measured lenses stay fixed. Camera, layout, film, deletion, read-only and concurrent-edit checks prevent stale application. Tests exercise the real App closure and model prompt without provider calls (`test-selected-view-drafting.mjs`).
+
+**Build repair navigation (6 November):** A confirmed layout remains editable. A pending request survives the outer fold mounting, opens the confirmed editor and focuses the relevant object/metric fold. The header lists outstanding 3D prerequisites and offers Edit floor plan; confirmation of placements is separate from metric completeness. Related fields are folded. Refresh render status names the worker connection and saved job and performs no paid action.
+
+**Next camera release scope (owner, 6 November):** Extra-camera previews before assigning an angle to a panel remain unimplemented. A lightweight browser layout preview using the same scene geometry is being prepared; final rendering stays on cloud Blender. A candidate preview must keep the current four
 cameras intact and show its camera marker, direction, selected destination panel and that panel's existing view
 together. Replacing a panel needs an explicit choice; a note alone must never be presented as a rendered camera.
 Once this workflow is implemented and verified, update the homepage subscription cards **and** the in-app Plans
