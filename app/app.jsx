@@ -5404,7 +5404,7 @@ function App(){
   // edit rights (2026-10-08, owner — Locations review): the cards' own background syncs (times, coverage)
   // call this too, so a role that can't change the Art Room no-ops SILENTLY here; explicit actions below
   // say why through canMutateSharedFilm()
-  const updateLocation = (id,patch)=>{ if(artRoomReadOnlyRef.current) return; setLocations(ls=>ls.map(l=>l.id===id?{...l,...patch}:l)); };
+  const updateLocation = (id,patch,cameraAction)=>{ if(artRoomReadOnlyRef.current) return; setLocations(ls=>window.KinolotCameraHistory?.apply?window.KinolotCameraHistory.apply(ls,id,patch,cameraAction):ls.map(l=>l.id===id?{...l,...patch}:l)); };
   // per-card location drafts run CONCURRENTLY — a set of ids currently drafting, so you
   // can fire "Draft & Generate" on several locations at once (not one-at-a-time).
   const [draftingLocIds, setDraftingLocIds] = React.useState([]);

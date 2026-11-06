@@ -60,7 +60,7 @@ await test("A3 restore says when the place is already on the board; purge clears
   assert.ok(purge.includes("they can't make new ones until this place is back") && purge.includes("comes back as an empty card"));
 });
 await test("A4 edit rights: every change, and the background syncs, only for a role that can change the Art Room", ()=>{
-  assert.ok(app.includes("const updateLocation = (id,patch)=>{ if(artRoomReadOnlyRef.current) return;"));
+  assert.ok(app.includes("const updateLocation = (id,patch,cameraAction)=>{ if(artRoomReadOnlyRef.current) return;"));
   for(const fn of ["  const deleteLocation = (id)=>{", "  const restoreLocation = (id)=>{", "  const purgeLocation = async (id)=>{",
     "  const draftLocationVisuals = async (l)=>{", "  const draftAllLocations = async (mode)=>{", "  const draftLocationStaging = async (l,viewId)=>{"]){
     const i = app.indexOf(fn); assert.ok(i>0, fn); assert.ok(app.slice(i, i+260).includes("canMutateSharedFilm()"), fn); }

@@ -72,7 +72,11 @@ const door=(sillZ,headZ)=>({id:"office-door",name:"Office door",kind:"door",edge
   const deck=family([{id:"vent",name:"Ventilation trunk",xy:[6,10],z:2,size:[1.2,1,4],sizeBasis:"design"}],[door(4.55,6.3)],"centre");
   near(objectZ(box.KinolotCloudRender.buildScene(deck),"vent"),2,"A marked plan's height is the object's centre");
   const wrong=family([{id:"vent",name:"Ventilation trunk",xy:[6,10],z:2,size:[1.2,1,4]}],[door(0.15,1.9)],"centre");
-  check(box.KinolotCloudRender.inputIssues(wrong).some(i=>/sill and head/.test(i)),"A marked plan's openings are main-floor heights, so a room-relative one is flagged, not guessed");
+  check(box.KinolotCloudRender.inputIssues(wrong).some(i=>/bottom.*below the room floor/.test(i)),"A marked plan's openings are main-floor heights, so a room-relative one is flagged, not guessed");
+  const tooHigh=family([{id:"vent",name:"Ventilation trunk",xy:[6,10],z:2,size:[1.2,1,4]}],[door(4.55,8)],"centre");
+  check(box.KinolotCloudRender.inputIssues(tooHigh).some(i=>/top is at 8 m, above the ceiling at 7 m/.test(i)),"The message gives the exact top and ceiling heights to correct");
+  const inverted=family([{id:"vent",name:"Ventilation trunk",xy:[6,10],z:2,size:[1.2,1,4]}],[door(4.9,4.7)],"centre");
+  check(box.KinolotCloudRender.inputIssues(inverted).some(i=>/top must be higher than its bottom/.test(i)),"An inverted opening gets a plain-language correction");
   check(box.locationAnchorHeightBasis({zBasis:"base",size:[1,1,1]},{heights:"centre"})==="base","An object's own recorded basis wins over the plan's marker");
 }
 

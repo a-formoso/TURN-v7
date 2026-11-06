@@ -65,7 +65,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
         const sig=locationCompositionCameraSig(location,old.id);
         coverageViews=coverageViews.map(v=>v.panel===destination?{...v,staging:{...v.staging,cameraSig:sig}}:v);
       }
-      onUpdate(location.id,{coverageViews});setOpen(false);
+      onUpdate(location.id,{coverageViews},{kind:"angle-assigned"});setOpen(false);
       setNotice(labels[destination]+" now uses this camera angle. Rebuild in step 4, then style the updated grid in step 5.");
     }catch(e){setError(e.message);}
   }

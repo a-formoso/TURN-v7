@@ -318,7 +318,7 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
     const currentList=((window.turnContinuity||{}).locations)||[],currentLocation=currentList.find(x=>x.id===l.id);
     if(!currentLocation)throw Error("The open location changed. Suggest four cameras again.");
     const views=api.cameraProposalViews(currentLocation,proposal,currentList);
-    onUpdate(l.id,{coverageViews:views});setProposal(null);setError("");}catch(e){setError(e.message);}};
+    onUpdate(l.id,{coverageViews:views},{kind:"suggested-cameras"});setProposal(null);setError("");}catch(e){setError(e.message);}};
   return E("div",{className:"loc-map-wrap","data-testid":"camera-suggestions"},
     E("h4",{className:"loc-spatial-heading"},proposal&&!stale?"Proposed cameras · overhead view":"Cameras · overhead view"),
     E("p",{className:"loc-layer-note"},"TL, TR, BL and BR name the four image panels, not corners of the room. Select a camera on the map to inspect its position and viewing cone."),
@@ -368,7 +368,7 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
   const layoutKnows=!notedNow&&rooms.length>0&&!!plateMeta&&!plateMeta.platePanels&&typeof locationViewCandidates==="function"
     &&(()=>{try{return !!locationViewCandidates(l,rooms[0]).recorded;}catch(e){return false;}})();
   const storedPose=key=>({...(((locationStoredPanelViews(l)[key])||{}).pose||{})});
-  const save=(key,pose)=>{ if(readOnly)return; onUpdate(l.id,{coverageViews:locationCoverageViewsWithPose(l,key,pose)}); };
+  const save=(key,pose)=>{ if(readOnly)return; onUpdate(l.id,{coverageViews:locationCoverageViewsWithPose(l,key,pose)},{kind:pose?"camera-edit":"camera-reset"}); };
   const setField=(p,field,raw)=>{
     const next=storedPose(p.key);
     if(field==="position"){
@@ -960,8 +960,8 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
           React.createElement(LocCoordInput,{label:"Faces (outward)",value:_locFmt(o.yaw),placeholder:"degrees",disabled:readOnly,
             hint:o.yaw!=null?locCompass(o.yaw):"",onCommit:v=>setOpening(sp.id,o.id,{yaw:_locParseNum(v)})}),
           React.createElement(LocCoordInput,{label:"Width",value:_locFmt(o.width),placeholder:"0.9",disabled:readOnly,hint:"m",onCommit:v=>setOpening(sp.id,o.id,{width:_locParseNum(v)})}),
-          React.createElement(LocCoordInput,{label:"Sill",value:_locFmt(o.sillZ),placeholder:"0.9",disabled:readOnly,hint:"m above the main floor",onCommit:v=>setOpening(sp.id,o.id,{sillZ:_locParseNum(v)})}),
-          React.createElement(LocCoordInput,{label:"Head",value:_locFmt(o.headZ),placeholder:"2.1",disabled:readOnly,hint:"m above the main floor",onCommit:v=>setOpening(sp.id,o.id,{headZ:_locParseNum(v)})}),
+          React.createElement(LocCoordInput,{label:"Opening bottom (sill)",value:_locFmt(o.sillZ),placeholder:"0.9",disabled:readOnly,hint:"m above the main floor",onCommit:v=>setOpening(sp.id,o.id,{sillZ:_locParseNum(v)})}),
+          React.createElement(LocCoordInput,{label:"Opening top (head)",value:_locFmt(o.headZ),placeholder:"2.1",disabled:readOnly,hint:"m above the main floor",onCommit:v=>setOpening(sp.id,o.id,{headZ:_locParseNum(v)})}),
           React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"Opens onto"),
             React.createElement("select",{className:"prop-select",disabled:readOnly,value:o.connectsTo||"",onChange:e=>setOpening(sp.id,o.id,{connectsTo:e.target.value})},
               React.createElement("option",{value:""},"Outside / not set"),
@@ -1039,7 +1039,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   },[l.id]);
   React.useEffect(()=>{if(!editFocus||!open)return;
     const timer=setTimeout(()=>{
-      const metric=renderIssues.some(i=>/footprint|ceiling|sill|head heights|wall placement|openings/i.test(i.text));
+      const metric=renderIssues.some(i=>/footprint|ceiling|sill|head heights|wall placement|openings|opening top|opening bottom/i.test(i.text));
       const selector=editOrigin.current==="manual"?".loc-plan-editor-start":metric?".loc-plan-metrics":".loc-plan-objects";
       const target=fieldsRef.current?.querySelector(selector)||fieldsRef.current;
       if(target){if(selector!==".loc-plan-editor-start")target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});(target.querySelector?.("summary")||target).focus?.({preventScroll:true});}
@@ -1086,7 +1086,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     const reviewed=normalizeLocationSpatialPlan({...plan,status:"reviewed",source:current.source});
     const check=locationSpatialPlanState({...owner,spatialPlan:reviewed});
     if(!check.ready){setError(check.reason);return;}
-    onUpdate(owner.id,{spatialPlan:reviewed});setCandidate(null);setError("");
+    onUpdate(owner.id,{spatialPlan:reviewed},{kind:candidate?"layout-proposal":"floor-plan-edit"});setCandidate(null);setError("");
   };
   const field=(label,value,onChange,placeholder)=>React.createElement("label",{className:"loc-spatial-field"},
     React.createElement("span",null,label),React.createElement("textarea",{className:"prop-select",value,
@@ -1205,7 +1205,39 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         error&&React.createElement("p",{className:"loc-spatial-error"},error))));
 }
 
-function LocationImageChangeNotices({l,meta,hasImage,onSelectLocation}){
+/* Interactive help floats above cards, so opening it cannot change card alignment. */
+function LocationHelpPopover({label,title,children}){
+  const E=React.createElement,[open,setOpen]=React.useState(false),[pinned,setPinned]=React.useState(false),[position,setPosition]=React.useState({});
+  const trigger=React.useRef(null),panel=React.useRef(null),timer=React.useRef(null),skipFocus=React.useRef(false);
+  const id="loc-help-"+React.useId().replace(/:/g,"");
+  const cancel=()=>{clearTimeout(timer.current);};
+  const close=()=>{cancel();setOpen(false);setPinned(false);};
+  const place=()=>{const r=trigger.current?.getBoundingClientRect();if(!r)return;const width=Math.min(360,window.innerWidth-24),top=Math.max(12,Math.min(r.bottom+6,window.innerHeight-220));setPosition({width,left:Math.max(12,Math.min(r.right-width,window.innerWidth-width-12)),top,maxHeight:Math.max(120,window.innerHeight-top-12)});};
+  const show=()=>{cancel();place();setOpen(true);};
+  const leave=()=>{cancel();timer.current=setTimeout(()=>{if(!pinned&&!trigger.current?.contains(document.activeElement)&&!panel.current?.contains(document.activeElement))close();},180);};
+  React.useEffect(()=>()=>cancel(),[]);
+  React.useEffect(()=>{if(!open)return;
+    const outside=e=>{if(!trigger.current?.contains(e.target)&&!panel.current?.contains(e.target))close();};
+    const escape=e=>{if(e.key==="Escape"){e.preventDefault();e.stopPropagation();close();skipFocus.current=true;trigger.current?.focus();}};
+    const moved=()=>place();document.addEventListener("pointerdown",outside);document.addEventListener("keydown",escape);window.addEventListener("resize",moved);window.addEventListener("scroll",moved,true);
+    return ()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",escape);window.removeEventListener("resize",moved);window.removeEventListener("scroll",moved,true);};
+  },[open]);
+  const blur=()=>{cancel();timer.current=setTimeout(()=>{if(!trigger.current?.contains(document.activeElement)&&!panel.current?.contains(document.activeElement))close();},0);};
+  return E("span",{className:"loc-help-anchor",onMouseEnter:show,onMouseLeave:leave},
+    E("button",{ref:trigger,type:"button",className:"loc-help-trigger","aria-label":label,"aria-haspopup":"dialog","aria-expanded":open,"aria-controls":open?id:undefined,
+      onFocus:()=>{if(skipFocus.current){skipFocus.current=false;return;}show();},onBlur:blur,
+      onKeyDown:e=>{if(["ArrowDown","Enter"," "].includes(e.key)){e.preventDefault();show();setPinned(true);setTimeout(()=>panel.current?.querySelector("button")?.focus(),0);}},
+      onClick:e=>{e.stopPropagation();if(pinned)close();else{show();setPinned(true);}}},E(Icon.info,{s:14})),
+    open&&ReactDOM.createPortal(E("div",{ref:panel,id,role:"dialog","aria-label":title,className:"loc-help-panel",style:position,
+      onMouseEnter:cancel,onMouseLeave:leave,onFocusCapture:cancel,onBlurCapture:blur},
+      E("div",{className:"loc-help-heading"},E("strong",null,title),E("button",{type:"button",className:"loc-help-close","aria-label":"Close help",onClick:()=>{close();skipFocus.current=true;trigger.current?.focus();}},"×")),
+      typeof children==="function"?children(close):children),document.body));
+}
+function LocationImageChangeNotices(props){
+  if(!LocationImageChangeContent(props))return null;
+  return React.createElement(LocationHelpPopover,{label:"Changes since this location image",title:"What changed?",key:props.l.id+":"+(props.meta?.iso||"")},close=>React.createElement(LocationImageChangeContent,{...props,onNavigate:close}));
+}
+function LocationImageChangeContent({l,meta,hasImage,onSelectLocation,onNavigate}){
   if(!hasImage)return null;
   const E=React.createElement,reasons=locationPlateChangeReasons(meta,l),items=[];
   const go=step=>window.goToLocationStep(l,step);
@@ -1222,8 +1254,15 @@ function LocationImageChangeNotices({l,meta,hasImage,onSelectLocation}){
   return E("aside",{className:"loc-change-notices","aria-label":"Changes since this image"},
     E("p",null,"Existing image uses earlier settings:"),
     reasons.unknown&&E("p",{className:"loc-change-unknown"},"This older image has no separate camera record, so the changed section cannot be identified precisely."),
+    reasons.cameras&&window.KinolotCameraHistory&&E("details",{className:"loc-camera-differences"},
+      E("summary",null,"Why cameras changed"),
+      window.KinolotCameraHistory.differences(meta,l).map(change=>E("div",{key:change.panel,className:"loc-camera-difference"},
+        E("b",null,LOC_PANEL_INFO[change.panel]?.label||"Camera"),
+        E("p",null,"Last recorded action: "+change.cause+(change.at?" · "+new Date(change.at).toLocaleString([], {dateStyle:"medium",timeStyle:"short"}):"")),
+        E("p",null,"In this image: "+(change.before?locationPoseText(change.before,"",locationSpaceAnchors(l)):"Camera settings were not recorded.")),
+        E("p",null,"Now: "+locationPoseText(change.after,"",locationSpaceAnchors(l)))))),
     E("div",{className:"loc-change-links"},items.map(item=>item.run
-      ?E("button",{key:item.key,type:"button",className:"loc-change-link",title:item.title,onClick:item.run},item.label)
+      ?E("button",{key:item.key,type:"button",className:"loc-change-link",title:item.title,onClick:()=>{onNavigate?.();item.run();}},item.label)
       :E("span",{key:item.key,className:"loc-change-label",title:item.title},item.label))));
 }
 
@@ -1795,11 +1834,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
                 title:M[1]+" (Class "+cls+") \u2014 derived automatically from the characters who drive this place's scenes. Plates here render at this scale."},
                 M[0]+" "+cls); })(),
             React.createElement(EditText,{value:l.name,placeholder:"Location name\u2026",onCommit:val=>onUpdate(l.id,{name:val})}),
-            null),
+            React.createElement(LocationImageChangeNotices,{l,meta:gen.genMeta,hasImage:!!gen.genUrl,onSelectLocation})),
           l.parentLocation&&React.createElement("div",{className:"loc-parent-breadcrumb"},
             "within ",React.createElement("b",null,l.parentLocation.name)," \u00b7 inherits continuity"),
           null)),
-      React.createElement(LocationImageChangeNotices,{l,meta:gen.genMeta,hasImage:!!gen.genUrl,onSelectLocation}),
       // where this card stands and what to do next (owner 2026-11-01: one numbered path per card)
       React.createElement(LocationStepGuide,{l,steps:cardSteps}),
 
@@ -2055,13 +2093,16 @@ function LocationStepGuide({l,steps}){
   const ref=React.useRef(null);
   const go=n=>{
     if(n===6){const card=ref.current&&ref.current.closest("[data-location-card]");if(card)try{card.scrollIntoView({behavior:"smooth",block:"start"});}catch(_){}return;}
-    window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:locationStepFoldId(l,n)}));
+    if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,n);
+    else window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:locationStepFoldId(l,n)}));
   };
   const next=steps.find(x=>x.next),E=React.createElement;
   return E("div",{className:"loc-steps",ref,"data-testid":"location-step-guide"},
     next?E("div",{className:"loc-steps-next"},
       E("span",{className:"loc-steps-next-label"},"Next"),
-      E("span",{className:"loc-steps-next-text"},E("b",null,next.n+" \u00b7 "+next.name+" \u2014 "),next.todo),
+      E("span",{className:"loc-steps-next-text"},next.n+" · "+next.name),
+      E(LocationHelpPopover,{label:"What to do in "+next.name,title:next.n+" · "+next.name,key:l.id+":"+next.n},close=>E("div",null,
+        E("p",null,next.todo),E("button",{type:"button",className:"art-draftall ghost",onClick:()=>{close();go(next.n);}},"Open "+next.name))),
       E("button",{type:"button",className:"art-draftall loc-step-go",onClick:()=>go(next.n)},"Go")
     ):E("div",{className:"loc-steps-next done"},E("span",{className:"loc-steps-next-text"},"Every step is done.")),
     E("ol",{className:"loc-steps-list","aria-label":"Steps for this location"},steps.map(st=>E("li",{key:st.n},

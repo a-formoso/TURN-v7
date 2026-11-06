@@ -155,8 +155,10 @@
         if(!a||!b){issues.push("Check the wall placement of "+(o.name||"this opening")+".");continue;}
         const length=Math.hypot(b[0]-a[0],b[1]-a[1]),u=[(b[0]-a[0])/length,(b[1]-a[1])/length];
         const x=(o.centre[0]-a[0])*u[0]+(o.centre[1]-a[1])*u[1],distance=Math.abs((o.centre[0]-a[0])*u[1]-(o.centre[1]-a[1])*u[0]);
-        if(o.sillZ<s.floorZ||o.headZ>s.floorZ+s.ceilingH||o.headZ<=o.sillZ)
-          issues.push("Check the sill and head heights for "+(o.name||"this opening")+" in "+(s.name||"its room")+"; heights are measured above the main floor.");
+        const metres=n=>Math.round(n*100)/100+" m";
+        if(o.sillZ<s.floorZ)issues.push((o.name||"This opening")+": its bottom is at "+metres(o.sillZ)+", below the room floor at "+metres(s.floorZ)+". Correct Opening bottom in step 2.");
+        if(o.headZ>s.floorZ+s.ceilingH)issues.push((o.name||"This opening")+": its top is at "+metres(o.headZ)+", above the ceiling at "+metres(s.floorZ+s.ceilingH)+". Correct Opening top or the room ceiling height in step 2.");
+        if(o.headZ<=o.sillZ)issues.push((o.name||"This opening")+": its top must be higher than its bottom. Correct Opening top and Opening bottom in step 2.");
         if(distance>0.25||x-o.width/2<0||x+o.width/2>length)
           issues.push("Check the dimensions and wall placement of "+(o.name||"this opening")+".");
       }
