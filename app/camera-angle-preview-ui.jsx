@@ -99,10 +99,10 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
     {!open&&notice&&<p role="status" className="loc-layer-note">{notice}</p>}
     {open&&spec&&pose&&<dialog ref={dialog} className="loc-angle-dialog" onCancel={()=>setOpen(false)} aria-label="Preview and choose a camera angle">
       <div className="loc-cloud-render-head"><h3>Preview a camera angle</h3><button type="button" className="art-draftall ghost" onClick={()=>setOpen(false)}>Close preview</button></div>
-      <p className="loc-layer-note">Layout preview — exact set geometry and camera framing, neutral inspection lighting. This is not a Blender render or finished artwork.</p>
+      <p className="loc-layer-note">{l.name||"This location"} · saved floor plan and camera framing, with simplified shapes and neutral inspection lighting. Blender renders the set in step 4.</p>
       <div className="loc-angle-compare">
         <figure><figcaption>Candidate angle · {name} · facing {locCompass(pose.yaw)} · {pose.lensMm} mm</figcaption><canvas ref={candidate} width={640} height={360} aria-label="Candidate camera layout preview"/></figure>
-        <div><p>Choose the panel to replace. Its border highlights the destination.</p><div className="loc-angle-panels" role="group" aria-label="Destination panel">
+        <div className="loc-angle-destinations"><p>Choose the panel to replace. Its border highlights the destination.</p><div className="loc-angle-panels" role="group" aria-label="Destination panel">
           {Object.keys(labels).map(panel=><button key={panel} type="button" className={"loc-angle-panel"+(destination===panel?" selected":"")} aria-pressed={destination===panel} onClick={()=>setDestination(panel)}>
             <span>{labels[panel]}{destination===panel?" · replace this":""}</span><canvas width={320} height={180} ref={el=>thumbs.current[panel]=el} aria-label={labels[panel]+" saved camera layout preview"}/>
           </button>)}
