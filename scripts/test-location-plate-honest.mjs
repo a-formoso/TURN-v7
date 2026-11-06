@@ -95,7 +95,7 @@ ok("E the card says which panel and when the composition was drafted for another
   ui.includes('"The plate\'s top-left panel: "') && ui.includes("This composition was drafted for \\u201c"));
 // F
 ok("F plain labels", ui.includes('"Floor plan \\u00b7 where everything stands"') && ui.includes('"Plate cameras \\u00b7 where each panel is shot from"')
-  && ui.includes('"Main view \\u00b7 far, middle, near"') && ui.includes('"Blender details"') && ui.includes('"Lens, scale and camera notes"') && ui.includes('"Main view"'));
+  && ui.includes('"Composition notes (optional)"') && ui.includes('"Room measurements"') && ui.includes('"Lens, scale and camera notes"') && ui.includes('"Main view"'));
 // STORY MOMENTS (2026-10-27, from the test run: the Lounge plate drew a scene's wet footprints)
 {
   box.turnContinuity={locations:[],scenes:[{id:"s1"}],drafts:{s1:{blocks:[

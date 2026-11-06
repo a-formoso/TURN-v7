@@ -889,6 +889,17 @@ function locationFloorPlanCheckText(scene){
     +" — far outside every footprint on the drafted floor plan. Fix them under Floor plan numbers, or confirm if they are right.";
 }
 /* every floor plan number as an editable field — a change makes the layout a draft to confirm again */
+function LocationRoomOutline({space,onCreate,readOnly=false}){
+  const [width,setWidth]=React.useState(""),[length,setLength]=React.useState("");
+  const w=Number(width),d=Number(length),valid=Number.isFinite(w)&&Number.isFinite(d)&&w>=.1&&d>=.1&&w<=1000&&d<=1000;
+  return React.createElement("div",{className:"loc-room-outline"},
+    React.createElement("p",{className:"loc-layer-note"},"No room outline yet. Enter approximate width and length to create a rectangle, or enter corner points below for a different shape. The rectangle is centred on the plan origin; existing objects stay in place."),
+    React.createElement("div",{className:"loc-cam-fields"},
+      React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"Room width (m)"),React.createElement("input",{className:"prop-select",type:"number",min:.1,max:1000,step:.1,value:width,disabled:readOnly,onChange:e=>setWidth(e.target.value)})),
+      React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"Room length (m)"),React.createElement("input",{className:"prop-select",type:"number",min:.1,max:1000,step:.1,value:length,disabled:readOnly,onChange:e=>setLength(e.target.value)}))),
+    React.createElement("button",{type:"button",className:"art-draftall",disabled:readOnly||!valid,onClick:()=>{if(!readOnly&&valid)onCreate([[-w/2,-d/2],[w/2,-d/2],[w/2,d/2],[-w/2,d/2]]);}},"Create rectangular outline"));
+}
+
 function LocationFloorPlanFields({plan,family,change,readOnly}){
   const coords=plan.coordinates||{origin:{anchorId:"",note:""},spaces:[],cameras:[]};
   const spaces=coords.spaces||[],cameras=coords.cameras||[];
@@ -908,9 +919,8 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
     return c.basis==="user"?base+" — above the outdoor limit of about "+max+" m, used as set by hand"
       :base+" — outdoors it is used at most "+max+" m above this space's floor; mark it Set by hand to keep it higher";
   };
-  return React.createElement("details",{className:"loc-spatial-assist loc-floorplan-fields"},
-    // (owner 2026-10-27: plain words) the measured numbers matter for Blender; the image model reads placements in words
-    React.createElement("summary",null,"Blender details",React.createElement("small",null,"Floor plan in metres · approximate")),
+  return React.createElement("div",{className:"loc-floorplan-fields"},
+    React.createElement("h4",{className:"loc-spatial-heading"},"Room measurements"),
     React.createElement("p",{className:"loc-layer-note"},"Every number is an estimate you can change: footprints as corner points “x, y; x, y; …”, heights above the main floor, facings in degrees (0 = north, 90 = east). Changing a number makes the layout a draft to confirm again."),
     React.createElement("label",{className:"loc-cam-field"},React.createElement("span",null,"Origin (0, 0, floor level)"),
       React.createElement("select",{className:"prop-select",disabled:readOnly,value:coords.origin&&coords.origin.anchorId||"",
@@ -921,6 +931,7 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
       React.createElement("div",{className:"loc-cam-head"},React.createElement("b",null,nameOf(sp.id)),
         React.createElement("button",{type:"button",className:"loc-variant-x",disabled:readOnly,"aria-label":"Remove "+nameOf(sp.id)+" from the floor plan",
           onClick:()=>set({spaces:spaces.filter(s=>s.id!==sp.id),cameras:cameras.filter(c=>c.spaceId!==sp.id)})},React.createElement(Icon.x,{s:12}))),
+      (!sp.footprint||sp.footprint.length<3)&&React.createElement(LocationRoomOutline,{space:sp,readOnly,onCreate:footprint=>setSpace(sp.id,{footprint})}),
       React.createElement("div",{className:"loc-cam-fields"},
         React.createElement(LocCoordInput,{label:"Footprint corners",value:_locPtsText(sp.footprint),placeholder:"0, 0; 6, 0; 6, 4; 0, 4",disabled:readOnly,
           hint:"x, y in metres; at least 3 corners",mode:"text",onCommit:v=>{const f=_locParsePts(v);setSpace(sp.id,{footprint:f,
@@ -1028,7 +1039,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   },[l.id]);
   React.useEffect(()=>{if(!editFocus||!open)return;
     const timer=setTimeout(()=>{
-      const metric=renderIssues.some(i=>/footprint|ceiling|sill|head heights|wall placement/i.test(i.text));
+      const metric=renderIssues.some(i=>/footprint|ceiling|sill|head heights|wall placement|openings/i.test(i.text));
       const selector=editOrigin.current==="manual"?".loc-plan-editor-start":metric?".loc-plan-metrics":".loc-plan-objects";
       const target=fieldsRef.current?.querySelector(selector)||fieldsRef.current;
       if(target){if(selector!==".loc-plan-editor-start")target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});(target.querySelector?.("summary")||target).focus?.({preventScroll:true});}
@@ -1088,18 +1099,18 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   return React.createElement("details",{className:"loc-nested-section loc-spatial-plan",open,onToggle:e=>{
     if(e.target===e.currentTarget)setOpen(e.currentTarget.open);
   }},
-    React.createElement("summary",{ref:summaryRef},"Floor plan \u00b7 where everything stands",React.createElement("span",{className:"loc-spatial-status"+(confirmed?" ready":"")},
-      candidate?"Draft to review":confirmed?"Confirmed":check.complete?"Needs review":empty?"No layout yet":"Placements incomplete")),
+    React.createElement("summary",{ref:summaryRef},"Floor plan \u00b7 where everything stands",React.createElement("span",{className:"loc-spatial-status"+(confirmed&&!renderIssues.length?" ready":"")},
+      candidate?"Draft to review":confirmed?(renderIssues.length?"Measurements needed":"Confirmed"):check.complete?"Needs review":empty?"No layout yet":"Placements incomplete")),
     React.createElement("div",{className:"loc-spatial-review"},
       React.createElement("ol",{className:"loc-spatial-steps","aria-label":"Shared layout workflow"},
-        [empty?"Prepare":"Review","Confirm","Generate"].map((step,i)=>React.createElement("li",{key:step,
-          "aria-current":i===(confirmed?2:0)?"step":undefined},React.createElement("span",null,i+1),step))),
-      React.createElement("strong",null,confirmed?"Shared layout confirmed":empty?"Create the shared layout":"Review the shared layout"),
+        [empty?"Prepare":"Placements","Measurements","Ready for cameras"].map((step,i)=>React.createElement("li",{key:step,
+          "aria-current":i===(confirmed?(renderIssues.length?1:2):0)?"step":undefined},React.createElement("span",null,i+1),step))),
+      React.createElement("strong",null,confirmed?(renderIssues.length?"Placements confirmed · measurements needed":"Shared layout confirmed"):empty?"Create the shared layout":"Review the shared layout"),
       React.createElement("p",null,confirmed?"The placements are confirmed, not locked. You can still edit objects, footprints and dimensions below; changes need confirmation again. A 3D build also needs complete measurements.":reviewHint),
       confirmed&&renderIssues.length>0&&React.createElement("div",{className:"loc-step-fixes",role:"note"},
         React.createElement("b",null,"Before Build set can run:"),React.createElement("ul",null,renderIssues.slice(0,6).map((i,n)=>React.createElement("li",{key:n},i.text)))),
       confirmed&&React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm",onClick:()=>{editOrigin.current="manual";setOpen(true);setEditFocus(n=>n+1);}},readOnly?"View floor plan":"Edit floor plan"),
-      confirmed&&window.KinolotCloudRender?.enabled?.()&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",onClick:()=>window.goToLocationStep(l,4)},"Back to 4 · Build the set"),
+      confirmed&&!renderIssues.length&&window.KinolotCloudRender?.enabled?.()&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",onClick:()=>window.goToLocationStep(l,4)},"Back to 4 · Build the set"),
       confirmed
         ? onReturnToImage&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",onClick:onReturnToImage},"Back to image",React.createElement(Icon.chevR,{s:14}))
         : empty?draftButton(true):confirmButton(),
@@ -1186,14 +1197,17 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       React.createElement("button",{className:"art-draftall ghost",disabled:plan.anchors.length>=24,
         onClick:()=>change({anchors:[...plan.anchors,{id:"anchor-"+Date.now().toString(36),space:l.name||"",name:"",placement:"",basis:"design",evidence:""}]})},"Add fixed anchor")),
       React.createElement("details",{className:"loc-nested-section loc-plan-metrics"},React.createElement("summary",null,"Room footprints, dimensions & openings"),
+      React.createElement("p",{className:"loc-layer-note"},"Edit the fields below, or add the missing room to start its outline. Changes become a draft; use Confirm shared layout at the bottom when finished."),
       typeof locationSpatialFamily==="function"&&React.createElement(LocationFloorPlanFields,{plan,family:locationSpatialFamily(owner),change,readOnly})),
       React.createElement("details",{className:"loc-nested-section loc-plan-connections"},React.createElement("summary",null,"Connections & unresolved details"),
       field("Connections & doorway sightlines",plan.sightlines,value=>change({sightlines:value}),"Which rooms connect? What objects are visible through each opening?"),
       field("Unknowns / conflicts to resolve in 3D",plan.unresolved,value=>change({unresolved:value}),"Unseen walls, conflicting panels, dimensions that still need measurement…")),
       React.createElement("p",{className:"loc-layer-note"},"Check placements across all source panels and explicitly resolve any disagreement in Layout corrections. Floor plan numbers are approximate estimates for a 3D blockout \u2014 never a survey; unknown dimensions stay in Unknowns. A new parent plate requires another review."),
-      !confirmed&&!empty&&React.createElement("div",{className:"loc-spatial-footer"},
-        React.createElement("p",{className:"loc-layer-note"},check.complete?"Finished checking? Confirm this layout to enable image generation.":reviewHint),
+      !empty&&React.createElement("div",{className:"loc-spatial-footer"},
+        React.createElement("p",{className:"loc-layer-note"},"Changes save when you leave a field. Confirm shared layout approves those saved edits; it does not fill missing measurements or generate images."),
+        confirmed&&renderIssues.length>0&&React.createElement("p",{className:"loc-layer-note",role:"status"},"Still needed for the 3D build: "+renderIssues.map(i=>i.text).join(" ")),
         confirmButton(),
+        confirmed&&!renderIssues.length&&window.KinolotCloudRender?.enabled?.()&&React.createElement("button",{type:"button",className:"art-draftall",onClick:()=>window.goToLocationStep(l,3)},"Continue to 3 · Cameras"),
         error&&React.createElement("p",{className:"loc-spatial-error"},error))));
 }
 
@@ -2006,14 +2020,17 @@ function locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob}){
     problems=spatialState.ready&&window.KinolotCloudRender?window.KinolotCloudRender.cameraProblems(l):{};
     labels=Object.fromEntries(locationPanelPoses(l).map(p=>[p.key,p.label||p.key]));
   }catch(_){problems={};}
+  let planIssue=null;
+  if(cloudPilot&&window.KinolotCloudRender?.inputIssueList)try{planIssue=window.KinolotCloudRender.inputIssueList(l).find(i=>i.step===2)||null;}catch(e){planIssue={text:e.message||"Check the room measurements in Floor plan."};}
+  const planDone=!!spatialState.ready&&!planIssue;
   const camKey=Object.keys(problems)[0];
   const imageStale=!!gen.genUrl&&((typeof locationSpecChanged==="function"&&locationSpecChanged(gen.genMeta,l))
     ||(typeof locationPlateLayoutChanged==="function"&&locationPlateLayoutChanged(gen.genMeta,l,{panels:true})));
   const steps=[
     {n:1,name:"Describe",done:!!drafted,todo:"Draft the description: architecture, materials, light and landmarks."},
-    {n:2,name:"Floor plan",done:!!spatialState.ready,todo:spatialState.reason||"Check the floor plan and confirm it."},
-    {n:3,name:"Cameras",done:!!spatialState.ready&&!camKey,
-      todo:!spatialState.ready?"Confirm the floor plan first.":camKey?"The "+labels[camKey]+" camera: "+problems[camKey].charAt(0).toLowerCase()+problems[camKey].slice(1):""},
+    {n:2,name:"Floor plan",done:planDone,todo:planIssue?.text||spatialState.reason||"Check the floor plan and confirm it."},
+    {n:3,name:"Cameras",done:planDone&&!camKey,
+      todo:!planDone?"Complete and confirm the floor plan in step 2 first.":camKey?"The "+labels[camKey]+" camera: "+problems[camKey].charAt(0).toLowerCase()+problems[camKey].slice(1):""},
     ...(cloudPilot?[
       {n:4,name:"Build the set",done:!!(cloudJob&&cloudJob.current),
         todo:cloudJob&&["queued","running"].includes(cloudJob.status)?"The set is building.":cloudJob&&cloudJob.status==="completed"?"Rebuild the set: the floor plan or cameras changed.":"Build the set in 3D from the floor plan."},

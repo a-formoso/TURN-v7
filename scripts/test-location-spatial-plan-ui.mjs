@@ -16,7 +16,7 @@ const React={
   useRef:init=>{const i=cursor++;return hooks[i]||(hooks[i]={current:init});},
   useEffect:(fn,deps)=>{const i=cursor++;if(!hooks[i]||deps.some((d,j)=>d!==hooks[i][j]))effects.push(fn);hooks[i]=deps;}
 };
-const box={console,React,localStorage:{getItem:()=>null},Icon:new Proxy({},{get:()=>noop}),
+const box={console,React,TextEncoder,crypto,localStorage:{getItem:()=>null},Icon:new Proxy({},{get:()=>noop}),
   addEventListener:noop,removeEventListener:noop,nbEpoch:()=>1,nbGetMeta:()=>({iso:"v1"}),
   setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout:noop};
 box.window=box;vm.createContext(box);
@@ -85,7 +85,7 @@ assert.match(text(tree),/Each object needs a room, name and fixed placement/);
 assert.equal(button(tree,"Confirm shared layout").props.disabled,true);
 
 reset();house.spatialPlan={...plan,status:"reviewed"};tree=render();
-assert.equal(tree.props.open,false);assert.equal(button(tree,"Confirm shared layout"),undefined);
+assert.equal(tree.props.open,false);assert.ok(button(tree,"Confirm shared layout"),"The editor keeps a confirmation action available for reviewing saved edits");
 assert.ok(button(tree,"Edit floor plan"),"A confirmed layout remains explicitly editable");
 assert.match(text(tree),/placements are confirmed, not locked/);
 button(tree,"Back to image").props.onClick();assert.equal(returned,1);assert.equal(writes.length,0);
@@ -155,4 +155,40 @@ button(tree,"Room sizes & openings").props.onClick();assert.equal(rooms.open,tru
 button(tree,"Objects & placements").props.onClick();assert.equal(objects.open,true);
 button(tree,"Connections & unknowns").props.onClick();assert.equal(links.open,true);
 assert.equal(writes.length,0,"Editor navigation and shortcuts never alter saved layout data");
+// Follow the real edit callbacks through a disposable narrow bus plan into the exact Build-set scene.
+for(const f of ["blender-render-contract.js","blender-set-detail.js","blender-render.js"])vm.runInContext(source(f),box);
+box.TURN_SUPABASE={setBuild:true};
+let flow={...structuredClone(bus),spatialPlan:{...structuredClone(bus.spatialPlan),anchors:[{id:"seat",space:"School Bus",name:"Seat",placement:"Near the rear",basis:"design",evidence:"Test fixture",xy:[0,3],z:0}]}};
+box.turnContinuity={locations:[flow]};
+const flowUpdate=(id,patch)=>{assert.equal(id,flow.id);flow={...flow,...patch};box.turnContinuity.locations=[flow];};
+const flowEditor=()=>render({l:flow,onUpdate:flowUpdate});
+const flowSteps=()=>box.locationCardSteps({l:flow,drafted:true,spatialState:box.locationSpatialPlanState(flow),gen:{},cloudPilot:true,cloudJob:null});
+assert.equal(flowSteps().find(s=>s.n===2).done,false,"Written approval alone cannot mark a cloud floor plan complete");
+assert.equal(flowSteps().find(s=>s.n===3).done,false,"Absent room measurements cannot mark cameras complete");
+reset();tree=flowEditor();assert.match(text(tree),/Placements confirmed · measurements needed/);
+function metrics(){const entry=flat(flowEditor()).find(n=>n.type===box.LocationFloorPlanFields);return box.LocationFloorPlanFields(entry.props);}
+let fields=metrics();assert.equal(fields.type,"div","Opening Room sizes exposes its fields without a second Blender-details disclosure");
+button(fields,"Add School Bus to the floor plan").props.onClick();assert.equal(flow.spatialPlan.status,"draft");
+fields=metrics();const setup=flat(fields).find(n=>n.type===box.LocationRoomOutline);assert.ok(setup,"A missing outline offers a simple width-and-length setup");
+hooks=[];function outline(){cursor=0;return box.LocationRoomOutline(setup.props);}
+let rectangle=outline();assert.equal(button(rectangle,"Create rectangular outline").props.disabled,true);
+const dimensions=flat(rectangle).filter(n=>n.type==="input");dimensions[0].props.onChange({target:{value:"2.6"}});dimensions[1].props.onChange({target:{value:"10"}});
+rectangle=outline();button(rectangle,"Create rectangular outline").props.onClick();
+assert.equal(flow.spatialPlan.coordinates.spaces[0].footprint.length,4);assert.deepEqual(flow.spatialPlan.anchors[0].xy,[0,3],"Creating an outline never relocates existing objects");
+reset();
+function commitField(tree,label,value){const field=flat(tree).find(n=>n.type===box.LocCoordInput&&n.props.label===label);assert.ok(field,"Editable field: "+label);const input=flat(box.LocCoordInput(field.props)).find(n=>n.type==="input");input.props.onBlur({target:{value}});}
+commitField(metrics(),"Ceiling height","2.4");commitField(flowEditor(),"Object dimensions","0.5, 0.8, 0.8");
+tree=flowEditor();assert.ok(button(tree,"Confirm shared layout"),"Editing leaves a visible confirmation action");button(tree,"Confirm shared layout").props.onClick();
+assert.equal(flow.spatialPlan.status,"reviewed");
+assert.equal(box.KinolotCloudRender.inputIssueList(flow).filter(i=>i.step===2).length,0,"The saved plan now passes the actual measurement validator");
+tree=flowEditor();assert.ok(button(tree,"Continue to 3 · Cameras"),"A measured, confirmed plan leads directly to cameras");
+assert.equal(flowSteps().find(s=>s.n===2).done,true);assert.equal(flowSteps().find(s=>s.n===3).done,false);
+const proposal=box.KinolotCloudRender.proposeCameras(flow);flowUpdate(flow.id,{coverageViews:box.KinolotCloudRender.cameraProposalViews(flow,proposal)});
+assert.equal(flowSteps().find(s=>s.n===3).done,true);assert.equal(flowSteps().find(s=>s.n===4).next,true);
+const scene=box.KinolotCloudRender.buildScene(flow);box.KinolotRenderContract.validateScene(scene);
+assert.equal(Object.keys(scene.cameras).length,4);assert.ok(scene.objects.some(o=>o.anchorId==="seat"),"The saved fixture reaches Build set with its existing object");
+assert.equal(box.KinolotCloudRender.inputIssueList(flow).length,0,"Steps 2, 3 and 4 use consistent prerequisites");
+// Replacing an empty outline is explicit and never allowed through a read-only handler.
+hooks=[];cursor=0;let illicit=0;const readonlyOutline=box.LocationRoomOutline({space:{},onCreate:()=>illicit++,readOnly:true});
+button(readonlyOutline,"Create rectangular outline").props.onClick();assert.equal(illicit,0);
 console.log("PASS shared-layout review hierarchy, empty/ready/stale/read-only states, parent ownership, optional draft/discard, navigation focus and readable placements");
