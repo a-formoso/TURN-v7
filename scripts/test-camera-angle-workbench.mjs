@@ -45,6 +45,15 @@ function harness({pending=false,failed=false,mode="gpu"}={}){
    external:fn=>{location=fn(location);b.turnContinuity.locations=[location];},switchFilm:()=>epoch++,readonly:()=>{readonly=true;writable=false;}};
 }
 {
+ const h=harness();let tree=await h.begin();
+ const select=h.flat(tree).find(n=>n.type==='select');select.props.onChange({target:{value:'BL'}});tree=h.render();
+ ok(h.renders.at(-1).position.every((v,i)=>v===h.location.coverageViews.find(v=>v.panel==='BL').pose.position[i]),'Starting from Bottom left loads that saved camera into the candidate');
+ ok(h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']).children.some(n=>typeof n==='object'&&h.text(n).startsWith('Top right')),'Starting camera and replacement destination remain distinct choices');
+ ok(h.text(tree).includes('Candidate angle · from Bottom left')&&h.text(tree).includes('Destination: Top right.'),'The preview identifies its source camera and save destination separately');
+ const before=h.renders.at(-1);h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']===false&&h.text(n).startsWith('Bottom right')).props.onClick();tree=h.render();
+ ok(h.button(tree,'Use this angle in Bottom right')&&JSON.stringify(h.renders.at(-1))===JSON.stringify(before)&&h.writes.length===0,'Choosing a replacement panel changes the destination without moving or saving the candidate');
+}
+{
  const h=harness(),before=JSON.stringify(h.location);let tree=await h.begin();
  ok(h.writes.length===0&&JSON.stringify(h.location)===before,'Opening and drawing a candidate never saves film data');
  ok(h.renders.length>=5,'Candidate and all four current panel angles are rendered');

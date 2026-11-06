@@ -101,13 +101,15 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
       <div className="loc-cloud-render-head"><h3>Preview a camera angle</h3><button type="button" className="art-draftall ghost" onClick={()=>setOpen(false)}>Close preview</button></div>
       <p className="loc-layer-note">{l.name||"This location"} · saved floor plan and camera framing, with simplified shapes and neutral inspection lighting. Blender renders the set in step 4.</p>
       <div className="loc-angle-compare">
-        <figure><figcaption>Candidate angle · {name} · facing {locCompass(pose.yaw)} · {pose.lensMm} mm</figcaption><canvas ref={candidate} width={640} height={360} aria-label="Candidate camera layout preview"/></figure>
+        <figure><figcaption>Candidate angle · from {start.startsWith("extra:")?name:labels[start]} · facing {locCompass(pose.yaw)} · {pose.lensMm} mm</figcaption><canvas ref={candidate} width={640} height={360} aria-label="Candidate camera layout preview"/></figure>
         <div className="loc-angle-destinations"><p>Choose the panel to replace. Its border highlights the destination.</p><div className="loc-angle-panels" role="group" aria-label="Destination panel">
           {Object.keys(labels).map(panel=><button key={panel} type="button" className={"loc-angle-panel"+(destination===panel?" selected":"")} aria-pressed={destination===panel} onClick={()=>setDestination(panel)}>
             <span>{labels[panel]}{destination===panel?" · replace this":""}</span><canvas width={320} height={180} ref={el=>thumbs.current[panel]=el} aria-label={labels[panel]+" saved camera layout preview"}/>
           </button>)}
         </div></div>
       </div>
+      <section className="loc-angle-group" aria-label="Choose and adjust an angle">
+      <h4 className="loc-angle-group-title">Choose and adjust an angle</h4>
       <label className="loc-cam-field"><span>Start from a saved camera</span><select className="prop-select" value={start} onChange={e=>chooseStart(e.target.value)}>
         {Object.keys(labels).map(panel=><option key={panel} value={panel}>{labels[panel]}</option>)}
         {extras.map(v=><option key={v.id} value={"extra:"+v.id}>{v.name}{v.pose?.position?"":" · camera not set yet"}</option>)}
@@ -121,13 +123,17 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
         {field("Lens",pose.lensMm,8,200,1,v=>setPose(p=>({...p,lensMm:v}))," mm")}
       </div></details>
       {map&&<details className="loc-nested-section"><summary>Where this camera stands</summary><LocationFloorPlanMap scene={map} spaceId={l.id} selected={l.id+":candidate"}/></details>}
-      {problem&&<p role="alert" className="loc-spatial-error">{problem}</p>}
-      {unchanged&&<p className="loc-layer-note">This already matches the {labels[destination].toLowerCase()} camera.</p>}
-      {!unchanged&&duplicate&&<p className="loc-layer-note">This matches the {labels[duplicate].toLowerCase()} camera. Adjust it for a different angle, or reuse it intentionally.</p>}
       {ready&&displayMode==="gpu"&&<button type="button" className="art-draftall ghost" onClick={()=>setSoftwareOnly(true)}>Views blank? Use compatibility preview</button>}
       {displayMode==="software"&&<p role="status" className="loc-layer-note">Using a compatibility preview because graphics acceleration is unavailable. Camera framing and set geometry are preserved; inspection shading is simplified.</p>}
       {error&&<div role="alert" className="loc-spatial-error"><p>{error}</p><button type="button" className="art-draftall ghost" onClick={()=>setAttempt(n=>n+1)}>Retry preview</button></div>}
       {!ready&&!error&&<p role="status">Preparing the layout preview…</p>}
+      </section>
+      <section className="loc-angle-group loc-angle-save-group" aria-label="Save the angle to a panel">
+      <h4 className="loc-angle-group-title">Save the angle to a panel</h4>
+      <p className="loc-layer-note">Destination: {labels[destination]}. Select a different panel above if needed. Starting from a saved camera does not replace anything; use the button below to save this angle.</p>
+      {problem&&<p role="alert" className="loc-spatial-error">{problem}</p>}
+      {unchanged&&<p className="loc-layer-note">This already matches the {labels[destination].toLowerCase()} camera.</p>}
+      {!unchanged&&duplicate&&<p className="loc-layer-note">This matches the {labels[duplicate].toLowerCase()} camera. Adjust it for a different angle, or reuse it intentionally.</p>}
       <div className="loc-cloud-render-actions"><button type="button" className="art-draftall" disabled={readOnly||!ready||!!problem||unchanged} onClick={assign}>Use this angle in {labels[destination]}</button><button type="button" className="art-draftall ghost" onClick={()=>setOpen(false)}>Discard changes</button></div>
       <details className="loc-nested-section"><summary>Save as an extra camera instead</summary>
         <p className="loc-layer-note">Keep this measured camera for later without replacing a panel. It can have its own composition notes; assign it to a panel before the four-view cloud build can render or style it.</p>
@@ -135,6 +141,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
         <button type="button" className="art-draftall ghost" disabled={readOnly||!ready||!!problem} onClick={saveExtra}>{extraId?"Save extra camera changes":"Save extra camera"}</button>
       </details>
       {notice&&<p role="status" className="loc-layer-note">{notice}</p>}
+      </section>
     </dialog>}
   </div>;
 }
