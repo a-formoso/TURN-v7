@@ -5514,9 +5514,9 @@ function buildLocationRefPrompt(l, project, opts){
       ...(panelPlan || {
         layout: "exactly 4 views in a 2x2 grid",
         top_left: "wide establishing THREE-QUARTER view at eye level from a front corner, looking diagonally across the space so two walls meet and the floor's depth and the ways in read \u2014 not a flat, straight-on symmetrical front view",
-        top_right: "high-angle three-quarter overview shot from an elevated corner perspective looking down into the space showing depth and spatial layout",
-        bottom_left: "close-up of "+mainStation,
-        bottom_right: "close-up of "+secondStation,
+        top_right: "high-angle three-quarter overview shot from an elevated corner perspective looking down into the space showing depth and spatial layout; when no camera is fixed, prefer the opposite end or reverse direction from top left, at a plausible height inside the real space, not another copy of the establishing view",
+        bottom_left: "close-up of "+mainStation+"; frame this landmark tightly enough to inspect its construction and details, with only nearby context, not another full-room or long-aisle establishing view",
+        bottom_right: "close-up of "+secondStation+"; show this distinct station or material detail at useful inspection distance, with its fixed surroundings, not a repeat of the bottom-left landmark or either wide view",
         rule: "each view a distinctly different camera angle and composition \u2014 the SAME identical space, consistent architecture, scale, materials and light across all views",
       }),
     }),
@@ -5537,6 +5537,12 @@ function buildLocationRefPrompt(l, project, opts){
              "high-resolution, clean crisp detail in that style","consistent lighting and style across all views","clean layout"]),
     },
   };
+  // Varied coverage is a framing goal, never permission to move a set or overwrite a saved camera.
+  spec.views.coverage_guidance = [
+    "Give every panel a distinct visual purpose and useful new information, varying viewpoint and framing rather than repeating the same wide composition. Keep one physical set, scale, fixtures and lighting across all four panels; never invent objects or rearrange the room to make the views different.",
+    "Explicit per-panel room, interior/exterior role, camera position, facing, tilt, lens and target take priority over generic shot descriptions. If a saved camera cannot provide a requested close-up or reverse, preserve that camera rather than fabricate a new position, crop, roof height or opening.",
+    "For panels without a fixed camera or room-specific coverage plan, use complementary coverage: top left establishes the space; top right gives a reverse or opposite-end overview from a physically possible position; bottom left tightly examines the primary landmark; bottom right examines a different established station or material detail. Do not turn the close-ups into two more establishing views."
+  ];
   // (2026-10-27) the place's own description is said once: its identity layer repeated every field word for word
   if(spec.location.identity_layers && spec.location.identity_layers.place_identity) delete spec.location.identity_layers.place_identity;
   // WORLD SCALE — when this place is inhabited by a non-human-scale cast (critter / giant),
