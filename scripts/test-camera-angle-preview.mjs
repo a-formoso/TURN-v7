@@ -58,7 +58,7 @@ const fallback=api.create({...T,WebGLRenderer:NoGPU},softwareScene),forward={pos
 fallback.render(canvas,forward,160,90);const centre=(45*160+80)*4;
 ok(fallback.mode==='software'&&frame.data[centre]>150&&frame.data[centre+2]===0,'Foreground red occludes blue even when blue is drawn afterwards');
 ok(frame.data.some((v,i)=>i%4===2&&v>100),'The larger background remains visible around the foreground');
-ok(!frame.data.some((v,i)=>i%4===1&&v>100),'Geometry behind the camera is clipped');
+ok(!frame.data.some((v,i)=>i%4===1&&v>100&&frame.data[i-1]<10&&frame.data[i+1]<10),'Geometry behind the camera is clipped');
 const previous=frame.data.slice();fallback.render(canvas,{...forward,yaw:180},160,90);
 ok(frame.data[centre+1]>150&&frame.data[centre]===0,'Turning the camera shows the object behind its original pose');
 ok(previous.some((v,i)=>frame.data[i]!==v),'Moving a software camera changes the rendered image');
@@ -68,6 +68,32 @@ let attempts=0;class MustNotStart{constructor(){attempts++;throw Error('Do not s
 const forced=api.create({...T,WebGLRenderer:MustNotStart},softwareScene,{softwareOnly:true});forced.render(canvas,forward,160,90);
 ok(attempts===0&&forced.mode==='software'&&frame.data[centre]>150,'Manual compatibility mode skips the GPU and draws a usable camera frame');forced.dispose();
 fallback.dispose();assert.throws(()=>fallback.render(canvas,forward),/closed/);checks++;
+// Inspection uses scene geometry in both display modes, with openings resolved separately from solid surfaces.
+const hole={name:'Folding entry door',type:'door',room:'School Bus',centre:[0,2],along:[1,0],width:1,bottom:0,top:2.2,beyond:'Outside not modelled'};
+const inspected=api.create({...T,WebGLRenderer:Renderer},softwareScene,{openings:[hole]});
+let picked=inspected.inspect(forward,.5,.5);
+ok(picked.kind==='object'&&picked.name==='Near red'&&picked.through.name===hole.name,'The closest visible object is named, including the saved opening it is seen through');
+const occluded=api.create({...T,WebGLRenderer:NoGPU},softwareScene,{openings:[{...hole,centre:[0,4]}]});
+picked=occluded.inspect(forward,.5,.5);ok(picked.name==='Near red'&&!picked.through,'An opening behind a solid foreground object is not falsely identified');
+const emptyScene={...softwareScene,objects:[{...softwareScene.objects[0],position:[20,20,1.6]}]};
+const gap=api.create({...T,WebGLRenderer:NoGPU},emptyScene,{openings:[hole]});
+picked=gap.inspect(forward,.5,.5);ok(picked.kind==='opening'&&picked.name==='Folding entry door'&&picked.room==='School Bus','A gap identifies the actual saved opening rather than inventing a solid object');
+ok(gap.inspect({...forward,yaw:180},.5,.5).kind==='background','Unmodelled space without a matching opening remains explicitly unknown');
+gap.render(canvas,{...forward,yaw:180},160,90);ok(frame.data[centre+2]>frame.data[centre]&&frame.data[centre]>80,'Unmodelled space has an unmistakable blue inspection background');
+ok(JSON.stringify(occluded.inspect(forward,.5,.5).dimensions)===JSON.stringify(inspected.inspect(forward,.5,.5).dimensions),'GPU and compatibility modes inspect the same saved dimensions');
+const detailedScene=structuredClone(softwareScene);detailedScene.objects[0].anchorId='bench';
+const detailed=api.create({...T,WebGLRenderer:NoGPU},detailedScene,{anchors:[{id:'bench',name:'West bench, row 6',size:[2,.5,1]}]});
+picked=detailed.inspect(forward,.5,.5);ok(picked.name==='West bench, row 6'&&picked.part==='Near red'&&picked.dimensionsSource==='saved'&&picked.dimensions[0]===2,'Detailed parts retain their saved object name and whole-object dimensions');detailed.dispose();
+const letterboxed={width:640,height:360,getBoundingClientRect:()=>({left:10,top:20,width:800,height:600})};
+ok(api.imagePoint(letterboxed,410,320).x===.5&&api.imagePoint(letterboxed,410,320).y===.5,'Scaled and letterboxed image coordinates map to the correct camera ray');
+ok(api.imagePoint(letterboxed,410,30)===null,'Clicking a letterbox margin never identifies an unrelated surface');
+vm.runInContext(readFileSync((compiled?'dist/app/locations.js':'app/locations.jsx'),'utf8'),b);
+const raised={coordinates:{spaces:[{id:'bus',name:'School Bus',floorZ:4.4,ceilingH:2.6,footprint:[[-1,-5],[1,-5],[1,5],[-1,5]],openings:[{name:'Rear door',kind:'door',edge:0,centre:[0,-5],width:.8,sillZ:.15,headZ:1.9,connectsTo:''}]}]}};
+const savedRaised=JSON.stringify(raised),guide=api.openingGuides(raised)[0];
+close(guide.bottom,4.55,'Inspection matches the renderer’s legacy room-relative opening heights');
+ok(guide.name==='Rear door'&&JSON.stringify(raised)===savedRaised,'Opening labels come from saved data without modifying that data');
+for(const instance of [inspected,occluded,gap])instance.dispose();
+assert.throws(()=>gap.inspect(forward,.5,.5),/closed/);checks++;
 // Exercise the real dynamic-module loader, not just an injected graphics adapter.
 const loader={URL,document:{baseURI:new URL('../',import.meta.url).href}};loader.window=loader;vm.createContext(loader);
 vm.runInContext(readFileSync((compiled?'dist/app/':'app/')+'camera-angle-preview.js','utf8'),loader,{importModuleDynamically:vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER});

@@ -4,6 +4,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
   const [open,setOpen]=React.useState(false),[spec,setSpec]=React.useState(null),[pose,setPose]=React.useState(null);
   const [destination,setDestination]=React.useState("TR"),[start,setStart]=React.useState("TL"),[name,setName]=React.useState("Extra angle");
   const [extraId,setExtraId]=React.useState(""),[error,setError]=React.useState(""),[notice,setNotice]=React.useState(""),[ready,setReady]=React.useState(false),[attempt,setAttempt]=React.useState(0),[displayMode,setDisplayMode]=React.useState(""),[softwareOnly,setSoftwareOnly]=React.useState(false);
+  const [inspection,setInspection]=React.useState(null);
   const base=React.useRef(null),dialog=React.useRef(null),candidate=React.useRef(null),thumbs=React.useRef({}),viewer=React.useRef(null),lastRendered=React.useRef("");
   const labels={TL:"Top left",TR:"Top right",BL:"Bottom left",BR:"Bottom right"};
   const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0;
@@ -11,10 +12,11 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
   const list=()=>((window.turnContinuity||{}).locations)||[];
   const current=()=>list().find(x=>x.id===l.id);
   function begin(){
-    setError("");setNotice("");setReady(false);lastRendered.current="";
+    setError("");setNotice("");setReady(false);setInspection(null);lastRendered.current="";
     try{const location=current();if(!location)throw Error("This location is no longer open.");
       const scene=api.buildScene(location),key=window.KinolotRenderContract.canonical(scene);
-      base.current={key,epoch,locationId:l.id,planSig:locationStagingLayoutSig(location)};setSpec(scene);setPose({...scene.cameras.TL,position:[...scene.cameras.TL.position]});
+      const inspectedPlan=locationSpatialPlanState(location,list()).plan;
+      base.current={key,epoch,locationId:l.id,planSig:locationStagingLayoutSig(location),openings:preview.openingGuides?.(inspectedPlan)||[],anchors:inspectedPlan.anchors};setSpec(scene);setPose({...scene.cameras.TL,position:[...scene.cameras.TL.position]});
       setStart("TL");setExtraId("");setName("Extra angle");setOpen(true);
     }catch(e){setError(e.message);}
   }
@@ -22,7 +24,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
   React.useEffect(()=>{
     if(!open||!spec)return;let live=true,instance=null,stage="Loading preview files";setReady(false);lastRendered.current="";setError("");setDisplayMode("");
     preview.load().then(T=>{
-      if(!live)return;stage="Starting the graphics preview";instance=preview.create(T,spec,{softwareOnly});viewer.current=instance;stage="Drawing the camera views";
+      if(!live)return;stage="Starting the graphics preview";instance=preview.create(T,spec,{softwareOnly,openings:base.current.openings,anchors:base.current.anchors});viewer.current=instance;stage="Drawing the camera views";
       for(const panel of Object.keys(labels))if(thumbs.current[panel])instance.render(thumbs.current[panel],spec.cameras[panel],320,180);
       if(candidate.current){instance.render(candidate.current,pose);lastRendered.current=window.KinolotRenderContract.canonical(pose);}setDisplayMode(instance.mode||"gpu");setReady(true);
     }).catch(e=>{if(live){setError(stage+": "+String(e?.message||"Display unavailable").slice(0,240)+". Your cameras are unchanged. Retry below, or use the saved cameras and cloud Build set.");setReady(false);}});
@@ -32,6 +34,14 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
     if(!open||!ready||!pose||!candidate.current||!viewer.current)return;
     try{viewer.current.render(candidate.current,pose);setDisplayMode(viewer.current.mode||"gpu");lastRendered.current=window.KinolotRenderContract.canonical(pose);}catch(e){setError(e.message);setReady(false);}
   },[open,ready,pose]);
+  React.useEffect(()=>setInspection(null),[pose]);
+  function identify(event,panel){
+    if(!ready||!viewer.current?.inspect)return;
+    if(!panel&&lastRendered.current!==window.KinolotRenderContract.canonical(pose))return;
+    const point=event?preview.imagePoint(event.currentTarget,event.clientX,event.clientY):{x:.5,y:.5};if(!point)return;
+    try{setInspection({...viewer.current.inspect(panel?spec.cameras[panel]:pose,point.x,point.y),view:panel?labels[panel]:"Candidate angle"});}
+    catch(e){setError("Could not identify this view. "+e.message);}
+  }
   function guard(){
     if(readOnly||typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())throw Error("This film is read-only.");
     const location=current();
@@ -101,12 +111,21 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
       <div className="loc-cloud-render-head"><h3>Preview a camera angle</h3><button type="button" className="art-draftall ghost" onClick={()=>setOpen(false)}>Close preview</button></div>
       <p className="loc-layer-note">{l.name||"This location"} · saved floor plan and camera framing, with simplified shapes and neutral inspection lighting. Blender renders the set in step 4.</p>
       <div className="loc-angle-compare">
-        <figure><figcaption>Candidate angle · from {start.startsWith("extra:")?name:labels[start]} · facing {locCompass(pose.yaw)} · {pose.lensMm} mm</figcaption><canvas ref={candidate} width={640} height={360} aria-label="Candidate camera layout preview"/></figure>
+        <figure><figcaption>Candidate angle · from {start.startsWith("extra:")?name:labels[start]} · facing {locCompass(pose.yaw)} · {pose.lensMm} mm</figcaption><canvas ref={candidate} width={640} height={360} tabIndex={0} role="button" aria-label="Identify an object in the candidate preview; press Enter to inspect the centre" onClick={e=>identify(e)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();identify(null);}}}/></figure>
         <div className="loc-angle-destinations"><p>Choose the panel to replace. Its border highlights the destination.</p><div className="loc-angle-panels" role="group" aria-label="Destination panel">
-          {Object.keys(labels).map(panel=><button key={panel} type="button" className={"loc-angle-panel"+(destination===panel?" selected":"")} aria-pressed={destination===panel} onClick={()=>setDestination(panel)}>
-            <span>{labels[panel]}{destination===panel?" · replace this":""}</span><canvas width={320} height={180} ref={el=>thumbs.current[panel]=el} aria-label={labels[panel]+" saved camera layout preview"}/>
+          {Object.keys(labels).map(panel=><button key={panel} type="button" className={"loc-angle-panel"+(destination===panel?" selected":"")} aria-pressed={destination===panel} onClick={e=>{setDestination(panel);if(e?.detail===0&&e.target?.tagName!=="CANVAS")identify(null,panel);}}>
+            <span>{labels[panel]}{destination===panel?" · replace this":""}</span><canvas width={320} height={180} ref={el=>thumbs.current[panel]=el} aria-label={labels[panel]+" saved camera layout preview"} onClick={e=>identify(e,panel)}/>
           </button>)}
         </div></div>
+      </div>
+      <div className="loc-angle-inspection" role="status" aria-live="polite">
+        <p className="loc-layer-note">Blue background means unmodelled space, not a solid object. Click or tap a view to identify a surface or opening.</p>
+        {inspection&&<><strong>{inspection.view} · {inspection.name}</strong>
+          <p>{inspection.kind==="opening"?"Saved "+inspection.type+" in "+inspection.room+". "+inspection.beyond:inspection.description}</p>
+          {inspection.part&&<p>Visible part: {inspection.part}.</p>}
+          {inspection.dimensions&&<p>{inspection.kind==="opening"?"Width × height: ":inspection.dimensionsSource==="saved"?"Saved object dimensions: ":"Preview dimensions: "}{inspection.dimensions.map(n=>Number(n.toFixed(2))).join(" × ")} m</p>}
+          {inspection.through&&<p>Seen through {inspection.through.name} in {inspection.through.room}.</p>}
+        </>}
       </div>
       <section className="loc-angle-group" aria-label="Choose and adjust an angle">
       <h4 className="loc-angle-group-title">Choose and adjust an angle</h4>

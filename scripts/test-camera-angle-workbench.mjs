@@ -5,8 +5,8 @@ import vm from 'node:vm';
 import {transformSync,parseSync} from '@babel/core';
 const compiled=process.env.ANGLE_UI_TEST_DIST==='1';let checks=0;
 const ok=(v,m)=>{assert.ok(v,m);checks++;};
-function harness({pending=false,failed=false,mode="gpu"}={}){
- let hooks=[],cursor=0,effects=[],writes=[],renders=[],disposed=0,epoch=1,writable=true;
+function harness({pending=false,failed=false,mode="gpu",picked={kind:'object',name:'Bench',description:'Saved set object',dimensions:[1,1,1]}}={}){
+ let hooks=[],cursor=0,effects=[],writes=[],renders=[],inspections=[],disposed=0,epoch=1,writable=true;
  let location={id:'gym',key:'gym',name:'Gym',coverageViews:['TL','TR','BL','BR'].map((panel,i)=>({id:'v'+i,name:panel,panel,staging:{bg:{center:'Notes '+panel}},
    pose:{position:[[-4,-4,1.6],[4,-4,2.3],[-4,4,1.6],[4,4,1.6]][i],yaw:[35,325,145,215][i],pitch:0,lensMm:24,basis:'user'}})),
    spatialPlan:{status:'reviewed',heights:'centre',source:{assetId:'gym',iso:''},frame:'North',anchors:[{id:'bench',space:'Gym',name:'Bench',placement:'Back wall',xy:[-3,2],z:.5,size:[1,1,1]}],
@@ -19,7 +19,9 @@ function harness({pending=false,failed=false,mode="gpu"}={}){
  b.KinolotCloudRender.request=()=>assert.fail('Layout previews must not submit worker jobs');
  b.nbGenerate=()=>assert.fail('Layout previews must not invoke an image engine');
  b.KinolotAnglePreview={load:()=>pending?new Promise(()=>{}):failed?Promise.reject(Error('GPU unavailable')):Promise.resolve({}),
-   create:(T,spec,options)=>({mode:options?.softwareOnly?"software":mode,render:(canvas,pose)=>renders.push(structuredClone(pose)),dispose:()=>disposed++})};
+   imagePoint:(_canvas,x,y)=>({x:x/640,y:y/360}),
+   create:(T,spec,options)=>({mode:options?.softwareOnly?"software":mode,render:(canvas,pose)=>renders.push(structuredClone(pose)),
+     inspect:(pose,x,y)=>{inspections.push({pose:structuredClone(pose),x,y});return structuredClone(picked);},dispose:()=>disposed++})};
  b.LocationFloorPlanMap=function(){};
  b.React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!=null&&x!==false)}),
    useState:initial=>{const i=cursor++;if(!(i in hooks))hooks[i]={value:typeof initial==='function'?initial():initial};return [hooks[i].value,v=>hooks[i].value=typeof v==='function'?v(hooks[i].value):v];},
@@ -41,8 +43,29 @@ function harness({pending=false,failed=false,mode="gpu"}={}){
  }
  const button=(tree,label)=>flat(tree).find(n=>n.type==='button'&&text(n)===label);
  async function begin(){let tree=render();button(tree,'Preview & choose camera angles').props.onClick();tree=render();await new Promise(setImmediate);return render();}
- return {b,render,begin,flat,text,button,writes,renders,get location(){return location;},get disposed(){return disposed;},
+ return {b,render,begin,flat,text,button,writes,renders,inspections,get location(){return location;},get disposed(){return disposed;},
    external:fn=>{location=fn(location);b.turnContinuity.locations=[location];},switchFilm:()=>epoch++,readonly:()=>{readonly=true;writable=false;}};
+}
+{
+ const h=harness();let tree=await h.begin();
+ let canvas=h.flat(tree).find(n=>n.type==='canvas'&&n.props.role==='button');
+ canvas.props.onClick({currentTarget:{},clientX:160,clientY:180});tree=h.render();
+ ok(h.text(tree).includes('Candidate angle · Bench')&&h.text(tree).includes('Preview dimensions: 1 × 1 × 1 m'),'A preview click reports its object name and correctly labelled dimensions');
+ ok(h.inspections[0].x===.25&&h.inspections[0].y===.5&&h.writes.length===0,'Inspection uses the clicked image position without saving or submitting a job');
+ let prevented=0;canvas.props.onKeyDown({key:'Enter',preventDefault:()=>prevented++});
+ ok(prevented===1&&h.inspections.at(-1).x===.5,'Keyboard users can identify the centre of the candidate view');
+ h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']!==undefined&&h.text(n).startsWith('Bottom right')).props.onClick({detail:0});tree=h.render();
+ ok(h.text(tree).includes('Bottom right · Bench')&&h.inspections.at(-1).pose.yaw===215&&h.writes.length===0,'Keyboard panel activation inspects its own centre and selects a destination without saving');
+ const thumb=h.flat(tree).find(n=>n.type==='canvas'&&n.props['aria-label']==='Bottom left saved camera layout preview');
+ thumb.props.onClick({currentTarget:{},clientX:320,clientY:180});tree=h.render();
+ ok(h.text(tree).includes('Bottom left · Bench')&&h.inspections.at(-1).pose.yaw===145,'Saved-view inspection uses that panel’s camera and labels the result with that view');
+ h.flat(tree).find(n=>n.type==='input'&&n.props.type==='range').props.onChange({target:{value:'-2'}});h.render();tree=h.render();
+ ok(!h.text(tree).includes('Bottom left · Bench')&&h.writes.length===0,'Changing the candidate clears stale inspection details');
+}
+{
+ const h=harness({picked:{kind:'opening',name:'Folding entry door',type:'door',room:'School Bus',dimensions:[.8,1.8],beyond:'Outside not modelled'}});let tree=await h.begin();
+ h.flat(tree).find(n=>n.type==='canvas'&&n.props.role==='button').props.onClick({currentTarget:{},clientX:320,clientY:180});tree=h.render();
+ ok(h.text(tree).includes('Folding entry door')&&h.text(tree).includes('Saved door in School Bus')&&h.text(tree).includes('Outside not modelled'),'Opening inspection names the saved opening and distinguishes unmodelled surroundings');
 }
 {
  const h=harness();let tree=await h.begin();

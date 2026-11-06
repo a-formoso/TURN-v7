@@ -2,6 +2,7 @@
 (function(root){
   "use strict";
   let modulePromise;
+  const background=[.28,.43,.57]; // Inspection-only: distinguish unmodelled space from solid surfaces.
   const load=()=>modulePromise||(modulePromise=import(new URL("app/vendor/three/r180/three.module.min.js",root.document.baseURI).href).catch(e=>{modulePromise=null;throw e;}));
   function geometry(T,item){
     let g;
@@ -24,7 +25,7 @@
   }
   function sceneFor(T,spec){
     root.KinolotRenderContract.validateScene(spec);
-    const scene=new T.Scene(),meshes=[],materials=new Map();scene.background=new T.Color(.045,.055,.065);
+    const scene=new T.Scene(),meshes=[],materials=new Map();scene.background=new T.Color(...background);
     for(const [id,m] of Object.entries(spec.materials))materials.set(id,new T.MeshLambertMaterial({color:new T.Color(...m.baseColor),side:T.DoubleSide,
       emissive:new T.Color(...m.baseColor),emissiveIntensity:m.emissionStrength?Math.min(.6,m.emissionStrength*.1):0}));
     for(const item of spec.objects){
@@ -50,6 +51,50 @@
     camera.lookAt(camera.position.clone().add(new T.Vector3(Math.sin(yaw)*Math.cos(pitch),Math.cos(yaw)*Math.cos(pitch),Math.sin(pitch))));
     camera.updateMatrixWorld(true);return camera;
   }
+  function openingGuides(plan){
+    const spaces=plan?.coordinates?.spaces||[],guides=[];
+    for(const space of spaces){
+      if(space.openSky)continue;
+      for(const saved of space.openings||[]){
+        const o=root.locationOpeningHeights?root.locationOpeningHeights(saved,space,plan):saved;
+        const a=space.footprint?.[o.edge],b=space.footprint?.[(o.edge+1)%space.footprint.length];
+        if(!a||!b||!o.centre||![o.width,o.sillZ,o.headZ].every(Number.isFinite)||o.width<=0||o.headZ<=o.sillZ)continue;
+        const length=Math.hypot(b[0]-a[0],b[1]-a[1]);if(!length)continue;
+        guides.push({name:o.name||'Unnamed opening',type:o.kind||'opening',room:space.name||'Unnamed room',centre:[...o.centre],
+          along:[(b[0]-a[0])/length,(b[1]-a[1])/length],width:o.width,bottom:o.sillZ,top:o.headZ,
+          beyond:o.connectsTo?(spaces.find(s=>s.id===o.connectsTo)?.name||'Another space, not modelled here'):'Outside or adjoining space not specified in the floor plan'});
+      }
+    }
+    return guides;
+  }
+  function imagePoint(canvas,clientX,clientY){
+    const r=canvas.getBoundingClientRect(),aspect=canvas.width/canvas.height;
+    const w=Math.min(r.width,r.height*aspect),h=w/aspect,left=r.left+(r.width-w)/2,top=r.top+(r.height-h)/2;
+    if(!w||!h||clientX<left||clientX>left+w||clientY<top||clientY>top+h)return null;
+    return {x:(clientX-left)/w,y:(clientY-top)/h};
+  }
+  function inspect(T,rig,spec,openings,anchors,pose,x,y){
+    const camera=cameraFor(T,pose),ray=new T.Raycaster();ray.setFromCamera(new T.Vector2(x*2-1,1-y*2),camera);
+    const visible=point=>{const z=point.clone().project(camera).z;return z>=-1&&z<=1;};
+    const solid=ray.intersectObjects(rig.meshes,false).find(h=>visible(h.point));
+    const holes=[];
+    for(const opening of openings){
+      const [dx,dy]=opening.along,centre=new T.Vector3(...opening.centre,opening.bottom);
+      const plane=new T.Plane().setFromNormalAndCoplanarPoint(new T.Vector3(-dy,dx,0),centre);
+      const point=ray.ray.intersectPlane(plane,new T.Vector3());if(!point||!visible(point))continue;
+      const along=(point.x-centre.x)*dx+(point.y-centre.y)*dy;
+      if(Math.abs(along)>opening.width/2||point.z<opening.bottom||point.z>opening.top)continue;
+      holes.push({opening,distance:point.distanceTo(camera.position)});
+    }
+    holes.sort((a,b)=>a.distance-b.distance);
+    const through=holes.find(h=>!solid||h.distance<solid.distance-.01)?.opening;
+    if(solid){const item=spec.objects.find(o=>o.id===solid.object.userData.id),anchor=anchors.find(a=>a.id===item.anchorId);
+      return {kind:'object',name:anchor?.name||item.name,part:anchor?.name&&anchor.name!==item.name?item.name:null,type:item.kind,
+        dimensions:[...(anchor?.size||item.size)],dimensionsSource:anchor?.size?'saved':'preview',through:through||null,
+        description:item.anchorId?'Saved set object; its preview shape may be simplified.':'Modelled set surface.'};}
+    if(through)return {kind:'opening',name:through.name,type:through.type,room:through.room,dimensions:[through.width,through.top-through.bottom],beyond:through.beyond};
+    return {kind:'background',name:'Unmodelled space',description:'No modelled surface is visible here. The blue background is a preview guide, not an object or a finished exterior.'};
+  }
   // Small depth-buffer renderer for devices where WebGL is disabled or unavailable.
   // It uses the same meshes and camera projection; only the inspection shading differs.
   function software(T,rig){
@@ -73,7 +118,8 @@
       const w=Math.min(width,480),h=Math.round(w*height/width),camera=cameraFor(T,pose);
       const matrix=new T.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
       canvas.width=w;canvas.height=h;const frame=ctx.createImageData(w,h),depth=new Float32Array(w*h);depth.fill(Infinity);
-      for(let i=0;i<w*h;i++){frame.data[i*4]=23;frame.data[i*4+1]=27;frame.data[i*4+2]=32;frame.data[i*4+3]=255;}
+      const bg=new T.Color(...background).convertLinearToSRGB();
+      for(let i=0;i<w*h;i++){frame.data[i*4]=Math.round(bg.r*255);frame.data[i*4+1]=Math.round(bg.g*255);frame.data[i*4+2]=Math.round(bg.b*255);frame.data[i*4+3]=255;}
       for(const item of vertices){
         let polygon=item.tri.map(v=>v.clone().applyMatrix4(matrix));
         for(const distance of planes){
@@ -101,7 +147,7 @@
       ctx.putImageData(frame,0,0);
     }};
   }
-  function create(T,spec,{softwareOnly=false}={}){
+  function create(T,spec,{softwareOnly=false,openings=[],anchors=[]}={}){
     const rig=sceneFor(T,spec);let renderer=null,cpu=null,disposed=false;
     function releaseGPU(){if(!renderer)return;renderer.dispose();renderer.forceContextLoss();renderer=null;}
     if(softwareOnly)cpu=software(T,rig);
@@ -111,6 +157,7 @@
     }catch(e){releaseGPU();cpu=software(T,rig);}
     return {
       get mode(){return cpu?"software":"gpu";},
+      inspect(pose,x,y){if(disposed)throw Error('This preview was closed.');return inspect(T,rig,spec,openings,anchors,pose,x,y);},
       render(canvas,pose,width=640,height=360){
         if(disposed)throw Error("This preview was closed.");
         if(renderer?.getContext?.()?.isContextLost?.()){releaseGPU();cpu=software(T,rig);}
@@ -123,5 +170,5 @@
       dispose(){if(disposed)return;disposed=true;rig.dispose();releaseGPU();cpu=null;}
     };
   }
-  root.KinolotAnglePreview={load,geometry,sceneFor,cameraFor,create};
+  root.KinolotAnglePreview={load,geometry,sceneFor,cameraFor,create,openingGuides,imagePoint};
 })(typeof window!=="undefined"?window:globalThis);
