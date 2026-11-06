@@ -996,6 +996,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   const fieldsRef=React.useRef(null),[editFocus,setEditFocus]=React.useState(repairRequest);
   const editOrigin=React.useRef(repairRequest?"repair":"manual");
   const [candidate,setCandidate]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState("");
+  const [confirmation,setConfirmation]=React.useState(null);
   const [,refresh]=React.useReducer(n=>n+1,0);
   const state=locationSpatialPlanState(l),owner=state.owner,plan=candidate||state.plan;
   const [open,setOpen]=React.useState(!state.ready||!!repairRequest);
@@ -1011,6 +1012,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   const loweredNote=candidate&&typeof locationLoweredCamerasText==="function"?locationLoweredCamerasText(candidate.loweredCameras):"";
   const keptNote=candidate&&typeof locationKeptOnRedraftText==="function"?locationKeptOnRedraftText(candidate.keptOnRedraft):"";
   const empty=!plan.frame.trim()&&!plan.anchors.length&&!plan.sightlines.trim()&&!plan.unresolved.trim();
+  const confirmationLabel=candidate?"Draft to review":confirmed?(renderIssues.length?"Placements confirmed · measurements needed":window.KinolotCloudRender?.enabled?.()?"Confirmed · ready for cameras":"Placements confirmed"):empty?"Not confirmed":"Unconfirmed edits";
   const check=locationSpatialPlanState({...owner,spatialPlan:normalizeLocationSpatialPlan({...plan,status:"reviewed",source:state.source})});
   const reviewHint=empty
     ? "No fixed placements have been saved. Draft specification writes the location description; use Draft shared layout to fill the fields below, or enter them manually."
@@ -1022,8 +1024,10 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   const alive=React.useRef(true);
   const draftBasis=React.useRef(null);
   const currentState=()=>locationSpatialPlanState((((window.turnContinuity||{}).locations)||[]).find(x=>x.id===owner.id)||owner);
+  const confirmationView=React.useRef(null);
+  confirmationView.current={location:l,owner,state,candidate,readOnly,busy,seenPlan:JSON.stringify(currentState().plan)};
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
-  React.useEffect(()=>{setCandidate(null);setError("");},[owner.id]);
+  React.useEffect(()=>{setCandidate(null);setError("");setConfirmation(null);},[owner.id]);
   // a layout being drafted, or drafted and waiting to be confirmed, holds "Draft view composition" (2026-10-12)
   const pendingToken=React.useRef({});
   React.useEffect(()=>{
@@ -1051,6 +1055,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     return ()=>window.removeEventListener("nb-gen-done",changed);},[]);
   const change=patch=>{
     if(readOnly)return;
+    setConfirmation(null);
     const next=normalizeLocationSpatialPlan({...plan,...patch,status:"draft"});
     if(candidate)setCandidate(next);else onUpdate(owner.id,{spatialPlan:next});
   };
@@ -1073,26 +1078,42 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     }catch(e){if(alive.current&&(typeof nbEpoch!=="function"||nbEpoch()===epoch))setError(e.message||"Could not draft the layout.");}
     finally{if(alive.current)setBusy(false);}
   };
+  const revealGroup=selector=>{const target=fieldsRef.current?.querySelector(selector);if(!target)return;target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});target.querySelector?.("summary")?.focus?.({preventScroll:true});};
   const confirm=()=>{
-    if(readOnly||busy)return;
-    const current=currentState();
-    if(candidate&&draftBasis.current&&(JSON.stringify(current.owner.spatialPlan||null)!==draftBasis.current.original
-      ||(current.owner.spatialNotes||"")!==draftBasis.current.notes)){
-      setError("The saved layout changed. Discard this draft before continuing; the newer layout has been preserved.");return;
-    }
-    if(candidate&&JSON.stringify(current.source)!==JSON.stringify(candidate.source)){
-      setError("The source plate changed. Discard this draft and read the new plate first.");return;
-    }
-    const reviewed=normalizeLocationSpatialPlan({...plan,status:"reviewed",source:current.source});
-    const check=locationSpatialPlanState({...owner,spatialPlan:reviewed});
-    if(!check.ready){setError(check.reason);return;}
-    onUpdate(owner.id,{spatialPlan:reviewed},{kind:candidate?"layout-proposal":"floor-plan-edit"});setCandidate(null);setError("");
+    setConfirmation(null);
+    const shown=confirmationView.current,draft=shown.candidate,planOwner=shown.owner,location=shown.location;
+    if(shown.readOnly||typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable()){setError("This film is read-only. An editor must confirm the layout.");return;}
+    if(shown.busy)return;
+    try{
+      const current=currentState();
+      if(current.owner.id!==planOwner.id||!draft&&JSON.stringify(current.plan)!==shown.seenPlan&&JSON.stringify(current.plan)!==JSON.stringify(shown.state.plan)){
+        setError("The saved layout changed since this view was shown. Review the latest fields and confirm again; nothing was overwritten.");return;
+      }
+      if(draft&&draftBasis.current&&(JSON.stringify(current.owner.spatialPlan||null)!==draftBasis.current.original
+        ||(current.owner.spatialNotes||"")!==draftBasis.current.notes)){
+        setError("The saved layout changed. Discard this draft before continuing; the newer layout has been preserved.");return;
+      }
+      if(draft&&JSON.stringify(current.source)!==JSON.stringify(draft.source)){
+        setError("The source plate changed. Discard this draft and read the new plate first.");return;
+      }
+      // Numeric fields commit on blur. Use the latest rendered edit, even before the global mirror effect catches up.
+      const reviewed=normalizeLocationSpatialPlan({...(draft||shown.state.plan),status:"reviewed",source:current.source});
+      const checked=locationSpatialPlanState({...current.owner,spatialPlan:reviewed});
+      if(!checked.ready){setError(checked.reason);return;}
+      const list=(((window.turnContinuity||{}).locations)||[]).map(x=>x.id===planOwner.id?{...x,spatialPlan:reviewed}:x);
+      const measured=!!window.KinolotCloudRender?.enabled?.()&&typeof window.KinolotCloudRender?.inputIssueList==="function";
+      let issues=[];
+      if(measured)issues=window.KinolotCloudRender.inputIssueList(location.id===planOwner.id?{...location,spatialPlan:reviewed}:location,list).filter(i=>i.step===2);
+      onUpdate(planOwner.id,{spatialPlan:reviewed},{kind:draft?"layout-proposal":"floor-plan-edit"});
+      setCandidate(null);setError("");setConfirmation({sig:locationSpatialPlanSig(reviewed),measured,issues});
+    }catch(e){setError(e?.message||"Could not confirm the layout. Please try again.");}
   };
+  const confirmationNow=confirmation&&confirmation.sig===locationSpatialPlanSig(plan)&&!state.stale?confirmation:null;
   const field=(label,value,onChange,placeholder)=>React.createElement("label",{className:"loc-spatial-field"},
     React.createElement("span",null,label),React.createElement("textarea",{className:"prop-select",value,
       rows:Math.min(8,Math.max(2,Math.ceil((value||placeholder||"").length/42))),placeholder,onChange:e=>onChange(e.target.value)}));
   const confirmButton=()=>React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm",
-    disabled:readOnly||busy||!check.complete,onClick:confirm},React.createElement(Icon.check,{s:14}),"Confirm shared layout");
+    disabled:readOnly||busy||!check.complete,title:readOnly?"This film is read-only.":busy?"Wait for the layout draft to finish.":!check.complete?reviewHint:"Approve the saved placements; remaining measurements will be checked.",onClick:confirm},React.createElement(Icon.check,{s:14}),"Confirm shared layout");
   const draftButton=(primary=false)=>React.createElement("button",{type:"button",
     className:"art-draftall"+(primary?" loc-spatial-confirm":" ghost"),disabled:readOnly||busy,onClick:draft},
     React.createElement(Icon.sparkles,{s:14}),busy?"Reading layout…":"Draft shared layout");
@@ -1109,11 +1130,11 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       React.createElement("p",null,confirmed?"The placements are confirmed, not locked. You can still edit objects, footprints and dimensions below; changes need confirmation again. A 3D build also needs complete measurements.":reviewHint),
       confirmed&&renderIssues.length>0&&React.createElement("div",{className:"loc-step-fixes",role:"note"},
         React.createElement("b",null,"Before Build set can run:"),React.createElement("ul",null,renderIssues.slice(0,6).map((i,n)=>React.createElement("li",{key:n},i.text)))),
-      confirmed&&React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm",onClick:()=>{editOrigin.current="manual";setOpen(true);setEditFocus(n=>n+1);}},readOnly?"View floor plan":"Edit floor plan"),
+      !empty&&React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm",onClick:()=>{editOrigin.current="manual";setOpen(true);setEditFocus(n=>n+1);}},readOnly?"View floor plan":"Edit floor plan"),
       confirmed&&!renderIssues.length&&window.KinolotCloudRender?.enabled?.()&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",onClick:()=>window.goToLocationStep(l,4)},"Back to 4 · Build the set"),
       confirmed
         ? onReturnToImage&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-spatial-confirm",onClick:onReturnToImage},"Back to image",React.createElement(Icon.chevR,{s:14}))
-        : empty?draftButton(true):confirmButton(),
+        : empty?draftButton(true):null,
       React.createElement("small",null,readOnly?"View only — ask an editor to prepare or confirm this layout.":empty
         ? "Reads the parent image when available; otherwise uses the written specification. Also drafts an approximate floor plan in metres (footprints, windows and doors, object positions, each panel's camera) \u2014 every number editable. Uses writing-model credits, not image credits. Review and confirm the result before generating."
         : "Confirmation uses no credits and does not generate an image."),
@@ -1129,7 +1150,9 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       React.createElement(LocationFloorPlanMap,{scene:mapScene,selected:mapSel,onSelect:setMapSel,spaceId:l.id})),
     React.createElement("fieldset",{className:"loc-plan-editor","aria-label":readOnly?"View floor plan":"Edit floor plan",ref:fieldsRef,tabIndex:-1,disabled:readOnly||busy},
       React.createElement("div",{className:"loc-plan-editor-start",tabIndex:-1},
-        React.createElement("h4",{className:"loc-spatial-heading"},readOnly?"View floor plan":"Edit floor plan"),
+        React.createElement("div",{className:"loc-plan-editor-heading"},
+          React.createElement("h4",{className:"loc-spatial-heading"},readOnly?"View floor plan":"Edit floor plan"),
+          React.createElement("span",{className:"loc-confirm-status",role:"status","aria-label":"Floor plan confirmation status"},confirmationLabel)),
         React.createElement("p",{className:"loc-layer-note"},"Open a section below to edit it, then fold it away to keep the other sections in view. Confirm the shared layout below when finished.")),
       busy&&React.createElement("p",{role:"status",className:"loc-layer-note"},"Reading the reference panels. Your draft will appear here for review…"),
       React.createElement("details",{className:"loc-nested-section loc-plan-objects",open:empty?true:undefined},
@@ -1139,7 +1162,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         ? "Set a viewing direction and add at least one fixed object with its room, name and placement. Confirm shared layout becomes available once these are filled."
         : "Check where each object stays. Open an object to edit its placement or supporting evidence."),
       field("Layout corrections / instructions",owner.spatialNotes||"",value=>{
-        setCandidate(null);onUpdate(owner.id,{spatialNotes:value.slice(0,2000),spatialPlan:{...state.plan,status:"draft"}});
+        setCandidate(null);setConfirmation(null);onUpdate(owner.id,{spatialNotes:value.slice(0,2000),spatialPlan:{...state.plan,status:"draft"}});
       },"Describe corrections the reference must respect. Name the room, object and physical relationship, not just screen-left/right."),
       field("Orientation frame",plan.frame,value=>change({frame:value}),"For example: standing at the living-room archway, facing into the kitchen. This direction stays fixed when cameras move."),
       plan.anchors.map(a=>React.createElement(LocationSpatialAnchorEditor,{key:a.id,anchor:a,
@@ -1201,6 +1224,12 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         React.createElement("p",{className:"loc-layer-note"},"Changes save when you leave a field. Confirm shared layout approves those saved edits; it does not fill missing measurements or generate images."),
         confirmed&&renderIssues.length>0&&React.createElement("p",{className:"loc-layer-note",role:"status"},"Still needed for the 3D build: "+renderIssues.map(i=>i.text).join(" ")),
         confirmButton(),
+        (readOnly||busy||!check.complete)&&React.createElement("p",{className:"loc-layer-note",role:"note"},readOnly?"View only: ask an editor to confirm this layout.":busy?"Wait for the draft to finish before confirming.":reviewHint),
+        confirmationNow&&React.createElement("div",{className:"loc-confirm-result",role:"status"},
+          React.createElement("p",null,confirmationNow.issues.length?"Placements confirmed. Measurements still need correction before building.":confirmationNow.measured?"Shared layout confirmed. Ready for cameras.":"Shared layout confirmed. You can generate the location image."),
+          confirmationNow.issues.length>0&&React.createElement("ul",null,confirmationNow.issues.slice(0,6).map((issue,i)=>React.createElement("li",{key:i},issue.text))),
+          confirmationNow.issues.some(i=>/footprint|ceiling|opening|sill|head heights|wall placement/i.test(i.text))&&React.createElement("button",{type:"button",className:"art-draftall ghost",onClick:()=>revealGroup(".loc-plan-metrics")},"Fix room measurements"),
+          confirmationNow.issues.some(i=>!/footprint|ceiling|opening|sill|head heights|wall placement/i.test(i.text))&&React.createElement("button",{type:"button",className:"art-draftall ghost",onClick:()=>revealGroup(".loc-plan-objects")},"Fix object placements")),
         confirmed&&!renderIssues.length&&window.KinolotCloudRender?.enabled?.()&&React.createElement("button",{type:"button",className:"art-draftall",onClick:()=>window.goToLocationStep(l,3)},"Continue to 3 · Cameras"),
         error&&React.createElement("p",{className:"loc-spatial-error"},error))));
 }

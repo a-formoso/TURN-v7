@@ -184,3 +184,9 @@ html[data-theme="light"] .bp-pair-code,.bp-panel{box-shadow:0 1px 2px rgba(24,25
 .loc-camera-differences{margin:8px 0}.loc-camera-differences summary{cursor:pointer}.loc-camera-difference{padding-top:8px;border-top:1px solid var(--line);margin-top:8px}.loc-camera-difference p{font-size:11px;margin:4px 0}
 .loc-steps .loc-steps-next{font-size:11px;flex-wrap:nowrap;gap:6px;min-height:28px}
 .loc-steps .loc-steps-next-text{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:400}
+
+.loc-plan-editor-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 12px}
+.loc-plan-editor-heading .loc-spatial-heading{margin:0}
+.loc-confirm-status{font:400 11px/1.5 var(--f-ui);color:var(--txt-2)}
+.loc-confirm-result{padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--bg-2);font:400 12px/1.5 var(--f-ui);color:var(--txt-1)}
+.loc-confirm-result p{margin:0 0 6px}.loc-confirm-result ul{margin:4px 0 10px;padding-left:18px}.loc-confirm-result .art-draftall{margin-right:6px}

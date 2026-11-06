@@ -40,8 +40,8 @@ let tree=render();
 assert.equal(tree.props.open,true,"unreviewed layout opens when the outer fold is opened");
 assert.equal(cls(tree,"loc-spatial-assist").props.open,undefined,"paid drafting is collapsed and optional");
 assert.match(text(cls(tree,"loc-spatial-assist")),/Optional/);
-assert.ok(text(tree).indexOf("Confirm shared layout")<text(tree).indexOf("Draft shared layout"));
-assert.equal(flat(tree).filter(n=>n.type==="button"&&text(n)==="Confirm shared layout").length,2);
+assert.ok(flat(tree).indexOf(button(tree,"Confirm shared layout"))>flat(tree).indexOf(button(tree,"Draft shared layout")),"The single approval action follows the optional AI helper inside the editor");
+assert.equal(flat(tree).filter(n=>n.type==="button"&&text(n)==="Confirm shared layout").length,1);
 assert.equal(button(tree,"Confirm shared layout").props.disabled,false);
 assert.match(text(tree),/Confirmation uses no credits and does not generate an image/);
 assert.equal(writes.length,0);assert.equal(aiCalls,0,"opening never drafts or approves");
@@ -193,4 +193,39 @@ assert.equal(box.KinolotCloudRender.inputIssueList(flow).length,0,"Steps 2, 3 an
 // Replacing an empty outline is explicit and never allowed through a read-only handler.
 hooks=[];cursor=0;let illicit=0;const readonlyOutline=box.LocationRoomOutline({space:{},onCreate:()=>illicit++,readOnly:true});
 button(readonlyOutline,"Create rectangular outline").props.onClick();assert.equal(illicit,0);
+// Confirmation must acknowledge success at the clicked control, even if already reviewed.
+reset();tree=flowEditor();button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();
+assert.ok(cls(tree,"loc-confirm-result"),"A confirmation click must produce visible local feedback");
+assert.match(text(cls(tree,"loc-confirm-result")),/Ready for cameras/);
+assert.match(text(cls(tree,"loc-confirm-status")),/Confirmed · ready for cameras/,"The edit area reflects the saved confirmation state");
+commitField(flowEditor(),"Object dimensions","0.5, 0.8, 1");tree=flowEditor();
+assert.match(text(cls(tree,"loc-confirm-status")),/Unconfirmed edits/);assert.equal(cls(tree,"loc-confirm-result"),undefined,"A later edit clears the old successful confirmation");
+button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();
+
+// Existing invalid measurements remain blocked and receive an actionable explanation.
+flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,status:"reviewed",coordinates:{...flow.spatialPlan.coordinates,spaces:flow.spatialPlan.coordinates.spaces.map(sp=>({...sp,openings:[{id:"entry",name:"Folding entry door",kind:"door",edge:0,centre:[0,-5],width:.8,sillZ:0,headZ:3}]}))}}});
+reset();tree=flowEditor();button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();
+assert.match(text(cls(tree,"loc-confirm-result")),/above the ceiling/);
+assert.match(text(cls(tree,"loc-confirm-status")),/measurements needed/,"Confirmation status does not hide unresolved 3D measurements");
+assert.ok(button(tree,"Fix room measurements"),"Confirmation explains how to repair a remaining opening-height problem");
+const repairMetric={open:false,scrollIntoView:noop,querySelector:()=>({focus:noop})};
+flat(tree).find(n=>n.type==="fieldset").props.ref.current={querySelector:selector=>selector===".loc-plan-metrics"?repairMetric:null};
+button(tree,"Fix room measurements").props.onClick();assert.equal(repairMetric.open,true,"The repair action opens the actual measurement fields");
+
+assert.equal(button(tree,"Continue to 3 · Cameras"),undefined,"Approval must not hide an invalid measurement");
+// A stale click must approve the current saved data, never overwrite a newer saved edit.
+reset();tree=flowEditor();const oldConfirm=button(tree,"Confirm shared layout");
+flowUpdate(flow.id,{spatialPlan:{...flow.spatialPlan,frame:"A newer saved viewing direction"}});
+oldConfirm.props.onClick();assert.equal(flow.spatialPlan.frame,"A newer saved viewing direction");
+tree=flowEditor();assert.match(text(tree),/changed since this view was shown/,"An unseen concurrent edit asks for review rather than approving stale data");
+// Rendered React state can lead the legacy global mirror until its passive effect runs.
+const visible={...flow,spatialPlan:{...flow.spatialPlan,frame:"The latest visible numeric edit"}};
+reset();tree=render({l:visible,onUpdate:flowUpdate});button(tree,"Confirm shared layout").props.onClick();
+assert.equal(flow.spatialPlan.frame,"The latest visible numeric edit","Confirmation preserves a visible edit even when the global mirror has not caught up");
+
+reset();tree=flowEditor();box.turnArtRoomWritable=()=>false;const protectedPlan=JSON.stringify(flow);
+button(tree,"Confirm shared layout").props.onClick();tree=flowEditor();assert.match(text(tree),/read-only/);assert.equal(JSON.stringify(flow),protectedPlan);assert.equal(cls(tree,"loc-confirm-result"),undefined);
+box.turnArtRoomWritable=()=>true;
+reset();tree=render({l:flow,onUpdate:()=>{throw Error("Local confirmation failed");}});button(tree,"Confirm shared layout").props.onClick();tree=render({l:flow,onUpdate:noop});
+assert.match(text(tree),/Local confirmation failed/,"A failed update reports an error instead of silently ignoring the click");
 console.log("PASS shared-layout review hierarchy, empty/ready/stale/read-only states, parent ownership, optional draft/discard, navigation focus and readable placements");
