@@ -5351,6 +5351,11 @@ window.locationDrawnAtClause = locationDrawnAtClause;
 window.locationDrawnAtMeta = locationDrawnAtMeta;
 window.locationDrawnAtLabel = locationDrawnAtLabel;
 
+/* A regular 2x2 keeps each extracted panel at the sheet's chosen aspect. */
+function locationReferenceGridFormat(){
+  const aspect = typeof nbGetAspect==="function" ? nbGetAspect() : "16:9";
+  return "Overall sheet aspect ratio "+aspect+". Use four equal "+aspect+" camera frames in a regular 2x2 grid, edge to edge, with only thin dividing lines and no title or caption bands. Each extracted panel must retain that same aspect ratio; do not stretch the views.";
+}
 /* deterministic LOCATION coverage plate — full view of the place from several
    angles on one grid, so any shot set here matches geometry, materials & light.
    The plate stays grade-neutral (each shot applies its scene's look); `opts.time` specialises a variant. */
@@ -5537,6 +5542,7 @@ function buildLocationRefPrompt(l, project, opts){
              "high-resolution, clean crisp detail in that style","consistent lighting and style across all views","clean layout"]),
     },
   };
+  spec.views.frame_format = locationReferenceGridFormat();
   // Varied coverage is a framing goal, never permission to move a set or overwrite a saved camera.
   spec.views.coverage_guidance = [
     "Give every panel a distinct visual purpose and useful new information, varying viewpoint and framing rather than repeating the same wide composition. Keep one physical set, scale, fixtures and lighting across all four panels; never invent objects or rearrange the room to make the views different.",
@@ -5880,7 +5886,7 @@ function buildLocationFromPhotoPrompt(l, project){
   if(speciesCanon) s += speciesCanon+" ";
   // (2026-10-08) the same 2x2 four-view plate as every other master plate — it used to ask for a 3x2 grid
   // with printed captions, so photo-made plates broke Edit a panel and the panel crops
-  s += "Compose it as exactly 4 views of that same space in a 2x2 grid divided by thin clean lines: "
+  s += locationReferenceGridFormat()+" Compose it as exactly 4 views of that same space in a 2x2 grid divided by thin clean lines: "
      + "top-left a wide establishing view; top-right a high overview; bottom-left and bottom-right two closer views of its key features and materials. "
      + "No text, no labels, no captions, no numbers. Any other attached images are parent, layout or screenplay references, not the place to copy. "
      + "Consistent architecture and light across all panels. "+rules+" Sharp focus, faithful to the specified render style.";

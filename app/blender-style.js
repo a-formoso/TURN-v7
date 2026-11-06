@@ -74,7 +74,7 @@
   function prompt(l,notes=""){
     const a=appearance(l);
     return "Create a finished surface treatment over Image 1, the exact 2x2 Blender camera grid of "+a.name+". "
-      +"Preserve the equal four panels, exact framing, perspectives, silhouettes, wall openings, fixtures and all markings. "
+      +"Preserve the 16:9 overall sheet and its four equal 16:9 panels, exact framing, perspectives, silhouettes, wall openings, fixtures and all markings. "
       +"Each panel is a different camera of one shared set. Change materials, surface finish and atmosphere only. Keep the source's wide views wide and close-ups close. Do not duplicate, swap, zoom, crop or reframe panels to create variety; camera variety must come from the Blender source. "
       +"Do not add, move, resize or remove objects. Keep every light fitting at its source position; do not invent visible lamps. "
       +"Keep netting and mesh open and see-through; never fill their gaps with solid walls or panels. "

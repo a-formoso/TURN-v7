@@ -13,6 +13,11 @@ const spec=l=>JSON.parse(b.buildLocationRefPrompt(l,{}).split('\n').slice(1).joi
 let checks=0;
 const ok=(v,m)=>{assert.ok(v,m);checks++;};
 const before=JSON.stringify(room),free=spec(room);
+ok(free.views.frame_format.includes('Overall sheet aspect ratio 16:9')&&free.views.frame_format.includes('four equal 16:9 camera frames'),'Default format applies to both sheet and extracted panels');
+b.nbGetAspect=()=> '2:1';
+ok(spec(room).views.frame_format.includes('four equal 2:1 camera frames'),'An explicitly selected alternative format is respected');
+ok(b.buildLocationFromPhotoPrompt(room,{}).includes('Overall sheet aspect ratio 2:1'),'Photo-led location generation keeps the selected format too');
+delete b.nbGetAspect;
 ok(free.views.top_right.includes('opposite end or reverse direction'),'Free overview seeks a complementary viewpoint');
 ok(free.views.bottom_left.includes('Rear door')&&free.views.bottom_left.includes('tightly'),'Landmark close-up names the real feature and asks for inspection framing');
 ok(free.views.bottom_right.includes('Workbench')&&free.views.bottom_right.includes('not a repeat'),'Detail view uses the other real station');
