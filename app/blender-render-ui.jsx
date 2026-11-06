@@ -114,8 +114,6 @@ function LocationCloudRender({location,readOnly=false}){
   const paid=!!(caps&&caps.open),credits=paid?(Number(caps.credits)>0?Number(caps.credits)
     :(typeof window.turnSetBuildCredits==="function"?window.turnSetBuildCredits():0)):0;
   const canBuild=!caps||caps.canBuild!==false;
-  const statusRelevant=!!job||busy||!!c.message;
-  const refreshLabel=job||busy?"Refresh render status":c.capable?"Check render request":"Retry renderer connection";
   const chip=paid&&credits>0&&E("span",{className:"nb-cost","data-testid":"set-build-cost",
     title:"≈ "+credits+" generation credits a build — held when it's queued, charged when the four views arrive, given back if it fails or you cancel"},String(credits));
   return E("section",{className:"loc-cloud-render","data-testid":"location-cloud-render"},
@@ -128,18 +126,19 @@ function LocationCloudRender({location,readOnly=false}){
     E("div",{className:"loc-cloud-render-actions"},
       E("button",{type:"button",className:"art-draftall",disabled:readOnly||!canBuild||busy||!c.capable||!sceneHash||!!running||issues.length>0,onClick:submit},
         busy?"Sending…":job&&job.status==="completed"?"Rebuild set":"Build set",!busy&&chip),
-      statusRelevant&&E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:c.refresh,
-        title:"Checks the connection and saved requests without starting or charging for a render"},refreshLabel),
       running&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!canBuild||busy,onClick:cancel,
         title:paid?"Stop this build \u2014 its credits are given back":undefined},"Cancel")),
     E("small",{className:"loc-layer-note",role:"status"},c.capable?"Renderer connected · "+(job?"Render job: "+job.status:"No saved render job"):
       c.message?"Renderer connection needs attention":"Checking the renderer connection…"),
-    statusRelevant&&E("small",{className:"loc-layer-note"},"This check reloads the connection and any saved request or images. It does not start a render or use credits."),
     running&&renderProgress(job,{now,started:runningSince.current,objects:scene?scene.objects.length:0,lastSeconds,api}),
     job&&!running&&job.status!=="completed"&&E("p",{role:"status",className:"loc-layer-note"},({failed:(job.error||"The render did not finish.")+(paid&&job.credits?" Its credits were given back.":""),
       cancelled:"Request cancelled."+(paid&&job.credits?" Its credits were given back.":"")})[job.status]),
     job&&job.status==="completed"&&(stale||issues.length>0)&&E("p",{className:"loc-spatial-error"},"These views are from another version of the set: an earlier floor plan or cameras, or another moment's moving parts. Rebuild to see the current ones."),
-    c.message&&E("p",{role:"alert",className:"loc-spatial-error"},c.message),
+    c.message&&E("div",{role:"alert",className:"loc-spatial-error"},
+      E("p",null,c.message),
+      E("button",{type:"button",className:"art-draftall ghost",disabled:busy,onClick:c.refresh,
+        title:"Retries the connection and reloads saved requests without starting or charging for a render"},
+        !c.capable?"Retry renderer connection":job?"Retry status check":"Check render request")),
     job?.result&&E("div",{className:"loc-cloud-render-grid"},["TL","TR","BL","BR"].map(p=>E("figure",{key:p},
       E("img",{src:job.result.images["colour_"+p],alt:labels[p]+" camera view of "+(location.name||"this location")}),
       E("figcaption",null,labels[p]+" · facing "+Math.round((Math.atan2(job.result.report.cameras[p].direction[0],job.result.report.cameras[p].direction[1])*180/Math.PI+360)%360)+"°")))),
@@ -174,7 +173,7 @@ function LocationStyleStep({location,readOnly=false}){
   }
   if(!c.capable)return E("div",null,
     E("p",{className:"loc-layer-note",role:c.message?"alert":"status"},c.message||"Checking the built set…"),
-    c.message&&E("button",{type:"button",className:"art-draftall ghost",onClick:c.refresh},c.job?"Refresh render status":"Retry renderer connection"));
+    c.message&&E("button",{type:"button",className:"art-draftall ghost",onClick:c.refresh},"Retry renderer connection"));
   const setup=!ready&&E("div",{className:"loc-step-fixes"},
     E("p",{className:"loc-step-fixes-head"},c.job&&c.job.status==="completed"?"Rebuild the set first: its views are from an earlier floor plan or cameras.":"Build the set first."),
     E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,4)},"Go to 4 · Build the set"));

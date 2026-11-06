@@ -99,12 +99,19 @@ assert.equal(button(represented,"Edit object shapes"),undefined,"The edit shortc
 state.scene.notes=[];
 for(const status of ["queued","running","completed","failed","cancelled"]){
   state.job={id:"test",status};
-  assert.ok(button(box.LocationCloudRender({location}),"Refresh render status"),"Existing "+status+" jobs retain status refresh");
+  const normal=box.LocationCloudRender({location});
+  assert.equal(button(normal,"Refresh render status"),undefined,"Normal "+status+" jobs rely on automatic progress updates");
+  assert.equal(!!button(normal,"Cancel"),["queued","running"].includes(status),"Only active builds offer cancellation");
   assert.equal(button(box.LocationCloudRender({location}),"Edit object shapes"),undefined,"Shape editing is not prompted until rendered results exist");
 }
 state.job=null;
 state.busy=true;
-assert.equal(button(box.LocationCloudRender({location}),"Refresh render status").props.disabled,true);
+assert.equal(button(box.LocationCloudRender({location}),"Refresh render status"),undefined,"Sending a request does not introduce a refresh button");
+state.busy=false;state.job={id:"active",status:"running"};state.message="The status connection was interrupted";
+const interrupted=box.LocationCloudRender({location,readOnly:true});
+button(interrupted,"Retry status check").props.onClick();assert.equal(requests,0,"An error-only status retry never submits a new render");
+assert.ok(nodes(interrupted).find(n=>n.props.role==="alert"&&nodes(n).includes(button(interrupted,"Retry status check"))),"Retry is attached to the connection error, outside the normal build controls");
+state.message="";
 state.busy=false;state.capable=true;state.job={id:"old",status:"completed",sceneHash:"older"};state.stale=true;
 state.job.result={images:{},report:{wallSeconds:60,cameras:Object.fromEntries(["TL","TR","BL","BR"].map(k=>[k,{direction:[0,1,0]}]))}};
 const completed=box.LocationCloudRender({location});
