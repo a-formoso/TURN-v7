@@ -85,6 +85,13 @@ for(const name of studioOrder){
   if(at<0||at<=prior) throw new Error("Blender Studio script order is incomplete: "+name);
   prior=at;
 }
+const angleOrder=["app/locations.jsx","app/camera-angle-preview.js","app/camera-angle-preview-ui.jsx","app/locations-ui.jsx"];
+prior=-1;
+for(const name of angleOrder){
+  const at=html.indexOf(name);
+  if(at<0||at<=prior)throw new Error("Camera-angle preview script order is incomplete: "+name);
+  prior=at;
+}
 // The screenplay contract is evaluated lazily by videogen, after startup. Its
 // source readers and UI must nevertheless load in order before Stage mounts.
 const screenplayOrder=["app/shot-screenplay.js","app/shot-scene-context.js","app/stage-screenplay.js","app/stage-screenplay-images.js","app/stage-screenplay-ui.jsx","app/stage-director-brief.js","app/stage.jsx"];

@@ -293,6 +293,8 @@ window.turnPlanCardFeatures = function(p, feats){
   const list = (feats || (p && p.features) || []).slice();
   const line = p && PLAN_TEAM_LINES[p.tier];
   if(line && window.turnTeamSharing && !list.some(f=>/share films with/i.test(String(f)))) list.push(line);
+  if(p&&["director","studio","pro"].includes(p.tier)&&(window.TURN_SUPABASE||{}).setBuild===true&&window.KinolotAnglePreview
+    &&!list.some(f=>/cloud sets, camera-angle previews/i.test(String(f))))list.push("Cloud sets, camera-angle previews and image styling");
   return list;
 };
 /* snapshot the current editable copy (for the editor's working state) */

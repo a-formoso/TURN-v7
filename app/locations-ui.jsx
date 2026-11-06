@@ -336,6 +336,7 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
     !proposal&&state.ready&&ownRoom&&api.enabled?.()&&Object.keys(api.cameraProblems(l,list)).length===0&&E("div",{className:"loc-step-actions"},
       E("p",{className:"loc-layer-note"},"Camera position checks pass. Review the four views on the map, then continue to Build set. Composition notes below are optional."),
       E("button",{type:"button",className:"art-draftall",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set")),
+    state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly}),
     E("p",{className:"loc-layer-note"},"Suggesting and reviewing cameras uses no credits and starts no render."));
 }
 function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
