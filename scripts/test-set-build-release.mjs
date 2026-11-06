@@ -229,7 +229,7 @@ await test("E the app: the switch, the price (app = server), the card's chip, ro
   assert.ok(ai.includes("one build costs 15 credits, held when it is queued"));
   const html = read("TURN.html");
   for (const f of ["supabase-config.js", "pricing.jsx", "blender-render.js", "blender-render-ui.jsx", "ai.jsx", "script.jsx"])
-    assert.ok(["20261105-set1", "20261105-set2", "20261105-set3", "20261105-set4", "20261105-set5", "20261105-set6", "20261105-set7", "20261106-views1", "20261106-views2", "20261106-views3", "20261106-views4", "20261106-views5", "20261106-views6", "20261106-views7", "20261106-views8", "20261106-views9", "20261106-views10", "20261106-views11", "20261106-views12", "20261106-views13", "20261106-views14", "20261106-views15", "20261106-views16", "20261106-views17", "20261106-views18", "20261106-views19", "20261106-views20", "20261106-views21"].some((k) => html.includes('src="app/' + f + "?v=" + k + '"')), f);
+    assert.ok(["20261105-set1", "20261105-set2", "20261105-set3", "20261105-set4", "20261105-set5", "20261105-set6", "20261105-set7", "20261106-views1", "20261106-views2", "20261106-views3", "20261106-views4", "20261106-views5", "20261106-views6", "20261106-views7", "20261106-views8", "20261106-views9", "20261106-views10", "20261106-views11", "20261106-views12", "20261106-views13", "20261106-views14", "20261106-views15", "20261106-views16", "20261106-views17", "20261106-views18", "20261106-views19", "20261106-views20", "20261106-views21", "20261106-views22"].some((k) => html.includes('src="app/' + f + "?v=" + k + '"')), f);
 });
 
 console.log(`\n${checks} checks passed${failed ? `, ${failed} FAILED` : ""}`);

@@ -17,7 +17,7 @@
    4. the parent's plate must still exist first ("needed"), and stays the plate's upstream dependency;
    5. prices count what is really attached (the panels, not a sheet);
    6. a plate made before its cameras were recorded can be given them on its card (Plate cameras "This plate's
-      cameras": each panel's direction by hand — free — or "Read the cameras from this plate", the Draft shared layout
+      cameras": each panel's direction by hand — free — or "Read the cameras from this plate", the Draft floor plan
       read keeping only the cameras, priced on the button), for that plate version only (l.plateCameras), without
       changing its prompt or layout; the rooms inside then get the matched panels;
    7. Frances knows (APP_FEATURES);
@@ -276,7 +276,7 @@ assert.equal(box.locationViewCandidates(owner, sub).recorded, true, "(the layout
 hooks = []; assert.doesNotMatch(text(render(props)), /This plate's cameras/);
 owner.spatialPlan = ownerPlanBefore;
 // a room with rooms inside it (a plate made before its cameras were recorded): set by hand only — the read is the
-// Draft shared layout read, which only a location that owns its layout has
+// Draft floor plan read, which only a location that owns its layout has
 const nook = { id: "loc-nook", key: "nook", name: "Bench nook", intExt: "EXT", parentKey: sub.key, scenes: [] };
 locations.push(nook);
 hooks = []; tree = render({ ...props, l: sub, plateMeta: { iso: "s-old" } }); t = text(tree);

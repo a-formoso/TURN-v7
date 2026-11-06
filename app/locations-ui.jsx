@@ -505,9 +505,9 @@ function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
           React.createElement("option",{value:""},"Not known"),
           ["north","north-east","east","south-east","south","south-west","west","north-west"].map((w,i)=>React.createElement("option",{key:w,value:String(i*45)},w)))))),
       React.createElement("div",{className:"loc-cam-plate-acts"},
-        // the read is the Draft shared layout read — only a location that owns its layout has one (a room inside: by hand)
+        // the read is the Draft floor plan read — only a location that owns its layout has one (a room inside: by hand)
         ownsLayout&&React.createElement("button",{type:"button",className:"art-draftall ghost loc-cam-make",disabled:readOnly||!!busy,
-          title:"Reads where each panel's camera stood from this plate, the way Draft shared layout reads it. Only the cameras are kept — the layout and the plate are unchanged. Uses writing credits, not image credits.",
+          title:"Reads where each panel's camera stood from this plate, the way Draft floor plan reads it. Only the cameras are kept — the layout and the plate are unchanged. Uses writing credits, not image credits.",
           onClick:readPlateCameras},
           busy==="read-cameras"?"Reading the cameras…":"Read the cameras from this plate",
           busy!=="read-cameras"&&typeof window.aiPlateCamerasReadCostText==="function"&&React.createElement("small",{className:"loc-cam-price"}," · "+window.aiPlateCamerasReadCostText())),
@@ -679,7 +679,7 @@ function LocationFloorPlanMap({scene,selected,onSelect,spaceId=""}){
     return ()=>el.removeEventListener("wheel",wheel);
   },[!scene||scene.empty]);
   if(!scene||scene.empty)return React.createElement("p",{className:"loc-layer-note loc-map-empty"},
-    "No floor plan numbers yet. Draft shared layout drafts approximate ones from the plate and the screenplay, or add a room's footprint under Floor plan numbers.");
+    "No floor plan numbers yet. Draft floor plan proposes estimates from the description, screenplay and any existing reference image, or add a room's footprint under Floor plan numbers.");
   const fit=(typeof locationFloorPlanFit==="function"&&locationFloorPlanFit(scene,filter))||scene.fit||scene.bounds;
   const box=locMapBox(fit,width),view=locMapClamp(box,viewRaw||{}),k=box.s*view.zoom,W=box.W,H=box.H;
   live.current={box,view};
@@ -1018,7 +1018,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   const confirmationLabel=candidate?"Draft to review":confirmed?(renderIssues.length?"Placements confirmed · measurements needed":window.KinolotCloudRender?.enabled?.()?"Confirmed · ready for cameras":"Placements confirmed"):empty?"Not confirmed":"Unconfirmed edits";
   const check=locationSpatialPlanState({...owner,spatialPlan:normalizeLocationSpatialPlan({...plan,status:"reviewed",source:state.source})});
   const reviewHint=empty
-    ? "No fixed placements have been saved. Draft specification writes the location description; use Draft shared layout to fill the fields below, or enter them manually."
+    ? "No fixed placements have been saved. Draft specification writes the location description; use Draft floor plan to fill the fields below, or enter them manually."
     : !check.complete
     ? ((typeof locationSpatialPlanTooLarge==="function"?locationSpatialPlanTooLarge(plan):JSON.stringify(plan).length>12000)?check.reason:"Add a viewing direction and at least one object below. Each object needs a room, name and fixed placement. You can also draft with AI.")
     : candidate?"Check this proposed layout against your reference panels, then confirm it. Your saved layout is unchanged until you confirm."
@@ -1151,7 +1151,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     disabled:readOnly||busy||!check.complete,title:readOnly?"This film is read-only.":busy?"Wait for the layout draft to finish.":!check.complete?reviewHint:"Approve the saved placements; remaining measurements will be checked.",onClick:confirm},React.createElement(Icon.check,{s:14}),measurementRepair&&candidate?"Apply fixes & confirm":"Confirm shared layout");
   const draftButton=(primary=false)=>React.createElement("button",{type:"button",
     className:"art-draftall"+(primary?" loc-spatial-confirm":" ghost"),disabled:readOnly||busy,onClick:draft},
-    React.createElement(Icon.sparkles,{s:14}),busy?"Reading layout…":"Draft shared layout");
+    React.createElement(Icon.sparkles,{s:14}),busy?"Drafting floor plan…":"Draft floor plan");
   return React.createElement("details",{className:"loc-nested-section loc-spatial-plan",open,onToggle:e=>{
     if(e.target===e.currentTarget)setOpen(e.currentTarget.open);
   }},

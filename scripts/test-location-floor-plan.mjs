@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* LOCATION COORDINATES, step B (owner-approved 2026-10-13, "go ahead with both, include the top-down map"):
-   1. "Draft shared layout" also drafts an APPROXIMATE metric floor plan (footprints, openings, anchor positions,
+   1. "Draft floor plan" also drafts an APPROXIMATE metric floor plan (footprints, openings, anchor positions,
       panel cameras), each group with its basis; names become this family's ids; it stays a draft until confirmed
    2. the floor plan's cameras: used for the panels (a hand-set camera still wins); a plate the confirmed layout was
       read from lends its observed cameras to the rooms inside

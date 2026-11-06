@@ -9,7 +9,7 @@
       eye level or a low high-angle". The floor plan and the card are never changed (stored data is not migrated). A
       camera whose position was typed by hand (Plate cameras' Edit camera, or a floor-plan camera marked "Set by hand")
       is used as typed, with a visible warning above 6 m — never silently changed. Indoors nothing changes.
-   2. THE DRAFTER IS HELD TO THE SAME LIMIT: "Draft shared layout" lowers the outdoor cameras it PROPOSES (basis design
+   2. THE DRAFTER IS HELD TO THE SAME LIMIT: "Draft floor plan" lowers the outdoor cameras it PROPOSES (basis design
       or script) above 6 m and the draft names them; cameras it READ from a plate (observed) are kept as read — they say
       where that plate's cameras stood, and the rooms match its panels by them. The drafter is told which spaces are
       outdoor and what each is part of.
@@ -242,7 +242,7 @@ assert.equal(box.locationLoweredCamerasText([]), "");
   hooks = [];
   let ed = renderEd();
   assert.doesNotMatch(text(ed), /Lowered to 6 m/, "nothing to say before a draft");
-  await flat(ed).find((n) => n.type === "button" && /Draft shared layout/.test(text(n))).props.onClick();
+  await flat(ed).find((n) => n.type === "button" && /Draft floor plan/.test(text(n))).props.onClick();
   ed = renderEd();
   const note = flat(ed).find((n) => n.type === "p" && /^Lowered to 6 m: /.test(text(n)));
   assert.ok(note && note.props.className === "loc-map-check" && note.props.role === "note");

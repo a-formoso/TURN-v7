@@ -77,7 +77,7 @@ const editorProps={l:room,scenes:[],project:{},onUpdate:noop};
 hooks=[];
 let tree=render(box.LocationSpatialPlanEditor,editorProps);
 assert.equal(box.locationLayoutDraftPending("house"),false,"an idle editor holds nothing");
-const draftButton=flat(tree).find(n=>n.type==="button"&&/Draft shared layout/.test(text(n)));
+const draftButton=flat(tree).find(n=>n.type==="button"&&/Draft floor plan/.test(text(n)));
 const drafting=draftButton.props.onClick();
 tree=render(box.LocationSpatialPlanEditor,editorProps);
 assert.equal(box.locationLayoutDraftPending("house"),true,"drafting the layout holds the composition");

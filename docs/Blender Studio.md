@@ -139,12 +139,12 @@ open them to edit placements and evidence. The camera composition grid is unchan
 
 **Draft specification** writes the location description; it does not fill the
 shared placement fields. An empty layout says **No layout yet** and puts
-**Draft shared layout** at the top, with its writing-credit disclosure and a
+**Draft floor plan** at the top, with its writing-credit disclosure and a
 manual-entry alternative. Partly filled layouts say **Placements incomplete**.
 Once drafted, the populated fields say **Draft to review** and the top action
 becomes **Confirm shared layout**. For existing layouts, optional redrafting
 remains under **Need help? Draft with AI**. Enter corrections in the review
-fields, then use **Draft shared layout** to propose a new plan.
+fields, then use **Draft floor plan** to propose a new plan.
 This is an explicit writing-model call: with a parent plate it reads all panels together,
 including partial views through doors; without an image it proposes a design
 from written specifications. The draft is a local proposal until **Confirm shared
