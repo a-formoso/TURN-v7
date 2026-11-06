@@ -62,7 +62,7 @@ await test("A3 restore says when the place is already on the board; purge clears
 await test("A4 edit rights: every change, and the background syncs, only for a role that can change the Art Room", ()=>{
   assert.ok(app.includes("const updateLocation = (id,patch)=>{ if(artRoomReadOnlyRef.current) return;"));
   for(const fn of ["  const deleteLocation = (id)=>{", "  const restoreLocation = (id)=>{", "  const purgeLocation = async (id)=>{",
-    "  const draftLocationVisuals = async (l)=>{", "  const draftAllLocations = async (mode)=>{", "  const draftLocationStaging = async (l)=>{"]){
+    "  const draftLocationVisuals = async (l)=>{", "  const draftAllLocations = async (mode)=>{", "  const draftLocationStaging = async (l,viewId)=>{"]){
     const i = app.indexOf(fn); assert.ok(i>0, fn); assert.ok(app.slice(i, i+260).includes("canMutateSharedFilm()"), fn); }
   assert.ok(between(app, "  const pullLocationsFromScript", "  // auto-seed once per story").includes("if(artRoomReadOnlyRef.current) return;"));
   assert.ok(between(app, "  // auto-seed once per story", "  // LOCATION HIERARCHY SYNC").includes("if(artRoomReadOnlyRef.current) return;"));
@@ -261,7 +261,7 @@ await test("G1 Frances: delete sticks, freshness, spending, prompts", ()=>{
   const fb = { console, Object, Array, String }; fb.window = fb; vm.createContext(fb);
   vm.runInContext(s + "\n;this.__F = APP_FEATURES;", fb);
   const w = (fb.__F.find(f=>f.name==="Locations (Art Room)")||{}).what || "";
-  for(const re of [/LOCATIONS REVIEW, SECOND PASS/, /DELETING STICKS/, /'Location changed'/, /'Parent plate changed'/, /'Description changed'/,
+  for(const re of [/LOCATIONS REVIEW, SECOND PASS/, /DELETING STICKS/, /'Location changed'/, /'Parent plate changed'/, /'1 · Description or look changed'/,
     /no longer sends that layout back for review/, /always asks first with the price/, /'needed first'/, /Surprise me says it uses writing credits/,
     /same 2x2 four-view layout/, /edited in the card's Look & exclusions section/]) assert.ok(re.test(w), String(re));
   assert.ok(!/There is no separate Look dev fold/.test(w));

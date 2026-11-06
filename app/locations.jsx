@@ -2536,6 +2536,22 @@ function locationPlateLayoutChanged(meta, l, opts){
   return !!now && now!==meta.plateLayoutSig;
 }
 
+/* Split the combined image fingerprint only where its recorded cameras make that possible.
+   Older images without that record remain explicitly ambiguous; never guess which section changed. */
+function locationPlateChangeReasons(meta,l){
+  const out={floorPlan:false,cameras:false,unknown:false};
+  if(!locationPlateLayoutChanged(meta,l,{panels:true}))return out;
+  if(!(meta?.platePanels&&typeof meta.platePanels==="object"&&meta.platePanels.panels)){out.unknown=true;return out;}
+  const sig=locationPlateLayoutSig(l,{panels:true,record:meta.platePanels});
+  out.floorPlan=!!sig&&sig!==meta.plateLayoutSig;
+  try{
+    const now=locationPlatePanelRecord(l),legacy=locationPlatePanelRecord(l,undefined,{legacyMainView:true});
+    out.cameras=!_locSameCameras(meta.platePanels,now)&&!_locSameCameras(meta.platePanels,legacy);
+  }catch(_){if(!out.floorPlan)out.unknown=true;}
+  return out;
+}
+window.locationPlateChangeReasons=locationPlateChangeReasons;
+
 /* ---- what each panel sees through an opening (plain geometry, no model call) ---- */
 function locationPanelSightlines(l, panel, locations){
   const list = _locList(locations), pose = panel && panel.pose;

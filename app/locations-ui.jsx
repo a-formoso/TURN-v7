@@ -1205,6 +1205,28 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
         error&&React.createElement("p",{className:"loc-spatial-error"},error))));
 }
 
+function LocationImageChangeNotices({l,meta,hasImage,onSelectLocation}){
+  if(!hasImage)return null;
+  const E=React.createElement,reasons=locationPlateChangeReasons(meta,l),items=[];
+  const go=step=>window.goToLocationStep(l,step);
+  if(locationSpecChanged(meta,l))items.push({key:"description",label:"1 · Description or look changed",title:"The description or render style differs from this image. Review section 1 before regenerating.",run:()=>go(1)});
+  if(reasons.floorPlan)items.push({key:"floor",label:"2 · Floor plan changed",title:"The saved floor plan differs from this image. Review section 2; confirmation alone does not regenerate artwork.",run:()=>go(2)});
+  if(reasons.cameras)items.push({key:"cameras",label:"3 · Cameras changed",title:"The saved camera views differ from this image. Review section 3 before rebuilding or regenerating.",run:()=>go(3)});
+  if(reasons.unknown){
+    items.push({key:"older-floor",label:"2 · Review floor plan",run:()=>go(2)});
+    items.push({key:"older-cameras",label:"3 · Review cameras",run:()=>go(3)});
+  }
+  if(l.parentLocation&&locationDerivedPlateChanged(meta))items.push({key:"parent",label:"Parent location image updated",title:"The parent image used as a reference changed. Review the parent location; this image has not regenerated.",
+    run:typeof onSelectLocation==="function"?()=>onSelectLocation(l.parentLocation.id):null});
+  if(!items.length)return null;
+  return E("aside",{className:"loc-change-notices","aria-label":"Changes since this image"},
+    E("p",null,"Existing image uses earlier settings:"),
+    reasons.unknown&&E("p",{className:"loc-change-unknown"},"This older image has no separate camera record, so the changed section cannot be identified precisely."),
+    E("div",{className:"loc-change-links"},items.map(item=>item.run
+      ?E("button",{key:item.key,type:"button",className:"loc-change-link",title:item.title,onClick:item.run},item.label)
+      :E("span",{key:item.key,className:"loc-change-label",title:item.title},item.label))));
+}
+
 function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft, drafting, onView, batchActiveId, onBatchDone, onChipClick, onDraftStaging, draftingStage, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false, workspaceMembers=[],onSelectLocation,initialSection="",embedded=false,
   samePlace=[], mergeChoices=[], onMergeLocations, onPlaceDecision }){
   // "Same place as…" (2026-10-14): the card picked to merge this one with — null while the picker is closed
@@ -1773,16 +1795,11 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
                 title:M[1]+" (Class "+cls+") \u2014 derived automatically from the characters who drive this place's scenes. Plates here render at this scale."},
                 M[0]+" "+cls); })(),
             React.createElement(EditText,{value:l.name,placeholder:"Location name\u2026",onCommit:val=>onUpdate(l.id,{name:val})}),
-            // what this plate was made from has changed since (2026-10-08) — the plate stays until you regenerate it
-            gen.genUrl && typeof locationSpecChanged==="function" && locationSpecChanged(gen.genMeta, l) && React.createElement("span",{className:"shot-source-badge stale",
-              title:"This location's description or render style changed after the plate was made. The plate stays as it is until you regenerate it."},"Description changed"),
-            gen.genUrl && typeof locationPlateLayoutChanged==="function" && locationPlateLayoutChanged(gen.genMeta, l, {panels:true}) && React.createElement("span",{className:"shot-source-badge stale",
-              title:"The shared layout or this plate's cameras changed after the plate was made. Nothing regenerates on its own \u2014 regenerate it when you are ready."},"Layout changed \u2014 regenerate"),
-            gen.genUrl && l.parentLocation && typeof locationDerivedPlateChanged==="function" && locationDerivedPlateChanged(gen.genMeta) && React.createElement("span",{className:"shot-source-badge stale",
-              title:"The parent location's plate was regenerated after this plate was made from it. This plate stays as it is until you regenerate it."},"Parent plate changed")),
+            null),
           l.parentLocation&&React.createElement("div",{className:"loc-parent-breadcrumb"},
             "within ",React.createElement("b",null,l.parentLocation.name)," \u00b7 inherits continuity"),
           null)),
+      React.createElement(LocationImageChangeNotices,{l,meta:gen.genMeta,hasImage:!!gen.genUrl,onSelectLocation}),
       // where this card stands and what to do next (owner 2026-11-01: one numbered path per card)
       React.createElement(LocationStepGuide,{l,steps:cardSteps}),
 
