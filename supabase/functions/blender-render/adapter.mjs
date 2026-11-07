@@ -11,6 +11,7 @@ export function createRenderDatabase(admin){
       if(/daily_limit/.test(message))throw new RenderError(429,"render_limit","That's 30 builds today, the daily limit. Try again tomorrow — nothing was charged.");
       if(/hold_missing/.test(message))throw new RenderError(503,"billing_unavailable","Credits can't be checked right now. Please try again in a minute.");
       if(/lease_expired/.test(message))throw new RenderError(409,"lease_expired","This render lease expired.");
+      if(/scene_conflict/.test(message))throw new RenderError(409,"scene_conflict","A different scene file was already saved for this build.");
       throw new Error("Render database unavailable");
     }
     return row(r.data);
@@ -35,6 +36,7 @@ export function createRenderDatabase(admin){
     claim:hash=>rpc("turn_claim_blender_render_job",{p_hash:hash}),
     touch:async(id,hash,progress)=>!!await rpc("turn_touch_blender_render_job",{p_job:id,p_hash:hash,p_progress:progress}),
     finish:(id,hash,status,result,error)=>rpc("turn_finish_blender_render_job",{p_job:id,p_hash:hash,p_status:status,p_result:result,p_error:error}),
+    stageScene:(id,hash,scene)=>rpc("turn_stage_blender_render_scene",{p_job:id,p_hash:hash,p_scene:scene}),
     get:id=>one(admin.from("turn_blender_render_jobs").select("*").eq("id",id)),
     latest:(project,location)=>one(admin.from("turn_blender_render_jobs").select("*").eq("project_id",project).eq("location_id",location).order("created_at",{ascending:false}).limit(1)),
     cancel:async id=>{
@@ -47,8 +49,8 @@ export function createRenderStorage(admin,bucket="turn-assets"){
   const store=admin.storage.from(bucket);
   return {
     async hashBytes(bytes){return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),x=>x.toString(16).padStart(2,"0")).join("");},
-    async put(path,bytes){
-      const r=await store.upload(path,new Blob([bytes],{type:"image/png"}),{contentType:"image/png",upsert:false});
+    async put(path,bytes,contentType="image/png"){
+      const r=await store.upload(path,new Blob([bytes],{type:contentType}),{contentType,upsert:false});
       if(r.error&&!["409","400"].includes(String(r.error.statusCode||r.error.status)))throw new Error("Result upload failed");
       if(r.error&&!/duplicate|already exists/i.test(String(r.error.message||"")))throw new Error("Result upload failed");
       return {created:!r.error};

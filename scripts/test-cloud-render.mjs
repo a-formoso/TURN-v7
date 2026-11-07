@@ -93,7 +93,7 @@ try{
   const header=built.objects.find(o=>o.id.startsWith("wall-0-0")&&Math.abs(o.size[0]-2)<.001);
   check(Math.round(header.size[2]*10),8,"Raised-floor door opening cut at absolute sill/head heights");
   delete room.spatialPlan.anchors[0].size;
-  assert.throws(()=>box.KinolotCloudRender.buildScene(room),/width, depth and height/);checks++;
+  assert.throws(()=>box.KinolotCloudRender.buildScene(room),/Object dimensions \(width, depth, height\)/);checks++;
   assert.throws(()=>contract.polygon([[0,0],[3,3],[0,3],[3,0]]),/crosses itself/);checks++;
   const memory=new Map();box.localStorage={getItem:k=>memory.get(k),setItem:(k,v)=>memory.set(k,v)};
   const scope={uid:owner,projectId:project,epoch:1},identity=box.KinolotCloudRender.requestIdentity(scope,"room","revision","previous-job");
@@ -123,7 +123,7 @@ try{
   delete reviewRoom.spatialPlan.anchors[0].size;
   reviewRoom.spatialPlan.coordinates.spaces[0].openings[0].sillZ=0;
   const reviewBefore=JSON.stringify(reviewRoom),issues=box.KinolotCloudRender.inputIssues(reviewRoom,[reviewRoom]);
-  check(issues.some(s=>s.includes("sill and head heights"))&&issues.some(s=>s.includes("width, depth and height")),true,
+  check(issues.some(s=>s.includes("below the room floor")&&s.includes("Opening bottom"))&&issues.some(s=>s.includes("Object dimensions (width, depth, height)")),true,
     "Input review lists independent opening-height and object-dimension problems together");
   check(JSON.stringify(reviewRoom),reviewBefore,"Reviewing render inputs never changes the saved layout");
   const windowRoom=structuredClone(room);

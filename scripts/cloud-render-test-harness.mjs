@@ -23,16 +23,17 @@ export function png(){
   const pixels=Buffer.alloc(360*(1+640*3),80);for(let y=0;y<360;y++)pixels[y*(1+640*3)]=0;
   return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk("IHDR",header),chunk("IDAT",deflateSync(pixels)),chunk("IEND",Buffer.alloc(0))]).toString("base64");
 }
-export async function harness(){
+export async function harness(options={}){
   const pg=new PGlite();
   await pg.exec("create role anon;create role authenticated;create role service_role bypassrls;grant usage on schema public to anon,authenticated,service_role;");
   const sql=readFileSync(new URL("../supabase/blender-render-jobs.sql",import.meta.url),"utf8");
   await pg.exec(sql);
+  await pg.exec(readFileSync(new URL("../supabase/blender-render-scenes.sql",import.meta.url),"utf8"));
   // Emulate the Supabase JS calls used by the real production database adapter.
   const admin={
     async rpc(name,args){
       try{
-        if(!/^turn_(submit|claim|touch|finish)_blender_render_job$/.test(name))throw Error("Unexpected RPC");
+        if(!/^turn_(submit|claim|touch|finish)_blender_render_job$/.test(name)&&name!=="turn_stage_blender_render_scene")throw Error("Unexpected RPC");
         const params=Object.values(args).map(v=>v&&typeof v==="object"?JSON.stringify(v):v);
         const call=name+"("+Object.keys(args).map((k,i)=>k+" => $"+(i+1)).join(",")+")";
         const rows=(await pg.query(name.includes("touch_")?"select "+call+" as value":"select ("+call+").*",params)).rows;
@@ -59,7 +60,7 @@ export async function harness(){
       };return q;
     }
   };
-  const db=createRenderDatabase(admin),files=new Map(),controls={writable:true,uploads:0,failUploadAt:0,afterPut:null};
+  const db=createRenderDatabase(admin),files=new Map(),contentTypes=new Map(),controls={writable:true,uploads:0,failUploadAt:0,afterPut:null};
   const auth={
     async hasLocation(id,location){return id===project&&["room","roundtrip-room"].includes(location);},
     async getUserByAccessToken(token){return token==="owner-session"?{id:owner}:token==="other-session"?{id:other}:null;},
@@ -68,16 +69,21 @@ export async function harness(){
   };
   const storage={
     async hashBytes(bytes){return createHash("sha256").update(bytes).digest("hex");},
-    async put(path,bytes){controls.uploads++;if(controls.failUploadAt===controls.uploads)throw Error("Injected storage failure");const created=!files.has(path);files.set(path,new Uint8Array(bytes));if(controls.afterPut)await controls.afterPut();return {created};},
+    async put(path,bytes,type="image/png"){controls.uploads++;if(controls.failUploadAt===controls.uploads)throw Error("Injected storage failure");const created=!files.has(path);files.set(path,new Uint8Array(bytes));contentTypes.set(path,type);if(controls.afterPut)await controls.afterPut();return {created};},
     async sign(path){if(!files.has(path))throw Error("Missing file");return "https://storage.example.test/"+encodeURIComponent(path);},
-    async remove(paths){paths.forEach(p=>files.delete(p));}
+    async remove(paths){paths.forEach(p=>{files.delete(p);contentTypes.delete(p);});}
   };
-  const service=createRenderService({auth,db,storage,contract,png:globalThis.BlenderContract,enabled:true,allowedUsers:[owner],workerSecret:secret});
+  const service=createRenderService({auth,db,storage,contract,png:globalThis.BlenderContract,enabled:true,allowedUsers:[owner],workerSecret:secret,...options});
   const request=async(action,body={},token="owner-session")=>{
     const r=await service.handle(new Request("https://offline.example.test/render",{method:"POST",headers:{Authorization:token===secret?"Worker "+secret:"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({...(action==="job.get"||action==="job.cancel"?{projectId:project}:{}),...body,action})}));
     return {status:r.status,body:await r.json()};
   };
-  return {pg,db,auth,storage,service,request,files,controls,sql};
+  const uploadScene=async(job,bytes,headers={})=>{
+    const r=await service.handle(new Request("https://offline.example.test/render",{method:"POST",headers:{Authorization:"Worker "+secret,"Content-Type":"application/x-blender",
+      "x-kinolot-job":job.id,"x-kinolot-lease":job.leaseToken,"x-kinolot-scene-hash":createHash("sha256").update(bytes).digest("hex"),...headers},body:bytes}));
+    return {status:r.status,body:await r.json()};
+  };
+  return {pg,db,auth,storage,service,request,uploadScene,files,contentTypes,controls,sql};
 }
 export function completion(job,s){
   const cameras=Object.fromEntries(contract.PANELS.map(p=>{

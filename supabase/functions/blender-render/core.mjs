@@ -1,5 +1,6 @@
 /* Cloud renderer transport: authenticated jobs, a single leased worker, and private results.
    Deliberately separate from the desktop pairing/Studio protocol. No model/provider calls. */
+import {readSceneFile} from "./scene-file.mjs";
 export class RenderError extends Error {
   constructor(status,code,message){super(message);this.status=status;this.code=code;}
 }
@@ -40,7 +41,7 @@ export const SET_BUILD_USD=0.15;
 export const SET_BUILD_QUEUE_CAP=12;
 const BILLING_STATUS={insufficient_credits:402,owner_insufficient:402,budget_reached:402,account_frozen:402,
   tier_required:403,plan_required:403,owner_plan:403,film_role:403,team_paused:403,film_access:403};
-export function createRenderService({auth,db,storage,contract,png,enabled=false,allowedUsers=[],workerSecret="",open=false,billing=null,now=()=>Date.now()}={}){
+export function createRenderService({auth,db,storage,contract,png,enabled=false,allowedUsers=[],workerSecret="",open=false,billing=null,sceneStorage=false,now=()=>Date.now()}={}){
   const allowed=new Set(allowedUsers);
   const configured=()=>enabled&&workerSecret.length>=32&&(open?!!billing:allowed.size>0);
   async function access(projectId,user,write=true){
@@ -77,6 +78,11 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
       const images={};
       await Promise.all(Object.entries(row.result.images).map(async([name,path])=>{images[name]=await storage.sign(path,900);}));
       job.result={images,report:row.result.report,urlExpiresAt:new Date(now()+900000).toISOString()};
+      if(row.result.scene){
+        const scene=row.result.scene;
+        job.result.scene={url:await storage.sign(scene.path,900),sha256:scene.sha256,bytes:scene.bytes,
+          sourceSceneHash:scene.sourceSceneHash,filename:"set.blend"};
+      }
     }
     return job;
   }
@@ -86,6 +92,38 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
     if(!row||row.lease_hash!==leaseHash||(!terminal&&row.status!=="running")||
       (row.status==="running"&&Date.parse(row.lease_expires_at)<=now()))throw bad("This job lease expired.","lease_expired",409);
     await validActor(row);return {row,leaseHash};
+  }
+  async function uploadScene(request){
+    if(!sceneStorage)throw bad("Scene storage is not enabled for this renderer.","unavailable",503);
+    const {row,leaseHash}=await leased({jobId:request.headers.get("x-kinolot-job"),leaseToken:request.headers.get("x-kinolot-lease")},{terminal:true});
+    if(!["running","completed"].includes(row.status))throw bad("This render is no longer active.","lease_expired",409);
+    const expected=request.headers.get("x-kinolot-scene-hash");
+    if(!/^[a-f0-9]{64}$/.test(expected||""))throw bad("Invalid scene file signature.");
+    let bytes;
+    try{bytes=await readSceneFile(request);}catch(e){throw bad(e.message==="scene_too_large"?"The editable scene exceeds the 32 MiB storage limit.":"The editable scene is not a supported Blender file.",e.message,e.message==="scene_too_large"?413:400);}
+    const sha256=await storage.hashBytes(bytes);
+    if(sha256!==expected)throw bad("The scene file signature does not match.");
+    const path=`_internal/blender-renders/${row.owner_id}/${row.project_id}/${row.id}/${leaseHash}/${sha256}-set.blend`;
+    const scene={path,sha256,bytes:bytes.length,sourceSceneHash:row.scene_hash,leaseHash};
+    const previous=row.result?.scene;
+    if(previous?.leaseHash===leaseHash){
+      if(contract.canonical(previous)!==contract.canonical(scene))throw bad("A different scene file was already saved for this build.","scene_conflict",409);
+      return {ok:true,sha256,bytes:bytes.length};
+    }
+    if(row.status!=="running")throw bad("This render is no longer active.","lease_expired",409);
+    let uploaded=null;
+    try{
+      uploaded=await storage.put(path,bytes,"application/x-blender");
+      await validActor(row);
+      await db.stageScene(row.id,leaseHash,scene);
+    }catch(e){
+      const current=await db.get(row.id).catch(()=>null);
+      if(["running","completed"].includes(current?.status)&&current?.lease_hash===leaseHash&&current?.result?.scene?.path===path)return {ok:true,sha256,bytes:bytes.length};
+      if(current&&uploaded?.created)await storage.remove([path]).catch(()=>{});
+      throw e;
+    }
+    if(previous?.path&&previous.path!==path)await storage.remove([previous.path]).catch(()=>{});
+    return {ok:true,sha256,bytes:bytes.length};
   }
   function reportFor(body,row){
     const r=body.report;
@@ -112,7 +150,7 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
       const a=await access(body.projectId,user,false);
       await db.latest(body.projectId,"__readiness_probe__");
       return {enabled:true,ownerPilot:!open,open:!!open,width:640,height:360,queueCap:SET_BUILD_QUEUE_CAP,
-        canBuild:a.ownerId===user.id||a.canWrite===true,credits:open?await price():0};
+        sceneStorage:!!sceneStorage,canBuild:a.ownerId===user.id||a.canWrite===true,credits:open?await price():0};
     }
     if(typeof action!=="string")throw bad("An action is required.");
     if(isWorker){
@@ -121,7 +159,7 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
         const leaseToken=body.claimToken,leaseHash=await contract.hash(leaseToken),row=await db.claim(leaseHash);
         if(!row)return {job:null};
         try{await validActor(row);}catch(e){await db.finish(row.id,leaseHash,"failed",null,"The film owner's access changed.");throw e;}
-        return {job:{id:row.id,projectId:row.project_id,locationId:row.location_id,sceneJSON:contract.canonical(row.scene),sceneHash:row.scene_hash,leaseToken}};
+        return {job:{id:row.id,projectId:row.project_id,locationId:row.location_id,sceneJSON:contract.canonical(row.scene),sceneHash:row.scene_hash,leaseToken,storeScene:!!sceneStorage}};
       }
       if(action==="worker.heartbeat"){
         const {row,leaseHash}=await leased(body);
@@ -130,7 +168,9 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
       }
       if(action==="worker.fail"){
         const {row,leaseHash}=await leased(body);
-        await db.finish(row.id,leaseHash,"failed",null,"The set could not be rendered. Review the layout and submit a new request.");return {ok:true};
+        await db.finish(row.id,leaseHash,"failed",null,"The set could not be rendered. Review the layout and submit a new request.");
+        if(row.result?.scene?.path)await storage.remove([row.result.scene.path]).catch(()=>{});
+        return {ok:true};
       }
       if(action==="worker.complete"){
         const {row,leaseHash}=await leased(body,{terminal:true});
@@ -142,7 +182,9 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
           try{decoded[name]=png.decodePNG(images[name],640,360);}catch(_){throw bad("A camera image is not a valid matching PNG.");}
           hashes[name]=await storage.hashBytes(decoded[name]);
         }
-        const completionHash=await contract.hash({hashes,report});
+        const scene=row.result?.scene?.leaseHash===leaseHash?row.result.scene:null;
+        if(sceneStorage&&!scene)throw bad("Save the editable scene before completing this build.");
+        const completionHash=await contract.hash({hashes,report,...(scene?{scene}:{})});
         if(row.status==="completed"){
           if(row.result.completionHash!==completionHash)throw bad("A different result was already saved.","result_conflict",409);
           return {ok:true};
@@ -155,7 +197,7 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
             const uploaded=await storage.put(path,decoded[name]);paths[name]=path;if(uploaded.created)created.push(path);
           }
           await validActor(row);
-          await db.finish(row.id,leaseHash,"completed",{images:paths,report,completionHash},null);
+          await db.finish(row.id,leaseHash,"completed",{images:paths,report,completionHash,...(scene?{scene}:{})},null);
         }catch(e){
           // A lost DB response can follow a successful commit. Never remove committed results.
           const current=await db.get(row.id).catch(()=>null);
@@ -215,7 +257,11 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
     if(body.projectId!==row.project_id)throw bad("Render request not found in this film.","not_found",404);
     await access(row.project_id,user,action!=="job.get");
     if(action==="job.get")return {job:await publicJob(row)};
-    if(action==="job.cancel")return {job:await publicJob(await db.cancel(row.id))};
+    if(action==="job.cancel"){
+      const cancelled=await db.cancel(row.id);
+      if(cancelled?.status==="cancelled"&&cancelled.result?.scene?.path)await storage.remove([cancelled.result.scene.path]).catch(()=>{});
+      return {job:await publicJob(cancelled)};
+    }
     throw bad("Unknown action.");
   }
   async function handle(request){
@@ -234,6 +280,10 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
         user=bearer?await auth.getUserByAccessToken(bearer[1]):null;
         if(!user)throw bad("Sign in to render a set.","unauthorized",401);
         if(!open&&!allowed.has(user.id))throw bad("Cloud set previews are limited to the development pilot.","forbidden",403);
+      }
+      if((request.headers.get("content-type")||"").split(";")[0].trim()==="application/x-blender"){
+        if(!worker)throw bad("Worker authentication required.","unauthorized",401);
+        return reply(await uploadScene(request),200,cors);
       }
       const body=await bodyJSON(request,worker?12582912:262144);
       const token=worker?"":(/^Bearer (\S+)$/.exec(header)||[])[1]||"";

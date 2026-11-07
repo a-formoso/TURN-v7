@@ -27,6 +27,7 @@ const service=admin?createRenderService({
   enabled:env("BLENDER_RENDER_ENABLED")==="true",
   allowedUsers:env("BLENDER_RENDER_ALLOWED_USERS").split(",").map(v=>v.trim()).filter(Boolean),
   workerSecret:env("BLENDER_RENDER_WORKER_SECRET"),
+  sceneStorage:env("BLENDER_RENDER_SCENE_STORAGE")==="true",
   open:env("BLENDER_RENDER_OPEN")==="true",
   billing:bridge,
 }):null;

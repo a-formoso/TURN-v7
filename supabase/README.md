@@ -117,6 +117,36 @@ coverage notes; **Discard proposal** makes no saved change. The proposal is inva
 camera or film-epoch data. It never edits floor-plan objects, starts a render or invokes an AI provider. Missing
 object dimensions and actual composition remain review items. Tests: `scripts/test-camera-suggestions.mjs`.
 
+### Editable cloud build scenes — staged storage integration (7 November 2026)
+
+Camera PNGs already live in the private `turn-assets` bucket, scoped to the film,
+location's build job and lease. The MCP bedroom platform trial alone does not
+upload into a customer film. Its files remain in the isolated Replit trial.
+
+The optional scene-retention path adds the editable `.blend` file to the same
+private build namespace. This is separate from approved location artwork and
+does not write `turn_generations` or replace a location image. Step 5's existing
+approval path continues saving artwork through the normal image/history adapter.
+
+Prepare and verify on staging before rollout:
+
+1. Apply `blender-render-scenes.sql` after `blender-render-jobs.sql`.
+2. Deploy the reviewed `blender-render` function and update the worker source.
+   Keep `BLENDER_RENDER_SCENE_STORAGE` unset/false until the new worker is ready.
+3. Enable `BLENDER_RENDER_SCENE_STORAGE=true` for the staging function. Claimed
+   jobs then require a scene upload before completion. This does not enable MCP
+   authoring or alter the UI flow by itself.
+4. Verify an actual staging job stores twelve PNGs and its uncompressed Blender
+   scene, returns a fresh signed scene URL through authenticated `job.get`, and
+   rejects another film/account and expired leases. The binary scene is capped
+   at 32 MiB; its hash, source scene revision and job lease are checked. Upload
+   retries are immutable; incomplete cancelled/failed scenes are cleaned up.
+
+The worker receives only its existing scoped credentials. It never receives the
+storage service-role key. Scene files are not public bucket objects and are not
+served through permanent public URLs. Old completed image-only builds remain
+readable. Offline checks: `node scripts/test-cloud-render-scenes.mjs`.
+
 ### Cloud set preview — development pilot (31 October 2026)
 
 This is separate from the desktop add-on relay. The live website is unchanged.
