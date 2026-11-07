@@ -7,6 +7,7 @@
   // Build the set (owner 2026-11-05): open to paying plans when the app's config says so (supabase-config.js setBuild) —
   // the Art Room itself is Director's, and the server decides who builds and charges it; otherwise the owner-only pilot
   function enabled(){return (root.TURN_SUPABASE||{}).setBuild===true||local()&&root.turnIsAdmin===true;}
+  const detailedEnabled=()=>root.TURN_SUPABASE?.setBuildMcp===true;
   const tidy=(s,max=160)=>String(s||"").replace(/[\u0000-\u001f]/g," ").trim().slice(0,max);
   const finite=(n)=>typeof n==="number"&&Number.isFinite(n);
   function savedOpening(anchor,space){
@@ -390,7 +391,7 @@
       cameras[p.key]={position:p.pose.position,yaw:p.pose.yaw,pitch:p.pose.pitch,lensMm:p.pose.lensMm};
       if(p.source==="suggested")notes.push(p.label+" uses the suggested camera position; edit it under Camera views.");
     });
-    const scene={schema:C().SCHEMA,name:tidy(location.name||"Location preview"),units:"metres",axes:"+Z up; +Y north; +X east",
+    const scene={schema:detailedEnabled()?C().MCP_SCHEMA:C().SCHEMA,...(detailedEnabled()?{authoring:"mcp-procedural-v1"}:{}),name:tidy(location.name||"Location preview"),units:"metres",axes:"+Z up; +Y north; +X east",
       status:"development blockout",notes,objects,cameras,previewLights:lights,materials:{
         floor:{baseColor:[0.22,0.25,0.28],metallic:0.1,roughness:0.65},
         wall:{baseColor:[0.55,0.58,0.6],metallic:0.05,roughness:0.7},

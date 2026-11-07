@@ -49,13 +49,14 @@
     const supported=["bed","pillow","nightstand","wardrobe","table","chair"];
     const eligible=o=>o.anchorId&&supported.includes(anchorShape(byId.get(o.anchorId)));
     if(!source.objects.some(eligible))return source;
-    const scene=JSON.parse(JSON.stringify(source)),objects=[];
+    const scene=JSON.parse(JSON.stringify(source)),objects=[],rich=source.schema===root.KinolotRenderContract.MCP_SCHEMA;
     Object.assign(scene.materials,{
       furnitureWood:{baseColor:[.44,.31,.18],roughness:.68},
       bedLinen:{baseColor:[.72,.73,.66],roughness:.94},
       mattressFabric:{baseColor:[.81,.8,.72],roughness:.94},
       furnitureMetal:{baseColor:[.16,.18,.19],metallic:.45,roughness:.4}
     });
+    if(rich){scene.materials.furnitureWood.texture="wood";scene.materials.bedLinen.texture="fabric";scene.materials.mattressFabric.texture="fabric";}
     const roundedFootprint=[[-.4,-.5],[.4,-.5],[.5,-.4],[.5,.4],[.4,.5],[-.4,.5],[-.5,.4],[-.5,-.4]];
     const kinds=new Set();
     for(const base of scene.objects){
@@ -69,16 +70,19 @@
         const y1=y*Math.cos(rx)-z*Math.sin(rx),z1=y*Math.sin(rx)+z*Math.cos(rx);
         const x1=x*Math.cos(ry)+z1*Math.sin(ry),z2=-x*Math.sin(ry)+z1*Math.cos(ry);
         x=x1*Math.cos(rz)-y1*Math.sin(rz);y=x1*Math.sin(rz)+y1*Math.cos(rz);
+        const dimensions=size.map((v,i)=>round(v*base.size[i]));
         objects.push({...base,id:(base.id+"-furniture-"+n++).slice(0,100),name:(base.name+" · "+label).slice(0,160),
-          kind:soft?"prism":"box",material,position:[base.position[0]+x,base.position[1]+y,base.position[2]+z2].map(round),
-          size:size.map((v,i)=>round(v*base.size[i])),basis:"design",...(soft?{footprint:roundedFootprint.map(p=>p.slice())}:{})});
+          kind:soft?(rich?(label==="cover"?"cloth":"cushion"):"prism"):"box",material,position:[base.position[0]+x,base.position[1]+y,base.position[2]+z2].map(round),
+          size:dimensions,basis:"design",...(soft&&!rich?{footprint:roundedFootprint.map(p=>p.slice())}:{}),
+          ...(rich&&!soft?{bevelMetres:Math.min(.012,...dimensions.map(v=>v*.2))}:{})});
       };
       if(shape==="bed"){
         // The long saved axis is the bed's length; the head is at its negative end before facing rotation.
         const alongY=d>=w,bedPart=(label,at,size,material,soft)=>part(label,alongY?at:[at[1],at[0],at[2]],alongY?size:[size[1],size[0],size[2]],material,soft);
-        bedPart("bed frame",[0,0,-.29],[1,1,.42]);
-        bedPart("mattress",[0,.015,.025],[.94,.94,.21],"mattressFabric",true);
-        bedPart("cover",[0,.13,.145],[.95,.71,.03],"bedLinen",true);
+        bedPart("bed frame",[0,0,rich?-.25:-.29],[1,1,rich?.22:.42]);
+        if(rich)for(const x of [-.42,.42])for(const y of [-.42,.42])bedPart("bed foot",[x,y,-.43],[.06,.06,.14]);
+        bedPart("mattress",[0,.015,rich?-.03:.025],[.94,.94,rich?.22:.21],"mattressFabric",true);
+        bedPart("cover",[0,.13,rich?.09:.145],[.95,.71,rich?.08:.03],"bedLinen",true);
         const description=(byId.get(base.anchorId)?.name||"")+" "+(byId.get(base.anchorId)?.placement||"");
         if(!/\b(?:no headboard|without (?:a )?headboard)\b/i.test(description))bedPart("headboard",[0,-.47,0],[1,.06,1]);
         const separatePillow=(anchors||[]).some(a=>{
@@ -89,19 +93,23 @@
         const bare=/\b(?:no pillows?|without (?:a )?pillows?|bare bed)\b/i.test(description);
         if(!separatePillow&&!bare){
           const count=Math.min(w,d)>1.2?2:1;
-          for(let i=0;i<count;i++)bedPart("pillow "+(i+1),[(i-(count-1)/2)*.45,-.3,.235],[count===2?.4:.72,.22,.15],"mattressFabric",true);
+          for(let i=0;i<count;i++)bedPart("pillow "+(i+1),[(i-(count-1)/2)*.45,-.3,rich?.17:.235],[count===2?.4:.72,.22,rich?.18:.15],"mattressFabric",true);
         }
       }else if(shape==="pillow")part("cushion",[0,0,0],[1,1,1],"mattressFabric",true);
       else if(shape==="table"){
-        part("tabletop",[0,0,.45],[1,1,.1]);
-        for(const x of [-.42,.42])for(const y of [-.42,.42])part("leg",[x,y,-.05],[.10,.10,.90]);
+        part("tabletop",[0,0,rich?.4775:.45],[1,1,rich?.045:.1]);
+        for(const x of [-.42,.42])for(const y of [-.42,.42])part("leg",[x,y,rich?-.0225:-.05],[rich?Math.min(.10,.04/w):.10,rich?Math.min(.10,.04/d):.10,rich?.955:.90]);
       }else if(shape==="chair"){
         part("seat",[0,.025,-.015],[1,.95,.09]);
         part("backrest",[0,-.45,.25],[1,.10,.5]);
         for(const x of [-.4,.4])for(const y of [-.38,.38])part("leg",[x,y,-.265],[.10,.10,.47]);
       }else{
         // Cabinet shell and inset fronts: an identifiable cupboard/drawer, not an uninterrupted box.
-        part("cabinet body",[0,0,0],[1,.94,1]);
+        if(rich){
+          for(const side of [-1,1])part("cabinet side",[side*.48,0,0],[.04,.94,1]);
+          part("cabinet back",[0,-.45,0],[.92,.04,1]);
+          for(const side of [-1,1])part("cabinet shelf",[0,0,side*.475],[.92,.94,.05]);
+        }else part("cabinet body",[0,0,0],[1,.94,1]);
         const doors=shape==="wardrobe"?2:1;
         for(let i=0;i<doors;i++){
           const x=doors===2?(i===0?-.245:.245):0;
@@ -149,6 +157,10 @@
     return root.KinolotRenderContract.validateScene(scene);
   }
   function build(source,{space,anchors,allAnchors}={}){
+    if(source.schema===root.KinolotRenderContract.MCP_SCHEMA){
+      if(!root.KinolotSetKitchen)throw Error("The detailed set builder did not load. Refresh before building.");
+      source=root.KinolotSetKitchen.build(source,{space,anchors:allAnchors||anchors});
+    }
     source=buildNets(source,allAnchors||anchors);
     source=buildFurniture(source,allAnchors||anchors);
     const bounds=rectangle(space);

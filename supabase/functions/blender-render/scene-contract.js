@@ -1,7 +1,7 @@
 /* Data-only cloud set contract. Shared by the browser and render service. */
 (function(root){
   "use strict";
-  const PANELS=["TL","TR","BL","BR"], SCHEMA="kinolot-blockout-test-v1";
+  const PANELS=["TL","TR","BL","BR"], SCHEMA="kinolot-blockout-test-v1",MCP_SCHEMA="kinolot-cloud-set-v2";
   function fail(message){throw new Error(message);}
   function obj(v,allowed,label){
     if(!v||typeof v!=="object"||Array.isArray(v))fail("Invalid "+label+".");
@@ -32,21 +32,24 @@
     return points;
   }
   function validateScene(s){
-    obj(s,["schema","name","units","axes","status","notes","objects","cameras","materials","previewLights"],"set");
-    if(s.schema!==SCHEMA||s.units!=="metres")fail("Unsupported set format.");
+    obj(s,["schema","name","units","axes","status","notes","objects","cameras","materials","previewLights","authoring"],"set");
+    const detailed=s.schema===MCP_SCHEMA;
+    if(![SCHEMA,MCP_SCHEMA].includes(s.schema)||s.units!=="metres")fail("Unsupported set format.");
+    if(detailed?s.authoring!=="mcp-procedural-v1":s.authoring!=null)fail("Unsupported set authoring version.");
     text(s.name,160,"set name");
     if(!Array.isArray(s.objects)||s.objects.length<1||s.objects.length>500)fail("A set needs 1–500 shapes.");
     if(!Array.isArray(s.notes)||s.notes.length>40||s.notes.some(x=>typeof x!=="string"||x.length>500))fail("Invalid set notes.");
     obj(s.materials,Object.keys(s.materials||{}),"materials");
     if(Object.keys(s.materials).length>32)fail("Too many materials.");
-    Object.values(s.materials).forEach(m=>{obj(m,["baseColor","metallic","roughness","emissionStrength"],"material");vec(m.baseColor,3,0,1,"material colour");["metallic","roughness"].forEach(k=>{if(m[k]!=null)num(m[k],0,1,k);});if(m.emissionStrength!=null)num(m.emissionStrength,0,20,"emission");});
+    Object.values(s.materials).forEach(m=>{obj(m,["baseColor","metallic","roughness","emissionStrength",...(detailed?["texture"]:[])],"material");vec(m.baseColor,3,0,1,"material colour");["metallic","roughness"].forEach(k=>{if(m[k]!=null)num(m[k],0,1,k);});if(m.emissionStrength!=null)num(m.emissionStrength,0,20,"emission");if(m.texture!=null&&!["wood","fabric","plaster","ceramic","laminate","steel"].includes(m.texture))fail("Unsupported material texture.");});
     const ids=new Set();
     s.objects.forEach(o=>{
-      obj(o,["id","name","anchorId","basis","position","rotation","size","kind","material","footprint"],"shape");
+      obj(o,["id","name","anchorId","basis","position","rotation","size","kind","material","footprint",...(detailed?["bevelMetres"]:[])],"shape");
       text(o.id,100,"shape identity");text(o.name,160,"shape name");
       if(ids.has(o.id))fail("Duplicate shape identity.");ids.add(o.id);
       vec(o.position,3,-10000,10000,"position");vec(o.rotation,3,-8*Math.PI,8*Math.PI,"rotation");vec(o.size,3,0.001,10000,"dimensions");
-      if(!["box","cylinder","torus","wedge","prism"].includes(o.kind))fail("Unsupported shape.");
+      if(!["box","cylinder","torus","wedge","prism",...(detailed?["cushion","cloth"]:[])].includes(o.kind))fail("Unsupported shape.");
+      if(o.bevelMetres!=null)num(o.bevelMetres,0,Math.min(.1,...o.size.map(n=>n*.3)),"edge radius");
       if(!Object.prototype.hasOwnProperty.call(s.materials,o.material))fail("Unknown material.");
       if(o.kind==="prism"){
         polygon(o.footprint);
@@ -54,6 +57,7 @@
         for(let axis=0;axis<2;axis++)if(Math.abs(Math.min(...o.footprint.map(p=>p[axis]))+0.5)>0.00001||Math.abs(Math.max(...o.footprint.map(p=>p[axis]))-0.5)>0.00001)fail("Footprint bounds must match its dimensions.");
       }else if(o.footprint!=null)fail("Only a floor shape can have a footprint.");
     });
+    if(detailed&&s.objects.filter(o=>["cloth","cushion"].includes(o.kind)).length>64)fail("Too many soft furniture parts.");
     obj(s.cameras,PANELS,"cameras");
     if(Object.keys(s.cameras).length!==4)fail("Four camera views are required.");
     PANELS.forEach(k=>{const c=s.cameras[k];obj(c,["position","yaw","pitch","lensMm"],"camera");vec(c.position,3,-10000,10000,"camera position");num(c.yaw,-360,360,"camera facing");num(c.pitch,-89,89,"camera tilt");num(c.lensMm,8,200,"camera lens");});
@@ -62,5 +66,5 @@
     if(new TextEncoder().encode(canonical(s)).length>131072)fail("The set exceeds this preview's size limit.");
     return s;
   }
-  root.KinolotRenderContract={PANELS,SCHEMA,canonical,hash,validateScene,polygon};
+  root.KinolotRenderContract={PANELS,SCHEMA,MCP_SCHEMA,canonical,hash,validateScene,polygon};
 })(typeof window!=="undefined"?window:globalThis);

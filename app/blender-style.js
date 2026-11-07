@@ -77,6 +77,7 @@
       +"Preserve the 16:9 overall sheet and its four equal 16:9 panels, exact framing, perspectives, silhouettes, wall openings, fixtures and all markings. "
       +"Each panel is a different camera of one shared set. Change materials, surface finish and atmosphere only. Keep the source's wide views wide and close-ups close. Do not duplicate, swap, zoom, crop or reframe panels to create variety; camera variety must come from the Blender source. "
       +"Do not add, move, resize or remove objects. Keep every light fitting at its source position; do not invent visible lamps. "
+      +"Written lighting describes illumination, not permission to reveal a fitting outside the source frame. Keep hidden and off-frame fittings hidden. Preserve sink contours, rims, tap profiles and cabinet closure; do not substitute different fixture shapes. "
       +"Keep netting and mesh open and see-through; never fill their gaps with solid walls or panels. "
       +"Keep doors and ramps in their exact source state. Keep arrow directions, lane edges, beam spacing and cabinet proportions. "
       +"No new people, vehicles, furnishings, doors, windows, signs, captions, borders or panel labels. "
@@ -84,6 +85,22 @@
       +"MATERIALS: "+a.materials+"\nLIGHT: "+a.lighting+"\nRENDER STYLE: "+a.style
       +"\nLOOKBOOK: "+a.lookbook+"\nEXCLUSIONS: "+a.exclusions
       +(notes.trim()?"\nSURFACE NOTES (never change geometry): "+notes.trim().slice(0,1000):"");
+  }
+  function visibilityNotes(job,scene){
+    const visible=job?.result?.report?.visibleObjects;
+    if(!visible||!scene?.objects||!scene.materials)return "";
+    const group=o=>o.anchorId||o.id;
+    const emitters=scene.objects.filter(o=>scene.materials[o.material]?.emissionStrength>0);
+    const groups=new Map(emitters.map(o=>[group(o),String(o.name||"Fitting").split(" · ")[0].slice(0,80)]));
+    if(!groups.size||groups.size>32)return "";
+    const ids=new Map(scene.objects.map(o=>[o.id,o])),lines=[];
+    for(const panel of PANELS){
+      if(!Array.isArray(visible[panel])||visible[panel].some(id=>!ids.has(id)))return "";
+      const names=[...new Set(visible[panel].map(id=>groups.get(group(ids.get(id)))).filter(Boolean))];
+      lines.push(panel+": "+(names.length?names.join("; "):"no modeled emissive fitting is visible"));
+    }
+    return "\nRENDERED FITTING VISIBILITY (from this build's object-ID passes):\n"+lines.join("\n")
+      +"\nThese are the modeled emissive fittings visible in each source view. Keep their source silhouettes and visibility; do not bring a described but hidden fitting into a panel.";
   }
   function image(src){return new Promise((resolve,reject)=>{
     const im=new root.Image(),timer=setTimeout(()=>{im.src="";reject(Error("A comparison image took too long to load. Refresh the preview."));},20000);
@@ -165,7 +182,7 @@
     // the set is built at a story moment: say which parts are not in their usual state, so the look keeps them
     const moved=t.key&&typeof root.locationMovingPartsAt==="function"?root.locationMovingPartsAt(l,t.at).filter(p=>p.differs&&p.state)
       .map(p=>p.name+" "+p.state.label.toLowerCase()+(p.state.look?" — "+p.state.look:"")).join("; "):"";
-    const text=prompt(l,options.notes||"")+(moved?"\nMOVING PARTS AT THIS MOMENT (as built in the source): "+moved
+    const text=prompt(l,options.notes||"")+visibilityNotes(original.job,JSON.parse(revision))+(moved?"\nMOVING PARTS AT THIS MOMENT (as built in the source): "+moved
       +". Where the source opens to the outside, paint the exterior beyond as described (keep its position and size).":""),metaOut={};
     const record={requestId:root.crypto.randomUUID(),startedAt:new Date().toISOString(),phase:"generating"};
     marker(s,id,record);announce(id);options.onPhase?.("generating");
@@ -249,5 +266,5 @@
     const recorded=await root.nbSetAssetApproval(slot(id),meta.iso,true,"cloud-set-style-accepted");
     announce(id,true);return {...saved,reviewRecorded:!!recorded?.ok};
   });}
-  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,assetOf:t=>assetOf(T(t)),pending,settings,appearance,briefKey,sceneKey,prompt,compose,load,comparisonPair,generate,retrySave,accept,reject};
+  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,assetOf:t=>assetOf(T(t)),pending,settings,appearance,briefKey,sceneKey,prompt,visibilityNotes,compose,load,comparisonPair,generate,retrySave,accept,reject};
 })(typeof window!=="undefined"?window:globalThis);

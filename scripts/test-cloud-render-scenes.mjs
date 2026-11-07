@@ -13,7 +13,7 @@ const claim=async()=>{
   const value=scene();
   const made=await h.request("job.create",{projectId:project,locationId:"room",requestId:crypto.randomUUID(),scene:value});
   check(made.status,200,"Create scoped build");
-  return {value,job:(await h.request("worker.claim",{claimToken:crypto.randomUUID()+crypto.randomUUID()},secret)).body.job};
+  return {value,job:(await h.request("worker.claim",{claimToken:crypto.randomUUID()+crypto.randomUUID(),sceneStorage:true},secret)).body.job};
 };
 try{
   const calls=[];
@@ -89,7 +89,7 @@ try{
   const retry=await claim();await h.uploadScene(retry.job,bytes);
   const old=(await h.db.get(retry.job.id)).result.scene.path;
   await h.pg.query("update turn_blender_render_jobs set lease_expires_at=now()-interval '1 minute' where id=$1",[retry.job.id]);
-  const recovered=(await h.request("worker.claim",{claimToken:crypto.randomUUID()+crypto.randomUUID()},secret)).body.job;
+  const recovered=(await h.request("worker.claim",{claimToken:crypto.randomUUID()+crypto.randomUUID(),sceneStorage:true},secret)).body.job;
   check(recovered.id,retry.job.id,"Expired lease is reclaimed");
   check((await h.request("worker.complete",completion(recovered,retry.value),secret)).status,400,"Prior lease's scene cannot satisfy a new build attempt");
   check((await h.uploadScene(recovered,bytes)).status,200,"New lease stages its own artifact");

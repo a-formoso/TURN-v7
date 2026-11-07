@@ -41,7 +41,7 @@ export const SET_BUILD_USD=0.15;
 export const SET_BUILD_QUEUE_CAP=12;
 const BILLING_STATUS={insufficient_credits:402,owner_insufficient:402,budget_reached:402,account_frozen:402,
   tier_required:403,plan_required:403,owner_plan:403,film_role:403,team_paused:403,film_access:403};
-export function createRenderService({auth,db,storage,contract,png,enabled=false,allowedUsers=[],workerSecret="",open=false,billing=null,sceneStorage=false,now=()=>Date.now()}={}){
+export function createRenderService({auth,db,storage,contract,png,enabled=false,allowedUsers=[],workerSecret="",open=false,billing=null,sceneStorage=false,mcpScenes=false,now=()=>Date.now()}={}){
   const allowed=new Set(allowedUsers);
   const configured=()=>enabled&&workerSecret.length>=32&&(open?!!billing:allowed.size>0);
   async function access(projectId,user,write=true){
@@ -127,6 +127,17 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
   }
   function reportFor(body,row){
     const r=body.report;
+    if(row.scene.schema===contract.MCP_SCHEMA&&r?.renderer!=="cloud-mcp-v1")throw bad("The detailed set did not use its required renderer.");
+    let visibleObjects;
+    if(row.scene.schema===contract.MCP_SCHEMA){
+      const known=new Set(row.scene.objects.map(o=>o.id));visibleObjects={};
+      if(!r.visibleObjects||Object.keys(r.visibleObjects).length!==4)throw bad("The detailed set is missing its camera visibility report.");
+      for(const p of panels){
+        const ids=r.visibleObjects[p];
+        if(!Array.isArray(ids)||!ids.length||ids.length>500||new Set(ids).size!==ids.length||ids.some(id=>!known.has(id)))throw bad("A camera visibility report does not match the set.");
+        visibleObjects[p]=ids;
+      }
+    }
     if(!r||r.inputSha256!==row.scene_hash||r.objects!==row.scene.objects.length||r.width!==640||r.height!==360||
       typeof r.blenderVersion!=="string"||r.blenderVersion.length>40||
       !Number.isFinite(r.wallSeconds)||r.wallSeconds<0||r.wallSeconds>1000||
@@ -142,6 +153,7 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
       cameras[p]={position:a.position,direction:a.direction,lensMm:a.lensMm,sensorWidthMm:36,width:640,height:360};
     }
     return {inputSha256:r.inputSha256,objects:r.objects,width:640,height:360,blenderVersion:r.blenderVersion,
+      ...(row.scene.schema===contract.MCP_SCHEMA?{renderer:"cloud-mcp-v1",visibleObjects}:{}),
       wallSeconds:r.wallSeconds,peakChildRssMiB:r.peakChildRssMiB,cameras};
   }
   async function dispatch(body,user,isWorker,token=""){
@@ -150,16 +162,21 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
       const a=await access(body.projectId,user,false);
       await db.latest(body.projectId,"__readiness_probe__");
       return {enabled:true,ownerPilot:!open,open:!!open,width:640,height:360,queueCap:SET_BUILD_QUEUE_CAP,
-        sceneStorage:!!sceneStorage,canBuild:a.ownerId===user.id||a.canWrite===true,credits:open?await price():0};
+        sceneStorage:!!sceneStorage,detailedSets:!!mcpScenes&&!!sceneStorage,canBuild:a.ownerId===user.id||a.canWrite===true,credits:open?await price():0};
     }
     if(typeof action!=="string")throw bad("An action is required.");
     if(isWorker){
       if(action==="worker.claim"){
         if(typeof body.claimToken!=="string"||!/^[-_A-Za-z0-9]{32,128}$/.test(body.claimToken))throw bad("Invalid claim identity.");
-        const leaseToken=body.claimToken,leaseHash=await contract.hash(leaseToken),row=await db.claim(leaseHash);
+        const offered=body.sceneSchemas||[contract.SCHEMA];
+        if(body.sceneStorage!=null&&typeof body.sceneStorage!=="boolean")throw bad("Invalid renderer storage capability.");
+        if(!Array.isArray(offered)||offered.length<1||offered.length>2||new Set(offered).size!==offered.length||offered.some(s=>![contract.SCHEMA,contract.MCP_SCHEMA].includes(s)))throw bad("Invalid renderer capabilities.");
+        const schemas=offered.filter(s=>s===contract.SCHEMA||mcpScenes&&sceneStorage&&body.sceneStorage===true);
+        if(!schemas.length)return {job:null};
+        const leaseToken=body.claimToken,leaseHash=await contract.hash(leaseToken),row=await db.claim(leaseHash,schemas,sceneStorage&&body.sceneStorage===true);
         if(!row)return {job:null};
         try{await validActor(row);}catch(e){await db.finish(row.id,leaseHash,"failed",null,"The film owner's access changed.");throw e;}
-        return {job:{id:row.id,projectId:row.project_id,locationId:row.location_id,sceneJSON:contract.canonical(row.scene),sceneHash:row.scene_hash,leaseToken,storeScene:!!sceneStorage}};
+        return {job:{id:row.id,projectId:row.project_id,locationId:row.location_id,sceneJSON:contract.canonical(row.scene),sceneHash:row.scene_hash,leaseToken,storeScene:row.result?.sceneRequired===true||row.scene.schema===contract.MCP_SCHEMA}};
       }
       if(action==="worker.heartbeat"){
         const {row,leaseHash}=await leased(body);
@@ -183,7 +200,7 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
           hashes[name]=await storage.hashBytes(decoded[name]);
         }
         const scene=row.result?.scene?.leaseHash===leaseHash?row.result.scene:null;
-        if(sceneStorage&&!scene)throw bad("Save the editable scene before completing this build.");
+        if((row.result?.sceneRequired===true||row.scene.schema===contract.MCP_SCHEMA)&&!scene)throw bad("Save the editable scene before completing this build.");
         const completionHash=await contract.hash({hashes,report,...(scene?{scene}:{})});
         if(row.status==="completed"){
           if(row.result.completionHash!==completionHash)throw bad("A different result was already saved.","result_conflict",409);
@@ -215,6 +232,8 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
       if(!uuid(body.requestId)||typeof body.locationId!=="string"||!body.locationId||body.locationId.length>160)throw bad("Invalid render request.");
       if(!await auth.hasLocation(body.projectId,body.locationId))throw bad("Save this location in the cloud film before rendering it.","location_missing",409);
       try{contract.validateScene(body.scene);}catch(e){throw bad(e.message);}
+      if(body.scene.schema===contract.MCP_SCHEMA&&(!mcpScenes||!sceneStorage))
+        throw bad("Detailed cloud sets are not ready on this renderer. Nothing was charged.","renderer_not_ready",503);
       const hash=await contract.hash(body.scene);
       const submit=hold=>db.submit({project:body.projectId,owner:a.ownerId,actor:user.id,location:body.locationId,request:body.requestId,scene:body.scene,hash,hold});
       if(!open)return {job:await publicJob(await submit(null))};

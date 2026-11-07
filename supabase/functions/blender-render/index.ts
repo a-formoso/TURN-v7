@@ -28,6 +28,7 @@ const service=admin?createRenderService({
   allowedUsers:env("BLENDER_RENDER_ALLOWED_USERS").split(",").map(v=>v.trim()).filter(Boolean),
   workerSecret:env("BLENDER_RENDER_WORKER_SECRET"),
   sceneStorage:env("BLENDER_RENDER_SCENE_STORAGE")==="true",
+  mcpScenes:env("BLENDER_RENDER_MCP")==="true",
   open:env("BLENDER_RENDER_OPEN")==="true",
   billing:bridge,
 }):null;

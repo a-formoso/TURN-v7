@@ -33,7 +33,9 @@ export function createRenderDatabase(admin){
         .or(`status.eq.running,and(status.eq.queued,created_at.lt."${row.created_at}")`);
       if(r.error)throw new Error("Render database unavailable");return r.count||0;
     },
-    claim:hash=>rpc("turn_claim_blender_render_job",{p_hash:hash}),
+    claim:(hash,schemas,sceneStorage=false)=>sceneStorage||Array.isArray(schemas)&&schemas.includes("kinolot-cloud-set-v2")
+      ?rpc("turn_claim_blender_render_job_v2",{p_hash:hash,p_schemas:schemas||["kinolot-blockout-test-v1"],p_store_scene:!!sceneStorage})
+      :rpc("turn_claim_blender_render_job",{p_hash:hash}),
     touch:async(id,hash,progress)=>!!await rpc("turn_touch_blender_render_job",{p_job:id,p_hash:hash,p_progress:progress}),
     finish:(id,hash,status,result,error)=>rpc("turn_finish_blender_render_job",{p_job:id,p_hash:hash,p_status:status,p_result:result,p_error:error}),
     stageScene:(id,hash,scene)=>rpc("turn_stage_blender_render_scene",{p_job:id,p_hash:hash,p_scene:scene}),

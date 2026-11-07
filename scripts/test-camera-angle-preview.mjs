@@ -101,4 +101,18 @@ const loaded=await loader.KinolotAnglePreview.load();
 ok(loaded.REVISION==='180','The real local-module loader resolves the pinned graphics library');
 ok(await loader.KinolotAnglePreview.load()===loaded,'Repeated openings reuse the loaded module');
 rig.dispose();
+{
+ const detailed={...structuredClone(source),schema:b.KinolotRenderContract.MCP_SCHEMA,authoring:'mcp-procedural-v1',
+  objects:['cushion','cloth'].map((kind,i)=>({id:'soft-'+i,name:kind,kind,position:[i,3,.8],size:[.8,1.2,.15],rotation:[0,0,.2],material:'wall'}))};
+ const before=JSON.stringify(detailed),soft=api.sceneFor(T,detailed);
+ ok(soft.meshes.length===2,'Detailed cushions and folded cloth have preview geometry');
+ for(const mesh of soft.meshes)for(const axis of ['x','y','z']){
+  close(mesh.geometry.boundingBox.min[axis],-.5,'Soft geometry retains the worker local minimum');
+  close(mesh.geometry.boundingBox.max[axis],.5,'Soft geometry retains the worker local maximum');
+ }
+ ok(soft.meshes[1].geometry.getIndex().count===24*32*6,'Cloth uses the shared worker grid topology');
+ ok(JSON.stringify(detailed)===before,'Soft previews do not rewrite the submitted geometry');
+ const fallback=api.create({...T,WebGLRenderer:NoGPU},detailed);fallback.render(canvas,{position:[0,0,1.6],yaw:0,pitch:-15,lensMm:24});
+ ok(frame.data.every(Number.isFinite),'Soft geometry also renders safely in compatibility mode');fallback.dispose();
+}
 console.log('PASS angle preview: '+checks+' geometry, camera projection, clipping, immutability and resource checks');

@@ -9,6 +9,22 @@
     if(item.kind==="box")g=new T.BoxGeometry(1,1,1);
     else if(item.kind==="cylinder"){g=new T.CylinderGeometry(.5,.5,1,24);g.rotateX(Math.PI/2);}
     else if(item.kind==="torus")g=new T.TorusGeometry(.36,.07,8,24);
+    else if(item.kind==="cushion"){
+      g=new T.SphereGeometry(.5,32,16);g.rotateX(Math.PI/2);
+      const p=g.getAttribute("position");
+      for(let i=0;i<p.count;i++){
+        const soft=(v,power)=>.5*Math.sign(v)*Math.pow(Math.abs(v*2),power);
+        p.setXYZ(i,soft(p.getX(i),.35),soft(p.getY(i),.35),soft(p.getZ(i),.65));
+      }
+    }else if(item.kind==="cloth"){
+      const nx=24,ny=32,positions=[],indices=[];
+      for(let j=0;j<=ny;j++)for(let i=0;i<=nx;i++){
+        const x=-.5+i/nx,y=-.5+j/ny;
+        positions.push(x,y,-.24*Math.pow(Math.abs(x)*2,12)-.24*Math.pow(Math.max(0,-y)*2,12)+.035*Math.sin(x*37+y*19)+.025*Math.sin(y*41-x*12));
+      }
+      for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const a=j*(nx+1)+i;indices.push(a,a+1,a+nx+2,a,a+nx+2,a+nx+1);}
+      g=new T.BufferGeometry();g.setAttribute("position",new T.Float32BufferAttribute(positions,3));g.setIndex(indices);
+    }
     else if(item.kind==="prism"){
       const shape=new T.Shape(item.footprint.map(p=>new T.Vector2(...p)));
       g=new T.ExtrudeGeometry(shape,{depth:1,steps:1,bevelEnabled:false});

@@ -130,12 +130,15 @@ approval path continues saving artwork through the normal image/history adapter.
 
 Prepare and verify on staging before rollout:
 
-1. Apply `blender-render-scenes.sql` after `blender-render-jobs.sql`.
+1. Apply `blender-render-scenes.sql` and then `blender-render-mcp.sql` after
+   `blender-render-jobs.sql` (and the existing billing migration).
 2. Deploy the reviewed `blender-render` function and update the worker source.
    Keep `BLENDER_RENDER_SCENE_STORAGE` unset/false until the new worker is ready.
 3. Enable `BLENDER_RENDER_SCENE_STORAGE=true` for the staging function. Claimed
-   jobs then require a scene upload before completion. This does not enable MCP
-   authoring or alter the UI flow by itself.
+   jobs claimed by a scene-capable worker require a scene upload before completion.
+   The requirement is recorded at claim time. Older workers and already-running
+   basic jobs retain their original contract. This does not enable MCP authoring
+   or alter the UI flow by itself.
 4. Verify an actual staging job stores twelve PNGs and its uncompressed Blender
    scene, returns a fresh signed scene URL through authenticated `job.get`, and
    rejects another film/account and expired leases. The binary scene is capped
@@ -146,6 +149,60 @@ The worker receives only its existing scoped credentials. It never receives the
 storage service-role key. Scene files are not public bucket objects and are not
 served through permanent public URLs. Old completed image-only builds remain
 readable. Offline checks: `node scripts/test-cloud-render-scenes.mjs`.
+
+### Detailed cloud set integration (7 November)
+
+The existing five sections remain in place. New detailed builds use
+`kinolot-cloud-set-v2` / `mcp-procedural-v1`, with bounded numerical geometry,
+saved cameras, procedural surface recipes, shaped cushions and cloth. Recognised
+kitchen anchors become constructed counters, hollow basins, cabinets and fixtures.
+Window and door trim follows saved apertures; no door leaf, exterior, appliance or
+visible light fitting is invented to fill an unspecified opening. Internal
+construction and hardware are proposed detail. Incorrect saved dimensions or
+facing still need floor-plan review; the code never substitutes the isolated
+demonstration layout or claims a surveyed reconstruction.
+
+The worker starts one private Blender/MCP session for a detailed job and uses
+only the trusted builder scripts. Browser data cannot provide Python, file paths,
+asset URLs or network commands. The add-on socket stays on loopback; service
+credentials are stripped before Blender starts. Versioned source checksums cover
+the renderer and job entry points. New workers advertise accepted scene formats
+and scene-upload support. The database filters claims and still permits only one
+active build globally; older workers cannot consume detailed jobs.
+
+The same twelve camera passes and uncompressed editable set use private job
+storage. Camera visibility is recorded from the object-ID pass and checked against
+the submitted scene. Step 5 uses the completed job, appends modeled fitting
+visibility to its existing prompt, saves its separate draft, and keeps the current
+explicit artwork-adoption action. Exact image-model geometry preservation remains
+unproven; users must inspect all four finished views.
+
+Rollout order:
+
+1. Keep browser `setBuildMcp:false` and server `BLENDER_RENDER_MCP` off while
+   applying the additive storage and claim migrations and deploying the compatible
+   function. Existing basic jobs continue to work.
+2. In the separate Linux trial, run `mcp_job.py --scene
+   benchmark/detailed-kitchen.scene.json` inside `shell.mcp.nix`. This tests the
+   actual app-format builder and all camera passes through MCP, without customer
+   jobs or billing. Inspect its render and verification outputs.
+3. Prepare the worker's pinned MCP dependencies before claiming jobs, then run
+   `cloud_worker.py` under `shell.mcp.nix` with worker `BLENDER_RENDER_MCP=true`.
+   Keep existing scoped endpoint and worker credentials; never expose the socket.
+4. Enable server `BLENDER_RENDER_SCENE_STORAGE=true` and
+   `BLENDER_RENDER_MCP=true` for the scoped rollout, then browser `setBuildMcp:true`.
+   Rebuild one operator-owned test location, verify private Supabase upload/read,
+   generate a styled draft and explicitly review/adopt it. Do not use a real film
+   just to satisfy this gate without its owner's authorization.
+5. Verify cancellation, recovery and legacy-job coexistence before broad rollout.
+   Disable the browser detailed switch first for rollback. Keep scene storage
+   available until active detailed leases finish; never silently rerender an
+   existing detailed job with the basic builder.
+
+Code and offline tests alone do not mean the production switches or new worker
+are deployed. Checks: `test-cloud-mcp.mjs`, `test-cloud-set-style.mjs`, the scene
+storage/release suites and worker `test_mcp_job.py`. The separate comparison page
+proved calls through both image engines, not this complete queued-job rollout.
 
 ### Cloud set preview — development pilot (31 October 2026)
 
@@ -456,8 +513,9 @@ per day. A worker claims only one job globally; heartbeats renew a two-minute
 lease. An interrupted lease can be retried once, then becomes a failed job.
 Completion validates the scene hash, cameras and all twelve PNGs before private
 storage results are attached to the job. No image model is called. Colour,
-depth-guide and object-ID PNGs are persisted; raw EXR and editable Blender files
-remain local to the worker in this first integration and are not app downloads.
+depth-guide and object-ID PNGs are persisted. Raw EXR remains local; editable
+Blender retention is the optional authenticated path described above. Older
+image-only jobs do not acquire a scene file retroactively.
 
 The local tests `node scripts/test-cloud-render.mjs` and
 `node scripts/test-cloud-render-release.mjs` execute the actual migration and

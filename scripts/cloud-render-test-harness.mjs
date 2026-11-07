@@ -29,12 +29,13 @@ export async function harness(options={}){
   const sql=readFileSync(new URL("../supabase/blender-render-jobs.sql",import.meta.url),"utf8");
   await pg.exec(sql);
   await pg.exec(readFileSync(new URL("../supabase/blender-render-scenes.sql",import.meta.url),"utf8"));
+  await pg.exec(readFileSync(new URL("../supabase/blender-render-mcp.sql",import.meta.url),"utf8"));
   // Emulate the Supabase JS calls used by the real production database adapter.
   const admin={
     async rpc(name,args){
       try{
-        if(!/^turn_(submit|claim|touch|finish)_blender_render_job$/.test(name)&&name!=="turn_stage_blender_render_scene")throw Error("Unexpected RPC");
-        const params=Object.values(args).map(v=>v&&typeof v==="object"?JSON.stringify(v):v);
+        if(!/^turn_(submit|claim|touch|finish)_blender_render_job$/.test(name)&&!["turn_stage_blender_render_scene","turn_claim_blender_render_job_v2"].includes(name))throw Error("Unexpected RPC");
+        const params=Object.entries(args).map(([k,v])=>k==="p_schemas"?v:v&&typeof v==="object"?JSON.stringify(v):v);
         const call=name+"("+Object.keys(args).map((k,i)=>k+" => $"+(i+1)).join(",")+")";
         const rows=(await pg.query(name.includes("touch_")?"select "+call+" as value":"select ("+call+").*",params)).rows;
         return {data:copy(name.includes("touch_")?rows[0].value:rows[0])};

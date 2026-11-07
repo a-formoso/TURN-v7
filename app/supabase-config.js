@@ -31,4 +31,7 @@ window.TURN_SUPABASE = {
      server decides who may build and charges it (blender-render with BLENDER_RENDER_OPEN=true); FALSE leaves the
      owner-only local pilot. Publish this only after the server is open. */
   setBuild: true,
+  /* Enable only after the queued MCP worker, scene-storage migration and server
+     BLENDER_RENDER_MCP / BLENDER_RENDER_SCENE_STORAGE switches are verified. */
+  setBuildMcp: false,
 };

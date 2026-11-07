@@ -8,9 +8,9 @@ const clone=x=>structuredClone(x);
 let checks=0;
 const ok=(v,m)=>{assert.ok(v,m);checks++;};
 const rejects=async(fn,re)=>{await assert.rejects(fn,re);checks++;};
-function harness(){
+function harness(initialScene){
   const store=new Map(),ls=new Map(),writes=[],calls=[];
-  const scope={uid:"owner",projectId:"film",epoch:1};let current=scope,readonly=false,allowed=true,brief="night",scene={schema:1,layout:1};
+  const scope={uid:"owner",projectId:"film",epoch:1};let current=scope,readonly=false,allowed=true,brief="night",scene=initialScene||{schema:1,layout:1};
   let generateHook=null,beforeCommit=null;
   const room={id:"room",name:"A working deck",materials:"painted steel",lighting:"warm practicals"};
   class Picture{constructor(){this.naturalWidth=640;this.naturalHeight=360;}set src(v){if(v)queueMicrotask(()=>this.onload?.());}}
@@ -360,5 +360,18 @@ for(const phase of ["prepare","response"]){
   const before=h.calls.filter(x=>x==="paid-image").length,pair=await api.comparisonPair("room",h.scope);
   ok(pair.left.meta.modelId==="gpt-image-2.6-sunburst"&&pair.right.meta.modelId==="gpt-image-2.5-sunburst","Existing 2.5 drafts remain comparable after removal from the picker");
   ok(h.calls.filter(x=>x==="paid-image").length===before,"Inspecting an existing 2.5 comparison makes no image call");
+}
+{
+  const numeric={schema:"kinolot-cloud-set-v2",authoring:"mcp-procedural-v1",materials:{light:{emissionStrength:4},wall:{}},
+    objects:[{id:"lamp",anchorId:"sink-light",name:"Sink light · diffuser",material:"light"},{id:"wall",name:"Wall",material:"wall"}]};
+  const h=harness(numeric),job=await h.ready(),api=h.api();
+  job.result.report={renderer:"cloud-mcp-v1",visibleObjects:{TL:["lamp","wall"],TR:["wall"],BL:["wall"],BR:["wall"]}};
+  const draft=await api.generate("room",job,h.scope);
+  ok(draft.meta.sourceScene.schema===numeric.schema&&draft.meta.sourceScene.authoring===numeric.authoring,"A detailed draft retains its versioned numerical authoring inputs");
+  ok(draft.meta.prompt.includes("TL: Sink light")&&draft.meta.prompt.includes("TR: no modeled emissive fitting is visible"),"Detailed styling receives the completed build's fitting visibility");
+  ok(h.store.get("room").url==="original-artwork","Detailed generation remains a separate saved draft");
+  await rejects(()=>api.accept("room",draft,h.scope,false),/Review all four/);
+  await api.accept("room",draft,h.scope,true);
+  ok(h.store.get("room").meta.sourceScene.schema===numeric.schema&&h.store.get("room").history[0].url==="original-artwork","Explicit detailed-draft approval retains its source version and previous artwork");
 }
 console.log("PASS cloud set styling: "+checks+" generation, comparison, persistence, race, ownership and no-retry checks");
