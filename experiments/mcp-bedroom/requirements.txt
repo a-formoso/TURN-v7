@@ -1,0 +1,4 @@
+mcp-for-blender==2.2.7
+mcp==1.30.0
+cryptography==45.0.7
+Pillow==13.0.0
