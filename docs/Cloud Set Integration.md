@@ -96,3 +96,17 @@ compatible backend is deployed, but the Replit published worker has not been
 replaced. Read `supabase/README.md` for exact order
 and rollback precautions. Do not describe this checkpoint as a completed live
 rollout or exact photogrammetric reconstruction.
+
+## Publication correction
+
+The main Replit workspace fast-forwarded to the reviewed worker, passed twelve
+checks and prepared Blender/MCP successfully. The subsequent republish failed in
+promotion: its startup command required `nix-shell`, which is unavailable in the
+published runtime. Replit's diagnostic confirmed the existing endpoint remains
+available, but did not identify its serving revision. This is not a successful
+deployment of the new renderer.
+
+The corrected profile starts Python directly and declares the full graphics
+dependencies through the root `replit.nix`. Both preparation and startup reject
+missing graphics tools before downloading dependencies or claiming a job.
+The corrected publication and complete app test remain outstanding.
