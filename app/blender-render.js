@@ -98,6 +98,7 @@
     const defaults=Object.fromEntries(root.locationPanelPoses(location,list).map(p=>[p.key,{pose:p.suggestedPose}]));
     const desired=[[.1,.1],[.1,.9],[.9,.9],[.9,.1]],keys=["TL","TR","BL","BR"];
     const roomAnchors=plan.anchors.filter(a=>a.xy&&a.size&&!isOpening(a,sp)&&(root.locationAnchorSpaceOf(a,family)||owner).id===sp.id);
+    const bed=roomAnchors.filter(a=>root.KinolotSetDetail?.anchorShape(a)==="bed").sort((a,b)=>b.size[0]*b.size[1]-a.size[0]*a.size[1])[0];
     const featureUses=new Map();
     // A clear standing position alone is insufficient: aim at an identifiable saved feature rather than empty wall.
     // Test the line to each feature against the other saved, rotated object bounds.
@@ -126,8 +127,20 @@
       // A high view from the same corner as the first wide adds little coverage. Propose the reverse side.
       if(i===1&&Math.hypot((preferred[0]-used[0][0])/w,(preferred[1]-used[0][1])/d)<.5)
         preferred=[2*x0+w-used[0][0],2*y0+d-used[0][1]];
-      const score=p=>((p[0]-preferred[0])/w)**2+((p[1]-preferred[1])/d)**2;
-      candidates.sort((a,b)=>score(a)-score(b));const at=candidates[0];used.push(at);
+      const score=p=>{
+        let penalty=0;
+        if(i===0&&bed){
+          const angle=(bed.facing||0)*Math.PI/180,dx=p[0]-bed.xy[0],dy=p[1]-bed.xy[1];
+          const local=[Math.cos(angle)*dx-Math.sin(angle)*dy,Math.sin(angle)*dx+Math.cos(angle)*dy];
+          const along=bed.size[1]>=bed.size[0]?1:0,across=1-along;
+          // An establishing view directly behind the headboard hides the useful bed silhouette.
+          if(local[along]<-Math.abs(local[across]))penalty=1;
+          const distance=Math.hypot(...local),minimum=Math.min(Math.max(...bed.size.slice(0,2))*1.25,Math.max(w,d)*.7);
+          penalty+=Math.max(0,(minimum-distance)/minimum)*2;
+        }
+        return ((p[0]-preferred[0])/w)**2+((p[1]-preferred[1])/d)**2+penalty;
+      };
+      candidates.sort((a,b)=>score(a)-score(b));let at=candidates[0];
       // Aim within the room; sampled sight lines cannot cross a concave footprint's outside wall.
       const targets=clear.filter(p=>Math.hypot(p[0]-at[0],p[1]-at[1])>.1&&Array.from({length:19},(_,j)=>(j+1)/20)
         .every(t=>inside(at[0]+(p[0]-at[0])*t,at[1]+(p[1]-at[1])*t)));
@@ -144,10 +157,37 @@
         +Math.min(2,Math.hypot(a.point[0]-at[0],a.point[1]-at[1]))*.15;
       features.sort((a,b)=>featureScore(b)-featureScore(a));
       if(features.length){const feature=features[0];aim=feature.point;aimZ=feature.point[2];featureUses.set(feature.id,(featureUses.get(feature.id)||0)+1);}
-      const dist=Math.hypot(aim[0]-at[0],aim[1]-at[1]);
-      panels.push({key:keys[i],pose:{position:at,yaw:rounded((Math.atan2(aim[0]-at[0],aim[1]-at[1])*180/Math.PI+360)%360),
-        pitch:rounded(Math.max(-45,Math.min(15,features.length?Math.atan2(aimZ-z,dist)*180/Math.PI:finite(wanted.pitch)?wanted.pitch:Math.atan2(aimZ-z,dist)*180/Math.PI))),
-        lensMm:wanted.lensMm||(i===1?20:24),basis:"design"}});
+      const framing=position=>{
+        const dist=Math.hypot(aim[0]-position[0],aim[1]-position[1]);
+        const yaw=rounded((Math.atan2(aim[0]-position[0],aim[1]-position[1])*180/Math.PI+360)%360);
+        const pitch=rounded(Math.max(-45,Math.min(15,features.length?Math.atan2(aimZ-position[2],dist)*180/Math.PI:finite(wanted.pitch)?wanted.pitch:Math.atan2(aimZ-position[2],dist)*180/Math.PI)));
+        let lensMm=wanted.lensMm||(i===1?20:24);
+        if(!features.length||i===3)return {yaw,pitch,lensMm};
+        // Fit the selected feature's saved bounds into the 16:9 frame with a margin. The fourth panel stays a detail.
+        const anchor=roomAnchors.find(a=>a.id===features[0].id),az=(anchor.facing||0)*Math.PI/180;
+        const y=yaw*Math.PI/180,p=pitch*Math.PI/180;
+        const forward=[Math.sin(y)*Math.cos(p),Math.cos(y)*Math.cos(p),Math.sin(p)],right=[Math.cos(y),-Math.sin(y),0],up=[-Math.sin(y)*Math.sin(p),-Math.cos(y)*Math.sin(p),Math.cos(p)];
+        let fit=lensMm;
+        for(const sx of [-.5,.5])for(const sy of [-.5,.5])for(const sz of [-.5,.5]){
+          const x=sx*anchor.size[0],v=sy*anchor.size[1];
+          const offset=[anchor.xy[0]+Math.cos(az)*x+Math.sin(az)*v-position[0],anchor.xy[1]-Math.sin(az)*x+Math.cos(az)*v-position[1],anchorCentreZ(anchor,sp,plan).z+sz*anchor.size[2]-position[2]];
+          const dot=a=>a.reduce((sum,n,j)=>sum+n*offset[j],0),depth=dot(forward);
+          if(depth<=.05){fit=8;continue;}
+          fit=Math.min(fit,18*depth/(Math.abs(dot(right))*1.12||1e-9),10.125*depth/(Math.abs(dot(up))*1.12||1e-9));
+        }
+        lensMm=Math.max(8,Math.floor(fit*100)/100);
+        return {yaw,pitch,lensMm};
+      };
+      let frame=framing(at);
+      // Move farther back when possible instead of relying on an extremely wide lens to fit a tall landmark.
+      if(features.length&&i<3&&frame.lensMm<18){
+        const alternatives=candidates.filter(p=>!blocked(p,features[0].point,features[0].id)
+          &&Array.from({length:19},(_,j)=>(j+1)/20).every(t=>inside(p[0]+(aim[0]-p[0])*t,p[1]+(aim[1]-p[1])*t)))
+          .map(position=>({position,frame:framing(position)})).filter(v=>v.frame.lensMm>=18);
+        if(alternatives.length){alternatives.sort((a,b)=>score(a.position)-score(b.position));at=alternatives[0].position;frame=alternatives[0].frame;}
+      }
+      used.push(at);
+      panels.push({key:keys[i],pose:{position:at,...frame,basis:"design"}});
     }
     const warnings=["Proposed positions avoid the saved walls and sized objects and aim at visible sized furniture where possible. Review all four camera previews before building; a clear position does not guarantee useful framing or full room coverage."];
     return {key:cameraProposalKey(location,list),panels,warnings};

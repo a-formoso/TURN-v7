@@ -9,10 +9,10 @@ const copy=x=>JSON.parse(JSON.stringify(x));let checks=0;
 const ok=(value,message)=>{assert.ok(value,message);checks++;};
 const same=(a,c,message)=>{assert.deepEqual(copy(a),copy(c),message);checks++;};
 const room={id:'bedroom',key:'bedroom',name:'Furniture test bedroom',spatialPlan:{status:'reviewed',heights:'centre',source:{assetId:'bedroom',iso:''},frame:'North',
- anchors:[{id:'bed',name:'Single bed',xy:[1.1,2.6],z:.45,size:[1,2,.9]},
+ anchors:[{id:'bed',name:'Single bed',xy:[1.1,3.325],z:.45,size:[1,2,.9],facing:180},
   {id:'desk',name:'Study desk',xy:[3.25,3.3],z:.375,size:[1.2,.65,.75]},
   {id:'chair',name:'Wooden chair',xy:[3.25,2.55],z:.45,size:[.45,.5,.9]},
-  {id:'nightstand',name:'Bedside cabinet',xy:[.4,1.9],z:.25,size:[.45,.45,.5]},
+  {id:'nightstand',name:'Bedside cabinet',xy:[.4,4.0],z:.25,size:[.45,.45,.5]},
   {id:'wardrobe',name:'Wardrobe',xy:[3.45,.65],z:1,size:[.9,.6,2]}].map(a=>({...a,space:'Furniture test bedroom',placement:'Saved floor plan',sizeBasis:'user',posBasis:'user'})),
  coordinates:{spaces:[{id:'bedroom',name:'Furniture test bedroom',footprint:[[0,0],[4,0],[4,4.4],[0,4.4]],floorZ:0,ceilingH:2.6,
   openings:[{id:'window',name:'Bedroom window',kind:'window',centre:[0,3.1],width:1.3,sillZ:.8,headZ:2.1},
@@ -61,7 +61,7 @@ const wideParts=b.KinolotCloudRender.buildScene(wideBed,[wideBed]).objects.filte
 ok(wideParts.find(o=>o.name.includes('headboard')).size[0]<wideParts.find(o=>o.name.includes('headboard')).size[1],'A bed along local X keeps its long axis instead of silently turning its envelope');
 const tiny=copy(room);tiny.spatialPlan.anchors[0].size=[.01,.01,.01];
 ok(b.KinolotCloudRender.buildScene(tiny,[tiny]).objects.filter(o=>o.anchorId==='bed').length===1,'Too-small envelopes retain a valid proxy instead of invalid sub-millimetre parts');
-const pillow=copy(room);pillow.spatialPlan.anchors.push({id:'pillow',name:'Pillow',space:room.name,placement:'On bed',xy:[1.1,2],z:.64,size:[.5,.3,.12]});
+const pillow=copy(room);pillow.spatialPlan.anchors.push({id:'pillow',name:'Pillow',space:room.name,placement:'On bed',xy:[1.1,4.0],z:.64,size:[.5,.3,.12]});
 ok(!b.KinolotCloudRender.buildScene(pillow,[pillow]).objects.some(o=>o.anchorId==='bed'&&o.name.includes('pillow')),'A separately saved pillow is not duplicated inside the bed assembly');
 const bare=copy(room);bare.spatialPlan.anchors[0].placement='Bare bed, no pillow, no headboard';
 ok(!b.KinolotCloudRender.buildScene(bare,[bare]).objects.some(o=>o.anchorId==='bed'&&o.name.includes('pillow')),'Explicit no-pillow instructions suppress proposed bedding');
@@ -76,5 +76,13 @@ for(const camera of Object.values(scene.cameras)){
  ok(room.spatialPlan.anchors.some(a=>{const v=[a.xy[0]-camera.position[0],a.xy[1]-camera.position[1],a.z+a.size[2]*.15-camera.position[2]],len=Math.hypot(...v);
   return v.reduce((sum,n,i)=>sum+n*dir[i],0)/len>.999;}),'Each proposed camera aims at a visible saved furniture feature');
 }
+
+// A loose test arrangement must not produce an establishing shot directly behind the headboard.
+const loose=copy(room);loose.coverageViews=[];loose.spatialPlan.anchors[0].xy=[1.1,2.6];loose.spatialPlan.anchors[0].facing=0;
+const looseProposal=b.KinolotCloudRender.proposeCameras(loose,[loose]),eye=looseProposal.panels.find(p=>p.key==='TL').pose.position;
+ok(eye[1]-2.6>=-Math.abs(eye[0]-1.1),'First wide avoids a head-on view from behind the bed headboard when a clear side is available');
+ok(Math.hypot(eye[0]-1.1,eye[1]-2.6)>2,'First wide keeps enough distance to show the bed in context');
+ok(['TL','TR','BL'].every(k=>scene.cameras[k].lensMm>=18),'Context cameras fit furniture without resorting to extreme wide lenses when space is available');
+
 if(process.env.FURNITURE_TEST_SCENE)writeFileSync(process.env.FURNITURE_TEST_SCENE,JSON.stringify(scene,null,2));
 console.log('PASS furniture: '+checks+' geometry, identity, envelope, camera, override, persistence and determinism checks; '+scene.objects.length+' shapes');

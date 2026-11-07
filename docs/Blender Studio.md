@@ -343,3 +343,9 @@ Suggest four cameras now aims at visible sized furniture where possible, checkin
 other object bounds along the line of sight. This changes only a new proposal; Use
 these cameras remains the explicit save action. Review each camera preview: a clear
 standing position does not guarantee useful framing or complete room coverage.
+
+New camera proposals also avoid a first wide view directly behind a bed headboard
+when a clear side is available. The first three views fit the selected furniture's
+saved bounds into a 16:9 frame with a margin, stepping back where possible to keep
+a moderate lens. The fourth stays a detail. Very small or obstructed spaces can
+still limit framing; saved cameras and floor-plan placements are never auto-replaced.
