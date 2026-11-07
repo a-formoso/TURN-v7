@@ -185,7 +185,7 @@ export function createRenderService({auth,db,storage,contract,png,enabled=false,
       }
       if(action==="worker.fail"){
         const {row,leaseHash}=await leased(body);
-        await db.finish(row.id,leaseHash,"failed",null,"The set could not be rendered. Review the layout and submit a new request.");
+        await db.finish(row.id,leaseHash,"failed",null,"The cloud build failed. Your saved floor plan and cameras are unchanged.");
         if(row.result?.scene?.path)await storage.remove([row.result.scene.path]).catch(()=>{});
         return {ok:true};
       }

@@ -16,6 +16,10 @@ export async function readSceneFile(request){
   }finally{reader.releaseLock();}
   const bytes=new Uint8Array(size);let offset=0;
   for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-  if(size<64||!/^BLENDER[-_][vV]\d{3}$/.test(new TextDecoder().decode(bytes.subarray(0,12))))throw new Error('invalid_scene_file');
+  // Blender 5 uses a 17-byte, format-01 header. Older uncompressed scenes remain supported.
+  const decoder=new TextDecoder();
+  const legacy=/^BLENDER[-_][vV]\d{3}$/.test(decoder.decode(bytes.subarray(0,12)));
+  const current=/^BLENDER17-01v\d{4}$/.test(decoder.decode(bytes.subarray(0,17)));
+  if(size<64||!(legacy||current))throw new Error('invalid_scene_file');
   return bytes;
 }

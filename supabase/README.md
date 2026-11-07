@@ -214,9 +214,11 @@ returns 401. The first worker promotion failed because the published runtime
 lacked `nix-shell`. The reviewed correction starts Python directly and declares
 graphics dependencies through the root `replit.nix`; its republish succeeded.
 Published metadata/logs confirm the reviewed revision and Blender startup, with
-no recurring errors in the observed interval. `BLENDER_RENDER_SCENE_STORAGE` and
-`BLENDER_RENDER_MCP` are now true for the controlled test; there were no active
-jobs at activation. The committed browser `setBuildMcp` remains false. Only the
+no recurring errors in the observed interval. Both new backend switches were
+enabled with no active jobs. The first controlled app job failed and its full
+15-credit hold was released; detailed requests are now disabled again
+(`BLENDER_RENDER_MCP=false`), with scene retention still enabled. The committed
+browser `setBuildMcp` remains false. Only the
 operator's loopback development server supplies an enabled override. The public
 website frontend is unchanged. An authenticated app job and Step Five save/review
 remain rollout gates; startup evidence alone does not verify that job path.

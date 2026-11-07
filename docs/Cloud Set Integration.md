@@ -80,14 +80,17 @@ archive and verify those separately before explicit cleanup.
 
 ## Remaining rollout gates
 
-1. Verify a scoped authenticated app job against real private Supabase storage,
+1. Publish the reviewed scene-header compatibility correction on both the worker
+   and service, then re-enable detailed requests for one controlled retry.
+2. Verify a scoped authenticated app job against real private Supabase storage,
    including the scene file, images, signed reads and access denial.
-2. Generate a draft through the actual controls and let the user review it before
+3. Generate a draft through the actual controls and let the user review it before
    artwork adoption. Keep current approved artwork until that action. Check
    working-file cleanup, recovery and coexistence with legacy jobs.
 
-At the current checkpoint the reviewed worker is published and both new server
-switches are true. There were no queued/running jobs when they were enabled.
+The startup-corrected worker is published. Scene retention remains enabled, but
+new detailed requests were disabled after the first controlled app job failed.
+There were no queued/running jobs when the original test switches were enabled.
 The committed browser `setBuildMcp` remains false; only the loopback development
 test server serves an enabled override. The public website frontend has not been
 updated. Read `supabase/README.md` for exact order
@@ -114,3 +117,28 @@ the reviewed revision, and published build/runtime logs confirm preparation and
 Blender startup without recurring errors during the observed interval. This is
 startup evidence, not a completed authenticated app job or proof of continued
 worker liveness. The complete Build/Style/private-save test remains outstanding.
+
+## First app job and scene-upload compatibility
+
+The signed-in operator accepted camera suggestions and submitted Okafor Kitchen
+through the actual Build control. The cloud worker claimed its detailed scene
+(143 objects) on the first attempt. It failed after about five minutes; the
+database confirms all 15 held credits were released, with zero retained. The
+published console exposed only a generic service error, and the diagnostic
+integration could not retrieve that job's retained production files. The original
+job's exact exception therefore remains unavailable.
+
+A separate read-only check found a concrete compatibility defect: the worker's
+scene uploader and the service accepted only the legacy 12-byte Blender header.
+An existing successful Blender 5.2 cloud trial scene uses the modern 17-byte
+format-01 header and was rejected by the worker before HTTP with networking
+disabled. This reproduces a necessary upload failure for the cloud format,
+independently of the unavailable original-job logs. The format is documented in
+[Blender's source](https://github.com/blender/blender/blob/main/source/blender/blenloader_core/BLO_core_blend_header.hh).
+
+The reviewed correction accepts both supported headers without rewriting bytes;
+it retains the size limit, immutable source binding and access checks. Added
+regressions reject unsupported modern formats and preserve legacy compatibility.
+Worker failure logs now report controlled stage/type/status metadata without
+exception messages or scene contents. New generic build errors preserve the
+floor plan/camera wording rather than implying the user's layout caused failure.

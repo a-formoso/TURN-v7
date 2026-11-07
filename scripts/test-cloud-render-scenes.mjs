@@ -7,7 +7,7 @@ import {createRenderStorage} from "../supabase/functions/blender-render/adapter.
 
 const h=await harness({sceneStorage:true});let checks=0;
 const check=(actual,expected,label)=>{assert.equal(actual,expected,label);checks++;};
-const bytes=Buffer.concat([Buffer.from("BLENDER-v520"),Buffer.alloc(128,31)]);
+const bytes=Buffer.concat([Buffer.from("BLENDER17-01v0502"),Buffer.alloc(128,31)]);
 const changed=Buffer.from(bytes);changed[100]=33;
 const claim=async()=>{
   const value=scene();
@@ -16,6 +16,15 @@ const claim=async()=>{
   return {value,job:(await h.request("worker.claim",{claimToken:crypto.randomUUID()+crypto.randomUUID(),sceneStorage:true},secret)).body.job};
 };
 try{
+  for(const header of ["BLENDER-v405","BLENDER_V405","BLENDER17-01v0502"]){
+    const input=Buffer.concat([Buffer.from(header),Buffer.alloc(128)]);
+    const parsed=await readSceneFile(new Request("https://offline.test",{method:"POST",body:input}));
+    check(Buffer.from(parsed).equals(input),true,"Legacy and current Blender headers preserve the original bytes");
+  }
+  for(const header of ["BLENDER18-01v0502","BLENDER17-02v0502","BLENDER17_01v0502","BLENDER17-01V0502","BLENDER17-01v05xx","BLENDER17-01"]){
+    const input=Buffer.concat([Buffer.from(header),Buffer.alloc(128)]);
+    await assert.rejects(readSceneFile(new Request("https://offline.test",{method:"POST",body:input})),/invalid_scene_file/);checks++;
+  }
   const calls=[];
   const adapter=createRenderStorage({storage:{from:bucket=>({upload:async(path,blob,options)=>{calls.push({bucket,path,blob,options});return {data:{}};}})}});
   await adapter.put('scene.blend',bytes,'application/x-blender');
