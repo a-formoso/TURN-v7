@@ -204,6 +204,24 @@ are deployed. Checks: `test-cloud-mcp.mjs`, `test-cloud-set-style.mjs`, the scen
 storage/release suites and worker `test_mcp_job.py`. The separate comparison page
 proved calls through both image engines, not this complete queued-job rollout.
 
+**Verified activation checkpoint (7 November):** the isolated app-format kitchen
+now passes real MCP authoring and rendering on Replit. An administrative storage
+test uploaded a real `.blend` and PNG to the private bucket, verified byte-identical
+authenticated/signed reads and denied anonymous/public reads, then removed both
+test objects. The additive scene-retention/compatible-claim migrations are installed
+and the compatible `blender-render` function is deployed. Its anonymous API probe
+returns 401. `BLENDER_RENDER_SCENE_STORAGE` and `BLENDER_RENDER_MCP` both remain
+false, as does browser `setBuildMcp`. The existing published Replit worker still
+needs the reviewed update and republish before either server switch is enabled.
+An authenticated app job and Step Five save/review remain rollout gates.
+
+The updated worker's prepared deployment profile prewarms the pinned MCP runtime.
+Its scratch files default to the platform temporary directory. Only a confirmed
+completion receipt permits immediate run deletion; failed/uncertain runs are
+removed by the startup/idle sweep once a day old. That sweep does not remove
+existing `.mcp-runs` fixtures or review copies in `attached_assets`. No permanent
+customer asset store belongs in the Replit workspace.
+
 ### Cloud set preview — development pilot (31 October 2026)
 
 This is separate from the desktop add-on relay. The live website is unchanged.

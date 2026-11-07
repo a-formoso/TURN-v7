@@ -36,7 +36,11 @@ camera choices or location artwork are changed by this implementation.
 - Camera previews, including the new soft geometry: 212.
 - Existing furniture/detail checks: 90 and 80; billing release checks: 13.
 - Brand checks: 46. Production build completed.
-- Worker suite: 46 tests, with one optional real-Blender regression skipped.
+- Worker cleanup and queued-job checks: 12 passed. Confirmed completion removes
+  the working run; failed uploads and uncertain receipts preserve recovery files.
+  The sweep skips unrelated folders and symlink targets.
+- The full worker suite passes 47 tests, with one optional real-Blender
+  regression skipped.
 - Separate real Blender checks passed for the app-generated bedroom (43 objects)
   and kitchen (144 objects), including all 24 image/grid/raw-depth files per run,
   object bounds, identities and exact camera verification. These were background
@@ -46,25 +50,49 @@ camera choices or location artwork are changed by this implementation.
   storage. Scene hashes, visibility validation, cross-account denial and safe
   repeated completion passed. This did not contact live Supabase.
 
-The earlier fixed bedroom and kitchen cloud trials passed real MCP on Replit.
-Both real image engines also completed the separate kitchen comparison. Those
-results do not prove the new app-format queue/worker deployment end to end.
+## Verified in the cloud
+
+- The fixed bedroom and kitchen trials passed real MCP on Replit. Both real image
+  engines also completed the separate kitchen comparison.
+- The new app-format kitchen passed through MCP on Replit, including source and
+  geometry verification and all camera renders. The operator's run also passed
+  eleven worker/queued-job checks. This was an isolated job, not an app submission.
+- A real Blender scene and camera PNG were uploaded to private Supabase storage.
+  Authenticated and signed downloads matched their source hashes; anonymous and
+  public reads were denied. Both temporary test objects were deleted afterward.
+  This was an administrative storage component check, not a customer job.
+- The additive scene-retention and compatible-claim migrations are installed.
+  Privileged claims and scene staging remain unavailable to browser roles.
+- The compatible `blender-render` function is deployed and active; an anonymous
+  API request is denied. Both new server switches remain false.
+
+These results do not prove the complete app submission, worker publication,
+private upload and Step Five review path end to end.
+
+## Working-file policy
+
+The upgraded worker uses a temporary work root. After the authenticated service
+confirms completion, it removes that run's images, scene and logs. Unconfirmed or
+failed runs remain available for recovery; the startup/idle sweep removes owned
+runs once they are a day old. Completed folders whose immediate removal failed
+are retried by the sweep. Existing isolated trial/review folders are not swept:
+archive and verify those separately before explicit cleanup.
 
 ## Remaining rollout gates
 
-1. Run `mcp_job.py --scene benchmark/detailed-kitchen.scene.json` under
-   `shell.mcp.nix` in the separate Replit trial checkout. Verify the actual new
-   app-format authoring path on Linux and inspect its output.
-2. Apply the additive scene-retention and compatible-claim migrations and deploy
-   the reviewed edge function. Update the cloud worker with its pinned runtime.
-3. Verify a scoped authenticated job against real private Supabase storage,
+1. Preserve the actual Replit workspace's current branch, inspect its changes,
+   and promote the reviewed worker source. Republish its prepared MCP profile;
+   a successful separate trial does not update the existing deployment.
+2. Enable scene retention and detailed authoring for the scoped test, then enable
+   browser `setBuildMcp`. Keep host/account restrictions in place.
+3. Verify a scoped authenticated app job against real private Supabase storage,
    including the scene file, images, signed reads and access denial.
-4. Enable the server switches and then `setBuildMcp` for the scoped rollout.
-   Generate a draft through the actual controls and let the user review it before
-   artwork adoption. Keep the current approved artwork until that action.
+4. Generate a draft through the actual controls and let the user review it before
+   artwork adoption. Keep current approved artwork until that action. Check
+   working-file cleanup, recovery and coexistence with legacy jobs.
 
-At this checkpoint `setBuildMcp` is false, no production switches were enabled,
-and no Supabase migration or function deployment was performed. The Replit
-published worker has not been replaced. Read `supabase/README.md` for exact order
+At this checkpoint `setBuildMcp` and both new server switches are false. The
+compatible backend is deployed, but the Replit published worker has not been
+replaced. Read `supabase/README.md` for exact order
 and rollback precautions. Do not describe this checkpoint as a completed live
 rollout or exact photogrammetric reconstruction.
