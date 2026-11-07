@@ -210,10 +210,16 @@ test uploaded a real `.blend` and PNG to the private bucket, verified byte-ident
 authenticated/signed reads and denied anonymous/public reads, then removed both
 test objects. The additive scene-retention/compatible-claim migrations are installed
 and the compatible `blender-render` function is deployed. Its anonymous API probe
-returns 401. `BLENDER_RENDER_SCENE_STORAGE` and `BLENDER_RENDER_MCP` both remain
-false, as does browser `setBuildMcp`. The existing published Replit worker still
-needs the reviewed update and republish before either server switch is enabled.
-An authenticated app job and Step Five save/review remain rollout gates.
+returns 401. The first worker promotion failed because the published runtime
+lacked `nix-shell`. The reviewed correction starts Python directly and declares
+graphics dependencies through the root `replit.nix`; its republish succeeded.
+Published metadata/logs confirm the reviewed revision and Blender startup, with
+no recurring errors in the observed interval. `BLENDER_RENDER_SCENE_STORAGE` and
+`BLENDER_RENDER_MCP` are now true for the controlled test; there were no active
+jobs at activation. The committed browser `setBuildMcp` remains false. Only the
+operator's loopback development server supplies an enabled override. The public
+website frontend is unchanged. An authenticated app job and Step Five save/review
+remain rollout gates; startup evidence alone does not verify that job path.
 
 The updated worker's prepared deployment profile prewarms the pinned MCP runtime.
 Its scratch files default to the platform temporary directory. Only a confirmed

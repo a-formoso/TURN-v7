@@ -64,7 +64,7 @@ camera choices or location artwork are changed by this implementation.
 - The additive scene-retention and compatible-claim migrations are installed.
   Privileged claims and scene staging remain unavailable to browser roles.
 - The compatible `blender-render` function is deployed and active; an anonymous
-  API request is denied. Both new server switches remain false.
+  API request is denied.
 
 These results do not prove the complete app submission, worker publication,
 private upload and Step Five review path end to end.
@@ -80,20 +80,17 @@ archive and verify those separately before explicit cleanup.
 
 ## Remaining rollout gates
 
-1. Preserve the actual Replit workspace's current branch, inspect its changes,
-   and promote the reviewed worker source. Republish its prepared MCP profile;
-   a successful separate trial does not update the existing deployment.
-2. Enable scene retention and detailed authoring for the scoped test, then enable
-   browser `setBuildMcp`. Keep host/account restrictions in place.
-3. Verify a scoped authenticated app job against real private Supabase storage,
+1. Verify a scoped authenticated app job against real private Supabase storage,
    including the scene file, images, signed reads and access denial.
-4. Generate a draft through the actual controls and let the user review it before
+2. Generate a draft through the actual controls and let the user review it before
    artwork adoption. Keep current approved artwork until that action. Check
    working-file cleanup, recovery and coexistence with legacy jobs.
 
-At this checkpoint `setBuildMcp` and both new server switches are false. The
-compatible backend is deployed, but the Replit published worker has not been
-replaced. Read `supabase/README.md` for exact order
+At the current checkpoint the reviewed worker is published and both new server
+switches are true. There were no queued/running jobs when they were enabled.
+The committed browser `setBuildMcp` remains false; only the loopback development
+test server serves an enabled override. The public website frontend has not been
+updated. Read `supabase/README.md` for exact order
 and rollback precautions. Do not describe this checkpoint as a completed live
 rollout or exact photogrammetric reconstruction.
 
@@ -109,4 +106,11 @@ deployment of the new renderer.
 The corrected profile starts Python directly and declares the full graphics
 dependencies through the root `replit.nix`. Both preparation and startup reject
 missing graphics tools before downloading dependencies or claiming a job.
-The corrected publication and complete app test remain outstanding.
+
+Replit synchronized the exact reviewed correction, passed its full 49-test suite
+(one optional regression skipped), prepared the runtime and passed its MCP
+connection check. The corrected republish succeeded. Deployment metadata identifies
+the reviewed revision, and published build/runtime logs confirm preparation and
+Blender startup without recurring errors during the observed interval. This is
+startup evidence, not a completed authenticated app job or proof of continued
+worker liveness. The complete Build/Style/private-save test remains outstanding.
