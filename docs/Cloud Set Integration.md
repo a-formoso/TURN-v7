@@ -7,6 +7,15 @@ camera choices or location artwork are changed by this implementation.
 
 ## Implemented
 
+Camera inspection update, 8 November: disabled camera suggestions explain an
+unreviewed or image-mismatched floor plan and link directly to step 2. Existing
+cameras alone never disable suggestions. Numbered map circles are objects;
+camera cones and their panel buttons open that specific 3D view. Proposed views
+open an enlarged read-only preview; saved views open the angle editor with that
+camera as its source and matching destination. Both are free and preserve saved
+data until an explicit camera-save action. Suggested thumbnails also open
+individually, and camera markers support keyboard activation.
+
 - Detailed app scenes use `kinolot-cloud-set-v2` / `mcp-procedural-v1`. They carry
   numerical geometry, cameras, bounded edge radii and procedural surface recipes.
   Source limits remain 500 shapes / 128 KiB, with up to 64 shaped soft parts.

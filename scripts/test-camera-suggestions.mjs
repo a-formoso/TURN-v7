@@ -96,6 +96,7 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
     useState:v=>{const n=i++;if(!(n in states))states[n]=v;return [states[n],v=>states[n]=typeof v==="function"?v(states[n]):v];},useEffect(){}};
   vm.runInContext(transformSync(read("locations-ui.jsx"),{presets:["@babel/preset-react"],babelrc:false,configFile:false}).code,b);
   b.LocationSuggestedCameraPreviews=function(){};
+  b.LocationCameraAngleWorkbench=function(){};
   const render=(readOnly=false)=>{i=0;return b.LocationCameraSuggestions({l,onUpdate:(id,patch)=>writes.push({id,patch}),readOnly});};
   const nodes=n=>n&&typeof n==="object"?[n,...(n.children||[]).flatMap(nodes)]:[];
   const text=n=>typeof n==="string"?n:(n?.children||[]).map(text).join("");
@@ -110,6 +111,9 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   const thumbnails=nodes(tree).find(n=>n.type===b.LocationSuggestedCameraPreviews);
   ok(thumbnails?.props.proposal.panels.length===4&&thumbnails.props.l===l&&writes.length===0,
     "The suggestion card shows proposed 3D thumbnails before saving without substituting saved views");
+  map.props.onSelect(l.id+":BR");tree=render();
+  ok(nodes(tree).find(n=>n.type===b.LocationSuggestedCameraPreviews).props.previewRequest.panel==="BR"&&writes.length===0,
+    "Selecting a proposed camera on the map requests that panel's enlarged 3D view without saving");
   ok(button(render(true),"Use these cameras").props.disabled,"read-only access cannot apply a proposal");
   button(tree,"Discard proposal").props.onClick();ok(!button(render(),"Use these cameras")&&writes.length===0,"discard leaves original cameras untouched");
   ok(inspection(render()).props.open===false,"Discard returns the camera controls to their compact state");
@@ -127,5 +131,14 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   b.turnContinuity.locations=[l];let destination=null;b.goToLocationStep=(location,step)=>destination={location,step};
   tree=render();button(tree,"Go to 4 · Build the set").props.onClick();
   ok(destination?.location===l&&destination.step===4&&writes.length===1,"Ready cameras offer a direct build-step route without saving or drafting notes");
+  nodes(tree).find(n=>n.type===b.LocationFloorPlanMap).props.onSelect(l.id+":TR");tree=render();
+  ok(nodes(tree).find(n=>n.type===b.LocationCameraAngleWorkbench).props.previewRequest.panel==="TR"&&writes.length===1,
+    "A saved camera marker opens the matching saved angle editor without writing");
+  b.nbGetMeta=()=>({iso:"a-new-location-image"});tree=render();
+  ok(button(tree,"Suggest four cameras").props.disabled&&button(tree,"Suggest four cameras").props.title.includes("no longer match"),
+    "An image/layout mismatch explains the actual blocker instead of implying cameras are already set");
+  button(tree,"Review floor plan").props.onClick();
+  ok(destination.step===2&&writes.length===1,"The blocked camera action offers a direct floor-plan review route without automatic approval");
+  b.nbGetMeta=()=>null;
 }
 console.log("PASS camera suggestions: "+checks+" deterministic placement, validation, scope and preview/apply checks");

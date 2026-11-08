@@ -6,7 +6,7 @@ import {transformSync,parseSync} from '@babel/core';
 const compiled=process.env.ANGLE_UI_TEST_DIST==='1';let checks=0;
 const ok=(v,m)=>{assert.ok(v,m);checks++;};
 function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailure=false,detailed=false,picked={kind:'object',name:'Bench',description:'Saved set object',dimensions:[1,1,1]}}={}){
- let hooks=[],cursor=0,effects=[],writes=[],renders=[],inspections=[],disposed=0,epoch=1,writable=true;
+ let hooks=[],cursor=0,effects=[],writes=[],renders=[],inspections=[],disposed=0,epoch=1,writable=true,previewRequest=null;
  let location={id:'gym',key:'gym',name:'Gym',coverageViews:['TL','TR','BL','BR'].map((panel,i)=>({id:'v'+i,name:panel,panel,staging:{bg:{center:'Notes '+panel}},
    pose:{position:[[-4,-4,1.6],[4,-4,2.3],[-4,4,1.6],[4,4,1.6]][i],yaw:[35,325,145,215][i],pitch:0,lensMm:24,basis:'user'}})),
    spatialPlan:{status:'reviewed',heights:'centre',source:{assetId:'gym',iso:''},frame:'North',anchors:[{id:'bench',space:'Gym',name:'Bench',placement:'Back wall',xy:[-3,2],z:.5,size:[1,1,1]}],
@@ -37,8 +37,8 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
  let readonly=false;
  const onUpdate=(id,patch)=>{writes.push({id,patch:structuredClone(patch)});location={...location,...patch};b.turnContinuity.locations=[location];};
  function render(flush=true){
-   cursor=0;effects=[];const tree=suggested?b.LocationSuggestedCameraPreviews({l:location,proposal,locations:b.turnContinuity.locations})
-     :b.LocationCameraAngleWorkbench({l:location,onUpdate,readOnly:readonly});
+   cursor=0;effects=[];const tree=suggested?b.LocationSuggestedCameraPreviews({l:location,proposal,locations:b.turnContinuity.locations,previewRequest})
+     :b.LocationCameraAngleWorkbench({l:location,onUpdate,readOnly:readonly,previewRequest});
    for(const n of flat(tree))if(n.props.ref){
      const element=n.type==='dialog'?{open:false,showModal(){this.open=true;}}:{getContext:()=>({drawImage(){}})};
      typeof n.props.ref==='function'?n.props.ref(element):n.props.ref.current=element;
@@ -48,7 +48,26 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
  const button=(tree,label)=>flat(tree).find(n=>n.type==='button'&&text(n)===label);
  async function begin(){let tree=render();button(tree,'Preview & choose camera angles').props.onClick();tree=render();await new Promise(setImmediate);return render();}
  return {b,render,begin,flat,text,button,writes,renders,inspections,proposal,get location(){return location;},get disposed(){return disposed;},
+   requestPreview:panel=>{previewRequest={locationId:location.id,panel,sequence:(previewRequest?.sequence||0)+1};},
    external:fn=>{location=fn(location);b.turnContinuity.locations=[location];},switchFilm:()=>epoch++,readonly:()=>{readonly=true;writable=false;}};
+}
+{
+ const h=harness({suggested:true});h.render();await new Promise(setImmediate);h.render();
+ h.requestPreview('BR');h.render();let tree=h.render();
+ ok(h.flat(tree).some(n=>n.type==='dialog'&&n.props['aria-label']==='Proposed camera view'),
+   'A map request opens the enlarged proposed-camera dialog');
+ ok(h.renders.at(-1).yaw===h.proposal.panels.find(p=>p.key==='BR').pose.yaw&&h.writes.length===0,
+   'The enlarged view uses the requested proposed camera, without accepting or saving it');
+ h.button(tree,'Close preview').props.onClick();tree=h.render();
+ ok(!h.flat(tree).some(n=>n.type==='dialog'),'Closing the proposed view leaves the proposal available');
+ h.requestPreview('BR');h.render();tree=h.render();
+ ok(h.flat(tree).some(n=>n.type==='dialog'),'Selecting the same marker again reopens its view');
+}
+{
+ const h=harness();h.requestPreview('BL');h.render();h.render();await new Promise(setImmediate);const tree=h.render();
+ ok(h.text(tree).includes('Candidate angle · from Bottom left')&&h.text(tree).includes('Destination: Bottom left.'),
+   'A saved-camera map request loads that camera and matching destination panel');
+ ok(h.renders.at(-1).yaw===145&&h.writes.length===0,'Opening a saved marker renders its exact pose without saving');
 }
 {
  const h=harness({suggested:true,detailed:true}),before=JSON.stringify(h.location);let tree=h.render();

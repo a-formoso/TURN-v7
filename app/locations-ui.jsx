@@ -300,12 +300,20 @@ function MovingPartChangeAdder({p,allMoments,onAdd}){
 }
 function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
   const api=window.KinolotCloudRender,E=React.createElement;
-  const [proposal,setProposal]=React.useState(null),[error,setError]=React.useState(""),[selected,setSelected]=React.useState(""),[mapOpen,setMapOpen]=React.useState(false);
+  const [proposal,setProposal]=React.useState(null),[error,setError]=React.useState(""),[selected,setSelected]=React.useState(""),[mapOpen,setMapOpen]=React.useState(false),[previewRequest,setPreviewRequest]=React.useState(null);
   const list=((window.turnContinuity||{}).locations)||[],state=locationSpatialPlanState(l,list);
   const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0;
-  React.useEffect(()=>{setProposal(null);setError("");setSelected("");setMapOpen(false);},[l.id,epoch]);
+  React.useEffect(()=>{setProposal(null);setError("");setSelected("");setMapOpen(false);setPreviewRequest(null);},[l.id,epoch]);
   if(!api?.proposeCameras)return null;
   const ownRoom=(state.plan.coordinates?.spaces||[]).some(s=>s.id===l.id&&s.footprint?.length>=3);
+  const blocked=readOnly?"This film is read-only.":!state.ready
+    ?state.stale?"The floor plan and location image no longer match. Review and confirm the floor plan in step 2 before suggesting cameras.":"Review and confirm the floor plan in step 2 before suggesting cameras."
+    :!ownRoom?"Add this room's footprint in step 2 before suggesting cameras.":"";
+  const selectCamera=key=>{
+    setSelected(key);
+    const panel=key.startsWith(l.id+":")?key.slice(l.id.length+1):"";
+    if(["TL","TR","BL","BR"].includes(panel))setPreviewRequest(old=>({locationId:l.id,panel,sequence:(old?.sequence||0)+1}));
+  };
   let mapList=list,stale=false;
   if(proposal){
     try{const views=api.cameraProposalViews(l,proposal,list);mapList=list.map(x=>x.id===l.id?{...x,coverageViews:views}:x);}
@@ -313,24 +321,25 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
   }
   const map=locationFloorPlanScene(state.owner,state.plan,mapList);
   if(proposal&&!stale)map.cameras=map.cameras.map(c=>c.spaceId===l.id?{...c,source:"suggested"}:c);
-  const suggest=()=>{if(readOnly)return;setError("");try{setProposal(api.proposeCameras(l,list));setSelected(l.id+":TL");setMapOpen(true);}catch(e){setError(e.message);}};
+  const suggest=()=>{if(readOnly)return;setError("");try{setProposal(api.proposeCameras(l,list));setPreviewRequest(null);setSelected(l.id+":TL");setMapOpen(true);}catch(e){setError(e.message);}};
   const apply=()=>{if(readOnly||!proposal||typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())return;try{
     const currentList=((window.turnContinuity||{}).locations)||[],currentLocation=currentList.find(x=>x.id===l.id);
     if(!currentLocation)throw Error("The open location changed. Suggest four cameras again.");
     const views=api.cameraProposalViews(currentLocation,proposal,currentList);
-    onUpdate(l.id,{coverageViews:views},{kind:"suggested-cameras"});setProposal(null);setError("");setMapOpen(false);}catch(e){setError(e.message);}};
+    onUpdate(l.id,{coverageViews:views},{kind:"suggested-cameras"});setProposal(null);setPreviewRequest(null);setError("");setMapOpen(false);}catch(e){setError(e.message);}};
   return E("div",{className:"loc-map-wrap","data-testid":"camera-suggestions"},
     E("div",{className:"loc-step-actions"},
       E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!state.ready||!ownRoom,onClick:suggest,
-        title:"Free camera placement from the saved footprint and known object sizes; review before saving"},"Suggest four cameras"),
+        title:blocked||"Free camera placement from the saved footprint and known object sizes; review before saving"},"Suggest four cameras"),
+      !readOnly&&(!state.ready||!ownRoom)&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>window.goToLocationStep(l,2)},"Review floor plan"),
       proposal&&E("button",{type:"button",className:"art-draftall",disabled:readOnly||stale,onClick:apply},"Use these cameras"),
-      proposal&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>{setProposal(null);setError("");setMapOpen(false);}},"Discard proposal")),
-    proposal&&!stale&&window.LocationSuggestedCameraPreviews&&E(window.LocationSuggestedCameraPreviews,{l,proposal,locations:list}),
+      proposal&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>{setProposal(null);setPreviewRequest(null);setError("");setMapOpen(false);}},"Discard proposal")),
+    proposal&&!stale&&window.LocationSuggestedCameraPreviews&&E(window.LocationSuggestedCameraPreviews,{l,proposal,locations:list,previewRequest}),
     E("details",{className:"loc-nested-section loc-camera-inspection",open:mapOpen,onToggle:e=>{if(e.target===e.currentTarget)setMapOpen(e.currentTarget.open);}},
       E("summary",null,proposal&&!stale?"Review suggested camera positions":"Inspect saved camera positions"),
-      E("p",{className:"loc-layer-note"},"TL, TR, BL and BR name the four image panels, not corners of the room. Select a camera to inspect its position and viewing cone."),
-      E(LocationFloorPlanMap,{scene:map,selected,onSelect:setSelected,spaceId:l.id})),
-    (!state.ready||!ownRoom)&&E("p",{className:"loc-layer-note"},!state.ready?state.reason:"Choose a room with a footprint, or add this location's footprint in step 2."),
+      E("p",{className:"loc-layer-note"},"Numbered circles are objects; orange cones are cameras. TL, TR, BL and BR name the four image panels. "+(state.ready?"Select a camera to open its 3D view.":"Confirm the floor plan before opening its 3D camera views.")),
+      E(LocationFloorPlanMap,{scene:map,selected,onSelect:selectCamera,spaceId:l.id})),
+    blocked&&E("p",{className:"loc-layer-note",role:"status"},blocked),
     proposal&&!stale&&E("p",{className:"loc-layer-note"},"Preview only. Use these cameras saves all four proposed views for this room. Your current cameras remain in place until you choose it."),
     proposal&&!stale&&E("p",{className:"loc-layer-note"},proposal.panels.map(p=>p.key+": "+p.label).join(" · ")),
     proposal&&!stale&&proposal.warnings.map((note,i)=>E("p",{key:i,className:"loc-layer-note"},note)),
@@ -339,7 +348,7 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
     !proposal&&state.ready&&ownRoom&&api.enabled?.()&&Object.keys(api.cameraProblems(l,list)).length===0&&E("div",{className:"loc-step-actions"},
       E("p",{className:"loc-layer-note"},"Camera position checks pass. Preview the angles if needed, then build the set. Composition notes below are optional."),
       E("button",{type:"button",className:"art-draftall",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set")),
-    state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly}),
+    state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,previewRequest:proposal?null:previewRequest}),
     E("p",{className:"loc-layer-note"},"Suggesting and reviewing cameras uses no credits and starts no render."));
 }
 function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
@@ -693,7 +702,9 @@ function LocationFloorPlanMap({scene,selected,onSelect,spaceId=""}){
   const camKey=c=>c.spaceId+":"+c.panel,aKey=a=>"#a:"+a.id,oKey=o=>"#o:"+o.spaceId+":"+o.id;
   const selCam=cams.find(c=>camKey(c)===selected)||null,selA=anchors.find(a=>aKey(a)===selected)||null,selO=openings.find(o=>oKey(o)===selected)||null;
   const sel=selCam||selA||selO;
-  const pick=key=>onSelect&&onSelect(selected===key?"":key);
+  const pick=key=>onSelect&&onSelect(selected===key&&!cams.some(c=>camKey(c)===key)?"":key);
+  const cameraButton=c=>onSelect?{role:"button",tabIndex:0,"aria-label":c.label+" camera","aria-pressed":camKey(c)===selected,
+    onKeyDown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();pick(camKey(c));}}}:{};
   const inset=14,inside=(px,py)=>px>=inset&&px<=W-inset&&py>=inset&&py<=H-inset;
   const edge=(px,py,pad=inset)=>{   // where the ray from the centre to an off-map point leaves the map (pad: room for the arrow)
     const dx=px-W/2,dy=py-H/2,t=Math.min(Math.abs(dx)>1e-6?(W/2-pad)/Math.abs(dx):Infinity,Math.abs(dy)>1e-6?(H/2-pad)/Math.abs(dy):Infinity);
@@ -779,11 +790,11 @@ function LocationFloorPlanMap({scene,selected,onSelect,spaceId=""}){
       className:"loc-map-opening "+o.kind+(selO===o?" on":"")})),
     cams.map(c=>{const on=selCam===c,px=X(c.position[0]),py=Y(c.position[1]);
       if(c.outlier&&!inside(px,py)){const e=edge(px,py,22);
-        return React.createElement("g",{key:"c-"+camKey(c),className:"loc-map-cam out"+(on?" on":""),onClick:()=>pick(camKey(c))},
+        return React.createElement("g",{...cameraButton(c),key:"c-"+camKey(c),className:"loc-map-cam out"+(on?" on":""),onClick:()=>pick(camKey(c))},
           React.createElement("circle",{cx:e[0],cy:e[1],r:6}),
           React.createElement("path",{className:"loc-map-arrow",d:"M8,-5 L16,0 L8,5 Z",transform:"translate("+e[0]+","+e[1]+") rotate("+Math.round(e[2])+")"}),
           React.createElement("circle",{className:"loc-map-hit",cx:e[0],cy:e[1],r:16}));}
-      return React.createElement("g",{key:"c-"+camKey(c),className:"loc-map-cam"+(on?" on":"")+(sel&&!on?" dim":"")+(c.outlier?" out":""),onClick:()=>pick(camKey(c))},
+      return React.createElement("g",{...cameraButton(c),key:"c-"+camKey(c),className:"loc-map-cam"+(on?" on":"")+(sel&&!on?" dim":"")+(c.outlier?" out":""),onClick:()=>pick(camKey(c))},
         React.createElement("polygon",{points:pts(c.frustum)}),
         React.createElement("circle",{cx:px,cy:py,r:on?5:4}),
         React.createElement("circle",{className:"loc-map-hit",cx:px,cy:py,r:16}));}),
