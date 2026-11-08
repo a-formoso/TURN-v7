@@ -240,9 +240,9 @@ html[data-theme="light"] .bp-pair-code,.bp-panel{box-shadow:0 1px 2px rgba(24,25
 .loc-spatial-review:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .loc-match-reference{position:relative;aspect-ratio:16/9;overflow:hidden;background:#17202a;width:100%}
 .loc-match-reference>img{position:absolute;width:200%;height:200%;max-width:none;object-fit:fill}
-.loc-camera-ideas-review-actions{display:flex;gap:8px;align-items:stretch;min-width:0}
-.loc-camera-ideas-review-actions>.loc-camera-control{flex:1 1 auto;align-items:stretch}
-.loc-camera-ideas-review-actions .art-draftall{flex:1 1 auto;height:auto;min-height:40px;min-width:0;padding:8px 12px;line-height:1.35;white-space:normal;justify-content:center}
+.loc-camera-ideas-review-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
+.loc-camera-ideas-review-actions>.loc-camera-control{flex:0 1 auto;align-items:center}
+.loc-camera-ideas-review-actions .art-draftall{height:32px;min-height:0;padding:0 14px;white-space:nowrap;justify-content:center}
 .loc-camera-ideas-review-actions .infotip{align-self:center}
 .loc-angle-entry-inline{display:contents}
 .loc-angle-entry-inline>.loc-layer-note,.loc-angle-entry-inline>.loc-spatial-error{flex-basis:100%;margin:0}

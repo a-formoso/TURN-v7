@@ -112,8 +112,8 @@ function harness(){
  h.b.KinolotCameraMatch={match:()=>{matchCalls++;return new Promise(resolve=>resolveMatch=resolve);}};
  h.b.InfoTip=function(){};
  tree=render();const match=flat(tree).find(n=>n.type==='button'&&text(n)==='Match these views to set');
- ok(match&&!match.props.disabled&&text(tree).includes('including unsuccessful fits'),
-   'Matching requires an explicit button with the unsuccessful-attempt charge warning visible');
+ ok(match&&!match.props.disabled&&!text(tree).includes('including unsuccessful fits')&&!text(tree).includes('Matching:'),
+   'Matching remains an explicit action without the removed per-attempt pricing paragraph');
  const actions=flat(tree).find(n=>n.props.className==='loc-camera-ideas-review-actions');
  ok(actions&&text(actions.children[0])==='Enlarge ideas'&&flat(actions.children[1]).includes(match),
    'Matching appears directly to the right of Enlarge ideas in the shared action row');

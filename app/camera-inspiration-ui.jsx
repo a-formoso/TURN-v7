@@ -71,7 +71,6 @@ function LocationCameraInspiration({l,readOnly=false,onPropose}){
           canMatch&&E("span",{className:"loc-camera-control"},
             E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||stale||!scope,onClick:match,title:window.InfoTip?undefined:matchHelp},"Match these views to set"),
             window.InfoTip&&E(window.InfoTip,{label:"About matching views to the set",text:matchHelp}))),
-        canMatch&&E("p",{className:"loc-layer-note"},"Matching: "+(window.aiPlateCamerasReadCostText?.()||"one writing call")+" per attempt, including unsuccessful fits."),
         canMatch&&stale&&E("p",{className:"loc-layer-note"},"Generate fresh ideas for the current floor plan before matching.")),
       enlarged&&draft&&E("dialog",{ref:dialog,className:"loc-angle-dialog",onCancel:()=>setEnlarged(false),"aria-label":"Camera-composition ideas"},
         E("div",{className:"loc-cloud-render-head"},E("h3",null,(l.name||"Location")+" · view ideas"),E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setEnlarged(false)},"Close ideas")),
