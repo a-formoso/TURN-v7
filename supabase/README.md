@@ -217,11 +217,20 @@ Published metadata/logs confirm the reviewed revision and Blender startup, with
 no recurring errors in the observed interval. Both new backend switches were
 enabled with no active jobs. The first controlled app job failed and its full
 15-credit hold was released; detailed requests are now disabled again
-(`BLENDER_RENDER_MCP=false`), with scene retention still enabled. The committed
+(`BLENDER_RENDER_MCP=false`). Scene retention was subsequently disabled too with
+no active leases while the compatibility correction was rolled out. The committed
 browser `setBuildMcp` remains false. Only the
 operator's loopback development server supplies an enabled override. The public
 website frontend is unchanged. An authenticated app job and Step Five save/review
 remain rollout gates; startup evidence alone does not verify that job path.
+
+The scene validator and worker uploader now support legacy and modern Blender
+headers. Rejection of an existing valid 5.2 trial file was reproduced without
+networking, then the corrected uploader accepted it unchanged using a mocked
+transport. Replit synchronized and republished the reviewed worker correction;
+fresh published startup metadata/logs match it. The renderer service was also
+deployed with modern-header support. Both new switches remain false pending the
+next reviewed app test. No failed-job scene or images were adopted as artwork.
 
 The updated worker's prepared deployment profile prewarms the pinned MCP runtime.
 Its scratch files default to the platform temporary directory. Only a confirmed

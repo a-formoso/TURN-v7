@@ -88,7 +88,7 @@
       const a=poly[i],b=poly[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])yes=!yes;}return yes;};
     const rounded=n=>Math.round(n*100)/100;
     const clampHeight=h=>sp.floorZ+(sp.openSky?Math.min(6,h):Math.max(.25,Math.min(sp.ceilingH-.25,h)));
-    const eye=clampHeight(1.6),high=clampHeight(sp.openSky?3:Math.max(1.6,sp.ceilingH*.75));
+    const eye=clampHeight(1.6);
     const seeds=[];
     for(let i=1;i<20;i++)for(let j=1;j<20;j++)seeds.push([x0+w*i/20,y0+d*j/20]);
     // Edge samples also find narrow arms of a concave footprint that a coarse box grid could miss.
@@ -96,13 +96,10 @@
       for(const t of [.2,.5,.8])for(const inset of [.35,.75])for(const sign of [-1,1])
         seeds.push([a[0]+dx*t-sign*dy/len*inset,a[1]+dy*t+sign*dx/len*inset]);});
     const used=[],panels=[],spacing=Math.min(.6,Math.max(.15,Math.min(w,d)*.15));
-    const defaults=Object.fromEntries(root.locationPanelPoses(location,list).map(p=>[p.key,{pose:p.suggestedPose}]));
-    const desired=[[.1,.1],[.1,.9],[.9,.9],[.9,.1]],keys=["TL","TR","BL","BR"];
+    const keys=["TL","TR","BL","BR"],centre=[x0+w/2,y0+d/2];
     const roomAnchors=plan.anchors.filter(a=>a.xy&&a.size&&!isOpening(a,sp)&&(root.locationAnchorSpaceOf(a,family)||owner).id===sp.id);
-    const bed=roomAnchors.filter(a=>root.KinolotSetDetail?.anchorShape(a)==="bed").sort((a,b)=>b.size[0]*b.size[1]-a.size[0]*a.size[1])[0];
-    const featureUses=new Map();
-    // A clear standing position alone is insufficient: aim at an identifiable saved feature rather than empty wall.
-    // Test the line to each feature against the other saved, rotated object bounds.
+    const shape=a=>root.KinolotSetKitchen?.kind(a)||root.KinolotSetDetail?.anchorShape(a)||"";
+    const bed=roomAnchors.filter(a=>shape(a)==="bed").sort((a,b)=>b.size[0]*b.size[1]-a.size[0]*a.size[1])[0];
     const blocked=(at,target,skip)=>roomAnchors.some(a=>{
       if(a.id===skip)return false;
       const angle=(a.facing||0)*Math.PI/180,c=Math.cos(angle),s=Math.sin(angle),centreZ=anchorCentreZ(a,sp,plan).z;
@@ -116,81 +113,146 @@
       }
       return hi>.001&&lo<.999;
     });
+    const sight=(at,target)=>Array.from({length:19},(_,j)=>(j+1)/20)
+      .every(t=>inside(at[0]+(target[0]-at[0])*t,at[1]+(target[1]-at[1])*t));
+    const featureKind=a=>{
+      const n=String(a.name||"");
+      if(/\bsink\b/i.test(n)&&!/\b(?:counter|run|light)\b/i.test(n))return "sink";
+      if(/\b(?:fridge|refrigerator)\b/i.test(n)&&!/\b(?:counter|run)\b/i.test(n))return "fridge";
+      if(/\bdesk\b/i.test(n))return "desk";
+      if(/\b(?:bookcase|bookshelf|shelves)\b/i.test(n))return "shelves";
+      if(/\b(?:shower|bath|bathtub)\b/i.test(n))return "bath";
+      return shape(a)||"object";
+    };
+    const priority={sink:100,bed:90,desk:80,fridge:75,wardrobe:70,shelves:65,bath:60,table:50,nightstand:35,chair:25,counter:5};
+    const features=roomAnchors.map(a=>{
+      const kind=featureKind(a),cz=anchorCentreZ(a,sp,plan).z;
+      // A sink's centre sits inside its counter proxy. Aim above the rim instead of treating it as hidden.
+      const z=["sink","desk","table","counter"].includes(kind)?cz+a.size[2]/2+.025:kind==="fridge"?cz:cz+a.size[2]*.1;
+      return {anchor:a,kind,point:[...a.xy,z],rank:priority[kind]||10};
+    }).filter(f=>f.anchor.size[2]>.04&&!/\b(?:light|lamp|tube|wall|floor|ceiling)\b/i.test(f.anchor.name||""))
+      .sort((a,b)=>b.rank-a.rank||String(a.anchor.id).localeCompare(String(b.anchor.id)));
+    const detailUses=new Set(),warnings=[];
+    const landmarks=features.map(f=>({id:f.anchor.id,point:f.kind==="sink"?f.point:[...f.anchor.xy,anchorCentreZ(f.anchor,sp,plan).z]}));
+    for(const o of sp.openings||[])if(Array.isArray(o.centre)&&o.centre.length===2&&o.centre.every(finite)&&finite(o.sillZ)&&finite(o.headZ))
+      landmarks.push({id:o.id,point:[...o.centre,(o.sillZ+o.headZ)/2]});
+    // Detail sampling stays close to its subject even in a large room with a coarse coverage grid.
+    for(const f of features){
+      const a=(f.anchor.facing||0)*Math.PI/180;
+      for(const offset of [-70,-35,0,35,70])for(const distance of [.8,1.2,1.8,2.2]){
+        const angle=a+offset*Math.PI/180;seeds.push([f.point[0]+Math.sin(angle)*distance,f.point[1]+Math.cos(angle)*distance]);
+      }
+    }
+    const extraDetails=[];
+    for(const f of features.filter(f=>f.kind==="fridge")){
+      const angle=(f.anchor.facing||0)*Math.PI/180;
+      for(const offset of [-35,0,35])for(const distance of [2.6,2.8,3]){
+        const a=angle+offset*Math.PI/180;extraDetails.push([f.point[0]+Math.sin(a)*distance,f.point[1]+Math.cos(a)*distance]);
+      }
+    }
     for(let i=0;i<4;i++){
-      const wanted=defaults[keys[i]]?.pose||{},z=rounded(wanted.position&&finite(wanted.position[2])
-        ?clampHeight(wanted.position[2]-sp.floorZ):(i===1?high:eye)),seen=new Set();
-      const clear=seeds.map(p=>[rounded(p[0]),rounded(p[1]),z]).filter(p=>{
+      const wide=i<2;
+      const z=rounded(wide?(i===0?eye:clampHeight(1.8)):clampHeight(i===2?1.5:1.45)),seen=new Set();
+      const clear=(wide?seeds:seeds.concat(extraDetails)).map(p=>[rounded(p[0]),rounded(p[1]),z]).filter(p=>{
         const k=p.join(",");if(seen.has(k)||!inside(p[0],p[1]))return false;seen.add(k);
-        return !Object.keys(cameraProblemsIn(location,list,plan,spaces,family,owner,[{key:keys[i],pose:{position:p}}])).length;});
-      const candidates=clear.filter(p=>used.every(a=>Math.hypot(a[0]-p[0],a[1]-p[1])>=spacing));
+        return !Object.keys(cameraProblemsIn(location,list,plan,spaces,family,owner,[{key:keys[i],pose:{position:p}}])).length;
+      });
+      let candidates=clear.filter(p=>used.every(a=>Math.hypot(a[0]-p[0],a[1]-p[1])>=spacing));
       if(!candidates.length)throw Error("There isn't enough clear space for four camera positions. Check the room footprint and object sizes in step 2.");
-      let preferred=wanted.position||[x0+w*desired[i][0],y0+d*desired[i][1]];
-      // A high view from the same corner as the first wide adds little coverage. Propose the reverse side.
-      if(i===1&&Math.hypot((preferred[0]-used[0][0])/w,(preferred[1]-used[0][1])/d)<.5)
-        preferred=[2*x0+w-used[0][0],2*y0+d-used[0][1]];
+      let feature=null,preferred=[x0+Math.min(.65,Math.max(.35,w*.1)),y0+Math.min(.65,Math.max(.35,d*.1))];
+      if(i===1){
+        preferred=d>=w?[used[0][0],y0+d*(used[0][1]<centre[1]?.8:.2)]
+          :[x0+w*(used[0][0]<centre[0]?.8:.2),used[0][1]];
+        const sameSide=candidates.filter(p=>d>=w?(p[0]-centre[0])*(used[0][0]-centre[0])>=0:(p[1]-centre[1])*(used[0][1]-centre[1])>=0);
+        if(sameSide.length)candidates=sameSide;
+      }
+      if(!wide){
+        // Two different saved landmarks, with sink/fridge as the default kitchen pair.
+        const ranked=[...features].sort((a,b)=>{
+          const score=f=>f.rank-(detailUses.has(f.anchor.id)?1000:0)+(i===3&&f.kind==="fridge"?100:0);
+          return score(b)-score(a);
+        });
+        for(const f of ranked){
+          const visible=candidates.filter(p=>Math.hypot(p[0]-f.point[0],p[1]-f.point[1])>.45&&sight(p,f.point)&&!blocked(p,f.point,f.anchor.id));
+          if(visible.length){feature=f;candidates=visible;break;}
+        }
+        if(feature){
+          const a=feature.anchor,angle=(a.facing||0)*Math.PI/180;
+          let normal=[Math.sin(angle),Math.cos(angle)];
+          if(feature.kind==="fridge")normal=[Math.sin(angle+40*Math.PI/180),Math.cos(angle+40*Math.PI/180)];
+          if(!finite(a.facing)){
+            const dx=centre[0]-a.xy[0],dy=centre[1]-a.xy[1],length=Math.hypot(dx,dy)||1;normal=[dx/length,dy/length];
+          }
+          if(detailUses.has(a.id))normal=[(normal[0]+normal[1])/Math.SQRT2,(normal[1]-normal[0])/Math.SQRT2];
+          const distance=feature.kind==="fridge"?2.5:feature.kind==="sink"?1.7
+            :Math.max(.8,Math.min(2.2,Math.max(a.size[0],a.size[2]*.6)*1.8));
+          preferred=[a.xy[0]+normal[0]*distance,a.xy[1]+normal[1]*distance];
+          detailUses.add(a.id);
+        }else warnings.push("A clear detail view of a saved feature could not be found for "+keys[i]+"; inspect that frame before building.");
+      }
       const score=p=>{
         let penalty=0;
         if(i===0&&bed){
           const angle=(bed.facing||0)*Math.PI/180,dx=p[0]-bed.xy[0],dy=p[1]-bed.xy[1];
           const local=[Math.cos(angle)*dx-Math.sin(angle)*dy,Math.sin(angle)*dx+Math.cos(angle)*dy];
           const along=bed.size[1]>=bed.size[0]?1:0,across=1-along;
-          // An establishing view directly behind the headboard hides the useful bed silhouette.
           if(local[along]<-Math.abs(local[across]))penalty=1;
           const distance=Math.hypot(...local),minimum=Math.min(Math.max(...bed.size.slice(0,2))*1.25,Math.max(w,d)*.7);
           penalty+=Math.max(0,(minimum-distance)/minimum)*2;
         }
         return ((p[0]-preferred[0])/w)**2+((p[1]-preferred[1])/d)**2+penalty;
       };
-      candidates.sort((a,b)=>score(a)-score(b));let at=candidates[0];
-      // Aim within the room; sampled sight lines cannot cross a concave footprint's outside wall.
-      const targets=clear.filter(p=>Math.hypot(p[0]-at[0],p[1]-at[1])>.1&&Array.from({length:19},(_,j)=>(j+1)/20)
-        .every(t=>inside(at[0]+(p[0]-at[0])*t,at[1]+(p[1]-at[1])*t)));
-      const aimScore=p=>{const dx=p[0]-at[0],dy=p[1]-at[1],distance=Math.hypot(dx,dy);
-        return distance/Math.max(w,d)+(finite(wanted.yaw)?2*(dx*Math.sin(wanted.yaw*Math.PI/180)+dy*Math.cos(wanted.yaw*Math.PI/180))/distance:0);};
-      targets.sort((a,b)=>aimScore(b)-aimScore(a));
-      if(!targets.length)throw Error("A clear view across this room couldn't be proposed. Check the footprint in step 2.");
-      let aim=targets[0],aimZ=clampHeight(.9);
-      const features=roomAnchors.map(a=>({id:a.id,point:[...a.xy,anchorCentreZ(a,sp,plan).z+a.size[2]*.15],area:a.size[0]*a.size[1]}))
-        .filter(a=>Math.hypot(a.point[0]-at[0],a.point[1]-at[1])>.45
-          &&Array.from({length:19},(_,j)=>(j+1)/20).every(t=>inside(at[0]+(a.point[0]-at[0])*t,at[1]+(a.point[1]-at[1])*t))
-          &&!blocked(at,a.point,a.id));
-      const featureScore=a=>Math.log1p(a.area)*2-(featureUses.get(a.id)||0)*.75
-        +Math.min(2,Math.hypot(a.point[0]-at[0],a.point[1]-at[1]))*.15;
-      features.sort((a,b)=>featureScore(b)-featureScore(a));
-      if(features.length){const feature=features[0];aim=feature.point;aimZ=feature.point[2];featureUses.set(feature.id,(featureUses.get(feature.id)||0)+1);}
-      const framing=position=>{
-        const dist=Math.hypot(aim[0]-position[0],aim[1]-position[1]);
-        const yaw=rounded((Math.atan2(aim[0]-position[0],aim[1]-position[1])*180/Math.PI+360)%360);
-        const pitch=rounded(Math.max(-45,Math.min(15,features.length?Math.atan2(aimZ-position[2],dist)*180/Math.PI:finite(wanted.pitch)?wanted.pitch:Math.atan2(aimZ-position[2],dist)*180/Math.PI)));
-        let lensMm=wanted.lensMm||(i===1?20:24);
-        if(!features.length||i===3)return {yaw,pitch,lensMm};
-        // Fit the selected feature's saved bounds into the 16:9 frame with a margin. The fourth panel stays a detail.
-        const anchor=roomAnchors.find(a=>a.id===features[0].id),az=(anchor.facing||0)*Math.PI/180;
-        const y=yaw*Math.PI/180,p=pitch*Math.PI/180;
-        const forward=[Math.sin(y)*Math.cos(p),Math.cos(y)*Math.cos(p),Math.sin(p)],right=[Math.cos(y),-Math.sin(y),0],up=[-Math.sin(y)*Math.sin(p),-Math.cos(y)*Math.sin(p),Math.cos(p)];
-        let fit=lensMm;
-        for(const sx of [-.5,.5])for(const sy of [-.5,.5])for(const sz of [-.5,.5]){
-          const x=sx*anchor.size[0],v=sy*anchor.size[1];
-          const offset=[anchor.xy[0]+Math.cos(az)*x+Math.sin(az)*v-position[0],anchor.xy[1]-Math.sin(az)*x+Math.cos(az)*v-position[1],anchorCentreZ(anchor,sp,plan).z+sz*anchor.size[2]-position[2]];
-          const dot=a=>a.reduce((sum,n,j)=>sum+n*offset[j],0),depth=dot(forward);
-          if(depth<=.05){fit=8;continue;}
-          fit=Math.min(fit,18*depth/(Math.abs(dot(right))*1.12||1e-9),10.125*depth/(Math.abs(dot(up))*1.12||1e-9));
+      candidates.sort((a,b)=>score(a)-score(b));let at=candidates[0],wideYaw=null;
+      if(wide){
+        const pitch=(i===0?-12:-18)*Math.PI/180,lens=18,options=[];
+        for(const position of candidates.slice(0,64)){
+          let aim=centre;
+          if(!inside(...centre)||!sight(position,centre)){
+            const reachable=clear.filter(p=>Math.hypot(p[0]-position[0],p[1]-position[1])>.1&&sight(position,p));
+            reachable.sort((a,b)=>Math.hypot((a[0]-centre[0])/w,(a[1]-centre[1])/d)-Math.hypot((b[0]-centre[0])/w,(b[1]-centre[1])/d));
+            if(!reachable.length)continue;aim=reachable[0];
+          }
+          const base=Math.atan2(aim[0]-position[0],aim[1]-position[1]);
+          for(const offset of [-25,-12.5,0,12.5,25]){
+            const yaw=base+offset*Math.PI/180,s=Math.sin(yaw),c=Math.cos(yaw),p=Math.sin(pitch),q=Math.cos(pitch);
+            const forward=[s*q,c*q,p],right=[c,-s,0],up=[-s*p,-c*p,q];
+            const visible=landmarks.filter(f=>{
+              const v=f.point.map((n,j)=>n-position[j]),dot=a=>a.reduce((sum,n,j)=>sum+n*v[j],0),depth=dot(forward);
+              return depth>.1&&Math.abs(dot(right))<depth*18/lens&&Math.abs(dot(up))<depth*10.125/lens
+                &&sight(position,f.point)&&!blocked(position,f.point,f.id);
+            });
+            options.push({position,yaw:(yaw*180/Math.PI+360)%360,visible:visible.length,
+              score:visible.length*10+(bed&&visible.some(f=>f.id===bed.id)?3:0)-score(position)-Math.abs(offset)*.005});
+          }
         }
-        lensMm=Math.max(8,Math.floor(fit*100)/100);
-        return {yaw,pitch,lensMm};
-      };
-      let frame=framing(at);
-      // Move farther back when possible instead of relying on an extremely wide lens to fit a tall landmark.
-      if(features.length&&i<3&&frame.lensMm<18){
-        const alternatives=candidates.filter(p=>!blocked(p,features[0].point,features[0].id)
-          &&Array.from({length:19},(_,j)=>(j+1)/20).every(t=>inside(p[0]+(aim[0]-p[0])*t,p[1]+(aim[1]-p[1])*t)))
-          .map(position=>({position,frame:framing(position)})).filter(v=>v.frame.lensMm>=18);
-        if(alternatives.length){alternatives.sort((a,b)=>score(a.position)-score(b.position));at=alternatives[0].position;frame=alternatives[0].frame;}
+        let choices=options;
+        if(i===1){
+          const first=panels[0].pose.yaw*Math.PI/180;
+          const reverse=options.filter(v=>Math.cos(v.yaw*Math.PI/180-first)<=.5
+            &&(d>=w?Math.cos(v.yaw*Math.PI/180)*Math.cos(first):Math.sin(v.yaw*Math.PI/180)*Math.sin(first))<=0);
+          if(reverse.some(v=>v.visible>0))choices=reverse;
+          else warnings.push("The room's obstructions limit a full reverse view; inspect the proposed room coverage.");
+        }
+        choices.sort((a,b)=>b.score-a.score);
+        if(choices.length){at=choices[0].position;wideYaw=choices[0].yaw;
+          if(!choices[0].visible)warnings.push("A wide frame has no clear saved landmarks; review its camera before building.");}
       }
+      const targets=clear.filter(p=>Math.hypot(p[0]-at[0],p[1]-at[1])>.1&&sight(at,p));
+      if(!targets.length)throw Error("A clear view across this room couldn't be proposed. Check the footprint in step 2.");
+      const aimScore=p=>Math.hypot((p[0]-centre[0])/w,(p[1]-centre[1])/d)-.12*Math.hypot((p[0]-at[0])/w,(p[1]-at[1])/d);
+      targets.sort((a,b)=>aimScore(a)-aimScore(b));const aim=feature?.point||targets[0];
+      const distance=Math.hypot(aim[0]-at[0],aim[1]-at[1]);
+      // Match the saved pose's tenth-degree facing precision so preview and accepted views agree.
+      const yaw=(Math.round((wideYaw==null?(Math.atan2(aim[0]-at[0],aim[1]-at[1])*180/Math.PI+360)%360:wideYaw)*10)/10)%360;
+      const pitch=wide?(i===0?-12:-18):rounded(Math.max(-35,Math.min(15,Math.atan2((feature?.point[2]||clampHeight(.9))-at[2],distance)*180/Math.PI)));
+      const lensMm=wide?18:feature?.kind==="fridge"?28:35;
       used.push(at);
-      panels.push({key:keys[i],pose:{position:at,...frame,basis:"design"}});
+      panels.push({key:keys[i],role:i===0?"wide":i===1?"reverse":"detail",
+        label:i===0?"Wide room view":i===1?"Reverse room view":feature?tidy(feature.anchor.name,70)+" detail":"Feature detail",
+        ...(feature?{targetId:feature.anchor.id}:{}),pose:{position:at,yaw,pitch,lensMm,basis:"design"}});
     }
-    const warnings=["Proposed positions avoid the saved walls and sized objects and aim at visible sized furniture where possible. Review all four camera previews before building; a clear position does not guarantee useful framing or full room coverage."];
+    if(detailUses.size<2)warnings.push("This room has fewer than two distinct visible detail targets; review the proposed details.");
+    warnings.push("Default coverage: a wide room view, a reverse room view and two different feature details. Positions avoid saved walls and sized objects; review the four camera previews before saving.");
     return {key:cameraProposalKey(location,list),panels,warnings};
   }
   function cameraProposalViews(location,proposal,list){

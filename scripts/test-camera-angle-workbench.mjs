@@ -5,23 +5,26 @@ import vm from 'node:vm';
 import {transformSync,parseSync} from '@babel/core';
 const compiled=process.env.ANGLE_UI_TEST_DIST==='1';let checks=0;
 const ok=(v,m)=>{assert.ok(v,m);checks++;};
-function harness({pending=false,failed=false,mode="gpu",picked={kind:'object',name:'Bench',description:'Saved set object',dimensions:[1,1,1]}}={}){
+function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailure=false,detailed=false,picked={kind:'object',name:'Bench',description:'Saved set object',dimensions:[1,1,1]}}={}){
  let hooks=[],cursor=0,effects=[],writes=[],renders=[],inspections=[],disposed=0,epoch=1,writable=true;
  let location={id:'gym',key:'gym',name:'Gym',coverageViews:['TL','TR','BL','BR'].map((panel,i)=>({id:'v'+i,name:panel,panel,staging:{bg:{center:'Notes '+panel}},
    pose:{position:[[-4,-4,1.6],[4,-4,2.3],[-4,4,1.6],[4,4,1.6]][i],yaw:[35,325,145,215][i],pitch:0,lensMm:24,basis:'user'}})),
    spatialPlan:{status:'reviewed',heights:'centre',source:{assetId:'gym',iso:''},frame:'North',anchors:[{id:'bench',space:'Gym',name:'Bench',placement:'Back wall',xy:[-3,2],z:.5,size:[1,1,1]}],
      coordinates:{spaces:[{id:'gym',name:'Gym',floorZ:0,ceilingH:4,footprint:[[-5,-5],[5,-5],[5,5],[-5,5]],openings:[]}]}}};
- const b={console,crypto,TextEncoder,URL,structuredClone,location:{hostname:'localhost'},turnIsAdmin:true,nbEpoch:()=>epoch,
+ const b={console,crypto,TextEncoder,URL,structuredClone,location:{hostname:'localhost'},TURN_SUPABASE:{setBuild:true,setBuildMcp:detailed},turnIsAdmin:true,nbEpoch:()=>epoch,
    nbGetMeta:()=>null,nbGetImage:()=>'',scenesInStoryOrder:x=>x||[],turnArtRoomWritable:()=>writable};b.window=b;vm.createContext(b);
- for(const f of ['locations.jsx','blender-render-contract.js','blender-set-detail.js','blender-render.js'])
+ for(const f of ['locations.jsx','blender-render-contract.js','blender-set-kitchen.js','blender-set-detail.js','blender-render.js'])
    vm.runInContext(readFileSync((compiled?'dist/app/':'app/')+f.replace(/\.jsx$/,compiled?'.js':'.jsx'),'utf8'),b);
  b.turnContinuity={locations:[location]};
+ const proposal=suggested?b.KinolotCloudRender.proposeCameras(location,[location]):null;
  b.KinolotCloudRender.request=()=>assert.fail('Layout previews must not submit worker jobs');
  b.nbGenerate=()=>assert.fail('Layout previews must not invoke an image engine');
  b.KinolotAnglePreview={load:()=>pending?new Promise(()=>{}):failed?Promise.reject(Error('GPU unavailable')):Promise.resolve({}),
    imagePoint:(_canvas,x,y)=>({x:x/640,y:y/360}),
-   create:(T,spec,options)=>({mode:options?.softwareOnly?"software":mode,render:(canvas,pose)=>renders.push(structuredClone(pose)),
-     inspect:(pose,x,y)=>{inspections.push({pose:structuredClone(pose),x,y});return structuredClone(picked);},dispose:()=>disposed++})};
+   create:(T,spec,options)=>{
+     if(gpuFailure&&!options?.softwareOnly)throw Error("GPU unavailable");
+     return {mode:options?.softwareOnly?"software":mode,render:(canvas,pose)=>renders.push(structuredClone(pose)),
+       inspect:(pose,x,y)=>{inspections.push({pose:structuredClone(pose),x,y});return structuredClone(picked);},dispose:()=>disposed++};}};
  b.LocationFloorPlanMap=function(){};
  b.React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!=null&&x!==false)}),
    useState:initial=>{const i=cursor++;if(!(i in hooks))hooks[i]={value:typeof initial==='function'?initial():initial};return [hooks[i].value,v=>hooks[i].value=typeof v==='function'?v(hooks[i].value):v];},
@@ -34,7 +37,8 @@ function harness({pending=false,failed=false,mode="gpu",picked={kind:'object',na
  let readonly=false;
  const onUpdate=(id,patch)=>{writes.push({id,patch:structuredClone(patch)});location={...location,...patch};b.turnContinuity.locations=[location];};
  function render(flush=true){
-   cursor=0;effects=[];const tree=b.LocationCameraAngleWorkbench({l:location,onUpdate,readOnly:readonly});
+   cursor=0;effects=[];const tree=suggested?b.LocationSuggestedCameraPreviews({l:location,proposal,locations:b.turnContinuity.locations})
+     :b.LocationCameraAngleWorkbench({l:location,onUpdate,readOnly:readonly});
    for(const n of flat(tree))if(n.props.ref){
      const element=n.type==='dialog'?{open:false,showModal(){this.open=true;}}:{getContext:()=>({drawImage(){}})};
      typeof n.props.ref==='function'?n.props.ref(element):n.props.ref.current=element;
@@ -43,8 +47,29 @@ function harness({pending=false,failed=false,mode="gpu",picked={kind:'object',na
  }
  const button=(tree,label)=>flat(tree).find(n=>n.type==='button'&&text(n)===label);
  async function begin(){let tree=render();button(tree,'Preview & choose camera angles').props.onClick();tree=render();await new Promise(setImmediate);return render();}
- return {b,render,begin,flat,text,button,writes,renders,inspections,get location(){return location;},get disposed(){return disposed;},
+ return {b,render,begin,flat,text,button,writes,renders,inspections,proposal,get location(){return location;},get disposed(){return disposed;},
    external:fn=>{location=fn(location);b.turnContinuity.locations=[location];},switchFilm:()=>epoch++,readonly:()=>{readonly=true;writable=false;}};
+}
+{
+ const h=harness({suggested:true,detailed:true}),before=JSON.stringify(h.location);let tree=h.render();
+ await new Promise(setImmediate);tree=h.render();
+ ok(h.renders.length===4,'A suggestion draws four free 3D camera thumbnails');
+ ok(h.proposal.panels.every((p,i)=>JSON.stringify(p.pose.position)===JSON.stringify(h.renders[i].position)&&p.pose.yaw===h.renders[i].yaw),
+   'Thumbnails render the proposed cameras at their saved precision rather than the previously saved cameras');
+ ok(h.flat(tree).filter(n=>n.type==='canvas').length===4&&h.text(tree).includes('Proposed 3D views'),'The four proposed views are labelled before camera acceptance');
+ ok(h.writes.length===0&&JSON.stringify(h.location)===before,'Rendering suggested thumbnails never saves or submits a job');
+ h.external(l=>({...l,spatialPlan:{...l.spatialPlan,frame:'Changed frame'}}));h.render();await new Promise(setImmediate);tree=h.render();
+ ok(h.disposed===1&&h.renders.length===4&&h.text(tree).includes('changed'),'A stale suggestion releases its graphics adapter and cannot display a new preview');
+}
+{
+ const h=harness({suggested:true,gpuFailure:true}),before=JSON.stringify(h.location);h.render();await new Promise(setImmediate);const tree=h.render();
+ ok(h.renders.length===4&&!h.text(tree).includes('could not be displayed')&&JSON.stringify(h.location)===before,
+   'Suggested thumbnails automatically fall back to compatibility rendering without writes');
+}
+{
+ const h=harness({suggested:true,failed:true});h.render();await new Promise(setImmediate);const tree=h.render();
+ ok(h.text(tree).includes('could not be displayed')&&h.button(tree,'Retry 3D previews')&&h.writes.length===0,
+   'Failed suggestion graphics offer a free retry and preserve saved cameras');
 }
 {
  const h=harness();let tree=await h.begin();

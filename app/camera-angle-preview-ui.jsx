@@ -165,3 +165,44 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false}){
   </div>;
 }
 window.LocationCameraAngleWorkbench=LocationCameraAngleWorkbench;
+
+/* Draw proposed poses before any saved-camera write or paid cloud build. */
+function LocationSuggestedCameraPreviews({l,proposal,locations}){
+  const preview=window.KinolotAnglePreview,api=window.KinolotCloudRender;
+  const labels={TL:"Top left",TR:"Top right",BL:"Bottom left",BR:"Bottom right"};
+  const canvases=React.useRef({}),[error,setError]=React.useState(""),[ready,setReady]=React.useState(false),[attempt,setAttempt]=React.useState(0);
+  React.useEffect(()=>{
+    let live=true,instance=null;setError("");setReady(false);
+    Promise.resolve().then(()=>{
+      if(!live)return;
+      const views=api.cameraProposalViews(l,proposal,locations),proposed={...l,coverageViews:views};
+      const list=locations.map(x=>x.id===l.id?proposed:x),scene=api.buildScene(proposed,list);
+      const plan=locationSpatialPlanState(proposed,list).plan;
+      return preview.load().then(T=>{
+        if(!live)return;
+        const options={openings:preview.openingGuides?.(plan)||[],anchors:plan.anchors};
+        const draw=softwareOnly=>{
+          instance=preview.create(T,scene,{...options,softwareOnly});
+          for(const panel of proposal.panels)if(canvases.current[panel.key])
+            instance.render(canvases.current[panel.key],scene.cameras[panel.key],320,180);
+        };
+        try{draw(false);}catch(e){instance?.dispose();instance=null;draw(true);}
+        if(live)setReady(true);
+      });
+    }).catch(e=>{if(live)setError("The 3D previews could not be displayed. "+String(e?.message||"Display unavailable").slice(0,180));});
+    return ()=>{live=false;instance?.dispose();};
+  },[l,proposal,locations,attempt]);
+  return <section className="loc-suggested-camera-previews" aria-label="Suggested camera views">
+    <p className="loc-layer-note">Proposed 3D views · saved set geometry with simplified materials and lighting. Review the framing before choosing Use these cameras. Blender renders the finish in step 4.</p>
+    <div className="loc-angle-panels">
+      {proposal.panels.map(panel=><figure key={panel.key} className="loc-angle-panel" style={{margin:0}}>
+        <figcaption>{labels[panel.key]} · {panel.label}</figcaption>
+        <canvas width={320} height={180} ref={node=>canvases.current[panel.key]=node} aria-label={panel.label+" proposed 3D layout preview"}/>
+      </figure>)}
+    </div>
+    {!ready&&!error&&<p role="status" className="loc-layer-note">Preparing the proposed camera views…</p>}
+    {error&&<div role="alert" className="loc-spatial-error"><p>{error} Your saved cameras are unchanged.</p>
+      <button type="button" className="art-draftall ghost" onClick={()=>setAttempt(n=>n+1)}>Retry 3D previews</button></div>}
+  </section>;
+}
+window.LocationSuggestedCameraPreviews=LocationSuggestedCameraPreviews;

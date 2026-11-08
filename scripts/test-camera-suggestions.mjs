@@ -8,7 +8,7 @@ const read=f=>readFileSync((compiled?"dist/app/":"app/")+f.replace(/\.jsx$/,comp
 let epoch=1;
 const b={console,crypto,TextEncoder,URL,nbEpoch:()=>epoch,location:{hostname:"localhost"},turnIsAdmin:true,
   nbGetMeta:()=>null,nbGetImage:()=>"",scenesInStoryOrder:x=>x||[]};b.window=b;vm.createContext(b);
-for(const f of ["locations.jsx","blender-render-contract.js","blender-set-detail.js","blender-render.js"])vm.runInContext(read(f),b);
+for(const f of ["locations.jsx","blender-render-contract.js","blender-set-kitchen.js","blender-set-detail.js","blender-render.js"])vm.runInContext(read(f),b);
 const api=b.KinolotCloudRender,copy=v=>JSON.parse(JSON.stringify(v));let checks=0;
 const ok=(v,label)=>{assert.ok(v,label);checks++;};
 function room(poly=[[0,0],[5,0],[5,4],[0,4]],extra={}){
@@ -22,6 +22,8 @@ function verify(l){
   const before=JSON.stringify(b.turnContinuity),p=api.proposeCameras(l),again=api.proposeCameras(l);
   ok(JSON.stringify(p)===JSON.stringify(again),"placement is deterministic");
   ok(JSON.stringify(b.turnContinuity)===before,"suggestion leaves saved layout and cameras unchanged");
+  ok(p.panels.map(v=>v.role).join() === "wide,reverse,detail,detail","Default coverage always gives each panel a distinct role");
+  ok(p.panels.slice(0,2).every(v=>Math.abs(v.pose.pitch)<=20&&v.pose.lensMm>=18&&v.pose.lensMm<=26),"Wide views use modest downward tilt and interior wide lenses");
   const views=api.cameraProposalViews(l,p),next={...l,coverageViews:views};
   ok(JSON.stringify(b.turnContinuity)===before,"preparing a preview is also read-only");
   b.turnContinuity.locations=b.turnContinuity.locations.map(x=>x.id===l.id?next:x);
@@ -35,6 +37,39 @@ verify(room());
 verify(room([[0,0],[7,0],[7,1.3],[1.3,1.3],[1.3,6],[0,6]]));
 verify(room([[0,0],[6,1],[5,5],[-1,4]],{floorZ:4.4,ceilingH:2.1}));
 verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
+{
+  const l=room([[-1,0],[2.5,0],[2.5,4],[-1,4]]);
+  const anchor=(id,name,xy,size,facing=0,z=size[2]/2)=>({id,name,space:"Room",xy,size,facing,z,sizeBasis:"design",placement:"Saved test position"});
+  l.spatialPlan.anchors=[anchor("counter-north","Sink run counter",[.75,3.7],[3.5,.6,.9],180),
+    anchor("counter-east","Fridge run counter",[2.2,2.1],[2.6,.6,.9],270),
+    anchor("sink","Single-basin sink",[.7,3.7],[.6,.5,.2],180,.8),
+    anchor("fridge","Full-height fridge",[2.15,.5],[.7,.7,1.85],270),
+    anchor("table","Dining table",[.9,1.3],[.8,.8,.75]),anchor("chair","Dining chair",[.9,.6],[.45,.45,.9])];
+  // A historical high corner and wide station must not override the requested coverage pattern.
+  l.spatialPlan.coordinates.cameras=[{spaceId:"room",panel:"TR",position:[1.6,3.6,2.1],yaw:160,pitch:-43,lensMm:18},
+    {spaceId:"room",panel:"BL",position:[.7,.35,1.5],yaw:0,pitch:-15,lensMm:24}];
+  const {p}=verify(l),[wide,reverse,sink,fridge]=p.panels;
+  const delta=(wide.pose.yaw-reverse.pose.yaw)*Math.PI/180;
+  ok(Math.cos(delta)<.5,"Kitchen wide and reverse provide complementary directions");
+  ok(wide.pose.position[1]<1&&reverse.pose.position[1]>2.5&&reverse.pose.position[0]<.75,
+    "Kitchen coverage follows the tested front/back positions along the same room side");
+  ok(Math.abs(wide.pose.position[2]-reverse.pose.position[2])<=.25,"Wide and reverse stay near eye level with modest height variation");
+  ok(sink.targetId==="sink"&&fridge.targetId==="fridge","Kitchen details select the sink and fridge instead of repeating a counter or table");
+  ok(sink.pose.lensMm>=28&&fridge.pose.lensMm>=28,"The bottom pair use tighter lenses");
+  ok(Math.hypot(sink.pose.position[0]-.7,sink.pose.position[1]-3.7)<2,"The sink is approached for a detail rather than repeated from the doorway");
+  ok(Math.hypot(sink.pose.position[0]-.7,sink.pose.position[1]-3.7)>1.4,"Sink detail retains the contextual distance of the approved grid");
+  ok(fridge.pose.position[1]>1.4&&fridge.pose.position[0]<1,"Fridge detail uses the tested oblique approach along the counter");
+  ok(sink.label.includes("sink")&&fridge.label.includes("fridge"),"Proposal labels identify the two detail subjects");
+}
+{
+  const l=room();
+  l.spatialPlan.anchors=[{id:"bed",name:"Single bed",space:"Room",xy:[1,2.7],z:.5,size:[1,2,1],facing:0,sizeBasis:"design"},
+    {id:"desk",name:"Writing desk",space:"Room",xy:[4,2.7],z:.375,size:[1.1,.6,.75],facing:180,sizeBasis:"design"},
+    {id:"wardrobe",name:"Wardrobe",space:"Room",xy:[4,.5],z:1,size:[1,.6,2],facing:0,sizeBasis:"design"}];
+  l.spatialPlan.anchors.forEach(a=>a.placement="Saved fixture placement");
+  const {p}=verify(l);
+  ok(p.panels[2].targetId==="bed"&&p.panels[3].targetId==="desk","Other rooms adapt detail subjects to their own saved features");
+}
 {
   const l=room(),root={...l,id:"parent",key:"parent",name:"Whole place"};
   root.spatialPlan.source.assetId="parent";root.spatialPlan.coordinates.spaces[0].id="room";l.spatialPlan=undefined;l.parentKey="parent";
@@ -60,6 +95,7 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   b.React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity)}),
     useState:v=>{const n=i++;if(!(n in states))states[n]=v;return [states[n],v=>states[n]=typeof v==="function"?v(states[n]):v];},useEffect(){}};
   vm.runInContext(transformSync(read("locations-ui.jsx"),{presets:["@babel/preset-react"],babelrc:false,configFile:false}).code,b);
+  b.LocationSuggestedCameraPreviews=function(){};
   const render=(readOnly=false)=>{i=0;return b.LocationCameraSuggestions({l,onUpdate:(id,patch)=>writes.push({id,patch}),readOnly});};
   const nodes=n=>n&&typeof n==="object"?[n,...(n.children||[]).flatMap(nodes)]:[];
   const text=n=>typeof n==="string"?n:(n?.children||[]).map(text).join("");
@@ -71,6 +107,9 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   ok(writes.length===0&&JSON.stringify(l)===saved,"clicking Suggest makes no saved-data changes");
   const map=nodes(tree).find(n=>n.type===b.LocationFloorPlanMap);
   ok(map&&map.props.scene.cameras.filter(c=>c.spaceId===l.id).length===4,"the preview map receives all four proposed cameras");
+  const thumbnails=nodes(tree).find(n=>n.type===b.LocationSuggestedCameraPreviews);
+  ok(thumbnails?.props.proposal.panels.length===4&&thumbnails.props.l===l&&writes.length===0,
+    "The suggestion card shows proposed 3D thumbnails before saving without substituting saved views");
   ok(button(render(true),"Use these cameras").props.disabled,"read-only access cannot apply a proposal");
   button(tree,"Discard proposal").props.onClick();ok(!button(render(),"Use these cameras")&&writes.length===0,"discard leaves original cameras untouched");
   ok(inspection(render()).props.open===false,"Discard returns the camera controls to their compact state");

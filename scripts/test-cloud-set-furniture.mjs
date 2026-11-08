@@ -67,14 +67,25 @@ const bare=copy(room);bare.spatialPlan.anchors[0].placement='Bare bed, no pillow
 ok(!b.KinolotCloudRender.buildScene(bare,[bare]).objects.some(o=>o.anchorId==='bed'&&o.name.includes('pillow')),'Explicit no-pillow instructions suppress proposed bedding');
 ok(!b.KinolotCloudRender.buildScene(bare,[bare]).objects.some(o=>o.anchorId==='bed'&&o.name.includes('headboard')),'Explicit no-headboard instructions suppress proposed joinery');
 ok(scene.objects.length<500&&new TextEncoder().encode(b.KinolotRenderContract.canonical(scene)).length<=131072,'Furniture remains inside the unchanged worker budgets');
-// The proposed optical axis should meet a saved object, rather than merely point into the room.
+// Wide views cover several landmarks; detail views put their selected subject near frame centre.
 const first=scene.cameras.TL.position,reverse=scene.cameras.TR.position;
 ok(Math.hypot((first[0]-reverse[0])/4,(first[1]-reverse[1])/4.4)>.5,'The second wide camera is separated from the first instead of repeating its corner');
-for(const camera of Object.values(scene.cameras)){
+for(const [panel,camera] of Object.entries(scene.cameras)){
  const yaw=camera.yaw*Math.PI/180,pitch=camera.pitch*Math.PI/180;
  const dir=[Math.sin(yaw)*Math.cos(pitch),Math.cos(yaw)*Math.cos(pitch),Math.sin(pitch)];
- ok(room.spatialPlan.anchors.some(a=>{const v=[a.xy[0]-camera.position[0],a.xy[1]-camera.position[1],a.z+a.size[2]*.15-camera.position[2]],len=Math.hypot(...v);
-  return v.reduce((sum,n,i)=>sum+n*dir[i],0)/len>.999;}),'Each proposed camera aims at a visible saved furniture feature');
+ const right=[Math.cos(yaw),-Math.sin(yaw),0],up=[-Math.sin(yaw)*Math.sin(pitch),-Math.cos(yaw)*Math.sin(pitch),Math.cos(pitch)];
+ const inFrame=(point,margin=1)=>{const v=point.map((n,i)=>n-camera.position[i]),dot=a=>a.reduce((sum,n,i)=>sum+n*v[i],0),depth=dot(dir);
+  return depth>0&&Math.abs(dot(right))<depth*18/camera.lensMm*margin&&Math.abs(dot(up))<depth*10.125/camera.lensMm*margin;};
+ const planned=proposal.panels.find(p=>p.key===panel);
+ if(planned.role!=="detail"){
+  const landmarks=[...room.spatialPlan.anchors.map(a=>({name:a.name,point:[...a.xy,a.z]})),
+   ...room.spatialPlan.coordinates.spaces[0].openings.map(o=>({name:o.name,point:[...o.centre,(o.sillZ+o.headZ)/2]}))];
+  const seen=landmarks.filter(a=>inFrame(a.point));
+  ok(seen.length>=2,'Wide '+panel+' includes multiple saved room landmarks; saw '+seen.map(a=>a.name).join(', ')+' from '+JSON.stringify(camera));
+ }else{
+  const target=room.spatialPlan.anchors.find(a=>a.id===planned.targetId);
+  ok(!!target&&[-.5,0,.5].some(z=>inFrame([...target.xy,target.z+z*target.size[2]],.55)),'Each detail centres part of its chosen saved furniture subject');
+ }
 }
 
 // A loose test arrangement must not produce an establishing shot directly behind the headboard.

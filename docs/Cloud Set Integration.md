@@ -88,8 +88,8 @@ archive and verify those separately before explicit cleanup.
    artwork adoption. Keep current approved artwork until that action. Check
    working-file cleanup, recovery and coexistence with legacy jobs.
 
-The startup-corrected worker is published. Scene retention remains enabled, but
-new detailed requests were disabled after the first controlled app job failed.
+The compatibility-corrected worker is published. Both new server switches remain
+disabled after the first controlled app job failed, pending the reviewed retry.
 There were no queued/running jobs when the original test switches were enabled.
 The committed browser `setBuildMcp` remains false; only the loopback development
 test server serves an enabled override. The public website frontend has not been
@@ -142,3 +142,35 @@ regressions reject unsupported modern formats and preserve legacy compatibility.
 Worker failure logs now report controlled stage/type/status metadata without
 exception messages or scene contents. New generic build errors preserve the
 floor plan/camera wording rather than implying the user's layout caused failure.
+
+The correction is committed on both sides. Replit synchronized the exact reviewed
+worker revision, passed the 51-test suite (one optional test skipped), and accepted
+the existing cloud scene with a mocked upload and unchanged bytes. The corrected
+worker republished successfully; published metadata and fresh startup logs match
+that revision. The deployed storage service bundle includes modern-header support.
+Both switches remain off while the operator reviews coverage before another paid
+app submission. The original scene also rendered all 24 verification files in an
+isolated local background diagnostic; that does not prove the failed cloud job's
+render stages or a successful private save.
+
+## Default coverage and pre-build 3D review
+
+The user requested the earlier trial's coverage as the Step 3 suggestion default:
+wide room view, complementary reverse from the other end at roughly eye level, then two tighter
+details of different saved features. For this kitchen the subjects are sink and
+fridge; other rooms use their own landmarks. Wide framing favors visible room
+landmarks (including openings), not an optical axis fixed on one low object. This
+avoids the steep reverse and repeated counter view seen in the first app snapshot.
+
+Suggestions remain deterministic and read-only until Use these cameras. Existing
+camera notes and manually saved choices are preserved. Named panel roles and four
+free 3D thumbnails show the proposed poses from the saved geometry before saving
+or billing. Thumbnails use the existing graphics adapter with software fallback;
+materials/lighting are simplified. The separate angle editor remains available.
+The overhead map alone is not treated as proof of useful composition.
+
+The floor-plan drafter now explicitly uses local object width/depth before facing
+rotation and checks those rotated bounds against the written wall placement. The
+saved kitchen's side counter has its dimensions exchanged relative to its written
+east-wall run. A correction to local width/depth and a matching camera-preview
+study were prepared in isolated files only; the saved plan has not been changed.
