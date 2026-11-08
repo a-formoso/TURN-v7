@@ -9,10 +9,11 @@ const b={console,crypto,TextEncoder,URL,setTimeout,structuredClone,location:{hos
  nbEpoch:()=>1,nbGetMeta:()=>null,nbGetImage:()=>'',scenesInStoryOrder:x=>x||[]};b.window=b;vm.createContext(b);
 // locations.jsx needs JSX compilation in source mode.
 const {transformSync,parseSync}=await import('@babel/core');
-for(const f of ['locations.jsx','blender-render-contract.js','blender-set-kitchen.js','blender-set-detail.js','blender-render.js','camera-match.js']){
+for(const f of ['locations.jsx','blender-render-contract.js','blender-set-kitchen.js','blender-set-detail.js','blender-render.js','camera-framing.js','camera-match.js']){
  const code=read(f);vm.runInContext(!compiled&&f.endsWith('.jsx')?transformSync(code,{presets:['@babel/preset-react'],babelrc:false,configFile:false}).code:code,b);
 }
 const api=b.KinolotCameraMatch;let checks=0;
+const framing=b.KinolotCameraFraming;
 const ok=(v,m)=>{assert.ok(v,m);checks++;};
 const rejects=async(fn,re)=>{await assert.rejects(fn,re);checks++;};
 const throws=(fn,re)=>{assert.throws(fn,re);checks++;};
@@ -82,8 +83,14 @@ const obs=landmarks.map(p=>({...p,uv:api.project(truth,p.point)}));
  const reversed=copy(plan);reversed.coordinates.spaces[0].footprint.reverse();
  const points=api.catalogue({objects:[]},reversed,'room').map(p=>p.point.join(',')).sort();
  ok(JSON.stringify(points)===JSON.stringify(cat.map(p=>p.point.join(',')).sort()),'Inner wall corners remain correct for either footprint winding');
+ const doorPlan=copy(plan);doorPlan.coordinates.spaces[0].openings=[{id:'door',name:'Door aperture',kind:'door',edge:0,centre:[3,0],width:1,sillZ:0,headZ:2}];
+ doorPlan.anchors=[{id:'door',name:'Older door bounds',xy:[3,0],z:1.25,size:[1,.08,2.5],facing:0}];
+ const doorPoints=api.catalogue({objects:[{anchorId:'door'}]},doorPlan,'room').filter(p=>p.objectId==='door');
+ ok(doorPoints.length===4&&doorPoints.every(p=>p.name==='Door aperture'&&p.point[2]<=2),
+   'Aperture landmarks use the saved opening dimensions rather than conflicting older anchor bounds');
 }
-function harness({realGraphics=false}={}){
+function harness({realGraphics=false,composition=false,unknownSubject=false}={}){
+ b.KinolotCameraFraming=framing;
  const scope={uid:'owner',projectId:'film',epoch:1};let live=copy(scope),writable=true,calls=0,readHook=null,prepareHook=null,visible=true;
  const l={id:'room',name:'Room',coverageViews:[],spatialPlan:{status:'reviewed',frame:'North',heights:'centre',source:{assetId:'room',iso:''},
   anchors:[{id:'table',name:'Desk',space:'Room',placement:'Back',xy:[2,3.1],z:.8,size:[.9,.8,1.4],sizeBasis:'design'},
@@ -97,13 +104,15 @@ function harness({realGraphics=false}={}){
  const poses=['TL','TR','BL','BR'].map((key,i)=>({key,pose:{...truth,position:[truth.position[0]+i*.06,truth.position[1],truth.position[2]],yaw:truth.yaw-i*2},label:key,role:'wide'}));
  render.proposeCameras=(ll,list)=>({key:render.cameraProposalKey(ll,list),panels:copy(poses),warnings:[]});
  let scene;
- b.KinolotAnglePreview={load:async()=>{await prepareHook?.();return realGraphics?realThree:{};},openingGuides:()=>[],create:(_T,spec)=>{scene=spec;return realGraphics?realPreview.create(realThree,spec,{softwareOnly:true}):{render(){},landmarkVisible:()=>visible,dispose(){}};}};
+ b.KinolotAnglePreview={load:async()=>{await prepareHook?.();return realGraphics?realThree:{};},openingGuides:()=>[],create:(_T,spec,options={})=>{scene=spec;return realGraphics?realPreview.create(realThree,spec,{...options,softwareOnly:true}):{render(){},landmarkVisible:()=>visible,dispose(){}};}};
  b.turnDownscaleDataUrl=async u=>u;
  b.aiVisionComplete=async(messages,images,opts)=>{
   await readHook?.('before');await opts.beforeSubmit();calls++;
   assert.equal(images.length,5);assert.ok(messages[0].content.includes('Never invent correspondences'));
   const cat=api.catalogue(scene,l.spatialPlan,l.id),instance=realGraphics?realPreview.create(realThree,scene,{softwareOnly:true}):null;
-  const panels=poses.map(({key,pose})=>({key,points:cat.filter(p=>!instance||instance.landmarkVisible(pose,p.point)).map(p=>({id:p.id,uv:api.project(pose,p.point)})).filter(p=>p.uv&&p.uv.every(v=>v>=0&&v<=1))}));instance?.dispose();
+  const features=framing.inventory(cat,scene);
+  const panels=poses.map(({key,pose})=>({key,points:composition?[]:cat.filter(p=>!instance||instance.landmarkVisible(pose,p.point)).map(p=>({id:p.id,uv:api.project(pose,p.point)})).filter(p=>p.uv&&p.uv.every(v=>v>=0&&v<=1)),
+    ...(composition?{framing:{mode:'wide',subjects:[{id:unknownSubject?'invented':'table',rect:framing.rectangle(pose,features.find(f=>f.id==='table'))}]}}:{})}));instance?.dispose();
   await readHook?.('after');return {vision:true,text:JSON.stringify({panels})};
  };
  return {l,scope,poses,get calls(){return calls;},changeSource:()=>draft.meta.iso='second',staleSource:()=>draft.stale=true,
@@ -144,11 +153,21 @@ function harness({realGraphics=false}={}){
  await rejects(()=>api.match('room',h.scope),/already in progress/);h.prepareHook(null);release();await run;ok(h.calls===1,'Concurrent clicks cannot duplicate a paid match request');h.cleanup();
 }
 {
- const h=harness();h.visible(false);await rejects(()=>api.match('room',h.scope),/Too few visible/);ok(!h.calls,'An unlabelled reference fails before the writing call');h.cleanup();
+ const h=harness();b.KinolotCameraFraming=null;h.visible(false);await rejects(()=>api.match('room',h.scope),/Too few visible/);ok(!h.calls,'Without composition support, an unlabelled reference fails before the writing call');h.cleanup();
 }
 {
  const h=harness({realGraphics:true}),before=JSON.stringify(h.l),proposal=await api.match('room',h.scope);
  ok(proposal.panels.every(p=>p.fit.count>=6&&p.fit.rms<.002),'The complete fitter also passes with actual labelled preview meshes and actual obstruction rays');
  ok(JSON.stringify(h.l)===before,'Actual 3D reference rendering does not mutate saved data');h.cleanup();
+}
+{
+ const h=harness({realGraphics:true,composition:true}),before=JSON.stringify(h.l),proposal=await api.match('room',h.scope);
+ ok(proposal.panels.length===4&&proposal.imageMatch.method==='composition'&&proposal.panels.every(p=>p.fit.method==='composition'),
+   'Recognized image subjects can produce four approximate camera views when exact image corners are unavailable');
+ ok(JSON.stringify(h.l)===before&&h.calls===1,'Composition fallback uses the same single image read and leaves camera saving to its guarded caller');
+ await api.confirm('room',h.scope,proposal);checks++;h.cleanup();
+}
+{
+ const h=harness({realGraphics:true,composition:true,unknownSubject:true});await rejects(()=>api.match('room',h.scope),/could not be linked/);h.cleanup();
 }
 console.log(`PASS camera matching: ${checks} numeric, immutable-set, real-scene and paid-boundary checks`);

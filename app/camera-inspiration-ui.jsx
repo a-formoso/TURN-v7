@@ -50,7 +50,7 @@ function LocationCameraInspiration({l,readOnly=false,onPropose,onMatched}){
   let stale=!!draft;
   try{if(draft)stale=draft.meta.inputKey!==api.inputKey(l.id);}catch(_){}
   const canMatch=!!(onPropose&&onMatched&&window.KinolotCameraMatch);
-  const matchHelp="Experimental camera match: estimates achievable angles from shared visible features. When all 4 views pass the fit checks, their cameras are set automatically and Build the set opens. Changed proportions or hidden features may prevent a match; failed fits leave your cameras unchanged. You can adjust the saved cameras later. Your set stays fixed and matching starts no Blender build.";
+  const matchHelp="Experimental camera match: matches recognizable subjects and framing to achievable views inside your saved set. Uses a closer corner fit when possible, otherwise approximate composition. When all 4 views pass the fit checks, their cameras are set automatically and Build the set opens. Changed proportions or hidden features may prevent a match; failed fits leave your cameras unchanged. You can adjust the saved cameras later. Your set stays fixed and matching starts no Blender build.";
   return E("details",{className:"loc-nested-section loc-camera-ideas",open,onToggle:e=>{if(e.target===e.currentTarget)setOpen(e.currentTarget.open);}},
     E("summary",null,"Need ideas for camera views?"),
     open&&E("div",{className:"loc-camera-ideas-body"},

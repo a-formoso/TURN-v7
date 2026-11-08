@@ -61,11 +61,11 @@
     }
     return out;
   }
-  function cameraProblems(location,list){
+  function cameraProblems(location,list,proposed){
     list=list||((root.turnContinuity||{}).locations)||[];
     const state=root.locationSpatialPlanState(location,list);if(!state.ready)return {};
     const spaces=renderSpaces(state.plan);
-    return cameraProblemsIn(location,list,state.plan,spaces,root.locationSpatialFamily(state.owner,list),state.owner);
+    return cameraProblemsIn(location,list,state.plan,spaces,root.locationSpatialFamily(state.owner,list),state.owner,proposed);
   }
   function cameraProposalKey(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
