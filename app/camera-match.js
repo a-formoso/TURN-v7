@@ -214,10 +214,11 @@
           for(const goal of goals){
             await new Promise(resolve=>root.setTimeout(resolve,0));guard();
             const valid=pose=>{try{return !api.cameraProblems(l,list,[{key:goal.key,pose}])[goal.key];}catch(_){return false;}};
-            const fit=framing.choose(goal,features,seeds,bounds,valid,(pose,subject,rect)=>framing.visible(check,pose,subject,rect),used);
+            let fit;try{fit=framing.choose(goal,features,seeds,bounds,valid,(pose,subject,rect)=>framing.visible(check,pose,subject,rect),used,root.normalizeLocationCameraPose);}
+            catch(e){throw Error("The "+panelName(goal.key)+" view could not be matched: "+e.message);}
             const next={...l,coverageViews:root.locationCoverageViewsWithPose(l,goal.key,fit.pose)},pose=root.locationPanelPoses(next,list.map(x=>x.id===id?next:x)).find(p=>p.key===goal.key).pose;
             const subject=features.find(f=>f.id===fit.subjectId),rect=framing.rectangle(pose,subject);
-            if(!valid(pose)||!rect||!framing.visible(check,pose,subject,rect))throw Error("A saved camera could not keep its main subject visible. Your cameras are unchanged.");
+            if(!valid(pose)||!rect||!framing.visible(check,pose,subject,rect))throw Error("The "+panelName(goal.key)+" camera could not keep "+subject.name+" visible at its saved settings. Your cameras are unchanged.");
             used.push(pose);panels.push({key:goal.key,role:"image-match",label:"Approximate "+goal.mode+" framing",pose,fit:{method:"composition",subjectId:fit.subjectId,centreError:fit.centreError}});
           }
         }

@@ -19,6 +19,15 @@ const valid=p=>p.position.every((n,i)=>n>=bounds.min[i]&&n<=bounds.max[i])&&feat
 const chosen=F.choose(F.goals(raw,features)[0],features,[seed],bounds,valid,()=>{rays++;return true;});
 ok(valid(chosen.pose)&&chosen.method==='composition'&&chosen.subjectId==='front'&&chosen.pose.target==='front','Chosen camera belongs to the saved set and saves its recognized target with the pose');
 ok(chosen.pose.lensMm>=18&&chosen.pose.lensMm<=24&&chosen.centreError<=.2&&rays>0,'Wide framing stays within its lens range and checks visibility');
+const normalize=p=>({...p,position:p.position.map(n=>Math.round(n*1000)/1000),yaw:Math.round(p.yaw*10)/10%360,pitch:Math.round(p.pitch*1000)/1000});
+let savedRays=0;
+const saved=F.choose(F.goals(raw,features)[0],features,[seed],bounds,p=>{
+ assert.deepEqual(p,normalize(p),'Collision checks must use the saveable camera station');return valid(p);
+},p=>{
+ assert.deepEqual(p,normalize(p),'Visibility must be checked at the saved camera precision');return ++savedRays>=3;
+},[],normalize);
+ok(savedRays===3&&JSON.stringify(saved.pose)===JSON.stringify(normalize(saved.pose)),
+ 'Search skips obstructed rounded candidates and returns a camera at the precision that will be saved');
 throws(()=>F.choose(F.goals(raw,features)[0],features,[seed],bounds,()=>false,()=>true),/could not be framed/);
 throws(()=>F.choose(F.goals(raw,features)[0],features,[seed],bounds,valid,()=>false),/could not be framed/);
 const detail=F.choose({...F.goals(raw,features)[0],mode:'detail'},features,[seed],bounds,valid,()=>true);

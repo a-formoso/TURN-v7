@@ -34,7 +34,7 @@
       width:Math.abs(rect[2]-rect[0]-wanted[2]+wanted[0]),height:Math.abs(rect[3]-rect[1]-wanted[3]+wanted[1]),
       scale:Math.abs(Math.log(Math.max(.01,rect[2]-rect[0])/(wanted[2]-wanted[0])))+Math.abs(Math.log(Math.max(.01,rect[3]-rect[1])/(wanted[3]-wanted[1])))};
   }
-  function choose(goal,features,seeds,bounds,valid,visible,used=[]){
+  function choose(goal,features,seeds,bounds,valid,visible,used=[],normalize=pose=>pose){
     const known=new Map(features.map(f=>[f.id,f])),subject=known.get(goal.subjects[0].id),wanted=goal.subjects[0].rect;
     const positions=[],seen=new Set(),span=Math.hypot(bounds.max[0]-bounds.min[0],bounds.max[1]-bounds.min[1]);
     const add=p=>{if(p?.length!==3||!p.every(finite))return;const k=p.map(n=>n.toFixed(3)).join();if(!seen.has(k)){seen.add(k);positions.push(p);}};
@@ -43,14 +43,18 @@
     const floor=bounds.min[2]-.25,heights=[1.15,1.35,1.5,1.65].map(h=>clamp(floor+h,bounds.min[2],bounds.max[2]));
     for(let x=0;x<nx;x++)for(let y=0;y<ny;y++)for(const z of heights)add([bounds.min[0]+x*(bounds.max[0]-bounds.min[0])/(nx-1),bounds.min[1]+y*(bounds.max[1]-bounds.min[1])/(ny-1),z]);
     const lenses=goal.mode==="wide"?[18,21,24]:goal.mode==="medium"?[24,28,35]:[28,35,50],ranked=[];
-    for(const position of positions){
-      const base={position,yaw:0,pitch:0,lensMm:24,basis:"design"};if(!valid(base))continue;
+    for(const station of positions){
+      // Rank and ray-test the pose the app will actually save, including its numeric precision.
+      // A raw candidate near an occlusion edge can otherwise become hidden after rounding.
+      const base=normalize({position:station,yaw:0,pitch:0,lensMm:24,basis:"design"});if(!base||!valid(base))continue;
+      const position=base.position;
       const v=subject.point.map((n,i)=>n-position[i]),distance=Math.hypot(v[0],v[1]);if(distance<.25)continue;
       for(const lensMm of lenses){
         const yaw=Math.atan2(v[0],v[1])/D-Math.atan(((wanted[0]+wanted[2])/2-.5)*36/lensMm)/D;
         const pitch=Math.atan2(v[2],distance)/D+Math.atan(((wanted[1]+wanted[3])/2-.5)*36*9/(16*lensMm))/D;
         for(const dy of [-5,0,5])for(const dp of [-5,0,5]){
-          const pose={position,yaw:((yaw+dy)%360+360)%360,pitch:clamp(pitch+dp,-45,30),lensMm,basis:"design",target:subject.id};
+          const pose=normalize({position,yaw:((yaw+dy)%360+360)%360,pitch:clamp(pitch+dp,-45,30),lensMm,basis:"design",target:subject.id});
+          if(!pose)continue;
           const rect=rectangle(pose,subject);if(!rect)continue;const main=errors(rect,wanted);
           if(main.centre>.2||main.width>.5||main.height>.5)continue;
           let score=main.centre*3+main.scale*.035;
