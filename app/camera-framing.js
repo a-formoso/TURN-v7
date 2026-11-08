@@ -76,7 +76,9 @@
     for(const x of [.2,.5,.8])for(const y of [.2,.5,.8])samples.push([rect[0]+(rect[2]-rect[0])*x,rect[1]+(rect[3]-rect[1])*y]);
     let hits=0;
     for(const uv of samples){if(uv.some(n=>n<0||n>1))continue;const hit=instance.inspect(pose,...uv);
-      if(hit?.name===subject.name||subject.type==="opening"&&hit?.through?.name===subject.name)hits++;
+      const direct=hit&&("anchorId" in hit?hit.anchorId===subject.id:"openingId" in hit?hit.openingId===subject.id:hit.name===subject.name);
+      const through=subject.type==="opening"&&hit?.through&&(hit.through.id?hit.through.id===subject.id:hit.through.name===subject.name);
+      if(direct||through)hits++;
     }
     return hits>=(subject.type==="opening"?6:2);
   }

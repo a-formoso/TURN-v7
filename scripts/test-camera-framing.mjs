@@ -35,6 +35,8 @@ ok(detail.pose.lensMm>=28&&detail.pose.lensMm<=50,'Detail framing uses a tighter
 ok(JSON.stringify({features,bounds,seed,raw})===before,'Framing search never mutates geometry, source observations or existing camera seeds');
 const box={...front,type:'object'},opening={...rear,type:'opening'};
 ok(F.visible({inspect:()=>({kind:'object',name:box.name})},seed,box,rect),'A visible saved object can support a composition match');
+ok(!F.visible({inspect:()=>({kind:'object',anchorId:'different',name:box.name})},seed,box,rect),'A different object with the same label cannot impersonate the target');
+ok(F.visible({inspect:()=>({kind:'object',anchorId:box.id,name:'Part label'})},seed,box,rect),'Assembly parts keep their parent anchor identity despite different labels');
 ok(!F.visible({inspect:()=>({kind:'object',name:'Foreground blocker'})},seed,box,rect),'An obstructed subject cannot pass merely because its projected box is in frame');
 ok(F.visible({inspect:()=>({kind:'object',name:'Outside object',through:{name:opening.name}})},seed,opening,rect),'A visible known opening remains recognizable through its aperture');
 let partial=0;

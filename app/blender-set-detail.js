@@ -31,6 +31,8 @@
       &&!/(basketball|hoop|netball|cabinet|storage|rack)/i.test(name))return "sports-net";
     // Match the object itself, not a neighbouring object in its placement description.
     const subject=name.split(/\b(?:beside|near|above|under|behind|in front of|next to|by)\b/i)[0];
+    if(/\b(?:parcel|luggage) shelves\b/i.test(subject)
+      &&/\b(?:each|both)(?:\s+[\w-]+){0,3}\s+(?:window|side|wall)\b/i.test(name+" "+(anchor?.placement||"")))return "side-shelves";
     if(/\b(?:bed|chair|desk|table|wardrobe)\b.*(?: and | \+ | \/ ).*\b(?:bed|chair|desk|table|wardrobe)\b/i.test(subject))return "box";
     if(/\b(?:bedside|nightstand|night stand)\b/i.test(subject))return "nightstand";
     if(/\b(?:wardrobe|armoire)\b/i.test(subject))return "wardrobe";
@@ -41,6 +43,163 @@
     if(/\b(?:desk|table)\b/i.test(subject)&&! /\b(?:lamp|light|cloth|tennis|pool|billiard|folding|wall|dressing)\b/i.test(subject))return "table";
     if(/\bchair\b/i.test(subject)&&! /\b(?:wheelchair|armchair|driver|office|folding|rocking)\b/i.test(subject))return "chair";
     return "box";
+  }
+  // A named pair's dimensions describe its overall envelope, not a board spanning the aisle.
+  function buildSideShelves(source,anchors){
+    const byId=new Map((anchors||[]).map(a=>[a.id,a]));
+    const eligible=o=>o.kind==="box"&&o.anchorId&&anchorShape(byId.get(o.anchorId))==="side-shelves"
+      &&Math.min(o.size[0],o.size[1])>=.6&&Math.max(o.size[0],o.size[1])>=Math.min(o.size[0],o.size[1])*1.5;
+    if(!source.objects.some(eligible))return source;
+    const scene=JSON.parse(JSON.stringify(source)),objects=[];
+    for(const base of scene.objects){
+      if(!eligible(base)){objects.push(base);continue;}
+      const [w,d,h]=base.size,alongY=d>=w,cross=alongY?w:d,depth=Math.min(.3,cross*.16);
+      const material="sideShelfBoard-"+base.material;scene.materials[material]={...scene.materials[base.material]};
+      for(const [i,side] of [-1,1].entries()){
+        const at=side*(cross-depth)/2;let x=alongY?at:0,y=alongY?0:at,z=0;
+        const [rx,ry,rz]=base.rotation,y1=y*Math.cos(rx)-z*Math.sin(rx),z1=y*Math.sin(rx)+z*Math.cos(rx);
+        const x1=x*Math.cos(ry)+z1*Math.sin(ry),z2=-x*Math.sin(ry)+z1*Math.cos(ry);
+        x=x1*Math.cos(rz)-y1*Math.sin(rz);y=x1*Math.sin(rz)+y1*Math.cos(rz);
+        objects.push({...base,id:(base.id+"-side-shelf-"+i).slice(0,100),name:(base.name+" · side shelf "+(i+1)).slice(0,160),
+          material,position:[base.position[0]+x,base.position[1]+y,base.position[2]+z2].map(round),
+          size:(alongY?[depth,d,h]:[w,depth,h]).map(round),basis:"design"});
+      }
+    }
+    scene.objects=objects;
+    scene.notes.push("Paired parcel shelves described above each side use two boards within their saved overall bounds and facing. Board depth is proposed design, up to 0.3 m; the centre is open. Lights, cameras and saved measurements are unchanged. Explicit Solid block overrides this assembly.");
+    return root.KinolotRenderContract.validateScene(scene);
+  }
+  function buildBus(source,{space,anchors,brief,partPoses}={}){
+    const bounds=rectangle(space),text=String(brief?.architecture||""),sizes=String(brief?.keySizes||"");
+    if(!bounds||!/\bbus\b/i.test((brief?.name||space.name||"")+" "+text)||source.notes.some(n=>n.startsWith("Bus interior profile v1:")))return source;
+    // Only expand a stated, measured row pattern. Do not infer counts from an inspiration image.
+    const left=text.match(/\bL1(?:\s+to\s+|\s*[–—-]\s*)L(\d{1,2})\b/i),right=text.match(/\bR1(?:\s+to\s+|\s*[–—-]\s*)R(\d{1,2})\b/i);
+    const numbers={two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20};
+    const written=text.match(/\b(\d{1,2}|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s+rows\b[^.;]{0,100}\b(?:each|both|per)\s+side(?:s)?\b/i);
+    const pitchText=sizes.match(/\brow pitch\s+(?:(?:about|approximately|of)\s+)?(\d*\.?\d+)\s*m\b/i);
+    if((!left||!right)&&(!written||/\b(?:not|without)\b[^.;]*\brows\b/i.test(text))||!pitchText)return source;
+    const count=left&&right?Number(left[1]):Number(written[1])||numbers[written[1].toLowerCase()],pitch=Number(pitchText[1]);
+    if(!Number.isInteger(count)||left&&count!==Number(left[1])||right&&count!==Number(right[1])||count<2||count>20||pitch<.3||pitch>1.5)throw Error("The bus needs matching left/right row counts and a valid saved row pitch.");
+    const named=(anchors||[]).map(a=>{
+      const id=a.id.match(/(?:^|-)bench-([LR])(\d+)$/i),name=String(a.name||"").match(/\b(west|east|left|right)\b[^.;]{0,30}\brow\s*(\d+)\b/i);
+      return {anchor:a,match:id||name,side:id?id[1].toUpperCase():name?(/west|left/i.test(name[1])?"L":"R"):null,row:Number((id||name)?.[2])};
+    }).filter(x=>x.match)
+      .map(x=>{
+        const a=x.anchor,base=source.objects.find(o=>o.anchorId===a.id);let z=a.z==null?space.floorZ+a.size[2]/2:a.z;
+        if(a.zBasis==="base")z=Math.max(space.floorZ+a.size[2]/2,Math.min(z+a.size[2]/2,space.floorZ+space.ceilingH-a.size[2]/2));
+        const usual={...base,id:base?.id||"bus-named-"+a.id,anchorId:a.id,name:a.name,kind:"box",material:base?.material||"dressing",position:[...a.xy,z],size:a.size.slice(),rotation:[0,0,-(a.facing||0)*Math.PI/180]};
+        return {...x,base,usual};
+      });
+    const template=Object.fromEntries(["L","R"].map(side=>[side,named.find(x=>x.side===side)]));
+    if(!template.L||!template.R)return source;
+    const station=(t,row)=>{const delta=(t.row-row)*pitch,angle=t.usual.rotation[2];return [t.usual.position[0]-Math.sin(angle)*delta,t.usual.position[1]+Math.cos(angle)*delta,t.usual.position[2]];};
+    for(const item of named){
+      const at=station(template[item.side],item.row);
+      if(item.row<1||item.row>count||Math.hypot(...item.usual.position.map((n,i)=>n-at[i]))>.05)
+        throw Error("The named bus benches do not match the stated row pitch. Review their saved positions before building.");
+    }
+    const scene=JSON.parse(JSON.stringify(source)),parts=[],replace=new Set(named.filter(x=>x.base).map(x=>x.base.id)),rich=source.schema===root.KinolotRenderContract.MCP_SCHEMA;
+    Object.assign(scene.materials,{
+      busVinyl:{baseColor:[.22,.34,.27],roughness:.78},busMetal:{baseColor:[.34,.37,.35],metallic:.7,roughness:.42},
+      busPaint:{baseColor:[.60,.57,.48],metallic:.08,roughness:.76},busRubber:{baseColor:[.08,.09,.09],roughness:.9},
+      busLamp:{baseColor:[.93,.94,.85],roughness:.4,emissionStrength:3},busRed:{baseColor:[.5,.035,.02],roughness:.55}
+    });
+    const emit=(base,key,label,at,size,material,soft=false,extra={})=>{
+      const angle=base.rotation[2],x=at[0]*Math.cos(angle)-at[1]*Math.sin(angle),y=at[0]*Math.sin(angle)+at[1]*Math.cos(angle);
+      parts.push({...base,id:(base.id+"-"+key).slice(0,100),name:(base.name+" · "+label).slice(0,160),
+        kind:soft&&rich?"cushion":"box",position:[base.position[0]+x,base.position[1]+y,base.position[2]+at[2]].map(round),size:size.map(round),
+        material,basis:"design",...(!soft&&rich?{bevelMetres:Math.min(.006,...size.map(n=>n*.15))}:{}),...extra});
+    };
+    const bench=base=>{
+      const [w,d,h]=base.size;
+      emit(base,"seat","seat cushion",[0,d*.06,-h*.07],[w*.94,d*.72,h*.10],"busVinyl",true);
+      emit(base,"back","back cushion",[0,-d*.42,h*.20],[w*.94,d*.12,h*.59],"busVinyl",true);
+      emit(base,"rail","top rail",[0,-d*.43,h*.4875],[w*.98,d*.045,h*.025],"busMetal");
+      for(const x of [-1,1]){
+        emit(base,"post"+x,"back support",[x*w*.47,-d*.43,h*.19],[w*.03,d*.045,h*.60],"busMetal");
+        for(const y of [-1,1])emit(base,"foot"+x+y,"seat leg",[x*w*.34,y*d*.28,-h*.29],[w*.055,d*.055,h*.42],"busMetal");
+      }
+    };
+    for(const side of ["L","R"])for(let row=1;row<=count;row++){
+      const saved=named.find(x=>x.side===side&&x.row===row),t=template[side];
+      let base=saved?(scene.objects.find(o=>o.id===saved.base?.id)||saved.usual):{...t.usual,id:"bus-repeat-"+side+row,name:"Bench "+side+row+" (stated row pattern)",position:station(t,row),basis:"design"};
+      if(!saved)delete base.anchorId;
+      if(saved&&(saved.anchor.renderShape||partPoses?.[saved.anchor.id])){replace.delete(base.id);continue;}
+      if(base.position[0]<bounds.x0-.02||base.position[0]>bounds.x1+.02||base.position[1]<bounds.y0||base.position[1]>bounds.y1)
+        throw Error("The stated bus rows extend beyond the saved cabin. Review the row count, pitch or bench positions.");
+      if(!saved&&Object.values(source.cameras).some(p=>{
+        const dx=p.position[0]-base.position[0],dy=p.position[1]-base.position[1],a=base.rotation[2];
+        return Math.abs(dx*Math.cos(a)+dy*Math.sin(a))<base.size[0]/2&&Math.abs(-dx*Math.sin(a)+dy*Math.cos(a))<base.size[1]/2&&Math.abs(p.position[2]-base.position[2])<base.size[2]/2;
+      }))throw Error("A saved camera stands inside a repeated bus bench. Adjust that camera in step 3 before building.");
+      bench(base);
+    }
+    const roomPrefix=(space.name||"Space")+" ",ceiling=space.floorZ+space.ceilingH;
+    for(const o of scene.objects){if(o.name===roomPrefix+"floor")o.material="busRubber";if(o.name===roomPrefix+"wall")o.material="busPaint";}
+    const roof=scene.objects.find(o=>o.name===roomPrefix+"ceiling");
+    if(roof&&/\bcurved\b/i.test(text+" "+(anchors||[]).map(a=>a.name).join(" "))){
+      const alongY=bounds.length>=bounds.width,cross=alongY?bounds.width:bounds.length,run=alongY?bounds.length:bounds.width;
+      const windowTop=Math.max(space.floorZ,...(space.openings||[]).filter(o=>/window|glass/.test(o.kind)).map(o=>o.headZ));
+      const shelfTop=Math.max(space.floorZ,...(anchors||[]).filter(a=>anchorShape(a)==="side-shelves"&&a.z!=null&&a.size).map(a=>a.z+a.size[2]/2));
+      const rise=Math.min(.3,space.ceilingH*.15,ceiling-Math.max(windowTop+.05,shelfTop+.03));
+      if(rise>.05){
+        const thickness=.025,span=rise+thickness,outer=Array.from({length:13},(_,i)=>{const x=-.5+i/12;return [x,(-rise*4*x*x)/span+.5];});
+        const inner=outer.map(([x,y])=>[x,y-thickness/span]).reverse();
+        replace.add(roof.id);parts.push({...roof,name:roomPrefix+"curved ceiling",kind:"prism",material:"busPaint",basis:"design",
+          position:[(bounds.x0+bounds.x1)/2,(bounds.y0+bounds.y1)/2,ceiling+thickness-span/2],size:[cross,span,run],rotation:[Math.PI/2,0,alongY?0:Math.PI/2],footprint:outer.concat(inner)});
+      }
+    }
+    const driver=(anchors||[]).find(a=>/\bdriver\b/i.test(a.name)&&/\bdash\b/i.test(a.name));
+    const driverBase=driver&&!driver.renderShape&&scene.objects.find(o=>o.anchorId===driver.id);
+    if(driverBase){
+      replace.add(driverBase.id);const [w,d,h]=driverBase.size;
+      emit(driverBase,"seat","driver seat",[0,-d*.16,-h*.10],[w*.60,d*.42,h*.10],"busVinyl",true);
+      emit(driverBase,"back","driver backrest",[0,-d*.39,h*.13],[w*.60,d*.09,h*.67],"busVinyl",true);
+      emit(driverBase,"pedestal","seat pedestal",[0,-d*.16,-h*.32],[w*.18,d*.18,h*.34],"busMetal");
+      emit(driverBase,"dash","dashboard",[0,d*.34,h*.10],[w,d*.32,h*.32],"busRubber");
+      emit(driverBase,"panel","instrument panel",[0,d*.17,h*.18],[w*.82,d*.025,h*.15],"busMetal");
+      emit(driverBase,"wheel","steering wheel",[w*.05,d*.06,h*.20],[w*.34,w*.34,h*.035],"busRubber",false,{kind:"torus",rotation:[Math.PI/2+.2,0,driverBase.rotation[2]]});
+    }
+    const rear=(anchors||[]).find(a=>/emergency.*door|rear.*door/i.test(a.name)),rearOpening=rear&&(space.openings||[]).find(o=>o.id===rear.id);
+    if(rearOpening&&!rear.renderShape&&!partPoses?.[rear.id]){
+      const poly=space.footprint,a=poly[rearOpening.edge],b=poly[(rearOpening.edge+1)%poly.length];
+      const area=poly.reduce((n,p,i)=>{const q=poly[(i+1)%poly.length];return n+p[0]*q[1]-q[0]*p[1];},0);
+      const height=rearOpening.headZ-rearOpening.sillZ,depth=Math.min(.08,rear.size?.[1]||.06);
+      const base={id:"bus-rear-door",anchorId:rear.id,name:rear.name,position:[...rearOpening.centre,(rearOpening.sillZ+rearOpening.headZ)/2],size:[rearOpening.width,depth,height],rotation:[0,0,Math.atan2(b[1]-a[1],b[0]-a[0])+(area<0?Math.PI:0)]};
+      emit(base,"leaf","door leaf",[0,0,0],base.size,"busPaint");
+      emit(base,"release","release handle",[0,depth*.55,0],[rearOpening.width*.55,.015,.025],"busRed");
+    }
+    for(const side of ["L","R"]){
+      const t=template[side],band=(anchors||[]).find(a=>/window/.test(a.id)&&new RegExp(side==="L"?"west":"east","i").test(a.id));
+      if(!band?.xy||!band.size)continue;
+      const opening=(space.openings||[]).find(o=>o.id===band.id);if(!opening)continue;
+      const z=opening.sillZ,top=opening.headZ;
+      for(let i=0;i<=count;i++){
+        const at=station(t,i+.5),position=[...at];
+        if(Math.abs(band.xy[0]-bounds.x0)<.2||Math.abs(band.xy[0]-bounds.x1)<.2)position[0]=band.xy[0];else position[1]=band.xy[1];
+        const base={id:"bus-window-"+side+i,name:"Side window pillar",position:[position[0],position[1],(z+top)/2],rotation:[0,0,t.usual.rotation[2]]};
+        emit(base,"frame","row division",[0,0,0],[.045,.045,top-z],"busPaint");
+      }
+    }
+    const fitting=(anchors||[]).find(a=>/fluorescent|(?:light|lamp).*(?:strip|line)|(?:strip|line).*(?:light|lamp)/i.test(a.name)),lightBase=fitting&&!fitting.renderShape&&scene.objects.find(o=>o.anchorId===fitting.id);
+    if(lightBase){
+      replace.add(lightBase.id);const [w,d,h]=lightBase.size,alongY=d>=w,run=Math.max(w,d),modules=Math.max(1,Math.min(8,Math.ceil(run/1.75)));
+      const original=scene.previewLights.filter(l=>Math.abs(l.position[0]-(bounds.x0+bounds.x1)/2)<.01&&Math.abs(l.position[1]-(bounds.y0+bounds.y1)/2)<.01&&Math.abs(l.position[2]-(ceiling-.15))<.01);
+      scene.previewLights=scene.previewLights.filter(l=>!original.includes(l));const slots=Math.min(modules,16-scene.previewLights.length),power=original.reduce((n,l)=>n+l.powerWatts,0)||200;
+      for(let i=0;i<modules;i++){
+        const offset=(i-(modules-1)/2)*run/modules,at=alongY?[0,offset,0]:[offset,0,0],extent=run/modules*.88;
+        emit(lightBase,"case"+i,"strip housing",[at[0],at[1],h*.225],alongY?[w,extent,h*.55]:[extent,d,h*.55],"busMetal");
+        emit(lightBase,"diffuser"+i,"strip diffuser",[at[0],at[1],-h*.4],alongY?[w*.82,extent*.95,h*.18]:[extent*.95,d*.82,h*.18],"busLamp");
+      }
+      for(let i=0;i<slots;i++){
+        const offset=(i-(slots-1)/2)*run/slots,angle=lightBase.rotation[2],x=alongY?0:offset,y=alongY?offset:0;
+        scene.previewLights.push({position:[lightBase.position[0]+x*Math.cos(angle)-y*Math.sin(angle),lightBase.position[1]+x*Math.sin(angle)+y*Math.cos(angle),lightBase.position[2]-h*.6],
+          colour:original[0]?.colour||[1,.92,.8],powerWatts:power/slots,sizeMetres:Math.min(.8,run/modules)});
+      }
+    }
+    scene.objects=scene.objects.filter(o=>!replace.has(o.id)).concat(parts);
+    scene.notes.push("Bus interior profile v1: "+count+" bench rows per side and "+pitch+" m row pitch come from the written brief. Named story benches retain their saved positions and bounds; remaining rows repeat that measured pattern. Footprint, openings and camera poses are retained.");
+    scene.notes.push("Bench cushions, metal supports, driver controls, window pillars, curved roof drop and sections of the stated ceiling-light line are proposed construction detail. Background rows are not new saved anchors. The renderer does not recover geometry from an ideas image.");
+    return root.KinolotRenderContract.validateScene(scene);
   }
   // Assemblies replace only an existing anchor. Every component stays inside its saved local envelope;
   // rooms, openings, other anchors and camera poses are never moved to make furniture fit.
@@ -156,11 +315,13 @@
     scene.notes.push("Sports nets use open mesh and supports within saved bounds. Unless Net mesh height is set, the mesh occupies the top 0.9 m (limited to overall height), a proposed design. Spacing and cord thickness are preview detail; review against the intended game.");
     return root.KinolotRenderContract.validateScene(scene);
   }
-  function build(source,{space,anchors,allAnchors}={}){
+  function build(source,{space,anchors,allAnchors,brief,partPoses}={}){
     if(source.schema===root.KinolotRenderContract.MCP_SCHEMA){
       if(!root.KinolotSetKitchen)throw Error("The detailed set builder did not load. Refresh before building.");
       source=root.KinolotSetKitchen.build(source,{space,anchors:allAnchors||anchors});
     }
+    source=buildBus(source,{space,anchors,brief,partPoses});
+    source=buildSideShelves(source,allAnchors||anchors);
     source=buildNets(source,allAnchors||anchors);
     source=buildFurniture(source,allAnchors||anchors);
     const bounds=rectangle(space);

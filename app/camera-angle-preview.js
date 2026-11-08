@@ -76,7 +76,7 @@
         const a=space.footprint?.[o.edge],b=space.footprint?.[(o.edge+1)%space.footprint.length];
         if(!a||!b||!o.centre||![o.width,o.sillZ,o.headZ].every(Number.isFinite)||o.width<=0||o.headZ<=o.sillZ)continue;
         const length=Math.hypot(b[0]-a[0],b[1]-a[1]);if(!length)continue;
-        guides.push({name:o.name||'Unnamed opening',type:o.kind||'opening',room:space.name||'Unnamed room',centre:[...o.centre],
+        guides.push({id:o.id,name:o.name||'Unnamed opening',type:o.kind||'opening',room:space.name||'Unnamed room',centre:[...o.centre],
           along:[(b[0]-a[0])/length,(b[1]-a[1])/length],width:o.width,bottom:o.sillZ,top:o.headZ,
           beyond:o.connectsTo?(spaces.find(s=>s.id===o.connectsTo)?.name||'Another space, not modelled here'):'Outside or adjoining space not specified in the floor plan'});
       }
@@ -105,10 +105,10 @@
     holes.sort((a,b)=>a.distance-b.distance);
     const through=holes.find(h=>!solid||h.distance<solid.distance-.01)?.opening;
     if(solid){const item=spec.objects.find(o=>o.id===solid.object.userData.id),anchor=anchors.find(a=>a.id===item.anchorId);
-      return {kind:'object',name:anchor?.name||item.name,part:anchor?.name&&anchor.name!==item.name?item.name:null,type:item.kind,
+      return {kind:'object',anchorId:item.anchorId||null,name:anchor?.name||item.name,part:anchor?.name&&anchor.name!==item.name?item.name:null,type:item.kind,
         dimensions:[...(anchor?.size||item.size)],dimensionsSource:anchor?.size?'saved':'preview',through:through||null,
         description:item.anchorId?'Saved set object; its preview shape may be simplified.':'Modelled set surface.'};}
-    if(through)return {kind:'opening',name:through.name,type:through.type,room:through.room,dimensions:[through.width,through.top-through.bottom],beyond:through.beyond};
+    if(through)return {kind:'opening',openingId:through.id,name:through.name,type:through.type,room:through.room,dimensions:[through.width,through.top-through.bottom],beyond:through.beyond};
     return {kind:'background',name:'Unmodelled space',description:'No modelled surface is visible here. The blue background is a preview guide, not an object or a finished exterior.'};
   }
   // Small depth-buffer renderer for devices where WebGL is disabled or unavailable.
