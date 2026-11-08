@@ -33,5 +33,5 @@ window.TURN_SUPABASE = {
   setBuild: true,
   /* Enable only after the queued MCP worker, scene-storage migration and server
      BLENDER_RENDER_MCP / BLENDER_RENDER_SCENE_STORAGE switches are verified. */
-  setBuildMcp: false,
+  setBuildMcp: true,
 };

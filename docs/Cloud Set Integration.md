@@ -130,24 +130,17 @@ runs once they are a day old. Completed folders whose immediate removal failed
 are retried by the sweep. Existing isolated trial/review folders are not swept:
 archive and verify those separately before explicit cleanup.
 
-## Remaining rollout gates
+## Current rollout evidence and remaining checks
 
-1. Publish the reviewed scene-header compatibility correction on both the worker
-   and service, then re-enable detailed requests for one controlled retry.
-2. Verify a scoped authenticated app job against real private Supabase storage,
-   including the scene file, images, signed reads and access denial.
-3. Generate a draft through the actual controls and let the user review it before
-   artwork adoption. Keep current approved artwork until that action. Check
-   working-file cleanup, recovery and coexistence with legacy jobs.
+The corrected worker is published, and the cloud rendering service is active. A fresh management check confirms the render, paid-plan access, editable-scene storage and detailed-MCP switches are enabled. The service currently reports active version 12; this frontend release does not redeploy or replace the service.
 
-The compatibility-corrected worker is published. Both new server switches remain
-disabled after the first controlled app job failed, pending the reviewed retry.
-There were no queued/running jobs when the original test switches were enabled.
-The committed browser `setBuildMcp` remains false; only the loopback development
-test server serves an enabled override. The public website frontend has not been
-updated. Read `supabase/README.md` for exact order
-and rollback precautions. Do not describe this checkpoint as a completed live
-rollout or exact photogrammetric reconstruction.
+The controlled development app completed the Okafor Kitchen cloud build on its first attempt after the upload-header correction. All twelve render passes and the editable scene were saved in private Supabase storage, with signed reads and public/anonymous access denial checked. The user generated a style draft from that build and explicitly approved it as location artwork; earlier artwork history was retained. Those steps establish the development Build → Style → private save → artwork adoption path.
+
+The isolated release candidate enables `setBuildMcp` in the browser configuration. This is prepared code, not evidence that the public frontend has been published. The old browser route remains a rollback option by setting that flag false. No new render is started by changing the browser configuration.
+
+Before publication, preserve the real main Replit workspace restore point, sync the exact reviewed candidate, build its static assets, and verify the deployed revision after publishing. The automatic image-to-camera path has passed offline and compiled tests but its corrected real-image retry is still pending. Production temporary-file deletion has not been independently verified from the available runtime evidence; tested cleanup policy and successful Supabase uploads do not prove that production files were deleted. Older trial/review folders remain intentionally outside the worker's cleanup scope.
+
+Read `supabase/README.md` for backend rollback precautions. Do not call the untested image matcher exact reconstruction or claim that all temporary cloud files have been confirmed removed.
 
 ## Publication correction
 
