@@ -24,6 +24,8 @@ Replacing another panel is a separate optional choice with an explicit target
 on its Save button. Extra-angle loading/saving remains optional. No selection,
 slider or reset writes film data; stale, permission and preview-readiness checks
 still guard the explicit save action.
+Its entry button sits directly below Suggest four cameras; the route to Build
+the set stays below the camera review content.
 
 - Detailed app scenes use `kinolot-cloud-set-v2` / `mcp-procedural-v1`. They carry
   numerical geometry, cameras, bounded edge radii and procedural surface recipes.

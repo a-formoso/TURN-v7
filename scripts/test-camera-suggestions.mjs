@@ -103,6 +103,9 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   const button=(tree,label)=>nodes(tree).find(n=>n.type==="button"&&text(n)===label);
   const inspection=tree=>nodes(tree).find(n=>(n.props.className||"").includes("loc-camera-inspection"));
   let tree=render();ok(inspection(tree).props.open===false,"The duplicate overhead map starts collapsed");
+  const cameraEditor=tree.children.find(n=>n?.type===b.LocationCameraAngleWorkbench);
+  ok(tree.children.indexOf(cameraEditor)===1&&tree.children.indexOf(cameraEditor)<tree.children.indexOf(inspection(tree)),
+    "The angle editor sits immediately below suggestion actions, before the optional map");
   button(tree,"Suggest four cameras").props.onClick();tree=render();
   ok(inspection(tree).props.open===true,"A proposal opens the map for review before saving");
   ok(writes.length===0&&JSON.stringify(l)===saved,"clicking Suggest makes no saved-data changes");

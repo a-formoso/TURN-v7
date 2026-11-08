@@ -334,6 +334,7 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
       !readOnly&&(!state.ready||!ownRoom)&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>window.goToLocationStep(l,2)},"Review floor plan"),
       proposal&&E("button",{type:"button",className:"art-draftall",disabled:readOnly||stale,onClick:apply},"Use these cameras"),
       proposal&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>{setProposal(null);setPreviewRequest(null);setError("");setMapOpen(false);}},"Discard proposal")),
+    state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,previewRequest:proposal?null:previewRequest}),
     proposal&&!stale&&window.LocationSuggestedCameraPreviews&&E(window.LocationSuggestedCameraPreviews,{l,proposal,locations:list,previewRequest}),
     E("details",{className:"loc-nested-section loc-camera-inspection",open:mapOpen,onToggle:e=>{if(e.target===e.currentTarget)setMapOpen(e.currentTarget.open);}},
       E("summary",null,proposal&&!stale?"Review suggested camera positions":"Inspect saved camera positions"),
@@ -348,7 +349,6 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
     !proposal&&state.ready&&ownRoom&&api.enabled?.()&&Object.keys(api.cameraProblems(l,list)).length===0&&E("div",{className:"loc-step-actions"},
       E("p",{className:"loc-layer-note"},"Camera position checks pass. Preview the angles if needed, then build the set. Composition notes below are optional."),
       E("button",{type:"button",className:"art-draftall",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set")),
-    state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,previewRequest:proposal?null:previewRequest}),
     E("p",{className:"loc-layer-note"},"Suggesting and reviewing cameras uses no credits and starts no render."));
 }
 function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
