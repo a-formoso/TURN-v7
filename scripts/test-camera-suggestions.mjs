@@ -93,7 +93,7 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
 {
   const l=room(),saved=JSON.stringify(l),states=[],writes=[];let i=0;
   b.React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity)}),
-    useState:v=>{const n=i++;if(!(n in states))states[n]=v;return [states[n],v=>states[n]=typeof v==="function"?v(states[n]):v];},useEffect(){}};
+    useState:v=>{const n=i++;if(!(n in states))states[n]=v;return [states[n],v=>states[n]=typeof v==="function"?v(states[n]):v];},useEffect(){},useRef:v=>{const n=i++;if(!(n in states))states[n]={current:v};return states[n];}};
   vm.runInContext(transformSync(read("locations-ui.jsx"),{presets:["@babel/preset-react"],babelrc:false,configFile:false}).code,b);
   b.LocationSuggestedCameraPreviews=function(){};
   b.LocationCameraAngleWorkbench=function(){};
@@ -103,10 +103,10 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   const button=(tree,label)=>nodes(tree).find(n=>n.type==="button"&&text(n)===label);
   const inspection=tree=>nodes(tree).find(n=>(n.props.className||"").includes("loc-camera-inspection"));
   let tree=render();ok(inspection(tree).props.open===false,"The duplicate overhead map starts collapsed");
-  const cameraEditor=tree.children.find(n=>n?.type===b.LocationCameraAngleWorkbench);
-  ok(tree.children.indexOf(cameraEditor)===1&&tree.children.indexOf(cameraEditor)<tree.children.indexOf(inspection(tree)),
-    "The angle editor sits immediately below suggestion actions, before the optional map");
-  button(tree,"Suggest four cameras").props.onClick();tree=render();
+  const cameraEditor=nodes(tree).find(n=>n?.type===b.LocationCameraAngleWorkbench);
+  ok(tree.children[0].children.includes(cameraEditor)&&cameraEditor.props.inline===true,
+    "The angle editor shares the action row to the right of Suggest 4 cameras when no other actions appear");
+  button(tree,"Suggest 4 cameras").props.onClick();tree=render();
   ok(inspection(tree).props.open===true,"A proposal opens the map for review before saving");
   ok(writes.length===0&&JSON.stringify(l)===saved,"clicking Suggest makes no saved-data changes");
   const map=nodes(tree).find(n=>n.type===b.LocationFloorPlanMap);
@@ -120,14 +120,14 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   ok(button(render(true),"Use these cameras").props.disabled,"read-only access cannot apply a proposal");
   button(tree,"Discard proposal").props.onClick();ok(!button(render(),"Use these cameras")&&writes.length===0,"discard leaves original cameras untouched");
   ok(inspection(render()).props.open===false,"Discard returns the camera controls to their compact state");
-  button(render(),"Suggest four cameras").props.onClick();
+  button(render(),"Suggest 4 cameras").props.onClick();
   const old=l.coverageViews;l.coverageViews=[...old,{id:"new",name:"A later edit"}];
   ok(button(render(),"Use these cameras").props.disabled,"a later camera edit disables stale proposal acceptance");
   button(render(),"Use these cameras").props.onClick();ok(writes.length===0,"a stale apply handler is also guarded");l.coverageViews=old;
-  button(render(),"Suggest four cameras").props.onClick();const beforeSwitch=render();
+  button(render(),"Suggest 4 cameras").props.onClick();const beforeSwitch=render();
   b.turnContinuity.locations=[{...l,coverageViews:[...old,{id:"remote",name:"A concurrent edit"}]}];
   button(beforeSwitch,"Use these cameras").props.onClick();ok(writes.length===0,"an old handler rereads current saved camera data before applying");b.turnContinuity.locations=[l];
-  button(render(),"Suggest four cameras").props.onClick();tree=render();button(tree,"Use these cameras").props.onClick();
+  button(render(),"Suggest 4 cameras").props.onClick();tree=render();button(tree,"Use these cameras").props.onClick();
   ok(writes.length===1&&writes[0].id===l.id&&Object.keys(writes[0].patch).join()==="coverageViews","Use saves this room's camera settings exactly once");
   ok(inspection(render()).props.open===false,"Applying the proposal folds the optional inspection map");
   l.coverageViews=writes[0].patch.coverageViews;
@@ -138,10 +138,36 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   ok(nodes(tree).find(n=>n.type===b.LocationCameraAngleWorkbench).props.previewRequest.panel==="TR"&&writes.length===1,
     "A saved camera marker opens the matching saved angle editor without writing");
   b.nbGetMeta=()=>({iso:"a-new-location-image"});tree=render();
-  ok(button(tree,"Suggest four cameras").props.disabled&&button(tree,"Suggest four cameras").props.title.includes("no longer match"),
+  ok(button(tree,"Suggest 4 cameras").props.disabled&&button(tree,"Suggest 4 cameras").props.title.includes("no longer match"),
     "An image/layout mismatch explains the actual blocker instead of implying cameras are already set");
   button(tree,"Review floor plan").props.onClick();
   ok(destination.step===2&&writes.length===1,"The blocked camera action offers a direct floor-plan review route without automatic approval");
   b.nbGetMeta=()=>null;
+  b.LocationCameraInspiration=function(){};
+  b.BlenderPreview={scope:()=>({uid:"owner",projectId:"film",epoch:1})};
+  let resolveConfirm;
+  b.KinolotCameraMatch={confirm:()=>new Promise(resolve=>resolveConfirm=resolve)};
+  const matchProposal=()=>({...api.proposeCameras(l),imageMatch:{scope:b.BlenderPreview.scope()},referenceUrl:"private-ideas"});
+  const propose=p=>nodes(render()).find(n=>n.type===b.LocationCameraInspiration).props.onPropose(p);
+  const inspiration=nodes(render()).find(n=>n.type===b.LocationCameraInspiration),ticket=inspiration.props.onPropose(null);
+  button(render(),"Suggest 4 cameras").props.onClick();
+  inspiration.props.onPropose({...matchProposal(),imageMatch:{stale:true}},ticket);
+  ok(!nodes(render()).find(n=>n.type===b.LocationSuggestedCameraPreviews).props.proposal.imageMatch,
+    "A late image match cannot overwrite a newer suggestion or discard action");
+  propose(matchProposal());tree=render();
+  ok(nodes(tree).find(n=>n.type===b.LocationCameraAngleWorkbench).props.inline===false,
+    "A proposal with Use and Discard moves the preview button below the action row");
+  const originalWrites=writes.length,accept=button(tree,"Use these cameras").props.onClick();
+  button(render(),"Discard proposal").props.onClick();resolveConfirm();await accept;
+  ok(writes.length===originalWrites,"Discarding during source-image verification prevents a late camera save");
+  propose(matchProposal());tree=render();const changed=button(tree,"Use these cameras").props.onClick();
+  const prior=l.coverageViews;l.coverageViews=[...prior,{id:"newer-change"}];resolveConfirm();await changed;
+  ok(writes.length===originalWrites,"A changed saved camera during async source verification blocks a stale image fit");l.coverageViews=prior;
+  propose(matchProposal());tree=render();const readonlyAccept=button(tree,"Use these cameras").props.onClick();
+  b.turnArtRoomWritable=()=>false;resolveConfirm();await readonlyAccept;
+  ok(writes.length===originalWrites,"Losing edit permission during source verification prevents accepting a fit");b.turnArtRoomWritable=()=>true;
+  propose(matchProposal());tree=render();const accepted=button(tree,"Use these cameras").props.onClick();resolveConfirm();await accepted;
+  ok(writes.length===originalWrites+1&&Object.keys(writes.at(-1).patch).join()==="coverageViews",
+    "Explicit image-fit acceptance saves camera poses only through the existing update boundary");
 }
 console.log("PASS camera suggestions: "+checks+" deterministic placement, validation, scope and preview/apply checks");

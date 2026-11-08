@@ -174,6 +174,14 @@
     return {
       get mode(){return cpu?"software":"gpu";},
       inspect(pose,x,y){if(disposed)throw Error('This preview was closed.');return inspect(T,rig,spec,openings,anchors,pose,x,y);},
+      landmarkVisible(pose,point){
+        if(disposed)throw Error('This preview was closed.');
+        const camera=cameraFor(T,pose),target=new T.Vector3(...point),delta=target.clone().sub(camera.position),distance=delta.length();
+        if(distance<.02)return false;
+        const ray=new T.Raycaster(camera.position,delta.normalize(),.01,distance+.025);
+        const hit=ray.intersectObjects(rig.meshes,false)[0];
+        return !hit||hit.distance>=distance-.025;
+      },
       render(canvas,pose,width=640,height=360){
         if(disposed)throw Error("This preview was closed.");
         if(renderer?.getContext?.()?.isContextLost?.()){releaseGPU();cpu=software(T,rig);}

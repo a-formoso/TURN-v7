@@ -257,12 +257,12 @@
   }
   function cameraProposalViews(location,proposal,list){
     list=list||((root.turnContinuity||{}).locations)||[];
-    if(!proposal||proposal.key!==cameraProposalKey(location,list))throw Error("The film, floor plan or cameras changed. Suggest four cameras again.");
+    if(!proposal||proposal.key!==cameraProposalKey(location,list))throw Error("The film, floor plan or cameras changed. Suggest 4 cameras again.");
     if(!Array.isArray(proposal.panels)||proposal.panels.length!==4||["TL","TR","BL","BR"].some(k=>proposal.panels.filter(p=>p.key===k).length!==1))
       throw Error("Four proposed camera views are required.");
     const state=root.locationSpatialPlanState(location,list);
     if(!state.ready||Object.keys(cameraProblemsIn(location,list,state.plan,renderSpaces(state.plan),root.locationSpatialFamily(state.owner,list),state.owner,proposal.panels)).length)
-      throw Error("These camera positions no longer fit the room. Suggest four cameras again.");
+      throw Error("These camera positions no longer fit the room. Suggest 4 cameras again.");
     let next=location;
     for(const p of proposal.panels)next={...next,coverageViews:root.locationCoverageViewsWithPose(next,p.key,p.pose)};
     return next.coverageViews;

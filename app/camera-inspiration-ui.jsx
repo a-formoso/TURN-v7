@@ -1,9 +1,9 @@
 /* Optional paid view ideas, isolated from location artwork and measured set data. */
-function LocationCameraInspiration({l,readOnly=false}){
+function LocationCameraInspiration({l,readOnly=false,onPropose}){
   const api=window.KinolotCameraInspiration,E=React.createElement;
   const [open,setOpen]=React.useState(false),[draft,setDraft]=React.useState(null),[busy,setBusy]=React.useState(false),[loading,setLoading]=React.useState(false);
   const [engine,setEngine]=React.useState(api?.ENGINES[0]||""),[error,setError]=React.useState(""),[phase,setPhase]=React.useState(""),[retry,setRetry]=React.useState(false),[tick,setTick]=React.useState(0),[enlarged,setEnlarged]=React.useState(false);
-  const dialog=React.useRef(null),alive=React.useRef(true);
+  const dialog=React.useRef(null),alive=React.useRef(true),operating=React.useRef(false);
   let scope=null,choice=null,reason="";
   try{scope=window.BlenderPreview.scope();choice=api.settings(engine);}catch(e){reason=e.message;}
   const scopeKey=scope?[scope.uid,scope.projectId,scope.epoch,l.id].join(":"):"";
@@ -25,14 +25,21 @@ function LocationCameraInspiration({l,readOnly=false}){
   if(!api)return null;
   const pending=scope?api.pending(scope,l.id):null;
   async function generate(){
-    if(readOnly||busy||!scope||!choice)return;setBusy(true);setError("");setPhase("generating");
+    if(readOnly||busy||operating.current||!scope||!choice)return;operating.current=true;setBusy(true);setError("");setPhase("generating");onPropose?.(null);
     try{const result=await api.generate(l.id,scope,{engine,retryConfirmed:retry,onPhase:p=>{if(valid())setPhase(p);}});if(valid()){setDraft(result);setRetry(false);}}
-    catch(e){if(valid())setError(e.message);}finally{if(valid()){setBusy(false);setPhase("");setTick(n=>n+1);}}
+    catch(e){if(valid())setError(e.message);}finally{operating.current=false;if(valid()){setBusy(false);setPhase("");setTick(n=>n+1);}}
   }
   async function save(){
-    if(readOnly||busy||!scope)return;setBusy(true);setError("");setPhase("saving");
+    if(readOnly||busy||operating.current||!scope)return;operating.current=true;setBusy(true);setError("");setPhase("saving");
     try{const result=await api.retrySave(l.id,scope);if(valid()){setDraft(result);setRetry(false);}}
-    catch(e){if(valid())setError(e.message);}finally{if(valid()){setBusy(false);setPhase("");setTick(n=>n+1);}}
+    catch(e){if(valid())setError(e.message);}finally{operating.current=false;if(valid()){setBusy(false);setPhase("");setTick(n=>n+1);}}
+  }
+  async function match(){
+    if(readOnly||busy||operating.current||!scope||!draft||stale||!onPropose)return;
+    operating.current=true;setBusy(true);setError("");setPhase("Preparing camera match…");const ticket=onPropose(null);
+    try{const proposal=await window.KinolotCameraMatch.match(l.id,scope,{onPhase:p=>{if(valid())setPhase(p);}});if(valid())onPropose(proposal,ticket);}
+    catch(e){if(valid())setError(e.message+" An image-reading call, if submitted, still uses writing credits even when a fit is not possible.");}
+    finally{operating.current=false;if(valid()){setBusy(false);setPhase("");}}
   }
   let stale=!!draft;
   try{if(draft)stale=draft.meta.inputKey!==api.inputKey(l.id);}catch(_){}
@@ -40,7 +47,7 @@ function LocationCameraInspiration({l,readOnly=false}){
     E("summary",null,"Need ideas for camera views?"),
     open&&E("div",{className:"loc-camera-ideas-body"},
       E("p",{className:"loc-layer-note"},"Generate a separate four-view image to explore camera compositions from your description and floor plan. Image-generation credits apply."),
-      E("p",{className:"loc-layer-note"},"Ideas only: the image may invent details. It does not change your floor plan, cameras or location artwork, and is not used to build the Blender set. Check possible angles in the 3D preview."),
+      E("p",{className:"loc-layer-note"},"The image may invent details. Generating it does not change your set or cameras. Like these views? Try matching their framing to your fixed set, review the 3D results, then choose Use these cameras. The image never changes Blender geometry or location artwork."),
       E("label",{className:"loc-style-notes"},"Image engine",E("select",{value:engine,disabled:readOnly||busy,onChange:e=>{setEngine(e.target.value);setError("");}},
         api.ENGINES.map(id=>E("option",{key:id,value:id},window.nbModelLabel(id))))),
       choice&&choice.model!==engine&&E("p",{className:"loc-layer-note"},"Your plan uses "+window.nbModelLabel(choice.model)+" for this request."),
@@ -48,15 +55,21 @@ function LocationCameraInspiration({l,readOnly=false}){
       pending?.hasUnsaved&&!busy&&E("p",{className:"loc-layer-note"},"The image finished, but its save was not confirmed. Retry saving without generating another image."),
       E("div",{className:"loc-step-actions"},
         E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||!scope||!(Number(choice?.credits)>0)||!!pending?.active||!!pending?.hasUnsaved||!!pending&&!retry,onClick:generate},
-          busy?(phase==="saving"?"Saving ideas…":"Generating ideas…"):draft?"Generate more view ideas":"Generate view ideas",
+          busy?(phase==="saving"?"Saving ideas…":phase==="generating"?"Generating ideas…":"Matching views…"):draft?"Generate more view ideas":"Generate view ideas",
           !busy&&Number(choice?.credits)>0&&window.nbCostChip&&window.nbCostChip(1,{model:choice.model,res:choice.imageSize,quality:choice.quality,aspect:"16:9",refs:0,ground:false})),
         pending?.hasUnsaved&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:save},"Retry saving ideas")),
       (reason||error)&&E("p",{className:"loc-spatial-error",role:"alert"},error||reason),
       loading&&!busy&&E("p",{className:"loc-layer-note",role:"status"},"Loading saved ideas…"),
+      busy&&phase!=="generating"&&phase!=="saving"&&E("p",{className:"loc-layer-note",role:"status"},phase),
       draft&&E("figure",{className:"loc-camera-ideas-image"},
         E("img",{src:draft.url,alt:"Camera-composition ideas for "+(l.name||"this location")}),
         E("figcaption",null,(stale?"Earlier ideas — the description or floor plan has changed. ":"")+"Inspiration only · "+window.nbModelLabel(draft.meta.modelId)),
         E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setEnlarged(true)},"Enlarge ideas")),
+      draft&&onPropose&&window.KinolotCameraMatch&&E("div",{className:"loc-camera-match-actions"},
+        E("p",{className:"loc-layer-note"},"Match views to set · experimental. Estimates achievable camera angles from shared visible features. Changed proportions or hidden features may prevent a match. Review every 3D view before accepting."),
+        E("p",{className:"loc-layer-note"},"Price: "+(window.aiPlateCamerasReadCostText?.()||"one writing call")+" per attempt. Writing credits apply even if the image cannot be matched. No image or Blender render is generated."),
+        E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||stale||!scope,onClick:match},"Match these views to set"),
+        stale&&E("p",{className:"loc-layer-note"},"Generate fresh ideas for the current floor plan before matching.")),
       enlarged&&draft&&E("dialog",{ref:dialog,className:"loc-angle-dialog",onCancel:()=>setEnlarged(false),"aria-label":"Camera-composition ideas"},
         E("div",{className:"loc-cloud-render-head"},E("h3",null,(l.name||"Location")+" · view ideas"),E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setEnlarged(false)},"Close ideas")),
         E("p",{className:"loc-layer-note"},"Inspiration only. Your saved layout and cameras stay unchanged."),

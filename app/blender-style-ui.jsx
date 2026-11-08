@@ -102,12 +102,14 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
   const leftLabel=engineView?(pair?engineLabel(pair.left):"First engine"):"Blender source",rightLabel=engineView?(pair?engineLabel(pair.right):"Second engine"):"Styled draft";
   const problem=reason||error;
   return E("section",{className:"loc-style-preview","data-testid":"location-style-preview"},
-    E("h4",null,"Style preview"),
-    E("p",{className:"loc-layer-note"},partState
+    E("h4",{className:"loc-control-heading"},"Style preview",window.InfoTip&&E(window.InfoTip,{label:"About style preview",text:partState
       ?"This set is built at a story moment: "+partState.label+". The styled draft becomes that state's own image; shots at those moments use it in place of the location image, which stays as it is."
-      :"Try the location's materials and look over the four Blender views. Review every view before replacing artwork; image styling can move or invent details."),
+      :"Try the location's materials and look over the four Blender views. Your artwork changes only when you approve a draft, and the previous image stays in history."})),
+    E("p",{className:"loc-layer-note"},"Review all 4 views before approving; image styling can change details."),
     E("label",{className:"loc-style-notes"},"Surface notes (optional)",E("textarea",{value:notes,maxLength:1000,disabled:readOnly||busy,onChange:e=>setNotes(e.target.value),placeholder:"For example, subtle salt streaks and less floor glare."})),
-    E("label",{className:"loc-style-notes"},"Engine",
+    E("label",{className:"loc-style-notes"},E("span",{className:"loc-control-heading"},"Engine",window.InfoTip&&E(window.InfoTip,{label:"About comparing style engines",text:pair
+      ?"Compare engines shows saved results made from the same Blender build and prompt. Opening either comparison uses no generation credits."
+      :"To compare engines, save drafts with two different engines using the same Blender build and surface notes. Each generation has its own displayed price; comparisons use no generation credits."})),
       E("select",{value:engine,disabled:readOnly||busy,onChange:e=>setEngine(e.target.value)},
         api.ENGINES.map(id=>E("option",{key:id,value:id},window.nbModelLabel(id))))),
     pending&&!pending.active&&!pending.hasUnsaved&&E("label",{className:"loc-style-check"},E("input",{type:"checkbox",checked:retry,disabled:readOnly||busy,onChange:e=>setRetry(e.target.checked)}),pending.cancelled?"The cancelled request may still be charged. I checked usage and want to start a new paid request.":"An earlier request may still finish. I checked usage and want to start a new paid request."),
@@ -124,9 +126,6 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
         title:draft?"Inspect the saved draft against its Blender reference":"Save a style draft to compare it with its Blender reference",
         onClick:()=>{setCompareMode("source");setChecked(false);setImagesReady({source:false,draft:false});setReview(true);}},"Compare with Blender"),
       E("button",{type:"button",className:"art-draftall ghost",disabled:busy||!pair,onClick:()=>{setCompareMode("engines");setReview(true);}},"Compare engines")),
-    E("p",{className:"loc-layer-note"},pair
-      ?"Compare engines shows saved results made from the same Blender build and prompt. Opening either comparison uses no generation credits."
-      :"To compare engines, save drafts with two different engines using the same Blender build and surface notes. Each generation has its own displayed price; comparisons use no generation credits."),
     phase&&styleProgress({phase,since:phaseAt,now,model:choice?.model,api}),
     !phase&&pending?.active&&E("p",{role:"status",className:"loc-layer-note"},"A style draft for this location is being generated or saved."),
     loading&&E("p",{role:"status",className:"loc-layer-note"},"Loading saved style draft…"),

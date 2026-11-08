@@ -1,5 +1,5 @@
 /* Review a camera angle against the current four panels before explicitly saving or assigning it. */
-function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=null}){
+function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=null,inline=false}){
   const E=React.createElement,api=window.KinolotCloudRender,preview=window.KinolotAnglePreview;
   const [open,setOpen]=React.useState(false),[spec,setSpec]=React.useState(null),[pose,setPose]=React.useState(null);
   const [destination,setDestination]=React.useState("TL"),[start,setStart]=React.useState("TL"),[name,setName]=React.useState("Extra angle");
@@ -116,9 +116,9 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
   const duplicate=spec&&Object.keys(labels).find(k=>k!==destination&&same(pose,spec.cameras[k]));
   const editing=start.startsWith("extra:")?destination:start;
   const copying=destination!==editing;
-  return <div className="loc-angle-entry">
-    <button type="button" className="art-draftall ghost" onClick={begin}>Preview &amp; choose camera angles</button>
-    <p className="loc-layer-note">Free interactive layout previews use the saved set geometry. Final materials and lighting are rendered by Blender in step 4.</p>
+  return <div className={"loc-angle-entry"+(inline?" loc-angle-entry-inline":"")}>
+    <span className="loc-camera-control"><button type="button" className="art-draftall ghost" onClick={begin}>Preview &amp; choose camera angles</button>
+      {window.InfoTip&&<window.InfoTip label="About camera previews" text="Free interactive previews use the saved set geometry with simplified materials and neutral lighting. Move a camera without changing the set. Blender builds and renders the finish in step 4. Changes stay unsaved until you save the named camera."/>}</span>
     {!open&&error&&<p role="alert" className="loc-spatial-error">{error}</p>}
     {!open&&notice&&<p role="status" className="loc-layer-note">{notice}</p>}
     {open&&spec&&pose&&<dialog ref={dialog} className="loc-angle-dialog" onCancel={()=>setOpen(false)} aria-label="Preview and choose a camera angle">
@@ -224,10 +224,11 @@ function LocationSuggestedCameraPreviews({l,proposal,locations,previewRequest=nu
     return ()=>{live=false;rendered.current=null;instance?.dispose();};
   },[l,proposal,locations,attempt]);
   return <section className="loc-suggested-camera-previews" aria-label="Suggested camera views">
-    <p className="loc-layer-note">Proposed 3D views · saved set geometry with simplified materials and lighting. Review the framing before choosing Use these cameras. Blender renders the finish in step 4.</p>
+    <p className="loc-layer-note">Proposed 3D views · review before saving {window.InfoTip&&<window.InfoTip label="About proposed views" text="These free views use saved set geometry with simplified materials and lighting. Check framing and obstructions before choosing Use these cameras. Blender renders the finish in step 4."/>}</p>
     <div className="loc-angle-panels">
       {proposal.panels.map(panel=><figure key={panel.key} className="loc-angle-panel" style={{margin:0}}>
         <figcaption>{labels[panel.key]} · {panel.label}</figcaption>
+        {proposal.imageMatch&&<><div className="loc-match-reference"><img src={proposal.referenceUrl} alt={labels[panel.key]+" ideas reference"} style={{left:panel.key.endsWith("R")?"-100%":0,top:panel.key.startsWith("B")?"-100%":0}}/></div><p className="loc-layer-note">Ideas reference above · achievable 3D view below</p></>}
         <button type="button" className="loc-camera-open-view" onClick={()=>setExpanded(panel.key)} aria-label={"Open "+panel.label+" 3D preview"}>
           <canvas width={320} height={180} ref={node=>canvases.current[panel.key]=node} aria-label={panel.label+" proposed 3D layout preview"}/>
         </button>
@@ -237,6 +238,7 @@ function LocationSuggestedCameraPreviews({l,proposal,locations,previewRequest=nu
       <div className="loc-cloud-render-head"><h3>{labels[expanded]} · {proposal.panels.find(p=>p.key===expanded)?.label}</h3>
         <button type="button" className="art-draftall ghost" onClick={()=>setExpanded("")}>Close preview</button></div>
       <p className="loc-layer-note">{l.name} · proposed camera, before saving. Close this preview and choose Use these cameras to accept the four views; then Preview &amp; choose camera angles lets you adjust them.</p>
+      {proposal.imageMatch&&<><p className="loc-layer-note">Approximate image match · compare composition, visible features and obstructions. The set stays fixed.</p><div className="loc-match-reference"><img src={proposal.referenceUrl} alt={labels[expanded]+" ideas reference"} style={{left:expanded.endsWith("R")?"-100%":0,top:expanded.startsWith("B")?"-100%":0}}/></div></>}
       <canvas width={640} height={360} ref={large} aria-label={labels[expanded]+" proposed camera view"}/>
     </dialog>}
     {!ready&&!error&&<p role="status" className="loc-layer-note">Preparing the proposed camera views…</p>}

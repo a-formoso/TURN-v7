@@ -301,9 +301,10 @@ function MovingPartChangeAdder({p,allMoments,onAdd}){
 function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
   const api=window.KinolotCloudRender,E=React.createElement;
   const [proposal,setProposal]=React.useState(null),[error,setError]=React.useState(""),[selected,setSelected]=React.useState(""),[mapOpen,setMapOpen]=React.useState(false),[previewRequest,setPreviewRequest]=React.useState(null);
+  const [applying,setApplying]=React.useState(false),application=React.useRef(0);
   const list=((window.turnContinuity||{}).locations)||[],state=locationSpatialPlanState(l,list);
   const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0;
-  React.useEffect(()=>{setProposal(null);setError("");setSelected("");setMapOpen(false);setPreviewRequest(null);},[l.id,epoch]);
+  React.useEffect(()=>{setProposal(null);setError("");setSelected("");setMapOpen(false);setPreviewRequest(null);setApplying(false);return ()=>{application.current++;};},[l.id,epoch]);
   if(!api?.proposeCameras)return null;
   const ownRoom=(state.plan.coordinates?.spaces||[]).some(s=>s.id===l.id&&s.footprint?.length>=3);
   const blocked=readOnly?"This film is read-only.":!state.ready
@@ -321,36 +322,42 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
   }
   const map=locationFloorPlanScene(state.owner,state.plan,mapList);
   if(proposal&&!stale)map.cameras=map.cameras.map(c=>c.spaceId===l.id?{...c,source:"suggested"}:c);
-  const suggest=()=>{if(readOnly)return;setError("");try{setProposal(api.proposeCameras(l,list));setPreviewRequest(null);setSelected(l.id+":TL");setMapOpen(true);}catch(e){setError(e.message);}};
-  const apply=()=>{if(readOnly||!proposal||typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())return;try{
+  const receiveProposal=(p,expected)=>{if(expected!=null&&application.current!==expected)return;application.current++;setApplying(false);setProposal(p);setError("");setPreviewRequest(null);setSelected(p?l.id+":TL":"");setMapOpen(!!p);return application.current;};
+  const suggest=()=>{if(readOnly)return;setError("");try{receiveProposal(api.proposeCameras(l,list));}catch(e){setError(e.message);}};
+  const apply=async()=>{if(readOnly||applying||!proposal||typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())return;const token=++application.current;setApplying(true);try{
+    if(proposal.imageMatch){await window.KinolotCameraMatch.confirm(l.id,window.BlenderPreview.scope(),proposal);if(application.current!==token)return;}
     const currentList=((window.turnContinuity||{}).locations)||[],currentLocation=currentList.find(x=>x.id===l.id);
-    if(!currentLocation)throw Error("The open location changed. Suggest four cameras again.");
+    if(!currentLocation)throw Error("The open location changed. Suggest 4 cameras again.");
     const views=api.cameraProposalViews(currentLocation,proposal,currentList);
-    onUpdate(l.id,{coverageViews:views},{kind:"suggested-cameras"});setProposal(null);setPreviewRequest(null);setError("");setMapOpen(false);}catch(e){setError(e.message);}};
+    if(typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())throw Error("This film is read-only.");
+    onUpdate(l.id,{coverageViews:views},{kind:proposal.imageMatch?"camera-edit":"suggested-cameras"});setProposal(null);setPreviewRequest(null);setError("");setMapOpen(false);}catch(e){if(application.current===token)setError(e.message);}finally{if(application.current===token)setApplying(false);}};
+  const inlinePreview=!proposal&&state.ready&&ownRoom;
+  const workbench=state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,previewRequest:proposal?null:previewRequest,inline:inlinePreview});
   return E("div",{className:"loc-map-wrap","data-testid":"camera-suggestions"},
-    E("div",{className:"loc-step-actions"},
-      E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!state.ready||!ownRoom,onClick:suggest,
-        title:blocked||"Free camera placement from the saved footprint and known object sizes; review before saving"},"Suggest four cameras"),
+    E("div",{className:"loc-step-actions loc-camera-primary-actions"+(inlinePreview?" is-inline":"")},
+      E("span",{className:"loc-camera-control"},E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!state.ready||!ownRoom,onClick:suggest,
+        title:blocked||"Free camera placement from the saved footprint and known object sizes; review before saving"},"Suggest 4 cameras"),
+        window.InfoTip&&E(window.InfoTip,{label:"About camera suggestions",text:"Free suggestions from your saved floor plan and measured objects. Review the four proposed 3D views, then choose Use these cameras to save them. Suggesting and reviewing starts no cloud render or paid call."})),
       !readOnly&&(!state.ready||!ownRoom)&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>window.goToLocationStep(l,2)},"Review floor plan"),
-      proposal&&E("button",{type:"button",className:"art-draftall",disabled:readOnly||stale,onClick:apply},"Use these cameras"),
-      proposal&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>{setProposal(null);setPreviewRequest(null);setError("");setMapOpen(false);}},"Discard proposal")),
-    state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,previewRequest:proposal?null:previewRequest}),
-    state.ready&&ownRoom&&window.LocationCameraInspiration&&E(window.LocationCameraInspiration,{l,readOnly}),
+      proposal&&E("button",{type:"button",className:"art-draftall",disabled:readOnly||stale||applying,onClick:apply},applying?"Checking cameras…":"Use these cameras"),
+      proposal&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>receiveProposal(null)},"Discard proposal"),
+      inlinePreview&&workbench),
+    !inlinePreview&&workbench,
+    state.ready&&ownRoom&&window.LocationCameraInspiration&&E(window.LocationCameraInspiration,{l,readOnly,onPropose:receiveProposal}),
     proposal&&!stale&&window.LocationSuggestedCameraPreviews&&E(window.LocationSuggestedCameraPreviews,{l,proposal,locations:list,previewRequest}),
     E("details",{className:"loc-nested-section loc-camera-inspection",open:mapOpen,onToggle:e=>{if(e.target===e.currentTarget)setMapOpen(e.currentTarget.open);}},
       E("summary",null,proposal&&!stale?"Review suggested camera positions":"Inspect saved camera positions"),
-      E("p",{className:"loc-layer-note"},"Numbered circles are objects; orange cones are cameras. TL, TR, BL and BR name the four image panels. "+(state.ready?"Select a camera to open its 3D view.":"Confirm the floor plan before opening its 3D camera views.")),
+      window.InfoTip&&E(window.InfoTip,{label:"How to use the camera map",text:"Numbered circles are objects; orange cones are cameras. TL, TR, BL and BR name the four image panels. Select a camera to open its 3D view. Confirm the floor plan first."}),
       E(LocationFloorPlanMap,{scene:map,selected,onSelect:selectCamera,spaceId:l.id})),
     blocked&&E("p",{className:"loc-layer-note",role:"status"},blocked),
     proposal&&!stale&&E("p",{className:"loc-layer-note"},"Preview only. Use these cameras saves all four proposed views for this room. Your current cameras remain in place until you choose it."),
     proposal&&!stale&&E("p",{className:"loc-layer-note"},proposal.panels.map(p=>p.key+": "+p.label).join(" · ")),
     proposal&&!stale&&proposal.warnings.map((note,i)=>E("p",{key:i,className:"loc-layer-note"},note)),
-    stale&&E("p",{role:"alert",className:"loc-spatial-error"},"The film, floor plan or cameras changed. Suggest four cameras again before applying."),
+    stale&&E("p",{role:"alert",className:"loc-spatial-error"},"The film, floor plan or cameras changed. Suggest 4 cameras again before applying."),
     error&&E("p",{role:"alert",className:"loc-spatial-error"},error),
     !proposal&&state.ready&&ownRoom&&api.enabled?.()&&Object.keys(api.cameraProblems(l,list)).length===0&&E("div",{className:"loc-step-actions"},
-      E("p",{className:"loc-layer-note"},"Camera position checks pass. Preview the angles if needed, then build the set. Composition notes below are optional."),
-      E("button",{type:"button",className:"art-draftall",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set")),
-    E("p",{className:"loc-layer-note"},"Suggesting and reviewing cameras uses no credits and starts no render."));
+      E("button",{type:"button",className:"art-draftall",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set"),
+      window.InfoTip&&E(window.InfoTip,{label:"Before building the set",text:"Camera position checks pass. Preview the angles if needed, then build the set. Composition notes below are optional. The build price is shown in step 4."})));
 }
 function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
   const [,refresh]=React.useReducer(n=>n+1,0);

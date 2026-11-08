@@ -24,7 +24,7 @@ Replacing another panel is a separate optional choice with an explicit target
 on its Save button. Extra-angle loading/saving remains optional. No selection,
 slider or reset writes film data; stale, permission and preview-readiness checks
 still guard the explicit save action.
-Its entry button sits directly below Suggest four cameras; the route to Build
+Its entry button sits directly below Suggest 4 cameras; the route to Build
 the set stays below the camera review content.
 
 Style comparison buttons use content-aware unequal columns so the longer
@@ -226,3 +226,15 @@ rotation and checks those rotated bounds against the written wall placement. The
 saved kitchen's side counter has its dimensions exchanged relative to its written
 east-wall run. A correction to local width/depth and a matching camera-preview
 study were prepared in isolated files only; the saved plan has not been changed.
+
+### Optional image-to-camera matching (development, experimental)
+
+Step 3 keeps the normal free **Suggest 4 cameras** path. When its row has no proposal or review actions, **Preview & choose camera angles** sits on the right; with proposal actions it appears below. Labels wrap inside equally padded controls on narrow cards. Routine explanations in Cameras and Style preview are available in adjacent information tooltips; prices, errors, job state and acceptance instructions remain visible.
+
+Inside **Need ideas for camera views?**, a current saved ideas grid offers **Match these views to set**. The explicit action quotes one vision writing call using the same engine-selection policy as other image reads. A failed numerical fit can still incur the writing charge; no automatic retry occurs. It generates no new image or Blender render.
+
+The matcher creates labelled reference views from the unchanged numeric set. A vision read returns only recognized landmark identities and panel-local image coordinates. A bounded multi-start numerical fit then estimates camera position, yaw, pitch and focal length on a 36 mm sensor with roll fixed at zero. It requires at least six spread-out, non-coplanar landmarks across two saved features per panel. Unknown IDs, sparse/ambiguous observations, excessive reprojection error, cameras outside the room/inside objects, and matched features hidden by actual preview geometry are refused. Open-sky spaces without a saved ceiling are currently unsupported. Saved-pose normalization is verified before proposing a fit. These checks measure landmark agreement, not exact visual fidelity or a calibrated confidence percentage.
+
+A successful attempt returns four unsaved proposals. Every ideas panel appears directly above its achievable 3D view. **Use these cameras** rechecks film/sign-in/edit access, source-image revision, layout and existing cameras, then writes only `coverageViews` through the existing card update boundary. Discard, a changed source, or a change during asynchronous verification prevents a save. The ordinary Step 4 scene builder reads these saved camera numbers; image pixels never enter its geometry inputs. Canonical artwork and the floor plan remain unchanged.
+
+Validation separates numerical recovery, real preview-mesh visibility, UI/save guards and provider landmark quality. The automated suite uses synthetic known-camera observations and mocked vision responses, including an actual preview-renderer path. It makes no paid model calls. A real generated-image landmark read through the signed-in app remains a required quality trial before treating matching as generally reliable. The interface labels it experimental and does not promise an exact match.
