@@ -43,6 +43,8 @@ function LocationCameraInspiration({l,readOnly=false,onPropose}){
   }
   let stale=!!draft;
   try{if(draft)stale=draft.meta.inputKey!==api.inputKey(l.id);}catch(_){}
+  const canMatch=!!(onPropose&&window.KinolotCameraMatch);
+  const matchHelp="Experimental camera match: estimates achievable angles from shared visible features. Changed proportions or hidden features may prevent a match. Review every proposed 3D view before accepting. Your set stays fixed. Matching generates no image or Blender render.";
   return E("details",{className:"loc-nested-section loc-camera-ideas",open,onToggle:e=>{if(e.target===e.currentTarget)setOpen(e.currentTarget.open);}},
     E("summary",null,"Need ideas for camera views?"),
     open&&E("div",{className:"loc-camera-ideas-body"},
@@ -64,12 +66,13 @@ function LocationCameraInspiration({l,readOnly=false,onPropose}){
       draft&&E("figure",{className:"loc-camera-ideas-image"},
         E("img",{src:draft.url,alt:"Camera-composition ideas for "+(l.name||"this location")}),
         E("figcaption",null,(stale?"Earlier ideas — the description or floor plan has changed. ":"")+"Inspiration only · "+window.nbModelLabel(draft.meta.modelId)),
-        E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setEnlarged(true)},"Enlarge ideas")),
-      draft&&onPropose&&window.KinolotCameraMatch&&E("div",{className:"loc-camera-match-actions"},
-        E("p",{className:"loc-layer-note"},"Match views to set · experimental. Estimates achievable camera angles from shared visible features. Changed proportions or hidden features may prevent a match. Review every 3D view before accepting."),
-        E("p",{className:"loc-layer-note"},"Price: "+(window.aiPlateCamerasReadCostText?.()||"one writing call")+" per attempt. Writing credits apply even if the image cannot be matched. No image or Blender render is generated."),
-        E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||stale||!scope,onClick:match},"Match these views to set"),
-        stale&&E("p",{className:"loc-layer-note"},"Generate fresh ideas for the current floor plan before matching.")),
+        E("div",{className:"loc-camera-ideas-review-actions"},
+          E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setEnlarged(true)},"Enlarge ideas"),
+          canMatch&&E("span",{className:"loc-camera-control"},
+            E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||stale||!scope,onClick:match,title:window.InfoTip?undefined:matchHelp},"Match these views to set"),
+            window.InfoTip&&E(window.InfoTip,{label:"About matching views to the set",text:matchHelp}))),
+        canMatch&&E("p",{className:"loc-layer-note"},"Matching: "+(window.aiPlateCamerasReadCostText?.()||"one writing call")+" per attempt, including unsuccessful fits."),
+        canMatch&&stale&&E("p",{className:"loc-layer-note"},"Generate fresh ideas for the current floor plan before matching.")),
       enlarged&&draft&&E("dialog",{ref:dialog,className:"loc-angle-dialog",onCancel:()=>setEnlarged(false),"aria-label":"Camera-composition ideas"},
         E("div",{className:"loc-cloud-render-head"},E("h3",null,(l.name||"Location")+" · view ideas"),E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setEnlarged(false)},"Close ideas")),
         E("p",{className:"loc-layer-note"},"Inspiration only. Your saved layout and cameras stay unchanged."),

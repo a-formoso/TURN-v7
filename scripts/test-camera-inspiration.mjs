@@ -110,9 +110,16 @@ function harness(){
    'The rendered helper contains no adoption or camera-application control');
  let resolveMatch,matchCalls=0;
  h.b.KinolotCameraMatch={match:()=>{matchCalls++;return new Promise(resolve=>resolveMatch=resolve);}};
+ h.b.InfoTip=function(){};
  tree=render();const match=flat(tree).find(n=>n.type==='button'&&text(n)==='Match these views to set');
- ok(match&&!match.props.disabled&&text(tree).includes('Writing credits apply even if'),
+ ok(match&&!match.props.disabled&&text(tree).includes('including unsuccessful fits'),
    'Matching requires an explicit button with the unsuccessful-attempt charge warning visible');
+ const actions=flat(tree).find(n=>n.props.className==='loc-camera-ideas-review-actions');
+ ok(actions&&text(actions.children[0])==='Enlarge ideas'&&flat(actions.children[1]).includes(match),
+   'Matching appears directly to the right of Enlarge ideas in the shared action row');
+ const tip=flat(actions).find(n=>n.type===h.b.InfoTip);
+ ok(tip?.props.text.includes('Experimental camera match')&&!text(tree).includes('Changed proportions or hidden features'),
+   'The detailed matching explanation lives in the adjacent accessible tooltip instead of a standalone paragraph');
  const first=match.props.onClick(),again=match.props.onClick();await again;
  ok(matchCalls===1&&proposals.at(-1)===null,'Matching discards earlier unsaved proposals and guards duplicate clicks before React rerenders');
  resolveMatch({key:'fitted',panels:[]});await first;tree=render();
