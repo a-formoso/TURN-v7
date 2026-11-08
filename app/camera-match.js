@@ -16,7 +16,7 @@
     const add=(point,name,corner,objectId)=>{if(point.every(finite))points.push({id:"L"+(points.length+1),point,name,corner,objectId});};
     // Only saved, named objects. These are bounding corners, not invented detailed furniture geometry.
     const sp=plan.coordinates.spaces.find(x=>x.id===roomId),included=new Set(scene.objects.map(x=>x.anchorId).filter(Boolean));
-    const objects=plan.anchors.filter(a=>included.has(a.id)&&a.xy&&a.size
+    const objects=plan.anchors.filter(a=>included.has(a.id)&&a.xy&&a.size&&!(sp.openings||[]).some(o=>o.id===a.id)
       &&(root.locationAnchorSpaceOf(a,root.turnContinuity?.locations||[])?.id||roomId)===roomId).slice(0,20).map(a=>{
       const z=finite(a.z)?a.z:sp.floorZ,base=root.locationAnchorHeightBasis(a,plan)==="base";
       let centre=finite(a.z)&&!base?z:z+a.size[2]/2;
@@ -36,7 +36,7 @@
       if(!a||!b||!o.centre)continue;const length=Math.hypot(b[0]-a[0],b[1]-a[1]);
       for(const z of [heights.sillZ,heights.headZ])for(const side of [-1,1])
         add([o.centre[0]+side*(b[0]-a[0])*o.width/(2*length),o.centre[1]+side*(b[1]-a[1])*o.width/(2*length),z],o.name||o.kind,
-          (z===heights.headZ?"top":"bottom")+" edge "+(side>0?"end":"start"),"");
+          (z===heights.headZ?"top":"bottom")+" edge "+(side>0?"end":"start"),o.id);
     }
     // Wide views often expose room structure more clearly than furniture. Match the actual inner wall faces,
     // inset from the saved wall centre lines by half the renderer's 0.15 m wall thickness.
@@ -127,7 +127,7 @@
   }
   function location(id){const list=root.turnContinuity.locations,l=list.find(l=>l.id===id);if(!l)throw Error("The location is no longer in this film.");return {l,list};}
   const sourceKey=d=>canonical({iso:d.meta.iso,inputKey:d.meta.inputKey,modelId:d.meta.modelId});
-  async function sameSource(id,s,stamp){const now=await root.KinolotCameraInspiration.load(id,s);scopeGuard(s);if(!now||now.stale||sourceKey(now)!==stamp)throw Error("The ideas image or location changed. Match the current image again.");return now;}
+  async function sameSource(id,s,stamp){const now=await root.KinolotCameraInspiration.load(id,s);scopeGuard(s);if(!now||sourceKey(now)!==stamp)throw Error("The ideas image changed. Match the current image again.");return now;}
   async function confirm(id,s,proposal){
     scopeGuard(s);if(canonical(proposal.imageMatch.scope)!==canonical(s))throw Error("The open film or sign-in changed. Match the views again.");
     await sameSource(id,s,proposal.imageMatch.sourceKey);scopeGuard(s);
@@ -158,8 +158,8 @@
       });
     }finally{instance.dispose();}
   }
-  function readPrompt(landmarks,refs){
-    return "Match compositions to a FIXED measured 3D set. Image 1 is the desired four-view 2x2 ideas grid: TL, TR, BL, BR. Images 2-5 are labelled reference renders of the SAME fixed set, in that order. They are orientation guides, not desired compositions. Yellow dots locate exact labelled 3D corners in the catalogue: furniture bounds, openings, and floor/ceiling intersections with inner wall faces. In wide views use identifiable room corners as well as furnishings. The ideas image may contradict the set. Never invent correspondences, infer hidden points, alter dimensions, or estimate a new layout. Read only visible, clearly corresponding corners in each desired panel. UV coordinates must be normalized within THAT PANEL, left to right and top to bottom. Use only exact catalogue landmark IDs. Omit uncertain, occluded, cropped, changed or ambiguous corners, and return an empty points list if too few can be identified. At least six spread-out points at different depths are needed; they may belong to one known 3D object or several features. Never fabricate them to meet this requirement. Return JSON only: {panels:[{key:'TL',points:[{id:'L1',uv:[0.1,0.2]}]},...all four keys]}. No camera guesses, prose or geometry. Reference labels visible by image: "+JSON.stringify(refs.map(r=>({panel:r.key,ids:r.visible})))+". Saved landmark catalogue: "+JSON.stringify(landmarks);
+  function readPrompt(landmarks,refs,features=[]){
+    return "Match camera compositions to a FIXED set. Image 1 is the desired 2x2 ideas grid: TL, TR, BL, BR. Images 2-5 are labelled reference renders of the saved set in that order. They are orientation guides, not desired compositions. The ideas image may have extra detail or different proportions. First describe each panel's intended framing: wide, medium or detail; choose 1-3 EXISTING subject IDs from the saved feature inventory, primary subject first, and give their approximate VISIBLE rectangles [left,top,right,bottom] in panel-local coordinates 0..1. Use recognizable driver/windshield/rear-door or equivalent features to distinguish view direction. For a wide interior choose a distinctive far-end opening or area as the primary subject, with near furniture or a side feature secondary. Do not use a long floor or ceiling strip as primary unless that is the actual detail shot. Use a side window or other secondary subject when useful to distinguish sides. For repeated similar furnishings, choose a suitable saved example for that composition; do not claim to identify a particular story row in an unlabelled image. Never add set objects, dimensions or camera coordinates. If no saved subject is recognizable, return subjects:[], not an invented identity.\nAdditionally, if exact corresponding corners can be identified confidently, provide points using the yellow landmark IDs and panel-local [u,v]. Never invent correspondences, infer hidden corners or fabricate points to reach six. A points:[] list is valid when only approximate composition can be read.\nReturn JSON only: {panels:[{key:'TL',framing:{mode:'wide',subjects:[{id:'existing-subject-id',rect:[0.1,0.2,0.8,0.9]}]},points:[]},...exactly TR,BL,BR]}. No explanatory prose or geometry. Subject inventory: "+JSON.stringify(features.map(f=>({id:f.id,name:f.name,type:f.type,position:f.point})))+". Reference landmark IDs: "+JSON.stringify(refs.map(r=>({panel:r.key,ids:r.visible})))+". Corner catalogue: "+JSON.stringify(landmarks);
   }
   async function match(id,s,{onPhase}={}){
     scopeGuard(s);const k=[s.uid,s.projectId,id].join(":");if(active.has(k))throw Error("Camera matching is already in progress for this location.");
@@ -168,21 +168,23 @@
       const api=root.KinolotCloudRender,{l,list}=location(id),state=root.locationSpatialPlanState(l,list);
       if(!state.ready)throw Error("Confirm the floor plan in step 2 before matching cameras.");
       const key=api.cameraProposalKey(l,list),source=await root.KinolotCameraInspiration.load(id,s);
-      scopeGuard(s);if(!source||source.stale)throw Error("Generate current view ideas before matching cameras.");
+      scopeGuard(s);if(!source)throw Error("Generate view ideas before matching cameras.");
       const stamp=sourceKey(source),defaults=api.proposeCameras(l,list),views=api.cameraProposalViews(l,defaults,list),proposed={...l,coverageViews:views};
       const scene=api.buildScene(proposed,list.map(x=>x.id===id?proposed:x)),landmarks=catalogue(scene,state.plan,id),bounds=boundsFor(state.plan,id);
-      if(landmarks.length<6)throw Error("There are too few measured set features to match. Use the 3D camera controls.");
+      const framing=root.KinolotCameraFraming,features=framing?.inventory(landmarks,scene)||[];
+      if(landmarks.length<6&&!features.length)throw Error("There are too few saved set features to match. Use the 3D camera controls.");
       const guard=()=>{scopeGuard(s);const now=location(id);if(api.cameraProposalKey(now.l,now.list)!==key)throw Error("The floor plan or cameras changed. Match the views again.");};
       onPhase?.("Preparing fixed-set references…");const refs=await references(scene,state.plan,landmarks);guard();
-      if(new Set(refs.flatMap(r=>r.visible)).size<6)throw Error("Too few visible set corners could be labelled. Use the 3D camera controls.");
+      if(new Set(refs.flatMap(r=>r.visible)).size<6&&!features.length)throw Error("Too few visible set corners could be labelled. Use the 3D camera controls.");
       const image=await root.turnDownscaleDataUrl(source.url,1536);guard();if(!image)throw Error("The ideas image could not be opened. Reopen the card and try again.");
-      await sameSource(id,s,stamp);guard();onPhase?.("Reading shared landmarks · one writing call…");
-      const result=await root.aiVisionComplete([{role:"user",content:readPrompt(landmarks,refs)}],[image,...refs.map(r=>r.url)],{maxTokens:5000,beforeSubmit:async()=>{await sameSource(id,s,stamp);guard();}});
+      await sameSource(id,s,stamp);guard();onPhase?.("Reading image subjects and framing…");
+      const result=await root.aiVisionComplete([{role:"user",content:readPrompt(landmarks,refs,features)}],[image,...refs.map(r=>r.url)],{maxTokens:5000,beforeSubmit:async()=>{await sameSource(id,s,stamp);guard();}});
       guard();await sameSource(id,s,stamp);guard();if(!result.vision)throw Error("The selected model could not read the image. No cameras were changed.");
       let raw;try{raw=JSON.parse(result.text.replace(/^\s*```(?:json)?\s*/i,"").replace(/\s*```\s*$/, ""));}catch(_){throw Error("The image read did not return usable landmark data. No cameras were changed.");}
-      const observed=observations(raw,landmarks),panels=[];onPhase?.("Fitting cameras against the fixed set…");
+      let observed=null,preciseError=null;try{observed=observations(raw,landmarks);}catch(e){preciseError=e;}
+      let panels=[];onPhase?.("Matching framing inside the fixed set…");
       const seeds=Object.values(scene.cameras).concat(root.locationPanelPoses(l,list).map(p=>p.pose).filter(p=>p.position));
-      for(const panel of observed){
+      try{if(observed)for(const panel of observed){
         await new Promise(resolve=>root.setTimeout(resolve,0));guard();
         const points=panel.points,aim=points.reduce((p,c)=>p.map((v,i)=>v+c.point[i]/points.length),[0,0,0]);
         const starts=[];
@@ -191,7 +193,7 @@
           for(const lensMm of [18,28,45])starts.push({...seed,yaw,pitch,lensMm});
           starts.push(seed);
         }
-        const valid=pose=>{try{const next={...l,coverageViews:root.locationCoverageViewsWithPose(l,panel.key,pose)},liveList=list.map(x=>x.id===id?next:x);return !api.cameraProblems(next,liveList)[panel.key];}catch(_){return false;}};
+        const valid=pose=>{try{return !api.cameraProblems(l,list,[{key:panel.key,pose}])[panel.key];}catch(_){return false;}};
         let fitted;try{fitted=fit(points,starts,bounds,valid);}catch(e){throw Error(panel.key+": "+e.message);}
         // Saved-pose normalization rounds some values. Verify the exact pose that Step Four will consume.
         const next={...l,coverageViews:root.locationCoverageViewsWithPose(l,panel.key,fitted.pose)},pose=root.locationPanelPoses(next,list.map(x=>x.id===id?next:x)).find(p=>p.key===panel.key).pose;
@@ -199,15 +201,30 @@
         const rms=Math.sqrt(errors.reduce((s,e)=>s+e*e,0)/errors.length),max=Math.max(...errors);
         if(rms>.018||max>.045)throw Error(panel.key+": The saved camera precision does not retain this fit. No cameras were changed.");
         panels.push({key:panel.key,role:"image-match",label:"Matched ideas view",pose,fit:{count:points.length,rms,max}});
-      }
+      }}catch(e){preciseError=e;panels=[];}
       guard();await sameSource(id,s,stamp);guard();
-      const preview=root.KinolotAnglePreview,T=await preview.load(),check=preview.create(T,scene,{softwareOnly:true});
-      try{for(const panel of panels){const points=observed.find(p=>p.key===panel.key).points;
-        if(points.some(p=>!check.landmarkVisible(panel.pose,p.point)))throw Error(panel.key+": The fitted view hides a matched feature behind the set. Review the layout or use the 3D camera controls.");
-      }}finally{check.dispose();}
+      const preview=root.KinolotAnglePreview,T=await preview.load(),check=preview.create(T,scene,{softwareOnly:true,anchors:state.plan.anchors,openings:preview.openingGuides(state.plan)});
+      try{
+        if(panels.length&&panels.some(panel=>observed.find(p=>p.key===panel.key).points.some(p=>!check.landmarkVisible(panel.pose,p.point)))){
+          preciseError=Error("A matched feature is hidden behind the saved set.");panels=[];
+        }
+        if(!panels.length){
+          if(!framing||!raw.panels?.every(p=>p.framing))throw preciseError||Error("The image views could not be matched.");
+          const goals=framing.goals(raw,features),used=[];
+          for(const goal of goals){
+            await new Promise(resolve=>root.setTimeout(resolve,0));guard();
+            const valid=pose=>{try{return !api.cameraProblems(l,list,[{key:goal.key,pose}])[goal.key];}catch(_){return false;}};
+            const fit=framing.choose(goal,features,seeds,bounds,valid,(pose,subject,rect)=>framing.visible(check,pose,subject,rect),used);
+            const next={...l,coverageViews:root.locationCoverageViewsWithPose(l,goal.key,fit.pose)},pose=root.locationPanelPoses(next,list.map(x=>x.id===id?next:x)).find(p=>p.key===goal.key).pose;
+            const subject=features.find(f=>f.id===fit.subjectId),rect=framing.rectangle(pose,subject);
+            if(!valid(pose)||!rect||!framing.visible(check,pose,subject,rect))throw Error("A saved camera could not keep its main subject visible. Your cameras are unchanged.");
+            used.push(pose);panels.push({key:goal.key,role:"image-match",label:"Approximate "+goal.mode+" framing",pose,fit:{method:"composition",subjectId:fit.subjectId,centreError:fit.centreError}});
+          }
+        }
+      }finally{check.dispose();}
       guard();
-      const proposal={key,panels,warnings:["Experimental image match: landmark agreement is not proof of an exact visual match. The set's dimensions and objects have not changed; saved cameras can be adjusted in the 3D preview."],
-        imageMatch:{sourceKey:stamp,iso:source.meta.iso,scope:{...s}},referenceUrl:source.url};
+      const proposal={key,panels,warnings:["Approximate image framing keeps the saved set fixed. Appearance and geometry can differ from the ideas image; saved cameras remain editable in the 3D preview."],
+        imageMatch:{sourceKey:stamp,iso:source.meta.iso,scope:{...s},method:panels.some(p=>p.fit.method==="composition")?"composition":"landmarks"},referenceUrl:source.url};
       api.cameraProposalViews(l,proposal,list);return proposal;
     }finally{active.delete(k);}
   }
