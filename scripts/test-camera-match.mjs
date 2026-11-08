@@ -162,10 +162,20 @@ function harness({realGraphics=false,composition=false,unknownSubject=false}={})
  ok(JSON.stringify(h.l)===before,'Actual 3D reference rendering does not mutate saved data');h.cleanup();
 }
 {
- const h=harness({realGraphics:true,composition:true}),before=JSON.stringify(h.l),proposal=await api.match('room',h.scope);
+ const h=harness({realGraphics:true,composition:true}),before=JSON.stringify(h.l),originalVisible=framing.visible;
+ let roundedChecks=0;
+ framing.visible=(instance,pose,...args)=>{
+  const normalized=b.normalizeLocationCameraPose(pose);
+  assert.deepEqual(Array.from(pose.position),Array.from(normalized.position));
+  assert.equal(pose.yaw,normalized.yaw,'Mesh visibility must use the actual saved yaw, not a raw search result');
+  assert.equal(pose.pitch,normalized.pitch);roundedChecks++;
+  return originalVisible(instance,pose,...args);
+ };
+ let proposal;try{proposal=await api.match('room',h.scope);}finally{framing.visible=originalVisible;}
  ok(proposal.panels.length===4&&proposal.imageMatch.method==='composition'&&proposal.panels.every(p=>p.fit.method==='composition'),
    'Recognized image subjects can produce four approximate camera views when exact image corners are unavailable');
  ok(JSON.stringify(h.l)===before&&h.calls===1,'Composition fallback uses the same single image read and leaves camera saving to its guarded caller');
+ ok(roundedChecks>=8,'The full composition route checks real mesh rays at saved precision both during search and before acceptance');
  await api.confirm('room',h.scope,proposal);checks++;h.cleanup();
 }
 {
