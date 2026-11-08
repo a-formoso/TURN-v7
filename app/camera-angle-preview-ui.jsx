@@ -5,6 +5,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
   const [destination,setDestination]=React.useState("TL"),[start,setStart]=React.useState("TL"),[name,setName]=React.useState("Extra angle");
   const [extraId,setExtraId]=React.useState(""),[error,setError]=React.useState(""),[notice,setNotice]=React.useState(""),[ready,setReady]=React.useState(false),[attempt,setAttempt]=React.useState(0),[displayMode,setDisplayMode]=React.useState(""),[softwareOnly,setSoftwareOnly]=React.useState(false);
   const [inspection,setInspection]=React.useState(null);
+  const [viewLabel,setViewLabel]=React.useState(null);
   const base=React.useRef(null),dialog=React.useRef(null),candidate=React.useRef(null),thumbs=React.useRef({}),viewer=React.useRef(null),lastRendered=React.useRef("");
   const labels={TL:"Top left",TR:"Top right",BL:"Bottom left",BR:"Bottom right"};
   const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0;
@@ -28,15 +29,24 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
     preview.load().then(T=>{
       if(!live)return;stage="Starting the graphics preview";instance=preview.create(T,spec,{softwareOnly,openings:base.current.openings,anchors:base.current.anchors});viewer.current=instance;stage="Drawing the camera views";
       for(const panel of Object.keys(labels))if(thumbs.current[panel])instance.render(thumbs.current[panel],spec.cameras[panel],320,180);
-      if(candidate.current){instance.render(candidate.current,pose);lastRendered.current=window.KinolotRenderContract.canonical(pose);}setDisplayMode(instance.mode||"gpu");setReady(true);
+      if(candidate.current){instance.render(candidate.current,pose);lastRendered.current=window.KinolotRenderContract.canonical(pose);describeView(instance,pose);}setDisplayMode(instance.mode||"gpu");setReady(true);
     }).catch(e=>{if(live){setError(stage+": "+String(e?.message||"Display unavailable").slice(0,240)+". Your cameras are unchanged. Retry below, or use the saved cameras and cloud Build set.");setReady(false);}});
     return ()=>{live=false;if(viewer.current===instance)viewer.current=null;instance?.dispose();};
   },[open,spec,attempt,softwareOnly]);
   React.useEffect(()=>{
     if(!open||!ready||!pose||!candidate.current||!viewer.current)return;
-    try{viewer.current.render(candidate.current,pose);setDisplayMode(viewer.current.mode||"gpu");lastRendered.current=window.KinolotRenderContract.canonical(pose);}catch(e){setError(e.message);setReady(false);}
+    try{viewer.current.render(candidate.current,pose);setDisplayMode(viewer.current.mode||"gpu");lastRendered.current=window.KinolotRenderContract.canonical(pose);describeView(viewer.current,pose);}catch(e){setError(e.message);setReady(false);}
   },[open,ready,pose]);
   React.useEffect(()=>setInspection(null),[pose]);
+  function describeView(instance,camera){
+    let text="View direction";
+    try{
+      const hit=instance.inspect(camera,.5,.5);
+      const name=String(hit.name||"").split(/[,;]| — /)[0].replace(/\s+/g," ").trim();
+      text=hit.kind==="background"?"Looking into unmodelled space":name?"Looking toward "+(name.length>72?name.slice(0,69)+"…":name):"Looking into the set";
+    }catch(_){text="View direction unavailable";}
+    setViewLabel({key:window.KinolotRenderContract.canonical(camera),text});
+  }
   function identify(event,panel){
     if(!ready||!viewer.current?.inspect)return;
     if(!panel&&lastRendered.current!==window.KinolotRenderContract.canonical(pose))return;
@@ -115,7 +125,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
       <div className="loc-cloud-render-head"><h3>Edit {labels[editing].toLowerCase()} camera</h3><button type="button" className="art-draftall ghost" onClick={()=>setOpen(false)}>Close preview</button></div>
       <p className="loc-layer-note">{l.name||"This location"} · choose a camera, adjust its view, then save. These previews are free; changes stay unsaved until you save the camera.</p>
       <div className="loc-angle-compare">
-        <figure><figcaption><strong>{labels[editing]} · {unchanged?"saved view":"unsaved preview"}</strong><span>Facing {locCompass(pose.yaw)} · {pose.lensMm} mm{start.startsWith("extra:")?" · using "+name:""}</span></figcaption><canvas ref={candidate} width={640} height={360} tabIndex={0} role="button" aria-label="Identify an object in the candidate preview; press Enter to inspect the centre" onClick={e=>identify(e)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();identify(null);}}}/></figure>
+        <figure><figcaption><strong>{labels[editing]} · {unchanged?"saved view":"unsaved preview"}</strong><span>{viewLabel?.key===window.KinolotRenderContract.canonical(pose)?viewLabel.text:"Updating view…"} · {pose.lensMm} mm lens{start.startsWith("extra:")?" · using "+name:""}</span></figcaption><canvas ref={candidate} width={640} height={360} tabIndex={0} role="button" aria-label="Identify an object in the candidate preview; press Enter to inspect the centre" onClick={e=>identify(e)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();identify(null);}}}/></figure>
         <div className="loc-angle-destinations"><p><strong>Choose a camera to edit</strong><span>The highlighted camera matches the large preview.</span></p><div className="loc-angle-panels" role="group" aria-label="Camera to edit">
           {Object.keys(labels).map(panel=><button key={panel} type="button" className={"loc-angle-panel"+(editing===panel?" selected":"")} aria-pressed={editing===panel} onClick={()=>{if(panel!==editing)chooseStart(panel);}}>
             <span>{labels[panel]}{editing===panel?" · editing":""}</span><canvas width={320} height={180} ref={el=>thumbs.current[panel]=el} aria-label={labels[panel]+" saved camera layout preview"}/>

@@ -32,6 +32,23 @@ Compare with Blender label and Compare engines both stay on one line with
 consistent padding and standard text size/weight. Exceptionally narrow cards
 stack the two full labels rather than wrapping or clipping them.
 
+Step 3 also offers optional **Need ideas for camera views?** help. It creates a
+text-only four-view inspiration image using an explicitly chosen image engine
+at its displayed normal image price. Description, appearance and reviewed
+floor-plan data guide it; existing images and saved camera poses are excluded.
+The separate `camera-ideas-<location>` asset has its own private image/history.
+It never replaces canonical artwork, changes a floor plan or camera, invokes a
+Blender job, or becomes a reference consumed by the floor-plan/build workflow.
+There is no apply/adopt/read-cameras action. Opening help is free; generation is
+explicit. A failed save retains pixels for a save-only retry, and uncertain
+generation requires acknowledgement before another paid attempt. Existing
+scope, permissions and provider billing enforce the normal account boundaries.
+
+Large angle previews now describe the actual centre-ray object/surface with a
+short **Looking toward…** label and explicitly identify the lens size. Unknown
+surroundings remain labelled unmodelled. Labels follow the previewed pose and
+do not imply that an obstructed feature behind that surface is visible.
+
 - Detailed app scenes use `kinolot-cloud-set-v2` / `mcp-procedural-v1`. They carry
   numerical geometry, cameras, bounded edge radii and procedural surface recipes.
   Source limits remain 500 shapes / 128 KiB, with up to 64 shaped soft parts.

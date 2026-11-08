@@ -24,7 +24,7 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
    create:(T,spec,options)=>{
      if(gpuFailure&&!options?.softwareOnly)throw Error("GPU unavailable");
      return {mode:options?.softwareOnly?"software":mode,render:(canvas,pose)=>renders.push(structuredClone(pose)),
-       inspect:(pose,x,y)=>{inspections.push({pose:structuredClone(pose),x,y});return structuredClone(picked);},dispose:()=>disposed++};}};
+       inspect:(pose,x,y)=>{inspections.push({pose:structuredClone(pose),x,y});return structuredClone(typeof picked==='function'?picked(pose):picked);},dispose:()=>disposed++};}};
  b.LocationFloorPlanMap=function(){};
  b.React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!=null&&x!==false)}),
    useState:initial=>{const i=cursor++;if(!(i in hooks))hooks[i]={value:typeof initial==='function'?initial():initial};return [hooks[i].value,v=>hooks[i].value=typeof v==='function'?v(hooks[i].value):v];},
@@ -50,6 +50,18 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
  return {b,render,begin,flat,text,button,writes,renders,inspections,proposal,get location(){return location;},get disposed(){return disposed;},
    requestPreview:panel=>{previewRequest={locationId:location.id,panel,sequence:(previewRequest?.sequence||0)+1};},
    external:fn=>{location=fn(location);b.turnContinuity.locations=[location];},switchFilm:()=>epoch++,readonly:()=>{readonly=true;writable=false;}};
+}
+{
+ const h=harness({picked:pose=>({kind:'object',name:pose.yaw===35?"Driver's seat and dash":"Rear emergency door, red handle"})});let tree=await h.begin();
+ ok(h.text(tree).includes("Looking toward Driver's seat and dash")&&h.text(tree).includes('24 mm lens'),
+   'The large view describes the actual centre surface and explicitly labels lens size');
+ h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']===false&&h.text(n).startsWith('Bottom right')).props.onClick();tree=h.render();tree=h.render();
+ ok(h.text(tree).includes('Looking toward Rear emergency door')&&!h.text(tree).includes('red handle')&&!h.text(tree).includes('Facing south'),
+   'Changing camera updates the short object-based description instead of relying on compass knowledge');
+}
+{
+ const h=harness({picked:{kind:'background',name:'Unmodelled space'}});const tree=await h.begin();
+ ok(h.text(tree).includes('Looking into unmodelled space'),'A view into unknown surroundings says so instead of inventing a subject');
 }
 {
  const h=harness({suggested:true});h.render();await new Promise(setImmediate);h.render();
@@ -95,7 +107,7 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
  let canvas=h.flat(tree).find(n=>n.type==='canvas'&&n.props.role==='button');
  canvas.props.onClick({currentTarget:{},clientX:160,clientY:180});tree=h.render();
  ok(h.text(tree).includes('Candidate angle · Bench')&&h.text(tree).includes('Preview dimensions: 1 × 1 × 1 m'),'A preview click reports its object name and correctly labelled dimensions');
- ok(h.inspections[0].x===.25&&h.inspections[0].y===.5&&h.writes.length===0,'Inspection uses the clicked image position without saving or submitting a job');
+ ok(h.inspections.at(-1).x===.25&&h.inspections.at(-1).y===.5&&h.writes.length===0,'Inspection uses the clicked image position without saving or submitting a job');
  let prevented=0;canvas.props.onKeyDown({key:'Enter',preventDefault:()=>prevented++});
  ok(prevented===1&&h.inspections.at(-1).x===.5,'Keyboard users can identify the centre of the candidate view');
  h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']!==undefined&&h.text(n).startsWith('Bottom right')).props.onClick({detail:0});tree=h.render();

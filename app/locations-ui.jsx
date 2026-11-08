@@ -335,6 +335,7 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
       proposal&&E("button",{type:"button",className:"art-draftall",disabled:readOnly||stale,onClick:apply},"Use these cameras"),
       proposal&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>{setProposal(null);setPreviewRequest(null);setError("");setMapOpen(false);}},"Discard proposal")),
     state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,previewRequest:proposal?null:previewRequest}),
+    state.ready&&ownRoom&&window.LocationCameraInspiration&&E(window.LocationCameraInspiration,{l,readOnly}),
     proposal&&!stale&&window.LocationSuggestedCameraPreviews&&E(window.LocationSuggestedCameraPreviews,{l,proposal,locations:list,previewRequest}),
     E("details",{className:"loc-nested-section loc-camera-inspection",open:mapOpen,onToggle:e=>{if(e.target===e.currentTarget)setMapOpen(e.currentTarget.open);}},
       E("summary",null,proposal&&!stale?"Review suggested camera positions":"Inspect saved camera positions"),
