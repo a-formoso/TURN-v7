@@ -130,7 +130,7 @@ runs once they are a day old. Completed folders whose immediate removal failed
 are retried by the sweep. Existing isolated trial/review folders are not swept:
 archive and verify those separately before explicit cleanup.
 
-## Remaining rollout gates
+## Historical rollout gates — superseded by the public-release verification below
 
 1. Publish the reviewed scene-header compatibility correction on both the worker
    and service, then re-enable detailed requests for one controlled retry.
@@ -279,4 +279,12 @@ The owner approved the isolated floor-vent dimension swap after seeing the local
 
 The owner ran the updated free coverage suggestions and rebuilt the complete bus through the development app without errors. Read-only verification confirms a completed detailed cloud job with 306 objects, 24 bench units and six preview lights; it rendered in 255.8 seconds. All four saved colour views were independently downloaded and inspected: front/rear aisle coverage, bench detail and driver controls remain consistent. The twelve PNG passes and the 5.18 MiB editable scene were verified in the private storage bucket, including scene digest/source-revision binding, signed sample reads and denied anonymous/public sample reads. Its 15-credit hold settled at 15 with zero released. No extra render or image generation was initiated by the verification.
 
-The owner then generated and shared a styling draft. Read-only metadata verification ties that draft to the completed expanded-bus job and its exact scene revision, with 306 source objects. Visual inspection of the supplied grid confirms complementary front/rear aisle views, a bench detail and driver controls, with the fuller seating and curved roof retained. Upholstery, wear and exterior scenery are styling additions; this review does not establish exact geometric reconstruction or per-pixel fidelity. The result remains a separate draft and has not been automatically adopted as location artwork. A separate read-only request for production scratch-directory cleanup returned no usable evidence, so deletion remains independently unverified. The implemented cleanup policy and storage success do not establish a deletion result. Public frontend publication still waits for the updated main-app candidate sync.
+The owner then generated and shared a styling draft. Read-only metadata verification ties that draft to the completed expanded-bus job and its exact scene revision, with 306 source objects. Visual inspection of the supplied grid confirms complementary front/rear aisle views, a bench detail and driver controls, with the fuller seating and curved roof retained. Upholstery, wear and exterior scenery are styling additions; this review does not establish exact geometric reconstruction or per-pixel fidelity. The result remains a separate draft and has not been automatically adopted as location artwork. A separate read-only request for production scratch-directory cleanup returned no usable evidence, so deletion remains independently unverified. The implemented cleanup policy and storage success do not establish a deletion result. The main-app sync and public publication subsequently passed; see the release verification below.
+
+### Public release verified — 8 November
+
+The main Replit app fast-forwarded to `a776627d6164442a5ce252b949ffcae9a3e25424`, built its static assets and passed all 308 selected compiled/release checks (bus 57, shelves 35, matching 55, styling 148, release 13). Its known build-generated add-on outputs were restored, main was pushed, and the workspace finished clean. Deployment `6a41d512-d74d-4786-8fe6-c14c6dce06e2` then completed successfully at https://kinolot.infinitestudioai.com.
+
+Independent public HTTP verification checked all 107 local HTML assets. Runtime assets match the reviewed compiled files; the generated add-on archive was compared by its six uncompressed source files because compression bytes can differ between build runtimes. The live page serves the bus3 modules and release5 configuration, enables detailed cloud sets and contains no browser Babel compilation. No paid generation or artwork adoption was triggered by publishing or verification. The bus styling result remains a separate draft.
+
+Image-to-camera matching remains approximate and experimental. Production temporary-file deletion remains independently unverified; permanent private scene/render storage and access boundaries are verified separately. This publication completes the frontend rollout, without treating those limitations as resolved.
