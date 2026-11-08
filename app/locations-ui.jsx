@@ -324,13 +324,26 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
   if(proposal&&!stale)map.cameras=map.cameras.map(c=>c.spaceId===l.id?{...c,source:"suggested"}:c);
   const receiveProposal=(p,expected)=>{if(expected!=null&&application.current!==expected)return;application.current++;setApplying(false);setProposal(p);setError("");setPreviewRequest(null);setSelected(p?l.id+":TL":"");setMapOpen(!!p);return application.current;};
   const suggest=()=>{if(readOnly)return;setError("");try{receiveProposal(api.proposeCameras(l,list));}catch(e){setError(e.message);}};
-  const apply=async()=>{if(readOnly||applying||!proposal||typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())return;const token=++application.current;setApplying(true);try{
-    if(proposal.imageMatch){await window.KinolotCameraMatch.confirm(l.id,window.BlenderPreview.scope(),proposal);if(application.current!==token)return;}
+  const commitCameras=async(candidate,expected,continueToBuild=false)=>{
+    if(readOnly||typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())throw Error("This film is read-only.");
+    if(expected!=null&&application.current!==expected)throw Error("Another camera action replaced this match. Your saved cameras are unchanged.");
+    const token=++application.current;setApplying(true);try{
+    if(candidate.imageMatch)await window.KinolotCameraMatch.confirm(l.id,window.BlenderPreview.scope(),candidate);
+    if(application.current!==token)throw Error("Another camera action replaced this match. Your saved cameras are unchanged.");
     const currentList=((window.turnContinuity||{}).locations)||[],currentLocation=currentList.find(x=>x.id===l.id);
     if(!currentLocation)throw Error("The open location changed. Suggest 4 cameras again.");
-    const views=api.cameraProposalViews(currentLocation,proposal,currentList);
+    const views=api.cameraProposalViews(currentLocation,candidate,currentList);
     if(typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())throw Error("This film is read-only.");
-    onUpdate(l.id,{coverageViews:views},{kind:proposal.imageMatch?"camera-edit":"suggested-cameras"});setProposal(null);setPreviewRequest(null);setError("");setMapOpen(false);}catch(e){if(application.current===token)setError(e.message);}finally{if(application.current===token)setApplying(false);}};
+    onUpdate(l.id,{coverageViews:views},{kind:candidate.imageMatch?"camera-edit":"suggested-cameras"});setProposal(null);setPreviewRequest(null);setError("");setMapOpen(false);
+    if(continueToBuild)window.goToLocationStep?.({...currentLocation,coverageViews:views},4);
+    return true;
+    }finally{if(application.current===token)setApplying(false);}
+  };
+  const apply=async()=>{if(readOnly||applying||!proposal)return;try{await commitCameras(proposal);}catch(e){setError(e.message);}};
+  const saveMatchedCameras=(candidate,ticket)=>{
+    if(!candidate?.imageMatch)return Promise.reject(Error("This is not a matched camera result."));
+    return commitCameras(candidate,ticket,true);
+  };
   const inlinePreview=!proposal&&state.ready&&ownRoom;
   const workbench=state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,previewRequest:proposal?null:previewRequest,inline:inlinePreview});
   return E("div",{className:"loc-map-wrap","data-testid":"camera-suggestions"},
@@ -343,7 +356,7 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
       proposal&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>receiveProposal(null)},"Discard proposal"),
       inlinePreview&&workbench),
     !inlinePreview&&workbench,
-    state.ready&&ownRoom&&window.LocationCameraInspiration&&E(window.LocationCameraInspiration,{l,readOnly,onPropose:receiveProposal}),
+    state.ready&&ownRoom&&window.LocationCameraInspiration&&E(window.LocationCameraInspiration,{l,readOnly,onPropose:receiveProposal,onMatched:saveMatchedCameras}),
     proposal&&!stale&&window.LocationSuggestedCameraPreviews&&E(window.LocationSuggestedCameraPreviews,{l,proposal,locations:list,previewRequest}),
     E("details",{className:"loc-nested-section loc-camera-inspection",open:mapOpen,onToggle:e=>{if(e.target===e.currentTarget)setMapOpen(e.currentTarget.open);}},
       E("summary",null,proposal&&!stale?"Review suggested camera positions":"Inspect saved camera positions"),

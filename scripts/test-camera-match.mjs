@@ -67,10 +67,21 @@ const obs=landmarks.map(p=>({...p,uv:api.project(truth,p.point)}));
  ok(api.observations(raw,landmarks).length===4,'Parser keeps only four measured landmark sets');
  const bad=copy(raw);bad.panels[0].points[0].id='invented';throws(()=>api.observations(bad,landmarks),/unknown/);
  const duplicate=copy(raw);duplicate.panels[0].points[1].id=duplicate.panels[0].points[0].id;throws(()=>api.observations(duplicate,landmarks),/repeated/);
- const sparse=copy(raw);sparse.panels[2].points=sparse.panels[2].points.slice(0,3);throws(()=>api.observations(sparse,landmarks),/six clear landmarks/);
+ const sparse=copy(raw);sparse.panels[2].points=sparse.panels[2].points.slice(0,3);throws(()=>api.observations(sparse,landmarks),/enough shared features/);
+ const oneObject=landmarks.map(p=>({...p,name:'One measured object'}));
+ ok(api.observations(raw,oneObject).length===4,'The same non-coplanar landmarks can belong to one measured 3D object; a second object is not required');
  const nan=copy(raw);nan.panels[0].points[0].uv=[NaN,.5];throws(()=>api.observations(nan,landmarks),/invalid/);
  const flat=landmarks.map(p=>({...p,point:[p.point[0],3,p.point[2]]}));throws(()=>api.observations(raw,flat),/different depths/);
  const repeat=copy(raw);repeat.panels[3].key='TL';throws(()=>api.observations(repeat,landmarks),/repeated or omitted/);
+}
+{
+ const plan={anchors:[],coordinates:{spaces:[{id:'room',name:'Room',footprint:[[0,0],[6,0],[6,6],[0,6]],floorZ:0,ceilingH:3}]}};
+ const cat=api.catalogue({objects:[]},plan,'room');
+ ok(cat.length===8&&cat.every(p=>p.name==='Room structure'),'An otherwise empty room provides its floor and ceiling wall-corner landmarks');
+ ok(cat.some(p=>p.point.every((v,i)=>Math.abs(v-[.075,.075,0][i])<1e-8)),'Room landmarks lie on the actual inner wall faces, not inside wall-centre geometry');
+ const reversed=copy(plan);reversed.coordinates.spaces[0].footprint.reverse();
+ const points=api.catalogue({objects:[]},reversed,'room').map(p=>p.point.join(',')).sort();
+ ok(JSON.stringify(points)===JSON.stringify(cat.map(p=>p.point.join(',')).sort()),'Inner wall corners remain correct for either footprint winding');
 }
 function harness({realGraphics=false}={}){
  const scope={uid:'owner',projectId:'film',epoch:1};let live=copy(scope),writable=true,calls=0,readHook=null,prepareHook=null,visible=true;

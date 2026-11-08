@@ -2,6 +2,7 @@
 (function(root){
   "use strict";
   const KEYS=["TL","TR","BL","BR"],active=new Set(),D=Math.PI/180;
+  const panelName=key=>({TL:"top-left",TR:"top-right",BL:"bottom-left",BR:"bottom-right"}[key]||"selected");
   const finite=n=>typeof n==="number"&&Number.isFinite(n),clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
   const canonical=x=>root.KinolotRenderContract.canonical(x);
   function project(pose,point){
@@ -37,6 +38,19 @@
         add([o.centre[0]+side*(b[0]-a[0])*o.width/(2*length),o.centre[1]+side*(b[1]-a[1])*o.width/(2*length),z],o.name||o.kind,
           (z===heights.headZ?"top":"bottom")+" edge "+(side>0?"end":"start"),"");
     }
+    // Wide views often expose room structure more clearly than furniture. Match the actual inner wall faces,
+    // inset from the saved wall centre lines by half the renderer's 0.15 m wall thickness.
+    if(sp&&!sp.openSky&&finite(sp.floorZ)&&finite(sp.ceilingH)){
+      const poly=root.KinolotRenderContract.polygon(sp.footprint),area=poly.reduce((sum,p,i)=>{const q=poly[(i+1)%poly.length];return sum+p[0]*q[1]-q[0]*p[1];},0),sign=Math.sign(area);
+      poly.forEach((p,i)=>{
+        const before=poly[(i+poly.length-1)%poly.length],after=poly[(i+1)%poly.length];
+        const normal=(a,b)=>{const len=Math.hypot(b[0]-a[0],b[1]-a[1]);return [-sign*(b[1]-a[1])/len,sign*(b[0]-a[0])/len];};
+        const a=normal(before,p),b=normal(p,after),det=a[0]*b[1]-a[1]*b[0];if(Math.abs(det)<1e-6)return;
+        const xy=[p[0]+.075*(b[1]-a[1])/det,p[1]+.075*(a[0]-b[0])/det];
+        for(const [label,z] of [["floor",sp.floorZ],["ceiling",sp.floorZ+sp.ceilingH]])
+          add([...xy,z],(sp.name||"Room")+" structure",label+" / inner wall corner "+(i+1),"");
+      });
+    }
     return points;
   }
   function observations(raw,landmarks){
@@ -51,13 +65,14 @@
           throw Error("The image read returned an unknown, repeated or invalid landmark. No cameras were changed.");
         seen.add(p.id);return {...known.get(p.id),uv:p.uv};
       });
-      if(points.length<6||new Set(points.map(p=>p.name)).size<2)throw Error(key+" needs at least six clear landmarks across two saved features. Try another ideas image or adjust the 3D cameras.");
+      if(points.length<6)throw Object.assign(Error("Couldn't identify enough shared features in the "+panelName(key)+" image to match this set. Your saved cameras are unchanged. Try another ideas image or adjust the 3D cameras."),
+        {code:"camera_match_landmarks",panel:key,identified:points.length,required:6});
       const spans=[0,1].map(i=>Math.max(...points.map(p=>p.uv[i]))-Math.min(...points.map(p=>p.uv[i])));
-      if(spans[0]<.18||spans[1]<.18)throw Error(key+" has too little visible landmark spread for a reliable camera fit.");
+      if(spans[0]<.18||spans[1]<.18)throw Error("The shared features identified in the "+panelName(key)+" image are too closely grouped to fit a camera. Your saved cameras are unchanged.");
       const centre=[0,1,2].map(i=>points.reduce((s,p)=>s+p.point[i]/points.length,0));
       const cov=centre.map((_,i)=>centre.map((_,j)=>points.reduce((s,p)=>s+(p.point[i]-centre[i])*(p.point[j]-centre[j])/points.length,0)));
       const [a,b,c]=cov,det=a[0]*(b[1]*c[2]-b[2]*c[1])-a[1]*(b[0]*c[2]-b[2]*c[0])+a[2]*(b[0]*c[1]-b[1]*c[0]);
-      if(det<1e-7*Math.pow(a[0]+b[1]+c[2],3))throw Error(key+" needs visible landmarks at different depths, not only one flat surface.");
+      if(det<1e-7*Math.pow(a[0]+b[1]+c[2],3))throw Error("The features identified in the "+panelName(key)+" image need different depths, not only one flat surface. Your saved cameras are unchanged.");
       return {key,points};
     });
   }
@@ -144,7 +159,7 @@
     }finally{instance.dispose();}
   }
   function readPrompt(landmarks,refs){
-    return "Match compositions to a FIXED measured 3D set. Image 1 is the desired four-view 2x2 ideas grid: TL, TR, BL, BR. Images 2-5 are labelled reference renders of the SAME fixed set, in that order. They are orientation guides, not desired compositions. Yellow dots locate the exact labelled 3D bounding/opening corners in the catalogue. The ideas image may contradict the set. Never invent correspondences, infer hidden points, alter dimensions, or estimate a new layout. Read only visible, clearly corresponding corners in each desired panel. UV coordinates must be normalized within THAT PANEL, left to right and top to bottom. Use only exact catalogue landmark IDs. Omit uncertain, occluded, cropped, changed or ambiguous corners, and return an empty points list if too few can be identified. At least six spread-out points across two saved features are needed; never fabricate them to meet this requirement. Return JSON only: {panels:[{key:'TL',points:[{id:'L1',uv:[0.1,0.2]}]},...all four keys]}. No camera guesses, prose or geometry. Reference labels visible by image: "+JSON.stringify(refs.map(r=>({panel:r.key,ids:r.visible})))+". Saved landmark catalogue: "+JSON.stringify(landmarks);
+    return "Match compositions to a FIXED measured 3D set. Image 1 is the desired four-view 2x2 ideas grid: TL, TR, BL, BR. Images 2-5 are labelled reference renders of the SAME fixed set, in that order. They are orientation guides, not desired compositions. Yellow dots locate exact labelled 3D corners in the catalogue: furniture bounds, openings, and floor/ceiling intersections with inner wall faces. In wide views use identifiable room corners as well as furnishings. The ideas image may contradict the set. Never invent correspondences, infer hidden points, alter dimensions, or estimate a new layout. Read only visible, clearly corresponding corners in each desired panel. UV coordinates must be normalized within THAT PANEL, left to right and top to bottom. Use only exact catalogue landmark IDs. Omit uncertain, occluded, cropped, changed or ambiguous corners, and return an empty points list if too few can be identified. At least six spread-out points at different depths are needed; they may belong to one known 3D object or several features. Never fabricate them to meet this requirement. Return JSON only: {panels:[{key:'TL',points:[{id:'L1',uv:[0.1,0.2]}]},...all four keys]}. No camera guesses, prose or geometry. Reference labels visible by image: "+JSON.stringify(refs.map(r=>({panel:r.key,ids:r.visible})))+". Saved landmark catalogue: "+JSON.stringify(landmarks);
   }
   async function match(id,s,{onPhase}={}){
     scopeGuard(s);const k=[s.uid,s.projectId,id].join(":");if(active.has(k))throw Error("Camera matching is already in progress for this location.");
@@ -159,7 +174,7 @@
       if(landmarks.length<6)throw Error("There are too few measured set features to match. Use the 3D camera controls.");
       const guard=()=>{scopeGuard(s);const now=location(id);if(api.cameraProposalKey(now.l,now.list)!==key)throw Error("The floor plan or cameras changed. Match the views again.");};
       onPhase?.("Preparing fixed-set references…");const refs=await references(scene,state.plan,landmarks);guard();
-      if(refs.reduce((n,r)=>n+r.visible.length,0)<6)throw Error("Too few visible set corners could be labelled. Use the 3D camera controls.");
+      if(new Set(refs.flatMap(r=>r.visible)).size<6)throw Error("Too few visible set corners could be labelled. Use the 3D camera controls.");
       const image=await root.turnDownscaleDataUrl(source.url,1536);guard();if(!image)throw Error("The ideas image could not be opened. Reopen the card and try again.");
       await sameSource(id,s,stamp);guard();onPhase?.("Reading shared landmarks · one writing call…");
       const result=await root.aiVisionComplete([{role:"user",content:readPrompt(landmarks,refs)}],[image,...refs.map(r=>r.url)],{maxTokens:5000,beforeSubmit:async()=>{await sameSource(id,s,stamp);guard();}});
@@ -191,7 +206,7 @@
         if(points.some(p=>!check.landmarkVisible(panel.pose,p.point)))throw Error(panel.key+": The fitted view hides a matched feature behind the set. Review the layout or use the 3D camera controls.");
       }}finally{check.dispose();}
       guard();
-      const proposal={key,panels,warnings:["Experimental image match: landmark agreement is not proof of an exact visual match. Compare every reference panel with its fixed-set 3D preview before accepting. The set's dimensions and objects have not changed."],
+      const proposal={key,panels,warnings:["Experimental image match: landmark agreement is not proof of an exact visual match. The set's dimensions and objects have not changed; saved cameras can be adjusted in the 3D preview."],
         imageMatch:{sourceKey:stamp,iso:source.meta.iso,scope:{...s}},referenceUrl:source.url};
       api.cameraProposalViews(l,proposal,list);return proposal;
     }finally{active.delete(k);}

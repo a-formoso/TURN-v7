@@ -86,7 +86,7 @@ function harness(){
 }
 // The real help component: opening is free; its paid action is separate and read-only guarded.
 {
- const h=harness();let hooks=[],cursor=0,effects=[],readonly=false,proposals=[];
+ const h=harness();let hooks=[],cursor=0,effects=[],readonly=false,proposals=[],matched=[];
  h.b.React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!=null&&x!==false)}),
   useState:v=>{const i=cursor++;if(!(i in hooks))hooks[i]={value:typeof v==='function'?v():v};return [hooks[i].value,v=>hooks[i].value=typeof v==='function'?v(hooks[i].value):v];},
   useRef:v=>{const i=cursor++;return hooks[i]||(hooks[i]={current:v});},
@@ -94,7 +94,7 @@ function harness(){
  const src=readFileSync(compiled?'dist/app/camera-inspiration-ui.js':'app/camera-inspiration-ui.jsx','utf8');
  vm.runInContext(compiled?src:transformSync(src,{presets:['@babel/preset-react'],babelrc:false,configFile:false}).code,h.b);
  const flat=n=>!n||typeof n!=='object'?[]:[n,...(n.children||[]).flatMap(flat)],text=n=>n==null?'':typeof n==='object'?(n.children||[]).map(text).join(''):String(n);
- const render=()=>{cursor=0;effects=[];const tree=h.b.LocationCameraInspiration({l:h.room,readOnly:readonly,onPropose:p=>proposals.push(p)});effects.splice(0).forEach(fn=>fn());return tree;};
+ const render=()=>{cursor=0;effects=[];const tree=h.b.LocationCameraInspiration({l:h.room,readOnly:readonly,onPropose:p=>proposals.push(p),onMatched:async(p,ticket)=>{matched.push({p,ticket});return true;}});effects.splice(0).forEach(fn=>fn());return tree;};
  let tree=render();tree=render();ok(!tree.props.open&&!h.calls.length,'The optional help starts collapsed and generates nothing');
  const details={open:true};tree.props.onToggle({target:details,currentTarget:details});tree=render();await new Promise(setImmediate);tree=render();
  ok(!h.calls.length&&text(tree).includes('image never changes Blender geometry'),'Opening help is free and explains its isolation');
@@ -123,8 +123,14 @@ function harness(){
  const first=match.props.onClick(),again=match.props.onClick();await again;
  ok(matchCalls===1&&proposals.at(-1)===null,'Matching discards earlier unsaved proposals and guards duplicate clicks before React rerenders');
  resolveMatch({key:'fitted',panels:[]});await first;tree=render();
- ok(proposals.at(-1)?.key==='fitted'&&h.writes.length===1,'A fitted result goes to camera review without saving more images or camera data');
+ ok(matched.at(-1)?.p.key==='fitted'&&proposals.at(-1)===null&&h.writes.length===1,'A successful fit goes directly to the guarded camera-save callback without creating a manual proposal or another image');
+ ok(text(tree).includes('All 4 cameras are set')&&!text(tree).includes('then choose Use these cameras'),
+   'Success is reported only after the save callback confirms, without an extra manual-accept instruction');
  readonly=true;tree=render();const readOnlyMatch=flat(tree).find(n=>n.type==='button'&&text(n)==='Match these views to set');
  await readOnlyMatch.props.onClick();ok(readOnlyMatch.props.disabled&&matchCalls===1,'Read-only users cannot start an image fit');
+ readonly=false;h.b.KinolotCameraMatch.match=async()=>{throw Error("Couldn't identify enough shared features in the top-left image.");};
+ tree=render();await flat(tree).find(n=>n.type==='button'&&text(n)==='Match these views to set').props.onClick();tree=render();
+ ok(matched.length===1&&!text(tree).includes('All 4 cameras are set')&&!text(tree).includes('still uses writing credits'),
+   'A failed fit never calls auto-save, clears the old success state and shows no generic billing suffix');
 }
 console.log('PASS camera inspiration: '+checks+' scope, billing-boundary, isolation, persistence, retry and UI checks');

@@ -169,5 +169,17 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   propose(matchProposal());tree=render();const accepted=button(tree,"Use these cameras").props.onClick();resolveConfirm();await accepted;
   ok(writes.length===originalWrites+1&&Object.keys(writes.at(-1).patch).join()==="coverageViews",
     "Explicit image-fit acceptance saves camera poses only through the existing update boundary");
+  const helper=()=>nodes(render()).find(n=>n.type===b.LocationCameraInspiration);
+  const autoTicket=helper().props.onPropose(null),beforeAuto=writes.length;
+  const auto=helper().props.onMatched(matchProposal(),autoTicket);resolveConfirm();await auto;
+  ok(writes.length===beforeAuto+1&&Object.keys(writes.at(-1).patch).join()==="coverageViews"&&destination.step===4,
+    "One successful matching callback saves all four camera poses and opens Step Four without a second acceptance click");
+  ok(!button(render(),"Use these cameras"),"An automatically saved image fit leaves no manual camera proposal to accept");
+  const staleTicket=helper().props.onPropose(null);button(render(),"Suggest 4 cameras").props.onClick();
+  await assert.rejects(()=>helper().props.onMatched(matchProposal(),staleTicket),/Another camera action/);checks++;
+  ok(writes.length===beforeAuto+1,"A newer camera action prevents a late automatic save");
+  const accessTicket=helper().props.onPropose(null),autoAccess=helper().props.onMatched(matchProposal(),accessTicket);
+  b.turnArtRoomWritable=()=>false;resolveConfirm();await assert.rejects(()=>autoAccess,/read-only/);checks++;
+  ok(writes.length===beforeAuto+1,"Losing edit access prevents automatic saves as well as manual saves");b.turnArtRoomWritable=()=>true;
 }
 console.log("PASS camera suggestions: "+checks+" deterministic placement, validation, scope and preview/apply checks");
