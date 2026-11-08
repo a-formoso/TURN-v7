@@ -147,6 +147,9 @@ function harness({realGraphics=false,composition=false,unknownSubject=false}={})
  const h=harness();h.readHook(phase=>{if(phase==='after')h.l.spatialPlan.anchors[0].size[0]=1.2;});await rejects(()=>api.match('room',h.scope),/floor plan or cameras changed/);ok(h.calls===1,'A late response after a geometry edit cannot produce a stale proposal');h.cleanup();
 }
 {
+ const h=harness();h.readHook(phase=>{if(phase==='after')h.l.architecture='A changed repeated-fixture pattern';});await rejects(()=>api.match('room',h.scope),/floor plan or cameras changed/);ok(h.calls===1,'Changes to the written set recipe invalidate an in-flight camera match');h.cleanup();
+}
+{
  const h=harness(),p=await api.match('room',h.scope);h.changeSource();await rejects(()=>api.confirm('room',h.scope,p),/ideas image changed/);h.cleanup();
 }
 {

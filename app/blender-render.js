@@ -70,7 +70,7 @@
   function cameraProposalKey(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
     const state=root.locationSpatialPlanState(location,list);
-    return C().canonical({locationId:location.id,plan:state.plan,views:location.coverageViews||[],
+    return C().canonical({locationId:location.id,plan:state.plan,views:location.coverageViews||[],brief:{name:location.name||"",architecture:location.architecture||"",keySizes:location.keySizes||""},
       family:root.locationSpatialFamily(state.owner,list).map(l=>({id:l.id,name:l.name})),
       epoch:typeof root.nbEpoch==="function"?root.nbEpoch():0});
   }
@@ -98,6 +98,25 @@
     const used=[],panels=[],spacing=Math.min(.6,Math.max(.15,Math.min(w,d)*.15));
     const keys=["TL","TR","BL","BR"],centre=[x0+w/2,y0+d/2];
     const roomAnchors=plan.anchors.filter(a=>a.xy&&a.size&&!isOpening(a,sp)&&(root.locationAnchorSpaceOf(a,family)||owner).id===sp.id);
+    // A linear vehicle needs aisle coverage from both ends and a clear view beside the driver.
+    const busBench=roomAnchors.find(a=>/bench-L\d+$/i.test(a.id)||/\b(?:west|left)\b.*\brow\s*\d+/i.test(a.name)),busDriver=roomAnchors.find(a=>/\bdriver\b/i.test(a.name)&&/\bdash\b/i.test(a.name));
+    if(/\bbus\b/i.test(location.name||"")&&busBench&&busDriver&&Math.max(w,d)>Math.min(w,d)*2){
+      const angle=(busBench.facing||0)*Math.PI/180,forward=[Math.sin(angle),Math.cos(angle)],right=[forward[1],-forward[0]];
+      const dot=(p,v)=>(p[0]-centre[0])*v[0]+(p[1]-centre[1])*v[1],ends=poly.map(p=>dot(p,forward));
+      const across=-Math.sign(dot(busDriver.xy,right)||-1)*Math.min(.45,Math.min(w,d)*.2);
+      const station=(t,c,z)=>[centre[0]+forward[0]*t+right[0]*c,centre[1]+forward[1]*t+right[1]*c,clampHeight(z)].map(rounded);
+      const aim=(at,point,lensMm,target)=>root.normalizeLocationCameraPose({position:at,yaw:Math.atan2(point[0]-at[0],point[1]-at[1])*180/Math.PI,pitch:Math.atan2(point[2]-at[2],Math.hypot(point[0]-at[0],point[1]-at[1]))*180/Math.PI,lensMm,target,basis:"design"});
+      const front=(sp.openings||[]).find(o=>/windshield/i.test(o.name||o.id)),rear=(sp.openings||[]).find(o=>/rear|emergency/i.test(o.name||o.id));
+      const a=station(Math.min(...ends)+.55,0,1.5),b=station(Math.max(...ends)-Math.max(1.25,busDriver.size[1]),0,1.5);
+      const c=station(dot(busBench.xy,forward)-.9,across,1.25),e=station(dot(busDriver.xy,forward)-1.5,across,1.5);
+      const options=[
+        {key:"TL",role:"wide",label:"Front along the aisle",pose:{position:a,yaw:(busBench.facing||0),pitch:-7,lensMm:24,target:front?.id||busDriver.id,basis:"design"}},
+        {key:"TR",role:"reverse",label:"Rear along the aisle",pose:{position:b,yaw:((busBench.facing||0)+180)%360,pitch:-7,lensMm:24,target:rear?.id||busBench.id,basis:"design"}},
+        {key:"BL",role:"detail",label:"Bench detail",pose:aim(c,[busBench.xy[0]-forward[0]*busBench.size[1]*.4,busBench.xy[1]-forward[1]*busBench.size[1]*.4,anchorCentreZ(busBench,sp,plan).z+busBench.size[2]*.28],28,busBench.id)},
+        {key:"BR",role:"detail",label:"Driver controls",pose:aim(e,[front?.centre?.[0]??busDriver.xy[0]+forward[0]*busDriver.size[1]*.4,front?.centre?.[1]??busDriver.xy[1]+forward[1]*busDriver.size[1]*.4,anchorCentreZ(busDriver,sp,plan).z+busDriver.size[2]*.4],28,busDriver.id)}
+      ];
+      if(!Object.keys(cameraProblemsIn(location,list,plan,spaces,family,owner,options)).length)return {key:cameraProposalKey(location,list),panels:options,warnings:["Bus coverage: front and rear aisle views, a bench detail and the driver's controls. Review the proposed 3D views before saving; your existing cameras are unchanged."]};
+    }
     const shape=a=>root.KinolotSetKitchen?.kind(a)||root.KinolotSetDetail?.anchorShape(a)||"";
     const bed=roomAnchors.filter(a=>shape(a)==="bed").sort((a,b)=>b.size[0]*b.size[1]-a.size[0]*a.size[1])[0];
     const blocked=(at,target,skip)=>roomAnchors.some(a=>{
@@ -380,7 +399,7 @@
     const coords=plan.coordinates;
     if(!coords||!coords.spaces.length)throw new Error("Add the location's footprint to the floor plan first.");
     const spaces=renderSpaces(plan),objects=[],lights=[],notes=["Floor plan dimensions are estimates, not a survey.","Wall and floor thicknesses are proposed at 0.15 m. Materials and lighting are a preview treatment."];
-    if(plan.anchors.some(a=>a.sizeBasis==="design"))notes.push("Object sizes marked proposed design are working estimates. Grouped dressing is represented by a single simplified proxy; repeated units and fine details are not modelled in this preview.");
+    if(plan.anchors.some(a=>a.sizeBasis==="design"))notes.push("Object sizes marked proposed design are working estimates. Unsupported grouped dressing is represented by a single simplified proxy; its repeated units and fine details are not modelled in this preview.");
     if(!spaces.some(s=>s.id===location.id&&s.footprint.length>=3))throw new Error("Add this space's footprint to the floor plan first.");
     const family=root.locationSpatialFamily(owner,list);let baseNote=false;const outsides=[];
     const add=(id,name,position,size,rotation=[0,0,0],extra={})=>objects.push({id,name:tidy(name),position,size,rotation,kind:"box",material:"wall",...extra});
@@ -462,7 +481,8 @@
       }};
     if(!root.KinolotSetDetail)throw new Error("The set detail builder did not load. Refresh this page before building.");
     const detailed=root.KinolotSetDetail.build(C().validateScene(scene),{space:spaces.find(s=>s.id===location.id),
-      anchors:plan.anchors.filter(a=>(root.locationAnchorSpaceOf(a,family)||owner).id===location.id),allAnchors:plan.anchors});
+      anchors:plan.anchors.filter(a=>(root.locationAnchorSpaceOf(a,family)||owner).id===location.id),allAnchors:plan.anchors,
+      brief:{name:location.name||"",architecture:location.architecture||"",keySizes:location.keySizes||""},partPoses:poses});
     const proxies=detailed.objects.filter(o=>o.anchorId&&o.kind==="box"&&o.material==="dressing"
       &&!plan.anchors.find(a=>a.id===o.anchorId)?.renderShape);
     if(proxies.length)detailed.notes.push("Simplified solid blocks: "+proxies.slice(0,4).map(o=>tidy(o.name,65)).join(", ")
