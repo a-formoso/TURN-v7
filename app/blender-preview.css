@@ -124,6 +124,10 @@ html[data-theme="light"] .bp-pair-code,.bp-panel{box-shadow:0 1px 2px rgba(24,25
 .loc-style-actions>.art-draftall{box-sizing:border-box;width:100%;min-width:0;min-height:40px;height:auto;padding:8px 12px;justify-content:center;white-space:normal;font-family:var(--f-ui,system-ui,sans-serif);font-size:12.5px;font-weight:600}
 .loc-style-actions>.art-draftall:not(.loc-style-generate):not(.loc-style-save-retry){white-space:nowrap}
 .loc-style-actions>.loc-style-generate,.loc-style-actions>.loc-style-save-retry{grid-column:1/-1}
+.loc-style-generate-row{grid-column:1/-1;display:flex;gap:12px;align-items:stretch;min-width:0}
+.loc-style-generate-row>.art-draftall{box-sizing:border-box;font-family:var(--f-ui,system-ui,sans-serif);font-size:12.5px;font-weight:600}
+.loc-style-generate-row>.loc-style-generate{flex:1 1 0;min-width:0;justify-content:center;height:auto;min-height:40px;padding:8px 12px;white-space:normal}
+.loc-style-generate-row>.loc-style-cancel{flex:0 0 auto;min-height:40px;height:auto;padding:8px 14px;white-space:nowrap}
 @container style-preview (max-width:290px){.loc-style-actions{grid-template-columns:1fr}.loc-style-actions>.art-draftall{grid-column:1/-1}}
 .loc-style-notes{display:grid;gap:6px;font-size:12px;margin:12px 0}
 .loc-style-notes select{font:inherit;background:var(--bg-2);color:var(--txt-1);border:1px solid var(--line);padding:8px;border-radius:5px;width:100%;min-width:0;box-sizing:border-box}

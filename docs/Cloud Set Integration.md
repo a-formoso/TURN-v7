@@ -32,6 +32,16 @@ Compare with Blender label and Compare engines both stay on one line with
 consistent padding and standard text size/weight. Exceptionally narrow cards
 stack the two full labels rather than wrapping or clipping them.
 
+During Step Five preparation/generation, Cancel appears immediately to the
+right of the generating button in the same row. It cancels local use of that
+run: pre-submission cancellation prevents the paid request; after submission,
+late pixels are discarded without saving or opening review. Existing drafts
+and artwork remain intact. The provider may still finish and charge an image
+already submitted; the app does not promise a refund or a remote stop. Another
+paid attempt stays blocked while that request is active and requires explicit
+usage acknowledgement afterward. Cancel disappears when saving starts; a stale
+click then reports saving rather than pretending a committed draft was stopped.
+
 Step 3 also offers optional **Need ideas for camera views?** help. It creates a
 text-only four-view inspiration image using an explicitly chosen image engine
 at its displayed normal image price. Description, appearance and reviewed

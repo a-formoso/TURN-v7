@@ -9,6 +9,7 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
   const [camera,setCamera]=React.useState("all"),[wipe,setWipe]=React.useState(50),[tick,setTick]=React.useState(0);
   const dialog=React.useRef(null),alive=React.useRef(true);
   const operating=React.useRef(false);
+  const generation=React.useRef(0);
   let scope=null,choice=null,brief="",reason="";
   try{scope=window.BlenderPreview.scope();brief=api.briefKey(location);}catch(e){reason=e.message;}
   const scopeKey=scope?[scope.uid,scope.projectId,scope.epoch,location.id,partState?partState.key:""].join(":"):"";
@@ -55,10 +56,20 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
   const accepted=decided&&approval.approved,rejected=decided&&!approval.approved;
   const valid=()=>alive.current&&current.current===scopeKey;
   async function generate(){
-    if(busy||readOnly||!scope||!choice)return;operating.current=true;setBusy(true);setError("");setNotice("");step("preparing");
-    try{const d=await api.generate(goal,job,scope,{settings:choice,notes,retryConfirmed:retry,onPhase:step});if(valid()){setDraft(d);setCompareMode("source");setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
-    catch(e){if(valid())setError(e.message);}
-    finally{operating.current=false;if(valid()){setBusy(false);setPhase("");}}
+    if(operating.current||busy||readOnly||!scope||!choice)return;operating.current=true;setBusy(true);setError("");setNotice("");step("preparing");
+    const token=++generation.current,isCurrent=()=>valid()&&generation.current===token;
+    try{const d=await api.generate(goal,job,scope,{settings:choice,notes,retryConfirmed:retry,onPhase:p=>{if(isCurrent())step(p);}});if(isCurrent()){setDraft(d);setCompareMode("source");setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
+    catch(e){if(isCurrent())setError(e.message);}
+    finally{if(generation.current===token)operating.current=false;if(isCurrent()){setBusy(false);setPhase("");}}
+  }
+  function cancelGeneration(){
+    if(!scope||!busy)return;
+    try{
+      const stopped=api.cancel(goal,scope);
+      if(!stopped.ok){setNotice(stopped.reason==="saving"?"The draft is already saving. Please wait for it to finish.":"The request has already finished.");return;}
+      generation.current++;operating.current=false;setBusy(false);setPhase("");setRetry(false);
+      setNotice(stopped.submitted?"Cancelled. Any late image result will be discarded. Processing already started may still be charged.":"Cancelled before image submission. No new image request was sent.");
+    }catch(e){if(valid())setError(e.message);}
   }
   async function decide(use){
     if(busy||readOnly||!scope||!draft)return;operating.current=true;setBusy(true);setError("");
@@ -99,12 +110,15 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
     E("label",{className:"loc-style-notes"},"Engine",
       E("select",{value:engine,disabled:readOnly||busy,onChange:e=>setEngine(e.target.value)},
         api.ENGINES.map(id=>E("option",{key:id,value:id},window.nbModelLabel(id))))),
-    pending&&!pending.active&&!pending.hasUnsaved&&E("label",{className:"loc-style-check"},E("input",{type:"checkbox",checked:retry,disabled:readOnly||busy,onChange:e=>setRetry(e.target.checked)}),"An earlier request may still finish. I checked usage and want to start a new paid request."),
+    pending&&!pending.active&&!pending.hasUnsaved&&E("label",{className:"loc-style-check"},E("input",{type:"checkbox",checked:retry,disabled:readOnly||busy,onChange:e=>setRetry(e.target.checked)}),pending.cancelled?"The cancelled request may still be charged. I checked usage and want to start a new paid request.":"An earlier request may still finish. I checked usage and want to start a new paid request."),
+    pending?.cancelled&&pending.active&&E("p",{className:"loc-layer-note",role:"status"},"The cancelled image request is still finishing. Its result will be discarded; another request can start after it settles."),
     !busy&&pending?.hasUnsaved&&E("p",{className:"loc-layer-note"},"The image finished, but its save was not confirmed. Keep this page open and retry saving without generating or charging for another image."),
     E("div",{className:"loc-cloud-render-actions loc-style-actions"},
+      E("div",{className:"loc-style-generate-row"},
       E("button",{type:"button",className:"art-draftall loc-style-generate",disabled:readOnly||busy||loading||!(Number(choice?.credits)>0)||!sceneHash||job?.status!=="completed"||job.sceneHash!==sceneHash||!!pending?.active||!!pending?.hasUnsaved||!!pending&&!retry,onClick:generate},busy?"Working…":draft?"Generate another style draft":"Generate style draft",
         // the same credit chip as Generate new image, priced for the chosen engine
         !busy&&Number(choice?.credits)>0&&window.nbCostChip&&window.nbCostChip(1,{model:choice.model,res:choice.imageSize,quality:choice.quality,aspect:"16:9",refs:1,ground:false})),
+      busy&&["preparing","generating"].includes(phase)&&E("button",{type:"button",className:"art-draftall ghost loc-style-cancel",onClick:cancelGeneration,title:"Discard this generation. Image processing already started may still be charged."},"Cancel")),
       pending?.hasUnsaved&&E("button",{type:"button",className:"art-draftall ghost loc-style-save-retry",disabled:readOnly||busy,onClick:retrySave},"Retry saving draft"),
       E("button",{type:"button",className:"art-draftall ghost",disabled:busy||!draft?.source,
         title:draft?"Inspect the saved draft against its Blender reference":"Save a style draft to compare it with its Blender reference",

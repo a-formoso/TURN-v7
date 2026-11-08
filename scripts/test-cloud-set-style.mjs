@@ -130,6 +130,35 @@ for(const phase of ["prepare","response"]){
   ok(h.calls.filter(x=>x==="paid-image").length===(phase==="prepare"?0:1),"Scope checked immediately before spending and after response");
 }
 {
+  const h=harness(),job=await h.ready(),api=h.api();
+  h.hook(async phase=>{if(phase==="prepare")ok(api.cancel("room",h.scope).ok,"Cancellation is available before paid submission");});
+  await rejects(()=>api.generate("room",job,h.scope),/cancelled/);
+  ok(!h.calls.includes("paid-image")&&h.writes.length===0&&!api.pending(h.scope,"room"),"Pre-submission cancellation sends no paid request, saves nothing and clears the warning");
+}
+{
+  const h=harness(),job=await h.ready(),api=h.api(),original=clone(h.store.get("room"));let release,started;
+  const waiting=new Promise(r=>release=r),submitted=new Promise(r=>started=r);
+  h.hook(async phase=>{if(phase==="response"){started();await waiting;}});
+  const work=api.generate("room",job,h.scope);await submitted;
+  const cancelled=api.cancel("room",h.scope);
+  ok(cancelled.ok&&cancelled.submitted&&api.pending(h.scope,"room").cancelled,"In-flight cancellation records the possible paid request");
+  await rejects(()=>api.generate("room",job,h.scope,{retryConfirmed:true}),/already in progress/);
+  release();await rejects(()=>work,/cancelled/);
+  ok(h.calls.filter(x=>x==="paid-image").length===1&&h.writes.length===0&&!h.store.has(api.slot("room")),"A late cancelled image is discarded rather than saved as a draft");
+  assert.deepEqual(h.store.get("room"),original);checks++;
+  ok(!api.pending(h.scope,"room").active&&!api.pending(h.scope,"room").hasUnsaved,"Cancelled pixels are not exposed through save recovery");
+  await rejects(()=>api.generate("room",job,h.scope),/earlier image request/);
+  h.hook(null);await api.generate("room",job,h.scope,{retryConfirmed:true});
+  ok(h.calls.filter(x=>x==="paid-image").length===2,"A new paid attempt needs explicit acknowledgement after cancellation");
+}
+{
+  const h=harness(),job=await h.ready(),api=h.api();let lateCancel;
+  h.commitHook(async()=>{lateCancel=api.cancel("room",h.scope);});
+  await api.generate("room",job,h.scope);
+  ok(lateCancel.ok===false&&lateCancel.reason==="saving"&&h.store.has(api.slot("room")),"A stale Cancel click during persistence honestly reports saving rather than claiming to cancel a committed draft");
+  ok(api.cancel("room",h.scope).ok===false,"No cancellation is reported after the request finishes");
+}
+{
   const h=harness(),job=await h.ready();h.deny();
   await rejects(()=>h.api().generate("room",job,h.scope),/access denied/);
   ok(!h.calls.includes("paid-image"),"Pilot capability refusal prevents spending");
@@ -215,6 +244,36 @@ for(const phase of ["prepare","response"]){
   ok(!button(tree,"Use as location artwork")&&!button(tree,"Reject draft"),"Engine comparison has no artwork mutation controls");
   states[18]=null;tree=render();
   ok(!button(tree,"Use as location artwork"),"Losing the engine pair cannot fall through to artwork acceptance");
+}
+{
+  // Actual UI cancellation with persistent hooks and a deferred provider response.
+  const h=harness(),job=await h.ready();await h.api().generate("room",job,h.scope);
+  const previous=clone(h.store.get(h.api().slot("room"))),writesBefore=h.writes.length;
+  let hooks=[],cursor=0,effects=[];
+  h.b.addEventListener=()=>{};h.b.removeEventListener=()=>{};h.b.setInterval=()=>1;h.b.clearInterval=()=>{};h.b.nbOaiQualityLabel=x=>x;
+  h.b.React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!=null&&x!==false)}),
+    useState:v=>{const i=cursor++;if(!(i in hooks))hooks[i]={value:typeof v==="function"?v():v};return [hooks[i].value,v=>hooks[i].value=typeof v==="function"?v(hooks[i].value):v];},
+    useRef:v=>{const i=cursor++;return hooks[i]||(hooks[i]={current:v});},
+    useEffect:(fn,deps)=>{const i=cursor++,old=hooks[i];if(!old||deps.some((v,k)=>v!==old.deps[k]))effects.push(()=>{old?.cleanup?.();hooks[i].cleanup=fn();});hooks[i]={deps,cleanup:old?.cleanup};}};
+  vm.runInContext(readFileSync(compiled?"dist/app/blender-style-ui.js":"app/blender-style-ui.jsx","utf8"),h.b);
+  const flat=n=>!n||typeof n!=="object"?[]:[n,...(n.children||[]).flatMap(flat)],text=n=>n==null?"":typeof n==="object"?(n.children||[]).map(text).join(""):String(n);
+  const render=()=>{cursor=0;effects=[];const tree=h.b.LocationSetStyle({location:h.b.turnContinuity.locations[0],job,sceneHash:job.sceneHash});effects.splice(0).forEach(fn=>fn());return tree;};
+  const button=(tree,label)=>flat(tree).find(n=>n.type==="button"&&text(n).startsWith(label));
+  let tree=render();
+  for(let i=0;i<50;i++){await new Promise(r=>setTimeout(r,1));tree=render();if(button(tree,"Generate another style draft")&&!button(tree,"Generate another style draft").props.disabled)break;}
+  ok(!button(tree,"Cancel"),"Cancel is hidden while style generation is idle");
+  let release,started;const wait=new Promise(r=>release=r),sent=new Promise(r=>started=r);
+  h.hook(async phase=>{if(phase==="response"){started();await wait;}});
+  const work=button(tree,"Generate another style draft").props.onClick();await sent;tree=render();
+  const row=flat(tree).find(n=>n.props.className==="loc-style-generate-row");
+  ok(row.children[0].type==="button"&&row.children[1].type==="button"&&text(row.children[1])==="Cancel",
+    "Cancel appears immediately to the right of the generating button in the same action row");
+  button(tree,"Cancel").props.onClick();tree=render();
+  ok(!button(tree,"Cancel")&&text(tree).includes("late image result will be discarded")&&text(tree).includes("may still be charged"),
+    "Cancelling clears local progress immediately and explains already-started processing");
+  release();await work;tree=render();
+  ok(!flat(tree).some(n=>n.type==="dialog")&&h.writes.length===writesBefore,"A late cancelled response neither opens review nor saves another draft");
+  assert.deepEqual(h.store.get(h.api().slot("room")),previous);checks++;
 }
 {
   // A location with a finished Blender job but no style draft yet (every location, the first time): the panel renders.

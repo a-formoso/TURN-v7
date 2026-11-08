@@ -1,7 +1,7 @@
 /* Reviewed image styling for the local cloud-set pilot. Geometry stays authoritative. */
 (function(root){
   "use strict";
-  const active=new Set(),memory=new Map(),unsaved=new Map(),PANELS=["TL","TR","BL","BR"];
+  const active=new Set(),memory=new Map(),unsaved=new Map(),runs=new Map(),PANELS=["TL","TR","BL","BR"];
   const enabled=()=>!!root.KinolotCloudRender?.enabled();
   /* What a draft styles (2026-11-01): a location id = its usual set, which becomes the location image; or a target
      {loc, at, key, label} = the set built at a story moment whose moving parts differ ("Stern ramp lowered"), which
@@ -15,6 +15,7 @@
     const k=key(s,id);let value=memory.get(k)||null;
     try{value=JSON.parse(root.localStorage.getItem(k)||"null")||value;}catch(_){}
     if(unsaved.get(k)?.scope.epoch!==s.epoch)unsaved.delete(k);
+    if(!value&&runs.has(k)){const run=runs.get(k);value={phase:run.stage,cancelled:run.cancelled};}
     return value?{...value,active:active.has(k),hasUnsaved:unsaved.has(k)}:null;
   }
   function marker(s,id,value){
@@ -163,14 +164,26 @@
   async function locked(id,s,fn){
     assertScope(s);const k=key(s,id);if(active.has(k))throw Error("A style request for this location is already in progress.");
     active.add(k);announce(id);
-    try{return await fn();}finally{active.delete(k);announce(id);}
+    try{return await fn();}finally{runs.delete(k);active.delete(k);announce(id);}
+  }
+  function cancelledError(){const error=new Error("Style generation cancelled. A late image result will not be saved.");error.code="style_cancelled";return error;}
+  function cancel(id,s){
+    assertScope(s,false);const run=runs.get(key(s,id));
+    if(!run)return {ok:false,reason:"finished"};
+    if(run.stage==="saving")return {ok:false,reason:"saving"};
+    run.cancelled=true;
+    if(run.record)marker(s,id,run.submitted?{...run.record,phase:"cancelled",cancelled:true}:null);
+    announce(id);return {ok:true,submitted:run.submitted};
   }
   async function generate(id,job,s,options={}){return locked(id,s,async()=>{
-    if(pending(s,id)&&!options.retryConfirmed)throw Error("An earlier image request may still finish. Check its usage before starting another paid request.");
+    const previous=pending(s,id);
+    if(previous?.hasUnsaved)throw Error("Retry saving the completed draft before generating another image.");
+    if(previous&&!options.retryConfirmed)throw Error("An earlier image request may still finish. Check its usage before starting another paid request.");
+    const run={cancelled:false,submitted:false,stage:"preparing",record:null};runs.set(key(s,id),run);
     const t=T(id);
     let l=live(t.loc),revision=sceneKey(l,t.at),brief=briefKey(l);
-    const guard=()=>{try{assertScope(s);return sceneKey(live(t.loc),t.at)===revision&&briefKey(live(t.loc))===brief;}catch(_){return false;}};
-    const assert=()=>{if(!guard())throw Error("The layout or style brief changed. This draft was not adopted; check usage before retrying.");};
+    const guard=()=>{try{assertScope(s);return !run.cancelled&&sceneKey(live(t.loc),t.at)===revision&&briefKey(live(t.loc))===brief;}catch(_){return false;}};
+    const assert=()=>{if(run.cancelled)throw cancelledError();if(!guard())throw Error("The layout or style brief changed. This draft was not adopted; check usage before retrying.");};
     await root.KinolotCloudRender.request("capabilities",{projectId:s.projectId},s);assert();
     const original=await root.KinolotCloudRender.request("job.get",{projectId:s.projectId,jobId:job?.id},s);assert();
     const hash=await root.KinolotRenderContract.hash(revision);assert();
@@ -185,6 +198,7 @@
     const text=prompt(l,options.notes||"")+visibilityNotes(original.job,JSON.parse(revision))+(moved?"\nMOVING PARTS AT THIS MOMENT (as built in the source): "+moved
       +". Where the source opens to the outside, paint the exterior beyond as described (keep its position and size).":""),metaOut={};
     const record={requestId:root.crypto.randomUUID(),startedAt:new Date().toISOString(),phase:"generating"};
+    run.record=record;run.stage="generating";
     marker(s,id,record);announce(id);options.onPhase?.("generating");
     try{
       const url=await root.nbGenerate(text,{model:choice.model,imageSize:choice.imageSize,quality:choice.quality,aspectRatio:"16:9",
@@ -193,8 +207,9 @@
           assert();await root.KinolotCloudRender.request("capabilities",{projectId:s.projectId},s);assert();
           const latest=version(await details(assetOf(t),s));assert();
           if(latest.exists!==base.exists||latest.iso!==base.iso)throw Error("The location artwork changed before generation. Refresh before starting another request.");
+          run.submitted=true;
         }});
-      assert();options.onPhase?.("saving");
+      assert();run.stage="saving";options.onPhase?.("saving");
       const meta={schema:1,kind:"cloud-set-style-draft",projectId:s.projectId,locationId:t.loc,sourceJobId:original.job.id,
         ...(t.key?{stateKey:t.key,stateLabel:t.label,stateAt:t.at}:{}),
         sceneHash:hash,sourceScene:JSON.parse(revision),briefKey:brief,baseArtwork:base,prompt:text,modelId:choice.model,
@@ -207,7 +222,10 @@
       const saved=await root.nbCommit(slot(id),url,meta,refs,"location",s.epoch,()=>!guard());
       assert();if(saved?.tier!=="cloud")throw Error("The style draft save was not confirmed. Reload this page to check for it before generating again.");
       unsaved.delete(key(s,id));marker(s,id,null);announce(id,true);return {url:saved.url||url,meta,refs,source:grid};
-    }catch(e){marker(s,id,{...record,phase:"uncertain"});throw e;}
+    }catch(e){
+      if(run.cancelled){unsaved.delete(key(s,id));marker(s,id,run.submitted?{...record,phase:"cancelled",cancelled:true}:null);throw cancelledError();}
+      marker(s,id,{...record,phase:"uncertain"});throw e;
+    }
   });}
   async function retrySave(id,s){return locked(id,s,async()=>{
     const entry=unsaved.get(key(s,id));
@@ -266,5 +284,5 @@
     const recorded=await root.nbSetAssetApproval(slot(id),meta.iso,true,"cloud-set-style-accepted");
     announce(id,true);return {...saved,reviewRecorded:!!recorded?.ok};
   });}
-  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,assetOf:t=>assetOf(T(t)),pending,settings,appearance,briefKey,sceneKey,prompt,visibilityNotes,compose,load,comparisonPair,generate,retrySave,accept,reject};
+  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,assetOf:t=>assetOf(T(t)),pending,settings,appearance,briefKey,sceneKey,prompt,visibilityNotes,compose,load,comparisonPair,generate,cancel,retrySave,accept,reject};
 })(typeof window!=="undefined"?window:globalThis);
