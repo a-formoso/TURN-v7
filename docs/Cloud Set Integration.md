@@ -27,6 +27,11 @@ still guard the explicit save action.
 Its entry button sits directly below Suggest four cameras; the route to Build
 the set stays below the camera review content.
 
+Style comparison buttons use content-aware unequal columns so the longer
+Compare with Blender label and Compare engines both stay on one line with
+consistent padding and standard text size/weight. Exceptionally narrow cards
+stack the two full labels rather than wrapping or clipping them.
+
 - Detailed app scenes use `kinolot-cloud-set-v2` / `mcp-procedural-v1`. They carry
   numerical geometry, cameras, bounded edge radii and procedural surface recipes.
   Source limits remain 500 shapes / 128 KiB, with up to 64 shaped soft parts.
