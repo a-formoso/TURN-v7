@@ -36,7 +36,7 @@ function LocationCameraInspiration({l,readOnly=false,onPropose,onMatched}){
     catch(e){if(valid())setError(e.message);}finally{operating.current=false;if(valid()){setBusy(false);setPhase("");setTick(n=>n+1);}}
   }
   async function match(){
-    if(readOnly||busy||operating.current||!scope||!draft||stale||!onPropose||!onMatched)return;
+    if(readOnly||busy||operating.current||!scope||!draft||!onPropose||!onMatched)return;
     operating.current=true;setBusy(true);setError("");setNotice("");setPhase("Preparing camera match…");const ticket=onPropose(null);
     try{
       const proposal=await window.KinolotCameraMatch.match(l.id,scope,{onPhase:p=>{if(valid())setPhase(p);}});
@@ -72,13 +72,12 @@ function LocationCameraInspiration({l,readOnly=false,onPropose,onMatched}){
       busy&&phase!=="generating"&&phase!=="saving"&&E("p",{className:"loc-layer-note",role:"status"},phase),
       draft&&E("figure",{className:"loc-camera-ideas-image"},
         E("img",{src:draft.url,alt:"Camera-composition ideas for "+(l.name||"this location")}),
-        E("figcaption",null,(stale?"Earlier ideas — the description or floor plan has changed. ":"")+"Inspiration only · "+window.nbModelLabel(draft.meta.modelId)),
+        E("figcaption",null,(stale?"Earlier ideas · ":"Inspiration only · ")+window.nbModelLabel(draft.meta.modelId)),
         E("div",{className:"loc-camera-ideas-review-actions"},
           E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setEnlarged(true)},"Enlarge ideas"),
           canMatch&&E("span",{className:"loc-camera-control"},
-            E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||stale||!scope,onClick:match,title:window.InfoTip?undefined:matchHelp},"Match these views to set"),
-            window.InfoTip&&E(window.InfoTip,{label:"About matching views to the set",text:matchHelp}))),
-        canMatch&&stale&&E("p",{className:"loc-layer-note"},"Generate fresh ideas for the current floor plan before matching.")),
+            E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||loading||!scope,onClick:match,title:window.InfoTip?undefined:matchHelp},"Match these views to set"),
+            window.InfoTip&&E(window.InfoTip,{label:"About matching views to the set",text:matchHelp})))),
       enlarged&&draft&&E("dialog",{ref:dialog,className:"loc-angle-dialog",onCancel:()=>setEnlarged(false),"aria-label":"Camera-composition ideas"},
         E("div",{className:"loc-cloud-render-head"},E("h3",null,(l.name||"Location")+" · view ideas"),E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setEnlarged(false)},"Close ideas")),
         E("p",{className:"loc-layer-note"},"Inspiration only. Your saved layout and cameras stay unchanged."),

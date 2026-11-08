@@ -134,19 +134,20 @@ function harness({realGraphics=false,composition=false,unknownSubject=false}={})
  const h=harness();h.readonly();await rejects(()=>api.match('room',h.scope),/read-only/);ok(!h.calls,'Read-only matching refuses before a paid call');h.cleanup();
 }
 {
- const h=harness();h.staleSource();await rejects(()=>api.match('room',h.scope),/current view ideas/);ok(!h.calls,'Outdated ideas refuse before a paid call');h.cleanup();
+ const h=harness();h.staleSource();const proposal=await api.match('room',h.scope);await api.confirm('room',h.scope,proposal);
+ ok(h.calls===1&&proposal.panels.length===4,'Earlier-layout ideas can guide framing against the current reviewed set without rewriting their provenance');h.cleanup();
 }
 {
  const h=harness();h.readHook(phase=>{if(phase==='before')h.switchFilm();});await rejects(()=>api.match('room',h.scope),/film or sign-in changed/);ok(!h.calls,'Film changes at the paid boundary refuse submission');h.cleanup();
 }
 {
- const h=harness();h.readHook(phase=>{if(phase==='before')h.changeSource();});await rejects(()=>api.match('room',h.scope),/ideas image or location changed/);ok(!h.calls,'Changed source ideas at the paid boundary refuse submission');h.cleanup();
+ const h=harness();h.readHook(phase=>{if(phase==='before')h.changeSource();});await rejects(()=>api.match('room',h.scope),/ideas image changed/);ok(!h.calls,'Changed source ideas at the paid boundary refuse submission');h.cleanup();
 }
 {
  const h=harness();h.readHook(phase=>{if(phase==='after')h.l.spatialPlan.anchors[0].size[0]=1.2;});await rejects(()=>api.match('room',h.scope),/floor plan or cameras changed/);ok(h.calls===1,'A late response after a geometry edit cannot produce a stale proposal');h.cleanup();
 }
 {
- const h=harness(),p=await api.match('room',h.scope);h.changeSource();await rejects(()=>api.confirm('room',h.scope,p),/ideas image or location changed/);h.cleanup();
+ const h=harness(),p=await api.match('room',h.scope);h.changeSource();await rejects(()=>api.confirm('room',h.scope,p),/ideas image changed/);h.cleanup();
 }
 {
  const h=harness();let release;h.prepareHook(()=>new Promise(r=>release=r));const run=api.match('room',h.scope);await new Promise(setImmediate);

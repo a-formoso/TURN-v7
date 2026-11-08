@@ -127,7 +127,7 @@
   }
   function location(id){const list=root.turnContinuity.locations,l=list.find(l=>l.id===id);if(!l)throw Error("The location is no longer in this film.");return {l,list};}
   const sourceKey=d=>canonical({iso:d.meta.iso,inputKey:d.meta.inputKey,modelId:d.meta.modelId});
-  async function sameSource(id,s,stamp){const now=await root.KinolotCameraInspiration.load(id,s);scopeGuard(s);if(!now||now.stale||sourceKey(now)!==stamp)throw Error("The ideas image or location changed. Match the current image again.");return now;}
+  async function sameSource(id,s,stamp){const now=await root.KinolotCameraInspiration.load(id,s);scopeGuard(s);if(!now||sourceKey(now)!==stamp)throw Error("The ideas image changed. Match the current image again.");return now;}
   async function confirm(id,s,proposal){
     scopeGuard(s);if(canonical(proposal.imageMatch.scope)!==canonical(s))throw Error("The open film or sign-in changed. Match the views again.");
     await sameSource(id,s,proposal.imageMatch.sourceKey);scopeGuard(s);
@@ -168,7 +168,7 @@
       const api=root.KinolotCloudRender,{l,list}=location(id),state=root.locationSpatialPlanState(l,list);
       if(!state.ready)throw Error("Confirm the floor plan in step 2 before matching cameras.");
       const key=api.cameraProposalKey(l,list),source=await root.KinolotCameraInspiration.load(id,s);
-      scopeGuard(s);if(!source||source.stale)throw Error("Generate current view ideas before matching cameras.");
+      scopeGuard(s);if(!source)throw Error("Generate view ideas before matching cameras.");
       const stamp=sourceKey(source),defaults=api.proposeCameras(l,list),views=api.cameraProposalViews(l,defaults,list),proposed={...l,coverageViews:views};
       const scene=api.buildScene(proposed,list.map(x=>x.id===id?proposed:x)),landmarks=catalogue(scene,state.plan,id),bounds=boundsFor(state.plan,id);
       const framing=root.KinolotCameraFraming,features=framing?.inventory(landmarks,scene)||[];
