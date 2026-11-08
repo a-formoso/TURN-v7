@@ -65,7 +65,7 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
 }
 {
  const h=harness();h.requestPreview('BL');h.render();h.render();await new Promise(setImmediate);const tree=h.render();
- ok(h.text(tree).includes('Candidate angle · from Bottom left')&&h.text(tree).includes('Destination: Bottom left.'),
+ ok(h.text(tree).includes('Edit bottom left camera')&&h.button(tree,'Save Bottom left camera'),
    'A saved-camera map request loads that camera and matching destination panel');
  ok(h.renders.at(-1).yaw===145&&h.writes.length===0,'Opening a saved marker renders its exact pose without saving');
 }
@@ -99,12 +99,12 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
  let prevented=0;canvas.props.onKeyDown({key:'Enter',preventDefault:()=>prevented++});
  ok(prevented===1&&h.inspections.at(-1).x===.5,'Keyboard users can identify the centre of the candidate view');
  h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']!==undefined&&h.text(n).startsWith('Bottom right')).props.onClick({detail:0});tree=h.render();
- ok(h.text(tree).includes('Bottom right · Bench')&&h.inspections.at(-1).pose.yaw===215&&h.writes.length===0,'Keyboard panel activation inspects its own centre and selects a destination without saving');
- const thumb=h.flat(tree).find(n=>n.type==='canvas'&&n.props['aria-label']==='Bottom left saved camera layout preview');
- thumb.props.onClick({currentTarget:{},clientX:320,clientY:180});tree=h.render();
- ok(h.text(tree).includes('Bottom left · Bench')&&h.inspections.at(-1).pose.yaw===145,'Saved-view inspection uses that panel’s camera and labels the result with that view');
+ ok(h.text(tree).includes('Edit bottom right camera')&&h.renders.at(-1).yaw===215&&h.writes.length===0,'Keyboard panel activation loads that camera for editing without saving');
+ h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']!==undefined&&h.text(n).startsWith('Bottom left')).props.onClick();tree=h.render();
+ h.flat(tree).find(n=>n.type==='canvas'&&n.props.role==='button').props.onClick({currentTarget:{},clientX:320,clientY:180});tree=h.render();
+ ok(h.text(tree).includes('Candidate angle · Bench')&&h.inspections.at(-1).pose.yaw===145,'The selected camera is inspected through its matching large preview');
  h.flat(tree).find(n=>n.type==='input'&&n.props.type==='range').props.onChange({target:{value:'-2'}});h.render();tree=h.render();
- ok(!h.text(tree).includes('Bottom left · Bench')&&h.writes.length===0,'Changing the candidate clears stale inspection details');
+ ok(!h.text(tree).includes('Candidate angle · Bench')&&h.writes.length===0,'Changing the candidate clears stale inspection details');
 }
 {
  const h=harness({picked:{kind:'opening',name:'Folding entry door',type:'door',room:'School Bus',dimensions:[.8,1.8],beyond:'Outside not modelled'}});let tree=await h.begin();
@@ -113,12 +113,26 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
 }
 {
  const h=harness();let tree=await h.begin();
- const select=h.flat(tree).find(n=>n.type==='select');select.props.onChange({target:{value:'BL'}});tree=h.render();
+ ok(h.text(tree).includes('Edit top left camera')&&h.button(tree,'Save Top left camera')&&h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']).children.some(n=>typeof n==='object'&&h.text(n).startsWith('Top left')),
+   'The initial title, highlight and save action all identify Top left');
+ const across=h.flat(tree).find(n=>n.type==='input'&&n.props.type==='range');across.props.onChange({target:{value:'-2'}});tree=h.render();
+ h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']).props.onClick();tree=h.render();
+ ok(h.renders.at(-1).position[0]===-2&&h.writes.length===0,'Clicking the selected camera keeps its unsaved adjustments');
+ h.button(tree,'Reset to saved view').props.onClick();tree=h.render();
+ ok(h.renders.at(-1).position[0]===-4&&h.button(tree,'Save Top left camera').props.disabled&&h.writes.length===0,
+   'Reset restores the saved camera and disabled unchanged save action without writing');
+}
+{
+ const h=harness();let tree=await h.begin();
+ h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']===false&&h.text(n).startsWith('Bottom left')).props.onClick();tree=h.render();
  ok(h.renders.at(-1).position.every((v,i)=>v===h.location.coverageViews.find(v=>v.panel==='BL').pose.position[i]),'Starting from Bottom left loads that saved camera into the candidate');
- ok(h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']).children.some(n=>typeof n==='object'&&h.text(n).startsWith('Top right')),'Starting camera and replacement destination remain distinct choices');
- ok(h.text(tree).includes('Candidate angle · from Bottom left')&&h.text(tree).includes('Destination: Top right.'),'The preview identifies its source camera and save destination separately');
- const before=h.renders.at(-1);h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']===false&&h.text(n).startsWith('Bottom right')).props.onClick();tree=h.render();
- ok(h.button(tree,'Use this angle in Bottom right')&&JSON.stringify(h.renders.at(-1))===JSON.stringify(before)&&h.writes.length===0,'Choosing a replacement panel changes the destination without moving or saving the candidate');
+ ok(h.flat(tree).find(n=>n.type==='button'&&n.props['aria-pressed']).children.some(n=>typeof n==='object'&&h.text(n).startsWith('Bottom left')),'The highlighted camera matches the camera being edited');
+ ok(h.text(tree).includes('Edit bottom left camera')&&h.button(tree,'Save Bottom left camera'),'The title, selected camera and default save target agree');
+ const before=h.renders.at(-1);h.flat(tree).find(n=>n.type==='select'&&n.props['aria-label']==='Save to panel').props.onChange({target:{value:'BR'}});tree=h.render();
+ ok(h.button(tree,'Save angle to Bottom right camera')&&JSON.stringify(h.renders.at(-1))===JSON.stringify(before)&&h.writes.length===0,'Explicit cross-panel replacement changes only the save target without moving or saving the candidate');
+ h.button(tree,'Save angle to Bottom right camera').props.onClick();tree=h.render();
+ ok(h.writes.length===1&&h.location.coverageViews.find(v=>v.panel==='BR').pose.yaw===145&&h.location.coverageViews.find(v=>v.panel==='BL').pose.yaw===145,
+   'Explicit copying replaces only the named destination and preserves the source camera');
 }
 {
  const h=harness(),before=JSON.stringify(h.location);let tree=await h.begin();
@@ -131,10 +145,10 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
  h.button(tree,'Save extra camera').props.onClick();tree=h.render();
  const extra=h.location.coverageViews.find(v=>!v.panel);ok(extra?.pose.position[0]===-2,'Save extra camera stores a measured pose');
  ok(h.location.coverageViews.filter(v=>v.panel).every(v=>v.pose.position[0]===([0,2].includes(Number(v.id.slice(1)))?-4:4)),'Saving an extra camera leaves all four panel cameras intact');
- const otherBefore=JSON.stringify(h.location.coverageViews.filter(v=>v.panel&&v.panel!=='TR'));
- h.button(tree,'Use this angle in Top right').props.onClick();tree=h.render();
- ok(h.location.coverageViews.find(v=>v.panel==='TR').pose.position[0]===-2,'Explicit assignment updates the named destination panel');
- ok(JSON.stringify(h.location.coverageViews.filter(v=>v.panel&&v.panel!=='TR'))===otherBefore,'The other three panel cameras are preserved');
+ const otherBefore=JSON.stringify(h.location.coverageViews.filter(v=>v.panel&&v.panel!=='TL'));
+ h.button(tree,'Save Top left camera').props.onClick();tree=h.render();
+ ok(h.location.coverageViews.find(v=>v.panel==='TL').pose.position[0]===-2,'Explicit assignment updates the named destination panel');
+ ok(JSON.stringify(h.location.coverageViews.filter(v=>v.panel&&v.panel!=='TL'))===otherBefore,'The other three panel cameras are preserved');
  ok(h.writes.length===2,'Previewing and moving remain free of writes; only save and assign write');
  ok(h.disposed===1,'Closing after assignment disposes the graphics adapter');
 }
@@ -144,22 +158,22 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
 }
 {
  const h=harness();let tree=await h.begin();h.external(l=>({...l,spatialPlan:{...l.spatialPlan,frame:'Changed frame'}}));tree=h.render();
- h.button(tree,'Use this angle in Top right').props.onClick();tree=h.render();
+ h.button(tree,'Save Top left camera').props.onClick();tree=h.render();
  ok(h.writes.length===0&&h.text(tree).includes('changed'),'A changed saved scene blocks stale assignment');
 }
 {
- const h=harness();let tree=await h.begin();h.switchFilm();h.button(tree,'Use this angle in Top right').props.onClick();
+ const h=harness();let tree=await h.begin();h.switchFilm();h.button(tree,'Save Top left camera').props.onClick();
  ok(h.writes.length===0,'A film-epoch switch blocks an old handler');
 }
 {
  const h=harness();let tree=await h.begin();h.readonly();tree=h.render();
- ok(h.button(tree,'Use this angle in Top right').props.disabled,'Read-only users may inspect but not assign');
- h.button(tree,'Use this angle in Top right').props.onClick();h.button(tree,'Save extra camera').props.onClick();ok(h.writes.length===0,'Read-only handlers also fence direct calls');
+ ok(h.button(tree,'Save Top left camera').props.disabled,'Read-only users may inspect but not assign');
+ h.button(tree,'Save Top left camera').props.onClick();h.button(tree,'Save extra camera').props.onClick();ok(h.writes.length===0,'Read-only handlers also fence direct calls');
 }
 {
  const h=harness({pending:true});let tree=await h.begin();
- ok(h.button(tree,'Use this angle in Top right').props.disabled,'Assignment waits for an actual preview');
- h.button(tree,'Use this angle in Top right').props.onClick();ok(h.writes.length===0,'An unseen candidate cannot be assigned');
+ ok(h.button(tree,'Save Top left camera').props.disabled,'Assignment waits for an actual preview');
+ h.button(tree,'Save Top left camera').props.onClick();ok(h.writes.length===0,'An unseen candidate cannot be assigned');
 }
 {
  const h=harness({failed:true});const tree=await h.begin();
@@ -169,14 +183,14 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
 {
  const h=harness();let tree=await h.begin();
  h.flat(tree).find(n=>n.type==='input'&&n.props.type==='range').props.onChange({target:{value:'-2'}});tree=h.render(false);
- h.button(tree,'Use this angle in Top right').props.onClick();
+ h.button(tree,'Save Top left camera').props.onClick();
  ok(h.writes.length===0,'A changed pose cannot be accepted until that exact frame has been drawn');
 }
 {
  const h=harness();let tree=await h.begin();
  h.flat(tree).find(n=>n.type==='input'&&n.props.type==='range').props.onChange({target:{value:'-5'}});tree=h.render();
- ok(h.button(tree,'Use this angle in Top right').props.disabled,'An angle inside a wall or outside its clear footprint cannot be assigned');
- h.button(tree,'Use this angle in Top right').props.onClick();ok(h.writes.length===0,'Position validity is also checked in the assignment handler');
+ ok(h.button(tree,'Save Top left camera').props.disabled,'An angle inside a wall or outside its clear footprint cannot be assigned');
+ h.button(tree,'Save Top left camera').props.onClick();ok(h.writes.length===0,'Position validity is also checked in the assignment handler');
 }
 {
  const h=harness();let tree=await h.begin();h.button(tree,'Views blank? Use compatibility preview').props.onClick();tree=h.render();await new Promise(setImmediate);tree=h.render();

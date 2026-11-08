@@ -16,6 +16,15 @@ camera as its source and matching destination. Both are free and preserve saved
 data until an explicit camera-save action. Suggested thumbnails also open
 individually, and camera markers support keyboard activation.
 
+The saved-camera editor now uses one primary selection. The selected tile,
+dialog title, large view and default Save camera action agree. Choosing a saved
+tile loads that camera for editing; selecting the same tile keeps its current
+adjustments. Controls are visible by default and Reset restores the saved view.
+Replacing another panel is a separate optional choice with an explicit target
+on its Save button. Extra-angle loading/saving remains optional. No selection,
+slider or reset writes film data; stale, permission and preview-readiness checks
+still guard the explicit save action.
+
 - Detailed app scenes use `kinolot-cloud-set-v2` / `mcp-procedural-v1`. They carry
   numerical geometry, cameras, bounded edge radii and procedural surface recipes.
   Source limits remain 500 shapes / 128 KiB, with up to 64 shaped soft parts.
