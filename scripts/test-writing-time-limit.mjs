@@ -220,7 +220,7 @@ await test("Frances knows, and the page is on the new key",()=>{
     "TWO IN A ROW STOP THE BUILD","Continue writing finishes the rest","Auto-draft all stops the same way"]) assert.ok(f.what.includes(s),s);
   const html=read("TURN.html");
   for(const file of ["ai.jsx","script.jsx","agents.jsx"])
-    assert.ok(["20261112-limit1", "20261112-thread1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-limit1", "20261112-thread1", "20261112-length1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log(`\n${checks} checks passed${failed?`, ${failed} FAILED`:""}`);

@@ -195,6 +195,27 @@ function beatBudgetFor(budget, beatCount){
   const lines = Math.max(3, Math.round(budget.lines / n));
   return { sec:budget.sec / n, lines, words:lines * SCREEN_WORDS_PER_LINE };
 }
+/* THE SHAPE THAT FITS (owner 2026-11-11, Writers' Room audit B3). The budget was stated in lines and words, and
+   every test film still ran long by the app's own estimate: Commercial 303%, Micro-drama 244%, Micro Short
+   185-198%, Short Film 142%. A model does not count lines; it counts THINGS. So the scene writer is also given
+   the budget as a number of units — one action paragraph, or one speech (a cue with its line) — at the estimator's
+   own cost of about 2.8 lines a unit, with the words that leaves each. Never fewer units than beats (each beat
+   needs one). A documentary is left out: its planned testimony is budgeted in seconds, not units. */
+const SCREEN_LINES_PER_UNIT = 2.8;
+function sceneShapeFor(budget, beatCount){
+  if(!budget || !(budget.lines > 0) || budget.testimonySec) return null;
+  const n = Math.max(1, Math.round(Number(beatCount)) || (budget.beats && budget.beats[0]) || 1);
+  const units = Math.max(n, Math.round(budget.lines / SCREEN_LINES_PER_UNIT));
+  const unitWords = Math.max(6, Math.min(24, Math.round(budget.words / units)));
+  return { units, beats:n, perBeatLo:Math.max(1, Math.floor(units/n)), perBeatHi:Math.max(1, Math.ceil(units/n)), unitWords, words:budget.words };
+}
+/* how long a synopsis paragraph is, by what the format can hold (audit C4): a 30-second commercial was
+   getting the same three long paragraphs as a short film, and the scenes were then written to match */
+function synopsisSentencesFor(projectOrFormat){
+  const f = _formatEntry(projectOrFormat);
+  const sec = Math.round((Number(f.runtimeMin) > 0 ? Number(f.runtimeMin) : 15) * 60);
+  return sec <= 60 ? "1-2" : sec <= 300 ? "2-3" : "3-5";
+}
 /* the free "long for this format" check: rt is sceneRuntime()'s estimate. Only a DRAFTED
    scene can run long (an undrafted scene's figure is the budget itself). */
 function sceneLengthCheck(rt, budget){
@@ -213,3 +234,4 @@ function formatDraftBrief(projectOrFormat){
 window.SCREEN_LINES_PER_MIN = SCREEN_LINES_PER_MIN; window.LONG_FOR_FORMAT = LONG_FOR_FORMAT;
 window.runtimeText = runtimeText; window.runtimeAdj = runtimeAdj; window.budgetPhrase = budgetPhrase; window.sceneBudgetFor = sceneBudgetFor; window.beatBudgetFor = beatBudgetFor;
 window.sceneLengthCheck = sceneLengthCheck; window.formatDraftBrief = formatDraftBrief;
+window.sceneShapeFor = sceneShapeFor; window.synopsisSentencesFor = synopsisSentencesFor;

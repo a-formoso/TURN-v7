@@ -89,6 +89,16 @@ build on the server so it does not depend on the browser staying open.
 > scene fix"): the door opens once (scene 3 ends on the last pin, scene 4 begins with it), each of the four
 > characters is introduced exactly once, no scene replays another. Not fixed by this: length (B3 — that film is
 > 1,887 words for an under-5-minute format) and B4–B16. Test: `scripts/test-scene-thread.mjs`.
+>
+> **B3 and C4 are built too** (same branch). The scene writer is given its screen-time share as a count of units
+> (one action paragraph or one speech) with the words each has (`sceneShapeFor` in `app/formats.jsx`), and the
+> synopsis is sized to the format (1-2 sentences a paragraph for a commercial, 2-3 up to five minutes, else 3-5).
+> Measured with the app's own estimate on 29 redrafted scenes of the test films: 98% to 113% of the format's
+> length, against 140% to 304% before. A fresh 30-second commercial built end to end runs about 33 seconds (the
+> first ran about 91), in the same number of writing calls. The beat matching no longer empties a beat the writer
+> wrote (a tight draft was being rejected as "beat left unwritten"). Not changed: the owner-approved rule that a
+> scene which still runs long gets a free note and is never rewritten automatically (docs/Story Pipeline.md step 5).
+> Test: `scripts/test-scene-length.mjs`.
 
 | # | What happens | Found | Where |
 |---|---|---|---|

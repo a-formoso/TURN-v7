@@ -1306,6 +1306,29 @@ function realignBlockBeats(blocks, bm){
   // monotonic DP: each unit takes a beat >= its predecessor's, maximising total score
   const S = [], P = [];
   for(let i=0;i<U;i++){ S.push(new Array(N).fill(0)); P.push(new Array(N).fill(0)); }
+  const assign = new Array(U);
+  /* A BEAT THE WRITER WROTE IS NEVER EMPTIED (2026-11-11, audit B3). When the reply has a section for EVERY beat,
+     the alignment may move where one beat ends and the next begins, but each beat keeps at least one unit: a unit
+     stays on its predecessor's beat or moves to the very next one. The free alignment below could put two units
+     on one beat and none on its neighbour — rare in a long scene, routine in a scene written to a tight
+     screen-time budget (one unit a beat), where it turned a complete draft into "beat 2 was left unwritten". A
+     reply that really skipped a beat still goes through the free alignment, and is still caught. */
+  const tagged = new Set(real.map(u=>Number(u.tag)));
+  const everyBeatWritten = U>=N && rows.every(r=>tagged.has(Number(r.n)));
+  if(everyBeatWritten){
+    const NO = -1e9;
+    for(let i=0;i<U;i++) for(let k=0;k<N;k++) S[i][k] = NO;
+    S[0][0] = sim[0][0];
+    for(let i=1;i<U;i++){
+      for(let k=0;k<N;k++){
+        const stay = S[i-1][k], adv = k>0 ? S[i-1][k-1] : NO, best = Math.max(stay, adv);
+        if(best <= NO/2) continue;
+        S[i][k] = sim[i][k] + best; P[i][k] = (adv > stay) ? k-1 : k;
+      }
+    }
+    let j = N-1;
+    for(let i=U-1;i>=0;i--){ assign[i] = j; j = P[i][j]; }
+  } else {
   for(let j=0;j<N;j++) S[0][j] = sim[0][j];
   for(let i=1;i<U;i++){
     let bestK = 0;
@@ -1316,8 +1339,8 @@ function realignBlockBeats(blocks, bm){
     }
   }
   let j = 0; for(let k=1;k<N;k++) if(S[U-1][k] > S[U-1][j]) j = k;
-  const assign = new Array(U);
   for(let i=U-1;i>=0;i--){ assign[i] = j; j = P[i][j]; }
+  }
   const out = blocks.map(b=>({ ...b }));
   real.forEach((u,i)=>{ u.n = rows[assign[i]].n; u.idx.forEach(bi=>{ out[bi].beat = u.n; }); });
   // furniture (sluglines/transitions) inherits the beat of what FOLLOWS it
@@ -1919,6 +1942,21 @@ function formatDraftLine(project){
     : ((typeof formatOf==="function") ? (formatOf(writingProjectOf(project)).screenplayBrief||"") : "");
   return t ? "FORMAT: "+t+".\n\n" : "";
 }
+/* THE SHAPE THAT FITS (2026-11-11, audit B3; formats.jsx sceneShapeFor): the screen-time budget again, as a count
+   of units the writer can keep to. Only for a first draft (a redraft has its own ceiling: the current script). */
+function sceneShapeBrief(project, scenes, beats){
+  const b = screenTimeBudgetOf(project, scenes);
+  const rows = (beats && Array.isArray(beats.rows)) ? beats.rows.length : 0;
+  const sh = (b && typeof window.sceneShapeFor==="function") ? window.sceneShapeFor(b, rows) : null;
+  if(!sh) return "";
+  const per = sh.perBeatLo===sh.perBeatHi ? String(sh.perBeatLo) : sh.perBeatLo+"\u2013"+sh.perBeatHi;
+  return "THE SHAPE THAT FITS (a hard limit \u2014 this format has no room for more): at most "+sh.units+" unit"+(sh.units!==1?"s":"")+" in the whole scene, "+
+    per+" per beat. A unit is ONE action paragraph or ONE speech (a character cue with its line); a parenthetical rides with its speech. "+
+    "About "+sh.unitWords+" words a unit, and never more than "+sh.words+" words of screenplay text in the scene. "+
+    "A beat is one image or one exchange, not a sequence: choose its single strongest moment and cut the rest. "+
+    "Saving room never changes the form: a spoken line is still a cue block and a line block, never folded into an action paragraph or a parenthetical. Count the units before you answer.\n\n";
+}
+window.sceneShapeBrief = sceneShapeBrief;
 window.screenTimeBrief = screenTimeBrief;
 window.redraftCeiling = redraftCeiling;
 window.formatDraftLine = formatDraftLine;
@@ -1941,7 +1979,8 @@ async function aiDraftScene(scene, beats, prevScene, project, characters, scenes
     "\n\nWrite this scene as original screenplay prose, expanding each beat in order. "+
     "It must dramatize the value turn through action and subtext \u2014 never state the theme outright.\n\n" +
     conflictModeBrief(scene) +
-    formatDraftLine(P) + SCREENPLAY_STYLE + "\n\n" + screenTimeBrief(P, scenes, "draft") + BLOCK_SPEC + retryNote;
+    formatDraftLine(P) + SCREENPLAY_STYLE + "\n\n" + screenTimeBrief(P, scenes, "draft") +
+    ((typeof window.sceneShapeBrief==="function") ? window.sceneShapeBrief(P, scenes, beats) : "") + BLOCK_SPEC + retryNote;
   let failure = null;
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:8192, timeoutMs:(window.turnWritingLimits||{}).scene });
@@ -3809,6 +3848,8 @@ window.museFacts = museFacts;
   const brief = APP_FEATURES.find(f=>f.name==="Story brief (Brief button) + Rebuild as a new film");
   if(brief) brief.what += " Rebuilding as a new film keeps the complete saved research, including its sources and the writer's edits.";
 })();
+/* A SCENE IS WRITTEN TO ITS LENGTH (2026-11-11, owner — Writers' Room audit B3 / C4; formats.jsx sceneShapeFor) */
+APP_FEATURES.push({ name:"Scenes written to the format's length", what:"Every format has a running time (Commercial 30 seconds, Micro-drama about 2 minutes, Micro Short and Music Video about 4, Documentary 10, Short Film about 15, TV episode 30, Feature Film 100), shared out over its scenes. When a scene's screenplay is first written, the writing engine is given that scene's share twice: as seconds, lines and words, and as a number of units it can keep to \u2014 a unit is one action paragraph or one speech \u2014 with the words each unit has. A 30-second commercial's scene is about three short units; a Micro Short's about ten; a Short Film's about nineteen. The synopsis is sized the same way: one or two sentences a paragraph for a commercial, two or three for a format up to five minutes, three to five for longer ones. Scenes still vary a little around their share, and the running time shown on the Spine is the app's estimate from the script as written. A scene that runs well over its share still gets the free 'Long for this format' note on its card and in the Script view; nothing is rewritten automatically. A scene written before 11 November 2026 keeps its length \u2014 Redraft never makes a scene longer, and brings one that is over its share back down to it." });
 /* EACH SCENE KNOWS THE SCENES AROUND IT (2026-11-11, owner — Writers' Room audit B1 / B2; sceneThreadBrief) */
 APP_FEATURES.push({ name:"Scenes follow one another (what each scene is told when it is written)", what:"Whenever a scene's beats or screenplay are written \u2014 by the story build, Continue writing, Draft, Auto-draft all or a Redraft \u2014 the writing engine is told what surrounds it: the scenes before it in order (what the audience has already seen), how the previous scene's screenplay actually ends (its last lines, once it is written), what the next scene covers, and which characters the earlier screenplays have already introduced. So a scene starts after the previous one ends and stops before the next one's event: something that already happened is not played again (a door opened once stays open, an object handed over stays handed over), unless the scene's own summary asks for a deliberate return such as a flashback. A character gets the capitals-and-age introduction only the first time they appear in the film; later scenes use the name alone. The scene list itself is also built with one event per scene, so two scene cards never describe the same moment. This is automatic \u2014 there is nothing to switch on. A scene written before 11 November 2026 keeps its text; press Redraft on it to have it rewritten with this in mind." });
 /* A WRITING CALL HAS A TIME LIMIT (2026-11-11, owner — Writers' Room audit A5 / A6) */
@@ -5635,7 +5676,9 @@ async function aiSynopsisFromResearch(logline, seedText, frameworkId, formatId, 
     (formatPlanLine(fmtEntry) ? formatPlanLine(fmtEntry)+"\n\n" : "")+
     (researchBrief ? ("RESEARCH (the writer reviewed it \u2014 let it surface in the prose, specific, sensory, never generic):\n"+researchBrief+"\n") : "")+
     shape.paras.map(pg=>"   \u2022 "+pg.key+": "+pg.guide).join("\n")+"\n"+
-    "Each paragraph 3-5 sentences, vivid and concrete.\n\n"+
+    // sized to the format (2026-11-11, audit C4): 1-2 sentences for a 30-second spot, 2-3 up to five minutes, else 3-5
+    "Each paragraph "+((typeof window.synopsisSentencesFor==="function") ? window.synopsisSentencesFor(fmtEntry) : "3-5")+" sentences, vivid and concrete"+
+      ((typeof window.synopsisSentencesFor==="function" && window.synopsisSentencesFor(fmtEntry)!=="3-5") ? " \u2014 this format is short, so each paragraph holds only what its screen time can show" : "")+".\n\n"+
     'Return ONLY JSON: {"synopsis":{'+shape.paras.map(pg=>'"'+pg.key+'":"..."').join(",")+'}}';
   // the call THROWS on transport/provider errors (billing, missing key) so the UI
   // shows the real reason; only an unusable reply returns null
