@@ -81,6 +81,15 @@ build on the server so it does not depend on the browser staying open.
 
 ## B. What the writing model is told — quality of what gets written
 
+> **Status, 11 November 2026 — B1 and B2 are built** (branch `claude/build-resume-20261111`, not published). Every
+> call that writes a scene (the build, Continue writing, Draft, Auto-draft all, Redraft) is now told the scenes
+> before it, how the previous screenplay actually ends, what the next scene covers, and who the earlier screenplays
+> already introduced (`sceneThreadBrief` in `app/ai.jsx`); the scene list is asked for one event per scene.
+> Checked on the same locksmith story, same format, structure and engine ("TEST · Micro Short · same story after the
+> scene fix"): the door opens once (scene 3 ends on the last pin, scene 4 begins with it), each of the four
+> characters is introduced exactly once, no scene replays another. Not fixed by this: length (B3 — that film is
+> 1,887 words for an under-5-minute format) and B4–B16. Test: `scripts/test-scene-thread.mjs`.
+
 | # | What happens | Found | Where |
 |---|---|---|---|
 | B1 | **Scenes replay each other's events.** A scene is written knowing only the previous scene's *title and closing value* — not what happened in it — and nothing about what the next scene will cover. In the Micro Short the door is opened three times (scenes 3, 4 and 5); in the Commercial the boy hands over the bottle and shows the twelve stickers in scene 1 and again in scene 2, and the runner's knees buckle at the end of scene 3 and again at the start of scene 4. | **seen live**, both films | `app/ai.jsx:1064` (`storyContext`), `aiAuthorScene`, `aiDraftScene` |

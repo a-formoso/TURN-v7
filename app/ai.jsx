@@ -1079,7 +1079,89 @@ async function aiNameSceneValues(items, project){
 }
 window.aiNameSceneValues = aiNameSceneValues;
 
-function storyContext(scene, prevScene, project, cast, scenes, beats){
+/* THE SCENES AROUND THIS ONE (owner 2026-11-11, Writers' Room audit B1 / B2).
+   A scene used to be written knowing only the previous scene's TITLE and closing value — not what happened in it,
+   nothing about the scenes before, nothing about the next one. Measured on two test films: the same door was opened
+   in scenes 3, 4 and 5; a bottle was handed over in scene 1 and again in scene 2; a character got her
+   capitals-and-age introduction in scene 6 after appearing in scenes 2–4. Every scene prompt now carries:
+     - what is already on screen (the earlier scenes' cards, the nearest ones in full);
+     - how the previous scene's screenplay actually ends (its last lines, when it is written);
+     - what the next scene covers, so this one stops before it;
+     - who has already been introduced, read from the earlier screenplays.
+   Only the functions that WRITE a scene ask for it (storyContext's last argument): the caller's own drafts (a
+   build passes its working ones) or `true` for the open film's. The functions that read a finished scene (the
+   turn suggestion, the beat map rebuilt from a script, a recast) are left as they were. */
+const THREAD_EARLIER_MAX = 2400;
+function _threadClip(t, n){ const s = String(t||"").replace(/\s+/g," ").trim(); return s.length>n ? s.slice(0,n-1).replace(/\s+\S*$/,"")+"…" : s; }
+function _threadWritten(d){ return !!(d && Array.isArray(d.blocks) && d.blocks.length && !(typeof window.isStandInDraft==="function" && window.isStandInDraft(d))); }
+function _threadPlaceholder(s){ const sum = String((s && s.summary) || "").trim(); return !sum || /^A new scene\b/.test(sum); }
+// the last lines of a written screenplay — a cue and its line joined, sluglines left out
+function _threadTail(d, max){
+  const bl = (d.blocks||[]).filter(b=>b && b.type!=="scene" && String(b.text||"").trim());
+  const out = [];
+  for(let i=0;i<bl.length;i++){
+    const b = bl[i];
+    if(b.type==="char"){
+      let j = i+1, line = "";
+      while(j<bl.length && (bl[j].type==="paren" || bl[j].type==="dia")){ if(bl[j].type==="dia") line += (line?" ":"")+String(bl[j].text); j++; }
+      if(line) out.push(String(b.text).trim()+": "+_threadClip(line, 150));
+      i = j-1;
+    }
+    else if(b.type==="action") out.push(_threadClip(b.text, 170));
+  }
+  return out.slice(-(max||5));
+}
+// the cast members the earlier screenplays already show: the name in CAPITALS (an introduction or a dialogue
+// cue), full or first, as a whole word. A name merely spoken ("Daniel fits the locks himself") or standing in a
+// scene heading ("INT. DANIEL'S FLAT") is not an appearance.
+function _threadIntroduced(cast, earlierDrafts){
+  const text = (earlierDrafts||[]).map(d=>(d.blocks||[]).filter(b=>b && b.type!=="scene").map(b=>String(b.text||"")).join("\n")).join("\n");
+  if(!text) return [];
+  const esc = (x)=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  const whole = (n)=>{ try{ return new RegExp("(^|[^\\p{L}\\p{N}])"+esc(n)+"($|[^\\p{L}\\p{N}])","u").test(text); }catch(e){ return text.indexOf(n)>=0; } };
+  return (Array.isArray(cast) ? cast : []).filter(c=>{
+    const name = String((c && c.name) || "").trim(); if(!name) return false;
+    const first = name.split(/\s+/)[0];
+    const forms = [name.toUpperCase(), first.toUpperCase()];
+    return forms.some(n=> n.length>=2 && whole(n));
+  }).map(c=>String(c.name).trim().toUpperCase());
+}
+function sceneThreadBrief(scene, scenes, drafts, cast){
+  const order = Array.isArray(scenes) ? scenes : [];
+  const D = (drafts && typeof drafts==="object") ? drafts : ((typeof window!=="undefined" && window.turnContinuity && window.turnContinuity.drafts) || {});
+  const idx = order.findIndex(x=>x && scene && x.id===scene.id);
+  if(idx<0) return "";
+  const earlier = order.slice(0, idx), prev = idx>0 ? order[idx-1] : null, next = order[idx+1] || null;
+  let s = "";
+  if(earlier.length){
+    // newest first under the cap, so the scenes nearest this one always keep their summary
+    let room = THREAD_EARLIER_MAX; const lines = [];
+    for(let i=earlier.length-1;i>=0;i--){
+      const e = earlier[i], head = (e.no||i+1)+". "+(e.title||"Untitled");
+      const sum = _threadPlaceholder(e) ? "" : _threadClip(e.summary, 150);
+      const line = (sum && room-(head.length+sum.length+3)>0) ? head+" — "+sum : head;
+      room -= line.length; lines.unshift("  "+line);
+    }
+    s += "ALREADY ON SCREEN (the scenes before this one, in order — the audience has seen all of it):\n"+lines.join("\n")+"\n";
+    const pd = prev && D[prev.id];
+    if(_threadWritten(pd)){
+      const tail = _threadTail(pd, 5);
+      if(tail.length) s += "HOW THE PREVIOUS SCENE ENDS (its last lines, already written):\n"+tail.map(l=>"  "+l).join("\n")+"\n";
+    }
+    s += "PICK UP AFTER IT: this scene starts after the previous one ends. Never restage an event that is already on screen (a door that was opened is open; a thing that changed hands has changed hands; a person who was told already knows) — where this scene's summary overlaps it, play only what is NEW. The one exception is a deliberate return the summary itself asks for (a flashback, a memory, a replayed moment).\n";
+  }
+  if(next && !_threadPlaceholder(next))
+    s += "WHAT COMES NEXT (scene "+(next.no||idx+2)+", “"+(next.title||"Untitled")+"”): "+_threadClip(next.summary, 220)+"\n"+
+      "That belongs to the NEXT scene: end this one before it, and do not play it here.\n";
+  if(earlier.length){
+    const seen = _threadIntroduced(cast, earlier.map(e=>D[e.id]).filter(_threadWritten));
+    if(seen.length) s += "ALREADY INTRODUCED in earlier scenes: "+seen.join(", ")+" — use the name only: no capitals-with-age introduction and no describing clause again. Anyone else is introduced the first time they appear here.\n";
+  }
+  return s;
+}
+window.sceneThreadBrief = sceneThreadBrief;
+
+function storyContext(scene, prevScene, project, cast, scenes, beats, drafts){
   const P = writingProjectOf(project);
   const ci = P.controllingIdea || {};
   const crew = (Array.isArray(cast) && cast.length) ? cast : (Array.isArray(window.turnCast) ? window.turnCast : []);
@@ -1102,6 +1184,9 @@ function storyContext(scene, prevScene, project, cast, scenes, beats){
   const para = act ? synopsisParasOf(P)[act-1] : null;
   if(para && para.text) s += `This movement of the synopsis (${para.label||("Act "+act)}): ${para.text}\n`;
   if(prevScene) s += `Previous scene (${prevScene.no}. ${prevScene.title}) ended on ${prevScene.closeValue} (${chargeStr(prevScene.closeCharge)}). Maintain continuity from it.\n`;
+  // what is already on screen, how the last scene ends, what the next one covers, who is already introduced
+  // (read through window: other suites run this function on its own)
+  if(drafts!==undefined && drafts!==null && drafts!==false && typeof window.sceneThreadBrief==="function") s += window.sceneThreadBrief(scene, order, drafts, crew);
   s += `\nSCENE ${scene.no}: "${scene.title}"\n${scene.loc}\n`;
   if(typeof fwStructuralRole==="function"){ const role = fwStructuralRole(scene, order, P); if(role) s += role; }
   s += `What happens: ${scene.summary}\n`;
@@ -1852,7 +1937,7 @@ async function aiDraftScene(scene, beats, prevScene, project, characters, scenes
   // brief, and every scene gets its SCREEN TIME budget (Story Pipeline step 5)
   const P = writingProjectOf(project);
   const retryNote = screenplayRetryNote(opts && opts.retry, P);
-  const prompt = storyContext(scene, prevScene, P, cast, scenes, beats) + "\n" + castPronounBlock(cast) + voiceDnaBrief(cast) + beatsBrief(beats) +
+  const prompt = storyContext(scene, prevScene, P, cast, scenes, beats, (opts && opts.drafts) || true) + "\n" + castPronounBlock(cast) + voiceDnaBrief(cast) + beatsBrief(beats) +
     "\n\nWrite this scene as original screenplay prose, expanding each beat in order. "+
     "It must dramatize the value turn through action and subtext \u2014 never state the theme outright.\n\n" +
     conflictModeBrief(scene) +
@@ -2013,7 +2098,7 @@ async function aiAuthorScene(scene, prevScene, characters, project, opts){
     : mustTurn
       ? "The scene MUST turn its value: closeCharge has the OPPOSITE sign of openCharge (from 0, it must reach \u00b12 or more). Moving further on the same side is a progression, not a turn. "
       : "This scene's place in the framework does not require a reversal: let the value settle or deepen as the story needs. ";
-  const prompt = storyContext(scene, prevScene, P, cast, opts && opts.scenes) +
+  const prompt = storyContext(scene, prevScene, P, cast, opts && opts.scenes, null, (opts && opts.drafts) || true) +
     (fwBrief ? "\n\n"+fwBrief : "") +
     "\n\nCAST of this film (use ONLY these characters \u2014 never invent or borrow names from other films): "+ (castList||"(none defined)") +
     "\n" + castPronounBlock(cast) +
@@ -2173,7 +2258,7 @@ async function aiPolishScene(scene, beats, structuralBlocks, prevScene, project,
   // no-invented-testimony rule must govern every prose rewrite, not just first drafts), and
   // the SCREEN TIME budget with it: a redraft never makes the scene longer than its budget
   // (opts.current — the scene's draft now; opts.scenes — the film's scenes, for the count)
-  const prompt = storyContext(scene, prevScene, project, null, null, beats) + "\n" + castPronounBlock(window.turnCast) + voiceDnaBrief(window.turnCast) + beatsBrief(beats) +
+  const prompt = storyContext(scene, prevScene, project, null, null, beats, true) + "\n" + castPronounBlock(window.turnCast) + voiceDnaBrief(window.turnCast) + beatsBrief(beats) +
     "\n\nSTRUCTURAL DRAFT (rough beat expansion):\n" + rough +
     "\n\nRewrite this into FINAL, polished screenplay prose. The beats are LOCKED \u2014 keep the same beat numbers and the same dramatic action in each; only elevate the craft.\n\n" + conflictModeBrief(scene) + formatDraftLine(project) + SCREENPLAY_STYLE + "\n\n" +
     screenTimeBrief(project, opts && opts.scenes, "redraft", { current:opts && opts.current }) + BLOCK_SPEC +
@@ -2222,7 +2307,7 @@ async function aiWriteBeatText(scene, beats, beatN, screenplay, prevScene, proje
   const nextN = nums.find(x=>x>n);
   const prevTxt = prevN!=null ? beatText(prevN) : "";
   const nextTxt = nextN!=null ? beatText(nextN) : "";
-  const prompt = storyContext(scene, prevScene, project, null, null, beats) + "\n" + castPronounBlock(window.turnCast) + voiceDnaBrief(window.turnCast) + beatsBrief(beats) +
+  const prompt = storyContext(scene, prevScene, project, null, null, beats, true) + "\n" + castPronounBlock(window.turnCast) + voiceDnaBrief(window.turnCast) + beatsBrief(beats) +
     "\n\nThis scene's screenplay is ALREADY WRITTEN, but beat "+n+" was never dramatized — there is a gap in the prose."+
     "\nBEAT "+n+" — the ONLY beat to write"+(Number(beats.turnAt)===n?" (this is the scene's TURNING POINT)":"")+":"+
     "\n- "+(beats.driverLabel||"Driver")+" ("+((row.drive&&row.drive.a)||"Action")+"): "+((row.drive&&row.drive.d)||"")+
@@ -3724,6 +3809,8 @@ window.museFacts = museFacts;
   const brief = APP_FEATURES.find(f=>f.name==="Story brief (Brief button) + Rebuild as a new film");
   if(brief) brief.what += " Rebuilding as a new film keeps the complete saved research, including its sources and the writer's edits.";
 })();
+/* EACH SCENE KNOWS THE SCENES AROUND IT (2026-11-11, owner — Writers' Room audit B1 / B2; sceneThreadBrief) */
+APP_FEATURES.push({ name:"Scenes follow one another (what each scene is told when it is written)", what:"Whenever a scene's beats or screenplay are written \u2014 by the story build, Continue writing, Draft, Auto-draft all or a Redraft \u2014 the writing engine is told what surrounds it: the scenes before it in order (what the audience has already seen), how the previous scene's screenplay actually ends (its last lines, once it is written), what the next scene covers, and which characters the earlier screenplays have already introduced. So a scene starts after the previous one ends and stops before the next one's event: something that already happened is not played again (a door opened once stays open, an object handed over stays handed over), unless the scene's own summary asks for a deliberate return such as a flashback. A character gets the capitals-and-age introduction only the first time they appear in the film; later scenes use the name alone. The scene list itself is also built with one event per scene, so two scene cards never describe the same moment. This is automatic \u2014 there is nothing to switch on. A scene written before 11 November 2026 keeps its text; press Redraft on it to have it rewritten with this in mind." });
 /* A WRITING CALL HAS A TIME LIMIT (2026-11-11, owner — Writers' Room audit A5 / A6) */
 (()=>{ const f = APP_FEATURES.find(x=>x && String(x.name||"").startsWith("Writers' Room run integrity"));
   if(f) f.what += " A WRITING CALL HAS A TIME LIMIT: one scene's beat map or screenplay is given 3 minutes (other writing calls up to about 6 and a half); a call that runs past it is stopped, the credits held for it are given back, and the message says the writing engine took too long to answer. During a story build a scene whose call took too long is not asked again straight away: it is left for the build's own retry at the end, and the next scene is tried. TWO IN A ROW STOP THE BUILD: when two scenes in a row take too long, the build stops with one message \u2014 everything written is kept, the film shows it is unfinished, and after a few minutes (or on another writing engine, picked in the top bar) Continue writing finishes the rest. Auto-draft all stops the same way. Before this a stalled engine could hold one scene for over twenty minutes and then turn every remaining scene into a rough stand-in.";
@@ -5079,6 +5166,8 @@ async function spineBatch(brief, part, fmt, fw, prior){
     inciteRule+
     hookRule+
     "VARY THE DRIVER: protagonist drives most, but antagonist(s) and key supporting characters EACH drive several scenes. "+
+    // ONE EVENT PER SCENE (2026-11-11, audit B1): two cards describing the same action were written as the same scene twice
+    "ONE EVENT PER SCENE: every scene is a DIFFERENT event that begins after the one before it ends \u2014 no two summaries describe the same action or moment (a door is opened once; a thing changes hands once; a secret is told once). "+
     offSpine+
     "NAME\u2194IDENTITY DISCIPLINE: a personal name belongs to exactly ONE person. Characters NAMED in the brief keep exactly "+
     "the identity the brief gives them \u2014 never reuse a brief name for a different kind of person (a name the brief attaches "+

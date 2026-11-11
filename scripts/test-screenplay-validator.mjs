@@ -1081,7 +1081,8 @@ await test("the Script view's own paths explain themselves (runPolish throw, wri
   const m = box.screenplayFailureMessage("write beat 3 of", 4, { kind:"invalid", issues:["character cue without dialogue"] }, { kept:"The script is unchanged." });
   assert.equal(m, "Couldn’t write beat 3 of Scene 4 — the new draft broke screenplay format (a character name had no line after it), so it was discarded. The script is unchanged. Try again.");
   assert.ok(!appSrc.includes("Couldn\\u2019t redraft \\u2014 the writing model may be unreachable") && !appSrc.includes("the rest are still marked; the writing model may be unreachable"), "no more guessing copy on redraft");
-  assert.ok(appSrc.includes("draftScene:(s,b,p,o)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes,o),"), "the build's retries reach the drafter");
+  // (2026-11-11) the retry options still ride through, now with the run's own drafts beside them (sceneThreadBrief)
+  assert.ok(appSrc.includes("draftScene:(s,b,p,o)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes,{ ...(o||{}), drafts:model.drafts }),"), "the build's retries reach the drafter");
 });
 
 await test("write-missing-beat never ships a cue without its line (the cap moves past an open bundle)", async ()=>{

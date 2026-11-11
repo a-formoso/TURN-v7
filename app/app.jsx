@@ -8469,9 +8469,10 @@ function App(){
         // the research reservoir belongs to the brief it was gathered for (a typed brief has none)
         buildStoryWorld:(b,sp)=>window.aiBuildStoryWorld(b,sp,(project&&project.format)||"film",
           (project && project.research && String(project.sourceBrief||"").trim()===String(b||"").trim()) ? project.research : null),
-        authorScene:(s,p)=>window.aiAuthorScene(s,p,model.characters,model.project,{scenes:model.scenes}),
+        // (2026-11-11) the run's own drafts ride along: each scene is told how the one before it ends
+        authorScene:(s,p)=>window.aiAuthorScene(s,p,model.characters,model.project,{scenes:model.scenes, drafts:model.drafts}),
         beatsFromScript:(s,d)=>window.aiBeatsFromScript(s,d,model.characters,model.project),
-        draftScene:(s,b,p,o)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes,o),
+        draftScene:(s,b,p,o)=>window.aiDraftScene(s,b,p,model.project,model.characters,model.scenes,{ ...(o||{}), drafts:model.drafts }),
       } };
   };
 

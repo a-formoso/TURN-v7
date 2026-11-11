@@ -146,7 +146,11 @@ await test("A2 fictional formats: every beat prompt is byte-identical to before 
         "NEVER singular \u201cthey/them\u201d for an individual (ambiguous on the page and for image/video models) unless the cast list gives that person they/them; plural")
       .replace("never singular they/them for an individual. ", "never singular they/them for an individual unless the cast list gives that person they/them. ")
       .replace("NEVER singular they/them for an individual; plural they only for true groups.", "NEVER singular they/them for an individual unless this list gives that person they/them; plural they only for true groups.");
-    const now = await beatPrompts(box, P), was = (await beatPrompts(old, P)).map(later);
+    // (2026-11-11) each scene is now told the scenes around it (ai.jsx sceneThreadBrief): that block is added to the
+    // baseline's two beat-authoring prompts first, so this still proves nothing else in them moved
+    const sc12 = mkScenes(12);
+    const threaded = (x, i)=> i<2 ? x.replace("\nSCENE "+(i+1)+":", box.sceneThreadBrief(sc12[i], sc12, {}, CAST)+"\nSCENE "+(i+1)+":") : x;
+    const now = await beatPrompts(box, P), was = (await beatPrompts(old, P)).map(later).map(threaded);
     assert.equal(now.length, was.length);
     now.forEach((x,i)=>assert.equal(x, was[i], format+" prompt "+i+" changed"));
     assert.ok(now.every(x=>!/REAL SUBJECTS|BEATS FROM THE RECORD/.test(x)), format+" never sees the documentary rule");
