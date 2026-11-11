@@ -45,3 +45,17 @@ These are **single-furniture-family test fixtures**, not fully dressed, visually
 ## Feasibility conclusion
 
 Consistent numerical inventory and repeatable fixed geometry are achievable: the shared prototype demonstrates those properties beyond the kitchen and bus, within current renderer limits. Reliable automatic interpretation, full construction coverage, good camera composition, final lighting and styling fidelity remain separate unproven requirements. A service that reliably flags or refuses unsupported requirements is achievable sooner than one that successfully builds every conceivable location. Neither should be presented as the other.
+
+## Automatic first-delivered views: geometric search experiment
+
+The owner's requirement is a useful **first delivered result**, with camera selection and any internal adjustment completed automatically before the final render. Manually repairing each location does not satisfy it. An internal process can try several inexpensive candidate views while remaining one action for the user. It must not silently change a confirmed layout, overwrite deliberately locked cameras, or submit additional paid attempts.
+
+`auto-coverage.mjs` explores camera stations inside the actual footprint, rejects stations within the assembled parts' bounds, evaluates complementary wide coverage, and checks distinct detail subjects using actual mesh-ray visibility. It ignores the existing scene's camera angles as search seeds. The output is explicitly marked `readyForFinalRender: false`: geometric visibility alone cannot establish useful subjects or complete geometry.
+
+```sh
+node experiments/location-quality/check-auto-coverage.mjs
+```
+
+The same algorithm was also exercised read-only on the owner's saved gym, bus and kitchen scenes, with no per-location camera-coordinate overrides. It found geometrically visible alternatives. However, its unconstrained detail selection chose the kitchen's counter runs instead of its sink/fridge combination, and the gym's coach table instead of a more representative fixture. **That is a product-quality failure despite successful visibility.** These proposals have not been saved, submitted to the cloud, integrated or published.
+
+The production architecture therefore needs a semantic shot-intent stage, grounded in the complete inventory, location brief and relevant scene context, followed by geometric fitting and final-image verification. It should identify subjects and coverage goals, not invent unverified camera coordinates. Reuse existing description/staging context where sufficient; any additional model call needs normal pricing, scope checks and a bounded cost policy. Missing subjects, contradictions and unsupported geometry must be handled before claiming a final result. Semantic intent, actual construction, framing, visibility, lighting and styled fidelity must be evaluated together on held-out locations. A hand-tuned gym demonstration is not evidence that this automatic path works.
