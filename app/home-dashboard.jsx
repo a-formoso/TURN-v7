@@ -78,7 +78,7 @@
   // (2026-10-11, owner — image engines: it was GPT Image 2). Its reference images aren't known here, so this is the
   // price without them — the server holds the real cost of each poster
   const posterCost = (n)=> (typeof window.nbImageCostText==="function")
-    ? window.nbImageCostText(Math.max(1, n||1), { model:"gpt-image-2.5-sunburst", quality:"high", res:"2K", aspect:"9:16" }) : "";
+    ? window.nbImageCostText(Math.max(1, n||1), { model:"gpt-image-2.6-sunburst", quality:"high", res:"2K", aspect:"9:16" }) : "";
   const POSTER_SKIP_KEY = "turn_home_poster_skip";
   const readSkip = ()=>{ try{ return JSON.parse(localStorage.getItem(POSTER_SKIP_KEY)||"[]")||[]; }catch(e){ return []; } };
 

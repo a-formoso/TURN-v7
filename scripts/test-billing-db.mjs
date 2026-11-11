@@ -1487,12 +1487,12 @@ if (part("P", "P. CLAUDE.md billing rules")) {
     bill.includes("**Speech-to-text:** held and settled on the recording's own duration read from its container (WebM/Matroska, Ogg, MP4/MOV, WAV), never word timestamps; a longer provider-reported duration is only logged (`stt_length_mismatch`), never charged above the hold; an empty transcript still settles.") &&
     bill.includes(`a recording above ${psrv.sttMax / 60} min (\`STT_MAX_SECONDS\`; the app stops at ${psrv.appMax / 60}, \`NS_MAX_ANSWER_SECONDS\`) or an unknown \`modelId\` gets a 400 before any hold, and the app then switches to the browser's speech recognition.`) &&
     // (2026-10-14, owner — commit aa4441b) a limit per engine, read from the server's own table
-    psrv.promptLimits["gpt-image-2.5-flare"] === psrv.promptLimits["gpt-image-2.5-sunburst"]
-      // GPT Image 2.6 (2026-11-05) has 2.5's limit
-      && psrv.promptLimits["gpt-image-2.6-flare"] === psrv.promptLimits["gpt-image-2.5-flare"]
-      && psrv.promptLimits["gpt-image-2.6-sunburst"] === psrv.promptLimits["gpt-image-2.5-flare"]
+    // (2026-11-12) GPT Image 2.6 only (2.5 was removed); Seedream 5.5 has Seedream 5 Pro's limit
+    psrv.promptLimits["gpt-image-2.6-flare"] === psrv.promptLimits["gpt-image-2.6-sunburst"]
+      && psrv.promptLimits["gpt-image-2.5-flare"] === undefined
+      && psrv.promptLimits["seedream-5.5"] === psrv.promptLimits["seedream-5-pro"]
       && psrv.promptLimits["gemini-nano-banana-2.1"] === psrv.promptCap &&
-    bill.includes(`**Image prompts** have a limit per engine (\`billing-pricing.mjs\` \`IMAGE_PROMPT_LIMITS\` = \`app/pricing.jsx\` \`TURN_IMAGE_PROMPT_LIMITS\`, owner 2026-10-14): GPT Image 2.5 and 2.6 Flare / Sunburst ${thousands(psrv.promptLimits["gpt-image-2.5-flare"])} (fal takes 32,000), Seedream 5 Pro ${thousands(psrv.promptLimits["seedream-5-pro"])}, Nano Banana 2.1 and any other engine ${thousands(psrv.promptCap)} (\`IMAGE_PROMPT_MAX_CHARS\`, the ceiling). A longer prompt gets a 400 \`prompt_too_long\` before the hold; the app's builders fit themselves and \`proxyGenerate\` trims what's left in a fixed order (\`imagegen.jsx\` \`nbFitImagePrompt\`) — users are never asked to shorten a prompt.`), bill);
+    bill.includes(`**Image prompts** have a limit per engine (\`billing-pricing.mjs\` \`IMAGE_PROMPT_LIMITS\` = \`app/pricing.jsx\` \`TURN_IMAGE_PROMPT_LIMITS\`, owner 2026-10-14): GPT Image 2.6 Flare / Sunburst ${thousands(psrv.promptLimits["gpt-image-2.6-flare"])} (fal takes 32,000), Seedream 5.5 and 5 Pro ${thousands(psrv.promptLimits["seedream-5-pro"])}, Nano Banana 2.1 and any other engine ${thousands(psrv.promptCap)} (\`IMAGE_PROMPT_MAX_CHARS\`, the ceiling). A longer prompt gets a 400 \`prompt_too_long\` before the hold; the app's builders fit themselves and \`proxyGenerate\` trims what's left in a fixed order (\`imagegen.jsx\` \`nbFitImagePrompt\`) — users are never asked to shorten a prompt.`), bill);
 }
 
 /* ============================== S. the section filter ============================== */

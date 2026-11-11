@@ -25,7 +25,7 @@
     "gemini-4-argon":  { input:2, output:10, changes:[{ from:"2026-12-01T00:00:00Z", input:4, output:20 }] },
     "gemini-3.8-flash":{ input:0.75, output:3.75, changes:[{ from:"2027-01-01T00:00:00Z", input:1.5, output:7.5 }] },
     "claude-opus-5-5": { input:4, output:20 },
-    "claude-fable-5":  { input:10, output:50 },
+    "claude-fable-5-2":{ input:8, output:40 },
     "gpt-6-astra":     { input:10, output:50 },
     "gpt-6.1-sol":     { input:2, output:10 },
   };

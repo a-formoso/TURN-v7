@@ -30,7 +30,7 @@
    canonicalImageModel). */
 export const DRAFT_IMAGE = Object.freeze({ model: "gemini-nano-banana-2.1", maxRes: "1K" });
 
-/* The DEFAULT writing engines — what a trial or no-plan account may write with. Fable 5, GPT-6 Astra and
+/* The DEFAULT writing engines — what a trial or no-plan account may write with. Fable 5.2, GPT-6 Astra and
    GPT-6.1 Sol need a plan. (Kimi K2.7 was a default until the Moonshot engines were removed, 2026-10-11.) */
 export const DEFAULT_TEXT_MODELS = Object.freeze(["claude-opus-5-5", "gemini-3.8-flash"]);
 

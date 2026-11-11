@@ -6811,7 +6811,7 @@ function NbControls(){
   const qualityNotReady = qualityIsExpanded && (!qualitySupport.expanded || qualitySupport.loading);
   const qualityMessage = qualityNotReady
     ? (qualitySupport.message || (qualitySupport.loading
-      ? "Checking GPT Image 2.5 quality availability…"
+      ? "Checking which quality levels are available…"
       : "Extended quality choices are not verified yet."))
     : "";
 
@@ -6981,8 +6981,7 @@ function NbDock(){
   // follows. The engines (2026-10-11): Nano Banana 2.1, GPT Image 2.6 (2026-11-05) and 2.5 Flare / Sunburst, Seedream 5 Pro
   const short  = model==="gpt-image-2.6-flare" ? "GPT F2.6"
     : model==="gpt-image-2.6-sunburst" ? "GPT S2.6"
-    : model==="gpt-image-2.5-flare" ? "GPT F"
-    : model==="gpt-image-2.5-sunburst" ? "GPT S"
+    : model==="seedream-5.5" ? "SD5.5"
     : model==="seedream-5-pro" ? "SD5"
     : model==="gemini-nano-banana-2.1" ? "NB2.1"
     : /gpt/i.test(model) ? "GPT" : "NB2.1";

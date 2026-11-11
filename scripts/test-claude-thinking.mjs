@@ -1,4 +1,5 @@
-/* Claude thinking + pricing (owner, 2026-09-26): Fable 5.1 replaces Opus 5 in the picker,
+/* Claude thinking + pricing (owner, 2026-09-26): Fable 5.1 replaces Opus 5 in the picker
+   (2026-11-12: the two Claude engines are Opus 5.5 and Fable 5.2, $8 / $40 — Fable 5 was removed),
    Anthropic list prices, room to think (the output cap covers thinking + text), effort per
    task, and one retry with the largest budget when a reply comes back cut off. */
 import assert from "node:assert/strict";
@@ -26,19 +27,23 @@ let bodies=[], replies=[];
 Object.assign(box,{safeError:m=>m,attributedError:(a,b,c)=>c,textSpendAdd:()=>{},CustomEvent:function(){},dispatchEvent:()=>{},
   sbClient:()=>({functions:{invoke:async(fn,{body})=>{ bodies.push(body); return { data:replies.shift() }; }}})});
 
-await test("Opus 5 is not in the picker (Fable 5.1 replaced it, and was itself removed 2026-10-11); Opus 5.5 is the default (owner, 2026-09-27)",()=>{
+await test("Opus 5 is not in the picker (Fable 5.1 replaced it, and was itself removed 2026-10-11; Fable 5.2 replaced Fable 5 on 2026-11-12); Opus 5.5 is the default (owner, 2026-09-27)",()=>{
   const ids=box.WRITING_MODELS.map(m=>m.id);
-  assert.ok(ids.includes("claude-fable-5")&&!ids.includes("claude-fable-5-1")&&!ids.includes("claude-opus-5")&&ids.includes("claude-opus-5-5"));
+  assert.ok(ids.includes("claude-fable-5-2")&&!ids.includes("claude-fable-5")&&!ids.includes("claude-fable-5-1")&&!ids.includes("claude-opus-5")&&ids.includes("claude-opus-5-5"));
   assert.equal(box.getWritingModelId("story"),"claude-opus-5-5"); assert.equal(box.getWritingModelId("specs"),"claude-opus-5-5");
   assert.equal(box.WRITING_MODELS[0].id,"claude-opus-5-5","Opus 5.5 leads the picker and is the fallback");
-  assert.ok(dock.includes('"claude-fable-5":"FABLE"')&&!dock.includes('"claude-fable-5-1"')&&!dock.includes('"claude-opus-5":"OPUS5"'));
+  assert.equal(JSON.stringify(box.WRITING_MODELS.filter(m=>m.provider==="anthropic").map(m=>[m.id,m.label])),JSON.stringify([["claude-opus-5-5","Opus 5.5"],["claude-fable-5-2","Fable 5.2"]]),"exactly two Claude engines");
+  assert.ok(dock.includes('"claude-fable-5-2":"FABLE5.2"')&&!dock.includes('"claude-fable-5"'+":")&&!dock.includes('"claude-fable-5-1"')&&!dock.includes('"claude-opus-5":"OPUS5"'));
 });
 await test("the proxy prices Claude at Anthropic's list prices",()=>{
-  for(const [id,i,o] of [["claude-fable-5",10,50],["claude-opus-5",5,25],["claude-opus-5-5",4,20]])
+  for(const [id,i,o] of [["claude-fable-5-2",8,40],["claude-opus-5",5,25],["claude-opus-5-5",4,20]])
     assert.ok(new RegExp('"'+id+'":\\s*\\{\\s*input:\\s*'+i+',\\s*output:\\s*'+o+'\\s*\\}').test(proxyPrices),id);
+  // Fable 5 ($10 / $50) has no price row since 2026-11-12; Fable 5.2 reads its cache at $0.20
+  assert.ok(!/"claude-fable-5":\s*\{/.test(proxyPrices)&&!/"claude-fable-5":\s*1,/.test(proxyPrices)&&/"claude-fable-5-2":\s*0\.2,/.test(proxyPrices));
   assert.ok(!/input:\s*25,\s*output:\s*100|input:\s*15,\s*output:\s*75/.test(proxyPrices.slice(proxyPrices.indexOf("TEXT_PROVIDER_USD_PER_1M"),proxyPrices.indexOf("TEXT_CACHE_READ_USD_PER_1M"))));
   // Option A (billing fixes, 2026-09-30): 1 credit = $0.01, so the display fallbacks are 3x
-  assert.ok(pricing.includes('"claude-fable-5": 0.33')&&ai.includes('"claude-fable-5": 0.33'));
+  assert.ok(pricing.includes('"claude-fable-5-2": 0.27')&&ai.includes('"claude-fable-5-2": 0.27'));
+  assert.ok(!pricing.includes('"claude-fable-5":')&&!ai.includes('"claude-fable-5":'),"no fallback rate for the removed Fable 5");
 });
 await test("every Claude call has room to think, and effort reaches Anthropic",()=>{
   // (2026-09-28) every METERED Claude call keeps its 16k floor; a free MUSE call has its own cap

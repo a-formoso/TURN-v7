@@ -62,7 +62,7 @@
       creditRates: {
         // display fallbacks scaled to Anthropic list prices (checked 2026-09-26)
         // (base credits per call at the $0.10 base anchor — 3x the pre-2026-09-30 values)
-        "claude-fable-5": 0.33,
+        "claude-fable-5-2": 0.27,
         "claude-opus-5": 0.18,
         "claude-opus-5-5": 0.12,
         "claude-sonnet-5": 0.24,
@@ -96,9 +96,9 @@
         "gemini-nano-banana-2.1":      { "1K":0.05, "2K":0.07, "4K":0.15 },
         "gpt-image-2.6-flare":         { default:0.05268, auto:0.21072, low:0.02469, medium:0.04347, high:0.05268, xhigh:0.09366, max:0.21072 },
         "gpt-image-2.6-sunburst":      { default:0.05268, auto:0.21072, low:0.02469, medium:0.04347, high:0.05268, xhigh:0.09366, max:0.21072 },
-        "gpt-image-2.5-flare":         { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
-        "gpt-image-2.5-sunburst":      { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
         "seedream-5-pro":              { standard:0.0675, large:0.135, extraRef:0.0045 },
+        // Seedream 5.5 (2026-11-12, owner): fal lists no price yet — held at Seedream 5 Pro's rows until it does
+        "seedream-5.5":                { standard:0.0675, large:0.135, extraRef:0.0045 },
       },
     },
     // BUILD THE SET (2026-11-05, owner): one build of a location's 3D set (four camera views) on the studio's
@@ -226,8 +226,7 @@
   }
   /* GPT Image cost scales with output size: fal's two GPT Image 2 points ($0.158 at 2.07 MP,
      $0.401 at 8.29 MP) fit cost ∝ MP^0.672 — kept for 2.5. Mirrors billing-pricing.mjs gptImageSizeFactor. */
-  const GPT_IMAGE_BASELINE_MP = { "gpt-image-2.6-flare":1024*1024/1e6, "gpt-image-2.6-sunburst":1024*1024/1e6,
-    "gpt-image-2.5-flare":1024*1024/1e6, "gpt-image-2.5-sunburst":1024*1024/1e6 };
+  const GPT_IMAGE_BASELINE_MP = { "gpt-image-2.6-flare":1024*1024/1e6, "gpt-image-2.6-sunburst":1024*1024/1e6 };
   const GPT_IMAGE_SIZES = {
     "16:9": { "1K":"1280x720", "2K":"2048x1152", "4K":"3840x2160" },
     "9:16": { "1K":"720x1280", "2K":"1152x2048", "4K":"2160x3840" },
@@ -237,7 +236,7 @@
     "4:3":  { "1K":"1024x768", "2K":"2048x1536", "4K":"3840x2880" },
   };
   function turnGptImageSizeFactor(model, aspect, imageSize){
-    const base = GPT_IMAGE_BASELINE_MP[model] || GPT_IMAGE_BASELINE_MP["gpt-image-2.5-sunburst"];
+    const base = GPT_IMAGE_BASELINE_MP[model] || GPT_IMAGE_BASELINE_MP["gpt-image-2.6-sunburst"];
     const tier = ["1K","2K","4K"].indexOf(imageSize)>=0 ? imageSize : "2K";
     const dims = (GPT_IMAGE_SIZES[aspect] || GPT_IMAGE_SIZES["16:9"])[tier].split("x").map(Number);
     return Math.pow((dims[0]*dims[1]/1e6)/base, 0.672);
@@ -257,8 +256,8 @@
     const snap = (v)=> (big ? Math.floor(v/16) : Math.ceil(v/16)) * 16;
     return { width:snap(Math.sqrt(area*r)), height:snap(Math.sqrt(area/r)) };
   }
-  function turnSeedreamProviderUsd(aspect, imageSize, refs){
-    const row = TURN_PRICING.image.providerUsd["seedream-5-pro"];
+  function turnSeedreamProviderUsd(aspect, imageSize, refs, model){
+    const row = TURN_PRICING.image.providerUsd[model==="seedream-5.5" ? "seedream-5.5" : "seedream-5-pro"];
     if(!row) return null;
     const d = turnSeedreamImageDimensions(aspect, imageSize);
     const tier = Number(d.width*d.height <= 1536*1536 ? row.standard : row.large);
@@ -276,10 +275,9 @@
   const IMAGE_PROMPT_LIMITS = Object.freeze({
     "gpt-image-2.6-flare": 31500,
     "gpt-image-2.6-sunburst": 31500,
-    "gpt-image-2.5-flare": 31500,
-    "gpt-image-2.5-sunburst": 31500,
     "gemini-nano-banana-2.1": IMAGE_PROMPT_MAX_CHARS,
     "seedream-5-pro": 30000,
+    "seedream-5.5": 30000,
   });
   /* the longest prompt an engine (an id the caller has already mapped from a retired one) is sent */
   function turnImagePromptMaxChars(model){

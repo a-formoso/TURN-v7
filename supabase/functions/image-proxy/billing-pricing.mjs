@@ -76,7 +76,8 @@ export function creditsFromUsd(usd, unit = PROVIDER_USD_PER_CREDIT) {
 export const TEXT_PROVIDER_USD_PER_1M = Object.freeze({
   "claude-opus-5": { input: 5, output: 25 },
   "claude-opus-5-5": { input: 4, output: 20 },
-  "claude-fable-5": { input: 10, output: 50 },
+  // Claude Fable 5.2 (owner 2026-11-12; it replaced Fable 5): $8 / $40, cache reads $0.20
+  "claude-fable-5-2": { input: 8, output: 40 },
   // Google introductory Gemini 3.8 Flash pricing through 2026-12-31 (see TEXT_PRICE_CHANGES).
   "gemini-3.8-flash": { input: 0.75, output: 3.75 },
   // Gemini 4 Argon (owner 2026-10-18): Google's introductory price through 2026-11-30 (see TEXT_PRICE_CHANGES)
@@ -92,7 +93,7 @@ export const TEXT_PROVIDER_USD_PER_1M = Object.freeze({
 export const TEXT_CACHE_READ_USD_PER_1M = Object.freeze({
   "claude-opus-5": 0.5,
   "claude-opus-5-5": 0.2,
-  "claude-fable-5": 1,
+  "claude-fable-5-2": 0.2,
   "gpt-6-astra": 1,
   "gpt-6.1-sol": 0.1,
   // Gemini caches long prompts (4,096+ tokens) by itself; a cached token is read at this price
@@ -121,7 +122,9 @@ export const TEXT_MODEL_ALIASES = Object.freeze({});
    names one is served on its successor — the same provider's nearest engine, or a default engine for Kimi — before
    the plan gate, the price and the route (index.ts). */
 export const LEGACY_WRITING_MODELS = Object.freeze({
-  "claude-fable-5-1": Object.freeze({ provider: "anthropic", model: "claude-fable-5" }),
+  // (2026-11-12, owner) Fable 5 and 5.1 → Fable 5.2: an older app's pick is served, gated and priced as 5.2
+  "claude-fable-5": Object.freeze({ provider: "anthropic", model: "claude-fable-5-2" }),
+  "claude-fable-5-1": Object.freeze({ provider: "anthropic", model: "claude-fable-5-2" }),
   "gemini-3.5-flash": Object.freeze({ provider: "google", model: "gemini-3.8-flash" }),
   "gpt-5.5": Object.freeze({ provider: "openai", model: "gpt-6.1-sol" }),
   "gpt-5.5-2026-04-23": Object.freeze({ provider: "openai", model: "gpt-6.1-sol" }),
@@ -510,9 +513,10 @@ export const IMAGE_PROVIDER_USD = Object.freeze({
   "gemini-nano-banana-2.1": { "1K": 0.05, "2K": 0.07, "4K": 0.15 },
   "gpt-image-2.6-flare": { default: 0.05268, auto: 0.21072, low: 0.02469, medium: 0.04347, high: 0.05268, xhigh: 0.09366, max: 0.21072 },
   "gpt-image-2.6-sunburst": { default: 0.05268, auto: 0.21072, low: 0.02469, medium: 0.04347, high: 0.05268, xhigh: 0.09366, max: 0.21072 },
-  "gpt-image-2.5-flare": { default: 0.05268, auto: 0.21072, low: 0.00588, medium: 0.01317, high: 0.05268, xhigh: 0.09366, max: 0.21072 },
-  "gpt-image-2.5-sunburst": { default: 0.05268, auto: 0.21072, low: 0.00588, medium: 0.01317, high: 0.05268, xhigh: 0.09366, max: 0.21072 },
   "seedream-5-pro": { standard: 0.0675, large: 0.135, extraRef: 0.0045 },
+  // Seedream 5.5 (2026-11-12, owner): on fal since 2026-11-11 with NO published price yet — held at Seedream 5 Pro's
+  // rows (never below what fal can charge: BytePlus lists 5.5 under 5 Pro) until fal lists one; pricing-watch flags it
+  "seedream-5.5": { standard: 0.0675, large: 0.135, extraRef: 0.0045 },
 });
 
 /* The DIRECT Google route (provider "google"): Google's own, lower prices. Only these models
@@ -536,7 +540,11 @@ export const LEGACY_IMAGE_MODEL_IDS = Object.freeze({
   "gemini-3.1-flash-lite-image": "gemini-nano-banana-2.1",
   "gemini-3.1-flash-image": "gemini-nano-banana-2.1",
   "gemini-3-pro-image": "gemini-nano-banana-2.1",
-  "gpt-image-2": "gpt-image-2.5-sunburst",
+  // 2026-11-12 (owner): GPT Image 2.5 Flare / Sunburst removed — each is served on its 2.6 version (the same
+  // quality values; low and medium cost more on 2.6), and GPT Image 2 on 2.6 Sunburst
+  "gpt-image-2": "gpt-image-2.6-sunburst",
+  "gpt-image-2.5-flare": "gpt-image-2.6-flare",
+  "gpt-image-2.5-sunburst": "gpt-image-2.6-sunburst",
 });
 /** The image model id to serve: a retired engine's id → its successor; anything else unchanged. */
 export function canonicalImageModel(id) {
@@ -549,10 +557,8 @@ export const IMAGE_WEB_SEARCH_USD = 0.015;          // fal Nano Banana web searc
 export const GOOGLE_GROUNDING_USD = 0.035;          // direct Google search grounding, per request (conservative)
 export const GPT_IMAGE_REFERENCE_USD = 0.012;       // per reference image (~1,500 image input tokens at $8 / 1M)
 export const GPT_IMAGE_BASELINE_MP = Object.freeze({
-  "gpt-image-2.6-flare": 1024 * 1024 / 1e6,
+  "gpt-image-2.6-flare": 1024 * 1024 / 1e6,          // canonical 1024-square
   "gpt-image-2.6-sunburst": 1024 * 1024 / 1e6,
-  "gpt-image-2.5-flare": 1024 * 1024 / 1e6,          // canonical 1024-square
-  "gpt-image-2.5-sunburst": 1024 * 1024 / 1e6,
 });
 /* fal's two GPT Image 2 points ($0.158 at 2.07 MP, $0.401 at 8.29 MP) fit cost ∝ MP^0.672 — kept for 2.5 and 2.6
    (2.6 multiplies 2.5's tokens by a constant per quality, so it scales with size the same way). */
@@ -574,7 +580,7 @@ export function gptImageDimensions(aspect, imageSize) {
 
 /** How much a GPT Image render costs relative to its model's baseline size. */
 export function gptImageSizeFactor(model, aspect, imageSize) {
-  const base = GPT_IMAGE_BASELINE_MP[model] || GPT_IMAGE_BASELINE_MP["gpt-image-2.5-sunburst"];
+  const base = GPT_IMAGE_BASELINE_MP[model] || GPT_IMAGE_BASELINE_MP["gpt-image-2.6-sunburst"];
   const [w, h] = gptImageDimensions(aspect, imageSize).split("x").map(Number);
   return Math.pow((w * h / 1e6) / base, GPT_IMAGE_SIZE_EXPONENT);
 }
@@ -585,6 +591,10 @@ export function gptImageSizeFactor(model, aspect, imageSize) {
    2048x2048 (≈4.1-4.19 MP → the $0.135 tier); a 4K request renders at 2K (seedreamImageSize). Both sides are
    multiples of 16. Mirrored by app/pricing.jsx turnSeedreamImageDimensions. */
 export const SEEDREAM_MODEL = "seedream-5-pro";
+/* Seedream 5.5 (2026-11-12, owner) takes the same sizes, the same 10 references and the same request shape on fal
+   (bytedance/seedream/v5.5/*: total pixels 921,600–4,624,220), so both engines share everything below. */
+export const SEEDREAM_MODELS = Object.freeze(["seedream-5-pro", "seedream-5.5"]);
+export const isSeedreamModel = (id) => SEEDREAM_MODELS.includes(String(id || ""));
 export const SEEDREAM_MIN_PIXELS = 1024 * 1024;
 export const SEEDREAM_MAX_PIXELS = 2048 * 2048;
 export const SEEDREAM_STANDARD_MAX_PIXELS = 1536 * 1536;   // fal's price step
@@ -603,8 +613,8 @@ export function seedreamImageDimensions(aspect, imageSize) {
   return { width: snap(Math.sqrt(area * r)), height: snap(Math.sqrt(area / r)) };
 }
 /** Seedream's provider USD for one render: the area tier of what is sent, plus each reference after the first. */
-export function seedreamCostUsd({ aspect = "16:9", imageSize = "2K", referenceImages = 0, table = IMAGE_PROVIDER_USD } = {}) {
-  const row = (table && table[SEEDREAM_MODEL]) || null;
+export function seedreamCostUsd({ aspect = "16:9", imageSize = "2K", referenceImages = 0, table = IMAGE_PROVIDER_USD, model = SEEDREAM_MODEL } = {}) {
+  const row = (table && table[isSeedreamModel(model) ? model : SEEDREAM_MODEL]) || null;
   if (!row) return null;
   const { width, height } = seedreamImageDimensions(aspect, imageSize);
   const tier = Number(width * height <= SEEDREAM_STANDARD_MAX_PIXELS ? row.standard : row.large);
@@ -637,10 +647,9 @@ export const IMAGE_PROMPT_MAX_CHARS = 40000;
 export const IMAGE_PROMPT_LIMITS = Object.freeze({
   "gpt-image-2.6-flare": 31500,
   "gpt-image-2.6-sunburst": 31500,
-  "gpt-image-2.5-flare": 31500,
-  "gpt-image-2.5-sunburst": 31500,
   "gemini-nano-banana-2.1": IMAGE_PROMPT_MAX_CHARS,
   "seedream-5-pro": 30000,
+  "seedream-5.5": 30000,
 });
 /** the longest prompt an image engine (a retired id maps to its successor) is sent */
 export function imagePromptMaxChars(model) {
@@ -670,8 +679,8 @@ export function imageCost({ route = "fal", model, imageSize = "2K", aspect = "16
   } else {
     const row = (table && table[id]) || null;
     if (!row) return null;
-    if (id === SEEDREAM_MODEL) {
-      usd = seedreamCostUsd({ aspect, imageSize: size, referenceImages, table });
+    if (isSeedreamModel(id)) {
+      usd = seedreamCostUsd({ aspect, imageSize: size, referenceImages, table, model: id });
       if (!(usd > 0)) return null;
     } else if (isGpt) {
       const base = Number(row[pricingKey || "high"] ?? row.high);

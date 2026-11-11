@@ -2660,7 +2660,7 @@ function App(){
           identityCharacterIds:canon.identityCast.map(c=>c.id), identityContext:canon.identityContext});
         if(typeof window.turnIdentityPrompt==="function") prompt += "\n"+window.turnIdentityPrompt(canon.identityCast);
       }
-      if((window.NB_MODELS||[]).some(m=>m.id==="gpt-image-2.5-sunburst")) genOpts.model = "gpt-image-2.5-sunburst";
+      if((window.NB_MODELS||[]).some(m=>m.id==="gpt-image-2.6-sunburst")) genOpts.model = "gpt-image-2.6-sunburst";
       if(refs.length) genOpts.extraImages = refs;
       let url = await window.nbGenerate(prompt, { ...genOpts, projectId:proj.id, assetId:"cover", assetPurpose:"poster" });
       if(!url) throw new Error("The poster came back empty — try again.");

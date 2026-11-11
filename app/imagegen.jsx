@@ -90,7 +90,7 @@ async function nbRefreshImageQualityCapabilities(options){
       let body=null;
       try{ body=JSON.parse(await response.text()); }catch(e){}
       if(body&&body.imageQualitySchema===1&&body.imageQualities&&typeof body.imageQualities==="object"){
-        for(const model of ["gpt-image-2.6-flare","gpt-image-2.6-sunburst","gpt-image-2.5-flare","gpt-image-2.5-sunburst"]){
+        for(const model of ["gpt-image-2.6-flare","gpt-image-2.6-sunburst"]){
           const values=body.imageQualities[model];
           if(Array.isArray(values)) state.qualities[model]=OAI_25_QUALITIES.filter(q=>values.includes(q));
         }
@@ -139,8 +139,8 @@ const NB_MODELS = [
   { id:"gemini-nano-banana-2.1",      label:"Nano Banana 2.1",    provider:"fal", family:"nano",   falModel:"google/nano-banana-2.1", falEditModel:"google/nano-banana-2.1/edit", note:"fast \u00b7 lowest cost" },
   { id:"gpt-image-2.6-flare",         label:"GPT Image 2.6 Flare", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.6/flare/text-to-image", falEditModel:"openai/gpt-image-2.6/flare/edit", note:"newest \u00b7 fastest GPT Image" },
   { id:"gpt-image-2.6-sunburst",      label:"GPT Image 2.6 Sunburst", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.6/sunburst/text-to-image", falEditModel:"openai/gpt-image-2.6/sunburst/edit", note:"newest \u00b7 maximum precision" },
-  { id:"gpt-image-2.5-flare",         label:"GPT Image 2.5 Flare", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/flare/text-to-image", falEditModel:"openai/gpt-image-2.5/flare/edit", note:"fastest GPT Image 2.5" },
-  { id:"gpt-image-2.5-sunburst",      label:"GPT Image 2.5 Sunburst", provider:"fal", family:"openai", falModel:"openai/gpt-image-2.5/sunburst/text-to-image", falEditModel:"openai/gpt-image-2.5/sunburst/edit", note:"maximum precision and fidelity" },
+  // Seedream 5.5 (2026-11-12, owner): the newest Seedream, beside 5 Pro — the same sizes and reference limit
+  { id:"seedream-5.5",                label:"Seedream 5.5",       provider:"fal", family:"seedream", falModel:"bytedance/seedream/v5.5/text-to-image", falEditModel:"bytedance/seedream/v5.5/edit", maxRes:"2K", maxRefs:10, note:"newest Seedream \u00b7 rich detail" },
   { id:"seedream-5-pro",              label:"Seedream 5 Pro",     provider:"fal", family:"seedream", falModel:"bytedance/seedream/v5/pro/text-to-image", falEditModel:"bytedance/seedream/v5/pro/edit", maxRes:"2K", maxRefs:10, note:"rich detail \u00b7 strong likeness" },
 ];
 /* RETIRED IMAGE ENGINES: a saved pick, a dock choice, a per-device preference or an agent / batch option that still
@@ -154,13 +154,18 @@ const NB_LEGACY_MODEL_IDS = {
   "gemini-3.1-flash-lite-image":"gemini-nano-banana-2.1",
   "gemini-3.1-flash-image":"gemini-nano-banana-2.1",
   "gemini-3-pro-image":"gemini-nano-banana-2.1",
-  "gpt-image-2":"gpt-image-2.5-sunburst",
+  // 2026-11-12 (owner): GPT Image 2.5 Flare / Sunburst → their 2.6 versions (same quality setting); GPT Image 2 → 2.6 Sunburst
+  "gpt-image-2":"gpt-image-2.6-sunburst",
+  "gpt-image-2.5-flare":"gpt-image-2.6-flare",
+  "gpt-image-2.5-sunburst":"gpt-image-2.6-sunburst",
 };
 const NB_HISTORICAL_MODEL_LABELS = {
   "gemini-3.1-flash-lite-image":"Nano Banana 2 Lite",
   "gemini-3.1-flash-image":"Nano Banana 2",
   "gemini-3-pro-image":"Nano Banana Pro",
   "gpt-image-2":"GPT Image 2",
+  "gpt-image-2.5-flare":"GPT Image 2.5 Flare",
+  "gpt-image-2.5-sunburst":"GPT Image 2.5 Sunburst",
 };
 function nbCanonicalModelId(id){
   return (typeof id==="string" && Object.prototype.hasOwnProperty.call(NB_LEGACY_MODEL_IDS, id)) ? NB_LEGACY_MODEL_IDS[id] : id;
@@ -184,7 +189,7 @@ function nbModelRes(model, res){
   return (NB_RES_RANK[res]!=null && NB_RES_RANK[res] > NB_RES_RANK[max]) ? max : res;
 }
 function nbModelMaxRefs(model){ const m = (window.NB_MODELS||NB_MODELS).find(x=>x.id===nbCanonicalModelId(model)); return (m && Number(m.maxRefs)>0) ? Number(m.maxRefs) : null; }
-function isSeedreamModel(model){ return nbCanonicalModelId(model)==="seedream-5-pro"; }
+function isSeedreamModel(model){ return ["seedream-5-pro","seedream-5.5"].indexOf(nbCanonicalModelId(model))>=0; }
 window.nbModelMaxRes = nbModelMaxRes; window.nbModelRes = nbModelRes; window.nbModelMaxRefs = nbModelMaxRefs; window.isSeedreamModel = isSeedreamModel;
 window.nbCanonicalModelId = nbCanonicalModelId; window.nbModelLabel = nbModelLabel; window.nbModelGrounds = nbModelGrounds;
 const NB_ASPECTS = ["16:9","21:9","9:16","1:1","3:4","4:3"];
@@ -369,14 +374,13 @@ const NB_IMG_USD = (window.turnImageProviderUsdTable && window.turnImageProvider
   "gpt-image-2.6-flare":         { default:0.05268, auto:0.21072, low:0.02469, medium:0.04347, high:0.05268, xhigh:0.09366, max:0.21072 },
   "gpt-image-2.6-sunburst":      { default:0.05268, auto:0.21072, low:0.02469, medium:0.04347, high:0.05268, xhigh:0.09366, max:0.21072 },
   "gemini-nano-banana-2.1":      { "1K":0.05, "2K":0.07, "4K":0.15 },
-  "gpt-image-2.5-flare":         { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
-  "gpt-image-2.5-sunburst":      { default:0.05268, auto:0.21072, low:0.00588, medium:0.01317, high:0.05268, xhigh:0.09366, max:0.21072 },
   "seedream-5-pro":              { standard:0.0675, large:0.135, extraRef:0.0045 },
+  "seedream-5.5":                { standard:0.0675, large:0.135, extraRef:0.0045 },
 };
 /* Seedream 5 Pro's price without app/pricing.jsx (the same formula as turnSeedreamProviderUsd / the server's
    seedreamCostUsd): the area tier of the exact size sent, plus each reference after the first (at most 10) */
-function _nbSeedreamUsd(t, aspect, res, refs){
-  if(typeof window.turnSeedreamProviderUsd==="function") return window.turnSeedreamProviderUsd(aspect, res, refs);
+function _nbSeedreamUsd(t, aspect, res, refs, model){
+  if(typeof window.turnSeedreamProviderUsd==="function") return window.turnSeedreamProviderUsd(aspect, res, refs, model);
   const ratios = { "16:9":16/9, "9:16":9/16, "21:9":21/9, "1:1":1, "3:4":3/4, "4:3":4/3 };
   const r = ratios[aspect] || ratios["16:9"], big = res!=="1K", area = big ? 2048*2048 : 1024*1024;
   const snap = (v)=> (big ? Math.floor(v/16) : Math.ceil(v/16)) * 16;
@@ -416,7 +420,7 @@ function nbImageCredits(opts){
       usd = usd * window.turnGptImageSizeFactor(model, opts.aspect || opts.aspectRatio || nbGetAspect(), choice.res || nbGetRes());
   } else if(isSeedreamModel(model)){
     // Seedream 5 Pro (2026-10-11): by the output's pixel area, plus $0.0045 for each reference after the first
-    usd = _nbSeedreamUsd(t, opts.aspect || opts.aspectRatio || nbGetAspect(), choice.res || nbGetRes(), opts.refs);
+    usd = _nbSeedreamUsd(t, opts.aspect || opts.aspectRatio || nbGetAspect(), choice.res || nbGetRes(), opts.refs, model);
     if(!(usd>0)) return null;
   } else {
     const r = choice.res || nbGetRes();

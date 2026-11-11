@@ -15,8 +15,6 @@ export const IMAGE_QUALITY_CAPABILITIES = Object.freeze({
   // GPT Image 2.6 (2026-11-05) takes 2.5's quality values
   "gpt-image-2.6-flare": Object.freeze([...GPT_IMAGE_25_QUALITIES]),
   "gpt-image-2.6-sunburst": Object.freeze([...GPT_IMAGE_25_QUALITIES]),
-  "gpt-image-2.5-flare": Object.freeze([...GPT_IMAGE_25_QUALITIES]),
-  "gpt-image-2.5-sunburst": Object.freeze([...GPT_IMAGE_25_QUALITIES]),
 });
 
 /*

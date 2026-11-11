@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /* test-image-prompt-budget.mjs — THE PROMPT BUDGET PER ENGINE (owner-approved 2026-10-14, "go ahead with all of it").
    A GPT Image 2.5 location plate (Glass Hours' "Fondamenta DEI Vetrai") went out at 33,577 characters and its engine
-   refused it (fal stops at 32,000). Now:
+   refused it (fal stops at 32,000). (2026-11-12: GPT Image 2.6 Flare / Sunburst replaced 2.5 with the same 31,500
+   limit, and Seedream 5.5 joined Seedream 5 Pro at 30,000 — the engine this test renders on is now 2.6 Flare.) Now:
    1. one table of prompt limits per engine, the same in the app (pricing.jsx) and the server (billing-pricing.mjs —
       the server's refusal is pinned in test-server-charging.mjs F39b), for every engine the app offers;
    2. the location builders fit by themselves: compact JSON, the AVOID list once, the screenplay as page images OR as
@@ -33,14 +34,16 @@ let durl = 0;
 const fakeCanvas = () => ({ width: 0, height: 0, getContext: () => ({ font: "15px", measureText: (t) => ({ width: String(t).length * 9 }), fillRect() {}, fillText() {} }),
   toDataURL: () => "data:image/png;base64,PAGE" + (++durl) });
 const metas = {}, images = {};
-let engine = "gpt-image-2.5-flare";
+let engine = "gpt-image-2.6-flare";
+/* the app's own map of retired engine ids (imagegen.jsx NB_LEGACY_MODEL_IDS), so the stub below follows it */
+const LEGACY_IDS = vm.runInNewContext("(" + /const NB_LEGACY_MODEL_IDS = (\{[\s\S]*?\n\});/.exec(imagegen)[1] + ")");
 const box = { console, setTimeout, clearTimeout, localStorage: { getItem: () => null }, dispatchEvent: () => true, CustomEvent: class {},
   scenesInStoryOrder: (x) => (x || []).slice().sort((a, b) => (a.no || 0) - (b.no || 0)), renderStyleText: () => "photoreal cinematic establishing photography",
   document: { createElement: () => fakeCanvas() }, worldScaleClause: () => "",
   nbGetMeta: (id) => metas[id] || null, nbGetImage: (id) => images[id] || "", nbLoadImage: async (id) => images[id] || "",
   cropRegionAsDataUrl: async (u) => "data:crop:" + u, oaiToDataUrl: async (u) => u,
   sceneScriptText: (sid, drafts) => { const d = (drafts || {})[sid]; return d && Array.isArray(d.blocks) ? d.blocks.map((b) => b && b.text ? b.text : "").join("  ") : ""; },
-  nbGetModel: () => engine, nbCanonicalModelId: (id) => ({ "gpt-image-2": "gpt-image-2.5-sunburst" })[id] || id };
+  nbGetModel: () => engine, nbCanonicalModelId: (id) => (Object.prototype.hasOwnProperty.call(LEGACY_IDS, id) ? LEGACY_IDS[id] : id) };
 box.window = box; vm.createContext(box);
 vm.runInContext(read("app/pricing.jsx"), box, { filename: "app/pricing.jsx" });
 vm.runInContext(slice(imagegen, "/* THE PROMPT BUDGET PER ENGINE (2026-10-14", "\nfunction nbIdentitySnapshot("), box, { filename: "app/imagegen.jsx#budget" });
@@ -52,10 +55,20 @@ assert.deepEqual(json(box.TURN_IMAGE_PROMPT_LIMITS), { ...BP.IMAGE_PROMPT_LIMITS
 assert.equal(box.TURN_IMAGE_PROMPT_MAX_CHARS, BP.IMAGE_PROMPT_MAX_CHARS);
 const appEngines = [...imagegen.slice(imagegen.indexOf("const NB_MODELS = ["), imagegen.indexOf("];", imagegen.indexOf("const NB_MODELS = ["))).matchAll(/\{ id:"([^"]+)"/g)].map((m) => m[1]);
 assert.deepEqual(appEngines.slice().sort(), Object.keys(BP.IMAGE_PROMPT_LIMITS).sort(), "every engine the app offers has its own limit");
-assert.equal(BP.IMAGE_PROMPT_LIMITS["gpt-image-2.5-flare"], 31500, "GPT Image 2.5: under fal's 32,000");
+assert.deepEqual(appEngines, ["gemini-nano-banana-2.1", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "seedream-5.5", "seedream-5-pro"], "the five engines (2026-11-12)");
+assert.deepEqual({ ...BP.IMAGE_PROMPT_LIMITS }, { "gpt-image-2.6-flare": 31500, "gpt-image-2.6-sunburst": 31500, "gemini-nano-banana-2.1": 40000, "seedream-5-pro": 30000, "seedream-5.5": 30000 },
+  "GPT Image 2.6: under fal's 32,000; both Seedream engines 30,000; Nano Banana 2.1 the ceiling");
+assert.deepEqual(Object.keys(json(box.TURN_IMAGE_PROMPT_LIMITS)), Object.keys(BP.IMAGE_PROMPT_LIMITS), "in the same order");
+for (const gone of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) assert.ok(!(gone in BP.IMAGE_PROMPT_LIMITS) && !(gone in json(box.TURN_IMAGE_PROMPT_LIMITS)), gone + " (removed 2026-11-12) has no limit row");
 assert.ok(Object.values(BP.IMAGE_PROMPT_LIMITS).every((n) => n <= BP.IMAGE_PROMPT_MAX_CHARS));
 for (const id of appEngines) assert.equal(box.nbPromptMaxChars(id), BP.imagePromptMaxChars(id), id);
-assert.equal(box.nbPromptMaxChars("gpt-image-2"), 31500, "a retired id → its successor's limit");
+assert.deepEqual(json(LEGACY_IDS), { ...BP.LEGACY_IMAGE_MODEL_IDS }, "the app and the server retire the same ids to the same successors");
+for (const [old, now] of Object.entries(BP.LEGACY_IMAGE_MODEL_IDS)) {
+  assert.equal(box.nbPromptMaxChars(old), BP.IMAGE_PROMPT_LIMITS[now], old + ": a retired id → its successor's limit");
+  assert.equal(BP.imagePromptMaxChars(old), BP.IMAGE_PROMPT_LIMITS[now], old + ": the server reads it the same way");
+}
+assert.equal(box.nbPromptMaxChars("gpt-image-2"), 31500); assert.equal(box.nbPromptMaxChars("gpt-image-2.5-flare"), 31500); assert.equal(box.nbPromptMaxChars("gpt-image-2.5-sunburst"), 31500);
+assert.equal(box.nbPromptMaxChars("seedream-5.5"), 30000);
 assert.match(read("supabase/functions/image-proxy/billing-pricing.mjs"), /The app's prompts are NOT all well under it/, "the outdated 'well under' comment is corrected");
 assert.doesNotMatch(read("supabase/functions/image-proxy/index.ts"), /Shorten it and try again/, "nobody is asked to shorten a prompt");
 
@@ -84,6 +97,8 @@ assert.deepEqual(json(box._locBudgetOpts([{ kind: "location", note: "plate" }, {
   { screenplayPages: [2], reserve: 360 + 21 + 20, model: "seedream-5-pro" });
 assert.ok(!("model" in box._locBudgetOpts([], {})), "no run pick: the picked engine");
 assert.equal(box.locationPromptBudget({ model: "seedream-5-pro", reserve: 0 }), 30000);
+assert.equal(box.locationPromptBudget({ model: "seedream-5.5", reserve: 0 }), 30000);
+assert.equal(box.locationPromptBudget({ model: "gpt-image-2.5-sunburst", reserve: 0 }), 31500, "a run still naming a removed 2.5 engine is budgeted as its 2.6 version");
 assert.equal(box.locationPromptBudget({ model: "gemini-nano-banana-2.1", reserve: 0 }), 40000);
 assert.match(ui, /rebuildPromptAfterAttachments:\(attach,mode,gopts\)=> mode==="final"\n\s+\? buildLocationCoveragePrompt\(l, v, project, _locBudgetOpts\(attach,gopts\)\)/);
 assert.equal((ui.match(/_locBudgetOpts\(attach,gopts\)/g) || []).length, 5, "the master plate, coverage, state and unit cards");
@@ -142,8 +157,9 @@ for (const id of appEngines) {
   fitsAlone(id + " · parent view", box.buildLocationParentViewPrompt(sub, req, project), limit);
 }
 
-/* the plate that failed: Fondamenta DEI Vetrai on GPT Image 2.5 (33,577 characters on 2026-10-13) */
-engine = "gpt-image-2.5-flare";
+/* the plate that failed: Fondamenta DEI Vetrai on GPT Image 2.5 (33,577 characters on 2026-10-13) — built here for
+   GPT Image 2.6 Flare, which replaced it with the same limit */
+engine = "gpt-image-2.6-flare";
 const fv = await masterPrompt(sub, 31500);
 assert.ok(fv.prompt.length <= 31500 && fv.prompt.length < 30000, "Fondamenta DEI Vetrai now " + fv.prompt.length + " characters");
 assert.ok(!/\n {1,}"/.test(fv.prompt), "the JSON spec has no indentation");
@@ -273,7 +289,7 @@ const oldFit = box.nbFitImagePrompt(old, old.length - 1);
 assert.deepEqual(json(oldFit.steps), ["compact JSON"]); assert.ok(oldFit.prompt.endsWith(tailText) && !/\n "task"/.test(oldFit.prompt));
 // a refusal for the prompt's length is recognised (the simplified retry takes it, as it takes "no image")
 assert.ok(box.nbIsPromptLengthError({ code: "prompt_too_long" }));
-assert.ok(box.nbIsPromptLengthError(new Error("Image model GPT Image 2.5 Flare: prompt: String should have at most 32000 characters")));
+assert.ok(box.nbIsPromptLengthError(new Error("Image model GPT Image 2.6 Flare: prompt: String should have at most 32000 characters")));
 assert.ok(!box.nbIsPromptLengthError(new Error("The model returned no image")));
 
 /* proxyGenerate itself: the check runs after the identity text is added, before the request; a server
@@ -292,18 +308,18 @@ Object.assign(box, { nbAssertMediaIdentity: () => true, nbGetAspect: () => "16:9
     return { data: { url: "https://img/ok.png" }, error: null }; } } }) });
 vm.runInContext(pg, box, { filename: "app/imagegen.jsx#proxyGenerate" });
 const metaOut = {};
-const url = await box.proxyGenerate(longProse, { model: "gpt-image-2.5-flare", identity: "Marcus: 40s, tall.", metaOut }, "fal");
+const url = await box.proxyGenerate(longProse, { model: "gpt-image-2.6-flare", identity: "Marcus: 40s, tall.", metaOut }, "fal");
 assert.equal(url, "https://img/ok.png");
 assert.equal(invokes.length, 1); assert.ok(invokes[0].prompt.length <= 31500);
 assert.ok(invokes[0].prompt.endsWith("\n\nCANONICAL CHARACTER IDENTITY (binding): Marcus: 40s, tall."), "the identity block is never cut");
 assert.ok(invokes[0].prompt.includes(tailText.trim()), "nor the reference list");
 assert.deepEqual(json(metaOut.promptFit.steps), ["middle cut"]); assert.equal(metaOut.promptFit.limit, 31500);
 invokes = []; serverLimit = 20000;
-await box.proxyGenerate(longProse, { model: "gpt-image-2.5-flare" }, "fal");
+await box.proxyGenerate(longProse, { model: "gpt-image-2.6-flare" }, "fal");
 assert.equal(invokes.length, 2, "refused before any hold → fitted to the server's limit and sent once more");
 assert.ok(invokes[1].prompt.length <= 20000 && invokes[1].prompt.endsWith(tailText));
 invokes = []; serverLimit = 50;
-await assert.rejects(box.proxyGenerate("x".repeat(3000), { model: "gpt-image-2.5-flare" }, "fal"), (e) => e.promptTooLong === true && !/shorten/i.test(e.message));
+await assert.rejects(box.proxyGenerate("x".repeat(3000), { model: "gpt-image-2.6-flare" }, "fal"), (e) => e.promptTooLong === true && !/shorten/i.test(e.message));
 serverLimit = 0;
 
 console.log("PASS image prompt budget: one table (app = server), every Glass Hours location prompt fits every engine by its builder ("

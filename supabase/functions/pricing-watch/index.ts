@@ -208,56 +208,6 @@ const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = 
     },
   },
   {
-    // GPT Image 2.5 Flare — token-priced. The committed quality rows are fal's
-    // canonical 1024x1024 prices at the $30/1M image-output-token rate (2026-10-11:
-    // low $0.00588, medium $0.01317, high $0.05268, xhigh $0.09366, max $0.21072 —
-    // the low / medium / high rows used to sit below fal's); they scale with it.
-    slug: "openai/gpt-image-2.5/flare/text-to-image",
-    run(t, c) {
-      const rate = firstMatch(t, /Image tokens \(per 1M\):[^\n]*?\$\s*([\d.,]+)\s*output/i);
-      c.rate(
-        "gpt-image-2.5-flare-image-output-tokens",
-        rate,
-        "$/1M image output tokens",
-        30,
-        [
-          "image.providerUsd.gpt-image-2.5-flare.default",
-          "image.providerUsd.gpt-image-2.5-flare.auto",
-          "image.providerUsd.gpt-image-2.5-flare.low",
-          "image.providerUsd.gpt-image-2.5-flare.medium",
-          "image.providerUsd.gpt-image-2.5-flare.high",
-          "image.providerUsd.gpt-image-2.5-flare.xhigh",
-          "image.providerUsd.gpt-image-2.5-flare.max",
-        ],
-        "derived: table × (new rate / reference rate)",
-      );
-    },
-  },
-  {
-    // GPT Image 2.5 Sunburst has its own endpoint so watch it independently,
-    // even though its current image-output-token rate matches Flare.
-    slug: "openai/gpt-image-2.5/sunburst/text-to-image",
-    run(t, c) {
-      const rate = firstMatch(t, /Image tokens \(per 1M\):[^\n]*?\$\s*([\d.,]+)\s*output/i);
-      c.rate(
-        "gpt-image-2.5-sunburst-image-output-tokens",
-        rate,
-        "$/1M image output tokens",
-        30,
-        [
-          "image.providerUsd.gpt-image-2.5-sunburst.default",
-          "image.providerUsd.gpt-image-2.5-sunburst.auto",
-          "image.providerUsd.gpt-image-2.5-sunburst.low",
-          "image.providerUsd.gpt-image-2.5-sunburst.medium",
-          "image.providerUsd.gpt-image-2.5-sunburst.high",
-          "image.providerUsd.gpt-image-2.5-sunburst.xhigh",
-          "image.providerUsd.gpt-image-2.5-sunburst.max",
-        ],
-        "derived: table × (new rate / reference rate)",
-      );
-    },
-  },
-  {
     // Seedream 5 Pro → seedream-5-pro (2026-10-11, owner — image engines). fal states
     // a flat, TENTATIVE per-image price by output area (catalog text, 2026-10-11:
     // "Tentative pricing is $0.0675 per image for images of total area less than or
@@ -289,6 +239,16 @@ const CHECKS: Array<{ slug: string; run: (t: string, c: Collector) => void }> = 
         firstMatch(t, /every additional input image will cost\s*\$\s*(\d[\d,]*(?:\.\d+)?)/i),
         "per additional input image",
       );
+    },
+  },
+  {
+    // Seedream 5.5 → seedream-5.5 (2026-11-12, owner). fal added the endpoint on 2026-11-11 with NO price on its
+    // page ("$0 per compute seconds"); the app holds it at Seedream 5 Pro's rows until fal publishes one. This
+    // watcher fails — a line on the admin's price card — as soon as the page states a per-image price to review.
+    slug: "bytedance/seedream/v5.5/text-to-image",
+    run(t, c) {
+      const listed = firstMatch(t, /\$\s*(0?\.\d+|[1-9][\d.,]*)\s*per\s+(?:output\s+)?image/i);
+      if (listed != null) c.fail("fal now lists a Seedream 5.5 price ($" + listed + " per image) — set the seedream-5.5 rows from it");
     },
   },
   {

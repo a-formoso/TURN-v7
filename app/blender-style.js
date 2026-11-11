@@ -62,7 +62,7 @@
   const ENGINES=["gemini-nano-banana-2.1","gpt-image-2.6-sunburst"];
   const SAVED_ENGINES=[...ENGINES,"gpt-image-2.5-sunburst"];
   // Seconds an image took in the 31 October runs (Nano Banana 2.1 31-33 s, Sunburst High 38-41 s), plus preparing the grid.
-  const ENGINE_SECONDS={"gemini-nano-banana-2.1":35,"gpt-image-2.5-sunburst":45};
+  const ENGINE_SECONDS={"gemini-nano-banana-2.1":35,"gpt-image-2.6-sunburst":45};
   // New engines use a provisional estimate until measured; these are not provider progress reports.
   const estimateSeconds=model=>ENGINE_SECONDS[model]||45;
   function settings(engine){

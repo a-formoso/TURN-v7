@@ -98,7 +98,7 @@ import { FRANCES_LIMIT_RPC, createFrancesLimiter, francesDailyLimit } from "./fr
 // cost), billing-policy.mjs (who may run what), billing-holds.mjs (the hold / settle / release
 // RPCs and the signed video-hold token) and public-errors.mjs (what an error may tell a user).
 import {
-  GOOGLE_IMAGE_USD, IMAGE_PROVIDER_USD, PROVIDER_USD_PER_CREDIT, SEEDREAM_MAX_REFERENCES, SEEDREAM_MODEL, seedreamImageDimensions, seedreamImageSize, VIDEO_PROVIDER_USD_PER_SECOND, affordableOutputCap,
+  GOOGLE_IMAGE_USD, IMAGE_PROVIDER_USD, PROVIDER_USD_PER_CREDIT, SEEDREAM_MAX_REFERENCES, isSeedreamModel, seedreamImageDimensions, seedreamImageSize, VIDEO_PROVIDER_USD_PER_SECOND, affordableOutputCap,
   cheapestTextHold, creditUnitFromRegime, flatVoiceCost, imageCost, lengthBilledFacts, lengthBilledVideoHold, mergeVideoPricingOverrides,
   IMAGE_PROMPT_MAX_CHARS, imagePromptMaxChars, STT_MAX_SECONDS, TEXT_WEB_SEARCH_MAX_USES, textWebSearchTool, messageText, normaliseTextUsage, sttHoldCost, sttModel, sttReportedSeconds, sttSettleCost, textActualCost,
   textHoldEstimate, textPriceKey, legacyWritingModel, ttsCost, videoAppModel, videoCost, visionImagesProblem, canonicalImageModel,
@@ -243,11 +243,12 @@ const FAL_IMAGE_MODELS: Record<string, { base: string; edit?: string; family: "n
   // `reasoning_effort` (OpenAI `complexity`, no separate fee) left at its default (high) — nothing extra is sent
   "gpt-image-2.6-flare":         { base: "openai/gpt-image-2.6/flare/text-to-image", edit: "openai/gpt-image-2.6/flare/edit", family: "openai" },
   "gpt-image-2.6-sunburst":      { base: "openai/gpt-image-2.6/sunburst/text-to-image", edit: "openai/gpt-image-2.6/sunburst/edit", family: "openai" },
-  "gpt-image-2.5-flare":         { base: "openai/gpt-image-2.5/flare/text-to-image", edit: "openai/gpt-image-2.5/flare/edit", family: "openai" },
-  "gpt-image-2.5-sunburst":      { base: "openai/gpt-image-2.5/sunburst/text-to-image", edit: "openai/gpt-image-2.5/sunburst/edit", family: "openai" },
+  // (GPT Image 2.5 Flare / Sunburst were removed 2026-11-12, owner: an older app naming one is served on 2.6)
   // Seedream 5 Pro (2026-10-11, owner): text-to-image without references; WITH references the edit route, whose
   // image_urls is required (at most SEEDREAM_MAX_REFERENCES = 10 — the proxy sends the first 10).
   "seedream-5-pro":              { base: "bytedance/seedream/v5/pro/text-to-image", edit: "bytedance/seedream/v5/pro/edit", family: "seedream" },
+  // Seedream 5.5 (2026-11-12, owner): the same request shape as 5 Pro (sizes, up to 10 references)
+  "seedream-5.5":                { base: "bytedance/seedream/v5.5/text-to-image", edit: "bytedance/seedream/v5.5/edit", family: "seedream" },
 };
 
 /* Pricing overrides are the admin's reviewed turn_app_config "pricing-overrides" (written by the
@@ -441,7 +442,7 @@ Deno.serve(async (req) => {
   // ── parse request ───────────────────────────────────────────────────────────
   const body: any = parsedBody;
   if (body === undefined) return json({ error: "Bad request body." }, 400);
-  // a removed WRITING engine (Kimi K3 / K2.7, Fable 5.1, Gemini 3.5 Flash, GPT-5.5 — 2026-10-11) named by an older
+  // a removed WRITING engine (Kimi K3 / K2.7, Fable 5.1, Gemini 3.5 Flash, GPT-5.5 — 2026-10-11; Fable 5 — 2026-11-12) named by an older
   // app → its successor's provider and model, before the plan gate, the price and the route (billing-pricing.mjs
   // legacyWritingModel); logged once per instance
   const textLegacy = (body.task === "text") ? legacyWritingModel(body.model) : null;
@@ -454,8 +455,8 @@ Deno.serve(async (req) => {
   // from an older app) → its successor, before the plan gate, the price and the route (billing-pricing.mjs
   // canonicalImageModel); logged once per instance. A request naming no model is GPT Image 2.5 Sunburst (it was
   // GPT Image 2).
-  const model = textLegacy ? textLegacy.model : canonicalImageModel(body.model || "gpt-image-2.5-sunburst");
-  if (!textLegacy && model !== (body.model || "gpt-image-2.5-sunburst") && !legacyImageModelLogged) {
+  const model = textLegacy ? textLegacy.model : canonicalImageModel(body.model || "gpt-image-2.6-sunburst");
+  if (!textLegacy && model !== (body.model || "gpt-image-2.6-sunburst") && !legacyImageModelLogged) {
     legacyImageModelLogged = true;
     console.warn(`[image-proxy] retired image model "${String(body.model).slice(0, 60)}" served as "${model}" (an older app version).`);
   }
@@ -463,7 +464,7 @@ Deno.serve(async (req) => {
   const aspect = body.aspect || "16:9";
   // SEEDREAM 5 PRO renders 1K or 2K only (fal: at most 2048x2048 pixels) — a 4K request (an older app, a saved 4K
   // setting) renders, is gated and is priced at 2K (2026-10-11, owner — image engines)
-  const imageSize = model === SEEDREAM_MODEL && body.imageSize === "4K" ? seedreamImageSize("4K") : (body.imageSize || "2K");
+  const imageSize = isSeedreamModel(model) && body.imageSize === "4K" ? seedreamImageSize("4K") : (body.imageSize || "2K");
   // MODERATION (2026-10-11): fal's moderation field was GPT Image 2's only — GPT Image 2.5 Flare / Sunburst take
   // none — so an older app's `moderation` is ignored. Image-search grounding (Nano Banana 2's) went with it.
   // Web grounding is Nano Banana 2.1's only: any other engine never searches, and is never charged for it.
@@ -471,7 +472,7 @@ Deno.serve(async (req) => {
   // Seedream's edit route uses at most 10 input images: the proxy sends (and prices) the first 10 — the app sends
   // them in priority order (a likeness's front angle is image 1) and caps them itself
   const allImages: string[] = Array.isArray(body.images) ? body.images : [];
-  const images: string[] = model === SEEDREAM_MODEL ? allImages.slice(0, SEEDREAM_MAX_REFERENCES) : allImages;
+  const images: string[] = isSeedreamModel(model) ? allImages.slice(0, SEEDREAM_MAX_REFERENCES) : allImages;
   const task = body.task || "image";
   const usageKind = String(body.usageKind || (images.length && task === "text" ? "vision" : task)).toLowerCase();
 
@@ -1159,6 +1160,18 @@ Deno.serve(async (req) => {
         const r = await callClaude(sendTurns);
         if (!r.ok) { let d = ""; try { d = (await r.json())?.error?.message || ""; } catch (_e) { /* noop */ } return textRefused(d, r.status); }
         let data = await r.json();
+        // A DECLINED REQUEST (2026-11-12, with Fable 5.2): the current Claude engines can answer 200 with
+        // stop_reason "refusal" and no text. That is not an empty draft: say so, write nothing and charge nothing
+        // (the hold is released below), so a scene is never saved blank because its engine declined.
+        const declined = (d: any) => d?.stop_reason === "refusal" && !(d.content || []).some((p: any) => p && p.type === "text" && String(p.text || "").trim());
+        const declinedReply = (d: any) => {
+          console.warn(`[image-proxy] writing engine declined (${runModel}${d?.stop_details?.category ? ", " + String(d.stop_details.category).slice(0, 40) : ""}).`);
+          // Frances's free path has no engine to pick: she just couldn't answer this one
+          return json({ error: textKind === "muse"
+            ? "I couldn't answer that one. Try asking it another way."
+            : "The writing engine declined this request, so nothing was written and nothing was charged. Try again, or pick another writing engine.", code: "engine_declined", status: 200 }, 200);
+        };
+        if (declined(data)) return declinedReply(data);
         if (!searchTool) return await finishText("anthropic", runModel, data, (data.content || []).map((p: any) => p.text || "").join(""), aAttached > 0);
         // a searching turn can pause (the server's tool loop hit its limit): resume it ONCE with the
         // paused turn appended — never a "continue" message — and add the two calls' usage together
@@ -1175,6 +1188,8 @@ Deno.serve(async (req) => {
             data = { ...more, content: blocks, usage };
           }
         }
+        // …and a searching turn that declined after its pause wrote nothing either
+        if (data?.stop_reason === "refusal" && !blocks.some((b: any) => b && b.type === "text" && String(b.text || "").trim())) return declinedReply(data);
         const sources = webSearchSources(blocks);
         const searches = Number(usage.server_tool_use?.web_search_requests) || 0;
         return await finishText("anthropic", runModel, { ...data, usage }, blocks.filter((b: any) => b && b.type === "text").map((b: any) => b.text || "").join(""), aAttached > 0,

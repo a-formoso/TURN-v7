@@ -17,8 +17,12 @@ import {
 const imagegen = readFileSync("app/imagegen.jsx", "utf8");
 const ALL_25 = ["default", "auto", "low", "medium", "high", "xhigh", "max"];
 const LEGACY = ["low", "medium", "high"];
-const FLARE = "gpt-image-2.5-flare";
-const SUNBURST = "gpt-image-2.5-sunburst";
+// GPT Image 2.6 Flare / Sunburst (2026-11-12, owner: they replaced 2.5, with 2.5's quality values and its saved
+// preference — the storage key keeps its ":2.5" name). ALL_25 is that seven-value set.
+const FLARE = "gpt-image-2.6-flare";
+const SUNBURST = "gpt-image-2.6-sunburst";
+const OLD_FLARE = "gpt-image-2.5-flare";       // removed: served on FLARE
+const OLD_SUNBURST = "gpt-image-2.5-sunburst"; // removed: served on SUNBURST
 const LEGACY_MODEL = "gpt-image-2";
 const PROXY_URL = "https://supabase.test/functions/v1/fake-image-proxy";
 const REF_URL = "https://assets.test/reference.png";
@@ -248,10 +252,10 @@ async function assertRejects(promise, pattern, message) {
   assert.deepEqual(Array.from(prefs.nbOaiQualityChoices(SUNBURST)), ALL_25);
   assert.deepEqual(Array.from(prefs.nbOaiQualityChoices(LEGACY_MODEL)), LEGACY);
   assert.equal(prefs.nbGetOaiQuality(LEGACY_MODEL), "medium", "legacy GPT Image defaults to medium");
-  assert.equal(prefs.nbGetOaiQuality(FLARE), "medium", "GPT Image 2.5 defaults to medium");
+  assert.equal(prefs.nbGetOaiQuality(FLARE), "medium", "GPT Image 2.6 defaults to medium");
 
   // A pre-2.5 install stored its preference under the old shared key.  The
-  // first 2.5 read seeds the family key exactly once, preserving the explicit
+  // first Flare / Sunburst read seeds the family key exactly once, preserving the explicit
   // old preference without allowing later legacy changes to overwrite it.
   storage.setItem("turn-oai-quality", "high");
   assert.equal(prefs.nbGetOaiQuality(FLARE), "high");
@@ -267,23 +271,39 @@ async function assertRejects(promise, pattern, message) {
 
   prefs.nbSetModel(FLARE);
   prefs.nbSetOaiQuality("max");
-  // GPT Image 2 was removed (2026-10-11): picking its id selects GPT Image 2.5 Sunburst, which reads the 2.5
-  // family preference
+  // GPT Image 2 was removed (2026-10-11): picking its id selects GPT Image 2.6 Sunburst (2.5 Sunburst until
+  // 2026-11-12), which reads the Flare / Sunburst family preference
   prefs.nbSetModel(LEGACY_MODEL);
-  assert.equal(prefs.nbGetModel(), SUNBURST, "a retired GPT Image 2 pick is GPT Image 2.5 Sunburst");
-  assert.equal(prefs.nbGetOaiQuality(), "max", "… with the 2.5 family preference");
+  assert.equal(prefs.nbGetModel(), SUNBURST, "a retired GPT Image 2 pick is GPT Image 2.6 Sunburst");
+  assert.equal(prefs.nbGetOaiQuality(), "max", "… with the family preference");
   prefs.nbSetModel(FLARE);
-  assert.equal(prefs.nbGetOaiQuality(), "max", "2.5 family preference survives a legacy-model switch");
+  assert.equal(prefs.nbGetOaiQuality(), "max", "the family preference survives a legacy-model switch");
   prefs.nbSetModel(SUNBURST);
-  assert.equal(prefs.nbGetOaiQuality(), "max", "Flare and Sunburst share one 2.5 family preference");
+  assert.equal(prefs.nbGetOaiQuality(), "max", "Flare and Sunburst share one family preference");
 
   const reloaded = makeBox({ storage });
   assert.equal(reloaded.nbGetModel(), SUNBURST);
-  assert.equal(reloaded.nbGetOaiQuality(), "max", "2.5 quality survives a reload");
+  assert.equal(reloaded.nbGetOaiQuality(), "max", "the quality survives a reload");
+
+  // GPT Image 2.5 Flare / Sunburst were removed (2026-11-12): a device that had one picked — with the quality it
+  // chose there, saved under "turn-oai-quality:2.5" — opens on the 2.6 version with that same quality
+  for (const [old, now] of [[OLD_FLARE, FLARE], [OLD_SUNBURST, SUNBURST]]) {
+    const oldStorage = makeStorage({ "turn-nb-model": old, "turn-oai-quality:2.5": "xhigh" });
+    const moved = makeBox({ storage: oldStorage });
+    assert.equal(moved.nbGetModel(), now, `a saved ${old} pick is ${now}`);
+    assert.equal(oldStorage.getItem("turn-nb-model"), now, "moved once, in storage");
+    assert.equal(moved.nbGetOaiQuality(), "xhigh", "the quality chosen on 2.5 is kept");
+    assert.deepEqual(Array.from(moved.nbOaiQualityChoices()), ALL_25);
+    assert.equal(moved.nbCanonicalModelId(old), now);
+    moved.nbSetModel(old);
+    assert.equal(oldStorage.getItem("turn-nb-model"), now, "nbSetModel never stores a removed id");
+    assert.equal(moved.nbModelLabel(old), old === OLD_FLARE ? "GPT Image 2.5 Flare" : "GPT Image 2.5 Sunburst", "an old image still names its engine");
+    assert.ok(!moved.NB_MODELS.some(m => m.id === old), `${old} is not offered`);
+  }
   assert.throws(
     () => reloaded.nbSetOaiQuality("xhigh", LEGACY_MODEL),
     /not supported by this image model/,
-    "legacy GPT Image rejects 2.5-only quality values",
+    "legacy GPT Image rejects the extended (Flare / Sunburst-only) quality values",
   );
 }
 
@@ -329,6 +349,26 @@ await assertRejects(
 assert.equal(oldProxy._test.sbCalls.length, 0, "old proxy must not receive a new-quality generation");
 await oldProxy.nbGenerate("legacy quality still works", { model: FLARE, quality: "high" });
 assert.equal(oldProxy._test.sbCalls.length, 1, "old proxy still accepts legacy quality");
+
+// An option that still names a removed 2.5 engine (a batch, an agent, an older saved choice) with one of the
+// extended qualities: today's server lists only the 2.6 engines in its handshake, and the request goes out as the
+// 2.6 version with the same quality — never refused as "waiting on a server update", never sent under the 2.5 id.
+{
+  const moved = makeBox();   // capabilities: FLARE and SUNBURST (2.6) only — what the server answers now
+  await moved.nbRefreshImageQualityCapabilities({ force: true });
+  for (const [old, now] of [[OLD_FLARE, FLARE], [OLD_SUNBURST, SUNBURST]]) {
+    for (const q of ["xhigh", "max", "auto", "low"]) {
+      const before = moved._test.sbCalls.length;
+      await moved.nbGenerate(`an old ${old} option at ${q}`, { model: old, quality: q });
+      assert.equal(moved._test.sbCalls.length, before + 1, `${old}/${q} is submitted`);
+      const body = moved._test.sbCalls.at(-1).request.body;
+      assert.equal(body.model, now, `${old} goes out as ${now}`);
+      assert.equal(body.quality, q, "with the same quality setting");
+      assert.equal(validateImageQuality(body.model, body.quality).ok, true, "which the server accepts");
+    }
+  }
+  assert.equal(JSON.stringify(moved._test.sbCalls.map(c => c.request.body.model)).includes("2.5"), false, "no request names a 2.5 engine");
+}
 
 // Failed capability checks expose a retryable message, and a forced refresh
 // must actually bypass the cache and enable the full schema after recovery.
