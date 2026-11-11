@@ -121,6 +121,14 @@ build on the server so it does not depend on the browser staying open.
 
 ## C. New Story window
 
+> **Status, 11 November 2026 — C1 and C2 are built** (branch `claude/build-resume-20261111`, not published), with
+> D1, D2, D5 and B4 from the other sections. C1: the working title on the Synopsis step is the film's title (the
+> build reads `project.workingTitle` for the brief it was typed for). C2: the Logline step says "Your shape: … — your
+> own pick. The suggestion was …" once the writer overrides the suggestion. D1: a scene is said to reverse only when
+> its charge changes sign. D2: a Kishōtenketsu build's first card lists Ki / Shō / Ten / Ketsu and counts scenes by
+> the structure's own rule. D5: the build says "from your synopsis". B4: writing a scene never gives it a title
+> another scene has. All confirmed live. C3–C9 are untouched. Test: `scripts/test-writers-room-small-faults.mjs`.
+
 | # | What happens | Found |
 |---|---|---|
 | C1 | **The working title you type is ignored.** I set "TEST · Micro Short Locksmith"; the film was created as "Without Force", the model's title. | **seen live** |

@@ -253,8 +253,13 @@ function Verdict({ scene }){
     React.createElement("span",{className:"verdict-icn"},React.createElement(Icon.check,{s:18})),
     React.createElement("div",null,
       React.createElement("div",{className:"verdict-t"},(aud&&aud.okTitle)||"This scene turns"),
+      // (2026-11-11) only a scene that really reverses is said to: a structure that passes a scene which holds or
+      // deepens (Kishotenketsu's ki and sho) says that instead \u2014 it read "Idleness (-2) \u2192 Idleness (-2). A
+      // value-charged condition reverses"
       React.createElement("div",{className:"verdict-d"}, move,
-        "A value-charged condition reverses \u2014 the scene earns its place.")));
+        ((typeof chargeTurn==="function") ? chargeTurn(scene.openCharge, scene.closeCharge).turned : Math.sign(scene.openCharge)*Math.sign(scene.closeCharge)<0)
+          ? "A value-charged condition reverses \u2014 the scene earns its place."
+          : ((aud&&aud.okDetail) || "The value moves without reversing, which its place in the structure allows."))));
 }
 
 function BeatEditor({ scene, beats, onBeats, onBeatsStructure, focusBeat, draft, characters, project, readOnly:readOnlyIn }){

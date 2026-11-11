@@ -176,6 +176,7 @@ const FRAMEWORKS = [
       progDetail:"The ten should break the pattern with a reversal; this one intensifies on the same side.",
       analysisProg:" — intensified, not reversed. The ten should break the pattern.",
       okTitle:"This scene carries its movement", flagTitle:"This scene is inert",
+      okDetail:"It plants or deepens without reversing \u2014 this structure allows that; only the ten has to reverse.",
       okBadge:"Moves", flagBadge:"Inert",
       subline:"Ki plants · Shō deepens · Ten re-reads everything · Ketsu reconciles",
       tableTitle:"Movement audit · Ki and Shō move, the Ten reverses, the Ketsu may settle",

@@ -525,6 +525,9 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
   // closure that would silently fall back to the default three-act synopsis).
   const frameworkRef = React.useRef(framework); frameworkRef.current = framework;
   const formatRef = React.useRef(format); formatRef.current = format;
+  // is the shape still the one suggested, or has the writer picked their own since? (the logline step's line)
+  const shapeStillSuggested = !!autoShape && (!autoShape.formatId || format===autoShape.formatId) && (!autoShape.frameworkId || framework===autoShape.frameworkId);
+  const shapeNowLabel = [(((window.FORMATS||[]).find(f=>f.id===format))||{}).label, (((window.FRAMEWORKS||[]).find(f=>f.id===framework))||{}).label].filter(Boolean).join(" \u00b7 ");
   const cfg = seedTypes.find(s=>s.id===seed) || SEED_TYPES[0];
   const needsText = seed !== "talk" && seed !== "script";
   const formatLabel = (((window.FORMATS||[]).find(f=>f.id===format)||{}).label || "film").toLowerCase();
@@ -536,8 +539,10 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
     if(sh){
       const applied={};
       if(sh.format && !formatLocked && !formatTouched && sh.format!==format){ setFormat(sh.format);
+        applied.formatId=sh.format;
         applied.formatLabel=(((window.FORMATS||[]).find(f=>f.id===sh.format))||{}).label||sh.format; }
       if(sh.framework && !frameworkTouched && sh.framework!==framework){ setFramework(sh.framework);
+        applied.frameworkId=sh.framework;
         applied.frameworkLabel=(((window.FRAMEWORKS||[]).find(f=>f.id===sh.framework))||{}).label||sh.framework; }
       setAutoShape((applied.formatLabel||applied.frameworkLabel)?{...applied,why:sh.why||""}:null);
     }else setAutoShape(null);
@@ -782,12 +787,19 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
         ? React.createElement("div",{className:"ns-body"},
             // the AI picked the story's SHAPE for any knob the writer left on defaults \u2014
             // say so, say why, and offer the way back to change it
-            autoShape && React.createElement("div",{className:"ns-autoshape"},
+            // (2026-11-11) once the writer picks something else on the Shape step, this line says THEIR shape — it
+            // used to keep announcing the suggestion they had just overridden
+            autoShape && React.createElement("div",{className:"ns-autoshape","data-testid":"ns-shape-line"},
               React.createElement(Icon.sparkles,{s:12}),
-              React.createElement("span",null,
-                "Shaped for this story: ",
-                React.createElement("b",null,[autoShape.formatLabel, autoShape.frameworkLabel].filter(Boolean).join(" \u00b7 ")),
-                autoShape.why ? (" \u2014 "+autoShape.why) : ""),
+              shapeStillSuggested
+                ? React.createElement("span",null,
+                    "Shaped for this story: ",
+                    React.createElement("b",null,[autoShape.formatLabel, autoShape.frameworkLabel].filter(Boolean).join(" \u00b7 ")),
+                    autoShape.why ? (" \u2014 "+autoShape.why) : "")
+                : React.createElement("span",null,
+                    "Your shape: ",
+                    React.createElement("b",null,shapeNowLabel),
+                    " \u2014 your own pick. The suggestion was "+[autoShape.formatLabel, autoShape.frameworkLabel].filter(Boolean).join(" \u00b7 ")+"."),
               React.createElement("button",{className:"ns-btn link",onClick:()=>setStep("format"),
                 title:"Back to the Shape step \u2014 an explicit pick there always wins"},"Change")),
             React.createElement("div",{className:"ns-seclab"},"Choose a logline \u2014 edit it freely"),

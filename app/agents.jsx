@@ -851,6 +851,13 @@ async function writeScenesSeq(ctx, indices){
           if(!repairBeatsOnly && !(authored && authored.beats && (authored.beats.rows||[]).length) && writingTimedOutSince(askedAt))
             return fail(false, "the writing engine took too long to answer, so this scene isn\u2019t written yet", { kind:"timeout", issues:[], details:[], technical:"the beat map call ran past its time limit", where:"beats" });
           if(authored && authored.beats && (authored.beats.rows||[]).length){
+            // A SCENE NEVER TAKES ANOTHER SCENE'S TITLE (2026-11-11, audit B4): writing a scene may rework its
+            // card, and two test films came back with a title used twice. The planned title stays instead.
+            if(authored.patch && authored.patch.title!=null){
+              const tk = (x)=>String(x||"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
+              const mine = tk(authored.patch.title);
+              if(!mine || ctx.model.scenes.some((o,k)=>k!==i && o && tk(o.title)===mine)){ authored.patch = { ...authored.patch }; delete authored.patch.title; }
+            }
             scn = {...scn, ...authored.patch}; beats = authored.beats;
             ctx.model.scenes[i] = scn; ctx.model.beats[scn.id] = authored.beats;
             // SAVED AT ONCE (2026-11-11): a build that ends while this scene's screenplay is being written keeps
@@ -1082,11 +1089,13 @@ async function agentAdaptation(ctx){
   const _fwA = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject) : null;
   const _kishoA = !!(_fwA && _fwA.id==="kishotenketsu");
   const _heroA = !!(_fwA && _fwA.id==="herosjourney");
+  // (2026-11-11) New Story builds from the reviewed synopsis: say so (it read "from your logline" either way)
+  const _from = /(^|\n)SYNOPSIS\b/.test(brief) ? "your synopsis" : "your logline";
   ctx.emit({k:"plan", t: _kishoA
-    ? "Designing a complete kish\u014dtenketsu spine from your logline \u2014 four movements (ki \u00b7 sh\u014d \u00b7 ten \u00b7 ketsu), with a value charge tracing each scene's movement."
+    ? "Designing a complete kish\u014dtenketsu spine from "+_from+" \u2014 four movements (ki \u00b7 sh\u014d \u00b7 ten \u00b7 ketsu), with a value charge tracing each scene's movement."
     : _heroA
-    ? "Designing a complete Hero's Journey spine from your logline \u2014 departure, initiation and return, each scene placed on its stage with a value charge that turns."
-    : "Designing a complete three-act spine from your logline \u2014 scenes, acts, and a value charge for each that turns."});
+    ? "Designing a complete Hero's Journey spine from "+_from+" \u2014 departure, initiation and return, each scene placed on its stage with a value charge that turns."
+    : "Designing a complete three-act spine from "+_from+" \u2014 scenes, acts, and a value charge for each that turns."});
   ctx.emit({k:"act", t:"Generating the scene breakdown\u2026"});
   try{ window.__lastSpineFailure = null; }catch(e){}   // a reason is only ever this build's own
   const spine = await ctx.ai.buildSpine(brief);
@@ -1094,7 +1103,24 @@ async function agentAdaptation(ctx){
   // WHY IT FAILED (2026-09-28, Round 1): aiBuildSpine leaves a plain reason in
   // window.__lastSpineFailure (a half that never came back, too few scenes) — say that, not a guess
   if(!spine){ ctx.emit({k:"flag", t:window.__lastSpineFailure || "The model didn't return a usable spine. Try a more concrete logline."}); ctx.emit({k:"done",t:"Aborted."}); return; }
-  const turns = spine.scenes.filter(s=> (typeof chargeTurn==="function") ? chargeTurn(s.openCharge, s.closeCharge).turned : Math.sign(s.openCharge)*Math.sign(s.closeCharge)<0).length;
+  /* THE TITLE THE WRITER SAW WINS (2026-11-11, audit C1): New Story's synopsis step shows a working title and lets
+     the writer change it; the build used to drop it for whatever title the scene list came back with. It rides on
+     the film as project.workingTitle, set with the brief it belongs to (app.jsx onLaunch) — honoured only for that
+     brief, so a later rebuild from another brief titles itself. */
+  const _work = String((ctx.project && ctx.project.workingTitle) || "").replace(/\s+/g," ").trim().slice(0,80);
+  if(_work && String((ctx.project && ctx.project.sourceBrief) || "").trim()===brief) spine.title = _work;
+  /* COUNTED BY THE STRUCTURE'S OWN RULE (2026-11-11, audit D2): "N of them turning" counted sign reversals for
+     every structure, so a sound Kishotenketsu list read "8 scenes, 2 of them moving". The count is now the one the
+     Spine shows afterwards (the framework's audit: ki and sho move unless inert, the ten reverses, the ketsu may
+     settle); three-act and Hero's Journey count reversals as before. */
+  const _reverses = (s)=> (typeof chargeTurn==="function") ? chargeTurn(s.openCharge, s.closeCharge).turned : Math.sign(s.openCharge)*Math.sign(s.closeCharge)<0;
+  const turns = spine.scenes.filter(s=>{
+    if(_kishoA && _fwA && _fwA.audit && typeof _fwA.audit.rule==="function"){ try{ return !!_fwA.audit.rule(s).turned; }catch(e){} }
+    return _reverses(s); }).length;
+  // the card names each scene's part of the structure in the structure's own words (Ki / Sho / Ten / Ketsu,
+  // Departure / Initiation / Return); three-act keeps Act I-III
+  const _actTag = (a)=>{ const own = (_fwA && _fwA.id!=="threeact" && _fwA.acts && _fwA.acts[a]) ? String(_fwA.acts[a]).split(" \u2014 ")[0].trim() : "";
+    return own || ("Act "+(["I","II","III","IV"][a-1]||a)); };
   const _actsN = _fwA ? Object.keys(_fwA.acts).length : 3;
   const _isNew = !(ctx.model.scenes||[]).length;   // a fresh project has nothing to replace
   ctx.emit({k:"observe", t:'"'+spine.title+'" \u2014 '+spine.scenes.length+" scenes across "+_actsN+" "+(_kishoA?"movements":"acts")+", "+turns+" of them "+(_kishoA?"moving":"turning")+". Review below before it "+(_isNew?"becomes your project.":"replaces the current project.")});
@@ -1104,10 +1130,10 @@ async function agentAdaptation(ctx){
   const ok = await ctx.propose({
     title:(_isNew?"Create the project \u201c":"Replace the project with \u201c")+spine.title+"\u201d",
     reason:_isNew
-      ? "This builds the whole spine from your logline, then writes every scene's beats and screenplay."
-      : "This rebuilds the entire spine from your logline, then writes every scene's beats and screenplay. Your current scenes, beats and drafts will be cleared.",
+      ? "This builds the whole spine from "+_from+", then writes every scene's beats and screenplay."
+      : "This rebuilds the entire spine from "+_from+", then writes every scene's beats and screenplay. Your current scenes, beats and drafts will be cleared.",
     rationale:spine.scenes.length+" new scenes \u00b7 "+turns+(_kishoA?" move cleanly":" turn cleanly")+" \u00b7 beats + script written automatically",
-    list: spine.scenes.map((s,i)=>String(i+1).padStart(2,"0")+" \u00b7 Act "+(["I","II","III","IV"][s.act-1]||s.act)+" \u00b7 "+s.title+"  ("+chargeStr(s.openCharge)+"\u2192"+chargeStr(s.closeCharge)+")"),
+    list: spine.scenes.map((s,i)=>String(i+1).padStart(2,"0")+" \u00b7 "+_actTag(s.act)+" \u00b7 "+s.title+"  ("+chargeStr(s.openCharge)+"\u2192"+chargeStr(s.closeCharge)+")"),
     danger:!_isNew,
   });
   if(ctx.cancelled()) return;
@@ -1142,6 +1168,7 @@ async function agentAdaptation(ctx){
   const base = ctx.project || {};
   ctx.model.project = {
     ...base,
+    workingTitle: undefined,   // used (above) or not, it belonged to this build only
     title: spine.title || base.title,
     format: base.format || "film",   // the registry id, never a label
     // like the Center of Good: a completed world build decides the genre, so an old

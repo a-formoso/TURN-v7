@@ -10317,6 +10317,8 @@ function App(){
           // build and the cast's inner life read them (ai.jsx researchReservoir) — with the pages a
           // web-grounded Fact pillar used. A build without research clears the last story's.
           research: (typeof researchToKeep==="function") ? researchToKeep(synopsis && synopsis.research) : undefined,
+          // the working title on the synopsis step is the film's title (2026-11-11): the build reads it for THIS brief
+          workingTitle: String((synopsis && synopsis.title) || "").trim() || undefined,
           sourceBrief: brief, sourceBriefAt: new Date().toISOString() }));
         setAgentLaunch({id:"adapt", input:brief}); setAgentsOpen(true); }}),
 
