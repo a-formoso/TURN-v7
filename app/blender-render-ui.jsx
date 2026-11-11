@@ -78,10 +78,59 @@ function cloudFixList(location,issues){
         "Go to "+issue.step+" · "+LOCATION_STEP_NAMES[issue.step])))),
     issues.length>6&&E("p",{className:"loc-layer-note"},"…and "+(issues.length-6)+" more."));
 }
-function LocationCloudRender({location,readOnly=false}){
+/* THE CAMERA CHECK (2026-11-11, owner: a useful first result — no paid build with a blocked view). Before a build,
+   each saved camera's view of the set as it will be built is graded (blender-render.js assessCameras): a frame filled
+   by one nearby surface, or one that shows no object of the set, is named here with a one-press fix that keeps the
+   good cameras and refits the others. "" for every panel = clear. null = still checking, or the check could not run
+   (it then never stands in the way of a build). */
+function useCameraCheck(location,api,checkKey,active){
+  const [check,setCheck]=React.useState({key:"",faults:null});
+  React.useEffect(()=>{
+    if(!active||!checkKey||!api.assessCameras)return;
+    let alive=true;
+    api.assessCameras(location).then(f=>{if(alive)setCheck({key:checkKey,faults:f});},()=>{if(alive)setCheck({key:checkKey,faults:{}});});
+    return ()=>{alive=false;};
+  },[active,checkKey]);
+  return check.key===checkKey?check.faults:null;
+}
+const CAMERA_PANEL_NAMES={TL:"Top-left",TR:"Top-right",BL:"Bottom-left",BR:"Bottom-right"};
+function LocationCloudRender({location,readOnly=false,onUpdate}){
   const c=useCloudSetJob(location),{api,show,scope,scene,issues,scopeKey,sceneKey,current,job,busy,sceneHash,stale,caps}=c;
   const [now,setNow]=React.useState(0),[lastSeconds,setLastSeconds]=React.useState(0);
   const runningSince=React.useRef({});
+  // The check runs when the set can be built, and also when only the cameras stand in its way (a camera in a wall or
+  // inside an object): those are fixed by the same press.
+  const cameraOnly=issues.length>0&&issues.every(i=>i.step===3),otherIssues=issues.filter(i=>i.step!==3);
+  const checkKey=sceneKey||(cameraOnly?"cameras:"+JSON.stringify((location.coverageViews||[]).map(v=>v&&v.pose))+":"+issues.length:"");
+  const faults=useCameraCheck(location,api,checkKey,show&&(!!scene||cameraOnly)&&!otherIssues.length);
+  const faulty=Object.entries(faults||{}).filter(([,why])=>why);
+  const [fixing,setFixing]=React.useState(false),[fixNote,setFixNote]=React.useState(""),[anyway,setAnyway]=React.useState("");
+  // "Fix cameras and build": the build goes out once the refitted cameras are saved and pass the check
+  const buildAfterFix=React.useRef(false);
+  async function fixCameras(thenBuild){
+    if(fixing||busy||readOnly||!onUpdate||!faulty.length)return;
+    const key=scopeKey;setFixing(true);c.setMessage("");setFixNote("");
+    try{
+      if(typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())throw Error("This film is read-only.");
+      const list=((window.turnContinuity||{}).locations)||[],open=list.find(x=>x.id===location.id);
+      if(!open)throw Error("The open location changed. Open it again.");
+      const keep=["TL","TR","BL","BR"].filter(k=>!faulty.some(([bad])=>bad===k));
+      const proposal=await api.proposeCamerasAuto(open,list,{keep});
+      if(current.current.scopeKey!==key)return;
+      const latest=((window.turnContinuity||{}).locations)||[],still=latest.find(x=>x.id===location.id);
+      if(!still)throw Error("The open location changed. Open it again.");
+      const views=api.cameraProposalViews(still,proposal,latest);
+      buildAfterFix.current=!!thenBuild;
+      onUpdate(location.id,{coverageViews:views},{kind:"suggested-cameras"});
+      setFixNote("Cameras updated: "+proposal.panels.filter(p=>!keep.includes(p.key)).map(p=>CAMERA_PANEL_NAMES[p.key]+" is now \u201c"+p.label+"\u201d").join("; ")+". You can review them in step 3.");
+    }catch(e){buildAfterFix.current=false;if(current.current.scopeKey===key)c.setMessage(e.message);}
+    finally{if(current.current.scopeKey===key)setFixing(false);}
+  }
+  React.useEffect(()=>{
+    if(!buildAfterFix.current||!faults||!sceneHash||issues.length)return;
+    buildAfterFix.current=false;
+    if(!faulty.length)submit();
+  },[faults,sceneHash]);
   async function submit(){
     if(busy||!scope||!scene||!sceneHash)return;
     const key=scopeKey,revision=sceneKey,s=scope;
@@ -114,6 +163,8 @@ function LocationCloudRender({location,readOnly=false}){
   const paid=!!(caps&&caps.open),credits=paid?(Number(caps.credits)>0?Number(caps.credits)
     :(typeof window.turnSetBuildCredits==="function"?window.turnSetBuildCredits():0)):0;
   const canBuild=!caps||caps.canBuild!==false;
+  // views that would come back blocked or empty stop the build until fixed, or kept on purpose for this exact set
+  const blockedViews=faulty.length>0&&!otherIssues.length&&(cameraOnly||anyway!==sceneKey);
   const chip=paid&&credits>0&&E("span",{className:"nb-cost","data-testid":"set-build-cost",
     title:"≈ "+credits+" generation credits a build — held when it's queued, charged when the four views arrive, given back if it fails or you cancel"},String(credits));
   return E("section",{className:"loc-cloud-render","data-testid":"location-cloud-render"},
@@ -121,10 +172,25 @@ function LocationCloudRender({location,readOnly=false}){
       ?"Builds the room in 3D from the floor plan and cameras, and renders the four views — a plain blockout that keeps every shot's layout consistent; step 5 styles it. Separate from the location image."
       :"Builds the room in 3D from the floor plan and cameras, and renders the four views. Free during the pilot; separate from the location image."),
     !canBuild&&E("p",{className:"loc-layer-note","data-testid":"set-build-role"},"The film's owner or its Art director builds the set; you can see what they built."),
-    issues.length>0&&cloudFixList(location,issues),
+    (blockedViews?otherIssues:issues).length>0&&cloudFixList(location,blockedViews?otherIssues:issues),
+    // the camera check: which views would come back blocked or empty, and the one-press fix
+    blockedViews&&E("div",{className:"loc-step-fixes",role:"alert","data-testid":"camera-check"},
+      E("p",{className:"loc-step-fixes-head"},faulty.length===1?"One camera would not show the set clearly:":faulty.length+" cameras would not show the set clearly:"),
+      E("ul",null,faulty.map(([key,why])=>E("li",{key},E("span",null,CAMERA_PANEL_NAMES[key]+" camera: "+why)))),
+      E("div",{className:"loc-cloud-render-actions"},
+        !readOnly&&canBuild&&onUpdate&&E("button",{type:"button",className:"art-draftall",disabled:fixing||busy||!c.capable||!!running,"data-testid":"camera-check-fix-build",
+          title:"Moves only the cameras named above to clear views of this set, keeps the others, then builds",onClick:()=>fixCameras(true)},
+          fixing?"Finding clear views\u2026":"Fix cameras and build",!fixing&&chip),
+        !readOnly&&onUpdate&&E("button",{type:"button",className:"art-draftall ghost",disabled:fixing||busy,"data-testid":"camera-check-fix",
+          title:"Moves only the cameras named above to clear views of this set. Free; nothing is built.",onClick:()=>fixCameras(false)},"Fix cameras only"),
+        E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,3)},"Go to 3 \u00b7 Cameras"),
+        !readOnly&&!cameraOnly&&E("button",{type:"button",className:"art-draftall ghost",disabled:fixing||busy,"data-testid":"camera-check-anyway",
+          title:"Builds with the cameras exactly as they are set",onClick:()=>setAnyway(sceneKey)},"Keep these cameras"))),
+    fixNote&&!blockedViews&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-fixed"},fixNote),
     momentPicker(location,api,readOnly||busy||!!running),
     E("div",{className:"loc-cloud-render-actions"},
-      E("button",{type:"button",className:"art-draftall",disabled:readOnly||!canBuild||busy||!c.capable||!sceneHash||!!running||issues.length>0,onClick:submit},
+      E("button",{type:"button",className:"art-draftall",disabled:readOnly||!canBuild||busy||fixing||!c.capable||!sceneHash||!!running||issues.length>0||blockedViews,onClick:submit,
+        title:blockedViews?"Fix the cameras named above first, or choose Keep these cameras":undefined},
         busy?"Sending…":job&&job.status==="completed"?"Rebuild set":"Build set",!busy&&chip),
       running&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!canBuild||busy,onClick:cancel,
         title:paid?"Stop this build \u2014 its credits are given back":undefined},"Cancel")),

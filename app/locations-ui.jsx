@@ -301,10 +301,10 @@ function MovingPartChangeAdder({p,allMoments,onAdd}){
 function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
   const api=window.KinolotCloudRender,E=React.createElement;
   const [proposal,setProposal]=React.useState(null),[error,setError]=React.useState(""),[selected,setSelected]=React.useState(""),[mapOpen,setMapOpen]=React.useState(false),[previewRequest,setPreviewRequest]=React.useState(null);
-  const [applying,setApplying]=React.useState(false),application=React.useRef(0);
+  const [applying,setApplying]=React.useState(false),application=React.useRef(0),[fitting,setFitting]=React.useState(false);
   const list=((window.turnContinuity||{}).locations)||[],state=locationSpatialPlanState(l,list);
   const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0;
-  React.useEffect(()=>{setProposal(null);setError("");setSelected("");setMapOpen(false);setPreviewRequest(null);setApplying(false);return ()=>{application.current++;};},[l.id,epoch]);
+  React.useEffect(()=>{setProposal(null);setError("");setSelected("");setMapOpen(false);setPreviewRequest(null);setApplying(false);setFitting(false);return ()=>{application.current++;};},[l.id,epoch]);
   if(!api?.proposeCameras)return null;
   const ownRoom=(state.plan.coordinates?.spaces||[]).some(s=>s.id===l.id&&s.footprint?.length>=3);
   const blocked=readOnly?"This film is read-only.":!state.ready
@@ -323,7 +323,19 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
   const map=locationFloorPlanScene(state.owner,state.plan,mapList);
   if(proposal&&!stale)map.cameras=map.cameras.map(c=>c.spaceId===l.id?{...c,source:"suggested"}:c);
   const receiveProposal=(p,expected)=>{if(expected!=null&&application.current!==expected)return;application.current++;setApplying(false);setProposal(p);setError("");setPreviewRequest(null);setSelected(p?l.id+":TL":"");setMapOpen(!!p);return application.current;};
-  const suggest=()=>{if(readOnly)return;setError("");try{receiveProposal(api.proposeCameras(l,list));}catch(e){setError(e.message);}};
+  // Fitted to the set as it will be built (2026-11-11): every proposed view is checked for a clear, unobstructed frame.
+  // If that fit cannot run (the 3D module didn't load), the older placement from object bounds still answers.
+  const suggest=async()=>{
+    if(readOnly||fitting)return;setError("");
+    const ticket=++application.current;setFitting(true);
+    try{
+      let p;
+      try{p=api.proposeCamerasAuto?await api.proposeCamerasAuto(l,list):api.proposeCameras(l,list);}
+      catch(first){try{p=api.proposeCameras(l,list);}catch(_){throw first;}}
+      receiveProposal(p,ticket);
+    }catch(e){if(application.current===ticket)setError(e.message);}
+    finally{setFitting(false);}
+  };
   const commitCameras=async(candidate,expected,continueToBuild=false)=>{
     if(readOnly||typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())throw Error("This film is read-only.");
     if(expected!=null&&application.current!==expected)throw Error("Another camera action replaced this match. Your saved cameras are unchanged.");
@@ -348,9 +360,9 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
   const workbench=state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,previewRequest:proposal?null:previewRequest,inline:inlinePreview});
   return E("div",{className:"loc-map-wrap","data-testid":"camera-suggestions"},
     E("div",{className:"loc-step-actions loc-camera-primary-actions"+(inlinePreview?" is-inline":"")},
-      E("span",{className:"loc-camera-control"},E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!state.ready||!ownRoom,onClick:suggest,
-        title:blocked||"Free camera placement from the saved footprint and known object sizes; review before saving"},"Suggest 4 cameras"),
-        window.InfoTip&&E(window.InfoTip,{label:"About camera suggestions",text:"Free suggestions from your saved floor plan and measured objects. Review the four proposed 3D views, then choose Use these cameras to save them. Suggesting and reviewing starts no cloud render or paid call."})),
+      E("span",{className:"loc-camera-control"},E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!state.ready||!ownRoom||fitting,onClick:suggest,
+        title:blocked||"Free: four cameras fitted to the set as it will be built, each checked for a clear view; review before saving"},fitting?"Finding clear views\u2026":"Suggest 4 cameras"),
+        window.InfoTip&&E(window.InfoTip,{label:"About camera suggestions",text:"Free. Two wide views and two details are fitted to the set as it will be built, and each is checked so that nothing blocks the frame. Review the four proposed 3D views, then choose Use these cameras to save them. Suggesting and reviewing starts no cloud render or paid call."})),
       !readOnly&&(!state.ready||!ownRoom)&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>window.goToLocationStep(l,2)},"Review floor plan"),
       proposal&&E("button",{type:"button",className:"art-draftall",disabled:readOnly||stale||applying,onClick:apply},applying?"Checking cameras…":"Use these cameras"),
       proposal&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>receiveProposal(null)},"Discard proposal"),
@@ -2094,7 +2106,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
 
       // Cloud rendering and styling use the same saved room, with server-enforced plan and film permissions.
       cloudPilot&&React.createElement(CardFold,{label:"4 \u00b7 Build the set",foldId:locationStepFoldId(l,4),count:stepCount(4),defaultOpen:initialSection==="build"},
-        ownRoom?React.createElement(window.LocationCloudRender,{location:l,readOnly})
+        ownRoom?React.createElement(window.LocationCloudRender,{location:l,readOnly,onUpdate})
           :React.createElement(LocationCloudBuildSetup,{location:l,rooms:roomLocations,onSelectLocation})),
       cloudPilot&&React.createElement(CardFold,{label:"5 \u00b7 Style it",foldId:locationStepFoldId(l,5),count:stepCount(5),defaultOpen:initialSection==="style"},
         ownRoom?React.createElement(window.LocationStyleStep,{location:l,readOnly})

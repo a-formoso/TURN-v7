@@ -133,7 +133,8 @@ try{
   check(windowScene.objects.some(o=>o.anchorId==="porthole"),false,"A saved window aperture is not replaced by an opaque object when its name is ambiguous");
   // An existing result stays honest when the current layout cannot be exported.
   const uiStates=[{status:"completed",notes:["Prototype dimensions require review."]},true,false,"","",0];
-  box.React={useState:()=>[uiStates.shift(),()=>{}],useEffect:()=>{},useRef:v=>({current:v}),
+  // the card's first states are given; every later one (the camera check's among them) starts at its own initial value
+  box.React={useState:v=>[uiStates.length?uiStates.shift():typeof v==="function"?v():v,()=>{}],useEffect:()=>{},useRef:v=>({current:v}),
     createElement:(type,props,...children)=>({type,props,children})};
   box.KinolotCloudRender.buildScene=()=>{throw Error("Check the opening height.");};
   vm.runInContext(readFileSync(new URL("../app/blender-render-ui.jsx",import.meta.url),"utf8"),box);

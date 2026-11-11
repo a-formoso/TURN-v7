@@ -77,6 +77,6 @@ const job=(status,extra={})=>({id:"j1",status,progress:status==="running"?"rende
 }
 const ui=read("app/blender-render-ui.jsx");
 check(/running&&renderProgress\(/.test(ui)&&/job&&!running&&job\.status!=="completed"&&E\("p",\{role:"status"/.test(ui),"The panel shows the progress while queued or running, and a failure or cancellation otherwise");
-check(/issues\.length>0&&cloudFixList\(location,issues\)/.test(ui)&&/"Go to "\+issue\.step\+" · "\+LOCATION_STEP_NAMES\[issue\.step\]/.test(ui),"What stops the build is listed, each with a Go to step button");
+check(ui.includes("(blockedViews?otherIssues:issues).length>0&&cloudFixList(location,blockedViews?otherIssues:issues)")&&/"Go to "\+issue\.step\+" · "\+LOCATION_STEP_NAMES\[issue\.step\]/.test(ui),"What stops the build is listed, each with a Go to step button");
 check(!/layout issues above/.test(ui),"No more 'the layout issues above'");
 console.log(`PASS cloud render cameras and progress: ${checks} camera-placement, estimate and progress checks`);

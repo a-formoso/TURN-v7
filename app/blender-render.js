@@ -274,6 +274,51 @@
     warnings.push("Default coverage: a wide room view, a reverse room view and two different feature details. Positions avoid saved walls and sized objects; review the four camera previews before saving.");
     return {key:cameraProposalKey(location,list),panels,warnings};
   }
+  /* AUTOMATIC COVERAGE (2026-11-11, owner: a useful first result for any location, no per-room camera recipes).
+     The four cameras are fitted to the set exactly as it will be built (camera-coverage.js): two wide views that
+     complement each other, then two details chosen by what they add, every frame checked for a clear, unobstructed
+     view. What the floor plan knows about each object steers it: one the screenplay names counts for more, and
+     objects saved with the same dimensions are one kind. No model, account or render call. */
+  function coverageInputs(location,list){
+    const state=root.locationSpatialPlanState(location,list);
+    if(!state.ready)throw Error(state.reason||"Review the floor plan in step 2 first.");
+    const {owner,plan}=state,spaces=renderSpaces(plan),space=spaces.find(s=>s.id===location.id);
+    if(!space||(space.footprint||[]).length<3)throw Error("Add this room's footprint in step 2 first.");
+    if(!space.openSky&&!finite(space.ceilingH))throw Error("Set this room's ceiling height in step 2 first.");
+    const family=root.locationSpatialFamily(owner,list);
+    const centre=[0,1].map(i=>space.footprint.reduce((n,p)=>n+p[i],0)/space.footprint.length);
+    const hold={position:[centre[0],centre[1],space.floorZ+1.5],yaw:0,pitch:0,lensMm:24};
+    const scene=buildScene(location,list,undefined,{cameras:{TL:hold,TR:hold,BL:hold,BR:hold}});
+    const subjects=plan.anchors.filter(a=>(root.locationAnchorSpaceOf(a,family)||owner).id===space.id).map(a=>({id:a.id,name:tidy(a.name,80),
+      weight:/\b(?:script|screenplay)\b/i.test(a.evidence||"")?3:a.basis==="script"||a.basis==="observed"?2:1,opening:isOpening(a,space),
+      kind:a.size?[Math.min(a.size[0],a.size[1]),Math.max(a.size[0],a.size[1]),a.size[2]].join("x"):""}));
+    return {scene,space,subjects,plan,spaces,family,owner};
+  }
+  const savedPoses=(location,list)=>Object.fromEntries(root.locationPanelPoses(location,list).map(p=>[p.key,p.pose.position?p.pose:null]));
+  // Each saved camera's view of the built set: "" = a usable picture, otherwise why not (camera-coverage.js gate).
+  async function assessCameras(location,list){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    const T=await root.KinolotAnglePreview.load(),input=coverageInputs(location,list);
+    return root.KinolotCameraCoverage.assess(T,root.KinolotAnglePreview,input.scene,input.space,savedPoses(location,list),{subjects:input.subjects});
+  }
+  // A proposal like proposeCameras's. `keep`: panel keys whose saved cameras stay exactly as they are.
+  async function proposeCamerasAuto(location,list,{keep=[]}={}){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    const key=cameraProposalKey(location,list),T=await root.KinolotAnglePreview.load();
+    // The fit takes about a second of solid work: let the card show that it has started first.
+    // (saving re-checks that the film, floor plan and cameras are still the ones this was fitted to: cameraProposalViews)
+    if(typeof root.setTimeout==="function")await new Promise(done=>root.setTimeout(done,30));
+    const input=coverageInputs(location,list),saved=savedPoses(location,list),kept={};
+    for(const k of keep)if(saved[k])kept[k]=saved[k];
+    const result=root.KinolotCameraCoverage.plan(T,root.KinolotAnglePreview,input.scene,input.space,{subjects:input.subjects,keep:kept});
+    const panels=result.panels.map(p=>({key:p.key,role:p.role,label:tidy(p.label,90),...(p.targetId?{targetId:p.targetId}:{}),
+      pose:kept[p.key]||{position:p.pose.position,yaw:p.pose.yaw,pitch:p.pose.pitch,lensMm:p.pose.lensMm,...(p.targetId?{target:p.targetId}:{}),basis:"design"}}));
+    const problems=cameraProblemsIn(location,list,input.plan,input.spaces,input.family,input.owner,panels);
+    if(Object.keys(problems).length)throw Error("A proposed camera did not fit the room. Check the footprint and object sizes in step 2.");
+    const placed=panels.filter(p=>!kept[p.key]);
+    return {key,panels,auto:true,warnings:[
+      "Automatic coverage: "+placed.map(p=>p.label).join(", ")+". Each view was checked against the set as it will be built, for a clear and unobstructed frame. Review the four previews before saving; your current cameras are unchanged."]};
+  }
   function cameraProposalViews(location,proposal,list){
     list=list||((root.turnContinuity||{}).locations)||[];
     if(!proposal||proposal.key!==cameraProposalKey(location,list))throw Error("The film, floor plan or cameras changed. Suggest 4 cameras again.");
@@ -390,10 +435,11 @@
     const r1=(a[0]-cx)**2+(a[1]-cy)**2<=(b[0]-cx)**2+(b[1]-cy)**2?r0+Math.PI/2:r0-Math.PI/2;
     return {position:[...swing(r1),z],size:anchor.size,rotation:[0,0,r1]};
   }
-  function buildScene(location,list,at){
+  function buildScene(location,list,at,options){
     list=list||((root.turnContinuity||{}).locations)||[];
     const poses=partPoses(location,at);
-    const issues=inputIssues(location,list);if(issues.length)throw new Error(issues[0]);
+    // With other cameras given (camera planning), the saved cameras' own problems do not stop the set being built.
+    const issues=inputIssueList(location,list).filter(i=>!(options&&options.cameras&&i.step===3)).map(i=>i.text);if(issues.length)throw new Error(issues[0]);
     const state=root.locationSpatialPlanState(location,list),owner=state.owner,plan=state.plan;
     if(!state.ready)throw new Error(state.reason);
     const coords=plan.coordinates;
@@ -467,7 +513,9 @@
     if(outsides.length)notes.push("Beyond the lowered part: a plain quay and a dark night backdrop stand in for the outside.");
     if(lights.length>16)throw new Error("This preview supports up to sixteen spaces.");
     const cameras={};
-    root.locationPanelPoses(location,list).forEach(p=>{
+    // options.cameras: the set as it is built, seen from other cameras (camera planning) — geometry never depends on them
+    if(options&&options.cameras)Object.assign(cameras,options.cameras);
+    else root.locationPanelPoses(location,list).forEach(p=>{
       if(!p.pose.position)throw new Error("The "+(p.label||p.key)+" camera has no position yet.");
       cameras[p.key]={position:p.pose.position,yaw:p.pose.yaw,pitch:p.pose.pitch,lensMm:p.pose.lensMm};
       if(p.source==="suggested")notes.push(p.label+" uses the suggested camera position; edit it under Camera views.");
@@ -540,6 +588,6 @@
     if(JSON.stringify(state||null)!==before)root.dispatchEvent?.(new CustomEvent("kinolot-cloud-job",{detail:{locationId}}));
   }
   const jobState=locationId=>jobs.get(locationId)||null;
-  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,cameraProposalKey,proposeCameras,cameraProposalViews,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds,
+  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,cameraProposalKey,proposeCameras,proposeCamerasAuto,assessCameras,cameraProposalViews,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds,
     buildMoments,setBuildMoment,buildMoment};
 })(typeof window!=="undefined"?window:globalThis);

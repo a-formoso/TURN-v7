@@ -273,3 +273,39 @@ The owner approved the isolated floor-vent dimension swap after seeing the local
 The owner ran the updated free coverage suggestions and rebuilt the complete bus through the development app without errors. Read-only verification confirms a completed detailed cloud job with 306 objects, 24 bench units and six preview lights; it rendered in 255.8 seconds. All four saved colour views were independently downloaded and inspected: front/rear aisle coverage, bench detail and driver controls remain consistent. The twelve PNG passes and the 5.18 MiB editable scene were verified in the private storage bucket, including scene digest/source-revision binding, signed sample reads and denied anonymous/public sample reads. Its 15-credit hold settled at 15 with zero released. No extra render or image generation was initiated by the verification.
 
 The owner then generated and shared a styling draft. Read-only metadata verification ties that draft to the completed expanded-bus job and its exact scene revision, with 306 source objects. Visual inspection of the supplied grid confirms complementary front/rear aisle views, a bench detail and driver controls, with the fuller seating and curved roof retained. Upholstery, wear and exterior scenery are styling additions; this review does not establish exact geometric reconstruction or per-pixel fidelity. The result remains a separate draft and has not been automatically adopted as location artwork. A separate read-only request for production scratch-directory cleanup returned no usable evidence, so deletion remains independently unverified. The implemented cleanup policy and storage success do not establish a deletion result. Public frontend publication still waits for the updated main-app candidate sync.
+
+### Automatic camera coverage and the camera check — 11 November (not yet published)
+
+Owner requirement: a useful first result for any location, with no per-room camera recipes and no paid build that comes
+back with a blocked view. Diagnosis from the saved gym: its two detail cameras stood under a metre from the bleachers,
+so one surface filled both frames; the older placement set every detail 0.8–2.2 m from its subject whatever its size.
+
+`app/camera-coverage.js` fits cameras to the set exactly as it will be built (the same numerical scene the preview and
+the cloud build use), by casting rays at its real parts:
+
+- **The check** (`assess`): a view fails when the camera stands inside or against a part, when 40% of the frame is
+  within arm's length of one thing, when it faces one flat surface, or when no saved object is clearly visible. It is
+  deliberately conservative: it names views that are unusable, not views that are merely dull.
+- **The plan** (`plan`): two wide views chosen by how much of the room's volume and of its saved objects they show, the
+  second from another part of the room facing back; then two details chosen by what they add — how much better a frame
+  shows its subject than the views already chosen, then what else it shows, then composition (nothing in front of the
+  subject, not pressed to a wall, not a lone object on bare wall). Steering comes only from what the floor plan already
+  holds: an object whose evidence cites the screenplay counts 3, one from the brief or an image 2, design dressing 1;
+  objects saved with the same dimensions are one kind (a detail of one bench covers the row); a detail's subject is
+  furniture-scale; floor markings, thin ceiling fittings, openings and small props are shown beside others. A camera
+  stands where a person could, leaning at most 0.3 m over furniture. Kept cameras are never moved.
+- **In the card**: `Suggest 4 cameras` uses the fit (`proposeCamerasAuto`; the older `proposeCameras` remains as the
+  fallback when the 3D module cannot load). Step 4 grades the saved cameras before a build (`assessCameras`) and offers
+  `Fix cameras and build`, `Fix cameras only`, `Go to 3 · Cameras` and `Keep these cameras`; a camera standing in a wall
+  or an object is fixed by the same press. The check and the fix are free and call no model or renderer.
+
+Evidence, by image (local Blender 4.5.12 renders of the automatic cameras, no cloud job and no saved-film change; kept
+outside Git with the private film data): gym (the two blocked details replaced by clear views), kitchen (sink and
+table/fridge details), bus (both aisle ends, driver, the story bench — without the bus-specific camera rule) and Teo's
+bedroom, which nobody had tuned (its blank-wall view replaced). The gym's details are now clear but plain, because its
+set is: a table is a box and the bleachers one block. **Construction completeness is the next step, not solved here.**
+Fit time is about a second per location. Tests: `scripts/test-camera-coverage.mjs`.
+
+Known gaps: the check does not judge dull-but-clear frames; outdoor (open-sky) spaces and multi-room footprints were
+exercised only by the offline tests' simple cases; three older tests (`test-location-coordinates`,
+`test-location-moving-parts`, `test-location-outdoor-cameras`) already fail on the published branch and are unrelated.

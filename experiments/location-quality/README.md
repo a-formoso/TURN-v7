@@ -59,3 +59,11 @@ node experiments/location-quality/check-auto-coverage.mjs
 The same algorithm was also exercised read-only on the owner's saved gym, bus and kitchen scenes, with no per-location camera-coordinate overrides. It found geometrically visible alternatives. However, its unconstrained detail selection chose the kitchen's counter runs instead of its sink/fridge combination, and the gym's coach table instead of a more representative fixture. **That is a product-quality failure despite successful visibility.** These proposals have not been saved, submitted to the cloud, integrated or published.
 
 The production architecture therefore needs a semantic shot-intent stage, grounded in the complete inventory, location brief and relevant scene context, followed by geometric fitting and final-image verification. It should identify subjects and coverage goals, not invent unverified camera coordinates. Reuse existing description/staging context where sufficient; any additional model call needs normal pricing, scope checks and a bounded cost policy. Missing subjects, contradictions and unsupported geometry must be handled before claiming a final result. Semantic intent, actual construction, framing, visibility, lighting and styled fidelity must be evaluated together on held-out locations. A hand-tuned gym demonstration is not evidence that this automatic path works.
+
+## 11 November: the camera half is now in the app (branch `claude/auto-cameras-20261111`)
+
+`app/camera-coverage.js` replaces this folder's `auto-coverage.mjs` experiment with one planner and one check for every
+location (see "Automatic camera coverage and the camera check" in `docs/Cloud Set Integration.md`). `harness.mjs` loads
+the app's real floor-plan and set-building code in Node; `quick-view.mjs` draws a fast diagnostic picture of four
+cameras from the same ray queries, to judge framing in seconds before a real render. The inventory experiment
+(`inventory.mjs`) is unchanged: complete construction is the next step and is not solved by better cameras.
