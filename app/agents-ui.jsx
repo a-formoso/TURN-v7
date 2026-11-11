@@ -309,6 +309,8 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
     const runs = window.__turnAgentRunCount = window.__turnAgentRunCount || {};
     runs[agent.id] = (runs[agent.id]||0) + 1;
     try{ window.dispatchEvent(new CustomEvent("turn-agent-running",{ detail:{ id:agent.id, running:true } })); }catch(e){}
+    // A STORY BUILD KEEPS THE SCREEN AWAKE (2026-11-11): the build runs in this page, and a sleeping computer ends it
+    const letSleep = (agent.kind==="build" && !isArt && window.KinolotBuildState) ? window.KinolotBuildState.keepAwake() : null;
     let ctx = null, spend0 = null;
     try{
     ctx = ctxFactory({
@@ -342,6 +344,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
       const at = pins.indexOf(myPin); if(at>=0) pins.splice(at,1);
       window.__forceWritingModel = pins.length ? pins[pins.length-1].model : undefined;
       runs[agent.id] = Math.max(0, (runs[agent.id]||1) - 1);
+      if(letSleep) letSleep();
       try{ window.dispatchEvent(new CustomEvent("turn-agent-running",{ detail:{ id:agent.id, running:false } })); }catch(e){}
     }
     if(runIdRef.current!==myRun) return;   // superseded by "Run again": its tail never touches the new run's panel
@@ -454,7 +457,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
           viewLabel||"View story",React.createElement(Icon.chevR,{s:16})))));
 }
 
-function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force, unwritten, unwrittenStandIns, unwrittenBeatMaps, finishInput, onAdapt }){
+function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, onUndo, issues, initialAgentId, initialInput, autoStart, runOnOpen, single, viewLabel, introExtra, force, unwritten, unwrittenStandIns, unwrittenBeatMaps, finishNow, finishInput, onAdapt }){
   const agents = window.AGENTS || [];
   const dn = (t)=> (typeof window.turnDisplayNames==="function") ? window.turnDisplayNames(t) : t;
   const [active, setActive] = React.useState(()=> initialAgentId ? (agents.find(a=>a.id===initialAgentId)||null) : null);
@@ -476,7 +479,9 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
      scenes on the next run"; made reachable 2026-09-28): once the build window is closed, the
      build agent is hidden from the grid, so this row opens Adaptation on THIS film, READY (never
      auto-started), with the film's own brief. Its first proposal is "Finish writing this film first?". */
-  const [finishLaunch, setFinishLaunch] = React.useState(null);
+  /* CONTINUE WRITING (2026-11-11): the Writers' Room notice on an unfinished film opens this window straight on the
+     finish run and starts it (finishNow) — its press is the approval, so there is no Run press and no card. */
+  const [finishLaunch, setFinishLaunch] = React.useState(()=> (finishNow && initialAgentId==="adapt") ? { input:String(finishInput||""), now:true } : null);
   const unwrittenN = Math.max(0, Number(unwritten)||0), standInN = Math.min(unwrittenN, Math.max(0, Number(unwrittenStandIns)||0));
   const beatMapN = Math.min(unwrittenN, Math.max(0, Number(unwrittenBeatMaps)||0));
   const finishStatus = beatMapN
@@ -519,11 +524,11 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
         ? React.createElement(AgentRunner,{agent:active,ctxFactory,onClose:close,onView,single,viewLabel,
             introExtra: finishing ? finishNote : introExtra,
             onRunningChange:(v)=>{ runningRef.current = !!v; },
-            force: active.id===initialAgentId ? force : false,
+            force: (finishing && finishLaunch.now) ? "finish" : (active.id===initialAgentId ? force : false),
             onBack: single ? close : async ()=>{ if(!(await leaveOk())) return; setAuto(false); setFinishLaunch(null); setActive(null); },
             initialInput: finishing ? finishLaunch.input : (active.id===initialAgentId ? initialInput : ""),
             autoStart: !finishing && auto && active.id===initialAgentId,
-            runOnOpen: !!runOnOpen && active.id===initialAgentId && !finishing})
+            runOnOpen: !!runOnOpen && active.id===initialAgentId && !finishing || (finishing && !!finishLaunch.now)})
         : React.createElement(React.Fragment,null,
             React.createElement("div",{className:"ag-head"},
               React.createElement("div",{className:"ag-head-t"},

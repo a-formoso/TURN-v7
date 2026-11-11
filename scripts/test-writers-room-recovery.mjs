@@ -33,6 +33,7 @@ function load(b,file,names){ for(const name of names) vm.runInContext(declaratio
 function agentsBox(extra={}){
   const b=box({chargeStr:String,...extra});
   vm.runInContext(read("app/frameworks.jsx"),b);
+  vm.runInContext(read("app/build-state.js"),b);   // the one rule for "unwritten" (2026-11-11)
   vm.runInContext(files.agents,b);
   return b;
 }

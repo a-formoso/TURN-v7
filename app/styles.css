@@ -10684,6 +10684,17 @@ html[data-theme="light"]{
 .app.hs .import-strip-acts .hs-btn:not(.primary){background:var(--win-surface);border:1px solid var(--win-line-2);color:var(--win-ink)}
 .import-strip-x{width:30px;height:30px;border:0;border-radius:8px;background:none;color:var(--win-sub);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .import-strip-x:hover{background:var(--win-surface);color:var(--win-ink)}
+/* an unfinished film says so (2026-11-11): the same bar as the import strip, in the amber of a thing to finish */
+.build-strip .build-strip-t{flex:1 1 320px;min-width:0;line-height:1.45}
+.build-strip .build-strip-t b{font-weight:600}
+.build-strip-log{max-width:var(--hs-col,1280px);margin:0 auto;margin-left:var(--rail-l,auto);box-sizing:border-box;padding:0 40px 14px;
+  border-left:1px solid var(--hs-line,var(--line));border-right:1px solid var(--hs-line,var(--line));background:var(--win-amber-soft)}
+.build-strip-log-h{font:400 10.5px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--win-sub);margin:2px 0 8px}
+.build-strip-log ol{margin:0;padding:10px 14px 10px 34px;max-height:240px;overflow:auto;border:1px solid var(--win-line-2);border-radius:10px;background:var(--win-surface);
+  font-size:12.5px;line-height:1.5;color:var(--win-ink)}
+.build-strip-log li{margin:2px 0}
+.build-strip-log li.k-flag{color:var(--win-amber-ink);font-weight:500}
+.build-strip-log li.k-act{color:var(--win-sub)}
 @media (max-width:1100px){ .import-strip-in{padding:10px 24px;border-left:0;border-right:0} }
 @media (max-width:700px){ .import-strip-in{padding:10px 16px} .import-strip-acts{margin-left:0;width:100%;flex-wrap:wrap} }
 .read-notes{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--win-bone);display:flex;flex-direction:column;gap:6px}

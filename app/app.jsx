@@ -1326,6 +1326,9 @@ function App(){
     setResearchOpen(false); setShotDesignerOpen(false); } },[artRoomReadOnly]);
   React.useEffect(()=>{
     if(!writersRoomBlocked) return;
+    // never silently (2026-11-11): a build this closes is named, and the film shows Continue writing afterwards
+    if(((window.__turnAgentRunCount||{}).adapt||0)>0 && typeof window.appToast==="function")
+      window.appToast("The story build was stopped because this film was reloaded or your access changed. Every scene already written is kept \u2014 press Continue writing in the Writers' Room to finish it.","info");
     setAgentsOpen(false); setAgentLaunch(null); setNewStoryOpen(false);
   },[writersRoomBlocked]);
   /* PRESENCE — who else has this film open. Joins a Realtime channel per film and leaves
@@ -3041,6 +3044,18 @@ function App(){
     makeShow({automatic:true});
   },[cloudMode,currentProjectId,currentShowId,scenes.length,project&&project.format,projects.length,seriesBusy,agentRunTick]);
   const [agentLaunch, setAgentLaunch] = React.useState(null);   // {id, input} to auto-run an agent
+  /* AN UNFINISHED FILM SAYS SO (owner 2026-11-11, Writers' Room audit item 1 — app/build-state.js). A story build
+     runs in this page: a reload, a closed tab or a sleeping computer ends it. The film then looked finished. Now
+     the Writers' Room shows which scenes aren't written and offers Continue writing (the finish run, started at
+     once); the build's own record (project.build) adds when it stopped and its log. `buildRunning` is re-read on
+     every turn-agent-running event (agentRunTick above). */
+  const buildCounts = window.KinolotBuildState
+    ? window.KinolotBuildState.counts(scenes, drafts, beatsMap, window.isStandInDraft)
+    : { total:scenes.length, n:0, blank:0, standIns:0, beatMaps:0, ids:[] };
+  const buildRunning = ((window.__turnAgentRunCount||{}).adapt||0)>0;
+  const buildNotice = window.KinolotBuildState ? window.KinolotBuildState.notice({ project, counts:buildCounts, running:buildRunning }) : null;
+  const [buildNoticeOff, setBuildNoticeOff] = React.useState("");   // "Not now": this film, these scenes, this session
+  const [buildLogOpen, setBuildLogOpen] = React.useState(false);
   /* Existing-film identity resolution can hand the user to the Production check: its
      script read proposes pronouns from exact screenplay evidence, and its script pass
      rewrites they/them lines to the profile's pronouns. The Character panel and the Art
@@ -3722,7 +3737,9 @@ function App(){
      Only prompts when something is genuinely unwritten; a settled window closes clean. */
   React.useEffect(()=>{
     const h = (e)=>{
-      if(!dirtyRef.current && saveState!=="saving" && saveState!=="retrying" && saveState!=="failed") return;
+      // A RUNNING STORY BUILD asks too (2026-11-11): leaving ends it, and the scene being written is lost
+      const building = ((window.__turnAgentRunCount||{}).adapt||0)>0;
+      if(!building && !dirtyRef.current && saveState!=="saving" && saveState!=="retrying" && saveState!=="failed") return;
       e.preventDefault(); e.returnValue = "";      // browsers show their own generic wording
       return "";
     };
@@ -8233,7 +8250,7 @@ function App(){
       shots: items(L.shots), propsSeeded: L.propsSeeded, locsSeeded: L.locsSeeded,
       styleBible: sb ? JSON.parse(JSON.stringify(sb)) : undefined, hadStyleBible: !!sb };
   };
-  const agentCtxFactory = ({ input, emit, propose, cancelled, agentName, scope })=>{
+  const agentCtxFactory = ({ input, emit, propose, cancelled, agentName, scope, force })=>{
     // scope "production" = the Art Room's Production check: it edits the script AND the
     // Art Room, so it runs for anyone who can save either — each card is gated on the
     // area it writes (ctx.can), and an Art director's commits carry the cast only.
@@ -8411,6 +8428,9 @@ function App(){
       return true;
     };
     return { model, sync, input, emit, propose,
+      // CONTINUE WRITING (2026-11-11): the Writers' Room notice starts the finish run directly — only the
+      // unwritten scenes, no card, never a rebuild
+      finishOnly: force==="finish",
       // EPISODE CANON (docs/Story Pipeline.md step 3, "In an Episode of an existing Show"): true
       // for a character the Show already had when this build started (or when the Writer can't
       // change the Show cast at all) — the psychology check leaves it exactly as it is
@@ -9816,6 +9836,29 @@ function App(){
             React.createElement("button",{type:"button",className:"import-strip-x",title:"Hide this bar","aria-label":"Hide this bar",
               onClick:()=>setProject(p=>({ ...p, importStripHidden:true }))}, Icon.x&&React.createElement(Icon.x,{s:13})))));
     })(),
+    // AN UNFINISHED FILM SAYS SO (2026-11-11): which scenes aren't written, and Continue writing
+    room==="writers" && buildNotice && buildNoticeOff!==buildNotice.key && !agentsOpen && (()=>{
+      const aiOn = (typeof aiAvailable==="function" && aiAvailable());
+      const go = ()=>{ if(!canMutateWritersRoom()) return; if(!planActive()){ requirePlan("finish writing this film"); return; }
+        setBuildLogOpen(false);
+        setAgentLaunch({ id:"adapt", input:String((project && (project.sourceBrief || project.logline)) || ""), finishNow:true }); setAgentsOpen(true); };
+      const why = writersRoomBlocked ? "Your role on this film can\u2019t change the story" : !aiOn ? "The writing engine isn\u2019t available right now" : buildNotice.actionHint;
+      return React.createElement("div",{className:"import-strip build-strip",role:"status","data-testid":"build-notice"},
+        React.createElement("div",{className:"import-strip-in"},
+          React.createElement("span",{className:"import-strip-lab"},Icon.alert&&React.createElement(Icon.alert,{s:13}),"Unfinished"),
+          React.createElement("span",{className:"import-strip-t build-strip-t"},
+            React.createElement("b",null,buildNotice.headline+". "), buildNotice.what+" "+buildNotice.why),
+          React.createElement("span",{className:"import-strip-acts"},
+            React.createElement("button",{type:"button",className:"hs-btn primary","data-testid":"build-continue",disabled:writersRoomBlocked||!aiOn,title:why,onClick:go},buildNotice.action),
+            buildNotice.log.length>0 && React.createElement("button",{type:"button",className:"hs-btn","data-testid":"build-log-toggle","aria-expanded":buildLogOpen?"true":"false",
+              onClick:()=>setBuildLogOpen(v=>!v)}, buildLogOpen ? "Hide the build log" : "What happened"),
+            React.createElement("button",{type:"button",className:"import-strip-x",title:"Not now \u2014 this comes back when you reopen the film","aria-label":"Not now",
+              onClick:()=>{ setBuildNoticeOff(buildNotice.key); setBuildLogOpen(false); }}, Icon.x&&React.createElement(Icon.x,{s:13})))),
+        buildLogOpen && buildNotice.log.length>0 && React.createElement("div",{className:"build-strip-log","data-testid":"build-log"},
+          React.createElement("div",{className:"build-strip-log-h"},"The last build\u2019s log \u2014 it ends where the build stopped"),
+          React.createElement("ol",null, buildNotice.log.map((st,i)=>React.createElement("li",{key:i,className:"k-"+st.k},
+            (typeof window.turnDisplayNames==="function") ? window.turnDisplayNames(st.t) : st.t)))));
+    })(),
     room==="art" && React.createElement(ViewNav,{room,view,setView,artView,setArtView,staleTabs,
       attnTabs:{ characters: wardrobeAttn },tabLocks:artTabLocks,jobTabs:artJobTabs,
       readOnly:roomReadOnly,
@@ -10022,12 +10065,10 @@ function App(){
       undoLabel:agentUndoHere.length?agentUndoHere[agentUndoHere.length-1].label:null,
       onUndo:undoLastAgent,
       // Finish incomplete scenes, including a real screenplay whose beat map is missing.
-      ...(()=>{ const standIn = (d)=> typeof window.isStandInDraft==="function" ? window.isStandInDraft(d) : false;
-        let n = 0, st = 0, bm = 0;
-        scenes.forEach(s=>{ const d = drafts[s.id];
-          if(!(d && (d.blocks||[]).length)) n++; else if(standIn(d)){ n++; st++; }
-          else if(!(beatsMap[s.id] && (beatsMap[s.id].rows||[]).length)){ n++; bm++; } });
+      // (one rule for "unwritten", shared with the Writers' Room notice: app/build-state.js)
+      ...(()=>{ const c = window.KinolotBuildState.counts(scenes, drafts, beatsMap, window.isStandInDraft), n = c.n, st = c.standIns, bm = c.beatMaps;
         return { unwritten:n, unwrittenStandIns:st, unwrittenBeatMaps:bm, finishInput:String((project && (project.sourceBrief || project.logline)) || "") }; })(),
+      finishNow: !!(agentLaunch && agentLaunch.finishNow),
       issues:agentIssues,
       // Adapt into a new film (phase 6): on a film with scenes the writer may change
       onAdapt: (scenes.length && !writersRoomBlocked) ? (()=>{ setAgentsOpen(false); setAgentLaunch(null); setAdaptOpen(true); }) : undefined,

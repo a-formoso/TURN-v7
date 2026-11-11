@@ -741,6 +741,37 @@ function standInDraft(d){
 /* WHERE "finish just the unwritten scenes" lives (2026-09-28): the open build panel's Run
    again, or — once it's closed — Story Editors' "Finish writing this film" row */
 const FINISH_WHERE = "press Run again, or later open Story Editors and choose Finish writing this film";
+/* THE BUILD'S OWN RECORD ON THE FILM (owner 2026-11-11, Writers' Room audit item 1 — app/build-state.js).
+   A build runs in the browser, so a reload, a closed tab or a sleeping computer ends it. The film used to look
+   finished afterwards. Now the build writes down on the film (project.build) that it is writing, how far it got and
+   its log; each scene's save carries it. A build that never reaches its end leaves status "writing" behind, and the
+   Writers' Room shows "This film isn't fully written" with Continue writing. */
+function buildRecorder(ctx){
+  if(ctx.buildRec) return ctx.buildRec;   // one per run: its log starts with the run's first line
+  const BS = window.KinolotBuildState;
+  const log = [];
+  const emit0 = ctx.emit;
+  ctx.emit = (step)=>{ try{ log.push(step); }catch(e){} return emit0(step); };
+  const writtenNow = ()=>{ if(!BS) return 0;
+    const c = BS.counts(ctx.model.scenes, ctx.model.drafts, ctx.model.beats, standInDraft); return Math.max(0, c.total - c.n); };
+  const set = (patch)=>{ if(!BS) return;
+    ctx.model.project = BS.mark(ctx.model.project, { ...patch, total:(ctx.model.scenes||[]).length, written:writtenNow(), updatedAt:new Date().toISOString() }, log); };
+  let live = false;   // only a build that has started writes itself onto the film
+  const rec = {
+    start:()=>{ live = true; set({ status:"writing", startedAt:new Date().toISOString(), endedAt:undefined, failed:undefined }); },
+    live:()=> live,
+    tick:()=> set({ status:"writing" }),
+    // Stop, or a failure every remaining scene would repeat: the log's last lines are saved with the film
+    // (never after a film switch or a lost role — that commit is refused anyway)
+    stopped:()=>{ if((typeof ctx.switchedFilms==="function" && ctx.switchedFilms()) || (typeof ctx.roleLost==="function" && ctx.roleLost())) return;
+      set({ status:"writing" }); try{ ctx.sync(); }catch(e){} },
+    end:(failed)=> set({ status:"done", endedAt:new Date().toISOString(), failed:failed||0 }),
+  };
+  ctx.buildRec = rec;
+  return rec;
+}
+window.buildRecorder = buildRecorder;
+
 async function writeScenesSeq(ctx, indices){
   let written = 0; let failures = [];
   const stopRes = ()=>{
@@ -806,6 +837,9 @@ async function writeScenesSeq(ctx, indices){
           if(authored && authored.beats && (authored.beats.rows||[]).length){
             scn = {...scn, ...authored.patch}; beats = authored.beats;
             ctx.model.scenes[i] = scn; ctx.model.beats[scn.id] = authored.beats;
+            // SAVED AT ONCE (2026-11-11): a build that ends while this scene's screenplay is being written keeps
+            // the beat map it already paid for — Continue writing drafts from it instead of asking again
+            if(!repairBeatsOnly) ctx.sync();
           }
         }
       }
@@ -873,6 +907,8 @@ async function writeScenesSeq(ctx, indices){
     const i = indices[k];
     const s = ctx.model.scenes[i];
     ctx.emit({k:"act", t:"Writing Sc "+s.no+" \u201c"+s.title+"\u201d \u2014 "+(k+1)+" of "+indices.length+"\u2026"});
+    // saved before the scene is written, so the log kept with the film ends on the scene the build was in
+    if(ctx.buildRec && ctx.buildRec.live()){ ctx.buildRec.tick(); ctx.sync(); }
     const existing = ctx.model.drafts[s.id];
     const repairBeatsOnly = !!(existing && (existing.blocks||[]).length && !standInDraft(existing)
       && !(ctx.model.beats[s.id] && (ctx.model.beats[s.id].rows||[]).length));
@@ -967,6 +1003,7 @@ async function buildContinuityLedgerStep(ctx){
 
 async function agentAdaptation(ctx){
   const brief = (ctx.input||"").trim();
+  buildRecorder(ctx);   // from the first line: what this run says is kept with the film once it starts writing
   if(!ctx.ai.available){ ctx.emit({k:"flag", t:"The model isn't available, so a full spine can't be generated here."}); ctx.emit({k:"done",t:"Aborted."}); return; }
   // FINISH WHAT EXISTS: a stopped or partly failed build leaves scenes without a
   // screenplay. Offer to write JUST those before proposing a full rebuild — a rebuild
@@ -991,7 +1028,10 @@ async function agentAdaptation(ctx){
       : !blank
       ? standIns+" of "+have.length+" scenes "+(standIns===1?"is":"are")+" still a rough stand-in built from the beat cards \u2014 not written yet."
       : unwritten.length+" of "+have.length+" scenes aren\u2019t written yet: "+blank+" "+(blank===1?"has":"have")+" no screenplay and "+standIns+" "+(standIns===1?"is a rough stand-in":"are rough stand-ins")+" built from the beat cards.";
-    const finish = await ctx.propose({
+    // CONTINUE WRITING (2026-11-11): the Writers' Room notice already said what is unwritten and that nothing
+    // written is redone — pressing it IS the approval, so the card is skipped
+    if(ctx.finishOnly) ctx.emit({k:"observe", t:"Continuing this film: "+what+" Writing just "+(unwritten.length===1?"that one":"those")+" \u2014 everything already written stays untouched."});
+    const finish = ctx.finishOnly ? true : await ctx.propose({
       title:"Finish writing this film first?",
       reason: what+(beatRepairs ? " Approve to finish JUST those scenes" : " Approve to write beats + script for JUST those scenes")+(standIns ? " (a stand-in is written from the beat cards it already has; Undo agent changes brings it back)" : "")
         +" \u2014 everything already written stays untouched."+(beatRepairs ? " Only the missing beat maps are repaired on written scenes." : "")+" Decline to rebuild the whole film from your logline instead.",
@@ -1000,8 +1040,11 @@ async function agentAdaptation(ctx){
     });
     if(ctx.cancelled()) return;
     if(finish){
+      const rec = buildRecorder(ctx);
+      rec.start();
       const r = await writeScenesSeq(ctx, unwritten);
-      if(r.stopped) return;
+      if(r.stopped){ rec.stopped(); return; }
+      rec.end(r.failures.length);
       ctx.sync();
       reportSceneFailures(ctx, r);
       await buildContinuityLedgerStep(ctx);
@@ -1010,10 +1053,13 @@ async function agentAdaptation(ctx){
       ctx.emit({k:"done", t: r.failures.length
         ? ((r.written ? "Finished "+r.written+" scene"+(r.written===1?"":"s")+" \u2014 " : "No scene was finished this time \u2014 ")+r.failures.length+" still failed even after automatic retries (listed above). To retry just those, "+FINISH_WHERE+".")
         : ("All "+have.length+" scenes now have beats and screenplay. Open the Script view to read the film.")});
+      if(!ctx.cancelled()){ rec.end(r.failures.length); ctx.sync(); }   // the whole log is kept with the film
       return;
     }
     ctx.emit({k:"observe", t:"Understood \u2014 rebuilding the whole film from the logline instead."});
   }
+  // Continue writing never falls through to a rebuild: with nothing left to write, it says so and ends
+  if(ctx.finishOnly){ ctx.emit({k:"done", t: have.length ? "Every scene of this film already has its beats and screenplay \u2014 nothing was left to write." : "This film has no scenes yet. Start it from New Story."}); return; }
   if(!brief){ ctx.emit({k:"flag", t:"No logline provided. Type a logline or synopsis above and run again."}); ctx.emit({k:"done",t:"Nothing to build."}); return; }
   const _fwA = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject) : null;
   const _kishoA = !!(_fwA && _fwA.id==="kishotenketsu");
@@ -1249,6 +1295,8 @@ async function agentAdaptation(ctx){
   if(typeof window.charVisualDefaults==="function"){
     cast.forEach(c=>{ Object.assign(c, window.charVisualDefaults(c)); });
   }
+  const rec = buildRecorder(ctx);
+  rec.start();   // saved with this first commit: from here on the film knows a build is writing it
   ctx.sync();
   ctx.emit({k:"ok", t:"Built "+newScenes.length+" scenes"+(world?", plus the premise, controlling idea, setting and cast":"")+". Now writing each scene \u2014 beats first, then the screenplay \u2014 threading continuity scene to scene."});
 
@@ -1285,7 +1333,8 @@ async function agentAdaptation(ctx){
 
   // ---- seamlessly author beats + script for every scene (no manual Auto-draft needed) ----
   const r = await writeScenesSeq(ctx, ctx.model.scenes.map((_,i)=>i));
-  if(r.stopped) return;
+  if(r.stopped){ rec.stopped(); return; }
+  rec.end(r.failures.length);   // the scenes pass reached its end (the checks below never leave a scene unwritten)
   ctx.sync();
   reportSceneFailures(ctx, r);
   ctx.emit({k:"ok", t:"Wrote "+r.written+" of "+ctx.model.scenes.length+" scenes"+
@@ -1411,6 +1460,7 @@ async function agentAdaptation(ctx){
   ctx.emit({k:"done", t: r.failures.length
     ? ('\u201c'+spine.title+'\u201d is built \u2014 '+r.written+" of "+ctx.model.scenes.length+" scenes written, "+r.failures.length+" flagged above. To finish just those, "+FINISH_WHERE+".")
     : ('\u201c'+spine.title+'\u201d is fully written. Open the Script view to read it, or the Spine to see the charge graph. Pre-production starts in the Art Room with the Lookbook \u2014 the cast\u2019s look is designed from it.')});
+  rec.end(r.failures.length); ctx.sync();   // the whole log is kept with the film
 }
 
 /* The build's pronoun safety net (see agentAdaptation). In an Episode of a Show, a character the Show already had is

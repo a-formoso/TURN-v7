@@ -36,6 +36,21 @@ The causes that fit, most likely first:
 
 ## A. A build can stop part-way and the film does not say so (the Half Strength problem)
 
+> **Status, 11 November 2026 — item 1 of the suggested order is built** (branch `claude/build-resume-20261111`, not
+> published). A1, A2 and A4 are answered, and A3 no longer happens silently:
+> - a film the app built that has unwritten scenes shows **"Unfinished · This film isn't fully written"** in the
+>   Writers' Room, with **Continue writing** (one press: just the unwritten scenes, no approval card, never a
+>   rebuild). It also shows on films built before this, Half Strength included;
+> - the build writes its own record onto the film (`project.build`: status, progress, its log), saved with every
+>   scene; **What happened** opens the log, which ends on the scene the build was in;
+> - reloading or closing the page during a build brings up the browser's "Leave site?" question;
+> - the screen is kept awake while a build writes (where the browser supports it, tab visible);
+> - the beat map of the scene being written is saved as soon as it exists, so an interruption loses less;
+> - when the app itself closes the window mid-build, it says so.
+> Still true: the build runs in the browser, so it still stops when the page goes away — it no longer does so
+> unseen, and one press continues it. A5–A11 are untouched. Code: `app/build-state.js`, `buildRecorder` in
+> `app/agents.jsx`; test: `scripts/test-build-resume.mjs`.
+
 | # | What happens | Found | Where |
 |---|---|---|---|
 | A1 | **The build runs only inside the open Story Editors window, in the browser.** Closing the tab, reloading, the computer sleeping or the browser discarding the tab ends it. The scene being written at that moment is lost (and already paid for). | **seen live** (reload test) | `app/agents-ui.jsx:251` (closing the panel cancels the run) |

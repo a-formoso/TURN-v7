@@ -131,7 +131,8 @@ const LP_STEPS = [
   { n:"01", t:"Bring an idea \u2014 or your script", d:"A logline, a “what if”, a talk it through out loud with Frances \u2014 or a finished screenplay, imported word for word." },
   // the structures (frameworks.jsx) and the formats in the Shape step's display order (formats.jsx)
   { n:"02", t:"Choose how it’s told", d:"Kinolot suggests a structure and a format for your idea, and you can keep them or pick your own: Three-Act Turns, Hero’s Journey or Kishōtenketsu, as a Feature Film, TV Series, Short Film, Micro Short, Micro-drama, Music Video, Documentary or Commercial." },
-  { n:"03", t:"Build the film", d:"Research, synopsis, spine and script, then cast, places, shots and video — it all grows in one place." },
+  // the last sentence (owner 2026-11-11): an interrupted build is never silent — app/build-state.js
+  { n:"03", t:"Build the film", d:"Research, synopsis, spine and script, then cast, places, shots and video — it all grows in one place. If a build is ever interrupted, your film tells you what is left and carries on from there in one click — nothing already written is lost." },
 ];
 
 /* Pricing — derived from the SINGLE source of truth (plans.jsx CINEMA_PLANS), so
