@@ -48,7 +48,15 @@ The causes that fit, most likely first:
 > - the beat map of the scene being written is saved as soon as it exists, so an interruption loses less;
 > - when the app itself closes the window mid-build, it says so.
 > Still true: the build runs in the browser, so it still stops when the page goes away — it no longer does so
-> unseen, and one press continues it. A5–A11 are untouched. Code: `app/build-state.js`, `buildRecorder` in
+> unseen, and one press continues it.
+>
+> **A5 and A6 are built too** (same branch): one scene's beat map or screenplay has a 3-minute limit (the app tells
+> the server, which stops the provider call there and gives the held credits back; the app itself stops waiting 20 s
+> later); a time-out is its own kind of failure; a scene that timed out is not asked again at once (one wait instead
+> of up to four); and two scenes in a row stop the build with one message. Worst case for a stalled engine: about
+> 6 minutes and a film that says it is unfinished, instead of 25 minutes a scene. The server half
+> (`image-proxy`, `timeoutMs`) is written and tested but **not deployed**; until it is, the app's own limit still
+> applies. Test: `scripts/test-writing-time-limit.mjs`. A7–A11 are untouched. Code: `app/build-state.js`, `buildRecorder` in
 > `app/agents.jsx`; test: `scripts/test-build-resume.mjs`.
 
 | # | What happens | Found | Where |

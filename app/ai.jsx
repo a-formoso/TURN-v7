@@ -214,6 +214,29 @@ window.turnAttrError = attributedError;
   };
 })();
 
+/* TIME LIMITS FOR A WRITING CALL (owner 2026-11-11, Writers' Room audit A5 / A6).
+   A stalled writing call used to be waited for with no limit of the app's own: the server gave up on the provider
+   after 380 s, and a scene makes up to four calls — "Half Strength" sat 22 minutes on one scene.
+     WRITING_CALL_LIMIT_MS   every writing call: the server's own limit (the request doesn't change).
+     WRITING_SCENE_LIMIT_MS  one scene's beat map or screenplay (opts.timeoutMs): 3 minutes — about three times the
+                             slowest scene call measured on the slowest engine. It is sent to the server, which
+                             stops the provider call there and gives the held credits back.
+   The app waits WRITING_LIMIT_GRACE_MS longer for the server's own answer, then stops waiting by itself (a
+   request that never comes back at all). Either way the error says the engine took too long, the moment is noted
+   (window.__lastWritingTimeoutAt) and screenplayFailureFromError reads it as kind "timeout" — two scenes in a
+   row stop a build (agents.jsx repeatedServiceFailure). */
+const WRITING_CALL_LIMIT_MS = 380000, WRITING_SCENE_LIMIT_MS = 180000, WRITING_LIMIT_GRACE_MS = 20000;
+const WRITING_TIMEOUT_RE = /took too long to answer|didn[’']t answer in time/i;
+function isWritingTimeout(e){ return WRITING_TIMEOUT_RE.test(String((e && e.message) || e || "")); }
+function writingCallLimit(asked){
+  const n = Math.floor(Number(asked));
+  return (Number.isFinite(n) && n>=20000 && n<WRITING_CALL_LIMIT_MS) ? n : WRITING_CALL_LIMIT_MS;
+}
+window.turnIsWritingTimeout = isWritingTimeout;
+window.turnWritingCallLimit = writingCallLimit;
+// read through window by the writing call and the scene functions (other suites run those functions on their own)
+window.turnWritingLimits = { call:WRITING_CALL_LIMIT_MS, scene:WRITING_SCENE_LIMIT_MS, grace:WRITING_LIMIT_GRACE_MS };
+
 /* Restore window.claude.complete via the proxy's text task, unless a host already
    provided one. Returns the completion as a plain string (the contract callers use). */
 if(!window.claude || typeof window.claude.complete !== "function"){
@@ -238,7 +261,14 @@ if(!window.claude || typeof window.claude.complete !== "function"){
       // on Opus 5.5). The proxy also lifts the Anthropic output cap to leave room to think.
       const effort = opts.effort || ((m.provider==="anthropic" && window.__writingTaskHint==="specs") ? "medium" : undefined);
       let data, error;
-      try{ ({ data, error } = await sb.functions.invoke(fnName, { body:{ ...(typeof window.turnFilmContext==="function" && window.turnFilmContext() ? { context:window.turnFilmContext() } : {}), task:"text", usageKind:"writing", provider:m.provider, model:m.id, messages, effort,
+      // the time limit of this call (see WRITING_CALL_LIMIT_MS above): a shorter one is sent to the server, and the
+      // app stops waiting a little after it
+      const _wl = window.turnWritingLimits || { call:380000, scene:180000, grace:20000 };
+      const limitMs = (typeof window.turnWritingCallLimit==="function") ? window.turnWritingCallLimit(opts.timeoutMs) : _wl.call;
+      let limitTimer = null, gaveUp = false;
+      const waitedOut = new Promise(res=>{ limitTimer = setTimeout(()=>{ gaveUp = true; res({ data:null, error:null }); }, limitMs + _wl.grace); });
+      try{ ({ data, error } = await Promise.race([ waitedOut, sb.functions.invoke(fnName, { body:{ ...(typeof window.turnFilmContext==="function" && window.turnFilmContext() ? { context:window.turnFilmContext() } : {}), task:"text", usageKind:"writing", provider:m.provider, model:m.id, messages, effort,
+        ...(limitMs<_wl.call ? { timeoutMs:limitMs } : {}),
         ...(opts.webSearch ? { webSearch:true } : {}),
         /* Older deployed proxies translate `maxTokens` into OpenAI's retired
            max_tokens field. Send a forward-compatible transport name for every
@@ -249,8 +279,15 @@ if(!window.claude || typeof window.claude.complete !== "function"){
           : { maxTokens: opts.maxTokens || undefined }),
         reasoningEffort: m.reasoningEffort || undefined,
         thinkingLevel: m.thinkingLevel || undefined,
-        userApiKeys: window.turnApiKeysForProxy ? window.turnApiKeysForProxy([m.provider]) : undefined } })); }
+        userApiKeys: window.turnApiKeysForProxy ? window.turnApiKeysForProxy([m.provider]) : undefined } }) ])); }
       catch(e){ error = e; }
+      finally{ if(limitTimer) clearTimeout(limitTimer); }
+      if(gaveUp){   // no answer at all within the limit: stop waiting (never masked — it is already plain)
+        try{ window.__lastWritingTimeoutAt = Date.now(); }catch(e){}
+        const msg = "The writing engine didn't answer in time, so the app stopped waiting for it. Try again in a few minutes.";
+        if(typeof window.appToast==="function") window.appToast(msg,"error");
+        throw new Error(msg);
+      }
       if(error){
         const status = (error && error.context && error.context.status) || error.status;
         if(status===401) return fail("Sign in to use the writing AI — it runs on your server.");
@@ -278,6 +315,7 @@ if(!window.claude || typeof window.claude.complete !== "function"){
         return fail("Couldn't reach the writing model: "+((error && error.message) || "unknown error")+".");
       }
       if(data && data.error){   // provider error relayed by the proxy (e.g. depleted credits)
+        if(typeof window.turnIsWritingTimeout==="function" && window.turnIsWritingTimeout(data.error)){ try{ window.__lastWritingTimeoutAt = Date.now(); }catch(e){} }   // the server's limit
         // attributed + already masked — do NOT run through fail()'s safeError again
         const msg = attributedError("Writing model", m.label, String(data.error));
         if(typeof window.appToast==="function") window.appToast(msg,"error");
@@ -293,7 +331,9 @@ if(!window.claude || typeof window.claude.complete !== "function"){
       if(data && data.truncated && !opts.__cutRetry
         && !(typeof window.__turnAgentRunCancelled==="function" && window.__turnAgentRunCancelled())){
         try{ window.dispatchEvent(new CustomEvent("turn-writing-retry",{ detail:{ model:m.label, reason:"cut-off" } })); }catch(e){}
-        return window.claude.complete({ ...opts, maxTokens:32768, __cutRetry:true });
+        // (it writes with the largest budget, so a call with its own time limit gets twice that limit)
+        return window.claude.complete({ ...opts, maxTokens:32768, __cutRetry:true,
+          ...(opts.timeoutMs ? { timeoutMs:Math.min(_wl.call, Number(opts.timeoutMs)*2) } : {}) });
       }
       try{ window.__lastWritingTruncated = !!(data && data.truncated); }catch(e){}
       // a searching call (opts.webSearch) reports whether its engine could search, how many
@@ -1472,6 +1512,9 @@ function screenplayFailureFromError(e, where){
   // (2026-09-28), so a batch stops for admins exactly as it does for everyone else
   const ref = (msg.match(/\(ref (CM-\d+)\)/)||[])[1] || ((ERR_CODES.find(r=>r.re.test(msg))||{}).code || "");
   if(/truncat/i.test(msg)) return screenplayFailure("truncated", { where, technical:msg });
+  // the engine took too long (the server's limit or the app's own, 2026-11-11): its own kind, so two in a row
+  // stop a batch — it used to be an unnumbered "service" error that never did
+  if(isWritingTimeout(msg)) return screenplayFailure("timeout", { where, technical:msg });
   if(_PLAN_CREDITS_RE.test(msg)) return screenplayFailure("plan", { where, technical:msg,
     billing: _BILLING_FROZEN_RE.test(msg) ? "frozen" : _BILLING_DOWN_RE.test(msg) ? "unavailable" : _billingEngineShortfall(msg) ? "engine" : "credits" });
   if(ref==="CM-11" || (!ref && ERR_CODES[0].re.test(msg))) return screenplayFailure("credits", { where, technical:msg, ref:"CM-11" });
@@ -1506,6 +1549,7 @@ function screenplayFailureReason(f){
     case "unreadable": return "the writing model’s reply couldn’t be read as a screenplay";
     case "empty": return "the writing model sent back an empty reply";
     case "truncated": return "the writing model’s reply was cut off before the scene was finished";
+    case "timeout": return "the writing engine took too long to answer";
     case "plan": return f.billing==="frozen" ? "your account is on hold while a payment is disputed"
       : f.billing==="unavailable" ? "your credits couldn’t be checked just then"
       : f.billing==="engine" ? "this writing engine needs more credits for one answer than your account has"
@@ -1533,6 +1577,7 @@ function screenplayFailureAdvice(f, retryLabel, opts){
     : _spCap(again)+" in a moment; if it keeps failing, quote ref "+(f.ref||"CM-11")+" to support.";
   if(f.kind==="signin" || f.kind==="unavailable") return "Sign in, then "+again+".";
   if(f.kind==="truncated") return _spCap(again)+"; if it keeps happening, shorten the longest beat cards.";
+  if(f.kind==="timeout") return _spCap(again)+" in a few minutes, or choose another writing engine first.";
   if(f.kind==="service" && f.ref) return _spCap(again)+" in a moment; if it keeps failing, quote ref "+f.ref+" to support.";
   return _spCap(again)+" in a moment.";
 }
@@ -1814,7 +1859,7 @@ async function aiDraftScene(scene, beats, prevScene, project, characters, scenes
     formatDraftLine(P) + SCREENPLAY_STYLE + "\n\n" + screenTimeBrief(P, scenes, "draft") + BLOCK_SPEC + retryNote;
   let failure = null;
   try{
-    const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:8192 });
+    const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:8192, timeoutMs:(window.turnWritingLimits||{}).scene });
     if(window.__lastWritingTruncated) throw new Error("Screenplay draft was truncated.");
     // realigns beat tags by CONTENT against the beat map (shots, storyboards and
     // dialogue-speaker lookups all read the script through these tags)
@@ -1995,7 +2040,7 @@ async function aiAuthorScene(scene, prevScene, characters, project, opts){
     "and make the decisive shift land ON the turn beat \u2014 beats may oscillate, but the through-line must read.\n"+
     "Each beat's drive/react `d`: "+SELF_CONTAINED_BEATS;
   try{
-    const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:4096 });
+    const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:4096, timeoutMs:(window.turnWritingLimits||{}).scene });
     if(window.__lastWritingTruncated) return null;
     const j = extractJSON(res);
     if(!j || !Array.isArray(j.beats) || !j.beats.length) return null;
@@ -2092,7 +2137,7 @@ async function aiBeatsFromScript(scene, draft, characters, project){
     "read it off the prose \u2014 the sequence should track the scene's emotional arc and make its decisive shift ON the turn beat.\n"+
     'Return ONLY JSON: {"driverLabel":"the character driving the scene (a CAST name)","reactorLabel":"the main other character (a CAST name)","desire":"what the driver wants here","obstacle":"what blocks it","result":"the concrete resolved outcome by the final beat","turnAt":<beat# where the value flips>,"beats":[{"n":<beat#>,"drive":{"a":"ActionVerb","d":"what the driver DOES this beat, present tense"},"react":{"a":"ReactionVerb","d":"how the other responds"},"charge":<-3..3>}]}';
   try{
-    const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:4096 });
+    const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }], maxTokens:4096, timeoutMs:(window.turnWritingLimits||{}).scene });
     if(window.__lastWritingTruncated) return null;
     const j = extractJSON(res);
     if(!j || !Array.isArray(j.beats) || !j.beats.length) return null;
@@ -3678,6 +3723,10 @@ window.museFacts = museFacts;
   if(continuity) continuity.what += " If a needed ledger refresh fails, Setups & Payoffs stops and says continuity was not checked; an older map is never treated as a current clean check.";
   const brief = APP_FEATURES.find(f=>f.name==="Story brief (Brief button) + Rebuild as a new film");
   if(brief) brief.what += " Rebuilding as a new film keeps the complete saved research, including its sources and the writer's edits.";
+})();
+/* A WRITING CALL HAS A TIME LIMIT (2026-11-11, owner — Writers' Room audit A5 / A6) */
+(()=>{ const f = APP_FEATURES.find(x=>x && String(x.name||"").startsWith("Writers' Room run integrity"));
+  if(f) f.what += " A WRITING CALL HAS A TIME LIMIT: one scene's beat map or screenplay is given 3 minutes (other writing calls up to about 6 and a half); a call that runs past it is stopped, the credits held for it are given back, and the message says the writing engine took too long to answer. During a story build a scene whose call took too long is not asked again straight away: it is left for the build's own retry at the end, and the next scene is tried. TWO IN A ROW STOP THE BUILD: when two scenes in a row take too long, the build stops with one message \u2014 everything written is kept, the film shows it is unfinished, and after a few minutes (or on another writing engine, picked in the top bar) Continue writing finishes the rest. Auto-draft all stops the same way. Before this a stalled engine could hold one scene for over twenty minutes and then turn every remaining scene into a rough stand-in.";
 })();
 /* AN UNFINISHED FILM SAYS SO (2026-11-11, owner — Writers' Room audit item 1; app/build-state.js) */
 APP_FEATURES.push({ name:"Unfinished film notice & Continue writing (Writers' Room)", what:"A story build runs in your browser window: it writes the film scene by scene while the Story Editors window is open. If the page is reloaded or closed, the browser discards the tab, or the computer goes to sleep while it is writing, the build ends there — every scene already written is kept, and the scene that was being written keeps its beat map if that part was finished. THE FILM SAYS SO: whenever a film the app built has scenes with no screenplay (or a rough stand-in, or a screenplay with no beat map), the Writers' Room shows a bar under the top bar — 'Unfinished · This film isn't fully written' — with how many scenes are unwritten and, when the last build did not reach its end, when it last made progress. CONTINUE WRITING: the bar's 'Continue writing' button opens Story Editors and starts writing just the unwritten scenes at once, on the writing engine shown in the top bar (change it there first if you want another one); nothing already written is redone and there is no extra approval step. It uses writing credits like any writing, so it needs an active plan. 'What happened' opens the last build's log, which is saved with the film and ends where the build stopped. The × hides the bar until the film is opened again. The bar also appears on films built before this existed (those have no saved log). LEAVING DURING A BUILD ASKS FIRST: reloading or closing the page while a build is writing shows the browser's own 'Leave site?' question. THE SCREEN STAYS AWAKE while a build is writing, where the browser supports it and the tab stays visible (closing a laptop lid still puts the computer to sleep). The build does not carry on by itself after an interruption — open the film and press Continue writing. The older route still works: Story Editors → 'Finish writing this film'." });

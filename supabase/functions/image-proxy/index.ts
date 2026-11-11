@@ -209,6 +209,16 @@ const DEFAULT_TEXT_OUTPUT_CAP = 16000;
    still runs and RELEASES the credits held for it (repair F11). A worker killed by the platform
    runs no finally at all — then the housekeeping job (turn_release_stale_holds) returns it. */
 const TEXT_PROVIDER_TIMEOUT_MS = 380000;
+/* A SHORTER LIMIT THE APP ASKS FOR (owner 2026-11-11, Writers' Room audit A5). One scene's beat map or screenplay
+   never needs 380 s, and a stalled provider call used to hold a story build for over six minutes per try (four
+   tries a scene). `timeoutMs` in a text request (20 s to 380 s; anything else = the full limit) is when THIS call's
+   provider fetch is abandoned — the same path as the 380 s limit: the hold is released, nothing is charged, and
+   the caller is told the engine took too long. It can only shorten the wait, never extend it. */
+const TEXT_PROVIDER_TIMEOUT_MIN_MS = 20000;
+const textTimeoutFor = (asked: unknown): number => {
+  const n = Math.floor(Number(asked));
+  return Number.isFinite(n) && n >= TEXT_PROVIDER_TIMEOUT_MIN_MS && n < TEXT_PROVIDER_TIMEOUT_MS ? n : TEXT_PROVIDER_TIMEOUT_MS;
+};
 /* a retired image model's id was served as its successor (logged once per instance) */
 let legacyWritingModelLogged = false;
 /* a voice id this studio didn't record: its provider category, cached per instance (only "premade" / "professional"
@@ -1048,6 +1058,7 @@ Deno.serve(async (req) => {
     const textUnreachable = (e: any) => (e as any)?.name === "TimeoutError"
       ? json({ error: "The writing engine took too long to answer. Please try again — a shorter request finishes sooner." }, 200)
       : json({ error: isAdmin ? "Proxy failed to reach the provider: " + (e?.message || e) : "Couldn't reach the writing engine. Please try again." }, 502);
+    const textTimeoutMs = textTimeoutFor(body.timeoutMs);   // the app's shorter limit for this call, or the full 380 s
     const runText = async (): Promise<Response> => {
     if (provider === "google") {
       const gkey = providerKey("google", "GOOGLE_API_KEY");
@@ -1071,7 +1082,7 @@ Deno.serve(async (req) => {
         // maxOutputTokens bounds thinking + answer (Gemini bills its thinking tokens as output)
         const r = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(gkey)}`,
-          { method: "POST", signal: AbortSignal.timeout(TEXT_PROVIDER_TIMEOUT_MS), headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents,
+          { method: "POST", signal: AbortSignal.timeout(textTimeoutMs), headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents,
             generationConfig: {
               ...(reqMaxTokens ? { maxOutputTokens: reqMaxTokens } : {}),
               // Gemini 3.8 Flash and Gemini 4 Argon take low | medium | high (Argon ignores temperature; none is sent)
@@ -1093,7 +1104,7 @@ Deno.serve(async (req) => {
       try {
         const r = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
-          signal: AbortSignal.timeout(TEXT_PROVIDER_TIMEOUT_MS),
+          signal: AbortSignal.timeout(textTimeoutMs),
           headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({ model,
             /* OpenAI Chat Completions deprecates `max_tokens` in favour of
@@ -1148,7 +1159,7 @@ Deno.serve(async (req) => {
       const sendTurns: any[] = turns.length ? turns : [{ role: "user", content: "" }];
       const callClaude = (msgs: any[]) => fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
-          signal: AbortSignal.timeout(TEXT_PROVIDER_TIMEOUT_MS),
+          signal: AbortSignal.timeout(textTimeoutMs),
           headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
           // a metered call's cap is the held one (never below the 16k thinking room: the hold covers it)
           body: JSON.stringify({ model: runModel, max_tokens: textKind === "muse" ? MUSE_LIMITS.maxOutputTokens : Math.max(reqMaxTokens || 0, 16000),

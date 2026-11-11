@@ -2698,7 +2698,9 @@ async function proxySection() {
       assert.ok(providerCalls("https://api.anthropic.com/")[0].signal instanceof AbortSignal, "Frances too");
       const src = read("supabase/functions/image-proxy/index.ts");
       assert.match(src, /const TEXT_PROVIDER_TIMEOUT_MS = 380000;/);
-      assert.equal((src.match(/signal: AbortSignal\.timeout\(TEXT_PROVIDER_TIMEOUT_MS\)/g) || []).length, 3, "Anthropic, OpenAI and Google");
+      // (2026-11-11) the limit is the request's own when the app asks for a shorter one (textTimeoutFor), else the full 380 s
+      assert.equal((src.match(/signal: AbortSignal\.timeout\(textTimeoutMs\)/g) || []).length, 3, "Anthropic, OpenAI and Google");
+      assert.match(src, /const textTimeoutMs = textTimeoutFor\(body\.timeoutMs\);/);
       // a call that outruns it: the finally path runs — the hold comes back — and the message says so
       reset(); W.providers["https://api.anthropic.com/v1/messages"] = () => { throw new DOMException("The operation was aborted due to timeout", "TimeoutError"); };
       const b = await bal(U.producer);

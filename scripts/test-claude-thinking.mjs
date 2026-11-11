@@ -14,7 +14,7 @@ const ai=read("app/ai.jsx"), proxy=read("supabase/functions/image-proxy/index.ts
 // the proxy's price tables live in billing-pricing.mjs since the billing fixes (2026-09-30)
 const proxyPrices=read("supabase/functions/image-proxy/billing-pricing.mjs");
 const ast=parseSync(ai,{sourceType:"script"});
-const box={console}; box.window=box; vm.createContext(box);
+const box={console,setTimeout,clearTimeout}; box.window=box; vm.createContext(box);   // the writing call has a time limit (2026-11-11)
 const src=node=>ai.slice(node.start,node.end);
 // the registry, the pick helpers and the complete() transport, exactly as shipped
 for(const n of ["WRITING_MODELS","WRITING_TASK_DEFAULTS"]){ const node=ast.program.body.find(x=>x.type==="VariableDeclaration"&&x.declarations.some(d=>d.id.name===n)); vm.runInContext(src(node).replace(/^const /,"var "),box); }

@@ -258,7 +258,7 @@ await test("the wiring: the notice strip, the leave question, the window, France
   // the homepage says it, without promising a build that runs by itself
   assert.ok(read("app/landing.jsx").includes("If a build is ever interrupted, your film tells you what is left and carries on from there in one click \u2014 nothing already written is lost."));
   for(const file of ["build-state.js","agents.jsx","agents-ui.jsx","app.jsx","ai.jsx","script.jsx","styles.css","landing.jsx"])
-    assert.ok(["20261112-resume1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-resume1", "20261112-limit1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
   assert.ok(css.includes(".build-strip-log ol{"));
   // no internal codename, no vendor, in anything this shows
   const shown=[read("app/build-state.js"),f.slice(0,2600)].join("\n");

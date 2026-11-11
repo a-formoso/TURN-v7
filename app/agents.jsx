@@ -685,6 +685,7 @@ function standInWhy(f, retried){
   else if(f.kind==="plan" && f.billing==="engine"){ base = "the writing engine needs more credits for one answer than your account has"; next = "choose a lighter writing engine (or add credits), then open it and redraft"; }
   else if(f.kind==="plan"){ base = "your account ran out of plan credits for writing"; next = "choose a plan or add credits, then open it and redraft"; }
   else if(f.kind==="signin"){ base = "you were signed out of the writing service"; next = "sign in, then open it and redraft"; }
+  else if(f.kind==="timeout"){ base = "the writing engine "+(retried ? "again took" : "took")+" too long to answer"; next = "open it and redraft in a few minutes"; }
   else if(f.kind==="truncated") base = "the model\u2019s reply "+(retried ? "kept getting" : "was")+" cut off";
   else if(f.kind==="unreadable" || f.kind==="empty") base = "the model\u2019s reply "+(retried ? "kept coming back" : "came back")+" "+(f.kind==="empty" ? "empty" : "unreadable");
   else base = (retried ? "the model call kept failing" : "the model call failed")+ref;
@@ -710,9 +711,17 @@ window.turnFailureNeedsAction = failureNeedsAction;
    scenes in a row failing with the same reference (each already retried) means the rest would
    most likely fail the same way. `prev` is the previous scene's failure (null after a success). */
 function repeatedServiceFailure(prev, f){
-  return !!(prev && f && prev.kind==="service" && f.kind==="service" && f.ref && prev.ref===f.ref);
+  if(!prev || !f) return false;
+  // THE ENGINE TOOK TOO LONG, TWICE IN A ROW (2026-11-11, audit A6): a stalled engine has no reference code, so it
+  // never counted — every remaining scene waited its turn, timed out and became a stand-in
+  if(prev.kind==="timeout" && f.kind==="timeout") return true;
+  return !!(prev.kind==="service" && f.kind==="service" && f.ref && prev.ref===f.ref);
 }
 window.turnRepeatedServiceFailure = repeatedServiceFailure;
+
+/* did a writing call run past its time limit since `t`? (ai.jsx notes the moment; the scene author returns
+   nothing on any failure, so this is how the build tells a time-out from an unreadable answer) */
+function writingTimedOutSince(t){ return Number((typeof window!=="undefined" && window.__lastWritingTimeoutAt) || 0) >= Number(t||0); }
 
 /* a rough stand-in draft (script.jsx isStandInDraft — Story Pipeline step 7), with the same rule
    inline when script.jsx isn't loaded */
@@ -793,6 +802,7 @@ async function writeScenesSeq(ctx, indices){
     const first = fl.kind==="plan" ? (fl.billing==="frozen" ? "Once the payment hold is lifted (write to kinolot-billing@infinitestudioai.com if it\u2019s a mistake)"
         : fl.billing==="unavailable" ? "Wait a minute" : fl.billing==="engine" ? "Choose a lighter writing engine (or add credits)" : "Choose a plan or add credits")
       : fl.kind==="credits" ? (window.turnIsAdmin ? "Top up the provider account" : "Wait a little (if it keeps failing, quote ref "+(fl.ref||"CM-11")+" to support)")
+      : fl.kind==="timeout" ? "Wait a few minutes, or choose another writing engine"
       : fl.kind==="service" ? "Wait a little (if it keeps failing, quote ref "+(fl.ref||"CM-14")+" to support)"
       : "Sign in";
     const left = indices.length - written;
@@ -830,10 +840,16 @@ async function writeScenesSeq(ctx, indices){
           if(attempt){ await scenePause(800); if(ctx.cancelled()) return {cancelled:true}; }
           // A finished screenplay is canon: reconstruct its map rather than inventing
           // another scene's beats. New scenes still follow beats first, then script.
+          const askedAt = Date.now();
           const authored = repairBeatsOnly && ctx.ai.beatsFromScript
             ? { beats:await ctx.ai.beatsFromScript(scn, ctx.model.drafts[scn.id]) }
             : await ctx.ai.authorScene(scn, prev);
           if(ctx.cancelled()) return {cancelled:true};
+          // THE ENGINE TOOK TOO LONG (2026-11-11, audit A5/A6): asking again at once — and then drafting the
+          // screenplay with no beat map, twice — is three more waits on an engine that isn't answering. The scene
+          // is left unwritten with the reason; the next scene decides whether the build goes on.
+          if(!repairBeatsOnly && !(authored && authored.beats && (authored.beats.rows||[]).length) && writingTimedOutSince(askedAt))
+            return fail(false, "the writing engine took too long to answer, so this scene isn\u2019t written yet", { kind:"timeout", issues:[], details:[], technical:"the beat map call ran past its time limit", where:"beats" });
           if(authored && authored.beats && (authored.beats.rows||[]).length){
             scn = {...scn, ...authored.patch}; beats = authored.beats;
             ctx.model.scenes[i] = scn; ctx.model.beats[scn.id] = authored.beats;
@@ -877,6 +893,8 @@ async function writeScenesSeq(ctx, indices){
         // a failure retrying can't fix (out of credits, signed out): no second try — the
         // batch stops after this scene (failureNeedsAction, 2026-09-28)
         if(standIn && failureNeedsAction(lastFailure)) break;
+        // nor after the engine took too long (2026-11-11): a second wait on the same scene helps nobody
+        if(standIn && lastFailure && lastFailure.kind==="timeout") break;
       }
       // the draft remembers the card it was written from (the "needs redraft" marker); a
       // failed attempt on a scene that already had a stand-in leaves that stand-in as it is
