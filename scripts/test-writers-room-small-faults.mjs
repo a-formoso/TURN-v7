@@ -131,13 +131,29 @@ await test("C2 the Logline step says the writer's own shape once they have picke
   assert.equal(rule({frameworkId:"kishotenketsu"},"short","kishotenketsu"),true);
 });
 
+await test("the editor window's heading is one line: room \u00b7 editor \u00b7 status",()=>{
+  // (owner 2026-11-11, from a screenshot: "Story Editors \u00b7" / "Adaptation" / "Working\u2026" stood on three lines)
+  const css=read("app/styles.css"),ui=read("app/agents-ui.jsx");
+  assert.ok(css.includes(".ag-runner-head .ag-runner-t{display:flex;align-items:baseline;min-width:0;white-space:nowrap;overflow:hidden}"));
+  assert.ok(/\.ag-runner-head \.ag-runner-name\{display:flex;[^}]*flex-wrap:nowrap;white-space:nowrap;font-size:17px/.test(css));
+  // the editor's name never shrinks; the room's name gives way first, and the status keeps its place after a dot
+  assert.ok(/\.ag-runner-head \.ag-runner-muse\{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis/.test(css));
+  assert.ok(css.includes(".ag-runner-head .ag-runner-sub{flex:0 0 auto;margin:0 0 0 8px;white-space:nowrap}")&&css.includes('.ag-runner-head .ag-runner-sub::before{content:"\\00b7";margin-right:8px}'));
+  // room for it on a desktop only: a phone keeps its full-width window
+  assert.ok(css.includes("@media (min-width:641px){ .ag-panel{width:min(740px,96vw)} }"));
+  assert.ok(css.indexOf("@media (min-width:641px){ .ag-panel{width:min(740px,96vw)} }")>css.indexOf(".ag-panel{width:min(620px,96vw)"));
+  // the markup is unchanged: the room, the editor's name, then the status
+  assert.ok(ui.includes('React.createElement("div",{className:"ag-runner-sub"},')&&ui.includes('React.createElement("span",{className:"ag-runner-muse"},'));
+  assert.ok(["20261112-head1"].some(k=>read("TURN.html").includes("app/styles.css?v="+k+'"')));
+});
+
 await test("Frances knows; the page is on the new key",()=>{
   const ns=(box.APP_FEATURES||[]).find(x=>x&&String(x.name||"").startsWith("New Story (format")),sv=(box.APP_FEATURES||[]).find(x=>x&&x.name==="Spine view");
   for(const s of ["THE WORKING TITLE IS THE FILM'S TITLE","'Your shape: … — your own pick. The suggestion was …'","Ki / Shō / Ten / Ketsu","a scene never takes a title another scene already has"]) assert.ok(ns.what.includes(s),s);
   assert.ok(sv.what.includes("says a scene reverses only when its charge really changes sign"));
   const html=read("TURN.html");
   for(const file of ["frameworks.jsx","inspector.jsx","agents.jsx","newstory.jsx","app.jsx","ai.jsx","script.jsx"])
-    assert.ok(["20261112-small1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-small1", "20261112-head1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log(`\n${checks} checks passed${failed?`, ${failed} FAILED`:""}`);

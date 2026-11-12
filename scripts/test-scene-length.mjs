@@ -128,7 +128,7 @@ await test("Frances knows; the page is on the new key",()=>{
   assert.ok(!/\bTURN\b|Claude|Anthropic|McKee/.test(f.what));
   const html=read("TURN.html");
   for(const file of ["formats.jsx","ai.jsx","script.jsx"])
-    assert.ok(["20261112-length1", "20261112-small1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-length1", "20261112-small1", "20261112-head1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log(`\n${checks} checks passed${failed?`, ${failed} FAILED`:""}`);

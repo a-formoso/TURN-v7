@@ -12005,3 +12005,15 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
   animation:spin .8s linear infinite}
 .sheet-busy-cap{font-size:13px;font-weight:500;color:var(--txt-1);letter-spacing:.01em}
 @media (prefers-reduced-motion: reduce){ .sheet-busy-spin{animation-duration:2.4s} }
+
+/* THE EDITOR WINDOW'S HEADING ON ONE LINE (owner 2026-11-11): "Story Editors · Adaptation · Working…". It stood on
+   three lines (the room, the editor, the status). The editor's name never shrinks; when the window is narrow the
+   room's name gives way first. */
+.ag-runner-head .ag-runner-t{display:flex;align-items:baseline;min-width:0;white-space:nowrap;overflow:hidden}
+.ag-runner-head .ag-runner-name{display:flex;align-items:baseline;gap:3px;flex:0 1 auto;min-width:0;flex-wrap:nowrap;white-space:nowrap;font-size:17px;line-height:1.35}
+/* room for it: the window is 740 wide (it was 620), so "Story Editors · Adaptation · Awaiting your approval" fits beside
+   the engine badge */
+@media (min-width:641px){ .ag-panel{width:min(740px,96vw)} }
+.ag-runner-head .ag-runner-muse{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:pre;letter-spacing:0;font-weight:500}
+.ag-runner-head .ag-runner-sub{flex:0 0 auto;margin:0 0 0 8px;white-space:nowrap}
+.ag-runner-head .ag-runner-sub::before{content:"\00b7";margin-right:8px}
