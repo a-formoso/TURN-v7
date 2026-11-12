@@ -226,8 +226,9 @@ await test("D5 the logline note names what's missing, points to the sharpened ve
 
 await test("D6 the flow: Logline \u2192 Research (edit, steer) \u2192 Synopsis (written from it, rewritable)", () => {
   assert.ok(/\{ id:"loglines", label:"Logline" \},\s*\{ id:"research", label:"Research" \},[^\n]*\n\s*\{ id:"synopsis", label:"Synopsis" \},/.test(ns));
-  assert.ok(ns.includes('await aiResearch(l, text, frameworkRef.current, formatRef.current, again ? steer : "")'));
-  assert.ok(ns.includes("await aiSynopsisFromResearch(l, text, frameworkRef.current, formatRef.current, research)"));
+  // (2026-11-12, audit B12: both calls also carry the Show's cast when New Story builds an episode)
+  assert.ok(ns.includes('await aiResearch(l, text, frameworkRef.current, formatRef.current, again ? steer : "", showCanon)'));
+  assert.ok(ns.includes("await aiSynopsisFromResearch(l, text, frameworkRef.current, formatRef.current, research, showCanon)"));
   assert.ok(ns.includes('"Rewrite synopsis from research"') && ns.includes('"Research again"') && ns.includes('"Write synopsis"'));
   assert.ok(ns.includes("The research has changed since this synopsis was written"));
   // the edited research is what the film keeps

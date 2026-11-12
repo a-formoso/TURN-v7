@@ -195,7 +195,7 @@ function nsVoiceNoteKey(){ return "turn-interview-voice-note:"+String(window.tur
 
 /* Recovery interview for browsers/environments where GPT-Live cannot open. It
    retains the previous turn-by-turn TTS/STT + typed conversation (the same Frances voice). */
-function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
+function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice, showCanon }){
   const [chat, setChat] = React.useState([]);     // [{role:'assistant'|'user', content}]
   const [thinking, setThinking] = React.useState(false);
   const [listening, setListening] = React.useState(false);
@@ -220,7 +220,7 @@ function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
     (async()=>{
       setThinking(true);
       try{
-        const r = await aiSeedInterview([], formatLabel);
+        const r = await aiSeedInterview([], formatLabel, showCanon);
         if(alive && r){ setChat([{role:"assistant",content:r.say}]); say(r.say); }
       }catch(e){ if(alive) setErr(hErr(e)); }
       if(alive) setThinking(false);
@@ -238,7 +238,7 @@ function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice }){
     const next = [...chat, {role:"user", content:t}];
     setChat(next); setTyped(""); setInterim(""); setErr(""); setThinking(true);
     try{
-      const r = await aiSeedInterview(next, formatLabel);
+      const r = await aiSeedInterview(next, formatLabel, showCanon);
       if(!r){ setErr("I didn’t catch that — try again."); setThinking(false); return; }
       setChat(c=>[...c, {role:"assistant", content:r.say}]);
       say(r.say);
@@ -344,7 +344,7 @@ function nsLiveRows(fragments){
    conversation over WebRTC. Transcript fragments remain UI/state data; choosing
    Finish explicitly shapes them into candidate loglines through the normal next
    pipeline step. */
-function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
+function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback, showCanon }){
   const [fragments,setFragments]=React.useState([]);
   const [status,setStatus]=React.useState("connecting");
   const [err,setErr]=React.useState("");
@@ -403,7 +403,7 @@ function NSLiveInterview({ formatLabel, onComplete, onBack, onUseFallback }){
       const session=sessionRef.current; sessionRef.current=null;
       if(session) await session.close({timeoutMs:2500});
       setStatus("shaping");
-      const lls=typeof aiSeedToLoglines==="function" ? await aiSeedToLoglines("talk",transcript) : null;
+      const lls=typeof aiSeedToLoglines==="function" ? await aiSeedToLoglines("talk",transcript,showCanon) : null;
       if(!lls || !lls.length) throw new Error("That conversation couldn’t be shaped into loglines yet — try Finish again, or continue with the typed interview.");
       onComplete(lls,transcript);
     }catch(e){ setErr(String((e&&e.message)||"Couldn’t shape the conversation into loglines.")); setStatus("ended"); setFinalizing(false); }
@@ -467,7 +467,9 @@ function NSInterview(props){
   return React.createElement(NSLiveInterview,{...props,onUseFallback:()=>setUseFallback(true)});
 }
 
-function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, formatOwnerLabel, onImportScript, initialSeedText }){
+function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, formatOwnerLabel, onImportScript, initialSeedText, showCanon }){
+  // (2026-11-12, audit B12) in an episode of a Show, `showCanon` is the Show's cast: every writing call of this window
+  // is given it, so the episode is planned with the Show's people instead of inventing a new lead
   const seedTypes = (typeof onImportScript==="function") ? SEED_TYPES.concat([SEED_SCRIPT]) : SEED_TYPES;
   // the writing model developing THIS story — synced with the global drafting picker,
   // so loglines, research, synopsis and the spine build all run on the picked engine
@@ -553,7 +555,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
     if(needsText && !text.trim()){ setErr("Add a little more to work from."); return; }
     setErr(""); setLoading(true);
     try{
-      const outs = (typeof aiSeedToLoglines==="function") ? await aiSeedToLoglines(seed, text) : null;
+      const outs = (typeof aiSeedToLoglines==="function") ? await aiSeedToLoglines(seed, text, showCanon) : null;
       if(outs && outs.length){
         // the writer's own LOGLINE seed is candidate #1, verbatim and pre-selected \u2014
         // the sharpened variants are optional, never the default (their words win)
@@ -589,7 +591,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
       "A new research replaces your edits to this one.", "Research again"))) return;
     setErr(""); setResearchLoading(true);
     try{
-      const r = (typeof aiResearch==="function") ? await aiResearch(l, text, frameworkRef.current, formatRef.current, again ? steer : "") : null;
+      const r = (typeof aiResearch==="function") ? await aiResearch(l, text, frameworkRef.current, formatRef.current, again ? steer : "", showCanon) : null;
       if(r && r.research){
         const fresh = researchFor!==inputKey;
         setResearch(r.research); setResearchFor(inputKey); setResearchEdited(false);
@@ -614,7 +616,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
       "It replaces the paragraphs below, including your edits to them.", "Rewrite synopsis"))) return;
     setErr(""); setSynLoading(true);
     try{
-      const s = (typeof aiSynopsisFromResearch==="function") ? await aiSynopsisFromResearch(l, text, frameworkRef.current, formatRef.current, research) : null;
+      const s = (typeof aiSynopsisFromResearch==="function") ? await aiSynopsisFromResearch(l, text, frameworkRef.current, formatRef.current, research, showCanon) : null;
       if(s && Array.isArray(s.paras) && s.paras.length){
         setParas(s.paras.map(pg=>({ ...pg, text: pg.text||"" })));
         setSyn({ title: title || "" }); setSynFrom(researchKey);
@@ -711,7 +713,8 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
               React.createElement(Icon.layers||Icon.film,{s:12}),
               React.createElement("span",null,
                 "Format inherited from ",React.createElement("b",null,formatOwnerLabel||"this Show"),
-                ". Every episode shares one format; create a separate Show to use a different one.")),
+                ". Every episode shares one format; create a separate Show to use a different one."+
+                ((showCanon && showCanon.total) ? " This episode is planned with the Show\u2019s cast ("+showCanon.total+(showCanon.total===1?" person":" people")+"): they keep their names and who they are; anyone new is added." : ""))),
             React.createElement("div",{className:"ns-seclab"},formatLocked
               ? "Show format — inherited by every episode"
               : "Pick a format — it sets the size, not the method; every format works with every structure"),
@@ -778,7 +781,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
                       React.createElement(Icon.sparkles,{s:16}),"Develop into a logline"))))
 
         : step==="interview"
-        ? React.createElement(NSInterview,{ formatLabel,
+        ? React.createElement(NSInterview,{ formatLabel, showCanon,
             onComplete:(lls,transcript)=>{ if(transcript) setText(transcript); setCandidates(lls); setChosen(lls[0]||"");
               applyRecommendedShape(lls); setErr(""); setStep("format"); },
             onBack:()=>setStep("seed") })

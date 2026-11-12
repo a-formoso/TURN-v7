@@ -133,6 +133,30 @@ build on the server so it does not depend on the browser staying open.
 > scene which still runs long gets a free note and is never rewritten automatically (docs/Story Pipeline.md step 5).
 > Test: `scripts/test-scene-length.mjs`.
 >
+> **Status, 12 November 2026 — B12 and B14 are built** (branch `claude/audit-episodes-20261112`, not published).
+> Test: `scripts/test-episode-show-cast.mjs`. Seen on the real engine (six calls, admin account, nothing saved): for
+> an invented four-person Show and the seed "What if a night crew is sent to a flat where nobody will say who made
+> the call?", the loglines without the Show's cast followed three new leads (Tamsin, Rotimi, Gráinne); with it,
+> all three follow the Show's lead with her driver, the controller and the rookie, and the guests have new names.
+> The 24-scene list is driven by the Show's four people in 18 scenes, and the world returned them under their own
+> ids with their descriptions unchanged, plus five new people.
+> - **B12.** Confirmed, and wider than listed: not only the scene list — the loglines, the research, the synopsis
+>   and the story world of a new episode were never told who is in the Show (the build's cast merge keeps the
+>   Show's people, but it can only match a name that was actually used). All of those calls are now given the
+>   Show's cast as canon (`showCanonOf` / `showCanonBlock` in `app/ai.jsx`): names and identities are kept, the
+>   Show's protagonist stays the protagonist unless the writer's own words say otherwise, a person not on the list
+>   is new and gets a new name. It applies when New Story builds the Show's current, empty episode, and to any
+>   Adaptation run inside an episode. New Story's format step and the build's log say so.
+>   Not covered: what happened in earlier episodes (only who the people are), and the spoken "Talk it through"
+>   conversation itself (the loglines shaped from it are covered).
+> - **B14.** A cut-off answer was repaired into readable JSON and used as if whole. Now: a scene-list half that was
+>   cut and came back with fewer scenes than asked is asked for again; the story world is asked for once more and
+>   the fuller answer kept (the log says so when both were cut, with the number of cast entries); a synopsis
+>   paragraph that stops mid-sentence is treated as missing and written again. Research is unchanged (a second
+>   web-searching call costs more than the fault is worth). Also: the synopsis repair asked for "3-5 sentences" in
+>   every format; it now asks for the format's own size.
+> - **D3 is not built — it needs a decision.** See the note under section D.
+
 > **Status, 12 November 2026 — B7, B8, B9, B10 and B13 are built** (branch `claude/audit-long-films-20261112`, not
 > published). Each was confirmed in the code first. Test: `scripts/test-long-films.mjs`.
 > - **B7.** The brief was cut at 4,000 characters in four places (the composed brief, the scene list, the world,
@@ -228,6 +252,13 @@ build on the server so it does not depend on the browser staying open.
 | C9 | While research is running, "Back" and "Regenerate" stay clickable. | **seen live** |
 
 ## D. Structure labels and small wording
+
+> **D3, 12 November 2026 — a decision, not a fix.** The scene list is told how many scenes each act gets, and
+> the engine sometimes labels them differently (a one-scene *ten* and a three-scene *ketsu* where 2 / 2 was
+> asked). The app could force the labels by position. That would go against the rule approved on 25 September
+> ("scenes carry the stage the story actually gives them… falling back to position only when the key stages are
+> missing"): a forced split can put the *ten* label on a scene that is not the twist. Since 12 November the
+> labels at least always run forwards and never move a scene (B10). Left as it is until the owner chooses.
 
 | # | What happens | Found |
 |---|---|---|

@@ -3899,6 +3899,11 @@ APP_FEATURES.push({ name:"Unfinished film notice & Continue writing (Writers' Ro
 })();
 /* LONG STORIES KEEP THEIR ENDING (2026-11-12, owner \u2014 Writers' Room audit B7 to B10, B13) */
 APP_FEATURES.push({ name:"Long stories: what a build reads and keeps (brief, scene list, cast)", what:"HOW MUCH TEXT A BUILD READS: a story build reads up to 12,000 characters of the logline, synopsis and researched world together \u2014 everything New Story itself composes fits, for every format including Feature Film and TV Series. A longer text pasted into Adaptation (a treatment, say) is read up to that point only, and the build's log says so at the start, with the words it stops reading at; if the ending comes after that, decline the scene list, shorten the text and run it again. (Before 12 November 2026 the limit was 4,000 characters and nothing was said.) THE ENDING IS NEVER WHAT GETS CUT: when the scene list comes back with more scenes than the format aims for, the extra ones are taken out around the midpoint, so the opening and the climax and resolution are whole, and the log says how many were taken out. THE ORDER OF THE SCENES IS THE STORY'S ORDER: a scene is never moved because of the act written on it; an act label that is missing or out of step is corrected to match its neighbours instead. THE WORLD AND CAST SEE THE WHOLE FILM: the premise, controlling idea, setting and cast are written looking at every scene, numbered, however long the film is (a 40-scene feature used to be read to about its midpoint). EVERY PERSON WHO DRIVES A SCENE GETS A FULL CAST ENTRY \u2014 identity, pronouns, age, size and voice \u2014 however many there are (the cast used to stop at eight). NO CREDITS OR SIGNED OUT WHILE THE SCENE LIST OR THE WORLD IS BUILT: the build stops at once and says the real reason and what to do (add credits or choose a plan, or sign in), instead of trying again and reporting that it 'didn't come back'; if that happens at the story-world step nothing is made or replaced \u2014 the current project stays as it was \u2014 and the next run builds the scene list again." });
+/* AN EPISODE IS PLANNED WITH ITS SHOW'S PEOPLE; A CUT-OFF PLAN IS KNOWN AS ONE (2026-11-12, owner \u2014 audit B12, B14) */
+APP_FEATURES.push({ name:"A new episode uses the Show's cast (New Story inside a TV Show)", what:"When you start New Story in an empty episode of a TV Show, the story is planned and built WITH THE SHOW'S PEOPLE. Every step is told who is in the Show \u2014 the logline options, the research, the synopsis, the scene list and the cast: each person keeps exactly their name and who they are (identity, pronouns, age, voice), the Show's protagonist stays its protagonist unless your own words say this episode follows someone else, and not everyone has to appear. Someone the episode needs who is not in the Show yet is new and is added to the Show's cast with a name of their own. New Story's format step says so ('This episode is planned with the Show's cast'), and the build's log says it at the start. HOW TO FOLLOW SOMEONE ELSE: name them in your idea or logline \u2014 a person you name is always kept. Before 12 November 2026 an episode was planned like a separate film, so it could come back with a new lead under a new name. NOT COVERED: what HAPPENED in earlier episodes is not read \u2014 only who the people are; mention a past event in your idea if this episode depends on it. The spoken 'Talk it through' conversation itself does not know the cast either (the loglines made from it do). A New Story started from an episode that already has scenes makes a separate film, not an episode, and uses no Show cast." });
+(()=>{ const f = APP_FEATURES.find(x=>x && String(x.name||"").startsWith("Writers' Room run integrity"));
+  if(f) f.what += " A PLAN THAT WAS CUT OFF IS TREATED AS CUT OFF (2026-11-12): when the answer for the scene list, the story world or the synopsis runs into its length limit, the app no longer uses the shortened answer as if it were whole \u2014 a half of the scene list that came back with fewer scenes than asked is asked for again, the story world is asked for once more and the fuller answer kept (the log says so if it was cut both times, with how many cast entries came back), and a synopsis paragraph that stopped mid-sentence is written again.";
+})();
 function appBrief(){
   const facts = museFacts();
   return "\n\nABOUT THIS APP (use ONLY these facts to answer product/how-to questions; never invent features or behaviour — if a question isn't covered here, say you're not sure rather than guess):\n"
@@ -5217,6 +5222,43 @@ window.turnNoteBuildFailure = noteBuildFailure;
 window.turnBuildFailureNeedingAction = buildFailureNeedingAction;
 window.turnBuildFailureSentence = buildFailureSentence;
 
+/* THE SHOW'S PEOPLE ALREADY EXIST (2026-11-12, Writers' Room audit B12). A new episode of a Show was planned and
+   built exactly like a new film: the logline, the synopsis, the scene list and the story world were never told who
+   is in the Show. So episode 2 could arrive with a new lead under a new name, and the Show's own protagonist
+   nowhere in it (the build's cast merge keeps the Show's people, but it can only match a name that was used).
+   Every one of those calls is now given the Show's cast as canon. `showCanonOf` is what the app hands over;
+   `showCanonBlock` is the paragraph, worded for the step that reads it. */
+function showCanonOf(characters, o){
+  const list = (Array.isArray(characters) ? characters : []).filter(c=>c && c.id!=null && String(c.id).trim() && String(c.name||"").trim());
+  if(!list.length) return null;
+  const txt = (v,n)=> clipAtBoundary(scrubBrand(String(v==null?"":v)).replace(/\s+/g," ").trim(), n);
+  return {
+    showTitle: txt(o && o.showTitle, 80),
+    episodeNo: (Number(o && o.episodeNo)>0) ? Math.round(Number(o.episodeNo)) : null,
+    total: list.length,
+    cast: list.slice(0,24).map(c=>({ id:String(c.id), name:txt(c.name,40), role:txt(c.role,120),
+      pronouns:txt(c.pronouns,12), age:txt(c.ageRange,24) })),
+  };
+}
+window.showCanonOf = showCanonOf;
+/* use: "plan" (logline, research, synopsis) \u00b7 "spine" (driver ids matter) \u00b7 "world" (the cast list is returned) */
+function showCanonBlock(canon, use){
+  if(!canon || !Array.isArray(canon.cast) || !canon.cast.length) return "";
+  const ep = canon.episodeNo ? ("EPISODE "+canon.episodeNo) : "A NEW EPISODE";
+  const withIds = use==="spine" || use==="world";
+  const line = (c)=> "\u2022 "+(withIds ? (c.id+" = ") : "")+c.name+(c.role ? (" \u2014 "+c.role) : "")+
+    ((c.pronouns||c.age) ? (" ("+[c.pronouns,c.age].filter(Boolean).join(", ")+")") : "");
+  return "\nTHIS STORY IS "+ep+" OF THE SHOW"+(canon.showTitle ? (" \u201c"+canon.showTitle+"\u201d") : "")+". "+
+    "THE SHOW'S PEOPLE ALREADY EXIST and are canon: each keeps exactly the name and identity below \u2014 none is renamed, re-invented, replaced or split in two. "+
+    "Tell this episode's story WITH them: the Show's protagonist stays its protagonist unless the writer's own words say this episode follows someone else. "+
+    "Not everyone has to appear. A person the story needs who is NOT on this list is new to the Show and gets a name that is not on it. "+
+    "The people on this list are already named: the rules for naming NEW people do not apply to them.\n"+
+    "THE SHOW'S CAST"+(withIds ? " (id = NAME)" : "")+":\n"+canon.cast.map(line).join("\n")+"\n"+
+    (use==="spine" ? "DRIVER IDS: a scene driven by one of these people uses EXACTLY the id before their '=' sign.\n" : "")+
+    (use==="world" ? "IN \"cast\": return every one of these people who appears in this episode with EXACTLY the id and name shown; their identity, pronouns, age and voice are already set and are kept as they are (repeat them, never redesign them). Add a full new entry only for a person this episode introduces.\n" : "");
+}
+window.showCanonBlock = showCanonBlock;
+
 /* ACTS FOLLOW THE ORDER OF THE SCENES, NEVER THE OTHER WAY ROUND (2026-11-12, audit B10). The scene list is in
    story order; the act on each scene is a label. The list used to be SORTED by that label, so one scene tagged
    with the wrong act — or with none, which read as act 1 — was moved to another part of the film. Now the order
@@ -5284,7 +5326,7 @@ window.joinSpineHalves = joinSpineHalves;
    `fw` (app/frameworks.jsx) sets the GRAMMAR: three-act keeps this prompt
    verbatim; Kish\u014dtenketsu swaps in its four-movement build (the ten is a
    recontextualization, never a conflict escalation). */
-async function spineBatch(brief, part, fmt, fw, prior){
+async function spineBatch(brief, part, fmt, fw, prior, canon){
   const isFirst = part==="first";
   const isFilm = !fmt || fmt.id==="film";
   const hasFw = !!(fw && fw.spine);   // any non-three-act framework with a spine grammar
@@ -5377,9 +5419,14 @@ async function spineBatch(brief, part, fmt, fw, prior){
     "("+actSpec+", t=title, l=slugline, s=summary, d=driver lowercase first-name, vp/vn=the ONE value at stake in the scene as its positive and negative pole (one word each), oc/cc=opening/closing charge -3..3 on that value, cl=level of conflict 1=inner 2=personal 3=extra-personal"+(isFirst&&!hasFw?", incite=the scene NUMBER (1-based) that IS the Inciting Incident":"")+"). "+stageRule+priorBlock+
     // the WHOLE brief (up to STORY_BRIEF_MAX, audit B7): a 1600-char cut once dropped the
     // synopsis's last paragraph, so the half holding the climax was built blind to the ending
-    "\n\nLOGLINE / SYNOPSIS:\n"+clipAtBoundary(String(brief), (typeof window!=="undefined" && window.STORY_BRIEF_MAX) || 12000);
+    "\n\nLOGLINE / SYNOPSIS:\n"+clipAtBoundary(String(brief), (typeof window!=="undefined" && window.STORY_BRIEF_MAX) || 12000)+
+    // an episode of a Show is built with the Show's people (2026-11-12, audit B12)
+    ((canon && typeof window.showCanonBlock==="function") ? "\n"+window.showCanonBlock(canon, "spine") : "");
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
+    // A CUT-OFF ANSWER IS KNOWN AS ONE (2026-11-12, audit B14): the writing call says when the reply ran into its
+    // limit even after its own second try; the list salvaged from it may be missing its last scenes
+    const cut = !!(typeof window!=="undefined" && window.__lastWritingTruncated);
     const j = extractJSON(res);
     const raw = (j && Array.isArray(j.scenes)) ? j.scenes : salvageSpineScenes(res);
     if(!raw || !raw.length) return null;
@@ -5387,11 +5434,11 @@ async function spineBatch(brief, part, fmt, fw, prior){
     // the model-declared Inciting Incident (three-act first half) rides along so the
     // audit later checks a REAL declaration, not a positional guess
     const inciteN = (isFirst && !hasFw && j && Number.isFinite(Number(j.incite))) ? Number(j.incite) : null;
-    return { title: (j&&j.title)||(titleM&&titleM[1])||null, scenes: normSpineScenes(raw), incite: inciteN };
+    return { title: (j&&j.title)||(titleM&&titleM[1])||null, scenes: normSpineScenes(raw), incite: inciteN, ...(cut ? { cut:true } : {}) };
   }catch(e){ try{ if(typeof window.turnNoteBuildFailure==="function") window.turnNoteBuildFailure(e, "spine"); }catch(_){} return null; }
 }
 
-async function aiBuildSpine(brief, formatId, frameworkId){
+async function aiBuildSpine(brief, formatId, frameworkId, canon){
   try{ window.__lastSpineFailure = null; }catch(e){}   // see failed() below
   if(!aiAvailable()) return null;
   // FORMAT sets the spine's target scene count, FRAMEWORK its grammar
@@ -5405,7 +5452,8 @@ async function aiBuildSpine(brief, formatId, frameworkId){
   // A half that comes back SHORT (a cut-off or lazy reply — seen live: 3 of 6 scenes, the
   // last without a driver) is asked for once more, keeping the longer answer.
   const want1 = Math.ceil(total/2), want2 = total - want1;
-  const isShort = (h,want)=> !h || !Array.isArray(h.scenes) || h.scenes.length < Math.ceil(want*0.75);
+  // (2026-11-12, audit B14) \u2026and so is a half whose answer was cut off and came back with fewer scenes than asked
+  const isShort = (h,want)=> !h || !Array.isArray(h.scenes) || h.scenes.length < Math.ceil(want*0.75) || !!(h.cut && h.scenes.length < want);
   const longer = (x,y)=> (!x ? y : !y ? x : (y.scenes.length > x.scenes.length ? y : x));
   // WHY A BUILD FAILED, for the caller to say (2026-09-28, Round 1): null stays the failure
   // value (callers test `if(!spine)`); window.__lastSpineFailure carries a plain sentence
@@ -5415,16 +5463,16 @@ async function aiBuildSpine(brief, formatId, frameworkId){
   // out. It used to be asked again and then reported as "didn't come back after two tries".
   const t0 = Date.now();
   const blocked = ()=>{ const f = buildFailureNeedingAction(t0); return f ? failed("The scene list wasn\u2019t built: "+buildFailureSentence(f, "run it again")) : undefined; };
-  let a = await spineBatch(brief,"first",fmt,fw);
+  let a = await spineBatch(brief,"first",fmt,fw,null,canon);
   if(none(a) && blocked()===null) return null;
-  if(isShort(a,want1)) a = longer(a, await spineBatch(brief,"first",fmt,fw));
+  if(isShort(a,want1)) a = longer(a, await spineBatch(brief,"first",fmt,fw,null,canon));
   // THE OPENING IS NOT OPTIONAL (2026-09-28, Round 1): the first half carries the opening act,
   // the title and the inciting incident. When it fails twice the second half used to be written
   // blind and accepted alone ("UNTITLED", no setup). Stop instead: nothing is built.
   if(none(a)) return failed("The opening half of the spine (the film's setup and title) didn't come back after two tries, so nothing was built. Run it again in a moment.");
-  let b = await spineBatch(brief,"second",fmt,fw,a);
+  let b = await spineBatch(brief,"second",fmt,fw,a,canon);
   if(none(b) && blocked()===null) return null;
-  if(isShort(b,want2)) b = longer(b, await spineBatch(brief,"second",fmt,fw,a));
+  if(isShort(b,want2)) b = longer(b, await spineBatch(brief,"second",fmt,fw,a,canon));
   // …and neither is the ending: a first half alone stops at the midpoint, with no climax
   if(none(b)) return failed("The closing half of the spine (the climax and ending) didn't come back after two tries, so nothing was built. Run it again in a moment.");
   // stamp the declared Inciting Incident onto its scene BEFORE stitching, so the
@@ -5457,7 +5505,7 @@ window.aiBuildSpine = aiBuildSpine;
 /* Adaptation, part 2: build the story WORLD (premise, controlling idea, setting, cast)
    from the logline + the generated scenes, so the whole left panel rebuilds too.
    Cast is keyed to the driver ids actually used in the scenes. */
-async function aiBuildStoryWorld(brief, spine, format, research){
+async function aiBuildStoryWorld(brief, spine, format, research, canon){
   if(!aiAvailable()) return null;
   // COMMERCIAL is promise-led by design: the brand/product promise IS the brief's
   // contract, so question-first applies only to its dramatic wrapper, never at the
@@ -5483,6 +5531,8 @@ async function aiBuildStoryWorld(brief, spine, format, research){
   const castRoom = Math.min(24, Math.max(8, drivers.length + 2));
   const prompt = "You are a story architect. For the film below, define its world and cast using the Infinite Studio AI method.\n"+
     "TITLE: "+((spine&&spine.title)||"UNTITLED")+"\nLOGLINE / SYNOPSIS:\n"+clipAtBoundary(String(brief), (typeof window!=="undefined" && window.STORY_BRIEF_MAX) || 12000)+"\n"+((typeof researchReservoir==="function") ? researchReservoir(research,"world") : "")+"SCENES (all "+scenes.length+", in order, with summaries \u2014 the names in them are binding):\n"+sceneList+"\n\n"+
+    // an episode of a Show: its people are canon, and come back under their own ids (2026-11-12, audit B12)
+    ((canon && typeof window.showCanonBlock==="function") ? window.showCanonBlock(canon, "world")+"\n" : "")+
     "Driver ids used across scenes: "+drivers.map(d=>{ const nm = spine && spine.driverNames && spine.driverNames[d]; return nm ? (d+" (the id of "+nm+")") : d; }).join(", ")+". Create one cast member per driver id (id MUST match exactly), plus any essential others.\n"+
     "RECONCILE NAMES WITH THE SCENES: every personal NAME used in a scene summary belongs to exactly ONE person, and that "+
     "person's cast IDENTITY must match how the scenes actually use the name (a name the summaries use for a stooped pensioner "+
@@ -5529,9 +5579,19 @@ async function aiBuildStoryWorld(brief, spine, format, research){
     (!!String(x.premise||"").trim() || (Array.isArray(x.cast) && x.cast.length>0));
   let j = null;
   const t0 = Date.now();
-  for(let attempt=0; attempt<2 && !usable(j); attempt++){
-    try{ j = extractJSON(await window.claude.complete({ messages:[{ role:"user", content:prompt }] })); }
-    catch(e){ j = null;
+  // A CUT-OFF ANSWER IS ASKED FOR ONCE MORE (2026-11-12, audit B14): a reply that ran into its limit is repaired
+  // into readable JSON, so it used to be accepted as it was \u2014 with the last people of the cast missing. The fuller
+  // of the two answers is kept, and `cut` rides on the result when even that one was cut, so the build can say so.
+  const castN = (x)=> (x && Array.isArray(x.cast)) ? x.cast.length : 0;
+  let wasCut = false;
+  for(let attempt=0; attempt<2 && (!usable(j) || wasCut); attempt++){
+    try{
+      const got = extractJSON(await window.claude.complete({ messages:[{ role:"user", content:prompt }] }));
+      const gotCut = !!(typeof window!=="undefined" && window.__lastWritingTruncated);
+      if(usable(got) && (!usable(j) || castN(got) >= castN(j))){ j = got; wasCut = gotCut; }
+      else if(!usable(j)) j = got;
+    }
+    catch(e){ if(!usable(j)) j = null;
       // a failure a second try can't fix (no credits, signed out) is not asked again (2026-11-12, audit B13);
       // the caller reads why from turnBuildFailureNeedingAction
       try{ if(typeof window.turnNoteBuildFailure==="function") window.turnNoteBuildFailure(e, "world"); }catch(_){}
@@ -5580,6 +5640,7 @@ async function aiBuildStoryWorld(brief, spine, format, research){
       setting:{ period:clipAtBoundary(scrubBrand((st.period||"").toString()),60), duration:clipAtBoundary(scrubBrand((st.duration||"").toString()),60),
         location:clipAtBoundary(scrubBrand((st.location||"").toString()),90), conflict:clipAtBoundary(scrubBrand((st.conflict||"").toString()),120) },
       cast,
+      ...(wasCut ? { cut:true } : {}),
     };
   }catch(e){ return null; }
 }
@@ -5605,7 +5666,7 @@ window.aiSparkLogline = aiSparkLogline;
 
 /* ---- SEED -> LOGLINES: turn any kind of starting idea into 1-3 candidate loglines.
    seedType: logline|whatif|talk|character|theme|title|image|surprise ---- */
-async function aiSeedToLoglines(seedType, text){
+async function aiSeedToLoglines(seedType, text, canon){
   if(!aiAvailable()) return null;
   // A live transcript carries several short turns, so preserve more of it than
   // the one-field seed doors without allowing an unbounded prompt.
@@ -5626,6 +5687,8 @@ async function aiSeedToLoglines(seedType, text){
   const _fwList = (typeof window.frameworkChoices==="function") ? window.frameworkChoices() : (window.FRAMEWORKS||[]).filter(f=>!f.retired);
   const _fws  = _fwList.map(f=>f.id+" = "+f.label).join("; ");
   const prompt = lead + (t?("\n\nWRITER'S INPUT:\n"+t):"") +
+    // an episode of a Show is about the Show's people (2026-11-12, audit B12)
+    ((canon && typeof window.showCanonBlock==="function") ? "\n"+window.showCanonBlock(canon, "plan") : "")+
     "\n\nEach logline: ONE sentence, name the protagonist, their want, and the obstacle/twist. "+
     "Fresh, specific, cinematic \u2014 NEVER echo famous films or genre clich\u00e9s; surprise with the particular. "+
     ((typeof window!=="undefined" && window.KinolotNames) ? ("If a logline gives anyone a personal name: "+window.KinolotNames.brief({ where:"the writer's input" })) : "")+
@@ -5682,9 +5745,11 @@ window.aiSeedToLoglines = aiSeedToLoglines;
    `history` is [{role:"user"|"assistant", content}]. Returns:
      mid-interview: { say, done:false }
      hand-off:      { say, done:true, loglines:[...] }                       ---- */
-async function aiSeedInterview(history, formatLabel){
+async function aiSeedInterview(history, formatLabel, canon){
   if(!aiAvailable()) return null;
   const sys =
+    // an episode of a Show is about the Show's people (2026-11-12, audit B12)
+    ((canon && typeof window.showCanonBlock==="function") ? window.showCanonBlock(canon, "plan").trim()+"\n\n" : "")+
     "You are Frances, a warm, curious story-development partner inside Kinolot by Infinite Studio AI, helping a filmmaker discover their "+
     (formatLabel||"film")+" through a short SPOKEN conversation (your lines are read aloud). "+
     "Talk like a friendly collaborator, not an interviewer with a checklist. Ask ONE question at a time, "+
@@ -5776,7 +5841,7 @@ function researchBriefText(research){
 }
 window.researchBriefText = researchBriefText;
 
-async function aiResearch(logline, seedText, frameworkId, formatId, steer){
+async function aiResearch(logline, seedText, frameworkId, formatId, steer, canon){
   if(!aiAvailable()) return null;
   const L = String(logline||"").slice(0,1200).trim();
   if(!L) return null;
@@ -5798,7 +5863,8 @@ async function aiResearch(logline, seedText, frameworkId, formatId, steer){
     "You are a story architect working in the Infinite Studio AI method. Research the LOGLINE below "+
     "using the Three Pillars, BEFORE any synopsis is written. Be concrete and specific \u2014 this grounding "+
     "must make the story feel true and cliche-proof:\n\n"+
-    "LOGLINE:\n"+L+"\n"+seedBlock+fmtClause+steerBlock+"\n"+
+    "LOGLINE:\n"+L+"\n"+seedBlock+fmtClause+steerBlock+
+    ((canon && typeof window.showCanonBlock==="function") ? window.showCanonBlock(canon, "plan") : "")+"\n"+
     "1) MEMORY (look inward): the honest, universal emotional truths this story touches \u2014 the felt human "+
     "experiences (e.g. grief, betrayal, first love, shame) any audience would recognise. 2-3 sentences.\n"+
     "2) IMAGINATION (live it): step into the characters' ordinary hours and days \u2014 textures, routines, small "+
@@ -5845,7 +5911,7 @@ window.aiResearch = aiResearch;
 
 /* the synopsis, written from the research the writer reviewed (and maybe edited) \u2014
    returns { paras:[{key,label,text}] } in the framework's shape, or null */
-async function aiSynopsisFromResearch(logline, seedText, frameworkId, formatId, research){
+async function aiSynopsisFromResearch(logline, seedText, frameworkId, formatId, research, canon){
   if(!aiAvailable()) return null;
   const L = String(logline||"").slice(0,1200).trim();
   if(!L) return null;
@@ -5868,7 +5934,8 @@ async function aiSynopsisFromResearch(logline, seedText, frameworkId, formatId, 
   const synopsisPrompt =
     "You are a story architect working in the Infinite Studio AI method. Using the LOGLINE and the prior "+
     "RESEARCH below, write the SYNOPSIS as exactly "+nWords+" paragraphs in "+shape.shapeName+".\n\n"+
-    "LOGLINE:\n"+L+"\n"+seedBlock+"\n"+
+    "LOGLINE:\n"+L+"\n"+seedBlock+
+    ((canon && typeof window.showCanonBlock==="function") ? window.showCanonBlock(canon, "plan") : "")+"\n"+
     (formatPlanLine(fmtEntry) ? formatPlanLine(fmtEntry)+"\n\n" : "")+
     (researchBrief ? ("RESEARCH (the writer reviewed it \u2014 let it surface in the prose, specific, sensory, never generic):\n"+researchBrief+"\n") : "")+
     shape.paras.map(pg=>"   \u2022 "+pg.key+": "+pg.guide).join("\n")+"\n"+
@@ -5882,7 +5949,17 @@ async function aiSynopsisFromResearch(logline, seedText, frameworkId, formatId, 
   // shows the real reason; only an unusable reply returns null
   const parseSyn = (res)=>{ try{ const b = extractJSON(res); return (b && (b.synopsis || b)) || {}; }catch(e){ return {}; } };
   const syn = parseSyn(await window.claude.complete({ messages:[{ role:"user", content:synopsisPrompt }] }));
+  const synCut = !!(typeof window!=="undefined" && window.__lastWritingTruncated);
   let paras = shape.paras.map(pg=>({ key:pg.key, label:pg.label, text: cl(syn[pg.key],900) }));
+  // A CUT-OFF ANSWER (2026-11-12, audit B14): the last paragraph it reached may stop mid-sentence. That paragraph is
+  // treated as missing, so the repair below writes it again whole \u2014 a synopsis never ends on half a sentence.
+  if(synCut){
+    for(let i=paras.length-1;i>=0;i--){
+      if(!paras[i].text) continue;
+      if(!/[.!?\u2026"\u201d\u2019)]$/.test(paras[i].text.trim()) && paras.some((pg,k)=>k!==i && pg.text)) paras[i] = { ...paras[i], text:"" };
+      break;
+    }
+  }
   // MISSING-PARAGRAPH REPAIR: the model sometimes returns only the first movement
   // (lazy/truncated JSON) — we must NEVER ship a synopsis with an empty paragraph.
   // While there is a MIX of written and blank movements, ask again for ONLY the
@@ -5894,11 +5971,12 @@ async function aiSynopsisFromResearch(logline, seedText, frameworkId, formatId, 
       "You are a story architect working in the Infinite Studio AI method. Below is a SYNOPSIS in "+shape.shapeName+
       " with some paragraphs already written and others still MISSING. Write ONLY the missing paragraphs, "+
       "continuous with what is already there — same story, characters, names and tone. Do NOT repeat or rewrite the existing ones.\n\n"+
-      "LOGLINE:\n"+L+"\n"+seedBlock+"\n"+
+      "LOGLINE:\n"+L+"\n"+seedBlock+
+      ((canon && typeof window.showCanonBlock==="function") ? window.showCanonBlock(canon, "plan") : "")+"\n"+
       (haveBrief?("ALREADY WRITTEN:\n"+haveBrief+"\n\n"):"")+
       "MISSING paragraphs to write now:\n"+
       missing.map(pg=>"   • "+pg.key+": "+pg.guide).join("\n")+"\n"+
-      "Each paragraph 3-5 sentences, vivid and concrete.\n\n"+
+      "Each paragraph "+((typeof window.synopsisSentencesFor==="function") ? window.synopsisSentencesFor(fmtEntry) : "3-5")+" sentences, vivid and concrete.\n\n"+
       'Return ONLY JSON: {"synopsis":{'+missing.map(pg=>'"'+pg.key+'":"..."').join(",")+'}}';
     let more = {};
     try{ more = parseSyn(await window.claude.complete({ messages:[{ role:"user", content:fillPrompt }] })); }catch(e){ /* keep what we have */ }
@@ -5914,14 +5992,14 @@ window.aiSynopsisFromResearch = aiSynopsisFromResearch;
 
 /* both moments in a row (kept for callers that want research + synopsis at once).
    Returns { title, logline, research, synopsis:{ paras, ...legacy keys } } or null. */
-async function aiResearchSynopsis(logline, seedText, frameworkId, formatId){
+async function aiResearchSynopsis(logline, seedText, frameworkId, formatId, canon){
   const L = String(logline||"").slice(0,1200).trim();
   if(!aiAvailable() || !L) return null;
   let found = null;
-  try{ found = await aiResearch(L, seedText, frameworkId, formatId); }
+  try{ found = await aiResearch(L, seedText, frameworkId, formatId, "", canon); }
   catch(e){ /* research is supporting material \u2014 still write the synopsis */ }
   const research = (found && found.research) || normaliseResearch({});
-  const synopsis = await aiSynopsisFromResearch(L, seedText, frameworkId, formatId, research);
+  const synopsis = await aiSynopsisFromResearch(L, seedText, frameworkId, formatId, research, canon);
   if(!synopsis) return null;
   return { title:(found && found.title) || "UNTITLED", logline:L, research, synopsis };
 }

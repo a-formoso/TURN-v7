@@ -173,7 +173,7 @@ await test("the build hands its drafts over; Frances knows; the page is on the n
   for(const s of ["how the previous scene's screenplay actually ends","something that already happened is not played again","only the first time they appear in the film","one event per scene","press Redraft on it"]) assert.ok(f.what.includes(s),s);
   assert.ok(!/\bTURN\b|Claude|Anthropic|McKee/.test(f.what));
   for(const file of ["ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261112-thread1", "20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-thread1", "20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log(`\n${checks} checks passed${failed?`, ${failed} FAILED`:""}`);

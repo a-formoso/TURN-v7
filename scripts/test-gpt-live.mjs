@@ -43,7 +43,7 @@ assert.ok(livePos>=0 && storyPos>livePos,"live transport must load before New St
 assert.match(html,/app\/livevoice\.js\?v=(?:20260911-gptlive2|20260928-brand1|20260929-look1|20260930-billing1)"/);   // billing repair 2026-09-30: the 15-minute session end
 assert.match(story,/function NSLiveInterview/);
 assert.match(story,/Finish & shape loglines/);
-assert.match(story,/aiSeedToLoglines\("talk",transcript\)/);
+assert.match(story,/aiSeedToLoglines\("talk",transcript(?:,showCanon)?\)/);
 assert.match(story,/function NSLegacyInterview/);
 assert.match(story,/Use typed interview/);
 assert.match(ai,/seedType==="talk"\?7000:1200/);

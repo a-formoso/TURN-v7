@@ -8350,6 +8350,10 @@ function App(){
     // the Show's cast when this run started is canon; the people THIS run appends are
     // its own, so later commits (the psychology check) may still refine them
     const runStartCastIds = new Set(model.characters.map(c=>String(c&&c.id!=null?c.id:"")).filter(Boolean));
+    // …and the build is TOLD who they are (2026-11-12, audit B12): the scene list and the story world used to be
+    // built without the Show's cast, so an episode could arrive with a new lead under a new name
+    const showCanon = (currentShowId && agentName==="Adaptation" && typeof window.showCanonOf==="function")
+      ? window.showCanonOf(model.characters, { showTitle:((projects||[]).find(p=>String(p.id)===String(currentShowId))||{}).title, episodeNo:currentEpisodeNo }) : null;
     const runIntroducedCastIds = new Set();
     // the cast exactly as this run last committed it, by id (plain copies): a later Episode
     // commit changes only the fields the run itself changed since (mergeAdaptationCast's
@@ -8458,7 +8462,7 @@ function App(){
       castAtCommit = model.characters ? model.characters.map(c=>({...c})) : null;
       return true;
     };
-    return { model, sync, input, emit, propose,
+    return { model, sync, input, emit, propose, showCanon,
       // CONTINUE WRITING (2026-11-11): the Writers' Room notice starts the finish run directly — only the
       // unwritten scenes, no card, never a rebuild
       finishOnly: force==="finish",
@@ -8496,10 +8500,10 @@ function App(){
         continuityLedger:()=>window.aiContinuityLedger(model.scenes, model.beats, model.drafts, model.project),
         tableRead:(sc,dr)=>window.aiTableRead(sc,dr,model.project),
         voiceCheck:(sc,dr)=>window.aiVoiceCheck(sc,dr),
-        buildSpine:(b)=>window.aiBuildSpine(b, (project&&project.format)||"film", (project&&project.framework)||"threeact"),
+        buildSpine:(b)=>window.aiBuildSpine(b, (project&&project.format)||"film", (project&&project.framework)||"threeact", showCanon),
         // the research reservoir belongs to the brief it was gathered for (a typed brief has none)
         buildStoryWorld:(b,sp)=>window.aiBuildStoryWorld(b,sp,(project&&project.format)||"film",
-          (project && project.research && String(project.sourceBrief||"").trim()===String(b||"").trim()) ? project.research : null),
+          (project && project.research && String(project.sourceBrief||"").trim()===String(b||"").trim()) ? project.research : null, showCanon),
         // (2026-11-11) the run's own drafts ride along: each scene is told how the one before it ends
         authorScene:(s,p)=>window.aiAuthorScene(s,p,model.characters,model.project,{scenes:model.scenes, drafts:model.drafts}),
         beatsFromScript:(s,d)=>window.aiBeatsFromScript(s,d,model.characters,model.project),
@@ -10280,6 +10284,10 @@ function App(){
       initialFormat:newStoryBuildsCurrentEpisode?newStoryEpisodeFormat:undefined,
       formatLocked:newStoryBuildsCurrentEpisode,
       formatOwnerLabel:(newStoryShowRow&&newStoryShowRow.title)||"this Show",
+      // AN EPISODE IS PLANNED WITH ITS SHOW'S PEOPLE (2026-11-12, audit B12 — ai.jsx showCanonOf): only when this
+      // window builds the Show's current (empty) episode; a New Story that makes a separate film gets none
+      showCanon:(newStoryBuildsCurrentEpisode && typeof window.showCanonOf==="function")
+        ? window.showCanonOf(characters, { showTitle:newStoryShowRow&&newStoryShowRow.title, episodeNo:currentEpisodeNo }) : null,
       // "I have a script" (public since phase 3, 2026-10-18) — never inside a Show's episode (its bible owns the story)
       onImportScript:!newStoryBuildsCurrentEpisode ? (()=>{ setNewStoryOpen(false); setScriptImportOpen(true); }) : undefined,
       onLaunch:async (logline, synopsis, formatId, frameworkId)=>{

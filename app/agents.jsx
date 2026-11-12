@@ -1117,6 +1117,13 @@ async function agentAdaptation(ctx){
     : _heroA
     ? "Designing a complete Hero's Journey spine from "+_from+" \u2014 departure, initiation and return, each scene placed on its stage with a value charge that turns."
     : "Designing a complete three-act spine from "+_from+" \u2014 scenes, acts, and a value charge for each that turns."});
+  // AN EPISODE OF A SHOW IS BUILT WITH THE SHOW'S PEOPLE (2026-11-12, audit B12): said, so the writer knows why the
+  // scene list uses them
+  if(ctx.showCanon && ctx.showCanon.total){
+    const sc = ctx.showCanon;
+    ctx.emit({k:"observe", t:"This is "+(sc.episodeNo ? "episode "+sc.episodeNo : "an episode")+" of "+(sc.showTitle ? "\u201c"+sc.showTitle+"\u201d" : "a Show")+": the scene list and the cast are built with the Show\u2019s "+
+      (sc.total===1 ? "one person" : sc.total+" people")+" \u2014 they keep their names and who they are; anyone this episode introduces is added."});
+  }
   ctx.emit({k:"act", t:"Generating the scene breakdown\u2026"});
   try{ window.__lastSpineFailure = null; }catch(e){}   // a reason is only ever this build's own
   const spine = await ctx.ai.buildSpine(brief);
@@ -1181,6 +1188,9 @@ async function agentAdaptation(ctx){
     } }
   // HONEST LOG (2026-09-28): a story world that didn't come back used to pass silently — the
   // build carries on (the spine stands on its own), but the writer is told what is missing
+  // a story world whose answer was cut off twice is used, and said (2026-11-12, audit B14)
+  if(world && world.cut && !ctx.cancelled()) ctx.emit({k:"flag", t:"The story world\u2019s answer was cut off before it finished, twice. What came back is used: "+((world.cast||[]).length)+" cast entr"+((world.cast||[]).length===1?"y":"ies")+
+    ". Someone who drives a scene may be missing their identity, pronouns, age or voice \u2014 check the Cast panel after the build."});
   if(!world && ctx.ai.buildStoryWorld && !ctx.cancelled()) ctx.emit({k:"flag", t:"Couldn't build the story world this time, so this film has no new premise, controlling idea or setting, and the cast has names but no identities or voices. The build carries on with the scenes; fill those in afterwards in the Story panel on the left."});
 
   const newScenes = spine.scenes.map((s,i)=>({
