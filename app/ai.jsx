@@ -237,6 +237,10 @@ window.turnWritingCallLimit = writingCallLimit;
 // read through window by the writing call and the scene functions (other suites run those functions on their own)
 window.turnWritingLimits = { call:WRITING_CALL_LIMIT_MS, scene:WRITING_SCENE_LIMIT_MS, grace:WRITING_LIMIT_GRACE_MS };
 
+// what the writing call says when the balance could pay for only part of an answer (2026-11-12, audit A10); read
+// through window by the call itself, like the limits above
+window.WRITING_CUT_FOR_BALANCE = "There were not enough credits for the whole answer, so it was cut off before it finished (the part that was written is charged). Add credits or choose a lighter writing engine, then try again.";
+
 /* Restore window.claude.complete via the proxy's text task, unless a host already
    provided one. Returns the completion as a plain string (the contract callers use). */
 if(!window.claude || typeof window.claude.complete !== "function"){
@@ -325,6 +329,17 @@ if(!window.claude || typeof window.claude.complete !== "function"){
       if(data && data.usage && typeof window.dispatchEvent==="function")
         window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:data.usage }));
       try{ window.__lastWritingModel = { id:m.id, label:m.label }; }catch(e){}
+      /* CUT OFF BECAUSE THE BALANCE WAS SHORT (2026-11-12, Writers' Room audit A10). With too few credits for a
+         whole answer the server writes a shorter one; when that runs into its limit the reply is cut off. The app
+         used to ask again with a bigger budget (the same cut, charged twice) and then say the engine's reply was
+         cut off. Now it is a credits problem, said as one, with no second call: a batch stops there instead of
+         paying for a cut-off answer per scene. (The server's `cutForBalance`; absent on an older server.) */
+      if(data && data.truncated && data.cutForBalance){
+        const msg = window.WRITING_CUT_FOR_BALANCE || "There were not enough credits for the whole answer, so it was cut off before it finished.";
+        try{ window.__lastWritingCutForBalanceAt = Date.now(); }catch(e){}   // a batch reads it (agents.jsx writingCutForBalanceSince)
+        if(typeof window.appToast==="function") window.appToast(msg,"error",{ force:true });
+        throw new Error(msg);
+      }
       // CUT OFF at the output cap (thinking can use most of it): ask ONCE more with the
       // largest budget before handing a clipped reply to a JSON parser or a script
       // (2026-10-09) never once a Story Editors run was stopped, and the run's trace says when it happens
@@ -1607,6 +1622,8 @@ function screenplayFailureFromCheck(checked, raw, where){
 // which the server now answers with its plain insufficient-credits refusal) no engine can run, so
 // the advice is to add credits.
 const _PLAN_CREDITS_RE = /choose a plan|plan[’']s credits|needs \d[\d,]* credits?, but this account has|needs at least \d[\d,]* credits? for one answer|choose a lighter writing engine|did not have enough credits|needs a paid plan|needs the \w+ plan|not enough credits|on hold while a payment|your plan doesn[’']t include|credits can[’']t be checked/i;
+// the answer the balance could only pay part of (audit A10): how the sentence claude.complete throws is told apart
+const _BILLING_SHORT_RE = /not enough credits for the whole answer/i;
 const _BILLING_FROZEN_RE = /on hold while a payment/i;
 const _BILLING_DOWN_RE = /credits can[’']t be checked/i;
 const _BILLING_ENGINE_RE = /needs at least \d[\d,]* credits? for one answer|choose a lighter writing engine/i;   // the server writes thousands with commas (round 3)
@@ -1626,7 +1643,7 @@ function screenplayFailureFromError(e, where){
   // stop a batch — it used to be an unnumbered "service" error that never did
   if(isWritingTimeout(msg)) return screenplayFailure("timeout", { where, technical:msg });
   if(_PLAN_CREDITS_RE.test(msg)) return screenplayFailure("plan", { where, technical:msg,
-    billing: _BILLING_FROZEN_RE.test(msg) ? "frozen" : _BILLING_DOWN_RE.test(msg) ? "unavailable" : _billingEngineShortfall(msg) ? "engine" : "credits" });
+    billing: _BILLING_FROZEN_RE.test(msg) ? "frozen" : _BILLING_DOWN_RE.test(msg) ? "unavailable" : _BILLING_SHORT_RE.test(msg) ? "short" : _billingEngineShortfall(msg) ? "engine" : "credits" });
   if(ref==="CM-11" || (!ref && ERR_CODES[0].re.test(msg))) return screenplayFailure("credits", { where, technical:msg, ref:"CM-11" });
   if(/\bsign in\b/i.test(msg)) return screenplayFailure("signin", { where, technical:msg });
   return screenplayFailure("service", { where, technical:msg, ref });
@@ -1663,6 +1680,7 @@ function screenplayFailureReason(f){
     case "plan": return f.billing==="frozen" ? "your account is on hold while a payment is disputed"
       : f.billing==="unavailable" ? "your credits couldn’t be checked just then"
       : f.billing==="engine" ? "this writing engine needs more credits for one answer than your account has"
+      : f.billing==="short" ? "there were not enough credits for the whole answer, so it was cut off"
       : "your account has no plan credits left for writing";
     case "credits": return window.turnIsAdmin ? "the writing provider’s account is out of credits" : "the writing service is briefly unavailable"+ref;
     case "signin": return "you’re signed out of the writing service";
@@ -1681,7 +1699,7 @@ function screenplayFailureAdvice(f, retryLabel, opts){
   if(f.kind==="long") return carries ? _spCap(again)+" \u2014 the next attempt is told how long the current script runs." : _spCap(again)+".";
   if(f.kind==="plan") return f.billing==="frozen" ? "Write to kinolot-billing@infinitestudioai.com if the hold is a mistake; once it’s lifted, "+again+"."
     : f.billing==="unavailable" ? _spCap(again)+" in a minute."
-    : f.billing==="engine" ? "Choose a lighter writing engine (or add credits), then "+again+"."
+    : (f.billing==="engine" || f.billing==="short") ? "Choose a lighter writing engine (or add credits), then "+again+"."
     : "Choose a plan or add credits, then "+again+".";
   if(f.kind==="credits") return window.turnIsAdmin ? "Top up the provider account, then "+again+"."
     : _spCap(again)+" in a moment; if it keeps failing, quote ref "+(f.ref||"CM-11")+" to support.";
@@ -3872,6 +3890,13 @@ APP_FEATURES.push({ name:"Scenes follow one another (what each scene is told whe
 })();
 /* AN UNFINISHED FILM SAYS SO (2026-11-11, owner — Writers' Room audit item 1; app/build-state.js) */
 APP_FEATURES.push({ name:"Unfinished film notice & Continue writing (Writers' Room)", what:"A story build runs in your browser window: it writes the film scene by scene while the Story Editors window is open. If the page is reloaded or closed, the browser discards the tab, or the computer goes to sleep while it is writing, the build ends there — every scene already written is kept, and the scene that was being written keeps its beat map if that part was finished. THE FILM SAYS SO: whenever a film the app built has scenes with no screenplay (or a rough stand-in, or a screenplay with no beat map), the Writers' Room shows a bar under the top bar — 'Unfinished · This film isn't fully written' — with how many scenes are unwritten and, when the last build did not reach its end, when it last made progress. CONTINUE WRITING: the bar's 'Continue writing' button opens Story Editors and starts writing just the unwritten scenes at once, on the writing engine shown in the top bar (change it there first if you want another one); nothing already written is redone and there is no extra approval step. It uses writing credits like any writing, so it needs an active plan. 'What happened' opens the last build's log, which is saved with the film and ends where the build stopped. The × hides the bar until the film is opened again. The bar also appears on films built before this existed (those have no saved log). LEAVING DURING A BUILD ASKS FIRST: reloading or closing the page while a build is writing shows the browser's own 'Leave site?' question. THE SCREEN STAYS AWAKE while a build is writing, where the browser supports it and the tab stays visible (closing a laptop lid still puts the computer to sleep). The build does not carry on by itself after an interruption — open the film and press Continue writing. The older route still works: Story Editors → 'Finish writing this film'." });
+/* THE REST OF "A FILM CAN STOP PART-WAY" (2026-11-12, owner \u2014 Writers' Room audit A7 to A11) */
+(()=>{ const add = (start, text)=>{ const f = APP_FEATURES.find(x=>x && String(x.name||"").startsWith(start)); if(f) f.what += " "+text; };
+  add("Unfinished film notice", "AUTO-DRAFT ALL LEAVES THE SAME SIGN (2026-11-12): when Auto-draft all ends with scenes still unwritten \u2014 it stopped at a scene it could not write (no credits left, signed out, the writing engine failing twice in a row), you pressed Stop, or the page was reloaded or closed while it ran \u2014 the same 'Unfinished' bar shows in the Writers' Room, on any film including one written by hand, saying where it stopped, when and why, until those scenes are written. On a film the app built, Continue writing works as described above; on any other film it runs Auto-draft all again for the unwritten scenes, which asks first as it always does. The bar speaks only for the scenes that run left unwritten: a scene you add later does not bring it back. While a scene is being drafted or Auto-draft all is running, reloading or closing the page shows the browser's 'Leave site?' question, and during Auto-draft all the screen is kept awake as during a build.");
+  add("Auto-draft all (N left)", "AFTER IT STOPS (2026-11-12): the reason no longer disappears with the message \u2014 the Writers' Room shows the 'Unfinished' bar with the scene it stopped at, when and why, and Continue writing (see 'Unfinished film notice & Continue writing').");
+  add("Export (screenplay / story)", "THE COUNT (2026-11-12): 'N of M scenes drafted' counts screenplays that were really written; a rough stand-in (the structural draft the app puts in from the beat cards when a scene could not be written) is not counted as drafted and is named beside it, for example '14 of 16 scenes drafted \u00b7 2 rough stand-ins'.");
+  add("Writers' Room run integrity", "NOT ENOUGH CREDITS FOR A WHOLE ANSWER (2026-11-12): when the balance can pay for only part of an answer, the answer is shorter and can be cut off before it finishes; the part that was written is charged. The message now says exactly that \u2014 there were not enough credits for the whole answer \u2014 instead of saying the reply was cut off, the app does not ask a second time (which was charged again for the same cut), and a story build or Auto-draft all stops at that scene with everything written kept. Add credits or choose a lighter writing engine in the top bar, then Continue writing. CLOSING THE WINDOW DURING A BUILD ALWAYS ASKS (2026-11-12): pressing Escape while 'Finish writing this film' is running asks 'Stop building this film?' like the \u00d7 and a click outside do (it used to close at once when the run had been started from the Story Editors list). AFTER A FILM SWITCH the run's last line says what is true: nothing was written into the film now open, and whatever the run had already written or changed stays in the film it started in.");
+})();
 function appBrief(){
   const facts = museFacts();
   return "\n\nABOUT THIS APP (use ONLY these facts to answer product/how-to questions; never invent features or behaviour — if a question isn't covered here, say you're not sure rather than guess):\n"

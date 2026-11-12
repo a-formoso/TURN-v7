@@ -3053,7 +3053,10 @@ function App(){
     ? window.KinolotBuildState.counts(scenes, drafts, beatsMap, window.isStandInDraft)
     : { total:scenes.length, n:0, blank:0, standIns:0, beatMaps:0, ids:[] };
   const buildRunning = ((window.__turnAgentRunCount||{}).adapt||0)>0;
-  const buildNotice = window.KinolotBuildState ? window.KinolotBuildState.notice({ project, counts:buildCounts, running:buildRunning }) : null;
+  // (2026-11-12, audit A7) an Auto-draft all run that left scenes unwritten shows here too, on any film; the reason
+  // it stopped is kept as a failure kind and worded here, for the person reading
+  const buildNotice = window.KinolotBuildState ? window.KinolotBuildState.notice({ project, counts:buildCounts,
+    running:buildRunning || !!(drafting && !drafting.one), failureReason:window.screenplayFailureReason }) : null;
   const [buildNoticeOff, setBuildNoticeOff] = React.useState("");   // "Not now": this film, these scenes, this session
   const [buildLogOpen, setBuildLogOpen] = React.useState(false);
   /* Existing-film identity resolution can hand the user to the Production check: its
@@ -3738,7 +3741,8 @@ function App(){
   React.useEffect(()=>{
     const h = (e)=>{
       // A RUNNING STORY BUILD asks too (2026-11-11): leaving ends it, and the scene being written is lost
-      const building = ((window.__turnAgentRunCount||{}).adapt||0)>0;
+      // …and so does a scene being drafted, or Auto-draft all (2026-11-12, audit A7): the call under way is lost too
+      const building = ((window.__turnAgentRunCount||{}).adapt||0)>0 || !!draftingRef.current;
       if(!building && !dirtyRef.current && saveState!=="saving" && saveState!=="retrying" && saveState!=="failed") return;
       e.preventDefault(); e.returnValue = "";      // browsers show their own generic wording
       return "";
@@ -7103,6 +7107,19 @@ function App(){
     const have = {...drafts};
     const owner = currentProjectId;   // abort the whole run if the user switches films
     const standIns = [];              // { no, failure } \u2014 rough stand-ins, reported at the end
+    /* THE RUN LEAVES A SIGN ON THE FILM (2026-11-12, audit A7 — app/build-state.js): "writing" while it runs (so a
+       reload or a closed tab shows afterwards), then "stopped" with the scene and the kind of failure, or "done".
+       The Writers' Room notice reads it. Never written into another film, or by a role that can't change the story. */
+    const BS = window.KinolotBuildState;
+    const stamp = ()=> new Date().toISOString();
+    const noteRun = (patch)=>{
+      if(!BS || typeof BS.markDraftRun!=="function" || owner !== projIdRef.current || writersRoomReadOnlyRef.current) return;
+      setProject(p=>BS.markDraftRun(p, patch));
+    };
+    noteRun({ status:"writing", startedAt:stamp(), updatedAt:stamp(), endedAt:undefined, at:undefined, by:undefined, fail:undefined, repeated:undefined,
+      left:working.filter(x=>!have[x.id]).map(x=>String(x.id)) });
+    // the screen stays awake while it writes (a sleeping computer ends the run), as during a build
+    const letSleep = (BS && typeof BS.keepAwake==="function") ? BS.keepAwake() : null;
     // STOP ON A FAILURE RETRYING CAN'T FIX (2026-09-28, agents.jsx failureNeedsAction): out of
     // plan credits, signed out, the provider account dry. Every later scene would fail the same
     // way and become a rough stand-in (which then counts as drafted, so "Auto-draft all" would
@@ -7125,8 +7142,13 @@ function App(){
         if(have[s.id]) continue;
         let scn = s, beats = beatsMap[s.id];
         if(!beats && typeof aiAuthorScene==="function" && aiAvailable()){
+          const askedAt = Date.now();
           const authored = await aiAuthorScene(s, prev, characters, project, { keepCard:true });
           if(owner !== projIdRef.current || writersRoomReadOnlyRef.current) break;
+          // the balance could pay for only part of the beats (2026-11-12, audit A10): stop here, before the
+          // screenplay call is charged for another cut-off answer
+          if(!authored && typeof window.turnWritingCutForBalanceSince==="function" && window.turnWritingCutForBalanceSince(askedAt)){
+            halted = { no:s.no, failure:(typeof window.turnCutForBalanceFailure==="function") ? window.turnCutForBalanceFailure() : { kind:"plan", billing:"short" } }; break; }
           if(authored){
             scn = {...s, ...authored.patch}; working[i]=scn; beats = authored.beats;
             setScenes(ss=>ss.map(x=>x.id===s.id?{...x,...authored.patch}:x));
@@ -7143,11 +7165,20 @@ function App(){
         const res = stampDraft(raw, scn, beats);
         have[s.id] = res; drafted++;
         setDrafts(d=>({...d,[s.id]:res}));
+        noteRun({ updatedAt:stamp() });
       }
       setDrafting({ i:tot, total:tot });
       setTimeout(()=>setDrafting(null), 320);
     } finally {
       draftingRef.current = false;
+      try{ if(letSleep) letSleep(); }catch(e){}
+      { const leftNow = working.filter(x=>!have[x.id]).length;
+        if(halted) noteRun({ status:"stopped", by:"halt", at:halted.no, updatedAt:stamp(), repeated:halted.repeated ? true : undefined,
+          fail:halted.failure ? { kind:halted.failure.kind, billing:halted.failure.billing, ref:halted.failure.ref } : undefined });
+        else if(stoppedAt) noteRun({ status:"stopped", by:"stop", at:stoppedAt.no, updatedAt:stamp(), fail:undefined, repeated:undefined });
+        else if(!leftNow) noteRun({ status:"done", endedAt:stamp(), updatedAt:stamp(), left:undefined, at:undefined, by:undefined, fail:undefined, repeated:undefined });
+        // any other end (the film was switched, the role changed) leaves the record at "writing": it did not finish
+      }
       // scenes that got a rough stand-in instead of the model's prose are named, EACH with its
       // own reason (a format rejection and a service error are different problems)
       if(standIns.length && typeof window.appToast==="function" && typeof window.screenplayBatchFailureMessage==="function")
@@ -9840,7 +9871,10 @@ function App(){
     // AN UNFINISHED FILM SAYS SO (2026-11-11): which scenes aren't written, and Continue writing
     room==="writers" && buildNotice && buildNoticeOff!==buildNotice.key && !agentsOpen && (()=>{
       const aiOn = (typeof aiAvailable==="function" && aiAvailable());
-      const go = ()=>{ if(!canMutateWritersRoom()) return; if(!planActive()){ requirePlan("finish writing this film"); return; }
+      const go = ()=>{ if(!canMutateWritersRoom()) return;
+        // on a film the app did not build, Continue writing is Auto-draft all again (it asks first)
+        if(buildNotice.via==="draft"){ setBuildLogOpen(false); draftAll(); return; }
+        if(!planActive()){ requirePlan("finish writing this film"); return; }
         setBuildLogOpen(false);
         setAgentLaunch({ id:"adapt", input:String((project && (project.sourceBrief || project.logline)) || ""), finishNow:true }); setAgentsOpen(true); };
       const why = writersRoomBlocked ? "Your role on this film can\u2019t change the story" : !aiOn ? "The writing engine isn\u2019t available right now" : buildNotice.actionHint;

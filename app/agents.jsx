@@ -722,6 +722,13 @@ window.turnRepeatedServiceFailure = repeatedServiceFailure;
 /* did a writing call run past its time limit since `t`? (ai.jsx notes the moment; the scene author returns
    nothing on any failure, so this is how the build tells a time-out from an unreadable answer) */
 function writingTimedOutSince(t){ return Number((typeof window!=="undefined" && window.__lastWritingTimeoutAt) || 0) >= Number(t||0); }
+/* was an answer cut off since `t` because the balance could pay for only part of it? (2026-11-12, audit A10 —
+   ai.jsx notes the moment). The beat map call returns nothing then, like any failure; without this a batch asked
+   again and then drafted the screenplay too — two more charged, cut-off answers — before it stopped. */
+function writingCutForBalanceSince(t){ return Number((typeof window!=="undefined" && window.__lastWritingCutForBalanceAt) || 0) >= Number(t||0); }
+window.turnWritingCutForBalanceSince = writingCutForBalanceSince;
+const CUT_FOR_BALANCE_FAILURE = ()=>({ kind:"plan", billing:"short", issues:[], details:[], technical:"the answer was cut off: the balance covered only part of it", where:"beats" });
+window.turnCutForBalanceFailure = CUT_FOR_BALANCE_FAILURE;
 
 /* a rough stand-in draft (script.jsx isStandInDraft — Story Pipeline step 7), with the same rule
    inline when script.jsx isn't loaded */
@@ -850,6 +857,9 @@ async function writeScenesSeq(ctx, indices){
           // is left unwritten with the reason; the next scene decides whether the build goes on.
           if(!repairBeatsOnly && !(authored && authored.beats && (authored.beats.rows||[]).length) && writingTimedOutSince(askedAt))
             return fail(false, "the writing engine took too long to answer, so this scene isn\u2019t written yet", { kind:"timeout", issues:[], details:[], technical:"the beat map call ran past its time limit", where:"beats" });
+          // THE BALANCE RAN OUT PART-WAY (2026-11-12, audit A10): nothing a second try can fix — the build stops here
+          if(!repairBeatsOnly && !(authored && authored.beats && (authored.beats.rows||[]).length) && writingCutForBalanceSince(askedAt))
+            return fail(false, "there were not enough credits for the whole answer, so this scene isn\u2019t written yet", CUT_FOR_BALANCE_FAILURE());
           if(authored && authored.beats && (authored.beats.rows||[]).length){
             // A SCENE NEVER TAKES ANOTHER SCENE'S TITLE (2026-11-11, audit B4): writing a scene may rework its
             // card, and two test films came back with a title used twice. The planned title stays instead.

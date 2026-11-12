@@ -230,14 +230,15 @@ await test("the wiring: the notice strip, the leave question, the window, France
   assert.ok(app.includes('room==="writers" && buildNotice && buildNoticeOff!==buildNotice.key && !agentsOpen'));
   assert.ok(app.includes('"data-testid":"build-notice"')&&app.includes('"data-testid":"build-continue"')&&app.includes('"data-testid":"build-log"'));
   assert.ok(app.includes('setAgentLaunch({ id:"adapt", input:String((project && (project.sourceBrief || project.logline)) || ""), finishNow:true }); setAgentsOpen(true);'));
-  assert.ok(app.includes('if(!canMutateWritersRoom()) return; if(!planActive()){ requirePlan("finish writing this film"); return; }'));
+  // (2026-11-12, audit A7: an Auto-draft all notice branches off between the two — scripts/test-writers-room-stops.mjs)
+  assert.ok(app.includes('const go = ()=>{ if(!canMutateWritersRoom()) return;')&&app.includes('if(!planActive()){ requirePlan("finish writing this film"); return; }'));
   assert.ok(app.includes("disabled:writersRoomBlocked||!aiOn"));
   assert.ok(app.includes("finishNow: !!(agentLaunch && agentLaunch.finishNow),"));
   assert.ok(app.includes('finishOnly: force==="finish",'));
   assert.ok(app.includes("const c = window.KinolotBuildState.counts(scenes, drafts, beatsMap, window.isStandInDraft), n = c.n, st = c.standIns, bm = c.beatMaps;"),"Story Editors and the notice count with one rule");
   // leaving during a build asks; the app closing the window mid-build says so
   const guard=app.slice(app.indexOf("/* UNLOAD GUARD"),app.indexOf('window.addEventListener("beforeunload", h);'));
-  assert.ok(guard.includes("const building = ((window.__turnAgentRunCount||{}).adapt||0)>0;")&&guard.includes("if(!building && !dirtyRef.current"));
+  assert.ok(guard.includes("const building = ((window.__turnAgentRunCount||{}).adapt||0)>0")&&guard.includes("if(!building && !dirtyRef.current"));
   assert.ok(app.includes("The story build was stopped because this film was reloaded or your access changed."));
   // the window: started at once on the finish run; the screen stays awake for a story build only
   assert.ok(ui.includes('(finishNow && initialAgentId==="adapt") ? { input:String(finishInput||""), now:true } : null'));
@@ -258,7 +259,7 @@ await test("the wiring: the notice strip, the leave question, the window, France
   // the homepage says it, without promising a build that runs by itself
   assert.ok(read("app/landing.jsx").includes("If a build is ever interrupted, your film tells you what is left and carries on from there in one click \u2014 nothing already written is lost."));
   for(const file of ["build-state.js","agents.jsx","agents-ui.jsx","app.jsx","ai.jsx","script.jsx","styles.css","landing.jsx"])
-    assert.ok(["20261112-resume1", "20261112-limit1", "20261112-thread1", "20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-resume1", "20261112-limit1", "20261112-thread1", "20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
   assert.ok(css.includes(".build-strip-log ol{"));
   // no internal codename, no vendor, in anything this shows
   const shown=[read("app/build-state.js"),f.slice(0,2600)].join("\n");

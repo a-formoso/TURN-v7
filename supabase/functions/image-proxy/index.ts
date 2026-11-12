@@ -1050,7 +1050,12 @@ Deno.serve(async (req) => {
         || (providerName === "openai" && ((((providerData?.choices || [])[0] || {}).finish_reason) === "length"))
         || (providerName === "google" && ((((providerData?.candidates || [])[0] || {}).finishReason) === "MAX_TOKENS"));
       if (body.webSearch === true && !("webSearch" in extra)) extra = { ...extra, webSearch: { available: false, searches: 0 } };
-      return json({ text, vision, truncated: truncated || undefined, ...extra, usage: { ...usage, providerCostUsd: estimate.providerCostUsd, credits: charged, ...tokens, totalTokens: tokens.inputTokens + tokens.outputTokens } });
+      // CUT OFF BECAUSE THE BALANCE WAS SHORT (2026-11-12, Writers' Room audit A10): when the hold shrank the cap
+      // (affordableOutputCap above) and the answer then ran into that smaller cap, the app is told so. It used to
+      // see only "truncated", asked again with a bigger budget (a second charge for the same cut) and then blamed
+      // the engine. Additive: an app that doesn't know the field behaves as before.
+      const cutForBalance = truncated && outputCap < wantedCap;
+      return json({ text, vision, truncated: truncated || undefined, cutForBalance: cutForBalance || undefined, ...extra, usage: { ...usage, providerCostUsd: estimate.providerCostUsd, credits: charged, ...tokens, totalTokens: tokens.inputTokens + tokens.outputTokens } });
     };
     // a provider's refusal: the hold is released (finally below); the caller sees a safe message
     const textRefused = (detail: string, status: number) =>

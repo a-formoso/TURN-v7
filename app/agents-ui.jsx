@@ -361,7 +361,10 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
     // a film switch mid-run cancels the run silently at its next check — say so,
     // and never save a report from it (partial, and it belongs to the other film)
     const swapped = !!ctx && typeof ctx.switchedFilms==="function" && ctx.switchedFilms();
-    if(swapped) setTrace(tr=>[...tr,{k:"flag",t:"You switched films, so this run stopped \u2014 nothing was changed or saved. Reopen the film it started in to run it there."}]);
+    // (2026-11-12, audit A11) it used to add "nothing was changed or saved" — untrue when scenes had already been
+    // written, or a change approved, before the switch. An editor that has said so itself is not repeated.
+    if(swapped) setTrace(tr=> tr.some(x=>x && /^You switched films/.test(String(x.t||""))) ? tr
+      : [...tr,{k:"flag",t:"You switched films, so this run stopped \u2014 nothing was written into the film now open. Whatever it had already written or changed stays in the film it started in. Reopen that film to run it again."}]);
     // a role change mid-run is said too (2026-10-09 — the run just ended, "Finished")
     else if(ctx && typeof ctx.roleLost==="function" && ctx.roleLost())
       setTrace(tr=>[...tr,{k:"flag",t:"Your role can no longer change "+(isArt ? "the Art Room" : "the story")+", so this run stopped \u2014 nothing more was written."}]);
@@ -475,6 +478,11 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
       confirmLabel:"Stop the build", cancelLabel:"Keep building", danger:true, safeDefault:true }));
   };
   const close = async ()=>{ if(await leaveOk()) onClose(); };
+  // the Escape key is bound once, so it reads the newest close() through this (2026-11-12, audit A8: bound to the
+  // first one, it still saw "no editor open" after Finish writing was chosen from the list, and closed a running
+  // build without asking)
+  const closeRef = React.useRef(close);
+  closeRef.current = close;
   /* FINISH WRITING THIS FILM (docs/Story Pipeline.md step 7 — "offers to finish just the unwritten
      scenes on the next run"; made reachable 2026-09-28): once the build window is closed, the
      build agent is hidden from the grid, so this row opens Adaptation on THIS film, READY (never
@@ -514,7 +522,7 @@ function AgentsPanel({ onClose, onView, ctxFactory, aiOn, undoCount, undoLabel, 
   const panelRef = React.useRef(null);
   React.useEffect(()=>{ const back = document.activeElement;
     try{ panelRef.current && panelRef.current.focus(); }catch(e){}
-    const onKey = (e)=>{ if(e.key==="Escape" && !document.querySelector(".appconfirm-overlay, .appconfirm")){ e.stopPropagation(); close(); } };
+    const onKey = (e)=>{ if(e.key==="Escape" && !document.querySelector(".appconfirm-overlay, .appconfirm")){ e.stopPropagation(); closeRef.current(); } };
     window.addEventListener("keydown", onKey);
     return ()=>{ window.removeEventListener("keydown", onKey); try{ back && back.focus && back.focus(); }catch(e){} }; },[]);
   return React.createElement("div",{className:"ag-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) close(); }},

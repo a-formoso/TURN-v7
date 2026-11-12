@@ -40,6 +40,17 @@ function BrandWordmark(){
 }
 window.BrandWordmark = BrandWordmark;
 
+/* "N of M scenes drafted" for the Film menu (2026-11-12, audit A9). A rough stand-in — the structural draft the app
+   puts in from the beat cards when the writing engine fails — used to be counted as drafted, so a film read
+   "16 of 16" with scenes nobody had written. It is counted apart and named. */
+function filmDraftedLabel(scenes, drafts){
+  const list = Array.isArray(scenes) ? scenes : [], D = drafts || {};
+  const standIn = (d)=> (typeof window!=="undefined" && typeof window.isStandInDraft==="function") ? !!window.isStandInDraft(d) : false;
+  let written = 0, rough = 0;
+  list.forEach(s=>{ const d = s && D[s.id]; if(!d) return; if(standIn(d)) rough++; else written++; });
+  return written+" of "+list.length+" scenes drafted"+(rough ? " \u00b7 "+rough+" rough stand-in"+(rough!==1?"s":"") : "");
+}
+window.filmDraftedLabel = filmDraftedLabel;
 function ExportMenu({ project, scenes, drafts, onReset }){
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
@@ -49,7 +60,7 @@ function ExportMenu({ project, scenes, drafts, onReset }){
     document.addEventListener("mousedown", close);
     return ()=>document.removeEventListener("mousedown", close);
   },[open]);
-  const drafted = scenes.filter(s=>drafts[s.id]).length;
+  const draftedLabel = filmDraftedLabel(scenes, drafts);
   const run=(kind)=>{ setOpen(false); try{ window.TURNExport[kind](project, scenes, drafts); }catch(e){ console.error(e); } };
   const items=[
     ["pdf", Icon.film, "Screenplay (PDF)", "Preview, then print / save as PDF"],
@@ -62,7 +73,7 @@ function ExportMenu({ project, scenes, drafts, onReset }){
       React.createElement(Icon.download,{s:14})),
     open && React.createElement("div",{className:"export-menu"},
       React.createElement("div",{className:"export-head"},
-        "Export \u00b7 ",React.createElement("span",{style:{color:"var(--txt-2)"}}, drafted+" of "+scenes.length+" scenes drafted")),
+        "Export \u00b7 ",React.createElement("span",{style:{color:"var(--txt-2)"}}, draftedLabel)),
       items.map(([kind,Ic,title,sub])=>
         React.createElement("button",{key:kind,className:"export-item",onClick:()=>run(kind)},
           React.createElement("span",{className:"export-item-ic"},React.createElement(Ic,{s:16})),
@@ -110,7 +121,7 @@ function OverflowMenu({ onNewStory, onImportScript, onImportDraft, project, scen
   const run=(kind)=>{ setOpen(false); try{ window.TURNExport[kind](project, scenes, drafts); }catch(e){ console.error(e); } };
   // export: a Writers' Room action, only once a story exists (the Film menu shows in the Stage too since 2026-10-16)
   const inWriters = room==="writers" && (scenes||[]).length>0;
-  const drafted = (scenes||[]).filter(s=>drafts && drafts[s.id]).length;
+  const draftedLabel = filmDraftedLabel(scenes, drafts);
   const themeNow = ["light","dark","system"].indexOf(theme)>=0 ? theme : "system";
   const artExports = room!=="art" ? [] : [
     typeof window.turnExportShotList==="function" && ["shots","Export shot list","Printable AD-style table",()=>window.turnExportShotList()],
@@ -196,7 +207,7 @@ function OverflowMenu({ onNewStory, onImportScript, onImportDraft, project, scen
               locked && React.createElement("span",{className:"s"},"Locked \u00b7 unlocks after "+(lock.afterLabel||lock.unlockLabel))));
         })),
       inWriters && React.createElement("div",{className:"export-subhead"},"Export · ",
-        React.createElement("span",{className:"film-menu-count"},drafted+" of "+scenes.length+" scenes drafted")),
+        React.createElement("span",{className:"film-menu-count"},draftedLabel)),
       inWriters && FILM_EXPORTS.map(([kind,Ic,title,sub])=>
         React.createElement("button",{key:kind,className:"export-item",onClick:()=>run(kind)},
           React.createElement("span",{className:"export-item-ic"},React.createElement(Ic,{s:16})),

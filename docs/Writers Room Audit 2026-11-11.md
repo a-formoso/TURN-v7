@@ -59,6 +59,39 @@ The causes that fit, most likely first:
 > applies. Test: `scripts/test-writing-time-limit.mjs`. A7–A11 are untouched. Code: `app/build-state.js`, `buildRecorder` in
 > `app/agents.jsx`; test: `scripts/test-build-resume.mjs`.
 
+> **Status, 12 November 2026 — A7 to A11 are built** (branch `claude/audit-a7-a11-20261112`, not published). Each
+> was first confirmed in today's code; line numbers in the table below are the audit's and have moved.
+> - **A7.** Stopping at the first scene that cannot be written, and leaving the rest unwritten with no stand-ins, is
+>   the owner's rule of 28 September and stays. What was missing is the sign afterwards. Auto-draft all now keeps
+>   its own short record on the film (`project.draftRun`: writing / stopped / done, the scene it stopped at, the
+>   *kind* of failure, the scenes it had left) and the Writers' Room "Unfinished" notice shows it on any film,
+>   hand-written ones included: where it stopped, when and why. On a film the app built, Continue writing is the
+>   finish run as before; on any other film it is Auto-draft all again, which asks first. The notice speaks only for
+>   the scenes that run left; a scene added later does not bring it back. Leaving the page while a scene is being
+>   drafted asks first, and the screen stays awake during the run. The reason is stored as a kind and worded where
+>   it is shown, so an admin's wording never reaches a collaborator.
+> - **A8.** Confirmed: the Escape key was bound to the window's first `close()`, which still saw "no editor open"
+>   after Finish writing was chosen from the list, so a running build closed with no question. It now reads the
+>   newest one. Opened from the notice or New Story it already asked.
+> - **A9.** The Film menu's count no longer counts a rough stand-in as drafted and names them:
+>   "14 of 16 scenes drafted · 2 rough stand-ins".
+> - **A10.** Confirmed, and worse than listed: the cut-off answer was asked for a second time with a bigger budget,
+>   which the server cut at the same place and charged again; then the scene's screenplay was asked for too. The
+>   server now says when it cut an answer because the balance was short (`cutForBalance`), and the app treats that
+>   as a credits problem: one message that says so, no second call, and a build or Auto-draft all stops at that
+>   scene. The server half is one added field in `image-proxy` and is **not deployed**; until it is, the app
+>   behaves as before.
+> - **A11.** The line added after a film switch said "nothing was changed or saved", untrue once scenes had been
+>   written. It now says nothing was written into the film now open and that what was already written stays in the
+>   film the run started in; an editor that has already said so is not repeated.
+> - **Seen working** in the app with the cloud switched off and a stand-in writing engine (no account, no paid
+>   call): the notice after a stop at scene 9, Continue writing opening Auto-draft all's question, the leave
+>   question during the run and not after it, the record ending "done", the Film menu count, and Escape asking
+>   during a finish run started from the list. Test: `scripts/test-writers-room-stops.mjs`.
+> - **Still true.** On a film the app did not build, a rough stand-in left by Auto-draft all is named in the end
+>   message, in the Script view and in the Film menu count, but not in the notice (Auto-draft all does not rewrite
+>   stand-ins; Redraft does). A10 cannot be tried on the admin account, which is never held to a balance.
+
 | # | What happens | Found | Where |
 |---|---|---|---|
 | A1 | **The build runs only inside the open Story Editors window, in the browser.** Closing the tab, reloading, the computer sleeping or the browser discarding the tab ends it. The scene being written at that moment is lost (and already paid for). | **seen live** (reload test) | `app/agents-ui.jsx:251` (closing the panel cancels the run) |
