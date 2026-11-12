@@ -560,6 +560,11 @@ function App(){
   });
   const [props, setProps] = React.useState(()=> (saved && saved.props) || []);
   const [locations, setLocations] = React.useState(()=> (saved && saved.locations) || []);
+  /* A FILM KEEPS THE LOCATION NAMES IT ALREADY HAS WORK UNDER (2026-11-12 — locations.jsx parseSlugline). Sluglines are
+     now read by the screenwriting convention (the time of day is never part of the place); a card this film already
+     saved under the old reading, with work on it, goes on being read that way. Told to the reader during render, so
+     everything derived in this pass reads the same cards. */
+  if(typeof window.turnNoteSavedLocations==="function") window.turnNoteSavedLocations(locations);
   // slugline-unit OVERLAYS (key + appearance/notes/images only) — the unit skeletons
   // themselves derive live from the script (see sluglineUnits below); never persisted.
   const [slugUnitsOv, setSlugUnitsOv] = React.useState(()=> (saved && saved.sluglineUnits) || []);
@@ -2696,9 +2701,9 @@ function App(){
     const automatic=!!(opts&&opts.automatic);
     if(!cloudMode || currentShowId || !currentProjectId || seriesBusyRef.current) return false;
     if(!automatic){
-      /* THE FORMAT CHANGE IS SAID (2026-11-12, Writers' Room audit C8). A Show's episodes are TV Series episodes: a
-         film in any other format (a Micro-drama, a Short Film…) becomes one when it is turned into a Show, and the
-         question never mentioned it. `turnShowFormatNote` (formats.jsx) is the sentence, or "" when nothing changes. */
+      /* THE FORMAT IS SAID (2026-11-12, Writers' Room audit C8). The question never mentioned what happens to the
+         film's format. `turnShowFormatNote` (formats.jsx) is the sentence: a format that is serial by convention
+         stays (Micro-drama, Documentary), a single work becomes a TV Series episode; "" for a Show format. */
       const fmtNote = (typeof window.turnShowFormatNote==="function") ? window.turnShowFormatNote(project) : "";
       const ok = await window.appConfirm({ title:"Turn this into a show?",
         body:"“"+(project.title||"Untitled")+"” becomes Episode 1. Its cast, locations, props and lookbook become one shared Show Bible; scenes, script and shots remain episode-specific."+(fmtNote ? " "+fmtNote : ""),
@@ -2734,10 +2739,14 @@ function App(){
         ? window.turnSeries.prepareBibleForEpisode(bibleBase,ownerProjectId) : bibleBase;
       /* A normal film explicitly converted into a Show becomes `series`, while a
          registered Show-capable format keeps its own canonical id (future limited,
-         anthology, vertical-series formats must not be flattened to `series`). */
+         anthology, vertical-series formats must not be flattened to `series`).
+         (2026-11-12, owner: "follow the traditional conventions of filmmaking") a format that is serial by its own
+         convention keeps itself too: a Micro-drama Show is a micro-drama series, a Documentary Show a documentary
+         series — `showKeeps` in formats.jsx, read through turnShowFormatId. */
       const registeredFormat=(window.FORMATS||[]).find(f=>f&&f.id===String(liveProject&&liveProject.format))
         || ((typeof formatOf==="function")?formatOf(liveProject):null);
-      const seriesFormatId=String((registeredFormat&&registeredFormat.needsShow&&registeredFormat.id)||"series");
+      const seriesFormatId=(typeof window.turnShowFormatId==="function") ? window.turnShowFormatId(liveProject)
+        : String((registeredFormat&&registeredFormat.needsShow&&registeredFormat.id)||"series");
       const episodeProject={...liveProject,format:seriesFormatId};
       const result=(typeof window.cloudConvertProjectToShow==="function")
         ? await window.cloudConvertProjectToShow(ownerProjectId,(liveProject.title||"Untitled")+" — Show",bible,episodeProject)

@@ -354,7 +354,7 @@ await test("Frances knows, and the page is on the new key",()=>{
     "EVERY PERSON WHO DRIVES A SCENE GETS A FULL CAST ENTRY","NO CREDITS OR SIGNED OUT WHILE THE SCENE LIST OR THE WORLD IS BUILT"]) assert.ok(f.what.includes(part),part);
   const html=read("TURN.html");
   for(const file of ["ai.jsx","script.jsx","agents.jsx"])
-    assert.ok(["20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log("\n"+(failed?"FAILED — "+failed+" of "+(checks+failed):"OK — "+checks+" checks passed"));

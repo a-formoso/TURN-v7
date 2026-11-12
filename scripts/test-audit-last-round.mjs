@@ -188,7 +188,7 @@ await test("Frances knows, and the page is on the new key",()=>{
   for(const part of ["WHO DRIVES THE SCENES IS SIZED TO THE STORY","never asked for an antagonist","THE CLOCK RUNS FORWARD","THE SAME PLACE IS NOT DESCRIBED TWICE","scenes 5 and 8","only the Twist itself has to reverse"]) assert.ok(f.what.includes(part),part);
   const html=read("TURN.html");
   for(const file of ["ai.jsx","script.jsx","agents.jsx","frameworks.jsx"])
-    assert.ok(["20261112-last1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-last1", "20261112-conv1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log("\n"+(failed?"FAILED — "+failed+" of "+(checks+failed):"OK — "+checks+" checks passed"));

@@ -323,7 +323,7 @@ await test("Frances knows, and the page is on the new key",()=>{
   assert.ok(run.what.includes("A PLAN THAT WAS CUT OFF IS TREATED AS CUT OFF (2026-11-12)"));
   const html=read("TURN.html");
   for(const file of ["ai.jsx","script.jsx","agents.jsx","app.jsx","newstory.jsx"])
-    assert.ok(["20261112-show1", "20261112-ns1", "20261112-last1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log("\n"+(failed?"FAILED — "+failed+" of "+(checks+failed):"OK — "+checks+" checks passed"));

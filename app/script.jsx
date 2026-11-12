@@ -16,15 +16,27 @@ function actRoman(act){
   return out;
 }
 
+const SLUG_TIME_RE = /\b(night|day|dawn|dusk|morning|evening|afternoon|noon|midday|midnight|sunset|sunrise|twilight|magic hour|golden hour|continuous|later|moments? later|same time)\b/i;
 function parseSlug(loc){
   let left = String(loc||"").trim();
   let time = "";
-  /* time of day = trailing segment after the LAST separator, when it reads like a
-     time. A "\u00b7"-only split misses industry hyphen slugs (INT. SHOP - DAWN). */
-  const tm = left.match(/[\u00b7\u2013\u2014,\-]\s*([A-Za-z][A-Za-z'\u2019 ]{1,26})\s*$/);
-  if(tm && /\b(night|day|dawn|dusk|morning|evening|afternoon|noon|midday|midnight|sunset|sunrise|twilight|magic hour|golden hour|continuous|later|moments? later|same time)\b/i.test(tm[1])){
-    time = tm[1].trim();
-    left = left.slice(0, tm.index).replace(/[\u00b7\u2013\u2014,\-\s]+$/,"").trim();
+  /* time of day = the trailing segment, when it reads like a time.
+     1. What follows the LAST separator that has a space before it (or the last comma),
+        so a hyphenated hour stays whole (2026-11-12): "INT. NEWSROOM - PRE-DAWN" is
+        NEWSROOM at PRE-DAWN, never "NEWSROOM - PRE" at DAWN, and the hyphen in
+        "INT. CO-OP - NIGHT" stays in the place.
+     2. Else what follows the last separator of any kind, for slugs typed without
+        spaces (INT. SHOP-DAWN). A "\u00b7"-only split misses industry hyphen slugs. */
+  const sp = left.match(/^(.*\S)(?:\s+[\u00b7\u2013\u2014\-]\s*|\s*,\s*)(\S.*)$/);
+  if(sp && SLUG_TIME_RE.test(sp[2])){
+    time = sp[2].trim();
+    left = sp[1].replace(/[\u00b7\u2013\u2014,\-\s]+$/,"").trim();
+  } else {
+    const tm = left.match(/[\u00b7\u2013\u2014,\-]\s*([A-Za-z][A-Za-z'\u2019 ]{1,26})\s*$/);
+    if(tm && SLUG_TIME_RE.test(tm[1])){
+      time = tm[1].trim();
+      left = left.slice(0, tm.index).replace(/[\u00b7\u2013\u2014,\-\s]+$/,"").trim();
+    }
   }
   const intext = /^EXT/.test(left) ? "EXT" : /^INT\/EXT/.test(left) ? "INT/EXT" : "INT";
   const place = left.replace(/^(INT\/EXT\.|INT\.|EXT\.)\s*/,"").trim();

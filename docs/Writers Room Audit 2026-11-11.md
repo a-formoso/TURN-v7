@@ -150,9 +150,12 @@ build on the server so it does not depend on the browser staying open.
 >   desk: a scene that plays where the previous one did is told not to describe the place again.
 > - **B15 is not a fault to fix here.** A long build on the slower engine is safe to interrupt and continue since
 >   the first release; removing the need to keep the page open means running builds on the server.
-> - **Found on the way, not fixed:** the app's own slugline reader cuts a hyphenated hour in two
->   ("INT. NEWSROOM - PRE-DAWN" reads as the place "NEWSROOM - PRE" at "DAWN"). It changes how locations group, so
->   it is left as a separate task.
+> - **Found on the way:** the app's slugline readers cut a hyphenated hour in two ("INT. NEWSROOM - PRE-DAWN" read
+>   as the place "NEWSROOM - PRE" at "DAWN"). **Fixed the same day by the owner's decision** ("follow the
+>   traditional conventions of filmmaking"; branch `claude/conventions-20261112`): a slugline is INT./EXT., the
+>   location, then the time of day, in both readers. A film with a worked location card under the old name keeps
+>   reading its scenes onto it; nothing saved is renamed. In the owner's 24 films, 7 sluglines change (all
+>   PRE-DAWN, in 4 test films) and none has a saved location card.
 
 > **Status, 12 November 2026 — B12 and B14 are built** (branch `claude/audit-episodes-20261112`, not published).
 > Test: `scripts/test-episode-show-cast.mjs`. Seen on the real engine (six calls, admin account, nothing saved): for
@@ -272,6 +275,12 @@ build on the server so it does not depend on the browser staying open.
 >   the real lists, like the spoken one.
 > - **C7.** Regenerate no longer applies a new recommendation to the shape the writer confirmed. If the new
 >   loglines would suggest another shape, a note says which and why, with the way to change it.
+> - **C8, decided later the same day** (owner: "follow the traditional conventions of filmmaking"; branch
+>   `claude/conventions-20261112`): a format that is serial by nature keeps itself as a Show — a Micro-drama Show is
+>   a micro-drama series, a Documentary Show a documentary series (its episodes stay non-fiction). A single work
+>   (Short Film, Micro Short, Feature Film, Commercial, Music Video) becomes a TV Series, as before. The question
+>   says which case applies. Existing Shows keep their format; the database already stores whatever format it is
+>   given. Test: `scripts/test-film-conventions.mjs`.
 > - **C8.** "Turn this into a show" now says the format change (any film that is not already a Show format becomes
 >   a TV Series episode) in the question the writer confirms. The rule itself is unchanged — whether a
 >   Micro-drama Show should stay a Micro-drama is a product decision, not made here.

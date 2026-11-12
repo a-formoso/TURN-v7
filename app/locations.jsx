@@ -103,17 +103,95 @@ function parseSlugline(raw){
   let intExt = "";
   const m = s.match(/^(INT\.?\/EXT\.?|EXT\.?\/INT\.?|INT\.?|EXT\.?|I\/E\.?)\s*/i);
   if(m){ intExt = m[1].toUpperCase().replace(/\./g,"").replace(/I\/E/,"INT/EXT"); s = s.slice(m[0].length); }
-  // time of day: trailing segment after the LAST separator, if it reads like a time
-  // ("NIGHTS" too \u2014 2026-10-14: "INT. FURNACE \u00b7 NIGHTS" no longer makes a place called "Furnace \u00b7 Nights")
-  let time = "";
+  /* THE SCREENWRITING CONVENTION (owner 2026-11-12: "follow the traditional conventions of filmmaking"). A slugline
+     is INT./EXT., the LOCATION, then the TIME OF DAY. The time is never part of the location's name: "INT. NEWSROOM
+     - PRE-DAWN" is the NEWSROOM, at pre-dawn. The old split took what follows the last separator of any kind, so it
+     cut a hyphenated hour in two (a location called "Newsroom - Pre", at Dawn), did not know the en dash, and left
+     MIDNIGHT, NOON and TWILIGHT in the name of the place.
+     A FILM THAT ALREADY HAS WORK UNDER THE OLD NAME KEEPS IT: stored data is never migrated. When the two splits name
+     different places and this film has a location card with work on it under the old one, the old reading stands for
+     that slugline, so the card, its floor plan and its images stay attached to their scenes. Nothing is renamed. */
+  const now = _slugConventional(s), was = _slugLegacy(s);
+  const cut = (was.place && now.place && was.place!==now.place && _slugSavedUnder(was.place) && !_slugSavedUnder(now.place)) ? was : now;
+  if(!cut.place) return null;
+  return { intExt, place:cut.place, time: titleCaseTime(cut.time) };
+}
+/* the split as it was before 2026-11-12, kept to recognise what a film already saved */
+function _slugLegacy(s){
+  s = String(s||""); let time = "";
   const tm = s.match(/[\u00b7\u2014,\-]\s*([A-Za-z][A-Za-z'\s]{1,22})\s*$/);
   if(tm && /\b(nights?|day|dawn|dusk|morning|evening|afternoon|continuous|later|moments?\s+later|sunset|sunrise|magic\s+hour|golden\s+hour|loading\s+program)\b/i.test(tm[1])){
     time = tm[1].trim(); s = s.slice(0, tm.index).trim();
   }
-  let place = s.replace(/[\u00b7\u2014,\-\s]+$/,"").trim();
-  if(!place) return null;
-  return { intExt, place, time: titleCaseTime(time) };
+  return { place: s.replace(/[\u00b7\u2014,\-\s]+$/,"").trim(), time };
 }
+/* is this trailing segment a time of day (or the "LATER" / "CONTINUOUS" that stands in its place)? `strict`: its LAST
+   word must be the time word ("ALL-NIGHT DINER" is a diner); otherwise its first or last word ("NIGHT ONE", "THE
+   NEXT DAY", "PRE-DAWN", "LATE NIGHT") */
+const _SLUG_TIME_WORD = /^(?:(?:pre|mid|late|early)-)?(nights?|nighttime|day|daytime|dawn|daybreak|dusk|morning|evening|afternoon|noon|midday|midnight|twilight|sunset|sunrise|continuous|later)$/;
+function _slugIsTime(seg, strict){
+  const t = String(seg||"").trim().toLowerCase().replace(/\s+/g," ");
+  if(!t || !/^[a-z][a-z'\u2019 \-]{1,26}$/.test(t)) return false;
+  if(/^(loading program|magic hour|golden hour|same time)$/.test(t)) return true;
+  const w = t.split(" "); if(w.length>4) return false;
+  return _SLUG_TIME_WORD.test(w[w.length-1]) || (!strict && _SLUG_TIME_WORD.test(w[0]));
+}
+function _slugConventional(s){
+  let rest = String(s||"").trim(), time = "";
+  const tidy = (x)=>String(x||"").replace(/[\u00b7\u2013\u2014,\-\s]+$/,"").trim();
+  for(let pass=0; pass<2; pass++){
+    // 1. what follows the LAST separator that has a space before it (hyphen, en dash, em dash, middle dot), or the
+    //    last comma \u2014 so a hyphenated hour stays whole and a hyphen inside the place stays in the place
+    let head = null, seg = "";
+    const sp = rest.match(/^(.*\S)(?:\s+[\u00b7\u2013\u2014\-]\s*|\s*,\s*)(\S.*)$/);
+    if(sp && _slugIsTime(sp[2], false)){ head = sp[1]; seg = sp[2]; }
+    else{
+      // 2. a slugline typed without spaces ("INT. SHOP-DAWN"): the old rule, with the stricter test
+      const tm = rest.match(/[\u00b7\u2013\u2014,\-]\s*([A-Za-z][A-Za-z'\u2019\s]{1,22})\s*$/);
+      if(tm && _slugIsTime(tm[1], true)){ head = rest.slice(0, tm.index); seg = tm[1]; }
+    }
+    if(head==null) break;
+    // "DAY - LATER", "NIGHT, CONTINUOUS": the hour is the time of day; LATER / CONTINUOUS only qualify it. A second
+    // segment is taken only when it is a real hour standing behind such a qualifier.
+    if(pass===1 && !normalizeTOD(seg)) break;
+    time = seg.trim(); rest = tidy(head);
+    if(normalizeTOD(time)) break;
+  }
+  return { place: tidy(rest), time };
+}
+/* the keys of this film's location cards that have work on them (set by the app each render from its saved cards):
+   the names a slugline goes on being read by, when the convention would now name the place differently */
+let _slugSavedKeys = null;
+function _slugKeyOf(place){
+  const primary = tidyPlace(splitCompoundPlace(place)[0]||"");
+  return locSlug(primary.split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-");
+}
+function _slugSavedUnder(place){ const k = _slugKeyOf(place); return !!(k && _slugSavedKeys && _slugSavedKeys.has(k)); }
+/* a card someone has worked on: any written field, a variant, a provenance entry, or anything the app stored on it
+   beyond what the screenplay alone derives (a floor plan, cameras, a cloud set, image records\u2026) */
+const _LOC_DERIVED_FIELDS = { id:1, key:1, name:1, intExt:1, times:1, areas:1, scenes:1, scope:1, parentKey:1, continuityRootKey:1,
+  sharedHeadParent:1, anchorsLocked:1, fromScript:1, episodeScenes:1, episodeLocationMeta:1, orphan:1 };
+function locationCardHasWork(l){
+  if(!l || typeof l!=="object") return false;
+  return Object.keys(l).some(k=>{
+    if(_LOC_DERIVED_FIELDS[k]) return false;
+    const v = l[k];
+    if(v==null || v===false || v==="") return false;
+    if(typeof v==="string") return !!v.trim();
+    if(Array.isArray(v)) return v.length>0;
+    if(typeof v==="object") return Object.keys(v).length>0;
+    return true;
+  });
+}
+let _slugSavedFrom = null;
+function noteSavedLocations(list){
+  if(list===_slugSavedFrom) return;            // same saved cards as last time: nothing to do
+  _slugSavedFrom = list;
+  const keys = new Set();
+  (Array.isArray(list) ? list : []).forEach(l=>{ if(locationCardHasWork(l)){ const k = String(l.key || locSlug(l.name) || ""); if(k) keys.add(k); } });
+  _slugSavedKeys = keys;
+}
+window.turnNoteSavedLocations = noteSavedLocations; window.locationCardHasWork = locationCardHasWork;
 
 /* split a compound slugline place into its segments: "APARTMENT / NIGHTCLUB" -> two */
 function splitCompoundPlace(place){

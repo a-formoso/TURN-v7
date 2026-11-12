@@ -67,6 +67,8 @@ const FORMATS = [
   { id:"microdrama",  label:"Micro-drama", icon:"user",    scenes:[6,8],   sceneTarget:7,  runtimeMin:2,  aspect:"9:16", beatRange:[2,3],
     researchBrief:"FORMAT: MICRO-DRAMA — research the attention economy this must live in: a vertical, sound-on, seconds-long scroll; what about THIS premise stops the thumb, and what real-world texture makes the hook feel true rather than baity.",
     screenplay:"full", group:"short", order:5,
+    // serial by its own convention (short vertical episodes): a Show made from it stays a micro-drama series
+    showKeeps:true,
     blurb:"Vertical 9:16 episodes · 1–3 minutes, hooked in seconds.",
     spineBrief:"a vertical micro-drama episode — hook inside the first scene, a cliff at the end of every scene, shot for phones",
     coverageBrief:"vertical 9:16 coverage: faces big in frame, singles over wides, compositions that read on a phone",
@@ -81,6 +83,9 @@ const FORMATS = [
   { id:"documentary", label:"Documentary", icon:"globe",   scenes:[10,14], sceneTarget:12, runtimeMin:10, aspect:"16:9", testimonySec:15,
     researchBrief:"FORMAT: DOCUMENTARY — the subject is REAL: research the actual world honestly (the type, the milieu, the era), what ACCESS to it would look like for a crew, and what is verifiable versus invented; never fabricate facts about real, named people.",
     screenplay:"interview", group:"nonfiction", order:7,
+    // a documentary Show is a documentary series: every episode keeps the documentary's rules (real subjects,
+    // nothing invented) — it never becomes a fiction TV episode
+    showKeeps:true,
     blurb:"About 10 minutes · real subjects, a found structure.",
     spineBrief:"a documentary — real subjects and places; scenes are sequences of testimony, observation and archive, structured to turn like drama; never invent events, motives or words for real people",
     // the page forms (docs/Story Pipeline.md step 5, "Page forms the check accepts", owner-approved
@@ -235,17 +240,30 @@ window.SCREEN_LINES_PER_MIN = SCREEN_LINES_PER_MIN; window.LONG_FOR_FORMAT = LON
 window.runtimeText = runtimeText; window.runtimeAdj = runtimeAdj; window.budgetPhrase = budgetPhrase; window.sceneBudgetFor = sceneBudgetFor; window.beatBudgetFor = beatBudgetFor;
 window.sceneLengthCheck = sceneLengthCheck; window.formatDraftBrief = formatDraftBrief;
 window.sceneShapeFor = sceneShapeFor; window.synopsisSentencesFor = synopsisSentencesFor;
-/* WHAT "TURN THIS INTO A SHOW" DOES TO THE FORMAT (2026-11-12, Writers' Room audit C8). Every episode of a Show has
-   the Show's format, and a Show's format is a Show format (today: TV Series). So a Micro-drama, a Short Film or
-   any other film becomes a TV Series episode when it is turned into a Show — and the question asked before doing
-   it never said so. The sentence for that question; "" when the film already has a Show format. The rule itself
-   (which format a Show gets) is app.jsx makeShow's and is unchanged. */
+/* WHICH FORMAT A SHOW HAS (owner 2026-11-12: "follow the traditional conventions of filmmaking"). Every episode of
+   a Show has the Show's format. By convention:
+     - a format that is already a series (TV Series) keeps itself — `needsShow`;
+     - a format that is SERIAL BY ITS OWN NATURE keeps itself — `showKeeps`: a Micro-drama is short vertical
+       episodes, so its Show is a micro-drama series; a Documentary's Show is a documentary series, whose episodes
+       stay non-fiction (it used to become a fiction TV episode, dropping "never invent for real people");
+     - a single work (Short Film, Micro Short, Feature Film, a Commercial, a Music Video) that is turned into a Show
+       becomes a TV Series, as before.
+   One rule, read by app.jsx makeShow and by the sentence below. Shows that already exist keep the format they were
+   made with: nothing saved is changed. */
+function turnShowFormatId(project){
+  const now = _formatEntry(project);
+  return String((now && (now.needsShow || now.showKeeps) && now.id) || "series");
+}
+window.turnShowFormatId = turnShowFormatId;
+/* WHAT "TURN THIS INTO A SHOW" DOES TO THE FORMAT, in the question the writer confirms (2026-11-12, audit C8: it never
+   said). "" when the film already has a Show format (nothing to say). */
 function turnShowFormatNote(project){
   const now = _formatEntry(project);
   if(!now || now.needsShow) return "";
-  const show = FORMATS.find(f=>f.id==="series");
-  if(!show || show.id===now.id) return "";
+  const show = FORMATS.find(f=>f.id===turnShowFormatId(project));
+  if(!show) return "";
   const size = "planned as about "+runtimeText(Math.round(Number(show.runtimeMin||0)*60))+" in "+show.sceneTarget+" scenes";
+  if(show.id===now.id) return "Its format stays "+now.label+": every episode of this Show is a "+now.label+" episode ("+size+").";
   return "Its format also changes, from "+now.label+" to "+show.label+": every episode of a Show is a "+show.label+" episode ("+size+"). The scenes already written are kept as they are.";
 }
 window.turnShowFormatNote = turnShowFormatNote;

@@ -174,8 +174,12 @@ await test("C7 · Regenerate keeps the confirmed shape, and says when the new lo
 /* ---------------------------------------------------------------- C8 */
 await test("C8 · \"Turn this into a show\" says the format change, and only when there is one",()=>{
   const box=makeBox();
+  // (owner 2026-11-12, later the same day: "follow the traditional conventions of filmmaking" — a Micro-drama and a
+  // Documentary are serial by nature and keep their format as Shows; scripts/test-film-conventions.mjs has the rule)
   assert.equal(box.turnShowFormatNote({format:"microdrama"}),
-    "Its format also changes, from Micro-drama to TV Series: every episode of a Show is a TV Series episode (planned as about 30 minutes in 24 scenes). The scenes already written are kept as they are.");
+    "Its format stays Micro-drama: every episode of this Show is a Micro-drama episode (planned as about 2 minutes in 7 scenes).");
+  assert.equal(box.turnShowFormatNote({format:"commercial"}),
+    "Its format also changes, from Commercial to TV Series: every episode of a Show is a TV Series episode (planned as about 30 minutes in 24 scenes). The scenes already written are kept as they are.");
   assert.match(box.turnShowFormatNote({format:"film"}),/^Its format also changes, from Short Film to TV Series: /);
   assert.match(box.turnShowFormatNote({format:"feature"}),/^Its format also changes, from Feature Film to TV Series: /);
   assert.equal(box.turnShowFormatNote({format:"series"}),"","already a Show format: nothing to say");
@@ -187,7 +191,7 @@ await test("C8 · \"Turn this into a show\" says the format change, and only whe
   // the question uses it; the rule for the Show's format is unchanged
   assert.ok(app.includes('const fmtNote = (typeof window.turnShowFormatNote==="function") ? window.turnShowFormatNote(project) : "";'));
   assert.ok(app.includes('scenes, script and shots remain episode-specific."+(fmtNote ? " "+fmtNote : ""),'));
-  assert.ok(app.includes('const seriesFormatId=String((registeredFormat&&registeredFormat.needsShow&&registeredFormat.id)||"series");'));
+  assert.ok(app.includes('const seriesFormatId=(typeof window.turnShowFormatId==="function") ? window.turnShowFormatId(liveProject)'));
 });
 
 /* ---------------------------------------------------------------- C9 */
@@ -221,10 +225,10 @@ await test("Frances knows, and the page is on the new key",()=>{
   const f=box.APP_FEATURES.find(x=>x&&String(x.name||"").startsWith("New Story window: facts and the web"));
   assert.ok(f);
   for(const part of ["FACTS AND THE WEB","says so BEFORE you research","A LONG IDEA IS READ WHOLE","up to 7,000 characters","THE TYPED CONVERSATION RECOMMENDS A SHAPE TOO","REGENERATE KEEPS YOUR SHAPE",
-    "WHILE A STEP IS RUNNING","TURNING A FILM INTO A SHOW CHANGES ITS FORMAT, AND SAYS SO"]) assert.ok(f.what.includes(part),part);
+    "WHILE A STEP IS RUNNING","TURNING A FILM INTO A SHOW, AND ITS FORMAT"]) assert.ok(f.what.includes(part),part);
   const html=read("TURN.html");
   for(const file of ["ai.jsx","script.jsx","app.jsx","newstory.jsx","formats.jsx"])
-    assert.ok(["20261112-ns1", "20261112-last1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-ns1", "20261112-last1", "20261112-conv1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log("\n"+(failed?"FAILED — "+failed+" of "+(checks+failed):"OK — "+checks+" checks passed"));
