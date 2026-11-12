@@ -213,9 +213,9 @@ await test("B5 every call that may name someone carries the paragraph: logline, 
 await test("the page loads the names file before the build, with new keys, and Frances knows the rule",()=>{
   const html=read("TURN.html"), at=s=>{ const i=html.indexOf(s); assert.ok(i>=0,s); return i; };
   assert.ok(at("app/story-names.js?v=")<at("app/agents.jsx?v="));
-  assert.ok(["20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1"].some(k=>html.includes('app/story-names.js?v='+k+'"')),"story-names.js key");
+  assert.ok(["20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-slug1"].some(k=>html.includes('app/story-names.js?v='+k+'"')),"story-names.js key");
   for(const file of ["ai.jsx","script.jsx","agents.jsx"])
-    assert.ok(["20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-slug1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
   const f=box.APP_FEATURES.find(x=>/^New Story \(format/.test(x.name));
   assert.ok(f && /NAMES \(2026-11-12\)/.test(f.what));
   assert.ok(/a name you gave is never changed/i.test(f.what));

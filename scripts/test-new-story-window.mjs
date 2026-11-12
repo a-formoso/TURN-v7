@@ -224,7 +224,7 @@ await test("Frances knows, and the page is on the new key",()=>{
     "WHILE A STEP IS RUNNING","TURNING A FILM INTO A SHOW CHANGES ITS FORMAT, AND SAYS SO"]) assert.ok(f.what.includes(part),part);
   const html=read("TURN.html");
   for(const file of ["ai.jsx","script.jsx","app.jsx","newstory.jsx","formats.jsx"])
-    assert.ok(["20261112-ns1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-ns1", "20261112-slug1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log("\n"+(failed?"FAILED — "+failed+" of "+(checks+failed):"OK — "+checks+" checks passed"));
