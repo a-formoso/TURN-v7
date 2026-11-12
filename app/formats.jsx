@@ -235,3 +235,17 @@ window.SCREEN_LINES_PER_MIN = SCREEN_LINES_PER_MIN; window.LONG_FOR_FORMAT = LON
 window.runtimeText = runtimeText; window.runtimeAdj = runtimeAdj; window.budgetPhrase = budgetPhrase; window.sceneBudgetFor = sceneBudgetFor; window.beatBudgetFor = beatBudgetFor;
 window.sceneLengthCheck = sceneLengthCheck; window.formatDraftBrief = formatDraftBrief;
 window.sceneShapeFor = sceneShapeFor; window.synopsisSentencesFor = synopsisSentencesFor;
+/* WHAT "TURN THIS INTO A SHOW" DOES TO THE FORMAT (2026-11-12, Writers' Room audit C8). Every episode of a Show has
+   the Show's format, and a Show's format is a Show format (today: TV Series). So a Micro-drama, a Short Film or
+   any other film becomes a TV Series episode when it is turned into a Show — and the question asked before doing
+   it never said so. The sentence for that question; "" when the film already has a Show format. The rule itself
+   (which format a Show gets) is app.jsx makeShow's and is unchanged. */
+function turnShowFormatNote(project){
+  const now = _formatEntry(project);
+  if(!now || now.needsShow) return "";
+  const show = FORMATS.find(f=>f.id==="series");
+  if(!show || show.id===now.id) return "";
+  const size = "planned as about "+runtimeText(Math.round(Number(show.runtimeMin||0)*60))+" in "+show.sceneTarget+" scenes";
+  return "Its format also changes, from "+now.label+" to "+show.label+": every episode of a Show is a "+show.label+" episode ("+size+"). The scenes already written are kept as they are.";
+}
+window.turnShowFormatNote = turnShowFormatNote;

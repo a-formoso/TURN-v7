@@ -246,7 +246,9 @@ function NSLegacyInterview({ formatLabel, onComplete, onBack, liveNotice, showCa
         setThinking(false);
         const transcript=[...next,{role:"assistant",content:r.say}]
           .map(m=>(m.role==="user"?"WRITER: ":"FRANCES: ")+m.content).join("\n");
-        onComplete(r.loglines,transcript);   // hand off to Step 3 (loglines)
+        // (2026-11-12, audit C6) the recommended shape rides on the loglines, as it does from the spoken conversation
+        const lls = r.loglines.slice(); if(r.shape) lls.shape = r.shape;
+        onComplete(lls,transcript);   // hand off to Step 3 (loglines)
         return;
       }
     }catch(e){ setErr(hErr(e)); }
@@ -522,6 +524,10 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
   const [steer, setSteer] = React.useState("");
   const [synFrom, setSynFrom] = React.useState("");       // the research the synopsis was written from
   const [loglineCheck, setLoglineCheck] = React.useState(null);   // { missing:[...] } for the writer's own logline
+  // REGENERATE KEEPS THE SHAPE (2026-11-12, audit C7): the shape was confirmed on the Shape step. New loglines used
+  // to bring a new recommendation that was applied on the spot, with no word. Now the shape stays, and a different
+  // recommendation is said: { label, why }
+  const [regenShape, setRegenShape] = React.useState(null);
   // The auto-shape's setFramework/setFormat land a render AFTER develop() runs; mirror
   // them into refs so researchSynopsis always reads the APPLIED shape (never a stale
   // closure that would silently fall back to the default three-act synopsis).
@@ -530,6 +536,16 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
   // is the shape still the one suggested, or has the writer picked their own since? (the logline step's line)
   const shapeStillSuggested = !!autoShape && (!autoShape.formatId || format===autoShape.formatId) && (!autoShape.frameworkId || framework===autoShape.frameworkId);
   const shapeNowLabel = [(((window.FORMATS||[]).find(f=>f.id===format))||{}).label, (((window.FRAMEWORKS||[]).find(f=>f.id===framework))||{}).label].filter(Boolean).join(" \u00b7 ");
+  // A CALL IS RUNNING (2026-11-12, audit C9): while research or the synopsis is being written, Back, Regenerate, the
+  // logline choices and the engine picker stayed live — the answer then landed on a step or a logline the writer
+  // had already left. They wait for it now.
+  const nsBusy = loading || researchLoading || synLoading;
+  // FACTS AND THE WEB (audit C3): said before the research, not only after it
+  const webCheck = (typeof window.researchWebCheck==="function") ? window.researchWebCheck(mid) : { searches:true, label:"", others:[] };
+  const webNote = (!webCheck.searches && webCheck.label) ? React.createElement("div",{className:"ns-loglinecheck",role:"note","data-testid":"ns-web-note"},
+    React.createElement(Icon.search||Icon.sparkles,{s:12}),
+    React.createElement("span",null,React.createElement("b",null,webCheck.label)," writes the research\u2019s facts from general knowledge \u2014 it does not check them against the web."+
+      (webCheck.others.length ? " "+webCheck.others.join(" and ")+(webCheck.others.length===1 ? " does" : " do")+": choose it at the top of this window before you research if the story leans on real places, people or events." : ""))) : null;
   const cfg = seedTypes.find(s=>s.id===seed) || SEED_TYPES[0];
   const needsText = seed !== "talk" && seed !== "script";
   const formatLabel = (((window.FORMATS||[]).find(f=>f.id===format)||{}).label || "film").toLowerCase();
@@ -566,7 +582,14 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
         setLoglineCheck(mine && outs.check && Array.isArray(outs.check.missing) && outs.check.missing.length ? { text:mine, missing:outs.check.missing } : null);
         // AUTO-SHAPE: apply the recommended format/framework to any knob the writer
         // didn't actively pick \u2014 an explicit Step-1 choice always wins
-        applyRecommendedShape(outs);
+        if(dest==="loglines"){
+          const sh = outs.shape || null;
+          const fmtDiff = !!(sh && sh.format && !formatLocked && sh.format!==formatRef.current);
+          const fwDiff = !!(sh && sh.framework && sh.framework!==frameworkRef.current);
+          setRegenShape((fmtDiff || fwDiff) ? { why:String(sh.why||""),
+            label:[fmtDiff ? ((((window.FORMATS||[]).find(f=>f.id===sh.format))||{}).label||sh.format) : "",
+                   fwDiff ? ((((window.FRAMEWORKS||[]).find(f=>f.id===sh.framework))||{}).label||sh.framework) : ""].filter(Boolean).join(" \u00b7 ") } : null);
+        } else { applyRecommendedShape(outs); setRegenShape(null); }
         setStep(dest==="loglines" ? "loglines" : "format");   // first pass confirms the SHAPE; regenerate stays put
       }
       else setErr("Couldn\u2019t shape that into a logline \u2014 try adding a detail or two.");
@@ -679,7 +702,7 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
               :"Synopsis \u00b7 written from your research \u00b7 review before the spine builds"))),
         React.createElement("label",{className:"ns-model-badge",title:"The model that develops this story — loglines, research, synopsis and the spine build"},
           React.createElement(Icon.sparkles,{s:12}),
-          React.createElement("select",{className:"ns-model-sel",value:mid,disabled:loading,
+          React.createElement("select",{className:"ns-model-sel",value:mid,disabled:nsBusy,
             onChange:(e)=>pickModel(e.target.value)},
             (window.WRITING_MODELS||[]).map(m=>React.createElement("option",{key:m.id,value:m.id,title:m.note||""},m.label + (m.id===_rec ? "  · recommended" : ""))))),
         React.createElement("button",{className:"ag-x",onClick:onClose,title:"Close","aria-label":"Close"},React.createElement(Icon.x,{s:16}))),
@@ -803,12 +826,17 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
                     "Your shape: ",
                     React.createElement("b",null,shapeNowLabel),
                     " \u2014 your own pick. The suggestion was "+[autoShape.formatLabel, autoShape.frameworkLabel].filter(Boolean).join(" \u00b7 ")+"."),
-              React.createElement("button",{className:"ns-btn link",onClick:()=>setStep("format"),
+              React.createElement("button",{className:"ns-btn link",onClick:()=>setStep("format"),disabled:nsBusy,
                 title:"Back to the Shape step \u2014 an explicit pick there always wins"},"Change")),
+            regenShape && React.createElement("div",{className:"ns-loglinecheck",role:"note","data-testid":"ns-regen-shape"},
+              React.createElement(Icon.sparkles,{s:12}),
+              React.createElement("span",null,"These new loglines would suggest ",React.createElement("b",null,regenShape.label),
+                regenShape.why ? (" \u2014 "+String(regenShape.why).replace(/[.\s]+$/,"")) : "", ". Your shape stays ",React.createElement("b",null,shapeNowLabel),
+                "; press Change"+(autoShape ? " above" : " on the Shape step (\u2190 Back)")+" if you want the other one.")),
             React.createElement("div",{className:"ns-seclab"},"Choose a logline \u2014 edit it freely"),
             React.createElement("div",{className:"ns-cands"},
               candidates.map((c,i)=>
-                React.createElement("button",{key:i,className:"ns-cand "+(chosen===c?"on":""),
+                React.createElement("button",{key:i,className:"ns-cand "+(chosen===c?"on":""),disabled:nsBusy,
                   onClick:()=>setChosen(c)},
                   React.createElement("span",{className:"ns-cand-dot"}),
                   React.createElement("span",{className:"ns-cand-tx"},c),
@@ -819,19 +847,20 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
               React.createElement("span",null,nsLoglineCheckText(loglineCheck.missing))),
             React.createElement("div",{className:"ns-field"},
               React.createElement("div",{className:"ns-input-lab"},"Final logline"),
-              React.createElement("textarea",{className:"ns-input",value:chosen,
+              React.createElement("textarea",{className:"ns-input",value:chosen,readOnly:nsBusy,
                 onChange:e=>setChosen(e.target.value),rows:3})),
+            webNote,
             err && React.createElement("div",{className:"ns-err"},(window.turnLinkifyReact?window.turnLinkifyReact(err):err)),
             React.createElement("div",{className:"ns-foot"},
-              React.createElement("button",{className:"ns-btn ghost",onClick:()=>setStep("format")},"\u2190 Back"),
-              React.createElement("button",{className:"ns-btn link",onClick:()=>develop("loglines"),disabled:loading||synLoading},
+              React.createElement("button",{className:"ns-btn ghost",onClick:()=>setStep("format"),disabled:nsBusy},"\u2190 Back"),
+              React.createElement("button",{className:"ns-btn link",onClick:()=>develop("loglines"),disabled:nsBusy},
                 loading?"Re-developing\u2026":"Regenerate"),
               React.createElement("button",{className:"ns-btn primary",onClick:()=>runResearch(false),disabled:researchLoading||synLoading||loading||!chosen.trim()||!aiOn},
                 researchLoading?React.createElement(React.Fragment,null,
                   React.createElement("span",{className:"ns-spin"}),"Researching\u2026")
                   :React.createElement(React.Fragment,null,
                   React.createElement(Icon.search||Icon.sparkles,{s:16}),
-                  (research && researchFor===chosen.trim()) ? "Research \u2192" : "Research"))))
+                  (research && researchFor===intakeKey()) ? "Research \u2192" : "Research"))))
 
         : step==="research"
         ? React.createElement("div",{className:"ns-body"},
@@ -858,9 +887,10 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
                   onChange:e=>setSteer(e.target.value), onKeyDown:onCmdEnter(()=>{ if(steer.trim()) runResearch(true); }, true)}),
                 React.createElement("button",{className:"ns-btn",onClick:()=>runResearch(true),disabled:researchLoading||synLoading||!aiOn},
                   researchLoading?"Researching\u2026":"Research again"))),
+            webNote,
             err && React.createElement("div",{className:"ns-err"},(window.turnLinkifyReact?window.turnLinkifyReact(err):err)),
             React.createElement("div",{className:"ns-foot"},
-              React.createElement("button",{className:"ns-btn ghost",onClick:()=>setStep("loglines")},"\u2190 Back"),
+              React.createElement("button",{className:"ns-btn ghost",onClick:()=>setStep("loglines"),disabled:nsBusy},"\u2190 Back"),
               React.createElement("button",{className:"ns-btn primary",
                 onClick:()=>{ if(paras.length){ setErr(""); setStep("synopsis"); } else writeSynopsis(); },
                 disabled:synLoading||researchLoading||!research||!aiOn},
@@ -901,11 +931,11 @@ function NewStoryIntake({ onClose, onLaunch, aiOn, initialFormat, formatLocked, 
             React.createElement("div",{className:"syn-seclab"},"Synopsis \u2014 edit any paragraph before building"),
             paras.map((pg,i)=>React.createElement("div",{key:pg.key,className:"syn-para"},
               React.createElement("div",{className:"syn-para-lab"},pg.label||pg.key),
-              React.createElement("textarea",{className:"ns-input syn-input",value:pg.text,rows:3,
+              React.createElement("textarea",{className:"ns-input syn-input",value:pg.text,rows:3,readOnly:synLoading,
                 onChange:e=>{ const v=e.target.value; setParas(ps=>ps.map((x,j)=>j===i?{...x,text:v}:x)); }}))),
             err && React.createElement("div",{className:"ns-err"},(window.turnLinkifyReact?window.turnLinkifyReact(err):err)),
             React.createElement("div",{className:"ns-foot"},
-              React.createElement("button",{className:"ns-btn ghost",onClick:()=>setStep("research")},"\u2190 Research"),
+              React.createElement("button",{className:"ns-btn ghost",onClick:()=>setStep("research"),disabled:nsBusy},"\u2190 Research"),
               React.createElement("button",{className:"ns-btn link",onClick:writeSynopsis,disabled:synLoading||!research},
                 synLoading?"Rewriting\u2026":"Rewrite synopsis from research"),
               React.createElement("button",{className:"ns-btn primary",onClick:()=>build(),disabled:synLoading||!chosen.trim()},

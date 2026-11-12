@@ -239,6 +239,29 @@ build on the server so it does not depend on the browser staying open.
 > the structure's own rule. D5: the build says "from your synopsis". B4: writing a scene never gives it a title
 > another scene has. All confirmed live. C3–C9 are untouched. Test: `scripts/test-writers-room-small-faults.mjs`.
 
+> **Status, 12 November 2026 — C3 and C5 to C9 are built** (branch `claude/audit-newstory-20261112`, not
+> published). Test: `scripts/test-new-story-window.mjs`.
+> - **C3.** The app now knows which engines check facts against the web (the server's own rule, mirrored and pinned
+>   to it by the test). When the engine in use does not, a note on the Logline step and the Research step says so
+>   before the research and names the engine that does. The labels after research are unchanged.
+> - **C5.** Confirmed and wider: the research and synopsis read the first 1,600 characters of the idea, and the
+>   loglines 1,200 of anything but a conversation — so a prose text sent over from Import a screenplay (up to
+>   6,000) was read to a fifth. One limit now, 7,000, for all three; a longer idea loses its middle, never its end.
+> - **C6.** The typed conversation's hand-off now carries a recommended format and structure, validated against
+>   the real lists, like the spoken one.
+> - **C7.** Regenerate no longer applies a new recommendation to the shape the writer confirmed. If the new
+>   loglines would suggest another shape, a note says which and why, with the way to change it.
+> - **C8.** "Turn this into a show" now says the format change (any film that is not already a Show format becomes
+>   a TV Series episode) in the question the writer confirms. The rule itself is unchanged — whether a
+>   Micro-drama Show should stay a Micro-drama is a product decision, not made here.
+> - **C9.** While loglines, research or the synopsis are being written, Back, Regenerate, the logline choices, the
+>   final-logline box, Change and the engine picker wait. Also fixed: the Research button never read "Research →"
+>   for an intake that was already researched (it compared the wrong things).
+> - **Seen working** in the app with the cloud switched off and a stand-in engine (no account, no paid call): the
+>   web note appearing when the engine is switched, the Regenerate note with the shape unchanged, and every
+>   control waiting during a 9-second research. C5, C6 and C8 are covered by tests only (C8 needs a signed-in
+>   account, which the browser pane lost when the Mac restarted).
+
 | # | What happens | Found |
 |---|---|---|
 | C1 | **The working title you type is ignored.** I set "TEST · Micro Short Locksmith"; the film was created as "Without Force", the model's title. | **seen live** |

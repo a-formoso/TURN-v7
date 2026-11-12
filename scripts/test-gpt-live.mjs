@@ -46,7 +46,8 @@ assert.match(story,/Finish & shape loglines/);
 assert.match(story,/aiSeedToLoglines\("talk",transcript(?:,showCanon)?\)/);
 assert.match(story,/function NSLegacyInterview/);
 assert.match(story,/Use typed interview/);
-assert.match(ai,/seedType==="talk"\?7000:1200/);
+// (2026-11-12, audit C5: every seed, the conversation included, is read up to STORY_SEED_MAX — 7,000 as before for a conversation)
+assert.match(ai,/const STORY_SEED_MAX = 7000;/);assert.match(ai,/window\.storySeedText\(text\) : String\(text\|\|""\)\.slice\(0,7000\)\.trim\(\)/);
 assert.match(ai,/talk:\s+"The writer talked the story through with Frances/);
 assert.match(ai,/_newStoryLiveFeature/);
 assert.match(protocol,/New Story voice uses a server-created GPT-Live session over WebRTC/);

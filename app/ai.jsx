@@ -77,6 +77,39 @@ try{ localStorage.removeItem("turn-writing-model"); }catch(e){}
 function getWritingModelId(task){ if(_writingPick && WRITING_MODELS.find(m=>m.id===_writingPick)) return _writingPick; return recommendedWritingModelId(task); }
 function setWritingModelId(id){ _writingPick = id || null; try{ window.dispatchEvent(new CustomEvent("turn-writing-model-changed")); }catch(e){} }
 window.WRITING_MODELS = WRITING_MODELS; window.getWritingModelId = getWritingModelId; window.setWritingModelId = setWritingModelId;
+/* WHICH ENGINES CHECK FACTS AGAINST THE WEB (2026-11-12, Writers' Room audit C3). New Story's research searches the
+   web only on some engines; on the others the Fact pillar is written from general knowledge, and the writer only
+   learned that after the research came back. This mirrors the server's own rule (image-proxy billing-pricing.mjs
+   `textWebSearchTool`, pinned to it by scripts/test-new-story-window.mjs) so the window can say it BEFORE. */
+function writingModelSearchesWeb(id){ return /^claude-(opus-5|sonnet-5)(?:$|-)/.test(String(id||"")); }
+/* { searches, label, others:[labels of the engines in the picker that do] } for the engine a story is developed on */
+function researchWebCheck(id){
+  const m = WRITING_MODELS.find(x=>x.id===id) || null;
+  return { searches: writingModelSearchesWeb(id), label: m ? m.label : "",
+    others: WRITING_MODELS.filter(x=>writingModelSearchesWeb(x.id) && x.id!==id).map(x=>x.label) };
+}
+window.writingModelSearchesWeb = writingModelSearchesWeb; window.researchWebCheck = researchWebCheck;
+/* THE WRITER'S OWN WORDS, AS MUCH AS A PLANNING CALL READS (2026-11-12, audit C5). "Talk it through" hands the whole
+   conversation on as the story's seed, and an imported prose text arrives as one too (up to 6,000 characters). The
+   loglines read 7,000 characters of a conversation but 1,200 of anything else, and the research and the synopsis
+   read only the first 1,600 of either: the start of the conversation, without what the writer worked out later.
+   One limit for all three now; when a seed is longer still, the MIDDLE is what is left out — the opening and,
+   above all, the end (where a conversation lands) are kept. */
+const STORY_SEED_MAX = 7000;
+function storySeedText(text){
+  const s = String(text||"").trim();
+  if(s.length <= STORY_SEED_MAX) return s;
+  const mark = "\n[\u2026 the middle is left out here \u2026]\n";
+  const room = STORY_SEED_MAX - mark.length, head = Math.floor(room*0.35), tail = room - head;
+  const a = s.slice(0, head), b = s.slice(s.length - tail);
+  // cut at the end of a line where there is one near (a conversation is lines), else at a word \u2014 never inside a word
+  const aLine = a.lastIndexOf("\n"), aWord = a.lastIndexOf(" ");
+  const aEnd = aLine > head*0.8 ? aLine : Math.max(aLine, aWord);
+  const bLine = b.indexOf("\n"), bWord = b.search(/[\n ]/);
+  const bStart = (bLine>=0 && bLine < tail*0.2) ? bLine+1 : (bWord<0 ? 0 : bWord+1);
+  return (aEnd > head*0.6 ? a.slice(0, aEnd) : a).trimEnd()+mark+b.slice(bStart).trimStart();
+}
+window.STORY_SEED_MAX = STORY_SEED_MAX; window.storySeedText = storySeedText;
 /* WHAT A WRITING RUN USES, SAID UP FRONT (2026-10-09, owner — Writers' Room review): the number of writing
    calls and the engine they run on ("about 6 writing calls on Opus 5.5"); each call is held and charged
    by the server for what it really uses. task: "story" | "specs". */
@@ -3904,6 +3937,8 @@ APP_FEATURES.push({ name:"A new episode uses the Show's cast (New Story inside a
 (()=>{ const f = APP_FEATURES.find(x=>x && String(x.name||"").startsWith("Writers' Room run integrity"));
   if(f) f.what += " A PLAN THAT WAS CUT OFF IS TREATED AS CUT OFF (2026-11-12): when the answer for the scene list, the story world or the synopsis runs into its length limit, the app no longer uses the shortened answer as if it were whole \u2014 a half of the scene list that came back with fewer scenes than asked is asked for again, the story world is asked for once more and the fuller answer kept (the log says so if it was cut both times, with how many cast entries came back), and a synopsis paragraph that stopped mid-sentence is written again.";
 })();
+/* THE NEW STORY WINDOW SAYS WHAT IT DOES (2026-11-12, owner \u2014 Writers' Room audit C3, C5 to C9) */
+APP_FEATURES.push({ name:"New Story window: facts and the web, long ideas, Regenerate, and what waits for a running step", what:"FACTS AND THE WEB: the Research step's Fact pillar is checked against the web only on some writing engines (the picker at the top of the New Story window shows the engine in use). When the engine in use does not check, a note on the Logline step and on the Research step says so BEFORE you research, and names the engine or engines that do; switch at the top of the window if the story leans on real places, people or events. After research, the Fact pillar is always labelled either 'Checked against the web \u00b7 sources' with its pages, or 'From general knowledge \u2014 not checked against the web'. A LONG IDEA IS READ WHOLE: the loglines, the research and the synopsis all read up to 7,000 characters of what you brought \u2014 the whole 'Talk it through' conversation, or a prose text sent over from Import a screenplay \u2014 and when it is longer still, the middle is what is left out, never the end (before 12 November 2026 the research and synopsis read only the first 1,600 characters). THE TYPED CONVERSATION RECOMMENDS A SHAPE TOO: when voice is unavailable and you answer Frances's questions in writing, the loglines it hands over come with a recommended format and structure on the Shape step, like the spoken conversation's. REGENERATE KEEPS YOUR SHAPE: Regenerate on the Logline step writes new loglines and leaves the format and structure you confirmed as they are; if the new loglines would suggest a different shape, a note says which and why, and Change takes you to the Shape step. WHILE A STEP IS RUNNING (developing loglines, researching, writing or rewriting the synopsis) the Back button, Regenerate, the logline choices and the engine picker wait until it has finished, so an answer never lands on a logline or step you have already left. TURNING A FILM INTO A SHOW CHANGES ITS FORMAT, AND SAYS SO: every episode of a Show is a TV Series episode, so 'Turn this into a show' on a Micro-drama, a Short Film or any other film changes its format to TV Series; the question you confirm now says that, with the size a new episode is planned at, and that the scenes already written are kept." });
 function appBrief(){
   const facts = museFacts();
   return "\n\nABOUT THIS APP (use ONLY these facts to answer product/how-to questions; never invent features or behaviour — if a question isn't covered here, say you're not sure rather than guess):\n"
@@ -5670,7 +5705,9 @@ async function aiSeedToLoglines(seedType, text, canon){
   if(!aiAvailable()) return null;
   // A live transcript carries several short turns, so preserve more of it than
   // the one-field seed doors without allowing an unbounded prompt.
-  const t = String(text||"").slice(0,seedType==="talk"?7000:1200).trim();
+  // (2026-11-12, audit C5: it was 1,200 for every door but the conversation, cut from the end) — read through window:
+  // other suites run this function on its own
+  const t = (typeof window!=="undefined" && typeof window.storySeedText==="function") ? window.storySeedText(text) : String(text||"").slice(0,7000).trim();
   const framing = {
     logline:   "The writer already has a logline draft. Sharpen it into up to 3 stronger, more specific variants:",
     whatif:    "The writer has a 'what if' premise. Turn it into up to 3 loglines, each naming a concrete protagonist, their want, and the obstacle:",
@@ -5760,8 +5797,14 @@ async function aiSeedInterview(history, formatLabel, canon){
     "Frances is simply your name here: never claim to be named after, modelled on or to be any real person. "+
     "Return ONLY compact JSON each turn:\n"+
     "  keep talking: {\"say\":\"<a brief warm reaction + ONE question>\",\"done\":false}\n"+
-    "  hand off:     {\"say\":\"<a warm one-sentence wrap-up>\",\"done\":true,\"loglines\":[\"<l1>\",\"<l2>\",\"<l3>\"]}\n"+
-    "Each logline: ONE sentence naming the protagonist, their want, and the obstacle/twist — fresh, specific, cinematic, never echoing famous films.";
+    "  hand off:     {\"say\":\"<a warm one-sentence wrap-up>\",\"done\":true,\"loglines\":[\"<l1>\",\"<l2>\",\"<l3>\"],\"shape\":{\"format\":\"<id>\",\"framework\":\"<id>\",\"why\":\"<one short sentence>\"}}\n"+
+    "Each logline: ONE sentence naming the protagonist, their want, and the obstacle/twist — fresh, specific, cinematic, never echoing famous films.\n"+
+    // THE SHAPE, AT HAND-OFF (2026-11-12, audit C6): the spoken conversation's loglines come with a recommended
+    // format and structure (aiSeedToLoglines); this typed one never did, so its Shape step had no suggestion
+    "When you hand off, also recommend the SHAPE this story wants: format = ONE id from ["+
+      (window.FORMATS||[]).map(f=>f.id+" = "+f.label).join("; ")+"]; framework = ONE id from ["+
+      ((typeof window.frameworkChoices==="function") ? window.frameworkChoices() : (window.FRAMEWORKS||[]).filter(f=>!f.retired)).map(f=>f.id+" = "+f.label).join("; ")+
+      "] (a twist that recontextualizes wants kishotenketsu; a mythic transformation wants herosjourney; conflict-driven turns want threeact); why = ONE short sentence grounded in what the writer told you.";
   const conv = (history||[]).filter(t=>t && t.content && String(t.content).trim());
   const base = conv.length ? conv
     : [{ role:"user", content:"(The writer just opened the conversation — greet them warmly and ask your first question.)" }];
@@ -5788,7 +5831,13 @@ async function aiSeedInterview(history, formatLabel, canon){
   const loglines = Array.isArray(j.loglines)
     ? j.loglines.map(s=>clipWords(scrubBrand(String(s||"").replace(/^["'“]/,"").replace(/["'”]$/,"").trim()),450)).filter(Boolean).slice(0,3)
     : [];
-  return { say: say || (j.done?"Great — let me shape a few loglines from that.":"Tell me more."), done: !!j.done, loglines };
+  // only REAL registry ids survive (as in aiSeedToLoglines)
+  const sh = j.shape && typeof j.shape==="object" ? j.shape : null;
+  const fmtOk = !!sh && (window.FORMATS||[]).some(f=>f.id===sh.format);
+  const fwOk = !!sh && ((typeof window.frameworkChoices==="function") ? window.frameworkChoices() : (window.FRAMEWORKS||[]).filter(f=>!f.retired)).some(f=>f.id===sh.framework);
+  const shape = (j.done && (fmtOk || fwOk)) ? { format: fmtOk ? sh.format : "", framework: fwOk ? sh.framework : "",
+    why: clipWords(scrubBrand(String(sh.why||"").trim()), 220) } : null;
+  return { say: say || (j.done?"Great — let me shape a few loglines from that.":"Tell me more."), done: !!j.done, loglines, ...(shape ? { shape } : {}) };
 }
 window.aiSeedInterview = aiSeedInterview;
 
@@ -5848,7 +5897,8 @@ async function aiResearch(logline, seedText, frameworkId, formatId, steer, canon
   const cl = (v,n)=> clipAtBoundary(scrubBrand(String(v||"").trim()), n);
   // the writer's ORIGINAL seed: names, details and questions the one-line logline
   // compressed away \u2014 they are canon and must survive into the research and synopsis
-  const seed = String(seedText||"").slice(0,1600).trim();
+  // (2026-11-12, audit C5: it was the first 1,600 characters only)
+  const seed = (typeof window!=="undefined" && typeof window.storySeedText==="function") ? window.storySeedText(seedText) : String(seedText||"").slice(0,7000).trim();
   const seedBlock = (seed && seed!==L)
     ? "\nTHE WRITER'S ORIGINAL SEED (its names, details and questions are CANON \u2014 keep them; the logline compressed them away):\n"+seed+"\n"
     : "";
@@ -5916,7 +5966,8 @@ async function aiSynopsisFromResearch(logline, seedText, frameworkId, formatId, 
   const L = String(logline||"").slice(0,1200).trim();
   if(!L) return null;
   const cl = (v,n)=> clipAtBoundary(scrubBrand(String(v||"").trim()), n);
-  const seed = String(seedText||"").slice(0,1600).trim();
+  // (2026-11-12, audit C5: it was the first 1,600 characters only)
+  const seed = (typeof window!=="undefined" && typeof window.storySeedText==="function") ? window.storySeedText(seedText) : String(seedText||"").slice(0,7000).trim();
   const seedBlock = (seed && seed!==L)
     ? "\nTHE WRITER'S ORIGINAL SEED (its names, details and questions are CANON \u2014 keep them; the logline compressed them away):\n"+seed+"\n"
     : "";

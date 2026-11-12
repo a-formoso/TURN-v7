@@ -2696,8 +2696,12 @@ function App(){
     const automatic=!!(opts&&opts.automatic);
     if(!cloudMode || currentShowId || !currentProjectId || seriesBusyRef.current) return false;
     if(!automatic){
+      /* THE FORMAT CHANGE IS SAID (2026-11-12, Writers' Room audit C8). A Show's episodes are TV Series episodes: a
+         film in any other format (a Micro-drama, a Short Film…) becomes one when it is turned into a Show, and the
+         question never mentioned it. `turnShowFormatNote` (formats.jsx) is the sentence, or "" when nothing changes. */
+      const fmtNote = (typeof window.turnShowFormatNote==="function") ? window.turnShowFormatNote(project) : "";
       const ok = await window.appConfirm({ title:"Turn this into a show?",
-        body:"“"+(project.title||"Untitled")+"” becomes Episode 1. Its cast, locations, props and lookbook become one shared Show Bible; scenes, script and shots remain episode-specific.",
+        body:"“"+(project.title||"Untitled")+"” becomes Episode 1. Its cast, locations, props and lookbook become one shared Show Bible; scenes, script and shots remain episode-specific."+(fmtNote ? " "+fmtNote : ""),
         confirmLabel:"Create show and Episode 1" });
       if(!ok) return false;
     }
