@@ -166,6 +166,11 @@ const FRAMEWORKS = [
         const act = Number(sc.act)||1;
         const delta = Math.abs((sc.closeCharge||0) - (sc.openCharge||0));
         if(act>=4 || sc.kind==="ketsu" || sc.kind==="resolution") return { turned:true, flagged:false, exempt:true, status:"exempt" };
+        // (2026-11-12, audit D4) a RE-READ scene shows what came before in its new light: like a ki or shō scene
+        // it only has to move. It was held to the ten's rule (a reversal) and flagged "inert" when it drifted on
+        // one side — against this audit's own words, "only the ten has to reverse".
+        if(act===3 && sc.kind==="re-read"){ const still = delta===0 && Math.abs(sc.closeCharge||0)<=0;
+          return { turned:!still, flagged:still, exempt:false, status: still ? "flat" : "turn" }; }
         if(act===3){ const t = chargeTurn(sc.openCharge, sc.closeCharge);
           return { turned:t.turned, progression:t.progression, flagged:!t.turned && !t.progression, exempt:false,
             status: t.turned ? "turn" : t.progression ? "progression" : "flat" }; }

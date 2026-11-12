@@ -1176,6 +1176,15 @@ function _threadIntroduced(cast, earlierDrafts){
     return forms.some(n=> n.length>=2 && whole(n));
   }).map(c=>String(c.name).trim().toUpperCase());
 }
+/* a slugline's place and time of day, for the thread only. The time is what follows the LAST separator that has a
+   space before it, so a hyphenated hour stays whole ("INT. NEWSROOM - PRE-DAWN" is NEWSROOM at PRE-DAWN). */
+const _THREAD_TIME_RE = /\b(night|day|dawn|dusk|morning|evening|afternoon|noon|midday|midnight|sunset|sunrise|twilight|hour|continuous|later|same time)\b/i;
+function _threadPlaceTime(loc){
+  const s = String(loc||"").trim().replace(/^(INT\.?\s*\/\s*EXT\.?|EXT\.?\s*\/\s*INT\.?|I\/E\.?|INT\.?|EXT\.?)\s+/i,"");
+  const m = s.match(/^(.*\S)\s+[-\u2013\u2014\u00b7]\s+(\S.*)$/) || s.match(/^(.*\S)\s*,\s*(\S.*)$/);
+  if(m && _THREAD_TIME_RE.test(m[2])) return { place:m[1].replace(/[\s,\-\u2013\u2014\u00b7]+$/,"").trim(), time:m[2].trim() };
+  return { place:s, time:"" };
+}
 function sceneThreadBrief(scene, scenes, drafts, cast){
   const order = Array.isArray(scenes) ? scenes : [];
   const D = (drafts && typeof drafts==="object") ? drafts : ((typeof window!=="undefined" && window.turnContinuity && window.turnContinuity.drafts) || {});
@@ -1198,6 +1207,13 @@ function sceneThreadBrief(scene, scenes, drafts, cast){
       const tail = _threadTail(pd, 5);
       if(tail.length) s += "HOW THE PREVIOUS SCENE ENDS (its last lines, already written):\n"+tail.map(l=>"  "+l).join("\n")+"\n";
     }
+    // THE SAME PLACE, AGAIN (2026-11-12, audit B16): seen live — four scenes in a row opened on the same description
+    // of the same desk. When this scene plays where the previous one did, the place is not introduced a second time.
+    { const here = _threadPlaceTime(scene.loc), there = prev ? _threadPlaceTime(prev.loc) : null;
+      const same = (x)=> String((x && x.place) || "").toUpperCase().replace(/[^A-Z0-9]+/g," ").trim();
+      if(here && there && same(here) && same(here)===same(there))
+        s += "SAME PLACE AS THE PREVIOUS SCENE ("+String(here.place).trim()+"): the audience has just been here \u2014 do not describe the place again or re-open on the same picture of it. Open on what is DIFFERENT now"+
+          ((here.time && there.time && here.time.toUpperCase()!==there.time.toUpperCase()) ? " (it was "+there.time.toUpperCase()+", it is now "+here.time.toUpperCase()+": the light, who is here, what has moved)" : " (who is here, what has moved, what is being done)")+".\n"; }
     s += "PICK UP AFTER IT: this scene starts after the previous one ends. Never restage an event that is already on screen (a door that was opened is open; a thing that changed hands has changed hands; a person who was told already knows) — where this scene's summary overlaps it, play only what is NEW. The one exception is a deliberate return the summary itself asks for (a flashback, a memory, a replayed moment).\n";
   }
   if(next && !_threadPlaceholder(next))
@@ -3939,6 +3955,8 @@ APP_FEATURES.push({ name:"A new episode uses the Show's cast (New Story inside a
 })();
 /* THE NEW STORY WINDOW SAYS WHAT IT DOES (2026-11-12, owner \u2014 Writers' Room audit C3, C5 to C9) */
 APP_FEATURES.push({ name:"New Story window: facts and the web, long ideas, Regenerate, and what waits for a running step", what:"FACTS AND THE WEB: the Research step's Fact pillar is checked against the web only on some writing engines (the picker at the top of the New Story window shows the engine in use). When the engine in use does not check, a note on the Logline step and on the Research step says so BEFORE you research, and names the engine or engines that do; switch at the top of the window if the story leans on real places, people or events. After research, the Fact pillar is always labelled either 'Checked against the web \u00b7 sources' with its pages, or 'From general knowledge \u2014 not checked against the web'. A LONG IDEA IS READ WHOLE: the loglines, the research and the synopsis all read up to 7,000 characters of what you brought \u2014 the whole 'Talk it through' conversation, or a prose text sent over from Import a screenplay \u2014 and when it is longer still, the middle is what is left out, never the end (before 12 November 2026 the research and synopsis read only the first 1,600 characters). THE TYPED CONVERSATION RECOMMENDS A SHAPE TOO: when voice is unavailable and you answer Frances's questions in writing, the loglines it hands over come with a recommended format and structure on the Shape step, like the spoken conversation's. REGENERATE KEEPS YOUR SHAPE: Regenerate on the Logline step writes new loglines and leaves the format and structure you confirmed as they are; if the new loglines would suggest a different shape, a note says which and why, and Change takes you to the Shape step. WHILE A STEP IS RUNNING (developing loglines, researching, writing or rewriting the synopsis) the Back button, Regenerate, the logline choices and the engine picker wait until it has finished, so an answer never lands on a logline or step you have already left. TURNING A FILM INTO A SHOW CHANGES ITS FORMAT, AND SAYS SO: every episode of a Show is a TV Series episode, so 'Turn this into a show' on a Micro-drama, a Short Film or any other film changes its format to TV Series; the question you confirm now says that, with the size a new episode is planned at, and that the scenes already written are kept." });
+/* THE LAST ROUND OF THE WRITERS' ROOM AUDIT (2026-11-12, owner \u2014 B11, B16, D4) */
+APP_FEATURES.push({ name:"Scene list: who drives, the clock, and structure labels (small rules)", what:"WHO DRIVES THE SCENES IS SIZED TO THE STORY: a story of twelve scenes or more is asked to let the antagonist and the key supporting characters each drive several scenes; a shorter one is asked for what fits (each drives at least one scene); a story of five scenes or fewer, such as a Commercial, keeps the protagonist driving and gives a scene to someone else only when the story turns on what they do. A Kish\u014dtenketsu story is never asked for an antagonist \u2014 that structure does not need one. THE CLOCK RUNS FORWARD: when the scene list is built, the time of day in the sluglines is asked to hold or move on from scene to scene (night, pre-dawn, dawn, morning\u2026) and never slip back to an earlier hour of the same day; a scene on another day or a flashback says so in its summary. The second half of the list is told when and where each scene of the first half plays, so the clock carries on across the middle. THE SAME PLACE IS NOT DESCRIBED TWICE: when a scene plays in the same place as the one before it, the writing engine is told not to describe the place again and to open on what is different now. These apply to scene lists and scenes written from 12 November 2026; an existing film keeps its sluglines and text (change a slugline on the scene card, or press Redraft on a scene). STRUCTURE LABELS: in a three-act story of ten scenes or more the two Pinch Point labels sit on the scenes the story was planned with (about three-eighths and five-eighths of the way through) \u2014 for a 12-scene Documentary that is scenes 5 and 8. A Hero's Journey of four scenes that has only three keeps each scene on the stage it was written for instead of sliding every label by one. In Kish\u014dtenketsu a Recontextualization scene (one that shows what came before in its new light, after the Twist) only has to move, like the opening movements; it is no longer marked inert for not reversing \u2014 only the Twist itself has to reverse." });
 function appBrief(){
   const facts = museFacts();
   return "\n\nABOUT THIS APP (use ONLY these facts to answer product/how-to questions; never invent features or behaviour — if a question isn't covered here, say you're not sure rather than guess):\n"
@@ -5294,6 +5312,25 @@ function showCanonBlock(canon, use){
 }
 window.showCanonBlock = showCanonBlock;
 
+/* WHO DRIVES THE SCENES, SIZED TO THE STORY (2026-11-12, Writers' Room audit B11). Every scene list was told
+   "antagonist(s) and key supporting characters EACH drive several scenes" — a 4-scene commercial cannot do that,
+   and a Kish\u014dtenketsu story (where conflict is optional) was pushed to invent an antagonist to have one.
+   Twelve scenes or more keep the sentence as it was; a shorter list asks for what fits; Kish\u014dtenketsu never
+   names an antagonist. */
+function spineDriverRule(total, fw){
+  const n = Math.max(1, Math.round(Number(total)||0));
+  const kisho = !!(fw && fw.id==="kishotenketsu");
+  if(n <= 5) return kisho
+    ? "DRIVERS: the story's central figure drives most scenes; give a scene to another person only when the story turns on what THEY do. This structure needs no antagonist \u2014 never invent one. "
+    : "DRIVERS: the protagonist drives most scenes; give a scene to another character only when the story turns on what THEY do \u2014 with so few scenes, nobody needs a scene of their own just to have one. ";
+  if(kisho) return "VARY THE DRIVER: the story's central figure drives most scenes, but the other people in it "+(n>=12 ? "EACH drive several scenes" : "each drive at least one scene")+
+    ". This structure needs no antagonist \u2014 never invent one to have somebody to drive a scene. ";
+  return n>=12
+    ? "VARY THE DRIVER: protagonist drives most, but antagonist(s) and key supporting characters EACH drive several scenes. "
+    : "VARY THE DRIVER: protagonist drives most, but the antagonist and a key supporting character each drive at least one scene. ";
+}
+window.spineDriverRule = spineDriverRule;
+
 /* ACTS FOLLOW THE ORDER OF THE SCENES, NEVER THE OTHER WAY ROUND (2026-11-12, audit B10). The scene list is in
    story order; the act on each scene is a label. The list used to be SORTED by that label, so one scene tagged
    with the wrong act — or with none, which read as act 1 — was moved to another part of the film. Now the order
@@ -5430,16 +5467,24 @@ async function spineBatch(brief, part, fmt, fw, prior, canon){
   const priorBlock = (!isFirst && prior && Array.isArray(prior.scenes) && prior.scenes.length)
     ? "\n\nTHE FIRST HALF IS ALREADY WRITTEN (scenes 1\u2013"+prior.scenes.length+"). CONTINUE IT: every person in it keeps EXACTLY the same name and driver id "+
       "(the same person is never renamed, re-invented or split in two; a new person gets a new name), and no scene title is reused.\n"+
-      prior.scenes.map((s,i)=>(i+1)+". [act "+s.act+"] "+s.title+" \u2014 "+s.summary+" (driver: "+s.driver+")").join("\n")
+      // (2026-11-12, audit B16) with each scene's slugline: the second half was never told WHEN and WHERE the first
+      // half's scenes play, so the clock could jump back at the join (it did, exactly there)
+      prior.scenes.map((s,i)=>(i+1)+". [act "+s.act+"] "+s.title+" \u2014 "+s.summary+" (driver: "+s.driver+")"+(s.loc ? " \u00b7 "+s.loc : "")).join("\n")+
+      "\nTHE CLOCK CARRIES ON from where scene "+prior.scenes.length+" stops: your first scene follows its time of day; it does not go back to an earlier hour of the same day."
     : "";
   const prompt = intro+timeLine+
     "Generate ONLY "+range+". That is EXACTLY "+count+" scenes. "+
     sceneRule+
     inciteRule+
     hookRule+
-    "VARY THE DRIVER: protagonist drives most, but antagonist(s) and key supporting characters EACH drive several scenes. "+
+    // (2026-11-12, audit B11) sized to the scene count and worded for the structure; read through window — other
+    // suites run this function on its own
+    ((typeof window!=="undefined" && typeof window.spineDriverRule==="function") ? window.spineDriverRule(total, fw)
+      : "VARY THE DRIVER: protagonist drives most, but antagonist(s) and key supporting characters EACH drive several scenes. ")+
     // ONE EVENT PER SCENE (2026-11-11, audit B1): two cards describing the same action were written as the same scene twice
     "ONE EVENT PER SCENE: every scene is a DIFFERENT event that begins after the one before it ends \u2014 no two summaries describe the same action or moment (a door is opened once; a thing changes hands once; a secret is told once). "+
+    // THE CLOCK RUNS FORWARD (2026-11-12, audit B16): seen live — scene 8 "PRE-DAWN", then scenes 9 and 10 "NIGHT"
+    "TIME RUNS FORWARD: the time of day in each slugline follows the story's clock. From one scene to the next it holds or moves on (NIGHT, then PRE-DAWN, DAWN, MORNING, DAY, DUSK\u2026); it never slips back to an earlier hour of the same day. A scene set on another day, or a flashback, says so in its summary. "+
     offSpine+
     "NAME\u2194IDENTITY DISCIPLINE: a personal name belongs to exactly ONE person. Characters NAMED in the brief keep exactly "+
     "the identity the brief gives them \u2014 never reuse a brief name for a different kind of person (a name the brief attaches "+

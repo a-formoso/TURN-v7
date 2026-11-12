@@ -61,10 +61,27 @@ function assignPlotPoints(scenes){
   if(fw && fw.id==="herosjourney"){
     // 4 scenes or fewer: the minimum journey, stage by stage (frameworks.jsx), matching
     // exactly what the spine prompt asked for
-    const mini = (typeof heroMiniStages==="function") ? heroMiniStages(scenes.length) : null;
+    let mini = (typeof heroMiniStages==="function") ? heroMiniStages(scenes.length) : null;
+    /* A TINY JOURNEY THAT CAME BACK A SCENE SHORT (2026-11-12, audit D4). Its scenes were written for the table of
+       the count the format asks for (a Commercial: ordinary world, threshold, ordeal, elixir). Labelled from the
+       table of the count that CAME BACK, every stage slid by one. Now each scene takes, in order, the next stage of
+       the planned table that belongs to its act — so the stage that is missing is the one left out. */
+    let miniKinds = mini ? mini.map(x=>x && x[0]) : null;
+    { const fmtH = (typeof formatOf==="function") ? formatOf(window.turnProject) : null;
+      const planned = (fmtH && typeof heroMiniStages==="function" && Number(fmtH.sceneTarget) > scenes.length) ? heroMiniStages(fmtH.sceneTarget) : null;
+      if(planned && scenes.length){
+        let at = 0; const out = [];
+        scenes.forEach(s=>{
+          let j = planned.findIndex((x,k)=>k>=at && x && Number(x[1])===Number(s.act));
+          if(j<0) j = at < planned.length ? at : -1;
+          out.push(j>=0 ? planned[j][0] : "");
+          if(j>=0) at = j+1;
+        });
+        mini = planned; miniKinds = out;
+      } }
     if(mini || declared){
       // a tiny journey uses its fixed table; otherwise the stages the spine declared
-      scenes.forEach((s,i)=>{ const k = mini ? (mini[i] && mini[i][0]) : declared[i]; if(k) s.kind = k; });
+      scenes.forEach((s,i)=>{ const k = mini ? miniKinds[i] : declared[i]; if(k) s.kind = k; });
       scenes.forEach(s=>{ if(s.kind!=="normal") return; s.plot = s.act===1 ? "Departure" : s.act===2 ? "Trials" : "Return"; });
       return scenes;
     }
@@ -160,8 +177,14 @@ function assignPlotPoints(scenes){
       const open = scenes.map((_,i)=>i).filter(i=>i>lo && i<hi && scenes[i].kind==="normal");
       return open.length ? open[Math.floor((open.length-1)/2)] : -1;
     };
-    set(between(endI, midIdx),"pinch");
-    set(between(midIdx, endII),"pinch");
+    /* THE SAME SCENES THE LIST WAS ASKED FOR (2026-11-12, audit D4). The scene list is told "Scene N is the FIRST
+       PINCH POINT" with N = round(3/8 of the scenes) and the second at round(5/8) (ai.jsx spineBatch). This label
+       took the lower middle of the open stretch instead, which for a 12-scene Documentary is one scene earlier
+       (4 and 7, where the list was asked for 5 and 8). The asked scene wins when it is free in its stretch. */
+    const asked = (frac, lo, hi)=>{ const i = Math.round(scenes.length*frac) - 1;
+      return (i>lo && i<hi && scenes[i] && scenes[i].kind==="normal") ? i : between(lo, hi); };
+    set(asked(0.375, endI, midIdx),"pinch");
+    set(asked(0.625, midIdx, endII),"pinch");
   }
   // secondary Title-Case labels for the remaining (non-major) scenes
   scenes.forEach((s,i)=>{

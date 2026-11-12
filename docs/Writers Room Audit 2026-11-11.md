@@ -133,6 +133,27 @@ build on the server so it does not depend on the browser staying open.
 > scene which still runs long gets a free note and is never rewritten automatically (docs/Story Pipeline.md step 5).
 > Test: `scripts/test-scene-length.mjs`.
 >
+> **Status, 12 November 2026 — B11 and B16 are built** (branch `claude/audit-last-20261112`, not published), with
+> D4 from section D. Test: `scripts/test-audit-last-round.mjs`. Seen on the real engine (12 calls,
+> admin account, nothing saved): a one-night 16-scene story came back NIGHT ×11, PRE-DAWN ×4, DAWN — forwards
+> across the join (scenes 8 and 9 both NIGHT); a Kishōtenketsu film has four drivers and no invented antagonist;
+> a 4-scene Commercial is driven by its one protagonist throughout; and three scenes in a row in the same newsroom,
+> written with the real scene writer, each open on who comes in and what happens, none describing the room again
+> (one sample, no before-and-after on the same story).
+> - **B11.** The sentence "antagonist(s) and key supporting characters EACH drive several scenes" went to every
+>   scene list. Twelve scenes or more keep it; six to eleven are asked for "each drive at least one scene"; five or
+>   fewer keep the protagonist driving and give a scene to someone else only when the story turns on them.
+>   Kishōtenketsu is never asked for an antagonist.
+> - **B16.** The backwards clock was seen at scenes 8 → 9 of a 16-scene film: exactly the join between the two
+>   halves of the scene list, and the second half was never told the first half's sluglines. It is now, with a
+>   line that the clock carries on; and every scene list is told that time of day holds or moves on. The repeated
+>   desk: a scene that plays where the previous one did is told not to describe the place again.
+> - **B15 is not a fault to fix here.** A long build on the slower engine is safe to interrupt and continue since
+>   the first release; removing the need to keep the page open means running builds on the server.
+> - **Found on the way, not fixed:** the app's own slugline reader cuts a hyphenated hour in two
+>   ("INT. NEWSROOM - PRE-DAWN" reads as the place "NEWSROOM - PRE" at "DAWN"). It changes how locations group, so
+>   it is left as a separate task.
+
 > **Status, 12 November 2026 — B12 and B14 are built** (branch `claude/audit-episodes-20261112`, not published).
 > Test: `scripts/test-episode-show-cast.mjs`. Seen on the real engine (six calls, admin account, nothing saved): for
 > an invented four-person Show and the seed "What if a night crew is sent to a flat where nobody will say who made
@@ -276,6 +297,13 @@ build on the server so it does not depend on the browser staying open.
 
 ## D. Structure labels and small wording
 
+> **D4, 12 November 2026 — built** (with B11 and B16). Three small things, each confirmed by running the code:
+> the two Pinch Point labels sat one scene before the scenes the list was asked to write them in when the open
+> stretch had an even count (a 12-scene Documentary: 4 and 7 against 5 and 8) — the asked scene now wins;
+> a four-scene Hero's Journey that came back with three had every label slide by one — each scene now takes the
+> stage of its act from the table it was planned with; and a Kishōtenketsu re-read scene was held to the twist's
+> rule and marked inert when it did not reverse, against the audit's own words — it now only has to move.
+>
 > **D3, 12 November 2026 — a decision, not a fix.** The scene list is told how many scenes each act gets, and
 > the engine sometimes labels them differently (a one-scene *ten* and a three-scene *ketsu* where 2 / 2 was
 > asked). The app could force the labels by position. That would go against the rule approved on 25 September

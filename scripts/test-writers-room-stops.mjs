@@ -325,7 +325,7 @@ await test("Frances knows, and the page is on the new key",()=>{
   assert.match(F("Writers' Room run integrity").what,/pressing Escape while 'Finish writing this film' is running asks 'Stop building this film\?'/);
   const html=read("TURN.html");
   for(const file of ["ai.jsx","script.jsx","agents.jsx","agents-ui.jsx","app.jsx","chrome.jsx","build-state.js"])
-    assert.ok(["20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log("\n"+(failed?"FAILED — "+failed+" of "+(checks+failed):"OK — "+checks+" checks passed"));
