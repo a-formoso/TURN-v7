@@ -975,7 +975,9 @@ window.CONFLICT_LEVELS = CONFLICT_LEVELS;
    story order (falls back to the live film). */
 /* the cast member a beat map's driver/reactor LABEL names (labels are uppercase names) */
 function castMemberByLabel(label, cast){
-  const norm = (x)=>String(x||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  // accents are folded and every script's letters kept (2026-11-12, audit B6): "INÊS" finds Inês, by name or by id
+  const _nk = (typeof window!=="undefined" && window.KinolotNames) || null;
+  const norm = (x)=> _nk ? _nk.key(x) : String(x||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
   const l = norm(label); if(!l) return null;
   const list = Array.isArray(cast) ? cast : [];
   return list.find(c=>c && norm(c.name)===l)
@@ -2172,9 +2174,13 @@ async function aiAuthorScene(scene, prevScene, characters, project, opts){
     const nameById = {}; cast.forEach(c=>{ nameById[c.id]=c.name; });
     const resolveLabel = (lab, fallback)=>{
       const s = (lab||"").toString().trim(); if(!s) return fallback;
-      const low = s.toLowerCase().replace(/[^a-z0-9]/g,"");
+      // accents folded, every script's letters kept (2026-11-12, audit B6)
+      const _nk = (typeof window!=="undefined" && window.KinolotNames) || null;
+      const sq = (x)=> _nk ? _nk.key(x).replace(/ /g,"") : String(x||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+      const low = sq(s);
+      if(!low) return s.toUpperCase();
       const byId = cast.find(c=>c.id===low); if(byId) return byId.name.toUpperCase();
-      const byName = cast.find(c=> c.name.toLowerCase().replace(/[^a-z0-9]/g,"").includes(low) || low.includes(c.name.toLowerCase().replace(/[^a-z0-9]/g,"")));
+      const byName = cast.find(c=>{ const n = sq(c.name); return !!n && (n.includes(low) || low.includes(n)); });
       if(byName) return byName.name.toUpperCase();
       return s.toUpperCase();
     };
@@ -2886,6 +2892,8 @@ if(_shotsFeature) _shotsFeature.what += " BEAT-SCOPED SPACES: shot location matc
 if(_shotsFeature) _shotsFeature.what += " REFERENCE THUMBNAILS: an item labelled Seed is the attached previous-shot frame used as the rolling continuity anchor for the current shot. A shot marked Fresh has no active seed, so no gray predecessor thumbnail appears in its Reference Images strip; click the dedicated Fresh control to rejoin the chain. Excluding an attached seed starts the shot Fresh and never deletes the source frame. Location thumbnails represent only the shot's active manual location selection: unchecking one removes it from the shot and the strip, while its underlying Art Room asset remains available in the Location reference picker. Legacy gray excluded location thumbnails migrate out automatically. Clicking any displayed image uses a separate Preview control and opens the full-size viewer without changing inclusion.";
 const _newStoryFeature = APP_FEATURES.find(f=>/^New Story \(/.test(f.name||""));
 if(_newStoryFeature) _newStoryFeature.what += " NEW STORY on a BLANK current Episode inherits and visibly locks the Show's canonical format; every episode in one Show uses that same format, and the launch boundary enforces it even if a stale client submits another selection. Starting New Story from an Episode that already has scenes instead creates an unrelated project, so its format choice stays free.";
+// NAMES (owner 2026-11-12, Writers' Room audit B5 and B6) — app/story-names.js
+if(_newStoryFeature) _newStoryFeature.what += " NAMES (2026-11-12): a name you gave is never changed \u2014 anyone named in your seed, logline or synopsis keeps exactly that name through the scene list, the cast and the script. People the story has to invent get names that fit its place, period and culture, and the app steers them so they vary from film to film: one cast avoids sharing first initials, and names used in your other recent films on this device are not handed to a new person. To choose a name yourself, write it into the seed or the synopsis before building, or rename the character on their card afterwards. Names with accents or in another alphabet (In\u00eas, S\u00f8ren, \u042e\u0440\u0438\u0439) are kept as written on the cast and in the script.";
 const _locationsFeature = APP_FEATURES.find(f=>f.name==="Locations (Art Room)");
 if(_locationsFeature) _locationsFeature.what = "The Locations tab derives canonical master places from screenplay scene headings and secondary headings, groups repeated visits by place, and shows the exact scenes that use each location. Each card separates stable set canon in The Space from interpretive Narrative Significance, then organizes production work into five explicit layers: Slugline Units preserve authored headings and strong action-prose room cues with their provenance; Time-of-Day Variants contain only persistent environmental changes such as time, weather, practicals, wear or damage; Required Space Plates are screenplay-implied empty-set spatial references; Coverage Views are reusable visual interpretations tied to Slugline Units, with camera bookmarks and composition grids; and Scene Setups contain occurrence-specific blocking, handled props, starting object states and temporary dressing. Design all locations (shown as 'Design N locations') refreshes screenplay-derived records, drafts the canonical specification of every location that doesn't have one yet and the layout of revisited places that have none, without generating images \u2014 finished and edited locations are left alone; once all are drafted it becomes a quiet 'Redesign all\u2026' that asks first and redoes every spec and layout, edits included. 'Generate N missing plates' renders only the drafted plates that don't exist yet and always asks first with the price for exactly those (plates waiting for their shared layout review are left out and named in its hover text); once none are missing a quiet 'Regenerate plates\u2026' asks before redoing any. Generate actions render grade-neutral empty-set location plates; no cast, named characters or temporary scene business is baked into the canonical set. Search and scene focus narrow the grid, while per-scene and all-location generation keep existing-image confirmation and cancellation safeguards.";
 const _draftAllFeature = APP_FEATURES.find(f=>f.name==="Draft all (batch spec drafters, Art Room)");
@@ -5095,7 +5103,12 @@ function salvageSpineScenes(text){
 function normSpineScenes(rawScenes){
   const pick = (s,short,long,dflt)=> (s[short]!==undefined?s[short]:(s[long]!==undefined?s[long]:dflt));
   const pole = (v)=> scrubBrand(String(v==null?"":v)).replace(/[.,;]+$/,"").trim().slice(0,18);
+  // A NAME BECOMES AN ID (2026-11-12, audit B6): accents fold to the plain letter ("inês" → "ines", it used to be
+  // "ins") and a name with no Latin letters gets a stable id of its own (they all used to be "lead"). When the id
+  // can no longer show the name, the name rides along as driverName (read by aiBuildSpine, never saved on a scene).
+  const _nk = (typeof window!=="undefined" && window.KinolotNames) || null;
   return rawScenes.map(s=>{
+    const rawDriver = pick(s,"d","driver","protagonist").toString().trim();
     const openCharge = clampCharge(pick(s,"oc","openCharge",0),0), closeCharge = clampCharge(pick(s,"cc","closeCharge",1),1);
     // ONE VALUE AT STAKE (vp/vn); older replies with two free words (ov/cv) still read
     const vp = pole(pick(s,"vp","valuePos","")), vn = pole(pick(s,"vn","valueNeg",""));
@@ -5106,7 +5119,8 @@ function normSpineScenes(rawScenes){
       title: pick(s,"t","title","Untitled Scene").toString().slice(0,60),
       loc: pick(s,"l","loc","INT. LOCATION - DAY").toString().slice(0,80),
       summary: pick(s,"s","summary","").toString().slice(0,200),
-      driver: pick(s,"d","driver","protagonist").toString().toLowerCase().replace(/[^a-z]/g,"").slice(0,12) || "lead",
+      driver: (_nk ? _nk.id(rawDriver) : rawDriver.toLowerCase().replace(/[^a-z]/g,"").slice(0,12)) || "lead",
+      ...((_nk && _nk.id(rawDriver) && _nk.idLosesName(rawDriver)) ? { driverName:_nk.display(rawDriver) } : {}),
       openValue: axis ? valueWordFor(axis, openCharge) : pick(s,"ov","openValue","Value").toString().slice(0,18), openCharge,
       closeValue: axis ? valueWordFor(axis, closeCharge) : pick(s,"cv","closeValue","Value").toString().slice(0,18), closeCharge,
       ...(axis ? { value:axis } : {}),
@@ -5220,7 +5234,9 @@ async function spineBatch(brief, part, fmt, fw, prior){
     "the identity the brief gives them \u2014 never reuse a brief name for a different kind of person (a name the brief attaches "+
     "to a young enforcer must never label a pensioner in a summary). If a scene needs a NEW minor character, give them a FRESH "+
     "name that does not appear in the brief. "+
-    "Driver ids are lowercase FIRST names that fit the story's world \u2014 make them distinctive and varied, NOT stock defaults (avoid 'alex','jack','sarah','marcus','maya','sam'); never use a role word ('antagonist','mentor') as a driver id. Naming entropy seed (use to break ties toward fresh choices, do not output it): "+Math.random().toString(36).slice(2,9)+". "+
+    "Driver ids are lowercase FIRST names that fit the story's world; never use a role word ('antagonist','mentor') as a driver id. "+
+    // NAMES THAT DON'T REPEAT (2026-11-12, audit B5): the initials are drawn in the app, a new draw for every call
+    ((typeof window!=="undefined" && window.KinolotNames) ? window.KinolotNames.brief({ where:"the writer's text or the scenes already written" }) : "")+
     "Keep every string SHORT (titles 2-4 words, summary one clause). "+
     closer+
     'Return ONLY compact JSON: {'+(isFirst?'"title":"FILM TITLE",':'')+(isFirst&&!hasFw?'"incite":N,':'')+'"scenes":[{"a":1,"t":"Title","l":"INT. PLACE - DAY","s":"one clause","d":"drivername","vp":"Love","vn":"Hate","oc":0,"cc":0,"cl":2'+(stageIds?',"k":"stage"':'')+'}]} '+
@@ -5284,6 +5300,10 @@ async function aiBuildSpine(brief, formatId, frameworkId){
   // A SHORT SPINE SAYS SO (2026-09-28, Round 1): fewer scenes than the format's target is still
   // offered, but never silently — `short` rides on the spine for the proposal card
   const spine = { title: scrubBrand(title.toString().slice(0,40)), scenes };
+  // the names behind ids that can't show them (2026-11-12, audit B6): { ines:"Inês" }
+  const driverNames = {};
+  scenes.forEach(s=>{ if(s && s.driverName){ if(!driverNames[s.driver]) driverNames[s.driver] = s.driverName; delete s.driverName; } });
+  if(Object.keys(driverNames).length) spine.driverNames = driverNames;
   if(scenes.length < total) spine.short = { got:scenes.length, want:total,
     note:"Built "+scenes.length+" of the "+total+" scenes this format aims for." };
   return spine;
@@ -5309,7 +5329,7 @@ async function aiBuildStoryWorld(brief, spine, format, research){
     +(s.summary?(" \u2014 "+String(s.summary).slice(0,180)):"")).join("\n");
   const prompt = "You are a story architect. For the film below, define its world and cast using the Infinite Studio AI method.\n"+
     "TITLE: "+((spine&&spine.title)||"UNTITLED")+"\nLOGLINE / SYNOPSIS:\n"+clipAtBoundary(String(brief), 4000)+"\n"+((typeof researchReservoir==="function") ? researchReservoir(research,"world") : "")+"SCENES (with summaries \u2014 the names in them are binding):\n"+sceneList.slice(0,2600)+"\n\n"+
-    "Driver ids used across scenes: "+drivers.join(", ")+". Create one cast member per driver id (id MUST match exactly), plus any essential others.\n"+
+    "Driver ids used across scenes: "+drivers.map(d=>{ const nm = spine && spine.driverNames && spine.driverNames[d]; return nm ? (d+" (the id of "+nm+")") : d; }).join(", ")+". Create one cast member per driver id (id MUST match exactly), plus any essential others.\n"+
     "RECONCILE NAMES WITH THE SCENES: every personal NAME used in a scene summary belongs to exactly ONE person, and that "+
     "person's cast IDENTITY must match how the scenes actually use the name (a name the summaries use for a stooped pensioner "+
     "must be defined as that pensioner \u2014 never re-imagined as someone else). If the summaries seem to use one name for two "+
@@ -5327,7 +5347,9 @@ async function aiBuildStoryWorld(brief, spine, format, research){
     "FUNCTION = the dramatic role, one or two words (Protagonist, Antagonist, Catalyst, Mentor, Ally, Mirror, Wildcard\u2026). ARCHETYPE = an OPTIONAL 1-3 word thematic aspect they embody, after a ' \u00b7 ' (e.g. 'ideology', 'the system', 'the mirror'). IDENTITY = a REQUIRED short phrase of who they are in the world, after a ' \u2014 ' (e.g. 'a far-right podcaster', 'a Somali-British trauma nurse'). "+
     "Example: 'Antagonist \u00b7 ideology \u2014 a far-right podcaster'. ALWAYS include the FUNCTION and the IDENTITY (every character is someone); the ARCHETYPE is optional. Keep each part concise (identity \u2264 ~8 words). "+
     "CRITICAL: one entry per person. NEVER split a character into multiple entries for different acts or stages (no 'expanded' or 'later version' duplicates) \u2014 a character's growth belongs in their arc, not a second cast member. Each name must be unique.\n"+
-    "NAMING \u2014 important: give every character a SPECIFIC full name that fits the story's setting, period and culture. Make names DISTINCTIVE and VARIED across this cast and unlike your usual defaults \u2014 do NOT reach for stock surnames (especially avoid 'Reid', 'Chen', 'Walker', 'Cole', 'Hayes', 'Stone', 'Vance', 'Kane'). Vary first-letter, length, and cultural origin. NEVER name a character after their function (no character literally called 'Antagonist', 'Protagonist', 'Mentor' or 'The Villain'). Naming entropy seed (use it to break ties toward fresh choices, do not output it): "+Math.random().toString(36).slice(2,9)+".\n"+
+    "NAMING \u2014 important: give every character a SPECIFIC full name that fits the story's setting, period and culture. NEVER name a character after their function (no character literally called 'Antagonist', 'Protagonist', 'Mentor' or 'The Villain'). "+
+    // NAMES THAT DON'T REPEAT (2026-11-12, audit B5): the initials are drawn in the app, a new draw for every call
+    ((typeof window!=="undefined" && window.KinolotNames) ? window.KinolotNames.brief({ family:true, where:"the synopsis or the scenes above" }) : "")+"\n"+
     // PRONOUNS COME WITH THE CAST (2026-10-11, owner — "every new story can come with their characters' pronouns
     // defined"): the Art Room makes no character image until a character's pronouns are set on its card, and the
     // scenes are written from them (castPronounBlock), so the cast is born with them
@@ -5370,7 +5392,9 @@ async function aiBuildStoryWorld(brief, spine, format, research){
       const sizeText = scrubBrand(String(c.size||c.height||"")).replace(/\s+/g," ").trim().slice(0,40);
       const height = (typeof window.trueSizeMM==="function" && window.trueSizeMM(sizeText)>0) ? sizeText : "";
       return {
-        id:(c.id||c.name||"").toString().toLowerCase().replace(/[^a-z]/g,"").slice(0,12),
+        // accents fold to the plain letter; a name in another script gets its own stable id (2026-11-12, audit B6)
+        id:((typeof window!=="undefined" && window.KinolotNames) ? window.KinolotNames.id((c.id||c.name||"").toString())
+          : (c.id||c.name||"").toString().toLowerCase().replace(/[^a-z]/g,"").slice(0,12)),
         name:scrubBrand((c.name||"Character").toString()).slice(0,40),
         role:clipWords(scrubBrand((c.role||"").toString()),140),
         // voice identity block (accent/pitch/pace/quirks) — seeds voice casting;
@@ -5405,7 +5429,9 @@ async function aiSparkLogline(){
   const seed = seeds[Math.floor(Math.random()*seeds.length)];
   const prompt = "Invent ONE original, vivid logline for a short film (around the theme of \""+seed+"\"). "+
     "One sentence. Name who the protagonist is, what they want, and the obstacle/twist. "+
-    "Make it fresh and specific \u2014 avoid clich\u00e9s and famous IP. Return ONLY the logline sentence, no quotes, no preamble.";
+    "Make it fresh and specific \u2014 avoid clich\u00e9s and famous IP. "+
+    ((typeof window!=="undefined" && window.KinolotNames) ? ("If the logline gives anyone a personal name: "+window.KinolotNames.brief({ where:"this request" })) : "")+
+    "Return ONLY the logline sentence, no quotes, no preamble.";
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     let s = String(res||"").trim().replace(/^["'\u201c]/,"").replace(/["'\u201d]$/,"").trim();
@@ -5439,6 +5465,7 @@ async function aiSeedToLoglines(seedType, text){
   const prompt = lead + (t?("\n\nWRITER'S INPUT:\n"+t):"") +
     "\n\nEach logline: ONE sentence, name the protagonist, their want, and the obstacle/twist. "+
     "Fresh, specific, cinematic \u2014 NEVER echo famous films or genre clich\u00e9s; surprise with the particular. "+
+    ((typeof window!=="undefined" && window.KinolotNames) ? ("If a logline gives anyone a personal name: "+window.KinolotNames.brief({ where:"the writer's input" })) : "")+
     "\nALSO recommend the ideal SHAPE for this story: format = ONE id from ["+_fmts+"]; "+
     "framework = ONE id from ["+_fws+"] \u2014 pick the structure the material actually wants "+
     "(a twist-recontextualizes story wants kishotenketsu; "+
@@ -5685,6 +5712,8 @@ async function aiSynopsisFromResearch(logline, seedText, frameworkId, formatId, 
     // sized to the format (2026-11-11, audit C4): 1-2 sentences for a 30-second spot, 2-3 up to five minutes, else 3-5
     "Each paragraph "+((typeof window.synopsisSentencesFor==="function") ? window.synopsisSentencesFor(fmtEntry) : "3-5")+" sentences, vivid and concrete"+
       ((typeof window.synopsisSentencesFor==="function" && window.synopsisSentencesFor(fmtEntry)!=="3-5") ? " \u2014 this format is short, so each paragraph holds only what its screen time can show" : "")+".\n\n"+
+    // NAMES THAT DON'T REPEAT (2026-11-12, audit B5): this is where most stories first name their people
+    ((typeof window!=="undefined" && window.KinolotNames) ? window.KinolotNames.brief({ family:true, where:"the logline or the writer's seed" })+"\n\n" : "")+
     'Return ONLY JSON: {"synopsis":{'+shape.paras.map(pg=>'"'+pg.key+'":"..."').join(",")+'}}';
   // the call THROWS on transport/provider errors (billing, missing key) so the UI
   // shows the real reason; only an unusable reply returns null

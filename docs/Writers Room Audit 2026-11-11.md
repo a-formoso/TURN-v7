@@ -99,6 +99,31 @@ build on the server so it does not depend on the browser staying open.
 > wrote (a tight draft was being rejected as "beat left unwritten"). Not changed: the owner-approved rule that a
 > scene which still runs long gets a free note and is never rewritten automatically (docs/Story Pipeline.md step 5).
 > Test: `scripts/test-scene-length.mjs`.
+>
+> **Status, 12 November 2026 — B5 and B6 are built** (branch `claude/names-20261112`, not published). Code:
+> `app/story-names.js`; test: `scripts/test-story-names.mjs`.
+> - **B6.** A name becomes an id with its accents folded to the plain letter ("Inês" → `ines`, it was `ins`); a name
+>   with no Latin letters gets a short stable id of its own (they were all `lead`). Ids stay plain a–z because they
+>   are used in storage keys. The scene list hands the real name on with the id, so the cast is told whose id each
+>   one is, and a person made straight from a scene's driver is called "Inês", not "Ins". Cues in capitals find their
+>   person in any script. Films saved with the old ids are not changed and still match.
+> - **B5.** Wherever a call may have to name someone (logline, synopsis, scene list, cast) the app now gives it the
+>   initials to use, drawn at random in the app for every call, plus the names this account's other films on this
+>   device already use (remembered when a build makes its cast). A person the writer named keeps that name.
+>   The old "naming entropy seed" (a random code the engine was asked to consider) is gone: it did nothing.
+> - **Measured live, same eight unnamed loglines, synopsis step.** Before: the eight stories shared Varga (2),
+>   Marsh (2), Teodor (2, plus a Teo), and Mara / Maren / Mira, Lena, Elias. After: no principal's name appears
+>   twice; the old favourites are gone; every drawn initial was followed. With three earlier names on the "already
+>   used" list and the same initials, the engine chose different ones (Nora Kowalski → Nadine Kerr).
+> - **Found on the way, and fixed before it shipped.** The first draw included I, O, W, Y and Z. The engine then
+>   chose the story's country to suit the letters (a baker's story moved to Istanbul for "Y, K, I, Z"; five leads of
+>   eight were Polish). The draw now uses only initials common in most naming traditions, and the call is told the
+>   place comes from the story first. After that: Budapest, Cornwall, Pittsburgh (2), Almería, Geneva, Philadelphia,
+>   Maine.
+> - **Still true.** Each initial has its own favourite (K → Kowalski, N → Nora, P → Paul), so two different writers
+>   can still meet the same name; one writer's films will not, on the same device. The engine's taste in *places*
+>   (Pittsburgh twice in eight) is untouched: that is the story's setting, not a name, and was not changed.
+>   Other name matching outside the build (voices, Breakdown, the Stage) was not checked for non-Latin scripts.
 
 | # | What happens | Found | Where |
 |---|---|---|---|

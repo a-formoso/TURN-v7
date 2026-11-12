@@ -259,7 +259,7 @@ await test("E the card, the script order and Frances's notes", ()=>{
   const at=n=>html.indexOf(n);
   assert.ok(at("app/blender-render.js")<at("app/camera-coverage.js")&&at("app/camera-coverage.js")<at("app/blender-render-ui.jsx")&&at("app/camera-coverage.js")<at("app/locations-ui.jsx"));
   for(const f of ["camera-coverage.js","blender-render.js","blender-render-ui.jsx","locations-ui.jsx","ai.jsx","script.jsx"])
-    assert.ok(["20261111-auto1", "20261112-models1", "20261112-resume1", "20261112-limit1", "20261112-thread1", "20261112-length1", "20261112-small1", "20261112-head1"].some(k=>html.includes('src="app/'+f+"?v="+k+'"')),f);
+    assert.ok(["20261111-auto1", "20261112-models1", "20261112-resume1", "20261112-limit1", "20261112-thread1", "20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1"].some(k=>html.includes('src="app/'+f+"?v="+k+'"')),f);
   assert.ok(ai.includes("'Suggest 4 cameras' (2026-11-11: fitted to the set as it will be built, the same way for every location)"));
   assert.ok(ai.includes("THE CAMERA CHECK (2026-11-11): before a build, each saved camera's view of the set is checked"));
 });

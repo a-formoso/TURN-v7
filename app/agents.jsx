@@ -1219,13 +1219,18 @@ async function agentAdaptation(ctx){
   const palette = ["linear-gradient(135deg,#c97b45,#5e3a1d)","linear-gradient(135deg,#3f7d86,#16323a)",
     "linear-gradient(135deg,#7a6cae,#2a2440)","linear-gradient(135deg,#5a6470,#23282f)",
     "linear-gradient(135deg,#4a8c6a,#1d3a2a)","linear-gradient(135deg,#9a5a6e,#3a2230)"];
-  const norm = (s)=>String(s||"").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu,"");
-  const nameWords = (s)=>String(s||"").normalize("NFKC").toLowerCase().split(/[^\p{L}\p{N}\p{M}]+/u).filter(w=>w.length>2);
+  // accents fold to the plain letter (2026-11-12, audit B6): the driver id "ines" finds "Inês Duarte"
+  const _nk = window.KinolotNames || null;
+  const norm = (s)=> _nk ? _nk.key(s).replace(/ /g,"") : String(s||"").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu,"");
+  const nameWords = (s)=> _nk ? _nk.key(s).split(" ").filter(w=>w.length>2) : String(s||"").normalize("NFKC").toLowerCase().split(/[^\p{L}\p{N}\p{M}]+/u).filter(w=>w.length>2);
+  // the name behind a driver id that can't show it ({ ines:"Inês" }, from the spine), else the id with a capital
+  const _driverNames = (spine && spine.driverNames) || {};
+  const nameOfId = (d)=> _driverNames[d] || titleCase(d);
   const titleCase = (s)=>String(s||"").replace(/[_-]+/g," ").replace(/\b\w/g,m=>m.toUpperCase());
 
   let cast = ((world && world.cast) || []).map((c,i)=>({
     id: norm(c.id) || norm(c.name) || ("char"+i),
-    name: c.name || titleCase(c.id) || ("Character "+(i+1)),
+    name: c.name || nameOfId(c.id) || ("Character "+(i+1)),
     role: c.role || "", color: palette[i%palette.length],
     conscious:"", unconscious:"", arc:"", look:"", wardrobe:"", props:"",
     // the world build's voice identity block (accent / pitch / pace / quirks) seeds
@@ -1273,6 +1278,13 @@ async function agentAdaptation(ctx){
     const dn = norm(driver); if(!dn) return null;
     let m = cast.find(c=>c.id===dn) || cast.find(c=>norm(c.name)===dn);
     if(m) return m;
+    // an id that is only a code (a name in another script) is matched by the name it stands for
+    const dName = norm(_driverNames[driver]);
+    if(dName && dName!==dn){
+      m = cast.find(c=>norm(c.name)===dName) || cast.find(c=> nameWords(c.name).some(w=> w===dName));
+      if(m) return m;
+      if(/^n[a-z]{7}$/.test(dn)) return null;   // never match a code by its letters
+    }
     return cast.find(c=> nameWords(c.name).some(w=> norm(w)===dn || dn.includes(norm(w)) || norm(w).includes(dn))) || null;
   };
   newScenes.forEach(s=>{ const m=matchTo(s.driver); if(m) s.driver = m.id; });
@@ -1309,12 +1321,12 @@ async function agentAdaptation(ctx){
       if(host){ newScenes.forEach(s=>{ if(s.driver===d) s.driver = host.id; }); return; }
     }
     // genuine unnamed character → its own supporting member (kept, but not role-named)
-    cast.push({ id:d, name:titleCase(d), role:"Supporting",
+    cast.push({ id:d, name:nameOfId(d), role:"Supporting",
       color:palette[cast.length%palette.length], conscious:"",unconscious:"",arc:"",look:"",wardrobe:"",props:"" });
   });
   // fallback: no cast at all -> synthesize from the drivers themselves
   if(!cast.length){
-    [...new Set(newScenes.map(s=>s.driver))].forEach((d,i)=>cast.push({ id:d, name:titleCase(d),
+    [...new Set(newScenes.map(s=>s.driver))].forEach((d,i)=>cast.push({ id:d, name:nameOfId(d),
       role:i===0?"Protagonist":"Supporting", color:palette[i%palette.length],
       conscious:"",unconscious:"",arc:"",look:"",wardrobe:"",props:"" }));
   }
@@ -1333,6 +1345,8 @@ async function agentAdaptation(ctx){
     if(drop.length) cast = cast.filter(c=> drop.indexOf(c.id)<0);
   })();
   ctx.model.characters = cast;
+  // the next film's new people are called something else (2026-11-12, audit B5): kept on this device, per account
+  try{ if(_nk) _nk.remember(cast.map(c=>c && c.name)); }catch(e){}
   // Art Room sheet fields get their deterministic placeholders only (scale class, height,
   // negative prompt, a key/shadow/climax swatch from the avatar colour — the same defaults the
   // sheet falls back to anyway). This is NOT the cast's look: no Body, wardrobe or sheet prompt
