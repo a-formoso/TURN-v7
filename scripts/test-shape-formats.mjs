@@ -159,7 +159,7 @@ await test("the classic 16 keeps its exact act language; a feature splits 10 · 
   });
   await test("the second half continues the first: same people, same names, no repeated titles",async()=>{
     const ai2=read("app/ai.jsx"), ast2=parseSync(ai2,{sourceType:"script"});
-    for(const n of ["clampCharge","normSpineScenes","aiBuildSpine"]){ const node=ast2.program.body.find(x=>x.type==="FunctionDeclaration"&&x.id.name===n); vm.runInContext(ai2.slice(node.start,node.end),box); }
+    for(const n of ["clampCharge","normSpineScenes","joinSpineHalves","repairActOrder","buildFailureNeedingAction","aiBuildSpine"]){ /* (2026-11-12: the builder's helpers, audit B10 / B13) */ const node=ast2.program.body.find(x=>x.type==="FunctionDeclaration"&&x.id.name===n); vm.runInContext(ai2.slice(node.start,node.end),box); }
     const calls=[]; let inFlight=0, overlap=false;
     const half=(from,n,driver)=>({title:"The Cold Seam",scenes:Array.from({length:n},(_,i)=>({a:from+i<7?1:from+i<13?2:3,t:"Scene "+(from+i),l:"INT. KITCHEN - DAY",s:"noreen reads the papers",d:driver,vp:"Hope",vn:"Despair",oc:-1,cc:2,k:""}))});
     Object.assign(box,{aiAvailable:()=>true,scrubBrand:s=>String(s),extractJSON:JSON.parse,salvageSpineScenes:()=>null,

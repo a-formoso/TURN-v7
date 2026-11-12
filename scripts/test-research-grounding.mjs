@@ -113,7 +113,8 @@ await test("C2 the world build gets the real world and role's work; the cast pas
 });
 
 await test("C3 the prompts read the reservoir: the world build, and the cast's inner life before the script", () => {
-  assert.ok(ai.includes('clipAtBoundary(String(brief), 4000)+"\\n"+((typeof researchReservoir==="function") ? researchReservoir(research,"world") : "")+"SCENES'));
+  // (2026-11-12, audit B7: the brief is read up to STORY_BRIEF_MAX, no longer 4,000)
+  assert.ok(ai.includes('|| 12000)+"\\n"+((typeof researchReservoir==="function") ? researchReservoir(research,"world") : "")+"SCENES'));
   assert.ok(ai.includes('(mode==="before" && typeof researchReservoir==="function" ? researchReservoir(P.research,"cast") : "");'));
 });
 

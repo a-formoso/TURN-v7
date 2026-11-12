@@ -50,7 +50,9 @@ test("the story build keeps each character's voice block",()=>{
 // ---- 4. spine, world and contract read the whole brief ----
 test("the spine, world and contract prompts read the whole brief",()=>{
   assert.ok(!/String\(brief\)\.slice\(0,1600\)/.test(ai)&&!/String\(brief\)\.slice\(0,2600\)/.test(ai)&&!/String\(brief\|\|""\)\.slice\(0,2000\)/.test(ai));
-  assert.equal((ai.match(/clipAtBoundary\(String\(brief(\|\|"")?\), 4000\)/g)||[]).length,3);
+  // (2026-11-12, audit B7: the three read up to STORY_BRIEF_MAX, 12,000 — no longer 4,000)
+  assert.equal((ai.match(/clipAtBoundary\(String\(brief(\|\|"")?\), \(typeof window!=="undefined" && window\.STORY_BRIEF_MAX\) \|\| 12000\)/g)||[]).length,3);
+  assert.ok(!/clipAtBoundary\(String\(brief(\|\|"")?\), 4000\)/.test(ai));
 });
 
 // ---- 5. continuity ledger ----

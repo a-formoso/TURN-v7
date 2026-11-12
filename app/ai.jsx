@@ -3897,6 +3897,8 @@ APP_FEATURES.push({ name:"Unfinished film notice & Continue writing (Writers' Ro
   add("Export (screenplay / story)", "THE COUNT (2026-11-12): 'N of M scenes drafted' counts screenplays that were really written; a rough stand-in (the structural draft the app puts in from the beat cards when a scene could not be written) is not counted as drafted and is named beside it, for example '14 of 16 scenes drafted \u00b7 2 rough stand-ins'.");
   add("Writers' Room run integrity", "NOT ENOUGH CREDITS FOR A WHOLE ANSWER (2026-11-12): when the balance can pay for only part of an answer, the answer is shorter and can be cut off before it finishes; the part that was written is charged. The message now says exactly that \u2014 there were not enough credits for the whole answer \u2014 instead of saying the reply was cut off, the app does not ask a second time (which was charged again for the same cut), and a story build or Auto-draft all stops at that scene with everything written kept. Add credits or choose a lighter writing engine in the top bar, then Continue writing. CLOSING THE WINDOW DURING A BUILD ALWAYS ASKS (2026-11-12): pressing Escape while 'Finish writing this film' is running asks 'Stop building this film?' like the \u00d7 and a click outside do (it used to close at once when the run had been started from the Story Editors list). AFTER A FILM SWITCH the run's last line says what is true: nothing was written into the film now open, and whatever the run had already written or changed stays in the film it started in.");
 })();
+/* LONG STORIES KEEP THEIR ENDING (2026-11-12, owner \u2014 Writers' Room audit B7 to B10, B13) */
+APP_FEATURES.push({ name:"Long stories: what a build reads and keeps (brief, scene list, cast)", what:"HOW MUCH TEXT A BUILD READS: a story build reads up to 12,000 characters of the logline, synopsis and researched world together \u2014 everything New Story itself composes fits, for every format including Feature Film and TV Series. A longer text pasted into Adaptation (a treatment, say) is read up to that point only, and the build's log says so at the start, with the words it stops reading at; if the ending comes after that, decline the scene list, shorten the text and run it again. (Before 12 November 2026 the limit was 4,000 characters and nothing was said.) THE ENDING IS NEVER WHAT GETS CUT: when the scene list comes back with more scenes than the format aims for, the extra ones are taken out around the midpoint, so the opening and the climax and resolution are whole, and the log says how many were taken out. THE ORDER OF THE SCENES IS THE STORY'S ORDER: a scene is never moved because of the act written on it; an act label that is missing or out of step is corrected to match its neighbours instead. THE WORLD AND CAST SEE THE WHOLE FILM: the premise, controlling idea, setting and cast are written looking at every scene, numbered, however long the film is (a 40-scene feature used to be read to about its midpoint). EVERY PERSON WHO DRIVES A SCENE GETS A FULL CAST ENTRY \u2014 identity, pronouns, age, size and voice \u2014 however many there are (the cast used to stop at eight). NO CREDITS OR SIGNED OUT WHILE THE SCENE LIST OR THE WORLD IS BUILT: the build stops at once and says the real reason and what to do (add credits or choose a plan, or sign in), instead of trying again and reporting that it 'didn't come back'; if that happens at the story-world step nothing is made or replaced \u2014 the current project stays as it was \u2014 and the next run builds the scene list again." });
 function appBrief(){
   const facts = museFacts();
   return "\n\nABOUT THIS APP (use ONLY these facts to answer product/how-to questions; never invent features or behaviour — if a question isn't covered here, say you're not sure rather than guess):\n"
@@ -4369,7 +4371,7 @@ async function aiSuggestContract(brief, project){
   if(typeof PLOTS_OF_FORTUNE==="undefined" || typeof PLOTS_OF_CHARACTER==="undefined") return null;
   const P = writingProjectOf(project);
   const menu = (list)=> list.map(p=>p.id+" = "+p.label+" ("+(p.arc || (p.axis.pos+"/"+p.axis.neg))+") \u2014 "+p.blurb).join("\n");
-  const prompt = "FILM: "+((P&&P.title)||"Untitled")+genreTag(P)+"\nSTORY BRIEF: "+clipAtBoundary(String(brief||""), 4000)+
+  const prompt = "FILM: "+((P&&P.title)||"Untitled")+genreTag(P)+"\nSTORY BRIEF: "+clipAtBoundary(String(brief||""), (typeof window!=="undefined" && window.STORY_BRIEF_MAX) || 12000)+
     "\n\nClassify this story's contract."+
     "\n\nOUTER PLOT \u2014 what changes in the WORLD. Choose exactly one id:\n"+menu(PLOTS_OF_FORTUNE)+
     "\n\nINNER ARC \u2014 what changes INSIDE the protagonist. Choose exactly one id:\n"+menu(PLOTS_OF_CHARACTER)+
@@ -5141,6 +5143,8 @@ function normSpineScenes(rawScenes){
     const cl = Number(pick(s,"cl","conflictLevel",0));
     return {
       act: [1,2,3,4].includes(Number(pick(s,"a","act",1))) ? Number(pick(s,"a","act",1)) : 1,
+      // no act given (or not one of 1-4): it is NOT act 1 — repairActOrder gives it its neighbour's (audit B10)
+      ...([1,2,3,4].includes(Number(pick(s,"a","act",0))) ? {} : { _noAct:true }),
       title: pick(s,"t","title","Untitled Scene").toString().slice(0,60),
       loc: pick(s,"l","loc","INT. LOCATION - DAY").toString().slice(0,80),
       summary: pick(s,"s","summary","").toString().slice(0,200),
@@ -5168,6 +5172,111 @@ function formatPlanLine(fmt){
   return "FORMAT: this is "+what+". The STRUCTURE decides the order and shape of the turns; the FORMAT decides what each scene can contain and how it lands. Where they pull against each other, keep the format's hard limits and bend the structure's tone to fit. ";
 }
 window.formatPlanLine = formatPlanLine;
+
+/* HOW MUCH OF THE WRITER'S TEXT A BUILD READS (2026-11-12, Writers' Room audit B7). The brief — the logline, the
+   synopsis paragraphs and the researched world — was cut at 4,000 characters wherever it was used. A Feature
+   Film's synopsis with its research, or a treatment pasted into Adaptation, runs past that, and what was dropped
+   was the END: the last paragraph (the climax and resolution) and the world notes. 12,000 holds every brief the
+   app itself composes, with room; a longer pasted text is still cut there, and the build now SAYS so. */
+const STORY_BRIEF_MAX = 12000;
+window.STORY_BRIEF_MAX = STORY_BRIEF_MAX;
+/* the brief as a build reads it, and whether anything was left out (for the build's own log) */
+function storyBriefRead(brief){
+  const full = String(brief||"").trim();
+  const read = clipAtBoundary(full, STORY_BRIEF_MAX);
+  return { read, cut: full.length > STORY_BRIEF_MAX, length: full.length, max: STORY_BRIEF_MAX };
+}
+window.storyBriefRead = storyBriefRead;
+
+/* WHY A BUILD STEP FAILED (2026-11-12, audit B13). The scene list and the story world swallowed their errors and
+   asked again — right for a passing fault, wrong when the account has no credits left or is signed out: the
+   second call fails the same way, and the build then said "didn't come back after two tries, run it again in a
+   moment". The step now notes what went wrong (the same typed failure the scene writers use), so its caller can
+   stop at the first one a retry can't fix and say the real reason. */
+function noteBuildFailure(e, where){
+  let f = null;
+  try{ f = screenplayFailureFromError(e, where); }catch(_){ f = { kind:"service", issues:[], details:[], technical:String((e&&e.message)||e||"") }; }
+  try{ window.__lastBuildFailure = { at:Date.now(), where, failure:f }; }catch(_){}
+  return f;
+}
+/* the failure a step noted since `t`, when it is one that a second try can't fix (no credits, signed out…) */
+function buildFailureNeedingAction(t){
+  const n = (typeof window!=="undefined" && window.__lastBuildFailure) || null;
+  if(!n || !n.failure || Number(n.at||0) < Number(t||0)) return null;
+  const needs = (typeof window.turnFailureNeedsAction==="function") ? window.turnFailureNeedsAction(n.failure)
+    : (n.failure.kind==="plan" || n.failure.kind==="signin" || n.failure.kind==="credits" || n.failure.kind==="unavailable");
+  return needs ? n.failure : null;
+}
+/* "…: your account has no plan credits left for writing. Choose a plan or add credits, then run it again." */
+function buildFailureSentence(f, again){
+  const why = (typeof screenplayFailureReason==="function") ? screenplayFailureReason(f) : "the writing service can\u2019t be reached";
+  const next = (typeof screenplayFailureAdvice==="function") ? screenplayFailureAdvice(f, again||"run it again") : "Run it again.";
+  return why+". "+next;
+}
+window.turnNoteBuildFailure = noteBuildFailure;
+window.turnBuildFailureNeedingAction = buildFailureNeedingAction;
+window.turnBuildFailureSentence = buildFailureSentence;
+
+/* ACTS FOLLOW THE ORDER OF THE SCENES, NEVER THE OTHER WAY ROUND (2026-11-12, audit B10). The scene list is in
+   story order; the act on each scene is a label. The list used to be SORTED by that label, so one scene tagged
+   with the wrong act — or with none, which read as act 1 — was moved to another part of the film. Now the order
+   stays and the labels are repaired: a scene with no act takes its neighbour's, and a label that runs backwards
+   is levelled with the scenes around it (pool-adjacent-violators: the smallest change that makes acts run
+   forwards). */
+function repairActOrder(scenes){
+  const list = Array.isArray(scenes) ? scenes : [];
+  if(!list.length) return list;
+  const known = (s)=> !!s && !s._noAct && [1,2,3,4].includes(Number(s.act));
+  let acts = list.map(s=> known(s) ? Number(s.act) : 0);
+  // a scene with no act: the act of the scene before it, else of the first scene after it that has one, else 1
+  for(let i=0;i<acts.length;i++){
+    if(acts[i]) continue;
+    if(i>0) acts[i] = acts[i-1];
+    else { const nx = acts.find(a=>a>0); acts[i] = nx || 1; }
+  }
+  const blocks = [];
+  acts.forEach(a=>{
+    blocks.push({ sum:a, n:1 });
+    while(blocks.length>1 && (blocks[blocks.length-2].sum/blocks[blocks.length-2].n) > (blocks[blocks.length-1].sum/blocks[blocks.length-1].n)){
+      const y = blocks.pop(), x = blocks.pop(); blocks.push({ sum:x.sum+y.sum, n:x.n+y.n });
+    }
+  });
+  const out = [];
+  blocks.forEach(bk=>{ const v = Math.min(4, Math.max(1, Math.round(bk.sum/bk.n))); for(let i=0;i<bk.n;i++) out.push(v); });
+  list.forEach((s,i)=>{ if(s){ s.act = out[i]; delete s._noAct; } });
+  return list;
+}
+window.repairActOrder = repairActOrder;
+
+/* TOO MANY SCENES: THE ENDING IS KEPT (2026-11-12, audit B10). Each half is asked for an exact count. When one
+   comes back long, the whole list used to be cut at the format's total — from the END, so the scenes lost were the
+   climax and the resolution. The surplus now comes out at the join: first from the start of the second half (the
+   scenes just after the midpoint), then from the end of the first half (just before it). The opening and the
+   ending always survive. Returns { scenes, dropped }. */
+function joinSpineHalves(first, second, total, want1){
+  let A = (Array.isArray(first) ? first : []).slice(), B = (Array.isArray(second) ? second : []).slice();
+  const w1 = Math.max(0, Number(want1)||0), w2 = Math.max(0, (Number(total)||0) - w1);
+  let over = A.length + B.length - (Number(total)||0);
+  let dropped = 0;
+  if(over>0){
+    const cutB = Math.min(Math.max(0, B.length - w2), over);
+    B = B.slice(cutB); over -= cutB; dropped += cutB;
+    const cutA = Math.min(Math.max(0, A.length - w1), over);
+    if(cutA>0){
+      // the declared Inciting Incident is never the scene that goes: if it sits in the stretch to cut, the cut
+      // moves to the scenes before it
+      let end = A.length;
+      const keep = A.findIndex(x=>x && x.kind==="incite");
+      if(keep >= end-cutA){ A = A.slice(0, Math.max(0, keep-cutA)).concat(A.slice(keep)); }
+      else A = A.slice(0, end-cutA);
+      over -= cutA; dropped += cutA;
+    }
+    // (both halves over their own share covers every case; this is the guard for a count that still doesn't fit)
+    if(over>0){ B = B.slice(Math.min(over, Math.max(0, B.length-1))); dropped += over; }
+  }
+  return { scenes:A.concat(B), dropped };
+}
+window.joinSpineHalves = joinSpineHalves;
 
 /* request one half of the spine; returns {title, scenes[]} or null.
    `fmt` (app/formats.jsx) sets the TOTAL scene count and the format brief \u2014
@@ -5266,9 +5375,9 @@ async function spineBatch(brief, part, fmt, fw, prior){
     closer+
     'Return ONLY compact JSON: {'+(isFirst?'"title":"FILM TITLE",':'')+(isFirst&&!hasFw?'"incite":N,':'')+'"scenes":[{"a":1,"t":"Title","l":"INT. PLACE - DAY","s":"one clause","d":"drivername","vp":"Love","vn":"Hate","oc":0,"cc":0,"cl":2'+(stageIds?',"k":"stage"':'')+'}]} '+
     "("+actSpec+", t=title, l=slugline, s=summary, d=driver lowercase first-name, vp/vn=the ONE value at stake in the scene as its positive and negative pole (one word each), oc/cc=opening/closing charge -3..3 on that value, cl=level of conflict 1=inner 2=personal 3=extra-personal"+(isFirst&&!hasFw?", incite=the scene NUMBER (1-based) that IS the Inciting Incident":"")+"). "+stageRule+priorBlock+
-    // the WHOLE brief (composeStoryBrief caps it at 4000): a 1600-char cut dropped the
+    // the WHOLE brief (up to STORY_BRIEF_MAX, audit B7): a 1600-char cut once dropped the
     // synopsis's last paragraph, so the half holding the climax was built blind to the ending
-    "\n\nLOGLINE / SYNOPSIS:\n"+clipAtBoundary(String(brief), 4000);
+    "\n\nLOGLINE / SYNOPSIS:\n"+clipAtBoundary(String(brief), (typeof window!=="undefined" && window.STORY_BRIEF_MAX) || 12000);
   try{
     const res = await window.claude.complete({ messages:[{ role:"user", content:prompt }] });
     const j = extractJSON(res);
@@ -5279,7 +5388,7 @@ async function spineBatch(brief, part, fmt, fw, prior){
     // audit later checks a REAL declaration, not a positional guess
     const inciteN = (isFirst && !hasFw && j && Number.isFinite(Number(j.incite))) ? Number(j.incite) : null;
     return { title: (j&&j.title)||(titleM&&titleM[1])||null, scenes: normSpineScenes(raw), incite: inciteN };
-  }catch(e){ return null; }
+  }catch(e){ try{ if(typeof window.turnNoteBuildFailure==="function") window.turnNoteBuildFailure(e, "spine"); }catch(_){} return null; }
 }
 
 async function aiBuildSpine(brief, formatId, frameworkId){
@@ -5302,23 +5411,29 @@ async function aiBuildSpine(brief, formatId, frameworkId){
   // value (callers test `if(!spine)`); window.__lastSpineFailure carries a plain sentence
   const failed = (why)=>{ try{ window.__lastSpineFailure = why; }catch(e){} return null; };
   const none = (h)=> !h || !Array.isArray(h.scenes) || !h.scenes.length;
+  // A FAILURE A SECOND TRY CAN'T FIX STOPS HERE, WITH ITS REAL REASON (2026-11-12, audit B13): no credits, signed
+  // out. It used to be asked again and then reported as "didn't come back after two tries".
+  const t0 = Date.now();
+  const blocked = ()=>{ const f = buildFailureNeedingAction(t0); return f ? failed("The scene list wasn\u2019t built: "+buildFailureSentence(f, "run it again")) : undefined; };
   let a = await spineBatch(brief,"first",fmt,fw);
+  if(none(a) && blocked()===null) return null;
   if(isShort(a,want1)) a = longer(a, await spineBatch(brief,"first",fmt,fw));
   // THE OPENING IS NOT OPTIONAL (2026-09-28, Round 1): the first half carries the opening act,
   // the title and the inciting incident. When it fails twice the second half used to be written
   // blind and accepted alone ("UNTITLED", no setup). Stop instead: nothing is built.
   if(none(a)) return failed("The opening half of the spine (the film's setup and title) didn't come back after two tries, so nothing was built. Run it again in a moment.");
   let b = await spineBatch(brief,"second",fmt,fw,a);
+  if(none(b) && blocked()===null) return null;
   if(isShort(b,want2)) b = longer(b, await spineBatch(brief,"second",fmt,fw,a));
   // …and neither is the ending: a first half alone stops at the midpoint, with no climax
   if(none(b)) return failed("The closing half of the spine (the climax and ending) didn't come back after two tries, so nothing was built. Run it again in a moment.");
   // stamp the declared Inciting Incident onto its scene BEFORE stitching, so the
   // marker survives the act sort by object identity
   if(a && a.incite>=1 && a.incite<=a.scenes.length) a.scenes[a.incite-1].kind = "incite";
-  let scenes = [].concat((a&&a.scenes)||[], (b&&b.scenes)||[]);
-  // keep act order even if a batch drifted
-  scenes.sort((x,y)=> x.act - y.act);
-  scenes = scenes.slice(0,total);
+  // the two halves in story order; a surplus comes out at the join, never from the ending; acts are repaired as
+  // labels, never used to re-order the scenes (2026-11-12, audit B10)
+  const joined = joinSpineHalves((a&&a.scenes)||[], (b&&b.scenes)||[], total, want1);
+  let scenes = repairActOrder(joined.scenes);
   if(scenes.length < Math.max(3, Math.floor(total*0.4))) // batched build failed badly
     return failed("Only "+scenes.length+" of the "+total+" scenes came back, so nothing was built. Run it again in a moment.");
   const title = (a&&a.title) || (b&&b.title) || "UNTITLED";
@@ -5331,6 +5446,10 @@ async function aiBuildSpine(brief, formatId, frameworkId){
   if(Object.keys(driverNames).length) spine.driverNames = driverNames;
   if(scenes.length < total) spine.short = { got:scenes.length, want:total,
     note:"Built "+scenes.length+" of the "+total+" scenes this format aims for." };
+  // …and so does a list that came back long (audit B10): which scenes went, and that the ending is whole
+  if(joined.dropped>0) spine.trimmed = { dropped:joined.dropped,
+    note:"The scene list came back with "+joined.dropped+" more scene"+(joined.dropped!==1?"s":"")+" than the "+total+" this format aims for; "+
+      (joined.dropped!==1?"those were":"that one was")+" taken out around the midpoint, so the opening and the ending are whole." };
   return spine;
 }
 window.aiBuildSpine = aiBuildSpine;
@@ -5350,10 +5469,20 @@ async function aiBuildStoryWorld(brief, spine, format, research){
   // scene prose baptises characters, and each name's identity must be defined as
   // the scenes actually USE it — this is where "Kelan the enforcer" was once
   // invented blind while scene 1's summary already used the name for a pensioner.
-  const sceneList = scenes.map(s=>"Sc"+(s.no||"")+" "+s.title+" (driver: "+s.driver+")"
-    +(s.summary?(" \u2014 "+String(s.summary).slice(0,180)):"")).join("\n");
+  /* EVERY SCENE IS SEEN, WITH ITS NUMBER (2026-11-12, audit B8). The list was cut at 2,600 characters, so the cast
+     and the premise of a 24- or 40-scene film were written from its first half only; and the scenes had no numbers
+     (a scene list has none until the film is made). Now every scene is listed, numbered by its place; when the
+     list is long each summary is shortened to share the room — a scene is never dropped. */
+  const SCENE_LIST_ROOM = 9000;
+  const sumRoom = Math.max(60, Math.min(180, Math.floor(SCENE_LIST_ROOM/Math.max(1, scenes.length)) - 60));
+  const sceneList = scenes.map((s,i)=>"Sc"+(s.no||(i+1))+" "+s.title+" (driver: "+s.driver+")"
+    +(s.summary?(" \u2014 "+clipAtBoundary(String(s.summary), sumRoom)):"")).join("\n");
+  /* ONE CAST ENTRY PER DRIVER, HOWEVER MANY (audit B9). The prompt asks for one per driver id, but said "3-6
+     principal characters" and the app kept the first 8: on a long film the people who drive later scenes came out
+     as bare names with no identity, pronouns, age or voice. */
+  const castRoom = Math.min(24, Math.max(8, drivers.length + 2));
   const prompt = "You are a story architect. For the film below, define its world and cast using the Infinite Studio AI method.\n"+
-    "TITLE: "+((spine&&spine.title)||"UNTITLED")+"\nLOGLINE / SYNOPSIS:\n"+clipAtBoundary(String(brief), 4000)+"\n"+((typeof researchReservoir==="function") ? researchReservoir(research,"world") : "")+"SCENES (with summaries \u2014 the names in them are binding):\n"+sceneList.slice(0,2600)+"\n\n"+
+    "TITLE: "+((spine&&spine.title)||"UNTITLED")+"\nLOGLINE / SYNOPSIS:\n"+clipAtBoundary(String(brief), (typeof window!=="undefined" && window.STORY_BRIEF_MAX) || 12000)+"\n"+((typeof researchReservoir==="function") ? researchReservoir(research,"world") : "")+"SCENES (all "+scenes.length+", in order, with summaries \u2014 the names in them are binding):\n"+sceneList+"\n\n"+
     "Driver ids used across scenes: "+drivers.map(d=>{ const nm = spine && spine.driverNames && spine.driverNames[d]; return nm ? (d+" (the id of "+nm+")") : d; }).join(", ")+". Create one cast member per driver id (id MUST match exactly), plus any essential others.\n"+
     "RECONCILE NAMES WITH THE SCENES: every personal NAME used in a scene summary belongs to exactly ONE person, and that "+
     "person's cast IDENTITY must match how the scenes actually use the name (a name the summaries use for a stooped pensioner "+
@@ -5368,7 +5497,9 @@ async function aiBuildStoryWorld(brief, spine, format, research){
     "setting: period, duration, location, conflict (one short phrase each); conflict = the LEVEL of conflict \u2014 where the antagonism chiefly lives (inner, personal, institutional, environmental).\n"+
     "CREATIVE LIMITATION: prefer the SMALLEST, strictly KNOWABLE world that can hold this conflict \u2014 a bounded location, a limited cast, a specific set of trades, objects and rules. Constraint fuels originality: a small world can be exhausted and made particular, and its lexicon becomes the dialogue's vocabulary. setting.location should name that bounded world concretely (a night-shift minicab office, not 'London').\n"+
     inventionRules(format)+"\n"+
-    "cast: 3-6 PRINCIPAL characters. For each: id (lowercase, matches a driver id where possible), name (CAPS), and role formatted as THREE optional parts in this exact shape: FUNCTION [ \u00b7 ARCHETYPE ] [ \u2014 IDENTITY ]. "+
+    "cast: the PRINCIPAL characters \u2014 "+(drivers.length>6
+      ? "one for EVERY driver id above (all "+drivers.length+" of them; none may be left out), plus at most two essential others"
+      : "3-6")+". For each: id (lowercase, matches a driver id where possible), name (CAPS), and role formatted as THREE optional parts in this exact shape: FUNCTION [ \u00b7 ARCHETYPE ] [ \u2014 IDENTITY ]. "+
     "FUNCTION = the dramatic role, one or two words (Protagonist, Antagonist, Catalyst, Mentor, Ally, Mirror, Wildcard\u2026). ARCHETYPE = an OPTIONAL 1-3 word thematic aspect they embody, after a ' \u00b7 ' (e.g. 'ideology', 'the system', 'the mirror'). IDENTITY = a REQUIRED short phrase of who they are in the world, after a ' \u2014 ' (e.g. 'a far-right podcaster', 'a Somali-British trauma nurse'). "+
     "Example: 'Antagonist \u00b7 ideology \u2014 a far-right podcaster'. ALWAYS include the FUNCTION and the IDENTITY (every character is someone); the ARCHETYPE is optional. Keep each part concise (identity \u2264 ~8 words). "+
     "CRITICAL: one entry per person. NEVER split a character into multiple entries for different acts or stages (no 'expanded' or 'later version' duplicates) \u2014 a character's growth belongs in their arc, not a second cast member. Each name must be unique.\n"+
@@ -5397,16 +5528,22 @@ async function aiBuildStoryWorld(brief, spine, format, research){
   const usable = (x)=> !!x && typeof x==="object" && !Array.isArray(x) &&
     (!!String(x.premise||"").trim() || (Array.isArray(x.cast) && x.cast.length>0));
   let j = null;
+  const t0 = Date.now();
   for(let attempt=0; attempt<2 && !usable(j); attempt++){
     try{ j = extractJSON(await window.claude.complete({ messages:[{ role:"user", content:prompt }] })); }
-    catch(e){ j = null; }
+    catch(e){ j = null;
+      // a failure a second try can't fix (no credits, signed out) is not asked again (2026-11-12, audit B13);
+      // the caller reads why from turnBuildFailureNeedingAction
+      try{ if(typeof window.turnNoteBuildFailure==="function") window.turnNoteBuildFailure(e, "world"); }catch(_){}
+      if(typeof window.turnBuildFailureNeedingAction==="function" && window.turnBuildFailureNeedingAction(t0)) break;
+    }
   }
   if(!usable(j)) return null;
   try{
     const ci = j.controllingIdea || {};
     const st = j.setting || {};
     const vClean = (s)=>scrubBrand(String(s||"")).replace(/\.$/,"").trim().slice(0,80);
-    const cast = Array.isArray(j.cast) ? j.cast.slice(0,8).map(c=>{
+    const cast = Array.isArray(j.cast) ? j.cast.slice(0,castRoom).map(c=>{
       const v = c.voice || {};
       const voice = { accent:vClean(v.accent), pitch:vClean(v.pitch), pace:vClean(v.pace), quirks:vClean(v.quirks) };
       // he/him · she/her · they/them only (character-identity.js); anything else is left unset, never guessed
@@ -5439,8 +5576,9 @@ async function aiBuildStoryWorld(brief, spine, format, research){
       controllingIdea:{ value:scrubBrand((ci.value||"").toString()).slice(0,60),
         cause:scrubBrand((ci.cause||"").toString()).slice(0,90),
         polarity:(["ironic","idealistic","pessimistic"].includes((ci.polarity||"").toString().toLowerCase())?ci.polarity.toLowerCase():"ironic") },
-      setting:{ period:scrubBrand((st.period||"").toString()).slice(0,60), duration:scrubBrand((st.duration||"").toString()).slice(0,60),
-        location:scrubBrand((st.location||"").toString()).slice(0,90), conflict:scrubBrand((st.conflict||"").toString()).slice(0,120) },
+      // (2026-11-12) cut at a word, never inside one: a long location read "…on a tidal east-Scottis"
+      setting:{ period:clipAtBoundary(scrubBrand((st.period||"").toString()),60), duration:clipAtBoundary(scrubBrand((st.duration||"").toString()),60),
+        location:clipAtBoundary(scrubBrand((st.location||"").toString()),90), conflict:clipAtBoundary(scrubBrand((st.conflict||"").toString()),120) },
       cast,
     };
   }catch(e){ return null; }
@@ -5874,7 +6012,8 @@ function composeStoryBrief(logline, synopsis){
       if(f.role) b += "\nProtagonist's role: "+f.role;
     }
   }
-  return clipAtBoundary(b, 4000);
+  // (2026-11-12, audit B7: it was cut at 4,000, which dropped the end — the last paragraph and the world notes)
+  return clipAtBoundary(b, (typeof window!=="undefined" && window.STORY_BRIEF_MAX) || 12000);
 }
 window.composeStoryBrief = composeStoryBrief;
 

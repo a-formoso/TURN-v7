@@ -1096,6 +1096,17 @@ async function agentAdaptation(ctx){
   // Continue writing never falls through to a rebuild: with nothing left to write, it says so and ends
   if(ctx.finishOnly){ ctx.emit({k:"done", t: have.length ? "Every scene of this film already has its beats and screenplay \u2014 nothing was left to write." : "This film has no scenes yet. Start it from New Story."}); return; }
   if(!brief){ ctx.emit({k:"flag", t:"No logline provided. Type a logline or synopsis above and run again."}); ctx.emit({k:"done",t:"Nothing to build."}); return; }
+  /* A TEXT LONGER THAN A BUILD READS SAYS SO (2026-11-12, audit B7). The limit is 12,000 characters (it was 4,000,
+     and silent): everything the app composes fits, but a treatment pasted here can run past it, and the scene list
+     would be built without its end — with no word. */
+  if(typeof window.storyBriefRead==="function"){
+    const br = window.storyBriefRead(brief);
+    if(br.cut){
+      const n = (x)=>Number(x).toLocaleString("en-US");
+      const tail = br.read.replace(/\s+/g," ").trim().slice(-70).replace(/^\S*\s/,"");
+      ctx.emit({k:"flag", t:"Your text is "+n(br.length)+" characters long; a build reads the first "+n(br.max)+". The story is being built from that part only \u2014 it stops reading at \u201c\u2026"+tail+"\u201d. If the ending comes after that, decline the scene list below, shorten the text and run it again."});
+    }
+  }
   const _fwA = (typeof frameworkOf==="function") ? frameworkOf(window.turnProject) : null;
   const _kishoA = !!(_fwA && _fwA.id==="kishotenketsu");
   const _heroA = !!(_fwA && _fwA.id==="herosjourney");
@@ -1136,6 +1147,8 @@ async function agentAdaptation(ctx){
   ctx.emit({k:"observe", t:'"'+spine.title+'" \u2014 '+spine.scenes.length+" scenes across "+_actsN+" "+(_kishoA?"movements":"acts")+", "+turns+" of them "+(_kishoA?"moving":"turning")+". Review below before it "+(_isNew?"becomes your project.":"replaces the current project.")});
   // a spine shorter than the format aims for is still offered, but never silently (2026-09-28)
   if(spine.short && spine.short.note) ctx.emit({k:"flag", t:spine.short.note+" You can approve it as it is, or decline and run it again."});
+  // …nor is a list that came back long and had scenes taken out (2026-11-12, audit B10)
+  if(spine.trimmed && spine.trimmed.note) ctx.emit({k:"observe", t:spine.trimmed.note});
 
   const ok = await ctx.propose({
     title:(_isNew?"Create the project \u201c":"Replace the project with \u201c")+spine.title+"\u201d",
@@ -1151,7 +1164,21 @@ async function agentAdaptation(ctx){
 
   ctx.emit({k:"act", t:"Building the story world \u2014 premise, controlling idea, setting and cast\u2026"});
   let world = null;
+  const _worldAt = Date.now();
   try{ world = ctx.ai.buildStoryWorld ? await ctx.ai.buildStoryWorld(brief, spine) : null; }catch(e){}
+  /* NO CREDITS, OR SIGNED OUT, AT THE WORLD STEP: STOP BEFORE ANYTHING IS MADE (2026-11-12, audit B13). It used to
+     be logged as "couldn't build the story world this time" and the build went on: it cleared the old project,
+     saved scenes with no premise and a cast of bare names, and then stopped at scene 1 for the same reason — a
+     film that Continue writing could finish but that never got its world. Nothing can be written without credits
+     anyway, so the build stops here, says the real reason, and leaves the project as it was. */
+  { const wf = (!world && typeof window.turnBuildFailureNeedingAction==="function") ? window.turnBuildFailureNeedingAction(_worldAt) : null;
+    if(wf && !ctx.cancelled()){
+      const say = (typeof window.turnBuildFailureSentence==="function") ? window.turnBuildFailureSentence(wf, "run it again") : "The writing service can\u2019t be used right now.";
+      ctx.emit({k:"flag", t:"Stopped before anything was made: the story world couldn\u2019t be built \u2014 "+say+" "
+        +(_isNew ? "No scenes were saved" : "Your current project is unchanged")+"; the scene list above was not kept, so the next run builds it again."});
+      ctx.emit({k:"done", t:"Nothing was built."});
+      return;
+    } }
   // HONEST LOG (2026-09-28): a story world that didn't come back used to pass silently — the
   // build carries on (the spine stands on its own), but the writer is told what is missing
   if(!world && ctx.ai.buildStoryWorld && !ctx.cancelled()) ctx.emit({k:"flag", t:"Couldn't build the story world this time, so this film has no new premise, controlling idea or setting, and the cast has names but no identities or voices. The build carries on with the scenes; fill those in afterwards in the Story panel on the left."});

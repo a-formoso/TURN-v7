@@ -133,6 +133,34 @@ build on the server so it does not depend on the browser staying open.
 > scene which still runs long gets a free note and is never rewritten automatically (docs/Story Pipeline.md step 5).
 > Test: `scripts/test-scene-length.mjs`.
 >
+> **Status, 12 November 2026 — B7, B8, B9, B10 and B13 are built** (branch `claude/audit-long-films-20261112`, not
+> published). Each was confirmed in the code first. Test: `scripts/test-long-films.mjs`.
+> - **B7.** The brief was cut at 4,000 characters in four places (the composed brief, the scene list, the world,
+>   the contract), and what went was the end. One limit now, 12,000: everything the app composes fits. A longer
+>   text pasted into Adaptation is still cut there, and the build's log says so first, with the words it stops at.
+> - **B8.** The world was written from the first 2,600 characters of the scene list, with no scene numbers. Every
+>   scene is now listed, numbered; a very long list shortens each summary instead of dropping scenes.
+> - **B9.** The cast stopped at eight and the prompt asked for "3-6 principal characters". With more than six
+>   drivers it now asks for one entry per driver (plus at most two others) and keeps them (up to 24).
+> - **B10.** A long scene list was cut from the end, and the list was *sorted* by act, so a scene with a wrong or
+>   missing act (missing read as act 1) moved to another part of the film. The surplus now comes out at the
+>   midpoint (start of the second half, then end of the first; never the declared inciting incident); the order of
+>   the scenes is never changed, and act labels are repaired to run forwards. The log says how many scenes went.
+> - **B13.** A billing or sign-in failure at the scene list was asked for again and then reported as "didn't come
+>   back after two tries, run it again in a moment". It now stops at the first one with the real reason and the
+>   right advice. At the world step the build used to go on: it cleared the old project, saved scenes with no
+>   premise and a cast of bare names, then stopped at scene 1. It now stops before anything is made or replaced.
+>   An ordinary world failure (two unreadable answers) still carries on, as decided on 28 September.
+> - **Seen on the real engine** (three calls, admin account): a Feature Film brief gave 40 scenes, acts 10 / 20 / 10,
+>   nine drivers. The world call listed all 40 scenes with numbers (the old cut would have stopped at scene 27 —
+>   the whole third act unseen) and returned nine full cast entries, one per driver, each with pronouns, age, size
+>   and voice (the old cap was eight; one driver first appears in scene 27).
+> - **Fixed on the way.** A long setting line was cut inside a word ("…on a tidal east-Scottis"); it is now cut
+>   at a word.
+> - **Still true.** If credits run out later in a build (the contract or the cast's inner life), those parts are
+>   skipped and Continue writing does not redo them. A half whose acts are numbered from 1 again is kept in order
+>   but its labels are only levelled, not rebuilt. B11, B12, B14 to B16 are untouched.
+
 > **Status, 12 November 2026 — B5 and B6 are built** (branch `claude/names-20261112`, not published). Code:
 > `app/story-names.js`; test: `scripts/test-story-names.mjs`.
 > - **B6.** A name becomes an id with its accents folded to the plain letter ("Inês" → `ines`, it was `ins`); a name
