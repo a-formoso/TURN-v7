@@ -59,8 +59,8 @@ test("4 the manifest has it (Frances is told the look, never the price: billing 
     assert.ok(re.test(entry),String(re));
   assert.ok(!/TURN|McKee|Claude|Anthropic|MUSE|Cinema Machine/.test(entry));
   for(const f of ["icons.jsx","imagegen.jsx","artroom.jsx","blender-render-ui.jsx","video-elements.jsx","ai.jsx","script.jsx"])
-    assert.ok(html.includes("app/"+f+'?v=20261113-cards1"'),f+" has its new cache key");
-  assert.ok(html.includes('app/styles.css?v=20261113-cards1"'));
+    assert.ok(["20261113-cards1", "20261113-bar1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-cards1", "20261113-bar1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 
 console.log(pass+" passed, "+fail+" failed");

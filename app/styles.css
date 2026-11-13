@@ -3533,15 +3533,15 @@ html[data-theme="dark"] .dt-viewing svg{color:oklch(0.82 0.09 296)}
 .nb-aspect-btn .sdbar-ratio-ico{margin:0;color:currentColor;flex:0 0 auto}
 .nb-aspect-btn span:last-child{font-size:11px;line-height:1}
 .nb-dock .nb-aspect-btn{min-width:0}
-image-slot[id^="charref-"], image-slot[id^="propref-"], image-slot[id^="locref-"], image-slot[id^="locvar-"], image-slot[id^="shot-"], image-slot[id^="lookref-"]{width:100%;aspect-ratio:16/9;height:auto;display:block;color:var(--txt-1);
+image-slot[id^="charref-"], image-slot[id^="propref-"], image-slot[id^="locref-"], image-slot[id^="locvar-"], image-slot[id^="shot-"], image-slot[id^="lookref-"], image-slot[id^="crowdref-"]{width:100%;aspect-ratio:16/9;height:auto;display:block;color:var(--txt-1);
   border:1.5px dashed var(--line-3);border-radius:var(--r-l);background:var(--bg-2);transition:border-color .12s}
-image-slot[id^="charref-"]:hover, image-slot[id^="propref-"]:hover, image-slot[id^="locref-"]:hover, image-slot[id^="locvar-"]:hover, image-slot[id^="shot-"]:hover, image-slot[id^="lookref-"]:hover{border-color:var(--pos-line)}
-image-slot[id^="charref-"][data-filled], image-slot[id^="propref-"][data-filled], image-slot[id^="locref-"][data-filled], image-slot[id^="locvar-"][data-filled], image-slot[id^="shot-"][data-filled], image-slot[id^="lookref-"][data-filled]{border:1px solid var(--line)}
-image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame), image-slot[id^="locref-"]::part(frame), image-slot[id^="locvar-"]::part(frame), image-slot[id^="shot-"]::part(frame), image-slot[id^="lookref-"]::part(frame){background:transparent}
+image-slot[id^="charref-"]:hover, image-slot[id^="propref-"]:hover, image-slot[id^="locref-"]:hover, image-slot[id^="locvar-"]:hover, image-slot[id^="shot-"]:hover, image-slot[id^="lookref-"]:hover, image-slot[id^="crowdref-"]:hover{border-color:var(--pos-line)}
+image-slot[id^="charref-"][data-filled], image-slot[id^="propref-"][data-filled], image-slot[id^="locref-"][data-filled], image-slot[id^="locvar-"][data-filled], image-slot[id^="shot-"][data-filled], image-slot[id^="lookref-"][data-filled], image-slot[id^="crowdref-"][data-filled]{border:1px solid var(--line)}
+image-slot[id^="charref-"]::part(frame), image-slot[id^="propref-"]::part(frame), image-slot[id^="locref-"]::part(frame), image-slot[id^="locvar-"]::part(frame), image-slot[id^="shot-"]::part(frame), image-slot[id^="lookref-"]::part(frame), image-slot[id^="crowdref-"]::part(frame){background:transparent}
 /* ONE dashed border (2026-10-28), like the drop zones on the Characters / Props / Locations cards: the slot's own inner
    ring is hidden, so the border above is the only one; a drag over it lights it the way the drop zone does */
-image-slot[id^="charref-"]::part(ring), image-slot[id^="propref-"]::part(ring), image-slot[id^="locref-"]::part(ring), image-slot[id^="locvar-"]::part(ring), image-slot[id^="shot-"]::part(ring), image-slot[id^="lookref-"]::part(ring){display:none}
-image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], image-slot[id^="locref-"][data-over], image-slot[id^="locvar-"][data-over], image-slot[id^="shot-"][data-over], image-slot[id^="lookref-"][data-over]{border-color:var(--pos)}
+image-slot[id^="charref-"]::part(ring), image-slot[id^="propref-"]::part(ring), image-slot[id^="locref-"]::part(ring), image-slot[id^="locvar-"]::part(ring), image-slot[id^="shot-"]::part(ring), image-slot[id^="lookref-"]::part(ring), image-slot[id^="crowdref-"]::part(ring){display:none}
+image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], image-slot[id^="locref-"][data-over], image-slot[id^="locvar-"][data-over], image-slot[id^="shot-"][data-over], image-slot[id^="lookref-"][data-over], image-slot[id^="crowdref-"][data-over]{border-color:var(--pos)}
 .sheet-frame-cap{display:flex;align-items:center;gap:7px;margin-top:10px;font-family:var(--f-mono);font-size:9.5px;
   letter-spacing:.04em;text-transform:uppercase;color:var(--txt-3)}
 /* lock caption colours — parent hover states must not override */
@@ -5084,6 +5084,22 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
   .tb-right{flex:0 0 auto}
   .tb-left .proj-wrap{display:flex;min-width:0}
 }
+/* ...and above 900px too (owner 2026-11-13: "the project selector doesn't appear in all windows or screen sizes"). The
+   two zones were still equal halves there, so from about 900 to 1250px the film and room switchers slid under the
+   engines. Now, at every width above a phone: the right side takes what it needs, the film chip yields (its badges go,
+   then its title shortens) but never below its icon and arrow, and the room switcher never shrinks. */
+@media (min-width:901px){
+  .tb-right{flex:0 0 auto}
+  .tb-left .proj-wrap{display:flex;min-width:0}
+}
+@media (min-width:701px){
+  .topbar .context-group{flex:1 1 auto;min-width:0}
+  .topbar .context-group .proj-wrap{flex:0 1 auto;min-width:58px}
+  .topbar .context-group .room-switch{flex:0 0 auto}
+  .topbar .proj-btn .proj-name{min-width:0}
+}
+@media (max-width:1220px){ .topbar .proj-btn .proj-format.fw{display:none} }
+@media (max-width:1040px){ .topbar .proj-btn .proj-format:not(.shared){display:none} }
 
 /* ---- mobile (<=700px, matches the vp hook) — true phone compaction ---- */
 @media (max-width:700px){
@@ -9720,7 +9736,9 @@ html[data-theme="dark"] .app.hs{
 .app.hs .nb-dock.in-topbar .nb-dock-label,
 .app.hs .nb-dock.in-topbar .nb-dock-chip.model{display:none}
 .app.hs .nb-dock.in-topbar .tb-engine-name{white-space:nowrap}
-.app.hs .nb-dock.in-topbar .nb-dock-chip{display:inline;padding:0;border:0;background:none;color:var(--hs-sub);
+/* THE NAME ONLY (owner 2026-11-13): "Opus 5.5", "Nano Banana 2.1". The aspect, size, quality and AUTO / SET are in the
+   dropdown and the button's tooltip, not on the bar */
+.app.hs .nb-dock.in-topbar .nb-dock-chip{display:none;padding:0;border:0;background:none;color:var(--hs-sub);
   font:700 9px/1 var(--f-mono);letter-spacing:.08em}
 .app.hs .nb-dock.in-topbar .nb-dock-panel{position:absolute;top:calc(100% + 8px);bottom:auto;right:0;left:auto;transform:none;
   max-height:calc(100dvh - 92px);overflow-y:auto;z-index:2}
