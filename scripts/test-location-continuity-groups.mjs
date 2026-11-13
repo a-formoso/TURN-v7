@@ -264,9 +264,16 @@ ok("script evidence and reusable staging have separate roles",
   ui.includes("reusable camera views with their view compositions")&&
   ui.includes("function LocationScreenplayEvidence")&&
   ui.includes("Shot timing, cuts and performance are directed in Shots / Blender previz."));
-ok("location identity fields expose editable provenance",
-  ui.includes("function LocationProvenanceSelect")&&ui.includes('field:"architecture"')&&
-  ui.includes('field:"continuityAnchors"')&&ui.includes('className:"loc-prov-select"'));
+// 2026-11-13 (owner: "from a user standpoint, this is confusing"): the per-field dropdown (Script / Inferred / Design /
+// Locked) is gone from the card. It was a label only. The saved note stays, and a hand edit is still recorded as design.
+ok("the fields of The Space are plain text boxes; the saved source note is kept, not shown",
+  !ui.includes("LocationProvenanceSelect")&&!ui.includes("loc-prov-select")&&!ui.includes("LOC_PROVENANCE")&&
+  !readFileSync("app/styles.css","utf8").includes(".loc-prov-select")&&
+  ui.includes('field:"architecture"')&&
+  ui.includes('if(source!=="locked") provenance[field]="design";')&&ui.includes("onUpdate(l.id,{[field]:next,provenance});")&&
+  ui.includes('return React.createElement(SheetField,{label,value:value||"",multiline:true,placeholder,onCommit:commit});')&&
+  ai.includes('provenance:{architecture:prov("architecture"),materials:prov("materials"),lighting:prov("lighting"),')&&
+  readFileSync("app/locations.jsx","utf8").includes("provenance:(x.provenance&&Object.keys(x.provenance).length)?x.provenance:undefined,"));
 ok("continuity-state descriptions reach the actual generator",
   readFileSync("app/locations.jsx","utf8").includes("{ time:v.time, state:v.state }")&&
   readFileSync("app/locations.jsx","utf8").includes('"continuity-state"'));

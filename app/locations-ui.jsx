@@ -9,16 +9,10 @@ function locSwatch(intExt){
     : "linear-gradient(135deg,#4a5a78,#222c3e)";     // interior — slate
 }
 
-const LOC_PROVENANCE = [
-  ["script","SCRIPT"],["inferred","INFERRED"],["design","DESIGN"],["locked","LOCKED"]
-];
-function LocationProvenanceSelect({l,field,label,onUpdate}){
-  const provenance={...((l&&l.provenance)||{})};
-  const source=provenance[field]||(l&&l.fromScript?"inferred":"design");
-  return React.createElement("select",{className:"loc-prov-select",value:source,title:"Where this fact came from",
-    "aria-label":label+" provenance",onChange:e=>{ provenance[field]=e.target.value; onUpdate(l.id,{provenance}); }},
-    LOC_PROVENANCE.map(p=>React.createElement("option",{key:p[0],value:p[0]},p[1])));
-}
+/* A FIELD OF THE SPACE: a plain text box (owner 2026-11-13). Each one carried a dropdown (Script / Inferred / Design /
+   Locked: where the text came from). It was a label only: nothing read it to make an image, and "Locked" protected
+   nothing from a new draft, so it is no longer shown. The saved note stays (the draft still records it and the Blender
+   package still carries it), and a field you edit by hand is still recorded as your own design. */
 function LocationIdentityField({l,field,label,value,placeholder,onUpdate}){
   const provenance={...((l&&l.provenance)||{})};
   const source=provenance[field]||(l&&l.fromScript?"inferred":"design");
@@ -26,10 +20,7 @@ function LocationIdentityField({l,field,label,value,placeholder,onUpdate}){
     if(source!=="locked") provenance[field]="design";
     onUpdate(l.id,{[field]:next,provenance});
   };
-  const labelNode=React.createElement("span",{className:"loc-field-label"},
-    React.createElement("span",null,label),
-    React.createElement(LocationProvenanceSelect,{l,field,label,onUpdate}));
-  return React.createElement(SheetField,{label:labelNode,value:value||"",multiline:true,placeholder,onCommit:commit});
+  return React.createElement(SheetField,{label,value:value||"",multiline:true,placeholder,onCommit:commit});
 }
 
 /* Quiet, in-context definitions for the location layers. The details stay out of
@@ -1512,6 +1503,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:layoutFoldId}));
   };
   const drafted = locVisualsDrafted(l);
+  // FIRST THINGS FIRST (owner 2026-11-13): until the place has its description, the bar under the image leads to
+  // 1 · The Space, as the step guide's Go does (it said "Review floor plan" and opened step 2 on a card with nothing yet)
+  const startAtSpace=()=>window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:locationStepFoldId(l,1)}));
   const initials = (l.name||"?").replace(/^the\s+/i,"").split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
 
   // render style — same dropdown + "Surprise me" behaviour as the character cards
@@ -2018,9 +2012,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       referenceControls: masterRefs.length>0 && React.createElement(CoverageReferenceStrip,{ refs:masterRefs, excludedIds:masterRefOff, onToggle:toggleMasterRef, onView }),
       generateRefs: masterGenerateRefs,
       generateDisabled:!spatialState.ready||!!l.parentLocation&&(!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready&&!r.preview)),
-      generateDisabledLabel:!spatialState.ready?"Review floor plan":"Generate parent plate first",
-      onResolveGenerationBlock:!spatialState.ready?reviewLayout:undefined,
-      generateDisabledTitle:!spatialState.ready?"Open the floor plan to review and confirm it. No image will be generated.":"Generate or restore the whole location's plate first so this room can match its visual design.",
+      generateDisabledLabel:!spatialState.ready?(drafted?"Review floor plan":"Start at 1 \u00b7 The Space"):"Generate parent plate first",
+      onResolveGenerationBlock:!spatialState.ready?(drafted?reviewLayout:startAtSpace):undefined,
+      generateDisabledTitle:!spatialState.ready?(drafted?"Open the floor plan to review and confirm it. No image will be generated."
+        :"Describe the place first, in 1 \u00b7 The Space. The floor plan and the image come after it. No image will be generated."):"Generate or restore the whole location's plate first so this room can match its visual design.",
       // say it when Generate also writes the layout first (a small writing charge on top of the plate)
       generateTitle:(!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable())
         ? "Writes this place's view composition first \u2014 a small writing charge \u2014 then generates the plate from it" : undefined,
@@ -2163,9 +2158,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         })(),
         React.createElement("div",{className:"loc-anchor-field"},
           React.createElement("div",{className:"loc-anchor-head"},
-            React.createElement("span",{className:"loc-field-label"},
-              React.createElement("span",null,"Fixed landmarks"),
-              React.createElement(LocationProvenanceSelect,{l,field:"continuityAnchors",label:"Fixed landmarks",onUpdate})),
+            React.createElement("div",{className:"obj-lab"},"Fixed landmarks"),
             React.createElement("button",{className:"loc-anchor-lock"+(l.anchorsLocked===false?"":" locked"),
               title:l.anchorsLocked===false?"Make these anchors binding for generation":"Binding: these facts cannot drift across representations",
               onClick:()=>onUpdate(l.id,{anchorsLocked:l.anchorsLocked===false})},l.anchorsLocked===false?"\ud83d\udd13 Editable":"\ud83d\udd12 Binding")),

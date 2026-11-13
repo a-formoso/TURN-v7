@@ -27,7 +27,6 @@ async function prepare(){
   await writeFile(`${FIXTURE}/location-section.js`,transform(
     realFunction(artroom,"CardFold")+"\n"+
     realFunction(locations,"locSwatch")+"\n"+
-    realFunction(locations,"LocationProvenanceSelect")+"\n"+
     realFunction(locations,"LocationIdentityField")+"\n"+
     realFunction(locations,"LocationSectionHelp")+"\n"+
     realFunction(locations,"LocationBlenderStudioSection")+"\n"+

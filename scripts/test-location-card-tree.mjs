@@ -255,7 +255,30 @@ test("10 Moving parts: at the end of the floor plan, said in plain words", ()=>{
   assert.equal(nodes(none).filter(n=>n.type==="button")[0].props.disabled,true);
 });
 
-test("11 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
+test("11 first things first: with no description yet, the bar under the image opens step 1, as Go does; the fields are plain", ()=>{
+  // the same block as before decides IF an image can be made; only the words and where the bar leads changed
+  assert.ok(sheet.includes("generateDisabled:!spatialState.ready||!!l.parentLocation&&(!parentRefUrl||masterRefs.some(r=>r.required&&!r.ready&&!r.preview)),"));
+  assert.ok(sheet.includes('generateDisabledLabel:!spatialState.ready?(drafted?"Review floor plan":"Start at 1 \\u00b7 The Space"):"Generate parent plate first",'));
+  assert.ok(sheet.includes("onResolveGenerationBlock:!spatialState.ready?(drafted?reviewLayout:startAtSpace):undefined,"));
+  assert.ok(sheet.includes('const startAtSpace=()=>window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:locationStepFoldId(l,1)}));'));
+  assert.ok(sheet.includes('"Describe the place first, in 1 \\u00b7 The Space. The floor plan and the image come after it. No image will be generated."'));
+  assert.ok(sheet.includes('label:"1 \\u00b7 The Space",foldId:locationStepFoldId(l,1),'),"the fold the bar opens");
+  // the guide: the first step that is not done is next, so a place with no description starts at 1
+  const guide=drafted=>box.locationCardSteps({l:{id:"x"},drafted,spatialState:{ready:false,reason:"r"},gen:{},cloudPilot:true,cloudJob:null}).find(s=>s.next);
+  assert.equal(guide(false).n,1); assert.equal(guide(true).n,2);
+  // a field of The Space: its name and a text box, nothing else; a hand edit is saved with the note that it is yours
+  const saved=[];
+  const field=box.LocationIdentityField({l:{id:"k",fromScript:true,provenance:{materials:"script",lighting:"locked"}},field:"materials",label:"Materials & palette",value:"Oak.",placeholder:"p",onUpdate:(id,patch)=>saved.push([id,patch])});
+  assert.equal(field.type,"SheetField"); assert.equal(field.props.label,"Materials & palette");
+  assert.equal(nodes(field).filter(n=>n.type==="select").length,0);
+  field.props.onCommit("Pine.");
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)),[["k",{materials:"Pine.",provenance:{materials:"design",lighting:"locked"}}]]);
+  assert.ok(!ui.includes("LocationProvenanceSelect")&&!css.includes(".loc-prov-select"));
+  const landmarks=sheet.slice(at('className:"loc-anchor-head"'),at("onCommit:val=>onUpdate(l.id,{continuityAnchors:val})"));
+  assert.ok(!/select/.test(landmarks)&&landmarks.includes('"Fixed landmarks"')&&landmarks.includes("anchorsLocked"),"Fixed landmarks keeps its lock, which the image prompt reads");
+});
+
+test("12 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
   const shots=read("app/shots-ui.jsx");
   assert.ok(shots.includes('" \\u2192 Variants, in the Art Room\'s Locations tab"')&&!shots.includes("\\u2192 Rooms & times, in the Art Room"));
   const s=ai.slice(ai.indexOf('APP_FEATURES.push({ name:"Location card structure (the card as a tree)"'));
@@ -264,7 +287,8 @@ test("11 the other tabs point at the new name; Frances knows the card; the style
       /Screenplay Coverage, at its top, is read from the screenplay and read-only/,/Narrative Significance, its last field/,
       /2 \\u00b7 Floor plan, with Moving parts \(optional\) at its end\. 3 \\u00b7 Cameras\./,/Build in Blender inside step 4/,
       /LOCATION IMAGE: Look Dev \(render style instructions and what to leave out\) and the QA check/,/VARIANTS: each time of day/,/Add a variant/,/Sc 02 \(Pre-dawn\)/,
-      /SUBSPACES \(a main location only\)/,/GENERATION PROMPT: read-only, the last section/,/6, 7, 8 and 9/,/so they are 4, 5, 6 and 7/,/Nothing saved moved/])
+      /SUBSPACES \(a main location only\)/,/GENERATION PROMPT: read-only, the last section/,/6, 7, 8 and 9/,/Its fields are plain text boxes/,
+      /the Go button in the step guide and the bar under the image \(Start at 1 \\u00b7 The Space\) both open 1 \\u00b7 The Space/,/so they are 4, 5, 6 and 7/,/Nothing saved moved/])
     assert.ok(re.test(entry),String(re));
   assert.ok(!/TURN|McKee|Claude|Anthropic|MUSE|Cinema Machine/.test(entry));
   assert.ok(!/Blender Studio section|Space and staging|SPACE AND STAGING/.test(ai),"Frances is not told about sections that are gone");
@@ -276,9 +300,9 @@ test("11 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
   for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1", "20261113-order1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1", "20261113-order1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
-  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(html.includes("app/"+f+'?v=20261113-order1"'),f+" was re-keyed for the numbered sections");
+    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
 });
 
 console.log(pass+" passed, "+fail+" failed");
