@@ -185,14 +185,14 @@ await test("E3 the prompt is behind the ⋯ menu, beside 'Edit a panel…'; Gene
   // (owner 2026-10-28) the prompt is a folded section of the card, no longer a ⋯ menu item
   assert.ok(!card.includes('"Show the generation prompt"'));
   assert.equal((card.match(/menuExtra:/g)||[]).length, 1, "one menu list (a second key would drop Edit a panel)");
-  assert.ok(card.includes('React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:false},'));
+  assert.ok(card.includes('React.createElement(CardFold,{label:sectionNo.prompt+" \\u00b7 Generation Prompt",defaultOpen:false},') /* numbered since 2026-11-13 */);
   assert.ok(card.includes("generateTitle:(!locStaged && !gen.slotHasRef"));
   assert.ok(art.includes("(generateTitle || (genUrl ? \"Generate a fresh sheet from the current spec\""));
 });
 
 /* ═══ F ═══ */
 await test("F1 plainer names on screen; model-facing prompts keep their terms", ()=>{
-  for(const t of ['CardFold,{label:"Variants",foldId:"loc-units-"+l.id,' /* Rooms & times until 2026-11-13 */, 'label:"How the rooms connect"', '"Fixed landmarks"', '"Extra spaces"', '"Add extra view notes"', 'label:"Visible fixed landmarks"'])
+  for(const t of ['CardFold,{label:sectionNo.variants+" \\u00b7 Variants",foldId:"loc-units-"+l.id,' /* Rooms & times until 2026-11-13; numbered the same day */, 'label:"How the rooms connect"', '"Fixed landmarks"', '"Extra spaces"', '"Add extra view notes"', 'label:"Visible fixed landmarks"'])
     assert.ok(ui.includes(t), t);
   for(const t of ['CardFold,{label:"Rooms & times"', 'CardFold,{label:"Slugline Units"', 'label:"Spatial topology"', 'React.createElement("span",null,"Continuity anchors")', '"Additional space plates"', '"Add coverage view"'])
     assert.ok(!ui.includes(t), t);

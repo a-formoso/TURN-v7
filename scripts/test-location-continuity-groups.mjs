@@ -220,33 +220,45 @@ ok("unit cards live on their matching subspace workspace",
 ok("place identity fields stay separate from unit environment notes",
   ui.includes('label:"Permanent lighting & daylight interfaces"')&&
   ui.includes('label:"Environment notes"')&&ui.includes('"Fixed landmarks"'));
-// ONE NUMBERED PATH PER CARD (owner 2026-11-01), LAID OUT AS A TREE (owner 2026-11-13): the place (1 The Space,
-// Narrative Significance, Look Dev, Screenplay Coverage) · space and staging (2 Floor plan · 3 Cameras · 4 Build /
-// 5 Style · Moving parts) · Variants · Subspaces · the prompt. There is no More section.
+// ONE NUMBERED PATH PER CARD (owner 2026-11-01), EVERY SECTION NUMBERED IN ORDER (owner 2026-11-13, second pass):
+// 1 The Space (Screenplay Coverage at its top, Narrative Significance its last field) · 2 Floor plan (Moving parts at
+// its end) · 3 Cameras · 4 Build / 5 Style · Location image (Look Dev) · Variants · Subspaces · Generation Prompt.
+// No section without a number, no More section.
 const step=t=>'label:"'+t.replace("·","\\u00b7")+'"';
+const numbered=(key,name)=>'label:sectionNo.'+key+'+" \\u00b7 '+name+'"';
 ok("location folds use the approved filmmaker-facing names",
   // the owner's own names (2026-11-13): Rooms & times → Variants, Screenplay evidence → Screenplay Coverage, Look & exclusions → Look Dev
-  [step("1 · The Space"),'label:"Narrative Significance"','label:"Look Dev"','label:"Screenplay Coverage"','label:"Variants"',step("2 · Floor plan"),
-    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"Subspaces"','label:"Generation Prompt"'].every(token=>ui.includes(token))&&
+  [step("1 · The Space"),'"Narrative Significance \\u2014 what this place means in the story"','"Look Dev"','"Screenplay Coverage"',numbered("variants","Variants"),step("2 · Floor plan"),
+    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),numbered("image","Location image"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")].every(token=>ui.includes(token))&&
   ['label:"More"','label:"Rooms & times"','label:"Screenplay evidence"','label:"Look & exclusions"','"Additional environment states"',
-    '"Scene dressing & blocking"'].every(token=>!ui.includes(token)));
-ok("location folds follow the tree: the place, then floor plan to cameras to build to style and moving parts, then variants, subspaces and the prompt",
-  ['title:placeGroup.title',step("1 · The Space"),'label:"Narrative Significance"','label:"Look Dev"','label:"Screenplay Coverage"','title:"Space and staging"',step("2 · Floor plan"),
-    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"Moving parts"','label:"Variants"','label:"Subspaces"','label:"Generation Prompt"']
-    .map(token=>ui.indexOf(token)).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
-ok("location style fine-tuning is in Look Dev (before Generation Prompt), the one place for it",
-  (ui.match(/label:"Look Dev"/g)||[]).length===1&&
-  ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('label:"Look Dev"')&&
-  ui.indexOf('label:"Look Dev"')<ui.indexOf('label:"Generation Prompt"')&&
+    '"Scene dressing & blocking"',
+    // sections without a number (until 2026-11-13, second pass)
+    'CardFold,{label:"Narrative Significance"','CardFold,{label:"Look Dev"','CardFold,{label:"Screenplay Coverage"','CardFold,{label:"Moving parts"',
+    'CardFold,{label:"Blender Studio"','CardFold,{label:"Variants"','CardFold,{label:"Subspaces"','CardFold,{label:"Generation Prompt"','LocationGroupHead'].every(token=>!ui.includes(token)));
+ok("location folds follow the order of the work: the space, floor plan (with moving parts), cameras, build, style, the image (Look Dev), variants, subspaces and the prompt",
+  [step("1 · The Space"),'summary",null,"Screenplay Coverage"','field:"architecture"','"Narrative Significance \\u2014 what this place means in the story"',step("2 · Floor plan"),
+    '"Moving parts (optional)"',step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),numbered("image","Location image"),'"Look Dev"',
+    numbered("variants","Variants"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")]
+    .map(token=>ui.indexOf(token,ui.indexOf(step("1 · The Space")))).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
+ok("every fold of the card has a number",
+  (()=>{ const sheet=ui.slice(ui.indexOf("// THE CARD IN ORDER (owner 2026-11-13)"),ui.indexOf("function useLocationCloudJob"));
+    const labels=sheet.match(/CardFold,\{label:[^,]+/g)||[];
+    return labels.length===9&&labels.every(x=>/label:"[1-5] \\u00b7 |label:sectionNo\.(image|variants|subspaces|prompt)\+" \\u00b7 /.test(x)); })());
+ok("location style fine-tuning is under Look Dev in the Location image section (before Generation Prompt), the one place for it",
+  (ui.match(/"Look Dev"/g)||[]).length===1&&
+  ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('"Look Dev"')&&
+  ui.indexOf('"Look Dev"')>ui.indexOf(numbered("image","Location image"))&&
+  ui.indexOf('className:"loc-render-style-details"')<ui.indexOf(numbered("variants","Variants"))&&
   ui.includes('label:"Render style instructions"'));
 ok("topology and anchors stay in the space, inside 1 · The Space",
   ui.indexOf('field:"topology",label:"How the rooms connect"')>ui.indexOf(step("1 · The Space"))&&
   ui.indexOf('"Fixed landmarks"')>ui.indexOf('field:"topology",label:"How the rooms connect"')&&
-  ui.indexOf('"Fixed landmarks"')<ui.indexOf('label:"Narrative Significance"'));
+  ui.indexOf('"Fixed landmarks"',ui.indexOf(step("1 · The Space")))<ui.indexOf('"Narrative Significance \\u2014 what this place means in the story"')&&
+  ui.indexOf('"Narrative Significance \\u2014 what this place means in the story"')<ui.indexOf(step("2 · Floor plan")));
 ok("location folds provide concise definitions without expanding the headings",
   ui.includes("function LocationSectionHelp")&&
   ui.includes('label:"About The Space"')&&ui.includes("persistent physical location")&&
-  ui.includes('label:"About Narrative Significance"')&&ui.includes("means dramatically")&&
+  ui.includes("Narrative Significance, the last field, says what the place means in the story.")&&
   ui.includes("Variants lists each time of day or state the space is seen in (read from the screenplay's sluglines)")&&ui.includes("Lighting & environment"));
 ok("script evidence and reusable staging have separate roles",
   ui.includes("reusable camera views with their view compositions")&&
@@ -281,7 +293,8 @@ ok("MUSE capability manifest names the approved location architecture",
   ai.includes('{ name:"Location Generation Prompt"')&&
   ai.includes("organizes production work into five explicit layers")&&
   ai.includes("one card represents each established continuity root")&&
-  ai.includes("the place (1 · The Space, Narrative Significance, Look Dev, Screenplay Coverage) -> Space and staging (2 · Floor plan -> 3 · Cameras")&&
+  ai.includes("1 · The Space (Screenplay Coverage at its top, Narrative Significance its last field) -> 2 · Floor plan (Moving parts, optional, at its end) -> 3 · Cameras")&&
+  ai.includes("-> Location image (Look Dev and the QA check; the image itself is generated at the top of the card) -> Variants")&&
   ai.includes("There is no More section any more.")&&
   ai.includes("TIME-OF-DAY VARIANTS own only persistent environment changes")&&
   ai.includes("COVERAGE VIEWS own reusable visual interpretations tied to Slugline Units")&&

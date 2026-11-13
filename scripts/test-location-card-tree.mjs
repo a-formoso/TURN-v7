@@ -1,12 +1,18 @@
-/* THE LOCATION CARD AS A TREE (owner 2026-11-13, "go ahead with all of it").
-   The card shows what is stored in the owner's own structure:
+/* THE LOCATION CARD AS A TREE (owner 2026-11-13, "go ahead with all of it"), EVERY SECTION NUMBERED IN ORDER
+   (owner 2026-11-13, second pass: "organized in order of what comes first and what comes last ... if they're not
+   needed, get rid of them"). The card shows what is stored in the owner's own structure, as one numbered list:
 
-     LOCATION                      the place: 1 · The Space, Narrative Significance, Look Dev, Screenplay Coverage
-     ├─ Space and staging          2 · Floor plan, 3 · Cameras, 4 · Build the set, 5 · Style it, Moving parts
-     ├─ VARIANTS                   each time of day or state, its image, and "Used in" (each scene's dressing & blocking)
-     ├─ SUBSPACES                  a main location's rooms (their variants and scenes) and its extra spaces
-     └─ Generation Prompt          read-only, with the QA check
+     1 · The Space          the place; Screenplay Coverage at its top (read-only), Narrative Significance its last field
+     2 · Floor plan         with Moving parts (optional) at its end
+     3 · Cameras
+     4 · Build the set      where a set can be built (your own Blender inside it)
+     5 · Style it
+     n · Location image     Look Dev (the look of the image) and the QA check; the image is generated at the top
+     n · Variants           each time of day or state, its image, and "Used in" (each scene's dressing & blocking)
+     n · Subspaces          a main location's rooms (their variants and scenes) and its extra spaces
+     n · Generation Prompt  read-only, the last section
 
+   No section without a number and no gap: the last four take the numbers that follow the build steps.
    Only where things are SHOWN changed. Nothing stored was renamed or moved, so the Blender package and the cloud set
    build read what they read before (pinned at the end). */
 import assert from "node:assert/strict";
@@ -30,38 +36,49 @@ const nodes=tree=>{const out=[];const walk=n=>{if(n&&typeof n==="object"){out.pu
 const text=n=>typeof n==="string"||typeof n==="number"?String(n):(n&&n.children||[]).map(text).join("");
 const sheet=ui.slice(ui.indexOf("function LocationSheet("),ui.indexOf("function useLocationCloudJob("));
 const at=t=>{ const i=sheet.indexOf(t); assert.ok(i>=0,"the card has "+t); return i; };
+const numbered=(key,name)=>'label:sectionNo.'+key+'+" \\u00b7 '+name+'"';
 
-test("1 the card's sections, in the tree's order", ()=>{
-  const order=['title:placeGroup.title','label:"1 \\u00b7 The Space"','label:"Narrative Significance"','label:"Look Dev"','label:"Screenplay Coverage"',
-    'title:"Space and staging"','label:"2 \\u00b7 Floor plan"','label:"3 \\u00b7 Cameras"','label:"4 \\u00b7 Build the set"','label:"5 \\u00b7 Style it"',
-    'label:"Moving parts"','label:"Variants"','label:"Subspaces"','label:"Generation Prompt"'].map(at);
+test("1 the card's sections, in the order of the work, every one numbered", ()=>{
+  const order=['label:"1 \\u00b7 The Space"','summary",null,"Screenplay Coverage"','field:"architecture"','"Narrative Significance \\u2014 what this place means in the story"',
+    'label:"2 \\u00b7 Floor plan"','"Moving parts (optional)"','label:"3 \\u00b7 Cameras"','label:"4 \\u00b7 Build the set"','label:"5 \\u00b7 Style it"',
+    numbered("image","Location image"),'"Look Dev"',numbered("variants","Variants"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")].map(at);
   order.forEach((x,i)=>assert.ok(i===0||x>order[i-1],"section "+i+" follows the one before it"));
-  // gone: the flat list, the two nested lists, and More
+  // every fold of the card carries a number: the first five their own, the rest the next ones
+  const labels=sheet.slice(at("// THE CARD IN ORDER (owner 2026-11-13)")).match(/CardFold,\{label:[^,]+/g)||[];
+  assert.equal(labels.length,9);
+  for(const x of labels) assert.match(x,/label:"[1-5] \\u00b7 |label:sectionNo\.(image|variants|subspaces|prompt)\+" \\u00b7 /);
+  // gone: the flat list, the two nested lists, More, the sections without a number and the group headings over them
   for(const t of ['label:"More"','label:"Rooms & times"','label:"1 \\u00b7 Describe the place"','label:"Screenplay evidence"','label:"Look & exclusions"',
-      '"Additional environment states"','"Scene dressing & blocking"','"Add environment state"'])
+      '"Additional environment states"','"Scene dressing & blocking"','"Add environment state"','label:"Narrative Significance"','label:"Look Dev"',
+      'label:"Screenplay Coverage"','label:"Moving parts"','label:"Blender Studio"','LocationGroupHead','placeGroup','"Space and staging"'])
     assert.ok(!sheet.includes(t),"no "+t);
+  assert.ok(!ui.includes("function LocationGroupHead")&&!css.includes(".loc-group-head"));
   // the step guide and the build's "Go to" buttons use the same name for step 1
   assert.ok(ui.includes('{n:1,name:"The Space",done:!!drafted,'));
   assert.ok(read("app/blender-render-ui.jsx").includes('const LOCATION_STEP_NAMES={1:"The Space",2:"Floor plan",3:"Cameras",4:"Build the set",5:"Style it"};'));
 });
 
-test("2 the place's group says whose description it is, in plain words", ()=>{
-  const src=sheet.slice(sheet.indexOf("const placeGroup="),sheet.indexOf("const promptBuiltFrom="));
-  const groupOf=(l,hasRooms)=>vm.runInNewContext(src+";({placeGroup,stagingNote})",{l,hasRooms});
-  const room=groupOf({name:"Kitchen",parentLocation:{name:"House"}},false);
-  assert.equal(room.placeGroup.title,"This room");
-  assert.equal(room.placeGroup.note,"uses House's unless you fill in its own");
-  assert.equal(room.stagingNote,"this room's own floor plan, cameras and set");
-  const house=groupOf({name:"House"},true);
-  assert.deepEqual([house.placeGroup.title,house.placeGroup.note],["The whole place","shared by every room"]);
-  assert.equal(house.stagingNote,"the whole place's floor plan and cameras; each room has its own");
-  const single=groupOf({name:"Newsroom"},false);
-  assert.deepEqual([single.placeGroup.title,single.placeGroup.note,single.stagingNote],["The place","",""]);
+test("2 the numbers follow the card with no gap; a room's card says whose description it uses", ()=>{
+  const no=o=>({...box.locationSectionNumbers(o)});
+  // a room, or a place with no rooms: the set steps, then the image, variants and the prompt
+  assert.deepEqual(no({build:true,style:true,subspaces:false}),{space:1,plan:2,cameras:3,build:4,style:5,image:6,variants:7,prompt:8});
+  // a place with extra spaces (or rooms and a footprint of its own): Subspaces too
+  assert.deepEqual(no({build:true,style:true,subspaces:true}),{space:1,plan:2,cameras:3,build:4,style:5,image:6,variants:7,subspaces:8,prompt:9});
+  // a place whose rooms are built one by one: no steps 4 and 5, and no hole where they were
+  assert.deepEqual(no({build:false,style:false,subspaces:true}),{space:1,plan:2,cameras:3,image:4,variants:5,subspaces:6,prompt:7});
+  // the cloud build switched off: step 4 holds your own Blender alone
+  assert.deepEqual(no({build:true,style:false,subspaces:false}),{space:1,plan:2,cameras:3,build:4,image:5,variants:6,prompt:7});
+  assert.deepEqual(no({build:false,style:true,subspaces:false}),{space:1,plan:2,cameras:3,image:4,variants:5,prompt:6},"no Style it without Build the set");
+  assert.ok(sheet.includes("const sectionNo=locationSectionNumbers({build:showBuild,style:buildHere,subspaces:showSubspaces});"));
+  assert.ok(sheet.includes("const showSubspaces=!l.parentLocation&&(hasRooms||coverageSheets.length>0);"));
   // the two lines a room's card carries
   assert.ok(sheet.includes('" \\u00b7 uses its space and look unless filled in here"'));
   assert.ok(sheet.includes("\"'s architecture, materials, scale, connections and locked landmarks. Fill in below only what is different here.\""));
-  const head=box.LocationGroupHead({title:"The place",note:""});
-  assert.equal(text(head),"The place"); assert.equal(nodes(head).filter(n=>n.type==="span").length,1,"no empty note");
+  // 1 · The Space: what the screenplay says first (read-only), what the place means last (the same saved field)
+  const space=sheet.slice(at('label:"1 \\u00b7 The Space"'),at('label:"2 \\u00b7 Floor plan"'));
+  assert.ok(space.includes('"data-testid":"loc-screenplay-coverage"')&&space.includes("React.createElement(LocationScreenplayEvidence,{units:evidenceUnits,onScene:onChipClick})"));
+  assert.ok(space.includes("onCommit:val=>onUpdate(l.id,{significance:val})"));
+  assert.ok(space.includes("Narrative Significance, the last field, says what the place means in the story."));
 });
 
 test("3 Used in: every scene with its time, in story order", ()=>{
@@ -84,7 +101,7 @@ test("4 a variant's name is its time; the side comes first only when the space i
 });
 
 test("5 Variants: each room & time with its scenes under it; a look of your own is a variant too", ()=>{
-  const fold=sheet.slice(at('label:"Variants"'),at('label:"Subspaces"'));
+  const fold=sheet.slice(at(numbered("variants","Variants")),at(numbered("subspaces","Subspaces")));
   // the same fold id the Shots tab opens (a shot's missing view), and the same openers
   assert.ok(fold.includes('foldId:"loc-units-"+l.id,count:variantCount||undefined,'));
   assert.ok(fold.includes('defaultOpen:initialSection==="units"||initialSection==="environments"'));
@@ -151,15 +168,15 @@ test("7 Subspaces: each room with its variants and scenes; a row opens the room,
   const off=box.LocationSubspaceList({rooms:[rooms[1]],units,onSelectLocation:noop,canBuild:false});
   assert.deepEqual(nodes(off).filter(n=>n.type==="button").map(b=>text(b).replace(/Variants:.*/,"")),["Living Room","Floor plan","Variants"]);
   // on the card: a main location only, open when it has rooms, with its extra spaces in the same section
-  const fold=sheet.slice(at('label:"Subspaces"'),at('label:"Generation Prompt"'));
-  assert.ok(sheet.includes('!l.parentLocation&&(hasRooms||coverageSheets.length>0)&&React.createElement(CardFold,{label:"Subspaces",foldId:"loc-subspaces-"+l.id,'));
+  const fold=sheet.slice(at(numbered("subspaces","Subspaces")),at(numbered("prompt","Generation Prompt")));
+  assert.ok(sheet.includes('showSubspaces&&React.createElement(CardFold,{label:sectionNo.subspaces+" \\u00b7 Subspaces",foldId:"loc-subspaces-"+l.id,'));
   assert.ok(fold.includes("count:hasRooms?roomLocations.length:undefined,defaultOpen:hasRooms}"));
   assert.ok(fold.includes("React.createElement(LocationSubspaceList,{rooms:roomLocations,units:sluglineUnits,onSelectLocation,canBuild:cloudPilot})"));
   assert.ok(fold.indexOf('"Extra spaces"')>fold.indexOf("LocationSubspaceList")&&fold.includes("React.createElement(LocationCoverageSheet,"));
   assert.ok(fold.includes("'s space and look unless you fill in its own."));
 });
 
-test("8 Build the set and Style it show where a set can be built; Blender has one home on every card", ()=>{
+test("8 Build the set and Style it show where a set can be built; Blender and the image each have one numbered home", ()=>{
   assert.ok(sheet.includes("const buildHere=cloudPilot&&(ownRoom||!hasRooms);"));
   const can=(cloudPilot,ownRoom,hasRooms)=>cloudPilot&&(ownRoom||!hasRooms);
   assert.equal(can(true,true,false),true,"a room with its footprint");
@@ -167,17 +184,31 @@ test("8 Build the set and Style it show where a set can be built; Blender has on
   assert.equal(can(true,true,true),true,"a place with rooms AND a footprint of its own");
   assert.equal(can(true,false,true),false,"a place whose rooms are built one by one: its rooms carry the steps");
   assert.equal(can(false,true,false),false,"the build switched off");
-  // the step guide lists the steps the card shows
-  assert.ok(sheet.includes("const cardSteps=locationCardSteps({l,drafted,spatialState,gen,cloudPilot:buildHere,cloudJob});"));
-  const steps=on=>box.locationCardSteps({l:{id:"x"},drafted:true,spatialState:{ready:false,reason:"r"},gen:{},cloudPilot:on,cloudJob:null}).map(s=>s.n);
-  assert.deepEqual(Array.from(steps(true)),[1,2,3,4,5,6]); assert.deepEqual(Array.from(steps(false)),[1,2,3,6]);
-  for(const n of [4,5]) assert.ok(new RegExp('buildHere&&React\\.createElement\\(CardFold,\\{label:"'+n+' \\\\u00b7 ').test(sheet),"step "+n+" follows buildHere");
-  // the handoff: inside step 4, or a small section of its own; the QA check with the prompt
+  // the step guide lists the steps the card shows, with the card's numbers
+  assert.ok(sheet.includes("const cardSteps=locationCardSteps({l,drafted,spatialState,gen,cloudPilot:buildHere,cloudJob,ownBlender:showBuild&&!buildHere,imageN:sectionNo.image});"));
+  const guide=o=>box.locationCardSteps({l:{id:"x"},drafted:true,spatialState:{ready:false,reason:"r"},gen:{},cloudJob:null,...o});
+  const steps=o=>Array.from(guide(o).map(s=>s.n+" "+s.name));
+  assert.deepEqual(steps({cloudPilot:true,imageN:6}),["1 The Space","2 Floor plan","3 Cameras","4 Build the set","5 Style it","6 Location image"]);
+  assert.deepEqual(steps({cloudPilot:false,imageN:4}),["1 The Space","2 Floor plan","3 Cameras","4 Location image"],"no hole where the build steps were");
+  assert.deepEqual(steps({cloudPilot:false,ownBlender:true,imageN:5}),["1 The Space","2 Floor plan","3 Cameras","4 Build the set","5 Location image"]);
+  assert.deepEqual(steps({cloudPilot:false}),["1 The Space","2 Floor plan","3 Cameras","4 Location image"],"the number is right without being told");
+  assert.equal(guide({cloudPilot:false,ownBlender:true}).find(s=>s.n===4).optional,true,"your own Blender never holds up the next step");
+  assert.equal(guide({cloudPilot:false,imageN:4}).find(s=>s.key==="image").n,4);
+  assert.ok(ui.includes('if((steps.find(x=>x.n===n)||{}).key==="image"){'),"Go on the image step goes to the top of the card, whatever its number");
+  assert.ok(/showBuild&&React\.createElement\(CardFold,\{label:"4 \\u00b7 /.test(sheet)&&/buildHere&&React\.createElement\(CardFold,\{label:"5 \\u00b7 /.test(sheet));
+  assert.ok(sheet.includes("const handoffInSubspaces=!buildHere&&hasRooms;")&&sheet.includes("const showBuild=buildHere||(!!window.BlenderStudioLaunch&&!handoffInSubspaces);"));
+  // the handoff: inside step 4, or at the end of Subspaces on a place whose rooms are built one by one
   assert.equal((sheet.match(/\bstudioHandoff\b/g)||[]).length,3);
-  assert.ok(sheet.includes('!buildHere&&window.BlenderStudioLaunch&&React.createElement(CardFold,{label:"Blender Studio",foldId:"loc-blender-"+l.id,defaultOpen:false},\n        studioHandoff),'));
   assert.ok(sheet.includes('React.createElement("h4",{className:"loc-step-sub"},"Or in your own Blender"),\n        studioHandoff),'));
-  const prompt=sheet.slice(at('label:"Generation Prompt"'));
-  assert.ok(prompt.includes("window.QaCheckButton")&&prompt.includes('"data-testid":"loc-prompt-built-from"'));
+  assert.ok(sheet.includes('React.createElement("h4",{className:"loc-step-sub"},"The whole place in your own Blender"),\n        handoffInSubspaces&&studioHandoff),'));
+  // the image's own section: Look Dev (the same two saved fields) and the check; the prompt is read-only and last
+  const image=sheet.slice(at(numbered("image","Location image")),at(numbered("variants","Variants")));
+  assert.ok(image.includes("foldId:locationStepFoldId(l,6),count:stepCount(sectionNo.image)"));
+  assert.ok(image.includes('React.createElement("h4",{className:"loc-step-sub"},"Look Dev")')&&image.includes('className:"loc-render-style-details"'));
+  assert.ok(image.includes("onUpdate(l.id,{negativePrompt:val})")&&image.includes("window.QaCheckButton"));
+  assert.ok(image.includes('"Generate the image at the top of the card. It is made from 1 \\u00b7 The Space and the look set here."'));
+  const prompt=sheet.slice(at(numbered("prompt","Generation Prompt")));
+  assert.ok(!prompt.includes("window.QaCheckButton")&&prompt.includes('"data-testid":"loc-prompt-built-from"'));
   const built=l=>vm.runInNewContext(sheet.slice(sheet.indexOf("const promptBuiltFrom="),sheet.indexOf("// the time of day beside each scene"))+";promptBuiltFrom",{l});
   assert.equal(built({name:"Kitchen",parentLocation:{name:"House"}}),
     "Built from House (shared) and Kitchen (its own). Each variant adds its light and environment for its own image; each shot adds its camera in Shots.");
@@ -203,20 +234,51 @@ test("9 nothing stored moved: the same records, ids and fields, and the same Ble
   assert.ok(sheet.includes("productionPlan:(typeof locationProductionPlan===\"function\")\n              ? locationProductionPlan(l,units) : null}},"));
 });
 
-test("10 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
+test("10 Moving parts: at the end of the floor plan, said in plain words", ()=>{
+  const plan=sheet.slice(at('label:"2 \\u00b7 Floor plan"'),at('label:"3 \\u00b7 Cameras"'));
+  assert.ok(plan.includes('id:"loc-parts-"+l.id,"data-testid":"location-moving-parts-section"'));
+  assert.ok(plan.includes('"Moving parts (optional)"+(partsCount?" \\u00b7 "+partsCount:"")'));
+  assert.ok(plan.includes("React.createElement(LocationMovingParts,{l,scenes,drafts,onUpdate,readOnly})"),"the same editor, the same saved list");
+  assert.ok(sheet.includes("const partsCount=Array.isArray(l.movingParts)?l.movingParts.length:0;"));
+  box.locationSpaceAnchors=()=>[]; box.normalizeLocationMovingParts=x=>Array.isArray(x)?x:[];
+  const tree=box.LocationMovingParts({l:{id:"deck",scenes:["s1"],movingParts:[]},scenes:[{id:"s1",no:3}],drafts:{},onUpdate:noop});
+  const words=text(tree);
+  assert.match(words,/^Only for a set that changes during the story: a ramp that is lowered, a shutter that closes, a hatch that opens\./);
+  assert.match(words,/Most places have none: leave this empty\./);
+  const buttons=nodes(tree).filter(n=>n.type==="button");
+  assert.deepEqual(buttons.map(text),["Find them in the screenplay (writing credits)","Add one by hand"]);
+  assert.match(buttons[0].props.title,/lists any part of the set that moves, and the moment it moves\. One writing call \(writing credits\)\. You see the list and choose Keep or Discard before anything is saved\./);
+  assert.match(buttons[1].props.title,/Starts an empty part \(Closed \/ Open\) for you to name and set by hand\. Free\./);
+  assert.equal(buttons[0].props.disabled,false);
+  // a place no scene plays in has nothing to read
+  const none=box.LocationMovingParts({l:{id:"deck",scenes:[],movingParts:[]},scenes:[],drafts:{},onUpdate:noop});
+  assert.equal(nodes(none).filter(n=>n.type==="button")[0].props.disabled,true);
+});
+
+test("11 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
   const shots=read("app/shots-ui.jsx");
   assert.ok(shots.includes('" \\u2192 Variants, in the Art Room\'s Locations tab"')&&!shots.includes("\\u2192 Rooms & times, in the Art Room"));
   const s=ai.slice(ai.indexOf('APP_FEATURES.push({ name:"Location card structure (the card as a tree)"'));
   const entry=s.slice(0,s.indexOf("\n"));
-  for(const re of [/1 \\u00b7 The Space/,/Narrative Significance, Look Dev/,/Screenplay Coverage \(read from the screenplay, read-only/,/SPACE AND STAGING: 2 \\u00b7 Floor plan, 3 \\u00b7 Cameras/,
-      /Build in Blender inside step 4/,/VARIANTS: each time of day/,/Add a variant/,/Sc 02 \(Pre-dawn\)/,/SUBSPACES \(a main location only\)/,/holds the QA check/,/Nothing saved moved/])
+  for(const re of [/one numbered list, top to bottom, in the order you work: every section has a number and there is no gap/,/1 \\u00b7 The Space/,
+      /Screenplay Coverage, at its top, is read from the screenplay and read-only/,/Narrative Significance, its last field/,
+      /2 \\u00b7 Floor plan, with Moving parts \(optional\) at its end\. 3 \\u00b7 Cameras\./,/Build in Blender inside step 4/,
+      /LOCATION IMAGE: Look Dev \(render style instructions and what to leave out\) and the QA check/,/VARIANTS: each time of day/,/Add a variant/,/Sc 02 \(Pre-dawn\)/,
+      /SUBSPACES \(a main location only\)/,/GENERATION PROMPT: read-only, the last section/,/6, 7, 8 and 9/,/so they are 4, 5, 6 and 7/,/Nothing saved moved/])
     assert.ok(re.test(entry),String(re));
   assert.ok(!/TURN|McKee|Claude|Anthropic|MUSE|Cinema Machine/.test(entry));
+  assert.ok(!/Blender Studio section|Space and staging|SPACE AND STAGING/.test(ai),"Frances is not told about sections that are gone");
+  const parts=ai.slice(ai.indexOf('APP_FEATURES.push({ name:"Moving parts of a location"'));
+  const partsEntry=parts.slice(0,parts.indexOf("\n"));
+  for(const re of [/MOVING PARTS \(optional, at the end of a location card's 2 · Floor plan section\) is only for a set that changes during the story; most places have none/,
+      /'Find them in the screenplay' reads the location's scenes and proposes them/,/'Add one by hand' starts an empty part \(free\)/])
+    assert.ok(re.test(partsEntry),String(re));
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
-  for(const c of [".loc-group-head{",".loc-group-title{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
+  for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+    assert.ok(["20261113-tree1", "20261113-order1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(html.includes("app/"+f+'?v=20261113-order1"'),f+" was re-keyed for the numbered sections");
 });
 
 console.log(pass+" passed, "+fail+" failed");
