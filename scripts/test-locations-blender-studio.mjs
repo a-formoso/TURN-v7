@@ -130,7 +130,7 @@ const buildFold=bodyChildren.find(n=>firstName(n)==="CardFold"&&propValue(n.argu
 const subspacesFold=numberedFold("subspaces","Subspaces");
 assert.equal(directFold("Blender Studio"),undefined,"no section without a number");
 assert.ok(buildFold&&within(buildFold,"studioHandoff"),"Build in Blender sits in 4 · Build the set");
-assert.ok(subspacesFold&&/handoffInSubspaces&&studioHandoff\)/.test(source.slice(subspacesFold.start,subspacesFold.end)),
+assert.ok(subspacesFold&&/handoffInSubspaces&&window\.BlenderStudioLaunch&&React\.createElement\("div",\{className:"loc-sub","data-testid":"loc-own-blender"\},\s*React\.createElement\("h4",\{className:"loc-step-sub"\},"The whole place in your own Blender"\),\s*studioHandoff\)\)/.test(source.slice(subspacesFold.start,subspacesFold.end)),
   "a place whose rooms are built one by one keeps the whole place's handoff at the end of Subspaces");
 assert.match(source,/showBuild&&React\.createElement\(CardFold,\{label:"4 \\u00b7 Build the set"/);
 assert.ok(source.includes("const handoffInSubspaces=!buildHere&&hasRooms;")&&

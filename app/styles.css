@@ -11758,6 +11758,33 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .loc-step-sub{margin:12px 0 4px;font-size:12px;font-weight:600;color:var(--txt-0)}
 /* THE LOCATION CARD AS A TREE (owner 2026-11-13): a variant with the scenes that use it, subspace rows, the moving parts block in the floor plan */
 .loc-parts-section{margin-top:12px}
+/* THE LOCATION CARD, ONE RHYTHM (owner 2026-11-13: "consistent margin bottom and top ... all around the card").
+   One distance, 15px (the room a section's title already has above and below it), separates everything down the card:
+   the name, the step guide, Render style, Scenes and the first section. The rows drop their own margins (they added
+   10-12px on top of the card's gap, on one side only), and the card ends on its last section's own 15px. */
+[data-location-card]{--loc-gap:15px}
+[data-location-card] > .sheet-body{gap:var(--loc-gap);padding:var(--loc-gap) 15px 0}
+[data-location-card] > .sheet-body > .loc-steps,
+[data-location-card] > .sheet-body > .char-style-row,
+[data-location-card] > .sheet-body > .location-scenes,
+[data-location-card] > .sheet-body > .prompt-drift-banner{margin-top:0;margin-bottom:0}
+.artroom [data-location-card] > .sheet-body > .sheet-fold + .sheet-fold{margin-top:calc(-1 * var(--loc-gap))}
+.artroom [data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body{padding-bottom:var(--loc-gap)}
+/* EVERY SUBSECTION IN A BOX (owner 2026-11-13: "borders around each subsection", as 2 · Floor plan has): a field of
+   The Space, Look Dev's two settings and the hand-off to your own Blender get the frame the floor plan's parts have */
+[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body > .sheet-field,
+[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body > .loc-anchor-field,
+[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body > .loc-render-style-details,
+[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body > .loc-sub{border:1px solid var(--line);border-radius:var(--r-m);padding:8px 10px;background:var(--bg-2);min-width:0}
+.loc-sub{display:flex;flex-direction:column;gap:8px}
+.loc-sub > .loc-step-sub{margin:0}
+[data-location-card] .loc-sub > .bs-launch{margin-top:0;padding-top:0;border-top:0}   /* the box is its boundary now */
+[data-location-card] .sheet-fold-body > .loc-render-style-details{display:flex;flex-direction:column;gap:8px}
+[data-location-card] .sheet-fold-body > .loc-render-style-details > *{margin-top:0;margin-bottom:0}
+/* a variant's image area: level with the box above it, and no rule under it (the variant's own frame closes it) */
+[data-location-card] .loc-variant > .sheet-frame{padding:10px 0 0;border-bottom:0}
+[data-location-card] .sheet-fold-body > .loc-step-actions{margin:0;align-items:center}
+[data-location-card] .sheet-fold-body > .loc-step-actions > .loc-section-help{margin:0 0 0 auto}
 .loc-parts-section .loc-step-actions .art-draftall{max-width:100%;white-space:normal;height:auto;min-height:32px;padding:5px 14px;text-align:left}
 .loc-variant-group{display:flex;flex-direction:column;gap:6px}
 .loc-used-in{display:flex;flex-direction:column;gap:6px;margin-left:14px;padding-left:10px;border-left:2px solid var(--line-2)}

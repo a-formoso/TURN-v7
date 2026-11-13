@@ -2111,10 +2111,11 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement("div",{className:"loc-step-actions"},
           React.createElement("button",{className:"char-draft-btn"+(drafting?" busy":""),disabled:drafting,onClick:()=>onDraft(l),
             title:"Draft the written description of this place. Where its objects stand comes next, in 2 \u00b7 Floor plan."},
-            React.createElement(Icon.sparkles,{s:12}), drafting?"Drafting\u2026":"Draft specification")),
-        React.createElement(LocationSectionHelp,{
-          label:"About The Space",
-          text:"Defines the persistent physical location: architecture, layout, materials, fixed features, geography, entrances and exits. This is the location's identity. Screenplay Coverage, at the top, shows what the screenplay says happens here. Narrative Significance, the last field, says what the place means in the story."}),
+            React.createElement(Icon.sparkles,{s:12}), drafting?"Drafting\u2026":"Draft specification"),
+          // the section's help, on the same row (it had a row of its own until 2026-11-13)
+          React.createElement(LocationSectionHelp,{
+            label:"About The Space",
+            text:"Defines the persistent physical location: architecture, layout, materials, fixed features, geography, entrances and exits. This is the location's identity. Screenplay Coverage, at the top, shows what the screenplay says happens here. Narrative Significance, the last field, says what the place means in the story."})),
         l.parentLocation && React.createElement("div",{className:"loc-inheritance-note"},
           React.createElement(Icon.layers,{s:12}),
           React.createElement("span",null,l.name||"This room"," uses ",React.createElement("b",null,l.parentLocation.name),"'s architecture, materials, scale, connections and locked landmarks. Fill in below only what is different here.")),
@@ -2196,9 +2197,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         !buildHere?React.createElement("p",{className:"loc-layer-note"},"Build this place in your own Blender.")
           :ownRoom?React.createElement(window.LocationCloudRender,{location:l,readOnly,onUpdate})
           :React.createElement(LocationCloudBuildSetup,{location:l,rooms:roomLocations,onSelectLocation}),
-        // your own Blender, beside the cloud build (it sat under More until 2026-11-13)
-        buildHere&&window.BlenderStudioLaunch&&React.createElement("h4",{className:"loc-step-sub"},"Or in your own Blender"),
-        studioHandoff),
+        // your own Blender, beside the cloud build (it sat under More until 2026-11-13), in a box of its own
+        window.BlenderStudioLaunch&&React.createElement("div",{className:"loc-sub","data-testid":"loc-own-blender"},
+          buildHere&&React.createElement("h4",{className:"loc-step-sub"},"Or in your own Blender"),
+          studioHandoff)),
       buildHere&&React.createElement(CardFold,{label:"5 \u00b7 Style it",foldId:locationStepFoldId(l,5),count:stepCount(5),defaultOpen:initialSection==="style"},
         ownRoom?React.createElement(window.LocationStyleStep,{location:l,readOnly})
           :React.createElement("div",{className:"loc-step-fixes"},
@@ -2229,8 +2231,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             onCommit:val=>onUpdate(l.id,{renderStyle:val,renderStyleKey:styleKey,renderStyleIndependent:true})})),
         React.createElement(SheetField,{label:"Leave out \u2014 what the plate must not show (negative prompt)",value:l.negativePrompt||d.negativePrompt,multiline:true,
           onCommit:val=>onUpdate(l.id,{negativePrompt:val})}),
-        // the image checked against the description (it sat under More until 2026-11-13)
-        window.QaCheckButton && React.createElement("div",{className:"loc-step-actions"},
+        // the image checked against the description (it sat under More until 2026-11-13); no empty row before there is one
+        window.QaCheckButton && gen.genUrl && React.createElement("div",{className:"loc-step-actions"},
           React.createElement(window.QaCheckButton,{ gen, name:l.name, noun:"location plate",
             specFields:()=>({ architecture:(l.architecture||""), materials:(l.materials||""), lighting:(l.lighting||"") }),
             onApplySpec:(patch)=>onUpdate(l.id, patch) }))),
@@ -2268,8 +2270,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           coverageSheets.map((v,i)=>React.createElement(LocationCoverageSheet,{key:v.id,l,v,project,scenes,drafts,
             previousSheets:coverageSheets.slice(0,i),parentGenUrl:gen.genUrl,onView}))),
         // the whole place in your own Blender, on a card with no build step (its rooms are built one by one)
-        handoffInSubspaces&&window.BlenderStudioLaunch&&React.createElement("h4",{className:"loc-step-sub"},"The whole place in your own Blender"),
-        handoffInSubspaces&&studioHandoff),
+        handoffInSubspaces&&window.BlenderStudioLaunch&&React.createElement("div",{className:"loc-sub","data-testid":"loc-own-blender"},
+          React.createElement("h4",{className:"loc-step-sub"},"The whole place in your own Blender"),
+          studioHandoff)),
 
       // read-only, a folded section of every card (owner 2026-10-28 — it used to hide behind the ⋯ menu or the Film
       // menu's "Always show prompts"); its own section (owner 2026-11-03), and the last one since More went (2026-11-13)

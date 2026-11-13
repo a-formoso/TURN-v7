@@ -199,13 +199,14 @@ test("8 Build the set and Style it show where a set can be built; Blender and th
   assert.ok(sheet.includes("const handoffInSubspaces=!buildHere&&hasRooms;")&&sheet.includes("const showBuild=buildHere||(!!window.BlenderStudioLaunch&&!handoffInSubspaces);"));
   // the handoff: inside step 4, or at the end of Subspaces on a place whose rooms are built one by one
   assert.equal((sheet.match(/\bstudioHandoff\b/g)||[]).length,3);
-  assert.ok(sheet.includes('React.createElement("h4",{className:"loc-step-sub"},"Or in your own Blender"),\n        studioHandoff),'));
-  assert.ok(sheet.includes('React.createElement("h4",{className:"loc-step-sub"},"The whole place in your own Blender"),\n        handoffInSubspaces&&studioHandoff),'));
+  assert.ok(sheet.includes('buildHere&&React.createElement("h4",{className:"loc-step-sub"},"Or in your own Blender"),\n          studioHandoff)),'));
+  assert.ok(sheet.includes('React.createElement("h4",{className:"loc-step-sub"},"The whole place in your own Blender"),\n          studioHandoff)),'));
+  assert.equal((sheet.match(/className:"loc-sub","data-testid":"loc-own-blender"/g)||[]).length,2,"each home of the hand-off is a boxed subsection");
   // the image's own section: Look Dev (the same two saved fields) and the check; the prompt is read-only and last
   const image=sheet.slice(at(numbered("image","Location image")),at(numbered("variants","Variants")));
   assert.ok(image.includes("foldId:locationStepFoldId(l,6),count:stepCount(sectionNo.image)"));
   assert.ok(image.includes('React.createElement("h4",{className:"loc-step-sub"},"Look Dev")')&&image.includes('className:"loc-render-style-details"'));
-  assert.ok(image.includes("onUpdate(l.id,{negativePrompt:val})")&&image.includes("window.QaCheckButton"));
+  assert.ok(image.includes("onUpdate(l.id,{negativePrompt:val})")&&image.includes("window.QaCheckButton && gen.genUrl && React.createElement("),"the check takes a row only when there is an image");
   assert.ok(image.includes('"Generate the image at the top of the card. It is made from 1 \\u00b7 The Space and the look set here."'));
   const prompt=sheet.slice(at(numbered("prompt","Generation Prompt")));
   assert.ok(!prompt.includes("window.QaCheckButton")&&prompt.includes('"data-testid":"loc-prompt-built-from"'));
@@ -278,7 +279,36 @@ test("11 first things first: with no description yet, the bar under the image op
   assert.ok(!/select/.test(landmarks)&&landmarks.includes('"Fixed landmarks"')&&landmarks.includes("anchorsLocked"),"Fixed landmarks keeps its lock, which the image prompt reads");
 });
 
-test("12 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
+test("12 one rhythm down the card, and every subsection in a box", ()=>{
+  // (owner 2026-11-13) one distance between the name, the step guide, Render style, Scenes and the first section; the
+  // rows' own one-sided margins are gone; the card ends on its last section's own space
+  const rule=sel=>{ const i=css.indexOf(sel); assert.ok(i>=0,"styles have "+sel); return css.slice(i,css.indexOf("}",i)+1); };
+  assert.ok(css.includes("[data-location-card]{--loc-gap:15px}"));
+  assert.equal(rule("[data-location-card] > .sheet-body{"),"[data-location-card] > .sheet-body{gap:var(--loc-gap);padding:var(--loc-gap) 15px 0}");
+  const rows=rule("[data-location-card] > .sheet-body > .loc-steps,");
+  for(const r of [".loc-steps",".char-style-row",".location-scenes"]) assert.ok(rows.includes("> .sheet-body > "+r),r);
+  assert.ok(rows.endsWith("{margin-top:0;margin-bottom:0}"));
+  assert.equal(rule(".artroom [data-location-card] > .sheet-body > .sheet-fold + .sheet-fold{"),
+    ".artroom [data-location-card] > .sheet-body > .sheet-fold + .sheet-fold{margin-top:calc(-1 * var(--loc-gap))}");
+  assert.ok(rule(".artroom [data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body{").includes("padding-bottom:var(--loc-gap)"));
+  // a section title keeps the same 15px above and below it, which is what the gap matches
+  assert.ok(/\.sheet-fold-head\{[^}]*\n?\s*padding:15px 6px 15px 0;/.test(css));
+  // these rules come after the Art Room's general ones they adjust
+  assert.ok(css.indexOf("[data-location-card]{--loc-gap:15px}")>css.indexOf(".artroom .sheet-card .sheet-body > .sheet-fold + .sheet-fold{margin-top:-11px}"));
+  // the frame the floor plan's parts have, on a field, Look Dev's settings and the hand-off to your own Blender
+  const box=rule("[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body > .sheet-field,");
+  for(const r of [".sheet-field",".loc-anchor-field",".loc-render-style-details",".loc-sub"]) assert.ok(box.includes("> .sheet-fold-body > "+r),r);
+  assert.ok(box.endsWith("{border:1px solid var(--line);border-radius:var(--r-m);padding:8px 10px;background:var(--bg-2);min-width:0}"));
+  assert.ok(/\.loc-evidence-source,\.loc-nested-section\{border:1px solid var\(--line\);border-radius:var\(--r-m\);padding:8px 10px;background:var\(--bg-2\)\}/.test(css),"the same frame as the floor plan's parts");
+  assert.ok(css.includes("[data-location-card] .loc-sub > .bs-launch{margin-top:0;padding-top:0;border-top:0}"));
+  assert.ok(css.includes("[data-location-card] .loc-variant > .sheet-frame{padding:10px 0 0;border-bottom:0}"));
+  // step 1: the help sits on the Draft row, not on a row of its own
+  const space=sheet.slice(at('label:"1 \\u00b7 The Space"'),at('"data-testid":"loc-screenplay-coverage"'));
+  assert.ok(/"Draft specification"\),\s*\/\/[^\n]*\n\s*React\.createElement\(LocationSectionHelp,\{\s*label:"About The Space",/.test(space));
+  assert.ok(css.includes("[data-location-card] .sheet-fold-body > .loc-step-actions > .loc-section-help{margin:0 0 0 auto}"));
+});
+
+test("13 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
   const shots=read("app/shots-ui.jsx");
   assert.ok(shots.includes('" \\u2192 Variants, in the Art Room\'s Locations tab"')&&!shots.includes("\\u2192 Rooms & times, in the Art Room"));
   const s=ai.slice(ai.indexOf('APP_FEATURES.push({ name:"Location card structure (the card as a tree)"'));
@@ -300,9 +330,9 @@ test("12 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
   for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
-  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
+    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
 });
 
 console.log(pass+" passed, "+fail+" failed");
