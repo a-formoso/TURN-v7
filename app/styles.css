@@ -11783,6 +11783,19 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 [data-location-card] .sheet-fold-body > .loc-render-style-details > *{margin-top:0;margin-bottom:0}
 /* a variant's image area: level with the box above it, and no rule under it (the variant's own frame closes it) */
 [data-location-card] .loc-variant > .sheet-frame{padding:10px 0 0;border-bottom:0}
+/* A BUTTON IS AS BIG AS THE LEVEL IT SITS AT (owner 2026-11-13: "buttons in subsections [can't be] bigger than the
+   sections housing them"). The card: the bar under the image, 36px, and Go, 32px. A section: 32px. A box inside a
+   section: 28px. A box inside a box: 26px. A box's main action keeps its colour, at the box's size and its own width,
+   never a bar across the box (Draft / Edit floor plan and Build in Blender were 44px bars, the biggest buttons on the
+   card). A variant's own image bar stays a bar, a step under the card's. Phones keep their 44px touch sizes. */
+@media (min-width:641px){
+  [data-location-card]{--loc-btn-section:32px;--loc-btn-box:28px;--loc-btn-deep:26px}
+  [data-location-card] .sheet-fold-body :is(.art-draftall,.char-draft-btn,.bs-launch-button){height:auto;min-height:var(--loc-btn-section);padding:3px 14px;font-size:12.5px;line-height:1.3}
+  [data-location-card] .sheet-fold-body :is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace) :is(.art-draftall,.char-draft-btn,.bs-launch-button){width:auto;max-width:100%;min-height:var(--loc-btn-box);padding:3px 12px;font-size:12px;
+    white-space:normal;text-align:left;justify-content:flex-start;align-self:flex-start;justify-self:start;border-radius:var(--r-m)}
+  [data-location-card] .sheet-fold-body :is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace) :is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace) :is(.art-draftall,.char-draft-btn,.bs-launch-button){min-height:var(--loc-btn-deep);padding:2px 10px;font-size:11.5px}
+  [data-location-card] .sheet-fold-body .loc-variant .sheet-gen-btn{height:30px;font-size:12px}
+}
 [data-location-card] .sheet-fold-body > .loc-step-actions{margin:0;align-items:center}
 [data-location-card] .sheet-fold-body > .loc-step-actions > .loc-section-help{margin:0 0 0 auto}
 .loc-parts-section .loc-step-actions .art-draftall{max-width:100%;white-space:normal;height:auto;min-height:32px;padding:5px 14px;text-align:left}

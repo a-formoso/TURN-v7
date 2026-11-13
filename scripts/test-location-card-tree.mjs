@@ -308,7 +308,28 @@ test("12 one rhythm down the card, and every subsection in a box", ()=>{
   assert.ok(css.includes("[data-location-card] .sheet-fold-body > .loc-step-actions > .loc-section-help{margin:0 0 0 auto}"));
 });
 
-test("13 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
+test("13 a button is as big as the level it sits at", ()=>{
+  // (owner 2026-11-13) the card's bar 36px and Go 32px; a section 32px; a box in a section 28px; a box in a box 26px
+  const a=css.indexOf("/* A BUTTON IS AS BIG AS THE LEVEL IT SITS AT"); assert.ok(a>0);
+  const block=css.slice(a,css.indexOf("\n}\n",a)+3);
+  assert.ok(block.includes("@media (min-width:641px){"),"phones keep their 44px touch sizes");
+  assert.ok(block.includes("[data-location-card]{--loc-btn-section:32px;--loc-btn-box:28px;--loc-btn-deep:26px}"));
+  const BOX=":is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace)";
+  const BTN=":is(.art-draftall,.char-draft-btn,.bs-launch-button)";
+  assert.ok(block.includes("[data-location-card] .sheet-fold-body "+BTN+"{height:auto;min-height:var(--loc-btn-section);"));
+  const boxed=block.slice(block.indexOf("[data-location-card] .sheet-fold-body "+BOX+" "+BTN+"{"));
+  assert.ok(boxed.startsWith("[data-location-card] .sheet-fold-body "+BOX+" "+BTN+"{width:auto;max-width:100%;min-height:var(--loc-btn-box);"),"a box's action: its own width, the box's size");
+  assert.ok(block.includes("[data-location-card] .sheet-fold-body "+BOX+" "+BOX+" "+BTN+"{min-height:var(--loc-btn-deep);"));
+  assert.ok(block.includes("[data-location-card] .sheet-fold-body .loc-variant .sheet-gen-btn{height:30px;font-size:12px}"),"a variant's image bar is a step under the card's");
+  // the sizes they are measured against
+  assert.ok(/\.sheet-gen-btn\{[^}]*height:36px/.test(css)&&/\.art-draftall\{[^}]*height:32px/.test(css));
+  // the two that were the biggest buttons on the card
+  assert.ok(css.includes(".loc-spatial-plan .loc-spatial-confirm{justify-content:center;width:100%;min-height:44px;"),"the floor plan's main button, before the level rule");
+  assert.ok(sheet.includes('className:"loc-sub","data-testid":"loc-own-blender"'),"Build in Blender sits in a box, so the box rule sizes it");
+  assert.ok(html.includes('app/styles.css?v=20261113-buttons1"'));
+});
+
+test("14 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
   const shots=read("app/shots-ui.jsx");
   assert.ok(shots.includes('" \\u2192 Variants, in the Art Room\'s Locations tab"')&&!shots.includes("\\u2192 Rooms & times, in the Art Room"));
   const s=ai.slice(ai.indexOf('APP_FEATURES.push({ name:"Location card structure (the card as a tree)"'));
@@ -330,9 +351,9 @@ test("13 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
   for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
-  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
+    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
 });
 
 console.log(pass+" passed, "+fail+" failed");
