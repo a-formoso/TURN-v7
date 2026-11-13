@@ -11759,6 +11759,22 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .loc-step.next .loc-step-n{background:var(--accent);color:var(--ink-on-accent)}
 .loc-step-actions{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 10px}
 .loc-step-sub{margin:12px 0 4px;font-size:12px;font-weight:600;color:var(--txt-0)}
+/* THE LOCATION CARD AS A TREE (owner 2026-11-13): group headings, a variant with the scenes that use it, subspace rows */
+.loc-group-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:16px 0 6px}
+.loc-group-title{font:600 13px/1.3 var(--f-ui);color:var(--txt-0)}
+.loc-group-note{font-size:11px;line-height:1.4;color:var(--txt-3)}
+.loc-variant-group{display:flex;flex-direction:column;gap:6px}
+.loc-used-in{display:flex;flex-direction:column;gap:6px;margin-left:14px;padding-left:10px;border-left:2px solid var(--line-2)}
+.loc-used-in-head{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3)}
+.loc-used-in-scene>summary small{font-weight:400;color:var(--txt-3)}
+.loc-subspaces{display:flex;flex-direction:column;gap:10px}
+.loc-subspace{display:flex;flex-direction:column;gap:5px}
+.loc-subspace .loc-room-link small+small{margin-top:0}
+.loc-subspace-links{display:flex;flex-wrap:wrap;gap:6px;padding-left:2px}
+.loc-subspace-link{border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--txt-2);
+  font:500 10.5px/1.4 var(--f-ui);padding:3px 10px;cursor:pointer}
+.loc-subspace-link:hover,.loc-subspace-link:focus-visible{border-color:var(--pos);color:var(--txt-0)}
+@media (max-width:640px){ .loc-subspace-link{min-height:44px;padding:3px 14px} }
 .loc-step-fixes{margin:10px 0;padding:10px 12px;border:1px solid var(--alert);border-radius:var(--r-m);font-size:12px;line-height:1.45}
 .loc-step-fixes-head{margin:0 0 6px;font-weight:600;color:var(--txt-0)}
 .loc-step-fixes ul{margin:0;padding:0;list-style:none;display:grid;gap:8px}

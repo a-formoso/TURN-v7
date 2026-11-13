@@ -1070,7 +1070,7 @@ function App(){
     window.dispatchEvent(new CustomEvent("turn-character-voice",{ detail:{ id } }));
   };
   // open a location's card in the Art Room (a shot's missing location view, 2026-10-20): the Locations tab, scrolled to it
-  // …and with imageId, the exact room & time view: its room shown, "Rooms & times" opened, the view scrolled to and flashed
+  // …and with imageId, the exact room & time view: its room shown, "Variants" opened, the view scrolled to and flashed
   window.turnOpenLocationCard = (locationId, imageId)=>{
     setRoom("art"); setArtView("locations");
     const clean = (v)=> String(v||"").replace(/["\\]/g,"");

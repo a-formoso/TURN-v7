@@ -263,7 +263,7 @@ await test("G1 Frances: delete sticks, freshness, spending, prompts", ()=>{
   const w = (fb.__F.find(f=>f.name==="Locations (Art Room)")||{}).what || "";
   for(const re of [/LOCATIONS REVIEW, SECOND PASS/, /DELETING STICKS/, /'Location changed'/, /'Parent plate changed'/, /'1 · Description or look changed'/,
     /no longer sends that layout back for review/, /always asks first with the price/, /'needed first'/, /Surprise me says it uses writing credits/,
-    /same 2x2 four-view layout/, /edited in the card's Look & exclusions section/]) assert.ok(re.test(w), String(re));
+    /same 2x2 four-view layout/, /edited in the card's Look Dev section/ /* Look & exclusions until 2026-11-13 */]) assert.ok(re.test(w), String(re));
   assert.ok(!/There is no separate Look dev fold/.test(w));
   assert.ok(!/Claude|Anthropic|McKee|TURN\b|MUSE|Nano Banana/.test(between(ai, "[\"Locations (Art Room)\", \"LOCATIONS REVIEW, SECOND PASS", "\"],\n")));
 });

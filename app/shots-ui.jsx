@@ -1111,10 +1111,10 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         +_missLoc.slice(0,3).map(r=>"\u201c"+String(r.label||"this view").replace(/\s+\([^)]*\)$/,"")+"\u201d").join(", ")+(_missLoc.length>3?" and more":"")
         +(_missLoc.length>1?" aren\u2019t":" isn\u2019t")+" made yet, so this frame won\u2019t render: make "+(_missLoc.length>1?"them":"it")+" in Locations, or untick "
         +(_missLoc.length>1?"them":"it")+" above (or choose another location reference) to render without. ") : "",
-      // straight to the missing view's own card (Locations → the location → Rooms & times), where it's made
+      // straight to the missing view's own card (Locations → the location → Variants), where it's made
       _missLoc.length>0 && loc && loc.id && typeof window.turnOpenLocationCard==="function" && _el("button",{type:"button",className:"shot-refs-warn-btn",
         onClick:()=>window.turnOpenLocationCard((_missLoc[0]&&_missLoc[0].locationId)||loc.id, _missLoc[0]&&_missLoc[0].refId),
-        title:"Open this view in "+(loc.name||"the location")+" \u2192 Rooms & times, in the Art Room's Locations tab"},
+        title:"Open this view in "+(loc.name||"the location")+" \u2192 Variants, in the Art Room's Locations tab"},
         "Make "+(_missLoc.length>1?"the first one":"it")+" in Locations \u2192")));
   const referenceControls=(refImgs.length>0 || locationReferencePicker) && _el("div",{className:"shot-refs coverage-refs"},
     _el("div",{className:"shot-refs-lab",

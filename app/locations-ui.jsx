@@ -86,7 +86,7 @@ function LocationScreenplayEvidence({units,onScene}){
   }));
   return React.createElement("div",{className:"loc-evidence"},
     React.createElement("p",{className:"loc-layer-note"},
-      "Screenplay passages establish the space and its uses. Rooms & times identify where and when each passage occurs."),
+      "Read from the screenplay, never typed: every passage that plays here, by scene, with its room and time."),
     rows.length?rows.map(({u,o,i,visit})=>React.createElement("details",{className:"loc-evidence-source",key:u.key+"-"+i},
       React.createElement("summary",null,
         React.createElement("span",null,(u.intExt||"INT")+". "+(u.name||"Location")+(u.time?" — "+u.time:"")),
@@ -95,7 +95,7 @@ function LocationScreenplayEvidence({units,onScene}){
         typeof screenplaySpaceSourceMeta==="function"?screenplaySpaceSourceMeta({sourceKinds:[o.sourceKind||"slugline"]}).label:"Screenplay"),
       React.createElement("pre",null,o.scriptText||o.slug||"No excerpt available."),
       onScene&&o.sceneId&&React.createElement("button",{className:"art-draftall ghost",onClick:()=>onScene(o.sceneId)},"Focus scene")))
-      :React.createElement("div",{className:"loc-variants-empty"},"No current screenplay evidence for this place."));
+      :React.createElement("div",{className:"loc-variants-empty"},"No passage of the screenplay plays here yet."));
 }
 
 function LocationRoomLinks({entries,onSelectLocation,section}){
@@ -104,6 +104,75 @@ function LocationRoomLinks({entries,onSelectLocation,section}){
       onClick:()=>onSelectLocation(owner.id,section)},
       React.createElement("span",null,React.createElement("b",null,label),React.createElement("small",null,detail)),
       React.createElement(Icon.chevR,{s:14}))));
+}
+
+/* THE CARD AS A TREE (owner 2026-11-13, "go ahead with all of it"): a place (The Space, Narrative Significance, Look
+   Dev, Screenplay Coverage), then its space and staging (the numbered steps), its VARIANTS (each time of day or state,
+   with the scenes that use it) and its SUBSPACES (its rooms and extra spaces). Only how the card SHOWS what is stored
+   changed: every record, id, key and field is as it was, so the Blender package (locationProductionPlan) and the
+   cloud set build read exactly what they read before. */
+function locationSceneTag(no,time){ return "Sc "+(no==null||no===""?"?":String(no).padStart(2,"0"))+(time?" ("+time+")":""); }
+// "Sc 03 (Night), Sc 06 (Dawn)" — every scene these rooms-at-a-time play in, in story order, each with its time
+function locationUsedInText(units){
+  const seen=new Set(), rows=[];
+  (units||[]).filter(u=>u&&!u.orphan).forEach(u=>(Array.isArray(u.sceneNos)?u.sceneNos:[]).forEach(n=>{
+    const k=n+"|"+(u.time||""); if(n==null||seen.has(k))return; seen.add(k); rows.push({n,time:u.time||""}); }));
+  rows.sort((a,b)=>{ const x=Number(a.n),y=Number(b.n); return Number.isFinite(x)&&Number.isFinite(y)?x-y:0; });
+  return rows.map(r=>locationSceneTag(r.n,r.time)).join(", ");
+}
+// a variant's name: its time of day; with the side in front when one space is seen from both (INT · Night, EXT · Night)
+function locationVariantName(u,mixedSides){
+  const t=String(u&&u.time||"").trim()||"No time stated";
+  return mixedSides?String(u&&u.intExt||"INT").toUpperCase()+" · "+t:t;
+}
+function locationVariantNames(units,extra){
+  const live=(units||[]).filter(u=>u&&!u.orphan);
+  const mixed=new Set(live.map(u=>String(u.intExt||"INT").toUpperCase())).size>1;
+  return Array.from(new Set([...live.map(u=>locationVariantName(u,mixed)),
+    ...(extra||[]).map(v=>String(v&&v.time||"").trim()||"Variant")]));
+}
+function LocationGroupHead({title,note}){
+  return React.createElement("div",{className:"loc-group-head"},
+    React.createElement("span",{className:"loc-group-title"},title),
+    note&&React.createElement("span",{className:"loc-group-note"},note));
+}
+/* SUBSPACES: each room of the place with its variants and the scenes that use it; a row opens that room's card */
+function LocationSubspaceList({rooms,units,onSelectLocation,canBuild}){
+  const E=React.createElement;
+  return E("div",{className:"loc-subspaces","data-testid":"location-subspaces"},(rooms||[]).map(owner=>{
+    const own=(units||[]).filter(u=>u&&!u.orphan&&String(u.subspaceKey||u.locationKey||"")===String(owner.key||""));
+    const names=locationVariantNames(own,locationEnvironmentPresentation(owner,own).additional);
+    const used=locationUsedInText(own);
+    const go=section=>()=>{ if(typeof onSelectLocation==="function") onSelectLocation(owner.id,section); };
+    return E("div",{className:"loc-subspace",key:owner.id,"data-location-subspace":owner.id},
+      E("button",{type:"button",className:"loc-room-link",title:"Open "+(owner.name||"this room"),onClick:go("")},
+        E("span",null,E("b",null,owner.name||"Room"),
+          E("small",null,"Variants: "+(names.length?names.join(", "):"none yet")),
+          E("small",null,"Used in: "+(used||"no scene yet"))),
+        E(Icon.chevR,{s:14})),
+      E("div",{className:"loc-subspace-links"},
+        E("button",{type:"button",className:"loc-subspace-link",onClick:go("layout")},"Floor plan"),
+        E("button",{type:"button",className:"loc-subspace-link",onClick:go("units")},"Variants"),
+        canBuild&&E("button",{type:"button",className:"loc-subspace-link",onClick:go("build")},"Build the set")));
+  }));
+}
+/* USED IN, under a variant: one entry a scene (a visit, when the screenplay returns in the same scene), holding that
+   scene's dressing & blocking (it sat under More, as scene dressing & blocking, until 2026-11-13) */
+function LocationVariantUsedIn({unit,setups,onUpdateSetup}){
+  const E=React.createElement, list=setups||[];
+  const nos=Array.isArray(unit&&unit.sceneNos)?unit.sceneNos.filter(n=>n!=null):[];
+  if(!list.length&&!nos.length) return null;
+  const noted=s=>!!((s.temporaryDressing||[]).length||s.blocking||s.handledProps||s.objectStates||s.notes);
+  return E("div",{className:"loc-used-in","data-testid":"variant-used-in"},
+    E("div",{className:"loc-used-in-head",
+      title:"Preparation notes for each time the screenplay plays here. Shot timing, cuts and performance are directed in Shots / Blender previz."},"Used in"),
+    list.length
+      ? list.map(s=>E("details",{className:"loc-nested-section loc-used-in-scene",key:s.id},
+          E("summary",null,s.orphan?"Saved notes · scene removed":locationSceneTag(s.sceneNo,s.time),
+            Number(s.occurrenceCount)>1&&E("small",null," · visit "+s.occurrenceOrdinal+" of "+s.occurrenceCount),
+            E("small",null,noted(s)?" · dressing & blocking noted":" · dressing & blocking")),
+          E(SceneSetupCard,{setup:s,unit,nested:true,onUpdate:patch=>onUpdateSetup(s,patch)})))
+      : E("p",{className:"loc-layer-note"},nos.map(n=>locationSceneTag(n,unit.time)).join(", ")));
 }
 
 // Keep the cloud workflow discoverable even before this card has its own footprint.
@@ -1797,7 +1866,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const evidenceUnits=[...units,...roomUnits.map(row=>row.u)];
   const roomStates=roomLocations.flatMap(owner=>locationEnvironmentPresentation(owner,sluglineUnits||[]).additional
     .map(v=>({owner,key:owner.id+"-"+v.id,label:owner.name+" / "+(v.time||"Variant"),
-      detail:v.state||"Open this room's additional environment state"})));
+      detail:v.state||"Open this room's variant"})));
   const environment=locationEnvironmentPresentation(l,units);
   const appearanceStates=environment.states;
   const coverageViews = (typeof locationCoverageViews==="function")
@@ -1811,7 +1880,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // states already have one home in their addressed Slugline Units.
   const addVariant = ()=>{
     const used = [...units,...appearanceStates].map(v=>String(v.time||"").toLowerCase());
-    const suggest = (l.times||[]).find(t=>!used.includes(String(t).toLowerCase())) || "New environment state";
+    const suggest = (l.times||[]).find(t=>!used.includes(String(t).toLowerCase())) || "New variant";
     onUpdate(l.id,{ variants:[...(l.variants||[]), { id:"v"+Date.now().toString(36), time:suggest, state:"", manualState:true }] });
   };
   const updateVariant = (vid,patch)=> onUpdate(l.id,{ variants:(l.variants||[]).map(v=>v.id===vid?{...v,...patch}:v) });
@@ -1827,7 +1896,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
     const sharesUnit = (typeof sluglineUnitImageId==="function") && (sluglineUnits||[]).some(u=> u && sluglineUnitImageId(u.key)===assetId);
     if(sharesUnit) has = false;
     const ok = !window.appConfirm || await window.appConfirm({
-      title:"Remove this environment state?",
+      title:"Remove this variant?",
       body:sharesUnit ? "Only its notes go \u2014 its image is the room & time plate, which stays."
         : has ? "Its plate is deleted with it \u2014 this can't be undone." : "It has no plate yet, so only its notes go.",
       confirmLabel:"Remove", cancelLabel:"Cancel", danger:has });
@@ -1872,11 +1941,43 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   },[l.staging]);
 
   // ONE NUMBERED PATH PER CARD (owner 2026-11-01): where each step stands, for the guide and the numbered folds
-  // Build per room, but keep steps 4 / 5 visible on parent and unfinished cards with setup guidance.
+  // Build per room. Steps 4 / 5 stay visible on an unfinished card with setup guidance; a place that has rooms shows
+  // them on its rooms (owner 2026-11-13), which its Subspaces section opens.
   const ownRoom=!!(((spatialState.plan.coordinates||{}).spaces||[]).some(s=>s.id===l.id&&(s.footprint||[]).length>=3));
   const cloudPilot=!!(window.KinolotCloudRender&&window.KinolotCloudRender.enabled()&&window.LocationCloudRender);
   const cloudJob=useLocationCloudJob(l,cloudPilot&&ownRoom);
-  const cardSteps=locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob});
+  // THE CARD AS A TREE (owner 2026-11-13)
+  const hasRooms=roomLocations.length>0;
+  // Build and Style show where a set can be built: this card's own room, or a place with no rooms of its own
+  const buildHere=cloudPilot&&(ownRoom||!hasRooms);
+  const cardSteps=locationCardSteps({l,drafted,spatialState,gen,cloudPilot:buildHere,cloudJob});
+  const variantCount=units.filter(u=>!u.orphan).length+environment.additional.length;
+  const placeGroup=l.parentLocation
+    ? {title:"This room",note:"uses "+(l.parentLocation.name||"its place")+"'s unless you fill in its own"}
+    : hasRooms ? {title:"The whole place",note:"shared by every room"} : {title:"The place",note:""};
+  const stagingNote=l.parentLocation ? "this room's own floor plan, cameras and set"
+    : hasRooms ? "the whole place's floor plan and cameras; each room has its own" : "";
+  const promptBuiltFrom="Built from "+(l.parentLocation
+      ? (l.parentLocation.name||"its place")+" (shared) and "+(l.name||"this room")+" (its own)"
+      : (l.name||"this place"))+". Each variant adds its light and environment for its own image; each shot adds its camera in Shots.";
+  // the time of day beside each scene (Sc 02 · Pre-dawn)
+  const sceneTimeOf=(()=>{ const m={}; evidenceUnits.filter(u=>u&&!u.orphan&&u.time).forEach(u=>(u.sceneNos||[]).forEach(n=>{
+    const k=String(n); if(!m[k]) m[k]=[]; if(m[k].indexOf(u.time)<0) m[k].push(u.time); })); return m; })();
+  const studioHandoff=React.createElement(LocationBlenderStudioSection,{
+        location:{id:l.id,name:l.name,parentLocationId:l.parentLocation&&l.parentLocation.id||null,
+          rootLocationId:l.rootLocationId||l.id,
+          context:{description:l.significance||"",architecture:l.architecture||"",materials:l.materials||"",
+            staging:l.staging||"",productionPlan:(typeof locationProductionPlan==="function")
+              ? locationProductionPlan(l,units) : null}},
+        references:[
+          ...(spatialState.owner.id!==l.id?[{entityId:spatialState.owner.id,label:"Parent set · "+spatialState.owner.name,kind:"location"}]:[]),
+          ...units.map(u=>({entityId:(typeof sluglineUnitImageId==="function"?sluglineUnitImageId(u.key):u.key),
+            label:"Room & time · "+(u.name||l.name||"Location")+(u.time?(" · "+u.time):""),kind:"location"})),
+          ...coverageSheets.map(v=>({entityId:l.id+"-"+v.id,label:"Extra space · "+(v.name||l.name||"Location"),kind:"location"})),
+          ...appearanceStates.map(v=>({entityId:(typeof locationAppearanceStateAssetId==="function"
+              ? locationAppearanceStateAssetId(l,v,units):l.id+"-"+v.id),
+            label:"Time-of-Day Variant · "+(v.time||v.id||"Variant"),kind:"location"}))],
+        readOnly});
   const stepCount=n=>{const st=cardSteps.find(x=>x.n===n);return !st?null:st.done?"\u2713 done":st.next?"next":st.optional?"optional":null;};
   return React.createElement("div",{ref:sheetRef,className:(embedded?"loc-workspace-sheet":"sheet-card")+(batchActiveId===l.id?" batch-on":""),"data-location-card":l.id},
     React.createElement(SheetFrame,{ gen:genPlate, slotId:"locref-"+l.id, name:l.name, avatarColor:locSwatch(displaySide),
@@ -1975,7 +2076,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             React.createElement(EditText,{value:l.name,placeholder:"Location name\u2026",onCommit:val=>onUpdate(l.id,{name:val})}),
             React.createElement(LocationImageChangeNotices,{l,meta:gen.genMeta,hasImage:!!gen.genUrl,onSelectLocation})),
           l.parentLocation&&React.createElement("div",{className:"loc-parent-breadcrumb"},
-            "within ",React.createElement("b",null,l.parentLocation.name)," \u00b7 inherits continuity"),
+            "within ",React.createElement("b",null,l.parentLocation.name)," \u00b7 uses its space and look unless filled in here"),
           null)),
       // where this card stands and what to do next (owner 2026-11-01: one numbered path per card)
       React.createElement(LocationStepGuide,{l,steps:cardSteps}),
@@ -1998,20 +2099,21 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement("span",{className:"prop-scenes-lab"},"SCENES"),
         React.createElement(SceneChipPager,{ none:"No scenes reference this place",
           items: locScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0"), className:"prop-scene-chip",
-            title:s.title||("Scene "+s.no), onClick:()=>onChipClick&&onChipClick(s.id) })) })),
+            title:(s.title||("Scene "+s.no))+(sceneTimeOf[String(s.no)]?" \u00b7 "+sceneTimeOf[String(s.no)].join(", "):""), onClick:()=>onChipClick&&onChipClick(s.id) })) })),
 
-      React.createElement(CardFold,{label:"1 \u00b7 Describe the place",foldId:locationStepFoldId(l,1),count:stepCount(1),defaultOpen:(!drafted && !!l.manual)},
+      // THE CARD AS A TREE (owner 2026-11-13): the place · space and staging · variants · subspaces · the prompt
+      React.createElement(LocationGroupHead,{title:placeGroup.title,note:placeGroup.note}),
+      React.createElement(CardFold,{label:"1 \u00b7 The Space",foldId:locationStepFoldId(l,1),count:stepCount(1),defaultOpen:(!drafted && !!l.manual)},
         React.createElement("div",{className:"loc-step-actions"},
           React.createElement("button",{className:"char-draft-btn"+(drafting?" busy":""),disabled:drafting,onClick:()=>onDraft(l),
             title:"Draft the written description of this place. Where its objects stand comes next, in 2 \u00b7 Floor plan."},
             React.createElement(Icon.sparkles,{s:12}), drafting?"Drafting\u2026":"Draft specification")),
-        React.createElement("h4",{className:"loc-step-sub"},"The space"),
         React.createElement(LocationSectionHelp,{
           label:"About The Space",
           text:"Defines the persistent physical location: architecture, layout, materials, fixed features, geography, entrances and exits. This is the location's identity."}),
         l.parentLocation && React.createElement("div",{className:"loc-inheritance-note"},
           React.createElement(Icon.layers,{s:12}),
-          React.createElement("span",null,"Inherited from ",React.createElement("b",null,l.parentLocation.name),": shared architecture, material language, scale, topology and locked anchors. Store only what is specific to ",l.name||"this child"," below.")),
+          React.createElement("span",null,l.name||"This room"," uses ",React.createElement("b",null,l.parentLocation.name),"'s architecture, materials, scale, connections and locked landmarks. Fill in below only what is different here.")),
         React.createElement("div",{className:"sheet-field"},
           React.createElement("div",{className:"obj-lab"},"Screenplay sides"),
           React.createElement("select",{className:"prop-select",value:l.intExt||"INT",
@@ -2057,19 +2159,17 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           React.createElement(EditText,{value:l.continuityAnchors||"",multiline:true,
             placeholder:"Low ceiling; cased kitchen archway; three-pane front door; sink-window geometry\u2026",
             onCommit:val=>onUpdate(l.id,{continuityAnchors:val})})),
+      ),
 
-      React.createElement(CardFold,{label:"Narrative significance",defaultOpen:false},
+      React.createElement(CardFold,{label:"Narrative Significance",defaultOpen:false},
         React.createElement(LocationSectionHelp,{
           label:"About Narrative Significance",
           text:"Explains what the location means dramatically: how it functions in the story, its mood and thematic role, and each character's relationship to the space."}),
         React.createElement(SheetField,{label:"Narrative function \u2014 interpretive guidance",value:l.significance,multiline:true,
           placeholder:"Its dramatic role \u2014 what happens here, what it represents\u2026",onCommit:val=>onUpdate(l.id,{significance:val})})),
 
-      React.createElement(CardFold,{label:"Screenplay evidence",defaultOpen:false},
-        React.createElement(LocationScreenplayEvidence,{units:evidenceUnits,onScene:onChipClick})),
-
       // the settings that change the plate live ON the card (2026-10-05); the prompt itself is read-only
-      React.createElement(CardFold,{label:"Look & exclusions",defaultOpen:false},
+      React.createElement(CardFold,{label:"Look Dev",defaultOpen:false},
         React.createElement("div",{className:"loc-render-style-details"},
           l.parentLocation&&React.createElement("label",{className:"loc-style-inherit",title:"Link to the parent, or turn this off to use this room's saved style settings."},
             React.createElement("input",{type:"checkbox",checked:inheritsStyle,
@@ -2088,8 +2188,12 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             onCommit:val=>onUpdate(l.id,{renderStyle:val,renderStyleKey:styleKey,renderStyleIndependent:true})})),
         React.createElement(SheetField,{label:"Leave out \u2014 what the plate must not show (negative prompt)",value:l.negativePrompt||d.negativePrompt,multiline:true,
           onCommit:val=>onUpdate(l.id,{negativePrompt:val})})),
-      ),
 
+      // read from the screenplay, never typed: every passage that plays here (and in its rooms), by scene
+      React.createElement(CardFold,{label:"Screenplay Coverage",defaultOpen:false},
+        React.createElement(LocationScreenplayEvidence,{units:evidenceUnits,onScene:onChipClick})),
+
+      React.createElement(LocationGroupHead,{title:"Space and staging",note:stagingNote}),
       React.createElement(CardFold,{label:"2 \u00b7 Floor plan",foldId:layoutFoldId,defaultOpen:initialSection==="layout",
         count:stepCount(2)||(!spatialState.ready?"layout needs review":locStaged?((typeof locationStagingLayoutChanged==="function"&&locationStagingLayoutChanged(l))?"layout changed":null):(stagingPrep?"staging\u2026":"drafts on first render"))},
         React.createElement(LocationSpatialPlanEditor,{l,scenes,project,onUpdate,readOnly,reviewRequest:layoutReviewRequest}),
@@ -2104,76 +2208,71 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           onAdd:addCoverageView,onRemove:removeCoverageView,onDraftStaging,draftingStage,readOnly}),
       ),
 
-      // Cloud rendering and styling use the same saved room, with server-enforced plan and film permissions.
-      cloudPilot&&React.createElement(CardFold,{label:"4 \u00b7 Build the set",foldId:locationStepFoldId(l,4),count:stepCount(4),defaultOpen:initialSection==="build"},
+      // Build and Style show where a set can be built: this card's own room, or a place with no rooms that still needs
+      // its footprint (owner 2026-11-13). A place whose rooms are built one by one sends you to them from Subspaces.
+      buildHere&&React.createElement(CardFold,{label:"4 \u00b7 Build the set",foldId:locationStepFoldId(l,4),count:stepCount(4),defaultOpen:initialSection==="build"},
         ownRoom?React.createElement(window.LocationCloudRender,{location:l,readOnly,onUpdate})
-          :React.createElement(LocationCloudBuildSetup,{location:l,rooms:roomLocations,onSelectLocation})),
-      cloudPilot&&React.createElement(CardFold,{label:"5 \u00b7 Style it",foldId:locationStepFoldId(l,5),count:stepCount(5),defaultOpen:initialSection==="style"},
+          :React.createElement(LocationCloudBuildSetup,{location:l,rooms:roomLocations,onSelectLocation}),
+        // your own Blender, beside the cloud build (it sat under More until 2026-11-13)
+        window.BlenderStudioLaunch&&React.createElement("h4",{className:"loc-step-sub"},"Or in your own Blender"),
+        studioHandoff),
+      buildHere&&React.createElement(CardFold,{label:"5 \u00b7 Style it",foldId:locationStepFoldId(l,5),count:stepCount(5),defaultOpen:initialSection==="style"},
         ownRoom?React.createElement(window.LocationStyleStep,{location:l,readOnly})
           :React.createElement("div",{className:"loc-step-fixes"},
-            React.createElement("p",{className:"loc-step-fixes-head"},"Choose a room and build its set before styling the views."),
+            React.createElement("p",{className:"loc-step-fixes-head"},roomLocations.length?"Choose a room and build its set before styling the views.":"Build the set in step 4 before styling its views."),
             React.createElement("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set"))),
-
-      // foldId: a shot's missing room & time view opens this fold from the Shots tab (2026-10-20)
-      React.createElement(CardFold,{label:"Rooms & times",foldId:"loc-units-"+l.id,defaultOpen:initialSection==="units"||initialSection==="environments"},
-        React.createElement("div",{className:"loc-variants"},
-          units.length
-            ? environment.units.map(u=>React.createElement(SluglineUnitCard,{key:u.key, l, u, project, scenes, drafts,
-                parentGenUrl:gen.genUrl, onRemoveUnit, onView, readOnly,
-                onEnvironmentChange:state=>saveLocationUnitEnvironment(l,u,appearanceStates,state,onUpdateUnit,onUpdate)}))
-            : !roomUnits.length&&React.createElement("div",{className:"loc-variants-empty"},"No authored or screenplay-derived slugline unit currently addresses this location."),
-          React.createElement(LocationRoomLinks,{entries:roomUnits,onSelectLocation,section:"units"}),
-          React.createElement("details",{className:"loc-nested-section",open:initialSection==="environments"?true:undefined},
-            React.createElement("summary",null,"Additional environment states"),
-            React.createElement("p",{className:"loc-layer-note"},"Only for another look not already represented by a room & time, such as a storm or power outage. Scripted Night / Dawn changes are edited in each room & time's Lighting & environment."),
-            environment.additional.map(v=>React.createElement(LocationVariant,{key:v.id,l,v,project,scenes,drafts,units,readOnly,
-              parentGenUrl:gen.genUrl,onTime:time=>updateVariant(v.id,{time}),
-              onState:state=>updateVariant(v.id,{state}),onRemove:()=>removeVariant(v.id),onView})),
-            React.createElement(LocationRoomLinks,{entries:roomStates,onSelectLocation,section:"environments"}),
-            React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:addVariant},
-              React.createElement(Icon.plus,{s:14}),"Add environment state")),
-          !l.parentLocation&&coverageSheets.length>0&&React.createElement("details",{className:"loc-nested-section"},
-            React.createElement("summary",null,"Extra spaces"),
-            React.createElement("p",{className:"loc-layer-note"},"Extra empty-set references required by the screenplay, such as an exterior, threshold or connecting space."),
-            coverageSheets.map((v,i)=>React.createElement(LocationCoverageSheet,{key:v.id,l,v,project,scenes,drafts,
-              previousSheets:coverageSheets.slice(0,i),parentGenUrl:gen.genUrl,onView}))))),
+      // no build step on this card: the Blender handoff keeps a small section of its own
+      !buildHere&&window.BlenderStudioLaunch&&React.createElement(CardFold,{label:"Blender Studio",foldId:"loc-blender-"+l.id,defaultOpen:false},
+        studioHandoff),
 
       // parts of the set the screenplay moves, and when (owner 2026-11-01)
       React.createElement(CardFold,{label:"Moving parts",foldId:"loc-parts-"+l.id,defaultOpen:false,
           count:(Array.isArray(l.movingParts)&&l.movingParts.length)||undefined},
         React.createElement(LocationMovingParts,{l,scenes,drafts,onUpdate,readOnly})),
 
+      // VARIANTS: each time of day (a room & time, read from the sluglines) or state (a storm, a power cut) this space
+      // is seen in, with the scenes that use it. foldId: a shot's missing view opens this fold from the Shots tab (2026-10-20)
+      React.createElement(CardFold,{label:"Variants",foldId:"loc-units-"+l.id,count:variantCount||undefined,
+          defaultOpen:initialSection==="units"||initialSection==="environments"},
+        React.createElement("p",{className:"loc-layer-note"},"Each time of day or state "+(l.name||"this space")+" is seen in. The space stays the same: a variant uses the description above and changes only its light and environment. Each has its own image."),
+        React.createElement("div",{className:"loc-variants"},
+          environment.units.map(u=>React.createElement("div",{className:"loc-variant-group",key:u.key,"data-location-variant":u.key},
+            React.createElement(SluglineUnitCard,{ l, u, project, scenes, drafts,
+              parentGenUrl:gen.genUrl, onRemoveUnit, onView, readOnly,
+              onEnvironmentChange:state=>saveLocationUnitEnvironment(l,u,appearanceStates,state,onUpdateUnit,onUpdate)}),
+            React.createElement(LocationVariantUsedIn,{unit:u,setups:sceneSetups.filter(s=>s.unitKey===u.key),onUpdateSetup:updateSceneSetup}))),
+          // a look of its own, not a time the screenplay states (the additional environment states of before)
+          environment.additional.map(v=>React.createElement(LocationVariant,{key:v.id,l,v,project,scenes,drafts,units,readOnly,
+            parentGenUrl:gen.genUrl,onTime:time=>updateVariant(v.id,{time}),
+            onState:state=>updateVariant(v.id,{state}),onRemove:()=>removeVariant(v.id),onView})),
+          !variantCount&&React.createElement("div",{className:"loc-variants-empty"},hasRooms
+            ? "No scene plays in "+(l.name||"this place")+" itself. Its rooms' variants are under Subspaces."
+            : "No scene in the screenplay plays here yet."),
+          React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:addVariant,
+              title:"Only for a look the screenplay's times of day don't already give, such as a storm or a power cut"},
+            React.createElement(Icon.plus,{s:14}),"Add a variant"))),
+
+      // SUBSPACES (a main location only): its rooms, each with its variants and scenes, and its extra spaces
+      !l.parentLocation&&(hasRooms||coverageSheets.length>0)&&React.createElement(CardFold,{label:"Subspaces",foldId:"loc-subspaces-"+l.id,
+          count:hasRooms?roomLocations.length:undefined,defaultOpen:hasRooms},
+        hasRooms&&React.createElement("p",{className:"loc-layer-note"},"The rooms and areas of "+(l.name||"this place")+". Each uses "+(l.name||"the place")+"'s space and look unless you fill in its own."),
+        hasRooms&&React.createElement(LocationSubspaceList,{rooms:roomLocations,units:sluglineUnits,onSelectLocation,canBuild:cloudPilot}),
+        !l.parentLocation&&coverageSheets.length>0&&React.createElement("details",{className:"loc-nested-section"},
+          React.createElement("summary",null,"Extra spaces"),
+          React.createElement("p",{className:"loc-layer-note"},"Extra empty-set references required by the screenplay, such as an exterior, threshold or connecting space."),
+          coverageSheets.map((v,i)=>React.createElement(LocationCoverageSheet,{key:v.id,l,v,project,scenes,drafts,
+            previousSheets:coverageSheets.slice(0,i),parentGenUrl:gen.genUrl,onView})))),
+
       // read-only, a folded section of every card (owner 2026-10-28 — it used to hide behind the ⋯ menu or the Film
-      // menu's "Always show prompts"); its own section, not inside More (owner 2026-11-03)
+      // menu's "Always show prompts"); its own section (owner 2026-11-03), and the last one since More went (2026-11-13)
       React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:false},
+        React.createElement("p",{className:"loc-layer-note","data-testid":"loc-prompt-built-from"},promptBuiltFrom),
         React.createElement(CopyBox,{label:"Current specification \u2014 next generation",text:finalPrompt}),
         React.createElement("p",{className:"loc-layer-note"},"Built from this space's current specification. Selected reference instructions are added when you generate."),
         gen.genUrl&&gen.genMeta&&gen.genMeta.prompt&&React.createElement("details",{className:"loc-nested-section"},
           React.createElement("summary",null,"Prompt used for the current plate"),
-          React.createElement(CopyBox,{label:"Saved generation prompt",text:gen.genMeta.prompt}))),
-      // reference and tools, after the steps
-      React.createElement(CardFold,{label:"More",foldId:"loc-more-"+l.id,defaultOpen:false},
-        sceneSetups.length>0&&React.createElement("details",{className:"loc-nested-section"},
-          React.createElement("summary",null,"Scene dressing & blocking"),
-          React.createElement("p",{className:"loc-layer-note"},"Preparation notes for each screenplay occurrence. Shot timing, cuts and performance are directed in Shots / Blender previz."),
-          React.createElement("div",{className:"loc-variants"},sceneSetups.map(s=>React.createElement(SceneSetupCard,{key:s.id,setup:s,
-            unit:units.find(u=>u&&u.key===s.unitKey),onUpdate:patch=>updateSceneSetup(s,patch)})))),
-
-      React.createElement(LocationBlenderStudioSection,{
-        location:{id:l.id,name:l.name,parentLocationId:l.parentLocation&&l.parentLocation.id||null,
-          rootLocationId:l.rootLocationId||l.id,
-          context:{description:l.significance||"",architecture:l.architecture||"",materials:l.materials||"",
-            staging:l.staging||"",productionPlan:(typeof locationProductionPlan==="function")
-              ? locationProductionPlan(l,units) : null}},
-        references:[
-          ...(spatialState.owner.id!==l.id?[{entityId:spatialState.owner.id,label:"Parent set · "+spatialState.owner.name,kind:"location"}]:[]),
-          ...units.map(u=>({entityId:(typeof sluglineUnitImageId==="function"?sluglineUnitImageId(u.key):u.key),
-            label:"Room & time · "+(u.name||l.name||"Location")+(u.time?(" · "+u.time):""),kind:"location"})),
-          ...coverageSheets.map(v=>({entityId:l.id+"-"+v.id,label:"Extra space · "+(v.name||l.name||"Location"),kind:"location"})),
-          ...appearanceStates.map(v=>({entityId:(typeof locationAppearanceStateAssetId==="function"
-              ? locationAppearanceStateAssetId(l,v,units):l.id+"-"+v.id),
-            label:"Time-of-Day Variant · "+(v.time||v.id||"Variant"),kind:"location"}))],
-        readOnly}),
+          React.createElement(CopyBox,{label:"Saved generation prompt",text:gen.genMeta.prompt})),
+        // the image checked against the description (it sat under More until 2026-11-13)
         window.QaCheckButton && React.createElement("div",{className:"loc-step-actions"},
           React.createElement(window.QaCheckButton,{ gen, name:l.name, noun:"location plate",
             specFields:()=>({ architecture:(l.architecture||""), materials:(l.materials||""), lighting:(l.lighting||"") }),
@@ -2181,7 +2280,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
 }
 
 /* ONE NUMBERED PATH PER LOCATION CARD (owner 2026-11-01 — "make it simpler … numbers … which item to generate first"):
-   1 Describe · 2 Floor plan · 3 Cameras · 4 Build the set · 5 Style it (cloud set pilot only) · 6 Location image. Each
+   1 The Space · 2 Floor plan · 3 Cameras · 4 Build the set · 5 Style it (cloud set pilot only) · 6 Location image. Each
    step says whether it is done, and the first that isn't is "next", with what to do there. */
 function useLocationCloudJob(l,on){
   const [,tick]=React.useReducer(n=>n+1,0);
@@ -2215,7 +2314,7 @@ function locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob}){
   const imageStale=!!gen.genUrl&&((typeof locationSpecChanged==="function"&&locationSpecChanged(gen.genMeta,l))
     ||(typeof locationPlateLayoutChanged==="function"&&locationPlateLayoutChanged(gen.genMeta,l,{panels:true})));
   const steps=[
-    {n:1,name:"Describe",done:!!drafted,todo:"Draft the description: architecture, materials, light and landmarks."},
+    {n:1,name:"The Space",done:!!drafted,todo:"Draft the description: architecture, materials, light and landmarks."},
     {n:2,name:"Floor plan",done:planDone,todo:planIssue?.text||spatialState.reason||"Check the floor plan and confirm it."},
     {n:3,name:"Cameras",done:planDone&&!camKey,
       todo:!planDone?"Complete and confirm the floor plan in step 2 first.":camKey?"The "+labels[camKey]+" camera: "+problems[camKey].charAt(0).toLowerCase()+problems[camKey].slice(1):""},
@@ -2965,8 +3064,8 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
             React.createElement("b",null,stateUnit.name||l.name||"Location"),
             stateUnit.time&&React.createElement("span",{className:"loc-time-badge"},stateUnit.time),
             _parentChangedBadge(gen, l, stateUnit ? _plateScriptSig(stateUnit.scriptText) : ""))
-        : React.createElement(EditText,{value:v.time,placeholder:"State name / time, e.g. Dawn \u00b7 storm\u2026",onCommit:onTime}),
-      onRemove&&React.createElement("button",{className:"loc-variant-x",title:"Remove environment state",onClick:onRemove},React.createElement(Icon.x,{s:12}))),
+        : React.createElement(EditText,{value:v.time,placeholder:"Variant name, e.g. Storm, Power cut\u2026",onCommit:onTime}),
+      onRemove&&React.createElement("button",{className:"loc-variant-x",title:"Remove this variant",onClick:onRemove},React.createElement(Icon.x,{s:12}))),
     React.createElement(SheetField,{label:"What changes",value:v.state||"",multiline:true,
       placeholder:"Weather, practicals on/off, damage, wear or another persistent environment change\u2026",onCommit:onState}),
     stateUnit&&React.createElement("div",{className:"loc-shared-state-note"},
@@ -3120,7 +3219,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     React.createElement("details",{className:"loc-nested-section loc-unit-environment"},
       React.createElement("summary",null,"Lighting & environment"),
       React.createElement(SheetField,{label:"Environment notes",value:u.appearance||"",multiline:true,
-        placeholder:"Light, weather, active practicals, damage or wear for this unit. Keep the same architecture; temporary props and blocking belong in Spatial Layout & Staging.",
+        placeholder:"Light, weather, active practicals, damage or wear for this unit. Keep the same architecture; a scene's dressing and blocking go under Used in, below.",
         onCommit:onEnvironmentChange})),
     React.createElement(SheetFrame,{ gen, slotId, name:(u.name||l.name||"Location")+" \u00b7 "+role+(u.time?(" \u00b7 "+u.time):""),
       avatarColor:locSwatch(role), initials:role.slice(0,2), drafted:true, drafting:false,
@@ -3138,17 +3237,18 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       disabled:!canGenerate, onRegenerate:()=>gen.generate() }));
 }
 
-function SceneSetupCard({setup,unit,onUpdate}){
+/* nested (under a variant's Used in, 2026-11-13): the row above it already names the scene, the room and the time */
+function SceneSetupCard({setup,unit,onUpdate,nested=false}){
   const sceneLabel=setup.sceneNo!=null?("Scene "+String(setup.sceneNo).padStart(2,"0")):"Scene";
   const source=setup.orphan ? {label:"Saved setup \u00b7 source removed"} : (typeof screenplaySpaceSourceMeta==="function")
     ? screenplaySpaceSourceMeta({sourceKinds:[setup.sourceKind]}) : {label:"Screenplay occurrence"};
   return React.createElement("div",{className:"loc-variant loc-scene-setup"},
     React.createElement("div",{className:"loc-variant-head"},
       React.createElement("div",{className:"loc-coverage-title"},
-        React.createElement("span",{className:"loc-scene-badge"},sceneLabel),
-        React.createElement("b",null,setup.spaceName||"Location"),
-        setup.time&&React.createElement("span",{className:"loc-time-badge"},setup.time),
-        Number(setup.occurrenceCount)>1&&React.createElement("span",{className:"loc-time-badge",
+        !nested&&React.createElement("span",{className:"loc-scene-badge"},sceneLabel),
+        !nested&&React.createElement("b",null,setup.spaceName||"Location"),
+        !nested&&setup.time&&React.createElement("span",{className:"loc-time-badge"},setup.time),
+        !nested&&Number(setup.occurrenceCount)>1&&React.createElement("span",{className:"loc-time-badge",
           title:"This screenplay returns to the same space more than once in this scene."},
           "Occurrence ",setup.occurrenceOrdinal," of ",setup.occurrenceCount)),
       React.createElement("span",{className:"loc-coverage-source",title:setup.sourceSlug||""},source.label)),
@@ -3473,7 +3573,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
         React.createElement("div",{style:{flex:1}},
           React.createElement(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Location Scout",
             React.createElement(window.InfoTip,{label:"About Locations",
-              text:"Locations prepares reusable sets for the art department. The Space and Narrative Significance define the place. Screenplay Evidence shows the source passages; Rooms & times (the screenplay's sluglines) identify the rooms, times and scenes. Each one has one plate and Lighting & environment notes, so scripted Night / Dawn states are not repeated in a separate section. Additional environment states and extra spaces are nested there. Spatial Layout & Staging holds the shared set layout (review and confirm it before the first plate), reusable camera views with their view compositions, and scene dressing/blocking notes. A room's plates are made from its location's plate, so that one comes first. The header's Render style picker sets the visual treatment; the card's Look & exclusions section fine-tunes it, and the generation prompt (the card's \u22ef menu \u25b8 Show the generation prompt) shows, read-only, the specification sent to the image model. Plates spend image credits; drafting specs, layouts and view compositions, and Surprise me, spend writing credits \u2014 each button says which, and the batches ask first with the price. Blender Studio builds the selected set.\n\nEach established parent place has one card with a room selector. Choose Whole location for the shared canon and all room-unit links, or a room to edit its own plate and layout. Search and scene focus include rooms. A Kitchen with no evidenced parent remains a standalone place. Shot timing, cuts and performance are directed in Shots / Blender previz."}))),
+              text:"Locations prepares reusable sets for the art department. Each card reads as a tree. The Space, Narrative Significance and Look Dev define the place, and Screenplay Coverage shows the passages that play there. Space and staging holds the numbered steps: the floor plan (review and confirm it before the first plate), the cameras with their reusable camera views with their view compositions, and, where a set can be built, Build the set and Style it. Variants lists each time of day or state the space is seen in (read from the screenplay's sluglines), each with one plate, its Lighting & environment notes and, under Used in, each scene's dressing and blocking. Subspaces lists the place's rooms and extra spaces. A room's plates are made from its location's plate, so that one comes first. The header's Render style picker sets the visual treatment; the card's Look Dev section fine-tunes it, and the card's Generation Prompt section shows, read-only, the specification sent to the image model. Plates spend image credits; drafting specs, layouts and view compositions, and Surprise me, spend writing credits \u2014 each button says which, and the batches ask first with the price. Blender Studio builds the selected set.\n\nEach established parent place has one card with a room selector. Choose Whole location for what every room shares and the list of its rooms (Subspaces), or a room to edit its own plate, layout and variants. Search and scene focus include rooms. A Kitchen with no evidenced parent remains a standalone place. Shot timing, cuts and performance are directed in Shots / Blender previz."}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"location",onRestore,onPurge,compact:true}),

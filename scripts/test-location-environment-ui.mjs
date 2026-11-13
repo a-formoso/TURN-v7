@@ -77,5 +77,7 @@ assert.equal(generator.buildFinal(),"Bound custom state","generation consumes th
 assert.equal(nodes.find(n=>n.type===box.SheetField).props.value,"Bound custom state");
 const source=readFileSync("app/locations-ui.jsx","utf8");
 assert.ok(!source.includes('label:"Time-of-Day Variants"'),"no duplicate top-level time variants fold");
-assert.ok(source.includes('"Additional environment states"'));
+// (2026-11-13) a look of its own is a variant like the others: in the Variants list, added with "Add a variant"
+assert.ok(source.includes('React.createElement(Icon.plus,{s:14}),"Add a variant")')&&source.includes("environment.additional.map(v=>React.createElement(LocationVariant,"));
+assert.ok(!source.includes('React.createElement("summary",null,"Additional environment states")'));
 console.log("PASS consolidated unit environments, legacy edits, independent states and one-plate generation");

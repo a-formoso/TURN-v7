@@ -1,4 +1,5 @@
-/* Offline UI regression: unfinished/parent cards keep cloud steps discoverable;
+/* Offline UI regression: an unfinished card keeps the cloud steps, with what to do first; a place that has rooms shows
+   them on its rooms, which its Subspaces section opens (owner 2026-11-13, the card as a tree);
    connection recovery is read-only and works for read-only film members. */
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
@@ -120,4 +121,12 @@ box.LocationSetStyle="saved-style-panel";
 const archived=nodes(box.LocationStyleStep({location})).find(n=>n.type==="saved-style-panel");
 assert.ok(archived,"saved comparisons stay mounted while a rebuild is required");
 assert.equal(archived.props.sceneHash,"","an outdated build cannot enable new styling or acceptance");
-console.log("PASS cloud set controls: parent/unfinished-room discovery, room routing, both fold prerequisites, and read-only connection recovery");
+// (2026-11-13) the steps follow where a set can be built — never the footprint alone, so an unfinished place keeps them
+const here=descendants.find(n=>n.type==="VariableDeclarator"&&n.id.name==="buildHere");
+assert.equal(source.slice(here.init.start,here.init.end),"cloudPilot&&(ownRoom||!hasRooms)");
+for(const [pilot,ownRoom,hasRooms,shown] of [[true,false,false,true],[true,true,false,true],[true,true,true,true],[true,false,true,false],[false,true,false,false]])
+  assert.equal(vm.runInNewContext(source.slice(here.init.start,here.init.end),{cloudPilot:pilot,ownRoom,hasRooms}),shown);
+const subspaces=box.LocationSubspaceList({rooms:[room],units:[],canBuild:true,onSelectLocation:(id,section)=>box.events.push([id,section])});
+nodes(subspaces).find(n=>n.type==="button"&&text(n)==="Build the set").props.onClick();
+assert.deepEqual(box.events.pop(),["deck","build"],"a place with rooms opens each room's build step from Subspaces");
+console.log("PASS cloud set controls: unfinished-room discovery, room routing from Subspaces, both fold prerequisites, and read-only connection recovery");

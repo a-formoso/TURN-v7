@@ -192,9 +192,9 @@ await test("E3 the prompt is behind the ⋯ menu, beside 'Edit a panel…'; Gene
 
 /* ═══ F ═══ */
 await test("F1 plainer names on screen; model-facing prompts keep their terms", ()=>{
-  for(const t of ['CardFold,{label:"Rooms & times",', 'label:"How the rooms connect"', '"Fixed landmarks"', '"Extra spaces"', '"Add extra view notes"', 'label:"Visible fixed landmarks"'])
+  for(const t of ['CardFold,{label:"Variants",foldId:"loc-units-"+l.id,' /* Rooms & times until 2026-11-13 */, 'label:"How the rooms connect"', '"Fixed landmarks"', '"Extra spaces"', '"Add extra view notes"', 'label:"Visible fixed landmarks"'])
     assert.ok(ui.includes(t), t);
-  for(const t of ['CardFold,{label:"Slugline Units"', 'label:"Spatial topology"', 'React.createElement("span",null,"Continuity anchors")', '"Additional space plates"', '"Add coverage view"'])
+  for(const t of ['CardFold,{label:"Rooms & times"', 'CardFold,{label:"Slugline Units"', 'label:"Spatial topology"', 'React.createElement("span",null,"Continuity anchors")', '"Additional space plates"', '"Add coverage view"'])
     assert.ok(!ui.includes(t), t);
   assert.ok(shotsUi.includes('unit:"Rooms & times",coverage:"Extra spaces",'));
   // (2026-10-14) a room & time plate's page notes are written once, for its card and the headless runs alike

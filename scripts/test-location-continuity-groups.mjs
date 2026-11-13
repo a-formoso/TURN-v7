@@ -214,37 +214,40 @@ ok("redundant root scope and Contains rows stay out of the clean card header",
   !ui.includes('"Compound place"')&&!ui.includes('"Contains"'));
 ok("child relationship remains explicit as a compact parent breadcrumb",
   ui.includes('className:"loc-parent-breadcrumb"')&&
-  ui.includes('"within "')&&ui.includes('" \\u00b7 inherits continuity"'));
+  ui.includes('"within "')&&ui.includes('" \\u00b7 uses its space and look unless filled in here"'));   // plain words, owner 2026-11-13
 ok("unit cards live on their matching subspace workspace",
   ui.includes("String(u.subspaceKey||u.locationKey||\"\")===String(l.key||\"\")"));
 ok("place identity fields stay separate from unit environment notes",
   ui.includes('label:"Permanent lighting & daylight interfaces"')&&
   ui.includes('label:"Environment notes"')&&ui.includes('"Fixed landmarks"'));
-// ONE NUMBERED PATH PER CARD (owner 2026-11-01): 1 Describe (with significance, screenplay evidence, look) ·
-// 2 Floor plan · 3 Cameras · 4 Build / 5 Style (pilot) · Rooms & times · More (tools and the prompt)
+// ONE NUMBERED PATH PER CARD (owner 2026-11-01), LAID OUT AS A TREE (owner 2026-11-13): the place (1 The Space,
+// Narrative Significance, Look Dev, Screenplay Coverage) · space and staging (2 Floor plan · 3 Cameras · 4 Build /
+// 5 Style · Moving parts) · Variants · Subspaces · the prompt. There is no More section.
 const step=t=>'label:"'+t.replace("·","\\u00b7")+'"';
 ok("location folds use the approved filmmaker-facing names",
-  // plainer names (owner 2026-10-03): Slugline Units → Rooms & times
-  [step("1 · Describe the place"),'label:"Narrative significance"','label:"Screenplay evidence"','label:"Rooms & times"',step("2 · Floor plan"),
-    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"More"','label:"Generation Prompt"'].every(token=>ui.includes(token)));
-ok("location folds follow describe to floor plan to cameras to build to style, then rooms & times, the prompt and More",
-  [step("1 · Describe the place"),'label:"Narrative significance"','label:"Screenplay evidence"','label:"Look & exclusions"',step("2 · Floor plan"),
-    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"Rooms & times"','label:"Generation Prompt"','label:"More"']
+  // the owner's own names (2026-11-13): Rooms & times → Variants, Screenplay evidence → Screenplay Coverage, Look & exclusions → Look Dev
+  [step("1 · The Space"),'label:"Narrative Significance"','label:"Look Dev"','label:"Screenplay Coverage"','label:"Variants"',step("2 · Floor plan"),
+    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"Subspaces"','label:"Generation Prompt"'].every(token=>ui.includes(token))&&
+  ['label:"More"','label:"Rooms & times"','label:"Screenplay evidence"','label:"Look & exclusions"','"Additional environment states"',
+    '"Scene dressing & blocking"'].every(token=>!ui.includes(token)));
+ok("location folds follow the tree: the place, then floor plan to cameras to build to style and moving parts, then variants, subspaces and the prompt",
+  ['title:placeGroup.title',step("1 · The Space"),'label:"Narrative Significance"','label:"Look Dev"','label:"Screenplay Coverage"','title:"Space and staging"',step("2 · Floor plan"),
+    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),'label:"Moving parts"','label:"Variants"','label:"Subspaces"','label:"Generation Prompt"']
     .map(token=>ui.indexOf(token)).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
-ok("location style fine-tuning is in Look & exclusions (before Generation Prompt) without a separate Look dev fold",
-  !ui.includes('label:"Look dev"')&&
-  ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('label:"Look & exclusions"')&&
-  ui.indexOf('label:"Look & exclusions"')<ui.indexOf('label:"Generation Prompt"')&&
+ok("location style fine-tuning is in Look Dev (before Generation Prompt), the one place for it",
+  (ui.match(/label:"Look Dev"/g)||[]).length===1&&
+  ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('label:"Look Dev"')&&
+  ui.indexOf('label:"Look Dev"')<ui.indexOf('label:"Generation Prompt"')&&
   ui.includes('label:"Render style instructions"'));
-ok("topology and anchors stay in the space, inside 1 · Describe the place",
-  ui.indexOf('field:"topology",label:"How the rooms connect"')>ui.indexOf(step("1 · Describe the place"))&&
+ok("topology and anchors stay in the space, inside 1 · The Space",
+  ui.indexOf('field:"topology",label:"How the rooms connect"')>ui.indexOf(step("1 · The Space"))&&
   ui.indexOf('"Fixed landmarks"')>ui.indexOf('field:"topology",label:"How the rooms connect"')&&
-  ui.indexOf('"Fixed landmarks"')<ui.indexOf('label:"Narrative significance"'));
+  ui.indexOf('"Fixed landmarks"')<ui.indexOf('label:"Narrative Significance"'));
 ok("location folds provide concise definitions without expanding the headings",
   ui.includes("function LocationSectionHelp")&&
   ui.includes('label:"About The Space"')&&ui.includes("persistent physical location")&&
   ui.includes('label:"About Narrative Significance"')&&ui.includes("means dramatically")&&
-  ui.includes("Rooms & times (the screenplay's sluglines) identify the rooms, times and scenes")&&ui.includes("Lighting & environment"));
+  ui.includes("Variants lists each time of day or state the space is seen in (read from the screenplay's sluglines)")&&ui.includes("Lighting & environment"));
 ok("script evidence and reusable staging have separate roles",
   ui.includes("reusable camera views with their view compositions")&&
   ui.includes("function LocationScreenplayEvidence")&&
@@ -278,10 +281,11 @@ ok("MUSE capability manifest names the approved location architecture",
   ai.includes('{ name:"Location Generation Prompt"')&&
   ai.includes("organizes production work into five explicit layers")&&
   ai.includes("one card represents each established continuity root")&&
-  ai.includes("1 · Describe the place (the space, Narrative significance, Screenplay evidence, Look & exclusions) -> 2 · Floor plan -> 3 · Cameras")&&
+  ai.includes("the place (1 · The Space, Narrative Significance, Look Dev, Screenplay Coverage) -> Space and staging (2 · Floor plan -> 3 · Cameras")&&
+  ai.includes("There is no More section any more.")&&
   ai.includes("TIME-OF-DAY VARIANTS own only persistent environment changes")&&
   ai.includes("COVERAGE VIEWS own reusable visual interpretations tied to Slugline Units")&&
-  ai.includes("Screenplay Evidence shows actual source passages")&&
+  ai.includes("Screenplay Coverage shows actual source passages")&&
   ai.includes("There is NO separate Time-of-Day Variants fold")&&
   ai.includes("SCENE SETUPS hold occurrence-specific blocking"));
 
