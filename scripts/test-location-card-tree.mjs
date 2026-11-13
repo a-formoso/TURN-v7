@@ -333,7 +333,7 @@ test("13 a button is as big as the level it sits at (every Art Room card)", ()=>
   // the two that were the biggest buttons on the card
   assert.ok(css.includes(".loc-spatial-plan .loc-spatial-confirm{justify-content:center;width:100%;min-height:44px;"),"the floor plan's main button, before the level rule");
   assert.ok(sheet.includes('className:"loc-sub","data-testid":"loc-own-blender"'),"Build in Blender sits in a box, so the box rule sizes it");
-  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-cards1", "20261113-bar1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261113-cards1", "20261113-bar1", "20261113-capture1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 
 test("14 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
@@ -358,9 +358,9 @@ test("14 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
   for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
-  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
+    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
 });
 
 console.log(pass+" passed, "+fail+" failed");

@@ -449,10 +449,11 @@ function StyleBibleView({ project, scenes, onSetRefs, onSetScenePreset, onAddRef
       (onSetCapture || capture) && React.createElement("div",{className:"loc-slate-cell sb-target sb-capture"},
         React.createElement("span",{className:"loc-slate-lab"},"Capture",
           React.createElement(InfoTip,{label:"About capture",
-            text:"How the film is shot: format, lens character, grain, how real the capture feels. Written once, it's added word for word to every Stage clip's prompt, so every take shares the same optics. It doesn't change the frames."})),
+            text:"Optional. One lens and capture for the whole film: format, lens character, grain, how real the capture feels. Nothing fills it in for you. Left empty, each scene's clips use that scene's own look (its lens and texture, below) with the film stock. Written here, it's added word for word to every Stage clip's prompt and replaces the looks' lens notes, so every take shares the same optics. It doesn't change the frames."})),
         React.createElement("div",{className:"sb-target-row"},
           React.createElement("span",{className:"sb-target-line"+(capture?"":" empty"),title:capture||""},
-            capture || "Not set \u2014 format, lens, grain"),
+            // empty is a choice, not something missing (owner 2026-11-13: it read as a field that failed to fill)
+            capture || "Optional \u2014 each look\u2019s own lens is used"),
           onSetCapture && React.createElement("button",{type:"button",className:"sb-target-edit","aria-expanded":captureOpen?"true":"false",
             onClick:()=>setCaptureOpen(o=>!o)}, captureOpen ? "Done" : "Edit")),
         captureIssues.length>0 && React.createElement("div",{className:"sb-capture-warn",role:"status"},

@@ -61,7 +61,7 @@ test("3 the crowd card's image area fills the card, like every other card's", ()
 });
 
 test("4 cache keys", ()=>{
-  for(const f of ["styles.css","ai.jsx","script.jsx"]) assert.ok(html.includes("app/"+f+'?v=20261113-bar1"'),f);
+  for(const f of ["styles.css","ai.jsx","script.jsx"]) assert.ok(["20261113-bar1", "20261113-capture1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f);
 });
 
 console.log(pass+" passed, "+fail+" failed");
