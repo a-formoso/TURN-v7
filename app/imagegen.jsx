@@ -461,6 +461,13 @@ function nbBatchCostText(refsList){
   for(const r of (refsList||[])){ const t = Number(nbImageCostText(1, { refs:Number(r)||0 })); if(!(t>0)) return ""; total += t; }
   return total ? String(total) : "";
 }
+/* THE CREDIT MARK (owner 2026-11-13): the sparkle sits on the left of every credit number on a button, so the number
+   reads as what the button spends. One helper, so every chip in the app carries the same mark. */
+function nbCreditMark(size){
+  const R = window.React, ic = window.Icon && window.Icon.sparkles;
+  return (R && ic) ? R.createElement(ic,{ s:size||10, key:"credit-mark" }) : null;
+}
+window.nbCreditMark = nbCreditMark;
 /* small cost chip for Generate/Re-generate buttons. A tiny COMPONENT (not a static
    span) so it re-reads the current model/resolution/quality when the picker fires
    nb-model-changed / nb-settings-changed — otherwise chips deep in sheet cards would
@@ -495,7 +502,7 @@ function NbCostChipInner({ count, opts }){
       +(nbModelGrounds(model) && nbGetGroundSearch() ? " · includes web grounding" : "")
       +(isGptImageModel(model) && !(opts && opts.refs) ? " · each reference image the render attaches adds about 1 credit" : "")
       +(isSeedreamModel(model) && !(opts && opts.refs) ? " · each reference image after the first adds a little (about "+_nbSeedreamRefCreditText()+" credit; at most 10 are used)" : "")},
-    txt);
+    nbCreditMark(), txt);
 }
 function nbCostChip(count, opts){
   if(!window.React) return null;

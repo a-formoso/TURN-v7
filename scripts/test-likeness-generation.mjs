@@ -441,7 +441,8 @@ await test("C2 an edit / remaster of a likeness sheet counts the sheet, the face
 await test("C3 a batch / Design the cast sum each image's own price (photos + worn sheets)", ()=>{
   reset();
   const el = W.LikenessBatchCost({ refs:[3, 0, 4] });
-  assert.equal(el.children[0], String((4+3)+(4+0)+(4+4)));
+  // the number is the chip's last child since 2026-11-13: the credit mark (a sparkle) sits on its left
+  assert.equal(el.children[el.children.length-1], String((4+3)+(4+0)+(4+4)));
   assert.ok(art.includes("batchChip(missingAll)") && art.includes("batchChip(sceneMissing)"));
   assert.ok(art.includes("prompt.refsOf ? React.createElement(window.LikenessBatchCost,{ refs:prompt.missing.map(prompt.refsOf), what:prompt.refsWhat||undefined })"));
   assert.ok(art.includes("? React.createElement(window.LikenessBatchCost,{ refs:lkRefs })"), "Design the cast");

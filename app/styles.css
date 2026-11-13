@@ -7579,7 +7579,11 @@ html[data-theme="light"] .char-voice-btn.on{background:oklch(0.56 0.11 195 / .16
 /* ---- per-image cost chip on Generate/Re-generate buttons (credits, not deducted yet) ---- */
 .nb-cost{display:inline-flex;align-items:center;margin-left:7px;padding:1px 6px;border-radius:var(--r-s);
   font-family:var(--f-mono);font-size:9.5px;font-weight:700;letter-spacing:.02em;line-height:1.5;
-  background:rgba(0,0,0,.12);color:inherit;flex:0 0 auto}
+  background:rgba(0,0,0,.12);color:inherit;flex:0 0 auto;gap:3px}
+/* THE CREDIT MARK (owner 2026-11-13): the sparkle sits left of the number, inside the price, so it reads as what the
+   button spends; the button's own leading sparkle steps aside while a price is shown (one sparkle a button) */
+.nb-cost > svg{flex:none;width:10px;height:10px;color:inherit}
+:is(button,.sheet-tools-item):has(.nb-cost) > svg.ic-sparkles{display:none}
 .sheet-tools-item .nb-cost,.art-draftall.ghost .nb-cost,.sheet-gen-btn .nb-cost{background:var(--bg-3);border:1px solid var(--line-2);opacity:.9}
 
 /* the New Story header and the Story brief (Rebuild as a new film) keep a model PICKER —
@@ -11514,7 +11518,7 @@ video.stage2-lightbox-media{width:96vw;max-width:96vw;max-height:90vh;height:aut
 .ve-video{display:block;width:100%;max-height:220px;border-radius:var(--r-m);background:#000;margin:6px 0}
 .ve-line{font-size:12px;color:var(--txt-1);font-style:italic;margin:0 0 8px}
 .ve-need{font-size:12px;color:var(--txt-2);margin:6px 0}
-.ve-cost{opacity:.75;font-weight:400}
+.ve-cost{opacity:.9}
 .ve-use{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt-1);margin-top:8px;cursor:pointer}
 .ve-err{font-size:12px;color:var(--alert);margin-top:6px}
 .ve-pick{display:grid;gap:6px;margin:8px 0 10px;padding:10px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2)}
@@ -11758,43 +11762,42 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .loc-step-sub{margin:12px 0 4px;font-size:12px;font-weight:600;color:var(--txt-0)}
 /* THE LOCATION CARD AS A TREE (owner 2026-11-13): a variant with the scenes that use it, subspace rows, the moving parts block in the floor plan */
 .loc-parts-section{margin-top:12px}
-/* THE LOCATION CARD, ONE RHYTHM (owner 2026-11-13: "consistent margin bottom and top ... all around the card").
-   One distance, 15px (the room a section's title already has above and below it), separates everything down the card:
-   the name, the step guide, Render style, Scenes and the first section. The rows drop their own margins (they added
-   10-12px on top of the card's gap, on one side only), and the card ends on its last section's own 15px. */
-[data-location-card]{--loc-gap:15px}
-[data-location-card] > .sheet-body{gap:var(--loc-gap);padding:var(--loc-gap) 15px 0}
-[data-location-card] > .sheet-body > .loc-steps,
-[data-location-card] > .sheet-body > .char-style-row,
-[data-location-card] > .sheet-body > .location-scenes,
-[data-location-card] > .sheet-body > .prompt-drift-banner{margin-top:0;margin-bottom:0}
-.artroom [data-location-card] > .sheet-body > .sheet-fold + .sheet-fold{margin-top:calc(-1 * var(--loc-gap))}
-.artroom [data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body{padding-bottom:var(--loc-gap)}
-/* EVERY SUBSECTION IN A BOX (owner 2026-11-13: "borders around each subsection", as 2 · Floor plan has): a field of
-   The Space, Look Dev's two settings and the hand-off to your own Blender get the frame the floor plan's parts have */
-[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body > .sheet-field,
-[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body > .loc-anchor-field,
-[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body > .loc-render-style-details,
-[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body > .loc-sub{border:1px solid var(--line);border-radius:var(--r-m);padding:8px 10px;background:var(--bg-2);min-width:0}
+/* THE ART ROOM CARD, ONE RHYTHM (owner 2026-11-13: "consistent margin bottom and top ... all around the card", first
+   on the location card, then "replicated in the props card, the characters card, all the other ... cards": every card
+   kind is in the list). One distance, 15px (the room a section's title already has above and below it), separates
+   everything down a card: the name, the step guide, Render style, Scenes and the first section. The rows drop their
+   own margins (they added 10-12px on top of the card's gap, on one side only), and a card that ends on a section ends
+   on that section's own 15px. */
+:is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]){--card-gap:15px}
+:is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body{gap:var(--card-gap);padding:var(--card-gap) 15px}
+:is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body:has(> .sheet-fold:last-child){padding-bottom:0}
+:is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body > :is(.loc-steps,.char-style-row,.location-scenes,.sheet-scenes,.prop-scenes,.prompt-drift-banner,.shot-beat-context){margin-top:0;margin-bottom:0}
+.artroom :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body > .sheet-fold + .sheet-fold{margin-top:calc(-1 * var(--card-gap))}
+.artroom :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body > .sheet-fold > .sheet-fold-body{padding-bottom:var(--card-gap)}
+/* EVERY SUBSECTION IN A BOX (owner 2026-11-13: "borders around each subsection", as the location's 2 · Floor plan
+   has): a field directly in a section, Look Dev's settings and the hand-off to your own Blender get the frame the
+   floor plan's parts have */
+:is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body > .sheet-fold > .sheet-fold-body > :is(.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-sub,.char-phys,.role-fields,.sheet-2col,.prop-more-fields,.prop-content-fields,.bs-launch){border:1px solid var(--line);border-radius:var(--r-m);padding:8px 10px;background:var(--bg-2);min-width:0}
 .loc-sub{display:flex;flex-direction:column;gap:8px}
 .loc-sub > .loc-step-sub{margin:0}
-[data-location-card] .loc-sub > .bs-launch{margin-top:0;padding-top:0;border-top:0}   /* the box is its boundary now */
+:is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) .loc-sub > .bs-launch{margin-top:0;padding-top:0;border-top:0}   /* the box is its boundary now */
 [data-location-card] .sheet-fold-body > .loc-render-style-details{display:flex;flex-direction:column;gap:8px}
 [data-location-card] .sheet-fold-body > .loc-render-style-details > *{margin-top:0;margin-bottom:0}
 /* a variant's image area: level with the box above it, and no rule under it (the variant's own frame closes it) */
 [data-location-card] .loc-variant > .sheet-frame{padding:10px 0 0;border-bottom:0}
 /* A BUTTON IS AS BIG AS THE LEVEL IT SITS AT (owner 2026-11-13: "buttons in subsections [can't be] bigger than the
-   sections housing them"). The card: the bar under the image, 36px, and Go, 32px. A section: 32px. A box inside a
-   section: 28px. A box inside a box: 26px. A box's main action keeps its colour, at the box's size and its own width,
-   never a bar across the box (Draft / Edit floor plan and Build in Blender were 44px bars, the biggest buttons on the
-   card). A variant's own image bar stays a bar, a step under the card's. Phones keep their 44px touch sizes. */
+   sections housing them"; every card kind). The card: the bar under the image, 36px, and Go, 32px. A section: 32px.
+   A box inside a section: 28px. A box inside a box: 26px. A box's main action keeps its colour, at the box's size and
+   its own width, never a bar across the box (Draft / Edit floor plan and Build in Blender were 44px bars, the biggest
+   buttons on the card). A variant's own image bar stays a bar, a step under the card's. Phones keep their 44px touch
+   sizes. */
 @media (min-width:641px){
-  [data-location-card]{--loc-btn-section:32px;--loc-btn-box:28px;--loc-btn-deep:26px}
-  [data-location-card] .sheet-fold-body :is(.art-draftall,.char-draft-btn,.bs-launch-button){height:auto;min-height:var(--loc-btn-section);padding:3px 14px;font-size:12.5px;line-height:1.3}
-  [data-location-card] .sheet-fold-body :is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace) :is(.art-draftall,.char-draft-btn,.bs-launch-button){width:auto;max-width:100%;min-height:var(--loc-btn-box);padding:3px 12px;font-size:12px;
+  :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]){--card-btn-section:32px;--card-btn-box:28px;--card-btn-deep:26px}
+  :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) .sheet-fold-body :is(.art-draftall,.char-draft-btn,.bs-launch-button){height:auto;min-height:var(--card-btn-section);padding:3px 14px;font-size:12.5px;line-height:1.3}
+  :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) .sheet-fold-body :is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace,.sheet-fold-body > .bs-launch) :is(.art-draftall,.char-draft-btn,.bs-launch-button){width:auto;max-width:100%;min-height:var(--card-btn-box);padding:3px 12px;font-size:12px;
     white-space:normal;text-align:left;justify-content:flex-start;align-self:flex-start;justify-self:start;border-radius:var(--r-m)}
-  [data-location-card] .sheet-fold-body :is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace) :is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace) :is(.art-draftall,.char-draft-btn,.bs-launch-button){min-height:var(--loc-btn-deep);padding:2px 10px;font-size:11.5px}
-  [data-location-card] .sheet-fold-body .loc-variant .sheet-gen-btn{height:30px;font-size:12px}
+  :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) .sheet-fold-body :is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace) :is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace) :is(.art-draftall,.char-draft-btn,.bs-launch-button){min-height:var(--card-btn-deep);padding:2px 10px;font-size:11.5px}
+  :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) .sheet-fold-body .sheet-gen-btn{height:30px;font-size:12px}   /* an image bar inside a section (a variant, a scale sheet, a state): a step under the card's own */
 }
 [data-location-card] .sheet-fold-body > .loc-step-actions{margin:0;align-items:center}
 [data-location-card] .sheet-fold-body > .loc-step-actions > .loc-section-help{margin:0 0 0 auto}

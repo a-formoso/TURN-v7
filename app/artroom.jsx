@@ -2262,7 +2262,8 @@ function LikenessBatchCost({ refs, what }){
   const n = list.length;
   return React.createElement("span",{className:"nb-cost",
     title:"\u2248 "+total+" generation credit"+(total===1?"":"s")+" for "+n+" image"+(n===1?"":"s")
-      +" \u2014 counting "+(what || "each one's likeness photos and worn-item sheets")}, String(total));
+      +" \u2014 counting "+(what || "each one's likeness photos and worn-item sheets")},
+    typeof window.nbCreditMark==="function" ? window.nbCreditMark() : null, String(total));
 }
 window.LikenessBatchCost = LikenessBatchCost;
 /* saved labels from before the rename ("Cameo likeness") are shown under today's name; stored data is never rewritten */

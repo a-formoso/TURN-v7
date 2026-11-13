@@ -166,7 +166,7 @@ function LocationCloudRender({location,readOnly=false,onUpdate}){
   // views that would come back blocked or empty stop the build until fixed, or kept on purpose for this exact set
   const blockedViews=faulty.length>0&&!otherIssues.length&&(cameraOnly||anyway!==sceneKey);
   const chip=paid&&credits>0&&E("span",{className:"nb-cost","data-testid":"set-build-cost",
-    title:"≈ "+credits+" generation credits a build — held when it's queued, charged when the four views arrive, given back if it fails or you cancel"},String(credits));
+    title:"≈ "+credits+" generation credits a build — held when it's queued, charged when the four views arrive, given back if it fails or you cancel"},typeof window.nbCreditMark==="function"?window.nbCreditMark():null,String(credits));
   return E("section",{className:"loc-cloud-render","data-testid":"location-cloud-render"},
     E("p",{className:"loc-layer-note"},paid
       ?"Builds the room in 3D from the floor plan and cameras, and renders the four views — a plain blockout that keeps every shot's layout consistent; step 5 styles it. Separate from the location image."

@@ -104,7 +104,7 @@ test("nothing saved depends on parseSlug: only the Script view's hinge and cells
 test("the page loads the new script.jsx (it shares ai.jsx's key)", ()=>{
   const html = read("TURN.html");
   for(const f of ["script", "ai"])
-    assert.ok(["20261112-slug1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f+".jsx key");
+    assert.ok(["20261112-slug1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f+".jsx key");
 });
 
 console.log("\n"+checks+" checks passed"+(failed ? ", "+failed+" FAILED" : ""));

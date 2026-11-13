@@ -279,28 +279,35 @@ test("11 first things first: with no description yet, the bar under the image op
   assert.ok(!/select/.test(landmarks)&&landmarks.includes('"Fixed landmarks"')&&landmarks.includes("anchorsLocked"),"Fixed landmarks keeps its lock, which the image prompt reads");
 });
 
-test("12 one rhythm down the card, and every subsection in a box", ()=>{
+test("12 one rhythm down the card, and every subsection in a box (every Art Room card)", ()=>{
   // (owner 2026-11-13) one distance between the name, the step guide, Render style, Scenes and the first section; the
-  // rows' own one-sided margins are gone; the card ends on its last section's own space
+  // rows' own one-sided margins are gone; a card that ends on a section ends on that section's own space. First on the
+  // location card, then "replicated in the props card, the characters card, all the other ... cards".
+  const CARD=":is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card])";
   const rule=sel=>{ const i=css.indexOf(sel); assert.ok(i>=0,"styles have "+sel); return css.slice(i,css.indexOf("}",i)+1); };
-  assert.ok(css.includes("[data-location-card]{--loc-gap:15px}"));
-  assert.equal(rule("[data-location-card] > .sheet-body{"),"[data-location-card] > .sheet-body{gap:var(--loc-gap);padding:var(--loc-gap) 15px 0}");
-  const rows=rule("[data-location-card] > .sheet-body > .loc-steps,");
-  for(const r of [".loc-steps",".char-style-row",".location-scenes"]) assert.ok(rows.includes("> .sheet-body > "+r),r);
-  assert.ok(rows.endsWith("{margin-top:0;margin-bottom:0}"));
-  assert.equal(rule(".artroom [data-location-card] > .sheet-body > .sheet-fold + .sheet-fold{"),
-    ".artroom [data-location-card] > .sheet-body > .sheet-fold + .sheet-fold{margin-top:calc(-1 * var(--loc-gap))}");
-  assert.ok(rule(".artroom [data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body{").includes("padding-bottom:var(--loc-gap)"));
+  assert.ok(css.includes(CARD+"{--card-gap:15px}"));
+  assert.equal(rule(CARD+" > .sheet-body{"),CARD+" > .sheet-body{gap:var(--card-gap);padding:var(--card-gap) 15px}");
+  assert.equal(rule(CARD+" > .sheet-body:has("),CARD+" > .sheet-body:has(> .sheet-fold:last-child){padding-bottom:0}");
+  assert.equal(rule(CARD+" > .sheet-body > :is(.loc-steps,"),
+    CARD+" > .sheet-body > :is(.loc-steps,.char-style-row,.location-scenes,.sheet-scenes,.prop-scenes,.prompt-drift-banner,.shot-beat-context){margin-top:0;margin-bottom:0}");
+  assert.equal(rule(".artroom "+CARD+" > .sheet-body > .sheet-fold + .sheet-fold{"),
+    ".artroom "+CARD+" > .sheet-body > .sheet-fold + .sheet-fold{margin-top:calc(-1 * var(--card-gap))}");
+  assert.ok(rule(".artroom "+CARD+" > .sheet-body > .sheet-fold > .sheet-fold-body{").includes("padding-bottom:var(--card-gap)"));
+  // every kind of card the Art Room draws is in the list
+  const kinds=new Set(); for(const f of ["artroom.jsx","locations-ui.jsx","shots-ui.jsx","props.jsx","lookbook.jsx"]){
+    let src=""; try{ src=read("app/"+f); }catch(e){ continue; } for(const m of src.matchAll(/"(data-[a-z]+-card)"/g)) kinds.add(m[1]); }
+  assert.ok(kinds.size>=5,"found the card kinds"); for(const k of kinds) assert.ok(CARD.includes("["+k+"]"),k+" is in the list");
   // a section title keeps the same 15px above and below it, which is what the gap matches
   assert.ok(/\.sheet-fold-head\{[^}]*\n?\s*padding:15px 6px 15px 0;/.test(css));
   // these rules come after the Art Room's general ones they adjust
-  assert.ok(css.indexOf("[data-location-card]{--loc-gap:15px}")>css.indexOf(".artroom .sheet-card .sheet-body > .sheet-fold + .sheet-fold{margin-top:-11px}"));
-  // the frame the floor plan's parts have, on a field, Look Dev's settings and the hand-off to your own Blender
-  const box=rule("[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-body > .sheet-field,");
-  for(const r of [".sheet-field",".loc-anchor-field",".loc-render-style-details",".loc-sub"]) assert.ok(box.includes("> .sheet-fold-body > "+r),r);
+  assert.ok(css.indexOf(CARD+"{--card-gap:15px}")>css.indexOf(".artroom .sheet-card .sheet-body > .sheet-fold + .sheet-fold{margin-top:-11px}"));
+  // the frame the floor plan's parts have, on a field, Look Dev's settings, the paired and "more detail" fields and the
+  // hand-off to your own Blender
+  const box=rule(CARD+" > .sheet-body > .sheet-fold > .sheet-fold-body > :is(.sheet-field,");
+  for(const r of [".sheet-field",".loc-anchor-field",".loc-render-style-details",".loc-sub",".char-phys",".role-fields",".sheet-2col",".prop-more-fields",".prop-content-fields",".bs-launch"]) assert.ok(box.includes(r),r);
   assert.ok(box.endsWith("{border:1px solid var(--line);border-radius:var(--r-m);padding:8px 10px;background:var(--bg-2);min-width:0}"));
   assert.ok(/\.loc-evidence-source,\.loc-nested-section\{border:1px solid var\(--line\);border-radius:var\(--r-m\);padding:8px 10px;background:var\(--bg-2\)\}/.test(css),"the same frame as the floor plan's parts");
-  assert.ok(css.includes("[data-location-card] .loc-sub > .bs-launch{margin-top:0;padding-top:0;border-top:0}"));
+  assert.ok(css.includes(CARD+" .loc-sub > .bs-launch{margin-top:0;padding-top:0;border-top:0}"));
   assert.ok(css.includes("[data-location-card] .loc-variant > .sheet-frame{padding:10px 0 0;border-bottom:0}"));
   // step 1: the help sits on the Draft row, not on a row of its own
   const space=sheet.slice(at('label:"1 \\u00b7 The Space"'),at('"data-testid":"loc-screenplay-coverage"'));
@@ -308,25 +315,25 @@ test("12 one rhythm down the card, and every subsection in a box", ()=>{
   assert.ok(css.includes("[data-location-card] .sheet-fold-body > .loc-step-actions > .loc-section-help{margin:0 0 0 auto}"));
 });
 
-test("13 a button is as big as the level it sits at", ()=>{
+test("13 a button is as big as the level it sits at (every Art Room card)", ()=>{
   // (owner 2026-11-13) the card's bar 36px and Go 32px; a section 32px; a box in a section 28px; a box in a box 26px
+  const CARD=":is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card])";
   const a=css.indexOf("/* A BUTTON IS AS BIG AS THE LEVEL IT SITS AT"); assert.ok(a>0);
   const block=css.slice(a,css.indexOf("\n}\n",a)+3);
   assert.ok(block.includes("@media (min-width:641px){"),"phones keep their 44px touch sizes");
-  assert.ok(block.includes("[data-location-card]{--loc-btn-section:32px;--loc-btn-box:28px;--loc-btn-deep:26px}"));
-  const BOX=":is(.loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace)";
+  assert.ok(block.includes(CARD+"{--card-btn-section:32px;--card-btn-box:28px;--card-btn-deep:26px}"));
+  const BOXES=".loc-nested-section,.loc-sub,.loc-variant,.loc-step-fixes,.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-evidence-source,.loc-map-check,.loc-subspace";
   const BTN=":is(.art-draftall,.char-draft-btn,.bs-launch-button)";
-  assert.ok(block.includes("[data-location-card] .sheet-fold-body "+BTN+"{height:auto;min-height:var(--loc-btn-section);"));
-  const boxed=block.slice(block.indexOf("[data-location-card] .sheet-fold-body "+BOX+" "+BTN+"{"));
-  assert.ok(boxed.startsWith("[data-location-card] .sheet-fold-body "+BOX+" "+BTN+"{width:auto;max-width:100%;min-height:var(--loc-btn-box);"),"a box's action: its own width, the box's size");
-  assert.ok(block.includes("[data-location-card] .sheet-fold-body "+BOX+" "+BOX+" "+BTN+"{min-height:var(--loc-btn-deep);"));
-  assert.ok(block.includes("[data-location-card] .sheet-fold-body .loc-variant .sheet-gen-btn{height:30px;font-size:12px}"),"a variant's image bar is a step under the card's");
+  assert.ok(block.includes(CARD+" .sheet-fold-body "+BTN+"{height:auto;min-height:var(--card-btn-section);"));
+  assert.ok(block.includes(CARD+" .sheet-fold-body :is("+BOXES+",.sheet-fold-body > .bs-launch) "+BTN+"{width:auto;max-width:100%;min-height:var(--card-btn-box);"),"a box's action: its own width, the box's size");
+  assert.ok(block.includes(CARD+" .sheet-fold-body :is("+BOXES+") :is("+BOXES+") "+BTN+"{min-height:var(--card-btn-deep);"));
+  assert.ok(block.includes(CARD+" .sheet-fold-body .sheet-gen-btn{height:30px;font-size:12px}"),"an image bar inside a section is a step under the card's");
   // the sizes they are measured against
   assert.ok(/\.sheet-gen-btn\{[^}]*height:36px/.test(css)&&/\.art-draftall\{[^}]*height:32px/.test(css));
   // the two that were the biggest buttons on the card
   assert.ok(css.includes(".loc-spatial-plan .loc-spatial-confirm{justify-content:center;width:100%;min-height:44px;"),"the floor plan's main button, before the level rule");
   assert.ok(sheet.includes('className:"loc-sub","data-testid":"loc-own-blender"'),"Build in Blender sits in a box, so the box rule sizes it");
-  assert.ok(html.includes('app/styles.css?v=20261113-buttons1"'));
+  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-cards1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 
 test("14 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
@@ -351,9 +358,9 @@ test("14 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
   for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
-  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
+    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
 });
 
 console.log(pass+" passed, "+fail+" failed");

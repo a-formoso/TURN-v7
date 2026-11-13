@@ -1,6 +1,6 @@
 /* icons.jsx — line icons (1.6 stroke, currentColor) + helpers */
-const I = ({d, s=16, sw=1.6, fill=false, children, vb=24}) =>
-  React.createElement("svg",{width:s,height:s,viewBox:`0 0 ${vb} ${vb}`,fill:fill?"currentColor":"none",
+const I = ({d, s=16, sw=1.6, fill=false, children, vb=24, cls}) =>
+  React.createElement("svg",{width:s,height:s,viewBox:`0 0 ${vb} ${vb}`,className:cls||undefined,fill:fill?"currentColor":"none",
     stroke:fill?"none":"currentColor",strokeWidth:sw,strokeLinecap:"round",strokeLinejoin:"round"},
     d?React.createElement("path",{d}):children);
 
@@ -38,7 +38,8 @@ const Icon = {
     React.createElement("circle",{key:2,cx:6,cy:18,r:2.4}),
     React.createElement("path",{key:3,d:"M8 8l12 8M8 16l12-8"})]}),
   alert:(p)=>I({...p,d:"M12 8v5M12 17h.01M10.3 3.5L2.5 18a2 2 0 001.7 3h15.6a2 2 0 001.7-3L13.7 3.5a2 2 0 00-3.4 0z"}),
-  sparkles:(p)=>I({...p,d:"M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.3L12 3zM19 14l.8 2.2 2.2.8-2.2.8L19 20l-.8-2.2-2.2-.8 2.2-.8L19 14z"}),
+  // named, so a button that shows its price can let the price carry the sparkle (owner 2026-11-13; styles.css .nb-cost)
+  sparkles:(p)=>I({...p,cls:"ic-sparkles",d:"M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.3L12 3zM19 14l.8 2.2 2.2.8-2.2.8L19 20l-.8-2.2-2.2-.8 2.2-.8L19 14z"}),
   target:(p)=>I({...p,children:[
     React.createElement("circle",{key:1,cx:12,cy:12,r:8}),
     React.createElement("circle",{key:2,cx:12,cy:12,r:3.2})]}),

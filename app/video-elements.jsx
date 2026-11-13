@@ -292,7 +292,9 @@ function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate, bare=fa
       title:"Voices “"+line+"” in their locked voice, then renders "+cost.secs+" seconds of them saying it (Seedance 2.5, 480p) — about "+cost.total+" credits. Asks first.",
       onClick:make},
       React.createElement(Icon.sparkles,{s:12}), working ? (status||"Working…") : (s.url ? "Make it again" : "Make video element"),
-      !working && React.createElement("span",{className:"ve-cost"}," · "+cost.total+" credits")),
+      // the price as every other button shows it: the credit mark, then the number (it read " · 12 credits" until 2026-11-13)
+      !working && React.createElement("span",{className:"nb-cost ve-cost",title:"About "+cost.total+" credits"},
+        typeof window.nbCreditMark==="function" ? window.nbCreditMark() : null, String(cost.total))),
     s.url && !readOnly && typeof onUpdate==="function" && React.createElement("label",{className:"ve-use"},
       React.createElement("input",{type:"checkbox",checked:!c.videoElementOff,onChange:e=>onUpdate(c.id,{ videoElementOff:!e.target.checked })}),
       " Send it with this character's Stage clips"),
