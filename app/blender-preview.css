@@ -129,6 +129,17 @@ html[data-theme="light"] .bp-pair-code,.bp-panel{box-shadow:0 1px 2px rgba(24,25
 .loc-style-generate-row>.loc-style-generate{flex:1 1 0;min-width:0;justify-content:center;height:auto;min-height:40px;padding:8px 12px;white-space:normal}
 .loc-style-generate-row>.loc-style-cancel{flex:0 0 auto;min-height:40px;height:auto;padding:8px 14px;white-space:nowrap}
 @container style-preview (max-width:290px){.loc-style-actions{grid-template-columns:1fr}.loc-style-actions>.art-draftall{grid-column:1/-1}}
+/* the drafts kept on the card (2026-11-15): the current one large, the earlier ones as a strip */
+.style-drafts{margin-top:14px;border:1px solid var(--line);border-radius:var(--r-m,8px);padding:8px 10px;background:var(--bg-2);min-width:0}
+.style-draft,.style-draft-earlier{display:flex;flex-direction:column;gap:8px;min-width:0}
+.style-draft-thumb{display:block;box-sizing:border-box;width:100%;padding:0;border:1px solid var(--line);border-radius:var(--r-s,6px);overflow:hidden;background:var(--bg-3);cursor:pointer;aspect-ratio:16/9;font:inherit;color:inherit}
+.style-draft-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.style-draft-thumb:disabled{cursor:default;opacity:.7}
+.style-draft-thumb:hover:not(:disabled),.style-draft-thumb:focus-visible{border-color:var(--accent)}
+.style-draft-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px}
+.style-draft-thumb.small{aspect-ratio:auto}
+.style-draft-thumb.small img{height:auto;aspect-ratio:16/9}
+.style-draft-thumb.small span{display:block;padding:4px 6px;font-size:10.5px;line-height:1.35;color:var(--txt-2);text-align:left}
 .loc-style-notes{display:grid;gap:6px;font-size:12px;margin:12px 0}
 .loc-style-notes select{font:inherit;background:var(--bg-2);color:var(--txt-1);border:1px solid var(--line);padding:8px;border-radius:5px;width:100%;min-width:0;box-sizing:border-box}
 .loc-style-notes textarea{width:100%;box-sizing:border-box;min-height:70px;resize:vertical;background:var(--bg-2);color:var(--txt-1);border:1px solid var(--line);border-radius:6px;padding:8px;font:inherit}

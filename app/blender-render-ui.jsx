@@ -169,8 +169,8 @@ function LocationCloudRender({location,readOnly=false,onUpdate}){
     title:"≈ "+credits+" generation credits a build — held when it's queued, charged when the four views arrive, given back if it fails or you cancel"},typeof window.nbCreditMark==="function"?window.nbCreditMark():null,String(credits));
   return E("section",{className:"loc-cloud-render","data-testid":"location-cloud-render"},
     E("p",{className:"loc-layer-note"},paid
-      ?"Builds the room in 3D from the floor plan and cameras, and renders the four views — a plain blockout that keeps every shot's layout consistent; step 6 styles it. Separate from the location image."
-      :"Builds the room in 3D from the floor plan and cameras, and renders the four views. Free during the pilot; separate from the location image."),
+      ?"The same set as 4 · Previs, from the same floor plan and cameras, built and rendered by Blender in the cloud: finer light and shadow on plain shapes, without the Previs dressing. It takes a few minutes. 6 · Style it then repaints these four views. Separate from the location image."
+      :"The same set as 4 · Previs, from the same floor plan and cameras, built and rendered by Blender in the cloud. Free during the pilot; separate from the location image."),
     !canBuild&&E("p",{className:"loc-layer-note","data-testid":"set-build-role"},"The film's owner or its Art director builds the set; you can see what they built."),
     (blockedViews?otherIssues:issues).length>0&&cloudFixList(location,blockedViews?otherIssues:issues),
     // the camera check: which views would come back blocked or empty, and the one-press fix

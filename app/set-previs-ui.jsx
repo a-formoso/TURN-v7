@@ -73,14 +73,14 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
   const phaseText={drawing:"Drawing the sheet\u2026",generating:"Making the image\u2026 about a minute",saving:"Saving the image\u2026"}[phase]||"Making the image\u2026";
   const imageName=(imageN?imageN+" \u00b7 ":"")+"Location image";
   if(error&&!sheet)return E(React.Fragment,null,
-    E("p",{className:"loc-layer-note","data-testid":"previs-intro"},"A live 3D version of this set, drawn from its floor plan and its four cameras."),
+    E("p",{className:"loc-layer-note","data-testid":"previs-intro"},"The set in 3D, drawn in your browser from its floor plan and its four cameras. It is free and redraws at once."),
     E("div",{className:"loc-step-fixes","data-testid":"previs-not-ready"},
       E("p",{className:"loc-step-fixes-head"},"Previs needs the floor plan and the cameras first."),
       E("p",{style:{margin:"0 0 8px"}},error),
       E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Go to 2 \u00b7 Floor plan")));
   return E(React.Fragment,null,
     E("p",{className:"loc-layer-note","data-testid":"previs-intro"},
-      "A live 3D version of this set, drawn from 2 \u00b7 Floor plan and 3 \u00b7 Cameras. Check where everything stands, dress it for the film, then make the location image from it."),
+      "The set in 3D, drawn in your browser from 2 \u00b7 Floor plan and 3 \u00b7 Cameras. It is free and redraws at once. Check where everything stands, dress the set for this film, then make the location image from it."),
     E("div",{className:"loc-sub previs-view","data-testid":"previs-sheet"},
       E("h4",{className:"loc-step-sub"},"The set from its four cameras"),
       E("div",{className:"previs-sheet"+(drawing?" drawing":""),"aria-busy":drawing?"true":"false"},

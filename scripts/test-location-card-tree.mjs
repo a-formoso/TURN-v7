@@ -209,7 +209,7 @@ test("8 Build the set and Style it show where a set can be built; Blender and th
   assert.ok(image.includes('foldId:"loc-image-"+l.id,count:stepCount(sectionNo.image)'),"the image section has its own fold id: step ids 4 to 6 belong to Previs, Build the set and Style it");
   assert.ok(image.includes('React.createElement("h4",{className:"loc-step-sub"},"Look Dev")')&&image.includes('className:"loc-render-style-details"'));
   assert.ok(image.includes("onUpdate(l.id,{negativePrompt:val})")&&image.includes("window.QaCheckButton && gen.genUrl && React.createElement("),"the check takes a row only when there is an image");
-  assert.ok(image.includes('"Generate the image at the top of the card. It is made from 1 \\u00b7 The Space and the look set here."'));
+  assert.ok(image.includes('"data-testid":"loc-image-step-note"},locationImageStepNote({previs:showPrevis,style:buildHere})),'),"the section's first line names every way this card makes the image");
   const prompt=sheet.slice(at(numbered("prompt","Generation Prompt")));
   assert.ok(!prompt.includes("window.QaCheckButton")&&prompt.includes('"data-testid":"loc-prompt-built-from"'));
   const built=l=>vm.runInNewContext(sheet.slice(sheet.indexOf("const promptBuiltFrom="),sheet.indexOf("// the time of day beside each scene"))+";promptBuiltFrom",{l});
@@ -335,7 +335,7 @@ test("13 a button is as big as the level it sits at (every Art Room card)", ()=>
   // the two that were the biggest buttons on the card
   assert.ok(css.includes(".loc-spatial-plan .loc-spatial-confirm{justify-content:center;width:100%;min-height:44px;"),"the floor plan's main button, before the level rule");
   assert.ok(sheet.includes('className:"loc-sub","data-testid":"loc-own-blender"'),"Build in Blender sits in a box, so the box rule sizes it");
-  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 
 test("14 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
@@ -360,9 +360,9 @@ test("14 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
   for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3"].some(k=>html.includes("app/styles.css?v="+k+'"')));
-  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
+    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
 });
 
 test("15 Previs: step 4 on every card, ahead of Build the set; optional, done once the set is dressed", ()=>{
@@ -403,9 +403,33 @@ test("15 Previs: step 4 on every card, ahead of Build the set; optional, done on
   const ai=read("app/ai.jsx"),html=read("TURN.html");
   assert.ok(ai.includes('name:"Previs (the set in 3D on a location card)"')&&ai.includes("DRESS THE SET")&&ai.includes("MAKE THE LOCATION IMAGE"));
   for(const f of ["set-dressing.js","set-previs.js","set-previs-ui.jsx","locations-ui.jsx","ai.jsx","styles.css"])
-    assert.ok(["20261115-previs2", "20261115-previs3"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
+    assert.ok(["20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
   assert.ok(html.indexOf("app/set-previs.js")>html.indexOf("app/camera-angle-preview.js")&&html.indexOf("app/set-dressing.js")>html.indexOf("app/blender-render.js"));
   assert.ok(css.includes(".previs-sheet{aspect-ratio:16/9;"));
+});
+
+test("16 what each 3D step is for: Previs, Build the set and Style it say how they relate; style drafts stay on the card", ()=>{
+  // owner 2026-11-15: "we have previs and then we have build the set, which looks to me like it's doing the same thing"
+  const previs=read("app/set-previs-ui.jsx"),build=read("app/blender-render-ui.jsx"),style=read("app/blender-style-ui.jsx");
+  assert.ok(previs.includes('"The set in 3D, drawn in your browser from 2 \\u00b7 Floor plan and 3 \\u00b7 Cameras. It is free and redraws at once.'),"Previs: where it is drawn and that it is free");
+  assert.ok(build.includes('"The same set as 4 · Previs, from the same floor plan and cameras, built and rendered by Blender in the cloud: finer light and shadow on plain shapes, without the Previs dressing.'),"Build the set: the same set, and what is different");
+  assert.ok(build.includes("6 · Style it then repaints these four views."));
+  assert.ok(style.includes("The image engine repaints the four views built in step 5 in this card's render style.")&&style.includes("Each result is a draft, kept below until you discard it."),"Style it: what it does, and that drafts are kept");
+  // the Location image section names every way this card can make the image
+  const note=box.locationImageStepNote;
+  assert.equal(note({previs:false,style:false}),"The finished image of this place, shown at the top of the card. Make it with Generate at the top of the card, from the description in 1 \u00b7 The Space. The look set here is used whichever way it is made.");
+  assert.equal(note({previs:true,style:false}),"The finished image of this place, shown at the top of the card. Make it with Generate at the top of the card, from the description in 1 \u00b7 The Space; or in 4 \u00b7 Previs, from the set in 3D. The look set here is used whichever way it is made.");
+  assert.ok(note({previs:true,style:true}).includes("in 4 \u00b7 Previs, from the set in 3D; or in 6 \u00b7 Style it, from the built set."));
+  // style drafts: shown in the section, kept until discarded; the review is named for what it does
+  assert.ok(style.includes('"data-testid":"style-drafts"')&&style.includes('"data-testid":"style-draft-current"')&&style.includes('"data-testid":"style-drafts-earlier"'));
+  assert.ok(style.includes('"Review draft"')&&style.includes('"Discard draft"')&&style.includes('"Use as location image"')&&style.includes('"Make this the current draft"'));
+  for(const old of ["Compare with Blender","Reject draft","Use as location artwork","Style preview"])assert.ok(!style.includes('"'+old+'"'),old+" is gone from the step");
+  const api=read("app/blender-style.js");
+  assert.ok(api.includes("async function earlier(id,s){")&&api.includes("async function restore(id,iso,s){return locked(id,s,async()=>{")&&api.includes("root.nbRevertAsset(slot(id),index)"),"earlier drafts are read and swapped, never regenerated or deleted");
+  // Frances knows the difference and the kept drafts; the page loads the changed files
+  assert.ok(ai.includes("HOW PREVIS AND BUILD THE SET DIFFER")&&ai.includes("STYLE DRAFTS STAY ON THE CARD (2026-11-15)")&&!ai.includes("Compare with Blender")&&!ai.includes("Use as location artwork"));
+  for(const f of ["blender-style.js","blender-style-ui.jsx","blender-render-ui.jsx","set-previs-ui.jsx","locations-ui.jsx","ai.jsx","blender-preview.css"])
+    assert.ok(["20261115-drafts1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
 });
 
 console.log(pass+" passed, "+fail+" failed");

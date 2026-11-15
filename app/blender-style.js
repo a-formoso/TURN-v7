@@ -161,6 +161,22 @@
     }
     return null;
   }
+  // A draft the user discarded: the saved decision for that exact version.
+  const discarded=meta=>!!meta?.approval&&meta.approval.iso===meta.iso&&meta.approval.approved===false;
+  /* EARLIER DRAFTS (owner 2026-11-15: a draft stays on the card until it is discarded). The versions saved before the
+     current draft, newest first, without the discarded ones. Looking only: nothing is generated, charged or changed. */
+  async function earlier(id,s){
+    const saved=await details(slot(id),s),out=[];
+    for(const d of saved?.history||[]){
+      if(!d?.url)continue;
+      try{verify(d.meta,id,s);}catch(_){continue;}
+      if(discarded(d.meta))continue;
+      const ref=d.refs?.find(r=>r.kind==="blender-style-source"&&!r.deleted);
+      out.push({url:d.url,meta:d.meta,source:ref?.url||""});
+      if(out.length>=6)break;
+    }
+    assertScope(s,false);return out;
+  }
   async function locked(id,s,fn){
     assertScope(s);const k=key(s,id);if(active.has(k))throw Error("A style request for this location is already in progress.");
     active.add(k);announce(id);
@@ -244,6 +260,16 @@
     }
     assertScope(s);unsaved.delete(key(s,id));marker(s,id,null);announce(id,true);return result;
   });}
+  // An earlier draft becomes the current one again; the draft it replaces stays with the earlier ones. No image call.
+  async function restore(id,iso,s){return locked(id,s,async()=>{
+    const saved=await details(slot(id),s),index=(saved?.history||[]).findIndex(d=>d?.url&&d.meta?.iso===iso);
+    if(!iso||index<0)throw Error("That earlier draft is no longer saved.");
+    verify(saved.history[index].meta,id,s);
+    if(typeof root.nbRevertAsset!=="function")throw Error("Earlier drafts cannot be brought back here.");
+    const result=await root.nbRevertAsset(slot(id),index);assertScope(s);
+    if(!result?.url)throw Error("The earlier draft could not be brought back. Nothing was changed.");
+    announce(id,true);return load(id,s);
+  });}
   async function reject(id,draft,s){return locked(id,s,async()=>{
     const current=await details(slot(id),s);verify(current.meta,id,s);
     if(current.meta.iso!==draft.meta.iso)throw Error("A newer draft is available. Reopen the review.");
@@ -284,5 +310,5 @@
     const recorded=await root.nbSetAssetApproval(slot(id),meta.iso,true,"cloud-set-style-accepted");
     announce(id,true);return {...saved,reviewRecorded:!!recorded?.ok};
   });}
-  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,assetOf:t=>assetOf(T(t)),pending,settings,appearance,briefKey,sceneKey,prompt,visibilityNotes,compose,load,comparisonPair,generate,cancel,retrySave,accept,reject};
+  root.KinolotSetStyle={ENGINES,estimateSeconds,enabled,slot,assetOf:t=>assetOf(T(t)),pending,settings,appearance,briefKey,sceneKey,prompt,visibilityNotes,compose,load,comparisonPair,earlier,restore,discarded,generate,cancel,retrySave,accept,reject};
 })(typeof window!=="undefined"?window:globalThis);

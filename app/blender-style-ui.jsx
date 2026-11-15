@@ -1,4 +1,6 @@
-/* Optional, reviewed styling of a completed cloud set; never auto-adopts artwork. */
+/* Optional, reviewed styling of a completed cloud set; never auto-adopts artwork.
+   Drafts stay on the card (owner 2026-11-15): the current draft and the earlier ones are shown in the section, each
+   kept until it is discarded; closing the review loses nothing. */
 function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
   const api=window.KinolotSetStyle;
   // what this draft becomes: the location image, or a moving-part state's own image ("Stern ramp lowered")
@@ -35,12 +37,22 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
   const [engine,setEngine]=React.useState(api.ENGINES[0]);
   const [phase,setPhase]=React.useState(""),[phaseAt,setPhaseAt]=React.useState(0),[now,setNow]=React.useState(0);
   const [pair,setPair]=React.useState(null),[compareMode,setCompareMode]=React.useState("source");
+  // the earlier drafts kept with the current one, and the earlier draft open in the review (null = the current draft)
+  const [earlier,setEarlier]=React.useState([]),[viewing,setViewing]=React.useState(null);
   React.useEffect(()=>{
     let live=true;setPair(null);
     if(scope)api.comparisonPair(goal,scope).then(p=>{if(live)setPair(p);}).catch(e=>{if(live)setError(e.message);});
     return ()=>{live=false;};
   },[scopeKey,tick,draft?.meta?.iso,draft?.meta?.approval?.approved]);
+  React.useEffect(()=>{
+    let live=true;
+    if(scope&&api.earlier)api.earlier(goal,scope).then(list=>{if(live)setEarlier(list||[]);}).catch(()=>{if(live)setEarlier([]);});
+    else setEarlier([]);
+    return ()=>{live=false;};
+  },[scopeKey,tick,draft?.meta?.iso,draft?.meta?.approval?.approved]);
   const step=p=>{if(valid()){setPhase(p);setPhaseAt(Date.now());setNow(Date.now());}};
+  // open the review on the current draft, or on an earlier one (to look at, or to make current again)
+  const openReview=which=>{setViewing(which||null);setCompareMode("source");setChecked(false);setImagesReady({source:false,draft:false});setReview(true);};
   React.useEffect(()=>{
     if(!phase)return;const timer=setInterval(()=>setNow(Date.now()),1000);return ()=>clearInterval(timer);
   },[phase]);
@@ -58,7 +70,7 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
   async function generate(){
     if(operating.current||busy||readOnly||!scope||!choice)return;operating.current=true;setBusy(true);setError("");setNotice("");step("preparing");
     const token=++generation.current,isCurrent=()=>valid()&&generation.current===token;
-    try{const d=await api.generate(goal,job,scope,{settings:choice,notes,retryConfirmed:retry,onPhase:p=>{if(isCurrent())step(p);}});if(isCurrent()){setDraft(d);setCompareMode("source");setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
+    try{const d=await api.generate(goal,job,scope,{settings:choice,notes,retryConfirmed:retry,onPhase:p=>{if(isCurrent())step(p);}});if(isCurrent()){setDraft(d);openReview(null);setRetry(false);}}
     catch(e){if(isCurrent())setError(e.message);}
     finally{if(generation.current===token)operating.current=false;if(isCurrent()){setBusy(false);setPhase("");}}
   }
@@ -76,7 +88,7 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
     try{
       const result=use?await api.accept(goal,draft,scope,checked):await api.reject(goal,draft,scope);
       if(valid()){
-        setNotice(use?(partState?"Saved as the \u201c"+partState.label+"\u201d image. Shots at those moments use it in place of the location image.":"Location artwork updated. Its previous image remains in version history."):"Draft rejected. Location artwork was not changed.");
+        setNotice(use?(partState?"Saved as the \u201c"+partState.label+"\u201d image. Shots at those moments use it in place of the location image.":"The location image was updated. The image before it stays in the card's versions."):"Draft discarded. The location image was not changed.");
         setDraft(await api.load(goal,scope));setReview(false);setChecked(false);
         if(use&&result.reviewRecorded===false)setNotice("Artwork saved. Refresh to verify the draft's review marker before any further action.");
       }
@@ -85,31 +97,47 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
   }
   async function retrySave(){
     if(busy||readOnly||!scope)return;operating.current=true;setBusy(true);setError("");step("saving");
-    try{const d=await api.retrySave(goal,scope);if(valid()){setDraft(d);setCompareMode("source");setChecked(false);setImagesReady({source:false,draft:false});setReview(true);setRetry(false);}}
+    try{const d=await api.retrySave(goal,scope);if(valid()){setDraft(d);openReview(null);setRetry(false);}}
     catch(e){if(valid())setError(e.message);}
     finally{operating.current=false;if(valid()){setBusy(false);setPhase("");}}
   }
+  // an earlier draft becomes the current one again (no image call); the one it replaces joins the earlier drafts
+  async function bringBack(d){
+    if(busy||readOnly||!scope||!d)return;operating.current=true;setBusy(true);setError("");
+    try{
+      const now=await api.restore(goal,d.meta.iso,scope);
+      if(valid()){setDraft(now);setViewing(null);setReview(false);setChecked(false);
+        setNotice("That draft is the current one again. The draft it replaced is kept with the earlier drafts.");}
+    }catch(e){if(valid())setError(e.message);}
+    finally{operating.current=false;if(valid())setBusy(false);}
+  }
   const E=React.createElement;
   const controls=()=>E("div",{className:"loc-cloud-render-actions"},
-    E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||stale||decided||!checked||!draft?.source||!imagesReady.source||!imagesReady.draft,onClick:()=>decide(true)},partState?"Use as the \u201c"+partState.label+"\u201d image":"Use as location artwork"),
-    E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy||decided,onClick:()=>decide(false)},"Reject draft"));
+    E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy||stale||decided||!checked||!draft?.source||!imagesReady.source||!imagesReady.draft,onClick:()=>decide(true)},partState?"Use as the \u201c"+partState.label+"\u201d image":"Use as location image"),
+    E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy||decided,onClick:()=>decide(false)},"Discard draft"));
   const label={all:"All four views",TL:"Top left",TR:"Top right",BL:"Bottom left",BR:"Bottom right"};
   const position={all:[0,0],TL:[0,0],TR:[-100,0],BL:[0,-100],BR:[-100,-100]}[camera];
   const imageStyle={width:camera==="all"?"100%":"200%",height:camera==="all"?"100%":"200%",left:position[0]+"%",top:position[1]+"%"};
   const engineView=compareMode==="engines";
   const engineLabel=d=>window.nbModelLabel(d.meta.modelId)+(d.meta.quality?" · "+d.meta.quality:"")+(d.meta.size?" · "+d.meta.size:"");
-  const leftImage=engineView?pair?.left.url:draft?.source,rightImage=engineView?pair?.right.url:draft?.url;
-  const leftLabel=engineView?(pair?engineLabel(pair.left):"First engine"):"Blender source",rightLabel=engineView?(pair?engineLabel(pair.right):"Second engine"):"Styled draft";
+  // what the review shows: the current draft, or an earlier one opened from the card
+  const shown=viewing||draft;
+  const leftImage=engineView?pair?.left.url:(shown?.source||shown?.url),rightImage=engineView?pair?.right.url:shown?.url;
+  const leftLabel=engineView?(pair?engineLabel(pair.left):"First engine"):"Built set (step 5)",rightLabel=engineView?(pair?engineLabel(pair.right):"Second engine"):"Styled draft";
+  const when=iso=>{try{return new Date(iso).toLocaleString(undefined,{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});}catch(_){return "";}};
+  const draftLine=d=>engineLabel(d)+(when(d.meta.iso)?" \u00b7 "+when(d.meta.iso):"");
+  const kept=!!draft&&!rejected;
+  const becomes=partState?"the \u201c"+partState.label+"\u201d image":"the location image";
   const problem=reason||error;
   return E("section",{className:"loc-style-preview","data-testid":"location-style-preview"},
-    E("h4",{className:"loc-control-heading"},"Style preview",window.InfoTip&&E(window.InfoTip,{label:"About style preview",text:partState
-      ?"This set is built at a story moment: "+partState.label+". The styled draft becomes that state's own image; shots at those moments use it in place of the location image, which stays as it is."
-      :"Try the location's materials and look over the four Blender views. Your artwork changes only when you approve a draft, and the previous image stays in history."})),
-    E("p",{className:"loc-layer-note"},"Review all 4 views before approving; image styling can change details."),
+    // what this step does, in one plain paragraph (owner 2026-11-15)
+    E("p",{className:"loc-layer-note","data-testid":"style-intro"},partState
+      ?"This set is built at a story moment: "+partState.label+". The image engine repaints its four views from step 5 in this card's render style; the result becomes that state's own image, and the location image stays as it is."
+      :"The image engine repaints the four views built in step 5 in this card's render style. The shapes and the cameras stay as built; surfaces, materials and light change. Each result is a draft, kept below until you discard it. The location image changes only when you choose to use one."),
     E("label",{className:"loc-style-notes"},"Surface notes (optional)",E("textarea",{value:notes,maxLength:1000,disabled:readOnly||busy,onChange:e=>setNotes(e.target.value),placeholder:"For example, subtle salt streaks and less floor glare."})),
     E("label",{className:"loc-style-notes"},E("span",{className:"loc-control-heading"},"Engine",window.InfoTip&&E(window.InfoTip,{label:"About comparing style engines",text:pair
-      ?"Compare engines shows saved results made from the same Blender build and prompt. Opening either comparison uses no generation credits."
-      :"To compare engines, save drafts with two different engines using the same Blender build and surface notes. Each generation has its own displayed price; comparisons use no generation credits."})),
+      ?"Compare engines shows two saved drafts made from the same built set and prompt, side by side. Opening it uses no generation credits."
+      :"To compare engines, make a draft with each engine from the same built set and surface notes. Each draft has its own displayed price; looking at them uses no generation credits."})),
       E("select",{value:engine,disabled:readOnly||busy,onChange:e=>setEngine(e.target.value)},
         api.ENGINES.map(id=>E("option",{key:id,value:id},window.nbModelLabel(id))))),
     pending&&!pending.active&&!pending.hasUnsaved&&E("label",{className:"loc-style-check"},E("input",{type:"checkbox",checked:retry,disabled:readOnly||busy,onChange:e=>setRetry(e.target.checked)}),pending.cancelled?"The cancelled request may still be charged. I checked usage and want to start a new paid request.":"An earlier request may still finish. I checked usage and want to start a new paid request."),
@@ -121,42 +149,65 @@ function LocationSetStyle({location,target,job,sceneHash,readOnly=false}){
         // the same credit chip as Generate new image, priced for the chosen engine
         !busy&&Number(choice?.credits)>0&&window.nbCostChip&&window.nbCostChip(1,{model:choice.model,res:choice.imageSize,quality:choice.quality,aspect:"16:9",refs:1,ground:false})),
       busy&&["preparing","generating"].includes(phase)&&E("button",{type:"button",className:"art-draftall ghost loc-style-cancel",onClick:cancelGeneration,title:"Discard this generation. Image processing already started may still be charged."},"Cancel")),
-      pending?.hasUnsaved&&E("button",{type:"button",className:"art-draftall ghost loc-style-save-retry",disabled:readOnly||busy,onClick:retrySave},"Retry saving draft"),
-      E("button",{type:"button",className:"art-draftall ghost",disabled:busy||!draft?.source,
-        title:draft?"Inspect the saved draft against its Blender reference":"Save a style draft to compare it with its Blender reference",
-        onClick:()=>{setCompareMode("source");setChecked(false);setImagesReady({source:false,draft:false});setReview(true);}},"Compare with Blender"),
-      E("button",{type:"button",className:"art-draftall ghost",disabled:busy||!pair,onClick:()=>{setCompareMode("engines");setReview(true);}},"Compare engines")),
+      pending?.hasUnsaved&&E("button",{type:"button",className:"art-draftall ghost loc-style-save-retry",disabled:readOnly||busy,onClick:retrySave},"Retry saving draft")),
     phase&&styleProgress({phase,since:phaseAt,now,model:choice?.model,api}),
     !phase&&pending?.active&&E("p",{role:"status",className:"loc-layer-note"},"A style draft for this location is being generated or saved."),
     loading&&E("p",{role:"status",className:"loc-layer-note"},"Loading saved style draft…"),
-    // one plain sentence: where the draft stands and what to click (owner 2026-11-01)
-    draft&&(decided||!stale)&&E("p",{role:"status",className:"loc-layer-note"},accepted?(partState?"This draft became the \u201c"+partState.label+"\u201d image.":"This draft became the location image."):rejected?"You rejected this draft.":
-      partState?"Your draft is ready. Click Compare with Blender to review it. It becomes the \u201c"+partState.label+"\u201d image only if you choose to use it."
-      :"Your draft is ready. Click Compare with Blender to review it. The location image only changes if you choose Use as location artwork."),
-    draft&&!decided&&stale&&E("p",{className:"loc-spatial-error"},
-      "This draft is out of date: the set or its look changed after it was made, so it can't become the location image. Click Generate another style draft to make a new one."),
+    // THE DRAFTS, ON THE CARD: the current one with what you can do with it, then the earlier ones
+    (kept||earlier.length>0||!!pair)&&E("div",{className:"loc-sub style-drafts","data-testid":"style-drafts"},
+      E("h4",{className:"loc-step-sub"},"Style drafts"),
+      E("p",{className:"loc-layer-note"},"Kept here until you discard them. Closing the review does not lose a draft."),
+      kept&&E("div",{className:"style-draft","data-testid":"style-draft-current"},
+        E("button",{type:"button",className:"style-draft-thumb",disabled:busy||!draft.source,onClick:()=>openReview(null),
+          title:"Open this draft beside the set it was made from","aria-label":"Open the current style draft"},
+          E("img",{src:draft.url,alt:"Style draft of "+(location.name||"this location")+": four styled camera views",draggable:false})),
+        E("p",{role:"status",className:"loc-layer-note"},draftLine(draft)+" \u00b7 "+(accepted?"Used as "+becomes+".":stale?"Out of date.":"Not used yet.")),
+        !decided&&stale&&E("p",{className:"loc-spatial-error"},
+          "This draft is out of date: the set or its look changed after it was made, so it can't become the location image. Click Generate another style draft to make a new one."),
+        E("div",{className:"loc-step-actions"},
+          E("button",{type:"button",className:"art-draftall"+(decided||stale?" ghost":""),disabled:busy||!draft.source,onClick:()=>openReview(null),
+            title:"Compare the draft with the built set, view by view"+(decided||stale?"":"; from there it can become "+becomes)},
+            decided||stale?"Open draft":"Review draft"),
+          !decided&&E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:()=>decide(false),
+            title:"Takes this draft off the card. "+(partState?"That state's image":"The location image")+" is not changed; image credits are not given back."},"Discard draft"))),
+      earlier.length>0&&E("div",{className:"style-draft-earlier","data-testid":"style-drafts-earlier"},
+        E("p",{className:"loc-layer-note"},"Earlier drafts ("+earlier.length+"). Open one to look at it or to make it the current draft again."),
+        E("div",{className:"style-draft-strip"},earlier.map(d=>E("button",{key:d.meta.iso,type:"button",className:"style-draft-thumb small",disabled:busy,
+            onClick:()=>openReview(d),title:"Open this earlier draft"},
+          E("img",{src:d.url,alt:"Earlier style draft: "+draftLine(d),draggable:false,loading:"lazy"}),
+          E("span",null,draftLine(d)))))),
+      // two saved drafts from different engines, made from the same built set and prompt: offered only when there are two
+      pair&&E("div",{className:"loc-step-actions"},
+        E("button",{type:"button",className:"art-draftall ghost",disabled:busy,title:"Two saved drafts from different engines, side by side. No credits.",
+          onClick:()=>{setViewing(null);setCompareMode("engines");setReview(true);}},"Compare engines"))),
+    rejected&&E("p",{role:"status",className:"loc-layer-note"},"You discarded the last draft."+(earlier.length?"":" Generate a style draft to try again.")),
     notice&&E("p",{role:"status",className:"loc-layer-note"},notice),
     problem&&E("p",{role:"alert",className:"loc-spatial-error"},problem),
-    review&&(engineView?pair:draft)&&E("dialog",{ref:dialog,className:"loc-style-dialog","aria-label":engineView?"Compare saved image engines":"Review style draft against Blender",onCancel:()=>setReview(false)},
-      E("div",{className:"loc-cloud-render-head"},E("h3",null,engineView?"Compare saved engines":"Review style draft"),E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setReview(false)},"Close review")),
-      E("p",null,engineView?"These saved results use the same source build and prompt. Compare every camera; engine quality and size are shown in the labels. This comparison does not replace artwork."
-        :"Check the Blender set against the intended floor plan first, then check openings, object positions, lighting and markings in the styled image. A styling model can preserve a mistake in the Blender set."),
-      E(StyleGenerationDetails,{meta:engineView?pair?.left.meta:draft?.meta,shared:engineView}),
+    review&&(engineView?pair:shown)&&E("dialog",{ref:dialog,className:"loc-style-dialog","aria-label":engineView?"Compare saved image engines":"Review style draft against the built set",onCancel:()=>setReview(false)},
+      E("div",{className:"loc-cloud-render-head"},E("h3",null,engineView?"Compare saved engines":viewing?"Earlier style draft":"Review style draft"),E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setReview(false)},"Close review")),
+      E("p",null,engineView?"These saved drafts use the same built set and prompt. Compare every camera; engine quality and size are shown in the labels. This comparison does not change any image."
+        :"Left: the set as built in step 5. Right: the styled draft. Move the slider to compare them, camera by camera: doors and windows, where objects stand, light fittings, markings. An image engine can change details, and it keeps any mistake already in the built set."
+          +(viewing?"":" Closing this keeps the draft on the card.")),
+      E(StyleGenerationDetails,{meta:engineView?pair?.left.meta:shown?.meta,shared:engineView}),
       E("div",{className:"loc-style-toolbar"},
         E("label",null,"Camera",E("select",{value:camera,onChange:e=>setCamera(e.target.value)},Object.entries(label).map(([value,text])=>E("option",{key:value,value},text)))),
-        E("label",null,leftLabel+" revealed: "+wipe+"%",E("input",{type:"range",min:0,max:100,value:wipe,onChange:e=>setWipe(Number(e.target.value)),"aria-label":engineView?"Left engine revealed":"Blender source revealed"}))),
+        E("label",null,leftLabel+" revealed: "+wipe+"%",E("input",{type:"range",min:0,max:100,value:wipe,onChange:e=>setWipe(Number(e.target.value)),"aria-label":engineView?"Left engine revealed":"Built set revealed"}))),
       E("div",{className:"loc-style-legend"},E("span",null,leftLabel),E("span",null,rightLabel)),
       E("div",{className:"loc-style-compare","aria-label":label[camera]+" comparison"},
-        E("div",{className:"loc-style-layer"},E("img",{src:rightImage,alt:label[camera]+" · "+rightLabel,style:imageStyle,onLoad:()=>{if(!engineView)setImagesReady(p=>({...p,draft:true}));},onError:()=>{setImagesReady(p=>({...p,draft:false}));setError("The draft image could not be loaded. Close the review and refresh the saved draft.");}})),
-        E("div",{className:"loc-style-layer",style:{clipPath:"inset(0 "+(100-wipe)+"% 0 0)"}},E("img",{src:leftImage,alt:label[camera]+" · "+leftLabel,style:imageStyle,onLoad:()=>{if(!engineView)setImagesReady(p=>({...p,source:true}));},onError:()=>{setImagesReady(p=>({...p,source:false}));setError("The Blender comparison could not be loaded. Close the review and refresh the saved draft.");}})),
+        E("div",{className:"loc-style-layer"},E("img",{src:rightImage,alt:label[camera]+" · "+rightLabel,style:imageStyle,onLoad:()=>{if(!engineView)setImagesReady(p=>({...p,draft:true}));},onError:()=>{setImagesReady(p=>({...p,draft:false}));setError("The draft image could not be loaded. Close the review and open the draft again.");}})),
+        E("div",{className:"loc-style-layer",style:{clipPath:"inset(0 "+(100-wipe)+"% 0 0)"}},E("img",{src:leftImage,alt:label[camera]+" · "+leftLabel,style:imageStyle,onLoad:()=>{if(!engineView)setImagesReady(p=>({...p,source:true}));},onError:()=>{setImagesReady(p=>({...p,source:false}));setError("The built set's views could not be loaded. Close the review and open the draft again.");}})),
         E("div",{className:"loc-style-divider",style:{left:wipe+"%"}})),
-      !engineView&&stale&&E("p",{className:"loc-spatial-error"},"This draft is outdated and cannot replace artwork."),
+      !engineView&&!viewing&&stale&&E("p",{className:"loc-spatial-error"},"This draft is out of date and cannot become "+becomes+"."),
       engineView&&(pair.left.meta.sceneHash!==sceneHash||pair.left.meta.briefKey!==brief)&&E("p",{className:"loc-layer-note"},"This is a saved comparison from an earlier build or look. It remains available for inspection."),
       problem&&E("p",{role:"alert",className:"loc-spatial-error"},problem),
-      !engineView&&!decided&&E("label",{className:"loc-style-check"},E("input",{type:"checkbox",checked,disabled:readOnly||busy||stale||!imagesReady.source||!imagesReady.draft,onChange:e=>setChecked(e.target.checked)}),"I checked all four views against Blender and accept any visual differences."),
-      !engineView&&!decided&&controls(),
-      !engineView&&decided&&E("p",null,accepted?"Already used as location artwork.":"Rejected. Generate a new draft to try again."),
-      !engineView&&E("p",{className:"loc-layer-note"},(partState?"Using this draft saves it as the \u201c"+partState.label+"\u201d image; the location image is not changed.":"Using this draft replaces the location image and keeps the previous image in version history.")+" Rejecting it does not refund image generation credits.")));
+      // an earlier draft: look at it, or make it the current draft again (only the current draft can be used)
+      !engineView&&viewing&&E("div",{className:"loc-cloud-render-actions"},
+        E("button",{type:"button",className:"art-draftall",disabled:readOnly||busy,onClick:()=>bringBack(viewing)},"Make this the current draft")),
+      !engineView&&viewing&&E("p",{className:"loc-layer-note"},"Only the current draft can become "+becomes+". Making this one current keeps the draft it replaces with the earlier drafts; no image is generated."),
+      !engineView&&!viewing&&!decided&&E("label",{className:"loc-style-check"},E("input",{type:"checkbox",checked,disabled:readOnly||busy||stale||!imagesReady.source||!imagesReady.draft,onChange:e=>setChecked(e.target.checked)}),"I checked all four views against the built set and accept the differences."),
+      !engineView&&!viewing&&!decided&&controls(),
+      !engineView&&!viewing&&decided&&E("p",null,accepted?"Already used as "+becomes+".":"Discarded. Generate a new draft to try again."),
+      !engineView&&!viewing&&E("p",{className:"loc-layer-note"},(partState?"Using this draft saves it as the \u201c"+partState.label+"\u201d image; the location image is not changed.":"Using this draft replaces the location image and keeps the image before it in the card's versions.")+" Discarding a draft does not give back its image credits.")));
 }
 function StyleGenerationDetails({meta,shared=false}){
   const E=React.createElement,scene=meta?.sourceScene;

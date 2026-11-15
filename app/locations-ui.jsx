@@ -127,6 +127,14 @@ function locationVariantNames(units,extra){
    4 Previs (owner 2026-11-15: "move Previs to 4, ahead of Build the set") are on every card; 5 Build the set and
    6 Style it where a set can be built; Location image, Variants, Subspaces (a place with rooms or extra spaces) and
    Generation Prompt take the numbers that follow. */
+// The Location image section's first line: what the image is and every way this card can make it (2026-11-15).
+function locationImageStepNote({previs,style}){
+  const ways=["with Generate at the top of the card, from the description in 1 \u00b7 The Space"];
+  if(previs)ways.push("in 4 \u00b7 Previs, from the set in 3D");
+  if(style)ways.push("in 6 \u00b7 Style it, from the built set");
+  const list=ways.length>2?ways.slice(0,-1).join("; ")+"; or "+ways[ways.length-1]:ways.join("; or ");
+  return "The finished image of this place, shown at the top of the card. Make it "+list+". The look set here is used whichever way it is made.";
+}
 function locationSectionNumbers({build,style,subspaces}){
   let n=4; const o={space:1,plan:2,cameras:3,previs:4};
   if(build) o.build=++n;
@@ -2218,7 +2226,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       // live ON the card, 2026-10-05) and the check of the image against the description. The image itself is
       // generated at the top of the card.
       React.createElement(CardFold,{label:sectionNo.image+" \u00b7 Location image",foldId:"loc-image-"+l.id,count:stepCount(sectionNo.image),defaultOpen:false},
-        React.createElement("p",{className:"loc-layer-note","data-testid":"loc-image-step-note"},"Generate the image at the top of the card. It is made from 1 \u00b7 The Space and the look set here."),
+        React.createElement("p",{className:"loc-layer-note","data-testid":"loc-image-step-note"},locationImageStepNote({previs:showPrevis,style:buildHere})),
         React.createElement("h4",{className:"loc-step-sub"},"Look Dev"),
         React.createElement("div",{className:"loc-render-style-details"},
           l.parentLocation&&React.createElement("label",{className:"loc-style-inherit",title:"Link to the parent, or turn this off to use this room's saved style settings."},
@@ -2334,11 +2342,11 @@ function locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob,ownBl
       todo:!planDone?"Complete and confirm the floor plan in step 2 first.":camKey?"The "+labels[camKey]+" camera: "+problems[camKey].charAt(0).toLowerCase()+problems[camKey].slice(1):""},
     // 4 · Previs: optional (it never holds up the next step), done once the set is dressed
     {n:4,key:"previs",name:"Previs",optional:true,done:!!(l.previs&&l.previs.v===1),
-      todo:"Optional: see the set in live 3D, dress it for the film and make the location image from it."},
+      todo:"Optional and free: see the set in 3D in your browser, dress it for the film and make the location image from it."},
     ...(cloudPilot?[
       {n:5,name:"Build the set",done:!!(cloudJob&&cloudJob.current),
         todo:cloudJob&&["queued","running"].includes(cloudJob.status)?"The set is building.":cloudJob&&cloudJob.status==="completed"?"Rebuild the set: the floor plan or cameras changed.":"Build the set in 3D from the floor plan."},
-      {n:6,name:"Style it",optional:true,done:false,todo:"Optional: try materials and light over the built set."}]
+      {n:6,name:"Style it",optional:true,done:false,todo:"Optional: the image engine repaints the built set\u2019s four views in this card\u2019s render style. Drafts are kept until you discard them."}]
       :ownBlender?[{n:5,name:"Build the set",optional:true,done:false,todo:"Optional: build this place in your own Blender."}]:[]),
     // the next number after the steps: 7 with Build and Style, 6 with your own Blender alone, else 5
     {n:imageN||(cloudPilot?7:ownBlender?6:5),key:"image",name:"Location image",done:!!gen.genUrl&&!imageStale,

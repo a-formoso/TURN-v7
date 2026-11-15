@@ -47,6 +47,12 @@ function harness(initialScene){
       store.set(id,{id,url,meta:clone(meta),refs:clone(refs),history:[...(old?.url?[old]:[]),...(old?.history||[])]});
       return {tier:"cloud",url};
     },
+    nbRevertAsset:async(id,index)=>{
+      const row=store.get(id),history=(row?.history||[]).slice();if(!row||index<0||index>=history.length)return null;
+      const chosen=history[index],present={url:row.url,meta:row.meta,refs:row.refs};
+      store.set(id,{id,url:chosen.url,meta:chosen.meta,refs:chosen.refs||[],history:[present,...history.filter((_,i)=>i!==index)]});
+      writes.push({id,revert:index});return {url:chosen.url,meta:chosen.meta};
+    },
     nbSetAssetApproval:async(id,iso,approved,reviewKey)=>{
       const d=store.get(id);if(d?.meta.iso!==iso)return {ok:false,error:"asset version changed"};
       d.meta.approval={iso,approved,reviewKey};return {ok:true,meta:clone(d.meta)};
@@ -214,36 +220,37 @@ for(const phase of ["prepare","response"]){
   const find=(node,test)=>{if(!node||typeof node!=="object")return null;if(test(node))return node;for(const child of node.children||[]){const result=find(child,test);if(result)return result;}return null;};
   const button=(tree,label)=>find(tree,n=>n.type==="button"&&n.children.includes(label));
   let tree=render();
-  ok(button(tree,"Use as location artwork").props.disabled,"Real review component disables acceptance until checked");
-  ok(find(tree,n=>n.type==="dialog"&&n.props["aria-label"]==="Review style draft against Blender"),"Review uses an accessible native dialog");
+  ok(button(tree,"Use as location image").props.disabled,"Real review component disables acceptance until checked");
+  ok(find(tree,n=>n.type==="dialog"&&n.props["aria-label"]==="Review style draft against the built set"),"Review uses an accessible native dialog");
   ok(find(tree,n=>n.type==="img"&&n.props.src===d.source),"Comparison displays the exact saved source");
   ok(find(tree,n=>n.type===h.b.StyleGenerationDetails)?.props.meta===d.meta,"The Blender comparison receives the saved draft requirements");
   const requirements=h.b.StyleGenerationDetails({meta:{...d.meta,sourceScene:{name:"Original test set",objects:[{id:"net",name:"Saved net strand",position:[1,2,3],size:[.01,.01,1]}],cameras:{TL:{position:[0,0,1.6],yaw:0,pitch:-5,lensMm:24}},previewLights:[{position:[0,0,3],powerWatts:100,sizeMetres:1}],notes:["Original assumption"]}}});
   const contents=n=>typeof n==="string"?n:(n?.children||[]).map(contents).join(" ");
   ok(contents(requirements).includes(d.meta.prompt)&&contents(requirements).includes("Saved net strand")&&contents(requirements).includes("Original assumption"),"Requirements show the exact saved prompt, build geometry and assumptions");
   ok(contents(h.b.StyleGenerationDetails({meta:{prompt:"Legacy exact prompt"}})).includes("no saved numeric build snapshot"),"An older draft explicitly discloses that its original numeric inputs are unavailable");
-  states[7]=true;tree=render();ok(button(tree,"Use as location artwork").props.disabled,"Even a checked review cannot accept images that have not loaded");
+  states[7]=true;tree=render();ok(button(tree,"Use as location image").props.disabled,"Even a checked review cannot accept images that have not loaded");
   find(tree,n=>n.type==="img"&&n.props.src===d.source).props.onLoad();
-  find(tree,n=>n.type==="img"&&n.props.src===d.url).props.onLoad();
-  tree=render();ok(!button(tree,"Use as location artwork").props.disabled,"Loading both images and checking review enables explicit acceptance");
+  find(tree,n=>n.type==="img"&&n.props.src===d.url&&n.props.onLoad).props.onLoad();   // the review's image, not the card's thumbnail
+  tree=render();ok(!button(tree,"Use as location image").props.disabled,"Loading both images and checking review enables explicit acceptance");
   find(tree,n=>n.type==="img"&&n.props.src===d.source).props.onError();tree=render();
-  ok(button(tree,"Use as location artwork").props.disabled,"A failed or expired comparison image blocks acceptance");
+  ok(button(tree,"Use as location image").props.disabled,"A failed or expired comparison image blocks acceptance");
   find(tree,n=>n.type==="img"&&n.props.src===d.source).props.onLoad();
-  tree=render({readOnly:true});ok(button(tree,"Use as location artwork").props.disabled&&button(tree,"Reject draft").props.disabled,"Read-only interface cannot accept or reject");
-  tree=render({sceneHash:"changed"});ok(button(tree,"Use as location artwork").props.disabled,"Stale camera/layout revision disables acceptance in the interface");
-  tree=render();await button(tree,"Use as location artwork").props.onClick();
+  tree=render({readOnly:true});ok(button(tree,"Use as location image").props.disabled&&button(tree,"Discard draft").props.disabled,"Read-only interface cannot accept or reject");
+  tree=render({sceneHash:"changed"});ok(button(tree,"Use as location image").props.disabled,"Stale camera/layout revision disables acceptance in the interface");
+  tree=render();await button(tree,"Use as location image").props.onClick();
   ok(h.store.get("room").meta.styleDraftIso===d.meta.iso,"Actual acceptance button handler adopts the reviewed pixels in disposable storage");
   states[0]=await h.api().load("room",h.scope);tree=render();
-  ok(button(tree,"Compare with Blender"),"An accepted draft remains available for comparison");
+  ok(button(tree,"Open draft")&&find(tree,n=>n.props["data-testid"]==="style-draft-current"),"An accepted draft stays on the card and can be opened");
+  ok(!find(find(tree,n=>n.props["data-testid"]==="style-draft-current"),b=>b.type==="button"&&b.children.includes("Discard draft")),"A used draft cannot be discarded from the card");
   states[0].meta.approval.approved=false;tree=render({sceneHash:"older"});
-  ok(button(tree,"Compare with Blender"),"Rejected or outdated drafts remain available for inspection");
+  ok(!find(tree,n=>n.props["data-testid"]==="style-draft-current")&&find(tree,n=>n.type==="p"&&n.children.some(c=>/You discarded the last draft/.test(c))),"A discarded draft leaves the card, and the card says so");
   states[18]={left:{url:"saved-nano",meta:{modelId:h.api().ENGINES[0],sceneHash:job.sceneHash}},right:{url:"saved-gpt",meta:{modelId:h.api().ENGINES[1]}}};
   tree=render();button(tree,"Compare engines").props.onClick();tree=render();
   ok(find(tree,n=>n.type==="img"&&n.props.src==="saved-nano")&&find(tree,n=>n.type==="img"&&n.props.src==="saved-gpt"),"Engine comparison displays both saved results");
   ok(find(tree,n=>n.type===h.b.StyleGenerationDetails)?.props.meta===states[18].left.meta&&find(tree,n=>n.type===h.b.StyleGenerationDetails)?.props.shared,"Engine comparison shows its saved shared requirements, not current editor notes");
-  ok(!button(tree,"Use as location artwork")&&!button(tree,"Reject draft"),"Engine comparison has no artwork mutation controls");
+  ok(!button(tree,"Use as location image")&&!button(tree,"Discard draft"),"Engine comparison has no artwork mutation controls");
   states[18]=null;tree=render();
-  ok(!button(tree,"Use as location artwork"),"Losing the engine pair cannot fall through to artwork acceptance");
+  ok(!button(tree,"Use as location image"),"Losing the engine pair cannot fall through to artwork acceptance");
 }
 {
   // Actual UI cancellation with persistent hooks and a deferred provider response.
@@ -287,9 +294,10 @@ for(const phase of ["prepare","response"]){
   try{tree=h.b.LocationSetStyle({location:h.b.turnContinuity.locations[0],job,sceneHash:job.sceneHash});}catch(e){error=e;}
   ok(!error&&tree,"The panel renders before any style draft exists ("+(error&&error.message)+")");
   const find=(node,test)=>{if(!node||typeof node!=="object")return null;if(test(node))return node;for(const child of node.children||[]){const result=find(child,test);if(result)return result;}return null;};
-  ok(!find(tree,n=>n.type==="button"&&n.children.includes("Use as location artwork")),"Without a draft there is nothing to accept");
-  ok(find(tree,n=>n.type==="button"&&n.children.includes("Compare with Blender"))?.props.disabled,"Blender comparison remains discoverable before a draft exists");
-  ok(find(tree,n=>n.type==="button"&&n.children.includes("Compare engines"))?.props.disabled,"Engine comparison remains discoverable before a matching pair exists");
+  ok(!find(tree,n=>n.type==="button"&&n.children.includes("Use as location image")),"Without a draft there is nothing to accept");
+  ok(!find(tree,n=>n.props&&n.props["data-testid"]==="style-drafts"),"No drafts box before a draft exists");
+  ok(!find(tree,n=>n.type==="button"&&(n.children.includes("Review draft")||n.children.includes("Compare engines"))),"Review and engine comparison appear only when there is something to open");
+  ok(find(tree,n=>n.props&&n.props["data-testid"]==="style-intro"&&/kept below until you discard it/.test(n.children.join(""))),"The step says what it does and that drafts are kept");
 }
 {
   // Engine choice (owner 2026-10-31): Nano Banana 2.1 by default, GPT Image 2.6 Sunburst at High on request.
@@ -360,7 +368,7 @@ for(const phase of ["prepare","response"]){
   ok(/Saving the draft/.test(text(n))&&bar(n)===96,"Saving: almost done, never 100%");
   const ui=readFileSync(compiled?"dist/app/blender-style-ui.js":"app/blender-style-ui.jsx","utf8");
   ok(!/Refresh draft/.test(ui),"No Refresh draft button: the panel reloads the draft itself");
-  ok(ui.includes("Compare with Blender")&&ui.includes("Compare engines"),"Both comparison controls are discoverable");
+  ok(!ui.includes("Compare with Blender")&&ui.includes('"Review draft"')&&ui.includes('"Compare engines"'),"The review is named for what it does; engines are compared from the drafts");
   ok(ui.includes("This draft is out of date: the set or its look changed after it was made, so it can't become the location image. Click Generate another style draft to make a new one."),
     "An out-of-date draft says why and which button to click");
   ok(!ui.includes("style brief changed"),"No more 'layout, cameras or style brief changed'");
@@ -432,5 +440,67 @@ for(const phase of ["prepare","response"]){
   await rejects(()=>api.accept("room",draft,h.scope,false),/Review all four/);
   await api.accept("room",draft,h.scope,true);
   ok(h.store.get("room").meta.sourceScene.schema===numeric.schema&&h.store.get("room").history[0].url==="original-artwork","Explicit detailed-draft approval retains its source version and previous artwork");
+}
+{
+  // DRAFTS STAY ON THE CARD (owner 2026-11-15): earlier drafts are listed, a discarded one is not, and an earlier one
+  // can be made current again without an image call; only the current draft can become the location image.
+  const h=harness(),job=await h.ready(),api=h.api();
+  const first=await api.generate("room",job,h.scope,{settings:api.settings(api.ENGINES[0])});
+  await new Promise(r=>setTimeout(r,3));
+  const second=await api.generate("room",job,h.scope,{settings:api.settings(api.ENGINES[1])});
+  const paid=()=>h.calls.filter(x=>x==="paid-image").length,before=paid();
+  let list=await api.earlier("room",h.scope);
+  ok(list.length===1&&list[0].meta.iso===first.meta.iso&&list[0].url&&list[0].source===first.source,"The draft made before the current one is kept, with the views it was made from");
+  ok((await api.load("room",h.scope)).meta.iso===second.meta.iso,"The newest draft is the current one");
+  await rejects(()=>api.accept("room",first,h.scope,true),/newer draft/);
+  const back=await api.restore("room",first.meta.iso,h.scope);
+  ok(back.meta.iso===first.meta.iso&&back.source===first.source&&paid()===before,"An earlier draft becomes the current one again without an image call");
+  list=await api.earlier("room",h.scope);
+  ok(list.length===1&&list[0].meta.iso===second.meta.iso,"The draft it replaced joins the earlier drafts: nothing is lost");
+  ok(h.store.get("room").url==="original-artwork","Bringing a draft back never touches the location image");
+  await api.reject("room",back,h.scope);
+  await api.restore("room",second.meta.iso,h.scope);
+  ok((await api.earlier("room",h.scope)).length===0&&h.store.get(api.slot("room")).history.length===1,"A discarded draft leaves the list but is not deleted");
+  await rejects(()=>api.restore("room","2020-01-01T00:00:00.000Z",h.scope),/no longer saved/);
+  await api.accept("room",await api.load("room",h.scope),h.scope,true);
+  ok(h.store.get("room").meta.styleDraftIso===second.meta.iso,"A draft brought back can become the location image");
+  const other=h.store.get(api.slot("room"));other.history.unshift({url:"x",meta:{...first.meta,projectId:"another-film",iso:"2026-11-01T00:00:00.000Z"},refs:[]});
+  ok(!(await api.earlier("room",h.scope)).some(d=>d.url==="x"),"Another film's version is never listed as a draft");
+  h.readonly();
+  ok(Array.isArray(await api.earlier("room",h.scope)),"A read-only film may look at its kept drafts");
+  await rejects(()=>api.restore("room",first.meta.iso,h.scope),/read-only/);
+}
+{
+  // The card shows the kept drafts; an earlier one opens in the review with one action, and no way to use it directly.
+  const h=harness(),job=await h.ready(),api=h.api();
+  const first=await api.generate("room",job,h.scope,{settings:api.settings(api.ENGINES[0])});
+  await new Promise(r=>setTimeout(r,3));
+  const second=await api.generate("room",job,h.scope,{settings:api.settings(api.ENGINES[1])});
+  h.b.nbOaiQualityLabel=x=>x;
+  const states=[await api.load("room",h.scope),false,false,"","","",false,false,false,"all",50,0,0];let index=0;
+  h.b.React={useState:initial=>{const i=index++;if(states[i]===undefined)states[i]=initial;return [states[i],v=>{states[i]=typeof v==="function"?v(states[i]):v;}];},
+    useRef:v=>({current:v}),useEffect(){},Fragment:"fragment",createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!==false&&x!=null)})};
+  vm.runInContext(readFileSync(compiled?"dist/app/blender-style-ui.js":"app/blender-style-ui.jsx","utf8"),h.b);
+  const render=(extra={})=>{index=0;return h.b.LocationSetStyle({location:h.b.turnContinuity.locations[0],job,sceneHash:job.sceneHash,...extra});};
+  const find=(node,test)=>{if(!node||typeof node!=="object")return null;if(test(node))return node;for(const child of node.children||[]){const result=find(child,test);if(result)return result;}return null;};
+  const all=(node,test,out=[])=>{if(!node||typeof node!=="object")return out;if(test(node))out.push(node);for(const child of node.children||[])all(child,test,out);return out;};
+  const button=(tree,label)=>find(tree,n=>n.type==="button"&&n.children.includes(label));
+  let tree=render();
+  const box=find(tree,n=>n.props["data-testid"]==="style-drafts"),now=find(tree,n=>n.props["data-testid"]==="style-draft-current");
+  ok(box&&now&&find(now,n=>n.type==="img"&&n.props.src===states[0].url),"The current draft is shown in the section itself, not only in the review");
+  ok(button(now,"Review draft")&&button(now,"Discard draft")&&!find(tree,n=>n.type==="dialog"),"It can be reviewed or discarded from the card, with the review closed");
+  ok(find(now,n=>n.type==="p"&&n.children.some(c=>/Not used yet\./.test(c))),"The card says the draft has not been used");
+  states[20]=await api.earlier("room",h.scope);tree=render();
+  const strip=find(tree,n=>n.props["data-testid"]==="style-drafts-earlier");
+  ok(strip&&all(strip,n=>n.type==="img").length===1&&find(strip,n=>n.type==="img"&&n.props.src===first.url),"Earlier drafts are listed under the current one");
+  find(strip,n=>n.type==="button").props.onClick();tree=render();
+  const dialog=find(tree,n=>n.type==="dialog");
+  ok(dialog&&find(dialog,n=>n.type==="h3"&&n.children.includes("Earlier style draft"))&&find(dialog,n=>n.type==="img"&&n.props.src===first.url),"Opening an earlier draft shows that draft");
+  ok(button(dialog,"Make this the current draft")&&!button(dialog,"Use as location image")&&!button(dialog,"Discard draft"),"An earlier draft is looked at or made current; it is never used directly");
+  await button(dialog,"Make this the current draft").props.onClick();
+  ok(states[0].meta.iso===first.meta.iso&&states[21]===null&&states[6]===false,"Make this the current draft swaps the drafts and closes the review");
+  ok(h.calls.filter(x=>x==="paid-image").length===2&&h.store.get("room").url==="original-artwork","No image call and no change to the location image");
+  tree=render({readOnly:true});
+  ok(button(find(tree,n=>n.props["data-testid"]==="style-draft-current"),"Discard draft").props.disabled,"A read-only film cannot discard a draft");
 }
 console.log("PASS cloud set styling: "+checks+" generation, comparison, persistence, race, ownership and no-retry checks");
