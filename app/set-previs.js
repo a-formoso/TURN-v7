@@ -81,12 +81,22 @@
       return {dataUrl:canvas.toDataURL(options.type||"image/png",options.quality),width:w*2,height:h*2,panels:PANELS.slice()};
     }finally{rig.dispose();renderer.dispose();renderer.forceContextLoss();}
   }
+  /* THE SET AS PREVIS DRAWS IT: the built floor plan with the location's saved dressing on, when it has one.
+     Throws the builder's own sentence when the floor plan or cameras are not ready. */
+  function scene(location,list){
+    if(!root.KinolotCloudRender||!root.KinolotSetDressing)throw new Error("The 3D view did not load. Refresh this page.");
+    const built=root.KinolotCloudRender.buildScene(location,list),kept=root.KinolotSetDressing.saved(location,built);
+    if(!kept)return {scene:built,light:null,dressed:false,parts:0,iso:""};
+    return {scene:root.KinolotSetDressing.apply(built,kept.dressing),light:kept.dressing.light,dressed:true,parts:kept.report.parts,iso:kept.iso};
+  }
+
   /* FROM THE SHEET TO THE IMAGE. The image engine gets the sheet as Image 1 and the card's own prompt, in the render
      style chosen on the card (or the tab's style when the card has none): photoreal, anime, anything. The sheet
      decides where things are; the card decides what they are and how they look. */
   function stylePrompt(location,project){
     const style=typeof root.locVisualDefaults==="function"?root.locVisualDefaults(location).renderStyle:"";
-    const card=typeof root.buildLocationRefPrompt==="function"?root.buildLocationRefPrompt(location,project||root.turnProject||{},{}):"";
+    const build=typeof root.combinedLocationPrompt==="function"?root.combinedLocationPrompt:root.buildLocationRefPrompt;
+    const card=typeof build==="function"?build(location,project||root.turnProject||{},{}):"";
     if(!card)throw new Error("This location's prompt could not be built. Describe the place first.");
     return "Image 1 is the 3D previs sheet of this location: ONE set seen by four cameras, a 2x2 grid of equal 16:9 panels. It is the layout to follow. "
       +"Keep each panel's camera position, framing, horizon and lens. Keep every wall, opening, building and object, each in its place, size and proportion, and keep what is in front of what. "
@@ -95,19 +105,99 @@
       +"The sheet's flat colours and simple light only point to materials and the hour; the finished look is the spec's render style"+(style?" ("+style+")":"")+". "
       +"No people, no text, no labels, no borders and no panel numbers.\n\n"+card;
   }
+  // The engine and size in the top bar, as the plan allows them, and what one image from the sheet costs.
+  function settings(){
+    const choice=root.nbPlanImageChoice(root.nbGetModel(),root.nbGetRes()),model=choice.model;
+    const quality=typeof root.isGptImageModel==="function"&&root.isGptImageModel(model)?(typeof root.nbGetOaiQuality==="function"?root.nbGetOaiQuality(model):"high"):undefined;
+    return {model,imageSize:choice.res,quality,label:typeof root.nbModelLabel==="function"?root.nbModelLabel(model):model,
+      cost:{model,res:choice.res,quality,aspect:"16:9",refs:1,ground:false}};
+  }
   /* One image call. Returns the image and what was sent; saves nothing and replaces no artwork. */
   async function style(location,sheetUrl,options){
     options=options||{};
     if(typeof root.nbGenerate!=="function")throw new Error("Sign in to make this image.");
     if(!/^data:image\//.test(String(sheetUrl||"")))throw new Error("Draw the previs sheet first.");
-    const choice=typeof root.nbPlanImageChoice==="function"?root.nbPlanImageChoice(options.model||root.nbGetModel(),root.nbGetRes()):{model:options.model,res:"2K"};
-    const quality=typeof root.isGptImageModel==="function"&&root.isGptImageModel(choice.model)?"high":undefined;
+    const choice=options.settings||settings();
     const prompt=stylePrompt(location,options.project),metaOut={};
     const scope=root.BlenderPreview&&typeof root.BlenderPreview.scope==="function"?root.BlenderPreview.scope():null;
-    const url=await root.nbGenerate(prompt,{model:choice.model,imageSize:choice.res,quality,aspectRatio:"16:9",referenceImage:sheetUrl,
+    const url=await root.nbGenerate(prompt,{model:choice.model,imageSize:choice.imageSize,quality:choice.quality,aspectRatio:"16:9",referenceImage:sheetUrl,
       baseMaxDim:1536,referenceMaxDim:1536,referencesNumbered:true,groundSearch:false,noRetry:true,
-      ...(scope&&scope.projectId?{projectId:scope.projectId}:{}),assetId:"previs-style-"+location.id,assetPurpose:"previs-style",metaOut});
-    return {url,prompt,model:choice.model,size:metaOut.imageSize||choice.res,quality:quality||""};
+      ...(scope&&scope.projectId?{projectId:scope.projectId}:{}),assetId:location.id,assetPurpose:"previs-image",metaOut,
+      ...(typeof options.beforeSubmit==="function"?{beforeSubmit:options.beforeSubmit}:{})});
+    return {url,prompt,model:choice.model,label:choice.label,size:metaOut.imageSize||choice.imageSize,quality:choice.quality||""};
   }
-  root.KinolotPrevis={PANELS,sheet,stylePrompt,style};
+
+  /* RENDER THE LOCATION IMAGE FROM THE PREVIS. The same thing the card's own Generate does, with the sheet as the
+     layout: one image call, saved as the location image's new version (the one before it stays in the card's
+     versions). An image that was made but could not be saved is kept for this session (unsaved) so that it is saved
+     with one more click, never paid for twice. */
+  const unsaved=new Map(),running=new Set();
+  const live=id=>{const l=((root.turnContinuity||{}).locations||[]).find(x=>x.id===id);if(!l)throw new Error("This location is no longer in the film.");return l;};
+  const announce=id=>root.dispatchEvent&&root.dispatchEvent(new CustomEvent("kinolot-previs-changed",{detail:{id}}));
+  function assertWritable(scope){
+    if(!root.BlenderPreview.isCurrent(scope))throw new Error("The open film or sign-in changed. Open the location again.");
+    if(typeof root.turnArtRoomWritable==="function"&&!root.turnArtRoomWritable())throw new Error("This film is read-only.");
+  }
+  async function commit(entry){
+    assertWritable(entry.scope);
+    const saved=await root.nbCommit(entry.id,entry.url,entry.meta,entry.refs,"location",entry.scope.epoch,()=>!root.BlenderPreview.isCurrent(entry.scope));
+    if(!saved||["error","stale","cancelled"].includes(saved.tier))throw new Error((saved&&saved.error)||"The image was made but could not be saved.");
+    unsaved.delete(entry.key);
+    root.dispatchEvent(new CustomEvent("nb-gen-done",{detail:{id:entry.id,url:saved.url||entry.url}}));
+    return saved;
+  }
+  const keyOf=(scope,id)=>[scope.uid,scope.projectId,id].join(":");
+  const scopeNow=()=>{try{return root.BlenderPreview.scope();}catch(_){throw new Error("Open a saved film and sign in to make this image.");}};
+  function pending(id){
+    try{const scope=root.BlenderPreview.scope(),key=keyOf(scope,id),entry=unsaved.get(key);
+      if(entry&&entry.scope.epoch!==scope.epoch){unsaved.delete(key);return {running:running.has(key),unsaved:false};}
+      return {running:running.has(key),unsaved:!!entry};
+    }catch(_){return {running:false,unsaved:false};}
+  }
+  async function render(locationId,options){
+    options=options||{};
+    const scope=scopeNow(),key=keyOf(scope,locationId);
+    assertWritable(scope);
+    if(running.has(key))throw new Error("This location's image is already being made.");
+    if(unsaved.has(key))throw new Error("An image was made but not saved yet. Save it first.");
+    running.add(key);announce(locationId);
+    try{
+      const location=live(locationId),built=scene(location);
+      options.onPhase&&options.onPhase("drawing");
+      const drawn=await sheet(built.scene,built.light,{panelWidth:960});
+      assertWritable(scope);
+      // what the image is made from, as the card's own Generate records it: the layout, the cameras, the description
+      const sig=name=>typeof root[name]==="function";
+      const made={...(sig("locationSpatialPlanSigFor")?{spatialPlanSig:root.locationSpatialPlanSigFor(location)}:{}),
+        ...(sig("locationPlatePanelRecord")?{platePanels:root.locationPlatePanelRecord(location)}:{}),
+        ...(sig("locationPlateLayoutSig")?{plateLayoutSig:root.locationPlateLayoutSig(location,{panels:true})}:{}),
+        ...(sig("locationSpecSig")?{locSpecSig:root.locationSpecSig(location)}:{})};
+      const before=await root.nbLoadDetailsAsset(locationId,"");
+      assertWritable(scope);
+      options.onPhase&&options.onPhase("generating");
+      const out=await style(location,drawn.dataUrl,{project:options.project,settings:options.settings,beforeSubmit:async()=>{assertWritable(scope);}});
+      let meta={kind:"location",mode:"final",prompt:out.prompt,modelId:out.model,modelLabel:out.label,quality:out.quality||undefined,size:out.size,aspect:"16:9",
+        iso:new Date().toISOString(),...made,version:(Number(before&&before.meta&&before.meta.version)||0)+1,
+        previs:{dressed:built.dressed,dressingIso:built.iso,shapes:built.scene.objects.length}};
+      if(typeof root.nbWithAssetProvenance==="function")meta={...meta,...root.nbWithAssetProvenance(locationId,meta,"location")};
+      const entry={key,id:locationId,scope,url:out.url,meta,refs:[{kind:"previs-sheet",label:"Previs sheet",url:drawn.dataUrl}]};
+      unsaved.set(key,entry);
+      options.onPhase&&options.onPhase("saving");
+      const saved=await commit(entry);
+      return {url:saved.url||out.url,meta};
+    }finally{running.delete(key);announce(locationId);}
+  }
+  // Save an image that was made but not saved (one more click, no new image).
+  async function retrySave(locationId){
+    const scope=scopeNow(),key=keyOf(scope,locationId),entry=unsaved.get(key);
+    if(!entry||entry.scope.epoch!==scope.epoch)throw new Error("That image is no longer in this session.");
+    if(running.has(key))throw new Error("This location's image is being saved.");
+    running.add(key);announce(locationId);
+    try{return await commit(entry);}finally{running.delete(key);announce(locationId);}
+  }
+  function discardUnsaved(locationId){
+    try{unsaved.delete(keyOf(root.BlenderPreview.scope(),locationId));}catch(_){}
+    announce(locationId);
+  }
+  root.KinolotPrevis={PANELS,sheet,scene,stylePrompt,settings,style,render,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);

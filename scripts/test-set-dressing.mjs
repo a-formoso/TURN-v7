@@ -114,3 +114,59 @@ test('the engine is told the film, the fixed floor plan and what never to draw; 
   assert.equal(D.MODEL,'claude-fable-5-2');
   assert.ok(!/eval\(|new Function|innerHTML/.test(source),'what the engine writes is never run');
 });
+
+test('the saved form is compact, comes back the same, and is checked against the set as it is now',()=>{
+  const s=scene(),{dressing}=D.normalise(written(),s),kept=copy(D.pack(dressing,{engine:D.MODEL,iso:'2026-11-15T10:00:00.000Z'}));
+  assert.equal(kept.v,1);assert.equal(kept.engine,'claude-fable-5-2');
+  assert.deepEqual(kept.palette.carpet,['#6b5a48',.95],'a material keeps only what it sets');
+  assert.deepEqual(kept.extras[0].parts[0],['cyl',[.03,.03,.8],[0,0,0],'steel',0,0,90],'a part is the array the engine writes');
+  assert.equal(kept.objects.radiator[0].length,4,'no turn or tilt is kept when there is none');
+  // drawn from the saved form: the same set as from the engine's answer
+  const again=D.saved({previs:kept},s);
+  assert.equal(again.iso,'2026-11-15T10:00:00.000Z');
+  assert.equal(JSON.stringify(D.apply(s,again.dressing).objects),JSON.stringify(D.apply(s,dressing).objects));
+  // the floor plan changed since: an object that is gone loses its dressing, the rest stays
+  const changed=scene();changed.objects=changed.objects.filter(o=>o.anchorId!=='radiator');
+  const now=D.saved({previs:kept},changed);
+  assert.deepEqual(copy(Object.keys(now.dressing.objects)),[]);assert.equal(now.dressing.extras.length,1);
+  // a camera moved onto a set piece: that piece is left out
+  const moved=scene();moved.cameras.TL.position=[3.9,1,1.7];
+  assert.equal(D.saved({previs:kept},moved).dressing.extras.length,0);
+  // nothing saved, or another version: no dressing
+  assert.equal(D.saved({},s),null);assert.equal(D.saved({previs:{v:2}},s),null);assert.equal(D.saved({previs:null},s),null);
+  // too large to keep with the location
+  const big={palette:{},surfaces:{},objects:{},light:dressing.light,extras:Array.from({length:60},(_,i)=>({name:'Piece number '+i+' with a long name to fill the record',at:[1,1,0],turn:0,
+    parts:Array.from({length:8},()=>({kind:'box',size:[.123,.123,.123],at:[.111,.111,.111],material:'',turn:12,tiltX:3,tiltY:4}))}))};
+  assert.throws(()=>D.pack(big),/too large/);
+  assert.ok(JSON.stringify(kept).length<D.SAVED_MAX);
+});
+
+test('previs: the set as it is drawn, the prompt the image engine gets, and what is never done',()=>{
+  const p={console,crypto,TextEncoder,URL};p.window=p;vm.createContext(p);
+  for(const f of ['blender-render-contract.js','set-dressing.js','set-previs.js'])vm.runInContext(readFileSync('app/'+f,'utf8'),p);
+  const P=p.KinolotPrevis,s=scene();
+  p.KinolotCloudRender={buildScene:()=>s};
+  const plain=P.scene({id:'x'});
+  assert.equal(plain.dressed,false);assert.equal(plain.scene,s);assert.equal(plain.light,null);
+  const kept=copy(p.KinolotSetDressing.pack(p.KinolotSetDressing.normalise(written(),s).dressing,{}));
+  const dressed=P.scene({id:'x',previs:kept});
+  assert.equal(dressed.dressed,true);assert.equal(dressed.parts,4);assert.equal(dressed.light.time,'night');
+  assert.ok(dressed.scene.objects.some(o=>o.material==='d_steel'));
+  // the card's own prompt, with its AVOID list, under the sheet's instruction and in the card's style
+  p.locVisualDefaults=()=>({renderStyle:'hand-painted anime background'});
+  p.combinedLocationPrompt=(l)=>'CARD PROMPT for '+l.name+' AVOID: people.';
+  const text=P.stylePrompt({name:'Hall'});
+  assert.ok(text.startsWith('Image 1 is the 3D previs sheet of this location'));
+  assert.ok(text.includes("the finished look is the spec's render style (hand-painted anime background)"),'whatever style the card has, not photoreal');
+  assert.ok(text.endsWith('CARD PROMPT for Hall AVOID: people.'));
+  assert.ok(text.includes('Do not add, remove or move buildings, objects or openings'));
+  const source=readFileSync('app/set-previs.js','utf8');
+  // the image is saved as the location image's new version through the app's own save, with what it was made from
+  for(const t of ['root.nbCommit(entry.id,entry.url,entry.meta,entry.refs,"location",entry.scope.epoch,','kind:"location",mode:"final"','spatialPlanSig:root.locationSpatialPlanSigFor(location)',
+      'plateLayoutSig:root.locationPlateLayoutSig(location,{panels:true})','locSpecSig:root.locationSpecSig(location)','new CustomEvent("nb-gen-done"',
+      'refs:[{kind:"previs-sheet",label:"Previs sheet",url:drawn.dataUrl}]','assetPurpose:"previs-image"','noRetry:true','unsaved.set(key,entry);'])
+    assert.ok(source.includes(t),t);
+  assert.ok(source.indexOf('unsaved.set(key,entry);')<source.indexOf('const saved=await commit(entry);'),'a made image is kept before the save is tried');
+  assert.ok(/if\(unsaved\.has\(key\)\)throw new Error\("An image was made but not saved yet\. Save it first\."\);/.test(source),'never a second paid image over an unsaved one');
+  assert.ok(source.includes('if(typeof root.turnArtRoomWritable==="function"&&!root.turnArtRoomWritable())throw new Error("This film is read-only.");'));
+});

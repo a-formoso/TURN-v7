@@ -125,11 +125,14 @@ function locationVariantNames(units,extra){
 /* THE CARD IN ORDER (owner 2026-11-13, second pass: "organized in order of what comes first and what comes last"):
    every section of the card has a number, top to bottom, with no gap. 1 The Space, 2 Floor plan and 3 Cameras are on
    every card; 4 Build the set and 5 Style it where a set can be built; Location image, Variants, Subspaces (a place
-   with rooms or extra spaces) and Generation Prompt take the numbers that follow. */
-function locationSectionNumbers({build,style,subspaces}){
+   with rooms or extra spaces) and Generation Prompt take the numbers that follow.
+   PREVIS (owner 2026-11-15) is the section just before Location image, the image it leads to. Steps 4 and 5 keep their
+   numbers: they are named all over the app. */
+function locationSectionNumbers({build,style,previs,subspaces}){
   let n=3; const o={space:1,plan:2,cameras:3};
   if(build) o.build=++n;
   if(build&&style) o.style=++n;
+  if(previs) o.previs=++n;
   o.image=++n; o.variants=++n;
   if(subspaces) o.subspaces=++n;
   o.prompt=++n;
@@ -1957,8 +1960,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // your own Blender sits in 4 · Build the set; a place whose rooms are built one by one keeps it in Subspaces
   const handoffInSubspaces=!buildHere&&hasRooms;
   const showBuild=buildHere||(!!window.BlenderStudioLaunch&&!handoffInSubspaces);
-  const sectionNo=locationSectionNumbers({build:showBuild,style:buildHere,subspaces:showSubspaces});
-  const cardSteps=locationCardSteps({l,drafted,spatialState,gen,cloudPilot:buildHere,cloudJob,ownBlender:showBuild&&!buildHere,imageN:sectionNo.image});
+  // Previs: the set in live 3D, on every card (it needs the floor plan and the cameras, and says so until they are there)
+  const showPrevis=!!(window.LocationPrevisStep&&window.KinolotPrevis&&window.KinolotSetDressing&&window.KinolotCloudRender);
+  const sectionNo=locationSectionNumbers({build:showBuild,style:buildHere,previs:showPrevis,subspaces:showSubspaces});
+  const cardSteps=locationCardSteps({l,drafted,spatialState,gen,cloudPilot:buildHere,cloudJob,ownBlender:showBuild&&!buildHere,imageN:sectionNo.image,previsN:sectionNo.previs});
   const variantCount=units.filter(u=>!u.orphan).length+environment.additional.length;
   const partsCount=Array.isArray(l.movingParts)?l.movingParts.length:0;
   const promptBuiltFrom="Built from "+(l.parentLocation
@@ -2207,6 +2212,11 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             React.createElement("p",{className:"loc-step-fixes-head"},roomLocations.length?"Choose a room and build its set before styling the views.":"Build the set in step 4 before styling its views."),
             React.createElement("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set"))),
 
+      // PREVIS (owner 2026-11-15): the set in live 3D from the floor plan and the cameras, dressed for the film, and the
+      // location image made from it in the card's style. The fold draws only while it is open.
+      showPrevis&&React.createElement(CardFold,{label:sectionNo.previs+" \u00b7 Previs",foldId:"loc-previs-"+l.id,count:stepCount(sectionNo.previs),defaultOpen:initialSection==="previs"},
+        React.createElement(window.LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage:!!gen.genUrl,imageN:sectionNo.image})),
+
       // THE LOCATION IMAGE (the step after the set): what sets its look (Look Dev: the settings that change the plate
       // live ON the card, 2026-10-05) and the check of the image against the description. The image itself is
       // generated at the top of the card.
@@ -2308,7 +2318,7 @@ function useLocationCloudJob(l,on){
   },[on,l.id]);
   return on?window.KinolotCloudRender.jobState(l.id):null;
 }
-function locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob,ownBlender,imageN}){
+function locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob,ownBlender,imageN,previsN}){
   let problems={},labels={};
   try{
     problems=spatialState.ready&&window.KinolotCloudRender?window.KinolotCloudRender.cameraProblems(l):{};
@@ -2330,6 +2340,9 @@ function locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob,ownBl
         todo:cloudJob&&["queued","running"].includes(cloudJob.status)?"The set is building.":cloudJob&&cloudJob.status==="completed"?"Rebuild the set: the floor plan or cameras changed.":"Build the set in 3D from the floor plan."},
       {n:5,name:"Style it",optional:true,done:false,todo:"Optional: try materials and light over the built set."}]
       :ownBlender?[{n:4,name:"Build the set",optional:true,done:false,todo:"Optional: build this place in your own Blender."}]:[]),
+    // Previs: optional, done once the set is dressed
+    ...(previsN?[{n:previsN,key:"previs",name:"Previs",optional:true,done:!!(l.previs&&l.previs.v===1),
+      todo:"Optional: see the set in live 3D, dress it for the film and make the location image from it."}]:[]),
     // the next number after the build steps: 6 with Build and Style, 5 with your own Blender alone, else 4
     {n:imageN||(cloudPilot?6:ownBlender?5:4),key:"image",name:"Location image",done:!!gen.genUrl&&!imageStale,
       todo:gen.genUrl?"Regenerate the image: the description or layout changed since it was made.":"Generate the location image at the top of the card."}];
@@ -2341,6 +2354,8 @@ function LocationStepGuide({l,steps}){
   const go=n=>{
     // the image is generated at the top of the card
     if((steps.find(x=>x.n===n)||{}).key==="image"){const card=ref.current&&ref.current.closest("[data-location-card]");if(card)try{card.scrollIntoView({behavior:"smooth",block:"start"});}catch(_){}return;}
+    // Previs has its own section; its number changes with the card, so it is opened by name
+    if((steps.find(x=>x.n===n)||{}).key==="previs"){window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:"loc-previs-"+l.id}));return;}
     if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,n);
     else window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:locationStepFoldId(l,n)}));
   };

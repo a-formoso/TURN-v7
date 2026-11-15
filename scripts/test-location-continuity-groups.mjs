@@ -243,7 +243,7 @@ ok("location folds follow the order of the work: the space, floor plan (with mov
 ok("every fold of the card has a number",
   (()=>{ const sheet=ui.slice(ui.indexOf("// THE CARD IN ORDER (owner 2026-11-13)"),ui.indexOf("function useLocationCloudJob"));
     const labels=sheet.match(/CardFold,\{label:[^,]+/g)||[];
-    return labels.length===9&&labels.every(x=>/label:"[1-5] \\u00b7 |label:sectionNo\.(image|variants|subspaces|prompt)\+" \\u00b7 /.test(x)); })());
+    return labels.length===10&&labels.every(x=>/label:"[1-5] \\u00b7 |label:sectionNo\.(previs|image|variants|subspaces|prompt)\+" \\u00b7 /.test(x)); })());
 ok("location style fine-tuning is under Look Dev in the Location image section (before Generation Prompt), the one place for it",
   (ui.match(/"Look Dev"/g)||[]).length===1&&
   ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('"Look Dev"')&&
