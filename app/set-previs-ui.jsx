@@ -80,7 +80,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
       E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Go to 2 \u00b7 Floor plan")));
   return E(React.Fragment,null,
     E("p",{className:"loc-layer-note","data-testid":"previs-intro"},
-      "A live 3D version of this set, drawn from 2 \u00b7 Floor plan and 3 \u00b7 Cameras. Check where everything stands, then make the location image from it."),
+      "A live 3D version of this set, drawn from 2 \u00b7 Floor plan and 3 \u00b7 Cameras. Check where everything stands, dress it for the film, then make the location image from it."),
     E("div",{className:"loc-sub previs-view","data-testid":"previs-sheet"},
       E("h4",{className:"loc-step-sub"},"The set from its four cameras"),
       E("div",{className:"previs-sheet"+(drawing?" drawing":""),"aria-busy":drawing?"true":"false"},

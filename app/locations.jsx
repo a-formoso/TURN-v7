@@ -1884,12 +1884,13 @@ function locationLowerDraftOutdoorCameras(plan, family, locations){
   return {plan:lowered.length ? {...plan, coordinates:{...coords, cameras}} : plan, lowered};
 }
 /* the review's words for what the draft lowered (Shared set layout, while the draft is untouched) */
-/* ONE NUMBERED PATH PER LOCATION CARD (owner 2026-11-01): 1 Describe · 2 Floor plan · 3 Cameras · 4 Build the set ·
-   5 Style it (the cloud set pilot) · 6 Location image. Each step is a card fold; step 2 keeps the layout fold's id so
-   every older link to it still opens it. */
+/* ONE NUMBERED PATH PER LOCATION CARD (owner 2026-11-01; 2026-11-15 "move Previs to 4, ahead of Build the set"):
+   1 The Space · 2 Floor plan · 3 Cameras · 4 Previs · 5 Build the set · 6 Style it (the cloud set). Each step is a card
+   fold; step 2 keeps the layout fold's id so every older link to it still opens it. The sections after the steps
+   (Location image and on) have their own fold ids: their numbers change with the card. */
 function locationStepFoldId(l,step){
   const id=l&&l.id;if(!id)return "";
-  return step===2?"loc-layout-"+id:step===6?"loc-step6-"+id:"loc-step"+step+"-"+id;
+  return step===2?"loc-layout-"+id:"loc-step"+step+"-"+id;
 }
 /* A NEW DRAFT KEEPS WHAT WAS SET (owner 2026-11-01 — "keep them on redraft"): re-drafting the floor plan replaced it
    whole, so cameras placed by hand or by a fix, and rooms the draft didn't return, were lost on confirm (The Last

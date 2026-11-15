@@ -1,4 +1,4 @@
-/* Step 4 · Build the set and step 5 · Style it of the location card (owner 2026-11-01: one numbered path per card),
+/* Step 5 · Build the set and step 6 · Style it of the location card (owner 2026-11-01: one numbered path per card),
    each reading the location's latest render. Open to paying plans since 2026-11-05 (supabase-config.js setBuild; the
    server holds 15 credits a build — Director and Producer, the owner or an Art director on a shared film); without
    that switch, the owner-only local pilot. */
@@ -8,7 +8,7 @@ function useCloudSetJob(location){
   const [message,setMessage]=React.useState(""),[sceneHash,setSceneHash]=React.useState(""),[refresh,setRefresh]=React.useState(0);
   // what the server says about this film: whether this account may build here, and a build's price (credits)
   const [caps,setCaps]=React.useState(null);
-  // the story moment the set is built at (a moving part's state); step 4 and step 5 read the same choice
+  // the story moment the set is built at (a moving part's state); step 5 and step 6 read the same choice
   const [,setMomentTick]=React.useState(0);
   React.useEffect(()=>{
     const h=e=>{if(e&&e.detail&&e.detail.locationId===location.id)setMomentTick(n=>n+1);};
@@ -66,7 +66,7 @@ function goToLocationStep(location,step){
   if(id)window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:id}));
   if(step===2)window.dispatchEvent(new CustomEvent("kinolot-edit-floor-plan",{detail:{locationId:location.id}}));
 }
-const LOCATION_STEP_NAMES={1:"The Space",2:"Floor plan",3:"Cameras",4:"Build the set",5:"Style it"};
+const LOCATION_STEP_NAMES={1:"The Space",2:"Floor plan",3:"Cameras",4:"Previs",5:"Build the set",6:"Style it"};
 // What stops the build, each with the step that fixes it.
 function cloudFixList(location,issues){
   const E=React.createElement;
@@ -169,7 +169,7 @@ function LocationCloudRender({location,readOnly=false,onUpdate}){
     title:"≈ "+credits+" generation credits a build — held when it's queued, charged when the four views arrive, given back if it fails or you cancel"},typeof window.nbCreditMark==="function"?window.nbCreditMark():null,String(credits));
   return E("section",{className:"loc-cloud-render","data-testid":"location-cloud-render"},
     E("p",{className:"loc-layer-note"},paid
-      ?"Builds the room in 3D from the floor plan and cameras, and renders the four views — a plain blockout that keeps every shot's layout consistent; step 5 styles it. Separate from the location image."
+      ?"Builds the room in 3D from the floor plan and cameras, and renders the four views — a plain blockout that keeps every shot's layout consistent; step 6 styles it. Separate from the location image."
       :"Builds the room in 3D from the floor plan and cameras, and renders the four views. Free during the pilot; separate from the location image."),
     !canBuild&&E("p",{className:"loc-layer-note","data-testid":"set-build-role"},"The film's owner or its Art director builds the set; you can see what they built."),
     (blockedViews?otherIssues:issues).length>0&&cloudFixList(location,blockedViews?otherIssues:issues),
@@ -223,9 +223,9 @@ function momentPicker(location,api,disabled){
   return E("label",{className:"loc-cam-field loc-cloud-moment"},E("span",null,"Build at"),
     E("select",{className:"prop-select",value:key,disabled,onChange:e=>api.setBuildMoment(location.id,e.target.value)},
       list.map(m=>E("option",{key:m.key,value:m.key},m.label))),
-    E("small",null,"The moving parts are built as they are at that moment. Styled in step 5, it becomes that state's own image, which shots at those moments use; the usual state makes the location image."));
+    E("small",null,"The moving parts are built as they are at that moment. Styled in step 6, it becomes that state's own image, which shots at those moments use; the usual state makes the location image."));
 }
-/* Step 5 · Style it: the image-model look over the built set; it needs a current build from step 4. */
+/* Step 6 · Style it: the image-model look over the built set; it needs a current build from step 5. */
 function LocationStyleStep({location,readOnly=false}){
   const c=useCloudSetJob(location);
   if(!c.show)return null;
@@ -242,7 +242,7 @@ function LocationStyleStep({location,readOnly=false}){
     c.message&&E("button",{type:"button",className:"art-draftall ghost",onClick:c.refresh},"Retry renderer connection"));
   const setup=!ready&&E("div",{className:"loc-step-fixes"},
     E("p",{className:"loc-step-fixes-head"},c.job&&c.job.status==="completed"?"Rebuild the set first: its views are from an earlier floor plan or cameras.":"Build the set first."),
-    E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,4)},"Go to 4 · Build the set"));
+    E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,5)},"Go to 5 · Build the set"));
   return E("div",null,setup,window.LocationSetStyle?E(window.LocationSetStyle,{key:c.scopeKey+":"+(target.key||""),location,target,
     job:c.job,sceneHash:ready?c.sceneHash:"",readOnly}):null);
 }

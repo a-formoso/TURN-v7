@@ -229,7 +229,7 @@ const numbered=(key,name)=>'label:sectionNo.'+key+'+" \\u00b7 '+name+'"';
 ok("location folds use the approved filmmaker-facing names",
   // the owner's own names (2026-11-13): Rooms & times → Variants, Screenplay evidence → Screenplay Coverage, Look & exclusions → Look Dev
   [step("1 · The Space"),'"Narrative Significance \\u2014 what this place means in the story"','"Look Dev"','"Screenplay Coverage"',numbered("variants","Variants"),step("2 · Floor plan"),
-    step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),numbered("image","Location image"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")].every(token=>ui.includes(token))&&
+    step("3 · Cameras"),step("4 · Previs"),step("5 · Build the set"),step("6 · Style it"),numbered("image","Location image"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")].every(token=>ui.includes(token))&&
   ['label:"More"','label:"Rooms & times"','label:"Screenplay evidence"','label:"Look & exclusions"','"Additional environment states"',
     '"Scene dressing & blocking"',
     // sections without a number (until 2026-11-13, second pass)
@@ -237,13 +237,13 @@ ok("location folds use the approved filmmaker-facing names",
     'CardFold,{label:"Blender Studio"','CardFold,{label:"Variants"','CardFold,{label:"Subspaces"','CardFold,{label:"Generation Prompt"','LocationGroupHead'].every(token=>!ui.includes(token)));
 ok("location folds follow the order of the work: the space, floor plan (with moving parts), cameras, build, style, the image (Look Dev), variants, subspaces and the prompt",
   [step("1 · The Space"),'summary",null,"Screenplay Coverage"','field:"architecture"','"Narrative Significance \\u2014 what this place means in the story"',step("2 · Floor plan"),
-    '"Moving parts (optional)"',step("3 · Cameras"),step("4 · Build the set"),step("5 · Style it"),numbered("image","Location image"),'"Look Dev"',
+    '"Moving parts (optional)"',step("3 · Cameras"),step("4 · Previs"),step("5 · Build the set"),step("6 · Style it"),numbered("image","Location image"),'"Look Dev"',
     numbered("variants","Variants"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")]
     .map(token=>ui.indexOf(token,ui.indexOf(step("1 · The Space")))).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
 ok("every fold of the card has a number",
   (()=>{ const sheet=ui.slice(ui.indexOf("// THE CARD IN ORDER (owner 2026-11-13)"),ui.indexOf("function useLocationCloudJob"));
     const labels=sheet.match(/CardFold,\{label:[^,]+/g)||[];
-    return labels.length===10&&labels.every(x=>/label:"[1-5] \\u00b7 |label:sectionNo\.(previs|image|variants|subspaces|prompt)\+" \\u00b7 /.test(x)); })());
+    return labels.length===10&&labels.every(x=>/label:"[1-6] \\u00b7 |label:sectionNo\.(image|variants|subspaces|prompt)\+" \\u00b7 /.test(x)); })());
 ok("location style fine-tuning is under Look Dev in the Location image section (before Generation Prompt), the one place for it",
   (ui.match(/"Look Dev"/g)||[]).length===1&&
   ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('"Look Dev"')&&

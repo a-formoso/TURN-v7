@@ -123,16 +123,14 @@ function locationVariantNames(units,extra){
     ...(extra||[]).map(v=>String(v&&v.time||"").trim()||"Variant")]));
 }
 /* THE CARD IN ORDER (owner 2026-11-13, second pass: "organized in order of what comes first and what comes last"):
-   every section of the card has a number, top to bottom, with no gap. 1 The Space, 2 Floor plan and 3 Cameras are on
-   every card; 4 Build the set and 5 Style it where a set can be built; Location image, Variants, Subspaces (a place
-   with rooms or extra spaces) and Generation Prompt take the numbers that follow.
-   PREVIS (owner 2026-11-15) is the section just before Location image, the image it leads to. Steps 4 and 5 keep their
-   numbers: they are named all over the app. */
-function locationSectionNumbers({build,style,previs,subspaces}){
-  let n=3; const o={space:1,plan:2,cameras:3};
+   every section of the card has a number, top to bottom, with no gap. 1 The Space, 2 Floor plan, 3 Cameras and
+   4 Previs (owner 2026-11-15: "move Previs to 4, ahead of Build the set") are on every card; 5 Build the set and
+   6 Style it where a set can be built; Location image, Variants, Subspaces (a place with rooms or extra spaces) and
+   Generation Prompt take the numbers that follow. */
+function locationSectionNumbers({build,style,subspaces}){
+  let n=4; const o={space:1,plan:2,cameras:3,previs:4};
   if(build) o.build=++n;
   if(build&&style) o.style=++n;
-  if(previs) o.previs=++n;
   o.image=++n; o.variants=++n;
   if(subspaces) o.subspaces=++n;
   o.prompt=++n;
@@ -296,7 +294,7 @@ function LocationMovingParts({l,scenes,drafts,onUpdate,readOnly=false}){
   const keep=()=>{const ids=new Set(pending.map(p=>p.id));save(parts.filter(p=>!ids.has(p.id)).concat(pending));setPending(null);};
   const addPart=()=>save(parts.concat([{id:"part-"+Date.now().toString(36),name:"New part",states:[{id:"closed",label:"Closed",pose:"as-built"},{id:"open",label:"Open",pose:"open"}],usual:"closed",changes:[],source:"user"}]));
   const field=(label,input)=>E("label",{className:"loc-cam-field"},E("span",null,label),input);
-  /* each state other than the usual one can have its own image, made from the set built at that moment (steps 4–5,
+  /* each state other than the usual one can have its own image, made from the set built at that moment (steps 5–6,
      cloud set pilot); shots at those moments use it in place of the location image */
   const cloud=window.KinolotCloudRender,pilot=!!(cloud&&cloud.enabled&&cloud.enabled());
   const stateImages=()=>{
@@ -311,7 +309,7 @@ function LocationMovingParts({l,scenes,drafts,onUpdate,readOnly=false}){
           url?E("img",{src:url,alt:locationPartStateLabel(states)}):null,
           E("span",null,locationPartStateLabel(states)+(url?" \u2014 shots at these moments use this image.":" \u2014 no image yet; shots use the location image and are told the state.")),
           !readOnly&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>{cloud.setBuildMoment(l.id,m.key);
-            if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,url?5:4);}},url?"Restyle (step 5)":"Make it: build at this moment (step 4)"));
+            if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,url?6:5);}},url?"Restyle (step 6)":"Make it: build at this moment (step 5)"));
       }));
   };
   const partView=(p,i)=>E("details",{key:p.id+i,className:"loc-nested-section loc-part",open:true},
@@ -453,7 +451,7 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
     stale&&E("p",{role:"alert",className:"loc-spatial-error"},"The film, floor plan or cameras changed. Suggest 4 cameras again before applying."),
     error&&E("p",{role:"alert",className:"loc-spatial-error"},error),
     !proposal&&state.ready&&ownRoom&&api.enabled?.()&&Object.keys(api.cameraProblems(l,list)).length===0&&E("div",{className:"loc-step-actions"},
-      E("button",{type:"button",className:"art-draftall",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set"),
+      E("button",{type:"button",className:"art-draftall",onClick:()=>window.goToLocationStep(l,5)},"Go to 5 · Build the set"),
       window.InfoTip&&E(window.InfoTip,{label:"Before building the set",text:"Camera position checks pass. Preview the angles if needed, then build the set. Composition notes below are optional. The build price is shown in step 4."})));
 }
 function LocationPlateCameras({l,project,onUpdate,readOnly=false,plateMeta}){
@@ -1947,7 +1945,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   },[l.staging]);
 
   // ONE NUMBERED PATH PER CARD (owner 2026-11-01): where each step stands, for the guide and the numbered folds
-  // Build per room. Steps 4 / 5 stay visible on an unfinished card with setup guidance; a place that has rooms shows
+  // Build per room. Steps 5 / 6 stay visible on an unfinished card with setup guidance; a place that has rooms shows
   // them on its rooms (owner 2026-11-13), which its Subspaces section opens.
   const ownRoom=!!(((spatialState.plan.coordinates||{}).spaces||[]).some(s=>s.id===l.id&&(s.footprint||[]).length>=3));
   const cloudPilot=!!(window.KinolotCloudRender&&window.KinolotCloudRender.enabled()&&window.LocationCloudRender);
@@ -1957,13 +1955,13 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // Build and Style show where a set can be built: this card's own room, or a place with no rooms of its own
   const buildHere=cloudPilot&&(ownRoom||!hasRooms);
   const showSubspaces=!l.parentLocation&&(hasRooms||coverageSheets.length>0);
-  // your own Blender sits in 4 · Build the set; a place whose rooms are built one by one keeps it in Subspaces
+  // your own Blender sits in 5 · Build the set; a place whose rooms are built one by one keeps it in Subspaces
   const handoffInSubspaces=!buildHere&&hasRooms;
   const showBuild=buildHere||(!!window.BlenderStudioLaunch&&!handoffInSubspaces);
-  // Previs: the set in live 3D, on every card (it needs the floor plan and the cameras, and says so until they are there)
+  // 4 · Previs: the set in live 3D, on every card (it needs the floor plan and the cameras, and says so until they are there)
   const showPrevis=!!(window.LocationPrevisStep&&window.KinolotPrevis&&window.KinolotSetDressing&&window.KinolotCloudRender);
-  const sectionNo=locationSectionNumbers({build:showBuild,style:buildHere,previs:showPrevis,subspaces:showSubspaces});
-  const cardSteps=locationCardSteps({l,drafted,spatialState,gen,cloudPilot:buildHere,cloudJob,ownBlender:showBuild&&!buildHere,imageN:sectionNo.image,previsN:sectionNo.previs});
+  const sectionNo=locationSectionNumbers({build:showBuild,style:buildHere,subspaces:showSubspaces});
+  const cardSteps=locationCardSteps({l,drafted,spatialState,gen,cloudPilot:buildHere,cloudJob,ownBlender:showBuild&&!buildHere,imageN:sectionNo.image});
   const variantCount=units.filter(u=>!u.orphan).length+environment.additional.length;
   const partsCount=Array.isArray(l.movingParts)?l.movingParts.length:0;
   const promptBuiltFrom="Built from "+(l.parentLocation
@@ -2195,10 +2193,14 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           onAdd:addCoverageView,onRemove:removeCoverageView,onDraftStaging,draftingStage,readOnly}),
       ),
 
+      // PREVIS (owner 2026-11-15): the set in live 3D from the floor plan and the cameras, dressed for the film, and the
+      // location image made from it in the card's style. The fold draws only while it is open.
+      showPrevis&&React.createElement(CardFold,{label:"4 \u00b7 Previs",foldId:locationStepFoldId(l,4),count:stepCount(4),defaultOpen:initialSection==="previs"},
+        React.createElement(window.LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage:!!gen.genUrl,imageN:sectionNo.image})),
       // Build and Style show where a set can be built: this card's own room, or a place with no rooms that still needs
       // its footprint (owner 2026-11-13). A place whose rooms are built one by one sends you to them from Subspaces.
-      // With the cloud build off, step 4 holds the hand-off to your own Blender alone.
-      showBuild&&React.createElement(CardFold,{label:"4 \u00b7 Build the set",foldId:locationStepFoldId(l,4),count:stepCount(4),defaultOpen:initialSection==="build"},
+      // With the cloud build off, step 5 holds the hand-off to your own Blender alone.
+      showBuild&&React.createElement(CardFold,{label:"5 \u00b7 Build the set",foldId:locationStepFoldId(l,5),count:stepCount(5),defaultOpen:initialSection==="build"},
         !buildHere?React.createElement("p",{className:"loc-layer-note"},"Build this place in your own Blender.")
           :ownRoom?React.createElement(window.LocationCloudRender,{location:l,readOnly,onUpdate})
           :React.createElement(LocationCloudBuildSetup,{location:l,rooms:roomLocations,onSelectLocation}),
@@ -2206,21 +2208,16 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         window.BlenderStudioLaunch&&React.createElement("div",{className:"loc-sub","data-testid":"loc-own-blender"},
           buildHere&&React.createElement("h4",{className:"loc-step-sub"},"Or in your own Blender"),
           studioHandoff)),
-      buildHere&&React.createElement(CardFold,{label:"5 \u00b7 Style it",foldId:locationStepFoldId(l,5),count:stepCount(5),defaultOpen:initialSection==="style"},
+      buildHere&&React.createElement(CardFold,{label:"6 \u00b7 Style it",foldId:locationStepFoldId(l,6),count:stepCount(6),defaultOpen:initialSection==="style"},
         ownRoom?React.createElement(window.LocationStyleStep,{location:l,readOnly})
           :React.createElement("div",{className:"loc-step-fixes"},
-            React.createElement("p",{className:"loc-step-fixes-head"},roomLocations.length?"Choose a room and build its set before styling the views.":"Build the set in step 4 before styling its views."),
-            React.createElement("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep(l,4)},"Go to 4 · Build the set"))),
-
-      // PREVIS (owner 2026-11-15): the set in live 3D from the floor plan and the cameras, dressed for the film, and the
-      // location image made from it in the card's style. The fold draws only while it is open.
-      showPrevis&&React.createElement(CardFold,{label:sectionNo.previs+" \u00b7 Previs",foldId:"loc-previs-"+l.id,count:stepCount(sectionNo.previs),defaultOpen:initialSection==="previs"},
-        React.createElement(window.LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage:!!gen.genUrl,imageN:sectionNo.image})),
+            React.createElement("p",{className:"loc-step-fixes-head"},roomLocations.length?"Choose a room and build its set before styling the views.":"Build the set in step 5 before styling its views."),
+            React.createElement("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep(l,5)},"Go to 5 · Build the set"))),
 
       // THE LOCATION IMAGE (the step after the set): what sets its look (Look Dev: the settings that change the plate
       // live ON the card, 2026-10-05) and the check of the image against the description. The image itself is
       // generated at the top of the card.
-      React.createElement(CardFold,{label:sectionNo.image+" \u00b7 Location image",foldId:locationStepFoldId(l,6),count:stepCount(sectionNo.image),defaultOpen:false},
+      React.createElement(CardFold,{label:sectionNo.image+" \u00b7 Location image",foldId:"loc-image-"+l.id,count:stepCount(sectionNo.image),defaultOpen:false},
         React.createElement("p",{className:"loc-layer-note","data-testid":"loc-image-step-note"},"Generate the image at the top of the card. It is made from 1 \u00b7 The Space and the look set here."),
         React.createElement("h4",{className:"loc-step-sub"},"Look Dev"),
         React.createElement("div",{className:"loc-render-style-details"},
@@ -2296,7 +2293,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
 }
 
 /* ONE NUMBERED PATH PER LOCATION CARD (owner 2026-11-01 — "make it simpler … numbers … which item to generate first"):
-   1 The Space · 2 Floor plan · 3 Cameras · 4 Build the set · 5 Style it (where a set can be built) · Location image
+   1 The Space · 2 Floor plan · 3 Cameras · 4 Previs · 5 Build the set · 6 Style it (where a set can be built) · Location image
    (the next number: 6, or 4 on a card with no build step; owner 2026-11-13, no gaps). Each
    step says whether it is done, and the first that isn't is "next", with what to do there. */
 function useLocationCloudJob(l,on){
@@ -2318,7 +2315,7 @@ function useLocationCloudJob(l,on){
   },[on,l.id]);
   return on?window.KinolotCloudRender.jobState(l.id):null;
 }
-function locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob,ownBlender,imageN,previsN}){
+function locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob,ownBlender,imageN}){
   let problems={},labels={};
   try{
     problems=spatialState.ready&&window.KinolotCloudRender?window.KinolotCloudRender.cameraProblems(l):{};
@@ -2335,16 +2332,16 @@ function locationCardSteps({l,drafted,spatialState,gen,cloudPilot,cloudJob,ownBl
     {n:2,name:"Floor plan",done:planDone,todo:planIssue?.text||spatialState.reason||"Check the floor plan and confirm it."},
     {n:3,name:"Cameras",done:planDone&&!camKey,
       todo:!planDone?"Complete and confirm the floor plan in step 2 first.":camKey?"The "+labels[camKey]+" camera: "+problems[camKey].charAt(0).toLowerCase()+problems[camKey].slice(1):""},
+    // 4 · Previs: optional (it never holds up the next step), done once the set is dressed
+    {n:4,key:"previs",name:"Previs",optional:true,done:!!(l.previs&&l.previs.v===1),
+      todo:"Optional: see the set in live 3D, dress it for the film and make the location image from it."},
     ...(cloudPilot?[
-      {n:4,name:"Build the set",done:!!(cloudJob&&cloudJob.current),
+      {n:5,name:"Build the set",done:!!(cloudJob&&cloudJob.current),
         todo:cloudJob&&["queued","running"].includes(cloudJob.status)?"The set is building.":cloudJob&&cloudJob.status==="completed"?"Rebuild the set: the floor plan or cameras changed.":"Build the set in 3D from the floor plan."},
-      {n:5,name:"Style it",optional:true,done:false,todo:"Optional: try materials and light over the built set."}]
-      :ownBlender?[{n:4,name:"Build the set",optional:true,done:false,todo:"Optional: build this place in your own Blender."}]:[]),
-    // Previs: optional, done once the set is dressed
-    ...(previsN?[{n:previsN,key:"previs",name:"Previs",optional:true,done:!!(l.previs&&l.previs.v===1),
-      todo:"Optional: see the set in live 3D, dress it for the film and make the location image from it."}]:[]),
-    // the next number after the build steps: 6 with Build and Style, 5 with your own Blender alone, else 4
-    {n:imageN||(cloudPilot?6:ownBlender?5:4),key:"image",name:"Location image",done:!!gen.genUrl&&!imageStale,
+      {n:6,name:"Style it",optional:true,done:false,todo:"Optional: try materials and light over the built set."}]
+      :ownBlender?[{n:5,name:"Build the set",optional:true,done:false,todo:"Optional: build this place in your own Blender."}]:[]),
+    // the next number after the steps: 7 with Build and Style, 6 with your own Blender alone, else 5
+    {n:imageN||(cloudPilot?7:ownBlender?6:5),key:"image",name:"Location image",done:!!gen.genUrl&&!imageStale,
       todo:gen.genUrl?"Regenerate the image: the description or layout changed since it was made.":"Generate the location image at the top of the card."}];
   const next=steps.find(x=>!x.done&&!x.optional);if(next)next.next=true;
   return steps;
@@ -2354,8 +2351,6 @@ function LocationStepGuide({l,steps}){
   const go=n=>{
     // the image is generated at the top of the card
     if((steps.find(x=>x.n===n)||{}).key==="image"){const card=ref.current&&ref.current.closest("[data-location-card]");if(card)try{card.scrollIntoView({behavior:"smooth",block:"start"});}catch(_){}return;}
-    // Previs has its own section; its number changes with the card, so it is opened by name
-    if((steps.find(x=>x.n===n)||{}).key==="previs"){window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:"loc-previs-"+l.id}));return;}
     if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,n);
     else window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:locationStepFoldId(l,n)}));
   };
@@ -3598,7 +3593,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
         React.createElement("div",{style:{flex:1}},
           React.createElement(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Location Scout",
             React.createElement(window.InfoTip,{label:"About Locations",
-              text:"Locations prepares reusable sets for the art department. Each card is one numbered list, in the order you work. The Space describes the place: Screenplay Coverage, at its top, shows the passages that play there, and Narrative Significance is its last field. Then come the floor plan (review and confirm it before the first plate), the cameras with their reusable camera views with their view compositions, and, where a set can be built, Build the set and Style it. Location image holds Look Dev, the look of the image generated at the top of the card, and the image check. Variants lists each time of day or state the space is seen in (read from the screenplay's sluglines), each with one plate, its Lighting & environment notes and, under Used in, each scene's dressing and blocking. Subspaces lists the place's rooms and extra spaces. A room's plates are made from its location's plate, so that one comes first. The header's Render style picker sets the visual treatment; Look Dev, in the card's Location image section, fine-tunes it, and the card's Generation Prompt section shows, read-only, the specification sent to the image model. Plates spend image credits; drafting specs, layouts and view compositions, and Surprise me, spend writing credits \u2014 each button says which, and the batches ask first with the price. Blender Studio builds the selected set.\n\nEach established parent place has one card with a room selector. Choose Whole location for what every room shares and the list of its rooms (Subspaces), or a room to edit its own plate, layout and variants. Search and scene focus include rooms. A Kitchen with no evidenced parent remains a standalone place. Shot timing, cuts and performance are directed in Shots / Blender previz."}))),
+              text:"Locations prepares reusable sets for the art department. Each card is one numbered list, in the order you work. The Space describes the place: Screenplay Coverage, at its top, shows the passages that play there, and Narrative Significance is its last field. Then come the floor plan (review and confirm it before the first plate), the cameras with their reusable camera views with their view compositions, Previs (the set in live 3D, which you can dress for the film and make the location image from) and, where a set can be built, Build the set and Style it. Location image holds Look Dev, the look of the image generated at the top of the card, and the image check. Variants lists each time of day or state the space is seen in (read from the screenplay's sluglines), each with one plate, its Lighting & environment notes and, under Used in, each scene's dressing and blocking. Subspaces lists the place's rooms and extra spaces. A room's plates are made from its location's plate, so that one comes first. The header's Render style picker sets the visual treatment; Look Dev, in the card's Location image section, fine-tunes it, and the card's Generation Prompt section shows, read-only, the specification sent to the image model. Plates spend image credits; drafting specs, layouts and view compositions, and Surprise me, spend writing credits \u2014 each button says which, and the batches ask first with the price. Blender Studio builds the selected set.\n\nEach established parent place has one card with a room selector. Choose Whole location for what every room shares and the list of its rooms (Subspaces), or a room to edit its own plate, layout and variants. Search and scene focus include rooms. A Kitchen with no evidenced parent remains a standalone place. Shot timing, cuts and performance are directed in Shots / Blender previz."}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"location",onRestore,onPurge,compact:true}),

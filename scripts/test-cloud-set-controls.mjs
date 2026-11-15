@@ -52,14 +52,14 @@ const flag=descendants.find(n=>n.type==="VariableDeclarator"&&n.id.name==="cloud
 assert.ok(flag);assert.doesNotMatch(source.slice(flag.init.start,flag.init.end),/ownRoom/,
   "missing footprint cannot hide both cloud steps");
 const folds=descendants.filter(n=>n.type==="CallExpression"&&n.arguments?.[0]?.name==="CardFold");
-for(const [number,name] of [[4,"Build the set"],[5,"Style it"]]){
+for(const [number,name] of [[5,"Build the set"],[6,"Style it"]]){
   const fold=folds.find(n=>n.arguments[1]?.properties?.some(p=>p.key.name==="label"&&p.value.value===number+" · "+name));
   assert.ok(fold);assert.ok(fold.arguments[1].properties.some(p=>p.key.name==="defaultOpen"));
   assert.equal(fold.arguments[2].type,"ConditionalExpression","each step has a room/setup branch");
-  // buildHere: the cloud build is on for this card (with it off, step 4 holds the hand-off to your own Blender alone, 2026-11-13)
+  // buildHere: the cloud build is on for this card (with it off, step 5 holds the hand-off to your own Blender alone, 2026-11-13)
   const selected=fold.arguments[2];box.ownRoom=false;box.buildHere=true;box.l=location;box.roomLocations=[room];box.onSelectLocation=noop;
   const content=vm.runInContext(source.slice(selected.start,selected.end),box);
-  if(number===4)assert.equal(content.type,box.LocationCloudBuildSetup);
+  if(number===5)assert.equal(content.type,box.LocationCloudBuildSetup);
   else assert.match(text(content),/Choose a room and build/);
 }
 

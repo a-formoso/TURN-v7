@@ -121,21 +121,21 @@ for(const [name,index] of [["header",headIndex],["render style",styleIndex],["sc
   assert.ok(index>=0,`LocationSheet retains ${name}`);
 const spatialFold=directFold("2 \u00b7 Floor plan");
 assert.equal(directFold("More"),undefined,"the More section is gone (owner 2026-11-13)");
-// THE BLENDER HANDOFF (2026-11-13): built once, shown in 4 · Build the set, or at the end of Subspaces on a place whose
+// THE BLENDER HANDOFF (2026-11-13): built once, shown in 5 · Build the set, or at the end of Subspaces on a place whose
 // rooms are built one by one (it had a small un-numbered section of its own for a day). Never both, never a top-level block.
 const within=(fold,name)=>{const src=source.slice(fold.start,fold.end);return new RegExp("\\b"+name+"\\b").test(src);};
 const handoffDecl=source.slice(directStudio.start-22,directStudio.start);
 assert.equal(handoffDecl,"  const studioHandoff=","the handoff element is built once, before the card is laid out");
-const buildFold=bodyChildren.find(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")==="4 \u00b7 Build the set");
+const buildFold=bodyChildren.find(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")==="5 \u00b7 Build the set");
 const subspacesFold=numberedFold("subspaces","Subspaces");
 assert.equal(directFold("Blender Studio"),undefined,"no section without a number");
-assert.ok(buildFold&&within(buildFold,"studioHandoff"),"Build in Blender sits in 4 · Build the set");
+assert.ok(buildFold&&within(buildFold,"studioHandoff"),"Build in Blender sits in 5 · Build the set");
 assert.ok(subspacesFold&&/handoffInSubspaces&&window\.BlenderStudioLaunch&&React\.createElement\("div",\{className:"loc-sub","data-testid":"loc-own-blender"\},\s*React\.createElement\("h4",\{className:"loc-step-sub"\},"The whole place in your own Blender"\),\s*studioHandoff\)\)/.test(source.slice(subspacesFold.start,subspacesFold.end)),
   "a place whose rooms are built one by one keeps the whole place's handoff at the end of Subspaces");
-assert.match(source,/showBuild&&React\.createElement\(CardFold,\{label:"4 \\u00b7 Build the set"/);
+assert.match(source,/showBuild&&React\.createElement\(CardFold,\{label:"5 \\u00b7 Build the set"/);
 assert.ok(source.includes("const handoffInSubspaces=!buildHere&&hasRooms;")&&
   source.includes("const showBuild=buildHere||(!!window.BlenderStudioLaunch&&!handoffInSubspaces);"),
-  "step 4 shows where a set can be built, or (cloud build off) for your own Blender alone; the two homes exclude each other");
+  "step 5 shows where a set can be built, or (cloud build off) for your own Blender alone; the two homes exclude each other");
 assert.equal((source.match(/\bstudioHandoff\b/g)||[]).length,3,"declared once and placed in exactly two exclusive spots");
 const promptFold=numberedFold("prompt","Generation Prompt");
 assert.ok(promptFold&&childIndex(promptFold)===bodyChildren.length-1,
