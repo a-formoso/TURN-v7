@@ -66,7 +66,7 @@ function goToLocationStep(location,step){
   if(id)window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:id}));
   if(step===2)window.dispatchEvent(new CustomEvent("kinolot-edit-floor-plan",{detail:{locationId:location.id}}));
 }
-const LOCATION_STEP_NAMES={1:"The Space",2:"Floor plan",3:"Cameras",4:"Previs",5:"Build the set",6:"Style it"};
+const LOCATION_STEP_NAMES={1:"The Space",2:"Floor plan",3:"Cameras",4:"Previs",5:"Location image"};
 // What stops the build, each with the step that fixes it.
 function cloudFixList(location,issues){
   const E=React.createElement;

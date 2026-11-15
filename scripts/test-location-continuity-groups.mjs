@@ -222,32 +222,34 @@ ok("place identity fields stay separate from unit environment notes",
   ui.includes('label:"Environment notes"')&&ui.includes('"Fixed landmarks"'));
 // ONE NUMBERED PATH PER CARD (owner 2026-11-01), EVERY SECTION NUMBERED IN ORDER (owner 2026-11-13, second pass):
 // 1 The Space (Screenplay Coverage at its top, Narrative Significance its last field) · 2 Floor plan (Moving parts at
-// its end) · 3 Cameras · 4 Build / 5 Style · Location image (Look Dev) · Variants · Subspaces · Generation Prompt.
+// its end) · 3 Cameras · 4 Previs · 5 Location image (The look) · Variants · Subspaces · Generation Prompt.
+// ONE ROAD (owner 2026-11-15: "yes, and remove Blender"): no Build the set, no Style it.
 // No section without a number, no More section.
 const step=t=>'label:"'+t.replace("·","\\u00b7")+'"';
 const numbered=(key,name)=>'label:sectionNo.'+key+'+" \\u00b7 '+name+'"';
 ok("location folds use the approved filmmaker-facing names",
-  // the owner's own names (2026-11-13): Rooms & times → Variants, Screenplay evidence → Screenplay Coverage, Look & exclusions → Look Dev
-  [step("1 · The Space"),'"Narrative Significance \\u2014 what this place means in the story"','"Look Dev"','"Screenplay Coverage"',numbered("variants","Variants"),step("2 · Floor plan"),
-    step("3 · Cameras"),step("4 · Previs"),step("5 · Build the set"),step("6 · Style it"),numbered("image","Location image"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")].every(token=>ui.includes(token))&&
+  // the owner's own names (2026-11-13): Rooms & times → Variants, Screenplay evidence → Screenplay Coverage, Look & exclusions → Look Dev → The look (2026-11-15)
+  [step("1 · The Space"),'"Narrative Significance \\u2014 what this place means in the story"','"The look"','"Screenplay Coverage"',numbered("variants","Variants"),step("2 · Floor plan"),
+    step("3 · Cameras"),step("4 · Previs"),numbered("image","Location image"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")].every(token=>ui.includes(token))&&
   ['label:"More"','label:"Rooms & times"','label:"Screenplay evidence"','label:"Look & exclusions"','"Additional environment states"',
     '"Scene dressing & blocking"',
     // sections without a number (until 2026-11-13, second pass)
-    'CardFold,{label:"Narrative Significance"','CardFold,{label:"Look Dev"','CardFold,{label:"Screenplay Coverage"','CardFold,{label:"Moving parts"',
+    'label:"5 \\u00b7 Build the set"','label:"6 \\u00b7 Style it"','"Look Dev"',
+    'CardFold,{label:"Narrative Significance"','CardFold,{label:"The look"','CardFold,{label:"Screenplay Coverage"','CardFold,{label:"Moving parts"',
     'CardFold,{label:"Blender Studio"','CardFold,{label:"Variants"','CardFold,{label:"Subspaces"','CardFold,{label:"Generation Prompt"','LocationGroupHead'].every(token=>!ui.includes(token)));
-ok("location folds follow the order of the work: the space, floor plan (with moving parts), cameras, build, style, the image (Look Dev), variants, subspaces and the prompt",
+ok("location folds follow the order of the work: the space, floor plan (with moving parts), cameras, previs, the image (The look), variants, subspaces and the prompt",
   [step("1 · The Space"),'summary",null,"Screenplay Coverage"','field:"architecture"','"Narrative Significance \\u2014 what this place means in the story"',step("2 · Floor plan"),
-    '"Moving parts (optional)"',step("3 · Cameras"),step("4 · Previs"),step("5 · Build the set"),step("6 · Style it"),numbered("image","Location image"),'"Look Dev"',
+    '"Moving parts (optional)"',step("3 · Cameras"),step("4 · Previs"),numbered("image","Location image"),'"The look"',
     numbered("variants","Variants"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")]
     .map(token=>ui.indexOf(token,ui.indexOf(step("1 · The Space")))).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
 ok("every fold of the card has a number",
-  (()=>{ const sheet=ui.slice(ui.indexOf("// THE CARD IN ORDER (owner 2026-11-13)"),ui.indexOf("function useLocationCloudJob"));
+  (()=>{ const sheet=ui.slice(ui.indexOf("// THE CARD IN ORDER (owner 2026-11-13)"),ui.indexOf("function locationCardSteps("));
     const labels=sheet.match(/CardFold,\{label:[^,]+/g)||[];
-    return labels.length===10&&labels.every(x=>/label:"[1-6] \\u00b7 |label:sectionNo\.(image|variants|subspaces|prompt)\+" \\u00b7 /.test(x)); })());
-ok("location style fine-tuning is under Look Dev in the Location image section (before Generation Prompt), the one place for it",
-  (ui.match(/"Look Dev"/g)||[]).length===1&&
-  ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('"Look Dev"')&&
-  ui.indexOf('"Look Dev"')>ui.indexOf(numbered("image","Location image"))&&
+    return labels.length===8&&labels.every(x=>/label:"[1-4] \\u00b7 |label:sectionNo\.(image|variants|subspaces|prompt)\+" \\u00b7 /.test(x)); })());
+ok("location style fine-tuning is under The look in the Location image section (before Generation Prompt), the one place for it",
+  (ui.match(/"The look"/g)||[]).length===1&&
+  ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('"The look"')&&
+  ui.indexOf('"The look"')>ui.indexOf(numbered("image","Location image"))&&
   ui.indexOf('className:"loc-render-style-details"')<ui.indexOf(numbered("variants","Variants"))&&
   ui.includes('label:"Render style instructions"'));
 ok("topology and anchors stay in the space, inside 1 · The Space",
@@ -289,8 +291,10 @@ ok("coverage views and scene setups have distinct editors",
   ui.includes('"Occurrence ",setup.occurrenceOrdinal," of ",setup.occurrenceCount'));
 ok("visible location-reference copy uses the approved production-layer names",
   ui.includes('noun:"room & time plate"')&&
-  ui.includes('label:"Room & time · "')&&
-  ui.includes('label:"Time-of-Day Variant · "')&&
+  // (the card's own Blender hand-off, which labelled its references "Room & time · " and "Time-of-Day Variant · ", left
+  // the card on 2026-11-15; the toolbar's Blender Studio builds the same references from the production plan)
+  !ui.includes('label:"Room & time · "')&&!ui.includes('label:"Time-of-Day Variant · "')&&
+  readFileSync("app/blender-studio-ui.jsx","utf8").includes("...[...(plan&&plan.screenplaySpaces||[]),...(plan&&plan.appearanceStates||[]),...(plan&&plan.requiredSpacePlates||[])]")&&
   ui.includes('"Make every plate this scene needs that doesn\'t exist yet: "')&&
   shots.includes('" — Required Space Plate · "')&&
   !shots.includes('" slugline/subspace unit"')&&!shots.includes('" coverage sheet (one full-frame view)"'));
@@ -301,7 +305,7 @@ ok("MUSE capability manifest names the approved location architecture",
   ai.includes("organizes production work into five explicit layers")&&
   ai.includes("one card represents each established continuity root")&&
   ai.includes("1 · The Space (Screenplay Coverage at its top, Narrative Significance its last field) -> 2 · Floor plan (Moving parts, optional, at its end) -> 3 · Cameras")&&
-  ai.includes("-> Location image (Look Dev and the QA check; the image itself is generated at the top of the card) -> Variants")&&
+  ai.includes("-> 5 · Location image (The look and the QA check; the image is made in 4 · Previs or generated at the top of the card) -> 6 · Variants")&&
   ai.includes("There is no More section any more.")&&
   ai.includes("TIME-OF-DAY VARIANTS own only persistent environment changes")&&
   ai.includes("COVERAGE VIEWS own reusable visual interpretations tied to Slugline Units")&&

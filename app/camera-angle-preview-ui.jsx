@@ -30,7 +30,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
       if(!live)return;stage="Starting the graphics preview";instance=preview.create(T,spec,{softwareOnly,openings:base.current.openings,anchors:base.current.anchors});viewer.current=instance;stage="Drawing the camera views";
       for(const panel of Object.keys(labels))if(thumbs.current[panel])instance.render(thumbs.current[panel],spec.cameras[panel],320,180);
       if(candidate.current){instance.render(candidate.current,pose);lastRendered.current=window.KinolotRenderContract.canonical(pose);describeView(instance,pose);}setDisplayMode(instance.mode||"gpu");setReady(true);
-    }).catch(e=>{if(live){setError(stage+": "+String(e?.message||"Display unavailable").slice(0,240)+". Your cameras are unchanged. Retry below, or use the saved cameras and cloud Build set.");setReady(false);}});
+    }).catch(e=>{if(live){setError(stage+": "+String(e?.message||"Display unavailable").slice(0,240)+". Your cameras are unchanged. Retry below.");setReady(false);}});
     return ()=>{live=false;if(viewer.current===instance)viewer.current=null;instance?.dispose();};
   },[open,spec,attempt,softwareOnly]);
   React.useEffect(()=>{
@@ -88,7 +88,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
         coverageViews=coverageViews.map(v=>v.panel===destination?{...v,staging:{...v.staging,cameraSig:sig}}:v);
       }
       onUpdate(location.id,{coverageViews},{kind:"angle-assigned"});setOpen(false);
-      setNotice(labels[destination]+" now uses this camera angle. Rebuild in step 5, then style the updated grid in step 6.");
+      setNotice(labels[destination]+" now uses this camera angle. 4 \u00b7 Previs redraws the set from it.");
     }catch(e){setError(e.message);}
   }
   function chooseStart(value){
@@ -118,7 +118,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
   const copying=destination!==editing;
   return <div className={"loc-angle-entry"+(inline?" loc-angle-entry-inline":"")}>
     <span className="loc-camera-control"><button type="button" className="art-draftall ghost" onClick={begin}>Preview &amp; choose camera angles</button>
-      {window.InfoTip&&<window.InfoTip label="About camera previews" text="Free interactive previews use the saved set geometry with simplified materials and neutral lighting. Move a camera without changing the set. Blender builds and renders the finish in step 5. Changes stay unsaved until you save the named camera."/>}</span>
+      {window.InfoTip&&<window.InfoTip label="About camera previews" text="Free interactive previews use the saved set geometry with simplified materials and neutral lighting. Move a camera without changing the set. 4 · Previs shows the set lit and dressed from the saved cameras. Changes stay unsaved until you save the named camera."/>}</span>
     {!open&&error&&<p role="alert" className="loc-spatial-error">{error}</p>}
     {!open&&notice&&<p role="status" className="loc-layer-note">{notice}</p>}
     {open&&spec&&pose&&<dialog ref={dialog} className="loc-angle-dialog" onCancel={()=>setOpen(false)} aria-label="Preview and choose a camera angle">
@@ -224,7 +224,7 @@ function LocationSuggestedCameraPreviews({l,proposal,locations,previewRequest=nu
     return ()=>{live=false;rendered.current=null;instance?.dispose();};
   },[l,proposal,locations,attempt]);
   return <section className="loc-suggested-camera-previews" aria-label="Suggested camera views">
-    <p className="loc-layer-note">Proposed 3D views · review before saving {window.InfoTip&&<window.InfoTip label="About proposed views" text="These free views use saved set geometry with simplified materials and lighting. Check framing and obstructions before choosing Use these cameras. Blender renders the finish in step 5."/>}</p>
+    <p className="loc-layer-note">Proposed 3D views · review before saving {window.InfoTip&&<window.InfoTip label="About proposed views" text="These free views use saved set geometry with simplified materials and lighting. Check framing and obstructions before choosing Use these cameras. 4 · Previs shows the set lit and dressed from them."/>}</p>
     <div className="loc-angle-panels">
       {proposal.panels.map(panel=><figure key={panel.key} className="loc-angle-panel" style={{margin:0}}>
         <figcaption>{labels[panel.key]} · {panel.label}</figcaption>

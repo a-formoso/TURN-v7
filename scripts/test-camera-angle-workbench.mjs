@@ -226,11 +226,11 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
  const source=readFileSync('app/plans.jsx','utf8'),ast=parseSync(source,{sourceType:'script',parserOpts:{plugins:['jsx']},babelrc:false,configFile:false});
  const statement=ast.program.body.find(n=>n.type==='ExpressionStatement'&&n.expression.type==='AssignmentExpression'&&n.expression.left.property?.name==='turnPlanCardFeatures');
  const b={PLAN_TEAM_LINES:{},TURN_SUPABASE:{setBuild:true},KinolotAnglePreview:{}};b.window=b;vm.createContext(b);vm.runInContext(source.slice(statement.start,statement.end),b);
- for(const tier of ['director','studio'])ok(b.turnPlanCardFeatures({tier,features:[]},['Custom copy']).includes('Cloud sets, camera-angle previews and image styling'),'Director and Producer cards include the feature after custom copy');
- ok(!b.turnPlanCardFeatures({tier:'writer',features:[]}).some(s=>s.includes('camera-angle previews')),'Writer card excludes cloud camera features');
+ // 2026-11-15 (owner: one road, "remove Blender"): the cloud set build left the location card and Previs is on every
+ // plan, so no plan card adds a cloud-sets line any more.
+ for(const tier of ['writer','director','studio'])ok(!b.turnPlanCardFeatures({tier,features:[]},['Custom copy']).some(s=>/cloud sets|camera-angle previews/i.test(s)),'No plan card advertises cloud sets after they left the card');
+ ok(!source.includes('list.push("Cloud sets'),'The retired line is no longer added');
  const old=['Custom copy'];b.turnPlanCardFeatures({tier:'director'},old);ok(old.length===1,'The helper never edits saved admin copy');
- const once=b.turnPlanCardFeatures({tier:'director'},old),twice=b.turnPlanCardFeatures({tier:'director'},once);
- ok(twice.filter(s=>s.includes('camera-angle previews')).length===1,'Shared marketing copy is not duplicated');
  b.TURN_SUPABASE.setBuild=false;ok(!b.turnPlanCardFeatures({tier:'studio',features:[]}).length,'Cloud feature copy follows the app release switch');
  ok(readFileSync('app/landing.jsx','utf8').includes('window.turnPlanCardFeatures(p)'),'Homepage uses this same feature helper');
 }

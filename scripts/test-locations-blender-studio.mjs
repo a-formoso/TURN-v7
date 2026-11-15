@@ -98,9 +98,9 @@ assert.ok(sheetBody,"LocationSheet has a sheet-body producer");
 // 2026-10-03) still counts as that fold, in place
 const unwrapShown=n=>n&&n.type==="LogicalExpression"&&n.operator==="&&"?unwrapShown(n.right):n;
 const bodyChildren=sheetBody.arguments.slice(2).map(unwrapShown);
-const directStudio=astCalls.find(n=>firstName(n)==="LocationBlenderStudioSection");
-assert.ok(directStudio,"LocationSheet produces the contextual launcher");
-assert.ok(!bodyChildren.includes(directStudio),"Studio is not a separate top-level section");
+// 2026-11-15 (owner: one road, "remove Blender"): a location card has no Blender hand-off any more. Its set is drawn
+// in 4 · Previs; Blender Studio is opened from the Art Room toolbar, which builds the same production package itself.
+assert.equal(astCalls.find(n=>firstName(n)==="LocationBlenderStudioSection"),undefined,"LocationSheet no longer produces the contextual launcher");
 const childIndex=n=>bodyChildren.indexOf(n);
 const directClass=needle=>bodyChildren.find(n=>createElement(n)&&
   String(propValue(n.arguments[1],"className")||"").split(/\s+/).includes(needle));
@@ -121,22 +121,10 @@ for(const [name,index] of [["header",headIndex],["render style",styleIndex],["sc
   assert.ok(index>=0,`LocationSheet retains ${name}`);
 const spatialFold=directFold("2 \u00b7 Floor plan");
 assert.equal(directFold("More"),undefined,"the More section is gone (owner 2026-11-13)");
-// THE BLENDER HANDOFF (2026-11-13): built once, shown in 5 · Build the set, or at the end of Subspaces on a place whose
-// rooms are built one by one (it had a small un-numbered section of its own for a day). Never both, never a top-level block.
 const within=(fold,name)=>{const src=source.slice(fold.start,fold.end);return new RegExp("\\b"+name+"\\b").test(src);};
-const handoffDecl=source.slice(directStudio.start-22,directStudio.start);
-assert.equal(handoffDecl,"  const studioHandoff=","the handoff element is built once, before the card is laid out");
-const buildFold=bodyChildren.find(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")==="5 \u00b7 Build the set");
-const subspacesFold=numberedFold("subspaces","Subspaces");
 assert.equal(directFold("Blender Studio"),undefined,"no section without a number");
-assert.ok(buildFold&&within(buildFold,"studioHandoff"),"Build in Blender sits in 5 · Build the set");
-assert.ok(subspacesFold&&/handoffInSubspaces&&window\.BlenderStudioLaunch&&React\.createElement\("div",\{className:"loc-sub","data-testid":"loc-own-blender"\},\s*React\.createElement\("h4",\{className:"loc-step-sub"\},"The whole place in your own Blender"\),\s*studioHandoff\)\)/.test(source.slice(subspacesFold.start,subspacesFold.end)),
-  "a place whose rooms are built one by one keeps the whole place's handoff at the end of Subspaces");
-assert.match(source,/showBuild&&React\.createElement\(CardFold,\{label:"5 \\u00b7 Build the set"/);
-assert.ok(source.includes("const handoffInSubspaces=!buildHere&&hasRooms;")&&
-  source.includes("const showBuild=buildHere||(!!window.BlenderStudioLaunch&&!handoffInSubspaces);"),
-  "step 5 shows where a set can be built, or (cloud build off) for your own Blender alone; the two homes exclude each other");
-assert.equal((source.match(/\bstudioHandoff\b/g)||[]).length,3,"declared once and placed in exactly two exclusive spots");
+assert.equal(bodyChildren.find(n=>firstName(n)==="CardFold"&&/Build the set|Style it/.test(String(propValue(n.arguments[1],"label")||""))),undefined,"no Build the set or Style it section");
+assert.ok(!/studioHandoff|loc-own-blender|BlenderStudioLaunch/.test(source.slice(locationSheet.start,locationSheet.end)),"no hand-off box anywhere on the card");
 const promptFold=numberedFold("prompt","Generation Prompt");
 assert.ok(promptFold&&childIndex(promptFold)===bodyChildren.length-1,
   "Generation Prompt is its own section, the last one");
@@ -151,22 +139,23 @@ assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   "Variants has no standalone help icon or empty help row");
 assert.ok(viewsIndex<promptIndex,"set preparation still precedes Generation Prompt");
 // 2026-10-05 (owner): the editable style settings moved ON the card (collapsed), before the read-only Generation Prompt
-// …and since 2026-11-13 (owner) under their first name, Look Dev: the look of the image, so in the image's own numbered
+// …and since 2026-11-15 (owner) as The look (Look Dev from 2026-11-13 until then): the look of the image, so in the image's own numbered
 // section (Location image), after the set steps and before Variants and Generation Prompt
 const describeFold=directFold("1 \u00b7 The Space");
 const lookFold=imageFold;
 assert.ok(lookFold&&describeFold&&childIndex(describeFold)<viewsIndex&&viewsIndex<childIndex(lookFold)&&
   childIndex(lookFold)<childIndex(unitsFold)&&childIndex(lookFold)<promptIndex,
-  "Look Dev is in Location image: after the set steps, before Variants and Generation Prompt");
-assert.ok(astCalls.some(n=>stringValue(n.arguments[0])==="h4"&&stringValue(n.arguments[2])==="Look Dev"&&n.start>lookFold.start&&n.end<lookFold.end),
-  "Look Dev keeps its name, as a heading inside the section");
+  "The look is in Location image: after the set steps, before Variants and Generation Prompt");
+assert.ok(astCalls.some(n=>stringValue(n.arguments[0])==="h4"&&stringValue(n.arguments[2])==="The look"&&n.start>lookFold.start&&n.end<lookFold.end),
+  "The look is a heading inside the section");
+assert.ok(!source.slice(locationSheet.start,locationSheet.end).includes('"Look Dev"'),"the old name is gone from the card");
 assert.equal(directFold("Look & exclusions"),undefined);
-assert.equal(directFold("Look Dev"),undefined,"no section without a number");
+assert.equal(directFold("The look"),undefined,"no section without a number");
 assert.ok(lookFold.arguments[1].properties.some(p=>p.key&&p.key.name==="defaultOpen"&&p.value&&p.value.value===false),"Location image starts collapsed");
 const styleDetails=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
   propValue(n.arguments[1],"className")==="loc-render-style-details");
 assert.ok(styleDetails&&styleDetails.start>lookFold.start&&styleDetails.end<lookFold.end,
-  "render style details are inside Location image, under Look Dev");
+  "render style details are inside Location image, under The look");
 const styleField=astCalls.find(n=>firstName(n)==="SheetField"&&
   propValue(n.arguments[1],"label")==="Render style instructions");
 assert.ok(styleField&&styleField.start>styleDetails.start&&styleField.end<styleDetails.end,
@@ -184,16 +173,9 @@ assert.deepEqual(updates,[{id:"loc-kitchen",renderStyle:"Updated custom style",r
 box.l.renderStyle="";
 box.d.renderStyle="Default style";
 assert.equal(renderStyleField().props.value,"Default style","the original default-style fallback remains");
-const producer=source.slice(directStudio.start,directStudio.end);
-for(const token of [
-  "id:l.id","name:l.name","parentLocationId:l.parentLocation&&l.parentLocation.id||null",
-  "rootLocationId:l.rootLocationId||l.id","description:l.significance||",
-  "architecture:l.architecture||","materials:l.materials||","staging:l.staging||","productionPlan:"
-]) assert.ok(producer.includes(token),"LocationSheet producer keeps "+token);
-assert.ok(producer.includes("locationProductionPlan(l,units)"),
-  "LocationSheet sends the versioned location production package");
-assert.ok(producer.includes("Extra space")&&producer.includes("Time-of-Day Variant"),   // plainer name, owner 2026-10-03
-  "approved production-layer references are offered to Studio");
+// the toolbar's launcher builds the versioned location production package itself, so nothing is lost with the card's box
+const launcher=readFileSync(new URL("../app/blender-studio-ui.jsx",import.meta.url),"utf8");
+assert.ok(launcher.includes("locationProductionPlan(l,units||[])"),"Blender Studio still sends the versioned location production package");
 assert.equal((source.match(/React\.createElement\(window\.BlenderStudioEntry/g)||[]).length,0,
   "location cards no longer mount the full Studio workflow");
 const sectionSource=source.slice(source.indexOf("function LocationBlenderStudioSection"),source.indexOf("function LocationSpatialAnchorEditor"));

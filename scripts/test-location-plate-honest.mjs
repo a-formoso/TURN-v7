@@ -94,7 +94,7 @@ ok("E the place's description is said once", loc.includes("delete spec.location.
 ok("E the card says which panel and when the composition was drafted for another space",
   ui.includes('"The plate\'s top-left panel: "') && ui.includes("This composition was drafted for \\u201c"));
 // F
-ok("F plain labels", ui.includes('"Floor plan \\u00b7 where everything stands"') && ui.includes('"Plate cameras \\u00b7 where each panel is shot from"')
+ok("F plain labels", ui.includes('"Floor plan \\u00b7 where everything stands"') && ui.includes('"The four cameras \\u00b7 where each view is taken from"')
   && ui.includes('"Composition notes (optional)"') && ui.includes('"Room measurements"') && ui.includes('"Lens, scale and camera notes"') && ui.includes('"Main view"'));
 // STORY MOMENTS (2026-10-27, from the test run: the Lounge plate drew a scene's wet footprints)
 {

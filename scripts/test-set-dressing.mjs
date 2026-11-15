@@ -161,12 +161,124 @@ test('previs: the set as it is drawn, the prompt the image engine gets, and what
   assert.ok(text.endsWith('CARD PROMPT for Hall AVOID: people.'));
   assert.ok(text.includes('Do not add, remove or move buildings, objects or openings'));
   const source=readFileSync('app/set-previs.js','utf8');
-  // the image is saved as the location image's new version through the app's own save, with what it was made from
-  for(const t of ['root.nbCommit(entry.id,entry.url,entry.meta,entry.refs,"location",entry.scope.epoch,','kind:"location",mode:"final"','spatialPlanSig:root.locationSpatialPlanSigFor(location)',
-      'plateLayoutSig:root.locationPlateLayoutSig(location,{panels:true})','locSpecSig:root.locationSpecSig(location)','new CustomEvent("nb-gen-done"',
-      'refs:[{kind:"previs-sheet",label:"Previs sheet",url:drawn.dataUrl}]','assetPurpose:"previs-image"','noRetry:true','unsaved.set(key,entry);'])
+  for(const t of ['assetPurpose:"previs-image"','noRetry:true','unsaved.set(key,entry);','new CustomEvent("nb-gen-done"',
+      'if(typeof root.turnArtRoomWritable==="function"&&!root.turnArtRoomWritable())throw new Error("This film is read-only.");'])
     assert.ok(source.includes(t),t);
-  assert.ok(source.indexOf('unsaved.set(key,entry);')<source.indexOf('const saved=await commit(entry);'),'a made image is kept before the save is tried');
-  assert.ok(/if\(unsaved\.has\(key\)\)throw new Error\("An image was made but not saved yet\. Save it first\."\);/.test(source),'never a second paid image over an unsaved one');
-  assert.ok(source.includes('if(typeof root.turnArtRoomWritable==="function"&&!root.turnArtRoomWritable())throw new Error("This film is read-only.");'));
+  assert.ok(source.indexOf('unsaved.set(key,entry);')<source.indexOf('return commit(entry);'),'a made image is kept before the save is tried');
+  assert.ok(/if\(unsaved\.has\(keyOf\(scope,id\)\)\)throw new Error\("An image was made but not saved yet\. Save it first\."\);/.test(source),'never a second paid image over an unsaved one');
 });
+
+/* DRAFTS (owner 2026-11-15: "preview as soon as image is generated, with option for the user to use as location image or
+   discard"): an image made from the previs is a draft of its own; the location image changes only when one is used. */
+function previsHarness(){
+  const store=new Map(),calls=[],writes=[];let writable=true,film='film',rev=0;
+  const scope={uid:'u',projectId:'film',epoch:1},loc={id:'hall',name:'Hall',architecture:'brick'},s=scene();
+  const p={console,crypto,TextEncoder,URL,setTimeout,events:[],
+    CustomEvent:class{constructor(type,o){this.type=type;this.detail=o&&o.detail;}},dispatchEvent(e){p.events.push(e.type+':'+((e.detail&&e.detail.id)||''));},
+    turnContinuity:{locations:[loc]},turnArtRoomWritable:()=>writable,
+    BlenderPreview:{scope:()=>scope,isCurrent:x=>x.projectId===film},
+    locVisualDefaults:()=>({renderStyle:'anime'}),combinedLocationPrompt:l=>'CARD '+l.name+' in '+l.architecture,locationSpecSig:l=>'spec:'+l.architecture,
+    locationPartStateAssetId:(l,key)=>l.id+'-state-'+key,locationMovingPartsAt:()=>[{name:'Ramp',differs:true,state:{label:'Lowered',look:'on the quay'}}],
+    nbPlanImageChoice:(model,res)=>({model,res}),nbGetModel:()=>'engine-a',nbGetRes:()=>'2K',nbModelLabel:m=>'Label '+m,
+    nbGenerate:async(prompt,o)=>{await o.beforeSubmit();calls.push({prompt,o});return 'data:image/png;base64,RFJBRlQ'+calls.length;},
+    nbLoadDetailsAsset:async id=>copy(store.get(id)||{id,url:'',meta:null,refs:[],history:[]}),
+    nbCommit:async(id,url,meta,refs,kind,epoch,cancelled,expected)=>{
+      if(cancelled())return {tier:'cancelled'};
+      const old=store.get(id);writes.push({id,kind,expected});
+      store.set(id,{id,url,meta:copy(meta),refs:copy(refs),history:[...(old&&old.url?[{url:old.url,meta:old.meta,refs:old.refs}]:[]),...((old&&old.history)||[])]});
+      return {tier:'cloud',url};},
+    nbSetAssetApproval:async(id,iso,approved,reviewKey)=>{const d=store.get(id);if(!d||d.meta.iso!==iso)return {ok:false,error:'asset version changed'};d.meta.approval={iso,approved,reviewKey};return {ok:true};},
+    nbRevertAsset:async(id,index)=>{const row=store.get(id),h=row.history.slice(),c=h[index];if(!c)return null;
+      store.set(id,{id,url:c.url,meta:c.meta,refs:c.refs||[],history:[{url:row.url,meta:row.meta,refs:row.refs},...h.filter((_,i)=>i!==index)]});return {url:c.url,meta:c.meta};}};
+  p.window=p;vm.createContext(p);
+  for(const f of ['blender-render-contract.js','set-dressing.js','set-previs.js'])vm.runInContext(readFileSync('app/'+f,'utf8'),p);
+  p.KinolotCloudRender={buildScene:()=>({...s,notes:['revision '+rev]})};
+  p.KinolotPrevis.sheet=async()=>({dataUrl:'data:image/png;base64,U0hFRVQ=',width:1920,height:1080,panels:['TL','TR','BL','BR']});
+  const tick=()=>new Promise(r=>setTimeout(r,3));
+  return {p,P:p.KinolotPrevis,store,calls,writes,loc,tick,readOnly:()=>{writable=false;},otherFilm:()=>{film='other';},planChanged:()=>{rev++;}};
+}
+test('previs drafts: an image from the previs is a draft, shown and kept; the location image changes only when one is used',async()=>{
+  const h=previsHarness(),{P,store}=h;
+  h.store.set('hall',{id:'hall',url:'the-image-before',meta:{iso:'before',version:3},refs:[],history:[]});
+  const first=await P.render('hall');
+  assert.equal(h.calls.length,1,'one image call');
+  assert.equal(P.slot('hall'),'previs-draft-hall');
+  assert.equal(store.get('hall').url,'the-image-before','making a draft never touches the location image');
+  assert.deepEqual(h.writes.map(w=>w.id),['previs-draft-hall']);
+  const call=h.calls[0];
+  assert.ok(call.prompt.startsWith('Image 1 is the 3D previs sheet of this location')&&call.prompt.endsWith('CARD Hall in brick'));
+  assert.equal(call.o.referenceImage,'data:image/png;base64,U0hFRVQ=');assert.equal(call.o.assetId,'previs-draft-hall');assert.equal(call.o.noRetry,true);
+  const saved=store.get('previs-draft-hall');
+  assert.equal(saved.meta.kind,'previs-draft');assert.equal(saved.meta.mode,'draft');assert.equal(saved.meta.locationId,'hall');assert.equal(saved.meta.projectId,'film');
+  assert.ok(/^[0-9a-f]{64}$/.test(saved.meta.setKey)&&/^[0-9a-f]{64}$/.test(saved.meta.lookKey));
+  assert.equal(saved.refs[0].kind,'previs-sheet');
+  assert.equal(first.used,false);assert.equal(first.sheet,'data:image/png;base64,U0hFRVQ=');
+  let kept=await P.drafts('hall');
+  assert.equal(kept.current.meta.iso,first.meta.iso);assert.equal(kept.earlier.length,0);assert.equal(kept.current.url,first.url);
+  // another draft: the first is kept under it
+  await h.tick();const second=await P.render('hall');
+  kept=await P.drafts('hall');
+  assert.equal(kept.current.meta.iso,second.meta.iso);assert.equal(kept.earlier.map(d=>d.meta.iso).join(),first.meta.iso);
+  assert.equal(kept.earlier[0].sheet,'data:image/png;base64,U0hFRVQ=','an earlier draft keeps the sheet it was made from');
+  // USE: its pixels become the location image's new version; the image before stays in the versions; nothing is generated
+  await assert.rejects(()=>P.use('hall',first.meta.iso),/Another draft is the current one/);
+  const done=await P.use('hall',second.meta.iso);
+  assert.equal(h.calls.length,2,'using a draft makes no image call');
+  const image=store.get('hall');
+  assert.equal(image.url,second.url);assert.equal(done.url,second.url);
+  assert.equal(image.meta.kind,'location');assert.equal(image.meta.mode,'final');assert.equal(image.meta.previsDraftIso,second.meta.iso);assert.equal(image.meta.version,4);
+  assert.ok(!('approval' in image.meta)&&!('schema' in image.meta));
+  assert.equal(image.history[0].url,'the-image-before','the image before it stays in the versions');
+  assert.equal(h.writes.at(-1).id,'hall');assert.equal(h.writes.at(-1).expected,undefined,'no condition on what the location image was');
+  assert.ok(h.p.events.includes('nb-gen-done:hall'));
+  kept=await P.drafts('hall');assert.equal(kept.current.used,true);
+  const again=await P.use('hall',second.meta.iso);assert.equal(again.alreadyUsed,true);assert.equal(store.get('hall').history.length,1,'using the same draft twice adds nothing');
+});
+test('previs drafts: one rule for using a draft, discard, and bringing an earlier draft back',async()=>{
+  const h=previsHarness(),{P,store}=h;
+  const first=await P.render('hall');await h.tick();const second=await P.render('hall');
+  // THE RULE: what the location image is today never matters
+  store.set('hall',{id:'hall',url:'made-elsewhere-meanwhile',meta:{iso:'newer',version:7},refs:[],history:[]});
+  // an earlier draft is made current again by a swap: no image call, nothing lost
+  await P.restore('hall',first.meta.iso);
+  let kept=await P.drafts('hall');
+  assert.equal(kept.current.meta.iso,first.meta.iso);assert.equal(kept.earlier.map(d=>d.meta.iso).join(),second.meta.iso);assert.equal(h.calls.length,2);
+  await P.use('hall',first.meta.iso);
+  assert.equal(store.get('hall').url,first.url);assert.equal(store.get('hall').meta.version,8);assert.equal(store.get('hall').history[0].url,'made-elsewhere-meanwhile');
+  // ...but the set and the look must be the ones the draft was made from
+  await P.restore('hall',second.meta.iso);
+  h.loc.architecture='glass';
+  await assert.rejects(()=>P.use('hall',second.meta.iso),/out of date: the floor plan, the cameras, the dressing or the description changed/);
+  h.loc.architecture='brick';h.planChanged();
+  await assert.rejects(()=>P.use('hall',second.meta.iso),/out of date/);
+  assert.equal(store.get('hall').url,first.url,'an out-of-date draft never becomes the image');
+  const now=await P.keys('hall');assert.notEqual(now.setKey,second.meta.setKey);assert.equal(now.lookKey,second.meta.lookKey);
+  // DISCARD: it leaves the card, its file stays, no image changes
+  await P.discard('hall',second.meta.iso);
+  kept=await P.drafts('hall');
+  assert.equal(kept.current,null);assert.equal(kept.lastDiscarded,true);assert.equal(kept.earlier.map(d=>d.meta.iso).join(),first.meta.iso);
+  assert.equal(store.get('previs-draft-hall').url,second.url,'a discarded draft is not deleted');
+  await assert.rejects(()=>P.use('hall',second.meta.iso),/discarded/);
+  await assert.rejects(()=>P.restore('hall','2020-01-01T00:00:00.000Z'),/no longer saved/);
+  await assert.rejects(()=>P.discard('hall',first.meta.iso),/Another draft is the current one/);
+  // a draft of another film or another location is never listed
+  store.get('previs-draft-hall').history.push({url:'x',meta:{...first.meta,projectId:'another-film',iso:'2026-01-01T00:00:00.000Z'},refs:[]});
+  assert.ok(!(await P.drafts('hall')).earlier.some(d=>d.url==='x'));
+  // read-only: look, never change; another film open: nothing is written
+  h.readOnly();
+  assert.ok((await P.drafts('hall')).earlier.length===1);
+  for(const fn of [()=>P.render('hall'),()=>P.use('hall',first.meta.iso),()=>P.discard('hall',first.meta.iso),()=>P.restore('hall',first.meta.iso)])await assert.rejects(fn,/read-only/);
+  const writes=h.writes.length;h.otherFilm();
+  await assert.rejects(()=>P.render('hall'),/open film or sign-in changed/);assert.equal(h.writes.length,writes);
+});
+test('previs drafts: a set drawn at a story moment makes that state\u2019s own image, never the location image',async()=>{
+  const h=previsHarness(),{P,store}=h,part={loc:'hall',at:{sceneId:'s1',beatN:2,moment:1},key:'Ramp:lowered',label:'Ramp lowered'};
+  store.set('hall',{id:'hall',url:'the-location-image',meta:{iso:'i',version:1},refs:[],history:[]});
+  assert.equal(P.slot(part),'previs-draft-hall-parts-ramp-lowered');assert.equal(P.assetOf(part),'hall-state-Ramp:lowered');
+  const d=await P.render(part);
+  assert.ok(h.calls[0].prompt.includes('MOVING PARTS AT THIS MOMENT (as drawn in the sheet): Ramp lowered'));
+  assert.equal(d.meta.stateKey,'Ramp:lowered');assert.equal((await P.drafts('hall')).current,null,'the usual set has its own drafts');
+  await P.use(part,d.meta.iso);
+  assert.equal(store.get('hall-state-Ramp:lowered').url,d.url);assert.equal(store.get('hall').url,'the-location-image');
+});
+

@@ -26,10 +26,10 @@ window.TURN_SUPABASE = {
      this client write only the old form (the client kill switch; the server one is
      in the SQL file's header). Files already stored keep working either way. */
   readableStorageKeys: true,
-  /* Build the set (2026-11-05, owner — paying plans): TRUE shows a location card's "5 · Build the set" / "6 · Style it"
-     to everyone in the Art Room (Director and Producer; on a shared film the owner and its Art director build). The
-     server decides who may build and charges it (blender-render with BLENDER_RENDER_OPEN=true); FALSE leaves the
-     owner-only local pilot. Publish this only after the server is open. */
+  /* Build the set (2026-11-05, owner — paying plans): TRUE showed a location card's "Build the set" / "Style it" steps.
+     Those two steps left the card on 2026-11-15 (owner: one road, Previs makes the image; "remove Blender"), so
+     nothing in the app queues a cloud build now. The flag still turns on the location's 3D camera tools
+     (KinolotCloudRender.enabled), so it stays TRUE. The server side (blender-render, its holds) is untouched. */
   setBuild: true,
   /* Enable only after the queued MCP worker, scene-storage migration and server
      BLENDER_RENDER_MCP / BLENDER_RENDER_SCENE_STORAGE switches are verified. */

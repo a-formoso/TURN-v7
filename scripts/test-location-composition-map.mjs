@@ -82,7 +82,7 @@ let maps=flatten(viewTree).filter(n=>n.type===box.StagingGrid);
 assert.equal(viewTree.type,"details");assert.notEqual(viewTree.props.open,true,"Optional notes start collapsed");
 assert.equal(maps.length,1,"Only one composition editor is mounted at a time");
 assert.equal(maps[0].props.target,"Window");assert.equal(maps[0].props.cameraPosition,"Doorway");
-assert.ok(text(viewTree).includes("not required for Build set"));
+assert.ok(text(viewTree).includes("They do not place the cameras."));
 assert.ok(text(viewTree).includes("changes only this view"));
 assert.equal(typeof maps[0].props.onDraftStaging,"function");
 const detailFields=flatten(maps[0].props.viewDetails).filter(n=>n.type===box.SheetField);

@@ -97,7 +97,7 @@ function harness(){
  const render=()=>{cursor=0;effects=[];const tree=h.b.LocationCameraInspiration({l:h.room,readOnly:readonly,onPropose:p=>proposals.push(p),onMatched:async(p,ticket)=>{matched.push({p,ticket});return true;}});effects.splice(0).forEach(fn=>fn());return tree;};
  let tree=render();tree=render();ok(!tree.props.open&&!h.calls.length,'The optional help starts collapsed and generates nothing');
  const details={open:true};tree.props.onToggle({target:details,currentTarget:details});tree=render();await new Promise(setImmediate);tree=render();
- ok(!h.calls.length&&text(tree).includes('image never changes Blender geometry'),'Opening help is free and explains its isolation');
+ ok(!h.calls.length&&text(tree).includes('image never changes your set or the location image'),'Opening help is free and explains its isolation');
  const generate=flat(tree).find(n=>n.type==='button'&&text(n).startsWith('Generate view ideas'));
  ok(generate&&!generate.props.disabled&&flat(generate).some(n=>n.props['data-refs']===0),'The explicit generation button shows a zero-reference image price');
  readonly=true;tree=render();const blocked=flat(tree).find(n=>n.type==='button'&&text(n).startsWith('Generate view ideas'));

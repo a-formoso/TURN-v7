@@ -1884,12 +1884,14 @@ function locationLowerDraftOutdoorCameras(plan, family, locations){
   return {plan:lowered.length ? {...plan, coordinates:{...coords, cameras}} : plan, lowered};
 }
 /* the review's words for what the draft lowered (Shared set layout, while the draft is untouched) */
-/* ONE NUMBERED PATH PER LOCATION CARD (owner 2026-11-01; 2026-11-15 "move Previs to 4, ahead of Build the set"):
-   1 The Space · 2 Floor plan · 3 Cameras · 4 Previs · 5 Build the set · 6 Style it (the cloud set). Each step is a card
-   fold; step 2 keeps the layout fold's id so every older link to it still opens it. The sections after the steps
-   (Location image and on) have their own fold ids: their numbers change with the card. */
+/* ONE NUMBERED PATH PER LOCATION CARD (owner 2026-11-01; 2026-11-15 one road: "yes, and remove Blender"):
+   1 The Space · 2 Floor plan · 3 Cameras · 4 Previs · 5 Location image. Each step is a card fold; step 2 keeps the
+   layout fold's id and step 5 the image fold's, so every older link still opens them. Step 6 was the cloud build's
+   styling step until 2026-11-15: a link to it opens Previs, where the image is made now. */
 function locationStepFoldId(l,step){
   const id=l&&l.id;if(!id)return "";
+  if(step===5)return "loc-image-"+id;
+  if(step===6)step=4;
   return step===2?"loc-layout-"+id:"loc-step"+step+"-"+id;
 }
 /* A NEW DRAFT KEEPS WHAT WAS SET (owner 2026-11-01 — "keep them on redraft"): re-drafting the floor plan replaced it

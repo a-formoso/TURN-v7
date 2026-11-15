@@ -1,6 +1,7 @@
-/* Offline UI regression: an unfinished card keeps the cloud steps, with what to do first; a place that has rooms shows
-   them on its rooms, which its Subspaces section opens (owner 2026-11-13, the card as a tree);
-   connection recovery is read-only and works for read-only film members. */
+/* Offline UI regression. ONE ROAD (owner 2026-11-15: "yes, and remove Blender"): the location card no longer mounts the
+   cloud build (Build the set) or its styling step (Style it); old links to them open 4 · Previs, and a place's rooms
+   open their Previs from Subspaces. The two components are kept in their file, unmounted, and their own behaviour
+   (connection recovery is read-only and works for read-only film members) is still checked here. */
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import vm from "node:vm";
@@ -34,34 +35,26 @@ const text=n=>typeof n==="string"?n:(n?.children||[]).map(text).join("");
 const button=(tree,label)=>nodes(tree).find(n=>n.type==="button"&&text(n)===label);
 const location={id:"parent",name:"Ferry"},room={id:"deck",name:"Car deck"};
 box.goToLocationStep=(l,n)=>box.events.push([l.id,n]);
-const setup=box.LocationCloudBuildSetup({location,rooms:[room],onSelectLocation:(id,section)=>box.events.push([id,section])});
-assert.match(text(setup),/Choose a room/);
-const links=nodes(setup).find(n=>n.type===box.LocationRoomLinks);
-const rooms=box.LocationRoomLinks(links.props);
-nodes(rooms).find(n=>n.type==="button").props.onClick();
-assert.deepEqual(box.events.pop(),["deck","build"],"room navigation opens the build fold");
-button(setup,"Go to 2 · Floor plan").props.onClick();
-assert.deepEqual(box.events.pop(),["parent",2]);
-assert.match(text(box.LocationCloudBuildSetup({location,rooms:[],onSelectLocation:noop})),/Add this location's footprint/);
+assert.equal(box.LocationCloudBuildSetup,undefined,"the build's setup card went with the step");
 
 const ast=parseSync(source,{sourceType:"script",babelrc:false,configFile:false});
 const sheet=ast.program.body.find(n=>n.type==="FunctionDeclaration"&&n.id.name==="LocationSheet");
 const walk=n=>{if(!n||typeof n!=="object")return [];return [n,...Object.values(n).flatMap(v=>Array.isArray(v)?v.flatMap(walk):typeof v==="object"?walk(v):[])];};
 const descendants=walk(sheet.body);
-const flag=descendants.find(n=>n.type==="VariableDeclarator"&&n.id.name==="cloudPilot");
-assert.ok(flag);assert.doesNotMatch(source.slice(flag.init.start,flag.init.end),/ownRoom/,
-  "missing footprint cannot hide both cloud steps");
+for(const gone of ["cloudPilot","buildHere","showBuild","cloudJob","studioHandoff","handoffInSubspaces"])
+  assert.ok(!descendants.some(n=>n.type==="VariableDeclarator"&&n.id.name===gone),gone+" is no longer on the card");
+assert.ok(!/LocationCloudRender|LocationStyleStep|LocationBlenderStudioSection,\{/.test(source.slice(sheet.start,sheet.end)),"the card mounts no cloud build, styling step or Blender hand-off");
 const folds=descendants.filter(n=>n.type==="CallExpression"&&n.arguments?.[0]?.name==="CardFold");
-for(const [number,name] of [[5,"Build the set"],[6,"Style it"]]){
-  const fold=folds.find(n=>n.arguments[1]?.properties?.some(p=>p.key.name==="label"&&p.value.value===number+" · "+name));
-  assert.ok(fold);assert.ok(fold.arguments[1].properties.some(p=>p.key.name==="defaultOpen"));
-  assert.equal(fold.arguments[2].type,"ConditionalExpression","each step has a room/setup branch");
-  // buildHere: the cloud build is on for this card (with it off, step 5 holds the hand-off to your own Blender alone, 2026-11-13)
-  const selected=fold.arguments[2];box.ownRoom=false;box.buildHere=true;box.l=location;box.roomLocations=[room];box.onSelectLocation=noop;
-  const content=vm.runInContext(source.slice(selected.start,selected.end),box);
-  if(number===5)assert.equal(content.type,box.LocationCloudBuildSetup);
-  else assert.match(text(content),/Choose a room and build/);
-}
+const labels=folds.map(n=>{const p=n.arguments[1].properties.find(p=>p.key.name==="label");return source.slice(p.value.start,p.value.end);});
+assert.ok(!labels.some(t=>/Build the set|Style it/.test(t)),"no Build the set or Style it section");
+assert.deepEqual(labels.slice(0,5),['"1 \\u00b7 The Space"','"2 \\u00b7 Floor plan"','"3 \\u00b7 Cameras"','"4 \\u00b7 Previs"','sectionNo.image+" \\u00b7 Location image"']);
+// an old link to the build or to styling opens Previs, where the image is made now
+const previs=folds.find(n=>n.arguments[1].properties.some(p=>p.key.name==="label"&&p.value.value==="4 \u00b7 Previs"));
+const opens=previs.arguments[1].properties.find(p=>p.key.name==="defaultOpen");
+for(const [section,open] of [["previs",true],["build",true],["style",true],["layout",false]])
+  assert.equal(vm.runInNewContext(source.slice(opens.value.start,opens.value.end),{initialSection:section}),open,section);
+const ids=vm.runInNewContext(read("app/locations.jsx").match(/function locationStepFoldId\(l,step\)\{[\s\S]*?\n\}/)[0]+";[4,5,6].map(n=>locationStepFoldId({id:'k'},n))");
+assert.deepEqual([...ids],["loc-step4-k","loc-image-k","loc-step4-k"],"step 5 is the Location image now; the old styling step leads to Previs");
 
 let refreshes=0,requests=0;
 const state={api:{},show:true,scope:{},scene:{objects:[]},issues:[],scopeKey:"test",sceneKey:"scene",
@@ -122,12 +115,8 @@ box.LocationSetStyle="saved-style-panel";
 const archived=nodes(box.LocationStyleStep({location})).find(n=>n.type==="saved-style-panel");
 assert.ok(archived,"saved comparisons stay mounted while a rebuild is required");
 assert.equal(archived.props.sceneHash,"","an outdated build cannot enable new styling or acceptance");
-// (2026-11-13) the steps follow where a set can be built — never the footprint alone, so an unfinished place keeps them
-const here=descendants.find(n=>n.type==="VariableDeclarator"&&n.id.name==="buildHere");
-assert.equal(source.slice(here.init.start,here.init.end),"cloudPilot&&(ownRoom||!hasRooms)");
-for(const [pilot,ownRoom,hasRooms,shown] of [[true,false,false,true],[true,true,false,true],[true,true,true,true],[true,false,true,false],[false,true,false,false]])
-  assert.equal(vm.runInNewContext(source.slice(here.init.start,here.init.end),{cloudPilot:pilot,ownRoom,hasRooms}),shown);
-const subspaces=box.LocationSubspaceList({rooms:[room],units:[],canBuild:true,onSelectLocation:(id,section)=>box.events.push([id,section])});
-nodes(subspaces).find(n=>n.type==="button"&&text(n)==="Build the set").props.onClick();
-assert.deepEqual(box.events.pop(),["deck","build"],"a place with rooms opens each room's build step from Subspaces");
-console.log("PASS cloud set controls: unfinished-room discovery, room routing from Subspaces, both fold prerequisites, and read-only connection recovery");
+const subspaces=box.LocationSubspaceList({rooms:[room],units:[],onSelectLocation:(id,section)=>box.events.push([id,section])});
+assert.equal(nodes(subspaces).find(n=>n.type==="button"&&text(n)==="Build the set"),undefined);
+nodes(subspaces).find(n=>n.type==="button"&&text(n)==="Previs").props.onClick();
+assert.deepEqual(box.events.pop(),["deck","previs"],"a place with rooms opens each room's Previs from Subspaces");
+console.log("PASS cloud set controls: the card has one road (no build or styling step), old links open Previs, rooms open Previs from Subspaces, and the kept components recover read-only");

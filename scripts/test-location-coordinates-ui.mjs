@@ -75,7 +75,7 @@ office.openingLeadsTo={"office-window":"furnace","office-door":"furnace"};
 hooks=[];
 tree=render(props);
 t=text(tree);
-assert.match(t,/Plate cameras/);
+assert.match(t,/The four cameras/);   // called Plate cameras until 2026-11-15
 assert.match(t,/2 views unresolved/);
 assert.match(t,/Each panel of Furnace Office's plate is a camera inside Furnace Office/);
 assert.match(t,/never its most striking panel/);

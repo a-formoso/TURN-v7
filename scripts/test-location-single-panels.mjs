@@ -286,7 +286,7 @@ assert.ok(flat(tree).some((n) => n.type === "select" && n.props.className === "p
 locations.splice(locations.indexOf(nook), 1);
 // the room's card says where to fix an unknown facing, and that an outdoor part's cameras stand on it
 hooks = []; t = text(render({ ...props, l: sub, plateMeta: null }));
-assert.match(t, /Fondamenta's plate was made before its cameras were recorded, so its panels' facings are unknown — set them \(free\) or read them from the plate under Fondamenta's Plate cameras\./);
+assert.match(t, /Fondamenta's plate was made before its cameras were recorded, so its panels' facings are unknown — set them \(free\) or read them from the plate under The four cameras, in 3 · Cameras on Fondamenta's card\./);
 assert.match(t, /Each panel of Fondamenta DEI Vetrai's plate is a camera standing on Fondamenta DEI Vetrai, part of Fondamenta, at eye level/);
 assert.match(t, /Camera standing on Fondamenta DEI Vetrai, part of Fondamenta, at x -7\.2 m, y -2\.7 m, 1\.6 m up, facing east \(90°\)/);
 assert.match(t, /one panel cut out of Fondamenta's plate, never its whole sheet \(on some engines each reference adds a little to the price\)/);
@@ -383,6 +383,6 @@ assert.match(frances, /SINGLE CUT-OUT PANELS, NEVER THE WHOLE SHEET/);
 assert.match(frances, /THIS PLATE'S CAMERAS/);
 assert.match(frances, /'Read the cameras from this plate'/);
 assert.match(frances, /Outdoors no camera stands higher than about 6 m/);
-assert.doesNotMatch(ai.slice(ai.indexOf("(2026-10-13) PLATE CAMERAS"), ai.indexOf("/* LOCATION COORDINATES, step B")), /the parent's whole plate is attached small/, "the older entry no longer says the whole plate is sent");
+assert.doesNotMatch(ai.slice(ai.indexOf("(2026-10-13) THE FOUR CAMERAS"), ai.indexOf("/* LOCATION COORDINATES, step B")), /the parent's whole plate is attached small/, "the older entry no longer says the whole plate is sent");
 
 console.log("PASS single cut-out panels: no sub-space path sends the parent's whole sheet (its plate, room & time, states, the cards, the retry — and the headless runs on the stored card, parentKey only); matched quadrants at their own size, else one optional small material panel; the layout sheet only to its owner; prices follow; a plate's cameras can be noted (free) or read (priced) for that version; Frances knows");

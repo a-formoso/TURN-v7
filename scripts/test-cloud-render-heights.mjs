@@ -101,7 +101,8 @@ const door=(sillZ,headZ)=>({id:"office-door",name:"Office door",kind:"door",edge
 // 6. Frances: builds are now open to Director/Producer (owner decision 5 November); dimensions stay documented.
 {
   const ai=read("app/ai.jsx");
-  check(ai.includes('name:"Build the set (Locations)"')&&/Who can build: Director and Producer/.test(ai),"Frances describes the current paid-plan build feature");
+  // 2026-11-15 (owner: one road): the cloud build left the location card, and Frances says so in the same entry
+  check(ai.includes('name:"Location floor plan, cameras and 3D set (Locations)"')&&/a location card no longer has the steps Build the set and Style it/.test(ai)&&!/Who can build: Director and Producer/.test(ai),"Frances no longer describes a build the card does not offer");
   check(/Floor plan position, Vertical position, Object dimensions, Front faces/.test(ai),"Frances knows each object has dimensions");
   check(/older floor plan keeps the object's base height/.test(ai),"Frances can explain base vs centre heights");
 }

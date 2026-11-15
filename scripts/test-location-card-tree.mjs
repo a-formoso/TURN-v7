@@ -5,10 +5,10 @@
      1 · The Space          the place; Screenplay Coverage at its top (read-only), Narrative Significance its last field
      2 · Floor plan         with Moving parts (optional) at its end
      3 · Cameras
-     4 · Previs             the set in live 3D (2026-11-15: ahead of Build the set)
-     5 · Build the set      where a set can be built (your own Blender inside it)
-     6 · Style it
-     n · Location image     Look Dev (the look of the image) and the QA check; the image is generated at the top
+     4 · Previs             the set in 3D; the location image is made from it, as drafts (2026-11-15)
+     5 · Location image     The look and the QA check; the image is made in Previs or generated at the top
+                            (ONE ROAD, owner 2026-11-15: "yes, and remove Blender". Build the set and Style it,
+                            steps 5 and 6 until then, are no longer on the card.)
      n · Variants           each time of day or state, its image, and "Used in" (each scene's dressing & blocking)
      n · Subspaces          a main location's rooms (their variants and scenes) and its extra spaces
      n · Generation Prompt  read-only, the last section
@@ -35,42 +35,41 @@ vm.runInContext(transformSync(ui,{presets:["@babel/preset-react"],plugins:["@bab
   babelrc:false,configFile:false,filename:"locations-ui.jsx"}).code,box);
 const nodes=tree=>{const out=[];const walk=n=>{if(n&&typeof n==="object"){out.push(n);(n.children||[]).forEach(walk);}};walk(tree);return out;};
 const text=n=>typeof n==="string"||typeof n==="number"?String(n):(n&&n.children||[]).map(text).join("");
-const sheet=ui.slice(ui.indexOf("function LocationSheet("),ui.indexOf("function useLocationCloudJob("));
+const sheet=ui.slice(ui.indexOf("function LocationSheet("),ui.indexOf("function locationCardSteps("));
 const at=t=>{ const i=sheet.indexOf(t); assert.ok(i>=0,"the card has "+t); return i; };
 const numbered=(key,name)=>'label:sectionNo.'+key+'+" \\u00b7 '+name+'"';
 
 test("1 the card's sections, in the order of the work, every one numbered", ()=>{
   const order=['label:"1 \\u00b7 The Space"','summary",null,"Screenplay Coverage"','field:"architecture"','"Narrative Significance \\u2014 what this place means in the story"',
-    'label:"2 \\u00b7 Floor plan"','"Moving parts (optional)"','label:"3 \\u00b7 Cameras"','label:"4 \\u00b7 Previs"','label:"5 \\u00b7 Build the set"','label:"6 \\u00b7 Style it"',
-    numbered("image","Location image"),'"Look Dev"',numbered("variants","Variants"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")].map(at);
+    'label:"2 \\u00b7 Floor plan"','"Moving parts (optional)"','label:"3 \\u00b7 Cameras"','label:"4 \\u00b7 Previs"',
+    numbered("image","Location image"),'"The look"',numbered("variants","Variants"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")].map(at);
   order.forEach((x,i)=>assert.ok(i===0||x>order[i-1],"section "+i+" follows the one before it"));
-  // every fold of the card carries a number: the first six their own, the rest the next ones
+  // every fold of the card carries a number: the first four their own, the rest the next ones (5 on)
   const labels=sheet.slice(at("// THE CARD IN ORDER (owner 2026-11-13)")).match(/CardFold,\{label:[^,]+/g)||[];
-  assert.equal(labels.length,10);
-  for(const x of labels) assert.match(x,/label:"[1-6] \\u00b7 |label:sectionNo\.(image|variants|subspaces|prompt)\+" \\u00b7 /);
-  // gone: the flat list, the two nested lists, More, the sections without a number and the group headings over them
+  assert.equal(labels.length,8);
+  for(const x of labels) assert.match(x,/label:"[1-4] \\u00b7 |label:sectionNo\.(image|variants|subspaces|prompt)\+" \\u00b7 /);
+  // gone: the flat list, the two nested lists, More, the sections without a number and the group headings over them;
+  // and since 2026-11-15 (one road) the cloud build's two steps, the Blender hand-off and the name Look Dev
   for(const t of ['label:"More"','label:"Rooms & times"','label:"1 \\u00b7 Describe the place"','label:"Screenplay evidence"','label:"Look & exclusions"',
-      '"Additional environment states"','"Scene dressing & blocking"','"Add environment state"','label:"Narrative Significance"','label:"Look Dev"',
-      'label:"Screenplay Coverage"','label:"Moving parts"','label:"Blender Studio"','LocationGroupHead','placeGroup','"Space and staging"'])
+      '"Additional environment states"','"Scene dressing & blocking"','"Add environment state"','label:"Narrative Significance"','label:"Look Dev"','"Look Dev"',
+      'label:"Screenplay Coverage"','label:"Moving parts"','label:"Blender Studio"','LocationGroupHead','placeGroup','"Space and staging"',
+      'label:"5 \\u00b7 Build the set"','label:"6 \\u00b7 Style it"','LocationCloudRender','LocationStyleStep','studioHandoff','loc-own-blender','cloudPilot'])
     assert.ok(!sheet.includes(t),"no "+t);
   assert.ok(!ui.includes("function LocationGroupHead")&&!css.includes(".loc-group-head"));
-  // the step guide and the build's "Go to" buttons use the same name for step 1
+  assert.ok(!ui.includes("function LocationCloudBuildSetup")&&!ui.includes("function useLocationCloudJob"));
+  // the step guide and the "Go to" buttons use the same names
   assert.ok(ui.includes('{n:1,name:"The Space",done:!!drafted,'));
-  assert.ok(read("app/blender-render-ui.jsx").includes('const LOCATION_STEP_NAMES={1:"The Space",2:"Floor plan",3:"Cameras",4:"Previs",5:"Build the set",6:"Style it"};'));
+  assert.ok(read("app/blender-render-ui.jsx").includes('const LOCATION_STEP_NAMES={1:"The Space",2:"Floor plan",3:"Cameras",4:"Previs",5:"Location image"};'));
 });
 
 test("2 the numbers follow the card with no gap; a room's card says whose description it uses", ()=>{
   const no=o=>({...box.locationSectionNumbers(o)});
-  // 4 · Previs is on every card (2026-11-15). A room, or a place with no rooms: the set steps, then the image, variants and the prompt
-  assert.deepEqual(no({build:true,style:true,subspaces:false}),{space:1,plan:2,cameras:3,previs:4,build:5,style:6,image:7,variants:8,prompt:9});
-  // a place with extra spaces (or rooms and a footprint of its own): Subspaces too
-  assert.deepEqual(no({build:true,style:true,subspaces:true}),{space:1,plan:2,cameras:3,previs:4,build:5,style:6,image:7,variants:8,subspaces:9,prompt:10});
-  // a place whose rooms are built one by one: no steps 5 and 6, and no hole where they were
-  assert.deepEqual(no({build:false,style:false,subspaces:true}),{space:1,plan:2,cameras:3,previs:4,image:5,variants:6,subspaces:7,prompt:8});
-  // the cloud build switched off: step 5 holds your own Blender alone
-  assert.deepEqual(no({build:true,style:false,subspaces:false}),{space:1,plan:2,cameras:3,previs:4,build:5,image:6,variants:7,prompt:8});
-  assert.deepEqual(no({build:false,style:true,subspaces:false}),{space:1,plan:2,cameras:3,previs:4,image:5,variants:6,prompt:7},"no Style it without Build the set");
-  assert.ok(sheet.includes("const sectionNo=locationSectionNumbers({build:showBuild,style:buildHere,subspaces:showSubspaces});"));
+  // one road (2026-11-15): the first five are on every card. A room, or a place with no rooms: then variants and the prompt
+  assert.deepEqual(no({subspaces:false}),{space:1,plan:2,cameras:3,previs:4,image:5,variants:6,prompt:7});
+  // a place with rooms or extra spaces: Subspaces too
+  assert.deepEqual(no({subspaces:true}),{space:1,plan:2,cameras:3,previs:4,image:5,variants:6,subspaces:7,prompt:8});
+  assert.deepEqual(no({build:true,style:true,subspaces:true}),{space:1,plan:2,cameras:3,previs:4,image:5,variants:6,subspaces:7,prompt:8},"nothing brings the build's numbers back");
+  assert.ok(sheet.includes("const sectionNo=locationSectionNumbers({subspaces:showSubspaces});"));
   assert.ok(sheet.includes("const showSubspaces=!l.parentLocation&&(hasRooms||coverageSheets.length>0);"));
   // the two lines a room's card carries
   assert.ok(sheet.includes('" \\u00b7 uses its space and look unless filled in here"'));
@@ -146,7 +145,7 @@ test("6 Used in, on the page: a scene opens its dressing & blocking; saving goes
   assert.ok(ui.includes("Shot timing, cuts and performance are directed in Shots / Blender previz."));
 });
 
-test("7 Subspaces: each room with its variants and scenes; a row opens the room, its plan, its variants or its build", ()=>{
+test("7 Subspaces: each room with its variants and scenes; a row opens the room, its plan, its variants or its Previs", ()=>{
   const went=[];
   const rooms=[{id:"kit",key:"house-kitchen",name:"Kitchen",variants:[{id:"v1",time:"Storm",state:"rain on the window"}]},
     {id:"liv",key:"house-living-room",name:"Living Room"},{id:"att",key:"house-attic",name:"Attic"}];
@@ -154,7 +153,7 @@ test("7 Subspaces: each room with its variants and scenes; a row opens the room,
     {key:"b",subspaceKey:"house-kitchen",time:"Dawn",intExt:"INT",sceneNos:[6]},
     {key:"c",locationKey:"house-living-room",time:"Dawn",intExt:"INT",sceneNos:[6]},
     {key:"d",subspaceKey:"house-kitchen",time:"Dusk",intExt:"INT",sceneNos:[1],orphan:true}];
-  const tree=box.LocationSubspaceList({rooms,units,onSelectLocation:(id,section)=>went.push([id,section]),canBuild:true});
+  const tree=box.LocationSubspaceList({rooms,units,onSelectLocation:(id,section)=>went.push([id,section])});
   const rows=nodes(tree).filter(n=>n.props&&n.props["data-location-subspace"]);
   assert.deepEqual(rows.map(r=>r.props["data-location-subspace"]),["kit","liv","att"]);
   const lines=r=>nodes(r).filter(n=>n.type==="small").map(text);
@@ -162,54 +161,45 @@ test("7 Subspaces: each room with its variants and scenes; a row opens the room,
   assert.deepEqual(lines(rows[1]),["Variants: Dawn","Used in: Sc 06 (Dawn)"]);
   assert.deepEqual(lines(rows[2]),["Variants: none yet","Used in: no scene yet"]);
   const buttons=nodes(rows[0]).filter(n=>n.type==="button");
-  assert.deepEqual(buttons.map(b=>text(b).replace(/Variants:.*/,"")),["Kitchen","Floor plan","Variants","Build the set"]);
+  assert.deepEqual(buttons.map(b=>text(b).replace(/Variants:.*/,"")),["Kitchen","Floor plan","Variants","Previs"]);
   buttons.forEach(b=>b.props.onClick());
-  assert.deepEqual(went,[["kit",""],["kit","layout"],["kit","units"],["kit","build"]]);
-  // no build link where the build isn't on
-  const off=box.LocationSubspaceList({rooms:[rooms[1]],units,onSelectLocation:noop,canBuild:false});
-  assert.deepEqual(nodes(off).filter(n=>n.type==="button").map(b=>text(b).replace(/Variants:.*/,"")),["Living Room","Floor plan","Variants"]);
+  assert.deepEqual(went,[["kit",""],["kit","layout"],["kit","units"],["kit","previs"]]);
   // on the card: a main location only, open when it has rooms, with its extra spaces in the same section
   const fold=sheet.slice(at(numbered("subspaces","Subspaces")),at(numbered("prompt","Generation Prompt")));
   assert.ok(sheet.includes('showSubspaces&&React.createElement(CardFold,{label:sectionNo.subspaces+" \\u00b7 Subspaces",foldId:"loc-subspaces-"+l.id,'));
   assert.ok(fold.includes("count:hasRooms?roomLocations.length:undefined,defaultOpen:hasRooms}"));
-  assert.ok(fold.includes("React.createElement(LocationSubspaceList,{rooms:roomLocations,units:sluglineUnits,onSelectLocation,canBuild:cloudPilot})"));
+  assert.ok(fold.includes("React.createElement(LocationSubspaceList,{rooms:roomLocations,units:sluglineUnits,onSelectLocation})"));
   assert.ok(fold.indexOf('"Extra spaces"')>fold.indexOf("LocationSubspaceList")&&fold.includes("React.createElement(LocationCoverageSheet,"));
   assert.ok(fold.includes("'s space and look unless you fill in its own."));
 });
 
-test("8 Build the set and Style it show where a set can be built; Blender and the image each have one numbered home", ()=>{
-  assert.ok(sheet.includes("const buildHere=cloudPilot&&(ownRoom||!hasRooms);"));
-  const can=(cloudPilot,ownRoom,hasRooms)=>cloudPilot&&(ownRoom||!hasRooms);
-  assert.equal(can(true,true,false),true,"a room with its footprint");
-  assert.equal(can(true,false,false),true,"an unfinished place with no rooms keeps the steps, with what to do first");
-  assert.equal(can(true,true,true),true,"a place with rooms AND a footprint of its own");
-  assert.equal(can(true,false,true),false,"a place whose rooms are built one by one: its rooms carry the steps");
-  assert.equal(can(false,true,false),false,"the build switched off");
-  // the step guide lists the steps the card shows, with the card's numbers
-  assert.ok(sheet.includes("const cardSteps=locationCardSteps({l,drafted,spatialState,gen,cloudPilot:buildHere,cloudJob,ownBlender:showBuild&&!buildHere,imageN:sectionNo.image});"));
-  const guide=o=>box.locationCardSteps({l:{id:"x"},drafted:true,spatialState:{ready:false,reason:"r"},gen:{},cloudJob:null,...o});
+test("8 one road: the step guide ends at the image, whose Go opens Previs when the set is ready; the image has one numbered home", ()=>{
+  // the step guide lists the steps the card shows, with the card's numbers: five, on every card
+  assert.ok(sheet.includes("const cardSteps=locationCardSteps({l,drafted,spatialState,gen,previs:showPrevis&&(ownRoom||!hasRooms)});"));
+  const guide=o=>box.locationCardSteps({l:{id:"x"},drafted:true,spatialState:{ready:false,reason:"r"},gen:{},...o});
   const steps=o=>Array.from(guide(o).map(s=>s.n+" "+s.name));
-  assert.deepEqual(steps({cloudPilot:true,imageN:7}),["1 The Space","2 Floor plan","3 Cameras","4 Previs","5 Build the set","6 Style it","7 Location image"]);
-  assert.deepEqual(steps({cloudPilot:false,imageN:5}),["1 The Space","2 Floor plan","3 Cameras","4 Previs","5 Location image"],"no hole where the build steps were");
-  assert.deepEqual(steps({cloudPilot:false,ownBlender:true,imageN:6}),["1 The Space","2 Floor plan","3 Cameras","4 Previs","5 Build the set","6 Location image"]);
-  assert.deepEqual(steps({cloudPilot:false}),["1 The Space","2 Floor plan","3 Cameras","4 Previs","5 Location image"],"the number is right without being told");
-  assert.deepEqual(steps({cloudPilot:true}),["1 The Space","2 Floor plan","3 Cameras","4 Previs","5 Build the set","6 Style it","7 Location image"]);
-  assert.equal(guide({cloudPilot:false,ownBlender:true}).find(s=>s.n===5).optional,true,"your own Blender never holds up the next step");
-  assert.equal(guide({cloudPilot:false,imageN:5}).find(s=>s.key==="image").n,5);
-  assert.ok(ui.includes('if((steps.find(x=>x.n===n)||{}).key==="image"){'),"Go on the image step goes to the top of the card, whatever its number");
-  assert.ok(/showBuild&&React\.createElement\(CardFold,\{label:"5 \\u00b7 /.test(sheet)&&/buildHere&&React\.createElement\(CardFold,\{label:"6 \\u00b7 /.test(sheet));
-  assert.ok(sheet.includes("const handoffInSubspaces=!buildHere&&hasRooms;")&&sheet.includes("const showBuild=buildHere||(!!window.BlenderStudioLaunch&&!handoffInSubspaces);"));
-  // the handoff: inside step 5, or at the end of Subspaces on a place whose rooms are built one by one
-  assert.equal((sheet.match(/\bstudioHandoff\b/g)||[]).length,3);
-  assert.ok(sheet.includes('buildHere&&React.createElement("h4",{className:"loc-step-sub"},"Or in your own Blender"),\n          studioHandoff)),'));
-  assert.ok(sheet.includes('React.createElement("h4",{className:"loc-step-sub"},"The whole place in your own Blender"),\n          studioHandoff)),'));
-  assert.equal((sheet.match(/className:"loc-sub","data-testid":"loc-own-blender"/g)||[]).length,2,"each home of the hand-off is a boxed subsection");
-  // the image's own section: Look Dev (the same two saved fields) and the check; the prompt is read-only and last
-  const image=sheet.slice(at(numbered("image","Location image")),at(numbered("variants","Variants")));
-  assert.ok(image.includes('foldId:"loc-image-"+l.id,count:stepCount(sectionNo.image)'),"the image section has its own fold id: step ids 4 to 6 belong to Previs, Build the set and Style it");
-  assert.ok(image.includes('React.createElement("h4",{className:"loc-step-sub"},"Look Dev")')&&image.includes('className:"loc-render-style-details"'));
-  assert.ok(image.includes("onUpdate(l.id,{negativePrompt:val})")&&image.includes("window.QaCheckButton && gen.genUrl && React.createElement("),"the check takes a row only when there is an image");
-  assert.ok(image.includes('"data-testid":"loc-image-step-note"},locationImageStepNote({previs:showPrevis,style:buildHere})),'),"the section's first line names every way this card makes the image");
+  for(const o of [{},{previs:true},{previs:false,cloudPilot:true,ownBlender:true}])
+    assert.deepEqual(steps(o),["1 The Space","2 Floor plan","3 Cameras","4 Previs","5 Location image"]);
+  // with the floor plan and the cameras done, the image's road is Previs: its Go opens step 4; before that, the top of the card
+  const ready={spatialState:{ready:true}};
+  const image=o=>guide(o).find(s=>s.key==="image");
+  assert.equal(image({...ready,previs:true}).goTo,4);assert.equal(image({...ready,previs:true}).next,true);
+  assert.match(image({...ready,previs:true}).todo,/^Open 4 · Previs, choose Make the location image, then Use as location image on the draft\. Or use Generate at the top of the card, from the description alone\.$/);
+  assert.equal(image({...ready,previs:false}).goTo,0);assert.equal(image({...ready,previs:false}).todo,"Generate the location image at the top of the card.");
+  assert.equal(image({previs:true}).goTo,0,"not before the floor plan and the cameras are done");
+  assert.equal(guide({...ready,previs:true}).find(s=>s.key==="previs").optional,true,"Previs never holds up the guide");
+  assert.ok(ui.includes('if(st.key==="image"&&st.goTo){if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,st.goTo);return;}'));
+  assert.ok(ui.includes('if(st.key==="image"){const card=ref.current&&ref.current.closest("[data-location-card]");'),"else Go on the image step goes to the top of the card");
+  // the image's own section: The look (the same two saved fields) and the check; the prompt is read-only and last
+  const section=sheet.slice(at(numbered("image","Location image")),at(numbered("variants","Variants")));
+  assert.ok(section.includes('foldId:"loc-image-"+l.id,count:stepCount(sectionNo.image)'),"the image section keeps its own fold id, which step 5 opens");
+  assert.ok(section.includes('React.createElement("h4",{className:"loc-step-sub"},"The look")')&&section.includes('className:"loc-render-style-details"'));
+  assert.ok(section.includes('React.createElement(SheetField,{label:"Leave out",value:l.negativePrompt||d.negativePrompt,multiline:true,'),"Leave out: the same saved field, a plain name");
+  assert.ok(section.includes("onUpdate(l.id,{negativePrompt:val})")&&section.includes("window.QaCheckButton && gen.genUrl && React.createElement("),"the check takes a row only when there is an image");
+  assert.ok(section.includes('"data-testid":"loc-image-step-note"},locationImageStepNote({previs:showPrevis})),'),"the section's first line names every way this card makes the image");
+  const note=box.locationImageStepNote;
+  assert.equal(note({previs:true}),"The finished image of this place, shown at the top of the card. Make it in 4 \u00b7 Previs, from the set in 3D (make a draft, then choose Use as location image), or with Generate at the top of the card, from the description in 1 \u00b7 The Space alone. The look set here is used whichever way it is made.");
+  assert.equal(note({previs:false}),"The finished image of this place, shown at the top of the card. Make it with Generate at the top of the card, from the description in 1 \u00b7 The Space alone. The look set here is used whichever way it is made.");
   const prompt=sheet.slice(at(numbered("prompt","Generation Prompt")));
   assert.ok(!prompt.includes("window.QaCheckButton")&&prompt.includes('"data-testid":"loc-prompt-built-from"'));
   const built=l=>vm.runInNewContext(sheet.slice(sheet.indexOf("const promptBuiltFrom="),sheet.indexOf("// the time of day beside each scene"))+";promptBuiltFrom",{l});
@@ -234,7 +224,8 @@ test("9 nothing stored moved: the same records, ids and fields, and the same Ble
   for(const t of ['schema:"cm-location-plan-v1"','sharedSetLayout:locationSpatialContract(l)','coordinates:locationCoordinateExport(l)','canonicalSet:canon(l)',
       'continuityRoot:parent?','screenplaySpaces:spaces.map(','appearanceStates:states.map(','requiredSpacePlates:','coverageViews:locationCoverageViews(l).map(','sceneSetups:locationSceneSetups(l,spaces).map('])
     assert.ok(plan.includes(t),"the Blender package keeps "+t);
-  assert.ok(sheet.includes("productionPlan:(typeof locationProductionPlan===\"function\")\n              ? locationProductionPlan(l,units) : null}},"));
+  // the card has no Blender hand-off since 2026-11-15; the Art Room toolbar's Blender Studio builds the same package itself
+  assert.ok(read("app/blender-studio-ui.jsx").includes("const plan=typeof locationProductionPlan===\"function\"?locationProductionPlan(l,units||[]):null;"));
 });
 
 test("10 Moving parts: at the end of the floor plan, said in plain words", ()=>{
@@ -334,8 +325,8 @@ test("13 a button is as big as the level it sits at (every Art Room card)", ()=>
   assert.ok(/\.sheet-gen-btn\{[^}]*height:36px/.test(css)&&/\.art-draftall\{[^}]*height:32px/.test(css));
   // the two that were the biggest buttons on the card
   assert.ok(css.includes(".loc-spatial-plan .loc-spatial-confirm{justify-content:center;width:100%;min-height:44px;"),"the floor plan's main button, before the level rule");
-  assert.ok(sheet.includes('className:"loc-sub","data-testid":"loc-own-blender"'),"Build in Blender sits in a box, so the box rule sizes it");
-  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  assert.ok(!sheet.includes('"data-testid":"loc-own-blender"'),"the card has no Blender hand-off box any more (2026-11-15)");
+  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 
 test("14 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
@@ -345,10 +336,10 @@ test("14 the other tabs point at the new name; Frances knows the card; the style
   const entry=s.slice(0,s.indexOf("\n"));
   for(const re of [/one numbered list, top to bottom, in the order you work: every section has a number and there is no gap/,/1 \\u00b7 The Space/,
       /Screenplay Coverage, at its top, is read from the screenplay and read-only/,/Narrative Significance, its last field/,
-      /2 \\u00b7 Floor plan, with Moving parts \(optional\) at its end\. 3 \\u00b7 Cameras\./,/Build in Blender inside step 5/,
-      /LOCATION IMAGE: Look Dev \(render style instructions and what to leave out\) and the QA check/,/VARIANTS: each time of day/,/Add a variant/,/Sc 02 \(Pre-dawn\)/,
-      /SUBSPACES \(a main location only\)/,/GENERATION PROMPT: read-only, the last section/,/7, 8, 9 and 10/,/Its fields are plain text boxes/,
-      /the Go button in the step guide and the bar under the image \(Start at 1 \\u00b7 The Space\) both open 1 \\u00b7 The Space/,/so they are 5, 6, 7 and 8/,/Nothing saved moved/])
+      /2 \\u00b7 Floor plan, with Moving parts \(optional\) at its end\. 3 \\u00b7 Cameras\./,/4 \\u00b7 Previs: the set in 3D, on every card \(optional\), where the location image is made from the set/,
+      /5 \\u00b7 LOCATION IMAGE: The look \(render style instructions and the Leave out field\) and the QA check/,/VARIANTS: each time of day/,/Add a variant/,/Sc 02 \(Pre-dawn\)/,
+      /SUBSPACES \(a main location only\)/,/GENERATION PROMPT: read-only, the last section/,/5 \\u00b7 Location image, 6 \\u00b7 Variants, 7 \\u00b7 Subspaces and 8 \\u00b7 Generation Prompt/,/Its fields are plain text boxes/,
+      /the Go button in the step guide and the bar under the image \(Start at 1 \\u00b7 The Space\) both open 1 \\u00b7 The Space/,/so its Generation Prompt is 7/,/Nothing saved moved/])
     assert.ok(re.test(entry),String(re));
   assert.ok(!/TURN|McKee|Claude|Anthropic|MUSE|Cinema Machine/.test(entry));
   assert.ok(!/Blender Studio section|Space and staging|SPACE AND STAGING/.test(ai),"Frances is not told about sections that are gone");
@@ -360,76 +351,89 @@ test("14 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
   for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
-  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
+    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
 });
 
-test("15 Previs: step 4 on every card, ahead of Build the set; optional, done once the set is dressed", ()=>{
+test("15 Previs: step 4 on every card; optional; the camera check, the drafts under the button and the one rule", ()=>{
   // on every card, where the 3D view loaded; the fold draws only while it is open (CardFold mounts its body when open)
   assert.ok(sheet.includes("const showPrevis=!!(window.LocationPrevisStep&&window.KinolotPrevis&&window.KinolotSetDressing&&window.KinolotCloudRender);"));
-  assert.ok(sheet.includes('showPrevis&&React.createElement(CardFold,{label:"4 \\u00b7 Previs",foldId:locationStepFoldId(l,4),count:stepCount(4),defaultOpen:initialSection==="previs"},\n        React.createElement(window.LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage:!!gen.genUrl,imageN:sectionNo.image})),'));
-  // owner 2026-11-15: "move Previs to 4, ahead of Build the set"
-  assert.ok(at('label:"4 \\u00b7 Previs"')>at('label:"3 \\u00b7 Cameras"')&&at('label:"4 \\u00b7 Previs"')<at('label:"5 \\u00b7 Build the set"'));
+  assert.ok(sheet.includes('showPrevis&&React.createElement(CardFold,{label:"4 \\u00b7 Previs",foldId:locationStepFoldId(l,4),count:stepCount(4),\n          defaultOpen:initialSection==="previs"||initialSection==="build"||initialSection==="style"},\n        React.createElement(window.LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage:!!gen.genUrl,\n          imageMeta:gen.genUrl?gen.genMeta:null,imageN:sectionNo.image})),'));
+  assert.ok(at('label:"4 \\u00b7 Previs"')>at('label:"3 \\u00b7 Cameras"')&&at('label:"4 \\u00b7 Previs"')<at(numbered("image","Location image")));
   // the step guide: optional (it never holds up the next step), done once the set is dressed
-  const guide=o=>box.locationCardSteps({l:{id:"x"},drafted:true,spatialState:{ready:false,reason:"r"},gen:{},cloudJob:null,...o});
-  const step=guide({cloudPilot:true}).find(s=>s.key==="previs");
+  const guide=o=>box.locationCardSteps({l:{id:"x"},drafted:true,spatialState:{ready:false,reason:"r"},gen:{},...o});
+  const step=guide({previs:true}).find(s=>s.key==="previs");
   assert.equal(step.n,4);assert.equal(step.optional,true);assert.equal(step.done,false);assert.ok(!step.next);
-  assert.equal(guide({l:{id:"x",previs:{v:1}},cloudPilot:false}).find(s=>s.key==="previs").done,true);
-  // a step number opens its own section: 4 Previs, 5 Build the set, 6 Style it; the same ids every link in the app uses
+  assert.equal(guide({l:{id:"x",previs:{v:1}}}).find(s=>s.key==="previs").done,true);
+  // a step number opens its own section: 4 Previs, 5 Location image; an old link to step 6 (Style it) opens Previs
   const ids=n=>vm.runInNewContext(read("app/locations.jsx").match(/function locationStepFoldId\(l,step\)\{[\s\S]*?\n\}/)[0]+";locationStepFoldId({id:'k'},"+n+")");
-  assert.deepEqual([1,2,3,4,5,6].map(ids),["loc-step1-k","loc-layout-k","loc-step3-k","loc-step4-k","loc-step5-k","loc-step6-k"]);
-  assert.ok(sheet.includes('label:"5 \\u00b7 Build the set",foldId:locationStepFoldId(l,5),count:stepCount(5)')&&sheet.includes('label:"6 \\u00b7 Style it",foldId:locationStepFoldId(l,6),count:stepCount(6)'));
+  assert.deepEqual([1,2,3,4,5,6].map(ids),["loc-step1-k","loc-layout-k","loc-step3-k","loc-step4-k","loc-image-k","loc-step4-k"]);
   assert.ok(!ui.includes('"loc-previs-"'),"no second way to open it");
-  // every button that sends you to the build or the styling uses the new numbers
-  const cloud=read("app/blender-render-ui.jsx"),angle=read("app/camera-angle-preview-ui.jsx");
-  assert.ok(cloud.includes('onClick:()=>goToLocationStep(location,5)},"Go to 5 \u00b7 Build the set"));'));
-  assert.equal((ui.match(/goToLocationStep\(l,5\)\},"Go to 5 \u00b7 Build the set"\)/g)||[]).length,2);
-  assert.ok(ui.includes('window.goToLocationStep(l,url?6:5);}},url?"Restyle (step 6)":"Make it: build at this moment (step 5)"));'));
-  assert.ok(angle.includes("Rebuild in step 5, then style the updated grid in step 6."));
-  for(const src of [ui,cloud,angle]) assert.ok(!/4 (\u00b7|\\u00b7) Build the set|5 (\u00b7|\\u00b7) Style it|goToLocationStep\((l|location),4\)\},"Go to/.test(src),"no old number left");
+  // every button that used to send you to the build or the styling leads to Previs
+  const angle=read("app/camera-angle-preview-ui.jsx"),ideas=read("app/camera-inspiration-ui.jsx");
+  assert.equal((ui.match(/window\.goToLocationStep\(l,4\)\},"Go to 4 \\u00b7 Previs"\)/g)||[]).length,1,"from 3 · Cameras, once the cameras are clear");
+  assert.ok(ui.includes('window.goToLocationStep(l,4);}},url?"Make it again in 4 \\u00b7 Previs":"Make it in 4 \\u00b7 Previs"));'),"a moving part's state image");
+  assert.ok(ui.includes('E("button",{type:"button",className:"loc-subspace-link",onClick:go("previs")},"Previs")'),"a room, from its place's Subspaces");
+  assert.ok(angle.includes("4 \\u00b7 Previs redraws the set from it.")&&ideas.includes("All 4 cameras are set. Continue in 4 \\u00b7 Previs."));
+  for(const src of [ui,angle,ideas]) assert.ok(!/Build the set|Style it|Rebuild in step|step 6|cloud Build set/.test(src.replace(/\/\*[\s\S]*?\*\//g,"").replace(/\/\/[^\n]*/g,"")),"no wording of the removed steps is left on the card");
   // the section itself
   const step_ui=read("app/set-previs-ui.jsx");
   for(const t of ['"data-testid":"previs-sheet"','"data-testid":"previs-dress"','"data-testid":"previs-render"','"data-testid":"previs-not-ready"','"data-testid":"previs-unsaved"',
-      '"Dress the set"','"Remove the dressing"','"Make the location image"','" (writing credits)"','window.nbCostChip(1,choice.cost)',
-      '"Go to 2 \\u00b7 Floor plan"','onUpdate(l.id,{previs:D.pack(r.dressing,{engine:D.MODEL})})','onUpdate(l.id,{previs:null})',
-      'title:"Make a new location image?"',"The image you have now stays in the card's versions.\""])
+      '"data-testid":"previs-draft"','"data-testid":"previs-drafts-earlier"','"data-testid":"previs-compare-drafts"','"data-testid":"previs-review"','"data-testid":"previs-moment"',
+      '"data-testid":"camera-check"','"data-testid":"camera-check-fix"',
+      '"Dress the set"','"Remove the dressing"','"Make the location image"','"Make another draft"','" (writing credits)"','window.nbCostChip(1,choice.cost)',
+      '"Use as location image"','"Compare with the 3D set"','"Discard"','"Compare drafts"','"Make this the current draft"','"Fix cameras"',
+      '"Go to 2 \\u00b7 Floor plan"','"Go to 3 \\u00b7 Cameras"','onUpdate(l.id,{previs:D.pack(r.dressing,{engine:D.MODEL})})','onUpdate(l.id,{previs:null})'])
     assert.ok(step_ui.includes(t),t);
   assert.ok(step_ui.includes("window.LocationPrevisStep=LocationPrevisStep;"));
-  // three boxed subsections, like every other section of the card; no button without its row
+  // the draft sits right under the button that makes it, inside the same box (owner 2026-11-15)
+  const make=step_ui.indexOf('"Make another draft"'),draft=step_ui.indexOf('"data-testid":"previs-draft"'),earlier=step_ui.indexOf('"data-testid":"previs-drafts-earlier"'),compare=step_ui.indexOf('"data-testid":"previs-compare-drafts"');
+  assert.ok(step_ui.indexOf('"data-testid":"previs-render"')<make&&make<draft&&draft<earlier&&earlier<compare&&compare<step_ui.indexOf("notice&&E("));
+  // no confirmation step and no tick box before using a draft: the image before it always stays in the versions
+  assert.ok(!step_ui.includes("appConfirm")&&!step_ui.includes('type:"checkbox"'));
+  // ONE RULE, in the same words everywhere: the draft must still match the set and the look it was made from
+  const api=read("app/set-previs.js");
+  assert.ok(api.includes('const OUT_OF_DATE="This draft is out of date: the floor plan, the cameras, the dressing or the description changed after it was made. Make a new one.";'));
+  assert.ok(step_ui.includes("const stale=d=>!nowKeys||d.meta.setKey!==nowKeys.setKey||d.meta.lookKey!==nowKeys.lookKey;")&&step_ui.includes("P.OUT_OF_DATE"));
+  assert.ok(api.includes("if(now.setKey!==saved.meta.setKey||now.lookKey!==saved.meta.lookKey)throw new Error(OUT_OF_DATE);"));
+  assert.ok(!/expected/.test(api.slice(api.indexOf("async function use("),api.indexOf("// DISCARD:"))),"using a draft never depends on what the location image is today");
+  assert.ok(api.includes('root.nbSetAssetApproval(slot(id),iso,false,"previs-draft-discarded")')&&!/nbClearAsset|nbDeleteHistoryEntry|nbDeleteCurrentAndPromoteAsset/.test(api),"discard marks the draft; nothing is deleted");
+  // three boxed subsections, like every other section of the card
   assert.equal((step_ui.match(/className:"loc-sub/g)||[]).length,3);
   assert.ok(!/Three\.?js|Blender|WebGL/i.test(step_ui.replace(/\/\*[\s\S]*?\*\//g,"").replace(/BlenderPreview/g,"")),"the library is never named on the card");
   // Frances knows it; the page loads it; the styles are in
   const ai=read("app/ai.jsx"),html=read("TURN.html");
-  assert.ok(ai.includes('name:"Previs (the set in 3D on a location card)"')&&ai.includes("DRESS THE SET")&&ai.includes("MAKE THE LOCATION IMAGE"));
-  for(const f of ["set-dressing.js","set-previs.js","set-previs-ui.jsx","locations-ui.jsx","ai.jsx","styles.css"])
-    assert.ok(["20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
+  assert.ok(ai.includes('name:"Previs (the set in 3D on a location card)"')&&ai.includes("DRESS THE SET")&&ai.includes("MAKE THE LOCATION IMAGE")&&ai.includes("THE RESULT IS A DRAFT")&&ai.includes("ONE RULE FOR USING A DRAFT"));
+  for(const f of ["set-previs.js","set-previs-ui.jsx","locations-ui.jsx","locations.jsx","ai.jsx"])
+    assert.ok(["20261115-oneroad1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
   assert.ok(html.indexOf("app/set-previs.js")>html.indexOf("app/camera-angle-preview.js")&&html.indexOf("app/set-dressing.js")>html.indexOf("app/blender-render.js"));
-  assert.ok(css.includes(".previs-sheet{aspect-ratio:16/9;"));
+  assert.ok(css.includes(".previs-sheet{aspect-ratio:16/9;")&&read("app/blender-preview.css").includes(".style-draft-thumb{"));
 });
 
-test("16 what each 3D step is for: Previs, Build the set and Style it say how they relate; style drafts stay on the card", ()=>{
-  // owner 2026-11-15: "we have previs and then we have build the set, which looks to me like it's doing the same thing"
-  const previs=read("app/set-previs-ui.jsx"),build=read("app/blender-render-ui.jsx"),style=read("app/blender-style-ui.jsx");
-  assert.ok(previs.includes('"The set in 3D, drawn in your browser from 2 \\u00b7 Floor plan and 3 \\u00b7 Cameras. It is free and redraws at once.'),"Previs: where it is drawn and that it is free");
-  assert.ok(build.includes('"The same set as 4 · Previs, from the same floor plan and cameras, built and rendered by Blender in the cloud: finer light and shadow on plain shapes, without the Previs dressing.'),"Build the set: the same set, and what is different");
-  assert.ok(build.includes("6 · Style it then repaints these four views."));
-  assert.ok(style.includes("The image engine repaints the four views built in step 5 in this card's render style.")&&style.includes("Each result is a draft, kept below until you discard it."),"Style it: what it does, and that drafts are kept");
-  // the Location image section names every way this card can make the image
-  const note=box.locationImageStepNote;
-  assert.equal(note({previs:false,style:false}),"The finished image of this place, shown at the top of the card. Make it with Generate at the top of the card, from the description in 1 \u00b7 The Space. The look set here is used whichever way it is made.");
-  assert.equal(note({previs:true,style:false}),"The finished image of this place, shown at the top of the card. Make it with Generate at the top of the card, from the description in 1 \u00b7 The Space; or in 4 \u00b7 Previs, from the set in 3D. The look set here is used whichever way it is made.");
-  assert.ok(note({previs:true,style:true}).includes("in 4 \u00b7 Previs, from the set in 3D; or in 6 \u00b7 Style it, from the built set."));
-  // style drafts: shown in the section, kept until discarded; the review is named for what it does
-  assert.ok(style.includes('"data-testid":"style-drafts"')&&style.includes('"data-testid":"style-draft-current"')&&style.includes('"data-testid":"style-drafts-earlier"'));
-  assert.ok(style.includes('"Review draft"')&&style.includes('"Discard draft"')&&style.includes('"Use as location image"')&&style.includes('"Make this the current draft"'));
-  for(const old of ["Compare with Blender","Reject draft","Use as location artwork","Style preview"])assert.ok(!style.includes('"'+old+'"'),old+" is gone from the step");
-  const api=read("app/blender-style.js");
-  assert.ok(api.includes("async function earlier(id,s){")&&api.includes("async function restore(id,iso,s){return locked(id,s,async()=>{")&&api.includes("root.nbRevertAsset(slot(id),index)"),"earlier drafts are read and swapped, never regenerated or deleted");
-  // Frances knows the difference and the kept drafts; the page loads the changed files
-  assert.ok(ai.includes("HOW PREVIS AND BUILD THE SET DIFFER")&&ai.includes("STYLE DRAFTS STAY ON THE CARD (2026-11-15)")&&!ai.includes("Compare with Blender")&&!ai.includes("Use as location artwork"));
-  for(const f of ["blender-style.js","blender-style-ui.jsx","blender-render-ui.jsx","set-previs-ui.jsx","locations-ui.jsx","ai.jsx","blender-preview.css"])
-    assert.ok(["20261115-drafts1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
+test("16 one road and plainer names: what left the card, what was folded away, and what Frances says", ()=>{
+  // owner 2026-11-15: "we have previs and then we have build the set, which looks to me like it's doing the same thing";
+  // then, to the nine listed changes: "1. yes, and remove Blender" … "8. yes"
+  // written view notes: offered only where no 3D camera frames the views (a card with no floor plan of its own)
+  assert.ok(sheet.includes("!(spatialState.ready&&ownRoom)&&React.createElement(CoverageViewsEditor,{l,views:coverageViews,onUpdateView:updateCoverageView,"));
+  // a floor-plan object's three source fields are one closed line under the fields that place it; the same saved values
+  const anchors=ui.slice(ui.indexOf('"Objects & placements · "+plan.anchors.length'),ui.indexOf('"Add fixed anchor"'));
+  assert.ok(anchors.includes('React.createElement("details",{className:"loc-nested-section loc-anchor-source","data-testid":"anchor-source"},'));
+  const source=anchors.slice(anchors.indexOf('"data-testid":"anchor-source"'));
+  for(const t of ['anchorChange(a.id,{basis:e.target.value})','anchorChange(a.id,{evidence:value})','anchorChange(a.id,{posBasis:v})','"Where this came from \\u00b7 "'])assert.ok(source.includes(t),t);
+  for(const old of ['"Evidence basis"','"Supporting panels / evidence"','"Position basis"'])assert.ok(!ui.includes(old),old+" is renamed and folded");
+  assert.ok(anchors.indexOf('label:"Floor plan position"')<anchors.indexOf('"data-testid":"anchor-source"'),"placement first, where it came from after");
+  // names
+  assert.ok(ui.includes('"The four cameras \\u00b7 where each view is taken from"')&&!ui.includes('"Plate cameras \\u00b7 where each panel is shot from"'));
+  // the plans' cards no longer add a cloud-sets line; the build's server side and its unmounted components are untouched
+  assert.ok(!read("app/plans.jsx").includes('list.push("Cloud sets'));
+  assert.ok(read("app/blender-render-ui.jsx").includes("function LocationCloudRender(")&&read("app/blender-style.js").includes("root.KinolotSetStyle="),"kept in their files, unmounted");
+  // Frances: no step the card does not have
+  const names=Array.from(ai.matchAll(/APP_FEATURES\.push\(\{ name:"([^"]+)"/g)).map(m=>m[1]);
+  assert.ok(names.includes("Location floor plan, cameras and 3D set (Locations)")&&!names.includes("Build the set (Locations)")&&!names.includes("Detailed cloud sets")&&!names.includes("Location build storage"));
+  assert.ok(!/5 (·|\\u00b7) Build the set|6 (·|\\u00b7) Style it|Build in Blender button in the card|Compare with Blender|one build costs 15 credits/.test(ai));
+  assert.ok(ai.includes("a location card no longer has the steps Build the set and Style it")&&ai.includes("IT IS THE CARD'S ONE ROAD FROM THE SET TO ITS IMAGE (owner 2026-11-15)"));
+  assert.ok(ai.includes("under The look, in the card's Location image section")&&ai.includes("THE FOUR CAMERAS (called 'Plate cameras' until 2026-11-15)"));
 });
 
 console.log(pass+" passed, "+fail+" failed");

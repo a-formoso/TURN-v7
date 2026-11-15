@@ -167,8 +167,8 @@ let flow={...structuredClone(bus),spatialPlan:{...structuredClone(bus.spatialPla
 box.turnContinuity={locations:[flow]};
 const flowUpdate=(id,patch)=>{assert.equal(id,flow.id);flow={...flow,...patch};box.turnContinuity.locations=[flow];};
 const flowEditor=()=>render({l:flow,onUpdate:flowUpdate});
-const flowSteps=()=>box.locationCardSteps({l:flow,drafted:true,spatialState:box.locationSpatialPlanState(flow),gen:{},cloudPilot:true,cloudJob:null});
-assert.equal(flowSteps().find(s=>s.n===2).done,false,"Written approval alone cannot mark a cloud floor plan complete");
+const flowSteps=()=>box.locationCardSteps({l:flow,drafted:true,spatialState:box.locationSpatialPlanState(flow),gen:{},previs:true});
+assert.equal(flowSteps().find(s=>s.n===2).done,false,"Written approval alone cannot mark the floor plan complete where the set is drawn in 3D");
 assert.equal(flowSteps().find(s=>s.n===3).done,false,"Absent room measurements cannot mark cameras complete");
 reset();tree=flowEditor();assert.match(text(tree),/Placements confirmed · measurements needed/);
 function metrics(){const entry=flat(flowEditor()).find(n=>n.type===box.LocationFloorPlanFields);return box.LocationFloorPlanFields(entry.props);}
@@ -192,10 +192,14 @@ assert.equal(flat(cls(tree,"loc-plan-editor")).includes(button(tree,"Continue to
 assert.equal(button(tree,"Back to 5 · Build the set"),undefined,"Step 2 does not skip over camera review");
 assert.equal(flowSteps().find(s=>s.n===2).done,true);assert.equal(flowSteps().find(s=>s.n===3).done,false);
 const proposal=box.KinolotCloudRender.proposeCameras(flow);flowUpdate(flow.id,{coverageViews:box.KinolotCloudRender.cameraProposalViews(flow,proposal)});
-// 4 · Previs is optional, so the next step is 5 · Build the set (2026-11-15)
-assert.equal(flowSteps().find(s=>s.n===3).done,true);assert.equal(flowSteps().find(s=>s.n===4).optional,true);assert.equal(flowSteps().find(s=>s.n===5).next,true);
+// 4 · Previs is optional, so the next step is 5 · Location image (2026-11-15: one road, the cloud build's steps are gone),
+// and its Go button opens Previs, where the image is made from the set
+assert.equal(flowSteps().find(s=>s.n===3).done,true);assert.equal(flowSteps().find(s=>s.n===4).optional,true);
+const imageStep=flowSteps().find(s=>s.n===5);
+assert.equal(imageStep.key,"image");assert.equal(imageStep.next,true);assert.equal(imageStep.goTo,4);assert.match(imageStep.todo,/Open 4 · Previs, choose Make the location image, then Use as location image on the draft/);
+assert.equal(flowSteps().length,5);
 const scene=box.KinolotCloudRender.buildScene(flow);box.KinolotRenderContract.validateScene(scene);
-assert.equal(Object.keys(scene.cameras).length,4);assert.ok(scene.objects.some(o=>o.anchorId==="seat"),"The saved fixture reaches Build set with its existing object");
+assert.equal(Object.keys(scene.cameras).length,4);assert.ok(scene.objects.some(o=>o.anchorId==="seat"),"The saved fixture reaches the 3D set with its existing object");
 assert.equal(box.KinolotCloudRender.inputIssueList(flow).length,0,"Steps 2, 3 and 4 use consistent prerequisites");
 // Replacing an empty outline is explicit and never allowed through a read-only handler.
 hooks=[];cursor=0;let illicit=0;const readonlyOutline=box.LocationRoomOutline({space:{},onCreate:()=>illicit++,readOnly:true});

@@ -645,11 +645,13 @@ Each entity gets a canonical, reusable reference so every generated image stays 
   on the floor plan) → **6 · Location image** (the plate at the top of the card). Rooms & times and **More** (scene
   dressing & blocking, Build in Blender, QA check, the generation prompt) follow the steps. A problem that stops a
   later step names the step that fixes it, with a Go button. *Spec before render* above is step 1 before step 6.
-  **Previs is step 4 *(2026-11-15 by owner — "move Previs to 4, ahead of Build the set")*.** The card's steps are
-  now **1 · The Space** → **2 · Floor plan** → **3 · Cameras** → **4 · Previs** (the set in live 3D, drawn from the
-  floor plan and the cameras; optional: dress it for the film and make the location image from it) → **5 · Build the
-  set** and **6 · Style it** (the cloud Blender set, numbered 4 and 5 until then) → **Location image**, which takes
-  the next number. *Spec before render* is unchanged: step 1 comes before the location image.
+  **One road from the set to its image *(2026-11-15 by owner — "move Previs to 4", then "yes, and remove Blender")*.**
+  The card's steps are now **1 · The Space** → **2 · Floor plan** → **3 · Cameras** → **4 · Previs** (the set in 3D,
+  drawn in the browser from the floor plan and the cameras; dress it for the film and make the location image from it:
+  each image is a draft, looked at first, then used or discarded) → **5 · Location image** (the look and the image
+  check). **Build the set** and **Style it** (the cloud Blender set) are no longer steps of the card, and state images
+  of moving parts are made in Previs at their story moment. *Spec before render* is unchanged: step 1 comes before the
+  location image.
 - **Moving parts (per location).** A part of the set the screenplay moves (a stern ramp lowered for the cars, then
   raised to seal the hold) has named states, a **usual** state (the one the description, plate and built set show)
   and **changes at story moments** (scene · beat · moment; "during" a moment = its frame still shows the state
@@ -733,6 +735,7 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
 ---
 
 ## Change log
+- *(2026-11-15 — Step 9, Locations, by owner decision: "yes, and remove Blender")* — the location card has **one road** from the set to its image: 4 · Previs makes the location image (as drafts, used or discarded), 5 is Location image. Build the set and Style it left the card. No pipeline step was added, removed or reordered.
 - *(2026-11-15 — Step 9, Locations, by owner request: "build the card step and call it Previs", then "move Previs to 4, ahead of Build the set")* — **Previs** is step 4 of the location card: the set in live 3D from the floor plan and the cameras, which can be dressed for the film and used to make the location image. Build the set and Style it are now steps 5 and 6. No pipeline step was added, removed or reordered.
 - *(2026-11-01 — Step 9, Shots, by owner request: "ensure this is implemented for future projects as well as anything we are doing now")* — beats are **split into their moments by default**: drafting splits them, Split beats into moments converts existing films' shots; Join keeps a beat whole.
 - *(2026-11-01 — Step 9, Shots and Locations, by owner approval: "go ahead with 1 + 3")* — **a beat's moments**: a beat can be split, on request, into one shot per screenplay moment, each performed alone on the Stage (one opening keyframe per beat stays the default); **moving parts**: a location's parts that the screenplay moves have states per story moment, which shots and the cloud set follow. No pipeline step was added, removed or reordered.

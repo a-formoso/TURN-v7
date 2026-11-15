@@ -249,19 +249,20 @@ await test("E the card, the script order and Frances's notes", ()=>{
   const ui=read("app/locations-ui.jsx"),build=read("app/blender-render-ui.jsx"),html=read("TURN.html"),ai=read("app/ai.jsx");
   assert.ok(ui.includes("try{p=api.proposeCamerasAuto?await api.proposeCamerasAuto(l,list):api.proposeCameras(l,list);}"));
   assert.ok(ui.includes('fitting?"Finding clear views\\u2026":"Suggest 4 cameras"'));
-  assert.ok(ui.includes("React.createElement(window.LocationCloudRender,{location:l,readOnly,onUpdate})"));
-  for(const id of ["camera-check","camera-check-fix-build","camera-check-fix","camera-check-anyway","camera-check-fixed"])assert.ok(build.includes('"data-testid":"'+id+'"'),id);
-  assert.ok(build.includes('" cameras would not show the set clearly:"')&&build.includes('"Fix cameras and build"')&&build.includes('"Keep these cameras"'));
-  assert.ok(build.includes("issues.length>0||blockedViews,onClick:submit"),"a blocked view stops the paid build until fixed or kept on purpose");
-  assert.ok(build.includes("const cameraOnly=issues.length>0&&issues.every(i=>i.step===3)")&&build.includes('!readOnly&&!cameraOnly&&E("button",{type:"button",className:"art-draftall ghost",disabled:fixing||busy,"data-testid":"camera-check-anyway"'),
-    "a camera standing in a wall is fixed by the same press, and cannot be kept");
-  assert.ok(build.includes("()=>{if(alive)setCheck({key:checkKey,faults:{}});}"),"a check that cannot run never stands in the way");
+  // 2026-11-15 (owner: one road): the cloud build left the card, so the camera check and its free fix are in 4 \u00b7 Previs
+  const previs=read("app/set-previs-ui.jsx");
+  assert.ok(!ui.includes("window.LocationCloudRender"),"the card no longer mounts the cloud build");
+  for(const id of ["camera-check","camera-check-fix","camera-check-fixed"])assert.ok(previs.includes('"data-testid":"'+id+'"'),id);
+  assert.ok(previs.includes('" cameras do not show the set clearly:"')&&previs.includes('"Fix cameras"')&&previs.includes("api.proposeCamerasAuto(now,list,{keep})"),
+    "only the cameras named by the check move; the others are kept");
+  assert.ok(previs.includes("()=>{if(live)setFaults({});}"),"a check that cannot run says nothing");
+  assert.ok(build.includes("()=>{if(alive)setCheck({key:checkKey,faults:{}});}"));
   const at=n=>html.indexOf(n);
   assert.ok(at("app/blender-render.js")<at("app/camera-coverage.js")&&at("app/camera-coverage.js")<at("app/blender-render-ui.jsx")&&at("app/camera-coverage.js")<at("app/locations-ui.jsx"));
   for(const f of ["camera-coverage.js","blender-render.js","blender-render-ui.jsx","locations-ui.jsx","ai.jsx","script.jsx"])
-    assert.ok(["20261111-auto1", "20261112-models1", "20261112-resume1", "20261112-limit1", "20261112-thread1", "20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1"].some(k=>html.includes('src="app/'+f+"?v="+k+'"')),f);
+    assert.ok(["20261111-auto1", "20261112-models1", "20261112-resume1", "20261112-limit1", "20261112-thread1", "20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1"].some(k=>html.includes('src="app/'+f+"?v="+k+'"')),f);
   assert.ok(ai.includes("'Suggest 4 cameras' (2026-11-11: fitted to the set as it will be built, the same way for every location)"));
-  assert.ok(ai.includes("THE CAMERA CHECK (2026-11-11): before a build, each saved camera's view of the set is checked"));
+  assert.ok(ai.includes("THE CAMERA CHECK (2026-11-11; in 4 \\u00b7 Previs since 2026-11-15): each saved camera's view of the set is checked"));
 });
 
 console.log(`\n${checks} checks passed${failed?`, ${failed} FAILED`:""}`);

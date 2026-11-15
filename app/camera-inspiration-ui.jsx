@@ -42,7 +42,7 @@ function LocationCameraInspiration({l,readOnly=false,onPropose,onMatched}){
       const proposal=await window.KinolotCameraMatch.match(l.id,scope,{onPhase:p=>{if(valid())setPhase(p);}});
       if(!valid())return;setPhase("Saving matched cameras…");
       if(await onMatched(proposal,ticket)!==true)throw Error("The camera update was not confirmed. Your saved cameras were not replaced by this match.");
-      if(valid())setNotice("All 4 cameras are set. Continue in Build the set.");
+      if(valid())setNotice("All 4 cameras are set. Continue in 4 \u00b7 Previs.");
     }
     catch(e){if(valid())setError(e.message);}
     finally{operating.current=false;if(valid()){setBusy(false);setPhase("");}}
@@ -50,12 +50,12 @@ function LocationCameraInspiration({l,readOnly=false,onPropose,onMatched}){
   let stale=!!draft;
   try{if(draft)stale=draft.meta.inputKey!==api.inputKey(l.id);}catch(_){}
   const canMatch=!!(onPropose&&onMatched&&window.KinolotCameraMatch);
-  const matchHelp="Experimental camera match: matches recognizable subjects and framing to achievable views inside your saved set. Uses a closer corner fit when possible, otherwise approximate composition. When all 4 views pass the fit checks, their cameras are set automatically and Build the set opens. Changed proportions or hidden features may prevent a match; failed fits leave your cameras unchanged. You can adjust the saved cameras later. Your set stays fixed and matching starts no Blender build.";
+  const matchHelp="Experimental camera match: matches recognizable subjects and framing to achievable views inside your saved set. Uses a closer corner fit when possible, otherwise approximate composition. When all 4 views pass the fit checks, their cameras are set automatically; continue in 4 \u00b7 Previs. Changed proportions or hidden features may prevent a match; failed fits leave your cameras unchanged. You can adjust the saved cameras later. Your set stays fixed.";
   return E("details",{className:"loc-nested-section loc-camera-ideas",open,onToggle:e=>{if(e.target===e.currentTarget)setOpen(e.currentTarget.open);}},
     E("summary",null,"Need ideas for camera views?"),
     open&&E("div",{className:"loc-camera-ideas-body"},
       E("p",{className:"loc-layer-note"},"Generate a separate four-view image to explore camera compositions from your description and floor plan. Image-generation credits apply."),
-      E("p",{className:"loc-layer-note"},"The image may invent details. Generating it does not change your set or cameras. Like these views? Match them to your fixed set: successful matches set all 4 cameras automatically and open Build the set. The image never changes Blender geometry or location artwork."),
+      E("p",{className:"loc-layer-note"},"The image may invent details. Generating it does not change your set or cameras. Like these views? Match them to your fixed set: successful matches set all 4 cameras automatically; continue in 4 \u00b7 Previs. The image never changes your set or the location image."),
       E("label",{className:"loc-style-notes"},"Image engine",E("select",{value:engine,disabled:readOnly||busy,onChange:e=>{setEngine(e.target.value);setError("");}},
         api.ENGINES.map(id=>E("option",{key:id,value:id},window.nbModelLabel(id))))),
       choice&&choice.model!==engine&&E("p",{className:"loc-layer-note"},"Your plan uses "+window.nbModelLabel(choice.model)+" for this request."),

@@ -82,10 +82,11 @@
     }finally{rig.dispose();renderer.dispose();renderer.forceContextLoss();}
   }
   /* THE SET AS PREVIS DRAWS IT: the built floor plan with the location's saved dressing on, when it has one.
-     Throws the builder's own sentence when the floor plan or cameras are not ready. */
-  function scene(location,list){
+     `at` = a story moment (moving parts): the set as it stands then. Throws the builder's own sentence when the floor
+     plan or cameras are not ready. */
+  function scene(location,list,at){
     if(!root.KinolotCloudRender||!root.KinolotSetDressing)throw new Error("The 3D view did not load. Refresh this page.");
-    const built=root.KinolotCloudRender.buildScene(location,list),kept=root.KinolotSetDressing.saved(location,built);
+    const built=root.KinolotCloudRender.buildScene(location,list,at||undefined),kept=root.KinolotSetDressing.saved(location,built);
     if(!kept)return {scene:built,light:null,dressed:false,parts:0,iso:""};
     return {scene:root.KinolotSetDressing.apply(built,kept.dressing),light:kept.dressing.light,dressed:true,parts:kept.report.parts,iso:kept.iso};
   }
@@ -118,86 +119,186 @@
     if(typeof root.nbGenerate!=="function")throw new Error("Sign in to make this image.");
     if(!/^data:image\//.test(String(sheetUrl||"")))throw new Error("Draw the previs sheet first.");
     const choice=options.settings||settings();
-    const prompt=stylePrompt(location,options.project),metaOut={};
+    const prompt=stylePrompt(location,options.project)+(options.after||""),metaOut={};
     const scope=root.BlenderPreview&&typeof root.BlenderPreview.scope==="function"?root.BlenderPreview.scope():null;
     const url=await root.nbGenerate(prompt,{model:choice.model,imageSize:choice.imageSize,quality:choice.quality,aspectRatio:"16:9",referenceImage:sheetUrl,
       baseMaxDim:1536,referenceMaxDim:1536,referencesNumbered:true,groundSearch:false,noRetry:true,
-      ...(scope&&scope.projectId?{projectId:scope.projectId}:{}),assetId:location.id,assetPurpose:"previs-image",metaOut,
+      ...(scope&&scope.projectId?{projectId:scope.projectId}:{}),assetId:options.assetId||location.id,assetPurpose:"previs-image",metaOut,
       ...(typeof options.beforeSubmit==="function"?{beforeSubmit:options.beforeSubmit}:{})});
     return {url,prompt,model:choice.model,label:choice.label,size:metaOut.imageSize||choice.imageSize,quality:choice.quality||""};
   }
 
-  /* RENDER THE LOCATION IMAGE FROM THE PREVIS. The same thing the card's own Generate does, with the sheet as the
-     layout: one image call, saved as the location image's new version (the one before it stays in the card's
-     versions). An image that was made but could not be saved is kept for this session (unsaved) so that it is saved
-     with one more click, never paid for twice. */
+  /* DRAFTS (owner 2026-11-15: "preview as soon as image is generated, with option for the user to use as location
+     image or discard"). Make the location image makes a DRAFT: its own saved image, never the location image itself.
+     It is shown under the button at once and stays on the card until it is discarded; the drafts made before it stay
+     too. Use as location image saves a draft's pixels as the location image's new version, and the image before it
+     stays in the card's versions.
+     ONE RULE says whether a draft can be used: it must still match what it was made from, the set (floor plan,
+     cameras, dressing, story moment) and the card's description and look. What the location image is today never
+     matters: using a draft only adds a version.
+     What a draft is for: a location id = the usual set, which becomes the location image; or a target
+     {loc, at, key, label} = the set at a story moment whose moving parts differ ("Stern ramp lowered"), which becomes
+     that state's own image and never touches the location image. */
   const unsaved=new Map(),running=new Set();
+  const target=id=>id&&typeof id==="object"?{loc:String(id.loc),at:id.at||null,key:String(id.key||""),label:String(id.label||"")}
+    :{loc:String(id),at:null,key:"",label:""};
+  const slot=id=>{const t=target(id);return "previs-draft-"+t.loc+(t.key?"-parts-"+t.key.toLowerCase().replace(/[^a-z0-9]+/g,"-").slice(0,80):"");};
   const live=id=>{const l=((root.turnContinuity||{}).locations||[]).find(x=>x.id===id);if(!l)throw new Error("This location is no longer in the film.");return l;};
-  const announce=id=>root.dispatchEvent&&root.dispatchEvent(new CustomEvent("kinolot-previs-changed",{detail:{id}}));
-  function assertWritable(scope){
+  const assetOf=id=>{const t=target(id);return t.key?root.locationPartStateAssetId(live(t.loc),t.key):t.loc;};
+  const announce=id=>root.dispatchEvent&&root.dispatchEvent(new CustomEvent("kinolot-previs-changed",{detail:{id:target(id).loc}}));
+  const scopeNow=()=>{try{return root.BlenderPreview.scope();}catch(_){throw new Error("Open a saved film and sign in to make this image.");}};
+  const keyOf=(scope,id)=>[scope.uid,scope.projectId,slot(id)].join(":");
+  function assertCurrent(scope){
     if(!root.BlenderPreview.isCurrent(scope))throw new Error("The open film or sign-in changed. Open the location again.");
+  }
+  function assertWritable(scope){
+    assertCurrent(scope);
     if(typeof root.turnArtRoomWritable==="function"&&!root.turnArtRoomWritable())throw new Error("This film is read-only.");
   }
-  async function commit(entry){
-    assertWritable(entry.scope);
-    const saved=await root.nbCommit(entry.id,entry.url,entry.meta,entry.refs,"location",entry.scope.epoch,()=>!root.BlenderPreview.isCurrent(entry.scope));
-    if(!saved||["error","stale","cancelled"].includes(saved.tier))throw new Error((saved&&saved.error)||"The image was made but could not be saved.");
-    unsaved.delete(entry.key);
-    root.dispatchEvent(new CustomEvent("nb-gen-done",{detail:{id:entry.id,url:saved.url||entry.url}}));
-    return saved;
+  // What a draft is made from, as two short keys: the set exactly as drawn, and the card's description and look.
+  async function keys(id,list){
+    const t=target(id),location=live(t.loc),built=scene(location,list,t.at),C=root.KinolotRenderContract;
+    const look=typeof root.locationSpecSig==="function"?String(root.locationSpecSig(location)):stylePrompt(location);
+    return {setKey:await C.hash(C.canonical({scene:built.scene,light:built.light||null})),lookKey:await C.hash(String(look))};
   }
-  const keyOf=(scope,id)=>[scope.uid,scope.projectId,id].join(":");
-  const scopeNow=()=>{try{return root.BlenderPreview.scope();}catch(_){throw new Error("Open a saved film and sign in to make this image.");}};
+  const discarded=meta=>!!(meta&&meta.approval&&meta.approval.iso===meta.iso&&meta.approval.approved===false);
+  const used=meta=>!!(meta&&meta.approval&&meta.approval.iso===meta.iso&&meta.approval.approved===true);
+  const mine=(meta,id,scope)=>{const t=target(id);
+    return !!meta&&meta.kind==="previs-draft"&&meta.schema===1&&meta.projectId===scope.projectId&&meta.locationId===t.loc&&(meta.stateKey||"")===t.key&&!!meta.iso;};
+  const shaped=d=>{const ref=(d.refs||[]).find(r=>r&&r.kind==="previs-sheet"&&!r.deleted);
+    return {url:d.url,meta:d.meta,sheet:(ref&&ref.url)||"",used:used(d.meta),discarded:discarded(d.meta)};};
+  /* The drafts kept for a location: the current one (null when none, or when it was discarded) and the earlier ones,
+     newest first, without the discarded. Looking only: nothing is generated, charged or changed. */
+  async function drafts(id){
+    const scope=scopeNow(),saved=await root.nbLoadDetailsAsset(slot(id),"");assertCurrent(scope);
+    const current=saved&&saved.url&&mine(saved.meta,id,scope)?shaped(saved):null,earlier=[];
+    for(const d of (saved&&saved.history)||[]){
+      if(!d||!d.url||!mine(d.meta,id,scope)||discarded(d.meta))continue;
+      earlier.push(shaped(d));if(earlier.length>=8)break;
+    }
+    return {current:current&&!current.discarded?current:null,lastDiscarded:!!(current&&current.discarded),earlier};
+  }
   function pending(id){
     try{const scope=root.BlenderPreview.scope(),key=keyOf(scope,id),entry=unsaved.get(key);
       if(entry&&entry.scope.epoch!==scope.epoch){unsaved.delete(key);return {running:running.has(key),unsaved:false};}
       return {running:running.has(key),unsaved:!!entry};
     }catch(_){return {running:false,unsaved:false};}
   }
-  async function render(locationId,options){
+  async function locked(id,scope,fn){
+    const key=keyOf(scope,id);
+    if(running.has(key))throw new Error("This location's image is already being worked on.");
+    running.add(key);announce(id);
+    try{return await fn(key);}finally{running.delete(key);announce(id);}
+  }
+  async function commit(entry){
+    assertWritable(entry.scope);
+    const saved=await root.nbCommit(entry.slot,entry.url,entry.meta,entry.refs,"location",entry.scope.epoch,()=>!root.BlenderPreview.isCurrent(entry.scope));
+    if(!saved||["error","stale","cancelled"].includes(saved.tier))throw new Error((saved&&saved.error)||"The image was made but could not be saved.");
+    unsaved.delete(entry.key);
+    return {url:saved.url||entry.url,meta:entry.meta,sheet:entry.refs[0].url,used:false,discarded:false};
+  }
+  /* MAKE A DRAFT: draw the sheet, one image call, save the result as the newest draft. The location image is not touched. */
+  async function render(id,options){
     options=options||{};
-    const scope=scopeNow(),key=keyOf(scope,locationId);
+    const scope=scopeNow(),t=target(id);
     assertWritable(scope);
-    if(running.has(key))throw new Error("This location's image is already being made.");
-    if(unsaved.has(key))throw new Error("An image was made but not saved yet. Save it first.");
-    running.add(key);announce(locationId);
-    try{
-      const location=live(locationId),built=scene(location);
+    if(unsaved.has(keyOf(scope,id)))throw new Error("An image was made but not saved yet. Save it first.");
+    return locked(id,scope,async key=>{
+      const location=live(t.loc),built=scene(location,undefined,t.at);
       options.onPhase&&options.onPhase("drawing");
-      const drawn=await sheet(built.scene,built.light,{panelWidth:960});
+      const drawn=await root.KinolotPrevis.sheet(built.scene,built.light,{panelWidth:960});
       assertWritable(scope);
+      const made=await keys(id);
       // what the image is made from, as the card's own Generate records it: the layout, the cameras, the description
       const sig=name=>typeof root[name]==="function";
-      const made={...(sig("locationSpatialPlanSigFor")?{spatialPlanSig:root.locationSpatialPlanSigFor(location)}:{}),
+      const record={...(sig("locationSpatialPlanSigFor")?{spatialPlanSig:root.locationSpatialPlanSigFor(location)}:{}),
         ...(sig("locationPlatePanelRecord")?{platePanels:root.locationPlatePanelRecord(location)}:{}),
         ...(sig("locationPlateLayoutSig")?{plateLayoutSig:root.locationPlateLayoutSig(location,{panels:true})}:{}),
         ...(sig("locationSpecSig")?{locSpecSig:root.locationSpecSig(location)}:{})};
-      const before=await root.nbLoadDetailsAsset(locationId,"");
-      assertWritable(scope);
+      // the set is drawn at a story moment: say which parts are not in their usual state, so the image keeps them
+      const moved=t.key&&typeof root.locationMovingPartsAt==="function"?root.locationMovingPartsAt(location,t.at).filter(p=>p.differs&&p.state)
+        .map(p=>p.name+" "+p.state.label.toLowerCase()+(p.state.look?" \u2014 "+p.state.look:"")).join("; "):"";
       options.onPhase&&options.onPhase("generating");
-      const out=await style(location,drawn.dataUrl,{project:options.project,settings:options.settings,beforeSubmit:async()=>{assertWritable(scope);}});
-      let meta={kind:"location",mode:"final",prompt:out.prompt,modelId:out.model,modelLabel:out.label,quality:out.quality||undefined,size:out.size,aspect:"16:9",
-        iso:new Date().toISOString(),...made,version:(Number(before&&before.meta&&before.meta.version)||0)+1,
-        previs:{dressed:built.dressed,dressingIso:built.iso,shapes:built.scene.objects.length}};
-      if(typeof root.nbWithAssetProvenance==="function")meta={...meta,...root.nbWithAssetProvenance(locationId,meta,"location")};
-      const entry={key,id:locationId,scope,url:out.url,meta,refs:[{kind:"previs-sheet",label:"Previs sheet",url:drawn.dataUrl}]};
+      const out=await style(location,drawn.dataUrl,{project:options.project,settings:options.settings,assetId:slot(id),
+        after:moved?"\nMOVING PARTS AT THIS MOMENT (as drawn in the sheet): "+moved+". Where the sheet opens to the outside, show the exterior beyond as described (keep its position and size).":"",
+        beforeSubmit:async()=>{assertWritable(scope);}});
+      const meta={schema:1,kind:"previs-draft",mode:"draft",projectId:scope.projectId,locationId:t.loc,
+        ...(t.key?{stateKey:t.key,stateLabel:t.label,stateAt:t.at}:{}),
+        setKey:made.setKey,lookKey:made.lookKey,prompt:out.prompt,modelId:out.model,modelLabel:out.label,quality:out.quality||undefined,size:out.size,aspect:"16:9",
+        iso:new Date().toISOString(),...record,previs:{dressed:built.dressed,dressingIso:built.iso,shapes:built.scene.objects.length}};
+      const entry={key,slot:slot(id),scope,url:out.url,meta,refs:[{kind:"previs-sheet",label:"Previs sheet",url:drawn.dataUrl}]};
       unsaved.set(key,entry);
       options.onPhase&&options.onPhase("saving");
-      const saved=await commit(entry);
-      return {url:saved.url||out.url,meta};
-    }finally{running.delete(key);announce(locationId);}
+      return commit(entry);
+    });
   }
-  // Save an image that was made but not saved (one more click, no new image).
-  async function retrySave(locationId){
-    const scope=scopeNow(),key=keyOf(scope,locationId),entry=unsaved.get(key);
+  // Save a draft that was made but not saved (one more click, no new image).
+  async function retrySave(id){
+    const scope=scopeNow(),entry=unsaved.get(keyOf(scope,id));
     if(!entry||entry.scope.epoch!==scope.epoch)throw new Error("That image is no longer in this session.");
-    if(running.has(key))throw new Error("This location's image is being saved.");
-    running.add(key);announce(locationId);
-    try{return await commit(entry);}finally{running.delete(key);announce(locationId);}
+    return locked(id,scope,()=>commit(entry));
   }
-  function discardUnsaved(locationId){
-    try{unsaved.delete(keyOf(root.BlenderPreview.scope(),locationId));}catch(_){}
-    announce(locationId);
+  function discardUnsaved(id){
+    try{unsaved.delete(keyOf(root.BlenderPreview.scope(),id));}catch(_){}
+    announce(id);
   }
-  root.KinolotPrevis={PANELS,sheet,scene,stylePrompt,settings,style,render,retrySave,discardUnsaved,pending};
+  // The draft's own image, as data: a data URL as it is, a stored image downloaded once (never made again).
+  async function imageData(url){
+    if(/^data:image\//i.test(String(url||"")))return url;
+    let blob;
+    try{const r=await root.fetch(url);if(!r.ok)throw new Error(String(r.status));blob=await r.blob();}
+    catch(_){throw new Error("The draft image could not be downloaded. Check your connection and try again.");}
+    if(!blob||!blob.size||!/^image\//i.test(blob.type||""))throw new Error("The draft image could not be read. Make a new one.");
+    return await new Promise((resolve,reject)=>{const f=new root.FileReader();f.onload=()=>resolve(f.result);
+      f.onerror=()=>reject(new Error("The draft image could not be read. Make a new one."));f.readAsDataURL(blob);});
+  }
+  const OUT_OF_DATE="This draft is out of date: the floor plan, the cameras, the dressing or the description changed after it was made. Make a new one.";
+  /* USE AS LOCATION IMAGE: the current draft's pixels become the location image's new version (a moving-part state's
+     draft becomes that state's image). Nothing is generated. The image before it stays in the card's versions. */
+  async function use(id,iso){
+    const scope=scopeNow(),t=target(id);
+    assertWritable(scope);
+    return locked(id,scope,async()=>{
+      const saved=await root.nbLoadDetailsAsset(slot(id),"");assertWritable(scope);
+      if(!saved||!saved.url||!mine(saved.meta,id,scope))throw new Error("The draft is no longer saved.");
+      if(saved.meta.iso!==iso)throw new Error("Another draft is the current one now. Open the location again.");
+      if(discarded(saved.meta))throw new Error("This draft was discarded. Make a new one.");
+      const now=await keys(id);
+      if(now.setKey!==saved.meta.setKey||now.lookKey!==saved.meta.lookKey)throw new Error(OUT_OF_DATE);
+      const asset=assetOf(id),before=await root.nbLoadDetailsAsset(asset,"");assertWritable(scope);
+      if(before&&before.url&&before.meta&&before.meta.previsDraftIso===iso)return {url:before.url,alreadyUsed:true};
+      const pixels=await imageData(saved.url);assertWritable(scope);
+      let meta={...saved.meta,kind:"location",mode:"final",iso:new Date().toISOString(),previsDraftIso:iso,version:(Number(before&&before.meta&&before.meta.version)||0)+1};
+      delete meta.approval;delete meta.schema;
+      if(typeof root.nbWithAssetProvenance==="function")meta={...meta,...root.nbWithAssetProvenance(asset,meta,"location")};
+      const sheetRef=(saved.refs||[]).find(r=>r&&r.kind==="previs-sheet"&&!r.deleted&&r.url);
+      const done=await root.nbCommit(asset,pixels,meta,sheetRef?[{kind:"previs-sheet",label:"Previs sheet",url:sheetRef.url}]:[],"location",scope.epoch,()=>!root.BlenderPreview.isCurrent(scope));
+      if(!done||["error","stale","cancelled"].includes(done.tier))throw new Error((done&&done.error)||"The image could not be saved. Nothing was changed.");
+      root.dispatchEvent(new CustomEvent("nb-gen-done",{detail:{id:asset,url:done.url||pixels}}));
+      const marked=await root.nbSetAssetApproval(slot(id),iso,true,"previs-draft-used");
+      return {url:done.url||pixels,marked:!!(marked&&marked.ok)};
+    });
+  }
+  // DISCARD: the current draft leaves the card. Its file is not deleted, and no image is changed.
+  async function discard(id,iso){
+    const scope=scopeNow();assertWritable(scope);
+    return locked(id,scope,async()=>{
+      const result=await root.nbSetAssetApproval(slot(id),iso,false,"previs-draft-discarded");
+      if(!result||!result.ok)throw new Error((result&&result.error==="asset version changed")?"Another draft is the current one now. Open the location again.":"The draft could not be discarded.");
+      return result;
+    });
+  }
+  // An earlier draft becomes the current one again; the draft it replaces stays with the earlier ones. No image call.
+  async function restore(id,iso){
+    const scope=scopeNow();assertWritable(scope);
+    return locked(id,scope,async()=>{
+      const saved=await root.nbLoadDetailsAsset(slot(id),""),index=((saved&&saved.history)||[]).findIndex(d=>d&&d.url&&d.meta&&d.meta.iso===iso&&mine(d.meta,id,scope));
+      assertWritable(scope);
+      if(!iso||index<0)throw new Error("That earlier draft is no longer saved.");
+      const result=typeof root.nbRevertAsset==="function"?await root.nbRevertAsset(slot(id),index):null;
+      if(!result||!result.url)throw new Error("The earlier draft could not be brought back. Nothing was changed.");
+      return result;
+    });
+  }
+  root.KinolotPrevis={PANELS,OUT_OF_DATE,sheet,scene,stylePrompt,settings,style,target,slot,assetOf,keys,drafts,render,use,discard,restore,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);

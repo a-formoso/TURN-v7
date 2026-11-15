@@ -397,8 +397,8 @@ delete metas[owner.id]; delete images[owner.id];
 /* ---- 5. Frances knows (APP_FEATURES) ---- */
 const ai = read("app/ai.jsx");
 assert.match(ai, /OUTDOOR CAMERAS STAY LOW, WHEREVER THEY COME FROM: on an outdoor place or part/);
-assert.match(ai, /Plate cameras says 'Lowered to 6 m — outdoor cameras stay at eye level or a low high-angle'/);
-assert.match(ai, /A camera set by hand \(its numbers under Edit camera in Plate cameras, or a floor-plan camera marked 'Set by hand'\) is used exactly as set, with a warning when it stands above 6 m/);
+assert.match(ai, /The four cameras says 'Lowered to 6 m — outdoor cameras stay at eye level or a low high-angle'/);
+assert.match(ai, /A camera set by hand \(its numbers under Edit camera in The four cameras, or a floor-plan camera marked 'Set by hand'\) is used exactly as set, with a warning when it stands above 6 m/);
 assert.match(ai, /its Position hint under Floor plan numbers says it is used lower unless marked Set by hand/);
 assert.match(ai, /AN OUTDOOR PART'S PANELS AVOID THE VIEWS ITS PARENT'S PLATE REALLY HAS/);
 assert.ok(ai.indexOf("OUTDOOR CAMERAS STAY LOW") < ai.indexOf("/* the public view of every entry, memoised"), "in a dated block before the public view");
