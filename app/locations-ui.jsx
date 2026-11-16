@@ -141,8 +141,27 @@ function locationSectionNumbers({subspaces}){
   return o;
 }
 /* SUBSPACES: each room of the place with its variants and the scenes that use it; a row opens that room's card */
-function LocationSubspaceList({rooms,units,onSelectLocation}){
+/* A ROOM'S CARD POINTS TO ITS PLACE (owner 2026-11-16, the whole place first: "so nobody builds a room on its own"). A
+   room stands in its place's one floor plan and one 3D set, so the top of its Floor plan, Cameras and Previs sections
+   says so and opens the place's card at the same section. Nothing is taken off the room's card. */
+function LocationPartOfPlace({l,place,step,onSelectLocation}){
   const E=React.createElement;
+  if(!l||!place||place.id===l.id) return null;
+  const name=place.name||"its place";
+  const text=step===2?"This room is part of "+name+"\u2019s set. One floor plan holds the whole place and every room in it; it is the one shown here."
+    :step===3?"This room is part of "+name+"\u2019s set. Its four cameras, set here, look into that same set. On "+name+"\u2019s card, 4 \u00b7 Previs sets the cameras of every room in one press."
+    :"This room is drawn inside "+name+"\u2019s set. "+name+"\u2019s card shows the whole place and every room side by side, and dresses them together.";
+  const open=()=>{
+    if(typeof onSelectLocation!=="function") return;
+    onSelectLocation(place.id,step===2?"layout":step===4?"previs":"");
+    if(step===3) setTimeout(()=>{ if(window.goToLocationStep) window.goToLocationStep(place,3); },350);
+  };
+  return E("div",{className:"loc-part-of-place","data-testid":"part-of-place","data-step":String(step)},
+    E("p",{className:"loc-layer-note"},text),
+    typeof onSelectLocation==="function"&&E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:open},"Open "+name));
+}
+function LocationSubspaceList({rooms,units,onSelectLocation,outside,onAddToPlan}){
+  const E=React.createElement,off=new Set((outside||[]).map(r=>r.id));
   return E("div",{className:"loc-subspaces","data-testid":"location-subspaces"},(rooms||[]).map(owner=>{
     const own=(units||[]).filter(u=>u&&!u.orphan&&String(u.subspaceKey||u.locationKey||"")===String(owner.key||""));
     const names=locationVariantNames(own,locationEnvironmentPresentation(owner,own).additional);
@@ -157,7 +176,10 @@ function LocationSubspaceList({rooms,units,onSelectLocation}){
       E("div",{className:"loc-subspace-links"},
         E("button",{type:"button",className:"loc-subspace-link",onClick:go("layout")},"Floor plan"),
         E("button",{type:"button",className:"loc-subspace-link",onClick:go("units")},"Variants"),
-        E("button",{type:"button",className:"loc-subspace-link",onClick:go("previs")},"Previs")));
+        E("button",{type:"button",className:"loc-subspace-link",onClick:go("previs")},"Previs")),
+      // THE WHOLE PLACE FIRST (owner 2026-11-16): a room with no outline on the place's floor plan says so
+      off.has(owner.id)&&E("p",{className:"loc-layer-note loc-subspace-outside","data-testid":"subspace-outside"},"Not on the floor plan yet, so it cannot be drawn in 3D. ",
+        typeof onAddToPlan==="function"&&E("button",{type:"button",className:"loc-subspace-link",onClick:onAddToPlan},"Add it in 2 \u00b7 Floor plan")));
   }));
 }
 /* USED IN, under a variant: one entry a scene (a visit, when the screenplay returns in the same scene), holding that
@@ -1100,12 +1122,17 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
       "Add "+(f.name||"this room")+" to the floor plan")));
 }
 
-function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,reviewRequest=0}){
+function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,reviewRequest=0,onMergeRooms}){
   const repairRequest=window.KinolotFloorPlanEditRequests?.get(l.id)||0;
   const fieldsRef=React.useRef(null),[editFocus,setEditFocus]=React.useState(repairRequest);
   const editOrigin=React.useRef(repairRequest?"repair":"manual");
   const [candidate,setCandidate]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState("");
   const [confirmation,setConfirmation]=React.useState(null),[measurementRepair,setMeasurementRepair]=React.useState(null);
+  // THE WHOLE PLACE FIRST (owner 2026-11-16): the room being placed on the saved plan, and a room that came back as
+  // "the same room as one already there"
+  const [placing,setPlacing]=React.useState(""),[sameRoom,setSameRoom]=React.useState(null);
+  // what the whole-place camera fit did after a confirm (free; see fitPlaceCameras)
+  const [cameraNote,setCameraNote]=React.useState("");
   const filmEpoch=typeof window.nbEpoch==="function"?window.nbEpoch():0;
   const [,refresh]=React.useReducer(n=>n+1,0);
   const state=locationSpatialPlanState(l),owner=state.owner,plan=candidate||state.plan;
@@ -1129,6 +1156,10 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   const loweredNote=candidate&&typeof locationLoweredCamerasText==="function"?locationLoweredCamerasText(candidate.loweredCameras):"";
   const keptNote=candidate&&typeof locationKeptOnRedraftText==="function"?locationKeptOnRedraftText(candidate.keptOnRedraft):"";
   const empty=!plan.frame.trim()&&!plan.anchors.length&&!plan.sightlines.trim()&&!plan.unresolved.trim();
+  // rooms of this place with no outline on the plan shown (the saved one, or the draft under review)
+  let outside=[];
+  try{outside=typeof locationRoomsOutsidePlan==="function"?locationRoomsOutsidePlan(owner,undefined,plan):[];}catch(_){outside=[];}
+  const addedNote=candidate&&typeof locationAddedRoomText==="function"?locationAddedRoomText(candidate.addedRoom):"";
   const confirmationLabel=candidate?"Draft to review":confirmed?(renderIssues.length?"Placements confirmed · measurements needed":window.KinolotCloudRender?.enabled?.()?"Confirmed · ready for cameras":"Placements confirmed"):empty?"Not confirmed":"Unconfirmed edits";
   const check=locationSpatialPlanState({...owner,spatialPlan:normalizeLocationSpatialPlan({...plan,status:"reviewed",source:state.source})});
   const reviewHint=empty
@@ -1144,7 +1175,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   const confirmationView=React.useRef(null);
   confirmationView.current={location:l,owner,state,candidate,repair:measurementRepair,readOnly,busy,epoch:filmEpoch,seenPlan:JSON.stringify(currentState().plan)};
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
-  React.useEffect(()=>{setCandidate(null);setError("");setConfirmation(null);setMeasurementRepair(null);setCompletedReview(null);setEditorOpen(!state.ready||!!repairRequest);},[owner.id,filmEpoch]);
+  React.useEffect(()=>{setCandidate(null);setError("");setConfirmation(null);setMeasurementRepair(null);setCompletedReview(null);setSameRoom(null);setPlacing("");setCameraNote("");setEditorOpen(!state.ready||!!repairRequest);},[owner.id,filmEpoch]);
   React.useEffect(()=>{
     if(!completedReview||completedReview.ownerId!==owner.id||completedReview.epoch!==filmEpoch)return;
     const timer=setTimeout(()=>{
@@ -1204,6 +1235,49 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     }catch(e){if(alive.current&&(typeof nbEpoch!=="function"||nbEpoch()===epoch))setError(e.message||"Could not draft the layout.");}
     finally{if(alive.current)setBusy(false);}
   };
+  /* CAMERAS FOR THE WHOLE PLACE (owner 2026-11-16: "when the plan is confirmed, the four cameras of the place and of
+     every room are set together. This is free"). Right after a floor plan is confirmed, every card of the place that
+     has a room on it but not four usable cameras gets clear ones (blender-render.js proposeCamerasForPlace); a card
+     whose cameras are usable is never touched. Fitted on the list the confirm built, saved only if the saved plan and
+     that card's cameras are still the ones it was fitted to. */
+  const fitPlaceCameras=async(ownerId,list,sig,epoch)=>{
+    const api=window.KinolotCloudRender;
+    if(!api||typeof api.proposeCamerasForPlace!=="function"||typeof api.camerasMissingForPlace!=="function")return;
+    try{
+      const place=list.find(x=>x.id===ownerId);
+      if(!place||!api.camerasMissingForPlace(place,list).length)return;
+      if(alive.current)setCameraNote("Setting the cameras\u2026");
+      const rows=await api.proposeCamerasForPlace(place,list);
+      const now=currentState(),live=((window.turnContinuity||{}).locations)||[];
+      const writable=!readOnly&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
+      if(!writable||(typeof window.nbEpoch==="function"?window.nbEpoch():0)!==epoch||now.owner.id!==ownerId||locationSpatialPlanSig(now.plan)!==sig){if(alive.current)setCameraNote("");return;}
+      const same=id=>JSON.stringify((live.find(x=>x.id===id)||{}).coverageViews||[])===JSON.stringify((list.find(x=>x.id===id)||{}).coverageViews||[]);
+      const done=rows.map(r=>r.views&&!same(r.id)?{id:r.id,name:r.name,error:"its cameras changed meanwhile"}:r);
+      done.filter(r=>r.views).forEach(r=>onUpdate(r.id,{coverageViews:r.views},{kind:"suggested-cameras"}));
+      if(alive.current)setCameraNote(api.placeCamerasText(done));
+    }catch(_){if(alive.current)setCameraNote("");}
+  };
+  /* ADD ONE ROOM (owner 2026-11-16): a room of this place that is not on the floor plan is placed on the SAVED plan by
+     one writing call; nothing already there changes. The result is a draft, confirmed with the plan's own button. */
+  const addRoom=async(room,distinctFrom)=>{
+    if(readOnly||busy||candidate||!room)return;
+    const epoch=typeof nbEpoch==="function"?nbEpoch():null;
+    const original=JSON.stringify(owner.spatialPlan||null),notes=owner.spatialNotes||"";
+    setBusy(true);setPlacing(room.id);setError("");setSameRoom(null);setConfirmation(null);setMeasurementRepair(null);setOpen(true);
+    try{
+      const card=(((window.turnContinuity||{}).locations)||[]).find(x=>x.id===room.id);
+      if(!card)throw new Error("That room is no longer in the film.");
+      // "Add it anyway" (owner 2026-11-16): the user has said it is a different room from the one it was taken for
+      const result=await aiPlaceLocationRoom(card,scenes,project,distinctFrom?{distinctFrom}:undefined);
+      if(!alive.current||(typeof nbEpoch==="function"&&nbEpoch()!==epoch))return;
+      const current=currentState();
+      if(JSON.stringify(current.owner.spatialPlan||null)!==original||(current.owner.spatialNotes||"")!==notes)
+        throw new Error("The floor plan changed while the room was being placed. Add it again; nothing was overwritten.");
+      if(result.sameAs){setSameRoom({id:room.id,name:room.name,twin:result.sameAs});return;}
+      draftBasis.current={original,notes,epoch};setCandidate(result.plan);
+    }catch(e){if(alive.current&&(typeof nbEpoch!=="function"||nbEpoch()===epoch))setError(e.message||"The room could not be added.");}
+    finally{if(alive.current){setBusy(false);setPlacing("");}}
+  };
   const revealGroup=selector=>{const target=fieldsRef.current?.querySelector(selector);if(!target)return;target.open=true;target.scrollIntoView?.({behavior:"smooth",block:"start"});target.querySelector?.("summary")?.focus?.({preventScroll:true});return target;};
   const revealObjectMeasurement=()=>{
     const group=revealGroup(".loc-plan-objects");
@@ -1261,7 +1335,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       if(measured)issues=window.KinolotCloudRender.inputIssueList(location.id===planOwner.id?{...location,spatialPlan:reviewed}:location,list).filter(i=>i.step===2);
       onUpdate(planOwner.id,{spatialPlan:reviewed},{kind:repair?"measurement-repair":draft?"layout-proposal":"floor-plan-edit"});
       setCandidate(null);setError("");setConfirmation({sig:locationSpatialPlanSig(reviewed),measured,issues,repairCount:repair?.changes.length||0});setMeasurementRepair(null);
-      if(measured&&!issues.length)finishEditing(planOwner.id,shown.epoch);
+      if(measured&&!issues.length){finishEditing(planOwner.id,shown.epoch);fitPlaceCameras(planOwner.id,list,locationSpatialPlanSig(reviewed),shown.epoch);}
     }catch(e){setError(e?.message||"Could not confirm the layout. Please try again.");}
   };
   const confirmationNow=confirmation&&confirmation.sig===locationSpatialPlanSig(plan)&&!state.stale?confirmation:null;
@@ -1274,8 +1348,29 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     disabled:readOnly||busy||!check.complete,title:readOnly?"This film is read-only.":busy?"Wait for the layout draft to finish.":!check.complete?reviewHint:"Approve the saved placements; remaining measurements will be checked.",onClick:confirm},React.createElement(Icon.check,{s:14}),measurementRepair&&candidate?"Apply fixes & confirm":"Confirm floor plan");
   const draftButton=(primary=false)=>React.createElement("button",{type:"button",
     className:"art-draftall"+(primary?" loc-spatial-confirm":" ghost"),disabled:readOnly||busy,onClick:draft},
-    React.createElement(Icon.sparkles,{s:14}),busy?"Drafting floor plan…":"Draft floor plan");
-  return React.createElement("details",{className:"loc-nested-section loc-spatial-plan",open,onToggle:e=>{
+    React.createElement(Icon.sparkles,{s:14}),busy&&!placing?"Drafting floor plan…":"Draft floor plan");
+  // ROOMS NOT ON THE FLOOR PLAN (owner 2026-11-16, the whole place first): each can be added to the saved plan, or
+  // merged with the room it looks like
+  // Shown above the folded floor plan, so it is seen whenever 2 \u00b7 Floor plan is open.
+  const outsideBox=
+      outside.length>0&&React.createElement("div",{className:"loc-step-fixes loc-rooms-outside",role:"note","data-testid":"floor-plan-rooms-outside"},
+        React.createElement("p",{className:"loc-step-fixes-head"},(candidate&&!candidate.addedRoom?"This draft did not place: ":"Not on the floor plan yet: ")+outside.map(r=>r.name).join(", ")+"."),
+        React.createElement("p",{style:{margin:"0 0 8px"}},"A room that is not on the floor plan cannot be drawn in 3D, given cameras or dressed. Adding it places the room in "+(owner.name||"this place")+"\u2019s plan and leaves the rest as saved. Uses writing credits; you confirm the result."
+          +(candidate?" Confirm or discard the draft below first.":"")),
+        outside.map(r=>{
+          // the room it is taken for: by its name, or because the placing read it so
+          const read=sameRoom&&sameRoom.id===r.id,twin=read?sameRoom.twin:r.twin;
+          return React.createElement("div",{key:r.id,className:"loc-step-actions loc-room-outside","data-room-outside":r.id},
+            twin&&React.createElement("span",{className:"loc-layer-note"},r.name+(read?" reads as the same room as ":" looks like the same room as ")+twin.name+"."),
+            // one room under two names: merge the cards. A different room after all: add it anyway (owner 2026-11-16)
+            twin&&!readOnly&&typeof onMergeRooms==="function"&&React.createElement("button",{type:"button",className:"art-draftall",disabled:busy,
+              title:"Shows what a merge of the two cards keeps, then asks. Nothing is generated or charged.",
+              onClick:()=>onMergeRooms(r.id,twin.id)},"Same room: merge the two cards\u2026"),
+            !readOnly&&React.createElement("button",{type:"button",className:"art-draftall"+(twin?" ghost":""),disabled:busy||!!candidate,onClick:()=>addRoom(r,twin?twin.name:""),
+              title:(twin?r.name+" is placed as a room of its own, apart from "+twin.name+". ":"")+"One writing call places "+r.name+" on the saved floor plan: its outline, its doors and its fixed objects. Nothing already on the plan changes. You review and confirm it."},
+              React.createElement(Icon.sparkles,{s:14}),placing===r.id?"Placing "+r.name+"\u2026":twin?"A different room: add it anyway":"Add "+r.name+" to the floor plan"));
+        }));
+  return React.createElement(React.Fragment,null,outsideBox,React.createElement("details",{className:"loc-nested-section loc-spatial-plan",open,onToggle:e=>{
     if(e.target===e.currentTarget)setOpen(e.currentTarget.open);
   }},
     React.createElement("summary",{ref:summaryRef},"Floor plan \u00b7 where everything stands",React.createElement("span",{className:"loc-spatial-status"+(confirmed&&!renderIssues.length?" ready":"")},
@@ -1304,6 +1399,8 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       checkPositions&&React.createElement("p",{className:"loc-map-check",role:"note"},checkPositions),
       loweredNote&&React.createElement("p",{className:"loc-map-check",role:"note"},loweredNote),
       keptNote&&React.createElement("p",{className:"loc-map-check",role:"note"},keptNote),
+      addedNote&&React.createElement("p",{className:"loc-map-check",role:"note","data-testid":"floor-plan-room-added"},addedNote),
+      cameraNote&&React.createElement("p",{className:"loc-layer-note",role:"status","data-testid":"floor-plan-cameras-set"},cameraNote),
       candidate&&!measurementRepair&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:()=>{setCandidate(null);setError("");}},"Discard draft"),
       error&&React.createElement("p",{role:"alert",className:"loc-spatial-error"},error)),
     React.createElement("p",{className:"loc-layer-note loc-spatial-owner"},"One physical layout for "+(owner.name||"this location")+" and every room. Camera views below change the framing, not the furniture."),
@@ -1317,7 +1414,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
           React.createElement("h4",{className:"loc-spatial-heading"},readOnly?"View floor plan":"Edit floor plan"),
           React.createElement("span",{className:"loc-confirm-status",role:"status","aria-label":"Floor plan confirmation status"},confirmationLabel)),
         React.createElement("p",{className:"loc-layer-note"},alreadyConfirmed?"This layout is already confirmed. Open a section to edit it, or choose Done editing to close. Changes will need confirmation again.":"Open a section below to edit it, then fold it away to keep the other sections in view. Confirm the shared layout below when finished.")),
-      busy&&React.createElement("p",{role:"status",className:"loc-layer-note"},"Reading the reference panels. Your draft will appear here for review…"),
+      busy&&React.createElement("p",{role:"status",className:"loc-layer-note"},placing?"Placing the room on the floor plan. It will appear here for review…":"Reading the reference panels. Your draft will appear here for review…"),
       React.createElement("details",{className:"loc-nested-section loc-plan-objects",open:empty?true:undefined},
       React.createElement("summary",null,"Objects & placements · "+plan.anchors.length),
       React.createElement("h4",{className:"loc-spatial-heading"},empty?"Or enter placements manually":"Review & edit placements"),
@@ -1412,7 +1509,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
             React.createElement("button",{type:"button",className:"art-draftall ghost",onClick:()=>revealGroup(".loc-plan-metrics")},"Edit measurements manually")),
           confirmationNow.issues.some(i=>i.anchorId||!/footprint|ceiling|opening|sill|head heights|wall placement/i.test(i.text))&&React.createElement("button",{type:"button",className:"art-draftall ghost",onClick:revealObjectMeasurement},
             objectFixIssue?.fields[0]==="size"?"Enter missing dimensions":objectFixIssue?.fields[0]==="xy"?"Enter missing position":"Edit object placements")),
-        error&&React.createElement("p",{className:"loc-spatial-error"},error))));
+        error&&React.createElement("p",{className:"loc-spatial-error"},error)))));
 }
 
 /* Interactive help floats above cards, so opening it cannot change card alignment. */
@@ -1945,6 +2042,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const ownRoom=!!(((spatialState.plan.coordinates||{}).spaces||[]).some(s=>s.id===l.id&&(s.footprint||[]).length>=3));
   // THE CARD AS A TREE (owner 2026-11-13)
   const hasRooms=roomLocations.length>0;
+  // THE WHOLE PLACE FIRST (owner 2026-11-16): the rooms of this place that are not on its floor plan yet
+  let outsideRooms=[];
+  try{outsideRooms=!l.parentLocation&&typeof locationRoomsOutsidePlan==="function"?locationRoomsOutsidePlan(l):[];}catch(_){outsideRooms=[];}
   const showSubspaces=!l.parentLocation&&(hasRooms||coverageSheets.length>0);
   // 4 \u00b7 Previs: the set in 3D, on every card (it needs the floor plan and the cameras, and says so until they are there)
   const showPrevis=!!(window.LocationPrevisStep&&window.KinolotPrevis&&window.KinolotSetDressing&&window.KinolotCloudRender);
@@ -2148,8 +2248,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       ),
 
       React.createElement(CardFold,{label:"2 \u00b7 Floor plan",foldId:layoutFoldId,defaultOpen:initialSection==="layout",
-        count:stepCount(2)||(!spatialState.ready?"layout needs review":locStaged?((typeof locationStagingLayoutChanged==="function"&&locationStagingLayoutChanged(l))?"layout changed":null):(stagingPrep?"staging\u2026":"drafts on first render"))},
-        React.createElement(LocationSpatialPlanEditor,{l,scenes,project,onUpdate,readOnly,reviewRequest:layoutReviewRequest}),
+        count:(outsideRooms.length?outsideRooms.length+(outsideRooms.length===1?" room to add":" rooms to add"):"")||stepCount(2)||(!spatialState.ready?"layout needs review":locStaged?((typeof locationStagingLayoutChanged==="function"&&locationStagingLayoutChanged(l))?"layout changed":null):(stagingPrep?"staging\u2026":"drafts on first render"))},
+        React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:2,onSelectLocation}),
+        React.createElement(LocationSpatialPlanEditor,{l,scenes,project,onUpdate,readOnly,reviewRequest:layoutReviewRequest,
+          onMergeRooms:typeof onMergeLocations==="function"?(a,b)=>onMergeLocations(a,b,{}):undefined}),
         React.createElement(LocationRoomLinks,{entries:roomLocations.map(owner=>({owner,key:owner.id,
           label:owner.name,detail:"Open room layout and staging"})),onSelectLocation,section:"layout"}),
         // parts of the set the screenplay moves, and when (owner 2026-11-01): each is tied to an object of this floor
@@ -2160,6 +2262,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       ),
 
       React.createElement(CardFold,{label:"3 \u00b7 Cameras",foldId:locationStepFoldId(l,3),count:stepCount(3)},
+        React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:3,onSelectLocation}),
         React.createElement(LocationCameraSuggestions,{l,onUpdate,readOnly}),
         React.createElement(LocationPlateCameras,{l,project,onUpdate,readOnly,plateMeta:gen.genUrl?gen.genMeta:null}),
         // WRITTEN VIEW NOTES (owner 2026-11-15: removed where the 3D cameras frame the views): a card with a confirmed
@@ -2174,6 +2277,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       // is open. Old links to the cloud build's steps ("build", "style") open it too.
       showPrevis&&React.createElement(CardFold,{label:"4 \u00b7 Previs",foldId:locationStepFoldId(l,4),count:stepCount(4),
           defaultOpen:initialSection==="previs"||initialSection==="build"||initialSection==="style"},
+        React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:4,onSelectLocation}),
         // a place with rooms shows them here too, each inside the place's one 3D set (LocationPrevisPlace)
         React.createElement(window.LocationPrevisPlace||window.LocationPrevisStep,{location:l,rooms:roomLocations,project,readOnly,onUpdate,hasImage:!!gen.genUrl,
           imageMeta:gen.genUrl?gen.genMeta:null,imageN:sectionNo.image,onSelectLocation})),
@@ -2235,7 +2339,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       showSubspaces&&React.createElement(CardFold,{label:sectionNo.subspaces+" \u00b7 Subspaces",foldId:"loc-subspaces-"+l.id,
           count:hasRooms?roomLocations.length:undefined,defaultOpen:hasRooms},
         hasRooms&&React.createElement("p",{className:"loc-layer-note"},"The rooms and areas of "+(l.name||"this place")+". Each uses "+(l.name||"the place")+"'s space and look unless you fill in its own."),
-        hasRooms&&React.createElement(LocationSubspaceList,{rooms:roomLocations,units:sluglineUnits,onSelectLocation}),
+        hasRooms&&React.createElement(LocationSubspaceList,{rooms:roomLocations,units:sluglineUnits,onSelectLocation,
+          outside:outsideRooms,
+          onAddToPlan:()=>window.goToLocationStep&&window.goToLocationStep(l,2)}),
         !l.parentLocation&&coverageSheets.length>0&&React.createElement("details",{className:"loc-nested-section"},
           React.createElement("summary",null,"Extra spaces"),
           React.createElement("p",{className:"loc-layer-note"},"Extra empty-set references required by the screenplay, such as an exterior, threshold or connecting space."),

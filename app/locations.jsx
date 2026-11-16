@@ -736,9 +736,22 @@ function locationMergePlan(locations, scenes, drafts, aId, bId, opts){
     : (id)=> typeof nbGetImage==="function" && !!nbGetImage(id);
   // (whichever name is picked: the card kept is the same — then the one with more scenes, then the one with rooms)
   const rooms = (l)=> list.filter(x=>x && x.id!==a.id && x.id!==b.id && String(x.parentKey||"")===String(l.key)).length;
-  const weight = (l)=> [(_locHasLayout(l) ? 2 : 0) + (hasPlate(l.id) ? 1 : 0), (l.scenes||[]).length, rooms(l)];
+  /* (2026-11-16, the whole place first) A ROOM THAT IS BUILT IS THE ONE KEPT: a room's outline on its place's floor plan,
+     its saved cameras and its dressing are all held under the card's own id, so of two cards for one room the card
+     that has them stays, whichever name is picked. Without this a tie went to the name, and "merge as the other name"
+     kept the empty card and left the room's outline and cameras behind. */
+  const built = (l)=>{
+    try{
+      const owner = locationSpatialOwner(l, list);
+      const coords = owner && owner.id!==l.id ? normalizeLocationSpatialPlan(owner.spatialPlan).coordinates : null;
+      if(coords && (coords.spaces||[]).some(sp=>sp.id===l.id && (sp.footprint||[]).length>=3)) return true;
+    }catch(e){}
+    return !!l.previs || (Array.isArray(l.coverageViews) && l.coverageViews.some(v=>v && v.pose && Array.isArray(v.pose.position)));
+  };
+  // (a shared layout and a plate still come first, as before; "built" settles what they leave tied, ahead of the scenes)
+  const weight = (l)=> [(_locHasLayout(l) ? 2 : 0) + (hasPlate(l.id) ? 1 : 0), built(l) ? 1 : 0, (l.scenes||[]).length, rooms(l)];
   const wa = weight(a), wb = weight(b);
-  const cmp = wa[0]-wb[0] || wa[1]-wb[1] || wa[2]-wb[2];
+  const cmp = wa[0]-wb[0] || wa[1]-wb[1] || wa[2]-wb[2] || wa[3]-wb[3];
   const keeper = cmp>0 ? a : cmp<0 ? b : nameCard;
   const gone = keeper===a ? b : a;
   // the screenplay's spelling ("Fondamenta dei Vetrai"), unless the card was renamed to other words by hand
@@ -1922,6 +1935,79 @@ function locationKeptOnRedraftText(kept){
   if(!sp.length&&!cams.length)return "";
   return "Kept from the saved floor plan: "+[sp.length?(sp.length===1?"the room ":"the rooms ")+sp.join(", "):"",
     cams.length?cams.length+" camera"+(cams.length===1?"":"s")+" you or a fix placed":""].filter(Boolean).join(" and ")+".";
+}
+/* THE WHOLE PLACE FIRST (owner 2026-11-16: "we need the subspaces built with the main location from the start and then
+   use camera to capture the subspaces"). A place's floor plan holds every room of the place: a room card with no
+   outline on it cannot be drawn in 3D, given cameras or dressed. locationRoomsOutsidePlan lists those rooms, each with
+   the room already on the plan that it looks like (the same name once the place's own name is taken off: "Hallway"
+   beside "Ellis House - Hallway"), so the card can offer to add it, or to merge the two cards. Nothing is listed
+   before the place has a floor plan at all: drafting it places every room. */
+function locationRoomsOutsidePlan(l,locations,plan){
+  const list=_locList(locations),owner=locationSpatialOwner(l,list);
+  const live=list.find(x=>x&&x.id===owner.id)||owner;
+  const p=plan||normalizeLocationSpatialPlan(live.spatialPlan);
+  const spaces=((p&&p.coordinates&&p.coordinates.spaces)||[]).filter(s=>s&&(s.footprint||[]).length>=3);
+  if(!spaces.length)return [];
+  const family=_locFamily(live,list),place=_locNameKey(live.name);
+  const short=x=>{const k=_locNameKey(x&&x.name);return place&&k.indexOf(place+" ")===0?k.slice(place.length+1):k;};
+  const on=family.filter(m=>m&&m.id!==live.id&&spaces.some(s=>s.id===m.id));
+  return family.filter(m=>m&&m.id!==live.id&&!spaces.some(s=>s.id===m.id)).map(m=>{
+    const k=short(m),twin=k?on.find(x=>short(x)===k):null;
+    return {id:m.id,name:m.name||"Room",twin:twin?{id:twin.id,name:twin.name||"Room"}:null};
+  });
+}
+/* ONE ROOM ADDED to a saved floor plan (ai.jsx aiPlaceLocationRoom writes the addition): the room's outline with its
+   openings, its fixed objects, and the doorway cut in each room it opens from. Everything already on the plan stays
+   exactly as saved (its rooms, objects and cameras). Returns {plan, added}: the merged plan as a DRAFT to review and
+   confirm, and what was added. Throws the reason when nothing can be added; nothing is saved here. */
+function locationPlanWithRoom(saved,room,addition,family){
+  const plan=normalizeLocationSpatialPlan(saved),coords=plan.coordinates;
+  if(!coords||!(coords.spaces||[]).some(s=>(s.footprint||[]).length>=3))throw new Error("Draft the floor plan first. A room is added to a floor plan that exists.");
+  if(!room||!room.id)throw new Error("Choose the room to add.");
+  if(coords.spaces.some(s=>s.id===room.id&&(s.footprint||[]).length>=3))throw new Error((room.name||"This room")+" is already on the floor plan.");
+  if(coords.spaces.filter(s=>s.id!==room.id).length>=16)throw new Error("The floor plan already holds 16 spaces, the most it can.");
+  const fam=Array.isArray(family)?family:[],a=addition&&typeof addition==="object"?addition:{};
+  const made=normalizeLocationCoordinates(locationResolveDraftCoordinates({spaces:[{...(a.space&&typeof a.space==="object"?a.space:{}),id:room.id,name:room.name||""}]},fam));
+  const space=made&&made.spaces[0];
+  if(!space||space.footprint.length<3)throw new Error("The room came back without an outline. Nothing was changed.");
+  space.id=room.id;space.name=String(room.name||"").slice(0,80);space.basis="design";
+  if(!space.openSky&&space.ceilingH==null)space.ceilingH=2.4;
+  const slug=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+  const ids=new Set(plan.anchors.map(x=>x.id)),free=Math.max(0,24-plan.anchors.length);
+  const offered=(Array.isArray(a.anchors)?a.anchors:[]).filter(x=>x&&typeof x==="object"&&String(x.name||"").trim());
+  const fresh=offered.slice(0,free).map((x,i)=>{
+    const base=slug(x.id||x.name).slice(0,48)||"object-"+(i+1);let id=base,n=2;
+    while(ids.has(id))id=base+"-"+(n++);
+    ids.add(id);
+    return {...x,id,space:room.name||"",basis:"design",posBasis:"design",sizeBasis:"design",evidence:""};
+  });
+  // the matching doorway in each room this one opens from, unless that room already has an opening there
+  const spaces=coords.spaces.filter(s=>s.id!==room.id).map(s=>({...s,openings:(s.openings||[]).slice()}));
+  let doorways=0;
+  (Array.isArray(a.doorways)?a.doorways:[]).slice(0,6).forEach(d=>{
+    const hit=d&&_locResolveSpace(String(d.space||""),fam),target=hit&&spaces.find(s=>s.id===hit.id);
+    const o=d&&d.opening&&typeof d.opening==="object"?d.opening:null,centre=o&&_locVec(o.centre,2);
+    if(!target||!centre||(target.footprint||[]).length<3||target.openings.length>=16)return;
+    if(target.openings.some(x=>x.centre&&Math.hypot(x.centre[0]-centre[0],x.centre[1]-centre[1])<0.4))return;
+    const base="to-"+(slug(room.name).slice(0,40)||"room");let id=base,n=2;
+    while(target.openings.some(x=>x.id===id))id=base+"-"+(n++);
+    target.openings.push({...o,id,centre,connectsTo:room.id,basis:"design"});doorways++;
+  });
+  const note=String(a.unresolved||"").replace(/\s+/g," ").trim();
+  const next=normalizeLocationSpatialPlan({...plan,anchors:plan.anchors.concat(fresh),coordinates:{...coords,spaces:spaces.concat(space)},
+    unresolved:[plan.unresolved,note?(room.name||"Room")+": "+note:""].filter(Boolean).join(" "),status:"draft"});
+  if(locationSpatialPlanTooLarge(next))throw new Error("The floor plan is too long to take another room. Remove an object it does not need, then add the room again.");
+  if(!((next.coordinates||{}).spaces||[]).some(s=>s.id===room.id&&s.footprint.length>=3))throw new Error("The room could not be added to the floor plan. Nothing was changed.");
+  return {plan:next,added:{id:room.id,name:room.name||"Room",objects:fresh.length,doorways,left:offered.length-fresh.length}};
+}
+function locationAddedRoomText(added){
+  if(!added||!added.name)return "";
+  const parts=["its outline"];
+  if(added.objects)parts.push(added.objects+" fixed object"+(added.objects===1?"":"s"));
+  if(added.doorways)parts.push(added.doorways+" doorway"+(added.doorways===1?"":"s")+" cut in the room"+(added.doorways===1?"":"s")+" it opens from");
+  return "Added to the saved floor plan: "+added.name+" ("+parts.join(", ")+"). Nothing else on the plan was changed."
+    +(added.left?" "+added.left+" more object"+(added.left===1?"":"s")+" did not fit: a floor plan holds 24.":"")
+    +" Check it on the map below, then confirm.";
 }
 /* MOVING PARTS (owner 2026-11-01 — "Headlights crawl up the ramp into the hold" came out with the ramp shut): a part of
    the set that the screenplay moves — a ferry's stern ramp, a shutter, a drawbridge — has named states, a usual state

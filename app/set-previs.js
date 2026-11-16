@@ -161,6 +161,36 @@
       return {dataUrl:canvas.toDataURL(options.type||"image/png",options.quality),width:w*cols,height:h*cols,panels:shown.slice(),...(options.views?{views}:{})};
     }finally{rig.dispose();renderer.dispose();renderer.forceContextLoss();}
   }
+  /* A LIVE VIEW of the set as Previs draws it (owner 2026-11-16: "the camera tool shows the set as dressed"): the set
+     is built once, lit as the sheet is, and then drawn from any camera as often as wanted. viewer(scene, light) gives
+     {render(canvas, pose, width, height), dispose()}: render draws one 16:9 frame onto a 2D canvas. The sun's shadows
+     are worked out once, since nothing in the set moves. Throws when the browser cannot start the 3D view. */
+  async function viewer(scene,light){
+    if(!root.KinolotAnglePreview)throw new Error("The 3D view did not load. Refresh this page.");
+    const T=await root.KinolotAnglePreview.load();
+    let renderer;
+    try{renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,alpha:false});}
+    catch(_){throw new Error("This browser could not start the 3D view. Turn on graphics acceleration and try again.");}
+    const rig=build(T,scene,light||null);
+    let w=0,h=0,dead=false,drawn=false;
+    renderer.setPixelRatio(1);renderer.outputColorSpace=T.SRGBColorSpace;
+    renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
+    renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
+    return {
+      render(canvas,pose,width,height){
+        if(dead)throw new Error("This view was closed.");
+        width=Math.max(16,Math.round(width||canvas.width||640));height=Math.max(9,Math.round(height||canvas.height||360));
+        if(width!==w||height!==h){renderer.setSize(width,height,false);w=width;h=height;}
+        renderer.render(rig.three,root.KinolotAnglePreview.cameraFor(T,pose));
+        if(renderer.getContext().isContextLost())throw new Error("The 3D view stopped. Close other heavy tabs and try again.");
+        if(!drawn){drawn=true;renderer.shadowMap.autoUpdate=false;}
+        if(canvas.width!==width)canvas.width=width;if(canvas.height!==height)canvas.height=height;
+        const ctx=canvas.getContext("2d");if(!ctx)throw new Error("This browser cannot draw the view.");
+        ctx.drawImage(renderer.domElement,0,0,width,height);
+      },
+      dispose(){if(dead)return;dead=true;rig.dispose();renderer.dispose();renderer.forceContextLoss();}
+    };
+  }
   /* THE SET AS PREVIS DRAWS IT: the built floor plan with the dressing on. ONE PLACE, ONE SET (owner 2026-11-16): a
      place's floor plan holds all its rooms, so every card of the place is drawn from the same model, with the dressing
      of EVERY card of the place on (each card dresses its own space: set-dressing.js own). Only the four cameras differ.
@@ -567,5 +597,5 @@
       return result;
     });
   }
-  root.KinolotPrevis={PANELS,OUT_OF_DATE,specFromSet,sheet,scene,dressingSig,overview,look,relightPrompt,variantSource,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,remove,restore,retrySave,discardUnsaved,pending};
+  root.KinolotPrevis={PANELS,OUT_OF_DATE,specFromSet,sheet,viewer,scene,dressingSig,overview,look,relightPrompt,variantSource,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,remove,restore,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);

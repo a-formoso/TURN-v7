@@ -1,5 +1,5 @@
 /* Review a camera angle against the current four panels before explicitly saving or assigning it. */
-function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=null,inline=false}){
+function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=null,inline=false,label=""}){
   const E=React.createElement,api=window.KinolotCloudRender,preview=window.KinolotAnglePreview;
   const [open,setOpen]=React.useState(false),[spec,setSpec]=React.useState(null),[pose,setPose]=React.useState(null);
   const [destination,setDestination]=React.useState("TL"),[start,setStart]=React.useState("TL"),[name,setName]=React.useState("Extra angle");
@@ -7,6 +7,15 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
   const [inspection,setInspection]=React.useState(null);
   const [viewLabel,setViewLabel]=React.useState(null);
   const base=React.useRef(null),dialog=React.useRef(null),candidate=React.useRef(null),thumbs=React.useRef({}),viewer=React.useRef(null),lastRendered=React.useRef("");
+  /* THE SET AS IT IS DRESSED (owner 2026-11-16: "the camera tool shows the set as dressed"): the views are drawn as
+     4 \u00b7 Previs draws them (lit, with the dressing of every card of the place), so a camera is aimed at the real thing.
+     The plain preview stays underneath: it names what is clicked, and it is what is shown if the lit view cannot
+     start (or in the compatibility preview). */
+  const lit=React.useRef(null),[dressedView,setDressedView]=React.useState(null);
+  const paint=(instance,canvas,camera,width,height)=>{
+    if(lit.current)try{lit.current.render(canvas,camera,width,height);return;}catch(_){try{lit.current.dispose();}catch(e){}lit.current=null;setDressedView(null);}
+    instance.render(canvas,camera,width,height);
+  };
   const labels={TL:"Top left",TR:"Top right",BL:"Bottom left",BR:"Bottom right"};
   const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0;
   React.useEffect(()=>{setOpen(false);setSpec(null);setError("");setNotice("");},[l.id,epoch]);
@@ -26,16 +35,27 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
   React.useEffect(()=>{if(open&&dialog.current&&!dialog.current.open)dialog.current.showModal();},[open]);
   React.useEffect(()=>{
     if(!open||!spec)return;let live=true,instance=null,stage="Loading preview files";setReady(false);lastRendered.current="";setError("");setDisplayMode("");
-    preview.load().then(T=>{
-      if(!live)return;stage="Starting the graphics preview";instance=preview.create(T,spec,{softwareOnly,openings:base.current.openings,anchors:base.current.anchors});viewer.current=instance;stage="Drawing the camera views";
-      for(const panel of Object.keys(labels))if(thumbs.current[panel])instance.render(thumbs.current[panel],spec.cameras[panel],320,180);
-      if(candidate.current){instance.render(candidate.current,pose);lastRendered.current=window.KinolotRenderContract.canonical(pose);describeView(instance,pose);}setDisplayMode(instance.mode||"gpu");setReady(true);
+    let lighted=null;
+    preview.load().then(async T=>{
+      if(!live)return;stage="Starting the graphics preview";instance=preview.create(T,spec,{softwareOnly,openings:base.current.openings,anchors:base.current.anchors});viewer.current=instance;
+      // the same set as Previs draws it; any failure here leaves the plain preview
+      const P=window.KinolotPrevis;
+      if(!softwareOnly&&P&&typeof P.viewer==="function"&&typeof P.scene==="function")try{
+        const location=current();
+        if(location){const drawn=P.scene(location,list());lighted=await P.viewer(drawn.scene,drawn.light);
+          if(!live){lighted.dispose();lighted=null;return;}
+          lit.current=lighted;setDressedView({dressed:!!drawn.dressed,parts:drawn.parts||0});}
+      }catch(_){lighted=null;lit.current=null;setDressedView(null);}
+      if(!live)return;
+      stage="Drawing the camera views";
+      for(const panel of Object.keys(labels))if(thumbs.current[panel])paint(instance,thumbs.current[panel],spec.cameras[panel],320,180);
+      if(candidate.current){paint(instance,candidate.current,pose);lastRendered.current=window.KinolotRenderContract.canonical(pose);describeView(instance,pose);}setDisplayMode(instance.mode||"gpu");setReady(true);
     }).catch(e=>{if(live){setError(stage+": "+String(e?.message||"Display unavailable").slice(0,240)+". Your cameras are unchanged. Retry below.");setReady(false);}});
-    return ()=>{live=false;if(viewer.current===instance)viewer.current=null;instance?.dispose();};
+    return ()=>{live=false;if(viewer.current===instance)viewer.current=null;instance?.dispose();if(lighted){if(lit.current===lighted)lit.current=null;lighted.dispose();}setDressedView(null);};
   },[open,spec,attempt,softwareOnly]);
   React.useEffect(()=>{
     if(!open||!ready||!pose||!candidate.current||!viewer.current)return;
-    try{viewer.current.render(candidate.current,pose);setDisplayMode(viewer.current.mode||"gpu");lastRendered.current=window.KinolotRenderContract.canonical(pose);describeView(viewer.current,pose);}catch(e){setError(e.message);setReady(false);}
+    try{paint(viewer.current,candidate.current,pose);setDisplayMode(viewer.current.mode||"gpu");lastRendered.current=window.KinolotRenderContract.canonical(pose);describeView(viewer.current,pose);}catch(e){setError(e.message);setReady(false);}
   },[open,ready,pose]);
   React.useEffect(()=>setInspection(null),[pose]);
   function describeView(instance,camera){
@@ -43,7 +63,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
     try{
       const hit=instance.inspect(camera,.5,.5);
       const name=String(hit.name||"").split(/[,;]| — /)[0].replace(/\s+/g," ").trim();
-      text=hit.kind==="background"?"Looking into unmodelled space":name?"Looking toward "+(name.length>72?name.slice(0,69)+"…":name):"Looking into the set";
+      text=hit.kind==="background"?(lit.current?"Looking across the set":"Looking into unmodelled space"):name?"Looking toward "+(name.length>72?name.slice(0,69)+"…":name):"Looking into the set";
     }catch(_){text="View direction unavailable";}
     setViewLabel({key:window.KinolotRenderContract.canonical(camera),text});
   }
@@ -117,13 +137,13 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
   const editing=start.startsWith("extra:")?destination:start;
   const copying=destination!==editing;
   return <div className={"loc-angle-entry"+(inline?" loc-angle-entry-inline":"")}>
-    <span className="loc-camera-control"><button type="button" className="art-draftall ghost" onClick={begin}>Preview &amp; choose camera angles</button>
-      {window.InfoTip&&<window.InfoTip label="About camera previews" text="Free interactive previews use the saved set geometry with simplified materials and neutral lighting. Move a camera without changing the set. 4 · Previs shows the set lit and dressed from the saved cameras. Changes stay unsaved until you save the named camera."/>}</span>
+    <span className="loc-camera-control"><button type="button" className="art-draftall ghost" data-testid="camera-workbench-open" onClick={()=>begin()}>{label||"Preview & choose camera angles"}</button>
+      {window.InfoTip&&<window.InfoTip label="About camera previews" text="Free and live: move a camera and see the set as 4 · Previs draws it, lit and with its dressing on. The set itself is never changed. A camera changes only when you save it; 4 · Previs then redraws from it."/>}</span>
     {!open&&error&&<p role="alert" className="loc-spatial-error">{error}</p>}
     {!open&&notice&&<p role="status" className="loc-layer-note">{notice}</p>}
     {open&&spec&&pose&&<dialog ref={dialog} className="loc-angle-dialog" onCancel={()=>setOpen(false)} aria-label="Preview and choose a camera angle">
       <div className="loc-cloud-render-head"><h3>Edit {labels[editing].toLowerCase()} camera</h3><button type="button" className="art-draftall ghost" onClick={()=>setOpen(false)}>Close preview</button></div>
-      <p className="loc-layer-note">{l.name||"This location"} · choose a camera, adjust its view, then save. These previews are free; changes stay unsaved until you save the camera.</p>
+      <p className="loc-layer-note">{l.name||"This location"} · choose a camera, adjust its view, then save. These previews are free; changes stay unsaved until you save the camera.{dressedView&&<span data-testid="camera-workbench-dressed">{dressedView.dressed?" Shown as 4 · Previs draws it: lit and dressed ("+dressedView.parts+" shapes).":" Shown as 4 · Previs draws it: lit, in plain blocks until the set is dressed."}</span>}</p>
       <div className="loc-angle-compare">
         <figure><figcaption><strong>{labels[editing]} · {unchanged?"saved view":"unsaved preview"}</strong><span>{viewLabel?.key===window.KinolotRenderContract.canonical(pose)?viewLabel.text:"Updating view…"} · {pose.lensMm} mm lens{start.startsWith("extra:")?" · using "+name:""}</span></figcaption><canvas ref={candidate} width={640} height={360} tabIndex={0} role="button" aria-label="Identify an object in the candidate preview; press Enter to inspect the centre" onClick={e=>identify(e)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();identify(null);}}}/></figure>
         <div className="loc-angle-destinations"><p><strong>Choose a camera to edit</strong><span>The highlighted camera matches the large preview.</span></p><div className="loc-angle-panels" role="group" aria-label="Camera to edit">
@@ -133,7 +153,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
         </div></div>
       </div>
       <div className="loc-angle-inspection" role="status" aria-live="polite">
-        <p className="loc-layer-note">Click or tap the large preview to identify a surface or opening. Blue background means unmodelled space.</p>
+        <p className="loc-layer-note">{dressedView?"Click or tap the large preview to name a wall, a floor, an opening or an object of the floor plan. The dressing is drawn but not named.":"Click or tap the large preview to identify a surface or opening. Blue background means unmodelled space."}</p>
         {inspection&&<><strong>{inspection.view} · {inspection.name}</strong>
           <p>{inspection.kind==="opening"?"Saved "+inspection.type+" in "+inspection.room+". "+inspection.beyond:inspection.description}</p>
           {inspection.part&&<p>Visible part: {inspection.part}.</p>}

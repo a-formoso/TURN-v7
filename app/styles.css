@@ -12106,6 +12106,14 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 /* Dress it again and Remove dressing, side by side on one line (2026-11-16), on a phone too */
 [data-location-card] .loc-sub > .previs-dress-row{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px}
 [data-location-card] .loc-sub > .previs-dress-row > .art-draftall{width:auto;flex:0 0 auto;white-space:nowrap}
+/* the whole place first (2026-11-16): a room's card points to its place; rooms outside the floor plan; a room's row */
+.loc-part-of-place{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--bg-2)}
+.loc-part-of-place > .loc-layer-note{margin:0;flex:1 1 220px}
+.loc-part-of-place > .art-draftall{width:auto;flex:0 0 auto}
+.loc-rooms-outside .loc-room-outside{flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}
+.loc-rooms-outside .loc-room-outside > .art-draftall{width:auto;flex:0 0 auto}
+.loc-subspace-outside{margin:4px 0 0}
+.previs-place-cameras .art-draftall,.previs-move-camera .art-draftall{width:auto}
 /* progress and Cancel beside the Make button (2026-11-16) */
 .previs-progress{display:inline-flex;align-items:center;gap:8px;flex:1 1 150px;min-width:130px;font-size:11px;color:var(--txt-2)}
 .previs-progress-bar{flex:1 1 auto;height:6px;min-width:50px;border-radius:3px;background:var(--bg-3);overflow:hidden}

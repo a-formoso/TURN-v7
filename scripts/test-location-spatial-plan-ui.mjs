@@ -33,7 +33,12 @@ const flat=n=>!n||typeof n!=="object"?[]:[n,...n.children.flatMap(flat)];
 const text=n=>n==null||n===false?"":typeof n!=="object"?String(n):n.children.map(text).join("");
 const cls=(tree,name)=>flat(tree).find(n=>(n.props.className||"").split(" ").includes(name));
 const button=(tree,name)=>flat(tree).find(n=>n.type==="button"&&text(n)===name);
-const render=(over={})=>{cursor=0;effects=[];const tree=box.LocationSpatialPlanEditor({...props,...over});effects.forEach(f=>f());return tree;};
+// (2026-11-16, the whole place first) the editor's root holds the rooms-outside notice above the folded floor plan;
+// `render` gives the floor plan itself (the details), as before
+let outsideNotice=null;
+const render=(over={})=>{cursor=0;effects=[];const root=box.LocationSpatialPlanEditor({...props,...over});effects.forEach(f=>f());
+  assert.equal(root.type,box.React.Fragment);outsideNotice=root.children[0];
+  return root.children.find(n=>n&&n.type==="details");};
 const reset=()=>{hooks=[];writes=[];};
 
 let tree=render();

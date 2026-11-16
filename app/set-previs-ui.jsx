@@ -255,6 +255,10 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
             title:"Moves only the cameras named above to clear views of this set and keeps the others. Free."},fixing?"Finding clear views\u2026":"Fix cameras"),
           E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(3)},"Go to 3 \u00b7 Cameras"))),
       fixNote&&!faulty.length&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-fixed"},fixNote),
+      // MOVE A CAMERA (owner 2026-11-16: a live camera on the dressed set, opened from here): the camera tool of
+      // 3 \u00b7 Cameras, drawing this same lit, dressed set; saving a view redraws the sheet above
+      sheet&&!readOnly&&typeof onUpdate==="function"&&window.LocationCameraAngleWorkbench&&E("div",{className:"loc-step-actions previs-move-camera","data-testid":"previs-move-camera"},
+        E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,inline:true,label:"Move a camera"})),
       // a set with moving parts: which story moment it is drawn at
       moments.length>1&&E("label",{className:"loc-cam-field loc-cloud-moment","data-testid":"previs-moment"},E("span",null,"Drawn at"),
         E("select",{className:"prop-select",value:atKey,disabled:!!busy||working,onChange:e=>api.setBuildMoment(l.id,e.target.value)},
@@ -383,6 +387,66 @@ function LocationPrevisOverview({location:l}){
       E("button",{type:"button",className:"art-draftall ghost",disabled:drawing,onClick:()=>setTurn(t=>((t==null?30:t)+90)%360),title:"See the place from its next side"},"Turn the view"),
       E("span",{className:"loc-layer-note"},shot.dressed?"Dressed: "+shot.parts+" shapes across the place.":"Not dressed yet: plain blocks.")));
 }
+/* DRESS THE WHOLE PLACE (owner 2026-11-16, the whole place first: "one press furnishes the house and each room in turn,
+   with the total price shown first"). Every space of the place that stands on the floor plan and is not dressed yet is
+   dressed by its own writing call, one after the other (one call a space keeps each well inside the time a writing
+   call is given). The total is an estimate shown on the button and asked about before anything is sent; each space is
+   saved as soon as it is dressed, so stopping, or a call that fails, loses nothing already done. A space that is
+   already dressed is never dressed again from here: that is done on the space itself. */
+function LocationPrevisDressAll({location:l,rooms=[],project,readOnly=false,onUpdate}){
+  const E=React.createElement,D=window.KinolotSetDressing;
+  const [run,setRun]=React.useState(null),[note,setNote]=React.useState(""),[fail,setFail]=React.useState("");
+  const alive=React.useRef(true),stop=React.useRef(false);
+  React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
+  let on=[];try{on=D.place(l).spaces.map(s=>s.id);}catch(_){on=[];}
+  const cards=[l].concat(rooms||[]).filter(c=>c&&on.indexOf(c.id)>=0);
+  const todo=cards.filter(c=>!c.previs),done=cards.filter(c=>c.previs);
+  let cost=0;try{cost=todo.reduce((n,c)=>n+D.estimate(c,{project}).credits,0);}catch(_){cost=0;}
+  const writable=()=>!readOnly&&typeof onUpdate==="function"&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
+  if(!cards.length)return null;
+  async function dressAll(){
+    if(run||!writable()||!todo.length)return;
+    const names=todo.map(c=>c.name||"Room");
+    const ok=typeof window.appConfirm!=="function"||await window.appConfirm({title:todo.length===1?"Dress "+names[0]+"?":"Dress these "+todo.length+" spaces?",
+      body:"One writing call a space, one after the other: "+names.join(", ")+"."+(cost?" About "+cost+" writing credits in all. It is an estimate: a writing call is charged by its length.":"")
+        +" Each space is saved as soon as it is dressed, and you can stop between two spaces.",confirmLabel:todo.length===1?"Dress it":"Dress them",cancelLabel:"Not now"});
+    if(!ok||!alive.current)return;
+    stop.current=false;setFail("");setNote("");
+    const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0,finished=[];let at="";
+    try{
+      for(let i=0;i<todo.length;i++){
+        if(stop.current)break;
+        const card=(((window.turnContinuity||{}).locations)||[]).find(x=>x.id===todo[i].id)||todo[i];
+        at=card.name||"Room";
+        if(alive.current)setRun({i:i+1,n:todo.length,name:at});
+        const r=await D.draft(card,{project});
+        if(!writable()||(typeof window.nbEpoch==="function"?window.nbEpoch():0)!==epoch)throw new Error("The open film changed. Nothing more was saved.");
+        // saved at once, even if this section was closed meanwhile: the call is paid for
+        onUpdate(card.id,{previs:D.pack(r.dressing,{engine:D.MODEL})});
+        finished.push(at+" ("+r.report.parts+" shapes)");
+      }
+      if(alive.current)setNote((finished.length?"Dressed: "+finished.join(", ")+".":"Nothing was dressed.")+(stop.current&&finished.length<todo.length?" Stopped before "+todo.slice(finished.length).map(c=>c.name||"Room").join(", ")+".":""));
+    }catch(e){
+      if(alive.current)setFail((finished.length?"Dressed and saved: "+finished.join(", ")+". ":"")+"Stopped at "+(at||"the first space")+": "+((e&&e.message)||"the set could not be dressed."));
+    }finally{if(alive.current)setRun(null);}
+  }
+  return E("div",{className:"loc-sub previs-dress","data-testid":"previs-dress-all"},
+    E("h4",{className:"loc-step-sub"},"Dress the whole place"),
+    E("p",{className:"loc-layer-note"},"Furnishes every space of "+(l.name||"this place")+" for this film, one after the other, each from its own card and its scenes. The floor plan and the cameras stay as saved."),
+    E("p",{className:"loc-layer-note","data-testid":"previs-dress-all-state"},
+      [done.length?"Dressed: "+done.map(c=>c.name||"Room").join(", ")+".":"",todo.length?"Not dressed yet: "+todo.map(c=>c.name||"Room").join(", ")+".":"Every space is dressed. To dress one again, open that space above."].filter(Boolean).join(" ")),
+    todo.length>0&&!readOnly&&E("div",{className:"loc-step-actions previs-dress-row"},
+      E("button",{type:"button",className:"art-draftall",disabled:!!run,onClick:dressAll,"data-testid":"previs-dress-all-go",
+        title:"One writing call a space, one after the other. You are asked first, with the total."},
+        run?"Dressing "+run.name+" ("+run.i+" of "+run.n+")\u2026":done.length?"Dress the rest of the place":"Dress the whole place",
+        !run&&cost>0&&E("span",{className:"nb-cost","data-testid":"previs-dress-all-cost",title:"About "+cost+" writing credits for "+todo.length+(todo.length===1?" space":" spaces")+". An estimate: a writing call is charged by its length."},
+          typeof nbCreditMark==="function"?nbCreditMark():null,String(cost))),
+      run&&run.i<run.n&&E("button",{type:"button",className:"art-draftall ghost",disabled:stop.current,onClick:()=>{stop.current=true;setRun(r=>r?{...r}:r);},
+        title:"The space being dressed now is finished and saved; the ones after it are left for later."},stop.current?"Stopping after this space\u2026":"Stop after this space")),
+    note&&E("p",{className:"loc-layer-note",role:"status"},note),
+    fail&&E("p",{className:"loc-spatial-error",role:"alert"},fail));
+}
+window.LocationPrevisDressAll=LocationPrevisDressAll;
 /* ONE PLACE, ALL ITS ROOMS, ON ONE CARD (owner 2026-11-16: "the main location has to house those subspaces ... all on
    the same card"). On a place that has rooms, Previs opens with a row of its spaces: the whole place from above, the
    place itself, and each room. A room shown here is the room's own Previs (its four cameras, its dressing, its image
@@ -397,7 +461,33 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
     return ()=>["nb-gen-done","nb-prefetched"].forEach(n=>window.removeEventListener(n,h));
   },[]);
   const own=E(LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage,imageMeta,imageN});
+  // THE WHOLE PLACE FIRST (owner 2026-11-16): the rooms with no usable cameras yet get them in one press (free), and a
+  // room that is not on the floor plan is named, with the way to add it
+  const api=window.KinolotCloudRender,alive=React.useRef(true);
+  const [fitting,setFitting]=React.useState(false),[camNote,setCamNote]=React.useState(""),[camFail,setCamFail]=React.useState("");
+  React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
   if(!list.length)return own;
+  let lacking=[],outside=[];
+  try{lacking=api&&typeof api.camerasMissingForPlace==="function"?api.camerasMissingForPlace(l):[];}catch(_){lacking=[];}
+  try{outside=typeof locationRoomsOutsidePlan==="function"?locationRoomsOutsidePlan(l):[];}catch(_){outside=[];}
+  const writable=()=>!readOnly&&typeof onUpdate==="function"&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
+  async function setAllCameras(){
+    if(fitting||!writable())return;
+    setFitting(true);setCamFail("");setCamNote("");
+    try{
+      const all=((window.turnContinuity||{}).locations)||[],now=all.find(x=>x.id===l.id);
+      if(!now)throw new Error("The open location changed. Open it again.");
+      const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0,rows=await api.proposeCamerasForPlace(now,all);
+      const latest=((window.turnContinuity||{}).locations)||[];
+      if(!writable()||(typeof window.nbEpoch==="function"?window.nbEpoch():0)!==epoch)throw new Error("The open film changed. Nothing was saved.");
+      // saved only onto the cameras each was fitted to
+      const same=id=>JSON.stringify((latest.find(x=>x.id===id)||{}).coverageViews||[])===JSON.stringify((all.find(x=>x.id===id)||{}).coverageViews||[]);
+      const done=rows.map(r=>r.views&&!same(r.id)?{id:r.id,name:r.name,error:"its cameras changed meanwhile"}:r);
+      done.filter(r=>r.views).forEach(r=>onUpdate(r.id,{coverageViews:r.views},{kind:"suggested-cameras"}));
+      if(alive.current)setCamNote(api.placeCamerasText(done)||"Every room already has its cameras.");
+    }catch(e){if(alive.current)setCamFail((e&&e.message)||"The cameras could not be set.");}
+    finally{if(alive.current)setFitting(false);}
+  }
   const room=list.find(r=>r.id===view);
   const chip=(id,label,title)=>E("button",{key:id,type:"button",className:"art-draftall ghost previs-space"+(view===id?" on":""),"aria-pressed":view===id,title,onClick:()=>setView(id)},label);
   const got=id=>{try{return typeof window.nbGetImage==="function"?window.nbGetImage(id):"";}catch(_){return "";}};
@@ -407,7 +497,19 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
       chip("all","Whole place","The whole set from above, ceilings off"),
       chip(l.id,l.name||"This place","The place itself, from its four cameras"),
       list.map(r=>chip(r.id,(r.name||"Room")+(got(r.id)?" \u2713":""),(r.name||"This room")+", from its own four cameras"+(got(r.id)?" (it has its image)":"")))),
-    view==="all"?E(LocationPrevisOverview,{location:l})
+    (lacking.length>0||camNote||camFail)&&E("div",{className:"loc-step-fixes previs-place-cameras","data-testid":"previs-place-cameras"},
+      lacking.length>0&&E("p",{className:"loc-step-fixes-head"},"No usable cameras yet: "+lacking.map(r=>r.name).join(", ")+"."),
+      lacking.length>0&&E("div",{className:"loc-step-actions"},
+        !readOnly&&typeof onUpdate==="function"&&E("button",{type:"button",className:"art-draftall",disabled:fitting,"data-testid":"previs-set-all-cameras",onClick:setAllCameras,
+          title:"Fits four clear cameras to every room named here, each checked for an unobstructed view, and saves them. Cameras that are already usable stay as they are. Free."},
+          fitting?"Finding clear views\u2026":"Set cameras for every room (free)")),
+      camNote&&E("p",{className:"loc-layer-note",role:"status"},camNote),
+      camFail&&E("p",{className:"loc-spatial-error",role:"alert"},camFail)),
+    outside.length>0&&E("div",{className:"loc-step-fixes","data-testid":"previs-rooms-outside"},
+      E("p",{className:"loc-step-fixes-head"},"Not on the floor plan yet: "+outside.map(r=>r.name).join(", ")+"."),
+      E("p",{style:{margin:"0 0 8px"}},"A room is drawn here once it stands on "+(l.name||"this place")+"\u2019s floor plan."),
+      E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Add it in 2 \u00b7 Floor plan")),
+    view==="all"?E(React.Fragment,null,E(LocationPrevisOverview,{location:l}),E(LocationPrevisDressAll,{location:l,rooms:list,project,readOnly,onUpdate}))
       :room?E(LocationPrevisStep,{key:room.id,location:room,project,readOnly,onUpdate,hasImage:!!got(room.id),imageMeta:got(room.id)?metaOf(room.id):null,asRoom:true,
         onOpenCard:typeof onSelectLocation==="function"?section=>onSelectLocation(room.id,section):undefined})
       :own);

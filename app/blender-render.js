@@ -331,6 +331,58 @@
     for(const p of proposal.panels)next={...next,coverageViews:root.locationCoverageViewsWithPose(next,p.key,p.pose)};
     return next.coverageViews;
   }
+  /* THE WHOLE PLACE AT ONCE (owner 2026-11-16, the whole place first: "use camera to capture the subspaces"). Every
+     card of a place stands in the place's one floor plan, so their cameras can be set together. camerasMissingForPlace
+     names the cards that have a room on the plan but not four usable cameras (none yet, or one that cannot stand where
+     it is); proposeCamerasForPlace fits clear views for exactly those, leaving every usable camera as it is. One row a
+     card: {id, name, views, set:[panel keys]} to save | {kept:true} | {outside:true} (no room on the plan) | {error}.
+     Nothing is saved here: the card saves each row's views. Free: no model call. */
+  const PANEL_KEYS=["TL","TR","BL","BR"];
+  // not usable: never set by anyone (only the app's stand-in position), without a position, or standing where it cannot
+  function unusableCameras(member,list){
+    const rows=root.locationPanelPoses(member,list),problems=cameraProblems(member,list)||{};
+    return PANEL_KEYS.filter(k=>{const row=rows.find(p=>p.key===k);return !row||!row.pose.position||row.source==="suggested"||!!problems[k];});
+  }
+  function camerasMissingForPlace(location,list){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    const state=root.locationSpatialPlanState(location,list);if(!state.ready)return [];
+    const spaces=renderSpaces(state.plan);
+    return root.locationSpatialFamily(state.owner,list).filter(m=>m&&spaces.some(s=>s.id===m.id&&(s.footprint||[]).length>=3)).map(m=>{
+      let bad=PANEL_KEYS;try{bad=unusableCameras(m,list);}catch(_){bad=PANEL_KEYS;}
+      return bad.length?{id:m.id,name:m.name||"Room",missing:bad}:null;}).filter(Boolean);
+  }
+  async function proposeCamerasForPlace(location,list){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    const state=root.locationSpatialPlanState(location,list);
+    if(!state.ready)throw Error(state.reason||"Review the floor plan in step 2 first.");
+    const spaces=renderSpaces(state.plan),rows=[];
+    for(const m of root.locationSpatialFamily(state.owner,list)){
+      if(!m)continue;
+      const row={id:m.id,name:m.name||"Room"};
+      if(!spaces.some(s=>s.id===m.id&&(s.footprint||[]).length>=3)){rows.push({...row,outside:true});continue;}
+      try{
+        let bad=unusableCameras(m,list);
+        // a camera the app placed whose view is now blocked is fitted again; one set by hand is only ever reported
+        if(bad.length<4)try{
+          const faults=await assessCameras(m,list),poses=root.locationPanelPoses(m,list);
+          bad=PANEL_KEYS.filter(k=>bad.includes(k)||(faults[k]&&((poses.find(p=>p.key===k)||{}).pose||{}).basis!=="user"));
+        }catch(_){}
+        if(!bad.length){rows.push({...row,kept:true});continue;}
+        const proposal=await proposeCamerasAuto(m,list,{keep:PANEL_KEYS.filter(k=>!bad.includes(k))});
+        rows.push({...row,views:cameraProposalViews(m,proposal,list),set:bad});
+      }catch(e){rows.push({...row,error:tidy(e&&e.message||"The cameras could not be fitted.",200)});}
+    }
+    return rows;
+  }
+  // What a whole-place fit did, in one line for the card.
+  function placeCamerasText(rows){
+    rows=rows||[];
+    const set=rows.filter(r=>r.views),failed=rows.filter(r=>r.error),outside=rows.filter(r=>r.outside);
+    if(!set.length&&!failed.length)return "";
+    return [set.length?"Cameras set, free: "+set.map(r=>r.name+" ("+r.set.length+(r.set.length===1?" view":" views")+")").join(", ")+". See them in 4 \u00b7 Previs; change any in 3 \u00b7 Cameras.":"",
+      failed.length?"Could not be set: "+failed.map(r=>r.name+" ("+r.error.replace(/[.]+$/,"")+")").join("; ")+".":"",
+      outside.length?"Not on the floor plan yet: "+outside.map(r=>r.name).join(", ")+".":""].filter(Boolean).join(" ");
+  }
   // Each issue names the card step that fixes it: 2 · Floor plan or 3 · Cameras.
   function inputIssueList(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
@@ -588,6 +640,6 @@
     if(JSON.stringify(state||null)!==before)root.dispatchEvent?.(new CustomEvent("kinolot-cloud-job",{detail:{locationId}}));
   }
   const jobState=locationId=>jobs.get(locationId)||null;
-  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,cameraProposalKey,proposeCameras,proposeCamerasAuto,assessCameras,cameraProposalViews,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds,
+  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,cameraProposalKey,proposeCameras,proposeCamerasAuto,assessCameras,cameraProposalViews,camerasMissingForPlace,proposeCamerasForPlace,placeCamerasText,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds,
     buildMoments,setBuildMoment,buildMoment};
 })(typeof window!=="undefined"?window:globalThis);
