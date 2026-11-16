@@ -282,3 +282,93 @@ test('previs drafts: a set drawn at a story moment makes that state\u2019s own i
   assert.equal(store.get('hall-state-Ramp:lowered').url,d.url);assert.equal(store.get('hall').url,'the-location-image');
 });
 
+
+/* ONE PLACE, ONE SET (owner 2026-11-16: the rooms are "an integral part of the same location ... all on the same card").
+   A place's floor plan holds all its rooms; each card dresses its own space; every card is drawn with all of it on. */
+function placeHarness(){
+  const s=scene();
+  // two spaces on one plan: the hall (0..4 x 0..4) and a yard south of it (0..4 x -6..0)
+  s.objects.push({id:'floor-1',name:'Yard floor',position:[2,-3,-.075],size:[4,6,.15],rotation:[0,0,0],kind:'prism',material:'floor',footprint:square},
+    {id:'anchor-9',name:'Bin',anchorId:'bin',basis:'design',position:[1,-2,.5],size:[.6,.6,1],rotation:[0,0,0],kind:'box',material:'dressing'});
+  const yard={id:'yard',name:'Yard'},hall={id:'hall',name:'Hall'};
+  const plan={coordinates:{spaces:[{id:'yard',name:'Yard',footprint:[[0,-6],[4,-6],[4,0],[0,0]]},{id:'hall',name:'Hall',footprint:[[0,0],[4,0],[4,4],[0,4]]}]},anchors:[]};
+  const p={console,crypto,TextEncoder,URL,turnContinuity:{locations:[yard,hall]},
+    locationSpatialPlanState:()=>({ready:true,owner:yard,plan}),locationSpatialFamily:()=>[yard,hall]};
+  p.window=p;vm.createContext(p);
+  for(const f of ['blender-render-contract.js','set-dressing.js','set-previs.js'])vm.runInContext(readFileSync('app/'+f,'utf8'),p);
+  p.KinolotCloudRender={buildScene:()=>copy(s)};
+  const piece=(name,at)=>({name,at,turn:0,parts:[['box',[.4,.4,.4],[0,0,.2],'paint']]});
+  const dress=(extras,objects,surfaces)=>p.KinolotSetDressing.pack(p.KinolotSetDressing.normalise({palette:{paint:['#808080',.8]},surfaces,objects,extras,
+    light:{time:'day',sky:'#aabbcc',sun:{from:180,height:40,colour:'#ffffff',power:1},fill:1,lamps:[]}},s).dressing,{});
+  return {p,s,yard,hall,plan,piece,dress,D:p.KinolotSetDressing,P:p.KinolotPrevis};
+}
+test('one place, one set: each card dresses its own space, and every card is drawn with all of it',()=>{
+  const h=placeHarness(),{D,P,yard,hall,piece}=h;
+  const where=D.place(hall);
+  assert.equal(where.owner.id,'yard');assert.equal(where.spaces.length,2);assert.equal(where.family.length,2);
+  // the hall's card: a piece in the hall is kept; one placed in the yard, the yard's bin and the yard's ground are not its to dress
+  const raw=D.normalise({palette:{paint:['#808080',.8]},surfaces:{'Hall':{floor:'paint'},'Yard':{floor:'paint'}},
+    objects:{bin:[['box',[.5,.5,.9],[0,0,.45],'paint']],radiator:[['box',[.9,.1,.5],[0,0,.3],'paint']]},
+    extras:[piece('Hall table',[2.6,2,0]),piece('Yard bench',[2,-4,0]),piece('Street lamp',[9,9,0])],light:{}},h.s).dressing;
+  const cut=D.own(raw,h.s,where,'hall');
+  assert.deepEqual(Object.keys(cut.dressing.surfaces),['Hall']);
+  assert.deepEqual(Object.keys(cut.dressing.objects),['radiator']);
+  assert.equal(cut.dressing.extras.map(e=>e.name).join(),'Hall table');
+  assert.equal(cut.left.length,3);assert.ok(cut.left.every(t=>/another space of this place, which is dressed from its own card/.test(t)));
+  // the place's own card: its ground, its objects, and what stands outside every room
+  const mine=D.own(raw,h.s,where,'yard');
+  assert.deepEqual(Object.keys(mine.dressing.surfaces),['Yard']);assert.deepEqual(Object.keys(mine.dressing.objects),['bin']);
+  assert.equal(mine.dressing.extras.map(e=>e.name).join(),'Yard bench,Street lamp');
+  // a place with one space keeps everything, as before
+  assert.equal(D.own(raw,h.s,{owner:yard,spaces:[where.spaces[0]]},'yard').dressing,raw);
+  // the brief and the prompt say which space this card dresses
+  const data=D.brief(hall,h.s,{project:{title:'F'},locations:[yard,hall]});
+  assert.equal(data.dressOnly.space,'Hall');assert.equal(data.dressOnly.isThePlaceItself,false);assert.deepEqual(copy(data.dressOnly.otherSpaces),['Yard']);
+  assert.ok(D.prompt(data,100).includes('Dress ONLY "Hall": what is inside its own outline'));
+  assert.ok(D.prompt(D.brief(yard,h.s,{locations:[yard,hall]}),100).includes('Dress ONLY "Yard": its own ground and everything that stands outside the other spaces'));
+  assert.ok(!D.prompt({film:{}},100).includes('Dress ONLY'),'a place with one space is dressed whole');
+  // DRAWN: the hall's view and the yard's view carry both cards' dressing, each under its own names
+  yard.previs=h.dress([piece('Yard bench',[2,-4,0]),piece('Stray in the hall',[1,3,0])],{},{'Yard':{floor:'paint'}});
+  hall.previs=h.dress([piece('Hall table',[2.6,2,0])],{radiator:[['box',[.9,.1,.5],[0,0,.3],'paint']]},{'Hall':{floor:'paint'}});
+  for(const card of [yard,hall]){
+    const drawn=P.scene(card);
+    const names=drawn.scene.objects.map(o=>o.name);
+    assert.equal(drawn.dressed,true);assert.equal(drawn.parts,3,card.id+': the bench, the table and the radiator');
+    assert.ok(names.includes('Yard bench')&&names.includes('Hall table')&&!names.includes('Stray in the hall'),card.id+' shows the whole place, each piece from the card that owns its space');
+    assert.ok(drawn.scene.materials.d_paint&&drawn.scene.materials.d1_paint,'two cards may name a material alike');
+    assert.equal(new Set(drawn.scene.objects.map(o=>o.id)).size,drawn.scene.objects.length,'no two shapes share an id');
+    assert.equal(drawn.scene.objects.find(o=>o.id==='floor-0').material,'d1_paint');assert.equal(drawn.scene.objects.find(o=>o.id==='floor-1').material,'d_paint');
+    assert.equal(drawn.light.sky,'#aabbcc','the place\'s own light');
+    assert.equal(drawn.iso,'yard:'+yard.previs.iso+'|hall:'+hall.previs.iso);
+  }
+  assert.equal(P.dressingSig(hall),'yard:'+yard.previs.iso+'|hall:'+hall.previs.iso);
+  delete hall.previs;assert.equal(P.scene(yard).parts,1);assert.equal(P.dressingSig(yard),'yard:'+yard.previs.iso);
+});
+test('the image keeps to the sheet: each panel in words, and a room takes its look from its place',async()=>{
+  const h=placeHarness(),{P,p,yard,hall}=h;
+  const views={TL:[{name:'Radiator',side:'left',depth:'close',share:20},{name:'Hall wall',side:'centre',depth:'middle distance',share:40}],TR:[],BL:[],BR:[]};
+  const text=P.panelText(h.s,views);
+  assert.ok(text.includes('PANEL BY PANEL, read from the 3D set'));
+  assert.ok(text.includes('TOP LEFT: camera 1.6 m high, facing north-east, 24 mm lens (wide). In its frame: Radiator (left, close); Hall wall (centre, middle distance).'));
+  assert.ok(text.includes('BOTTOM RIGHT: camera 1.4 m high, facing south, 35 mm lens (normal).'));
+  assert.equal(P.panelText(h.s,null),'');
+  p.locVisualDefaults=()=>({renderStyle:'anime'});p.combinedLocationPrompt=l=>'CARD '+l.name;
+  const prompt=P.stylePrompt(hall,{}, {scene:h.s,views,look:'Yard'});
+  assert.ok(prompt.includes('it decides every camera')&&prompt.includes('Never replace a panel with a different or more flattering view of the place.'));
+  assert.ok(prompt.includes('Image 2 is the finished image of Yard, the place this space is part of.')&&prompt.includes('Take NO layout, camera or object from Image 2'));
+  assert.ok(prompt.indexOf('PANEL BY PANEL')<prompt.indexOf('THE SPEC (what things are and how they look). If it describes camera positions, views, panels or framing of its own, ignore those parts'));
+  assert.ok(prompt.endsWith('CARD Hall'));
+  assert.ok(!P.stylePrompt(yard,{},{scene:h.s,views}).includes('Image 2'),'the place itself has no look image');
+  // a room's look image: the finished image of its place, and only when there is one
+  assert.equal(P.look(hall),null);
+  p.nbGetImage=id=>id==='yard'?'yard-image-url':'';
+  assert.equal(P.look(hall).url,'yard-image-url');assert.equal(P.look(hall).name,'Yard');assert.equal(P.look(yard),null);
+  const source=readFileSync('app/set-previs.js','utf8');
+  assert.ok(source.includes('...(options.lookImage?{extraImages:[options.lookImage],extraImageMaxDims:[1024]}:{}),'));
+  assert.ok(source.includes('const card=options.location&&options.location.id===t.loc?options.location:location;'),'a room is described from its own card, which carries its place');
+  assert.ok(source.includes('if(options.views)views[key]=seen(T,rig,camera);')&&source.includes('{panelWidth:960,views:true}'));
+  // the engine chosen in the section, as the plan allows it
+  p.nbPlanImageChoice=(model,res)=>({model,res});p.nbGetModel=()=>'top-bar';p.nbGetRes=()=>'2K';p.nbModelLabel=m=>'L '+m;
+  assert.equal(P.settings().model,'top-bar');assert.equal(P.settings('picked').model,'picked');assert.equal(P.settings('picked',2).cost.refs,2);
+  assert.ok(typeof P.overview==='function');
+});

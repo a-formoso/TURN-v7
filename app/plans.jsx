@@ -293,8 +293,10 @@ window.turnPlanCardFeatures = function(p, feats){
   const list = (feats || (p && p.features) || []).slice();
   const line = p && PLAN_TEAM_LINES[p.tier];
   if(line && window.turnTeamSharing && !list.some(f=>/share films with/i.test(String(f)))) list.push(line);
-  // (until 2026-11-15 the Director and Producer cards added "Cloud sets, camera-angle previews and image styling" here.
-  // The cloud set build left the location card that day, and Previs, which replaced it, is on every plan: no line is added.)
+  // PREVIS (owner 2026-11-16: "Director and Producer only"): the Art Room, where Previs lives, is Director and up
+  // (ROOM_ENTITLEMENTS), so the Director and Producer cards say it. Until 2026-11-15 this line read "Cloud sets,
+  // camera-angle previews and image styling", for the cloud set build that left the location card that day.
+  if(p&&["director","studio","pro"].includes(p.tier)&&!list.some(f=>/previs/i.test(String(f))))list.push("Previs: every location as a 3D set, dressed for your film");
   return list;
 };
 /* snapshot the current editable copy (for the editor's working state) */

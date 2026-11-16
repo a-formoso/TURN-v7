@@ -308,9 +308,9 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
               : attn ? React.createElement("span",{className:"seg-attn-dot"})
               : (stale && React.createElement("span",{className:"seg-stale-dot"})));
         });
-  const studioBtn = inArt&&React.createElement("button",{type:"button",className:"tb-btn vn-studio",title:"Blender Studio — derive a set from a generated location image",
-        "aria-label":"Blender Studio",onClick:()=>window.dispatchEvent(new CustomEvent("turn-open-blender-studio"))},
-        React.createElement(Icon.box,{s:14}),React.createElement("span",{className:"vn-cta-lab"},"Blender Studio"));
+  // (the Art Room's "Blender Studio" button was here until 2026-11-16: owner, "Remove it now". Locations are built in
+  // 3D in the browser, in each card's 4 · Previs. The workspace's code and its server side are untouched.)
+  const studioBtn = null;
   // the 1st-AD pass: the script read into the cast sheets, then every Art Room layer
   // held to the script. Open to a Writer too (its script cards are theirs to apply).
   const productionBtn = inArt && onProductionCheck && React.createElement("button",{type:"button",className:"tb-btn vn-studio",

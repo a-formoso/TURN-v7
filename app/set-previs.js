@@ -8,7 +8,7 @@
   const FILL={day:1.15,dusk:0.7,night:0.28};
 
   function build(T,scene,light){
-    const three=new T.Scene(),disposables=[],materials=new Map();
+    const three=new T.Scene(),disposables=[],materials=new Map(),meshes=[];
     const time=light&&light.time||"day";
     three.background=new T.Color(light&&light.sky||SKY[time]);
     Object.entries(scene.materials).forEach(([id,m])=>{
@@ -26,6 +26,7 @@
       mesh.quaternion.setFromRotationMatrix(new T.Matrix4().makeRotationZ(z).multiply(new T.Matrix4().makeRotationY(y)).multiply(new T.Matrix4().makeRotationX(x)));
       // a ceiling keeps the sun out of a room; a thin cloth only receives
       mesh.castShadow=item.kind!=="cloth";mesh.receiveShadow=true;
+      mesh.userData.name=String(item.name||"");meshes.push(mesh);
       three.add(mesh);
     });
     three.updateMatrixWorld(true);
@@ -53,7 +54,39 @@
     (time==="day"?[]:light&&light.lamps||[]).forEach(l=>{
       const p=new T.PointLight(new T.Color(l.colour),l.power*16,0,1.7);p.position.set(...l.at);three.add(p);
     });
-    return {three,dispose:()=>disposables.forEach(d=>d.dispose())};
+    return {three,meshes,dispose:()=>disposables.forEach(d=>d.dispose())};
+  }
+  /* WHAT EACH PANEL SHOWS (2026-11-16: the owner's first draft from plain blocks did not follow the sheet, because
+     nothing told the image engine which block is which thing). Rays through each camera's frame name what is seen,
+     where in the frame and how far: [{name, side, depth, share}], largest first. Structure (floors, walls, ceilings)
+     is named once per kind. Never throws: a panel that cannot be read is an empty list. */
+  const SIDES=["far left","left","centre","right","far right"];
+  function seen(T,rig,camera){
+    try{
+      const ray=new T.Raycaster(),hits=new Map(),COLS=16,ROWS=9;
+      for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+        ray.setFromCamera(new T.Vector2((c+0.5)/COLS*2-1,1-(r+0.5)/ROWS*2),camera);
+        const hit=ray.intersectObjects(rig.meshes,false)[0];if(!hit)continue;
+        const name=String(hit.object.userData.name||"").split(/ \u00b7 | - part /)[0].replace(/\s+/g," ").trim().slice(0,70);if(!name)continue;
+        const e=hits.get(name)||{name,n:0,x:0,d:Infinity};e.n++;e.x+=(c+0.5)/COLS;e.d=Math.min(e.d,hit.distance);hits.set(name,e);
+      }
+      return Array.from(hits.values()).sort((a,b)=>b.n-a.n).slice(0,9).map(e=>({name:e.name,share:Math.round(e.n/(COLS*ROWS)*100),
+        side:SIDES[Math.min(4,Math.floor(e.x/e.n*5))],depth:e.d<2.5?"close":e.d<8?"middle distance":"far"}));
+    }catch(_){return [];}
+  }
+  const COMPASS=["north","north-east","east","south-east","south","south-west","west","north-west"];
+  const PANEL_WORDS={TL:"TOP LEFT",TR:"TOP RIGHT",BL:"BOTTOM LEFT",BR:"BOTTOM RIGHT"};
+  // The panels in words, for the image engine: where each camera stands and what its frame holds, read from the 3D set.
+  function panelText(scene,views){
+    if(!views)return "";
+    const lines=PANELS.map(key=>{
+      const cam=scene.cameras[key],list=views[key]||[];if(!cam)return "";
+      const lens=Number(cam.lensMm)||35,tilt=Number(cam.pitch)||0;
+      const head=PANEL_WORDS[key]+": camera "+(Math.round(cam.position[2]*10)/10)+" m high, facing "+COMPASS[Math.round((((Number(cam.yaw)||0)%360)+360)%360/45)%8]
+        +(tilt<=-12?", looking down":tilt>=12?", looking up":"")+", "+lens+" mm lens ("+(lens<=22?"very wide":lens<=32?"wide":lens<=60?"normal":"long")+").";
+      return head+(list.length?" In its frame: "+list.map(v=>v.name+" ("+v.side+", "+v.depth+")").join("; ")+".":"");
+    }).filter(Boolean);
+    return lines.length?"\nPANEL BY PANEL, read from the 3D set (this is what each panel shows, and nothing in the spec below may change it):\n"+lines.join("\n")+"\n":"";
   }
 
   /* The four views on one sheet. Returns {dataUrl, width, height, panels}. */
@@ -72,46 +105,133 @@
       renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
       const canvas=root.document.createElement("canvas");canvas.width=w*2;canvas.height=h*2;
       const ctx=canvas.getContext("2d");if(!ctx)throw new Error("This browser cannot draw the sheet.");
+      const views={};
       PANELS.forEach((key,i)=>{
         const camera=root.KinolotAnglePreview.cameraFor(T,scene.cameras[key]);
         renderer.render(rig.three,camera);
+        if(options.views)views[key]=seen(T,rig,camera);
         if(renderer.getContext().isContextLost())throw new Error("The 3D view stopped. Close other heavy tabs and try again.");
         ctx.drawImage(renderer.domElement,(i%2)*w,Math.floor(i/2)*h,w,h);
       });
-      return {dataUrl:canvas.toDataURL(options.type||"image/png",options.quality),width:w*2,height:h*2,panels:PANELS.slice()};
+      return {dataUrl:canvas.toDataURL(options.type||"image/png",options.quality),width:w*2,height:h*2,panels:PANELS.slice(),...(options.views?{views}:{})};
     }finally{rig.dispose();renderer.dispose();renderer.forceContextLoss();}
   }
-  /* THE SET AS PREVIS DRAWS IT: the built floor plan with the location's saved dressing on, when it has one.
+  /* THE SET AS PREVIS DRAWS IT: the built floor plan with the dressing on. ONE PLACE, ONE SET (owner 2026-11-16): a
+     place's floor plan holds all its rooms, so every card of the place is drawn from the same model, with the dressing
+     of EVERY card of the place on (each card dresses its own space: set-dressing.js own). Only the four cameras differ.
      `at` = a story moment (moving parts): the set as it stands then. Throws the builder's own sentence when the floor
      plan or cameras are not ready. */
   function scene(location,list,at){
     if(!root.KinolotCloudRender||!root.KinolotSetDressing)throw new Error("The 3D view did not load. Refresh this page.");
-    const built=root.KinolotCloudRender.buildScene(location,list,at||undefined),kept=root.KinolotSetDressing.saved(location,built);
-    if(!kept)return {scene:built,light:null,dressed:false,parts:0,iso:""};
-    return {scene:root.KinolotSetDressing.apply(built,kept.dressing),light:kept.dressing.light,dressed:true,parts:kept.report.parts,iso:kept.iso};
+    const D=root.KinolotSetDressing,built=root.KinolotCloudRender.buildScene(location,list,at||undefined);
+    const where=D.place(location,list),count=d=>Object.values(d.objects).reduce((n,l)=>n+l.length,0)+d.extras.reduce((n,e)=>n+e.parts.length,0);
+    let out=built,parts=0,light=null;const isos=[];
+    where.family.forEach((member,k)=>{
+      // the card on screen may be newer than the film's saved list
+      const card=member.id===location.id?location:member;
+      const kept=card&&card.previs?D.saved(card,built):null;if(!kept)return;
+      const mine=D.own(kept.dressing,built,where,card.id).dressing,n=count(mine);
+      if(!n&&!Object.keys(mine.surfaces).length)return;
+      out=D.apply(out,mine,where.family.length>1&&k?String(k):"");
+      parts+=n;isos.push(where.family.length>1?card.id+":"+kept.iso:kept.iso);
+      if(!light)light=kept.dressing.light;   // the place's own light first (it comes first), else the first room's
+    });
+    return {scene:out,light,dressed:isos.length>0,parts,iso:isos.join("|")};
+  }
+  // What the place's dressing is now, as a short text: changes when any card of the place is dressed or undressed.
+  function dressingSig(location,list){
+    try{return root.KinolotSetDressing.place(location,list).family.map(m=>{const c=m.id===location.id?location:m;return c&&c.previs&&c.previs.iso?c.id+":"+c.previs.iso:"";}).filter(Boolean).join("|");}
+    catch(_){return (location&&location.previs&&location.previs.iso)||"";}
+  }
+  /* THE WHOLE PLACE FROM ABOVE (owner 2026-11-16: "making sure the subspaces all connect"): the same set with its
+     ceilings and roofs off, seen from high up, each space named. One 16:9 picture; free, nothing is saved. */
+  async function overview(location,list,options){
+    options=options||{};
+    const built=scene(location,list);
+    if(!root.KinolotAnglePreview)throw new Error("The 3D view did not load. Refresh this page.");
+    const T=await root.KinolotAnglePreview.load();
+    const floors=built.scene.objects.filter(o=>/^floor-\d+$/.test(o.id));
+    if(!floors.length)throw new Error("The floor plan has no spaces yet.");
+    const lo=[Infinity,Infinity],hi=[-Infinity,-Infinity];let ground=0;
+    floors.forEach(f=>{for(const i of [0,1]){lo[i]=Math.min(lo[i],f.position[i]-f.size[i]/2);hi[i]=Math.max(hi[i],f.position[i]+f.size[i]/2);}ground+=f.position[2]/floors.length;});
+    const ceilings=built.scene.objects.filter(o=>/^ceiling-\d+$/.test(o.id));
+    const roofLine=ceilings.length?Math.min(...ceilings.map(c=>c.position[2]-c.size[2]/2)):Infinity;
+    // off: every ceiling, and any dressing piece that sits over the rooms (a roof, an upper storey)
+    const open={...built.scene,objects:built.scene.objects.filter(o=>!/^ceiling-\d+$/.test(o.id)
+      &&!(/^(extra|dress)-/.test(o.id)&&o.position[2]-o.size[2]/2>=roofLine-0.05))};
+    // by default from the side that puts the place's long side across the picture
+    const yaw=Number.isFinite(options.yaw)?options.yaw:(hi[1]-lo[1]>hi[0]-lo[0]?120:30),pitch=-56,lens=35;
+    const radius=Math.hypot(hi[0]-lo[0],hi[1]-lo[1])/2+1,ya=yaw*Math.PI/180,pa=pitch*Math.PI/180;
+    const centre=[(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,ground+1],f=[Math.sin(ya)*Math.cos(pa),Math.cos(ya)*Math.cos(pa),Math.sin(pa)];
+    // as close as keeps every corner of the place (floor to wall top) inside the picture
+    const corners=[];for(const x of [lo[0]-0.5,hi[0]+0.5])for(const y of [lo[1]-0.5,hi[1]+0.5])for(const z of [ground,ground+2.6])corners.push([x,y,z]);
+    const poseAt=d=>({position:centre.map((v,i)=>v-f[i]*d),yaw,pitch,lensMm:lens});
+    const ndc=d=>{const cam=root.KinolotAnglePreview.cameraFor(T,poseAt(d));return corners.map(c=>new T.Vector3(c[0],c[1],c[2]).project(cam));};
+    const fits=pts=>pts.every(p=>Math.abs(p.x)<=0.92&&Math.abs(p.y)<=0.88&&p.z<1);
+    const fit=()=>{let d=Math.max(4,radius*0.6);for(let i=0;i<70&&d<170&&!fits(ndc(d));i++)d*=1.06;return Math.min(170,d);};
+    // aim at the middle of what is seen, not the middle of the floor plan: a place seen at a slant sits low in the frame otherwise
+    let far=fit();
+    const halfV=Math.atan(36/(2*lens*16/9)),halfH=Math.atan(36/(2*lens));
+    for(let round=0;round<4;round++){
+      const pts=ndc(far);if(pts.some(p=>p.z>=1))break;
+      const mx=(Math.max(...pts.map(p=>p.x))+Math.min(...pts.map(p=>p.x)))/2,my=(Math.max(...pts.map(p=>p.y))+Math.min(...pts.map(p=>p.y)))/2;
+      if(Math.abs(mx)<0.03&&Math.abs(my)<0.03)break;
+      const dx=mx*far*Math.tan(halfH),dy=my*far*Math.tan(halfV)/Math.max(0.3,Math.sin(-pa));
+      centre[0]+=Math.cos(ya)*dx+Math.sin(ya)*dy;centre[1]+=-Math.sin(ya)*dx+Math.cos(ya)*dy;
+      far=fit();
+    }
+    const pose=poseAt(far);
+    const w=Math.max(480,Math.min(1600,Math.round(options.width||1280))),h=Math.round(w*9/16);
+    let renderer;
+    try{renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,alpha:false});}
+    catch(_){throw new Error("This browser could not start the 3D view. Turn on graphics acceleration and try again.");}
+    const rig=build(T,{...open,cameras:{TL:pose}},built.light||null);
+    try{
+      renderer.setPixelRatio(1);renderer.setSize(w,h,false);renderer.outputColorSpace=T.SRGBColorSpace;
+      renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
+      renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
+      const camera=root.KinolotAnglePreview.cameraFor(T,pose);
+      renderer.render(rig.three,camera);
+      if(renderer.getContext().isContextLost())throw new Error("The 3D view stopped. Close other heavy tabs and try again.");
+      const canvas=root.document.createElement("canvas");canvas.width=w;canvas.height=h;
+      const ctx=canvas.getContext("2d");if(!ctx)throw new Error("This browser cannot draw the picture.");
+      ctx.drawImage(renderer.domElement,0,0,w,h);
+      // each space's name, on its floor
+      const names=floors.map(f=>{const p=new T.Vector3(f.position[0],f.position[1],f.position[2]+0.1).project(camera);
+        return {name:String(f.name||"").replace(/ floor$/,""),x:(p.x+1)/2*w,y:(1-p.y)/2*h,ok:p.z>-1&&p.z<1};}).filter(n=>n.ok&&n.name);
+      const size=Math.round(w/42);
+      ctx.font="600 "+size+"px system-ui, sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";
+      names.forEach(n=>{const tw=ctx.measureText(n.name).width+size,th=size+12;
+        ctx.fillStyle="rgba(20,22,26,.72)";ctx.fillRect(n.x-tw/2,n.y-th/2,tw,th);ctx.fillStyle="#fff";ctx.fillText(n.name,n.x,n.y+1);});
+      return {dataUrl:canvas.toDataURL(options.type||"image/jpeg",options.quality||0.9),width:w,height:h,spaces:names.map(n=>n.name),dressed:built.dressed,parts:built.parts};
+    }finally{rig.dispose();renderer.dispose();renderer.forceContextLoss();}
   }
 
   /* FROM THE SHEET TO THE IMAGE. The image engine gets the sheet as Image 1 and the card's own prompt, in the render
      style chosen on the card (or the tab's style when the card has none): photoreal, anime, anything. The sheet
      decides where things are; the card decides what they are and how they look. */
-  function stylePrompt(location,project){
+  function stylePrompt(location,project,drawn){
     const style=typeof root.locVisualDefaults==="function"?root.locVisualDefaults(location).renderStyle:"";
     const build=typeof root.combinedLocationPrompt==="function"?root.combinedLocationPrompt:root.buildLocationRefPrompt;
     const card=typeof build==="function"?build(location,project||root.turnProject||{},{}):"";
     if(!card)throw new Error("This location's prompt could not be built. Describe the place first.");
-    return "Image 1 is the 3D previs sheet of this location: ONE set seen by four cameras, a 2x2 grid of equal 16:9 panels. It is the layout to follow. "
-      +"Keep each panel's camera position, framing, horizon and lens. Keep every wall, opening, building and object, each in its place, size and proportion, and keep what is in front of what. "
-      +"The previs is built from plain blocks: read each block as the real thing it stands for (named in the spec below) and give it its real surface, detail, edges and wear. "
-      +"Do not add, remove or move buildings, objects or openings, and do not merge, swap, crop or reframe panels. "
+    return "Image 1 is the 3D previs sheet of this location: ONE set seen by four cameras, a 2x2 grid of equal 16:9 panels. It is the layout to follow, and it decides every camera. "
+      +"Draw each panel from exactly the camera of the same panel of Image 1: the same standpoint, height, direction, tilt, horizon line and lens. Every large shape stays where it is in that panel's frame, at its size, and what is in front of what stays so. "
+      +"Keep every wall, opening, building and object, each in its place, size and proportion. "
+      +"The previs is built from plain blocks: read each block as the real thing it stands for (named panel by panel below, and described in the spec) and give it its real surface, detail, edges and wear. "
+      +"Do not add, remove or move buildings, objects or openings, and do not merge, swap, crop or reframe panels. Never replace a panel with a different or more flattering view of the place. "
       +"The sheet's flat colours and simple light only point to materials and the hour; the finished look is the spec's render style"+(style?" ("+style+")":"")+". "
-      +"No people, no text, no labels, no borders and no panel numbers.\n\n"+card;
+      +"No people, no text, no labels, no borders and no panel numbers.\n"
+      +(drawn&&drawn.look?"Image 2 is the finished image of "+drawn.look+", the place this space is part of. Take from it the materials, the palette, the weather and the quality of light, so that the two belong to one place. Take NO layout, camera or object from Image 2: Image 1 alone decides those.\n":"")
+      +(drawn&&drawn.scene?panelText(drawn.scene,drawn.views):"")
+      +"\nTHE SPEC (what things are and how they look). If it describes camera positions, views, panels or framing of its own, ignore those parts: Image 1 alone decides them.\n"+card;
   }
   // The engine and size in the top bar, as the plan allows them, and what one image from the sheet costs.
-  function settings(){
-    const choice=root.nbPlanImageChoice(root.nbGetModel(),root.nbGetRes()),model=choice.model;
+  function settings(engine,refs){
+    const choice=root.nbPlanImageChoice(engine||root.nbGetModel(),root.nbGetRes()),model=choice.model;
     const quality=typeof root.isGptImageModel==="function"&&root.isGptImageModel(model)?(typeof root.nbGetOaiQuality==="function"?root.nbGetOaiQuality(model):"high"):undefined;
     return {model,imageSize:choice.res,quality,label:typeof root.nbModelLabel==="function"?root.nbModelLabel(model):model,
-      cost:{model,res:choice.res,quality,aspect:"16:9",refs:1,ground:false}};
+      cost:{model,res:choice.res,quality,aspect:"16:9",refs:refs||1,ground:false}};
   }
   /* One image call. Returns the image and what was sent; saves nothing and replaces no artwork. */
   async function style(location,sheetUrl,options){
@@ -119,9 +239,10 @@
     if(typeof root.nbGenerate!=="function")throw new Error("Sign in to make this image.");
     if(!/^data:image\//.test(String(sheetUrl||"")))throw new Error("Draw the previs sheet first.");
     const choice=options.settings||settings();
-    const prompt=stylePrompt(location,options.project)+(options.after||""),metaOut={};
+    const prompt=stylePrompt(location,options.project,options.drawn)+(options.after||""),metaOut={};
     const scope=root.BlenderPreview&&typeof root.BlenderPreview.scope==="function"?root.BlenderPreview.scope():null;
     const url=await root.nbGenerate(prompt,{model:choice.model,imageSize:choice.imageSize,quality:choice.quality,aspectRatio:"16:9",referenceImage:sheetUrl,
+      ...(options.lookImage?{extraImages:[options.lookImage],extraImageMaxDims:[1024]}:{}),
       baseMaxDim:1536,referenceMaxDim:1536,referencesNumbered:true,groundSearch:false,noRetry:true,
       ...(scope&&scope.projectId?{projectId:scope.projectId}:{}),assetId:options.assetId||location.id,assetPurpose:"previs-image",metaOut,
       ...(typeof options.beforeSubmit==="function"?{beforeSubmit:options.beforeSubmit}:{})});
@@ -160,6 +281,15 @@
     const t=target(id),location=live(t.loc),built=scene(location,list,t.at),C=root.KinolotRenderContract;
     const look=typeof root.locationSpecSig==="function"?String(root.locationSpecSig(location)):stylePrompt(location);
     return {setKey:await C.hash(C.canonical({scene:built.scene,light:built.light||null})),lookKey:await C.hash(String(look))};
+  }
+  // The finished image of the place a room is part of, when there is one: {name, url, id}.
+  function look(location){
+    try{
+      const where=root.KinolotSetDressing.place(location),owner=where.owner;
+      if(!owner||owner.id===location.id||typeof root.nbGetImage!=="function")return null;
+      const url=root.nbGetImage(owner.id);
+      return url?{name:String(owner.name||"the place"),url,id:owner.id}:null;
+    }catch(_){return null;}
   }
   const discarded=meta=>!!(meta&&meta.approval&&meta.approval.iso===meta.iso&&meta.approval.approved===false);
   const used=meta=>!!(meta&&meta.approval&&meta.approval.iso===meta.iso&&meta.approval.approved===true);
@@ -206,7 +336,7 @@
     return locked(id,scope,async key=>{
       const location=live(t.loc),built=scene(location,undefined,t.at);
       options.onPhase&&options.onPhase("drawing");
-      const drawn=await root.KinolotPrevis.sheet(built.scene,built.light,{panelWidth:960});
+      const drawn=await root.KinolotPrevis.sheet(built.scene,built.light,{panelWidth:960,views:true});
       assertWritable(scope);
       const made=await keys(id);
       // what the image is made from, as the card's own Generate records it: the layout, the cameras, the description
@@ -219,7 +349,12 @@
       const moved=t.key&&typeof root.locationMovingPartsAt==="function"?root.locationMovingPartsAt(location,t.at).filter(p=>p.differs&&p.state)
         .map(p=>p.name+" "+p.state.label.toLowerCase()+(p.state.look?" \u2014 "+p.state.look:"")).join("; "):"";
       options.onPhase&&options.onPhase("generating");
-      const out=await style(location,drawn.dataUrl,{project:options.project,settings:options.settings,assetId:slot(id),
+      // a room takes its look from the finished image of its place (one place, one look)
+      const whole=look(location);
+      // the card's own object when the caller has it: a room's card carries its place (what it inherits), the film's saved list does not
+      const card=options.location&&options.location.id===t.loc?options.location:location;
+      const out=await style(card,drawn.dataUrl,{project:options.project,settings:options.settings,assetId:slot(id),
+        drawn:{scene:built.scene,views:drawn.views,look:whole?whole.name:""},lookImage:whole?whole.url:"",
         after:moved?"\nMOVING PARTS AT THIS MOMENT (as drawn in the sheet): "+moved+". Where the sheet opens to the outside, show the exterior beyond as described (keep its position and size).":"",
         beforeSubmit:async()=>{assertWritable(scope);}});
       const meta={schema:1,kind:"previs-draft",mode:"draft",projectId:scope.projectId,locationId:t.loc,
@@ -300,5 +435,5 @@
       return result;
     });
   }
-  root.KinolotPrevis={PANELS,OUT_OF_DATE,sheet,scene,stylePrompt,settings,style,target,slot,assetOf,keys,drafts,render,use,discard,restore,retrySave,discardUnsaved,pending};
+  root.KinolotPrevis={PANELS,OUT_OF_DATE,sheet,scene,dressingSig,overview,look,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,use,discard,restore,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);

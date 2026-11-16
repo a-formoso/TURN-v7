@@ -5,7 +5,7 @@
    "preview as soon as image is generated, with option for the user to use as location image or discard"), kept with
    the drafts before it until discarded. The floor plan stays the authority. This is the card's one road from the set
    to its image (the cloud build and its styling step left the card on 2026-11-15). */
-function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN}){
+function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,asRoom=false,onOpenCard}){
   const E=React.createElement,D=window.KinolotSetDressing,P=window.KinolotPrevis,api=window.KinolotCloudRender;
   const [sheet,setSheet]=React.useState(""),[error,setError]=React.useState(""),[drawing,setDrawing]=React.useState(false);
   const [info,setInfo]=React.useState(null),[busy,setBusy]=React.useState(""),[phase,setPhase]=React.useState("");
@@ -15,6 +15,8 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
   const [kept,setKept]=React.useState({current:null,lastDiscarded:false,earlier:[]}),[nowKeys,setNowKeys]=React.useState(undefined);
   const [review,setReview]=React.useState(null),[camera,setCamera]=React.useState("all"),[wipe,setWipe]=React.useState(50),[other,setOther]=React.useState("");
   const dialog=React.useRef(null);
+  // the image engine for this section's drafts (owner 2026-11-16: "the dropdown option for picking an image model of choice")
+  const [engine,setEngine]=React.useState(()=>{try{return typeof window.nbGetModel==="function"?window.nbGetModel():"";}catch(_){return "";}});
   // THE CAMERA CHECK (2026-11-11; on this section since 2026-11-15): each saved camera's view of the set, graded.
   // null = still checking, or the check could not run (it then says nothing).
   const [faults,setFaults]=React.useState(null),[fixing,setFixing]=React.useState(false),[fixNote,setFixNote]=React.useState("");
@@ -36,10 +38,12 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     if(key){part={loc:l.id,at,key,label:window.locationPartStateLabel(states)};target=part;}
   }catch(_){part=null;target=l.id;}
   const atKey=at?[at.sceneId,at.beatN,at.moment].join(":"):"";
-  const becomes=part?"the \u201c"+part.label+"\u201d image":"the location image";
+  // a room (a card with a place above it) makes its own image, with the look of its place's finished image
+  const isRoom=!!asRoom||!!l.parentLocation;
+  const becomes=part?"the \u201c"+part.label+"\u201d image":isRoom?"this room\u2019s image":"the location image";
   // what the sheet is drawn from: the floor plan, the cameras, the saved dressing and the story moment
   const drawnFrom=(()=>{try{return [l.id,typeof locationSpatialPlanSigFor==="function"?locationSpatialPlanSigFor(l):"",
-    typeof locationPlateLayoutSig==="function"?locationPlateLayoutSig(l,{panels:true}):"",(l.previs&&l.previs.iso)||"",atKey].join("|");}catch(_){return l.id+"|"+atKey;}})();
+    typeof locationPlateLayoutSig==="function"?locationPlateLayoutSig(l,{panels:true}):"",typeof P.dressingSig==="function"?P.dressingSig(l):(l.previs&&l.previs.iso)||"",atKey].join("|");}catch(_){return l.id+"|"+atKey;}})();
   const lookNow=(()=>{try{return typeof locationSpecSig==="function"?String(locationSpecSig(l)):"";}catch(_){return "";}})();
   React.useEffect(()=>{
     let live=true;setError("");
@@ -70,6 +74,12 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
   },[drawnFrom,lookNow]);
   // the comparison opens as a modal whenever it is on the page (it leaves the page when closed)
   React.useEffect(()=>{const el=dialog.current;if(el&&review&&!el.open&&typeof el.showModal==="function")el.showModal();});
+  // "Go to 2 / 3": on a room shown inside its place's Previs, the room's own card opens first (its floor plan and
+  // cameras are there), then the section
+  const go=step=>{
+    if(asRoom&&typeof onOpenCard==="function"){onOpenCard(step===2?"layout":"");setTimeout(()=>{if(window.goToLocationStep)window.goToLocationStep(l,step);},350);return;}
+    if(window.goToLocationStep)window.goToLocationStep(l,step);
+  };
   const writable=()=>!readOnly&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
   const run=async(name,fn,failText)=>{
     if(busy||!writable())return;
@@ -92,7 +102,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
   }
   const make=()=>run("render",async()=>{
     setPhase("drawing");
-    await P.render(target,{project,onPhase:p=>{if(alive.current)setPhase(p);}});
+    await P.render(target,{project,location:l,settings:choice||undefined,onPhase:p=>{if(alive.current)setPhase(p);}});
     if(alive.current)setNotice("The draft is ready, just below. It becomes "+becomes+" only when you choose to use it.");
   },"The image could not be made.");
   const saveKept=()=>run("render",async()=>{
@@ -102,11 +112,11 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
   const useDraft=d=>run("use",async()=>{
     await P.use(target,d.meta.iso);
     if(alive.current){setReview(null);setNotice(part?"Saved as the \u201c"+part.label+"\u201d image. Shots at those moments use it in place of the location image."
-      :"This draft is now the location image, at the top of the card."+(hasImage?" The image before it stays in the card\u2019s versions.":""));}
+      :(isRoom?"This draft is now this room\u2019s image.":"This draft is now the location image, at the top of the card.")+(hasImage?" The image before it stays in the card\u2019s versions.":""));}
   },"The draft could not be used.");
   const discardDraft=d=>run("discard",async()=>{
     await P.discard(target,d.meta.iso);
-    if(alive.current){setReview(null);setNotice("The draft was discarded. "+(part?"That state\u2019s image":"The location image")+" was not changed.");}
+    if(alive.current){setReview(null);setNotice("The draft was discarded. "+(part?"That state\u2019s image":isRoom?"This room\u2019s image":"The location image")+" was not changed.");}
   },"The draft could not be discarded.");
   const bringBack=d=>run("restore",async()=>{
     await P.restore(target,d.meta.iso);
@@ -115,13 +125,13 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
   const PANEL_NAMES={TL:"Top-left",TR:"Top-right",BL:"Bottom-left",BR:"Bottom-right"};
   const faulty=Object.entries(faults||{}).filter(([,why])=>why);
   // Fix cameras: only the cameras named by the check move, to clear views of this set; the others stay. Free.
-  async function fixCameras(){
-    if(fixing||busy||!writable()||!onUpdate||!faulty.length)return;
+  async function fixCameras(all){
+    if(fixing||busy||!writable()||!onUpdate||(!all&&!faulty.length))return;
     setFixing(true);setFail("");setFixNote("");
     try{
       const list=((window.turnContinuity||{}).locations)||[],now=list.find(x=>x.id===l.id);
       if(!now)throw new Error("The open location changed. Open it again.");
-      const keep=["TL","TR","BL","BR"].filter(k=>!faulty.some(([bad])=>bad===k));
+      const keep=all===true?[]:["TL","TR","BL","BR"].filter(k=>!faulty.some(([bad])=>bad===k));
       const proposal=await api.proposeCamerasAuto(now,list,{keep});
       const latest=((window.turnContinuity||{}).locations)||[],still=latest.find(x=>x.id===l.id);
       if(!still||!writable())throw new Error("The open location changed. Open it again.");
@@ -131,7 +141,10 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     finally{if(alive.current)setFixing(false);}
   }
   const pend=P.pending(target),working=busy==="render"||(pend.running&&!busy);
-  let choice=null;try{choice=P.settings();}catch(_){choice=null;}
+  let whole=null;try{whole=typeof P.look==="function"?P.look(l):null;}catch(_){whole=null;}
+  let choice=null;try{choice=P.settings(engine||undefined,whole?2:1);}catch(_){choice=null;}
+  const engines=(window.NB_MODELS||[]).map(m=>m&&m.id||m).filter(x=>typeof x==="string");
+  const engineName=id=>typeof window.nbModelLabel==="function"?window.nbModelLabel(id):id;
   const style=String((typeof locVisualDefaults==="function"?locVisualDefaults(l).renderStyle:"")||"").replace(/\s+/g," ").trim();
   const phaseText={drawing:"Drawing the sheet\u2026",generating:"Making the image\u2026 about a minute",saving:"Saving the draft\u2026"}[phase]||"Making the image\u2026";
   let fixStep=2;
@@ -141,17 +154,22 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     E("div",{className:"loc-step-fixes","data-testid":"previs-not-ready"},
       E("p",{className:"loc-step-fixes-head"},"Previs needs the floor plan and the cameras first."),
       E("p",{style:{margin:"0 0 8px"}},error),
-      E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,fixStep)},fixStep===3?"Go to 3 \u00b7 Cameras":"Go to 2 \u00b7 Floor plan")));
+      E("div",{className:"loc-step-actions"},
+        // a room with no cameras of its own yet (or one standing in a wall): four clear ones in one press
+        fixStep===3&&!readOnly&&onUpdate&&E("button",{type:"button",className:"art-draftall",disabled:fixing,"data-testid":"previs-set-cameras",onClick:()=>fixCameras(true),
+          title:"Fits four cameras to this space, each checked for a clear view, and saves them. Free. You can change them in 3 \u00b7 Cameras."},fixing?"Finding clear views\u2026":"Set 4 clear cameras (free)"),
+        E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(fixStep)},fixStep===3?"Go to 3 \u00b7 Cameras":"Go to 2 \u00b7 Floor plan")),
+      fail&&E("p",{className:"loc-spatial-error",role:"alert"},fail)));
   // ONE RULE: a draft can be used while it still matches the set and the look it was made from
   const stale=d=>!nowKeys||d.meta.setKey!==nowKeys.setKey||d.meta.lookKey!==nowKeys.lookKey;
   const checking=nowKeys===undefined;
   const isImage=d=>!part&&!!imageMeta&&imageMeta.previsDraftIso===d.meta.iso;
   const when=iso=>{try{return new Date(iso).toLocaleString(undefined,{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});}catch(_){return "";}};
   const draftLine=d=>(d.meta.modelLabel||(typeof window.nbModelLabel==="function"?window.nbModelLabel(d.meta.modelId):"")||"Image engine")+(when(d.meta.iso)?" \u00b7 "+when(d.meta.iso):"");
-  const status=d=>isImage(d)?"This is the location image now.":checking?"Checking it against the set\u2026":stale(d)?"Out of date."
-    :d.used?(part?"Used as this state\u2019s image.":"Used as the location image before."):"Not used yet.";
+  const status=d=>isImage(d)?(isRoom?"This is this room\u2019s image now.":"This is the location image now."):checking?"Checking it against the set\u2026":stale(d)?"Out of date."
+    :d.used?(part?"Used as this state\u2019s image.":isRoom?"Used as this room\u2019s image before.":"Used as the location image before."):"Not used yet.";
   const canUse=d=>!readOnly&&!checking&&!stale(d)&&!isImage(d)&&!(part&&d.used);
-  const useLabel=part?"Use as the \u201c"+part.label+"\u201d image":"Use as location image";
+  const useLabel=part?"Use as the \u201c"+part.label+"\u201d image":isRoom?"Use as this room\u2019s image":"Use as location image";
   const cur=kept.current,earlier=kept.earlier||[];
   const open=(mode,draft)=>{setCamera("all");setWipe(50);if(mode==="drafts"&&!earlier.some(d=>d.meta.iso===other))setOther(earlier[0]?earlier[0].meta.iso:"");setReview({mode,iso:draft?draft.meta.iso:""});};
   // the open comparison: a draft beside the sheet it was made from, or the current draft beside an earlier one
@@ -184,7 +202,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
         E("div",{className:"loc-step-actions"},
           !readOnly&&onUpdate&&E("button",{type:"button",className:"art-draftall",disabled:fixing||!!busy,"data-testid":"camera-check-fix",onClick:fixCameras,
             title:"Moves only the cameras named above to clear views of this set and keeps the others. Free."},fixing?"Finding clear views\u2026":"Fix cameras"),
-          E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,3)},"Go to 3 \u00b7 Cameras"))),
+          E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(3)},"Go to 3 \u00b7 Cameras"))),
       fixNote&&!faulty.length&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-fixed"},fixNote),
       // a set with moving parts: which story moment it is drawn at
       moments.length>1&&E("label",{className:"loc-cam-field loc-cloud-moment","data-testid":"previs-moment"},E("span",null,"Drawn at"),
@@ -204,11 +222,19 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
         E("summary",null,"Fitted or left out ("+left.length+")"),
         E("ul",{className:"previs-left"},left.map((line,i)=>E("li",{key:i},line))))),
     E("div",{className:"loc-sub","data-testid":"previs-render"},
-      E("h4",{className:"loc-step-sub"},part?"Make the \u201c"+part.label+"\u201d image":"Make the location image"),
-      E("p",{className:"loc-layer-note"},"The image engine follows this sheet and this card's description, in this card's render style"
-        +(style?": "+(style.length>110?style.slice(0,107).replace(/\s+\S*$/,"")+"\u2026":style):"")+"."
-        +(choice?" Engine: "+choice.label+", chosen in the top bar.":"")
-        +" The result is a draft, shown here at once: "+becomes+" changes only when you choose to use it."),
+      // the heading, with what the step does behind the (i) beside it (owner 2026-11-16)
+      E("h4",{className:"loc-step-sub loc-control-heading"},part?"Make the \u201c"+part.label+"\u201d image":isRoom?"Make this room\u2019s image":"Make the location image",
+        window.InfoTip&&E(window.InfoTip,{label:"About making the image",text:"The image engine follows this sheet and this card's description, in this card's render style"
+          +(style?": "+(style.length>110?style.slice(0,107).replace(/\s+\S*$/,"")+"\u2026":style):"")+"."
+          +(whole?" It also gets "+whole.name+"\u2019s finished image, for the look only, so that the room and its place belong together.":"")
+          +" The result is a draft, shown here at once: "+becomes+" changes only when you choose to use it."})),
+      // plain blocks give the engine little to keep to: say so before an image is paid for
+      info&&!info.dressed&&E("p",{className:"loc-layer-note","data-testid":"previs-undressed-hint"},"This set is not dressed yet. The image engine keeps to a dressed set much more closely than to plain blocks: dress the set first."),
+      isRoom&&!whole&&E("p",{className:"loc-layer-note","data-testid":"previs-place-first"},"Make the image of the whole place first: this room then takes its look from it."),
+      E("label",{className:"loc-cam-field previs-engine","data-testid":"previs-engine"},E("span",null,"Image engine"),
+        E("select",{className:"prop-select",value:engines.includes(engine)?engine:(choice?choice.model:""),disabled:readOnly||!!busy||working,onChange:e=>setEngine(e.target.value)},
+          engines.map(id=>E("option",{key:id,value:id},engineName(id)))),
+        choice&&engine&&choice.model!==engine&&E("small",null,"Your plan makes this image with "+choice.label+".")),
       pend.unsaved&&!working
         ?E("div",{className:"loc-step-actions","data-testid":"previs-unsaved"},
             E("span",{className:"loc-spatial-error",role:"alert"},"An image was made but not saved."),
@@ -217,7 +243,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
         :!readOnly&&E("div",{className:"loc-step-actions"},
             E("button",{type:"button",className:"art-draftall",disabled:!!busy||working||drawing||!sheet,onClick:make,
               title:"One image from this sheet, kept as a draft. Nothing is replaced until you use it."},
-              working?phaseText:cur||earlier.length?"Make another draft":part?"Make the image":"Make the location image",
+              working?phaseText:cur||earlier.length?"Make another draft":part?"Make the image":isRoom?"Make this room\u2019s image":"Make the location image",
               !working&&choice&&typeof window.nbCostChip==="function"?window.nbCostChip(1,choice.cost):null)),
       // THE DRAFT, RIGHT UNDER THE BUTTON: look at it, use it or discard it
       cur&&E("div",{className:"style-draft","data-testid":"previs-draft"},
@@ -271,3 +297,57 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
       (shown&&shown!==cur||!shown)&&E("p",{className:"loc-layer-note"},"Only the current draft can become "+becomes+". Making an earlier draft current keeps the one it replaces with the earlier drafts; no image is generated.")));
 }
 window.LocationPrevisStep=LocationPrevisStep;
+
+/* THE WHOLE PLACE FROM ABOVE: one picture of the place's single 3D set, ceilings off, each space named. */
+function LocationPrevisOverview({location:l}){
+  const E=React.createElement,P=window.KinolotPrevis;
+  const [shot,setShot]=React.useState(null),[error,setError]=React.useState(""),[drawing,setDrawing]=React.useState(false),[turn,setTurn]=React.useState(null);
+  const from=(()=>{try{return [l.id,typeof locationSpatialPlanSigFor==="function"?locationSpatialPlanSigFor(l):"",P.dressingSig(l),turn].join("|");}catch(_){return l.id+"|"+turn;}})();
+  React.useEffect(()=>{
+    let live=true;setError("");setDrawing(true);
+    P.overview(l,undefined,turn==null?{}:{yaw:turn}).then(o=>{if(live)setShot(o);},e=>{if(live){setShot(null);setError((e&&e.message)||"The place could not be drawn.");}})
+      .finally(()=>{if(live)setDrawing(false);});
+    return ()=>{live=false;};
+  },[from]);
+  return E("div",{className:"loc-sub previs-view","data-testid":"previs-overview"},
+    E("h4",{className:"loc-step-sub"},"The whole place from above"),
+    E("p",{className:"loc-layer-note"},"One set for "+(l.name||"this place")+" and every room in it, drawn from the floor plan with the ceilings off. Check that the rooms meet where they should and that each door leads where it should. Every room\u2019s four views are taken inside this same set."),
+    error&&!shot?E("div",{className:"loc-step-fixes"},E("p",{className:"loc-step-fixes-head"},"The place cannot be drawn yet."),E("p",{style:{margin:"0 0 8px"}},error),
+        E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Go to 2 \u00b7 Floor plan"))
+      :E("div",{className:"previs-sheet"+(drawing?" drawing":""),"aria-busy":drawing?"true":"false"},
+        shot?E("img",{src:shot.dataUrl,alt:"The whole of "+(l.name||"this place")+" from above: "+(shot.spaces||[]).join(", "),draggable:false})
+          :E("span",{className:"previs-sheet-wait"},drawing?"Drawing the place\u2026":"")),
+    shot&&E("div",{className:"loc-step-actions"},
+      E("button",{type:"button",className:"art-draftall ghost",disabled:drawing,onClick:()=>setTurn(t=>((t==null?30:t)+90)%360),title:"See the place from its next side"},"Turn the view"),
+      E("span",{className:"loc-layer-note"},shot.dressed?"Dressed: "+shot.parts+" shapes across the place.":"Not dressed yet: plain blocks.")));
+}
+/* ONE PLACE, ALL ITS ROOMS, ON ONE CARD (owner 2026-11-16: "the main location has to house those subspaces ... all on
+   the same card"). On a place that has rooms, Previs opens with a row of its spaces: the whole place from above, the
+   place itself, and each room. A room shown here is the room's own Previs (its four cameras, its dressing, its image
+   and drafts), inside the same 3D set. A place with no rooms shows the one step as before. */
+function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,onSelectLocation}){
+  const E=React.createElement,list=(rooms||[]).filter(r=>r&&r.id&&r.id!==l.id);
+  const [view,setView]=React.useState(l.id),[,setTick]=React.useState(0);
+  React.useEffect(()=>{setView(l.id);},[l.id]);
+  React.useEffect(()=>{
+    const h=()=>setTick(n=>n+1);
+    ["nb-gen-done","nb-prefetched"].forEach(n=>window.addEventListener(n,h));
+    return ()=>["nb-gen-done","nb-prefetched"].forEach(n=>window.removeEventListener(n,h));
+  },[]);
+  const own=E(LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage,imageMeta,imageN});
+  if(!list.length)return own;
+  const room=list.find(r=>r.id===view);
+  const chip=(id,label,title)=>E("button",{key:id,type:"button",className:"art-draftall ghost previs-space"+(view===id?" on":""),"aria-pressed":view===id,title,onClick:()=>setView(id)},label);
+  const got=id=>{try{return typeof window.nbGetImage==="function"?window.nbGetImage(id):"";}catch(_){return "";}};
+  const metaOf=id=>{try{return typeof window.nbGetMeta==="function"?window.nbGetMeta(id):null;}catch(_){return null;}};
+  return E(React.Fragment,null,
+    E("div",{className:"previs-spaces",role:"group","aria-label":"Which space of "+(l.name||"this place")+" to show","data-testid":"previs-spaces"},
+      chip("all","Whole place","The whole set from above, ceilings off"),
+      chip(l.id,l.name||"This place","The place itself, from its four cameras"),
+      list.map(r=>chip(r.id,(r.name||"Room")+(got(r.id)?" \u2713":""),(r.name||"This room")+", from its own four cameras"+(got(r.id)?" (it has its image)":"")))),
+    view==="all"?E(LocationPrevisOverview,{location:l})
+      :room?E(LocationPrevisStep,{key:room.id,location:room,project,readOnly,onUpdate,hasImage:!!got(room.id),imageMeta:got(room.id)?metaOf(room.id):null,asRoom:true,
+        onOpenCard:typeof onSelectLocation==="function"?section=>onSelectLocation(room.id,section):undefined})
+      :own);
+}
+window.LocationPrevisOverview=LocationPrevisOverview;window.LocationPrevisPlace=LocationPrevisPlace;

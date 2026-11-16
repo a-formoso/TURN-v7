@@ -371,10 +371,10 @@ await test("E3 plans.jsx: the owner's Stage gates on a shared film; the cards' t
   vm.runInContext(transform(plansSrc, "plans.jsx"), pb);
   const d = { tier:"director", features:["1,600 credits / month"] }, w = { tier:"writer", features:["x"] };
   pb.turnTeamSharing = false;
-  assert.deepEqual(J(pb.turnPlanCardFeatures(d)), ["1,600 credits / month"]);
+  assert.deepEqual(J(pb.turnPlanCardFeatures(d)), ["1,600 credits / month", "Previs: every location as a 3D set, dressed for your film"]);   // the Previs line (2026-11-16) is on the Director and Producer cards
   pb.turnTeamSharing = true;
-  assert.deepEqual(J(pb.turnPlanCardFeatures(d)), ["1,600 credits / month", "Share films with up to 5 collaborators"]);
-  assert.deepEqual(J(pb.turnPlanCardFeatures({ tier:"studio", features:[] })), ["Share films with up to 10 collaborators"]);
+  assert.deepEqual(J(pb.turnPlanCardFeatures(d)), ["1,600 credits / month", "Share films with up to 5 collaborators", "Previs: every location as a 3D set, dressed for your film"]);
+  assert.deepEqual(J(pb.turnPlanCardFeatures({ tier:"studio", features:[] })), ["Share films with up to 10 collaborators", "Previs: every location as a 3D set, dressed for your film"]);
   assert.deepEqual(J(pb.turnPlanCardFeatures(w)), ["x"], "Writer: no line");
   pb.turnCreditBalance = { plan:"none" }; pb.turnFilmOwnerTier = "studio";
   assert.equal(pb.turnTierGates(pb.turnCreditBalance).maxBatch, 4, "a no-plan Stage editor on a Producer film: the owner's gates");

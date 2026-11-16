@@ -186,9 +186,10 @@
   }
 
   /* The built set with its dressing on: same contract as the set itself, so the same views draw it. */
-  function apply(scene,dressing){
+  function apply(scene,dressing,tag){
+    tag=tag?String(tag).replace(/[^A-Za-z0-9]/g,"").slice(0,12):"";
     const seen=survey(scene),materials={...scene.materials},objects=[];
-    const name=key=>"d_"+key;
+    const name=key=>"d"+tag+"_"+key,idOf=(kind,k)=>kind+"-"+(tag?tag+"-":"")+k;
     Object.entries(dressing.palette||{}).forEach(([key,m])=>{
       materials[name(key)]={baseColor:colour(m.colour),metallic:m.metal,roughness:m.roughness,...(m.glow>0?{emissionStrength:round(m.glow*2,2)}:{})};
     });
@@ -211,12 +212,47 @@
     Object.entries(dressing.objects||{}).forEach(([id,parts])=>{
       const block=seen.blocks.get(id);if(!block)return;
       const base=[block.position[0],block.position[1],block.position[2]-block.size[2]/2];
-      parts.forEach((p,i)=>add("dress-"+(n++),block.name+" \u00b7 "+(i+1),base,block.rotation[2],p,{anchorId:id}));
+      parts.forEach((p,i)=>add(idOf("dress",n++),block.name+" \u00b7 "+(i+1),base,block.rotation[2],p,{anchorId:id}));
     });
     (dressing.extras||[]).forEach(piece=>piece.parts.forEach((p,i)=>
-      add("extra-"+(n++),piece.name+(piece.parts.length>1?" \u00b7 "+(i+1):""),piece.at,-piece.turn*RAD,p,{})));
+      add(idOf("extra",n++),piece.name+(piece.parts.length>1?" \u00b7 "+(i+1):""),piece.at,-piece.turn*RAD,p,{})));
     const notes=[...scene.notes,"Dressing is a design proposal read from the card and the screenplay, not a survey."].slice(0,40);
     return {...scene,notes,objects,materials};
+  }
+
+  /* ONE PLACE, ONE SET (owner 2026-11-16: a place's rooms are "an integral part of the same location"). The floor plan
+     of a place holds all its rooms, and each card dresses ITS OWN space: the place its own ground and what stands
+     outside every room, a room what is inside its outline. Every card of the place is then drawn with all of these
+     layers on (set-previs.js scene), so a room and its place can never show two different sets. */
+  function place(location,list){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    const state=typeof root.locationSpatialPlanState==="function"?root.locationSpatialPlanState(location,list):null;
+    const owner=state&&state.owner||location,C=root.KinolotRenderContract;
+    const spaces=((state&&state.plan&&state.plan.coordinates&&state.plan.coordinates.spaces)||[]).map(s=>{
+      let poly=null;try{poly=C&&C.polygon?C.polygon(s.footprint):s.footprint;}catch(_){poly=null;}
+      return Array.isArray(poly)&&poly.length>=3?{id:s.id,name:tidy(s.name||"Space"),footprint:poly}:null;}).filter(Boolean);
+    let family=[owner];
+    try{if(typeof root.locationSpatialFamily==="function")family=root.locationSpatialFamily(owner,list)||[owner];}catch(_){family=[owner];}
+    return {owner,spaces,family:family.filter(Boolean)};
+  }
+  // A card's dressing cut down to its own space. A place with one space keeps everything.
+  function own(dressing,scene,where,memberId){
+    const spaces=where&&where.spaces||[],ownerId=where&&where.owner&&where.owner.id;
+    if(spaces.length<2)return {dressing,left:[]};
+    const inside=(poly,p)=>{let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];
+      if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])c=!c;}return c;};
+    const area=poly=>Math.abs(poly.reduce((n,a,i)=>{const b=poly[(i+1)%poly.length];return n+a[0]*b[1]-b[0]*a[1];},0))/2;
+    // the smallest space a point stands in (a room inside the outline of its place is the room)
+    const at=p=>spaces.filter(x=>inside(x.footprint,p)).sort((a,b)=>area(a.footprint)-area(b.footprint))[0]||null;
+    const mine=p=>{const x=at(p);return x?x.id===memberId:memberId===ownerId;};
+    const me=spaces.find(x=>x.id===memberId),myName=me?me.name.toLowerCase():"",left=[];
+    const base=new Map();scene.objects.forEach(o=>{if(o.anchorId&&!base.has(o.anchorId))base.set(o.anchorId,o);});
+    const elsewhere="it is in another space of this place, which is dressed from its own card";
+    const surfaces=Object.fromEntries(Object.entries(dressing.surfaces||{}).filter(([n])=>n.toLowerCase()===myName));
+    const objects=Object.fromEntries(Object.entries(dressing.objects||{}).filter(([id])=>{
+      const o=base.get(id),ok=!!o&&mine([o.position[0],o.position[1]]);if(!ok&&left.length<40)left.push(tidy(o&&o.name||id,80)+": "+elsewhere);return ok;}));
+    const extras=(dressing.extras||[]).filter(e=>{const ok=mine(e.at);if(!ok&&left.length<40)left.push(tidy(e.name,80)+": "+elsewhere);return ok;});
+    return {dressing:{...dressing,surfaces,objects,extras},left};
   }
 
   /* What the engine reads: the film, the card, the screenplay of the scenes set here, and the built floor plan. */
@@ -230,7 +266,11 @@
     const anchorOf=id=>(plan.anchors||[]).find(a=>a.id===id);
     const built=new Map();
     scene.objects.forEach(o=>{if(o.anchorId&&!built.has(o.anchorId))built.set(o.anchorId,o);});
+    const where=place(location,list),mySpace=where.spaces.find(x=>x.id===location.id);
     return {
+      // a place with rooms: this card dresses its own space only
+      ...(where.spaces.length>1&&(mySpace||location.id===where.owner.id)?{dressOnly:{space:mySpace?mySpace.name:cut(location.name,120),
+        isThePlaceItself:location.id===where.owner.id,otherSpaces:where.spaces.filter(x=>x.id!==location.id).map(x=>x.name)}}:{}),
       film:{title:cut(project.title,120),genre:cut(project.genre,80),logline:cut(project.logline,500),premise:cut(project.premise,400),
         period:cut(setting.period,200),place:cut(setting.location,200)},
       location:{name:cut(location.name,120),interiorOrExterior:cut(location.intExt,40),architecture:cut(location.architecture,900),
@@ -255,6 +295,9 @@
     return "You are the production designer and set decorator of the film described below. Dress ONE location as a simple 3D set made of plain shapes: a previsualisation the director looks at before any image is made.\n\n"
       +"THE SET MUST BELONG TO THIS FILM: its period, its place, the money and habits of the people who live or work here, the weather and hour of its scenes. Read the screenplay extract for what happens here, what is touched and what is said about the place. Nothing generic, no showroom.\n\n"
       +"THE FLOOR PLAN IS FIXED. The spaces, openings, objects and cameras below are saved facts in metres. Never move, resize or remove them.\n\n"
+      +(data&&data.dressOnly?"THIS PLACE HAS SEVERAL SPACES ON ONE FLOOR PLAN, AND THEY ARE ONE SET. Dress ONLY \""+data.dressOnly.space+"\": "
+        +(data.dressOnly.isThePlaceItself?"its own ground and everything that stands outside the other spaces (the outside of the building, the street, the neighbours).":"what is inside its own outline: its surfaces, its objects, its door leaves and window frames, its fittings.")
+        +" The other spaces ("+data.dressOnly.otherSpaces.join(", ")+") are dressed from their own cards: set no surfaces for them, redraw none of their objects and place nothing inside them; anything placed there is dropped. They can still be seen through openings, so make what meets them agree.\n\n":"")
       +"AXES: metres; +X east, +Y north, +Z up. A facing or turn is degrees clockwise from north seen from above (0 north, 90 east, 180 south, 270 west). A piece's own axes before it is turned: x along its width, y along its depth with +y the way it faces, z up.\n\n"
       +"WHAT YOU WRITE (JSON only):\n"
       +"1. palette: up to "+LIMITS.palette+" named materials, \"name\":[\"#rrggbb\", roughness 0-1, metal 0-1, glow 0-3]. Glow only for what gives light by day too: a screen, a lit sign. By day a window is dark glass.\n"
@@ -323,10 +366,13 @@
     if(epoch!==null&&root.nbEpoch()!==epoch)throw new Error("The film changed. The set was not dressed.");
     const parsed=readJSON(raw);
     if(!parsed||typeof parsed!=="object")throw new Error("The dressing came back incomplete. Nothing was changed.");
-    const checked=normalise(parsed,scene);
+    const first=normalise(parsed,scene),cut=own(first.dressing,scene,place(location,ctx.locations),location.id);
+    // what is kept is this card's own space; the report counts what is kept
+    const count=d=>Object.values(d.objects).reduce((n,l)=>n+l.length,0)+d.extras.reduce((n,e)=>n+e.parts.length,0);
+    const checked={dressing:cut.dressing,report:{...first.report,parts:count(cut.dressing),objects:Object.keys(cut.dressing.objects).length,extras:cut.dressing.extras.length,left:first.report.left.concat(cut.left)}};
     if(!checked.report.parts&&!Object.keys(checked.dressing.surfaces).length)throw new Error("The dressing came back empty. Nothing was changed.");
     return {...checked,scene:apply(scene,checked.dressing),written:parsed,promptLength:text.length,answerLength:String(raw&&raw.text||raw||"").length};
   }
 
-  root.KinolotSetDressing={MODEL,LIMITS,CALL,SAVED_MAX,pack,saved,colour,part,fit,survey,normalise,apply,brief,prompt,draft};
+  root.KinolotSetDressing={MODEL,LIMITS,CALL,SAVED_MAX,place,own,pack,saved,colour,part,fit,survey,normalise,apply,brief,prompt,draft};
 })(typeof window!=="undefined"?window:globalThis);

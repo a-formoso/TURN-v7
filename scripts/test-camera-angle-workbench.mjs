@@ -229,9 +229,13 @@ function harness({pending=false,failed=false,mode="gpu",suggested=false,gpuFailu
  // 2026-11-15 (owner: one road, "remove Blender"): the cloud set build left the location card and Previs is on every
  // plan, so no plan card adds a cloud-sets line any more.
  for(const tier of ['writer','director','studio'])ok(!b.turnPlanCardFeatures({tier,features:[]},['Custom copy']).some(s=>/cloud sets|camera-angle previews/i.test(s)),'No plan card advertises cloud sets after they left the card');
+ // owner 2026-11-16: Previs is for Director and Producer (it lives in the Art Room, which is theirs)
+ for(const tier of ['director','studio'])ok(b.turnPlanCardFeatures({tier,features:[]},['Custom copy']).includes('Previs: every location as a 3D set, dressed for your film'),'Director and Producer cards name Previs');
+ ok(!b.turnPlanCardFeatures({tier:'writer',features:[]}).some(s=>/previs/i.test(s)),'The Writer card does not');
+ ok(b.turnPlanCardFeatures({tier:'director'},b.turnPlanCardFeatures({tier:'director'},['Custom copy'])).filter(s=>/previs/i.test(s)).length===1,'The line is not added twice');
  ok(!source.includes('list.push("Cloud sets'),'The retired line is no longer added');
  const old=['Custom copy'];b.turnPlanCardFeatures({tier:'director'},old);ok(old.length===1,'The helper never edits saved admin copy');
- b.TURN_SUPABASE.setBuild=false;ok(!b.turnPlanCardFeatures({tier:'studio',features:[]}).length,'Cloud feature copy follows the app release switch');
+ b.TURN_SUPABASE.setBuild=false;ok(b.turnPlanCardFeatures({tier:'studio',features:[]}).join()==='Previs: every location as a 3D set, dressed for your film','The Previs line does not depend on the old cloud-build switch');
  ok(readFileSync('app/landing.jsx','utf8').includes('window.turnPlanCardFeatures(p)'),'Homepage uses this same feature helper');
 }
 console.log('PASS camera workbench: '+checks+' preview, assignment, extra-camera, stale/access, disposal and plan-card checks');

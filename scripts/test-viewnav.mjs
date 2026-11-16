@@ -122,8 +122,9 @@ check(()=>{
 check(()=>{
   const art = nav({room:"art", onProductionCheck:noop});
   const studio = byClass(art,"vn-studio").map(n=>n.props["aria-label"]);
-  assert.deepEqual(studio, ["Blender Studio","Production check"], "the Art Room keeps Blender Studio and Production check");
-  assert.equal(byClass(nav({room:"art"}),"vn-studio").length, 1, "Production check appears only when wired");
+  // (the Blender Studio button left the Art Room's heading on 2026-11-16, owner: "Remove it now")
+  assert.deepEqual(studio, ["Production check"], "the Art Room keeps Production check; Blender Studio is gone");
+  assert.equal(byClass(nav({room:"art"}),"vn-studio").length, 0, "Production check appears only when wired");
 });
 
 /* ── Left rail: Premise · Setting · Cast (story-derived, no manual cast) ─────── */
