@@ -230,7 +230,9 @@
     const owner=state&&state.owner||location,C=root.KinolotRenderContract;
     const spaces=((state&&state.plan&&state.plan.coordinates&&state.plan.coordinates.spaces)||[]).map(s=>{
       let poly=null;try{poly=C&&C.polygon?C.polygon(s.footprint):s.footprint;}catch(_){poly=null;}
-      return Array.isArray(poly)&&poly.length>=3?{id:s.id,name:tidy(s.name||"Space"),footprint:poly}:null;}).filter(Boolean);
+      // top: where a roofed space ends (its ceiling); null for open air
+      const top=!s.openSky&&Number.isFinite(Number(s.floorZ))&&Number.isFinite(Number(s.ceilingH))?Number(s.floorZ)+Number(s.ceilingH):null;
+      return Array.isArray(poly)&&poly.length>=3?{id:s.id,name:tidy(s.name||"Space"),footprint:poly,top}:null;}).filter(Boolean);
     let family=[owner];
     try{if(typeof root.locationSpatialFamily==="function")family=root.locationSpatialFamily(owner,list)||[owner];}catch(_){family=[owner];}
     return {owner,spaces,family:family.filter(Boolean)};
@@ -251,7 +253,13 @@
     const surfaces=Object.fromEntries(Object.entries(dressing.surfaces||{}).filter(([n])=>n.toLowerCase()===myName));
     const objects=Object.fromEntries(Object.entries(dressing.objects||{}).filter(([id])=>{
       const o=base.get(id),ok=!!o&&mine([o.position[0],o.position[1]]);if(!ok&&left.length<40)left.push(tidy(o&&o.name||id,80)+": "+elsewhere);return ok;}));
-    const extras=(dressing.extras||[]).filter(e=>{const ok=mine(e.at);if(!ok&&left.length<40)left.push(tidy(e.name,80)+": "+elsewhere);return ok;});
+    /* A free piece is INSIDE a room only when it stands clear of the room's walls and under its ceiling. What stands
+       on a room's outline or over its ceiling is the building seen from outside (its front, an upper storey, the
+       roof), and that belongs to the place (2026-11-16: or a house front would be dropped as "in the hallway"). */
+    const near=(p,a,b)=>{const dx=b[0]-a[0],dy=b[1]-a[1],t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/((dx*dx+dy*dy)||1)));return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy);};
+    const within=(x,p)=>inside(x.footprint,p)&&x.footprint.every((a,i)=>near(p,a,x.footprint[(i+1)%x.footprint.length])>=0.2)&&(x.top==null||!(p[2]>=x.top-0.05));
+    const mineFree=p=>{const x=spaces.filter(sp=>within(sp,p)).sort((a,b)=>area(a.footprint)-area(b.footprint))[0]||null;return x?x.id===memberId:memberId===ownerId;};
+    const extras=(dressing.extras||[]).filter(e=>{const ok=mineFree(e.at);if(!ok&&left.length<40)left.push(tidy(e.name,80)+": "+elsewhere);return ok;});
     return {dressing:{...dressing,surfaces,objects,extras},left};
   }
 
@@ -296,7 +304,7 @@
       +"THE SET MUST BELONG TO THIS FILM: its period, its place, the money and habits of the people who live or work here, the weather and hour of its scenes. Read the screenplay extract for what happens here, what is touched and what is said about the place. Nothing generic, no showroom.\n\n"
       +"THE FLOOR PLAN IS FIXED. The spaces, openings, objects and cameras below are saved facts in metres. Never move, resize or remove them.\n\n"
       +(data&&data.dressOnly?"THIS PLACE HAS SEVERAL SPACES ON ONE FLOOR PLAN, AND THEY ARE ONE SET. Dress ONLY \""+data.dressOnly.space+"\": "
-        +(data.dressOnly.isThePlaceItself?"its own ground and everything that stands outside the other spaces (the outside of the building, the street, the neighbours).":"what is inside its own outline: its surfaces, its objects, its door leaves and window frames, its fittings.")
+        +(data.dressOnly.isThePlaceItself?"its own ground and everything that stands outside the other spaces (the outside of the building, the street, the neighbours). The outside of the building is yours even where it stands on a room's outline or over it: its front walls with their doors and windows, its upper storeys and its roof.":"what is inside its own outline: its surfaces, its objects, its door leaves and window frames, its fittings.")
         +" The other spaces ("+data.dressOnly.otherSpaces.join(", ")+") are dressed from their own cards: set no surfaces for them, redraw none of their objects and place nothing inside them; anything placed there is dropped. They can still be seen through openings, so make what meets them agree.\n\n":"")
       +"AXES: metres; +X east, +Y north, +Z up. A facing or turn is degrees clockwise from north seen from above (0 north, 90 east, 180 south, 270 west). A piece's own axes before it is turned: x along its width, y along its depth with +y the way it faces, z up.\n\n"
       +"WHAT YOU WRITE (JSON only):\n"

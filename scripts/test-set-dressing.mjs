@@ -319,6 +319,11 @@ test('one place, one set: each card dresses its own space, and every card is dra
   const mine=D.own(raw,h.s,where,'yard');
   assert.deepEqual(Object.keys(mine.dressing.surfaces),['Yard']);assert.deepEqual(Object.keys(mine.dressing.objects),['bin']);
   assert.equal(mine.dressing.extras.map(e=>e.name).join(),'Yard bench,Street lamp');
+  // the building seen from outside belongs to the place: a front standing on a room's outline, a roof over its ceiling
+  const roofed={...where,spaces:where.spaces.map(x=>x.id==='hall'?{...x,top:2.4}:x)};
+  const shell=D.normalise({palette:{paint:['#808080',.8]},surfaces:{},objects:{},extras:[piece('House front',[2,0.05,0]),piece('Roof',[2,2,2.6]),piece('Hall lamp',[2,2,2.1])],light:{}},h.s).dressing;
+  assert.equal(D.own(shell,h.s,roofed,'yard').dressing.extras.map(e=>e.name).join(),'House front,Roof');
+  assert.equal(D.own(shell,h.s,roofed,'hall').dressing.extras.map(e=>e.name).join(),'Hall lamp');
   // a place with one space keeps everything, as before
   assert.equal(D.own(raw,h.s,{owner:yard,spaces:[where.spaces[0]]},'yard').dressing,raw);
   // the brief and the prompt say which space this card dresses
@@ -359,6 +364,20 @@ test('the image keeps to the sheet: each panel in words, and a room takes its lo
   assert.ok(prompt.indexOf('PANEL BY PANEL')<prompt.indexOf('THE SPEC (what things are and how they look). If it describes camera positions, views, panels or framing of its own, ignore those parts'));
   assert.ok(prompt.endsWith('CARD Hall'));
   assert.ok(!P.stylePrompt(yard,{},{scene:h.s,views}).includes('Image 2'),'the place itself has no look image');
+  // the card's own view plan in words is taken out of the spec (it is a second set of cameras beside the sheet's), and
+  // the engine is told the place is drawn as it normally is, with nothing drawn where the panels meet
+  const card='Render this environment reference sheet EXACTLY as specified by this JSON spec (continuity fields are binding):\n'
+    +JSON.stringify({task:'t',location:{name:'Hall',where:'Bin. Knocked over in the night scene.'},views:{top_left:'wide establishing view',bottom_left:'INTERIOR view of the hallway'},render:{style:'x'}})+' AVOID: people.';
+  const spec=P.specFromSet(card);
+  assert.ok(spec.startsWith('This place as a JSON spec: what things are, what they are made of and how they look.')&&!spec.includes('EXACTLY as specified'));
+  assert.ok(!spec.includes('wide establishing view')&&!spec.includes('INTERIOR view of the hallway')&&spec.includes('"decided_by":"Image 1, the 3D previs sheet.'));
+  assert.ok(spec.includes('"name":"Hall"')&&spec.includes('"render":{"style":"x"}')&&spec.endsWith(' AVOID: people.'),'everything else of the spec is kept');
+  assert.equal(P.specFromSet('plain words, no spec'),'plain words, no spec');assert.equal(P.specFromSet('before {not json} after'),'before {not json} after');
+  p.combinedLocationPrompt=()=>card;
+  const whole=P.stylePrompt(yard,{},{scene:h.s,views});
+  assert.ok(!whole.includes('INTERIOR view of the hallway')&&whole.includes('draw nothing along the lines where they meet, no post, frame, bar, border or gap.'));
+  assert.ok(whole.includes('Every object stands as its block stands in Image 1.')&&whole.includes('do not draw that: draw the place as it normally is.'));
+  p.combinedLocationPrompt=l=>'CARD '+l.name;
   // a room's look image: the finished image of its place, and only when there is one
   assert.equal(P.look(hall),null);
   p.nbGetImage=id=>id==='yard'?'yard-image-url':'';

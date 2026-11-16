@@ -243,6 +243,20 @@
   /* FROM THE SHEET TO THE IMAGE. The image engine gets the sheet as Image 1 and the card's own prompt, in the render
      style chosen on the card (or the tab's style when the card has none): photoreal, anime, anything. The sheet
      decides where things are; the card decides what they are and how they look. */
+  /* THE CARD'S SPEC, FOR AN IMAGE MADE FROM THE 3D SET (2026-11-16). The card's own prompt is written for an image made
+     from words: it opens with "render this sheet EXACTLY as specified" and carries a view plan in words (a wide
+     establishing view, an interior of the hallway...). Beside a 3D sheet that plan is a second, different set of
+     cameras, and the engine followed parts of each. So the view plan is taken out and the opening line says what
+     the spec is for. Anything that cannot be read as that spec is passed as it is. */
+  function specFromSet(card){
+    const text=String(card||""),a=text.indexOf("{"),b=text.lastIndexOf("}");
+    if(a<0||b<=a)return text;
+    let spec=null;try{spec=JSON.parse(text.slice(a,b+1));}catch(_){return text;}
+    if(!spec||typeof spec!=="object"||Array.isArray(spec))return text;
+    if(spec.views)spec.views={decided_by:"Image 1, the 3D previs sheet. Each panel's camera and what it shows are the previs panel's; no other view plan applies."};
+    return "This place as a JSON spec: what things are, what they are made of and how they look. Its continuity fields are binding for materials, sizes and fixed features; it does not decide any camera.\n"
+      +JSON.stringify(spec)+text.slice(b+1);
+  }
   function stylePrompt(location,project,drawn){
     const style=typeof root.locVisualDefaults==="function"?root.locVisualDefaults(location).renderStyle:"";
     const build=typeof root.combinedLocationPrompt==="function"?root.combinedLocationPrompt:root.buildLocationRefPrompt;
@@ -253,11 +267,13 @@
       +"Keep every wall, opening, building and object, each in its place, size and proportion. "
       +"The previs is built from plain blocks: read each block as the real thing it stands for (named panel by panel below, and described in the spec) and give it its real surface, detail, edges and wear. "
       +"Do not add, remove or move buildings, objects or openings, and do not merge, swap, crop or reframe panels. Never replace a panel with a different or more flattering view of the place. "
+      +"The four panels meet edge to edge: draw nothing along the lines where they meet, no post, frame, bar, border or gap. "
+      +"Every object stands as its block stands in Image 1. Where the spec says that something happens to an object in one scene (it is knocked over, spilled, broken, trampled, moved or left open), do not draw that: draw the place as it normally is. "
       +"The sheet's flat colours and simple light only point to materials and the hour; the finished look is the spec's render style"+(style?" ("+style+")":"")+". "
       +"No people, no text, no labels, no borders and no panel numbers.\n"
       +(drawn&&drawn.look?"Image 2 is the finished image of "+drawn.look+", the place this space is part of. Take from it the materials, the palette, the weather and the quality of light, so that the two belong to one place. Take NO layout, camera or object from Image 2: Image 1 alone decides those.\n":"")
       +(drawn&&drawn.scene?panelText(drawn.scene,drawn.views):"")
-      +"\nTHE SPEC (what things are and how they look). If it describes camera positions, views, panels or framing of its own, ignore those parts: Image 1 alone decides them.\n"+card;
+      +"\nTHE SPEC (what things are and how they look). If it describes camera positions, views, panels or framing of its own, ignore those parts: Image 1 alone decides them.\n"+specFromSet(card);
   }
   // The engine and size in the top bar, as the plan allows them, and what one image from the sheet costs.
   function settings(engine,refs){
@@ -516,5 +532,5 @@
       return result;
     });
   }
-  root.KinolotPrevis={PANELS,OUT_OF_DATE,sheet,scene,dressingSig,overview,look,lightFor,framePrompt,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,restore,retrySave,discardUnsaved,pending};
+  root.KinolotPrevis={PANELS,OUT_OF_DATE,specFromSet,sheet,scene,dressingSig,overview,look,lightFor,framePrompt,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,restore,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);
