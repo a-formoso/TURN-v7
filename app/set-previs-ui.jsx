@@ -5,12 +5,52 @@
    "preview as soon as image is generated, with option for the user to use as location image or discard"), kept with
    the drafts before it until discarded. The floor plan stays the authority. This is the card's one road from the set
    to its image (the cloud build and its styling step left the card on 2026-11-15). */
+/* PROGRESS BESIDE THE BUTTON (owner 2026-11-16: "show progress and a cancel button, inline, to the right"). The image
+   engine reports no progress, so the bar runs against the time an image usually takes and stops short of full until
+   the draft is saved. */
+function previsProgress({phase,since,now,model}){
+  const E=React.createElement,clock=x=>Math.floor(x/60)+":"+String(Math.floor(x%60)).padStart(2,"0");
+  const estimate=/nano-banana/.test(String(model||""))?35:50,elapsed=Math.max(0,((now||since)-since)/1000);
+  let pct,text;
+  if(phase==="saving"){pct=96;text="Saving the draft";}
+  else if(phase!=="generating"){pct=3;text="Drawing the set";}
+  else{pct=Math.min(95,Math.max(4,Math.round(elapsed/estimate*100)));text=elapsed<=estimate?clock(elapsed)+" of about "+clock(estimate):"Longer than usual \u00b7 "+clock(elapsed);}
+  return E("span",{className:"previs-progress",role:"status","data-testid":"previs-progress"},
+    E("span",{className:"previs-progress-bar",role:"progressbar","aria-label":"Image progress","aria-valuemin":0,"aria-valuemax":100,"aria-valuenow":pct},E("span",{style:{width:pct+"%"}})),
+    E("span",{className:"previs-progress-text"},text));
+}
+// One run at a time, a clock while an image is made, and Cancel: the same in the location step and in a variant.
+function usePrevisRun(alive,writable){
+  const [busy,setBusy]=React.useState(""),[phase,setPhase]=React.useState(""),[notice,setNotice]=React.useState(""),[fail,setFail]=React.useState("");
+  const [since,setSince]=React.useState(0),[now,setNow]=React.useState(0),token=React.useRef(0);
+  React.useEffect(()=>{
+    if(busy!=="render")return;
+    const timer=setInterval(()=>setNow(Date.now()),1000);return ()=>clearInterval(timer);
+  },[busy]);
+  const run=async(name,fn,failText)=>{
+    if(busy||!writable())return;
+    const mine=++token.current,live=()=>alive.current&&token.current===mine;
+    setBusy(name);setFail("");setNotice("");
+    try{await fn(live);}catch(e){if(live())setFail((e&&e.message)||failText);}
+    finally{if(live()){setBusy("");setPhase("");}}
+  };
+  const step=(live,name)=>{if(live()){setPhase(name);if(name!=="saving"){setSince(Date.now());setNow(Date.now());}}};
+  // Cancel: the card is free at once; a request already sent finishes on its own and its result is thrown away
+  const cancel=target=>{
+    const r=window.KinolotPrevis.cancel(target);
+    if(!r.ok){setNotice(r.reason==="saving"?"The draft is already being saved.":"The image has already finished.");return;}
+    token.current++;setBusy("");setPhase("");setFail("");
+    setNotice(r.submitted?"Cancelled. The image request had already been sent, so it may still be charged. Its result will not be saved."
+      :"Cancelled before the image request was sent. Nothing was charged.");
+  };
+  return {busy,phase,notice,fail,since,now,setNotice,setFail,run,step,cancel};
+}
 function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,asRoom=false,onOpenCard}){
   const E=React.createElement,D=window.KinolotSetDressing,P=window.KinolotPrevis,api=window.KinolotCloudRender;
   const [sheet,setSheet]=React.useState(""),[error,setError]=React.useState(""),[drawing,setDrawing]=React.useState(false);
-  const [info,setInfo]=React.useState(null),[busy,setBusy]=React.useState(""),[phase,setPhase]=React.useState("");
-  const [notice,setNotice]=React.useState(""),[fail,setFail]=React.useState(""),[left,setLeft]=React.useState([]);
+  const [info,setInfo]=React.useState(null),[left,setLeft]=React.useState([]);
   const [tick,setTick]=React.useState(0),alive=React.useRef(true);
+  const R=usePrevisRun(alive,()=>writable()),{busy,phase,notice,fail,setNotice,setFail,run}=R;
   // the drafts kept for this card, what the set and the look are now, and the open comparison
   const [kept,setKept]=React.useState({current:null,lastDiscarded:false,earlier:[]}),[nowKeys,setNowKeys]=React.useState(undefined);
   const [review,setReview]=React.useState(null),[camera,setCamera]=React.useState("all"),[wipe,setWipe]=React.useState(50),[other,setOther]=React.useState("");
@@ -71,7 +111,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     let live=true;setNowKeys(undefined);
     P.keys(target).then(k=>{if(live)setNowKeys(k);},()=>{if(live)setNowKeys(null);});
     return ()=>{live=false;};
-  },[drawnFrom,lookNow]);
+  },[drawnFrom,lookNow,tick]);
   // the comparison opens as a modal whenever it is on the page (it leaves the page when closed)
   React.useEffect(()=>{const el=dialog.current;if(el&&review&&!el.open&&typeof el.showModal==="function")el.showModal();});
   // "Go to 2 / 3": on a room shown inside its place's Previs, the room's own card opens first (its floor plan and
@@ -81,18 +121,12 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     if(window.goToLocationStep)window.goToLocationStep(l,step);
   };
   const writable=()=>!readOnly&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
-  const run=async(name,fn,failText)=>{
-    if(busy||!writable())return;
-    setBusy(name);setFail("");setNotice("");
-    try{await fn();}catch(e){if(alive.current)setFail((e&&e.message)||failText);}
-    finally{if(alive.current){setBusy("");setPhase("");}}
-  };
-  const dress=()=>run("dress",async()=>{
+  const dress=()=>run("dress",async live=>{
     setLeft([]);
     const r=await D.draft(l,{project});
     // saved with the location even if this section was closed meanwhile: the call is paid for
     onUpdate(l.id,{previs:D.pack(r.dressing,{engine:D.MODEL})});
-    if(alive.current){setLeft(r.report.left);setNotice("The set is dressed: "+r.report.parts+" shapes, from this card and its scenes.");}
+    if(live()){setLeft(r.report.left);setNotice("The set is dressed: "+r.report.parts+" shapes, from this card and its scenes.");}
   },"The set could not be dressed.");
   function undress(){
     if(busy||!writable()||!l.previs)return;
@@ -100,27 +134,27 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     onUpdate(l.id,{previs:null});setLeft([]);setNotice("");setFail("");
     if(typeof window.appToast==="function")window.appToast("The dressing was removed.","info",{action:{label:"Undo",onClick:()=>onUpdate(l.id,{previs:was})}});
   }
-  const make=()=>run("render",async()=>{
-    setPhase("drawing");
-    await P.render(target,{project,location:l,settings:choice||undefined,onPhase:p=>{if(alive.current)setPhase(p);}});
-    if(alive.current)setNotice("The draft is ready, just below. It becomes "+becomes+" only when you choose to use it.");
+  const make=()=>run("render",async live=>{
+    R.step(live,"drawing");
+    await P.render(target,{project,location:l,settings:choice||undefined,onPhase:p=>R.step(live,p)});
+    if(live())setNotice("The draft is ready, just below. It becomes "+becomes+" only when you choose to use it.");
   },"The image could not be made.");
-  const saveKept=()=>run("render",async()=>{
-    setPhase("saving");await P.retrySave(target);
-    if(alive.current)setNotice("The draft was saved. It is just below.");
+  const saveKept=()=>run("render",async live=>{
+    R.step(live,"saving");await P.retrySave(target);
+    if(live())setNotice("The draft was saved. It is just below.");
   },"The draft could not be saved.");
-  const useDraft=d=>run("use",async()=>{
+  const useDraft=d=>run("use",async live=>{
     await P.use(target,d.meta.iso);
-    if(alive.current){setReview(null);setNotice(part?"Saved as the \u201c"+part.label+"\u201d image. Shots at those moments use it in place of the location image."
+    if(live()){setReview(null);setNotice(part?"Saved as the \u201c"+part.label+"\u201d image. Shots at those moments use it in place of the location image."
       :(isRoom?"This draft is now this room\u2019s image.":"This draft is now the location image, at the top of the card.")+(hasImage?" The image before it stays in the card\u2019s versions.":""));}
   },"The draft could not be used.");
-  const discardDraft=d=>run("discard",async()=>{
+  const discardDraft=d=>run("discard",async live=>{
     await P.discard(target,d.meta.iso);
-    if(alive.current){setReview(null);setNotice("The draft was discarded. "+(part?"That state\u2019s image":isRoom?"This room\u2019s image":"The location image")+" was not changed.");}
+    if(live()){setReview(null);setNotice("The draft was discarded. "+(part?"That state\u2019s image":isRoom?"This room\u2019s image":"The location image")+" was not changed.");}
   },"The draft could not be discarded.");
-  const bringBack=d=>run("restore",async()=>{
+  const bringBack=d=>run("restore",async live=>{
     await P.restore(target,d.meta.iso);
-    if(alive.current){setReview(null);setNotice("That draft is the current one again. The draft it replaced is kept with the earlier drafts.");}
+    if(live()){setReview(null);setNotice("That draft is the current one again. The draft it replaced is kept with the earlier drafts.");}
   },"The earlier draft could not be brought back.");
   const PANEL_NAMES={TL:"Top-left",TR:"Top-right",BL:"Bottom-left",BR:"Bottom-right"};
   const faulty=Object.entries(faults||{}).filter(([,why])=>why);
@@ -140,13 +174,13 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     }catch(e){if(alive.current)setFail((e&&e.message)||"The cameras could not be fixed.");}
     finally{if(alive.current)setFixing(false);}
   }
-  const pend=P.pending(target),working=busy==="render"||(pend.running&&!busy);
+  const pend=P.pending(target),cancelling=pend.running&&pend.cancelled&&busy!=="render",working=busy==="render"||(pend.running&&!busy&&!pend.cancelled);
   let whole=null;try{whole=typeof P.look==="function"?P.look(l):null;}catch(_){whole=null;}
   let choice=null;try{choice=P.settings(engine||undefined,whole?2:1);}catch(_){choice=null;}
   const engines=(window.NB_MODELS||[]).map(m=>m&&m.id||m).filter(x=>typeof x==="string");
   const engineName=id=>typeof window.nbModelLabel==="function"?window.nbModelLabel(id):id;
   const style=String((typeof locVisualDefaults==="function"?locVisualDefaults(l).renderStyle:"")||"").replace(/\s+/g," ").trim();
-  const phaseText={drawing:"Drawing the sheet\u2026",generating:"Making the image\u2026 about a minute",saving:"Saving the draft\u2026"}[phase]||"Making the image\u2026";
+  const phaseText="Making the image\u2026";
   let fixStep=2;
   if(error&&!sheet)try{const first=(api.inputIssueList(l)||[])[0];if(first&&first.step===3)fixStep=3;}catch(_){fixStep=2;}
   if(error&&!sheet)return E(React.Fragment,null,
@@ -241,10 +275,15 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
             E("button",{type:"button",className:"art-draftall",disabled:!!busy,onClick:saveKept},"Save it"),
             E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>P.discardUnsaved(target)},"Discard it"))
         :!readOnly&&E("div",{className:"loc-step-actions"},
-            E("button",{type:"button",className:"art-draftall",disabled:!!busy||working||drawing||!sheet,onClick:make,
+            E("button",{type:"button",className:"art-draftall",disabled:!!busy||working||cancelling||drawing||!sheet,onClick:make,
               title:"One image from this sheet, kept as a draft. Nothing is replaced until you use it."},
               working?phaseText:cur||earlier.length?"Make another draft":part?"Make the image":isRoom?"Make this room\u2019s image":"Make the location image",
-              !working&&choice&&typeof window.nbCostChip==="function"?window.nbCostChip(1,choice.cost):null)),
+              !working&&choice&&typeof window.nbCostChip==="function"?window.nbCostChip(1,choice.cost):null),
+            // progress and Cancel, on the same row, to the right of the button
+            busy==="render"&&previsProgress({phase,since:R.since,now:R.now,model:choice&&choice.model}),
+            busy==="render"&&phase!=="saving"&&E("button",{type:"button",className:"art-draftall ghost previs-cancel","data-testid":"previs-cancel",onClick:()=>R.cancel(target),
+              title:"Stop this image. If the request was already sent it may still be charged; its result is not saved."},"Cancel")),
+      cancelling&&E("p",{className:"loc-layer-note",role:"status","data-testid":"previs-cancelling"},"The cancelled request is still finishing. Another image can be made when it has."),
       // THE DRAFT, RIGHT UNDER THE BUTTON: look at it, use it or discard it
       cur&&E("div",{className:"style-draft","data-testid":"previs-draft"},
         thumb(cur,false,"The draft"),
@@ -360,9 +399,9 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
   const E=React.createElement,P=window.KinolotPrevis;
   const [open,setOpen]=React.useState(false),[camera,setCamera]=React.useState("TL"),[frame,setFrame]=React.useState(""),[error,setError]=React.useState("");
   const [kept,setKept]=React.useState({current:null,lastDiscarded:false,earlier:[]}),[nowKeys,setNowKeys]=React.useState(undefined);
-  const [busy,setBusy]=React.useState(""),[phase,setPhase]=React.useState(""),[notice,setNotice]=React.useState(""),[fail,setFail]=React.useState("");
   const [review,setReview]=React.useState(""),[wipe,setWipe]=React.useState(50),[tick,setTick]=React.useState(0);
   const alive=React.useRef(true),dialog=React.useRef(null),took=React.useRef("");
+  const R=usePrevisRun(alive,()=>writable()),{busy,phase,notice,fail,setNotice,setFail,run}=R;
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
   React.useEffect(()=>{
     const bump=e=>{if(!e||!e.detail||!e.detail.id||e.detail.id===l.id)setTick(n=>n+1);};
@@ -397,32 +436,26 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
     let live=true;setNowKeys(undefined);
     P.keys(targetFor(draftCamera),undefined,{spec:specText}).then(k=>{if(live)setNowKeys(k);},()=>{if(live)setNowKeys(null);});
     return ()=>{live=false;};
-  },[open,drawnFrom,draftCamera,specText]);
+  },[open,drawnFrom,draftCamera,specText,tick]);
   React.useEffect(()=>{const el=dialog.current;if(el&&review&&!el.open&&typeof el.showModal==="function")el.showModal();});
   const writable=()=>!readOnly&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
-  const run=async(name,fn,failText)=>{
-    if(busy||!writable())return;
-    setBusy(name);setFail("");setNotice("");
-    try{await fn();}catch(e){if(alive.current)setFail((e&&e.message)||failText);}
-    finally{if(alive.current){setBusy("");setPhase("");}}
-  };
-  const make=()=>run("render",async()=>{
-    setPhase("drawing");
+  const make=()=>run("render",async live=>{
+    R.step(live,"drawing");
     let extra={};try{extra=typeof meta==="function"?(meta()||{}):{};}catch(_){extra={};}
-    await P.render(targetFor(camera),{spec:specText,meta:extra,settings:choice||undefined,onPhase:x=>{if(alive.current)setPhase(x);}});
-    if(alive.current)setNotice("The draft is ready, just below. It becomes this variant\u2019s image only when you choose to use it.");
+    await P.render(targetFor(camera),{spec:specText,meta:extra,settings:choice||undefined,onPhase:x=>R.step(live,x)});
+    if(live())setNotice("The draft is ready, just below. It becomes this variant\u2019s image only when you choose to use it.");
   },"The image could not be made.");
-  const useDraft=d=>run("use",async()=>{
+  const useDraft=d=>run("use",async live=>{
     await P.use(targetFor(d.meta.variantCamera||camera),d.meta.iso,{spec:specText});
-    if(alive.current){setReview("");setNotice("This draft is now this variant\u2019s image. The image before it stays in its versions.");}
+    if(live()){setReview("");setNotice("This draft is now this variant\u2019s image. The image before it stays in its versions.");}
   },"The draft could not be used.");
-  const discardDraft=d=>run("discard",async()=>{
+  const discardDraft=d=>run("discard",async live=>{
     await P.discard(targetFor(camera),d.meta.iso);
-    if(alive.current){setReview("");setNotice("The draft was discarded. This variant\u2019s image was not changed.");}
+    if(live()){setReview("");setNotice("The draft was discarded. This variant\u2019s image was not changed.");}
   },"The draft could not be discarded.");
-  const bringBack=d=>run("restore",async()=>{
+  const bringBack=d=>run("restore",async live=>{
     await P.restore(targetFor(camera),d.meta.iso);
-    if(alive.current){setReview("");setNotice("That draft is the current one again. The draft it replaced is kept with the earlier drafts.");}
+    if(live()){setReview("");setNotice("That draft is the current one again. The draft it replaced is kept with the earlier drafts.");}
   },"The earlier draft could not be brought back.");
   let master="";try{master=typeof window.nbGetImage==="function"?window.nbGetImage(l.id):"";}catch(_){master="";}
   let choice=null;try{choice=P.settings(undefined,master?2:1);}catch(_){choice=null;}
@@ -432,8 +465,8 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
   const stale=d=>!nowKeys||d.meta.setKey!==nowKeys.setKey||d.meta.lookKey!==nowKeys.lookKey;
   const when=iso=>{try{return new Date(iso).toLocaleString(undefined,{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});}catch(_){return "";}};
   const line=d=>(d.meta.modelLabel||"Image engine")+(when(d.meta.iso)?" \u00b7 "+when(d.meta.iso):"")+" \u00b7 "+(PANEL[d.meta.variantCamera]||"Camera").toLowerCase()+" camera";
-  const working=busy==="render";
-  const phaseText={drawing:"Drawing the frame\u2026",generating:"Making the image\u2026 about a minute",saving:"Saving the draft\u2026"}[phase]||"Making the image\u2026";
+  const pend=P.pending(targetFor(camera)),cancelling=pend.running&&pend.cancelled&&busy!=="render",working=busy==="render";
+  const phaseText="Making the image\u2026";
   const shown=review?[cur].concat(earlier).find(d=>d&&d.meta.iso===review):null;
   const what=time?"at "+time:"in this state";
   return E("details",{className:"loc-nested-section previs-variant","data-testid":"previs-variant",open,onToggle:e=>{if(e.target===e.currentTarget)setOpen(e.currentTarget.open);}},
@@ -449,10 +482,14 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
         E("div",{className:"previs-sheet"},frame?E("img",{src:frame,alt:"Previs frame of "+(label||l.name||"this variant")+" from the "+PANEL[camera].toLowerCase()+" camera",draggable:false})
           :E("span",{className:"previs-sheet-wait"},"Drawing the frame\u2026")),
         !readOnly&&E("div",{className:"loc-step-actions"},
-          E("button",{type:"button",className:"art-draftall",disabled:!!busy||!frame||!specText,onClick:make,
+          E("button",{type:"button",className:"art-draftall",disabled:!!busy||cancelling||!frame||!specText,onClick:make,
             title:"One image from this frame, kept as a draft. Nothing is replaced until you use it."+(choice?" Engine: "+choice.label+", chosen in the top bar.":"")},
             working?phaseText:cur||earlier.length?"Make another draft":"Make this variant from the 3D set",
-            !working&&choice&&typeof window.nbCostChip==="function"?window.nbCostChip(1,choice.cost):null)),
+            !working&&choice&&typeof window.nbCostChip==="function"?window.nbCostChip(1,choice.cost):null),
+          working&&previsProgress({phase,since:R.since,now:R.now,model:choice&&choice.model}),
+          working&&phase!=="saving"&&E("button",{type:"button",className:"art-draftall ghost previs-cancel",onClick:()=>R.cancel(targetFor(camera)),
+            title:"Stop this image. If the request was already sent it may still be charged; its result is not saved."},"Cancel")),
+        cancelling&&E("p",{className:"loc-layer-note",role:"status"},"The cancelled request is still finishing. Another image can be made when it has."),
         cur&&E("div",{className:"style-draft","data-testid":"previs-variant-draft"},
           E("button",{type:"button",className:"style-draft-thumb",disabled:!!busy,onClick:()=>setReview(cur.meta.iso),title:"Open this draft beside the 3D frame it was made from","aria-label":"The draft"},
             E("img",{src:cur.url,alt:"Draft of "+(label||"this variant"),draggable:false})),

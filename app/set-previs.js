@@ -351,9 +351,22 @@
   }
   function pending(id){
     try{const scope=root.BlenderPreview.scope(),key=keyOf(scope,id),entry=unsaved.get(key);
-      if(entry&&entry.scope.epoch!==scope.epoch){unsaved.delete(key);return {running:running.has(key),unsaved:false};}
-      return {running:running.has(key),unsaved:!!entry};
-    }catch(_){return {running:false,unsaved:false};}
+      const run=runs.get(key),cancelled=!!(run&&run.cancelled);
+      if(entry&&entry.scope.epoch!==scope.epoch){unsaved.delete(key);return {running:running.has(key),unsaved:false,cancelled};}
+      return {running:running.has(key),unsaved:!!entry,cancelled};
+    }catch(_){return {running:false,unsaved:false,cancelled:false};}
+  }
+  /* CANCEL (owner 2026-11-16: "show progress and a cancel button"). Before the image request is sent, cancelling stops
+     it: nothing is charged. After it is sent the engine cannot be stopped, so its result is thrown away when it comes
+     back (it may still be charged) and nothing is saved. Once the draft is being saved it is too late to cancel. */
+  const runs=new Map();
+  function cancel(id){
+    try{
+      const run=runs.get(keyOf(root.BlenderPreview.scope(),id));
+      if(!run)return {ok:false,reason:"finished"};
+      if(run.stage==="saving")return {ok:false,reason:"saving"};
+      run.cancelled=true;announce(id);return {ok:true,submitted:run.submitted};
+    }catch(_){return {ok:false,reason:"finished"};}
   }
   async function locked(id,scope,fn){
     const key=keyOf(scope,id);
@@ -375,6 +388,9 @@
     assertWritable(scope);
     if(unsaved.has(keyOf(scope,id)))throw new Error("An image was made but not saved yet. Save it first.");
     return locked(id,scope,async key=>{
+      const run={cancelled:false,submitted:false,stage:"drawing"};runs.set(key,run);
+      const halt=()=>{if(run.cancelled){const e=new Error(run.submitted?"Cancelled. The image request had already been sent, so it may still be charged; its result was not saved.":"Cancelled before the image request was sent. Nothing was charged.");e.code="previs_cancelled";throw e;}};
+      try{
       const location=live(t.loc),built=scene(location,undefined,t.at);
       options.onPhase&&options.onPhase("drawing");
       if(t.variant){
@@ -390,15 +406,15 @@
         options.onPhase&&options.onPhase("generating");
         const out=await style(location,frame.dataUrl,{settings:options.settings,assetId:slot(id),lookImage:master||"",
           prompt:framePrompt(spec,{scene:built.scene,views:frame.views,camera:t.variant.camera},{look:!!master,style:styleText}),
-          beforeSubmit:async()=>{assertWritable(scope);}});
+          beforeSubmit:async()=>{assertWritable(scope);halt();run.submitted=true;run.stage="generating";}});
         // what the variant's own Generate records (its place's image at that moment, the layout stamp) comes from its card
         const meta={schema:1,kind:"previs-draft",mode:"draft",projectId:scope.projectId,locationId:t.loc,variantKey:t.variant.key,variantLabel:t.variant.label,variantCamera:t.variant.camera,
           setKey:made.setKey,lookKey:made.lookKey,prompt:out.prompt,modelId:out.model,modelLabel:out.label,quality:out.quality||undefined,size:out.size,aspect:"16:9",
           iso:new Date().toISOString(),...(options.meta&&typeof options.meta==="object"?options.meta:{}),previs:{dressed:built.dressed,dressingIso:built.iso,shapes:built.scene.objects.length,frame:true}};
         const entry={key,slot:slot(id),scope,url:out.url,meta,refs:[{kind:"previs-sheet",label:"Previs frame",url:frame.dataUrl}]};
-        unsaved.set(key,entry);
+        halt();run.stage="saving";unsaved.set(key,entry);
         options.onPhase&&options.onPhase("saving");
-        return commit(entry);
+        return await commit(entry);
       }
       const drawn=await root.KinolotPrevis.sheet(built.scene,built.light,{panelWidth:960,views:true});
       assertWritable(scope);
@@ -420,15 +436,16 @@
       const out=await style(card,drawn.dataUrl,{project:options.project,settings:options.settings,assetId:slot(id),
         drawn:{scene:built.scene,views:drawn.views,look:whole?whole.name:""},lookImage:whole?whole.url:"",
         after:moved?"\nMOVING PARTS AT THIS MOMENT (as drawn in the sheet): "+moved+". Where the sheet opens to the outside, show the exterior beyond as described (keep its position and size).":"",
-        beforeSubmit:async()=>{assertWritable(scope);}});
+        beforeSubmit:async()=>{assertWritable(scope);halt();run.submitted=true;run.stage="generating";}});
       const meta={schema:1,kind:"previs-draft",mode:"draft",projectId:scope.projectId,locationId:t.loc,
         ...(t.key?{stateKey:t.key,stateLabel:t.label,stateAt:t.at}:{}),
         setKey:made.setKey,lookKey:made.lookKey,prompt:out.prompt,modelId:out.model,modelLabel:out.label,quality:out.quality||undefined,size:out.size,aspect:"16:9",
         iso:new Date().toISOString(),...record,previs:{dressed:built.dressed,dressingIso:built.iso,shapes:built.scene.objects.length}};
       const entry={key,slot:slot(id),scope,url:out.url,meta,refs:[{kind:"previs-sheet",label:"Previs sheet",url:drawn.dataUrl}]};
-      unsaved.set(key,entry);
+      halt();run.stage="saving";unsaved.set(key,entry);
       options.onPhase&&options.onPhase("saving");
-      return commit(entry);
+      return await commit(entry);
+      }finally{runs.delete(key);}
     });
   }
   // Save a draft that was made but not saved (one more click, no new image).
@@ -499,5 +516,5 @@
       return result;
     });
   }
-  root.KinolotPrevis={PANELS,OUT_OF_DATE,sheet,scene,dressingSig,overview,look,lightFor,framePrompt,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,use,discard,restore,retrySave,discardUnsaved,pending};
+  root.KinolotPrevis={PANELS,OUT_OF_DATE,sheet,scene,dressingSig,overview,look,lightFor,framePrompt,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,restore,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);

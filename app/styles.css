@@ -12103,4 +12103,9 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 [data-location-card] .sheet-fold-body .previs-spaces .previs-space{min-height:28px;padding:3px 12px;font-size:12px;border-radius:999px}
 .previs-spaces .previs-space.on{background:var(--txt-0);color:var(--bg-1);border-color:var(--txt-0)}
 .previs-engine{max-width:320px}
+/* progress and Cancel beside the Make button (2026-11-16) */
+.previs-progress{display:inline-flex;align-items:center;gap:8px;flex:1 1 150px;min-width:130px;font-size:11px;color:var(--txt-2)}
+.previs-progress-bar{flex:1 1 auto;height:6px;min-width:50px;border-radius:3px;background:var(--bg-3);overflow:hidden}
+.previs-progress-bar > span{display:block;height:100%;background:var(--accent);transition:width .6s linear}
+.previs-progress-text{white-space:nowrap;font-variant-numeric:tabular-nums}
 [data-location-card] .loc-sub > .loc-step-actions{margin:0;align-items:center}

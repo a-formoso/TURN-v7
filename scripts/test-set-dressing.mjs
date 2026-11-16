@@ -164,7 +164,7 @@ test('previs: the set as it is drawn, the prompt the image engine gets, and what
   for(const t of ['assetPurpose:"previs-image"','noRetry:true','unsaved.set(key,entry);','new CustomEvent("nb-gen-done"',
       'if(typeof root.turnArtRoomWritable==="function"&&!root.turnArtRoomWritable())throw new Error("This film is read-only.");'])
     assert.ok(source.includes(t),t);
-  assert.ok(source.indexOf('unsaved.set(key,entry);')<source.indexOf('return commit(entry);'),'a made image is kept before the save is tried');
+  assert.ok(source.indexOf('unsaved.set(key,entry);')<source.indexOf('return await commit(entry);'),'a made image is kept before the save is tried');
   assert.ok(/if\(unsaved\.has\(keyOf\(scope,id\)\)\)throw new Error\("An image was made but not saved yet\. Save it first\."\);/.test(source),'never a second paid image over an unsaved one');
 });
 
@@ -423,4 +423,31 @@ test('a variant from the 3D set: one frame, lit for its hour, kept as a draft an
   assert.equal(image.url,d.url);assert.equal(image.meta.mode,'final');assert.equal(image.meta.version,3);assert.equal(image.meta.previsDraftIso,d.meta.iso);
   assert.equal(image.meta.plateLayoutSig,'L1');assert.equal(image.history[0].url,'night-before');assert.equal(store.has('hall'),false);
   assert.equal(h.calls.length,1,'using it makes no image call');
+});
+
+/* CANCEL (owner 2026-11-16: "show progress and a cancel button"). */
+test('cancel: before the request is sent nothing is charged; after it the result is thrown away; while saving it is too late',async()=>{
+  const h=previsHarness(),{P,p,store}=h;
+  const sheet=p.KinolotPrevis.sheet;
+  p.KinolotPrevis.sheet=async(...a)=>{const r=await sheet(...a);assert.equal(P.cancel('hall').ok,true);return r;};
+  await assert.rejects(()=>P.render('hall'),/Cancelled before the image request was sent\. Nothing was charged\./);
+  assert.equal(h.calls.length,0,'no image request was sent');assert.equal(store.has('previs-draft-hall'),false);
+  assert.equal(P.cancel('hall').ok,false,'nothing is running any more');assert.equal(P.pending('hall').running,false);
+  p.KinolotPrevis.sheet=sheet;
+  const generate=p.nbGenerate;
+  p.nbGenerate=async(prompt,o)=>{const url=await generate(prompt,o);const r=P.cancel('hall');assert.equal(r.ok,true);assert.equal(r.submitted,true);assert.equal(P.pending('hall').cancelled,true);return url;};
+  await assert.rejects(()=>P.render('hall'),/had already been sent, so it may still be charged; its result was not saved/);
+  assert.equal(h.calls.length,1);assert.equal(store.has('previs-draft-hall'),false,'a cancelled result is never saved');assert.equal(P.pending('hall').unsaved,false);
+  p.nbGenerate=generate;
+  const commit=p.nbCommit;let late=null;
+  p.nbCommit=async(...a)=>{late=P.cancel('hall');return commit(...a);};
+  await P.render('hall');
+  assert.equal(late.ok,false);assert.equal(late.reason,'saving');assert.ok(store.has('previs-draft-hall'),'a draft that is being saved is saved');
+  const ui=readFileSync('app/set-previs-ui.jsx','utf8');
+  for(const t of ['function previsProgress({phase,since,now,model}){','"data-testid":"previs-progress"','"data-testid":"previs-cancel"','onClick:()=>R.cancel(target)','"Cancel"',
+      'busy==="render"&&previsProgress({phase,since:R.since,now:R.now,model:choice&&choice.model}),','},[drawnFrom,lookNow,tick]);','},[open,drawnFrom,draftCamera,specText,tick]);'])
+    assert.ok(ui.includes(t),t);
+  // the progress and Cancel sit in the Make button's own row, after it
+  const row=ui.slice(ui.indexOf('disabled:!!busy||working||cancelling||drawing||!sheet,onClick:make,'));
+  assert.ok(row.indexOf('previsProgress(')>0&&row.indexOf('previsProgress(')<row.indexOf('"data-testid":"previs-cancel"')&&row.indexOf('"data-testid":"previs-cancel"')<row.indexOf('// THE DRAFT, RIGHT UNDER THE BUTTON'));
 });
