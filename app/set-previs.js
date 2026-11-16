@@ -93,32 +93,37 @@
       return head+(list&&list.length?" In its frame: "+list.map(v=>v.name+" ("+v.side+", "+v.depth+")").join("; ")+".":"");
     }
   }
-  /* A VARIANT IS ONE FRAME (owner 2026-11-16: "one frame"): the same set from ONE of its four cameras, lit for the
-     variant's hour. lightFor turns a time of day into the light the set is drawn in; the place's own (day) light stays
-     for a day variant, and the dressing's lamps come on when it is not day. */
-  function lightFor(time,base){
-    const t=String(time||"").toLowerCase(),lamps=(base&&base.lamps)||[];
-    if(/pre-?dawn|night|midnight|small hours/.test(t))return {time:"night",sky:"#0b1220",sun:{from:230,height:40,colour:"#9fb4ff",power:0.7},fill:0.55,lamps};
-    if(/dawn|sunrise|first light/.test(t))return {time:"dusk",sky:"#c7a694",sun:{from:85,height:7,colour:"#ffc49a",power:1.1},fill:0.8,lamps};
-    if(/dusk|sunset|twilight|evening|magic hour|golden hour/.test(t))return {time:"dusk",sky:"#6f6a86",sun:{from:265,height:7,colour:"#ffb37a",power:1.1},fill:0.75,lamps};
-    return base||null;
-  }
-  // What the image engine is told for a variant's frame. `spec` is the variant's own prompt, built by its card.
-  function framePrompt(spec,drawn,info){
+  /* A VARIANT COMES FROM THE LOCATION IMAGE (owner 2026-11-16: "variants should be deriving from already generated
+     location image ... the image a user chooses to be the location image", so that nothing is drawn again from the 3D
+     set and no new mistake can come in). A variant is ONE frame: one of the location image's four views (or the whole
+     image, when it is not a four-view sheet), redrawn at the variant's hour or in its state, with nothing else changed. */
+  function relightPrompt(info){
     info=info||{};
-    const cam=drawn&&drawn.scene&&drawn.scene.cameras[drawn.camera];
-    return "Image 1 is the 3D previs of this location from ONE camera, lit for the hour: a single 16:9 frame. It is the layout to follow, and it decides the camera. "
-      +"Draw ONE full-frame 16:9 image, not a grid, from exactly that camera: the same standpoint, height, direction, tilt, horizon line and lens. Every large shape stays where it is in the frame, at its size, and what is in front of what stays so. "
-      +"Keep every wall, opening, building and object, each in its place, size and proportion. "
-      +"The previs is built from plain blocks: read each block as the real thing it stands for (named below, and described in the spec) and give it its real surface, detail, edges and wear. "
-      +"Do not add, remove or move buildings, objects or openings. Never replace the frame with a different or more flattering view of the place. "
-      +"The previs's flat colours and simple light only point to materials and the hour; the finished look is the spec's render style"+(info.style?" ("+info.style+")":"")+". "
-      +"No people, no text, no labels and no borders.\n"
-      +(info.look?"Image 2 is the finished image of this same place in its usual daylight (four views of it). Take from it what things are made of and how they look, so that this is recognisably the same place. Take NO layout or camera from Image 2, and NOT its hour or its weather: those come from the spec below and from the light of Image 1.\n":"")
-      +(cam?"\nTHE FRAME, read from the 3D set (nothing in the spec below may change it): "+cameraWords(cam,drawn.views&&drawn.views[drawn.camera])+"\n":"")
-      +"\nTHE SPEC (the place, and this variant's hour, weather and state). If it describes a camera position, a view or framing of its own, ignore that part: Image 1 alone decides it.\n"+String(spec||"");
+    return "Image 1 is the finished image of this place from one camera, as it usually is by day. Redraw EXACTLY this picture at another hour or in another state. "
+      +"Keep the camera and the framing, and keep every building, wall, opening and object exactly where it is, at its size, with the same materials, colours and details. Add nothing, remove nothing and move nothing. "
+      +"Change only what the hour, the weather and the state below change: the light and its direction, the sky, which lamps and windows are lit, shadows, wet or dry ground, and what the notes below name. "
+      +"The place as it normally is at that hour: no people, and no marks of one scene (nothing knocked over, spilled or broken) unless the notes say so. "
+      +"One full-frame 16:9 image, not a grid. No text, no labels and no borders."+(info.style?" Keep the look of Image 1: "+info.style+".":"")
+      +"\nTHIS VARIANT: "+String(info.notes||"").trim();
   }
-
+  // The location image a variant is made from: one of its four views cut out, or the whole image. {dataUrl, iso, sheet}
+  async function variantSource(locationId,camera){
+    const saved=await root.nbLoadDetailsAsset(locationId,"");
+    if(!saved||!saved.url)throw new Error("This place has no location image yet. Choose the location image first.");
+    const meta=saved.meta||{},four=!!(meta.platePanels||meta.previs||meta.plateLayoutSig);
+    let data=saved.url;
+    if(!/^data:image\//i.test(data)){
+      if(typeof root.oaiToDataUrl!=="function")throw new Error("The location image could not be read. Reload the page.");
+      data=await root.oaiToDataUrl(saved.url);
+    }
+    if(!data)throw new Error("The location image could not be read. Check your connection and try again.");
+    const info=root.LOC_PANEL_INFO&&root.LOC_PANEL_INFO[camera];
+    if(four&&info&&info.crop&&typeof root.cropRegionAsDataUrl==="function"){
+      const cutOut=await root.cropRegionAsDataUrl(data,info.crop,1536,1024);
+      if(cutOut)return {dataUrl:cutOut,iso:String(meta.iso||""),sheet:true};
+    }
+    return {dataUrl:data,iso:String(meta.iso||""),sheet:false};
+  }
   /* The four views on one sheet. Returns {dataUrl, width, height, panels}. */
   async function sheet(scene,light,options){
     options=options||{};
@@ -332,10 +337,13 @@
   }
   // What a draft is made from, as two short keys: the set exactly as drawn, and the card's description and look.
   async function keys(id,list,extra){
-    const t=target(id),location=live(t.loc),built=scene(location,list,t.at),C=root.KinolotRenderContract;
-    // a variant: the set, its one camera and the hour's light; and the variant's own prompt
-    if(t.variant)return {setKey:await C.hash(C.canonical({objects:built.scene.objects,materials:built.scene.materials,camera:built.scene.cameras[t.variant.camera]||null,
-      light:lightFor(t.variant.time,built.light)||null})),lookKey:await C.hash(String(extra&&extra.spec||""))};
+    const t=target(id),location=live(t.loc),C=root.KinolotRenderContract;
+    // a variant: the location image it is made from (that version, that view), and the variant's own notes
+    if(t.variant){
+      const image=await root.nbLoadDetailsAsset(t.loc,"");
+      return {setKey:await C.hash(C.canonical({image:String(image&&image.meta&&image.meta.iso||""),view:t.variant.camera})),lookKey:await C.hash(String(extra&&extra.spec||""))};
+    }
+    const built=scene(location,list,t.at);
     const look=typeof root.locationSpecSig==="function"?String(root.locationSpecSig(location)):stylePrompt(location);
     return {setKey:await C.hash(C.canonical({scene:built.scene,light:built.light||null})),lookKey:await C.hash(String(look))};
   }
@@ -407,31 +415,29 @@
       const run={cancelled:false,submitted:false,stage:"drawing"};runs.set(key,run);
       const halt=()=>{if(run.cancelled){const e=new Error(run.submitted?"Cancelled. The image request had already been sent, so it may still be charged; its result was not saved.":"Cancelled before the image request was sent. Nothing was charged.");e.code="previs_cancelled";throw e;}};
       try{
-      const location=live(t.loc),built=scene(location,undefined,t.at);
+      const location=live(t.loc);
       options.onPhase&&options.onPhase("drawing");
       if(t.variant){
-        // ONE FRAME: the chosen camera, the hour's light; the look from the location's own finished image
-        const spec=String(options.spec||"").trim();
-        if(!spec)throw new Error("This variant's prompt could not be built. Describe the place first.");
-        const light=lightFor(t.variant.time,built.light);
-        const frame=await root.KinolotPrevis.sheet(built.scene,light,{panelWidth:1280,only:t.variant.camera,views:true});
+        // FROM THE LOCATION IMAGE: its chosen view, redrawn at the variant's hour; nothing is drawn again from the 3D set
+        const notes=String(options.spec||"").trim();
+        if(!notes)throw new Error("Say when or in what state this variant is first.");
+        const from=await variantSource(t.loc,t.variant.camera);
         assertWritable(scope);
-        const made=await keys(id,undefined,{spec});
-        const master=typeof root.nbGetImage==="function"?root.nbGetImage(t.loc):"";
+        const made=await keys(id,undefined,{spec:notes});
         const styleText=typeof root.locVisualDefaults==="function"?root.locVisualDefaults(location).renderStyle:"";
         options.onPhase&&options.onPhase("generating");
-        const out=await style(location,frame.dataUrl,{settings:options.settings,assetId:slot(id),lookImage:master||"",
-          prompt:framePrompt(spec,{scene:built.scene,views:frame.views,camera:t.variant.camera},{look:!!master,style:styleText}),
+        const out=await style(location,from.dataUrl,{settings:options.settings,assetId:slot(id),prompt:relightPrompt({notes,style:styleText}),
           beforeSubmit:async()=>{assertWritable(scope);halt();run.submitted=true;run.stage="generating";}});
         // what the variant's own Generate records (its place's image at that moment, the layout stamp) comes from its card
-        const meta={schema:1,kind:"previs-draft",mode:"draft",projectId:scope.projectId,locationId:t.loc,variantKey:t.variant.key,variantLabel:t.variant.label,variantCamera:t.variant.camera,
+        const meta={schema:1,kind:"previs-draft",mode:"draft",projectId:scope.projectId,locationId:t.loc,variantKey:t.variant.key,variantLabel:t.variant.label,variantCamera:from.sheet?t.variant.camera:"",
           setKey:made.setKey,lookKey:made.lookKey,prompt:out.prompt,modelId:out.model,modelLabel:out.label,quality:out.quality||undefined,size:out.size,aspect:"16:9",
-          iso:new Date().toISOString(),...(options.meta&&typeof options.meta==="object"?options.meta:{}),previs:{dressed:built.dressed,dressingIso:built.iso,shapes:built.scene.objects.length,frame:true}};
-        const entry={key,slot:slot(id),scope,url:out.url,meta,refs:[{kind:"previs-sheet",label:"Previs frame",url:frame.dataUrl}]};
+          iso:new Date().toISOString(),...(options.meta&&typeof options.meta==="object"?options.meta:{}),madeFrom:{locationImage:from.iso,view:from.sheet?t.variant.camera:"whole"}};
+        const entry={key,slot:slot(id),scope,url:out.url,meta,refs:[{kind:"previs-sheet",label:"The location image, by day",url:from.dataUrl}]};
         halt();run.stage="saving";unsaved.set(key,entry);
         options.onPhase&&options.onPhase("saving");
         return await commit(entry);
       }
+      const built=scene(location,undefined,t.at);
       const drawn=await root.KinolotPrevis.sheet(built.scene,built.light,{panelWidth:960,views:true});
       assertWritable(scope);
       const made=await keys(id);
@@ -554,5 +560,5 @@
       return result;
     });
   }
-  root.KinolotPrevis={PANELS,OUT_OF_DATE,specFromSet,sheet,scene,dressingSig,overview,look,lightFor,framePrompt,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,remove,restore,retrySave,discardUnsaved,pending};
+  root.KinolotPrevis={PANELS,OUT_OF_DATE,specFromSet,sheet,scene,dressingSig,overview,look,relightPrompt,variantSource,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,remove,restore,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);

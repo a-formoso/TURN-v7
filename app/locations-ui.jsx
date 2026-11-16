@@ -2517,6 +2517,11 @@ function previsVariantMeta(l, kind, scriptText, drawn){
     locationAssetDependencySnapshot(l.id, locationRootIds(l), kind)); }catch(e){ out = {}; }
   return _withLayoutStamp(l, "final", null, out, scriptText!=null ? _plateScriptSig(scriptText) : "") || out;
 }
+// a variant in words, for an image made from the location image: where, when, and what its notes say
+function previsVariantNotes(o){
+  const side = String(o.side||"").toUpperCase(), clean = t=>String(t||"").replace(/\s+/g," ").trim().slice(0,1200);
+  return [(side ? side+". " : "")+clean(o.name), o.time ? "Time: "+clean(o.time) : "", o.state ? "Light, weather and state: "+clean(o.state) : ""].filter(Boolean).join(". ")+".";
+}
 function _takeDepSnap(ref){ const x = ref && ref.current; if(ref) ref.current = null; return x; }
 /* the size a location card sends its screenplay pages at (locations.jsx LOC_SCREENPLAY_PAGE_MAX_DIM, 2026-10-14): their
    own size, never shrunk — every other reference keeps its card's size */
@@ -3056,8 +3061,7 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
     // part, no pages — priced as such, never as an image with no references (2026-10-14)
     window.LocationPrevisVariant && window.KinolotPrevis && React.createElement(window.LocationPrevisVariant,{ location:l, variantKey:"state:"+v.id, asset:id,
       label:((stateUnit&&stateUnit.name)||l.name||"Location")+(v.time?(" \u00b7 "+v.time):""), time:v.time||"", readOnly,
-      spec:()=> stateUnit && typeof buildSluglineUnitPrompt==="function" ? buildSluglineUnitPrompt(l, stateUnit, project)
-        : buildLocationVariantPrompt(l, project, { time:v.time, state:v.state }),
+      notes:()=> previsVariantNotes({ side:stateUnit&&stateUnit.intExt, name:(stateUnit&&stateUnit.name)||l.name, time:v.time, state:v.state||(stateUnit&&stateUnit.appearance) }),
       meta:()=> previsVariantMeta(l, stateUnit?"slugline-unit":"continuity-state", stateUnit?stateUnit.scriptText:null, null) }),
     l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:id, gen, single:true, readOnly,
       refs:()=>(typeof sluglineUnitPlateRefCount==="function" ? sluglineUnitPlateRefCount(l,stateUnit||{name:l.name},{rootPlate:true}).n : undefined),
@@ -3209,10 +3213,10 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       generateDisabledTitle: u.orphan
         ? "This room & time is no longer in the screenplay, so it can't generate new plates. Its existing plate and notes are kept until you Remove it."
         : "This room & time plate needs the parent location plate as a visual reference before it can generate." }),
-    // the same variant from the 3D set: one frame from one of the set's cameras, lit for its hour (owner 2026-11-16)
+    // the same variant from the location image: one of its views, redrawn at this hour (owner 2026-11-16)
     !u.orphan && window.LocationPrevisVariant && window.KinolotPrevis && React.createElement(window.LocationPrevisVariant,{ location:l, variantKey:u.key, asset:imgId,
       label:(u.name||l.name||"Location")+(u.time?(" \u00b7 "+u.time):""), time:u.time||"", readOnly,
-      spec:()=> buildSluglineUnitPrompt(l, u, project),
+      notes:()=> previsVariantNotes({ side:role, name:u.name||l.name, time:u.time, state:u.appearance||u.environment }),
       meta:()=> previsVariantMeta(l, "slugline-unit", u.scriptText, {sceneNos:u.sceneNos}) }),
     l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:imgId, gen, single:true, readOnly:readOnly||!!u.orphan,
       refs:()=>(typeof sluglineUnitPlateRefCount==="function" ? sluglineUnitPlateRefCount(l,u,{rootPlate:true}).n : undefined),

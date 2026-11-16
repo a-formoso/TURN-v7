@@ -189,6 +189,8 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     }catch(e){if(alive.current)setFail((e&&e.message)||"The cameras could not be fixed.");}
     finally{if(alive.current)setFixing(false);}
   }
+  // about what dressing this set costs, in writing credits (re-read when the set or the price table changes)
+  const dressCost=React.useMemo(()=>{try{return error?null:D.estimate(l,{project});}catch(_){return null;}},[drawnFrom,error,tick]);
   const pend=P.pending(target),cancelling=pend.running&&pend.cancelled&&busy!=="render",working=busy==="render"||(pend.running&&!busy&&!pend.cancelled);
   let whole=null;try{whole=typeof P.look==="function"?P.look(l):null;}catch(_){whole=null;}
   let choice=null;try{choice=P.settings(engine||undefined,whole?2:1);}catch(_){choice=null;}
@@ -261,12 +263,16 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     E("div",{className:"loc-sub","data-testid":"previs-dress"},
       E("h4",{className:"loc-step-sub"},"Dress the set"),
       E("p",{className:"loc-layer-note"},"Furnishes the set from this card, the film and the scenes set here, so that it belongs to this story. The floor plan and the cameras stay as saved."),
-      !readOnly&&E("div",{className:"loc-step-actions"},
+      !readOnly&&E("div",{className:"loc-step-actions previs-dress-row"},
         E("button",{type:"button",className:"art-draftall",disabled:!!busy||working,onClick:dress,
           title:"One writing call reads this card, the film and this location's scenes, and draws the set's dressing in 3D."},
-          busy==="dress"?"Dressing the set\u2026 about a minute":(info&&info.dressed?"Dress it again":"Dress the set")+" (writing credits)"),
-        info&&info.dressed&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy||working,onClick:undress,
-          title:"Back to the floor plan's plain blocks. The floor plan itself is not changed."},"Remove the dressing")),
+          busy==="dress"?"Dressing the set\u2026 about a minute":l.previs?"Dress it again":"Dress the set",
+          // about how many writing credits: the same chip as an image's price, with the credit mark
+          busy!=="dress"&&dressCost&&E("span",{className:"nb-cost","data-testid":"previs-dress-cost",
+            title:"About "+dressCost.credits+" writing credits. An estimate: a writing call is charged by its length."},
+            typeof window.nbCreditMark==="function"?window.nbCreditMark():null,String(dressCost.credits))),
+        l.previs&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy||working,onClick:undress,
+          title:"Back to the floor plan's plain blocks for this card. The floor plan itself is not changed."},"Remove dressing")),
       left.length>0&&E("details",{className:"loc-nested-section","data-testid":"previs-adjusted"},
         E("summary",null,"Fitted or left out ("+left.length+")"),
         E("ul",{className:"previs-left"},left.map((line,i)=>E("li",{key:i},line))))),
@@ -406,15 +412,16 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
         onOpenCard:typeof onSelectLocation==="function"?section=>onSelectLocation(room.id,section):undefined})
       :own);
 }
-/* A VARIANT FROM THE 3D SET (owner 2026-11-16: "one frame, go ahead with variants"). A variant is the same place at
-   another hour or in another state, and its image is ONE frame. Here that frame is taken from one of the set's four
-   cameras, lit for the variant's hour; the image engine keeps to it and takes the look from the location image. The
-   result is a draft, used as the variant's image or discarded, like the location image's drafts. The variant's own
-   Generate (from words and the location image) stays beside it. Nothing is drawn or read until the fold is opened.
-   spec(): the variant's own prompt, from its card; meta(): what its own Generate records with an image. */
-function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta,readOnly=false}){
+/* A VARIANT FROM THE LOCATION IMAGE (owner 2026-11-16: "variants should be deriving from already generated location
+   image ... the image a user chooses to be the location image", so that nothing is redrawn from the 3D set and no new
+   mistake can come in). A variant is the same place at another hour or in another state, and its image is ONE frame:
+   one of the location image's four views (or the whole image, when it is not a four-view sheet), redrawn with only
+   the hour and the state changed. The result is a draft: used as the variant's image, or deleted. It needs the
+   location image first. Nothing is read until the fold is opened.
+   notes(): the variant in words (its time, its environment notes); meta(): what its own Generate records. */
+function LocationPrevisVariant({location:l,variantKey,asset,label,time,notes,meta,readOnly=false}){
   const E=React.createElement,P=window.KinolotPrevis;
-  const [open,setOpen]=React.useState(false),[camera,setCamera]=React.useState("TL"),[frame,setFrame]=React.useState(""),[error,setError]=React.useState("");
+  const [open,setOpen]=React.useState(false),[camera,setCamera]=React.useState("TL"),[from,setFrom]=React.useState(null),[error,setError]=React.useState("");
   const [kept,setKept]=React.useState({current:null,lastDiscarded:false,earlier:[]}),[nowKeys,setNowKeys]=React.useState(undefined);
   const [review,setReview]=React.useState(""),[wipe,setWipe]=React.useState(50),[tick,setTick]=React.useState(0);
   const alive=React.useRef(true),dialog=React.useRef(null),took=React.useRef("");
@@ -422,30 +429,29 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
   React.useEffect(()=>{
     const bump=e=>{if(!e||!e.detail||!e.detail.id||e.detail.id===l.id)setTick(n=>n+1);};
-    const any=()=>setTick(n=>n+1);
-    window.addEventListener("kinolot-previs-changed",bump);window.addEventListener("nb-prefetched",any);
-    return ()=>{window.removeEventListener("kinolot-previs-changed",bump);window.removeEventListener("nb-prefetched",any);};
+    // the location image changed (a draft was used, a new image was generated), or the film's images arrived
+    const image=e=>{const d=e&&e.detail,ids=d&&(d.ids||[d.id]);if(!ids||ids.indexOf(l.id)>=0)setTick(n=>n+1);};
+    window.addEventListener("kinolot-previs-changed",bump);["nb-gen-done","nb-prefetched"].forEach(n=>window.addEventListener(n,image));
+    return ()=>{window.removeEventListener("kinolot-previs-changed",bump);["nb-gen-done","nb-prefetched"].forEach(n=>window.removeEventListener(n,image));};
   },[l.id]);
   const cur=kept.current,earlier=kept.earlier||[];
-  // a draft is checked, and used, with the camera it was made from
+  // a draft is checked, and used, with the view it was made from
   const draftCamera=(cur&&cur.meta.variantCamera)||camera;
   const targetFor=cam=>({loc:l.id,variant:{key:variantKey,asset,label,time,camera:cam}});
-  const specText=(()=>{try{return open&&typeof spec==="function"?String(spec()||""):"";}catch(_){return "";}})();
-  const drawnFrom=(()=>{try{return [l.id,typeof locationSpatialPlanSigFor==="function"?locationSpatialPlanSigFor(l):"",
-    typeof locationPlateLayoutSig==="function"?locationPlateLayoutSig(l,{panels:true}):"",P.dressingSig(l),time].join("|");}catch(_){return l.id+"|"+time;}})();
+  const notesText=(()=>{try{return open&&typeof notes==="function"?String(notes()||"").replace(/\s+/g," ").trim():"";}catch(_){return "";}})();
+  let imageIso="";try{const m=typeof window.nbGetMeta==="function"?window.nbGetMeta(l.id):null;imageIso=(m&&m.iso)||"";}catch(_){imageIso="";}
+  // the view of the location image this variant is made from
   React.useEffect(()=>{
     if(!open)return;
     let live=true;setError("");
-    let built;try{built=P.scene(l);}catch(e){setFrame("");setError((e&&e.message)||"The floor plan is not ready.");return;}
-    P.sheet(built.scene,P.lightFor(time,built.light),{panelWidth:640,only:camera,type:"image/jpeg",quality:0.9})
-      .then(x=>{if(live)setFrame(x.dataUrl);},e=>{if(live){setFrame("");setError((e&&e.message)||"The frame could not be drawn.");}});
+    P.variantSource(l.id,camera).then(x=>{if(live)setFrom(x);},e=>{if(live){setFrom(null);setError((e&&e.message)||"The location image could not be read.");}});
     return ()=>{live=false;};
-  },[open,drawnFrom,camera]);
+  },[open,l.id,camera,imageIso,tick]);
   React.useEffect(()=>{
     if(!open)return;
     let live=true;
     P.drafts(targetFor(camera)).then(d=>{if(!live)return;setKept(d);
-      // the camera list starts on the camera of the draft that is waiting
+      // the view list starts on the view of the draft that is waiting
       const c=d.current&&d.current.meta.variantCamera;if(c&&took.current!==d.current.meta.iso){took.current=d.current.meta.iso;setCamera(c);}},
       ()=>{if(live)setKept({current:null,lastDiscarded:false,earlier:[]});});
     return ()=>{live=false;};
@@ -453,19 +459,19 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
   React.useEffect(()=>{
     if(!open)return;
     let live=true;setNowKeys(undefined);
-    P.keys(targetFor(draftCamera),undefined,{spec:specText}).then(k=>{if(live)setNowKeys(k);},()=>{if(live)setNowKeys(null);});
+    P.keys(targetFor(draftCamera),undefined,{spec:notesText}).then(k=>{if(live)setNowKeys(k);},()=>{if(live)setNowKeys(null);});
     return ()=>{live=false;};
-  },[open,drawnFrom,draftCamera,specText,tick]);
+  },[open,draftCamera,notesText,imageIso,tick]);
   React.useEffect(()=>{const el=dialog.current;if(el&&review&&!el.open&&typeof el.showModal==="function")el.showModal();});
   const writable=()=>!readOnly&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
   const make=()=>run("render",async live=>{
     R.step(live,"drawing");
     let extra={};try{extra=typeof meta==="function"?(meta()||{}):{};}catch(_){extra={};}
-    await P.render(targetFor(camera),{spec:specText,meta:extra,settings:choice||undefined,onPhase:x=>R.step(live,x)});
+    await P.render(targetFor(camera),{spec:notesText,meta:extra,settings:choice||undefined,onPhase:x=>R.step(live,x)});
     if(live())setNotice("The draft is ready, just below. It becomes this variant\u2019s image only when you choose to use it.");
   },"The image could not be made.");
   const useDraft=d=>run("use",async live=>{
-    await P.use(targetFor(d.meta.variantCamera||camera),d.meta.iso,{spec:specText});
+    await P.use(targetFor(d.meta.variantCamera||camera),d.meta.iso,{spec:notesText});
     if(live()){setReview("");setNotice("This draft is now this variant\u2019s image. The image before it stays in its versions.");}
   },"The draft could not be used.");
   const deleteDraft=async d=>{
@@ -483,47 +489,49 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
     await P.restore(targetFor(camera),d.meta.iso);
     if(live()){setReview("");setNotice("That draft is the current one again. The draft it replaced is kept with the earlier drafts.");}
   },"The earlier draft could not be brought back.");
-  let master="";try{master=typeof window.nbGetImage==="function"?window.nbGetImage(l.id):"";}catch(_){master="";}
-  let choice=null;try{choice=P.settings(undefined,master?2:1);}catch(_){choice=null;}
+  let choice=null;try{choice=P.settings(undefined,1);}catch(_){choice=null;}
   let names={};try{names=Object.fromEntries((typeof locationPanelPoses==="function"?locationPanelPoses(l):[]).map(x=>[x.key,x.label||""]));}catch(_){names={};}
   const PANEL={TL:"Top left",TR:"Top right",BL:"Bottom left",BR:"Bottom right"};
   const checking=nowKeys===undefined;
   const stale=d=>!nowKeys||d.meta.setKey!==nowKeys.setKey||d.meta.lookKey!==nowKeys.lookKey;
   const when=iso=>{try{return new Date(iso).toLocaleString(undefined,{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});}catch(_){return "";}};
-  const line=d=>(d.meta.modelLabel||"Image engine")+(when(d.meta.iso)?" \u00b7 "+when(d.meta.iso):"")+" \u00b7 "+(PANEL[d.meta.variantCamera]||"Camera").toLowerCase()+" camera";
+  const line=d=>(d.meta.modelLabel||"Image engine")+(when(d.meta.iso)?" \u00b7 "+when(d.meta.iso):"")+(d.meta.variantCamera&&PANEL[d.meta.variantCamera]?" \u00b7 "+PANEL[d.meta.variantCamera].toLowerCase()+" view":"");
   const pend=P.pending(targetFor(camera)),cancelling=pend.running&&pend.cancelled&&busy!=="render",working=busy==="render";
-  const phaseText="Making the image\u2026";
   const shown=review?[cur].concat(earlier).find(d=>d&&d.meta.iso===review):null;
   const what=time?"at "+time:"in this state";
+  const OLD="This draft is out of date: the location image or this variant\u2019s notes changed after it was made. Make a new one.";
   return E("details",{className:"loc-nested-section previs-variant","data-testid":"previs-variant",open,onToggle:e=>{if(e.target===e.currentTarget)setOpen(e.currentTarget.open);}},
-    E("summary",null,"From the 3D set"),
+    E("summary",null,"From the location image"),
     open&&E(React.Fragment,null,
-      error&&!frame?E("p",{className:"loc-layer-note","data-testid":"previs-variant-not-ready"},"This needs "+(l.name||"the place")+"\u2019s floor plan and four cameras (sections 2 and 3). "+error)
+      // the location image comes first: a variant is that image at another hour
+      error&&!from?E("div",{className:"loc-step-fixes","data-testid":"previs-variant-not-ready"},
+          E("p",{className:"loc-step-fixes-head"},"Choose the location image first."),
+          E("p",{style:{margin:"0 0 8px"}},"A variant is the location image itself "+what+", so "+(l.name||"this place")+" needs its image before its variants. "+error),
+          E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,4)},"Go to 4 \u00b7 Previs"))
       :E(React.Fragment,null,
-        E("p",{className:"loc-layer-note"},"The same set as 4 \u00b7 Previs, from one of its cameras, lit "+what+". The image engine keeps to this frame and takes the look of the place from the location image. One frame, as every variant is."),
-        !master&&E("p",{className:"loc-layer-note","data-testid":"previs-variant-place-first"},"Make the location image first: this variant then takes its look from it."),
-        E("label",{className:"loc-cam-field previs-engine"},E("span",null,"Camera"),
+        E("p",{className:"loc-layer-note"},"This variant is made from the location image itself: "+(from&&from.sheet?"one of its four views":"the same picture")+", redrawn "+what+". Only the light and the state change; nothing is drawn again from the 3D set. One frame, as every variant is."),
+        from&&from.sheet&&E("label",{className:"loc-cam-field previs-engine"},E("span",null,"View"),
           E("select",{className:"prop-select",value:camera,disabled:!!busy,onChange:e=>setCamera(e.target.value)},
             Object.keys(PANEL).map(k=>E("option",{key:k,value:k},PANEL[k]+(names[k]&&names[k].toLowerCase().replace(/[^a-z]/g,"")!==PANEL[k].toLowerCase().replace(/[^a-z]/g,"")?" \u00b7 "+names[k]:""))))),
-        E("div",{className:"previs-sheet"},frame?E("img",{src:frame,alt:"Previs frame of "+(label||l.name||"this variant")+" from the "+PANEL[camera].toLowerCase()+" camera",draggable:false})
-          :E("span",{className:"previs-sheet-wait"},"Drawing the frame\u2026")),
+        E("div",{className:"previs-sheet"},from?E("img",{src:from.dataUrl,alt:"The location image of "+(l.name||"this place")+(from.sheet?", "+PANEL[camera].toLowerCase()+" view":"")+", by day",draggable:false})
+          :E("span",{className:"previs-sheet-wait"},"Reading the location image\u2026")),
         !readOnly&&E("div",{className:"loc-step-actions"},
-          E("button",{type:"button",className:"art-draftall",disabled:!!busy||cancelling||!frame||!specText,onClick:make,
-            title:"One image from this frame, kept as a draft. Nothing is replaced until you use it."+(choice?" Engine: "+choice.label+", chosen in the top bar.":"")},
-            working?phaseText:cur||earlier.length?"Make another draft":"Make this variant from the 3D set",
+          E("button",{type:"button",className:"art-draftall",disabled:!!busy||cancelling||!from||!notesText,onClick:make,
+            title:"One image from this view of the location image, kept as a draft. Nothing is replaced until you use it."+(choice?" Engine: "+choice.label+", chosen in the top bar.":"")},
+            working?"Making the image\u2026":cur||earlier.length?"Make another draft":"Make this variant from the location image",
             !working&&choice&&typeof window.nbCostChip==="function"?window.nbCostChip(1,choice.cost):null),
           working&&previsProgress({phase,since:R.since,now:R.now,model:choice&&choice.model}),
           working&&phase!=="saving"&&E("button",{type:"button",className:"art-draftall ghost previs-cancel",onClick:()=>R.cancel(targetFor(camera)),
             title:"Stop this image. If the request was already sent it may still be charged; its result is not saved."},"Cancel")),
         cancelling&&E("p",{className:"loc-layer-note",role:"status"},"The cancelled request is still finishing. Another image can be made when it has."),
         cur&&E("div",{className:"style-draft","data-testid":"previs-variant-draft"},
-          E("button",{type:"button",className:"style-draft-thumb",disabled:!!busy,onClick:()=>setReview(cur.meta.iso),title:"Open this draft beside the 3D frame it was made from","aria-label":"The draft"},
+          E("button",{type:"button",className:"style-draft-thumb",disabled:!!busy,onClick:()=>setReview(cur.meta.iso),title:"Open this draft beside the location image it was made from","aria-label":"The draft"},
             E("img",{src:cur.url,alt:"Draft of "+(label||"this variant"),draggable:false})),
-          E("p",{role:"status",className:"loc-layer-note"},line(cur)+" \u00b7 "+(checking?"Checking it against the set\u2026":stale(cur)?"Out of date.":cur.used?"Used as this variant\u2019s image.":"Not used yet.")),
-          !checking&&stale(cur)&&E("p",{className:"loc-spatial-error"},"This draft is out of date: the floor plan, the cameras, the dressing or this variant\u2019s description changed after it was made. Make a new one."),
+          E("p",{role:"status",className:"loc-layer-note"},line(cur)+" \u00b7 "+(checking?"Checking it against the location image\u2026":stale(cur)?"Out of date.":cur.used?"Used as this variant\u2019s image.":"Not used yet.")),
+          !checking&&stale(cur)&&E("p",{className:"loc-spatial-error"},OLD),
           E("div",{className:"loc-step-actions"},
             !readOnly&&!checking&&!stale(cur)&&!cur.used&&E("button",{type:"button",className:"art-draftall",disabled:!!busy,onClick:()=>useDraft(cur),title:"Nothing is generated. The image this variant has now stays in its versions."},busy==="use"?"Saving\u2026":"Use as this variant\u2019s image"),
-            cur.sheet&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>setReview(cur.meta.iso)},"Compare with the 3D frame"),
+            cur.sheet&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>setReview(cur.meta.iso)},"Compare with the location image"),
             !readOnly&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>deleteDraft(cur),title:"Deletes this draft for good, after asking. No image is changed; its image credits are not given back."},"Delete"))),
         !cur&&kept.lastDiscarded&&E("p",{role:"status",className:"loc-layer-note"},"You discarded the last draft."),
         earlier.length>0&&E("div",{className:"style-draft-earlier"},
@@ -532,14 +540,14 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
             E("img",{src:d.url,alt:"Earlier draft: "+line(d),draggable:false,loading:"lazy"}),E("span",null,line(d)))))),
         notice&&E("p",{className:"loc-layer-note previs-notice",role:"status"},notice),
         fail&&E("p",{className:"loc-spatial-error",role:"alert"},fail))),
-    shown&&E("dialog",{ref:dialog,className:"loc-style-dialog","data-testid":"previs-variant-review","aria-label":"A draft beside the 3D frame",onCancel:()=>setReview("")},
-      E("div",{className:"loc-cloud-render-head"},E("h3",null,shown===cur?"The draft and the 3D frame":"Earlier draft"),
+    shown&&E("dialog",{ref:dialog,className:"loc-style-dialog","data-testid":"previs-variant-review","aria-label":"A draft beside the location image",onCancel:()=>setReview("")},
+      E("div",{className:"loc-cloud-render-head"},E("h3",null,shown===cur?"The draft and the location image":"Earlier draft"),
         E("button",{type:"button",className:"art-draftall ghost",onClick:()=>setReview("")},"Close")),
-      E("p",null,shown.sheet?"Left: the 3D frame this draft was made from. Right: the draft. Move the slider to compare them: doors and windows, where things stand, what is in front of what.":"This draft\u2019s 3D frame is no longer saved, so it is shown on its own."),
+      E("p",null,shown.sheet?"Left: what this draft was made from. Right: the draft. Move the slider: everything should stand where it stood, with only the light and the state changed.":"What this draft was made from is no longer saved, so it is shown on its own."),
       shown.sheet&&E("div",{className:"loc-style-toolbar"},E("label",null,"Left side shown: "+wipe+"%",E("input",{type:"range",min:0,max:100,value:wipe,onChange:e=>setWipe(Number(e.target.value)),"aria-label":"How much of the left image is shown"}))),
       E("div",{className:"loc-style-compare"},
         E("div",{className:"loc-style-layer"},E("img",{src:shown.url,alt:"The draft",style:{width:"100%",height:"100%",left:0,top:0}})),
-        shown.sheet&&E("div",{className:"loc-style-layer",style:{clipPath:"inset(0 "+(100-wipe)+"% 0 0)"}},E("img",{src:shown.sheet,alt:"The 3D frame",style:{width:"100%",height:"100%",left:0,top:0}})),
+        shown.sheet&&E("div",{className:"loc-style-layer",style:{clipPath:"inset(0 "+(100-wipe)+"% 0 0)"}},E("img",{src:shown.sheet,alt:"What it was made from",style:{width:"100%",height:"100%",left:0,top:0}})),
         shown.sheet&&E("div",{className:"loc-style-divider",style:{left:wipe+"%"}})),
       fail&&E("p",{role:"alert",className:"loc-spatial-error"},fail),
       !readOnly&&E("div",{className:"loc-cloud-render-actions"},

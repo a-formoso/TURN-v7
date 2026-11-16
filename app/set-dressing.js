@@ -360,6 +360,20 @@
     try{return JSON.parse(text.slice(a,b+1));}catch(_){return null;}
   }
 
+  /* ABOUT HOW MANY WRITING CREDITS a dressing costs (owner 2026-11-16: the number on the button). A writing call is
+     charged by its length, so this is an estimate: the prompt as it will be sent, and about 45 tokens of answer a
+     shape. RATE = USD a million tokens for MODEL, as in image-proxy/billing-pricing.mjs (a test keeps them equal). */
+  const RATE={input:8,output:40};
+  function estimate(location,ctx){
+    ctx=ctx||{};
+    const scene=root.KinolotCloudRender.buildScene(location,ctx.locations);
+    const maxParts=Math.max(20,Math.min(LIMITS.parts,ctx.maxParts||CALL.parts,500-scene.objects.length));
+    const text=prompt(brief(location,scene,ctx),maxParts);
+    const inputTokens=Math.ceil(text.length/3.5),outputTokens=Math.round(maxParts*45+400);
+    const usd=(inputTokens*RATE.input+outputTokens*RATE.output)/1e6;
+    const credits=typeof root.turnCreditCost==="function"?root.turnCreditCost(usd):Math.max(1,Math.ceil(usd/0.01-1e-9));
+    return {credits,usd:Math.round(usd*1000)/1000,inputTokens,outputTokens};
+  }
   /* One writing call. Returns the set with its dressing on, the dressing and what was left out; saves nothing. */
   async function draft(location,ctx){
     ctx=ctx||{};
@@ -382,5 +396,5 @@
     return {...checked,scene:apply(scene,checked.dressing),written:parsed,promptLength:text.length,answerLength:String(raw&&raw.text||raw||"").length};
   }
 
-  root.KinolotSetDressing={MODEL,LIMITS,CALL,SAVED_MAX,place,own,pack,saved,colour,part,fit,survey,normalise,apply,brief,prompt,draft};
+  root.KinolotSetDressing={MODEL,LIMITS,CALL,SAVED_MAX,RATE,estimate,place,own,pack,saved,colour,part,fit,survey,normalise,apply,brief,prompt,draft};
 })(typeof window!=="undefined"?window:globalThis);

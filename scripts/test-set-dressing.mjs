@@ -396,58 +396,81 @@ test('the image keeps to the sheet: each panel in words, and a room takes its lo
   assert.ok(typeof P.overview==='function');
 });
 
-/* VARIANTS FROM THE 3D SET (owner 2026-11-16: "one frame, go ahead with variants"): a variant's image is ONE frame, from
-   one of the set's four cameras, lit for its hour; made as a draft, used as that variant's own image. */
-test('a variant from the 3D set: one frame, lit for its hour, kept as a draft and used as the variant\u2019s own image',async()=>{
+/* VARIANTS COME FROM THE LOCATION IMAGE (owner 2026-11-16: "variants should be deriving from already generated location
+   image ... the image a user chooses to be the location image"): one of its four views, redrawn at the variant's hour,
+   as a draft that becomes the variant's own image. Nothing is drawn from the 3D set. */
+test('a variant from the location image: one view of it, redrawn at the variant\u2019s hour; a draft, then the variant\u2019s own image',async()=>{
   const h=previsHarness(),{P,store,p}=h;
-  // the hour's light: night and dusk are drawn so; day keeps the place's own light; "late afternoon" is still day
-  const base={time:'day',sky:'#aabbcc',lamps:[{at:[1,1,2],colour:'#ffd9a0',power:2}]};
-  assert.equal(P.lightFor('Night',base).time,'night');assert.equal(P.lightFor('Pre-dawn',base).time,'night');
-  assert.equal(P.lightFor('Dawn',base).time,'dusk');assert.equal(P.lightFor('Dusk',base).time,'dusk');assert.equal(P.lightFor('Evening',base).time,'dusk');
-  assert.equal(P.lightFor('Day',base),base);assert.equal(P.lightFor('Late afternoon',base),base);assert.equal(P.lightFor('',null),null);
-  assert.equal(P.lightFor('Night',base).lamps,base.lamps,'the dressing\'s lamps are the ones that come on');
   const variant={key:'hall|INT|night',asset:'locunit-hall-night',label:'Hall \u00b7 Night',time:'Night',camera:'TR'},t={loc:'hall',variant};
   assert.equal(P.slot(t),'previs-draft-hall-var-hall-int-night');assert.equal(P.assetOf(t),'locunit-hall-night');
-  assert.equal(P.target({loc:'hall',variant:{key:'k',asset:'a',camera:'nowhere'}}).variant.camera,'TL','an unknown camera is the first one');
-  // the prompt: one frame, the frame decides the camera, the look from the location image, the hour from the spec
-  const text=P.framePrompt('SPEC night',{scene:scene(),views:{TR:[{name:'Radiator',side:'left',depth:'close'}]},camera:'TR'},{look:true,style:'anime'});
-  assert.ok(text.startsWith('Image 1 is the 3D previs of this location from ONE camera, lit for the hour: a single 16:9 frame.'));
-  assert.ok(text.includes('Draw ONE full-frame 16:9 image, not a grid')&&text.includes("the finished look is the spec's render style (anime)"));
-  assert.ok(text.includes('Image 2 is the finished image of this same place in its usual daylight')&&text.includes('and NOT its hour or its weather'));
-  assert.ok(text.includes('THE FRAME, read from the 3D set (nothing in the spec below may change it): camera 1.6 m high, facing south-west, 24 mm lens (wide). In its frame: Radiator (left, close).'));
-  assert.ok(text.endsWith('SPEC night')&&!P.framePrompt('S',{scene:scene(),camera:'TL'},{}).includes('Image 2'));
-  // MAKE: one image call, the frame as Image 1 and the location image as Image 2; saved as the variant's own draft
-  const sheets=[];p.KinolotPrevis.sheet=async(sc,light,o)=>{sheets.push({light,only:o.only});return {dataUrl:'data:image/png;base64,RlJBTUU=',views:{TR:[]},panels:[o.only]};};
-  p.nbGetImage=id=>id==='hall'?'hall-image-url':'';
+  assert.equal(P.target({loc:'hall',variant:{key:'k',asset:'a',camera:'nowhere'}}).variant.camera,'TL','an unknown view is the first one');
+  // the words: exactly this picture, only the hour and the state change
+  const text=P.relightPrompt({notes:'INT. Hall. Time: Night.',style:'anime'});
+  assert.ok(text.startsWith('Image 1 is the finished image of this place from one camera, as it usually is by day. Redraw EXACTLY this picture at another hour or in another state.'));
+  assert.ok(text.includes('Add nothing, remove nothing and move nothing.')&&text.includes('Change only what the hour, the weather and the state below change')&&text.includes('One full-frame 16:9 image, not a grid.'));
+  assert.ok(text.includes('no marks of one scene (nothing knocked over, spilled or broken) unless the notes say so')&&text.endsWith('THIS VARIANT: INT. Hall. Time: Night.'));
+  // no location image yet: the variant waits for it, and nothing is sent
+  p.oaiToDataUrl=async u=>'data:image/png;base64,'+Buffer.from(String(u)).toString('base64');
+  p.LOC_PANEL_INFO={TL:{crop:[0,0,.5,.5]},TR:{crop:[.5,0,.5,.5]},BL:{crop:[0,.5,.5,.5]},BR:{crop:[.5,.5,.5,.5]}};
+  const cuts=[];p.cropRegionAsDataUrl=async(data,crop)=>{cuts.push(crop);return 'data:image/png;base64,VklFVw'+crop[0]+crop[1];};
+  await assert.rejects(()=>P.render(t,{spec:'INT. Hall. Time: Night.'}),/no location image yet\. Choose the location image first/);
+  assert.equal(h.calls.length,0);
+  // the chosen location image: a four-view sheet
+  store.set('hall',{id:'hall',url:'https://storage.test/hall.png',meta:{iso:'image-1',version:1,platePanels:{panels:{}}},refs:[],history:[]});
   store.set('locunit-hall-night',{id:'locunit-hall-night',url:'night-before',meta:{iso:'n0',version:2},refs:[],history:[]});
-  await assert.rejects(()=>P.render(t,{}),/prompt could not be built/);
-  const d=await P.render(t,{spec:'SPEC night',meta:{locationParentId:'hall',plateLayoutSig:'L1'}});
-  assert.equal(h.calls.length,1);assert.equal(sheets[0].only,'TR');assert.equal(sheets[0].light.time,'night','drawn in the hour\'s light');
+  const src=await P.variantSource('hall','TR');
+  assert.equal(src.sheet,true);assert.equal(src.iso,'image-1');assert.deepEqual(copy(cuts.at(-1)),[.5,0,.5,.5],'the top-right view is cut out of the sheet');
+  await assert.rejects(()=>P.render(t,{}),/Say when or in what state/);
+  const sheets=[];p.KinolotPrevis.sheet=async()=>{sheets.push(1);throw new Error('the 3D set must not be drawn for a variant');};
+  p.KinolotCloudRender={buildScene:()=>{throw new Error('the floor plan is not needed for a variant');}};
+  const d=await P.render(t,{spec:'INT. Hall. Time: Night.',meta:{locationParentId:'hall',plateLayoutSig:'L1'}});
+  assert.equal(h.calls.length,1);assert.equal(sheets.length,0,'nothing is drawn again from the 3D set');
   const call=h.calls[0];
-  assert.equal(call.o.referenceImage,'data:image/png;base64,RlJBTUU=');assert.deepEqual(copy(call.o.extraImages),['hall-image-url']);assert.equal(call.o.assetId,'previs-draft-hall-var-hall-int-night');
-  assert.ok(call.prompt.endsWith('SPEC night')&&call.prompt.includes('ONE full-frame 16:9 image'));
+  assert.equal(call.o.referenceImage,src.dataUrl,'Image 1 is the location image\'s own view');assert.equal(call.o.extraImages,undefined);
+  assert.equal(call.o.assetId,'previs-draft-hall-var-hall-int-night');assert.ok(call.prompt.endsWith('THIS VARIANT: INT. Hall. Time: Night.'));
   const saved=store.get('previs-draft-hall-var-hall-int-night');
   assert.equal(saved.meta.kind,'previs-draft');assert.equal(saved.meta.variantKey,'hall|INT|night');assert.equal(saved.meta.variantCamera,'TR');
+  assert.equal(saved.meta.madeFrom.locationImage,'image-1');assert.equal(saved.meta.madeFrom.view,'TR');
   assert.equal(saved.meta.locationParentId,'hall');assert.equal(saved.meta.plateLayoutSig,'L1','what the variant\'s own Generate records is kept');
-  assert.equal(saved.meta.platePanels,undefined,'a single frame carries no four-panel record');
-  assert.equal(store.get('locunit-hall-night').url,'night-before');assert.equal(store.has('hall'),false,'neither the variant\'s image nor the location image is touched');
-  // its drafts are its own: the location's and another variant's lists do not show it
+  assert.equal(saved.refs[0].url,src.dataUrl,'what it was made from is kept, to compare');
+  assert.equal(store.get('locunit-hall-night').url,'night-before');assert.equal(store.get('hall').url,'https://storage.test/hall.png','neither the variant\'s image nor the location image is touched');
+  // its drafts are its own
   assert.equal((await P.drafts(t)).current.meta.iso,d.meta.iso);assert.equal((await P.drafts('hall')).current,null);
-  assert.equal((await P.drafts({loc:'hall',variant:{key:'hall|INT|dawn',asset:'x'}})).current,null);
-  // THE RULE: the set, the camera, the hour and the variant's own description
-  const k=await P.keys(t,undefined,{spec:'SPEC night'});
+  // THE RULE for a variant: the same location image, the same view, the same notes
+  const k=await P.keys(t,undefined,{spec:'INT. Hall. Time: Night.'});
   assert.equal(k.setKey,d.meta.setKey);assert.equal(k.lookKey,d.meta.lookKey);
-  assert.notEqual((await P.keys({loc:'hall',variant:{...variant,camera:'TL'}},undefined,{spec:'SPEC night'})).setKey,k.setKey,'another camera is another frame');
-  assert.notEqual((await P.keys({loc:'hall',variant:{...variant,time:'Day'}},undefined,{spec:'SPEC night'})).setKey,k.setKey,'another hour is another light');
-  await assert.rejects(()=>P.use(t,d.meta.iso,{spec:'SPEC night, now with rain'}),/out of date/);
-  // USE: the variant's image gets a new version, one frame; the location image is never touched
-  await P.use(t,d.meta.iso,{spec:'SPEC night'});
+  assert.notEqual((await P.keys({loc:'hall',variant:{...variant,camera:'TL'}},undefined,{spec:'INT. Hall. Time: Night.'})).setKey,k.setKey,'another view is another picture');
+  await assert.rejects(()=>P.use(t,d.meta.iso,{spec:'INT. Hall. Time: Night. Rain.'}),/out of date/);
+  // USE: the variant's image gets a new version; the location image is never touched
+  await P.use(t,d.meta.iso,{spec:'INT. Hall. Time: Night.'});
   const image=store.get('locunit-hall-night');
   assert.equal(image.url,d.url);assert.equal(image.meta.mode,'final');assert.equal(image.meta.version,3);assert.equal(image.meta.previsDraftIso,d.meta.iso);
-  assert.equal(image.meta.plateLayoutSig,'L1');assert.equal(image.history[0].url,'night-before');assert.equal(store.has('hall'),false);
+  assert.equal(image.meta.plateLayoutSig,'L1');assert.equal(image.history[0].url,'night-before');assert.equal(store.get('hall').meta.iso,'image-1');
   assert.equal(h.calls.length,1,'using it makes no image call');
+  // a new location image: drafts made from the old one are out of date
+  store.get('hall').meta.iso='image-2';
+  assert.notEqual((await P.keys(t,undefined,{spec:'INT. Hall. Time: Night.'})).setKey,k.setKey);
+  // a location image that is not a four-view sheet (a photo dropped on the card) is used whole
+  store.set('hall',{id:'hall',url:'data:image/png;base64,UEhPVE8=',meta:{iso:'photo'},refs:[],history:[]});
+  const whole=await P.variantSource('hall','TR');
+  assert.equal(whole.sheet,false);assert.equal(whole.dataUrl,'data:image/png;base64,UEhPVE8=');
 });
-
+/* THE NUMBER ON THE DRESS BUTTON (owner 2026-11-16: "Dress it again [icon + number of writing credits]"). */
+test('about how many writing credits a dressing costs: from the prompt as sent and the engine\u2019s own price',()=>{
+  const h=placeHarness(),{D,p,hall}=h;
+  // the engine's price is the server's (a change there must be made here too)
+  const server=readFileSync('supabase/functions/image-proxy/billing-pricing.mjs','utf8').match(/"claude-fable-5-2": \{ input: (\d+), output: (\d+) \}/);
+  assert.ok(server);assert.equal(D.MODEL,'claude-fable-5-2');assert.equal(D.RATE.input,Number(server[1]));assert.equal(D.RATE.output,Number(server[2]));
+  p.turnCreditCost=usd=>Math.max(1,Math.ceil(usd/0.01-1e-9));
+  const e=D.estimate(hall,{project:{title:'F'},locations:[h.yard,hall]});
+  assert.ok(e.inputTokens>500&&e.outputTokens===D.CALL.parts*45+400);
+  assert.equal(e.credits,Math.ceil((e.inputTokens*8+e.outputTokens*40)/1e6/0.01-1e-9));
+  assert.ok(e.credits>=20&&e.credits<=40,'in the range the real calls cost (19 to 29 credits): '+e.credits);
+  const ui=readFileSync('app/set-previs-ui.jsx','utf8');
+  for(const t of ['l.previs?"Dress it again":"Dress the set",','"data-testid":"previs-dress-cost"','String(dressCost.credits)','"Remove dressing"','className:"loc-step-actions previs-dress-row"','D.estimate(l,{project})'])assert.ok(ui.includes(t),t);
+  assert.ok(!ui.includes('(writing credits)')&&!ui.includes('"Remove the dressing"'));
+  assert.ok(readFileSync('app/styles.css','utf8').includes('[data-location-card] .loc-sub > .previs-dress-row > .art-draftall{width:auto;flex:0 0 auto;white-space:nowrap}'));
+});
 /* CANCEL (owner 2026-11-16: "show progress and a cancel button"). */
 test('cancel: before the request is sent nothing is charged; after it the result is thrown away; while saving it is too late',async()=>{
   const h=previsHarness(),{P,p,store}=h;
@@ -468,7 +491,7 @@ test('cancel: before the request is sent nothing is charged; after it the result
   assert.equal(late.ok,false);assert.equal(late.reason,'saving');assert.ok(store.has('previs-draft-hall'),'a draft that is being saved is saved');
   const ui=readFileSync('app/set-previs-ui.jsx','utf8');
   for(const t of ['function previsProgress({phase,since,now,model}){','"data-testid":"previs-progress"','"data-testid":"previs-cancel"','onClick:()=>R.cancel(target)','"Cancel"',
-      'busy==="render"&&previsProgress({phase,since:R.since,now:R.now,model:choice&&choice.model}),','},[drawnFrom,lookNow,tick]);','},[open,drawnFrom,draftCamera,specText,tick]);'])
+      'busy==="render"&&previsProgress({phase,since:R.since,now:R.now,model:choice&&choice.model}),','},[drawnFrom,lookNow,tick]);','},[open,draftCamera,notesText,imageIso,tick]);'])
     assert.ok(ui.includes(t),t);
   // the progress and Cancel sit in the Make button's own row, after it
   const row=ui.slice(ui.indexOf('disabled:!!busy||working||cancelling||drawing||!sheet,onClick:make,'));
