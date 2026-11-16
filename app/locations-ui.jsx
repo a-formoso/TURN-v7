@@ -1573,6 +1573,29 @@ function LocationImageChangeContent({l,meta,hasImage,onSelectLocation,onNavigate
       :E("span",{key:item.key,className:"loc-change-label",title:item.title},item.label))));
 }
 
+/* ONE VARIANT PER TIME (owner 2026-11-16): a variant that took in another name's scenes lists that name's keys
+   (alsoKeys, locations.jsx deriveSluglineUnits). An image made under one of them is never hidden: it is looked up here
+   and shown under the variants as a kept card (the card of a room & time that left the script), for the owner to keep
+   or remove. Notes saved under such a name arrive the same way from reconcileSluglineUnits. */
+function useKeptVariantImages(units){
+  const have=new Set((units||[]).map(u=>u&&String(u.key)));
+  const rows=(units||[]).flatMap(u=>u&&!u.orphan&&Array.isArray(u.alsoKeys)?u.alsoKeys.map(k=>({key:String(k),into:String(u.key)})):[])
+    .filter(r=>!have.has(r.key));
+  const sig=rows.map(r=>r.key+">"+r.into).join("\n")+"@"+(typeof nbEpoch==="function"?nbEpoch():0);
+  const [held,setHeld]=React.useState({sig:"",keys:[]});
+  React.useEffect(()=>{
+    if(!rows.length||typeof nbLoadImage!=="function"||typeof sluglineUnitImageId!=="function") return;
+    let dead=false;
+    (async()=>{ const keys=[];
+      for(const r of rows){ try{ if(await nbLoadImage(sluglineUnitImageId(r.key))) keys.push(r.key); }catch(_){ } }
+      if(!dead) setHeld({sig,keys}); })();
+    return ()=>{ dead=true; };
+  },[sig]);
+  const kept=held.sig===sig&&typeof sluglineUnitKept==="function"
+    ? rows.filter(r=>held.keys.indexOf(r.key)>=0).map(r=>sluglineUnitKept(r.key,null,r.into)) : [];
+  return {kept,drop:key=>setHeld(h=>({...h,keys:h.keys.filter(k=>k!==key)}))};
+}
+
 function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft, drafting, onView, batchActiveId, onBatchDone, onChipClick, onDraftStaging, draftingStage, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false, workspaceMembers=[],onSelectLocation,initialSection="",embedded=false,
   samePlace=[], mergeChoices=[], onMergeLocations, onPlaceDecision }){
   // "Same place as…" (2026-10-14): the card picked to merge this one with — null while the picker is closed
@@ -1954,8 +1977,12 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const coverageSheets = (l.coverageSheets || []).slice().sort((a,b)=>(Number(a.order||0)-Number(b.order||0)) || String(a.name||"").localeCompare(String(b.name||"")));
   // Units arrive in first screenplay-appearance order from deriveSluglineUnits.
   // Preserve that order here; only move preserved, no-longer-scripted orphans last.
-  const units = (sluglineUnits||[]).filter(u=>u && String(u.subspaceKey||u.locationKey||"")===String(l.key||""))
+  const ownUnits = (sluglineUnits||[]).filter(u=>u && String(u.subspaceKey||u.locationKey||"")===String(l.key||""));
+  // (2026-11-16, one variant per time) an image made under a name that is now part of another variant stays on the card
+  const keptVariantImages = useKeptVariantImages(ownUnits);
+  const units = ownUnits.concat(keptVariantImages.kept)
     .sort((a,b)=> (a.orphan?1:0)-(b.orphan?1:0));
+  const removeVariantRecord = onRemoveUnit && (key=>{ keptVariantImages.drop(key); onRemoveUnit(key); });
   const roomLocations=l.parentLocation?[]:workspaceMembers.filter(m=>m.id!==l.id);
   const roomUnits=roomLocations.flatMap(owner=>(sluglineUnits||[])
     .filter(u=>u&&!u.orphan&&String(u.subspaceKey||u.locationKey||"")===String(owner.key||""))
@@ -2321,7 +2348,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement("div",{className:"loc-variants"},
           environment.units.map(u=>React.createElement("div",{className:"loc-variant-group",key:u.key,"data-location-variant":u.key},
             React.createElement(SluglineUnitCard,{ l, u, project, scenes, drafts,
-              parentGenUrl:gen.genUrl, onRemoveUnit, onView, readOnly,
+              parentGenUrl:gen.genUrl, onRemoveUnit:removeVariantRecord, onView, readOnly,
               onEnvironmentChange:state=>saveLocationUnitEnvironment(l,u,appearanceStates,state,onUpdateUnit,onUpdate)}),
             React.createElement(LocationVariantUsedIn,{unit:u,setups:sceneSetups.filter(s=>s.unitKey===u.key),onUpdateSetup:updateSceneSetup}))),
           // a look of its own, not a time the screenplay states (the additional environment states of before)
@@ -3247,14 +3274,19 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       (u.occurrences||[]).length>1&&React.createElement("span",null," · ",(u.occurrences||[]).length," occurrences")),
     u.orphan && React.createElement("div",{className:"loc-unit-orphan"},
       React.createElement(Icon.alert,{s:12}),
-      React.createElement("span",null,"No longer in the script \u2014 kept so its plate and notes aren't lost."),
+      // (2026-11-16, one variant per time) saved under a name that is now part of another variant of this card
+      React.createElement("span",{"data-testid":u.foldedInto?"variant-kept-other-name":undefined},u.foldedInto
+        ? "Saved under the name \u201c"+(u.name||"this room")+"\u201d, which is now part of the variant above. Kept so its image and notes aren't lost."
+        : "No longer in the script \u2014 kept so its plate and notes aren't lost."),
       onRemoveUnit && React.createElement("button",{className:"loc-unit-remove",
         title:"Delete this room & time's stored data and generated plate",
         onClick:async ()=>{
           // a PERMANENT delete — asked first (2026-10-03, owner — Locations review)
           const ok = !window.appConfirm || await window.appConfirm({
             title:"Remove "+(u.name||"this room")+(u.time?" \u00b7 "+u.time:"")+" for good?",
-            body:"It's no longer in the screenplay. Removing it deletes its notes and its plate permanently \u2014 this can't be undone.",
+            body:u.foldedInto
+              ? "It is now part of another variant of this card. Removing it deletes the notes and the image saved under this name permanently \u2014 this can't be undone."
+              : "It's no longer in the screenplay. Removing it deletes its notes and its plate permanently \u2014 this can't be undone.",
             confirmLabel:"Remove for good", cancelLabel:"Keep it", danger:true });
           if(!ok) return;
           if(typeof nbClearAsset==="function"){ try{ await nbClearAsset(imgId); }catch(e){} } onRemoveUnit(u.key); }},"Remove")),

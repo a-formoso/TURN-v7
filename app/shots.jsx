@@ -1030,14 +1030,18 @@ function shotLocationUnitPlace(u){
 }
 function shotLocationUnitMatchesPlace(u,parsed){
   if(!u||!parsed||!shotLocationUnitPlace(u)) return false;
-  const unit=shotLocationNorm(shotLocationUnitPlace(u));
   const parts=shotLocationPlaceParts(parsed.place);
-  if(parts.indexOf(unit)>=0) return true;
-  /* A heading such as "FATHER'S HOUSE KITCHEN" has no separator between the
-     enclosing place and its room. Accept a unique trailing room phrase, but
-     never use a broad substring that could choose the wrong room. */
   const place=shotLocationNorm(parsed.place);
-  return !!(place && place.endsWith(" "+unit));
+  // (2026-11-16, one variant per time) the room's other names on its card are this same variant
+  return [shotLocationUnitPlace(u)].concat(Array.isArray(u.alsoNames)?u.alsoNames:[]).some(name=>{
+    const unit=shotLocationNorm(name);
+    if(!unit) return false;
+    if(parts.indexOf(unit)>=0) return true;
+    /* A heading such as "FATHER'S HOUSE KITCHEN" has no separator between the
+       enclosing place and its room. Accept a unique trailing room phrase, but
+       never use a broad substring that could choose the wrong room. */
+    return !!(place && place.endsWith(" "+unit));
+  });
 }
 function shotLocationUnitRoot(u){
   return String(u&& (u.continuityRootKey || u.locationKey || "") || "");

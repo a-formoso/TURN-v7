@@ -104,7 +104,7 @@ test("nothing saved depends on parseSlug: only the Script view's hinge and cells
 test("the page loads the new script.jsx (it shares ai.jsx's key)", ()=>{
   const html = read("TURN.html");
   for(const f of ["script", "ai"])
-    assert.ok(["20261112-slug1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f+".jsx key");
+    assert.ok(["20261112-slug1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1"].some(k=>html.includes('src="app/'+f+'.jsx?v='+k+'"')), f+".jsx key");
 });
 
 console.log("\n"+checks+" checks passed"+(failed ? ", "+failed+" FAILED" : ""));

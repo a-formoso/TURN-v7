@@ -568,8 +568,12 @@ function App(){
   // slugline-unit OVERLAYS (key + appearance/notes/images only) — the unit skeletons
   // themselves derive live from the script (see sluglineUnits below); never persisted.
   const [slugUnitsOv, setSlugUnitsOv] = React.useState(()=> (saved && saved.sluglineUnits) || []);
-  const updateSlugUnitOverlay = (key, patch)=> setSlugUnitsOv(ov=>
-    (typeof upsertSluglineUnitOverlay==="function") ? upsertSluglineUnitOverlay(ov, key, patch) : ov);
+  // (2026-11-16, one variant per time) a variant still reading another name's notes starts its own record from them
+  const updateSlugUnitOverlay = (key, patch)=> setSlugUnitsOv(ov=>{
+    if(typeof upsertSluglineUnitOverlay!=="function") return ov;
+    const unit = (((window.turnContinuity||{}).sluglineUnits)||[]).find(u=>u && u.key===key);
+    return upsertSluglineUnitOverlay(ov, key, (unit && typeof sluglineUnitOverlayPatch==="function") ? sluglineUnitOverlayPatch(ov, unit, patch) : patch);
+  });
   // explicit delete (orphan units) — removes the stored overlay record entirely
   const removeSlugUnitOverlay = (key)=> setSlugUnitsOv(ov=> (ov||[]).filter(o=>o && o.key!==key));
   const [lookbook, setLookbook] = React.useState(()=> (saved && saved.lookbook) || []);

@@ -3737,6 +3737,15 @@ function deriveSluglineUnits(scenes, drafts, opts){
   scenes = scenesInStoryOrder(scenes);
   const dec = _locDecisions(opts);
   const order = []; const byKey = {};
+  /* ONE VARIANT PER TIME (owner 2026-11-16, "yes, fix that in the app"). After two cards are merged, the same room
+     can be written two ways ("ELLIS HOUSE - HALLWAY" in the heading, "A narrow hallway." under it): that used to give
+     the merged card two variants of one side and one time. samePlace() is the place as its CARD reads it (a
+     merged-away name reads as the survivor's; an area tail stays), so two spellings of one room compare equal. */
+  const headKeyOf = (place)=> locSlug(String(place||"").split(/[\u00b7\u2014,]/)[0]).split("-").slice(0,4).join("-");
+  const samePlace = (place)=>{ const full = locSlug(place), own = headKeyOf(place);
+    return locationAliasKey(own, dec)+"|"+(own && full.indexOf(own)===0 ? full.slice(own.length) : full); };
+  const alsoName = (u, name)=>{ name = String(name||"").trim(); if(!name || name===u.name) return;
+    if(!u.alsoNames) u.alsoNames = []; if(u.alsoNames.indexOf(name)<0) u.alsoNames.push(name); };
   /* character-name exclusion set for dressing candidates — screenplay convention
      capitalizes cast names in action prose, so every char cue (plus its
      individual words) is vetoed from the ALL-CAPS object extractor. */
@@ -3838,7 +3847,11 @@ function deriveSluglineUnits(scenes, drafts, opts){
           const parsedInline=parseSlugline(inline);
           const inlineKey=parsedInline&&locSlug(parsedInline.place);
           const currentKey=cur&&locSlug(cur.place);
-          if(inlineKey && inlineKey!==currentKey){
+          const inlinePlace=parsedInline ? tidyPlace(splitCompoundPlace(parsedInline.place)[0]||"") : "";
+          // the room the heading already opened, under its other name: the camera has not moved (2026-11-16)
+          if(inlineKey && inlineKey!==currentKey && cur && inlinePlace && samePlace(inlinePlace)===samePlace(cur.place)){
+            alsoName(cur, inlinePlace);
+          }else if(inlineKey && inlineKey!==currentKey){
             closeOcc(idx); cur=null; curOcc=null;
             open(inline,idx,firstActionInSpace?"derived-establishing-action":"derived-inline-room-cue");
           }
@@ -3872,7 +3885,40 @@ function deriveSluglineUnits(scenes, drafts, opts){
     u.subspaceKey = pk;
     u.continuityRootKey = unitFold[pk] ? resolveFoldKey(unitFold,pk) : pk;
     u.locationKey = u.continuityRootKey; });
-  order.forEach(k=>{
+  /* ONE VARIANT PER TIME (owner 2026-11-16): units that are one room of one card, one side and one time, written
+     under two names, become ONE unit. It keeps the key of the name the card itself has (so its image and notes stay
+     where they are), else of the first one written; the others' scenes join it, and their keys and names are listed
+     on it (alsoKeys, alsoNames) - nothing saved under them is touched: reconcileSluglineUnits reads their notes, and
+     the card shows an image made under them as a kept card. Only names the owner merged fold: nothing else can give
+     two keys one samePlace(). */
+  const foldGroups = {}; let live = order;
+  order.forEach(k=>{ const u = byKey[k], g = samePlace(u.place)+"|"+u.intExt+"|"+(u.time||"untimed");
+    (foldGroups[g] = foldGroups[g] || []).push(u); });
+  if(Object.keys(foldGroups).some(g=>foldGroups[g].length>1)){
+    const sceneAt = {}; (scenes||[]).forEach((sc,i)=>{ if(sc) sceneAt[String(sc.id)] = i; });
+    const gone = {}, moved = {};
+    Object.keys(foldGroups).forEach(g=>{ const list = foldGroups[g]; if(list.length<2) return;
+      const keeper = list.find(u=>headKeyOf(u.place)===u.subspaceKey) || list[0];
+      if(list[0]!==keeper) moved[list[0].key] = keeper.key;   // the variant stays where the room first appears
+      list.forEach(u=>{ if(u===keeper) return;
+        gone[u.key] = true;
+        if(!keeper.alsoKeys) keeper.alsoKeys = [];
+        keeper.alsoKeys.push(u.key);
+        alsoName(keeper, u.name); (u.alsoNames||[]).forEach(x=>alsoName(keeper, x));
+        u.occurrences.forEach(o=>keeper.occurrences.push(o));
+        u.sluglines.forEach(x=>{ if(keeper.sluglines.indexOf(x)<0) keeper.sluglines.push(x); });
+        u.sourceKinds.forEach(x=>{ if(keeper.sourceKinds.indexOf(x)<0) keeper.sourceKinds.push(x); }); });
+      keeper.occurrences = keeper.occurrences.map((o,i)=>({o,i})).sort((a,b)=>
+        ((sceneAt[String(a.o.sceneId)]||0)-(sceneAt[String(b.o.sceneId)]||0)) || ((a.o.start||0)-(b.o.start||0)) || (a.i-b.i)).map(x=>x.o);
+      const seen = {}; keeper.scenes = []; keeper.sceneNos = [];
+      keeper.occurrences.forEach(o=>{ const sid = String(o.sceneId||"");
+        seen[sid] = (seen[sid]||0)+1; o.occurrenceOrdinal = seen[sid];
+        if(keeper.scenes.indexOf(o.sceneId)<0) keeper.scenes.push(o.sceneId);
+        if(o.sceneNo!=null && keeper.sceneNos.indexOf(o.sceneNo)<0) keeper.sceneNos.push(o.sceneNo); }); });
+    const placed = {};
+    live = order.map(k=>moved[k]||k).filter(k=>{ if(gone[k] || placed[k]) return false; placed[k] = true; return true; });
+  }
+  live.forEach(k=>{
     const u = byKey[k];
     let txt = "", act = "";
     u.occurrences.forEach(occ=>{
@@ -3891,7 +3937,7 @@ function deriveSluglineUnits(scenes, drafts, opts){
     u.scriptText = txt.length>3600 ? txt.slice(0,3600).replace(/\s+\S*$/,"")+" …" : txt;
     u.dressingDerived = deriveUnitDressing(act, charNames);
   });
-  return order.map(k=>byKey[k]);
+  return live.map(k=>byKey[k]);
 }
 window.deriveSluglineUnits = deriveSluglineUnits;
 
@@ -3908,10 +3954,18 @@ function reconcileSluglineUnits(derived, overlays){
   (Array.isArray(overlays)?overlays:[]).forEach(o=>{ if(o && o.key) ov[o.key]=o; });
   const used = {};
   const merged = (Array.isArray(derived)?derived:[]).map(u=>{
-    const o = ov[u.key] || null;
+    /* ONE VARIANT PER TIME (owner 2026-11-16): a variant that took in another name's scenes (alsoKeys) reads the notes
+       saved under that name while it has none of its own (overlayKey says where they are). The first edit copies them
+       under its own key (sluglineUnitOverlayPatch, adoptedFrom) - the old record stays stored and is no longer shown
+       twice. Notes under BOTH names: its own are shown, the other's stay on the card as a kept record. */
+    const also = Array.isArray(u.alsoKeys) ? u.alsoKeys : [];
+    let o = ov[u.key] || null;
+    if(o && o.adoptedFrom && also.indexOf(String(o.adoptedFrom))>=0 && ov[o.adoptedFrom]) used[o.adoptedFrom] = true;
+    if(!o){ const k = also.find(x=>ov[x]); if(k) o = ov[k]; }
     if(o) used[o.key] = true;
     return {
       ...u,
+      ...(o && o.key!==u.key ? {overlayKey:o.key} : {}),
       appearance: (o && o.appearance) || "",
       notes: (o && o.notes) || "",
       dressing: Array.isArray(o && o.dressing) ? o.dressing.slice() : [],
@@ -3923,34 +3977,57 @@ function reconcileSluglineUnits(derived, overlays){
   // orphans: rebuild a display-minimal skeleton from the key parts ("place|side|bucket").
   // Parse from the RIGHT so a corrupt/legacy key with extra "|" still yields a sane
   // side+bucket and keeps everything before them as the place.
+  // a name that now reads as another variant of its card (alsoKeys): its kept record says which (2026-11-16)
+  const foldedInto = {};
+  merged.forEach(u=>(Array.isArray(u.alsoKeys)?u.alsoKeys:[]).forEach(k=>{ if(!foldedInto[k]) foldedInto[k] = u.key; }));
   Object.keys(ov).sort().forEach(k=>{
     if(used[k]) return;
-    const o = ov[k];
-    const parts = String(k).split("|");
-    const placeSlug = parts.length>2 ? parts.slice(0,-2).join("|") : (parts[0]||"");
-    const name = placeSlug.replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase());
-    const side = parts.length>2 ? parts[parts.length-2] : "";
-    const bucket = parts.length>2 ? parts[parts.length-1] : "";
-    // a merged-away name's orphan belongs to its survivor's card (2026-10-14, SAME PLACE, TWO NAMES)
-    const placeKey = locationAliasKey(placeSlug.split("-").slice(0,4).join("-"));
-    merged.push({
-      key:k, name: name||k, place: name||k,
-      intExt: side, time: (bucket && bucket!=="untimed") ? bucket : "",
-      locationKey: placeKey,
-      subspaceKey: placeKey,
-      continuityRootKey: placeKey,
-      scenes: [], sceneNos: [], sluglines: [], occurrences: [], scriptText: "",
-      appearance: o.appearance||"", notes: o.notes||"",
-      dressing: Array.isArray(o.dressing) ? o.dressing.slice() : [],
-      setups: reconcileSceneSetupRecords(k,[],o.setups),
-      dressingDerived: [],
-      images: Array.isArray(o.images) ? o.images : [], updatedAt: o.updatedAt||null,
-      orphan: true,
-    });
+    merged.push(sluglineUnitKept(k, ov[k], foldedInto[k]));
   });
   return merged;
 }
+/* a unit that is no longer derived, rebuilt from its key so what was saved under it stays on its card */
+function sluglineUnitKept(k, o, foldedInto){
+  o = o || {};
+  const parts = String(k).split("|");
+  const placeSlug = parts.length>2 ? parts.slice(0,-2).join("|") : (parts[0]||"");
+  const name = placeSlug.replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+  const side = parts.length>2 ? parts[parts.length-2] : "";
+  const bucket = parts.length>2 ? parts[parts.length-1] : "";
+  // a merged-away name's orphan belongs to its survivor's card (2026-10-14, SAME PLACE, TWO NAMES)
+  const placeKey = locationAliasKey(placeSlug.split("-").slice(0,4).join("-"));
+  return {
+    key:k, name: name||k, place: name||k,
+    intExt: side, time: (bucket && bucket!=="untimed") ? bucket : "",
+    locationKey: placeKey,
+    subspaceKey: placeKey,
+    continuityRootKey: placeKey,
+    scenes: [], sceneNos: [], sluglines: [], occurrences: [], scriptText: "",
+    appearance: o.appearance||"", notes: o.notes||"",
+    dressing: Array.isArray(o.dressing) ? o.dressing.slice() : [],
+    setups: reconcileSceneSetupRecords(k,[],o.setups),
+    dressingDerived: [],
+    images: Array.isArray(o.images) ? o.images : [], updatedAt: o.updatedAt||null,
+    orphan: true,
+    ...(foldedInto ? {foldedInto:String(foldedInto)} : {}),
+  };
+}
+/* ONE VARIANT PER TIME (owner 2026-11-16): the first edit of a variant that is still reading another name's notes
+   (overlayKey) starts from those notes, so nothing shown disappears; adoptedFrom remembers where they came from. */
+function sluglineUnitOverlayPatch(overlays, unit, patch){
+  const from = unit && unit.overlayKey && unit.overlayKey!==unit.key ? String(unit.overlayKey) : "";
+  if(!from) return patch;
+  const list = Array.isArray(overlays) ? overlays : [];
+  if(list.some(o=>o && o.key===unit.key)) return patch;
+  const old = list.find(o=>o && o.key===from);
+  if(!old) return patch;
+  const start = {};
+  ["appearance","notes","dressing","setups","images"].forEach(f=>{ if(old[f]!==undefined) start[f] = old[f]; });
+  return { ...start, adoptedFrom:from, ...(patch||{}) };
+}
 window.reconcileSluglineUnits = reconcileSluglineUnits;
+window.sluglineUnitKept = sluglineUnitKept;
+window.sluglineUnitOverlayPatch = sluglineUnitOverlayPatch;
 
 /* Upsert one overlay record by unit key. `patch` carries OVERLAY fields only
    (appearance / notes / images …) — never skeleton fields, which stay derived.
@@ -3984,7 +4061,9 @@ function upsertSluglineUnitOverlay(overlays, key, patch){
   const empty = !String(next.appearance||"").trim() && !String(next.notes||"").trim()
     && !(Array.isArray(next.dressing) && next.dressing.length)
     && !(Array.isArray(next.setups) && next.setups.length)
-    && !(Array.isArray(next.images) && next.images.length);
+    && !(Array.isArray(next.images) && next.images.length)
+    // a record that took over another name's notes stays, even emptied: without it they would come back (2026-11-16)
+    && !next.adoptedFrom;
   if(empty){ if(i>=0) list.splice(i,1); return list; }
   if(i>=0) list[i]=next; else list.push(next);
   return list;
