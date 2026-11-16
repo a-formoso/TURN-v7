@@ -184,12 +184,22 @@ function locationCardHasWork(l){
   });
 }
 let _slugSavedFrom = null;
+/* the scenes each of this film's location cards holds, worked on or not (2026-11-16): while a card called "Hallway"
+   holds a scene, a line of that scene that names the hallway goes on being read as that card
+   (screenplayInlineSpaceHeading) */
+let _slugCardScenes = null;
+function _slugCardHolds(place, sceneId){
+  const k = _slugKeyOf(place), at = k && _slugCardScenes && _slugCardScenes.get(k);
+  return !!(at && sceneId!=null && at.has(String(sceneId)));
+}
 function noteSavedLocations(list){
   if(list===_slugSavedFrom) return;            // same saved cards as last time: nothing to do
   _slugSavedFrom = list;
-  const keys = new Set();
-  (Array.isArray(list) ? list : []).forEach(l=>{ if(locationCardHasWork(l)){ const k = String(l.key || locSlug(l.name) || ""); if(k) keys.add(k); } });
-  _slugSavedKeys = keys;
+  const keys = new Set(), held = new Map();
+  (Array.isArray(list) ? list : []).forEach(l=>{ if(!l) return; const k = String(l.key || locSlug(l.name) || ""); if(!k) return;
+    if(locationCardHasWork(l)) keys.add(k);
+    const at = held.get(k) || new Set(); (Array.isArray(l.scenes) ? l.scenes : []).forEach(id=>at.add(String(id))); held.set(k, at); });
+  _slugSavedKeys = keys; _slugCardScenes = held;
 }
 window.turnNoteSavedLocations = noteSavedLocations; window.locationCardHasWork = locationCardHasWork;
 
@@ -225,14 +235,37 @@ function screenplayInlineSpaceName(text, allowEstablishing){
     .find(name=>low===name||low.endsWith(" "+name));
   return ending ? tidyPlace(ending) : "";
 }
-function screenplayInlineSpaceHeading(text,currentHeading,allowEstablishing){
+/* THE ROOM THE HEADING NAMES (owner 2026-11-16, "yes, fix the root cause too"; the convention: a heading names the
+   place, and the line under it describes THAT place). "INT. ELLIS HOUSE - HALLWAY - DAY" followed by "A narrow
+   hallway." used to read the line as a move into a second room called "Hallway": a second card, a second variant, the
+   scene split between the two. A line that names the room the heading already ends with opens nothing; and when the
+   scene has moved on (THE KITCHEN.) and a line brings it back (THE HALLWAY.), it is back in the heading's room - the
+   heading itself is returned (authoredHeading: the scene's last written heading).
+   A SCENE THAT A CARD UNDER THE SHORT NAME ALREADY HOLDS KEEPS ITS READING: stored data is never migrated. While a
+   location card called "Hallway" lists the scene (worked on or not - the old reading put it there), that scene is
+   read as before, so the card keeps its scenes and its variants; merge it into the room's card, or delete it, and
+   the scene is read as the heading's room. A "Hallway" card that never held the scene (another scene's bare
+   "INT. HALLWAY") changes nothing: sceneId says which scene is being read. */
+function screenplayHeadingNamesRoom(heading,name){
+  const parsed=parseSlugline(heading);
+  if(!parsed||!name) return false;
+  const norm=x=>String(x||"").toLowerCase().replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim();
+  const place=norm(splitCompoundPlace(parsed.place)[0]), room=norm(name);
+  return !!room && place!==room && place.endsWith(" "+room);
+}
+function screenplayInlineSpaceHeading(text,currentHeading,allowEstablishing,authoredHeading,sceneId){
   const name=screenplayInlineSpaceName(text,allowEstablishing);
   if(!name) return "";
+  if(!_slugCardHolds(name,sceneId)){
+    if(screenplayHeadingNamesRoom(currentHeading,name)) return "";
+    if(authoredHeading && screenplayHeadingNamesRoom(authoredHeading,name)) return String(authoredHeading).replace(/\s+/g," ").trim();
+  }
   const parent=parseSlugline(currentHeading)||{};
   return (parent.intExt||"INT")+". "+name+(parent.time?(" - "+parent.time):"");
 }
 window.screenplayInlineSpaceName=screenplayInlineSpaceName;
 window.screenplayInlineSpaceHeading=screenplayInlineSpaceHeading;
+window.screenplayHeadingNamesRoom=screenplayHeadingNamesRoom;
 
 /* SAME PLACE, TWO NAMES (owner-approved 2026-10-14, "go ahead with all of it" — fix A of the Fondamenta plan; Story
    Pipeline "Locations"). A place the screenplay names two ways (scene 13's card says "EXT. FONDAMENTA", its own
@@ -313,15 +346,15 @@ function collectSluggedPlaces(scenes, drafts, decisions, allHeads){
     const slugTexts = [sc.loc];
     const dBlocks = drafts && drafts[sc.id] && drafts[sc.id].blocks;
     if(Array.isArray(dBlocks)){
-      let activeHeading=String(sc.loc||""), actionSinceHeading=0;
+      let activeHeading=String(sc.loc||""), actionSinceHeading=0, writtenHeading=String(sc.loc||"");
       dBlocks.forEach(b=>{
         if(b && b.type==="scene" && b.text && !/^\s*INTERCUT\b/i.test(b.text)){
-          activeHeading=String(b.text); actionSinceHeading=0;
+          activeHeading=String(b.text); actionSinceHeading=0; writtenHeading=activeHeading;
           if(String(b.text).trim().toUpperCase()!==String(sc.loc||"").trim().toUpperCase()) slugTexts.push(b.text);
           return;
         }
         if(!b || b.type!=="action") return;
-        const inline=screenplayInlineSpaceHeading(b.text,activeHeading||sc.loc,actionSinceHeading===0);
+        const inline=screenplayInlineSpaceHeading(b.text,activeHeading||sc.loc,actionSinceHeading===0,writtenHeading,sc.id);
         actionSinceHeading++;
         if(inline && String(inline).trim().toUpperCase()!==String(activeHeading||"").trim().toUpperCase()){
           slugTexts.push(inline); activeHeading=inline;
@@ -3821,7 +3854,7 @@ function deriveSluglineUnits(scenes, drafts, opts){
       if(raw && cur.sluglines.indexOf(raw)<0) cur.sluglines.push(raw);
       if(sourceKind && cur.sourceKinds.indexOf(sourceKind)<0) cur.sourceKinds.push(sourceKind);
     };
-    let sawHeading = false, actionSinceHeading=0;
+    let sawHeading = false, actionSinceHeading=0, writtenHeading=String(sc.loc||"");
     blocks.forEach((b, idx)=>{
       /* EVERY heading line is a HARD boundary — even one that fails to parse.
          Closing the previous occurrence and opening nothing means its blocks own
@@ -3831,7 +3864,7 @@ function deriveSluglineUnits(scenes, drafts, opts){
       if(b && b.type==="scene" && b.text && !/^\s*INTERCUT\b/i.test(stripNum(b.text))){
         sawHeading = true;
         closeOcc(idx); cur = null; curOcc = null;
-        open(b.text, idx,"slugline"); actionSinceHeading=0;
+        open(b.text, idx,"slugline"); actionSinceHeading=0; writtenHeading=String(b.text);
       } else if(!sawHeading && !cur){
         // leading prose before any heading (a draft with no heading blocks):
         // it still belongs SOMEWHERE — anchor it to the scene's own slugline.
@@ -3841,7 +3874,7 @@ function deriveSluglineUnits(scenes, drafts, opts){
         const currentHeading=cur&&cur.sluglines&&cur.sluglines.length
           ?cur.sluglines[cur.sluglines.length-1]:sc.loc;
         const firstActionInSpace=actionSinceHeading===0;
-        const inline=screenplayInlineSpaceHeading(b.text,currentHeading,firstActionInSpace);
+        const inline=screenplayInlineSpaceHeading(b.text,currentHeading,firstActionInSpace,writtenHeading,sc.id);
         actionSinceHeading++;
         if(inline){
           const parsedInline=parseSlugline(inline);

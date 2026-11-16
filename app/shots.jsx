@@ -952,19 +952,20 @@ function shotLocationBeatSource(scene,sh,drafts){
   }catch(e){}
   return null;
 }
-function shotLocationHeadingForIndex(blocks,index,fallback){
-  let heading="", actionSinceHeading=0;
+function shotLocationHeadingForIndex(blocks,index,fallback,sceneId){
+  // written: the scene's last written heading - a line that names its room is back in it (2026-11-16, locations.jsx)
+  let heading="", actionSinceHeading=0, written=shotLocationClean(fallback);
   const end=Math.min(Number(index),blocks.length-1);
   for(let i=0;i<=end;i++){
     const b=blocks[i];
     if(b&&String(b.type||"").toLowerCase()==="scene"&&shotLocationClean(b.text)){
       heading=shotLocationClean(b.text);
-      actionSinceHeading=0;
+      actionSinceHeading=0; written=heading;
       continue;
     }
     if(b&&String(b.type||"").toLowerCase()==="action"){
       if(typeof screenplayInlineSpaceHeading==="function"){
-        const inline=screenplayInlineSpaceHeading(b.text,heading||fallback,actionSinceHeading===0);
+        const inline=screenplayInlineSpaceHeading(b.text,heading||fallback,actionSinceHeading===0,written,sceneId);
         if(inline) heading=shotLocationClean(inline);
       }
       actionSinceHeading++;
@@ -980,7 +981,7 @@ function shotLocationBeatHeadings(scene,sh,drafts,source){
   const headings=[];
   if(entries.length){
     entries.forEach(index=>{
-      const h=shotLocationHeadingForIndex(blocks,index,source&&source.sceneHeading);
+      const h=shotLocationHeadingForIndex(blocks,index,source&&source.sceneHeading,scene&&scene.id);
       if(h && headings.indexOf(h)<0) headings.push(h);
     });
   }else if(source&&source.sceneHeading){

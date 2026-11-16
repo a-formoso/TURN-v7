@@ -10,7 +10,11 @@
    - nothing saved is touched: notes under the other name are read by the one variant (and copied under its own key on
      the first edit), notes under both names stay visible, an image under the other name shows as a kept card;
    - a shot whose line says "Hallway" finds the one variant;
-   - without a merge nothing changes.
+   - a film that still has the second card reads it as before.
+   THE ROOT CAUSE (owner 2026-11-16, "yes, fix the root cause too"): the line under a heading describes the place the
+   heading names. "A narrow hallway." under "INT. ELLIS HOUSE - HALLWAY - DAY" opens no second room: one card, one
+   variant, from the start. A line that brings the scene back to the heading's room (THE HALLWAY.) is that room again.
+   While a card under the short name ("Hallway") lists the scene, that scene is read as before: nothing is migrated.
    Nothing is generated, nothing is charged.
    node scripts/test-variant-one-per-time.mjs */
 import assert from "node:assert/strict";
@@ -76,10 +80,11 @@ const unmerged = [
   { id: "loc-hallway-29", key: "hallway", name: "Hallway", scenes: ["s24", "s30", "s31"] },
   { id: "loc-hussain-house-hallway-30", key: "hussain-house-hallway", name: "Hussain House - Hallway", scenes: ["s40"] },
 ];
-const decide = (cards) => box.setLocationPlaceDecisions(box.locationPlaceDecisions(cards, []));
+// what the app does on every render: the film's cards and the owner's answers on them
+const decide = (cards) => { box.turnNoteSavedLocations(cards); return box.setLocationPlaceDecisions(box.locationPlaceDecisions(cards, [])); };
 const row = (u) => [u.key, u.subspaceKey, (u.sceneNos || []).join(",")].join(" > ");
 
-test("without a merge nothing changes: the two names are two rooms, as before", () => {
+test("a film that still has the card \"Hallway\" reads it as before: the two names are two rooms", () => {
   decide(unmerged);
   const units = json(box.deriveSluglineUnits(scenes, drafts));
   assert.deepEqual(units.map(row), [
@@ -101,6 +106,23 @@ test("after the merge the card has one variant per side and time", () => {
     "hussain-house-hallway|INT|Dawn > hussain-house-hallway > 40"]);
   const perTime = {};
   for (const u of units) { const k = u.subspaceKey + "|" + u.intExt + "|" + u.time; assert.ok(!perTime[k], "one variant for " + k); perTime[k] = true; }
+});
+
+test("a line that names a merged-away room under a heading with another name opens nothing either", () => {
+  // the card "Ellis House - Entrance" took in a card called "Hallway": the heading does not end with HALLWAY
+  const cards = [{ id: "loc-e", key: "ellis-house-entrance", name: "Ellis House - Entrance", aliasKeys: ["hallway"], aliases: ["Hallway"], scenes: ["s24"] }];
+  decide(cards);
+  const sc = [{ id: "s24", no: 24, loc: "INT. ELLIS HOUSE - ENTRANCE - DAY" }];
+  const dr = { s24: { blocks: [{ type: "scene", text: "INT. ELLIS HOUSE - ENTRANCE - DAY" }, { type: "action", text: "A narrow hallway. Coats on hooks." }, { type: "action", text: "Amy waits." }] } };
+  const list = json(box.deriveSluglineUnits(sc, dr));
+  assert.deepEqual(list.map(row), ["ellis-house-entrance|INT|Day > ellis-house-entrance > 24"]);
+  assert.deepEqual(list[0].alsoNames, ["Hallway"], "the room's other name is remembered for the shots");
+  assert.deepEqual(list[0].occurrences.map((o) => [o.start, o.end]), [[0, 3]]);
+  // a shot whose line says "Hallway" finds that variant
+  const heading = box.shotLocationHeadingForIndex(dr.s24.blocks, 2, sc[0].loc, "s24");
+  assert.equal(heading, "INT. Hallway - DAY");
+  assert.deepEqual(json(box.shotLocationHeadingUnitCandidates(list, box.shotLocationParseHeading(heading), "INT")).map((u) => u.key), ["ellis-house-entrance|INT|Day"]);
+  decide(merged);
 });
 
 test("the line under the heading never opens a second variant of the room it is already in", () => {
@@ -226,12 +248,14 @@ test("the card: the kept card says why it is there, and the list uses the kept i
   assert.match(app, /sluglineUnitOverlayPatch\(ov, unit, patch\)/, "the app's one writer starts from the notes the variant reads");
 });
 
-test("a shot whose line says the other name finds the one variant", () => {
-  const blocks = drafts.s24.blocks;
-  const heading = box.shotLocationHeadingForIndex(blocks, 2, scenes[0].loc);
-  assert.equal(heading, "INT. Hallway - DAY", "the shot's line is read as before");
-  const parsed = box.shotLocationParseHeading(heading);
+test("a shot of scene 24 or of scene 30 finds the one variant", () => {
   const live = units.filter((u) => u.subspaceKey === "ellis-house-hallway");
+  // scene 24: the line under the heading keeps the heading's room
+  assert.equal(box.shotLocationHeadingForIndex(drafts.s24.blocks, 2, scenes[0].loc, "s24"), "INT. ELLIS HOUSE - HALLWAY - DAY");
+  // scene 30 writes the room by its other name
+  const heading = box.shotLocationHeadingForIndex(drafts.s30.blocks, 1, scenes[1].loc);
+  assert.equal(heading, "INT. HALLWAY - DAY");
+  const parsed = box.shotLocationParseHeading(heading);
   assert.deepEqual(json(box.shotLocationHeadingUnitCandidates(live, parsed, "INT")).map((u) => u.key), ["ellis-house-hallway|INT|Day"]);
   // its own heading too, and never another time
   const own = box.shotLocationParseHeading("INT. ELLIS HOUSE - HALLWAY - DAY");
@@ -241,12 +265,130 @@ test("a shot whose line says the other name finds the one variant", () => {
   assert.equal(box.shotLocationUnitMatchesPlace({ name: "Kitchen" }, { place: "LIVING ROOM" }), false);
 });
 
+/* ---- the root cause: the line under a heading describes the place the heading names ---- */
+const film2 = {
+  scenes: [
+    { id: "a1", no: 1, loc: "INT. ELLIS HOUSE - HALLWAY - DAY" },
+    { id: "a2", no: 2, loc: "INT. ELLIS HOUSE - NIGHT" },
+    { id: "a3", no: 3, loc: "INT. FATHER'S HOUSE UPSTAIRS HALLWAY - NIGHT" },
+    { id: "a4", no: 4, loc: "INT. HALLWAY - DAY" }],
+  drafts: {
+    a1: { blocks: [
+      { type: "scene", text: "INT. ELLIS HOUSE - HALLWAY - DAY" },
+      { type: "action", text: "A narrow hallway. The iron TICKS as it cools on its board." },
+      { type: "action", text: "THE KITCHEN." },
+      { type: "action", text: "Amy fills the kettle." },
+      { type: "action", text: "THE HALLWAY." },
+      { type: "action", text: "Tyler has not moved." }] },
+    a2: { blocks: [
+      { type: "scene", text: "INT. ELLIS HOUSE - NIGHT" },
+      { type: "action", text: "A dark hallway. Nobody is up." }] },
+    a3: { blocks: [
+      { type: "scene", text: "INT. FATHER'S HOUSE UPSTAIRS HALLWAY - NIGHT" },
+      { type: "action", text: "The hallway." },
+      { type: "action", text: "A door stands open." }] },
+    a4: { blocks: [
+      { type: "scene", text: "INT. HALLWAY - DAY" },
+      { type: "action", text: "A bare hallway. One bulb." }] },
+  },
+};
+const cardRow = (l) => [l.key, l.parentKey || "", (l.scenes || []).join(",")].join(" > ");
+
+test("the rule itself: only the room the heading ends with", () => {
+  const H = box.screenplayHeadingNamesRoom;
+  assert.equal(H("INT. ELLIS HOUSE - HALLWAY - DAY", "Hallway"), true);
+  assert.equal(H("24 INT. ELLIS HOUSE - HALLWAY - DAY", "Hallway"), true, "a numbered heading");
+  assert.equal(H("INT. FATHER'S HOUSE UPSTAIRS HALLWAY - NIGHT", "Hallway"), true, "no separator before the room");
+  assert.equal(H("INT. ELLIS HOUSE - LIVING ROOM - DAY", "Living Room"), true);
+  assert.equal(H("INT. ELLIS HOUSE - HALLWAY - DAY", "Kitchen"), false, "another room is another room");
+  assert.equal(H("INT. ELLIS HOUSE - DAY", "Hallway"), false, "the heading names the house, not the room");
+  assert.equal(H("INT. HALLWAY - DAY", "Hallway"), false, "the heading IS the room: nothing to decide");
+  assert.equal(H("INT. ELLIS HOUSE - BEDROOM - DAY", "Room"), false);
+  assert.equal(H("INT. THE DEN OF THIEVES - NIGHT", "Den"), false, "the room's name inside another name is not its end");
+  assert.equal(H("", "Hallway"), false);
+});
+
+test("a new film: one card and one variant for the room the heading names, from the start", () => {
+  decide([]);
+  const cards = json(box.deriveLocations(film2.scenes, [], film2.drafts));
+  assert.deepEqual(cards.map(cardRow), [
+    "ellis-house >  > a1,a2,a4",
+    "ellis-house-hallway > ellis-house > a1",
+    "kitchen > ellis-house > a1",
+    "hallway > ellis-house > a2,a4",
+    "father-s-house-upstairs >  > a3"], "the card called Hallway holds scenes 2 and 4 only: never scene 1 or 3");
+  const list = json(box.deriveSluglineUnits(film2.scenes, film2.drafts));
+  assert.deepEqual(list.map((u) => [u.key, (u.sceneNos || []).join(",")].join(" > ")), [
+    "ellis-house-hallway|INT|Day > 1",
+    "kitchen|INT|Day > 1",
+    "ellis-house|INT|Night > 2",
+    "hallway|INT|Night > 2",
+    "father-s-house-upstairs-hallway|INT|Night > 3",
+    "hallway|INT|Day > 4"]);
+  const hall = list[0];
+  // the scene opens in the hallway, goes to the kitchen, and a line brings it BACK to the heading's room
+  assert.deepEqual(hall.occurrences.map((o) => [o.start, o.end, o.sourceKind, o.occurrenceOrdinal]),
+    [[0, 2, "slugline", 1], [4, 6, "derived-inline-room-cue", 2]]);
+  assert.match(hall.scriptText, /iron TICKS/); assert.match(hall.scriptText, /Tyler has not moved/);
+  assert.deepEqual(list[1].occurrences.map((o) => [o.start, o.end]), [[2, 4]], "the kitchen keeps its own lines");
+  // scene 2's heading names the HOUSE: the line under it still opens the hallway, as before
+  assert.deepEqual(list[3].occurrences.map((o) => o.sourceKind), ["derived-establishing-action"]);
+  // scene 3: the bare room marker under a heading that ends with the room
+  assert.deepEqual(list[4].occurrences.map((o) => [o.start, o.end]), [[0, 3]]);
+});
+
+test("a shot follows the same reading", () => {
+  decide([]);
+  const b = film2.drafts.a1.blocks, at = (i) => box.shotLocationHeadingForIndex(b, i, film2.scenes[0].loc, "a1");
+  assert.deepEqual([at(1), at(3), at(5)], ["INT. ELLIS HOUSE - HALLWAY - DAY", "INT. Kitchen - DAY", "INT. ELLIS HOUSE - HALLWAY - DAY"]);
+  assert.equal(box.shotLocationHeadingForIndex(film2.drafts.a2.blocks, 1, film2.scenes[1].loc), "INT. Hallway - NIGHT", "under the house's own heading the hallway is a room");
+});
+
+test("a card called Hallway that never held the scene changes nothing: the new film stays as it is", () => {
+  decide([]);
+  const first = json(box.deriveLocations(film2.scenes, [], film2.drafts));
+  const before = json(box.deriveSluglineUnits(film2.scenes, film2.drafts)).map((u) => [u.key, u.sceneNos]);
+  // the app saves the derived cards (a real "Hallway" among them, from scenes 2 and 4) and derives again
+  decide(first);
+  assert.deepEqual(json(box.deriveLocations(film2.scenes, [], film2.drafts)).map(cardRow), first.map(cardRow));
+  assert.deepEqual(json(box.deriveSluglineUnits(film2.scenes, film2.drafts)).map((u) => [u.key, u.sceneNos]), before);
+  assert.equal(box.shotLocationHeadingForIndex(film2.drafts.a1.blocks, 1, film2.scenes[0].loc, "a1"), "INT. ELLIS HOUSE - HALLWAY - DAY");
+});
+
+test("a scene that a card under the short name already holds keeps the old reading, worked on or not", () => {
+  // an older film: the old reading put scenes 1 and 3 on the card "Hallway"
+  const old = [{ id: "loc-h", key: "hallway", name: "Hallway", scenes: ["a1", "a2", "a3", "a4"] }];
+  assert.equal(box.locationCardHasWork(old[0]), false, "an untouched card counts too");
+  decide(old);
+  const list = json(box.deriveSluglineUnits(film2.scenes, film2.drafts));
+  assert.deepEqual(list.map((u) => [u.key, (u.sceneNos || []).join(",")].join(" > ")), [
+    "ellis-house-hallway|INT|Day > 1",
+    "hallway|INT|Day > 1,4",
+    "kitchen|INT|Day > 1",
+    "ellis-house|INT|Night > 2",
+    "hallway|INT|Night > 2,3",
+    "father-s-house-upstairs-hallway|INT|Night > 3"], "exactly what this film derived before");
+  assert.equal(box.shotLocationHeadingForIndex(film2.drafts.a1.blocks, 1, film2.scenes[0].loc, "a1"), "INT. Hallway - DAY");
+  const cards = json(box.deriveLocations(film2.scenes, [], film2.drafts));
+  assert.deepEqual(cards.find((l) => l.key === "hallway").scenes, ["a1", "a2", "a3", "a4"], "the card keeps its scenes");
+  // a scene written LATER in that film, which the card never held, is read by the convention
+  const more = film2.scenes.concat([{ id: "a5", no: 5, loc: "INT. HUSSAIN HOUSE - HALLWAY - DAWN" }]);
+  const moreDrafts = { ...film2.drafts, a5: { blocks: [{ type: "scene", text: "INT. HUSSAIN HOUSE - HALLWAY - DAWN" }, { type: "action", text: "A narrow hallway. Shoes in a row." }] } };
+  const later = json(box.deriveSluglineUnits(more, moreDrafts));
+  assert.deepEqual(later.filter((u) => (u.scenes || []).includes("a5")).map((u) => u.key), ["hussain-house-hallway|INT|Dawn"]);
+  // the card deleted (it is in Recently deleted, no longer among the film's cards): the heading's room takes the scene
+  decide([]);
+  assert.ok(!json(box.deriveLocations(film2.scenes, [], film2.drafts)).find((l) => l.key === "hallway").scenes.includes("a1"));
+  decide(merged);
+});
+
 test("Frances knows, and the pages load the new files", () => {
   const ai = read("app/ai.jsx");
   assert.match(ai, /ONE VARIANT PER TIME \(2026-11-16\)/);
+  assert.match(ai, /THE ROOM THE HEADING NAMES \(2026-11-16\)/);
   const html = read("TURN.html");
   for (const f of ["locations.jsx", "locations-ui.jsx", "shots.jsx", "app.jsx", "ai.jsx"])
-    assert.ok(["20261116-onetime1"].some((k) => html.includes(f + "?v=" + k + '"')), f + " has the new key");
+    assert.ok(["20261116-onetime1", "20261116-headroom1"].some((k) => html.includes(f + "?v=" + k + '"')), f + " has the new key");
 });
 
 console.log("\n" + passed + " tests passed");
