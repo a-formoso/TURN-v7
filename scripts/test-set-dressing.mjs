@@ -188,6 +188,10 @@ function previsHarness(){
       store.set(id,{id,url,meta:copy(meta),refs:copy(refs),history:[...(old&&old.url?[{url:old.url,meta:old.meta,refs:old.refs}]:[]),...((old&&old.history)||[])]});
       return {tier:'cloud',url};},
     nbSetAssetApproval:async(id,iso,approved,reviewKey)=>{const d=store.get(id);if(!d||d.meta.iso!==iso)return {ok:false,error:'asset version changed'};d.meta.approval={iso,approved,reviewKey};return {ok:true};},
+    nbDeleteHistoryEntry:async(id,index)=>{const row=store.get(id);if(!row||index<0||index>=row.history.length)return false;row.history.splice(index,1);return true;},
+    nbDeleteCurrentAndPromoteAsset:async id=>{const row=store.get(id);if(!row||!row.history.length)return null;const c=row.history[0];
+      store.set(id,{id,url:c.url,meta:c.meta,refs:c.refs||[],history:row.history.slice(1)});return {url:c.url,meta:c.meta};},
+    nbClearAsset:async id=>{store.delete(id);return true;},
     nbRevertAsset:async(id,index)=>{const row=store.get(id),h=row.history.slice(),c=h[index];if(!c)return null;
       store.set(id,{id,url:c.url,meta:c.meta,refs:c.refs||[],history:[{url:row.url,meta:row.meta,refs:row.refs},...h.filter((_,i)=>i!==index)]});return {url:c.url,meta:c.meta};}};
   p.window=p;vm.createContext(p);
@@ -469,4 +473,31 @@ test('cancel: before the request is sent nothing is charged; after it the result
   // the progress and Cancel sit in the Make button's own row, after it
   const row=ui.slice(ui.indexOf('disabled:!!busy||working||cancelling||drawing||!sheet,onClick:make,'));
   assert.ok(row.indexOf('previsProgress(')>0&&row.indexOf('previsProgress(')<row.indexOf('"data-testid":"previs-cancel"')&&row.indexOf('"data-testid":"previs-cancel"')<row.indexOf('// THE DRAFT, RIGHT UNDER THE BUTTON'));
+});
+
+/* DELETE (owner 2026-11-16: "give the user the option to delete drafts"). */
+test('a draft can be deleted for good: the current one or an earlier one; no image of the film is touched',async()=>{
+  const h=previsHarness(),{P,store}=h;
+  store.set('hall',{id:'hall',url:'the-location-image',meta:{iso:'i',version:1},refs:[],history:[]});
+  const a=await P.render('hall');await h.tick();const b=await P.render('hall');await h.tick();const c=await P.render('hall');
+  // an earlier draft: only that one goes
+  assert.equal((await P.remove('hall',a.meta.iso)).current,false);
+  let kept=await P.drafts('hall');
+  assert.equal(kept.current.meta.iso,c.meta.iso);assert.equal(kept.earlier.map(d=>d.meta.iso).join(),b.meta.iso);
+  await assert.rejects(()=>P.remove('hall',a.meta.iso),/no longer saved/);
+  // the current draft: the one made before it is the current one again
+  assert.equal((await P.remove('hall',c.meta.iso)).current,true);
+  kept=await P.drafts('hall');
+  assert.equal(kept.current.meta.iso,b.meta.iso);assert.equal(kept.earlier.length,0);
+  // the last draft: nothing is left of the drafts, and the location image was never touched
+  await P.remove('hall',b.meta.iso);
+  kept=await P.drafts('hall');
+  assert.equal(kept.current,null);assert.equal(kept.earlier.length,0);assert.equal(store.has('previs-draft-hall'),false);
+  assert.equal(store.get('hall').url,'the-location-image');assert.equal(h.calls.length,3,'deleting makes no image call');
+  // a used draft can be deleted too: the image it became stays
+  const d=await P.render('hall');await P.use('hall',d.meta.iso);await P.remove('hall',d.meta.iso);
+  assert.equal(store.get('hall').url,d.url);assert.equal(store.get('hall').history[0].url,'the-location-image');
+  // read-only: no deleting
+  const e=await P.render('hall');h.readOnly();
+  await assert.rejects(()=>P.remove('hall',e.meta.iso),/read-only/);assert.ok(store.has('previs-draft-hall'));
 });

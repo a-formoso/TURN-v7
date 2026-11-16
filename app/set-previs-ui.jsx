@@ -49,7 +49,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
   const E=React.createElement,D=window.KinolotSetDressing,P=window.KinolotPrevis,api=window.KinolotCloudRender;
   const [sheet,setSheet]=React.useState(""),[error,setError]=React.useState(""),[drawing,setDrawing]=React.useState(false);
   const [info,setInfo]=React.useState(null),[left,setLeft]=React.useState([]);
-  const [tick,setTick]=React.useState(0),alive=React.useRef(true);
+  const [tick,setTick]=React.useState(0),alive=React.useRef(true),tries=React.useRef(0);
   const R=usePrevisRun(alive,()=>writable()),{busy,phase,notice,fail,setNotice,setFail,run}=R;
   // the drafts kept for this card, what the set and the look are now, and the open comparison
   const [kept,setKept]=React.useState({current:null,lastDiscarded:false,earlier:[]}),[nowKeys,setNowKeys]=React.useState(undefined);
@@ -65,9 +65,10 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     const bump=e=>{if(!e||!e.detail||!e.detail.id||e.detail.id===l.id)setTick(n=>n+1);},any=()=>setTick(n=>n+1);
     const moment=e=>{if(e&&e.detail&&e.detail.locationId===l.id)setTick(n=>n+1);};
     window.addEventListener("kinolot-previs-changed",bump);window.addEventListener("kinolot-set-moment",moment);
-    ["nb-settings-changed","nb-model-changed","turn-pricing-changed"].forEach(n=>window.addEventListener(n,any));
+    // "nb-prefetched": the film's images have arrived (a section opened straight after the film did read no drafts)
+    ["nb-settings-changed","nb-model-changed","turn-pricing-changed","nb-prefetched"].forEach(n=>window.addEventListener(n,any));
     return ()=>{window.removeEventListener("kinolot-previs-changed",bump);window.removeEventListener("kinolot-set-moment",moment);
-      ["nb-settings-changed","nb-model-changed","turn-pricing-changed"].forEach(n=>window.removeEventListener(n,any));};
+      ["nb-settings-changed","nb-model-changed","turn-pricing-changed","nb-prefetched"].forEach(n=>window.removeEventListener(n,any));};
   },[l.id]);
   // MOVING PARTS: the story moment the set is drawn at. A moment whose parts differ makes that state's own image.
   let moments=[],at=null;
@@ -103,8 +104,12 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
   // the kept drafts (read again whenever one is made, used, discarded or brought back)
   React.useEffect(()=>{
     let live=true;
-    P.drafts(target).then(d=>{if(live)setKept(d);},()=>{if(live)setKept({current:null,lastDiscarded:false,earlier:[]});});
-    return ()=>{live=false;};
+    let again=null;
+    P.drafts(target).then(d=>{if(live){tries.current=0;setKept(d);}},()=>{
+      // a read that failed is tried again, a few times: the drafts are saved, so "none" must not be the answer to an error
+      if(live&&tries.current<3){tries.current++;again=setTimeout(()=>setTick(n=>n+1),2500);}
+    });
+    return ()=>{live=false;clearTimeout(again);};
   },[l.id,part?part.key:"",tick]);
   // what a draft must still match to be used: the set as drawn, and the card's description and look
   React.useEffect(()=>{
@@ -148,10 +153,20 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     if(live()){setReview(null);setNotice(part?"Saved as the \u201c"+part.label+"\u201d image. Shots at those moments use it in place of the location image."
       :(isRoom?"This draft is now this room\u2019s image.":"This draft is now the location image, at the top of the card.")+(hasImage?" The image before it stays in the card\u2019s versions.":""));}
   },"The draft could not be used.");
-  const discardDraft=d=>run("discard",async live=>{
-    await P.discard(target,d.meta.iso);
-    if(live()){setReview(null);setNotice("The draft was discarded. "+(part?"That state\u2019s image":isRoom?"This room\u2019s image":"The location image")+" was not changed.");}
-  },"The draft could not be discarded.");
+  // DELETE (owner 2026-11-16: "give the user the option to delete drafts"): any draft, the current one or an earlier
+  // one, for good, after asking. The comparison closes first: the question would open behind it.
+  const deleteDraft=async d=>{
+    if(busy||!writable()||!d)return;
+    setReview(null);
+    const theirs=part?"That state\u2019s image":isRoom?"This room\u2019s image":"The location image";
+    const ok=typeof window.appConfirm!=="function"||await window.appConfirm({title:"Delete this draft?",
+      body:"The draft is deleted for good. "+theirs+" is not changed, and the draft\u2019s image credits are not given back.",confirmLabel:"Delete",cancelLabel:"Keep it",danger:true});
+    if(!ok)return;
+    run("delete",async live=>{
+      await P.remove(target,d.meta.iso);
+      if(live())setNotice("The draft was deleted. "+theirs+" was not changed.");
+    },"The draft could not be deleted.");
+  };
   const bringBack=d=>run("restore",async live=>{
     await P.restore(target,d.meta.iso);
     if(live()){setReview(null);setNotice("That draft is the current one again. The draft it replaced is kept with the earlier drafts.");}
@@ -294,8 +309,8 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
             title:"Nothing is generated."+(part?"":" The image you have now stays in the card's versions.")},busy==="use"?"Saving\u2026":useLabel),
           cur.sheet&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>open("set",cur),
             title:"The draft beside the 3D sheet it was made from, with a slider"},"Compare with the 3D set"),
-          !readOnly&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>discardDraft(cur),
-            title:"Takes this draft off the card. No image is changed; its image credits are not given back."},"Discard"))),
+          !readOnly&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,"data-testid":"previs-draft-delete",onClick:()=>deleteDraft(cur),
+            title:"Deletes this draft for good, after asking. No image is changed; its image credits are not given back."},"Delete"))),
       !cur&&kept.lastDiscarded&&E("p",{role:"status",className:"loc-layer-note"},"You discarded the last draft."),
       earlier.length>0&&E("div",{className:"style-draft-earlier","data-testid":"previs-drafts-earlier"},
         E("p",{className:"loc-layer-note"},"Earlier drafts ("+earlier.length+"). Open one to look at it or to make it the current draft again."),
@@ -328,11 +343,13 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
       shown&&shown===cur&&!checking&&stale(cur)&&!isImage(cur)&&E("p",{className:"loc-spatial-error"},P.OUT_OF_DATE),
       shown&&shown===cur&&E("div",{className:"loc-cloud-render-actions"},
         canUse(cur)&&E("button",{type:"button",className:"art-draftall",disabled:!!busy,onClick:()=>useDraft(cur)},busy==="use"?"Saving\u2026":useLabel),
-        !readOnly&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>discardDraft(cur)},"Discard")),
+        !readOnly&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>deleteDraft(cur)},"Delete")),
       shown&&shown!==cur&&!readOnly&&E("div",{className:"loc-cloud-render-actions"},
-        E("button",{type:"button",className:"art-draftall",disabled:!!busy,onClick:()=>bringBack(shown)},"Make this the current draft")),
+        E("button",{type:"button",className:"art-draftall",disabled:!!busy,onClick:()=>bringBack(shown)},"Make this the current draft"),
+        E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>deleteDraft(shown)},"Delete this draft")),
       !shown&&right&&!readOnly&&E("div",{className:"loc-cloud-render-actions"},
-        E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>bringBack(right)},"Make the earlier draft the current one")),
+        E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>bringBack(right)},"Make the earlier draft the current one"),
+        E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>deleteDraft(right)},"Delete the earlier draft")),
       (shown&&shown!==cur||!shown)&&E("p",{className:"loc-layer-note"},"Only the current draft can become "+becomes+". Making an earlier draft current keeps the one it replaces with the earlier drafts; no image is generated.")));
 }
 window.LocationPrevisStep=LocationPrevisStep;
@@ -405,7 +422,9 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
   React.useEffect(()=>{
     const bump=e=>{if(!e||!e.detail||!e.detail.id||e.detail.id===l.id)setTick(n=>n+1);};
-    window.addEventListener("kinolot-previs-changed",bump);return ()=>window.removeEventListener("kinolot-previs-changed",bump);
+    const any=()=>setTick(n=>n+1);
+    window.addEventListener("kinolot-previs-changed",bump);window.addEventListener("nb-prefetched",any);
+    return ()=>{window.removeEventListener("kinolot-previs-changed",bump);window.removeEventListener("nb-prefetched",any);};
   },[l.id]);
   const cur=kept.current,earlier=kept.earlier||[];
   // a draft is checked, and used, with the camera it was made from
@@ -449,10 +468,17 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
     await P.use(targetFor(d.meta.variantCamera||camera),d.meta.iso,{spec:specText});
     if(live()){setReview("");setNotice("This draft is now this variant\u2019s image. The image before it stays in its versions.");}
   },"The draft could not be used.");
-  const discardDraft=d=>run("discard",async live=>{
-    await P.discard(targetFor(camera),d.meta.iso);
-    if(live()){setReview("");setNotice("The draft was discarded. This variant\u2019s image was not changed.");}
-  },"The draft could not be discarded.");
+  const deleteDraft=async d=>{
+    if(busy||!writable()||!d)return;
+    setReview("");
+    const ok=typeof window.appConfirm!=="function"||await window.appConfirm({title:"Delete this draft?",
+      body:"The draft is deleted for good. This variant\u2019s image is not changed, and the draft\u2019s image credits are not given back.",confirmLabel:"Delete",cancelLabel:"Keep it",danger:true});
+    if(!ok)return;
+    run("delete",async live=>{
+      await P.remove(targetFor(camera),d.meta.iso);
+      if(live())setNotice("The draft was deleted. This variant\u2019s image was not changed.");
+    },"The draft could not be deleted.");
+  };
   const bringBack=d=>run("restore",async live=>{
     await P.restore(targetFor(camera),d.meta.iso);
     if(live()){setReview("");setNotice("That draft is the current one again. The draft it replaced is kept with the earlier drafts.");}
@@ -498,7 +524,7 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
           E("div",{className:"loc-step-actions"},
             !readOnly&&!checking&&!stale(cur)&&!cur.used&&E("button",{type:"button",className:"art-draftall",disabled:!!busy,onClick:()=>useDraft(cur),title:"Nothing is generated. The image this variant has now stays in its versions."},busy==="use"?"Saving\u2026":"Use as this variant\u2019s image"),
             cur.sheet&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>setReview(cur.meta.iso)},"Compare with the 3D frame"),
-            !readOnly&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>discardDraft(cur),title:"Takes this draft off the card. No image is changed; its image credits are not given back."},"Discard"))),
+            !readOnly&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>deleteDraft(cur),title:"Deletes this draft for good, after asking. No image is changed; its image credits are not given back."},"Delete"))),
         !cur&&kept.lastDiscarded&&E("p",{role:"status",className:"loc-layer-note"},"You discarded the last draft."),
         earlier.length>0&&E("div",{className:"style-draft-earlier"},
           E("p",{className:"loc-layer-note"},"Earlier drafts ("+earlier.length+"). Open one to look at it or to make it the current draft again."),
@@ -518,7 +544,8 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta
       fail&&E("p",{role:"alert",className:"loc-spatial-error"},fail),
       !readOnly&&E("div",{className:"loc-cloud-render-actions"},
         shown===cur&&!checking&&!stale(cur)&&!cur.used&&E("button",{type:"button",className:"art-draftall",disabled:!!busy,onClick:()=>useDraft(cur)},busy==="use"?"Saving\u2026":"Use as this variant\u2019s image"),
-        shown===cur&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>discardDraft(cur)},"Discard"),
-        shown!==cur&&E("button",{type:"button",className:"art-draftall",disabled:!!busy,onClick:()=>bringBack(shown)},"Make this the current draft"))));
+        shown===cur&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>deleteDraft(cur)},"Delete"),
+        shown!==cur&&E("button",{type:"button",className:"art-draftall",disabled:!!busy,onClick:()=>bringBack(shown)},"Make this the current draft"),
+        shown!==cur&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy,onClick:()=>deleteDraft(shown)},"Delete this draft"))));
 }
 window.LocationPrevisOverview=LocationPrevisOverview;window.LocationPrevisPlace=LocationPrevisPlace;window.LocationPrevisVariant=LocationPrevisVariant;

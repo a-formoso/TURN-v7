@@ -326,7 +326,7 @@ test("13 a button is as big as the level it sits at (every Art Room card)", ()=>
   // the two that were the biggest buttons on the card
   assert.ok(css.includes(".loc-spatial-plan .loc-spatial-confirm{justify-content:center;width:100%;min-height:44px;"),"the floor plan's main button, before the level rule");
   assert.ok(!sheet.includes('"data-testid":"loc-own-blender"'),"the card has no Blender hand-off box any more (2026-11-15)");
-  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 
 test("14 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
@@ -351,9 +351,9 @@ test("14 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
   for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
-  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
+    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
 });
 
 test("15 Previs: step 4 on every card; optional; the camera check, the drafts under the button and the one rule", ()=>{
@@ -383,22 +383,28 @@ test("15 Previs: step 4 on every card; optional; the camera check, the drafts un
       '"data-testid":"previs-draft"','"data-testid":"previs-drafts-earlier"','"data-testid":"previs-compare-drafts"','"data-testid":"previs-review"','"data-testid":"previs-moment"',
       '"data-testid":"camera-check"','"data-testid":"camera-check-fix"',
       '"Dress the set"','"Remove the dressing"','"Make the location image"','"Make another draft"','" (writing credits)"','window.nbCostChip(1,choice.cost)',
-      '"Use as location image"','"Compare with the 3D set"','"Discard"','"Compare drafts"','"Make this the current draft"','"Fix cameras"',
+      '"Use as location image"','"Compare with the 3D set"','"Delete"','"Delete this draft"','"Delete the earlier draft"','"data-testid":"previs-draft-delete"','"Compare drafts"','"Make this the current draft"','"Fix cameras"',
       '"Go to 2 \\u00b7 Floor plan"','"Go to 3 \\u00b7 Cameras"','onUpdate(l.id,{previs:D.pack(r.dressing,{engine:D.MODEL})})','onUpdate(l.id,{previs:null})'])
     assert.ok(step_ui.includes(t),t);
   assert.ok(step_ui.includes("window.LocationPrevisStep=LocationPrevisStep;"));
   // the draft sits right under the button that makes it, inside the same box (owner 2026-11-15)
   const make=step_ui.indexOf('"Make another draft"'),draft=step_ui.indexOf('"data-testid":"previs-draft"'),earlier=step_ui.indexOf('"data-testid":"previs-drafts-earlier"'),compare=step_ui.indexOf('"data-testid":"previs-compare-drafts"');
   assert.ok(step_ui.indexOf('"data-testid":"previs-render"')<make&&make<draft&&draft<earlier&&earlier<compare&&compare<step_ui.indexOf("notice&&E("));
-  // no confirmation step and no tick box before using a draft: the image before it always stays in the versions
-  assert.ok(!step_ui.includes("appConfirm")&&!step_ui.includes('type:"checkbox"'));
+  // no confirmation step and no tick box before using a draft: the image before it always stays in the versions.
+  // The one question the section asks is before a draft is deleted for good (owner 2026-11-16).
+  assert.ok(!step_ui.includes('type:"checkbox"')&&(step_ui.match(/window\.appConfirm\(\{title:"Delete this draft\?"/g)||[]).length===2&&(step_ui.match(/appConfirm\(/g)||[]).length===2);
+  assert.ok(!step_ui.includes('"Discard"')&&step_ui.includes("await P.remove(target,d.meta.iso);")&&step_ui.includes("setReview(null);\n    const theirs="),"the comparison closes before the question is asked");
+  assert.ok(read("app/blender-preview.css").includes(".loc-style-dialog{margin:auto}")&&read("app/blender-preview.css").includes(".loc-style-dialog .loc-cloud-render-actions{margin-top:14px}"));
   // ONE RULE, in the same words everywhere: the draft must still match the set and the look it was made from
   const api=read("app/set-previs.js");
   assert.ok(api.includes('const OUT_OF_DATE="This draft is out of date: the floor plan, the cameras, the dressing or the description changed after it was made. Make a new one.";'));
   assert.ok(step_ui.includes("const stale=d=>!nowKeys||d.meta.setKey!==nowKeys.setKey||d.meta.lookKey!==nowKeys.lookKey;")&&step_ui.includes("P.OUT_OF_DATE"));
   assert.ok(api.includes("if(now.setKey!==saved.meta.setKey||now.lookKey!==saved.meta.lookKey)throw new Error(OUT_OF_DATE);"));
   assert.ok(!/expected/.test(api.slice(api.indexOf("async function use("),api.indexOf("// DISCARD:"))),"using a draft never depends on what the location image is today");
-  assert.ok(api.includes('root.nbSetAssetApproval(slot(id),iso,false,"previs-draft-discarded")')&&!/nbClearAsset|nbDeleteHistoryEntry|nbDeleteCurrentAndPromoteAsset/.test(api),"discard marks the draft; nothing is deleted");
+  // deleting is only ever a draft's own file, inside remove(), which the card calls after asking (owner 2026-11-16)
+  const removal=api.slice(api.indexOf("  async function remove(id,iso){"),api.indexOf("  // An earlier draft becomes the current one again;"));
+  assert.ok(removal.includes("root.nbDeleteHistoryEntry(slot(id),index)")&&removal.includes("root.nbDeleteCurrentAndPromoteAsset(slot(id))")&&removal.includes("root.nbClearAsset(slot(id))"));
+  assert.ok(!/nbClearAsset|nbDeleteHistoryEntry|nbDeleteCurrentAndPromoteAsset/.test(api.replace(removal,"")),"nothing else in Previs deletes, and never anything but a draft's own slot");
   // three boxed subsections, like every other section of the card (and one more for the whole place from above)
   assert.equal((step_ui.match(/className:"loc-sub/g)||[]).length,4);
   // 2026-11-16: the engine is picked in the section, what the step does sits behind the (i) beside its heading, and a
@@ -413,7 +419,7 @@ test("15 Previs: step 4 on every card; optional; the camera check, the drafts un
   const ai=read("app/ai.jsx"),html=read("TURN.html");
   assert.ok(ai.includes('name:"Previs (the set in 3D on a location card)"')&&ai.includes("DRESS THE SET")&&ai.includes("MAKE THE LOCATION IMAGE")&&ai.includes("THE RESULT IS A DRAFT")&&ai.includes("ONE RULE FOR USING A DRAFT"));
   for(const f of ["set-previs.js","set-previs-ui.jsx","locations-ui.jsx","locations.jsx","ai.jsx"])
-    assert.ok(["20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
+    assert.ok(["20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
   assert.ok(html.indexOf("app/set-previs.js")>html.indexOf("app/camera-angle-preview.js")&&html.indexOf("app/set-dressing.js")>html.indexOf("app/blender-render.js"));
   assert.ok(css.includes(".previs-sheet{aspect-ratio:16/9;")&&read("app/blender-preview.css").includes(".style-draft-thumb{"));
 });
@@ -447,7 +453,7 @@ test("17 variants from the 3D set: one frame beside each variant's own Generate;
   // owner 2026-11-16: "one frame, go ahead with variants"
   const step_ui=read("app/set-previs-ui.jsx"),api=read("app/set-previs.js");
   for(const t of ['function LocationPrevisVariant({location:l,variantKey,asset,label,time,spec,meta,readOnly=false}){','"data-testid":"previs-variant"','E("summary",null,"From the 3D set")',
-      '"Make this variant from the 3D set"','"Use as this variant\\u2019s image"','"Compare with the 3D frame"','"Discard"','"Make this the current draft"',
+      '"Make this variant from the 3D set"','"Use as this variant\\u2019s image"','"Compare with the 3D frame"','"Delete"','"Delete this draft"','"Make this the current draft"',
       'E("span",null,"Camera")','P.lightFor(time,built.light)','only:camera','window.LocationPrevisVariant=LocationPrevisVariant;'])
     assert.ok(step_ui.includes(t),t);
   // nothing is drawn or read for a variant until its fold is opened
@@ -467,7 +473,7 @@ test("17 variants from the 3D set: one frame beside each variant's own Generate;
   // Frances knows
   assert.ok(ai.includes("VARIANTS FROM THE 3D SET (2026-11-16)")&&ai.includes("A variant's image is one frame, as before, never a grid.")&&ai.includes("BLENDER IS NOT OFFERED IN THE APP AT PRESENT"));
   for(const f of ["set-previs.js","set-previs-ui.jsx","locations-ui.jsx","shots-ui.jsx","ai.jsx"])
-    assert.ok(["20261116-variants1", "20261116-cancel1", "20261116-shell1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
+    assert.ok(["20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
 });
 
 console.log(pass+" passed, "+fail+" failed");

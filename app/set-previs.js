@@ -520,6 +520,28 @@
       return result;
     });
   }
+  /* DELETE A DRAFT FOR GOOD (owner 2026-11-16: "give the user the option to delete drafts"): the current draft or an
+     earlier one. Its file is removed; no image of the film is touched. When the current draft is deleted, the draft
+     made before it is the current one again. The card asks before calling this. */
+  async function remove(id,iso){
+    const scope=scopeNow();assertWritable(scope);
+    return locked(id,scope,async()=>{
+      const saved=await root.nbLoadDetailsAsset(slot(id),"");assertWritable(scope);
+      if(!iso||!saved)throw new Error("That draft is no longer saved.");
+      if(saved.url&&saved.meta&&saved.meta.iso===iso){
+        if(!mine(saved.meta,id,scope))throw new Error("That draft is no longer saved.");
+        const earlier=(saved.history||[]).some(d=>d&&d.url);
+        const done=earlier?await root.nbDeleteCurrentAndPromoteAsset(slot(id)):await root.nbClearAsset(slot(id));
+        if(earlier&&!done)throw new Error("The draft could not be deleted. Nothing was changed.");
+        return {deleted:iso,current:true};
+      }
+      const index=(saved.history||[]).findIndex(d=>d&&d.meta&&d.meta.iso===iso&&mine(d.meta,id,scope));
+      if(index<0)throw new Error("That draft is no longer saved.");
+      const done=await root.nbDeleteHistoryEntry(slot(id),index);
+      if(!done)throw new Error("The draft could not be deleted. Nothing was changed.");
+      return {deleted:iso,current:false};
+    });
+  }
   // An earlier draft becomes the current one again; the draft it replaces stays with the earlier ones. No image call.
   async function restore(id,iso){
     const scope=scopeNow();assertWritable(scope);
@@ -532,5 +554,5 @@
       return result;
     });
   }
-  root.KinolotPrevis={PANELS,OUT_OF_DATE,specFromSet,sheet,scene,dressingSig,overview,look,lightFor,framePrompt,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,restore,retrySave,discardUnsaved,pending};
+  root.KinolotPrevis={PANELS,OUT_OF_DATE,specFromSet,sheet,scene,dressingSig,overview,look,lightFor,framePrompt,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,remove,restore,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);

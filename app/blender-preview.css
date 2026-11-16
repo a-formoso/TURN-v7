@@ -146,6 +146,11 @@ html[data-theme="light"] .bp-pair-code,.bp-panel{box-shadow:0 1px 2px rgba(24,25
 .loc-style-check{display:flex;align-items:flex-start;gap:8px;margin:14px 0;font-size:12px;line-height:1.5}
 .loc-style-check input{flex:none;margin-top:3px}
 .loc-style-dialog{box-sizing:border-box;width:min(1100px,calc(100% - 28px));max-height:90vh;overflow:auto;padding:22px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);color:var(--txt-1);font-family:var(--f-ui,system-ui,sans-serif)}
+/* centred in the window (a reset had left it against the left edge on a phone), and its buttons clear of the picture above them */
+.loc-style-dialog{margin:auto}
+.artroom .sheet-card .sheet-fold-body > dialog.loc-style-dialog{margin:auto}   /* a card section zeroes its children's top and bottom margins */
+.loc-style-dialog .loc-cloud-render-actions{margin-top:14px}
+.loc-style-dialog .loc-cloud-render-actions + .loc-layer-note{margin-top:10px}
 .loc-style-dialog::backdrop{background:color-mix(in srgb,var(--txt-0) 40%,transparent)}
 .loc-style-dialog .loc-cloud-render-head{justify-content:space-between}.loc-style-dialog h3{margin:0}
 .loc-style-dialog>p{font-size:13px;line-height:1.5}
