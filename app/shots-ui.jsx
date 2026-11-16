@@ -1424,14 +1424,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       // the shot prompt has its own section (owner 2026-11-02), read-only, before the tools
       _el(CardFold,{label:"Shot prompt",defaultOpen:false},
         _el(CopyBox,{label: isHead ? "Final frame prompt \u2014 master + grade + references" : "Final frame prompt \u2014 master + grade + reference frame + sheets",text:previewPrompt})),
-      _el(CardFold,{label:"More tools \u00b7 Blender",defaultOpen:false},
-      _el(CardFold,{label:"Blender preview · rough blockout",defaultOpen:false},
-        window.BlenderPreviewPanel
-          ? _el(window.BlenderPreviewPanel,{shot:sh,scene,location:loc,subjects,props:inProps,readOnly,onUpdate})
-          : _el("div",{className:"bp-callout warn"},"Blender preview is unavailable in this build.")),
-      // (the "Open this shot in Blender" button, Blender Studio's entry on a shot, was here until 2026-11-16: owner,
-      // "Remove it now")
-      )));
+      // (the shot card's last section, "More tools \u00b7 Blender", went on 2026-11-16, owner: "that should go too": first
+      // its "Open this shot in Blender" button, then "Blender preview \u00b7 rough blockout". BlenderPreviewPanel stays in its file.)
+      ));
 }
 
 const CONF_LABELS = ["Inner","Personal","Extra-personal"];

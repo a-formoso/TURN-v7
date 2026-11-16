@@ -187,7 +187,7 @@ await test("Frances knows, and the page is on the new key",()=>{
   assert.ok(!ai.includes("every episode of a Show is a TV Series episode, so 'Turn this into a show' on a Micro-drama"),"the sentence written this morning is corrected");
   const html=read("TURN.html");
   for(const file of ["ai.jsx","script.jsx","app.jsx","formats.jsx","locations.jsx"])
-    assert.ok(["20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log("\n"+(failed?"FAILED — "+failed+" of "+(checks+failed):"OK — "+checks+" checks passed"));

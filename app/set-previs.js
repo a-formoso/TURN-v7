@@ -81,12 +81,42 @@
     if(!views)return "";
     const lines=PANELS.map(key=>{
       const cam=scene.cameras[key],list=views[key]||[];if(!cam)return "";
-      const lens=Number(cam.lensMm)||35,tilt=Number(cam.pitch)||0;
-      const head=PANEL_WORDS[key]+": camera "+(Math.round(cam.position[2]*10)/10)+" m high, facing "+COMPASS[Math.round((((Number(cam.yaw)||0)%360)+360)%360/45)%8]
-        +(tilt<=-12?", looking down":tilt>=12?", looking up":"")+", "+lens+" mm lens ("+(lens<=22?"very wide":lens<=32?"wide":lens<=60?"normal":"long")+").";
-      return head+(list.length?" In its frame: "+list.map(v=>v.name+" ("+v.side+", "+v.depth+")").join("; ")+".":"");
+      return PANEL_WORDS[key]+": "+cameraWords(cam,list);
     }).filter(Boolean);
     return lines.length?"\nPANEL BY PANEL, read from the 3D set (this is what each panel shows, and nothing in the spec below may change it):\n"+lines.join("\n")+"\n":"";
+  }
+  function cameraWords(cam,list){
+    {
+      const lens=Number(cam.lensMm)||35,tilt=Number(cam.pitch)||0;
+      const head="camera "+(Math.round(cam.position[2]*10)/10)+" m high, facing "+COMPASS[Math.round((((Number(cam.yaw)||0)%360)+360)%360/45)%8]
+        +(tilt<=-12?", looking down":tilt>=12?", looking up":"")+", "+lens+" mm lens ("+(lens<=22?"very wide":lens<=32?"wide":lens<=60?"normal":"long")+").";
+      return head+(list&&list.length?" In its frame: "+list.map(v=>v.name+" ("+v.side+", "+v.depth+")").join("; ")+".":"");
+    }
+  }
+  /* A VARIANT IS ONE FRAME (owner 2026-11-16: "one frame"): the same set from ONE of its four cameras, lit for the
+     variant's hour. lightFor turns a time of day into the light the set is drawn in; the place's own (day) light stays
+     for a day variant, and the dressing's lamps come on when it is not day. */
+  function lightFor(time,base){
+    const t=String(time||"").toLowerCase(),lamps=(base&&base.lamps)||[];
+    if(/pre-?dawn|night|midnight|small hours/.test(t))return {time:"night",sky:"#0b1220",sun:{from:230,height:40,colour:"#9fb4ff",power:0.7},fill:0.55,lamps};
+    if(/dawn|sunrise|first light/.test(t))return {time:"dusk",sky:"#c7a694",sun:{from:85,height:7,colour:"#ffc49a",power:1.1},fill:0.8,lamps};
+    if(/dusk|sunset|twilight|evening|magic hour|golden hour/.test(t))return {time:"dusk",sky:"#6f6a86",sun:{from:265,height:7,colour:"#ffb37a",power:1.1},fill:0.75,lamps};
+    return base||null;
+  }
+  // What the image engine is told for a variant's frame. `spec` is the variant's own prompt, built by its card.
+  function framePrompt(spec,drawn,info){
+    info=info||{};
+    const cam=drawn&&drawn.scene&&drawn.scene.cameras[drawn.camera];
+    return "Image 1 is the 3D previs of this location from ONE camera, lit for the hour: a single 16:9 frame. It is the layout to follow, and it decides the camera. "
+      +"Draw ONE full-frame 16:9 image, not a grid, from exactly that camera: the same standpoint, height, direction, tilt, horizon line and lens. Every large shape stays where it is in the frame, at its size, and what is in front of what stays so. "
+      +"Keep every wall, opening, building and object, each in its place, size and proportion. "
+      +"The previs is built from plain blocks: read each block as the real thing it stands for (named below, and described in the spec) and give it its real surface, detail, edges and wear. "
+      +"Do not add, remove or move buildings, objects or openings. Never replace the frame with a different or more flattering view of the place. "
+      +"The previs's flat colours and simple light only point to materials and the hour; the finished look is the spec's render style"+(info.style?" ("+info.style+")":"")+". "
+      +"No people, no text, no labels and no borders.\n"
+      +(info.look?"Image 2 is the finished image of this same place in its usual daylight (four views of it). Take from it what things are made of and how they look, so that this is recognisably the same place. Take NO layout or camera from Image 2, and NOT its hour or its weather: those come from the spec below and from the light of Image 1.\n":"")
+      +(cam?"\nTHE FRAME, read from the 3D set (nothing in the spec below may change it): "+cameraWords(cam,drawn.views&&drawn.views[drawn.camera])+"\n":"")
+      +"\nTHE SPEC (the place, and this variant's hour, weather and state). If it describes a camera position, a view or framing of its own, ignore that part: Image 1 alone decides it.\n"+String(spec||"");
   }
 
   /* The four views on one sheet. Returns {dataUrl, width, height, panels}. */
@@ -103,17 +133,20 @@
       renderer.setPixelRatio(1);renderer.setSize(w,h,false);renderer.outputColorSpace=T.SRGBColorSpace;
       renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=options.exposure||1;
       renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
-      const canvas=root.document.createElement("canvas");canvas.width=w*2;canvas.height=h*2;
+      // options.only: one camera alone, as a single 16:9 frame (a variant is one frame, 2026-11-16)
+      const only=PANELS.includes(options.only)?options.only:"",shown=only?[only]:PANELS,cols=only?1:2;
+      const canvas=root.document.createElement("canvas");canvas.width=w*cols;canvas.height=h*cols;
       const ctx=canvas.getContext("2d");if(!ctx)throw new Error("This browser cannot draw the sheet.");
       const views={};
-      PANELS.forEach((key,i)=>{
+      shown.forEach((key,i)=>{
+        if(!scene.cameras[key])throw new Error("That camera is not set yet.");
         const camera=root.KinolotAnglePreview.cameraFor(T,scene.cameras[key]);
         renderer.render(rig.three,camera);
         if(options.views)views[key]=seen(T,rig,camera);
         if(renderer.getContext().isContextLost())throw new Error("The 3D view stopped. Close other heavy tabs and try again.");
-        ctx.drawImage(renderer.domElement,(i%2)*w,Math.floor(i/2)*h,w,h);
+        ctx.drawImage(renderer.domElement,(i%cols)*w,Math.floor(i/cols)*h,w,h);
       });
-      return {dataUrl:canvas.toDataURL(options.type||"image/png",options.quality),width:w*2,height:h*2,panels:PANELS.slice(),...(options.views?{views}:{})};
+      return {dataUrl:canvas.toDataURL(options.type||"image/png",options.quality),width:w*cols,height:h*cols,panels:shown.slice(),...(options.views?{views}:{})};
     }finally{rig.dispose();renderer.dispose();renderer.forceContextLoss();}
   }
   /* THE SET AS PREVIS DRAWS IT: the built floor plan with the dressing on. ONE PLACE, ONE SET (owner 2026-11-16): a
@@ -239,7 +272,7 @@
     if(typeof root.nbGenerate!=="function")throw new Error("Sign in to make this image.");
     if(!/^data:image\//.test(String(sheetUrl||"")))throw new Error("Draw the previs sheet first.");
     const choice=options.settings||settings();
-    const prompt=stylePrompt(location,options.project,options.drawn)+(options.after||""),metaOut={};
+    const prompt=options.prompt||stylePrompt(location,options.project,options.drawn)+(options.after||""),metaOut={};
     const scope=root.BlenderPreview&&typeof root.BlenderPreview.scope==="function"?root.BlenderPreview.scope():null;
     const url=await root.nbGenerate(prompt,{model:choice.model,imageSize:choice.imageSize,quality:choice.quality,aspectRatio:"16:9",referenceImage:sheetUrl,
       ...(options.lookImage?{extraImages:[options.lookImage],extraImageMaxDims:[1024]}:{}),
@@ -261,11 +294,16 @@
      {loc, at, key, label} = the set at a story moment whose moving parts differ ("Stern ramp lowered"), which becomes
      that state's own image and never touches the location image. */
   const unsaved=new Map(),running=new Set();
-  const target=id=>id&&typeof id==="object"?{loc:String(id.loc),at:id.at||null,key:String(id.key||""),label:String(id.label||"")}
-    :{loc:String(id),at:null,key:"",label:""};
-  const slot=id=>{const t=target(id);return "previs-draft-"+t.loc+(t.key?"-parts-"+t.key.toLowerCase().replace(/[^a-z0-9]+/g,"-").slice(0,80):"");};
+  /* ...or {loc, variant:{key, asset, label, time, camera}} = one of the location's VARIANTS (a time of day or a state):
+     one frame from one camera, which becomes that variant's own image (variant.asset). */
+  const target=id=>id&&typeof id==="object"?{loc:String(id.loc),at:id.at||null,key:String(id.key||""),label:String(id.label||""),
+      variant:id.variant&&id.variant.key&&id.variant.asset?{key:String(id.variant.key),asset:String(id.variant.asset),label:String(id.variant.label||""),
+        time:String(id.variant.time||""),camera:PANELS.includes(id.variant.camera)?id.variant.camera:"TL"}:null}
+    :{loc:String(id),at:null,key:"",label:"",variant:null};
+  const slug=text=>String(text).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,80);
+  const slot=id=>{const t=target(id);return "previs-draft-"+t.loc+(t.variant?"-var-"+slug(t.variant.key):t.key?"-parts-"+t.key.toLowerCase().replace(/[^a-z0-9]+/g,"-").slice(0,80):"");};
   const live=id=>{const l=((root.turnContinuity||{}).locations||[]).find(x=>x.id===id);if(!l)throw new Error("This location is no longer in the film.");return l;};
-  const assetOf=id=>{const t=target(id);return t.key?root.locationPartStateAssetId(live(t.loc),t.key):t.loc;};
+  const assetOf=id=>{const t=target(id);return t.variant?t.variant.asset:t.key?root.locationPartStateAssetId(live(t.loc),t.key):t.loc;};
   const announce=id=>root.dispatchEvent&&root.dispatchEvent(new CustomEvent("kinolot-previs-changed",{detail:{id:target(id).loc}}));
   const scopeNow=()=>{try{return root.BlenderPreview.scope();}catch(_){throw new Error("Open a saved film and sign in to make this image.");}};
   const keyOf=(scope,id)=>[scope.uid,scope.projectId,slot(id)].join(":");
@@ -277,8 +315,11 @@
     if(typeof root.turnArtRoomWritable==="function"&&!root.turnArtRoomWritable())throw new Error("This film is read-only.");
   }
   // What a draft is made from, as two short keys: the set exactly as drawn, and the card's description and look.
-  async function keys(id,list){
+  async function keys(id,list,extra){
     const t=target(id),location=live(t.loc),built=scene(location,list,t.at),C=root.KinolotRenderContract;
+    // a variant: the set, its one camera and the hour's light; and the variant's own prompt
+    if(t.variant)return {setKey:await C.hash(C.canonical({objects:built.scene.objects,materials:built.scene.materials,camera:built.scene.cameras[t.variant.camera]||null,
+      light:lightFor(t.variant.time,built.light)||null})),lookKey:await C.hash(String(extra&&extra.spec||""))};
     const look=typeof root.locationSpecSig==="function"?String(root.locationSpecSig(location)):stylePrompt(location);
     return {setKey:await C.hash(C.canonical({scene:built.scene,light:built.light||null})),lookKey:await C.hash(String(look))};
   }
@@ -294,7 +335,7 @@
   const discarded=meta=>!!(meta&&meta.approval&&meta.approval.iso===meta.iso&&meta.approval.approved===false);
   const used=meta=>!!(meta&&meta.approval&&meta.approval.iso===meta.iso&&meta.approval.approved===true);
   const mine=(meta,id,scope)=>{const t=target(id);
-    return !!meta&&meta.kind==="previs-draft"&&meta.schema===1&&meta.projectId===scope.projectId&&meta.locationId===t.loc&&(meta.stateKey||"")===t.key&&!!meta.iso;};
+    return !!meta&&meta.kind==="previs-draft"&&meta.schema===1&&meta.projectId===scope.projectId&&meta.locationId===t.loc&&(meta.stateKey||"")===t.key&&(meta.variantKey||"")===(t.variant?t.variant.key:"")&&!!meta.iso;};
   const shaped=d=>{const ref=(d.refs||[]).find(r=>r&&r.kind==="previs-sheet"&&!r.deleted);
     return {url:d.url,meta:d.meta,sheet:(ref&&ref.url)||"",used:used(d.meta),discarded:discarded(d.meta)};};
   /* The drafts kept for a location: the current one (null when none, or when it was discarded) and the earlier ones,
@@ -336,6 +377,29 @@
     return locked(id,scope,async key=>{
       const location=live(t.loc),built=scene(location,undefined,t.at);
       options.onPhase&&options.onPhase("drawing");
+      if(t.variant){
+        // ONE FRAME: the chosen camera, the hour's light; the look from the location's own finished image
+        const spec=String(options.spec||"").trim();
+        if(!spec)throw new Error("This variant's prompt could not be built. Describe the place first.");
+        const light=lightFor(t.variant.time,built.light);
+        const frame=await root.KinolotPrevis.sheet(built.scene,light,{panelWidth:1280,only:t.variant.camera,views:true});
+        assertWritable(scope);
+        const made=await keys(id,undefined,{spec});
+        const master=typeof root.nbGetImage==="function"?root.nbGetImage(t.loc):"";
+        const styleText=typeof root.locVisualDefaults==="function"?root.locVisualDefaults(location).renderStyle:"";
+        options.onPhase&&options.onPhase("generating");
+        const out=await style(location,frame.dataUrl,{settings:options.settings,assetId:slot(id),lookImage:master||"",
+          prompt:framePrompt(spec,{scene:built.scene,views:frame.views,camera:t.variant.camera},{look:!!master,style:styleText}),
+          beforeSubmit:async()=>{assertWritable(scope);}});
+        // what the variant's own Generate records (its place's image at that moment, the layout stamp) comes from its card
+        const meta={schema:1,kind:"previs-draft",mode:"draft",projectId:scope.projectId,locationId:t.loc,variantKey:t.variant.key,variantLabel:t.variant.label,variantCamera:t.variant.camera,
+          setKey:made.setKey,lookKey:made.lookKey,prompt:out.prompt,modelId:out.model,modelLabel:out.label,quality:out.quality||undefined,size:out.size,aspect:"16:9",
+          iso:new Date().toISOString(),...(options.meta&&typeof options.meta==="object"?options.meta:{}),previs:{dressed:built.dressed,dressingIso:built.iso,shapes:built.scene.objects.length,frame:true}};
+        const entry={key,slot:slot(id),scope,url:out.url,meta,refs:[{kind:"previs-sheet",label:"Previs frame",url:frame.dataUrl}]};
+        unsaved.set(key,entry);
+        options.onPhase&&options.onPhase("saving");
+        return commit(entry);
+      }
       const drawn=await root.KinolotPrevis.sheet(built.scene,built.light,{panelWidth:960,views:true});
       assertWritable(scope);
       const made=await keys(id);
@@ -390,7 +454,7 @@
   const OUT_OF_DATE="This draft is out of date: the floor plan, the cameras, the dressing or the description changed after it was made. Make a new one.";
   /* USE AS LOCATION IMAGE: the current draft's pixels become the location image's new version (a moving-part state's
      draft becomes that state's image). Nothing is generated. The image before it stays in the card's versions. */
-  async function use(id,iso){
+  async function use(id,iso,extra){
     const scope=scopeNow(),t=target(id);
     assertWritable(scope);
     return locked(id,scope,async()=>{
@@ -398,7 +462,7 @@
       if(!saved||!saved.url||!mine(saved.meta,id,scope))throw new Error("The draft is no longer saved.");
       if(saved.meta.iso!==iso)throw new Error("Another draft is the current one now. Open the location again.");
       if(discarded(saved.meta))throw new Error("This draft was discarded. Make a new one.");
-      const now=await keys(id);
+      const now=await keys(id,undefined,extra);
       if(now.setKey!==saved.meta.setKey||now.lookKey!==saved.meta.lookKey)throw new Error(OUT_OF_DATE);
       const asset=assetOf(id),before=await root.nbLoadDetailsAsset(asset,"");assertWritable(scope);
       if(before&&before.url&&before.meta&&before.meta.previsDraftIso===iso)return {url:before.url,alreadyUsed:true};
@@ -435,5 +499,5 @@
       return result;
     });
   }
-  root.KinolotPrevis={PANELS,OUT_OF_DATE,sheet,scene,dressingSig,overview,look,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,use,discard,restore,retrySave,discardUnsaved,pending};
+  root.KinolotPrevis={PANELS,OUT_OF_DATE,sheet,scene,dressingSig,overview,look,lightFor,framePrompt,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,use,discard,restore,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);
