@@ -107,6 +107,7 @@
       +"\nTHIS VARIANT: "+String(info.notes||"").trim();
   }
   // The location image a variant is made from: one of its four views cut out, or the whole image. {dataUrl, iso, sheet}
+  const cuts=new Map();
   async function variantSource(locationId,camera){
     const saved=await root.nbLoadDetailsAsset(locationId,"");
     if(!saved||!saved.url)throw new Error("This place has no location image yet. Choose the location image first.");
@@ -119,7 +120,13 @@
     if(!data)throw new Error("The location image could not be read. Check your connection and try again.");
     const info=root.LOC_PANEL_INFO&&root.LOC_PANEL_INFO[camera];
     if(four&&info&&info.crop&&typeof root.cropRegionAsDataUrl==="function"){
-      const cutOut=await root.cropRegionAsDataUrl(data,info.crop,1536,1024);
+      // one cut per image and view: every variant of a place opens on the same view of the same image
+      const memo=[saved.url,String(meta.iso||""),camera].join("|");
+      let cutOut=cuts.get(memo);
+      if(!cutOut){
+        cutOut=await root.cropRegionAsDataUrl(data,info.crop,1536,1024);
+        if(cutOut){if(cuts.size>=8)cuts.delete(cuts.keys().next().value);cuts.set(memo,cutOut);}
+      }
       if(cutOut)return {dataUrl:cutOut,iso:String(meta.iso||""),sheet:true};
     }
     return {dataUrl:data,iso:String(meta.iso||""),sheet:false};

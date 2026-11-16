@@ -144,7 +144,7 @@ await test("the editor window's heading is one line: room \u00b7 editor \u00b7 s
   assert.ok(css.indexOf("@media (min-width:641px){ .ag-panel{width:min(740px,96vw)} }")>css.indexOf(".ag-panel{width:min(620px,96vw)"));
   // the markup is unchanged: the room, the editor's name, then the status
   assert.ok(ui.includes('React.createElement("div",{className:"ag-runner-sub"},')&&ui.includes('React.createElement("span",{className:"ag-runner-muse"},'));
-  assert.ok(["20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1"].some(k=>read("TURN.html").includes("app/styles.css?v="+k+'"')));
+  assert.ok(["20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2"].some(k=>read("TURN.html").includes("app/styles.css?v="+k+'"')));
 });
 
 await test("Frances knows; the page is on the new key",()=>{
@@ -153,7 +153,7 @@ await test("Frances knows; the page is on the new key",()=>{
   assert.ok(sv.what.includes("says a scene reverses only when its charge really changes sign"));
   const html=read("TURN.html");
   for(const file of ["frameworks.jsx","inspector.jsx","agents.jsx","newstory.jsx","app.jsx","ai.jsx","script.jsx"])
-    assert.ok(["20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log(`\n${checks} checks passed${failed?`, ${failed} FAILED`:""}`);

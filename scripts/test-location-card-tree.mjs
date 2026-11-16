@@ -326,7 +326,7 @@ test("13 a button is as big as the level it sits at (every Art Room card)", ()=>
   // the two that were the biggest buttons on the card
   assert.ok(css.includes(".loc-spatial-plan .loc-spatial-confirm{justify-content:center;width:100%;min-height:44px;"),"the floor plan's main button, before the level rule");
   assert.ok(!sheet.includes('"data-testid":"loc-own-blender"'),"the card has no Blender hand-off box any more (2026-11-15)");
-  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 
 test("14 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
@@ -351,9 +351,9 @@ test("14 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
   for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
-  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
+    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
 });
 
 test("15 Previs: step 4 on every card; optional; the camera check, the drafts under the button and the one rule", ()=>{
@@ -419,7 +419,7 @@ test("15 Previs: step 4 on every card; optional; the camera check, the drafts un
   const ai=read("app/ai.jsx"),html=read("TURN.html");
   assert.ok(ai.includes('name:"Previs (the set in 3D on a location card)"')&&ai.includes("DRESS THE SET")&&ai.includes("MAKE THE LOCATION IMAGE")&&ai.includes("THE RESULT IS A DRAFT")&&ai.includes("ONE RULE FOR USING A DRAFT"));
   for(const f of ["set-previs.js","set-previs-ui.jsx","locations-ui.jsx","locations.jsx","ai.jsx"])
-    assert.ok(["20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
+    assert.ok(["20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
   assert.ok(html.indexOf("app/set-previs.js")>html.indexOf("app/camera-angle-preview.js")&&html.indexOf("app/set-dressing.js")>html.indexOf("app/blender-render.js"));
   assert.ok(css.includes(".previs-sheet{aspect-ratio:16/9;")&&read("app/blender-preview.css").includes(".style-draft-thumb{"));
 });
@@ -449,15 +449,31 @@ test("16 one road and plainer names: what left the card, what was folded away, a
   assert.ok(ai.includes("under The look, in the card's Location image section")&&ai.includes("THE FOUR CAMERAS (called 'Plate cameras' until 2026-11-15)"));
 });
 
-test("17 variants from the location image: one of its views at another hour, beside each variant's own Generate; no Blender left on a shot card", ()=>{
+test("17 variants from the location image: one of its views at another hour, the one road to a variant's image; no Blender left on a shot card", ()=>{
   // owner 2026-11-16: "variants should be deriving from already generated location image ... the image a user chooses"
   const step_ui=read("app/set-previs-ui.jsx"),api=read("app/set-previs.js");
-  for(const t of ['function LocationPrevisVariant({location:l,variantKey,asset,label,time,notes,meta,readOnly=false}){','"data-testid":"previs-variant"','E("summary",null,"From the location image")',
+  for(const t of ['function LocationPrevisVariant({location:l,variantKey,asset,label,time,notes,meta,readOnly=false}){','"data-testid":"previs-variant"',
       '"Make this variant from the location image"','"Use as this variant\\u2019s image"','"Compare with the location image"','"Delete"','"Delete this draft"','"Make this the current draft"',
       'E("span",null,"View")','P.variantSource(l.id,camera)','"data-testid":"previs-variant-not-ready"','"Choose the location image first."','"Go to 4 \\u00b7 Previs"','window.LocationPrevisVariant=LocationPrevisVariant;'])
     assert.ok(step_ui.includes(t),t);
   const variant=step_ui.slice(step_ui.indexOf("function LocationPrevisVariant("));
   assert.ok(!/P\.scene\(|P\.sheet\(|From the 3D set|3D frame/.test(variant),"a variant draws nothing from the 3D set");
+  // ONE ROAD (owner 2026-11-16: "Remove the older Generate image on variants"): neither kind of variant card has a
+  // Generate button, a reference strip or a Regenerate; the frame keeps drop-your-own, Edit and the versions
+  const cardOf=name=>{const i=ui.indexOf("function "+name+"(");return ui.slice(i,ui.indexOf("\nfunction ",i+10));};
+  for(const name of ["LocationVariant","SluglineUnitCard"]){
+    const card=cardOf(name);
+    assert.ok(card.includes("noGenerate:true }),")&&card.includes("dropToImport:true,")&&card.includes("variant:true }));"),name);
+    assert.ok(!/referenceControls|generateRefs|generateDisabled|refPreview|canGenerate|onRegenerate|CoverageReferenceStrip/.test(card),name+" has no Generate left");
+    assert.ok(card.includes("window.LocationPrevisVariant"),name);
+  }
+  const frame=read("app/artroom.jsx");
+  assert.ok(frame.includes("draftNote, noGenerate=false }){")&&frame.includes('(!noGenerate || gening || gen.pendingSave) && React.createElement("div",{className:"sheet-gen-row"},'));
+  assert.ok(ui.includes("onRegenerate, variant=false }){")&&ui.includes('(variant ? ". Make a new draft from the location image below, or keep this one." : " \u2014 regenerate?")')
+    &&ui.includes('!variant && React.createElement("button",{type:"button",className:"art-draftall",'));
+  // the box is open while the variant has no image yet
+  assert.ok(step_ui.includes('window.nbLoadDetailsAsset(asset,"")).then(saved=>{if(live&&!touched.current&&!(saved&&saved.url))setOpen(true);},()=>{});')
+    &&step_ui.includes('E("summary",{onClick:()=>{touched.current=true;}},"Make this variant\\u2019s image"),'));
   // nothing is read for a variant until its fold is opened
   assert.ok(variant.includes("    if(!open)return;\n    let live=true;setError(\"\");\n    P.variantSource(l.id,camera)")&&variant.includes("open&&E(React.Fragment,null,"));
   // both kinds of variant carry it, each with its time and notes and what its own Generate records
@@ -475,9 +491,9 @@ test("17 variants from the location image: one of its views at another hour, bes
   assert.ok(!/More tools|BlenderPreviewPanel|BlenderStudioLaunch|Open this shot in Blender/.test(shots),"no Blender on a shot card");
   assert.ok(!read("app/chrome.jsx").includes('"aria-label":"Blender Studio"'));
   // Frances knows
-  assert.ok(ai.includes("VARIANTS FROM THE LOCATION IMAGE (2026-11-16)")&&ai.includes("A variant's image is one frame, as before, never a grid.")&&!ai.includes("VARIANTS FROM THE 3D SET")&&ai.includes("BLENDER IS NOT OFFERED IN THE APP AT PRESENT"));
+  assert.ok(ai.includes("VARIANTS FROM THE LOCATION IMAGE (2026-11-16)")&&ai.includes("has ONE road to its image: the box 'Make this variant's image' under its frame")&&ai.includes("no 'Generate image' button and no Reference images strip any more")&&ai.includes("A variant's image is one frame, as before, never a grid.")&&!ai.includes("VARIANTS FROM THE 3D SET")&&ai.includes("BLENDER IS NOT OFFERED IN THE APP AT PRESENT"));
   for(const f of ["set-previs.js","set-previs-ui.jsx","locations-ui.jsx","shots-ui.jsx","ai.jsx"])
-    assert.ok(["20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
+    assert.ok(["20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
 });
 
 console.log(pass+" passed, "+fail+" failed");

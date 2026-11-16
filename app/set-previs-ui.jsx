@@ -421,12 +421,20 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
    notes(): the variant in words (its time, its environment notes); meta(): what its own Generate records. */
 function LocationPrevisVariant({location:l,variantKey,asset,label,time,notes,meta,readOnly=false}){
   const E=React.createElement,P=window.KinolotPrevis;
-  const [open,setOpen]=React.useState(false),[camera,setCamera]=React.useState("TL"),[from,setFrom]=React.useState(null),[error,setError]=React.useState("");
+  const [open,setOpen]=React.useState(false),touched=React.useRef(false);
+  const [camera,setCamera]=React.useState("TL"),[from,setFrom]=React.useState(null),[error,setError]=React.useState("");
   const [kept,setKept]=React.useState({current:null,lastDiscarded:false,earlier:[]}),[nowKeys,setNowKeys]=React.useState(undefined);
   const [review,setReview]=React.useState(""),[wipe,setWipe]=React.useState(50),[tick,setTick]=React.useState(0);
   const alive=React.useRef(true),dialog=React.useRef(null),took=React.useRef("");
   const R=usePrevisRun(alive,()=>writable()),{busy,phase,notice,fail,setNotice,setFail,run}=R;
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
+  // THE ONE ROAD to a variant's image (owner 2026-11-16: the older Generate left the card): the box opens by itself
+  // when the variant is known to have no image yet (read from the film, never guessed), unless the user folded it
+  React.useEffect(()=>{
+    let live=true;
+    Promise.resolve().then(()=>window.nbLoadDetailsAsset(asset,"")).then(saved=>{if(live&&!touched.current&&!(saved&&saved.url))setOpen(true);},()=>{});
+    return ()=>{live=false;};
+  },[asset]);
   React.useEffect(()=>{
     const bump=e=>{if(!e||!e.detail||!e.detail.id||e.detail.id===l.id)setTick(n=>n+1);};
     // the location image changed (a draft was used, a new image was generated), or the film's images arrived
@@ -501,7 +509,7 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,notes,met
   const what=time?"at "+time:"in this state";
   const OLD="This draft is out of date: the location image or this variant\u2019s notes changed after it was made. Make a new one.";
   return E("details",{className:"loc-nested-section previs-variant","data-testid":"previs-variant",open,onToggle:e=>{if(e.target===e.currentTarget)setOpen(e.currentTarget.open);}},
-    E("summary",null,"From the location image"),
+    E("summary",{onClick:()=>{touched.current=true;}},"Make this variant\u2019s image"),
     open&&E(React.Fragment,null,
       // the location image comes first: a variant is that image at another hour
       error&&!from?E("div",{className:"loc-step-fixes","data-testid":"previs-variant-not-ready"},

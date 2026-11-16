@@ -5033,7 +5033,7 @@ if(typeof document!=="undefined" && typeof document.addEventListener==="function
 }
 window.frameFitImage = frameFitImage;
 
-function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs, draftNote }){
+function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs, draftNote, noGenerate=false }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, relatedClearIdsOf, relatedClearLabel, revertPrevious, layers, allModels } = gen;
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
@@ -5395,8 +5395,10 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
         React.createElement(Icon.history,{s:10}),
         layers+" earlier version"+(layers!==1?"s":"")+" \u00b7 see all in the \u2026 menu \u203a Details")),
     referenceControls,
-    // generate + (while running) stop sit on ONE row — full-width when idle, 50/50 while generating
-    React.createElement("div",{className:"sheet-gen-row"},
+    // generate + (while running) stop sit on ONE row — full-width when idle, 50/50 while generating.
+    // noGenerate (a location variant, owner 2026-11-16: its image comes from the location image, one road): no
+    // Generate button; the row is there only while something runs (an edit: Stop) or an unsaved image waits (Retry save)
+    (!noGenerate || gening || gen.pendingSave) && React.createElement("div",{className:"sheet-gen-row"},
     React.createElement("button",{className:"sheet-gen-btn"+(generateDisabled&&!gening?(onResolveGenerationBlock?" needs-review":" waiting"):""),onClick:handleGenerateClick,
       disabled:gening||(drafting&&pendingGenerate)||(generateDisabled?!onResolveGenerationBlock:specBlocked),
       title:generateDisabled

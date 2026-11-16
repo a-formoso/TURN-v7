@@ -119,8 +119,10 @@ vm.runInContext(read("app/locations-ui.jsx"), box, { filename: "app/locations-ui
 await test("3 the cards: each Generate is priced with the references it sends", () => {
   assert.match(ui, /generateRefs: masterGenerateRefs,/, "the location card");
   assert.match(ui, /generateRefs: refPreview\.length \? refPreview\.filter\(r=>r\.ready && r\.url && \(r\.required \|\| coverageRefOff\.indexOf\(r\.refId\)<0\)\)\.length : undefined,/, "the extra-space card");
-  assert.equal((ui.match(/generateRefs: refPreview\.length \? _locUnitAttachments\(refPreview, refOff\)\.length : undefined,/g) || []).length, 2,
-    "the environment-state and room & time cards");
+  // (2026-11-16, owner: "Remove the older Generate image on variants") the environment-state and room & time cards have
+  // no Generate of their own any more, so nothing is priced there; a variant's image is made from the location image
+  assert.equal((ui.match(/generateRefs: refPreview\.length \? _locUnitAttachments\(refPreview, refOff\)\.length : undefined,/g) || []).length, 0);
+  assert.equal((ui.match(/noGenerate:true \}\),/g) || []).length, 2, "the environment-state and room & time cards");
   assert.match(ui, /const parentN = l\.parentLocation\n\s+\? \(parentRefUrl \? rootRefs\.filter\(r=>r\.required!==false \|\| masterRefOff\.indexOf\(r\.refId\)<0\)\.length : 0\)\n\s+: \(\(typeof locationPlateFixedRefCount==="function" \? locationPlateFixedRefCount\(l\)\.n : 0\) \|\| 0\);/,
     "a room: its root panels as the strip keeps them; a main location: its layout's plate");
   assert.match(ui, /return Math\.min\(6, parentN \+ \(typeof locationWholeScenePages==="function" \? locationWholeScenePages\(pages, 6-parentN\) : pages\)\.length\);/,

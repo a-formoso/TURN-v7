@@ -61,7 +61,7 @@ test("3 the crowd card's image area fills the card, like every other card's", ()
 });
 
 test("4 cache keys", ()=>{
-  for(const f of ["styles.css","ai.jsx","script.jsx"]) assert.ok(["20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f);
+  for(const f of ["styles.css","ai.jsx","script.jsx"]) assert.ok(["20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f);
 });
 
 console.log(pass+" passed, "+fail+" failed");

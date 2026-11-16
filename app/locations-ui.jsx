@@ -2558,7 +2558,7 @@ function _locCopyRun(key, url, parentId, single){
 }
 /* disabled: the card's own Generate is unavailable (its layout, the parent's plate, a room & time no longer in the
    script) — Regenerate waits too; regenerateTitle: what Regenerate does when it is more than one image */
-function LocationCopyCheckNotice({ l, assetId, gen, single=false, refs, readOnly=false, disabled=false, regenerateTitle, onRegenerate }){
+function LocationCopyCheckNotice({ l, assetId, gen, single=false, refs, readOnly=false, disabled=false, regenerateTitle, onRegenerate, variant=false }){
   const parent = l && l.parentLocation;
   const [,bump] = React.useReducer(n=>n+1,0);
   const [kept,setKept] = React.useState("");
@@ -2604,9 +2604,10 @@ function LocationCopyCheckNotice({ l, assetId, gen, single=false, refs, readOnly
     React.createElement("div",{className:"loc-copy-check-body"},
       near.map(p=>React.createElement("p",{key:p.key,title:why(p)},
         single ? null : React.createElement("b",null,label(p.key)+": "),
-        (single ? "This plate" : "This panel")+" looks like "+name+"'s sheet — regenerate?")),
+        (single ? "This plate" : "This panel")+" looks like "+name+"'s sheet"+(variant ? ". Make a new draft from the location image below, or keep this one." : " — regenerate?"))),
       !readOnly && React.createElement("div",{className:"loc-copy-check-acts"},
-        React.createElement("button",{type:"button",className:"art-draftall",
+        // a variant has one road to a new image (the box below it), so no Regenerate here (owner 2026-11-16)
+        !variant && React.createElement("button",{type:"button",className:"art-draftall",
           disabled:regenOff,
           title:regenerateTitle || "Make a new plate (one image) — this one stays in its version history",
           onClick:()=>{ if(!regenOff) onRegenerate(); }},
@@ -2968,35 +2969,15 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
   const pseudo = stateUnit ? { id, name:stateUnit.name, role:stateUnit.intExt,
     sceneNos:stateUnit.sceneNos||[], scriptExcerpt:String(stateUnit.scriptText||"").slice(0,720),
     summary:"Time-of-Day Variant: "+(stateUnit.sluglines||[]).join(" \u00b7 ") } : null;
-  const [refPreview,setRefPreview]=React.useState([]);
-  const [refOff,setRefOff]=React.useState([]);
-  // the parent's cameras noted on its card (2026-10-14) change which of its panels this state is sent
-  const refsKey=[l.id,id,stateUnit&&stateUnit.scriptText,parentGenUrl,l.parentLocation&&l.parentLocation.id,(scenes&&scenes.length),_locParentCamerasKey(l),
-    stateUnit?_locUnitScriptSig(stateUnit,drafts):""].join("|");
   const buildRefs=async()=> stateUnit
     ? buildSluglineUnitReferences(l,stateUnit,id,pseudo,scenes,drafts,parentGenUrl)
     : buildSluglineUnitReferences(l,{name:l.name},id,{sceneNos:[]},[],{},parentGenUrl);
-  React.useEffect(()=>{
-    let alive=true,seq=0;
-    const refresh=()=>{const my=++seq;buildRefs().then(refs=>{if(alive&&my===seq)setRefPreview(refs);});};
-    refresh();
-    const onDone=(e)=>{const rid=e&&e.detail&&e.detail.id;
-      if(rid===l.id||rid===id||(l.parentLocation&&rid===l.parentLocation.id))refresh();};
-    window.addEventListener("nb-gen-done",onDone);
-    return()=>{alive=false;window.removeEventListener("nb-gen-done",onDone);};
-  },[refsKey]);
-  const missingRequired=refPreview.filter(r=>r.required&&!r.ready);
-  const canGenerate=!(stateUnit&&stateUnit.orphan)&&refPreview.length>0&&!missingRequired.length;
-  const toggleRef=(rid)=>setRefOff(off=>{
-    const r=refPreview.find(x=>x.refId===rid);
-    if(r&&r.required)return off;
-    return off.indexOf(rid)>=0?off.filter(x=>x!==rid):[...off,rid];
-  });
+  // (2026-11-16) the card shows no Generate and no reference strip any more: its image is made from the location image
   const collectRefs=async()=>{
     requireLocationSpatialPlan(l);
     const refs=mergeLocationReferences(await buildRefs(),await locationSpatialReferences(l));
     if(refs.some(r=>r.required&&!r.ready))throw new Error("Restore the required location plates before generating this state.");
-    return _locUnitAttachments(refs,refOff);   // its pages keep their scenes (2026-10-14: the rest go as text)
+    return _locUnitAttachments(refs,[]);   // its pages keep their scenes (2026-10-14: the rest go as text)
   };
   const depSnap = React.useRef(null);
   const gen = useImageGen({
@@ -3052,20 +3033,16 @@ function LocationVariant({ l, v, project, scenes, drafts, units, parentGenUrl, o
       avatarColor:locSwatch(stateUnit&&stateUnit.intExt||l.intExt), initials:(v.time||"?").slice(0,2).toUpperCase(), drafted:true, drafting:false,
       entity:viewerEntity, onView, slotPlaceholder:"Drop a photo", noun:"time-of-day variant plate", compact:true,
       dropToImport:true,
-      referenceControls:React.createElement(CoverageReferenceStrip,{refs:refPreview,excludedIds:refOff,onToggle:toggleRef,onView}),
-      generateRefs: refPreview.length ? _locUnitAttachments(refPreview, refOff).length : undefined,   // what it sends (2026-10-14)
-      generateDisabled:!canGenerate,
-      generateDisabledLabel:"Generate parent plate first",
-      generateDisabledTitle:"This time-of-day variant needs the parent location plate as a visual reference before it can generate." }),
-    // its price counts what it sends: a state of its own (a storm, no room & time) sends the room's plate and the root's
-    // part, no pages — priced as such, never as an image with no references (2026-10-14)
+      // ONE ROAD (owner 2026-11-16: "Remove the older Generate image on variants"): a variant's image is made from the
+      // location image, in the box below. The frame keeps drop-your-own, Edit and the versions; no Generate, no references.
+      noGenerate:true }),
     window.LocationPrevisVariant && window.KinolotPrevis && React.createElement(window.LocationPrevisVariant,{ location:l, variantKey:"state:"+v.id, asset:id,
       label:((stateUnit&&stateUnit.name)||l.name||"Location")+(v.time?(" \u00b7 "+v.time):""), time:v.time||"", readOnly,
       notes:()=> previsVariantNotes({ side:stateUnit&&stateUnit.intExt, name:(stateUnit&&stateUnit.name)||l.name, time:v.time, state:v.state||(stateUnit&&stateUnit.appearance) }),
       meta:()=> previsVariantMeta(l, stateUnit?"slugline-unit":"continuity-state", stateUnit?stateUnit.scriptText:null, null) }),
     l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:id, gen, single:true, readOnly,
       refs:()=>(typeof sluglineUnitPlateRefCount==="function" ? sluglineUnitPlateRefCount(l,stateUnit||{name:l.name},{rootPlate:true}).n : undefined),
-      disabled:!canGenerate, onRegenerate:()=>gen.generate() }));
+      variant:true }));
 }
 
 /* SLUGLINE UNIT card — the atomic addressed unit of this location
@@ -3092,10 +3069,6 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
   const pseudo = { id:imgId, name:u.name, role, sceneNos,
     scriptExcerpt:String(u.scriptText||"").slice(0,720),
     summary:"Slugline Unit: "+(u.sluglines||[]).join(" \u00b7 ") };
-  const [refPreview, setRefPreview] = React.useState([]);
-  const [refOff, setRefOff] = React.useState([]);
-  const refsKey = [l.id, imgId, u.scriptText, parentGenUrl,
-    l.parentLocation&&l.parentLocation.id, (scenes&&scenes.length), _locParentCamerasKey(l), _locUnitScriptSig(u, drafts)].join("|");
   const buildUnitRefs = async ()=>{
     const C = window.turnContinuity || {};
     const grab = async (rid)=>{ let u2=(typeof nbGetImage==="function")?nbGetImage(rid):"";
@@ -3108,30 +3081,12 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
     // (2026-10-14) every scene of the unit: whole scenes' pages, first in the list, in the slots the plates leave
     return [..._locUnitPages(l, u, imgId, scenes||C.scenes||[], drafts||C.drafts||{}, plates.length), ...plates];
   };
-  React.useEffect(()=>{
-    // seq: same out-of-order guard as the coverage card above
-    let alive = true, seq = 0;
-    const refresh = ()=>{ const my = ++seq;
-      buildUnitRefs().then(refs=>{ if(alive && my===seq) setRefPreview(refs); }); };
-    refresh();
-    const onDone = (e)=>{ const rid = e && e.detail && e.detail.id;
-      if(rid===l.id || rid===imgId || (l.parentLocation&&rid===l.parentLocation.id)) refresh(); };
-    window.addEventListener("nb-gen-done", onDone);
-    return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); };
-  },[refsKey]);
-  const missingRequired = refPreview.filter(r=>r.required && !r.ready);
-  const canGenerate = !u.orphan && refPreview.length>0 && missingRequired.length===0;
-  // required parent plate can't be opted out (see coverage card above)
-  const toggleRef = (rid)=> setRefOff(off=>{
-    const r = refPreview.find(x=>x.refId===rid);
-    if(r && r.required) return off;
-    return off.indexOf(rid)>=0 ? off.filter(x=>x!==rid) : [...off, rid];
-  });
+  // (2026-11-16) the card shows no Generate and no reference strip any more: its image is made from the location image
   const collectRefs = async ()=>{
     requireLocationSpatialPlan(l);
     const refs=mergeLocationReferences(await buildUnitRefs(),await locationSpatialReferences(l));
     if(refs.some(r=>r.required&&!r.ready))throw new Error("Restore the required location plates before generating this unit.");
-    return _locUnitAttachments(refs, refOff);   // its pages keep their scenes (2026-10-14: the rest go as text)
+    return _locUnitAttachments(refs, []);   // its pages keep their scenes (2026-10-14: the rest go as text)
   };
   const depSnap = React.useRef(null);
   const gen = useImageGen({
@@ -3206,13 +3161,8 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       avatarColor:locSwatch(role), initials:role.slice(0,2), drafted:true, drafting:false,
       entity:viewerEntity, onView, slotPlaceholder:"Drop a finished room & time plate", noun:"room & time plate", compact:true,
       dropToImport:true,
-      referenceControls: React.createElement(CoverageReferenceStrip,{ refs:refPreview, excludedIds:refOff, onToggle:toggleRef, onView }),
-      generateRefs: refPreview.length ? _locUnitAttachments(refPreview, refOff).length : undefined,   // what it sends (2026-10-14)
-      generateDisabled:!canGenerate,
-      generateDisabledLabel: u.orphan ? "No longer in script" : "Generate parent plate first",
-      generateDisabledTitle: u.orphan
-        ? "This room & time is no longer in the screenplay, so it can't generate new plates. Its existing plate and notes are kept until you Remove it."
-        : "This room & time plate needs the parent location plate as a visual reference before it can generate." }),
+      // ONE ROAD (owner 2026-11-16): no Generate here; the image is made from the location image, in the box below
+      noGenerate:true }),
     // the same variant from the location image: one of its views, redrawn at this hour (owner 2026-11-16)
     !u.orphan && window.LocationPrevisVariant && window.KinolotPrevis && React.createElement(window.LocationPrevisVariant,{ location:l, variantKey:u.key, asset:imgId,
       label:(u.name||l.name||"Location")+(u.time?(" \u00b7 "+u.time):""), time:u.time||"", readOnly,
@@ -3220,7 +3170,7 @@ function SluglineUnitCard({ l, u, project, scenes, drafts, parentGenUrl, onEnvir
       meta:()=> previsVariantMeta(l, "slugline-unit", u.scriptText, {sceneNos:u.sceneNos}) }),
     l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:imgId, gen, single:true, readOnly:readOnly||!!u.orphan,
       refs:()=>(typeof sluglineUnitPlateRefCount==="function" ? sluglineUnitPlateRefCount(l,u,{rootPlate:true}).n : undefined),
-      disabled:!canGenerate, onRegenerate:()=>gen.generate() }));
+      variant:true }));
 }
 
 /* nested (under a variant's Used in, 2026-11-13): the row above it already names the scene, the room and the time */
