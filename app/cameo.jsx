@@ -28,11 +28,19 @@
    (2026-10-10, owner — Likeness voice guidance) a CLEAN PICTURE: over the camera only the arrow, the turn meter,
    the pose sketch, the hold ring and the "Now: …" badge; every instruction is SPOKEN (recorded clips, the device's
    voice as the fallback), and shown as one line under the picture only when the voice is off or can't play.
-   Capture now sits under the picture too, shown only when the photo doesn't take itself. */
+   Take photo sits under the picture too, shown only when the photo doesn't take itself.
+   (2026-11-17, owner — "more seamless and not sound robotic")
+     • WHOSE FACE COMES FIRST: the question "Whose likeness is this?" and its box (the same words) are answered before
+       the camera starts; the window then ends on the three photos and one button, "Use this face". A likeness
+       already saved with an answer opens straight on the camera; the answer can still be changed under the photos;
+     • NO COUNT: the pose is held for a moment (1.5 s Front, 2 s a side) and a soft tone marks the photo; the voice
+       finishes its sentences, nudges briefly and never counts (app/face-pose.js, the second script);
+     • PLAIN WORDS: photos (not angles), Use this face (not Lock likeness), Take photo (not Capture now). The stored
+       labels and every internal name are as they were. */
 const CAMEO_ANGLES = [
-  { key:"front", label:"Front",   show:"Front",      strip:"Front",        long:"Front",                side:null,    req:true  },
-  { key:"left",  label:"¾ Left",  show:"Your left",  strip:"← Your left",  long:"Turned to your left",  side:"left",  req:false },
-  { key:"right", label:"¾ Right", show:"Your right", strip:"Your right →", long:"Turned to your right", side:"right", req:false },
+  { key:"front", label:"Front",   show:"Front",      strip:"Front",        long:"Front",                side:null,    req:true,  next:"look straight ahead" },
+  { key:"left",  label:"¾ Left",  show:"Your left",  strip:"← Your left",  long:"Turned to your left",  side:"left",  req:false, next:"turn to your left" },
+  { key:"right", label:"¾ Right", show:"Your right", strip:"Your right →", long:"Turned to your right", side:"right", req:false, next:"turn to your right" },
 ];
 const CAMEO_KEYS = CAMEO_ANGLES.map(a=>a.key);
 /* a stored angle (its key, or a label an older version saved) → front | left | right */
@@ -81,20 +89,43 @@ const cameoFP = ()=> (typeof window.turnFacePose==="object" && window.turnFacePo
 const cameoPerfNow = ()=> (typeof performance!=="undefined" && performance && typeof performance.now==="function") ? performance.now() : Date.now();
 /* (only the pose check and the live picture: the photos the person LOCKS are kept, and are sent as face
    references when this character's images are made) */
-const CAMEO_NOTE_OK = "The pose check runs on this device — the camera picture isn't sent anywhere while you pose. Only the photos you lock are kept, as face references for this character's images.";
+const CAMEO_NOTE_OK = "The pose check runs on this device — the camera picture isn't sent anywhere while you pose. Only the photos you keep are saved, as face references for this character's images.";
 const CAMEO_NOTE_WHY = { unsupported:"in this browser", offline:"(check your connection, then reopen this window)",
   timeout:"(check your connection, then reopen this window)", failed:"on this device" };
 function cameoNoteOff(why){
-  return "Automatic side photos are off — the pose check couldn't start "+(CAMEO_NOTE_WHY[why]||CAMEO_NOTE_WHY.failed)+". Turn as the sketch shows, then press Capture now.";
+  return "Automatic side photos are off — the pose check couldn't start "+(CAMEO_NOTE_WHY[why]||CAMEO_NOTE_WHY.failed)+". Turn as the sketch shows, then press Take photo.";
 }
+/* THE SOFT TONE OF A PHOTO BEING TAKEN (2026-11-17, owner: it replaces the spoken countdown). Two quiet notes made on
+   the device (nothing is downloaded); silent where the browser has no audio context. Returns false when it can't. */
+let _cameoToneCtx = null;
+function cameoChime(){
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(typeof AC!=="function") return false;
+    const ctx = _cameoToneCtx || (_cameoToneCtx = new AC());
+    if(ctx.state==="suspended" && typeof ctx.resume==="function"){ try{ ctx.resume(); }catch(e){} }
+    const t0 = ctx.currentTime + 0.01;
+    [[659.25, 0], [880, 0.09]].forEach((n)=>{
+      const osc = ctx.createOscillator(), gain = ctx.createGain(), at = t0 + n[1];
+      osc.type = "sine"; osc.frequency.value = n[0];
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.08, at + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(at); osc.stop(at + 0.18);
+    });
+    return true;
+  }catch(e){ return false; }
+}
+window.cameoChime = cameoChime;
 /* the cue without the pose module (it failed to load): Front keeps its simple automatic capture */
 function cameoFallbackCue(a, filled, auto, allDone, st){
-  if(allDone) return { key:"complete", k:"done", text:"All three done — say whose likeness it is, tick the box and lock it", say:null };
+  if(allDone) return { key:"complete", k:"done", text:"All three done — have a look, then press Use this face", say:null };
   if(st && st.phase==="camera") return { key:"camera", k:"wait", text:"Allow the camera to start — or upload a photo", say:null };
-  if(filled) return { key:"filled", k:"done", text:"Done — pick another photo or lock the likeness", say:null };
-  if(!auto) return { key:"manual", k:"off", text:"Automatic capture is off — press Capture now when you're in position", say:null };
-  if(a.side) return { key:"unavailable-side", k:"off", text:"Turn your head to your "+a.side+", then press Capture now", say:null };
-  if(st && st.phase==="holding") return { key:"holding", k:"go", text:"Hold still — "+(st.secsLeft||1), say:null };
+  if(filled) return { key:"filled", k:"done", text:"Done — pick another photo, or press Use this face", say:null };
+  if(!auto) return { key:"manual", k:"off", text:"Automatic photos are off — press Take photo when you're in position", say:null };
+  if(a.side) return { key:"unavailable-side", k:"off", text:"Turn your head to your "+a.side+", then press Take photo", say:null };
+  if(st && st.phase==="holding") return { key:"holding", k:"go", text:"Hold it there…", say:null };
   return { key:"unavailable-front", k:"wait", text:"Look straight at the camera and hold still", say:null };
 }
 const CAMEO_RING_D = "M50 11 A27 35 0 1 1 49.999 11";
@@ -293,6 +324,11 @@ function CameoModal({ character, onClose, onSaved }){
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState("");
   const consentTouchedRef = React.useRef(false);
+  /* WHOSE FACE COMES FIRST (2026-11-17): "who" = the question, before any camera; "capture" = the camera and the
+     photos. A likeness already saved with a current answer goes straight to "capture" (when it has loaded). */
+  const [step, setStep] = React.useState("who");
+  const [whoOpen, setWhoOpen] = React.useState(false);     // the answer, opened again under the photos
+  const stepRef = React.useRef(step); stepRef.current = step;
 
   const cloudReady = (typeof nbBackend==="function" && nbBackend()==="cloud");
   const activeAngle = CAMEO_ANGLES[activeIdx] || CAMEO_ANGLES[0];
@@ -321,7 +357,12 @@ function CameoModal({ character, onClose, onSaved }){
       shotsRef.current = next;
       setShots(next); setActiveIdx(firstEmptyOf(next));
       setSources(cur=>({ ...src, ...cur }));
-      if(!consentTouchedRef.current) setConsentV(cameoConsentFromRecord(mine));
+      if(!consentTouchedRef.current){
+        const saved = cameoConsentFromRecord(mine);
+        setConsentV(saved);
+        // answered before, in today's words: no need to ask again before the camera
+        if(cameoConsentValid(saved) && stepRef.current==="who") setStep("capture");
+      }
       setSync(!!mine.sync); setWasSynced(!!mine.sync);
       if(mine.w) setDims({ w:mine.w, h:mine.h||mine.w });
       setPrefillN(n=>n+1);
@@ -398,7 +439,7 @@ function CameoModal({ character, onClose, onSaved }){
   const recreatedRef = React.useRef(false);
   const confirmOpenRef = React.useRef(false);
   const loopRef = React.useRef({ times:[], evPrev:{}, legacy:{ start:null, bad:null, at:null }, sig:"", cueKey:"", cueTarget:"",
-    cueSince:0, srAt:0, srDone:true, spokenOnce:{}, lastCount:null, wrongSince:null, wrongBad:null, loadSince:null, bootSeq:0 });
+    cueSince:0, srAt:0, srDone:true, spokenOnce:{}, wrongSince:null, wrongBad:null, loadSince:null, bootSeq:0 });
   const captureNowRef = React.useRef(null);
   const [engineWanted, setEngineWanted] = React.useState(false);  // the camera runs, or a photo was uploaded to check
   const loadCtlRef = React.useRef(null);                          // aborts the download when the window closes
@@ -420,7 +461,8 @@ function CameoModal({ character, onClose, onSaved }){
       requestAnimationFrame(()=>{ if(videoRef.current){ videoRef.current.srcObject=stream; videoRef.current.play().catch(()=>{}); } });
     }catch(e){ if(aliveRef.current) setPhase((e && (e.name==="NotAllowedError"||e.name==="SecurityError")) ? "denied" : "nocam"); }
   },[]);
-  React.useEffect(()=>{ startCam(); return stopStream; },[startCam]);
+  // the camera starts once the question is answered (the press that answers it is the gesture the browser wants)
+  React.useEffect(()=>{ if(step!=="capture") return undefined; startCam(); return stopStream; },[startCam, step]);
 
   /* the device's own voices only */
   React.useEffect(()=>{
@@ -464,6 +506,7 @@ function CameoModal({ character, onClose, onSaved }){
         .catch(()=>null),
       releaseClip: (u)=>{ try{ if(/^blob:/.test(String(u))) URL.revokeObjectURL(u); }catch(e){} },
       speak: speakDevice, cancelSpeech, canSpeak: ()=>!!voiceListRef.current,
+      tone: cameoChime,
       onStatus: (st)=>{ if(aliveRef.current) setVoiceStatus(cur=> (cur.clips===st.clips && cur.silent===st.silent) ? cur : { clips:st.clips, silent:!!st.silent }); },
     });
     guideRef.current = g;
@@ -568,13 +611,14 @@ function CameoModal({ character, onClose, onSaved }){
     const nextA = CAMEO_ANGLES.find(x=>!next[x.key]);
     const eng = FP ? engineStateRef.current : "unavailable";
     const nextLine = FP ? FP.nextStepLine(nextA ? nextA.key : null, eng)
-      : (nextA ? (nextA.side ? "Turn your head to your "+nextA.side+", then press Capture now." : "Look straight at the camera.") : "All three done. Say whose likeness it is, tick the box, and lock it.");
-    // "Got it." interrupts everything, then the next step (the first time the sides are manual, why)
+      : (nextA ? (nextA.side ? "Turn your head to your "+nextA.side+", then press Take photo." : "Look straight at the camera.") : "All three done. Have a look, then press Use this face.");
+    // the soft tone, then "Got it." (it ends whatever was being said), then the next step (the first time the sides
+    // are manual, why)
     const G = guideRef.current;
     if(G && FP){
       let ids = ["got-it"].concat(FP.voiceNextIds(nextA ? nextA.key : null, eng));
       if(eng==="unavailable" && nextA && nextA.side && !loopRef.current.noCheckSaid){ ids = ["got-it", "no-pose-check"].concat(ids.slice(1)); loopRef.current.noCheckSaid = true; }
-      G.say(ids, { kind:"now" });
+      G.say(ids, { kind:"now", tone:true });
     }
     try{ if(navigator.vibrate) navigator.vibrate(40); }catch(e){}
     setAnnounce(FP && typeof FP.srCapturedLine==="function" ? FP.srCapturedLine(key, nextA ? nextA.key : null, eng) : "Photo taken. "+nextLine);
@@ -659,7 +703,7 @@ function CameoModal({ character, onClose, onSaved }){
   captureNowRef.current = captureNow;
 
   /* the simple Front check (only when the pose check can't start): steady, well lit, something in
-     the ring — held for 3 s */
+     the ring — held for a moment (the same hold as the pose check's Front) */
   const legacyFrontStep = (v, t)=>{
     if(!v || !v.videoWidth) return null;
     const N = 64;
@@ -682,7 +726,8 @@ function CameoModal({ character, onClose, onSaved }){
     prevLumaRef.current = luma;
     const bright = mean>45 && mean<228, still = motion < 6.5, face = cstd > 15;
     const ready = bright && still && face;
-    const G = loopRef.current.legacy, HOLD = 3000;
+    const FPh = cameoFP();
+    const G = loopRef.current.legacy, HOLD = (FPh && FPh.HOLD_MS && FPh.HOLD_MS.front) || 1500;
     // no frame for over 400 ms (a hidden tab, a dialog) breaks the hold, as in the pose check
     if(G.at!=null && t-G.at>400){ G.start = null; G.bad = null; }
     G.at = t;
@@ -742,16 +787,11 @@ function CameoModal({ character, onClose, onSaved }){
     if(cue.key!==L.cueKey || key!==L.cueTarget){ L.cueKey = cue.key; L.cueTarget = key; L.cueSince = t; L.srAt = t; L.srDone = false; }
     const G = guideRef.current;
     if(st.started){
-      L.lastCount = st.secsLeft;
-      // "Hold it there. Five." — after a small move that restarted the count, "Hold still. Five."
-      if(G && FP) G.say(FP.voiceHoldIds(key, st.secsLeft, !!st.reset), { kind:"count" });
-      setAnnounce("Hold still for "+(a.side ? 5 : 3)+" seconds");
-    } else if(st.phase==="holding" && st.secsLeft!=null && st.secsLeft!==L.lastCount){
-      L.lastCount = st.secsLeft;
-      const id = FP && FP.voiceCountId(st.secsLeft);
-      if(G && id) G.say([id], { kind:"count" });
+      // the pose is reached: "That's it. Hold it there." — after a small move that started the hold over, "Nearly.
+      // Hold still for me." No count is said (2026-11-17): a soft tone marks the photo.
+      if(G && FP) G.say(FP.voiceHoldIds(key, !!st.reset), { kind:"hold" });
+      setAnnounce("Hold still for a moment");
     }
-    if(st.phase!=="holding" && L.lastCount!=null){ L.lastCount = null; if(G) G.dropCount(); }
     if(st.reset && !st.started && FP && G){
       const r = FP.cueFor({ phase:"wait", reason:st.reset }, null, key, { engine:info.eng });
       if(r.voice) G.say(r.voice, { kind:"line" });
@@ -759,15 +799,17 @@ function CameoModal({ character, onClose, onSaved }){
     if(G){
       // a line is said once it has held for 0.7 s (no chatter while the pose flickers between two cues); "allow the
       // camera" and "getting ready" only when they really take a while
-      // (2026-10-10, owner: "a bit slow catching up") a correction is said after 0.25 s, not 0.7
-      const dwell = cue.key==="camera" ? 2500 : (cue.key==="loading" ? 1500 : 250);
+      // (2026-10-10, owner: "a bit slow catching up") a correction was said after 0.25 s, not 0.7
+      // (2026-11-17, owner: "not sound robotic") she waits a beat, 0.6 s: a pose passing through a wrong reading on
+      // its way to the right one is no longer corrected, and a sentence being said is never cut for a correction
+      const dwell = cue.key==="camera" ? 2500 : (cue.key==="loading" ? 1500 : 600);
       if(cue.key==="holding" || cue.key==="settle") G.cue(cue.key+"|"+key, null);
       else if(t-L.cueSince >= dwell){
         // a tip after 20 s without a photo: once per angle
         if(cue.hint && cue.hintVoice && !L.spokenOnce["h|"+key] && G.say(cue.hintVoice, { kind:"line" })) L.spokenOnce["h|"+key] = true;
         let ids = cue.voice;
         if(cue.key==="unavailable-side" && !L.noCheckSaid && ids){ ids = ["no-pose-check"].concat(ids); }
-        if(G.cue(cue.key+"|"+key, ids, { remind:!cue.once }) && cue.key==="unavailable-side") L.noCheckSaid = true;
+        if(G.cue(cue.key+"|"+key, ids, { remind:!cue.once, nudge:cue.nudge }) && cue.key==="unavailable-side") L.noCheckSaid = true;
       }
     }
     if(!L.srDone && t-L.srAt >= 800 && cue.key!=="holding" && cue.key!=="settle"){
@@ -823,7 +865,7 @@ function CameoModal({ character, onClose, onSaved }){
 
   /* ── the capture loop: one rAF loop, every 100 ms (160 ms on a slow device) ── */
   React.useEffect(()=>{
-    if(phase!=="live") return undefined;
+    if(phase!=="live" || step!=="capture") return undefined;
     let raf=0, stopped=false, last=-1e9;
     const loop = (t)=>{
       if(stopped) return;
@@ -837,13 +879,13 @@ function CameoModal({ character, onClose, onSaved }){
     };
     raf = requestAnimationFrame(loop);
     return ()=>{ stopped=true; cancelAnimationFrame(raf); };
-  },[phase, engineState]);
+  },[phase, engineState, step]);
 
   /* a new target (a slot click or the advance after a photo) */
   React.useEffect(()=>{
     if(machineRef.current) machineRef.current.retarget(nowRef.current);
     const L = loopRef.current;
-    L.spokenOnce = {}; L.wrongSince = null; L.wrongBad = null; L.lastCount = null; L.fixSaid = false; L.legacy = { start:null, bad:null, at:null };
+    L.spokenOnce = {}; L.wrongSince = null; L.wrongBad = null; L.fixSaid = false; L.legacy = { start:null, bad:null, at:null };
     setFlipFix(false);
   },[activeIdx]);
 
@@ -1084,8 +1126,30 @@ function CameoModal({ character, onClose, onSaved }){
       : "the person looking straight at the camera")
     + ". Click another slot above to change the target.";
 
+  /* THE FIRST STEP (2026-11-17): whose face it is, before any camera. The question and its box are the consent
+     question's own (CameoConsentFields, the same words); the press that answers them starts the camera. */
+  if(step==="who") return React.createElement("div",{className:"cameo-overlay",onClick:onClose},
+    React.createElement("div",{className:"cameo-modal cameo-who","data-step":"who",onClick:stop},
+      React.createElement("div",{className:"cameo-head"},
+        React.createElement("div",null,
+          React.createElement("div",{className:"cameo-title"},
+            React.createElement(Icon.userScan,{s:16})," Likeness · ",character.name),
+          React.createElement("div",{className:"cameo-sub"},"Three quick photos give "+(character.name||"this character")+" a real face: straight on, then turned to each side. First, whose face is it?")),
+        React.createElement("button",{className:"cameo-x",onClick:onClose,"aria-label":"Close"},
+          React.createElement(Icon.x,{s:16}))),
+      teamNote && React.createElement("div",{className:"cameo-team-note"},
+        "A teammate's likeness is already used for this character. Saving your own uses yours in the images you make."),
+      React.createElement("div",{className:"cameo-consent"},
+        React.createElement(CameoConsentFields,{ value:consentV, onChange:onConsent })),
+      React.createElement("div",{className:"cameo-note"},"The camera picture stays on this device while you pose. Only the photos you keep are saved."),
+      React.createElement("div",{className:"cameo-acts"},
+        React.createElement("button",{className:"cameo-btn primary","data-role":"start",disabled:!consentOk,
+          title:consentOk ? "" : "Say whose likeness this is and tick the box",
+          onClick:()=>{ if(!consentOk) return; if(guideRef.current) guideRef.current.unlock(); setStep("capture"); }},
+          React.createElement(Icon.userScan,{s:16}),"Start the camera"))));
+
   return React.createElement("div",{className:"cameo-overlay",onClick:onClose},
-    React.createElement("div",{className:"cameo-modal",onClick:stop,
+    React.createElement("div",{className:"cameo-modal","data-step":"capture",onClick:stop,
         // a click lets clips the browser held back play again (they were said by the device voice meanwhile)
         onPointerDown:()=>{ if(guideRef.current) guideRef.current.unlock(); }},
       React.createElement("div",{className:"cameo-head"},
@@ -1113,8 +1177,10 @@ function CameoModal({ character, onClose, onSaved }){
             React.createElement("svg",{ viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:2.6, strokeLinecap:"round", strokeLinejoin:"round" },
               React.createElement("path",{ d: activeAngle.side==="left" ? "M12 5 L5 12 L12 19 M19 5 L12 12 L19 19" : "M12 5 L19 12 L12 19 M5 5 L12 12 L5 19" }))),
           flash && React.createElement("div",{className:"cameo-flash"}),
+          // what to do next, in words ("Next: turn to your left (optional)"); a photo already taken says so
           React.createElement("div",{className:"cameo-anglebadge"},
-            "Now: ",React.createElement("b",null,activeAngle.show),activeAngle.req?" · required":" · optional"),
+            targetFilled ? React.createElement(React.Fragment,null,React.createElement("b",null,activeAngle.show)," · taken")
+              : React.createElement(React.Fragment,null,"Next: ",React.createElement("b",null,activeAngle.next),activeAngle.req?"":" (optional)")),
           engUi==="ready" && band && React.createElement("div",{className:"cameo-meter","aria-hidden":"true"},
             React.createElement("span",{className:"cameo-meter-lab"},"your left"),
             React.createElement("div",{className:"cameo-meter-track"},
@@ -1148,7 +1214,7 @@ function CameoModal({ character, onClose, onSaved }){
           cue.hint && React.createElement("span",{className:"cameo-caption-hint"},cue.hint)),
         showFix && React.createElement("button",{className:"cameo-fix-link","data-role":"flip-fix",onClick:checkFlip},"Preview not like a mirror? Check it"),
         capNowOn && React.createElement("button",{className:"cameo-capnow","data-role":"capture-now",onClick:captureNow,
-          title:"Take this photo now (C)","aria-keyshortcuts":"C"},"Capture now")),
+          title:"Take this photo now (C)","aria-keyshortcuts":"C"},"Take photo")),
       liveOk && camOn && React.createElement("div",{className:"cameo-note"+(engUi==="unavailable"?" warn":"")},
         engUi==="unavailable" ? cameoNoteOff(why) : CAMEO_NOTE_OK),
       liveOk && React.createElement("div",{className:"cameo-sr",role:"status","aria-live":"polite","aria-atomic":"true"},announce),
@@ -1160,7 +1226,7 @@ function CameoModal({ character, onClose, onSaved }){
           const chk = filled ? checkState[a.key] : null;
           const mism = chk==="mismatch";
           const pr = poseRef.current[a.key];
-          const title = !filled ? "Capture: "+a.long
+          const title = !filled ? "Take this one: "+a.long
             : mism ? ("This photo shows "+describe(pr && pr.measured, "the person's")+" — click × to take it again")
             : "Click × to take this one again";
           return React.createElement("button",{key:a.key,"data-angle":a.key,...(chk ? { "data-check":chk } : {}),
@@ -1179,18 +1245,25 @@ function CameoModal({ character, onClose, onSaved }){
         })),
 
       teamNote && React.createElement("div",{className:"cameo-team-note"},
-        "A teammate's likeness is already used for this character. Locking your own uses yours in the images you make."),
+        "A teammate's likeness is already used for this character. Saving your own uses yours in the images you make."),
 
-      /* provenance + consent (once we have at least the Front shot) */
+      /* whose face it is — answered before the camera (the first step): one line here, with Change (the same
+         question and box again); then where the photos are kept */
       hasFront && React.createElement("div",{className:"cameo-consent"},
-        React.createElement(CameoConsentFields,{ value:consentV, onChange:onConsent }),
+        (consentOk && !whoOpen)
+          ? React.createElement("div",{className:"cameo-who-line","data-role":"who-line"},
+              React.createElement("span",null, consentV.subject==="other"
+                ? "This is "+String(consentV.name||"").trim()+"\u2019s face, used with their permission."
+                : "This is your own face."),
+              React.createElement("button",{type:"button",className:"cameo-fix-link","data-role":"who-change",onClick:()=>setWhoOpen(true)},"Change"))
+          : React.createElement(CameoConsentFields,{ value:consentV, onChange:onConsent }),
         React.createElement("label",{className:"cameo-check sync"+(cloudReady?"":" disabled")},
           React.createElement("input",{type:"checkbox","data-role":"sync",checked:sync && cloudReady,disabled:!cloudReady,
             onChange:e=>setSync(e.target.checked)}),
           React.createElement("span",null,
             React.createElement("b",null,"Sync this likeness to the cloud."),
             !cloudReady ? " Sign in to sync it — for now it stays on this device."
-            : (wasSynced && !sync) ? " Unticking removes its cloud copy when you lock it."
+            : (wasSynced && !sync) ? " Unticking removes its cloud copy when you save it."
             : React.createElement(React.Fragment,null," Off by default — the photos stay ",
                 React.createElement("b",null,"on this device"),
                 " unless you tick this. Synced, only you and the film's owner see the photos; its Art directors can make images with it."))),
@@ -1203,22 +1276,22 @@ function CameoModal({ character, onClose, onSaved }){
           React.createElement(Icon.image,{s:14}),uploadFor),   // always says which slot it fills (2026-10-10)
         liveOk && React.createElement("button",{className:"cameo-autopill"+(auto?" on":""),"data-role":"auto",
           onClick:()=>setAuto(a=>!a),
-          title: !auto ? "Automatic capture off — use Capture now"
-            : engUi==="unavailable" ? "Automatic capture works for Front only on this device"
-            : "Automatic capture on — takes the photo after you hold the pose (3 s for Front, 5 s for each side)"},
+          title: !auto ? "Automatic photos off — press Take photo yourself"
+            : engUi==="unavailable" ? "Automatic photos work for Front only on this device"
+            : "Automatic photos on — each photo is taken once you hold the pose for a moment"},
           React.createElement(Icon.bolt,{s:14}),"Auto"),
         liveOk && React.createElement("button",{className:"cameo-autopill"+(voiceOn&&canVoice?" on":""),"data-role":"voice",
           onClick:toggleVoice, disabled:!canVoice, "aria-pressed":voiceOn&&canVoice?"true":"false",
           title: !canVoice ? "Spoken directions aren't available in this browser"
-            : voiceOn ? "Spoken directions on — says every step out loud, so you don't need to read the screen while you turn" : "Spoken directions off — the steps are shown under the picture"},
+            : voiceOn ? "Spoken directions on — every step is said out loud and a soft tone marks each photo, so you don't need to read the screen while you turn" : "Spoken directions off — the steps are shown under the picture"},
           React.createElement(Icon.mic,{s:14}),"Voice"),
         liveOk && camFlipped && React.createElement("button",{className:"cameo-autopill on","data-role":"cam-flipped",
           onClick:()=>setFlip(false), title:"Your camera already flips the picture — click to undo"},"Flipped camera"),
         React.createElement("button",{className:"cameo-btn primary","data-role":"lock",onClick:save,disabled:!hasFront||!consentOk||saving,
-          title:!hasFront?"Capture the Front angle first":(!consentOk?"Say whose likeness this is and tick the box":"")},
+          title:!hasFront?"Take the Front photo first":(!consentOk?"Say whose likeness this is and tick the box":"")},
           saving ? React.createElement(React.Fragment,null,React.createElement("span",{className:"ns-spin dark"}),"Saving…")
                  : React.createElement(React.Fragment,null,React.createElement(Icon.check,{s:16}),
-                     "Lock likeness",shotCount>1?(" · "+shotCount+" angles"):"")) ),
+                     "Use this face",shotCount>1?(" · "+shotCount+" photos"):"")) ),
 
       React.createElement("input",{ref:fileRef,type:"file",accept:"image/*",style:{display:"none"},onChange:onPickFile})));
 }
@@ -1428,14 +1501,14 @@ function CameoManager({ nameOf, onClose, onChanged, characters }){
       React.createElement("div",{className:"cameo-head"},
         React.createElement("div",null,
           React.createElement("div",{className:"cameo-title"},React.createElement(Icon.userScan,{s:16})," Likenesses"),
-          React.createElement("div",{className:"cameo-sub"},count+" locked likeness"+(count!==1?"es":"")+" · biometric data, kept privately")),
+          React.createElement("div",{className:"cameo-sub"},count+" saved likeness"+(count!==1?"es":"")+" · biometric data, kept privately")),
         React.createElement("button",{className:"cameo-x",onClick:onClose,"aria-label":"Close"},React.createElement(Icon.x,{s:16}))),
       React.createElement("div",{className:"cameo-mgr-body"},
         count===0
           ? React.createElement("div",{className:"cameo-mgr-empty"},
               React.createElement(Icon.userScan,{s:24}),
               React.createElement("div",null,"No likenesses yet. On any character card, click ",
-                React.createElement("b",null,"Likeness")," to capture and lock a face."))
+                React.createElement("b",null,"Likeness")," to give that character a real face."))
           : React.createElement(React.Fragment,null,
               section("This film", film, "film"),
               section("Your other films on this device", other, "other"),

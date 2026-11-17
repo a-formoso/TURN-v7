@@ -196,7 +196,7 @@ await test("A4 a variant BEFORE the master: a proper sheet from the face — nev
   assert.ok(!/EXISTING layout|Edit this character design sheet/.test(g.prompt));
   assert.ok(!FACE_TEXT.test(g.prompt));
   assert.equal(commits[0].meta.cameo, true); assert.equal(commits[0].meta.mode, "cameo");
-  assert.ok(art.includes("No master sheet yet \\u2014 this variant is made from the locked likeness and the text spec."), "the hint says so");
+  assert.ok(art.includes("No master sheet yet \\u2014 this variant is made from the saved likeness and the text spec."), "the hint says so");
 });
 await test("A5 a variant FROM the master: angles, then the master (image 4) — only the change differs", async ()=>{
   reset();
@@ -320,8 +320,8 @@ await test("A10 stale: a sheet made with an older likeness says 'made with an ea
   assert.equal(W.turnLikenessStale({ cameo:true, cameoAt:CAPTURED }, "char-1"), false);
   assert.equal(W.turnLikenessStale({ cameo:true, iso:"2026-10-01T00:00:00.000Z" }, "char-1"), true, "older sheets without cameoAt: their own date");
   assert.equal(W.turnLikenessStale({ cameo:false, cameoAt:"2026-10-01" }, "char-1"), false);
-  assert.ok(art.includes('(gen.likenessStale ? "made with an earlier likeness \\u2014 regenerate to update" : "applied to the sheet")'));
-  assert.ok(art.includes('"regenerate to apply it to the sheet"'));
+  assert.ok(art.includes('(gen.likenessStale ? "the sheet shows an earlier face" : "on the sheet")'));
+  assert.ok(art.includes('"not on the sheet yet"'));
   assert.ok(art.includes('gen.genUrl && gen.likenessStale && React.createElement("div",{className:"state-hint stale"}'), "the variant row too");
 });
 await test("A11 the plan helper: one angle, a master, worn items, a photo and other inputs are numbered in that order", ()=>{
@@ -430,7 +430,8 @@ await test("C1 the card: Generate / Apply / wardrobe update count the likeness p
   assert.ok(art.includes('!gen.gening && typeof window.nbCostChip==="function" && window.nbCostChip(1, { refs:cardGenerateRefs() })),'), "Apply to sheet");
   assert.ok(art.includes("generateRefs: gen.likenessRefs ? cardGenerateRefs() : undefined, attachRefs: wornSheetCount,"), "Generate");
   assert.ok(art.includes("window.nbCostChip(1, generateRefs!=null ? { refs:Number(generateRefs)||0 } : undefined)"));
-  assert.ok(art.includes('window.nbImageCostText(1, { refs:nAngles+wornSheetCount })') && art.includes('confirmLabel:"Generate sheet"+(price ?'), "post-capture confirm");
+  assert.ok(art.includes('window.nbImageCostText(1, { refs:nAngles+wornSheetCount })') && art.includes('confirmLabel:"Make the sheet"+(price ?')
+    && art.includes('title:"Put this face on "+(c.name||"this character")+"\'s sheet?"'), "post-capture confirm");
   assert.ok(art.includes("generateRefs: gen.likenessRefs ? (gen.likenessRefs + (baseGenUrl?1:0)) : undefined"), "a variant");
 });
 await test("C2 an edit / remaster of a likeness sheet counts the sheet, the face, worn sheets and attached inputs", ()=>{
@@ -490,7 +491,7 @@ await test("D3 Motion Control: a face / body upload goes through the consent ste
 await test("E1 the user reads 'Likeness': chip, header, manager, Details, the Casting Director", ()=>{
   assert.ok(art.includes('React.createElement(Icon.userScan,{s:10,sw:1.8}),"Likeness"),'), "the chip");
   assert.ok(art.includes('"Likenesses \\u00b7 "+cameoCount') && art.includes('window.addEventListener("turn-cameo-changed", h);'), "the header, refreshed on the store's event");
-  assert.ok(art.includes('title:"Likeness manager \\u2014 review and manage the locked likenesses"'));
+  assert.ok(art.includes('title:"Likeness manager \\u2014 review and manage the saved likenesses"'));
   assert.ok(art.includes('hm.mode==="cameo" ? "From the likeness"'));
   assert.ok(art.includes('field("Likeness", meta.cameo'));
   assert.equal(W.likenessDisplayLabel("Cameo likeness"), "Likeness", "saved labels mapped where displayed");

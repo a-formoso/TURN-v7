@@ -4933,7 +4933,7 @@ async function cloudSyncCameo(projectId, uid, charId, rec, diag){
     let dataUrl = /^data:image\//i.test(String(a.url)) ? a.url : "";
     if(!dataUrl){ const p = _cameoPathFromSignedUrl(a.url) || a.storage_path || ""; if(p) dataUrl = await _cameoDownload(p); }
     if(!dataUrl){
-      _cameoNote(diag, "one of its photos couldn't be read — recapture it, then sync again");
+      _cameoNote(diag, "one of its photos couldn't be read — retake it, then sync again");
       try{ await cloudRemovePaths(created); }catch(e){}
       return false;
     }

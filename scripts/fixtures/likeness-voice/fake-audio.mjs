@@ -9,7 +9,9 @@
        setTimeout / now  the test's clock
      env.Audio            the constructor to hand to the page (new Audio())
      env.exists(url)      whether a clip file is there (for the test's fetch)
-     env.created          every element made; env.plays: [{ id, at, volume, muted }] every clip that started
+     env.created          every element made; env.plays: [{ id, at, volume, muted, from, rate }] every clip that
+                          started (from = the second it was started at; rate = its playback speed)
+     An element knows how far it is (currentTime moves with the test's clock) and how long its clip is (duration).
      env.unblock(); env.failAt(id) (the clip errors when it is played); env.playing() → the ids playing now */
 export function makeAudioEnv(opts = {}){
   const files = opts.files === undefined ? null : opts.files;
@@ -21,10 +23,13 @@ export function makeAudioEnv(opts = {}){
   env.exists = (src) => files == null || files.has(idOf(src));
   class FakeAudio {
     constructor(src){
-      this.src = src || ""; this.listeners = {}; this.paused = true; this.currentTime = 0; this.volume = 1; this.muted = false;
+      this.src = src || ""; this.listeners = {}; this.paused = true; this._ct = 0; this._startAt = null; this.duration = NaN;
+      this.volume = 1; this.muted = false; this.playbackRate = 1;
       this.preload = ""; this.released = false; this.playN = 0;
       env.created.push(this);
     }
+    get currentTime(){ return this._startAt == null ? this._ct : this._ct + (now() - this._startAt) / 1000; }
+    set currentTime(v){ this._ct = Number(v) || 0; if (this._startAt != null) this._startAt = now(); }
     get id(){ return idOf(this.src); }
     addEventListener(t, fn){ (this.listeners[t] = this.listeners[t] || []).push(fn); }
     removeEventListener(t, fn){ this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
@@ -37,11 +42,12 @@ export function makeAudioEnv(opts = {}){
         return Promise.reject(Object.assign(new Error("no supported source"), { name: "NotSupportedError" }));
       }
       this.paused = false; this.released = false;
-      env.plays.push({ id: this.id, at: now(), volume: this.volume, muted: !!this.muted });
-      setT(() => { if (!this.paused && this.playN === n){ this.paused = true; this.emit("ended"); } }, playMs);
+      this._startAt = now(); this.duration = this._ct + playMs / 1000;
+      env.plays.push({ id: this.id, at: now(), volume: this.volume, muted: !!this.muted, from: this._ct, rate: this.playbackRate });
+      setT(() => { if (!this.paused && this.playN === n){ this._ct = this.currentTime; this._startAt = null; this.paused = true; this.emit("ended"); } }, playMs);
       return Promise.resolve();
     }
-    pause(){ this.paused = true; this.playN++; }
+    pause(){ this._ct = this.currentTime; this._startAt = null; this.paused = true; this.playN++; }
     load(){}
     removeAttribute(name){ if (name === "src"){ this.src = ""; this.released = true; } }
   }

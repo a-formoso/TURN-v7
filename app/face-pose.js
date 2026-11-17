@@ -7,8 +7,8 @@
        matrix, cross-checked by a landmark yaw (the landmarks are the fallback), the face's size and
        place in the centre square the photo is cropped to, smoothing, and the pose classes;
      • evaluateFrame(): one frame against the requested angle, with the reason it doesn't fit;
-     • createHoldMachine(): the hold-to-capture rule — a held pose takes the photo (3 s for Front,
-       5 s for each side), a break of 400 ms resets, the shutter fires only on a frame that fits,
+     • createHoldMachine(): the hold-to-capture rule — a held pose takes the photo (1.5 s for Front,
+       2 s for each side; 3 s / 5 s until 2026-11-17), a break of 400 ms resets, the shutter fires only on a frame that fits,
        and after a capture nothing counts until the person has LEFT the captured pose (so one still
        person can never fill two slots);
      • the copy (CUES, cueFor, confirmFor, describeClass) — one person's left everywhere: "left" is
@@ -58,7 +58,10 @@
     eyesOnly: { yaw:15, gaze:0.45 },
     disagree: { yaw:15, diff:25 },
   };
-  const HOLD_MS = { front:3000, left:5000, right:5000 };
+  /* (2026-11-17, owner — "more seamless and not sound robotic") the hold is a moment, not a count: 1.5 s for Front and
+     2 s for each side (they were 3 s and 5 s, counted aloud). Everything that makes a held pose a held pose is as it
+     was: the angle band, staying put within 5°, a full new hold after a break, and leave-first after a photo. */
+  const HOLD_MS = { front:1500, left:2000, right:2000 };
 
   /* ── pose from the transformation matrix (column-major 16) — R = Ry(yaw)·Rx(pitch)·Rz(roll) ── */
   function poseFromMatrix(d){
@@ -386,7 +389,7 @@
   const CUES = {
     "camera":           { k:"wait", text:"Allow the camera to start — or upload a photo" },
     "loading":          { k:"wait", text:"Getting the pose check ready…" },
-    "loading-slow":     { k:"wait", text:"Still getting ready — you can press Capture now" },
+    "loading-slow":     { k:"wait", text:"Still getting ready — you can press Take photo" },
     "no-face":          { k:"wait", text:"Center your face in the ring" },
     "two-faces":        { k:"wait", text:"Only one face in the frame, please" },
     "far":              { k:"wait", text:"Move a little closer" },
@@ -407,23 +410,23 @@
     "moving":           { k:"wait", text:"Hold still…" },
     "uncertain":        { k:"wait", text:"Hold still…" },
     "change-pose":      { k:"wait", text:"Change your pose a little" },
-    "holding":          { k:"go",   text:"Hold still — {n}" },
+    "holding":          { k:"go",   text:"Hold it there…" },
     "settle":           { k:"done", text:"Got it!" },
-    "filled":           { k:"done", text:"Done — pick another photo or lock the likeness" },
+    "filled":           { k:"done", text:"Done — pick another photo, or press Use this face" },
     "filled-mismatch":  { k:"warn", text:"This photo shows {measured} — click × on it to take it again" },
     "check-marked":     { k:"warn", text:"{marked} — click × on {each} marked ! to take it again" },
-    "complete":         { k:"done", text:"All three done — say whose likeness it is, tick the box and lock it" },
-    "manual":           { k:"off",  text:"Automatic capture is off — press Capture now when you're in position" },
+    "complete":         { k:"done", text:"All three done — have a look, then press Use this face" },
+    "manual":           { k:"off",  text:"Automatic photos are off — press Take photo when you're in position" },
     "unavailable-front":{ k:"wait", text:"Look straight at the camera and hold still" },
-    "unavailable-side": { k:"off",  text:"Turn your head to your {side}, then press Capture now" },
+    "unavailable-side": { k:"off",  text:"Turn your head to your {side}, then press Take photo" },
   };
   /* the screen reader's lines after a photo */
   const LINES = {
     nextFront: "Look straight at the camera.",
-    nextSide: "Now turn your head slowly to your {side}, toward the {side} edge of the screen, and hold it there for five seconds.",
-    nextSideManual: "Turn your head to your {side}, then press Capture now.",
-    complete: "All three done. Say whose likeness it is, tick the box, and lock it.",
-    srHold: "Hold still for {secs} seconds",
+    nextSide: "Now turn your head slowly to your {side}, toward the {side} edge of the screen, and hold it there for a moment.",
+    nextSideManual: "Turn your head to your {side}, then press Take photo.",
+    complete: "All three done. Have a look, then press Use this face.",
+    srHold: "Hold still for a moment",
     srCaptured: "Photo taken: {what}. {next}",
     srWhat: { front:"front view", left:"turned to your left", right:"turned to your right" },
   };
@@ -439,75 +442,93 @@
     "tilt":      "Keep your head and chin level",
     "frame":     "Fit your face inside the ring",
     "light":     "The light makes your face hard to see; face a window or a lamp",
-    "moving":    "Rest your elbows so you can hold still for {hold} seconds",
+    "moving":    "Rest your elbows so you can hold still for a moment",
     "no-face":   "No face found; center your face in the ring, or upload a photo",
   };
-  const HINT_TAIL = " — or press Capture now.";
+  const HINT_TAIL = " — or press Take photo.";
 
   /* ── SPOKEN GUIDANCE (2026-10-10, owner — Likeness voice guidance: "once the head is turned you can't read the
      screen … every instruction spoken in a natural voice"). Every line the window can say, as pre-recorded clips in
-     Frances's voice: app/vendor/voice/frances-guide/v1/<id>.mp3 (+ manifest.json, written by
+     Frances's voice: app/vendor/voice/frances-guide/v2/<id>.mp3 (+ manifest.json, written by
      scripts/render-guide-audio.mjs). Spoken to someone who isn't looking at the screen. Ids are stable file names:
      a changed text needs a new recording (a clip whose manifest text differs from the line is never played; the
-     device's own voice says the line instead). ── */
-  const VOICE_DIR = "app/vendor/voice/frances-guide/v1/";
+     device's own voice says the line instead).
+     (2026-11-17, owner — "more seamless and not sound robotic") THE SECOND SCRIPT. What was wrong with the first:
+     the recorded "Two" was silence, each number was its own recording so the count could not keep time, a new
+     correction cut the sentence being said, every line was played 15-30 % fast and the same sentence came round
+     again every few seconds. Now: no spoken count at all (the pose is held for a moment; a soft tone, then "Got
+     it"); the words are a photographer's, with a second or third way of saying the frequent ones (VOICE_VARIANTS,
+     taken in turn) and a short nudge for a reminder (VOICE_NUDGE); every clip plays at its own speed, from where its
+     sound starts and at an even level (the manifest's lead / gain, measured when it was recorded). ── */
+  const VOICE_DIR = "app/vendor/voice/frances-guide/v2/";
   const VOICE_LINES = [
-    { id:"allow-camera",        text:"Allow the camera to start, or upload a photo." },
-    { id:"getting-ready",       text:"One moment, getting ready." },
-    { id:"still-getting-ready", text:"Still getting ready. You can press Capture now." },
-    { id:"look-straight",       text:"Look straight at the camera." },
-    { id:"no-face",             text:"I can't see your face. Come into the middle of the picture." },
-    { id:"center-face",         text:"Move your face to the middle of the picture." },
-    { id:"move-closer",         text:"Move a little closer." },
-    { id:"move-back",           text:"Move back a little." },
-    { id:"one-person",          text:"Only one person in the picture, please." },
-    { id:"more-light",          text:"It's a bit dark. Face a lamp or a window." },
-    { id:"too-bright",          text:"It's too bright. Try softer light." },
-    { id:"eyes-open",           text:"Keep your eyes open." },
-    { id:"hold-still",          text:"Hold still." },
-    { id:"hold-it-there",       text:"Hold it there." },
-    { id:"five",                text:"Five." },
-    { id:"four",                text:"Four." },
-    { id:"three",               text:"Three." },
-    { id:"two",                 text:"Two." },
-    { id:"one",                 text:"One." },
+    { id:"allow-camera",        text:"I'll need your camera for this. Say yes when your browser asks, or upload a photo instead." },
+    { id:"getting-ready",       text:"One moment while I get set up." },
+    { id:"still-getting-ready", text:"Still setting up. You can press Take photo in the meantime." },
+    { id:"look-straight",       text:"Look straight at the camera for me." },
+    { id:"eyes-on-camera",      text:"Eyes on the camera." },
+    { id:"no-face",             text:"I can't see you yet. Come into the middle of the picture." },
+    { id:"still-cant-see",      text:"Still can't see you." },
+    { id:"center-face",         text:"Come a little more into the middle." },
+    { id:"move-closer",         text:"Come a little closer." },
+    { id:"bit-closer",          text:"A bit closer." },
+    { id:"move-back",           text:"Move back just a little." },
+    { id:"bit-back",            text:"A bit further back." },
+    { id:"one-person",          text:"Just you in the picture, please." },
+    { id:"more-light",          text:"It's a bit dark. Can you face a lamp or a window?" },
+    { id:"too-bright",          text:"That's very bright. Softer light would be better." },
+    { id:"eyes-open",           text:"Keep your eyes open for me." },
+    { id:"hold-still",          text:"Lovely. Hold still." },
+    { id:"hold-still-2",        text:"That's good. Hold still." },
+    { id:"hold-it-there",       text:"That's it. Hold it there." },
+    { id:"hold-it-there-2",     text:"Right there. Hold that." },
+    { id:"hold-again",          text:"Nearly. Hold still for me." },
     { id:"got-it",              text:"Got it." },
-    { id:"turn-left",           text:"Now turn your head slowly to your left, and hold it there." },
-    { id:"turn-right",          text:"Now turn your head slowly to your right, and hold it there." },
+    { id:"got-it-2",            text:"Lovely, got it." },
+    { id:"got-it-3",            text:"Perfect." },
+    { id:"turn-left",           text:"Now turn your head slowly to your left." },
+    { id:"turn-right",          text:"Now turn your head slowly to your right." },
+    { id:"keep-turning-left",   text:"Keep turning to your left." },
+    { id:"keep-turning-right",  text:"Keep turning to your right." },
     { id:"a-little-further",    text:"A little further." },
-    { id:"too-far",             text:"Not so far. Come back a little." },
-    { id:"wrong-way-left",      text:"That's your right. Turn the other way, to your left." },
-    { id:"wrong-way-right",     text:"That's your left. Turn the other way, to your right." },
+    { id:"a-little-further-2",  text:"A bit more." },
+    { id:"a-little-further-3",  text:"Almost there." },
+    { id:"too-far",             text:"That's a touch too far. Come back a little." },
+    { id:"wrong-way-left",      text:"That's your right. The other way, to your left." },
+    { id:"wrong-way-right",     text:"That's your left. The other way, to your right." },
     { id:"whole-head",          text:"Turn your whole head, not just your eyes." },
     { id:"chin-level",          text:"Keep your chin level." },
-    { id:"lift-chin",           text:"Lift your chin a little." },
-    { id:"lower-chin",          text:"Lower your chin a little." },
-    { id:"head-straight",       text:"Keep your head straight. Don't tilt it." },
-    { id:"change-pose",         text:"Move your head a little, then hold the pose again." },
-    { id:"all-done",            text:"All three done. Say whose likeness it is, tick the box, and you can lock it." },
-    { id:"photo-wrong",         text:"That photo doesn't look right. Tap the cross on it to take it again." },
-    { id:"photos-wrong",        text:"Some photos don't look like the right angle. Tap the cross on each marked one to take it again." },
-    { id:"slot-done",           text:"This one's done. Pick another photo, or lock the likeness." },
-    { id:"auto-off",            text:"Automatic capture is off. Press Capture now when you're in position." },
-    { id:"no-pose-check",       text:"I can't check your pose here. Turn as the sketch shows, then press Capture now." },
-    { id:"turn-left-capture",   text:"Turn your head to your left, then press Capture now." },
-    { id:"turn-right-capture",  text:"Turn your head to your right, then press Capture now." },
-    { id:"look-straight-hold",  text:"Look straight at the camera, and hold still." },
-    { id:"tip-turn",            text:"Turn your whole head a little further, and keep your chin level. You don't need to see the screen." },
-    { id:"tip-tilt",            text:"Keep your head and chin level. Don't look down at the screen." },
+    { id:"lift-chin",           text:"Chin up a little." },
+    { id:"lower-chin",          text:"Chin down a little." },
+    { id:"head-straight",       text:"Keep your head upright, no tilt." },
+    { id:"change-pose",         text:"Relax for a second, then take the pose again." },
+    { id:"all-done",            text:"That's all three. Have a look, and press Use this face when you're happy." },
+    { id:"photo-wrong",         text:"That one doesn't look quite right. Tap the cross on it to take it again." },
+    { id:"photos-wrong",        text:"A few of these don't look like the right angle. Tap the cross on each marked one to take it again." },
+    { id:"slot-done",           text:"This one's done. Pick another photo, or press Use this face." },
+    { id:"auto-off",            text:"I'll leave the photos to you. Press Take photo when you're ready." },
+    { id:"no-pose-check",       text:"I can't check your pose on this device. Turn as the sketch shows, then press Take photo." },
+    { id:"turn-left-capture",   text:"Turn your head to your left, then press Take photo." },
+    { id:"turn-right-capture",  text:"Turn your head to your right, then press Take photo." },
+    { id:"look-straight-hold",  text:"Look straight at the camera and hold still." },
+    { id:"tip-turn",            text:"Turn your whole head a little further, and keep your chin level. No need to watch the screen." },
+    { id:"tip-tilt",            text:"Try keeping your head and chin level, without looking down at the screen." },
     { id:"tip-frame",           text:"Keep your whole face inside the ring, not too close." },
-    { id:"tip-light",           text:"The light makes your face hard to see. Face a window or a lamp." },
-    { id:"tip-moving",          text:"Rest your elbows on something, so you can hold still." },
-    { id:"tip-no-face",         text:"I still can't see a face. Center your face in the ring, or upload a photo." },
-    { id:"or-capture-now",      text:"Or press Capture now." },
-    { id:"check-mirror",        text:"Still the wrong way? Look below the picture: there's a check in case your camera flips the picture." },
+    { id:"tip-light",           text:"The light makes your face hard to see. Try facing a window or a lamp." },
+    { id:"tip-moving",          text:"Rest your elbows on something, so it's easier to hold still." },
+    { id:"tip-no-face",         text:"I still can't see a face. Come into the middle of the ring, or upload a photo." },
+    { id:"or-capture-now",      text:"Or press Take photo." },
+    { id:"check-mirror",        text:"Still the wrong way? Have a look below the picture: there's a check in case your camera flips the image." },
   ];
-  const COUNT_IDS = { 5:"five", 4:"four", 3:"three", 2:"two", 1:"one" };
-  const HOLD_IDS = { "hold-still":1, "hold-it-there":1 };
-  /* the countdown numbers: recorded at ~1.25 s each, played a little faster so a number a second keeps up with the
-     real hold, and a number that's already late is skipped for the newest one (2026-10-10) */
-  const COUNT_CLIP = { "five":1, "four":1, "three":1, "two":1, "one":1 };
-  const COUNT_RATE = 1.3, LINE_RATE = 1.15;
+  /* the same thing said another way: each time the first id is asked for, the next of its ways is said */
+  const VOICE_VARIANTS = {
+    "got-it":["got-it", "got-it-2", "got-it-3"],
+    "hold-still":["hold-still", "hold-still-2"],
+    "hold-it-there":["hold-it-there", "hold-it-there-2"],
+    "a-little-further":["a-little-further", "a-little-further-2", "a-little-further-3"],
+  };
+  /* "Got it", in each of its ways: it is never cut short by the next pose being reached */
+  const GOT_IDS = VOICE_VARIANTS["got-it"];
   /* a cue key → the clip ids said for it ({side} = the target's side). Tilt on a side target is "keep your chin
      level" (a head turned toward the screen dips, either way); on Front it says which way. */
   const VOICE_CUE = {
@@ -516,9 +537,14 @@
     "turned":["look-straight"], "chin-up":["lower-chin"], "chin-down":["lift-chin"], "roll":["head-straight"],
     "not-turned":["turn-{side}"], "more":["a-little-further"], "too-far":["too-far"], "wrong-way":["wrong-way-{side}"],
     "eyes-only":["whole-head"], "eyes-closed":["eyes-open"], "dark":["more-light"], "bright":["too-bright"],
-    "moving":["hold-still"], "uncertain":["hold-still"], "change-pose":["change-pose"],
+    "moving":["hold-again"], "uncertain":["hold-again"], "change-pose":["change-pose"],
     "filled":["slot-done"], "filled-mismatch":["photo-wrong"], "check-marked":["photos-wrong"], "complete":["all-done"],
     "manual":["auto-off"], "unavailable-front":["look-straight-hold"], "unavailable-side":["turn-{side}-capture"],
+  };
+  /* a reminder of the same instruction is a short nudge, not the whole sentence again (a cue with none repeats) */
+  const VOICE_NUDGE = {
+    "no-face":["still-cant-see"], "far":["bit-closer"], "close":["bit-back"], "turned":["eyes-on-camera"],
+    "not-turned":["keep-turning-{side}"],
   };
   const VOICE_SIDE_TILT = { "chin-up":["chin-level"], "chin-down":["chin-level"] };
   const VOICE_HINT = { "turn":["tip-turn"], "wrong-way":["wrong-way-{side}"], "too-far":["too-far"], "tilt":["tip-tilt"],
@@ -528,13 +554,11 @@
   const VOICE_ONCE = { "camera":1, "loading":1, "loading-slow":1, "filled":1, "filled-mismatch":1, "check-marked":1,
     "complete":1, "manual":1, "unavailable-side":1, "settle":1 };
   const sideIds = (ids, side)=> (ids || []).map((id)=> id.replace("{side}", side || "left"));
-  /* hold start: "Hold it there. Five." (a side) / "Hold still. Three." (Front); a count restarted after a small move:
-     "Hold still. Five." */
-  function voiceHoldIds(target, secsLeft, restart){
-    const n = COUNT_IDS[secsLeft] || COUNT_IDS[sideOf(target) ? 5 : 3];
-    return [(sideOf(target) && !restart) ? "hold-it-there" : "hold-still", n];
+  /* the pose is reached: "That's it. Hold it there." (a side) / "Lovely. Hold still." (Front); a hold that started
+     over after a small move: "Nearly. Hold still for me." No numbers are said. */
+  function voiceHoldIds(target, restart){
+    return [restart ? "hold-again" : (sideOf(target) ? "hold-it-there" : "hold-still")];
   }
-  function voiceCountId(n){ return COUNT_IDS[n] || null; }
   /* what follows "Got it." — the next angle (null = all three done) */
   function voiceNextIds(next, engine){
     if(!next) return ["all-done"];
@@ -546,9 +570,13 @@
     opts = opts || {};
     const side = sideOf(target);
     if(key==="settle") return ["got-it"].concat(voiceNextIds(opts.next, opts.engine));
-    if(key==="holding") return voiceHoldIds(target, opts.secsLeft, false);
+    if(key==="holding") return voiceHoldIds(target, false);
     const ids = (side && VOICE_SIDE_TILT[key]) || VOICE_CUE[key];
     return ids ? sideIds(ids, side) : null;
+  }
+  function voiceNudgeIds(key, target){
+    const ids = VOICE_NUDGE[key];
+    return ids ? sideIds(ids, sideOf(target)) : null;
   }
   function voiceHintIds(group, target){
     const ids = VOICE_HINT[group];
@@ -612,33 +640,42 @@
       each: marked===1 ? "the one" : "each one" };
     const c = CUES[key];
     const out = { key, k:c.k, text:fill(c.text, v), hint:null, hintVoice:null, once:!!VOICE_ONCE[key],
-      voice: voiceCueIds(key, target, { next:opts.next, engine:opts.engine, secsLeft:st.secsLeft }) };
+      voice: voiceCueIds(key, target, { next:opts.next, engine:opts.engine }), nudge: voiceNudgeIds(key, target) };
     const g = st.hint && HINT_GROUP[st.hint];
     if(g && HINTS[g] && key!=="settle" && key!=="filled" && key!=="complete" && key!=="manual" && key!=="check-marked" && key!=="filled-mismatch"){
-      out.hint = fill(HINTS[g], Object.assign({}, v, { hold: side ? "five" : "three" })) + HINT_TAIL;
+      out.hint = fill(HINTS[g], v) + HINT_TAIL;
       out.hintVoice = voiceHintIds(g, target);
     }
     return out;
   }
 
   /* ── the voice guide: plays VOICE_LINES clips through ONE audio element, one at a time (2026-10-10, owner —
-     Likeness voice guidance). Pure (node-testable): the audio element, the file loader, the device voice, the clock
-     and the timers are handed in.
-       o.makeAudio() → an HTMLAudioElement (or null); o.loadManifest() → Promise<{clips:{id:{text}}} | null>;
+     Likeness voice guidance). Pure (node-testable): the audio element, the file loader, the device voice, the tone,
+     the clock and the timers are handed in.
+       o.makeAudio() → an HTMLAudioElement (or null); o.loadManifest() → Promise<{clips:{id:{text, lead, gain}}} | null>;
        o.loadClip(url) → Promise<a playable URL (a blob: URL) | null> (preloads it); o.releaseClip(url);
        o.speak(text, done(ok)) → true when the device's own voice started it; o.cancelSpeech(); o.canSpeak();
-       o.now(); o.setTimeout / o.clearTimeout; o.onStatus({ clips, speech, silent }); o.base (the clips' folder URL)
-     Rules:
-       • say(ids, { kind }) — "line" (a new instruction: it interrupts whatever is being said, except the countdown
-         is never cut by a "hold still" line; a line whose every clip was said in the last 4 s is dropped),
-         "count" (hold start + the numbers: queued in order; it interrupts a stale instruction, never another number),
-         "now" ("Got it …": interrupts everything);
-       • cue(key, ids) — the window's current instruction: said when it changes; the same instruction again only as a
-         reminder when nothing is being said, after 6 s, then 9, 12, 15 s (no progress);
+       o.tone() → the soft tone of a photo being taken; o.now(); o.setTimeout / o.clearTimeout;
+       o.onStatus({ clips, speech, silent }); o.base (the clips' folder URL)
+     Rules (2026-11-17, owner — "more seamless and not sound robotic": she finishes her sentences and says less):
+       • say(ids, { kind }) —
+         "line" (an instruction or a correction): it NEVER cuts what is being said. It waits for it, takes the place of
+           any line still waiting, and starts after a beat of quiet (gapMs) when another line has just ended. The same
+           words within 4 s are not said again;
+         "hold" (the pose is reached — "That's it. Hold it there."): what was waiting is dropped; an instruction being
+           said is faded out, unless it is about to end anyway (letFinishMs). Not twice within 4 s;
+         "now" ("Got it …"): fades out whatever is being said; with { tone:true } the tone sounds first;
+       • an id with other ways of saying it (VOICE_VARIANTS) is said in each of its ways in turn;
+       • cue(key, ids, { remind, nudge }) — the window's current instruction: said when it changes (what was waiting
+         for the last one is dropped); again only as a reminder when nothing is being said, after 7 s, then 10.5, 14 …
+         up to 20 s — and the reminder is the cue's short nudge when it has one ("A bit closer."), not the sentence;
+       • every clip plays at its own speed, from where its sound starts (the manifest's lead) and at an even level
+         (its gain);
        • a clip that is missing, fails or can't autoplay → the device voice says that line; neither → the line is
          "silent" (onStatus: the window shows its caption from then on); a click (unlock) lets the clips play again;
        • before the manifest answers (at most 1.5 s), lines wait; stop() / setEnabled(false) / close() silence it all. ── */
-  const VOICE_RULES = { repeatMs:4000, remindMs:6000, remindMaxMs:15000, clipMaxMs:8000, manifestMs:1500, volume:0.7 };
+  const VOICE_RULES = { repeatMs:4000, remindMs:7000, remindMaxMs:20000, gapMs:900, letFinishMs:600, fadeMs:120, toneMs:220,
+    clipMaxMs:9000, manifestMs:1500, volume:0.7 };
   function createVoiceGuide(o){
     o = o || {};
     const R = Object.assign({}, VOICE_RULES, o.rules || {});
@@ -648,20 +685,31 @@
     const setT = typeof o.setTimeout==="function" ? o.setTimeout : later;
     const clearT = typeof o.clearTimeout==="function" ? o.clearTimeout : clearLater;
     const base = o.base != null ? String(o.base) : VOICE_DIR;
-    const clips = {};                     // id → { url (playable), ok: true | false | null (loading) }
+    const clips = {};                     // id → { url (playable), ok: true | false | null (loading), lead, gain }
     const offs = [];                      // listener removers
-    const lastAt = {};                    // id → when it was last said
+    const lastAt = {};                    // id (as asked for) → when it was last said
+    const turn = {};                      // id → how many times it was said (which of its ways comes next)
     const played = [];                    // { id, via: "clip" | "speech" | "none", kind, cut } — what was said, in order
     let el = null, primed = false;
     let enabled = o.enabled !== false, closed = false, blocked = false, silent = false, ready = false, preloading = null;
     let queue = [], cur = null, cueKey = null, cueAt = null, reminders = 0, readyTimer = null;
+    let lastEnd = null, gapTimer = null, fadeTimer = null, toneTimer = null, toneDue = false, tones = 0;
     const canSpeak = ()=>{ try{ return typeof o.canSpeak==="function" ? !!o.canSpeak() : typeof o.speak==="function"; }catch(e){ return false; } };
     const clipCount = ()=>{ let n = 0; for(const id in clips) if(clips[id].ok !== false) n++; return el ? n : 0; };
     const report = ()=>{ if(closed || typeof o.onStatus!=="function") return; try{ o.onStatus({ clips: ready ? clipCount() : null, speech: canSpeak(), silent }); }catch(e){} };
     const listen = (t, ev, fn)=>{ try{ t.addEventListener(ev, fn); offs.push(()=>{ try{ t.removeEventListener(ev, fn); }catch(e){} }); }catch(e){} };
     const arm = (tok, ms)=>{ if(tok.timer != null) clearT(tok.timer); tok.timer = setT(()=>{ tok.timer = null; if(cur===tok) finish(tok); }, ms); };
     const disarm = (tok)=>{ if(tok && tok.timer != null){ try{ clearT(tok.timer); }catch(e){} tok.timer = null; } };
+    const drop = (id)=>{ if(id != null){ try{ clearT(id); }catch(e){} } return null; };
     const playingClip = ()=> !!(cur && cur.via==="clip");
+    const num = (v)=> (typeof v==="number" && isFinite(v) && v > 0) ? v : 0;
+    const volumeOf = (clip)=> clamp(R.volume * (clip && clip.gain ? clip.gain : 1), 0, 1);
+    /* how long the clip being played still has (Infinity when it can't be told: the device voice, no length yet) */
+    const remainingMs = ()=>{
+      if(!playingClip() || !el) return Infinity;
+      const d = Number(el.duration), t = Number(el.currentTime);
+      return (isFinite(d) && isFinite(t) && d > 0) ? Math.max(0, (d - t) * 1000) : Infinity;
+    };
     function becomeReady(){ if(ready || closed) return; ready = true; if(readyTimer != null){ try{ clearT(readyTimer); }catch(e){} readyTimer = null; } report(); next(); }
     function preload(){
       if(preloading) return preloading;
@@ -682,8 +730,8 @@
           listen(el, "error", ()=>{ if(playingClip() && cur.src===el.src){ if(cur.clip) cur.clip.ok = false; fallback(cur); report(); } });
         }
         for(const l of VOICE_LINES){
-          if(!el || todo.indexOf(l)<0){ clips[l.id] = { url:null, ok:false }; continue; }
-          const clip = { url:null, ok:null };
+          if(!el || todo.indexOf(l)<0){ clips[l.id] = { url:null, ok:false, lead:0, gain:0 }; continue; }
+          const clip = { url:null, ok:null, lead:num(listed[l.id].lead), gain:num(listed[l.id].gain) };
           clips[l.id] = clip;
           let p = null;
           try{ p = typeof o.loadClip==="function" ? o.loadClip(base + l.id + ".mp3") : base + l.id + ".mp3"; }catch(e){ p = null; }
@@ -699,9 +747,24 @@
       return preloading;
     }
     function next(){
-      if(closed || !enabled || cur || !ready) return;
+      if(closed || !enabled || cur || !ready || fadeTimer != null || toneTimer != null) return;
+      // the tone of a photo being taken comes before "Got it"
+      if(toneDue){
+        toneDue = false;
+        let rang = false;
+        try{ rang = typeof o.tone==="function" && o.tone() !== false; }catch(e){ rang = false; }
+        if(rang){ tones++; toneTimer = setT(()=>{ toneTimer = null; next(); }, R.toneMs); return; }
+      }
+      const head = queue[0];
+      if(!head) return;
+      // a beat of quiet between one correction and the next (never before "hold it there" or "got it")
+      if(head.kind==="line" && lastEnd != null && !head.waited){
+        const wait = R.gapMs - (now() - lastEnd);
+        if(wait > 0){ head.waited = true; gapTimer = drop(gapTimer); gapTimer = setT(()=>{ gapTimer = null; next(); }, wait); return; }
+      }
+      if(gapTimer != null && head.kind==="line") return;      // still in the beat of quiet
+      gapTimer = drop(gapTimer);
       const it = queue.shift();
-      if(!it) return;
       const clip = clips[it.id] || null;
       const row = { id:it.id, via:"clip", kind:it.kind, cut:false };
       const tok = { it, clip, row, via:null, timer:null, src:null };
@@ -710,10 +773,10 @@
         tok.via = "clip";
         try{
           el.src = clip.url || (base + it.id + ".mp3");     // still loading: straight from the folder
-          // a touch brisker everywhere (2026-10-10, owner: the voice felt slow to catch up); numbers faster still
-          try{ el.playbackRate = COUNT_CLIP[it.id] ? COUNT_RATE : LINE_RATE; if("preservesPitch" in el) el.preservesPitch = true; }catch(e){}
+          // at its own speed (2026-11-17: the lines were played 15-30 % fast), from where its sound starts
+          try{ el.playbackRate = 1; }catch(e){}
           tok.src = el.src;
-          el.currentTime = 0; el.volume = R.volume; el.muted = false;
+          el.currentTime = clip.lead || 0; el.volume = volumeOf(clip); el.muted = false;
         }catch(e){}
         let p;
         try{ p = el.play(); }catch(e){ p = Promise.reject(e); }
@@ -753,38 +816,52 @@
     function finish(tok){
       if(cur!==tok) return;
       disarm(tok);
-      cur = null;
+      cur = null; lastEnd = now();
       next();
     }
-    function stopCurrent(){
+    /* cut what is being said. A recorded clip fades out over fadeMs (a hard stop mid-word is what sounded like a
+       machine); nothing else starts until it has. `hard` (stop / close / off): at once. */
+    function stopCurrent(hard){
       const tok = cur;
       if(!tok) return;
-      cur = null; disarm(tok); tok.row.cut = true;
-      if(tok.via==="clip" && el){ try{ el.pause(); el.currentTime = 0; }catch(e){} }
+      cur = null; disarm(tok); tok.row.cut = true; lastEnd = now();
       if(tok.via==="speech" && typeof o.cancelSpeech==="function"){ try{ o.cancelSpeech(); }catch(e){} }
+      if(tok.via!=="clip" || !el) return;
+      const halt = ()=>{ try{ el.pause(); el.currentTime = 0; }catch(e){} };
+      if(hard || !(R.fadeMs > 0)){ halt(); return; }
+      const from = volumeOf(tok.clip);
+      try{ el.volume = from * 0.4; }catch(e){}
+      fadeTimer = drop(fadeTimer);
+      fadeTimer = setT(()=>{ fadeTimer = null; halt(); next(); }, R.fadeMs);
     }
-    const counting = ()=> !!(cur && cur.it.kind==="count") || queue.some((x)=> x.kind==="count");
     function say(ids, so){
       so = so || {};
       if(closed || !enabled) return false;
-      const list = (Array.isArray(ids) ? ids : [ids]).filter((id)=> typeof id==="string" && textOf[id]);
-      if(!list.length) return false;
-      const kind = so.kind==="count" || so.kind==="now" ? so.kind : "line", t = now();
+      const asked = (Array.isArray(ids) ? ids : [ids]).filter((id)=> typeof id==="string" && textOf[id]);
+      if(!asked.length) return false;
+      const kind = so.kind==="hold" || so.kind==="now" ? so.kind : "line", t = now();
+      // the same words within 4 s: not again ("Got it" always is)
+      if(kind!=="now" && asked.every((id)=> lastAt[id] != null && t - lastAt[id] < R.repeatMs)) return false;
+      for(const id of asked) lastAt[id] = t;
+      // each of its ways in turn
+      const items = asked.map((id)=>{
+        const ways = VOICE_VARIANTS[id], n = turn[id] || 0;
+        turn[id] = n + 1;
+        const use = (ways && ways.length) ? ways[n % ways.length] : id;
+        return { id: textOf[use] ? use : id, text: textOf[textOf[use] ? use : id], kind };
+      });
       if(kind==="line"){
-        // the same words within 4 s: not again
-        if(list.every((id)=> lastAt[id] != null && t - lastAt[id] < R.repeatMs)) return false;
-        // the countdown is never cut by a "hold still"
-        if(counting() && list.every((id)=> HOLD_IDS[id])) return false;
-      }
-      for(const id of list) lastAt[id] = t;
-      const items = list.map((id)=> ({ id, text:textOf[id], kind }));
-      if(kind==="count"){
-        if(cur && cur.it.kind!=="count") stopCurrent();
-        // a newer number replaces any number still waiting (never the one being said) — the voice stays on time
-        const freshNum = items.some((x)=> COUNT_CLIP[x.id]);
-        queue = queue.filter((x)=> x.kind==="count" && !(freshNum && COUNT_CLIP[x.id])).concat(items);
+        // never cuts a sentence: it waits its turn, in the place of any line still waiting
+        queue = queue.filter((x)=> x.kind!=="line").concat(items);
+      } else if(kind==="hold"){
+        queue = items;
+        // an instruction being said is over once the pose is reached ("Got it" itself always finishes)
+        const instruction = cur && (cur.it.kind==="line" || (cur.it.kind==="now" && GOT_IDS.indexOf(cur.it.id) < 0));
+        if(instruction && remainingMs() > R.letFinishMs) stopCurrent();
       } else {
         queue = items;
+        toneDue = !!so.tone;
+        toneTimer = drop(toneTimer);
         stopCurrent();
       }
       next();
@@ -797,22 +874,25 @@
       const t = now();
       if(key !== cueKey){
         cueKey = key; reminders = 0; cueAt = null;
+        // what was still waiting to be said belonged to the last instruction
+        queue = queue.filter((x)=> x.kind!=="line");
         if(!list.length) return false;
         if(say(list, { kind:"line" })){ cueAt = t; return true; }
         // said a moment ago (just now in "Got it …"): the reminder counts from then
         if(list.every((id)=> lastAt[id] != null)) cueAt = Math.min.apply(null, list.map((id)=> lastAt[id]));
         return false;
       }
-      if(!list.length || !enabled || cur || queue.length) return false;
+      if(!list.length || !enabled || cur || queue.length || fadeTimer != null || toneTimer != null) return false;
       if(cueAt != null && co.remind===false) return false;
       const gap = Math.min(R.remindMaxMs, R.remindMs * (1 + reminders / 2));
       if(cueAt != null && t - cueAt < gap) return false;
-      if(say(list, { kind:"line" })){ if(cueAt != null) reminders++; cueAt = t; return true; }
+      // a reminder is the cue's short nudge when it has one
+      const nudge = (cueAt != null && Array.isArray(co.nudge)) ? co.nudge.filter((id)=> textOf[id]) : [];
+      if(say(nudge.length ? nudge : list, { kind:"line" })){ if(cueAt != null) reminders++; cueAt = t; return true; }
       return false;
     }
-    /* the hold broke: numbers still waiting are dropped (the one being said finishes) */
-    function dropCount(){ queue = queue.filter((x)=> x.kind!=="count"); }
-    function stop(){ queue = []; stopCurrent(); }
+    function quiet(){ gapTimer = drop(gapTimer); toneTimer = drop(toneTimer); fadeTimer = drop(fadeTimer); toneDue = false; }
+    function stop(){ queue = []; quiet(); stopCurrent(true); }
     function setEnabled(on){ enabled = !!on; if(!enabled){ stop(); cueKey = null; } }
     /* a click in the window: clips the browser held back may play again — and the one audio element is played once,
        muted, inside the click, so a browser that wants a gesture per element (iOS) lets it play from then on */
@@ -843,9 +923,10 @@
       for(const id in clips){ const u = clips[id].url; if(u && typeof o.releaseClip==="function"){ try{ o.releaseClip(u); }catch(e){} } clips[id].url = null; }
     }
     return {
-      preload, say, cue, dropCount, stop, setEnabled, close, unlock,
+      preload, say, cue, stop, setEnabled, close, unlock,
       get state(){ return { ready, enabled, closed, blocked, silent, primed, clips: ready ? clipCount() : null, speech: canSpeak(),
-        playing: cur ? cur.it.id : null, via: cur ? cur.via : null, queue: queue.map((x)=> x.id), played: played.slice(), cueKey }; },
+        playing: cur ? cur.it.id : null, via: cur ? cur.via : null, queue: queue.map((x)=> x.id), played: played.slice(), cueKey,
+        fading: fadeTimer != null, tones }; },
     };
   }
   /* which way a TRUE-orientation photo of an own-left / own-right turn faces (what to pick for an upload) */
@@ -903,9 +984,9 @@
     if(kind==="lock"){
       const n = Math.max(1, Number(opts.count) || 1);
       return { title: n===1 ? "One photo looks like the wrong angle" : (COUNT_WORD[n] || String(n)) + " photos look like the wrong angle",
-        body:"Every photo is used as a face reference for this character's images. Lock the likeness anyway?",
+        body:"Every photo is used as a face reference for this character's images. Use them anyway?",
         items: Array.isArray(opts.items) ? opts.items : undefined,
-        confirmLabel:"Lock anyway", cancelLabel:"Retake first", safeDefault:true };
+        confirmLabel:"Use them anyway", cancelLabel:"Retake first", safeDefault:true };
     }
     return { title:"No face found", body:"Use this " + what + " for “" + show + "” anyway?", confirmLabel:"Use it anyway",
       cancelLabel: opts.photo ? "Choose another" : "Try again", safeDefault:true };
@@ -1153,8 +1234,8 @@
 
   root.turnFacePose = {
     VERSION, T, HOLD_MS, LOAD, SHOW, CUES, LINES, HINTS, HINT_GROUP,
-    VOICE_DIR, VOICE_LINES, VOICE_CUE, VOICE_HINT, VOICE_RULES, createVoiceGuide,
-    voiceCueIds, voiceHintIds, voiceHoldIds, voiceCountId, voiceNextIds,
+    VOICE_DIR, VOICE_LINES, VOICE_VARIANTS, VOICE_CUE, VOICE_NUDGE, VOICE_HINT, VOICE_RULES, createVoiceGuide,
+    voiceCueIds, voiceNudgeIds, voiceHintIds, voiceHoldIds, voiceNextIds,
     poseFromMatrix, poseFromLandmarks, faceGeometry, observe, createSmoother,
     classifyPose, evaluateFrame, createHoldMachine, canAutoCapture, cueFor, describeClass, nextStepLine, srCapturedLine,
     confirmFor, meterPos, bandFor, nextTs, mapLoadError,

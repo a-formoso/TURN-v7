@@ -5485,7 +5485,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
       genUrl && genMeta && genMeta.cameo && React.createElement("span",{
         className:"sheet-cameo-chip"+(gen.likenessStale?" stale":""),
         title: gen.likenessStale ? "Made with an earlier likeness \u2014 regenerate to update it"
-          : "The face comes from this character's locked likeness"},
+          : "The face comes from this character's saved likeness"},
         React.createElement(Icon.userScan,{s:10,sw:1.8}),"Likeness"),
       genUrl && genMeta
         ? React.createElement("span",{className:"sheet-frame-meta"},
@@ -5855,7 +5855,7 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
     !baseGenUrl && React.createElement("div",{className:"state-hint"},
       React.createElement(Icon.alert,{s:12}),
       gen.likenessUsable
-        ? "No master sheet yet \u2014 this variant is made from the locked likeness and the text spec. Generate the base sheet above to keep the wardrobe and layout identical."
+        ? "No master sheet yet \u2014 this variant is made from the saved likeness and the text spec. Generate the base sheet above to keep the wardrobe and layout identical."
         : "Generate the base sheet above for identity-locked results \u2014 until then this uses the text spec."),
     gen.genUrl && gen.likenessStale && React.createElement("div",{className:"state-hint stale"},
       React.createElement(Icon.alert,{s:12}), "Made with an earlier likeness \u2014 regenerate this variant to update it."),
@@ -6240,7 +6240,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       editPropRefs: ownedProps.filter(p=>ownedSheetMap[p.id]).map(p=>({id:p.id, name:p.name, kind:p.kind})),
       // with a likeness, the prices count every image the render sends (its photos, the worn-item sheets)
       generateRefs: gen.likenessRefs ? cardGenerateRefs() : undefined, attachRefs: wornSheetCount,
-      generateTitle: gen.likenessUsable ? ((gen.genUrl ? "Generate a fresh sheet" : "Generate the sheet")+" from the current spec, with the locked likeness's face") : undefined,
+      generateTitle: gen.likenessUsable ? ((gen.genUrl ? "Generate a fresh sheet" : "Generate the sheet")+" from the current spec, with the saved face") : undefined,
       referenceControls: React.createElement(SheetReferenceStrip,{ gen, loadRefs:collectAttachments, onView,
         refreshKey:[c.id,wornProps.map(p=>p.id).join(","),wornExclusionKey,sheetTick].join("|") }),
       onDelete:onDelete?(()=>onDelete(c.id)):null, deleteLabel:"Delete character" }),
@@ -6253,10 +6253,10 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             // the "Voice: designed" line under the buttons is gone)
             React.createElement("button",{className:"char-cameo-btn"+(lkInfo?" on":""),disabled:drafting,
               onClick:()=>setCameoOpen(true),
-              title:lkInfo?("Likeness locked"+((()=>{ const t = (typeof window.vcFaceVoiceLine==="function") ? window.vcFaceVoiceLine(lkInfo, null).split(" \u00b7 ")[0] : "";
-                return t ? " ("+t.replace(/^Face: /,"")+")" : ""; })())+" \u2014 recapture it with the webcam or photos"):"Lock a real face as this character's likeness (webcam or photos)"},
+              title:lkInfo?("A real face is saved"+((()=>{ const t = (typeof window.vcFaceVoiceLine==="function") ? window.vcFaceVoiceLine(lkInfo, null).split(" \u00b7 ")[0] : "";
+                return t ? " ("+t.replace(/^Face: /,"")+")" : ""; })())+" \u2014 retake it with the webcam or photos"):"Give this character a real face (webcam or photos)"},
               React.createElement(Icon.userScan,{s:12}), "Likeness",
-              lkInfo && React.createElement("span",{className:"char-btn-tick","aria-label":"locked"}, React.createElement(Icon.check,{s:9}))),
+              lkInfo && React.createElement("span",{className:"char-btn-tick","aria-label":"saved"}, React.createElement(Icon.check,{s:9}))),
             React.createElement("button",{className:"char-voice-btn"+(voiceLocked?" on":"")+(voiceOpen?" open":""),type:"button",
               onClick:()=>onOpenVoice&&onOpenVoice(c.id),
               "aria-expanded":voiceOpen?"true":"false","aria-controls":"voice-popup-"+String(c.id||"character").replace(/[^A-Za-z0-9_-]/g,"-"),
@@ -6322,21 +6322,22 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement("span",{className:"scs-meta"}, (window.turnLikenessUnavailableText||(()=>""))(c.id, c.name))),
       (lkInfo && lkInfo.available!==false) && React.createElement("div",{className:"sheet-cameo-status"},
         React.createElement(Icon.userScan,{s:14}),
-        React.createElement("span",{className:"scs-t"},"Likeness locked"),
+        // plain words (2026-11-17, owner): photos, not angles; saved, not locked; on the sheet, not applied
+        React.createElement("span",{className:"scs-t"},"Real face saved"),
         React.createElement("span",{className:"scs-meta"},
-          ((lkInfo.angleCount||1)+" angle"+((lkInfo.angleCount||1)!==1?"s":""))+" \u00b7 "
-          +(lkInfo.synced?"Synced":"On this device")+" \u00b7 "
+          ((lkInfo.angleCount||1)+" photo"+((lkInfo.angleCount||1)!==1?"s":""))+" \u00b7 "
+          +(lkInfo.synced?"in the cloud too":"on this device")+" \u00b7 "
           // (2026-10-06) says whether the sheet on display was made with it; (2026-10-10, owner — Likeness review)
           // a sheet made with an OLDER likeness says so (meta.cameoAt before the current capture)
           +((gen.genMeta && gen.genMeta.cameo)
-            ? (gen.likenessStale ? "made with an earlier likeness \u2014 regenerate to update" : "applied to the sheet")
-            : "regenerate to apply it to the sheet")),
+            ? (gen.likenessStale ? "the sheet shows an earlier face" : "on the sheet")
+            : "not on the sheet yet")),
         // locking stores the face-lock; it does NOT overwrite the sheet \u2014 this regenerates
         // the sheet WITH the locked face so the design matches the real person.
         React.createElement("button",{className:"scs-act",disabled:gen.gening,onClick:()=>gen.generate(),
-          title:"Regenerate the character sheet with this face (one image)"}, gen.gening?"Applying\u2026":"Apply to sheet",
+          title:"Makes the character sheet again with this face (one image)"}, gen.gening?"Making the sheet\u2026":"Put it on the sheet",
           !gen.gening && typeof window.nbCostChip==="function" && window.nbCostChip(1, { refs:cardGenerateRefs() })),
-        lkInfo.mine!==false && React.createElement("button",{className:"scs-act",onClick:()=>setCameoOpen(true)},"Recapture"),
+        lkInfo.mine!==false && React.createElement("button",{className:"scs-act",onClick:()=>setCameoOpen(true),title:"Take the photos again, or change whose face it is"},"Retake"),
         lkInfo.mine!==false && React.createElement("button",{className:"scs-act danger",onClick:removeCameo},"Remove")),
       // DOES THIS PERSON FIT THE CHARACTER? (owner-approved 2026-10-12 — Character fidelity step 5): a manual check of the
       // locked likeness against the age band, heritage or build the script (or the card) states — nothing is sent anywhere
@@ -6744,17 +6745,17 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         onClose:()=>setCameoOpen(false),
         // locking stores the face-lock reference; turning it INTO the character sheet
         // means regenerating the 3-panel design locked to that face — offer it right
-        // away so the likeness doesn't sit unapplied until a manual "Apply to sheet".
+        // away so the likeness doesn't sit unused until a manual "Put it on the sheet".
         onSaved: async (saved)=>{
           refreshCameo();
           // the price, counted like the render: every captured angle + the worn-item sheets (GPT Image charges each)
           const nAngles = (saved && Array.isArray(saved.angles) && saved.angles.length) || (window.turnLikenessRefCount||(()=>0))(c.id) || 1;
           const price = (typeof window.nbImageCostText==="function") ? window.nbImageCostText(1, { refs:nAngles+wornSheetCount }) : "";
           const ok = !window.appConfirm || await window.appConfirm({
-            title:"Turn the likeness into "+(c.name||"this character")+"'s sheet?",
-            body:"Regenerates the 3-panel character sheet with the captured face — the portrait and full-body views will match the real person"
-              +(price ? " (one image, about "+price+" credit"+(price==="1"?"":"s")+")" : "")+". You can also do this later with “Apply to sheet”.",
-            confirmLabel:"Generate sheet"+(price ? " \u00b7 "+price+" credit"+(price==="1"?"":"s") : "") });
+            title:"Put this face on "+(c.name||"this character")+"'s sheet?",
+            body:"Makes the 3-panel character sheet again with the face you just saved, so the portrait and the full-body views match the real person"
+              +(price ? " (one image, about "+price+" credit"+(price==="1"?"":"s")+")" : "")+". You can also do this later with “Put it on the sheet”.",
+            confirmLabel:"Make the sheet"+(price ? " \u00b7 "+price+" credit"+(price==="1"?"":"s") : "") });
           if(ok && !gen.gening) gen.generate();
         } })),
     voiceOpen && window.VoiceModal && React.createElement(window.VoiceModal,{character:c,project,speaks,onUpdate,readOnly:!!readOnly,cast:cast||[c],
@@ -7490,7 +7491,7 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"character",onRestore,onPurge,compact:true}),
           cameoCount>0 && React.createElement("button",{className:"art-cameo-mgr",onClick:()=>setMgrOpen(true),
-            title:"Likeness manager \u2014 review and manage the locked likenesses"},
+            title:"Likeness manager \u2014 review and manage the saved likenesses"},
             React.createElement(Icon.userScan,{s:14}),"Likenesses \u00b7 "+cameoCount),
           voicesBtn && React.createElement("button",{className:"art-cameo-mgr art-voices-mgr",onClick:()=>setVoicesMgrOpen(true),"data-testid":"voices-manager-btn",
             title:"Voices \u2014 your own voices (real and designed): who, which characters use them, delete to free room"},

@@ -1,6 +1,6 @@
 // guide-audio — records the Likeness capture window's spoken instructions ONCE, in Frances's voice
 // (OpenAI "marin", the default voice of the New Story live conversation), so the app ships them as
-// small mp3 files (app/vendor/voice/frances-guide/v1/<id>.mp3) and plays them with no per-use cost.
+// small mp3 files (app/vendor/voice/frances-guide/v2/<id>.mp3) and plays them with no per-use cost.
 // (2026-10-10, owner — Likeness voice guidance: "use that agent's voice to read out the instructions".)
 //
 // NOT part of the app at runtime. Operator only: the caller must send GUIDE_AUDIO_TOKEN, a one-time function secret set just for the
@@ -12,8 +12,10 @@
 
 const VOICE = "marin";
 const MODEL = "gpt-4o-mini-tts";
-const STYLE = "Warm, calm and encouraging, like a friendly photographer guiding someone who can't see the screen. "
-  + "Natural pace, clear diction, no rush. Short pauses at dashes and commas.";
+// (2026-11-17, owner — "more seamless and not sound robotic") the second script: one relaxed sitting, never an announcement.
+const STYLE = "You are a warm, easy-going portrait photographer talking a friend through three quick photos, in the same relaxed sitting from the first line to the last. "
+  + "Speak the way people really talk: unhurried, smiling, natural, never like an announcement or a list of commands. "
+  + "Keep the same pace, energy and volume on every line. Short lines stay light and quick, with no drawn-out ending. No pause before the first word.";
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("POST only", { status: 405 });

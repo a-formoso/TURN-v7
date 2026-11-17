@@ -198,7 +198,7 @@ await test("P-c classifyPose: front / partial / side / far with hysteresis; tilt
   c = C(0, null, { pitch: 16 }); assert.equal(c.tilt, "chin-down", "Front's pitch limit is unchanged (15)");
   assert.deepEqual(plainify(FP.T.front), { enter: { yaw: 8, pitch: 15, roll: 8 }, stay: { yaw: 10, pitch: 18, roll: 10 } }, "Front unchanged");
   assert.deepEqual(plainify(FP.T.side), { enter: { min: 25, max: 48, pitch: 22, roll: 14 }, stay: { min: 22, max: 52, pitch: 25, roll: 16 }, target: 35 });
-  assert.deepEqual(plainify(FP.HOLD_MS), { front: 3000, left: 5000, right: 5000 }, "the holds are unchanged");
+  assert.deepEqual(plainify(FP.HOLD_MS), { front: 1500, left: 2000, right: 2000 }, "the holds: a moment each (owner 2026-11-17; they were 3 s and 5 s, counted aloud)");
   c = FP.classifyPose({ yaw: -29.5, pitch: 9.4, roll: -8.8 }, null);
   assert.deepEqual([c.cls, c.base, c.tilt], ["right", "right", null], "Girl with a Pearl Earring's measured pose: turned to her own right, not tilted");
   assert.deepEqual(plainify(FP.classifyPose(null)), { cls: "none", base: "none", tilt: null });
@@ -285,25 +285,25 @@ await test("P-e the smoother: 63% after 200 ms of steps (τ = 200 ms), resets af
   near(s.pose.yaw, -20, 1e-9, "reset() on demand (after a photo is checked)");
 });
 
-await test("P-f the hold (10 fps): Front needs 3.0 s held, fires once; a side needs 5.0 s", () => {
+await test("P-f the hold (10 fps): Front needs 1.5 s held, fires once; a side needs 2.0 s (a moment, not a count: owner 2026-11-17)", () => {
   const P = pipeline("front");
-  const rows = P.run({ yaw: 0 }, 2900);
-  assert.ok(rows.every((r) => !r.st.fire), "no fire at 2.9 s");
+  const rows = P.run({ yaw: 0 }, 1400);
+  assert.ok(rows.every((r) => !r.st.fire), "no fire at 1.4 s");
   assert.equal(rows[0].st.started, true, "the hold starts on the first fitting frame");
   const t0 = rows[0].t;
   let r = P.frame({ yaw: 0 });
-  assert.equal(r.t - t0, 2900); assert.equal(r.st.fire, false);
+  assert.equal(r.t - t0, 1400); assert.equal(r.st.fire, false);
   r = P.frame({ yaw: 0 });
-  assert.equal(r.t - t0, 3000); assert.equal(r.st.fire, true, "fires on the first frame ≥ 3.0 s");
+  assert.equal(r.t - t0, 1500); assert.equal(r.st.fire, true, "fires on the first frame ≥ 1.5 s");
   P.m.markCaptured(r.ev.base, r.t);
   const after = P.run({ yaw: 0 }, 10000);
   assert.ok(after.every((x) => !x.st.fire), "exactly once: the same still pose never fires again");
   const S = pipeline("left");
-  const s1 = S.run({ yaw: 35 }, 4900);
-  assert.ok(s1.every((x) => !x.st.fire), "no fire at 4.9 s"); assert.equal(s1[0].st.started, true);
-  assert.deepEqual([s1[s1.length - 1].st.secsLeft, s1[0].st.secsLeft], [1, 5]);
+  const s1 = S.run({ yaw: 35 }, 1900);
+  assert.ok(s1.every((x) => !x.st.fire), "no fire at 1.9 s"); assert.equal(s1[0].st.started, true);
+  assert.deepEqual([s1[s1.length - 1].st.secsLeft, s1[0].st.secsLeft], [1, 2]);
   r = S.frame({ yaw: 35 }); assert.equal(r.st.fire, false);
-  r = S.frame({ yaw: 35 }); assert.equal(r.t - s1[0].t, 5000); assert.equal(r.st.fire, true, "fires at 5.0 s");
+  r = S.frame({ yaw: 35 }); assert.equal(r.t - s1[0].t, 2000); assert.equal(r.st.fire, true, "fires at 2.0 s");
 });
 
 await test("P-g the owner's case: after Front, a still front face never fills the left slot; a face held at +35 never fills the right one", () => {
@@ -319,7 +319,7 @@ await test("P-g the owner's case: after Front, a still front face never fills th
   assert.equal(firstHint.st.hint, "not-turned");
   const cue = FP.cueFor(firstHint.st, firstHint.ev, "left", {});
   assert.equal(cue.key, "not-turned");
-  assert.equal(cue.hint, "Turn your whole head until the dot reaches the green band — or press Capture now.");
+  assert.equal(cue.hint, "Turn your whole head until the dot reaches the green band — or press Take photo.");
   // now turn to the left: captured; then the right slot while still at +35
   let fired = null;
   for (const x of P.run({ yaw: 35 }, 8000)) if (x.st.fire && !fired) fired = x;
@@ -344,16 +344,16 @@ await test("P-q holding means staying put: a sway or a slow drift inside the ang
   assert.equal(fired, false, "a slow drift: no photo");
   const J = pipeline("left"); let at = null;
   for (let i = 0; i < 80 && at == null; i++){ const r = J.frame({ yaw: 35 + ((i % 3) - 1) * 1.5, pitch: ((i % 2) ? 1 : -1) }); if (r.st.fire) at = r.t; }
-  assert.ok(at != null && at <= 5200, "a real hold with small jitter still captures at 5 s (" + at + ")");
+  assert.ok(at != null && at <= 2300, "a real hold with small jitter still captures at 2 s (" + at + ")");
   const F = pipeline("front"); let ff = false;
   for (let i = 0; i < 60; i++){ if (F.frame({ yaw: (i % 2 ? 7 : -7) }).st.fire) ff = true; }
   assert.equal(ff, false, "a front face shaking ±7°: no photo");
 });
 
-await test("P-h resets: a 600 ms dip to 18° resets (a full 5.0 s from re-entry); a 300 ms dip doesn't, and can't fire during the dip", () => {
+await test("P-h resets: a 600 ms dip to 18° resets (a full 2.0 s from re-entry); a 300 ms dip doesn't, and can't fire during the dip", () => {
   // through the whole chain
   const P = pipeline("left");
-  const a = P.run({ yaw: 35 }, 3000);
+  const a = P.run({ yaw: 35 }, 1500);
   const t0 = a[0].t;
   const dip = P.run({ yaw: 18 }, 600);
   assert.equal(dip[dip.length - 1].st.progress, 0, "progress back to 0");
@@ -361,28 +361,28 @@ await test("P-h resets: a 600 ms dip to 18° resets (a full 5.0 s from re-entry)
   const back = P.run({ yaw: 35 }, 8000);
   const reentry = back.find((x) => x.ev.ok), fire = back.find((x) => x.st.fire);
   assert.ok(reentry && fire);
-  assert.equal(fire.t - reentry.t, 5000, "a full 5.0 s from re-entry");
-  assert.ok(fire.t - t0 > 5000);
+  assert.equal(fire.t - reentry.t, 2000, "a full 2.0 s from re-entry");
+  assert.ok(fire.t - t0 > 2000);
   // the machine itself, frame by frame (10 fps)
   const m = FP.createHoldMachine(), ctx = { target: "left", filled: false, auto: true, engine: "ready" };
   let t = 0, st;
-  for (; t < 4800; t += 100) st = m.step(EV(true, "left"), t, ctx);
+  for (; t < 1800; t += 100) st = m.step(EV(true, "left"), t, ctx);
   const during = [];
-  for (let k = 0; k < 3; k++, t += 100) during.push(m.step(EV(false, "partial-left", "more"), t, ctx));   // 4.8 … 5.0 s
-  assert.ok(during.every((x) => !x.fire), "no fire during the dip, even past 5 s");
-  assert.ok(during.every((x) => x.phase === "holding" && x.progress > 0.9), "the timer keeps running in the 400 ms grace");
+  for (let k = 0; k < 3; k++, t += 100) during.push(m.step(EV(false, "partial-left", "more"), t, ctx));   // 1.8 … 2.0 s
+  assert.ok(during.every((x) => !x.fire), "no fire during the dip, even past 2 s");
+  assert.ok(during.every((x) => x.phase === "holding" && x.progress >= 0.9), "the timer keeps running in the 400 ms grace");
   st = m.step(EV(true, "left"), t, ctx);
   assert.equal(st.fire, true, "the first fitting frame after a short dip fires (no reset)");
   const m2 = FP.createHoldMachine();
-  for (t = 0; t < 3000; t += 100) m2.step(EV(true, "left"), t, ctx);
+  for (t = 0; t < 1500; t += 100) m2.step(EV(true, "left"), t, ctx);
   for (let k = 0; k < 6; k++, t += 100) st = m2.step(EV(false, "partial-left", "more"), t, ctx);
   assert.equal(st.progress, 0); assert.equal(st.phase, "wait");
   const re = t;
   for (; ; t += 100){ st = m2.step(EV(true, "left"), t, ctx); if (st.fire) break; if (t > 20000) break; }
-  assert.equal(t - re, 5000);
+  assert.equal(t - re, 2000);
 });
 
-await test("P-h2 what the frames can't show breaks a hold: no frame for over 400 ms (a hidden tab, an open dialog, a restart); a second face at once and for 1.5 s after; an uncertain direction at once; never 'Hold still — 0'", () => {
+await test("P-h2 what the frames can't show breaks a hold: no frame for over 400 ms (a hidden tab, an open dialog, a restart); a second face at once and for 1.5 s after; an uncertain direction at once; the time left never reads 0", () => {
   const ctx = { target: "left", filled: false, auto: true, engine: "ready" };
   let m = FP.createHoldMachine(), t, st;
   for (t = 0; t <= 1000; t += 100) st = m.step(EV(true, "left"), t, ctx);
@@ -390,10 +390,10 @@ await test("P-h2 what the frames can't show breaks a hold: no frame for over 400
   assert.equal(st.fire, false, "10 s unseen never counts as held"); assert.equal(st.started, true, "a fresh hold starts");
   let fireAt = null;
   for (t = 11100; t < 20000; t += 100){ st = m.step(EV(true, "left"), t, ctx); if (st.fire){ fireAt = t; break; } }
-  assert.equal(fireAt, 16000, "a full 5 s from the first frame back");
+  assert.equal(fireAt, 13000, "a full 2 s from the first frame back");
   m = FP.createHoldMachine();
-  for (t = 0; t <= 2000; t += 100) m.step(EV(true, "left"), t, ctx);
-  st = m.step(EV(true, "left"), 2400, ctx); assert.equal(st.started, false, "a 400 ms step (a slow frame) is no break");
+  for (t = 0; t <= 1000; t += 100) m.step(EV(true, "left"), t, ctx);
+  st = m.step(EV(true, "left"), 1400, ctx); assert.equal(st.started, false, "a 400 ms step (a slow frame) is no break");
   // a second face the detector sees only some of the time never lets the shutter fire
   for (const every of [2, 3, 4]){
     const P = pipeline("left"); let fired = false;
@@ -401,22 +401,23 @@ await test("P-h2 what the frames can't show breaks a hold: no frame for over 400
     assert.equal(fired, false, "a second face in 1 of every " + every + " frames");
   }
   const P = pipeline("left");
-  P.run({ yaw: 35 }, 3000);
+  P.run({ yaw: 35 }, 1500);
   const two = P.frame({ yaw: 35 }, { faces: [{ pose: { yaw: 35 }, dx: 22 }] });
   assert.equal(two.st.progress, 0, "one frame with a second face ends the hold at once"); assert.equal(two.st.reset, "two-faces");
   const gone = two.t; let f = null;
   for (let i = 0; i < 100 && !f; i++){ const r = P.frame({ yaw: 35 }); if (r.st.fire) f = r.t; }
-  assert.equal(f - gone, 6500, "blocked for 1.5 s after it was last seen, then a full 5 s");
+  assert.equal(f - gone, 3500, "blocked for 1.5 s after it was last seen, then a full 2 s");
   m = FP.createHoldMachine();
-  for (t = 0; t <= 3000; t += 100) m.step(EV(true, "left"), t, ctx);
-  st = m.step({ ok: false, reason: "uncertain", fails: ["uncertain"], base: "left", measured: "left" }, 3100, ctx);
+  for (t = 0; t <= 1500; t += 100) m.step(EV(true, "left"), t, ctx);
+  st = m.step({ ok: false, reason: "uncertain", fails: ["uncertain"], base: "left", measured: "left" }, 1600, ctx);
   assert.equal(st.progress, 0, "an uncertain direction ends the hold at once"); assert.equal(st.reset, "uncertain");
   m = FP.createHoldMachine();
-  for (t = 0; t < 4900; t += 100) m.step(EV(true, "left"), t, ctx);
+  for (t = 0; t < 1900; t += 100) m.step(EV(true, "left"), t, ctx);
   const shown = [];
-  for (; t <= 5300; t += 100){ st = m.step(EV(false, "partial-left", "more"), t, ctx); if (st.phase === "holding") shown.push(st.secsLeft); }
+  for (; t <= 2300; t += 100){ st = m.step(EV(false, "partial-left", "more"), t, ctx); if (st.phase === "holding") shown.push(st.secsLeft); }
   assert.ok(shown.length && shown.every((n) => n >= 1), "a dip after the hold time shows 1, not 0: " + shown);
-  assert.equal(FP.cueFor({ phase: "holding", secsLeft: shown[0] }, null, "left", {}).text, "Hold still — 1");
+  // no number is shown or said any more (owner 2026-11-17): the hold is a moment
+  assert.equal(FP.cueFor({ phase: "holding", secsLeft: shown[0] }, null, "left", {}).text, "Hold it there…");
 });
 
 await test("P-i leave first: after a capture nothing counts until the captured pose is left (≥ 300 ms) plus a 1.2 s pause; × (cleared) is a deliberate retake", () => {
@@ -434,13 +435,13 @@ await test("P-i leave first: after a capture nothing counts until the captured p
   st = m.step(EV(false, "front", "not-turned"), 12300, ctx);
   st = m.step(EV(false, "front", "not-turned"), 12500, ctx); assert.equal(st.phase, "arming");
   st = m.step(EV(false, "front", "not-turned"), 12600, ctx); assert.equal(st.phase, "wait", "300 ms away: armed");
-  // cleared(): a fresh capture needs a full new 5 s hold
+  // cleared(): a fresh capture needs a full new hold
   const m2 = FP.createHoldMachine();
   m2.markCaptured("left", 0);
   m2.cleared(5000);
   let t = 5000, fireAt = null;
   for (; t < 12000; t += 100){ st = m2.step(EV(true, "left"), t, ctx); if (st.fire){ fireAt = t; break; } }
-  assert.equal(fireAt, 10000, "a full 5 s after the slot was cleared");
+  assert.equal(fireAt, 7000, "a full 2 s after the slot was cleared");
   // a slot click (retarget) does NOT clear the leave-first rule
   const m3 = FP.createHoldMachine();
   m3.markCaptured("left", 0); m3.retarget(2000);
@@ -499,7 +500,7 @@ await test("P-j manual / filled / loading; canAutoCapture; the confirmations (th
   assert.deepEqual([flip.confirmLabel, flip.cancelLabel, flip.safeDefault], ["It reads normally — switch it back", "It reads backwards — keep it", true]);
   assert.equal(FP.confirmFor("unflip").title, "Switch back to the usual mirror view?");
   const lock = FP.confirmFor("lock", null, null, { count: 2, items: ["a", "b"] });
-  assert.deepEqual([lock.title, lock.confirmLabel, lock.cancelLabel, lock.safeDefault, plainify(lock.items)], ["Two photos look like the wrong angle", "Lock anyway", "Retake first", true, ["a", "b"]]);
+  assert.deepEqual([lock.title, lock.confirmLabel, lock.cancelLabel, lock.safeDefault, plainify(lock.items)], ["Two photos look like the wrong angle", "Use them anyway", "Retake first", true, ["a", "b"]]);
   assert.equal(FP.confirmFor("lock", null, null, { count: 1 }).title, "One photo looks like the wrong angle");
   assert.deepEqual(["front", "partial-left", "far-right", "left", "right", "tilted", "none"].map((c) => FP.describeClass(c, "the person's")),
     ["a front view", "the head only a little turned", "the head turned almost side-on", "the head turned to the person's left", "the head turned to the person's right", "a tilted head", "no face"]);
@@ -532,13 +533,15 @@ await test("P-l the copy: one person's left, both ways said; no library, engine 
   assert.deepEqual(plainify(nt.voice), ["turn-left"]);
   const ntR = FP.cueFor({ phase: "wait", reason: "not-turned" }, null, "right", {});
   assert.equal(ntR.text, "Turn your head to your right — toward the right edge of the screen");
-  assert.equal(FP.cueFor({ phase: "holding", secsLeft: 4 }, null, "left", {}).text, "Hold still — 4");
+  assert.equal(FP.cueFor({ phase: "holding", secsLeft: 2 }, null, "left", {}).text, "Hold it there…");
+  assert.deepEqual(plainify(FP.cueFor({ phase: "holding", secsLeft: 2 }, null, "left", {}).voice), ["hold-it-there"], "no number is said");
+  assert.deepEqual(plainify(FP.cueFor({ phase: "holding", secsLeft: 1 }, null, "front", {}).voice), ["hold-still"]);
   assert.deepEqual(plainify(FP.cueFor({ phase: "settle" }, null, "front", { next: "left" }).voice), ["got-it", "turn-left"]);
   assert.deepEqual(plainify(FP.cueFor({ phase: "settle" }, null, "left", { next: "right", engine: "unavailable" }).voice), ["got-it", "turn-right-capture"]);
   assert.deepEqual(plainify(FP.cueFor({ phase: "settle" }, null, "right", { next: null }).voice), ["got-it", "all-done"]);
   assert.equal(FP.nextStepLine("front"), "Look straight at the camera.");
-  assert.equal(FP.nextStepLine(null), "All three done. Say whose likeness it is, tick the box, and lock it.");
-  assert.equal(FP.nextStepLine("right", "unavailable"), "Turn your head to your right, then press Capture now.");
+  assert.equal(FP.nextStepLine(null), "All three done. Have a look, then press Use this face.");
+  assert.equal(FP.nextStepLine("right", "unavailable"), "Turn your head to your right, then press Take photo.");
   assert.equal(FP.cueFor({ phase: "filled" }, null, "left", { mismatch: true, measured: "front" }).text,
     "This photo shows a front view — click × on it to take it again");
   assert.equal(FP.cueFor({ phase: "filled" }, null, "right", { mismatch: true, measured: "left" }).text,
@@ -555,14 +558,14 @@ await test("P-l the copy: one person's left, both ways said; no library, engine 
   assert.deepEqual([FP.cueFor({ phase: "camera" }, null, "front", { engine: "loading" }).key, FP.cueFor({ phase: "camera" }, null, "front", {}).text],
     ["camera", "Allow the camera to start — or upload a photo"]);
   // the screen-reader line after a photo
-  assert.equal(FP.srCapturedLine("left", "right", "ready"), "Photo taken: turned to your left. Next, turn your head slowly to your right, toward the right edge of the screen, and hold it there for five seconds.");
-  assert.equal(FP.srCapturedLine("front", "left", "ready"), "Photo taken: front view. Next, turn your head slowly to your left, toward the left edge of the screen, and hold it there for five seconds.");
+  assert.equal(FP.srCapturedLine("left", "right", "ready"), "Photo taken: turned to your left. Next, turn your head slowly to your right, toward the right edge of the screen, and hold it there for a moment.");
+  assert.equal(FP.srCapturedLine("front", "left", "ready"), "Photo taken: front view. Next, turn your head slowly to your left, toward the left edge of the screen, and hold it there for a moment.");
   assert.equal(FP.srCapturedLine("right", "front", "ready"), "Photo taken: turned to your right. Next, look straight at the camera.");
-  assert.equal(FP.srCapturedLine("right", null, "ready"), "Photo taken: turned to your right. All three done. Say whose likeness it is, tick the box, and lock it.");
-  assert.equal(FP.cueFor({ phase: "wait" }, null, "left", { engine: "unavailable" }).text, "Turn your head to your left, then press Capture now");
+  assert.equal(FP.srCapturedLine("right", null, "ready"), "Photo taken: turned to your right. All three done. Have a look, then press Use this face.");
+  assert.equal(FP.cueFor({ phase: "wait" }, null, "left", { engine: "unavailable" }).text, "Turn your head to your left, then press Take photo");
   assert.equal(FP.cueFor({ phase: "wait", reason: "moving" }, null, "front", { engine: "unavailable" }).key, "unavailable-front");
-  assert.equal(FP.cueFor({ phase: "loading" }, null, "front", { slow: true }).text, "Still getting ready — you can press Capture now");
-  assert.equal(FP.cueFor({ phase: "wait", reason: "wrong-way", hint: "wrong-way" }, null, "right", {}).hint, "You're turning to your left; turn the other way — or press Capture now.");
+  assert.equal(FP.cueFor({ phase: "loading" }, null, "front", { slow: true }).text, "Still getting ready — you can press Take photo");
+  assert.equal(FP.cueFor({ phase: "wait", reason: "wrong-way", hint: "wrong-way" }, null, "right", {}).hint, "You're turning to your left; turn the other way — or press Take photo.");
   // every string the person can read or hear
   const strings = [];
   for (const [k, c] of Object.entries(FP.CUES)){ strings.push(c.text); assert.ok(["wait", "go", "done", "off", "warn"].includes(c.k), k); }
@@ -863,8 +866,8 @@ function mountWindow(opts = {}){
     nbSetCameo: async (id, rec) => { W.saves.push(rec); return { sync: false }; },
     fetch: async (u) => {
       W.fetches.push(String(u));
-      if (opts.manifest && /\/app\/vendor\/voice\/frances-guide\/v1\/manifest\.json$/.test(String(u))) return { ok: true, json: async () => JSON.parse(JSON.stringify(opts.manifest)) };
-      if (W.audio && /\/app\/vendor\/voice\/frances-guide\/v1\/[a-z0-9-]+\.mp3$/.test(String(u))) return W.audio.exists(u) ? { ok: true, blob: async () => ({ fake: u }) } : { ok: false, status: 404 };
+      if (opts.manifest && /\/app\/vendor\/voice\/frances-guide\/v2\/manifest\.json$/.test(String(u))) return { ok: true, json: async () => JSON.parse(JSON.stringify(opts.manifest)) };
+      if (W.audio && /\/app\/vendor\/voice\/frances-guide\/v2\/[a-z0-9-]+\.mp3$/.test(String(u))) return W.audio.exists(u) ? { ok: true, blob: async () => ({ fake: u }) } : { ok: false, status: 404 };
       throw new Error("network disabled in this test: " + u);
     },
   };
@@ -896,6 +899,18 @@ function mountWindow(opts = {}){
   W.inst = () => Array.from(root.inst.entries()).find(([k]) => /:CameoModal$/.test(k))[1];
   W.video = { videoWidth: 1280, videoHeight: 720, readyState: 4, currentTime: 0, play: () => Promise.resolve(), srcObject: null };
   W.inst().h[0].current = W.video;
+  /* WHOSE FACE COMES FIRST (owner 2026-11-17): the window opens on the question. The tests of the camera answer it
+     the way a person does — "Me", the box, Start the camera — unless they are about that step (opts.who === false) or
+     start from a saved likeness (its saved answer opens the camera by itself). */
+  W.step = () => { const m = nodesOf(root.tree).find((n) => n.props && n.props["data-step"]); return m ? m.props["data-step"] : null; };
+  W.answerWho = (subject = "self", name = "") => {
+    const find = (f) => nodesOf(root.tree).find(f);
+    click(find((n) => n.props && n.props["data-subject"] === subject)); root.flush();
+    if (subject === "other"){ find((n) => n.props && n.props["data-role"] === "consent-name").props.onChange({ target: { value: name } }); root.flush(); }
+    find((n) => n.props && n.props["data-role"] === "consent-box").props.onChange({ target: { checked: true } }); root.flush();
+    click(byRole(root.tree, "start")); root.flush();
+  };
+  if (opts.who !== false && !opts.saved) W.answerWho();
   W.settle = async () => { for (let i = 0; i < 4; i++) await macro(); };
   W.pump = async (ms = 100) => {
     for (let k = 0; k < Math.round(ms / 100); k++){
@@ -935,19 +950,19 @@ function mountWindow(opts = {}){
   return W;
 }
 
-await test("I1 the owner's flow, part 1: Front fills after 3.0–3.2 s held (once, from the webcam); then a still front face never fills the left slot (30 s), and the cue + voice say which way", async () => {
+await test("I1 the owner's flow, part 1: Front fills after 1.5–1.7 s held (once, from the webcam); then a still front face never fills the left slot (30 s), and the cue + voice say which way", async () => {
   const W = mountWindow();
   await W.settle();
   assert.equal(W.box.turnFacePose && W.inst().h[3].v, "live");
   await W.until(() => W.eng.firstAt != null, 2000, "the detector runs once the camera is on");
   const t0 = W.eng.firstAt;
   const tFront = await W.until(() => W.shots().front, 5000, "Front");
-  assert.ok(tFront - t0 >= 3000 && tFront - t0 <= 3200, "Front after " + (tFront - t0) + " ms");
+  assert.ok(tFront - t0 >= 1500 && tFront - t0 <= 1700, "Front after " + (tFront - t0) + " ms");
   assert.equal(W.sources().front, "webcam");
   assert.equal(W.crops.get(W.shots().front).pose.yaw, 0, "the photo is the frame that was checked");
   assert.equal(W.flipped(W.shots().front), false, "saved in true orientation (not mirrored)");
   const sr = W.nodes().find((n) => n.props && n.props.className === "cameo-sr");
-  assert.equal(textOf(sr), "Photo taken: front view. Next, turn your head slowly to your left, toward the left edge of the screen, and hold it there for five seconds.");
+  assert.equal(textOf(sr), "Photo taken: front view. Next, turn your head slowly to your left, toward the left edge of the screen, and hold it there for a moment.");
   await W.pump(400);
   assert.equal(W.inst().h[6].v, 1, "the target moves to the person's left");
   await W.pump(30000);
@@ -956,29 +971,31 @@ await test("I1 the owner's flow, part 1: Front fills after 3.0–3.2 s held (onc
   assert.equal(W.cueKey(), "not-turned");
   assert.equal(W.cueText(), "Turn your head to your left — toward the left edge of the screen");
   assert.ok(W.said().some((s) => /to your left/.test(s)), W.said().join(" | "));
-  assert.equal(W.hint(), "Turn your whole head until the dot reaches the green band — or press Capture now.");
-  assert.ok(W.said().some((s) => /You don't need to see the screen/.test(s)), "the tip is spoken once: " + W.said().join(" | "));
-  assert.equal(W.said().filter((s) => /You don't need to see the screen/.test(s)).length, 1);
-  assert.ok(W.said().includes("Or press Capture now."));
-  // the same instruction again only as a reminder, ever further apart (6, 9, 12, 15 s), never a stream
-  const turns = W.said().filter((s) => s === "Now turn your head slowly to your left, and hold it there.").length;
-  assert.ok(turns >= 3 && turns <= 6, "reminders: " + turns);
+  assert.equal(W.hint(), "Turn your whole head until the dot reaches the green band — or press Take photo.");
+  assert.ok(W.said().some((s) => /No need to watch the screen/.test(s)), "the tip is spoken once: " + W.said().join(" | "));
+  assert.equal(W.said().filter((s) => /No need to watch the screen/.test(s)).length, 1);
+  assert.ok(W.said().includes("Or press Take photo."));
+  // (owner 2026-11-17) the sentence is said ONCE; a reminder is a short nudge, ever further apart (7, 10.5, 14 … s)
+  assert.equal(W.said().filter((s) => s === "Now turn your head slowly to your left.").length, 1, "the whole sentence once: " + W.said().join(" | "));
+  const nudges = W.said().filter((s) => s === "Keep turning to your left.").length;
+  assert.ok(nudges >= 1 && nudges <= 3, "nudges in 30 s: " + nudges);
+  assert.ok(!W.said().some((s) => /^(Five|Four|Three|Two|One)\.$/.test(s)), "nothing is counted aloud");
   assert.equal(W.captionShown(), false, "spoken (the device voice): no caption");
   const badge = W.nodes().find((n) => n.props && n.props.className === "cameo-anglebadge");
-  assert.equal(textOf(badge), "Now: Your left · optional");
+  assert.equal(textOf(badge), "Next: turn to your left (optional)");
   const arrow = W.nodes().find((n) => n.props && /^cameo-turn-arrow left/.test(n.props.className || ""));
   assert.ok(arrow, "an arrow on the left edge");
   assert.equal(textOf(W.slot("left")).trim(), "← Your left");
-  assert.equal(W.slot("left").props.title, "Capture: Turned to your left");
+  assert.equal(W.slot("left").props.title, "Take this one: Turned to your left");
   assert.equal(W.slot("front").props.title, "Click × to take this one again");
   assert.equal(textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-note")),
-    "The pose check runs on this device — the camera picture isn't sent anywhere while you pose. Only the photos you lock are kept, as face references for this character's images.");
+    "The pose check runs on this device — the camera picture isn't sent anywhere while you pose. Only the photos you keep are saved, as face references for this character's images.");
   assert.ok(!byRole(W.root.tree, "flip-fix"), "a still front face on a side target is 'not turned', never 'wrong way': no flipped-camera offer");
   assert.equal(W.nodes().find((n) => n.props && n.props.className === "cameo-stage").props["data-engine"], "ready");
   W.root.unmount();
 });
 
-await test("I2 + I3 the owner's flow, part 2: +35 fills the left slot after ≥ 5.0 s; held there 30 s the right slot stays empty ('That's your left — …'); −35 fills it and all three are done", async () => {
+await test("I2 + I3 the owner's flow, part 2: +35 fills the left slot after ≥ 2.0 s (no count: 'Hold it there', the tone, 'got it'); held there 30 s the right slot stays empty ('That's your left — …'); −35 fills it and all three are done", async () => {
   const W = mountWindow();
   await W.settle();
   await W.until(() => W.shots().front, 6000, "Front");
@@ -986,12 +1003,16 @@ await test("I2 + I3 the owner's flow, part 2: +35 fills the left slot after ≥ 
   W.scene.pose = P0({ yaw: 35 });
   const turned = W.simT;
   const tLeft = await W.until(() => W.shots().left, 9000, "left");
-  assert.ok(tLeft - turned >= 5000 && tLeft - turned <= 6500, "left after " + (tLeft - turned) + " ms");
+  assert.ok(tLeft - turned >= 2000 && tLeft - turned <= 3500, "left after " + (tLeft - turned) + " ms");
   assert.equal(W.sources().left, "webcam");
-  assert.ok(W.said().some((s) => s === "Hold it there."), "hold start is said");
-  const fromHold = W.said().slice(W.said().lastIndexOf("Hold it there."));
-  assert.deepEqual(fromHold.slice(0, 7), ["Hold it there.", "Five.", "Four.", "Three.", "Two.", "One.", "Got it."], "the whole count, in order, then the photo: " + W.said().join(" | "));
+  assert.ok(W.said().some((s) => s === "That's it. Hold it there."), "reaching the pose is said: " + W.said().join(" | "));
+  const fromHold = W.said().slice(W.said().lastIndexOf("That's it. Hold it there."));
+  // (owner 2026-11-17) no count: straight from the hold to the photo, and "got it" in another of its ways
+  assert.deepEqual(fromHold.slice(0, 2), ["That's it. Hold it there.", "Lovely, got it."], "the hold, then the photo: " + W.said().join(" | "));
+  assert.ok(!W.said().some((s) => /^(Five|Four|Three|Two|One)\.$/.test(s)), "nothing is counted aloud");
+  assert.equal(W.said().filter((s) => s === "Got it.").length, 1, "Front's was the first way of saying it");
   await W.pump(30000);
+  assert.ok(W.said().includes("Now turn your head slowly to your right."), "the next step follows 'got it'");
   assert.equal(W.shots().right, undefined, "still at +35: the right slot stays empty");
   assert.equal(W.cueKey(), "wrong-way");
   assert.equal(W.cueText(), "That's your left — turn the other way, to your right");
@@ -1001,15 +1022,15 @@ await test("I2 + I3 the owner's flow, part 2: +35 fills the left slot after ≥ 
   W.scene.pose = P0({ yaw: -35 });
   const back = W.simT;
   const tRight = await W.until(() => W.shots().right, 9000, "right");
-  assert.ok(tRight - back >= 5000, "right after " + (tRight - back));
+  assert.ok(tRight - back >= 2000, "right after " + (tRight - back));
   await W.pump(500);
   assert.equal(W.cueKey(), "complete");
-  assert.ok(W.said().some((s) => /All three done/.test(s)), W.said().slice(-3).join(" | "));
+  assert.ok(W.said().some((s) => /^That's all three\. Have a look, and press Use this face/.test(s)), W.said().slice(-3).join(" | "));
   assert.deepEqual(Object.keys(W.shots()).sort(), ["front", "left", "right"]);
   W.root.unmount();
 });
 
-await test("I4 resets: 600 ms with no face resets the hold (5.0 s again from the return); 300 ms doesn't", async () => {
+await test("I4 resets: 600 ms with no face resets the hold (2.0 s again from the return); 300 ms doesn't", async () => {
   const run = async (gapMs) => {
     const W = mountWindow();
     await W.settle();
@@ -1018,7 +1039,7 @@ await test("I4 resets: 600 ms with no face resets the hold (5.0 s again from the
     W.scene.pose = P0({ yaw: 35 });
     await W.until(() => W.cueKey() === "holding", 3000, "holding");
     const holdAt = W.simT;
-    await W.pump(2000);
+    await W.pump(1000);
     W.scene.pose = null;
     await W.pump(gapMs);
     W.scene.pose = P0({ yaw: 35 });
@@ -1028,21 +1049,21 @@ await test("I4 resets: 600 ms with no face resets the hold (5.0 s again from the
     return { fromHold: t - holdAt, fromBack: t - back };
   };
   const long = await run(600);
-  assert.ok(long.fromBack >= 5000, "reset: " + JSON.stringify(long));
+  assert.ok(long.fromBack >= 2000, "reset: " + JSON.stringify(long));
   const short = await run(300);
-  assert.ok(short.fromHold >= 5000 && short.fromHold <= 5300, "no reset: " + JSON.stringify(short));
+  assert.ok(short.fromHold >= 2000 && short.fromHold <= 2400, "no reset: " + JSON.stringify(short));
 });
 
-await test("I5 the pose check can't start: a plain note; Front still takes itself after 3 s held (the simple steady-and-lit check, on a textured frame); the sides NEVER do, even on a steady, lit, slowly drifting picture — Capture now asks 'The pose couldn't be checked' and saves the frame it asked about", async () => {
+await test("I5 the pose check can't start: a plain note; Front still takes itself after 1.5 s held (the simple steady-and-lit check, on a textured frame); the sides NEVER do, even on a steady, lit, slowly drifting picture — Take photo asks 'The pose couldn't be checked' and saves the frame it asked about", async () => {
   const W = mountWindow({ load: async () => { const e = new Error("x"); e.code = "unsupported"; throw e; } });
   await W.settle(); await W.pump(100);
   const t0 = W.simT;
   const note = W.nodes().find((n) => n.props && /^cameo-note/.test(n.props.className || ""));
   assert.equal(note.props.className, "cameo-note warn");
-  assert.equal(textOf(note), "Automatic side photos are off — the pose check couldn't start in this browser. Turn as the sketch shows, then press Capture now.");
-  assert.equal(byRole(W.root.tree, "auto").props.title, "Automatic capture works for Front only on this device");
+  assert.equal(textOf(note), "Automatic side photos are off — the pose check couldn't start in this browser. Turn as the sketch shows, then press Take photo.");
+  assert.equal(byRole(W.root.tree, "auto").props.title, "Automatic photos work for Front only on this device");
   const tFront = await W.until(() => W.shots().front, 6000, "Front by the simple check");
-  assert.ok(tFront - t0 >= 3000 && tFront - t0 <= 3400, "Front after " + (tFront - t0) + " ms");
+  assert.ok(tFront - t0 >= 1500 && tFront - t0 <= 1900, "Front after " + (tFront - t0) + " ms");
   await W.pump(400);
   assert.equal(W.inst().h[6].v, 1, "on to the person's left");
   W.scene.pose = P0({ yaw: 35 });
@@ -1050,8 +1071,8 @@ await test("I5 the pose check can't start: a plain note; Front still takes itsel
   assert.equal(W.shots().left, undefined, "never automatic (the old check took this picture as every angle)");
   assert.equal(W.shots().right, undefined);
   assert.equal(W.cueKey(), "unavailable-side");
-  assert.equal(W.cueText(), "Turn your head to your left, then press Capture now");
-  assert.equal(W.said().filter((s) => s === "Turn your head to your left, then press Capture now.").length, 1, "said once for this angle");
+  assert.equal(W.cueText(), "Turn your head to your left, then press Take photo");
+  assert.equal(W.said().filter((s) => s === "Turn your head to your left, then press Take photo.").length, 1, "said once for this angle");
   assert.equal(W.eng.detects, 0);
   W.answers.push(false);
   await byRole(W.root.tree, "capture-now").props.onClick(); await W.pump(100);
@@ -1243,7 +1264,7 @@ await test("I11b the saved-photo check marks only a real mistake (owner 2026-10-
   assert.deepEqual(await run({ [L]: P0({ yaw: 4 }), [R]: P0({ yaw: 30 }) }), { front: "ok", left: "mismatch", right: "mismatch" });
   assert.equal((await run({ [F]: P0({ yaw: 25 }), [L]: P0({ yaw: 35 }), [R]: P0({ yaw: -35 }) })).front, "mismatch");
 });
-await test("I14 the owner's saved likeness (all three slots, both sides really front views): the window opens on the first marked photo and says so; the set is not 'all three done'; Lock asks first", async () => {
+await test("I14 the owner's saved likeness (all three slots, both sides really front views): the window opens on the first marked photo and says so; the set is not 'all three done'; Use this face asks first", async () => {
   const W = mountWindow({ saved: SAVED3, auditPoses: { "data:image/jpeg;base64,RlJPTlQ=": P0(), "data:image/jpeg;base64,TEVGVA==": P0({ yaw: 1 }), "data:image/jpeg;base64,UklHSFQ=": P0({ yaw: -1 }) } });
   await W.settle(); await W.pump(500);
   assert.deepEqual(["front", "left", "right"].map((k) => W.slot(k).props["data-check"]), ["ok", "mismatch", "mismatch"]);
@@ -1258,12 +1279,12 @@ await test("I14 the owner's saved likeness (all three slots, both sides really f
   W.answers.push(false);
   await lock.props.onClick(); await W.pump(100);
   assert.equal(W.confirms.length, 1);
-  assert.deepEqual([W.confirms[0].title, W.confirms[0].confirmLabel, W.confirms[0].cancelLabel, W.confirms[0].safeDefault], ["Two photos look like the wrong angle", "Lock anyway", "Retake first", true]);
+  assert.deepEqual([W.confirms[0].title, W.confirms[0].confirmLabel, W.confirms[0].cancelLabel, W.confirms[0].safeDefault], ["Two photos look like the wrong angle", "Use them anyway", "Retake first", true]);
   assert.deepEqual(plainify(W.confirms[0].items), ["“Your left” shows a front view", "“Your right” shows a front view"]);
-  assert.equal(W.saves.length, 0, "Retake first: nothing locked");
+  assert.equal(W.saves.length, 0, "Retake first: nothing saved");
   W.answers.push(true);
   await byRole(W.root.tree, "lock").props.onClick(); await W.settle();
-  assert.equal(W.saves.length, 1, "Lock anyway: locked");
+  assert.equal(W.saves.length, 1, "Use them anyway: saved");
   assert.deepEqual(plainify(W.saves[0].angles.map((a) => a.label)), ["Front", "¾ Left", "¾ Right"], "the stored labels are unchanged");
   // retaking the left one live: the marked right is next, then the set is complete
   const R = mountWindow({ saved: SAVED3, auditPoses: { "data:image/jpeg;base64,RlJPTlQ=": P0(), "data:image/jpeg;base64,TEVGVA==": P0({ yaw: 1 }), "data:image/jpeg;base64,UklHSFQ=": P0({ yaw: -1 }) } });
@@ -1431,7 +1452,7 @@ await test("I17 Capture now asks about what matters even when the pose fits: a s
   W.root.unmount();
 });
 
-await test("I18 a hold can't be completed by time nobody saw: a hidden tab, an open question, the check restarting — each needs a full new 5 s afterwards", async () => {
+await test("I18 a hold can't be completed by time nobody saw: a hidden tab, an open question, the check restarting — each needs a full new hold (2 s) afterwards", async () => {
   const hold = async (W) => { click(W.slot("left")); await W.pump(200); W.scene.pose = P0({ yaw: 35 }); await W.until(() => W.cueKey() === "holding", 3000, "holding"); };
   // the tab hidden for 10 s (no animation frames) after 1 s held
   let W = mountWindow();
@@ -1439,11 +1460,11 @@ await test("I18 a hold can't be completed by time nobody saw: a hidden tab, an o
   await W.pause(10000);
   let back = W.simT;
   let t = await W.until(() => W.shots().left, 9000, "left after the tab came back");
-  assert.ok(t - back >= 5000, "hidden tab: " + (t - back) + " ms after it came back");
+  assert.ok(t - back >= 2000, "hidden tab: " + (t - back) + " ms after it came back");
   W.root.unmount();
-  // a question open for 4 s after 2 s held (a one-frame face blip, Capture now → "No face found", cancelled)
+  // a question open for 4 s after 1 s held (a one-frame face blip, Take photo → "No face found", cancelled)
   W = mountWindow();
-  await W.settle(); await hold(W); await W.pump(2000);
+  await W.settle(); await hold(W); await W.pump(1000);
   W.scene.pose = null; await W.pump(100);
   W.defer = true;
   W.key("c"); await W.pump(100);
@@ -1452,22 +1473,22 @@ await test("I18 a hold can't be completed by time nobody saw: a hidden tab, an o
   W.pendingAnswer(false); await W.settle(); W.defer = false;
   back = W.simT;
   t = await W.until(() => W.shots().left, 9000, "left after the question");
-  assert.ok(t - back >= 5000, "question: " + (t - back) + " ms after it closed");
+  assert.ok(t - back >= 2000, "question: " + (t - back) + " ms after it closed");
   W.root.unmount();
   // the detector fails mid-hold and is started again (4 s)
   let n = 0, R;
   R = mountWindow({ load: () => { n++; R.loads++; R.eng.closed = false; return n === 1 ? Promise.resolve(R.eng) : new Promise((r) => R.box.setTimeout(() => r(R.eng), 4000)); } });
-  await R.settle(); await hold(R); await R.pump(2000);
+  await R.settle(); await hold(R); await R.pump(1000);
   R.eng.throwNext = true; await R.pump(200);
   assert.equal(R.loads, 2, "restarted once, quietly");
   await R.until(() => R.nodes().find((n) => n.props && n.props.className === "cameo-stage").props["data-engine"] === "ready", 6000, "ready again");
   back = R.simT;
   t = await R.until(() => R.shots().left, 9000, "left after the restart");
-  assert.ok(t - back >= 5000, "restart: " + (t - back) + " ms after it came back");
+  assert.ok(t - back >= 2000, "restart: " + (t - back) + " ms after it came back");
   R.root.unmount();
 });
 
-await test("I19 a second face the detector sees only every other frame never lets the left slot fill (15 s); gone, it fills after 1.5 s + 5 s", async () => {
+await test("I19 a second face the detector sees only every other frame never lets the left slot fill (15 s); gone, it fills after 1.5 s + 2 s", async () => {
   const W = mountWindow();
   await W.settle();
   click(W.slot("left")); await W.pump(200);
@@ -1477,17 +1498,17 @@ await test("I19 a second face the detector sees only every other frame never let
   W.scene.o = {};
   const gone = W.simT;
   const t = await W.until(() => W.shots().left, 9000, "left");
-  assert.ok(t - gone >= 6400 && t - gone <= 6800, "after " + (t - gone));
+  assert.ok(t - gone >= 3400 && t - gone <= 3800, "after " + (t - gone));
   W.root.unmount();
 });
 
 /* ═══ V. spoken guidance (2026-10-10, owner — Likeness voice guidance: "once the head is turned you can't read the
    screen … every instruction spoken in a natural voice") ═══ */
 const FULL_MANIFEST = { voice: "test", clips: Object.fromEntries(FP.VOICE_LINES.map((l) => [l.id, { text: l.text }])) };
-const CLIP_BASE = "http://127.0.0.1:1/app/vendor/voice/frances-guide/v1/";
+const CLIP_BASE = "http://127.0.0.1:1/app/vendor/voice/frances-guide/v2/";
 const textFor = (id) => FP.VOICE_LINES.find((l) => l.id === id).text;
 
-await test("V1 VOICE_LINES covers every instruction the window can give (every cue × target × engine × flag, every tip, the count, the next steps): unique kebab ids, short spoken lines, no names; every clip is used", () => {
+await test("V1 VOICE_LINES covers every instruction the window can give (every cue × target × engine × flag, every tip, the hold, the nudges, the next steps): unique kebab ids, short spoken lines, no names, no numbers; every clip is used", () => {
   const ids = FP.VOICE_LINES.map((l) => l.id), known = new Set(ids), used = new Set();
   assert.equal(known.size, ids.length, "unique ids");
   for (const l of FP.VOICE_LINES){
@@ -1495,11 +1516,11 @@ await test("V1 VOICE_LINES covers every instruction the window can give (every c
     assert.ok(l.text.length >= 3 && l.text.length <= 110 && /[.?!]$/.test(l.text), "a short sentence: " + l.text);
     assert.ok(!/[—…×!]|\{/.test(l.text.replace(/!$/, "")), "plain spoken words (no dashes, symbols or placeholders): " + l.text);
   }
-  assert.equal(FP.VOICE_DIR, "app/vendor/voice/frances-guide/v1/");
+  assert.equal(FP.VOICE_DIR, "app/vendor/voice/frances-guide/v2/", "the second script has a folder of its own");
   const use = (list, what) => { assert.ok(Array.isArray(list) && list.length, what + ": nothing to say"); for (const id of list){ assert.ok(known.has(id), what + ": no clip " + id); used.add(id); } };
   const T3 = ["front", "left", "right"], ENG = ["ready", "unavailable", "loading"];
   for (const key of Object.keys(FP.CUES)) for (const t of T3) for (const engine of ENG) for (const next of [null, "front", "left", "right"])
-    use(FP.voiceCueIds(key, t, { engine, next, secsLeft: t === "front" ? 3 : 5 }), key + "/" + t + "/" + engine);
+    use(FP.voiceCueIds(key, t, { engine, next }), key + "/" + t + "/" + engine);
   const flagsList = [{}, { allDone: true }, { allDone: true, mismatchCount: 2 }, { allDone: true, mismatchCount: 1 }, { mismatch: true, measured: "front" }, { slow: true }];
   for (const phase of ["camera", "loading", "wait", "holding", "settle", "filled", "manual", "arming"]) for (const reason of [null, ...Object.keys(FP.CUES)])
     for (const t of T3) for (const engine of ENG) for (const flags of flagsList){
@@ -1509,18 +1530,29 @@ await test("V1 VOICE_LINES covers every instruction the window can give (every c
       assert.equal(typeof c.once, "boolean");
     }
   for (const g of Object.keys(FP.HINTS)) for (const t of T3){ const h = FP.voiceHintIds(g, t); use(h, "tip " + g); assert.equal(h[h.length - 1], "or-capture-now"); }
-  for (const n of [1, 2, 3, 4, 5]) use([FP.voiceCountId(n)], "count " + n);
-  for (const t of T3) for (const r of [false, true]) use(FP.voiceHoldIds(t, t === "front" ? 3 : 5, r), "hold " + t);
+  // (owner 2026-11-17) nothing is counted: no number has a clip, and the old helper is gone
+  assert.equal(FP.voiceCountId, undefined);
+  assert.deepEqual(plainify(ids.filter((id) => /^(one|two|three|four|five)$/.test(id))), [], "no numbers to say");
+  assert.ok(!FP.VOICE_LINES.some((l) => /\b(one|two|three|four|five)\b[.,]/i.test(l.text) && !/all three/i.test(l.text)), "no count in any line");
+  for (const t of T3) for (const r of [false, true]) use(FP.voiceHoldIds(t, r), "hold " + t);
+  // every way of saying a frequent line, and every reminder's nudge
+  for (const [first, ways] of Object.entries(FP.VOICE_VARIANTS)){ assert.equal(ways[0], first, "the first way is the line itself"); assert.ok(ways.length >= 2); use(plainify(ways), "ways of " + first); }
+  for (const key of Object.keys(FP.VOICE_NUDGE)) for (const t of T3){ const n = FP.voiceNudgeIds(key, t); use(n, "nudge " + key);
+    assert.ok(n.every((id) => textFor(id).length < (FP.voiceCueIds(key, t) || []).map(textFor).join(" ").length), "a nudge is shorter than its sentence: " + key); }
+  assert.equal(FP.voiceNudgeIds("more", "left"), null, "a cue with no nudge repeats (in another of its ways)");
   for (const next of [null, "front", "left", "right"]) for (const e of ENG) use(FP.voiceNextIds(next, e), "next " + next);
   use(["no-pose-check"], "the pose check can't start (said once)"); use(["check-mirror"], "the mirror check is offered");
   assert.deepEqual(plainify(ids.filter((id) => !used.has(id))), [], "every clip is said somewhere");
   // the words fit the screen: the same side, the same count
   assert.deepEqual(plainify(FP.voiceCueIds("wrong-way", "right")), ["wrong-way-right"]); assert.match(textFor("wrong-way-right"), /That's your left/);
-  assert.deepEqual(plainify(FP.voiceHoldIds("left", 5)), ["hold-it-there", "five"]); assert.deepEqual(plainify(FP.voiceHoldIds("front", 3)), ["hold-still", "three"]);
-  assert.deepEqual(plainify(FP.voiceHoldIds("left", 5, true)), ["hold-still", "five"], "a count restarted after a small move");
+  assert.deepEqual(plainify(FP.voiceHoldIds("left")), ["hold-it-there"]); assert.deepEqual(plainify(FP.voiceHoldIds("front")), ["hold-still"]);
+  assert.deepEqual(plainify(FP.voiceHoldIds("left", true)), ["hold-again"], "a hold that started over after a small move");
+  assert.deepEqual([textFor("hold-it-there"), textFor("hold-still"), textFor("hold-again")], ["That's it. Hold it there.", "Lovely. Hold still.", "Nearly. Hold still for me."]);
+  assert.deepEqual(plainify(FP.cueFor({ phase: "wait", reason: "not-turned" }, null, "right", {}).nudge), ["keep-turning-right"]);
   assert.deepEqual(plainify(FP.voiceCueIds("chin-down", "left")), ["chin-level"], "a side: keep your chin level");
   assert.deepEqual(plainify(FP.voiceCueIds("chin-down", "front")), ["lift-chin"]);
-  assert.equal(textFor("no-pose-check"), "I can't check your pose here. Turn as the sketch shows, then press Capture now.");
+  assert.equal(textFor("no-pose-check"), "I can't check your pose on this device. Turn as the sketch shows, then press Take photo.");
+  assert.ok(!/Capture now|lock/i.test(FP.VOICE_LINES.map((l) => l.text).join(" ")), "the words on the buttons today");
   const all = FP.VOICE_LINES.map((l) => l.text).join("\n");
   assert.ok(!VENDOR_RE.test(all) && !/\bTURN\b|\bMUSE\b/.test(all) && !/Cinema ?Machine|Frances|McKee|Claude|Anthropic|OpenAI/i.test(all), "no names in what is said");
   assert.deepEqual(JSON.parse(JSON.stringify(FP.VOICE_LINES)).map((l) => Object.keys(l).join(",")), plainify(ids).map(() => "id,text"), "plain { id, text } data for the recorder");
@@ -1528,7 +1560,7 @@ await test("V1 VOICE_LINES covers every instruction the window can give (every c
 
 /* a guide on a fake clock: recorded clips (fake-audio), the device voice (spoken for 400 ms) */
 function guideRig(o = {}){
-  const R = { t: 0, timers: [], spoken: [], cancels: 0, status: [], loaded: [], released: [], speechOk: o.speech !== false };
+  const R = { t: 0, timers: [], spoken: [], cancels: 0, status: [], loaded: [], released: [], tones: [], speechOk: o.speech !== false };
   R.setTimeout = (fn, ms) => { R.timers.push({ at: R.t + (ms || 0), fn, done: false }); return R.timers.length; };
   R.clearTimeout = (id) => { const x = R.timers[id - 1]; if (x) x.done = true; };
   R.audio = o.audio === false ? null : makeAudioEnv({ files: o.files, autoplay: o.autoplay, playMs: o.playMs || 600, setTimeout: R.setTimeout, now: () => R.t });
@@ -1538,7 +1570,8 @@ function guideRig(o = {}){
     releaseClip: (u) => R.released.push(u),
     loadManifest: () => o.manifestPromise || Promise.resolve(o.manifest === undefined ? FULL_MANIFEST : o.manifest),
     speak: (text, done) => { if (!R.speechOk) return false; R.spoken.push(text); R.setTimeout(() => done(true), 400); return true; },
-    cancelSpeech: () => { R.cancels++; }, canSpeak: () => R.speechOk, onStatus: (st) => R.status.push(st) });
+    cancelSpeech: () => { R.cancels++; }, canSpeak: () => R.speechOk, onStatus: (st) => R.status.push(st),
+    ...(o.tone === false ? {} : { tone: () => { R.tones.push(R.t); return true; } }) });
   R.flush = async () => { for (let i = 0; i < 4; i++) await macro(); };
   R.advance = async (ms) => {
     const end = R.t + ms;
@@ -1554,60 +1587,118 @@ function guideRig(o = {}){
   return R;
 }
 
-await test("V2 the player's rules: one clip at a time; the same words not again within 4 s; a new instruction interrupts a stale one; the countdown plays in order and a 'hold still' never cuts it; 'Got it' interrupts everything; reminders after 6 s, then further apart", async () => {
+await test("V2 the player's rules (owner 2026-11-17: she finishes her sentences and says less): one clip at a time, at its own speed; the same words not again within 4 s; a correction never cuts a sentence — it waits, and only the newest one waiting is kept; a beat of quiet between two corrections; reaching the pose fades an instruction out unless it is about to end; 'Got it' fades everything out and comes after the tone; a frequent line is said in each of its ways in turn; a reminder is a short nudge, 7 s then further apart", async () => {
   const R = guideRig({ playMs: 2000 });
   R.g.preload(); await R.flush();
   assert.deepEqual(R.loaded, plainify(FP.VOICE_LINES.map((l) => CLIP_BASE + l.id + ".mp3")), "every clip preloaded when the window opens, from the clips folder");
   assert.equal(R.audio.created.length, 1, "one audio element plays them all");
   assert.ok(R.audio.created[0].preload === "auto" && R.audio.created[0].volume === 0.7, "a moderate volume");
-  assert.equal(R.g.say(["move-closer"]), true); await R.flush();
+  assert.equal(R.g.say(["move-closer"]), true); await R.flush();                                   // 0 … 2000
   assert.deepEqual(R.clips(), ["move-closer"]); assert.equal(R.g.state.via, "clip");
+  assert.equal(R.audio.plays[0].rate, 1, "at its own speed (the first script played every line 15-30 % fast)");
   await R.advance(1000);
   assert.equal(R.g.say(["move-closer"]), false, "the same words 1 s later: not again");
-  await R.advance(3100);
-  assert.equal(R.g.say(["move-closer"]), true, "after 4 s it may be said again"); await R.flush();
-  // a new instruction interrupts the stale one
-  await R.advance(300);
-  R.g.say(["move-back"]); await R.flush();
-  assert.equal(R.g.state.playing, "move-back"); assert.equal(R.rows().filter((r) => r.id === "move-closer").pop().cut, true, "the stale line was cut");
-  assert.deepEqual(R.audio.playing(), ["move-back"], "one clip at a time");
-  // the countdown interrupts a stale line, plays in order, and isn't cut by "hold still"
-  await R.advance(500);
-  R.g.say(FP.voiceHoldIds("left", 5), { kind: "count" }); await R.flush();
-  assert.equal(R.g.state.playing, "hold-it-there"); assert.deepEqual(plainify(R.g.state.queue), ["five"]);
-  await R.advance(1000); R.g.say(["four"], { kind: "count" });
-  assert.equal(R.g.say(["hold-still"]), false, "a 'hold still' during the count is dropped"); await R.flush();
-  assert.equal(R.g.state.playing, "hold-it-there", "…and the count isn't cut");
-  await R.advance(1000); R.g.say(["three"], { kind: "count" }); await R.flush();
-  await R.advance(10000);
-  // (2026-10-10) a number that's already late is skipped for the newest one, so the voice stays on the real count:
-  // with 2 s clips "five" was still waiting when "four" came, so it was skipped; the order never goes backwards
-  assert.deepEqual(R.clips().slice(-4), ["move-back", "hold-it-there", "four", "three"], "in order, late numbers skipped: " + R.clips().join(" "));
-  assert.ok(R.audio.created[0].playbackRate === 1.3 || R.audio.created[0].playbackRate == null, "numbers play a little faster to keep up");
-  // "Got it" interrupts everything, the queue included
-  R.g.say(["two"], { kind: "count" }); R.g.say(["one"], { kind: "count" }); await R.flush();
-  R.g.say(["got-it", "turn-right"], { kind: "now" }); await R.flush();
-  assert.equal(R.g.state.playing, "got-it"); assert.deepEqual(plainify(R.g.state.queue), ["turn-right"], "the numbers still waiting are gone");
+  // a correction never cuts the sentence being said: it waits, and only the newest one waiting is kept
+  R.g.say(["move-back"]); R.g.say(["eyes-open"]); await R.flush();
+  assert.equal(R.g.state.playing, "move-closer", "she finishes her sentence");
+  assert.deepEqual(plainify(R.g.state.queue), ["eyes-open"], "the newest correction waits; the one before it is forgotten");
+  await R.advance(1000);                                                                           // t = 2000: the sentence ended
+  assert.equal(R.rows().find((r) => r.id === "move-closer").cut, false, "said to the end");
+  assert.equal(R.g.state.playing, null, "a beat of quiet before the next correction");
+  await R.advance(800); assert.equal(R.g.state.playing, null, "0.8 s later: still the beat");
+  await R.advance(200); assert.equal(R.g.state.playing, "eyes-open", "0.9 s after the last word");  // 2900 … 4900
+  assert.ok(!R.clips().includes("move-back"));
+  // reaching the pose: an instruction with a way to go is faded out (not chopped), then "That's it. Hold it there."
+  await R.advance(500);                                                                            // t = 3500, 1.4 s of it left
+  assert.equal(R.g.say(FP.voiceHoldIds("left"), { kind: "hold" }), true); await R.flush();
+  assert.equal(R.g.state.fading, true); assert.deepEqual(R.audio.playing(), ["eyes-open"], "still sounding, quieter");
+  assert.ok(Math.abs(R.audio.created[0].volume - 0.28) < 1e-9, "turned down to fade: " + R.audio.created[0].volume);
+  await R.advance(120);
+  assert.equal(R.rows().find((r) => r.id === "eyes-open").cut, true);
+  assert.deepEqual(R.audio.playing(), ["hold-it-there"], "one clip at a time"); assert.equal(R.audio.plays[R.audio.plays.length - 1].volume, 0.7, "back at full level");
+  assert.equal(R.g.say(FP.voiceHoldIds("left"), { kind: "hold" }), false, "the hold line is not said twice within 4 s (a hold that starts over at once)");
+  await R.advance(2000);                                                                           // hold-it-there ended at 5620
+  // …but an instruction that is about to end anyway is left to end
+  R.g.say(["move-back"]); await R.advance(900);                                                    // starts at 6520 (the beat), ends 8520
+  assert.equal(R.g.state.playing, "move-back");
+  await R.advance(1480);                                                                           // t = 8000: half a second of it left
+  R.g.say(FP.voiceHoldIds("front"), { kind: "hold" }); await R.flush();
+  assert.equal(R.g.state.playing, "move-back", "half a second left: she finishes"); assert.equal(R.g.state.fading, false);
+  await R.advance(520);
+  assert.equal(R.rows().filter((r) => r.id === "move-back").pop().cut, false);
+  assert.equal(R.g.state.playing, "hold-still", "no beat before the hold line");                    // 8520 … 10520
+  // "Got it": whatever is being said fades out, the tone sounds, then the words; what was waiting is gone
+  await R.advance(480);                                                                            // t = 9000
+  R.g.say(["chin-level"]);
+  R.g.say(["got-it", "turn-right"], { kind: "now", tone: true }); await R.flush();
+  assert.deepEqual(R.tones, [], "the tone waits for the fade");
+  await R.advance(120);
+  assert.deepEqual(R.tones, [9120], "the tone of the photo"); assert.equal(R.g.state.playing, null, "nothing over the tone");
+  await R.advance(220);
+  assert.equal(R.g.state.playing, "got-it"); assert.deepEqual(plainify(R.g.state.queue), ["turn-right"], "the correction that was waiting is gone");
+  assert.equal(R.g.state.tones, 1);
   await R.advance(5000);
-  assert.deepEqual(R.clips().slice(-3), ["two", "got-it", "turn-right"]);
-  // the hold broke: numbers still waiting are dropped, the one being said finishes
-  R.g.say(["hold-still", "three"], { kind: "count" }); await R.flush(); R.g.dropCount();
-  assert.deepEqual(plainify(R.g.state.queue), []); await R.advance(3000);
-  // cue(): said on a change; the same instruction only as a reminder — 6 s, then 9, 12, 15 s — while nothing else is said
-  const at = [];
-  R.g.cue("not-turned|left", ["turn-left"]); await R.flush(); at.push(R.t);
-  for (let i = 0; i < 600; i++){ await R.advance(100); if (R.g.cue("not-turned|left", ["turn-left"])) at.push(R.t); }
+  assert.deepEqual(R.clips().slice(-3), ["hold-still", "got-it", "turn-right"], "no beat inside 'Got it. Now turn …': " + R.clips().join(" "));
+  // "Got it" in each of its ways, in turn (a line said three times a session shouldn't sound like a recording)
+  const ways = [];
+  for (let i = 0; i < 4; i++){ R.g.say(["got-it"], { kind: "now" }); await R.flush(); ways.push(R.g.state.playing); await R.advance(2500); }
+  assert.deepEqual(ways, ["got-it-2", "got-it-3", "got-it", "got-it-2"]);
+  assert.equal(R.tones.length, 1, "no tone unless a photo was taken");
+  // cue(): said when it changes; a reminder is the cue's short nudge — after 7 s, then 10.5, 14, 17.5, then every 20 s
+  const at = [], n1 = R.clips().length;
+  R.g.cue("not-turned|left", ["turn-left"], { nudge: ["keep-turning-left"] }); await R.flush(); at.push(R.t);
+  for (let i = 0; i < 1000; i++){ await R.advance(100); if (R.g.cue("not-turned|left", ["turn-left"], { nudge: ["keep-turning-left"] })) at.push(R.t); }
   const gaps = at.slice(1).map((x, i) => x - at[i]);
-  assert.ok(gaps.length >= 4, "reminders: " + gaps);
-  assert.ok(gaps[0] >= 6000 && gaps[0] < 6300 && gaps[1] >= 9000 && gaps[2] >= 12000 && gaps.slice(3).every((g) => g >= 15000 && g < 15300), "6, 9, 12, 15 s: " + gaps);
+  assert.ok(gaps.length >= 5, "reminders: " + gaps);
+  assert.ok(gaps[0] >= 7000 && gaps[0] < 7300 && gaps[1] >= 10500 && gaps[2] >= 14000 && gaps[3] >= 17500 && gaps.slice(4).every((g) => g >= 20000 && g < 20300), "7, 10.5, 14, 17.5, 20 s: " + gaps);
+  const since = R.clips().slice(n1);
+  assert.equal(since[0], "turn-left"); assert.ok(since.slice(1).every((id) => id === "keep-turning-left"), "the sentence once, then the nudge: " + since.join(" "));
+  // a cue with no nudge of its own says its line again, in another of its ways
+  const n2 = R.clips().length;
+  R.g.cue("more|left", ["a-little-further"]); await R.flush();
+  for (let i = 0; i < 200; i++){ await R.advance(100); R.g.cue("more|left", ["a-little-further"]); }
+  assert.deepEqual(R.clips().slice(n2, n2 + 3), ["a-little-further", "a-little-further-2", "a-little-further-3"]);
   // a cue said once (the person acts on it) is never repeated
   const n0 = R.clips().length;
   R.g.cue("complete|front", ["all-done"], { remind: false }); await R.advance(30000);
   for (let i = 0; i < 20; i++){ R.g.cue("complete|front", ["all-done"], { remind: false }); await R.advance(1000); }
   assert.equal(R.clips().length - n0, 1, "said once");
+  // the instruction changed while a correction was still waiting: the stale correction is never said
+  R.g.say(["tip-turn"]); await R.advance(1000);
+  R.g.cue("far|front", ["move-closer"], { nudge: ["bit-closer"] });
+  assert.deepEqual(plainify(R.g.state.queue), ["move-closer"]);
+  R.g.cue("holding|front", null);
+  assert.deepEqual(plainify(R.g.state.queue), [], "it belonged to the last instruction");
+  await R.advance(5000);
   // a change back to a line said a moment ago in "Got it …" isn't said twice
   R.g.say(["got-it", "turn-left"], { kind: "now" }); await R.advance(300);
   assert.equal(R.g.cue("not-turned|left#2", ["turn-left"]), false, "just said inside 'Got it. Now turn …'");
+  R.g.close();
+});
+
+await test("V5 every clip plays from where its sound starts and at an even level (the manifest's lead and gain, measured when it was recorded); no tone where the browser has none", async () => {
+  const man = JSON.parse(JSON.stringify(FULL_MANIFEST));
+  man.clips["look-straight"] = { ...man.clips["look-straight"], lead: 0.66, gain: 1.2 };       // a late, quiet clip
+  man.clips["too-bright"] = { ...man.clips["too-bright"], lead: 0, gain: 0.8 };               // a loud one
+  man.clips["eyes-open"] = { ...man.clips["eyes-open"], lead: -3, gain: 9 };                  // nonsense is not followed
+  let R = guideRig({ manifest: man, playMs: 500 });
+  R.g.preload(); await R.flush();
+  R.g.say(["look-straight"]); await R.advance(2000);
+  R.g.say(["too-bright"]); await R.advance(2000);
+  R.g.say(["move-back"]); await R.advance(2000);
+  R.g.say(["eyes-open"]); await R.advance(2000);
+  const by = Object.fromEntries(R.audio.plays.map((p) => [p.id, p]));
+  assert.equal(by["look-straight"].from, 0.66, "starts where its sound starts"); assert.ok(Math.abs(by["look-straight"].volume - 0.84) < 1e-9, "a quiet clip is lifted");
+  assert.equal(by["too-bright"].from, 0); assert.ok(Math.abs(by["too-bright"].volume - 0.56) < 1e-9, "a loud one is lowered");
+  assert.equal(by["move-back"].from, 0); assert.equal(by["move-back"].volume, 0.7, "a clip with no measurement plays as recorded");
+  assert.equal(by["eyes-open"].from, 0); assert.equal(by["eyes-open"].volume, 1, "never above full volume");
+  assert.ok(R.audio.plays.every((p) => p.rate === 1));
+  R.g.close();
+  // no tone to make (or it can't sound): "Got it" follows at once
+  R = guideRig({ tone: false });
+  R.g.preload(); await R.flush();
+  R.g.say(["got-it", "turn-left"], { kind: "now", tone: true }); await R.flush();
+  assert.equal(R.g.state.playing, "got-it"); assert.equal(R.g.state.tones, 0);
   R.g.close();
 });
 
@@ -1635,8 +1726,9 @@ await test("V4 fallbacks: a clip that's missing, errors or can't autoplay is sai
   R.g.preload(); await R.flush();
   assert.equal(R.audio.created.length, 0, "no audio element without a manifest"); assert.equal(R.loaded.length, 0, "no clip requested");
   assert.equal(R.status.pop().clips, 0);
-  R.g.say(["hold-it-there", "five"], { kind: "count" }); await R.advance(2000);
-  assert.deepEqual(R.spoken, ["Hold it there.", "Five."]); assert.deepEqual(R.rows().map((r) => r.via), ["speech", "speech"]);
+  R.g.say(["hold-it-there"], { kind: "hold" }); R.g.say(["got-it", "turn-left"], { kind: "now" }); await R.advance(2000);
+  assert.deepEqual(R.spoken, ["That's it. Hold it there.", "Got it.", "Now turn your head slowly to your left."]); assert.deepEqual(R.rows().map((r) => r.via), ["speech", "speech", "speech"]);
+  assert.equal(R.cancels, 1, "the device voice is stopped for 'Got it' (it can't fade)");
   R.g.close();
   // one clip missing on the server; one that errors when played
   R = guideRig({ files: new Set(FP.VOICE_LINES.map((l) => l.id).filter((id) => id !== "a-little-further")) });
@@ -1645,16 +1737,16 @@ await test("V4 fallbacks: a clip that's missing, errors or can't autoplay is sai
   R.g.say(["a-little-further"]); await R.advance(1000);
   R.g.say(["too-far"]); await R.advance(1000);
   R.g.say(["move-back"]); await R.advance(1000);
-  assert.deepEqual(R.spoken, ["A little further.", "Not so far. Come back a little."]); assert.deepEqual(R.clips(), ["move-back"]);
+  assert.deepEqual(R.spoken, ["A little further.", "That's a touch too far. Come back a little."]); assert.deepEqual(R.clips(), ["move-back"]);
   assert.equal(R.g.state.silent, false);
   R.g.close();
   // autoplay refused: the device voice, until a click lets the clips play
   R = guideRig({ autoplay: "blocked" });
   R.g.preload(); await R.flush();
-  R.g.say(["look-straight"]); await R.advance(1000);
-  assert.deepEqual(R.spoken, ["Look straight at the camera."]); assert.equal(R.g.state.blocked, true);
+  R.g.say(["look-straight"]); await R.flush(); await R.advance(1000);
+  assert.deepEqual(R.spoken, ["Look straight at the camera for me."]); assert.equal(R.g.state.blocked, true);
   R.g.say(["move-closer"]); await R.advance(1000);
-  assert.deepEqual(R.spoken.slice(-1), ["Move a little closer."], "still blocked: the device voice, without trying the clip");
+  assert.deepEqual(R.spoken.slice(-1), ["Come a little closer."], "still blocked: the device voice, without trying the clip");
   R.audio.unblock(); R.g.unlock(); await R.flush();
   assert.equal(R.audio.plays.length, 1, "the click plays the element once…"); assert.equal(R.audio.plays[0].muted, true, "…muted");
   assert.equal(R.g.state.primed, true); assert.equal(R.audio.created[0].muted, false);
@@ -1674,7 +1766,7 @@ await test("V4 fallbacks: a clip that's missing, errors or can't autoplay is sai
   R.g.preload(); await R.flush();
   assert.ok(!R.loaded.some((u) => /move-closer/.test(u)), "not even loaded");
   R.g.say(["move-closer"]); await R.advance(1000);
-  assert.deepEqual(R.spoken, ["Move a little closer."]);
+  assert.deepEqual(R.spoken, ["Come a little closer."]);
   R.g.close();
   // lines wait for the manifest (up to 1.5 s) so the first line is in the recorded voice too
   let answer; R = guideRig({ manifestPromise: new Promise((r) => { answer = r; }) });
@@ -1684,7 +1776,7 @@ await test("V4 fallbacks: a clip that's missing, errors or can't autoplay is sai
   R.g.close();
   R = guideRig({ manifestPromise: new Promise(() => {}) });
   R.g.preload(); R.g.say(["getting-ready"]); await R.advance(1600);
-  assert.deepEqual(R.spoken, ["One moment, getting ready."], "a manifest that never answers: the device voice after 1.5 s");
+  assert.deepEqual(R.spoken, ["One moment while I get set up."], "a manifest that never answers: the device voice after 1.5 s");
   R.g.close();
 });
 
@@ -1706,7 +1798,7 @@ await test("I20 a clean picture: over the camera only the arrow, the meter, the 
   const badge = nodesOf(stage).find((n) => n.props && n.props.className === "cameo-anglebadge");
   const meter = nodesOf(stage).find((n) => n.props && n.props.className === "cameo-meter");
   assert.equal(textOf(stage), textOf(badge) + textOf(meter), "the only words on the picture: the badge and the meter's labels");
-  assert.equal(textOf(badge), "Now: Your left · optional");
+  assert.equal(textOf(badge), "Next: turn to your left (optional)");
   assert.ok(nodesOf(stage).some((n) => n.props && /^cameo-turn-arrow left/.test(n.props.className || "")), "the arrow stays");
   assert.ok(nodesOf(stage).some((n) => n.props && n.props["data-pose"] === "left"), "the sketch stays");
   // the caption is below the picture, not inside it; hidden while the voice speaks
@@ -1719,10 +1811,13 @@ await test("I20 a clean picture: over the camera only the arrow, the meter, the 
   assert.equal(W.cue().props["aria-hidden"], "true", "the caption isn't read twice");
   assert.match(W.sr(), /^Turn your head to your left — toward the left edge of the screen/, "the screen reader hears it");
   assert.equal(W.nodes().find((n) => n.props && n.props.className === "cameo-sr").props["aria-live"], "polite");
-  // Voice off: silent at once, and the caption shows
+  // Voice off: silent at once (in the middle of a sentence), and the caption shows
+  W.scene.pose = null; await W.pump(1500);
+  assert.equal(W.said().slice(-1)[0], "I can't see you yet. Come into the middle of the picture.", "a sentence is being said");
   const n = W.utter.length, c0 = W.cancels || 0;
   click(byRole(W.root.tree, "voice")); await W.pump(100);
   assert.equal(W.captionShown(), true, "Voice off: the caption shows"); assert.ok((W.cancels || 0) > c0, "speech stopped");
+  W.scene.pose = P0(); await W.pump(1000);
   assert.equal(W.cueText(), "Turn your head to your left — toward the left edge of the screen");
   assert.equal(W.box.localStorage.getItem("turn_cameo_voice"), "0");
   W.scene.pose = P0({ yaw: 18 }); await W.pump(8000);
@@ -1748,7 +1843,7 @@ await test("I20 a clean picture: over the camera only the arrow, the meter, the 
   F.root.unmount();
 });
 
-await test("I21 Capture now: hidden while the photo takes itself (Auto on, pose check running); shown while the check loads or can't start, with Auto off, and once the 20-second tip says 'or press Capture now'; the C key works throughout", async () => {
+await test("I21 Take photo (it was 'Capture now'): hidden while the photo takes itself (Auto on, pose check running); shown while the check loads or can't start, with Auto off, and once the 20-second tip says 'or press Take photo'; the C key works throughout", async () => {
   const W = mountWindow();
   await W.settle(); await W.pump(300);
   assert.equal(W.stage().props["data-engine"], "ready");
@@ -1758,7 +1853,7 @@ await test("I21 Capture now: hidden while the photo takes itself (Auto on, pose 
   await W.pump(21000);
   assert.ok(W.hint(), "the tip after 20 s");
   const b = byRole(W.root.tree, "capture-now");
-  assert.ok(b, "with the tip: shown"); assert.equal(textOf(b), "Capture now");
+  assert.ok(b, "with the tip: shown"); assert.equal(textOf(b), "Take photo"); assert.equal(b.props.title, "Take this photo now (C)");
   assert.ok(!nodesOf(W.stage()).includes(b) && nodesOf(W.nodes().find((n) => n.props && n.props.className === "cameo-under")).includes(b), "under the picture");
   click(W.slot("right")); await W.pump(300);
   assert.equal(byRole(W.root.tree, "capture-now"), undefined, "another angle: hidden again");
@@ -1780,7 +1875,7 @@ await test("I21 Capture now: hidden while the photo takes itself (Auto on, pose 
   U.root.unmount();
 });
 
-await test("I22 with the recorded clips: every line is played from app/vendor/voice/frances-guide/v1/<id>.mp3 (no device voice needed), the countdown in order; a missing clip is said by the device voice; autoplay held back → the device voice until a click; closing the window stops and releases them", async () => {
+await test("I22 with the recorded clips: every line is played from app/vendor/voice/frances-guide/v2/<id>.mp3 (no device voice needed), the hold and the photo with no count; a missing clip is said by the device voice; autoplay held back → the device voice until a click; closing the window stops and releases them", async () => {
   const W = mountWindow({ audio: { files: null, playMs: 500 }, manifest: FULL_MANIFEST, voices: [{ localService: false, lang: "en-US" }] });
   await W.settle(); await W.pump(100);
   assert.ok(W.fetches.includes(CLIP_BASE + "manifest.json"), "the manifest is read from the clips folder: " + W.fetches.join(" "));
@@ -1791,14 +1886,16 @@ await test("I22 with the recorded clips: every line is played from app/vendor/vo
   await W.pump(3000);
   const ids = W.audio.audible();
   const from = ids.indexOf("hold-still");
-  assert.deepEqual(ids.slice(from, from + 6), ["hold-still", "three", "two", "one", "got-it", "turn-left"], ids.join(" "));
+  assert.deepEqual(ids.slice(from, from + 3), ["hold-still", "got-it", "turn-left"], ids.join(" "));
   assert.ok(W.audio.plays.every((p) => p.volume === 0.7)); assert.equal(W.utter.length, 0, "no device voice");
   assert.equal(W.captionShown(), false);
   W.scene.pose = P0({ yaw: 35 });
   await W.until(() => W.shots().left, 9000, "left");
   const ids2 = W.audio.audible();
   const h = ids2.lastIndexOf("hold-it-there");
-  assert.deepEqual(ids2.slice(h, h + 7), ["hold-it-there", "five", "four", "three", "two", "one", "got-it"], ids2.join(" "));
+  assert.deepEqual(ids2.slice(h, h + 2), ["hold-it-there", "got-it-2"], ids2.join(" "));
+  assert.ok(!ids2.some((id) => /^(one|two|three|four|five)$/.test(id)), "nothing is counted");
+  assert.ok(W.audio.plays.every((p) => p.rate === 1), "every clip at its own speed");
   W.root.unmount();
   assert.deepEqual(W.audio.playing(), [], "closed: silent"); assert.ok(W.audio.created.every((a) => a.released), "…and the element let go");
   const n = W.audio.plays.length; await W.pump(3000); assert.equal(W.audio.plays.length, n);
@@ -1814,9 +1911,95 @@ await test("I22 with the recorded clips: every line is played from app/vendor/vo
   assert.ok(B.said().includes("Got it."), "blocked: the device voice says it"); assert.equal(B.audio.plays.length, 0);
   B.audio.unblock();
   B.nodes().find((n) => n.props && n.props.className === "cameo-modal").props.onPointerDown();
-  B.scene.pose = P0({ yaw: 18 }); await B.pump(2000);
+  B.scene.pose = P0({ yaw: 18 }); await B.pump(5000);   // she finishes the sentence she was on, then a beat
   assert.ok(B.audio.audible().includes("a-little-further"), "after the click, clips again: " + B.audio.audible().join(" "));
   B.root.unmount();
+});
+
+/* ═══ W. whose face comes first (owner 2026-11-17, "more seamless and not sound robotic") ═══ */
+const boxOf = (W) => byRole(W.root.tree, "consent-box");
+const subjectOf = (W, k) => nodesOf(W.root.tree).find((n) => n.props && n.props["data-subject"] === k);
+await test("I23 whose face comes first: the window opens on 'Whose likeness is this?' — no camera asked for, nothing loaded, nothing said; Start the camera needs the answer and its box (the same words as before); then the camera starts, and the answer is saved with the photos", async () => {
+  const W = mountWindow({ who: false });
+  await W.settle(); await W.pump(3000);
+  assert.equal(W.step(), "who");
+  assert.equal(W.tracks.length, 0, "the camera isn't asked for before the answer"); assert.equal(W.loads, 0, "nothing loaded"); assert.equal(W.eng.detects, 0);
+  assert.deepEqual(W.said(), [], "nothing is said"); assert.equal(W.stage(), undefined, "no picture yet");
+  assert.equal(textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-sub")),
+    "Three quick photos give Neo a real face: straight on, then turned to each side. First, whose face is it?");
+  assert.equal(textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-whose-q")), "Whose likeness is this?", "the consent question's own words");
+  assert.equal(textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-note")), "The camera picture stays on this device while you pose. Only the photos you keep are saved.");
+  let start = byRole(W.root.tree, "start");
+  assert.equal(textOf(start), "Start the camera"); assert.equal(start.props.disabled, true); assert.equal(start.props.title, "Say whose likeness this is and tick the box");
+  click(start); W.root.flush(); assert.equal(W.step(), "who", "pressing it unanswered does nothing");
+  assert.equal(boxOf(W), undefined, "the box comes with the answer");
+  click(subjectOf(W, "self")); W.root.flush();
+  assert.equal(textOf(nodesOf(W.root.tree).find((n) => n.props && n.props.className === "cameo-check")), "This is me and I'm 18 or over");
+  assert.equal(byRole(W.root.tree, "start").props.disabled, true, "answered but not ticked");
+  // someone else: their name is needed, and the box reads their sentence (ticked again for it)
+  boxOf(W).props.onChange({ target: { checked: true } }); W.root.flush();
+  click(subjectOf(W, "other")); W.root.flush();
+  assert.equal(boxOf(W).props.checked, false, "a different answer reads a different sentence: ticked again");
+  assert.equal(textOf(nodesOf(W.root.tree).find((n) => n.props && n.props.className === "cameo-check")), "I have their permission to use their likeness, and they're 18 or over");
+  boxOf(W).props.onChange({ target: { checked: true } }); W.root.flush();
+  assert.equal(byRole(W.root.tree, "start").props.disabled, true, "no name yet");
+  byRole(W.root.tree, "consent-name").props.onChange({ target: { value: "Ada Byron" } }); W.root.flush();
+  assert.equal(byRole(W.root.tree, "start").props.disabled, false);
+  // …and it is me after all
+  click(subjectOf(W, "self")); W.root.flush(); boxOf(W).props.onChange({ target: { checked: true } }); W.root.flush();
+  start = byRole(W.root.tree, "start"); assert.equal(start.props.disabled, false); assert.equal(start.props.title, "");
+  click(start); W.root.flush(); await W.settle();
+  assert.equal(W.step(), "capture"); assert.equal(W.tracks.length, 1, "now the camera is asked for");
+  await W.pump(300);
+  assert.equal(textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-anglebadge")), "Next: look straight ahead");
+  await W.until(() => W.shots().front, 6000, "Front"); await W.pump(500);
+  assert.equal(textOf(nodesOf(W.slot("front")).length ? W.nodes().find((n) => n.props && n.props.className === "cameo-anglebadge") : null), "Next: turn to your left (optional)");
+  // under the photos: one line saying whose face it is, no question to answer at the end
+  assert.equal(textOf(byRole(W.root.tree, "who-line")), "This is your own face.Change");
+  assert.equal(boxOf(W), undefined);
+  const lock = byRole(W.root.tree, "lock");
+  assert.equal(textOf(lock), "Use this face"); assert.equal(lock.props.disabled, false);
+  await lock.props.onClick(); await W.settle();
+  assert.deepEqual(plainify(W.saves[0].consent), { subject: "self", name: "", adult: true }, "the answer given first is the one saved");
+  assert.equal(W.onCloseCalls, 1);
+  W.root.unmount();
+  // closing the window on the question never touched the camera
+  const C = mountWindow({ who: false });
+  await C.settle(); C.root.unmount(); await C.pump(500);
+  assert.equal(C.tracks.length, 0);
+});
+
+await test("I24 a likeness already saved with an answer opens straight on the camera; the answer shows as one line with Change (the same question and box again); an answer given in older words is asked again before the camera", async () => {
+  const good = { "data:image/jpeg;base64,RlJPTlQ=": P0(), "data:image/jpeg;base64,TEVGVA==": P0({ yaw: 35 }), "data:image/jpeg;base64,UklHSFQ=": P0({ yaw: -35 }) };
+  const W = mountWindow({ saved: SAVED3, auditPoses: good });
+  await W.settle(); await W.pump(500);
+  assert.equal(W.step(), "capture"); assert.equal(W.tracks.length, 1);
+  assert.equal(textOf(byRole(W.root.tree, "who-line")), "This is your own face.Change");
+  let lock = byRole(W.root.tree, "lock");
+  assert.equal(textOf(lock), "Use this face · 3 photos", "photos, not angles; use, not lock"); assert.equal(lock.props.disabled, false);
+  assert.equal(textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-anglebadge")), "Front · taken");
+  click(byRole(W.root.tree, "who-change")); W.root.flush();
+  assert.equal(byRole(W.root.tree, "who-line"), undefined);
+  assert.equal(subjectOf(W, "self").props["aria-checked"], "true"); assert.equal(boxOf(W).props.checked, true, "the same question and box, as answered");
+  boxOf(W).props.onChange({ target: { checked: false } }); W.root.flush();
+  lock = byRole(W.root.tree, "lock");
+  assert.equal(lock.props.disabled, true); assert.equal(lock.props.title, "Say whose likeness this is and tick the box");
+  W.root.unmount();
+  const O = mountWindow({ saved: { ...SAVED3, consent: { subject: "other", name: "Ada Byron", adult: true, textVersion: "2026-10-10" } }, auditPoses: good });
+  await O.settle(); await O.pump(500);
+  assert.equal(textOf(byRole(O.root.tree, "who-line")), "This is Ada Byron’s face, used with their permission.Change");
+  O.root.unmount();
+  // an answer in older words: asked again first, with the earlier answer shown and its box unticked
+  const Old = mountWindow({ saved: { ...SAVED3, consent: { subject: "self", name: "", adult: true, textVersion: "2025-01-01" } }, auditPoses: good });
+  await Old.settle(); await Old.pump(1000);
+  assert.equal(Old.step(), "who"); assert.equal(Old.tracks.length, 0);
+  assert.equal(subjectOf(Old, "self").props["aria-checked"], "true"); assert.equal(boxOf(Old).props.checked, false);
+  assert.equal(byRole(Old.root.tree, "start").props.disabled, true);
+  boxOf(Old).props.onChange({ target: { checked: true } }); Old.root.flush();
+  click(byRole(Old.root.tree, "start")); Old.root.flush(); await Old.settle(); await Old.pump(300);
+  assert.equal(Old.step(), "capture"); assert.equal(Old.tracks.length, 1);
+  assert.deepEqual(Object.keys(Old.shots()).sort(), ["front", "left", "right"], "the saved photos are still there");
+  Old.root.unmount();
 });
 
 console.log(`${checks} passed, ${failed} failed`);

@@ -148,9 +148,21 @@ __fx.camera = async () => {
   else Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia: gum } });
   return place;
 };
-__fx.mount = () => {
+/* (2026-11-17) the window opens on "Whose likeness is this?": answered the way a person does — Me, the box, Start the
+   camera — before anything else; __fx.who records what was on screen before the answer */
+__fx.osc = 0;
+if (window.AudioContext) { const co = AudioContext.prototype.createOscillator; AudioContext.prototype.createOscillator = function(){ __fx.osc++; return co.call(this); }; }
+__fx.mount = async () => {
   __fx.root = ReactDOM.createRoot(document.getElementById("root"));
   __fx.root.render(React.createElement(CameoModal, { character: { id: "neo", name: "Neo" }, onClose: () => {}, onSaved: () => {} }));
+  const until = async (f) => { for (let i = 0; i < 200; i++){ const v = f(); if (v) return v; await new Promise((r) => setTimeout(r, 25)); } throw new Error("the first step did not appear"); };
+  const q = (s) => document.querySelector(s);
+  const start = await until(() => q('[data-role="start"]'));
+  __fx.who = { step: (q("[data-step]") || { dataset: {} }).dataset.step, question: (q(".cameo-whose-q") || {}).textContent || "", startDisabled: start.disabled, video: !!q("video") };
+  q('[data-subject="self"]').click();
+  (await until(() => q('[data-role="consent-box"]'))).click();
+  (await until(() => { const b = q('[data-role="start"]'); return b && !b.disabled ? b : null; })).click();
+  await until(() => q(".cameo-stage"));
 };
 __fx.plays = []; __fx.blobIds = new Map(); __fx.urlIds = {}; __fx.utter = [];
 if (window.speechSynthesis) { const s0 = speechSynthesis.speak.bind(speechSynthesis); speechSynthesis.speak = (u) => { __fx.utter.push(u.text); return s0(u); }; }
@@ -173,7 +185,7 @@ __fx.state = () => {
   return { engine: stage ? stage.dataset.engine : null,
     cue: cue ? cue.dataset.cue : null, cueText: t ? t.textContent : "", captionShown: !!cue && !cue.hidden && cue.offsetParent !== null,
     captionBelow: !!cue && !stage.contains(cue) && (cue.hidden || r(cue).top >= r(stage).bottom - 0.5),
-    stageText: stage ? stage.innerText.replace(/\s+/g, " ").trim() : "", stageButtons: stage ? stage.querySelectorAll("button").length : 0,
+    stageText: stage ? stage.innerText.replace(/[ \\n\\t]+/g, " ").trim() : "", stageButtons: stage ? stage.querySelectorAll("button").length : 0,
     capNow: !!q('[data-role="capture-now"]'),
     front: !!q('[data-angle="front"] img'), left: !!q('[data-angle="left"] img'), right: !!q('[data-angle="right"] img'),
     ring: (q(".cameo-ring") || { dataset: {} }).dataset.progress || null, flipFix: !!q('[data-role="flip-fix"]') };
@@ -186,7 +198,7 @@ function server(files, served){
     served.push(path);
     try {
       let body = files[path], type = TYPES[path.slice(path.lastIndexOf("."))] || "text/html; charset=utf-8";
-      if (!body && served.clips && /^\/app\/vendor\/voice\/frances-guide\/v1\//.test(path)){
+      if (!body && served.clips && /^\/app\/vendor\/voice\/frances-guide\/v2\//.test(path)){
         const name = path.split("/").pop();
         if (name === "manifest.json"){ body = Buffer.from(JSON.stringify(served.clips.manifest)); type = "application/json"; }
         else if (/^[a-z0-9-]+\.mp3$/.test(name) && served.clips.manifest.clips[name.slice(0, -4)]){ body = served.clips.wav; type = "audio/wav"; }
@@ -333,13 +345,16 @@ async function main(){
       assert.ok(place.lincoln.h > 50 && place.pearl.h > 50, JSON.stringify(place));
       c.events.length = 0;
       await c.eval(`__fx.mount()`);
+      // whose face comes first: the question, before any camera picture
+      assert.deepEqual(await c.eval(`__fx.who`), { step: "who", question: "Whose likeness is this?", startDisabled: true, video: false });
       await waitFor(async () => (await c.eval(`__fx.state()`)).engine === "ready", "the pose check ready", 20000);
       const st = () => c.eval(`__fx.state()`);
       // a clean picture: no instruction and no button over the camera; the line under it; no Capture now while it takes itself
       const s0 = await st();
       assert.equal(s0.stageButtons, 0, "no button on the picture");
-      assert.match(s0.stageText, /^Now: Front · required\b/i, "the badge: " + s0.stageText);
-      assert.ok(!/hold|turn your|look straight|center|closer|light/i.test(s0.stageText), "no instruction over the picture: " + s0.stageText);
+      assert.match(s0.stageText, /^Next: look straight ahead\b/i, "the badge: " + s0.stageText);
+      // the badge names the next photo in plain words; no correction or instruction is written over the picture
+      assert.ok(!/hold|turn your|center|closer|light|chin|further/i.test(s0.stageText.replace(/^Next: look straight ahead/i, "")), "no instruction over the picture: " + s0.stageText);
       assert.equal(s0.captionBelow, true, "the caption sits under the picture"); assert.equal(s0.capNow, false, "the photo takes itself: no Capture now");
       const shot = async (name) => {
         if (!SHOTS) return;
@@ -364,7 +379,7 @@ async function main(){
       const dl = Date.now() - t1;
       { const g = await c.eval(`__fx.gaps`); console.log("     frames during the left hold:", g.length, "· gaps over 400 ms:", g.filter((x) => x > 400).length); }
       console.log("     left after", dl, "ms");
-      assert.ok(dl >= 5000, "held 5 s first: " + dl);
+      assert.ok(dl >= 2000, "held for a moment (2 s) first: " + dl);
       await sleep(8000);
       await shot("4-right-wrong-way");
       s = await st();
@@ -395,7 +410,7 @@ async function main(){
       assert.deepEqual(off, [], "nothing left this machine during the capture");
     });
 
-    await test("B5 the recorded clips through the real audio element: one element plays 'Hold still. Three. Two. One. Got it. Now turn …' in order; the device voice isn't used; the caption stays hidden; closing the window stops it", async () => {
+    await test("B5 the recorded clips through the real audio element: one element plays 'Hold still', then — after the tone of the photo, with nothing counted — 'Got it. Now turn …'; the device voice isn't used; the caption stays hidden; closing the window stops it", async () => {
       const lines = await c.eval(`turnFacePose.VOICE_LINES`);
       served.clips = { manifest: { voice: "test", clips: Object.fromEntries(lines.map((l) => [l.id, { text: l.text }])) }, wav: silentWav(250) };
       await open();
@@ -408,22 +423,18 @@ async function main(){
       await c.eval(`(async () => { const ac = new AudioContext(); await ac.resume(); const o = ac.createOscillator(), g = ac.createGain();
         g.gain.value = 0.0001; o.connect(g); g.connect(ac.destination); o.start(); await new Promise((r) => setTimeout(r, 600)); o.stop(); await ac.close(); })()`);
       await c.eval(`__fx.mount()`);
+      const osc0 = await c.eval(`__fx.osc`);
       await waitFor(async () => (await c.eval(`__fx.state()`)).engine === "ready", "the pose check ready", 20000);
       await waitFor(async () => (await c.eval(`__fx.state()`)).front, "Front captured", 9000);
       await sleep(2500);
-      const r = await c.eval(`({ plays: __fx.plays.filter((p) => !p.muted).map((p) => p.id), els: (__fx.audioEls || new Set()).size, utter: __fx.utter.slice(), st: __fx.state() })`);
+      const r = await c.eval(`({ plays: __fx.plays.filter((p) => !p.muted).map((p) => p.id), els: (__fx.audioEls || new Set()).size, utter: __fx.utter.slice(), st: __fx.state(), osc: __fx.osc })`);
       console.log("     clips", r.plays.join(" "));
       const ev = JSON.stringify(await c.eval(`__fx.ev || []`));
-      // in order, one at a time: the count (a slow machine may still be saying a number when the photo is taken —
-      // "Got it" then interrupts it), then "Got it. Now turn …"
+      // in order, one at a time: the hold line, then (the tone,) "Got it. Now turn …" — and no number anywhere
       const i = r.plays.indexOf("hold-still"), g = r.plays.indexOf("got-it");
       assert.ok(i >= 0 && g > i, r.plays.join(" ") + " " + ev);
-      // (a loaded machine may restart the hold — "Hold still" again — and each count runs down from three)
-      const runs = r.plays.slice(i, g).join(" ").split("hold-still").map((x) => x.trim().split(" ").filter(Boolean)).filter((x, k) => k > 0);
-      // (2026-10-10) a number that's already late is skipped for the newest one, so each run counts DOWN (never back up)
-      // and may skip; the clip being said is never cut by a later number
-      const rank = { three: 3, two: 2, one: 1 };
-      assert.ok(runs.some((x) => x.length) && runs.every((x) => x.every((y, k) => rank[y] && (k === 0 || rank[y] < rank[x[k - 1]]))), "the numbers count down: " + r.plays.slice(i, g).join(" ") + " " + ev);
+      assert.ok(!r.plays.some((id) => /^(one|two|three|four|five)$/.test(id)), "nothing is counted: " + r.plays.join(" "));
+      assert.ok(r.osc - osc0 >= 2, "the two notes of the photo's tone were made (" + (r.osc - osc0) + ")");
       assert.deepEqual(r.plays.slice(g, g + 2), ["got-it", "turn-left"], ev);
       assert.equal(r.els, 1, "one audio element"); assert.deepEqual(r.utter, [], "the device voice isn't needed");
       assert.equal(r.st.captionShown, false, "spoken: no caption");

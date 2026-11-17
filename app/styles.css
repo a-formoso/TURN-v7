@@ -2651,8 +2651,10 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
 /* B: multi-angle strip */
 /* left-anchored so it can never collide with the "Capture now" button top-right;
    long labels ellipsize instead of running underneath it */
-.cameo-anglebadge{position:absolute;top:10px;left:10px;font-family:var(--f-mono);
-  font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:oklch(0.4 0.05 290 / .7);
+/* (2026-11-17) the badge says what comes next in plain words ("Next: turn to your left"), so it reads as a sentence:
+   the interface font in sentence case (it was 9px capitals in the code font) */
+.cameo-anglebadge{position:absolute;top:10px;left:10px;font-family:var(--f-ui);
+  font-size:11px;letter-spacing:0;color:#fff;background:oklch(0.4 0.05 290 / .7);
   padding:3px 9px;border-radius:20px;white-space:nowrap;max-width:calc(100% - 128px);overflow:hidden;text-overflow:ellipsis}
 .cameo-anglebadge b{color:oklch(0.86 0.1 296)}
 /* auto-capture: readiness ring, cue, progress, flash, manual + toggle */
@@ -2756,6 +2758,10 @@ html[data-theme="light"] .cameo-note.warn{color:oklch(0.5 0.13 65)}
 .cameo-check.sync.disabled{opacity:.6}
 /* (2026-10-10, Likeness review) "Whose likeness is this?" — Me / Someone else, the box, the dialogs */
 .cameo-whose{display:flex;flex-direction:column;gap:9px}
+/* whose face it is, answered in the window's first step: one line under the photos, with Change (2026-11-17) */
+.cameo-who-line{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-family:var(--f-ui);font-size:12px;line-height:1.45;color:var(--txt-1)}
+.cameo-who .cameo-consent{margin-top:6px}
+.cameo-who .cameo-acts{justify-content:flex-end}
 .cameo-whose-q{font-family:var(--f-ui);font-size:12px;font-weight:600;color:var(--txt-0)}
 .cameo-whose-opts{display:flex;gap:8px;flex-wrap:wrap}
 .cameo-whose-opt{height:32px;padding:0 14px;border-radius:var(--r-m);border:1px solid var(--line-2);background:var(--bg-2);

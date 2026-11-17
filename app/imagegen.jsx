@@ -1756,7 +1756,7 @@ async function _cameoDropOwn(acct, scope, charId){
 function _cameoMissingWhy(scope, charId){
   return _cameoCloudMine.has(_cameoEntryId(scope, String(charId)))
     ? "Its photos are in the cloud but couldn't be loaded onto this device right now. Try again in a moment."
-    : "This likeness was locked on this device, but its photos are no longer here. Recapture it to use it again.";
+    : "This likeness was saved on this device, but its photos are no longer here. Retake it to use it again.";
 }
 function _cameoOwnEntry(acct, meta){
   const k = _cameoFullKey(acct, meta.scope, meta.charId);
