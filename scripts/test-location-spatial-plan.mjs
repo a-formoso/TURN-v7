@@ -65,7 +65,7 @@ assert.match(merged[0].note,/materials and colour only/);
 assert.equal((await box.locationSpatialReferences(house))[0].url,image);
 delete box.cropRegionAsDataUrl;
 iso="version-2";
-assert.throws(()=>box.requireLocationSpatialPlan(kitchen),/parent plate changed/);
+assert.throws(()=>box.requireLocationSpatialPlan(kitchen),/parent image changed/);
 house.spatialPlan.source.iso=iso;
 assert.equal(box.locationSpatialPlanState(kitchen).ready,true);
 box.nbGenerate=async(prompt,opts)=>{calls.push({prompt,opts});return "result";};
@@ -140,5 +140,5 @@ assert.match(ui,/function LocationSpatialPlanEditor/);
 assert.match(ui,/fieldset",\{[^}]*disabled:readOnly\|\|busy/);
 assert.match(ui,/setCandidate\(result\)/);
 assert.match(ui,/onUpdate\((?:owner|planOwner)\.id,\{spatialPlan:reviewed\}/);
-assert.match(ui,/layout needs review/);
+assert.ok(!/layout needs review/.test(ui));   // (2026-11-17) the tracker alone says where the card stands: the fold no longer repeats it
 console.log("PASS shared spatial plans, review gates, source invalidation, all prompt modes, vision evidence, cancellation and Blender handoff");

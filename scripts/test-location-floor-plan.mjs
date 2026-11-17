@@ -219,7 +219,7 @@ assert.ok(cameraKeyPrevented&&selected==="furnace:TL","camera markers are keyboa
 assert.ok(flat(map).some(n=>n.type==="g"&&/dim/.test(cls(n))),"the others step back");
 assert.equal(flat(map).filter(n=>n.type==="g"&&cls(n)==="loc-map-sel").length,1,"one full label on the map");
 assert.match(text(flat(map).find(n=>cls(n)==="loc-map-sel")),/^TL — Furnace · top-left$/,"the panel letters show only when selected");
-assert.match(text(map),/Approximate — estimated from the plates and the screenplay, not surveyed/);
+assert.match(text(map),/Approximate — estimated from the images and the screenplay, not surveyed/);
 assert.match(text(map),/Not drawn \(no position yet\): Furnace · bottom-right/);
 assert.ok(flat(map).some(n=>n.type==="button"&&/no position yet/.test(n.props["aria-label"]||"")&&n.props["aria-disabled"]==="true"));
 assert.match(text(box.LocationFloorPlanMap({scene:{empty:true}})),/No floor plan numbers yet/);
@@ -389,7 +389,7 @@ const op=changes[3].coordinates.spaces[1].openings[0];
 deq(op.centre,[4.5,4]);assert.equal(op.yaw,null,"a moved opening's facing follows its new wall");
 assert.equal(box.normalizeLocationSpatialPlan({...furnace.spatialPlan,...changes[3]}).coordinates.spaces[1].openings[0].yaw,180);
 assert.ok(flat(fields).filter(n=>n.type===box.LocBasisSelect).length>=4,"each group's basis is a field");
-assert.match(text(box.LocBasisSelect({value:"observed",onChange:noop})),/Read from a plate.*Stated in the screenplay.*Proposed design.*Set by hand/);
+assert.match(text(box.LocBasisSelect({value:"observed",onChange:noop})),/Read from an image.*Stated in the screenplay.*Proposed design.*Set by hand/);
 assert.ok(flat(fields).some(n=>n.type==="button"&&text(n)==="Add the bottom-left camera"));
 const ro=box.LocationFloorPlanFields({plan:furnace.spatialPlan,family:[furnace,office],change:noop,readOnly:true});
 assert.ok(flat(ro).filter(n=>["input","select","button"].includes(n.type)||n.type===box.LocCoordInput||n.type===box.LocBasisSelect).every(n=>n.props.disabled),"view only: nothing editable");

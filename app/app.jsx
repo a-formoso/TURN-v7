@@ -4932,7 +4932,7 @@ function App(){
         const label = l.name||"Location";
         if(await has(l.id)){ already.push(label); continue; }
         const parent = (typeof locationParentOf==="function") ? locationParentOf(l, L.locList) : null;
-        if(parent && !planned.has(parent.id) && !(await has(parent.id))){ needNo({ label }, "needs "+(parent.name||"its parent location")+"'s plate first (Locations)"); continue; }
+        if(parent && !planned.has(parent.id) && !(await has(parent.id))){ needNo({ label }, "needs "+(parent.name||"its parent location")+"'s image first (Locations)"); continue; }
         const rc = (typeof window.locationPlateRefCount==="function") ? window.locationPlateRefCount(l) : { n:6, exact:false };
         const view = !(typeof stagingHasContent==="function" ? stagingHasContent(l) : true);
         if(view) writing.views++;
@@ -4945,7 +4945,7 @@ function App(){
             // the view composition is saved to the film it was written for, or not at all
             onStaged:(id, st)=>{ save("setLocations", ls=>ls.map(x=>x.id===id ? { ...x, staging:st } : x)); } });
           if(stale()) return "stopped";
-          return ok ? "made" : fail("the plate couldn't be made"); } });
+          return ok ? "made" : fail("the image couldn't be made"); } });
       }
       // room & time plates, after their location's plate
       for(const n of needs.filter(n=>n.kind==="location" && /^locunit-/.test(String(n.id)))){
@@ -4954,7 +4954,7 @@ function App(){
         const owner = L.locByKey(u.subspaceKey||u.locationKey||"");
         const label = (u.name||owner.name||"Room")+(u.time?" \u00b7 "+u.time:"");
         if(await has(n.id)){ already.push(label); continue; }
-        if(!planned.has(owner.id) && !(await has(owner.id))){ needNo({ label }, "needs "+(owner.name||"its location")+"'s plate first (Locations)"); continue; }
+        if(!planned.has(owner.id) && !(await has(owner.id))){ needNo({ label }, "needs "+(owner.name||"its location")+"'s image first (Locations)"); continue; }
         // the room's parent found by the stored card's parentKey (it has no parentLocation) — 2026-10-14, headless paths
         const rootId = ((typeof locationParentOf==="function" ? locationParentOf(owner, L.locList) : null) || {}).id;
         const rootPlate = rootId ? (planned.has(rootId) || await has(rootId)) : undefined;
@@ -4965,7 +4965,7 @@ function App(){
           if(stale()) return "stopped";
           const ok = await window.generateSluglineUnitPlate(owner, u, project, { cancelled:stale, onRetry:()=>retried.push(label) });
           if(stale()) return "stopped";
-          return ok ? "made" : fail("the plate couldn't be made"); } });
+          return ok ? "made" : fail("the image couldn't be made"); } });
       }
       // character sheets: one look per character, a master before its variants
       const byChar = {}, charOrder = [];
@@ -5526,7 +5526,7 @@ function App(){
       const film1 = projIdRef.current;
       // one plate or several: the ones known to have an image (the confirm said which), else every id carried
       const many = ((plan.carry||[]).filter(c=>c && c.hasImage).length || carry.length)!==1;
-      const carryFailText = ()=> "Couldn\u2019t copy \u201c"+plan.goneName+"\u201d\u2019s plate"+(many ? "s" : "")+" onto \u201c"+plan.name+"\u201d. "
+      const carryFailText = ()=> "Couldn\u2019t copy \u201c"+plan.goneName+"\u201d\u2019s image"+(many ? "s" : "")+" onto \u201c"+plan.name+"\u201d. "
         +(many ? "The originals are" : "The original is")+" still with \u201c"+plan.goneName+"\u201d\u2019s card in Recently deleted.";
       Promise.resolve(nbCarryVersionsInto(plan.keeperId, carry)).then(r=>{
         if(!r || projIdRef.current!==film1 || typeof window.appToast!=="function") return;
@@ -5536,13 +5536,13 @@ function App(){
         const carried = Number(r.carried)||0;
         const lost = (r.failed||[]).length>0 || r.ok===false;
         const originals = (many ? " The originals are" : " The original is")+" still with "+gone+" card in Recently deleted.";
-        if(r.persisted==="unknown") window.appToast("Couldn\u2019t confirm that "+gone+(many ? " plates were" : " plate was")+" copied onto "+keptName
+        if(r.persisted==="unknown") window.appToast("Couldn\u2019t confirm that "+gone+(many ? " images were" : " image was")+" copied onto "+keptName
           +" \u2014 look in its \u22ef \u203a Details \u203a Earlier versions."+originals,"error");
-        else if(lost && carried) window.appToast(carried+" of "+gone+" plates "+(carried!==1 ? "are now earlier versions" : "is now an earlier version")
-          +" of "+keptName+"\u2019s plate (\u22ef \u203a Details \u203a Earlier versions); the others couldn\u2019t be copied."+originals,"error");
+        else if(lost && carried) window.appToast(carried+" of "+gone+" images "+(carried!==1 ? "are now earlier versions" : "is now an earlier version")
+          +" of "+keptName+"\u2019s image (\u22ef \u203a Details \u203a Earlier versions); the others couldn\u2019t be copied."+originals,"error");
         else if(lost) window.appToast(carryFailText(),"error");
-        else if(carried) window.appToast(gone+" plate"+(carried!==1 ? "s are now earlier versions" : " is now an earlier version")
-          +" of "+keptName+"\u2019s plate (\u22ef \u203a Details \u203a Earlier versions).","info");
+        else if(carried) window.appToast(gone+" image"+(carried!==1 ? "s are now earlier versions" : " is now an earlier version")
+          +" of "+keptName+"\u2019s image (\u22ef \u203a Details \u203a Earlier versions).","info");
       }).catch(()=>{ if(projIdRef.current===film1 && typeof window.appToast==="function") window.appToast(carryFailText(),"error"); });
     }
   };
@@ -5558,8 +5558,8 @@ function App(){
       const part = String(a.parentKey||"")===String(b.key||"") ? a : String(b.parentKey||"")===String(a.key||"") ? b : null;
       const whole = part ? (part===a ? b : a) : null;
       const ok = await window.appConfirm({ title:"Keep \u201c"+(a.name||"this place")+"\u201d and \u201c"+(b.name||"that place")+"\u201d as two places?",
-        body:(part ? "\u201c"+(part.name||"It")+"\u201d stops being a part of \u201c"+(whole.name||"the other")+"\u201d and becomes a location of its own: it needs its own shared layout (Spatial Layout & Staging) before its next plate. " : "")
-          +"Both cards, their plates and layouts stay as they are, and they won't be suggested as one place again"
+        body:(part ? "\u201c"+(part.name||"It")+"\u201d stops being a part of \u201c"+(whole.name||"the other")+"\u201d and becomes a location of its own: it needs its own shared layout (Spatial Layout & Staging) before its next image. " : "")
+          +"Both cards, their images and layouts stay as they are, and they won't be suggested as one place again"
           +(currentShowId ? " \u2014 in every episode of the Show" : "")+". Nothing is generated or charged.",
         confirmLabel:"Keep separate", cancelLabel:"Cancel" });
       if(!ok) return;
@@ -5578,9 +5578,9 @@ function App(){
       const ok = await window.appConfirm(kind==="group" ? {
           title:"Group "+names.length+" places under \u201c"+sug.headName+"\u201d?",
           body:"A new \u201c"+sug.headName+"\u201d card becomes the place they're all part of: "+list+". It holds what they share \u2014 "
-            +"the place's identity (The Space), one shared layout with one north, and the 2\u00d72 plate every room's plates are made from. "
-            +"Each room keeps its card, its plates and its notes. Next: draft "+sug.headName+"'s specification, review its shared layout "
-            +"(it starts from the most complete room's layout) and generate its plate; regenerate a room's plate when you want it made from it. "
+            +"the place's identity (The Space), one shared layout with one north, and the 2\u00d72 image every room's images are made from. "
+            +"Each room keeps its card, its images and its notes. Next: draft "+sug.headName+"'s specification, review its shared layout "
+            +"(it starts from the most complete room's layout) and generate its image; regenerate a room's image when you want it made from it. "
             +"Nothing is generated or charged now.",
           confirmLabel:"Group under "+sug.headName, cancelLabel:"Cancel" }
         : { title:"Keep these places separate?",
@@ -5601,7 +5601,7 @@ function App(){
     if(liveKids.length && typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({ title:"Delete \u201c"+(item.name||"this location")+"\u201d forever?",
         body:liveKids.length+" room"+(liveKids.length!==1?"s":"")+" on the board belong"+(liveKids.length===1?"s":"")+" to it ("+liveKids.slice(0,4).map(l=>l.name||"Room").join(", ")+(liveKids.length>4?"\u2026":"")
-          +"). Their plates stay, but they can't make new ones until this place is back.",
+          +"). Their images stay, but they can't make new ones until this place is back.",
         confirmLabel:"Delete forever", cancelLabel:"Cancel", danger:true });
       if(!ok) return;
     }
@@ -5644,7 +5644,7 @@ function App(){
     // a card that already has a spec: ask first — it replaces the text, edits included (2026-10-08)
     if(typeof locVisualsDrafted==="function" && locVisualsDrafted(l) && typeof window.appConfirm==="function"){
       const ok = await window.appConfirm({ title:"Draft \u201c"+(l.name||"this location")+"\u201d again?",
-        body:"Its specification is written again from the screenplay, replacing the current text \u2014 your edits included. Its plate stays as it is. This uses writing credits.",
+        body:"Its specification is written again from the screenplay, replacing the current text \u2014 your edits included. Its image stays as it is. This uses writing credits.",
         confirmLabel:"Draft again", cancelLabel:"Cancel" });
       if(!ok) return;
     }
@@ -5675,7 +5675,7 @@ function App(){
       const n = (locations||[]).length;
       const ok = typeof window.appConfirm!=="function" || await window.appConfirm({
         title:"Redesign all "+n+" location"+(n!==1?"s":"")+"?",
-        body:"Every location's spec, and the layout of every place used in two or more scenes, is written again from the screenplay \u2014 replacing the current ones, including your edits. Plates are left as they are. This uses writing credits for every location.",
+        body:"Every location's spec, and the layout of every place used in two or more scenes, is written again from the screenplay \u2014 replacing the current ones, including your edits. Images are left as they are. This uses writing credits for every location.",
         confirmLabel:"Redesign all", danger:true });
       if(!ok) return;
     }
@@ -5921,7 +5921,7 @@ function App(){
       const moved = finalTrash.filter(t=>movedIds[t.id]).map(t=>t.name);
       const folded = finalTrash.filter(t=>!movedIds[t.id]).map(t=>t.name);
       const parts = [];
-      if(moved.length) parts.push(moved.join(", ")+" (plate moved onto its slugline unit)");
+      if(moved.length) parts.push(moved.join(", ")+" (image moved onto its slugline unit)");
       if(folded.length) parts.push(folded.join(", "));
       window.appToast("Folded "+parts.join(" and ")+" into its parent location — card"+(finalTrash.length>1?"s are":" is")+" in Recently deleted (recoverable)");
     } }catch(e){}
@@ -9023,7 +9023,7 @@ function App(){
           } }
         return out;
       },
-      generatePlate: async (l)=>{ if(typeof window.generateLocationPlate!=="function") throw new Error("plate generator unavailable"); return window.generateLocationPlate(l, project); },
+      generatePlate: async (l)=>{ if(typeof window.generateLocationPlate!=="function") throw new Error("image generator unavailable"); return window.generateLocationPlate(l, project); },
       generateVariant: async (l, v)=>{ if(typeof window.generateLocationVariant!=="function") throw new Error("variant generator unavailable"); return window.generateLocationVariant(l, v, project); },
     };
 

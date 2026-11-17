@@ -77,12 +77,12 @@ tree=render(props);
 t=text(tree);
 assert.match(t,/The four cameras/);   // called Plate cameras until 2026-11-15
 assert.match(t,/2 views unresolved/);
-assert.match(t,/Each panel of Furnace Office's plate is a camera inside Furnace Office/);
+assert.match(t,/Each panel of Furnace Office's image is a camera inside Furnace Office/);
 assert.match(t,/never its most striking panel/);
 assert.match(t,/from the doorway, a three-quarter view diagonally across Furnace Office toward its far corner/);   // 2026-10-27
 assert.match(t,/Camera inside Furnace Office just inside Office door, facing north-east \(55°\)/);
 assert.match(t,/“Office window” \(south wall\) → Furnace, looking south/);
-assert.match(t,/No Furnace view faces south from here\. The plate describes what lies that way from the shared layout \(Slag conveyor\) and marks it unresolved\./);
+assert.match(t,/No Furnace view faces south from here\. The image describes what lies that way from the shared layout \(Slag conveyor\) and marks it unresolved\./);
 const make=flat(tree).filter(n=>n.type==="button"&&/Make a Furnace view from Furnace Office's position/.test(text(n)));
 assert.equal(make.length,2,"offered on each panel that sees the window");
 const chip=flat(make[0]).find(n=>n.type==="cost");
@@ -104,13 +104,13 @@ delete images["office-pview-office-window"];delete metas["office-pview-office-wi
 // a matched parent quadrant
 metas.furnace.platePanels.panels.TR={yaw:180,lensMm:18};
 hooks=[];t=text(render(props));
-assert.match(t,/the top-right panel of Furnace's plate, cut out and attached as its own reference\. Matched by facing/);
+assert.match(t,/the top-right panel of Furnace's image, cut out and attached as its own reference\. Matched by facing/);
 assert.match(t,/on some engines each reference adds a little to the price/);
 delete metas.furnace.platePanels.panels.TR;
 // an old parent plate: unknown facings; view only
 metas.furnace={iso:"f1"};
 hooks=[];t=text(render(props));
-assert.match(t,/Furnace's plate was made before its cameras were recorded, so its panels' facings are unknown/);
+assert.match(t,/Furnace's image was made before its cameras were recorded, so its panels' facings are unknown/);
 // view only: the offer is disabled, nothing is written
 hooks=[];tree=render({...props,readOnly:true});
 assert.ok(flat(tree).filter(n=>n.type==="button"&&/Make a Furnace view/.test(text(n))).every(b=>b.props.disabled));
@@ -136,7 +136,7 @@ writes.length=0;hooks=[];
 tree=render({...props,l:furnace,plateMeta:{iso:"f1"}});
 t=text(tree);
 assert.match(t,/Suggested/);
-assert.match(t,/Until a camera is set, the plate prompt is unchanged/);
+assert.match(t,/Until a camera is set, the image prompt is unchanged/);
 assert.equal(flat(tree).find(n=>n.type==="button"&&text(n)==="Use the suggested cameras"),undefined);
 assert.equal(writes.length,0,"opening camera details never applies suggestions");
 let proposed=furnace;
@@ -149,7 +149,7 @@ assert.equal(ov[0].pose.basis,"design");
 assert.match(t,/Setting cameras uses no credits and generates nothing/);
 const furnaceSet={...furnace,coverageViews:ov};
 hooks=[];t=text(render({...props,l:furnaceSet,plateMeta:{iso:"f1"}}));
-assert.match(t,/The current plate was made before these cameras were set — regenerate it so the rooms inside can use its panels\./);
+assert.match(t,/The current image was made before these cameras were set — regenerate it so the rooms inside can use its panels\./);
 hooks=[];t=text(render({...props,l:furnaceSet,plateMeta:{iso:"f2",platePanels:{panels:{TL:{yaw:0}}}}}));
 assert.doesNotMatch(t,/made before these cameras/);
 
@@ -167,6 +167,6 @@ assert.equal(saved.facing,180);assert.equal(writes[0].patch.spatialPlan.status,"
 /* wiring and styles */
 const ui=read("app/locations-ui.jsx"),css=read("app/styles.css");
 assert.match(ui,/function LocationPlateCameras\(/);
-assert.match(ui,/"Plate \u00b7 "\+LOC_PANEL_INFO\[v.panel\].label.toLowerCase\(\)/);
+assert.match(ui,/"Image \u00b7 "\+LOC_PANEL_INFO\[v.panel\].label.toLowerCase\(\)/);
 assert.match(css,/\.loc-cam-grid\{/);assert.match(css,/@media\(max-width:600px\)\{\n  \.loc-cam-grid\{grid-template-columns:1fr\}/);
 console.log("PASS plate cameras on the card: room views, the priced 'Make a … view' offer, owner suggestions, record warning, Faces picker");

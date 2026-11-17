@@ -251,13 +251,13 @@ window.OverflowMenu = OverflowMenu;
    at the edges (Writers' Room only). Replaces the old mobile-only bottom bar. */
 /* the Art Room's page heading: each tab's title and what it holds (homepage style, 2026-10-16) */
 const ART_TITLES = { lookbook:["The ","lookbook."], characters:["The ","cast."], props:["The ","props."],
-  locations:["Every place, ","on one plate."], stylebible:["The ","color script."], shots:["The ","shots."],
+  locations:["Every place, ","as one set."], stylebible:["The ","color script."], shots:["The ","shots."],
   storyboard:["The ","storyboards."], breakdown:["The ","breakdown."] };
 const ART_SUBS = {
   lookbook:"The film's visual north star: a short statement and the references every department reads.",
   characters:"A reference sheet for every character, and how each one's look changes across the film.",
   props:"Every object the story handles; a worn or carried prop matches its owner's look.",
-  locations:"Reusable sets for every scene, built from the screenplay. A room's plates are made from its location's plate, so that one comes first.",
+  locations:"Reusable sets for every scene, built from the screenplay. A place and its rooms are one set: the place's image comes first, and its rooms take their look from it.",
   stylebible:"The film's colour system, and the look of every scene.",
   shots:"Every beat broken into shots, with their frames rendered in order.",
   storyboard:"Each scene's boards, composed from its rendered shot frames.",

@@ -128,7 +128,7 @@ await test("Frances knows; the page is on the new key",()=>{
   assert.ok(!/\bTURN\b|Claude|Anthropic|McKee/.test(f.what));
   const html=read("TURN.html");
   for(const file of ["formats.jsx","ai.jsx","script.jsx"])
-    assert.ok(["20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
+    assert.ok(["20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1"].some(k=>html.includes("app/"+file+"?v="+k+'"')),file+" key");
 });
 
 console.log(`\n${checks} checks passed${failed?`, ${failed} FAILED`:""}`);

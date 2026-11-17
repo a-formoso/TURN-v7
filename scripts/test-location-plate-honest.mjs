@@ -92,7 +92,7 @@ ok("E the composition is the top-left panel, in the plate prompt and in its draf
   loc.includes('fixture_projection_rule:"These fixtures describe ONLY the main (top-left) view"') && ai.includes("THE VIEW TO STAGE: the plate's MAIN view, its top-left panel"));
 ok("E the place's description is said once", loc.includes("delete spec.location.identity_layers.place_identity;"));
 ok("E the card says which panel and when the composition was drafted for another space",
-  ui.includes('"The plate\'s top-left panel: "') && ui.includes("This composition was drafted for \\u201c"));
+  ui.includes('"The image\'s top-left panel: "') && ui.includes("This composition was drafted for \\u201c"));
 // F
 ok("F plain labels", ui.includes('"Floor plan \\u00b7 where everything stands"') && ui.includes('"The four cameras \\u00b7 where each view is taken from"')
   && ui.includes('"Composition notes (optional)"') && ui.includes('"Room measurements"') && ui.includes('"Lens, scale and camera notes"') && ui.includes('"Main view"'));

@@ -54,7 +54,7 @@ await test("A1 with shots, missing = the frames' needs (the room & time plate co
   box.sceneReferenceNeeds = (shots, ctx)=> ctx.scene.id==="s1" ? [{ id:"locunit-house-night", kind:"location", label:"House · Night", makeable:true }] : [];
   box.shotFrameState = (sh)=>({ a1:{ done:true, oldLook:true }, a2:{ done:false }, b1:{ done:true } })[sh.id];
   const [r1, r2] = rowsOf(film());
-  assert.deepEqual(J(r1.missing.map(m=>m.text)), ["House · Night plate", "1 frame to refresh"]);
+  assert.deepEqual(J(r1.missing.map(m=>m.text)), ["House · Night image", "1 frame to refresh"]);
   assert.deepEqual(J(r1.missing.map(m=>m.tab)), ["locations", "shots"]);
   // (2026-10-05, second pass) an earlier look is a NOTE, as in Shots and the Stage — never "to go"
   assert.deepEqual(J(r1.notes.map(m=>m.text)), ["1 frame with an earlier look \u2014 re-render to apply it"]);
@@ -110,7 +110,7 @@ await test("D1 the strip: links open on its scene; 'Make what this scene needs' 
   assert.ok(mk); assert.equal(findAll(mk, n=>n.type==="chip")[0].props.count, 1);
   assert.ok(!buttons(tree).some(b=>/Render Scene/.test(textOf(b))), "no render while something is missing");
   await mk.props.onClick(); assert.deepEqual(J(made2), ["s1", ["locunit-house-night"]]);
-  buttons(tree).find(b=>/House · Night plate/.test(textOf(b))).props.onClick();
+  buttons(tree).find(b=>/House · Night image/.test(textOf(b))).props.onClick();
   assert.deepEqual(went.pop(), ["locations", "s1", ""]);
   R.reset();
   tree = box.BreakdownStrip({ row:r2, go, onMakeSceneNeeds:noop });

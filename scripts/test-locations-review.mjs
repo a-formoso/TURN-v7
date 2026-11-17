@@ -91,17 +91,20 @@ await test("A2 the app: only missing specs and layouts are drafted; Redesign ask
 await test("B1 'Generate N missing plates' prices only drafted plates without an image, and never one waiting for its layout", ()=>{
   images = new Set(["house"]);
   const tree = sheets([D("house","House"), D("barn","Barn"), D("mill","Mill",{ layoutWaiting:true }), { id:"yard", key:"yard", name:"Yard" }]);
-  const b = buttons(tree).find(x=>/Generate 1 missing plate$/.test(textOf(x)));
+  const b = buttons(tree).find(x=>/Quick images · 1 missing$/.test(textOf(x)));   // (2026-11-17) 'Generate 1 missing plate' until then
   assert.ok(b, buttons(tree).map(textOf).join(" | "));
   assert.equal(findAll(b, n=>n.type==="chip")[0].props.count, 1);
-  assert.match(b.props.title, /1 more wait for their shared layout to be reviewed/);
+  assert.match(b.props.title, /1 more wait for their floor plan to be confirmed/);
+  assert.match(b.props.title, /the quick way: from its description alone, without the 3D set/);
   box.__begun = null; b.props.onClick(); assert.deepEqual(J(box.__begun), { ids:["barn"], skipped:0 });
 });
 await test("B2 nothing missing → only a quiet 'Regenerate plates…'; no read-only 'World scale' box", ()=>{
   images = new Set(["house"]);
   const tree = sheets([D("house","House")]);
   assert.ok(!buttons(tree).some(x=>/missing/.test(textOf(x))));
-  const re = buttons(tree).find(x=>/Regenerate plates/.test(textOf(x))); assert.ok(re && hasClass("ghost")(re));
+  const re = buttons(tree).find(x=>/Redo quick images/.test(textOf(x))); assert.ok(re && hasClass("ghost")(re));
+  assert.equal(findAll(re, n=>n.type==="chip")[0].props.count, 1, "its price is on the button");
+  assert.match(re.props.title, /An image made in 4 · Previs is replaced too \(it stays in its card's versions\)\. You are asked first, with the price/);
   assert.ok(!/World scale/.test(textOf(tree)));
 });
 
@@ -112,10 +115,10 @@ await test("C1 a focused scene: the parent plate, the room's plate, then the sce
   images = new Set(); generated = []; toasts = [];
   // useState order in LocationSheets: view, sceneFilter, …
   const tree = sheets(family(), { sluglineUnits:units }, { 1:"s1" });
-  const b = buttons(tree).find(x=>/Generate 3 missing in Scene 01/.test(textOf(x)));
+  const b = buttons(tree).find(x=>/Quick images · 3 missing in Scene 01/.test(textOf(x)));
   assert.ok(b, buttons(tree).map(textOf).join(" | "));
   assert.equal(findAll(b, n=>n.type==="chip")[0].props.count, 3);
-  assert.match(b.props.title, /2 location plates \(a room's parent first\), then 1 room & time plate/);
+  assert.match(b.props.title, /2 location images \(a room's parent first\), then 1 variant image/);
   await b.props.onClick();
   assert.deepEqual(generated, ["plate:house", "plate:kitchen", "unit:kitchen-night"], "parent first, then the room, then its night plate; never the orphan");
   assert.equal(toasts.length, 0);
@@ -126,7 +129,7 @@ await test("C2 a room & time plate waits when its location can't be made (layout
   assert.ok(!buttons(tree).some(x=>/missing in Scene/.test(textOf(x))), "nothing this scene needs can be made yet");
   images = new Set(["house", "kitchen"]);
   const t2 = sheets([ D("house","House"), D("kitchen","Kitchen",{ parentKey:"house", scenes:["s1"] }) ], { sluglineUnits:units }, { 1:"s1" });
-  const b = buttons(t2).find(x=>/Generate 1 missing in Scene 01/.test(textOf(x))); assert.ok(b);
+  const b = buttons(t2).find(x=>/Quick images · 1 missing in Scene 01/.test(textOf(x))); assert.ok(b);
 });
 await test("C3 failures are listed; the run can stop between plates", async ()=>{
   images = new Set(); generated = []; toasts = [];
@@ -134,7 +137,7 @@ await test("C3 failures are listed; the run can stop between plates", async ()=>
   box.generateSluglineUnitPlate = async ()=>{ throw new Error("Generate Kitchen's plate first"); };
   const tree = sheets(family(), { sluglineUnits:units }, { 1:"s1" });
   await buttons(tree).find(x=>/missing in Scene 01/.test(textOf(x))).props.onClick();
-  assert.match(toasts[0], /1 plate couldn't be made: kitchen-night · NIGHT — Generate Kitchen's plate first/);
+  assert.match(toasts[0], /1 image couldn't be made: kitchen-night · NIGHT — Generate Kitchen's plate first/);
   box.generateSluglineUnitPlate = real;
   assert.ok(ui.includes('"Stop after this one"') && ui.includes("if(sceneStop.current) break;"));
 });
@@ -154,7 +157,7 @@ await test("D1 the headless room & time plate: needs its location's plate; uses 
     // the unit's scene (2026-10-14: its pages are drawn for every scene of the unit the film has)
     turnContinuity:{ scenes:[{ id:"s1", no:1 }], drafts:{} } });
   const l = { id:"kitchen", name:"Kitchen", key:"kitchen" }, u = unit("kitchen-night","kitchen",["s1"]);
-  await assert.rejects(()=>db.generateSluglineUnitPlate(l, u, {}), /Generate Kitchen's plate first/);
+  await assert.rejects(()=>db.generateSluglineUnitPlate(l, u, {}), /Generate Kitchen's image first/);
   assert.equal(calls.length, 0, "nothing is spent without the location's plate");
   imgs.add("kitchen");
   assert.equal(await db.generateSluglineUnitPlate(l, u, {}), true);
@@ -179,15 +182,19 @@ await test("E2 removing an extra environment state asks first and deletes its pl
   assert.ok(fx.includes("appConfirm") && fx.indexOf("if(!ok) return;") < fx.indexOf("nbClearAsset(assetId)"));
   assert.ok(fx.includes("locationAppearanceStateAssetId(l,v,sluglineUnits||[])"));
 });
-await test("E3 the prompt is behind the ⋯ menu, beside 'Edit a panel…'; Generate says when it writes the layout first", ()=>{
+await test("E3 the prompt is a section of the card; one view is edited, and a quick image made, in 5 · Location image", ()=>{
   const card = between(ui, "function LocationSheet({", "function CoverageViewsEditor(");
-  assert.ok(card.includes('label: panelEdit?"Close panel edit":"Edit a panel\\u2026", placement:"beforeEdit",'));
+  // (owner 2026-11-17) 'Edit a panel…' left the ⋯ menu: 'Edit one view…' is in the Location image section
+  assert.ok(!/"Close panel edit"|"Edit a panel\\u2026"|placement:"beforeEdit"/.test(card));
+  assert.ok(/panelEdit\?"Close the view edit":"Edit one view\\u2026"/.test(card));
   // (owner 2026-10-28) the prompt is a folded section of the card, no longer a ⋯ menu item
   assert.ok(!card.includes('"Show the generation prompt"'));
-  assert.equal((card.match(/menuExtra:/g)||[]).length, 1, "one menu list (a second key would drop Edit a panel)");
-  assert.ok(card.includes('React.createElement(CardFold,{label:sectionNo.prompt+" \\u00b7 Generation Prompt",defaultOpen:false},') /* numbered since 2026-11-13 */);
-  assert.ok(card.includes("generateTitle:(!locStaged && !gen.slotHasRef"));
-  assert.ok(art.includes("(generateTitle || (genUrl ? \"Generate a fresh sheet from the current spec\""));
+  assert.equal((card.match(/menuExtra:/g)||[]).length, 1, "one menu list (a second key would drop Same place as)");
+  assert.ok(/React\.createElement\(CardFold,\{label:sectionNo\.prompt\+" \\u00b7 Generation Prompt",defaultOpen:false\},/.test(card) /* numbered since 2026-11-13 */);
+  // the quick image says when it writes the view composition first (it was the top Generate's tooltip)
+  assert.ok(card.includes('const quickWritesFirst=!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable();'));
+  assert.ok(card.includes("quickWritesFirst?\"Writes this place's view composition first (a small writing charge), then makes the image from it. \""));
+  assert.ok(art.includes('(generateTitle || (genUrl ? "Generate a fresh sheet from the current spec"'));
 });
 
 /* ═══ F ═══ */

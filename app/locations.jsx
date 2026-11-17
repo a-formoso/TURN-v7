@@ -842,14 +842,14 @@ function locationMergeCarryIds(gone){
 function locationMergeConfirmText(plan, ctx){
   ctx = ctx || {};
   const q = (s)=> "“"+String(s||"")+"”";
-  const kept = [plan.keeperHasPlate && "its plate", plan.keeperHasLayout && "the shared layout (with its floor plan)",
+  const kept = [plan.keeperHasPlate && "its image", plan.keeperHasLayout && "the shared layout (with its floor plan)",
     plan.keeperHasStaging && "its view composition"].filter(Boolean);
   const list = (xs)=> xs.length<=1 ? (xs[0]||"") : xs.slice(0,-1).join(", ")+" and "+xs[xs.length-1];
   const items = [];
   items.push(q(plan.keeperName)+"’s card stays"+(kept.length ? ", with "+list(kept)+" as they are" : "")
     +(plan.keeperName!==plan.name ? ", and is named "+q(plan.name)+(plan.byHeadings ? " — the name the screenplay’s headings use" : "") : "")+".");
-  const goneWith = [plan.goneHasPlate && "its own plate", plan.goneHasLayout && "its own shared layout",
-    plan.goneSheets ? plan.goneSheets+" other plate"+(plan.goneSheets!==1?"s":"") : ""].filter(Boolean);
+  const goneWith = [plan.goneHasPlate && "its own image", plan.goneHasLayout && "its own shared layout",
+    plan.goneSheets ? plan.goneSheets+" other image"+(plan.goneSheets!==1?"s":"") : ""].filter(Boolean);
   items.push(q(plan.goneName)+"’s scenes join it (and any description it has that the other card lacks); its card moves to Recently deleted"
     +(goneWith.length ? " with "+list(goneWith) : "")+" — nothing is deleted for good"
     +(plan.goneKeyTaken ? " (it stays there: the merged card now has its name, so it can’t come back as a card of its own)" : "")+".");
@@ -857,19 +857,19 @@ function locationMergeConfirmText(plan, ctx){
   const carried = (plan.carry||[]).filter(c=>c && c.hasImage);
   if(carried.length){
     const own = carried.some(c=>c.what==="plate"), others = carried.length-(own ? 1 : 0);
-    const otherPlates = (others===1 ? "its other plate" : "its "+others+" other plates");
-    const what = carried.length===1 ? "A copy of "+(own ? "its plate" : otherPlates)+" is"
-      : "Copies of "+(own ? "its plate and "+otherPlates : otherPlates)+" are";
+    const otherPlates = (others===1 ? "its other image" : "its "+others+" other images");
+    const what = carried.length===1 ? "A copy of "+(own ? "its image" : otherPlates)+" is"
+      : "Copies of "+(own ? "its image and "+otherPlates : otherPlates)+" are";
     items.push(what+" kept on the merged card too, as "+(carried.length===1 ? "an earlier version" : "earlier versions")
-      +" in its plate’s version history (⋯ › Details › Earlier versions, where Restore makes "+(carried.length===1 ? "it" : "one")+" the current plate); "
-      +(plan.keeperHasPlate ? q(plan.keeperName)+"’s current plate stays as it is." : "the merged card has no current plate, and none is made."));
+      +" in its image’s version history (⋯ › Details › Earlier versions, where Restore makes "+(carried.length===1 ? "it" : "one")+" the current image); "
+      +(plan.keeperHasPlate ? q(plan.keeperName)+"’s current image stays as it is." : "the merged card has no current image, and none is made."));
   }
   /* an Art director can't edit scenes (2026-10-14): the scene card keeps its heading as it is and the merged place still
      reads correctly; the owner's merge corrects it — said plainly */
   const fixText = (fixes)=> (fixes||[]).map(f=> ctx.canFixScenes
     ? "Scene "+f.no+"’s card slugline is corrected to "+f.to+", as its screenplay says."
     : "Scene "+f.no+"’s card keeps its heading as it is, "+f.from+": an Art director can’t edit scenes. The merged place still reads correctly — scene "
-      +f.no+", its shots and its room & time plates are read as "+q(plan.name)+". (The owner’s merge corrects the heading to "+f.to
+      +f.no+", its shots and its variant images are read as "+q(plan.name)+". (The owner’s merge corrects the heading to "+f.to
       +"; after yours, the owner can change it on the scene card.)");
   fixText(plan.sceneFixes).forEach(t=>items.push(t));
   // the "Same place as…" path's second button: the same card stays, under the other name — say what else differs
@@ -884,10 +884,10 @@ function locationMergeConfirmText(plan, ctx){
   }
   if(ctx.show) items.push("This film is an episode of a Show and its locations are shared: the merge holds in every episode — a scene in another episode that names "
     +list(_locUniq([plan.keeperName, plan.goneName].filter(n=>n.toLowerCase()!==plan.name.toLowerCase()), true).map(q))
-    +" is read as "+q(plan.name)+" (scene cards in other episodes, and their shots that picked "+q(plan.goneName)+"’s plate by hand, are not changed).");
+    +" is read as "+q(plan.name)+" (scene cards in other episodes, and their shots that picked "+q(plan.goneName)+"’s image by hand, are not changed).");
   return { title:"Merge "+q(plan.keeperName)+" and "+q(plan.goneName)+" into one place?",
     body:"They become one location card. Nothing is generated and nothing is charged.",
-    items, note:"Shots that picked "+q(plan.goneName)+"’s plate by hand, and props linked to it, now use the merged card.",
+    items, note:"Shots that picked "+q(plan.goneName)+"’s image by hand, and props linked to it, now use the merged card.",
     confirmLabel:"Merge as "+q(plan.name), cancelLabel:"Cancel",
     ...(ctx.offerOtherName && plan.altName && plan.altName.toLowerCase()!==plan.name.toLowerCase() ? { altLabel:"Merge as "+q(plan.altName) } : {}) };
 }
@@ -1159,12 +1159,12 @@ async function locationParentReferences(l){
 function locationParentMissingReference(l){
   const parent=locationParentOf(l);
   return parent ? {url:"",kind:"location",ready:false,required:true,refId:parent.id,label:parent.name||"Parent location",
-    note:(parent.name||"Parent location")+"'s plate — needed first: single panels are cut out of it"} : null;
+    note:(parent.name||"Parent location")+"'s image — needed first: single panels are cut out of it"} : null;
 }
 async function locationStateReferences(l){
   let url=typeof nbGetImage==="function"?nbGetImage(l.id):"";
   if(!url&&typeof nbLoadImage==="function")url=await nbLoadImage(l.id);
-  if(!url){const e=new Error("Generate or restore "+(l.name||"the location")+"'s plate before its environment states.");e.requiredReference=true;throw e;}
+  if(!url){const e=new Error("Generate or restore "+(l.name||"the location")+"'s image before its environment states.");e.requiredReference=true;throw e;}
   return [{url,refId:l.id,kind:"location",required:true,ready:true,label:l.name,
     note:(l.name||"Location")+" master plate — preserve this exact room, geometry, materials, openings and fixed fixtures; change only the requested environment state."},
     ...await locationParentReferences(l)];
@@ -1290,7 +1290,7 @@ function locationSpatialPlanState(l,locations){
     reason:tooLarge?"Shorten the shared set layout to 12,000 characters (and its floor plan to 9,000) so it reaches image generation and Blender intact."
       :!complete?"Prepare the shared set layout in Spatial Layout & Staging first."
       :plan.status!=="reviewed"?"Review the shared set layout before rendering."
-      :stale?"The parent plate changed. Check it against the shared set layout and review the layout again.":""};
+      :stale?"The parent image changed. Check it against the shared set layout and review the layout again.":""};
 }
 function requireLocationSpatialPlan(l){
   const owner=locationSpatialOwner(l);
@@ -1446,6 +1446,60 @@ window.setLocationLayoutDraftPending=setLocationLayoutDraftPending;
 window.locationLayoutDraftPending=locationLayoutDraftPending;
 window.LOCATION_STAGING_LAYOUT_WAIT=LOCATION_STAGING_LAYOUT_WAIT;
 window.locationStagingDraftBlock=locationStagingDraftBlock;
+/* PREPARE THIS PLACE (owner 2026-11-17: "one run per place"). What a place's card still has to do, told from facts the
+   card gathers (nothing is read or charged here). Two halves, because a person confirms the floor plan between them:
+   "plan"    write the description (when there is none) and draft the floor plan with every room: writing calls;
+   "review"  a floor plan waits to be checked and confirmed (free), or is being drafted;
+   "blocked" the confirmed plan lacks a measurement the 3D set needs;
+   "set"     cameras for the spaces with no usable ones (free), dressing for the spaces not dressed (one writing call
+             each) and image drafts: the place's first image, or, once the place has its image, one for each room that
+             has none (a room takes its look from the place's image, so the place comes first);
+   "done"    nothing left for the run.
+   An image made by the run is a DRAFT: the user chooses to use it, the run never does. */
+function locationPreparePlan(f){
+  f=f||{};
+  const place=String(f.name||"this place"),rooms=Number(f.rooms)||0,count=(n,one,many)=>n+" "+(n===1?one:many);
+  const names=list=>list.map(x=>String((x&&x.name)||"Room")).join(", ");
+  if(!f.planReady){
+    if(f.planPending)return {stage:"review",steps:[],writing:0,image:0,total:0,
+      text:"The floor plan is being drafted, or its draft is waiting for you. Check it in 2 \u00b7 Floor plan and confirm it."};
+    if(!f.planEmpty)return {stage:"review",steps:[],writing:0,image:0,total:0,
+      text:"The floor plan is waiting for your check. Confirm it in 2 \u00b7 Floor plan."};
+    const steps=[];
+    if(!f.drafted)steps.push({kind:"describe",text:"Write the description of "+place+" (a writing call)"});
+    steps.push({kind:"plan",text:"Draft the floor plan"+(rooms?", with its "+count(rooms,"room","rooms"):"")+" (a writing call)"});
+    return {stage:"plan",steps,writing:0,image:0,total:0,text:""};
+  }
+  if(f.planIssue)return {stage:"blocked",steps:[],writing:0,image:0,total:0,text:String(f.planIssue)};
+  const steps=[],lacking=(f.lacking||[]).filter(Boolean),undressed=(f.undressed||[]).filter(Boolean);
+  if(lacking.length)steps.push({kind:"cameras",ids:lacking.map(x=>x.id),credits:0,text:"Set the cameras of "+names(lacking)+" (free)"});
+  if(undressed.length){
+    const credits=undressed.reduce((n,x)=>n+(Number(x.credits)||0),0);
+    steps.push({kind:"dress",ids:undressed.map(x=>x.id),credits,
+      text:"Dress "+names(undressed)+(credits?" (about "+count(credits,"writing credit","writing credits")+")":" (writing credits)")});
+  }
+  let targets=[];
+  // imageKnown false: the film's images have not all been read yet, so it is not known that this place lacks one
+  if(!f.hasImage){if(!f.hasDraft&&f.onPlan!==false&&f.imageKnown!==false)targets=[{id:f.id,name:place,credits:Number(f.imageCredits)||0}];}
+  else targets=(f.roomsToDraw||[]).filter(Boolean).map(r=>({id:r.id,name:String(r.name||"Room"),credits:Number(f.roomImageCredits)||0}));
+  if(targets.length){
+    const credits=targets.reduce((n,x)=>n+x.credits,0);
+    steps.push({kind:"image",ids:targets.map(x=>x.id),targets,credits,
+      text:(f.hasImage?"Make an image draft for "+names(targets):"Make the first image of "+place+", as a draft")
+        +(credits?" ("+count(credits,"image credit","image credits")+")":" (image credits)")});
+  }
+  // a draft of the place's image already waits: the user's turn, nothing for the run
+  const waiting=!f.hasImage&&!!f.hasDraft;
+  if(!steps.length)return {stage:"done",steps:[],writing:0,image:0,total:0,waitingDraft:waiting,
+    text:waiting?"A draft of the image is waiting in 4 \u00b7 Previs. Use it as the location image, or delete it.":""};
+  const writing=steps.filter(s=>s.kind==="dress").reduce((n,s)=>n+s.credits,0),image=steps.filter(s=>s.kind==="image").reduce((n,s)=>n+s.credits,0);
+  return {stage:"set",steps,writing,image,total:writing+image,waitingDraft:waiting,text:""};
+}
+/* WHERE A PLACE STANDS (owner 2026-11-17), for the Locations tab's Show list: "plan" it needs its floor plan
+   (described or not), "image" the floor plan is confirmed and it has no image yet, "done" it has its image. */
+function locationPlaceStatus(f){ return f&&f.hasImage?"done":f&&f.planReady?"image":"plan"; }
+window.locationPreparePlan=locationPreparePlan;
+window.locationPlaceStatus=locationPlaceStatus;
 window.locationStagingLayoutSig=locationStagingLayoutSig;
 window.locationStagingLayoutChanged=locationStagingLayoutChanged;
 window.locationStagingBasis=locationStagingBasis;
@@ -3116,7 +3170,7 @@ async function locationSubspaceRootReferences(l, opts){
   }
   let parentUrl;
   try{ parentUrl = await _locLoadPlate(parent.id); }catch(e){ e.requiredReference = true; throw e; }
-  if(!parentUrl){ const e = new Error("Generate or restore "+(parent.name||"the parent location")+"'s plate first — this subspace needs it as a visual reference."); e.requiredReference = true; throw e; }
+  if(!parentUrl){ const e = new Error("Generate or restore "+(parent.name||"the parent location")+"'s image first — this subspace needs it as a visual reference."); e.requiredReference = true; throw e; }
   // a view made from this room's position may not have loaded on this device yet
   for(const op of locationSpaceOpenings(l)){
     const id = locationParentViewAssetId(l,op.id);
@@ -3139,7 +3193,7 @@ async function locationSubspaceRootReferences(l, opts){
     let url = "";
     if(src.kind==="quadrant") url = await cut(src.assetId, src.key, o.preview ? LOC_PREVIEW_CROP_MAX_DIM : LOC_PANEL_CROP_MAX_DIM, o.preview ? 0 : LOC_PANEL_CROP_MIN_DIM);
     else url = await _locLoadPlate(src.assetId);
-    if(!url && !o.preview){ const e = new Error("Couldn't read "+(src.targetName||"the parent")+"'s plate to take the view through "+(((src.uses||[])[0]||{}).openingName||"the opening")+". Nothing was sent or charged — try again."); e.requiredReference = true; throw e; }
+    if(!url && !o.preview){ const e = new Error("Couldn't read "+(src.targetName||"the parent")+"'s image to take the view through "+(((src.uses||[])[0]||{}).openingName||"the opening")+". Nothing was sent or charged — try again."); e.requiredReference = true; throw e; }
     refs.push({url, kind:"location", refId:src.id, required:true, ready:!!url, numbered:true, maxDim:LOC_PANEL_CROP_MAX_DIM,
       label:src.targetName+" · facing "+locCompass(src.pose.yaw), note:locationViewSourceNote(src,l,{single:!!o.single})});
   }
@@ -3502,7 +3556,7 @@ async function generateLocationParentView(l, req, project, opts){
   try{
     requireLocationSpatialPlan(l);
     const plate = await _locLoadPlate(target.id);
-    if(!plate){ const e = new Error("Generate "+(target.name||"the parent location")+"'s plate first — this view is made from it."); e.requiredReference = true; throw e; }
+    if(!plate){ const e = new Error("Generate "+(target.name||"the parent location")+"'s image first — this view is made from it."); e.requiredReference = true; throw e; }
     if(_stale(id,_runToken,_ep)){ _nbLocCancelEvent(id,_runToken); return false; }
     const refs = mergeLocationReferences([{url:plate, kind:"location", refId:target.id, required:true, ready:true,
       note:(target.name||"Parent location")+" plate — architecture, materials, colour and light to match; not a composition to copy"}],
@@ -6648,7 +6702,7 @@ async function generateSluglineUnitPlate(l, u, project, opts){
   try{
     requireLocationSpatialPlan(l);
     const own = await grab(l.id);
-    if(!own) throw new Error("Generate "+(l.name||"the location")+"'s plate first — this room needs it as a reference.");
+    if(!own) throw new Error("Generate "+(l.name||"the location")+"'s image first — this room needs it as a reference.");
     const plates = [{ url:own, kind:"location", refId:l.id,
       note:(l.name||"parent location")+" child/master plate — preserve this exact subspace geometry, materials and scale" }];
     /* the root's part: single cut-out panels, never its whole sheet (2026-10-14) — left out when the root has no plate.

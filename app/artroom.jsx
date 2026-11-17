@@ -4881,7 +4881,7 @@ function PropSheetReferenceModal({ prop, onClose }){
     ...((graph.characters||[]).filter(Boolean).map(c=>({ id:c.id, name:c.name||"Unnamed character", kind:"character",
       note:(c.name||"Character")+" character sheet — use this character's facial likeness when the prop depicts them; do not copy unrelated wardrobe or background" }))),
     ...((graph.props||[]).filter(p=>p&&p.id&&p.id!==currentPropId).map(p=>({ id:p.id, name:p.name||"Unnamed prop", kind:"prop", note:(p.name||"Prop")+" prop sheet" }))),
-    ...((graph.locations||[]).filter(Boolean).map(l=>({ id:l.id||l.key, name:l.name||"Unnamed location", kind:"location", note:(l.name||"Location")+" location plate" })))
+    ...((graph.locations||[]).filter(Boolean).map(l=>({ id:l.id||l.key, name:l.name||"Unnamed location", kind:"location", note:(l.name||"Location")+" location image" })))
   ].filter(x=>x&&x.id);
   // the owner's sheet first — the item is most often on it
   candidates.sort((a,b)=> (b.id===ownerId?1:0) - (a.id===ownerId?1:0));
@@ -4998,7 +4998,7 @@ function PropSheetReferenceModal({ prop, onClose }){
             "Source: "+picked.kind+" sheet · "+picked.name),
           err && React.createElement("p",{className:"prop-review-warning",role:"alert"},err),
           React.createElement("div",{className:"region-edit-note"}, cropping
-            ? "Cut the prop out of a sheet that shows it — its owner's character sheet, a close-up or a location plate. The cut rides on this prop's future generations and edits."
+            ? "Cut the prop out of a sheet that shows it — its owner's character sheet, a close-up or a location image. The cut rides on this prop's future generations and edits."
             : "Use this for whole-sheet influence: a character likeness for a photo prop, an owner's taste and wear patterns, a location's materials, or another prop's construction language."),
           React.createElement("div",{className:"region-edit-acts"},
             React.createElement("button",{className:"sheet-edit-cancel",onClick:onClose,disabled:saving},"Cancel"),
@@ -5279,7 +5279,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               if(/location/i.test(deleteLabel||"")){
                 const ok = !window.appConfirm || await window.appConfirm({
                   title:"Delete "+(name||"this location")+"?",
-                  body:"This removes the location card from the Art Room and moves it to Recently Deleted. Its generated plate can be restored from there until you delete it forever.",
+                  body:"This removes the location card from the Art Room and moves it to Recently Deleted. Its image can be restored from there until you delete it forever.",
                   confirmLabel:"Delete location", cancelLabel:"Cancel", danger:true
                 });
                 if(!ok) return;
@@ -5430,7 +5430,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     React.createElement("input",{ref:uploadRef,type:"file",accept:"image/png,image/jpeg,image/webp,image/avif",
       style:{display:"none"},onChange:onUploadPicked}),
     // when the empty slot already imports on drop/click (dropToImport), this button is redundant
-    !genUrl && importSheet && !dropToImport && !hideUploadButton && noun!=="location plate" && React.createElement("button",{className:"sheet-upload-btn",onClick:pickUpload,disabled:gening,
+    !genUrl && importSheet && !dropToImport && !hideUploadButton && noun!=="location plate" && noun!=="location image" && React.createElement("button",{className:"sheet-upload-btn",onClick:pickUpload,disabled:gening,
       title:"Generated this elsewhere (e.g. in ChatGPT)? Upload it at full resolution — it becomes this "+noun+", with zoom, the … menu and clear, just like a generated one."},
       React.createElement(Icon.image,{s:12}),"Upload a finished "+noun),
     gen.pendingSave&&React.createElement("div",{className:"sheet-retry-save",role:"status"},
@@ -5756,7 +5756,7 @@ function RecentlyDeleted({ items, kind, onRestore, onPurge, compact }){
           // scale sheets, the likeness photos you uploaded and its voice; a prop its state sheets
           body:"This permanently removes it and its "+(kind==="reference" ? "mood frame"
             : kind==="shot" ? "frame and its earlier versions"
-            : kind==="location" ? "plates (its time-of-day and camera-view plates, and its own rooms & times plates)"
+            : kind==="location" ? "images (its time-of-day and camera-view images, and its own variant images)"
             : kind==="character" ? "master sheet, appearance-variant sheets and scale sheet, the likeness photos you uploaded (on this device and in the cloud) and its voice"
             : kind==="prop" ? "reference sheet and its state sheets"
             : "reference sheet")+" from the project. This can't be undone.",
@@ -7610,7 +7610,7 @@ function preProdStatus({ project, characters, props, locations, shots, scenes })
     { id:"characters", label:"Cast",        unit:"sheet", done:C.filter(c=>img(c.id)).length, total:C.length },
     { id:"props",      label:"Props",       unit:"sheet", done:P.filter(p=>img(p.id)).length, total:P.length },
     { id:"voices",     label:"Voices",      unit:"voice", noGen:true, done:voiced, total:speakers.length, navTo:"characters" },
-    { id:"locations",  label:"Locations",   unit:"plate", done:L.filter(l=>img(l.id)).length, total:L.length },
+    { id:"locations",  label:"Locations",   unit:"image", done:L.filter(l=>img(l.id)).length, total:L.length },
     { id:"stylebible", label:"Style",       unit:"grade", noGen:true, done:graded, total:SC.length },
     { id:"shots",      label:"Shots",       unit:"frame", done:S.filter(s=>img(s.id)).length, total:S.length },
     { id:"storyboard", label:"Storyboards", unit:"sheet", done:boarded, total:SC.length },
@@ -7692,7 +7692,7 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
     { id:"props",    label:"Prop sheets",         unit:"sheet",   n:P.filter(p=>p && !img(p.id) && p.kind!=="worn" && !((p.kind||"carried")==="carried" && !p.ownerId) && tierOf(p)!=="text"
         && !(window.PropScreenplay && window.PropScreenplay.batchSkip && window.PropScreenplay.batchSkip(p, P.some(x=>x && (x.screenplaySources||[]).length)))).length },
     { id:"wardrobe", label:"Wardrobe updates",    unit:"re-rendered sheet", n:Math.max(0, Number(wardrobeCount)||0) },
-    { id:"plates",   label:"Location plates",     unit:"plate",   n:L.filter(l=>l && !img(l.id)).length },
+    { id:"plates",   label:"Location images",     unit:"image",   n:L.filter(l=>l && !img(l.id)).length },
   ];
   const pending = lines.filter(l=>l.n>0);
   const totalGen = pending.reduce((a,l)=>a+l.n,0);
@@ -7730,7 +7730,7 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
                 React.createElement("span",{className:"cc-list-lab"}, l.label),
                 React.createElement("span",{className:"cc-list-n"}, l.n+" "+l.unit+(l.n===1?"":"s"))))),
             note("alert","It can make more than this: missing time-of-day variants for the locations, places and appearance changes it finds in the script, and a wardrobe update for anyone whose worn prop is made in this run. Each image uses credits; what it made shows when it finishes."))
-        : note("check","Every sheet and plate already exists — running again refreshes the lookbook, colour and shot coverage (writing credits only) and fills any gaps.","ok"),
+        : note("check","Every sheet and image already exists — running again refreshes the lookbook, colour and shot coverage (writing credits only) and fills any gaps.","ok"),
       note("info","It also researches the Lookbook, reads the screenplay for what it states about each character whose look it drafts (when it hasn't been read, or changed since) and for its props when it hasn't been read yet (the objects it names are added; carried items from the character briefs stay proposals and are never drafted or generated), sets the colour grade and designs shot coverage where it's missing or weak (writing credits). Scenes whose shots you approved or locked keep them. The Lookbook's render style fills every card that has no style yet \u2014 a style already set on a card stays.","info"),
       note("info","Not included: shot frames and storyboards. Render the frames from the Shots tab, then compose the boards in Storyboards.","info"),
       React.createElement("div",{className:"cc-model"},

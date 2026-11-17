@@ -430,7 +430,7 @@ await test("P the run makes exactly the plan it asked about, in order; cancellin
   // a child whose parent can't be made isn't made either
   const d = makeWindow({ locations:[{ id:"H", key:"house", name:"House", unreviewed:true }, { id:"K", key:"kitchen", name:"Kitchen", parentKey:"house", staging:"x" }] });
   await d.run([need("H","location","House"), need("K","location","Kitchen")]);
-  assert.match(d.asks.length ? d.asks[0].note||"" : d.last(), /Kitchen — needs House's plate first \(Locations\)/);
+  assert.match(d.asks.length ? d.asks[0].note||"" : d.last(), /Kitchen — needs House's image first \(Locations\)/);
 });
 await test("P2 an answer given after a switch makes nothing", async ()=>{
   const w = makeWindow({ locations:[{ id:"H", key:"house", name:"House", staging:"x" }] });

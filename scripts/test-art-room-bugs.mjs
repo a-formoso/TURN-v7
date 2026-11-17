@@ -112,7 +112,7 @@ await test("the Coordinator's copy matches its seven steps; no storyboard promis
 await test("the cost preview counts only what the run renders",()=>{
   const art=read("app/artroom.jsx");
   const cc=art.slice(art.indexOf("function CoordConfirm("),art.indexOf("window.CoordConfirm = CoordConfirm;"));
-  for(const lab of ['"Cast sheets"','"Appearance variants"','"Prop sheets"','"Wardrobe updates"','"Location plates"']) assert.ok(cc.includes(lab),lab);
+  for(const lab of ['"Cast sheets"','"Appearance variants"','"Prop sheets"','"Wardrobe updates"','"Location images"']) assert.ok(cc.includes(lab),lab);
   assert.ok(!/preProdStatus|"frame"|Storyboards", *unit/.test(cc),"no shot frames or storyboard sheets in the count");
   assert.ok(cc.includes("Not included: shot frames and storyboards"));
   assert.ok(cc.includes('tierOf(p)!=="text"'),"text-only props get no image, so they aren't counted");

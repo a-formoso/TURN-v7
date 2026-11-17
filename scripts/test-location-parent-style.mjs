@@ -77,7 +77,7 @@ ok("the shot frame's loader gets the panel even before it was kept", r && /^http
 // the wiring
 const ui=readFileSync("app/locations-ui.jsx","utf8"), stage=readFileSync("app/stage.jsx","utf8"), sui=readFileSync("app/shots-ui.jsx","utf8");
 ok("the room's card shows the switch (one-off rooms are offered it; on, it shows the panel and 'Give it its own plate')",
-  /function LocationParentStyleNotice\(/.test(ui) && /sceneN>2/.test(ui) && /"Use "\+pName\+"'s plate"/.test(ui) && /"Give it its own plate"/.test(ui)
+  /function LocationParentStyleNotice\(/.test(ui) && /sceneN>2/.test(ui) && /"Use "\+pName\+"'s image"/.test(ui) && /"Give it its own image"/.test(ui)
   && /React\.createElement\(LocationParentStyleNotice,\{ l, gen, readOnly, onUpdate \}\)/.test(ui));
 ok("generating the room's own plate turns borrowing off", /if\(on && own && !readOnly && typeof onUpdate==="function"\) onUpdate\(l\.id,\{ usesParentPlate:false \}\)/.test(ui));
 ok("the missing-plates batch and the scene run skip a borrowing room",
@@ -85,7 +85,7 @@ ok("the missing-plates batch and the scene run skip a borrowing room",
 ok("the Stage names the panel and gives it a materials-only role line, and cuts it on first load",
   /"'s materials and colour"/.test(stage) && /It is NOT this room: build the room from the text/.test(stage)
   && /String\(id\)\.indexOf\("ps-"\)===0 && typeof locationEnsureParentStyle==="function"/.test(stage));
-ok("the Shots warning says the parent's plate is what's missing", /borrows its parent's plate, which isn't ready yet/.test(sui));
+ok("the Shots warning says the parent's image is what's missing", /borrows its parent's image, which isn't ready yet/.test(sui));
 const html=readFileSync("TURN.html","utf8"), ai=readFileSync("app/ai.jsx","utf8");
 ok("Frances knows", /A small room that borrows its parent's plate/.test(ai));
 // (owner 2026-10-27) THE PARENT'S OWN VIEW OF THE ROOM: Marmorica's plate asked for "INTERIOR establishing view of

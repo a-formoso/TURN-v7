@@ -201,7 +201,7 @@ assert.ok(commits[0].meta.locationUpstream.some((u) => u.id === owner.id && u.is
 // the parent's plate missing: the state waits for it (nothing is sent)
 delete images[owner.id];
 sent.length = 0;
-await assert.rejects(box.generateLocationVariant(sub, { id: "night", time: "Night" }, film.project), /Generate or restore Fondamenta's plate first/);
+await assert.rejects(box.generateLocationVariant(sub, { id: "night", time: "Night" }, film.project), /Generate or restore Fondamenta's image first/);
 assert.equal(sent.length, 0);
 images[owner.id] = PLATE;
 
@@ -234,14 +234,14 @@ const props = { l: owner, project: film.project, onUpdate: (id, patch) => writes
 box.aiPlateCamerasReadCostText = () => "about 1 writing call on Test Model";
 hooks = [];
 let tree = render(props), t = text(tree);
-assert.match(t, /This plate's cameras/);
-assert.match(t, /This plate was made before its cameras were recorded, so Fondamenta DEI Vetrai can't use its panels — it gets one small panel of it for materials and colour only\. Say which way each panel faces \(free\), or read them from the plate\./);
+assert.match(t, /This image's cameras/);
+assert.match(t, /This image was made before its cameras were recorded, so Fondamenta DEI Vetrai can't use its panels — it gets one small panel of it for materials and colour only\. Say which way each panel faces \(free\), or read them from the image\./);
 const facing = (k) => flat(tree).find((n) => n.type === "label" && text(n).startsWith({ TL: "Top-left", TR: "Top-right", BL: "Bottom-left", BR: "Bottom-right" }[k] + " faces"));
 const sel = flat(facing("TR")).find((n) => n.type === "select");
 assert.equal(sel.props.value, "", "not known yet");
 sel.props.onChange({ target: { value: "90" } });
 assert.deepEqual(json(writes.pop()), { id: owner.id, patch: { plateCameras: { iso: ISO, source: "set", panels: { TR: { yaw: 90, pitch: 0, lensMm: 24, position: null, basis: "user" } } } } });
-const readBtn = flat(tree).find((n) => n.type === "button" && /^Read the cameras from this plate/.test(text(n)));
+const readBtn = flat(tree).find((n) => n.type === "button" && /^Read the cameras from this image/.test(text(n)));
 assert.ok(readBtn, "the paid read is offered");
 assert.match(text(readBtn), / · about 1 writing call on Test Model$/, "priced on the button");
 assert.match(readBtn.props.title, /Uses writing credits, not image credits/);
@@ -250,11 +250,11 @@ box.aiReadPlateCameras = async (l) => { readCalls++; return { iso: ISO, source: 
 await readBtn.props.onClick();
 assert.equal(readCalls, 1);
 assert.equal(json(writes.pop()).patch.plateCameras.source, "read");
-assert.match(toasts.pop(), /^Read 2 cameras from Fondamenta's plate — the rooms inside can now use its panels\.$/);
+assert.match(toasts.pop(), /^Read 2 cameras from Fondamenta's image — the rooms inside can now use its panels\.$/);
 // once noted: said, editable, clearable
 owner.plateCameras = box.normalizeLocationPlateCameras({ iso: ISO, source: "set", panels: { TR: { yaw: 90 } } });
 hooks = []; tree = render(props); t = text(tree);
-assert.match(t, /Set by hand for this plate\. Fondamenta DEI Vetrai can now use the panel of it that faces the way a window, door or open side looks\./);
+assert.match(t, /Set by hand for this image\. Fondamenta DEI Vetrai can now use the panel of it that faces the way a window, door or open side looks\./);
 assert.equal(flat(facing("TR")).find((n) => n.type === "select").props.value, "90");
 const clear = flat(tree).find((n) => n.type === "button" && text(n) === "Clear");
 clear.props.onClick();
@@ -280,16 +280,16 @@ owner.spatialPlan = ownerPlanBefore;
 const nook = { id: "loc-nook", key: "nook", name: "Bench nook", intExt: "EXT", parentKey: sub.key, scenes: [] };
 locations.push(nook);
 hooks = []; tree = render({ ...props, l: sub, plateMeta: { iso: "s-old" } }); t = text(tree);
-assert.match(t, /This plate was made before its cameras were recorded, so Bench nook can't use its panels — it gets one small panel of it for materials and colour only\. Say which way each panel faces \(free\)\./);
+assert.match(t, /This image was made before its cameras were recorded, so Bench nook can't use its panels — it gets one small panel of it for materials and colour only\. Say which way each panel faces \(free\)\./);
 assert.ok(!flat(tree).some((n) => n.type === "button" && /^Read the cameras/.test(text(n))), "no read for a room inside a location");
 assert.ok(flat(tree).some((n) => n.type === "select" && n.props.className === "prop-select" && !n.props.disabled), "its facings can still be set");
 locations.splice(locations.indexOf(nook), 1);
 // the room's card says where to fix an unknown facing, and that an outdoor part's cameras stand on it
 hooks = []; t = text(render({ ...props, l: sub, plateMeta: null }));
-assert.match(t, /Fondamenta's plate was made before its cameras were recorded, so its panels' facings are unknown — set them \(free\) or read them from the plate under The four cameras, in 3 · Cameras on Fondamenta's card\./);
-assert.match(t, /Each panel of Fondamenta DEI Vetrai's plate is a camera standing on Fondamenta DEI Vetrai, part of Fondamenta, at eye level/);
+assert.match(t, /Fondamenta's image was made before its cameras were recorded, so its panels' facings are unknown — set them \(free\) or read them from the image under The four cameras, in 3 · Cameras on Fondamenta's card\./);
+assert.match(t, /Each panel of Fondamenta DEI Vetrai's image is a camera standing on Fondamenta DEI Vetrai, part of Fondamenta, at eye level/);
 assert.match(t, /Camera standing on Fondamenta DEI Vetrai, part of Fondamenta, at x -7\.2 m, y -2\.7 m, 1\.6 m up, facing east \(90°\)/);
-assert.match(t, /one panel cut out of Fondamenta's plate, never its whole sheet \(on some engines each reference adds a little to the price\)/);
+assert.match(t, /one panel cut out of Fondamenta's image, never its whole sheet \(on some engines each reference adds a little to the price\)/);
 
 /* ---- 6. "Read the cameras from this plate" (ai.jsx aiReadPlateCameras) ---- */
 const ai = read("app/ai.jsx");
@@ -314,9 +314,9 @@ assert.deepEqual(rec, { iso: ISO, source: "read", panels: {
 drafted = draftWith([{ spaceId: owner.id, panel: "TL", position: [15, -6, 1.6], yaw: 0, lensMm: 24, basis: "observed" }], "another-origin");
 assert.equal(json(await box.aiReadPlateCameras(owner, [], {})).panels.TL.position, null, "another origin: facings only, never misplaced positions");
 drafted = draftWith([{ spaceId: owner.id, panel: "TL", yaw: 0, basis: "observed" }], "fv-side-door", "another-version");
-await assert.rejects(box.aiReadPlateCameras(owner, [], {}), /The plate changed during the read\. Nothing was saved\./);
+await assert.rejects(box.aiReadPlateCameras(owner, [], {}), /The image changed during the read\. Nothing was saved\./);
 drafted = draftWith([], "fv-side-door");
-await assert.rejects(box.aiReadPlateCameras(owner, [], {}), /found no camera for this plate's panels\. Nothing was saved/);
+await assert.rejects(box.aiReadPlateCameras(owner, [], {}), /found no camera for this image's panels\. Nothing was saved/);
 await assert.rejects(box.aiReadPlateCameras(sub, [], {}), /Only a location with its own shared layout/);
 Object.assign(box, { WRITING_MODELS: [{ id: "m1", label: "Text Only", provider: "moonshot" }, { id: "m2", label: "Vision One", provider: "google" }],
   getWritingModelId: () => "m1", recommendedWritingModelId: () => "m2" });
@@ -352,7 +352,8 @@ assert.match(ui, /const rec=await window\.aiReadPlateCameras\(l,\(\(window\.turn
 {
   assert.deepEqual(json(box.deriveLocationCoverageSheets(sub, film.scenes, film.drafts, locations, units)), [], "a sub-space has no extra spaces");
   const ui8 = read("app/locations-ui.jsx");
-  assert.match(ui8, /!l\.parentLocation&&coverageSheets\.length>0&&React\.createElement\("details",\{className:"loc-nested-section"\},\n\s+React\.createElement\("summary",null,"Extra spaces"\)/,
+  // (2026-11-17) on a main location only; once its floor plan is confirmed, only the extra spaces that have an image
+  assert.match(ui8, /const shownExtras=l\.parentLocation\?\[\]:spatialState\.ready\?coverageSheets\.filter\(extraHasImage\):coverageSheets;/,
     "the card shows Extra spaces on a main location only");
   const corridor = byId("loc-hotel-staff-corridor-6");
   const sheets = box.deriveLocationCoverageSheets(corridor, film.scenes, film.drafts, locations, units);

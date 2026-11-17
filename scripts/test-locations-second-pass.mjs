@@ -169,7 +169,7 @@ await test("C1 a room's plate lists its location (and that one's parent) first w
   assert.ok(needs[0].prereq && needs[0].makeable && /needed first/.test(needs[0].label));
   made.add("house"); made.add("kitchen");
   assert.deepEqual(J(b.sceneReferenceNeeds([{ id:"a1" }], { locations:L }, (id)=>made.has(id))).map(n=>n.id), ["locunit-kitchen-night"]);
-  assert.ok(bd.includes('n.prereq ? (n.name||n.label)+" plate (needed first)"'));
+  assert.ok(bd.includes('n.prereq ? (n.name||n.label)+" image (needed first)"'));
   assert.ok(bd.includes('const mine = needs.find(n=>n.kind==="location" && String(n.id)===String(location.id));'));
 });
 await test("C2 'Make what this scene needs' makes the card's plate and never pays for one that exists; Shots looks up what's real", ()=>{
@@ -190,7 +190,7 @@ await test("D1 'Generate N missing plates' and 'Generate N missing in Scene NN' 
   const all = between(ui, "  const startAllBatch = (onlyMissing)=>{", "  const eligibleAll");
   assert.ok(all.includes("{ alwaysAsk:true, note:(missing, existing)=>{") && all.includes("view composition"));
   const run = between(ui, "  const startSceneRun = async ()=>{", "  const startSceneRegenerate");
-  assert.ok(run.includes("await window.appConfirm({ title:\"Make \"+n+\" plate\"") && run.includes("nbImageCostText(n)") && run.includes("if(!ok) return;"));
+  assert.ok(run.includes("await window.appConfirm({ title:\"Make \"+n+\" image\"") && run.includes("nbImageCostText(n)") && run.includes("if(!ok) return;"));
   assert.ok(run.indexOf("if(!ok) return;") < run.indexOf("const steps"));
   assert.ok(art.includes('prompt.note ? " "+prompt.note : ""'));
 });
@@ -244,12 +244,12 @@ await test("F2 Storyboards show the plates the frames attached; Clear counts wha
   assert.deepEqual(J(b.sbLocRefsForShots([{ id:"a1" }, { id:"a2", refOff:["house-cov-ext"] }], {})), [{ id:"locunit-k-n", label:"Kitchen · Night" }]);
   assert.ok(!sb.includes('label:(ctx.location.name||"Location")+" plate", kind:"location"'));
   assert.ok(art.includes("const kind = relatedClearLabel || \"variant sheet\";") && art.includes("if(u) vN++;"));
-  assert.ok(ui.includes('relatedClearLabel:"room, state or extra-space plate",'));
+  assert.ok(ui.includes('relatedClearLabel:"room, state or extra-space image",'));
   const rm = between(ui, "  const removeVariant = async (vid)=>{", "  const saveCoverageViews");
   assert.ok(rm.includes("await nbLoadImage(assetId)") && rm.includes("if(sharesUnit) has = false;"));
 });
 await test("F3 copy: the About tip and button titles say what spends; no vendor names", ()=>{
-  assert.ok(ui.includes("review and confirm it before the first plate") && ui.includes("Plates spend image credits"));
+  assert.ok(ui.includes("Then come the floor plan (review and confirm it)") && ui.includes("Images spend image credits; drafting specs, floor plans and dressing, and Surprise me, spend writing credits"));   // (2026-11-17) "plates" until then
   assert.ok(!ui.includes("Render style details"));
   assert.ok(!/Nano Banana|image-proxy/.test(ui) && !/"Nano Banana"/.test(locs));
   assert.ok(art.includes("Fills the text spec from the script first (writing credits), then generates the sheet in one step (image credits)"));

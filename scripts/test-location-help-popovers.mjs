@@ -40,10 +40,11 @@ function harness(){
  const h=harness(),steps=[{n:2,name:'Floor plan',next:true,todo:'The opening top is above the ceiling. Correct the measurements.'}];
  let go=0;h.b.goToLocationStep=()=>go++;
  const tree=h.b.LocationStepGuide({l:{id:'room'},steps});
- const next=flat(tree).find(n=>n.props.className==='loc-steps-next');
- ok(!next.children.some(n=>n===steps[0].todo),'The long requirement is absent from the compact next row');
- const helper=flat(next).find(n=>n.type===h.b.LocationHelpPopover);ok(helper.props.label==='What to do in Floor plan','Next-step instructions have their own labelled help trigger');
- const content=helper.children[0](()=>{});ok(flat(content).some(n=>n.type==='p'&&n.children.includes(steps[0].todo)),'The full instruction stays available in help');
- flat(content).find(n=>n.type==='button').props.onClick();ok(go===1,'The help action opens the required repair section');
+ // (owner 2026-11-17: "the tracker alone is enough") the Next row with its help trigger and Go button left the card:
+ // the step to do next is marked in the tracker, says what to do in its tooltip, and opens its section
+ ok(!flat(tree).some(n=>n.props.className==='loc-steps-next')&&!flat(tree).some(n=>n.type===h.b.LocationHelpPopover),'The tracker stands alone: no second next-step row');
+ const step=flat(tree).find(n=>n.type==='button'&&n.props.className==='loc-step next');
+ ok(step.props['aria-current']==='step'&&step.props.title==='Next \u2014 '+steps[0].todo,'The step to do next carries the full instruction');
+ step.props.onClick();ok(go===1,'The step opens the required repair section');
 }
 console.log('PASS location help: '+checks+' overlay, hover, tap, keyboard, compactness and repair-route checks');

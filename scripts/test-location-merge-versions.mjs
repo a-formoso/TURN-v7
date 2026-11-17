@@ -64,22 +64,22 @@ ok("on Glass Hours: the plan carries Fondamenta DEI Vetrai's plate, and the conf
   assert.deepEqual([plan.keeperId, plan.goneId, plan.name], [P, C, "Fondamenta dei Vetrai"]);
   assert.deepEqual(plan.carry, [{ id: C, cardId: C, name: "Fondamenta DEI Vetrai", what: "plate", label: "", hasImage: true }]);
   const conf = json(box.locationMergeConfirmText(plan, { canFixScenes: true }));
-  assert.equal(conf.items[2], "A copy of its plate is kept on the merged card too, as an earlier version in its plate’s version history (⋯ › Details › Earlier versions, where Restore makes it the current plate); “Fondamenta”’s current plate stays as it is.");
+  assert.equal(conf.items[2], "A copy of its image is kept on the merged card too, as an earlier version in its image’s version history (⋯ › Details › Earlier versions, where Restore makes it the current image); “Fondamenta”’s current image stays as it is.");
   assert.equal(conf.body, "They become one location card. Nothing is generated and nothing is charged.", "still free");
-  assert.equal(conf.items[1], "“Fondamenta DEI Vetrai”’s scenes join it (and any description it has that the other card lacks); its card moves to Recently deleted with its own plate — nothing is deleted for good (it stays there: the merged card now has its name, so it can’t come back as a card of its own).", "the rest as it was");
+  assert.equal(conf.items[1], "“Fondamenta DEI Vetrai”’s scenes join it (and any description it has that the other card lacks); its card moves to Recently deleted with its own image — nothing is deleted for good (it stays there: the merged card now has its name, so it can’t come back as a card of its own).", "the rest as it was");
 });
 
 ok("the confirm's wording follows what there is to carry", () => {
   const locs = film.locations.map((l) => l.id === C ? { ...l, coverageSheets: [{ id: "cov1", name: "Landing" }], variants: [{ id: "v1", time: "Night", state: "Fog" }] } : l);
   images[C + "-cov1"] = images[C + "-v1"] = "data:image/png;base64,CC";
   let items = json(box.locationMergeConfirmText(planOf(locs), { canFixScenes: true })).items;
-  assert.equal(items[2], "Copies of its plate and its 2 other plates are kept on the merged card too, as earlier versions in its plate’s version history (⋯ › Details › Earlier versions, where Restore makes one the current plate); “Fondamenta”’s current plate stays as it is.");
+  assert.equal(items[2], "Copies of its image and its 2 other images are kept on the merged card too, as earlier versions in its image’s version history (⋯ › Details › Earlier versions, where Restore makes one the current image); “Fondamenta”’s current image stays as it is.");
   delete images[C + "-v1"];
   items = json(box.locationMergeConfirmText(planOf(locs), { canFixScenes: true })).items;
-  assert.match(items[2], /^Copies of its plate and its other plate are kept on the merged card too, as earlier versions/);
+  assert.match(items[2], /^Copies of its image and its other image are kept on the merged card too, as earlier versions/);
   delete images[C];
   items = json(box.locationMergeConfirmText(planOf(locs), { canFixScenes: true })).items;
-  assert.match(items[2], /^A copy of its other plate is kept on the merged card too, as an earlier version/);
+  assert.match(items[2], /^A copy of its other image is kept on the merged card too, as an earlier version/);
   delete images[C + "-cov1"];
   items = json(box.locationMergeConfirmText(planOf(locs), { canFixScenes: true })).items;
   assert.ok(!items.some((t) => /kept on the merged card/.test(t)), "nothing to carry, nothing said");
@@ -88,13 +88,13 @@ ok("the confirm's wording follows what there is to carry", () => {
   const keeperless = (id) => id === C;
   const plan2 = json(box.locationMergePlan(film.locations, film.scenes, film.drafts, C, P, { hasPlate: keeperless, nameFrom: C }));
   assert.equal(plan2.keeperId, P, "the card with the shared layout stays");
-  assert.match(json(box.locationMergeConfirmText(plan2, { canFixScenes: true })).items[2], /; the merged card has no current plate, and none is made\.$/);
+  assert.match(json(box.locationMergeConfirmText(plan2, { canFixScenes: true })).items[2], /; the merged card has no current image, and none is made\.$/);
 });
 
 ok("an Art director's merge: the scene card keeps its heading, the place still reads correctly, the owner's merge corrects it", () => {
   const plan = planOf(film.locations);
   const ad = json(box.locationMergeConfirmText(plan, { canFixScenes: false })).items;
-  assert.equal(ad[3], "Scene 13’s card keeps its heading as it is, EXT. FONDAMENTA · NIGHT: an Art director can’t edit scenes. The merged place still reads correctly — scene 13, its shots and its room & time plates are read as “Fondamenta dei Vetrai”. (The owner’s merge corrects the heading to EXT. FONDAMENTA DEI VETRAI · NIGHT; after yours, the owner can change it on the scene card.)");
+  assert.equal(ad[3], "Scene 13’s card keeps its heading as it is, EXT. FONDAMENTA · NIGHT: an Art director can’t edit scenes. The merged place still reads correctly — scene 13, its shots and its variant images are read as “Fondamenta dei Vetrai”. (The owner’s merge corrects the heading to EXT. FONDAMENTA DEI VETRAI · NIGHT; after yours, the owner can change it on the scene card.)");
   const owner = json(box.locationMergeConfirmText(plan, { canFixScenes: true })).items;
   assert.equal(owner[3], "Scene 13’s card slugline is corrected to EXT. FONDAMENTA DEI VETRAI · NIGHT, as its screenplay says.");
   // what it says is true: after the merge, scene 13 (card not corrected) still reads as the merged place
@@ -377,7 +377,7 @@ ok("app.jsx: copied after the confirmed merge, onto the kept card, told when it 
   assert.match(merge, /if\(!r \|\| projIdRef\.current!==film1 \|\| typeof window\.appToast!=="function"\) return;/, "only on the film it started in");
   // what went wrong is said in fixed words (never a storage or database error's own text), and where the originals are
   assert.match(merge, /const many = \(\(plan\.carry\|\|\[\]\)\.filter\(c=>c && c\.hasImage\)\.length \|\| carry\.length\)!==1;/, "one plate or several, as the confirm said");
-  assert.match(merge, /const carryFailText = \(\)=> "Couldn\\u2019t copy \\u201c"\+plan\.goneName\+"\\u201d\\u2019s plate"\+\(many \? "s" : ""\)\+" onto \\u201c"\+plan\.name\+"\\u201d\. "/);
+  assert.match(merge, /const carryFailText = \(\)=> "Couldn\\u2019t copy \\u201c"\+plan\.goneName\+"\\u201d\\u2019s image"\+\(many \? "s" : ""\)\+" onto \\u201c"\+plan\.name\+"\\u201d\. "/);
   assert.match(merge, /\+\(many \? "The originals are" : "The original is"\)\+" still with \\u201c"\+plan\.goneName\+"\\u201d\\u2019s card in Recently deleted\.";/);
   assert.match(merge, /if\(r\.persisted==="unknown"\) window\.appToast\("Couldn\\u2019t confirm that "/, "a write whose outcome is unknown says so");
   assert.match(merge, /the others couldn\\u2019t be copied\."\+originals,"error"\)/, "some copied, some not");
@@ -403,23 +403,23 @@ ok("app.jsx: copied after the confirmed merge, onto the kept card, told when it 
   const one = [{ id: C, cardId: C, name: "Fondamenta DEI Vetrai", what: "plate", label: "", hasImage: true }];
   const three = one.concat([{ id: C + "-cov1", what: "extra space", hasImage: true }, { id: C + "-v1", what: "environment state", hasImage: true }]);
   assert.deepEqual(await toastsFor({ ok: true, carried: 1, skipped: 0, failed: [] }, one),
-    [["info", "“Fondamenta DEI Vetrai”’s plate is now an earlier version of “Fondamenta dei Vetrai”’s plate (⋯ › Details › Earlier versions)."]]);
+    [["info", "“Fondamenta DEI Vetrai”’s image is now an earlier version of “Fondamenta dei Vetrai”’s image (⋯ › Details › Earlier versions)."]]);
   assert.deepEqual(await toastsFor({ ok: true, carried: 3, skipped: 0, failed: [] }, three),
-    [["info", "“Fondamenta DEI Vetrai”’s plates are now earlier versions of “Fondamenta dei Vetrai”’s plate (⋯ › Details › Earlier versions)."]]);
+    [["info", "“Fondamenta DEI Vetrai”’s images are now earlier versions of “Fondamenta dei Vetrai”’s image (⋯ › Details › Earlier versions)."]]);
   assert.deepEqual(await toastsFor({ ok: false, carried: 2, skipped: 0, failed: [C + "-v1"] }, three),
-    [["error", "2 of “Fondamenta DEI Vetrai”’s plates are now earlier versions of “Fondamenta dei Vetrai”’s plate (⋯ › Details › Earlier versions); the others couldn’t be copied. The originals are still with “Fondamenta DEI Vetrai”’s card in Recently deleted."]]);
+    [["error", "2 of “Fondamenta DEI Vetrai”’s images are now earlier versions of “Fondamenta dei Vetrai”’s image (⋯ › Details › Earlier versions); the others couldn’t be copied. The originals are still with “Fondamenta DEI Vetrai”’s card in Recently deleted."]]);
   const raw = { ok: false, carried: 0, skipped: 0, failed: [C], error: "new row violates row-level security policy for table \"turn_generations\"" };
   assert.deepEqual(await toastsFor(raw, one),
-    [["error", "Couldn’t copy “Fondamenta DEI Vetrai”’s plate onto “Fondamenta dei Vetrai”. The original is still with “Fondamenta DEI Vetrai”’s card in Recently deleted."]], "never the database's own words");
+    [["error", "Couldn’t copy “Fondamenta DEI Vetrai”’s image onto “Fondamenta dei Vetrai”. The original is still with “Fondamenta DEI Vetrai”’s card in Recently deleted."]], "never the database's own words");
   assert.deepEqual(await toastsFor({ ok: false, carried: 0, skipped: 0, failed: [C], persisted: "unknown", error: "The earlier versions may not have been added." }, one),
-    [["error", "Couldn’t confirm that “Fondamenta DEI Vetrai”’s plate was copied onto “Fondamenta dei Vetrai” — look in its ⋯ › Details › Earlier versions. The original is still with “Fondamenta DEI Vetrai”’s card in Recently deleted."]]);
+    [["error", "Couldn’t confirm that “Fondamenta DEI Vetrai”’s image was copied onto “Fondamenta dei Vetrai” — look in its ⋯ › Details › Earlier versions. The original is still with “Fondamenta DEI Vetrai”’s card in Recently deleted."]]);
   assert.deepEqual(await toastsFor(null, one, { reject: true }),
-    [["error", "Couldn’t copy “Fondamenta DEI Vetrai”’s plate onto “Fondamenta dei Vetrai”. The original is still with “Fondamenta DEI Vetrai”’s card in Recently deleted."]]);
+    [["error", "Couldn’t copy “Fondamenta DEI Vetrai”’s image onto “Fondamenta dei Vetrai”. The original is still with “Fondamenta DEI Vetrai”’s card in Recently deleted."]]);
   assert.deepEqual(await toastsFor({ ok: false, carried: 0, failed: [C], error: "asset scope changed" }, one), [], "another film opened: nothing said");
   assert.deepEqual(await toastsFor({ ok: true, carried: 1, failed: [] }, one, { switchFilm: true }), [], "said only on the film it started in");
   assert.deepEqual(await toastsFor({ ok: true, carried: 0, skipped: 1, failed: [] }, one), [], "nothing there to copy: nothing said");
-  // one image known among several ids (its extra space has none): spoken of as one plate
-  assert.match((await toastsFor({ ok: false, carried: 0, failed: [C, C + "-cov1"], error: "x" }, one.concat([{ id: C + "-cov1", hasImage: false }])))[0][1], /^Couldn’t copy “Fondamenta DEI Vetrai”’s plate onto/);
+  // one image known among several ids (its extra space has none): spoken of as one image
+  assert.match((await toastsFor({ ok: false, carried: 0, failed: [C, C + "-cov1"], error: "x" }, one.concat([{ id: C + "-cov1", hasImage: false }])))[0][1], /^Couldn’t copy “Fondamenta DEI Vetrai”’s image onto/);
   pass++;
 }
 

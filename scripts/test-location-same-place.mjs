@@ -144,20 +144,20 @@ const conf = json(box.locationMergeConfirmText(plan, { canFixScenes: true, show:
 assert.equal(conf.title, "Merge “Fondamenta” and “Fondamenta DEI Vetrai” into one place?");
 assert.equal(conf.body, "They become one location card. Nothing is generated and nothing is charged.");
 assert.deepEqual(conf.items, [
-  "“Fondamenta”’s card stays, with its plate, the shared layout (with its floor plan) and its view composition as they are, and is named “Fondamenta dei Vetrai” — the name the screenplay’s headings use.",
-  "“Fondamenta DEI Vetrai”’s scenes join it (and any description it has that the other card lacks); its card moves to Recently deleted with its own plate — nothing is deleted for good (it stays there: the merged card now has its name, so it can’t come back as a card of its own).",
-  // (2026-10-14) its plate is not lost to Recently deleted: a copy stays on the merged card (test-location-merge-versions)
-  "A copy of its plate is kept on the merged card too, as an earlier version in its plate’s version history (⋯ › Details › Earlier versions, where Restore makes it the current plate); “Fondamenta”’s current plate stays as it is.",
+  "“Fondamenta”’s card stays, with its image, the shared layout (with its floor plan) and its view composition as they are, and is named “Fondamenta dei Vetrai” — the name the screenplay’s headings use.",
+  "“Fondamenta DEI Vetrai”’s scenes join it (and any description it has that the other card lacks); its card moves to Recently deleted with its own image — nothing is deleted for good (it stays there: the merged card now has its name, so it can’t come back as a card of its own).",
+  // (2026-10-14) its image is not lost to Recently deleted: a copy stays on the merged card (test-location-merge-versions)
+  "A copy of its image is kept on the merged card too, as an earlier version in its image’s version history (⋯ › Details › Earlier versions, where Restore makes it the current image); “Fondamenta”’s current image stays as it is.",
   "Scene 13’s card slugline is corrected to EXT. FONDAMENTA DEI VETRAI · NIGHT, as its screenplay says."]);
-assert.deepEqual(plan.carry, [{ id: C, cardId: C, name: "Fondamenta DEI Vetrai", what: "plate", label: "", hasImage: true }], "the merged-away card's own plate is carried");
+assert.deepEqual(plan.carry, [{ id: C, cardId: C, name: "Fondamenta DEI Vetrai", what: "plate", label: "", hasImage: true }], "the merged-away card's own image is carried");
 assert.equal(plan.goneKeyTaken, true, "the merged card takes the room card's key");
-assert.equal(conf.note, "Shots that picked “Fondamenta DEI Vetrai”’s plate by hand, and props linked to it, now use the merged card.");
+assert.equal(conf.note, "Shots that picked “Fondamenta DEI Vetrai”’s image by hand, and props linked to it, now use the merged card.");
 assert.equal(conf.confirmLabel, "Merge as “Fondamenta dei Vetrai”");
 assert.ok(!("altLabel" in conf), "the suggestion's merge takes the screenplay's name");
 const confAD = json(box.locationMergeConfirmText(plan, { canFixScenes: false, show: true }));
 // (2026-10-14) said plainly: an Art director's merge leaves the scene card's heading; the place still reads right; the owner's corrects it
-assert.equal(confAD.items[3], "Scene 13’s card keeps its heading as it is, EXT. FONDAMENTA · NIGHT: an Art director can’t edit scenes. The merged place still reads correctly — scene 13, its shots and its room & time plates are read as “Fondamenta dei Vetrai”. (The owner’s merge corrects the heading to EXT. FONDAMENTA DEI VETRAI · NIGHT; after yours, the owner can change it on the scene card.)");
-assert.equal(confAD.items[4], "This film is an episode of a Show and its locations are shared: the merge holds in every episode — a scene in another episode that names “Fondamenta” is read as “Fondamenta dei Vetrai” (scene cards in other episodes, and their shots that picked “Fondamenta DEI Vetrai”’s plate by hand, are not changed).");
+assert.equal(confAD.items[3], "Scene 13’s card keeps its heading as it is, EXT. FONDAMENTA · NIGHT: an Art director can’t edit scenes. The merged place still reads correctly — scene 13, its shots and its variant images are read as “Fondamenta dei Vetrai”. (The owner’s merge corrects the heading to EXT. FONDAMENTA DEI VETRAI · NIGHT; after yours, the owner can change it on the scene card.)");
+assert.equal(confAD.items[4], "This film is an episode of a Show and its locations are shared: the merge holds in every episode — a scene in another episode that names “Fondamenta” is read as “Fondamenta dei Vetrai” (scene cards in other episodes, and their shots that picked “Fondamenta DEI Vetrai”’s image by hand, are not changed).");
 // "Same place as…" on the same pair: the second button keeps the same card under the other name, and says what it skips
 const planAlt = json(box.locationMergePlan(live0, film.scenes, film.drafts, C, P, { hasPlate, nameFrom: plan.altNameFromId }));
 assert.deepEqual([planAlt.keeperId, planAlt.name, planAlt.key, planAlt.aliasKeys, planAlt.sceneFixes, planAlt.goneKeyTaken],
@@ -308,7 +308,7 @@ assert.deepEqual([planF.keeperId, planF.name, planF.key, planF.aliasKeys, planF.
   [FUR, "Furnace", "furnace", ["fiorin-furnace"], "Fiorin Furnace", []], "the name of 9 headings, the card with 10 scenes; no card disagrees with its screenplay");
 const confF = json(box.locationMergeConfirmText(planF, { canFixScenes: true, offerOtherName: true }));
 assert.deepEqual([confF.confirmLabel, confF.altLabel], ["Merge as “Furnace”", "Merge as “Fiorin Furnace”"]);
-assert.equal(confF.items[1], "“Fiorin Furnace”’s scenes join it (and any description it has that the other card lacks); its card moves to Recently deleted with its own plate and its own shared layout — nothing is deleted for good.");
+assert.equal(confF.items[1], "“Fiorin Furnace”’s scenes join it (and any description it has that the other card lacks); its card moves to Recently deleted with its own image and its own shared layout — nothing is deleted for good.");
 const resF = json(box.locationMergeApply(clone(), planF, { at: "T" }));
 // the other card's layout corrections belong to its own layout (in Recently deleted with it), never to the kept one
 const notesIn = clone().map((l) => l.id === FIO ? { ...l, spatialNotes: "Bench by the north wall" } : l.id === FUR ? { ...l, spatialNotes: "Glory hole faces east" } : l);

@@ -148,11 +148,11 @@ function bdSceneRow({ scene, slug, todKind, ordered, C, props, locations, sceneS
       if(!location) missing.push({ tab:"locations", text:"a location card" });
       needs.forEach(n=>{ const b = n.kind==="prop" ? blockedById[String(n.baseId||n.id)] : null;
         if(b){ missing.push({ tab:"props", text:b.name+" \u2014 "+BLOCK_TEXT[b.blocked], need:n, cardId:String(b.id), blocked:b.blocked }); return; }
-        missing.push({ tab:TAB[n.kind]||"shots", text:(n.prereq ? (n.name||n.label)+" plate (needed first)" : n.label+(n.kind==="prop"?" sheet":n.kind==="location"?" plate":"")), need:n, cardId:cardOf(n) }); });
+        missing.push({ tab:TAB[n.kind]||"shots", text:(n.prereq ? (n.name||n.label)+" image (needed first)" : n.label+(n.kind==="prop"?" sheet":n.kind==="location"?" image":"")), need:n, cardId:cardOf(n) }); });
     } else {
       cast.filter(c=>!c.ready).forEach(c=> missing.push({ tab:"characters", text: c.state ? (c.name+" \u00b7 "+c.state+" variant") : (c.name+"'s sheet"), cardId:String(c.id) }));
       if(!location) missing.push({ tab:"locations", text:"a location card" });
-      else if(!location.ready) missing.push({ tab:"locations", text:location.name+" plate", cardId:String(location.id) });
+      else if(!location.ready) missing.push({ tab:"locations", text:location.name+" image", cardId:String(location.id) });
       sceneProps.filter(p=>!p.ready).forEach(p=> missing.push({ tab:"props", text:p.blocked ? p.name+" \u2014 "+BLOCK_TEXT[p.blocked] : p.name+" sheet", cardId:String(p.id), ...(p.blocked?{ blocked:p.blocked }:{}) }));
       // a worn item needs its owner's sheet, which the cast line above already asks for
     }
@@ -303,7 +303,7 @@ function bdStripKind(slug){
 function bdToGoShort(sum){
   const t = [];
   if(sum.castSheets) t.push(sum.castSheets+" cast sheet"+(sum.castSheets===1?"":"s"));
-  if(sum.plates) t.push(sum.plates+" plate"+(sum.plates===1?"":"s"));
+  if(sum.plates) t.push(sum.plates+" image"+(sum.plates===1?"":"s"));
   if(sum.propSheets) t.push(sum.propSheets+" prop sheet"+(sum.propSheets===1?"":"s"));
   if(sum.frames) t.push(sum.frames+" frame"+(sum.frames===1?"":"s"));
   if(sum.toApprove) t.push(sum.toApprove+" to approve");
@@ -316,7 +316,7 @@ window.bdToGoShort = bdToGoShort;
 function bdSummaryLine(sum, noPrice){
   const todo = [];
   if(sum.castSheets) todo.push(sum.castSheets+" cast sheet"+(sum.castSheets===1?"":"s"));
-  if(sum.plates) todo.push(sum.plates+" plate"+(sum.plates===1?"":"s"));
+  if(sum.plates) todo.push(sum.plates+" image"+(sum.plates===1?"":"s"));
   if(sum.propSheets) todo.push(sum.propSheets+" prop sheet"+(sum.propSheets===1?"":"s"));
   if(sum.frames) todo.push(sum.frames+" frame"+(sum.frames===1?"":"s"));
   if(sum.toApprove) todo.push(sum.toApprove+" frame"+(sum.toApprove===1?"":"s")+" to approve (free, in Shots)");
@@ -478,7 +478,7 @@ function BreakdownView({ project, scenes, characters, props, locations, shots, d
       _bdEl("div",null,
         _bdEl(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"First Assistant Director",
           window.InfoTip && _bdEl(window.InfoTip,{label:"About the Breakdown",
-            text:"The Breakdown is your stripboard: one strip per scene, in story order, coloured the way film crews colour them \u2014 white for INT day, yellow for EXT day, blue for INT night, green for EXT night, pink for dawn and dusk, grey when the slugline has no time of day. Each strip lists who is in the scene (in the look they wear there), its location, the props it needs and its shots, and says what is still missing before the scene can be shot: a cast sheet or appearance variant, a location plate (a room's location plate comes first), a prop sheet, shot frames, frames to approve (free, in Shots) or to refresh \u2014 and notes for frames made before a look, sheet, location or prop changed. A worn item is ready when it's on its owner's character sheet; until that sheet exists it reads \u201con their sheet \u2014 make that first\u201d. A carried prop with no owner, or one the screenplay doesn't mention, says so: it needs an owner or a screenplay mention on its card, not an image. Click a missing item to open its tab on this scene. Two buttons on a strip spend credits: \u201cMake what this scene needs\u201d makes the missing reference images (it asks first, with the price, and drafts any look that isn't written yet), and \u201cRender Scene NN\u201d opens Shots on that scene, which asks with the exact price. Each strip also shows its storyboard sheets and, as of your last visit to the Stage, its video clips. Each scene is one line — its five dots say whether its cast, place, shots, board and clips are done; click the line to open the full strip. Export the stripboard or the whole art department bible from Export."})),
+            text:"The Breakdown is your stripboard: one strip per scene, in story order, coloured the way film crews colour them \u2014 white for INT day, yellow for EXT day, blue for INT night, green for EXT night, pink for dawn and dusk, grey when the slugline has no time of day. Each strip lists who is in the scene (in the look they wear there), its location, the props it needs and its shots, and says what is still missing before the scene can be shot: a cast sheet or appearance variant, a location image (a room's location image comes first), a prop sheet, shot frames, frames to approve (free, in Shots) or to refresh \u2014 and notes for frames made before a look, sheet, location or prop changed. A worn item is ready when it's on its owner's character sheet; until that sheet exists it reads \u201con their sheet \u2014 make that first\u201d. A carried prop with no owner, or one the screenplay doesn't mention, says so: it needs an owner or a screenplay mention on its card, not an image. Click a missing item to open its tab on this scene. Two buttons on a strip spend credits: \u201cMake what this scene needs\u201d makes the missing reference images (it asks first, with the price, and drafts any look that isn't written yet), and \u201cRender Scene NN\u201d opens Shots on that scene, which asks with the exact price. Each strip also shows its storyboard sheets and, as of your last visit to the Stage, its video clips. Each scene is one line — its five dots say whether its cast, place, shots, board and clips are done; click the line to open the full strip. Export the stripboard or the whole art department bible from Export."})),
         // say why the spending buttons aren't there (2026-10-09) — while a film is still loading, say that instead
         loading ? _bdEl("div",{className:"bd-sum bd-readonly"},"Loading\u2026")
           : readOnly && rows.length>0 && _bdEl("div",{className:"bd-sum bd-readonly"},"View only \u2014 your role can't make images or render here.")),
@@ -569,7 +569,7 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
         "aria-busy":needsRun?"true":undefined,
         "aria-label": (needsBusy && !needsRun) ? "Make what this scene needs (wait: another scene is making its images)" : undefined,
         title: (needsBusy && !needsRun) ? "Another scene is making its images \u2014 one at a time"
-          : "Make the "+makeImages+" missing reference image"+(makeImages!==1?"s":"")+" this scene's frames use (location plates, rooms & times, character sheets, prop sheets \u2014 in that order). Asks first, with the price; a look that isn't written yet is drafted first (writing credits)."},
+          : "Make the "+makeImages+" missing reference image"+(makeImages!==1?"s":"")+" this scene's frames use (location images, rooms & times, character sheets, prop sheets \u2014 in that order). Asks first, with the price; a look that isn't written yet is drafted first (writing credits)."},
       needsRun ? ("Making "+(needsRun.i||0)+" of "+needsRun.total+"\u2026") : "Make what this scene needs",
       !needsRun && typeof window.nbCostChip==="function" && window.nbCostChip(makeImages)),
     canRender && _bdEl("button",{type:"button",className:"bd-act",onClick:()=>go("shots","render"),
@@ -616,9 +616,9 @@ function BreakdownStrip({ row, go:goTab, onMakeSceneNeeds, needsBusy=null, setNe
             : _bdEl("span",{className:"bd-empty"},"No one named in this scene"))),
         _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Location"),
           _bdEl("div",{className:"bd-chips"}, location ? (()=>{ const ok = okOf(location);
-              return chip("loc", location.name, ok, "locations", ok===true ? "The plate is ready"
-                : ok==="unused" ? "The "+location.name+" plate"+NOT_IN_FRAME
-                : location.prereq ? "Needs its location plate \u2014 this scene's rooms & times are made from it" : "Needs its location plate"); })()
+              return chip("loc", location.name, ok, "locations", ok===true ? "The image is ready"
+                : ok==="unused" ? "The "+location.name+" image"+NOT_IN_FRAME
+                : location.prereq ? "Needs its location image \u2014 this scene's rooms & times are made from it" : "Needs its location image"); })()
             : _bdEl("button",{type:"button",className:"bd-chip",onClick:()=>go("locations"),title:"No location card resolves to this scene — check its slugline"}, dot(false), "No location card"))),
         wardrobe.length>0 && _bdEl("div",{className:"bd-row"}, _bdEl("span",{className:"bd-row-lab"},"Wardrobe"),
           _bdEl("div",{className:"bd-chips"}, wornShown.map(p=>{ const ok = okOf(p), owner = p.owner||"its owner";

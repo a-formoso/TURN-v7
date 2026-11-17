@@ -92,8 +92,10 @@ await test("2 the batches price per plate: Generate N missing, the scene's butto
     "unknown = the run makes the parent's plate, or remakes one whose cameras were never recorded");
   assert.match(ui, /return unitRefsOf\(x, !root \|\| hasImg\(root\.id\) \|\| run\.indexOf\(root\.id\)>=0, run\);/,
     "a room & time plate gets its root's panels only when the root has a plate or this run makes it");
-  assert.match(ui, /" first\." : ""; \},\n\s+refsOf:\(id, i, run\)=>plateRefsOf\(byLocId\[id\], run\), refsWhat \}\);/, "Generate all's choice bar (its button's own list is the run)");
-  assert.match(ui, /batch\.begin\(eligible, shown\.length - eligible\.length, \{ refsOf:\(id, i, run\)=>plateRefsOf\(byLocId\[id\], run\), refsWhat \}\);/, "a scene's Regenerate");
+  assert.match(ui, /" first\." : "", previsWarning\(existing\)\]\.filter\(Boolean\)\.join\(" "\); \},\n\s+refsOf:\(id, i, run\)=>plateRefsOf\(byLocId\[id\], run\), refsWhat \}\);/, "the all-film batch's choice bar (its button's own list is the run)");
+  assert.match(ui, /batch\.begin\(eligible, shown\.length - eligible\.length, \{ note:\(missing, existing\)=>previsWarning\(existing\), refsOf:\(id, i, run\)=>plateRefsOf\(byLocId\[id\], run\), refsWhat \}\);/, "a scene's redo");
+  // (2026-11-17) 'Redo quick images' shows its price on the button too
+  assert.match(ui, /!batchActiveId && batchChip\(redoAllIds\.map\(id=>plateRefsOf\(byLocId\[id\], redoAllIds\)\)\)/);
   assert.ok(art.includes("refs:prompt.missing.map(prompt.refsOf)") && art.includes("refs:[...prompt.missing, ...prompt.existing].map(prompt.refsOf)"),
     "the choice bar maps each button's own list, so refsOf's third argument is that run");
   assert.match(art, /const refsWhat = \(opts && opts\.refsWhat\) \|\| "";/);
@@ -117,7 +119,8 @@ vm.runInContext(read("app/locations.jsx"), box, { filename: "app/locations.jsx" 
 vm.runInContext(read("app/locations-ui.jsx"), box, { filename: "app/locations-ui.jsx" });
 
 await test("3 the cards: each Generate is priced with the references it sends", () => {
-  assert.match(ui, /generateRefs: masterGenerateRefs,/, "the location card");
+  // (2026-11-17) the location card's Generate is the quick image in 5 . Location image, priced the same way
+  assert.match(ui, /window\.nbCostChip\(1, masterGenerateRefs!=null \? \{ refs:Number\(masterGenerateRefs\)\|\|0 \} : undefined\)/, "the location card's quick image");
   assert.match(ui, /generateRefs: refPreview\.length \? refPreview\.filter\(r=>r\.ready && r\.url && \(r\.required \|\| coverageRefOff\.indexOf\(r\.refId\)<0\)\)\.length : undefined,/, "the extra-space card");
   // (2026-11-16, owner: "Remove the older Generate image on variants") the environment-state and room & time cards have
   // no Generate of their own any more, so nothing is priced there; a variant's image is made from the location image

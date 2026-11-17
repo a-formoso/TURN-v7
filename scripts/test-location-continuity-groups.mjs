@@ -283,19 +283,20 @@ ok("linked states have one unit editor, while independent states retain their as
   ui.includes("locationAppearanceStateAssetId(l,v,units||[])")&&
   ui.includes("environment.units.map")&&ui.includes("environment.additional.map")&&
   !ui.includes('label:"Time-of-Day Variants"')&&
-  ui.includes('"Extra spaces"')&&ui.includes("!l.parentLocation&&coverageSheets.length>0"));
+  // (2026-11-17) on a place with a confirmed floor plan, only the extra spaces that have an image are listed
+  ui.includes('"Extra spaces"')&&ui.includes("const shownExtras=l.parentLocation?[]:spatialState.ready?coverageSheets.filter(extraHasImage):coverageSheets;"));
 ok("coverage views and scene setups have distinct editors",
   ui.includes("function CoverageViewsEditor")&&ui.includes("function SceneSetupCard")&&
   ui.includes('label:"Blocking & action path"')&&ui.includes('label:"Object states at the start"')&&
   ui.includes("setup.storageId||setup.id")&&ui.includes('"Saved setup \\u00b7 source removed"')&&
   ui.includes('"Occurrence ",setup.occurrenceOrdinal," of ",setup.occurrenceCount'));
 ok("visible location-reference copy uses the approved production-layer names",
-  ui.includes('noun:"room & time plate"')&&
+  ui.includes('noun:"variant image"')&&   // (2026-11-17) called a "room & time plate" before
   // (the card's own Blender hand-off, which labelled its references "Room & time · " and "Time-of-Day Variant · ", left
   // the card on 2026-11-15; the toolbar's Blender Studio builds the same references from the production plan)
   !ui.includes('label:"Room & time · "')&&!ui.includes('label:"Time-of-Day Variant · "')&&
   readFileSync("app/blender-studio-ui.jsx","utf8").includes("...[...(plan&&plan.screenplaySpaces||[]),...(plan&&plan.appearanceStates||[]),...(plan&&plan.requiredSpacePlates||[])]")&&
-  ui.includes('"Make every plate this scene needs that doesn\'t exist yet: "')&&
+  ui.includes('"Make every image this scene needs that doesn\'t exist yet: "')&&
   shots.includes('" — Required Space Plate · "')&&
   !shots.includes('" slugline/subspace unit"')&&!shots.includes('" coverage sheet (one full-frame view)"'));
 ok("Location Scout generates screenplay-derived shared variants, not only legacy variants",
@@ -305,7 +306,7 @@ ok("MUSE capability manifest names the approved location architecture",
   ai.includes("organizes production work into five explicit layers")&&
   ai.includes("one card represents each established continuity root")&&
   ai.includes("1 · The Space (Screenplay Coverage at its top, Narrative Significance its last field) -> 2 · Floor plan (Moving parts, optional, at its end) -> 3 · Cameras")&&
-  ai.includes("-> 5 · Location image (The look and the QA check; the image is made in 4 · Previs or generated at the top of the card) -> 6 · Variants")&&
+  ai.includes("-> 5 · Location image (The look and the QA check; the image is made in 4 · Previs, or as a quick image, from the description alone, in this section) -> 6 · Variants")&&
   ai.includes("There is no More section any more.")&&
   ai.includes("TIME-OF-DAY VARIANTS own only persistent environment changes")&&
   ai.includes("COVERAGE VIEWS own reusable visual interpretations tied to Slugline Units")&&

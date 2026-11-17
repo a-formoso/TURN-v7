@@ -138,7 +138,7 @@ const text = (n) => n == null || n === false ? "" : typeof n !== "object" ? Stri
 cursor = 0; effects = []; hooks = [];
 const tree = box.LocationPlateCameras({ l: sub, project: {}, onUpdate: noop, readOnly: false, plateMeta: null });
 const t = text(tree);
-assert.match(t, /“Furnace window \(two panes, shutter\)” opens onto Furnace — another location with its own card, so Fondamenta DEI Vetrai's plate never shows Fondamenta through it\./);
+assert.match(t, /“Furnace window \(two panes, shutter\)” opens onto Furnace — another location with its own card, so Fondamenta DEI Vetrai's image never shows Fondamenta through it\./);
 assert.match(t, /1 view unresolved/);
 assert.doesNotMatch(t, /“Graziella's bench/, "the bench is never listed as a window a panel looks through");
 const go = flat(tree).find((n) => n.type === "button" && text(n) === "Go to Furnace");

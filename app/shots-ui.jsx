@@ -966,7 +966,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           }) : _el("p",{className:"shot-location-picker-empty"},
             category==="place"?"No continuity-bearing place reference is available.":
             category==="unit"?"No room & time is linked to this scene.":
-            category==="coverage"?"No extra-space plate is available.":
+            category==="coverage"?"No extra-space image is available.":
             category==="state"?"No time-of-day variant reference is available.":"No saved unavailable references."));
       }),
       sh.referenceLocationsSet&&includedLocationRefs.length===0&&_el("p",{className:"shot-location-picker-note"},"No location images included. Check a reference to include it."),
@@ -1225,7 +1225,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             title:"A character sheet this frame used was regenerated after the frame was made (a new master, variant or likeness). The frame stays as it is until you regenerate it."},
             "Character sheet changed"),
           gen.genUrl && locationChanged && _el("span",{className:"shot-source-badge stale",
-            title:"A location plate this frame used was regenerated, edited or made after the frame, or the location's description changed. The frame stays as it is until you regenerate it."},
+            title:"A location image this frame used was regenerated, edited or made after the frame, or the location's description changed. The frame stays as it is until you regenerate it."},
             "Location changed"),
           gen.genUrl && propDependenciesStale && _el("span",{className:"shot-source-badge stale",
             title:"A prop used by this frame changed holder, placement, condition, visibility, binding mode, or approved sheet after this frame was generated. The approved frame stays pinned until you regenerate it."},
@@ -1389,8 +1389,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
           (typeof locationUsesParentPlate==="function" && locationUsesParentPlate(loc))
-            ? ((loc.name||"This room")+" borrows its parent's plate, which isn't ready yet. Generate "+(((typeof locationParentOf==="function"&&locationParentOf(loc))||{}).name||"the parent location")+"'s plate in Locations.")
-            : "No full-frame room & time or extra-space plate is ready for this beat. Generate one in Locations — a cropped master plate won't be used in its place."),
+            ? ((loc.name||"This room")+" borrows its parent's image, which isn't ready yet. Generate "+(((typeof locationParentOf==="function"&&locationParentOf(loc))||{}).name||"the parent location")+"'s image in Locations.")
+            : "No full-frame room & time or extra-space image is ready for this beat. Generate one in Locations — a cropped master image won't be used in its place."),
       // everything else, quiet and below the numbered parts (owner 2026-11-02: "make it simpler … in the right order")
       _el("div",{className:"shot-head"},
         // Keep the compact header for status and review controls. Frame approval lives
@@ -1794,7 +1794,7 @@ function AddShotReferenceDialog({ scene, beatN, beatText, plan, ctx, characters,
              "Auto · "+(autoLocationChoices[0].note||autoLocationChoices[0].name||"matched location")),
           sluglineChoices.length
             ? _el("div",{className:"shot-ref-choice-list"},sluglineChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations)))
-            : _el("div",{className:"shot-ref-dialog-empty"},"No generated full-frame room & time plate applies to this scene.")),
+            : _el("div",{className:"shot-ref-dialog-empty"},"No generated full-frame variant image applies to this scene.")),
         coverageChoices.length>0 && _el("section",null,
           _el("div",{className:"shot-ref-dialog-label"},"Extra spaces"),
           _el("div",{className:"shot-ref-choice-list"},coverageChoices.map(x=>choice(x,"location",selectedLocations,setSelectedLocations)))),

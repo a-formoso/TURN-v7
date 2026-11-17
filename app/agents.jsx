@@ -2585,7 +2585,7 @@ async function agentLocationScout(ctx){
   for(const l of (typeof locationGenerationOrder==="function"?locationGenerationOrder(plates):plates)){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+madeP+" plate"+(madeP!==1?"s":"")+", "+madeV+" variant"+(madeV!==1?"s":"")+" generated."}); return; }
     ctx.emit({k:"act", t:"Generating "+(l.name||"a location")+"'s plate…"});
-    try{ if(await ls.generatePlate(l)===false)throw new Error("Generation did not complete; the existing plate is unchanged.");
+    try{ if(await ls.generatePlate(l)===false)throw new Error("Generation did not complete; the existing image is unchanged.");
       madeP++; ctx.emit({k:"ok", t:(l.name||"Location")+" — plate generated."}); }
     catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(l.name||"the location")+"'s plate: "+agentErrText(e)+". Moving on."}); }
   }
@@ -2593,7 +2593,7 @@ async function agentLocationScout(ctx){
     if(ctx.cancelled()){ ctx.emit({k:"flag", t:"Stopped — "+madeP+" plates, "+madeV+" variants generated."}); return; }
     const l=pair.l, v=pair.v;
     ctx.emit({k:"act", t:"Generating "+(l.name||"a location")+" — "+(v.time||"variant")+"…"});
-    try{ if(await ls.generateVariant(l, v)===false)throw new Error("Generation did not complete; the existing plate is unchanged.");
+    try{ if(await ls.generateVariant(l, v)===false)throw new Error("Generation did not complete; the existing image is unchanged.");
       madeV++; ctx.emit({k:"ok", t:(l.name||"Location")+" — "+(v.time||"variant")+" generated."}); }
     catch(e){ ctx.emit({k:"flag", t:"Couldn't generate "+(l.name||"the location")+" — "+(v.time||"variant")+": "+agentErrText(e)+"."}); }
   }

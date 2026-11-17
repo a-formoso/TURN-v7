@@ -290,7 +290,7 @@ const runEffects = async () => { const list = effects.slice(); list.forEach((e) 
   const lines = flat(out).filter((n) => n.type === "p").map(text);
   assert.deepEqual(lines, ["Top-right: This panel looks like Fondamenta's sheet — regenerate?", "Bottom-left: This panel looks like Fondamenta's sheet — regenerate?"], "each near-copy panel, in the owner's words");
   const why = flat(out).find((n) => n.type === "p").props.title;
-  assert.match(why, /^Compared in your browser, free: its top-right panel is a near-copy of the top-left panel of Fondamenta's plate \(detail 0\.91, layout 0\.88 — a near-copy scores at least 0\.6 and 0\.62\)\. Nothing changes unless you regenerate\.$/);
+  assert.match(why, /^Compared in your browser, free: its top-right panel is a near-copy of the top-left panel of Fondamenta's image \(detail 0\.91, layout 0\.88 — a near-copy scores at least 0\.6 and 0\.62\)\. Nothing changes unless you regenerate\.$/);
   const buttons = flat(out).filter((n) => n.type === "button");
   assert.deepEqual(buttons.map(text), ["Regenerate7", "Keep"], "Regenerate quotes its price; Keep");
   assert.deepEqual(json(chips.at(-1)), [1, { refs: 4 }], "priced as one image with the references it attaches");
@@ -308,7 +308,7 @@ const runEffects = async () => { const list = effects.slice(); list.forEach((e) 
   assert.equal(flat(out).filter((n) => n.type === "button").length, 0);
   out = render({ l: sub, assetId: "locunit-x", single: true, gen: { ...gen, genMeta: { iso: "s1", copyCheck: { v: 1, kind: "single", near: true, iso: "s1", parentIso: "p1",
     panels: [{ key: "plate", match: "BR", detail: 0.8, layout: 0.7, near: true }] } } } });
-  assert.deepEqual(flat(out).filter((n) => n.type === "p").map(text), ["This plate looks like Fondamenta's sheet — regenerate?"]);
+  assert.deepEqual(flat(out).filter((n) => n.type === "p").map(text), ["This image looks like Fondamenta's sheet — regenerate?"]);
   assert.deepEqual(json(chips.at(-1)), [1, null], "no reference count given: the engine's price for one image");
   // not a near-copy, not a sub-space, no plate: nothing
   assert.equal(render({ l: sub, assetId: sub.id, gen: { ...gen, genMeta: { iso: "s1", copyCheck: { ...nearResult, near: false, iso: "s1", parentIso: "p1" } } } }), null);
