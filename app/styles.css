@@ -3941,6 +3941,8 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
 .loc-map-segbtn.warn{color:var(--alert)}
 .loc-map-warn{margin:2px 0 0;color:var(--alert);font:400 11.5px/1.4 var(--f-ui)}
 .loc-map-check{margin:8px 0 0;padding:8px 10px;border-left:3px solid var(--alert);border-radius:var(--r-s);background:var(--alert-soft);color:var(--txt-1);font:400 12px/1.45 var(--f-ui);overflow-wrap:anywhere}
+/* the same box for plain information (a wall drawn inside a room): no alert colours */
+.loc-map-check.info{border-left-color:var(--line-3);background:var(--bg-2)}
 .loc-floorplan-fields{margin-top:12px}
 .loc-floorplan-space{margin:10px 0;padding:10px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-1)}
 .loc-floorplan-opening{margin:8px 0;padding:8px;border-left:2px solid var(--line-2)}

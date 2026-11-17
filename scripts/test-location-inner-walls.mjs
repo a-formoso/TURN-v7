@@ -167,7 +167,9 @@ test("9 a draft's inner doorway faces the way its object does, and the review na
   const w=box.locationInnerWall(faced.plan.coordinates.spaces[0],faced.plan.coordinates.spaces[0].openings[0]);
   assert.deepEqual([copy(w.a),copy(w.b)].sort(),[[3,0],[3,4]]);
   const text=box.locationInnerDoorwaysText(faced.inner);
-  assert.match(text,/^Pantry doorway stands inside the outline of Room, so it is drawn in a wall of its own/);
+  assert.match(text,/^Nothing to fix here\. A wall is drawn inside Room for Pantry doorway, straight across the room through the doorway\./);
+  assert.ok(!/error|problem|check it/i.test(text),"it reads as information");
+  assert.match(box.locationInnerDoorwaysText([{name:"A"},{name:"B"}]),/^Nothing to fix here\. A wall is drawn inside the room for each of these, straight across the room through the doorway: A, B\./);
   assert.match(text,/Room sizes & openings/);
   assert.equal(box.locationInnerDoorwaysText([]),"");
   // nothing inside: the same plan comes back
@@ -212,7 +214,9 @@ test("11 a draft that still needs measurements offers the free fixes where it sa
 });
 
 test("12 the review, the editor and the map say and show the inner wall",()=>{
-  assert.match(ui,/"data-testid":"floor-plan-inner-walls"\},innerNote\)/);
+  assert.match(ui,/className:"loc-map-check info",role:"note","data-testid":"floor-plan-inner-walls"\},innerNote\)/);
+  // a plain note, not the alert colours of "Check these positions" (the owner took the red box for an error)
+  assert.match(css,/\.loc-map-check\.info\{border-left-color:var\(--line-3\);background:var\(--bg-2\)\}/);
   assert.match(ui,/innerNote=!confirmed&&/);
   assert.match(ui,/inside the room: it stands in a wall of its own/);
   assert.match(ui,/its wall runs square to this, across the room/);
@@ -228,11 +232,11 @@ test("13 the draft and the set dressing are told; Frances knows; the new files a
   const entry=ai.slice(ai.indexOf('name:"Floor plan: a doorway inside a room, and free fixes on a draft"'));
   assert.ok(entry.length>0&&ai.includes('name:"Floor plan: a doorway inside a room, and free fixes on a draft"'));
   const what=entry.slice(0,entry.indexOf("\n"));
-  for(const words of ["it stands in a wall of its own","top-down map","4 \\u00b7 Previs","Room sizes & openings","Suggest measurement fixes","Apply fixes & confirm","Discard fixes goes back to the draft as it came","no credits"])
+  for(const words of ["it stands in a wall of its own","top-down map","4 \\u00b7 Previs","Room sizes & openings","Nothing to fix here","it is information, not an error","Suggest measurement fixes","Apply fixes & confirm","Discard fixes goes back to the draft as it came","no credits"])
     assert.ok(what.includes(words),"Frances: "+words);
   assert.ok(!/McKee|Claude|Anthropic|\bTURN\b|Blender/.test(what));
   for(const file of ["locations.jsx","locations-ui.jsx","ai.jsx","script.jsx","blender-render.js","location-measurement-repair.js","set-dressing.js","styles.css"])
-    assert.ok(["20261117-innerwall1"].some(k=>html.includes(file+'?v='+k+'"')),"cache key: "+file);
+    assert.ok(["20261117-innerwall1", "20261117-innerwall2"].some(k=>html.includes(file+'?v='+k+'"')),"cache key: "+file);
 });
 
 console.log("\n"+passed+" passed, "+failed+" failed");

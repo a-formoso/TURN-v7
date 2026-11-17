@@ -340,7 +340,7 @@ await test("10 Frances knows the whole-place road; the changed files have new ca
       "'Same room: merge the two cards'","'A different room: add it anyway' places it as a room of its own","CAMERAS FOR THE WHOLE PLACE, FREE","'Set cameras for every room (free)'","'Move a camera' opens the camera tool","lit and with the dressing of every card of the place on",
       "'Dress the whole place' (or 'Dress the rest of the place' when some spaces are dressed)","you are asked before anything is sent","'Stop after this space'","'Open [place]'"])assert.ok(entry.includes(t),t);
   for(const f of ["ai.jsx","script.jsx","locations.jsx","locations-ui.jsx","blender-render.js","set-previs.js","set-previs-ui.jsx","camera-angle-preview-ui.jsx","styles.css"])
-    assert.ok(["20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f);
+    assert.ok(["20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f);
 });
 
 console.log("\n"+passed+" passed, "+failed+" failed");

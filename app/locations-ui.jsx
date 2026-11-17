@@ -1458,7 +1458,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       checkPositions&&React.createElement("p",{className:"loc-map-check",role:"note"},checkPositions),
       loweredNote&&React.createElement("p",{className:"loc-map-check",role:"note"},loweredNote),
       keptNote&&React.createElement("p",{className:"loc-map-check",role:"note"},keptNote),
-      innerNote&&React.createElement("p",{className:"loc-map-check",role:"note","data-testid":"floor-plan-inner-walls"},innerNote),
+      innerNote&&React.createElement("p",{className:"loc-map-check info",role:"note","data-testid":"floor-plan-inner-walls"},innerNote),
       addedNote&&React.createElement("p",{className:"loc-map-check",role:"note","data-testid":"floor-plan-room-added"},addedNote),
       cameraNote&&React.createElement("p",{className:"loc-layer-note",role:"status","data-testid":"floor-plan-cameras-set"},cameraNote),
       candidate&&!measurementRepair&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:()=>{setCandidate(null);setError("");}},"Discard draft"),

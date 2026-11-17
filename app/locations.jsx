@@ -1783,9 +1783,11 @@ function locationDraftInnerDoorways(plan){
 function locationInnerDoorwaysText(inner){
   const xs = Array.isArray(inner) ? inner.filter(x=>x && x.name) : [];
   if(!xs.length) return "";
-  return (xs.length===1 ? xs[0].name+" stands inside the outline"+(xs[0].spaceName ? " of "+xs[0].spaceName : "")+", so it is drawn in a wall of its own"
-    : xs.map(x=>x.name).join(", ")+" stand inside the outline, so each is drawn in a wall of its own")
-    +": straight across the room through the doorway. Check it on the map; to move the wall, change the doorway’s centre or the way it faces in Room sizes & openings.";
+  // information, never a fault: it reads and looks like a plain note (owner 2026-11-17 took the first wording for an error)
+  return "Nothing to fix here. "+(xs.length===1
+      ? "A wall is drawn inside "+(xs[0].spaceName || "the room")+" for "+xs[0].name+", straight across the room through the doorway."
+      : "A wall is drawn inside the room for each of these, straight across the room through the doorway: "+xs.map(x=>x.name).join(", ")+".")
+    +" You can see it on the map. To move the wall, change the doorway\u2019s centre or the way it faces in Room sizes & openings.";
 }
 /* does the 2D segment a→b touch the polygon (either end inside, or crossing an edge)? */
 function _locSegCrossesPoly(a, b, poly){
