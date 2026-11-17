@@ -903,6 +903,9 @@ function LocationFloorPlanMap({scene,selected,onSelect,spaceId=""}){
     React.createElement("rect",{className:"loc-map-bg",x:0,y:0,width:W,height:H,onClick:()=>sel&&onSelect&&onSelect("")}),
     scene.spaces.slice().sort((p,q)=>_locMapArea(q)-_locMapArea(p)).map(sp=>React.createElement("polygon",{key:"s-"+sp.id,points:pts(sp.footprint),className:spaceCls(sp)},
       React.createElement("title",null,sp.name))),
+    // a room's inner walls (a doorway that stands inside the outline stands in a wall of its own)
+    (scene.innerWalls||[]).filter(shown).map(w=>React.createElement("line",{key:"iw-"+w.key,x1:X(w.a[0]),y1:Y(w.a[1]),x2:X(w.b[0]),y2:Y(w.b[1]),
+      className:"loc-map-inner-wall"})),
     openings.map(o=>React.createElement("line",{key:"o-"+o.spaceId+o.id,x1:X(o.a[0]),y1:Y(o.a[1]),x2:X(o.b[0]),y2:Y(o.b[1]),
       className:"loc-map-opening "+o.kind+(selO===o?" on":"")})),
     cams.map(c=>{const on=selCam===c,px=X(c.position[0]),py=Y(c.position[1]);
@@ -1037,6 +1040,8 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
   const set=patch=>change({coordinates:{...coords,...patch}});
   const setSpace=(id,patch)=>set({spaces:spaces.map(s=>s.id===id?{...s,...patch}:s)});
   const setOpening=(sid,oid,patch)=>setSpace(sid,{openings:(spaces.find(s=>s.id===sid).openings||[]).map(o=>o.id===oid?{...o,...patch}:o)});
+  // an opening that stands inside its room's outline: it stands in a wall of its own (locations.jsx locationInnerWall)
+  const inner=(sp,o)=>typeof locationInnerWall==="function"&&!!locationInnerWall(sp,o);
   const setCamera=(c,patch)=>set({cameras:cameras.map(x=>x===c?{...x,...patch}:x)});
   const nameOf=id=>((family.find(f=>f.id===id))||{}).name||id;
   const missing=family.filter(f=>!spaces.some(s=>s.id===f.id));
@@ -1087,9 +1092,9 @@ function LocationFloorPlanFields({plan,family,change,readOnly}){
             React.createElement("select",{className:"prop-select",disabled:readOnly,value:o.kind,onChange:e=>setOpening(sp.id,o.id,{kind:e.target.value})},
               ["window","door","glass","arch"].map(k=>React.createElement("option",{key:k,value:k},k)))),
           React.createElement(LocCoordInput,{label:"Centre",value:o.centre?_locPtsText([o.centre]):"",placeholder:"x, y",disabled:readOnly,mode:"text",
-            hint:"on its wall; its facing follows the nearest wall",onCommit:v=>setOpening(sp.id,o.id,{centre:_locParseVec(v,2),edge:null,yaw:null})}),
-          React.createElement(LocCoordInput,{label:"Faces (outward)",value:_locFmt(o.yaw),placeholder:"degrees",disabled:readOnly,
-            hint:o.yaw!=null?locCompass(o.yaw):"",onCommit:v=>setOpening(sp.id,o.id,{yaw:_locParseNum(v)})}),
+            hint:inner(sp,o)?"inside the room: it stands in a wall of its own":"on its wall; its facing follows the nearest wall",onCommit:v=>setOpening(sp.id,o.id,{centre:_locParseVec(v,2),edge:null,yaw:null})}),
+          React.createElement(LocCoordInput,{label:inner(sp,o)?"Faces":"Faces (outward)",value:_locFmt(o.yaw),placeholder:"degrees",disabled:readOnly,
+            hint:(o.yaw!=null?locCompass(o.yaw):"")+(inner(sp,o)?(o.yaw!=null?"; ":"")+"its wall runs square to this, across the room":""),onCommit:v=>setOpening(sp.id,o.id,{yaw:_locParseNum(v)})}),
           React.createElement(LocCoordInput,{label:"Width",value:_locFmt(o.width),placeholder:"0.9",disabled:readOnly,hint:"m",onCommit:v=>setOpening(sp.id,o.id,{width:_locParseNum(v)})}),
           React.createElement(LocCoordInput,{label:"Opening bottom (sill)",value:_locFmt(o.sillZ),placeholder:"0.9",disabled:readOnly,hint:"m above the main floor",onCommit:v=>setOpening(sp.id,o.id,{sillZ:_locParseNum(v)})}),
           React.createElement(LocCoordInput,{label:"Opening top (head)",value:_locFmt(o.headZ),placeholder:"2.1",disabled:readOnly,hint:"m above the main floor",onCommit:v=>setOpening(sp.id,o.id,{headZ:_locParseNum(v)})}),
@@ -1155,6 +1160,9 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   // (2026-10-14) the outdoor cameras the draft proposed above about 6 m, lowered in the draft (while it is untouched)
   const loweredNote=candidate&&typeof locationLoweredCamerasText==="function"?locationLoweredCamerasText(candidate.loweredCameras):"";
   const keptNote=candidate&&typeof locationKeptOnRedraftText==="function"?locationKeptOnRedraftText(candidate.keptOnRedraft):"";
+  // doorways that stand inside a room's outline: each is drawn in a wall of its own (said while the plan is reviewed)
+  let innerNote="";
+  try{innerNote=!confirmed&&typeof locationDraftInnerDoorways==="function"&&typeof locationInnerDoorwaysText==="function"?locationInnerDoorwaysText(locationDraftInnerDoorways(plan).inner):"";}catch(_){innerNote="";}
   const empty=!plan.frame.trim()&&!plan.anchors.length&&!plan.sightlines.trim()&&!plan.unresolved.trim();
   // rooms of this place with no outline on the plan shown (the saved one, or the draft under review)
   let outside=[];
@@ -1171,11 +1179,13 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     : "Check the placements below against your reference panels, then confirm to enable image generation.";
   const alive=React.useRef(true);
   const draftBasis=React.useRef(null),draftRef=React.useRef(null);
+  // a draft as it came, while its suggested measurement fixes are shown ("Discard fixes" goes back to it)
+  const draftBeforeRepair=React.useRef(null),showRepair=React.useRef(false);
   const currentState=()=>locationSpatialPlanState((((window.turnContinuity||{}).locations)||[]).find(x=>x.id===owner.id)||owner);
   const confirmationView=React.useRef(null);
   confirmationView.current={location:l,owner,state,candidate,repair:measurementRepair,readOnly,busy,epoch:filmEpoch,seenPlan:JSON.stringify(currentState().plan)};
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
-  React.useEffect(()=>{setCandidate(null);setError("");setConfirmation(null);setMeasurementRepair(null);setCompletedReview(null);setSameRoom(null);setPlacing("");setCameraNote("");setEditorOpen(!state.ready||!!repairRequest);},[owner.id,filmEpoch]);
+  React.useEffect(()=>{draftBeforeRepair.current=null;setCandidate(null);setError("");setConfirmation(null);setMeasurementRepair(null);setCompletedReview(null);setSameRoom(null);setPlacing("");setCameraNote("");setEditorOpen(!state.ready||!!repairRequest);},[owner.id,filmEpoch]);
   React.useEffect(()=>{
     if(!completedReview||completedReview.ownerId!==owner.id||completedReview.epoch!==filmEpoch)return;
     const timer=setTimeout(()=>{
@@ -1194,6 +1204,10 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     return ()=>setLocationLayoutDraftPending(id,token,false);
   },[owner.id,busy,!!candidate]);
   React.useEffect(()=>{if(reviewRequest){setOpen(true);summaryRef.current?.focus({preventScroll:true});}},[reviewRequest]);
+  // fixes suggested for a draft are shown at the end of the editor: bring them into view
+  React.useEffect(()=>{if(!measurementRepair||!showRepair.current)return;showRepair.current=false;
+    const timer=setTimeout(()=>fieldsRef.current?.querySelector?.(".loc-measurement-repair")?.scrollIntoView?.({behavior:"smooth",block:"center"}),60);
+    return ()=>clearTimeout(timer);},[measurementRepair]);
   React.useEffect(()=>{
     const edit=e=>{if(e.detail?.locationId===l.id){editOrigin.current="repair";setOpen(true);setEditorOpen(true);setEditFocus(n=>n+1);}};
     window.addEventListener("kinolot-edit-floor-plan",edit);return ()=>window.removeEventListener("kinolot-edit-floor-plan",edit);
@@ -1223,6 +1237,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
     if(readOnly||busy)return;
     const epoch=typeof nbEpoch==="function"?nbEpoch():null;
     const original=JSON.stringify(owner.spatialPlan||null),notes=owner.spatialNotes||"";
+    if(draftBeforeRepair.current){setCandidate(draftBeforeRepair.current);draftBeforeRepair.current=null;}
     setBusy(true);setError("");setMeasurementRepair(null);setEditorOpen(true);
     try{
       const result=await aiDraftLocationSpatialPlan(owner,scenes,project);
@@ -1316,8 +1331,31 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       const result=window.KinolotMeasurementRepair.propose(shown.location.id===shown.owner.id?{...shown.location,spatialPlan:shown.state.plan}:shown.location,list);
       if(!result.changes.length)throw Error("No automatic corrections were found. "+result.unresolved.join(" ")+" Use Edit measurements manually for the remaining details.");
       draftBasis.current={original:JSON.stringify(shown.owner.spatialPlan||null),notes:shown.owner.spatialNotes||"",epoch:shown.epoch};
+      draftBeforeRepair.current=null;
       setConfirmation(null);setCandidate(result.plan);setMeasurementRepair(result);
     }catch(e){setError(e.message||"Could not propose measurement repairs.");}
+  };
+  /* THE SAME FREE FIXES ON A DRAFT (owner 2026-11-17, "help me fix"): a draft that still needs measurements offers them
+     where it says so, instead of only "Edit floor plan". No model call, nothing saved: the before / after table shows
+     each change, "Apply fixes & confirm" saves the draft with them and "Discard fixes" goes back to the draft as it came. */
+  const repairDraft=()=>{
+    setError("");
+    try{
+      const shown=confirmationView.current;
+      if(!shown.candidate||shown.repair||shown.busy)return;
+      if(shown.readOnly||typeof window.turnArtRoomWritable==="function"&&!window.turnArtRoomWritable())throw Error("This film is read-only.");
+      if(shown.epoch!==(typeof window.nbEpoch==="function"?window.nbEpoch():0))throw Error("The open film changed. Reopen the floor plan before suggesting fixes.");
+      const reviewed=normalizeLocationSpatialPlan({...shown.candidate,status:"reviewed",source:shown.state.source});
+      const list=(((window.turnContinuity||{}).locations)||[]).map(x=>x.id===shown.owner.id?{...x,spatialPlan:reviewed}:x);
+      const result=window.KinolotMeasurementRepair.propose(shown.location.id===shown.owner.id?{...shown.location,spatialPlan:reviewed}:shown.location,list);
+      if(!result.changes.length)throw Error("No automatic fix was found. "+result.unresolved.join(" ")+" Open Edit floor plan to set the remaining measurements.");
+      draftBeforeRepair.current=shown.candidate;showRepair.current=true;
+      setConfirmation(null);setCandidate({...result.plan,source:shown.candidate.source});setMeasurementRepair(result);setOpen(true);setEditorOpen(true);
+    }catch(e){setError(e.message||"Could not suggest fixes for this draft.");}
+  };
+  const discardFixes=()=>{
+    const back=draftBeforeRepair.current;draftBeforeRepair.current=null;
+    setCandidate(back||null);setMeasurementRepair(null);setError("");
   };
   const repairValue=(value,field)=>value==null?"Missing":Array.isArray(value)?value.join(", ")+" m":typeof value==="number"?(field==="Wall index"?"Wall "+(value+1):value+" m"):String(value);
   const finishEditing=(ownerId=owner.id,epoch=filmEpoch)=>{
@@ -1350,7 +1388,8 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       const measured=!!window.KinolotCloudRender?.enabled?.()&&typeof window.KinolotCloudRender?.inputIssueList==="function";
       let issues=[];
       if(measured)issues=window.KinolotCloudRender.inputIssueList(location.id===planOwner.id?{...location,spatialPlan:reviewed}:location,list).filter(i=>i.step===2);
-      onUpdate(planOwner.id,{spatialPlan:reviewed},{kind:repair?"measurement-repair":draft?"layout-proposal":"floor-plan-edit"});
+      onUpdate(planOwner.id,{spatialPlan:reviewed},{kind:repair&&!draftBeforeRepair.current?"measurement-repair":draft?"layout-proposal":"floor-plan-edit"});
+      draftBeforeRepair.current=null;
       setCandidate(null);setError("");setConfirmation({sig:locationSpatialPlanSig(reviewed),measured,issues,repairCount:repair?.changes.length||0});setMeasurementRepair(null);
       if(measured&&!issues.length){finishEditing(planOwner.id,shown.epoch);fitPlaceCameras(planOwner.id,list,locationSpatialPlanSig(reviewed),shown.epoch);}
     }catch(e){setError(e?.message||"Could not confirm the layout. Please try again.");}
@@ -1400,7 +1439,10 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       React.createElement("p",null,confirmed?(renderIssues.length?"Placements are confirmed, but measurements still need attention. Open Edit floor plan to finish them.":"The floor plan is confirmed. You can reopen it to edit, or continue to Cameras."):reviewHint),
       candidate&&draftIssues.length>0&&React.createElement("div",{className:"loc-step-fixes loc-draft-measurements",role:"note"},
         React.createElement("b",null,"This draft still needs measurements:"),
-        React.createElement("ul",null,draftIssues.slice(0,6).map((issue,i)=>React.createElement("li",{key:i},issue.text)))),
+        React.createElement("ul",null,draftIssues.slice(0,6).map((issue,i)=>React.createElement("li",{key:i},issue.text))),
+        // the free fixes, where the draft says what it lacks (window and door measurements; an object's own are typed in)
+        !readOnly&&!measurementRepair&&window.KinolotMeasurementRepair&&draftIssues.some(i=>!i.anchorId)&&React.createElement("button",{type:"button",className:"art-draftall","data-testid":"draft-suggest-fixes",disabled:busy,
+          title:"Free: no credits. Works out the missing or impossible window and door measurements from the room and shows each change. Nothing is saved until you confirm.",onClick:repairDraft},"Suggest measurement fixes")),
       confirmed&&renderIssues.length>0&&React.createElement("div",{className:"loc-step-fixes",role:"note"},
         React.createElement("b",null,"Before the set can be drawn in 3D:"),React.createElement("ul",null,renderIssues.slice(0,6).map((i,n)=>React.createElement("li",{key:n},i.text)))),
       !empty&&React.createElement("button",{type:"button",className:"art-draftall loc-spatial-confirm"+(alreadyConfirmed?" ghost":""),"aria-expanded":editorOpen,"aria-controls":"loc-plan-editor-"+l.id,title:editorOpen?"Collapse floor plan editor":readOnly?"View floor plan":confirmed&&!renderIssues.length?"Edit this confirmed floor plan":"Edit floor plan",onClick:()=>{editOrigin.current="manual";setOpen(true);setEditorOpen(!editorOpen);if(!editorOpen)setEditFocus(n=>n+1);}},
@@ -1416,6 +1458,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       checkPositions&&React.createElement("p",{className:"loc-map-check",role:"note"},checkPositions),
       loweredNote&&React.createElement("p",{className:"loc-map-check",role:"note"},loweredNote),
       keptNote&&React.createElement("p",{className:"loc-map-check",role:"note"},keptNote),
+      innerNote&&React.createElement("p",{className:"loc-map-check",role:"note","data-testid":"floor-plan-inner-walls"},innerNote),
       addedNote&&React.createElement("p",{className:"loc-map-check",role:"note","data-testid":"floor-plan-room-added"},addedNote),
       cameraNote&&React.createElement("p",{className:"loc-layer-note",role:"status","data-testid":"floor-plan-cameras-set"},cameraNote),
       candidate&&!measurementRepair&&React.createElement("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||busy,onClick:()=>{setCandidate(null);setError("");}},"Discard draft"),
@@ -1515,7 +1558,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
           measurementRepair.remaining.length>0&&React.createElement("p",null,"Still needs attention: "+measurementRepair.remaining.map(i=>i.text).join(" ")),
           measurementRepair.unresolved.length>0&&React.createElement("p",null,measurementRepair.unresolved.join(" "))),
         React.createElement("div",{className:"loc-plan-actions"},confirmButton(),
-          measurementRepair&&candidate&&React.createElement("button",{type:"button",className:"art-draftall ghost",onClick:()=>{setCandidate(null);setMeasurementRepair(null);setError("");}},"Discard fixes")),
+          measurementRepair&&candidate&&React.createElement("button",{type:"button",className:"art-draftall ghost",onClick:discardFixes},"Discard fixes")),
         (readOnly||busy||!check.complete)&&React.createElement("p",{className:"loc-layer-note",role:"note"},readOnly?"View only: ask an editor to confirm this layout.":busy?"Wait for the draft to finish before confirming.":reviewHint),
         confirmationNow&&confirmationNow.issues.length>0&&React.createElement("div",{className:"loc-confirm-result",role:"status"},
           confirmationNow.repairCount>0&&React.createElement("p",null,"Applied "+confirmationNow.repairCount+" displayed corrections and rechecked the plan."),

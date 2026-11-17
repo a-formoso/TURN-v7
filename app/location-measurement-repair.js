@@ -51,6 +51,16 @@
           update(o,'sillZ',round(bottom),'Opening bottom','Proposed blockout height within the saved room floor and ceiling.');
           update(o,'headZ',round(top),'Opening top','Proposed blockout height within the saved room floor and ceiling.');
         }
+        // An opening inside the outline stands in a wall of its own (locationInnerWall): it is fitted to that wall and
+        // never moved onto the outline, where it would open the wrong wall.
+        const own=typeof root.locationInnerWall==='function'?root.locationInnerWall(sp,o):null;
+        if(own){
+          const room=2*Math.min(own.at,own.length-own.at)-.02;
+          if(room<.3){unresolved.push((o.name||'This opening')+': its own wall inside the room is too short for it.');continue;}
+          const fitted=finite(o.width)?Math.min(o.width,room):Math.min(room,(o.kind==='door'||o.kind==='arch')?.9:1.2);
+          if(!finite(o.width)||fitted!==o.width)update(o,'width',round(fitted),'Opening width',finite(o.width)?'Fits the opening within its own wall inside the room.':'A standard blockout opening size.');
+          continue;
+        }
         let edge=Number.isInteger(o.edge)&&poly[o.edge]?o.edge:null;
         const point=o.centre||anchor?.xy;
         function project(i,p){const a=poly[i],b=poly[(i+1)%poly.length],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy),u=[dx/length,dy/length];const x=Math.max(0,Math.min(length,(p[0]-a[0])*u[0]+(p[1]-a[1])*u[1]));const q=[a[0]+x*u[0],a[1]+x*u[1]];return {i,a,u,length,x,q,distance:Math.hypot(p[0]-q[0],p[1]-q[1])};}

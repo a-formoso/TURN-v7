@@ -18,6 +18,14 @@
     const opening=savedOpening(anchor,space);
     return root.locationAnchorIsOpening(anchor)||!!opening&&["window","glass","door","arch"].includes(opening.kind);
   }
+  // INNER WALLS (2026-11-17, locations.jsx locationInnerWall): an opening that stands inside its room's outline stands in
+  // a wall of its own, straight across the room. Its solid stretches are walls to cameras as the outline's are.
+  const innerWallOf=(space,opening)=>typeof root.locationInnerWall==="function"?root.locationInnerWall(space,opening):null;
+  const innerSolids=space=>typeof root.locationInnerWallSolids==="function"?root.locationInnerWallSolids(space):[];
+  const segDist=(x,y,a,b)=>{const dx=b[0]-a[0],dy=b[1]-a[1],t=Math.max(0,Math.min(1,((x-a[0])*dx+(y-a[1])*dy)/(dx*dx+dy*dy||1e-9)));
+    return Math.hypot(x-a[0]-t*dx,y-a[1]-t*dy);};
+  const segCross=(p,q,a,b)=>{const o=(u,v,w)=>(v[0]-u[0])*(w[1]-u[1])-(v[1]-u[1])*(w[0]-u[0]);
+    return o(p,q,a)*o(p,q,b)<0&&o(a,b,p)*o(a,b,q)<0;};
   // Saved heights are read through the floor plan's conventions (locations.jsx), never rewritten.
   function renderSpaces(plan){
     return (plan.coordinates?.spaces||[]).map(s=>({...s,openings:(s.openings||[]).map(o=>root.locationOpeningHeights(o,s,plan))}));
@@ -45,8 +53,10 @@
     const room=sp.name||location.name||"this room";
     const inside=(x,y)=>{let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];
       if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])c=!c;}return c;};
+    const inner=innerSolids(sp);
     const wall=(x,y)=>Math.min(...poly.map((a,i)=>{const b=poly[(i+1)%poly.length],dx=b[0]-a[0],dy=b[1]-a[1];
-      const t=Math.max(0,Math.min(1,((x-a[0])*dx+(y-a[1])*dy)/(dx*dx+dy*dy)));return Math.hypot(x-a[0]-t*dx,y-a[1]-t*dy);}));
+      const t=Math.max(0,Math.min(1,((x-a[0])*dx+(y-a[1])*dy)/(dx*dx+dy*dy)));return Math.hypot(x-a[0]-t*dx,y-a[1]-t*dy);}),
+      ...inner.map(seg=>segDist(x,y,seg[0],seg[1])));
     const objects=plan.anchors.filter(a=>a.xy&&a.size&&(root.locationAnchorSpaceOf(a,family)||owner).id===sp.id&&!isOpening(a,sp));
     for(const p of poses){
       const pos=p.pose.position;if(!pos)continue;
@@ -132,8 +142,10 @@
       }
       return hi>.001&&lo<.999;
     });
+    const innerWalls=innerSolids(sp);
     const sight=(at,target)=>Array.from({length:19},(_,j)=>(j+1)/20)
-      .every(t=>inside(at[0]+(target[0]-at[0])*t,at[1]+(target[1]-at[1])*t));
+      .every(t=>inside(at[0]+(target[0]-at[0])*t,at[1]+(target[1]-at[1])*t))
+      &&!innerWalls.some(seg=>segCross(at,target,seg[0],seg[1]));
     const featureKind=a=>{
       const n=String(a.name||"");
       if(/\bsink\b/i.test(n)&&!/\b(?:counter|run|light)\b/i.test(n))return "sink";
@@ -399,7 +411,9 @@
         if(!o.centre||!finite(o.width)||!finite(o.sillZ)||!finite(o.headZ)){
           issues.push("Set the centre, width, sill and head for "+(o.name||"each opening")+".");continue;
         }
-        const a=poly[o.edge],b=poly[(o.edge+1)%poly.length];
+        // an opening inside the outline stands in a wall of its own (an inner wall): it has no outline wall to sit on
+        const own=innerWallOf(s,o);
+        const a=own?own.a:poly[o.edge],b=own?own.b:poly[(o.edge+1)%poly.length];
         if(!a||!b){issues.push("Check the wall placement of "+(o.name||"this opening")+".");continue;}
         const length=Math.hypot(b[0]-a[0],b[1]-a[1]),u=[(b[0]-a[0])/length,(b[1]-a[1])/length];
         const x=(o.centre[0]-a[0])*u[0]+(o.centre[1]-a[1])*u[1],distance=Math.abs((o.centre[0]-a[0])*u[1]-(o.centre[1]-a[1])*u[0]);
@@ -510,9 +524,10 @@
       if(s.openSky)return;
       if(!finite(s.ceilingH))throw new Error("Set the ceiling height for "+(s.name||"this space")+" in the floor plan.");
       const height=s.ceilingH;
-      for(let ei=0;ei<poly.length;ei++){
-        const a=poly[ei],b=poly[(ei+1)%poly.length],length=Math.hypot(b[0]-a[0],b[1]-a[1]),u=[(b[0]-a[0])/length,(b[1]-a[1])/length];
-        const openings=(s.openings||[]).filter(o=>o.edge===ei).map(o=>{
+      // One wall from a to b, built in pieces around its openings. `key` names the wall in its pieces' ids.
+      const wallRun=(key,a,b,list)=>{
+        const length=Math.hypot(b[0]-a[0],b[1]-a[1]),u=[(b[0]-a[0])/length,(b[1]-a[1])/length];
+        const openings=list.map(o=>{
           if(!o.centre||!finite(o.width)||!finite(o.sillZ)||!finite(o.headZ))throw new Error("Set the centre, width, sill and head for "+(o.name||"each opening")+".");
           const x=(o.centre[0]-a[0])*u[0]+(o.centre[1]-a[1])*u[1],distance=Math.abs((o.centre[0]-a[0])*u[1]-(o.centre[1]-a[1])*u[0]);
           const bottom=o.sillZ-s.floorZ,top=o.headZ-s.floorZ;
@@ -527,11 +542,15 @@
           for(let zi=1;zi<zs.length;zi++){
             const bottom=zs[zi-1],top=zs[zi],z=(bottom+top)/2;
             if(right-left<0.001||top-bottom<0.001||holes.some(o=>o.bottom<z&&o.top>z))continue;
-            add(`wall-${si}-${ei}-${ci}-${zi}`,(s.name||"Space")+" wall",[a[0]+u[0]*middle,a[1]+u[1]*middle,s.floorZ+z],
+            add(`wall-${si}-${key}-${ci}-${zi}`,(s.name||"Space")+" wall",[a[0]+u[0]*middle,a[1]+u[1]*middle,s.floorZ+z],
               [right-left,0.15,top-bottom],[0,0,Math.atan2(u[1],u[0])]);
           }
         }
-      }
+      };
+      // the openings that stand inside the outline: each in a wall of its own (two on one line share it)
+      const innerRuns=typeof root.locationInnerWalls==="function"?root.locationInnerWalls(s):[],innerSet=new Set(innerRuns.flatMap(r=>r.openings.map(x=>x.opening)));
+      for(let ei=0;ei<poly.length;ei++)wallRun(ei,poly[ei],poly[(ei+1)%poly.length],(s.openings||[]).filter(o=>o.edge===ei&&!innerSet.has(o)));
+      innerRuns.forEach((run,ri)=>wallRun("in"+ri,run.a,run.b,run.openings.map(x=>x.opening)));
       add("ceiling-"+si,(s.name||"Space")+" ceiling",[(low[0]+high[0])/2,(low[1]+high[1])/2,s.floorZ+height+0.075],size,[0,0,0],
         {kind:"prism",footprint:poly.map(p=>[(p[0]-low[0])/size[0]-0.5,(p[1]-low[1])/size[1]-0.5])});
       lights.push({position:[(low[0]+high[0])/2,(low[1]+high[1])/2,s.floorZ+height-0.15],colour:[1,0.92,0.8],powerWatts:Math.min(4000,Math.max(200,size[0]*size[1]*8)),sizeMetres:Math.min(15,Math.max(0.5,Math.min(size[0],size[1])/2))});

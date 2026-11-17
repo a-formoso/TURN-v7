@@ -1700,6 +1700,93 @@ function _locNearestEdge(poly, pt){
   }
   return best;
 }
+/* ---- AN INNER WALL (owner 2026-11-17, "help me fix": Hussain Flat's draft drew the hall and the kitchen as one
+   outline with the doorway between them, and the plan could not hold it). A door, arch, window or glazing of an indoor
+   space whose centre stands INSIDE the outline, more than 0.25 m from every wall of it, stands in a wall of its own:
+   the inner wall runs straight across the room through the opening's centre, square to the way the opening faces,
+   until it meets the outline on each side. Read from what is saved (centre + yaw); nothing is stored for it.
+   locationInnerWall → null for an opening on the outline, else {a, b, length, at, yaw}: the wall's two ends, its
+   length and the opening's centre along it (metres from a). ---- */
+const LOC_WALL_REACH = 0.25;   // an opening this close to a wall of the outline stands in that wall
+function locationInnerWall(space, opening){
+  const poly = space && Array.isArray(space.footprint) ? space.footprint : [], c = opening && opening.centre;
+  if(!space || space.openSky || poly.length<3 || !Array.isArray(c) || c.length<2 || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) return null;
+  if(!_locInside(c,poly)) return null;
+  for(let i=0;i<poly.length;i++) if(_locSegDist(c, poly[i], poly[(i+1)%poly.length])<=LOC_WALL_REACH) return null;
+  const yaw = opening.yaw!=null && Number.isFinite(Number(opening.yaw)) ? Number(opening.yaw) : _locEdgeYaw(poly,_locNearestEdge(poly,c));
+  if(yaw==null) return null;
+  const n = _locDir(yaw), d = [n[1], -n[0]];   // along the wall
+  const reach = (sign)=>{ let best = Infinity;
+    for(let i=0;i<poly.length;i++){
+      const p = poly[i], q = poly[(i+1)%poly.length], ex = q[0]-p[0], ey = q[1]-p[1], rx = sign*d[0], ry = sign*d[1], den = rx*ey-ry*ex;
+      if(Math.abs(den)<1e-9) continue;
+      const t = ((p[0]-c[0])*ey-(p[1]-c[1])*ex)/den, u = ((p[0]-c[0])*ry-(p[1]-c[1])*rx)/den;
+      if(t>1e-6 && u>=-1e-6 && u<=1+1e-6 && t<best) best = t;
+    }
+    return best; };
+  const fore = reach(1), back = reach(-1);
+  if(!Number.isFinite(fore) || !Number.isFinite(back)) return null;
+  const r = (v)=>Math.round(v*1000)/1000;
+  return {a:[r(c[0]-d[0]*back), r(c[1]-d[1]*back)], b:[r(c[0]+d[0]*fore), r(c[1]+d[1]*fore)], length:r(fore+back), at:r(back), yaw};
+}
+/* a room's inner walls, one row a wall: two doorways on one line share their wall. {a, b, length, openings:[{opening,
+   at}]} — `at` = the opening's centre along the wall, metres from a. */
+function locationInnerWalls(space){
+  const out = [];
+  ((space && space.openings) || []).forEach(o=>{
+    const w = locationInnerWall(space,o);
+    if(!w || !(w.length>0)) return;
+    const key = [w.a,w.b].map(p=>p.map(v=>Math.round(v*20)/20).join(",")).sort().join("|");
+    let run = out.find(x=>x.key===key);
+    if(!run){ run = {key, a:w.a, b:w.b, length:w.length, openings:[]}; out.push(run); }
+    const u = [(run.b[0]-run.a[0])/run.length, (run.b[1]-run.a[1])/run.length];
+    run.openings.push({opening:o, at:Math.round(((o.centre[0]-run.a[0])*u[0]+(o.centre[1]-run.a[1])*u[1])*1000)/1000});
+  });
+  return out;
+}
+/* the stretches of a room's inner walls nobody can stand in or pass: each wall less its doors and arches (a window in
+   an inner wall is still wall to walk into). [[x,y],[x,y]] each. */
+function locationInnerWallSolids(space){
+  const out = [];
+  locationInnerWalls(space).forEach(run=>{
+    const u = [(run.b[0]-run.a[0])/run.length, (run.b[1]-run.a[1])/run.length], at = (t)=>[run.a[0]+u[0]*t, run.a[1]+u[1]*t];
+    const gaps = run.openings.filter(x=>/^(door|arch)$/.test(x.opening.kind) && Number.isFinite(x.opening.width))
+      .map(x=>[Math.max(0,x.at-x.opening.width/2), Math.min(run.length,x.at+x.opening.width/2)]).sort((p,q)=>p[0]-q[0]);
+    let from = 0;
+    gaps.forEach(g=>{ if(g[0]-from>0.01) out.push([at(from),at(g[0])]); from = Math.max(from,g[1]); });
+    if(run.length-from>0.01) out.push([at(from),at(run.length)]);
+  });
+  return out;
+}
+/* A DRAFT'S INNER DOORWAYS FACE THE WAY THEIR OBJECT DOES: the draft gives an opening no facing of its own, so an inner
+   doorway would take the nearest outer wall's. Its landmark (the object of the same id or name) says which way it
+   faces; that decides which way its wall runs. Returns {plan, inner:[{spaceId, spaceName, name}]} for the review. */
+function locationDraftInnerDoorways(plan){
+  const coords = plan && plan.coordinates;
+  if(!coords || !Array.isArray(coords.spaces)) return {plan, inner:[]};
+  const inner = [], key = (s)=>String(s||"").trim().toLowerCase();
+  const spaces = coords.spaces.map(sp=>{
+    if(!sp || sp.openSky || !Array.isArray(sp.openings)) return sp;
+    let changed = false;
+    const openings = sp.openings.map(o=>{
+      if(!o || !locationInnerWall(sp,{...o, yaw:o.yaw==null ? 0 : o.yaw})) return o;
+      const a = (plan.anchors||[]).find(x=>x.id===o.id) || (plan.anchors||[]).find(x=>key(x.name) && key(x.name)===key(o.name));
+      inner.push({spaceId:sp.id, spaceName:sp.name||"", name:o.name||o.id});
+      if(a && a.facing!=null && Number.isFinite(Number(a.facing)) && locYaw(a.facing)!==o.yaw){ changed = true; return {...o, yaw:locYaw(a.facing)}; }
+      return o;
+    });
+    return changed ? {...sp, openings} : sp;
+  });
+  return {plan:inner.length ? {...plan, coordinates:{...coords, spaces}} : plan, inner};
+}
+/* the review's line for them (a draft only; it never blocks) */
+function locationInnerDoorwaysText(inner){
+  const xs = Array.isArray(inner) ? inner.filter(x=>x && x.name) : [];
+  if(!xs.length) return "";
+  return (xs.length===1 ? xs[0].name+" stands inside the outline"+(xs[0].spaceName ? " of "+xs[0].spaceName : "")+", so it is drawn in a wall of its own"
+    : xs.map(x=>x.name).join(", ")+" stand inside the outline, so each is drawn in a wall of its own")
+    +": straight across the room through the doorway. Check it on the map; to move the wall, change the doorway’s centre or the way it faces in Room sizes & openings.";
+}
 /* does the 2D segment a→b touch the polygon (either end inside, or crossing an edge)? */
 function _locSegCrossesPoly(a, b, poly){
   if(!poly || poly.length<3 || !a || !b) return false;
@@ -2680,11 +2767,13 @@ function locationFloorPlanScene(owner, plan, locations){
     : [{...live, spatialPlan:plan||live.spatialPlan}].concat(base);
   const own = list.find(x=>x.id===owner.id), family = _locFamily(own,list);
   const p = normalizeLocationSpatialPlan(plan || own.spatialPlan), coords = p.coordinates;
-  const spaces = [], openings = [], cameras = [], noPosition = [], tagCount = {};
+  const spaces = [], openings = [], cameras = [], noPosition = [], tagCount = {}, innerWalls = [];
   family.forEach(sp=>{
     const c = _locCoordSpace(coords,sp);
     if(c && c.footprint.length>=3) spaces.push({id:sp.id, name:sp.name||"", footprint:c.footprint, floorZ:c.floorZ, owner:sp.id===own.id,
       centre:_locCentroid(c.footprint)});
+    // the room's inner walls (locationInnerWall): each wall's solid stretches, its doors and arches left open
+    if(c && c.footprint.length>=3) locationInnerWallSolids(c).forEach((seg,i)=>innerWalls.push({spaceId:sp.id, key:sp.id+":"+i, a:seg[0], b:seg[1]}));
     locationSpaceOpenings(sp,list).forEach(o=>{
       if(!o.centre) return;
       const w = (o.width||0.9)/2, t = o.yaw!=null ? [Math.cos(o.yaw*Math.PI/180), -Math.sin(o.yaw*Math.PI/180)] : [1,0];
@@ -2720,7 +2809,7 @@ function locationFloorPlanScene(owner, plan, locations){
     if(c.outlier) outliers.push({kind:"camera", key:c.spaceId+":"+c.panel, id:c.panel, name:c.label, spaceId:c.spaceId, xy:[c.position[0],c.position[1]]}); });
   const pts = [].concat(...spaces.map(x=>x.footprint), ...openings.map(o=>[o.a,o.b]), anchors.map(a=>a.xy), ...cameras.map(c=>c.frustum));
   const bounds = _locBoundsOf(pts);
-  const scene = {frame:p.frame, origin:coords ? coords.origin : {anchorId:"", note:""}, spaces, spaceList, openings, anchors, cameras,
+  const scene = {frame:p.frame, origin:coords ? coords.origin : {anchorId:"", note:""}, spaces, spaceList, openings, innerWalls, anchors, cameras,
     noPosition, outliers, bounds, empty:!pts.length};
   scene.fit = locationFloorPlanFit(scene, "");
   return scene;
@@ -3716,6 +3805,11 @@ window.locationParentPlateViews = locationParentPlateViews;
 window.locationKnownPlatePanels = locationKnownPlatePanels;
 window.locationLowerDraftOutdoorCameras = locationLowerDraftOutdoorCameras;
 window.locationLoweredCamerasText = locationLoweredCamerasText;
+window.locationInnerWall = locationInnerWall;
+window.locationInnerWalls = locationInnerWalls;
+window.locationInnerWallSolids = locationInnerWallSolids;
+window.locationDraftInnerDoorways = locationDraftInnerDoorways;
+window.locationInnerDoorwaysText = locationInnerDoorwaysText;
 window.locationPanelCameraNotes = locationPanelCameraNotes;
 window.LOC_OUTDOOR_MAX_Z = LOC_OUTDOOR_MAX_Z;
 window.locationStagingStations = locationStagingStations;

@@ -3871,6 +3871,8 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
 .loc-map-space.dim{opacity:.38}
 .loc-map-label{fill:var(--txt-1);font-size:11px;font-weight:600;pointer-events:none;paint-order:stroke;stroke:var(--bg-1);stroke-width:3px;stroke-linejoin:round}
 .loc-map-label.dim{fill:var(--txt-3)}
+/* a wall inside a room's outline (a doorway that stands inside the room stands in a wall of its own) */
+.loc-map-inner-wall{stroke:var(--txt-1);stroke-width:1.5;stroke-linecap:butt;opacity:.75;pointer-events:none}
 .loc-map-opening{stroke:var(--txt-1);stroke-width:4;stroke-linecap:round}
 .loc-map-opening.window,.loc-map-opening.glass{stroke:var(--accent)}
 .loc-map-opening.arch{stroke-dasharray:3 3}
@@ -11837,6 +11839,8 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .loc-step-fixes ul{margin:0;padding:0;list-style:none;display:grid;gap:8px}
 .loc-step-fixes li{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}
 .loc-step-fixes li>span{flex:1 1 180px;min-width:0}
+/* the free fixes offered where a draft says what it lacks */
+.loc-draft-measurements > .art-draftall{width:auto;margin-top:10px}
 .loc-step-go{flex:none}
 .loc-cam-problem{margin:4px 0}
 

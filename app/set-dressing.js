@@ -289,7 +289,10 @@
       screenplay:typeof root.locationScreenplayContext==="function"?root.locationScreenplayContext(location,ctx.scenes||C.scenes||[],ctx.drafts||C.drafts||{},5000):"",
       spaces:(plan.coordinates&&plan.coordinates.spaces||[]).filter(s=>seen.spaces.some(x=>x.name===tidy(s.name||"Space"))).map(s=>({
         name:tidy(s.name||"Space"),outline:s.footprint,floorZ:s.floorZ,...(s.openSky?{openAir:true}:{ceilingHeight:s.ceilingH}),
-        openings:(s.openings||[]).map(o=>({name:cut(o.name,60),kind:o.kind,centre:o.centre,width:o.width,bottomZ:o.sillZ,topZ:o.headZ}))})),
+        openings:(s.openings||[]).map(o=>({name:cut(o.name,60),kind:o.kind,centre:o.centre,width:o.width,bottomZ:o.sillZ,topZ:o.headZ})),
+        // walls built inside the outline (locations.jsx locationInnerWall): an opening that stands inside the room
+        ...(()=>{const walls=typeof root.locationInnerWalls==="function"?root.locationInnerWalls(s):[];
+          return walls.length?{innerWalls:walls.map(w=>({from:w.a,to:w.b,openings:w.openings.map(x=>cut(x.opening.name,60))}))}:{};})()})),
       objects:[...built.entries()].map(([id,o])=>{
         const a=anchorOf(id)||{};
         return {id,name:cut(a.name||o.name,80),dress:seen.blocks.has(id),
@@ -302,7 +305,7 @@
   function prompt(data,maxParts){
     return "You are the production designer and set decorator of the film described below. Dress ONE location as a simple 3D set made of plain shapes: a previsualisation the director looks at before any image is made.\n\n"
       +"THE SET MUST BELONG TO THIS FILM: its period, its place, the money and habits of the people who live or work here, the weather and hour of its scenes. Read the screenplay extract for what happens here, what is touched and what is said about the place. Nothing generic, no showroom.\n\n"
-      +"THE FLOOR PLAN IS FIXED. The spaces, openings, objects and cameras below are saved facts in metres. Never move, resize or remove them.\n\n"
+      +"THE FLOOR PLAN IS FIXED. The spaces, openings, objects and cameras below are saved facts in metres. Never move, resize or remove them. A space that lists innerWalls has those walls already built inside its outline, floor to ceiling, from one point to the other, with the named openings cut in them: they take the space's wall material, so place nothing through them.\n\n"
       +(data&&data.dressOnly?"THIS PLACE HAS SEVERAL SPACES ON ONE FLOOR PLAN, AND THEY ARE ONE SET. Dress ONLY \""+data.dressOnly.space+"\": "
         +(data.dressOnly.isThePlaceItself?"its own ground and everything that stands outside the other spaces (the outside of the building, the street, the neighbours). The outside of the building is yours even where it stands on a room's outline or over it: its front walls with their doors and windows, its upper storeys and its roof.":"what is inside its own outline: its surfaces, its objects, its door leaves and window frames, its fittings.")
         +" The other spaces ("+data.dressOnly.otherSpaces.join(", ")+") are dressed from their own cards: set no surfaces for them, redraw none of their objects and place nothing inside them; anything placed there is dropped. They can still be seen through openings, so make what meets them agree.\n\n":"")
