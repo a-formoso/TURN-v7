@@ -128,12 +128,9 @@ function OverflowMenu({ onNewStory, onImportScript, onImportDraft, project, scen
     typeof window.turnExportBreakdown==="function" && ["strip","Export stripboard","One coloured strip per scene",()=>window.turnExportBreakdown()],
     typeof window.turnExportArtBible==="function" && ["bible","Export art department bible","Cast, props and locations",()=>window.turnExportArtBible()],
   ].filter(Boolean);
-  // PHONE ONLY (CSS shows .export-art-tabs at ≤700px, where the tab bar is icons only): the Art Room
-  // tabs by name, each locked one with its padlock and the step it follows (docs/Story Pipeline.md
-  // step 9) — named like the tab bar, with the format's department name in brackets where it differs
-  // ("unlocks after Characters (Subjects)"). A locked tab still opens — onto its lock card.
-  const artTabs = (room==="art" && typeof setArtView==="function")
-    ? (window.ART_TABS||[]).filter(t=>!(hiddenArtTabs&&hiddenArtTabs[t.id])) : [];
+  // (2026-11-17, owner: "keep it simple, like we have it on desktop") the phone's copy of this menu no longer lists the
+  // Art Room's tabs: they are in the tab row under the heading, which scrolls sideways and shows each tab by name.
+  // (artView, setArtView, artTabLocks and hiddenArtTabs are still handed in; nothing here reads them now.)
   // The Story brief (with its "Rebuild as a new film") and Team live here at every width since the
   // homepage-style bar (2026-10-16). The brief shows by storyBriefShown; Team while team.jsx registers
   // window.turnTeamMenu for a saved film (its own top-bar button stays mounted but hidden, so its
@@ -190,22 +187,6 @@ function OverflowMenu({ onNewStory, onImportScript, onImportDraft, project, scen
         React.createElement("span",{className:"export-item-t"},
           React.createElement("span",{className:"t"},"Team"),
           team.hint && React.createElement("span",{className:"s"},team.hint))),
-      artTabs.length>0 && React.createElement("div",{className:"export-art-tabs",role:"group","aria-label":"Art Room tabs"},
-        React.createElement("div",{className:"export-subhead"},"Art Room tabs"),
-        artTabs.map(t=>{
-          const lock = artTabLocks && artTabLocks[t.id];
-          const locked = !!(lock && lock.locked);
-          const TabIc = Icon[t.icon]||Icon.user;
-          return React.createElement("button",{key:"tab-"+t.id,type:"button",
-              className:"export-item"+(locked?" is-locked":"")+(artView===t.id?" on":""),
-              "aria-current":artView===t.id?"page":undefined,
-              title:locked ? (t.label+" \u2014 locked. "+lock.waitingFor) : t.label,
-              onClick:()=>{ setOpen(false); setArtView(t.id); }},
-            React.createElement("span",{className:"export-item-ic"},React.createElement(locked?(Icon.padlock||TabIc):TabIc,{s:16})),
-            React.createElement("span",{className:"export-item-t"},
-              React.createElement("span",{className:"t"},t.label),
-              locked && React.createElement("span",{className:"s"},"Locked \u00b7 unlocks after "+(lock.afterLabel||lock.unlockLabel))));
-        })),
       inWriters && React.createElement("div",{className:"export-subhead"},"Export · ",
         React.createElement("span",{className:"film-menu-count"},draftedLabel)),
       inWriters && FILM_EXPORTS.map(([kind,Ic,title,sub])=>

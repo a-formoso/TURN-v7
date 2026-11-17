@@ -9311,8 +9311,6 @@ html[data-theme="light"] .bd-k-int-day{--bd-c:#d9d6cc}
 .art-lock-step.is-locked{color:var(--txt-3);border-style:dashed}
 .art-lock-step.is-current{color:var(--txt-0);border-color:var(--pos-line)}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-/* the ⋮ menu's Art Room tab list: phone only (the tab bar is icons-only there) */
-.export-art-tabs{display:none}
 .export-item.is-locked .t{color:var(--txt-2)}
 .export-item.is-locked .export-item-ic{color:var(--txt-3)}
 .export-item.on .t{color:var(--txt-0);font-weight:600}
@@ -9325,8 +9323,7 @@ html[data-theme="light"] .bd-k-int-day{--bd-c:#d9d6cc}
 .prop-noprops-undo{border:0;background:transparent;color:var(--txt-0);font:600 12px var(--f-ui);text-decoration:underline;cursor:pointer;padding:2px 4px;border-radius:4px}
 .prop-noprops-undo:focus-visible{outline:2px solid var(--pos-line);outline-offset:2px}
 @media (max-width:700px){
-  .export-art-tabs{display:block}
-  /* the ⋮ now also lists the tabs: keep the whole menu reachable on a short / landscape phone */
+  /* keep the whole menu reachable on a short / landscape phone (it no longer lists the Art Room's tabs, 2026-11-17) */
   .overflow-wrap .export-menu{max-height:calc(100vh - 64px);overflow-y:auto;overscroll-behavior:contain}
   .art-lock{padding:28px 16px;min-height:50vh}
   .art-lock-t{font-size:20px}
