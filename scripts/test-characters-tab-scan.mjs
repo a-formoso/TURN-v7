@@ -161,8 +161,14 @@ await test("S the scale sheet shows height in the film, free: the character besi
   assert.equal(none.sized.length, 0); assert.equal(none.ref, null);
   assert.equal(b.lineupSizeText(1680), "168 cm"); assert.equal(b.lineupSizeText(15), "15 mm"); assert.equal(b.lineupSizeText(40000), "40 m"); assert.equal(b.lineupSizeText(0.2), "200 \u00b5m");
   const card = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
-  assert.ok(card.includes("React.createElement(CharHeightLineup,{ c, cast:cast||[c], scenes, drafts }),"));
+  assert.ok(card.includes("React.createElement(CharHeightLineup,{ c, cast:cast||[c], scenes, drafts })),"), "the line-up is the whole Scale sheet section");
   const comp = between(art, "function CharHeightLineup({", "window.charHeightLineup = charHeightLineup;");
+  // (owner 2026-11-17: "names … not glued up with one another … keep everything within the viewport on mobile") each bar
+  // has its own caption under the ground line (name over size), cut inside its own column; a phone shows five columns
+  assert.ok(comp.includes('className:"lineup-caps"') && comp.includes('className:"lineup-cap"+(r.self?" self":"")+(i>=5?" sixth":"")'));
+  for (const k of [".lineup-cap{flex:1 1 0;min-width:0;max-width:64px;", ".lineup-name{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
+    "@media (max-width:640px){ .lineup .sixth{display:none} .lineup-chart,.lineup-caps{gap:4px} }"]) assert.ok(css.includes(k), k);
+  assert.ok(!/\.lineup-name\{[^}]*position:absolute/.test(css), "no name hangs outside its column");
   assert.ok(!/generate\(|nbGenerate|onUpdate/.test(comp), "nothing is made or changed by it");
   assert.ok(comp.includes("has no unit. ") && comp.includes("No size yet. "), "a missing size is said in view: it needs doing");
 });
@@ -173,7 +179,10 @@ await test("T the card's explaining lines (owner 2026-11-17): gone or behind an 
     '"Story props \\u2014 worn ones attach to this sheet; carried ones attach at the shot"'])
     assert.ok(!card.includes(gone), "still on the card: " + gone);
   assert.equal(card.split("char-scalesheet-hint").length - 1, 0, "no explaining paragraph left on the character card");
-  for (const tip of ['label:"About the height chart image"', 'label:"About height in the film"', 'label:"About story props"', 'label:"About lines for the video model"'])
+  // (the generated height chart image and its QA check left the card the same day: "remove selected element")
+  assert.ok(!card.includes("Height chart image") && !card.includes("scaleGenWrapped") && !card.includes('noun:"scale sheet"'));
+  assert.ok(between(art, "function CharHeightLineup({", "window.charHeightLineup = charHeightLineup;").includes('const oneUnit = (L.sized.length>1 && units.length===1) ? units[0] : "";'), "one unit for everyone: numbers over the bars, the unit once in the heading");
+  for (const tip of ['label:"About height in the film"', 'label:"About story props"', 'label:"About lines for the video model"'])
     assert.ok(card.includes(tip) || art.includes(tip), tip);
   const lines = card.slice(card.indexOf('"Lines for the video model",'));
   assert.ok(lines.indexOf('label:"About lines for the video model"') < lines.indexOf('"aria-label":"How their lines are written for the video model"'), "the i sits beside the label, before the menu");
@@ -189,7 +198,7 @@ await test("T the card's explaining lines (owner 2026-11-17): gone or behind an 
 await test("F Frances knows; the changed files are served under a new key", () => {
   const f = between(ai, 'APP_FEATURES.push({ name:"Cast overview, the character card in four rows, the kept QA result (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["THE CAST AT A GLANCE", "THE CARD IN FOUR ROWS", "THE QA RESULT IS KEPT", "'Check again'", "ONE 'MORE' MENU", "THE HEADING FOLDS"]) assert.ok(f.includes(k), k);
-  const KEYS = ["20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1"];   // (the list grows with each key bump)
+  const KEYS = ["20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "cameo.jsx", "imagegen.jsx", "cloud.jsx", "app.jsx", "ai.jsx", "styles.css"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });

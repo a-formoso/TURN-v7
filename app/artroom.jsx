@@ -105,7 +105,7 @@ const CHAR_RENDER_STYLES = {
   },
   render3d: {
     rendering: "high-quality stylized 3D character render, animated-feature quality; physically-based shading (PBR), soft subsurface scattering on skin, ray-traced soft shadows and global illumination, gentle ambient occlusion in seams and folds",
-    engine_look: "offline render aesthetic (Arnold / RenderMan / Octane / Redshift) \u2014 clean, polished, high-sample, no noise",
+    engine_look: "offline path-traced film-render aesthetic \u2014 clean, polished, high-sample, no noise",
     materials: "stylized PBR materials true to THIS character's own design \u2014 fabrics with soft sheen, supple creased leather, refractive glass, translucent gems, wet/crusted grime and subtle worn-edge wear where the design calls for it",
     lighting: "soft three-point studio render lighting \u2014 broad key from upper left, gentle fill, cool rim to separate the figure from the background; warm bounce, cinematic but even enough to read every panel",
     color_grade: "rich but muted; honour the character's own palette; soft filmic contrast, slight warm bias in highlights",
@@ -150,7 +150,7 @@ const CHAR_RENDER_STYLES = {
   },
   animated3d: {
     "rendering": "high-quality animated-feature 3D render; appealing stylized character, physically-based shading with soft subsurface scattering, clean polished surfaces, ray-traced soft shadows and warm global illumination",
-    "engine_look": "polished animated-movie pipeline render (RenderMan / Arnold quality) — clean, high-sample, idealized, no noise",
+    "engine_look": "polished animated-movie pipeline render, path-traced film quality — clean, high-sample, idealized, no noise",
     "lighting": "soft, warm, flattering animated-feature lighting — broad key, generous bounce fill, gentle rim, an appealing glow; the 'every frame looks beautiful' look; even enough to read every panel",
     "materials": "stylized PBR with appeal, true to THIS character's own design — soft fuzzy fabrics, supple rounded leather, cheerfully refractive glass, glowing translucent accents, simplified clean grime; gentle worn-edge wear",
     "expression_and_appeal": "lively acting and personality in face and pose; squash-stretch-friendly appealing forms; charm prioritized over grit",
@@ -159,17 +159,17 @@ const CHAR_RENDER_STYLES = {
     "rules": ["no text, labels, watermarks, annotations, typography or captions","clean high-sample render, appealing animated-feature finish, no noise","lively expression and personality, not a stiff neutral sculpt","consistent shaders and lighting across all panels","clean, evenly divided panel layout"]
   },
   pixar: {
-    "rendering": "high-end Pixar-style animated-feature 3D character render — appealing stylized proportions (slightly oversized head and large expressive eyes, soft rounded forms), physically-based shading with soft subsurface scattering and fine peach-fuzz on skin, clean polished surfaces, ray-traced soft shadows and warm global illumination",
-    "engine_look": "top-tier animated-movie pipeline render (RenderMan-quality) — pristine, high-sample, idealized, no noise or fireflies",
+    "rendering": "high-end family animated-feature 3D character render — appealing stylized proportions (slightly oversized head and large expressive eyes, soft rounded forms), physically-based shading with soft subsurface scattering and fine peach-fuzz on skin, clean polished surfaces, ray-traced soft shadows and warm global illumination",
+    "engine_look": "top-tier animated-movie pipeline render, path-traced film quality — pristine, high-sample, idealized, no noise or fireflies",
     "character_appeal": "maximum 'appeal' — warm, expressive, lively face with large emotive eyes, charming readable acting in the pose, squash-and-stretch-friendly construction; personality and warmth over gritty realism",
     "materials": "stylized-but-tactile PBR true to THIS character's design — soft fuzzy fabrics, supple rounded leather, cheerfully refractive glass, glowing translucent accents, simplified clean grime and gentle worn-edge wear",
     "lighting": "soft, warm, flattering key lighting — broad key, generous bounce fill, gentle rim, an appealing glow; the 'every frame is a painting' look; even enough to read every panel",
     "color_grade": "warm, inviting, gently saturated palette honouring the character's own colours; soft cheerful filmic contrast",
     "background": "seamless soft warm light-cream studio sweep with a gentle gradient and a soft grounded contact shadow under the feet",
-    "rules": ["no text, labels, watermarks, annotations, typography or captions","clean high-sample render, appealing Pixar-style finish, no noise","lively expression, charm and appeal — not a stiff neutral sculpt","consistent character design, shaders and lighting across all panels","clean, evenly divided panel layout"]
+    "rules": ["no text, labels, watermarks, annotations, typography or captions","clean high-sample render, appealing family animated-feature finish, no noise","lively expression, charm and appeal — not a stiff neutral sculpt","consistent character design, shaders and lighting across all panels","clean, evenly divided panel layout"]
   },
   paintedconcept: {
-    "rendering": "a richly HAND-PAINTED concept-art illustration — a soft painterly 2D painting (digital or traditional media) in the lineage of Laika and Guillermo del Toro production paintings; NOT a 3D render, NOT flat cel animation, NOT photography",
+    "rendering": "a richly HAND-PAINTED concept-art illustration — a soft painterly 2D painting (digital or traditional media) in the tradition of stop-motion-studio and dark-fairytale production paintings; NOT a 3D render, NOT flat cel animation, NOT photography",
     "brushwork": "visible expressive brushwork and soft blended edges — layered glazes, gentle impasto on highlights; forms built from paint rather than hard outlines or vector fills; a tactile, hand-made surface",
     "rendering_detail": "lush volumetric rendering of form — soft form shadows, delicate rim and bounce light, fine texture (downy fuzz, worn fabric, soft translucency) suggested with the brush rather than literal micro-detail",
     "character_appeal": "storybook charm with a touch of the whimsical-gothic and uncanny — large soulful eyes, a gentle melancholy, an expressive hand-acted face; appealing but with painterly soul, never glossy or sterile",
@@ -428,6 +428,187 @@ Object.assign(CHAR_RENDER_STYLES, {
     rules: ["no text, labels, watermarks, annotations, typography or captions","every shape reads as physically cut paper — no painted gradients or digital rendering","consistent layer depth and shadow treatment across all panels","clean, evenly divided panel layout"]
   }
 });
+/* (2026-11-17, owner: "render styles geared to filmmakers and people producing TV series … also projects for children …
+   appeal to all the different markets possible with AI video") TWENTY MORE LOOKS. Live action gains the stocks and
+   genres a film or a series is shot in (their keys start "photoreal", so shots, locations and likeness treat them as
+   photography); animation gains the looks television is made in; children's work gets looks of its own. They are
+   appended after the first forty-one, so the menu's order and its default (the first style) are as they were.
+   A prompt names no studio, franchise, person or product: it describes the look. */
+Object.assign(CHAR_RENDER_STYLES, {
+  photorealFilm35: {
+    rendering: "live-action photography shot on 35mm motion-picture film — organic silver-halide grain, gentle halation around bright highlights, soft highlight roll-off and rich natural colour; a photochemical look, never digital-clean, never an illustration",
+    lens: "vintage spherical cinema primes — 85mm for the hero close-up with shallow depth of field, ~50mm full-length framing for the turnaround poses, subject sharp head-to-toe; a mild natural vignette",
+    lighting: "soft motivated key from upper left with gentle fill and a subtle rim; a warm tungsten-practical feel, even enough that detail reads cleanly in every view",
+    surface_texture: "true photographic detail of THIS character's own skin, hair, fabrics and materials seen through fine film grain — pores, weave, wear and stray hairs, nothing airbrushed",
+    color_grade: "film-print colour — warm skin tones, dense slightly lifted blacks, creamy highlights, restrained saturation; honour the character's own palette",
+    background: "seamless warm-neutral studio sweep with a soft contact shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","35mm film photography with fine visible grain and soft halation","no film borders, sprocket holes, scratches, dust or burn marks","natural skin and fabric texture","consistent film stock, lens and lighting across all panels","clean, evenly divided panel layout"]
+  },
+  photorealMono: {
+    rendering: "live-action black-and-white photography on fine-grain monochrome film — a full silvery tonal range from deep blacks to luminous whites, crisp detail, classic studio-era cinematography; never colour, never an illustration",
+    lens: "classic portrait and full-length cinema lenses — 85mm for the hero close-up with shallow depth of field, ~50mm for the turnaround poses, subject sharp head-to-toe",
+    lighting: "sculpted monochrome studio lighting — a firm key from upper left, controlled fill and a clean rim that separates the figure from the ground; shadows with shape, faces fully readable in every view",
+    surface_texture: "black-and-white photographic detail of THIS character's own skin, hair, fabrics and materials — texture carried by tone and contrast: weave, grain of leather, glint of metal",
+    color_grade: "strictly black and white — neutral silver tones, rich blacks, clean whites, a long grey scale; the character's colours translated into distinct tones of grey",
+    background: "seamless neutral grey studio sweep with a soft contact shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","true black-and-white photography, no colour and no tinting","fine film grain, full tonal range","consistent tone, lens and lighting across all panels","clean, evenly divided panel layout"]
+  },
+  photorealDoc: {
+    rendering: "observational documentary photography — unretouched, naturalistic, shot as found; honest real-world texture with no beauty lighting, no glamour and no stylisation; never an illustration",
+    lens: "a documentary zoom's natural perspective — 70mm for the close portrait, ~35-50mm full-length for the turnaround poses, deep enough focus that the whole figure is sharp",
+    lighting: "soft available light, as from a large window or an overcast sky — gentle, directional, un-styled; even enough that every view reads plainly",
+    surface_texture: "unvarnished real detail of THIS character's own skin, hair, clothes and belongings — natural blemishes, creases, lint, scuffs and wear exactly as life leaves them",
+    color_grade: "neutral true-to-life colour, modest contrast, no heavy grade; honour the character's own palette as it would look in daylight",
+    background: "plain neutral backdrop with soft natural falloff and a soft contact shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","documentary realism: natural, unretouched, unposed-looking","no glamour retouching, no dramatic stylised lighting","consistent light and colour across all panels","clean, evenly divided panel layout"]
+  },
+  photorealBright: {
+    rendering: "bright, clean live-action photography for comedy, family and commercial work — crisp modern digital-cinema capture, flattering high-key light, lively true colour; polished and friendly, never gritty, never an illustration",
+    lens: "clean modern cinema lenses — 85mm for the hero close-up with gentle depth of field, ~50mm full-length for the turnaround poses, subject sharp head-to-toe",
+    lighting: "high-key soft lighting — a broad wrapping key, generous fill and a light rim; open shadows, sparkling catchlights, every view bright and readable",
+    surface_texture: "clean photographic detail of THIS character's own skin, hair, fabrics and materials — healthy natural skin, fresh fabric texture, tidy grooming; real, not waxy",
+    color_grade: "bright, clean and gently saturated; true skin tones, crisp whites, cheerful colour drawn from the character's own palette; light open contrast",
+    background: "seamless light-neutral studio sweep, bright and even, with a soft contact shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","bright high-key live-action photography, clean and friendly","natural skin texture, no plastic smoothing","consistent light and colour across all panels","clean, evenly divided panel layout"]
+  },
+  photorealEpic: {
+    rendering: "large-format live-action photography for period and fantasy epics — richly textured, naturalistic and grand; hand-made costume and prop detail rendered with painterly depth, never an illustration and never a game render",
+    lens: "large-format cinema lenses — 85mm for the hero close-up with soft falloff, ~50mm full-length for the turnaround poses, subject sharp head-to-toe; a gentle natural vignette",
+    lighting: "naturalistic motivated light — soft daylight from one side as through a tall window, warm bounce as from firelight, a subtle rim; shaped but even enough that detail reads in every view",
+    surface_texture: "tactile hand-made detail true to THIS character's own design — hand-woven and dyed cloth, tooled leather, hammered and tarnished metal, fur, embroidery, mud and wear; weathered, lived-in, real",
+    color_grade: "rich earthy filmic colour — deep natural pigments, warm highlights, dense soft shadows; honour the character's own palette",
+    background: "seamless warm-neutral studio sweep with soft falloff and a soft contact shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","grounded live-action realism: costumes and props look hand-made and worn, not plastic or game-like","natural skin and material texture","consistent materials, light and colour across all panels","clean, evenly divided panel layout"]
+  },
+  photorealNeon: {
+    rendering: "live-action science-fiction photography — sleek modern digital-cinema capture with practical neon and LED accent light, glossy reflective surfaces and a cool night-city atmosphere; photographic, never an illustration and never a game render",
+    lens: "anamorphic-style cinema lenses — 85mm for the hero close-up with shallow depth of field and soft oval highlights, ~50mm full-length for the turnaround poses, subject sharp head-to-toe",
+    lighting: "a soft neutral key from upper left that keeps the face and true costume colours readable, with coloured practical accents — a magenta or cyan rim and a faint coloured kick on the shadow side; never a wash of colour over the whole figure",
+    surface_texture: "photographic detail of THIS character's own skin, hair, fabrics and technology — wet sheen, brushed and anodised metal, glass, synthetic fabrics, cables and worn edges, all physically believable",
+    color_grade: "cool contrasty grade — deep blue-black shadows, clean neutral skin tones, saturated neon accents drawn from the character's own palette",
+    background: "seamless dark-neutral studio sweep with a faint cool glow and a soft contact shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography, signage or captions","live-action sci-fi realism: practical coloured light, believable materials","faces and costume colours stay readable under the accents","consistent light and colour across all panels","clean, evenly divided panel layout"]
+  },
+  retroAnime80s: {
+    rendering: "1980s hand-painted cel anime — painted acetate cels photographed on film: slightly soft line, flat cel paint with airbrushed highlights, gentle film grain and a faint highlight bloom; nostalgic, never crisp modern digital",
+    linework: "hand-inked outlines of even medium weight with the small wobble of a real pen; fine interior lines for hair strands, folds and mechanical detail",
+    shading: "two-tone cel shading with hard shadow shapes, airbrushed gradients on hair shine, metal and glass, sharp white highlight glints",
+    color_grade: "period cel-paint palette drawn from THIS character's own colours — slightly muted primaries with pastel and neon accents, soft warm blacks",
+    background: "flat pale painted cel ground, even and clean, with a simple soft contact shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","hand-painted 1980s cel animation look with soft grain and bloom","no modern digital gradients or 3D","consistent line, paint and palette across all panels","clean, evenly divided panel layout"]
+  },
+  painted3dHybrid: {
+    rendering: "stylised 3D animation finished like a moving comic illustration — 3D forms with hand-painted textures, inked line accents, halftone and hatching in the shadows, and slightly offset colour edges; graphic and energetic, never plain glossy CG",
+    linework: "selective drawn ink lines over the 3D forms — contour accents on faces, hands and folds, expressive and varied in weight",
+    shading: "stepped painted light with halftone dots and hatched shadow shapes, bold rim lights, flat graphic highlights; no smooth photoreal gradients",
+    materials: "hand-painted surfaces true to THIS character's own design — visible brush marks on skin and fabric, simplified graphic material response",
+    color_grade: "bold saturated palette drawn from THIS character's own colours, with complementary coloured shadows and a faint print-misregistration fringe",
+    background: "flat graphic colour ground with a subtle halftone gradient and a crisp contact shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography, speech bubbles or captions","3D forms with hand-painted, inked and halftoned finish","graphic comic energy, not glossy realistic CG","consistent treatment across all panels","clean, evenly divided panel layout"]
+  },
+  saturdayCartoon: {
+    rendering: "classic hand-drawn television cartoon — traditional 2D cel animation with bold clean ink outlines, flat cel-painted colour and strong readable poses; lively action-adventure design, never 3D and never photoreal",
+    linework: "confident black ink outlines of even weight, slightly heavier on the outer contour; simplified, angular, easy-to-animate shapes",
+    shading: "flat colour with at most one hard-edged shadow tone per form; simple highlight shapes on hair and metal",
+    color_grade: "bright clear cartoon palette drawn from THIS character's own colours — strong primaries and clean secondaries with solid dark accents",
+    background: "flat light painted ground, even and clean, with a simple flat shadow shape under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","traditional 2D television cartoon: bold outlines, flat cel colour","simple readable shapes built to animate","consistent model across all panels","clean, evenly divided panel layout"]
+  },
+  adultAnimation: {
+    rendering: "contemporary 2D animated-sitcom design — flat digital drawing with uniform clean outlines, simple geometric construction, deadpan expressive faces and flat unshaded colour; a prime-time comedy look, never 3D and never photoreal",
+    linework: "uniform-weight clean black outline around every shape; minimal interior lines; round simple eyes and simple mouth shapes",
+    shading: "none or one flat shadow tone; no gradients, no texture, no rendered light",
+    color_grade: "flat mid-saturation palette drawn from THIS character's own colours — plain skin tones, solid clothing colours, a few muted accents",
+    background: "flat pale solid-colour ground with a simple flat shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","flat 2D animated-sitcom design with uniform outlines","simple shapes, no gradients, no texture","consistent model across all panels","clean, evenly divided panel layout"]
+  },
+  rubberHose: {
+    rendering: "1930s rubber-hose cartoon — vintage black-and-white ink-and-paint animation with bendy tube-like limbs, round simple bodies, white gloves and large pie-cut eyes; bouncy, hand-inked, photographed on old film stock",
+    linework: "thick round black ink outlines with a slight hand-inked wobble; simple circular construction; limbs drawn as soft curves without joints",
+    shading: "flat black, white and a few greys; no modelling beyond a simple shine mark on black shapes",
+    color_grade: "black and white with soft warm-grey midtones; THIS character's own colours translated into black, white and grey shapes",
+    texture: "faint film grain and a soft vintage softness; clean enough to read as a model sheet",
+    background: "flat pale warm-grey ground with a simple flat shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","1930s rubber-hose cartoon design in black, white and grey","no scratches, film burns or borders that hide the figure","consistent model across all panels","clean, evenly divided panel layout"]
+  },
+  lowPoly: {
+    rendering: "retro low-polygon 3D — an early-console look: faceted simple meshes, small pixelated textures, flat or vertex lighting and hard unsmoothed edges; nostalgic and deliberate, never modern smooth CG",
+    materials: "low-resolution hand-painted texture maps true to THIS character's own design — visible pixels, painted-on folds and features, no specular detail",
+    lighting: "simple flat lighting with soft vertex shading; no ray-traced shadows, no global illumination",
+    color_grade: "limited slightly dithered palette drawn from THIS character's own colours; muted with a few strong accents",
+    background: "flat solid or softly dithered neutral ground with a simple dark blob shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography, captions or game interface elements","low-polygon faceted models with pixelated low-resolution textures","no smooth subdivision, no realistic shading","consistent polygon and texture resolution across all panels","clean, evenly divided panel layout"]
+  },
+  preschoolCartoon: {
+    rendering: "preschool television cartoon — very simple friendly 2D shapes, soft rounded forms, thick gentle outlines and bright flat colour; warm, calm and instantly readable for the youngest viewers; never detailed, never scary",
+    linework: "thick soft rounded outlines in a dark colour rather than hard black; minimal interior lines; dot or small oval eyes and a simple smile",
+    shading: "flat colour; at most one soft lighter or darker patch; no gradients, no texture",
+    shape_language: "big heads and simple bodies built from circles, ovals and rounded rectangles; no sharp points; every shape easy for a small child to draw",
+    color_grade: "bright cheerful palette drawn from THIS character's own colours — clear primaries and soft pastels, no dark or murky tones",
+    background: "flat soft pastel ground with a simple rounded shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","simple rounded preschool cartoon design","friendly, gentle and uncluttered; nothing frightening","consistent model and palette across all panels","clean, evenly divided panel layout"]
+  },
+  pictureBookGouache: {
+    rendering: "contemporary picture-book illustration in gouache — flat opaque painted shapes with dry-brush edges, coloured-pencil and crayon detail on top, and a warm hand-made paper feel; charming and designed, never photoreal and never 3D",
+    brushwork: "opaque matte gouache laid in simple shapes, visible dry-brush texture at the edges, small pencil lines for faces, hair and pattern",
+    shading: "little or none — form comes from overlapping flat shapes and a few darker painted patches",
+    shape_language: "simple stylised figures with small features, expressive posture and decorative clothing pattern",
+    color_grade: "curated limited palette drawn from THIS character's own colours — warm muted tones with two or three bright accents",
+    background: "plain warm off-white paper ground with a soft painted shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","hand-painted gouache picture-book illustration with pencil detail","flat shapes and paper texture, no digital gloss","consistent palette and design across all panels","clean, evenly divided panel layout"]
+  },
+  crayonDrawing: {
+    rendering: "a child's crayon and felt-tip drawing — waxy uneven crayon strokes, wobbly marker outlines and joyful naive proportions on drawing paper; hand-made by a young artist, never polished and never photoreal",
+    linework: "wobbly marker or dark-crayon outlines, uneven and overlapping; simple dot eyes and a curved smile",
+    texture: "visible wax crayon grain with the white of the paper showing through, strokes going outside the lines, layered scribbled colour",
+    shape_language: "simple naive shapes — a big round head, a simple body, stick or sausage limbs — while keeping THIS character's hair, clothes and defining details recognisable",
+    color_grade: "bright crayon-box colours drawn from THIS character's own palette",
+    background: "plain white drawing paper with a soft paper texture and a scribbled crayon shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography, handwriting or captions","genuine child's crayon and marker drawing: uneven strokes, naive shapes","the character stays recognisable by hair, clothes and colours","consistent drawing hand across all panels","clean, evenly divided panel layout"]
+  },
+  toyBrick: {
+    rendering: "macro photograph of small plastic building-block toy figures — simple blocky articulated figures of glossy injection-moulded plastic with printed faces and printed clothing detail; a real toy photographed on a tabletop, never a drawing",
+    construction: "blocky toy construction — a simple moulded head with a printed face, a boxy torso with printed costume detail, straight jointed arms and legs, a moulded plastic hairpiece or hat; accessories as small plastic pieces",
+    photography: "macro toy photography — shallow real depth of field, soft even studio light, small crisp reflections on the plastic, real contact shadows",
+    color_grade: "clean bright toy-plastic colours drawn from THIS character's own palette; solid colours, crisp printed detail",
+    background: "plain smooth light-neutral tabletop sweep with a soft real contact shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography, logos, brand marks or captions","real moulded-plastic toy look: glossy plastic, printed faces and clothes, visible mould seams","no brand names or logos on any piece","consistent figure design, plastic and lighting across all panels","clean, evenly divided panel layout"]
+  },
+  comicBook: {
+    rendering: "classic four-colour comic-book art — dynamic heroic figure drawing with bold black inks, flat printed colour and visible halftone dots; the look of a printed newsstand comic, never painted and never photoreal",
+    linework: "strong brush-inked contours with thick-and-thin variation, feathered ink shading, solid spot blacks and confident anatomy",
+    shading: "ink shadows and feathering for form; colour is flat with halftone-dot tints for midtones",
+    print_process: "printed-comic texture — halftone dot screens, slight colour misregistration and soft newsprint paper tone",
+    color_grade: "bold limited print palette drawn from THIS character's own colours — strong primaries and secondaries on warm paper white",
+    background: "flat warm paper-white or single flat colour ground with a solid ink shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography, speech bubbles, sound effects or captions","classic printed comic-book art: bold inks, flat colour, halftone dots","no panel borders or lettering inside the artwork","consistent inking and colour across all panels","clean, evenly divided panel layout"]
+  },
+  rotoscope: {
+    rendering: "rotoscoped animation — live-action performance traced and repainted as drawing: realistic proportions and natural poses rendered in flat shifting colour planes with loose traced outlines; clearly animated, never a photograph",
+    linework: "thin hand-traced contour lines that follow the real figure, slightly loose and alive; selective interior lines on the face, hands and folds",
+    shading: "three or four flat tonal planes per form following the real light, hard-edged shapes with no blending and no photographic texture",
+    color_grade: "simplified natural palette drawn from THIS character's own colours, slightly heightened; flat colour planes with one or two unexpected accent tones in the shadows",
+    background: "flat pale ground built from two or three soft colour planes with a flat shadow shape under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","rotoscoped look: realistic proportions drawn as flat colour planes and traced line","no photographic texture or gradients","consistent treatment across all panels","clean, evenly divided panel layout"]
+  },
+  oilPainting: {
+    rendering: "classical oil painting — a fully painted figure in thick expressive oils on canvas: visible directional brushstrokes, impasto highlights and rich blended darks; the look of oil-painted animation, never photoreal and never digital-clean",
+    brushwork: "confident loaded-brush strokes that follow the form, broken colour, palette-knife accents and soft lost-and-found edges; canvas weave showing through thin passages",
+    lighting: "warm painterly light from upper left with deep soft shadow and a glowing turn of form; even enough that every view reads",
+    color_grade: "rich old-master palette drawn from THIS character's own colours — warm earths, deep glazes, a few saturated notes; harmonious and luminous",
+    texture: "real paint texture — ridges of impasto, brush hairs, canvas tooth",
+    background: "loosely brushed warm-neutral painted ground with a soft painted shadow under the feet",
+    rules: ["no text, labels, watermarks, annotations, typography, signatures or captions","genuine oil-paint surface with visible brushwork and impasto","no frames, no craquelure that hides the figure","consistent brushwork, palette and light across all panels","clean, evenly divided panel layout"]
+  },
+  shadowPuppet: {
+    rendering: "silhouette animation in the tradition of cut-paper shadow puppets — the figure as an intricate solid black cut-out with delicate pierced lace-like detail, set against softly glowing coloured light; elegant, storybook and theatrical",
+    construction: "flat hand-cut silhouette shapes with tiny cut-out openings for eyes, jewellery, hair strands, lace and pattern; jointed like a puppet at the neck, shoulders, elbows, hips and knees",
+    shading: "none on the figure — pure black shape; all detail comes from the outline and the cut-out openings",
+    color_grade: "black silhouette on luminous colour drawn from THIS character's own palette — a soft backlit gradient with a brighter glow behind the figure",
+    background: "softly glowing backlit paper screen in one gentle colour gradient, identical in every panel, with nothing else behind the figure",
+    rules: ["no text, labels, watermarks, annotations, typography or captions","pure black cut-out silhouette with fine pierced detail","the character is recognised by outline, hair, costume shape and props","consistent silhouette and backlight across all panels","clean, evenly divided panel layout"]
+  }
+});
 window.CHAR_RENDER_STYLES = CHAR_RENDER_STYLES;
 /* FUTURE-PROOF render-style registry. CHAR_RENDER_STYLES (above) is the single source of
    truth for WHICH styles exist: the dropdown list across Characters, Props and Locations is
@@ -450,6 +631,13 @@ const RENDER_STYLE_LABELS = {
   claymation:"Claymation", tactileMixedMedia:"Tactile Mixed Media Illustration", texturedPaperSculpture:"Textured Paper Sculpture", texturedPaperIllustration:"Textured Paper Illustration",
   tropicalArtNouveau:"Tropical Art Nouveau Illustration",
   adv1960s:"1960s advertising", gaganime:"90s gag-anime", pixelart:"Retro pixel-art",
+  // (2026-11-17) live action, television animation, children's work
+  photorealFilm35:"Photoreal - 35mm film", photorealMono:"Photoreal - Black & white film", photorealDoc:"Photoreal - Documentary realism",
+  photorealBright:"Photoreal - Bright comedy & commercial", photorealEpic:"Photoreal - Epic period & fantasy", photorealNeon:"Photoreal - Neon sci-fi",
+  retroAnime80s:"80s retro anime (cel)", painted3dHybrid:"Painted 3D (comic-book hybrid)", saturdayCartoon:"Classic TV cartoon (2D cel)",
+  adultAnimation:"Animated sitcom (2D)", rubberHose:"1930s rubber-hose cartoon", lowPoly:"Low-poly retro 3D",
+  preschoolCartoon:"Preschool cartoon", pictureBookGouache:"Picture-book gouache", crayonDrawing:"Crayon & marker drawing", toyBrick:"Building-brick toy",
+  comicBook:"Classic comic book", rotoscope:"Rotoscope (painted live action)", oilPainting:"Oil painting", shadowPuppet:"Silhouette & shadow puppet",
 };
 window.RENDER_STYLE_LABELS = RENDER_STYLE_LABELS;
 const RENDER_STYLE_DESCRIPTIONS = {
@@ -496,21 +684,45 @@ const RENDER_STYLE_DESCRIPTIONS = {
   texturedPaperSculpture:"For photographed 3D paper sculptures with folds, layers, fibres and hand-cut edges.",
   texturedPaperIllustration:"For layered paper-craft / printmaking illustration with grain, stipple and collage texture.",
   tropicalArtNouveau:"For lush decorative Art Nouveau: organic lines, botanical motifs, flat ornamental elegance.",
+  photorealFilm35:"For features and period drama shot on film: organic grain, soft halation, warm film-print colour.",
+  photorealMono:"For black-and-white live action: noir, art-house and classic studio-era drama with a full silver tonal range.",
+  photorealDoc:"For documentary, docudrama and social realism: available light, unretouched, true-to-life colour.",
+  photorealBright:"For sitcoms, family live action and commercials: bright high-key light, clean colour, friendly polish.",
+  photorealEpic:"For historical epics and fantasy: large-format naturalism, firelight and daylight, hand-made costume texture.",
+  photorealNeon:"For science fiction and night-city thrillers: sleek digital capture, neon accent light, glossy reflective surfaces.",
+  retroAnime80s:"For 1980s hand-painted cel anime: soft line, airbrushed highlights, film grain and bloom.",
+  painted3dHybrid:"For stylised 3D that looks like a moving comic: painted textures, ink accents, halftone shadows.",
+  saturdayCartoon:"For classic hand-drawn TV cartoons: bold outlines, flat cel colour, strong action poses.",
+  adultAnimation:"For prime-time animated comedy: flat digital 2D, uniform outlines, simple deadpan designs.",
+  rubberHose:"For 1930s vintage cartoons: black-and-white ink, bendy limbs, pie-cut eyes, old film softness.",
+  lowPoly:"For retro early-console 3D: faceted low-polygon models, pixelated textures, flat lighting.",
+  preschoolCartoon:"For the youngest viewers: very simple rounded shapes, thick soft outlines, bright flat colour, nothing scary.",
+  pictureBookGouache:"For modern picture books: flat gouache shapes, dry-brush edges, coloured-pencil detail on warm paper.",
+  crayonDrawing:"For a child's own drawing: waxy crayon, wobbly marker lines and joyful naive shapes on paper.",
+  toyBrick:"For toy-world stories: small blocky plastic figures with printed faces, photographed in macro.",
+  comicBook:"For classic printed comics: bold brush inks, flat four-colour print and halftone dots.",
+  rotoscope:"For animation traced from live action: real proportions drawn as flat colour planes and loose line.",
+  oilPainting:"For oil-painted animation and art-house work: thick brushwork, impasto highlights, old-master colour.",
+  shadowPuppet:"For fairy tales and folk tales: intricate black cut-out silhouettes against softly glowing colour.",
 };
 /* The name a style goes by INSIDE generation prompts (style_name), where it differs from its
    menu label: a prompt never names a franchise, whatever the menu calls the look. */
-const RENDER_STYLE_PROMPT_NAMES = { gtaLoadingScreen:"open-world crime-game loading-screen art" };
+const RENDER_STYLE_PROMPT_NAMES = { gtaLoadingScreen:"open-world crime-game loading-screen art", ghibli:"hand-painted pastoral 2D anime", pixar:"family animated-feature 3D" };
 function renderStylePromptName(key){ return RENDER_STYLE_PROMPT_NAMES[key] || (window.RENDER_STYLE_LABELS||{})[key] || ""; }
 window.renderStylePromptName = renderStylePromptName;
 window.RENDER_STYLE_DESCRIPTIONS = RENDER_STYLE_DESCRIPTIONS;
 const _humanizeStyle = (k)=> String(k||"").replace(/[-_]+/g," ").replace(/([a-z])([0-9])/g,"$1 $2").replace(/\b\w/g,m=>m.toUpperCase());
+/* (2026-11-17) live action holds its stocks and genres (Cinematic horror with them: it is photography), children's
+   work has a group of its own, and the twenty new looks sit with their kind. The group "Photoreal" keeps its id:
+   likeness reads it to know a style is photography (turnLikenessStyle). */
 const RENDER_STYLE_GROUPS = [
-  { id:"Photoreal", keys:["photoreal","photorealNatural","photorealCreature","photorealOrnamental"] },
-  { id:"Anime / Animation", keys:["ghibli","modernAnime","digitalAnime","roughSketchAnime","painterlyAnime","anime","gaganime"] },
-  { id:"Cartoon / 3D", keys:["pixar","render3d","cartoon3d","textured3dCartoon","stylizedCartoon","animated3d"] },
-  { id:"Illustration / Concept Art", keys:["paintedconcept","storyboardconcept","texturedcomic","gtaLoadingScreen","grittyDigital","softPainterly","realisticDigitalDrawing","horror","graphicNovelNoir"] },
-  { id:"Graphic / Minimal", keys:["flat","flatDesign","minimalistLine","vintageChildrensBook","pixelart","adv1960s"] },
-  { id:"Handmade / Tactile", keys:["stopmotion","claymation","tactileMixedMedia","texturedPaperSculpture","texturedPaperIllustration","whimsicalwatercolor","paperCutout"] },
+  { id:"Photoreal", keys:["photoreal","photorealFilm35","photorealMono","photorealDoc","photorealBright","photorealEpic","photorealNeon","horror","photorealNatural","photorealCreature","photorealOrnamental"] },
+  { id:"Anime / Animation", keys:["ghibli","modernAnime","digitalAnime","roughSketchAnime","painterlyAnime","anime","gaganime","retroAnime80s"] },
+  { id:"Cartoon / 3D", keys:["pixar","render3d","cartoon3d","textured3dCartoon","stylizedCartoon","animated3d","painted3dHybrid","saturdayCartoon","adultAnimation","rubberHose","lowPoly"] },
+  { id:"Kids & Family", keys:["preschoolCartoon","pictureBookGouache","crayonDrawing","toyBrick","whimsicalwatercolor","vintageChildrensBook"] },
+  { id:"Illustration / Concept Art", keys:["paintedconcept","storyboardconcept","texturedcomic","comicBook","gtaLoadingScreen","grittyDigital","softPainterly","realisticDigitalDrawing","graphicNovelNoir","rotoscope","oilPainting"] },
+  { id:"Graphic / Minimal", keys:["flat","flatDesign","minimalistLine","pixelart","adv1960s"] },
+  { id:"Handmade / Tactile", keys:["stopmotion","claymation","tactileMixedMedia","texturedPaperSculpture","texturedPaperIllustration","paperCutout","shadowPuppet"] },
   { id:"Decorative / Design-led", keys:["tropicalArtNouveau","ukiyoe"] },
 ];
 const RENDER_STYLE_GROUP_BY_KEY = {};
@@ -596,7 +808,9 @@ function renderStyleLabelFromMeta(meta){
       const rendering = spec && spec.render && spec.render.rendering;
       if(rendering){
         const styles = window.CHAR_RENDER_STYLES || {};
-        const key = Object.keys(styles).find(k=> styles[k] && styles[k].rendering===rendering);
+        const key = Object.keys(styles).find(k=> styles[k] && styles[k].rendering===rendering)
+          || (/^high-end Pixar-style animated-feature 3D character render/.test(rendering) ? "pixar" : "")
+          || (/in the lineage of Laika and Guillermo del Toro production paintings/.test(rendering) ? "paintedconcept" : "");
         if(key) return clean((window.RENDER_STYLE_LABELS||{})[key] || _humanizeStyle(key));
       }
     }catch(e){}
@@ -5768,8 +5982,14 @@ function CharHeightLineup({ c, cast, scenes, drafts }){
   const first = (n)=> (typeof castFirstName==="function") ? castFirstName(n) : String(n||"");
   const mine = L.rows[0];
   const Tip = (typeof window.InfoTip==="function") ? window.InfoTip : null;
+  // one unit for everyone (a cast of people): the numbers alone over the bars and the unit once in the heading —
+  // six "168 cm" labels ran into each other on a phone
+  const unitOf = (mm)=> lineupSizeText(mm).replace(/^[0-9.]+\s*/,"");
+  const units = L.sized.map(r=>unitOf(r.mm)).filter((u,i,a)=>a.indexOf(u)===i);
+  const oneUnit = (L.sized.length>1 && units.length===1) ? units[0] : "";
+  const sizeOver = (mm)=> oneUnit ? lineupSizeText(mm).replace(/\s*[^0-9.\s]+$/,"") : lineupSizeText(mm);
   return React.createElement("div",{className:"lineup","data-testid":"char-height-lineup"},
-    React.createElement("div",{className:"obj-lab lineup-lab"},"Height in the film",
+    React.createElement("div",{className:"obj-lab lineup-lab"},"Height in the film"+(oneUnit ? " \u00b7 "+oneUnit : ""),
       Tip && React.createElement(Tip,{label:"About height in the film",
         text:"Drawn from the Size on each card (Body & features), free. These are the sizes the shots, the locations and the Stage use, so a frame keeps everyone at their real height against each other and against the set."
           +(L.rows.length>1 ? "\n\nBeside "+first(c.name)+": the people they share the most scenes with." : "")})),
@@ -5777,15 +5997,22 @@ function CharHeightLineup({ c, cast, scenes, drafts }){
       React.createElement(Icon.alert,{s:13}),
       (String(c.height||"").trim() ? "The size \u201c"+String(c.height).trim()+"\u201d has no unit. " : "No size yet. ")
         +"Write it with its unit under Body & features \u25b8 Size (for example 172 cm tall), so frames can keep "+first(c.name)+"\u2019s height."),
-    L.sized.length>0 && React.createElement("div",{className:"lineup-chart",style:{height:(H+22)+"px"},role:"img",
-        "aria-label":L.sized.map(r=>first(r.c.name)+" "+lineupSizeText(r.mm)).join(", ")+(L.ref ? "; "+L.ref.name+" "+L.ref.size : "")},
-      L.ref && React.createElement("div",{className:"lineup-ref",style:{bottom:px(L.ref.mm)+"px"}},
-        React.createElement("span",null,L.ref.name+" \u00b7 "+L.ref.size)),
-      L.sized.map(r=>React.createElement("div",{key:r.c.id,className:"lineup-col"+(r.self?" self":""),
-          title:(r.c.name||"")+" \u00b7 "+lineupSizeText(r.mm)+(r.self ? "" : " \u00b7 "+r.shared+" scene"+(r.shared!==1?"s":"")+" together")},
-        React.createElement("span",{className:"lineup-size"},lineupSizeText(r.mm)),
-        React.createElement("span",{className:"lineup-bar",style:{height:px(r.mm)+"px"}}),
-        React.createElement("span",{className:"lineup-name"},first(r.c.name))))),
+    // (owner 2026-11-17: "fix the way the names appear so they are not glued up with one another … keep everything
+    // within the viewport on mobile") the bars alone stand on the ground line; under it each column has its own
+    // caption, the name over the size, cut with "…" inside its own column if it is too long. The door's label sits
+    // at the end of its dashed line, where no number is any more. The sixth column gives way on a narrow card.
+    L.sized.length>0 && React.createElement("div",{className:"lineup-plot"},
+      React.createElement("div",{className:"lineup-chart",style:{height:(H+12)+"px"},role:"img",
+          "aria-label":L.sized.map(r=>first(r.c.name)+" "+lineupSizeText(r.mm)).join(", ")+(L.ref ? "; "+L.ref.name+" "+L.ref.size : "")},
+        L.ref && React.createElement("div",{className:"lineup-ref",style:{bottom:px(L.ref.mm)+"px"}},
+          React.createElement("span",null,L.ref.name.replace(/^an? /,"")+" "+L.ref.size)),
+        L.sized.map((r,i)=>React.createElement("div",{key:r.c.id,className:"lineup-col"+(r.self?" self":"")+(i>=5?" sixth":"")},
+          React.createElement("span",{className:"lineup-bar",style:{height:px(r.mm)+"px"}})))),
+      React.createElement("div",{className:"lineup-caps"},
+        L.sized.map((r,i)=>React.createElement("div",{key:r.c.id,className:"lineup-cap"+(r.self?" self":"")+(i>=5?" sixth":""),
+            title:(r.c.name||"")+" \u00b7 "+lineupSizeText(r.mm)+(r.self ? "" : " \u00b7 "+r.shared+" scene"+(r.shared!==1?"s":"")+" together")},
+          React.createElement("span",{className:"lineup-name"},first(r.c.name)),
+          React.createElement("span",{className:"lineup-size"},sizeOver(r.mm)))))),
     (L.unsized.filter(r=>!r.self).length>0) && React.createElement("div",{className:"lineup-missing"},
       "No size with a unit yet: "+L.unsized.filter(r=>!r.self).map(r=>first(r.c.name)).join(", ")));
 }
@@ -6313,23 +6540,8 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       +"Do not replace or re-imagine the character.",
   });
 
-  // SCALE SHEET — the height-chart asset (its own slot). Rendered FROM the master sheet so
-  // identity matches, on a PORTRAIT canvas, with the ruler markings for this character's
-  // scale class. The generate button forces 9:16 regardless of the engine-dock aspect.
-  const scaleSheetGen = useImageGen({
-    id: "charscale-"+c.id, slotId: "charscale-"+c.id,
-    entity: c,
-    identityCharacter: c, identityCharacterIds:[c.id], identityCast:[c],
-    identityContext:{ characterIds:[c.id], scenes, drafts, cast:[c] },
-    buildFinal:    ()=> (typeof buildScaleSheetPrompt==="function") ? buildScaleSheetPrompt(c) : "",
-    buildSimple:   ()=> (typeof buildScaleSheetPrompt==="function") ? buildScaleSheetPrompt(c) : "",
-    buildFromBase: ()=> (typeof buildScaleSheetPrompt==="function") ? buildScaleSheetPrompt(c) : "",
-    referenceFallback: async ()=>{ let u=(typeof nbGetImage==="function")?nbGetImage(c.id):"";
-      if(!u && typeof nbLoadImage==="function"){ try{ u=await nbLoadImage(c.id); }catch(e){} } return u||null; },
-    referenceMaxDim: 768,
-    buildEdit: (instr)=> "Edit this height/scale chart. Apply ONLY this change: "+instr+". Keep the figure, the vertical ruler and its markings otherwise identical.",
-  });
-  const scaleGenWrapped = Object.assign({}, scaleSheetGen, { generate:(o)=>scaleSheetGen.generate({ aspectRatio:"9:16", ...(o||{}) }) });
+  // (2026-11-17, owner) the height-chart image has no place on the card any more (the Scale sheet is the free line-up);
+  // nothing here loads or makes it. shots.jsx buildScaleSheetPrompt is kept for the charts films already have.
   // the likeness as the store reports it NOW (re-read on every render: cameoMeta / the store's event re-render the card)
   const lkInfo = (window.turnLikenessInfo||(()=>null))(c.id) || (gen.likeness || null);
   // batch generation: when this card is the active queue member, fire one generate
@@ -6638,21 +6850,10 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       React.createElement(CardFold,{label:"Scale sheet",defaultOpen:false},
         // HEIGHT IN THE FILM (owner 2026-11-17): this character beside the people they share scenes with, and a door —
         // drawn from the sizes on the cards, free
-        React.createElement(CharHeightLineup,{ c, cast:cast||[c], scenes, drafts }),
-        React.createElement("div",{className:"obj-lab lineup-lab"},"Height chart image",
-          (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About the height chart image",
-            text:"A full-body height chart on the "+((typeof scaleInfoOf==="function")?scaleInfoOf(c).label:"Human")+" ruler beside familiar objects at their real sizes (a coin, a door, a house\u2026), made from the master sheet, for you to check the size at a glance. It is optional: shots use the size written on the card (Body & features \u25b8 Size), not this image."})),
-        React.createElement(SheetFrame,{ gen:scaleGenWrapped, slotId:"charscale-"+c.id, name:(c.name||"")+" \u00b7 scale", avatarColor:c.color,
-          initials:"H", drafted:true, drafting:false, onDraft:()=>{}, entity:c, onView,
-          slotPlaceholder:"Generate the height chart", noun:"scale sheet", dropToImport:true }),
-        scaleGenWrapped.genUrl && React.createElement("div",{className:"card-qa-row"},
-          React.createElement(QaCheckButton,{ gen:scaleGenWrapped, name:(c.name||"")+" \u00b7 scale", noun:"scale sheet",
-            // the character's true size and the familiar objects the sheet was drawn with (scale plan step 4, 2026-10-28)
-            sizes:(contract)=>{
-              const mm = (typeof heightMMOf==="function") ? heightMMOf(c) : 0;
-              if(!(mm>0)) return [];
-              const objs = (typeof scaleKnownObjects==="function" ? scaleKnownObjects(mm) : []).filter(o=>String(contract||"").indexOf(o.name+" "+o.size)>=0);
-              return [{ name:c.name||"The character", mm, size:String(c.height||"").trim() }].concat(objs); } }))),
+        React.createElement(CharHeightLineup,{ c, cast:cast||[c], scenes, drafts })),
+      // (owner 2026-11-17: "remove selected element") the generated height chart image, its Generate button and its QA
+      // check are gone from the card: the free line-up above is the scale sheet now. A chart a film already made stays
+      // in its storage (nothing is deleted) and still leaves with the character when the character is deleted.
 
       React.createElement(CardFold,{label:"Wardrobe",defaultOpen:false},
         // (2026-10-12, Character fidelity) where the wardrobe comes from; the script's wardrobe asks before it changes

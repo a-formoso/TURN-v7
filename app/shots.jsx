@@ -2154,6 +2154,13 @@ const SHOT_RENDER_TEXT = {
   photorealCreature:   "Cinematic live-action photorealistic still — practical-effects / VFX creature-film realism",
   photorealOrnamental: "Cinematic live-action photorealistic still — ornamental couture creature-world production design",
   horror:              "Cinematic live-action photorealistic horror still — deep filmic blacks",
+  // (2026-11-17) the stocks and genres of live action
+  photorealFilm35:     "Cinematic live-action photorealistic still shot on 35mm motion-picture film — organic grain, soft halation, film-print colour",
+  photorealMono:       "Cinematic live-action black-and-white film still — full silver tonal range, strictly monochrome",
+  photorealDoc:        "Live-action observational documentary still — available light, unretouched realism, true-to-life colour",
+  photorealBright:     "Bright clean live-action photorealistic still — high-key light, open shadows, crisp cheerful colour",
+  photorealEpic:       "Cinematic large-format live-action photorealistic still — naturalistic daylight and firelight, hand-made weathered materials",
+  photorealNeon:       "Cinematic live-action photorealistic science-fiction still — practical neon and LED light, reflective surfaces, deep cool shadows",
 };
 window.SHOT_RENDER_TEXT = SHOT_RENDER_TEXT;
 function shotRenderStyleKey(subjects, loc){
@@ -2471,7 +2478,8 @@ function buildShotPrompt(sh, ctx){
   const spine = [];
   const _presetTexture=preset?clean(shotScopedStyleField(preset.texture,_promptLoc,ctx)):"";
   spine.push(_styleLine + (_presetTexture ? (", "+_presetTexture)
-    : (shotStyleIsPhotoreal(_styleKey) ? ", subtle 35mm film grain" : "")));
+    // (2026-11-17) not on the looks that are clean digital capture, nor where the style line already names its stock
+    : ((shotStyleIsPhotoreal(_styleKey) && !/^photoreal(Bright|Neon|Doc|Film35|Mono)$/.test(String(_styleKey||""))) ? ", subtle 35mm film grain" : "")));
   if(preset){
     const gName = clean(preset.name), gTxt = clean(shotScopedStyleField(preset.grade,_promptLoc,ctx));
     if(gName && gTxt) spine.push('"'+gName+'" grade: '+gTxt);

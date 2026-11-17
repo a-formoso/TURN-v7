@@ -495,9 +495,9 @@ const PROP_RENDER_TEXT = {
   anime:     "anime cel-shaded product illustration, clean confident linework, flat shading with soft gradients, no photoreal texture",
   flat:      "flat vector graphic, bold clean shapes, minimal flat shading, limited palette, no gradients, no photoreal texture",
   horror:    "low-key cinematic horror photography of the object, hard cold side light, deep crushed shadows, desaturated cold green-teal grade, damp grimy detail",
-  ghibli:    "soft hand-painted Studio Ghibli-style 2D object, fine warm hand-drawn linework, gentle painterly cel shading, warm earthy naturalistic palette",
+  ghibli:    "soft hand-painted pastoral 2D anime object, fine warm hand-drawn linework, gentle painterly cel shading, warm earthy naturalistic palette",
   animated3d:"polished animated-feature 3D product render, soft warm flattering light, appealing clean PBR materials, idealized finish, no noise",
-  pixar:     "Pixar-style animated-feature 3D object, soft warm flattering light, appealing rounded stylized form, clean tactile PBR materials, idealized charming finish, no noise",
+  pixar:     "family animated-feature 3D object, soft warm flattering light, appealing rounded stylized form, clean tactile PBR materials, idealized charming finish, no noise",
   storyboardconcept:"clean storyboard / production concept object reference, expressive linework, clear silhouette, restrained color wash, readable production-board detail",
   texturedcomic:"textured contemporary comic-art object reference, bold ink contours, etched hatching, limited palette, dramatic graphic light, visible grain",
   gtaLoadingScreen:"open-world crime-game loading-screen poster object, semi-realistic form with bold black ink outlines, hard cel shading, crisp specular highlights, saturated high-contrast palette true to the object's own colours, glossy poster finish, no text or logos",
@@ -526,6 +526,29 @@ Object.assign(PROP_RENDER_TEXT, {
   texturedPaperSculpture:"textured paper sculpture object reference, folded layered paper, visible fibres, photographed tabletop craft",
   texturedPaperIllustration:"textured paper illustration object reference, collage layers, stippled print grain, cut-paper edges",
   tropicalArtNouveau:"tropical Art Nouveau object illustration, flowing organic lines, botanical motifs, flat ornamental colour",
+});
+/* (2026-11-17) the twenty looks added for live action, television animation and children's work (artroom.jsx) */
+Object.assign(PROP_RENDER_TEXT, {
+  photorealFilm35:"product reference photographed on 35mm film, fine organic grain, soft halation on highlights, warm film-print colour, sharp focus, true-to-life materials",
+  photorealMono:"black-and-white film photograph of the object, full silver tonal range, sculpted studio light, crisp material detail, strictly monochrome",
+  photorealDoc:"documentary photograph of the object as found, soft available light, unretouched wear and detail, true-to-life colour",
+  photorealBright:"bright clean product photograph, high-key soft light, open shadows, crisp cheerful colour, true-to-life materials",
+  photorealEpic:"large-format photograph of a hand-made period or fantasy object, naturalistic side light, tooled, forged, woven and weathered materials, rich earthy colour",
+  photorealNeon:"live-action science-fiction prop photograph, sleek believable technology and materials, soft neutral key with a neon accent rim, glossy reflections",
+  retroAnime80s:"1980s hand-painted cel anime object, even inked outline, flat cel paint, airbrushed highlights, soft film grain",
+  painted3dHybrid:"stylised 3D object finished like a comic illustration, hand-painted texture, ink line accents, halftone shadow, bold graphic colour",
+  saturdayCartoon:"classic hand-drawn TV cartoon object, bold clean outline, flat cel colour, one hard shadow tone",
+  adultAnimation:"flat 2D animated-sitcom object, uniform clean outline, flat unshaded colour, simple shapes",
+  rubberHose:"1930s rubber-hose cartoon object, thick round black ink outline, black, white and grey, soft bouncy shapes",
+  lowPoly:"retro low-polygon 3D object, faceted simple mesh, small pixelated texture, flat lighting",
+  preschoolCartoon:"preschool cartoon object, very simple rounded shape, thick soft outline, bright flat colour",
+  pictureBookGouache:"picture-book gouache object, flat opaque painted shapes, dry-brush edges, coloured-pencil detail, paper texture",
+  crayonDrawing:"a child's crayon and felt-tip drawing of the object, waxy uneven strokes, wobbly outline, naive shape",
+  toyBrick:"macro photograph of the object as a small plastic building-block toy piece, glossy moulded plastic, visible mould seams, soft studio light, no logos",
+  comicBook:"classic four-colour comic-book object, bold brush inks, flat printed colour, halftone dot tints",
+  rotoscope:"rotoscoped animation object, real proportions drawn as flat colour planes with loose traced line",
+  oilPainting:"classical oil painting of the object, visible brushstrokes, impasto highlights, rich glazed darks, canvas texture",
+  shadowPuppet:"cut-paper silhouette of the object, solid black shape with fine pierced detail against softly glowing colour",
 });
 window.PROP_RENDER_TEXT = PROP_RENDER_TEXT;
 

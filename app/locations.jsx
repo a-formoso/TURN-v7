@@ -5594,9 +5594,9 @@ const LOC_RENDER_TEXT = {
   anime:     "anime background art, painterly cel-shaded environment, clean linework, soft gradient skies, no photoreal texture",
   flat:      "flat vector landscape, bold geometric shapes, minimal flat shading, limited palette, no photoreal texture",
   horror:    "low-key cinematic horror cinematography of the place, hard cold side light, deep atmospheric blacks, fog and haze, colour left neutral (the scene's look grades it)",
-  ghibli:    "soft hand-painted Studio Ghibli-style 2D background, fine warm linework, gentle painterly cel shading, warm earthy naturalistic palette, nostalgic light",
+  ghibli:    "soft hand-painted pastoral 2D anime background, fine warm linework, gentle painterly cel shading, warm earthy naturalistic palette, nostalgic light",
   animated3d:"polished animated-feature 3D environment render, soft warm global illumination, appealing clean PBR materials, idealized finish, no noise",
-  pixar:     "Pixar-style animated-feature 3D environment, soft warm global illumination, appealing rounded stylized forms, clean tactile PBR materials, 'every frame a painting' warmth, idealized charming finish, no noise",
+  pixar:     "family animated-feature 3D environment, soft warm global illumination, appealing rounded stylized forms, clean tactile PBR materials, 'every frame a painting' warmth, idealized charming finish, no noise",
   storyboardconcept:"clean storyboard / production concept environment, expressive linework, clear cinematic staging, restrained color wash, readable layout and mood",
   texturedcomic:"textured contemporary comic-art environment, bold ink contours, etched hatching, limited palette, dramatic graphic light, visible grain",
   gtaLoadingScreen:"open-world crime-game loading-screen poster environment, semi-realistic architecture with bold black ink outlines, hard cel-shaded light and shadow, saturated high-contrast colour that follows this plate's own time of day, glossy poster finish, no text or logos",
@@ -5625,6 +5625,29 @@ Object.assign(LOC_RENDER_TEXT, {
   texturedPaperSculpture:"textured paper sculpture environment, folded layered paper, visible fibres, photographed tabletop diorama",
   texturedPaperIllustration:"textured paper illustration environment, collage layers, stippled print grain, cut-paper edges",
   tropicalArtNouveau:"tropical Art Nouveau environment, flowing organic lines, lush botanical motifs, flat ornamental colour",
+});
+/* (2026-11-17) the twenty looks added for live action, television animation and children's work (artroom.jsx) */
+Object.assign(LOC_RENDER_TEXT, {
+  photorealFilm35:"live-action establishing photography on 35mm motion-picture film, organic fine grain, soft halation on highlights, natural depth, film-print colour, realistic light",
+  photorealMono:"live-action black-and-white film photography of the place, full silver tonal range, deep blacks and luminous whites, sculpted natural light, strictly monochrome",
+  photorealDoc:"observational documentary photography of the place, available light, unretouched real-world detail, true-to-life colour, no stylised lighting",
+  photorealBright:"bright clean live-action photography of the place, high-key soft light, open shadows, crisp cheerful colour, tidy modern digital-cinema look",
+  photorealEpic:"large-format live-action photography of the place for a period or fantasy epic, naturalistic daylight and firelight, weathered hand-built materials, rich earthy colour, grand depth",
+  photorealNeon:"live-action science-fiction photography of the place, sleek digital-cinema capture, practical neon and LED light, wet reflective surfaces, deep cool shadows, physically believable",
+  retroAnime80s:"1980s hand-painted anime background, gouache-painted scenery photographed on film, soft grain and bloom, muted period palette, no modern digital gradients",
+  painted3dHybrid:"stylised 3D environment finished like a comic illustration, hand-painted textures, ink line accents, halftone and hatched shadows, bold graphic colour, not glossy CG",
+  saturdayCartoon:"classic hand-drawn TV cartoon background, simple painted scenery, clean outlines, flat cel colour, bold readable shapes",
+  adultAnimation:"flat 2D animated-sitcom background, uniform clean outlines, simple geometric shapes, flat unshaded colour, no texture",
+  rubberHose:"1930s rubber-hose cartoon background, black-and-white ink-and-wash scenery, soft round shapes, faint film grain",
+  lowPoly:"retro low-polygon 3D environment, faceted simple geometry, small pixelated textures, flat vertex lighting, early-console look",
+  preschoolCartoon:"preschool cartoon background, very simple rounded shapes, thick soft outlines, bright flat colour, friendly and uncluttered",
+  pictureBookGouache:"picture-book gouache environment, flat opaque painted shapes, dry-brush edges, coloured-pencil detail, warm paper texture",
+  crayonDrawing:"a child's crayon and felt-tip drawing of the place, waxy uneven strokes, wobbly outlines, naive perspective, white paper showing through",
+  toyBrick:"macro photograph of a plastic building-block toy set of the place, glossy moulded bricks with studs, tabletop depth of field, soft studio light, no logos",
+  comicBook:"classic four-colour comic-book background, bold brush inks, flat printed colour, halftone dot tints, warm newsprint tone",
+  rotoscope:"rotoscoped animation background, a real place redrawn as flat colour planes with loose traced line, no photographic texture",
+  oilPainting:"classical oil-painted environment, visible directional brushstrokes, impasto highlights, rich glazed darks, canvas texture",
+  shadowPuppet:"cut-paper silhouette scenery, intricate solid black shapes of trees, buildings and props against softly glowing layered colour, theatrical storybook depth",
 });
 window.LOC_RENDER_TEXT = LOC_RENDER_TEXT;
 

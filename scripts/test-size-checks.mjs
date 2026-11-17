@@ -47,7 +47,10 @@ ok("the QA read is told the sizes and how to report them", ai.includes("const si
 ok("the QA button passes them", art.includes("function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes }){")
   && art.includes("...(sz.length ? { sizes:sz } : {})"));
 ok("shot frames send who is in frame", shotsUi.includes('sizes:()=> (typeof qaTrueSizes==="function") ? qaTrueSizes(subjects) : [],'));
-ok("scale sheets send the character and only the objects their prompt drew", art.includes('.filter(o=>String(contract||"").indexOf(o.name+" "+o.size)>=0);'));
+// (owner 2026-11-17: "remove selected element") the generated height chart, its button and its QA check left the character
+// card; the Scale sheet section is the free line-up. The prompt above is kept for the charts films already have.
+ok("the character card no longer makes or checks a height chart image", !art.includes('"charscale-"+c.id') && !art.includes("scaleGenWrapped") && !art.includes('noun:"scale sheet"')
+  && art.includes("React.createElement(CharHeightLineup,{ c, cast:cast||[c], scenes, drafts })"));
 ok("Frances knows", /SIZE CHECKS \(2026-10-28\)/.test(ai));
 console.log(pass+" passed, "+fail+" failed");
 process.exit(fail?1:0);

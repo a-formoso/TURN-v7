@@ -3689,17 +3689,22 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
 /* HEIGHT IN THE FILM (artroom.jsx CharHeightLineup): the character beside the people of their scenes and a door.
    Arch-topped bars on one ground line; this character's is the brand's amber. */
 .lineup{display:flex;flex-direction:column;gap:8px}
-.lineup-chart{position:relative;display:flex;align-items:flex-end;gap:8px;padding:0 4px;border-bottom:1.5px solid var(--txt-1);margin-bottom:20px}
-.lineup-col{position:relative;flex:1 1 0;min-width:0;max-width:60px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+.lineup-plot{min-width:0}
+.lineup-chart{position:relative;display:flex;align-items:flex-end;gap:6px;padding:0 4px;border-bottom:1.5px solid var(--txt-1)}
+.lineup-col{flex:1 1 0;min-width:0;max-width:64px;display:flex;justify-content:center;align-items:flex-end}
 .lineup-bar{display:block;width:62%;max-width:30px;border:1.5px solid var(--txt-2);border-bottom:0;border-radius:999px 999px 0 0;background:var(--bg-3)}
 .lineup-col.self .lineup-bar{background:var(--win-amber,#F29A43);border-color:var(--txt-0)}
-.lineup-size{font:500 10.5px/1.2 var(--f-ui);color:var(--txt-2);white-space:nowrap;margin-bottom:3px}
-.lineup-col.self .lineup-size{color:var(--txt-0);font-weight:600}
-.lineup-name{position:absolute;top:calc(100% + 5px);left:-4px;right:-4px;text-align:center;font:500 11px/1.2 var(--f-ui);color:var(--txt-1);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lineup-col.self .lineup-name{color:var(--txt-0);font-weight:600}
+/* under the ground line: each bar's own caption, the name over the size; a long name ends in "…" inside its column */
+.lineup-caps{display:flex;gap:6px;padding:5px 4px 0}
+.lineup-cap{flex:1 1 0;min-width:0;max-width:64px;display:flex;flex-direction:column;align-items:center;gap:1px;text-align:center}
+.lineup-name{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 10.5px/1.25 var(--f-ui);color:var(--txt-1)}
+.lineup-size{font:400 10.5px/1.2 var(--f-ui);color:var(--txt-2);white-space:nowrap}
+.lineup-cap.self .lineup-name{color:var(--txt-0);font-weight:700}
+.lineup-cap.self .lineup-size{color:var(--txt-0);font-weight:600}
 .lineup-ref{position:absolute;left:0;right:0;border-top:1px dashed var(--line-3);pointer-events:none}
 .lineup-ref span{position:absolute;right:0;bottom:2px;font:400 10.5px/1.2 var(--f-ui);color:var(--txt-3);white-space:nowrap}
+/* a narrow card (a phone): five columns, so every first name has room */
+@media (max-width:640px){ .lineup .sixth{display:none} .lineup-chart,.lineup-caps{gap:4px} }
 .lineup-warn{display:flex;align-items:flex-start;gap:7px;padding:8px 10px;border-radius:9px;font-size:12px;line-height:1.45;color:var(--txt-0);
   background:var(--pos-soft);border:1px solid var(--pos-line)}
 .lineup-warn svg{flex:0 0 auto;margin-top:2px;color:var(--pos-ink)}

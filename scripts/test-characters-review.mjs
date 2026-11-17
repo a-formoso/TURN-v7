@@ -271,7 +271,8 @@ await test("E7 one render-style control: Look dev has no free-text style; the ph
   assert.match(pb.buildRefFromPhotoPrompt({ name:"Ana", scriptFeatures:"A scar on the chin. A forearm panel." }, {}),
     /Distinguishing features \(from the script\), shown in every view where that part of the body is visible: A forearm panel\. /);
   const g = pb.buildRefFromPhotoPrompt({ name:"Ana", renderStyleKey:"ghibli" }, {});
-  assert.ok(/RENDER STYLE: Studio Ghibli; hand-painted watercolour animation; warm daylight; pastel\./.test(g), g);
+  // (2026-11-17) a prompt names the look, never the studio the menu's label names (as the crime-game style already did)
+  assert.ok(/RENDER STYLE: hand-painted pastoral 2D anime; hand-painted watercolour animation; warm daylight; pastel\./.test(g), g);
   const legacy = pb.buildRefFromPhotoPrompt({ name:"Ana", renderStyleKey:"ghibli", renderStyle:"ink outlines." }, {});
   assert.ok(/pastel; ink outlines\./.test(legacy), "an older card's free-text style is kept as extra notes");
   assert.ok(/RENDER STYLE: hyperrealistic photography; soft key\./.test(pb.buildRefFromPhotoPrompt({ name:"Ana" }, {})));

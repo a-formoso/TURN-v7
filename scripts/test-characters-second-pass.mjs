@@ -127,8 +127,8 @@ await test("F2 copy: the likeness line, the scale hint, no vendor names, no 'Not
   assert.ok(art.includes('(gen.likenessStale ? "the sheet shows an earlier face" : "on the sheet")\n            : "not on the sheet yet"'));
   assert.ok(art.includes('React.createElement("span",{className:"scs-t"},"Real face saved")') && !art.includes('"Likeness locked"') && !art.includes('"Recapture"') && !art.includes('"Apply to sheet"'));
   assert.ok(art.includes('((lkInfo.angleCount||1)+" photo"+((lkInfo.angleCount||1)!==1?"s":""))') && art.includes('(lkInfo.synced?"in the cloud too":"on this device")'), "photos, not angles");
-  // (2026-11-17) the scale hint is behind the "i" beside "Height chart image"; it still says the shots use the card's size
-  assert.ok(art.includes("for you to check the size at a glance. It is optional: shots use the size written on the card") && art.includes('label:"About the height chart image"') && !art.includes("Used as the scale reference in shots"));
+  // (owner 2026-11-17) the height chart image left the card; the Scale sheet's "i" says the film uses the sizes on the cards
+  assert.ok(!art.includes("Generate the height chart") && !art.includes("Height chart image") && art.includes("These are the sizes the shots, the locations and the Stage use") && !art.includes("Used as the scale reference in shots"));
   const userStrings = (src)=> (src.match(/"(?:[^"\\\n]|\\.)*"/g)||[]).filter(x=>/[a-z] [a-z]/i.test(x));
   for(const [f, src] of [["artroom", art], ["voices-ui", voices]])
     assert.deepEqual(userStrings(src).filter(x=>/ElevenLabs|fal\.ai|Google Search|GPT Image blocked/.test(x)), [], f);
