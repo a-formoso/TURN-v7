@@ -708,7 +708,9 @@
     const remainingMs = ()=>{
       if(!playingClip() || !el) return Infinity;
       const d = Number(el.duration), t = Number(el.currentTime);
-      return (isFinite(d) && isFinite(t) && d > 0) ? Math.max(0, (d - t) * 1000) : Infinity;
+      if(!(isFinite(d) && isFinite(t) && d > 0)) return Infinity;
+      const end = cur.clip && cur.clip.end ? Math.min(d, cur.clip.end) : d;       // its sound, not the quiet after it
+      return Math.max(0, (end - t) * 1000);
     };
     function becomeReady(){ if(ready || closed) return; ready = true; if(readyTimer != null){ try{ clearT(readyTimer); }catch(e){} readyTimer = null; } report(); next(); }
     function preload(){
@@ -727,11 +729,23 @@
         if(el){
           try{ el.preload = "auto"; el.volume = R.volume; }catch(e){}
           listen(el, "ended", ()=>{ if(playingClip() && cur.src===el.src) finish(cur); });
+          // a clip is over when its SOUND is (2026-11-17: some recordings carry up to 2 s of quiet after the last
+          // word, and the next line was waiting for it)
+          listen(el, "timeupdate", ()=>{
+            if(!playingClip() || cur.src!==el.src || !cur.clip || !cur.clip.end) return;
+            let t = NaN; try{ t = Number(el.currentTime); }catch(e){}
+            if(!(t >= cur.clip.end)) return;
+            try{ el.pause(); }catch(e){}
+            finish(cur);
+          });
           listen(el, "error", ()=>{ if(playingClip() && cur.src===el.src){ if(cur.clip) cur.clip.ok = false; fallback(cur); report(); } });
         }
         for(const l of VOICE_LINES){
-          if(!el || todo.indexOf(l)<0){ clips[l.id] = { url:null, ok:false, lead:0, gain:0 }; continue; }
-          const clip = { url:null, ok:null, lead:num(listed[l.id].lead), gain:num(listed[l.id].gain) };
+          if(!el || todo.indexOf(l)<0){ clips[l.id] = { url:null, ok:false, lead:0, gain:0, end:0 }; continue; }
+          const sound = num(listed[l.id].speech);
+          // where its sound ends: the measured start (the manifest's lead is 30 ms before it), its length, a short breath
+          const clip = { url:null, ok:null, lead:num(listed[l.id].lead), gain:num(listed[l.id].gain),
+            end: sound ? num(listed[l.id].lead) + 0.03 + sound + 0.15 : 0 };
           clips[l.id] = clip;
           let p = null;
           try{ p = typeof o.loadClip==="function" ? o.loadClip(base + l.id + ".mp3") : base + l.id + ".mp3"; }catch(e){ p = null; }

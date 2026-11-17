@@ -1702,6 +1702,27 @@ await test("V5 every clip plays from where its sound starts and at an even level
   R.g.close();
 });
 
+await test("V6 a clip is over when its sound is: the quiet recorded after the last word is not waited for (the manifest's speech length); a clip with no measurement plays to its end", async () => {
+  const man = JSON.parse(JSON.stringify(FULL_MANIFEST));
+  man.clips["look-straight"] = { ...man.clips["look-straight"], lead: 0.2, speech: 1 };       // sound from 0.23 s to 1.23 s
+  const R = guideRig({ manifest: man, playMs: 3000 });                                          // …in a 3 s recording
+  R.g.preload(); await R.flush();
+  R.g.say(["look-straight"]); await R.flush();
+  const el = R.audio.created[0];
+  await R.advance(900); el.emit("timeupdate");
+  assert.equal(R.g.state.playing, "look-straight", "still speaking");
+  await R.advance(400); el.emit("timeupdate"); await R.flush();                                 // 1.5 s in: past 1.38 s
+  assert.equal(R.g.state.playing, null, "over with its sound"); assert.equal(el.paused, true);
+  assert.equal(R.rows()[0].cut, false, "ended, not cut");
+  R.g.say(["move-back"]); await R.advance(1000); el.emit("timeupdate");                         // (after the beat of quiet)
+  assert.equal(R.g.state.playing, "move-back");
+  await R.advance(1500); el.emit("timeupdate");
+  assert.equal(R.g.state.playing, "move-back", "no measurement: to its own end");
+  await R.advance(1600);
+  assert.equal(R.g.state.playing, null);
+  R.g.close();
+});
+
 await test("V3 close() stops and releases every clip; setEnabled(false) silences; nothing plays afterwards", async () => {
   const R = guideRig({ playMs: 3000 });
   R.g.preload(); await R.flush();

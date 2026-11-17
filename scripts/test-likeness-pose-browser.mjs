@@ -23,7 +23,7 @@
          the camera; the one-line caption sits under it (shown here: no recorded clips and no device voice);
          Capture now hidden while the photo takes itself.
      B5  the recorded clips through the real audio element: a manifest + short WAV clips served as
-         app/vendor/voice/frances-guide/v1/<id>.mp3 — "Hold still. Three. Two. One. Got it. Now turn …" play in
+         app/vendor/voice/frances-guide/v2/<id>.mp3 — "That's it. Hold it there. Got it. Now turn …" play in
          order through one element, the caption stays hidden, closing the window stops it.
 
    CHROMIUM="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" node scripts/test-likeness-pose-browser.mjs */

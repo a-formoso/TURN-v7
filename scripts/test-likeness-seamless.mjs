@@ -113,7 +113,7 @@ await test("5 the recorded clips: every line the window can say is there, in tod
   }
   assert.deepEqual(problems, [], problems.join("\n"));
   const files = readdirSync(new URL(dir, ROOT)).filter((f) => /\.mp3$/.test(f)).map((f) => f.replace(/\.mp3$/, "")).sort();
-  assert.deepEqual(files, FP.VOICE_LINES.map((l) => l.id).sort(), "no clip that nothing says");
+  assert.deepEqual(files, Array.from(FP.VOICE_LINES, (l) => l.id).sort(), "no clip that nothing says");
   const total = files.reduce((n, f) => n + statSync(new URL(dir + f + ".mp3", ROOT)).size, 0);
   assert.ok(total < 4.5e6, "small enough to read when the window opens: " + total);
   assert.ok(!existsSync(new URL("app/vendor/voice/frances-guide/v1/", ROOT)), "the first script's clips are no longer shipped");
@@ -163,7 +163,7 @@ await test("8 Frances knows, and no older sentence of hers contradicts it", () =
 
 await test("9 the new files are served", () => {
   for (const file of ["face-pose.js", "cameo.jsx", "artroom.jsx", "ai.jsx", "script.jsx", "imagegen.jsx", "cloud.jsx", "styles.css"])
-    assert.ok(["20261117-likeness1"].some((k) => html.includes(file + "?v=" + k + '"')), "cache key: " + file);
+    assert.ok(["20261117-likeness1", "20261117-likeness2"].some((k) => html.includes(file + "?v=" + k + '"')), "cache key: " + file);
   assert.ok(read("app/styles.css").includes(".cameo-who-line{"));
 });
 
