@@ -2656,6 +2656,44 @@ function nbSetAssetCopyCheck(id, expectedIso, copyCheck){
   });
 }
 window.nbSetAssetCopyCheck=nbSetAssetCopyCheck;
+/* THE LAST QA CHECK OF AN IMAGE IS KEPT (owner 2026-11-17: "remember the QA result" — the report was lost when its
+   window closed, and reading the image again costs writing credits). Recorded on the image's own meta, for this exact
+   version only (qa.iso), like the copy check above: a new image, an edit or a restored version has no result of its
+   own until it is checked. Free: nothing is made and nothing is charged. A film this person can't write to (a
+   view-only collaborator) simply doesn't keep it. */
+function nbSetAssetQa(id, expectedIso, qa){
+  const epoch=_nbEpoch;
+  return _nbSerial(id,async()=>{
+    if(!id || !expectedIso || !qa || typeof qa!=="object") return {ok:false,error:"asset version required"};
+    if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+    const note={...qa,iso:expectedIso};
+    const backend=_nbBackend;
+    const scope=backend==="cloud"?_scopeFor(id):null, uid=_nbUid;
+    if(backend==="cloud"){
+      if(typeof window.cloudSetAssetQa!=="function") return {ok:false,error:"cloud update unavailable"};
+      try{
+        const result=await window.cloudSetAssetQa(scope,uid,id,expectedIso,note);
+        if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+        if(result&&result.ok){
+          _cloudMetaCache.set(id,result.meta);
+          try{ window.dispatchEvent(new CustomEvent("nb-meta-changed",{detail:{id}})); }catch(e){}
+        }
+        return result&&typeof result.ok==="boolean" ? result : {ok:false,error:"update failed"};
+      }catch(e){
+        if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+        return {ok:false,error:(e&&e.message)||"update failed"};
+      }
+    }
+    const current=localGetMeta(id);
+    if(!localGetImage(id)) return {ok:false,error:"asset not found"};
+    if(!current || current.iso!==expectedIso) return {ok:false,error:"asset version changed"};
+    const meta={...current,qa:note};
+    localSetMeta(id,meta);
+    try{ window.dispatchEvent(new CustomEvent("nb-meta-changed",{detail:{id}})); }catch(e){}
+    return {ok:true,meta};
+  });
+}
+window.nbSetAssetQa=nbSetAssetQa;
 
 /* read the image URL from an <image-slot> by querying its shadow DOM */
 function nbGetSlotImage(slotId){

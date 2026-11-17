@@ -18,8 +18,21 @@ const a = art.indexOf("function CharacterSheet({"), card = art.slice(a, art.inde
 
 test("C1 the sections, in order", ()=>{
   const labels = [...card.matchAll(/React\.createElement\(CardFold,\{label:"([^"]+)"/g)].map(m=>m[1]);
+  // (owner 2026-11-17, "a shorter card") Voice & video comes before the two rarely opened sections, which close the card
   assert.deepEqual(labels, ["Identity", "Body & features", "Scale sheet", "Wardrobe", "Props & accessories",
-    "Continuity \\u00b7 appearance states", "Look & exclusions", "Voice & video", "Generation prompt"]);
+    "Continuity \\u00b7 appearance states", "Voice & video", "Look & exclusions", "Generation prompt"]);
+  // …and the card shows four rows: The look (five sections), the appearance states, Voice & video, Advanced (two)
+  const groups = [...card.matchAll(/React\.createElement\(CardGroup,\{label:"([^"]+)"/g)].map(m=>m[1]);
+  assert.deepEqual(groups, ["The look", "Advanced"]);
+  const at = (t)=>{ const i = card.indexOf(t); assert.ok(i>=0, t); return i; };
+  const look = card.slice(at('CardGroup,{label:"The look"'), at('CardFold,{label:"Continuity'));
+  for(const l of ["Identity", "Body & features", "Scale sheet", "Wardrobe", "Props & accessories"]) assert.ok(look.includes('CardFold,{label:"'+l+'"'), "The look holds "+l);
+  assert.ok(look.includes('foldIds:["props-"+c.id]'), "a banner that jumps to Props & accessories opens the group");
+  const adv = card.slice(at('CardGroup,{label:"Advanced"'));
+  for(const l of ["Look & exclusions", "Generation prompt"]) assert.ok(adv.includes('CardFold,{label:"'+l+'"'), "Advanced holds "+l);
+  assert.ok(at('CardFold,{label:"Voice & video"') < at('CardGroup,{label:"Advanced"') && at('CardFold,{label:"Continuity') < at('CardFold,{label:"Voice & video"'));
+  assert.ok(art.includes("function CardGroup({ label, foldIds, defaultOpen, children }){") && art.includes('React.createElement("div",{className:"sheet-group-body",hidden:!open},children)'),
+    "a closed group keeps its sections mounted (hidden), so a jump still reaches them");
   assert.ok(!/label:"(Look dev|Master reference prompt|Spoken language)"/.test(card), "no old names");
 });
 test("C2 Identity is who they are; Body & features is what they look like", ()=>{

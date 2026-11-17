@@ -849,6 +849,8 @@ function mountWindow(opts = {}){
     setTimeout: (fn, ms) => { W.timers.push({ at: W.simT + (ms || 0), fn, done: false }); return W.timers.length; }, clearTimeout: noop,
     requestAnimationFrame: (fn) => { const id = ++W.rafId; W.raf.set(id, fn); return id; }, cancelAnimationFrame: (id) => { W.raf.delete(id); },
     React: R.React, ReactDOM: R.ReactDOM, Icon: new Proxy({}, { get: () => () => null }),
+    // the app's "i" tooltip (stylebible-ui.jsx), as a node the tests can read: what it is about, and what it says
+    InfoTip: (p) => R.React.createElement("span", { className: "infotip", "data-label": p.label, "data-text": p.text }),
     localStorage: mkStore(), sessionStorage: mkStore(),
     document: { createElement: (t) => t === "canvas" ? canvas() : { tagName: t, style: {} }, baseURI: "http://127.0.0.1:1/TURN.html",
       body: { appendChild: noop, removeChild: noop }, head: { appendChild: noop }, addEventListener: noop, removeEventListener: noop },
@@ -933,6 +935,7 @@ function mountWindow(opts = {}){
   W.lastCrop = () => W.crops.get(W.shots()[Object.keys(W.shots()).pop()]);
   W.flipped = (url) => { const c = W.crops.get(url); return !!c && c.ops.includes("translate(" + c.w + ",0)") && c.ops.includes("scale(-1,1)"); };
   W.nodes = () => nodesOf(root.tree);
+  W.tip = (label) => { const n = W.nodes().find((x) => x.props && x.props.className === "infotip" && x.props["data-label"] === label); return n ? n.props["data-text"] : undefined; };
   W.slot = (k) => W.nodes().find((n) => n.props && n.props["data-angle"] === k);
   W.img = (k) => { const s = W.slot(k); return s ? nodesOf(s).find((n) => n.type === "img") : null; };
   /* the instruction lives in the one-line caption UNDER the picture (hidden while it's spoken) */
@@ -988,8 +991,11 @@ await test("I1 the owner's flow, part 1: Front fills after 1.5–1.7 s held (onc
   assert.equal(textOf(W.slot("left")).trim(), "← Your left");
   assert.equal(W.slot("left").props.title, "Take this one: Turned to your left");
   assert.equal(W.slot("front").props.title, "Click × to take this one again");
-  assert.equal(textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-note")),
-    "The pose check runs on this device — the camera picture isn't sent anywhere while you pose. Only the photos you keep are saved, as face references for this character's images.");
+  // (owner 2026-11-17) the lines that only explain are behind the title's "i", not in the window
+  assert.ok(!W.nodes().some((n) => n.props && /^cameo-(note|sub)/.test(n.props.className || "")), "no explaining line in view");
+  assert.equal(W.tip("How the photos work"),
+    "Look straight at the camera for Front, then turn your head to each side. The preview works like a mirror: your left is the left of the screen.\n\n"
+    + "The pose check runs on this device — the camera picture isn't sent anywhere while you pose. Only the photos you keep are saved, as face references for this character's images.");
   assert.ok(!byRole(W.root.tree, "flip-fix"), "a still front face on a side target is 'not turned', never 'wrong way': no flipped-camera offer");
   assert.equal(W.nodes().find((n) => n.props && n.props.className === "cameo-stage").props["data-engine"], "ready");
   W.root.unmount();
@@ -1423,7 +1429,8 @@ await test("I16 while the browser asks for the camera: 'Allow the camera to star
   assert.equal(W.loads, 0);
   W.releaseCamera(); await W.settle(); await W.pump(300);
   assert.notEqual(W.cueKey(), "camera"); assert.equal(W.loads, 1);
-  assert.ok(W.nodes().some((n) => n.props && n.props.className === "cameo-note"));
+  assert.ok(!W.nodes().some((n) => n.props && /^cameo-note/.test(n.props.className || "")), "the pose check runs: no note in view");
+  assert.match(W.tip("How the photos work"), /The pose check runs on this device/);
   W.root.unmount();
 });
 
@@ -1946,10 +1953,10 @@ await test("I23 whose face comes first: the window opens on 'Whose likeness is t
   assert.equal(W.step(), "who");
   assert.equal(W.tracks.length, 0, "the camera isn't asked for before the answer"); assert.equal(W.loads, 0, "nothing loaded"); assert.equal(W.eng.detects, 0);
   assert.deepEqual(W.said(), [], "nothing is said"); assert.equal(W.stage(), undefined, "no picture yet");
-  assert.equal(textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-sub")),
-    "Three quick photos give Neo a real face: straight on, then turned to each side. First, whose face is it?");
+  assert.ok(!W.nodes().some((n) => n.props && /^cameo-(note|sub)/.test(n.props.className || "")), "no explaining line in view (owner 2026-11-17: behind the title's 'i')");
+  assert.equal(W.tip("About Likeness"),
+    "Three quick photos give Neo a real face: straight on, then turned to each side.\n\nThe camera picture stays on this device while you pose. Only the photos you keep are saved.");
   assert.equal(textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-whose-q")), "Whose likeness is this?", "the consent question's own words");
-  assert.equal(textOf(W.nodes().find((n) => n.props && n.props.className === "cameo-note")), "The camera picture stays on this device while you pose. Only the photos you keep are saved.");
   let start = byRole(W.root.tree, "start");
   assert.equal(textOf(start), "Start the camera"); assert.equal(start.props.disabled, true); assert.equal(start.props.title, "Say whose likeness this is and tick the box");
   click(start); W.root.flush(); assert.equal(W.step(), "who", "pressing it unanswered does nothing");

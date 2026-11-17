@@ -1,0 +1,146 @@
+#!/usr/bin/env node
+/* The Characters tab, easier to scan (owner 2026-11-17: "yes, go ahead with all of them in that order"), and the
+   Likeness title on one line ("no line break; if you have to use initials for names, please do so").
+
+   1 The last QA result is kept with the image it judged (its own meta, this exact version) and shown on the button;
+     the report opens again for free, with "Check again" inside.
+   2 The Art Room folds its heading on scroll at every size.
+   3 One "More" menu over the cards for the rarely pressed buttons (a single one stays a button).
+   4 The card in four rows (scripts/test-character-card-sections.mjs pins the sections and their groups).
+   6 The bare numbers say what they count.
+   7 The cast at a glance: a row of faces over the cards.
+   L The Likeness title: the full name when it fits, else the first name and initials, else initials.
+
+     node scripts/test-characters-tab-scan.mjs */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+const read = (f) => readFileSync(new URL("../" + f, import.meta.url), "utf8");
+let passed = 0, failed = 0;
+const test = async (name, fn) => { try { await fn(); passed++; console.log("PASS", name); }
+  catch (e) { failed++; console.log("FAIL", name, "\n   ", String((e && e.stack) || e).split("\n").slice(0, 4).join("\n    ")); } };
+const between = (src, a, b) => { const i = src.indexOf(a); assert.ok(i >= 0, "missing: " + a); const j = src.indexOf(b, i); assert.ok(j > i, "missing: " + b); return src.slice(i, j); };
+const plain = (v) => JSON.parse(JSON.stringify(v));
+
+const art = read("app/artroom.jsx"), img = read("app/imagegen.jsx"), cloud = read("app/cloud.jsx"), cameo = read("app/cameo.jsx");
+const app = read("app/app.jsx"), css = read("app/styles.css"), ai = read("app/ai.jsx"), html = read("TURN.html");
+
+/* the small helpers, run for real */
+const box = { console, Date, JSON, Number, String, Math, Object, Array };
+box.window = box; vm.createContext(box);
+vm.runInContext(between(art, "function qaKept(gen){", "window.qaKept = qaKept;"), box);
+vm.runInContext(between(cameo, "function cameoNameForms(name){", "function CameoTitle("), box);
+vm.runInContext(between(art, "function castFirstName(name){", "function CastOverview("), box);
+
+await test("1a a kept result belongs to one image version: the same version shows it, another does not", () => {
+  const report = { verdict: "minor", deviations: [{ what: "a" }, { what: "b" }], inventions: ["c"], script: { mismatches: [{}] } };
+  const gen = (iso, qa) => ({ genMeta: { iso, ...(qa ? { qa } : {}) } });
+  assert.equal(box.qaKept(gen("v1", { iso: "v1", at: 5, report })).at, 5);
+  assert.equal(box.qaKept(gen("v2", { iso: "v1", at: 5, report })), null, "a regenerated, edited or restored image has no result of its own");
+  assert.equal(box.qaKept(gen("v1")), null); assert.equal(box.qaKept({ genMeta: null }), null); assert.equal(box.qaKept(null), null);
+  assert.equal(box.qaKept(gen("", { iso: "", report })), null, "an image with no version (an upload) keeps nothing");
+  assert.equal(box.qaKept(gen("v1", { iso: "v1", report: "x" })), null);
+});
+
+await test("1b the button's words: the verdict and how many findings (deviations, inventions and script mismatches)", () => {
+  assert.equal(box.qaBadgeText({ verdict: "minor", deviations: [{}, {}], inventions: ["x"], script: { mismatches: [{}] } }), "Minor drift · 4");
+  assert.equal(box.qaBadgeText({ verdict: "major", deviations: [{}], inventions: [] }), "Major drift · 1");
+  assert.equal(box.qaBadgeText({ verdict: "pass", deviations: [], inventions: [] }), "Faithful");
+  assert.equal(box.qaFindingCount(null), 0);
+  assert.equal(box.qaCheckedOn(0), ""); assert.match(box.qaCheckedOn(Date.UTC(2026, 10, 17, 12, 0)), /^Checked on .+\.$/);
+});
+
+await test("1c it is saved on the image's own meta, for that version only, on this device and in the cloud; nothing is charged", () => {
+  const fn = between(img, "function nbSetAssetQa(id, expectedIso, qa){", "window.nbSetAssetQa=nbSetAssetQa;");
+  assert.ok(fn.includes("const note={...qa,iso:expectedIso};"));
+  assert.ok(fn.includes('if(!current || current.iso!==expectedIso) return {ok:false,error:"asset version changed"};'), "never onto another version");
+  assert.ok(fn.includes("const meta={...current,qa:note};") && fn.includes('new CustomEvent("nb-meta-changed",{detail:{id}})'), "the card hears it");
+  assert.ok(fn.includes("window.cloudSetAssetQa(scope,uid,id,expectedIso,note)"));
+  assert.ok(!/nbGenerate|hold|credit/i.test(fn), "no image is made and nothing is spent");
+  const c = between(cloud, "async function cloudSetAssetQa(", "window.cloudSetAssetQa=cloudSetAssetQa;");
+  assert.ok(c.includes("row.meta.iso!==expectedIso") && c.includes("const meta={...(row.meta||{}),qa:{...(qa||{}),iso:expectedIso}};"));
+  assert.ok(c.includes("storage_path:row.storage_path,meta,refs:row.refs||[],history:row.history||[]"), "the image, its references and its history are written back as they were");
+});
+
+await test("1d the button and the report: saved after a check; the kept result opens without a read; Check again reads once more", () => {
+  const btn = between(art, "function QaCheckButton({", "window.QaCheckButton = QaCheckButton;");
+  assert.ok(btn.includes("window.nbSetAssetQa(gen.id, iso, { at:Date.now(), report:plain })"), "kept when the check comes back");
+  assert.ok(btn.includes("onClick:()=>{ if(kept && !busy) setReport({ ...kept.report, kept:true, checkedAt:kept.at }); else run(); }"), "a kept result opens: no read");
+  assert.ok(btn.includes('busy ? "QA…" : kept ? qaBadgeText(kept.report) : "QA check"'));
+  assert.ok(btn.includes("onRecheck: report.kept ? ()=>{ setReport(null); run(); } : undefined"));
+  const rep = between(art, "function QaReport({", "window.QaCheckButton = QaCheckButton;");
+  assert.ok(rep.includes('"data-role":"qa-recheck"') && rep.includes('"Check again"'));
+  assert.ok(rep.includes("This is the saved result; opening it is free."));
+  for (const k of [".qa-kept-dot.pass{background:var(--ok)}", ".qa-kept-dot.major{background:var(--alert)}", ".qa-foot .qa-recheck{margin-right:auto}"]) assert.ok(css.includes(k), k);
+});
+
+await test("2 the Art Room folds its heading on scroll at every size; the other rooms as before", () => {
+  assert.ok(app.includes('const headHidden = useHeadAutoHide(vp==="mobile" || shortScreen || room==="art", room+"|"+view+"|"+artView);'));
+  for (const k of [".app.hs.room-art.head-hidden .wr-head-copy,", ".app.hs.room-art.head-hidden .wr-actions{max-height:0;opacity:0;", ".app.hs.room-art.head-hidden .wr-head-in{padding-top:4px;padding-bottom:0;gap:0}"]) assert.ok(css.includes(k), k);
+});
+
+await test("3 one More menu over the cards: Regenerate sheets… and the two managers; a single one stays a button; the main buttons stay in view", () => {
+  const sheets = between(art, "function CharacterSheets({", "/* ---- pre-production readiness");
+  const more = between(sheets, '// ONE "MORE" MENU', "lookbookFirst && React.createElement");
+  for (const k of ['"Regenerate sheets\\u2026"', '"Likenesses \\u00b7 "+cameoCount', '"data-testid":"voices-manager-btn"']) assert.ok(more.includes(k), "in the menu: " + k);
+  assert.ok(more.includes("if(items.length===1) return items[0];"), "one button needs no menu");
+  assert.ok(more.includes('"aria-haspopup":"menu"') && more.includes("hidden:!moreOpen"));
+  const before = sheets.slice(0, sheets.indexOf('// ONE "MORE" MENU'));
+  for (const k of ['"Design the cast"', '"Generate "+missingAll.length+" missing sheet"']) assert.ok(before.includes(k), "still a button of its own: " + k);
+  assert.ok(css.includes(".art-more-pop[hidden]{display:none}"));
+});
+
+await test("6 the bare numbers say what they count", () => {
+  assert.ok(art.includes('items.length+" scenes"));') && !art.includes('+" ("+items.length+")"'), "'38 scenes', not '01–04 (38)'");
+  for (const f of ["app/artroom.jsx", "app/props.jsx", "app/locations-ui.jsx"])
+    assert.ok(read(f).includes('+" of "+(window.turnGlobalStyleCap||40)+" styles")'), f + ": '41 of 100 styles', not '41/100'");
+});
+
+await test("7 the cast at a glance: over the cards from five characters up; a face, a first name, three marks and the QA dot; a press goes to the card", () => {
+  assert.equal(box.castFirstName("LIAQAT HUSSAIN"), "Liaqat"); assert.equal(box.castFirstName("  neo "), "Neo"); assert.equal(box.castFirstName(""), "?");
+  const ov = between(art, "function CastOverview({ list, faceIds, onGo }){", "window.CastOverview = CastOverview;");
+  assert.ok(ov.includes("if(!(list && list.length > 4)) return null;"));
+  assert.ok(ov.includes("Icon.image") && ov.includes("Icon.userScan") && ov.includes("Icon.mic") && ov.includes('"qa-kept-dot "+sev'));
+  assert.ok(ov.includes("onClick:()=>onGo && onGo(c.id)"));
+  assert.ok(!/generate\(|nbGenerate|onUpdate/.test(ov), "it only reads what is on the cards");
+  const sheets = between(art, "function CharacterSheets({", "/* ---- pre-production readiness");
+  assert.ok(sheets.includes("React.createElement(CastOverview,{ list:shown, faceIds:castFaceIds, onGo:goToCard }),"));
+  assert.ok(sheets.includes("charPager.setPage(Math.floor(i/SHEETS_PER_PAGE))"), "the card's page of the grid first");
+  for (const k of [".cast-strip{display:flex;", ".cast-mark.on{color:var(--pos-ink);opacity:1}", ".sheet-card.cast-go-flash{animation:castGoFlash 1.5s ease}"]) assert.ok(css.includes(k), k);
+});
+
+await test("L the Likeness title on one line: the full name, then the first name and initials, then initials", () => {
+  assert.deepEqual(plain(box.cameoNameForms("MAUREEN SUTTON")), ["MAUREEN SUTTON", "MAUREEN S.", "M. S."]);
+  assert.deepEqual(plain(box.cameoNameForms("Bartholomew Alexander Fitzgerald")), ["Bartholomew Alexander Fitzgerald", "Bartholomew A. F.", "B. A. F."]);
+  assert.deepEqual(plain(box.cameoNameForms("Neo")), ["Neo"]); assert.deepEqual(plain(box.cameoNameForms("  a   b ")), ["a b", "a B.", "A. B."]);
+  const t = between(cameo, "function CameoTitle({ name, tip }){", "window.cameoNameForms = cameoNameForms;");
+  assert.ok(t.includes("if(el.scrollWidth > el.clientWidth + 1 && lvl < forms.length-1) setLvl(lvl+1);"), "measured where it is drawn");
+  assert.equal(cameo.split("React.createElement(CameoTitle,{").length - 1, 2, "both steps of the window");
+  for (const k of [".cameo-head-txt .cameo-title{min-width:0;white-space:nowrap}", ".cameo-title-t{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"]) assert.ok(css.includes(k), k);
+  // the camera messages sit on the dark picture in both themes (the heading was dark on dark)
+  assert.ok(css.includes(".cameo-msg-t{font-family:var(--f-display);font-size:15px;font-weight:600;color:#f5f3ee}"));
+});
+
+await test("P the pose figures in the brand's ink and amber (owner: 'more in-brand looking figures'): one line, pale head and shoulders, amber shoulders on the photo being taken; no face is coloured; the ghost over the camera has no fill", () => {
+  const fig = between(cameo, "const CAMEO_POSE_BODY = ", "/* the generated pencil sketches");
+  assert.ok(fig.includes('className:"cp-body"') && fig.includes('className:"cp-head"') && fig.includes('className:"cp-eye"'));
+  assert.ok(fig.includes("right: CAMEO_POSE_3Q,") && fig.includes('transform:"translate(100 0) scale(-1 1)"'), "your right is your left, mirrored");
+  assert.ok(!/strokeDasharray|cp-face/.test(fig), "no construction lines, no coloured face");
+  for (const k of [".cameo-slot.active .cameo-slot-guide .cp-body{fill:var(--win-amber,#F29A43)}", ".cameo-slot-guide .cp-head{fill:var(--win-surface,var(--bg-1))}",
+    ".cameo-slot.active{border-style:solid;border-color:var(--win-amber,#F29A43);", ".cameo-pose .cp-eye{fill:currentColor;stroke:none}"]) assert.ok(css.includes(k), k);
+  assert.ok(!/\.cameo-guide-ghost[^{]*\.cp-(body|head)\{fill:(?!none)/.test(css), "the ghost stays a line drawing");
+  const slotRules = css.split("\n").filter(l => /^\.cameo-slot(\.active|:hover|-guide|-lab i)/.test(l)).join("\n");
+  assert.ok(!/oklch\(0\.(62|78) 0\.1[38] 29[56]/.test(slotRules), "no purple left on the slots");
+});
+
+await test("F Frances knows; the changed files are served under a new key", () => {
+  const f = between(ai, 'APP_FEATURES.push({ name:"Cast overview, the character card in four rows, the kept QA result (Characters, Art Room)"', "function appBrief(){");
+  for (const k of ["THE CAST AT A GLANCE", "THE CARD IN FOUR ROWS", "THE QA RESULT IS KEPT", "'Check again'", "ONE 'MORE' MENU", "THE HEADING FOLDS"]) assert.ok(f.includes(k), k);
+  const KEYS = ["20261117-cast1", "20261117-cast2"];   // (the list grows with each key bump)
+  for (const file of ["artroom.jsx", "cameo.jsx", "imagegen.jsx", "cloud.jsx", "app.jsx", "ai.jsx", "styles.css"])
+    assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
+});
+
+console.log("\n" + passed + " passed, " + failed + " failed");
+if (failed) process.exit(1);

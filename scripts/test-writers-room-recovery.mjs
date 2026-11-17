@@ -51,7 +51,7 @@ async function test(name,f){ await f(); console.log("PASS",name); checks++; }
 await test("both check panels render after the actual application load order",()=>{
   const b=box();
   const html=read("TURN.html"); assert.ok(html.indexOf("app/artroom.jsx")<html.indexOf("app/script.jsx"));
-  load(b,"artroom",["CharacterScriptCheckReport"]);
+  load(b,"artroom",["_qaTitleRow","CharacterScriptCheckReport"]);   // (2026-11-17) the report's title row is a function of its own
   load(b,"script",["ScriptCheckReport"]);
   assert.notEqual(b.CharacterScriptCheckReport,b.ScriptCheckReport);
   assert.doesNotThrow(()=>b.CharacterScriptCheckReport({c:{name:"空"},report:{checked:1,mismatches:[]}}));

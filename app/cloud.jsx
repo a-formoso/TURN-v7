@@ -4736,6 +4736,19 @@ async function cloudSetAssetCopyCheck(projectId, uid, entityId, expectedIso, cop
   return {ok:true,meta:after.meta};
 }
 window.cloudSetAssetCopyCheck=cloudSetAssetCopyCheck;
+/* the last QA check of an image, on its own meta, for this exact version (imagegen.jsx nbSetAssetQa; 2026-11-17) */
+async function cloudSetAssetQa(projectId, uid, entityId, expectedIso, qa){
+  const row=await cloudGetGenStrict(projectId,entityId);
+  if(!row || !row.storage_path) return {ok:false,error:"asset not found"};
+  if(!expectedIso || !row.meta || row.meta.iso!==expectedIso) return {ok:false,error:"asset version changed"};
+  const meta={...(row.meta||{}),qa:{...(qa||{}),iso:expectedIso}};
+  const after=await cloudCasGen(projectId,uid,entityId,row,{
+    storage_path:row.storage_path,meta,refs:row.refs||[],history:row.history||[]});
+  if(!after || after.storage_path!==row.storage_path || !after.meta || after.meta.iso!==expectedIso)
+    return {ok:false,error:"asset version changed"};
+  return {ok:true,meta:after.meta};
+}
+window.cloudSetAssetQa=cloudSetAssetQa;
 async function cloudLoadDetails(projectId, entityId){
   try{ await cloudSweepPurgeReferences(projectId); }catch(e){}
   const row = await cloudGetGen(projectId, entityId);

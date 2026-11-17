@@ -210,7 +210,8 @@ async function main(){
           for(let i=1;i<=6;i++){ m.scrollTop=i*90; await new Promise(r=>setTimeout(r,60)); } })()`);
         await sleep(700);
         const down=await c.eval(PROBE);
-        if(size.fold){
+        // (2026-11-17) the Art Room folds its heading at every size; the other rooms on phones and short screens only
+        if(size.fold || id==="art"){
           check(down.app.includes("head-hidden"), `${tag}: scrolling the page down folds the heading`);
           // the space below the heading and its tabs (how the room splits that space is the room's own layout)
           // (a heading that scrolled off with its page ends above the screen: all of it is the page's)

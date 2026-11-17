@@ -163,8 +163,22 @@ await test("8 Frances knows, and no older sentence of hers contradicts it", () =
 
 await test("9 the new files are served", () => {
   for (const file of ["face-pose.js", "cameo.jsx", "artroom.jsx", "ai.jsx", "script.jsx", "imagegen.jsx", "cloud.jsx", "styles.css"])
-    assert.ok(["20261117-likeness1", "20261117-likeness2"].some((k) => html.includes(file + "?v=" + k + '"')), "cache key: " + file);
+    assert.ok(["20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2"].some((k) => html.includes(file + "?v=" + k + '"')), "cache key: " + file);
   assert.ok(read("app/styles.css").includes(".cameo-who-line{"));
+});
+
+await test("10 the lines that only explain are tooltips (owner 2026-11-17): none under the title, the everyday note and the long sync text behind an 'i'; warnings and the consent words stay in view", () => {
+  const win = cameo.slice(cameo.indexOf("function CameoModal("), cameo.indexOf("window.CameoModal = CameoModal;"));   // the capture window
+  assert.ok(win.length > 1000 && !win.includes("cameo-sub"), "no small line under the Likeness title");
+  assert.ok(!/className:"cameo-note"[,}]/.test(win), "the everyday note is not in view");
+  assert.ok(cameo.includes('className:"cameo-note warn"'), "the warning (the pose check couldn't start) stays in view");
+  assert.match(cameo, /cameoTip\("About Likeness",/); assert.match(cameo, /cameoTip\("How the photos work", CAMEO_TIP_HOW\+"\\n\\n"\+CAMEO_NOTE_OK\)/);
+  assert.match(cameo, /cloudReady && cameoTip\("About syncing", CAMEO_TIP_SYNC\)/);
+  assert.ok(cameo.includes("Unticking removes its cloud copy when you save it.") && cameo.includes("Sign in to sync it"), "what the person must know before acting stays in view");
+  assert.ok(cameo.includes('"Whose likeness is this?"') && cameo.includes("CAMEO_CONSENT_SELF"), "the consent question and its box are where they were");
+  // the report window of the QA check: the same rule
+  assert.ok(!art.includes("qa-sub") && !art.includes("qa-foot-note") && !art.includes("no image credits spent"));
+  assert.match(art, /label:"About this check"/); assert.match(art, /label:"About prompt advice"/);
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

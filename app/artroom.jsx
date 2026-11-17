@@ -4168,7 +4168,14 @@ function QaScriptPart({ c, script, note, gening, variant, noun, onApply, onRegen
         onClick:()=>{ onRegen(); onClose(); }},
         React.createElement(Icon.sparkles,{s:12}),"Regenerate", typeof window.nbCostChip==="function" && window.nbCostChip(1, regenCost))));
 }
-function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, specFields, onApplySpec, editCost, regenCost, scriptPart }){
+/* the name at the head of a report window, with what the report is behind an "i" (hover, or a tap on a phone) */
+function _qaTitleRow(name, about){
+  const Tip = (typeof window.InfoTip==="function") ? window.InfoTip : null;
+  return React.createElement("div",{className:"qa-title-row"},
+    React.createElement("div",{className:"qa-title",title:Tip?undefined:about}, name||"Untitled"),
+    Tip && React.createElement(Tip,{label:"About this check",text:about}));
+}
+function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, specFields, onApplySpec, editCost, regenCost, scriptPart, onRecheck }){
   const r = report;
   const [applying, setApplying] = React.useState(false);
   // "Apply to spec": fold the prompt advice into the card's own drafted fields —
@@ -4216,12 +4223,12 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
   return React.createElement("div",{className:"ns-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"qa-modal"},
       React.createElement("div",{className:"qa-head"},
-        React.createElement("span",{className:"qa-orb "+sev}, React.createElement(Icon.eye,{s:16})),
         React.createElement("div",{className:"qa-head-txt"},
-          React.createElement("div",{className:"qa-title"}, name||"Untitled"),
-          React.createElement("div",{className:"qa-sub"}, (noun||"sheet")+(r.judgedSpec
-            ? " · uploaded image — judged against the card's CURRENT spec (it has no generation prompt)"
-            : " · judged against the exact prompt that generated it"))),
+          // (2026-11-17, owner: "turn the small text into a tooltip") what was judged against what, behind the "i"
+          _qaTitleRow(name, (r.judgedSpec
+            ? "This "+(noun||"sheet")+" is an uploaded image: it was judged against the card's current spec (it has no generation prompt)."
+            : "This "+(noun||"sheet")+" was judged against the exact prompt that generated it.")
+            + ((r.kept && qaCheckedOn(r.checkedAt)) ? "\n\n"+qaCheckedOn(r.checkedAt)+" This is the saved result; opening it is free." : ""))),
         React.createElement("span",{className:"qa-badge "+sev}, sev==="pass"?"Faithful":sev==="minor"?"Minor drift":"Major drift"),
         React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:16}))),
       clean
@@ -4244,12 +4251,13 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
           : r.action==="regenerate" ? "Regenerate — the drift is systemic, an edit can't save it"
           : "Keep — minor nits at most")),
       (r.action==="edit" && r.editInstruction) && React.createElement("div",{className:"qa-sec"},
-        React.createElement("div",{className:"qa-sec-lab"},"Suggested edit — for this card's Edit box (or Run it below)"),
+        React.createElement("div",{className:"qa-sec-lab"},"Suggested edit"),
         React.createElement("div",{className:"qa-quote edit"},r.editInstruction)),
       r.promptFix && React.createElement("div",{className:"qa-sec"},
-        React.createElement("div",{className:"qa-sec-lab",
-          title:"This amends the WRITTEN SPEC, not the image: Apply to spec folds it into the card's drafted fields for you, then Regenerate the sheet. It is not an Edit instruction — for a quick image fix, use Run suggested edit instead."},
-          "Prompt advice — amends the card's spec (not an Edit instruction)"),
+        React.createElement("div",{className:"qa-sec-lab"},"Prompt advice",
+          // (2026-11-17, owner) what this part is, behind the "i" beside its name
+          (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About prompt advice",
+            text:"This changes the card's written spec, not the image. Apply to spec puts it into the card's fields for you, then the "+(noun||"sheet")+" is made again. For a quick fix to the image itself, use the suggested edit instead."})),
         React.createElement("div",{className:"qa-quote"},r.promptFix),
         React.createElement("div",{className:"qa-apply-row"},
           (specFields && onApplySpec) && React.createElement("button",{className:"ns-btn qa-apply-btn "+(r.action==="regenerate"?"primary":"ghost"),disabled:applying||gening,
@@ -4259,7 +4267,9 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
             applying ? "Folding into the spec…" : "Apply to spec & regenerate", !applying && typeof window.nbCostChip==="function" && window.nbCostChip(1, regenCost)),
           _editBtn)),
       React.createElement("div",{className:"qa-foot"},
-        React.createElement("span",{className:"qa-foot-note"},"1 vision read · no image credits spent"),
+        onRecheck && React.createElement("button",{className:"ns-btn ghost qa-recheck","data-role":"qa-recheck",disabled:gening,onClick:onRecheck,
+          title:"Read the image again and make a new report (writing credits, no image credits)"},
+          React.createElement(Icon.eye,{s:14}),"Check again"),
         React.createElement("button",{className:"ns-btn ghost",onClick:onClose},"Close"),
         (r.action==="edit" && r.editInstruction) && React.createElement("button",{className:"ns-btn primary",disabled:gening,
           title:"Apply the suggested edit to this image now — one generation; the current version stays in history",
@@ -4274,6 +4284,31 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
 /* ---- QA button — lives in the card controls and in the shot head row.
    Self-contained: busy state, the vision
    read, and the report modal. Hidden until the card has a generated image. */
+/* THE LAST QA RESULT STAYS ON THE BUTTON (owner 2026-11-17). It is kept with the image it judged (imagegen.jsx
+   nbSetAssetQa: the image's own meta, this exact version), so the button shows the verdict ("Minor drift · 3") and
+   opens the report again for free; "Check again" inside it reads the image once more. A new image, an edit or a
+   restored version shows "QA check" until it has a result of its own. */
+function qaKept(gen){
+  const m = gen && gen.genMeta;
+  return (m && m.iso && m.qa && m.qa.iso===m.iso && m.qa.report && typeof m.qa.report==="object") ? m.qa : null;
+}
+function qaSeverity(r){ return (r && r.verdict==="pass") ? "pass" : (r && r.verdict==="major") ? "major" : "minor"; }
+function qaFindingCount(r){
+  if(!r) return 0;
+  return ((r.deviations||[]).length) + ((r.inventions||[]).length) + (((r.script && r.script.mismatches)||[]).length);
+}
+function qaBadgeText(r){
+  const sev = qaSeverity(r), n = qaFindingCount(r);
+  return (sev==="pass" ? "Faithful" : sev==="minor" ? "Minor drift" : "Major drift")+(n ? " · "+n : "");
+}
+function qaCheckedOn(at){
+  const d = new Date(Number(at)||0);
+  if(!at || isNaN(d.getTime())) return "";
+  let day = "", time = "";
+  try{ day = d.toLocaleDateString(undefined,{ day:"numeric", month:"short" }); time = d.toLocaleTimeString(undefined,{ hour:"numeric", minute:"2-digit" }); }catch(e){}
+  return day ? "Checked on "+day+(time ? ", "+time : "")+"." : "";
+}
+window.qaKept = qaKept; window.qaBadgeText = qaBadgeText; window.qaFindingCount = qaFindingCount; window.qaCheckedOn = qaCheckedOn;
 function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes }){
   const [busy, setBusy] = React.useState(false);
   const [report, setReport] = React.useState(null);
@@ -4341,21 +4376,35 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
     if(!rep){ if(window.appToast) window.appToast("The QA read failed — try again.","info"); return; }
     if(rep.unsupported){ if(window.appToast) window.appToast("The frame check isn't available right now \u2014 the writing engine couldn't look at the image. Try again later; nothing was charged for an image.","info"); return; }
     setReport({ ...rep, judgedSpec });
+    // keep it with the image it judged (free; a film this person can't write to just doesn't keep it)
+    const iso = gen.genMeta && gen.genMeta.iso;
+    if(iso && typeof window.nbSetAssetQa==="function"){
+      let plain = null;
+      try{ plain = JSON.parse(JSON.stringify({ ...rep, judgedSpec })); }catch(e){ plain = null; }
+      if(plain){ try{ Promise.resolve(window.nbSetAssetQa(gen.id, iso, { at:Date.now(), report:plain })).catch(()=>{}); }catch(e){} }
+    }
   };
+  const kept = qaKept(gen), keptSev = kept ? qaSeverity(kept.report) : "";
   return React.createElement(React.Fragment,null,
-    React.createElement("button",{className:(className||"char-draft-btn ghost")+(busy?" busy":""),disabled:busy||gen.gening,
-      title:"QA check — re-reads this "+(noun||"sheet")+" against the exact prompt that generated it: deviations, invented content, per-panel faults, and whether to edit or regenerate"
+    React.createElement("button",{className:(className||"char-draft-btn ghost")+(busy?" busy":"")+((kept && !busy)?" qa-kept "+keptSev:""),disabled:busy||gen.gening,
+      "data-qa":(kept && !busy) ? keptSev : undefined,
+      title:(kept && !busy)
+        ? "The last QA check of this image: "+qaBadgeText(kept.report)+". "+qaCheckedOn(kept.at)+" Click to open the report again (free); Check again is inside it."
+        : "QA check — re-reads this "+(noun||"sheet")+" against the exact prompt that generated it: deviations, invented content, per-panel faults, and whether to edit or regenerate"
         +((script && script.c) ? "; and against what the screenplay states about "+(script.c.name||"them")+", with the line each mismatch breaks" : "")
         +". One vision read (writing-model credits, no image spend).",
-      onClick:run},
-      busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.eye,{s:12}),
-      busy ? "QA…" : "QA check"),
+      onClick:()=>{ if(kept && !busy) setReport({ ...kept.report, kept:true, checkedAt:kept.at }); else run(); }},
+      busy ? React.createElement("span",{className:"ns-spin"})
+        : kept ? React.createElement("span",{className:"qa-kept-dot "+keptSev,"aria-hidden":"true"}) : React.createElement(Icon.eye,{s:12}),
+      busy ? "QA…" : kept ? qaBadgeText(kept.report) : "QA check"),
     report && ReactDOM.createPortal(React.createElement(QaReport,{ name, noun, report, gening:gen.gening,
       specFields,
       scriptPart: (script && script.c) ? { c:script.c, variant:!!script.variantLabel, note:scriptFacts().note,
         onApply: script.onUpdate ? (patch)=>script.onUpdate(script.c.id, patch) : null } : null,
       onApplySpec: onApplySpec ? (patch)=>{ onApplySpec(patch); setPendingRegen(true); } : undefined,
       onClose:()=>setReport(null),
+      // a kept report can be made again (one more read of the image)
+      onRecheck: report.kept ? ()=>{ setReport(null); run(); } : undefined,
       // a likeness sheet's renders send its photos: these prices count every image (2026-10-10, owner — Likeness review)
       editCost: gen.likenessEditRefs ? { refs: 1 + gen.likenessEditRefs + ((gen.refCounts && gen.refCounts().attach) || 0) } : undefined,
       regenCost: (gen.likenessRefs && gen.refCounts) ? { refs: gen.refCounts().generate } : undefined,
@@ -4393,10 +4442,8 @@ function CharacterScriptCheckReport({ c, name, noun, report, gening, variant, on
   return React.createElement("div",{className:"ns-overlay",onMouseDown:e=>{ if(e.target===e.currentTarget) onClose(); }},
     React.createElement("div",{className:"qa-modal","data-testid":"script-check-report"},
       React.createElement("div",{className:"qa-head"},
-        React.createElement("span",{className:"qa-orb "+(mism.length?"major":"pass")}, React.createElement(Icon.script,{s:16})),
         React.createElement("div",{className:"qa-head-txt"},
-          React.createElement("div",{className:"qa-title"}, name||"Untitled"),
-          React.createElement("div",{className:"qa-sub"}, (noun||"sheet")+" · checked against what the screenplay states ("+(r.checked||0)+" fact"+((r.checked||0)!==1?"s":"")+")")),
+          _qaTitleRow(name, "This "+(noun||"sheet")+" was checked against what the screenplay states ("+(r.checked||0)+" fact"+((r.checked||0)!==1?"s":"")+").")),
         React.createElement("span",{className:"qa-badge "+(mism.length?"major":"pass")}, mism.length ? (mism.length+" mismatch"+(mism.length!==1?"es":"")) : "Matches the script"),
         React.createElement("button",{className:"ag-x",onClick:onClose,"aria-label":"Close"},React.createElement(Icon.x,{s:16}))),
       !mism.length
@@ -4428,7 +4475,6 @@ function CharacterScriptCheckReport({ c, name, noun, report, gening, variant, on
         React.createElement("div",{className:"qa-sec-lab"},"Not visible in any view"),
         React.createElement("div",{className:"phys-note"}, r.unclear.map(f=> fieldLab(f.field)+": "+f.value).join(" · "))),
       React.createElement("div",{className:"qa-foot"},
-        React.createElement("span",{className:"qa-foot-note"},"1 vision read · no image credits spent"),
         React.createElement("button",{className:"ns-btn ghost",onClick:onClose},"Close"),
         mism.length>0 && React.createElement("button",{className:"ns-btn "+(anyApplied || mism.some(m=>m.specOk) ? "primary" : "ghost"),disabled:gening,
           title:"Regenerate the "+(noun||"sheet")+" from the current spec (one image) — the current version stays in history",
@@ -5680,6 +5726,24 @@ function PaletteRow({ palette }){
       React.createElement("span",{className:"pal-name"},p.name))));
 }
 
+/* A GROUP OF SECTIONS on a card (owner 2026-11-17: "a shorter card" — the character card showed nine folded rows).
+   Its sections stay mounted while the group is closed (only hidden), so a banner that jumps to one of them
+   (nb-open-fold with that section's id) still reaches it; the group opens itself for the ids it holds. */
+function CardGroup({ label, foldIds, defaultOpen, children }){
+  const [open, setOpen] = React.useState(!!defaultOpen);
+  const ids = (foldIds||[]).join("|");
+  React.useEffect(()=>{ if(!ids) return undefined;
+    const held = ids.split("|");
+    const h = (e)=>{ if(e && held.indexOf(e.detail)>=0) setOpen(true); };
+    window.addEventListener("nb-open-fold",h);
+    return ()=>window.removeEventListener("nb-open-fold",h); },[ids]);
+  return React.createElement("div",{className:"sheet-group "+(open?"open":""),"data-group":label},
+    React.createElement("button",{type:"button",className:"sheet-fold-head sheet-group-head","aria-expanded":open?"true":"false",onClick:()=>setOpen(o=>!o)},
+      React.createElement("span",{className:"sheet-fold-ic"},React.createElement(open?Icon.chevD:Icon.chevR,{s:12})),
+      React.createElement("span",{className:"sheet-group-lab"},label)),
+    React.createElement("div",{className:"sheet-group-body",hidden:!open},children));
+}
+window.CardGroup = CardGroup;
 function CardFold({ label, count, defaultOpen, children, foldId }){
   const [open, setOpen] = React.useState(!!defaultOpen);
   const ref = React.useRef(null);
@@ -6349,7 +6413,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement("span",{className:"char-style-lab"},React.createElement(Icon.sparkles,{s:12}),"Render style"),
         React.createElement("div",{className:"char-style-pick"},
           React.createElement(window.RenderStylePicker,{value:(typeof inferCharacterRenderStyleKey==="function"?inferCharacterRenderStyleKey(c):(c.renderStyleKey||(window.turnDefaultRenderStyleKey?window.turnDefaultRenderStyleKey():"photoreal"))),disabled:styling,onPick:pickRenderStyle}),
-          (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. The admin manages them via Styles in the Film menu."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+"/"+(window.turnGlobalStyleCap||40))),
+          (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. The admin manages them via Styles in the Film menu."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+" of "+(window.turnGlobalStyleCap||40)+" styles")),
         styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing…"),
         (!styling && c.renderStyleKey==="surprise" && c.surpriseRender && c.surpriseRender.label) &&
           React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style",onClick:reSurprise},
@@ -6366,6 +6430,10 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             className:"sheet-scene-chip"+(drivenIds.has(s.id)?" driven":""),
             title:(s.title||("Scene "+s.no))+(drivenIds.has(s.id)?" \u00b7 drives this scene":" \u00b7 appears") })) })),
 
+      // THE CARD IN FOUR ROWS (owner 2026-11-17: "a shorter card"): the look (five sections), the appearance states,
+      // voice & video, and the rarely opened two (Advanced). Every section is where it was inside its group, and a
+      // banner that jumps to one (nb-open-fold) opens its group too.
+      React.createElement(CardGroup,{label:"The look",foldIds:["props-"+c.id]},
       React.createElement(CardFold,{label:"Identity",defaultOpen:false},
         React.createElement("div",{className:"role-fields identity-role-fields"},
           React.createElement("div",{className:"role-line"},
@@ -6680,7 +6748,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                     onChange:(e)=>setWornReferenceIncluded(row.prop.id,e.target.checked)}),
                   React.createElement("span",null,"Visual lock")),
                 React.createElement("span",{className:"linked-prop-status"},status)));
-            })))),
+            }))))),
 
       React.createElement(CardFold,{label:"Continuity \u00b7 appearance states",count:states.length||null,defaultOpen:false},
         React.createElement("div",{className:"sheet-props-note"},
@@ -6705,14 +6773,6 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
               "No appearance states yet \u2014 the base sheet covers the whole film. ",
               "Use \u201cSuggest from script\u201d to find where the look changes, or add one by hand.")),
 
-      React.createElement(CardFold,{label:"Look & exclusions",defaultOpen:false},
-        React.createElement("div",{className:"sheet-field"},
-          React.createElement("div",{className:"obj-lab"},"Colour palette \u00b7 base \u2192 climax"),
-          React.createElement(PaletteRow,{palette})),
-        // an editable setting that changes the sheet, so it lives on the card, not behind the prompt (2026-10-05)
-        React.createElement(SheetField,{label:"Leave out (negative prompt)",value:c.negativePrompt||v.negativePrompt,multiline:true,
-          onCommit:val=>onUpdate(c.id,{negativePrompt:val})})),
-
       // SPOKEN LANGUAGE (2026-10-24, from the Anerneq study): lines in another or an invented language;
       // Cyrillic letters spell them by sound for the video model, which keeps English pronunciation out
       // VOICE & VIDEO (owner 2026-10-29): the language of their lines and their video element — both only feed the Stage
@@ -6731,6 +6791,15 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         // VIDEO ELEMENT (2026-10-27): a few seconds of them speaking in their locked voice, sent with their Stage clips
         window.VideoElementFold && React.createElement(window.VideoElementFold,{ c, readOnly, scenes, drafts, onUpdate, bare:true })),
 
+      React.createElement(CardGroup,{label:"Advanced"},
+      React.createElement(CardFold,{label:"Look & exclusions",defaultOpen:false},
+        React.createElement("div",{className:"sheet-field"},
+          React.createElement("div",{className:"obj-lab"},"Colour palette \u00b7 base \u2192 climax"),
+          React.createElement(PaletteRow,{palette})),
+        // an editable setting that changes the sheet, so it lives on the card, not behind the prompt (2026-10-05)
+        React.createElement(SheetField,{label:"Leave out (negative prompt)",value:c.negativePrompt||v.negativePrompt,multiline:true,
+          onCommit:val=>onUpdate(c.id,{negativePrompt:val})})),
+
       // the sheet's prompt: a section of every card, folded (owner 2026-10-28 — it used to hide behind the card's ⋯ menu
       // or the Film menu's "Always show prompts"); read-only (the "Leave out" field is under Look dev)
       React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},
@@ -6739,7 +6808,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         // (stored per version, so restoring an older version restores its prompt
         // here too); before any sheet exists it previews the next generation.
         React.createElement(CopyBox,{label:"Prompt with reference images",
-          text:(gen.genUrl && gen.genMeta && gen.genMeta.prompt) || finalPrompt})),
+          text:(gen.genUrl && gen.genMeta && gen.genMeta.prompt) || finalPrompt}))),
 
       cameoOpen && React.createElement(CameoModal,{ character:c,
         onClose:()=>setCameoOpen(false),
@@ -7032,7 +7101,8 @@ function SceneChipPager({ items, none }){
       title:"Later scenes",onClick:()=>setOfs(o+PAGE)},"\u203a"),
     items.length>PAGE && React.createElement("span",{className:"sheet-scenes-count",
       title:items.length+" scenes in total"},
-      (shown.length>1 ? shown[0].label+"\u2013"+shown[shown.length-1].label : shown[0].label)+" ("+items.length+")"));
+      // (2026-11-17, owner: "explain the bare numbers") "38 scenes": it was "01–04 (38)", a range and a bare number
+      items.length+" scenes"));
 }
 window.SceneChipPager = SceneChipPager;
 
@@ -7237,6 +7307,39 @@ window.charLookbookFirstHint = charLookbookFirstHint;
 window.turnFocusArtScene = (tab, sceneId, action)=>{ window.turnArtFocus = { tab, sceneId, action:action||"", at:Date.now(), film:window.turnOpenFilmId||null }; };
 window.turnPeekArtFocus = (tab)=>{ const f = window.turnArtFocus; return (f && f.tab===tab && Date.now()-f.at<15000 && (f.film||null)===(window.turnOpenFilmId||null)) ? f : null; };
 window.turnClearArtFocus = (tab)=>{ const f = window.turnArtFocus; if(f && f.tab===tab) window.turnArtFocus = null; };
+/* THE CAST AT A GLANCE (owner 2026-11-17: "a cast overview"). With a long cast the cards are pages apart; this is one
+   row of faces over them. Each shows what that character already has (a sheet, a real face, a voice, and the last QA
+   verdict as a dot) and a press goes to the card. Nothing is made or spent here: it only reads what is on the cards. */
+function castFirstName(name){
+  const n = String(name||"").trim().split(/\s+/)[0] || "";
+  return n ? n.charAt(0).toUpperCase()+n.slice(1).toLowerCase() : "?";
+}
+function CastOverview({ list, faceIds, onGo }){
+  if(!(list && list.length > 4)) return null;
+  const img = (id)=> (typeof nbGetImage==="function") ? (nbGetImage(id)||"") : "";
+  const meta = (id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
+  return React.createElement("div",{className:"cast-strip",role:"group","aria-label":"The cast at a glance","data-testid":"cast-overview"},
+    list.map(c=>{
+      const url = img(c.id), face = !!(faceIds && faceIds.has(c.id)), voice = !!(c.voiceLock && c.voiceLock.voiceId);
+      const kept = qaKept({ genMeta:meta(c.id) });
+      const sev = kept ? qaSeverity(kept.report) : "";
+      const has = [url ? "sheet made" : "no sheet yet", face ? "real face saved" : "no real face", voice ? "voice set" : "no voice yet"];
+      return React.createElement("button",{key:c.id,type:"button",className:"cast-chip"+(url?"":" todo"),"data-cast-chip":c.id,
+          title:(c.name||"Character")+": "+has.join(", ")+(kept ? ", QA: "+qaBadgeText(kept.report) : "")+". Click to go to the card.",
+          onClick:()=>onGo && onGo(c.id)},
+        url ? React.createElement("span",{className:"cast-chip-face",style:{backgroundImage:'url("'+String(url).replace(/"/g,"%22")+'")'}})
+            : React.createElement("span",{className:"cast-chip-face none","aria-hidden":"true"},(String(c.name||"?").trim().charAt(0)||"?").toUpperCase()),
+        React.createElement("span",{className:"cast-chip-name"},castFirstName(c.name)),
+        React.createElement("span",{className:"cast-chip-marks","aria-hidden":"true"},
+          React.createElement("span",{className:"cast-mark"+(url?" on":"")},React.createElement(Icon.image,{s:11})),
+          React.createElement("span",{className:"cast-mark"+(face?" on":"")},React.createElement(Icon.userScan,{s:11})),
+          React.createElement("span",{className:"cast-mark"+(voice?" on":"")},React.createElement(Icon.mic,{s:11})),
+          kept && React.createElement("span",{className:"qa-kept-dot "+sev})));
+    }),
+    (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About this row",
+      text:"Every character in one row. The three marks show what each one has: a sheet, a real face, a voice (bright = done). A dot is the last QA result. Click a face to go to its card."}));
+}
+window.CastOverview = CastOverview;
 function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook, onReadScript, readingFactIds }){
   const [view, setView] = React.useState(null);   // {url, character}
   // Keep one open flag per character so several card-contained Voice cards can
@@ -7434,8 +7537,36 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
     };
     requestAnimationFrame(tick);
   },[list]);
+  // (2026-11-17) the header's rarely used buttons sit in one "More" menu
+  const [moreOpen, setMoreOpen] = React.useState(false);
+  const moreRef = React.useRef(null);
+  React.useEffect(()=>{ if(!moreOpen) return undefined;
+    const out = (e)=>{ if(moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false); };
+    const esc = (e)=>{ if(e.key==="Escape") setMoreOpen(false); };
+    document.addEventListener("pointerdown", out); document.addEventListener("keydown", esc);
+    return ()=>{ document.removeEventListener("pointerdown", out); document.removeEventListener("keydown", esc); }; },[moreOpen]);
   const [cameoCount, setCameoCount] = React.useState(()=> (typeof nbListCameos==="function") ? nbListCameos().length : 0);
   const refreshCount = ()=>{ if(typeof nbListCameos==="function") setCameoCount(nbListCameos().length); };
+  // who has a real face saved (the cast overview's middle mark); follows the same event as the count
+  const castFaceIds = React.useMemo(()=>{ const out = new Set();
+    try{ if(typeof nbListCameos==="function") for(const k of nbListCameos()) if(k && k.id && k.available!==false) out.add(k.id); }catch(e){}
+    return out; },[cameoCount, characterIdsKey]);
+  // the overview's press: the card's page of the grid, then the card itself, with a short flash
+  const goToCard = (id)=>{
+    const i = shown.findIndex(c=>c.id===id);
+    if(i<0) return;
+    if(charPager && charPager.active && typeof charPager.setPage==="function") charPager.setPage(Math.floor(i/SHEETS_PER_PAGE));
+    const sel = '[data-char-card="'+String(id).replace(/["\\]/g,"")+'"]';
+    let tries = 0;
+    const seek = ()=>{ const el = (typeof document!=="undefined" && document.querySelector) ? document.querySelector(sel) : null;
+      if(el && el.scrollIntoView){
+        el.scrollIntoView({ behavior:"smooth", block:"start" });
+        try{ el.classList.remove("cast-go-flash"); void el.offsetWidth; el.classList.add("cast-go-flash");
+          setTimeout(()=>{ try{ el.classList.remove("cast-go-flash"); }catch(e){} }, 1600); }catch(e){}
+        return; }
+      if(++tries < 12) setTimeout(seek, 120); };
+    setTimeout(seek, 60);
+  };
   // the count follows every lock / sync / revoke / load (the store's event — 2026-10-10, owner — Likeness review)
   React.useEffect(()=>{
     const h = ()=> refreshCount();
@@ -7490,12 +7621,6 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"character",onRestore,onPurge,compact:true}),
-          cameoCount>0 && React.createElement("button",{className:"art-cameo-mgr",onClick:()=>setMgrOpen(true),
-            title:"Likeness manager \u2014 review and manage the saved likenesses"},
-            React.createElement(Icon.userScan,{s:14}),"Likenesses \u00b7 "+cameoCount),
-          voicesBtn && React.createElement("button",{className:"art-cameo-mgr art-voices-mgr",onClick:()=>setVoicesMgrOpen(true),"data-testid":"voices-manager-btn",
-            title:"Voices \u2014 your own voices (real and designed): who, which characters use them, delete to free room"},
-            React.createElement(Icon.mic,{s:14}),"Voices"+(realSeen && realSeen.used>0 ? " \u00b7 "+realSeen.used : "")),
           // NO hand-adding: the cast derives from story creation and screenplay
           // development; the Art Room designs only what the story establishes.
           // ONE primary per stage: "Design the cast" leads while specs are missing,
@@ -7513,9 +7638,28 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
             React.createElement(Icon.sparkles,{s:14}),
             batchActiveId?"Generating\u2026":("Generate "+missingAll.length+" missing sheet"+(missingAll.length!==1?"s":"")),
             batchChip(missingAll)),
+          // ONE "MORE" MENU (owner 2026-11-17: "fewer buttons above the cards"): what is rarely pressed — the quiet
+          // "Regenerate sheets…" and the two managers — sits behind it; the stage's main button and Design the cast stay
+          (()=>{
+            const items = [
           (castStage!=="draft" && !missingAll.length && eligibleAll>0) && React.createElement("button",{className:"art-draftall ghost",disabled:!!batchActiveId,onClick:()=>startAllBatch(false),
-            title:"Regenerate the reference sheets of the drafted cast \u2014 you'll be asked before anything is redone, with the price"},
-            React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Regenerate sheets\u2026"))),
+              title:"Regenerate the reference sheets of the drafted cast \u2014 you'll be asked before anything is redone, with the price"},
+              React.createElement(Icon.sparkles,{s:14}), batchActiveId?"Generating\u2026":"Regenerate sheets\u2026"),
+          cameoCount>0 && React.createElement("button",{className:"art-cameo-mgr",onClick:()=>setMgrOpen(true),
+              title:"Likeness manager \u2014 review and manage the saved likenesses"},
+              React.createElement(Icon.userScan,{s:14}),"Likenesses \u00b7 "+cameoCount),
+            voicesBtn && React.createElement("button",{className:"art-cameo-mgr art-voices-mgr",onClick:()=>setVoicesMgrOpen(true),"data-testid":"voices-manager-btn",
+              title:"Voices \u2014 your own voices (real and designed): who, which characters use them, delete to free room"},
+              React.createElement(Icon.mic,{s:14}),"Voices"+(realSeen && realSeen.used>0 ? " \u00b7 "+realSeen.used : ""))
+            ].filter(Boolean);
+            if(!items.length) return null;
+            if(items.length===1) return items[0];     // one button needs no menu
+            return React.createElement("div",{className:"art-more",ref:moreRef,"data-testid":"cast-more"},
+              React.createElement("button",{type:"button",className:"art-draftall ghost art-more-btn","aria-haspopup":"menu","aria-expanded":moreOpen?"true":"false",
+                title:"More for the whole cast",onClick:()=>setMoreOpen(o=>!o)},
+                "More",React.createElement(Icon.chevD,{s:12})),
+              React.createElement("div",{className:"art-more-pop",role:"menu",hidden:!moreOpen,onClick:()=>setMoreOpen(false)},...items));
+          })())),
       lookbookFirst && React.createElement("div",{className:"char-lookbook-hint",role:"note"},
         React.createElement(Icon.image,{s:12}),
         React.createElement("span",null,
@@ -7581,6 +7725,7 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
     (sceneFilter && window.BdSceneNeedsLine) && React.createElement(window.BdSceneNeedsLine,{sceneId:sceneFilter,sceneNo:sceneNoOf(sceneFilter),kind:"characters",
       film:{ scenes, characters, props, drafts, shots, project }, list, onFind:(n)=>{ setQuery(n||""); setSearchOpen(true); }}),
     BatchBar && React.createElement(BatchBar,{batch,noun:"character"}),
+    React.createElement(CastOverview,{ list:shown, faceIds:castFaceIds, onGo:goToCard }),
     React.createElement("div",{className:"sheet-grid"},
       charPager.slice(shown).map(c=>React.createElement(CharacterSheet,{key:c.id,c,readOnly,wardrobeStale:(wardrobeIds||[]).indexOf(c.id)>=0,project,scenes,props,drafts,cast:characters,speaks:speakingSet.has(c.id),onUpdate,onDraft,
         onReadScript:(onReadScript && scriptReady) ? (()=>onReadScript([c.id])) : null, readingFacts:readingIds.indexOf(c.id)>=0,

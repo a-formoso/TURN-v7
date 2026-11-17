@@ -9549,7 +9549,9 @@ function App(){
   // phones and short screens: the room's heading folds away while its page scrolls down (mobile step 1) —
   // above the sign-in splash and the landing page, which return early: hooks run on every render
   const shortScreen = useShortScreen();
-  const headHidden = useHeadAutoHide(vp==="mobile" || shortScreen, room+"|"+view+"|"+artView);
+  // (2026-11-17, owner: "shrink the page heading when you scroll") the Art Room folds its heading at every size: its
+  // title, line and buttons kept about a third of a laptop's screen over the cards
+  const headHidden = useHeadAutoHide(vp==="mobile" || shortScreen || room==="art", room+"|"+view+"|"+artView);
   if(authGate && !authReady){
     return React.createElement("div",{className:"lp-splash",role:"status","aria-live":"polite"},
       React.createElement("span",{className:"lp-logo"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot"),

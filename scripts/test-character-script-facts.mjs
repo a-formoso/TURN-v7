@@ -457,7 +457,7 @@ await test("E4 the report: each mismatch with the quote it breaks; Apply to spec
   const t = textOf(tree);
   assert.match(t, /The script says “His left hand is missing two fingers\.” — the sheet: the missing fingers are on the RIGHT hand\./);
   assert.match(t, /The spec already says it — the image missed it: regenerate\./);
-  assert.match(t, /2 mismatches/); assert.match(t, /1 vision read · no image credits spent/); assert.match(t, /Not visible in any view/);
+  assert.match(t, /2 mismatches/); assert.doesNotMatch(t, /vision read/, "no cost note at the foot of the window (owner 2026-11-17)"); assert.match(t, /Not visible in any view/);
   const btns = findAll(tree, n=>n.type==="button");
   const apply = btns.find(b=>textOf(b)==="Apply to spec");
   apply.props.onClick();

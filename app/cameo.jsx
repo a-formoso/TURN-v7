@@ -92,6 +92,51 @@ const cameoPerfNow = ()=> (typeof performance!=="undefined" && performance && ty
 const CAMEO_NOTE_OK = "The pose check runs on this device — the camera picture isn't sent anywhere while you pose. Only the photos you keep are saved, as face references for this character's images.";
 const CAMEO_NOTE_WHY = { unsupported:"in this browser", offline:"(check your connection, then reopen this window)",
   timeout:"(check your connection, then reopen this window)", failed:"on this device" };
+/* (2026-11-17, owner: "removing similar text, creating tooltips") the small lines that only explain live behind an
+   "i" beside what they explain (hover, or a tap on a phone). What the person must act on stays in view: a warning,
+   the reason a box can't be ticked, what unticking will remove. The consent question and its box are never moved. */
+const CAMEO_TIP_HOW = "Look straight at the camera for Front, then turn your head to each side. The preview works like a mirror: your left is the left of the screen.";
+const CAMEO_TIP_SYNC = "Off by default: the photos stay on this device unless you tick this. Synced, only you and the film's owner see the photos; the film's Art directors can make images with it.";
+function cameoTip(label, text){
+  return (typeof window.InfoTip==="function") ? React.createElement(window.InfoTip,{ label, text }) : null;
+}
+/* THE WINDOW'S TITLE ON ONE LINE (owner 2026-11-17: "no line break; if you have to use initials for names, please do
+   so"). The name is written in full when it fits; else the first name and initials ("MAUREEN S."); else initials only
+   ("M. S."). It is measured where it is drawn, so any font and any window width get the longest form that fits; the
+   full name stays in the title's tooltip. */
+function cameoNameForms(name){
+  const full = String(name||"").trim().replace(/\s+/g," ");
+  const parts = full.split(" ").filter(Boolean);
+  if(parts.length < 2) return [full];
+  const ini = (w)=> w.charAt(0).toUpperCase()+".";
+  const out = [full, parts[0]+" "+parts.slice(1).map(ini).join(" "), parts.map(ini).join(" ")];
+  return out.filter((x,i)=> out.indexOf(x)===i);
+}
+function CameoTitle({ name, tip }){
+  const forms = cameoNameForms(name);
+  const [lvl, setLvl] = React.useState(0);
+  const ref = React.useRef(null);
+  React.useEffect(()=>{ setLvl(0); }, [name]);
+  // after every draw: if the line is wider than its place, the next shorter form
+  React.useEffect(()=>{
+    const el = ref.current;
+    if(!el || !(el.clientWidth > 0)) return;
+    if(el.scrollWidth > el.clientWidth + 1 && lvl < forms.length-1) setLvl(lvl+1);
+  });
+  // a wider window may fit the full name again
+  React.useEffect(()=>{
+    if(typeof window.addEventListener!=="function") return undefined;
+    const on = ()=>setLvl(0);
+    window.addEventListener("resize", on);
+    return ()=>window.removeEventListener("resize", on);
+  },[]);
+  const shown = forms[Math.min(lvl, forms.length-1)];
+  return React.createElement("div",{className:"cameo-title","data-name-form":Math.min(lvl, forms.length-1)},
+    React.createElement(Icon.userScan,{s:16}),
+    React.createElement("span",{className:"cameo-title-t",ref:ref,title:shown!==forms[0] ? "Likeness · "+forms[0] : undefined},"Likeness · "+shown),
+    tip);
+}
+window.cameoNameForms = cameoNameForms;
 function cameoNoteOff(why){
   return "Automatic side photos are off — the pose check couldn't start "+(CAMEO_NOTE_WHY[why]||CAMEO_NOTE_WHY.failed)+". Turn as the sketch shows, then press Take photo.";
 }
@@ -130,46 +175,41 @@ function cameoFallbackCue(a, filled, auto, allDone, st){
 }
 const CAMEO_RING_D = "M50 11 A27 35 0 1 1 49.999 11";
 
-/* ── pose sketches (decision H) ────────────────────────────────────────────
-   Three neutral line drawings — front, ¾ left, ¾ right — drawn as the person SEES themselves in
-   the mirrored preview (¾ Left: the face turned toward the left side of the frame). They are the
-   empty-slot placeholders and the faint ghost in the capture ring. Static and free: nothing is
-   generated, nothing is cached. */
-const CAMEO_POSE_3Q = [
-  ["e", { cx:51, cy:46, rx:21, ry:28 }],
-  ["p", "M31 38 C33 22 42 16 52 16 C62 16 71 24 72 40"],
-  ["g", "M42 19 Q33 46 41 74"],
-  ["p", "M29 42 Q32 41 35 42"], ["p", "M41 41.5 Q46.5 39.5 52 42"],
-  ["p", "M30 47 Q32.5 45.5 35 47"], ["p", "M42 47 Q47 44.5 52 47"],
-  ["p", "M37 49 L31 58 Q33 60 36.5 58.5"],
-  ["p", "M33 65 Q38 67.5 44 65"],
-  ["p", "M66 43 Q72 49 66.5 56"],
-  ["p", "M45 72 L45 84"], ["p", "M60 72 L60 84"],
-  ["p", "M45 84 Q26 87 15 108"], ["p", "M60 84 Q78 87 87 108"],
-];
+/* ── pose figures ──────────────────────────────────────────────────────────
+   Three neutral figures — front, your left, your right — drawn as the person SEES themselves in the mirrored preview
+   (your left: the face turned toward the left side of the frame). They are the empty-slot placeholders and the faint
+   ghost in the capture ring. Static and free: nothing is generated, nothing is cached.
+   (2026-11-17, owner: "more in-brand looking figures") drawn like the Kinolot mark: one ink line, a round head over an
+   arch of shoulders, and the shoulders filled amber on the photo being taken. No face is coloured, so the figure says
+   nothing about anyone's skin; the turn is told by the nose, the eyes and the ear. Colours are in styles.css
+   (.cp-body, .cp-head, .cp-eye); the ghost over the camera is the same lines with no fill. */
+const CAMEO_POSE_BODY = "M14 118 V106 C14 94 26 89 39 86 C42.5 85 43 82 43 74 H57 C57 82 57.5 85 61 86 C74 89 86 94 86 106 V118";
+const CAMEO_POSE_HEAD = { cx:50, cy:44, rx:23, ry:29 };
+const CAMEO_POSE_3Q = {
+  eyes: [[33, 46, 2], [46.5, 46, 2.3]],
+  lines: ["M28.5 42 L22 53 Q23.5 57 29.5 56.5",        // the nose, past the cheek
+          "M31 63.5 Q36 66.5 41.5 63.5",                // the mouth
+          "M71.5 40 Q77.5 47 72 54.5"],                 // the ear that comes into view
+};
 const CAMEO_POSE = {
-  front: [
-    ["e", { cx:50, cy:46, rx:22, ry:28 }],
-    ["p", "M29 40 C31 22 41 16 50 16 C59 16 69 22 71 40"],
-    ["g", "M50 20 L50 72"], ["g", "M31 47 L69 47"],
-    ["p", "M37 42 Q42 40 46 41.5"], ["p", "M54 41.5 Q58 40 63 42"],
-    ["p", "M38 47 Q42 44.5 46 47"], ["p", "M54 47 Q58 44.5 62 47"],
-    ["p", "M50 49 L48 58 Q50 60 52 58.5"],
-    ["p", "M44 65 Q50 68.5 56 65"],
-    ["p", "M28 44 Q24 49 28.5 55"], ["p", "M72 44 Q76 49 71.5 55"],
-    ["p", "M42 72 L42 84"], ["p", "M58 72 L58 84"],
-    ["p", "M42 84 Q24 87 14 108"], ["p", "M58 84 Q76 87 86 108"],
-  ],
+  front: {
+    eyes: [[42.5, 46, 2.3], [57.5, 46, 2.3]],
+    lines: ["M50 50 V57.5", "M44.5 63.5 Q50 67 55.5 63.5"],
+  },
   left: CAMEO_POSE_3Q,
-  right: CAMEO_POSE_3Q,   // the ¾ left drawing, mirrored
+  right: CAMEO_POSE_3Q,   // the "your left" drawing, mirrored
 };
 function CameoPoseSketch({ angle, className }){
   const key = CAMEO_POSE[angle] ? angle : "front";
-  const parts = CAMEO_POSE[key].map(([kind, d], i)=>
-    kind==="e" ? React.createElement("ellipse",{ key:i, ...d })
-    : React.createElement("path",{ key:i, d, ...(kind==="g" ? { strokeDasharray:"2 3", strokeWidth:1, opacity:0.55 } : {}) }));
+  const pose = CAMEO_POSE[key];
+  const parts = [
+    React.createElement("path",{ key:"body", className:"cp-body", d:CAMEO_POSE_BODY }),
+    React.createElement("ellipse",{ key:"head", className:"cp-head", ...CAMEO_POSE_HEAD }),
+    ...pose.eyes.map((e,i)=> React.createElement("circle",{ key:"eye"+i, className:"cp-eye", cx:e[0], cy:e[1], r:e[2] })),
+    ...pose.lines.map((d,i)=> React.createElement("path",{ key:"line"+i, d })),
+  ];
   return React.createElement("svg",{ className:"cameo-pose "+(className||""), viewBox:"0 0 100 120", fill:"none", stroke:"currentColor",
-    strokeWidth:2, strokeLinecap:"round", strokeLinejoin:"round", "aria-hidden":"true", "data-pose":key },
+    strokeWidth:2.6, strokeLinecap:"round", strokeLinejoin:"round", "aria-hidden":"true", "data-pose":key },
     key==="right" ? React.createElement("g",{ transform:"translate(100 0) scale(-1 1)" }, parts) : parts);
 }
 /* the generated pencil sketches the old capture window cached here (made with a personal key)
@@ -1131,17 +1171,15 @@ function CameoModal({ character, onClose, onSaved }){
   if(step==="who") return React.createElement("div",{className:"cameo-overlay",onClick:onClose},
     React.createElement("div",{className:"cameo-modal cameo-who","data-step":"who",onClick:stop},
       React.createElement("div",{className:"cameo-head"},
-        React.createElement("div",null,
-          React.createElement("div",{className:"cameo-title"},
-            React.createElement(Icon.userScan,{s:16})," Likeness · ",character.name),
-          React.createElement("div",{className:"cameo-sub"},"Three quick photos give "+(character.name||"this character")+" a real face: straight on, then turned to each side. First, whose face is it?")),
+        React.createElement("div",{className:"cameo-head-txt"},
+          React.createElement(CameoTitle,{ name:character.name, tip:
+            cameoTip("About Likeness","Three quick photos give "+(character.name||"this character")+" a real face: straight on, then turned to each side.\n\nThe camera picture stays on this device while you pose. Only the photos you keep are saved.") })),
         React.createElement("button",{className:"cameo-x",onClick:onClose,"aria-label":"Close"},
           React.createElement(Icon.x,{s:16}))),
       teamNote && React.createElement("div",{className:"cameo-team-note"},
         "A teammate's likeness is already used for this character. Saving your own uses yours in the images you make."),
       React.createElement("div",{className:"cameo-consent"},
         React.createElement(CameoConsentFields,{ value:consentV, onChange:onConsent })),
-      React.createElement("div",{className:"cameo-note"},"The camera picture stays on this device while you pose. Only the photos you keep are saved."),
       React.createElement("div",{className:"cameo-acts"},
         React.createElement("button",{className:"cameo-btn primary","data-role":"start",disabled:!consentOk,
           title:consentOk ? "" : "Say whose likeness this is and tick the box",
@@ -1153,10 +1191,8 @@ function CameoModal({ character, onClose, onSaved }){
         // a click lets clips the browser held back play again (they were said by the device voice meanwhile)
         onPointerDown:()=>{ if(guideRef.current) guideRef.current.unlock(); }},
       React.createElement("div",{className:"cameo-head"},
-        React.createElement("div",null,
-          React.createElement("div",{className:"cameo-title"},
-            React.createElement(Icon.userScan,{s:16})," Likeness · ",character.name),
-          React.createElement("div",{className:"cameo-sub"},"Look straight at the camera for Front, then turn your head to each side. The preview works like a mirror: your left is the left of the screen.")),
+        React.createElement("div",{className:"cameo-head-txt"},
+          React.createElement(CameoTitle,{ name:character.name, tip:cameoTip("How the photos work", CAMEO_TIP_HOW+"\n\n"+CAMEO_NOTE_OK) })),
         React.createElement("button",{className:"cameo-x",onClick:onClose,"aria-label":"Close"},
           React.createElement(Icon.x,{s:16}))),
 
@@ -1215,8 +1251,8 @@ function CameoModal({ character, onClose, onSaved }){
         showFix && React.createElement("button",{className:"cameo-fix-link","data-role":"flip-fix",onClick:checkFlip},"Preview not like a mirror? Check it"),
         capNowOn && React.createElement("button",{className:"cameo-capnow","data-role":"capture-now",onClick:captureNow,
           title:"Take this photo now (C)","aria-keyshortcuts":"C"},"Take photo")),
-      liveOk && camOn && React.createElement("div",{className:"cameo-note"+(engUi==="unavailable"?" warn":"")},
-        engUi==="unavailable" ? cameoNoteOff(why) : CAMEO_NOTE_OK),
+      // only the warning is in view (the pose check couldn't start); the everyday note is behind the title's "i"
+      liveOk && camOn && engUi==="unavailable" && React.createElement("div",{className:"cameo-note warn"}, cameoNoteOff(why)),
       liveOk && React.createElement("div",{className:"cameo-sr",role:"status","aria-live":"polite","aria-atomic":"true"},announce),
 
       /* angle strip — captured thumbnails / target slots (an empty slot shows its pose sketch) */
@@ -1261,12 +1297,10 @@ function CameoModal({ character, onClose, onSaved }){
           React.createElement("input",{type:"checkbox","data-role":"sync",checked:sync && cloudReady,disabled:!cloudReady,
             onChange:e=>setSync(e.target.checked)}),
           React.createElement("span",null,
-            React.createElement("b",null,"Sync this likeness to the cloud."),
-            !cloudReady ? " Sign in to sync it — for now it stays on this device."
-            : (wasSynced && !sync) ? " Unticking removes its cloud copy when you save it."
-            : React.createElement(React.Fragment,null," Off by default — the photos stay ",
-                React.createElement("b",null,"on this device"),
-                " unless you tick this. Synced, only you and the film's owner see the photos; its Art directors can make images with it."))),
+            React.createElement("b",null,"Sync this likeness to the cloud"),
+            !cloudReady ? ". Sign in to sync it — for now it stays on this device."
+            : (wasSynced && !sync) ? ". Unticking removes its cloud copy when you save it." : null),
+          cloudReady && cameoTip("About syncing", CAMEO_TIP_SYNC)),
         err && React.createElement("div",{className:"cameo-err"},err)),
 
       React.createElement("div",{className:"cameo-acts"},
