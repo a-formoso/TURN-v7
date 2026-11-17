@@ -2554,6 +2554,7 @@ img.sheet-genimg[data-fit="fill"], img.sb-comp-img[data-fit="fill"], img.sb-page
 .sheet-frame-meta{flex-wrap:wrap;row-gap:4px;flex:1 1 auto}
 .sheet-meta-style{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .sheet-meta-item.none{color:var(--txt-3)}
+.char-style-name.kept{cursor:default;text-decoration:none}
 .sheet-frame-cap-label + .sheet-cap-pick{margin-left:auto}
 .sheet-cap-pick{flex:0 0 auto;margin-left:auto;display:inline-flex}
 .sheet-cap-btn{display:grid;place-items:center;width:20px;height:20px;padding:0;border-radius:6px;border:1px solid transparent;background:transparent;

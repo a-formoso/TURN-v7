@@ -761,9 +761,19 @@ function inferCharacterRenderStyleKey(c){
   return "photorealCreature";
 }
 window.inferCharacterRenderStyleKey = inferCharacterRenderStyleKey;
+/* "SURPRISE ME" IS NO LONGER OFFERED (owner 2026-11-17: "check the formula for custom styles … if you find the feature
+   not good or consistent, remove it"). It was built to be strange: its recipe asked for two looks that don't belong
+   together, a rule unique to ONE character, one or two colours only and deliberate flaws — and it invented a different
+   look for every character, prop and place, so a film's cast never matched (a sheet came back part pen sketch, part
+   photograph, stitched with red thread). A film needs one look, and the menu's own looks give that. Nothing is
+   taken away from work already done: a card that has a look made this way keeps it and shows its name, "Lock this
+   style" still keeps it as a personal style, and saved personal styles stay in the menu. The code that invented a
+   look stays behind this switch. */
+const SURPRISE_STYLE_OFFERED = false;
+window.SURPRISE_STYLE_OFFERED = SURPRISE_STYLE_OFFERED;
 const CHAR_RENDER_STYLE_OPTIONS = [
   ...Object.keys(CHAR_RENDER_STYLES).map(k=>_styleOptionForKey(k)),
-  { key:"surprise", label:"Surprise me \u2728 (one writing call)", group:"Custom" },   // the one synthetic option (invents a bespoke style)
+  ...(SURPRISE_STYLE_OFFERED ? [{ key:"surprise", label:"Surprise me \u2728 (one writing call)", group:"Custom" }] : []),   // the one synthetic option (invents a bespoke style)
 ];
 window.CHAR_RENDER_STYLE_OPTIONS = CHAR_RENDER_STYLE_OPTIONS;
 
@@ -948,7 +958,7 @@ function rebuildStyleOptions(){
       ? _styleOptionForKey(item.key)
       : ({ key:item.key, label:item.label||"Style", group:item.group||"Admin global styles" })),   // no 🌐 marker — same look as built-ins
     ..._userStyles.map(s=>({ key:s.key, label:s.label||"Locked style", group:"Personal styles" })),   // personal — picker shows trash icon
-    { key:"surprise", label:"Surprise me ✨ (one writing call)", group:"Custom" },
+    ...(SURPRISE_STYLE_OFFERED ? [{ key:"surprise", label:"Surprise me ✨ (one writing call)", group:"Custom" }] : []),
   ];
 }
 function _defaultRenderStyleKey(){
@@ -1182,6 +1192,8 @@ function RenderStylePicker({ value, onPick, disabled, placeholderLabel, context 
     ? { key:"", label:placeholderLabel, desc:"Choose one render style to apply to all items.", group:"" }
     : (opts.find(o=>o.key===value)
         || ((value && value!=="surprise" && BASE_RENDER_STYLE_KEYS.includes(value)) ? _styleOptionForKey(value) : null)   // a hidden look a card already has
+        // a look invented earlier with "Surprise me" (no longer offered): the card keeps it; its name is beside this menu
+        || (value==="surprise" ? { key:"surprise", label:"Custom look (made earlier)", desc:"A one-off look made earlier for this card. Pick any style to replace it.", group:"Custom" } : null)
         || opts[0] || { key:"photoreal", label:"Photoreal - Human cinematic", desc:(window.RENDER_STYLE_DESCRIPTIONS||{}).photoreal||"" });
   React.useEffect(()=>{
     if(!open) return;
@@ -6781,8 +6793,12 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. The admin manages them via Styles in the Film menu."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+" of "+(window.turnGlobalStyleCap||40)+" styles")),
         styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing…"),
         (!styling && c.renderStyleKey==="surprise" && c.surpriseRender && c.surpriseRender.label) &&
-          React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style",onClick:reSurprise},
-            c.surpriseRender.label," ↻"),
+          (SURPRISE_STYLE_OFFERED
+            ? React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style",onClick:reSurprise},
+                c.surpriseRender.label," ↻")
+            // no new one is invented any more: the name of the look this card keeps
+            : React.createElement("span",{className:"char-style-name kept",title:"A one-off look made earlier for this card. Pick any style from the menu to replace it."},
+                c.surpriseRender.label)),
         (!styling && c.renderStyleKey==="surprise" && c.surpriseRender && c.surpriseRender.render && window.turnCanLockStyles && window.turnCanLockStyles()) &&
           React.createElement("button",{className:"char-style-lock",title:"Lock this style — keep it and reuse it across Characters, Props & Locations",onClick:lockSurprise},"🔒 Lock this style"),
         (!styling && unlockVisible && window.turnIsUserStyle && window.turnIsUserStyle(c.renderStyleKey)) &&

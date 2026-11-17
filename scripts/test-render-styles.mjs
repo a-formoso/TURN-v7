@@ -28,6 +28,8 @@ const art = read("app/artroom.jsx"), locs = read("app/locations.jsx"), props = r
 const box = { console, Object, String, JSON, Array };
 box.window = box; vm.createContext(box);
 vm.runInContext(between(art, "const CHAR_SHEET_BACKGROUND = ", "function _renderStyleGroupFor(k)").replace(/^const /gm, "var "), box);
+vm.runInContext(between(art, "function _renderStyleGroupFor(k){", "function _styleScaleClassKey(e){").replace(/^const /gm, "var "), box);
+vm.runInContext(between(art, "const SURPRISE_STYLE_OFFERED = false;", "window.CHAR_RENDER_STYLE_OPTIONS = CHAR_RENDER_STYLE_OPTIONS;").replace(/^const /gm, "var ") + "; window.CHAR_RENDER_STYLE_OPTIONS = CHAR_RENDER_STYLE_OPTIONS;", box);
 vm.runInContext(between(locs, "const LOC_RENDER_TEXT = {", "function locVisualsDrafted(").replace(/^const /gm, "var "), box);
 vm.runInContext(between(props, "const PROP_RENDER_TEXT = {", "window.PROP_RENDER_TEXT = PROP_RENDER_TEXT;").replace(/^const /gm, "var ") + "; window.PROP_RENDER_TEXT = PROP_RENDER_TEXT;", box);
 vm.runInContext(between(shots, "const SHOT_RENDER_TEXT = {", "function shotRenderStyleKey(").replace(/^const /gm, "var "), box);
@@ -128,6 +130,24 @@ test("G the two near-duplicates are hidden from the menu by default; the admin c
   assert.ok(art.includes("{ __preset:true, __hidden:false, __shown:true, __order:order>=0?order:null }"), "bringing one back is remembered");
   assert.ok(art.includes("...(((_baseGlobalMeta[item.key]||{}).shown) ? { __shown:true } : {})"), "…and survives a reorder");
   assert.ok(art.includes("((value && value!==\"surprise\" && BASE_RENDER_STYLE_KEYS.includes(value)) ? _styleOptionForKey(value) : null)"), "the picker shows a hidden look's own name on a card that has it");
+});
+
+test("H 'Surprise me' is no longer offered (owner 2026-11-17: 'if you find the Custom styles feature not good or consistent, remove it'); what it made earlier still works", () => {
+  assert.ok(art.includes("const SURPRISE_STYLE_OFFERED = false;"));
+  // not in the menu: neither the list built at load nor the one rebuilt when styles change
+  assert.ok(!J(box.CHAR_RENDER_STYLE_OPTIONS).some((o) => o.key === "surprise"), "no Surprise me among the options");
+  assert.equal(art.split("...(SURPRISE_STYLE_OFFERED ? [{ key:\"surprise\"").length - 1, 2, "both option lists are behind the switch");
+  // a card that already has such a look keeps it: the picker names it, the card shows its name without the re-roll, and it can still be kept
+  assert.ok(art.includes('(value==="surprise" ? { key:"surprise", label:"Custom look (made earlier)"'));
+  for (const [f, who] of [["app/artroom.jsx", "c"], ["app/props.jsx", "p"], ["app/locations-ui.jsx", "l"]]) {
+    const src = read(f);
+    assert.ok(src.includes('React.createElement("span",{className:"char-style-name kept",title:"A one-off look made earlier for this card. Pick any style from the menu to replace it."},'), f + ": the kept look's name, no re-roll");
+    assert.ok(src.includes(who + ".surpriseRender.label)),"), f);
+  }
+  assert.ok(art.includes('if(key==="surprise" && c && c.surpriseRender && c.surpriseRender.render) return c.surpriseRender.render;'), "its sheet is still made in that look");
+  assert.ok(art.includes('"🔒 Lock this style"'), "…and it can still be kept as a personal style");
+  assert.ok(ai.includes("'SURPRISE ME' IS GONE (2026-11-17)") && ai.includes("'Surprise me' is no longer offered in the Render style menu"), "Frances knows, in every entry that spoke of it");
+  assert.ok(!read("app/locations-ui.jsx").includes("and Surprise me, spend writing credits"), "no About text still offers it");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

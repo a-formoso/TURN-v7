@@ -1525,8 +1525,12 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. The admin manages them via Styles in the Film menu."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+" of "+(window.turnGlobalStyleCap||40)+" styles")),
         styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing\u2026"),
         (!styling && p.renderStyleKey==="surprise" && p.surpriseRender && p.surpriseRender.label) &&
-          React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style — one small writing call (writing credits)",onClick:rollSurprise},
-            p.surpriseRender.label," \u21bb"),
+          (window.SURPRISE_STYLE_OFFERED
+            ? React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style — one small writing call (writing credits)",onClick:rollSurprise},
+                p.surpriseRender.label," \u21bb")
+            // (2026-11-17) "Surprise me" is no longer offered: the name of the look this card keeps
+            : React.createElement("span",{className:"char-style-name kept",title:"A one-off look made earlier for this card. Pick any style from the menu to replace it."},
+                p.surpriseRender.label)),
         (!styling && p.renderStyleKey==="surprise" && p.surpriseRender && p.surpriseRender.style && window.turnCanLockStyles && window.turnCanLockStyles()) &&
           React.createElement("button",{className:"char-style-lock",title:"Lock this style \u2014 keep it and reuse it across Characters, Props & Locations",onClick:lockSurprise},"\ud83d\udd12 Lock this style"),
         (!styling && unlockVisible && window.turnIsUserStyle && window.turnIsUserStyle(p.renderStyleKey)) &&
