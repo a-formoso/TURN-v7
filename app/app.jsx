@@ -1139,7 +1139,7 @@ function App(){
     const block = (window.CHAR_RENDER_STYLES||{})[top];
     const medium = block && block.rendering;
     if(!medium) return null;
-    const label = String(((typeof window.renderStylePromptName==="function") && window.renderStylePromptName(top)) || (window.RENDER_STYLE_LABELS||{})[top] || top).replace(/^[🔒🌐]\s*/,"");
+    const label = String(((typeof window.renderStylePromptName==="function") && window.renderStylePromptName(top)) || (window.RENDER_STYLE_LABELS||{})[top] || top).replace(/^[🔒🌐]\s*/u,"");
     return { key:top, label, medium };
   },[characters, props, locations]);
   window.turnFilmRenderStyle = filmRenderStyle;
@@ -2498,7 +2498,7 @@ function App(){
     if(topKey && topKey!=="photoreal"){
       const block = (window.CHAR_RENDER_STYLES||{})[topKey];
       const medium = block && block.rendering;
-      if(medium) style = { label:String(((typeof window.renderStylePromptName==="function") && window.renderStylePromptName(topKey)) || (window.RENDER_STYLE_LABELS||{})[topKey] || topKey).replace(/^[🔒🌐]\s*/,""), medium };
+      if(medium) style = { label:String(((typeof window.renderStylePromptName==="function") && window.renderStylePromptName(topKey)) || (window.RENDER_STYLE_LABELS||{})[topKey] || topKey).replace(/^[🔒🌐]\s*/u,""), medium };
     }
     // one asset read covers everything: lead cast (identity-critical) + the first
     // few locations/props (world grounding — the poster must show THIS film's
@@ -9104,7 +9104,7 @@ function App(){
         const keys = Object.keys(tally);
         if(!keys.length) return "defaults (photoreal)";
         const top = keys.sort((a,b)=>tally[b]-tally[a]);
-        const lab = (k)=> String((window.RENDER_STYLE_LABELS||{})[k]||k).replace(/^[🔒🌐]\s*/,"");
+        const lab = (k)=> String((window.RENDER_STYLE_LABELS||{})[k]||k).replace(/^[🔒🌐]\s*/u,"");
         return top.length===1 ? lab(top[0]) : ("mixed — mostly "+lab(top[0]));
       },
       // APPROVED render-style proposal → set the style dropdown on EVERY character,

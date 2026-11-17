@@ -3141,7 +3141,7 @@ async function agentConsistency(ctx, opts){
     const odd = styled.filter(e=>e.key!==majority);
     if(majority && odd.length && cards<MAX_CARDS){
       cards++;
-      const lab = (k)=>{ const o=(window.CHAR_RENDER_STYLE_OPTIONS||[]).find(x=>x.key===k); return o?o.label.replace(/^[🔒🌐]\s*/,""):k; };
+      const lab = (k)=>{ const o=(window.CHAR_RENDER_STYLE_OPTIONS||[]).find(x=>x.key===k); return o?o.label.replace(/^[🔒🌐]\s*/u,""):k; };
       const ok = ctx.cancelled() ? false : await ctx.propose({ writes:"art",
         title:"Scene "+scene.no+" — "+odd.length+" card"+(odd.length===1?"":"s")+" speak a different render style",
         reason:"Most of this scene renders as \""+lab(majority)+"\", but "+odd.map(e=>e.name).join(", ")+" "+(odd.length===1?"is":"are")+" set to something else — frames will clash.",

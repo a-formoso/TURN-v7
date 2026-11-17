@@ -2548,6 +2548,24 @@ img.sheet-genimg[data-fit="fill"], img.sb-comp-img[data-fit="fill"], img.sb-page
 .sheet-meta-model{flex:0 1 auto;min-width:0}
 .sheet-meta-model-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sheet-meta-item svg{flex:0 0 auto;color:var(--txt-3);opacity:.85}
+/* THE PERSON CHOOSES THE DETAILS (artroom.jsx SheetFrame, 2026-11-17): more than three may be ticked, so the line wraps;
+   the chooser is a small quiet button at its end, its list opens over the image so it stays inside the card */
+.sheet-frame-cap{position:relative}
+.sheet-frame-meta{flex-wrap:wrap;row-gap:4px;flex:1 1 auto}
+.sheet-meta-style{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sheet-meta-item.none{color:var(--txt-3)}
+.sheet-frame-cap-label + .sheet-cap-pick{margin-left:auto}
+.sheet-cap-pick{flex:0 0 auto;margin-left:auto;display:inline-flex}
+.sheet-cap-btn{display:grid;place-items:center;width:20px;height:20px;padding:0;border-radius:6px;border:1px solid transparent;background:transparent;
+  color:var(--txt-3);cursor:pointer}
+.sheet-cap-btn:hover,.sheet-cap-btn.on{color:var(--txt-0);border-color:var(--line-2);background:var(--bg-3)}
+.sheet-cap-btn:focus-visible{outline:2px solid var(--pos-line);outline-offset:1px}
+.sheet-cap-pop{position:absolute;right:0;bottom:calc(100% + 6px);z-index:40;width:max-content;min-width:190px;max-width:calc(100% - 4px);padding:8px 10px 9px;
+  display:flex;flex-direction:column;gap:6px;background:var(--bg-1);border:1px solid var(--line-3);border-radius:12px;box-shadow:var(--shadow-pop);
+  font-family:var(--f-ui);font-size:12.5px;letter-spacing:0;text-transform:none;color:var(--txt-0)}
+.sheet-cap-pop-t{font:400 10px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--txt-2);margin-bottom:1px}
+.sheet-cap-opt{display:flex;align-items:center;gap:8px;cursor:pointer;line-height:1.3}
+.sheet-cap-opt input{width:14px;height:14px;flex:0 0 auto;margin:0;accent-color:var(--win-amber,#F29A43)}
 .sheet-meta-dot{color:var(--txt-3)}
 .sheet-frame-cap-label{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--txt-2)}
 .sheet-gen-tool.on{background:oklch(0.78 0.15 62 / .25);color:var(--pos-ink)}

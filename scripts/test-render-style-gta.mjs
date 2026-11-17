@@ -12,8 +12,9 @@ const entry=art.slice(art.indexOf("  gtaLoadingScreen: {"),art.indexOf("  whimsi
 
 test("the style is a full built-in with a label, a description and a group",()=>{
   for(const k of ["rendering","linework","shading","color_grade","background","rules"]) assert.ok(entry.includes('"'+k+'"'),k);
-  assert.ok(art.includes('gtaLoadingScreen:"GTA Loading-Screen Art"'));
-  assert.ok(/gtaLoadingScreen:"For the GTA loading-screen/.test(art));
+  // (owner 2026-11-17: "rename the three styles") the menu's name no longer carries the game's; the look and its key are the same
+  assert.ok(art.includes('gtaLoadingScreen:"Crime-game poster art"') && art.includes('"GTA Loading-Screen Art":"gtaLoadingScreen"'));
+  assert.ok(/gtaLoadingScreen:"For open-world crime-game cover art/.test(art));
   assert.ok(/\{ id:"Illustration \/ Concept Art", keys:\[[^\]]*"gtaLoadingScreen"/.test(art));
 });
 test("locations and props render it in-style",()=>{
@@ -28,6 +29,6 @@ test("the shared style cap is 100 everywhere it is read",()=>{
   assert.ok(art.includes("const MAX_GLOBAL_STYLES = 100;")&&art.includes("const MAX_TOTAL_STYLES = 110;"));
   assert.ok(chrome.includes("window.turnGlobalStyleCap || 100"));
   const m=ai.slice(ai.indexOf("const APP_FEATURES"),ai.indexOf("function appBrief"));
-  assert.ok(!/\[global count\] \/ 40|up to 40\b|capped at 40/.test(m)&&m.includes("GTA Loading-Screen Art"));
+  assert.ok(!/\[global count\] \/ 40|up to 40\b|capped at 40/.test(m)&&m.includes("Crime-game poster art"));
 });
 console.log(checks+" checks passed");

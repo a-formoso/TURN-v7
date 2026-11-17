@@ -622,9 +622,9 @@ const RENDER_STYLE_LABELS = {
   render3d:"Stylized 3D render", anime:"Anime / manga", modernAnime:"Modern Anime",
   digitalAnime:"Digital Anime Illustration", roughSketchAnime:"Rough Sketch Anime", painterlyAnime:"Painterly Anime",
   flat:"Flat Vector Illustration", flatDesign:"Flat Design Illustration", minimalistLine:"Minimalist Line Art", vintageChildrensBook:"Vintage Children’s Book Illustration",
-  horror:"Cinematic horror", ghibli:"Studio Ghibli Anime",
-  animated3d:"Animated feature 3D", pixar:"Pixar-style 3D", cartoon3d:"3D Cartoon", textured3dCartoon:"Textured 3D Cartoon", stylizedCartoon:"Stylized Cartoon Illustration", paintedconcept:"Hand-painted concept art",
-  storyboardconcept:"Storyboard concept", texturedcomic:"Textured Comic Illustration", gtaLoadingScreen:"GTA Loading-Screen Art", whimsicalwatercolor:"Whimsical Watercolor",
+  horror:"Cinematic horror", ghibli:"Hand-painted pastoral anime",
+  animated3d:"Animated feature 3D", pixar:"Family feature 3D", cartoon3d:"3D Cartoon", textured3dCartoon:"Textured 3D Cartoon", stylizedCartoon:"Stylized Cartoon Illustration", paintedconcept:"Hand-painted concept art",
+  storyboardconcept:"Storyboard concept", texturedcomic:"Textured Comic Illustration", gtaLoadingScreen:"Crime-game poster art", whimsicalwatercolor:"Whimsical Watercolor",
   graphicNovelNoir:"Graphic novel — Noir B&W", ukiyoe:"Ukiyo-e woodblock", paperCutout:"Paper cut-out",
   grittyDigital:"Gritty Digital Illustration", softPainterly:"Soft Painterly Illustration", realisticDigitalDrawing:"Realistic Digital Drawing",
   stopmotion:"Stop-motion / Tactile Miniature",
@@ -640,6 +640,15 @@ const RENDER_STYLE_LABELS = {
   comicBook:"Classic comic book", rotoscope:"Rotoscope (painted live action)", oilPainting:"Oil painting", shadowPuppet:"Silhouette & shadow puppet",
 };
 window.RENDER_STYLE_LABELS = RENDER_STYLE_LABELS;
+/* THREE LOOKS RENAMED (owner 2026-11-17): the menu no longer names a studio or a game. A sheet made before keeps the
+   old name in its saved details (stored data is never migrated): it is read as today's name where it is shown. */
+const RENDER_STYLE_OLD_LABELS = { "Pixar-style 3D":"pixar", "Studio Ghibli Anime":"ghibli", "Studio Ghibli":"ghibli", "GTA Loading-Screen Art":"gtaLoadingScreen" };
+function renderStyleLabelToday(label){
+  const t = String(label||"").replace(/^[🔒🌐]\s*/u,"").trim();
+  const key = RENDER_STYLE_OLD_LABELS[t];
+  return key ? (RENDER_STYLE_LABELS[key] || t) : t;
+}
+window.renderStyleLabelToday = renderStyleLabelToday;
 const RENDER_STYLE_DESCRIPTIONS = {
   // (2026-07-03) every built-in key now has a description — the picker shows it as
   // the option's hover/desc text, so no style reads as an unexplained label
@@ -649,7 +658,7 @@ const RENDER_STYLE_DESCRIPTIONS = {
   horror:"For photoreal cinematic horror: deep filmic blacks, dread-forward lighting and unsettling realism.",
   ghibli:"For hand-painted animated warmth: soft watercolour backgrounds, gentle linework and lived-in natural detail.",
   animated3d:"For mainstream animated-feature 3D: appealing proportions, rich lighting and polished family-film finish.",
-  pixar:"For Pixar-style 3D: big expressive eyes, soft rounded forms, subsurface skin and warm global illumination.",
+  pixar:"For family animated features in 3D: big expressive eyes, soft rounded forms, subsurface skin and warm global illumination.",
   paintedconcept:"For hand-painted concept art: visible brushwork, confident shapes and production-design energy.",
   stopmotion:"For stop-motion puppetry: handmade armature look, fabric and clay textures, miniature-set charm.",
   adv1960s:"For 1960s advertising illustration: mid-century palettes, printed grain and period graphic styling.",
@@ -665,7 +674,7 @@ const RENDER_STYLE_DESCRIPTIONS = {
   photorealOrnamental:"For elegant creature designs with iridescence, ornament, armor, jewelry-like forms, couture materials, or heightened beauty while staying physically rendered.",
   storyboardconcept:"For production boards and previsualization: clean linework, clear staging, mood and composition over final polish.",
   texturedcomic:"For bold contemporary comic art: expressive ink, etched texture, limited palette and dramatic graphic lighting.",
-  gtaLoadingScreen:"For the GTA loading-screen / cover-art look: semi-realistic figures, bold black outlines, hard cel shading and saturated colour on a glossy poster finish.",
+  gtaLoadingScreen:"For open-world crime-game cover art: semi-realistic figures, bold black outlines, hard cel shading and saturated colour on a glossy poster finish.",
   whimsicalwatercolor:"For gentle storybook imagery: fine ink, soft watercolor washes, paper grain and delicate hand-painted charm.",
   modernAnime:"For polished contemporary anime: sharp linework, cinematic cel shadows, expressive eyes and dynamic character appeal.",
   digitalAnime:"For smooth refined anime illustration with luminous digital colour and a painterly-polished finish.",
@@ -784,7 +793,7 @@ function renderStyleLabelForEntity(e){
   const key = (e && e.renderStyleKey) || ((typeof inferCharacterRenderStyleKey==="function") ? inferCharacterRenderStyleKey(e) : "");
   if(key==="surprise" && e && e.surpriseRender && e.surpriseRender.label) return e.surpriseRender.label;
   const opts = window.CHAR_RENDER_STYLE_OPTIONS || [];
-  const clean = (lab)=> String(lab||"").replace(/^[🔒🌐]\s*/,"");
+  const clean = (lab)=> String(lab||"").replace(/^[🔒🌐]\s*/u,"");
   const found = opts.find(o=>o && o.key===key);
   if(found && found.label) return clean(found.label);
   if(key && (window.RENDER_STYLE_LABELS||{})[key]) return clean(window.RENDER_STYLE_LABELS[key]);
@@ -793,7 +802,7 @@ function renderStyleLabelForEntity(e){
 window.renderStyleLabelForEntity = renderStyleLabelForEntity;
 function renderStyleLabelFromMeta(meta){
   meta = meta || {};
-  const clean = (lab)=> String(lab||"").replace(/^[🔒🌐]\s*/,"");
+  const clean = (lab)=> renderStyleLabelToday(lab);
   if(meta.renderStyleLabel) return clean(meta.renderStyleLabel);
   if(meta.renderStyleKey && (window.RENDER_STYLE_LABELS||{})[meta.renderStyleKey]) return clean(window.RENDER_STYLE_LABELS[meta.renderStyleKey]);
   // Back-compat: older generations didn't save renderStyleKey, but the prompt stores the
@@ -843,7 +852,12 @@ window.turnTotalStyleCap = MAX_TOTAL_STYLES;
 window.turnUserStyleCap = MAX_PERSONAL_STYLES;   // back-compat alias for the personal tier
 let _userStyles = [];              // [{key,label,render}] personal
 let _globalStyles = [];            // [{key,label,render,order}] admin-published global
-let _hiddenGlobalKeys = new Set();  // admin-hidden seed globals, persisted as {__hidden:true} rows
+/* TWO NEAR-DUPLICATES LEAVE THE MENU (owner 2026-11-17: "hide the two duplicates"): Flat Design Illustration (as Flat
+   Vector Illustration) and Animated feature 3D (as Family feature 3D). They are hidden for everyone unless the admin
+   brings one back in the Styles window (its row then carries __shown). Their definitions stay: a card that already
+   uses one keeps its look and still shows its name. */
+const DEFAULT_HIDDEN_STYLE_KEYS = ["flatDesign","animated3d"];
+let _hiddenGlobalKeys = new Set(DEFAULT_HIDDEN_STYLE_KEYS);  // admin-hidden seed globals, persisted as {__hidden:true} rows
 let _baseGlobalMeta = {};           // built-in seed metadata from turn_global_styles: { [key]:{hidden,order} }
 let _globalOrder = BASE_RENDER_STYLE_KEYS.slice(); // curated platform order: built-ins + admin-published globals
 const _slug = (s)=> String(s||"style").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,32) || "style";
@@ -862,7 +876,7 @@ function _freshKey(prefix, label){
 function _styleMeta(render){
   render = render || {};
   const n = Number(render.__order);
-  return { hidden:!!render.__hidden, order:Number.isFinite(n) ? n : null };
+  return { hidden:!!render.__hidden, order:Number.isFinite(n) ? n : null, shown:!!render.__shown };
 }
 function _stripStyleMeta(render){
   if(!render || typeof render!=="object") return render;
@@ -915,7 +929,7 @@ async function _persistGlobalOrder(){
     const item = visible[i];
     if(item.builtIn){
       const hidden = _hiddenGlobalKeys.has(item.key);
-      const render = { __preset:true, __hidden:hidden, __order:i };
+      const render = { __preset:true, __hidden:hidden, __order:i, ...(((_baseGlobalMeta[item.key]||{}).shown) ? { __shown:true } : {}) };
       try{ ok = (await window.cloudSaveGlobalStyle(item.key, item.label, render)) && ok; }catch(e){ ok=false; }
     }else{
       const render = _renderWithMeta(item.render, { __order:i });
@@ -967,9 +981,10 @@ window.turnRefreshLockedStyles = async function(){
       _baseGlobalMeta = {};
       globals.filter(x=>BASE_RENDER_STYLE_KEYS.includes(x.key)).forEach(x=>{
         const meta = _styleMeta(x.render);
-        _baseGlobalMeta[x.key] = { hidden:meta.hidden, order:meta.order };
+        _baseGlobalMeta[x.key] = { hidden:meta.hidden, order:meta.order, shown:meta.shown };
       });
-      _hiddenGlobalKeys = new Set(Object.keys(_baseGlobalMeta).filter(k=>_baseGlobalMeta[k] && _baseGlobalMeta[k].hidden));
+      _hiddenGlobalKeys = new Set(Object.keys(_baseGlobalMeta).filter(k=>_baseGlobalMeta[k] && _baseGlobalMeta[k].hidden)
+        .concat(DEFAULT_HIDDEN_STYLE_KEYS.filter(k=>!(_baseGlobalMeta[k] && _baseGlobalMeta[k].shown))));
       _globalStyles = globals
         .filter(x=>!BASE_RENDER_STYLE_KEYS.includes(x.key) && !(x.render && x.render.__hidden))
         .map(x=>{ const meta=_styleMeta(x.render); return { key:x.key, label:x.label, render:_stripStyleMeta(x.render), order:meta.order }; });
@@ -979,7 +994,7 @@ window.turnRefreshLockedStyles = async function(){
     }catch(e){}
   } else {
     _globalStyles = [];                 // global tier only exists when signed in
-    _hiddenGlobalKeys = new Set();       // signed-out mode uses the bundled seed globals
+    _hiddenGlobalKeys = new Set(DEFAULT_HIDDEN_STYLE_KEYS);       // signed-out mode uses the bundled seed globals
     _baseGlobalMeta = {};
     _globalOrder = BASE_RENDER_STYLE_KEYS.slice();
     _applyAll();
@@ -1066,11 +1081,11 @@ window.turnRestoreGlobalStyle = async function(key){
   const prev = new Set(_hiddenGlobalKeys), prevMeta = { ..._baseGlobalMeta };
   const order = _globalOrder.indexOf(key);
   _hiddenGlobalKeys.delete(key);
-  _baseGlobalMeta[key] = { ...(_baseGlobalMeta[key]||{}), hidden:false, order:order>=0?order:null };
+  _baseGlobalMeta[key] = { ...(_baseGlobalMeta[key]||{}), hidden:false, shown:true, order:order>=0?order:null };
   _applyAll();
   if(window.cloudSaveGlobalStyle){
     try{
-      const ok = await window.cloudSaveGlobalStyle(key, RENDER_STYLE_LABELS[key]||_humanizeStyle(key), { __preset:true, __hidden:false, __order:order>=0?order:null });
+      const ok = await window.cloudSaveGlobalStyle(key, RENDER_STYLE_LABELS[key]||_humanizeStyle(key), { __preset:true, __hidden:false, __shown:true, __order:order>=0?order:null });
       if(!ok){ _hiddenGlobalKeys=prev; _baseGlobalMeta=prevMeta; _applyAll(); return false; }
     }catch(e){ _hiddenGlobalKeys=prev; _baseGlobalMeta=prevMeta; _applyAll(); return false; }
   }
@@ -1158,14 +1173,16 @@ function RenderStylePicker({ value, onPick, disabled, placeholderLabel, context 
     return ()=>{ document.removeEventListener("mousedown",onDoc); document.removeEventListener("keydown",onKey); window.removeEventListener("scroll",reflow,true); window.removeEventListener("resize",reflow); };
   },[open]);
   const opts = window.CHAR_RENDER_STYLE_OPTIONS||[];
-  const clean = (lab)=> String(lab||"").replace(/^[🔒🌐]\s*/,"");
+  const clean = (lab)=> String(lab||"").replace(/^[🔒🌐]\s*/u,"");
   // a style's name can read differently on props and locations ("Human cinematic" is a
   // character-sheet name); the style itself is the same
   const labelOf = (o)=> ((RENDER_STYLE_CONTEXT_LABELS[context]||{})[o && o.key]) || (o && o.label);
   const isPlaceholder = (value==="" || value==null) && !!placeholderLabel;
   const cur = isPlaceholder
     ? { key:"", label:placeholderLabel, desc:"Choose one render style to apply to all items.", group:"" }
-    : (opts.find(o=>o.key===value) || opts[0] || { key:"photoreal", label:"Photoreal - Human cinematic", desc:(window.RENDER_STYLE_DESCRIPTIONS||{}).photoreal||"" });
+    : (opts.find(o=>o.key===value)
+        || ((value && value!=="surprise" && BASE_RENDER_STYLE_KEYS.includes(value)) ? _styleOptionForKey(value) : null)   // a hidden look a card already has
+        || opts[0] || { key:"photoreal", label:"Photoreal - Human cinematic", desc:(window.RENDER_STYLE_DESCRIPTIONS||{}).photoreal||"" });
   React.useEffect(()=>{
     if(!open) return;
     const g = cur.group || "Other styles";
@@ -5313,6 +5330,19 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     return ()=>{ alive=false; };
   },[genUrl, genMeta && genMeta.size]);
   const resLabel = (genMeta && genMeta.size) || measRes || "—";
+  // which details show under the image (one choice for every card, this device) and its small chooser
+  const [capFields, setCapFields] = React.useState(sheetCapRead);
+  const [capOpen, setCapOpen] = React.useState(false);
+  const capRef = React.useRef(null);
+  React.useEffect(()=>{ const h = ()=>setCapFields(sheetCapRead());
+    window.addEventListener("turn-sheet-cap", h); return ()=>window.removeEventListener("turn-sheet-cap", h); },[]);
+  React.useEffect(()=>{ if(!capOpen) return undefined;
+    const out = (e)=>{ if(capRef.current && !capRef.current.contains(e.target)) setCapOpen(false); };
+    const esc = (e)=>{ if(e.key==="Escape") setCapOpen(false); };
+    document.addEventListener("pointerdown", out); document.addEventListener("keydown", esc);
+    return ()=>{ document.removeEventListener("pointerdown", out); document.removeEventListener("keydown", esc); }; },[capOpen]);
+  const toggleCap = (k)=>{ const now = sheetCapRead(); const next = now.indexOf(k)>=0 ? now.filter(x=>x!==k) : now.concat(k);
+    const ordered = SHEET_CAP_FIELDS.map(f=>f[0]).filter(x=>next.indexOf(x)>=0); sheetCapWrite(ordered); setCapFields(ordered); };
   // EDIT ATTACHMENTS — image inputs the user pins to the NEXT "Apply edit": uploaded
   // photos/designs and/or this entity's prop sheets (incl. CARRIED props). They ride
   // as editRefImages on the edit generation; cleared on apply, cancel or close.
@@ -5749,20 +5779,42 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
         React.createElement(Icon.userScan,{s:10,sw:1.8}),"Likeness"),
       genUrl && genMeta
         ? React.createElement("span",{className:"sheet-frame-meta"},
-            React.createElement("span",{className:"sheet-meta-item sheet-meta-model",title:"Model: "+((genMeta.modelLabel||"")+(genMeta.modelId?(" ("+genMeta.modelId+")"):""))},
-              React.createElement(Icon.sparkles,{s:10,sw:1.8}),
-              /* show the commercial name (e.g. "Nano Banana 2.1"), not the raw model id.
-                 prefer the stored label, else look it up by id, else fall back to id. */
-              React.createElement("span",{className:"sheet-meta-model-name"},
-                genMeta.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(genMeta.modelId) : ((window.NB_MODELS||[]).find(m=>m.id===genMeta.modelId)||{}).label) || genMeta.modelId)),
-            React.createElement("span",{className:"sheet-meta-item",title:"Aspect ratio"},
-              React.createElement(Icon.image,{s:10,sw:1.8}),genMeta.aspect),
-            React.createElement("span",{className:"sheet-meta-item",title:"Resolution"},
-              React.createElement(Icon.monitor,{s:10,sw:1.8}),
-              (genMeta.uploaded || genMeta.modelId==="uploaded") ? String(resLabel).split(" · ")[0] : resLabel))
-        // Dates, times and encoder quality remain in Details, not on compact cards.
+              capFields.map(k=>{
+                const v = sheetCapValue(k, genMeta, resLabel);
+                // a ticked detail this image has none of (an older image, an upload): a dash that says so, so a
+                // tick never seems to do nothing (owner 2026-11-17: "Quality tick is not showing even when ticked")
+                if(!v){
+                  const IC0 = { model:Icon.sparkles, aspect:Icon.image, size:Icon.monitor, pixels:Icon.maximize, quality:Icon.target, date:Icon.calendar, style:Icon.palette }[k];
+                  const lab0 = (SHEET_CAP_FIELDS.find(f=>f[0]===k)||[k,k])[1];
+                  // its short name with the dash, so it reads without hovering (a phone has no hover): "Quality —"
+                  const short0 = { model:"Engine", aspect:"Shape", size:"Size", pixels:"Pixels", quality:"Quality", date:"Date", style:"Style" }[k] || lab0;
+                  return React.createElement("span",{key:k,className:"sheet-meta-item none",title:lab0+": not saved with this image"},
+                    IC0 ? React.createElement(IC0,{s:10,sw:1.8}) : null, short0+" \u2014");
+                }
+                if(k==="model") return React.createElement("span",{key:k,className:"sheet-meta-item sheet-meta-model",title:"Model: "+((genMeta.modelLabel||"")+(genMeta.modelId?(" ("+genMeta.modelId+")"):""))},
+                  React.createElement(Icon.sparkles,{s:10,sw:1.8}),
+                  /* the commercial name (e.g. "Nano Banana 2.1"), not the raw model id */
+                  React.createElement("span",{className:"sheet-meta-model-name"},v));
+                const IC = { aspect:Icon.image, size:Icon.monitor, pixels:Icon.maximize, quality:Icon.target, date:Icon.calendar, style:Icon.palette }[k];
+                const TT = { aspect:"Aspect ratio", size:"Resolution", pixels:"Size in pixels", quality:"Quality", date:"Date made", style:"Render style" }[k];
+                return React.createElement("span",{key:k,className:"sheet-meta-item"+(k==="style"?" sheet-meta-style":""),title:TT},
+                  IC ? React.createElement(IC,{s:10,sw:1.8}) : null, v);
+              }).filter(Boolean))
+        // Out of the box: engine, shape and size (dates and quality stay in Details unless the person ticks them).
         // This is display-only: stored metadata and version history are unchanged.
-        : (genUrl || slotHasRef) && React.createElement("span",{className:"sheet-frame-cap-label"},genUrl?"Generated":"Reference frame")),
+        : (genUrl || slotHasRef) && React.createElement("span",{className:"sheet-frame-cap-label"},genUrl?"Generated":"Reference frame"),
+      // THE CHOOSER, on every card that has an image (owner 2026-11-17: "some cards don't seem to have the small sliders
+      // button" — it was missing where an image had no saved details, or before they had loaded)
+      genUrl && React.createElement("span",{className:"sheet-cap-pick",ref:capRef},
+              React.createElement("button",{type:"button",className:"sheet-cap-btn"+(capOpen?" on":""),"data-role":"sheet-cap-btn",
+                  "aria-haspopup":"true","aria-expanded":capOpen?"true":"false","aria-label":"Choose the details shown under images",
+                  title:"Choose the details shown under images",onClick:(e)=>{ e.stopPropagation(); setCapOpen(o=>!o); }},
+                React.createElement(Icon.sliders||Icon.moreV,{s:11,sw:1.8})),
+              capOpen && React.createElement("div",{className:"sheet-cap-pop",role:"group","aria-label":"Details shown under images",onClick:(e)=>e.stopPropagation()},
+                React.createElement("div",{className:"sheet-cap-pop-t"},"Show under images"),
+                SHEET_CAP_FIELDS.map(([k,lab])=>React.createElement("label",{key:k,className:"sheet-cap-opt"},
+                  React.createElement("input",{type:"checkbox",checked:capFields.indexOf(k)>=0,"data-cap":k,onChange:()=>toggleCap(k)}),
+                  React.createElement("span",null,lab)))))),
     /* Portal to <body>: the card has content-visibility:auto (paint/layout
        containment), which would otherwise make this card the containing block for
        the modal's position:fixed — trapping the overlay inside the card instead of
@@ -5781,6 +5833,43 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
     sheetRefOpen && entity && React.createElement(PropSheetReferenceModal,{prop:entity,
       onClose:()=>setSheetRefOpen(false)}));
 }
+/* THE DETAILS UNDER A SHEET IMAGE ARE THE PERSON'S CHOICE (owner 2026-11-17: "give user the option to customise which
+   properties or sheet details to show here … apply this across the other tabs"). One choice for every card that has
+   this frame (Characters, Props, Locations, Crowds, Lookbook, Shots), kept on this device. Out of the box it is what
+   it always was: engine, shape and size. Nothing in an image's saved details changes; this only shows or hides. */
+const SHEET_CAP_FIELDS = [
+  ["model","Engine"], ["aspect","Shape (aspect ratio)"], ["size","Size"], ["pixels","Size in pixels"],
+  ["quality","Quality"], ["date","Date made"], ["style","Render style"] ];
+const SHEET_CAP_DEFAULT = ["model","aspect","size"];
+const SHEET_CAP_KEY = "turn.sheetCapFields";
+function sheetCapRead(){
+  try{ const a = JSON.parse((typeof localStorage!=="undefined" && localStorage.getItem(SHEET_CAP_KEY)) || "null");
+    if(Array.isArray(a)) return SHEET_CAP_FIELDS.map(f=>f[0]).filter(k=>a.indexOf(k)>=0); }catch(e){}
+  return SHEET_CAP_DEFAULT.slice();
+}
+function sheetCapWrite(list){
+  try{ localStorage.setItem(SHEET_CAP_KEY, JSON.stringify(list||[])); }catch(e){}
+  try{ window.dispatchEvent(new CustomEvent("turn-sheet-cap")); }catch(e){}
+}
+/* what each detail says for one image ("" = this image has none, so nothing is shown for it) */
+function sheetCapValue(field, genMeta, resLabel){
+  const m = genMeta || {};
+  if(field==="model") return m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) : ((window.NB_MODELS||[]).find(x=>x.id===m.modelId)||{}).label) || m.modelId || "";
+  if(field==="aspect") return m.aspect || "";
+  if(field==="size") return (m.uploaded || m.modelId==="uploaded") ? String(resLabel||"").split(" \u00b7 ")[0] : (resLabel||"");
+  if(field==="pixels") return (Number(m.pixelW)>0 && Number(m.pixelH)>0) ? (Number(m.pixelW)+"\u00d7"+Number(m.pixelH)) : "";
+  // the quality the image was asked for, in the Details window's own word ("Default" is a quality too: leaving it out made a tick show nothing)
+  if(field==="quality"){ const q = String(m.quality||"").trim(); return q ? (q.charAt(0).toUpperCase()+q.slice(1)+" quality") : ""; }
+  if(field==="date"){
+    let d = m.date || "";
+    if(!d && m.iso){ const x = new Date(m.iso); if(!Number.isNaN(x.getTime())){ try{ d = x.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }catch(e){} } }
+    return d;
+  }
+  if(field==="style") return (typeof renderStyleLabelFromMeta==="function") ? (renderStyleLabelFromMeta(m)||"") : "";
+  return "";
+}
+window.sheetCapRead = sheetCapRead; window.sheetCapValue = sheetCapValue; window.SHEET_CAP_FIELDS = SHEET_CAP_FIELDS;
+/* (these sit after the frame, before it goes on window: whoever lifts the frame's source up to that line takes them too) */
 window.SheetFrame = SheetFrame;
 window.SheetDetails = SheetDetails;
 

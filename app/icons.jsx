@@ -172,6 +172,11 @@ const Icon = {
     React.createElement("path",{key:1,d:"M3 12a9 9 0 1 0 3-6.7L3 8"}),
     React.createElement("path",{key:2,d:"M3 4v4h4"}),
     React.createElement("path",{key:3,d:"M12 8v4l3 2"})]}),
+  // "choose what is shown" (the details under a sheet image, 2026-11-17)
+  sliders:(p)=>I({...p,children:[
+    React.createElement("path",{key:1,d:"M4 7h9M17 7h3M4 17h3M11 17h9"}),
+    React.createElement("circle",{key:2,cx:15,cy:7,r:2}),
+    React.createElement("circle",{key:3,cx:9,cy:17,r:2})]}),
   moreV:(p)=>I({...p,children:[
     React.createElement("circle",{key:1,cx:12,cy:5,r:1.6,fill:"currentColor",stroke:"none"}),
     React.createElement("circle",{key:2,cx:12,cy:12,r:1.6,fill:"currentColor",stroke:"none"}),

@@ -78,7 +78,16 @@ test("C a prompt names no studio, franchise, person or product; the menu's label
   for (const [where, text] of Object.entries(prompts)) { const m = NAMED.exec(text); assert.ok(!m, where + " names “" + (m && m[0]) + "”: …" + (m ? text.slice(Math.max(0, m.index - 50), m.index + 40) : "")); }
   // the style's name inside a prompt: the look, where the menu's label names a studio or a franchise
   assert.deepEqual(NAMES, { gtaLoadingScreen: "open-world crime-game loading-screen art", ghibli: "hand-painted pastoral 2D anime", pixar: "family animated-feature 3D" });
-  assert.equal(LABELS.ghibli, "Studio Ghibli Anime"); assert.equal(LABELS.pixar, "Pixar-style 3D"); assert.equal(LABELS.gtaLoadingScreen, "GTA Loading-Screen Art");
+  // (owner 2026-11-17: "rename the three styles") the menu names no studio or game either; a sheet saved under an old
+  // name is read as today's where it is shown (stored data is never migrated)
+  assert.equal(LABELS.ghibli, "Hand-painted pastoral anime"); assert.equal(LABELS.pixar, "Family feature 3D"); assert.equal(LABELS.gtaLoadingScreen, "Crime-game poster art");
+  assert.ok(!/pixar|ghibli|\bgta\b/i.test(JSON.stringify(Object.values(LABELS)) + JSON.stringify(Object.values(DESCS))), "no studio or game in a label or a description");
+  assert.equal(box.renderStyleLabelToday("Pixar-style 3D"), "Family feature 3D"); assert.equal(box.renderStyleLabelToday("🌐 Studio Ghibli Anime"), "Hand-painted pastoral anime");
+  assert.equal(box.renderStyleLabelToday("GTA Loading-Screen Art"), "Crime-game poster art");
+  // the marker of a saved style is taken off whole (the "u" flag: without it half of the emoji was left behind)
+  assert.equal(box.renderStyleLabelToday("🔒 Night market"), "Night market");
+  for (const f of ["app/artroom.jsx", "app/agents.jsx", "app/app.jsx", "app/ai.jsx"]) assert.ok(!/\[🔒🌐\]\\s\*\/[^u]/.test(read(f)), f + ": every marker strip has the u flag"); assert.equal(box.renderStyleLabelToday("My own style"), "My own style");
+  assert.ok(art.includes("const clean = (lab)=> renderStyleLabelToday(lab);\n  if(meta.renderStyleLabel) return clean(meta.renderStyleLabel);"), "a saved sheet's label is shown through it");
   // a sheet made with the earlier wording still shows its menu label
   assert.ok(art.includes('(/^high-end Pixar-style animated-feature 3D character render/.test(rendering) ? "pixar" : "")')
     && art.includes('(/in the lineage of Laika and Guillermo del Toro production paintings/.test(rendering) ? "paintedconcept" : "")'));
@@ -106,8 +115,19 @@ test("E the new looks have their own words for locations and props; the live-act
   assert.ok(STYLES.toyBrick.rules.some((r) => /no brand names or logos/.test(r)));
 });
 
-test("F Frances knows the new count and the new group", () => {
-  assert.ok(/61 built-in/.test(ai) && ai.includes("Kids & Family"), "the fact sheet says 61 and names the children's group");
+test("F Frances knows the new count, the new group, the new names and the two hidden looks", () => {
+  assert.ok(/now offers 59 looks/.test(ai) && /61 built-in/.test(ai) && ai.includes("Kids & Family"));
+  assert.ok(ai.includes("'Pixar-style 3D' is now 'Family feature 3D'") && ai.includes("'GTA Loading-Screen Art' is now 'Crime-game poster art'"));
+});
+
+test("G the two near-duplicates are hidden from the menu by default; the admin can bring one back; a card that has one keeps its name", () => {
+  assert.ok(art.includes('const DEFAULT_HIDDEN_STYLE_KEYS = ["flatDesign","animated3d"];'));
+  assert.ok(KEYS.includes("flatDesign") && KEYS.includes("animated3d"), "their definitions stay: a card that uses one keeps its look");
+  assert.ok(art.includes("let _hiddenGlobalKeys = new Set(DEFAULT_HIDDEN_STYLE_KEYS);") && art.includes("_hiddenGlobalKeys = new Set(DEFAULT_HIDDEN_STYLE_KEYS);       // signed-out mode"));
+  assert.ok(art.includes(".concat(DEFAULT_HIDDEN_STYLE_KEYS.filter(k=>!(_baseGlobalMeta[k] && _baseGlobalMeta[k].shown))));"), "hidden unless the admin's row says shown");
+  assert.ok(art.includes("{ __preset:true, __hidden:false, __shown:true, __order:order>=0?order:null }"), "bringing one back is remembered");
+  assert.ok(art.includes("...(((_baseGlobalMeta[item.key]||{}).shown) ? { __shown:true } : {})"), "…and survives a reorder");
+  assert.ok(art.includes("((value && value!==\"surprise\" && BASE_RENDER_STYLE_KEYS.includes(value)) ? _styleOptionForKey(value) : null)"), "the picker shows a hidden look's own name on a card that has it");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");
