@@ -89,6 +89,8 @@ await test("3 one More menu over the cards: Regenerate sheets… and the two man
   const before = sheets.slice(0, sheets.indexOf('// ONE "MORE" MENU'));
   for (const k of ['"Design the cast"', '"Generate "+missingAll.length+" missing sheet"']) assert.ok(before.includes(k), "still a button of its own: " + k);
   assert.ok(css.includes(".art-more-pop[hidden]{display:none}"));
+  // on a phone More shares the line of the button before it
+  assert.ok(css.includes(".art-intro-actions:has(> .art-more) > :has(+ .art-more){grid-column:1}") && css.includes(".art-intro-actions:has(> .art-more) > .art-more{grid-column:2}"));
 });
 
 await test("6 the bare numbers say what they count", () => {
@@ -134,10 +136,60 @@ await test("P the pose figures in the brand's ink and amber (owner: 'more in-bra
   assert.ok(!/oklch\(0\.(62|78) 0\.1[38] 29[56]/.test(slotRules), "no purple left on the slots");
 });
 
+await test("S the scale sheet shows height in the film, free: the character beside the people of their scenes and a door, from the sizes on the cards", () => {
+  const shots = read("app/shots.jsx");
+  const b = { console, Math, String, Number, Array, Object, Set, JSON };
+  b.window = b; vm.createContext(b);
+  vm.runInContext(between(shots, "function trueSizeMM(text){", "/* the scale class a true size falls in"), b);
+  vm.runInContext(between(art, "function lineupSizeText(mm){", "function CharHeightLineup("), b);
+  // who is in which scene (the app reads the screenplay; here a table)
+  const IN = { liaqat: ["s1", "s2", "s3"], eshita: ["s1", "s2"], kieran: ["s3"], amy: ["s9"], nasir: ["s1", "s2", "s3"], bug: ["s1"] };
+  b.scenesWhereCharacterAppears = (id) => IN[id] || [];
+  b.scaleKnownObjects = (mm) => [{ name: "a grain of rice", mm: 6, size: "6 mm long" }];
+  const C = (id, name, height) => ({ id, name, height });
+  const cast = [C("liaqat", "LIAQAT HUSSAIN", "168 cm tall"), C("eshita", "ESHITA HUSSAIN", "160 cm tall"), C("kieran", "KIERAN ELLIS", "6 ft"),
+    C("amy", "AMY ELLIS", "163 cm"), C("nasir", "NASIR FARUQUE", "170")];
+  const L = plain(b.charHeightLineup(cast[0], cast, [], {}));
+  assert.deepEqual(L.rows.map(r => r.c.id), ["liaqat", "nasir", "eshita", "kieran"], "this character first, then who shares the most scenes; nobody they never meet");
+  assert.deepEqual(L.sized.map(r => [r.c.id, r.mm]), [["liaqat", 1680], ["eshita", 1600], ["kieran", 1828.8]]);
+  assert.deepEqual(L.unsized.map(r => r.c.id), ["nasir"], "a bare number is no size: named, not drawn");
+  assert.deepEqual(L.ref, { name: "a door", mm: 2000, size: "2 m" }); assert.equal(L.scale, 2000, "the door is the tallest thing in a line-up of people");
+  // a film of small creatures gets a familiar object of their size, not a door
+  const small = plain(b.charHeightLineup(C("bug", "BUG", "15 mm long"), [C("bug", "BUG", "15 mm long")], [], {}));
+  assert.equal(small.ref.name, "a grain of rice"); assert.equal(small.rows.length, 1);
+  const none = plain(b.charHeightLineup(C("amy", "AMY", ""), cast, [], {}));
+  assert.equal(none.sized.length, 0); assert.equal(none.ref, null);
+  assert.equal(b.lineupSizeText(1680), "168 cm"); assert.equal(b.lineupSizeText(15), "15 mm"); assert.equal(b.lineupSizeText(40000), "40 m"); assert.equal(b.lineupSizeText(0.2), "200 \u00b5m");
+  const card = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
+  assert.ok(card.includes("React.createElement(CharHeightLineup,{ c, cast:cast||[c], scenes, drafts }),"));
+  const comp = between(art, "function CharHeightLineup({", "window.charHeightLineup = charHeightLineup;");
+  assert.ok(!/generate\(|nbGenerate|onUpdate/.test(comp), "nothing is made or changed by it");
+  assert.ok(comp.includes("has no unit. ") && comp.includes("No size yet. "), "a missing size is said in view: it needs doing");
+});
+
+await test("T the card's explaining lines (owner 2026-11-17): gone or behind an 'i'; the worn and carried lists tidy", () => {
+  const card = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
+  for (const gone of ["Continuity objects \\u2014 worn or carried items that recur across scenes.", "Moments where this character's look changes", "sheet-props-note",
+    '"Story props \\u2014 worn ones attach to this sheet; carried ones attach at the shot"'])
+    assert.ok(!card.includes(gone), "still on the card: " + gone);
+  assert.equal(card.split("char-scalesheet-hint").length - 1, 0, "no explaining paragraph left on the character card");
+  for (const tip of ['label:"About the height chart image"', 'label:"About height in the film"', 'label:"About story props"', 'label:"About lines for the video model"'])
+    assert.ok(card.includes(tip) || art.includes(tip), tip);
+  const lines = card.slice(card.indexOf('"Lines for the video model",'));
+  assert.ok(lines.indexOf('label:"About lines for the video model"') < lines.indexOf('"aria-label":"How their lines are written for the video model"'), "the i sits beside the label, before the menu");
+  assert.ok(card.includes('className:"sheet-2col owned-lists"'));
+  const insp = read("app/inspector.jsx");
+  assert.ok(insp.includes("rows: multiline?(rows||2):undefined });") && insp.includes('multiline:true,rows:1,onCommit:val=>setAt(i,val)'), "a short item is one line tall");
+  for (const k of [".owned-lists .eil-row + .eil-row{border-top:1px solid var(--line)}", ".lineup-col.self .lineup-bar{background:var(--win-amber,#F29A43);border-color:var(--txt-0)}",
+    "@media (max-width:640px){ .owned-lists{grid-template-columns:minmax(0,1fr)} }"]) assert.ok(css.includes(k), k);
+  const ve = read("app/video-elements.jsx");
+  assert.ok(ve.includes('label:"About the video element"'));
+});
+
 await test("F Frances knows; the changed files are served under a new key", () => {
   const f = between(ai, 'APP_FEATURES.push({ name:"Cast overview, the character card in four rows, the kept QA result (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["THE CAST AT A GLANCE", "THE CARD IN FOUR ROWS", "THE QA RESULT IS KEPT", "'Check again'", "ONE 'MORE' MENU", "THE HEADING FOLDS"]) assert.ok(f.includes(k), k);
-  const KEYS = ["20261117-cast1", "20261117-cast2", "20261117-menu1"];   // (the list grows with each key bump)
+  const KEYS = ["20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "cameo.jsx", "imagegen.jsx", "cloud.jsx", "app.jsx", "ai.jsx", "styles.css"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });

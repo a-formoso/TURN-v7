@@ -9,7 +9,7 @@ function kindOptsNow(){
 }
 
 /* inline editable text — local state so the cursor never jumps */
-function EditText({ value, onCommit, className, placeholder, multiline, autoFocus, readOnly }){
+function EditText({ value, onCommit, className, placeholder, multiline, autoFocus, readOnly, rows }){
   const [v,setV] = React.useState(value==null?"":value);
   // A collaborator can be downgraded while focused in a field. Entering read-only
   // mode discards that unsaved local buffer immediately instead of leaving text on
@@ -28,7 +28,8 @@ function EditText({ value, onCommit, className, placeholder, multiline, autoFocu
     readOnly:!!readOnly, "aria-readonly":readOnly?"true":undefined,
     onChange:e=>{ if(readOnly) return; setV(e.target.value); if(multiline) fit(); }, onBlur:commit,
     onKeyDown:e=>{ if(!multiline && e.key==="Enter") e.target.blur(); },
-    rows: multiline?2:undefined });
+    // (2026-11-17) a list's item starts one line tall (rows:1): two lines left a blank line under every short item
+    rows: multiline?(rows||2):undefined });
 }
 
 /* split a comma/semicolon/middot/newline list into trimmed items, but never
@@ -132,7 +133,7 @@ function EditableItemList({ value, placeholder, onCommit, onItemRemoved, onItemR
     items.length>0 && React.createElement("ul",{className:"eil-list"},
       items.map((it,i)=>React.createElement("li",{className:"eil-row",key:i},
         React.createElement("span",{className:"eil-dot"}),
-        React.createElement(EditText,{value:it,placeholder:"Item\u2026",multiline:true,onCommit:val=>setAt(i,val)}),
+        React.createElement(EditText,{value:it,placeholder:"Item\u2026",multiline:true,rows:1,onCommit:val=>setAt(i,val)}),
         // keyboard reachable (2026-09-28): it used to be skipped by Tab (tabIndex -1)
         React.createElement("button",{type:"button",className:"eil-del",title:"Remove item",
             "aria-label":"Remove item"+((it||"").trim()?" \u201c"+(it||"").trim().slice(0,60)+"\u201d":""),onClick:()=>removeAt(i)},

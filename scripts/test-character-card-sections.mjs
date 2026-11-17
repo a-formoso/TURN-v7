@@ -47,15 +47,19 @@ test("C3 Voice & video holds the spoken language and the video element (bare, un
   assert.ok(vv.includes('label:"Speaks \\u2014 the language of their lines') && vv.includes('"Lines for the video model"'));
   assert.ok(vv.includes("window.VideoElementFold && React.createElement(window.VideoElementFold,{ c, readOnly, scenes, drafts, onUpdate, bare:true })"));
   assert.ok(ve.includes("function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate, bare=false }){"));
-  assert.ok(ve.includes('return React.createElement(bare ? VideoElementBare : CardFold, bare ? {} : {label:"Video element",defaultOpen:!!s.url,foldId:"ve-"+c.id},'));
-  assert.ok(ve.includes('React.createElement("div",{className:"ve-sub"},"Video element")'));
+  assert.ok(ve.includes('return React.createElement(bare ? VideoElementBare : CardFold, bare ? { about } : {label:"Video element",defaultOpen:!!s.url,foldId:"ve-"+c.id},'));
+  assert.ok(ve.includes('React.createElement("div",{className:"ve-sub"},"Video element",'));
+  // (owner 2026-11-17) what a video element is: behind the "i" beside that heading, not a paragraph under it
+  assert.ok(ve.includes('React.createElement(window.InfoTip,{label:"About the video element",text:about})') && ve.includes('bare ? { about } :'));
+  assert.ok(ve.includes('!aboutInTip && React.createElement("div",{className:"char-scalesheet-hint"}, about),'), "shown as a line only where there is no heading to hold the i");
   assert.ok(css.includes(".ve-bare{display:flex;flex-direction:column;gap:11px;padding-top:11px;border-top:1px solid var(--line)}"));
 });
 test("C4 the labels: Leave out (negative prompt), the two prompts, the outfits, 'its own sheet'", ()=>{
   assert.ok(card.includes('React.createElement(SheetField,{label:"Leave out (negative prompt)",value:c.negativePrompt||v.negativePrompt,'));
   assert.ok(card.includes('React.createElement(CopyBox,{label:"Prompt (text only)",text:promptText}),') && card.includes('React.createElement(CopyBox,{label:"Prompt with reference images",'));
   assert.ok(card.includes('"Public outfit", o.kind') && card.includes('label:"Private outfit"'));
-  assert.ok(card.includes("Each can get its own sheet.") && !card.includes("v2 sheet."));
+  // (owner 2026-11-17: "remove that text and leave the rest as it is") the line over the appearance states is gone
+  assert.ok(!card.includes("Each can get its own sheet.") && !card.includes("Moments where this character's look changes") && !card.includes("v2 sheet."));
 });
 test("C5 the card's buttons are one height: 30px", ()=>{
   for(const c of ["char-draft-btn", "char-cameo-btn", "char-voice-btn"])

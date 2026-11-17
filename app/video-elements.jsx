@@ -198,8 +198,12 @@ function useVideoElementUrls(cast){
 }
 
 /* THE CARD'S FOLD: Characters › a character › Video element */
-function VideoElementBare({ children }){
-  return React.createElement("div",{className:"ve-bare"}, React.createElement("div",{className:"ve-sub"},"Video element"), children);
+/* (2026-11-17, owner: "turn this into a tooltip") what a video element is sits behind the "i" beside its heading */
+function VideoElementBare({ children, about }){
+  return React.createElement("div",{className:"ve-bare"},
+    React.createElement("div",{className:"ve-sub"},"Video element",
+      (about && typeof window.InfoTip==="function") ? React.createElement(window.InfoTip,{label:"About the video element",text:about}) : null),
+    children);
 }
 function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate, bare=false }){
   useVideoElement(c);
@@ -255,10 +259,11 @@ function VideoElementFold({ c, readOnly=false, scenes, drafts, onUpdate, bare=fa
   };
   const status = busy || (gen && gen.gening ? ("Rendering… "+String(gen.status||"").toLowerCase().replace(/_/g," ")) : "");
   // bare (owner 2026-10-29): inside the character card's "Voice & video" section, under its own small heading
-  return React.createElement(bare ? VideoElementBare : CardFold, bare ? {} : {label:"Video element",defaultOpen:!!s.url,foldId:"ve-"+c.id},
-    React.createElement("div",{className:"char-scalesheet-hint"},
-      "A few seconds of "+(c.name||"this character")+" saying a line in their locked voice, made from their sheet. "
-      +"The Stage sends it with every clip they're in, so their face moves and their voice sounds the same in every scene."),
+  const about = "A few seconds of "+(c.name||"this character")+" saying a line in their locked voice, made from their sheet. "
+    +"The Stage sends it with every clip they're in, so their face moves and their voice sounds the same in every scene.";
+  const aboutInTip = bare && typeof window.InfoTip==="function";    // on the card: behind the heading's "i"
+  return React.createElement(bare ? VideoElementBare : CardFold, bare ? { about } : {label:"Video element",defaultOpen:!!s.url,foldId:"ve-"+c.id},
+    !aboutInTip && React.createElement("div",{className:"char-scalesheet-hint"}, about),
     s.url && React.createElement("video",{className:"ve-video",src:s.url,controls:true,playsInline:true,preload:"metadata"}),
     s.url && s.line && React.createElement("div",{className:"ve-line"},"“"+s.line+"”"),
     // THE LINE THEY SAY (2026-10-27): the screenplay's, an audition line written for them, or your own

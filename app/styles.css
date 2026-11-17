@@ -3679,6 +3679,43 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
 .artroom [data-char-card] > .sheet-body > :is(.sheet-fold,.sheet-group) + :is(.sheet-fold,.sheet-group){margin-top:calc(-1 * var(--card-gap,15px))}
 .sheet-group-body>.sheet-fold + .sheet-fold{margin-top:0}
 .sheet-group-head{min-height:46px;box-sizing:border-box}
+/* a small label with its "i" (owner 2026-11-17: the lines that only explain go behind a tooltip): the note opens
+   across the section, in plain words */
+:is(.lineup-lab,.linked-props-lab){position:relative;display:flex;align-items:center;gap:7px}
+:is(.lineup-lab,.linked-props-lab) .infotip{position:static;flex:0 0 auto}
+:is(.lineup-lab,.linked-props-lab) .infotip-btn{width:16px;height:16px}
+:is(.lineup-lab,.linked-props-lab) .infotip-pop{left:0;right:0;top:calc(100% + 6px);width:auto;max-width:none;text-transform:none;
+  letter-spacing:normal;font:400 12.5px/1.5 var(--f-ui);color:var(--txt-0)}
+/* HEIGHT IN THE FILM (artroom.jsx CharHeightLineup): the character beside the people of their scenes and a door.
+   Arch-topped bars on one ground line; this character's is the brand's amber. */
+.lineup{display:flex;flex-direction:column;gap:8px}
+.lineup-chart{position:relative;display:flex;align-items:flex-end;gap:8px;padding:0 4px;border-bottom:1.5px solid var(--txt-1);margin-bottom:20px}
+.lineup-col{position:relative;flex:1 1 0;min-width:0;max-width:60px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+.lineup-bar{display:block;width:62%;max-width:30px;border:1.5px solid var(--txt-2);border-bottom:0;border-radius:999px 999px 0 0;background:var(--bg-3)}
+.lineup-col.self .lineup-bar{background:var(--win-amber,#F29A43);border-color:var(--txt-0)}
+.lineup-size{font:500 10.5px/1.2 var(--f-ui);color:var(--txt-2);white-space:nowrap;margin-bottom:3px}
+.lineup-col.self .lineup-size{color:var(--txt-0);font-weight:600}
+.lineup-name{position:absolute;top:calc(100% + 5px);left:-4px;right:-4px;text-align:center;font:500 11px/1.2 var(--f-ui);color:var(--txt-1);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lineup-col.self .lineup-name{color:var(--txt-0);font-weight:600}
+.lineup-ref{position:absolute;left:0;right:0;border-top:1px dashed var(--line-3);pointer-events:none}
+.lineup-ref span{position:absolute;right:0;bottom:2px;font:400 10.5px/1.2 var(--f-ui);color:var(--txt-3);white-space:nowrap}
+.lineup-warn{display:flex;align-items:flex-start;gap:7px;padding:8px 10px;border-radius:9px;font-size:12px;line-height:1.45;color:var(--txt-0);
+  background:var(--pos-soft);border:1px solid var(--pos-line)}
+.lineup-warn svg{flex:0 0 auto;margin-top:2px;color:var(--pos-ink)}
+.lineup-missing{font-size:11.5px;line-height:1.4;color:var(--txt-2)}
+.lineup + .lineup-lab{margin-top:6px}
+/* PROPS & ACCESSORIES, tidied (owner 2026-11-17): the worn and the carried lists as two quiet boxes, their rows evenly
+   spaced; one under the other where the card is narrow */
+.owned-lists{align-items:start;gap:10px}
+.owned-lists > .sheet-field{min-width:0;padding:10px 10px 8px 12px;border:1px solid var(--line-2);border-radius:12px;background:var(--bg-1)}
+.owned-lists > .sheet-field > .obj-lab{margin-bottom:6px}
+.owned-lists .eil-list{gap:0}
+.owned-lists .eil-row + .eil-row{border-top:1px solid var(--line)}
+.owned-lists .eil-row{padding:2px 0}
+.owned-lists .eil-dot{margin-top:13px}
+.owned-lists .eil-add{margin-top:6px}
+@media (max-width:640px){ .owned-lists{grid-template-columns:minmax(0,1fr)} }
 .sheet-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .pal-row{display:flex;gap:8px;flex-wrap:wrap;padding-top:2px}
 .pal-chip{display:flex;align-items:center;gap:6px;background:var(--bg-3);border:1px solid var(--line);
@@ -4655,6 +4692,15 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
   color:var(--txt-0);font-weight:500;white-space:nowrap}
 .art-more-pop>button:hover:not(:disabled){background:var(--bg-4);color:var(--txt-0)}
 .art-more-pop>button:disabled{opacity:.5}
+/* on a phone the row's buttons are one per line; "More" shares the line of the button before it (owner 2026-11-17:
+   "align these buttons side by side on mobile view") */
+@media (max-width:700px){
+  .art-intro-actions:has(> .art-more){grid-template-columns:minmax(0,1fr) auto}
+  .art-intro-actions:has(> .art-more) > *{grid-column:1 / -1}
+  .art-intro-actions:has(> .art-more) > :has(+ .art-more){grid-column:1}
+  .art-intro-actions:has(> .art-more) > .art-more{grid-column:2}
+  .art-intro-actions > .art-more > .art-more-btn{height:38px;padding-inline:14px}
+}
 /* THE CAST AT A GLANCE (artroom.jsx CastOverview, 2026-11-17): one row of faces over the cards; scrolls sideways */
 .cast-strip{display:flex;align-items:center;gap:8px;margin:0 0 16px;padding:2px 2px 6px;overflow-x:auto;scrollbar-width:thin}
 .cast-chip{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px;width:74px;padding:8px 4px 7px;cursor:pointer;
@@ -11785,7 +11831,11 @@ html[data-theme="light"] .hd-root :is(.hd-body,.hd-feature-band,.hd-foot) :is(.h
    as the cards' "Suggest from script"); "Voice & video" holds the video element under its own small heading, after a
    hairline */
 .ve-bare{display:flex;flex-direction:column;gap:11px;padding-top:11px;border-top:1px solid var(--line)}
-.ve-sub{font:500 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--txt-2)}
+.ve-sub{position:relative;display:flex;align-items:center;gap:7px;font:500 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--txt-2)}
+/* its "i": the note opens across the section, in plain words */
+.ve-sub .infotip{position:static;flex:0 0 auto}
+.ve-sub .infotip-pop{left:0;right:0;top:calc(100% + 6px);width:auto;max-width:none;text-transform:none;letter-spacing:normal;
+  font:400 12.5px/1.5 var(--f-ui);color:var(--txt-0)}
 
 /* LOADING PLACEHOLDER (owner 2026-10-29): until a card's image has loaded, its frame is a light, softly moving panel that
    says "Loading image…" — not the black letterbox it keeps for images that don't fill it */

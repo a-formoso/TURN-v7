@@ -388,7 +388,7 @@ test("Frances knows, and the pages load the new files", () => {
   assert.match(ai, /THE ROOM THE HEADING NAMES \(2026-11-16\)/);
   const html = read("TURN.html");
   for (const f of ["locations.jsx", "locations-ui.jsx", "shots.jsx", "app.jsx", "ai.jsx"])
-    assert.ok(["20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1"].some((k) => html.includes(f + "?v=" + k + '"')), f + " has the new key");
+    assert.ok(["20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1"].some((k) => html.includes(f + "?v=" + k + '"')), f + " has the new key");
 });
 
 console.log("\n" + passed + " tests passed");

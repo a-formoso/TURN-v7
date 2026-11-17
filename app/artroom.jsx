@@ -5726,6 +5726,70 @@ function PaletteRow({ palette }){
       React.createElement("span",{className:"pal-name"},p.name))));
 }
 
+/* HEIGHT IN THE FILM (owner 2026-11-17: the scale sheet should "reflect on the movie … height versus the environment
+   or other characters' height, so the characters are represented realistically"). A free line-up drawn from the Size
+   on each card — the same sizes the shots, the locations and the Stage already use (true sizes, 2026-10-28): this
+   character beside the people they share the most scenes with, against something from the world (a door for
+   people, else the nearest familiar object). Nothing is generated or charged. Whoever has no size with a unit is
+   named, because nothing can then hold their height in a frame. */
+function lineupSizeText(mm){
+  if(!(mm>0)) return "";
+  const r = (n)=> String(Math.round(n*10)/10).replace(/\.0$/,"");
+  if(mm<1) return r(mm*1000)+" \u00b5m";
+  if(mm<100) return r(mm)+" mm";
+  if(mm<3000) return r(mm/10)+" cm";
+  return r(mm/1000)+" m";
+}
+function charHeightLineup(c, cast, scenes, drafts){
+  const mmOf = (x)=> (typeof trueSizeMM==="function") ? (trueSizeMM(x && x.height)||0) : 0;
+  const scenesOf = (x)=>{ try{ return (typeof scenesWhereCharacterAppears==="function") ? (scenesWhereCharacterAppears(x.id, x.name, scenes, drafts)||[]) : []; }catch(e){ return []; } };
+  const mine = new Set(scenesOf(c));
+  const others = (cast||[]).filter(x=>x && x.id!==c.id)
+    .map(x=>({ c:x, mm:mmOf(x), shared:scenesOf(x).filter(id=>mine.has(id)).length }))
+    .filter(x=>x.shared>0)
+    .sort((a,b)=> (b.shared-a.shared) || String(a.c.name||"").localeCompare(String(b.c.name||"")));
+  const picked = others.slice(0,5);
+  const rows = [{ c, mm:mmOf(c), self:true, shared:mine.size }].concat(picked);
+  const sized = rows.filter(r=>r.mm>0), unsized = rows.filter(r=>!(r.mm>0));
+  const top = sized.reduce((m,r)=>Math.max(m,r.mm),0);
+  // something from the world to stand beside: a standard door for people, else the nearest familiar object
+  let ref = null;
+  if(top>0){
+    if(top>=900 && top<=3000) ref = { name:"a door", mm:2000, size:"2 m" };
+    else { const k = (typeof scaleKnownObjects==="function") ? scaleKnownObjects(top) : []; if(k[0]) ref = { name:k[0].name, mm:k[0].mm, size:lineupSizeText(k[0].mm) }; }
+  }
+  return { rows, sized, unsized, ref, more:Math.max(0, others.length-picked.length), scale:Math.max(top, ref ? ref.mm : 0) };
+}
+function CharHeightLineup({ c, cast, scenes, drafts }){
+  const sig = (cast||[]).map(x=>(x&&x.id)+":"+((x&&x.height)||"")+":"+((x&&x.name)||"")).join("|");
+  const L = React.useMemo(()=>charHeightLineup(c, cast, scenes, drafts), [c.id, c.height, c.name, sig, scenes, drafts]);
+  const H = 104;                                                    // the chart's height in px: the tallest thing in it
+  const px = (mm)=> Math.max(3, Math.round(mm/(L.scale||1)*H));
+  const first = (n)=> (typeof castFirstName==="function") ? castFirstName(n) : String(n||"");
+  const mine = L.rows[0];
+  const Tip = (typeof window.InfoTip==="function") ? window.InfoTip : null;
+  return React.createElement("div",{className:"lineup","data-testid":"char-height-lineup"},
+    React.createElement("div",{className:"obj-lab lineup-lab"},"Height in the film",
+      Tip && React.createElement(Tip,{label:"About height in the film",
+        text:"Drawn from the Size on each card (Body & features), free. These are the sizes the shots, the locations and the Stage use, so a frame keeps everyone at their real height against each other and against the set."
+          +(L.rows.length>1 ? "\n\nBeside "+first(c.name)+": the people they share the most scenes with." : "")})),
+    !(mine.mm>0) && React.createElement("div",{className:"lineup-warn",role:"note"},
+      React.createElement(Icon.alert,{s:13}),
+      (String(c.height||"").trim() ? "The size \u201c"+String(c.height).trim()+"\u201d has no unit. " : "No size yet. ")
+        +"Write it with its unit under Body & features \u25b8 Size (for example 172 cm tall), so frames can keep "+first(c.name)+"\u2019s height."),
+    L.sized.length>0 && React.createElement("div",{className:"lineup-chart",style:{height:(H+22)+"px"},role:"img",
+        "aria-label":L.sized.map(r=>first(r.c.name)+" "+lineupSizeText(r.mm)).join(", ")+(L.ref ? "; "+L.ref.name+" "+L.ref.size : "")},
+      L.ref && React.createElement("div",{className:"lineup-ref",style:{bottom:px(L.ref.mm)+"px"}},
+        React.createElement("span",null,L.ref.name+" \u00b7 "+L.ref.size)),
+      L.sized.map(r=>React.createElement("div",{key:r.c.id,className:"lineup-col"+(r.self?" self":""),
+          title:(r.c.name||"")+" \u00b7 "+lineupSizeText(r.mm)+(r.self ? "" : " \u00b7 "+r.shared+" scene"+(r.shared!==1?"s":"")+" together")},
+        React.createElement("span",{className:"lineup-size"},lineupSizeText(r.mm)),
+        React.createElement("span",{className:"lineup-bar",style:{height:px(r.mm)+"px"}}),
+        React.createElement("span",{className:"lineup-name"},first(r.c.name))))),
+    (L.unsized.filter(r=>!r.self).length>0) && React.createElement("div",{className:"lineup-missing"},
+      "No size with a unit yet: "+L.unsized.filter(r=>!r.self).map(r=>first(r.c.name)).join(", ")));
+}
+window.charHeightLineup = charHeightLineup; window.lineupSizeText = lineupSizeText;
 /* A GROUP OF SECTIONS on a card (owner 2026-11-17: "a shorter card" — the character card showed nine folded rows).
    Its sections stay mounted while the group is closed (only hidden), so a banner that jumps to one of them
    (nb-open-fold with that section's id) still reaches it; the group opens itself for the ids it holds. */
@@ -6572,9 +6636,12 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
 
       // the height chart, right after the size and scale it draws (owner 2026-10-29)
       React.createElement(CardFold,{label:"Scale sheet",defaultOpen:false},
-        React.createElement("div",{className:"char-scalesheet-hint"},
-          React.createElement(Icon.sparkles,{s:12}),
-          "A full-body height chart on the "+((typeof scaleInfoOf==="function")?scaleInfoOf(c).label:"Human")+" ruler beside familiar objects at their real sizes (a coin, a door, a house\u2026) \u2014 rendered from the master sheet, for you to check the size at a glance. Shots use the size written on the card (Identity \u25b8 Size), not this image."),
+        // HEIGHT IN THE FILM (owner 2026-11-17): this character beside the people they share scenes with, and a door —
+        // drawn from the sizes on the cards, free
+        React.createElement(CharHeightLineup,{ c, cast:cast||[c], scenes, drafts }),
+        React.createElement("div",{className:"obj-lab lineup-lab"},"Height chart image",
+          (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About the height chart image",
+            text:"A full-body height chart on the "+((typeof scaleInfoOf==="function")?scaleInfoOf(c).label:"Human")+" ruler beside familiar objects at their real sizes (a coin, a door, a house\u2026), made from the master sheet, for you to check the size at a glance. It is optional: shots use the size written on the card (Body & features \u25b8 Size), not this image."})),
         React.createElement(SheetFrame,{ gen:scaleGenWrapped, slotId:"charscale-"+c.id, name:(c.name||"")+" \u00b7 scale", avatarColor:c.color,
           initials:"H", drafted:true, drafting:false, onDraft:()=>{}, entity:c, onView,
           slotPlaceholder:"Generate the height chart", noun:"scale sheet", dropToImport:true }),
@@ -6607,9 +6674,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           placeholder:"What they wear alone \u2014 softer, personal clothing that shows who they really are\u2026",onCommit:val=>onUpdate(c.id,{wardrobeInner:val})})),
 
       React.createElement(CardFold,{label:"Props & accessories",defaultOpen:false,foldId:"props-"+c.id},
-        React.createElement("div",{className:"sheet-props-note"},
-          React.createElement(Icon.sparkles,{s:12}),
-          "Continuity objects \u2014 worn or carried items that recur across scenes."),
+        // (owner 2026-11-17: "that text needs to go … a little bit more tidier") no lead line; the two lists as two boxes
         wornProps.length>0 && React.createElement("div",{className:"worn-lock-summary"},
           React.createElement(Icon.layers,{s:12}),
           React.createElement("span",null,
@@ -6617,7 +6682,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             " worn design"+(wornProps.length===1?"":"s")+" visually locked"),
           React.createElement("span",{className:"worn-lock-fallback"},
             wornProps.filter(p=>!ownedSheetMap[p.id]||wornExclusions.has(p.id)).length+" text-only")),
-        React.createElement("div",{className:"sheet-2col"},
+        React.createElement("div",{className:"sheet-2col owned-lists"},
           React.createElement(SheetField,{label:"Accessories \u2014 worn",value:c.accessories,list:true,ownerName:c.name,
             onItemRemoved: onRemoveOwnedItem ? (txt=>onRemoveOwnedItem(c.id,txt)) : null,
             onItemRenamed: onRenameOwnedItem ? ((oldTxt,newTxt)=>onRenameOwnedItem(c.id,oldTxt,newTxt)) : null,
@@ -6638,8 +6703,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           })),
         linkedRows.length>0 && React.createElement("div",{className:"linked-props"},
           React.createElement("div",{className:"linked-props-head"},
-            React.createElement("div",{className:"obj-lab",style:{margin:0}},
-              "Story props \u2014 worn ones attach to this sheet; carried ones attach at the shot"),
+            React.createElement("div",{className:"obj-lab linked-props-lab",style:{margin:0}},"Story props",
+              (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About story props",
+                text:"Worn ones are drawn on this character's sheet. Carried ones are added at the shot."})),
             // (owner 2026-10-29) no "Make N worn-item sheets": costume is drawn on this sheet; a worn STORY prop
             // makes its own sheet from its row below or its Props card
             orphanProps.length>0 && onRemoveOwnedItem && React.createElement("button",{className:"linked-props-clean",
@@ -6751,9 +6817,6 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             }))))),
 
       React.createElement(CardFold,{label:"Continuity \u00b7 appearance states",count:states.length||null,defaultOpen:false},
-        React.createElement("div",{className:"sheet-props-note"},
-          React.createElement(Icon.sparkles,{s:12}),
-          "Moments where this character's look changes \u2014 wounds, costume shifts, time jumps. Each can get its own sheet."),
         React.createElement("div",{className:"state-actions"},
           React.createElement("button",{className:"state-suggest-btn",disabled:suggestingStates,onClick:()=>onSuggestStates&&onSuggestStates(c)},
             suggestingStates
@@ -6780,14 +6843,14 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement(SheetField,{label:"Speaks \u2014 the language of their lines (blank = the script's language)",value:c.lineLanguage||"",
           placeholder:"e.g. Kalaallisut, or an invented language",onCommit:val=>onUpdate(c.id,{lineLanguage:String(val||"").trim()})}),
         React.createElement("div",{className:"sheet-field"},
-          React.createElement("div",{className:"obj-lab"},"Lines for the video model"),
+          React.createElement("div",{className:"obj-lab lineup-lab"},"Lines for the video model",
+            (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About lines for the video model",
+              text:"For lines the video model voices itself (no recorded voice). Write the line as it sounds in the script; Cyrillic letters stop the model reading it as English. The letters are never shown, and the script isn't changed."})),
           React.createElement("select",{className:"prop-select","aria-label":"How their lines are written for the video model",
             value:c.lineScript==="cyrillic"?"cyrillic":"",
             onChange:e=>onUpdate(c.id,{lineScript:e.target.value==="cyrillic"?"cyrillic":""})},
             React.createElement("option",{value:""},"As written in the script"),
-            React.createElement("option",{value:"cyrillic"},"Spelled in Cyrillic letters (keeps English sounds out)")),
-          React.createElement("div",{className:"char-scalesheet-hint"},
-            "For lines the video model voices itself (no recorded voice). Write the line as it sounds in the script; Cyrillic letters stop the model reading it as English. The letters are never shown, and the script isn't changed.")),
+            React.createElement("option",{value:"cyrillic"},"Spelled in Cyrillic letters (keeps English sounds out)"))),
         // VIDEO ELEMENT (2026-10-27): a few seconds of them speaking in their locked voice, sent with their Stage clips
         window.VideoElementFold && React.createElement(window.VideoElementFold,{ c, readOnly, scenes, drafts, onUpdate, bare:true })),
 
