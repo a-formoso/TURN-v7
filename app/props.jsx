@@ -618,7 +618,9 @@ function propShowsOwner(p){
 window.propShowsOwner = propShowsOwner;
 function propOwnerPhotoRule(p){
   const who = (p && p.ownerName) || "its owner";
-  return "This object carries a photo of "+who+": the small photo on it is a passport-style picture of "+who+" with exactly the face, hair and skin tone of the portrait in the attached character sheet \u2014 never another person. Copy only the face; do not copy the sheet's layout or panels onto the object.";
+  return "This object carries a photo of "+who+": the small photo on it is a passport-style picture of "+who+" with exactly the face, hair and skin tone of the portrait in the attached character sheet \u2014 never another person. It is "
+    +((typeof window.turnIdPhotoLook==="string" && window.turnIdPhotoLook) || "an ID photo taken on another day, in a plain everyday top that is not the outfit on the sheet")
+    +". Copy only the face from the sheet, never its clothes; do not copy the sheet's layout or panels onto the object.";
 }
 /* the instruction that tells the model to match the referenced character sheet. */
 function propOwnerNote(p){

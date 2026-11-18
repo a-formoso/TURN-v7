@@ -45,7 +45,8 @@ const chunk = between(art, "  const [openItem, setOpenItem] = React.useState(nul
 const NAMES = ["React", "ReactDOM", "document", "EditText", "onNameOwnedItem", "rowKeyTick", "setRowKeyTick", "Icon", "window", "linkInfo", "normName", "ownedSheetMap", "readOnly", "propBusy", "setPropBusy", "wornExclusions", "c", "gen",
   "onCreateOwnedProp", "onDraftProp", "onView", "project", "setSheetTick", "setWornReferenceIncluded", "castFirstName", "propVisualsDrafted"];
 assert.ok(chunk.includes("React.useEffect(()=>{ if(!openItem) return undefined;"), "Esc closes the popup");
-const factory = vm.runInNewContext("(function(env){ const {" + NAMES.join(",") + "} = env;\n" + chunk + "\nreturn { ownedItemRow, ownedItemTile, ownedItemPanel }; })", { console, Promise, String, Set });
+const specSrc = between(art, "function specWholeSentences(t){", "window.specWholeSentences = specWholeSentences;");
+const factory = vm.runInNewContext(specSrc + "\n(function(env){ const {" + NAMES.join(",") + "} = env;\n" + chunk + "\nreturn { ownedItemRow, ownedItemTile, ownedItemPanel, specWholeSentences, specWasCut }; })", { console, Promise, String, Set, Math });
 function EditText() { return null; }
 const normName = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/^(?:and-|then-)/, "").slice(0, 40);
 const ITEMS = [["worn", "green PCO licence badge on a lanyard"], ["worn", "black leather belt"], ["carried", "Nasir's notebook"]];
@@ -214,6 +215,55 @@ await test("5 the list takes a lead of its own in place of the dot; the rows und
   assert.equal(sheet.split("window.generatePropSheet(pr, project)").length - 1, 1, "one place makes an item's image");
 });
 
+await test("T the design text is whole (owner 2026-11-18: 'Lanyard / Prop text appears incomplete'): the drafter knows its lengths and is cut at a sentence; older cut text is shown to its last sentence and can be written again", async () => {
+  // the drafter: told the lengths, cut at a sentence end (it used to cut at 200 characters, mid-phrase, with "…")
+  const box = { console, String, Array, Math, Object, window: null }; box.window = box; box.scrubBrand = (t) => t;
+  vm.runInNewContext(between(ai, "function clipWords(s, max){", "function clipSpecText(") + "\n" + between(ai, "function clipToSentence(s, max){", "window.clipToSentence = clipToSentence;")
+    + "\n" + between(ai, "const PROP_FIELD_LIMITS = ", "\nasync function aiExtractScreenplayProps(") + "\nthis.mapPropEntry = mapPropEntry; this.LIM = PROP_FIELD_LIMITS;", box);
+  assert.deepEqual(plain(box.LIM), { form: 420, material: 360, detail: 300, size: 110, style: 160 });
+  const LANYARD = "A flat navy woven polyester neck lanyard about 2 cm wide, sewn into a closed loop. At the bottom is a black plastic swivel clip and a small metal split ring holding a clear, slightly yellowed rigid plastic ID card holder with a printed staff card inside.";
+  assert.equal(box.mapPropEntry({ form: LANYARD }).form, LANYARD, "the lanyard's whole form is kept (it was cut at 'slightly yellowed rigid…')");
+  const long = box.mapPropEntry({ form: LANYARD + " " + "The holder is scuffed at its corners from years of daily use. ".repeat(6) }).form;
+  assert.ok(long.length <= 420 && /\.$/.test(long) && !long.includes("\u2026"), "a longer answer ends on a full sentence");
+  const prompt = between(ai, "async function aiDesignPropBible(props, characters, project){", "window.aiDesignPropBible = aiDesignPropBible;");
+  assert.ok(prompt.includes('"LENGTHS (longer text is cut, so finish every sentence inside them): form up to "+PROP_FIELD_LIMITS.form+" characters, material up to "'));
+  assert.ok(prompt.includes("for an ID badge or card: the holder, the card and its photo"));
+  // what a card saved before today shows: up to its last whole sentence; the saved words are not changed
+  const f = card();
+  const CUT = "A flat navy woven polyester neck lanyard about 2 cm wide, sewn into a closed loop. At the bottom is a black plastic swivel clip and a small metal split ring holding a clear, slightly yellowed rigid\u2026";
+  assert.equal(f.specWholeSentences(CUT), "A flat navy woven polyester neck lanyard about 2 cm wide, sewn into a closed loop.");
+  assert.equal(f.specWholeSentences("A gold ring."), "A gold ring."); assert.equal(f.specWholeSentences("one long clause with no full stop\u2026"), "one long clause with no full stop\u2026");
+  assert.equal(f.specWasCut({ form: CUT, material: "Gold." }), true); assert.equal(f.specWasCut({ form: "A ring.", material: "Gold.", detail: "" }), false); assert.equal(f.specWasCut(null), false);
+  // in the popup: shown whole, and one quiet button writes it again in full (writing credits, the person's own press)
+  const pr = { id: "p2", name: BOOK, kind: "carried", form: CUT, material: "Matte navy webbing." };
+  const a = card({ open: open("carried", BOOK), props: { [BOOK]: pr }, sheets: { p2: "data:x" } }), p = a.ownedItemPanel(); a.log.length = 0;
+  assert.deepEqual(findAll(p, cls("own-spec"))[0].children.map(text), ["A flat navy woven polyester neck lanyard about 2 cm wide, sewn into a closed loop.", "Matte navy webbing."]);
+  const again = findAll(p, role("owned-item-redesign"))[0];
+  assert.equal(again.children.filter(x => typeof x === "string").join(""), "Write its design again"); assert.match(again.props.title, /^The saved design was cut short\./);
+  await again.props.onClick();
+  assert.deepEqual(a.log.map(x => x[0]), ["busy", "draft", "busy"], "the same card is drafted again: no new card, no image");
+  const whole = card({ open: open("carried", BOOK), props: { [BOOK]: { ...pr, form: "A notebook." } }, sheets: { p2: "data:x" } }).ownedItemPanel();
+  assert.equal(findAll(whole, role("owned-item-redesign")).length, 0, "a whole design is not offered again here");
+  assert.ok(!/\.own-spec\{[^}]*(max-height|line-clamp)/.test(css), "nothing hides the end of the text");
+});
+
+await test("K a card made from a list is filed as that list says; the 'New wardrobe ready' banner is amber, not the Likeness's purple", () => {
+  const fn = between(app, "  const createOwnedProp = (charId, itemText, sourceKind, opts)=>{", "  const addLookbookCard");
+  let props = [];
+  const make = vm.runInNewContext("(function(env){ const {characters,setProps,canMutateSharedFilm,window,classifyPropKind,artRoomPropOrigin} = env;\n" + fn + "\nreturn createOwnedProp; })", { Date, String, Object })({
+    characters: [{ id: "eshita", name: "ESHITA" }], setProps: (f) => { props = f(props); }, canMutateSharedFilm: () => true, window: {},
+    classifyPropKind: () => "carried", artRoomPropOrigin: (kind) => ({ kind }) });
+  assert.equal(make("eshita", "work lanyard (navy, plastic ID card holder)", "worn", { kept: true }).kind, "worn", "typed under 'Accessories — worn': worn, whatever its name suggests");
+  assert.equal(make("eshita", "work lanyard", "worn").kind, "carried", "the older callers keep the name's verdict");
+  const sheet = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
+  const banner = between(sheet, 'className:"sheet-cameo-status char-wardrobe-update"', "// SCRIPT CHANGED");
+  assert.ok(banner.includes('label:"About the new wardrobe"') && !banner.includes("scs-meta"), "its sentence is behind the 'i' (it was cut to 'TH…')");
+  assert.ok(banner.includes('"Update sheet with new wardrobe"'));
+  const rule = (css.match(/\.sheet-cameo-status\.char-wardrobe-update\{[^}]*\}/) || [""])[0];
+  assert.ok(rule.includes("background:var(--pos-soft);border-color:var(--pos-line)") && !/29[5-6]/.test(rule), "amber from the theme's tokens, no purple");
+  assert.ok(css.includes(".sheet-cameo-status.char-wardrobe-update .scs-act{color:var(--pos-ink);font-weight:700;"));
+});
+
 await test("N1 the popup's name: type a new one, or take the shorter one on offer; the popup stays on the renamed item", () => {
   const LONG = "engagement ring (slim gold band with a small solitaire, left ring finger, removed in Sc 28)";
   const rows = (prop) => ({ props: { [BADGE]: prop } });
@@ -343,14 +393,15 @@ await test("6 the look: a square where the dot was; a popup in the windows' own 
 await test("F Frances knows; nothing she is told names the codename; the changed files are served under a new key", () => {
   const f = between(ai, 'APP_FEATURES.push({ name:"Open a worn or carried item on the character card and make its image there (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["a small square at the start of its row", "'Write its design'", "'Generate image'", "'Generate new image'", "'Visual lock'", "each paid step is its own press",
-    "kept as a prop", "Recently deleted", "view-only access", "On a phone", "opens in a POPUP over the page", "ONE NAME IN BOTH PLACES", "'Shorten to", "Renaming costs nothing."]) assert.ok(f.includes(k), k);
+    "kept as a prop", "Recently deleted", "view-only access", "On a phone", "opens in a POPUP over the page", "ONE NAME IN BOTH PLACES", "'Shorten to", "Renaming costs nothing.",
+    "'Write its design again'", "filed as that list says", "ID PHOTOS", "'New wardrobe ready'"]) assert.ok(f.includes(k), k);
   assert.ok(!f.includes("drawer"));
   assert.ok(ai.includes("the item in its owner's list on the character card takes the short name too") && !ai.includes("the character's list is left as it is and still finds the card"));
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic/.test(f));
   assert.ok(f.includes("/from its row in the character card's Props & accessories section|Only hero props are cards/.test(f.what)"), "older entries are put right");
   assert.ok(ai.includes("beside the WHOLE cast (since 2026-11-18; it used to stop at five people)") && !ai.includes("share the most scenes with (up to five)"));
   assert.ok(ai.includes("press the small square at the start of the item's row, make the object's image there, keep 'Visual lock' ticked"));
-  const KEYS = ["20261118-popup1", "20261118-popup2"];   // (the list grows with each key bump)
+  const KEYS = ["20261118-idphoto1"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "props.jsx", "app.jsx", "ai.jsx", "script.jsx", "styles.css"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });

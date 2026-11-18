@@ -4350,7 +4350,10 @@ function App(){
     if(!canMutateSharedFilm()) return null;
     const ch = characters.find(x=>x.id===charId); if(!ch) return null;
     const item = String(itemText||"").trim(); if(!item) return null;
-    const kind = ((typeof classifyPropKind==="function") && classifyPropKind(item)) || sourceKind || "carried";
+    // a card the person makes from one of the two lists is filed as that list says (2026-11-18: a lanyard typed under
+    // "Accessories — worn" was filed as carried by its name, so it was never drawn on the sheet from its image)
+    const listKind = (opts && opts.kept && (sourceKind==="worn" || sourceKind==="carried")) ? sourceKind : "";
+    const kind = listKind || ((typeof classifyPropKind==="function") && classifyPropKind(item)) || sourceKind || "carried";
     const slug = (typeof window.propSlug==="function") ? window.propSlug(item)
       : item.toLowerCase().replace(/[^a-z0-9]+/g,"-").slice(0,40);
     const card = { id:"prop-"+(ch.id||"x")+"-"+kind+"-"+slug+"-"+Date.now().toString(36),

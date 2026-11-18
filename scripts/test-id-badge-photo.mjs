@@ -43,6 +43,11 @@ test("2 the rule a prompt carries: the wearer's own face on the small photo, unr
   const r = box.idPhotoRule("LIAQAT HUSSAIN");
   assert.match(r, /^ID badge, pass or photo card: if one worn or carried by LIAQAT HUSSAIN has a photo on it, that small photo is a passport-style picture of LIAQAT HUSSAIN/);
   assert.match(r, /the same face, hair and skin tone — never another person/);
+  // (owner 2026-11-18: "wearing the same clothes on the lanyard / id … think passport photo") the photo is an ID picture
+  // taken on another day, in plain clothes that are not the outfit of the day
+  const LOOK = box.turnIdPhotoLook;
+  assert.match(LOOK, /^an ID photo taken on another day: head and shoulders square to the camera, neutral expression, flat even light, a plain pale background, wearing a plain everyday top in a different colour from the outfit worn here \(no coat, no jacket, no scarf, no lanyard, no jewellery from this outfit\)$/);
+  assert.ok(r.includes("never another person; " + LOOK + "; its printing is tiny"));
   assert.match(r, /tiny unreadable lines and blocks, with no legible words, names, numbers or logos$/);
   assert.match(box.idPhotoRule(""), /worn or carried by this character/);
 });
@@ -67,7 +72,7 @@ test("4 a shot says it once for whoever in frame wears or carries one", () => {
   const code = shots.slice(i, j + END.length);
   const run = (subjects) => vm.runInContext("(function(subjects, clean, stage){\n" + code + "\n return stage; })", b)(subjects, (x) => String(x || "").trim(), []);
   assert.deepEqual(JSON.parse(JSON.stringify(run([{ name: "Liaqat", accessories: "PCO licence badge on a lanyard" }, { name: "Eshita", accessories: "gold ring" }]))),
-    ["ID BADGES: if one worn or carried by Liaqat has a photo on it, that small photo is a passport-style picture of Liaqat — the same face, hair and skin tone — never another person; its printing is tiny unreadable lines and blocks, with no legible words, names, numbers or logos"]);
+    ["ID BADGES: if one worn or carried by Liaqat has a photo on it, that small photo is a passport-style picture of Liaqat — the same face, hair and skin tone — never another person; " + box.turnIdPhotoLook + "; its printing is tiny unreadable lines and blocks, with no legible words, names, numbers or logos"]);
   assert.match(run([{ name: "Amy", accessories: "staff ID badge" }, { name: "Jamil", wardrobeMask: "suit, press pass" }])[0], /worn or carried by each of Amy, Jamil has a photo on it/);
   assert.deepEqual(JSON.parse(JSON.stringify(run([{ name: "Eshita", accessories: "gold ring" }]))), [], "nobody wears one: nothing is added");
 });
@@ -83,7 +88,8 @@ test("5 a prop that shows its owner's photo: by itself for an ID object that bel
   assert.equal(box.propShowsOwner(P({ ownerId: "" })), false, "an object nobody owns shows nobody");
   const note = box.propOwnerNote(P({ kind: "carried" }));
   assert.match(note, /^Reference image: Liaqat's character sheet\./);
-  assert.match(note, /This object carries a photo of Liaqat: the small photo on it is a passport-style picture of Liaqat with exactly the face, hair and skin tone of the portrait in the attached character sheet — never another person\. Copy only the face; do not copy the sheet's layout or panels onto the object\.$/);
+  assert.ok(note.endsWith("This object carries a photo of Liaqat: the small photo on it is a passport-style picture of Liaqat with exactly the face, hair and skin tone of the portrait in the attached character sheet — never another person. It is "
+    + box.turnIdPhotoLook + ". Copy only the face from the sheet, never its clothes; do not copy the sheet's layout or panels onto the object."), "the ID photo's own clothes, not the sheet's");
   assert.doesNotMatch(box.propOwnerNote(P({ name: "the key", kind: "carried" })), /carries a photo/);
   // in the sheet's own spec too, and on the card
   assert.ok(props.includes("owner_photo_rule: propShowsOwner(p) ? propOwnerPhotoRule(p) : undefined,"));

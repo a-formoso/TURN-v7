@@ -75,10 +75,16 @@ function charIdItem(c){
   return turnIdItem([c.accessories, c.wardrobeMask || c.wardrobe, c.wardrobeInner, c.props].filter(Boolean).join(" ; "));
 }
 /* the sentence a prompt carries: whose face the small photo is, and what its printing looks like */
+/* how an ID photo looks (one wording for the character sheet, the shots and the prop's own image) */
+const ID_PHOTO_LOOK = "an ID photo taken on another day: head and shoulders square to the camera, neutral expression, flat even light, a plain pale background, wearing a plain everyday top in a different colour from the outfit worn here (no coat, no jacket, no scarf, no lanyard, no jewellery from this outfit)";
+window.turnIdPhotoLook = ID_PHOTO_LOOK;
 function idPhotoRule(who){
   const w = String(who||"").trim() || "this character";
+  // (owner 2026-11-18: "wearing the same clothes on the lanyard / id — make them wear something else more contextual
+  // (think passport photo)") the photo was taken on another day: an ID picture, in plain clothes that are not today's
   return "ID badge, pass or photo card: if one worn or carried by "+w+" has a photo on it, that small photo is a passport-style picture of "+w
-    +" \u2014 the same face, hair and skin tone \u2014 never another person; its printing is tiny unreadable lines and blocks, with no legible words, names, numbers or logos";
+    +" \u2014 the same face, hair and skin tone \u2014 never another person; "+ID_PHOTO_LOOK
+    +"; its printing is tiny unreadable lines and blocks, with no legible words, names, numbers or logos";
 }
 window.turnIdItem = turnIdItem; window.charIdItem = charIdItem; window.idPhotoRule = idPhotoRule;
 
@@ -6064,6 +6070,19 @@ function tidyTruncated(s){
   return m ? m[0].trim() : s;
 }
 
+/* A DESIGN TEXT AN OLDER LIMIT CUT (2026-11-18): until that day a prop's form, material and detail were cut at 200
+   characters and ended in "…" mid-sentence. Shown, such a text stops at its last whole sentence (display only: the
+   saved words are not changed); specWasCut says a card has one, so its design can be offered again in full. */
+function specWholeSentences(t){
+  const s = String(t||"").trim();
+  if(!/(?:\u2026|\.\.\.)$/.test(s)) return s;
+  const body = s.replace(/(?:\u2026|\.\.\.)$/,"").trim();
+  let cut = -1;
+  for(const m of body.matchAll(/[.!?](?=\s)/g)) cut = m.index+1;
+  return cut >= Math.floor(body.length*0.3) ? body.slice(0,cut).trim() : s;
+}
+function specWasCut(p){ return !!p && [p.form, p.material, p.detail].some(x=> /(?:\u2026|\.\.\.)$/.test(String(x||"").trim())); }
+window.specWholeSentences = specWholeSentences; window.specWasCut = specWasCut;
 function SheetField({ label, value, placeholder, multiline, list, onCommit, onItemRemoved, onItemRenamed, ownerName, itemLead }){
   return React.createElement("div",{className:"sheet-field"},
     React.createElement("div",{className:"obj-lab"},label),
@@ -6658,7 +6677,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                 React.createElement("span",{className:"own-step-dot","aria-hidden":"true"}, st.done ? React.createElement(Icon.check,{s:10}) : String(i+1)),
                 React.createElement("span",{className:"own-step-lab"},st.lab)))),
             (drafted && pr && (pr.form||pr.material)) && React.createElement("div",{className:"own-spec"},
-              [pr.form, pr.material].map(x=>String(x||"").trim()).filter(Boolean).map((x,i)=>React.createElement("p",{key:i},x))),
+              [pr.form, pr.material].map(x=>specWholeSentences(x)).filter(Boolean).map((x,i)=>React.createElement("p",{key:i},x))),
             !readOnly && React.createElement("div",{className:"own-actions"},
               !drafted
                 ? React.createElement("button",{type:"button",className:"own-act main","data-role":"owned-item-design",disabled:!!propBusy,
@@ -6672,6 +6691,11 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                     busy==="gen" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
                     busy==="gen" ? "Generating\u2026" : (url ? "Generate new image" : "Generate image"),
                     (!busy && typeof window.nbCostChip==="function") ? window.nbCostChip(1) : null),
+              // a design an older limit cut mid-sentence can be written again in full, on the person's own press
+              (drafted && pr && specWasCut(pr)) && React.createElement("button",{type:"button",className:"own-act","data-role":"owned-item-redesign",disabled:!!propBusy,
+                  title:"The saved design was cut short. Writes it again in full, from the script. Writing credits only.",onClick:writeDesign},
+                busy==="draft" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
+                busy==="draft" ? "Writing its design\u2026" : "Write its design again"),
               (pr && !carried && url) && React.createElement("label",{className:"worn-lock-toggle own-lock",
                   title:included ? "Drawn from this image on the next character sheet" : "Kept as words on the character sheet"},
                 React.createElement("input",{type:"checkbox",checked:included,onChange:(e)=>setWornReferenceIncluded(pr.id,e.target.checked)}),
@@ -6922,10 +6946,14 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       // says it's locked, and the button's tooltip says which face and which voice — vcFaceVoiceLine)
       // UPDATE SHEET WITH NEW WARDROBE (owner 2026-10-06 — Characters review): the app pointed here from six
       // places, but the button didn't exist. The master doesn't wear its newly built worn-item sheets yet.
-      wardrobeStale && gen.genUrl && !readOnly && React.createElement("div",{className:"sheet-cameo-status char-wardrobe-update"},
+      // (owner 2026-11-18: "Selected element is purple … we don't want the user to think this has anything to do with
+      // Likeness") the banner is amber, the colour of something to do; its sentence, which was cut to "TH…", is behind an "i"
+      wardrobeStale && gen.genUrl && !readOnly && React.createElement("div",{className:"sheet-cameo-status char-wardrobe-update","data-testid":"char-wardrobe-update"},
         React.createElement(Icon.layers||Icon.sparkles,{s:14}),
         React.createElement("span",{className:"scs-t"},"New wardrobe ready"),
-        React.createElement("span",{className:"scs-meta"},"this sheet doesn't wear its new worn-item sheets yet"),
+        (typeof window.InfoTip==="function") ? React.createElement(window.InfoTip,{label:"About the new wardrobe",
+          text:"A worn item has a new image, and this sheet doesn't wear it yet. Update the sheet to draw it in: the sheet is made again with the item's image beside it (one image)."}) : null,
+        React.createElement("span",{className:"scs-fill"}),
         React.createElement("button",{className:"scs-act",disabled:gen.gening,onClick:()=>gen.generate(),
           title:"Regenerate the master sheet wearing its worn items (one image)"},
           gen.gening?"Updating\u2026":"Update sheet with new wardrobe", !gen.gening && typeof window.nbCostChip==="function"

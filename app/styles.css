@@ -2624,6 +2624,27 @@ html[data-theme="light"] .char-cameo-btn.on{background:oklch(0.6 0.18 295 / .16)
   font-weight:600;color:var(--txt-2);padding:2px 4px;border-radius:5px;transition:.12s}
 .sheet-cameo-status .scs-act:hover{color:var(--txt-0);background:var(--bg-4)}
 .sheet-cameo-status .scs-act.danger:hover{color:var(--neg-ink);background:oklch(0.6 0.2 18 / .12)}
+/* (2026-11-18) on the light theme the Likeness banner's title and icon were pale lilac on pale lilac: the Likeness
+   button's own light-theme ink */
+html[data-theme="light"] .sheet-cameo-status .scs-t{color:oklch(0.42 0.16 295)}
+html[data-theme="light"] .sheet-cameo-status>svg{color:oklch(0.5 0.17 295)}
+/* NEW WARDROBE READY (owner 2026-11-18: "Selected element is purple … we don't want the user to think this has anything
+   to do with Likeness"): purple is the Likeness's colour alone. This banner is amber, the colour of something to do,
+   from the theme's own tokens (so it reads in light and dark); its sentence sits behind the "i". */
+.sheet-cameo-status.char-wardrobe-update{position:relative;flex-wrap:wrap;row-gap:4px;background:var(--pos-soft);border-color:var(--pos-line)}
+html .sheet-cameo-status.char-wardrobe-update>svg{color:var(--pos-ink)}
+html .sheet-cameo-status.char-wardrobe-update .scs-t{color:var(--txt-0);white-space:nowrap}
+.sheet-cameo-status.char-wardrobe-update .scs-fill{flex:1 1 auto;min-width:0}
+/* the "script changed" banner is no Likeness matter either: the same amber */
+.sheet-cameo-status.char-script-changed{background:var(--pos-soft);border-color:var(--pos-line)}
+html .sheet-cameo-status.char-script-changed>svg{color:var(--pos-ink)}
+html .sheet-cameo-status.char-script-changed .scs-t{color:var(--txt-0)}
+.sheet-cameo-status.char-wardrobe-update .scs-act{color:var(--pos-ink);font-weight:700;text-align:right}
+.sheet-cameo-status.char-wardrobe-update .scs-act:hover:not(:disabled){color:var(--txt-0);background:var(--pos-soft)}
+.sheet-cameo-status.char-wardrobe-update .infotip{position:static;flex:0 0 auto}
+.sheet-cameo-status.char-wardrobe-update .infotip-btn{width:16px;height:16px}
+.sheet-cameo-status.char-wardrobe-update .infotip-pop{left:0;right:0;top:calc(100% + 6px);width:auto;max-width:none;text-transform:none;
+  letter-spacing:normal;font:400 12.5px/1.5 var(--f-ui);color:var(--txt-0)}
 
 .cameo-overlay{position:fixed;inset:0;z-index:120;display:flex;align-items:safe center;justify-content:center;padding:24px;
   overflow-y:auto;background:oklch(0.16 0.02 280 / .72);backdrop-filter:blur(6px);animation:cameo-in .16s ease}
@@ -3822,8 +3843,9 @@ span.own-name{padding:3px 0}
 .own-step.done .own-step-dot{background:var(--ok);border-color:var(--ok);color:var(--win-surface,#fff)}
 .own-step.now{color:var(--win-ink,var(--txt-0));font-weight:600}
 .own-step.now .own-step-dot{border-color:var(--win-amber,#F29A43);color:var(--win-ink,var(--txt-0))}
-/* what was written for it: the form, then the material; it scrolls when long */
-.own-spec{max-height:9.4em;overflow:auto;scrollbar-width:thin;font:400 13px/1.5 var(--f-ui);color:var(--win-ink-2,var(--txt-1))}
+/* what was written for it: the form, then the material */
+/* in full (owner 2026-11-18: the text "appears incomplete" — a box that scrolled hid its end); the popup scrolls instead */
+.own-spec{font:400 13px/1.5 var(--f-ui);color:var(--win-ink-2,var(--txt-1))}
 .own-spec p{margin:0}
 .own-spec p + p{margin-top:6px;color:var(--win-sub,var(--txt-2))}
 .own-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
