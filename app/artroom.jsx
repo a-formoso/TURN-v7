@@ -54,6 +54,34 @@ function charVisualDefaults(c){
 }
 window.charVisualDefaults = charVisualDefaults;
 
+/* A BADGE WITH ITS WEARER'S PICTURE ON IT (owner 2026-11-17: "how do we solve characters wearing / carrying a badge
+   with their picture on it?" — "Yes, build both"). An image engine draws a small stranger's face on an ID badge, and
+   its printing fought the sheets' no-text rule (the QA check flagged a readable licence badge). Film crews split it
+   two ways, and so does this:
+     1 COSTUME: a badge, pass or lanyard card named in what a character wears. Their sheet, and any shot they are in,
+       is told that IF it carries a photo, the photo is that same person, and its printing is unreadable fine lines.
+     2 HERO PROP: an ID card, badge, pass, passport or licence with its own prop card. Its sheet already goes out with
+       its owner's character sheet attached; it is now told the photo on it is the owner's face from that sheet
+       (props.jsx propShowsOwner — on by itself for such an object, and the card can switch it).
+   The rule is conditional ("if it carries a photo"), so naming a lanyard that holds keys does no harm. */
+const ID_ITEM_RX = /\b(?:id|i\.?d\.?|identity|identification|photo|staff|security|press|visitor|access|warrant|licen[cs]e|membership|student|library|police|work|employee|company|hospital|school|crew|backstage)\s+(?:badge|card|pass|tag)\b|\blanyard\b|\bname\s*(?:badge|tag)\b|\bpassport\b|\bdriv(?:ing|er'?s)\s+licen[cs]e\b|\bphoto(?:graph)?\s+i\.?d\.?\b/i;
+function turnIdItem(text){
+  const m = ID_ITEM_RX.exec(String(text==null ? "" : text));
+  return m ? m[0].toLowerCase().replace(/\s+/g," ").trim() : "";
+}
+/* the ID item among what a character wears or carries ("" when there is none) */
+function charIdItem(c){
+  if(!c) return "";
+  return turnIdItem([c.accessories, c.wardrobeMask || c.wardrobe, c.wardrobeInner, c.props].filter(Boolean).join(" ; "));
+}
+/* the sentence a prompt carries: whose face the small photo is, and what its printing looks like */
+function idPhotoRule(who){
+  const w = String(who||"").trim() || "this character";
+  return "ID badge, pass or photo card: if one worn or carried by "+w+" has a photo on it, that small photo is a passport-style picture of "+w
+    +" \u2014 the same face, hair and skin tone \u2014 never another person; its printing is tiny unreadable lines and blocks, with no legible words, names, numbers or logos";
+}
+window.turnIdItem = turnIdItem; window.charIdItem = charIdItem; window.idPhotoRule = idPhotoRule;
+
 /* resolve a visual field with legacy fallback (old sheets used look/wardrobe) */
 function vfield(c, key, legacy){ return (c[key] && c[key].trim()) ? c[key] : (legacy && c[legacy] ? c[legacy] : ""); }
 
@@ -1392,7 +1420,12 @@ function buildCharRefPrompt(c, project, props, o){
   const _rulesBase = (_rb.rules||[]).map(r=> /no text/i.test(r)
     ? _noTextRule+(/calligraph|seal|stamp/i.test(r) ? "; no calligraphy, seals or stamps either" : "") : r);
   const _negItems = String(c.negativePrompt || v.negativePrompt || "").split(/,\s*/).map(x=>x.replace(/\.$/,"").trim()).filter(Boolean);
-  const _rules = _negItems.length ? [ ..._rulesBase, "strictly avoid: "+_negItems.join(", ") ] : _rulesBase;
+  // A WORN ID BADGE (2026-11-17): the one thing on a sheet that may carry a small photo and micro-print — said as a
+  // rule of its own, so it doesn't contradict "no text" and "exactly one face" (and the QA check reads it as the contract)
+  const _idItem = (typeof turnIdItem==="function") ? turnIdItem([accAll.join("; "), clean(mask)].filter(Boolean).join(" ; ")) : "";
+  const _idRule = (_idItem && typeof idPhotoRule==="function") ? idPhotoRule(c.name || "this character") : "";
+  const _rules = (_negItems.length ? [ ..._rulesBase, "strictly avoid: "+_negItems.join(", ") ] : _rulesBase)
+    .concat(_idRule ? ["the one exception to the no-text rule: a worn ID badge or pass may carry its small photo and unreadable micro-print (see wardrobe.id_photo_rule)"] : []);
   // HELD MOBILITY / SIGNATURE SUPPORT ITEM (cane-class): if the spec's own text
   // describes one, it must be IN HAND on the sheet — the hardcoded "both hands
   // empty" used to contradict it and the generator obeyed the explicit hands
@@ -1425,6 +1458,7 @@ function buildCharRefPrompt(c, project, props, o){
     wardrobe: {
       wearing: clean(mask)||undefined,
       accessories: accAll.length ? accAll.join("; ") : undefined,
+      id_photo_rule: _idRule || undefined,
       hands: _heldItem
         ? ("one hand closed around the "+_heldItem+" with weight settled naturally onto it — in EVERY full-body view; the other hand empty and relaxed at side")
         : "both hands empty and relaxed at sides",
@@ -1446,7 +1480,8 @@ function buildCharRefPrompt(c, project, props, o){
         "PANEL 2 \u2014 full-body FRONT view at EXACTLY the same figure height, scale and vertical alignment as the BACK view in panel 3 (same headroom, feet on the same line) \u2014 but NO head and NO neck are rendered: an invisible person wearing the clothes \u2014 the garment keeps its worn shape, and inside the collar opening only the inside back of the collar or shirt shows, with clean empty background above it; no chin, jaw, mouth, lips, neck or throat skin anywhere above the collar (the face is not cropped, cut off or half-shown \u2014 it is simply absent); body facing camera, "+(_heldItem?("one hand on the "+_heldItem+", the other relaxed at side"):"arms relaxed at sides")+", clean silhouette, the full outfit and shoes visible",
         "PANEL 3 \u2014 full-body BACK view, head-to-toe, facing away (hair and back of head visible, no face), same wardrobe, same proportions, same figure height and baseline as panel 2"
       ],
-      one_face_rule: "EXACTLY ONE face appears on this sheet \u2014 the hero portrait in panel 1. The front view's head AND neck are omitted BY DESIGN (only the inside of the collar and clean background above it, never a chin, mouth or neck; figure scale unchanged): a second rendered face makes video generators blend or invent identity.",
+      one_face_rule: "EXACTLY ONE face appears on this sheet \u2014 the hero portrait in panel 1. The front view's head AND neck are omitted BY DESIGN (only the inside of the collar and clean background above it, never a chin, mouth or neck; figure scale unchanged): a second rendered face makes video generators blend or invent identity."
+        + (_idRule ? " (The tiny photo on a worn ID badge is part of that object, not another view of the character: keep it very small.)" : ""),
       scale_rule: "the front and back figures are the SAME height and scale, vertically aligned across panels 2 and 3 \u2014 the missing head must NOT enlarge the front figure",
       no_extra_views: "do not add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, or ANY info box / character-data panel (no name, height, age or traits printed on the image \u2014 that metadata travels in the prompt, never baked into pixels)",
       background: CHAR_SHEET_BACKGROUND
@@ -1499,6 +1534,9 @@ function buildRefFromPhotoPrompt(c, project){
   if(_feats) s += "Distinguishing features (from the script), shown in every view where that part of the body is visible: "+_feats+". ";
   if(c.role) s += "Role: "+c.role+". ";
   s += mask ? ("Wearing "+mask.replace(/\.$/,"")+acc+". ") : "";
+  // a worn ID badge shows the wearer's own face (2026-11-17)
+  if(typeof turnIdItem==="function" && typeof idPhotoRule==="function" && turnIdItem([mask, c.accessories].filter(Boolean).join(" ; ")))
+    s += idPhotoRule(c.name || "this character")+". ";
   if(tone) s += tone+" tone. ";
   s += v.height ? "Character is "+(/\b(tall|long|high|across|wide)\b/i.test(v.height) ? v.height : v.height+" tall")+" ("+v.scaleClass+"). " : "Scale: "+v.scaleClass+". ";
   s += "RENDER STYLE: "+style.replace(/\.$/,"")+". ";

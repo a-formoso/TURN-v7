@@ -101,6 +101,7 @@ function buildPropRefPrompt(p, project){
       material_rule: material ? ("rendered in "+material+", with accurate surface texture and finish in every panel") : "accurate, consistent material and finish in every panel",
       feature_rule: detail ? ("its signature feature \u2014 "+((typeof clipWords==="function")?clipWords(detail,90):detail.slice(0,90))+" \u2014 present and consistent in every view") : undefined,
       relationship_rule: relation ? ("the owner's relationship to it \u2014 "+((typeof clipWords==="function")?clipWords(relation,90):relation.slice(0,90))+" \u2014 is visible in its condition: wear, repairs, handling marks and how carefully it has been kept") : undefined,
+      owner_photo_rule: propShowsOwner(p) ? propOwnerPhotoRule(p) : undefined,
       harvested_reference_rule: externalRefs.length ? ("Use the attached selected-item/whole-sheet reference image"+(externalRefs.length>1?"s":"")+" as world-consistency guidance for this object's design language, material wear, likeness when the prop depicts a person, lighting feel and belonging in the same film world; do not copy unrelated surrounding scenery from the source image.") : undefined,
     },
     render: {
@@ -592,6 +593,21 @@ async function propOwnerSheetUrl(p){
   return u || "";
 }
 window.propOwnerSheetUrl = propOwnerSheetUrl;
+/* AN OBJECT THAT SHOWS ITS OWNER'S FACE (2026-11-17, artroom.jsx "A BADGE WITH ITS WEARER'S PICTURE"): an ID card, badge,
+   pass, passport or licence that belongs to a character carries that character's photo. On by itself for such an
+   object; the card's "Shows its owner's photo" tick decides otherwise (p.ownerPhoto: true / false; unset = by itself).
+   Nothing is attached by this: the owner's sheet already goes out with the prop's sheet. */
+function propShowsOwner(p){
+  if(!p || !p.ownerId) return false;
+  if(p.ownerPhoto===true || p.ownerPhoto===false) return p.ownerPhoto;
+  const text = [p.name, ...(Array.isArray(p.aliases) ? p.aliases : []), p.form, p.signatureFeature, p.contentNotes].filter(Boolean).join(" ; ");
+  return !!((typeof window.turnIdItem==="function") && window.turnIdItem(text));
+}
+window.propShowsOwner = propShowsOwner;
+function propOwnerPhotoRule(p){
+  const who = (p && p.ownerName) || "its owner";
+  return "This object carries a photo of "+who+": the small photo on it is a passport-style picture of "+who+" with exactly the face, hair and skin tone of the portrait in the attached character sheet \u2014 never another person. Copy only the face; do not copy the sheet's layout or panels onto the object.";
+}
 /* the instruction that tells the model to match the referenced character sheet. */
 function propOwnerNote(p){
   const who = (p && p.ownerName) || "the owner";
@@ -599,7 +615,8 @@ function propOwnerNote(p){
   const relNote = rel ? (" "+who+"'s relationship to this object: "+rel+" \u2014 let that history show in its condition, wear and repairs.") : "";
   return ((p && p.kind==="worn")
     ? "Reference image: "+who+"'s character sheet. This prop is WORN by "+who+" — render it in the SAME visual style, materials, colour palette, surface wear and finish as that character, so it looks like it belongs on their body."
-    : "Reference image: "+who+"'s character sheet. Render this prop in the SAME visual style, palette and world as that character so it reads as theirs.") + relNote;
+    : "Reference image: "+who+"'s character sheet. Render this prop in the SAME visual style, palette and world as that character so it reads as theirs.") + relNote
+    + (propShowsOwner(p) ? " "+propOwnerPhotoRule(p) : "");
 }
 window.propOwnerNote = propOwnerNote;
 
@@ -1657,6 +1674,14 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             React.createElement("option",{value:""},"Auto — "+(()=>{const a=window.PropScreenplay.sheetTier({...p,sheetTier:""},drafts);return (a.tier==="text"?"text only":"own image")+" ("+a.reason.toLowerCase()+")";})()),
             React.createElement("option",{value:"own"},"Own image"),
             React.createElement("option",{value:"text"},"Text only — described in shot prompts"))),
+        // SHOWS ITS OWNER'S PHOTO (2026-11-17): an ID card, badge, pass, passport or licence. Ticked by itself for such
+        // an object; the person can tick or untick it for any owned object (a framed portrait, a wanted poster)
+        p.ownerId && React.createElement("label",{className:"prop-owner-photo","data-testid":"prop-owner-photo"},
+          React.createElement("input",{type:"checkbox",checked:propShowsOwner(p),
+            onChange:e=>onUpdate(p.id,{ownerPhoto:!!e.target.checked})}),
+          React.createElement("span",null,"Shows "+(p.ownerName||"its owner")+"'s photo"),
+          (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About the owner's photo",
+            text:"For an ID card, badge, pass, passport or licence. When ticked, the image of this object is made with "+(p.ownerName||"its owner")+"'s face on its small photo, taken from their character sheet. It is ticked by itself when the object's name or description says it is one of these. Make "+(p.ownerName||"the owner")+"'s sheet first; the change shows the next time you make this object's image."})),
         // RELATIONSHIP — one line on how the owner relates to this object; feeds the
         // sheet prompt (condition/wear/repairs express it) and bakes into the owner's
         // character sheet for worn items. Belonging = character truth, not just style.

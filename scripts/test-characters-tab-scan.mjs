@@ -198,7 +198,7 @@ await test("T the card's explaining lines (owner 2026-11-17): gone or behind an 
 await test("F Frances knows; the changed files are served under a new key", () => {
   const f = between(ai, 'APP_FEATURES.push({ name:"Cast overview, the character card in four rows, the kept QA result (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["THE CAST AT A GLANCE", "THE CARD IN FOUR ROWS", "THE QA RESULT IS KEPT", "'Check again'", "ONE 'MORE' MENU", "THE HEADING FOLDS"]) assert.ok(f.includes(k), k);
-  const KEYS = ["20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1"];   // (the list grows with each key bump)
+  const KEYS = ["20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "cameo.jsx", "imagegen.jsx", "cloud.jsx", "app.jsx", "ai.jsx", "styles.css"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });

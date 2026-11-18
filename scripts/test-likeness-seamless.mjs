@@ -163,7 +163,7 @@ await test("8 Frances knows, and no older sentence of hers contradicts it", () =
 
 await test("9 the new files are served", () => {
   for (const file of ["face-pose.js", "cameo.jsx", "artroom.jsx", "ai.jsx", "script.jsx", "imagegen.jsx", "cloud.jsx", "styles.css"])
-    assert.ok(["20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1"].some((k) => html.includes(file + "?v=" + k + '"')), "cache key: " + file);
+    assert.ok(["20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1"].some((k) => html.includes(file + "?v=" + k + '"')), "cache key: " + file);
   assert.ok(read("app/styles.css").includes(".cameo-who-line{"));
 });
 

@@ -2529,6 +2529,10 @@ function buildShotPrompt(sh, ctx){
    if(openingAction)         stage.push(cap(openingAction.replace(/\.$/,"")));
   if(clean(screenDir.composition)) stage.push(cap(clean(screenDir.composition)));
   if(clean(screenDir.clause)) stage.push(clean(screenDir.clause));
+  // A BADGE WITH ITS WEARER'S PICTURE (2026-11-17, artroom.jsx): said once for whoever in frame wears or carries one
+  const _idWearers = (subjects||[]).filter(c=> c && typeof window.charIdItem==="function" && window.charIdItem(c)).map(c=>clean(c.name)).filter(Boolean);
+  if(_idWearers.length && typeof window.idPhotoRule==="function")
+    stage.push(window.idPhotoRule(_idWearers.length===1 ? _idWearers[0] : "each of "+_idWearers.join(", ")).replace(/^ID badge, pass or photo card: /,"ID BADGES: "));
   // the director's OWN words (the card's Director's-notes field): appended as their
   // own clause so they COMPOSE with the derived prompt, never replacing any part of it
   if(clean(sh.directives)) stage.push("DIRECTOR'S NOTES (binding): "+clean(sh.directives));

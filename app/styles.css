@@ -2555,6 +2555,11 @@ img.sheet-genimg[data-fit="fill"], img.sb-comp-img[data-fit="fill"], img.sb-page
 .sheet-meta-style{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .sheet-meta-item.none{color:var(--txt-3)}
 .char-style-name.kept{cursor:default;text-decoration:none}
+/* a prop that shows its owner's photo (props.jsx, 2026-11-17): one tick with its "i" */
+.prop-owner-photo{position:relative;display:flex;align-items:center;gap:8px;font-size:12.5px;line-height:1.35;color:var(--txt-0);cursor:pointer}
+.prop-owner-photo input{width:15px;height:15px;flex:0 0 auto;margin:0;accent-color:var(--win-amber,#F29A43)}
+.prop-owner-photo .infotip{position:static;flex:0 0 auto}
+.prop-owner-photo .infotip-pop{left:0;right:0;top:calc(100% + 6px);width:auto;max-width:none}
 .sheet-frame-cap-label + .sheet-cap-pick{margin-left:auto}
 .sheet-cap-pick{flex:0 0 auto;margin-left:auto;display:inline-flex}
 .sheet-cap-btn{display:grid;place-items:center;width:20px;height:20px;padding:0;border-radius:6px;border:1px solid transparent;background:transparent;
