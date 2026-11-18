@@ -42,7 +42,7 @@ const text = (n) => (typeof n === "string" || typeof n === "number") ? String(n)
    card's surroundings handed in */
 const chunk = between(art, "  const [openItem, setOpenItem] = React.useState(null);", "  React.useEffect(()=>{\n    let alive=true;")
   .replace("const [openItem, setOpenItem] = React.useState(null);", "const openItem = env.openItem, setOpenItem = env.setOpenItem;");
-const NAMES = ["React", "ReactDOM", "document", "EditText", "onNameOwnedItem", "rowKeyTick", "setRowKeyTick", "Icon", "window", "linkInfo", "normName", "ownedSheetMap", "readOnly", "propBusy", "setPropBusy", "wornExclusions", "c", "gen",
+const NAMES = ["ownedProps", "React", "ReactDOM", "document", "EditText", "onNameOwnedItem", "rowKeyTick", "setRowKeyTick", "Icon", "window", "linkInfo", "normName", "ownedSheetMap", "readOnly", "propBusy", "setPropBusy", "wornExclusions", "c", "gen",
   "onCreateOwnedProp", "onDraftProp", "onView", "project", "setSheetTick", "setWornReferenceIncluded", "castFirstName", "propVisualsDrafted"];
 assert.ok(chunk.includes("React.useEffect(()=>{ if(!openItem) return undefined;"), "Esc closes the popup");
 const specSrc = between(art, "function specWholeSentences(t){", "window.specWholeSentences = specWholeSentences;");
@@ -56,6 +56,7 @@ function card(over) {
   const log = [];
   const o = Object.assign({ props: {}, sheets: {}, excluded: [], readOnly: false, busy: null, open: null, sheet: "data:char" }, over || {});
   const env = {
+    ownedProps: o.liveProps || Object.keys(o.props).map(k => o.props[k]),
     React: { createElement: el, useEffect: () => {} }, ReactDOM: { createPortal: (node, where) => { log.push(["portal", where]); return node; } }, document: { body: "BODY" },
     EditText, rowKeyTick: 0, setRowKeyTick: () => log.push(["reset-name"]),
     onNameOwnedItem: o.noNaming ? null : (cid, item, pid, to, opts) => { log.push(["name", cid, item, pid, to, opts || null]); return o.nameFails ? "" : to; },
@@ -308,6 +309,21 @@ await test("W 'Write its design' never ends in silence (owner 2026-11-18: it 'wa
   assert.ok(d.includes("let wrote = false;") && d.includes("if(res){ updateProp(pr.id, keepPickedStyle(pr, res)); wrote = true; }") && d.includes("return wrote;"));
 });
 
+await test("L the popup shows the card as it is now (owner 2026-11-18: 'spins but doesn't seem to be doing anything — it doesn't create any description and doesn't move to step 2')", () => {
+  // the design had been written; the popup kept the card it was first shown, from before the design landed
+  const before = { id: "p9", name: BELT, kind: "worn", keptAsProp: true };
+  const after = { ...before, form: "A plain black leather belt, 3 cm wide.", material: "Full-grain leather, brushed steel buckle." };
+  const stale = card({ open: open("worn", BELT), props: { [BELT]: before }, liveProps: [after] });   // the rows still hold `before`
+  const p = stale.ownedItemPanel();
+  assert.deepEqual(findAll(p, cls("own-spec"))[0].children.map(text), ["A plain black leather belt, 3 cm wide.", "Full-grain leather, brushed steel buckle."], "the description shows as soon as it is written");
+  assert.deepEqual(findAll(p, cls("own-step")).map(x => x.props.className), ["own-step done", "own-step now", "own-step"], "…and it moves on to step 2");
+  assert.equal(findAll(p, role("owned-item-design")).length, 0); assert.equal(findAll(p, role("owned-item-generate")).length, 1);
+  assert.equal(stale.ownedItemRow("worn", normName(BELT)).prop.form, after.form);
+  // a card that left the film: the row's own copy is used rather than nothing
+  assert.equal(card({ open: open("worn", BELT), props: { [BELT]: before }, liveProps: [] }).ownedItemRow("worn", normName(BELT)).prop.id, "p9");
+  assert.ok(art.includes("const live = ownedProps.find(p=>p.id===r.prop.id);"));
+});
+
 await test("K a card made from a list is filed as that list says; the 'New wardrobe ready' banner is amber, not the Likeness's purple", () => {
   const fn = between(app, "  const createOwnedProp = (charId, itemText, sourceKind, opts)=>{", "  const addLookbookCard");
   let props = [];
@@ -322,9 +338,21 @@ await test("K a card made from a list is filed as that list says; the 'New wardr
   assert.ok(banner.includes('"Update sheet with new wardrobe"'));
   // (owner 2026-11-18: "yes, switch the button to work that way") the update builds on the current sheet: the same
   // person and panels, the wardrobe changed. It is the path the app's own wardrobe runs already use.
-  assert.ok(banner.includes('"data-role":"wardrobe-update",disabled:gen.gening,onClick:()=>gen.generate({ deriveFromCurrent:true }),') && !banner.includes("onClick:()=>gen.generate(),"));
+  assert.ok(banner.includes('"data-role":"wardrobe-update",disabled:gen.gening,onClick:()=>gen.generate(wardrobeUpdateOpts()),') && !banner.includes("onClick:()=>gen.generate(),"));
+  // (owner 2026-11-18, after the first real try: "I have noticed a drift, my character's face changed") the whole
+  // specification is no longer sent with the sheet; it is a targeted edit that names only the worn items
+  const optsSrc = between(sheet, "  const wardrobeUpdateOpts = ()=>{", "  const [sheetTick, setSheetTick]");
+  const mk = (worn, sheets) => vm.runInNewContext("(function(includedWornProps, ownedSheetMap){\n" + optsSrc + "\nreturn wardrobeUpdateOpts(); })", { String })(worn, sheets);
+  const two = plain(mk([{ id: "r", name: "engagement ring" }, { id: "l", name: "work lanyard" }, { id: "s", name: "tiny gold stud earrings" }], { r: "data:r", l: "data:l" }));
+  assert.deepEqual(Object.keys(two), ["editInstruction"], "an edit, not a new sheet from the whole specification");
+  assert.match(two.editInstruction, /^add these worn items to the character, each drawn exactly as its attached reference image shows it \(engagement ring; work lanyard\), where it would be seen in each panel and at its true small size\./);
+  assert.match(two.editInstruction, /This is a small local change: do not redraw, restyle, re-light or re-pose anything\. Every face, eye, eyebrow, nose, mouth, hairline, skin tone and expression, every garment, cuff, button, shoe and hand, each panel's framing and border and the background stay exactly as they are$/);
+  assert.ok(!two.editInstruction.includes("tiny gold stud"), "an item with no image of its own is not named: there is nothing to draw it from");
+  assert.match(plain(mk([{ id: "r", name: "engagement ring" }], { r: "data:r" })).editInstruction, /^add this worn item to the character/);
+  assert.deepEqual(plain(mk([{ id: "r", name: "engagement ring" }], {})), { deriveFromCurrent: true }, "no worn image to add (an item was removed): the update from the current sheet");
+  assert.ok(sheet.includes('+"Apply ONLY this change: "+instr+". "') && art.includes("const isEditMode = !!(gopts.editInstruction && genUrl);"), "it rides the card's own edit path");
   assert.ok(banner.includes("gen.likenessRefs ? { refs:cardGenerateRefs()+1 } : undefined"), "the sheet being updated is one more reference picture in the price");
-  assert.ok(art.includes('else if(gopts.deriveFromCurrent && genUrl){ refImage = genUrl; mode = "base"; }'), "the current sheet is the image that goes out");
+  assert.ok(art.includes('if(isEditMode){ refImage = gopts.editBaseUrl || genUrl; mode = "edit"; }'), "the current sheet is the image that goes out");
   const base = between(sheet, 'buildFromBase: ()=> "Update this existing master character sheet for "', "buildLikeness:");
   assert.ok(base.includes("Preserve the EXACT same face, hair, skin tone, age, build, body proportions, identity, panel layout, framing and render style from the base sheet. ")
     && base.includes("Change only what the specification changes \\u2014 the wardrobe and the worn items; every panel, pose, expression and the background stay as they are in the base sheet. "));
@@ -465,15 +493,15 @@ await test("F Frances knows; nothing she is told names the codename; the changed
   const f = between(ai, 'APP_FEATURES.push({ name:"Open a worn or carried item on the character card and make its image there (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["a small square at the start of its row", "'Write its design'", "'Generate image'", "'Generate new image'", "'Visual lock'", "each paid step is its own press",
     "kept as a prop", "Recently deleted", "view-only access", "On a phone", "opens in a POPUP over the page", "ONE NAME IN BOTH PLACES", "'Shorten to", "Renaming costs nothing.",
-    "'Write its design again'", "filed as that list says", "ID PHOTOS", "'New wardrobe ready'", "NO DESCRIPTION YET", "A NAME THAT ENDS IN", "'Write its design' then waits", "UPDATES THE SHEET YOU HAVE", "only the image engines can make or change a picture"]) assert.ok(f.includes(k), k);
+    "'Write its design again'", "filed as that list says", "ID PHOTOS", "'New wardrobe ready'", "NO DESCRIPTION YET", "A NAME THAT ENDS IN", "'Write its design' then waits", "UPDATES THE SHEET YOU HAVE", "only the image engines can make or change a picture", "it is a targeted edit of the current sheet", "HOW WELL THE FACE HOLDS", "the button spins while it is written"]) assert.ok(f.includes(k), k);
   assert.ok(!f.includes("drawer"));
   assert.ok(ai.includes("the item in its owner's list on the character card takes the short name too") && !ai.includes("the character's list is left as it is and still finds the card"));
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic/.test(f));
   assert.ok(f.includes("/from its row in the character card's Props & accessories section|Only hero props are cards/.test(f.what)"), "older entries are put right");
   assert.ok(ai.includes("beside the WHOLE cast (since 2026-11-18; it used to stop at five people)") && !ai.includes("share the most scenes with (up to five)"));
   assert.ok(ai.includes("press the small square at the start of the item's row, make the object's image there, keep 'Visual lock' ticked"));
-  const KEYS = ["20261118-update1"];   // (the list grows with each key bump)
-  for (const file of ["artroom.jsx", "app.jsx", "ai.jsx", "script.jsx", "styles.css"])
+  const KEYS = ["20261118-update2"];   // (the list grows with each key bump)
+  for (const file of ["artroom.jsx", "ai.jsx", "script.jsx"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });
 

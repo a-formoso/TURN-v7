@@ -6552,6 +6552,21 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
   const missingWorn = linkedRows.filter(r=> !r.orphan && r.src==="worn" && !(r.prop && ownedSheetMap[r.prop.id])).length;
   const wornBuilding = !!(c.wornPropBootstrap && c.wornPropBootstrap.status==="running"
     && c.wornPropBootstrap.startedAt && Date.now()-new Date(c.wornPropBootstrap.startedAt).getTime()<30*60*1000);
+  /* HOW "UPDATE SHEET WITH NEW WARDROBE" ASKS (owner 2026-11-18, after the first real try: "I have noticed a drift, my
+     character's face changed"). The first version sent the current sheet with the WHOLE specification again
+     (deriveFromCurrent): the engine read that as "draw this sheet again" and redrew the face, the cuffs and more.
+     Now it is a TARGETED EDIT, the same kind the QA report's "Edit current image" runs: one short instruction that
+     names only the worn items to draw in, with their images beside the sheet, and says everything else stays. Fewer
+     words about the person means less for the engine to redraw. With no worn image to add (an item was removed),
+     it falls back to the update from the current sheet. */
+  const wardrobeUpdateOpts = ()=>{
+    const items = includedWornProps.filter(p=>ownedSheetMap[p.id]).map(p=>String(p.name||"").trim()).filter(Boolean);
+    if(!items.length) return { deriveFromCurrent:true };
+    const one = items.length===1;
+    return { editInstruction:"add "+(one?"this worn item":"these worn items")+" to the character, each drawn exactly as its attached reference image shows it ("
+      +items.join("; ")+"), where it would be seen in each panel and at its true small size. This is a small local change: do not redraw, restyle, re-light or re-pose anything. "
+      +"Every face, eye, eyebrow, nose, mouth, hairline, skin tone and expression, every garment, cuff, button, shoe and hand, each panel's framing and border and the background stay exactly as they are" };
+  };
   const [sheetTick, setSheetTick] = React.useState(0);   // bump to re-check sheet presence
   // inline per-row prop generation (user ruling 2026-07-18: generate a linked prop's
   // sheet right from the character card — no Props-tab hop). kind: "draft"|"gen".
@@ -6570,7 +6585,16 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     const onKey = (e)=>{ if(e.key==="Escape" && !document.querySelector(".lb-overlay")) setOpenItem(null); };
     window.addEventListener("keydown",onKey);
     return ()=>window.removeEventListener("keydown",onKey); },[!!openItem]);
-  const ownedItemRow = (src, n)=> linkInfo.rows.find(r=> !r.orphan && r.src===src && normName(r.item)===n) || null;
+  /* THE CARD AS IT IS NOW (owner 2026-11-18: "'Write its design' spins but doesn't seem to be doing anything — it doesn't
+     create any description and doesn't move to step 2"). The design WAS written, but the list of rows (linkInfo) is
+     only rebuilt when an item or a card comes or goes, so the popup kept showing the card as it was before the design
+     landed. A row's card is read fresh from the film's props every time. */
+  const ownedItemRow = (src, n)=>{
+    const r = linkInfo.rows.find(x=> !x.orphan && x.src===src && normName(x.item)===n) || null;
+    if(!r || !r.prop) return r;
+    const live = ownedProps.find(p=>p.id===r.prop.id);
+    return (live && live!==r.prop) ? { ...r, prop:live } : r;
+  };
   const ownedItemTile = (src)=> (text)=>{
     const n = normName(text), row = ownedItemRow(src, n);
     if(!row) return null;
@@ -6972,13 +6996,13 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement(Icon.layers||Icon.sparkles,{s:14}),
         React.createElement("span",{className:"scs-t"},"New wardrobe ready"),
         (typeof window.InfoTip==="function") ? React.createElement(window.InfoTip,{label:"About the new wardrobe",
-          text:"A worn item has a new image, and this sheet doesn't wear it yet. Update the sheet to draw it in: the same character, face, poses and layout are kept, and only the wardrobe changes (one image). To start from a fresh sheet instead, use Generate new image."}) : null,
+          text:"A worn item has a new image, and this sheet doesn't wear it yet. Update the sheet to draw it in: the image engine is asked to add only the worn items and leave everything else as it is (one image). Engines differ in how well they hold a face on an edit; the sheet from before stays in the image's versions, so you can go back to it. To start from a fresh sheet instead, use Generate new image."}) : null,
         React.createElement("span",{className:"scs-fill"}),
         // THE UPDATE BUILDS ON THIS SHEET (owner 2026-11-18: "yes, switch the button to work that way"): the current
         // sheet goes out as the image to update, with the worn items' images beside it — the same person, panels and
         // style, the wardrobe changed. It used to make the whole sheet again from its text (a new casting pass: the
-        // face and poses could shift). The app's own wardrobe runs already worked this way (deriveFromCurrent).
-        React.createElement("button",{className:"scs-act","data-role":"wardrobe-update",disabled:gen.gening,onClick:()=>gen.generate({ deriveFromCurrent:true }),
+        // face and poses could shift). How it is asked now: wardrobeUpdateOpts, above (a targeted edit).
+        React.createElement("button",{className:"scs-act","data-role":"wardrobe-update",disabled:gen.gening,onClick:()=>gen.generate(wardrobeUpdateOpts()),
           title:"Updates this sheet to wear its worn items: the same face, poses and layout, the wardrobe changed (one image)"},
           gen.gening?"Updating\u2026":"Update sheet with new wardrobe", !gen.gening && typeof window.nbCostChip==="function"
             && window.nbCostChip(1, gen.likenessRefs ? { refs:cardGenerateRefs()+1 } : undefined))),   // +1: the sheet being updated rides along
