@@ -4,11 +4,14 @@
    interesting UI)").
 
    1 Every item in the two lists has a small square in its row: its image, or a dashed square that offers one.
-   2 A press opens one drawer for that item: its image, three steps, the next step's button.
+   2 A press opens the item in a popup (owner, the same day: "turn this into a popup"): its image, three steps, the
+     next step's button.
+   N One name in both places (owner: "if prop name gets shortened that this is updated both on the character sheet and
+     the props tab"): the popup's name can be changed or shortened; the list and the Props card follow each other.
    3 Nothing is spent on opening; each paid step is its own press; a card made here is a prop the person kept.
    4 Someone who may not edit sees the images, no buttons.
    5 The rows under the lists keep only leftover cards; the list component takes a lead of its own.
-   6 Phones: one column (the rule now wins), the drawer under the list its item is in.
+   6 Phones: one column (the rule now wins); the popup in one column.
 
      node scripts/test-owned-item-drawer.mjs */
 import assert from "node:assert/strict";
@@ -39,18 +42,24 @@ const text = (n) => (typeof n === "string" || typeof n === "number") ? String(n)
    card's surroundings handed in */
 const chunk = between(art, "  const [openItem, setOpenItem] = React.useState(null);", "  React.useEffect(()=>{\n    let alive=true;")
   .replace("const [openItem, setOpenItem] = React.useState(null);", "const openItem = env.openItem, setOpenItem = env.setOpenItem;");
-const NAMES = ["React", "Icon", "window", "linkInfo", "normName", "ownedSheetMap", "readOnly", "propBusy", "setPropBusy", "wornExclusions", "c", "gen",
+const NAMES = ["React", "ReactDOM", "document", "EditText", "onNameOwnedItem", "rowKeyTick", "setRowKeyTick", "Icon", "window", "linkInfo", "normName", "ownedSheetMap", "readOnly", "propBusy", "setPropBusy", "wornExclusions", "c", "gen",
   "onCreateOwnedProp", "onDraftProp", "onView", "project", "setSheetTick", "setWornReferenceIncluded", "castFirstName", "propVisualsDrafted"];
+assert.ok(chunk.includes("React.useEffect(()=>{ if(!openItem) return undefined;"), "Esc closes the popup");
 const factory = vm.runInNewContext("(function(env){ const {" + NAMES.join(",") + "} = env;\n" + chunk + "\nreturn { ownedItemRow, ownedItemTile, ownedItemPanel }; })", { console, Promise, String, Set });
+function EditText() { return null; }
 const normName = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/^(?:and-|then-)/, "").slice(0, 40);
 const ITEMS = [["worn", "green PCO licence badge on a lanyard"], ["worn", "black leather belt"], ["carried", "Nasir's notebook"]];
 function card(over) {
   const log = [];
   const o = Object.assign({ props: {}, sheets: {}, excluded: [], readOnly: false, busy: null, open: null, sheet: "data:char" }, over || {});
   const env = {
-    React: { createElement: el }, Icon: { plus: "ic-plus", box: "ic-box", x: "ic-x", check: "ic-check", sparkles: "ic-sparkles" },
+    React: { createElement: el, useEffect: () => {} }, ReactDOM: { createPortal: (node, where) => { log.push(["portal", where]); return node; } }, document: { body: "BODY" },
+    EditText, rowKeyTick: 0, setRowKeyTick: () => log.push(["reset-name"]),
+    onNameOwnedItem: o.noNaming ? null : (cid, item, pid, to, opts) => { log.push(["name", cid, item, pid, to, opts || null]); return o.nameFails ? "" : to; },
+    Icon: { plus: "ic-plus", box: "ic-box", x: "ic-x", check: "ic-check", sparkles: "ic-sparkles" },
     window: { appToast: (m, k) => log.push(["toast", k || "info", m]), InfoTip, nbCostChip: (n) => el("span", { className: "nb-cost" }, String(n)),
-      generatePropSheet: async (p, project) => { log.push(["generate", p.id, project && project.id]); return true; } },
+      generatePropSheet: async (p, project) => { log.push(["generate", p.id, project && project.id]); return true; },
+      propShortName: (n) => { if (o.shortRule) return o.shortRule; const m = String(n || "").match(/^(.*?)\s*\(/); return (m && String(n).length > 40) ? m[1] : ""; } },
     linkInfo: { rows: ITEMS.map(([src, t], i) => ({ key: "b-" + i, name: t, item: t, prop: o.props[t] || null, orphan: false, src }))
       .concat([{ key: "o-x", name: "Aud", prop: { id: "p-old", name: "Aud", kind: "worn" }, orphan: true }]) },
     normName, ownedSheetMap: o.sheets, readOnly: o.readOnly, propBusy: o.busy, setPropBusy: (v) => log.push(["busy", v && v.kind, v && v.key]),
@@ -85,10 +94,17 @@ await test("1 every item has its own square: a dashed plus with no image, the pi
 
 await test("2a an item with nothing yet: three steps, none done, and one button that writes its design (and makes its card) — no image is made", async () => {
   assert.equal(card().ownedItemPanel(), null, "closed until a square is pressed");
-  assert.equal(card({ open: open("worn", "gone") }).ownedItemPanel(), null, "the item was renamed or removed: the drawer closes");
-  const a = card({ open: open("worn", BELT) }), p = a.ownedItemPanel();
-  assert.equal(p.props["data-testid"], "owned-item-panel"); assert.equal(p.props["data-src"], "worn");
-  assert.equal(text(findAll(p, cls("own-name"))[0]), BELT); assert.equal(text(findAll(p, cls("own-kind"))[0]), "Worn");
+  assert.equal(card({ open: open("worn", "gone") }).ownedItemPanel(), null, "the item was renamed or removed: the popup closes");
+  const a = card({ open: open("worn", BELT) }), over = a.ownedItemPanel(), p = findAll(over, cls("own-pop"))[0];
+  // a popup over the page: mounted on the body, a dialog, closed by the ×, a press outside it or Esc
+  assert.deepEqual(plain(a.log), [["portal", "BODY"]]); a.log.length = 0;
+  assert.equal(over.props.className, "ns-overlay own-overlay"); assert.equal(p.props.role, "dialog"); assert.equal(p.props["aria-modal"], "true");
+  assert.equal(p.props["data-testid"], "owned-item-panel"); assert.equal(p.props["data-src"], "worn"); assert.equal(p.props["aria-label"], BELT);
+  over.props.onMouseDown({ target: 1, currentTarget: 2 }); assert.deepEqual(a.log, [], "a press inside the popup keeps it open");
+  over.props.onMouseDown({ target: over, currentTarget: over }); assert.deepEqual(plain(a.log.pop()), ["open", null]);
+  findAll(p, cls("own-x"))[0].props.onClick(); assert.deepEqual(plain(a.log.pop()), ["open", null]);
+  const nameField = findAll(p, cls("own-name"))[0];
+  assert.equal(nameField.type, EditText); assert.equal(nameField.props.value, BELT); assert.equal(text(findAll(p, cls("own-kind"))[0]), "Worn");
   const steps = findAll(p, cls("own-step"));
   assert.deepEqual(steps.map(s => text(findAll(s, cls("own-step-lab"))[0])), ["Design", "Image", "On Liaqat’s sheet"]);
   assert.deepEqual(steps.map(s => s.props.className), ["own-step now", "own-step", "own-step"]);
@@ -101,7 +117,7 @@ await test("2a an item with nothing yet: three steps, none done, and one button 
   // an item whose card exists already is drafted on that card: no second card
   const b = card({ open: open("carried", BOOK), props: { [BOOK]: { id: "p2", name: BOOK, kind: "carried" } } });
   await findAll(b.ownedItemPanel(), role("owned-item-design"))[0].props.onClick();
-  assert.deepEqual(b.log.map(x => x[0]), ["busy", "draft", "busy"]); assert.deepEqual(b.log[1], ["draft", "p2"]);
+  assert.deepEqual(b.log.map(x => x[0]), ["portal", "busy", "draft", "busy"]); assert.deepEqual(b.log[2], ["draft", "p2"]);
 });
 
 await test("2b designed, no image: 'Generate image' with its price; it needs the character's sheet first; one press, one image", async () => {
@@ -109,13 +125,13 @@ await test("2b designed, no image: 'Generate image' with its price; it needs the
   const a = card({ open: open("carried", BOOK), props: { [BOOK]: pr } }), p = a.ownedItemPanel();
   assert.deepEqual(findAll(p, cls("own-step")).map(s => s.props.className), ["own-step done", "own-step now", "own-step"]);
   assert.equal(text(findAll(p, cls("own-step-lab"))[2]), "In the shots", "a carried item joins the shots, not the sheet");
-  assert.equal(text(findAll(p, cls("own-spec"))[0]), "A6 notebook · black card cover", "what was written is shown");
+  assert.deepEqual(findAll(p, cls("own-spec"))[0].children.map(text), ["A6 notebook", "black card cover"], "what was written is shown, in full");
   const btn = findAll(p, role("owned-item-generate"))[0];
   assert.equal(btn.props.className, "own-act main"); assert.equal(btn.props.disabled, false);
   assert.equal(btn.children.filter(x => typeof x === "string").join(""), "Generate image"); assert.equal(findAll(btn, cls("nb-cost")).length, 1);
   await btn.props.onClick();
   assert.deepEqual(a.log.filter(x => x[0] === "generate"), [["generate", "p2", "film"]]);
-  assert.deepEqual(a.log.map(x => x[0]), ["busy", "generate", "toast", "busy", "tick"]); assert.equal(a.log[2][1], "success");
+  assert.deepEqual(a.log.map(x => x[0]), ["portal", "busy", "generate", "toast", "busy", "tick"]); assert.equal(a.log[3][1], "success");
   assert.ok(!a.log.some(x => x[0] === "create" || x[0] === "draft"), "nothing else is paid for");
   // no character sheet yet: the button waits and a line says why
   const b = card({ open: open("carried", BOOK), props: { [BOOK]: pr }, sheet: "" }), q = b.ownedItemPanel();
@@ -124,7 +140,7 @@ await test("2b designed, no image: 'Generate image' with its price; it needs the
   // while one item is being made, no second run starts
   const busy = card({ open: open("carried", BOOK), props: { [BOOK]: pr }, busy: { key: "worn:x", kind: "gen" } });
   const bb = findAll(busy.ownedItemPanel(), role("owned-item-generate"))[0]; assert.equal(bb.props.disabled, true);
-  await bb.props.onClick(); assert.deepEqual(busy.log, []);
+  await bb.props.onClick(); assert.deepEqual(busy.log.map(x => x[0]), ["portal"]);
 });
 
 await test("2c with its image: see it larger, make it again, and for a worn item the Visual lock decides step three", () => {
@@ -191,22 +207,135 @@ await test("5 the list takes a lead of its own in place of the dot; the rows und
     && art.includes("ownerName,renderLead:itemLead})"));
   const sheet = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
   assert.ok(sheet.includes('list:true,ownerName:c.name,itemLead:ownedItemTile("worn"),') && sheet.includes('list:true,ownerName:c.name,itemLead:ownedItemTile("carried"),'));
-  assert.ok(/onCommit:val=>onUpdate\(c\.id,\{props:val\}\)\}\),\n\s*\/\/[^\n]*\n\s*ownedItemPanel\(\)\),/.test(sheet), "the drawer is the third thing in the lists' own grid");
+  assert.ok(/onCommit:val=>onUpdate\(c\.id,\{props:val\}\)\}\)\),\n\s*ownedItemPanel\(\),   \/\/ the open item's popup/.test(sheet), "the popup is asked for once, after the lists");
   assert.ok(sheet.includes("const extraRows = linkedRows.filter(r=>r.orphan);") && sheet.includes("extraRows.length>0 && React.createElement(\"div\",{className:\"linked-props\"},")
     && sheet.includes("extraRows.map(row=>{"));
-  assert.ok(!sheet.includes("linked-prop-gen") && !sheet.includes('"Draft specification"') && !sheet.includes('"Create card"'), "the row buttons moved into the drawer");
+  assert.ok(!sheet.includes("linked-prop-gen") && !sheet.includes('"Draft specification"') && !sheet.includes('"Create card"'), "the row buttons moved into the popup");
   assert.equal(sheet.split("window.generatePropSheet(pr, project)").length - 1, 1, "one place makes an item's image");
 });
 
-await test("6 the look: a square where the dot was, a drawer across the lists; phones get one column and the drawer under its own list", () => {
+await test("N1 the popup's name: type a new one, or take the shorter one on offer; the popup stays on the renamed item", () => {
+  const LONG = "engagement ring (slim gold band with a small solitaire, left ring finger, removed in Sc 28)";
+  const rows = (prop) => ({ props: { [BADGE]: prop } });
+  // (the test's items are fixed; the badge stands for any long item)
+  const pr = { id: "p1", name: BADGE, kind: "worn" };
+  const a = card({ open: open("worn", BADGE), ...rows(pr) }), p = a.ownedItemPanel(); a.log.length = 0;
+  const field = findAll(p, cls("own-name"))[0];
+  assert.equal(field.props.className, "own-name own-name-in"); assert.equal(field.props.multiline, true);
+  field.props.onCommit("  licence badge  ");
+  assert.deepEqual(plain(a.log), [["name", "liaqat", BADGE, "p1", "licence badge", null], ["open", open("worn", "licence badge")]], "the list and the card are renamed together; the popup follows the new name");
+  a.log.length = 0; field.props.onCommit(BADGE); assert.deepEqual(a.log, [], "the same words: nothing to do");
+  field.props.onCommit("   "); assert.deepEqual(plain(a.log), [["reset-name"]], "an emptied name goes back to what it was");
+  // an item with no card yet is renamed in the list alone
+  const b = card({ open: open("worn", BELT) }); const pb = b.ownedItemPanel(); b.log.length = 0;
+  findAll(pb, cls("own-name"))[0].props.onCommit("brown belt");
+  assert.deepEqual(plain(b.log[0]), ["name", "liaqat", BELT, "", "brown belt", null]);
+  assert.equal(findAll(pb, role("owned-item-shorten")).length, 0, "no card: nothing would keep the full description, so no Shorten");
+  // SHORTEN, a name that is a whole description (the card's own rule decides the short name)
+  const ITEM = ITEMS[0][1];
+  const longCard = { id: "p9", name: ITEM + " (worn every day, never taken off)", kind: "worn" };
+  const c1 = card({ open: open("worn", ITEM), props: { [ITEM]: longCard } }), p1 = c1.ownedItemPanel(); c1.log.length = 0;
+  const sb = findAll(p1, role("owned-item-shorten"))[0];
+  assert.equal(text(sb), "Shorten to \u201c" + ITEM + "\u201d"); assert.match(sb.props.title, /its card in the Props tab\. The full description stays on the card\.$/);
+  // …and a card that already has a shorter name than the list's words (shortened before today): the list takes it
+  const short = { id: "p8", name: "PCO badge", kind: "worn", aliases: [ITEM] };
+  const c2 = card({ open: open("worn", ITEM), props: { [ITEM]: short } }), p2 = c2.ownedItemPanel(); c2.log.length = 0;
+  const sb2 = findAll(p2, role("owned-item-shorten"))[0]; assert.equal(text(sb2), "Shorten to \u201cPCO badge\u201d");
+  // …and the card's rule comes first: a name an older cut left inside a bracket is offered its words before the bracket
+  const cutCard = { id: "p7", name: "licence badge (green", kind: "worn", aliases: [ITEM] };
+  const c3 = card({ open: open("worn", ITEM), props: { [ITEM]: cutCard }, shortRule: "licence badge" }), p3 = c3.ownedItemPanel(); c3.log.length = 0;
+  const sb3 = findAll(p3, role("owned-item-shorten"))[0]; assert.equal(text(sb3), "Shorten to \u201clicence badge\u201d"); sb3.props.onClick();
+  assert.deepEqual(plain(c3.log[0]), ["name", "liaqat", ITEM, "p7", "licence badge", { shorten: true }]);
+  sb2.props.onClick();
+  assert.deepEqual(plain(c2.log), [["name", "liaqat", ITEM, "p8", "PCO badge", { shorten: false }], ["open", open("worn", "PCO badge")]]);
+  assert.equal(findAll(card({ open: open("worn", ITEM), props: { [ITEM]: { ...longCard, longNameOk: true } } }).ownedItemPanel(), role("owned-item-shorten")).length, 0, "'Keep' on the card is respected");
+  // nobody who may not edit gets a field or the offer
+  const ro = card({ readOnly: true, open: open("worn", ITEM), props: { [ITEM]: short }, sheets: { p8: "data:x" } }).ownedItemPanel();
+  assert.equal(findAll(ro, cls("own-name"))[0].type, "span"); assert.equal(findAll(ro, role("owned-item-shorten")).length, 0);
+  assert.ok(LONG.length > 40);
+});
+
+await test("N2 one name in both places, run for real: the popup, the Props tab's Shorten and a hand edit of the list all leave the list and the card with the same name", () => {
+  const propsSrc = read("app/props.jsx");
+  const shortSrc = between(propsSrc, "const PROP_NAME_CUT = ", "window.propShortNamePatch = propShortNamePatch;").replace("window.propShortName = propShortName;", "");
+  const listSrc = between(insp, "function splitListItems(value){", "window.joinListItems = joinListItems;");
+  const upd = between(app, "  const updateProp = (id,patch)=>{", "  const [draftingPropId, setDraftingPropId]");
+  const norm = between(app, "  const _normPropName = s=>", "\n");
+  const names = between(app, "  // a new name for a card; when the new words only open the old ones", "  /* a DRAFT never overwrites");
+  const make = vm.runInNewContext("(function(env){ let props = env.props, characters = env.characters; let may = true;\n"
+    + "const setProps = f => { props = f(props); }, setCharacters = f => { characters = f(characters); }, canMutateSharedFilm = () => may;\n"
+    + shortSrc + "\n" + listSrc + "\nconst window = { propShortNamePatch };\n" + upd + "\n" + norm + "\n" + names
+    + "\nreturn { updateProp, renameOwnedProp, nameOwnedItem, propShortName, propShortNamePatch, lock(){ may = false; }, get props(){ return props; }, get characters(){ return characters; } }; })",
+    { String, Array, Object, Set, console });
+  const LONG = "engagement ring (slim gold band with a small solitaire, left ring finger, removed in Sc 28)";
+  const fresh = () => make({
+    props: [{ id: "ring", name: LONG, kind: "worn", ownerId: "eshita" }, { id: "other", name: "work lanyard", kind: "worn", ownerId: "eshita" }],
+    characters: [{ id: "eshita", name: "ESHITA", accessories: LONG + "; work lanyard (navy, plastic ID card holder); tiny gold studs", props: "house keys" }, { id: "liaqat", accessories: LONG }] });
+  const acc = (m, id) => plain(m.characters).find(c => c.id === (id || "eshita")).accessories;
+  const ring = (m) => plain(m.props).find(p => p.id === "ring");
+  // a description in brackets is a clause: the short name stops before it
+  const m0 = fresh();
+  assert.equal(m0.propShortName(LONG), "engagement ring"); assert.equal(m0.propShortName("work lanyard (navy, plastic ID card holder)"), "work lanyard");
+  assert.equal(m0.propShortName("Old steel-cased wristwatch on a cracked brown leather strap, left wrist"), "Old steel-cased wristwatch"); assert.equal(m0.propShortName("gold ring"), "");
+  assert.equal(m0.propShortName("gold ring (thin)"), "", "a short name with a whole bracket is left alone");
+  // THE OWNER'S OWN CASE: the Props tab's older Shorten stopped inside the bracket and left the list with the long words.
+  // The card is offered "engagement ring"; one press puts it in both places; the true full description stays the origin.
+  const CUT = "engagement ring (slim gold band";
+  assert.equal(m0.propShortName(CUT), "engagement ring");
+  const mc = make({ props: [{ id: "ring", name: CUT, aliases: [LONG], shortenedFrom: LONG, form: "A slim gold band", kind: "worn", ownerId: "eshita", keptAsProp: true }],
+    characters: [{ id: "eshita", accessories: LONG + "; work lanyard (navy, plastic ID card holder)", props: "" }] });
+  assert.equal(mc.nameOwnedItem("eshita", LONG, "ring", "engagement ring", { shorten: true }), "engagement ring");
+  assert.equal(acc(mc), "engagement ring; work lanyard (navy, plastic ID card holder)");
+  assert.deepEqual([ring(mc).name, ring(mc).aliases, ring(mc).shortenedFrom, ring(mc).form, ring(mc).keptAsProp], ["engagement ring", [LONG], LONG, "A slim gold band", true]);
+  const md = make({ props: [{ id: "ring", name: CUT, aliases: [LONG], shortenedFrom: LONG, kind: "worn", ownerId: "eshita" }], characters: [{ id: "eshita", accessories: LONG, props: "" }] });
+  md.updateProp("ring", md.propShortNamePatch(plain(md.props)[0])); assert.equal(acc(md), "engagement ring", "the Props tab's Shorten does the same");
+  // 1 the popup's Shorten
+  const m1 = fresh(); assert.equal(m1.nameOwnedItem("eshita", LONG, "ring", "engagement ring", { shorten: true }), "engagement ring");
+  assert.equal(acc(m1), "engagement ring; work lanyard (navy, plastic ID card holder); tiny gold studs");
+  assert.deepEqual([ring(m1).name, ring(m1).shortenedFrom, ring(m1).form, ring(m1).aliases], ["engagement ring", LONG, LONG, [LONG]], "the full description stays on the card");
+  assert.equal(acc(m1, "liaqat"), LONG, "nobody else's list is touched");
+  // 2 the Props tab's Shorten (the card's own patch): the owner's list follows
+  const m2 = fresh(); m2.updateProp("ring", { name: "engagement ring", aliases: [LONG], shortenedFrom: LONG, form: LONG });
+  assert.equal(acc(m2).split("; ")[0], "engagement ring"); assert.equal(ring(m2).name, "engagement ring");
+  // 3 a rename typed on the Props card
+  const m3 = fresh(); m3.updateProp("ring", { name: "Eshita's ring" }); assert.equal(acc(m3).split("; ")[0], "Eshita's ring");
+  // 4 a card shortened before today (the list still has the long words): the next rename finds the item by the card's other name
+  const m4 = make({ props: [{ id: "ring", name: "engagement ring", aliases: [LONG], kind: "worn", ownerId: "eshita" }], characters: [{ id: "eshita", accessories: LONG + "; studs", props: "" }] });
+  assert.equal(m4.nameOwnedItem("eshita", LONG, "ring", "engagement ring"), "engagement ring"); assert.equal(acc(m4), "engagement ring, studs");
+  const m4b = make({ props: [{ id: "ring", name: "engagement ring", aliases: [LONG], kind: "worn", ownerId: "eshita" }], characters: [{ id: "eshita", accessories: LONG + "; studs", props: "" }] });
+  m4b.updateProp("ring", { name: "solitaire ring" }); assert.equal(acc(m4b), "solitaire ring, studs");
+  // 5 typed in the popup: a new name; and one that keeps the first words keeps the full description on the card
+  const m5 = fresh(); assert.equal(m5.nameOwnedItem("eshita", LONG, "ring", "gold solitaire"), "gold solitaire");
+  assert.equal(acc(m5).split("; ")[0], "gold solitaire"); assert.deepEqual([ring(m5).name, ring(m5).form], ["gold solitaire", undefined]);
+  const m6 = fresh(); m6.nameOwnedItem("eshita", LONG, "ring", "Engagement ring");
+  assert.deepEqual([ring(m6).name, ring(m6).form, ring(m6).aliases], ["Engagement ring", LONG, [LONG]]);
+  // 6 the list edited by hand (EditableItemList commits the list, then tells the card)
+  const m7 = fresh(); m7.renameOwnedProp("eshita", LONG, "engagement ring");
+  assert.deepEqual([ring(m7).name, ring(m7).form, ring(m7).shortenedFrom], ["engagement ring", LONG, LONG]);
+  const m8 = fresh(); m8.renameOwnedProp("eshita", "work lanyard", "navy lanyard"); assert.equal(plain(m8.props).find(p => p.id === "other").form, undefined, "a plain rename keeps nothing extra");
+  // 7 an item with no card: the list alone; a film they may not change: nothing
+  const m9 = fresh(); assert.equal(m9.nameOwnedItem("eshita", "tiny gold studs", "", "gold studs"), "gold studs"); assert.ok(acc(m9).endsWith("; gold studs"));
+  const m10 = fresh(); m10.lock(); assert.equal(m10.nameOwnedItem("eshita", LONG, "ring", "x"), ""); assert.equal(acc(m10).split("; ")[0], LONG); assert.equal(ring(m10).name, LONG);
+  assert.equal(fresh().nameOwnedItem("eshita", LONG, "ring", "  "), "");
+  // the Props card says so
+  assert.ok(propsSrc.includes('" "+(p.ownerName||"Its owner")+"\u2019s list takes the short name too."') || propsSrc.includes("s list takes the short name too."));
+  assert.ok(app.includes("onCreateOwnedProp:createOwnedProp,onNameOwnedItem:nameOwnedItem,") && (art.match(/onCreateOwnedProp, onNameOwnedItem/g) || []).length === 5, "handed down to the card");
+});
+
+await test("6 the look: a square where the dot was; a popup in the windows' own look; phones get one column", () => {
   for (const k of [".own-tile{flex:0 0 24px;width:24px;height:24px;", ".own-tile.has{border-style:solid;", ".own-tile.on{border-style:solid;border-color:var(--win-amber,#F29A43);",
-    ".owned-lists > .own-panel{grid-column:1 / -1}", ".own-panel{position:relative;display:grid;grid-template-columns:96px minmax(0,1fr);",
+    ".own-pop{position:relative;display:flex;flex-direction:column;gap:14px;width:min(720px,100%);max-height:calc(100dvh - 40px);overflow:auto;",
+    "background:var(--win-surface,var(--bg-1));", ".own-name{flex:1 1 auto;min-width:0;font:500 21px/1.25 var(--f-serif);",
+    ".own-body{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:20px;align-items:start}", ".own-shot img{display:block;width:100%;height:auto;max-height:52vh;object-fit:contain}",
     ".own-step.done .own-step-dot{background:var(--ok);border-color:var(--ok);", ".own-step.now .own-step-dot{border-color:var(--win-amber,#F29A43);",
-    ".own-act{display:inline-flex;align-items:center;gap:6px;height:28px;", ".own-act.main{background:var(--accent);color:var(--ink-on-accent);",
-    "@media (prefers-reduced-motion:reduce){ .own-panel{animation:none} }",
+    ".own-act.main{background:var(--win-amber,#F29A43);color:var(--win-on-amber,#2C2722);", ".own-short-btn{max-width:100%;padding:4px 12px;border:1px dashed",
+    "@media (prefers-reduced-motion:reduce){ .own-pop{animation:none} }",
     "@media (max-width:640px){ .sheet-2col.owned-lists{grid-template-columns:minmax(0,1fr)} }",
-    '  .owned-lists > .own-panel[data-src="worn"]{order:2}', "  .own-act{height:auto;min-height:44px}", "  .own-tile{flex-basis:30px;width:30px;height:30px;"])
+    "  .own-body{grid-template-columns:minmax(0,1fr);gap:12px}", "  .own-act{height:auto;min-height:44px}", "  .own-tile{flex-basis:30px;width:30px;height:30px;"])
     assert.ok(css.includes(k), k);
+  assert.ok(!css.includes(".own-panel"), "the drawer's rules are gone");
+  // the popup's own padding on a phone must come after New Story's `.ns-overlay{padding:0}` to win
+  assert.ok(css.indexOf("  .own-overlay{padding:12px}") > css.lastIndexOf("  .ns-overlay{padding:0}"));
   // the one-column rule must be stronger than .sheet-2col's two columns, which come after it in the file
   assert.ok(css.indexOf(".sheet-2col{display:grid;grid-template-columns:1fr 1fr;") > css.indexOf(".sheet-2col.owned-lists{grid-template-columns:minmax(0,1fr)}"));
 });
@@ -214,13 +343,15 @@ await test("6 the look: a square where the dot was, a drawer across the lists; p
 await test("F Frances knows; nothing she is told names the codename; the changed files are served under a new key", () => {
   const f = between(ai, 'APP_FEATURES.push({ name:"Open a worn or carried item on the character card and make its image there (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["a small square at the start of its row", "'Write its design'", "'Generate image'", "'Generate new image'", "'Visual lock'", "each paid step is its own press",
-    "kept as a prop", "Recently deleted", "view-only access", "On a phone"]) assert.ok(f.includes(k), k);
+    "kept as a prop", "Recently deleted", "view-only access", "On a phone", "opens in a POPUP over the page", "ONE NAME IN BOTH PLACES", "'Shorten to", "Renaming costs nothing."]) assert.ok(f.includes(k), k);
+  assert.ok(!f.includes("drawer"));
+  assert.ok(ai.includes("the item in its owner's list on the character card takes the short name too") && !ai.includes("the character's list is left as it is and still finds the card"));
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic/.test(f));
   assert.ok(f.includes("/from its row in the character card's Props & accessories section|Only hero props are cards/.test(f.what)"), "older entries are put right");
   assert.ok(ai.includes("beside the WHOLE cast (since 2026-11-18; it used to stop at five people)") && !ai.includes("share the most scenes with (up to five)"));
   assert.ok(ai.includes("press the small square at the start of the item's row, make the object's image there, keep 'Visual lock' ticked"));
-  const KEYS = ["20261118-items1"];   // (the list grows with each key bump)
-  for (const file of ["artroom.jsx", "inspector.jsx", "app.jsx", "ai.jsx", "script.jsx", "styles.css"])
+  const KEYS = ["20261118-popup1", "20261118-popup2"];   // (the list grows with each key bump)
+  for (const file of ["artroom.jsx", "props.jsx", "app.jsx", "ai.jsx", "script.jsx", "styles.css"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });
 

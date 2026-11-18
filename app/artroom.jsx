@@ -6394,7 +6394,7 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
         scenes.map(s=>React.createElement("option",{key:s.id,value:s.id},"Sc "+s.no+" \u00b7 "+s.title)))));
 }
 
-function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scenes, props, drafts, cast, speaks, voiceOpen, onOpenVoice, onCloseVoice, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, batchActiveId, onBatchDone, onDelete, onReadScript, readingFacts=false }){
+function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scenes, props, drafts, cast, speaks, voiceOpen, onOpenVoice, onCloseVoice, onUpdate, onDraft, drafting, onView, onSuggestStates, suggestingStates, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onNameOwnedItem, batchActiveId, onBatchDone, onDelete, onReadScript, readingFacts=false }){
   const drivenScenes = scenes.filter(s=>s.driver===c.id);
   const driven = drivenScenes.length;
   // ALL scenes this character appears in (drives OR is named in the script/summary), not
@@ -6539,10 +6539,18 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
   const [propBusy, setPropBusy] = React.useState(null);   // {id, kind, key}
   /* AN ITEM OPENS WHERE IT IS LISTED (owner 2026-11-18: "click to open respective prop/accessory or generate directly
      on the card without changing tabs"). Each worn or carried item has a small square in its row: its image, or an
-     empty square that offers one. A press opens one drawer under the two lists with the item's image, its three steps
-     (design written, image made, where it is used) and the next step's button. Nothing is spent on opening; each paid
-     step is its own press. A card made here is the person's own choice, so it counts as a prop they kept. */
+     empty square that offers one. A press opens the item in a popup (owner 2026-11-18, the same day: "turn this into
+     a popup") with its image, its three steps (design written, image made, where it is used) and the next step's
+     button. Nothing is spent on opening; each paid step is its own press. A card made here is the person's own
+     choice, so it counts as a prop they kept.
+     ONE NAME IN BOTH PLACES (owner 2026-11-18: "if prop name gets shortened … updated both on the character sheet
+     and the props tab"): the popup's name is the item's own words; changing or shortening it there renames the item
+     in this list and its card in the Props tab together (app.jsx nameOwnedItem). */
   const [openItem, setOpenItem] = React.useState(null);   // {src:"worn"|"carried", n: the item's normalised name}
+  React.useEffect(()=>{ if(!openItem) return undefined;      // Esc closes the popup (the image viewer over it closes first)
+    const onKey = (e)=>{ if(e.key==="Escape" && !document.querySelector(".lb-overlay")) setOpenItem(null); };
+    window.addEventListener("keydown",onKey);
+    return ()=>window.removeEventListener("keydown",onKey); },[!!openItem]);
   const ownedItemRow = (src, n)=> linkInfo.rows.find(r=> !r.orphan && r.src===src && normName(r.item)===n) || null;
   const ownedItemTile = (src)=> (text)=>{
     const n = normName(text), row = ownedItemRow(src, n);
@@ -6595,47 +6603,81 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       setPropBusy(null);
       setSheetTick(t=>t+1);
     };
-    return React.createElement("div",{className:"own-panel","data-testid":"owned-item-panel","data-src":row.src},
-      url
-        ? React.createElement("button",{type:"button",className:"own-shot has",title:"See it larger","aria-label":"See "+row.item+" larger",
-            onClick:()=>{ if(onView) onView(url, pr); }},
-            React.createElement("img",{src:url,alt:row.item}))
-        : React.createElement("div",{className:"own-shot"+(busy==="gen"?" busy":""),"aria-hidden":"true"},
-            busy==="gen" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.box,{s:22})),
-      React.createElement("div",{className:"own-main"},
+    // the name: the item's own words, editable; an emptied field goes back to what it was
+    const rename = (val)=>{
+      const to = String(val||"").trim();
+      if(readOnly || !onNameOwnedItem || !to){ setRowKeyTick(t=>t+1); return; }
+      if(to===String(row.item||"").trim()) return;
+      const done = onNameOwnedItem(c.id, row.item, pr ? pr.id : "", to);
+      if(done) setOpenItem({ src:openItem.src, n:normName(done) }); else setRowKeyTick(t=>t+1);
+    };
+    // a shorter name on offer: the first part of a card name that is a whole description (or that an older cut left
+    // with an open bracket), else the card's own name when it is already shorter than the item's words (a card
+    // shortened before 2026-11-18 left the list as it was). Only for an item with a card: the card keeps the full
+    // description, so nothing the images need is lost.
+    const cardShort = !!(pr && String(pr.name||"").trim() && normName(pr.name)!==normName(row.item) && String(pr.name).trim().length < String(row.item||"").trim().length);
+    const ruleShort = (pr && !pr.longNameOk && typeof window.propShortName==="function" && window.propShortName(pr.name)) || "";
+    const shortTo = (!pr || readOnly || !onNameOwnedItem) ? "" : (ruleShort || (cardShort ? String(pr.name).trim() : ""));
+    const shorten = ()=>{
+      if(!shortTo) return;
+      const done = onNameOwnedItem(c.id, row.item, pr.id, shortTo, { shorten:!!ruleShort });
+      if(done) setOpenItem({ src:openItem.src, n:normName(done) });
+    };
+    const close = ()=>setOpenItem(null);
+    const pop = React.createElement("div",{className:"ns-overlay own-overlay",onMouseDown:(e)=>{ if(e.target===e.currentTarget) close(); }},
+      React.createElement("div",{className:"own-pop",role:"dialog","aria-modal":"true","aria-label":row.item,tabIndex:-1,
+          "data-testid":"owned-item-panel","data-src":row.src,
+          ref:(node)=>{ if(node && typeof document!=="undefined" && !node.contains(document.activeElement) && !document.querySelector(".lb-overlay")) node.focus(); }},
         React.createElement("div",{className:"own-head"},
           React.createElement("span",{className:"own-kind "+(carried?"carried":"worn")},carried?"Carried":"Worn"),
-          React.createElement("span",{className:"own-name"},row.item),
+          (readOnly || !onNameOwnedItem)
+            ? React.createElement("span",{className:"own-name"},row.item)
+            : React.createElement(EditText,{key:"own-name-"+key+"-"+rowKeyTick,value:row.item,className:"own-name own-name-in",multiline:true,rows:1,
+                placeholder:"Name\u2026",onCommit:rename}),
           Tip && React.createElement(Tip,{label:"About this item",
-            text: carried
+            text: (carried
               ? "Carried items are not drawn on "+who+"\u2019s sheet. With an image of its own, this one joins the shots where "+who+" carries it and looks the same every time."
-              : "Worn items are part of "+who+"\u2019s look. With an image of its own, this one is drawn the same on "+who+"\u2019s sheet the next time you generate it, and in close shots. Untick Visual lock to keep it as words."}),
-          React.createElement("button",{type:"button",className:"own-x",title:"Close","aria-label":"Close "+row.item,onClick:()=>setOpenItem(null)},
-            React.createElement(Icon.x,{s:13}))),
-        React.createElement("ol",{className:"own-steps","aria-label":"Steps"},
-          steps.map((st,i)=>React.createElement("li",{key:i,className:"own-step"+(st.done?" done":"")+(i===now?" now":"")},
-            React.createElement("span",{className:"own-step-dot","aria-hidden":"true"}, st.done ? React.createElement(Icon.check,{s:10}) : String(i+1)),
-            React.createElement("span",{className:"own-step-lab"},st.lab)))),
-        (drafted && pr && (pr.form||pr.material)) && React.createElement("div",{className:"own-spec"},
-          [pr.form, pr.material].map(x=>String(x||"").trim()).filter(Boolean).join(" \u00b7 ")),
-        !readOnly && React.createElement("div",{className:"own-actions"},
-          !drafted
-            ? React.createElement("button",{type:"button",className:"own-act main","data-role":"owned-item-design",disabled:!!propBusy,
-                title:"Writes what it looks like, from the script. Writing credits only.",onClick:writeDesign},
-                busy==="draft" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
-                busy==="draft" ? "Writing its design\u2026" : "Write its design")
-            : React.createElement("button",{type:"button",className:"own-act"+(url?"":" main"),"data-role":"owned-item-generate",
-                disabled:!!propBusy || !gen.genUrl,
-                title:!gen.genUrl ? "Generate "+who+"\u2019s sheet first. The item is drawn to match their look." : (url ? "Make this item\u2019s image again" : "Make this item\u2019s image"),
-                onClick:makeImage},
-                busy==="gen" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
-                busy==="gen" ? "Generating\u2026" : (url ? "Generate new image" : "Generate image"),
-                (!busy && typeof window.nbCostChip==="function") ? window.nbCostChip(1) : null),
-          (pr && !carried && url) && React.createElement("label",{className:"worn-lock-toggle own-lock",
-              title:included ? "Drawn from this image on the next character sheet" : "Kept as words on the character sheet"},
-            React.createElement("input",{type:"checkbox",checked:included,onChange:(e)=>setWornReferenceIncluded(pr.id,e.target.checked)}),
-            React.createElement("span",null,"Visual lock")),
-          (drafted && !gen.genUrl) && React.createElement("span",{className:"own-note"},"Generate "+who+"\u2019s sheet first."))));
+              : "Worn items are part of "+who+"\u2019s look. With an image of its own, this one is drawn the same on "+who+"\u2019s sheet the next time you generate it, and in close shots. Untick Visual lock to keep it as words.")
+              +((readOnly || !onNameOwnedItem) ? "" : "\n\nThe name is yours to change. It changes here, in "+who+"\u2019s list and on the item\u2019s card in the Props tab together.")}),
+          React.createElement("button",{type:"button",className:"own-x",title:"Close (Esc)","aria-label":"Close "+row.item,onClick:close},
+            React.createElement(Icon.x,{s:14}))),
+        shortTo && React.createElement("div",{className:"own-short"},
+          React.createElement("button",{type:"button",className:"own-short-btn","data-role":"owned-item-shorten",
+              title:"Renames the item in "+who+"\u2019s list and its card in the Props tab. The full description stays on the card.",onClick:shorten},
+            "Shorten to \u201c"+shortTo+"\u201d")),
+        React.createElement("div",{className:"own-body"},
+          url
+            ? React.createElement("button",{type:"button",className:"own-shot has",title:"See it larger","aria-label":"See "+row.item+" larger",
+                onClick:()=>{ if(onView) onView(url, pr); }},
+                React.createElement("img",{src:url,alt:row.item}))
+            : React.createElement("div",{className:"own-shot"+(busy==="gen"?" busy":""),"aria-hidden":"true"},
+                busy==="gen" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.box,{s:28})),
+          React.createElement("div",{className:"own-main"},
+            React.createElement("ol",{className:"own-steps","aria-label":"Steps"},
+              steps.map((st,i)=>React.createElement("li",{key:i,className:"own-step"+(st.done?" done":"")+(i===now?" now":"")},
+                React.createElement("span",{className:"own-step-dot","aria-hidden":"true"}, st.done ? React.createElement(Icon.check,{s:10}) : String(i+1)),
+                React.createElement("span",{className:"own-step-lab"},st.lab)))),
+            (drafted && pr && (pr.form||pr.material)) && React.createElement("div",{className:"own-spec"},
+              [pr.form, pr.material].map(x=>String(x||"").trim()).filter(Boolean).map((x,i)=>React.createElement("p",{key:i},x))),
+            !readOnly && React.createElement("div",{className:"own-actions"},
+              !drafted
+                ? React.createElement("button",{type:"button",className:"own-act main","data-role":"owned-item-design",disabled:!!propBusy,
+                    title:"Writes what it looks like, from the script. Writing credits only.",onClick:writeDesign},
+                    busy==="draft" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
+                    busy==="draft" ? "Writing its design\u2026" : "Write its design")
+                : React.createElement("button",{type:"button",className:"own-act"+(url?"":" main"),"data-role":"owned-item-generate",
+                    disabled:!!propBusy || !gen.genUrl,
+                    title:!gen.genUrl ? "Generate "+who+"\u2019s sheet first. The item is drawn to match their look." : (url ? "Make this item\u2019s image again" : "Make this item\u2019s image"),
+                    onClick:makeImage},
+                    busy==="gen" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
+                    busy==="gen" ? "Generating\u2026" : (url ? "Generate new image" : "Generate image"),
+                    (!busy && typeof window.nbCostChip==="function") ? window.nbCostChip(1) : null),
+              (pr && !carried && url) && React.createElement("label",{className:"worn-lock-toggle own-lock",
+                  title:included ? "Drawn from this image on the next character sheet" : "Kept as words on the character sheet"},
+                React.createElement("input",{type:"checkbox",checked:included,onChange:(e)=>setWornReferenceIncluded(pr.id,e.target.checked)}),
+                React.createElement("span",null,"Visual lock")),
+              (drafted && !gen.genUrl) && React.createElement("span",{className:"own-note"},"Generate "+who+"\u2019s sheet first."))))));
+    return ReactDOM.createPortal(pop, document.body);
   };
   React.useEffect(()=>{
     let alive=true;
@@ -7155,9 +7197,8 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           React.createElement(SheetField,{label:"Props \u2014 carried",value:c.props,list:true,ownerName:c.name,itemLead:ownedItemTile("carried"),
             onItemRemoved: onRemoveOwnedItem ? (txt=>onRemoveOwnedItem(c.id,txt)) : null,
             onItemRenamed: onRenameOwnedItem ? ((oldTxt,newTxt)=>onRenameOwnedItem(c.id,oldTxt,newTxt)) : null,
-            placeholder:"Recurring objects \u2014 phone, weapon, talisman\u2026",onCommit:val=>onUpdate(c.id,{props:val})}),
-          // the open item's drawer: across both boxes; on a phone it sits right under the list its item is in
-          ownedItemPanel()),
+            placeholder:"Recurring objects \u2014 phone, weapon, talisman\u2026",onCommit:val=>onUpdate(c.id,{props:val})})),
+        ownedItemPanel(),   // the open item's popup (a portal: it sits over the page, not in this section)
         custodyProps.length>0 && React.createElement("div",{className:"linked-prop-list"},
           custodyProps.map(p=>{
             const e = handoversTo(p).slice(-1)[0];
@@ -7824,7 +7865,7 @@ function CastOverview({ list, faceIds, onGo }){
       text:"Every character in one row. The three marks show what each one has: a sheet, a real face, a voice (bright = done). A dot is the last QA result. Click a face to go to its card."}));
 }
 window.CastOverview = CastOverview;
-function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook, onReadScript, readingFactIds }){
+function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onNameOwnedItem, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook, onReadScript, readingFactIds }){
   const [view, setView] = React.useState(null);   // {url, character}
   // Keep one open flag per character so several card-contained Voice cards can
   // remain open independently without sharing UI state.
@@ -8216,7 +8257,7 @@ function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], projec
         voiceOpen:openVoiceIds.indexOf(c.id)>=0,onOpenVoice:openVoice,onCloseVoice:closeVoice,
         drafting:draftingId===c.id||(draftingIds||[]).indexOf(c.id)>=0,onView:(url,ch)=>setView({url,character:ch}),
         batchActiveId,onBatchDone:batch.advance,onDelete:onDelete,
-        onSuggestStates,suggestingStates:suggestingStatesId===c.id,onBuildWornProps,onRemoveOwnedItem,onRenameOwnedItem,onDraftProp,onCreateOwnedProp}))),
+        onSuggestStates,suggestingStates:suggestingStatesId===c.id,onBuildWornProps,onRemoveOwnedItem,onRenameOwnedItem,onDraftProp,onCreateOwnedProp, onNameOwnedItem}))),
     React.createElement(PagerBar,{pager:charPager,noun:"character"}),
     // CROWDS (2026-10-27): the background groups the screenplay calls for, one group image each
     window.CrowdSheets && React.createElement(window.CrowdSheets,{ project, scenes, drafts, readOnly, onUpdateCrowd,
@@ -8592,7 +8633,7 @@ function ArtTabLock({ tab, locks, onGo }){
 }
 window.ArtTabLock = ArtTabLock;
 
-function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, tabLocks, noPropsConfirmed, onSetNoProps, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp, onReadCharacterScript, readingFactIds,
+function ArtRoom({ artView, setArtView, project, characters, scenes, props, drafts, trash, tabLocks, noPropsConfirmed, onSetNoProps, onRestoreChar, onPurgeChar, onRestoreProp, onPurgeProp, onRestoreLoc, onPurgeLoc, onRestoreShot, onPurgeShot, onEnsureOwner, onUpdateChar, onDraftVisuals, onDraftAllVisuals, draftingVisualId, draftingAllVisuals, draftingVisualIds, onCreateOwnedProp, onNameOwnedItem, onReadCharacterScript, readingFactIds,
   onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
   onUpdateCrowd, locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, onMergeLocations, onLocationPlaceDecision, onSharedHeadDecision, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetCapture, onSetFilmStock, onUpdatePreset, onDeletePreset, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
@@ -8663,7 +8704,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onNoteFromImage:onLookbookNoteFromImage,readingImageId:readingLookbookImageId})
     : tab==="characters"
       ? React.createElement(CharacterSheets,{readOnly,wardrobeIds:wardrobeIds||[],project,characters,scenes,props,drafts,shots,beatsMap,onUpdate:onUpdateChar,
-          onDraftProp,onCreateOwnedProp,
+          onDraftProp,onCreateOwnedProp, onNameOwnedItem,
           onDraft:onDraftVisuals,onDraftAll:onDraftAllVisuals,draftingId:draftingVisualId,draftingAll:draftingAllVisuals,draftingIds:draftingVisualIds,
           onReadScript:onReadCharacterScript,readingFactIds,
           trashItems:(trash&&trash.characters)||[],onRestore:onRestoreChar,onPurge:onPurgeChar,

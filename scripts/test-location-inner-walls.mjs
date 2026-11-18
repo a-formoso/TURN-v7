@@ -236,7 +236,7 @@ test("13 the draft and the set dressing are told; Frances knows; the new files a
     assert.ok(what.includes(words),"Frances: "+words);
   assert.ok(!/McKee|Claude|Anthropic|\bTURN\b|Blender/.test(what));
   for(const file of ["locations.jsx","locations-ui.jsx","ai.jsx","script.jsx","blender-render.js","location-measurement-repair.js","set-dressing.js","styles.css"])
-    assert.ok(["20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1"].some(k=>html.includes(file+'?v='+k+'"')),"cache key: "+file);
+    assert.ok(["20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2"].some(k=>html.includes(file+'?v='+k+'"')),"cache key: "+file);
 });
 
 console.log("\n"+passed+" passed, "+failed+" failed");

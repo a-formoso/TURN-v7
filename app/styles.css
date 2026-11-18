@@ -3772,66 +3772,88 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
 .own-tile.on{border-style:solid;border-color:var(--win-amber,#F29A43);color:var(--txt-0);
   box-shadow:0 0 0 2px color-mix(in oklab,var(--win-amber,#F29A43) 32%,transparent)}
 .own-tile .ns-spin{width:10px;height:10px}
-.owned-lists > .own-panel{grid-column:1 / -1}
-.own-panel{position:relative;display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:start;padding:10px;
-  border:1px solid var(--line-2);border-radius:12px;background:var(--bg-1);animation:own-in .16s ease-out}
-@keyframes own-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){ .own-panel{animation:none} }
-.own-shot{width:96px;aspect-ratio:1;display:grid;place-items:center;padding:0;overflow:hidden;border:1px dashed var(--line-3);
-  border-radius:10px;background:var(--bg-2);color:var(--txt-3)}
-.own-shot.has{border-style:solid;border-color:var(--line-2);cursor:zoom-in}
-.own-shot.has:hover,.own-shot.has:focus-visible{border-color:var(--pos);outline:0}
-.own-shot img{display:block;width:100%;height:100%;object-fit:cover}
-.own-main{min-width:0;display:flex;flex-direction:column;gap:9px}
-.own-head{position:relative;display:flex;align-items:flex-start;gap:7px;min-width:0}
-.own-kind{flex:0 0 auto;margin-top:1px;padding:2px 7px;border-radius:999px;border:1px solid var(--line-2);
-  font:600 9.5px/1.3 var(--f-ui);letter-spacing:.05em;text-transform:uppercase;color:var(--txt-2)}
-.own-name{flex:1 1 auto;min-width:0;font:600 13px/1.4 var(--f-ui);color:var(--txt-0);overflow-wrap:anywhere}
-.own-panel .own-head .infotip{position:static;flex:0 0 auto;margin-top:1px}
-.own-panel .own-head .infotip-btn{width:16px;height:16px}
-.own-panel .own-head .infotip-pop{left:0;right:0;top:calc(100% + 6px);width:auto;max-width:none;text-transform:none;letter-spacing:normal;
-  font:400 12.5px/1.5 var(--f-ui);color:var(--txt-0)}
-.own-x{flex:0 0 auto;display:grid;place-items:center;width:22px;height:22px;margin:-2px -2px 0 0;padding:0;border:0;border-radius:6px;
-  background:transparent;color:var(--txt-3);cursor:pointer}
-.own-x:hover,.own-x:focus-visible{background:var(--bg-3);color:var(--txt-0);outline:0}
+/* THE ITEM'S POPUP (owner 2026-11-18: "turn this into a popup"): over the page, the picture on the left at its own
+   shape, the name (yours to change), the steps and the next button on the right; one column on a phone */
+.own-overlay{padding:20px}
+/* the windows' own surface, ink and lines (the --win tokens every popup shares), so it reads as one of them in both themes */
+.own-pop{position:relative;display:flex;flex-direction:column;gap:14px;width:min(720px,100%);max-height:calc(100dvh - 40px);overflow:auto;
+  padding:20px 22px 22px;border:1px solid var(--win-line,var(--line-2));border-radius:14px;background:var(--win-surface,var(--bg-1));
+  color:var(--win-ink,var(--txt-0));box-shadow:var(--win-shadow,0 24px 60px -20px rgba(0,0,0,.5));scrollbar-width:thin;animation:own-in .16s ease-out}
+.own-pop:focus{outline:0}
+@keyframes own-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){ .own-pop{animation:none} }
+.own-head{position:relative;display:flex;align-items:flex-start;gap:9px;min-width:0}
+.own-kind{flex:0 0 auto;margin-top:7px;padding:2px 8px;border-radius:999px;border:1px solid var(--win-line-2,var(--line-2));
+  font:600 10px/1.3 var(--f-ui);letter-spacing:.05em;text-transform:uppercase;color:var(--win-sub,var(--txt-2))}
+/* the name: a window title (the serif), and a field you can type in */
+.own-name{flex:1 1 auto;min-width:0;font:500 21px/1.25 var(--f-serif);letter-spacing:-.01em;color:var(--win-ink,var(--txt-0));overflow-wrap:anywhere}
+span.own-name{padding:3px 0}
+.edit-in.own-name-in{width:auto;resize:none;overflow:hidden;padding:3px 7px;margin-left:-8px;border-color:transparent;
+  font-family:var(--f-serif)}   /* said again here: `textarea.edit-in` sets the UI face and would win over .own-name */
+.edit-in.own-name-in:hover{background:var(--win-bone,var(--bg-2));border-color:var(--win-line-2,var(--line-2))}
+.edit-in.own-name-in:focus{background:var(--win-surface,var(--bg-1));border-color:var(--win-line-3,var(--line-3))}
+.own-pop .own-head .infotip{position:static;flex:0 0 auto;margin-top:6px}
+.own-pop .own-head .infotip-btn{width:19px;height:19px}
+.own-pop .own-head .infotip-pop{left:0;right:0;top:calc(100% + 6px);width:auto;max-width:none;text-transform:none;letter-spacing:normal;
+  font:400 12.5px/1.5 var(--f-ui);white-space:pre-line}
+.own-x{flex:0 0 auto;display:grid;place-items:center;width:30px;height:30px;margin:0 -6px 0 0;padding:0;border:0;border-radius:8px;
+  background:transparent;color:var(--win-sub,var(--txt-2));cursor:pointer}
+.own-x:hover,.own-x:focus-visible{background:var(--win-bone,var(--bg-3));color:var(--win-ink,var(--txt-0));outline:0}
+/* a shorter name on offer, under the name */
+.own-short{margin-top:-6px}
+.own-short-btn{max-width:100%;padding:4px 12px;border:1px dashed var(--win-line-3,var(--line-3));border-radius:999px;background:transparent;
+  color:var(--win-ink-2,var(--txt-1));font:500 12.5px/1.4 var(--f-ui);cursor:pointer;text-align:left;overflow-wrap:anywhere}
+.own-short-btn:hover,.own-short-btn:focus-visible{border-style:solid;border-color:var(--win-amber,#F29A43);color:var(--win-ink,var(--txt-0));outline:0}
+.own-body{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:20px;align-items:start}
+.own-shot{width:100%;min-height:190px;display:grid;place-items:center;padding:0;overflow:hidden;border:1px dashed var(--win-line-3,var(--line-3));
+  border-radius:12px;background:var(--win-bone,var(--bg-2));color:var(--win-sub,var(--txt-3))}
+.own-shot.has{min-height:0;border-style:solid;border-color:var(--win-line-2,var(--line-2));cursor:zoom-in}
+.own-shot.has:hover,.own-shot.has:focus-visible{border-color:var(--win-amber,#F29A43);outline:0}
+.own-shot img{display:block;width:100%;height:auto;max-height:52vh;object-fit:contain}
+.own-main{min-width:0;display:flex;flex-direction:column;gap:14px}
 /* the three steps: a tick when done, the next one marked in amber */
-.own-steps{list-style:none;margin:0;padding:0;display:flex;align-items:center;flex-wrap:wrap;row-gap:6px}
-.own-step{display:inline-flex;align-items:center;gap:6px;font:500 11px/1.2 var(--f-ui);color:var(--txt-3);white-space:nowrap}
-.own-step + .own-step::before{content:"";width:16px;height:1px;margin:0 8px 0 2px;background:var(--line-3)}
+.own-steps{list-style:none;margin:0;padding:0;display:flex;align-items:center;flex-wrap:wrap;row-gap:8px}
+.own-step{display:inline-flex;align-items:center;gap:6px;font:500 12.5px/1.2 var(--f-ui);color:var(--win-sub,var(--txt-3));white-space:nowrap}
+.own-step + .own-step::before{content:"";width:16px;height:1px;margin:0 8px 0 2px;background:var(--win-line-3,var(--line-3))}
 .own-step.done + .own-step::before{background:var(--ok)}
-.own-step-dot{flex:0 0 16px;width:16px;height:16px;display:grid;place-items:center;border-radius:50%;border:1px solid var(--line-3);
-  font:600 9px/1 var(--f-ui);color:var(--txt-3)}
-.own-step.done{color:var(--txt-1)}
-.own-step.done .own-step-dot{background:var(--ok);border-color:var(--ok);color:var(--bg-0,#fff)}
-.own-step.now{color:var(--txt-0);font-weight:600}
-.own-step.now .own-step-dot{border-color:var(--win-amber,#F29A43);color:var(--txt-0)}
-.own-spec{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font:400 11.5px/1.45 var(--f-ui);color:var(--txt-2)}
-.own-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.own-act{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:var(--r-m);border:1px solid var(--line-2);
-  background:var(--bg-2);color:var(--txt-0);font:600 11.5px var(--f-ui);cursor:pointer;white-space:nowrap}
-.own-act.main{background:var(--accent);color:var(--ink-on-accent);border-color:transparent}
-.own-act:hover:not(:disabled){filter:brightness(1.08)}
+.own-step-dot{flex:0 0 17px;width:17px;height:17px;display:grid;place-items:center;border-radius:50%;border:1px solid var(--win-line-3,var(--line-3));
+  font:600 9.5px/1 var(--f-ui);color:var(--win-sub,var(--txt-3))}
+.own-step.done{color:var(--win-ink-2,var(--txt-1))}
+.own-step.done .own-step-dot{background:var(--ok);border-color:var(--ok);color:var(--win-surface,#fff)}
+.own-step.now{color:var(--win-ink,var(--txt-0));font-weight:600}
+.own-step.now .own-step-dot{border-color:var(--win-amber,#F29A43);color:var(--win-ink,var(--txt-0))}
+/* what was written for it: the form, then the material; it scrolls when long */
+.own-spec{max-height:9.4em;overflow:auto;scrollbar-width:thin;font:400 13px/1.5 var(--f-ui);color:var(--win-ink-2,var(--txt-1))}
+.own-spec p{margin:0}
+.own-spec p + p{margin-top:6px;color:var(--win-sub,var(--txt-2))}
+.own-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.own-act{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--win-line-3,var(--line-2));
+  background:var(--win-surface,var(--bg-2));color:var(--win-ink,var(--txt-0));font:600 13px var(--f-ui);cursor:pointer;white-space:nowrap}
+.own-act.main{background:var(--win-amber,#F29A43);color:var(--win-on-amber,#2C2722);border-color:transparent}
+.own-act:hover:not(:disabled){filter:brightness(1.05)}
+.own-act.main:hover:not(:disabled){background:var(--win-amber-hover,#E88A33);filter:none}
 .own-act:disabled{opacity:.55;cursor:default}
-.own-act .ns-spin{width:10px;height:10px}
-.own-lock{font-size:11px;gap:5px}
-.own-lock input{width:13px;height:13px}
-.own-note{font:400 11px/1.3 var(--f-ui);color:var(--txt-2)}
-/* a phone: a bigger square to press, a smaller picture, full-height buttons */
+.own-act .ns-spin{width:11px;height:11px}
+.own-lock{font-size:12.5px;gap:6px;color:var(--win-ink-2,var(--txt-1))}
+.own-lock input{width:14px;height:14px;accent-color:var(--win-amber,#F29A43)}
+.own-note{font:400 12.5px/1.3 var(--f-ui);color:var(--win-sub,var(--txt-2))}
+/* a phone: a bigger square to press; the popup in one column with full-height buttons */
 @media (max-width:640px){
   .own-tile{flex-basis:30px;width:30px;height:30px;margin:2px 4px 0 0}
-  .own-panel{grid-template-columns:72px minmax(0,1fr);gap:10px}
-  .own-shot{width:72px}
+  .own-overlay{padding:12px}
+  .own-pop{max-height:calc(100dvh - 24px);padding:14px 14px 16px;gap:12px}
+  .own-body{grid-template-columns:minmax(0,1fr);gap:12px}
+  .own-name{font-size:18px}
+  .own-shot{min-height:120px}
+  .own-shot img{max-height:38vh}
   .own-act{height:auto;min-height:44px}
-  .own-x{width:32px;height:32px}
+  .own-x{width:36px;height:36px}
   .own-lock{min-height:44px}
-  /* one column: the drawer right under the list its item is in */
-  .owned-lists > .sheet-field{order:3}
-  .owned-lists > .sheet-field:first-child{order:1}
-  .owned-lists > .own-panel{order:4}
-  .owned-lists > .own-panel[data-src="worn"]{order:2}
+  .own-short-btn{min-height:36px}
   /* the steps may wrap: no joining lines, an even gap */
   .own-steps{column-gap:14px}
   .own-step + .own-step::before{display:none}
+}
 }
 /* (2026-11-18) said with .sheet-2col: its own two-column rule comes later in this file and used to win on a phone */
 @media (max-width:640px){ .sheet-2col.owned-lists{grid-template-columns:minmax(0,1fr)} }

@@ -79,8 +79,9 @@ test("F5 a short name: the part before the first placement clause; short or plai
   assert.equal(box.patch({ name:"Old steel-cased wristwatch on a cracked brown leather strap", form:"Round case" }).form, undefined, "a drafted form stays");
   assert.ok(props.includes('"data-testid":"prop-short-name"') && props.includes("onClick:()=>onUpdate(p.id,{longNameOk:true})},\"Keep\")"));
 });
-test("F6 a short name leaves the character's list alone and still finds the card (seeding, removal, renames, the sheet text)", ()=>{
-  assert.ok(app.includes("if(prev && prev.ownerId && !patch.shortenedFrom && String(prev.name||\"\").trim() !== String(patch.name||\"\").trim()){"));
+test("F6 a short name is the item's name on the character's list too (owner 2026-11-18; it used to leave the list alone); the card is still found (seeding, removal, renames, the sheet text)", ()=>{
+  assert.ok(!app.includes("!patch.shortenedFrom"), "a short name is no longer an exception");
+  assert.ok(app.includes("if(prev && prev.ownerId && String(prev.name||\"\").trim() !== String(patch.name||\"\").trim()){\n        syncCharBulletRename(prev.ownerId, [prev.name, ...(prev.aliases||[])], patch.name);"));
   assert.ok(props.includes("const seen = new Set(have.flatMap(p=> [p.name, ...(p.aliases||[])].map(n=>sig(p.ownerId, n))));"));
   assert.ok(app.includes("[p.name, ...(p.aliases||[])].some(n=>norm(n)===target)"), "removal");
   assert.ok(app.includes("return al.some(a=>_normPropName(a)===from) ? {...p, aliases:al.map(a=>_normPropName(a)===from ? to : a)} : p;"), "a brief rename follows the other name");

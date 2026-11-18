@@ -319,11 +319,20 @@ window.findPossibleSameProps = findPossibleSameProps;
 
 /* A SHORT NAME (owner 2026-10-29): a card made from a character brief is named with the whole description ("Old
    steel-cased wristwatch on a cracked brown leather strap, left wrist"). The card offers the part before its first
-   placement clause ("Old steel-cased wristwatch"); the full text stays as one of its other names (so the character's
-   list still finds it and it is never made again from the brief) and, when the card has no form yet, as its form. */
-const PROP_NAME_CUT = /\s*(?:,|;|\s\u2014\s|\s-\s|\s(?:on|in|with|pinned|addressed|worn|tucked|hanging|around|at|from|under|inside|attached|clipped|kept|carried|slung|strapped|held)\s)/i;
+   placement clause ("Old steel-cased wristwatch"); the full text stays as one of its other names (so it is never made
+   again from the brief) and, when the card has no form yet, as its form. A description in brackets is a clause too
+   (2026-11-18: "engagement ring (slim gold band with a small solitaire…)" → "engagement ring"). The owner's own item
+   on the character card takes the short name with it (owner 2026-11-18, app.jsx updateProp). */
+const PROP_NAME_CUT = /\s*(?:\(|,|;|\s\u2014\s|\s-\s|\s(?:on|in|with|pinned|addressed|worn|tucked|hanging|around|at|from|under|inside|attached|clipped|kept|carried|slung|strapped|held)\s)/i;
 function propShortName(name){
   const n = String(name||"").trim();
+  // A NAME LEFT WITH AN OPEN BRACKET (2026-11-18): before brackets counted as a clause, "Shorten" could stop inside
+  // one ("engagement ring (slim gold band"). Such a name is offered the words before the bracket, whatever its length.
+  const open = n.indexOf("(");
+  if(open > 0 && n.indexOf(")", open) < 0){
+    const head = n.slice(0, open).trim().replace(/[\s,.;:\-\u2014]+$/,"");
+    if(head.length >= 3) return head;
+  }
   if(n.length <= 40) return "";
   const m = n.search(PROP_NAME_CUT);
   if(m < 0) return "";
@@ -336,8 +345,11 @@ window.propShortName = propShortName;
 function propShortNamePatch(p){
   const short = propShortName(p && p.name);
   if(!short) return null;
-  const aliases = Array.from(new Set([...(p.aliases||[]), p.name].map(x=>String(x||"").trim()).filter(Boolean)));
-  return { name:short, aliases, shortenedFrom:p.name, ...(String(p.form||"").trim() ? {} : { form:p.name }) };
+  // a name cut inside a bracket is not worth keeping as another name; the first full description stays the origin
+  const broken = /\([^)]*$/.test(String(p.name||""));
+  const full = (broken && String(p.shortenedFrom||"").trim()) || p.name;
+  const aliases = Array.from(new Set([...(p.aliases||[]), ...(broken ? [] : [p.name])].map(x=>String(x||"").trim()).filter(Boolean)));
+  return { name:short, aliases, shortenedFrom:full, ...(String(p.form||"").trim() ? {} : { form:full }) };
 }
 window.propShortNamePatch = propShortNamePatch;
 
@@ -1481,10 +1493,10 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             })),
           // A SHORT NAME (owner 2026-10-29): a name that is a whole description is offered its first part
           (storyProp && !p.longNameOk && propShortName(p.name)) && React.createElement("div",{className:"prop-status-row prop-shortname-row","data-testid":"prop-short-name"},
-            React.createElement("span",{className:"prop-shortname-text"},"Long name \u2014 shorten it to ",
-              React.createElement("b",null,"\u201c"+propShortName(p.name)+"\u201d"),"? The full description stays on the card."),
+            React.createElement("span",{className:"prop-shortname-text"},/\([^)]*$/.test(String(p.name||"")) ? "The name stops inside a bracket \u2014 shorten it to " : "Long name \u2014 shorten it to ",
+              React.createElement("b",null,"\u201c"+propShortName(p.name)+"\u201d"),"? The full description stays on the card."+(p.ownerId ? " "+(p.ownerName||"Its owner")+"\u2019s list takes the short name too." : "")),
             React.createElement("button",{type:"button",className:"char-draft-btn ghost",
-              title:"Rename the card; the full description is kept under Other names (so the character's list still finds it) and, if the card has no form yet, as its form",
+              title:"Rename the card, and the item in its owner's list on the character card; the full description is kept under Other names and, if the card has no form yet, as its form",
               onClick:()=>{ const patch = propShortNamePatch(p); if(patch) onUpdate(p.id, patch); }},"Shorten"),
             React.createElement("button",{type:"button",className:"char-draft-btn ghost",title:"Keep the long name and stop suggesting a shorter one",
               onClick:()=>onUpdate(p.id,{longNameOk:true})},"Keep")),

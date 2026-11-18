@@ -4448,10 +4448,13 @@ function App(){
     // the matching worn/carried bullet on its owner's character card, so the two never drift.
     if(patch && Object.prototype.hasOwnProperty.call(patch,"name")){
       const prev = (props||[]).find(p=>p.id===id);
-      // a SHORT NAME (patch.shortenedFrom, 2026-10-29) leaves the character's own list as it is: the brief keeps the
-      // full description, which the card keeps under its other names
-      if(prev && prev.ownerId && !patch.shortenedFrom && String(prev.name||"").trim() !== String(patch.name||"").trim()){
-        syncCharBulletRename(prev.ownerId, prev.name, patch.name);
+      // ONE NAME IN BOTH PLACES (owner 2026-11-18: "if prop name gets shortened … updated both on the character sheet
+      // and the props tab"): a SHORT NAME renames the owner's item too (from 2026-10-29 it left the list as the full
+      // description). Nothing the images need is lost: the card keeps the full text under its other names and as its
+      // form, and the character's sheet prompt reads a worn item from its card. The item is found by the card's old
+      // name, else by one of its other names (a card shortened before today).
+      if(prev && prev.ownerId && String(prev.name||"").trim() !== String(patch.name||"").trim()){
+        syncCharBulletRename(prev.ownerId, [prev.name, ...(prev.aliases||[])], patch.name);
       }
     }
     setProps(ps=>ps.map(p=>p.id===id?{...p,...patch}:p));
@@ -4659,12 +4662,24 @@ function App(){
   // RENAME SYNC (character bullet → prop card): editing a worn/carried item on a
   // character card renames the matching prop card (keeping its sheet), the mirror of
   // removeOwnedProp. Match on owner + normalised name, same as seeding/removal.
+  // a new name for a card; when the new words only open the old ones, the old ones stay on the card (other names, form)
+  const _nameKeepingFull = (p, to)=>{
+    const old = String((p && p.name)||"").trim();
+    const cut = to.length < old.length && old.toLowerCase().indexOf(to.toLowerCase())===0;
+    return cut ? { name:to, shortenedFrom:old, aliases:Array.from(new Set([...((p && p.aliases)||[]), old])),
+      ...(String((p && p.form)||"").trim() ? {} : { form:old }) } : { name:to };
+  };
   const renameOwnedProp = (charId, oldText, newText)=>{
     const from = _normPropName(oldText), to = String(newText||"").trim();
     if(!charId || !from || !to) return;
     setProps(ps=>ps.map(p=>{
       if(p.ownerId!==charId) return p;
-      if(_normPropName(p.name)===from) return p.name!==to ? {...p, name:to} : p;
+      if(_normPropName(p.name)===from){
+        if(p.name===to) return p;
+        // SHORTENED BY HAND (2026-11-18): the new words open the old ones ("engagement ring (slim gold band…)" →
+        // "engagement ring") — the full description stays on the card, exactly as the card's own "Shorten" keeps it
+        return { ...p, ..._nameKeepingFull(p, to) };
+      }
       // a card given a short name keeps the brief's text under its other names: that text follows the brief (2026-10-29)
       const al = p.aliases||[];
       return al.some(a=>_normPropName(a)===from) ? {...p, aliases:al.map(a=>_normPropName(a)===from ? to : a)} : p;
@@ -4672,10 +4687,12 @@ function App(){
   };
   // RENAME SYNC (prop card → character bullet): replace the matching worn/carried item
   // in the owner's accessories/props text, preserving every other item.
+  // `oldName` may be a list (2026-11-18): the first of them that names an item is the one replaced.
   const syncCharBulletRename = (charId, oldName, newName)=>{
-    const from = _normPropName(oldName), to = String(newName||"").trim();
-    if(!charId || !from || !to) return;
-    const replaceIn = (text)=>{
+    const to = String(newName||"").trim();
+    const froms = (Array.isArray(oldName) ? oldName : [oldName]).map(_normPropName).filter((f,i,a)=> f && a.indexOf(f)===i);
+    if(!charId || !froms.length || !to) return;
+    const replaceIn = (text, from)=>{
       const items = (typeof splitListItems==="function") ? splitListItems(text) : String(text||"").split(/\s*,\s*/).filter(Boolean);
       let changed=false;
       const next = items.map(it=>{ if(_normPropName(it)===from && it.trim()!==to){ changed=true; return to; } return it; });
@@ -4683,10 +4700,28 @@ function App(){
     };
     setCharacters(cs=>cs.map(c=>{
       if(c.id!==charId) return c;
-      const a = replaceIn(c.accessories), pr = replaceIn(c.props);
-      if(a==null && pr==null) return c;
-      return { ...c, ...(a!=null?{accessories:a}:{}), ...(pr!=null?{props:pr}:{}) };
+      for(const from of froms){
+        const a = replaceIn(c.accessories, from), pr = replaceIn(c.props, from);
+        if(a==null && pr==null) continue;
+        return { ...c, ...(a!=null?{accessories:a}:{}), ...(pr!=null?{props:pr}:{}) };
+      }
+      return c;
     }));
+  };
+  /* THE ITEM POPUP'S NAME (owner 2026-11-18), from the character card: the item's own words in the character's list
+     and its prop card's name change together. opts.shorten takes the card's own short name (props.jsx
+     propShortNamePatch): the full description stays on the card. Returns the name now in use ("" when nothing may
+     change). The item is renamed by its own words as well as through the card, because a card can be the item's by
+     its object (a re-worded item) and not by its exact name. */
+  const nameOwnedItem = (charId, itemText, propId, newName, opts)=>{
+    if(!canMutateSharedFilm()) return "";
+    const prev = propId ? ((props||[]).find(p=>p.id===propId && p.ownerId===charId) || null) : null;
+    const short = (opts && opts.shorten && prev && typeof window.propShortNamePatch==="function") ? window.propShortNamePatch(prev) : null;
+    const to = String((short && short.name) || newName || "").trim();
+    if(!charId || !to) return "";
+    if(prev && String(prev.name||"").trim()!==to) updateProp(prev.id, short || _nameKeepingFull(prev, to));
+    syncCharBulletRename(charId, itemText, to);
+    return to;
   };
   /* a DRAFT never overwrites a deliberately PICKED render style: when a card has an
      explicit renderStyleKey (incl. a locked Surprise style), the drafted look-dev
@@ -10096,7 +10131,7 @@ function App(){
             draftingVisualId,draftingAllVisuals,draftingVisualIds,onDeleteCharacter:deleteCharacter,
             onSuggestStates:suggestCharacterStates,suggestingStatesId,onRemoveOwnedItem:removeOwnedProp,
             onBuildWornProps:(c)=>{ if(c && wornBuildRef.current) wornBuildRef.current(c.id); },onRenameOwnedItem:renameOwnedProp,
-            onUpdateProp:updateProp,onDraftProp:draftPropVisuals,onDraftAllProps:draftAllProps,onCreateOwnedProp:createOwnedProp,
+            onUpdateProp:updateProp,onDraftProp:draftPropVisuals,onDraftAllProps:draftAllProps,onCreateOwnedProp:createOwnedProp,onNameOwnedItem:nameOwnedItem,
             onAddProp:addProp,onImportProps:importScreenplayProps,onDeleteProp:deleteProp,draftingPropId,draftingPropIds,draftingAllProps,onMergeProps:mergeProps,
             castHasProps:(typeof castHasProps==="function" && castHasProps(characters)),
             locations,onUpdateLocation:updateLocation,onDraftLocation:draftLocationVisuals,onDraftAllLocs:draftAllLocations,
