@@ -4734,15 +4734,19 @@ function App(){
     if(!patch || !entity || !entity.renderStyleKey) return patch;
     const rest = { ...patch }; delete rest.renderStyle; return rest;
   };
+  // Returns true when a design was written, false when none came back (2026-11-18: the character card's item popup
+  // says so — a press that ended in silence read as a dead button); nothing is returned when no call was made.
   const draftPropVisuals = async (pr)=>{
     if(!canMutateSharedFilm() || !(typeof aiPropVisuals==="function")) return;
     if(draftingPropIdsRef.current.indexOf(pr.id)>=0) return;   // this prop already drafting
     setDraftingPropIds(ids=> ids.indexOf(pr.id)>=0 ? ids : [...ids, pr.id]);
+    let wrote = false;
     try{
       const res = await aiPropVisuals(pr, characters, lbProject("props"));
-      if(res){ updateProp(pr.id, keepPickedStyle(pr, res)); }   // (the card records its own Lookbook — 2026-10-06)
+      if(res){ updateProp(pr.id, keepPickedStyle(pr, res)); wrote = true; }   // (the card records its own Lookbook — 2026-10-06)
     }catch(e){}
     setDraftingPropIds(ids=> ids.filter(x=>x!==pr.id));
+    return wrote;
   };
   // "Draft all props" — the full props pipeline in one click:
   //   0) (2026-10-12, owner) the Props tab first runs Extract screenplay props, for review (props.jsx draftAllFlow)

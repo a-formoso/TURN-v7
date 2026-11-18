@@ -6603,13 +6603,26 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       { lab:"Image", done:!!url },
       carried ? { lab:"In the shots", done:!!url } : { lab:"On "+who+"\u2019s sheet", done:included } ];
     const now = steps.findIndex(x=>!x.done);
+    /* A NAME THE DRAFTER REFUSES (owner 2026-11-18: "The 'Write its design' button wasn't working or doing anything" —
+       on "tiny gold stud…"): the design is never written for a name that is not a whole object name (one an older limit
+       cut, or a bare word like "gold": PropScreenplay.nameIssue), and the press used to end in silence, after making an
+       empty card. Now the popup says what is wrong beside the button, the button waits for a proper name, no card is
+       made, and a design that fails for any other reason says so. */
+    const itemName = String((pr ? pr.name : row.item)||"").trim();
+    const nameIssue = (window.PropScreenplay && typeof window.PropScreenplay.nameIssue==="function" && window.PropScreenplay.nameIssue(itemName)) ? true : false;
+    const nameHelp = !nameIssue ? "" : (/(?:\u2026|\.\.\.)$/.test(itemName)
+      ? "This name was cut short. Type it in full at the top, then write its design."
+      : "Say what the object is in its name at the top, then write its design.");
     const writeDesign = async ()=>{
       if(propBusy || readOnly) return;
+      if(nameIssue){ toast(nameHelp); return; }
       const card = pr || (onCreateOwnedProp ? onCreateOwnedProp(c.id, row.item, row.src, { kept:true }) : null);
       if(!card || !onDraftProp){ toast("This item can\u2019t be designed here right now."); return; }
       setPropBusy({ id:card.id, kind:"draft", key });
-      try{ await onDraftProp(card); }catch(err){}
+      let ok;
+      try{ ok = await onDraftProp(card); }catch(err){ ok = false; }
       setPropBusy(null);                                    // the design lands on the card: the next button reads "Generate image"
+      if(ok===false) toast("The design could not be written this time. Nothing was changed; try again.","error");
     };
     const makeImage = async ()=>{
       if(propBusy || readOnly || !pr) return;
@@ -6676,12 +6689,16 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
               steps.map((st,i)=>React.createElement("li",{key:i,className:"own-step"+(st.done?" done":"")+(i===now?" now":"")},
                 React.createElement("span",{className:"own-step-dot","aria-hidden":"true"}, st.done ? React.createElement(Icon.check,{s:10}) : String(i+1)),
                 React.createElement("span",{className:"own-step-lab"},st.lab)))),
+            // (owner 2026-11-18: "no description of the prop?") an item with no design yet says so, and where one comes from
+            !drafted && React.createElement("div",{className:"own-spec own-spec-none","data-role":"owned-item-nodesc"},
+              React.createElement("p",null, readOnly ? "No description yet."
+                : "No description yet. \u201cWrite its design\u201d adds one from the script: what it looks like and what it is made of.")),
             (drafted && pr && (pr.form||pr.material)) && React.createElement("div",{className:"own-spec"},
               [pr.form, pr.material].map(x=>specWholeSentences(x)).filter(Boolean).map((x,i)=>React.createElement("p",{key:i},x))),
             !readOnly && React.createElement("div",{className:"own-actions"},
               !drafted
-                ? React.createElement("button",{type:"button",className:"own-act main","data-role":"owned-item-design",disabled:!!propBusy,
-                    title:"Writes what it looks like, from the script. Writing credits only.",onClick:writeDesign},
+                ? React.createElement("button",{type:"button",className:"own-act main","data-role":"owned-item-design",disabled:!!propBusy || nameIssue,
+                    title:nameIssue ? nameHelp : "Writes what it looks like, from the script. Writing credits only.",onClick:writeDesign},
                     busy==="draft" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
                     busy==="draft" ? "Writing its design\u2026" : "Write its design")
                 : React.createElement("button",{type:"button",className:"own-act"+(url?"":" main"),"data-role":"owned-item-generate",
@@ -6692,7 +6709,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                     busy==="gen" ? "Generating\u2026" : (url ? "Generate new image" : "Generate image"),
                     (!busy && typeof window.nbCostChip==="function") ? window.nbCostChip(1) : null),
               // a design an older limit cut mid-sentence can be written again in full, on the person's own press
-              (drafted && pr && specWasCut(pr)) && React.createElement("button",{type:"button",className:"own-act","data-role":"owned-item-redesign",disabled:!!propBusy,
+              // the name has to be put right before a design can be written: said here, beside the button that waits for it
+              (nameIssue && !drafted) && React.createElement("span",{className:"own-note own-namehelp","data-role":"owned-item-namehelp",role:"note"},nameHelp),
+              (drafted && pr && specWasCut(pr)) && React.createElement("button",{type:"button",className:"own-act","data-role":"owned-item-redesign",disabled:!!propBusy || nameIssue,
                   title:"The saved design was cut short. Writes it again in full, from the script. Writing credits only.",onClick:writeDesign},
                 busy==="draft" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
                 busy==="draft" ? "Writing its design\u2026" : "Write its design again"),
@@ -6831,6 +6850,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     buildFromBase: ()=> "Update this existing master character sheet for "+(c.name||"the character")+". "
       +"Preserve the EXACT same face, hair, skin tone, age, build, body proportions, identity, panel layout, framing and render style from the base sheet. "
       +"Apply the current production specification and worn-reference designs below without re-casting or re-imagining the character. "
+      +"Change only what the specification changes \u2014 the wardrobe and the worn items; every panel, pose, expression and the background stay as they are in the base sheet. "
       +finalPrompt,
     /* LIKENESS (2026-10-10, owner — Likeness review): the face-free spec — the runner adds the numbered
        image map and the likeness sentence (turnLikenessPlan) */
@@ -6952,12 +6972,16 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement(Icon.layers||Icon.sparkles,{s:14}),
         React.createElement("span",{className:"scs-t"},"New wardrobe ready"),
         (typeof window.InfoTip==="function") ? React.createElement(window.InfoTip,{label:"About the new wardrobe",
-          text:"A worn item has a new image, and this sheet doesn't wear it yet. Update the sheet to draw it in: the sheet is made again with the item's image beside it (one image)."}) : null,
+          text:"A worn item has a new image, and this sheet doesn't wear it yet. Update the sheet to draw it in: the same character, face, poses and layout are kept, and only the wardrobe changes (one image). To start from a fresh sheet instead, use Generate new image."}) : null,
         React.createElement("span",{className:"scs-fill"}),
-        React.createElement("button",{className:"scs-act",disabled:gen.gening,onClick:()=>gen.generate(),
-          title:"Regenerate the master sheet wearing its worn items (one image)"},
+        // THE UPDATE BUILDS ON THIS SHEET (owner 2026-11-18: "yes, switch the button to work that way"): the current
+        // sheet goes out as the image to update, with the worn items' images beside it — the same person, panels and
+        // style, the wardrobe changed. It used to make the whole sheet again from its text (a new casting pass: the
+        // face and poses could shift). The app's own wardrobe runs already worked this way (deriveFromCurrent).
+        React.createElement("button",{className:"scs-act","data-role":"wardrobe-update",disabled:gen.gening,onClick:()=>gen.generate({ deriveFromCurrent:true }),
+          title:"Updates this sheet to wear its worn items: the same face, poses and layout, the wardrobe changed (one image)"},
           gen.gening?"Updating\u2026":"Update sheet with new wardrobe", !gen.gening && typeof window.nbCostChip==="function"
-            && window.nbCostChip(1, gen.likenessRefs ? { refs:cardGenerateRefs() } : undefined))),
+            && window.nbCostChip(1, gen.likenessRefs ? { refs:cardGenerateRefs()+1 } : undefined))),   // +1: the sheet being updated rides along
       // SCRIPT CHANGED (owner-approved 2026-10-12 — Character fidelity, step 6): the screenplay about this character
       // changed since its look was drafted (or its fact sheet read) — like the Lookbook's stale banner. One button re-reads
       // the script; then the card offers to re-draft the look. Nothing is blocked and nothing is spent on its own.

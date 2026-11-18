@@ -48,6 +48,8 @@ assert.ok(chunk.includes("React.useEffect(()=>{ if(!openItem) return undefined;"
 const specSrc = between(art, "function specWholeSentences(t){", "window.specWholeSentences = specWholeSentences;");
 const factory = vm.runInNewContext(specSrc + "\n(function(env){ const {" + NAMES.join(",") + "} = env;\n" + chunk + "\nreturn { ownedItemRow, ownedItemTile, ownedItemPanel, specWholeSentences, specWasCut }; })", { console, Promise, String, Set, Math });
 function EditText() { return null; }
+/* the real rule for a name the drafter refuses (prop-screenplay.js) */
+const psBox = { console, Set, Array, String, Object, Math, JSON }; psBox.window = psBox; vm.runInNewContext(ps, psBox);
 const normName = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/^(?:and-|then-)/, "").slice(0, 40);
 const ITEMS = [["worn", "green PCO licence badge on a lanyard"], ["worn", "black leather belt"], ["carried", "Nasir's notebook"]];
 function card(over) {
@@ -58,7 +60,7 @@ function card(over) {
     EditText, rowKeyTick: 0, setRowKeyTick: () => log.push(["reset-name"]),
     onNameOwnedItem: o.noNaming ? null : (cid, item, pid, to, opts) => { log.push(["name", cid, item, pid, to, opts || null]); return o.nameFails ? "" : to; },
     Icon: { plus: "ic-plus", box: "ic-box", x: "ic-x", check: "ic-check", sparkles: "ic-sparkles" },
-    window: { appToast: (m, k) => log.push(["toast", k || "info", m]), InfoTip, nbCostChip: (n) => el("span", { className: "nb-cost" }, String(n)),
+    window: { PropScreenplay: psBox.PropScreenplay, appToast: (m, k) => log.push(["toast", k || "info", m]), InfoTip, nbCostChip: (n) => el("span", { className: "nb-cost" }, String(n)),
       generatePropSheet: async (p, project) => { log.push(["generate", p.id, project && project.id]); return true; },
       propShortName: (n) => { if (o.shortRule) return o.shortRule; const m = String(n || "").match(/^(.*?)\s*\(/); return (m && String(n).length > 40) ? m[1] : ""; } },
     linkInfo: { rows: ITEMS.map(([src, t], i) => ({ key: "b-" + i, name: t, item: t, prop: o.props[t] || null, orphan: false, src }))
@@ -66,7 +68,7 @@ function card(over) {
     normName, ownedSheetMap: o.sheets, readOnly: o.readOnly, propBusy: o.busy, setPropBusy: (v) => log.push(["busy", v && v.kind, v && v.key]),
     wornExclusions: new Set(o.excluded), c: { id: "liaqat", name: "LIAQAT HUSSAIN" }, gen: { genUrl: o.sheet },
     onCreateOwnedProp: (cid, item, src, opts) => { log.push(["create", cid, item, src, opts]); return { id: "p-new", name: item, kind: src }; },
-    onDraftProp: async (p) => { log.push(["draft", p.id]); }, onView: (url, p) => log.push(["view", url, p.id]), project: { id: "film" },
+    onDraftProp: async (p) => { log.push(["draft", p.id]); return o.draftResult; }, onView: (url, p) => log.push(["view", url, p.id]), project: { id: "film" },
     setSheetTick: () => log.push(["tick"]), setWornReferenceIncluded: (id, on) => log.push(["lock", id, on]),
     castFirstName: (n) => { const f = String(n || "").trim().split(/\s+/)[0] || ""; return f.charAt(0).toUpperCase() + f.slice(1).toLowerCase(); },
     propVisualsDrafted: (p) => !!(p.form && p.material), openItem: o.open, setOpenItem: (v) => log.push(["open", v]),
@@ -247,6 +249,65 @@ await test("T the design text is whole (owner 2026-11-18: 'Lanyard / Prop text a
   assert.ok(!/\.own-spec\{[^}]*(max-height|line-clamp)/.test(css), "nothing hides the end of the text");
 });
 
+await test("D no description yet (owner 2026-11-18: 'no description of the prop?'): the popup says so and where one comes from; a name an older limit cut is said; a list is never cut through an item again", () => {
+  const a = card({ open: open("worn", BELT) }), p = a.ownedItemPanel();
+  const none = findAll(p, role("owned-item-nodesc"))[0];
+  assert.equal(text(none), "No description yet. \u201cWrite its design\u201d adds one from the script: what it looks like and what it is made of.");
+  assert.equal(findAll(p, role("owned-item-cutname")).length, 0);
+  assert.equal(text(findAll(card({ readOnly: true, open: open("worn", BADGE), props: { [BADGE]: { id: "p1", name: BADGE, kind: "worn" } }, sheets: { p1: "data:x" } }).ownedItemPanel(), role("owned-item-nodesc"))[0]), "No description yet.");
+  const done = card({ open: open("carried", BOOK), props: { [BOOK]: { id: "p2", name: BOOK, kind: "carried", form: "A notebook.", material: "Card." } } }).ownedItemPanel();
+  assert.equal(findAll(done, role("owned-item-nodesc")).length, 0, "a designed item shows its design instead");
+  // the cause: the worn list was cut at 160 characters, through its last item. Lists are cut by whole items now.
+  const box = { console, String, Array, Math, window: null }; box.window = box;
+  vm.runInNewContext(between(insp, "function splitListItems(value){", "window.joinListItems = joinListItems;") + "\n" + between(ai, "function clipWords(s, max){", "function clipSpecText(")
+    + "\n" + between(ai, "const CHAR_LIST_LIMITS = ", "window.clipListItems = clipListItems;") + "\nthis.clipListItems = clipListItems; this.LIM = CHAR_LIST_LIMITS;", box);
+  assert.deepEqual(plain(box.LIM), { accessories: 420, props: 420 });
+  const ESHITA = "engagement ring (slim gold band with a small solitaire, left ring finger, removed in Sc 28); work lanyard (navy, plastic ID card holder); tiny gold studs in both ears";
+  assert.equal(box.clipListItems(ESHITA, 420), ESHITA, "Eshita's whole list fits now (it was cut at 'tiny gold stud…')");
+  assert.equal(box.clipListItems(ESHITA, 150), "engagement ring (slim gold band with a small solitaire, left ring finger, removed in Sc 28); work lanyard (navy, plastic ID card holder)", "no room: the last item is dropped whole, never cut");
+  assert.ok(!box.clipListItems(ESHITA, 100).includes("\u2026") || box.clipListItems(ESHITA, 100).split(";").length === 1);
+  assert.equal(box.clipListItems("ring, watch", 420), "ring, watch"); assert.equal(box.clipListItems("", 420), "");
+  const split = between(ai, "function _wornCarriedSplit(e, character, clean){", "function mapBibleEntry(");
+  assert.ok(split.includes("accessories: hasAcc ? character.accessories : clipListItems(clean(r.acc,4000), CHAR_LIST_LIMITS.accessories),") && !split.includes("clean(r.acc,160)"));
+  // the drafter is told its room (the prompt works on its own too: other tests load it without the constant)
+  const bb = { console, String, Array }; bb.window = bb;
+  vm.runInNewContext(between(ai, "function bibleBatchPrompt(ctx, chars){", "\n/* batched VISUAL BIBLE") + "\nthis.out = bibleBatchPrompt('CTX', []);", Object.assign(bb, { _lookbookBlock: () => "" }));
+  assert.match(bb.out, /Each of the two lists: items separated by ';', each a short name with its key detail in brackets, and no more than 420 characters for the whole list \(items that do not fit are dropped, so put the ones that matter first\)\./);
+});
+
+await test("W 'Write its design' never ends in silence (owner 2026-11-18: it 'wasn't working or doing anything' on \u201ctiny gold stud\u2026\u201d)", async () => {
+  // the drafter refuses a name that is not a whole object name; the press used to make an empty card and say nothing
+  const STUD = "tiny gold stud\u2026";
+  const items = (name, prop) => { ITEMS.push(["worn", name]); const c = card({ open: open("worn", name), props: prop ? { [name]: prop } : {} }); ITEMS.pop(); return c; };
+  assert.ok(psBox.PropScreenplay.nameIssue(STUD) && psBox.PropScreenplay.nameIssue("gold") && !psBox.PropScreenplay.nameIssue("tiny gold stud earrings"));
+  const a = items(STUD), p = a.ownedItemPanel(); a.log.length = 0;
+  const btn = findAll(p, role("owned-item-design"))[0];
+  assert.equal(btn.props.disabled, true, "the button waits for a whole name");
+  const HELP = "This name was cut short. Type it in full at the top, then write its design.";
+  assert.equal(btn.props.title, HELP); assert.equal(text(findAll(p, role("owned-item-namehelp"))[0]), HELP, "said beside the button");
+  await btn.props.onClick();
+  assert.deepEqual(plain(a.log), [["toast", "info", HELP]], "no card is made and nothing is sent");
+  // a card already made by that silent press: the same line, by the card's name
+  const b = items(STUD, { id: "p5", name: STUD, kind: "worn", keptAsProp: true }), pb = b.ownedItemPanel();
+  assert.equal(findAll(pb, role("owned-item-design"))[0].props.disabled, true); assert.equal(text(findAll(pb, role("owned-item-namehelp"))[0]), HELP);
+  // a bare word
+  const w = items("gold"); assert.equal(text(findAll(w.ownedItemPanel(), role("owned-item-namehelp"))[0]), "Say what the object is in its name at the top, then write its design.");
+  // a whole name: the button works, no line
+  const ok = items("tiny gold stud earrings"), pok = ok.ownedItemPanel(); ok.log.length = 0;
+  assert.equal(findAll(pok, role("owned-item-namehelp")).length, 0); assert.equal(findAll(pok, role("owned-item-design"))[0].props.disabled, false);
+  // a design that does not come back says so (true = written, false = nothing came back)
+  ITEMS.push(["worn", "tiny gold stud earrings"]);
+  const f = card({ open: open("worn", "tiny gold stud earrings"), draftResult: false }); const pf = f.ownedItemPanel(); f.log.length = 0;
+  await findAll(pf, role("owned-item-design"))[0].props.onClick();
+  assert.deepEqual(f.log.map(x => x[0]), ["create", "busy", "draft", "busy", "toast"]); assert.deepEqual(plain(f.log[4]), ["toast", "error", "The design could not be written this time. Nothing was changed; try again."]);
+  const g = card({ open: open("worn", "tiny gold stud earrings"), draftResult: true }); const pg = g.ownedItemPanel(); g.log.length = 0;
+  await findAll(pg, role("owned-item-design"))[0].props.onClick();
+  ITEMS.pop();
+  assert.ok(!g.log.some(x => x[0] === "toast"), "a design that was written needs no message: it appears");
+  const d = between(app, "  const draftPropVisuals = async (pr)=>{", "  // \"Draft all props\"");
+  assert.ok(d.includes("let wrote = false;") && d.includes("if(res){ updateProp(pr.id, keepPickedStyle(pr, res)); wrote = true; }") && d.includes("return wrote;"));
+});
+
 await test("K a card made from a list is filed as that list says; the 'New wardrobe ready' banner is amber, not the Likeness's purple", () => {
   const fn = between(app, "  const createOwnedProp = (charId, itemText, sourceKind, opts)=>{", "  const addLookbookCard");
   let props = [];
@@ -259,6 +320,16 @@ await test("K a card made from a list is filed as that list says; the 'New wardr
   const banner = between(sheet, 'className:"sheet-cameo-status char-wardrobe-update"', "// SCRIPT CHANGED");
   assert.ok(banner.includes('label:"About the new wardrobe"') && !banner.includes("scs-meta"), "its sentence is behind the 'i' (it was cut to 'TH…')");
   assert.ok(banner.includes('"Update sheet with new wardrobe"'));
+  // (owner 2026-11-18: "yes, switch the button to work that way") the update builds on the current sheet: the same
+  // person and panels, the wardrobe changed. It is the path the app's own wardrobe runs already use.
+  assert.ok(banner.includes('"data-role":"wardrobe-update",disabled:gen.gening,onClick:()=>gen.generate({ deriveFromCurrent:true }),') && !banner.includes("onClick:()=>gen.generate(),"));
+  assert.ok(banner.includes("gen.likenessRefs ? { refs:cardGenerateRefs()+1 } : undefined"), "the sheet being updated is one more reference picture in the price");
+  assert.ok(art.includes('else if(gopts.deriveFromCurrent && genUrl){ refImage = genUrl; mode = "base"; }'), "the current sheet is the image that goes out");
+  const base = between(sheet, 'buildFromBase: ()=> "Update this existing master character sheet for "', "buildLikeness:");
+  assert.ok(base.includes("Preserve the EXACT same face, hair, skin tone, age, build, body proportions, identity, panel layout, framing and render style from the base sheet. ")
+    && base.includes("Change only what the specification changes \\u2014 the wardrobe and the worn items; every panel, pose, expression and the background stay as they are in the base sheet. "));
+  assert.ok(sheet.includes("attachments: wornProps.length ? collectAttachments : null,"), "the worn items' images still ride beside it");
+  assert.ok(read("app/agents.jsx").includes("cast.generateMaster(c,{deriveFromCurrent:true})"));
   const rule = (css.match(/\.sheet-cameo-status\.char-wardrobe-update\{[^}]*\}/) || [""])[0];
   assert.ok(rule.includes("background:var(--pos-soft);border-color:var(--pos-line)") && !/29[5-6]/.test(rule), "amber from the theme's tokens, no purple");
   assert.ok(css.includes(".sheet-cameo-status.char-wardrobe-update .scs-act{color:var(--pos-ink);font-weight:700;"));
@@ -394,15 +465,15 @@ await test("F Frances knows; nothing she is told names the codename; the changed
   const f = between(ai, 'APP_FEATURES.push({ name:"Open a worn or carried item on the character card and make its image there (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["a small square at the start of its row", "'Write its design'", "'Generate image'", "'Generate new image'", "'Visual lock'", "each paid step is its own press",
     "kept as a prop", "Recently deleted", "view-only access", "On a phone", "opens in a POPUP over the page", "ONE NAME IN BOTH PLACES", "'Shorten to", "Renaming costs nothing.",
-    "'Write its design again'", "filed as that list says", "ID PHOTOS", "'New wardrobe ready'"]) assert.ok(f.includes(k), k);
+    "'Write its design again'", "filed as that list says", "ID PHOTOS", "'New wardrobe ready'", "NO DESCRIPTION YET", "A NAME THAT ENDS IN", "'Write its design' then waits", "UPDATES THE SHEET YOU HAVE", "only the image engines can make or change a picture"]) assert.ok(f.includes(k), k);
   assert.ok(!f.includes("drawer"));
   assert.ok(ai.includes("the item in its owner's list on the character card takes the short name too") && !ai.includes("the character's list is left as it is and still finds the card"));
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic/.test(f));
   assert.ok(f.includes("/from its row in the character card's Props & accessories section|Only hero props are cards/.test(f.what)"), "older entries are put right");
   assert.ok(ai.includes("beside the WHOLE cast (since 2026-11-18; it used to stop at five people)") && !ai.includes("share the most scenes with (up to five)"));
   assert.ok(ai.includes("press the small square at the start of the item's row, make the object's image there, keep 'Visual lock' ticked"));
-  const KEYS = ["20261118-idphoto1"];   // (the list grows with each key bump)
-  for (const file of ["artroom.jsx", "props.jsx", "app.jsx", "ai.jsx", "script.jsx", "styles.css"])
+  const KEYS = ["20261118-update1"];   // (the list grows with each key bump)
+  for (const file of ["artroom.jsx", "app.jsx", "ai.jsx", "script.jsx", "styles.css"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });
 

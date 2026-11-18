@@ -3847,6 +3847,8 @@ span.own-name{padding:3px 0}
 /* in full (owner 2026-11-18: the text "appears incomplete" — a box that scrolled hid its end); the popup scrolls instead */
 .own-spec{font:400 13px/1.5 var(--f-ui);color:var(--win-ink-2,var(--txt-1))}
 .own-spec p{margin:0}
+.own-spec.own-spec-none{color:var(--win-sub,var(--txt-2))}
+.own-namehelp{flex:1 1 220px;color:var(--win-amber-ink,var(--pos-ink));font-weight:500}
 .own-spec p + p{margin-top:6px;color:var(--win-sub,var(--txt-2))}
 .own-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .own-act{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--win-line-3,var(--line-2));
