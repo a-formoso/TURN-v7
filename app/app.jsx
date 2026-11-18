@@ -4344,7 +4344,10 @@ function App(){
   // create ONE owned prop card from a character-card item bullet that never got a
   // card derived (e.g. a character added after "Design all props" ran) — same shape
   // derivePropsFromCast builds, so the linked-prop row claims it by exact name.
-  const createOwnedProp = (charId, itemText, sourceKind)=>{
+  // opts.kept (2026-11-18): the person asked for this item's own image on the character's card — their choice, so
+  // the card counts as a prop they kept (PropScreenplay.acceptPatch), as "Keep this prop" does in the Props tab.
+  const createOwnedProp = (charId, itemText, sourceKind, opts)=>{
+    if(!canMutateSharedFilm()) return null;
     const ch = characters.find(x=>x.id===charId); if(!ch) return null;
     const item = String(itemText||"").trim(); if(!item) return null;
     const kind = ((typeof classifyPropKind==="function") && classifyPropKind(item)) || sourceKind || "carried";
@@ -4354,6 +4357,8 @@ function App(){
       name:item, kind, ownerId:ch.id, ownerName:ch.name||"", fromCast:true,
       origin:(typeof artRoomPropOrigin==="function") ? artRoomPropOrigin(kind,"character")
         : {kind:(kind==="worn"||kind==="accessory")?"costume":"props"} };
+    if(opts && opts.kept && window.PropScreenplay && typeof window.PropScreenplay.acceptPatch==="function")
+      Object.assign(card, window.PropScreenplay.acceptPatch());
     setProps(ps=> ps.some(x=>x.id===card.id) ? ps : [...ps, card]);
     return card;
   };

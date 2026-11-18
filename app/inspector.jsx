@@ -90,8 +90,10 @@ function capFirst(s){ s = String(s||""); return s ? s.charAt(0).toUpperCase()+s.
    column of INDIVIDUALLY editable bullet rows. Each row is its own auto-growing
    field (edit in place, commit on blur) with a remove button; an "Add item" row
    appends a new bullet. The value stays a comma-joined string so prop-seeding and
-   scene-mapping keep working unchanged. */
-function EditableItemList({ value, placeholder, onCommit, onItemRemoved, onItemRenamed, ownerName }){
+   scene-mapping keep working unchanged.
+   `renderLead(text, index)` (2026-11-18) may put something of its own where the row's dot is — the character card's
+   worn and carried items show a small image square there; null keeps the dot. */
+function EditableItemList({ value, placeholder, onCommit, onItemRemoved, onItemRenamed, ownerName, renderLead }){
   const [items,setItems] = React.useState(()=>splitListItems(value));
   // only re-sync from the outside when the external value actually changed
   // (e.g. an AI re-draft) — never clobber mid-edit from our own commits
@@ -132,7 +134,7 @@ function EditableItemList({ value, placeholder, onCommit, onItemRemoved, onItemR
   return React.createElement("div",{className:"eil"},
     items.length>0 && React.createElement("ul",{className:"eil-list"},
       items.map((it,i)=>React.createElement("li",{className:"eil-row",key:i},
-        React.createElement("span",{className:"eil-dot"}),
+        ((renderLead && (it||"").trim()) ? renderLead((it||"").trim(), i) : null) || React.createElement("span",{className:"eil-dot"}),
         React.createElement(EditText,{value:it,placeholder:"Item\u2026",multiline:true,rows:1,onCommit:val=>setAt(i,val)}),
         // keyboard reachable (2026-09-28): it used to be skipped by Tab (tabIndex -1)
         React.createElement("button",{type:"button",className:"eil-del",title:"Remove item",

@@ -136,7 +136,7 @@ await test("P the pose figures in the brand's ink and amber (owner: 'more in-bra
   assert.ok(!/oklch\(0\.(62|78) 0\.1[38] 29[56]/.test(slotRules), "no purple left on the slots");
 });
 
-await test("S the scale sheet shows height in the film, free: the character beside the people of their scenes and a door, from the sizes on the cards", () => {
+await test("S the scale sheet shows height in the film, free: the character beside the whole cast and a door, from the sizes on the cards", () => {
   const shots = read("app/shots.jsx");
   const b = { console, Math, String, Number, Array, Object, Set, JSON };
   b.window = b; vm.createContext(b);
@@ -150,24 +150,38 @@ await test("S the scale sheet shows height in the film, free: the character besi
   const cast = [C("liaqat", "LIAQAT HUSSAIN", "168 cm tall"), C("eshita", "ESHITA HUSSAIN", "160 cm tall"), C("kieran", "KIERAN ELLIS", "6 ft"),
     C("amy", "AMY ELLIS", "163 cm"), C("nasir", "NASIR FARUQUE", "170")];
   const L = plain(b.charHeightLineup(cast[0], cast, [], {}));
-  assert.deepEqual(L.rows.map(r => r.c.id), ["liaqat", "nasir", "eshita", "kieran"], "this character first, then who shares the most scenes; nobody they never meet");
-  assert.deepEqual(L.sized.map(r => [r.c.id, r.mm]), [["liaqat", 1680], ["eshita", 1600], ["kieran", 1828.8]]);
+  // (owner 2026-11-18: "not all characters appear, allow user to see all characters in comparison") everyone is in it
+  assert.deepEqual(L.rows.map(r => r.c.id), ["liaqat", "nasir", "eshita", "kieran", "amy"], "this character first, then who shares the most scenes, then everyone else");
+  assert.deepEqual(L.rows.map(r => r.shared), [3, 3, 2, 1, 0]); assert.equal(L.more, 0, "nobody is left out");
+  assert.deepEqual(L.sized.map(r => [r.c.id, r.mm]), [["liaqat", 1680], ["eshita", 1600], ["kieran", 1828.8], ["amy", 1630]]);
+  const big = Array.from({ length: 30 }, (_, i) => C("x" + String(i).padStart(2, "0"), "PERSON " + String(i).padStart(2, "0"), (150 + i) + " cm"));
+  assert.equal(plain(b.charHeightLineup(big[0], big, [], {})).sized.length, 30, "a cast of thirty: thirty columns");
   assert.deepEqual(L.unsized.map(r => r.c.id), ["nasir"], "a bare number is no size: named, not drawn");
   assert.deepEqual(L.ref, { name: "a door", mm: 2000, size: "2 m" }); assert.equal(L.scale, 2000, "the door is the tallest thing in a line-up of people");
   // a film of small creatures gets a familiar object of their size, not a door
   const small = plain(b.charHeightLineup(C("bug", "BUG", "15 mm long"), [C("bug", "BUG", "15 mm long")], [], {}));
   assert.equal(small.ref.name, "a grain of rice"); assert.equal(small.rows.length, 1);
-  const none = plain(b.charHeightLineup(C("amy", "AMY", ""), cast, [], {}));
+  const none = plain(b.charHeightLineup(C("amy", "AMY", ""), [C("amy", "AMY", "")], [], {}));
   assert.equal(none.sized.length, 0); assert.equal(none.ref, null);
+  // someone with no size of their own still sees the rest of the cast (and is told to write theirs)
+  const noSize = plain(b.charHeightLineup(C("amy", "AMY", ""), cast, [], {}));
+  assert.equal(noSize.rows[0].self, true); assert.deepEqual(noSize.sized.map(r => r.c.id), ["eshita", "kieran", "liaqat"]);
   assert.equal(b.lineupSizeText(1680), "168 cm"); assert.equal(b.lineupSizeText(15), "15 mm"); assert.equal(b.lineupSizeText(40000), "40 m"); assert.equal(b.lineupSizeText(0.2), "200 \u00b5m");
   const card = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
   assert.ok(card.includes("React.createElement(CharHeightLineup,{ c, cast:cast||[c], scenes, drafts })),"), "the line-up is the whole Scale sheet section");
   const comp = between(art, "function CharHeightLineup({", "window.charHeightLineup = charHeightLineup;");
   // (owner 2026-11-17: "names … not glued up with one another … keep everything within the viewport on mobile") each bar
-  // has its own caption under the ground line (name over size), cut inside its own column; a phone shows five columns
-  assert.ok(comp.includes('className:"lineup-caps"') && comp.includes('className:"lineup-cap"+(r.self?" self":"")+(i>=5?" sixth":"")'));
-  for (const k of [".lineup-cap{flex:1 1 0;min-width:0;max-width:64px;", ".lineup-name{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
-    "@media (max-width:640px){ .lineup .sixth{display:none} .lineup-chart,.lineup-caps{gap:4px} }"]) assert.ok(css.includes(k), k);
+  // has its own caption under the ground line (name over size), cut inside its own column. (owner 2026-11-18: "welcome
+  // horizontal scroll if necessary") columns of one width on a row that scrolls sideways INSIDE the card; no column is
+  // hidden any more; the side with more people fades; the door is named beside the heading, where it cannot slide away
+  assert.ok(comp.includes('className:"lineup-caps"') && comp.includes('className:"lineup-cap"+(r.self?" self":"")+((!r.self && !r.shared)?" far":"")'));
+  assert.ok(!comp.includes("sixth") && !css.includes(".lineup .sixth"), "nobody is hidden on a narrow card");
+  assert.ok(comp.includes('className:"lineup-scroll"+(edge.indexOf("l")>=0?" more-l":"")+(edge.indexOf("r")>=0?" more-r":""),tabIndex:edge?0:undefined,'), "reachable by keyboard when it scrolls");
+  assert.ok(comp.includes('React.createElement("span",{className:"lineup-key"},') && comp.includes("new ResizeObserver(upd)"));
+  for (const k of [".lineup-scroll{min-width:0;overflow-x:auto;overflow-y:hidden;", ".lineup-plot{min-width:100%;width:max-content}", ".lineup-col{flex:0 0 50px;min-width:0;",
+    ".lineup-cap{flex:0 0 50px;min-width:0;", ".lineup-name{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
+    ".lineup-scroll.more-r{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 34px),transparent);", ".lineup-col.far .lineup-bar{opacity:.55}",
+    "@media (max-width:640px){ .lineup-col,.lineup-cap{flex-basis:46px} .lineup-chart,.lineup-caps{gap:4px} }"]) assert.ok(css.includes(k), k);
   assert.ok(!/\.lineup-name\{[^}]*position:absolute/.test(css), "no name hangs outside its column");
   assert.ok(!/generate\(|nbGenerate|onUpdate/.test(comp), "nothing is made or changed by it");
   assert.ok(comp.includes("has no unit. ") && comp.includes("No size yet. "), "a missing size is said in view: it needs doing");
@@ -190,7 +204,9 @@ await test("T the card's explaining lines (owner 2026-11-17): gone or behind an 
   const insp = read("app/inspector.jsx");
   assert.ok(insp.includes("rows: multiline?(rows||2):undefined });") && insp.includes('multiline:true,rows:1,onCommit:val=>setAt(i,val)'), "a short item is one line tall");
   for (const k of [".owned-lists .eil-row + .eil-row{border-top:1px solid var(--line)}", ".lineup-col.self .lineup-bar{background:var(--win-amber,#F29A43);border-color:var(--txt-0)}",
-    "@media (max-width:640px){ .owned-lists{grid-template-columns:minmax(0,1fr)} }"]) assert.ok(css.includes(k), k);
+    "@media (max-width:640px){ .sheet-2col.owned-lists{grid-template-columns:minmax(0,1fr)} }"]) assert.ok(css.includes(k), k);
+  // (2026-11-18) the one-column rule has to win over .sheet-2col's own two columns, which come later in the file
+  assert.ok(css.indexOf(".sheet-2col.owned-lists{grid-template-columns:minmax(0,1fr)}") > 0 && !css.includes("{ .owned-lists{grid-template-columns:minmax(0,1fr)} }"));
   const ve = read("app/video-elements.jsx");
   assert.ok(ve.includes('label:"About the video element"'));
 });
@@ -198,7 +214,7 @@ await test("T the card's explaining lines (owner 2026-11-17): gone or behind an 
 await test("F Frances knows; the changed files are served under a new key", () => {
   const f = between(ai, 'APP_FEATURES.push({ name:"Cast overview, the character card in four rows, the kept QA result (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["THE CAST AT A GLANCE", "THE CARD IN FOUR ROWS", "THE QA RESULT IS KEPT", "'Check again'", "ONE 'MORE' MENU", "THE HEADING FOLDS"]) assert.ok(f.includes(k), k);
-  const KEYS = ["20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1"];   // (the list grows with each key bump)
+  const KEYS = ["20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "cameo.jsx", "imagegen.jsx", "cloud.jsx", "app.jsx", "ai.jsx", "styles.css"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });

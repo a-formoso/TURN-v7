@@ -3713,22 +3713,38 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
 /* HEIGHT IN THE FILM (artroom.jsx CharHeightLineup): the character beside the people of their scenes and a door.
    Arch-topped bars on one ground line; this character's is the brand's amber. */
 .lineup{display:flex;flex-direction:column;gap:8px}
-.lineup-plot{min-width:0}
+/* the whole cast on one ground line (owner 2026-11-18): the row is as wide as its columns and scrolls sideways
+   inside the card; the page itself never scrolls sideways */
+.lineup-scroll{min-width:0;overflow-x:auto;overflow-y:hidden;padding-bottom:6px;scrollbar-width:thin;overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch}
+.lineup-scroll:focus-visible{outline:2px solid var(--pos);outline-offset:2px;border-radius:6px}
+/* the side that still has people out of view fades out */
+.lineup-scroll.more-r{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 34px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 34px),transparent)}
+.lineup-scroll.more-l{-webkit-mask-image:linear-gradient(to left,#000 calc(100% - 34px),transparent);mask-image:linear-gradient(to left,#000 calc(100% - 34px),transparent)}
+.lineup-scroll.more-l.more-r{-webkit-mask-image:linear-gradient(to right,transparent,#000 34px,#000 calc(100% - 34px),transparent);
+  mask-image:linear-gradient(to right,transparent,#000 34px,#000 calc(100% - 34px),transparent)}
+.lineup-plot{min-width:100%;width:max-content}
 .lineup-chart{position:relative;display:flex;align-items:flex-end;gap:6px;padding:0 4px;border-bottom:1.5px solid var(--txt-1)}
-.lineup-col{flex:1 1 0;min-width:0;max-width:64px;display:flex;justify-content:center;align-items:flex-end}
+.lineup-col{flex:0 0 50px;min-width:0;display:flex;justify-content:center;align-items:flex-end}
 .lineup-bar{display:block;width:62%;max-width:30px;border:1.5px solid var(--txt-2);border-bottom:0;border-radius:999px 999px 0 0;background:var(--bg-3)}
 .lineup-col.self .lineup-bar{background:var(--win-amber,#F29A43);border-color:var(--txt-0)}
 /* under the ground line: each bar's own caption, the name over the size; a long name ends in "…" inside its column */
 .lineup-caps{display:flex;gap:6px;padding:5px 4px 0}
-.lineup-cap{flex:1 1 0;min-width:0;max-width:64px;display:flex;flex-direction:column;align-items:center;gap:1px;text-align:center}
+.lineup-cap{flex:0 0 50px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;text-align:center}
 .lineup-name{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 10.5px/1.25 var(--f-ui);color:var(--txt-1)}
 .lineup-size{font:400 10.5px/1.2 var(--f-ui);color:var(--txt-2);white-space:nowrap}
 .lineup-cap.self .lineup-name{color:var(--txt-0);font-weight:700}
 .lineup-cap.self .lineup-size{color:var(--txt-0);font-weight:600}
 .lineup-ref{position:absolute;left:0;right:0;border-top:1px dashed var(--line-3);pointer-events:none}
-.lineup-ref span{position:absolute;right:0;bottom:2px;font:400 10.5px/1.2 var(--f-ui);color:var(--txt-3);white-space:nowrap}
-/* a narrow card (a phone): five columns, so every first name has room */
-@media (max-width:640px){ .lineup .sixth{display:none} .lineup-chart,.lineup-caps{gap:4px} }
+/* what the dashed line is, beside the heading (it stays put while the row scrolls) */
+.lineup-key{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font:400 10.5px/1.2 var(--f-ui);color:var(--txt-2);
+  text-transform:none;letter-spacing:normal;white-space:nowrap}
+.lineup-key i{display:block;width:18px;border-top:1px dashed var(--txt-3)}
+/* someone who shares no scene with this character: a little paler */
+.lineup-col.far .lineup-bar{opacity:.55}
+.lineup-cap.far .lineup-name,.lineup-cap.far .lineup-size{color:var(--txt-3)}
+/* a narrow card (a phone): slimmer columns, six of them in view */
+@media (max-width:640px){ .lineup-col,.lineup-cap{flex-basis:46px} .lineup-chart,.lineup-caps{gap:4px} }
 .lineup-warn{display:flex;align-items:flex-start;gap:7px;padding:8px 10px;border-radius:9px;font-size:12px;line-height:1.45;color:var(--txt-0);
   background:var(--pos-soft);border:1px solid var(--pos-line)}
 .lineup-warn svg{flex:0 0 auto;margin-top:2px;color:var(--pos-ink)}
@@ -3744,7 +3760,81 @@ image-slot[id^="charref-"][data-over], image-slot[id^="propref-"][data-over], im
 .owned-lists .eil-row{padding:2px 0}
 .owned-lists .eil-dot{margin-top:13px}
 .owned-lists .eil-add{margin-top:6px}
-@media (max-width:640px){ .owned-lists{grid-template-columns:minmax(0,1fr)} }
+/* AN ITEM'S OWN SQUARE AND DRAWER (artroom.jsx ownedItemTile / ownedItemPanel, owner 2026-11-18: "click to open
+   respective prop/accessory or generate directly on the card without changing tabs"). The square stands where the
+   row's dot was: the item's image, or a dashed square with a plus. The drawer opens under the two lists. */
+.own-tile{flex:0 0 24px;width:24px;height:24px;margin:3px 3px 0 0;padding:0;display:grid;place-items:center;overflow:hidden;
+  border:1px dashed var(--line-3);border-radius:7px;background:transparent;color:var(--txt-3);cursor:pointer;
+  transition:border-color .12s,color .12s,box-shadow .12s}
+.own-tile:hover,.own-tile:focus-visible{border-color:var(--pos);color:var(--pos-ink);outline:0}
+.own-tile.has{border-style:solid;border-color:var(--line-2);background:var(--bg-2);cursor:pointer}
+.own-tile img{display:block;width:100%;height:100%;object-fit:cover}
+.own-tile.on{border-style:solid;border-color:var(--win-amber,#F29A43);color:var(--txt-0);
+  box-shadow:0 0 0 2px color-mix(in oklab,var(--win-amber,#F29A43) 32%,transparent)}
+.own-tile .ns-spin{width:10px;height:10px}
+.owned-lists > .own-panel{grid-column:1 / -1}
+.own-panel{position:relative;display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:start;padding:10px;
+  border:1px solid var(--line-2);border-radius:12px;background:var(--bg-1);animation:own-in .16s ease-out}
+@keyframes own-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){ .own-panel{animation:none} }
+.own-shot{width:96px;aspect-ratio:1;display:grid;place-items:center;padding:0;overflow:hidden;border:1px dashed var(--line-3);
+  border-radius:10px;background:var(--bg-2);color:var(--txt-3)}
+.own-shot.has{border-style:solid;border-color:var(--line-2);cursor:zoom-in}
+.own-shot.has:hover,.own-shot.has:focus-visible{border-color:var(--pos);outline:0}
+.own-shot img{display:block;width:100%;height:100%;object-fit:cover}
+.own-main{min-width:0;display:flex;flex-direction:column;gap:9px}
+.own-head{position:relative;display:flex;align-items:flex-start;gap:7px;min-width:0}
+.own-kind{flex:0 0 auto;margin-top:1px;padding:2px 7px;border-radius:999px;border:1px solid var(--line-2);
+  font:600 9.5px/1.3 var(--f-ui);letter-spacing:.05em;text-transform:uppercase;color:var(--txt-2)}
+.own-name{flex:1 1 auto;min-width:0;font:600 13px/1.4 var(--f-ui);color:var(--txt-0);overflow-wrap:anywhere}
+.own-panel .own-head .infotip{position:static;flex:0 0 auto;margin-top:1px}
+.own-panel .own-head .infotip-btn{width:16px;height:16px}
+.own-panel .own-head .infotip-pop{left:0;right:0;top:calc(100% + 6px);width:auto;max-width:none;text-transform:none;letter-spacing:normal;
+  font:400 12.5px/1.5 var(--f-ui);color:var(--txt-0)}
+.own-x{flex:0 0 auto;display:grid;place-items:center;width:22px;height:22px;margin:-2px -2px 0 0;padding:0;border:0;border-radius:6px;
+  background:transparent;color:var(--txt-3);cursor:pointer}
+.own-x:hover,.own-x:focus-visible{background:var(--bg-3);color:var(--txt-0);outline:0}
+/* the three steps: a tick when done, the next one marked in amber */
+.own-steps{list-style:none;margin:0;padding:0;display:flex;align-items:center;flex-wrap:wrap;row-gap:6px}
+.own-step{display:inline-flex;align-items:center;gap:6px;font:500 11px/1.2 var(--f-ui);color:var(--txt-3);white-space:nowrap}
+.own-step + .own-step::before{content:"";width:16px;height:1px;margin:0 8px 0 2px;background:var(--line-3)}
+.own-step.done + .own-step::before{background:var(--ok)}
+.own-step-dot{flex:0 0 16px;width:16px;height:16px;display:grid;place-items:center;border-radius:50%;border:1px solid var(--line-3);
+  font:600 9px/1 var(--f-ui);color:var(--txt-3)}
+.own-step.done{color:var(--txt-1)}
+.own-step.done .own-step-dot{background:var(--ok);border-color:var(--ok);color:var(--bg-0,#fff)}
+.own-step.now{color:var(--txt-0);font-weight:600}
+.own-step.now .own-step-dot{border-color:var(--win-amber,#F29A43);color:var(--txt-0)}
+.own-spec{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font:400 11.5px/1.45 var(--f-ui);color:var(--txt-2)}
+.own-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.own-act{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:var(--r-m);border:1px solid var(--line-2);
+  background:var(--bg-2);color:var(--txt-0);font:600 11.5px var(--f-ui);cursor:pointer;white-space:nowrap}
+.own-act.main{background:var(--accent);color:var(--ink-on-accent);border-color:transparent}
+.own-act:hover:not(:disabled){filter:brightness(1.08)}
+.own-act:disabled{opacity:.55;cursor:default}
+.own-act .ns-spin{width:10px;height:10px}
+.own-lock{font-size:11px;gap:5px}
+.own-lock input{width:13px;height:13px}
+.own-note{font:400 11px/1.3 var(--f-ui);color:var(--txt-2)}
+/* a phone: a bigger square to press, a smaller picture, full-height buttons */
+@media (max-width:640px){
+  .own-tile{flex-basis:30px;width:30px;height:30px;margin:2px 4px 0 0}
+  .own-panel{grid-template-columns:72px minmax(0,1fr);gap:10px}
+  .own-shot{width:72px}
+  .own-act{height:auto;min-height:44px}
+  .own-x{width:32px;height:32px}
+  .own-lock{min-height:44px}
+  /* one column: the drawer right under the list its item is in */
+  .owned-lists > .sheet-field{order:3}
+  .owned-lists > .sheet-field:first-child{order:1}
+  .owned-lists > .own-panel{order:4}
+  .owned-lists > .own-panel[data-src="worn"]{order:2}
+  /* the steps may wrap: no joining lines, an even gap */
+  .own-steps{column-gap:14px}
+  .own-step + .own-step::before{display:none}
+}
+/* (2026-11-18) said with .sheet-2col: its own two-column rule comes later in this file and used to win on a phone */
+@media (max-width:640px){ .sheet-2col.owned-lists{grid-template-columns:minmax(0,1fr)} }
 .sheet-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .pal-row{display:flex;gap:8px;flex-wrap:wrap;padding-top:2px}
 .pal-chip{display:flex;align-items:center;gap:6px;background:var(--bg-3);border:1px solid var(--line);

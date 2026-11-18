@@ -6064,11 +6064,11 @@ function tidyTruncated(s){
   return m ? m[0].trim() : s;
 }
 
-function SheetField({ label, value, placeholder, multiline, list, onCommit, onItemRemoved, onItemRenamed, ownerName }){
+function SheetField({ label, value, placeholder, multiline, list, onCommit, onItemRemoved, onItemRenamed, ownerName, itemLead }){
   return React.createElement("div",{className:"sheet-field"},
     React.createElement("div",{className:"obj-lab"},label),
     list
-      ? React.createElement(EditableItemList,{value,placeholder,onCommit,onItemRemoved,onItemRenamed,ownerName})
+      ? React.createElement(EditableItemList,{value,placeholder,onCommit,onItemRemoved,onItemRenamed,ownerName,renderLead:itemLead})
       : React.createElement(EditText,{value,placeholder,multiline,onCommit}));
 }
 
@@ -6082,9 +6082,12 @@ function PaletteRow({ palette }){
 /* HEIGHT IN THE FILM (owner 2026-11-17: the scale sheet should "reflect on the movie … height versus the environment
    or other characters' height, so the characters are represented realistically"). A free line-up drawn from the Size
    on each card — the same sizes the shots, the locations and the Stage already use (true sizes, 2026-10-28): this
-   character beside the people they share the most scenes with, against something from the world (a door for
-   people, else the nearest familiar object). Nothing is generated or charged. Whoever has no size with a unit is
-   named, because nothing can then hold their height in a frame. */
+   character beside the whole cast, against something from the world (a door for people, else the nearest familiar
+   object). Nothing is generated or charged. Whoever has no size with a unit is named, because nothing can then
+   hold their height in a frame.
+   THE WHOLE CAST (owner 2026-11-18: "not all characters appear, allow user to see all characters in comparison …
+   welcome horizontal scroll"): this character first, then the people of their scenes (most scenes together first),
+   then everyone else by name; the row scrolls sideways inside the card when the cast is wider than it. */
 function lineupSizeText(mm){
   if(!(mm>0)) return "";
   const r = (n)=> String(Math.round(n*10)/10).replace(/\.0$/,"");
@@ -6099,10 +6102,8 @@ function charHeightLineup(c, cast, scenes, drafts){
   const mine = new Set(scenesOf(c));
   const others = (cast||[]).filter(x=>x && x.id!==c.id)
     .map(x=>({ c:x, mm:mmOf(x), shared:scenesOf(x).filter(id=>mine.has(id)).length }))
-    .filter(x=>x.shared>0)
     .sort((a,b)=> (b.shared-a.shared) || String(a.c.name||"").localeCompare(String(b.c.name||"")));
-  const picked = others.slice(0,5);
-  const rows = [{ c, mm:mmOf(c), self:true, shared:mine.size }].concat(picked);
+  const rows = [{ c, mm:mmOf(c), self:true, shared:mine.size }].concat(others);
   const sized = rows.filter(r=>r.mm>0), unsized = rows.filter(r=>!(r.mm>0));
   const top = sized.reduce((m,r)=>Math.max(m,r.mm),0);
   // something from the world to stand beside: a standard door for people, else the nearest familiar object
@@ -6111,7 +6112,7 @@ function charHeightLineup(c, cast, scenes, drafts){
     if(top>=900 && top<=3000) ref = { name:"a door", mm:2000, size:"2 m" };
     else { const k = (typeof scaleKnownObjects==="function") ? scaleKnownObjects(top) : []; if(k[0]) ref = { name:k[0].name, mm:k[0].mm, size:lineupSizeText(k[0].mm) }; }
   }
-  return { rows, sized, unsized, ref, more:Math.max(0, others.length-picked.length), scale:Math.max(top, ref ? ref.mm : 0) };
+  return { rows, sized, unsized, ref, more:0, scale:Math.max(top, ref ? ref.mm : 0) };
 }
 function CharHeightLineup({ c, cast, scenes, drafts }){
   const sig = (cast||[]).map(x=>(x&&x.id)+":"+((x&&x.height)||"")+":"+((x&&x.name)||"")).join("|");
@@ -6127,31 +6128,48 @@ function CharHeightLineup({ c, cast, scenes, drafts }){
   const units = L.sized.map(r=>unitOf(r.mm)).filter((u,i,a)=>a.indexOf(u)===i);
   const oneUnit = (L.sized.length>1 && units.length===1) ? units[0] : "";
   const sizeOver = (mm)=> oneUnit ? lineupSizeText(mm).replace(/\s*[^0-9.\s]+$/,"") : lineupSizeText(mm);
+  // which side still has people out of view ("", "r", "l" or "lr"): that edge fades, so a row that goes on says so.
+  // Measured again whenever the row changes size: the card's group may be closed (no width) when it first mounts.
+  const scRef = React.useRef(null);
+  const [edge, setEdge] = React.useState("");
+  React.useEffect(()=>{ const el = scRef.current; if(!el) return undefined;
+    const upd = ()=>{ const max = el.scrollWidth - el.clientWidth, x = el.scrollLeft;
+      setEdge((el.clientWidth>0 && max>2) ? ((x>2 ? "l" : "")+(x<max-2 ? "r" : "")) : ""); };
+    upd(); el.addEventListener("scroll",upd,{passive:true}); window.addEventListener("resize",upd);
+    const ro = (typeof ResizeObserver==="function") ? new ResizeObserver(upd) : null; if(ro) ro.observe(el);
+    return ()=>{ el.removeEventListener("scroll",upd); window.removeEventListener("resize",upd); if(ro) ro.disconnect(); };
+  },[L.sized.length]);
   return React.createElement("div",{className:"lineup","data-testid":"char-height-lineup"},
     React.createElement("div",{className:"obj-lab lineup-lab"},"Height in the film"+(oneUnit ? " \u00b7 "+oneUnit : ""),
       Tip && React.createElement(Tip,{label:"About height in the film",
         text:"Drawn from the Size on each card (Body & features), free. These are the sizes the shots, the locations and the Stage use, so a frame keeps everyone at their real height against each other and against the set."
-          +(L.rows.length>1 ? "\n\nBeside "+first(c.name)+": the people they share the most scenes with." : "")})),
+          +(L.rows.length>1 ? "\n\nBeside "+first(c.name)+": the whole cast. The people of their scenes come first, then everyone else."+(edge ? " Slide the row sideways to see them all." : "") : "")}),
+      // what the dashed line is, said once beside the heading: at the end of a row that scrolls it would slide away
+      (L.sized.length>0 && L.ref) && React.createElement("span",{className:"lineup-key"},
+        React.createElement("i",{"aria-hidden":"true"}), L.ref.name.replace(/^an? /,"")+" "+L.ref.size)),
     !(mine.mm>0) && React.createElement("div",{className:"lineup-warn",role:"note"},
       React.createElement(Icon.alert,{s:13}),
       (String(c.height||"").trim() ? "The size \u201c"+String(c.height).trim()+"\u201d has no unit. " : "No size yet. ")
         +"Write it with its unit under Body & features \u25b8 Size (for example 172 cm tall), so frames can keep "+first(c.name)+"\u2019s height."),
     // (owner 2026-11-17: "fix the way the names appear so they are not glued up with one another … keep everything
     // within the viewport on mobile") the bars alone stand on the ground line; under it each column has its own
-    // caption, the name over the size, cut with "…" inside its own column if it is too long. The door's label sits
-    // at the end of its dashed line, where no number is any more. The sixth column gives way on a narrow card.
-    L.sized.length>0 && React.createElement("div",{className:"lineup-plot"},
-      React.createElement("div",{className:"lineup-chart",style:{height:(H+12)+"px"},role:"img",
-          "aria-label":L.sized.map(r=>first(r.c.name)+" "+lineupSizeText(r.mm)).join(", ")+(L.ref ? "; "+L.ref.name+" "+L.ref.size : "")},
-        L.ref && React.createElement("div",{className:"lineup-ref",style:{bottom:px(L.ref.mm)+"px"}},
-          React.createElement("span",null,L.ref.name.replace(/^an? /,"")+" "+L.ref.size)),
-        L.sized.map((r,i)=>React.createElement("div",{key:r.c.id,className:"lineup-col"+(r.self?" self":"")+(i>=5?" sixth":"")},
-          React.createElement("span",{className:"lineup-bar",style:{height:px(r.mm)+"px"}})))),
-      React.createElement("div",{className:"lineup-caps"},
-        L.sized.map((r,i)=>React.createElement("div",{key:r.c.id,className:"lineup-cap"+(r.self?" self":"")+(i>=5?" sixth":""),
-            title:(r.c.name||"")+" \u00b7 "+lineupSizeText(r.mm)+(r.self ? "" : " \u00b7 "+r.shared+" scene"+(r.shared!==1?"s":"")+" together")},
-          React.createElement("span",{className:"lineup-name"},first(r.c.name)),
-          React.createElement("span",{className:"lineup-size"},sizeOver(r.mm)))))),
+    // caption, the name over the size, cut with "…" inside its own column if it is too long. Every column has the
+    // same width, so the whole cast fits on one ground line that scrolls sideways inside the card (the page never
+    // does); someone who shares no scene with this character stands a little paler.
+    L.sized.length>0 && React.createElement("div",{ref:scRef,
+        className:"lineup-scroll"+(edge.indexOf("l")>=0?" more-l":"")+(edge.indexOf("r")>=0?" more-r":""),tabIndex:edge?0:undefined,
+        role:edge?"group":undefined,"aria-label":edge?"Height line-up, scrolls sideways":undefined},
+      React.createElement("div",{className:"lineup-plot"},
+        React.createElement("div",{className:"lineup-chart",style:{height:(H+12)+"px"},role:"img",
+            "aria-label":L.sized.map(r=>first(r.c.name)+" "+lineupSizeText(r.mm)).join(", ")+(L.ref ? "; "+L.ref.name+" "+L.ref.size : "")},
+          L.ref && React.createElement("div",{className:"lineup-ref",style:{bottom:px(L.ref.mm)+"px"}}),
+          L.sized.map(r=>React.createElement("div",{key:r.c.id,className:"lineup-col"+(r.self?" self":"")+((!r.self && !r.shared)?" far":"")},
+            React.createElement("span",{className:"lineup-bar",style:{height:px(r.mm)+"px"}})))),
+        React.createElement("div",{className:"lineup-caps"},
+          L.sized.map(r=>React.createElement("div",{key:r.c.id,className:"lineup-cap"+(r.self?" self":"")+((!r.self && !r.shared)?" far":""),
+              title:(r.c.name||"")+" \u00b7 "+lineupSizeText(r.mm)+(r.self ? "" : (r.shared ? " \u00b7 "+r.shared+" scene"+(r.shared!==1?"s":"")+" together" : " \u00b7 no scene together"))},
+            React.createElement("span",{className:"lineup-name"},first(r.c.name)),
+            React.createElement("span",{className:"lineup-size"},sizeOver(r.mm))))))),
     (L.unsized.filter(r=>!r.self).length>0) && React.createElement("div",{className:"lineup-missing"},
       "No size with a unit yet: "+L.unsized.filter(r=>!r.self).map(r=>first(r.c.name)).join(", ")));
 }
@@ -6483,7 +6501,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     bullets.forEach((b,i)=>{ if(match[i]) return;
       const m = fuzzyProp(b.t); if(m){ claimed.add(m.id); match[i]=m; } });
     const rows = bullets.map((b,i)=>(
-      { key:"b-"+normName(b.t)+"-"+i, name: match[i]?match[i].name:b.t, prop: match[i]||null, orphan:false, src:b.src }));
+      { key:"b-"+normName(b.t)+"-"+i, name: match[i]?match[i].name:b.t, item:b.t, prop: match[i]||null, orphan:false, src:b.src }));
     /* orphans = cast-derived cards no bullet claimed (even fuzzily) — true leftovers */
     const orphans = ownedProps.filter(p=> p.fromCast && !claimed.has(p.id));
     orphans.forEach(p=> rows.push({ key:"o-"+p.id, name:p.name, prop:p, orphan:true }));
@@ -6495,6 +6513,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
   const _PSc = window.PropScreenplay;
   const rowShown = (r)=> !!r.prop && (!_PSc || _PSc.isStoryProp(r.prop) || !!ownedSheetMap[r.prop.id]);
   const linkedRows = linkInfo.rows.filter(rowShown);
+  // (2026-11-18) an item in the two lists opens from its own square there: the rows below keep only a card that no
+  // item names any more
+  const extraRows = linkedRows.filter(r=>r.orphan);
   const orphanProps = [];
   const collectAttachments = async ()=>{
     const out = [];
@@ -6515,7 +6536,107 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
   const [sheetTick, setSheetTick] = React.useState(0);   // bump to re-check sheet presence
   // inline per-row prop generation (user ruling 2026-07-18: generate a linked prop's
   // sheet right from the character card — no Props-tab hop). kind: "draft"|"gen".
-  const [propBusy, setPropBusy] = React.useState(null);   // {id, kind}
+  const [propBusy, setPropBusy] = React.useState(null);   // {id, kind, key}
+  /* AN ITEM OPENS WHERE IT IS LISTED (owner 2026-11-18: "click to open respective prop/accessory or generate directly
+     on the card without changing tabs"). Each worn or carried item has a small square in its row: its image, or an
+     empty square that offers one. A press opens one drawer under the two lists with the item's image, its three steps
+     (design written, image made, where it is used) and the next step's button. Nothing is spent on opening; each paid
+     step is its own press. A card made here is the person's own choice, so it counts as a prop they kept. */
+  const [openItem, setOpenItem] = React.useState(null);   // {src:"worn"|"carried", n: the item's normalised name}
+  const ownedItemRow = (src, n)=> linkInfo.rows.find(r=> !r.orphan && r.src===src && normName(r.item)===n) || null;
+  const ownedItemTile = (src)=> (text)=>{
+    const n = normName(text), row = ownedItemRow(src, n);
+    if(!row) return null;
+    const pr = row.prop, url = pr ? (ownedSheetMap[pr.id]||"") : "";
+    if(readOnly && !url) return null;                       // nothing to open and nothing they may make
+    const on = !!(openItem && openItem.src===src && openItem.n===n);
+    const busy = !!(propBusy && propBusy.key===src+":"+n);
+    const what = url ? "Open "+text : "Make an image of "+text;
+    return React.createElement("button",{type:"button","data-role":"owned-item-tile",
+        className:"own-tile"+(url?" has":"")+(on?" on":"")+(busy?" busy":""),
+        "aria-expanded":on?"true":"false","aria-label":what,title:what,
+        onClick:()=>setOpenItem(on ? null : { src, n })},
+      url ? React.createElement("img",{src:url,alt:"",draggable:false})
+          : (busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.plus,{s:11})));
+  };
+  const ownedItemPanel = ()=>{
+    const row = openItem ? ownedItemRow(openItem.src, openItem.n) : null;
+    if(!row) return null;                                   // closed, or the item was renamed or removed
+    const pr = row.prop, key = openItem.src+":"+openItem.n;
+    const carried = pr ? pr.kind==="carried" : row.src==="carried";
+    const url = pr ? (ownedSheetMap[pr.id]||"") : "";
+    const drafted = !!(pr && ((typeof propVisualsDrafted==="function") ? propVisualsDrafted(pr) : true));
+    const included = !!(pr && !carried && url && !wornExclusions.has(pr.id));
+    const busy = (propBusy && propBusy.key===key) ? propBusy.kind : "";
+    const who = (typeof castFirstName==="function") ? castFirstName(c.name) : (c.name||"the character");
+    const toast = (m,k)=>{ if(typeof window.appToast==="function") window.appToast(m,k||"info"); };
+    const Tip = (typeof window.InfoTip==="function") ? window.InfoTip : null;
+    const steps = [
+      { lab:"Design", done:drafted || !!url },
+      { lab:"Image", done:!!url },
+      carried ? { lab:"In the shots", done:!!url } : { lab:"On "+who+"\u2019s sheet", done:included } ];
+    const now = steps.findIndex(x=>!x.done);
+    const writeDesign = async ()=>{
+      if(propBusy || readOnly) return;
+      const card = pr || (onCreateOwnedProp ? onCreateOwnedProp(c.id, row.item, row.src, { kept:true }) : null);
+      if(!card || !onDraftProp){ toast("This item can\u2019t be designed here right now."); return; }
+      setPropBusy({ id:card.id, kind:"draft", key });
+      try{ await onDraftProp(card); }catch(err){}
+      setPropBusy(null);                                    // the design lands on the card: the next button reads "Generate image"
+    };
+    const makeImage = async ()=>{
+      if(propBusy || readOnly || !pr) return;
+      if(!gen.genUrl){ toast("Generate "+who+"\u2019s sheet first. The item is drawn to match their look."); return; }
+      setPropBusy({ id:pr.id, kind:"gen", key });
+      try{
+        const made = await window.generatePropSheet(pr, project);
+        if(made) toast("\u201c"+(pr.name||"Item")+"\u201d has its image. "+(carried ? "It joins the shots "+who+" carries it in." : "It is drawn from it on "+who+"\u2019s next sheet."),"success");
+      }catch(err){ toast(String((err&&err.message)||"The image could not be made."),"error"); }
+      setPropBusy(null);
+      setSheetTick(t=>t+1);
+    };
+    return React.createElement("div",{className:"own-panel","data-testid":"owned-item-panel","data-src":row.src},
+      url
+        ? React.createElement("button",{type:"button",className:"own-shot has",title:"See it larger","aria-label":"See "+row.item+" larger",
+            onClick:()=>{ if(onView) onView(url, pr); }},
+            React.createElement("img",{src:url,alt:row.item}))
+        : React.createElement("div",{className:"own-shot"+(busy==="gen"?" busy":""),"aria-hidden":"true"},
+            busy==="gen" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.box,{s:22})),
+      React.createElement("div",{className:"own-main"},
+        React.createElement("div",{className:"own-head"},
+          React.createElement("span",{className:"own-kind "+(carried?"carried":"worn")},carried?"Carried":"Worn"),
+          React.createElement("span",{className:"own-name"},row.item),
+          Tip && React.createElement(Tip,{label:"About this item",
+            text: carried
+              ? "Carried items are not drawn on "+who+"\u2019s sheet. With an image of its own, this one joins the shots where "+who+" carries it and looks the same every time."
+              : "Worn items are part of "+who+"\u2019s look. With an image of its own, this one is drawn the same on "+who+"\u2019s sheet the next time you generate it, and in close shots. Untick Visual lock to keep it as words."}),
+          React.createElement("button",{type:"button",className:"own-x",title:"Close","aria-label":"Close "+row.item,onClick:()=>setOpenItem(null)},
+            React.createElement(Icon.x,{s:13}))),
+        React.createElement("ol",{className:"own-steps","aria-label":"Steps"},
+          steps.map((st,i)=>React.createElement("li",{key:i,className:"own-step"+(st.done?" done":"")+(i===now?" now":"")},
+            React.createElement("span",{className:"own-step-dot","aria-hidden":"true"}, st.done ? React.createElement(Icon.check,{s:10}) : String(i+1)),
+            React.createElement("span",{className:"own-step-lab"},st.lab)))),
+        (drafted && pr && (pr.form||pr.material)) && React.createElement("div",{className:"own-spec"},
+          [pr.form, pr.material].map(x=>String(x||"").trim()).filter(Boolean).join(" \u00b7 ")),
+        !readOnly && React.createElement("div",{className:"own-actions"},
+          !drafted
+            ? React.createElement("button",{type:"button",className:"own-act main","data-role":"owned-item-design",disabled:!!propBusy,
+                title:"Writes what it looks like, from the script. Writing credits only.",onClick:writeDesign},
+                busy==="draft" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
+                busy==="draft" ? "Writing its design\u2026" : "Write its design")
+            : React.createElement("button",{type:"button",className:"own-act"+(url?"":" main"),"data-role":"owned-item-generate",
+                disabled:!!propBusy || !gen.genUrl,
+                title:!gen.genUrl ? "Generate "+who+"\u2019s sheet first. The item is drawn to match their look." : (url ? "Make this item\u2019s image again" : "Make this item\u2019s image"),
+                onClick:makeImage},
+                busy==="gen" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
+                busy==="gen" ? "Generating\u2026" : (url ? "Generate new image" : "Generate image"),
+                (!busy && typeof window.nbCostChip==="function") ? window.nbCostChip(1) : null),
+          (pr && !carried && url) && React.createElement("label",{className:"worn-lock-toggle own-lock",
+              title:included ? "Drawn from this image on the next character sheet" : "Kept as words on the character sheet"},
+            React.createElement("input",{type:"checkbox",checked:included,onChange:(e)=>setWornReferenceIncluded(pr.id,e.target.checked)}),
+            React.createElement("span",null,"Visual lock")),
+          (drafted && !gen.genUrl) && React.createElement("span",{className:"own-note"},"Generate "+who+"\u2019s sheet first."))));
+  };
   React.useEffect(()=>{
     let alive=true;
     (async()=>{
@@ -7027,14 +7148,16 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           React.createElement("span",{className:"worn-lock-fallback"},
             wornProps.filter(p=>!ownedSheetMap[p.id]||wornExclusions.has(p.id)).length+" text-only")),
         React.createElement("div",{className:"sheet-2col owned-lists"},
-          React.createElement(SheetField,{label:"Accessories \u2014 worn",value:c.accessories,list:true,ownerName:c.name,
+          React.createElement(SheetField,{label:"Accessories \u2014 worn",value:c.accessories,list:true,ownerName:c.name,itemLead:ownedItemTile("worn"),
             onItemRemoved: onRemoveOwnedItem ? (txt=>onRemoveOwnedItem(c.id,txt)) : null,
             onItemRenamed: onRenameOwnedItem ? ((oldTxt,newTxt)=>onRenameOwnedItem(c.id,oldTxt,newTxt)) : null,
             placeholder:"Fixed worn items \u2014 watch, glasses, jewellery\u2026",onCommit:val=>onUpdate(c.id,{accessories:val})}),
-          React.createElement(SheetField,{label:"Props \u2014 carried",value:c.props,list:true,ownerName:c.name,
+          React.createElement(SheetField,{label:"Props \u2014 carried",value:c.props,list:true,ownerName:c.name,itemLead:ownedItemTile("carried"),
             onItemRemoved: onRemoveOwnedItem ? (txt=>onRemoveOwnedItem(c.id,txt)) : null,
             onItemRenamed: onRenameOwnedItem ? ((oldTxt,newTxt)=>onRenameOwnedItem(c.id,oldTxt,newTxt)) : null,
-            placeholder:"Recurring objects \u2014 phone, weapon, talisman\u2026",onCommit:val=>onUpdate(c.id,{props:val})})),
+            placeholder:"Recurring objects \u2014 phone, weapon, talisman\u2026",onCommit:val=>onUpdate(c.id,{props:val})}),
+          // the open item's drawer: across both boxes; on a phone it sits right under the list its item is in
+          ownedItemPanel()),
         custodyProps.length>0 && React.createElement("div",{className:"linked-prop-list"},
           custodyProps.map(p=>{
             const e = handoversTo(p).slice(-1)[0];
@@ -7045,7 +7168,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
               React.createElement("span",{className:"linked-prop-name"},p.name),
               React.createElement("span",{className:"linked-prop-orphan-tag"},"from "+(p.ownerName||"owner")+(sc&&sc.no!=null?(" \u00b7 Sc "+sc.no):"")));
           })),
-        linkedRows.length>0 && React.createElement("div",{className:"linked-props"},
+        extraRows.length>0 && React.createElement("div",{className:"linked-props"},
           React.createElement("div",{className:"linked-props-head"},
             React.createElement("div",{className:"obj-lab linked-props-lab",style:{margin:0}},"Story props",
               (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About story props",
@@ -7066,7 +7189,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
               }},
               React.createElement(Icon.x,{s:12}),"Remove "+orphanProps.length+" orphaned")),
           React.createElement("div",{className:"linked-prop-list"},
-            linkedRows.map(row=>{
+            extraRows.map(row=>{
               // carried props don't attach to the character SHEET \u2014 they ride in at
               // the shot level, so show them as deferred rather than "missing".
               // Card-less rows have no row.prop, so fall back to which LIST the item
@@ -7110,53 +7233,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                       onClick:(e)=>{ e.stopPropagation(); onView&&onView(ownedSheetMap[row.prop.id],row.prop); }},
                       React.createElement("img",{src:ownedSheetMap[row.prop.id],alt:""}))
                   : React.createElement(Icon.box,{s:12}),
-                // INLINE generation — the sheet is built against THIS character's own
-                // sheet (the owner reference), so it must exist first. Undrafted props
-                // draft first (separate press: the fresh fields must land in state
-                // before the image prompt is built from them).
-                (row.prop && !row.orphan) && (()=>{
-                  const pr = row.prop;
-                  const busy = propBusy && propBusy.id===pr.id;
-                  const pDrafted = (typeof propVisualsDrafted==="function") ? propVisualsDrafted(pr) : true;
-                  const lab = busy ? (propBusy.kind==="draft"?"Drafting\u2026":"Generating\u2026")
-                    : (!pDrafted ? "Draft specification" : (ready ? "Generate new image" : "Generate image"));
-                  return React.createElement("button",{className:"linked-prop-gen"+(busy?" busy":""),
-                    disabled: !!propBusy,
-                    title: !pDrafted
-                      ? "Write this prop's design spec (object, form & material) from the script \u2014 then Generate its sheet. Writing-model credits only."
-                      : (!gen.genUrl
-                        ? "Generate "+(c.name||"the character")+"'s sheet first \u2014 this prop references it so the design matches their look."
-                        : (carried
-                          ? "Generate this prop's reference sheet against "+(c.name||"the owner")+"'s sheet \u2014 it then attaches automatically at the shot level."
-                          : "Generate an optional CLOSE-UP macro sheet against "+(c.name||"the owner")+"'s sheet \u2014 used only on CU/MCU/ECU/INSERT shots; wides keep rendering it from the character sheet.")),
-                    onClick: async (e)=>{
-                      e.stopPropagation();
-                      if(propBusy) return;
-                      if(!pDrafted){
-                        if(!onDraftProp){ if(typeof window.appToast==="function") window.appToast("Draft this prop in the Props tab first.","info"); return; }
-                        setPropBusy({id:pr.id, kind:"draft"});
-                        try{ await onDraftProp(pr); }catch(err){}
-                        setPropBusy(null);
-                        return;   // fields land in state \u2014 the button now reads "Generate"
-                      }
-                      if(!gen.genUrl){ if(typeof window.appToast==="function") window.appToast("Generate "+(c.name||"the character")+"'s sheet first \u2014 the prop references it to match their look.","info"); return; }
-                      setPropBusy({id:pr.id, kind:"gen"});
-                      try{
-                        await window.generatePropSheet(pr, project);
-                        if(typeof window.appToast==="function") window.appToast("\u201c"+(pr.name||"Prop")+"\u201d sheet generated \u2014 "+(carried?"it now attaches at the shot level.":"tight shots can now lock its design."),"success");
-                      }catch(err){ if(typeof window.appToast==="function") window.appToast(String((err&&err.message)||"Prop generation failed."),"error"); }
-                      setPropBusy(null);
-                      setSheetTick(t=>t+1);
-                    }},
-                    busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
-                    lab,
-                    (pDrafted && !busy && typeof window.nbCostChip==="function") ? window.nbCostChip(1) : null);
-                })(),
-                (row.prop && !carried && ready && !row.orphan) && React.createElement("label",{
-                  className:"worn-lock-toggle",title:included?"Included as an exact visual reference in the next character master":"Keep this prop text-only in the character master"},
-                  React.createElement("input",{type:"checkbox",checked:included,
-                    onChange:(e)=>setWornReferenceIncluded(row.prop.id,e.target.checked)}),
-                  React.createElement("span",null,"Visual lock")),
+                // (2026-11-18) a leftover card has no actions here: an item in the lists opens from its own square
                 React.createElement("span",{className:"linked-prop-status"},status)));
             }))))),
 
