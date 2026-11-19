@@ -493,7 +493,7 @@ await test("F Frances knows; nothing she is told names the codename; the changed
   const f = between(ai, 'APP_FEATURES.push({ name:"Open a worn or carried item on the character card and make its image there (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["a small square at the start of its row", "'Write its design'", "'Generate image'", "'Generate new image'", "'Visual lock'", "each paid step is its own press",
     "kept as a prop", "Recently deleted", "view-only access", "On a phone", "opens in a POPUP over the page", "ONE NAME IN BOTH PLACES", "'Shorten to", "Renaming costs nothing.",
-    "'Write its design again'", "filed as that list says", "ID PHOTOS", "'New wardrobe ready'", "NO DESCRIPTION YET", "A NAME THAT ENDS IN", "'Write its design' then waits", "UPDATES THE SHEET YOU HAVE", "only the image engines can make or change a picture", "it is a targeted edit of the current sheet", "HOW WELL THE FACE HOLDS", "the button spins while it is written"]) assert.ok(f.includes(k), k);
+    "'Write its design again'", "filed as that list says", "ID PHOTOS", "'New wardrobe ready'", "NO DESCRIPTION YET", "A NAME THAT ENDS IN", "'Write its design' then waits", "UPDATES THE SHEET YOU HAVE", "only the image engines can make or change a picture", "what is saved is your own sheet with only the item copied in", "HOW WELL THE FACE HOLDS", "the button spins while it is written"]) assert.ok(f.includes(k), k);
   // (owner 2026-11-19) the three rules for a character's photo on an object, and the drafter is told them
   for (const k of ["ID PHOTOS AND PICTURES OF A CHARACTER", "as they look NOW", "only when the screenplay or the object's own description says the picture is from an earlier time", "they never wear the outfit of their sheet in it", "a plain shirt or a simple top"]) assert.ok(f.includes(k), k);
   assert.ok(ai.includes("AN OBJECT THAT SHOWS A PERSON'S PHOTO (an ID badge, pass or licence, a framed picture, a Polaroid, a snapshot): say in form what the photo shows.") && ai.includes("and NOT the outfit they wear in the film"));
@@ -503,7 +503,7 @@ await test("F Frances knows; nothing she is told names the codename; the changed
   assert.ok(f.includes("/from its row in the character card's Props & accessories section|Only hero props are cards/.test(f.what)"), "older entries are put right");
   assert.ok(ai.includes("beside the WHOLE cast (since 2026-11-18; it used to stop at five people)") && !ai.includes("share the most scenes with (up to five)"));
   assert.ok(ai.includes("press the small square at the start of the item's row, make the object's image there, keep 'Visual lock' ticked"));
-  const KEYS = ["20261118-update2", "20261119-photo1", "20261119-photo1"];   // (the list grows with each key bump)
+  const KEYS = ["20261118-update2", "20261119-photo1", "20261119-keep1", "20261119-photo1", "20261119-keep1"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "ai.jsx", "script.jsx"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });

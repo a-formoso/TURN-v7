@@ -3273,6 +3273,17 @@ async function nbRunSheetGeneration(env, gopts){
       // discard the result — don't commit over the frame.
       if(_cancelledNow()) throw { __cancelled:true };
       if(typeof opts.assertPostGenerate==="function") await opts.assertPostGenerate({mode,url,prompt:genPrompt});
+      /* KEEP THE ORIGINAL (owner 2026-11-19): a caller of an edit may rebuild the result from the picture it started
+         from — the original, pixel for pixel, with only the new items taken from the engine's picture (turnKeepOriginal).
+         What it returns is what is saved; when it cannot be done the caller says what to do (use the engine's picture
+         on the person's yes, or save nothing). Runs before the size and the version are recorded. */
+      let keptMeta = null;
+      if(isEditMode && typeof gopts.keepOriginal==="function"){
+        const kept = await gopts.keepOriginal({ baseUrl:refImage, url, cancelled:_cancelledNow });
+        if(_cancelledNow()) throw { __cancelled:true };
+        if(kept && kept.discard) throw new Error(kept.message || "Your sheet was left as it is.");
+        if(kept && kept.url){ url = kept.url; keptMeta = kept.meta || null; }
+      }
       // Record the actual returned pixels as well as the requested resolution tier.
       // Providers can return dimensions that differ slightly from the nominal tier.
       const outputDims = await nbImageDimensions(url);
@@ -3365,6 +3376,7 @@ async function nbRunSheetGeneration(env, gopts){
         if(depIds.length) meta.propReferencesUsed=propReferenceSnapshot(depIds,window.turnContinuity||{});
       }
       if(startMeta) Object.assign(meta, startMeta);
+      if(keptMeta) Object.assign(meta, keptMeta);   // what was kept and what was added (shown under Details)
       /* A surface-specific start stamp may add provenance fields, but quality is
          owned by this runner's immutable request snapshot.  Re-assert it after
          the merge so no late callback can replace "default"/"auto" with a live
@@ -6088,6 +6100,56 @@ function tidyTruncated(s){
   return m ? m[0].trim() : s;
 }
 
+/* KEEP THE ORIGINAL, ADD ONLY THE ITEM — the browser's side of app/pixel-keep.js (owner 2026-11-19).
+   Given the picture an edit started from and the picture the engine sent back, builds the picture that is saved:
+   the original, pixel for pixel, with only the new items copied in. Steps: read both as pixels (the engine's picture
+   brought to the original's size: engines send other sizes back), one look by the vision model for where the items
+   are (aiLocateItems), then PixelKeep lines up, copies and counts. Returns
+     { url (a PNG), meta, placed, skipped }  when at least one item was added,
+     { failed:"…", placed:[], skipped }       when none could be (the caller decides what happens then).
+   Never throws for a picture it cannot read: that is a `failed` too. */
+async function turnReadPixels(url, w, h){
+  const blob = await (await fetch(url)).blob();
+  const bmp = await createImageBitmap(blob);
+  const cv = document.createElement("canvas"); cv.width = w || bmp.width; cv.height = h || bmp.height;
+  const g = cv.getContext("2d", { willReadFrequently:true });
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  g.drawImage(bmp, 0, 0, cv.width, cv.height);
+  return g.getImageData(0, 0, cv.width, cv.height);
+}
+async function turnKeepOriginal(o){
+  const PK = window.PixelKeep, items = (o && o.items) || [];
+  if(!PK || !o || !o.baseUrl || !o.url || !items.length) return { failed:"not available", placed:[], skipped:[] };
+  let orig, edit;
+  try{ orig = await turnReadPixels(o.baseUrl); edit = await turnReadPixels(o.url, orig.width, orig.height); }
+  catch(e){ return { failed:"the pictures could not be read", placed:[], skipped:[] }; }
+  let found = null;
+  try{ found = await (o.locate || window.aiLocateItems)(o.url, items); }catch(e){ return { failed:"the new items could not be looked for", placed:[], skipped:[] }; }
+  if(!found || found.unsupported) return { failed:"the new items could not be looked for", placed:[], skipped:[] };
+  const placements = PK.pkPlacements(found, orig.width, orig.height);
+  if(!placements.length) return { failed:"the new items were not found in the engine's picture", placed:[], skipped:items.map(n=>({ item:n, why:"not found" })) };
+  const r = PK.pkCompose(orig, edit, placements);
+  // an item is in when at least one of its places was added
+  const inNames = Array.from(new Set(r.placed.map(p=>p.item)));
+  const outItems = items.filter(n=> inNames.indexOf(n)<0).map(n=>{ const s = r.skipped.find(x=>x.item===n); return { item:n, why:(s && s.why) || "not found" }; });
+  if(!r.placed.length) return { failed:"the new items could not be placed exactly", placed:[], skipped:outItems };
+  const cv = document.createElement("canvas"); cv.width = orig.width; cv.height = orig.height;
+  cv.getContext("2d").putImageData(new ImageData(r.out.data, orig.width, orig.height), 0, 0);
+  const total = orig.width*orig.height;
+  return { url:cv.toDataURL("image/png"), placed:r.placed, skipped:outItems,
+    meta:{ keptOriginal:true, keptItems:inNames, keptLeftOut:outItems.map(x=>x.item), keptChangedPixels:r.changed, keptTotalPixels:total,
+      keptBoxes:r.placed.map(p=>({ item:p.item, box:p.box })) } };
+}
+/* what the card says afterwards, in plain words */
+function turnKeptSummary(meta){
+  if(!meta || !meta.keptOriginal) return "";
+  const n = Number(meta.keptChangedPixels)||0, t = Number(meta.keptTotalPixels)||0;
+  const pct = t ? (100*(t-n)/t) : 0;
+  const list = (meta.keptItems||[]).join(", ");
+  return "Your sheet was kept as it was: "+(pct>=99.95 ? pct.toFixed(2) : pct.toFixed(1))+"% of its pixels are untouched. Added: "+(list||"the new item")+"."
+    +((meta.keptLeftOut||[]).length ? " Not added: "+meta.keptLeftOut.join(", ")+"." : "");
+}
+window.turnKeepOriginal = turnKeepOriginal; window.turnKeptSummary = turnKeptSummary;
 /* A DESIGN TEXT AN OLDER LIMIT CUT (2026-11-18): until that day a prop's form, material and detail were cut at 200
    characters and ended in "…" mid-sentence. Shown, such a text stops at its last whole sentence (display only: the
    saved words are not changed); specWasCut says a card has one, so its design can be offered again in full. */
@@ -6577,11 +6639,34 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
      names only the worn items to draw in, with their images beside the sheet, and says everything else stays. Fewer
      words about the person means less for the engine to redraw. With no worn image to add (an item was removed),
      it falls back to the update from the current sheet. */
+  /* THE SHEET THAT IS SAVED IS THE ORIGINAL WITH ONLY THE ITEMS ADDED (owner 2026-11-19: "everything that was in the
+     first image [must] be brought back out … only with a slight addition of the … worn props"). The engine's picture
+     is used for the items alone. When no item can be placed exactly (the engine moved things too far, or the item is
+     as big as a garment), the person chooses: keep the sheet as it is, or take the engine's whole picture. */
+  const keptLeftOutRef = React.useRef(null);
+  const keepOriginalForWardrobe = async (io, items)=>{
+    const who = (typeof castFirstName==="function") ? castFirstName(c.name) : (c.name||"the character");
+    keptLeftOutRef.current = null;
+    const r = await turnKeepOriginal({ baseUrl:io.baseUrl, url:io.url, items });
+    if(r && r.url){
+      keptLeftOutRef.current = (r.skipped||[]).map(x=>x.item);
+      if(typeof window.appToast==="function") window.appToast(turnKeptSummary(r.meta), r.skipped.length ? "info" : "success");
+      return { url:r.url, meta:r.meta };
+    }
+    const why = (r && r.failed) || "the new items could not be placed exactly";
+    const takeEngine = (typeof window.appConfirm==="function") ? !!(await window.appConfirm({
+      title:"The new item could not be added to "+who+"\u2019s sheet exactly",
+      body:"The image engine redrew the sheet, and "+why+". You can keep "+who+"\u2019s sheet as it is, or use the engine\u2019s picture, in which the whole sheet is redrawn (the face and clothes may have shifted). The image is already paid for either way.",
+      confirmLabel:"Use the engine\u2019s picture", cancelLabel:"Keep my sheet" })) : false;
+    if(takeEngine) return { url:io.url, meta:{ keptOriginal:false, keptTried:true } };
+    return { discard:true, message:who+"\u2019s sheet was left as it is: "+why+". The engine\u2019s picture was not saved." };
+  };
   const wardrobeUpdateOpts = ()=>{
     const items = includedWornProps.filter(p=>ownedSheetMap[p.id]).map(p=>String(p.name||"").trim()).filter(Boolean);
     if(!items.length) return { deriveFromCurrent:true };
     const one = items.length===1;
-    return { editInstruction:"add "+(one?"this worn item":"these worn items")+" to the character, each drawn exactly as its attached reference image shows it ("
+    return { keepOriginal: (io)=> keepOriginalForWardrobe(io, items),
+      editInstruction:"add "+(one?"this worn item":"these worn items")+" to the character, each drawn exactly as its attached reference image shows it ("
       +items.join("; ")+"), where it would be seen in each panel and at its true small size. This is a small local change: do not redraw, restyle, re-light or re-pose anything. "
       +"Every face, eye, eyebrow, nose, mouth, hairline, skin tone and expression, every garment, cuff, button, shoe and hand, each panel's framing and border and the background stay exactly as they are" };
   };
@@ -6910,6 +6995,10 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     // compares it against the current cards (edits after generation desync the canon)
     metaExtra: async ({refsUsed})=>{
       const usedIds = new Set((refsUsed||[]).map(r=>r&&r.refId).filter(Boolean));
+      // an item the keep-the-original update could not add is NOT on this sheet: it is recorded as not drawn from its
+      // image, so "New wardrobe ready" stays for it (keptLeftOutRef is set by keepOriginalForWardrobe, read once)
+      const leftOut = keptLeftOutRef.current; keptLeftOutRef.current = null;
+      if(leftOut && leftOut.length) wornProps.forEach(p=>{ if(leftOut.indexOf(String(p.name||"").trim())>=0) usedIds.delete(p.id); });
       const wornReferences = await loadWornReferenceSnapshot(c, wornProps, usedIds);
       const visual = wornReferences.filter(r=>r.mode==="visual").length;
       return {
@@ -7014,7 +7103,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement(Icon.layers||Icon.sparkles,{s:14}),
         React.createElement("span",{className:"scs-t"},"New wardrobe ready"),
         (typeof window.InfoTip==="function") ? React.createElement(window.InfoTip,{label:"About the new wardrobe",
-          text:"A worn item has a new image, and this sheet doesn't wear it yet. Update the sheet to draw it in: the image engine is asked to add only the worn items and leave everything else as it is (one image). Engines differ in how well they hold a face on an edit; the sheet from before stays in the image's versions, so you can go back to it. To start from a fresh sheet instead, use Generate new image."}) : null,
+          text:"A worn item has a new image, and this sheet doesn't wear it yet. Update the sheet to add it: your sheet stays as it is, pixel for pixel, and only the new item is copied in from the image engine's drawing (one image, and one short reading of it to find the item). If the item cannot be placed exactly, you choose: keep your sheet, or use the engine's whole picture. To start from a fresh sheet instead, use Generate new image."}) : null,
         React.createElement("span",{className:"scs-fill"}),
         // THE UPDATE BUILDS ON THIS SHEET (owner 2026-11-18: "yes, switch the button to work that way"): the current
         // sheet goes out as the image to update, with the worn items' images beside it — the same person, panels and
