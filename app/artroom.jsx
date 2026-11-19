@@ -75,15 +75,33 @@ function charIdItem(c){
   return turnIdItem([c.accessories, c.wardrobeMask || c.wardrobe, c.wardrobeInner, c.props].filter(Boolean).join(" ; "));
 }
 /* the sentence a prompt carries: whose face the small photo is, and what its printing looks like */
-/* how an ID photo looks (one wording for the character sheet, the shots and the prop's own image) */
-const ID_PHOTO_LOOK = "an ID photo taken on another day: head and shoulders square to the camera, neutral expression, flat even light, a plain pale background, wearing a plain everyday top in a different colour from the outfit worn here (no coat, no jacket, no scarf, no lanyard, no jewellery from this outfit)";
-window.turnIdPhotoLook = ID_PHOTO_LOOK;
-function idPhotoRule(who){
+/* HOW THE PHOTO ON AN OBJECT LOOKS — one wording for the character sheet, the shots and the object's own image.
+   Owner 2026-11-19, three rules:
+     WHO AND WHEN: the person as they look NOW ("as closely to their look currently as possible") — unless the
+       screenplay or the object's own description says the picture is from an earlier time ("back in the days"), and
+       only then younger;
+     CLOTHES: never the outfit of the sheet or the scene. What this person would really have worn for such a photo,
+       true to who they are ("think of characterization … maybe put him on a shirt, just a normal shirt");
+     WHAT KIND: an ID badge, pass or licence carries an ID photo; any other picture of them (a framed photo, a
+       Polaroid, a snapshot) is framed as its own description says.
+   photoIsFromPast reads the words about the object, never the character: nothing is guessed. */
+const PHOTO_PAST_RX = /\b(?:years?\s+(?:ago|earlier|before|younger)|decades?\s+(?:ago|earlier|before)|(?:looks?|looking|much|far|visibly|years)\s+younger|younger\s+(?:self|version|days|face)|as\s+a\s+(?:child|kid|boy|girl|baby|teen(?:ager)?|student|cadet|recruit|young\s+(?:man|woman|officer|soldier|bride|groom))|childhood|school\s+(?:photo|picture|portrait)|baby\s+(?:photo|picture)|(?:old|faded|yellowed|vintage)\s+(?:photo(?:graph)?|picture|snapshot|polaroid|portrait)|(?:from|in|dated)\s+(?:19|20)\d\d|in\s+(?:his|her|their)\s+(?:teens|twenties|thirties|forties|youth)|long\s+ago|back\s+then|back\s+in\s+the\s+day|when\s+(?:he|she|they)\s+(?:was|were)\s+(?:young|younger|a\s+(?:child|boy|girl|student)))\b/i;
+function photoIsFromPast(text){ return PHOTO_PAST_RX.test(String(text==null ? "" : text)); }
+function idPhotoLook(o){
+  const past = !!(o && o.past), id = !(o && o.id===false);
+  return (id ? "an ID photo taken on another day: head and shoulders square to the camera, neutral expression, flat even light, a plain pale background"
+             : "a photograph taken on another day, framed and lit as the object's description says")
+    +", "+(past ? "from the earlier time its description gives: the same person visibly younger by those years (younger skin, the hair they had then), unmistakably them"
+                : "showing them as they look now: the same apparent age, face, hair and facial hair as on the sheet, never a younger or flattering version")
+    +", wearing different clothes from the outfit worn here: what this person would really have worn for such a photo, true to who they are"+(id ? " (for a work ID a plain shirt or a simple top)" : "")+", with no coat, jacket, scarf, lanyard or jewellery from this outfit";
+}
+const ID_PHOTO_LOOK = idPhotoLook({});
+window.turnIdPhotoLook = ID_PHOTO_LOOK; window.turnIdPhotoLookFor = idPhotoLook; window.turnPhotoIsFromPast = photoIsFromPast;
+// `about` (optional): the words that describe the item, read for "an older photo"
+function idPhotoRule(who, about){
   const w = String(who||"").trim() || "this character";
-  // (owner 2026-11-18: "wearing the same clothes on the lanyard / id — make them wear something else more contextual
-  // (think passport photo)") the photo was taken on another day: an ID picture, in plain clothes that are not today's
   return "ID badge, pass or photo card: if one worn or carried by "+w+" has a photo on it, that small photo is a passport-style picture of "+w
-    +" \u2014 the same face, hair and skin tone \u2014 never another person; "+ID_PHOTO_LOOK
+    +" \u2014 the same face, hair and skin tone \u2014 never another person; "+idPhotoLook({ past:photoIsFromPast(about) })
     +"; its printing is tiny unreadable lines and blocks, with no legible words, names, numbers or logos";
 }
 window.turnIdItem = turnIdItem; window.charIdItem = charIdItem; window.idPhotoRule = idPhotoRule;
@@ -1429,7 +1447,7 @@ function buildCharRefPrompt(c, project, props, o){
   // A WORN ID BADGE (2026-11-17): the one thing on a sheet that may carry a small photo and micro-print — said as a
   // rule of its own, so it doesn't contradict "no text" and "exactly one face" (and the QA check reads it as the contract)
   const _idItem = (typeof turnIdItem==="function") ? turnIdItem([accAll.join("; "), clean(mask)].filter(Boolean).join(" ; ")) : "";
-  const _idRule = (_idItem && typeof idPhotoRule==="function") ? idPhotoRule(c.name || "this character") : "";
+  const _idRule = (_idItem && typeof idPhotoRule==="function") ? idPhotoRule(c.name || "this character", [c.accessories, c.props].filter(Boolean).join(" ; ")) : "";
   const _rules = (_negItems.length ? [ ..._rulesBase, "strictly avoid: "+_negItems.join(", ") ] : _rulesBase)
     .concat(_idRule ? ["the one exception to the no-text rule: a worn ID badge or pass may carry its small photo and unreadable micro-print (see wardrobe.id_photo_rule)"] : []);
   // HELD MOBILITY / SIGNATURE SUPPORT ITEM (cane-class): if the spec's own text

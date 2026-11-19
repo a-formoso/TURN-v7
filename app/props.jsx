@@ -616,10 +616,24 @@ function propShowsOwner(p){
   return !!((typeof window.turnIdItem==="function") && window.turnIdItem(text));
 }
 window.propShowsOwner = propShowsOwner;
+/* (owner 2026-11-19) the photo shows the owner as they look NOW unless the object's own words say it is from an
+   earlier time; never in the sheet's clothes; an ID gets an ID photo, any other picture is framed as described
+   (artroom.jsx idPhotoLook, read here through window) */
+function propPhotoLook(p){
+  const text = [p && p.name, ...((p && Array.isArray(p.aliases)) ? p.aliases : []), p && p.form, p && p.detail, p && p.signatureFeature, p && p.contentNotes].filter(Boolean).join(" ; ");
+  const past = (typeof window.turnPhotoIsFromPast==="function") && window.turnPhotoIsFromPast(text);
+  const id = !!((typeof window.turnIdItem==="function") && window.turnIdItem(text));
+  return { past:!!past, id, look:(typeof window.turnIdPhotoLookFor==="function") ? window.turnIdPhotoLookFor({ past:!!past, id })
+    : "a photo taken on another day, as they look now, in clothes that are not the outfit on the sheet" };
+}
+window.propPhotoLook = propPhotoLook;
 function propOwnerPhotoRule(p){
   const who = (p && p.ownerName) || "its owner";
+  const L = propPhotoLook(p||{});
+  if(!L.id) return "This object carries a photo of "+who+": the photo on it is a photograph of "+who+" with exactly the face and skin tone of the portrait in the attached character sheet \u2014 never another person. It is "
+    +L.look+". Copy only the face from the sheet, never its clothes; do not copy the sheet's layout or panels onto the object.";
   return "This object carries a photo of "+who+": the small photo on it is a passport-style picture of "+who+" with exactly the face, hair and skin tone of the portrait in the attached character sheet \u2014 never another person. It is "
-    +((typeof window.turnIdPhotoLook==="string" && window.turnIdPhotoLook) || "an ID photo taken on another day, in a plain everyday top that is not the outfit on the sheet")
+    +L.look
     +". Copy only the face from the sheet, never its clothes; do not copy the sheet's layout or panels onto the object.";
 }
 /* the instruction that tells the model to match the referenced character sheet. */

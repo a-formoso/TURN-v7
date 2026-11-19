@@ -46,7 +46,18 @@ test("2 the rule a prompt carries: the wearer's own face on the small photo, unr
   // (owner 2026-11-18: "wearing the same clothes on the lanyard / id … think passport photo") the photo is an ID picture
   // taken on another day, in plain clothes that are not the outfit of the day
   const LOOK = box.turnIdPhotoLook;
-  assert.match(LOOK, /^an ID photo taken on another day: head and shoulders square to the camera, neutral expression, flat even light, a plain pale background, wearing a plain everyday top in a different colour from the outfit worn here \(no coat, no jacket, no scarf, no lanyard, no jewellery from this outfit\)$/);
+  // (owner 2026-11-19) three rules: as they look NOW unless the object's own words say an earlier time; never the
+  // sheet's clothes but what this person would really wear; an ID gets an ID photo, another picture is framed as described
+  assert.equal(LOOK, "an ID photo taken on another day: head and shoulders square to the camera, neutral expression, flat even light, a plain pale background"
+    + ", showing them as they look now: the same apparent age, face, hair and facial hair as on the sheet, never a younger or flattering version"
+    + ", wearing different clothes from the outfit worn here: what this person would really have worn for such a photo, true to who they are (for a work ID a plain shirt or a simple top), with no coat, jacket, scarf, lanyard or jewellery from this outfit");
+  assert.equal(box.turnIdPhotoLookFor({}), LOOK);
+  const old = box.turnIdPhotoLookFor({ past: true, id: false });
+  assert.match(old, /^a photograph taken on another day, framed and lit as the object's description says, from the earlier time its description gives: the same person visibly younger by those years \(younger skin, the hair they had then\), unmistakably them, wearing different clothes from the outfit worn here: what this person would really have worn for such a photo, true to who they are, with no coat/);
+  // "from the past" is read from the words about the object, never guessed
+  for (const t of ["a faded photo from 1998", "Polaroid of her as a young woman", "photo taken ten years ago", "ID from when he was a student", "an old photograph", "looking younger"]) assert.equal(box.turnPhotoIsFromPast(t), true, t);
+  for (const t of ["staff ID badge on a lanyard", "care-home ID lanyard with a laminated photo badge", "a younger brother's ID card", "framed wedding photo", "passport", "press pass", ""]) assert.equal(box.turnPhotoIsFromPast(t), false, t);
+  assert.ok(box.idPhotoRule("AMY", "old photo ID from 2009").includes("visibly younger by those years") && !box.idPhotoRule("AMY", "care-home ID lanyard").includes("younger by"));
   assert.ok(r.includes("never another person; " + LOOK + "; its printing is tiny"));
   assert.match(r, /tiny unreadable lines and blocks, with no legible words, names, numbers or logos$/);
   assert.match(box.idPhotoRule(""), /worn or carried by this character/);
@@ -90,6 +101,13 @@ test("5 a prop that shows its owner's photo: by itself for an ID object that bel
   assert.match(note, /^Reference image: Liaqat's character sheet\./);
   assert.ok(note.endsWith("This object carries a photo of Liaqat: the small photo on it is a passport-style picture of Liaqat with exactly the face, hair and skin tone of the portrait in the attached character sheet — never another person. It is "
     + box.turnIdPhotoLook + ". Copy only the face from the sheet, never its clothes; do not copy the sheet's layout or panels onto the object."), "the ID photo's own clothes, not the sheet's");
+  // a picture that is no ID (a framed photo the card is ticked for): a photograph, framed as described; an older one is younger
+  const framed = box.propOwnerNote(P({ name: "framed photograph on the mantelpiece", kind: "carried", ownerPhoto: true, detail: "a faded photo from 1998, taken at the depot" }));
+  assert.match(framed, /This object carries a photo of Liaqat: the photo on it is a photograph of Liaqat with exactly the face and skin tone of the portrait in the attached character sheet — never another person\. It is a photograph taken on another day, framed and lit as the object's description says, from the earlier time its description gives: the same person visibly younger by those years/);
+  assert.ok(!/passport-style/.test(framed));
+  const nowPic = box.propOwnerNote(P({ name: "framed photograph on the mantelpiece", kind: "carried", ownerPhoto: true }));
+  assert.match(nowPic, /showing them as they look now: the same apparent age, face, hair and facial hair as on the sheet, never a younger or flattering version/);
+  assert.deepEqual(JSON.parse(JSON.stringify(box.propPhotoLook(P({})))).id, true);
   assert.doesNotMatch(box.propOwnerNote(P({ name: "the key", kind: "carried" })), /carries a photo/);
   // in the sheet's own spec too, and on the card
   assert.ok(props.includes("owner_photo_rule: propShowsOwner(p) ? propOwnerPhotoRule(p) : undefined,"));
