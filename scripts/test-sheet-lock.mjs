@@ -132,7 +132,7 @@ await test("F Frances knows; nothing she is told names the codename; the changed
   const f = between(ai, 'APP_FEATURES.push({ name:"Lock an image you are happy with (Characters, Props, Art Room)"', "function appBrief(){");
   for (const k of ["'Lock'", "'Locked'", "'Lock anyway'", "Faithful", "'Unlock and go on'", "a batch", "its versions", "costs nothing"]) assert.ok(f.includes(k), k);
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic/.test(f));
-  const KEYS = ["20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1"];   // (the list grows with each key bump)
+  const KEYS = ["20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "imagegen.jsx", "cloud.jsx", "props.jsx", "ai.jsx", "script.jsx", "styles.css"]) assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });
 

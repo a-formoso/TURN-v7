@@ -2,10 +2,10 @@
    Continuity objects (worn or carried) get their own reference sheet so an object
    looks identical in every shot it appears in. Mirrors the Character Sheets flow:
    each prop card has Draft (the writing model fills form/material/detail from the script) and
-   Generate (the image model → a 4-panel object sheet). Reuses the shared
+   Generate (the image model → a 3-panel object sheet). Reuses the shared
    useImageGen hook + SheetFrame so the generation machinery stays in one place. */
 
-/* Prop prompt: a structured 4-panel object sheet (hero / front / side / detail, off-white
+/* Prop prompt: a structured 3-panel object sheet (hero / front / detail, off-white
    background, soft contact shadow) \u2014 see combinedPropPrompt. The photo-based prompt and the
    simplified retry use the same layout and background. The render style comes from the
    card's dropdown (photoreal default). Owner
@@ -65,7 +65,10 @@ function buildPropRefPrompt(p, project){
        || (window.PROP_RENDER_TEXT||{}).photoreal || "hyper realistic photography, photorealistic 8k");
   // off-white / light-neutral background with a soft contact shadow (matches the cast sheets)
   const bg = "flat off-white / very light neutral panel background, even and clean, with a simple soft contact shadow beneath the object";
-  // 4-PANEL object reference sheet: hero, front, side and detail, thin dividers,
+  // 3-PANEL object reference sheet (owner 2026-11-20: "3 views… just like we have character sheets"): hero,
+  // front and detail, thin dividers. The side view went: the three-quarter hero already shows the depth,
+  // so it was the one view that told nothing new. Sheets made with four views stay valid as they are.
+  //
   // 16:9, no baked text. The old "360 turnaround + 3-up detail column" is folded
   // into binding CONTINUITY fields (material / signature feature) so every panel
   // stays faithful without extra panels.
@@ -83,17 +86,16 @@ function buildPropRefPrompt(p, project){
       scale_against_owner: (p.ownerId && clean(p.scale)) || undefined,
     },
     layout: {
-      format: "a 4-panel object reference sheet in 16:9 landscape: four EQUAL-width tall vertical panels divided by thin clean vertical lines \u2014 hero, front, side and detail; the SAME object throughout",
+      format: "a 3-panel object reference sheet in 16:9 landscape: three EQUAL-width tall vertical panels divided by thin clean vertical lines \u2014 hero, front and detail; the SAME object throughout",
       panels_left_to_right: [
-        "PANEL 1 \u2014 large HERO three-quarter view of the object, its most identifying angle, filling the panel, the exact identity anchor (approximately "+scale+")",
-        "PANEL 2 \u2014 straight-on FRONT elevation of the whole object, sharing a baseline with the side view in panel 3",
-        "PANEL 3 \u2014 SIDE PROFILE view rotated 90\u00b0 from the front, showing the object's true depth and thickness, at the SAME size and baseline as the front view",
-        "PANEL 4 \u2014 DETAIL macro close-up "+(detail?("of its signature feature \u2014 "+((typeof clipWords==="function")?clipWords(detail,70):detail.slice(0,70))+" \u2014 and its "):"of the object's ")+"material & construction: fastenings, joins, edges, surface finish and wear"
+        "PANEL 1 \u2014 large HERO three-quarter view of the object, its most identifying angle, turned far enough to show its true depth and thickness (a side and the top as well as the front), filling the panel, the exact identity anchor (approximately "+scale+")",
+        "PANEL 2 \u2014 straight-on FRONT elevation of the whole object, square to the camera with no perspective tilt, showing its true proportions",
+        "PANEL 3 \u2014 DETAIL macro close-up "+(detail?("of its signature feature \u2014 "+((typeof clipWords==="function")?clipWords(detail,70):detail.slice(0,70))+" \u2014 and its "):"of the object's ")+"material & construction: fastenings, joins, edges, surface finish and wear"
       ],
-      panel_widths: "all four panels are EQUAL width \u2014 a clean, evenly divided turnaround, NOT a wider hero panel (each whole-object view needs comparable readable space)",
+      panel_widths: "all three panels are EQUAL width \u2014 a clean, evenly divided sheet, NOT a wider hero panel (each view needs comparable readable space)",
       one_object_rule: "EXACTLY ONE object per panel \u2014 no duplicates, no exploded parts, no alternate colourways, no accessories that aren't part of the object itself",
-      scale_rule: "the FRONT (panel 2) and SIDE (panel 3) views are the SAME size and share a baseline; the hero and detail panels may frame the object differently",
-      no_extra_views: "do not add a BACK view, extra turnaround angles, exploded diagrams, rulers, dimension lines, captions, labels, title text, measurement text, or ANY info box (no name, size or material printed on the image \u2014 that metadata travels in the prompt, never baked into pixels)",
+      scale_rule: "the HERO (panel 1) and FRONT (panel 2) views each show the WHOLE object, at a comparable size; only the detail panel moves in close",
+      no_extra_views: "do not add a BACK view, a separate SIDE view, a fourth panel, extra turnaround angles, exploded diagrams, rulers, dimension lines, captions, labels, title text, measurement text, or ANY info box (no name, size or material printed on the image \u2014 that metadata travels in the prompt, never baked into pixels)",
       background: bg
     },
     continuity: {
@@ -581,7 +583,7 @@ function buildSimplePropPrompt(p){
     "Prop reference \u2014 "+(p.name||"object"),
     form||"",
     material ? (material) : "",
-    "4-panel object sheet: hero three-quarter view, front elevation, side profile, and detail macro",
+    "3-panel object sheet: hero three-quarter view, front elevation, and detail macro",
     "flat off-white background with a soft contact shadow, studio product lighting, "
       +((String(p.renderStyle||((typeof window.renderStyleText==="function")?window.renderStyleText("prop",p.renderStyleKey||propInheritedStyleKey(p)):"")).split(/[;,]/)[0].trim())||"photoreal")
       +", sharp focus, no people"
@@ -1190,9 +1192,9 @@ function buildPropFromPhotoPrompt(p, project){
   s += "proportions, colour, material and finish. Do not redesign or stylise it. ";
   s += (p.detail ? ("Significance: "+p.detail.replace(/\.$/,"")+". ") : "");
   s += "RENDER STYLE: "+style.replace(/\.$/,"")+". ";
-  // (2026-10-08) the same 4-panel layout as every other prop sheet (it used to ask for a 360 turnaround
+  // (2026-10-08; three views since 2026-11-20) the same layout as every other prop sheet (it used to ask for a 360 turnaround
   // with a back view and a detail column, so photo-made sheets came out in a different layout)
-  s += "LAYOUT: a 4-panel object reference sheet in 16:9 landscape, four equal panels divided by thin clean lines \u2014 hero three-quarter view, front elevation, side profile, and a detail macro close-up of its signature feature and material; no back view, no extra angles; ";
+  s += "LAYOUT: a 3-panel object reference sheet in 16:9 landscape, three equal panels divided by thin clean lines \u2014 hero three-quarter view (turned far enough to show its depth), front elevation, and a detail macro close-up of its signature feature and material; no back view, no separate side view, no extra angles; ";
   s += "Flat off-white / very light neutral panel background, even and clean, with a simple soft contact shadow beneath the object, no text, no labels, no annotations, soft studio lighting, no people, no hands, ";
   s += "the SAME identical object in every view, sharp focus.";
   return s;
@@ -1294,6 +1296,46 @@ async function propOwnerHasSheet(p){
 window.propOwnerHasSheet = propOwnerHasSheet;
 const PROP_HERO_MAX = 3;
 window.PROP_HERO_MAX = PROP_HERO_MAX;
+/* SCREENPLAY EVIDENCE WITHOUT THE LONG SCROLL (owner 2026-11-20: "they open and it leads to a long scroll … organize
+   the content in a way that doesn't involve users scrolling too much, all whilst still maintaining the aesthetics for
+   subsections … just like … the locations card"). Every passage used to be a row of its own, one under the other, so
+   a prop named in twenty places made a section twenty rows tall. Now a box holds one row of small buttons (one per
+   passage, "scene · beat") and ONE passage, the chosen one: the section is as tall with thirty passages as with three.
+   The boxes are the location card's subsections (.loc-sub with a .loc-step-sub title), nothing new. */
+function propEvidenceExcerpt(text, a, b){
+  // the passage around the matched words: a long action paragraph is cut at a word, never in the match
+  const t = String(text||""), A = Math.max(0, Math.min(t.length, a||0)), B = Math.max(A, Math.min(t.length, b||0));
+  const SIDE = 150;
+  let x0 = Math.max(0, A-SIDE), x1 = Math.min(t.length, B+SIDE);
+  if(x0>0){ const sp = t.indexOf(" ", x0); if(sp>=0 && sp<A) x0 = sp+1; }
+  if(x1<t.length){ const sp = t.lastIndexOf(" ", x1); if(sp>B) x1 = sp; }
+  return { before:(x0>0?"…":"")+t.slice(x0,A), hit:t.slice(A,B), after:t.slice(B,x1)+(x1<t.length?"…":"") };
+}
+window.propEvidenceExcerpt = propEvidenceExcerpt;
+function PropEvidenceBox({ title, tip, tipLabel, items, onOpen, children, role }){
+  const [at, setAt] = React.useState(0);
+  const list = items||[];
+  const i = Math.min(at, Math.max(0, list.length-1));
+  const it = list[i];
+  return React.createElement("div",{className:"loc-sub prop-evi-box","data-role":role},
+    React.createElement("div",{className:"loc-step-sub prop-evi-title"},
+      React.createElement("span",null,title),
+      !!tip && (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:tipLabel||"About this",text:tip})),
+    children,
+    list.length>1 && React.createElement("div",{className:"prop-evi-chips",role:"tablist","aria-label":title},
+      list.map((x,n)=>React.createElement("button",{key:x.key,type:"button",role:"tab","aria-selected":n===i,
+          className:"prop-scene-chip prop-evi-chip"+(n===i?" on":"")+(x.tone?(" "+x.tone):""),
+          title:x.where+" — "+x.kind,onClick:()=>setAt(n)},x.chip))),
+    !!it && React.createElement("div",{className:"prop-evi-view"},
+      React.createElement("div",{className:"prop-evi-view-head"},
+        React.createElement("span",{className:"prop-evidence-loc"},it.where),
+        React.createElement("span",{className:"prop-evidence-kind"+(it.tone?(" "+it.tone):"")},it.kind),
+        !!(it.target && onOpen) && React.createElement("button",{type:"button",className:"prop-evidence-jump",
+            "aria-label":"Go to "+it.where+" in the script",onClick:()=>onOpen(it.target)},"Go to the scene")),
+      React.createElement("q",{className:"prop-evidence-quote"},it.quote)));
+}
+window.PropEvidenceBox = PropEvidenceBox;
+
 function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete, onDraft, onEnsureOwner, batchOwnerChoice, drafting, onView, batchActiveId, onBatchDone, onChipClick, onSourceClick, dupIds, dupProps, onMerge, sameProps, derivedScenes, heroCount=0 }){
   const d = propDefaults(p);
   const finalPrompt = combinedPropPrompt(p, project);
@@ -1372,7 +1414,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
       "Edit this prop reference sheet for "+(p.name||"the object")+". "
       +"Apply ONLY this change: "+instr+". "
       +"Preserve everything else without alteration \u2014 the exact same object shape, proportions and identity "
-      +"across all panels. Keep the same 4-panel layout (hero \u00b7 front \u00b7 side \u00b7 detail) on the same flat off-white background. "
+      +"across all panels. Keep this sheet's own layout \u2014 the same views in the same places, none added and none removed \u2014 on the same flat off-white background. "
       +"Do not replace or re-imagine the object.",
   });
 
@@ -1724,37 +1766,38 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
          three here: The object (what the screenplay says, whose it is, how it is built) · Continuity · Advanced. */
       React.createElement(window.CardGroup,{label:"The object",defaultOpen:(!drafted && !!p.manual)},
       React.createElement(CardFold,{label:"Screenplay evidence",count:savedSources.length?(validSources.length+" reviewed"):[exactMentions?(exactMentions+" exact"):"",exactMentions&&possibleMentions?" · ":"",possibleMentions?(possibleMentions+" possible"):"",!screenplayMentions.length?"No screenplay matches":""].join(""),defaultOpen:false},
-        React.createElement("div",{className:"prop-origin-label"},propOriginLabel(p)),
-        !!savedSources.length&&React.createElement("div",{className:"prop-evidence-list"},savedSources.map((s,i)=>React.createElement("div",{key:i,className:"prop-evidence-quote"},
-          React.createElement("button",{className:"prop-evidence-jump",onClick:()=>onSourceClick&&onSourceClick({...s,beat:s.beat})},"Scene "+s.sceneNo+(s.beat?" · Beat "+s.beat:"")),
-          React.createElement("span",{className:"prop-evidence-kind"},window.PropScreenplay.sourceValid(s,drafts)?("Reviewed · "+s.presence):"Source changed — review"),
-          React.createElement("blockquote",null,s.quote)))),
-        (p.extractionWarnings||[]).map((w,i)=>React.createElement("p",{key:i,className:"prop-review-warning"},w)),
-        !!savedSources.length&&validSources.length!==savedSources.length&&React.createElement("p",{className:"prop-review-warning"},"Some reviewed passages changed or were removed. Extract again to review appearances; your object and images are kept."),
-        !!(p.screenplaySourceHistory||[]).length&&React.createElement("details",null,React.createElement("summary",null,"Earlier screenplay evidence"),(p.screenplaySourceHistory||[]).map((s,i)=>React.createElement("blockquote",{key:i},"Scene "+s.sceneNo+" · superseded source: "+s.quote))),
-        screenplayMentions.length
-          ? React.createElement("div",{className:"prop-evidence-list"},
-              screenplayMentions.map((m,i)=>React.createElement("details",{className:"prop-evidence-row",key:m.sceneId+"-"+m.block+"-"+i},
-                React.createElement("summary",{className:"prop-evidence-place"},
-                  React.createElement("span",{className:"prop-evidence-loc"},
-                    "Scene "+String(m.sceneNo).padStart(2,"0")+(m.beat!=null?(" · Beat "+m.beat):"")),
-                  React.createElement("span",{className:"prop-evidence-kind "+m.match},
-                    m.match==="exact"?"Exact text":"Possible match")),
-                React.createElement("div",{className:"prop-evidence-actions"},
-                  React.createElement("button",{type:"button",className:"prop-evidence-jump",
-                    "aria-label":"Go to Scene "+String(m.sceneNo).padStart(2,"0"),
-                    onClick:()=>onSourceClick&&onSourceClick(m)},"Scene"),
-                  m.beat!=null&&React.createElement("button",{type:"button",className:"prop-evidence-jump",
-                    "aria-label":"Go to Scene "+String(m.sceneNo).padStart(2,"0")+", Beat "+m.beat,
-                    onClick:()=>onSourceClick&&onSourceClick(m)},"Beat")),
-                React.createElement("q",{className:"prop-evidence-quote"},
-                  m.fullText.slice(0,m.matchStart),
-                  React.createElement("mark",null,m.fullText.slice(m.matchStart,m.matchEnd)),
-                  m.fullText.slice(m.matchEnd)))))
-          : !savedSources.length&&React.createElement("div",{className:"prop-evidence-none"},
-              "No direct mention found in the screenplay text. This is not presented as a quoted script fact."),
-        React.createElement("div",{className:"prop-evidence-caution"},
-          "Text matches are discovery evidence only; even an exact phrase does not prove this is the same physical object.")),
+        // 1 where the object comes from: a plain sentence in a box (it was a pill that ran off the card)
+        React.createElement("div",{className:"loc-sub prop-evi-box","data-role":"prop-evi-origin"},
+          React.createElement("div",{className:"loc-step-sub prop-evi-title"},React.createElement("span",null,"Where it comes from")),
+          React.createElement("div",{className:"prop-evi-line"},propOriginLabel(p)),
+          (p.extractionWarnings||[]).map((w,i)=>React.createElement("p",{key:i,className:"prop-review-warning"},w))),
+        // 2 the passages the object was read from (and the ones a later reading replaced)
+        !!(savedSources.length || (p.screenplaySourceHistory||[]).length) && React.createElement(PropEvidenceBox,{
+          role:"prop-evi-reviewed", onOpen:onSourceClick,
+          title:"Reviewed passages · "+validSources.length+" of "+savedSources.length,
+          items: savedSources.map((s,i)=>{ const ok = window.PropScreenplay.sourceValid(s,drafts);
+              return { key:"s"+i, chip:String(s.sceneNo).padStart(2,"0")+(s.beat?("·"+s.beat):""),
+                where:"Scene "+String(s.sceneNo).padStart(2,"0")+(s.beat?(" · Beat "+s.beat):""),
+                kind: ok ? ("Reviewed · "+s.presence) : "Source changed — review", tone: ok ? "exact" : "changed",
+                target:{...s,beat:s.beat}, quote:s.quote }; })
+            .concat((p.screenplaySourceHistory||[]).map((s,i)=>({ key:"h"+i, chip:String(s.sceneNo).padStart(2,"0"),
+                where:"Scene "+String(s.sceneNo).padStart(2,"0"), kind:"Earlier · replaced", tone:"earlier", quote:s.quote }))) },
+          !!savedSources.length&&validSources.length!==savedSources.length&&React.createElement("p",{className:"prop-review-warning"},"Some reviewed passages changed or were removed. Extract again to review appearances; your object and images are kept.")),
+        // 3 the places the script's own text names it
+        (screenplayMentions.length || !savedSources.length) && React.createElement(PropEvidenceBox,{
+          role:"prop-evi-matches", onOpen:onSourceClick,
+          title: screenplayMentions.length
+            ? ("In the script’s text · "+[exactMentions?(exactMentions+" exact"):"",possibleMentions?(possibleMentions+" possible"):""].filter(Boolean).join(" · "))
+            : "In the script’s text",
+          tipLabel:"About text matches",
+          tip:"Found by matching the object’s name against the script’s text. A match helps you find the object; even an exact phrase does not prove it is the same physical object.",
+          items: screenplayMentions.map((m,i)=>{ const x = propEvidenceExcerpt(m.fullText,m.matchStart,m.matchEnd);
+              return { key:m.sceneId+"-"+m.block+"-"+i, chip:String(m.sceneNo).padStart(2,"0")+(m.beat!=null?("·"+m.beat):""),
+                where:"Scene "+String(m.sceneNo).padStart(2,"0")+(m.beat!=null?(" · Beat "+m.beat):""),
+                kind: m.match==="exact" ? "Exact text" : "Possible match", tone: m.match==="exact" ? "exact" : "possible", target:m,
+                quote: React.createElement(React.Fragment,null,x.before,React.createElement("mark",null,x.hit),x.after) }; }) },
+          !screenplayMentions.length && React.createElement("div",{className:"prop-evi-line"},
+            "No direct mention found in the screenplay text."))),
 
       (dupIds && dupIds.length>1) && React.createElement("div",{className:"prop-dup-warn"},
         React.createElement("div",{className:"prop-dup-head"},
@@ -1927,7 +1970,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
       // the prompt: a section of every card, folded (owner 2026-10-28 — it used to hide behind the card's ⋯ menu or
       // the Film menu's "Always show prompts")
       React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},
-        React.createElement(CopyBox,{label:"Prompt (text only) \u2014 the 4-panel object sheet: hero, front, side, detail",text:buildPropRefPrompt(p,project)}),
+        React.createElement(CopyBox,{label:"Prompt (text only) \u2014 the 3-view object sheet: hero, front, detail",text:buildPropRefPrompt(p,project)}),
         React.createElement(CopyBox,{label:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt)
             ? "Final prompt \u2014 the one behind the current sheet" : "Final prompt \u2014 sent at generation (with the Leave out list)",
           text:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt) || finalPrompt})))));

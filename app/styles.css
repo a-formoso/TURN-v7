@@ -12506,3 +12506,22 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body:has(> .sheet-group:last-child){padding-bottom:0}
 :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body > .sheet-group > .sheet-group-body > .sheet-fold > .sheet-fold-body > :is(.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-sub,.char-phys,.role-fields,.sheet-2col,.prop-more-fields,.prop-content-fields,.bs-launch){border:1px solid var(--line);border-radius:var(--r-m);padding:8px 10px;background:var(--bg-2);min-width:0}
 .artroom :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body > .sheet-group > .sheet-group-body > .sheet-fold > .sheet-fold-body{padding-bottom:var(--card-gap)}
+
+/* SCREENPLAY EVIDENCE, NO LONG SCROLL (owner 2026-11-20: "they open and it leads to a long scroll … organize the content
+   … all whilst still maintaining the aesthetics for subsections … just like … the locations card"). Each part is one
+   of the location card's boxes (.loc-sub, its title a .loc-step-sub); inside, one row of the card's own small scene
+   buttons and ONE passage, the chosen one. The section keeps its height however many passages there are. */
+.prop-evi-title{display:flex;align-items:center;gap:6px}
+.prop-evi-line{font-size:12px;line-height:1.45;color:var(--txt-1);overflow-wrap:anywhere}
+.prop-evi-box .prop-review-warning{margin:0;padding:0}
+.prop-evi-chips{display:flex;flex-wrap:wrap;gap:5px;max-height:95px;overflow-y:auto}
+.prop-evi-chip.possible{border-style:dashed}
+.prop-evi-chip:is(.earlier,.changed){color:var(--txt-3)}
+.prop-evi-chip.on,.prop-evi-chip.on:hover{background:var(--pos);border-color:var(--pos);border-style:solid;color:var(--bg-0,#fff)}
+.prop-evi-view{display:flex;flex-direction:column;gap:6px;min-width:0}
+.prop-evi-view-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.prop-evi-view-head .prop-evidence-loc{cursor:default;color:var(--txt-0)}
+.prop-evi-view-head .prop-evidence-loc:hover{text-decoration:none}
+.prop-evi-view-head .prop-evidence-jump{margin-left:auto}
+.prop-evi-view .prop-evidence-quote{display:block;max-height:96px;overflow-y:auto;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.prop-evi-view .prop-evidence-quote mark{background:color-mix(in srgb,var(--pos) 18%,transparent);color:var(--txt-0);border-radius:2px;padding:0 1px}

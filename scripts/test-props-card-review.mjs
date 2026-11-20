@@ -52,7 +52,7 @@ test("P5 the sections, in order", ()=>{
 });
 test("P6 the labels: Leave out, the prompts, the binding note", ()=>{
   assert.ok(card.includes('React.createElement(SheetField,{label:"Leave out (negative prompt)",value:p.negativePrompt||d.negativePrompt,'));
-  assert.ok(card.includes('label:"Prompt (text only) \\u2014 the 4-panel object sheet: hero, front, side, detail"'));
+  assert.ok(card.includes('label:"Prompt (text only) \\u2014 the 3-view object sheet: hero, front, detail"'));
   assert.ok(card.includes('"Final prompt \\u2014 the one behind the current sheet" : "Final prompt \\u2014 sent at generation (with the Leave out list)"'));
   assert.ok(card.includes("Type is where it usually is. Story events (under Continuity) can move it between a person, a hand and a place"));
 });

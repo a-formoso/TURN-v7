@@ -153,7 +153,7 @@ await test("5 the cards mount it; Frances knows it; the page loads the new files
   const f = between(ai, 'APP_FEATURES.push({ name:"Step guide on character and prop cards (Characters, Props, Art Room)"', "function appBrief(){");
   for (const w of ["1 Sheet, 2 Check, 3 Fix, 4 Lock", "5 Items and 6 Final look", "1 Image, 2 Check, 3 Fix, 4 Lock", "never spends credits", "IT IS A GUIDE, NOT A GATE", "read as skipped"]) assert.ok(f.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Gemini|GPT/.test(f));
-  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "styles.css"]) assert.ok(["20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "styles.css"]) assert.ok(["20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

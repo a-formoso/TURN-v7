@@ -214,7 +214,7 @@ await test("F1 one layout and one background everywhere; clearing a sheet clears
   vm.runInContext(between(props, "function buildPropFromPhotoPrompt(p, project){", "window.buildPropFromPhotoPrompt"), b);
   b.propInheritedStyleKey = ()=> ""; b.renderStyleText = ()=> "photoreal";
   const s = b.buildPropFromPhotoPrompt({ name:"Cup" }, {});
-  assert.match(s, /4-panel object reference sheet/); assert.match(s, /no back view/);
+  assert.match(s, /3-panel object reference sheet/); assert.match(s, /no back view/); assert.match(s, /no separate side view/);
   assert.ok(!/360-degree|back view right|3 close-up detail shots/.test(s));
   assert.ok(!/neutral grey background|light grey background/.test(props));
   assert.ok(props.includes(".filter(id=> id && String(id).indexOf(p.id+\":\")===0)),"));
@@ -230,7 +230,7 @@ await test("G1 Frances: exact warnings, edit rights, merge, spending, wardrobe",
   const w = (fb.__F.find(f=>f.name==="Props (Art Room)")||{}).what || "";
   for(const re of [/PROPS REVIEW, SECOND PASS/, /for each prop IN THAT FRAME/, /never raises the warning/, /CURRENT holder/, /MERGE asks first/,
     /always asks first, with the price, even when nothing has an image yet/, /never makes an optional worn close-up sheet/, /is not retried/,
-    /reads ready when its owner's character sheet exists/, /same 4-panel layout/]) assert.ok(re.test(w), String(re));
+    /reads ready when its owner's character sheet exists/, /same 3-view layout/]) assert.ok(re.test(w), String(re));
   assert.ok(!/Claude|Anthropic|McKee|TURN\b|MUSE/.test(between(ai, "[\"Props (Art Room)\", \"PROPS REVIEW, SECOND PASS", "\"],\n")));
 });
 
