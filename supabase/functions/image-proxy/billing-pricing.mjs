@@ -77,7 +77,11 @@ export function creditsFromUsd(usd, unit = PROVIDER_USD_PER_CREDIT) {
    code, because essentially we're using the app, and the app is not free … you decide each task['s] level of complexity
    … and you price it accordingly"; prices approved the same day: "yes, build the charging with these prices").
    A change the app makes to an image in code has no provider behind it, so its price is the app's own, set in USD like
-   every other price here and turned into credits at the live unit (1, 2 and 3 credits at $0.01). It is charged ON TOP
+   every other price here and turned into credits at the live unit.
+   (owner 2026-11-20, later that day: the head and the remaster are priced by what they are WORTH, not by what they cost:
+   each replaces a 10-credit image edit and gives a better result, and 2 credits read as "why is it so cheap?". Both
+   are 6 credits; with their reading that comes to about 8, still under the engine's way. The app charges only these
+   two (app/pricing.jsx TURN_CODE_TASKS_CHARGED); the other three rows are priced here but not asked for.) It is charged ON TOP
    of whatever the task also uses (its reading, its image), which are priced where they always were.
      resize    made smaller or larger in code                                  (back to its original size: free, not sent)
      head      the head put on the front view from the close-up               (+ its reading)
@@ -85,7 +89,7 @@ export function creditsFromUsd(usd, unit = PROVIDER_USD_PER_CREDIT) {
      keep      an edit kept in place: the image as it was, the change copied in (+ its image and its reading)
      detail    4K with added detail: the engine's fine detail laid on the picture (+ its image)
    app/pricing.jsx TURN_CODE_TASK_USD mirrors this table for the prices the app shows. */
-export const CODE_TASK_USD = Object.freeze({ resize: 0.01, head: 0.02, remaster: 0.02, keep: 0.01, detail: 0.03 });
+export const CODE_TASK_USD = Object.freeze({ resize: 0.01, head: 0.06, remaster: 0.06, keep: 0.01, detail: 0.03 });
 export function codeTaskCost(kind, unit = PROVIDER_USD_PER_CREDIT) {
   const usd = Object.prototype.hasOwnProperty.call(CODE_TASK_USD, String(kind || "")) ? CODE_TASK_USD[String(kind)] : 0;
   if (!(usd > 0)) return null;

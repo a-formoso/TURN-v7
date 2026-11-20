@@ -1642,12 +1642,9 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
               onClick:()=>onUpdate(p.id, window.PropScreenplay.acceptPatch())},
               React.createElement(Icon.check,{s:12}),"Keep as a story prop")),
           // the screenplay badges (2026-10-29: they were inside the evidence section's header)
-          (unverified || (!!savedSources.length && validSources.length<savedSources.length)) && React.createElement("div",{className:"prop-status-row","data-testid":"prop-screenplay-badges"},
-            unverified && React.createElement("span",{className:"prop-evidence-flag"},
-            React.createElement("span",{className:"prop-status-pill unverified",
-              title:propOriginLabel(p)+". The screenplay has not established this object"+(p.kind==="worn"?" \u2014 normal for wardrobe choices.":".")
-                +" Read the screenplay for props and link a passage to this card to confirm it, or delete it if the story doesn't need it."},
-              React.createElement(Icon.alert,{s:10}),"Not in screenplay")),
+          (!!savedSources.length && validSources.length<savedSources.length) && React.createElement("div",{className:"prop-status-row","data-testid":"prop-screenplay-badges"},
+            // (2026-11-20, owner: "Remove selected elements") the "Not in screenplay" pill left the card: a costume choice
+            // is normally not in the screenplay, and the amber pill read as a fault. The Screenplay evidence section says it.
             // a reviewed passage the screenplay no longer has (a redraft rewrote it): said on the closed section too
           !!savedSources.length && validSources.length<savedSources.length && React.createElement("span",{className:"prop-evidence-flag"},
             React.createElement("span",{className:"prop-status-pill unverified",
@@ -1657,7 +1654,9 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
               React.createElement(Icon.alert,{s:10}),(savedSources.length-validSources.length)+" source"+(savedSources.length-validSources.length!==1?"s":"")+" changed"))),
           // THE ROAD, STEP 5 (owner 2026-11-20, "allow and mark"): an image made without its owner's sheet, or from one that
           // has since been made again, says so and offers to be made again; one made from the sheet as it is says that
-          anchor && React.createElement("div",{className:"prop-status-row prop-anchor-row","data-testid":"prop-anchor","data-state":anchor.state},
+          // (2026-11-20, owner: "Remove selected elements") only when there is something to do: an image made without its
+          // owner's sheet, or from an earlier one. "From X's sheet" with a tick said nothing the person needs.
+          (anchor && anchor.mark) && React.createElement("div",{className:"prop-status-row prop-anchor-row","data-testid":"prop-anchor","data-state":anchor.state},
             React.createElement("span",{className:"prop-status-pill"+(anchor.mark?" unverified":anchor.state==="locked"?" ok":""),title:anchor.tip},
               React.createElement(anchor.mark ? Icon.alert : anchor.state==="locked" ? (Icon.padlock||Icon.check) : Icon.check,{s:10}),anchor.label),
             anchor.mark && React.createElement("button",{type:"button",className:"char-draft-btn ghost","data-role":"prop-remake",disabled:!!gen.gening,
@@ -1680,11 +1679,9 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             onApplySpec:(patch)=>onUpdate(p.id, patch) }),
           // THE LOCK (the road, step 4): the prop's image, locked like a character's sheet
           window.LockButton && React.createElement(window.LockButton,{ gen:genForFrame, name:p.name, noun:"prop sheet" }),
-          // FITTING — side-by-side owner sheet · prop sheet with an optional vision critique
-          (p.ownerId && gen.genUrl) && React.createElement("button",{className:"char-draft-btn ghost",
-            title:"Fitting view \u2014 "+(p.name||"the object")+" side by side with "+(p.ownerName||"its owner")+"\u2019s sheet, with an optional AI critique of whether they belong together",
-            onClick:()=>setFitOpen(true)},
-            React.createElement(Icon.box,{s:12}),"Fitting")),
+          // (2026-11-20, owner: "remove the Fitting button … I don't think we need that feature") the button left the card;
+          // the QA check already holds the prop against how its owner's card describes it
+          ),
           fitOpen && React.createElement(PropFittingModal,{ p, propUrl:gen.genUrl, onClose:()=>setFitOpen(false) })),
       // THE STEP GUIDE (the road): where this image stands — made, checked, fixed, locked
       window.RoadStepGuide && React.createElement(window.RoadStepGuide,{ cardSel:'[data-prop-card="'+String(p.id).replace(/"/g,"")+'"]', noun:"image", label:"Steps for this prop",

@@ -112,8 +112,9 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   Opus 5.5 with her stable prefix cached (`museStablePrefix()`, `promptCache`).
 - **Code tasks (owner 2026-11-20: "let's charge for everything", prices approved that day):** a change the app makes to
   an image in code is charged by `image-proxy` (`task:"code"`, `codeTask`), held and settled at once under kind `image`,
-  on top of whatever it also uses (its reading, its image): resize 1 credit, the head from the close-up 2, remaster 2,
-  a kept edit 1, 4K detail 3 (`billing-pricing.mjs` `CODE_TASK_USD` = `app/pricing.jsx` `TURN_CODE_TASK_USD`). Back to
+  on top of whatever it also uses (its reading, its image): the head from the close-up 6 credits, remaster 6 (priced by
+  what they are worth: each replaces a 10-credit image edit); resize 1, a kept edit 1 and 4K detail 3 are in the table
+  but not asked for (`billing-pricing.mjs` `CODE_TASK_USD` = `app/pricing.jsx` `TURN_CODE_TASK_USD`). Back to
   the original size is free. The app asks after the work succeeded and before it saves (`turnChargeCodeTask`).
   **Which are charged (owner the same day: "decide … what tasks to charge users. So there's no complaints"):** only the
   head and the remaster, where code replaces a paid image edit (`TURN_CODE_TASKS_CHARGED`). Resize, the keep step and

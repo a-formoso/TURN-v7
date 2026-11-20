@@ -337,6 +337,10 @@ await test("6c the stance comes from who the character is; the prop card is grou
   assert.ok(B.stance(c).startsWith("standing the way THIS person stands \u2014 their bearing comes from who they are (wants to get his daughter home safe") && B.stance(c).includes("nothing written or symbolic"));
   assert.ok(B.stance({}).startsWith("standing the way this person naturally stands"), "a plain natural stance when the Cast panel says nothing");
   assert.ok(art.includes('+", "+charStanceText(c)+", clean silhouette, the full outfit and shoes visible",'), "it is in the sheet's own instructions");
+  // (owner 2026-11-20: "Remove selected elements … also remove the Fitting button") gone from the prop card: the "Not in
+  // screenplay" pill, the ticked "From X's sheet" pill (the marked one, with "Make it again", stays), the Fitting button
+  assert.ok(!props.includes('React.createElement(Icon.alert,{s:10}),"Not in screenplay")') && !props.includes('React.createElement(Icon.box,{s:12}),"Fitting")'));
+  assert.ok(props.includes('(anchor && anchor.mark) && React.createElement("div",{className:"prop-status-row prop-anchor-row"'));
   // the prop card's lower half: The object · Continuity · Advanced
   const card = between(props, 'React.createElement(window.CardGroup,{label:"The object",defaultOpen:(!drafted && !!p.manual)},', "\n}\n");
   const at = (k) => { const i = card.indexOf(k); assert.ok(i >= 0, k); return i; };
@@ -348,13 +352,13 @@ await test("6c the stance comes from who the character is; the prop card is grou
 await test("6e code tasks are charged, by the server, at the approved prices; the app only shows them", async () => {
   // (owner 2026-11-20: "let's charge for everything. Even when we're using code"; "yes, build the charging with these prices")
   const P = await import(new URL("../supabase/functions/image-proxy/billing-pricing.mjs", import.meta.url));
-  assert.deepEqual({ ...P.CODE_TASK_USD }, { resize: 0.01, head: 0.02, remaster: 0.02, keep: 0.01, detail: 0.03 });
-  assert.deepEqual([["resize", 1], ["head", 2], ["remaster", 2], ["keep", 1], ["detail", 3]].map(([k]) => P.codeTaskCost(k).credits), [1, 2, 2, 1, 3], "in credits at one cent a credit");
+  assert.deepEqual({ ...P.CODE_TASK_USD }, { resize: 0.01, head: 0.06, remaster: 0.06, keep: 0.01, detail: 0.03 });   // (the head and the remaster by their worth: 6 credits)
+  assert.deepEqual([["resize", 1], ["head", 2], ["remaster", 2], ["keep", 1], ["detail", 3]].map(([k]) => P.codeTaskCost(k).credits), [1, 6, 6, 1, 3], "in credits at one cent a credit");
   assert.equal(P.codeTaskCost("resize", 0.03).credits, 1, "never under one credit"); assert.equal(P.codeTaskCost("detail").providerCostUsd, 0, "no provider behind it");
   for (const k of ["", "image", "resize-back", "__proto__", "toString", null]) assert.equal(P.codeTaskCost(k), null, "not a priced task: " + k);
   // the app's table is the server's
   const pricing = read("app/pricing.jsx");
-  assert.ok(pricing.includes("const TURN_CODE_TASK_USD = { resize:0.01, head:0.02, remaster:0.02, keep:0.01, detail:0.03 };"));
+  assert.ok(pricing.includes("const TURN_CODE_TASK_USD = { resize:0.01, head:0.06, remaster:0.06, keep:0.01, detail:0.03 };"));
   // the server: priced, held and settled before anything is answered; an unknown task is a 400; the owner of a shared film pays as for an image
   const idx = read("supabase/functions/image-proxy/index.ts"), h = between(idx, '  if (task === "code") {', "  // \u2500\u2500 task: LIVE");
   assert.ok(h.includes("const codeCost = codeTaskCost(codeKind, codeUnit);") && h.includes('code: "bad_code_task" }, 400);') && h.includes("if (codeUnit == null) return refuse(billingUnavailable());"));
@@ -381,7 +385,7 @@ await test("6e code tasks are charged, by the server, at the approved prices; th
   assert.ok(ch.indexOf("TURN_CODE_TASKS_CHARGED") < ch.indexOf("sb.functions.invoke("));
   assert.ok(pricing.includes('if(TURN_CODE_TASKS_CHARGED.indexOf(String(kind||""))<0) return 0;'), "and shows no price");
   const fr = between(ai, 'APP_FEATURES.push({ name:"Credits: which changes made in code are free and which are charged (Characters, Props, Art Room)"', "function appBrief(){");
-  for (const w of ["FREE: Resize to any size", "nothing more", "TWO HAVE A SMALL PRICE", "from the close-up, 2 credits, and Remaster, 2 credits", "a change that could not be made costs nothing"]) assert.ok(fr.includes(w), w);
+  for (const w of ["FREE: Resize to any size", "nothing more", "TWO HAVE A SMALL PRICE", "from the close-up, 6 credits, and Remaster, 6 credits", "a change that could not be made costs nothing"]) assert.ok(fr.includes(w), w);
 });
 
 await test("7 the planner's reads; Frances; the page loads the new files", () => {
@@ -404,7 +408,7 @@ await test("7 the planner's reads; Frances; the page loads the new files", () =>
     "THE TWO FULL-BODY VIEWS STAY LEVEL", "lined up with the body by their clothes", "HOW A CHARACTER STANDS ON A NEW SHEET", "GOING SMALLER (downscaling)", "NOTHING IS LOST BY GOING DOWN AND UP AGAIN", "4K WITH ADDED DETAIL ('4K \\u2014 larger, with detail'", "THE PROP CARD IS LAID OUT LIKE THE CHARACTER CARD"]) assert.ok(fr.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Fable|Gemini|GPT/.test(fr));
   assert.ok(!ai.includes("clean re-render"), "the old name of Remaster is gone from what Frances is told");
-  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");
