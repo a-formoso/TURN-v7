@@ -44,7 +44,7 @@ ok("a lone firefly still gets checked", box.qaTrueSizes([firefly]).length===1 &&
 
 ok("the QA read is told the sizes and how to report them", ai.includes("const sizes = (Array.isArray(item.sizes) ? item.sizes : []).filter(x=>x && x.name && x.size).slice(0,10);")
   && ai.includes("TRUE SIZES (binding, part of the contract)") && ai.includes("is a MAJOR deviation whose 'what' starts with 'Size:'") && /\\u00d7 the smallest/.test(ai));
-ok("the QA button passes them", art.includes("function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes }){")
+ok("the QA button passes them", /function QaCheckButton\(\{ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes(?:, [A-Za-z]+)* \}\)\{/.test(art)
   && art.includes("...(sz.length ? { sizes:sz } : {})"));
 ok("shot frames send who is in frame", shotsUi.includes('sizes:()=> (typeof qaTrueSizes==="function") ? qaTrueSizes(subjects) : [],'));
 // (owner 2026-11-17: "remove selected element") the generated height chart, its button and its QA check left the character

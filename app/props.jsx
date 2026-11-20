@@ -700,17 +700,110 @@ window.propAttachmentsText = propAttachmentsText;
    against — ONLY when the owner ref verifiably rode in THIS generation (refsUsed).
    Simple-mode / ref-less generations record nothing → never false-stale. */
 function propAnchorMetaExtra(p){
-  return async ({ refsUsed })=>{
+  return async ({ refsUsed, mode })=>{
     if(!p.ownerId || typeof nbLoadDetailsAsset!=="function") return undefined;
     const used = (refsUsed||[]).some(r=> r && r.refId===p.ownerId);
-    if(!used) return undefined;
+    if(!used){
+      // an EDIT of this image (an area fix, a typed change) is still the image that was made from that sheet: the
+      // record goes with it, so a fix never makes a prop look "made without its owner's sheet" (2026-11-20)
+      if(mode==="edit"){
+        const cur = (typeof nbGetMeta==="function") ? nbGetMeta(p.id) : null;
+        if(cur && cur.anchorOwnerId===p.ownerId && cur.anchorIso)
+          return { anchorOwnerId:p.ownerId, anchorOwnerName:(cur.anchorOwnerName||p.ownerName||""), anchorIso:cur.anchorIso,
+            ...(cur.anchorRootIso ? { anchorRootIso:cur.anchorRootIso } : {}) };
+      }
+      return undefined;
+    }
     try{
       const d = await nbLoadDetailsAsset(p.ownerId);
       const iso = d && d.meta && d.meta.iso;
-      return iso ? { anchorOwnerId:p.ownerId, anchorOwnerName:(p.ownerName||""), anchorIso:iso } : undefined;
+      return iso ? { anchorOwnerId:p.ownerId, anchorOwnerName:(p.ownerName||""), anchorIso:iso,
+        ...(d.meta.keptRootIso ? { anchorRootIso:d.meta.keptRootIso } : {}) } : undefined;
     }catch(e){ return undefined; }
   };
 }
+/* THE ROAD, STEP 5 (owner 2026-11-20: "allow and mark"). A prop that belongs to a character is best made from that
+   character's sheet, once the sheet is locked. Nothing is blocked: a prop made another way is MARKED, and making it
+   again is offered. What the mark says comes from what each image recorded when it was made:
+     none     made without the owner's sheet (the sheet did not go out with it)
+     earlier  made from a sheet of the owner that has since been replaced (or cleared)
+     current  made from the owner's sheet as it is now, which is not locked yet
+     locked   made from the owner's locked sheet
+   The same sheet with one item added in place (a kept update: its pixels are the original's) is still that sheet, and a
+   sheet that was itself DRAWN FROM this very image of the prop agrees with it by construction: neither is "earlier".
+   An uploaded picture is the person's own and says nothing. ownerMeta: the owner's sheet details, null when they have
+   no sheet, undefined while not known yet (then only "none" can be said). */
+function propAnchorState(p, propMeta, ownerMeta){
+  if(!p || !p.ownerId || !propMeta || !propMeta.iso || propMeta.uploaded) return null;
+  const who = String(p.ownerName||"").trim() || "its owner";
+  const made = (propMeta.anchorOwnerId===p.ownerId && propMeta.anchorIso) ? String(propMeta.anchorIso) : "";
+  const known = ownerMeta!==undefined;
+  const oIso = (ownerMeta && ownerMeta.iso) ? String(ownerMeta.iso) : "";
+  const locked = !!(oIso && ownerMeta.lock && typeof ownerMeta.lock==="object" && ownerMeta.lock.iso===oIso);
+  const drawnFromIt = !!(oIso && Array.isArray(ownerMeta.wornReferences)
+    && ownerMeta.wornReferences.some(r=> r && r.refId===p.id && r.mode==="visual" && r.generated && r.generated===propMeta.iso));
+  const base = { who, ownerHasSheet:!!oIso, ownerLocked:locked };
+  const st = (state, mark, label, tip)=>({ ...base, state, mark, label, tip });
+  const fine = ()=> locked
+    ? st("locked", false, "From "+who+"\u2019s locked sheet", drawnFromIt ? who+"\u2019s locked sheet is drawn from this image, so the two agree." : "This image was made from "+who+"\u2019s locked sheet.")
+    : st("current", false, "From "+who+"\u2019s sheet", (drawnFromIt ? who+"\u2019s sheet is drawn from this image, so the two agree." : "This image was made from "+who+"\u2019s sheet as it is now.")
+          +" That sheet is not locked yet: if it is made again, this image will be marked as out of date.");
+  if(drawnFromIt) return fine();
+  if(!made) return st("none", true, "Made without "+who+"\u2019s sheet",
+    "This image was made without "+who+"\u2019s character sheet, so it may not match how "+who+" looks. You can use it as it is. To be sure, make it again from "
+      +who+"\u2019s sheet"+((known && !oIso) ? " (they have no sheet yet)" : (known && !locked) ? " (best once that sheet is locked)" : "")+".");
+  if(!known) return null;
+  const same = !!oIso && (made===oIso || String(ownerMeta.keptRootIso||oIso)===String(propMeta.anchorRootIso||made) || ownerMeta.keptFromIso===made);
+  if(!same) return st("earlier", true, "Made from an earlier sheet of "+who,
+    oIso ? who+"\u2019s sheet has been made again since this image was made from it, so the two may no longer match. You can use it as it is, or make it again from the sheet as it is now"+(locked ? "" : " (best once that sheet is locked)")+"."
+         : who+" has no sheet now: the one this image was made from was cleared. You can use it as it is, or make it again once "+who+" has a sheet.");
+  return fine();
+}
+/* HOW THE OWNER'S OWN CARD WRITES THIS ITEM (the road, step 5): the entry in their worn or carried list that names it,
+   or the full words the card was shortened from when those say more. The prop's QA check reads the image against these
+   words too, because the owner's sheet is made from them. "" when the card's name already says all of it. */
+function propOwnerWords(p, characters){
+  if(!p || !p.ownerId) return "";
+  const c = (Array.isArray(characters) ? characters : []).find(x=> x && x.id===p.ownerId);
+  const norm = (s)=> String(s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  const split = (typeof splitListItems==="function") ? splitListItems : (v=>String(v||"").split(","));
+  const names = [p.name, p.shortenedFrom].concat(Array.isArray(p.aliases) ? p.aliases : []).map(norm).filter(Boolean);
+  const head = norm(p.name);
+  let best = "";
+  if(c){
+    [].concat(split(c.accessories)||[], split(c.props)||[]).map(t=>String(t||"").trim()).filter(Boolean).forEach(t=>{
+      const n = norm(t);
+      const hit = names.indexOf(n)>=0 || (head && (n.indexOf(head+" ")===0 || n===head)) || names.some(x=> x.length>=6 && n.indexOf(x)===0);
+      if(hit && t.length>best.length) best = t;
+    });
+  }
+  const full = String(p.shortenedFrom||"").trim();
+  if(full.length>best.length) best = full;
+  best = best.replace(/\s+/g," ").trim();
+  return (best && norm(best)!==head) ? best.slice(0,400) : "";
+}
+window.propAnchorState = propAnchorState; window.propOwnerWords = propOwnerWords;
+/* the owner's sheet details, kept up to date: undefined until known, null when they have no sheet */
+function usePropOwnerMeta(ownerId){
+  const [m, setM] = React.useState(undefined);
+  React.useEffect(()=>{
+    if(!ownerId){ setM(null); return undefined; }
+    let alive = true;
+    const read = async ()=>{
+      let meta = (typeof nbGetMeta==="function") ? nbGetMeta(ownerId) : null;
+      if(!meta && typeof nbLoadDetailsAsset==="function"){ try{ const d = await nbLoadDetailsAsset(ownerId); meta = (d && d.meta) || null; }catch(e){ meta = null; } }
+      if(alive) setM(meta || null);
+    };
+    read();
+    const on = (e)=>{ const d = (e && e.detail) || {};
+      if(d.id===ownerId || (Array.isArray(d.ids) && d.ids.indexOf(ownerId)>=0)) read(); };
+    const evs = ["nb-gen-done","nb-meta-changed","nb-history-changed","nb-prefetched"];
+    evs.forEach(n=>window.addEventListener(n, on));
+    return ()=>{ alive = false; evs.forEach(n=>window.removeEventListener(n, on)); };
+  },[ownerId]);
+  return m;
+}
+window.usePropOwnerMeta = usePropOwnerMeta;
 window.propOwnerAttachments = propOwnerAttachments;
 window.propAnchorMetaExtra = propAnchorMetaExtra;
 
@@ -1025,6 +1118,12 @@ async function generatePropSheet(p, project, opts){
   const noop=()=>{};
   const stopNow=()=>typeof o.cancelled==="function" && !!o.cancelled();
   const stopped=()=>({__cancelled:true,requiredReference:true});   // the run discards it: nothing is sent or saved
+  /* A LOCKED IMAGE NEVER CHANGES SILENTLY (the road, step 4): this road runs without the prop's card, so it leaves a
+     locked image alone unless the person has just been asked and said yes (opts.lockOk — the item popup). */
+  if(!o.lockOk && typeof window.sheetLockOf==="function" && window.sheetLockOf(typeof nbGetMeta==="function"?nbGetMeta(p.id):null)){
+    if(typeof o.onError==="function"){ try{ o.onError("its image is locked"); }catch(e){} }
+    return false;
+  }
   let ownerMeta=null, ownerUrl="";
   const build=()=>typeof combinedPropPrompt==="function"?combinedPropPrompt(p,project):(p.name||"prop reference");
   return !!(await window.nbRunSheetGeneration({
@@ -1048,7 +1147,8 @@ async function generatePropSheet(p, project, opts){
         if(typeof o.onRetry==="function"){ try{ o.onRetry(); }catch(e){} } },
       assertPostGenerate:async()=>{ if(stopNow()) throw stopped(); },
       metaExtra:()=>({specPrompt:build(),anchorOwnerId:ownerUrl?p.ownerId:undefined,
-        anchorOwnerName:ownerUrl?p.ownerName:undefined,anchorIso:ownerMeta&&ownerMeta.iso})
+        anchorOwnerName:ownerUrl?p.ownerName:undefined,anchorIso:ownerUrl?(ownerMeta&&ownerMeta.iso):undefined,
+        ...((ownerUrl&&ownerMeta&&ownerMeta.keptRootIso)?{anchorRootIso:ownerMeta.keptRootIso}:{})})
     },
     ui:{setGenErr:message=>{ if(!message) return;
         if(typeof o.onError==="function"){ try{ o.onError(message); }catch(e){} return; }
@@ -1319,6 +1419,10 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
     }finally{ delete window.__nbOwnerPhase[p.id]; }
   },[gen, onEnsureOwner, p, batchOwnerChoice]);
   const genForFrame = onEnsureOwner ? { ...gen, generate: genWithOwner } : gen;
+  // THE ROAD, STEP 5: where this image stands against its owner's sheet (marked, never blocked)
+  const ownerSheetMeta = usePropOwnerMeta(p.ownerId||"");
+  const anchor = gen.genUrl ? propAnchorState(p, gen.genMeta, ownerSheetMeta) : null;
+  const ownerWords = propOwnerWords(p, characters);
 
   /* ---- batch generation: when the parent activates this card (its id == the
      batch's current id), kick off a generation and report completion so the
@@ -1549,6 +1653,17 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
                 +" no longer in it, so this object no longer counts as in "+((savedSources.length-validSources.length)!==1?"those scenes":"that scene")
                 +". Read the screenplay again to review it; the object and its images are kept."},
               React.createElement(Icon.alert,{s:10}),(savedSources.length-validSources.length)+" source"+(savedSources.length-validSources.length!==1?"s":"")+" changed"))),
+          // THE ROAD, STEP 5 (owner 2026-11-20, "allow and mark"): an image made without its owner's sheet, or from one that
+          // has since been made again, says so and offers to be made again; one made from the sheet as it is says that
+          anchor && React.createElement("div",{className:"prop-status-row prop-anchor-row","data-testid":"prop-anchor","data-state":anchor.state},
+            React.createElement("span",{className:"prop-status-pill"+(anchor.mark?" unverified":anchor.state==="locked"?" ok":""),title:anchor.tip},
+              React.createElement(anchor.mark ? Icon.alert : anchor.state==="locked" ? (Icon.padlock||Icon.check) : Icon.check,{s:10}),anchor.label),
+            anchor.mark && React.createElement("button",{type:"button",className:"char-draft-btn ghost","data-role":"prop-remake",disabled:!!gen.gening,
+                title:"Makes this image again from "+anchor.who+"\u2019s sheet as it is now"+(anchor.ownerHasSheet ? "" : " (you are asked about making their sheet first)")
+                  +". The image you have now stays in its versions.",
+                onClick:()=>genForFrame.generate()},
+              React.createElement(Icon.sparkles,{s:12}),"Make it again",
+              (typeof window.nbCostChip==="function") ? window.nbCostChip(1) : null)),
           p.kind==="dressing" && React.createElement("div",{className:"prop-worn-note",
             title:"Two ways to place this fixture into its location's image: open the image's Edit panel and click this fixture's Set-dressing chip (inserts an edit instruction built from this card's spec), or \u2014 once this sheet is generated \u2014 use the chip's attach button to ALSO ride this sheet along as a reference image, locking the exact design."},
             React.createElement(Icon.sparkles,{s:12}),
@@ -1557,6 +1672,8 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           React.createElement("button",{className:"char-draft-btn"+(drafting?" busy":""),disabled:drafting||!!window.PropScreenplay.nameIssue(p.name),title:window.PropScreenplay.nameIssue(p.name)||"Draft the object's design from its evidence",onClick:()=>onDraft(p)},
             React.createElement(Icon.sparkles,{s:12}), drafting?"Drafting\u2026":"Draft specification"),
           window.QaCheckButton && React.createElement(window.QaCheckButton,{ gen:genForFrame, name:p.name, noun:"prop sheet",
+            // the road, step 5: the same read also holds the image against how its owner's card writes the item
+            ownerSays: ownerWords ? { who:(p.ownerName||"the owner"), text:ownerWords } : null,
             specFields:()=>({ form:(p.form||""), material:(p.material||""), detail:(p.detail||""), size:(p.size||""), scale:(p.scale||"") }),
             onApplySpec:(patch)=>onUpdate(p.id, patch) }),
           // THE LOCK (the road, step 4): the prop's image, locked like a character's sheet

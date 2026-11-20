@@ -3377,6 +3377,13 @@ async function nbRunSheetGeneration(env, gopts){
       }
       if(startMeta) Object.assign(meta, startMeta);
       if(keptMeta) Object.assign(meta, keptMeta);   // what was kept and what was added (shown under Details)
+      /* THE SAME SHEET, ONE ITEM ADDED (the road, step 5): a kept update that ADDS an item is the original pixel for
+         pixel, so what was made from the original (a prop's image) is still made from this sheet. It records the version
+         it was built on and the first of the line. A kept FIX changes what the image shows, so it starts a new line. */
+      if(keptMeta && keptMeta.keptOriginal && keptMeta.keptKind!=="fix" && genMeta && genMeta.iso){
+        meta.keptFromIso = genMeta.iso;
+        meta.keptRootIso = genMeta.keptRootIso || genMeta.iso;
+      }
       /* A surface-specific start stamp may add provenance fields, but quality is
          owned by this runner's immutable request snapshot.  Re-assert it after
          the merge so no late callback can replace "default"/"auto" with a live
@@ -4729,7 +4736,7 @@ function LockButton({ gen, name, noun, className }){
     lock ? "Locked" : "Lock");
 }
 window.LockButton = LockButton;
-function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes }){
+function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes, ownerSays }){
   const [busy, setBusy] = React.useState(false);
   const [report, setReport] = React.useState(null);
   // Apply-to-spec REGENERATES immediately (user ruling 2026-07-18: the current sheet
@@ -4785,6 +4792,8 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
       // the true sizes it is measured against (scale plan step 4, 2026-10-28): a list, or made from the contract
       let sz = []; try{ sz = typeof sizes==="function" ? (sizes(contract)||[]) : (Array.isArray(sizes) ? sizes : []); }catch(e){ sz = []; }
       rep = await window.aiImageQA({ kind:noun||"sheet", name, url:gen.genUrl, prompt:contract, ...(sz.length ? { sizes:sz } : {}),
+        // the road, step 5: a prop is also held against how its owner's own card writes it
+        ...((ownerSays && ownerSays.text) ? { ownerSays:{ who:String(ownerSays.who||""), text:String(ownerSays.text) } } : {}),
         ...(sf.facts.length ? { facts:sf.facts, spec:sf.spec, variant:(script&&script.variantLabel)||"", name:(script&&script.c&&script.c.name)||name } : {}) });
     }catch(e){
       const msg = (window.turnSafeError||((x)=>x))((e&&e.message)||"The QA read failed.");
@@ -4812,6 +4821,7 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
         ? "The last QA check of this image: "+qaBadgeText(kept.report)+". "+qaCheckedOn(kept.at)+" Click to open the report again (free); Check again is inside it."
         : "QA check — re-reads this "+(noun||"sheet")+" against the exact prompt that generated it: deviations, invented content, per-panel faults, and whether to edit or regenerate"
         +((script && script.c) ? "; and against what the screenplay states about "+(script.c.name||"them")+", with the line each mismatch breaks" : "")
+        +((ownerSays && ownerSays.text) ? "; and against how "+(ownerSays.who||"its owner")+"\u2019s card describes it" : "")
         +". One vision read (writing-model credits, no image spend).",
       onClick:()=>{ if(kept && !busy) setReport({ ...kept.report, kept:true, checkedAt:kept.at }); else run(); }},
       busy ? React.createElement("span",{className:"ns-spin"})
@@ -6869,6 +6879,10 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
       { lab:"Image", done:!!url },
       carried ? { lab:"In the shots", done:!!url } : { lab:"On "+who+"\u2019s sheet", done:included } ];
     const now = steps.findIndex(x=>!x.done);
+    // THE ROAD, STEP 5: where the item's image stands against this character's sheet (props.jsx propAnchorState): said
+    // here too, and "Generate new image" below makes it again from the sheet as it is now
+    const anchor = (pr && url && typeof window.propAnchorState==="function")
+      ? window.propAnchorState(pr, (typeof nbGetMeta==="function") ? nbGetMeta(pr.id) : null, gen.genUrl ? (gen.genMeta||undefined) : undefined) : null;
     /* A NAME THE DRAFTER REFUSES (owner 2026-11-18: "The 'Write its design' button wasn't working or doing anything" —
        on "tiny gold stud…"): the design is never written for a name that is not a whole object name (one an older limit
        cut, or a bare word like "gold": PropScreenplay.nameIssue), and the press used to end in silence, after making an
@@ -6893,9 +6907,12 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     const makeImage = async ()=>{
       if(propBusy || readOnly || !pr) return;
       if(!gen.genUrl){ toast("Generate "+who+"\u2019s sheet first. The item is drawn to match their look."); return; }
+      // a locked image is never changed without a yes (the road, step 4)
+      const prMeta = (typeof nbGetMeta==="function") ? nbGetMeta(pr.id) : null;
+      if(sheetLockOf(prMeta) && !(await turnLockedAsk(prMeta, pr.name||"", "image", "make a new one"))) return;
       setPropBusy({ id:pr.id, kind:"gen", key });
       try{
-        const made = await window.generatePropSheet(pr, project);
+        const made = await window.generatePropSheet(pr, project, { lockOk:true });
         if(made) toast("\u201c"+(pr.name||"Item")+"\u201d has its image. "+(carried ? "It joins the shots "+who+" carries it in." : "It is drawn from it on "+who+"\u2019s next sheet."),"success");
       }catch(err){ toast(String((err&&err.message)||"The image could not be made."),"error"); }
       setPropBusy(null);
@@ -6955,6 +6972,10 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
               steps.map((st,i)=>React.createElement("li",{key:i,className:"own-step"+(st.done?" done":"")+(i===now?" now":"")},
                 React.createElement("span",{className:"own-step-dot","aria-hidden":"true"}, st.done ? React.createElement(Icon.check,{s:10}) : String(i+1)),
                 React.createElement("span",{className:"own-step-lab"},st.lab)))),
+            anchor && React.createElement("div",{className:"own-anchor","data-role":"owned-item-anchor","data-state":anchor.state},
+              React.createElement("span",{className:"prop-status-pill"+(anchor.mark?" unverified":anchor.state==="locked"?" ok":""),title:anchor.tip},
+                React.createElement(anchor.mark ? Icon.alert : anchor.state==="locked" ? (Icon.padlock||Icon.check) : Icon.check,{s:10}),anchor.label),
+              Tip && React.createElement(Tip,{label:"About this image and "+who+"\u2019s sheet",text:anchor.tip})),
             // (owner 2026-11-18: "no description of the prop?") an item with no design yet says so, and where one comes from
             !drafted && React.createElement("div",{className:"own-spec own-spec-none","data-role":"owned-item-nodesc"},
               React.createElement("p",null, readOnly ? "No description yet."
@@ -6967,12 +6988,12 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                     title:nameIssue ? nameHelp : "Writes what it looks like, from the script. Writing credits only.",onClick:writeDesign},
                     busy==="draft" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
                     busy==="draft" ? "Writing its design\u2026" : "Write its design")
-                : React.createElement("button",{type:"button",className:"own-act"+(url?"":" main"),"data-role":"owned-item-generate",
+                : React.createElement("button",{type:"button",className:"own-act"+((url && !(anchor && anchor.mark))?"":" main"),"data-role":"owned-item-generate",
                     disabled:!!propBusy || !gen.genUrl,
-                    title:!gen.genUrl ? "Generate "+who+"\u2019s sheet first. The item is drawn to match their look." : (url ? "Make this item\u2019s image again" : "Make this item\u2019s image"),
+                    title:!gen.genUrl ? "Generate "+who+"\u2019s sheet first. The item is drawn to match their look." : (url ? "Make this item\u2019s image again, from "+who+"\u2019s sheet as it is now" : "Make this item\u2019s image"),
                     onClick:makeImage},
                     busy==="gen" ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.sparkles,{s:12}),
-                    busy==="gen" ? "Generating\u2026" : (url ? "Generate new image" : "Generate image"),
+                    busy==="gen" ? "Generating\u2026" : (url ? ((anchor && anchor.mark) ? "Make it again" : "Generate new image") : "Generate image"),
                     (!busy && typeof window.nbCostChip==="function") ? window.nbCostChip(1) : null),
               // a design an older limit cut mid-sentence can be written again in full, on the person's own press
               // the name has to be put right before a design can be written: said here, beside the button that waits for it

@@ -752,13 +752,15 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
   lenses in `fact.roles`, an optional steer) and `aiSynopsisFromResearch` — on their own **Research** and
   **Synopsis** steps; the logline check rides in `aiSeedToLoglines` *(2026-10-02, owner-approved)*.
 - `APP_FEATURES` in `app/ai.jsx` has been updated so Frances can describe the stage.
-- Step **9, the road for a character and their items** *(2026-11-20)*: steps **2–4** are built — the QA check
+- Step **9, the road for a character and their items** *(2026-11-20)*: steps **2–5** are built — the QA check
   marks drifts with boxes and *Fix these areas* keeps the rest of the image (`app/pixel-keep.js`,
-  `turnKeepOrAsk` and `qaFixAreas` in `app/artroom.jsx`), and the **Lock** on character sheets and prop images
-  (`nbSetAssetLock`, `LockButton`). In step **6**, *Update sheet with new wardrobe* already keeps the sheet and
-  adds only the item. **Not built yet:** marking a prop made without its owner's locked sheet and the
-  item-versus-sheet check (5), the final look as its own locked step (6), shots reading locked finals only (7),
-  and a numbered step guide on the character and prop cards.
+  `turnKeepOrAsk` and `qaFixAreas` in `app/artroom.jsx`), the **Lock** on character sheets and prop images
+  (`nbSetAssetLock`, `LockButton`), and for step **5** the mark on a prop made without its owner's sheet or from
+  an earlier one, with *Make it again* (`propAnchorState` in `app/props.jsx`; allowed and marked, never
+  blocked), plus the prop's QA check reading the image against how the owner's own card writes the item
+  (`propOwnerWords`). In step **6**, *Update sheet with new wardrobe* already keeps the sheet and adds only the
+  item. **Not built yet:** the final look as its own locked step (6), shots reading locked finals only (7), and
+  a numbered step guide on the character and prop cards.
 - Step **10 (The Stage)**: the **audio-first assembly shell** is built (`app/stage.jsx`, room unlocked) —
   it lays the clip partition + shot frames + dialogue on the cut timeline, timed by ESTIMATED line
   durations. The **Voices** tab (Step 9) and the real voice/video render (ElevenLabs → Seedance) are the

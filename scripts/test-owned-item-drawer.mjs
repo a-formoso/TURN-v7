@@ -43,7 +43,7 @@ const text = (n) => (typeof n === "string" || typeof n === "number") ? String(n)
 const chunk = between(art, "  const [openItem, setOpenItem] = React.useState(null);", "  React.useEffect(()=>{\n    let alive=true;")
   .replace("const [openItem, setOpenItem] = React.useState(null);", "const openItem = env.openItem, setOpenItem = env.setOpenItem;");
 const NAMES = ["ownedProps", "React", "ReactDOM", "document", "EditText", "onNameOwnedItem", "rowKeyTick", "setRowKeyTick", "Icon", "window", "linkInfo", "normName", "ownedSheetMap", "readOnly", "propBusy", "setPropBusy", "wornExclusions", "c", "gen",
-  "onCreateOwnedProp", "onDraftProp", "onView", "project", "setSheetTick", "setWornReferenceIncluded", "castFirstName", "propVisualsDrafted"];
+  "onCreateOwnedProp", "onDraftProp", "onView", "project", "setSheetTick", "setWornReferenceIncluded", "castFirstName", "propVisualsDrafted", "nbGetMeta", "sheetLockOf", "turnLockedAsk"];
 assert.ok(chunk.includes("React.useEffect(()=>{ if(!openItem) return undefined;"), "Esc closes the popup");
 const specSrc = between(art, "function specWholeSentences(t){", "window.specWholeSentences = specWholeSentences;");
 const factory = vm.runInNewContext(specSrc + "\n(function(env){ const {" + NAMES.join(",") + "} = env;\n" + chunk + "\nreturn { ownedItemRow, ownedItemTile, ownedItemPanel, specWholeSentences, specWasCut }; })", { console, Promise, String, Set, Math });
@@ -62,10 +62,14 @@ function card(over) {
     onNameOwnedItem: o.noNaming ? null : (cid, item, pid, to, opts) => { log.push(["name", cid, item, pid, to, opts || null]); return o.nameFails ? "" : to; },
     Icon: { plus: "ic-plus", box: "ic-box", x: "ic-x", check: "ic-check", sparkles: "ic-sparkles" },
     window: { PropScreenplay: psBox.PropScreenplay, appToast: (m, k) => log.push(["toast", k || "info", m]), InfoTip, nbCostChip: (n) => el("span", { className: "nb-cost" }, String(n)),
-      generatePropSheet: async (p, project) => { log.push(["generate", p.id, project && project.id]); return true; },
+      generatePropSheet: async (p, project, opts) => { log.push(["generate", p.id, project && project.id]); if (opts) log.push(["generate-opts", opts]); return true; },
+      ...(o.anchor ? { propAnchorState: (p, pm, om) => { log.push(["anchor", p.id, pm, om]); return o.anchor; } } : {}),
       propShortName: (n) => { if (o.shortRule) return o.shortRule; const m = String(n || "").match(/^(.*?)\s*\(/); return (m && String(n).length > 40) ? m[1] : ""; } },
     linkInfo: { rows: ITEMS.map(([src, t], i) => ({ key: "b-" + i, name: t, item: t, prop: o.props[t] || null, orphan: false, src }))
       .concat([{ key: "o-x", name: "Aud", prop: { id: "p-old", name: "Aud", kind: "worn" }, orphan: true }]) },
+    // the lock (the road, step 4) and the image details the popup reads
+    nbGetMeta: (id) => (o.metas || {})[id] || null, sheetLockOf: (m) => (m && m.lock) || null,
+    turnLockedAsk: async (m, name, noun, what) => { log.push(["ask-lock", name, noun, what]); return o.lockYes !== false; },
     normName, ownedSheetMap: o.sheets, readOnly: o.readOnly, propBusy: o.busy, setPropBusy: (v) => log.push(["busy", v && v.kind, v && v.key]),
     wornExclusions: new Set(o.excluded), c: { id: "liaqat", name: "LIAQAT HUSSAIN" }, gen: { genUrl: o.sheet },
     onCreateOwnedProp: (cid, item, src, opts) => { log.push(["create", cid, item, src, opts]); return { id: "p-new", name: item, kind: src }; },
@@ -135,7 +139,8 @@ await test("2b designed, no image: 'Generate image' with its price; it needs the
   assert.equal(btn.children.filter(x => typeof x === "string").join(""), "Generate image"); assert.equal(findAll(btn, cls("nb-cost")).length, 1);
   await btn.props.onClick();
   assert.deepEqual(a.log.filter(x => x[0] === "generate"), [["generate", "p2", "film"]]);
-  assert.deepEqual(a.log.map(x => x[0]), ["portal", "busy", "generate", "toast", "busy", "tick"]); assert.equal(a.log[3][1], "success");
+  assert.deepEqual(a.log.map(x => x[0]), ["portal", "busy", "generate", "generate-opts", "toast", "busy", "tick"]); assert.equal(a.log[4][1], "success");
+  assert.deepEqual(plain(a.log[3][1]), { lockOk: true }, "the popup has done the asking");
   assert.ok(!a.log.some(x => x[0] === "create" || x[0] === "draft"), "nothing else is paid for");
   // no character sheet yet: the button waits and a line says why
   const b = card({ open: open("carried", BOOK), props: { [BOOK]: pr }, sheet: "" }), q = b.ownedItemPanel();
@@ -196,6 +201,32 @@ await test("3 a card made from the character card is the person's own choice: a 
   assert.equal(make("nobody", "a watch", "worn"), null); assert.equal(make("liaqat", "  ", "worn"), null);
 });
 
+await test("2d the road, step 5: the popup says how the image stands against the sheet; a locked image asks before it is made again", async () => {
+  const pr = { id: "p2", name: BOOK, kind: "carried", form: "A6 notebook", material: "black card cover" };
+  const mark = { state: "none", mark: true, who: "Liaqat", label: "Made without Liaqat\u2019s sheet", tip: "why" };
+  const a = card({ open: open("carried", BOOK), props: { [BOOK]: pr }, sheets: { p2: "data:book" }, metas: { p2: { iso: "a" } }, anchor: mark }), p = a.ownedItemPanel();
+  const note = findAll(p, role("owned-item-anchor"))[0];
+  assert.equal(note.props["data-state"], "none"); assert.ok(text(note).includes("Made without Liaqat\u2019s sheet"));
+  assert.equal(findAll(note, cls("prop-status-pill"))[0].props.className, "prop-status-pill unverified");
+  assert.deepEqual(plain(a.log.find(x => x[0] === "anchor")), ["anchor", "p2", { iso: "a" }, null], "the item's image details, and the sheet's (none recorded here)");
+  const btn = findAll(p, role("owned-item-generate"))[0];
+  assert.equal(btn.props.className, "own-act main", "the way out is the main button"); assert.equal(btn.children.filter(x => typeof x === "string").join(""), "Make it again");
+  // a fine one is said quietly, and the button stays the second one
+  const ok = card({ open: open("carried", BOOK), props: { [BOOK]: pr }, sheets: { p2: "data:book" }, anchor: { state: "locked", mark: false, label: "From Liaqat\u2019s locked sheet", tip: "t" } }).ownedItemPanel();
+  assert.equal(findAll(ok, cls("prop-status-pill"))[0].props.className, "prop-status-pill ok");
+  assert.equal(findAll(ok, role("owned-item-generate"))[0].props.className, "own-act");
+  assert.equal(findAll(ok, role("owned-item-generate"))[0].children.filter(x => typeof x === "string").join(""), "Generate new image");
+  // no image yet: nothing to say
+  assert.equal(findAll(card({ open: open("carried", BOOK), props: { [BOOK]: pr }, anchor: mark }).ownedItemPanel(), role("owned-item-anchor")).length, 0);
+  // a locked image: asked first; "Keep it locked" makes nothing
+  const no = card({ open: open("carried", BOOK), props: { [BOOK]: pr }, sheets: { p2: "data:book" }, metas: { p2: { iso: "a", lock: { iso: "a" } } }, lockYes: false });
+  await findAll(no.ownedItemPanel(), role("owned-item-generate"))[0].props.onClick();
+  assert.deepEqual(no.log.filter(x => x[0] !== "portal"), [["ask-lock", BOOK, "image", "make a new one"]]);
+  const yes = card({ open: open("carried", BOOK), props: { [BOOK]: pr }, sheets: { p2: "data:book" }, metas: { p2: { iso: "a", lock: { iso: "a" } } } });
+  await findAll(yes.ownedItemPanel(), role("owned-item-generate"))[0].props.onClick();
+  assert.deepEqual(yes.log.map(x => x[0]), ["portal", "ask-lock", "busy", "generate", "generate-opts", "toast", "busy", "tick"]);
+});
+
 await test("5 the list takes a lead of its own in place of the dot; the rows under the lists keep only leftover cards", () => {
   const src = between(insp, "function splitListItems(value){", "/* the −/+ charge stepper.");
   const R = { createElement: el, useState: (v) => [typeof v === "function" ? v() : v, () => {}], useRef: (v) => ({ current: v }), useEffect: () => {} };
@@ -215,7 +246,8 @@ await test("5 the list takes a lead of its own in place of the dot; the rows und
   assert.ok(sheet.includes("const extraRows = linkedRows.filter(r=>r.orphan);") && sheet.includes("extraRows.length>0 && React.createElement(\"div\",{className:\"linked-props\"},")
     && sheet.includes("extraRows.map(row=>{"));
   assert.ok(!sheet.includes("linked-prop-gen") && !sheet.includes('"Draft specification"') && !sheet.includes('"Create card"'), "the row buttons moved into the popup");
-  assert.equal(sheet.split("window.generatePropSheet(pr, project)").length - 1, 1, "one place makes an item's image");
+  assert.equal(sheet.split("window.generatePropSheet(pr, project, { lockOk:true })").length - 1, 1, "one place makes an item's image");
+  assert.equal(sheet.split("window.generatePropSheet(").length - 1, 1);
 });
 
 await test("T the design text is whole (owner 2026-11-18: 'Lanyard / Prop text appears incomplete'): the drafter knows its lengths and is cut at a sentence; older cut text is shown to its last sentence and can be written again", async () => {
@@ -504,7 +536,7 @@ await test("F Frances knows; nothing she is told names the codename; the changed
   assert.ok(f.includes("/from its row in the character card's Props & accessories section|Only hero props are cards/.test(f.what)"), "older entries are put right");
   assert.ok(ai.includes("beside the WHOLE cast (since 2026-11-18; it used to stop at five people)") && !ai.includes("share the most scenes with (up to five)"));
   assert.ok(ai.includes("press the small square at the start of the item's row, make the object's image there, keep 'Visual lock' ticked"));
-  const KEYS = ["20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1"];   // (the list grows with each key bump)
+  const KEYS = ["20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "ai.jsx", "script.jsx"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });

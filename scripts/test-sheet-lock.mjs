@@ -131,7 +131,7 @@ await test("F Frances knows; nothing she is told names the codename; the changed
   const f = between(ai, 'APP_FEATURES.push({ name:"Lock an image you are happy with (Characters, Props, Art Room)"', "function appBrief(){");
   for (const k of ["'Lock'", "'Locked'", "'Lock anyway'", "Faithful", "'Unlock and go on'", "a batch", "its versions", "costs nothing"]) assert.ok(f.includes(k), k);
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic/.test(f));
-  const KEYS = ["20261120-lock1"];   // (the list grows with each key bump)
+  const KEYS = ["20261120-lock1", "20261120-anchor1"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "imagegen.jsx", "cloud.jsx", "props.jsx", "ai.jsx", "script.jsx", "styles.css"]) assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });
 

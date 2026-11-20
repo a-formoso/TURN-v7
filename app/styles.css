@@ -3925,6 +3925,12 @@ span.own-name{padding:3px 0}
   background:var(--bg-3);color:var(--txt-2);border:1px dashed var(--line-2)}
 .prop-status-pill.unverified{background:oklch(0.75 0.14 80 / .12);color:oklch(0.78 0.12 80);border-color:oklch(0.75 0.14 80 / .45)}
 [data-theme="light"] .prop-status-pill.unverified{color:oklch(0.5 0.12 70)}
+/* the road, step 5: a prop made from its owner's locked sheet (green = locked); the row holds the "Make it again" button */
+.prop-status-pill.ok{background:var(--ok-soft);color:var(--txt-0);border:1px solid var(--ok-line)}
+.prop-status-pill.ok svg{color:var(--ok)}
+.prop-anchor-row{align-items:center;gap:8px}
+.own-anchor{display:flex;align-items:center;gap:6px;margin:0 0 8px}
+.own-anchor .infotip{position:static;flex:0 0 auto}
 /* locations */
 .loc-workspace-sheet{display:flex;flex-direction:column;min-width:0;flex:1}
 .loc-workspace-nav{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-2);border-bottom:1px solid var(--line)}
