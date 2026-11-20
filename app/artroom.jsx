@@ -1545,11 +1545,6 @@ function buildCharRefPrompt(c, project, props, o){
       one_face_rule: "EXACTLY ONE face appears on this sheet \u2014 the hero portrait in panel 1. The front view's head AND neck are omitted BY DESIGN (only the inside of the collar and clean background above it, never a chin, mouth or neck; figure scale unchanged): a second rendered face makes video generators blend or invent identity."
         + (_idRule ? " (The tiny photo on a worn ID badge is part of that object, not another view of the character: keep it very small.)" : ""),
       scale_rule: "the front and back figures are the SAME height and scale, vertically aligned across panels 2 and 3 \u2014 the missing head must NOT enlarge the front figure",
-      /* ROOM ABOVE AND BELOW THE FIGURES (owner 2026-11-20: when the head is put back on the front view "he appears to
-         almost be touching the top of the image frame, which we don't want … create a little gap"). The engines drew the
-         back view's head a few pixels under the top edge and the shoes close to the bottom, so a head set on the front
-         view had nowhere to go. The figures are asked for a little smaller, with clear bands above and below. */
-      headroom_rule: "in panels 2 and 3 the figures do NOT fill the panel's height: leave a clear band of empty background above the top of the back view's head, about 8% of the panel's height, and a clear band of floor below the shoes, about 6%. The front view stands at exactly the same height: the empty space where its head would be, and the same band above that space, stay clean background \u2014 nothing is drawn there",
       no_extra_views: "do not add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, or ANY info box / character-data panel (no name, height, age or traits printed on the image \u2014 that metadata travels in the prompt, never baked into pixels)",
       background: CHAR_SHEET_BACKGROUND
     },
@@ -1607,7 +1602,7 @@ function buildRefFromPhotoPrompt(c, project){
   if(tone) s += tone+" tone. ";
   s += v.height ? "Character is "+(/\b(tall|long|high|across|wide)\b/i.test(v.height) ? v.height : v.height+" tall")+" ("+v.scaleClass+"). " : "Scale: "+v.scaleClass+". ";
   s += "RENDER STYLE: "+style.replace(/\.$/,"")+". ";
-  s += "LAYOUT: a clean 3-panel casting reference sheet in 16:9 landscape with three equal-width tall vertical panels divided by thin clean vertical lines. Panel 1: close-up hero FACE PORTRAIT, front-facing, neutral controlled expression, head and shoulders, face fills most of the panel. Panel 2: full-body FRONT view at exactly the same figure height and scale as Panel 3 (same headroom, feet aligned), but with NO head and NO neck rendered \u2014 an invisible person wearing the clothes: inside the collar opening only the inside back of the collar or shirt, clean empty background above it, and no chin, jaw, mouth, neck or throat skin (the face is absent, never cropped or half-shown); arms relaxed, "+((typeof charStanceText==="function" && typeof c!=="undefined" && c) ? charStanceText(c) : "standing naturally (weight settled, shoulders and hands loose \u2014 never a rigid mannequin)")+". Panel 3: full-body BACK view, head-to-toe, facing away (no face visible), the same natural stance seen from behind. EXACTLY ONE face on the sheet \u2014 the panel-1 portrait; the missing head must not enlarge the front figure. HEADROOM: the figures in Panels 2 and 3 do not fill the panel's height \u2014 a clear band of empty background stays above the back view's head (about 8% of the panel's height) and a clear band of floor below the shoes (about 6%); the front view stands at the same height, and the space where its head would be stays clean empty background. No text, captions or info boxes anywhere on the image. ";
+  s += "LAYOUT: a clean 3-panel casting reference sheet in 16:9 landscape with three equal-width tall vertical panels divided by thin clean vertical lines. Panel 1: close-up hero FACE PORTRAIT, front-facing, neutral controlled expression, head and shoulders, face fills most of the panel. Panel 2: full-body FRONT view at exactly the same figure height and scale as Panel 3 (same headroom, feet aligned), but with NO head and NO neck rendered \u2014 an invisible person wearing the clothes: inside the collar opening only the inside back of the collar or shirt, clean empty background above it, and no chin, jaw, mouth, neck or throat skin (the face is absent, never cropped or half-shown); arms relaxed, "+((typeof charStanceText==="function" && typeof c!=="undefined" && c) ? charStanceText(c) : "standing naturally (weight settled, shoulders and hands loose \u2014 never a rigid mannequin)")+". Panel 3: full-body BACK view, head-to-toe, facing away (no face visible), the same natural stance seen from behind. EXACTLY ONE face on the sheet \u2014 the panel-1 portrait; the missing head must not enlarge the front figure. No text, captions or info boxes anywhere on the image. ";
   s += "Do NOT add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, annotations or watermarks. "+CHAR_SHEET_BACKGROUND.charAt(0).toUpperCase()+CHAR_SHEET_BACKGROUND.slice(1)+", soft even studio lighting, the SAME identical face/build/wardrobe in every panel, sharp focus.";
   return s;
 }
@@ -3688,16 +3683,10 @@ function useImageGen(opts){
       try{ window.nbAssertMediaIdentity(opts, "image-generate"); }
       catch(e){ setGenErr((e&&e.message)||"Character identity needs review before rendering."); throw e; }
     }
-    /* EVERY EDIT IS MADE IN CODE WHERE IT CAN BE (owner 2026-11-20: "all the editing to be done with code"). An edit
-       that only needs pixels the sheet already has is made with no image engine at all: so far, the head put on the
-       front view from the close-up (turnHeadBack; the planner confirms that this is what was asked). Any other edit
-       goes on to the engine, which draws the new part only: the runner then keeps the image and copies that part in
-       (turnKeepEdit). */
-    if(gopts && gopts.editInstruction && genUrl && opts.keepEdits && !gopts.keepOriginal && !gopts.wholeRedraw
-       && typeof turnEditAsksHeadBack==="function" && turnEditAsksHeadBack(gopts.editInstruction)){
-      const made = await turnHeadBack({ genUrl, codeEdit }, lockName(), { instruction:String(gopts.editInstruction), quiet:true, lockOk:true });
-      if(made){ setEditMode(false); return true; }
-    }
+    /* EVERY EDIT KEEPS THE IMAGE (owner 2026-11-20: "all the editing to be done with code"): the engine draws the new
+       part only, and the runner keeps the image and copies that part in (turnKeepEdit). (For a few hours the same day an
+       edit asking for the head on the front view was made here from the close-up; the owner took it out again: "keep it
+       as it was before, having a character sheet with a midsection without a head".) */
     return await nbRunSheetGeneration({
       id, slotId, opts, allModels, genUrl, genMeta, slotHasRef,
       ui: { setGenErr, setGening, setRetrying, setGenUrl, setGenTier, setGenMeta,
@@ -4702,6 +4691,8 @@ function _qaTitleRow(name, about){
     React.createElement("div",{className:"qa-title",title:Tip?undefined:about}, name||"Untitled"),
     Tip && React.createElement(Tip,{label:"About this check",text:about}));
 }
+const QA_HEADLESS_BY_DESIGN = "BY DESIGN, THE FRONT FULL-BODY VIEW OF A CHARACTER SHEET HAS NO HEAD AND NO NECK: the face is shown once, in the close-up, and the body is drawn like an invisible person wearing the clothes. This is correct. Never report the missing head, neck, face or hair on that view as a drift, a fault, a warning or a note, and never suggest adding a head there. A back view with its head is also correct.";
+window.QA_HEADLESS_BY_DESIGN = QA_HEADLESS_BY_DESIGN;
 function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, specFields, onApplySpec, editCost, regenCost, scriptPart, onRecheck, imageUrl, onRunAreaFix }){
   const r = report;
   const [applying, setApplying] = React.useState(false);
@@ -5091,8 +5082,14 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
     const gm = gen.genMeta || {};
     if(gm.mode==="edit" && gm.specPrompt)
       contract = String(gm.specPrompt)+(gm.editInstruction ? "\n\nAFTER THAT, ONE LOCAL CHANGE WAS MADE TO THE IMAGE (where it differs from the text above, the change is right): "+String(gm.editInstruction) : "");
-    // the head was put back on the front view on purpose (turnHeadBack): a head there is right, whatever the text says
+    // an image made while the head could be put back on the front view (2026-11-20, taken out the same day): its head is right
     if(contract && gm.headBack) contract += "\n\nON THIS IMAGE THE FRONT FULL-BODY VIEW HAS ITS HEAD: it was put back on purpose, copied from the close-up. A head on that view is right; do not report it.";
+    /* THE HEADLESS FRONT VIEW IS THE DESIGN, NEVER A FAULT (owner 2026-11-20: "don't flag the missing head … That is
+       there by design, so don't flag it"). Every character sheet draws its front full-body view with no head and no
+       neck: one face on the sheet, the close-up's. The check is told so in plain words, whatever the stored prompt
+       says (an edited or uploaded sheet's contract may not carry the layout). A sheet made while the head could be
+       put back (headBack) keeps the line above instead. */
+    if(contract && script && script.c && !gm.headBack) contract += "\n\n"+QA_HEADLESS_BY_DESIGN;
     if(!contract && typeof gen.buildFinal==="function"){
       try{ contract = String(gen.buildFinal()||""); }catch(e){}
       judgedSpec = !!contract;
@@ -6824,13 +6821,6 @@ function qaAreaFixInstruction(areas){
     +areas.map(a=> a.n+") "+String(a.what||a.item).replace(/\.$/,"")+" (area: left "+pc(a.box[0])+"%, top "+pc(a.box[1])+"%, right "+pc(a.box[2])+"%, bottom "+pc(a.box[3])+"%)").join("; ")
     +". This is a small local change: do not redraw, restyle, re-light or re-pose anything. Everything outside those areas stays exactly as it is";
 }
-/* THE HEAD, BACK ON THE FRONT VIEW (owner 2026-11-20). Every sheet draws its front full-body view with no head, on
-   purpose: one face on the sheet, the close-up's, so a video engine never takes a second, smaller one for the person.
-   The owner: "we can take that close up and … [bring] that head back into place if a user wishes to. So we can have
-   that as an option for users when they use the QA check." One look at the sheet (aiPlanHeadBack: where the close-up's
-   head, its chin and the body's empty neck opening are); everything else is code (pixel-keep.js pkHeadBack): the
-   close-up's own head, made smaller, set on the neck. Nothing is drawn, so the two faces are the same face. When it
-   cannot be placed cleanly the sheet is left as it is and the person is told why. */
 /* ANY EDIT, KEPT (owner 2026-11-20). The image engine has drawn the edit and, as always, redrawn everything else with it.
    One look at the two pictures says where the asked change is (aiLocateChanges, the edit planner); the code then gives
    back the image as it was with only that part copied in. When the change cannot be found or placed exactly, the
@@ -6843,56 +6833,7 @@ async function turnKeepEdit(io, o){
   if(!found.length) return turnKeepOrAsk(io, { kind:"edit", whose, failed:"what the edit changed could not be found" });
   return turnKeepOrAsk(io, { kind:"edit", items:found.map(x=>x.item), found, maxPatch:0.3, whose, by:found.by });
 }
-/* an edit's own words that may be asking for the head on the headless view (cheap; the planner then confirms it) */
-function turnEditAsksHeadBack(instruction){
-  const t = String(instruction||"");
-  return /\b(head|face)\b/i.test(t) && /\b(add|put|bring|restore|return|give|attach|place|back|missing)\b/i.test(t)
-    && /\b(front|middle|centre|center|full[- ]?body|body|headless|view|panel|figure)\b/i.test(t) && t.length<400;
-}
-window.turnKeepEdit = turnKeepEdit; window.turnEditAsksHeadBack = turnEditAsksHeadBack;
-function turnPicturePng(img){
-  const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
-  cv.getContext("2d").putImageData(new ImageData(img.data, img.width, img.height), 0, 0);
-  return cv.toDataURL("image/png");
-}
-async function turnHeadBack(gen, name, o){
-  o = o || {};
-  const PK = window.PixelKeep;
-  if(!gen || !gen.genUrl || typeof gen.codeEdit!=="function" || !PK || typeof PK.pkHeadBack!=="function") return false;
-  const whose = (name ? name+"’s " : "this ")+"sheet", Whose = whose.charAt(0).toUpperCase()+whose.slice(1);
-  return await gen.codeEdit(async ({ baseUrl })=>{
-    // quiet (an edit's first try): when it is not this, or cannot be done in code, nothing is said and the edit goes on
-    const left = (why)=> o.quiet ? {} : ({ message:Whose+" was left as it is: "+why+"." });
-    let img; try{ img = await turnReadPixels(baseUrl); }catch(e){ return left("the picture could not be read"); }
-    /* THE READING IS ASKED FOR TWICE BEFORE THE EDIT GOES ANYWHERE ELSE (the first real runs, 2026-11-20: the same sheet
-       read twice gave a full answer once and an unusable one once, and the edit then went on to the image engine and
-       spent an image on what code does for one reading). A second reading costs far less than an image. Why the code
-       could not do it is kept (window.__turnHeadBackWhy), so a fall-back can be explained. */
-    const why = (w)=>{ try{ window.__turnHeadBackWhy = { at:Date.now(), why:w }; }catch(e){} return left(w); };
-    let look = null, f = null, plan = null, lastWhy = "";
-    for(let attempt=0; attempt<2 && !plan; attempt++){
-      try{ look = await window.aiPlanHeadBack(baseUrl, o.instruction); }
-      catch(e){ look = null; lastWhy = "the sheet could not be looked at ("+String((e && e.message)||"try again").replace(/\.$/,"")+")"; continue; }
-      if(!look || look.unsupported || !look.found){ lastWhy = "the sheet could not be looked at"; continue; }
-      f = look.found;
-      if(o.instruction && f.asked===false) return why("that is not what was asked");
-      if(f.headless===false) return why("its full-body views already have their heads");
-      plan = PK.pkHeadPlan(f, img);
-      if(!plan) lastWhy = "the close-up\u2019s head or the place for it on the body could not be found";
-    }
-    if(!plan) return why(lastWhy || "the sheet could not be looked at");
-    const r = PK.pkHeadBack(img, plan);
-    if(!r || !r.out) return why((r && r.failed) || "the head could not be placed");
-    return { url:turnPicturePng(r.out),
-      message:"The head is back on the front view of "+whose+": it is the close-up’s own face, made smaller. Nothing was redrawn."
-        +(r.moved ? (r.moved.level ? " Both full-body views were moved down a little, together and as they are, to make room and leave a gap above the head." : " The body was moved down a little, as it is, to make room for the head.") : "")
-        +((!r.aligned && r.fit<0.985) ? " The head is slightly smaller than true size, for lack of room." : "")   // (lined up by the clothes, its size IS the true size)
-        +(f.hairBelowChin ? " Hair that falls below the chin was not carried over." : ""),
-      charge:"head",
-      meta:{ headBack:{ at:Date.now(), moved:r.moved ? r.moved.by : 0, fit:Math.round(r.fit*100)/100 },
-        ...((look.by && look.by.label) ? { codeEdit:{ kind:"head", by:String(look.by.label), byId:String(look.by.id||""), drew:false } } : {}) } };
-  }, { lockOk:!!o.lockOk, editInstruction:"the head was put back on the full-body view that was drawn without one: the close-up’s own head, copied and made smaller, set on the neck" });
-}
+window.turnKeepEdit = turnKeepEdit;
 /* REMASTER, IN CODE (owner 2026-11-20: "we want to shift from [an image model] … to do the remastering, where we basically
    use what we have … painting that pixel by pixel using code"). An image engine that is asked for one change redraws
    everything, and each further edit loses a little more. The old remaster asked an engine to redraw the result once
@@ -6923,7 +6864,7 @@ async function turnRemasterInCode(o){
   return { url:r.url, message:turnKeptSummary(r.meta), charge:"remaster",
     meta:{ ...r.meta, restoredFromIso:bm.iso || "", restoredFromVersion:bm.version || undefined } };
 }
-window.turnHeadBack = turnHeadBack; window.turnRemasterInCode = turnRemasterInCode; window.remasterIsEngineEdit = remasterIsEngineEdit;
+window.turnRemasterInCode = turnRemasterInCode; window.remasterIsEngineEdit = remasterIsEngineEdit;
 window.turnKeepOriginal = turnKeepOriginal; window.turnKeptSummary = turnKeptSummary; window.turnKeepOrAsk = turnKeepOrAsk;
 window.qaFixAreas = qaFixAreas; window.qaAreaFixInstruction = qaAreaFixInstruction;
 /* A DESIGN TEXT AN OLDER LIMIT CUT (2026-11-18): until that day a prop's form, material and detail were cut at 200

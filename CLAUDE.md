@@ -112,13 +112,16 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   Opus 5.5 with her stable prefix cached (`museStablePrefix()`, `promptCache`).
 - **Code tasks (owner 2026-11-20: "let's charge for everything", prices approved that day):** a change the app makes to
   an image in code is charged by `image-proxy` (`task:"code"`, `codeTask`), held and settled at once under kind `image`,
-  on top of whatever it also uses (its reading, its image): the head from the close-up 6 credits, remaster 6 (priced by
-  what they are worth: each replaces a 10-credit image edit); resize 1, a kept edit 1 and 4K detail 3 are in the table
-  but not asked for (`billing-pricing.mjs` `CODE_TASK_USD` = `app/pricing.jsx` `TURN_CODE_TASK_USD`). Back to
+  on top of whatever it also uses (its reading, its image): remaster 6 credits (priced by what it is worth: it replaces
+  a 10-credit image edit); resize 1, a kept edit 1, 4K detail 3 and the head edit 6 are in the table but not asked for (`billing-pricing.mjs` `CODE_TASK_USD` = `app/pricing.jsx` `TURN_CODE_TASK_USD`). Back to
   the original size is free. The app asks after the work succeeded and before it saves (`turnChargeCodeTask`).
   **Which are charged (owner the same day: "decide … what tasks to charge users. So there's no complaints"):** only the
-  head and the remaster, where code replaces a paid image edit (`TURN_CODE_TASKS_CHARGED`). Resize, the keep step and
-  the 4K detail step are free: the app does not ask for them, though the server's table still prices all five.
+  remaster, where code replaces a paid image edit (`TURN_CODE_TASKS_CHARGED`). Resize, the keep step and the 4K detail
+  step are free: the app does not ask for them, though the server's table still prices all five.
+  **The head edit is gone (owner 2026-11-20, the same evening: "keep it as it was before, having a character sheet with a
+  midsection without a head … don't flag the missing head"):** nothing puts a head on a sheet's front view any more; the
+  QA check is told the headless view is the design (`QA_HEADLESS_BY_DESIGN`, artroom.jsx). The server still prices
+  `head`; nothing asks for it.
   `TURN_CODE_CHARGING` (pricing.jsx) is the app's switch: turn it on only once the deployed `image-proxy` knows the task.
 - **Where it lives:** SQL `supabase/billing-v2.sql` (= the block in `credits.sql`) + `billing-switch.sql`; Stripe →
   `supabase/functions/stripe-webhook` (grants once per invoice key, refunds, disputes, failed payments); owner order in

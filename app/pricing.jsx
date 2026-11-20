@@ -392,12 +392,13 @@
   const TURN_CODE_CHARGING = true;   // ON since 2026-11-20: image-proxy with the "code" task was deployed that day (owner: "yes, deploy the server function") and answered a real call
   /* WHICH OF THEM ARE CHARGED (owner 2026-11-20, after seeing the list: "if you [feel] something needs to be pushed back,
      for example, charging people for one credit if you think it's petty, we can push back on that. So decide … what
-     tasks to charge users. So there's no complaints"). Decided: only the two where code REPLACES a paid engine step and
-     so saves the person money, the head from the close-up and the remaster (each was a full image edit before). Not
+     tasks to charge users. So there's no complaints"). Decided: only where code REPLACES a paid engine step and so saves
+     the person money: the remaster (a full image edit before). The head from the close-up was the other one until the
+     owner took that edit out of the app the same evening. Not
      charged: a resize (it runs in the person's own browser in seconds: a one-credit fee for it is petty), and the keep
      and the 4K detail steps (their image and their reading are already paid for: a fee on a fee). The server's table
      still prices all five; the app asks only for these. */
-  const TURN_CODE_TASKS_CHARGED = ["head", "remaster"];
+  const TURN_CODE_TASKS_CHARGED = ["remaster"];   // (the head edit left the app 2026-11-20; its price stays in the tables, unused)
   function turnCodeTaskCredits(kind){
     if(TURN_CODE_TASKS_CHARGED.indexOf(String(kind||""))<0) return 0;
     const usd = TURN_CODE_TASK_USD[String(kind||"")];
