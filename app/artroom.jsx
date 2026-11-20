@@ -3818,6 +3818,9 @@ function useImageGen(opts){
     return turnResizeInCode({ url:srcUrl, tier, up, masterIso, fromMaster, lostMaster:!!(meta && meta.resizeMasterIso && !fromMaster), name:lockName(), noun:opts.noun||"image" });
   }, { editInstruction:"" });
   const upscale = (tier)=> resizeFromMaster(tier, true);
+  // 4K with added detail: one image from the engine in the top bar, at 4K; the code keeps the picture (turnUpscaleDetailKeep)
+  const upscaleDetail = ()=> generate({ editInstruction:UPSCALE_DETAIL_INSTRUCTION, imageSize:"4K", wholeRedraw:true,
+    keepOriginal:(io)=> turnUpscaleDetailKeep(io, { whose:(lockName() ? lockName()+"\u2019s " : "this ")+(opts.noun||"image") }) });
   const downscale = (tier)=> resizeFromMaster(tier, false);
   /* how many variant sub-sheets a Clear would also remove (for the confirm message) */
   const relatedClearCount = (typeof opts.relatedClearIds==="function")
@@ -3872,7 +3875,7 @@ function useImageGen(opts){
       if(!r||!r.ok)throw new Error((r&&r.error)||"Approval could not be saved.");
       setGenMeta(r.meta); return r;
     },
-    editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, codeEdit, remaster, upscale, downscale, relatedClearCount,
+    editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, codeEdit, remaster, upscale, upscaleDetail, downscale, relatedClearCount,
     relatedClearIdsOf:(typeof opts.relatedClearIds==="function") ? opts.relatedClearIds : null, relatedClearLabel:opts.relatedClearLabel||"",
     loadDetails, revertTo, revertPrevious, deleteCurrentAndPromote, deleteVersion, layers, allModels,
     // the card's CURRENT spec prompt — lets QA judge uploaded/imported images
@@ -6017,6 +6020,13 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
                 : "Downscales this image to "+x.t+", in code: the same picture, smaller. Fine detail is lost with the size. No credits. Lands as a new version; the larger one stays in the versions.",
               onClick:()=>{ setMenuOpen(false); setResizeOpen(false); if(x.up) gen.upscale(x.t); else gen.downscale(x.t); }},
               x.t+" \u2014 "+(x.up ? "larger" : "smaller"))),
+          // 4K WITH ADDED DETAIL (owner 2026-11-20): the one resize that uses an image engine, and says so with its price
+          (resizeOpen && genUrl && typeof gen.upscaleDetail==="function" && upscaleTiersFor(genMeta).indexOf("4K")>=0
+            && (typeof nbModelMaxRes!=="function" || typeof nbGetModel!=="function" || nbModelMaxRes(nbGetModel())==="4K"))
+            && React.createElement("button",{className:"sheet-tools-item sheet-tools-sub",disabled:gening,"data-role":"sheet-upscale-detail",
+              title:"Upscales this image to 4K and adds fine detail. The image engine in the top bar draws the picture at 4K; the code keeps YOUR picture (its shapes, faces and colours) and takes only the engine\u2019s fine detail, where the two agree. If the engine\u2019s drawing differs too much, you get the plain 4K instead. One image at 4K. Lands as a new version; this one stays in the versions.",
+              onClick:()=>{ setMenuOpen(false); setResizeOpen(false); gen.upscaleDetail(); }},
+              "4K \u2014 larger, with detail", typeof window.nbCostChip==="function" && window.nbCostChip(1, { res:"4K", refs:1 })),
           genUrl && !isPropCardMenu && (((window.turnContinuity||{}).props||[]).length>0) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Select an item in this image and attach that crop to an existing prop as a consistency reference.",
             onClick:()=>{ setPropRefOpen(true); setMenuOpen(false); }},
@@ -6454,6 +6464,41 @@ async function turnResizeInCode(o){
     if(o.lostMaster) r.message += " (The larger version it came from is no longer in its versions, so this was made from the image as it is.)"; }
   return r;
 }
+/* 4K, WITH ADDED DETAIL (owner 2026-11-20: "there's no point having … 4K that looks poor quality … decide for me"; decided:
+   yes, and the engine may only add fine detail). Code cannot make detail that was never drawn; an image engine can,
+   but it redraws the picture while it does. So: the picture is enlarged in code (that is the result's broad part:
+   shapes, faces, colours), the engine draws the same picture at 4K, and PixelKeep.pkDetailTransfer adds the engine's
+   FINE part only, where the two agree. Where the engine moved or changed something the enlarged picture stays as it
+   is; when the engine agrees on less than a third of it, the plain enlarged picture is what is saved, and it says so.
+   io: { baseUrl, url } from the image runner (an edit's keeper). → { url, meta } */
+const UPSCALE_DETAIL_INSTRUCTION = "UPSCALE this image to the highest resolution. Reproduce it EXACTLY: the same composition, the same positions and sizes of everything, the same faces, shapes, colours and light in every panel. Add ONLY fine surface detail that a larger picture can hold (skin texture, single strands of hair, the weave of fabric, crisp clean edges). Do NOT move, redraw, restyle, add or remove anything";
+async function turnUpscaleDetailKeep(io, o){
+  const PK = window.PixelKeep, whose = (o && o.whose) || "this image", Whose = whose.charAt(0).toUpperCase()+whose.slice(1);
+  const say = (m,k)=>{ if(typeof window.appToast==="function") window.appToast(m, k||"info"); };
+  let bmp; try{ bmp = await createImageBitmap(await (await fetch(io.baseUrl)).blob()); }catch(e){ return { discard:true, message:Whose+" was left as it is: the picture could not be read." }; }
+  const w0 = bmp.width, h0 = bmp.height, k = 4096/Math.max(w0,h0), W = Math.round(w0*k), H = Math.round(h0*k);
+  if(!(k>=1.3)) return { discard:true, message:Whose+" was left as it is: it is already that large." };
+  let U, E;
+  try{
+    let cur = bmp, cw = w0, chh = h0, cv = null;
+    while(cw<W || chh<H){ const nw = Math.min(W, cw*2), nh = Math.min(H, chh*2); const c = document.createElement("canvas"); c.width = nw; c.height = nh;
+      const g = c.getContext("2d", { willReadFrequently:true }); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"; g.drawImage(cur, 0, 0, nw, nh); cur = c; cv = c; cw = nw; chh = nh; }
+    U = cv.getContext("2d", { willReadFrequently:true }).getImageData(0, 0, W, H);
+    E = await turnReadPixels(io.url, W, H);
+  }catch(e){ return { discard:true, message:Whose+" was left as it is: this browser could not hold a 4K picture." }; }
+  const out = (img)=>{ const c = document.createElement("canvas"); c.width = W; c.height = H; c.getContext("2d").putImageData(img.data instanceof Uint8ClampedArray && img instanceof ImageData ? img : new ImageData(img.data, W, H), 0, 0); return c.toDataURL("image/jpeg", 0.96); };
+  let r = null; try{ r = (PK && typeof PK.pkDetailTransfer==="function") ? PK.pkDetailTransfer(U, E) : null; }catch(e){ r = null; }
+  const base = { keptOriginal:true, keptKind:"detail", size:"4K", upscaledFrom:{ w:w0, h:h0 } };
+  if(!r || !r.out || !(r.coverage>=0.33)){
+    if(PK && typeof PK.pkSharpen==="function") PK.pkSharpen(U, 0.35);
+    say(Whose+" is now 4K ("+W+"\u00d7"+H+"), enlarged in code only: the engine\u2019s 4K drawing differed too much from your picture"+(r && r.coverage!=null ? " (it agreed on "+Math.round(r.coverage*100)+"% of it)" : "")+", so none of its detail was used.", "info");
+    return { url:out(U), meta:{ ...base, detailCoverage:0, codeEdit:{ kind:"upscale", by:"In code", byId:"", drew:false } } };
+  }
+  const pct = Math.round(r.coverage*100);
+  say(Whose+" is now 4K ("+W+"\u00d7"+H+") with added detail. Your picture was kept: its shapes, faces and colours are its own, and fine detail was taken from the engine\u2019s 4K drawing on "+pct+"% of it.", "success");
+  return { url:out(r.out), meta:{ ...base, detailCoverage:r.coverage, codeEdit:{ kind:"upscale-detail", by:"In code", byId:"", drew:true } } };
+}
+window.turnUpscaleDetailKeep = turnUpscaleDetailKeep;
 window.turnResizeInCode = turnResizeInCode;
 window.turnDownscaleInCode = turnDownscaleInCode; window.downscaleTiersFor = downscaleTiersFor;
 window.turnUpscaleInCode = turnUpscaleInCode; window.upscaleTiersFor = upscaleTiersFor;
@@ -6471,6 +6516,7 @@ function codeEditLines(meta){
   if(!ce || !ce.by) return { did:"", drew:"" };
   const engine = m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) : "") || "";
   const from = m.restoredFromVersion ? "v"+m.restoredFromVersion : (m.builtFromVersion ? "v"+m.builtFromVersion : "the version before");
+  if(ce.kind==="upscale-detail") return { did:"Enlarged in code"+((m.upscaledFrom && m.pixelW) ? ", from "+m.upscaledFrom.w+"\u00d7"+m.upscaledFrom.h+" to "+m.pixelW+"\u00d7"+m.pixelH : "")+", with fine detail taken from an image engine\u2019s 4K drawing on "+Math.round((Number(m.detailCoverage)||0)*100)+"% of the picture. Its shapes, faces and colours are the picture\u2019s own.", drew:engine };
   if(ce.kind==="resize-back") return { did:"Brought back to its full size in code: this is the picture it was resized from, exactly as it was"+(m.pixelW ? " ("+m.pixelW+"\u00d7"+m.pixelH+")" : "")+". Nothing was lost and no engine was used.", drew:"" };
   if(ce.kind==="downscale") return { did:"Downscaled in code"+((m.downscaledFrom && m.pixelW) ? ", from "+m.downscaledFrom.w+"\u00d7"+m.downscaledFrom.h+" to "+m.pixelW+"\u00d7"+m.pixelH : "")+". It is the same picture; nothing was redrawn and no engine was used.", drew:"" };
   if(ce.kind==="upscale") return { did:"Upscaled in code"+((m.upscaledFrom && m.pixelW) ? ", from "+m.upscaledFrom.w+"\u00d7"+m.upscaledFrom.h+" to "+m.pixelW+"\u00d7"+m.pixelH : "")+". It is the same picture; nothing was redrawn and no engine was used.", drew:"" };

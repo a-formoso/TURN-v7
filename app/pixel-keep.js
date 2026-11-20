@@ -638,5 +638,52 @@
       for(let c=0; c<3; c++){ const v=src[i+c], avg=(src[i+c-4]+src[i+c+4]+src[i+c-w*4]+src[i+c+w*4])/4; d[i+c] = v + (v-avg)*k; } }
     return img;
   }
-  root.PixelKeep = { pkSharpen, pkAlign, pkCompose, pkCount, pkOnlyInside, pkPlacements, pkBox, pkHeadBack, pkHeadPlan, pkHeadWidth, pkHeadMeasure, pkNeckOpening, pkMoveDown };
+  /* FINE DETAIL FROM AN ENGINE, THE PICTURE FROM THE ORIGINAL (owner 2026-11-20: "users going from 1K or 2K to 4K … want …
+     the highest resolution or image quality possible"; decided: the engine may add detail, the code keeps the picture).
+     base = the original made larger in code; eng = an image engine's own drawing of it at that size. A picture can be
+     split into its broad part (shapes, colours, light: what a blur keeps) and its fine part (hair, pores, weave: what
+     the blur removes). The result is the BASE's broad part with the ENGINE's fine part added, and only where the two
+     pictures agree in their broad part: where the engine moved or changed something, the base stays as it is.
+     The engine's picture is first slid a few pixels to where it fits the base best (engines shift things slightly).
+     Returns { out, coverage (0..1: how much of the picture took the engine's detail), shift:[dx,dy] }. */
+  function pkBlurBox(src, w, h, r){
+    const tmp = new Float32Array(w*h), out = new Float32Array(w*h), n = 2*r+1;
+    for(let y=0; y<h; y++){ const o=y*w; let acc=0;
+      for(let k=-r; k<=r; k++) acc += src[o+Math.min(w-1,Math.max(0,k))];
+      for(let x=0; x<w; x++){ tmp[o+x]=acc/n; acc += src[o+Math.min(w-1,x+r+1)] - src[o+Math.max(0,x-r)]; } }
+    for(let x=0; x<w; x++){ let acc=0;
+      for(let k=-r; k<=r; k++) acc += tmp[Math.min(h-1,Math.max(0,k))*w+x];
+      for(let y=0; y<h; y++){ out[y*w+x]=acc/n; acc += tmp[Math.min(h-1,y+r+1)*w+x] - tmp[Math.max(0,y-r)*w+x]; } }
+    return out;
+  }
+  function pkDetailTransfer(base, eng, opts){
+    const w=base.width, h=base.height, B=base.data, E=eng.data, n=w*h, o=opts||{};
+    if(eng.width!==w || eng.height!==h || w<16 || h<16) return { failed:"the two pictures are not the same size" };
+    const r = o.radius || Math.max(2, Math.round(Math.max(w,h)/1024)), t0 = o.t0==null ? 7 : o.t0, t1 = o.t1==null ? 20 : o.t1, gain = o.gain==null ? 1 : o.gain;
+    const lum = (D)=>{ const L=new Float32Array(n); for(let i=0,j=0;i<n;i++,j+=4) L[i]=(D[j]*30+D[j+1]*59+D[j+2]*11)/100; return L; };
+    const LB = pkBlurBox(lum(B), w, h, r*3), LE = pkBlurBox(lum(E), w, h, r*3);
+    // where the engine's picture fits the base best: a few pixels either way, judged on the broad parts
+    const S = o.maxShift==null ? Math.max(2, Math.round(Math.max(w,h)/512)) : o.maxShift, step = Math.max(4, Math.round(Math.max(w,h)/200));
+    let best = { v:Infinity, dx:0, dy:0 };
+    for(let dy=-S; dy<=S; dy++) for(let dx=-S; dx<=S; dx++){ let v=0, c=0;
+      for(let y=S+step; y<h-S-step; y+=step) for(let x=S+step; x<w-S-step; x+=step){ v += Math.abs(LB[y*w+x]-LE[(y+dy)*w+x+dx]); c++; }
+      v = c ? v/c : Infinity; if(v < best.v - 1e-6) best = { v, dx, dy }; }
+    const dx=best.dx, dy=best.dy;
+    const at = (x,y)=> Math.min(h-1,Math.max(0,y+dy))*w + Math.min(w-1,Math.max(0,x+dx));
+    // where the two agree in their broad part (1) and where they do not (0), with soft borders
+    let M = new Float32Array(n);
+    for(let y=0; y<h; y++) for(let x=0; x<w; x++){ const i=y*w+x, d=Math.abs(LE[at(x,y)]-LB[i]); M[i] = d<=t0 ? 1 : d>=t1 ? 0 : 1-(d-t0)/(t1-t0); }
+    M = pkBlurBox(M, w, h, r*2);
+    let cov=0; for(let i=0;i<n;i++){ M[i] = M[i]<0.5 ? M[i]*M[i]*2 : M[i]; cov += M[i]; } cov /= n;   // (doubtful places count for less)
+    const out = new Uint8ClampedArray(B), ch = new Float32Array(n), lim = o.limit==null ? 48 : o.limit;
+    for(let c=0; c<3; c++){
+      for(let i=0,j=c;i<n;i++,j+=4) ch[i]=E[j];
+      const lo = pkBlurBox(ch, w, h, r);
+      for(let y=0; y<h; y++) for(let x=0; x<w; x++){ const i=y*w+x, m=M[i]; if(m<=0.01) continue;
+        const q = at(x,y); let hi = ch[q]-lo[q]; hi = hi>lim ? lim : hi<-lim ? -lim : hi;
+        out[i*4+c] = B[i*4+c] + gain*m*hi; }
+    }
+    return { out:{ width:w, height:h, data:out }, coverage:cov, shift:[dx,dy] };
+  }
+  root.PixelKeep = { pkDetailTransfer, pkBlurBox, pkSharpen, pkAlign, pkCompose, pkCount, pkOnlyInside, pkPlacements, pkBox, pkHeadBack, pkHeadPlan, pkHeadWidth, pkHeadMeasure, pkNeckOpening, pkMoveDown };
 })(typeof window!=="undefined" ? window : globalThis);

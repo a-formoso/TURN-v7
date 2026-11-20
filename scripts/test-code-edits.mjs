@@ -259,7 +259,7 @@ await test("6b Upscale, in code: only the sizes above the image's own; the same 
     "Upscaled in code, from 1024\u00d7576 to 2048\u00d71152. It is the same picture; nothing was redrawn and no engine was used.");
   assert.equal(F.nbShownModel({ modelLabel: "GPT Image 2.6 Sunburst", codeEdit: { kind: "upscale", by: "In code" } }).label, "In code", "no model made it larger, and none is named");
   // ONE ITEM, "Resize" (owner 2026-11-20): pressed, it shows the sizes the image can go to, smallest first, smaller or larger
-  const menu = between(art, '"data-role":"sheet-resize"', '          genUrl && !isPropCardMenu && (((window.turnContinuity||{}).props||[]).length>0)');
+  const menu = between(art, '"data-role":"sheet-resize"', '          // 4K WITH ADDED DETAIL');   // (the free sizes; the one with detail has its price)
   assert.ok(menu.includes('onClick:()=>setResizeOpen(v=>!v)},') && menu.includes('React.createElement(Icon.maximize,{s:14}),"Resize",'));
   assert.ok(menu.includes("[...downscaleTiersFor(genMeta).slice().reverse().map(t=>({ t, up:false })), ...upscaleTiersFor(genMeta).map(t=>({ t, up:true }))]"), "smallest first");
   assert.ok(menu.includes('x.t+" \\u2014 "+(x.up ? "larger" : "smaller")') && menu.includes("if(x.up) gen.upscale(x.t); else gen.downscale(x.t);") && menu.includes("setMenuOpen(false); setResizeOpen(false);"));
@@ -293,6 +293,34 @@ await test("6b Upscale, in code: only the sizes above the image's own; the same 
   PK.pkSharpen(edge); assert.ok(edge.data[(2 * 6 + 2) * 4] < 80 && edge.data[(2 * 6 + 3) * 4] > 160 && edge.data[(2 * 6 + 1) * 4] === 80);
   // the sheet's own instructions: room above and below the figures, and a natural stance, the same front and back
   assert.ok(art.includes("headroom_rule: \"in panels 2 and 3 the figures do NOT fill the panel's height") && art.includes("never a rigid mannequin, a soldier at attention or a T-pose") && art.includes("the SAME natural stance as panel 2 seen from behind"));
+});
+
+await test("6d 4K with added detail: the engine's fine detail only, where it agrees with the picture; the picture stays its own", () => {
+  // two made-up pictures: the same broad picture; the "engine's" has fine texture, sits 2 px right and 1 px down, and has one corner changed
+  const w = 400, h = 240, mk = (f) => { const d = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){ const c = f(x, y), i = (y * w + x) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255; } return { width: w, height: h, data: d }; };
+  const broad = (x, y) => { const v = 120 + 60 * Math.sin(x / 40) + 30 * Math.cos(y / 35); return [v, v * 0.8, v * 0.6]; }, tex = (x, y) => 14 * (((x * 7 + y * 13) % 5) - 2);
+  const base = mk(broad), eng = mk((x, y) => { const X = x - 2, Y = y - 1; return (x > 300 && y > 150) ? [30, 200, 60] : broad(X, Y).map((v) => v + tex(X, Y)); });
+  const r = PK.pkDetailTransfer(base, eng);
+  assert.deepEqual(plain(r.shift), [2, 1], "the engine's picture is slid to where it fits");
+  assert.ok(r.coverage > 0.85 && r.coverage < 0.97, "most of it agrees, the changed corner does not: " + r.coverage);
+  const rough = (im, x0, y0, x1, y1) => { let s = 0, c = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1 - 1; x++){ s += Math.abs(im.data[(y * w + x) * 4] - im.data[(y * w + x + 1) * 4]); c++; } return s / c; };
+  assert.ok(rough(base, 50, 50, 250, 130) < 2 && rough(r.out, 50, 50, 250, 130) > 25, "the fine detail is there now");
+  // the broad picture is still the base's: averaged over a patch, the result is the base
+  const mean = (im, x0, y0) => { let s = 0; for (let y = y0; y < y0 + 20; y++) for (let x = x0; x < x0 + 20; x++) s += im.data[(y * w + x) * 4]; return s / 400; };
+  for (const [x, y] of [[60, 60], [180, 100], [240, 40]]) assert.ok(Math.abs(mean(r.out, x, y) - mean(base, x, y)) < 2, "shapes and colours are the picture's own at " + x + "," + y);
+  // where the engine changed the picture, the base is untouched
+  for (const [x, y] of [[350, 200], [380, 220], [330, 180]]){ const i = (y * w + x) * 4; assert.deepEqual([...r.out.data.slice(i, i + 3)], [...base.data.slice(i, i + 3)], "the changed corner"); }
+  // an engine picture that is another picture gives no coverage; two sizes are refused
+  assert.ok(PK.pkDetailTransfer(base, mk((x, y) => [255 - broad(x, y)[0], 40, 200])).coverage < 0.2);
+  assert.equal(PK.pkDetailTransfer(base, { width: 10, height: 10, data: new Uint8ClampedArray(400) }).failed, "the two pictures are not the same size");
+  // the app side: one engine image at 4K, the keeper decides; under a third agreed, the plain 4K is saved and it says so
+  const kp = between(art, "async function turnUpscaleDetailKeep(io, o){", "window.turnUpscaleDetailKeep = turnUpscaleDetailKeep;");
+  assert.ok(kp.includes("PK.pkDetailTransfer(U, E)") && kp.includes("if(!r || !r.out || !(r.coverage>=0.33)){") && kp.includes("so none of its detail was used.") && kp.includes('codeEdit:{ kind:"upscale-detail", by:"In code", byId:"", drew:true }'));
+  assert.ok(art.includes("const upscaleDetail = ()=> generate({ editInstruction:UPSCALE_DETAIL_INSTRUCTION, imageSize:\"4K\", wholeRedraw:true,") && art.includes("Do NOT move, redraw, restyle, add or remove anything"));
+  const mi = between(art, '"data-role":"sheet-upscale-detail"', 'window.nbCostChip(1, { res:"4K", refs:1 })),');
+  assert.ok(mi.includes('"4K \\u2014 larger, with detail"') && mi.includes("gen.upscaleDetail();") && mi.includes("One image at 4K."), "offered with its price");
+  assert.ok(art.includes('upscaleTiersFor(genMeta).indexOf("4K")>=0') && art.includes('nbModelMaxRes(nbGetModel())==="4K"'), "only where 4K is larger, and the engine can render it");
+  assert.equal(F.codeEditLines({ modelLabel: "GPT Image 2.6 Sunburst", pixelW: 4096, pixelH: 2304, upscaledFrom: { w: 2048, h: 1152 }, detailCoverage: 0.91, codeEdit: { kind: "upscale-detail", by: "In code", drew: true } }).drew, "GPT Image 2.6 Sunburst");
 });
 
 await test("6c the stance comes from who the character is; the prop card is grouped like the character card", () => {
@@ -329,10 +357,10 @@ await test("7 the planner's reads; Frances; the page loads the new files", () =>
   const fr = between(ai, 'APP_FEATURES.push({ name:"Edits on a sheet are made in code: the image is kept and only the change goes in (Characters, Props, Art Room)"', "function appBrief(){");
   for (const w of ["Your image is kept as it is, pixel for pixel", "made entirely in code, with no image engine", "'Keep my image'", "'Use the engine's picture'", "Remaster \\u2014 bring the original back", "It makes no image",
     "'Changed in code'", "'New part drawn by'", "it cannot draw something new", "Hair that falls below the chin is not carried", "RESIZE ('Resize' in the image's", "it does NOT add detail that was never drawn",
-    "THE TWO FULL-BODY VIEWS STAY LEVEL", "lined up with the body by their clothes", "HOW A CHARACTER STANDS ON A NEW SHEET", "GOING SMALLER (downscaling)", "NOTHING IS LOST BY GOING DOWN AND UP AGAIN", "THE PROP CARD IS LAID OUT LIKE THE CHARACTER CARD"]) assert.ok(fr.includes(w), w);
+    "THE TWO FULL-BODY VIEWS STAY LEVEL", "lined up with the body by their clothes", "HOW A CHARACTER STANDS ON A NEW SHEET", "GOING SMALLER (downscaling)", "NOTHING IS LOST BY GOING DOWN AND UP AGAIN", "4K WITH ADDED DETAIL ('4K \\u2014 larger, with detail'", "THE PROP CARD IS LAID OUT LIKE THE CHARACTER CARD"]) assert.ok(fr.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Fable|Gemini|GPT/.test(fr));
   assert.ok(!ai.includes("clean re-render"), "the old name of Remaster is gone from what Frances is told");
-  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");
