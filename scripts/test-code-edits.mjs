@@ -373,8 +373,15 @@ await test("6e code tasks are charged, by the server, at the approved prices; th
   assert.ok(art.includes('try{ await turnChargeCodeTask("keep"); }catch(e){}') && art.includes('try{ await turnChargeCodeTask("detail"); }catch(e){}'));
   // the switch: ON since the server that knows the task was deployed and answered a real call (2026-11-20)
   assert.ok(pricing.includes("const TURN_CODE_CHARGING = true;") && pricing.includes("it may only be on while the deployed server knows the"));
-  const fr = between(ai, 'APP_FEATURES.push({ name:"Changes made in code have a small price (Characters, Props, Art Room)"', "function appBrief(){");
-  for (const w of ["Resize to a smaller or larger size, 1", "from the close-up, 2", "Remaster, 2", "kept in place", "3 on top of its 4K image", "FREE: going back to the size", "a change that could not be made costs nothing"]) assert.ok(fr.includes(w), w);
+  // WHICH ARE CHARGED (owner the same day: "charging people for one credit if you think it's petty, we can push back … decide
+  // … what tasks to charge users. So there's no complaints"): only where code replaces a paid image edit
+  const C = { console, Math, String, localStorage: { getItem: () => null, setItem: () => {} } }; C.window = C;
+  assert.ok(pricing.includes('const TURN_CODE_TASKS_CHARGED = ["head", "remaster"];'));
+  assert.ok(ch.includes('if((window.TURN_CODE_TASKS_CHARGED||[]).indexOf(String(kind||""))<0) return { ok:true, credits:0 };'), "a free task is never sent to the server");
+  assert.ok(ch.indexOf("TURN_CODE_TASKS_CHARGED") < ch.indexOf("sb.functions.invoke("));
+  assert.ok(pricing.includes('if(TURN_CODE_TASKS_CHARGED.indexOf(String(kind||""))<0) return 0;'), "and shows no price");
+  const fr = between(ai, 'APP_FEATURES.push({ name:"Changes made in code: which are free and which have a small price (Characters, Props, Art Room)"', "function appBrief(){");
+  for (const w of ["FREE: Resize to any size", "nothing more", "TWO HAVE A SMALL PRICE", "from the close-up, 2 credits, and Remaster, 2 credits", "a change that could not be made costs nothing"]) assert.ok(fr.includes(w), w);
 });
 
 await test("7 the planner's reads; Frances; the page loads the new files", () => {

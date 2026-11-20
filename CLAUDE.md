@@ -115,6 +115,9 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   on top of whatever it also uses (its reading, its image): resize 1 credit, the head from the close-up 2, remaster 2,
   a kept edit 1, 4K detail 3 (`billing-pricing.mjs` `CODE_TASK_USD` = `app/pricing.jsx` `TURN_CODE_TASK_USD`). Back to
   the original size is free. The app asks after the work succeeded and before it saves (`turnChargeCodeTask`).
+  **Which are charged (owner the same day: "decide … what tasks to charge users. So there's no complaints"):** only the
+  head and the remaster, where code replaces a paid image edit (`TURN_CODE_TASKS_CHARGED`). Resize, the keep step and
+  the 4K detail step are free: the app does not ask for them, though the server's table still prices all five.
   `TURN_CODE_CHARGING` (pricing.jsx) is the app's switch: turn it on only once the deployed `image-proxy` knows the task.
 - **Where it lives:** SQL `supabase/billing-v2.sql` (= the block in `credits.sql`) + `billing-switch.sql`; Stripe →
   `supabase/functions/stripe-webhook` (grants once per invoice key, refunds, disputes, failed payments); owner order in

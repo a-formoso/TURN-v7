@@ -3532,6 +3532,8 @@ window.nbRunSheetGeneration = nbRunSheetGeneration;
    a change that could not be made. → { ok:true, credits } | { ok:false, message }. With the switch off: { ok:true, credits:0 }. */
 async function turnChargeCodeTask(kind){
   if(!window.TURN_CODE_CHARGING) return { ok:true, credits:0 };
+  // only the tasks the owner's rule charges (pricing.jsx TURN_CODE_TASKS_CHARGED): any other is free and is not sent
+  if((window.TURN_CODE_TASKS_CHARGED||[]).indexOf(String(kind||""))<0) return { ok:true, credits:0 };
   const sb = (typeof window.sbClient==="function") ? window.sbClient() : null;
   if(!sb || !sb.functions) return { ok:false, message:"Sign in to do this: it uses credits." };
   const fnName = (window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxyFn) || "image-proxy";
