@@ -1494,7 +1494,10 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
       onBatchDone && onBatchDone(p.id); return; }
     if(!batchStarted.current && !gen.gening && !inflight){
       batchStarted.current = true; wasGening.current = false;
-      genWithOwner({ batch:true });         // the owner sheet first only if the batch said so
+      // (a card that answers "no" before it starts — its versions are full and the person chose to leave such images as
+      // they are — says "done" too, or the batch would wait for a generation that never starts)
+      Promise.resolve(genWithOwner({ batch:true })).then(r=>{   // the owner sheet first only if the batch said so
+        if(r===false && batchStarted.current && !_pInflight()){ batchStarted.current=false; onBatchDone && onBatchDone(p.id); } }).catch(()=>{});
       return;
     }
     if(batchStarted.current && wasGening.current && !gen.gening){

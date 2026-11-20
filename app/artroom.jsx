@@ -3679,6 +3679,8 @@ function useImageGen(opts){
       const ok = await turnLockedAsk(genMeta, lockName(), "image", (gopts && gopts.editInstruction) ? "change it" : "make a new one");
       if(!ok) return false;
     }
+    // its versions are full: the oldest would be removed, so the person is asked first
+    if(genUrl && !(await turnVersionsFullAsk(id, lockName(), opts.noun||"image", { batch:!!(gopts && gopts.batch) }))) return false;
     if(typeof window.nbAssertMediaIdentity==="function"){
       try{ window.nbAssertMediaIdentity(opts, "image-generate"); }
       catch(e){ setGenErr((e&&e.message)||"Character identity needs review before rendering."); throw e; }
@@ -3726,6 +3728,7 @@ function useImageGen(opts){
   const importSheet = async (file)=>{
     if(sheetLockOf(genMeta) && !(await turnLockedAsk(genMeta, lockName(), "image", "replace it with an upload"))) return;
     if(gening || !file) return;
+    if(genUrl && !(await turnVersionsFullAsk(id, lockName(), opts.noun||"image"))) return;
     if(!/^image\/(png|jpeg|jpg|webp|avif)$/i.test(file.type||"")){ setGenErr("Choose a PNG, JPEG, WebP or AVIF image."); return; }
     if(typeof window.nbAssertMediaIdentity==="function"){
       try{ window.nbAssertMediaIdentity(opts,"image-import-start"); }
@@ -3786,6 +3789,7 @@ function useImageGen(opts){
     o = o || {};
     if(gening || !genUrl || typeof make!=="function") return false;
     if(sheetLockOf(genMeta) && !o.lockOk && !(await turnLockedAsk(genMeta, lockName(), "image", "change it"))) return false;
+    if(!(await turnVersionsFullAsk(id, lockName(), opts.noun||"image"))) return false;
     if(typeof window.nbAssertMediaIdentity==="function"){
       try{ window.nbAssertMediaIdentity(opts,"image-code-edit-start"); }
       catch(e){ setGenErr((e&&e.message)||"Character identity needs review before this sheet is changed."); return false; }
@@ -4471,7 +4475,11 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
         /* version history — each prior version is an edit "layer" you can preview or restore */
         history.length>0 && React.createElement("div",{className:"dt-section"},
           React.createElement("div",{className:"dt-sec-lab"},
-            React.createElement(Icon.history,{s:12}),"Earlier versions ("+history.length+")"),
+            React.createElement(Icon.history,{s:12}),"Earlier versions ("+history.length+")",
+            // (2026-11-20) full: the next new version removes the oldest, said here before it happens
+            (history.length >= (window.NB_VERSIONS_KEPT||12)) && React.createElement("span",{className:"dt-hist-full","data-role":"versions-full"},"Full"),
+            (history.length >= (window.NB_VERSIONS_KEPT||12)) && (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About the versions limit",
+              text:"An image keeps "+(window.NB_VERSIONS_KEPT||12)+" earlier versions. The next new one removes the oldest for good. To keep a version, download it first, or delete one you do not need."})),
           React.createElement("div",{className:"dt-hist"},
             history.map((h,i)=>{
               const hm = h.meta||{};
@@ -4873,6 +4881,39 @@ async function turnLockedAsk(meta, name, noun, what){
     confirmLabel:"Unlock and go on", cancelLabel:"Keep it locked" }));
 }
 window.sheetLockOf = sheetLockOf; window.turnLockedAsk = turnLockedAsk;
+/* A FULL SET OF VERSIONS ASKS BEFORE IT LOSES ONE (owner 2026-11-20: "if there is a limit, can we make sure to warn the
+   user whenever this is reached"). An image keeps 12 earlier versions (imagegen.jsx NB_VERSIONS_KEPT); the 13th removes
+   the oldest for good, and until today it did so without a word. Before a card makes a new version of an image whose
+   versions are full, the person is told which one would go and chooses. A run over many cards asks once for the run
+   (the answer holds for ten minutes): "no" leaves the full ones as they are, as a batch leaves a locked one. */
+let _versionsRunAsk = null, _versionsRunAnswer = null;
+function turnVersionDay(iso){
+  const d = new Date(iso||""); if(isNaN(d.getTime())) return "";
+  return d.getDate()+" "+["January","February","March","April","May","June","July","August","September","October","November","December"][d.getMonth()]+" "+d.getFullYear();
+}
+async function turnVersionsFullAsk(id, name, noun, o){
+  const KEPT = window.NB_VERSIONS_KEPT || 12;
+  if(!id || typeof nbGetHistory!=="function" || typeof window.appConfirm!=="function") return true;
+  let h = []; try{ h = (await nbGetHistory(id)) || []; }catch(e){ return true; }
+  if(h.length < KEPT) return true;
+  const agreed = ()=>{ try{ if(typeof window.nbVersionsAgreed==="function") window.nbVersionsAgreed(id); }catch(e){} return true; };
+  if(o && o.batch){
+    if(_versionsRunAnswer && Date.now()-_versionsRunAnswer.at < 10*60*1000) return _versionsRunAnswer.ok ? agreed() : false;
+    if(!_versionsRunAsk) _versionsRunAsk = window.appConfirm({
+      title:"Some of these images already keep "+KEPT+" earlier versions",
+      body:"That is the most an image can keep. For each of those, making a new image removes its oldest version for good; the others and the current image stay. Choose \u201cLeave those as they are\u201d to make the rest only.",
+      confirmLabel:"Make them all", cancelLabel:"Leave those as they are" })
+      .then(ok=>{ _versionsRunAnswer = { ok:!!ok, at:Date.now() }; _versionsRunAsk = null; return !!ok; });
+    return (await _versionsRunAsk) ? agreed() : false;
+  }
+  const whose = (name ? name+"\u2019s " : "this ")+(noun||"image"), oldest = h[h.length-1] || {}, day = turnVersionDay(oldest.meta && oldest.meta.iso);
+  const ok = !!(await window.appConfirm({
+    title:whose.charAt(0).toUpperCase()+whose.slice(1)+" already keeps "+KEPT+" earlier versions",
+    body:"That is the most an image can keep. Making a new one removes the oldest version"+(day ? " (from "+day+")" : "")+" for good; the other "+(KEPT-1)+" and the current image stay. To keep that oldest one, open the image full size and download it first.",
+    confirmLabel:"Go on", cancelLabel:"Not now" }));
+  return ok ? agreed() : false;
+}
+window.turnVersionsFullAsk = turnVersionsFullAsk; window.turnVersionDay = turnVersionDay;
 /* THE FINAL LOOK (the road, step 6 — owner 2026-11-20: "yes, start on step 6"). A character's final look is their sheet
    once it WEARS every worn item that has an image of its own (each one copied in by "Update sheet with new wardrobe",
    the rest of the sheet kept pixel for pixel), has been checked, and is locked. It is the same sheet, a later version
@@ -7766,7 +7807,12 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     // a LOCKED sheet is left alone by a batch (the road, step 4): this card says "done" at once, so the batch moves on
     // (it would otherwise wait for a generation that never starts)
     if(!batchStarted.current && !gen.gening && !inflight && sheetLockOf(gen.genMeta)){ onBatchDone && onBatchDone(c.id); return; }
-    if(!batchStarted.current && !gen.gening && !inflight){ batchStarted.current=true; wasGening.current=false; gen.generate({ batch:true }); return; }
+    if(!batchStarted.current && !gen.gening && !inflight){ batchStarted.current=true; wasGening.current=false;
+      // a card that answers "no" before it starts (its versions are full and the person chose to leave such images as
+      // they are) says "done" too, or the batch would wait for a generation that never starts
+      Promise.resolve(gen.generate({ batch:true })).then(r=>{
+        if(r===false && batchStarted.current && !(window.__nbGenInflight && window.__nbGenInflight[_cgen])){ batchStarted.current=false; onBatchDone && onBatchDone(c.id); } }).catch(()=>{});
+      return; }
     if(batchStarted.current && wasGening.current && !gen.gening){ batchStarted.current=false; onBatchDone && onBatchDone(c.id); }
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, c.id]);

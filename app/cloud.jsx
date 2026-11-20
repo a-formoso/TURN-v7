@@ -3556,6 +3556,7 @@ async function cloudCommit(projectId, uid, entityId, dataUrl, meta, refs, kind, 
     return withDiagnostics(await compensateCancellation(finished.row||written));
   }
   return withDiagnostics({ tier:"cloud", url, path:newPath,
+    ...(dropped.length?{trimmed:dropped.length}:{}),   // (2026-11-20) the oldest version(s) left to make room: the app says so
     ...(postFenceWarning?{cleanupWarning:postFenceWarning}:{}),
     ...(finished.warning?{cleanupWarning:finished.warning}:{}) });
 }

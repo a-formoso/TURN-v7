@@ -2336,6 +2336,21 @@ async function nbCommitImageDimensions(src){
     im.onload=()=>resolve(im.naturalWidth&&im.naturalHeight ? { w:im.naturalWidth, h:im.naturalHeight } : null);
     im.onerror=()=>resolve(null); im.src=src; });
 }
+/* THE VERSIONS LIMIT IS NEVER REACHED IN SILENCE (owner 2026-11-20: "if there is a limit, can we make sure to warn the
+   user whenever this is reached"). An image keeps NB_VERSIONS_KEPT earlier versions; one more and the oldest is removed
+   for good. A card asks before it makes that version (artroom.jsx turnVersionsFullAsk). Every other way an image is
+   saved (a location's image, a storyboard, a batch) ends here: when the save let a version go and nobody was asked,
+   a notice says so. */
+const NB_VERSIONS_KEPT = 12;
+const _nbVersionsAsked = new Map();   // id -> when the person agreed to let the oldest go
+function nbVersionsAgreed(id){ _nbVersionsAsked.set(String(id), Date.now()); }
+function nbVersionsTrimNotice(id, n){
+  if(!(n>0)) return;
+  const t = _nbVersionsAsked.get(String(id)); _nbVersionsAsked.delete(String(id));
+  if(t && Date.now()-t < 15*60*1000) return;   // they were asked, and said yes
+  try{ if(typeof window.appToast==="function") window.appToast("This image already kept "+NB_VERSIONS_KEPT+" earlier versions, the most it can. Its oldest version was removed to make room for the new one.", "info"); }catch(e){}
+}
+window.NB_VERSIONS_KEPT = NB_VERSIONS_KEPT; window.nbVersionsAgreed = nbVersionsAgreed;
 function nbCommit(id, dataUrl, meta, refs, kind, epoch, cancelled, expected){
   return _nbSerial(id, ()=>_nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled, expected));
 }
@@ -2385,6 +2400,7 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled, e
     if(r&&r.tier==="cancellation-error") return r;
     if(r && r.tier==="cloud" && r.url){
       _cloudUrlCache.set(id, r.url); _cloudMetaCache.set(id, meta||null);
+      nbVersionsTrimNotice(id, r.trimmed);
       // we hold the bytes we just generated — warm the byte-cache directly so the
       // next session never re-downloads this sheet. This is deliberately detached:
       // persistence has reached its final cancellation decision, so cache warming
@@ -2409,6 +2425,7 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled, e
     if(!matchesExpected())return {tier:"error",url:dataUrl,error:"The artwork changed. Reopen the review before replacing it."};
     hist.unshift({ url:prev, meta:localGetMeta(id), refs:prevRefs });
     await localSetHistory(id, hist.slice(0,12));
+    nbVersionsTrimNotice(id, hist.length-12);
   }
   if(_stale()) return { tier:"stale", url:dataUrl };
   if(_cxl())   return { tier:"cancelled", url:dataUrl };
