@@ -255,7 +255,17 @@ await test("T the design text is whole (owner 2026-11-18: 'Lanyard / Prop text a
   const box = { console, String, Array, Math, Object, window: null }; box.window = box; box.scrubBrand = (t) => t;
   vm.runInNewContext(between(ai, "function clipWords(s, max){", "function clipSpecText(") + "\n" + between(ai, "function clipToSentence(s, max){", "window.clipToSentence = clipToSentence;")
     + "\n" + between(ai, "const PROP_FIELD_LIMITS = ", "\nasync function aiExtractScreenplayProps(") + "\nthis.mapPropEntry = mapPropEntry; this.LIM = PROP_FIELD_LIMITS;", box);
-  assert.deepEqual(plain(box.LIM), { form: 420, material: 360, detail: 300, size: 110, style: 160 });
+  assert.deepEqual(plain(box.LIM), { form: 420, material: 360, detail: 300, size: 240, style: 160 });
+  // (2026-11-20) a size made of two parts keeps both: the holder's height was lost at 110 characters, so one sheet drew it tall and the next wide
+  const SIZE = "Strap ~90 cm total loop length (~45 cm drop when hung) \u00d7 ~2 cm wide \u00d7 ~1.5 mm thick. Card holder ~11 cm wide \u00d7 ~7 cm tall \u00d7 ~4 mm thick.";
+  assert.equal(box.mapPropEntry({ size: SIZE }).size, SIZE);
+  const P2 = between(ai, "async function aiDesignPropBible(props, characters, project){", "window.aiDesignPropBible = aiDesignPropBible;");
+  assert.ok(P2.includes("For an object made of parts (a lanyard and its card holder, a key on its fob), give each part's measurements."));
+  assert.ok(P2.includes("give BOTH sides, so it is clear which is longer"));
+  assert.ok(P2.includes("WAS CUT OFF MID-SENTENCE by an older version of the app: it is unfinished, not a decision."), "old cut text is finished, not preserved");
+  // a size the card has is kept, unless it was cut: then the drafter's whole size replaces it
+  assert.ok(P2.includes('const sizeWasCut = !!(original && /\\u2026\\s*$/.test(String(original.size||"")));'));
+  assert.ok(P2.includes('if(original&&original.size&&!(sizeWasCut&&mapped.size)){mapped.size=original.size;mapped.sizeBasis=original.sizeBasis||"estimated";}'));
   const LANYARD = "A flat navy woven polyester neck lanyard about 2 cm wide, sewn into a closed loop. At the bottom is a black plastic swivel clip and a small metal split ring holding a clear, slightly yellowed rigid plastic ID card holder with a printed staff card inside.";
   assert.equal(box.mapPropEntry({ form: LANYARD }).form, LANYARD, "the lanyard's whole form is kept (it was cut at 'slightly yellowed rigid…')");
   const long = box.mapPropEntry({ form: LANYARD + " " + "The holder is scuffed at its corners from years of daily use. ".repeat(6) }).form;
@@ -536,7 +546,7 @@ await test("F Frances knows; nothing she is told names the codename; the changed
   assert.ok(f.includes("/from its row in the character card's Props & accessories section|Only hero props are cards/.test(f.what)"), "older entries are put right");
   assert.ok(ai.includes("beside the WHOLE cast (since 2026-11-18; it used to stop at five people)") && !ai.includes("share the most scenes with (up to five)"));
   assert.ok(ai.includes("press the small square at the start of the item's row, make the object's image there, keep 'Visual lock' ticked"));
-  const KEYS = ["20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2"];   // (the list grows with each key bump)
+  const KEYS = ["20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "ai.jsx", "script.jsx"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });

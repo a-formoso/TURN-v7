@@ -7269,7 +7269,13 @@ window.aiCastScriptFacts = aiCastScriptFacts;
    "…holding a clear, slightly yellowed rigid…": form, material and detail were cut at 200 characters, mid-sentence,
    and the drafter was never told the limit. The same fault the locations had on 2026-10-27, and the same cure: the
    drafter is told these lengths, and a longer answer is cut at the end of a sentence, never mid-phrase. */
-const PROP_FIELD_LIMITS = { form:420, material:360, detail:300, size:110, style:160 };
+/* (owner 2026-11-20: a lanyard's card holder came out tall on one sheet and wide on the next) Two more faults of the
+   same family. The size had 110 characters: enough for one object, not for one made of two parts ("Strap … Card
+   holder ~11 cm wide…" lost the holder's height, so no prompt ever said which way up it is). And text that an older
+   version had cut ("…") went back to the drafter as an "authored decision to preserve", so it came back cut again.
+   Now the size has room for every part, and the drafter is told that a field ending in "…" was cut and must be
+   finished. */
+const PROP_FIELD_LIMITS = { form:420, material:360, detail:300, size:240, style:160 };
 function mapPropEntry(e){
   // (2026-10-29) a "(Proposal)" label the model wrote into a field never reaches the card (propSpecClean)
   const unmark = (t)=> (typeof window.propSpecClean==="function") ? window.propSpecClean(t) : t;
@@ -7369,10 +7375,13 @@ async function aiDesignPropBible(props, characters, project){
       "one-dimensional (a '~2 m rope'). Always the object's TRUE physical dimensions — even in a "+
       "tiny-creature or giant world, state what it really measures; how big it LOOKS next to the "+
       "cast is computed downstream from the characters' heights. "+
+      "For an object made of parts (a lanyard and its card holder, a key on its fob), give each part's measurements. "+
+      "For a card, a sheet, a screen or a holder, give BOTH sides, so it is clear which is longer (e.g. '~11 cm wide \u00d7 ~7 cm tall'). "+
       "style = rendering style e.g. 'photoreal product reference, 85mm, soft studio lighting'.\n"+
       "LENGTHS (longer text is cut, so finish every sentence inside them): form up to "+PROP_FIELD_LIMITS.form+" characters, material up to "
         +PROP_FIELD_LIMITS.material+", detail up to "+PROP_FIELD_LIMITS.detail+", size up to "+PROP_FIELD_LIMITS.size+", style up to "+PROP_FIELD_LIMITS.style
         +". Say the parts that make the object recognisable first (for an ID badge or card: the holder, the card and its photo).\n"+
+      "A FIELD OF THE EXISTING DESIGN THAT ENDS IN '\u2026' WAS CUT OFF MID-SENTENCE by an older version of the app: it is unfinished, not a decision. Keep what it does say, and write the part that is missing, so the field ends on a full sentence and never on '\u2026'.\n"+
       "AN OBJECT THAT SHOWS A PERSON'S PHOTO (an ID badge, pass or licence, a framed picture, a Polaroid, a snapshot): say in form what the photo shows. "+
       "The person looks as they do NOW, the same age, face and hair, unless the screenplay says the picture is from an earlier time; only then say how many years younger. "+
       "Say what they wear in the photo: clothes true to who that person is, and NOT the outfit they wear in the film (for a work ID, a plain shirt or a simple top).\n"+
@@ -7389,7 +7398,10 @@ async function aiDesignPropBible(props, characters, project){
       arr.forEach((e,i)=>{ const id = idOf(e.id) || (items[i] && items[i].id);
         if(id){
           const original=items.find(p=>p.id===id), mapped=mapPropEntry(e);
-          if(original&&original.size){mapped.size=original.size;mapped.sizeBasis=original.sizeBasis||"estimated";}
+          // a size the card already has is kept (a measurement someone may have set) — unless it was CUT ("… ~11 cm wide…",
+          // an older version's 110 characters): that one is unfinished, so the drafter's whole size replaces it (2026-11-20)
+          const sizeWasCut = !!(original && /\u2026\s*$/.test(String(original.size||"")));
+          if(original&&original.size&&!(sizeWasCut&&mapped.size)){mapped.size=original.size;mapped.sizeBasis=original.sizeBasis||"estimated";}
           else if(mapped.size)mapped.sizeBasis="estimated";
           part[id] = { ...mapped, writingProvenance:by, ...(_lookbookStamp(project)!==undefined ? { lookbookBrief:_lookbookStamp(project) } : {}) };
         } });
