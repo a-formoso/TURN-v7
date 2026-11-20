@@ -380,7 +380,7 @@ await test("6e code tasks are charged, by the server, at the approved prices; th
   assert.ok(ch.includes('if((window.TURN_CODE_TASKS_CHARGED||[]).indexOf(String(kind||""))<0) return { ok:true, credits:0 };'), "a free task is never sent to the server");
   assert.ok(ch.indexOf("TURN_CODE_TASKS_CHARGED") < ch.indexOf("sb.functions.invoke("));
   assert.ok(pricing.includes('if(TURN_CODE_TASKS_CHARGED.indexOf(String(kind||""))<0) return 0;'), "and shows no price");
-  const fr = between(ai, 'APP_FEATURES.push({ name:"Changes made in code: which are free and which have a small price (Characters, Props, Art Room)"', "function appBrief(){");
+  const fr = between(ai, 'APP_FEATURES.push({ name:"Credits: which changes made in code are free and which are charged (Characters, Props, Art Room)"', "function appBrief(){");
   for (const w of ["FREE: Resize to any size", "nothing more", "TWO HAVE A SMALL PRICE", "from the close-up, 2 credits, and Remaster, 2 credits", "a change that could not be made costs nothing"]) assert.ok(fr.includes(w), w);
 });
 
