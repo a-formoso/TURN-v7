@@ -341,6 +341,15 @@ await test("6c the stance comes from who the character is; the prop card is grou
   // screenplay" pill, the ticked "From X's sheet" pill (the marked one, with "Make it again", stays), the Fitting button
   assert.ok(!props.includes('React.createElement(Icon.alert,{s:10}),"Not in screenplay")') && !props.includes('React.createElement(Icon.box,{s:12}),"Fitting")'));
   assert.ok(props.includes('(anchor && anchor.mark) && React.createElement("div",{className:"prop-status-row prop-anchor-row"'));
+  // ONE CARD LOOK, GROUPS INCLUDED (owner 2026-11-20: "look at what we did for locations as far as spacing … replicate that"):
+  // the location card's own rules, for a section that sits in a group too; no new pattern
+  const cssAll = read("app/styles.css"), CARDS = ":is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card])";
+  assert.ok(cssAll.includes(".artroom " + CARDS + " > .sheet-body > :is(.sheet-fold,.sheet-group) + :is(.sheet-fold,.sheet-group){margin-top:calc(-1 * var(--card-gap,15px))}"), "rows touch on every card");
+  assert.ok(cssAll.includes(CARDS + " > .sheet-body:has(> .sheet-group:last-child){padding-bottom:0}"));
+  const boxOf = (sel) => { const i = cssAll.indexOf(sel); assert.ok(i >= 0, sel); const a = cssAll.indexOf("{", i) + 1; return cssAll.slice(a, cssAll.indexOf("}", a)); };
+  const fields = " > :is(.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-sub,.char-phys,.role-fields,.sheet-2col,.prop-more-fields,.prop-content-fields,.bs-launch)";
+  assert.equal(boxOf(CARDS + " > .sheet-body > .sheet-group > .sheet-group-body > .sheet-fold > .sheet-fold-body" + fields), boxOf(CARDS + " > .sheet-body > .sheet-fold > .sheet-fold-body" + fields),
+    "a subsection in a group's section has exactly the box a location's has");
   // the prop card's lower half: The object · Continuity · Advanced
   const card = between(props, 'React.createElement(window.CardGroup,{label:"The object",defaultOpen:(!drafted && !!p.manual)},', "\n}\n");
   const at = (k) => { const i = card.indexOf(k); assert.ok(i >= 0, k); return i; };

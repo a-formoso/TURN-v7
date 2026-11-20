@@ -12492,3 +12492,17 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 /* RESIZE in the image menu (2026-11-20): its sizes sit under it, set in; the arrow at its right says it opens */
 .sheet-tools-item .sheet-tools-more{margin-left:auto;display:inline-flex;color:var(--txt-2)}
 .sheet-tools-item.sheet-tools-sub{padding-left:32px;font-size:12.5px}
+
+/* ONE CARD LOOK, GROUPS INCLUDED (owner 2026-11-20: "look at what we did for locations as far as spacing … and replicate
+   that. Don't create new patterns … borders to differentiate … subsections … implement it for … character cards and
+   props cards"). The location card's rules were written for sections that sit directly in the card. A character's and
+   a prop's sections also sit inside GROUPS ("The look", "The object", "Advanced"), where three of those rules did not
+   reach. Nothing new here: the same rules, for a section in a group too.
+   1 a group is a row like a section on EVERY card (it was the character card's alone): rows touch, one line between
+   2 a card that ends in a group has no space under its last row, as one that ends in a section
+   3 every subsection in a group's section gets the location card's box
+   4 a section in a group ends with the card's gap under its content */
+.artroom :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body > :is(.sheet-fold,.sheet-group) + :is(.sheet-fold,.sheet-group){margin-top:calc(-1 * var(--card-gap,15px))}
+:is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body:has(> .sheet-group:last-child){padding-bottom:0}
+:is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body > .sheet-group > .sheet-group-body > .sheet-fold > .sheet-fold-body > :is(.sheet-field,.loc-anchor-field,.loc-render-style-details,.loc-sub,.char-phys,.role-fields,.sheet-2col,.prop-more-fields,.prop-content-fields,.bs-launch){border:1px solid var(--line);border-radius:var(--r-m);padding:8px 10px;background:var(--bg-2);min-width:0}
+.artroom :is([data-location-card],[data-char-card],[data-prop-card],[data-shot-card],[data-look-card],[data-crowd-card]) > .sheet-body > .sheet-group > .sheet-group-body > .sheet-fold > .sheet-fold-body{padding-bottom:var(--card-gap)}
