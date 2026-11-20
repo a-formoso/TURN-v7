@@ -70,6 +70,10 @@ const gen = (meta) => ({ id: "eshita", genUrl: "blob:x", gening: false, genMeta:
 const passQa = { iso: "s2", at: 1, report: { verdict: "pass", deviations: [], inventions: [] } };
 
 await test("2 the lock of a final look: its own words, its record, and one question for what is not clean", async () => {
+  // words found wrong in the first paid run: a sheet that WAS checked and drifts is to be fixed, not "checked first";
+  // unlocking a final look names it
+  assert.ok(art.includes('(sev!=="pass" ? (kept ? "fix it first" : "check it first") : "lock "+(open.length===1 ? "the item" : "the items")+" first")'));
+  assert.ok(art.includes('title:"Unlock "+(name ? name+"\\u2019s " : "this ")+(isFinal ? "final look" : (noun||"image"))+"?",'));
   const meta = { iso: "s2", wornReferences: wears("p1", "p2"), qa: passQa };
   // all clean: one press
   const a = lab(); const look = a.charFinalLook({ meta, worn: [ring, { ...lanyard, locked: true }], qa: "pass" });
@@ -130,9 +134,16 @@ await test("3 the card: one amber line while the final look waits; the buttons a
 await test("4 the check of a final look: each worn item is looked for; a kept version is read against its whole description", async () => {
   const btn = between(art, "function QaCheckButton({", "window.QaCheckButton");
   assert.ok(/function QaCheckButton\(\{[^}]*wornItems[^}]*\}\)\{/.test(art));
-  assert.ok(btn.includes('if(gm.mode==="edit" && gm.keptOriginal && gm.specPrompt)'));
+  // any edited version, kept pixel for pixel or redrawn whole by the engine (the first paid check read an older edit
+  // against its small instruction and called the sheet's own headless front view a major drift)
+  assert.ok(btn.includes('if(gm.mode==="edit" && gm.specPrompt)'));
+  assert.ok(!btn.includes("gm.keptOriginal && gm.specPrompt"));
+  // the check reads the whole contract: a sheet's layout rule sits past 9,000 characters once its items have designs
+  assert.ok(ai.includes("const QA_CONTRACT_MAX_CHARS = 24000;"));
+  assert.ok(ai.includes('"GENERATION PROMPT:\\n"+String(item.prompt).slice(0,QA_CONTRACT_MAX_CHARS)+"\\n\\n"'));
+  assert.ok(!/String\(item\.prompt\)\.slice\(0,[^Q)]*5000/.test(ai), "no 5,000-character cut of the contract");
   assert.ok(btn.includes('contract = String(gm.specPrompt)+(gm.editInstruction ? "\\n\\nAFTER THAT, ONE LOCAL CHANGE WAS MADE TO THE IMAGE (where it differs from the text above, the change is right): "+String(gm.editInstruction) : "");'));
-  assert.ok(btn.indexOf("gm.keptOriginal && gm.specPrompt") < btn.indexOf('if(!contract && typeof gen.buildFinal==="function"){'));
+  assert.ok(btn.indexOf('gm.mode==="edit" && gm.specPrompt') < btn.indexOf('if(!contract && typeof gen.buildFinal==="function"){'));
   assert.ok(btn.includes("wi = wi.filter(x=> x && x.name).slice(0,8); return wi.length ? { items:wi } : {}; })(),"), "no items, nothing added to the read");
   const sheet = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
   assert.ok(sheet.includes("const finalLookItems = ()=> (finalLook ? finalLook.items : []).map(it=>{ const p = wornProps.find(x=>x.id===it.id) || {};"));
@@ -145,12 +156,24 @@ await test("4 the check of a final look: each worn item is looked for; a kept ve
   assert.ok(qa.indexOf("WORN ITEMS THIS SHEET MUST SHOW") < qa.indexOf("SECOND, SEPARATELY: the SCREENPLAY"));
 });
 
+await test("4b a card takes its image's record when the record arrives after the image", async () => {
+  // found by the first paid check: after a reload the picture came from this device's copy, the record later, and the
+  // card kept an image with no record: no kept QA result, no lock, no final-look line, a new report not saved
+  const hook = between(art, "/* hydrate from IndexedDB / cloud on mount", "window.addEventListener(\"nb-prefetched\", onPrefetched);");
+  assert.ok(art.includes("const genMetaRef = React.useRef(genMeta); genMetaRef.current = genMeta;"));
+  assert.ok(hook.includes("if(!alive || !e.detail || !e.detail.ids || e.detail.ids.indexOf(id)<0) return;"));
+  assert.ok(hook.includes('if(!genMetaRef.current && typeof nbGetMeta==="function"){ const m = nbGetMeta(id); if(m) setGenMeta(m); }'));
+  assert.ok(hook.includes('if(genUrl && !genMetaRef.current && typeof nbGetMeta==="function"){ const m0 = nbGetMeta(id); if(m0) setGenMeta(m0); }'));
+  // an image the card already shows is never swapped by a prefetch
+  assert.ok(/if\(genUrlRef\.current\)\{[\s\S]{0,200}return;\s*\}/.test(hook));
+});
+
 await test("5 Frances knows it, and the page loads the new files", async () => {
   const f = between(ai, "APP_FEATURES.push({ name:\"The final look: a character's sheet with its items on it, checked and locked (Characters, Art Room)\"", "function appBrief(){");
   for (const w of ["Final look ready to check", "Final look ready to lock", "Lock final look", "Final look locked", "New wardrobe ready", "starts with 'Item:'", "NOTHING IS BLOCKED",
     "their locked sheet is it", "Carried items are not on the sheet"]) assert.ok(f.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Gemini|GPT/.test(f));
-  for (const file of ["artroom.jsx", "ai.jsx"]) assert.ok(["20261120-final1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+  for (const file of ["artroom.jsx", "ai.jsx"]) assert.ok(["20261120-final1", "20261120-shots1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

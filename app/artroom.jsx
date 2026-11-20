@@ -3496,6 +3496,7 @@ function useImageGen(opts){
   const [layers, setLayers] = React.useState(0);   // count of prior versions (edit layers) you can revert to
 
   const genUrlRef = React.useRef(genUrl); genUrlRef.current = genUrl;
+  const genMetaRef = React.useRef(genMeta); genMetaRef.current = genMeta;
 
   const refreshLayers = React.useCallback(async ()=>{
     if(typeof nbGetHistory!=="function"){ return; }
@@ -3515,9 +3516,19 @@ function useImageGen(opts){
     if(!genUrl && typeof nbLoadImage==="function"){
       nbLoadImage(id).then(u=>{ if(alive && u){ setGenUrl(u); if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); } });
     }
+    // an image shown at mount whose record landed between the first draw and this effect
+    if(genUrl && !genMetaRef.current && typeof nbGetMeta==="function"){ const m0 = nbGetMeta(id); if(m0) setGenMeta(m0); }
     // a background prefetch may warm this id's url AFTER we mounted empty — adopt it
     const onPrefetched = (e)=>{
-      if(!alive || genUrlRef.current || !e.detail || !e.detail.ids || e.detail.ids.indexOf(id)<0) return;
+      if(!alive || !e.detail || !e.detail.ids || e.detail.ids.indexOf(id)<0) return;
+      /* THE IMAGE CAN ARRIVE BEFORE ITS RECORD (found by the first paid final-look check, 2026-11-20): after a reload the
+         picture is shown from this device's saved copy while the film's records are still loading. The card then had
+         an image and no record, for good: no kept QA result, no lock, no final-look line, and a new check's report
+         was not saved. When the records land, take this image's record. */
+      if(genUrlRef.current){
+        if(!genMetaRef.current && typeof nbGetMeta==="function"){ const m = nbGetMeta(id); if(m) setGenMeta(m); }
+        return;
+      }
       const u = (typeof nbGetImage==="function") ? nbGetImage(id) : "";
       if(u){ setGenUrl(u); if(e.detail.meta)setGenMeta(e.detail.meta); else if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); }
     };
@@ -4741,7 +4752,7 @@ function LockButton({ gen, name, noun, className, finalLook }){
   const press = async ()=>{
     if(busy || gen.gening) return;
     if(lock){
-      const ok = typeof window.appConfirm!=="function" || await window.appConfirm({ title:"Unlock "+(name ? name+"\u2019s " : "this ")+(noun||"image")+"?",
+      const ok = typeof window.appConfirm!=="function" || await window.appConfirm({ title:"Unlock "+(name ? name+"\u2019s " : "this ")+(isFinal ? "final look" : (noun||"image"))+"?",
         body:"Anything made from it stays as it is, and will be marked as out of date if this "+(noun||"image")+" then changes.", confirmLabel:"Unlock", cancelLabel:"Keep it locked" });
       if(ok) await set(null);
       return;
@@ -4755,7 +4766,7 @@ function LockButton({ gen, name, noun, className, finalLook }){
         body:(sev!=="pass" ? (kept ? "The last QA check of this image said: "+qaBadgeText(kept.report)+"." : "This image has not had a QA check yet.")+" " : "")
           +(open.length ? (open.length===1 ? "This item\u2019s own image is" : "These items\u2019 own images are")+" not locked yet: "+open.join(", ")+". " : "")
           +"A locked "+what+" is what the next steps are built from, so "+(sev!=="pass" ? "its drifts" : "a later change to "+(open.length===1 ? "that item" : "those items"))+" would "
-          +(sev!=="pass" ? "be carried along" : "make it out of date")+". You can lock it anyway, or "+(sev!=="pass" ? "check it first" : "lock "+(open.length===1 ? "the item" : "the items")+" first")+".",
+          +(sev!=="pass" ? "be carried along" : "make it out of date")+". You can lock it anyway, or "+(sev!=="pass" ? (kept ? "fix it first" : "check it first") : "lock "+(open.length===1 ? "the item" : "the items")+" first")+".",
         confirmLabel:"Lock anyway", cancelLabel:"Not yet" });
       if(!ok) return;
     }
@@ -4815,11 +4826,14 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
     // the contract: the version's stored generation prompt — or, for UPLOADED /
     // imported images (no generation prompt), the card's CURRENT spec prompt
     let contract = (gen.genMeta && gen.genMeta.prompt) || "", judgedSpec = false;
-    /* A KEPT VERSION IS THE WHOLE IMAGE, NOT ITS LAST CHANGE (the road, step 6). A sheet that was kept pixel for pixel
-       with one thing added or fixed recorded only that small instruction as its prompt; read against that alone, the
-       check would pass anything. Its contract is the full written spec it stands for, then the change made to it. */
+    /* AN EDITED VERSION IS THE WHOLE IMAGE, NOT ITS LAST CHANGE (the road, step 6). A sheet with one thing added or
+       fixed recorded only that small instruction as its prompt; read against that alone, the check would pass anything
+       — or call the sheet's own layout a fault (the first paid check, 2026-11-20: Eshita's sheet, an edit that added
+       her items, was read against "the exact same face in every view" and its front view, drawn with no head as every
+       sheet is, came back as a major drift). Its contract is the full written spec it stands for, then the change
+       made to it; this holds for a kept edit and for one the engine redrew whole. */
     const gm = gen.genMeta || {};
-    if(gm.mode==="edit" && gm.keptOriginal && gm.specPrompt)
+    if(gm.mode==="edit" && gm.specPrompt)
       contract = String(gm.specPrompt)+(gm.editInstruction ? "\n\nAFTER THAT, ONE LOCAL CHANGE WAS MADE TO THE IMAGE (where it differs from the text above, the change is right): "+String(gm.editInstruction) : "");
     if(!contract && typeof gen.buildFinal==="function"){
       try{ contract = String(gen.buildFinal()||""); }catch(e){}
@@ -9160,6 +9174,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
        ? React.createElement(window.ShotList,{project,scenes,characters,props,locations,shots,beatsMap,
            onUpdateShot,onAddShot,onDeleteShot,onDeleteShotReference:readOnly?null:onDeleteShotReference,onSplitBeat,splittingBeat,onSplitMoments:readOnly?null:onSplitMoments,onJoinMoments:readOnly?null:onJoinMoments,onSplitAllMoments:readOnly?null:onSplitAllMoments,onRefineBeat,refiningBeat,
           onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,readOnly,
+          wardrobeIds:wardrobeIds||[],
           onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,
           trashItems:(trash&&trash.shots)||[],onRestore:readOnly?null:onRestoreShot,onPurge:readOnly?null:onPurgeShot,
           lookbookStale:!!_stale.shots,

@@ -2949,6 +2949,72 @@ function shotCharacterRefsChanged(stored){
     return (id+"@"+(m.iso||"")+"#"+(m.version||""))!==s; });
 }
 window.shotCharacterRefVersions = shotCharacterRefVersions;
+/* THE ROAD, STEP 7: SHOTS USE LOCKED FINALS (owner 2026-11-20: "yes, start on step 7"; the rule: "allow and mark").
+   A frame is built from each character's sheet and each item's image. The road asks that these be the LOCKED ones:
+   the character's final look (their checked, locked sheet, artroom.jsx charFinalLook) and the item's locked image.
+   Nothing is blocked: a frame renders from whatever is there, and what is not locked is MARKED on the card
+   (a small lock or dot on the reference, one "Not locked yet" line), so the person sees what the frame stands on.
+   A scene's appearance variant has no lock of its own: it is made from the character's sheet, so the sheet decides.
+   kind: "character" | "prop"; meta: the sheet's saved meta (missing = not loaded or not made: nothing is said here,
+   the card's "Missing" tile says that); o: { name, wardrobeStale } (wardrobeStale = a worn item has a new image the
+   sheet does not wear yet). Returns null or { state:"final"|"update"|"open", mark, name, label, tip }. */
+function shotRefLockState(kind, meta, o){
+  if(kind!=="character" && kind!=="prop") return null;
+  if(!meta || !meta.iso) return null;
+  o = o || {};
+  const name = String(o.name||"").trim() || (kind==="character" ? "This character" : "This item");
+  const lock = (meta.lock && typeof meta.lock==="object" && meta.lock.iso===meta.iso) ? meta.lock : null;
+  if(kind==="prop"){
+    return lock
+      ? { state:"final", mark:false, name, label:"Locked", tip:name+"’s image is locked." }
+      : { state:"open", mark:true, name, label:"Not locked", tip:name+"’s image is not locked yet. Lock it in Props." };
+  }
+  if(lock && o.wardrobeStale)
+    return { state:"update", mark:true, name, label:"New wardrobe not on the sheet",
+      tip:name+"’s sheet is locked, but it does not wear a new item yet. Update it in Characters." };
+  if(lock)
+    return { state:"final", mark:false, name, label:lock.final ? "Final look locked" : "Locked",
+      tip:name+"’s "+(lock.final ? "final look" : "sheet")+" is locked." };
+  return { state:"open", mark:true, name, label:"Not locked",
+    tip:name+"’s sheet is not locked yet. Check and lock it in Characters." };
+}
+/* the card's one line: the references this frame will use (ticked, with an image) that are not locked finals.
+   refs: the card's reference tiles [{ kind, refId, label, missing }]; refOff: the unticked ids;
+   o: { getMeta(id), wardrobeIds:[character ids] }. Returns { open:[{ refId, kind, name, state, label }], locked:n, known:n }. */
+function shotUnlockedRefs(refs, refOff, o){
+  o = o || {};
+  const off = (Array.isArray(refOff) ? refOff : []).map(String);
+  const getMeta = typeof o.getMeta==="function" ? o.getMeta : ((id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null);
+  const stale = (Array.isArray(o.wardrobeIds) ? o.wardrobeIds : []).map(String);
+  const out = { open:[], locked:0, known:0 }, seen = {};
+  (refs||[]).forEach(r=>{
+    if(!r || (r.kind!=="character" && r.kind!=="prop") || r.refId==null || r.missing) return;
+    const id = String(r.refId);
+    if(seen[r.kind+":"+id] || off.indexOf(id)>=0) return;
+    seen[r.kind+":"+id] = true;
+    const name = String(r.label||"").split(" · ")[0].trim();
+    const st = shotRefLockState(r.kind, getMeta(id), { name, wardrobeStale:r.kind==="character" && stale.indexOf(id)>=0 });
+    if(!st) return;
+    out.known++;
+    if(st.mark) out.open.push({ refId:id, kind:r.kind, name:st.name, state:st.state, label:st.label });
+    else out.locked++;
+  });
+  return out;
+}
+/* what a frame records (every image says what it was made from): the sheets and item images it attached that were
+   LOCKED at that moment, each as "<id>@<iso>". Read from the same plan the render attaches. */
+function shotLockedRefStamp(plan, refOff){
+  const off = (Array.isArray(refOff) ? refOff : []).map(String);
+  const meta = (id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
+  const out = [], seen = {};
+  const add = (id)=>{ id = String(id||""); if(!id || seen[id] || off.indexOf(id)>=0) return; seen[id] = true;
+    const m = meta(id);
+    if(m && m.iso && m.lock && typeof m.lock==="object" && m.lock.iso===m.iso) out.push(id+"@"+m.iso); };
+  ((plan&&plan.castSpec)||[]).forEach(s=>{ if(s && off.indexOf(String(s.id))<0) add(s.baseId||s.id); });
+  [].concat((plan&&plan.propSpec)||[], (plan&&plan.carrySpec)||[]).forEach(s=>{ if(s && off.indexOf(String(s.id))<0) add(s.baseId||s.id); });
+  return out;
+}
+window.shotRefLockState = shotRefLockState; window.shotUnlockedRefs = shotUnlockedRefs; window.shotLockedRefStamp = shotLockedRefStamp;
 /* a frame's props by what it really used (props.jsx propFrameDependencies): the in-frame props, with
    the sheet each attached (the variant only when it exists, else the base — as shotRenderPlan attaches) */
 function shotPropDependencies(sh, sceneShots, ctx){

@@ -359,6 +359,8 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
              ? propDependencySignature(((window.turnContinuity||{}).props)||[],sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : "")),
          // the character sheets this frame attaches, by version (2026-10-06)
          characterRefVersions:_keep("characterRefVersions", (typeof shotCharacterRefVersions==="function" && renderPlan) ? shotCharacterRefVersions(renderPlan.castSpec, sh.refOff) : []),
+         // the road, step 7: which of the sheets and item images it attached were LOCKED when it was made
+         lockedRefs:_keep("lockedRefs", (typeof shotLockedRefStamp==="function" && renderPlan) ? shotLockedRefStamp(renderPlan, sh.refOff) : []),
          // the location plates it attached and the location text it read (2026-10-08)
          locationDependencies:_keep("locationDependencies", (typeof shotLocationDependencies==="function" && renderPlan) ? shotLocationDependencies(sh, renderPlan, ctx) : null),
          sceneContext:renderPlan && renderPlan.sceneContext ? {
@@ -820,6 +822,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // to. Recomputed from the live entity sheets (always displayable), keyed off the ids.
   const [refImgs, setRefImgs] = React.useState([]);    // seed frame + the canon sheets, ordered by location weight
   const [refsLoaded, setRefsLoaded] = React.useState(false);
+  const [refLockMetas, setRefLockMetas] = React.useState({});   // the road, step 7: sheet metas the lock mark reads when the cache is cold
   // Beat-scoped, generated full-frame Slugline Units are editable on an
   // existing card too. The older Add Shot picker only covered new shots,
   // leaving an ambiguous compound slugline (for example Kitchen / Living Room)
@@ -1001,7 +1004,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     const onChanged = (e)=>{ if(matches(e&&e.detail)) setRefAssetBump(b=>b+1); };
     window.addEventListener("nb-gen-done", onChanged);
     window.addEventListener("nb-prefetched", onChanged);
-    return ()=>{ window.removeEventListener("nb-gen-done", onChanged); window.removeEventListener("nb-prefetched", onChanged); };
+    window.addEventListener("nb-meta-changed", onChanged);   // a sheet or an item was locked or unlocked (the road, step 7)
+    return ()=>{ window.removeEventListener("nb-gen-done", onChanged); window.removeEventListener("nb-prefetched", onChanged);
+      window.removeEventListener("nb-meta-changed", onChanged); };
   },[_liveRefIdsKey]);
   // a moving part's state image the card hasn't got yet (it can load before the card listens): fetch it once, then redraw
   React.useEffect(()=>{
@@ -1083,7 +1088,17 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       const propItems = []; for(const p of inProps){ const u=await grab(p.id); if(u) propItems.push({ url:u, label:p.name, kind:"prop", refId:p.id }); }
       const crowdItems = []; for(const c of crowdSpecs){ const u=await grab(c.id); if(u) crowdItems.push({ url:u, label:c.label, kind:"crowd", refId:c.id }); }
       const sheetOrder = (locWeight==="ambient") ? [...castItems, ...locItems, ...propItems, ...crowdItems] : [...locItems, ...castItems, ...propItems, ...crowdItems];
-      if(alive){ setRefImgs([...seed, ...sheetOrder]); setRefsLoaded(true); }
+      // THE ROAD, STEP 7: the lock mark reads each sheet's own meta. A scene variant is judged by its character's sheet,
+      // which this card may not have loaded: fetch what is not in the cache yet (meta only matters; never a failure)
+      const lockMetas = {};
+      for(const it of [...castItems, ...propItems]){
+        const lid = it && !it.missing && it.refId!=null ? String(it.refId) : "";
+        if(!lid || lockMetas[lid]!==undefined) continue;
+        let lm = (typeof nbGetMeta==="function") ? nbGetMeta(lid) : null;
+        if(!lm && typeof nbLoadDetailsAsset==="function"){ try{ const d = await nbLoadDetailsAsset(lid); lm = (d && d.meta) || null; }catch(e){ lm = null; } }
+        lockMetas[lid] = lm || null;
+      }
+      if(alive){ setRefLockMetas(lockMetas); setRefImgs([...seed, ...sheetOrder]); setRefsLoaded(true); }
     })();
     return ()=>{ alive=false; };
   },[_refKey]);
@@ -1116,6 +1131,22 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         onClick:()=>window.turnOpenLocationCard((_missLoc[0]&&_missLoc[0].locationId)||loc.id, _missLoc[0]&&_missLoc[0].refId),
         title:"Open this view in "+(loc.name||"the location")+" \u2192 Variants, in the Art Room's Locations tab"},
         "Make "+(_missLoc.length>1?"the first one":"it")+" in Locations \u2192")));
+  /* THE ROAD, STEP 7: SHOTS USE LOCKED FINALS (owner 2026-11-20; "allow and mark"). Each character and item reference
+     says whether it is locked (a small lock) or not yet (an amber dot), and one line names what is not. The frame can
+     always be made. */
+  const _lockMetaOf = (id)=>{ const live = (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
+    return live || (refLockMetas||{})[String(id)] || null; };
+  const _wardrobeIds = (ctx && Array.isArray(ctx.wardrobeIds)) ? ctx.wardrobeIds : [];
+  const _lockOfRef = (r)=> (r && (r.kind==="character" || r.kind==="prop") && !r.missing && r.refId!=null && typeof shotRefLockState==="function")
+    ? shotRefLockState(r.kind, _lockMetaOf(r.refId), { name:String(r.label||"").split(" \u00b7 ")[0].trim(),
+        wardrobeStale:r.kind==="character" && _wardrobeIds.indexOf(r.refId)>=0 }) : null;
+  const _unlocked = (refsLoaded && typeof shotUnlockedRefs==="function")
+    ? shotUnlockedRefs(refImgs, _offIds, { getMeta:_lockMetaOf, wardrobeIds:_wardrobeIds }) : { open:[], locked:0, known:0 };
+  const refLockNote = _unlocked.open.length>0 && _el("div",{className:"shot-refs-open","data-testid":"shot-refs-unlocked",role:"status"},
+    _el("span",{className:"shot-refs-open-dot","aria-hidden":"true"}),
+    _el("span",{className:"shot-refs-open-t"},"Not locked yet: "+_unlocked.open.map(x=> x.state==="update" ? x.name+" (new wardrobe)" : x.name).join(", ")),
+    window.InfoTip && _el(window.InfoTip,{label:"About locked references",
+      text:"You can make this frame now. A locked sheet is one you checked and locked, so every frame is built on the same picture. Lock a character\u2019s sheet in Characters and an item\u2019s image in Props. \u201cNew wardrobe\u201d means the locked sheet does not wear a new item yet: update it in Characters. If a sheet changes after the frame is made, the frame says so."}));
   const referenceControls=(refImgs.length>0 || locationReferencePicker) && _el("div",{className:"shot-refs coverage-refs"},
     _el("div",{className:"shot-refs-lab",
       title:"Check or uncheck references at any time. Removing a location reference removes it from this shot and its thumbnail, while the source asset remains available in the Location reference picker. A running render keeps its starting reference selection. Source assets are never deleted here."},
@@ -1129,6 +1160,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
          const isSeed=r.kind==="seed" || r.kind==="seed-pending";
          const pendingRetryable=!r.pending || (r.retryable!==false && r.status!=="retained-unverified");
         const off = isSeed ? !!sh.anchor : (r.refId!=null && (sh.refOff||[]).indexOf(r.refId)>=0);
+        const lockSt = _lockOfRef(r);
         const tileBody = r.pending
              ? _el("div",{className:"shot-ref-pending"+(pendingRetryable?"":" retained-unverified"),
                  title:pendingRetryable
@@ -1147,13 +1179,16 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         return _el("div",{key:"a"+i,
           className:"shot-ref-thumb "+r.kind+(isSeed&&r.approved===false?" provisional":"")+(off?" off":"")+((r.url&&onView)?"":" no-preview"),
           title:(isSeed ? (r.label+" — "+(r.approved?"approved continuity seed":"provisional continuity seed")) : r.label)
-            +(off?" — excluded from the next generation":" — included in the next generation")},
+            +(off?" — excluded from the next generation":" — included in the next generation")
+            +(lockSt ? ". "+lockSt.tip : "")},
             r.url&&onView
               ? _el("button",{type:"button",className:"shot-ref-preview","aria-label":previewTitle,title:previewTitle,
                   onClick:()=>onView(r.url,{name:r.label})},tileBody,
                   _el("span",{className:"shot-ref-preview-mark","aria-hidden":"true"},_el(Icon.eye,{s:10})))
               : tileBody,
             isSeed&&_el("span",{className:"shot-ref-kind","aria-hidden":"true"},"Seed"),
+            lockSt && _el("span",{className:"shot-ref-lock "+(lockSt.mark?"open":"on"),"data-lock":lockSt.state,"aria-hidden":"true"},
+              lockSt.mark ? null : (Icon.padlock ? _el(Icon.padlock,{s:9}) : "\u2713")),
             !r.pending && (isSeed || r.refId!=null) && _el("button",{type:"button",className:"shot-ref-tick"+(off?"":" on"),
             "aria-pressed":!off,
             "aria-label":toggleLabel,
@@ -1172,6 +1207,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
               e.preventDefault(); e.stopPropagation(); e.currentTarget.click();
             }}},
             off ? "+" : "✓")); })),
+    refLockNote,
     refWarn);
 
   /* THE STEPS, LIKE A LOCATION CARD'S (owner 2026-11-02: "What am I supposed to do here? … numbers … which item to
@@ -2380,7 +2416,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
 function ShotList({ project, scenes, characters, props, locations, shots, beatsMap,
   onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onSplitMoments, onJoinMoments, onSplitAllMoments, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots,
   trashItems, onRestore, onPurge, lookbookStale, onReviewLookbook,
-  onRemoveMicroBeatShots, onMakeSceneNeeds, readOnly=false }){
+  onRemoveMicroBeatShots, onMakeSceneNeeds, wardrobeIds, readOnly=false }){
   const [view, setView] = React.useState(null);
   const deleteShotReferenceHandler = readOnly ? null : onDeleteShotReference;
   const batch = useBatchGen("shots");
@@ -2551,7 +2587,8 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   },[(shots||[]).length]);
   const ctxFor = (scene)=>({ scene, scenes:ordered,
     location:(typeof locationForScene==="function")?locationForScene(locations,scene.id):null,
-    charById, propById, project, locations:locations||[] });
+    charById, propById, project, locations:locations||[],
+    wardrobeIds:wardrobeIds||[] });   // characters whose sheet does not wear a new item yet (the road, step 7)
 
   const ordered = React.useMemo(()=> scenesInStoryOrder(scenes),[scenes]);
   const shotsByScene = React.useMemo(()=>{ const m={}; (shots||[]).forEach(s=>{ (m[s.sceneId]=m[s.sceneId]||[]).push(s); });

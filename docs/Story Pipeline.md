@@ -752,7 +752,7 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
   lenses in `fact.roles`, an optional steer) and `aiSynopsisFromResearch` — on their own **Research** and
   **Synopsis** steps; the logline check rides in `aiSeedToLoglines` *(2026-10-02, owner-approved)*.
 - `APP_FEATURES` in `app/ai.jsx` has been updated so Frances can describe the stage.
-- Step **9, the road for a character and their items** *(2026-11-20)*: steps **2–6** are built — the QA check
+- Step **9, the road for a character and their items** *(2026-11-20)*: steps **2–7** are built — the QA check
   marks drifts with boxes and *Fix these areas* keeps the rest of the image (`app/pixel-keep.js`,
   `turnKeepOrAsk` and `qaFixAreas` in `app/artroom.jsx`), the **Lock** on character sheets and prop images
   (`nbSetAssetLock`, `LockButton`), for step **5** the mark on a prop made without its owner's sheet or from
@@ -761,8 +761,11 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
   (`propOwnerWords`), and for step **6** the **final look** (`charFinalLook` in `app/artroom.jsx`): the same
   sheet once it wears its items (*Update sheet with new wardrobe* keeps the sheet and adds only the item), with
   its own line on the card (*Final look ready to check / to lock*), a QA check that also looks for each worn
-  item, and *Lock final look*. **Not built yet:** shots reading locked finals only (7), and a numbered step
-  guide on the character and prop cards.
+  item, and *Lock final look*; and for step **7** the mark on a shot's references (`shotRefLockState` and
+  `shotUnlockedRefs` in `app/shots.jsx`): a small lock on a character sheet or item image that is locked, an
+  amber dot and one *Not locked yet* line for what is not, and each new frame records which of its references
+  were locked (`lockedRefs`). A frame can always be made: marked, never blocked. **Not built yet:** a numbered
+  step guide on the character and prop cards.
 - Step **10 (The Stage)**: the **audio-first assembly shell** is built (`app/stage.jsx`, room unlocked) —
   it lays the clip partition + shot frames + dialogue on the cut timeline, timed by ESTIMATED line
   durations. The **Voices** tab (Step 9) and the real voice/video render (ElevenLabs → Seedance) are the

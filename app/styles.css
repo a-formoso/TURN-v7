@@ -6338,6 +6338,14 @@ span.own-name{padding:3px 0}
   z-index:3;display:grid;place-items:center;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;
   color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.3)}
 .shot-ref-tick.on{background:var(--accent);border-color:transparent;color:var(--ink-on-accent)}
+/* the road, step 7: a locked sheet or item shows a small lock; one that is not locked yet shows an amber dot */
+.shot-ref-lock{position:absolute;top:2px;right:2px;z-index:2;pointer-events:none;display:grid;place-items:center}
+.shot-ref-lock.on{width:14px;height:14px;border-radius:5px;color:#fff;background:var(--ok);box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+.shot-ref-lock.open{width:8px;height:8px;top:3px;right:3px;border-radius:50%;background:oklch(0.78 0.14 80);box-shadow:0 0 0 1.5px rgba(0,0,0,.55)}
+.shot-ref-thumb.off .shot-ref-lock{opacity:.45}
+.shot-refs-open{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12px;line-height:1.4;color:var(--txt-1)}
+.shot-refs-open-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:oklch(0.78 0.14 80)}
+.shot-refs-open-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .shot-ref-tick:hover{filter:brightness(1.2)}
 .shot-ref-tick:disabled{opacity:.5;cursor:not-allowed;filter:none}
 /* Permanent source-version deletion is deliberately separate from the inclusion
