@@ -764,8 +764,11 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
   item, and *Lock final look*; and for step **7** the mark on a shot's references (`shotRefLockState` and
   `shotUnlockedRefs` in `app/shots.jsx`): a small lock on a character sheet or item image that is locked, an
   amber dot and one *Not locked yet* line for what is not, and each new frame records which of its references
-  were locked (`lockedRefs`). A frame can always be made: marked, never blocked. **Not built yet:** a numbered
-  step guide on the character and prop cards.
+  were locked (`lockedRefs`). A frame can always be made: marked, never blocked. The numbered **step guide** on the
+  character and prop cards is built too *(2026-11-20)*: the location tracker's own pills (`roadSteps`,
+  `RoadStepGuide`) — a character's 1 Sheet · 2 Check · 3 Fix · 4 Lock, plus 5 Items · 6 Final look for someone who
+  wears items; a prop's 1 Image · 2 Check · 3 Fix · 4 Lock. It reads the image on the card now and only says where
+  it stands: a press goes to that step's button, spends nothing and blocks nothing.
 - Step **10 (The Stage)**: the **audio-first assembly shell** is built (`app/stage.jsx`, room unlocked) —
   it lays the clip partition + shot frames + dialogue on the cut timeline, timed by ESTIMATED line
   durations. The **Voices** tab (Step 9) and the real voice/video render (ElevenLabs → Seedance) are the

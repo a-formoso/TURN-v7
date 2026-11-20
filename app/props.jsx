@@ -1684,6 +1684,11 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
             onClick:()=>setFitOpen(true)},
             React.createElement(Icon.box,{s:12}),"Fitting")),
           fitOpen && React.createElement(PropFittingModal,{ p, propUrl:gen.genUrl, onClose:()=>setFitOpen(false) })),
+      // THE STEP GUIDE (the road): where this image stands — made, checked, fixed, locked
+      window.RoadStepGuide && React.createElement(window.RoadStepGuide,{ cardSel:'[data-prop-card="'+String(p.id).replace(/"/g,"")+'"]', noun:"image", label:"Steps for this prop",
+        steps:window.roadSteps({ kind:"prop", hasImage:!!gen.genUrl, gening:!!gen.gening, drafted:!!drafted,
+          qa:(()=>{ const k = window.qaKept ? window.qaKept(gen) : null; return (k && window.qaSeverity) ? window.qaSeverity(k.report) : ""; })(),
+          locked:!!(window.sheetLockOf && window.sheetLockOf(gen.genMeta)) }) }),
 
       React.createElement("div",{className:"char-style-row"},
         React.createElement("span",{className:"char-style-lab"},"Render style"),

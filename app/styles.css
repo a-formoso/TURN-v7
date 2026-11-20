@@ -12482,3 +12482,9 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 :is([data-location-card]) > .sheet-body > .loc-prepare{margin-top:0;margin-bottom:0}
 /* the scene list fits its cell (it kept a 260px minimum and ran under the cell beside it once Show was added) */
 .loc-slate .prop-scenebar-select{min-width:0}
+
+/* THE STEP GUIDE ON CHARACTER AND PROP CARDS (the road, 2026-11-20): the location tracker's own pills. A step passed
+   over by "lock anyway" is struck through, quietly; a pressed pill flashes the button its step is done with. */
+.loc-step.skipped{color:var(--txt-2)}
+.loc-step.skipped .loc-step-name{text-decoration:line-through;text-decoration-color:var(--line-3)}
+.road-flash{outline:2px solid var(--accent);outline-offset:2px;transition:outline-color .3s}

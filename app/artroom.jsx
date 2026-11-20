@@ -4679,7 +4679,7 @@ function qaCheckedOn(at){
   try{ day = d.toLocaleDateString(undefined,{ day:"numeric", month:"short" }); time = d.toLocaleTimeString(undefined,{ hour:"numeric", minute:"2-digit" }); }catch(e){}
   return day ? "Checked on "+day+(time ? ", "+time : "")+"." : "";
 }
-window.qaKept = qaKept; window.qaBadgeText = qaBadgeText; window.qaFindingCount = qaFindingCount; window.qaCheckedOn = qaCheckedOn;
+window.qaKept = qaKept; window.qaSeverity = qaSeverity; window.qaBadgeText = qaBadgeText; window.qaFindingCount = qaFindingCount; window.qaCheckedOn = qaCheckedOn;
 /* THE LOCK (the road, step 4 — owner 2026-11-20). A locked image is the one the next steps are built from: its props,
    its final look, the shots. The lock belongs to that exact version (imagegen.jsx nbSetAssetLock). It is offered when
    the QA check says the image is faithful; with any other result, or none, the person may lock anyway and is told what
@@ -4786,6 +4786,84 @@ function LockButton({ gen, name, noun, className, finalLook }){
     lock ? (isFinal ? "Final look locked" : "Locked") : (fl ? "Lock final look" : "Lock"));
 }
 window.LockButton = LockButton;
+/* THE STEP GUIDE ON A CHARACTER OR PROP CARD (the road — owner 2026-11-20: "yes, start on the step guide"). The same
+   tracker a location card has: numbered pills, done ones ticked, the one to do next marked, what to do in each pill's
+   tooltip. It only SAYS where the image on the card stands; nothing is blocked and no pill spends anything (a press
+   takes the person to the button for that step).
+     character  1 Sheet · 2 Check · 3 Fix · 4 Lock, and for someone who wears items  5 Items · 6 Final look
+     prop       1 Image · 2 Check · 3 Fix · 4 Lock
+   Every step is read from the image on the card NOW (its kept QA result, its lock, what it wears), so a new version
+   starts again at Check. A sheet that wears its items and is locked is the final look: 4 and 6 are then done together.
+   Locked without a clean check (allowed and marked): Check / Fix read "Skipped", and are not the next thing to do.
+   o: { kind, hasImage, gening, drafted, qa:""|"pass"|"minor"|"major", locked, finalLook, wardrobeStale,
+        items:[{ name, hasImage, locked }] }   (items: the worn items that are part of the look) */
+function roadSteps(o){
+  o = o || {};
+  const prop = o.kind==="prop", noun = prop ? "image" : "sheet";
+  const has = !!o.hasImage, qa = has ? String(o.qa||"") : "", locked = !!(has && o.locked);
+  const steps = [
+    { key:"sheet", name:prop ? "Image" : "Sheet", done:has,
+      todo:o.gening ? "Making the "+noun+"…" : (o.drafted===false ? "Draft the "+(prop ? "design" : "look")+" first, then press Generate under the image."
+        : "Press Generate under the image.") },
+    { key:"check", name:"Check", done:!!qa,
+      todo:!has ? "Once there is "+(prop ? "an image" : "a sheet")+", press QA check."
+        : "Press QA check: it reads the "+noun+" against its description and marks what drifts." },
+    { key:"fix", name:"Fix", done:qa==="pass",
+      todo:!qa ? "Nothing to fix until the "+noun+" is checked."
+        : "The check found drifts. Open the QA check and press “Fix these areas”, then check again." },
+    { key:"lock", name:"Lock", done:locked,
+      todo:!has ? "Lock the "+noun+" when you are happy with it."
+        : "Press Lock when you are happy: "+(prop ? "the shots are" : "the items and the shots are")+" then built from this "+noun+"."+(qa==="pass" ? "" : " Best after a check that says Faithful.") }];
+  const items = prop ? [] : (o.items||[]).filter(Boolean);
+  if(items.length){
+    const noImg = items.filter(x=>!x.hasImage).map(x=>String(x.name||"")), open = items.filter(x=>x.hasImage && !x.locked).map(x=>String(x.name||""));
+    steps.push({ key:"items", name:"Items", done:!noImg.length && !open.length,
+      todo:(noImg.length ? "Make the image of: "+noImg.join(", ")+" (its square on this card, or the Props tab). " : "")
+        +(open.length ? "Check and lock: "+open.join(", ")+"." : (noImg.length ? "Then check and lock it." : "")) });
+    const fl = o.finalLook || null, stage = fl ? fl.stage : "";
+    steps.push({ key:"final", name:"Final look", done:!!(fl && fl.hasItems && stage==="final"), stage,
+      todo:!has ? "The sheet with its items on it, checked and locked."
+        : stage==="update" ? "A worn item has a new image: press “Update sheet with new wardrobe”. Your sheet is kept and only the item is added."
+        : !(fl && fl.hasItems) ? "Waits for the items’ images (step 5). The sheet then takes them on."
+        : stage==="lock" ? "The sheet wears its items and the check says Faithful: press “Lock final look”."
+        : "The sheet wears its items. Run the QA check (it also looks for each item), fix what drifts, then press “Lock final look”.",
+      more:(fl && fl.hasItems) ? ("On the sheet: "+fl.items.map(x=>x.name).join(", ")+"."
+        +(fl.unlocked.length ? " Not locked yet: "+fl.unlocked.join(", ")+" (you can lock the final look anyway)." : "")
+        +(fl.inWords.length ? " Kept as words, not drawn from an image: "+fl.inWords.join(", ")+"." : "")) : "" });
+  }
+  // locked anyway: the check and the fix were passed over, said as they are
+  steps.forEach(st=>{ if(locked && !st.done && (st.key==="check" || st.key==="fix")) st.skipped = true; });
+  const next = steps.find(st=> !st.done && !st.skipped);
+  return steps.map((st,i)=>({ ...st, n:i+1, next:!!(next && next.key===st.key) }));
+}
+function roadStepTitle(st, noun){
+  if(st.done) return st.key==="final" ? "Done: the final look is locked. The shots are built from it."+(st.more ? " "+st.more : "")
+    : st.key==="lock" ? "Done: locked." : st.key==="fix" ? "Done: the check says Faithful." : "Done";
+  if(st.skipped) return "Skipped: this "+(noun||"image")+" was locked without "+(st.key==="check" ? "a QA check" : "a clean check")+". You can still run the check.";
+  return (st.next ? "Next" : "Later")+(st.todo ? " — "+st.todo : "")+(st.more ? " "+st.more : "");
+}
+function RoadStepGuide({ steps, cardSel, noun, label }){
+  if(!steps || !steps.length) return null;
+  // a press shows where that step is done: it spends nothing and starts nothing
+  const target = { sheet:".sheet-gen-btn", check:'[data-role="qa-check"]', fix:'[data-role="qa-check"]', lock:'[data-role="sheet-lock"]', items:'[data-role="owned-item-tile"]' };
+  const go = (st)=>{
+    const card = cardSel ? document.querySelector(cardSel) : null;
+    if(!card) return;
+    const sel = st.key==="final" ? (st.stage==="update" ? '[data-role="wardrobe-update"]' : (st.stage==="lock" || st.stage==="final") ? target.lock : target.check) : target[st.key];
+    const el = (sel && card.querySelector(sel)) || card.querySelector(".sheet-gen-btn") || card;
+    try{ el.scrollIntoView({ behavior:"smooth", block:"center" }); }catch(e){}
+    try{ if(el!==card && typeof el.focus==="function") el.focus({ preventScroll:true }); }catch(e){}
+    try{ el.classList.add("road-flash"); setTimeout(()=>{ try{ el.classList.remove("road-flash"); }catch(e){} }, 1400); }catch(e){}
+  };
+  const E = React.createElement;
+  return E("div",{className:"loc-steps road-steps","data-testid":"road-step-guide"},
+    E("ol",{className:"loc-steps-list","aria-label":label||"Steps"},steps.map(st=>E("li",{key:st.key},
+      E("button",{type:"button",className:"loc-step"+(st.done?" done":st.next?" next":st.skipped?" skipped":""),onClick:()=>go(st),
+        "data-step":st.key,"data-state":st.done?"done":st.next?"next":st.skipped?"skipped":"later",
+        "aria-current":st.next?"step":undefined,title:roadStepTitle(st, noun)},
+        E("span",{className:"loc-step-n"},st.done?"✓":st.n),E("span",{className:"loc-step-name"},st.name))))));
+}
+window.roadSteps = roadSteps; window.roadStepTitle = roadStepTitle; window.RoadStepGuide = RoadStepGuide;
 function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes, ownerSays, wornItems }){
   const [busy, setBusy] = React.useState(false);
   const [report, setReport] = React.useState(null);
@@ -4878,7 +4956,7 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
   const kept = qaKept(gen), keptSev = kept ? qaSeverity(kept.report) : "";
   return React.createElement(React.Fragment,null,
     React.createElement("button",{className:(className||"char-draft-btn ghost")+(busy?" busy":"")+((kept && !busy)?" qa-kept "+keptSev:""),disabled:busy||gen.gening,
-      "data-qa":(kept && !busy) ? keptSev : undefined,
+      "data-role":"qa-check","data-qa":(kept && !busy) ? keptSev : undefined,
       title:(kept && !busy)
         ? "The last QA check of this image: "+qaBadgeText(kept.report)+". "+qaCheckedOn(kept.at)+" Click to open the report again (free); Check again is inside it."
         : "QA check — re-reads this "+(noun||"sheet")+" against the exact prompt that generated it: deviations, invented content, per-panel faults, and whether to edit or regenerate"
@@ -7334,6 +7412,13 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
             // THE LOCK (the road, step 4): after the check, beside it. A sheet that wears its items is locked as the
             // FINAL LOOK (step 6)
             !readOnly && React.createElement(LockButton,{ gen, name:c.name, noun:"character sheet", finalLook })))),
+      // THE STEP GUIDE (the road): where this sheet stands, as a location card's tracker does. The "Final look ready
+      // to check / to lock" line that stood under the wardrobe banner is its pill 6 now.
+      React.createElement(RoadStepGuide,{ cardSel:'[data-char-card="'+String(c.id).replace(/"/g,"")+'"]', noun:"sheet", label:"Steps for this character",
+        steps:roadSteps({ kind:"character", hasImage:!!gen.genUrl, gening:!!gen.gening, drafted:!!drafted,
+          qa:(()=>{ const k = qaKept(gen); return k ? qaSeverity(k.report) : ""; })(), locked:!!sheetLockOf(gen.genMeta), finalLook, wardrobeStale:!!wardrobeStale,
+          items:wornProps.filter(p=>!wornExclusions.has(p.id)).map(p=>({ name:p.name, hasImage:!!ownedSheetMap[p.id],
+            locked:!!sheetLockOf((typeof nbGetMeta==="function") ? nbGetMeta(p.id) : null) })) }) }),
       // (the "Face: … · Voice: …" line under the buttons is gone, owner 2026-10-27: a tick on the Likeness / Voice button
       // says it's locked, and the button's tooltip says which face and which voice — vcFaceVoiceLine)
       // UPDATE SHEET WITH NEW WARDROBE (owner 2026-10-06 — Characters review): the app pointed here from six
@@ -7354,18 +7439,6 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           title:"Updates this sheet to wear its worn items: the same face, poses and layout, the wardrobe changed (one image)"},
           gen.gening?"Updating\u2026":"Update sheet with new wardrobe", !gen.gening && typeof window.nbCostChip==="function"
             && window.nbCostChip(1, gen.likenessRefs ? { refs:cardGenerateRefs()+1 } : undefined))),   // +1: the sheet being updated rides along
-      // THE FINAL LOOK IS READY (the road, step 6): the sheet wears its items and is not locked yet. Amber, the colour
-      // of something to do; one line, the rest behind the "i". It goes once the final look is locked (the button says so).
-      (finalLook && finalLook.hasItems && (finalLook.stage==="check" || finalLook.stage==="lock") && !readOnly)
-        && React.createElement("div",{className:"sheet-cameo-status char-wardrobe-update char-final-look","data-testid":"char-final-look","data-stage":finalLook.stage},
-        React.createElement(Icon.padlock||Icon.check,{s:14}),
-        React.createElement("span",{className:"scs-t"}, finalLook.stage==="lock" ? "Final look ready to lock" : "Final look ready to check"),
-        (typeof window.InfoTip==="function") ? React.createElement(window.InfoTip,{label:"About the final look",
-          text:"This sheet now wears "+(finalLook.items.length===1 ? "an item" : finalLook.items.length+" items")+" drawn from "+(finalLook.items.length===1 ? "its" : "their")+" own image"+(finalLook.items.length===1 ? "" : "s")
-            +": "+finalLook.items.map(x=>x.name).join(", ")+". It becomes the final look when you lock it, and the shots are built from the locked final look.\n\n"
-            +(finalLook.stage==="lock" ? "The QA check says Faithful: press \u201cLock final look\u201d." : "First run the QA check: it also looks for each item on the sheet. Fix what drifts, then press \u201cLock final look\u201d.")
-            +(finalLook.unlocked.length ? "\n\nNot locked yet: "+finalLook.unlocked.join(", ")+". You can lock the final look anyway." : "")
-            +(finalLook.inWords.length ? "\n\nKept as words, not drawn from an image: "+finalLook.inWords.join(", ")+"." : "")}) : null),
       // SCRIPT CHANGED (owner-approved 2026-10-12 — Character fidelity, step 6): the screenplay about this character
       // changed since its look was drafted (or its fact sheet read) — like the Lookbook's stale banner. One button re-reads
       // the script; then the card offers to re-draft the look. Nothing is blocked and nothing is spent on its own.

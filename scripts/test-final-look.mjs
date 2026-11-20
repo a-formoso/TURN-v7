@@ -6,7 +6,7 @@
      lock, it is the locked final look. A sheet with no item images goes the same way.
    2 The lock: "Lock final look" on a sheet that wears its items; the record says it is the final look and what it
      wears; an item that is not locked is said in the same one question, never blocked.
-   3 The card: one amber line while the final look waits for its check or its lock; the Lock button is handed it.
+   3 The card: the step guide says where the final look stands (the amber line left 2026-11-20); the Lock button is handed it.
    4 The check: each worn item is looked for; a sheet updated in place is read against its whole description.
    5 Frances knows it.
 
@@ -113,17 +113,18 @@ await test("2 the lock of a final look: its own words, its record, and one quest
   assert.equal(text(p.LockButton({ gen: gen(plainMeta), name: "ring", noun: "prop sheet" })), "Lock");
 });
 
-await test("3 the card: one amber line while the final look waits; the buttons are handed it; an item's lock is heard", async () => {
+await test("3 the card: the step guide says where the final look stands; the buttons are handed it; an item's lock is heard", async () => {
   const sheet = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
   assert.ok(sheet.includes("const finalLook = gen.genUrl ? charFinalLook({ meta:gen.genMeta, wardrobeStale,"));
   assert.ok(sheet.includes("return { id:p.id, name:p.name, included:!wornExclusions.has(p.id), hasImage:!!ownedSheetMap[p.id], iso:(m && m.iso)||\"\", locked:!!sheetLockOf(m) }; }) }) : null;"));
   assert.ok(sheet.includes("worn:wornProps.map("), "worn items only: a carried item is not on the sheet");
-  const line = between(sheet, '(finalLook && finalLook.hasItems && (finalLook.stage==="check" || finalLook.stage==="lock") && !readOnly)', "// SCRIPT CHANGED");
-  assert.ok(line.includes('"sheet-cameo-status char-wardrobe-update char-final-look"') && line.includes('"data-testid":"char-final-look"') && line.includes('"data-stage":finalLook.stage'), "amber, like the wardrobe line");
-  assert.ok(line.includes('finalLook.stage==="lock" ? "Final look ready to lock" : "Final look ready to check"'), "one short line");
-  assert.ok(line.includes("window.InfoTip") && line.includes("Not locked yet: ") && line.includes("Kept as words, not drawn from an image: "), "the rest is behind the i");
-  assert.ok(!line.includes('React.createElement("button"'), "no second lock button: the Lock button beside the check is the one");
-  assert.ok(sheet.indexOf('"data-testid":"char-wardrobe-update"') < sheet.indexOf('"data-testid":"char-final-look"'));
+  // (2026-11-20, the step guide) the amber "Final look ready to check / to lock" line is the guide's pill 6 now: one
+  // place says where the sheet stands, and the Lock button beside the check is still the only lock button
+  assert.ok(!sheet.includes('"data-testid":"char-final-look"') && !sheet.includes("Final look ready to"), "the amber line left with the guide");
+  const guide = between(sheet, "React.createElement(RoadStepGuide,{", "// (the \"Face: \u2026 \u00b7 Voice: \u2026\" line under the buttons is gone");
+  assert.ok(guide.includes("finalLook, wardrobeStale:!!wardrobeStale,"), "the guide is handed the same final-look state");
+  const steps = between(art, "function roadSteps(o){", "function roadStepTitle(");
+  assert.ok(steps.includes('" Not locked yet: "+fl.unlocked.join(", ")') && steps.includes('" Kept as words, not drawn from an image: "+fl.inWords.join(", ")'), "what the line's tooltip said is in the pill's");
   assert.ok(sheet.includes('!readOnly && React.createElement(LockButton,{ gen, name:c.name, noun:"character sheet", finalLook })'));
   assert.ok(sheet.includes("wornItems:finalLookItems }),"));
   assert.ok(sheet.includes('window.addEventListener("nb-meta-changed", onDone);'), "locking an item on its own card is seen here");
@@ -170,10 +171,10 @@ await test("4b a card takes its image's record when the record arrives after the
 
 await test("5 Frances knows it, and the page loads the new files", async () => {
   const f = between(ai, "APP_FEATURES.push({ name:\"The final look: a character's sheet with its items on it, checked and locked (Characters, Art Room)\"", "function appBrief(){");
-  for (const w of ["Final look ready to check", "Final look ready to lock", "Lock final look", "Final look locked", "New wardrobe ready", "starts with 'Item:'", "NOTHING IS BLOCKED",
+  for (const w of ["step guide then marks 'Final look'", "Lock final look", "Final look locked", "New wardrobe ready", "starts with 'Item:'", "NOTHING IS BLOCKED",
     "their locked sheet is it", "Carried items are not on the sheet"]) assert.ok(f.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Gemini|GPT/.test(f));
-  for (const file of ["artroom.jsx", "ai.jsx"]) assert.ok(["20261120-final1", "20261120-shots1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+  for (const file of ["artroom.jsx", "ai.jsx"]) assert.ok(["20261120-final1", "20261120-shots1", "20261120-guide1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");
