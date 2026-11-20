@@ -1352,6 +1352,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
   const referenceImages = Array.isArray(p.referenceImages) ? p.referenceImages.filter(r=>r&&r.url) : [];
 
   const gen = useImageGen({
+    keepEdits:true, noun:"image",
     id: p.id, slotId: "propref-"+p.id,
     entity: p,
     buildFinal: ()=> finalPrompt,
@@ -1718,6 +1719,11 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
 
       // SCREENPLAY EVIDENCE (owner 2026-10-29): a section like the others; its count is the summary, and its badges sit
       // under the name, so they show with it closed
+      /* THE CARD'S LOWER HALF, AS A CHARACTER'S (owner 2026-11-20: the Art Room's cards "in sync with each other, as
+         characters are to props … a consistency … even [in] the UI for the cards"). A character card folds its sections
+         under "The look" and "Advanced" with its continuity between them; the prop card had six loose ones. Same
+         three here: The object (what the screenplay says, whose it is, how it is built) · Continuity · Advanced. */
+      React.createElement(window.CardGroup,{label:"The object",defaultOpen:(!drafted && !!p.manual)},
       React.createElement(CardFold,{label:"Screenplay evidence",count:savedSources.length?(validSources.length+" reviewed"):[exactMentions?(exactMentions+" exact"):"",exactMentions&&possibleMentions?" · ":"",possibleMentions?(possibleMentions+" possible"):"",!screenplayMentions.length?"No screenplay matches":""].join(""),defaultOpen:false},
         React.createElement("div",{className:"prop-origin-label"},propOriginLabel(p)),
         !!savedSources.length&&React.createElement("div",{className:"prop-evidence-list"},savedSources.map((s,i)=>React.createElement("div",{key:i,className:"prop-evidence-quote"},
@@ -1899,6 +1905,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           React.createElement(SheetField,{label:"Base content version",value:p.contentVersion,placeholder:"Original / clean copy / sealed",onCommit:val=>onUpdate(p.id,{contentVersion:val})}),
           React.createElement("p",{className:"sheet-props-note"},"Later edits belong in Continuity → Updated events. Check important wording in the generated image; a prompt cannot guarantee legibility."))),
 
+      ),
       React.createElement(CardFold,{label:"Continuity \u00b7 story events",count:continuityEvents.length||null,defaultOpen:false},
         React.createElement("div",{className:"sheet-props-note"},
           React.createElement(Icon.layers,{s:12}),
@@ -1910,6 +1917,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           : React.createElement("div",{className:"state-empty"},"No changes recorded. The default binding persists wherever the screenplay maps this prop.")),
 
       // the settings that change the sheet live ON the card (2026-10-05); the prompt itself is read-only
+      React.createElement(window.CardGroup,{label:"Advanced"},
       React.createElement(CardFold,{label:"Look & exclusions",defaultOpen:false},
         React.createElement(SheetField,{label:"Render style text \u2014 the style picker above fills it; edit to fine-tune",value:p.renderStyle||d.renderStyle,multiline:true,
           placeholder:"photoreal product reference, 85mm, soft studio lighting\u2026",onCommit:val=>onUpdate(p.id,{renderStyle:val})}),
@@ -1923,7 +1931,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
         React.createElement(CopyBox,{label:"Prompt (text only) \u2014 the 4-panel object sheet: hero, front, side, detail",text:buildPropRefPrompt(p,project)}),
         React.createElement(CopyBox,{label:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt)
             ? "Final prompt \u2014 the one behind the current sheet" : "Final prompt \u2014 sent at generation (with the Leave out list)",
-          text:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt) || finalPrompt}))));
+          text:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt) || finalPrompt})))));
 }
 
 /* REVIEW SCREENPLAY PROPS (owner 2026-10-29 — "only props that matter to the story"). The read sorts every object

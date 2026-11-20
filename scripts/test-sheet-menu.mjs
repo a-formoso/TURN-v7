@@ -21,7 +21,7 @@ const menu = art.slice(a, art.indexOf('onDelete && React.createElement("button",
 test("M1 the order: Details, View full size & download, Edit, Select area & edit, Remaster, Attach…, Replace, Clear image…", ()=>{
   const at = (k)=>{ const i = menu.indexOf(k); assert.ok(i>=0, k); return i; };
   const order = ['"Details")', '"View full size & download")', '"Edit "+editNounLabel', '"Select area & edit")',
-    '"Remaster \\u2014 clean re-render"', '"Attach item to prop\\u2026")', '"Replace with upload"', '"Clear image\\u2026")'].map(at);
+    '"Remaster \\u2014 bring the original back"', '"Resize",', '"Attach item to prop\\u2026")', '"Replace with upload"', '"Clear image\\u2026")'].map(at);
   assert.deepEqual(order, [...order].sort((x,y)=>x-y));
   assert.ok(!menu.includes('React.createElement(Icon.x,{s:14}),"Clear")'), "Clear says what it clears");
 });

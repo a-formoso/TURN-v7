@@ -141,14 +141,15 @@ await test("4 what the vision model answers is read strictly: thousandths of the
 
 await test("5a the look: one reading of the engine's picture, the items by name, boxes only", () => {
   const f = between(ai, "async function aiLocateItems(url, items){", "window.aiLocateItems = aiLocateItems;");
-  assert.ok(f.includes("const img = await turnDownscaleDataUrl(url, 1568);") && f.includes("aiVisionComplete([{ role:\"user\", content:prompt }], [img], { maxTokens:700 })"));
+  assert.ok(f.includes("const img = await turnDownscaleDataUrl(url, 1568);") && f.includes("aiPlannerRead([{ role:\"user\", content:prompt }], [img], { maxTokens:700 })"), "read by the edit planner (2026-11-20)");
   assert.ok(f.includes("in thousandths of the image") && f.includes("Never guess a box.") && f.includes('if(!res.vision) return { unsupported:true };'));
   assert.ok(!/TURN|MUSE|McKee|Claude|Anthropic/.test(f.replace(/turnDownscaleDataUrl/g, "")), "nothing the model is told names the codename or a vendor");
 });
 
 await test("5b the pipeline saves the kept picture; when it cannot be done the person chooses; the banner stays honest", () => {
   const hook = between(art, "      let keptMeta = null;", "      // Record the actual returned pixels");
-  assert.ok(hook.includes('if(isEditMode && typeof gopts.keepOriginal==="function"){') && hook.includes("const kept = await gopts.keepOriginal({ baseUrl:refImage, url, cancelled:_cancelledNow });"));
+  // (2026-11-20) the caller's own keeper first; a card that keeps its edits gives every other edit the general one
+  assert.ok(hook.includes('const _keeper = !isEditMode ? null : (typeof gopts.keepOriginal==="function") ? gopts.keepOriginal') && hook.includes("const kept = await _keeper({ baseUrl:refImage, url, cancelled:_cancelledNow });"));
   assert.ok(hook.includes("if(kept && kept.discard) throw new Error(") && hook.includes("if(kept && kept.url){ url = kept.url; keptMeta = kept.meta || null; }"));
   assert.ok(art.indexOf("let keptMeta = null;") < art.indexOf("const outputDims = await nbImageDimensions(url);"), "before the size and the version are recorded");
   assert.ok(art.includes("if(keptMeta) Object.assign(meta, keptMeta);"));
@@ -180,7 +181,7 @@ await test("F the file is loaded before the Art Room; Frances knows; nothing she
   const f = between(ai, 'APP_FEATURES.push({ name:"Update sheet with new wardrobe keeps your sheet and adds only the item (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["pixel for pixel", "'Keep my sheet'", "'Use the engine's picture'", "one image", "small items", "placed exactly"]) assert.ok(f.includes(k), k);
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic/.test(f));
-  const KEYS = ["20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1"];   // (the list grows with each key bump)
+  const KEYS = ["20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1"];   // (the list grows with each key bump)
   for (const file of ["pixel-keep.js", "artroom.jsx", "ai.jsx", "script.jsx"]) assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });
 

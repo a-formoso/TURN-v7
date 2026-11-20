@@ -12488,3 +12488,7 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .loc-step.skipped{color:var(--txt-2)}
 .loc-step.skipped .loc-step-name{text-decoration:line-through;text-decoration-color:var(--line-3)}
 .road-flash{outline:2px solid var(--accent);outline-offset:2px;transition:outline-color .3s}
+
+/* RESIZE in the image menu (2026-11-20): its sizes sit under it, set in; the arrow at its right says it opens */
+.sheet-tools-item .sheet-tools-more{margin-left:auto;display:inline-flex;color:var(--txt-2)}
+.sheet-tools-item.sheet-tools-sub{padding-left:32px;font-size:12.5px}

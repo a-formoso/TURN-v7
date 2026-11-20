@@ -191,7 +191,8 @@ await test("E1 spending and copy: priced scene needs, priced edits, guarded fram
   assert.equal((mn.match(/return "exists";/g)||[]).length, 5);
   // (2026-10-10, owner — Likeness review) an edit of a likeness sheet re-attaches the face: these prices count every image sent
   assert.ok(art.includes('"Apply region edit",\n              // a likeness sheet\'s edit re-attaches the face: the price counts every image it sends (2026-10-10)\n              typeof window.nbCostChip==="function" && window.nbCostChip(1, costOptsFor ? costOptsFor(refs.filter(x=>x && x.url).length) : undefined)'));
-  assert.ok(art.includes('"Remaster \\u2014 clean re-render",\n            typeof window.nbCostChip==="function" && window.nbCostChip(1, editCostOpts(0))'));
+  // (2026-11-20, owner) Remaster is made in code now: no image is made, so it carries no image price
+  assert.ok(art.includes('"Remaster \\u2014 bring the original back"),') && art.includes("onClick:()=>{ setMenuOpen(false); gen.remaster(); }},"));
   assert.ok(art.includes('"Edit current image", typeof window.nbCostChip==="function" && window.nbCostChip(1, editCost))'));
   assert.ok(ui.includes("window.QaCheckButton && _el(window.QaCheckButton,{ gen:genGuarded,"));
   assert.ok(!ui.includes("Set your image-model API key first") && !ui.includes("full coverage") && !ui.includes("scene draft handler"));
