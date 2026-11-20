@@ -95,8 +95,9 @@ await test("3 one More menu over the cards: Regenerate sheets… and the two man
 
 await test("6 the bare numbers say what they count", () => {
   assert.ok(art.includes('items.length+" scenes"));') && !art.includes('+" ("+items.length+")"'), "'38 scenes', not '01–04 (38)'");
+  // (2026-11-20, owner) the style count left the three cards altogether: nobody adds styles from there any more
   for (const f of ["app/artroom.jsx", "app/props.jsx", "app/locations-ui.jsx"])
-    assert.ok(read(f).includes('+" of "+(window.turnGlobalStyleCap||40)+" styles")'), f + ": '41 of 100 styles', not '41/100'");
+    assert.ok(!read(f).includes('+" of "+(window.turnGlobalStyleCap||40)+" styles")'), f + ": no style count on the card");
 });
 
 await test("7 the cast at a glance: over the cards from five characters up; a face, a first name, three marks and the QA dot; a press goes to the card", () => {
@@ -214,7 +215,7 @@ await test("T the card's explaining lines (owner 2026-11-17): gone or behind an 
 await test("F Frances knows; the changed files are served under a new key", () => {
   const f = between(ai, 'APP_FEATURES.push({ name:"Cast overview, the character card in four rows, the kept QA result (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["THE CAST AT A GLANCE", "THE CARD IN FOUR ROWS", "THE QA RESULT IS KEPT", "'Check again'", "ONE 'MORE' MENU", "THE HEADING FOLDS"]) assert.ok(f.includes(k), k);
-  const KEYS = ["20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1"];   // (the list grows with each key bump)
+  const KEYS = ["20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "cameo.jsx", "imagegen.jsx", "cloud.jsx", "app.jsx", "ai.jsx", "styles.css"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });

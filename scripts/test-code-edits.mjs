@@ -371,8 +371,10 @@ await test("6e code tasks are charged, by the server, at the approved prices; th
   assert.ok(art.includes('      charge:"head",') && art.includes('message:turnKeptSummary(r.meta), charge:"remaster",'));
   // a kept edit and the 4K detail: their image is already paid for, so the small charge never loses it
   assert.ok(art.includes('try{ await turnChargeCodeTask("keep"); }catch(e){}') && art.includes('try{ await turnChargeCodeTask("detail"); }catch(e){}'));
-  // the switch is OFF in this release: an older server would not understand the request
-  assert.ok(pricing.includes("const TURN_CODE_CHARGING = false;"), "turned on only in the release that follows the server's deploy");
+  // the switch: ON since the server that knows the task was deployed and answered a real call (2026-11-20)
+  assert.ok(pricing.includes("const TURN_CODE_CHARGING = true;") && pricing.includes("it may only be on while the deployed server knows the"));
+  const fr = between(ai, 'APP_FEATURES.push({ name:"Changes made in code have a small price (Characters, Props, Art Room)"', "function appBrief(){");
+  for (const w of ["Resize to a smaller or larger size, 1", "from the close-up, 2", "Remaster, 2", "kept in place", "3 on top of its 4K image", "FREE: going back to the size", "a change that could not be made costs nothing"]) assert.ok(fr.includes(w), w);
 });
 
 await test("7 the planner's reads; Frances; the page loads the new files", () => {
@@ -395,7 +397,7 @@ await test("7 the planner's reads; Frances; the page loads the new files", () =>
     "THE TWO FULL-BODY VIEWS STAY LEVEL", "lined up with the body by their clothes", "HOW A CHARACTER STANDS ON A NEW SHEET", "GOING SMALLER (downscaling)", "NOTHING IS LOST BY GOING DOWN AND UP AGAIN", "4K WITH ADDED DETAIL ('4K \\u2014 larger, with detail'", "THE PROP CARD IS LAID OUT LIKE THE CHARACTER CARD"]) assert.ok(fr.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Fable|Gemini|GPT/.test(fr));
   assert.ok(!ai.includes("clean re-render"), "the old name of Remaster is gone from what Frances is told");
-  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

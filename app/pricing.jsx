@@ -386,10 +386,10 @@
   /* CODE TASKS (owner 2026-11-20: "let's charge for everything. Even when we're using code"; prices approved the same
      day). A change the app makes to an image in code has its own small price, charged by the server on top of whatever
      the task also uses (its reading, its image). This table mirrors image-proxy/billing-pricing.mjs CODE_TASK_USD: the
-     server decides, the app only shows. TURN_CODE_CHARGING is the switch: OFF until the server that knows the "code"
-     task is deployed (an older server would not understand the request), then turned on in the same release. */
+     server decides, the app only shows. TURN_CODE_CHARGING is the switch: it may only be on while the deployed server knows the "code"
+     task (an older server would not understand the request). */
   const TURN_CODE_TASK_USD = { resize:0.01, head:0.02, remaster:0.02, keep:0.01, detail:0.03 };
-  const TURN_CODE_CHARGING = false;
+  const TURN_CODE_CHARGING = true;   // ON since 2026-11-20: image-proxy with the "code" task was deployed that day (owner: "yes, deploy the server function") and answered a real call
   function turnCodeTaskCredits(kind){
     const usd = TURN_CODE_TASK_USD[String(kind||"")];
     if(!(usd>0)) return 0;
