@@ -2351,6 +2351,32 @@ function nbVersionsTrimNotice(id, n){
   try{ if(typeof window.appToast==="function") window.appToast("This image already kept "+NB_VERSIONS_KEPT+" earlier versions, the most it can. Its oldest version was removed to make room for the new one.", "info"); }catch(e){}
 }
 window.NB_VERSIONS_KEPT = NB_VERSIONS_KEPT; window.nbVersionsAgreed = nbVersionsAgreed;
+/* A VERSION NUMBER IS NEVER USED TWICE ON ONE IMAGE (owner 2026-11-20: "fix the version numbering so it doesn't
+   repeat"). A new version was numbered "how many are kept, plus one": once an image kept its 12, every new one was
+   "v13"; after an earlier version was restored the count repeated a number too; and an upload was always "v1". The
+   number is now one more than the highest this image has had (its current version and every kept one), and never
+   lower than the count. Cards work it out before they save (nbNextVersion, so what they show is what is stored); the
+   save itself raises a number that would repeat, whichever way the image was made. Numbers already stored are left
+   as they are. */
+function nbVersionAfter(curMeta, history, hasCurrent){
+  let top = 0;
+  const see = (m)=>{ const v = Number(m && m.version); if(isFinite(v) && v>top) top = v; };
+  see(curMeta); (history||[]).forEach(h=> see(h && h.meta));
+  return Math.max(top, (history||[]).length + (hasCurrent ? 1 : 0)) + 1;
+}
+async function nbNextVersion(id){
+  if(_nbBackend==="cloud"){
+    // the image's own row is enough (its numbers, no pictures): one small read, nothing is signed
+    if(typeof window.cloudGetGen==="function"){
+      const row = await window.cloudGetGen(_scopeFor(id), id);
+      return nbVersionAfter(row && row.meta, (row && row.history) || [], !!(row && row.storage_path));
+    }
+    const d = (typeof window.cloudLoadDetails==="function") ? await window.cloudLoadDetails(_scopeFor(id), id) : null;
+    return nbVersionAfter(d && d.meta, d ? d.history : [], !!(d && d.url));
+  }
+  return nbVersionAfter(localGetMeta(id), await localGetHistory(id), !!localGetImage(id));
+}
+window.nbVersionAfter = nbVersionAfter; window.nbNextVersion = nbNextVersion;
 function nbCommit(id, dataUrl, meta, refs, kind, epoch, cancelled, expected){
   return _nbSerial(id, ()=>_nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled, expected));
 }
@@ -2379,6 +2405,12 @@ async function _nbCommitInner(id, dataUrl, meta, refs, kind, epoch, cancelled, e
     meta.iso=now.toISOString();
     if(!meta.date) meta.date=now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
     if(!meta.time) meta.time=now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+  }
+  // a version number this image already has is raised (see nbVersionAfter); an image saved with no number keeps none
+  if(meta.version != null){
+    try{ const next = await nbNextVersion(id); if(Number(meta.version) < next) meta.version = next; }catch(e){}
+    if(_stale()) return { tier:"stale", url:dataUrl };
+    if(_cxl())   return { tier:"cancelled", url:dataUrl };
   }
   // Approval belongs to one exact generation and must never be inherited by new pixels.
   delete meta.approval;

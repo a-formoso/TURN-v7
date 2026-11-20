@@ -3336,9 +3336,11 @@ async function nbRunSheetGeneration(env, gopts){
       /* version number from existing history (nbCommit rolls history internally) */
       let priorCount = 0;
       try{
-        const histLen = (typeof nbGetHistory==="function") ? (await nbGetHistory(id)).length : 0;
+        // (2026-11-20) one more than the highest number this image has had: "kept + 1" repeated v13 once 12 were kept
+        const nextVer = (typeof window.nbNextVersion==="function") ? await window.nbNextVersion(id) : 0;
+        const histLen = nextVer ? 0 : ((typeof nbGetHistory==="function") ? (await nbGetHistory(id)).length : 0);
         if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts, "image-after-history");
-        priorCount = genUrl ? Math.min(histLen+1, 12) : histLen;
+        priorCount = nextVer ? nextVer-1 : (genUrl ? histLen+1 : histLen);
       }catch(e){}
       const mEntry = allModels.find(m=>m.id===actualModel) || allModels[0] || {};
       const now = new Date();
@@ -3752,7 +3754,8 @@ function useImageGen(opts){
         pixelW: dims&&dims.w, pixelH: dims&&dims.h,
         date: now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
         time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
-        iso: now.toISOString(), version: 1,
+        // (2026-11-20) an upload over an image is its next version, not "v1" again
+        iso: now.toISOString(), version: (genUrl && typeof window.nbNextVersion==="function") ? await window.nbNextVersion(id).catch(()=>1) : 1,
       };
       if(typeof window.nbIdentitySnapshot==="function"){
         const snap=window.nbIdentitySnapshot(opts.identityCharacter||opts.entity);
@@ -3809,7 +3812,8 @@ function useImageGen(opts){
         const dims = await new Promise((res)=>{ const im=new Image();
           im.onload=()=>res({ w:im.naturalWidth, h:im.naturalHeight }); im.onerror=()=>res(null); im.src=r.url; });
         let priorCount = 1;
-        try{ const histLen = (typeof nbGetHistory==="function") ? (await nbGetHistory(id)).length : 0; priorCount = Math.min(histLen+1, 12); }catch(e){}
+        try{ priorCount = (typeof window.nbNextVersion==="function") ? (await window.nbNextVersion(id))-1
+          : ((typeof nbGetHistory==="function") ? (await nbGetHistory(id)).length : 0)+1; }catch(e){}
         const now = new Date();
         const meta = { ...base };
         CODE_EDIT_NOT_CARRIED.forEach(k=>{ delete meta[k]; });
