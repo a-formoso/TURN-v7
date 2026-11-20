@@ -1352,6 +1352,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
   const referenceImages = Array.isArray(p.referenceImages) ? p.referenceImages.filter(r=>r&&r.url) : [];
 
   const gen = useImageGen({
+    keepEdits:true, noun:"image",
     id: p.id, slotId: "propref-"+p.id,
     entity: p,
     buildFinal: ()=> finalPrompt,

@@ -1507,6 +1507,11 @@ function buildCharRefPrompt(c, project, props, o){
       one_face_rule: "EXACTLY ONE face appears on this sheet \u2014 the hero portrait in panel 1. The front view's head AND neck are omitted BY DESIGN (only the inside of the collar and clean background above it, never a chin, mouth or neck; figure scale unchanged): a second rendered face makes video generators blend or invent identity."
         + (_idRule ? " (The tiny photo on a worn ID badge is part of that object, not another view of the character: keep it very small.)" : ""),
       scale_rule: "the front and back figures are the SAME height and scale, vertically aligned across panels 2 and 3 \u2014 the missing head must NOT enlarge the front figure",
+      /* ROOM ABOVE AND BELOW THE FIGURES (owner 2026-11-20: when the head is put back on the front view "he appears to
+         almost be touching the top of the image frame, which we don't want … create a little gap"). The engines drew the
+         back view's head a few pixels under the top edge and the shoes close to the bottom, so a head set on the front
+         view had nowhere to go. The figures are asked for a little smaller, with clear bands above and below. */
+      headroom_rule: "in panels 2 and 3 the figures do NOT fill the panel's height: leave a clear band of empty background above the top of the back view's head, about 8% of the panel's height, and a clear band of floor below the shoes, about 6%. The front view stands at exactly the same height: the empty space where its head would be, and the same band above that space, stay clean background \u2014 nothing is drawn there",
       no_extra_views: "do not add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, or ANY info box / character-data panel (no name, height, age or traits printed on the image \u2014 that metadata travels in the prompt, never baked into pixels)",
       background: CHAR_SHEET_BACKGROUND
     },
@@ -1564,7 +1569,7 @@ function buildRefFromPhotoPrompt(c, project){
   if(tone) s += tone+" tone. ";
   s += v.height ? "Character is "+(/\b(tall|long|high|across|wide)\b/i.test(v.height) ? v.height : v.height+" tall")+" ("+v.scaleClass+"). " : "Scale: "+v.scaleClass+". ";
   s += "RENDER STYLE: "+style.replace(/\.$/,"")+". ";
-  s += "LAYOUT: a clean 3-panel casting reference sheet in 16:9 landscape with three equal-width tall vertical panels divided by thin clean vertical lines. Panel 1: close-up hero FACE PORTRAIT, front-facing, neutral controlled expression, head and shoulders, face fills most of the panel. Panel 2: full-body FRONT view at exactly the same figure height and scale as Panel 3 (same headroom, feet aligned), but with NO head and NO neck rendered \u2014 an invisible person wearing the clothes: inside the collar opening only the inside back of the collar or shirt, clean empty background above it, and no chin, jaw, mouth, neck or throat skin (the face is absent, never cropped or half-shown); arms relaxed. Panel 3: full-body BACK view, head-to-toe, facing away (no face visible). EXACTLY ONE face on the sheet \u2014 the panel-1 portrait; the missing head must not enlarge the front figure. No text, captions or info boxes anywhere on the image. ";
+  s += "LAYOUT: a clean 3-panel casting reference sheet in 16:9 landscape with three equal-width tall vertical panels divided by thin clean vertical lines. Panel 1: close-up hero FACE PORTRAIT, front-facing, neutral controlled expression, head and shoulders, face fills most of the panel. Panel 2: full-body FRONT view at exactly the same figure height and scale as Panel 3 (same headroom, feet aligned), but with NO head and NO neck rendered \u2014 an invisible person wearing the clothes: inside the collar opening only the inside back of the collar or shirt, clean empty background above it, and no chin, jaw, mouth, neck or throat skin (the face is absent, never cropped or half-shown); arms relaxed. Panel 3: full-body BACK view, head-to-toe, facing away (no face visible). EXACTLY ONE face on the sheet \u2014 the panel-1 portrait; the missing head must not enlarge the front figure. HEADROOM: the figures in Panels 2 and 3 do not fill the panel's height \u2014 a clear band of empty background stays above the back view's head (about 8% of the panel's height) and a clear band of floor below the shoes (about 6%); the front view stands at the same height, and the space where its head would be stays clean empty background. No text, captions or info boxes anywhere on the image. ";
   s += "Do NOT add side, profile or three-quarter views, expression rows, inset detail shots, rulers, captions, labels, title text, measurement text, annotations or watermarks. "+CHAR_SHEET_BACKGROUND.charAt(0).toUpperCase()+CHAR_SHEET_BACKGROUND.slice(1)+", soft even studio lighting, the SAME identical face/build/wardrobe in every panel, sharp focus.";
   return s;
 }
@@ -3278,8 +3283,15 @@ async function nbRunSheetGeneration(env, gopts){
          What it returns is what is saved; when it cannot be done the caller says what to do (use the engine's picture
          on the person's yes, or save nothing). Runs before the size and the version are recorded. */
       let keptMeta = null;
-      if(isEditMode && typeof gopts.keepOriginal==="function"){
-        const kept = await gopts.keepOriginal({ baseUrl:refImage, url, cancelled:_cancelledNow });
+      /* …AND EVERY OTHER EDIT TOO (owner 2026-11-20: "printing back out whatever … we already had … I want all of these
+         things to be done with code"): on a card that keeps its edits (character and prop sheets), an edit with no
+         keeper of its own gets the general one, turnKeepEdit: one look at the two pictures to find what was asked for,
+         then the image as it was with only that copied in. */
+      const _keeper = !isEditMode ? null : (typeof gopts.keepOriginal==="function") ? gopts.keepOriginal
+        : (opts.keepEdits && !gopts.wholeRedraw && typeof turnKeepEdit==="function")
+          ? ((io)=> turnKeepEdit(io, { instruction:gopts.editInstruction, whose:((opts.entity && opts.entity.name) ? opts.entity.name+"’s " : "this ")+(opts.noun||"image") })) : null;
+      if(_keeper){
+        const kept = await _keeper({ baseUrl:refImage, url, cancelled:_cancelledNow });
         if(_cancelledNow()) throw { __cancelled:true };
         if(kept && kept.discard) throw new Error(kept.message || "Your sheet was left as it is.");
         if(kept && kept.url){ url = kept.url; keptMeta = kept.meta || null; }
@@ -3384,6 +3396,8 @@ async function nbRunSheetGeneration(env, gopts){
         meta.keptFromIso = genMeta.iso;
         meta.keptRootIso = genMeta.keptRootIso || genMeta.iso;
       }
+      // a sheet whose head was put back still has it after a kept change (its pixels are the same): the record says so
+      if(keptMeta && keptMeta.keptOriginal && genMeta && genMeta.headBack) meta.headBack = genMeta.headBack;
       /* A surface-specific start stamp may add provenance fields, but quality is
          owned by this runner's immutable request snapshot.  Re-assert it after
          the merge so no late callback can replace "default"/"auto" with a live
@@ -3474,6 +3488,9 @@ window.nbRunSheetGeneration = nbRunSheetGeneration;
    and tiered persistence. Parameterized by prompt builders so the
    same machinery drives every kind of reference sheet.
    ============================================================ */
+/* what belongs to ONE version of an image and is not carried onto the next one a change in code makes */
+const CODE_EDIT_NOT_CARRIED = ["qa","lock","approval","keptOriginal","keptKind","keptItems","keptLeftOut","keptChangedPixels","keptTotalPixels","keptBoxes",
+  "keptFromIso","keptRootIso","keptTried","carriedFrom","simplifiedRetry","promptFit","policyFallback","codeEdit","restoredFromIso","restoredFromVersion"];
 function useImageGen(opts){
   const { id, slotId } = opts;
   // module-level registry of in-flight generations, so a generation survives the
@@ -3603,6 +3620,16 @@ function useImageGen(opts){
       try{ window.nbAssertMediaIdentity(opts, "image-generate"); }
       catch(e){ setGenErr((e&&e.message)||"Character identity needs review before rendering."); throw e; }
     }
+    /* EVERY EDIT IS MADE IN CODE WHERE IT CAN BE (owner 2026-11-20: "all the editing to be done with code"). An edit
+       that only needs pixels the sheet already has is made with no image engine at all: so far, the head put on the
+       front view from the close-up (turnHeadBack; the planner confirms that this is what was asked). Any other edit
+       goes on to the engine, which draws the new part only: the runner then keeps the image and copies that part in
+       (turnKeepEdit). */
+    if(gopts && gopts.editInstruction && genUrl && opts.keepEdits && !gopts.keepOriginal && !gopts.wholeRedraw
+       && typeof turnEditAsksHeadBack==="function" && turnEditAsksHeadBack(gopts.editInstruction)){
+      const made = await turnHeadBack({ genUrl, codeEdit }, lockName(), { instruction:String(gopts.editInstruction), quiet:true, lockOk:true });
+      if(made){ setEditMode(false); return true; }
+    }
     return await nbRunSheetGeneration({
       id, slotId, opts, allModels, genUrl, genMeta, slotHasRef,
       ui: { setGenErr, setGening, setRetrying, setGenUrl, setGenTier, setGenMeta,
@@ -3692,6 +3719,62 @@ function useImageGen(opts){
     }catch(e){ setGenErr((e && e.message) || "Couldn't import the image."); }
     setGening(false);
   };
+  /* A CHANGE MADE IN CODE (owner 2026-11-20: "painting that pixel by pixel using code"): the head put back, a sheet
+     restored around its edits. NO IMAGE ENGINE RUNS. `make` is handed the current image and gives back the new picture
+     (a PNG data URL) with what to record about it, or says why it could not be done; then nothing is saved. The new
+     picture becomes the current version and the one before it stays in the versions, as with any other change.
+     The record is the image's own, carried on (its description, what it wears, its engine), minus what belongs to one
+     version only (its check, its lock). o: { editInstruction, lockOk } */
+  const codeEdit = async (make, o)=>{
+    o = o || {};
+    if(gening || !genUrl || typeof make!=="function") return false;
+    if(sheetLockOf(genMeta) && !o.lockOk && !(await turnLockedAsk(genMeta, lockName(), "image", "change it"))) return false;
+    if(typeof window.nbAssertMediaIdentity==="function"){
+      try{ window.nbAssertMediaIdentity(opts,"image-code-edit-start"); }
+      catch(e){ setGenErr((e&&e.message)||"Character identity needs review before this sheet is changed."); return false; }
+    }
+    const _editEpoch = (typeof nbEpoch==="function") ? nbEpoch() : null;
+    const base = genMeta || {}, baseUrl = genUrl;
+    const say = (m,k)=>{ if(m && typeof window.appToast==="function") window.appToast(m, k||"info"); };
+    setGenErr(""); setGening(true);
+    let done = false;
+    try{
+      const r = await make({ baseUrl, meta:base });
+      if(!r || !r.url){ say(r && r.message); }
+      else {
+        const dims = await new Promise((res)=>{ const im=new Image();
+          im.onload=()=>res({ w:im.naturalWidth, h:im.naturalHeight }); im.onerror=()=>res(null); im.src=r.url; });
+        let priorCount = 1;
+        try{ const histLen = (typeof nbGetHistory==="function") ? (await nbGetHistory(id)).length : 0; priorCount = Math.min(histLen+1, 12); }catch(e){}
+        const now = new Date();
+        const meta = { ...base };
+        CODE_EDIT_NOT_CARRIED.forEach(k=>{ delete meta[k]; });
+        Object.assign(meta, { mode:"edit", editInstruction:String(o.editInstruction||""),
+          pixelW:(dims && dims.w) || base.pixelW, pixelH:(dims && dims.h) || base.pixelH,
+          date: now.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}),
+          time: now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}),
+          iso: now.toISOString(), version: priorCount + 1, builtFromIso: base.iso || "", builtFromVersion: base.version || undefined }, r.meta || {});
+        if(typeof window.nbAssertMediaIdentity==="function") window.nbAssertMediaIdentity(opts,"image-code-edit-before-commit");
+        const assetKind = (typeof slotAssetKind==="function") ? slotAssetKind(slotId) : "character";
+        if(typeof nbWithAssetProvenance==="function") Object.assign(meta, nbWithAssetProvenance(id, meta, assetKind));
+        const saveResult = await nbCommit(id, r.url, meta, [], assetKind, _editEpoch);
+        if(!saveResult || saveResult.tier==="error")
+          throw new Error("The change was made, but saving it to your project failed, so nothing was changed. Check your connection and try again.");
+        if(saveResult.tier!=="stale"){
+          const url = saveResult.url || r.url;
+          setGenUrl(url); setGenTier(saveResult.tier || "local"); setGenMeta(meta);
+          try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
+          say(r.message, "success"); done = true;
+        }
+      }
+    }catch(e){ setGenErr((e && e.message) || "The change could not be made."); }
+    setGening(false);
+    return done;
+  };
+  /* REMASTER, IN CODE (owner 2026-11-20): the version before the edit is brought back pixel for pixel, and only what
+     the edit was asked to change is kept from it (turnRemasterInCode). No image is made. */
+  const remaster = ()=> codeEdit(({ baseUrl, meta })=> turnRemasterInCode({ id, url:baseUrl, meta, name:lockName(), noun:opts.noun||"image" }),
+    { editInstruction:String((genMeta && genMeta.editInstruction)||"") });
   /* how many variant sub-sheets a Clear would also remove (for the confirm message) */
   const relatedClearCount = (typeof opts.relatedClearIds==="function")
     ? (()=>{ try{ return (opts.relatedClearIds()||[]).length; }catch(e){ return 0; } })() : 0;
@@ -3745,7 +3828,7 @@ function useImageGen(opts){
       if(!r||!r.ok)throw new Error((r&&r.error)||"Approval could not be saved.");
       setGenMeta(r.meta); return r;
     },
-    editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount,
+    editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, codeEdit, remaster, relatedClearCount,
     relatedClearIdsOf:(typeof opts.relatedClearIds==="function") ? opts.relatedClearIds : null, relatedClearLabel:opts.relatedClearLabel||"",
     loadDetails, revertTo, revertPrevious, deleteCurrentAndPromote, deleteVersion, layers, allModels,
     // the card's CURRENT spec prompt — lets QA judge uploaded/imported images
@@ -4048,9 +4131,10 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
     return stored;
   })();
   const aspectDetail = meta.aspect || ((pixelW && pixelH) ? nbAspectLabel(pixelW,pixelH) : "");
-  const modelDetail = meta.modelLabel
-    || (typeof nbModelLabel==="function" ? nbModelLabel(meta.modelId) : ((window.NB_MODELS||[]).find(m=>m.id===meta.modelId)||{}).label)
-    || meta.modelId;
+  // a version made by a change in code names the engine that planned it (nbShownModel); what the change did and
+  // what, if anything, an image engine drew for it are two lines of their own
+  const modelDetail = nbShownModel(meta).label;
+  const codeLines = codeEditLines(meta);
   const generatedDetail = (()=>{
     let date=meta.date||"", time=meta.time||"";
     if((!date || !time) && meta.iso){
@@ -4227,6 +4311,8 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
         /* metadata grid */
         React.createElement("div",{className:"dt-grid"},
           field("Model", modelDetail),
+          field("Changed in code", codeLines.did || null),
+          field("New part drawn by", codeLines.drew || null),
           field("Render style", (typeof renderStyleLabelFromMeta==="function" ? renderStyleLabelFromMeta(meta) : "") || null),
           field("Resolution", resolutionDetail),
           field("Aspect ratio", aspectDetail),
@@ -4314,7 +4400,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
               const layerLabel = hm.carriedFrom ? nbCarriedFromLabel(hm.carriedFrom) : isEdit
                 ? ("Edit: "+(hm.editInstruction||"adjustment"))
                 : (hm.mode==="photo" ? "From reference photo" : hm.mode==="cameo" ? "From the likeness" : styleLabel || "Original generation");
-              const modelName = hm.modelId || hm.modelLabel || "unknown model";
+              const modelName = (hm.codeEdit && hm.codeEdit.by) ? hm.codeEdit.by : (hm.modelId || hm.modelLabel || "unknown model");
               const active = selVer && selVer.idx===i;
               return React.createElement("div",{key:i,className:"dt-hist-item"+(active?" active":"")},
                 React.createElement("div",{className:"dt-hist-row"},
@@ -4913,6 +4999,8 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
     const gm = gen.genMeta || {};
     if(gm.mode==="edit" && gm.specPrompt)
       contract = String(gm.specPrompt)+(gm.editInstruction ? "\n\nAFTER THAT, ONE LOCAL CHANGE WAS MADE TO THE IMAGE (where it differs from the text above, the change is right): "+String(gm.editInstruction) : "");
+    // the head was put back on the front view on purpose (turnHeadBack): a head there is right, whatever the text says
+    if(contract && gm.headBack) contract += "\n\nON THIS IMAGE THE FRONT FULL-BODY VIEW HAS ITS HEAD: it was put back on purpose, copied from the close-up. A head on that view is right; do not report it.";
     if(!contract && typeof gen.buildFinal==="function"){
       try{ contract = String(gen.buildFinal()||""); }catch(e){}
       judgedSpec = !!contract;
@@ -4944,6 +5032,8 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
     }
     if(!rep){ if(window.appToast) window.appToast("The QA read failed — try again.","info"); return; }
     if(rep.unsupported){ if(window.appToast) window.appToast("The frame check isn't available right now \u2014 the writing engine couldn't look at the image. Try again later; nothing was charged for an image.","info"); return; }
+    // who read it (the areas it marked may be fixed in code later: that version's Details name this reader)
+    try{ const lm = window.__lastWritingModel; if(lm && lm.label) rep.readBy = { id:String(lm.id||""), label:String(lm.label) }; }catch(e){}
     setReport({ ...rep, judgedSpec });
     // keep it with the image it judged (free; a film this person can't write to just doesn't keep it)
     const iso = gen.genMeta && gen.genMeta.iso;
@@ -4984,7 +5074,7 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
       // are the ones this report's read made, so no second look is needed. A fix may be larger than a worn item.
       imageUrl: gen.genUrl,
       onRunAreaFix:(areas)=>gen.generate({ editInstruction:qaAreaFixInstruction(areas),
-        keepOriginal:(io)=>turnKeepOrAsk(io, { kind:"fix", items:areas.map(a=>a.item), found:areas.map(a=>({ item:a.item, boxes:[a.box] })), maxPatch:0.04,
+        keepOriginal:(io)=>turnKeepOrAsk(io, { kind:"fix", items:areas.map(a=>a.item), found:areas.map(a=>({ item:a.item, boxes:[a.box] })), maxPatch:0.04, by:report.readBy||null,
           whose:(name ? name+"\u2019s " : "this ")+(noun||"image") }) }),
       // one render later, so a screenplay fix just applied to the spec is in the prompt (the Apply-to-spec rule above)
       onRegen:()=>setPendingRegen(true) }), document.body));
@@ -5716,7 +5806,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
   React.useEffect(()=>{
     const bid = (entity && entity.id) || slotId;
     window.__sheetGen = window.__sheetGen || {};
-    window.__sheetGen[bid] = { generate, gening, noun };
+    window.__sheetGen[bid] = { generate, gening, noun, remaster:gen.remaster, url:genUrl };
     return ()=>{ delete window.__sheetGen[bid]; };
   });
   const runEdit = ()=>{ if(!editText.trim() || gening) return;
@@ -5862,11 +5952,10 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
             onClick:()=>{ setRegionEditOpen(true); setMenuOpen(false); }},
             React.createElement(Icon.target,{s:14}),"Select area & edit"),
           // Remaster sits with the edits it cleans up after (2026-10-29)
-          (genUrl && (forceRemaster || remasterEligible(genMeta))) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
-            title:"Re-render the CURRENT image as a fresh, clean, full-quality version \u2014 same design, artifacts and noise removed (stacked edits degrade like a photocopy of a photocopy). Lands as a new version; the old one stays in history.",
-            onClick:()=>{ setMenuOpen(false); generate({ editInstruction: (typeof remasterInstruction==="function")?remasterInstruction(noun):"Reproduce this image exactly, clean and artifact-free." }); }},
-            React.createElement(Icon.sparkles,{s:14}),"Remaster \u2014 clean re-render",
-            typeof window.nbCostChip==="function" && window.nbCostChip(1, editCostOpts(0))),
+          (genUrl && remasterEligible(genMeta) && typeof gen.remaster==="function") && React.createElement("button",{className:"sheet-tools-item",disabled:gening,"data-role":"sheet-remaster",
+            title:"Brings back the version before the edit, pixel for pixel, and keeps only what the edit was asked to change. Nothing is redrawn and no image is made: one reading of the two pictures (writing credits). If the change cannot be placed exactly, the image is left as it is. Lands as a new version; this one stays in the versions.",
+            onClick:()=>{ setMenuOpen(false); gen.remaster(); }},
+            React.createElement(Icon.sparkles,{s:14}),"Remaster \u2014 bring the original back"),
           genUrl && !isPropCardMenu && (((window.turnContinuity||{}).props||[]).length>0) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Select an item in this image and attach that crop to an existing prop as a consistency reference.",
             onClick:()=>{ setPropRefOpen(true); setMenuOpen(false); }},
@@ -6137,7 +6226,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
                   return React.createElement("span",{key:k,className:"sheet-meta-item none",title:lab0+": not saved with this image"},
                     IC0 ? React.createElement(IC0,{s:10,sw:1.8}) : null, short0+" \u2014");
                 }
-                if(k==="model") return React.createElement("span",{key:k,className:"sheet-meta-item sheet-meta-model",title:"Model: "+((genMeta.modelLabel||"")+(genMeta.modelId?(" ("+genMeta.modelId+")"):""))},
+                if(k==="model") return React.createElement("span",{key:k,className:"sheet-meta-item sheet-meta-model",title:(()=>{ const sm = nbShownModel(genMeta); return "Model: "+sm.label+(sm.id ? " ("+sm.id+")" : "")+(sm.code ? ". This version was put together in code; Details say how." : ""); })()},
                   React.createElement(Icon.sparkles,{s:10,sw:1.8}),
                   /* the commercial name (e.g. "Nano Banana 2.1"), not the raw model id */
                   React.createElement("span",{className:"sheet-meta-model-name"},v));
@@ -6200,6 +6289,7 @@ function sheetCapWrite(list){
 /* what each detail says for one image ("" = this image has none, so nothing is shown for it) */
 function sheetCapValue(field, genMeta, resLabel){
   const m = genMeta || {};
+  if(field==="model" && m.codeEdit && m.codeEdit.by) return String(m.codeEdit.by);   // a change made in code names its planner (2026-11-20)
   if(field==="model") return m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) : ((window.NB_MODELS||[]).find(x=>x.id===m.modelId)||{}).label) || m.modelId || "";
   if(field==="aspect") return m.aspect || "";
   if(field==="size") return (m.uploaded || m.modelId==="uploaded") ? String(resLabel||"").split(" \u00b7 ")[0] : (resLabel||"");
@@ -6214,6 +6304,25 @@ function sheetCapValue(field, genMeta, resLabel){
   if(field==="style") return (typeof renderStyleLabelFromMeta==="function") ? (renderStyleLabelFromMeta(m)||"") : "";
   return "";
 }
+/* WHICH MODEL AN IMAGE'S DETAILS NAME (owner 2026-11-20: a change made in code must "be clear that the changes were
+   achieved with" the engine that planned it, "we don't want it to still say … any of the other image models"). A
+   version made by a change in code names its planner; every other version names its image engine, as before. */
+function nbShownModel(meta){
+  const m = meta || {}, ce = m.codeEdit;
+  if(ce && ce.by) return { label:String(ce.by), id:String(ce.byId||""), code:true };
+  return { label:m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) : ((window.NB_MODELS||[]).find(x=>x.id===m.modelId)||{}).label) || m.modelId || "", id:m.modelId||"", code:false };
+}
+/* what such a change did, and what (if anything) an image engine drew for it: two plain lines for Details */
+function codeEditLines(meta){
+  const m = meta || {}, ce = m.codeEdit;
+  if(!ce || !ce.by) return { did:"", drew:"" };
+  const engine = m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) : "") || "";
+  const from = m.restoredFromVersion ? "v"+m.restoredFromVersion : (m.builtFromVersion ? "v"+m.builtFromVersion : "the version before");
+  if(ce.kind==="head") return { did:"The head was put back on the front view: the close-up’s own head, made smaller. Built from "+from+"; nothing was redrawn.", drew:"" };
+  return { did:(typeof turnKeptSummary==="function" ? turnKeptSummary(m) : "") || "Put together in code from "+from+".",
+    drew:(ce.drew && engine && engine!==ce.by) ? engine : "" };
+}
+window.nbShownModel = nbShownModel; window.codeEditLines = codeEditLines;
 window.sheetCapRead = sheetCapRead; window.sheetCapValue = sheetCapValue; window.SHEET_CAP_FIELDS = SHEET_CAP_FIELDS;
 /* (these sit after the frame, before it goes on window: whoever lifts the frame's source up to that line takes them too) */
 window.SheetFrame = SheetFrame;
@@ -6399,8 +6508,10 @@ async function turnKeepOriginal(o){
   const cv = document.createElement("canvas"); cv.width = orig.width; cv.height = orig.height;
   cv.getContext("2d").putImageData(new ImageData(r.out.data, orig.width, orig.height), 0, 0);
   const total = orig.width*orig.height;
+  // who looked (the reader of this look, or of the QA report whose boxes were used): the image's Details name it
+  const by = (found && found.by) || o.by || null;
   return { url:cv.toDataURL("image/png"), placed:r.placed, skipped:outItems,
-    meta:{ keptOriginal:true, ...(o.kind ? { keptKind:o.kind } : {}), keptItems:inNames, keptLeftOut:outItems.map(x=>x.item), keptChangedPixels:r.changed, keptTotalPixels:total,
+    meta:{ keptOriginal:true, ...(o.kind ? { keptKind:o.kind } : {}), ...((by && by.label) ? { codeEdit:{ kind:o.kind||"add", by:String(by.label), byId:String(by.id||""), drew:true } } : {}), keptItems:inNames, keptLeftOut:outItems.map(x=>x.item), keptChangedPixels:r.changed, keptTotalPixels:total,
       keptBoxes:r.placed.map(p=>({ item:p.item, box:p.box })) } };
 }
 /* what the card says afterwards, in plain words */
@@ -6408,24 +6519,26 @@ function turnKeptSummary(meta){
   if(!meta || !meta.keptOriginal) return "";
   const n = Number(meta.keptChangedPixels)||0, t = Number(meta.keptTotalPixels)||0;
   const pct = t ? (100*(t-n)/t) : 0;
-  const list = (meta.keptItems||[]).join(", "), fix = meta.keptKind==="fix";
+  const list = (meta.keptItems||[]).join(", "), edit = meta.keptKind==="edit", fix = meta.keptKind==="fix" || edit;
+  if(meta.keptKind==="remaster") return "The version before the edit was brought back: "+(pct>=99.95 ? pct.toFixed(2) : pct.toFixed(1))+"% of the image is that version, pixel for pixel. Kept from the edit: "
+    +(list||"what was changed")+"."+((meta.keptLeftOut||[]).length ? " Not kept: "+meta.keptLeftOut.join(", ")+"." : "");
   return (fix ? "Your image" : "Your sheet")+" was kept as it was: "+(pct>=99.95 ? pct.toFixed(2) : pct.toFixed(1))+"% of its pixels are untouched. "
-    +(fix ? "Fixed: " : "Added: ")+(list||(fix ? "the marked area" : "the new item"))+"."
-    +((meta.keptLeftOut||[]).length ? (fix ? " Not fixed: " : " Not added: ")+meta.keptLeftOut.join(", ")+"." : "");
+    +(edit ? "Changed: " : fix ? "Fixed: " : "Added: ")+(list||(edit ? "what you asked for" : fix ? "the marked area" : "the new item"))+"."
+    +((meta.keptLeftOut||[]).length ? (edit ? " Not changed: " : fix ? " Not fixed: " : " Not added: ")+meta.keptLeftOut.join(", ")+"." : "");
 }
 /* KEEP, OR ASK (one rule for the wardrobe update and for the QA report's area fixes): the picture that is saved is the
    original with only the named things changed. When none of them can be placed exactly the person chooses: keep the
    image as it is (nothing is saved), or take the engine's whole picture. o: { items, found?, kind?, maxPatch?, whose } */
 async function turnKeepOrAsk(io, o){
-  const whose = (o && o.whose) || "the image", fix = !!(o && o.kind==="fix");
-  const r = await turnKeepOriginal({ baseUrl:io.baseUrl, url:io.url, items:(o&&o.items)||[], found:o&&o.found, kind:o&&o.kind, maxPatch:o&&o.maxPatch });
+  const whose = (o && o.whose) || "the image", fix = !!(o && (o.kind==="fix" || o.kind==="edit")), edit = !!(o && o.kind==="edit");
+  const r = (o && o.failed) ? { failed:o.failed, placed:[], skipped:[] } : await turnKeepOriginal({ baseUrl:io.baseUrl, url:io.url, items:(o&&o.items)||[], found:o&&o.found, kind:o&&o.kind, maxPatch:o&&o.maxPatch, by:o&&o.by });
   if(r && r.url){
     if(typeof window.appToast==="function") window.appToast(turnKeptSummary(r.meta), r.skipped.length ? "info" : "success");
     return { url:r.url, meta:r.meta, skipped:r.skipped };
   }
-  const why = ((r && r.failed) || "the change could not be placed exactly").replace(/the new items/g, fix ? "the marked areas" : "the new items");
+  const why = ((r && r.failed) || "the change could not be placed exactly").replace(/the new items/g, edit ? "the changes" : fix ? "the marked areas" : "the new items");
   const takeEngine = (typeof window.appConfirm==="function") ? !!(await window.appConfirm({
-    title:(fix ? "The fix could not be made in place on " : "The new item could not be added to ")+whose+(fix ? "" : " exactly"),
+    title:(edit ? "The edit could not be made in place on " : fix ? "The fix could not be made in place on " : "The new item could not be added to ")+whose+(fix ? "" : " exactly"),
     body:"The image engine redrew the whole picture, and "+why+". You can keep "+whose+" as it is, or use the engine\u2019s picture, in which everything is redrawn (faces and clothes may have shifted). The image is already paid for either way.",
     confirmLabel:"Use the engine\u2019s picture", cancelLabel:fix ? "Keep my image" : "Keep my sheet" })) : false;
   if(takeEngine) return { url:io.url, meta:{ keptOriginal:false, keptTried:true }, skipped:[] };
@@ -6448,6 +6561,95 @@ function qaAreaFixInstruction(areas){
     +areas.map(a=> a.n+") "+String(a.what||a.item).replace(/\.$/,"")+" (area: left "+pc(a.box[0])+"%, top "+pc(a.box[1])+"%, right "+pc(a.box[2])+"%, bottom "+pc(a.box[3])+"%)").join("; ")
     +". This is a small local change: do not redraw, restyle, re-light or re-pose anything. Everything outside those areas stays exactly as it is";
 }
+/* THE HEAD, BACK ON THE FRONT VIEW (owner 2026-11-20). Every sheet draws its front full-body view with no head, on
+   purpose: one face on the sheet, the close-up's, so a video engine never takes a second, smaller one for the person.
+   The owner: "we can take that close up and … [bring] that head back into place if a user wishes to. So we can have
+   that as an option for users when they use the QA check." One look at the sheet (aiPlanHeadBack: where the close-up's
+   head, its chin and the body's empty neck opening are); everything else is code (pixel-keep.js pkHeadBack): the
+   close-up's own head, made smaller, set on the neck. Nothing is drawn, so the two faces are the same face. When it
+   cannot be placed cleanly the sheet is left as it is and the person is told why. */
+/* ANY EDIT, KEPT (owner 2026-11-20). The image engine has drawn the edit and, as always, redrawn everything else with it.
+   One look at the two pictures says where the asked change is (aiLocateChanges, the edit planner); the code then gives
+   back the image as it was with only that part copied in. When the change cannot be found or placed exactly, the
+   person chooses: keep the image, or take the engine's whole picture. A change may be large (a coat, a hairstyle). */
+async function turnKeepEdit(io, o){
+  const instr = String((o && o.instruction) || "").trim(), whose = (o && o.whose) || "the image";
+  let found = null;
+  try{ found = await window.aiLocateChanges(io.baseUrl, io.url, [instr]); }catch(e){ found = null; }
+  if(!found || found.unsupported) return turnKeepOrAsk(io, { kind:"edit", whose, failed:"the two pictures could not be compared" });
+  if(!found.length) return turnKeepOrAsk(io, { kind:"edit", whose, failed:"what the edit changed could not be found" });
+  return turnKeepOrAsk(io, { kind:"edit", items:found.map(x=>x.item), found, maxPatch:0.3, whose, by:found.by });
+}
+/* an edit's own words that may be asking for the head on the headless view (cheap; the planner then confirms it) */
+function turnEditAsksHeadBack(instruction){
+  const t = String(instruction||"");
+  return /\b(head|face)\b/i.test(t) && /\b(add|put|bring|restore|return|give|attach|place|back|missing)\b/i.test(t)
+    && /\b(front|middle|centre|center|full[- ]?body|body|headless|view|panel|figure)\b/i.test(t) && t.length<400;
+}
+window.turnKeepEdit = turnKeepEdit; window.turnEditAsksHeadBack = turnEditAsksHeadBack;
+function turnPicturePng(img){
+  const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+  cv.getContext("2d").putImageData(new ImageData(img.data, img.width, img.height), 0, 0);
+  return cv.toDataURL("image/png");
+}
+async function turnHeadBack(gen, name, o){
+  o = o || {};
+  const PK = window.PixelKeep;
+  if(!gen || !gen.genUrl || typeof gen.codeEdit!=="function" || !PK || typeof PK.pkHeadBack!=="function") return false;
+  const whose = (name ? name+"’s " : "this ")+"sheet", Whose = whose.charAt(0).toUpperCase()+whose.slice(1);
+  return await gen.codeEdit(async ({ baseUrl })=>{
+    // quiet (an edit's first try): when it is not this, or cannot be done in code, nothing is said and the edit goes on
+    const left = (why)=> o.quiet ? {} : ({ message:Whose+" was left as it is: "+why+"." });
+    let img; try{ img = await turnReadPixels(baseUrl); }catch(e){ return left("the picture could not be read"); }
+    let look = null;
+    try{ look = await window.aiPlanHeadBack(baseUrl, o.instruction); }catch(e){ return left("the sheet could not be looked at ("+String((e && e.message)||"try again").replace(/\.$/,"")+")"); }
+    if(!look || look.unsupported || !look.found) return left("the sheet could not be looked at");
+    const f = look.found;
+    if(o.instruction && f.asked===false) return left("that is not what was asked");
+    if(f.headless===false) return left("its full-body views already have their heads");
+    const plan = PK.pkHeadPlan(f, img);
+    if(!plan) return left("the close-up’s head or the place for it on the body could not be found");
+    const r = PK.pkHeadBack(img, plan);
+    if(!r || !r.out) return left((r && r.failed) || "the head could not be placed");
+    return { url:turnPicturePng(r.out),
+      message:"The head is back on the front view of "+whose+": it is the close-up’s own face, made smaller. Nothing was redrawn."
+        +(r.moved ? " The body was moved down a little, as it is, to make room and leave a gap above the head." : "")
+        +(r.fit<0.985 ? " The head is slightly smaller than true size, for lack of room." : "")
+        +(f.hairBelowChin ? " Hair that falls below the chin was not carried over." : ""),
+      meta:{ headBack:{ at:Date.now(), moved:r.moved ? r.moved.by : 0, fit:Math.round(r.fit*100)/100 },
+        ...((look.by && look.by.label) ? { codeEdit:{ kind:"head", by:String(look.by.label), byId:String(look.by.id||""), drew:false } } : {}) } };
+  }, { lockOk:!!o.lockOk, editInstruction:"the head was put back on the full-body view that was drawn without one: the close-up’s own head, copied and made smaller, set on the neck" });
+}
+/* REMASTER, IN CODE (owner 2026-11-20: "we want to shift from [an image model] … to do the remastering, where we basically
+   use what we have … painting that pixel by pixel using code"). An image engine that is asked for one change redraws
+   everything, and each further edit loses a little more. The old remaster asked an engine to redraw the result once
+   more. This one draws nothing: it goes back to the version the edits started from, and keeps from the edited picture
+   only what was asked for (one look at the two pictures, aiLocateChanges; then turnKeepOriginal). When the asked
+   changes cannot be placed exactly, the image is left as it is.
+   o: { id, url, meta, name, noun } → what gen.codeEdit takes: { url, meta, message } or { message } */
+function remasterIsEngineEdit(m){ return !!(m && m.mode==="edit" && !m.keptOriginal && !m.codeEdit && !/^REMASTER\b/i.test(String(m.editInstruction||""))); }
+async function turnRemasterInCode(o){
+  const whose = (o.name ? o.name+"’s " : "this ")+(o.noun||"image"), Whose = whose.charAt(0).toUpperCase()+whose.slice(1);
+  const left = (why)=>({ message:Whose+" was left as it is: "+why+"." });
+  if(!remasterIsEngineEdit(o.meta)) return left("it is not an image engine’s edit, so there is nothing to bring back");
+  let history = [];
+  try{ history = (typeof nbGetHistory==="function") ? ((await nbGetHistory(o.id)) || []) : []; }catch(e){ history = []; }
+  // back through the edits that were stacked, to the version they started from
+  const asked = [String(o.meta.editInstruction||"")]; let i = 0;
+  while(i<history.length && i<5 && remasterIsEngineEdit(history[i] && history[i].meta)){ asked.push(String(history[i].meta.editInstruction||"")); i++; }
+  const base = history[i];
+  if(!base || !base.url) return left("the version before the edit is no longer in its versions");
+  let found = null;
+  try{ found = await window.aiLocateChanges(base.url, o.url, asked.filter(Boolean).reverse()); }catch(e){ return left("the two pictures could not be looked at ("+String((e && e.message)||"try again").replace(/\.$/,"")+")"); }
+  if(!found || found.unsupported) return left("the two pictures could not be looked at");
+  if(!found.length) return left("what the edit changed could not be found");
+  const r = await turnKeepOriginal({ baseUrl:base.url, url:o.url, items:found.map(x=>x.item), found, kind:"remaster", maxPatch:0.08, by:found.by });
+  if(!r || !r.url) return left(((r && r.failed) || "the change could not be placed exactly").replace(/the new items/g,"the edit’s changes").replace(/the engine's picture/g,"the edited picture"));
+  const bm = base.meta || {};
+  return { url:r.url, message:turnKeptSummary(r.meta),
+    meta:{ ...r.meta, restoredFromIso:bm.iso || "", restoredFromVersion:bm.version || undefined } };
+}
+window.turnHeadBack = turnHeadBack; window.turnRemasterInCode = turnRemasterInCode; window.remasterIsEngineEdit = remasterIsEngineEdit;
 window.turnKeepOriginal = turnKeepOriginal; window.turnKeptSummary = turnKeptSummary; window.turnKeepOrAsk = turnKeepOrAsk;
 window.qaFixAreas = qaFixAreas; window.qaAreaFixInstruction = qaAreaFixInstruction;
 /* A DESIGN TEXT AN OLDER LIMIT CUT (2026-11-18): until that day a prop's form, material and detail were cut at 200
@@ -6716,6 +6918,7 @@ function StateRow({ c, st, index, project, scenes, props, drafts, baseGenUrl, on
   const buildLikenessVariant = (ctx)=> turnLikenessVariantPrompt(c, st, project, props, ctx);
 
   const gen = useImageGen({
+    keepEdits:true, noun:"sheet",
     id: stateId, slotId: "charref-"+stateId,
     entity: { ...c, appearanceState:st },
     identityCharacter: c, identityCharacterIds:[c.id], identityCast:[c],
@@ -7266,6 +7469,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     updateStates(states.filter(s=>s.id!==id));
   };
   const gen = useImageGen({
+    keepEdits:true, noun:"sheet",
     id: c.id, slotId: "charref-"+c.id,
     entity: c,
     identityCharacter: c, identityCharacterIds:[c.id], identityCast:[c],
@@ -8148,8 +8352,13 @@ window.SceneChipPager = SceneChipPager;
    that accumulates generation loss. Clean originals (and remaster passes themselves,
    which run through the edit pipeline with a "REMASTER…" instruction) have nothing
    to clean, so the buttons stay hidden for them. */
+/* (2026-11-20, owner) REMASTER IS MADE IN CODE NOW: it brings back the version before the edit and keeps only what the
+   edit was asked to change (turnRemasterInCode). So it is offered where there is something to bring back: an image
+   engine's edit that was saved as the engine drew it. A kept edit, a change made in code and a fresh image have
+   nothing to restore. */
 function remasterEligible(meta){
-  return !!(meta && meta.mode==="edit" && !/^REMASTER\b/i.test(String(meta.editInstruction||"")));
+  return (typeof remasterIsEngineEdit==="function") ? remasterIsEngineEdit(meta)
+    : !!(meta && meta.mode==="edit" && !meta.keptOriginal && !meta.codeEdit && !/^REMASTER\b/i.test(String(meta.editInstruction||"")));
 }
 window.remasterEligible = remasterEligible;
 
@@ -8295,15 +8504,15 @@ function ImageLightbox({ url, character, onClose, siblings, startIndex }){
         // generation pipeline. Only offered while that card is mounted in this tab
         // AND the viewed version was produced by an Apply-edit (clean originals and
         // remaster passes have nothing to clean).
-        (eChar && eChar.id && window.__sheetGen && window.__sheetGen[eChar.id]
-          && remasterEligible(metaByUrl[cur])) &&
+        // (2026-11-20) in code now, and for the image the card shows: an earlier version is restored first
+        (eChar && eChar.id && window.__sheetGen && window.__sheetGen[eChar.id] && typeof window.__sheetGen[eChar.id].remaster==="function"
+          && window.__sheetGen[eChar.id].url===cur && remasterEligible(metaByUrl[cur])) &&
           React.createElement("button",{className:"lb-dl lb-remaster",
             disabled: !!window.__sheetGen[eChar.id].gening,
-            title:"Re-render THIS version as a fresh, clean, full-quality image — same design, noise and artifacts removed. It becomes the new current version; everything else stays in history.",
+            title:"Brings back the version before the edit, pixel for pixel, and keeps only what the edit was asked to change. Nothing is redrawn; one reading of the two pictures (writing credits).",
             onClick:()=>{ const g=window.__sheetGen[eChar.id]; if(!g || g.gening) return;
-              g.generate({ editInstruction: (typeof remasterInstruction==="function")?remasterInstruction(g.noun):"Reproduce this image exactly, clean and artifact-free.",
-                editBaseUrl: cur });
-              if(typeof window.appToast==="function") window.appToast("Remastering this version — it will land as the new current");
+              g.remaster();
+              if(typeof window.appToast==="function") window.appToast("Bringing the original back around the edit\u2026");
               onClose(); }},
             React.createElement(Icon.sparkles,{s:14}),"Remaster this version"),
         React.createElement("span",{className:"lb-foot-lab"},"Download"),

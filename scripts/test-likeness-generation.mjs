@@ -437,7 +437,8 @@ await test("C1 the card: Generate / Apply / wardrobe update count the likeness p
 await test("C2 an edit / remaster of a likeness sheet counts the sheet, the face, worn sheets and attached inputs", ()=>{
   assert.ok(art.includes("{ refs: 1 + gen.likenessEditRefs + (Number(attachRefs)||0) + (Number(extra)||0) } : undefined;"));
   assert.ok(art.includes('"Apply edit",\n          typeof window.nbCostChip==="function" && window.nbCostChip(1, editCostOpts(editRefs.length))),'));
-  assert.ok(art.includes('"Remaster \\u2014 clean re-render",\n            typeof window.nbCostChip==="function" && window.nbCostChip(1, editCostOpts(0))),'));
+  // (2026-11-20, owner) Remaster is made in code now: no image, so no image price on it
+  assert.ok(art.includes('"Remaster \\u2014 bring the original back"),') && !art.includes("clean re-render"));
 });
 await test("C3 a batch / Design the cast sum each image's own price (photos + worn sheets)", ()=>{
   reset();
