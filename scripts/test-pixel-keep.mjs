@@ -157,7 +157,7 @@ await test("5b the pipeline saves the kept picture; when it cannot be done the p
   assert.ok(keep.includes("const r = PK.pkCompose(orig, edit, placements, o.maxPatch ? { maxPatch:o.maxPatch } : undefined);") && keep.includes('return { url:cv.toDataURL("image/png")'), "saved without loss");
   assert.ok(keep.includes('if(!r.placed.length) return { failed:"the new items could not be placed exactly"'));
   const sheet = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
-  assert.ok(sheet.includes("return { keepOriginal: (io)=> keepOriginalForWardrobe(io, items),"), "the wardrobe update asks for it");
+  assert.ok(sheet.includes("return { lockOk:true, keepOriginal: (io)=> keepOriginalForWardrobe(io, items),"), "the wardrobe update asks for it");
   const kw = between(sheet, "  const keepOriginalForWardrobe = async (io, items)=>{", "  const wardrobeUpdateOpts = ()=>{");
   // (2026-11-20) the rule is shared with the QA report's area fixes: turnKeepOrAsk (scripts/test-qa-area-fix.mjs runs it)
   assert.ok(kw.includes('const r = await turnKeepOrAsk(io, { items, whose:who+"\\u2019s sheet" });') && kw.includes("if(r && r.url && r.meta && r.meta.keptOriginal) keptLeftOutRef.current = (r.skipped||[]).map(x=>x.item);"));
@@ -180,7 +180,7 @@ await test("F the file is loaded before the Art Room; Frances knows; nothing she
   const f = between(ai, 'APP_FEATURES.push({ name:"Update sheet with new wardrobe keeps your sheet and adds only the item (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["pixel for pixel", "'Keep my sheet'", "'Use the engine's picture'", "one image", "small items", "placed exactly"]) assert.ok(f.includes(k), k);
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic/.test(f));
-  const KEYS = ["20261119-keep1", "20261120-areas1"];   // (the list grows with each key bump)
+  const KEYS = ["20261119-keep1", "20261120-areas1", "20261120-lock1"];   // (the list grows with each key bump)
   for (const file of ["pixel-keep.js", "artroom.jsx", "ai.jsx", "script.jsx"]) assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });
 

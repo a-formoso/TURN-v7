@@ -3570,8 +3570,17 @@ function useImageGen(opts){
     return ()=>mo.disconnect();
   },[slotId]);
 
+  const lockName = ()=> String((opts.entity && opts.entity.name) || "");
   const generate = async (gopts)=>{
     if(gening) return;   // local spinner state — every cross-instance guard lives in the runner
+    /* A LOCKED IMAGE NEVER CHANGES SILENTLY (the road, step 4). A batch leaves it alone. A run that starts FROM the
+       locked image to build the road's next step (lockOk: the wardrobe update, the final look) does not ask: it keeps
+       the locked image in its versions and its result is a new, unlocked one. */
+    if(sheetLockOf(genMeta) && !(gopts && gopts.lockOk)){
+      if(gopts && gopts.batch) return false;
+      const ok = await turnLockedAsk(genMeta, lockName(), "image", (gopts && gopts.editInstruction) ? "change it" : "make a new one");
+      if(!ok) return false;
+    }
     if(typeof window.nbAssertMediaIdentity==="function"){
       try{ window.nbAssertMediaIdentity(opts, "image-generate"); }
       catch(e){ setGenErr((e&&e.message)||"Character identity needs review before rendering."); throw e; }
@@ -3584,6 +3593,7 @@ function useImageGen(opts){
   };
   const cancelGen = ()=>{ if(gening && typeof window.nbCancelGen==="function") window.nbCancelGen(id); };
   const clearGen = async ()=>{
+    if(sheetLockOf(genMeta) && !(await turnLockedAsk(genMeta, lockName(), "image", "clear it"))) return;
     try{
     /* a render still in flight would commit moments after this clear and silently
        resurrect the sheet the director just deleted — cancel it FIRST (flags the run
@@ -3612,6 +3622,7 @@ function useImageGen(opts){
      so it gets every normal affordance (zoom, ⋯ menu, clear, used as a reference
      downstream). Resolution + aspect are detected from the pixels; quality is unknown. */
   const importSheet = async (file)=>{
+    if(sheetLockOf(genMeta) && !(await turnLockedAsk(genMeta, lockName(), "image", "replace it with an upload"))) return;
     if(gening || !file) return;
     if(!/^image\/(png|jpeg|jpg|webp|avif)$/i.test(file.type||"")){ setGenErr("Choose a PNG, JPEG, WebP or AVIF image."); return; }
     if(typeof window.nbAssertMediaIdentity==="function"){
@@ -3673,12 +3684,14 @@ function useImageGen(opts){
   };
   const revertTo = async (index)=>{
     if(typeof nbRevertAsset!=="function") return;
+    if(sheetLockOf(genMeta) && !(await turnLockedAsk(genMeta, lockName(), "image", "restore another version"))) return;
     const r = await nbRevertAsset(id, index);
     if(r){ setGenUrl(r.url); setGenMeta(r.meta||null); if(typeof opts.onReverted==="function"){ try{ opts.onReverted(r); }catch(e){} } }
     refreshLayers();
   };
   const deleteCurrentAndPromote = async ()=>{
     if(typeof nbDeleteCurrentAndPromoteAsset!=="function") return null;
+    if(sheetLockOf(genMeta) && !(await turnLockedAsk(genMeta, lockName(), "image", "delete this version"))) return null;
     const r = await nbDeleteCurrentAndPromoteAsset(id);
     nbReportCleanup(r);
     // the promoted version is a RESTORE too — the card's onReverted holds it (Storyboards: off the automatic
@@ -4649,6 +4662,73 @@ function qaCheckedOn(at){
   return day ? "Checked on "+day+(time ? ", "+time : "")+"." : "";
 }
 window.qaKept = qaKept; window.qaBadgeText = qaBadgeText; window.qaFindingCount = qaFindingCount; window.qaCheckedOn = qaCheckedOn;
+/* THE LOCK (the road, step 4 — owner 2026-11-20). A locked image is the one the next steps are built from: its props,
+   its final look, the shots. The lock belongs to that exact version (imagegen.jsx nbSetAssetLock). It is offered when
+   the QA check says the image is faithful; with any other result, or none, the person may lock anyway and is told what
+   the check said. Nothing changes a locked image silently: making it again, editing it, clearing it, restoring another
+   version or replacing it with an upload asks first (turnLockedAsk), and a batch leaves it alone. Free. */
+function sheetLockOf(meta){
+  return (meta && meta.iso && meta.lock && typeof meta.lock==="object" && meta.lock.iso===meta.iso) ? meta.lock : null;
+}
+function sheetLockedOn(at){
+  const d = new Date(Number(at)||0);
+  if(!at || isNaN(d.getTime())) return "";
+  try{ return d.toLocaleDateString(undefined,{ day:"numeric", month:"short" }); }catch(e){ return ""; }
+}
+/* asked before a locked image is changed; true = go on. `what` says the change in plain words ("make a new image of") */
+async function turnLockedAsk(meta, name, noun, what){
+  if(!sheetLockOf(meta)) return true;
+  if(typeof window.appConfirm!=="function") return false;
+  const whose = (name ? name+"\u2019s " : "this ")+(noun||"image");
+  return !!(await window.appConfirm({
+    title:whose.charAt(0).toUpperCase()+whose.slice(1)+" is locked",
+    body:"You locked this "+(noun||"image")+" so that what is built from it stays the same. To "+(what||"change it")+", it has to be unlocked: the new image will not be locked, and anything made from the locked one will be marked as out of date. The locked image stays in its versions.",
+    confirmLabel:"Unlock and go on", cancelLabel:"Keep it locked" }));
+}
+window.sheetLockOf = sheetLockOf; window.turnLockedAsk = turnLockedAsk;
+function LockButton({ gen, name, noun, className }){
+  const [busy, setBusy] = React.useState(false);
+  if(!gen || !gen.genUrl) return null;
+  const meta = gen.genMeta, lock = sheetLockOf(meta), iso = meta && meta.iso;
+  const kept = (typeof qaKept==="function") ? qaKept(gen) : null;
+  const sev = kept ? qaSeverity(kept.report) : "";
+  const toast = (m,k)=>{ if(typeof window.appToast==="function") window.appToast(m,k||"info"); };
+  const set = async (value)=>{
+    if(typeof window.nbSetAssetLock!=="function" || !iso){ toast("This image can\u2019t be locked yet. Make it again, or reload the page."); return; }
+    setBusy(true);
+    let r = null; try{ r = await window.nbSetAssetLock(gen.id, iso, value); }catch(e){ r = null; }
+    setBusy(false);
+    if(!r || !r.ok) toast(value ? "The lock could not be saved. Try again." : "It could not be unlocked. Try again.", "error");
+    else toast(value ? ((name||"The image")+" is locked. What you make next is built from this "+(noun||"image")+".") : ((name||"The image")+" is unlocked."), value ? "success" : "info");
+  };
+  const press = async ()=>{
+    if(busy || gen.gening) return;
+    if(lock){
+      const ok = typeof window.appConfirm!=="function" || await window.appConfirm({ title:"Unlock "+(name ? name+"\u2019s " : "this ")+(noun||"image")+"?",
+        body:"Anything made from it stays as it is, and will be marked as out of date if this "+(noun||"image")+" then changes.", confirmLabel:"Unlock", cancelLabel:"Keep it locked" });
+      if(ok) await set(null);
+      return;
+    }
+    if(sev!=="pass"){
+      const ok = typeof window.appConfirm==="function" && await window.appConfirm({
+        title:"Lock it without a clean check?",
+        body:(kept ? "The last QA check of this image said: "+qaBadgeText(kept.report)+"." : "This image has not had a QA check yet.")
+          +" A locked "+(noun||"image")+" is what the next steps are built from, so its drifts would be carried along. You can lock it anyway, or check it first.",
+        confirmLabel:"Lock anyway", cancelLabel:"Not yet" });
+      if(!ok) return;
+    }
+    await set({ at:Date.now(), qa:sev||"" });
+  };
+  return React.createElement("button",{type:"button",className:(className||"char-draft-btn ghost")+" sheet-lock-btn"+(lock?" locked":"")+(busy?" busy":""),
+      "data-role":"sheet-lock","data-locked":lock?"1":"0",disabled:busy||gen.gening,"aria-pressed":lock?"true":"false",
+      title: lock ? "Locked"+(sheetLockedOn(lock.at) ? " on "+sheetLockedOn(lock.at) : "")+". What you make next is built from this "+(noun||"image")+", and nothing changes it without asking. Press to unlock."
+        : "Lock this "+(noun||"image")+" when you are happy with it: its props, its final look and the shots are then built from it, and nothing changes it without asking."
+          +(sev==="pass" ? "" : " Best after a QA check that says Faithful."),
+      onClick:press},
+    busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.padlock||Icon.check,{s:12}),
+    lock ? "Locked" : "Lock");
+}
+window.LockButton = LockButton;
 function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes }){
   const [busy, setBusy] = React.useState(false);
   const [report, setReport] = React.useState(null);
@@ -6724,7 +6804,7 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     const items = includedWornProps.filter(p=>ownedSheetMap[p.id]).map(p=>String(p.name||"").trim()).filter(Boolean);
     if(!items.length) return { deriveFromCurrent:true };
     const one = items.length===1;
-    return { keepOriginal: (io)=> keepOriginalForWardrobe(io, items),
+    return { lockOk:true, keepOriginal: (io)=> keepOriginalForWardrobe(io, items),
       editInstruction:"add "+(one?"this worn item":"these worn items")+" to the character, each drawn exactly as its attached reference image shows it ("
       +items.join("; ")+"), where it would be seen in each panel and at its true small size. This is a small local change: do not redraw, restyle, re-light or re-pose anything. "
       +"Every face, eye, eyebrow, nose, mouth, hairline, skin tone and expression, every garment, cuff, button, shoe and hand, each panel's framing and border and the background stay exactly as they are" };
@@ -7098,6 +7178,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     const mine = batchActiveId===c.id;
     const inflight = !!(window.__nbGenInflight && window.__nbGenInflight[_cgen]);
     if(!mine){ batchStarted.current = inflight; wasGening.current=gen.gening; return; }
+    // a LOCKED sheet is left alone by a batch (the road, step 4): this card says "done" at once, so the batch moves on
+    // (it would otherwise wait for a generation that never starts)
+    if(!batchStarted.current && !gen.gening && !inflight && sheetLockOf(gen.genMeta)){ onBatchDone && onBatchDone(c.id); return; }
     if(!batchStarted.current && !gen.gening && !inflight){ batchStarted.current=true; wasGening.current=false; gen.generate({ batch:true }); return; }
     if(batchStarted.current && wasGening.current && !gen.gening){ batchStarted.current=false; onBatchDone && onBatchDone(c.id); }
     wasGening.current = gen.gening;
@@ -7151,7 +7234,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                 if(Object.keys(up).length) onUpdate(c.id, up); },
               // the screenplay part (the Script check, folded into the QA check 2026-10-27): the sheet against what the
               // screenplay states, in the same read
-              script:{ c, drafts, onUpdate:readOnly ? null : onUpdate } })))),
+              script:{ c, drafts, onUpdate:readOnly ? null : onUpdate } }),
+            // THE LOCK (the road, step 4): after the check, beside it
+            !readOnly && React.createElement(LockButton,{ gen, name:c.name, noun:"character sheet" })))),
       // (the "Face: … · Voice: …" line under the buttons is gone, owner 2026-10-27: a tick on the Likeness / Voice button
       // says it's locked, and the button's tooltip says which face and which voice — vcFaceVoiceLine)
       // UPDATE SHEET WITH NEW WARDROBE (owner 2026-10-06 — Characters review): the app pointed here from six

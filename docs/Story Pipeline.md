@@ -458,6 +458,31 @@ Each entity gets a canonical, reusable reference so every generated image stays 
 > still flagged "Lookbook changed — re-draft". The unlock rules below (2026-09-27) are kept in
 > `app/art-tab-locks.js` but switched off (`window.TURN_ART_TAB_LOCKS`); they apply only if turned back on.
 >
+> **The road for a character and their items** *(2026-11-20, owner-approved: "yes, build this road in that
+> order. allow and mark." and "yes, update the Story Pipeline document")*. Inside the Characters and Props
+> tabs, an image is built on the one before it, each one checked and locked first. This is the
+> **recommended** order, not a gate (every tab stays open):
+> 1. **Make the character sheet.**
+> 2. **Check it** — the QA check reads the sheet against its own prompt (and the screenplay's facts) and
+>    lists every drift.
+> 3. **Fix the drifts by area** — each drift the check can place is a numbered box on the image; *Fix these
+>    areas* has the image engine redraw only inside the boxes, and what is saved is the original image,
+>    pixel for pixel, with only those areas changed. A drift with no box (the render style, the layout) is
+>    fixed in the written spec and a new image.
+> 4. **Lock the sheet** — offered when the check says *Faithful*; the user may lock anyway. A locked image
+>    never changes silently: making it again, editing, clearing or restoring it asks first, and a batch
+>    leaves it alone.
+> 5. **Make each item (prop) from the locked sheet**, then check and lock it the same way. The prop's check
+>    also compares it with how the character's own prompt describes that item. A prop made **without** its
+>    owner's locked sheet is **allowed and marked** (never blocked), with a remake offered.
+> 6. **Build the final look** — the locked sheet plus its locked items; the items are copied in by code
+>    (*Update sheet with new wardrobe* keeps the sheet and adds only the item). Check it, lock it.
+> 7. **Shots use locked finals.**
+>
+> What makes it hold: one description per item (once an item has a design, the sheet's prompt uses it);
+> every image records what it was made from; a change upstream marks what was built from it as out of
+> date, and nothing is remade unasked; every change is counted and shown to the user.
+>
 > *Switched off 2026-10-03 —* **The tabs unlock in that order** *(2026-09-27, owner-approved)*. Every tab stays visible; a locked
 > tab shows what it is waiting for and a button to the step that unlocks it:
 > - **Lookbook** — always open.
@@ -727,6 +752,13 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
   lenses in `fact.roles`, an optional steer) and `aiSynopsisFromResearch` — on their own **Research** and
   **Synopsis** steps; the logline check rides in `aiSeedToLoglines` *(2026-10-02, owner-approved)*.
 - `APP_FEATURES` in `app/ai.jsx` has been updated so Frances can describe the stage.
+- Step **9, the road for a character and their items** *(2026-11-20)*: steps **2–4** are built — the QA check
+  marks drifts with boxes and *Fix these areas* keeps the rest of the image (`app/pixel-keep.js`,
+  `turnKeepOrAsk` and `qaFixAreas` in `app/artroom.jsx`), and the **Lock** on character sheets and prop images
+  (`nbSetAssetLock`, `LockButton`). In step **6**, *Update sheet with new wardrobe* already keeps the sheet and
+  adds only the item. **Not built yet:** marking a prop made without its owner's locked sheet and the
+  item-versus-sheet check (5), the final look as its own locked step (6), shots reading locked finals only (7),
+  and a numbered step guide on the character and prop cards.
 - Step **10 (The Stage)**: the **audio-first assembly shell** is built (`app/stage.jsx`, room unlocked) —
   it lays the clip partition + shot frames + dialogue on the cut timeline, timed by ESTIMATED line
   durations. The **Voices** tab (Step 9) and the real voice/video render (ElevenLabs → Seedance) are the
@@ -735,6 +767,7 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
 ---
 
 ## Change log
+- *(2026-11-20 — Step 9, Characters and Props, by owner approval: "yes, build this road in that order. allow and mark." and "yes, update the Story Pipeline document")* — **the road for a character and their items**: sheet → QA check → fix the drifts by area → lock → items made from the locked sheet (a prop made without it is allowed and marked) → final look → shots use locked finals. A recommended order, not a gate. Steps 2–4 are built; 5–7 and the card's step guide follow.
 - *(2026-11-15 — Step 9, Locations, by owner decision: "yes, and remove Blender")* — the location card has **one road** from the set to its image: 4 · Previs makes the location image (as drafts, used or discarded), 5 is Location image. Build the set and Style it left the card. No pipeline step was added, removed or reordered.
 - *(2026-11-15 — Step 9, Locations, by owner request: "build the card step and call it Previs", then "move Previs to 4, ahead of Build the set")* — **Previs** is step 4 of the location card: the set in live 3D from the floor plan and the cameras, which can be dressed for the film and used to make the location image. Build the set and Style it are now steps 5 and 6. No pipeline step was added, removed or reordered.
 - *(2026-11-01 — Step 9, Shots, by owner request: "ensure this is implemented for future projects as well as anything we are doing now")* — beats are **split into their moments by default**: drafting splits them, Split beats into moments converts existing films' shots; Join keeps a beat whole.

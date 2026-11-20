@@ -2694,6 +2694,44 @@ function nbSetAssetQa(id, expectedIso, qa){
   });
 }
 window.nbSetAssetQa=nbSetAssetQa;
+/* LOCK / UNLOCK ONE IMAGE VERSION (the road, step 4 — owner 2026-11-20: "a locked sheet never changes silently").
+   The lock is a note on that exact version (its iso), on this device and in the cloud, like the kept QA result: a new
+   image, an edit or a restored version has no lock of its own. lock = { at, qa } or null to unlock. Nothing is made
+   or charged. */
+function nbSetAssetLock(id, expectedIso, lock){
+  const epoch=_nbEpoch;
+  return _nbSerial(id,async()=>{
+    if(!id || !expectedIso) return {ok:false,error:"asset version required"};
+    if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+    const note=(lock && typeof lock==="object") ? {...lock,iso:expectedIso} : null;
+    const backend=_nbBackend;
+    const scope=backend==="cloud"?_scopeFor(id):null, uid=_nbUid;
+    if(backend==="cloud"){
+      if(typeof window.cloudSetAssetLock!=="function") return {ok:false,error:"cloud update unavailable"};
+      try{
+        const result=await window.cloudSetAssetLock(scope,uid,id,expectedIso,note);
+        if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+        if(result&&result.ok){
+          _cloudMetaCache.set(id,result.meta);
+          try{ window.dispatchEvent(new CustomEvent("nb-meta-changed",{detail:{id}})); }catch(e){}
+        }
+        return result&&typeof result.ok==="boolean" ? result : {ok:false,error:"update failed"};
+      }catch(e){
+        if(epoch!==_nbEpoch) return {ok:false,error:"asset scope changed"};
+        return {ok:false,error:(e&&e.message)||"update failed"};
+      }
+    }
+    const current=localGetMeta(id);
+    if(!localGetImage(id)) return {ok:false,error:"asset not found"};
+    if(!current || current.iso!==expectedIso) return {ok:false,error:"asset version changed"};
+    const meta={...current};
+    if(note) meta.lock=note; else delete meta.lock;
+    localSetMeta(id,meta);
+    try{ window.dispatchEvent(new CustomEvent("nb-meta-changed",{detail:{id}})); }catch(e){}
+    return {ok:true,meta};
+  });
+}
+window.nbSetAssetLock=nbSetAssetLock;
 
 /* read the image URL from an <image-slot> by querying its shadow DOM */
 function nbGetSlotImage(slotId){

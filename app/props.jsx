@@ -1337,6 +1337,9 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
     const mine = batchActiveId===p.id;
     const inflight = _pInflight();
     if(!mine){ batchStarted.current=inflight; wasGening.current=gen.gening; return; }
+    // a LOCKED prop image is left alone by a batch (the road, step 4): done at once, so the batch moves on
+    if(!batchStarted.current && !gen.gening && !inflight && typeof window.sheetLockOf==="function" && window.sheetLockOf(gen.genMeta)){
+      onBatchDone && onBatchDone(p.id); return; }
     if(!batchStarted.current && !gen.gening && !inflight){
       batchStarted.current = true; wasGening.current = false;
       genWithOwner({ batch:true });         // the owner sheet first only if the batch said so
@@ -1556,6 +1559,8 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           window.QaCheckButton && React.createElement(window.QaCheckButton,{ gen:genForFrame, name:p.name, noun:"prop sheet",
             specFields:()=>({ form:(p.form||""), material:(p.material||""), detail:(p.detail||""), size:(p.size||""), scale:(p.scale||"") }),
             onApplySpec:(patch)=>onUpdate(p.id, patch) }),
+          // THE LOCK (the road, step 4): the prop's image, locked like a character's sheet
+          window.LockButton && React.createElement(window.LockButton,{ gen:genForFrame, name:p.name, noun:"prop sheet" }),
           // FITTING — side-by-side owner sheet · prop sheet with an optional vision critique
           (p.ownerId && gen.genUrl) && React.createElement("button",{className:"char-draft-btn ghost",
             title:"Fitting view \u2014 "+(p.name||"the object")+" side by side with "+(p.ownerName||"its owner")+"\u2019s sheet, with an optional AI critique of whether they belong together",

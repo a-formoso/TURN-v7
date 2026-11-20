@@ -344,7 +344,8 @@ await test("K a card made from a list is filed as that list says; the 'New wardr
   const optsSrc = between(sheet, "  const wardrobeUpdateOpts = ()=>{", "  const [sheetTick, setSheetTick]");
   const mk = (worn, sheets) => vm.runInNewContext("(function(includedWornProps, ownedSheetMap){\n" + optsSrc + "\nreturn wardrobeUpdateOpts(); })", { String })(worn, sheets);
   const two = plain(mk([{ id: "r", name: "engagement ring" }, { id: "l", name: "work lanyard" }, { id: "s", name: "tiny gold stud earrings" }], { r: "data:r", l: "data:l" }));
-  assert.deepEqual(Object.keys(two), ["editInstruction"], "an edit, not a new sheet from the whole specification");
+  // (lockOk, 2026-11-20: the update starts from a locked sheet without asking, the road's own next step)
+  assert.deepEqual(Object.keys(two), ["lockOk", "editInstruction"], "an edit, not a new sheet from the whole specification");
   assert.match(two.editInstruction, /^add these worn items to the character, each drawn exactly as its attached reference image shows it \(engagement ring; work lanyard\), where it would be seen in each panel and at its true small size\./);
   assert.match(two.editInstruction, /This is a small local change: do not redraw, restyle, re-light or re-pose anything\. Every face, eye, eyebrow, nose, mouth, hairline, skin tone and expression, every garment, cuff, button, shoe and hand, each panel's framing and border and the background stay exactly as they are$/);
   assert.ok(!two.editInstruction.includes("tiny gold stud"), "an item with no image of its own is not named: there is nothing to draw it from");
@@ -503,7 +504,7 @@ await test("F Frances knows; nothing she is told names the codename; the changed
   assert.ok(f.includes("/from its row in the character card's Props & accessories section|Only hero props are cards/.test(f.what)"), "older entries are put right");
   assert.ok(ai.includes("beside the WHOLE cast (since 2026-11-18; it used to stop at five people)") && !ai.includes("share the most scenes with (up to five)"));
   assert.ok(ai.includes("press the small square at the start of the item's row, make the object's image there, keep 'Visual lock' ticked"));
-  const KEYS = ["20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261119-photo1", "20261119-keep1", "20261120-areas1"];   // (the list grows with each key bump)
+  const KEYS = ["20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "ai.jsx", "script.jsx"])
     assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });

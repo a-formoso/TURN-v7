@@ -8220,6 +8220,10 @@ button.stage2-au-block:disabled{cursor:default}
 .qa-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:12px;margin:0;padding:18px 24px 16px;
   background:var(--win-surface,var(--bg-1));border-bottom:1px solid var(--line-1,var(--line-2))}
 .qa-head .ag-x{flex-shrink:0}
+/* THE LOCK (the road, step 4): a quiet button until the image is locked, then green with its padlock: "this is the
+   one everything else is built from" */
+.sheet-lock-btn.locked{background:var(--ok-soft);border-color:var(--ok-line);color:var(--txt-0)}
+.sheet-lock-btn.locked svg{color:var(--ok)}
 /* WHERE IT DRIFTS (the road, step 3): a small copy of the image with a numbered box on each drift the check could
    place. Amber = against the prompt, red = against the screenplay; the number is repeated on the finding's line. */
 .qa-areas{position:relative;border:1px solid var(--win-line,var(--line-2));border-radius:10px;overflow:hidden;background:var(--win-bone,var(--bg-2));line-height:0}

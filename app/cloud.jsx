@@ -4749,6 +4749,21 @@ async function cloudSetAssetQa(projectId, uid, entityId, expectedIso, qa){
   return {ok:true,meta:after.meta};
 }
 window.cloudSetAssetQa=cloudSetAssetQa;
+/* THE LOCK on one image version (the road, step 4 — owner 2026-11-20): kept on that version's own meta, as the QA
+   result is. lock = { at, qa } to lock, null to unlock. Refused when the image changed meanwhile. */
+async function cloudSetAssetLock(projectId, uid, entityId, expectedIso, lock){
+  const row=await cloudGetGenStrict(projectId,entityId);
+  if(!row || !row.storage_path) return {ok:false,error:"asset not found"};
+  if(!expectedIso || !row.meta || row.meta.iso!==expectedIso) return {ok:false,error:"asset version changed"};
+  const meta={...(row.meta||{})};
+  if(lock) meta.lock={...lock,iso:expectedIso}; else delete meta.lock;
+  const after=await cloudCasGen(projectId,uid,entityId,row,{
+    storage_path:row.storage_path,meta,refs:row.refs||[],history:row.history||[]});
+  if(!after || after.storage_path!==row.storage_path || !after.meta || after.meta.iso!==expectedIso)
+    return {ok:false,error:"asset version changed"};
+  return {ok:true,meta:after.meta};
+}
+window.cloudSetAssetLock=cloudSetAssetLock;
 async function cloudLoadDetails(projectId, entityId){
   try{ await cloudSweepPurgeReferences(projectId); }catch(e){}
   const row = await cloudGetGen(projectId, entityId);
