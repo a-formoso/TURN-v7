@@ -5,7 +5,7 @@
    Generate (the image model → a 3-panel object sheet). Reuses the shared
    useImageGen hook + SheetFrame so the generation machinery stays in one place. */
 
-/* Prop prompt: a structured 3-panel object sheet (hero / front / detail, off-white
+/* Prop prompt: a structured 3-panel object sheet (front / side / close-up, off-white
    background, soft contact shadow) \u2014 see combinedPropPrompt. The photo-based prompt and the
    simplified retry use the same layout and background. The render style comes from the
    card's dropdown (photoreal default). Owner
@@ -65,9 +65,12 @@ function buildPropRefPrompt(p, project){
        || (window.PROP_RENDER_TEXT||{}).photoreal || "hyper realistic photography, photorealistic 8k");
   // off-white / light-neutral background with a soft contact shadow (matches the cast sheets)
   const bg = "flat off-white / very light neutral panel background, even and clean, with a simple soft contact shadow beneath the object";
-  // 3-PANEL object reference sheet (owner 2026-11-20: "3 views… just like we have character sheets"): hero,
-  // front and detail, thin dividers. The side view went: the three-quarter hero already shows the depth,
-  // so it was the one view that told nothing new. Sheets made with four views stay valid as they are.
+  // 3-PANEL object reference sheet (owner 2026-11-20: "3 views" as a character sheet has; then, on seeing the
+  // first one: "a better system for different views. Maybe a side view, a zoomed in view, and a front view").
+  // The first three were three-quarter | front | close-up, and on a flat object the first two came out as the same
+  // picture twice. Now each panel tells what the others cannot: FRONT (its face and true proportions), SIDE (its
+  // depth, turned a full quarter), CLOSE-UP (what it is made of). A flat object is never drawn as a bare line: its
+  // side view stops where its edge and thickness still read. Sheets made earlier stay valid as they are.
   //
   // 16:9, no baked text. The old "360 turnaround + 3-up detail column" is folded
   // into binding CONTINUITY fields (material / signature feature) so every panel
@@ -86,16 +89,17 @@ function buildPropRefPrompt(p, project){
       scale_against_owner: (p.ownerId && clean(p.scale)) || undefined,
     },
     layout: {
-      format: "a 3-panel object reference sheet in 16:9 landscape: three EQUAL-width tall vertical panels divided by thin clean vertical lines \u2014 hero, front and detail; the SAME object throughout",
+      format: "a 3-panel object reference sheet in 16:9 landscape: three EQUAL-width tall vertical panels divided by thin clean vertical lines \u2014 front, side and close-up; the SAME object throughout, each panel a clearly DIFFERENT view",
       panels_left_to_right: [
-        "PANEL 1 \u2014 large HERO three-quarter view of the object, its most identifying angle, turned far enough to show its true depth and thickness (a side and the top as well as the front), filling the panel, the exact identity anchor (approximately "+scale+")",
-        "PANEL 2 \u2014 straight-on FRONT elevation of the whole object, square to the camera with no perspective tilt, showing its true proportions",
-        "PANEL 3 \u2014 DETAIL macro close-up "+(detail?("of its signature feature \u2014 "+((typeof clipWords==="function")?clipWords(detail,70):detail.slice(0,70))+" \u2014 and its "):"of the object's ")+"material & construction: fastenings, joins, edges, surface finish and wear"
+        "PANEL 1 \u2014 straight-on FRONT view of the whole object, square to the camera with no perspective tilt: its face, its true proportions, the exact identity anchor (approximately "+scale+")",
+        "PANEL 2 \u2014 SIDE view of the whole object, turned a full quarter turn (90\u00b0) from the front so its profile, depth and thickness read, at the SAME size and on the same baseline as the front view. If the object is flat or thin (a card, a sheet of paper, a strap, a blade), never draw it as a bare edge-on line: turn it about 70\u00b0 instead, a steep raking view along its surface in which its edge and thickness are plain to see",
+        "PANEL 3 \u2014 CLOSE-UP, zoomed far in: a macro view "+(detail?("of its signature feature \u2014 "+((typeof clipWords==="function")?clipWords(detail,70):detail.slice(0,70))+" \u2014 and its "):"of the object's ")+"material & construction: fastenings, joins, edges, surface finish and wear"
       ],
-      panel_widths: "all three panels are EQUAL width \u2014 a clean, evenly divided sheet, NOT a wider hero panel (each view needs comparable readable space)",
+      panel_widths: "all three panels are EQUAL width \u2014 a clean, evenly divided sheet, no panel wider than another (each view needs comparable readable space)",
       one_object_rule: "EXACTLY ONE object per panel \u2014 no duplicates, no exploded parts, no alternate colourways, no accessories that aren't part of the object itself",
-      scale_rule: "the HERO (panel 1) and FRONT (panel 2) views each show the WHOLE object, at a comparable size; only the detail panel moves in close",
-      no_extra_views: "do not add a BACK view, a separate SIDE view, a fourth panel, extra turnaround angles, exploded diagrams, rulers, dimension lines, captions, labels, title text, measurement text, or ANY info box (no name, size or material printed on the image \u2014 that metadata travels in the prompt, never baked into pixels)",
+      scale_rule: "the FRONT (panel 1) and SIDE (panel 2) views each show the WHOLE object at the SAME size and share a baseline; only the close-up moves in",
+      different_views_rule: "no two panels may show the object from the same angle: panel 2 must be turned well away from panel 1, never the front view again with a slight tilt",
+      no_extra_views: "do not add a BACK view, a three-quarter view, a fourth panel, extra turnaround angles, exploded diagrams, rulers, dimension lines, captions, labels, title text, measurement text, or ANY info box (no name, size or material printed on the image \u2014 that metadata travels in the prompt, never baked into pixels)",
       background: bg
     },
     continuity: {
@@ -583,7 +587,7 @@ function buildSimplePropPrompt(p){
     "Prop reference \u2014 "+(p.name||"object"),
     form||"",
     material ? (material) : "",
-    "3-panel object sheet: hero three-quarter view, front elevation, and detail macro",
+    "3-panel object sheet: front view, side view turned a quarter turn, and a zoomed-in close-up",
     "flat off-white background with a soft contact shadow, studio product lighting, "
       +((String(p.renderStyle||((typeof window.renderStyleText==="function")?window.renderStyleText("prop",p.renderStyleKey||propInheritedStyleKey(p)):"")).split(/[;,]/)[0].trim())||"photoreal")
       +", sharp focus, no people"
@@ -1194,7 +1198,7 @@ function buildPropFromPhotoPrompt(p, project){
   s += "RENDER STYLE: "+style.replace(/\.$/,"")+". ";
   // (2026-10-08; three views since 2026-11-20) the same layout as every other prop sheet (it used to ask for a 360 turnaround
   // with a back view and a detail column, so photo-made sheets came out in a different layout)
-  s += "LAYOUT: a 3-panel object reference sheet in 16:9 landscape, three equal panels divided by thin clean lines \u2014 hero three-quarter view (turned far enough to show its depth), front elevation, and a detail macro close-up of its signature feature and material; no back view, no separate side view, no extra angles; ";
+  s += "LAYOUT: a 3-panel object reference sheet in 16:9 landscape, three equal panels divided by thin clean lines \u2014 straight front view, side view turned a full quarter turn (a flat or thin object turned about 70 degrees instead, so its edge and thickness read, never a bare line), and a zoomed-in macro close-up of its signature feature and material; each panel a clearly different view; no back view, no three-quarter view, no extra angles; ";
   s += "Flat off-white / very light neutral panel background, even and clean, with a simple soft contact shadow beneath the object, no text, no labels, no annotations, soft studio lighting, no people, no hands, ";
   s += "the SAME identical object in every view, sharp focus.";
   return s;
@@ -1970,7 +1974,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
       // the prompt: a section of every card, folded (owner 2026-10-28 — it used to hide behind the card's ⋯ menu or
       // the Film menu's "Always show prompts")
       React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},
-        React.createElement(CopyBox,{label:"Prompt (text only) \u2014 the 3-view object sheet: hero, front, detail",text:buildPropRefPrompt(p,project)}),
+        React.createElement(CopyBox,{label:"Prompt (text only) \u2014 the 3-view object sheet: front, side, close-up",text:buildPropRefPrompt(p,project)}),
         React.createElement(CopyBox,{label:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt)
             ? "Final prompt \u2014 the one behind the current sheet" : "Final prompt \u2014 sent at generation (with the Leave out list)",
           text:(genForFrame.genUrl && genForFrame.genMeta && genForFrame.genMeta.prompt) || finalPrompt})))));

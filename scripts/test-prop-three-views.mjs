@@ -5,9 +5,11 @@
    way that doesn't involve users scrolling too much, all whilst still maintaining the aesthetics for subsections …
    just like we did previously in the locations card").
 
-   1 The sheet's prompt: three equal panels (hero three-quarter, front, detail); no side profile, no fourth panel.
+   1 The sheet's prompt: three equal panels, each a different view (front, side, close-up); a flat object's side
+     view is never a bare line. (The first three were three-quarter, front, close-up: on a flat object the first
+     two came out alike, and the owner asked for "a side view, a zoomed in view, and a front view".)
    2 The photo-made sheet and the short retry prompt ask for the same three views.
-   3 An edit keeps the layout the sheet already has: sheets made with four views stay as they are.
+   3 An edit keeps the layout the sheet already has: sheets made earlier stay as they are.
    4 A passage is shortened around the matched words, at a word, never inside the match.
    5 The evidence box: one small button per passage and ONE passage shown; a single passage has no buttons.
    6 The card: the location card's boxes, no row per passage, the caution behind the tooltip.
@@ -30,15 +32,20 @@ const text = (n) => (typeof n === "string" || typeof n === "number") ? String(n)
 const find = (n, f, out = []) => { if (n && typeof n === "object") { if (f(n)) out.push(n); (n.children || []).forEach((c) => find(c, f, out)); } return out; };
 const cls = (n) => String((n.props && n.props.className) || "");
 
-await test("1 the sheet's prompt asks for three equal panels: hero three-quarter, front, detail", () => {
+await test("1 the sheet's prompt asks for three equal panels, each a different view: front, side, close-up", () => {
   const lay = between(props, "    layout: {", "    continuity: {");
   assert.ok(lay.includes('format: "a 3-panel object reference sheet in 16:9 landscape: three EQUAL-width tall vertical panels'));
-  const panels = [...lay.matchAll(/"PANEL (\d) \\u2014 ([A-Za-z -]+?) (?:view|elevation|macro)/g)].map((m) => m[1] + " " + m[2].trim());
-  assert.deepEqual(panels, ["1 large HERO three-quarter", "2 straight-on FRONT", "3 DETAIL"]);
-  assert.ok(lay.includes("turned far enough to show its true depth and thickness"), "the hero view carries the depth the side view used to show");
+  assert.ok(lay.includes("front, side and close-up; the SAME object throughout, each panel a clearly DIFFERENT view"));
+  const panels = [...lay.matchAll(/"PANEL (\d) \\u2014 ([A-Za-z -]+?)(?: view|,)/g)].map((m) => m[1] + " " + m[2].trim());
+  assert.deepEqual(panels, ["1 straight-on FRONT", "2 SIDE", "3 CLOSE-UP"]);
+  assert.ok(lay.includes("turned a full quarter turn (90\\u00b0) from the front so its profile, depth and thickness read"));
+  // a flat object's side view is never a bare line (the first trial: a lanyard)
+  assert.ok(lay.includes("If the object is flat or thin (a card, a sheet of paper, a strap, a blade), never draw it as a bare edge-on line: turn it about 70\\u00b0 instead"));
+  assert.ok(lay.includes('different_views_rule: "no two panels may show the object from the same angle'), "the first three-view sheet drew the front twice");
+  assert.ok(lay.includes('scale_rule: "the FRONT (panel 1) and SIDE (panel 2) views each show the WHOLE object at the SAME size and share a baseline'));
   assert.ok(lay.includes('panel_widths: "all three panels are EQUAL width'));
-  assert.ok(lay.includes("do not add a BACK view, a separate SIDE view, a fourth panel,"));
-  assert.ok(!/PANEL 4|SIDE PROFILE|four EQUAL|all four panels/.test(lay));
+  assert.ok(lay.includes("do not add a BACK view, a three-quarter view, a fourth panel,"));
+  assert.ok(!/PANEL 4|HERO|four EQUAL|all four panels/.test(lay));
 });
 
 await test("2 the photo-made sheet and the short retry prompt ask for the same three views", () => {
@@ -47,23 +54,23 @@ await test("2 the photo-made sheet and the short retry prompt ask for the same t
   b.propInheritedStyleKey = () => ""; b.renderStyleText = () => "photoreal";
   const photo = b.buildPropFromPhotoPrompt({ name: "Cup" }, {});
   assert.match(photo, /a 3-panel object reference sheet in 16:9 landscape, three equal panels/);
-  assert.match(photo, /hero three-quarter view \(turned far enough to show its depth\), front elevation, and a detail macro close-up/);
-  assert.match(photo, /no back view, no separate side view, no extra angles/);
-  assert.ok(!/4-panel|four equal|side profile/.test(photo));
+  assert.match(photo, /straight front view, side view turned a full quarter turn \(a flat or thin object turned about 70 degrees instead, so its edge and thickness read, never a bare line\), and a zoomed-in macro close-up/);
+  assert.match(photo, /each panel a clearly different view; no back view, no three-quarter view, no extra angles/);
+  assert.ok(!/4-panel|four equal|hero/.test(photo));
   const c = { console, String }; c.window = c; vm.createContext(c);
   c.propInheritedStyleKey = () => ""; c.renderStyleText = () => "photoreal";
   vm.runInContext(between(props, "function buildSimplePropPrompt(p){", "window.buildSimplePropPrompt = buildSimplePropPrompt;") + "\nthis.f=buildSimplePropPrompt;", c);
   const simple = c.f({ name: "Cup", form: "a tin cup." });
-  assert.match(simple, /3-panel object sheet: hero three-quarter view, front elevation, and detail macro/);
-  assert.ok(!/4-panel|side profile/.test(simple));
+  assert.match(simple, /3-panel object sheet: front view, side view turned a quarter turn, and a zoomed-in close-up/);
+  assert.ok(!/4-panel|hero/.test(simple));
 });
 
 await test("3 an edit keeps the layout the sheet already has; nothing in the prop code names four views any more", () => {
   const edit = between(props, "    buildEdit: (instr)=>", "  });");
   assert.ok(edit.includes("Keep this sheet's own layout \\u2014 the same views in the same places, none added and none removed \\u2014 on the same flat off-white background."));
-  assert.ok(!/\d-panel|hero \\u00b7 front/.test(edit), "an edit names no count, so a four-view sheet is edited as it is");
-  assert.ok(!/4-panel|4-PANEL|four EQUAL|four equal panels|side profile|SIDE PROFILE/.test(props));
-  assert.ok(props.includes('label:"Prompt (text only) \\u2014 the 3-view object sheet: hero, front, detail"'));
+  assert.ok(!/\d-panel|hero \\u00b7 front/.test(edit), "an edit names no count and no views, so any earlier sheet is edited as it is");
+  assert.ok(!/4-panel|4-PANEL|four EQUAL|four equal panels|HERO three-quarter/.test(props));
+  assert.ok(props.includes('label:"Prompt (text only) \\u2014 the 3-view object sheet: front, side, close-up"'));
 });
 
 await test("4 a passage is shortened around the matched words, at a word, never inside the match", () => {
@@ -145,12 +152,12 @@ await test("6 the card: three boxes as the location card's, no row per passage, 
 
 await test("7 Frances knows it; the page loads the new files", () => {
   const f = between(ai, 'APP_FEATURES.push({ name:"Prop sheets have three views, and Screenplay evidence fits in one screen (Props, Art Room)"', "/* a billing entry:");
-  for (const w of ["THREE TIMES", "a three-quarter view", "a straight front view", "a close-up of its signature feature", "keep working exactly as they are",
+  for (const w of ["THREE TIMES", "a straight front view", "a side view, turned a full quarter turn", "never a bare line", "a close-up, zoomed far in", "keep working exactly as they are",
     "An edit keeps the layout the sheet already has", "'Where it comes from'", "'Reviewed passages'", "ONE passage at a time", "'Go to the scene'"]) assert.ok(f.includes(w), w);
-  assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic|Gemini|GPT|credit/i.test(f));
-  assert.ok(!ai.includes("same 4-panel layout (hero, front, side, detail)") && ai.includes("the same 3-view layout (hero, front, detail)"));
+  assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic|Gemini|GPT/.test(f) && !/credit/i.test(f));   // "turn" the verb is fine
+  assert.ok(!ai.includes("same 4-panel layout (hero, front, side, detail)") && ai.includes("the same 3-view layout (front, side, close-up)"));
   assert.ok(!ai.includes("expands to every match and the full passage"));
-  for (const file of ["props.jsx", "ai.jsx", "styles.css"]) assert.ok(["20261120-tidy1", "20261120-views1"].some(k => html.includes(file + "?v=" + k + '"')), file + " has a current key");
+  for (const file of ["props.jsx", "ai.jsx", "styles.css"]) assert.ok(["20261120-tidy1", "20261120-views1", "20261120-views2"].some(k => html.includes(file + "?v=" + k + '"')), file + " has a current key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");
