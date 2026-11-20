@@ -345,6 +345,36 @@ await test("6c the stance comes from who the character is; the prop card is grou
   assert.deepEqual(order, [...order].sort((x, y) => x - y)); assert.ok(art.includes("window.CardGroup = CardGroup;"));
 });
 
+await test("6e code tasks are charged, by the server, at the approved prices; the app only shows them", async () => {
+  // (owner 2026-11-20: "let's charge for everything. Even when we're using code"; "yes, build the charging with these prices")
+  const P = await import(new URL("../supabase/functions/image-proxy/billing-pricing.mjs", import.meta.url));
+  assert.deepEqual({ ...P.CODE_TASK_USD }, { resize: 0.01, head: 0.02, remaster: 0.02, keep: 0.01, detail: 0.03 });
+  assert.deepEqual([["resize", 1], ["head", 2], ["remaster", 2], ["keep", 1], ["detail", 3]].map(([k]) => P.codeTaskCost(k).credits), [1, 2, 2, 1, 3], "in credits at one cent a credit");
+  assert.equal(P.codeTaskCost("resize", 0.03).credits, 1, "never under one credit"); assert.equal(P.codeTaskCost("detail").providerCostUsd, 0, "no provider behind it");
+  for (const k of ["", "image", "resize-back", "__proto__", "toString", null]) assert.equal(P.codeTaskCost(k), null, "not a priced task: " + k);
+  // the app's table is the server's
+  const pricing = read("app/pricing.jsx");
+  assert.ok(pricing.includes("const TURN_CODE_TASK_USD = { resize:0.01, head:0.02, remaster:0.02, keep:0.01, detail:0.03 };"));
+  // the server: priced, held and settled before anything is answered; an unknown task is a 400; the owner of a shared film pays as for an image
+  const idx = read("supabase/functions/image-proxy/index.ts"), h = between(idx, '  if (task === "code") {', "  // \u2500\u2500 task: LIVE");
+  assert.ok(h.includes("const codeCost = codeTaskCost(codeKind, codeUnit);") && h.includes('code: "bad_code_task" }, 400);') && h.includes("if (codeUnit == null) return refuse(billingUnavailable());"));
+  assert.ok(h.includes('await takeHold(codeCost.credits, "image", `code:${codeKind}`);') && h.includes("if (codeHoldBlock) return codeHoldBlock;") && h.includes("await settleHold(codeHold, codeCost.credits);"));
+  assert.ok(h.indexOf("takeHold(") < h.indexOf("return json({ ok: true"), "held before it answers");
+  assert.ok(idx.includes('|| task === "video" || task === "code";'), "not an image request: no engine, no quality");
+  // the app: asks after the work succeeded and before it is saved; refused, nothing is saved
+  const ch = between(art, "async function turnChargeCodeTask(kind){", "window.turnChargeCodeTask = turnChargeCodeTask;");
+  assert.ok(ch.includes("if(!window.TURN_CODE_CHARGING) return { ok:true, credits:0 };") && ch.includes('task:"code", codeTask:String(kind||"")') && ch.includes('new CustomEvent("turn-credits-changed"'));
+  const ce = between(art, "  const codeEdit = async (make, o)=>{", "  /* REMASTER, IN CODE (owner 2026-11-20): the version before the edit is brought back");
+  assert.ok(ce.includes("const paid = (r && r.url && r.charge) ? await turnChargeCodeTask(r.charge) : { ok:true };") && ce.includes("else if(!paid.ok){ say(paid.message); }"));
+  assert.ok(ce.indexOf("turnChargeCodeTask(r.charge)") < ce.indexOf("nbCommit("), "charged before it is saved");
+  assert.ok(art.includes('if(!(r.meta.codeEdit && r.meta.codeEdit.kind==="resize-back")) r.charge = "resize";'), "back to the original size is free");
+  assert.ok(art.includes('      charge:"head",') && art.includes('message:turnKeptSummary(r.meta), charge:"remaster",'));
+  // a kept edit and the 4K detail: their image is already paid for, so the small charge never loses it
+  assert.ok(art.includes('try{ await turnChargeCodeTask("keep"); }catch(e){}') && art.includes('try{ await turnChargeCodeTask("detail"); }catch(e){}'));
+  // the switch is OFF in this release: an older server would not understand the request
+  assert.ok(pricing.includes("const TURN_CODE_CHARGING = false;"), "turned on only in the release that follows the server's deploy");
+});
+
 await test("7 the planner's reads; Frances; the page loads the new files", () => {
   const pl = between(ai, "const EDIT_PLANNER_MODEL_ID = ", "window.EDIT_PLANNER_MODEL_ID");
   assert.ok(pl.includes("res = await aiVisionComplete(messages, images, { ...(opts||{}), modelId:EDIT_PLANNER_MODEL_ID });") && pl.includes("catch(e){ pinned = false; res = await aiVisionComplete(messages, images, opts||{}); }"),
@@ -365,7 +395,7 @@ await test("7 the planner's reads; Frances; the page loads the new files", () =>
     "THE TWO FULL-BODY VIEWS STAY LEVEL", "lined up with the body by their clothes", "HOW A CHARACTER STANDS ON A NEW SHEET", "GOING SMALLER (downscaling)", "NOTHING IS LOST BY GOING DOWN AND UP AGAIN", "4K WITH ADDED DETAIL ('4K \\u2014 larger, with detail'", "THE PROP CARD IS LAID OUT LIKE THE CHARACTER CARD"]) assert.ok(fr.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Fable|Gemini|GPT/.test(fr));
   assert.ok(!ai.includes("clean re-render"), "the old name of Remaster is gone from what Frances is told");
-  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

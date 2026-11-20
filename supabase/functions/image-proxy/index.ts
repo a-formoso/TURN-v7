@@ -102,6 +102,7 @@ import {
   cheapestTextHold, creditUnitFromRegime, flatVoiceCost, imageCost, lengthBilledFacts, lengthBilledVideoHold, mergeVideoPricingOverrides,
   IMAGE_PROMPT_MAX_CHARS, imagePromptMaxChars, STT_MAX_SECONDS, TEXT_WEB_SEARCH_MAX_USES, textWebSearchTool, messageText, normaliseTextUsage, sttHoldCost, sttModel, sttReportedSeconds, sttSettleCost, textActualCost,
   textHoldEstimate, textPriceKey, legacyWritingModel, ttsCost, videoAppModel, videoCost, visionImagesProblem, canonicalImageModel,
+  codeTaskCost,
 } from "./billing-pricing.mjs";
 // Round 5 (S1): a recording's real length, read from its container (WebM / Ogg / MP4 / WAV) before
 // speech-to-text is held.
@@ -549,7 +550,7 @@ Deno.serve(async (req) => {
    * finishImage settlement below.
    */
   const rawQuality = Object.prototype.hasOwnProperty.call(body, "quality") ? body.quality : undefined;
-  const nonImageTask = task === "live" || task === "text" || task === "voice" || task === "video";
+  const nonImageTask = task === "live" || task === "text" || task === "voice" || task === "video" || task === "code";
   const qualityCheck = nonImageTask
     ? { ok: true, quality: undefined, providerQuality: undefined }
     : validateImageQuality(model, rawQuality);
@@ -816,6 +817,28 @@ Deno.serve(async (req) => {
     if (!isAdmin && detail) console.warn("[image-proxy] provider detail: " + String(detail).slice(0, 300));
     return publicError(detail, { isAdmin, ...(fallback ? { fallback } : {}) });
   };
+
+  // ── task: CODE — a change the app makes to an image IN CODE (owner 2026-11-20: "let's charge for everything") ─
+  // Resize, the head from the close-up, a remaster, an edit kept in place, 4K detail: there is no provider behind
+  // these, so the price is the app's own (billing-pricing.mjs CODE_TASK_USD). The app asks BEFORE it does the work;
+  // the credits are held and settled at once, like any other paid call, by the same hold functions (so the owner
+  // pays on a shared film, a frozen or empty account is refused, and an admin is never charged). The hold's kind is
+  // "image": these are image tasks, and every role that may make an image may change one.
+  if (task === "code") {
+    const codeKind = String(body.codeTask || "");
+    const codeUnit = await creditUnitNow();
+    if (codeUnit == null) return refuse(billingUnavailable());
+    const codeCost = codeTaskCost(codeKind, codeUnit);
+    if (!codeCost) return json({ error: "That task is not one the app charges for.", code: "bad_code_task" }, 400);
+    const codeBlock = ensureCanSpend(codeCost.credits);
+    if (codeBlock) return codeBlock;
+    const { hold: codeHold, block: codeHoldBlock } = await takeHold(codeCost.credits, "image", `code:${codeKind}`);
+    if (codeHoldBlock) return codeHoldBlock;
+    const codeCharged = await settleHold(codeHold, codeCost.credits);
+    await recordUsage({ kind: "code", providerName: "app", modelName: "code", taskName: codeKind, credits: codeCharged,
+      status: "ok", providerCostUsd: 0, metadata: { codeTask: codeKind, priceUsd: codeCost.priceUsd } });
+    return json({ ok: true, usage: { kind: "code", codeTask: codeKind, credits: codeCharged, providerCostUsd: 0 } });
+  }
 
   // ── task: LIVE — opens Frances's (codename MUSE) browser WebRTC conversation securely ─
   // The browser creates an SDP offer, but only this trusted function sees the

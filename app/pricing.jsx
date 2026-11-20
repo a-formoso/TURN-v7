@@ -383,4 +383,18 @@
   window.turnVideoCreditRate = turnVideoCreditRate;
   window.turnVideoCreditRates = turnVideoCreditRates;
   window.turnCreditPackEconomics = turnCreditPackEconomics;
+  /* CODE TASKS (owner 2026-11-20: "let's charge for everything. Even when we're using code"; prices approved the same
+     day). A change the app makes to an image in code has its own small price, charged by the server on top of whatever
+     the task also uses (its reading, its image). This table mirrors image-proxy/billing-pricing.mjs CODE_TASK_USD: the
+     server decides, the app only shows. TURN_CODE_CHARGING is the switch: OFF until the server that knows the "code"
+     task is deployed (an older server would not understand the request), then turned on in the same release. */
+  const TURN_CODE_TASK_USD = { resize:0.01, head:0.02, remaster:0.02, keep:0.01, detail:0.03 };
+  const TURN_CODE_CHARGING = false;
+  function turnCodeTaskCredits(kind){
+    const usd = TURN_CODE_TASK_USD[String(kind||"")];
+    if(!(usd>0)) return 0;
+    const unit = (_regime && _regime.usdPerCredit>0) ? _regime.usdPerCredit : SWITCHED_USD_PER_CREDIT;
+    return Math.max(1, Math.ceil(usd/unit - 1e-9));
+  }
+  window.TURN_CODE_TASK_USD = TURN_CODE_TASK_USD; window.TURN_CODE_CHARGING = TURN_CODE_CHARGING; window.turnCodeTaskCredits = turnCodeTaskCredits;
 })();

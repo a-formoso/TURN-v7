@@ -3526,6 +3526,33 @@ window.nbRunSheetGeneration = nbRunSheetGeneration;
    and tiered persistence. Parameterized by prompt builders so the
    same machinery drives every kind of reference sheet.
    ============================================================ */
+/* A CODE TASK IS CHARGED BY THE SERVER (owner 2026-11-20: "let's charge for everything"). The browser never spends: it
+   asks image-proxy (task "code"), which holds and settles the task's price like any other paid call, on the account
+   that pays for this film. Asked AFTER the work is known to have succeeded and BEFORE it is saved, so nobody pays for
+   a change that could not be made. → { ok:true, credits } | { ok:false, message }. With the switch off: { ok:true, credits:0 }. */
+async function turnChargeCodeTask(kind){
+  if(!window.TURN_CODE_CHARGING) return { ok:true, credits:0 };
+  const sb = (typeof window.sbClient==="function") ? window.sbClient() : null;
+  if(!sb || !sb.functions) return { ok:false, message:"Sign in to do this: it uses credits." };
+  const fnName = (window.TURN_SUPABASE && window.TURN_SUPABASE.imageProxyFn) || "image-proxy";
+  let data = null, error = null;
+  try{ ({ data, error } = await sb.functions.invoke(fnName, { body:{ ...(typeof window.turnFilmContext==="function" && window.turnFilmContext() ? { context:window.turnFilmContext() } : {}), task:"code", codeTask:String(kind||"") } })); }
+  catch(e){ error = e; }
+  if(error){
+    let body = null;
+    try{ const c = error && error.context; body = c && typeof c.clone==="function" ? await c.clone().json() : (c && typeof c.json==="function" ? await c.json() : null); }catch(e){}
+    return { ok:false, message:(body && typeof body.error==="string" && body.error.trim()) || "The credits for this could not be taken, so nothing was changed. Try again." };
+  }
+  if(data && data.error) return { ok:false, message:String(data.error) };
+  if(data && data.usage && typeof window.dispatchEvent==="function") window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:data.usage }));
+  return { ok:true, credits:Number(data && data.usage && data.usage.credits) || 0 };
+}
+/* the small price shown beside a code task in a menu (nothing while the switch is off) */
+function turnCodeTaskChip(kind){
+  const n = (window.TURN_CODE_CHARGING && typeof window.turnCodeTaskCredits==="function") ? window.turnCodeTaskCredits(kind) : 0;
+  return n>0 ? React.createElement("span",{className:"nb-cost","data-code-task":kind,title:n+" credit"+(n===1?"":"s")+" for this"}, typeof window.nbCreditMark==="function" ? window.nbCreditMark() : null, String(n)) : null;
+}
+window.turnChargeCodeTask = turnChargeCodeTask; window.turnCodeTaskChip = turnCodeTaskChip;
 /* what belongs to ONE version of an image and is not carried onto the next one a change in code makes */
 const CODE_EDIT_NOT_CARRIED = ["qa","lock","approval","keptOriginal","keptKind","keptItems","keptLeftOut","keptChangedPixels","keptTotalPixels","keptBoxes",
   "keptFromIso","keptRootIso","keptTried","carriedFrom","simplifiedRetry","promptFit","policyFallback","codeEdit","restoredFromIso","restoredFromVersion",
@@ -3779,7 +3806,10 @@ function useImageGen(opts){
     let done = false;
     try{
       const r = await make({ baseUrl, meta:base });
+      // (2026-11-20) what the change costs is taken before it is saved; refused, nothing is saved and the reason is said
+      const paid = (r && r.url && r.charge) ? await turnChargeCodeTask(r.charge) : { ok:true };
       if(!r || !r.url){ say(r && r.message); }
+      else if(!paid.ok){ say(paid.message); }
       else {
         const dims = await new Promise((res)=>{ const im=new Image();
           im.onload=()=>res({ w:im.naturalWidth, h:im.naturalHeight }); im.onerror=()=>res(null); im.src=r.url; });
@@ -6032,7 +6062,9 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               title:x.up ? "Upscales this image to "+x.t+", in code: the same picture, larger. It does not add detail that was never drawn. No credits. Lands as a new version; this one stays in the versions."
                 : "Downscales this image to "+x.t+", in code: the same picture, smaller. Fine detail is lost with the size. No credits. Lands as a new version; the larger one stays in the versions.",
               onClick:()=>{ setMenuOpen(false); setResizeOpen(false); if(x.up) gen.upscale(x.t); else gen.downscale(x.t); }},
-              x.t+" \u2014 "+(x.up ? "larger" : "smaller"))),
+              x.t+" \u2014 "+(x.up ? "larger" : "smaller"),
+              // (its price; none when the size is the one the image was resized from: that one is handed back free)
+              (genMeta && genMeta.resizeMasterPx && { "1K":1024, "2K":2048, "4K":4096 }[x.t] > Math.max(genMeta.resizeMasterPx.w, genMeta.resizeMasterPx.h)/1.3 && { "1K":1024, "2K":2048, "4K":4096 }[x.t] < Math.max(genMeta.resizeMasterPx.w, genMeta.resizeMasterPx.h)*1.3) ? null : turnCodeTaskChip("resize"))),
           // 4K WITH ADDED DETAIL (owner 2026-11-20): the one resize that uses an image engine, and says so with its price
           /* (owner 2026-11-20) shown wherever 4K is larger. When the engine in the top bar cannot render 4K, pressing it
              says so in a small notice in the middle of the screen (the app's own dialog: centred on every screen size),
@@ -6484,6 +6516,7 @@ async function turnResizeInCode(o){
   } else if(k>=1.3) r = await turnUpscaleInCode({ ...o, url:o.url });
   else r = await turnDownscaleInCode({ ...o, url:o.url });
   if(r && r.url){ r.meta = { ...(r.meta||{}), ...keep };
+    if(!(r.meta.codeEdit && r.meta.codeEdit.kind==="resize-back")) r.charge = "resize";   // back to its original size is free
     if(o.lostMaster) r.message += " (The larger version it came from is no longer in its versions, so this was made from the image as it is.)"; }
   return r;
 }
@@ -6518,6 +6551,7 @@ async function turnUpscaleDetailKeep(io, o){
     return { url:out(U), meta:{ ...base, detailCoverage:0, codeEdit:{ kind:"upscale", by:"In code", byId:"", drew:false } } };
   }
   const pct = Math.round(r.coverage*100);
+  try{ await turnChargeCodeTask("detail"); }catch(e){}   // the detail step's own price; the image is already paid for
   say(Whose+" is now 4K ("+W+"\u00d7"+H+") with added detail. Your picture was kept: its shapes, faces and colours are its own, and fine detail was taken from the engine\u2019s 4K drawing on "+pct+"% of it.", "success");
   return { url:out(r.out), meta:{ ...base, detailCoverage:r.coverage, codeEdit:{ kind:"upscale-detail", by:"In code", byId:"", drew:true } } };
 }
@@ -6758,6 +6792,8 @@ async function turnKeepOrAsk(io, o){
   const whose = (o && o.whose) || "the image", fix = !!(o && (o.kind==="fix" || o.kind==="edit")), edit = !!(o && o.kind==="edit");
   const r = (o && o.failed) ? { failed:o.failed, placed:[], skipped:[] } : await turnKeepOriginal({ baseUrl:io.baseUrl, url:io.url, items:(o&&o.items)||[], found:o&&o.found, kind:o&&o.kind, maxPatch:o&&o.maxPatch, by:o&&o.by });
   if(r && r.url){
+    // (2026-11-20) the keep is charged; its image is already made and paid for, so a refusal here never loses it
+    try{ await turnChargeCodeTask("keep"); }catch(e){}
     if(typeof window.appToast==="function") window.appToast(turnKeptSummary(r.meta), r.skipped.length ? "info" : "success");
     return { url:r.url, meta:r.meta, skipped:r.skipped };
   }
@@ -6850,6 +6886,7 @@ async function turnHeadBack(gen, name, o){
         +(r.moved ? (r.moved.level ? " Both full-body views were moved down a little, together and as they are, to make room and leave a gap above the head." : " The body was moved down a little, as it is, to make room for the head.") : "")
         +((!r.aligned && r.fit<0.985) ? " The head is slightly smaller than true size, for lack of room." : "")   // (lined up by the clothes, its size IS the true size)
         +(f.hairBelowChin ? " Hair that falls below the chin was not carried over." : ""),
+      charge:"head",
       meta:{ headBack:{ at:Date.now(), moved:r.moved ? r.moved.by : 0, fit:Math.round(r.fit*100)/100 },
         ...((look.by && look.by.label) ? { codeEdit:{ kind:"head", by:String(look.by.label), byId:String(look.by.id||""), drew:false } } : {}) } };
   }, { lockOk:!!o.lockOk, editInstruction:"the head was put back on the full-body view that was drawn without one: the close-up’s own head, copied and made smaller, set on the neck" });
@@ -6881,7 +6918,7 @@ async function turnRemasterInCode(o){
   const r = await turnKeepOriginal({ baseUrl:base.url, url:o.url, items:found.map(x=>x.item), found, kind:"remaster", maxPatch:0.08, by:found.by });
   if(!r || !r.url) return left(((r && r.failed) || "the change could not be placed exactly").replace(/the new items/g,"the edit’s changes").replace(/the engine's picture/g,"the edited picture"));
   const bm = base.meta || {};
-  return { url:r.url, message:turnKeptSummary(r.meta),
+  return { url:r.url, message:turnKeptSummary(r.meta), charge:"remaster",
     meta:{ ...r.meta, restoredFromIso:bm.iso || "", restoredFromVersion:bm.version || undefined } };
 }
 window.turnHeadBack = turnHeadBack; window.turnRemasterInCode = turnRemasterInCode; window.remasterIsEngineEdit = remasterIsEngineEdit;

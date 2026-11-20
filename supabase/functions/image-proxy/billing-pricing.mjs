@@ -73,6 +73,25 @@ export function creditsFromUsd(usd, unit = PROVIDER_USD_PER_CREDIT) {
 
 /* List prices per 1M tokens. Keep one `{ input, output }` object per model (other scripts read
    these literals); cache-read prices and dated changes live in their own tables below. */
+/* CODE TASKS (owner 2026-11-20: "let's charge for everything. Even when we're using code … every little task that we use
+   code, because essentially we're using the app, and the app is not free … you decide each task['s] level of complexity
+   … and you price it accordingly"; prices approved the same day: "yes, build the charging with these prices").
+   A change the app makes to an image in code has no provider behind it, so its price is the app's own, set in USD like
+   every other price here and turned into credits at the live unit (1, 2 and 3 credits at $0.01). It is charged ON TOP
+   of whatever the task also uses (its reading, its image), which are priced where they always were.
+     resize    made smaller or larger in code                                  (back to its original size: free, not sent)
+     head      the head put on the front view from the close-up               (+ its reading)
+     remaster  the version before an edit brought back around the edit        (+ its reading)
+     keep      an edit kept in place: the image as it was, the change copied in (+ its image and its reading)
+     detail    4K with added detail: the engine's fine detail laid on the picture (+ its image)
+   app/pricing.jsx TURN_CODE_TASK_USD mirrors this table for the prices the app shows. */
+export const CODE_TASK_USD = Object.freeze({ resize: 0.01, head: 0.02, remaster: 0.02, keep: 0.01, detail: 0.03 });
+export function codeTaskCost(kind, unit = PROVIDER_USD_PER_CREDIT) {
+  const usd = Object.prototype.hasOwnProperty.call(CODE_TASK_USD, String(kind || "")) ? CODE_TASK_USD[String(kind)] : 0;
+  if (!(usd > 0)) return null;
+  return { kind: String(kind), providerCostUsd: 0, priceUsd: usd, credits: Math.max(1, creditsFromUsd(usd, unit)) };
+}
+
 export const TEXT_PROVIDER_USD_PER_1M = Object.freeze({
   "claude-opus-5": { input: 5, output: 25 },
   "claude-opus-5-5": { input: 4, output: 20 },

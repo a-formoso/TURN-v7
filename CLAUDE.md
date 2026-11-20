@@ -110,6 +110,12 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
 - **Frances caps** (free questions a day): 5 no plan / trial / cancelled / frozen, 15 Writer, 30 Director, 50 Producer;
   admins exempt (`billing-policy.mjs` `FRANCES_PLAN_LIMITS` = `app/ai.jsx` `FRANCES_PLAN_LIMITS`). Frances runs on
   Opus 5.5 with her stable prefix cached (`museStablePrefix()`, `promptCache`).
+- **Code tasks (owner 2026-11-20: "let's charge for everything", prices approved that day):** a change the app makes to
+  an image in code is charged by `image-proxy` (`task:"code"`, `codeTask`), held and settled at once under kind `image`,
+  on top of whatever it also uses (its reading, its image): resize 1 credit, the head from the close-up 2, remaster 2,
+  a kept edit 1, 4K detail 3 (`billing-pricing.mjs` `CODE_TASK_USD` = `app/pricing.jsx` `TURN_CODE_TASK_USD`). Back to
+  the original size is free. The app asks after the work succeeded and before it saves (`turnChargeCodeTask`).
+  `TURN_CODE_CHARGING` (pricing.jsx) is the app's switch: turn it on only once the deployed `image-proxy` knows the task.
 - **Where it lives:** SQL `supabase/billing-v2.sql` (= the block in `credits.sql`) + `billing-switch.sql`; Stripe →
   `supabase/functions/stripe-webhook` (grants once per invoice key, refunds, disputes, failed payments); owner order in
   `supabase/README.md` "Billing v2". Tests: `test-billing-db`, `test-stripe-webhook`, `test-server-charging`,
