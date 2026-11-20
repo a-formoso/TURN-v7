@@ -6542,7 +6542,10 @@ async function turnUpscaleDetailKeep(io, o){
     E = await turnReadPixels(io.url, W, H);
   }catch(e){ return { discard:true, message:Whose+" was left as it is: this browser could not hold a 4K picture." }; }
   const out = (img)=>{ const c = document.createElement("canvas"); c.width = W; c.height = H; c.getContext("2d").putImageData(img.data instanceof Uint8ClampedArray && img instanceof ImageData ? img : new ImageData(img.data, W, H), 0, 0); return c.toDataURL("image/jpeg", 0.96); };
-  let r = null; try{ r = (PK && typeof PK.pkDetailTransfer==="function") ? PK.pkDetailTransfer(U, E) : null; }catch(e){ r = null; }
+  // the softer the enlarged picture (a 1K sheet is four times its size at 4K), the wider the "fine part" has to be taken,
+  // or the engine's detail cannot sharpen its edges (measured 2026-11-20: at 4x, twice as close to a sharp original)
+  const detailRadius = Math.max(2, Math.round(Math.max(W,H)/1024), Math.round(k*1.25));
+  let r = null; try{ r = (PK && typeof PK.pkDetailTransfer==="function") ? PK.pkDetailTransfer(U, E, { radius:detailRadius }) : null; }catch(e){ r = null; }
   const base = { keptOriginal:true, keptKind:"detail", size:"4K", upscaledFrom:{ w:w0, h:h0 } };
   if(!r || !r.out || !(r.coverage>=0.33)){
     if(PK && typeof PK.pkSharpen==="function") PK.pkSharpen(U, 0.35);

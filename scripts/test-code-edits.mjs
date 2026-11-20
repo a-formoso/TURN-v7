@@ -190,7 +190,7 @@ await test("6d 4K with added detail: the engine's fine detail only, where it agr
   assert.equal(PK.pkDetailTransfer(base, { width: 10, height: 10, data: new Uint8ClampedArray(400) }).failed, "the two pictures are not the same size");
   // the app side: one engine image at 4K, the keeper decides; under a third agreed, the plain 4K is saved and it says so
   const kp = between(art, "async function turnUpscaleDetailKeep(io, o){", "window.turnUpscaleDetailKeep = turnUpscaleDetailKeep;");
-  assert.ok(kp.includes("PK.pkDetailTransfer(U, E)") && kp.includes("if(!r || !r.out || !(r.coverage>=0.33)){") && kp.includes("so none of its detail was used.") && kp.includes('codeEdit:{ kind:"upscale-detail", by:"In code", byId:"", drew:true }'));
+  assert.ok(kp.includes("PK.pkDetailTransfer(U, E, { radius:detailRadius })") && kp.includes("const detailRadius = Math.max(2, Math.round(Math.max(W,H)/1024), Math.round(k*1.25));") && kp.includes("if(!r || !r.out || !(r.coverage>=0.33)){") && kp.includes("so none of its detail was used.") && kp.includes('codeEdit:{ kind:"upscale-detail", by:"In code", byId:"", drew:true }'));
   assert.ok(art.includes("const upscaleDetail = ()=> generate({ editInstruction:UPSCALE_DETAIL_INSTRUCTION, imageSize:\"4K\", wholeRedraw:true,") && art.includes("Do NOT move, redraw, restyle, add or remove anything"));
   const mi = between(art, '"data-role":"sheet-upscale-detail"', 'window.nbCostChip(1, { res:"4K", refs:1 })),');
   assert.ok(mi.includes('"4K \\u2014 larger, with detail"') && mi.includes("gen.upscaleDetail();") && mi.includes("One image at 4K."), "offered with its price");
@@ -201,6 +201,33 @@ await test("6d 4K with added detail: the engine's fine detail only, where it agr
   assert.ok(art.includes('upscaleTiersFor(genMeta).indexOf("4K")>=0)') && nudge.includes('if(max!=="4K"){') && nudge.includes('title:label+" does not render 4K"')
     && nudge.includes('confirmLabel:"OK", hideCancel:true') && nudge.includes("Nothing was spent.") && nudge.indexOf("return; }") < nudge.length);
   assert.equal(F.codeEditLines({ modelLabel: "GPT Image 2.6 Sunburst", pixelW: 4096, pixelH: 2304, upscaledFrom: { w: 2048, h: 1152 }, detailCoverage: 0.91, codeEdit: { kind: "upscale-detail", by: "In code", drew: true } }).drew, "GPT Image 2.6 Sunburst");
+});
+
+await test("6f 4K with detail leaves no light or dark line along a strong edge (owner: 'tune the outline')", () => {
+  // a dark cap against a light wall. The enlarged picture has the edge a little soft; the engine draws it sharp.
+  const w = 240, h = 120, mk = (f) => { const d = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){ const v = f(x, y), i = (y * w + x) * 4; d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; } return { width: w, height: h, data: d }; };
+  const sharp = (x) => x < 120 ? 60 : 180, soft = (x) => (sharp(x - 1) + sharp(x) + sharp(x + 1)) / 3;
+  const base = mk((x) => soft(x)), eng = mk((x) => sharp(x));
+  const at = (im, x) => im.data[(60 * w + x) * 4];
+  // 1 the engine's fine part REPLACES the picture's own. Added on top of it (as it was), the light side came out at 188
+  //   and the dark side at 52: a light line and a dark line that neither picture has.
+  const r = PK.pkDetailTransfer(base, eng);
+  let mn = 255, mx = 0; for (let x = 4; x < w - 4; x++){ mn = Math.min(mn, at(r.out, x)); mx = Math.max(mx, at(r.out, x)); }
+  assert.ok(mn >= 60 && mx <= 180, "nothing lighter than the wall or darker than the cap: " + mn + ".." + mx);
+  assert.ok(at(r.out, 119) <= 64 && at(r.out, 120) >= 176, "and the edge is sharp now: " + at(r.out, 119) + " | " + at(r.out, 120));
+  assert.ok(at(base, 119) === 100 && at(base, 120) === 140, "(it was soft)");
+  // 2 an edge the engine drew four pixels away is not copied in beside the real one: the picture keeps its own edge
+  const m = PK.pkDetailTransfer(base, mk((x) => sharp(x - 4)), { maxShift: 0 });
+  for (let x = 100; x < 140; x++) assert.ok(Math.abs(at(m.out, x) - at(base, x)) <= 2, "the picture's own edge at " + x + ": " + at(m.out, x) + " vs " + at(base, x));
+  // 3 no pixel ends past what either picture has within two pixels of it, whatever the texture
+  const tex = (x, y) => 22 * (((x * 5 + y * 3) % 4) - 1.5), eb = mk((x, y) => sharp(x) + tex(x, y)), bb = mk((x, y) => soft(x) + tex(x, y) * 0.3);
+  const t = PK.pkDetailTransfer(bb, eb, { maxShift: 0 });
+  for (let y = 4; y < h - 4; y += 3) for (let x = 4; x < w - 4; x++){ let lo = 255, hi = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) for (const im of [bb, eb]){ const v = im.data[((y + dy) * w + x + dx) * 4]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    const v = t.out.data[(y * w + x) * 4]; assert.ok(v >= lo && v <= hi, "within what is there at " + x + "," + y + ": " + v + " in " + lo + ".." + hi); }
+  // a softer picture (a small sheet made four times larger) is given a wider fine part by the app
+  const src = pk; assert.ok(src.includes("const r = o.radius || Math.max(2, Math.round(Math.max(w,h)/1024))") && src.includes("LB = LE = null;"));
+  for (const wds of ["REPLACES the base's own fine part", "the base\n         keeps its own edge", "no pixel ends lighter than the lightest, or darker than the darkest"]) assert.ok(src.includes(wds), wds);
 });
 
 await test("6c the stance comes from who the character is; the prop card is grouped like the character card", () => {
@@ -289,7 +316,7 @@ await test("7 the planner's reads; Frances; the page loads the new files", () =>
     "HOW A CHARACTER STANDS ON A NEW SHEET", "GOING SMALLER (downscaling)", "NOTHING IS LOST BY GOING DOWN AND UP AGAIN", "4K WITH ADDED DETAIL ('4K \\u2014 larger, with detail'", "THE PROP CARD IS LAID OUT LIKE THE CHARACTER CARD"]) assert.ok(fr.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Fable|Gemini|GPT/.test(fr));
   assert.ok(!ai.includes("clean re-render"), "the old name of Remaster is gone from what Frances is told");
-  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

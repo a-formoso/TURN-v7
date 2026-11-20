@@ -229,6 +229,15 @@
      the blur removes). The result is the BASE's broad part with the ENGINE's fine part added, and only where the two
      pictures agree in their broad part: where the engine moved or changed something, the base stays as it is.
      The engine's picture is first slid a few pixels to where it fits the base best (engines shift things slightly).
+     NO GLOW ALONG STRONG EDGES (owner 2026-11-20: "tune the outline"; the first real sheet had a thin light line along a
+     cap and an ear). Three rules, each measured on a real sheet made small and enlarged again:
+       1 the engine's fine part REPLACES the base's own fine part. It used to be added on top of it, so every strong
+         edge was counted twice: 8 to 15% of edge pixels came out lighter or darker than anything beside them;
+       2 where the engine drew an edge a pixel or two away (the two differ even when looked at closely), the base
+         keeps its own edge: a moved edge copied in would stand beside the real one;
+       3 no pixel ends lighter than the lightest, or darker than the darkest, that either picture has within two
+         pixels of it.
+     With them the same test gives no such pixel, and a result more than twice as close to the sharp original.
      Returns { out, coverage (0..1: how much of the picture took the engine's detail), shift:[dx,dy] }. */
   function pkBlurBox(src, w, h, r){
     const tmp = new Float32Array(w*h), out = new Float32Array(w*h), n = 2*r+1;
@@ -245,7 +254,7 @@
     if(eng.width!==w || eng.height!==h || w<16 || h<16) return { failed:"the two pictures are not the same size" };
     const r = o.radius || Math.max(2, Math.round(Math.max(w,h)/1024)), t0 = o.t0==null ? 7 : o.t0, t1 = o.t1==null ? 20 : o.t1, gain = o.gain==null ? 1 : o.gain;
     const lum = (D)=>{ const L=new Float32Array(n); for(let i=0,j=0;i<n;i++,j+=4) L[i]=(D[j]*30+D[j+1]*59+D[j+2]*11)/100; return L; };
-    const LB = pkBlurBox(lum(B), w, h, r*3), LE = pkBlurBox(lum(E), w, h, r*3);
+    let LB = pkBlurBox(lum(B), w, h, r*3), LE = pkBlurBox(lum(E), w, h, r*3);
     // where the engine's picture fits the base best: a few pixels either way, judged on the broad parts
     const S = o.maxShift==null ? Math.max(2, Math.round(Math.max(w,h)/512)) : o.maxShift, step = Math.max(4, Math.round(Math.max(w,h)/200));
     let best = { v:Infinity, dx:0, dy:0 };
@@ -259,13 +268,34 @@
     for(let y=0; y<h; y++) for(let x=0; x<w; x++){ const i=y*w+x, d=Math.abs(LE[at(x,y)]-LB[i]); M[i] = d<=t0 ? 1 : d>=t1 ? 0 : 1-(d-t0)/(t1-t0); }
     M = pkBlurBox(M, w, h, r*2);
     let cov=0; for(let i=0;i<n;i++){ M[i] = M[i]<0.5 ? M[i]*M[i]*2 : M[i]; cov += M[i]; } cov /= n;   // (doubtful places count for less)
-    const out = new Uint8ClampedArray(B), ch = new Float32Array(n), lim = o.limit==null ? 48 : o.limit;
+    LB = LE = null;   // (two 4K planes the rest does not need)
+    const out = new Uint8ClampedArray(B), ch = new Float32Array(n), cb = new Float32Array(n), lim = o.limit==null ? 48 : o.limit;
+    const e0 = o.e0==null ? 6 : o.e0, e1 = o.e1==null ? 18 : o.e1, K = o.reach==null ? 2 : o.reach;
+    // the lightest (or darkest) value within K pixels, for one colour of a picture: across, then down
+    const tmp = new Uint8ClampedArray(n);
+    const span = (D, c, pickMax, into)=>{
+      for(let y=0; y<h; y++){ const o2=y*w; for(let x=0; x<w; x++){ let v = D[(o2+x)*4+c];
+        for(let d=1; d<=K; d++){ const a = D[(o2+Math.max(0,x-d))*4+c], b2 = D[(o2+Math.min(w-1,x+d))*4+c]; if(pickMax){ if(a>v) v=a; if(b2>v) v=b2; } else { if(a<v) v=a; if(b2<v) v=b2; } }
+        tmp[o2+x] = v; } }
+      for(let y=0; y<h; y++) for(let x=0; x<w; x++){ let v = tmp[y*w+x];
+        for(let d=1; d<=K; d++){ const a = tmp[Math.max(0,y-d)*w+x], b2 = tmp[Math.min(h-1,y+d)*w+x]; if(pickMax){ if(a>v) v=a; if(b2>v) v=b2; } else { if(a<v) v=a; if(b2<v) v=b2; } }
+        into[y*w+x] = v; }
+      return into; };
+    const eMax = new Uint8ClampedArray(n), eMin = new Uint8ClampedArray(n), bMax = new Uint8ClampedArray(n), bMin = new Uint8ClampedArray(n);
     for(let c=0; c<3; c++){
-      for(let i=0,j=c;i<n;i++,j+=4) ch[i]=E[j];
-      const lo = pkBlurBox(ch, w, h, r);
+      for(let i=0,j=c;i<n;i++,j+=4){ ch[i]=E[j]; cb[i]=B[j]; }
+      const lo = pkBlurBox(ch, w, h, r), lb = pkBlurBox(cb, w, h, r);
+      span(E, c, true, eMax); span(E, c, false, eMin); span(B, c, true, bMax); span(B, c, false, bMin);
       for(let y=0; y<h; y++) for(let x=0; x<w; x++){ const i=y*w+x, m=M[i]; if(m<=0.01) continue;
-        const q = at(x,y); let hi = ch[q]-lo[q]; hi = hi>lim ? lim : hi<-lim ? -lim : hi;
-        out[i*4+c] = B[i*4+c] + gain*m*hi; }
+        const q = at(x,y);
+        // 1 the engine's fine part in place of the base's own
+        let hi = (ch[q]-lo[q]) - (cb[i]-lb[i]); hi = hi>lim ? lim : hi<-lim ? -lim : hi;
+        // 2 an edge the engine drew somewhere else: the base keeps its own
+        const d2 = Math.abs(lo[q]-lb[i]), f = d2<=e0 ? 1 : d2>=e1 ? 0 : 1-(d2-e0)/(e1-e0);
+        const v = B[i*4+c] + gain*m*f*hi;
+        // 3 never past what either picture has right there
+        const top = eMax[q]>bMax[i] ? eMax[q] : bMax[i], bot = eMin[q]<bMin[i] ? eMin[q] : bMin[i];
+        out[i*4+c] = v>top ? top : v<bot ? bot : v; }
     }
     return { out:{ width:w, height:h, data:out }, coverage:cov, shift:[dx,dy] };
   }
