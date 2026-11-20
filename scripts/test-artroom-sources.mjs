@@ -66,7 +66,9 @@ ok("more than five source entries remain available",mentions({name:"Brass key"},
 ok("evidence UI does not truncate source rows",
   source.includes("screenplayMentions.map((m,i)")&&!source.includes("screenplayMentions.slice(0,5)"));
 ok("source navigation is separate from scene filtering",
-  source.includes("onClick:()=>onSourceClick&&onSourceClick(m)")&&source.includes("onChipClick:(sid)=>setSceneFilter(sid),onSourceClick"));
+  // (2026-11-20) the passages are small buttons with ONE passage shown: its "Go to the scene" opens that passage
+  source.includes("role:\"prop-evi-matches\", onOpen:onSourceClick,")&&source.includes("tone: m.match===\"exact\" ? \"exact\" : \"possible\", target:m,")
+    &&source.includes("onClick:()=>onOpen(it.target)},\"Go to the scene\")")&&source.includes("onChipClick:(sid)=>setSceneFilter(sid),onSourceClick"));
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);
