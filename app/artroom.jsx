@@ -4427,7 +4427,7 @@ function _qaDerivedEditInstruction(r){
 /* THE SCREENPLAY PART of a character sheet's QA check (owner 2026-10-27: Script check folded into QA check, one button,
    one image read): where the sheet breaks what the screenplay states, each with its quote; "Apply to spec" where the
    card's spec is wrong or silent, then Regenerate. A variant's wardrobe and injuries are fixed in its change text. */
-function QaScriptPart({ c, script, note, gening, variant, noun, onApply, onRegen, regenCost, onClose }){
+function QaScriptPart({ c, script, note, gening, variant, noun, onApply, onRegen, regenCost, onClose, areaNo }){
   const [applied, setApplied] = React.useState({});
   const curRef = React.useRef({ ...(c||{}) });
   const fieldLab = (f)=> (CHAR_FACT_LABELS[f] || f);
@@ -4459,7 +4459,8 @@ function QaScriptPart({ c, script, note, gening, variant, noun, onApply, onRegen
       : mism.map((m,i)=>{
           const fix = fixFor(m), canApply = !m.specOk && !!onApply && Object.keys(fix).length>0;
           return React.createElement("div",{key:i,className:"qa-item script-check-item"},
-            React.createElement("span",{className:"qa-dot major",title:"Doesn't match the script"}),
+            (areaNo && areaNo(m.box)) ? React.createElement("span",{className:"qa-area-no script",title:"Marked "+areaNo(m.box)+" on the image above"},areaNo(m.box))
+            : React.createElement("span",{className:"qa-dot major",title:"Doesn't match the script"}),
             React.createElement("div",{className:"qa-item-body"},
               React.createElement("div",{className:"qa-chips"}, React.createElement("span",{className:"qa-where"}, fieldLab(m.fact.field)),
                 React.createElement("span",{className:"qa-where"}, "Sc "+(m.fact.sceneNo!=null?m.fact.sceneNo:"?"))),
@@ -4492,7 +4493,7 @@ function _qaTitleRow(name, about){
     React.createElement("div",{className:"qa-title",title:Tip?undefined:about}, name||"Untitled"),
     Tip && React.createElement(Tip,{label:"About this check",text:about}));
 }
-function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, specFields, onApplySpec, editCost, regenCost, scriptPart, onRecheck }){
+function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, specFields, onApplySpec, editCost, regenCost, scriptPart, onRecheck, imageUrl, onRunAreaFix }){
   const r = report;
   const [applying, setApplying] = React.useState(false);
   // "Apply to spec": fold the prompt advice into the card's own drafted fields —
@@ -4530,8 +4531,15 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
         onClick:()=>{ onRunEdit(r.editInstruction || _qaDerivedEditInstruction(r)); onClose(); }},
         React.createElement(Icon.wand,{s:12}),"Edit current image", typeof window.nbCostChip==="function" && window.nbCostChip(1, editCost))
     : null;
+  /* THE DRIFTS, SHOWN ON THE IMAGE (owner 2026-11-20: "squares or target points of drift in that image"). Every
+     finding the read could place is a numbered box on a small copy of the image; the same number stands on its line
+     below. "Fix these areas" has the image engine redraw only those boxes; the rest of the image is kept pixel for
+     pixel (the keep-the-original rule), and a fix that cannot be made in place asks before anything is saved. */
+  const areas = (typeof qaFixAreas==="function") ? qaFixAreas(r) : [];
+  const areaNo = (box)=>{ const a = areas.find(x=>x.box===box); return a ? a.n : 0; };
   const finding = (d,i,invented)=> React.createElement("div",{key:i,className:"qa-item"},
-    React.createElement("span",{className:"qa-dot "+(invented?"invent":(d.severity==="major"?"major":"minor")),
+    (!invented && areaNo(d.box)) ? React.createElement("span",{className:"qa-area-no",title:"Marked "+areaNo(d.box)+" on the image above"},areaNo(d.box))
+    : React.createElement("span",{className:"qa-dot "+(invented?"invent":(d.severity==="major"?"major":"minor")),
       title: invented?"Invented — not in the prompt":(d.severity==="major"?"Major deviation":"Minor deviation")}),
     React.createElement("div",{className:"qa-item-body"},
       (!invented && d.where && d.where!=="overall") && React.createElement("div",{className:"qa-chips"},
@@ -4548,6 +4556,21 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
             + ((r.kept && qaCheckedOn(r.checkedAt)) ? "\n\n"+qaCheckedOn(r.checkedAt)+" This is the saved result; opening it is free." : ""))),
         React.createElement("span",{className:"qa-badge "+sev}, sev==="pass"?"Faithful":sev==="minor"?"Minor drift":"Major drift"),
         React.createElement("button",{className:"ag-x",onClick:onClose},React.createElement(Icon.x,{s:16}))),
+      (areas.length>0 && imageUrl) && React.createElement("div",{className:"qa-sec qa-areas-sec","data-testid":"qa-areas"},
+        React.createElement("div",{className:"qa-sec-lab"},"Where it drifts",
+          (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About the marked areas",
+            text:"Each box is a drift the check could place; its number is on its line below. Fix these areas has the image engine redraw only inside the boxes. The rest of your image is kept as it is, pixel for pixel (one image). A drift with no box, such as the wrong render style, cannot be fixed in place: change the spec and make the image again."})),
+        React.createElement("div",{className:"qa-areas"},
+          React.createElement("img",{src:imageUrl,alt:"",draggable:false}),
+          areas.map(a=>React.createElement("span",{key:a.n,className:"qa-area "+a.kind,
+              style:{ left:(a.box[0]/10)+"%", top:(a.box[1]/10)+"%", width:((a.box[2]-a.box[0])/10)+"%", height:((a.box[3]-a.box[1])/10)+"%" },title:a.item},
+            React.createElement("b",null,a.n)))),
+        onRunAreaFix && React.createElement("div",{className:"qa-apply-row"},
+          React.createElement("button",{className:"ns-btn primary qa-area-fix","data-role":"qa-area-fix",disabled:gening,
+              title:"The image engine redraws only inside the "+(areas.length===1?"box":"boxes")+"; everything else in your image stays as it is, pixel for pixel. One image.",
+              onClick:()=>{ onRunAreaFix(areas); onClose(); }},
+            React.createElement(Icon.target||Icon.wand,{s:13}), areas.length===1 ? "Fix this area" : "Fix these "+areas.length+" areas",
+            typeof window.nbCostChip==="function" && window.nbCostChip(1, editCost)))),
       clean
         ? React.createElement("div",{className:"qa-clean"},
             React.createElement(Icon.check,{s:14}),"Faithful to its prompt — nothing to fix.")
@@ -4559,7 +4582,7 @@ function QaReport({ name, noun, report, gening, onClose, onRunEdit, onRegen, spe
               React.createElement("div",{className:"qa-sec-lab"},"Invented — not in the prompt"),
               r.inventions.map((x,i)=>finding(x,"inv"+i,true)))),
       // the screenplay part (character sheets, 2026-10-27)
-      scriptPart && React.createElement(QaScriptPart,{ ...scriptPart, script:r.script, gening, noun, regenCost, onRegen, onClose }),
+      scriptPart && React.createElement(QaScriptPart,{ ...scriptPart, script:r.script, gening, noun, regenCost, onRegen, onClose, areaNo }),
       // the verdict, spelled out — what to do with this image
       React.createElement("div",{className:"qa-rec "+r.action},
         React.createElement("span",{className:"qa-rec-lab"},"Recommendation"),
@@ -4726,6 +4749,12 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
       editCost: gen.likenessEditRefs ? { refs: 1 + gen.likenessEditRefs + ((gen.refCounts && gen.refCounts().attach) || 0) } : undefined,
       regenCost: (gen.likenessRefs && gen.refCounts) ? { refs: gen.refCounts().generate } : undefined,
       onRunEdit:(instr)=>gen.generate({ editInstruction:instr }),
+      // THE ROAD, STEP 3: redraw only the marked areas; the image is kept everywhere else (turnKeepOrAsk). The boxes
+      // are the ones this report's read made, so no second look is needed. A fix may be larger than a worn item.
+      imageUrl: gen.genUrl,
+      onRunAreaFix:(areas)=>gen.generate({ editInstruction:qaAreaFixInstruction(areas),
+        keepOriginal:(io)=>turnKeepOrAsk(io, { kind:"fix", items:areas.map(a=>a.item), found:areas.map(a=>({ item:a.item, boxes:[a.box] })), maxPatch:0.04,
+          whose:(name ? name+"\u2019s " : "this ")+(noun||"image") }) }),
       // one render later, so a screenplay fix just applied to the spec is in the prompt (the Apply-to-spec rule above)
       onRegen:()=>setPendingRegen(true) }), document.body));
 }
@@ -6123,12 +6152,15 @@ async function turnKeepOriginal(o){
   let orig, edit;
   try{ orig = await turnReadPixels(o.baseUrl); edit = await turnReadPixels(o.url, orig.width, orig.height); }
   catch(e){ return { failed:"the pictures could not be read", placed:[], skipped:[] }; }
-  let found = null;
-  try{ found = await (o.locate || window.aiLocateItems)(o.url, items); }catch(e){ return { failed:"the new items could not be looked for", placed:[], skipped:[] }; }
-  if(!found || found.unsupported) return { failed:"the new items could not be looked for", placed:[], skipped:[] };
+  // where to look: boxes the caller already has (the QA read marked them), else one look at the engine's picture
+  let found = Array.isArray(o.found) ? o.found : null;
+  if(!found){
+    try{ found = await (o.locate || window.aiLocateItems)(o.url, items); }catch(e){ return { failed:"the new items could not be looked for", placed:[], skipped:[] }; }
+    if(!found || found.unsupported) return { failed:"the new items could not be looked for", placed:[], skipped:[] };
+  }
   const placements = PK.pkPlacements(found, orig.width, orig.height);
   if(!placements.length) return { failed:"the new items were not found in the engine's picture", placed:[], skipped:items.map(n=>({ item:n, why:"not found" })) };
-  const r = PK.pkCompose(orig, edit, placements);
+  const r = PK.pkCompose(orig, edit, placements, o.maxPatch ? { maxPatch:o.maxPatch } : undefined);
   // an item is in when at least one of its places was added
   const inNames = Array.from(new Set(r.placed.map(p=>p.item)));
   const outItems = items.filter(n=> inNames.indexOf(n)<0).map(n=>{ const s = r.skipped.find(x=>x.item===n); return { item:n, why:(s && s.why) || "not found" }; });
@@ -6137,7 +6169,7 @@ async function turnKeepOriginal(o){
   cv.getContext("2d").putImageData(new ImageData(r.out.data, orig.width, orig.height), 0, 0);
   const total = orig.width*orig.height;
   return { url:cv.toDataURL("image/png"), placed:r.placed, skipped:outItems,
-    meta:{ keptOriginal:true, keptItems:inNames, keptLeftOut:outItems.map(x=>x.item), keptChangedPixels:r.changed, keptTotalPixels:total,
+    meta:{ keptOriginal:true, ...(o.kind ? { keptKind:o.kind } : {}), keptItems:inNames, keptLeftOut:outItems.map(x=>x.item), keptChangedPixels:r.changed, keptTotalPixels:total,
       keptBoxes:r.placed.map(p=>({ item:p.item, box:p.box })) } };
 }
 /* what the card says afterwards, in plain words */
@@ -6145,11 +6177,48 @@ function turnKeptSummary(meta){
   if(!meta || !meta.keptOriginal) return "";
   const n = Number(meta.keptChangedPixels)||0, t = Number(meta.keptTotalPixels)||0;
   const pct = t ? (100*(t-n)/t) : 0;
-  const list = (meta.keptItems||[]).join(", ");
-  return "Your sheet was kept as it was: "+(pct>=99.95 ? pct.toFixed(2) : pct.toFixed(1))+"% of its pixels are untouched. Added: "+(list||"the new item")+"."
-    +((meta.keptLeftOut||[]).length ? " Not added: "+meta.keptLeftOut.join(", ")+"." : "");
+  const list = (meta.keptItems||[]).join(", "), fix = meta.keptKind==="fix";
+  return (fix ? "Your image" : "Your sheet")+" was kept as it was: "+(pct>=99.95 ? pct.toFixed(2) : pct.toFixed(1))+"% of its pixels are untouched. "
+    +(fix ? "Fixed: " : "Added: ")+(list||(fix ? "the marked area" : "the new item"))+"."
+    +((meta.keptLeftOut||[]).length ? (fix ? " Not fixed: " : " Not added: ")+meta.keptLeftOut.join(", ")+"." : "");
 }
-window.turnKeepOriginal = turnKeepOriginal; window.turnKeptSummary = turnKeptSummary;
+/* KEEP, OR ASK (one rule for the wardrobe update and for the QA report's area fixes): the picture that is saved is the
+   original with only the named things changed. When none of them can be placed exactly the person chooses: keep the
+   image as it is (nothing is saved), or take the engine's whole picture. o: { items, found?, kind?, maxPatch?, whose } */
+async function turnKeepOrAsk(io, o){
+  const whose = (o && o.whose) || "the image", fix = !!(o && o.kind==="fix");
+  const r = await turnKeepOriginal({ baseUrl:io.baseUrl, url:io.url, items:(o&&o.items)||[], found:o&&o.found, kind:o&&o.kind, maxPatch:o&&o.maxPatch });
+  if(r && r.url){
+    if(typeof window.appToast==="function") window.appToast(turnKeptSummary(r.meta), r.skipped.length ? "info" : "success");
+    return { url:r.url, meta:r.meta, skipped:r.skipped };
+  }
+  const why = ((r && r.failed) || "the change could not be placed exactly").replace(/the new items/g, fix ? "the marked areas" : "the new items");
+  const takeEngine = (typeof window.appConfirm==="function") ? !!(await window.appConfirm({
+    title:(fix ? "The fix could not be made in place on " : "The new item could not be added to ")+whose+(fix ? "" : " exactly"),
+    body:"The image engine redrew the whole picture, and "+why+". You can keep "+whose+" as it is, or use the engine\u2019s picture, in which everything is redrawn (faces and clothes may have shifted). The image is already paid for either way.",
+    confirmLabel:"Use the engine\u2019s picture", cancelLabel:fix ? "Keep my image" : "Keep my sheet" })) : false;
+  if(takeEngine) return { url:io.url, meta:{ keptOriginal:false, keptTried:true }, skipped:[] };
+  return { discard:true, message:whose.charAt(0).toUpperCase()+whose.slice(1)+" was left as it is: "+why+". The engine\u2019s picture was not saved." };
+}
+/* THE AREAS A QA REPORT MARKED (the road, step 3): every finding that has a box, with a short name. A finding with no
+   box (the render style, the whole layout) is not an area: it needs the spec changed and a new image. */
+function qaFixAreas(report){
+  const out = [], r = report || {};
+  const lab = (where, what)=>{ const w = String(where||"").trim(), t = String(what||"").trim().replace(/\s+/g," ");
+    return ((w && !/^overall$/i.test(w)) ? w+": " : "")+(t.length>70 ? t.slice(0,67).replace(/\s+\S*$/,"")+"\u2026" : t); };
+  (r.deviations||[]).forEach(d=>{ if(d && Array.isArray(d.box)) out.push({ item:lab(d.where, d.what), what:String(d.what||""), box:d.box, kind:"prompt" }); });
+  (((r.script||{}).mismatches)||[]).forEach(m=>{ if(m && Array.isArray(m.box)) out.push({ item:lab("", m.issue || (m.fact && m.fact.value)),
+    what:"it must match the screenplay: "+String((m.fact && m.fact.value)||"")+(m.issue ? " (the image shows "+m.issue+")" : ""), box:m.box, kind:"script" }); });
+  return out.slice(0,6).map((a,i)=>({ ...a, n:i+1 }));
+}
+function qaAreaFixInstruction(areas){
+  const pc = (v)=> Math.round(v/10);
+  return "fix "+(areas.length===1 ? "this fault" : "these faults")+", each ONLY inside its own area of the image: "
+    +areas.map(a=> a.n+") "+String(a.what||a.item).replace(/\.$/,"")+" (area: left "+pc(a.box[0])+"%, top "+pc(a.box[1])+"%, right "+pc(a.box[2])+"%, bottom "+pc(a.box[3])+"%)").join("; ")
+    +". This is a small local change: do not redraw, restyle, re-light or re-pose anything. Everything outside those areas stays exactly as it is";
+}
+window.turnKeepOriginal = turnKeepOriginal; window.turnKeptSummary = turnKeptSummary; window.turnKeepOrAsk = turnKeepOrAsk;
+window.qaFixAreas = qaFixAreas; window.qaAreaFixInstruction = qaAreaFixInstruction;
 /* A DESIGN TEXT AN OLDER LIMIT CUT (2026-11-18): until that day a prop's form, material and detail were cut at 200
    characters and ended in "…" mid-sentence. Shown, such a text stops at its last whole sentence (display only: the
    saved words are not changed); specWasCut says a card has one, so its design can be offered again in full. */
@@ -6647,19 +6716,9 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
   const keepOriginalForWardrobe = async (io, items)=>{
     const who = (typeof castFirstName==="function") ? castFirstName(c.name) : (c.name||"the character");
     keptLeftOutRef.current = null;
-    const r = await turnKeepOriginal({ baseUrl:io.baseUrl, url:io.url, items });
-    if(r && r.url){
-      keptLeftOutRef.current = (r.skipped||[]).map(x=>x.item);
-      if(typeof window.appToast==="function") window.appToast(turnKeptSummary(r.meta), r.skipped.length ? "info" : "success");
-      return { url:r.url, meta:r.meta };
-    }
-    const why = (r && r.failed) || "the new items could not be placed exactly";
-    const takeEngine = (typeof window.appConfirm==="function") ? !!(await window.appConfirm({
-      title:"The new item could not be added to "+who+"\u2019s sheet exactly",
-      body:"The image engine redrew the sheet, and "+why+". You can keep "+who+"\u2019s sheet as it is, or use the engine\u2019s picture, in which the whole sheet is redrawn (the face and clothes may have shifted). The image is already paid for either way.",
-      confirmLabel:"Use the engine\u2019s picture", cancelLabel:"Keep my sheet" })) : false;
-    if(takeEngine) return { url:io.url, meta:{ keptOriginal:false, keptTried:true } };
-    return { discard:true, message:who+"\u2019s sheet was left as it is: "+why+". The engine\u2019s picture was not saved." };
+    const r = await turnKeepOrAsk(io, { items, whose:who+"\u2019s sheet" });
+    if(r && r.url && r.meta && r.meta.keptOriginal) keptLeftOutRef.current = (r.skipped||[]).map(x=>x.item);
+    return r;
   };
   const wardrobeUpdateOpts = ()=>{
     const items = includedWornProps.filter(p=>ownedSheetMap[p.id]).map(p=>String(p.name||"").trim()).filter(Boolean);

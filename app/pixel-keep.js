@@ -163,8 +163,11 @@
         skipped.push({ item:p.item, why:"too large to add without redrawing", score:A.score }); continue; }
       if(rx1 >= 0){
         rx0 = Math.max(0, rx0-2); ry0 = Math.max(0, ry0-2); rx1 = Math.min(ww-1, rx1+2); ry1 = Math.min(wh-1, ry1+2);
+        // the edge is soft over 2 pixels on a small patch and up to 10 on a large one (a wider ramp hides a slight
+        // difference of tone between the two pictures, which a large patch would show as a faint rectangle)
+        const soft = clamp(Math.round(Math.min(rx1-rx0, ry1-ry0)*0.06), 2, 10);
         for(let y=ry0;y<=ry1;y++) for(let x=rx0;x<=rx1;x++){
-          const edge = Math.min(x-rx0+0.5, rx1-x+0.5, y-ry0+0.5, ry1-y+0.5), a = Math.min(1, edge/2);
+          const edge = Math.min(x-rx0+0.5, rx1-x+0.5, y-ry0+0.5, ry1-y+0.5), a = Math.min(1, edge/soft);
           const i = y*ww+x, q = ((W[1]+y)*w + W[0]+x)*4;
           for(let c=0;c<3;c++) out.data[q+c] = Math.round(a*samp[i*3+c] + (1-a)*O[q+c]);
           count++;

@@ -4027,6 +4027,8 @@ for(const f of APP_FEATURES){
 }
 /* KEEP THE ORIGINAL, ADD ONLY THE ITEM (owner 2026-11-19: "build it into the app") */
 APP_FEATURES.push({ name:"Update sheet with new wardrobe keeps your sheet and adds only the item (Characters, Art Room)", what:"(2026-11-19; this is the newest word on 'Update sheet with new wardrobe': where an older note differs, this one is right.) An image engine redraws a whole picture even when it is asked for one small change, so a face or a coat can shift. 'Update sheet with new wardrobe' no longer saves the engine's picture. It saves YOUR sheet as it was, pixel for pixel, with only the new worn item copied in from the engine's drawing. HOW: the engine draws the item onto the sheet (one image); the picture is read once to find where the item is (a short reading, writing credits); then the app lines the two pictures up and copies only the item's small rectangle onto your original. Afterwards a message says how much of the sheet is untouched (for example 99.9%) and which items were added. IT WORKS FOR small items that sit on something already there: a badge or ID card, a ring, earrings, a watch, a pin. WHEN IT CANNOT BE DONE: if the engine moved things too far for the item to be placed exactly, or the item is as big as a garment (a hat, a scarf, a coat), the app does not guess. It asks: 'Keep my sheet' (nothing is saved, the sheet stays as it is) or 'Use the engine's picture' (the whole sheet as the engine redrew it). The image is paid for either way. An item that could not be added keeps 'New wardrobe ready' on the card, so you can try again. Image engines differ: one that keeps the layout of the sheet lets the item be placed; one that moves things around more often leads to the question. For a fresh sheet, use 'Generate new image'. The sheet from before is always in the image's versions." });
+/* THE ROAD, STEP 3: FIX THE DRIFTS BY AREA (owner 2026-11-20: "yes, build this road in that order") */
+APP_FEATURES.push({ name:"QA check: the drifts are marked on the image and can be fixed by area (Art Room)", what:"(2026-11-20) The QA check now shows WHERE an image drifts. In the report, under 'Where it drifts', a small copy of the image carries a numbered box on every drift the check could place (amber for a drift from the prompt, red for one from the screenplay); the same number stands on that finding's line below. A drift that is everywhere, such as the wrong render style or layout, has no box. FIX BY AREA: 'Fix these areas' (or 'Fix this area') has the image engine redraw only inside the boxes (one image). What is saved is your own image, pixel for pixel, with only those areas changed; a message then says how much is untouched and what was fixed. If a fix cannot be made in place (the engine moved things too far, or the area is too large to change without redrawing), the app asks: 'Keep my image' (nothing is saved) or 'Use the engine's picture' (everything redrawn); the image is paid for either way. After a fix, press the QA button again ('Check again' inside a saved report) to see that the drift is gone. A drift with no box is fixed the other way: 'Apply to spec & regenerate', which changes the written spec and makes a new image. 'Edit current image' is still there; it lets the engine redraw the whole image. This works on every card that has a QA check: characters, props, locations, shots." });
 function appBrief(){
   const facts = museFacts();
   return "\n\nABOUT THIS APP (use ONLY these facts to answer product/how-to questions; never invent features or behaviour — if a question isn't covered here, say you're not sure rather than guess):\n"
@@ -5155,13 +5157,23 @@ window.aiAuditionLines = aiAuditionLines;
 function _fidelityFactLines(facts){
   return facts.map((f,i)=> (i+1)+". "+f.field+": "+String(f.value||"")+" \u2014 Sc "+(f.sceneNo!=null?f.sceneNo:"?")+": \""+String(f.quote||"").replace(/\s+/g," ")+"\"").join("\n");
 }
+/* a box a vision read gave, kept only when it is a proper one: four numbers in thousandths, with some area, and not
+   the whole picture (that is "overall", which has no box) */
+function qaBoxOf(b){
+  if(!Array.isArray(b) || b.length!==4 || !b.every(v=> typeof v==="number" && isFinite(v))) return null;
+  const x0 = Math.max(0, Math.min(b[0], b[2])), x1 = Math.min(1000, Math.max(b[0], b[2])), y0 = Math.max(0, Math.min(b[1], b[3])), y1 = Math.min(1000, Math.max(b[1], b[3]));
+  if(x1-x0 < 4 || y1-y0 < 4 || (x1-x0)*(y1-y0) > 1000*1000*0.6) return null;
+  return [Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1)];
+}
+if(typeof window!=="undefined") window.qaBoxOf = qaBoxOf;
 function _fidelityParse(results, facts, W){
   const mismatches = [], unclear = []; let ok = 0;
   (Array.isArray(results) ? results : []).forEach(r=>{
     const f = r && facts[Number(r.n)-1];
     if(!f) return;
     const st = String(r.status||"").toLowerCase();
-    if(st==="mismatch") mismatches.push({ fact:f, issue:W(r.issue,200), specOk:r.specOk!==false, specFix:r.specOk===false ? W(r.specFix,200) : "" });
+    if(st==="mismatch") mismatches.push({ fact:f, issue:W(r.issue,200), specOk:r.specOk!==false, specFix:r.specOk===false ? W(r.specFix,200) : "",
+      ...(qaBoxOf(r.box) ? { box:qaBoxOf(r.box) } : {}) });
     else if(st==="unclear") unclear.push(f);
     else if(st==="ok") ok++;
   });
@@ -5193,6 +5205,11 @@ async function aiImageQA(item){
     +"Report:\n"
     +"1) deviations = things the prompt demands that the image gets wrong or omits. Check in this order: RENDER STYLE drift (if the prompt names a style — anime, photoreal, hand-painted — does the image actually use it? This is the #1 failure), per-view camera angles (a '2x2 grid' spec names an angle per panel — check each), missing or wrong fixtures/wardrobe/palette/lighting/time-of-day, and rule violations (text where 'no text', people/creatures where forbidden). Max 5, worst first.\n"
     +"2) inventions = content the image ADDED that the prompt never asked for (built structures, extra props, landmarks, decorative flourishes). Max 3. Empty if none.\n"
+    // THE ROAD, STEP 3 (owner 2026-11-20: "squares or target points of drift in that image"): each fault that sits in
+    // one place gets a box, so it can be shown on the image and fixed there alone (artroom.jsx "Fix these areas")
+    +"BOX = for every deviation that sits in ONE place, also give \"box\": [x0, y0, x1, y1] in thousandths of the image (x from 0 at the left edge to 1000 at the right, y from 0 at the top to 1000 at the bottom) "
+    +"\u2014 a snug box holding the whole fault with a little room to spare. A fault seen in several panels is one deviation per panel, each with its own box. "
+    +"A fault that is 'overall' (the render style, the whole layout) or that you cannot place has NO box: leave \"box\" out. Never guess a box.\n"
     +"3) where = for a multi-view sheet, name the offending panel ('top-left', 'top-right', 'bottom-left', 'bottom-right' for grids; 'leftmost'…'rightmost' for strips); 'overall' when it applies everywhere.\n"
     +"For location sheets, cross-check the SAME objects across every panel and through-door glimpses against the shared set layout: furniture-to-wall relationships, fridge/table positions, openings and sightlines. A screen-position change due to camera movement is not drift; a physical relocation or mirror is major drift. Report occlusion as unverified, not a proven match or mismatch. Never certify metric 3D geometry from images alone.\n"
     +"4) action = 'keep' (faithful — nits at most), 'edit' (one or two LOCALIZED fixes an image-edit instruction can repair — fill editInstruction with ONE imperative instruction, max 200 chars), or 'regenerate' (SYSTEMIC drift — wrong style, wrong space, wrong layout — an edit can't save it).\n"
@@ -5212,8 +5229,8 @@ async function aiImageQA(item){
         +"SCREENPLAY FACTS:\n"+_fidelityFactLines(facts)+"\n\nWRITTEN SPEC (JSON):\n"+JSON.stringify(item.spec||{}).slice(0,4000)+"\n"
         +"Report these ONLY under \"script\"; they never change the prompt verdict above.\n"
       : "")
-    +'Return ONLY compact JSON: {"verdict":"pass|minor|major","deviations":[{"what":"...","where":"...","severity":"minor|major"}],"inventions":["..."],"action":"keep|edit|regenerate","editInstruction":"...","promptFix":"..."'
-    +(facts.length ? ',"script":{"results":[{"n":1,"status":"ok|mismatch|unclear","issue":"","specOk":true,"specFix":""}]}' : '')+'}';
+    +'Return ONLY compact JSON: {"verdict":"pass|minor|major","deviations":[{"what":"...","where":"...","severity":"minor|major","box":[x0,y0,x1,y1]}],"inventions":["..."],"action":"keep|edit|regenerate","editInstruction":"...","promptFix":"..."'
+    +(facts.length ? ',"script":{"results":[{"n":1,"status":"ok|mismatch|unclear","issue":"","specOk":true,"specFix":"","box":[x0,y0,x1,y1]}]}' : '')+'}';
   const res = await aiVisionComplete([{ role:"user", content:prompt }], [img]);
   if(!res.vision) return { unsupported:true };
   const j = extractJSON(res.text);
@@ -5228,7 +5245,8 @@ async function aiImageQA(item){
     deviations: (Array.isArray(j.deviations)?j.deviations:[])
       .map(d=> typeof d==="string" ? { what:d, where:"overall", severity:"minor" } : d)
       .filter(d=>d&&d.what).slice(0,5)
-      .map(d=>({ what:W(d.what,220), where:W(d.where||"overall",40), severity:(String(d.severity)==="major"?"major":"minor") })),
+      .map(d=>({ what:W(d.what,220), where:W(d.where||"overall",40), severity:(String(d.severity)==="major"?"major":"minor"),
+        ...(qaBoxOf(d.box) ? { box:qaBoxOf(d.box) } : {}) })),
     inventions: (Array.isArray(j.inventions)?j.inventions:[]).map(x=>W(x,160)).filter(Boolean).slice(0,3),
     action: /^(keep|edit|regenerate)$/.test(String(j.action).toLowerCase()) ? String(j.action).toLowerCase() : "keep",
     editInstruction: W(j.editInstruction,220),

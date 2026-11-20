@@ -8220,6 +8220,22 @@ button.stage2-au-block:disabled{cursor:default}
 .qa-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:12px;margin:0;padding:18px 24px 16px;
   background:var(--win-surface,var(--bg-1));border-bottom:1px solid var(--line-1,var(--line-2))}
 .qa-head .ag-x{flex-shrink:0}
+/* WHERE IT DRIFTS (the road, step 3): a small copy of the image with a numbered box on each drift the check could
+   place. Amber = against the prompt, red = against the screenplay; the number is repeated on the finding's line. */
+.qa-areas{position:relative;border:1px solid var(--win-line,var(--line-2));border-radius:10px;overflow:hidden;background:var(--win-bone,var(--bg-2));line-height:0}
+.qa-areas img{display:block;width:100%;height:auto}
+.qa-area{position:absolute;box-sizing:border-box;min-width:14px;min-height:14px;border:2px solid var(--win-amber,#F29A43);border-radius:4px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.35)}
+.qa-area.script{border-color:var(--win-err,var(--alert))}
+.qa-area b{position:absolute;left:-2px;top:-17px;min-width:15px;height:15px;padding:0 3px;display:grid;place-items:center;border-radius:4px 4px 4px 0;
+  background:var(--win-amber,#F29A43);color:var(--win-on-amber,#2C2722);font:700 10.5px/1 var(--f-ui)}
+.qa-area.script b{background:var(--win-err-fill,var(--alert));color:#fff}
+.qa-area-no{flex:0 0 auto;min-width:17px;height:17px;margin-top:1px;padding:0 3px;display:inline-grid;place-items:center;border-radius:4px;
+  background:var(--win-amber,#F29A43);color:var(--win-on-amber,#2C2722);font:700 10.5px/1 var(--f-ui)}
+.qa-area-no.script{background:var(--win-err-fill,var(--alert));color:#fff}
+.qa-areas-sec .qa-apply-row{margin-top:10px}
+.qa-areas-sec .qa-sec-lab{position:relative;display:flex;align-items:center;gap:7px}
+.qa-areas-sec .qa-sec-lab .infotip{position:static}
 .qa-orb{width:38px;height:38px;border-radius:var(--r-l);display:grid;place-items:center;flex-shrink:0;
   background:var(--bg-3);border:1px solid var(--line-2);color:var(--txt-1)}
 .qa-head-txt{flex:1;min-width:0}

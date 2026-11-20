@@ -61,7 +61,8 @@ await t("the report's screenplay part: quotes, Apply to spec, Regenerate, the no
   assert.ok(btn.includes('"Not checked: the script hasn\'t been read for "+(c.name||"this character")+" yet."'));
   assert.ok(btn.includes("...(sf.facts.length ? { facts:sf.facts, spec:sf.spec, variant:(script&&script.variantLabel)||\"\""));
   assert.ok(btn.includes("onRegen:()=>setPendingRegen(true) })"), "regenerate one render later, from the applied spec");
-  assert.ok(art.includes("scriptPart && React.createElement(QaScriptPart,{ ...scriptPart, script:r.script, gening, noun, regenCost, onRegen, onClose }),"));
+  // (2026-11-20) areaNo: a screenplay finding the read could place carries the number of its box on the image
+  assert.ok(art.includes("scriptPart && React.createElement(QaScriptPart,{ ...scriptPart, script:r.script, gening, noun, regenCost, onRegen, onClose, areaNo }),"));
 });
 await t("the cards: no Script check button; the sheet and each variant give the QA check the character", ()=>{
   assert.ok(!art.includes("React.createElement(ScriptCheckButton,{"));

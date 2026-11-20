@@ -154,18 +154,20 @@ await test("5b the pipeline saves the kept picture; when it cannot be done the p
   assert.ok(art.includes("if(keptMeta) Object.assign(meta, keptMeta);"));
   const keep = between(art, "async function turnKeepOriginal(o){", "/* what the card says afterwards");
   assert.ok(keep.includes("edit = await turnReadPixels(o.url, orig.width, orig.height);"), "the engine's picture is brought to the original's size");
-  assert.ok(keep.includes("const r = PK.pkCompose(orig, edit, placements);") && keep.includes('return { url:cv.toDataURL("image/png")'), "saved without loss");
+  assert.ok(keep.includes("const r = PK.pkCompose(orig, edit, placements, o.maxPatch ? { maxPatch:o.maxPatch } : undefined);") && keep.includes('return { url:cv.toDataURL("image/png")'), "saved without loss");
   assert.ok(keep.includes('if(!r.placed.length) return { failed:"the new items could not be placed exactly"'));
   const sheet = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
   assert.ok(sheet.includes("return { keepOriginal: (io)=> keepOriginalForWardrobe(io, items),"), "the wardrobe update asks for it");
   const kw = between(sheet, "  const keepOriginalForWardrobe = async (io, items)=>{", "  const wardrobeUpdateOpts = ()=>{");
-  assert.ok(kw.includes('confirmLabel:"Use the engine\\u2019s picture", cancelLabel:"Keep my sheet"') && kw.includes("The image is already paid for either way."));
-  assert.ok(kw.includes("return { discard:true, message:") && kw.includes("keptLeftOutRef.current = (r.skipped||[]).map(x=>x.item);"));
+  // (2026-11-20) the rule is shared with the QA report's area fixes: turnKeepOrAsk (scripts/test-qa-area-fix.mjs runs it)
+  assert.ok(kw.includes('const r = await turnKeepOrAsk(io, { items, whose:who+"\\u2019s sheet" });') && kw.includes("if(r && r.url && r.meta && r.meta.keptOriginal) keptLeftOutRef.current = (r.skipped||[]).map(x=>x.item);"));
+  const ask = between(art, "async function turnKeepOrAsk(io, o){", "/* THE AREAS A QA REPORT MARKED");
+  assert.ok(ask.includes('confirmLabel:"Use the engine\\u2019s picture", cancelLabel:fix ? "Keep my image" : "Keep my sheet"') && ask.includes("The image is already paid for either way.") && ask.includes("return { discard:true, message:"));
   assert.ok(sheet.includes("if(leftOut && leftOut.length) wornProps.forEach(p=>{ if(leftOut.indexOf(String(p.name||\"\").trim())>=0) usedIds.delete(p.id); });"),
     "an item that could not be added is not recorded as worn: 'New wardrobe ready' stays for it");
   // what the card says afterwards
   const sb = { String, Number, Array }; sb.window = sb;
-  vm.runInNewContext(between(art, "function turnKeptSummary(meta){", "window.turnKeepOriginal = turnKeepOriginal;") + "\nthis.f = turnKeptSummary;", sb);
+  vm.runInNewContext(between(art, "function turnKeptSummary(meta){", "/* KEEP, OR ASK") + "\nthis.f = turnKeptSummary;", sb);
   assert.equal(sb.f({ keptOriginal: true, keptItems: ["licence badge"], keptLeftOut: [], keptChangedPixels: 2972, keptTotalPixels: 2359296 }),
     "Your sheet was kept as it was: 99.9% of its pixels are untouched. Added: licence badge.");
   assert.equal(sb.f({ keptOriginal: true, keptItems: ["ring"], keptLeftOut: ["scarf"], keptChangedPixels: 400, keptTotalPixels: 2359296 }),
@@ -178,7 +180,7 @@ await test("F the file is loaded before the Art Room; Frances knows; nothing she
   const f = between(ai, 'APP_FEATURES.push({ name:"Update sheet with new wardrobe keeps your sheet and adds only the item (Characters, Art Room)"', "function appBrief(){");
   for (const k of ["pixel for pixel", "'Keep my sheet'", "'Use the engine's picture'", "one image", "small items", "placed exactly"]) assert.ok(f.includes(k), k);
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic/.test(f));
-  const KEYS = ["20261119-keep1"];   // (the list grows with each key bump)
+  const KEYS = ["20261119-keep1", "20261120-areas1"];   // (the list grows with each key bump)
   for (const file of ["pixel-keep.js", "artroom.jsx", "ai.jsx", "script.jsx"]) assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });
 
