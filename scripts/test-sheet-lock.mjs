@@ -122,7 +122,8 @@ await test("3 nothing changes a locked image silently; a batch leaves it alone; 
 
 await test("4 on the cards: after the QA check, on characters and props; nobody who may not edit gets it", () => {
   const sheet = between(art, "function CharacterSheet({", "\nfunction NbKeyBar(");
-  assert.ok(/script:\{ c, drafts, onUpdate:readOnly \? null : onUpdate \} \}\),\n\s*\/\/[^\n]*\n\s*!readOnly && React\.createElement\(LockButton,\{ gen, name:c\.name, noun:"character sheet" \}\)/.test(sheet));
+  // (step 6: the same button is handed the final look)
+  assert.ok(/wornItems:finalLookItems \}\),\n(?:\s*\/\/[^\n]*\n)+\s*!readOnly && React\.createElement\(LockButton,\{ gen, name:c\.name, noun:"character sheet", finalLook \}\)/.test(sheet));
   assert.ok(/onApplySpec:\(patch\)=>onUpdate\(p\.id, patch\) \}\),\n\s*\/\/[^\n]*\n\s*window\.LockButton && React\.createElement\(window\.LockButton,\{ gen:genForFrame, name:p\.name, noun:"prop sheet" \}\),/.test(props));
   for (const k of [".sheet-lock-btn.locked{background:var(--ok-soft);border-color:var(--ok-line);color:var(--txt-0)}", ".sheet-lock-btn.locked svg{color:var(--ok)}"]) assert.ok(css.includes(k), k);
 });
@@ -131,7 +132,7 @@ await test("F Frances knows; nothing she is told names the codename; the changed
   const f = between(ai, 'APP_FEATURES.push({ name:"Lock an image you are happy with (Characters, Props, Art Room)"', "function appBrief(){");
   for (const k of ["'Lock'", "'Locked'", "'Lock anyway'", "Faithful", "'Unlock and go on'", "a batch", "its versions", "costs nothing"]) assert.ok(f.includes(k), k);
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic/.test(f));
-  const KEYS = ["20261120-lock1", "20261120-anchor1"];   // (the list grows with each key bump)
+  const KEYS = ["20261120-lock1", "20261120-anchor1", "20261120-final1"];   // (the list grows with each key bump)
   for (const file of ["artroom.jsx", "imagegen.jsx", "cloud.jsx", "props.jsx", "ai.jsx", "script.jsx", "styles.css"]) assert.ok(KEYS.some(k => html.includes("app/" + file + "?v=" + k + '"')), file);
 });
 

@@ -485,7 +485,7 @@ await test("E5 the button: next to QA check on the sheet and on each variant; sa
   assert.equal(W.ScriptCheckButton({ gen:{ genUrl:"" }, c:KAI_READ(), drafts }), null, "no image, no check");
   // (owner 2026-10-27) the cards no longer show it: the QA check reads the screenplay in the same read
   assert.ok(!art.includes("React.createElement(ScriptCheckButton,{"), "no Script check button on the cards");
-  assert.ok(art.includes('script:{ c, drafts, onUpdate:readOnly ? null : onUpdate } })'));
+  assert.ok(art.includes('script:{ c, drafts, onUpdate:readOnly ? null : onUpdate },'));
   assert.ok(art.includes('script:{ c, drafts, sceneId:st.sceneId||"", variantLabel:(st.label||vtag) } })'));
   assert.ok(art.includes("rep = await window.aiCharacterFidelityCheck({ name:c.name, url:gen.genUrl, facts, spec:charQaSpecFields(c, { likeness:lk }), variant:variantLabel||\"\" });"));
   assert.ok(ai.includes("const res = await aiVisionComplete([{ role:\"user\", content:prompt }], [img]);\n  if(!res.vision) return { unsupported:true };\n  const j = extractJSON(res.text);\n  if(!j || !Array.isArray(j.results)) return null;"),

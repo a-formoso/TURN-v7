@@ -66,7 +66,7 @@ await t("the report's screenplay part: quotes, Apply to spec, Regenerate, the no
 });
 await t("the cards: no Script check button; the sheet and each variant give the QA check the character", ()=>{
   assert.ok(!art.includes("React.createElement(ScriptCheckButton,{"));
-  assert.ok(art.includes('script:{ c, drafts, onUpdate:readOnly ? null : onUpdate } })'));
+  assert.ok(art.includes('script:{ c, drafts, onUpdate:readOnly ? null : onUpdate },'));
   assert.ok(art.includes('script:{ c, drafts, sceneId:st.sceneId||"", variantLabel:(st.label||vtag) } })'));
 });
 await t("Frances knows", ()=>{

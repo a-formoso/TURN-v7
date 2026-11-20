@@ -4693,12 +4693,41 @@ async function turnLockedAsk(meta, name, noun, what){
     confirmLabel:"Unlock and go on", cancelLabel:"Keep it locked" }));
 }
 window.sheetLockOf = sheetLockOf; window.turnLockedAsk = turnLockedAsk;
-function LockButton({ gen, name, noun, className }){
+/* THE FINAL LOOK (the road, step 6 — owner 2026-11-20: "yes, start on step 6"). A character's final look is their sheet
+   once it WEARS every worn item that has an image of its own (each one copied in by "Update sheet with new wardrobe",
+   the rest of the sheet kept pixel for pixel), has been checked, and is locked. It is the same sheet, a later version
+   of it: no second image to keep in step. Where a sheet stands:
+     update  a worn item has a new image the sheet does not wear yet (the "New wardrobe ready" banner)
+     check   the sheet wears its items; it has no clean QA check yet
+     lock    the check says Faithful; it waits for the lock
+     final   locked: this is what the shots are built from
+   A sheet with no item images goes the same way, and its lock is its final look. Nothing is blocked: an item that is
+   not locked, or still in words, is listed (unlocked / inWords) and said where the lock is offered.
+   o: { meta, wardrobeStale, qa:"pass"|"minor"|"major"|"", worn:[{ id, name, included, hasImage, iso, locked }] } */
+function charFinalLook(o){
+  const meta = o && o.meta;
+  if(!meta || !meta.iso) return null;
+  const worn = ((o && o.worn)||[]).filter(w=> w && w.id);
+  const refs = Array.isArray(meta.wornReferences) ? meta.wornReferences : [];
+  const usable = (w)=> w.included!==false && !!w.hasImage;
+  const on = worn.filter(w=> usable(w) && refs.some(r=> r && r.refId===w.id && r.mode==="visual"));
+  const locked = !!(meta.lock && typeof meta.lock==="object" && meta.lock.iso===meta.iso);
+  const stage = (o && o.wardrobeStale) ? "update" : locked ? "final" : (o && o.qa==="pass") ? "lock" : "check";
+  return { stage, locked, hasItems:on.length>0,
+    items:on.map(w=>({ id:w.id, name:String(w.name||""), iso:String(w.iso||""), locked:!!w.locked })),
+    unlocked:on.filter(w=>!w.locked).map(w=>String(w.name||"")),
+    inWords:worn.filter(w=>!usable(w)).map(w=>String(w.name||"")) };
+}
+window.charFinalLook = charFinalLook;
+function LockButton({ gen, name, noun, className, finalLook }){
   const [busy, setBusy] = React.useState(false);
   if(!gen || !gen.genUrl) return null;
   const meta = gen.genMeta, lock = sheetLockOf(meta), iso = meta && meta.iso;
   const kept = (typeof qaKept==="function") ? qaKept(gen) : null;
   const sev = kept ? qaSeverity(kept.report) : "";
+  // THE FINAL LOOK (the road, step 6): a sheet that wears its items is locked as the final look
+  const fl = (finalLook && finalLook.hasItems && finalLook.stage!=="update") ? finalLook : null;
+  const isFinal = !!(lock && lock.final && fl);
   const toast = (m,k)=>{ if(typeof window.appToast==="function") window.appToast(m,k||"info"); };
   const set = async (value)=>{
     if(typeof window.nbSetAssetLock!=="function" || !iso){ toast("This image can\u2019t be locked yet. Make it again, or reload the page."); return; }
@@ -4706,7 +4735,8 @@ function LockButton({ gen, name, noun, className }){
     let r = null; try{ r = await window.nbSetAssetLock(gen.id, iso, value); }catch(e){ r = null; }
     setBusy(false);
     if(!r || !r.ok) toast(value ? "The lock could not be saved. Try again." : "It could not be unlocked. Try again.", "error");
-    else toast(value ? ((name||"The image")+" is locked. What you make next is built from this "+(noun||"image")+".") : ((name||"The image")+" is unlocked."), value ? "success" : "info");
+    else toast(value ? ((value.final ? (name ? name+"\u2019s final look" : "The final look")+" is locked. The shots are built from it."
+        : (name||"The image")+" is locked. What you make next is built from this "+(noun||"image")+".")) : ((name||"The image")+" is unlocked."), value ? "success" : "info");
   };
   const press = async ()=>{
     if(busy || gen.gening) return;
@@ -4716,27 +4746,36 @@ function LockButton({ gen, name, noun, className }){
       if(ok) await set(null);
       return;
     }
-    if(sev!=="pass"){
+    // allowed and marked: what is not clean is said in ONE question, and the person may lock anyway
+    const open = (fl && fl.unlocked.length) ? fl.unlocked : [];
+    if(sev!=="pass" || open.length){
+      const what = fl ? "final look" : (noun||"image");
       const ok = typeof window.appConfirm==="function" && await window.appConfirm({
-        title:"Lock it without a clean check?",
-        body:(kept ? "The last QA check of this image said: "+qaBadgeText(kept.report)+"." : "This image has not had a QA check yet.")
-          +" A locked "+(noun||"image")+" is what the next steps are built from, so its drifts would be carried along. You can lock it anyway, or check it first.",
+        title: sev!=="pass" ? "Lock it without a clean check?" : "Lock the final look with "+(open.length===1 ? "an item" : "items")+" that "+(open.length===1 ? "is" : "are")+" not locked?",
+        body:(sev!=="pass" ? (kept ? "The last QA check of this image said: "+qaBadgeText(kept.report)+"." : "This image has not had a QA check yet.")+" " : "")
+          +(open.length ? (open.length===1 ? "This item\u2019s own image is" : "These items\u2019 own images are")+" not locked yet: "+open.join(", ")+". " : "")
+          +"A locked "+what+" is what the next steps are built from, so "+(sev!=="pass" ? "its drifts" : "a later change to "+(open.length===1 ? "that item" : "those items"))+" would "
+          +(sev!=="pass" ? "be carried along" : "make it out of date")+". You can lock it anyway, or "+(sev!=="pass" ? "check it first" : "lock "+(open.length===1 ? "the item" : "the items")+" first")+".",
         confirmLabel:"Lock anyway", cancelLabel:"Not yet" });
       if(!ok) return;
     }
-    await set({ at:Date.now(), qa:sev||"" });
+    await set({ at:Date.now(), qa:sev||"", ...(fl ? { final:true, items:fl.items } : {}) });
   };
   return React.createElement("button",{type:"button",className:(className||"char-draft-btn ghost")+" sheet-lock-btn"+(lock?" locked":"")+(busy?" busy":""),
       "data-role":"sheet-lock","data-locked":lock?"1":"0",disabled:busy||gen.gening,"aria-pressed":lock?"true":"false",
-      title: lock ? "Locked"+(sheetLockedOn(lock.at) ? " on "+sheetLockedOn(lock.at) : "")+". What you make next is built from this "+(noun||"image")+", and nothing changes it without asking. Press to unlock."
+      "data-final":isFinal?"1":"0",
+      title: lock ? (isFinal ? "The final look, locked" : "Locked")+(sheetLockedOn(lock.at) ? " on "+sheetLockedOn(lock.at) : "")+". "
+          +(isFinal ? "The shots are built from it" : "What you make next is built from this "+(noun||"image"))+", and nothing changes it without asking. Press to unlock."
+        : fl ? "Lock the final look: this sheet with its items on it. The shots are then built from it, and nothing changes it without asking."
+          +(sev==="pass" ? "" : " Best after a QA check that says Faithful.")
         : "Lock this "+(noun||"image")+" when you are happy with it: its props, its final look and the shots are then built from it, and nothing changes it without asking."
           +(sev==="pass" ? "" : " Best after a QA check that says Faithful."),
       onClick:press},
     busy ? React.createElement("span",{className:"ns-spin"}) : React.createElement(Icon.padlock||Icon.check,{s:12}),
-    lock ? "Locked" : "Lock");
+    lock ? (isFinal ? "Final look locked" : "Locked") : (fl ? "Lock final look" : "Lock"));
 }
 window.LockButton = LockButton;
-function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes, ownerSays }){
+function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes, ownerSays, wornItems }){
   const [busy, setBusy] = React.useState(false);
   const [report, setReport] = React.useState(null);
   // Apply-to-spec REGENERATES immediately (user ruling 2026-07-18: the current sheet
@@ -4776,6 +4815,12 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
     // the contract: the version's stored generation prompt — or, for UPLOADED /
     // imported images (no generation prompt), the card's CURRENT spec prompt
     let contract = (gen.genMeta && gen.genMeta.prompt) || "", judgedSpec = false;
+    /* A KEPT VERSION IS THE WHOLE IMAGE, NOT ITS LAST CHANGE (the road, step 6). A sheet that was kept pixel for pixel
+       with one thing added or fixed recorded only that small instruction as its prompt; read against that alone, the
+       check would pass anything. Its contract is the full written spec it stands for, then the change made to it. */
+    const gm = gen.genMeta || {};
+    if(gm.mode==="edit" && gm.keptOriginal && gm.specPrompt)
+      contract = String(gm.specPrompt)+(gm.editInstruction ? "\n\nAFTER THAT, ONE LOCAL CHANGE WAS MADE TO THE IMAGE (where it differs from the text above, the change is right): "+String(gm.editInstruction) : "");
     if(!contract && typeof gen.buildFinal==="function"){
       try{ contract = String(gen.buildFinal()||""); }catch(e){}
       judgedSpec = !!contract;
@@ -4792,6 +4837,9 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
       // the true sizes it is measured against (scale plan step 4, 2026-10-28): a list, or made from the contract
       let sz = []; try{ sz = typeof sizes==="function" ? (sizes(contract)||[]) : (Array.isArray(sizes) ? sizes : []); }catch(e){ sz = []; }
       rep = await window.aiImageQA({ kind:noun||"sheet", name, url:gen.genUrl, prompt:contract, ...(sz.length ? { sizes:sz } : {}),
+        // the road, step 6: a sheet that wears its items is also read for each of them
+        ...(()=>{ let wi = []; try{ wi = typeof wornItems==="function" ? (wornItems()||[]) : (Array.isArray(wornItems) ? wornItems : []); }catch(e){ wi = []; }
+          wi = wi.filter(x=> x && x.name).slice(0,8); return wi.length ? { items:wi } : {}; })(),
         // the road, step 5: a prop is also held against how its owner's own card writes it
         ...((ownerSays && ownerSays.text) ? { ownerSays:{ who:String(ownerSays.who||""), text:String(ownerSays.text) } } : {}),
         ...(sf.facts.length ? { facts:sf.facts, spec:sf.spec, variant:(script&&script.variantLabel)||"", name:(script&&script.c&&script.c.name)||name } : {}) });
@@ -4822,6 +4870,7 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
         : "QA check — re-reads this "+(noun||"sheet")+" against the exact prompt that generated it: deviations, invented content, per-panel faults, and whether to edit or regenerate"
         +((script && script.c) ? "; and against what the screenplay states about "+(script.c.name||"them")+", with the line each mismatch breaks" : "")
         +((ownerSays && ownerSays.text) ? "; and against how "+(ownerSays.who||"its owner")+"\u2019s card describes it" : "")
+        +(wornItems ? "; and for each worn item the sheet wears" : "")
         +". One vision read (writing-model credits, no image spend).",
       onClick:()=>{ if(kept && !busy) setReport({ ...kept.report, kept:true, checkedAt:kept.at }); else run(); }},
       busy ? React.createElement("span",{className:"ns-spin"})
@@ -7028,7 +7077,8 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     const ids = new Set(ownedProps.map(p=>p.id));
     const onDone = (e)=>{ const did = e && e.detail && e.detail.id; if(did && ids.has(did)) setSheetTick(t=>t+1); };
     window.addEventListener("nb-gen-done", onDone);
-    return ()=>window.removeEventListener("nb-gen-done", onDone);
+    window.addEventListener("nb-meta-changed", onDone);   // an item was locked or unlocked: the final look reads it
+    return ()=>{ window.removeEventListener("nb-gen-done", onDone); window.removeEventListener("nb-meta-changed", onDone); };
   },[ownedProps.map(p=>p.id).join(",")]);
 
   /* appearance states (continuity variants) */
@@ -7207,6 +7257,15 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
     wasGening.current = gen.gening;
   },[batchActiveId, gen.gening, c.id]);
 
+  /* THE FINAL LOOK (the road, step 6): where this sheet stands — it wears its items, is checked, is locked. Read
+     from what the images recorded (charFinalLook); the banner below and the Lock button say it. */
+  const finalLook = gen.genUrl ? charFinalLook({ meta:gen.genMeta, wardrobeStale,
+    qa:(()=>{ const k = qaKept(gen); return k ? qaSeverity(k.report) : ""; })(),
+    worn:wornProps.map(p=>{ const m = (typeof nbGetMeta==="function") ? nbGetMeta(p.id) : null;
+      return { id:p.id, name:p.name, included:!wornExclusions.has(p.id), hasImage:!!ownedSheetMap[p.id], iso:(m && m.iso)||"", locked:!!sheetLockOf(m) }; }) }) : null;
+  // what the check is told about each item the sheet wears: its name and its written design
+  const finalLookItems = ()=> (finalLook ? finalLook.items : []).map(it=>{ const p = wornProps.find(x=>x.id===it.id) || {};
+    return { name:it.name, design:[p.form, p.material].map(x=>String(x||"").trim()).filter(Boolean).join("; ").slice(0,300) }; });
   return React.createElement("div",{className:"sheet-card"+(batchActiveId===c.id?" batch-on":"")+(voiceOpen?" voice-open":""),"data-char-card":c.id},
     React.createElement(SheetFrame,{ gen, slotId:"charref-"+c.id, name:c.name, avatarColor:c.color,
       initials, drafted, drafting, onDraft:()=>onDraft(c), entity:c, onView,
@@ -7255,9 +7314,12 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
                 if(Object.keys(up).length) onUpdate(c.id, up); },
               // the screenplay part (the Script check, folded into the QA check 2026-10-27): the sheet against what the
               // screenplay states, in the same read
-              script:{ c, drafts, onUpdate:readOnly ? null : onUpdate } }),
-            // THE LOCK (the road, step 4): after the check, beside it
-            !readOnly && React.createElement(LockButton,{ gen, name:c.name, noun:"character sheet" })))),
+              script:{ c, drafts, onUpdate:readOnly ? null : onUpdate },
+              // the road, step 6: the items this sheet wears are looked for in the same read
+              wornItems:finalLookItems }),
+            // THE LOCK (the road, step 4): after the check, beside it. A sheet that wears its items is locked as the
+            // FINAL LOOK (step 6)
+            !readOnly && React.createElement(LockButton,{ gen, name:c.name, noun:"character sheet", finalLook })))),
       // (the "Face: … · Voice: …" line under the buttons is gone, owner 2026-10-27: a tick on the Likeness / Voice button
       // says it's locked, and the button's tooltip says which face and which voice — vcFaceVoiceLine)
       // UPDATE SHEET WITH NEW WARDROBE (owner 2026-10-06 — Characters review): the app pointed here from six
@@ -7278,6 +7340,18 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
           title:"Updates this sheet to wear its worn items: the same face, poses and layout, the wardrobe changed (one image)"},
           gen.gening?"Updating\u2026":"Update sheet with new wardrobe", !gen.gening && typeof window.nbCostChip==="function"
             && window.nbCostChip(1, gen.likenessRefs ? { refs:cardGenerateRefs()+1 } : undefined))),   // +1: the sheet being updated rides along
+      // THE FINAL LOOK IS READY (the road, step 6): the sheet wears its items and is not locked yet. Amber, the colour
+      // of something to do; one line, the rest behind the "i". It goes once the final look is locked (the button says so).
+      (finalLook && finalLook.hasItems && (finalLook.stage==="check" || finalLook.stage==="lock") && !readOnly)
+        && React.createElement("div",{className:"sheet-cameo-status char-wardrobe-update char-final-look","data-testid":"char-final-look","data-stage":finalLook.stage},
+        React.createElement(Icon.padlock||Icon.check,{s:14}),
+        React.createElement("span",{className:"scs-t"}, finalLook.stage==="lock" ? "Final look ready to lock" : "Final look ready to check"),
+        (typeof window.InfoTip==="function") ? React.createElement(window.InfoTip,{label:"About the final look",
+          text:"This sheet now wears "+(finalLook.items.length===1 ? "an item" : finalLook.items.length+" items")+" drawn from "+(finalLook.items.length===1 ? "its" : "their")+" own image"+(finalLook.items.length===1 ? "" : "s")
+            +": "+finalLook.items.map(x=>x.name).join(", ")+". It becomes the final look when you lock it, and the shots are built from the locked final look.\n\n"
+            +(finalLook.stage==="lock" ? "The QA check says Faithful: press \u201cLock final look\u201d." : "First run the QA check: it also looks for each item on the sheet. Fix what drifts, then press \u201cLock final look\u201d.")
+            +(finalLook.unlocked.length ? "\n\nNot locked yet: "+finalLook.unlocked.join(", ")+". You can lock the final look anyway." : "")
+            +(finalLook.inWords.length ? "\n\nKept as words, not drawn from an image: "+finalLook.inWords.join(", ")+"." : "")}) : null),
       // SCRIPT CHANGED (owner-approved 2026-10-12 — Character fidelity, step 6): the screenplay about this character
       // changed since its look was drafted (or its fact sheet read) — like the Lookbook's stale banner. One button re-reads
       // the script; then the card offers to re-draft the look. Nothing is blocked and nothing is spent on its own.
