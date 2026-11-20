@@ -319,7 +319,12 @@ await test("6d 4K with added detail: the engine's fine detail only, where it agr
   assert.ok(art.includes("const upscaleDetail = ()=> generate({ editInstruction:UPSCALE_DETAIL_INSTRUCTION, imageSize:\"4K\", wholeRedraw:true,") && art.includes("Do NOT move, redraw, restyle, add or remove anything"));
   const mi = between(art, '"data-role":"sheet-upscale-detail"', 'window.nbCostChip(1, { res:"4K", refs:1 })),');
   assert.ok(mi.includes('"4K \\u2014 larger, with detail"') && mi.includes("gen.upscaleDetail();") && mi.includes("One image at 4K."), "offered with its price");
-  assert.ok(art.includes('upscaleTiersFor(genMeta).indexOf("4K")>=0') && art.includes('nbModelMaxRes(nbGetModel())==="4K"'), "only where 4K is larger, and the engine can render it");
+  // the "59 of 100 styles" count left the three cards (owner 2026-11-20)
+  for (const src of [art, props, read("app/locations-ui.jsx")]) assert.ok(!/turnCanLockStyles\(\)\) && React\.createElement\("span",\{className:"[a-z-]*style-count/.test(src));
+  // (owner 2026-11-20) offered wherever 4K is larger; an engine that cannot render 4K gets a notice in the middle of the screen, and nothing is spent
+  const nudge = between(art, '"data-role":"sheet-upscale-detail"', "gen.upscaleDetail(); }},");
+  assert.ok(art.includes('upscaleTiersFor(genMeta).indexOf("4K")>=0)') && nudge.includes('if(max!=="4K"){') && nudge.includes('title:label+" does not render 4K"')
+    && nudge.includes('confirmLabel:"OK", hideCancel:true') && nudge.includes("Nothing was spent.") && nudge.indexOf("return; }") < nudge.length);
   assert.equal(F.codeEditLines({ modelLabel: "GPT Image 2.6 Sunburst", pixelW: 4096, pixelH: 2304, upscaledFrom: { w: 2048, h: 1152 }, detailCoverage: 0.91, codeEdit: { kind: "upscale-detail", by: "In code", drew: true } }).drew, "GPT Image 2.6 Sunburst");
 });
 
@@ -360,7 +365,7 @@ await test("7 the planner's reads; Frances; the page loads the new files", () =>
     "THE TWO FULL-BODY VIEWS STAY LEVEL", "lined up with the body by their clothes", "HOW A CHARACTER STANDS ON A NEW SHEET", "GOING SMALLER (downscaling)", "NOTHING IS LOST BY GOING DOWN AND UP AGAIN", "4K WITH ADDED DETAIL ('4K \\u2014 larger, with detail'", "THE PROP CARD IS LAID OUT LIKE THE CHARACTER CARD"]) assert.ok(fr.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Fable|Gemini|GPT/.test(fr));
   assert.ok(!ai.includes("clean re-render"), "the old name of Remaster is gone from what Frances is told");
-  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

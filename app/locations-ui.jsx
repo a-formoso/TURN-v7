@@ -2239,7 +2239,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement("span",{className:"char-style-lab"},"Render style"),
         React.createElement("div",{className:"char-style-pick"},
           React.createElement(window.RenderStylePicker,{context:"location",value:styleKey,disabled:styling,onPick:pickLocStyle}),
-          (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. The admin manages them via Styles in the Film menu."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+" of "+(window.turnGlobalStyleCap||40)+" styles")),
+          // (2026-11-20, owner) the "59 of 100 styles" count left the card: nobody adds styles from here any more, so it said nothing useful
+        ),
         styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing\u2026"),
         (!inheritsStyle && !styling && l.renderStyleKey==="surprise" && l.surpriseRender && l.surpriseRender.label) &&
           (window.SURPRISE_STYLE_OFFERED

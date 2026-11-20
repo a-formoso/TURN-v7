@@ -5640,6 +5640,7 @@ Object.assign(LOC_RENDER_TEXT, {
   adultAnimation:"flat 2D animated-sitcom background, uniform clean outlines, simple geometric shapes, flat unshaded colour, no texture",
   rubberHose:"1930s rubber-hose cartoon background, black-and-white ink-and-wash scenery, soft round shapes, faint film grain",
   lowPoly:"retro low-polygon 3D environment, faceted simple geometry, small pixelated textures, flat vertex lighting, early-console look",
+  openWorldGame3d:"current-generation open-world video-game environment render, near-photoreal real-time 3D of a sun-drenched coastal city, strong golden-hour sun with long shadows and humid haze, saturated tropical palette of hot pink, teal and sunset orange, dense believable detail, no interface elements",
   preschoolCartoon:"preschool cartoon background, very simple rounded shapes, thick soft outlines, bright flat colour, friendly and uncluttered",
   pictureBookGouache:"picture-book gouache environment, flat opaque painted shapes, dry-brush edges, coloured-pencil detail, warm paper texture",
   crayonDrawing:"a child's crayon and felt-tip drawing of the place, waxy uneven strokes, wobbly outlines, naive perspective, white paper showing through",

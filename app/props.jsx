@@ -554,6 +554,7 @@ Object.assign(PROP_RENDER_TEXT, {
   adultAnimation:"flat 2D animated-sitcom object, uniform clean outline, flat unshaded colour, simple shapes",
   rubberHose:"1930s rubber-hose cartoon object, thick round black ink outline, black, white and grey, soft bouncy shapes",
   lowPoly:"retro low-polygon 3D object, faceted simple mesh, small pixelated texture, flat lighting",
+  openWorldGame3d:"current-generation open-world video-game prop render, near-photoreal real-time 3D with physically based materials and crisp reflections, warm golden-hour light, saturated tropical accents",
   preschoolCartoon:"preschool cartoon object, very simple rounded shape, thick soft outline, bright flat colour",
   pictureBookGouache:"picture-book gouache object, flat opaque painted shapes, dry-brush edges, coloured-pencil detail, paper texture",
   crayonDrawing:"a child's crayon and felt-tip drawing of the object, waxy uneven strokes, wobbly outline, naive shape",
@@ -1695,7 +1696,8 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
         React.createElement("span",{className:"char-style-lab"},"Render style"),
         React.createElement("div",{className:"char-style-pick"},
           React.createElement(window.RenderStylePicker,{context:"prop",value:p.renderStyleKey||propInheritedStyleKey(p)||(window.turnDefaultRenderStyleKey?window.turnDefaultRenderStyleKey():"photoreal"),disabled:styling,onPick:pickPropStyle}),
-          (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. The admin manages them via Styles in the Film menu."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+" of "+(window.turnGlobalStyleCap||40)+" styles")),
+          // (2026-11-20, owner) the "59 of 100 styles" count left the card: nobody adds styles from here any more, so it said nothing useful
+        ),
         styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing\u2026"),
         (!styling && p.renderStyleKey==="surprise" && p.surpriseRender && p.surpriseRender.label) &&
           (window.SURPRISE_STYLE_OFFERED

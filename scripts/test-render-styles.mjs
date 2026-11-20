@@ -45,10 +45,10 @@ const FIRST = ["photoreal", "photorealNatural", "photorealCreature", "photorealO
   "realisticDigitalDrawing", "flatDesign", "minimalistLine", "vintageChildrensBook", "tactileMixedMedia", "texturedPaperSculpture", "texturedPaperIllustration",
   "tropicalArtNouveau", "graphicNovelNoir", "ukiyoe", "paperCutout"];
 const NEW = ["photorealFilm35", "photorealMono", "photorealDoc", "photorealBright", "photorealEpic", "photorealNeon", "retroAnime80s", "painted3dHybrid", "saturdayCartoon",
-  "adultAnimation", "rubberHose", "lowPoly", "preschoolCartoon", "pictureBookGouache", "crayonDrawing", "toyBrick", "comicBook", "rotoscope", "oilPainting", "shadowPuppet"];
+  "adultAnimation", "rubberHose", "lowPoly", "preschoolCartoon", "pictureBookGouache", "crayonDrawing", "toyBrick", "comicBook", "rotoscope", "oilPainting", "shadowPuppet", "openWorldGame3d"];   // (2026-11-20: one more, at the end)
 
 test("A twenty looks after the first forty-one: every old key is still there, in its place; the default is still the first", () => {
-  assert.equal(FIRST.length, 41); assert.equal(NEW.length, 20);
+  assert.equal(FIRST.length, 41); assert.equal(NEW.length, 21);   // (2026-11-20: the open-world game render)
   assert.deepEqual(KEYS, FIRST.concat(NEW), "a card's saved style key is never renamed, removed or moved");
   assert.equal(KEYS[0], "photoreal", "the menu's default is its first style");
   assert.ok(KEYS.length <= 100, "inside the shared cap of 100");
@@ -118,7 +118,7 @@ test("E the new looks have their own words for locations and props; the live-act
 });
 
 test("F Frances knows the new count, the new group, the new names and the two hidden looks", () => {
-  assert.ok(/now offers 59 looks/.test(ai) && /61 built-in/.test(ai) && ai.includes("Kids & Family"));
+  assert.ok(/now offers 60 looks/.test(ai) && /62 built-in/.test(ai) && ai.includes("Kids & Family"));
   assert.ok(ai.includes("'Pixar-style 3D' is now 'Family feature 3D'") && ai.includes("'GTA Loading-Screen Art' is now 'Crime-game poster art'"));
 });
 

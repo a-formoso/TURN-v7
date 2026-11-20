@@ -659,6 +659,18 @@ Object.assign(CHAR_RENDER_STYLES, {
     color_grade: "black silhouette on luminous colour drawn from THIS character's own palette — a soft backlit gradient with a brighter glow behind the figure",
     background: "softly glowing backlit paper screen in one gentle colour gradient, identical in every panel, with nothing else behind the figure",
     rules: ["no text, labels, watermarks, annotations, typography or captions","pure black cut-out silhouette with fine pierced detail","the character is recognised by outline, hair, costume shape and props","consistent silhouette and backlight across all panels","clean, evenly divided panel layout"]
+  },
+  /* THE OPEN-WORLD GAME'S OWN 3D LOOK (owner 2026-11-20: a style "close to" the newest open-world crime game, for fun
+     and for the trend). The poster-art look of those games is "Crime-game poster art" (gtaLoadingScreen); this is the
+     in-game render. As with the three styles renamed on 2026-11-17, neither the name nor the prompt carries a
+     franchise: the look is described, not the brand. */
+  openWorldGame3d: {
+    rendering: "current-generation open-world video-game render \u2014 a real-time 3D game engine at its highest settings: near-photoreal but unmistakably a game, with slightly heightened, characterful proportions and faces, dense believable detail, and a sun-drenched coastal-city mood; never a photograph, never a cartoon",
+    materials: "physically based game materials true to THIS character's own design: skin with soft subsurface glow and a light sheen of heat, fabric with readable weave and wear, glossy plastics, chrome and sunglasses with crisp reflections",
+    lighting: "strong low golden-hour sun with long warm shadows, a hazy humid sky, bounce light from pale ground, a soft rim of light around the figure; ray-traced reflections and gentle bloom",
+    color_grade: "saturated tropical palette \u2014 hot pinks, teal and turquoise, sunset orange and palm green against warm skin tones; high contrast, deep clean shadows, a light film of atmospheric haze",
+    background: "clean neutral studio ground lit as the figure is, with a soft contact shadow; no scenery",
+    rules: ["no text, labels, watermarks, annotations, typography, captions or game interface elements","a real-time 3D game render, never a photograph and never a flat illustration","no logos, brand names or recognisable characters from any existing game","consistent model detail, lighting and colour across all panels","clean, evenly divided panel layout"]
   }
 });
 window.CHAR_RENDER_STYLES = CHAR_RENDER_STYLES;
@@ -687,7 +699,7 @@ const RENDER_STYLE_LABELS = {
   photorealFilm35:"Photoreal - 35mm film", photorealMono:"Photoreal - Black & white film", photorealDoc:"Photoreal - Documentary realism",
   photorealBright:"Photoreal - Bright comedy & commercial", photorealEpic:"Photoreal - Epic period & fantasy", photorealNeon:"Photoreal - Neon sci-fi",
   retroAnime80s:"80s retro anime (cel)", painted3dHybrid:"Painted 3D (comic-book hybrid)", saturdayCartoon:"Classic TV cartoon (2D cel)",
-  adultAnimation:"Animated sitcom (2D)", rubberHose:"1930s rubber-hose cartoon", lowPoly:"Low-poly retro 3D",
+  adultAnimation:"Animated sitcom (2D)", rubberHose:"1930s rubber-hose cartoon", lowPoly:"Low-poly retro 3D", openWorldGame3d:"Open-world game render (3D)",
   preschoolCartoon:"Preschool cartoon", pictureBookGouache:"Picture-book gouache", crayonDrawing:"Crayon & marker drawing", toyBrick:"Building-brick toy",
   comicBook:"Classic comic book", rotoscope:"Rotoscope (painted live action)", oilPainting:"Oil painting", shadowPuppet:"Silhouette & shadow puppet",
 };
@@ -757,6 +769,7 @@ const RENDER_STYLE_DESCRIPTIONS = {
   adultAnimation:"For prime-time animated comedy: flat digital 2D, uniform outlines, simple deadpan designs.",
   rubberHose:"For 1930s vintage cartoons: black-and-white ink, bendy limbs, pie-cut eyes, old film softness.",
   lowPoly:"For retro early-console 3D: faceted low-polygon models, pixelated textures, flat lighting.",
+  openWorldGame3d:"For the look of a current open-world crime game in play: near-photoreal 3D with heightened characters, golden-hour sun and a saturated tropical palette.",
   preschoolCartoon:"For the youngest viewers: very simple rounded shapes, thick soft outlines, bright flat colour, nothing scary.",
   pictureBookGouache:"For modern picture books: flat gouache shapes, dry-brush edges, coloured-pencil detail on warm paper.",
   crayonDrawing:"For a child's own drawing: waxy crayon, wobbly marker lines and joyful naive shapes on paper.",
@@ -779,7 +792,7 @@ const _humanizeStyle = (k)=> String(k||"").replace(/[-_]+/g," ").replace(/([a-z]
 const RENDER_STYLE_GROUPS = [
   { id:"Photoreal", keys:["photoreal","photorealFilm35","photorealMono","photorealDoc","photorealBright","photorealEpic","photorealNeon","horror","photorealNatural","photorealCreature","photorealOrnamental"] },
   { id:"Anime / Animation", keys:["ghibli","modernAnime","digitalAnime","roughSketchAnime","painterlyAnime","anime","gaganime","retroAnime80s"] },
-  { id:"Cartoon / 3D", keys:["pixar","render3d","cartoon3d","textured3dCartoon","stylizedCartoon","animated3d","painted3dHybrid","saturdayCartoon","adultAnimation","rubberHose","lowPoly"] },
+  { id:"Cartoon / 3D", keys:["pixar","render3d","cartoon3d","textured3dCartoon","stylizedCartoon","animated3d","painted3dHybrid","saturdayCartoon","adultAnimation","rubberHose","lowPoly","openWorldGame3d"] },
   { id:"Kids & Family", keys:["preschoolCartoon","pictureBookGouache","crayonDrawing","toyBrick","whimsicalwatercolor","vintageChildrensBook"] },
   { id:"Illustration / Concept Art", keys:["paintedconcept","storyboardconcept","texturedcomic","comicBook","gtaLoadingScreen","grittyDigital","softPainterly","realisticDigitalDrawing","graphicNovelNoir","rotoscope","oilPainting"] },
   { id:"Graphic / Minimal", keys:["flat","flatDesign","minimalistLine","pixelart","adv1960s"] },
@@ -6021,11 +6034,21 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               onClick:()=>{ setMenuOpen(false); setResizeOpen(false); if(x.up) gen.upscale(x.t); else gen.downscale(x.t); }},
               x.t+" \u2014 "+(x.up ? "larger" : "smaller"))),
           // 4K WITH ADDED DETAIL (owner 2026-11-20): the one resize that uses an image engine, and says so with its price
-          (resizeOpen && genUrl && typeof gen.upscaleDetail==="function" && upscaleTiersFor(genMeta).indexOf("4K")>=0
-            && (typeof nbModelMaxRes!=="function" || typeof nbGetModel!=="function" || nbModelMaxRes(nbGetModel())==="4K"))
+          /* (owner 2026-11-20) shown wherever 4K is larger. When the engine in the top bar cannot render 4K, pressing it
+             says so in a small notice in the middle of the screen (the app's own dialog: centred on every screen size),
+             and nothing is spent. */
+          (resizeOpen && genUrl && typeof gen.upscaleDetail==="function" && upscaleTiersFor(genMeta).indexOf("4K")>=0)
             && React.createElement("button",{className:"sheet-tools-item sheet-tools-sub",disabled:gening,"data-role":"sheet-upscale-detail",
               title:"Upscales this image to 4K and adds fine detail. The image engine in the top bar draws the picture at 4K; the code keeps YOUR picture (its shapes, faces and colours) and takes only the engine\u2019s fine detail, where the two agree. If the engine\u2019s drawing differs too much, you get the plain 4K instead. One image at 4K. Lands as a new version; this one stays in the versions.",
-              onClick:()=>{ setMenuOpen(false); setResizeOpen(false); gen.upscaleDetail(); }},
+              onClick:async ()=>{ setMenuOpen(false); setResizeOpen(false);
+                const mid = (typeof nbGetModel==="function") ? nbGetModel() : "", max = (typeof nbModelMaxRes==="function" && mid) ? nbModelMaxRes(mid) : "4K";
+                if(max!=="4K"){
+                  const label = ((typeof nbModelLabel==="function" && nbModelLabel(mid)) || "The image engine in the top bar");
+                  if(typeof window.appConfirm==="function") await window.appConfirm({ title:label+" does not render 4K",
+                    body:label+" renders up to "+max+", so it cannot add 4K detail. Pick an engine that renders 4K in the top bar and try again, or use \u201c4K \u2014 larger\u201d, which is made without an engine. Nothing was spent.",
+                    confirmLabel:"OK", hideCancel:true });
+                  return; }
+                gen.upscaleDetail(); }},
               "4K \u2014 larger, with detail", typeof window.nbCostChip==="function" && window.nbCostChip(1, { res:"4K", refs:1 })),
           genUrl && !isPropCardMenu && (((window.turnContinuity||{}).props||[]).length>0) && React.createElement("button",{className:"sheet-tools-item",disabled:gening,
             title:"Select an item in this image and attach that crop to an existing prop as a consistency reference.",
@@ -7916,7 +7939,8 @@ function CharacterSheet({ c, readOnly=false, wardrobeStale=false, project, scene
         React.createElement("span",{className:"char-style-lab"},React.createElement(Icon.sparkles,{s:12}),"Render style"),
         React.createElement("div",{className:"char-style-pick"},
           React.createElement(window.RenderStylePicker,{value:(typeof inferCharacterRenderStyleKey==="function"?inferCharacterRenderStyleKey(c):(c.renderStyleKey||(window.turnDefaultRenderStyleKey?window.turnDefaultRenderStyleKey():"photoreal"))),disabled:styling,onPick:pickRenderStyle}),
-          (window.turnCanLockStyles && window.turnCanLockStyles()) && React.createElement("span",{className:"char-style-count"+(((window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)>=(window.turnGlobalStyleCap||40))?" full":""),title:"Global render styles ("+(window.turnGlobalStyleCap||40)+" max, admin-managed). You can save up to "+(window.turnPersonalStyleCap||10)+" personal render styles. The admin manages them via Styles in the Film menu."}, (window.turnAllGlobalStyleCount?window.turnAllGlobalStyleCount():0)+" of "+(window.turnGlobalStyleCap||40)+" styles")),
+          // (2026-11-20, owner) the "59 of 100 styles" count left the card: nobody adds styles from here any more, so it said nothing useful
+        ),
         styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing…"),
         (!styling && c.renderStyleKey==="surprise" && c.surpriseRender && c.surpriseRender.label) &&
           (SURPRISE_STYLE_OFFERED
