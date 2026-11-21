@@ -12597,3 +12597,29 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 [data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-head{min-height:46px;box-sizing:border-box}
 [data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-head > .sheet-sec{font-family:var(--f-ui);font-size:13px;line-height:16px;
   font-weight:600;letter-spacing:0;text-transform:none;color:var(--txt-0)}
+
+/* IN THIS CARD, ON ONE LINE (owner 2026-11-21): the place and its rooms on one row that pans left and right (a swipe, a
+   drag, a trackpad); the side with more to see fades */
+.loc-workspace-nav{align-items:center}
+.loc-space-chips{flex-wrap:nowrap;align-items:center;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+  overscroll-behavior-x:contain;cursor:grab;padding:2px 0;user-select:none;-webkit-user-select:none}
+.loc-space-chips::-webkit-scrollbar{display:none}
+.loc-space-chips.grabbing{cursor:grabbing}
+.loc-space-chips.grabbing .loc-space-chip{pointer-events:none}
+.loc-space-chips > .loc-space-chip{flex:0 0 auto;white-space:nowrap}
+.loc-space-chips.fade-r{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 30px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 30px),transparent)}
+.loc-space-chips.fade-l{-webkit-mask-image:linear-gradient(to right,transparent,#000 30px);mask-image:linear-gradient(to right,transparent,#000 30px)}
+.loc-space-chips.fade-l.fade-r{-webkit-mask-image:linear-gradient(to right,transparent,#000 30px,#000 calc(100% - 30px),transparent);
+  mask-image:linear-gradient(to right,transparent,#000 30px,#000 calc(100% - 30px),transparent)}
+/* THE LOCATION CARD'S CONTROLS AT THE CHARACTER CARD'S SIZES (owner 2026-11-21: "styling it the same way we did in the
+   character cards ... the same sort of font size, section paddings, button sizes"). Field boxes, text, section
+   padding and section buttons were already the same on both cards. What differed: a menu or a typed field inside a
+   location section was 33 to 35px high at 13px (28px at 12.5px on a character card), and the floor plan map's own
+   tools were 32 to 36px. They are 28px now, on a desktop; phones keep their touch sizes. */
+@media (min-width:641px){
+  [data-location-card] .sheet-fold-body :is(select.prop-select,input.prop-select){height:28px;min-height:28px;padding-top:0;padding-bottom:0;font-size:12.5px}
+  [data-location-card] .sheet-fold-body .loc-map-zbtn{min-width:28px;min-height:28px;font-size:14px}
+  [data-location-card] .sheet-fold-body .loc-map-zbtn.fit{font-size:11.5px}
+  [data-location-card] .sheet-fold-body .loc-map-segbtn{min-height:28px}
+  [data-location-card] .sheet-fold-body .loc-map-chip{min-height:28px;padding:3px 11px}
+}

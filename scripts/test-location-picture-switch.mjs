@@ -203,9 +203,9 @@ test("6 the top bar names the engine on the Locations tab; the pre-production wi
   // nothing in it names an engine or a vendor, or reads as billing
   assert.ok(!/Fable|Opus|Claude|Anthropic|Gemini|GPT|credit|price/i.test(what));
   for(const f of ["locations-ui.jsx","ai.jsx","styles.css","aiwriter.jsx","app.jsx","artroom.jsx"])
-    assert.ok(["20261121-back1", "20261121-back2", "20261121-five1"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the new key");
+    assert.ok(["20261121-back1", "20261121-back2", "20261121-five1", "20261121-five2"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the new key");
   // the five sections changed the card and what Frances is told: both carry the newest key
-  for(const f of ["locations-ui.jsx","ai.jsx"]) assert.ok(html.includes(f+'?v=20261121-five1"'),f+" has the five-sections key");
+  for(const f of ["locations-ui.jsx","ai.jsx"]) assert.ok(["20261121-five1", "20261121-five2"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the five-sections key");
 });
 
 test("7 the film's images are asked for again when the first read failed (an empty picture on a slow connection)", ()=>{
@@ -231,6 +231,50 @@ test("7 the film's images are asked for again when the first read failed (an emp
   vm.createContext(box2);vm.runInContext(hook+";useLocationImagesCheck();",box2);
   for(let i=0;i<10&&t2.length;i++) t2.shift()();
   assert.equal(n2,4);
+});
+
+test("8 In this card is one line that pans; a location's menus, typed fields and map tools are the character card's sizes", ()=>{
+  // owner 2026-11-21: "Make elements in this section scrollable. User should be able to pan right or left ... all on the same line"
+  assert.ok(ui.includes("function LocationChipScroller({children}){"));
+  assert.ok(ui.includes('      E(LocationChipScroller,null,\n        E("span",{className:"loc-space-chip on",title:"The whole place: this card"},root.name),'));
+  const sc=ui.slice(ui.indexOf("function LocationChipScroller("),ui.indexOf("function LocationWorkspace("));
+  assert.ok(sc.includes('if(!el||e.pointerType==="touch"||(e.button!==undefined&&e.button!==0)) return;'),"a touch scrolls by itself; only the main mouse button drags");
+  assert.ok(sc.includes('if(Math.abs(dx)>4){ d.moved=true;')&&sc.includes('if(st.current.moved){ e.stopPropagation(); e.preventDefault(); st.current.moved=false; }'),"a drag that moved is not a press");
+  assert.ok(sc.includes('className:"loc-space-chips"+edges,"data-testid":"location-space-chips"'));
+  for(const t of [".loc-space-chips{flex-wrap:nowrap;align-items:center;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;",".loc-space-chips > .loc-space-chip{flex:0 0 auto;white-space:nowrap}",
+    ".loc-space-chips.fade-r{",".loc-space-chips.fade-l.fade-r{"]) assert.ok(css.includes(t),"styles have "+t);
+  // run: the side with more to see fades, and a drag scrolls and swallows the press that ends it
+  const noop=()=>{};let effects=[],edges="",setEdges=v=>{edges=typeof v==="function"?v(edges):v;};
+  const el={scrollLeft:0,clientWidth:200,scrollWidth:500,classList:{add:noop,remove:noop},addEventListener:noop,removeEventListener:noop};
+  const handlers={};
+  const React={createElement:(type,props,...children)=>({type,props:props||{},children}),useRef:(()=>{let n=0;const refs=[{current:el},{current:{down:false,x:0,left:0,moved:false}}];return ()=>refs[n++%2];})(),
+    useState:()=>[edges,setEdges],useEffect:fn=>{effects.push(fn);}};
+  const later=[];
+  const box={React,console,window:{addEventListener:(n,h)=>{handlers[n]=h;},removeEventListener:noop},ResizeObserver:undefined,Math,setTimeout:fn=>{later.push(fn);return later.length;}};
+  vm.createContext(box);vm.runInContext(sc+";globalThis.out=LocationChipScroller({children:[]});",box);
+  effects.forEach(fn=>fn());
+  assert.equal(edges," fade-r","more rooms to the right");
+  const out=box.out;
+  out.props.onPointerDown({pointerType:"mouse",button:0,clientX:150});
+  handlers.pointermove({clientX:90});
+  assert.equal(el.scrollLeft,60,"the row follows the drag");
+  let stopped=false;out.props.onClickCapture({stopPropagation:()=>{stopped=true;},preventDefault:noop});
+  assert.ok(stopped,"the press that ends a drag is not a press on a room");
+  stopped=false;handlers.pointerup();out.props.onClickCapture({stopPropagation:()=>{stopped=true;},preventDefault:noop});
+  assert.ok(!stopped,"a plain press still opens the room");
+  // a drag let go outside the row (its press goes elsewhere) is forgotten, so the next press on a room is a press
+  out.props.onPointerDown({pointerType:"mouse",button:0,clientX:150});handlers.pointermove({clientX:100});handlers.pointerup();
+  later.splice(0).forEach(fn=>fn());
+  stopped=false;out.props.onClickCapture({stopPropagation:()=>{stopped=true;},preventDefault:noop});
+  assert.ok(!stopped,"the press after a drag that ended outside the row is not swallowed");
+  // a touch is left to the browser's own scrolling
+  el.scrollLeft=0;out.props.onPointerDown({pointerType:"touch",clientX:150});handlers.pointermove({clientX:50});
+  assert.equal(el.scrollLeft,0);
+  // sizes: a menu or a typed field 28px at 12.5px, the map's tools 28px, on a desktop only
+  const sizes=css.slice(css.indexOf("THE LOCATION CARD'S CONTROLS AT THE CHARACTER CARD'S SIZES"));
+  assert.ok(sizes.includes("@media (min-width:641px){")&&sizes.includes("[data-location-card] .sheet-fold-body :is(select.prop-select,input.prop-select){height:28px;min-height:28px;padding-top:0;padding-bottom:0;font-size:12.5px}"));
+  assert.ok(sizes.includes(".loc-map-zbtn{min-width:28px;min-height:28px;")&&sizes.includes(".loc-map-segbtn{min-height:28px}")&&sizes.includes(".loc-map-chip{min-height:28px;"));
+  assert.ok(css.includes(".char-pronoun-sel{height:28px;")&&/\.char-pronoun-sel\{[^}]*font-size:12\.5px/.test(css),"the character card's own menu is the measure");
 });
 
 console.log(pass+" passed, "+fail+" failed");

@@ -67,6 +67,35 @@ function locationRoomShortName(room,place){
   }
   return n;
 }
+/* IN THIS CARD, ON ONE LINE (owner 2026-11-21: "Make elements in this section scrollable. User should be able to pan right
+   or left to bring more selectable locations ... all on the same line, horizontally aligned"). The place and its rooms
+   stay on one row however many there are: a finger swipes it, a mouse drags it (a drag that moved is not a press), a
+   trackpad or the keyboard scrolls it, and the side with more to see fades out. */
+function LocationChipScroller({children}){
+  const E=React.createElement,ref=React.useRef(null),st=React.useRef({down:false,x:0,left:0,moved:false});
+  const [edges,setEdges]=React.useState("");
+  const measure=()=>{ const el=ref.current; if(!el) return;
+    const l=el.scrollLeft>2,r=el.scrollLeft+el.clientWidth<el.scrollWidth-2,v=(l?" fade-l":"")+(r?" fade-r":""); setEdges(x=>x===v?x:v); };
+  React.useEffect(()=>{
+    const el=ref.current; if(!el||typeof el.addEventListener!=="function"||typeof window.addEventListener!=="function") return undefined;
+    measure(); el.addEventListener("scroll",measure,{passive:true});
+    const ro=typeof ResizeObserver==="function"?new ResizeObserver(measure):null; if(ro) ro.observe(el);
+    const move=e=>{ const d=st.current; if(!d.down) return; const dx=e.clientX-d.x;
+      if(Math.abs(dx)>4){ d.moved=true; el.classList.add("grabbing"); } if(d.moved) el.scrollLeft=d.left-dx; };
+    // a drag let go outside the row sends its press elsewhere: forget it once that press has gone by, or the next
+    // real press on a room would be taken for the end of the drag
+    const up=()=>{ const d=st.current; d.down=false; el.classList.remove("grabbing"); if(d.moved) setTimeout(()=>{ d.moved=false; },0); };
+    window.addEventListener("pointermove",move); window.addEventListener("pointerup",up); window.addEventListener("pointercancel",up);
+    return ()=>{ el.removeEventListener("scroll",measure); if(ro) ro.disconnect();
+      window.removeEventListener("pointermove",move); window.removeEventListener("pointerup",up); window.removeEventListener("pointercancel",up); };
+  },[]);
+  React.useEffect(measure);   // a room added or renamed changes how much there is to see
+  // a touch scrolls by itself; a mouse press may become a drag, even when it starts on a room's name
+  const down=e=>{ const el=ref.current; if(!el||e.pointerType==="touch"||(e.button!==undefined&&e.button!==0)) return;
+    st.current={down:true,x:e.clientX,left:el.scrollLeft,moved:false}; };
+  const clickCapture=e=>{ if(st.current.moved){ e.stopPropagation(); e.preventDefault(); st.current.moved=false; } };
+  return E("div",{ref,className:"loc-space-chips"+edges,"data-testid":"location-space-chips",onPointerDown:down,onClickCapture:clickCapture},children);
+}
 function LocationWorkspace({group,matchingIds,filterKey,batchActiveId,renderLocation}){
   const E=React.createElement,root=group.root,rooms=group.members.filter(l=>l.id!==root.id);
   // open: the rooms opened inside the card; sections: the section each card was last asked to open
@@ -116,7 +145,7 @@ function LocationWorkspace({group,matchingIds,filterKey,batchActiveId,renderLoca
     // IN THIS CARD: the place and each of its rooms, by name; a room's name opens it, further down, under Rooms
     rooms.length>0&&E("div",{className:"loc-workspace-nav","data-testid":"location-spaces"},
       E("span",{className:"loc-workspace-lab"},"In this card"),
-      E("div",{className:"loc-space-chips"},
+      E(LocationChipScroller,null,
         E("span",{className:"loc-space-chip on",title:"The whole place: this card"},root.name),
         rooms.map(l=>E("button",{key:l.id,type:"button",className:"loc-space-chip"+(view.open[l.id]?" open":""),"data-space-chip":l.id,
           title:"Open "+(l.name||"this room")+" inside this card, under Rooms",onClick:()=>select(l.id)},locationRoomShortName(l,root))))),
