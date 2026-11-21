@@ -197,15 +197,15 @@ test("6 the top bar names the engine on the Locations tab; the pre-production wi
     "A place that has rooms has one more section, ROOMS, between Variants and Advanced (it was called Subspaces)",
     "THE TRACKER under the name has four steps: The place, Floor plan, The set in 3D (done when the four cameras are usable and the set is dressed) and Location image",
     "that design was taken back the same day, so there are no such tabs","Image, 3D set and Floor plan choose what the picture shows",
-    "the same line stands beside Draft floor plan while the floor plan is being drafted (a place with many rooms takes several minutes)","looking is free and nothing is made",
+    "beside Draft floor plan while the floor plan is being drafted (a place with many rooms takes several minutes)","looking is free and nothing is made",
     "a bar that runs against the time the step usually takes","has a writing engine of its own by default","on the Locations tab the top bar names the engine in use"])
     assert.ok(what.includes(t),"Frances is told: "+t);
   // nothing in it names an engine or a vendor, or reads as billing
   assert.ok(!/Fable|Opus|Claude|Anthropic|Gemini|GPT|credit|price/i.test(what));
   for(const f of ["locations-ui.jsx","ai.jsx","styles.css","aiwriter.jsx","app.jsx","artroom.jsx"])
-    assert.ok(["20261121-back1", "20261121-back2", "20261121-five1", "20261121-five2"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the new key");
+    assert.ok(["20261121-back1", "20261121-back2", "20261121-five1", "20261121-five2", "20261121-five3"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the new key");
   // the five sections changed the card and what Frances is told: both carry the newest key
-  for(const f of ["locations-ui.jsx","ai.jsx"]) assert.ok(["20261121-five1", "20261121-five2"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the five-sections key");
+  for(const f of ["locations-ui.jsx","ai.jsx"]) assert.ok(["20261121-five1", "20261121-five2", "20261121-five3"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the five-sections key");
 });
 
 test("7 the film's images are asked for again when the first read failed (an empty picture on a slow connection)", ()=>{
@@ -275,6 +275,15 @@ test("8 In this card is one line that pans; a location's menus, typed fields and
   assert.ok(sizes.includes("@media (min-width:641px){")&&sizes.includes("[data-location-card] .sheet-fold-body :is(select.prop-select,input.prop-select){height:28px;min-height:28px;padding-top:0;padding-bottom:0;font-size:12.5px}"));
   assert.ok(sizes.includes(".loc-map-zbtn{min-width:28px;min-height:28px;")&&sizes.includes(".loc-map-segbtn{min-height:28px}")&&sizes.includes(".loc-map-chip{min-height:28px;"));
   assert.ok(css.includes(".char-pronoun-sel{height:28px;")&&/\.char-pronoun-sel\{[^}]*font-size:12\.5px/.test(css),"the character card's own menu is the measure");
+});
+
+test("9 Prepare this place is off the card: the tracker's steps open their sections, and Frances says so", ()=>{
+  assert.ok(!sheet.includes("React.createElement(LocationPreparePlace,"));
+  assert.ok(sheet.includes("React.createElement(LocationStepGuide,{l,steps:cardSteps})"));
+  const help=ui.slice(ui.indexOf('text:"Locations prepares reusable sets'));
+  assert.ok(help.slice(0,6000).includes("Press a step of the tracker to go to its section and do it there"));
+  assert.ok(!help.slice(0,help.indexOf('"}))),')).includes("Prepare this place"));
+  assert.ok(ai.includes("THE PREPARE THIS PLACE BOX LEFT THE CARD (2026-11-21)")&&ai.includes("Press a step of the tracker and the card opens that section and brings it into view"));
 });
 
 console.log(pass+" passed, "+fail+" failed");
