@@ -4589,12 +4589,22 @@ async function cloudRevert(projectId, uid, entityId, index){
 }
 /* delete the CURRENT image, promote the newest prior version, and do NOT keep the
    deleted current image in history. Used by Image Details' "Delete current" action. */
+/* the highest version number a row has had (its current record and every kept one): kept on the current record when
+   a version is deleted, so a deleted version's number is never given out again (imagegen.jsx nbVersionTopOf) */
+function _cloudVersionTop(row){
+  let top = 0;
+  const see = (m)=>{ for(const k of ["version","versionTop"]){ const v = Number(m && m[k]); if(isFinite(v) && v>top) top = v; } };
+  see(row && row.meta); ((row && row.history) || []).forEach(h=> see(h && h.meta));
+  return top;
+}
 async function cloudDeleteCurrentAndPromote(projectId, uid, entityId){
   const row = await cloudGetGenStrict(projectId, entityId);
   if(!row) return null;
   const history = (row.history || []).slice();
   if(!history.length) return null;
-  const chosen = history.shift();
+  const promoted = history.shift(), topBefore = _cloudVersionTop(row);
+  // (a copy: the row as it was read is what the write is checked against, so it is never written to)
+  const chosen = topBefore>0 ? { ...promoted, meta:{ ...(promoted.meta||{}), versionTop:topBefore } } : promoted;
   const provisional={
     storage_path:chosen.storage_path,
     meta:chosen.meta||{},
@@ -4617,7 +4627,8 @@ async function cloudDeleteHistoryEntry(projectId, uid, entityId, index){
   const history = (row.history || []).slice();
   if(index<0 || index>=history.length) return false;
   history.splice(index,1);
-  const provisional={storage_path:row.storage_path,meta:row.meta||{},refs:row.refs||[],history};
+  const topBefore = _cloudVersionTop(row);
+  const provisional={storage_path:row.storage_path,meta:(row.storage_path && topBefore>0) ? {...(row.meta||{}),versionTop:topBefore} : (row.meta||{}),refs:row.refs||[],history};
   const remove=Array.from(cloudRowPaths(row)).filter(p=>!cloudRowPaths(provisional).has(p));
   provisional.meta=cloudPendingMeta(provisional.meta,[...((row.meta&&row.meta.cleanupPending)||[]),...remove],false);
   const after=await cloudCasGen(projectId, uid, entityId,row,provisional);

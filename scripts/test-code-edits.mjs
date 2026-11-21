@@ -52,7 +52,7 @@ const sb = { console, String, Number, Array, JSON, Math }; sb.window = sb; sb.nb
 vm.runInNewContext(between(art, "function turnKeptSummary(meta){", "/* KEEP, OR ASK")
   + "\n" + between(art, "function remasterIsEngineEdit(m){", "async function turnRemasterInCode(o){") + "\n" + between(art, "function nbShownModel(meta){", "window.nbShownModel = nbShownModel;")
   + "\n" + between(art, "function remasterEligible(meta){", "window.remasterEligible = remasterEligible;")
-  + "\nthis.F={turnKeptSummary,remasterIsEngineEdit,nbShownModel,codeEditLines,remasterEligible};", sb);
+  + "\nthis.F={turnKeptSummary,remasterIsEngineEdit,nbShownModel,codeEditLines,remasterEligible}; this.codeEditBy=codeEditBy;", sb);
 const F = sb.F;
 
 await test("4 every edit on a character or prop sheet is kept", () => {
@@ -111,7 +111,7 @@ await test("6 what Details name: the planner for a change made in code, the imag
   const det = between(art, "function SheetDetails({", "window.SheetFrame = SheetFrame;");
   assert.ok(det.includes("const modelDetail = nbShownModel(meta).label;") && det.includes('field("Changed in code", codeLines.did || null),') && det.includes('field("New part drawn by", codeLines.drew || null),'));
   assert.ok(det.includes('const modelName = (hm.codeEdit && hm.codeEdit.by) ? hm.codeEdit.by : (hm.modelId || hm.modelLabel || "unknown model");'));
-  assert.ok(art.includes('if(field==="model" && m.codeEdit && m.codeEdit.by) return String(m.codeEdit.by);') && art.includes("const sm = nbShownModel(genMeta);"));
+  assert.ok(art.includes('if(field==="model" && m.codeEdit && m.codeEdit.by) return (typeof codeEditByShown==="function") ? codeEditByShown(m.codeEdit).by : String(m.codeEdit.by);') && art.includes("const sm = nbShownModel(genMeta);"));
   // the two helpers sit beside the frame they serve (a browser fixture lifts the frame's source up to this line)
   assert.ok(art.indexOf("function nbShownModel(meta){") < art.indexOf("window.SheetFrame = SheetFrame;") && art.indexOf("function codeEditLines(meta){") < art.indexOf("window.SheetFrame = SheetFrame;"));
   const ko = between(art, "async function turnKeepOriginal(o){", "/* what the card says afterwards");
@@ -128,11 +128,21 @@ await test("6b Upscale, in code: only the sizes above the image's own; the same 
   assert.deepEqual(plain(U.tiers({})), [], "an image whose size is not known is offered nothing");
   const up = between(art, "async function turnUpscaleInCode(o){", "window.turnUpscaleInCode = turnUpscaleInCode;");
   assert.ok(up.includes("const nw = Math.min(W, cw*2), nh = Math.min(H, chh*2);") && up.includes('g.imageSmoothingQuality = "high";') && up.includes("window.PixelKeep.pkSharpen(id, 0.35);"), "in steps of two, edges kept");
-  assert.ok(up.includes('codeEdit:{ kind:"upscale", by:"In code", byId:"", drew:false }') && up.includes("It is the same picture, upscaled in code: nothing was redrawn."));
+  assert.ok(up.includes('codeEdit:{ kind:"upscale", ...codeEditBy(), drew:false }') && up.includes("It is the same picture, upscaled in code: nothing was redrawn."));
   assert.ok(!/nbGenerate|aiVisionComplete|aiPlannerRead|generate\(/.test(up), "no engine and no reading in it");
   assert.equal(F.codeEditLines({ pixelW: 2048, pixelH: 1152, upscaledFrom: { w: 1024, h: 576 }, codeEdit: { kind: "upscale", by: "In code" } }).did,
     "Upscaled in code, from 1024\u00d7576 to 2048\u00d71152. It is the same picture; nothing was redrawn and no engine was used.");
-  assert.equal(F.nbShownModel({ modelLabel: "GPT Image 2.6 Sunburst", codeEdit: { kind: "upscale", by: "In code" } }).label, "In code", "no model made it larger, and none is named");
+  // (owner 2026-11-21: "when a user chooses to resize an image, Fable 5.2 is automatically selected for this task") a resize is
+  // credited to the planner, by the name the engine list gives it; one recorded as "In code" before that day reads the same
+  sb.editPlannerLabel = () => "Planner X"; sb.EDIT_PLANNER_MODEL_ID = "planner-x";
+  assert.deepEqual(plain(sb.codeEditBy()), { by: "Planner X", byId: "planner-x" });
+  assert.deepEqual(plain(F.nbShownModel({ modelLabel: "GPT Image 2.6 Sunburst", codeEdit: { kind: "upscale", by: "In code" } })), { label: "Planner X", id: "planner-x", code: true }, "an earlier resize is shown under the same name");
+  assert.equal(sb.sheetCapValue ? sb.sheetCapValue("model", { modelLabel: "GPT Image 2.6 Sunburst", codeEdit: { kind: "downscale", by: "In code" } }) : "Planner X", "Planner X");
+  sb.editPlannerLabel = () => ""; assert.deepEqual(plain(sb.codeEditBy()), { by: "In code", byId: "" }, "no planner in the engine list: it says In code, never a made-up name");
+  assert.equal(F.nbShownModel({ modelLabel: "GPT Image 2.6 Sunburst", codeEdit: { kind: "upscale", by: "In code" } }).label, "In code");
+  delete sb.editPlannerLabel; delete sb.EDIT_PLANNER_MODEL_ID;
+  assert.ok(!/by:"In code", byId:"", drew:/.test(art) && art.split("...codeEditBy(), drew:").length - 1 === 5, "every resize path");
+  assert.ok(!/Fable|Claude|Anthropic/.test(between(art, "function codeEditBy(){", "window.codeEditBy = codeEditBy;")), "its name comes from the engine list, not from a literal");
   // ONE ITEM, "Resize" (owner 2026-11-20): pressed, it shows the sizes the image can go to, smallest first, smaller or larger
   const menu = between(art, '"data-role":"sheet-resize"', '          // 4K WITH ADDED DETAIL');   // (the free sizes; the one with detail has its price)
   assert.ok(menu.includes('onClick:()=>setResizeOpen(v=>!v)},') && menu.includes('React.createElement(Icon.maximize,{s:14}),"Resize",'));
@@ -147,7 +157,7 @@ await test("6b Upscale, in code: only the sizes above the image's own; the same 
   assert.ok(hk.includes("const mv = h.find(x=> x && x.url && x.meta && x.meta.iso===meta.resizeMasterIso);") && hk.includes("if(mv){ srcUrl = mv.url; masterIso = meta.resizeMasterIso; fromMaster = true; }"));
   assert.ok(hk.includes("const upscale = (tier)=> resizeFromMaster(tier, true);") && hk.includes("const downscale = (tier)=> resizeFromMaster(tier, false);"));
   const rz = between(art, "async function turnResizeInCode(o){", "window.turnResizeInCode = turnResizeInCode;");
-  assert.ok(rz.includes("if(o.fromMaster && k>1/1.3 && k<1.3){") && rz.includes("fr.readAsDataURL(blob);") && rz.includes('codeEdit:{ kind:"resize-back", by:"In code", byId:"", drew:false }'), "the master's own bytes, not a redraw of them");
+  assert.ok(rz.includes("if(o.fromMaster && k>1/1.3 && k<1.3){") && rz.includes("fr.readAsDataURL(blob);") && rz.includes('codeEdit:{ kind:"resize-back", ...codeEditBy(), drew:false }'), "the master's own bytes, not a redraw of them");
   assert.ok(rz.includes("const keep = { resizeMasterIso:o.masterIso||\"\", resizeMasterPx:{ w:w0, h:h0 } };") && rz.includes("else if(k>=1.3) r = await turnUpscaleInCode(") && rz.includes("else r = await turnDownscaleInCode("));
   assert.ok(rz.includes("is no longer in its versions, so this was made from the image as it is"), "said plainly when the master is gone");
   for (const kkey of ['"resizeMasterIso"', '"upscaledFrom"', '"downscaledFrom"']) assert.ok(between(art, "const CODE_EDIT_NOT_CARRIED = [", "];").includes(kkey), "a change to the picture starts a new master: " + kkey);
@@ -159,7 +169,7 @@ await test("6b Upscale, in code: only the sizes above the image's own; the same 
   assert.deepEqual(plain(Dn.tiers({ pixelW: 4096, pixelH: 2304 })), ["2K", "1K"]); assert.deepEqual(plain(Dn.tiers({ pixelW: 2048, pixelH: 1152 })), ["1K"]);
   assert.deepEqual(plain(Dn.tiers({ pixelW: 2731, pixelH: 1536 })), ["2K", "1K"]); assert.deepEqual(plain(Dn.tiers({ pixelW: 1024, pixelH: 576 })), []); assert.deepEqual(plain(Dn.tiers({})), []);
   const dn = between(art, "async function turnDownscaleInCode(o){", "window.turnDownscaleInCode = turnDownscaleInCode;");
-  assert.ok(dn.includes("const nw = Math.max(W, Math.ceil(cw/2)), nh = Math.max(H, Math.ceil(chh/2));") && dn.includes('codeEdit:{ kind:"downscale", by:"In code", byId:"", drew:false }') && !/nbGenerate|aiVisionComplete|aiPlannerRead|generate\(/.test(dn));
+  assert.ok(dn.includes("const nw = Math.max(W, Math.ceil(cw/2)), nh = Math.max(H, Math.ceil(chh/2));") && dn.includes('codeEdit:{ kind:"downscale", ...codeEditBy(), drew:false }') && !/nbGenerate|aiVisionComplete|aiPlannerRead|generate\(/.test(dn));
   assert.equal(F.codeEditLines({ pixelW: 1024, pixelH: 576, downscaledFrom: { w: 2048, h: 1152 }, codeEdit: { kind: "downscale", by: "In code" } }).did,
     "Downscaled in code, from 2048\u00d71152 to 1024\u00d7576. It is the same picture; nothing was redrawn and no engine was used.");
   // pkSharpen: flat areas stay as they are, an edge gets a little stronger, the picture keeps its size
@@ -190,7 +200,7 @@ await test("6d 4K with added detail: the engine's fine detail only, where it agr
   assert.equal(PK.pkDetailTransfer(base, { width: 10, height: 10, data: new Uint8ClampedArray(400) }).failed, "the two pictures are not the same size");
   // the app side: one engine image at 4K, the keeper decides; under a third agreed, the plain 4K is saved and it says so
   const kp = between(art, "async function turnUpscaleDetailKeep(io, o){", "window.turnUpscaleDetailKeep = turnUpscaleDetailKeep;");
-  assert.ok(kp.includes("PK.pkDetailTransfer(U, E, { radius:detailRadius })") && kp.includes("const detailRadius = Math.max(2, Math.round(Math.max(W,H)/1024), Math.round(k*1.25));") && kp.includes("if(!r || !r.out || !(r.coverage>=0.33)){") && kp.includes("so none of its detail was used.") && kp.includes('codeEdit:{ kind:"upscale-detail", by:"In code", byId:"", drew:true }'));
+  assert.ok(kp.includes("PK.pkDetailTransfer(U, E, { radius:detailRadius })") && kp.includes("const detailRadius = Math.max(2, Math.round(Math.max(W,H)/1024), Math.round(k*1.25));") && kp.includes("if(!r || !r.out || !(r.coverage>=0.33)){") && kp.includes("so none of its detail was used.") && kp.includes('codeEdit:{ kind:"upscale-detail", ...codeEditBy(), drew:true }'));
   assert.ok(art.includes("const upscaleDetail = ()=> generate({ editInstruction:UPSCALE_DETAIL_INSTRUCTION, imageSize:\"4K\", wholeRedraw:true,") && art.includes("Do NOT move, redraw, restyle, add or remove anything"));
   const mi = between(art, '"data-role":"sheet-upscale-detail"', 'window.nbCostChip(1, { res:"4K", refs:1 })),');
   assert.ok(mi.includes('"4K \\u2014 larger, with detail"') && mi.includes("gen.upscaleDetail();") && mi.includes("One image at 4K."), "offered with its price");
@@ -316,7 +326,7 @@ await test("7 the planner's reads; Frances; the page loads the new files", () =>
     "HOW A CHARACTER STANDS ON A NEW SHEET", "GOING SMALLER (downscaling)", "NOTHING IS LOST BY GOING DOWN AND UP AGAIN", "4K WITH ADDED DETAIL ('4K \\u2014 larger, with detail'", "THE PROP CARD IS LAID OUT LIKE THE CHARACTER CARD"]) assert.ok(fr.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Fable|Gemini|GPT/.test(fr));
   assert.ok(!ai.includes("clean re-render"), "the old name of Remaster is gone from what Frances is told");
-  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+  for (const file of ["artroom.jsx", "props.jsx", "ai.jsx", "pixel-keep.js"]) assert.ok(["20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

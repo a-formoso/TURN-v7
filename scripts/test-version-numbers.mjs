@@ -24,7 +24,7 @@ function lab(rows, backend = "cloud"){
   sb.window = sb; sb._nbBackend = backend; sb._scopeFor = () => "film";
   sb.cloudGetGen = async (scope, id) => rows[id] || null;
   sb.localGetMeta = (id) => (rows[id] && rows[id].meta) || null; sb.localGetHistory = async (id) => (rows[id] && rows[id].history) || []; sb.localGetImage = (id) => (rows[id] && rows[id].storage_path) || "";
-  vm.runInNewContext(between(img, "function nbVersionAfter(curMeta, history, hasCurrent){", "window.nbVersionAfter = nbVersionAfter;") + "\nthis.after=nbVersionAfter; this.next=nbNextVersion;", sb);
+  vm.runInNewContext(between(img, "function nbVersionTopOf(curMeta, history){", "window.nbVersionAfter = nbVersionAfter;") + "\nthis.after=nbVersionAfter; this.next=nbNextVersion;", sb);
   return sb;
 }
 const hist = (...vs) => vs.map((v) => ({ meta: v == null ? {} : { version: v } }));
@@ -65,7 +65,7 @@ await test("3 the cards work the number out before they save: a new image or an 
   const up = between(art, "  const importSheet = async (file)=>{", "nbCommit(id, dataUrl, meta, [], assetKind, _importEpoch)");
   assert.ok(up.includes('version: (genUrl && typeof window.nbNextVersion==="function") ? await window.nbNextVersion(id).catch(()=>1) : 1,'));
   assert.ok(!/Math\.min\(histLen\+1, 12\)/.test(art), "the cap that made every later version v13 is gone");
-  for (const file of ["artroom.jsx", "imagegen.jsx"]) assert.ok(["20261120-versions1", "20261120-numbers1"].some(k => html.includes(file + "?v=" + k + '"')), file + " has a current key");
+  for (const file of ["artroom.jsx", "imagegen.jsx"]) assert.ok(["20261120-versions1", "20261120-numbers1", "20261121-record1"].some(k => html.includes(file + "?v=" + k + '"')), file + " has a current key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

@@ -2358,12 +2358,21 @@ window.NB_VERSIONS_KEPT = NB_VERSIONS_KEPT; window.nbVersionsAgreed = nbVersions
    lower than the count. Cards work it out before they save (nbNextVersion, so what they show is what is stored); the
    save itself raises a number that would repeat, whichever way the image was made. Numbers already stored are left
    as they are. */
-function nbVersionAfter(curMeta, history, hasCurrent){
+/* AND A DELETED VERSION'S NUMBER IS NOT GIVEN OUT AGAIN (owner 2026-11-20, later: "ensure image versioning is working
+   properly, even after images are deleted or new ones are created"). The highest number an image has had is kept on
+   its current record as versionTop when a version is deleted (here and in cloud.jsx), so deleting v14 and making a
+   new image gives v15, not a second v14. Clearing an image altogether removes its versions and its record: the next
+   image is v1 again. */
+function nbVersionTopOf(curMeta, history){
   let top = 0;
-  const see = (m)=>{ const v = Number(m && m.version); if(isFinite(v) && v>top) top = v; };
+  const see = (m)=>{ for(const k of ["version","versionTop"]){ const v = Number(m && m[k]); if(isFinite(v) && v>top) top = v; } };
   see(curMeta); (history||[]).forEach(h=> see(h && h.meta));
-  return Math.max(top, (history||[]).length + (hasCurrent ? 1 : 0)) + 1;
+  return top;
 }
+function nbVersionAfter(curMeta, history, hasCurrent){
+  return Math.max(nbVersionTopOf(curMeta, history), (history||[]).length + (hasCurrent ? 1 : 0)) + 1;
+}
+window.nbVersionTopOf = nbVersionTopOf;
 async function nbNextVersion(id){
   if(_nbBackend==="cloud"){
     // the image's own row is enough (its numbers, no pictures): one small read, nothing is signed
@@ -2515,7 +2524,8 @@ async function _nbDeleteCurrentAndPromoteAssetInner(id){
   }
   const history = await localGetHistory(id);
   if(!history.length) return null;
-  const chosen = history[0];
+  const topBefore = nbVersionTopOf(localGetMeta(id), history);   // the deleted version's number is not given out again
+  const chosen = topBefore>0 ? { ...history[0], meta:{ ...(history[0].meta||{}), versionTop:topBefore } } : history[0];
   await localSetImage(id, chosen.url);
   localSetMeta(id, chosen.meta||null);
   await localSetRefs(id, chosen.refs||[]);
@@ -2547,8 +2557,10 @@ async function _nbDeleteHistoryEntryInner(id, index){
   }
   const hist = await localGetHistory(id);
   if(index<0 || index>=hist.length) return false;
+  const topBefore = nbVersionTopOf(localGetMeta(id), hist), curLocal = localGetMeta(id);
   hist.splice(index,1);
   await localSetHistory(id, hist);
+  if(curLocal && topBefore>0 && Number(curLocal.versionTop)!==topBefore) localSetMeta(id, { ...curLocal, versionTop:topBefore });
   return true;
 }
 window.nbDeleteHistoryEntry = nbDeleteHistoryEntry;

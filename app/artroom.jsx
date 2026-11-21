@@ -3487,7 +3487,7 @@ async function nbRunSheetGeneration(env, gopts){
       committedUrl = (saveResult && saveResult.url) || url;
       setGenUrl(committedUrl);
       setGenTier((saveResult && saveResult.tier) || "local");
-      setGenMeta(meta);
+      setGenMeta(nbStoredMeta(id, meta));
       if(isEditMode && typeof ui.closeEdit==="function") ui.closeEdit();
       // tell the user why this frame looks like the other engine
       if(policyFellBack && typeof window.appToast==="function")
@@ -3556,6 +3556,15 @@ window.turnChargeCodeTask = turnChargeCodeTask; window.turnCodeTaskChip = turnCo
 const CODE_EDIT_NOT_CARRIED = ["qa","lock","approval","keptOriginal","keptKind","keptItems","keptLeftOut","keptChangedPixels","keptTotalPixels","keptBoxes",
   "keptFromIso","keptRootIso","keptTried","carriedFrom","simplifiedRetry","promptFit","policyFallback","codeEdit","restoredFromIso","restoredFromVersion",
   "resizeMasterIso","resizeMasterPx","upscaledFrom","downscaledFrom"];   // (a change to the picture starts a new master)
+/* THE LINE UNDER AN IMAGE IS ABOUT THE IMAGE THE CARD SHOWS (owner 2026-11-21: "ensuring current image displayed on the
+   card its details are updated … as per user selection of what details they want to see"). After a save the card
+   takes the record AS IT WAS STORED (the save may have raised the version number) when it is this same version; a
+   save that did not reach the store keeps the card's own record. */
+function nbStoredMeta(id, meta){
+  try{ const st = (typeof nbGetMeta==="function") ? nbGetMeta(id) : null; if(st && meta && st.iso && st.iso===meta.iso) return st; }catch(e){}
+  return meta;
+}
+window.nbStoredMeta = nbStoredMeta;
 function useImageGen(opts){
   const { id, slotId } = opts;
   // module-level registry of in-flight generations, so a generation survives the
@@ -3615,6 +3624,18 @@ function useImageGen(opts){
       if(u){ setGenUrl(u); if(e.detail.meta)setGenMeta(e.detail.meta); else if(typeof nbGetMeta==="function") setGenMeta(nbGetMeta(id)); setGenTier("idb"); }
     };
     window.addEventListener("nb-prefetched", onPrefetched);
+    /* THE RECORDS NEVER CAME (seen 2026-11-20: a window whose load of the film's records failed showed every picture
+       from this device's saved copy with "Generated" under it, for good). After a few seconds an image that still has
+       no record asks for its own: the line under it, its versions and its check then belong to the image the film
+       really holds, which is shown in its place if this device's copy was an older one. */
+    const lateRecord = setTimeout(()=>{
+      if(!alive || !genUrlRef.current || genMetaRef.current || typeof nbLoadDetailsAsset!=="function") return;
+      Promise.resolve(nbLoadDetailsAsset(id, genUrlRef.current)).then(d=>{
+        if(!alive || genMetaRef.current || !d || !d.meta) return;
+        if(d.url) setGenUrl(d.url);
+        setGenMeta(d.meta);
+      }).catch(()=>{});
+    }, 6000);
     // if a generation for THIS id is in flight (started before this mount, e.g. a tab
     // switch), reflect the spinner; and listen for its completion to adopt the result.
     if(window.__nbGenInflight && window.__nbGenInflight[id]) setGening(true);
@@ -3642,7 +3663,7 @@ function useImageGen(opts){
     window.addEventListener("nb-save-pending",onPending);
     window.addEventListener("nb-approval-changed",onApproval);
     window.addEventListener("nb-meta-changed",onApproval);   // a note on this version's meta (a location's copy check "Keep")
-    return ()=>{ alive=false; window.removeEventListener("nb-gen-done", onDone); window.removeEventListener("nb-prefetched", onPrefetched); window.removeEventListener("nb-gen-cancel", onCancel); window.removeEventListener("nb-gen-start", onStart);
+    return ()=>{ alive=false; clearTimeout(lateRecord); window.removeEventListener("nb-gen-done", onDone); window.removeEventListener("nb-prefetched", onPrefetched); window.removeEventListener("nb-gen-cancel", onCancel); window.removeEventListener("nb-gen-start", onStart);
       window.removeEventListener("nb-gen-saving",onSaving);window.removeEventListener("nb-save-pending",onPending);window.removeEventListener("nb-approval-changed",onApproval);window.removeEventListener("nb-meta-changed",onApproval); };
   },[id]);
 
@@ -3774,7 +3795,7 @@ function useImageGen(opts){
         throw new Error("The image was read, but saving it to your project failed — nothing was imported. Check your connection and try again.");
       if(saveResult.tier!=="stale"){
         const url = saveResult.url || dataUrl;
-        setGenUrl(url); setGenTier(saveResult.tier || "local"); setGenMeta(meta);
+        setGenUrl(url); setGenTier(saveResult.tier || "local"); setGenMeta(nbStoredMeta(id, meta));
         setSlotHasRef(false);
         try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
         if(typeof opts.onImported==="function"){ try{ opts.onImported(meta); }catch(e){} }   // the card's own follow-up (Shots: approval)
@@ -3830,7 +3851,7 @@ function useImageGen(opts){
           throw new Error("The change was made, but saving it to your project failed, so nothing was changed. Check your connection and try again.");
         if(saveResult.tier!=="stale"){
           const url = saveResult.url || r.url;
-          setGenUrl(url); setGenTier(saveResult.tier || "local"); setGenMeta(meta);
+          setGenUrl(url); setGenTier(saveResult.tier || "local"); setGenMeta(nbStoredMeta(id, meta));
           try{ window.dispatchEvent(new CustomEvent("nb-gen-done",{ detail:{ id, url } })); }catch(e){}
           say(r.message, "success"); done = true;
         }
@@ -6459,7 +6480,7 @@ function sheetCapWrite(list){
 /* what each detail says for one image ("" = this image has none, so nothing is shown for it) */
 function sheetCapValue(field, genMeta, resLabel){
   const m = genMeta || {};
-  if(field==="model" && m.codeEdit && m.codeEdit.by) return String(m.codeEdit.by);   // a change made in code names its planner (2026-11-20)
+  if(field==="model" && m.codeEdit && m.codeEdit.by) return (typeof codeEditByShown==="function") ? codeEditByShown(m.codeEdit).by : String(m.codeEdit.by);   // a change made in code names its planner (2026-11-20)
   if(field==="model") return m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) : ((window.NB_MODELS||[]).find(x=>x.id===m.modelId)||{}).label) || m.modelId || "";
   if(field==="aspect") return m.aspect || "";
   if(field==="size") return (m.uploaded || m.modelId==="uploaded") ? String(resLabel||"").split(" \u00b7 ")[0] : (resLabel||"");
@@ -6507,7 +6528,7 @@ async function turnUpscaleInCode(o){
   // a 4K picture as a PNG is too heavy to keep: it is saved as a JPEG at its best quality
   const url = (o.tier==="4K") ? cv.toDataURL("image/jpeg", 0.96) : cv.toDataURL("image/png");
   return { url, message:Whose+" is now "+o.tier+" ("+W+"\u00d7"+H+", from "+w0+"\u00d7"+h0+"). It is the same picture, upscaled in code: nothing was redrawn.",
-    meta:{ size:o.tier, upscaledFrom:{ w:w0, h:h0 }, codeEdit:{ kind:"upscale", by:"In code", byId:"", drew:false } } };
+    meta:{ size:o.tier, upscaledFrom:{ w:w0, h:h0 }, codeEdit:{ kind:"upscale", ...codeEditBy(), drew:false } } };
 }
 /* DOWNSCALE, IN CODE (owner 2026-11-20: "we need a downscale as well … the option for users to lower the size … going from
    4K to 2K or going from 2K to 1K"). The same picture made smaller, by halves so that fine lines do not break up. Only
@@ -6537,7 +6558,7 @@ async function turnDownscaleInCode(o){
     }
   }catch(e){ return left("this browser could not make it"); }
   return { url:cv.toDataURL("image/png"), message:Whose+" is now "+o.tier+" ("+W+"\u00d7"+H+", from "+w0+"\u00d7"+h0+"). It is the same picture, downscaled in code: nothing was redrawn. The larger one is in its versions.",
-    meta:{ size:o.tier, downscaledFrom:{ w:w0, h:h0 }, codeEdit:{ kind:"downscale", by:"In code", byId:"", drew:false } } };
+    meta:{ size:o.tier, downscaledFrom:{ w:w0, h:h0 }, codeEdit:{ kind:"downscale", ...codeEditBy(), drew:false } } };
 }
 /* ONE RESIZE, FROM THE MASTER. o: { url (the master's, or the image's own), tier, up, masterIso, fromMaster, lostMaster,
    name, noun }. The size asked for is compared with the MASTER's: the same → the master itself, its own bytes; smaller →
@@ -6556,7 +6577,7 @@ async function turnResizeInCode(o){
     const url = await new Promise((res,rej)=>{ const fr = new FileReader(); fr.onload = ()=>res(fr.result); fr.onerror = ()=>rej(new Error("read")); fr.readAsDataURL(blob); }).catch(()=>null);
     if(!url) return { message:Whose+" was left as it is: the picture could not be read." };
     r = { url, message:Whose+" is "+o.tier+" again ("+w0+"\u00d7"+h0+"): the picture it was resized from, exactly as it was. Nothing was lost.",
-      meta:{ size:o.tier, codeEdit:{ kind:"resize-back", by:"In code", byId:"", drew:false } } };
+      meta:{ size:o.tier, codeEdit:{ kind:"resize-back", ...codeEditBy(), drew:false } } };
   } else if(k>=1.3) r = await turnUpscaleInCode({ ...o, url:o.url });
   else r = await turnDownscaleInCode({ ...o, url:o.url });
   if(r && r.url){ r.meta = { ...(r.meta||{}), ...keep };
@@ -6595,12 +6616,12 @@ async function turnUpscaleDetailKeep(io, o){
   if(!r || !r.out || !(r.coverage>=0.33)){
     if(PK && typeof PK.pkSharpen==="function") PK.pkSharpen(U, 0.35);
     say(Whose+" is now 4K ("+W+"\u00d7"+H+"), enlarged in code only: the engine\u2019s 4K drawing differed too much from your picture"+(r && r.coverage!=null ? " (it agreed on "+Math.round(r.coverage*100)+"% of it)" : "")+", so none of its detail was used.", "info");
-    return { url:out(U), meta:{ ...base, detailCoverage:0, codeEdit:{ kind:"upscale", by:"In code", byId:"", drew:false } } };
+    return { url:out(U), meta:{ ...base, detailCoverage:0, codeEdit:{ kind:"upscale", ...codeEditBy(), drew:false } } };
   }
   const pct = Math.round(r.coverage*100);
   try{ await turnChargeCodeTask("detail"); }catch(e){}   // the detail step's own price; the image is already paid for
   say(Whose+" is now 4K ("+W+"\u00d7"+H+") with added detail. Your picture was kept: its shapes, faces and colours are its own, and fine detail was taken from the engine\u2019s 4K drawing on "+pct+"% of it.", "success");
-  return { url:out(r.out), meta:{ ...base, detailCoverage:r.coverage, codeEdit:{ kind:"upscale-detail", by:"In code", byId:"", drew:true } } };
+  return { url:out(r.out), meta:{ ...base, detailCoverage:r.coverage, codeEdit:{ kind:"upscale-detail", ...codeEditBy(), drew:true } } };
 }
 window.turnUpscaleDetailKeep = turnUpscaleDetailKeep;
 window.turnResizeInCode = turnResizeInCode;
@@ -6611,9 +6632,24 @@ window.turnUpscaleInCode = turnUpscaleInCode; window.upscaleTiersFor = upscaleTi
    version made by a change in code names its planner; every other version names its image engine, as before. */
 function nbShownModel(meta){
   const m = meta || {}, ce = m.codeEdit;
-  if(ce && ce.by) return { label:String(ce.by), id:String(ce.byId||""), code:true };
+  if(ce && ce.by){ const who = codeEditByShown(ce); return { label:who.by, id:who.byId, code:true }; }
   return { label:m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) : ((window.NB_MODELS||[]).find(x=>x.id===m.modelId)||{}).label) || m.modelId || "", id:m.modelId||"", code:false };
 }
+/* WHO A CHANGE MADE IN CODE IS CREDITED TO (owner 2026-11-20: "they should see [the planner] as the model that did the
+   editing"; 2026-11-21: "when a user chooses to resize an image, Fable 5.2 is automatically selected for this task").
+   A resize has no image engine behind it: its record names the planner, whose name comes from the engine list, never
+   from a literal. An image resized before today was recorded as "In code": it is shown under the same name (stored
+   records are not rewritten). */
+function codeEditBy(){
+  const label = (typeof window.editPlannerLabel==="function" && window.editPlannerLabel()) || "";
+  return label ? { by:String(label), byId:String(window.EDIT_PLANNER_MODEL_ID||"") } : { by:"In code", byId:"" };
+}
+function codeEditByShown(ce){
+  if(!ce || !ce.by) return { by:"", byId:"" };
+  if(String(ce.by)==="In code"){ const now = codeEditBy(); return now.by ? now : { by:"In code", byId:"" }; }
+  return { by:String(ce.by), byId:String(ce.byId||"") };
+}
+window.codeEditBy = codeEditBy; window.codeEditByShown = codeEditByShown;
 /* what such a change did, and what (if anything) an image engine drew for it: two plain lines for Details */
 function codeEditLines(meta){
   const m = meta || {}, ce = m.codeEdit;
@@ -8848,8 +8884,8 @@ function CastOverview({ list, faceIds, onGo }){
           React.createElement("span",{className:"cast-mark"+(voice?" on":"")},React.createElement(Icon.mic,{s:11})),
           kept && React.createElement("span",{className:"qa-kept-dot "+sev})));
     }),
-    (typeof window.InfoTip==="function") && React.createElement(window.InfoTip,{label:"About this row",
-      text:"Every character in one row. The three marks show what each one has: a sheet, a real face, a voice (bright = done). A dot is the last QA result. Click a face to go to its card."}));
+    // (owner 2026-11-21: "remove the toolkit" after the row) the row explains itself: each mark has its own hover title
+    null);
 }
 window.CastOverview = CastOverview;
 function CharacterSheets({ onUpdateCrowd, readOnly=false, wardrobeIds=[], project, characters, scenes, props, drafts, shots, beatsMap, onUpdate, onDraft, onDraftAll, draftingId, draftingAll, draftingIds, onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDraftProp, onCreateOwnedProp, onNameOwnedItem, onDelete, onCast, trashItems, onRestore, onPurge, lookbookStale, onApplyLookbook, onApplyLookbookDraftOnly, lookbook, lookbookNote, onOpenLookbook, onReadScript, readingFactIds }){
