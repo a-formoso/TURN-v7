@@ -2568,15 +2568,33 @@ function _locSettle(test,ms){
 function LocationPreparePlace({l,rooms=[],project,drafted,spatialState,hasImage,onDraft,onUpdate,readOnly=false}){
   const E=React.createElement,api=window.KinolotCloudRender,D=window.KinolotSetDressing,P=window.KinolotPrevis;
   const [,refresh]=React.useReducer(n=>n+1,0);
+  const [draftsAsked,askDrafts]=React.useReducer(n=>n+1,0);
   React.useEffect(()=>{
     // a draft made, used or deleted elsewhere: what the last press read about waiting drafts no longer holds
     const mine=e=>{if(!e||e.detail==null||e.detail===l.id)refresh();},any=e=>{
       const r=_locPrepareRuns[l.id];if(e&&e.type==="kinolot-previs-changed"&&r&&!r.busy&&r.drafts)r.drafts=null;
+      if(e&&e.type==="kinolot-previs-changed")askDrafts();
       refresh();};
     const own=["kinolot-prepare-changed","loc-layout-draft-pending"],all=["nb-gen-done","nb-prefetched","kinolot-previs-changed","nb-model-changed","nb-settings-changed","turn-pricing-changed"];
     own.forEach(n=>window.addEventListener(n,mine));all.forEach(n=>window.addEventListener(n,any));
     return ()=>{own.forEach(n=>window.removeEventListener(n,mine));all.forEach(n=>window.removeEventListener(n,any));};
   },[l.id]);
+  /* A WAITING DRAFT IS KNOWN WITHOUT A PRESS (2026-11-21). Whether a draft of the place's image waits was read only
+     when the button was pressed, so after a reload a place whose draft waits in 4 \u00b7 Previs was offered "make the
+     first image" with its price. The card now reads it when it opens (and again when a draft is made, used or
+     deleted): one read of the place's own drafts, only while the place has a confirmed plan and no image. */
+  const planIsReady=!!(spatialState&&spatialState.ready);
+  React.useEffect(()=>{
+    let live=true;
+    const r=_locPrepareRuns[l.id]||{};
+    if(readOnly||l.parentLocation||!P||typeof P.drafts!=="function"||hasImage||!planIsReady||r.busy||r.drafts)return;
+    Promise.resolve().then(()=>P.drafts(l.id)).then(d=>{
+      const now=_locPrepareRuns[l.id]||{};
+      if(!live||now.busy||now.drafts||!(d&&d.current))return;
+      _locPrepareSet(l.id,{drafts:{[l.id]:true}});
+    }).catch(()=>{});
+    return ()=>{live=false;};
+  },[l.id,hasImage,planIsReady,draftsAsked,readOnly]);
   if(readOnly||l.parentLocation||!api||!D||!P||typeof locationPreparePlan!=="function")return null;
   const run=_locPrepareRuns[l.id]||{},name=l.name||"this place";
   const epochNow=()=>typeof window.nbEpoch==="function"?window.nbEpoch():0;
@@ -2620,7 +2638,7 @@ function LocationPreparePlace({l,rooms=[],project,drafted,spatialState,hasImage,
   // FIRST HALF: the description when it is missing, then the floor plan draft, which the user checks and confirms
   async function runPlan(steps){
     const epoch=epochNow();
-    _locPrepareSet(l.id,{busy:true,stop:false,note:"",fail:"",text:"",drafts:null});
+    _locPrepareSet(l.id,{busy:true,stop:false,note:"",noteFor:"",fail:"",text:"",drafts:null});
     try{
       if(steps.some(s=>s.kind==="describe")){
         _locPrepareSet(l.id,{text:"Writing the description\u2026"});
@@ -2633,16 +2651,21 @@ function LocationPreparePlace({l,rooms=[],project,drafted,spatialState,hasImage,
       requests.set(l.id,Date.now());
       openFold(2);
       window.dispatchEvent(new CustomEvent("kinolot-draft-floor-plan",{detail:{locationId:l.id}}));
-      _locPrepareSet(l.id,{busy:false,text:"",note:"The floor plan is being drafted in 2 \u00b7 Floor plan. Check it there and confirm it. Then press Prepare this place again: it sets the cameras, dresses the set and makes the first image."});
+      // noteFor: this note is about the plan that waits for its check, and goes once the plan is confirmed
+      _locPrepareSet(l.id,{busy:false,text:"",noteFor:"review",note:"The floor plan is being drafted in 2 \u00b7 Floor plan. Check it there and confirm it. Then press Prepare this place again: it sets the cameras, dresses the set and makes the first image."});
     }catch(e){_locPrepareSet(l.id,{busy:false,text:"",fail:(e&&e.message)||"The run stopped."});}
   }
   // SECOND HALF: cameras (free), dressing (a writing call a space), image drafts. Each result is saved as it is made.
   async function runSet(todo){
-    const epoch=epochNow(),done=[];
+    const epoch=epochNow(),done=[],drawn={};
     const check=()=>{if(epochNow()!==epoch||!writable())throw new Error("The open film changed. Nothing more was saved.");};
+    /* THE DRAFTS THIS RUN MADE ARE KNOWN TO IT (2026-11-21). The run used to forget them when it ended, so the button
+       went on offering "make the first image" with its price, right under "Done: a draft of ...". A draft used or
+       deleted afterwards still clears what is known (kinolot-previs-changed, above). */
+    const known=()=>Object.keys(drawn).length?{...drawn}:null;
     const stopped=()=>!!(_locPrepareRuns[l.id]||{}).stop;
     let at="";
-    _locPrepareSet(l.id,{busy:true,stop:false,note:"",fail:"",text:""});
+    _locPrepareSet(l.id,{busy:true,stop:false,note:"",noteFor:"",fail:"",text:""});
     try{
       for(const step of todo.steps){
         if(stopped())break;
@@ -2681,18 +2704,18 @@ function LocationPreparePlace({l,rooms=[],project,drafted,spatialState,hasImage,
             at="the image of "+t.name;
             _locPrepareSet(l.id,{text:"Making the image of "+t.name+(step.targets.length>1?" ("+(i+1)+" of "+step.targets.length+")":"")+"\u2026 about a minute"});
             let choice;try{choice=P.settings(undefined,t.id===l.id?1:2);}catch(_){choice=undefined;}
-            await P.render(t.id,{project,location:card,settings:choice});check();
+            await P.render(t.id,{project,location:card,settings:choice});drawn[t.id]=true;check();
             done.push("a draft of "+t.name);
           }
         }
       }
       const made=todo.steps.some(s=>s.kind==="image")&&done.some(x=>x.indexOf("a draft of ")===0);
-      _locPrepareSet(l.id,{busy:false,text:"",drafts:null,note:(done.length?"Done: "+done.join("; ")+".":"Nothing was done.")
+      _locPrepareSet(l.id,{busy:false,text:"",drafts:known(),note:(done.length?"Done: "+done.join("; ")+".":"Nothing was done.")
         +(stopped()?" Stopped there, as asked.":"")
         +(made?" Each draft is in 4 \u00b7 Previs: it becomes the image only when you choose to use it.":"")});
       if(made)openFold(4);
     }catch(e){
-      _locPrepareSet(l.id,{busy:false,text:"",drafts:null,fail:(done.length?"Done and saved: "+done.join("; ")+". ":"")+"Stopped at "+(at||"the first step")+": "+((e&&e.message)||"it could not be done.")});
+      _locPrepareSet(l.id,{busy:false,text:"",drafts:known(),fail:(done.length?"Done and saved: "+done.join("; ")+". ":"")+"Stopped at "+(at||"the first step")+": "+((e&&e.message)||"it could not be done.")});
     }
   }
   async function start(){
@@ -2707,7 +2730,7 @@ function LocationPreparePlace({l,rooms=[],project,drafted,spatialState,hasImage,
     }
     if(plan.stage!=="set")return;
     // which spaces a draft already waits for: read from the film before the price is shown
-    _locPrepareSet(l.id,{busy:true,stop:false,note:"",fail:"",text:"Checking what is already made\u2026"});
+    _locPrepareSet(l.id,{busy:true,stop:false,note:"",noteFor:"",fail:"",text:"Checking what is already made\u2026"});
     try{if(typeof window.nbPrefetchAll==="function")await window.nbPrefetchAll();}catch(_){}
     const known=gather(),ids=known.hasImage?(known.roomsToDraw||[]).map(r=>r.id):[l.id],drafts={};
     for(const id of ids){try{const d=await P.drafts(id);drafts[id]=!!(d&&d.current);}catch(_){drafts[id]=false;}}
@@ -2740,7 +2763,7 @@ function LocationPreparePlace({l,rooms=[],project,drafted,spatialState,hasImage,
       run.busy&&plan.stage==="set"&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!run.stop,onClick:()=>_locPrepareSet(l.id,{stop:true}),
         title:"The step being done now is finished and saved; the ones after it are left for later."},run.stop?"Stopping after this step\u2026":"Stop after this step")),
     line&&E("p",{className:"loc-layer-note","data-testid":"location-prepare-next"},line),
-    run.note&&!run.busy&&E("p",{className:"loc-layer-note previs-notice",role:"status","data-testid":"location-prepare-note"},run.note),
+    run.note&&!run.busy&&(!run.noteFor||run.noteFor===plan.stage)&&E("p",{className:"loc-layer-note previs-notice",role:"status","data-testid":"location-prepare-note"},run.note),
     run.fail&&!run.busy&&E("p",{className:"loc-spatial-error",role:"alert"},run.fail));
 }
 window.LocationPreparePlace=LocationPreparePlace;

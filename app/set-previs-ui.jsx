@@ -59,7 +59,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
   const [engine,setEngine]=React.useState(()=>{try{return typeof window.nbGetModel==="function"?window.nbGetModel():"";}catch(_){return "";}});
   // THE CAMERA CHECK (2026-11-11; on this section since 2026-11-15): each saved camera's view of the set, graded.
   // null = still checking, or the check could not run (it then says nothing).
-  const [faults,setFaults]=React.useState(null),[fixing,setFixing]=React.useState(false),[fixNote,setFixNote]=React.useState("");
+  const [faults,setFaults]=React.useState(null),[fixing,setFixing]=React.useState(false),[fixNote,setFixNote]=React.useState(""),[tightNote,setTightNote]=React.useState("");
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
   React.useEffect(()=>{
     const bump=e=>{if(!e||!e.detail||!e.detail.id||e.detail.id===l.id)setTick(n=>n+1);},any=()=>setTick(n=>n+1);
@@ -176,7 +176,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
   // Fix cameras: only the cameras named by the check move, to clear views of this set; the others stay. Free.
   async function fixCameras(all){
     if(fixing||busy||!writable()||!onUpdate||(!all&&!faulty.length))return;
-    setFixing(true);setFail("");setFixNote("");
+    setFixing(true);setFail("");setFixNote("");setTightNote("");
     try{
       const list=((window.turnContinuity||{}).locations)||[],now=list.find(x=>x.id===l.id);
       if(!now)throw new Error("The open location changed. Open it again.");
@@ -185,7 +185,11 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
       const latest=((window.turnContinuity||{}).locations)||[],still=latest.find(x=>x.id===l.id);
       if(!still||!writable())throw new Error("The open location changed. Open it again.");
       onUpdate(l.id,{coverageViews:api.cameraProposalViews(still,proposal,latest)},{kind:"suggested-cameras"});
-      if(alive.current)setFixNote("Cameras updated: "+proposal.panels.filter(x=>!keep.includes(x.key)).map(x=>PANEL_NAMES[x.key]+" is now \u201c"+x.label+"\u201d").join("; ")+". You can review them in 3 \u00b7 Cameras.");
+      /* A SPACE TOO TIGHT FOR CLEAR VIEWS (2026-11-21, a paid run on a car): in a minicab three cameras "stand
+         inside or against part of the set" whatever is done, and Fix cameras put them back where they were and said
+         nothing: the same red list, press after press. It now says that this is as clear as the space allows. */
+      if(alive.current&&proposal.simple)setTightNote("This space is too tight for clearer views: the cameras now stand as clear of the set as it allows. The image can still be made from them. To change a view yourself, use Move a camera.");
+      else if(alive.current)setFixNote("Cameras updated: "+proposal.panels.filter(x=>!keep.includes(x.key)).map(x=>PANEL_NAMES[x.key]+" is now \u201c"+x.label+"\u201d").join("; ")+". You can review them in 3 \u00b7 Cameras.");
     }catch(e){if(alive.current)setFail((e&&e.message)||"The cameras could not be fixed.");}
     finally{if(alive.current)setFixing(false);}
   }
@@ -255,6 +259,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
             title:"Moves only the cameras named above to clear views of this set and keeps the others. Free."},fixing?"Finding clear views\u2026":"Fix cameras"),
           E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(3)},"Go to 3 \u00b7 Cameras"))),
       fixNote&&!faulty.length&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-fixed"},fixNote),
+      tightNote&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-tight"},tightNote),
       // MOVE A CAMERA (owner 2026-11-16: a live camera on the dressed set, opened from here): the camera tool of
       // 3 \u00b7 Cameras, drawing this same lit, dressed set; saving a view redraws the sheet above
       sheet&&!readOnly&&typeof onUpdate==="function"&&window.LocationCameraAngleWorkbench&&E("div",{className:"loc-step-actions previs-move-camera","data-testid":"previs-move-camera"},

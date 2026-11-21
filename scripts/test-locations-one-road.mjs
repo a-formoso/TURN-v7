@@ -275,7 +275,7 @@ await test("14 Frances knows, and the changed files have new cache keys",()=>{
   assert.ok(!ai.includes("generated at the top of the card"));
   const html=read("TURN.html");
   for(const f of ["ai.jsx","script.jsx","locations.jsx","locations-ui.jsx","chrome.jsx","artroom.jsx","app.jsx","shots-ui.jsx","breakdown.jsx","agents.jsx","props.jsx","styles.css"])
-    assert.ok(["20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1"].some(k=>html.includes("app/"+f+"?v="+k+"\"")),"cache key of "+f);
+    assert.ok(["20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2"].some(k=>html.includes("app/"+f+"?v="+k+"\"")),"cache key of "+f);
 });
 
 /* THE RUN ITSELF, on the card's own code, with the writing engine, the camera fit and the image engine as stubs.
@@ -404,6 +404,43 @@ await test("17 the first half: the description when missing, then the floor plan
   // a room's card, and a read-only film: no run
   const room=runner();assert.equal(room.box.LocationPreparePlace({...room.props,l:room.props.rooms[0],rooms:[]}),null);
   assert.equal(room.box.LocationPreparePlace({...room.props,readOnly:true}),null);
+});
+
+/* FOUND BY A PAID RUN ON THREE PLACES (2026-11-21): right under "Done: ... a draft of Hussain Flat" the button went on
+   offering "make the first image of Hussain Flat, as a draft (11 image credits)", and the note about the floor plan
+   being drafted stayed on the card after the plan was confirmed. */
+await test("18 after a run the button knows its own draft; a waiting draft is read when the card opens; the plan note goes with the plan",async()=>{
+  const r=runner();await r.press();
+  assert.deepEqual(r.state().drafts,{house:true},"the run remembers the draft it made");
+  // the card as it is after the run: the cameras fitted, both spaces dressed
+  const live=id=>r.box.turnContinuity.locations.find(x=>x.id===id);
+  r.props.l=live("house");r.props.rooms=[{...live("hall"),parentLocation:{id:"house",name:"Ellis House"}}];
+  r.box.KinolotCloudRender.camerasMissingForPlace=()=>[];
+  const after=r.render();
+  assert.equal(after.props["data-prepare-stage"],"done");
+  assert.ok(!r.flat(after).some(n=>n.props&&n.props["data-testid"]==="location-prepare-go"),"no button offering a second first image");
+  assert.equal(r.text(r.flat(after).find(n=>n.props["data-testid"]==="location-prepare-next")),"A draft of the image is waiting in 4 · Previs. Use it as the location image, or delete it.");
+  // a run that failed after its image: the draft it made is still known
+  const src=read("app/locations-ui.jsx");
+  assert.equal((src.match(/drafts:known\(\)/g)||[]).length,2,"at the end of a run and when it stops on a failure");
+  assert.ok(src.includes("await P.render(t.id,{project,location:card,settings:choice});drawn[t.id]=true;check();"));
+  // when the card opens: one read of the place's own drafts, only with a confirmed plan and no image, never during a run
+  assert.ok(src.includes('if(readOnly||l.parentLocation||!P||typeof P.drafts!=="function"||hasImage||!planIsReady||r.busy||r.drafts)return;'));
+  assert.ok(src.includes('_locPrepareSet(l.id,{drafts:{[l.id]:true}});'));
+  assert.ok(src.includes('if(e&&e.type==="kinolot-previs-changed")askDrafts();'),"read again when a draft is made, used or deleted");
+  assert.ok(src.includes('},[l.id,hasImage,planIsReady,draftsAsked,readOnly]);'));
+  // the note of the first half is about a plan that waits: shown while it waits, gone once the plan is confirmed
+  const first=runner({props:{drafted:true,spatialState:{ready:false,plan:{frame:"",anchors:[],sightlines:"",unresolved:""}}}});
+  await first.press();
+  assert.equal(first.state().noteFor,"review");
+  const note=t=>first.flat(t).find(n=>n.props&&n.props["data-testid"]==="location-prepare-note");
+  first.props.spatialState={ready:false,plan:{frame:"Facing the door.",anchors:[{}]}};
+  assert.ok(note(first.render()),"while the plan waits for its check");
+  first.props.spatialState={ready:true,plan:{frame:"Facing the door.",anchors:[{}]}};
+  const confirmed=first.render();
+  assert.equal(confirmed.props["data-prepare-stage"],"set");assert.equal(note(confirmed),undefined,"gone once the plan is confirmed");
+  // a run's own note (Done: ...) carries no stage and is always shown
+  assert.equal(r.state().noteFor,"");assert.ok(r.flat(after).find(n=>n.props&&n.props["data-testid"]==="location-prepare-note"));
 });
 
 console.log("\n"+passed+" passed, "+failed+" failed");

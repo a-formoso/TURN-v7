@@ -13,6 +13,24 @@
   function savedOpening(anchor,space){
     return (space?.openings||[]).find(o=>o.id===anchor.id||tidy(o.name).toLowerCase()===tidy(anchor.name).toLowerCase());
   }
+  /* A NAMED DOORWAY BEYOND THE OUTLINE (2026-11-21, a paid run on the street "Hussain Terrace"). The floor plan draft
+     of a street listed "Kitchen doorway at far end of hall": a door 6 m inside the house, glimpsed through the front
+     door. It is an opening by its name, it has no opening on the street's own outline and it never can have one, so the
+     plan was refused ("Add ... to its room's floor-plan openings") and the free fixes found nothing: a dead end on a
+     brand-new place. An opening-named object with no saved opening that stands more than half a metre OUTSIDE its
+     space's outline belongs to a space this plan does not hold: it is not asked for and not built (the set says so). */
+  function beyondOutline(anchor,space){
+    const p=anchor&&anchor.xy,fp=space&&space.footprint;
+    if(!Array.isArray(p)||!finite(p[0])||!finite(p[1])||!Array.isArray(fp)||fp.length<3)return false;
+    let inside=false,near=Infinity;
+    for(let i=0,j=fp.length-1;i<fp.length;j=i++){
+      const a=fp[i],b=fp[j];
+      if(!Array.isArray(a)||!Array.isArray(b))return false;
+      if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])inside=!inside;
+      near=Math.min(near,segDist(p[0],p[1],a,b));
+    }
+    return !inside&&near>0.5;
+  }
   function isOpening(anchor,space){
     // Explicit floor-plan apertures are authoritative even when their descriptive names are ambiguous.
     const opening=savedOpening(anchor,space);
@@ -445,7 +463,7 @@
       const room=root.locationAnchorSpaceOf(a,family)||owner,space=spaces.find(s=>s.id===room.id);
       if(!space){issues.push("Add the footprint for "+(room.name||"each object's room")+".");continue;}
       if(isOpening(a,space)){
-        if(!savedOpening(a,space))issues.push("Add "+a.name+" to its room's floor-plan openings, with its dimensions.");
+        if(!savedOpening(a,space)&&!beyondOutline(a,space))issues.push("Add "+a.name+" to its room's floor-plan openings, with its dimensions.");
       }else{
         const missing=[!a.xy&&{key:"xy",label:"Floor plan position"},!a.size&&{key:"size",label:"Object dimensions (width, depth, height)"}].filter(Boolean);
         if(missing.length)objectIssues.push({step:2,anchorId:a.id,fields:missing.map(f=>f.key),
@@ -581,7 +599,10 @@
          position and a size, is built; its opening stays an opening in the wall behind it. */
       const movingThing=movingIds.has(anchor.id)&&!!anchor.xy&&!!anchor.size;
       if(isOpening(anchor,sp)&&!movingThing){
-        if(!savedOpening(anchor,sp))throw new Error("Add "+anchor.name+" to its room's floor-plan openings, with its dimensions.");
+        if(!savedOpening(anchor,sp)){
+          if(!beyondOutline(anchor,sp))throw new Error("Add "+anchor.name+" to its room's floor-plan openings, with its dimensions.");
+          notes.push(tidy(anchor.name,80)+" stands beyond this place's outline (seen through an opening): it is not built.");
+        }
         return;
       }
       if(!anchor.xy||!anchor.size)throw new Error("Set the floor plan position and width, depth and height for "+(anchor.name||"each fixed object")+".");

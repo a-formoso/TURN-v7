@@ -524,3 +524,38 @@ test('a draft can be deleted for good: the current one or an earlier one; no ima
   const e=await P.render('hall');h.readOnly();
   await assert.rejects(()=>P.remove('hall',e.meta.iso),/read-only/);assert.ok(store.has('previs-draft-hall'));
 });
+
+/* SIZED TO FINISH, AND ASKED ONCE MORE WHEN IT IS NOT (2026-11-21, a paid run on three places: two dressings in four
+   ran past the 140 s limit at 140 parts, each a failed first try). */
+test('a dressing that takes too long is asked once more, lighter, before the user hears of it',async()=>{
+  const h=placeHarness(),{D,p,hall}=h;
+  assert.equal(D.CALL.parts,100);assert.equal(D.CALL.retryParts,60);assert.ok(D.CALL.ms<150000,'under the 150 s a call must come back in');
+  const good=JSON.stringify({palette:{paint:['#808080',.8]},surfaces:{},objects:{},extras:[{name:'Hall table',at:[2.6,2,0],turn:0,parts:[['box',[.4,.4,.4],[0,0,.2],'paint']]}],light:{}});
+  const slow=new Error('Writing model (Fable 5.2): The writing engine took too long to answer. Please try again — a shorter request finishes sooner.');
+  p.turnIsWritingTimeout=e=>/took too long to answer|didn[’']t answer in time/i.test(String(e&&e.message||e||''));
+  const toasts=[];p.appToast=(m,k)=>toasts.push(k+': '+m);
+  const asked=[];let answers=[];
+  p.claude={complete:async o=>{asked.push(o);const a=answers.shift();if(a instanceof Error)throw a;return a;}};
+  const parts=o=>Number((o.messages[0].content.match(/at most (\d+) parts|(\d+) parts at most|up to (\d+) parts/i)||[]).slice(1).find(Boolean));
+  // too slow once: asked again with the lighter size; the first try is quiet, the second is not
+  answers=[slow,good];
+  const r=await D.draft(hall,{project:{title:'F'},locations:[h.yard,hall]});
+  assert.equal(asked.length,2);assert.equal(r.report.parts,1);
+  assert.equal(asked[0].quietTimeout,true);assert.equal(asked[1].quietTimeout,false);
+  assert.equal(asked[0].timeoutMs,D.CALL.ms);assert.equal(asked[1].timeoutMs,D.CALL.ms);
+  assert.ok(asked[0].messages[0].content.includes('100')&&asked[1].messages[0].content.includes('60'),'the second ask is smaller');
+  assert.notEqual(asked[0].messages[0].content,asked[1].messages[0].content);
+  assert.deepEqual(toasts,['info: Dressing Hall took too long. Trying once more with a lighter set…']);
+  // too slow twice: the user is told, with the engine's own sentence, and nothing is asked a third time
+  asked.length=0;answers=[slow,slow];
+  await assert.rejects(()=>D.draft(hall,{project:{title:'F'},locations:[h.yard,hall]}),/took too long to answer/);
+  assert.equal(asked.length,2);
+  // another failure is not a reason to ask again
+  asked.length=0;answers=[new Error('Choose a plan to start creating')];
+  await assert.rejects(()=>D.draft(hall,{project:{title:'F'},locations:[h.yard,hall]}),/Choose a plan/);
+  assert.equal(asked.length,1);
+  // the writing call keeps quiet about a timeout only when it is asked to
+  const ai=readFileSync('app/ai.jsx','utf8');
+  assert.ok(ai.includes('if(!opts.quietTimeout && typeof window.appToast==="function") window.appToast(msg,"error");'));
+  assert.ok(ai.includes('if(!(slow && opts.quietTimeout) && typeof window.appToast==="function") window.appToast(msg,"error");'));
+});

@@ -11,7 +11,11 @@
   /* ONE CALL MUST COME BACK IN TIME. A writing call that runs past about 150 s never reaches the page, so a set is
      asked for in a size the engine finishes well inside that (measured 2026-11-15: 260 parts at medium effort did not),
      and the call is given up at CALL_MS, when the server releases the credits it held: nothing is charged. */
-  const CALL={parts:140,effort:"low",ms:140000};
+  /* SIZED TO FINISH (2026-11-21, a paid run on three places): at 140 parts two dressings in four ran past the limit
+     (a car, a street), each a failed first try the user had to start again; the two that came back wrote about 100
+     shapes in 60 to 130 s. A set is now asked for in 100 parts, and a call that still takes too long is asked ONCE
+     more, lighter (RETRY parts), before the user hears of it: the first call's held credits were given back. */
+  const CALL={parts:100,effort:"low",ms:140000,retryParts:60};
   const RAD=Math.PI/180;
   const finite=n=>typeof n==="number"&&Number.isFinite(n);
   const tidy=(s,max=160)=>String(s==null?"":s).replace(/[\u0000-\u001f]/g," ").trim().slice(0,max);
@@ -386,8 +390,23 @@
     const epoch=typeof root.nbEpoch==="function"?root.nbEpoch():null;
     const scene=root.KinolotCloudRender.buildScene(location,ctx.locations);
     const maxParts=Math.max(20,Math.min(LIMITS.parts,ctx.maxParts||CALL.parts,500-scene.objects.length));
-    const text=prompt(brief(location,scene,ctx),maxParts);
-    const raw=await root.claude.complete({messages:[{role:"user",content:text}],modelId:ctx.modelId||MODEL,maxTokens:ctx.maxTokens||14000,effort:ctx.effort||CALL.effort,timeoutMs:ctx.timeoutMs||CALL.ms});
+    const about=brief(location,scene,ctx);
+    let text="";
+    const ask=(parts,quiet)=>{
+      text=prompt(about,parts);
+      return root.claude.complete({messages:[{role:"user",content:text}],modelId:ctx.modelId||MODEL,maxTokens:ctx.maxTokens||14000,effort:ctx.effort||CALL.effort,timeoutMs:ctx.timeoutMs||CALL.ms,quietTimeout:!!quiet});
+    };
+    const lighter=Math.max(20,Math.min(maxParts-20,ctx.retryParts||CALL.retryParts));
+    let raw;
+    try{raw=await ask(maxParts,lighter<maxParts&&!ctx.noRetry);}
+    catch(e){
+      const slow=typeof root.turnIsWritingTimeout==="function"&&root.turnIsWritingTimeout(e);
+      if(!slow||ctx.noRetry||lighter>=maxParts)throw e;
+      if(epoch!==null&&root.nbEpoch()!==epoch)throw new Error("The film changed. The set was not dressed.");
+      if(typeof root.appToast==="function")root.appToast("Dressing "+tidy(location.name||"the set",60)+" took too long. Trying once more with a lighter set\u2026","info");
+      if(typeof ctx.onRetry==="function")try{ctx.onRetry(lighter);}catch(_){}
+      raw=await ask(lighter,false);
+    }
     if(epoch!==null&&root.nbEpoch()!==epoch)throw new Error("The film changed. The set was not dressed.");
     const parsed=readJSON(raw);
     if(!parsed||typeof parsed!=="object")throw new Error("The dressing came back incomplete. Nothing was changed.");

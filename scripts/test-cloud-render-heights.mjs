@@ -132,4 +132,29 @@ const door=(sillZ,headZ)=>({id:"office-door",name:"Office door",kind:"door",edge
   check(!box.KinolotCloudRender.inputIssueList(opening).some(i=>i.anchorId==='alcove'),'An explicitly saved arch does not require an extra solid object size');
   check(!box.KinolotCloudRender.buildScene(opening).objects.some(o=>o.anchorId==='alcove'),'The explicit opening is not blocked by a fabricated solid object');
 }
+/* A NAMED DOORWAY BEYOND THE OUTLINE (2026-11-21, a paid run on a street): the draft of "Hussain Terrace" listed
+   "Kitchen doorway at far end of hall", 6 m inside the house and seen through the front door. It blocked the plan with
+   a measurement nobody could give, and the free fixes found nothing. */
+{
+  const far={id:'kitchen-doorway',name:'Kitchen doorway at far end of hall',xy:[-13.5,10],z:1,size:[.8,.1,2]};
+  const deck=family([far,{id:'vent',name:'Ventilation trunk',xy:[6,10],z:2,size:[1.2,1,4]}],[],'centre');
+  check(box.locationAnchorIsOpening(deck.spatialPlan.anchors[0]),'It is an opening by its name');
+  const issues=box.KinolotCloudRender.inputIssueList(deck).filter(i=>i.step===2).map(i=>i.text);
+  check(!issues.some(t=>/Kitchen doorway/.test(t)),'6.5 m outside the outline: not asked for ('+issues.join(' | ')+')');
+  const scene=box.KinolotCloudRender.buildScene(deck);
+  check(!scene.objects.some(o=>o.anchorId==='kitchen-doorway'),'...and not built');
+  check(scene.notes.some(n=>n==="Kitchen doorway at far end of hall stands beyond this place's outline (seen through an opening): it is not built."),'The set says so');
+  check(scene.objects.some(o=>o.anchorId==='vent'),'Everything else is built as before');
+  // inside the outline, or on its edge, a named doorway with no saved opening is still asked for
+  for(const xy of [[0,10],[-7,10],[-7.4,10]]){
+    const d=family([{...far,xy}],[],'centre');
+    check(box.KinolotCloudRender.inputIssueList(d).some(i=>i.text==="Add Kitchen doorway at far end of hall to its room's floor-plan openings, with its dimensions."),'Still asked for at '+xy.join(','));
+    assert.throws(()=>box.KinolotCloudRender.buildScene(d),/Add Kitchen doorway at far end of hall to its room's floor-plan openings/);checks++;
+  }
+  // with no position there is nothing to tell where it stands: asked for, as before
+  const blind=family([{id:'kitchen-doorway',name:'Kitchen doorway at far end of hall',z:1}],[],'centre');
+  check(box.KinolotCloudRender.inputIssueList(blind).some(i=>/Add Kitchen doorway/.test(i.text)),'No position: still asked for');
+  // the drafter is told to keep to the listed spaces
+  check(read('app/ai.jsx').includes('ONLY THE LISTED SPACES: every fixed object and every opening stands inside, or on the edge of, the footprint of one of the spaces listed for this plan.'),'The floor plan drafter is told');
+}
 console.log(`PASS cloud render heights: ${checks} height-convention, no-double-lift, editor, Frances and CORS checks`);
