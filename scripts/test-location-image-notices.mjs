@@ -58,6 +58,7 @@ const cls=n=>n.arguments?.[1]?.properties?.find(p=>p.key?.name==='className')?.v
 const sheet=ast.program.body.find(n=>n.type==='FunctionDeclaration'&&n.id.name==='LocationSheet');
 const body=find(sheet,n=>isElement(n)&&cls(n)==='sheet-body');
 ok(!body.arguments.slice(2).some(n=>isElement(n)&&n.arguments[0]?.name==='LocationImageChangeNotices'),'Freshness messages no longer add a row above the step guide');
-const heading=find(body,n=>isElement(n)&&cls(n)==='sheet-head');
+// the heading is made as a part of its own since the picture-first card (2026-11-21)
+const heading=find(sheet,n=>isElement(n)&&cls(n)==='sheet-head');
 ok(!!find(heading,n=>isElement(n)&&n.arguments[0]?.name==='LocationImageChangeNotices'),'The heading contains only the compact help trigger');
 console.log('PASS image notices: '+checks+' attribution, legacy, tolerance, navigation and heading checks');

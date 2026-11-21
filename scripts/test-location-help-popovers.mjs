@@ -39,12 +39,13 @@ function harness(){
 {
  const h=harness(),steps=[{n:2,name:'Floor plan',next:true,todo:'The opening top is above the ceiling. Correct the measurements.'}];
  let go=0;h.b.goToLocationStep=()=>go++;
- const tree=h.b.LocationStepGuide({l:{id:'room'},steps});
- // (owner 2026-11-17: "the tracker alone is enough") the Next row with its help trigger and Go button left the card:
- // the step to do next is marked in the tracker, says what to do in its tooltip, and opens its section
- ok(!flat(tree).some(n=>n.props.className==='loc-steps-next')&&!flat(tree).some(n=>n.type===h.b.LocationHelpPopover),'The tracker stands alone: no second next-step row');
- const step=flat(tree).find(n=>n.type==='button'&&n.props.className==='loc-step next');
- ok(step.props['aria-current']==='step'&&step.props.title==='Next \u2014 '+steps[0].todo,'The step to do next carries the full instruction');
+ const tree=h.b.LocationTodoList({l:{id:'room'},steps,looks:[],onLook(){}});
+ // (owner 2026-11-17: "the tracker alone is enough") no second next-step row with a help trigger. Since the picture-first
+ // card (2026-11-21) the steps are the To do tab's rows: the one to do next is marked, says what to do, and opens its section
+ ok(!flat(tree).some(n=>n.props.className==='loc-steps-next')&&!flat(tree).some(n=>n.type===h.b.LocationHelpPopover),'The list stands alone: no second next-step row');
+ const row=flat(tree).find(n=>n.type==='li'&&n.props.className==='loc-todo-row next');
+ const step=flat(row).find(n=>n.type==='button');
+ ok(step.props['aria-current']==='step'&&step.props.title==='Next \u2014 '+steps[0].todo&&flat(row).some(n=>n.type==='small'&&n.children.join('')===steps[0].todo),'The step to do next carries the full instruction');
  step.props.onClick();ok(go===1,'The step opens the required repair section');
 }
 console.log('PASS location help: '+checks+' overlay, hover, tap, keyboard, compactness and repair-route checks');

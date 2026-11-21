@@ -177,7 +177,7 @@ await test("6 Frances knows it, and the page loads the new files", async () => {
     "Update sheet with new wardrobe", "An image you uploaded yourself carries no label", "how the owner's own card writes the item"]) assert.ok(f.includes(w), w);
   assert.ok(!/\bTURN\b|McKee|Claude|Anthropic|Gemini|GPT/.test(f));
   for (const file of ["props.jsx", "artroom.jsx", "ai.jsx"]) {
-    assert.ok(["20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
+    assert.ok(["20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1"].some((k) => html.includes(file + "?v=" + k + '"')), file + " has the new key");
   }
 });
 

@@ -102,7 +102,7 @@ await test("5 the versions list says Full; Frances knows the limit; the page loa
   const f = between(ai, 'APP_FEATURES.push({ name:"Versions of an image: how many are kept, and the warning when they are full (Art Room)"', "/* a billing entry:");
   for (const w of ["AN IMAGE KEEPS 12 EARLIER VERSIONS", "removes the OLDEST one for good", "THE APP NOW WARNS BEFORE THAT HAPPENS", "'Go on' makes the new version, 'Not now' changes nothing and spends nothing", "'Make them all', or 'Leave those as they are'", "shows 'Full'", "TO KEEP A VERSION THAT WOULD BE REMOVED", "Restoring an earlier version does not remove any"]) assert.ok(f.includes(w), w);
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic|Gemini|GPT/.test(f));
-  for (const file of ["artroom.jsx", "imagegen.jsx", "cloud.jsx", "props.jsx", "ai.jsx", "styles.css"]) assert.ok(["20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1"].some(k => html.includes(file + "?v=" + k + '"')), file + " has a current key");
+  for (const file of ["artroom.jsx", "imagegen.jsx", "cloud.jsx", "props.jsx", "ai.jsx", "styles.css"]) assert.ok(["20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1"].some(k => html.includes(file + "?v=" + k + '"')), file + " has a current key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

@@ -12555,3 +12555,92 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 
 /* the versions list says when it is full (2026-11-20: the next new version removes the oldest) */
 .dt-hist-full{padding:1px 6px;border:1px solid var(--pos-line);border-radius:999px;color:var(--pos-ink);font:600 9px var(--f-mono);letter-spacing:.04em;text-transform:none}
+
+/* ============================ THE LOCATION CARD, PICTURE FIRST (owner 2026-11-21) ============================
+   "I like B": the name and one line of status, the looks, one picture seen three ways (Image, 3D set, Floor plan),
+   Next, then four tabs (To do, Scenes, Set, About) that hold every section the card had. locations-ui.jsx. */
+.loc-workspace-space[hidden],.loc-viewer-image[hidden],.loc-look-panel[hidden],.loc-tabpanel[hidden]{display:none !important}
+.loc-workspace-space{display:flex;flex-direction:column;min-width:0}
+[data-card-layout="picture-first"] > .sheet-body.loc-b-top{flex:0 0 auto;padding-bottom:12px;gap:12px}
+.loc-b-headrow{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.loc-b-headrow > .sheet-head{flex:1 1 auto;min-width:0}
+.loc-status-pill{flex:0 0 auto;max-width:46%;margin-top:1px;padding:3px 10px;border-radius:999px;background:var(--bg-3);color:var(--txt-1);
+  font-size:11.5px;font-weight:600;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.loc-status-pill.yours{background:color-mix(in srgb,var(--pos) 18%,transparent);color:var(--pos-ink)}
+.loc-status-pill.done{background:var(--txt-0);color:var(--bg-1)}
+.loc-b-lab{display:flex;align-items:center;gap:6px;color:var(--txt-3);font:600 9.5px/1.4 var(--f-mono);letter-spacing:.12em;text-transform:uppercase}
+.loc-looks{display:flex;flex-direction:column;gap:7px;min-width:0}
+.loc-looks-row{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 4px;margin:0 -2px;scrollbar-width:thin}
+.loc-look{flex:0 0 92px;display:flex;flex-direction:column;gap:4px;padding:5px;border:2px solid var(--line);border-radius:var(--r-m);
+  background:var(--bg-4);color:var(--txt-0);text-align:left;cursor:pointer;min-width:0}
+.loc-look:hover{border-color:var(--line-3)}
+.loc-look.on{border-color:var(--txt-0)}
+.loc-look:focus-visible{outline:2px solid var(--pos);outline-offset:2px}
+.loc-look-thumb{display:block;height:46px;border-radius:5px;border:1px solid var(--line-2);overflow:hidden;background:var(--bg-2)}
+.loc-look-thumb.none{background:repeating-linear-gradient(135deg,var(--bg-3) 0 5px,var(--bg-4) 5px 10px)}
+.loc-look-thumb.add{display:grid;place-items:center;color:var(--txt-2);border-style:dashed}
+.loc-look-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.loc-look-name{font-size:12px;font-weight:600;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.loc-look-sub{font-size:11px;line-height:1.25;color:var(--txt-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.loc-look.orphan .loc-look-name{color:var(--txt-2)}
+.loc-look.add{border-style:dashed;color:var(--txt-1)}
+.loc-variants-empty{padding:0}
+.loc-viewer{display:flex;flex-direction:column;min-width:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--bg-2)}
+.loc-viewer-bar{display:flex;align-items:center;gap:8px;padding:8px 12px 0}
+.loc-viewer .sheet-frame{border-bottom:0}
+.loc-seg{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-4)}
+.loc-seg-btn{min-height:26px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--txt-1);font-size:12px;font-weight:600;cursor:pointer}
+.loc-seg-btn:hover{color:var(--txt-0)}
+.loc-seg-btn.on{background:var(--txt-0);color:var(--bg-1)}
+.loc-seg-btn:focus-visible{outline:2px solid var(--pos);outline-offset:1px}
+.loc-viewer-pic{display:flex;flex-direction:column;gap:8px;padding:12px}
+.loc-viewer-pic .loc-map-wrap{margin:0}
+.loc-viewer-cap{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:11.5px;line-height:1.45;color:var(--txt-2)}
+.loc-viewer-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:200px;padding:22px 20px;text-align:center;
+  font-size:12px;line-height:1.45;color:var(--txt-2)}
+.loc-viewer-empty b{font-size:13.5px;color:var(--txt-0)}
+.loc-viewer-empty .loc-step-actions{justify-content:center;margin:6px 0 0}
+.loc-look-panel{padding:12px;background:var(--bg-1)}
+.loc-look-panel > .loc-variant-group:first-child{margin-top:0}
+/* Next: what is left, in one run (Prepare this place) */
+[data-card-layout="picture-first"] .loc-prepare{border-color:transparent;background:var(--bg-2)}
+[data-card-layout="picture-first"] .loc-prepare::before{content:"Next";color:var(--txt-3);font:600 9.5px/1.4 var(--f-mono);letter-spacing:.12em;text-transform:uppercase}
+[data-card-layout="picture-first"] .loc-prepare[data-prepare-stage="review"],
+[data-card-layout="picture-first"] .loc-prepare[data-prepare-stage="blocked"]{background:color-mix(in srgb,var(--pos) 14%,transparent)}
+[data-card-layout="picture-first"] .loc-prepare[data-prepare-stage="review"]::before,
+[data-card-layout="picture-first"] .loc-prepare[data-prepare-stage="blocked"]::before{content:"Your turn";color:var(--pos-ink)}
+/* the four tabs */
+.loc-tabs{display:flex;flex-direction:column;min-width:0;margin:2px -15px 0}
+.loc-tablist{display:flex;gap:2px;padding:0 9px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.loc-tab{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 9px;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;
+  background:transparent;color:var(--txt-2);font-size:12.5px;font-weight:600;cursor:pointer}
+.loc-tab:hover{color:var(--txt-0)}
+.loc-tab.on{color:var(--txt-0);border-bottom-color:var(--pos)}
+.loc-tab:focus-visible{outline:2px solid var(--pos);outline-offset:-2px}
+.loc-tab-count{padding:0 6px;border-radius:999px;background:var(--bg-3);color:var(--txt-2);font:600 10px/1.6 var(--f-mono)}
+.loc-tabpanel{display:flex;flex-direction:column;min-width:0;padding:4px 15px 2px}
+.loc-tabpanel > .sheet-fold:first-child{border-top:0}
+.loc-tabpanel > .char-style-row{margin:10px 0}
+.loc-todo{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.loc-todo-row{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid var(--line)}
+.loc-todo-row:last-child{border-bottom:0}
+.loc-todo-mark{flex:0 0 22px;height:22px;display:grid;place-items:center;border-radius:50%;border:1px solid var(--line-3);background:var(--bg-4);
+  color:var(--txt-2);font:600 10.5px var(--f-mono)}
+.loc-todo-row.done .loc-todo-mark{background:var(--pos);border-color:var(--pos);color:var(--ink-on-accent)}
+.loc-todo-row.next .loc-todo-mark{border-color:var(--pos);color:var(--pos-ink)}
+.loc-todo-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}
+.loc-todo-text b{font-size:12.5px;font-weight:600;color:var(--txt-0)}
+.loc-todo-text small{font-size:11.5px;line-height:1.4;color:var(--txt-3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.loc-todo-row.next .loc-todo-text small{color:var(--txt-1)}
+.loc-todo-go{flex:0 0 auto;min-height:28px;padding:0 10px;border:1px solid var(--line-2);border-radius:7px;background:var(--bg-4);color:var(--txt-0);
+  font-size:12px;font-weight:600;cursor:pointer}
+.loc-todo-go:hover{border-color:var(--txt-0)}
+.loc-todo-row.next .loc-todo-go{background:var(--accent);border-color:var(--accent);color:var(--ink-on-accent)}
+.loc-scene-rows{display:flex;flex-direction:column}
+.loc-scene-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);min-width:0}
+.loc-scene-row:last-child{border-bottom:0}
+.loc-scene-title{flex:1 1 auto;min-width:0;font-size:12.5px;color:var(--txt-0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.loc-scene-looks{flex:0 1 auto;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px;min-width:0}
+.loc-scene-state{padding:1px 8px;border-radius:999px;background:var(--bg-3);color:var(--txt-2);font-size:11px;font-weight:600;white-space:nowrap}
+.loc-scene-state.has{background:var(--txt-0);color:var(--bg-1)}
+.loc-b-headrow .loc-parent-breadcrumb{white-space:normal;overflow:visible}

@@ -94,63 +94,66 @@ walk(locationSheet.body);
 const sheetBody=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
   String(propValue(n.arguments[1],"className")||"")==="sheet-body");
 assert.ok(sheetBody,"LocationSheet has a sheet-body producer");
-// a fold shown on demand ("showPrompt && CardFold(…)", the ⋯ menu's "Show the generation prompt",
-// 2026-10-03) still counts as that fold, in place
+// a fold shown on demand ("showPrevis && CardFold(…)") still counts as that fold
 const unwrapShown=n=>n&&n.type==="LogicalExpression"&&n.operator==="&&"?unwrapShown(n.right):n;
-const bodyChildren=sheetBody.arguments.slice(2).map(unwrapShown);
 // 2026-11-15 (owner: one road, "remove Blender"): a location card has no Blender hand-off any more. Its set is drawn
 // in 4 · Previs; Blender Studio is opened from the Art Room toolbar, which builds the same production package itself.
 assert.equal(astCalls.find(n=>firstName(n)==="LocationBlenderStudioSection"),undefined,"LocationSheet no longer produces the contextual launcher");
-const childIndex=n=>bodyChildren.indexOf(n);
-const directClass=needle=>bodyChildren.find(n=>createElement(n)&&
-  String(propValue(n.arguments[1],"className")||"").split(/\s+/).includes(needle));
-const directFold=label=>bodyChildren.find(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")===label);
-// a section whose number follows the card (owner 2026-11-13: every section numbered, no gap): label:sectionNo.<key>+" · <name>"
-const numberedFold=(key,name)=>bodyChildren.find(n=>{
-  if(firstName(n)!=="CardFold")return false;
-  const prop=n.arguments[1].properties.find(p=>p.key&&p.key.name==="label");
-  return !!prop&&source.slice(prop.value.start,prop.value.end)==='sectionNo.'+key+'+" \\u00b7 '+name+'"';
-});
-const headIndex=childIndex(directClass("sheet-head")),
-  styleIndex=childIndex(directClass("char-style-row")),scenesIndex=childIndex(directClass("location-scenes")),
-  // one numbered path per card (owner 2026-11-01), every section numbered in order (owner 2026-11-13): the prompt is the last section
-  viewsIndex=childIndex(directFold("2 \u00b7 Floor plan")),
-  promptIndex=childIndex(numberedFold("prompt","Generation Prompt"));
-for(const [name,index] of [["header",headIndex],["render style",styleIndex],["scene chips",scenesIndex],
-  ["2 · Floor plan",viewsIndex],["Generation Prompt",promptIndex]])
-  assert.ok(index>=0,`LocationSheet retains ${name}`);
-const spatialFold=directFold("2 \u00b7 Floor plan");
-assert.equal(directFold("More"),undefined,"the More section is gone (owner 2026-11-13)");
-const within=(fold,name)=>{const src=source.slice(fold.start,fold.end);return new RegExp("\\b"+name+"\\b").test(src);};
-assert.equal(directFold("Blender Studio"),undefined,"no section without a number");
-assert.equal(bodyChildren.find(n=>firstName(n)==="CardFold"&&/Build the set|Style it/.test(String(propValue(n.arguments[1],"label")||""))),undefined,"no Build the set or Style it section");
-assert.ok(!/studioHandoff|loc-own-blender|BlenderStudioLaunch/.test(source.slice(locationSheet.start,locationSheet.end)),"no hand-off box anywhere on the card");
-const promptFold=numberedFold("prompt","Generation Prompt");
-assert.ok(promptFold&&childIndex(promptFold)===bodyChildren.length-1,
+/* THE CARD, PICTURE FIRST (owner 2026-11-21, "I like B"): each section is made as a named part of LocationSheet and
+   shown in one of four tabs. A part is read here by its name; the tabs' own lines say where each is shown, in order. */
+const parts={};
+(function decls(node){
+  if(!node||typeof node!=="object")return;
+  if(node.type==="VariableDeclarator"&&node.id&&node.id.type==="Identifier"&&node.init&&!(node.id.name in parts))parts[node.id.name]=unwrapShown(node.init);
+  for(const key of Object.keys(node)){
+    if(key==="loc"||key==="start"||key==="end")continue;
+    const value=node[key];
+    if(Array.isArray(value))value.forEach(decls);else if(value&&typeof value==="object")decls(value);
+  }
+})(locationSheet.body);
+const sheetSource=source.slice(locationSheet.start,locationSheet.end);
+const hasClass=(n,needle)=>!!n&&createElement(n)&&String(propValue(n.arguments[1],"className")||"").split(/\s+/).includes(needle);
+const labelSource=n=>{const prop=n&&createElement(n)&&firstName(n)==="CardFold"&&n.arguments[1].properties.find(p=>p.key&&p.key.name==="label");
+  return prop?source.slice(prop.value.start,prop.value.end):"";};
+const cardFolds=astCalls.filter(n=>firstName(n)==="CardFold");
+const foldLabelled=label=>cardFolds.find(n=>propValue(n.arguments[1],"label")===label);
+assert.ok(hasClass(parts.headEl,"sheet-head"),"LocationSheet retains header");
+assert.ok(hasClass(parts.styleRowEl,"char-style-row"),"LocationSheet retains render style");
+assert.ok(sheetSource.includes('render:()=>React.createElement(LocationScenesList,{l,locScenes,units:evidenceUnits,onChipClick})'),"LocationSheet retains its scenes, as a tab");
+assert.equal(labelSource(parts.foldSpace),'"1 \\u00b7 The Space"');
+assert.equal(labelSource(parts.foldPlan),'"2 \\u00b7 Floor plan"');
+assert.equal(labelSource(parts.foldCameras),'"3 \\u00b7 Cameras"');
+assert.equal(labelSource(parts.foldPrevis),'"4 \\u00b7 Previs"');
+assert.equal(labelSource(parts.foldImage),'sectionNo.image+" \\u00b7 Location image"');
+assert.equal(labelSource(parts.foldSubspaces),'"Subspaces"');
+assert.equal(labelSource(parts.foldPrompt),'"Generation Prompt"');
+// the four tabs, and what each holds, in order: the set's steps in Set; the description, the look and the prompt in About
+assert.ok(sheetSource.includes('{id:"todo",name:"To do",render:()=>React.createElement(LocationTodoList,{l,steps:cardSteps,looks,onLook:pickLook})},'));
+assert.ok(sheetSource.includes('{id:"set",name:"Set",render:()=>React.createElement(React.Fragment,null,foldPlan,foldCameras,foldPrevis,foldSubspaces)},'));
+assert.ok(sheetSource.includes('{id:"about",name:"About",render:()=>React.createElement(React.Fragment,null,foldSpace,styleRowEl,foldImage,foldPrompt)}]})));'),
   "Generation Prompt is its own section, the last one");
-const imageFold=numberedFold("image","Location image");
+const spatialFold=parts.foldPlan,promptFold=parts.foldPrompt,imageFold=parts.foldImage;
+assert.equal(foldLabelled("More"),undefined,"the More section is gone (owner 2026-11-13)");
+const within=(fold,name)=>{const src=source.slice(fold.start,fold.end);return new RegExp("\\b"+name+"\\b").test(src);};
+assert.equal(foldLabelled("Blender Studio"),undefined,"no Blender Studio section");
+assert.equal(cardFolds.find(n=>/Build the set|Style it/.test(String(propValue(n.arguments[1],"label")||""))),undefined,"no Build the set or Style it section");
+assert.ok(!/studioHandoff|loc-own-blender|BlenderStudioLaunch/.test(sheetSource),"no hand-off box anywhere on the card");
 assert.ok(imageFold&&within(imageFold,"QaCheckButton")&&!within(promptFold,"QaCheckButton"),"the QA check sits in the image's own section");
 assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   n.start>spatialFold.start&&n.end<spatialFold.end),
   "2 · Floor plan has no standalone help icon or empty help row");
-const unitsFold=numberedFold("variants","Variants");   // Rooms & times (owner 2026-10-03) until the tree (owner 2026-11-13)
-assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
-  n.start>unitsFold.start&&n.end<unitsFold.end),
-  "Variants has no standalone help icon or empty help row");
-assert.ok(viewsIndex<promptIndex,"set preparation still precedes Generation Prompt");
+// Variants are the card's LOOKS now (a row of them under the name), no longer a section
+assert.equal(cardFolds.find(n=>/Variants/.test(labelSource(n))),undefined,"no Variants section: they are the looks");
+assert.ok(sheetSource.includes('React.createElement(LocationLooks,{looks,selected:lookNow,onSelect:pickLook,onAdd:addVariant,readOnly}),'));
 // 2026-10-05 (owner): the editable style settings moved ON the card (collapsed), before the read-only Generation Prompt
 // …and since 2026-11-15 (owner) as The look (Look Dev from 2026-11-13 until then): the look of the image, so in the image's own numbered
-// section (Location image), after the set steps and before Variants and Generation Prompt
-const describeFold=directFold("1 \u00b7 The Space");
+// section (Location image), before Generation Prompt
 const lookFold=imageFold;
-assert.ok(lookFold&&describeFold&&childIndex(describeFold)<viewsIndex&&viewsIndex<childIndex(lookFold)&&
-  childIndex(lookFold)<childIndex(unitsFold)&&childIndex(lookFold)<promptIndex,
-  "The look is in Location image: after the set steps, before Variants and Generation Prompt");
 assert.ok(astCalls.some(n=>stringValue(n.arguments[0])==="h4"&&stringValue(n.arguments[2])==="The look"&&n.start>lookFold.start&&n.end<lookFold.end),
   "The look is a heading inside the section");
 assert.ok(!source.slice(locationSheet.start,locationSheet.end).includes('"Look Dev"'),"the old name is gone from the card");
-assert.equal(directFold("Look & exclusions"),undefined);
-assert.equal(directFold("The look"),undefined,"no section without a number");
+assert.equal(foldLabelled("Look & exclusions"),undefined);
+assert.equal(foldLabelled("The look"),undefined,"The look is not a section of its own");
 assert.ok(lookFold.arguments[1].properties.some(p=>p.key&&p.key.name==="defaultOpen"&&p.value&&p.value.value===false),"Location image starts collapsed");
 const styleDetails=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
   propValue(n.arguments[1],"className")==="loc-render-style-details");

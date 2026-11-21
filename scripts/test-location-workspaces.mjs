@@ -38,71 +38,65 @@ assert.deepEqual(Array.from(group.root.scenes).sort(),["s1","s3","s6"]);
 assert.equal(JSON.stringify(input),before,"grouping never mutates persisted locations");
 assert.equal(groups[2].root.id,"orphan","missing parents must not hide surviving rooms");
 
-/* ONE CARD FOR A PLACE AND ITS ROOMS (owner 2026-11-21): the place's card is always the card; a room opens inside it. */
+/* ONE CARD FOR A PLACE AND ITS ROOMS (owner 2026-11-21). Picture first (the same day, "I like B"): the space that is
+   on takes the card's place; a card that was shown stays on the page, hidden, so nothing under way on it is lost. */
 let rendered=[];
 const props={group,matchingIds:["house","kitchen","living"],filterKey:"|",batchActiveId:null,
   renderLocation:(l,options)=>{rendered.push({l,options});return {type:"sheet",props:{id:l.id}};}};
 const render=()=>{rendered=[];let tree=box.LocationWorkspace(props);while(effects.length){effects.splice(0).forEach(f=>f());rendered=[];tree=box.LocationWorkspace(props);}return tree;};
 const all=(tree,test,out=[])=>{if(tree&&typeof tree==="object"){if(test(tree))out.push(tree);(tree.children||[]).forEach(n=>all(n,test,out));}return out;};
 const text=n=>n==null?"":typeof n==="string"||typeof n==="number"?String(n):(n.children||[]).map(text).join("");
+const spaces=t=>all(t,n=>!!(n.props&&n.props["data-location-space"])).map(n=>n.props["data-location-space"]+(n.props.hidden?" (hidden)":""));
+const of=id=>rendered.find(r=>r.l.id===id);
 let tree=render();
-assert.equal(rendered.length,1);assert.equal(rendered[0].l.id,"house","the place's card is the card");
-assert.equal(all(tree,n=>n.type==="select").length,0,"no picker swaps the card for a room's any more");
+assert.deepEqual(rendered.map(r=>r.l.id),["house"]);assert.deepEqual(spaces(tree),["house"],"the place's card is the card");
+assert.equal(all(tree,n=>n.type==="select").length,0,"no picker: the top row names the spaces");
 // the top row names the place and each room; a room's own name is short on its place's card
 const isChip=n=>!!(n.props&&String(n.props.className||"").split(" ").includes("loc-space-chip"));
-const chips=all(tree,isChip);
-assert.deepEqual(chips.map(text),["House","Kitchen","Living Room"]);
+const chips=()=>all(tree,isChip);
+assert.deepEqual(chips().map(text),["House","Kitchen","Living Room"]);
+assert.deepEqual(chips().map(n=>n.props["aria-pressed"]),["true","false","false"]);
 assert.equal(box.locationRoomShortName({name:"Minicab Rank"},{name:"Minicab"}),"Minicab Rank","only a dash sets a room's own name apart");
-// the place's card is given the way to open its rooms inside itself
-const blocks=rendered[0].options.roomBlocks;
-assert.ok(blocks&&typeof blocks.toggle==="function"&&typeof blocks.render==="function");
-assert.equal(JSON.stringify(blocks.open),"{}","closed until asked");
-assert.equal(rendered[0].options.asSection,undefined);
-// a room's chip opens it: under Subspaces, inside the same card
-chips[1].props.onClick();
-assert.ok(opened.includes("loc-subspaces-house"),"the Subspaces section opens");
+assert.equal(of("house").options.embedded,true);assert.equal(of("house").options.asSection,undefined);assert.equal(of("house").options.roomBlocks,undefined,"no card inside the card");
+// a room's chip shows that room in the card's place; the place's card stays on the page, hidden
+chips()[1].props.onClick();
 tree=render();
-assert.equal(rendered[0].l.id,"house","the place's card stays");
-assert.equal(rendered[0].options.roomBlocks.open.kitchen,true);
-const room=rendered[0].options.roomBlocks.render(kitchen);
-const asRoom=rendered[rendered.length-1];
-assert.equal(asRoom.l,kitchen,"the room keeps its own record");assert.equal(asRoom.options.asSection,true);assert.equal(asRoom.options.embedded,true);
-assert.equal(room.props.id,"kitchen");
-// a link to a room's section opens that room and that section (a variant's link, a shot's missing view)
+assert.deepEqual(spaces(tree),["house (hidden)","kitchen"]);
+assert.equal(of("kitchen").l,kitchen,"the room keeps its own record");assert.equal(of("kitchen").options.embedded,true);assert.equal(of("kitchen").options.asSection,undefined);
+assert.deepEqual(chips().map(n=>n.props["aria-pressed"]),["false","true","false"]);
+// a link to a room's section shows that room and opens that section (a variant's link, a shot's missing view)
 opened.length=0;
-rendered[0].options.onSelectLocation("living","units");
+of("house").options.onSelectLocation("living","units");
 tree=render();
-assert.equal(rendered[0].options.roomBlocks.open.living,true);assert.equal(rendered[0].options.roomBlocks.open.kitchen,true,"the room opened before stays open");
-rendered[0].options.roomBlocks.render(living);
-assert.equal(rendered[rendered.length-1].options.initialSection,"units","unit links open the requested room section");
-assert.ok(opened.includes("loc-units-living")&&opened.includes("loc-subspaces-house"));
-// ...and a link to the place's own section opens it on the card that is already there
-opened.length=0;rendered[0].options.onSelectLocation("house","layout");render();
-assert.deepEqual(opened,["loc-layout-house"]);assert.equal(rendered[0].l.id,"house");
+assert.deepEqual(spaces(tree),["house (hidden)","kitchen (hidden)","living"],"a room shown before stays on the page");
+assert.equal(of("living").options.initialSection,"units","unit links open the requested room section");
+assert.ok(opened.includes("loc-units-living"));
+// ...and a link to the place's own section shows the place again and opens it
+opened.length=0;of("kitchen").options.onSelectLocation("house","layout");tree=render();
+assert.deepEqual(opened,["loc-layout-house"]);assert.deepEqual(spaces(tree),["house","kitchen (hidden)","living (hidden)"]);
 assert.equal(box.locationSectionFoldId({id:"x"},"previs"),"loc-step4-x");assert.equal(box.locationSectionFoldId({id:"x"},""),"");
-// closing a room
-rendered[0].options.roomBlocks.toggle("kitchen");render();
-assert.equal(rendered[0].options.roomBlocks.open.kitchen,false);
-// a batch needs the card it works on mounted: while it makes a room's image, that room is shown alone
+// an unknown id shows the place
+of("house").options.onSelectLocation("nowhere");tree=render();assert.equal(spaces(tree)[0],"house");
+// a batch needs the card it works on on the page: while it makes a room's image, that room is the one shown
 props.batchActiveId="kitchen";
 tree=render();
-assert.equal(rendered.length,1);assert.equal(rendered[0].l,kitchen,"batch targets are mounted even when the room was closed");
-assert.equal(rendered[0].options.asSection,undefined);
-assert.ok(text(tree).includes("Making House - Kitchen"));
-props.batchActiveId="house";render();assert.equal(rendered[0].l.id,"house");
-props.batchActiveId=null;render();assert.equal(rendered[0].l.id,"house");assert.equal(rendered[0].options.roomBlocks.open.living,true,"what was open is open again after the batch");
-// a search that finds a room and not its place: the room is open inside the card
-rendered[0].options.roomBlocks.toggle("living");render();
-props.matchingIds=["kitchen"];props.filterKey="|kitchen";render();
-assert.equal(rendered[0].l.id,"house");assert.equal(rendered[0].options.roomBlocks.open.kitchen,true,"search can surface a matching room inside its place");
-props.matchingIds=["house","kitchen","living"];props.filterKey="|";render();
-assert.equal(rendered[0].l.id,"house","clearing filters keeps the place's card");
-// a place with no rooms: no top row, no room blocks
+assert.deepEqual(spaces(tree),["house (hidden)","kitchen","living (hidden)"],"the batch's room is shown");
+assert.deepEqual(chips().map(n=>!!n.props.disabled),[true,false,true],"the other spaces wait for the batch");
+assert.match(chips()[0].props.title,/^An image of House - Kitchen is being made\./);
+props.batchActiveId="house";tree=render();assert.equal(spaces(tree)[0],"house");
+props.batchActiveId=null;tree=render();assert.deepEqual(spaces(tree),["house","kitchen (hidden)","living (hidden)"],"what was shown is shown again after the batch");
+assert.deepEqual(chips().map(n=>!!n.props.disabled),[false,false,false]);
+// a search that finds a room and not its place: that room is the one shown
+props.matchingIds=["kitchen"];props.filterKey="|kitchen";tree=render();
+assert.deepEqual(spaces(tree),["house (hidden)","kitchen","living (hidden)"],"search can surface a matching room");
+props.matchingIds=["house","kitchen","living"];props.filterKey="|";tree=render();
+assert.equal(spaces(tree)[1],"kitchen","clearing filters keeps what is shown");
+// a place with no rooms: no top row
 const lone={root:office,members:[office]};
 rendered=[];state=undefined;effectDeps.length=0;
 const loneTree=box.LocationWorkspace({...props,group:lone,matchingIds:["office"]});
 assert.equal(all(loneTree,isChip).length,0);
-assert.equal(rendered[0].options.roomBlocks,null);
+assert.deepEqual(spaces(loneTree),["office"]);assert.equal(rendered[0].options.roomBlocks,undefined);
 
 const evidence=box.LocationScreenplayEvidence({units:[
   {key:"kitchen|night",name:"Kitchen",intExt:"INT",time:"Night",occurrences:[{sceneNo:3,sceneId:"s3",scriptText:"The window faces the yard."}]},

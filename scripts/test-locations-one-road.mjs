@@ -121,8 +121,11 @@ await test("5 once the place has its image: a draft for each room that has none,
 });
 
 await test("6 the run on the card: asks first every time, saves each result, and never chooses an image for the user",()=>{
-  // on the place's own card, under the tracker
-  assert.match(sheet,/React\.createElement\(LocationStepGuide,\{l,steps:cardSteps\}\),\s*\/\/[^\n]*\n\s*showPrevis&&React\.createElement\(LocationPreparePlace,\{l,rooms:roomLocations,project,drafted,spatialState,hasImage:!!gen\.genUrl,onDraft,onUpdate,readOnly\}\)/);
+  // on the place's own card: it is the card's Next, under the picture and above the four tabs (picture first, 2026-11-21)
+  assert.ok(sheet.includes("const prepareEl = showPrevis&&React.createElement(LocationPreparePlace,{l,rooms:roomLocations,project,drafted,spatialState,hasImage:!!gen.genUrl,onDraft,onUpdate,readOnly});"));
+  assert.match(sheet,/noticesEl,\s*React\.createElement\("div",\{className:"sheet-body"\},\s*prepareEl,\s*React\.createElement\(LocationTabs,\{l,initial:startTab,tabs:\[/);
+  assert.match(read("app/styles.css"),/\[data-card-layout="picture-first"\] \.loc-prepare::before\{content:"Next";/);
+  assert.match(read("app/styles.css"),/\.loc-prepare\[data-prepare-stage="blocked"\]::before\{content:"Your turn";/);
   assert.match(prepare,/if\(readOnly\|\|l\.parentLocation\|\|!api\|\|!D\|\|!P\|\|typeof locationPreparePlan!=="function"\)return null;/);
   // each half starts only on a yes
   assert.match(prepare,/const ok=await ask\(\{title:"Prepare "\+name\+"\?",[\s\S]{0,700}?if\(ok\)await runPlan\(plan\.steps\);/);
@@ -162,7 +165,7 @@ await test("6 the run on the card: asks first every time, saves each result, and
 });
 
 await test("7 the top of a card shows the image; the quick image is made in 5 . Location image",()=>{
-  const head=part("    React.createElement(SheetFrame,{ gen:genPlate, slotId:\"locref-\"+l.id,","deleteLabel:\"Delete location\" }),");
+  const head=part("    React.createElement(SheetFrame,{ gen:genPlate, slotId:\"locref-\"+l.id,","deleteLabel:\"Delete location\" });");
   assert.match(head,/noun:"location image", noGenerate:true,/);
   for(const gone of ["generateDisabled","generateDisabledLabel","onResolveGenerationBlock","referenceControls","generateRefs","Edit a panel","specGate"])
     assert.ok(!head.includes(gone),"left the head of the card: "+gone);
@@ -182,7 +185,7 @@ await test("7 the top of a card shows the image; the quick image is made in 5 . 
   assert.match(sheet,/"data-testid":"loc-edit-one-view"/);assert.match(sheet,/panelEdit\?"Close the view edit":"Edit one view\\u2026"/);
   assert.ok(sheet.indexOf("className:\"sheet-edit-panel loc-panel-edit\"")>sheet.indexOf("\"data-testid\":\"loc-edit-one-view\""),"the view edit box opens in the section");
   // the steps' words no longer send anyone to the top of the card
-  assert.ok(!/top of the card/.test(part("function locationCardSteps(","function LocationStepGuide(")));
+  assert.ok(!/top of the card/.test(part("function locationCardSteps(","const _locPrepareRuns={};")));
   assert.match(ui,/:"Open 5 \\u00b7 Location image and make a quick image from the description\."\}\];/);
   const box=harness();vm.runInContext(part("function locationImageStepNote(","function locationSectionNumbers("),box);
   assert.match(box.locationImageStepNote({previs:true}),/^The finished image of this place, shown at the top of the card\. Make it in 4 · Previs/);
@@ -190,16 +193,37 @@ await test("7 the top of a card shows the image; the quick image is made in 5 . 
   assert.ok(!/Generate at the top/.test(box.locationImageStepNote({previs:false})));
 });
 
-await test("8 one progress display: the tracker; the folds say facts, not the tracker's words again",()=>{
-  const guide=part("function LocationStepGuide({l,steps}){","/* Camera-relative composition");
-  assert.ok(!/loc-steps-next|"Go"|LocationHelpPopover|Every step is done/.test(guide),"the Next ... Go row is gone");
-  assert.match(guide,/E\("ol",\{className:"loc-steps-list","aria-label":"Steps for this location"\}/);
+await test("8 one progress display: the To do list; the folds say facts, not the list's words again",()=>{
+  // (2026-11-21, picture first) the tracker's five chips are the To do tab's rows, each with where it stands and one
+  // way in; a look with no image yet has its row after them. There is no second "Next ... Go" line saying it again.
+  const guide=part("function LocationTodoList({l,steps,looks,onLook}){","/* SCENES: every scene that plays here");
+  assert.ok(!/loc-steps-next|LocationHelpPopover|Every step is done/.test(guide),"no second row saying what is next");
+  assert.ok(!/function LocationStepGuide\(/.test(ui),"the chip tracker is gone: one list");
+  assert.match(guide,/E\("ol",\{className:"loc-todo","data-testid":"location-step-guide","aria-label":"Steps for this location"\}/);
   assert.match(guide,/"aria-current":st\.next\?"step":undefined/);
   assert.match(guide,/to=st\.key==="image"&&st\.goTo\?st\.goTo:n;/);
+  {
+    const box=harness();const went=[],looked=[];
+    box.goToLocationStep=(l,n)=>went.push(n);
+    box.React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!=null&&x!==false)})};
+    vm.runInContext(guide.replace(/\/\*[\s\S]*$/,""),box);
+    const flat=n=>n&&typeof n==="object"?[n,...(n.children||[]).flatMap(flat)]:[];
+    const text=n=>n==null?"":typeof n==="string"||typeof n==="number"?String(n):(n.children||[]).map(text).join("");
+    const steps=[{n:1,name:"The Space",done:true},{n:2,name:"Floor plan",next:true,todo:"Check the floor plan and confirm it."},{n:3,name:"Cameras",todo:"Complete and confirm the floor plan in step 2 first."},
+      {n:4,key:"previs",name:"Previs",optional:true,todo:"Optional and free."},{n:5,key:"image",name:"Location image",goTo:4,todo:"Open 4 · Previs."}];
+    const tree=box.LocationTodoList({l:{id:"x"},steps,onLook:id=>looked.push(id),
+      looks:[{id:"main",name:"Location",has:false},{id:"u:night",name:"Night",has:false,scenes:"Sc 01, 03"},{id:"u:day",name:"Day",has:true},{id:"u:old",name:"Dusk",has:false,orphan:true}]});
+    const rows=flat(tree).filter(n=>n.type==="li");
+    assert.deepEqual(rows.map(r=>text(r)),["✓The SpaceDoneOpen","2Floor planCheck the floor plan and confirm it.Go","3CamerasLaterOpen","4PrevisOptionalOpen","5Location imageLaterOpen",
+      "·NightNo image yet · Sc 01, 03Open","✓DayHas its imageOpen"],"the five steps, then each look of the screenplay; a look no scene uses any more has no row");
+    assert.deepEqual(rows.map(r=>r.props.className),["loc-todo-row done","loc-todo-row next","loc-todo-row","loc-todo-row","loc-todo-row","loc-todo-row","loc-todo-row done"]);
+    rows.forEach(r=>flat(r).find(n=>n.type==="button").props.onClick());
+    assert.deepEqual(went,[1,2,3,4,4],"the image step opens Previs when the set is ready");assert.deepEqual(looked,["u:night","u:day"]);
+  }
   assert.ok(!/stepCount/.test(sheet),"no fold repeats done / next / optional");
   assert.ok(!/layout needs review|drafts on first render/.test(sheet));
   assert.match(sheet,/count:\(outsideRooms\.length\?outsideRooms\.length\+\(outsideRooms\.length===1\?" room to add":" rooms to add"\):""\)\|\|\(locStaged&&/);
-  assert.match(read("app/styles.css"),/\.loc-steps > \.loc-steps-list:first-child\{margin-top:0\}/);
+  assert.match(read("app/styles.css"),/\.loc-todo-row\.next \.loc-todo-go\{background:var\(--accent\);border-color:var\(--accent\);color:var\(--ink-on-accent\)\}/);
 });
 
 await test("9 the Show list: where each place stands, the most used first; the count says what it counts",()=>{
@@ -301,7 +325,7 @@ await test("14 Frances knows, and the changed files have new cache keys",()=>{
   assert.ok(!ai.includes("generated at the top of the card"));
   const html=read("TURN.html");
   for(const f of ["ai.jsx","script.jsx","locations.jsx","locations-ui.jsx","chrome.jsx","artroom.jsx","app.jsx","shots-ui.jsx","breakdown.jsx","agents.jsx","props.jsx","styles.css"])
-    assert.ok(["20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1"].some(k=>html.includes("app/"+f+"?v="+k+"\"")),"cache key of "+f);
+    assert.ok(["20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1"].some(k=>html.includes("app/"+f+"?v="+k+"\"")),"cache key of "+f);
 });
 
 /* THE RUN ITSELF, on the card's own code, with the writing engine, the camera fit and the image engine as stubs.

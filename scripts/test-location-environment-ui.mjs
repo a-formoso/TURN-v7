@@ -78,6 +78,8 @@ assert.equal(nodes.find(n=>n.type===box.SheetField).props.value,"Bound custom st
 const source=readFileSync("app/locations-ui.jsx","utf8");
 assert.ok(!source.includes('label:"Time-of-Day Variants"'),"no duplicate top-level time variants fold");
 // (2026-11-13) a look of its own is a variant like the others: in the Variants list, added with "Add a variant"
-assert.ok(source.includes('React.createElement(Icon.plus,{s:14}),"Add a variant")')&&source.includes("environment.additional.map(v=>React.createElement(LocationVariant,"));
+// (2026-11-21, picture first) the variants are the card's looks: "Add a variant" ends the row, and a look of its own opens as the others do
+assert.ok(source.includes('E("span",{className:"loc-look-name"},"Add a variant")')&&source.includes("const v=environment.additional.find(x=>\"v:\"+x.id===k.id);")
+  &&source.includes("return React.createElement(LocationVariant,{l,v,project,scenes,drafts,units,readOnly,"));
 assert.ok(!source.includes('React.createElement("summary",null,"Additional environment states")'));
 console.log("PASS consolidated unit environments, legacy edits, independent states and one-plate generation");

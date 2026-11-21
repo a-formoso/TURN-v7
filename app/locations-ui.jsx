@@ -46,11 +46,12 @@ function locationWorkspaceGroups(locations){
   });
 }
 /* ONE CARD FOR A PLACE AND ITS ROOMS (owner 2026-11-21: "locations and their subspaces merged together, as part of one
-   single card ... a house and a kitchen, a living room. These are subspaces"). The place's card is always the card. A
-   room used to be a card that took the place's (a picker at the top swapped it in). Now each room opens INSIDE the
-   place's card, under Subspaces, with what is its own: its image, its cameras, its previs, its variants, its prompt.
+   single card ... a house and a kitchen, a living room. These are subspaces"). A place and its rooms are one card on
+   the page. The top row, In this card, names them; the one that is on is the one the card shows, with what is its
+   own: its image, its cameras, its previs, its looks, its prompt. (For a few hours that day a room opened INSIDE the
+   place's card, under Subspaces; with the picture-first card a room takes the card's place instead, LocationWorkspace.)
    Every room keeps its record, its ids and its images; only where it is shown changed.
-   A batch still needs the card it works on mounted, so while one makes a ROOM's image that room is shown alone. */
+   A batch needs the card it works on on the page, so while one makes a ROOM's image that room is the one shown. */
 function locationSectionFoldId(l,section){
   const id=l&&l.id;
   if(!id||!section) return "";
@@ -69,58 +70,48 @@ function locationRoomShortName(room,place){
 }
 function LocationWorkspace({group,matchingIds,filterKey,batchActiveId,renderLocation}){
   const E=React.createElement,root=group.root,rooms=group.members.filter(l=>l.id!==root.id);
-  // open: the rooms opened inside the card; sections: the section each card was last asked to open
-  const [view,setView]=React.useState({open:{},sections:{}});
+  /* A ROOM TAKES THE CARD'S PLACE (owner 2026-11-21, picture first: the design the owner chose shows one space at a
+     time). space: the one shown, the place or a room; seen: the rooms shown so far. A card that was shown stays on the
+     page, hidden, so a floor plan under review or an image being made is not lost by looking at another space.
+     sections: the section each card was last asked to open. */
+  const [view,setView]=React.useState({space:root.id,seen:{},sections:{}});
   const emit=id=>{ if(id&&typeof window.dispatchEvent==="function"&&typeof window.CustomEvent==="function") window.dispatchEvent(new window.CustomEvent("nb-open-fold",{detail:id})); };
   const later=fn=>{ if(typeof window.setTimeout==="function") window.setTimeout(fn,90); };
   const select=(id,section="")=>{
-    const room=rooms.find(l=>l.id===id);
-    if(!room){
-      // the place itself: the section asked for opens on the card that is already there
-      setView(v=>({...v,sections:{...v.sections,[root.id]:section}}));
-      emit(locationSectionFoldId(root,section));
-      return;
-    }
-    setView(v=>({open:{...v.open,[id]:true},sections:{...v.sections,[id]:section}}));
-    emit("loc-subspaces-"+root.id);
-    // the room's block is new on the page or was open already: its section opens either way, and it comes into view
-    later(()=>{
-      const fold=locationSectionFoldId(room,section);
-      if(fold){ emit(fold); return; }
-      try{ const el=window.document&&window.document.querySelector('[data-location-room="'+id+'"]'); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); }catch(_){}
-    });
+    const card=group.members.find(l=>l.id===id)||root;
+    setView(v=>({space:card.id,seen:card.id===root.id?v.seen:{...v.seen,[card.id]:true},sections:{...v.sections,[card.id]:section}}));
+    // the section asked for opens on that card, once it is on the page (a card shown for the first time opens it itself)
+    const fold=locationSectionFoldId(card,section);
+    if(fold) later(()=>emit(fold));
   };
-  // a search or a scene filter that finds a room and not its place: that room is open inside the card
+  // a search or a scene filter that finds a room and not its place: that room is the one shown
   React.useEffect(()=>{
     const hit=rooms.filter(l=>matchingIds.includes(l.id)).map(l=>l.id);
     if(!hit.length||matchingIds.includes(root.id)) return;
-    setView(v=>({...v,open:{...v.open,...Object.fromEntries(hit.map(id=>[id,true]))}}));
+    setView(v=>({...v,space:hit[0],seen:{...v.seen,[hit[0]]:true}}));
   },[filterKey]);
-  // a shot's missing view can name a room of this location: open that room (window.turnOpenLocationCard, 2026-10-20)
+  // a shot's missing view can name a room of this location: show that room (window.turnOpenLocationCard, 2026-10-20)
   React.useEffect(()=>{ const h=(e)=>{ const id=e&&e.detail&&e.detail.id;
       if(id && group.members.some(l=>l.id===id)) select(id,e.detail.section||""); };
     if(typeof window.addEventListener!=="function") return undefined;
     window.addEventListener("turn-location-select",h); return ()=>window.removeEventListener("turn-location-select",h); },[group]);
   const common={workspaceMembers:group.members,onSelectLocation:select,embedded:true};
+  // a batch needs the card it works on on the page: while it makes a room's image, that room is the one shown
   const queued=batchActiveId?group.members.find(l=>l.id===batchActiveId):null;
-  if(queued&&queued.id!==root.id)
-    return E("div",{className:"sheet-card loc-workspace","data-location-workspace":root.id},
-      E("div",{className:"loc-workspace-nav","data-testid":"location-spaces"},
-        E("span",{className:"loc-workspace-lab"},root.name),
-        E("span",{className:"loc-space-chip on"},"Making "+(queued.name||"a room")+"\u2026")),
-      renderLocation(queued,{...common,initialSection:""}));
-  const roomBlocks=rooms.length?{open:view.open,
-    toggle:id=>setView(v=>({...v,open:{...v.open,[id]:!v.open[id]}})),
-    render:room=>renderLocation(room,{...common,initialSection:view.sections[room.id]||"",asSection:true})}:null;
+  const shown=queued?queued.id:(group.members.some(l=>l.id===view.space)?view.space:root.id);
   return E("div",{className:"sheet-card loc-workspace","data-location-workspace":root.id},
-    // IN THIS CARD: the place and each of its rooms, by name; a room's name opens it, further down, under Subspaces
+    // IN THIS CARD: the place and each of its rooms, by name; the one that is on is the one the card shows
     rooms.length>0&&E("div",{className:"loc-workspace-nav","data-testid":"location-spaces"},
       E("span",{className:"loc-workspace-lab"},"In this card"),
       E("div",{className:"loc-space-chips"},
-        E("span",{className:"loc-space-chip on",title:"The whole place: this card"},root.name),
-        rooms.map(l=>E("button",{key:l.id,type:"button",className:"loc-space-chip"+(view.open[l.id]?" open":""),"data-space-chip":l.id,
-          title:"Open "+(l.name||"this room")+" inside this card, under Subspaces",onClick:()=>select(l.id)},locationRoomShortName(l,root))))),
-    renderLocation(root,{...common,initialSection:view.sections[root.id]||"",roomBlocks}));
+        group.members.map(l=>E("button",{key:l.id,type:"button",className:"loc-space-chip"+(shown===l.id?" on":""),"data-space-chip":l.id,
+          "aria-pressed":shown===l.id?"true":"false",disabled:!!queued&&shown!==l.id,
+          title:queued&&shown!==l.id?"An image of "+(queued.name||"a room")+" is being made. The other spaces open again when it is done."
+            :l.id===root.id?"The whole place":"Show "+(l.name||"this room")+" in this card",
+          onClick:()=>select(l.id)},l.id===root.id?root.name:locationRoomShortName(l,root))))),
+    group.members.filter(l=>l.id===root.id||l.id===shown||view.seen[l.id]).map(l=>
+      E("div",{key:l.id,className:"loc-workspace-space","data-location-space":l.id,hidden:l.id!==shown},
+        renderLocation(l,{...common,initialSection:view.sections[l.id]||""}))));
 }
 
 function LocationScreenplayEvidence({units,onScene}){
@@ -1709,6 +1700,247 @@ function useKeptVariantImages(units){
   return {kept,drop:key=>setHeld(h=>({...h,keys:h.keys.filter(k=>k!==key)}))};
 }
 
+/* THE CARD, PICTURE FIRST (owner 2026-11-21: of three clickable designs made on a canvas, "I like B. Let's build on the
+   live one-card version"). The card told its road three times (the tracker, the Prepare line, eight numbered folds) and
+   stood 7,000 px tall with every fold open. Top to bottom it is now:
+     IN THIS CARD   the place and its rooms; a room takes the card's place (it is not a card inside the card);
+     the name, and one line of status;
+     LOOKS          the location image, and one per time of day or state; a look opens in the picture's place;
+     ONE PICTURE    of the place, seen three ways: Image, 3D set, Floor plan;
+     NEXT           what is left, in one run (Prepare this place, as before);
+     four tabs      To do, Scenes, Set, About. Every section the card had is in one of them, unchanged inside:
+                      Set    2 Floor plan, 3 Cameras, 4 Previs, Subspaces
+                      About  1 The Space, Render style, 5 Location image, Generation Prompt
+   The numbers 1 to 5 stay, so every message that names a step ("Open 4 . Previs") still points at a real section, and
+   asking for a section opens its tab first (locationTabOfFold). A tab mounts when first opened and then stays, so a
+   floor plan under review or a set being drawn is not lost by looking at another tab. */
+function LocationSegment({label,value,options,onChange}){
+  const E=React.createElement;
+  return E("div",{className:"loc-seg",role:"group","aria-label":label},(options||[]).map(o=>
+    E("button",{key:o.id,type:"button",className:"loc-seg-btn"+(value===o.id?" on":""),"aria-pressed":value===o.id?"true":"false",
+      title:o.title,onClick:()=>onChange(o.id)},o.name)));
+}
+// which tab a section lives in ("" = none of them: the looks, or a section of another card)
+function locationTabOfFold(l,foldId){
+  const id=l&&l.id;
+  if(!id||!foldId) return "";
+  if(foldId==="loc-layout-"+id||foldId==="loc-step3-"+id||foldId==="loc-step4-"+id||foldId==="loc-subspaces-"+id) return "set";
+  if(foldId==="loc-step1-"+id||foldId==="loc-image-"+id) return "about";
+  return "";
+}
+function LocationTabs({l,tabs,initial}){
+  const E=React.createElement,first=(tabs.find(t=>t.id===initial)||tabs[0]).id;
+  const [tab,setTab]=React.useState(first),[seen,setSeen]=React.useState(()=>({[first]:true}));
+  const seenNow=React.useRef(seen);seenNow.current=seen;
+  const pick=id=>{setTab(id);setSeen(s=>s[id]?s:{...s,[id]:true});};
+  React.useEffect(()=>{
+    if(typeof window.addEventListener!=="function") return undefined;
+    const h=e=>{
+      const to=locationTabOfFold(l,e&&e.detail);
+      if(!to) return;
+      const fresh=!seenNow.current[to];
+      pick(to);
+      // a tab opened for the first time mounts its sections now: ask once more, so that the section itself opens
+      if(fresh&&!e.locTabAgain&&typeof window.CustomEvent==="function") setTimeout(()=>{
+        const again=new window.CustomEvent("nb-open-fold",{detail:e.detail});again.locTabAgain=true;window.dispatchEvent(again);},90);
+    };
+    window.addEventListener("nb-open-fold",h);
+    return ()=>window.removeEventListener("nb-open-fold",h);
+  },[l.id]);
+  const now=tabs.some(t=>t.id===tab)?tab:first;
+  return E("div",{className:"loc-tabs","data-testid":"location-tabs"},
+    E("div",{className:"loc-tablist",role:"tablist","aria-label":"Sections of "+(l.name||"this location")},tabs.map(t=>
+      E("button",{key:t.id,type:"button",role:"tab",id:"loc-tab-"+t.id+"-"+l.id,className:"loc-tab"+(now===t.id?" on":""),
+          "aria-selected":now===t.id?"true":"false","aria-controls":"loc-tabpanel-"+t.id+"-"+l.id,onClick:()=>pick(t.id)},
+        t.name,t.count!=null&&t.count!==""&&E("span",{className:"loc-tab-count"},t.count)))),
+    tabs.map(t=>E("div",{key:t.id,role:"tabpanel",id:"loc-tabpanel-"+t.id+"-"+l.id,"aria-labelledby":"loc-tab-"+t.id+"-"+l.id,
+        className:"loc-tabpanel","data-tab":t.id,hidden:now!==t.id},
+      (now===t.id||seen[t.id])?t.render():null)));
+}
+/* TO DO: the road, said once. The five steps the tracker showed as chips, each with where it stands and a way in, then
+   one row for each look that still has no image. The step to do next is marked. */
+function LocationTodoList({l,steps,looks,onLook}){
+  const E=React.createElement;
+  const go=n=>{
+    // the image is made in 4 · Previs when the set is ready in 3D, else in 5 · Location image (a quick image)
+    const st=steps.find(x=>x.n===n)||{},to=st.key==="image"&&st.goTo?st.goTo:n;
+    if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,to);
+    else window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:locationStepFoldId(l,to)}));
+  };
+  const variants=(looks||[]).filter(k=>k.id!=="main"&&!k.orphan);
+  return E("ol",{className:"loc-todo","data-testid":"location-step-guide","aria-label":"Steps for this location"},
+    steps.map(st=>E("li",{key:st.n,className:"loc-todo-row"+(st.done?" done":st.next?" next":"")},
+      E("span",{className:"loc-todo-mark"},st.done?"✓":st.n),
+      E("span",{className:"loc-todo-text"},E("b",null,st.name),
+        E("small",null,st.done?"Done":st.next?(st.todo||"Next"):st.optional?"Optional":"Later")),
+      E("button",{type:"button",className:"loc-todo-go","aria-current":st.next?"step":undefined,onClick:()=>go(st.n),
+        title:(st.done?"Done":st.optional?"Optional":st.next?"Next":"Later")+(st.todo&&!st.done?" — "+st.todo:"")},st.next?"Go":"Open"))),
+    variants.map(k=>E("li",{key:k.id,className:"loc-todo-row"+(k.has?" done":""),"data-todo-look":k.id},
+      E("span",{className:"loc-todo-mark"},k.has?"✓":"·"),
+      E("span",{className:"loc-todo-text"},E("b",null,k.name),
+        E("small",null,(k.has?"Has its image":k.known===false?"Checking\u2026":"No image yet")+(k.scenes?" \u00b7 "+k.scenes:""))),
+      E("button",{type:"button",className:"loc-todo-go",onClick:()=>onLook(k.id),title:"Show "+k.name+" in the card"},"Open"))));
+}
+/* SCENES: every scene that plays here, with the look each uses and whether that look has its image. A shot takes its
+   location reference from the look of its own time of day, never from the location image. */
+function LocationScenesList({l,locScenes,units,onChipClick}){
+  const E=React.createElement,live=(units||[]).filter(u=>u&&!u.orphan);
+  const has=u=>{try{return typeof nbGetImage==="function"&&typeof sluglineUnitImageId==="function"&&!!nbGetImage(sluglineUnitImageId(u.key));}catch(_){return false;}};
+  if(!(locScenes||[]).length) return E("p",{className:"loc-layer-note","data-testid":"location-scenes"},"No scenes reference this place");
+  return E("div",{className:"loc-scene-rows","data-testid":"location-scenes"},
+    locScenes.map(s=>{
+      const mine=live.filter(u=>(u.sceneNos||[]).some(n=>String(n)===String(s.no)));
+      return E("div",{key:s.id,className:"loc-scene-row"},
+        E("button",{type:"button",className:"prop-scene-chip",title:"Open scene "+s.no+" in the screenplay",onClick:()=>onChipClick&&onChipClick(s.id)},String(s.no).padStart(2,"0")),
+        E("span",{className:"loc-scene-title"},s.title||("Scene "+s.no)),
+        E("span",{className:"loc-scene-looks"},mine.map(u=>{
+          const room=String(u.subspaceKey||u.locationKey||"")!==String(l.key||"")?String(u.name||"").trim():"";
+          const ok=has(u);
+          return E("span",{key:u.key,className:"loc-scene-state"+(ok?" has":""),
+            title:(room?room+", ":"")+(u.time||"no time stated")+(ok?": this look has its image, so the scene’s shots have their location reference.":": this look has no image yet, so the scene’s shots wait for it.")},
+            (room?room+" · ":"")+(String(u.time||"").trim()||"No time")+(ok?" ✓":""));
+        })));
+    }));
+}
+/* LOOKS: the location image, then one per time of day or state. The one that is on is what the card shows. */
+function LocationLooks({looks,selected,onSelect,onAdd,readOnly}){
+  const E=React.createElement;
+  return E("div",{className:"loc-looks","data-testid":"location-looks"},
+    E("div",{className:"loc-b-lab"},"Looks",
+      typeof window.InfoTip==="function"&&E(window.InfoTip,{label:"About looks",
+        text:"The location image, and one image for each time of day or state the screenplay shows this place in. A shot takes its location reference from the look of its own time of day. A look is the location image redrawn at that hour: only the light and the state change."})),
+    E("div",{className:"loc-looks-row"},
+      (looks||[]).map(k=>E("button",{key:k.id,type:"button",className:"loc-look"+(selected===k.id?" on":"")+(k.orphan?" orphan":""),"data-look":k.id,
+          "aria-pressed":selected===k.id?"true":"false",onClick:()=>onSelect(k.id),
+          title:k.id==="main"?"The location image: the place itself":k.name+(k.scenes?" · "+k.scenes:"")},
+        E("span",{className:"loc-look-thumb"+(k.url?"":" none")},k.url?E("img",{src:k.url,alt:"",loading:"lazy",draggable:false}):null),
+        E("span",{className:"loc-look-name"},k.name),
+        E("span",{className:"loc-look-sub"},k.sub))),
+      !readOnly&&typeof onAdd==="function"&&E("button",{type:"button",className:"loc-look add","data-testid":"location-look-add",onClick:onAdd,
+          title:"Only for a look the screenplay’s times of day don’t already give, such as a storm or a power cut"},
+        E("span",{className:"loc-look-thumb add"},E(Icon.plus,{s:16})),
+        E("span",{className:"loc-look-name"},"Add a variant"))));
+}
+/* A LOOK, IN THE PICTURE'S PLACE: the look that is on, and those shown before it (they stay on the page, hidden, so an
+   image being made for one is not lost by looking at another). render: what the card shows for a look. */
+function LocationLookPanels({looks,shown,seen,render}){
+  return (looks||[]).filter(k=>k.id!=="main"&&(k.id===shown||(seen&&seen[k.id]))).map(k=>
+    React.createElement("div",{key:k.id,className:"loc-look-panel",hidden:k.id!==shown,"data-look-panel":k.id},render(k)));
+}
+/* THE PLACE IN 3D, in the picture's place: the same sheet 4 · Previs draws (the floor plan, the four cameras and the
+   saved dressing), drawn only while this view is on. Nothing is made or saved here. */
+function LocationSetPicture({l}){
+  const E=React.createElement,P=window.KinolotPrevis;
+  const [pic,setPic]=React.useState({url:"",error:"",drawing:false,info:null});
+  const drawnFrom=(()=>{try{return [l.id,typeof locationSpatialPlanSigFor==="function"?locationSpatialPlanSigFor(l):"",
+    typeof locationPlateLayoutSig==="function"?locationPlateLayoutSig(l,{panels:true}):"",P&&typeof P.dressingSig==="function"?P.dressingSig(l):(l.previs&&l.previs.iso)||""].join("|");}catch(_){return l.id;}})();
+  React.useEffect(()=>{
+    let live=true;
+    if(!P||typeof P.scene!=="function"||typeof P.sheet!=="function"){setPic({url:"",error:"The set in 3D is not available here.",drawing:false,info:null});return undefined;}
+    let built;
+    try{built=P.scene(l);}catch(e){setPic({url:"",error:(e&&e.message)||"The floor plan is not ready.",drawing:false,info:null});return undefined;}
+    setPic(p=>({...p,error:"",drawing:true,info:{dressed:built.dressed,parts:built.parts}}));
+    P.sheet(built.scene,built.light,{panelWidth:640,type:"image/jpeg",quality:0.9})
+      .then(s=>{if(live)setPic(p=>({...p,url:s.dataUrl,drawing:false}));},
+        e=>{if(live)setPic({url:"",error:(e&&e.message)||"The set could not be drawn.",drawing:false,info:null});});
+    return ()=>{live=false;};
+  },[drawnFrom]);
+  const open=n=>()=>{if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,n);};
+  if(pic.error&&!pic.url) return E("div",{className:"loc-viewer-empty","data-testid":"location-viewer-set"},
+    E("b",null,"The set cannot be drawn yet"),
+    E("span",null,pic.error),
+    E("div",{className:"loc-step-actions"},
+      E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:open(2)},"Open 2 · Floor plan"),
+      E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:open(3)},"Open 3 · Cameras")));
+  return E("div",{className:"loc-viewer-pic","data-testid":"location-viewer-set"},
+    E("div",{className:"previs-sheet"+(pic.drawing?" drawing":""),"aria-busy":pic.drawing?"true":"false"},
+      pic.url?E("img",{src:pic.url,alt:"The set of "+(l.name||"this location")+" in 3D: four camera views",draggable:false})
+        :E("span",{className:"previs-sheet-wait"},pic.drawing?"Drawing the set…":"")),
+    E("div",{className:"loc-viewer-cap"},
+      E("span",null,pic.info&&pic.info.dressed?"Dressed: "+pic.info.parts+" shapes on the saved floor plan.":"Not dressed yet: these are the floor plan’s plain blocks."),
+      E("button",{type:"button",className:"loc-subspace-link",onClick:open(4)},"Open 4 · Previs")));
+}
+/* THE FLOOR PLAN, in the picture's place: the saved plan's top-down map, to look at. It is edited in 2 · Floor plan. */
+function LocationPlanPicture({l,spatialState}){
+  const E=React.createElement,owner=(spatialState&&spatialState.owner)||l,plan=(spatialState&&spatialState.plan)||null;
+  let scene=null;
+  try{scene=typeof locationFloorPlanScene==="function"?locationFloorPlanScene(owner,plan):null;}catch(_){scene=null;}
+  const drawn=!!(scene&&((scene.spaceList||[]).length||(scene.spaces||[]).length));
+  const open=()=>{if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,2);};
+  if(!drawn) return E("div",{className:"loc-viewer-empty","data-testid":"location-viewer-plan"},
+    E("b",null,"No floor plan yet"),
+    E("span",null,"The place is drawn to scale from its description and its scenes: the rooms, the doors and windows, and what stands where. You check it before anything is built."),
+    E("div",{className:"loc-step-actions"},E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:open},"Open 2 · Floor plan")));
+  return E("div",{className:"loc-viewer-pic loc-viewer-plan","data-testid":"location-viewer-plan"},
+    E("div",{className:"loc-map-wrap"},E(LocationFloorPlanMap,{scene,selected:null,onSelect:()=>{},spaceId:l.id})),
+    E("div",{className:"loc-viewer-cap"},
+      E("span",null,spatialState&&spatialState.ready?"The confirmed floor plan.":"Not confirmed yet."),
+      E("button",{type:"button",className:"loc-subspace-link",onClick:open},"Open 2 · Floor plan")));
+}
+/* ONE LINE OF STATUS, beside the name: what the card waits for. A draft that waits is said by Next, just below (it is
+   read from the film, so it is not known here). */
+function locationCardStatus({l,steps,looks,spatialState}){
+  const next=(steps||[]).find(s=>s.next);
+  if(next){
+    if(next.n===1) return {kind:"todo",text:"Needs a description"};
+    if(next.n===2){
+      const plan=(spatialState&&spatialState.plan)||{};
+      const empty=!String(plan.frame||"").trim()&&!(plan.anchors||[]).length;
+      return empty?{kind:"todo",text:"Needs a floor plan"}:{kind:"yours",text:"Your check: floor plan"};
+    }
+    if(next.n===3) return {kind:"todo",text:"Cameras to set"};
+    // a small room that takes its place's image has nothing of its own to make
+    if(l&&l.parentLocation&&typeof locationUsesParentPlate==="function"){try{if(locationUsesParentPlate(l)) return {kind:"done",text:"Uses its place’s image"};}catch(_){}}
+    // the film's images arrive after the card does: until this one is known to be missing, nothing is said to be needed
+    const main=(looks||[]).find(k=>k.id==="main");
+    if(main&&!main.has&&main.known===false) return {kind:"todo",text:"Checking\u2026"};
+    // it has one, made before the description, the floor plan or the cameras changed
+    if(main&&main.has) return {kind:"todo",text:"Image out of date"};
+    return {kind:"todo",text:"Needs its image"};
+  }
+  if((looks||[]).some(k=>k.id!=="main"&&!k.orphan&&!k.has&&k.known===false)) return {kind:"todo",text:"Checking\u2026"};
+  const missing=(looks||[]).filter(k=>k.id!=="main"&&!k.orphan&&!k.has).length;
+  if(missing) return {kind:"todo",text:missing===1?"1 look to make":missing+" looks to make"};
+  return {kind:"done",text:"Ready for shots"};
+}
+/* THE LOOKS' IMAGES. A look's image used to be read only when the Variants section was opened, so a card that had just
+   come on the page would have said "Not made" under a look that has its image. Each look's image is read from the film
+   when the card comes on the page, and the card draws again when one of them is made, used or deleted.
+   WHAT IS MISSING IS ASKED OF THE FILM, never guessed from a read that came back empty (on a slow connection a read can
+   come back empty for an image that exists): nbImageKnownMissing is true only after a complete check of the film, so
+   the check is asked for here too. It is the one the Art Room makes when it opens; a check that failed is made again.
+   Until it answers, a look says "Checking", never "Not made". */
+function useLocationLookTick(ids){
+  const [,bump]=React.useReducer(n=>n+1,0);
+  const mine=React.useRef(ids);mine.current=ids;
+  const epoch=typeof nbEpoch==="function"?nbEpoch():0;
+  React.useEffect(()=>{
+    if(typeof window.addEventListener!=="function") return undefined;
+    const one=e=>{const id=e&&e.detail&&e.detail.id;if(!id||(mine.current||[]).indexOf(String(id))>=0)bump();},all=()=>bump();
+    window.addEventListener("nb-gen-done",one);window.addEventListener("nb-prefetched",all);
+    return ()=>{window.removeEventListener("nb-gen-done",one);window.removeEventListener("nb-prefetched",all);};
+  },[]);
+  React.useEffect(()=>{
+    let dead=false;
+    try{ if(typeof nbPrefetchAll==="function") Promise.resolve(nbPrefetchAll()).then(()=>{ if(!dead) bump(); },()=>{}); }catch(_){ }
+    return ()=>{dead=true;};
+  },[epoch]);
+  const key=(ids||[]).join("|")+"@"+epoch;
+  React.useEffect(()=>{
+    if(typeof nbLoadImage!=="function"||typeof nbGetImage!=="function") return undefined;
+    let dead=false;
+    (async()=>{
+      for(const id of (ids||[])){
+        if(!id) continue;
+        let got=false;
+        try{ if(!nbGetImage(id)) got=!!(await nbLoadImage(id)); }catch(_){ }
+        if(dead) return;
+        if(got) bump();
+      }
+    })();
+    return ()=>{dead=true;};
+  },[key]);
+}
 function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft, drafting, onView, batchActiveId, onBatchDone, onChipClick, onDraftStaging, draftingStage, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false, workspaceMembers=[],onSelectLocation,initialSection="",embedded=false,
   samePlace=[], mergeChoices=[], onMergeLocations, onPlaceDecision,
   // ONE CARD (owner 2026-11-21): roomBlocks = how the place's card opens its rooms inside itself (LocationWorkspace);
@@ -2217,11 +2449,13 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // nothing made is hidden or lost
   const extraHasImage=v=>{try{return typeof nbGetImage==="function"&&!!nbGetImage(l.id+"-"+v.id);}catch(_){return false;}};
   const shownExtras=l.parentLocation?[]:spatialState.ready?coverageSheets.filter(extraHasImage):coverageSheets;
-  return React.createElement("div",{ref:sheetRef,className:(asSection?"loc-room-sheet":embedded?"loc-workspace-sheet":"sheet-card")+(batchActiveId===l.id?" batch-on":""),"data-location-card":l.id,
-      "data-room-section":asSection?"1":undefined},
-    /* THE HEAD SHOWS THE IMAGE; NOTHING IS GENERATED FROM IT (owner 2026-11-17: the Generate button, its reference
-       strip and "Edit a panel" were a second road beside 4 \u00b7 Previs). The quick image, from the description
-       alone, is made in 5 \u00b7 Location image; while one is being made, the head shows it with Stop. */
+  const [mode,setMode]=React.useState("image"),[look,setLook]=React.useState("main"),[lookSeen,setLookSeen]=React.useState({});
+  /* ---- THE CARD, PICTURE FIRST (owner 2026-11-21, "I like B"): see LocationSegment, above, for the whole layout.
+     Each part of the card is made here as it always was; only where it is shown changed. ---- */
+  /* THE HEAD SHOWS THE IMAGE; NOTHING IS GENERATED FROM IT (owner 2026-11-17: the Generate button, its reference
+     strip and "Edit a panel" were a second road beside 4 · Previs). The quick image, from the description
+     alone, is made in 5 · Location image; while one is being made, the head shows it with Stop. */
+  const frameEl =
     React.createElement(SheetFrame,{ gen:genPlate, slotId:"locref-"+l.id, name:l.name, avatarColor:locSwatch(displaySide),
       initials, drafted, drafting, onDraft:()=>onDraft(l), entity:l, onView,
       slotPlaceholder:"Drop a photo of the place", noun:"location image", noGenerate:true,
@@ -2249,7 +2483,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         ...(!readOnly && l.parentLocation && typeof onPlaceDecision==="function" ? [{ label:"Make it a place of its own", icon:Icon.layers,
           title:"This room stops being a part of "+(l.parentLocation.name||"its place")+" and gets a card of its own again. You confirm first. Nothing is generated, charged or deleted.",
           onClick:()=>onPlaceDecision(l.id, l.parentLocation.id, "separate") }] : [])],
-      onDelete:()=>onDelete(l.id), deleteLabel:"Delete location" }),
+      onDelete:()=>onDelete(l.id), deleteLabel:"Delete location" });
+  const noticesEl = React.createElement(React.Fragment,null,
     // a sub-space's plate that copies a panel of its parent's — said, never regenerated on its own (2026-10-14)
     l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:l.id, gen, readOnly,
       refs:()=>(typeof locationPlateRefCount==="function" ? locationPlateRefCount(l).n : undefined),
@@ -2267,9 +2502,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       onMerge:()=>{ const other = samePick.otherId; if(!other || typeof onMergeLocations!=="function") return; setSamePick(null); onMergeLocations(l.id, other, {}); } }),
     roomPick && !readOnly && !l.parentLocation && React.createElement(LocationRoomOfPicker,{ l, choices:placeChoices||[], value:roomPick.placeId,
       onChange:(v)=>setRoomPick({ placeId:v }), onCancel:()=>setRoomPick(null),
-      onApply:()=>{ const place = roomPick.placeId; if(!place || typeof onPlaceDecision!=="function") return; setRoomPick(null); onPlaceDecision(l.id, place, "part"); } }),
-    React.createElement("div",{className:"sheet-body"},
-      React.createElement("div",{className:"sheet-head"},
+      onApply:()=>{ const place = roomPick.placeId; if(!place || typeof onPlaceDecision!=="function") return; setRoomPick(null); onPlaceDecision(l.id, place, "part"); } }));
+  const headEl =
+    React.createElement("div",{className:"sheet-head"},
         React.createElement("div",{style:{flex:1,minWidth:0}},
           React.createElement("div",{className:"sheet-name loc-name-row",title:l.name||""},
             React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(displaySide)?"ext":"int"),
@@ -2298,13 +2533,12 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             React.createElement(LocationImageChangeNotices,{l,meta:gen.genMeta,hasImage:!!gen.genUrl,onSelectLocation})),
           l.parentLocation&&React.createElement("div",{className:"loc-parent-breadcrumb"},
             "within ",React.createElement("b",null,l.parentLocation.name)," \u00b7 uses its space and look unless filled in here"),
-          null)),
-      // where this card stands and what to do next (owner 2026-11-01: one numbered path per card)
-      React.createElement(LocationStepGuide,{l,steps:cardSteps}),
-      // PREPARE THIS PLACE (owner 2026-11-17): one run for what is left of the road, on the place's own card
-      showPrevis&&React.createElement(LocationPreparePlace,{l,rooms:roomLocations,project,drafted,spatialState,hasImage:!!gen.genUrl,onDraft,onUpdate,readOnly}),
-
-      React.createElement("div",{className:"char-style-row"},
+          null));
+  // PREPARE THIS PLACE (owner 2026-11-17): one run for what is left of the road, on the place's own card. It is the
+  // card's NEXT: what is left, with its price, and what waits for the person.
+  const prepareEl = showPrevis&&React.createElement(LocationPreparePlace,{l,rooms:roomLocations,project,drafted,spatialState,hasImage:!!gen.genUrl,onDraft,onUpdate,readOnly});
+  const styleRowEl =
+    React.createElement("div",{className:"char-style-row"},
         React.createElement("span",{className:"char-style-lab"},"Render style"),
         React.createElement("div",{className:"char-style-pick"},
           React.createElement(window.RenderStylePicker,{context:"location",value:styleKey,disabled:styling,onPick:pickLocStyle}),
@@ -2321,16 +2555,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         (!inheritsStyle && !styling && l.renderStyleKey==="surprise" && l.surpriseRender && l.surpriseRender.style && window.turnCanLockStyles && window.turnCanLockStyles()) &&
           React.createElement("button",{className:"char-style-lock",title:"Lock this style \u2014 keep it and reuse it across Characters, Props & Locations",onClick:lockSurprise},"\ud83d\udd12 Lock this style"),
         (!inheritsStyle && !styling && unlockVisible && window.turnIsUserStyle && window.turnIsUserStyle(l.renderStyleKey)) &&
-          React.createElement("span",{className:"char-style-name char-style-locked",title:"Your saved style \u2014 reusable everywhere. Click to unlock.",onClick:unlockCurrent},"\ud83d\udd12 saved \u00b7 unlock")),
-
-      React.createElement("div",{className:"prop-scenes location-scenes"},
-        React.createElement("span",{className:"prop-scenes-lab"},"SCENES"),
-        React.createElement(SceneChipPager,{ none:"No scenes reference this place",
-          items: locScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0"), className:"prop-scene-chip",
-            title:(s.title||("Scene "+s.no))+(sceneTimeOf[String(s.no)]?" \u00b7 "+sceneTimeOf[String(s.no)].join(", "):""), onClick:()=>onChipClick&&onChipClick(s.id) })) })),
-
-      // THE CARD IN ORDER (owner 2026-11-13): every section numbered, first to last (locationSectionNumbers)
-      React.createElement(CardFold,{label:"1 \u00b7 The Space",foldId:locationStepFoldId(l,1),defaultOpen:(!drafted && !!l.manual)},
+          React.createElement("span",{className:"char-style-name char-style-locked",title:"Your saved style \u2014 reusable everywhere. Click to unlock.",onClick:unlockCurrent},"\ud83d\udd12 saved \u00b7 unlock"));
+  // THE CARD IN ORDER (owner 2026-11-13): the five steps keep their numbers (locationSectionNumbers)
+  const foldSpace =
+    React.createElement(CardFold,{label:"1 \u00b7 The Space",foldId:locationStepFoldId(l,1),defaultOpen:(!drafted && !!l.manual)},
         React.createElement("div",{className:"loc-step-actions"},
           React.createElement("button",{className:"char-draft-btn"+(drafting?" busy":""),disabled:drafting,onClick:()=>onDraft(l),
             title:"Draft the written description of this place. Where its objects stand comes next, in 2 \u00b7 Floor plan."},
@@ -2392,9 +2620,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         // what the place means in the story: guidance for the image and the shots, never a physical fact
         React.createElement(SheetField,{label:"Narrative Significance \u2014 what this place means in the story",value:l.significance,multiline:true,
           placeholder:"Its dramatic role \u2014 what happens here, what it represents\u2026",onCommit:val=>onUpdate(l.id,{significance:val})}),
-      ),
-
-      React.createElement(CardFold,{label:"2 \u00b7 Floor plan",foldId:layoutFoldId,defaultOpen:initialSection==="layout",
+      );
+  const foldPlan =
+    React.createElement(CardFold,{label:"2 \u00b7 Floor plan",foldId:layoutFoldId,defaultOpen:initialSection==="layout",
         count:(outsideRooms.length?outsideRooms.length+(outsideRooms.length===1?" room to add":" rooms to add"):"")||(locStaged&&typeof locationStagingLayoutChanged==="function"&&locationStagingLayoutChanged(l)?"layout changed":stagingPrep?"staging\u2026":null)},
         React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:2,onSelectLocation,inside:asSection}),
         // ONE CARD (owner 2026-11-21): the one floor plan is edited once, on the place; a room inside the card points to it
@@ -2405,9 +2633,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement("details",{className:"loc-nested-section loc-parts-section",id:"loc-parts-"+l.id,"data-testid":"location-moving-parts-section"},
           React.createElement("summary",null,"Moving parts (optional)"+(partsCount?" \u00b7 "+partsCount:"")),
           React.createElement(LocationMovingParts,{l,scenes,drafts,onUpdate,readOnly})),
-      ),
-
-      React.createElement(CardFold,{label:"3 \u00b7 Cameras",foldId:locationStepFoldId(l,3)},
+      );
+  const foldCameras =
+    React.createElement(CardFold,{label:"3 \u00b7 Cameras",foldId:locationStepFoldId(l,3)},
         React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:3,onSelectLocation,inside:asSection}),
         React.createElement(LocationCameraSuggestions,{l,onUpdate,readOnly}),
         React.createElement(LocationPlateCameras,{l,project,onUpdate,readOnly,plateMeta:gen.genUrl?gen.genMeta:null}),
@@ -2416,22 +2644,22 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         // no floor plan keeps them: its image is made from words alone. Saved notes are never deleted.
         !(spatialState.ready&&ownRoom)&&React.createElement(CoverageViewsEditor,{l,views:coverageViews,onUpdateView:updateCoverageView,
           onAdd:addCoverageView,onRemove:removeCoverageView,onDraftStaging,draftingStage,readOnly}),
-      ),
-
-      // PREVIS (owner 2026-11-15): the set in 3D from the floor plan and the cameras, dressed for the film, and the
-      // location image made from it in the card's style, as drafts kept until discarded. The fold draws only while it
-      // is open. Old links to the cloud build's steps ("build", "style") open it too.
-      showPrevis&&React.createElement(CardFold,{label:"4 \u00b7 Previs",foldId:locationStepFoldId(l,4),
+      );
+  // PREVIS (owner 2026-11-15): the set in 3D from the floor plan and the cameras, dressed for the film, and the
+  // location image made from it in the card's style, as drafts kept until discarded. The fold draws only while it
+  // is open. Old links to the cloud build's steps ("build", "style") open it too.
+  const foldPrevis =
+    showPrevis&&React.createElement(CardFold,{label:"4 \u00b7 Previs",foldId:locationStepFoldId(l,4),
           defaultOpen:initialSection==="previs"||initialSection==="build"||initialSection==="style"},
         React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:4,onSelectLocation,inside:asSection}),
         // a place with rooms shows them here too, each inside the place's one 3D set (LocationPrevisPlace)
         React.createElement(window.LocationPrevisPlace||window.LocationPrevisStep,{location:l,rooms:roomLocations,project,readOnly,onUpdate,hasImage:!!gen.genUrl,
-          imageMeta:gen.genUrl?gen.genMeta:null,imageN:sectionNo.image,onSelectLocation})),
-
-      // THE LOCATION IMAGE: what sets its look (The look, called Look Dev until 2026-11-15: the settings that change
-      // the image live ON the card, 2026-10-05) and the check of the image against the description. The image itself
-      // is made in 4 \u00b7 Previs or generated at the top of the card.
-      React.createElement(CardFold,{label:sectionNo.image+" \u00b7 Location image",foldId:"loc-image-"+l.id,defaultOpen:false},
+          imageMeta:gen.genUrl?gen.genMeta:null,imageN:sectionNo.image,onSelectLocation}));
+  // THE LOCATION IMAGE: what sets its look (The look, called Look Dev until 2026-11-15: the settings that change
+  // the image live ON the card, 2026-10-05) and the check of the image against the description. The image itself
+  // is made in 4 · Previs.
+  const foldImage =
+    React.createElement(CardFold,{label:sectionNo.image+" \u00b7 Location image",foldId:"loc-image-"+l.id,defaultOpen:false},
         React.createElement("p",{className:"loc-layer-note","data-testid":"loc-image-step-note"},locationImageStepNote({previs:showPrevis})),
         // QUICK IMAGE FROM THE DESCRIPTION (owner 2026-11-17): the Generate that sat at the top of the card, with the
         // reference images it sends. It is made from words alone, so it is the fast way to a first look.
@@ -2499,32 +2727,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         window.QaCheckButton && gen.genUrl && React.createElement("div",{className:"loc-step-actions"},
           React.createElement(window.QaCheckButton,{ gen, name:l.name, noun:"location image",
             specFields:()=>({ architecture:(l.architecture||""), materials:(l.materials||""), lighting:(l.lighting||"") }),
-            onApplySpec:(patch)=>onUpdate(l.id, patch) }))),
-
-      // VARIANTS: each time of day (a room & time, read from the sluglines) or state (a storm, a power cut) this space
-      // is seen in, with the scenes that use it. foldId: a shot's missing view opens this fold from the Shots tab (2026-10-20)
-      React.createElement(CardFold,{label:sectionNo.variants+" \u00b7 Variants",foldId:"loc-units-"+l.id,count:variantCount||undefined,
-          defaultOpen:initialSection==="units"||initialSection==="environments"},
-        React.createElement("p",{className:"loc-layer-note"},"Each time of day or state "+(l.name||"this space")+" is seen in. The space stays the same: a variant uses the description above and changes only its light and environment. Each has its own image."),
-        React.createElement("div",{className:"loc-variants"},
-          environment.units.map(u=>React.createElement("div",{className:"loc-variant-group",key:u.key,"data-location-variant":u.key},
-            React.createElement(SluglineUnitCard,{ l, u, project, scenes, drafts,
-              parentGenUrl:gen.genUrl, onRemoveUnit:removeVariantRecord, onView, readOnly,
-              onEnvironmentChange:state=>saveLocationUnitEnvironment(l,u,appearanceStates,state,onUpdateUnit,onUpdate)}),
-            React.createElement(LocationVariantUsedIn,{unit:u,setups:sceneSetups.filter(s=>s.unitKey===u.key),onUpdateSetup:updateSceneSetup}))),
-          // a look of its own, not a time the screenplay states (the additional environment states of before)
-          environment.additional.map(v=>React.createElement(LocationVariant,{key:v.id,l,v,project,scenes,drafts,units,readOnly,
-            parentGenUrl:gen.genUrl,onTime:time=>updateVariant(v.id,{time}),
-            onState:state=>updateVariant(v.id,{state}),onRemove:()=>removeVariant(v.id),onView})),
-          !variantCount&&React.createElement("div",{className:"loc-variants-empty"},hasRooms
-            ? "No scene plays in "+(l.name||"this place")+" itself. Its rooms' variants are under Subspaces."
-            : "No scene in the screenplay plays here yet."),
-          React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:addVariant,
-              title:"Only for a look the screenplay's times of day don't already give, such as a storm or a power cut"},
-            React.createElement(Icon.plus,{s:14}),"Add a variant"))),
-
-      // SUBSPACES (a main location only): its rooms, each with its variants and scenes, and its extra spaces
-      showSubspaces&&React.createElement(CardFold,{label:sectionNo.subspaces+" \u00b7 Subspaces",foldId:"loc-subspaces-"+l.id,
+            onApplySpec:(patch)=>onUpdate(l.id, patch) })));
+  // SUBSPACES (a main location only): its rooms, each with its variants and scenes, and its extra spaces
+  const foldSubspaces =
+    showSubspaces&&React.createElement(CardFold,{label:"Subspaces",foldId:"loc-subspaces-"+l.id,
           count:hasRooms?roomLocations.length:undefined,defaultOpen:hasRooms},
         hasRooms&&React.createElement("p",{className:"loc-layer-note"},"The rooms and areas of "+(l.name||"this place")+(roomBlocks?". Each opens here, with its own image, cameras and variants, and uses ":". Each uses ")+(l.name||"the place")+"'s space and look unless you fill in its own."),
         hasRooms&&React.createElement(LocationSubspaceList,{rooms:roomLocations,units:sluglineUnits,onSelectLocation,
@@ -2536,12 +2742,104 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             ? "Made before "+(l.name||"this place")+" had its floor plan. With the plan, a threshold, an exterior or a connecting space is a space of the plan itself: add it in 2 \u00b7 Floor plan. These images are kept here."
             : "Extra empty-set references required by the screenplay, such as an exterior, threshold or connecting space."),
           shownExtras.map(v=>React.createElement(LocationCoverageSheet,{key:v.id,l,v,project,scenes,drafts,
-            previousSheets:coverageSheets.slice(0,coverageSheets.indexOf(v)),parentGenUrl:gen.genUrl,onView})))),
+            previousSheets:coverageSheets.slice(0,coverageSheets.indexOf(v)),parentGenUrl:gen.genUrl,onView}))));
+  // read-only, a folded section of every card (owner 2026-10-28 — it used to hide behind the ⋯ menu or the Film
+  // menu's "Always show prompts"); its own section (owner 2026-11-03)
+  const foldPrompt =
+    React.createElement(CardFold,{label:"Generation Prompt",defaultOpen:false},
+        React.createElement(LocationPromptSection,{l,project,gen,finalPrompt,builtFrom:promptBuiltFrom,previs:showPrevis&&spatialState.ready}));
 
-      // read-only, a folded section of every card (owner 2026-10-28 — it used to hide behind the ⋯ menu or the Film
-      // menu's "Always show prompts"); its own section (owner 2026-11-03), and the last one since More went (2026-11-13)
-      React.createElement(CardFold,{label:sectionNo.prompt+" \u00b7 Generation Prompt",defaultOpen:false},
-        React.createElement(LocationPromptSection,{l,project,gen,finalPrompt,builtFrom:promptBuiltFrom,previs:showPrevis&&spatialState.ready}))));
+  // LOOKS: the location image, and one per time of day or state. A look that is on takes the picture's place, with
+  // everything that was its own in the Variants section (its image, how it is made, the scenes that use it).
+  const mixedSides=new Set(environment.units.filter(u=>u&&!u.orphan).map(u=>String(u.intExt||"INT").toUpperCase())).size>1;
+  const lookImage=id=>{try{return typeof nbGetImage==="function"&&id?(nbGetImage(id)||""):"";}catch(_){return "";}};
+  const unitImageId=u=>{try{return typeof sluglineUnitImageId==="function"?sluglineUnitImageId(u.key):"";}catch(_){return "";}};
+  const stateImageId=v=>{try{return typeof locationAppearanceStateAssetId==="function"?locationAppearanceStateAssetId(l,v,sluglineUnits||[]):l.id+"-"+v.id;}catch(_){return l.id+"-"+v.id;}};
+  const unitLooks=environment.units.map(u=>({u,assetId:String(unitImageId(u)||"")})),stateLooks=environment.additional.map(v=>({v,assetId:String(stateImageId(v)||"")}));
+  useLocationLookTick(unitLooks.concat(stateLooks).map(x=>x.assetId));
+  // "Not made" is said only of an image the film is KNOWN not to hold: its images arrive after the card does
+  const knownMissing=id=>{try{return typeof nbImageKnownMissing==="function"&&!!nbImageKnownMissing(id);}catch(_){return false;}};
+  const lookState=(assetId,made)=>{
+    const url=lookImage(assetId),known=!!url||knownMissing(assetId);
+    return {assetId,url,has:!!url,known,sub:url?made:known?"Not made":"Checking\u2026"};
+  };
+  const mainKnown=!!gen.genUrl||knownMissing(l.id);
+  const looks=[{id:"main",assetId:"",name:"Location",url:gen.genUrl||"",has:!!gen.genUrl,known:mainKnown,sub:gen.genUrl?"In use":mainKnown?"Not made":"Checking\u2026",scenes:""}]
+    .concat(unitLooks.map(({u,assetId})=>{
+      const nos=(Array.isArray(u.sceneNos)?u.sceneNos:[]).filter(n=>n!=null);
+      return {id:"u:"+u.key,name:locationVariantName(u,mixedSides),orphan:!!u.orphan,...lookState(assetId,"Has its image"),
+        scenes:nos.length?"Sc "+nos.map(n=>String(n).padStart(2,"0")).join(", "):""};
+    }))
+    .concat(stateLooks.map(({v,assetId})=>({id:"v:"+v.id,name:String(v.time||"").trim()||"Variant",...lookState(assetId,"Has its image"),scenes:""})));
+  const lookNow=looks.some(k=>k.id===look)?look:"main";
+  const pickLook=id=>{ setLook(id); if(id!=="main") setLookSeen(s=>s[id]?s:{...s,[id]:true}); };
+  const looksNow=React.useRef(looks);looksNow.current=looks;
+  // "Variants" asked for from elsewhere (a shot's missing view, a room's row, a link): the first look that still has
+  // no image is shown, and the looks come into view. The section's id is the one the Variants fold had.
+  const showVariants=()=>{
+    const list=looksNow.current.filter(k=>k.id!=="main");
+    const want=list.find(k=>!k.has&&!k.orphan)||list[0];
+    if(want) pickLook(want.id);
+    setTimeout(()=>{ try{ const el=sheetRef.current&&sheetRef.current.querySelector(".loc-looks"); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); }catch(_){} },60);
+  };
+  React.useEffect(()=>{
+    if(typeof window.addEventListener!=="function") return undefined;
+    const h=e=>{ if(e&&e.detail==="loc-units-"+l.id) showVariants(); };
+    window.addEventListener("nb-open-fold",h);
+    return ()=>window.removeEventListener("nb-open-fold",h);
+  },[l.id]);
+  React.useEffect(()=>{ if(initialSection==="units"||initialSection==="environments") showVariants(); },[initialSection]);
+  const lookPanel=k=>{
+    if(k.id.indexOf("u:")===0){
+      const u=environment.units.find(x=>"u:"+x.key===k.id);
+      if(!u) return null;
+      return React.createElement("div",{className:"loc-variant-group","data-location-variant":u.key},
+        React.createElement(SluglineUnitCard,{ l, u, project, scenes, drafts,
+          parentGenUrl:gen.genUrl, onRemoveUnit:removeVariantRecord, onView, readOnly,
+          onEnvironmentChange:state=>saveLocationUnitEnvironment(l,u,appearanceStates,state,onUpdateUnit,onUpdate)}),
+        React.createElement(LocationVariantUsedIn,{unit:u,setups:sceneSetups.filter(s=>s.unitKey===u.key),onUpdateSetup:updateSceneSetup}));
+    }
+    // a look of its own, not a time the screenplay states (the additional environment states of before)
+    const v=environment.additional.find(x=>"v:"+x.id===k.id);
+    if(!v) return null;
+    return React.createElement(LocationVariant,{l,v,project,scenes,drafts,units,readOnly,
+      parentGenUrl:gen.genUrl,onTime:time=>updateVariant(v.id,{time}),
+      onState:state=>updateVariant(v.id,{state}),onRemove:()=>removeVariant(v.id),onView});
+  };
+  const status=locationCardStatus({l,steps:cardSteps,looks,spatialState});
+  const viewModes=[{id:"image",name:"Image",title:"The location image"}]
+    .concat(showPrevis?[{id:"set",name:"3D set",title:"The place in 3D, from its four cameras. Free: nothing is made."}]:[])
+    .concat([{id:"plan",name:"Floor plan",title:"The floor plan, from above"}]);
+  const modeNow=viewModes.some(m=>m.id===mode)?mode:"image";
+  const startTab=(initialSection==="layout"||initialSection==="previs"||initialSection==="build"||initialSection==="style")?"set"
+    :(!drafted&&!!l.manual)?"about":"todo";
+  return React.createElement("div",{ref:sheetRef,className:(asSection?"loc-room-sheet":embedded?"loc-workspace-sheet":"sheet-card")+(batchActiveId===l.id?" batch-on":""),"data-location-card":l.id,
+      "data-room-section":asSection?"1":undefined,"data-card-layout":"picture-first"},
+    React.createElement("div",{className:"sheet-body loc-b-top"},
+      React.createElement("div",{className:"loc-b-headrow"},
+        headEl,
+        React.createElement("span",{className:"loc-status-pill "+status.kind,"data-testid":"location-status"},status.text)),
+      React.createElement(LocationLooks,{looks,selected:lookNow,onSelect:pickLook,onAdd:addVariant,readOnly}),
+      !variantCount&&React.createElement("p",{className:"loc-layer-note loc-variants-empty"},hasRooms
+        ? "No scene plays in "+(l.name||"this place")+" itself. Its rooms’ looks are on each room."
+        : "No scene in the screenplay plays here yet.")),
+    React.createElement("div",{className:"loc-viewer","data-testid":"location-viewer","data-look":lookNow,"data-mode":modeNow},
+      lookNow==="main"&&React.createElement("div",{className:"loc-viewer-bar"},
+        React.createElement(LocationSegment,{label:"What the picture shows",value:modeNow,options:viewModes,onChange:setMode})),
+      // the image stays mounted while another view or look is on: a quick image being made, or an edit, goes on
+      React.createElement("div",{className:"loc-viewer-image",hidden:!(lookNow==="main"&&modeNow==="image")},frameEl),
+      lookNow==="main"&&modeNow==="set"&&React.createElement(LocationSetPicture,{l}),
+      lookNow==="main"&&modeNow==="plan"&&React.createElement(LocationPlanPicture,{l,spatialState}),
+      React.createElement(LocationLookPanels,{looks,shown:lookNow,seen:lookSeen,render:lookPanel})),
+    noticesEl,
+    React.createElement("div",{className:"sheet-body"},
+      prepareEl,
+      React.createElement(LocationTabs,{l,initial:startTab,tabs:[
+        {id:"todo",name:"To do",render:()=>React.createElement(LocationTodoList,{l,steps:cardSteps,looks,onLook:pickLook})},
+        {id:"scenes",name:"Scenes",count:locScenes.length||undefined,
+          render:()=>React.createElement(LocationScenesList,{l,locScenes,units:evidenceUnits,onChipClick})},
+        {id:"set",name:"Set",render:()=>React.createElement(React.Fragment,null,foldPlan,foldCameras,foldPrevis,foldSubspaces)},
+        {id:"about",name:"About",render:()=>React.createElement(React.Fragment,null,foldSpace,styleRowEl,foldImage,foldPrompt)}]})));
 }
 
 /* THE PROMPT ACTUALLY USED (owner 2026-11-17: the section showed only the quick image's specification, not what
@@ -2893,24 +3191,6 @@ function LocationPreparePlace({l,rooms=[],project,drafted,spatialState,hasImage,
     run.fail&&!run.busy&&E("p",{className:"loc-spatial-error",role:"alert"},run.fail));
 }
 window.LocationPreparePlace=LocationPreparePlace;
-function LocationStepGuide({l,steps}){
-  // THE TRACKER ALONE (owner 2026-11-17: "the tracker alone is enough"): the "Next ... Go" row above it said the same
-  // thing a second time. Each step opens its section; the one to do next is marked, and its tooltip says what to do.
-  const go=n=>{
-    // the image is made in 4 \u00b7 Previs when the set is ready in 3D, else in 5 \u00b7 Location image (a quick image)
-    const st=steps.find(x=>x.n===n)||{},to=st.key==="image"&&st.goTo?st.goTo:n;
-    if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,to);
-    else window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:locationStepFoldId(l,to)}));
-  };
-  const E=React.createElement;
-  return E("div",{className:"loc-steps","data-testid":"location-step-guide"},
-    E("ol",{className:"loc-steps-list","aria-label":"Steps for this location"},steps.map(st=>E("li",{key:st.n},
-      E("button",{type:"button",className:"loc-step"+(st.done?" done":st.next?" next":""),onClick:()=>go(st.n),
-        "aria-current":st.next?"step":undefined,
-        title:(st.done?"Done":st.optional?"Optional":st.next?"Next":"Later")+(st.todo&&!st.done?" \u2014 "+st.todo:"")},
-        E("span",{className:"loc-step-n"},st.done?"\u2713":st.n),E("span",{className:"loc-step-name"},st.name))))));
-}
-
 /* Camera-relative composition, not a measured room plan. The visual editor
    keeps the existing depth-grid fields used by generation and Blender. */
 function CoverageViewsEditor({l,views,onUpdateView,onAdd,onRemove,onDraftStaging,draftingStage,readOnly=false}){
@@ -4234,7 +4514,7 @@ function LocationSheets({ project, locations, scenes, drafts, onUpdate, onDraft,
         React.createElement("div",{style:{flex:1}},
           React.createElement(window.ArtDeptTitle||"div",{className:"art-intro-t",style:{display:"flex",alignItems:"center",gap:9}},"Location Scout",
             React.createElement(window.InfoTip,{label:"About Locations",
-              text:"Locations prepares reusable sets for the art department. Each card is one numbered list, in the order you work, with a tracker of its five steps at the top. The Space describes the place: Screenplay Coverage, at its top, shows the passages that play there, and Narrative Significance is its last field. Then come the floor plan (review and confirm it), the cameras with their reusable camera views with their view compositions, and Previs: the set in 3D, drawn in your browser, which you can dress for the film and make the location image from (each image is a draft you look at first, then use or delete). Location image holds The look, the image check and the quick image: an image made from the description alone, without the 3D set. Prepare this place, under the tracker of a place's card, does what is left of the road in order (the description and the floor plan draft; then, once you have confirmed the plan, it carries on by itself: the cameras, the dressing and the first image of the place and of each room, as drafts) and asks first each time, with the price. Variants lists each time of day or state the space is seen in (read from the screenplay's sluglines), each with one image, its Lighting & environment notes and, under Used in, each scene's dressing and blocking. Subspaces holds the place's rooms: each opens there, inside the place's card, with its own image, cameras, Previs and variants. A room takes its look from its place's image, so that one comes first. The header's Render style picker sets the visual treatment; The look, in the card's Location image section, fine-tunes it, and the card's Generation Prompt section shows, read-only, the prompt that made the image and what the next one would send. Images spend image credits; drafting specs, floor plans and dressing spend writing credits \u2014 each button says which, and the runs ask first with the price. The Quick images buttons at the top make every missing image the quick way, from each description alone. Show lists every place or only those that need a floor plan, need their image or have it, the most used first. On a place with rooms, Previs shows the whole place from above and each room inside the same 3D set.\n\nOne card holds a place and its rooms: the top row of the card names them, and a room opens inside the card, under Subspaces. Search and scene focus include rooms. A room the screenplay names on its own (a Kitchen, a Landing) can stand as a place: Find rooms of places, at the top, reads the screenplay and lists the cards that are rooms of another card's place, for you to check and apply; a card's \u22ef menu has A room of\u2026 to say it by hand. Shot timing, cuts and performance are directed in Shots / Blender previz."}))),
+              text:"Locations prepares reusable sets for the art department. Each card puts the picture first: the name of the place with one line of status, its looks (the location image, and one for each time of day or state), then one picture you can look at three ways: Image, 3D set and Floor plan. Four tabs hold the rest. To do lists the five steps in the order you work and each look that still has no image. Scenes lists the scenes that play here, with the look each uses. Set holds the floor plan (review and confirm it), the cameras with their reusable camera views with their view compositions, Previs (the set in 3D, drawn in your browser, which you can dress for the film and make the location image from: each image is a draft you look at first, then use or delete) and the place's rooms. About holds The Space, which describes the place (Screenplay Coverage, at its top, shows the passages that play there, and Narrative Significance is its last field), the render style, Location image (The look, the image check and the quick image: an image made from the description alone, without the 3D set) and the prompt. Prepare this place, under the picture of a place's card, does what is left of the road in order (the description and the floor plan draft; then, once you have confirmed the plan, it carries on by itself: the cameras, the dressing and the first image of the place and of each room, as drafts) and asks first each time, with the price. The looks are each time of day or state the space is seen in (read from the screenplay's sluglines), each with one image, its Lighting & environment notes and, under Used in, each scene's dressing and blocking: press a look and it is shown in the picture's place. The top row of a card names the place and its rooms: press a room and the card shows that room, with its own image, cameras, Previs and looks. A room takes its look from its place's image, so that one comes first. The header's Render style picker sets the visual treatment; The look, in the card's Location image section, fine-tunes it, and the card's Generation Prompt section shows, read-only, the prompt that made the image and what the next one would send. Images spend image credits; drafting specs, floor plans and dressing spend writing credits \u2014 each button says which, and the runs ask first with the price. The Quick images buttons at the top make every missing image the quick way, from each description alone. Show lists every place or only those that need a floor plan, need their image or have it, the most used first. On a place with rooms, Previs shows the whole place from above and each room inside the same 3D set.\n\nOne card holds a place and its rooms: the top row of the card names them, and a room opens inside the card, under Subspaces. Search and scene focus include rooms. A room the screenplay names on its own (a Kitchen, a Landing) can stand as a place: Find rooms of places, at the top, reads the screenplay and lists the cards that are rooms of another card's place, for you to check and apply; a card's \u22ef menu has A room of\u2026 to say it by hand. Shot timing, cuts and performance are directed in Shots / Blender previz."}))),
         React.createElement("div",{className:"art-intro-actions"},
           window.RecentlyDeleted && React.createElement(window.RecentlyDeleted,{
             items:trashItems,kind:"location",onRestore,onPurge,compact:true}),
