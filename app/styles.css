@@ -3939,6 +3939,33 @@ span.own-name{padding:3px 0}
 .loc-workspace-root:hover{color:var(--pos-ink)}
 .loc-workspace-root:focus-visible{outline:2px solid var(--pos);outline-offset:3px;border-radius:3px}
 .loc-workspace-nav .prop-select{width:48%;min-width:0;max-width:190px}
+/* ONE CARD FOR A PLACE AND ITS ROOMS (owner 2026-11-21): the top row names the place and each room in the card; a
+   room opens inside the card, under Subspaces, as a block of its own */
+.loc-workspace-lab{flex:0 0 auto;color:var(--txt-3);font:600 9.5px/1.4 var(--f-mono);letter-spacing:.12em;text-transform:uppercase}
+.loc-space-chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0;flex:1}
+.loc-space-chip{display:inline-flex;align-items:center;min-height:26px;padding:2px 11px;border:1px solid var(--line);border-radius:999px;
+  background:transparent;color:var(--txt-2);font:500 11.5px/1.3 var(--f-ui);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button.loc-space-chip{cursor:pointer}
+button.loc-space-chip:hover,button.loc-space-chip:focus-visible{border-color:var(--pos);color:var(--txt-0)}
+.loc-space-chip.on{background:var(--txt-0);color:var(--bg-1);border-color:var(--txt-0)}
+.loc-space-chip.open{border-color:var(--pos);color:var(--txt-0)}
+.loc-room-thumb{flex:0 0 auto;width:64px;height:36px;object-fit:cover;border-radius:5px;border:1px solid var(--line)}
+.loc-room-link > img + span{flex:1}
+.loc-subspace.open > .loc-room-link{border-color:var(--pos);background:var(--pos-soft)}
+.loc-room-body{margin-top:6px;border:1px solid var(--line);border-radius:10px;background:var(--bg-1);overflow:hidden}
+.loc-room-sheet{display:flex;flex-direction:column;min-width:0}
+/* ROOMS FOUND IN THE SCREENPLAY (owner 2026-11-21): the list to tick, by place */
+.loc-copy-check.loc-families{color:var(--txt-1);background:var(--bg-2);border:1px solid var(--line);padding:12px 14px;margin:0 0 12px}
+.loc-families .loc-copy-check-body > p{color:var(--txt-1);font-size:12.5px}
+.loc-families .loc-copy-check-acts{margin-top:12px}
+.loc-families .loc-family{display:flex;flex-direction:column;gap:4px;margin:8px 0 0}
+.loc-families .loc-family > b{font:600 12px/1.4 var(--f-ui);color:var(--txt-0)}
+.loc-family-room{display:flex;align-items:flex-start;gap:8px;font:400 12px/1.45 var(--f-ui);color:var(--txt-1);cursor:pointer}
+.loc-family-room input{margin:2px 0 0;flex:0 0 auto}
+.loc-family-name{font-weight:600;color:var(--txt-0)}
+.loc-family-room small,.loc-family-same small{color:var(--txt-3);font-size:11px}
+.loc-family-same{display:flex;align-items:center;justify-content:space-between;gap:10px;font:400 12px/1.45 var(--f-ui);color:var(--txt-1)}
+@media (max-width:640px){ .loc-space-chip{min-height:36px} }
 .loc-room-links{display:flex;flex-direction:column;gap:6px}
 .loc-room-link{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
   text-align:left;padding:9px 10px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--bg-2);color:var(--txt-1);cursor:pointer}

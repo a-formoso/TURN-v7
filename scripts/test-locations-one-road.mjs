@@ -65,10 +65,19 @@ await test("3 second half: cameras (free), dressing (an estimate), the place's f
   assert.deepEqual(plan.steps.map(s=>s.kind),["cameras","dress","image"]);
   assert.equal(plan.steps[0].text,"Set the cameras of Hallway (free)");
   assert.equal(plan.steps[1].text,"Dress Ellis House, Hallway (about 16 writing credits)");
-  assert.equal(plan.steps[2].text,"Make the first image of Ellis House, as a draft (14 image credits)");
-  // the place first: no room is drawn before the place has its image (a room takes its look from it)
-  assert.deepEqual(plan.steps[2].ids,["house"]);
-  assert.deepEqual([plan.writing,plan.image,plan.total],[16,14,30]);
+  // ONE PASS (owner 2026-11-21): the place's first image and each room's, in the same run, the place first (a room
+  // takes its look from the place's draft while the place has no image)
+  assert.equal(plan.steps[2].text,"Make the first image of Ellis House and of its room (Hallway), as drafts (30 image credits)");
+  assert.deepEqual(plan.steps[2].ids,["house","hall"]);
+  assert.deepEqual(plan.steps[2].targets.map(t=>t.credits),[14,16],"the place at its price, a room at a room's (it sends the place's image too)");
+  assert.deepEqual([plan.writing,plan.image,plan.total],[16,30,46]);
+  // two rooms and more: named, in order
+  const three=copy(box.locationPreparePlan({id:"house",name:"Ellis House",rooms:2,drafted:true,planReady:true,hasImage:false,lacking:[],undressed:[],
+    imageCredits:14,roomImageCredits:16,roomsToDraw:[{id:"hall",name:"Hallway"},{id:"kit",name:"Kitchen"}]}));
+  assert.equal(three.steps[0].text,"Make the first image of Ellis House and of its rooms (Hallway, Kitchen), as drafts (46 image credits)");
+  // a place with no rooms reads as before
+  const alone=copy(box.locationPreparePlan({id:"cab",name:"Minicab",drafted:true,planReady:true,hasImage:false,lacking:[],undressed:[],imageCredits:14}));
+  assert.equal(alone.steps[0].text,"Make the first image of Minicab, as a draft (14 image credits)");assert.deepEqual(alone.steps[0].ids,["cab"]);
   // an estimate that could not be made is not shown as a number
   const noPrice=copy(box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:true,undressed:[{id:"h",name:"H",credits:0}],imageCredits:0}));
   assert.equal(noPrice.steps[0].text,"Dress H (writing credits)");assert.equal(noPrice.steps[1].text,"Make the first image of H, as a draft (image credits)");
@@ -79,6 +88,16 @@ await test("4 a draft that waits is the user's turn: the run makes no second one
   const waits=copy(box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:true,hasImage:false,hasDraft:true,lacking:[],undressed:[],imageCredits:14}));
   assert.equal(waits.stage,"done");assert.equal(waits.waitingDraft,true);
   assert.equal(waits.text,"A draft of the image is waiting in 4 · Previs. Use it as the location image, or delete it.");
+  assert.deepEqual(waits.waiting,[{id:"h",name:"H"}]);
+  // ONE PASS (2026-11-21): the place's draft waits and a room has none: the room is drawn from that draft, no second place image
+  const fromDraft=copy(box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:true,hasImage:false,hasDraft:true,lacking:[],undressed:[],imageCredits:14,roomImageCredits:16,roomsToDraw:[{id:"k",name:"Kitchen"}]}));
+  assert.equal(fromDraft.stage,"set");assert.equal(fromDraft.steps[0].text,"Make an image draft for Kitchen (16 image credits)");assert.deepEqual(fromDraft.steps[0].ids,["k"]);
+  // every draft that waits is named: the place's and each room's
+  const several=copy(box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:true,hasImage:false,hasDraft:true,lacking:[],undressed:[],roomDrafts:[{id:"k",name:"Kitchen"},{id:"l",name:"Landing"}]}));
+  assert.equal(several.stage,"done");assert.equal(several.text,"Drafts are waiting in 4 · Previs: H, Kitchen, Landing. Use each as its image, or delete it.");
+  assert.deepEqual(several.waiting.map(w=>w.id),["h","k","l"]);
+  const roomOnly=copy(box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:true,hasImage:true,lacking:[],undressed:[],roomDrafts:[{id:"k",name:"Kitchen"}]}));
+  assert.equal(roomOnly.text,"Drafts are waiting in 4 · Previs: Kitchen. Use each as its image, or delete it.");assert.equal(roomOnly.waitingDraft,false);
   // other work is still done, without a second image
   const dress=copy(box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:true,hasImage:false,hasDraft:true,undressed:[{id:"k",name:"Kitchen",credits:6}],imageCredits:14}));
   assert.deepEqual(dress.steps.map(s=>s.kind),["dress"]);assert.equal(dress.image,0);assert.equal(dress.total,6);
@@ -98,7 +117,7 @@ await test("5 once the place has its image: a draft for each room that has none,
   assert.equal(rooms.steps[0].text,"Make an image draft for Hallway, Kitchen (32 image credits)");
   assert.deepEqual(rooms.steps[0].targets.map(t=>t.id),["hall","kit"]);assert.equal(rooms.total,32);
   const done=copy(box.locationPreparePlan({id:"house",name:"Ellis House",drafted:true,planReady:true,hasImage:true,lacking:[],undressed:[],roomsToDraw:[]}));
-  assert.equal(done.stage,"done");assert.equal(done.text,"");assert.equal(done.waitingDraft,false);
+  assert.equal(done.stage,"done");assert.equal(done.text,"");assert.equal(done.waitingDraft,false);assert.deepEqual(done.waiting,[]);
 });
 
 await test("6 the run on the card: asks first every time, saves each result, and never chooses an image for the user",()=>{
@@ -111,17 +130,24 @@ await test("6 the run on the card: asks first every time, saves each result, and
   assert.equal((prepare.match(/runPlan\(/g)||[]).length,2,"runPlan: defined once, called once");
   assert.equal((prepare.match(/runSet\(/g)||[]).length,2,"runSet: defined once, called once");
   // the price shown is the exact one: drafts already waiting are read from the film before the question
-  assert.match(prepare,/const d=await P\.drafts\(id\);drafts\[id\]=!!\(d&&d\.current\);/);
-  assert.match(prepare,/const exact=locationPreparePlan\(gather\(drafts\)\);/);
+  // (a draft that was used is that space's image, not one that waits; since 2026-11-21 the place and every room are read)
+  assert.match(prepare,/const known=gather\(\),ids=\(known\.hasImage\?\[\]:\[l\.id\]\)\.concat\(\(known\.roomsToDraw\|\|\[\]\)\.map\(r=>r\.id\)\),drafts=\{\};/);
+  assert.match(prepare,/const d=await P\.drafts\(id\);drafts\[id\]=!!\(d&&d\.current&&!d\.current\.used\);/);
+  assert.match(prepare,/const exact=\{\.\.\.locationPreparePlan\(gather\(drafts\)\),placeHasImage:!!known\.hasImage\};/);
   // ...and so are the film's images: an image is offered only where one is known to be missing
-  assert.match(prepare,/try\{if\(typeof window\.nbPrefetchAll==="function"\)await window\.nbPrefetchAll\(\);\}catch\(_\)\{\}\s*const known=gather\(\)/);
+  assert.match(prepare,/try\{if\(typeof window\.nbPrefetchAll==="function"\)await window\.nbPrefetchAll\(\);\}catch\(_\)\{\}\s*(?:\/\/[^\n]*\n\s*)?const known=gather\(\)/);
   assert.match(prepare,/f\.hasImage=!!hasImage\|\|got\(l\.id\);f\.imageKnown=f\.hasImage\|\|lacksImage\(l\.id\);/);
   assert.match(prepare,/f\.roomsToDraw=cards\.filter\(c=>c\.id!==l\.id&&!borrows\(c\)&&lacksImage\(c\.id\)&&!\(drafts&&drafts\[c\.id\]\)\)/);
   // saved as made; a draft is never used by the run
   assert.match(prepare,/onUpdate\(card\.id,\{previs:D\.pack\(r\.dressing,\{engine:D\.MODEL\}\)\}\);/);
   assert.match(prepare,/fitted\.forEach\(r=>onUpdate\(r\.id,\{coverageViews:r\.views\},\{kind:"suggested-cameras"\}\)\);/);
-  assert.match(prepare,/await P\.render\(t\.id,\{project,location:card,settings:choice\}\);/);
-  assert.ok(!/P\.use\(/.test(prepare),"the run never uses a draft: the user does");
+  assert.match(prepare,/const made=await P\.render\(t\.id,\{project,location:card,settings:choice,\.\.\.\(look\?\{look\}:\{\}\)\}\);drawn\[t\.id\]=true;check\(\);/);
+  // the run never uses a draft: the user does. The one place a draft is used here is the user's own press (Use all)
+  const runs=prepare.slice(prepare.indexOf("async function runPlan("),prepare.indexOf("async function start("));
+  assert.ok(runs.length>2000&&!/P\.use\(/.test(runs),"the run never uses a draft: the user does");
+  assert.equal((prepare.match(/P\.use\(/g)||[]).length,1);
+  assert.match(prepare,/async function useAll\(\)\{[\s\S]{0,900}?await P\.use\(w\.id,d\.current\.meta\.iso\);done\.push\(w\.name\);/);
+  assert.match(prepare,/"data-testid":"location-prepare-use-all",onClick:useAll,/);
   assert.ok(!/P\.remove\(|P\.discard\(/.test(prepare),"the run deletes nothing");
   // it stops between two steps, and on a change of film
   assert.match(prepare,/if\(epochNow\(\)!==epoch\|\|!writable\(\)\)throw new Error\("The open film changed\. Nothing more was saved\."\)/);
@@ -269,13 +295,13 @@ await test("14 Frances knows, and the changed files have new cache keys",()=>{
   assert.ok(a>0);
   const entry=ai.slice(a,ai.indexOf("\n",a));
   for(const fact of ["it was called a 'plate' before 2026-11-17","nothing is generated from the top of the card any more","PREPARE THIS PLACE","a floor plan is always confirmed by you, never by the run",
-    "the run never chooses for you","'Make a quick image'","'Edit one view\\u2026'","'Quick images \\u00b7 N missing'","'Redo quick images\\u2026'","SHOW:","THE COUNT","'Extra spaces \\u00b7 images kept'","nothing is deleted"])
+    "The run never chooses for you","'Make a quick image'","'Edit one view\\u2026'","'Quick images \\u00b7 N missing'","'Redo quick images\\u2026'","SHOW:","THE COUNT","'Extra spaces \\u00b7 images kept'","nothing is deleted"])
     assert.ok(entry.includes(fact),"Frances is not told: "+fact);
   assert.ok(!/on one plate/.test(ai));assert.match(ai,/'Every place, as one set\.' for Locations/);
   assert.ok(!ai.includes("generated at the top of the card"));
   const html=read("TURN.html");
   for(const f of ["ai.jsx","script.jsx","locations.jsx","locations-ui.jsx","chrome.jsx","artroom.jsx","app.jsx","shots-ui.jsx","breakdown.jsx","agents.jsx","props.jsx","styles.css"])
-    assert.ok(["20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2"].some(k=>html.includes("app/"+f+"?v="+k+"\"")),"cache key of "+f);
+    assert.ok(["20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1"].some(k=>html.includes("app/"+f+"?v="+k+"\"")),"cache key of "+f);
 });
 
 /* THE RUN ITSELF, on the card's own code, with the writing engine, the camera fit and the image engine as stubs.
@@ -295,7 +321,7 @@ function runner(opts){
   const house={id:"house",key:"house",name:"Ellis House",previs:opts.dressed?{v:1}:null,coverageViews:[]};
   const hall={id:"hall",key:"house-hall",name:"Hallway",parentKey:"house",parentLocation:{id:"house",name:"Ellis House"},previs:null,coverageViews:[]};
   box.turnContinuity={locations:[house,hall]};
-  const images=new Set(opts.images||[]),drafts=new Set(opts.drafts||[]);
+  const images=new Set(opts.images||[]),drafts=new Set(opts.drafts||[]),used=new Set(opts.used||[]);
   box.nbGetImage=id=>images.has(id)?"url:"+id:"";
   box.nbImageKnownMissing=id=>!images.has(id);
   box.nbPrefetchAll=async()=>{calls.push("read the film's images");return {ok:true};};
@@ -309,9 +335,9 @@ function runner(opts){
     draft:async card=>{calls.push("dress "+card.id);if(opts.failDress===card.id)throw new Error("The dressing came back empty. Nothing was changed.");return {dressing:{for:card.id},report:{parts:12}};},
     pack:d=>({v:1,of:d.for})};
   box.KinolotPrevis={settings:(e,refs)=>({label:"Test Engine",cost:{refs}}),
-    drafts:async id=>{calls.push("read drafts "+id);return {current:drafts.has(id)?{meta:{}}:null,earlier:[]};},
-    render:async(id,o)=>{calls.push("image "+id+" as "+(o.location&&o.location.id));return {};},
-    use:async()=>{calls.push("USE");},remove:async()=>{calls.push("REMOVE");}};
+    drafts:async id=>{calls.push("read drafts "+id);return {current:drafts.has(id)?{url:"draft:"+id,meta:{iso:"iso-"+id},used:used.has(id)}:null,earlier:[]};},
+    render:async(id,o)=>{calls.push("image "+id+" as "+(o.location&&o.location.id)+(o.look?" with the look of "+o.look.id+" ("+o.look.url+")":""));drafts.add(id);return {url:"draft:"+id,meta:{iso:"iso-"+id}};},
+    use:async(id,iso)=>{calls.push("USE "+id+" "+iso);if(opts.failUse===id)throw new Error("This draft is out of date.");used.add(id);images.add(id);},remove:async()=>{calls.push("REMOVE");}};
   const onUpdate=(id,patch,meta)=>{saved.push([id,Object.keys(patch).join(","),meta&&meta.kind||""]);
     box.turnContinuity.locations=box.turnContinuity.locations.map(x=>x.id===id?{...x,...patch}:x);};
   const props={l:house,rooms:[hall],project:{},drafted:true,spatialState:{ready:true,plan:{frame:"f",anchors:[{}]}},hasImage:images.has("house"),
@@ -324,36 +350,42 @@ function runner(opts){
   return {box,calls,asked,saved,events,props,render,press,state,flat,text,drafts,images};
 }
 
-await test("15 a run, start to end: asked once with its steps, then cameras, each dressing saved, and one draft of the place",async()=>{
+await test("15 a run, start to end: asked once with its steps, then cameras, each dressing saved, and a draft of the place and of each room",async()=>{
   const r=runner();
   // before the press: the button with the price of what is left, and what it will do
   const before=r.render();
   assert.equal(before.props["data-prepare-stage"],"set");
-  assert.equal(r.text(r.flat(before).find(n=>n.props["data-testid"]==="location-prepare-cost")),"30","two dressings at 8 and one image at 14");
-  assert.match(r.text(r.flat(before).find(n=>n.props["data-testid"]==="location-prepare-next")),/^Does what is left, in order: set the cameras of Hallway \(free\); dress Ellis House, Hallway \(about 16 writing credits\); make the first image of Ellis House, as a draft \(14 image credits\)\.$/);
+  assert.equal(r.text(r.flat(before).find(n=>n.props["data-testid"]==="location-prepare-cost")),"44","two dressings at 8 and two images at 14");
+  assert.match(r.text(r.flat(before).find(n=>n.props["data-testid"]==="location-prepare-next")),/^Does what is left, in order: set the cameras of Hallway \(free\); dress Ellis House, Hallway \(about 16 writing credits\); make the first image of Ellis House and of its room \(Hallway\), as drafts \(28 image credits\)\.$/);
   assert.deepEqual(r.calls,[],"looking costs nothing and reads nothing");
   await r.press();
   // asked once, after reading what is already made, with every step and the total
   assert.equal(r.asked.length,1);
   assert.equal(r.asked[0].title,"Prepare Ellis House?");
-  assert.deepEqual(copy(r.asked[0].items),["Set the cameras of Hallway (free)","Dress Ellis House, Hallway (about 16 writing credits)","Make the first image of Ellis House, as a draft (14 image credits)"]);
-  assert.match(r.asked[0].body,/About 30 credits in all \(the writing part is an estimate: a writing call is charged by its length\)\. Images are made with Test Engine, the engine in the top bar\. An image made here is a draft: nothing becomes the location image until you choose it\./);
-  // in order; the place before its rooms; one image, of the place, drawn from the place's own card
-  assert.deepEqual(r.calls,["read the film's images","read drafts house","fit cameras","dress house","dress hall","image house as house"]);
+  assert.deepEqual(copy(r.asked[0].items),["Set the cameras of Hallway (free)","Dress Ellis House, Hallway (about 16 writing credits)","Make the first image of Ellis House and of its room (Hallway), as drafts (28 image credits)"]);
+  assert.match(r.asked[0].body,/About 44 credits in all \(the writing part is an estimate: a writing call is charged by its length\)\. Images are made with Test Engine, the engine in the top bar\. An image made here is a draft: nothing becomes the location image until you choose it\. Each room takes its look from Ellis House\u2019s draft\.$/);
+  // ONE PASS (owner 2026-11-21): in order; the place before its rooms; each room with the look of the place's draft
+  assert.deepEqual(r.calls,["read the film's images","read drafts house","read drafts hall","fit cameras","dress house","dress hall",
+    "image house as house","image hall as hall with the look of house (draft:house)"]);
   assert.deepEqual(r.saved,[["hall","coverageViews","suggested-cameras"],["house","previs",""],["hall","previs",""]],"each result is saved as it is made");
-  assert.ok(!r.calls.includes("USE")&&!r.calls.includes("REMOVE"),"the draft is left for the user to use or delete");
-  assert.match(r.state().note,/^Done: cameras set for Hallway; Ellis House dressed \(12 shapes\); Hallway dressed \(12 shapes\); a draft of Ellis House\. Each draft is in 4 · Previs: it becomes the image only when you choose to use it\.$/);
+  assert.ok(!r.calls.some(c=>c.startsWith("USE"))&&!r.calls.includes("REMOVE"),"the drafts are left for the user to use or delete");
+  assert.match(r.state().note,/^Done: cameras set for Hallway; Ellis House dressed \(12 shapes\); Hallway dressed \(12 shapes\); a draft of Ellis House; a draft of Hallway\. Each draft is in 4 · Previs: it becomes the image only when you choose to use it\.$/);
+  assert.deepEqual(r.state().drafts,{house:true,hall:true},"the run remembers every draft it made");
   assert.ok(r.events.includes("nb-open-fold"),"Previs opens on the draft");
 });
 
-await test("16 no is no; a draft that waits is not made twice; a failure keeps what was saved; rooms come after the place's image",async()=>{
+await test("16 no is no; a draft that waits is not made twice; a failure keeps what was saved; a room is drawn from its place's look",async()=>{
   // Not now: nothing runs
   const no=runner({answer:false});await no.press();
-  assert.equal(no.asked.length,1);assert.deepEqual(no.calls,["read the film's images","read drafts house"],"only the read before the question");assert.deepEqual(no.saved,[]);
-  // a draft of the place already waits: the run does the rest and makes no second image
+  assert.equal(no.asked.length,1);assert.deepEqual(no.calls,["read the film's images","read drafts house","read drafts hall"],"only the read before the question");assert.deepEqual(no.saved,[]);
+  // a draft of the place already waits: no second image of the place; its room is drawn with the look of that draft
   const waits=runner({drafts:["house"]});await waits.press();
-  assert.deepEqual(copy(waits.asked[0].items),["Set the cameras of Hallway (free)","Dress Ellis House, Hallway (about 16 writing credits)"]);
-  assert.ok(!waits.calls.some(c=>c.startsWith("image ")));
+  assert.deepEqual(copy(waits.asked[0].items),["Set the cameras of Hallway (free)","Dress Ellis House, Hallway (about 16 writing credits)","Make an image draft for Hallway (14 image credits)"]);
+  assert.deepEqual(waits.calls.filter(c=>c.startsWith("image ")),["image hall as hall with the look of house (draft:house)"]);
+  // ...and when the room's draft waits too, no image at all
+  const both=runner({drafts:["house","hall"]});await both.press();
+  assert.deepEqual(copy(both.asked[0].items),["Set the cameras of Hallway (free)","Dress Ellis House, Hallway (about 16 writing credits)"]);
+  assert.ok(!both.calls.some(c=>c.startsWith("image ")));
   // a dressing that fails: what was done is saved and said, and no image is made on a set that is not ready
   const fails=runner({failDress:"hall"});await fails.press();
   assert.deepEqual(fails.saved,[["hall","coverageViews","suggested-cameras"],["house","previs",""]]);
@@ -364,7 +396,8 @@ await test("16 no is no; a draft that waits is not made twice; a failure keeps w
   moved.box.KinolotSetDressing.draft=async card=>{moved.calls.push("dress "+card.id);epoch=2;return {dressing:{for:card.id},report:{parts:3}};};
   await moved.press();
   assert.deepEqual(moved.saved,[["hall","coverageViews","suggested-cameras"]]);assert.match(moved.state().fail,/The open film changed\. Nothing more was saved\.$/);
-  // the place has its image, everything is dressed and has cameras: a draft for the room that has none, with the place's look
+  // the place has its image, everything is dressed and has cameras: a draft for the room that has none; the look is
+  // the place's image (the image call takes it itself), so no draft is handed over
   const rooms=runner({images:["house"],lacking:false,dressed:true});
   rooms.box.turnContinuity.locations=rooms.box.turnContinuity.locations.map(x=>({...x,previs:{v:1}}));rooms.props.rooms=[{...rooms.props.rooms[0],previs:{v:1}}];
   await rooms.press();
@@ -409,9 +442,9 @@ await test("17 the first half: the description when missing, then the floor plan
 /* FOUND BY A PAID RUN ON THREE PLACES (2026-11-21): right under "Done: ... a draft of Hussain Flat" the button went on
    offering "make the first image of Hussain Flat, as a draft (11 image credits)", and the note about the floor plan
    being drafted stayed on the card after the plan was confirmed. */
-await test("18 after a run the button knows its own draft; a waiting draft is read when the card opens; the plan note goes with the plan",async()=>{
+await test("18 after a run the button knows its own drafts; waiting drafts are read when the card opens; the plan note goes with the plan",async()=>{
   const r=runner();await r.press();
-  assert.deepEqual(r.state().drafts,{house:true},"the run remembers the draft it made");
+  assert.deepEqual(r.state().drafts,{house:true,hall:true},"the run remembers the drafts it made");
   // the card as it is after the run: the cameras fitted, both spaces dressed
   const live=id=>r.box.turnContinuity.locations.find(x=>x.id===id);
   r.props.l=live("house");r.props.rooms=[{...live("hall"),parentLocation:{id:"house",name:"Ellis House"}}];
@@ -419,20 +452,46 @@ await test("18 after a run the button knows its own draft; a waiting draft is re
   const after=r.render();
   assert.equal(after.props["data-prepare-stage"],"done");
   assert.ok(!r.flat(after).some(n=>n.props&&n.props["data-testid"]==="location-prepare-go"),"no button offering a second first image");
-  assert.equal(r.text(r.flat(after).find(n=>n.props["data-testid"]==="location-prepare-next")),"A draft of the image is waiting in 4 · Previs. Use it as the location image, or delete it.");
+  assert.equal(r.text(r.flat(after).find(n=>n.props["data-testid"]==="location-prepare-next")),"Drafts are waiting in 4 · Previs: Ellis House, Hallway. Use each as its image, or delete it.");
+  // USE THEM ALL (owner 2026-11-21): the user's own press; the place first; nothing is generated
+  const useAll=r.flat(after).find(n=>n.props&&n.props["data-testid"]==="location-prepare-use-all");
+  assert.equal(r.text(useAll),"Use all 2 drafts as the images");
+  r.calls.length=0;await useAll.props.onClick();
+  assert.deepEqual(r.calls,["read drafts house","USE house iso-house","read drafts hall","USE hall iso-hall"]);
+  assert.equal(r.state().note,"Now the image of: Ellis House, Hallway. Each is in its own section of this card.");assert.equal(r.state().fail,"");
+  assert.equal(r.state().drafts,null,"read again from the film afterwards");
+  // one that cannot be used is said, the others are used
+  const part=runner({drafts:["house","hall"],lacking:false,dressed:true,failUse:"hall"});
+  part.box.turnContinuity.locations=part.box.turnContinuity.locations.map(x=>({...x,previs:{v:1}}));part.props.rooms=[{...part.props.rooms[0],previs:{v:1}}];
+  vm.runInContext("_locPrepareRuns.house={drafts:{house:true,hall:true}}",part.box);
+  const waitingTree=part.render();
+  await part.flat(waitingTree).find(n=>n.props&&n.props["data-testid"]==="location-prepare-use-all").props.onClick();
+  assert.equal(part.state().note,"Now the image of: Ellis House. Each is in its own section of this card.");
+  assert.equal(part.state().fail,"Not used: Hallway (This draft is out of date).");
+  // a single waiting draft reads as one
+  const one=runner({drafts:["house"],lacking:false,dressed:true,props:{rooms:[]}});
+  one.box.KinolotSetDressing.place=()=>({spaces:[{id:"house"}]});
+  vm.runInContext("_locPrepareRuns.house={drafts:{house:true}}",one.box);
+  assert.equal(one.text(one.flat(one.render()).find(n=>n.props&&n.props["data-testid"]==="location-prepare-use-all")),"Use it as the image");
   // a run that failed after its image: the draft it made is still known
   const src=read("app/locations-ui.jsx");
   assert.equal((src.match(/drafts:known\(\)/g)||[]).length,2,"at the end of a run and when it stops on a failure");
-  assert.ok(src.includes("await P.render(t.id,{project,location:card,settings:choice});drawn[t.id]=true;check();"));
-  // when the card opens: one read of the place's own drafts, only with a confirmed plan and no image, never during a run
-  assert.ok(src.includes('if(readOnly||l.parentLocation||!P||typeof P.drafts!=="function"||hasImage||!planIsReady||r.busy||r.drafts)return;'));
-  assert.ok(src.includes('_locPrepareSet(l.id,{drafts:{[l.id]:true}});'));
+  // when the card opens: the place's own draft while it has no image, and each room's while that room has none; only
+  // with a confirmed plan, never during a run; a draft that was used does not wait
+  assert.ok(src.includes('if(readOnly||l.parentLocation||!P||typeof P.drafts!=="function"||!planIsReady||r.busy||r.drafts)return;'));
+  assert.ok(src.includes('const ids=(hasImage?[]:[l.id]).concat(rooms.filter(c=>c&&!got(c.id)).map(c=>c.id));'));
+  assert.ok(src.includes('.then(d=>[id,!!(d&&d.current&&!d.current.used)],()=>[id,false])'));
+  assert.ok(src.includes('_locPrepareSet(l.id,{drafts:Object.fromEntries(rows.filter(x=>x[1]).map(x=>[x[0],true]))});'));
   assert.ok(src.includes('if(e&&e.type==="kinolot-previs-changed")askDrafts();'),"read again when a draft is made, used or deleted");
-  assert.ok(src.includes('},[l.id,hasImage,planIsReady,draftsAsked,readOnly]);'));
+  assert.ok(src.includes('},[l.id,hasImage,planIsReady,draftsAsked,readOnly,roomIds]);'));
   // the note of the first half is about a plan that waits: shown while it waits, gone once the plan is confirmed
   const first=runner({props:{drafted:true,spatialState:{ready:false,plan:{frame:"",anchors:[],sightlines:"",unresolved:""}}}});
   await first.press();
   assert.equal(first.state().noteFor,"review");
+  // ONE PASS (owner 2026-11-21): once the plan is confirmed the second half starts by itself, with its question first
+  assert.equal(first.state().carryOn,true);
+  assert.match(first.state().note,/Check it there and confirm it\. The run then carries on by itself: it asks once more, with the price, then sets the cameras, dresses the set and makes the first image of the place and of each room\.$/);
+  assert.ok(src.includes('if(!c||!r.carryOn||r.busy||c.stage!=="set")return;')&&src.includes('_locPrepareRuns[l.id]={...r,carryOn:false};')&&src.includes('carry.current={stage:plan.stage,start};'));
   const note=t=>first.flat(t).find(n=>n.props&&n.props["data-testid"]==="location-prepare-note");
   first.props.spatialState={ready:false,plan:{frame:"Facing the door.",anchors:[{}]}};
   assert.ok(note(first.render()),"while the plan waits for its check");
@@ -440,7 +499,7 @@ await test("18 after a run the button knows its own draft; a waiting draft is re
   const confirmed=first.render();
   assert.equal(confirmed.props["data-prepare-stage"],"set");assert.equal(note(confirmed),undefined,"gone once the plan is confirmed");
   // a run's own note (Done: ...) carries no stage and is always shown
-  assert.equal(r.state().noteFor,"");assert.ok(r.flat(after).find(n=>n.props&&n.props["data-testid"]==="location-prepare-note"));
+  assert.equal(r.state().noteFor,"");
 });
 
 console.log("\n"+passed+" passed, "+failed+" failed");

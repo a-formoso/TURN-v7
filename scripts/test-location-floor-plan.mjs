@@ -368,7 +368,7 @@ assert.ok(Math.abs(box.locMapBox(sq.fit,343).H-343)<=2,"a square room draws squa
 const aiSrc=read("app/ai.jsx");
 assert.match(aiSrc,/listed as 'outside the plan \\u2014 check this position'/);
 assert.match(aiSrc,/one row of TL TR BL BR buttons/);
-assert.match(aiSrc,/the map opens on the space chosen in the card's Whole location \/ room picker/);
+assert.match(aiSrc,/the map opens on the place \(the floor plan is edited on the place's card; a room inside the card points to it\)/);
 // the brand rule: no internal names in the map's copy
 const mapSrc=read("app/locations-ui.jsx").slice(read("app/locations-ui.jsx").indexOf("const LOC_MAP_PAD"),read("app/locations-ui.jsx").indexOf("/* every floor plan number"));
 assert.doesNotMatch(mapSrc,/"[^"]*\bTURN\b[^"]*"/);

@@ -98,12 +98,13 @@ await test("4 one frame for characters, props and locations; the cast row's tool
   const row = between(art, "function CastOverview(", "window.CastOverview = CastOverview;");
   assert.ok(!row.includes("InfoTip") && !row.includes("Every character in one row."), "no tooltip after the row");
   assert.ok(row.includes('". Click to go to the card."'), "each face still says what that character has, on hover");
-  const f = between(ai, 'APP_FEATURES.push({ name:"Version numbers, the line under an image, and the model a resize names (Characters, Props, Locations, Art Room)"', "/* a billing entry:");
+  // (2026-11-21) its own entry only: the entries added after it are not this test's to read
+  const f = between(ai, 'APP_FEATURES.push({ name:"Version numbers, the line under an image, and the model a resize names (Characters, Props, Locations, Art Room)"', "\nAPP_FEATURES.push(");
   for (const w of ["character sheets, prop images, location images and their variants", "VERSION NUMBERS NEVER REPEAT", "delete v14, make a new image, and it is v15", "starts again at v1", "THE LINE UNDER AN IMAGE is always about the image the card shows now",
     "'Show under images'", "A RESIZE NAMES THE APP'S OWN WRITING ENGINE AS ITS MODEL", "the engine picked in the top bar plays no part", "no longer ends with an ⓘ"]) assert.ok(f.includes(w), w);
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic|Fable|Gemini|GPT/.test(f) && !/credit|price|paid/i.test(f), "no word that reads as billing: such a sentence is kept from the assistant");
   assert.ok(!ai.includes("Its Details read 'In code' as the Model."));
-  for (const file of ["artroom.jsx", "imagegen.jsx", "cloud.jsx", "ai.jsx"]) assert.ok(["20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2"].some(k => html.includes(file + "?v=" + k + '"')), file + " has a current key");
+  for (const file of ["artroom.jsx", "imagegen.jsx", "cloud.jsx", "ai.jsx"]) assert.ok(["20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1"].some(k => html.includes(file + "?v=" + k + '"')), file + " has a current key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

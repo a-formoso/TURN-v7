@@ -1050,6 +1050,76 @@ function locationUnmergeRestored(locations, item){
     return n;
   });
 }
+/* ROOMS FOUND IN THE SCREENPLAY (owner 2026-11-21: "Ensure locations and their subspaces are merged together, as part of
+   one single card ... a house and a kitchen, a living room. These are subspaces"). A screenplay names a room on its own
+   as often as not ("INT. ELLIS KITCHEN", "INT. LANDING", "INT. ESHITA'S BEDROOM"): only "PLACE - ROOM" and a few plain
+   room words fold by themselves, so on Last Fare Home 34 cards stood as places where the story has about a dozen.
+   One writing call reads every card with the scenes it plays in and proposes, for the whole film: which cards are ROOMS
+   of another card's place, and which two cards are the SAME place under two names (ai.jsx aiLocationFamilies).
+   PROPOSED, NEVER APPLIED ON ITS OWN: the Locations tab shows the list, the owner ticks and applies. A room is applied
+   with the "Part of" decision that already exists (partOfKeys, locationPlaceDecisionApply), so every derivation follows
+   and nothing is deleted; "same place" goes through the merge that already exists, one pair at a time.
+   locationFamilyBrief: what the engine is given. locationFamilyProposals: what comes back, checked against the cards. */
+function locationFamilyBrief(locations, scenes, drafts){
+  const list=(Array.isArray(locations)?locations:[]).filter(l=>l&&l.id&&l.key);
+  const byKey={}; list.forEach(l=>{ byKey[String(l.key)]=l; });
+  const ordered=scenesInStoryOrder(scenes||[]);
+  const noOf={}; ordered.forEach(sc=>{ if(sc&&sc.id) noOf[sc.id]=sc.no; });
+  const tidy=(t,n)=>String(t||"").replace(/\s+/g," ").trim().slice(0,n);
+  return {
+    cards:list.map(l=>{ const parent=byKey[String(l.parentKey||"")];
+      return {id:String(l.id),name:tidy(l.name,80),side:String(l.intExt||"INT"),...(parent?{roomOf:tidy(parent.name,80)}:{}),
+        scenes:(l.scenes||[]).map(id=>noOf[id]).filter(n=>n!=null).slice(0,30)}; }),
+    scenes:ordered.filter(sc=>sc&&String(sc.loc||"").trim()).map(sc=>{
+      const blocks=(drafts&&drafts[sc.id]&&Array.isArray(drafts[sc.id].blocks))?drafts[sc.id].blocks:[];
+      const inside=[]; blocks.forEach(b=>{ if(b&&b.type==="scene"){ const t=tidy(b.text,90); if(t&&inside.indexOf(t)<0&&inside.length<6) inside.push(t); } });
+      return {no:sc.no,heading:tidy(sc.loc,90),...(tidy(sc.summary||sc.title,170)?{about:tidy(sc.summary||sc.title,170)}:{}),...(inside.length?{headingsInside:inside}:{})}; })
+  };
+}
+function locationFamilyProposals(parsed, locations){
+  const list=(Array.isArray(locations)?locations:[]).filter(l=>l&&l.id&&l.key);
+  const byId=new Map(list.map(l=>[String(l.id),l])), byKey=new Map(list.map(l=>[String(l.key),l]));
+  const parentOf=l=>{ const k=String((l&&l.parentKey)||""); return k?byKey.get(k)||null:null; };
+  const rootOf=l=>{ let cur=l; for(let i=0;cur&&i<16;i++){ const p=parentOf(cur); if(!p) return cur; cur=p; } return l; };
+  // the owner's "Keep separate": never proposed again
+  const apart=(a,b)=>_locKeysOf(a.notAliasOf).indexOf(String(b.key))>=0||_locKeysOf(b.notAliasOf).indexOf(String(a.key))>=0;
+  const why=x=>String(x||"").replace(/\s+/g," ").trim().slice(0,160);
+  const confirmed=l=>!!(l&&l.spatialPlan&&l.spatialPlan.status==="reviewed");
+  const same=[], pairs=new Set();
+  (Array.isArray(parsed&&parsed.same)?parsed.same:[]).forEach(x=>{
+    const a=byId.get(String((x&&x.a)||"")), b=byId.get(String((x&&x.b)||""));
+    if(!a||!b||a.id===b.id||apart(a,b)) return;
+    const k=_locPairKey(a.id,b.id); if(pairs.has(k)) return; pairs.add(k);
+    same.push({aId:a.id,aName:String(a.name||""),bId:b.id,bName:String(b.name||""),why:why(x.why)});
+  });
+  // a card is asked to be a room once; where it is asked twice the first answer stands
+  const want=new Map();
+  (Array.isArray(parsed&&parsed.rooms)?parsed.rooms:[]).forEach(x=>{
+    const room=byId.get(String((x&&x.id)||"")), named=byId.get(String((x&&x.place)||""));
+    if(!room||!named||want.has(room.id)) return;
+    const place=rootOf(named);
+    if(place.id===room.id||parentOf(room)||apart(room,place)) return;   // itself; already a room; kept apart
+    want.set(room.id,{room,place,why:why(x.why)});
+  });
+  // a place that is itself proposed as a room: its rooms go to the last place of the chain; a ring is dropped whole
+  const finalOf=id=>{ const seen=new Set([id]); let cur=want.get(id);
+    while(cur&&want.has(cur.place.id)){ if(seen.has(cur.place.id)) return null; seen.add(cur.place.id); cur=want.get(cur.place.id); }
+    return cur?cur.place:null; };
+  const rooms=[];
+  want.forEach((w,id)=>{
+    const place=finalOf(id); if(!place||place.id===id) return;
+    rooms.push({id:w.room.id,name:String(w.room.name||""),placeId:place.id,placeName:String(place.name||""),why:w.why,
+      // what comes with it, and what stops being used (said before the owner applies)
+      brings:list.filter(c=>String(c.parentKey||"")===String(w.room.key)).map(c=>String(c.name||"")),
+      ownPlan:confirmed(w.room)});
+  });
+  // by place, in the cards' own order
+  const order=new Map(list.map((l,i)=>[l.id,i]));
+  rooms.sort((a,b)=>(order.get(a.placeId)-order.get(b.placeId))||(order.get(a.id)-order.get(b.id)));
+  return {rooms,same};
+}
+window.locationFamilyBrief=locationFamilyBrief;
+window.locationFamilyProposals=locationFamilyProposals;
 window.locationDraftFirstHeading=locationDraftFirstHeading;
 window.locationSamePlaceSuggestions=locationSamePlaceSuggestions;
 /* SHARED-HEAD PARENTS for an existing film (2026-10-26): the heads its places would group under, read from the
@@ -1452,8 +1522,8 @@ window.locationStagingDraftBlock=locationStagingDraftBlock;
    "review"  a floor plan waits to be checked and confirmed (free), or is being drafted;
    "blocked" the confirmed plan lacks a measurement the 3D set needs;
    "set"     cameras for the spaces with no usable ones (free), dressing for the spaces not dressed (one writing call
-             each) and image drafts: the place's first image, or, once the place has its image, one for each room that
-             has none (a room takes its look from the place's image, so the place comes first);
+             each) and image drafts, in ONE pass (2026-11-21): the place's first image, then one for each room that
+             has none (a room takes its look from the place's image or draft, so the place comes first);
    "done"    nothing left for the run.
    An image made by the run is a DRAFT: the user chooses to use it, the run never does. */
 function locationPreparePlan(f){
@@ -1478,28 +1548,37 @@ function locationPreparePlan(f){
     steps.push({kind:"dress",ids:undressed.map(x=>x.id),credits,
       text:"Dress "+names(undressed)+(credits?" (about "+count(credits,"writing credit","writing credits")+")":" (writing credits)")});
   }
-  let targets=[];
+  /* ONE PASS (owner 2026-11-21: "building the whole thing as a one pass ... then attributing assets to their respective
+     sections within the location card"). The run used to stop at the place's first image: its rooms waited for a later
+     press, after the user had chosen that image. Now the same run goes on to each room that has no image and no draft,
+     the place first: a room takes its look from the place's image, or, while the place has none, from the place's
+     draft (the one this run makes, or the one that waits). */
+  const roomTargets=(f.roomsToDraw||[]).filter(Boolean).map(r=>({id:r.id,name:String(r.name||"Room"),credits:Number(f.roomImageCredits)||0}));
   // imageKnown false: the film's images have not all been read yet, so it is not known that this place lacks one
-  if(!f.hasImage){if(!f.hasDraft&&f.onPlan!==false&&f.imageKnown!==false)targets=[{id:f.id,name:place,credits:Number(f.imageCredits)||0}];}
-  else targets=(f.roomsToDraw||[]).filter(Boolean).map(r=>({id:r.id,name:String(r.name||"Room"),credits:Number(f.roomImageCredits)||0}));
+  const placeTarget=!f.hasImage&&!f.hasDraft&&f.onPlan!==false&&f.imageKnown!==false?[{id:f.id,name:place,credits:Number(f.imageCredits)||0}]:[];
+  // rooms are drawn only once their place has a look to give them: its image, a draft that waits, or the draft of this run
+  const targets=placeTarget.concat(f.hasImage||f.hasDraft||placeTarget.length?roomTargets:[]);
   if(targets.length){
-    const credits=targets.reduce((n,x)=>n+x.credits,0);
+    const credits=targets.reduce((n,x)=>n+x.credits,0),rooms=targets.filter(t=>t.id!==f.id);
     steps.push({kind:"image",ids:targets.map(x=>x.id),targets,credits,
-      text:(f.hasImage?"Make an image draft for "+names(targets):"Make the first image of "+place+", as a draft")
+      text:(placeTarget.length&&rooms.length?"Make the first image of "+place+" and of "+(rooms.length===1?"its room":"its rooms")+" ("+names(rooms)+"), as drafts"
+          :placeTarget.length?"Make the first image of "+place+", as a draft":"Make an image draft for "+names(targets))
         +(credits?" ("+count(credits,"image credit","image credits")+")":" (image credits)")});
   }
-  // a draft of the place's image already waits: the user's turn, nothing for the run
+  // drafts that already wait: the user's turn, nothing for the run (the place's own, and each room's)
   const waiting=!f.hasImage&&!!f.hasDraft;
+  const waitingList=(waiting?[{id:f.id,name:place}]:[]).concat((f.roomDrafts||[]).filter(Boolean).map(r=>({id:r.id,name:String(r.name||"Room")})));
+  const waitingText=!waitingList.length?"":waitingList.length===1&&waiting?"A draft of the image is waiting in 4 \u00b7 Previs. Use it as the location image, or delete it."
+    :"Drafts are waiting in 4 \u00b7 Previs: "+names(waitingList)+". Use each as its image, or delete it.";
   /* A PLACE THAT IS NOT DRAWN ON ITS OWN FLOOR PLAN (2026-11-21: a house whose plan holds only its rooms). It has no
      outline to stand four cameras in, so no image of it can be drafted, and its rooms wait for that image: the run
      had nothing to do and said nothing ("done", the button gone). It now says what is missing and where to add it. */
   const offPlan=!f.hasImage&&!f.hasDraft&&f.onPlan===false&&f.imageKnown!==false;
   const offPlanText=offPlan?place+" itself is not drawn on its floor plan, only its rooms are, so no image of it can be made yet. Add its own outline in 2 \u00b7 Floor plan.":"";
   if(!steps.length)return offPlan?{stage:"blocked",steps:[],writing:0,image:0,total:0,text:offPlanText}
-    :{stage:"done",steps:[],writing:0,image:0,total:0,waitingDraft:waiting,
-    text:waiting?"A draft of the image is waiting in 4 \u00b7 Previs. Use it as the location image, or delete it.":""};
+    :{stage:"done",steps:[],writing:0,image:0,total:0,waitingDraft:waiting,waiting:waitingList,text:waitingText};
   const writing=steps.filter(s=>s.kind==="dress").reduce((n,s)=>n+s.credits,0),image=steps.filter(s=>s.kind==="image").reduce((n,s)=>n+s.credits,0);
-  return {stage:"set",steps,writing,image,total:writing+image,waitingDraft:waiting,text:offPlanText};
+  return {stage:"set",steps,writing,image,total:writing+image,waitingDraft:waiting,waiting:waitingList,text:offPlanText};
 }
 /* WHERE A PLACE STANDS (owner 2026-11-17), for the Locations tab's Show list: "plan" it needs its floor plan
    (described or not), "image" the floor plan is confirmed and it has no image yet, "done" it has its image. */

@@ -489,7 +489,9 @@
         .map(p=>p.name+" "+p.state.label.toLowerCase()+(p.state.look?" \u2014 "+p.state.look:"")).join("; "):"";
       options.onPhase&&options.onPhase("generating");
       // a room takes its look from the finished image of its place (one place, one look)
-      const whole=look(location);
+      // ONE PASS (2026-11-21): while the place has no image yet, the caller hands over the place's DRAFT (options.look)
+      const given=options.look&&options.look.url&&String(options.look.id||"")!==t.loc?{name:String(options.look.name||"the place"),url:String(options.look.url),id:String(options.look.id||""),draft:true}:null;
+      const whole=look(location)||given;
       // the card's own object when the caller has it: a room's card carries its place (what it inherits), the film's saved list does not
       const card=options.location&&options.location.id===t.loc?options.location:location;
       const out=await style(card,drawn.dataUrl,{project:options.project,settings:options.settings,assetId:slot(id),
@@ -499,7 +501,8 @@
       const meta={schema:1,kind:"previs-draft",mode:"draft",projectId:scope.projectId,locationId:t.loc,
         ...(t.key?{stateKey:t.key,stateLabel:t.label,stateAt:t.at}:{}),
         setKey:made.setKey,lookKey:made.lookKey,prompt:out.prompt,modelId:out.model,modelLabel:out.label,quality:out.quality||undefined,size:out.size,aspect:"16:9",
-        iso:new Date().toISOString(),...record,previs:{dressed:built.dressed,dressingIso:built.iso,shapes:built.scene.objects.length}};
+        iso:new Date().toISOString(),...record,previs:{dressed:built.dressed,dressingIso:built.iso,shapes:built.scene.objects.length},
+        ...(whole&&whole.draft?{lookFromDraft:true}:{})};
       const entry={key,slot:slot(id),scope,url:out.url,meta,refs:[{kind:"previs-sheet",label:"Previs sheet",url:drawn.dataUrl}]};
       halt();run.stage="saving";unsaved.set(key,entry);
       options.onPhase&&options.onPhase("saving");
