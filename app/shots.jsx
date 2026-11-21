@@ -1546,7 +1546,18 @@ function shotLocationCoverageSpecsBase(loc, sh, scene, drafts){
       const parsedPlace=shotLocationNorm(parsed.place);
       if(parsedPlace && targetPlaces.indexOf(parsedPlace)<0) targetPlaces.push(parsedPlace);
       if(side && targetSides.indexOf(side)<0) targetSides.push(side);
-      const matches=shotLocationHeadingUnitCandidates(units,parsed,side);
+      let matches=shotLocationHeadingUnitCandidates(units,parsed,side);
+      /* THE BEAT'S OWN HEADING NAMES A PLACE WITH A CARD OF ITS OWN (2026-11-21: on the owner's film 41 of 159 shots had
+         no location reference at all, and nothing said so). A scene filed under "Custody Suite" has beats headed
+         "INT. CONSULTATION ROOM - DAY"; that room has its own card, so it is not among the scene card's own variants
+         and the shot got nothing. The heading is the beat's typed slugline, so this is still not a guess: when none
+         of this card's variants answers it, the variants THIS SCENE uses on any card are asked, and exactly one match
+         is taken. Two matches, or none, stay as they were: no reference, for the person to choose. */
+      if(!matches.length && scene && scene.id){
+        const sceneWide=(allUnits||[]).filter(u=>u&&!u.orphan&&u.key&&Array.isArray(u.scenes)&&u.scenes.indexOf(scene.id)>=0);
+        const wide=shotLocationHeadingUnitCandidates(sceneWide,parsed,side);
+        if(wide.length===1) matches=wide;
+      }
       if(matches.length>1){
         /* Multiple same-name units (or a bare room with multiple TOD plates) is
            genuine ambiguity. Never sort-and-pick the first one. */

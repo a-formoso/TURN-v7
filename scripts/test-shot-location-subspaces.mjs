@@ -159,4 +159,34 @@ assert.ok(specs(parent,{id:"cold",beatN:2,action:"drawer"})
   .every(x=>x.assetSourceQuality==="slugline_unit_full_frame"&&!/crop|master/i.test(x.id+" "+x.note)),
   "location refs are full-frame unit assets only");
 
+/* THE BEAT'S OWN HEADING NAMES A PLACE WITH A CARD OF ITS OWN (2026-11-21: on the owner's film 41 of 159 shots had no
+   location reference, silently). A scene filed under "Custody Suite" has a beat headed "INT. CONSULTATION ROOM - DAY";
+   that room is its own card (another root). The beat's typed heading finds that scene's variant on the other card. */
+{
+  const suite={id:"loc-suite",key:"custody-suite",name:"Custody Suite",scope:"atomic",intExt:"INT",scenes:["scene-c"],parentKey:"",continuityRootKey:"custody-suite"};
+  const room={id:"loc-consult",key:"consultation-room",name:"Consultation Room",scope:"atomic",intExt:"INT",scenes:["scene-c"],parentKey:"",continuityRootKey:"consultation-room"};
+  const U=[
+    {key:"custody-suite|INT|Day",name:"Custody Suite",place:"Custody Suite",intExt:"INT",time:"Day",subspaceKey:"custody-suite",continuityRootKey:"custody-suite",locationKey:"custody-suite",scenes:["scene-c"]},
+    {key:"consultation-room|INT|Day",name:"Consultation Room",place:"Consultation Room",intExt:"INT",time:"Day",subspaceKey:"consultation-room",continuityRootKey:"consultation-room",locationKey:"consultation-room",scenes:["scene-c"]},
+    // the same room in ANOTHER scene, at night: never borrowed
+    {key:"consultation-room|INT|Night",name:"Consultation Room",place:"Consultation Room",intExt:"INT",time:"Night",subspaceKey:"consultation-room",continuityRootKey:"consultation-room",locationKey:"consultation-room",scenes:["scene-d"]},
+  ];
+  const sceneC={id:"scene-c",no:6,title:"Booked in",loc:"INT. CUSTODY SUITE - DAY"};
+  const dC={"scene-c":{blocks:[
+    {type:"scene",text:"INT. CUSTODY SUITE - DAY"},{type:"action",text:"The desk sergeant looks up.",beat:1},
+    {type:"scene",text:"INT. CONSULTATION ROOM - DAY"},{type:"action",text:"GRACE uncaps a pen.",beat:2},
+    {type:"scene",text:"INT. CELL CORRIDOR - DAY"},{type:"action",text:"A door slams.",beat:3},
+  ]}};
+  box.turnContinuity={sluglineUnits:U,drafts:dC,locations:[suite,room]};
+  const at=(beatN)=>Array.from(box.shotLocationCoverageSpecs(suite,{id:"s"+beatN,beatN,action:"x"},sceneC,dC),s=>s.id);
+  assert.deepEqual(at(1),[box.sluglineUnitImageId("custody-suite|INT|Day")],"the suite's own beat keeps the suite's variant");
+  assert.deepEqual(at(2),[box.sluglineUnitImageId("consultation-room|INT|Day")],"a beat headed with another card's room takes THIS scene's variant of that room");
+  const spec=box.shotLocationCoverageSpecs(suite,{id:"s2",beatN:2,action:"x"},sceneC,dC)[0];
+  assert.equal(spec.locationId,"loc-consult","and it belongs to that room's card");
+  assert.deepEqual(at(3),[],"a heading no variant of this scene answers still gets none (never a guess)");
+  // two cards whose variant answers the same heading in this scene: still none
+  box.turnContinuity={sluglineUnits:U.concat([{...U[1],key:"consultation-room-b|INT|Day",subspaceKey:"consultation-room-b",continuityRootKey:"consultation-room-b",locationKey:"consultation-room-b"}]),drafts:dC,locations:[suite,room]};
+  assert.deepEqual(at(2),[],"two matches stay ambiguous");
+}
+
 console.log("PASS shot location subspace tests");

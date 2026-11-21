@@ -260,9 +260,45 @@ await test("E the card, the script order and Frances's notes", ()=>{
   const at=n=>html.indexOf(n);
   assert.ok(at("app/blender-render.js")<at("app/camera-coverage.js")&&at("app/camera-coverage.js")<at("app/blender-render-ui.jsx")&&at("app/camera-coverage.js")<at("app/locations-ui.jsx"));
   for(const f of ["camera-coverage.js","blender-render.js","blender-render-ui.jsx","locations-ui.jsx","ai.jsx","script.jsx"])
-    assert.ok(["20261111-auto1", "20261112-models1", "20261112-resume1", "20261112-limit1", "20261112-thread1", "20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1"].some(k=>html.includes('src="app/'+f+"?v="+k+'"')),f);
+    assert.ok(["20261111-auto1", "20261112-models1", "20261112-resume1", "20261112-limit1", "20261112-thread1", "20261112-length1", "20261112-small1", "20261112-head1", "20261112-names1", "20261112-stops1", "20261112-long1", "20261112-show1", "20261112-ns1", "20261112-last1", "20261112-conv1", "20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1"].some(k=>html.includes('src="app/'+f+"?v="+k+'"')),f);
   assert.ok(ai.includes("'Suggest 4 cameras' (2026-11-11: fitted to the set as it will be built, the same way for every location)"));
   assert.ok(ai.includes("THE CAMERA CHECK (2026-11-11; in 4 \\u00b7 Previs since 2026-11-15): each saved camera's view of the set is checked"));
+});
+
+/* F  a space too tight for the checked fit (a car's cabin) still gets four cameras, on every road (2026-11-21: "make this
+      work for any location"; the film's Minicab had none, so its set could not be drawn) */
+function cabin(){
+  const anchor=(id,name,xy,size,z)=>({id,name,space:"Cab",xy,z,size,facing:0,sizeBasis:"design",placement:"Saved test position",basis:"design"});
+  const l={id:"cab",key:"cab",name:"Minicab",coverageViews:[],
+    spatialPlan:{status:"reviewed",source:{assetId:"cab",iso:""},frame:"Bonnet is north",heights:"centre",
+      anchors:[anchor("console","Centre console",[0,0],[.22,.7,.3],.15),anchor("driver","Driver seat",[.38,-.1],[.5,.7,1.05],.53),
+        anchor("passenger","Front passenger seat",[-.38,-.1],[.5,.7,1.05],.53),anchor("bench","Three-seat rear bench",[0,-.95],[1.3,.6,.9],.45),
+        anchor("dash","Dashboard",[0,.68],[1.4,.55,.4],.6),anchor("wheel","Steering wheel",[.38,.38],[.38,.12,.38],.75)],
+      coordinates:{spaces:[{id:"cab",name:"Cab",floorZ:0,ceilingH:1.2,footprint:[[-.7,-1.15],[.7,-1.15],[.7,1.15],[-.7,1.15]],openings:[]}]}}};
+  b.turnContinuity={locations:[l]};return l;
+}
+await test("F a car's cabin: the checked fit cannot stand a clear wide view, so the simpler placement answers on every road", async()=>{
+  const l=cabin();
+  // its stand-in cameras stand at eye height, above its roof: that is why the set could not be drawn
+  assert.ok(Object.values(api.cameraProblems(l)).some(m=>/not between the floor and the ceiling/.test(m)));
+  const p=await api.proposeCamerasAuto(l);
+  assert.equal(p.panels.length,4); assert.equal(p.panels.map(x=>x.key).join(","),"TL,TR,BL,BR");
+  assert.equal(p.simple,true,"this cabin is too tight for the checked fit"); assert.equal(p.auto,false); assert.match(p.warnings[0],/too tight for a checked, unobstructed fit/);
+  // either way the proposal can be saved, every camera stands inside the cabin under its roof, and none has a problem
+  const views=api.cameraProposalViews(l,p),next={...l,coverageViews:views};b.turnContinuity={locations:[next]};
+  for(const row of b.locationPanelPoses(next,[next])){ assert.ok(row.pose.position[2]>0.2&&row.pose.position[2]<1.1,"under the roof: "+row.pose.position[2]); assert.ok(Math.abs(row.pose.position[0])<.7&&Math.abs(row.pose.position[1])<1.15); }
+  assert.deepEqual(JSON.parse(JSON.stringify(api.cameraProblems(next))),{});
+  // the whole-place road (after Confirm, Prepare this place, Previs) gets them too: it used to end in an error row
+  b.turnContinuity={locations:[cabin()]};
+  const rows=await api.proposeCamerasForPlace(b.turnContinuity.locations[0]);
+  assert.equal(rows.length,1); assert.ok(!rows[0].error,"no error row: "+rows[0].error); assert.ok(Array.isArray(rows[0].views)&&rows[0].set.length===4);
+  // and the set can then be built
+  const done={...b.turnContinuity.locations[0],coverageViews:rows[0].views};b.turnContinuity={locations:[done]};
+  assert.ok(api.buildScene(done).objects.length>6);
+  // a room the checked fit can serve is still served by it (the simpler rule is only the way out)
+  const big=await api.proposeCamerasAuto(location()); assert.equal(big.auto,true); assert.ok(!big.simple);
+  const src=read("app/blender-render.js");
+  assert.ok(src.includes("catch(first){return tight(first);}")&&src.includes("if(Object.keys(problems).length)return tight(Error("));
 });
 
 console.log(`\n${checks} checks passed${failed?`, ${failed} FAILED`:""}`);

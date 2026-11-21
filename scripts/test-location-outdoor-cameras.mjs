@@ -122,8 +122,11 @@ assert.deepEqual(json(ownerPoses.slice(2).map((p) => [p.pose.target, p.pose.yaw,
 assert.match(ownerPoses[2].purpose, /^close-up of Glass-furnace façade: the two-pane furnace window/);
 assert.match(ownerPoses[3].purpose, /^close-up of Stone quay edge running away west/);
 const ownerSpec = JSON.parse(box.buildLocationRefPrompt(owner, film.project).split("\n").slice(1).join("\n"));
-assert.equal("close-up of " + box.locationStagingStations(owner).main, ownerSpec.views.bottom_left, "the camera's purpose is the view its prompt asks for");
-assert.equal("close-up of " + box.locationStagingStations(owner).second, ownerSpec.views.bottom_right);
+// (2026-11-06: the prompt's view goes on to say what the close-up must not repeat; the camera's purpose is its opening words.
+// This check compared the two whole and failed from that day. Brought up to date 2026-11-21.)
+assert.ok(ownerSpec.views.bottom_left.startsWith("close-up of " + box.locationStagingStations(owner).main + "; frame this landmark tightly"), "the camera's purpose is the view its prompt asks for");
+assert.ok(ownerSpec.views.bottom_right.startsWith("close-up of " + box.locationStagingStations(owner).second + "; show this distinct station"));
+assert.equal(ownerPoses[2].purpose, "close-up of " + box.locationStagingStations(owner).main); assert.equal(ownerPoses[3].purpose, "close-up of " + box.locationStagingStations(owner).second);
 // an id cited in the staging is read too ("Empty second bench (A-bench2)")
 const fiorin = box.locationPanelPoses(byId("loc-fiorin-furnace-0"));
 assert.deepEqual(json(fiorin.slice(2).map((p) => p.pose.target)), ["A-furnace", "A-bench2"]);
@@ -180,7 +183,8 @@ const ai = read("app/ai.jsx");
 const ast = parseSync(ai, { sourceType: "script", parserOpts: { plugins: ["jsx"] }, babelrc: false, configFile: false });
 const draftFn = ast.program.body.find((n) => n.type === "FunctionDeclaration" && n.id.name === "aiDraftLocationSpatialPlan");
 const draftSrc = ai.slice(draftFn.start, draftFn.end);
-assert.match(draftSrc, /for a room with no plate yet, propose cameras INSIDE it \(TL from the doorway at the far wall, TR a high corner, BL\/BR its key stations; basis design\); /, "rooms keep their indoor cameras");
+// (the room's four cameras were reworded later to ask for complementary coverage; this check kept the first wording. Brought up to date 2026-11-21.)
+assert.match(draftSrc, /for a room with no plate yet, propose cameras INSIDE it with complementary coverage: TL a wide establishing view, TR a complementary reverse wide from the other end of the room at roughly eye level, BL and BR tighter views of two different named stations/, "rooms keep their indoor cameras");
 assert.match(draftSrc, /for an open-air part of a larger exterior with no plate yet \(a stretch of quay, a corner of a square\), propose cameras STANDING ON it at eye level \(about 1\.6 m\), each framed differently from the parent space's own panels/);
 assert.match(draftSrc, /Outdoors no camera stands higher than about 6 m\./);
 assert.match(draftSrc, /set openSky true for a space open to the sky/);

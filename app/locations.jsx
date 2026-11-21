@@ -1490,10 +1490,16 @@ function locationPreparePlan(f){
   }
   // a draft of the place's image already waits: the user's turn, nothing for the run
   const waiting=!f.hasImage&&!!f.hasDraft;
-  if(!steps.length)return {stage:"done",steps:[],writing:0,image:0,total:0,waitingDraft:waiting,
+  /* A PLACE THAT IS NOT DRAWN ON ITS OWN FLOOR PLAN (2026-11-21: a house whose plan holds only its rooms). It has no
+     outline to stand four cameras in, so no image of it can be drafted, and its rooms wait for that image: the run
+     had nothing to do and said nothing ("done", the button gone). It now says what is missing and where to add it. */
+  const offPlan=!f.hasImage&&!f.hasDraft&&f.onPlan===false&&f.imageKnown!==false;
+  const offPlanText=offPlan?place+" itself is not drawn on its floor plan, only its rooms are, so no image of it can be made yet. Add its own outline in 2 \u00b7 Floor plan.":"";
+  if(!steps.length)return offPlan?{stage:"blocked",steps:[],writing:0,image:0,total:0,text:offPlanText}
+    :{stage:"done",steps:[],writing:0,image:0,total:0,waitingDraft:waiting,
     text:waiting?"A draft of the image is waiting in 4 \u00b7 Previs. Use it as the location image, or delete it.":""};
   const writing=steps.filter(s=>s.kind==="dress").reduce((n,s)=>n+s.credits,0),image=steps.filter(s=>s.kind==="image").reduce((n,s)=>n+s.credits,0);
-  return {stage:"set",steps,writing,image,total:writing+image,waitingDraft:waiting,text:""};
+  return {stage:"set",steps,writing,image,total:writing+image,waitingDraft:waiting,text:offPlanText};
 }
 /* WHERE A PLACE STANDS (owner 2026-11-17), for the Locations tab's Show list: "plan" it needs its floor plan
    (described or not), "image" the floor plan is confirmed and it has no image yet, "done" it has its image. */

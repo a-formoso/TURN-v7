@@ -322,11 +322,26 @@
     if(typeof root.setTimeout==="function")await new Promise(done=>root.setTimeout(done,30));
     const input=coverageInputs(location,list),saved=savedPoses(location,list),kept={};
     for(const k of keep)if(saved[k])kept[k]=saved[k];
-    const result=root.KinolotCameraCoverage.plan(T,root.KinolotAnglePreview,input.scene,input.space,{subjects:input.subjects,keep:kept});
+    /* A SPACE TOO TIGHT FOR THE CHECKED FIT STILL GETS FOUR CAMERAS (2026-11-21: "make this work for any location").
+       The checked fit wants a clear, unobstructed wide view; a car's cabin (1.4 m by 2.3 m under a 1.2 m roof, full of
+       seats) has none, so it gave up, and every road that sets a whole place's cameras (after Confirm, Prepare this
+       place, Previs) left such a card with no camera at all: its set could not be drawn. Only step 3's own button
+       fell back. Now the simpler placement (clear of walls and sized objects, inside the room's height) answers
+       whenever the checked fit cannot, on every road, and says so. A camera someone set by hand is still kept. */
+    const tight=(first)=>{
+      let simple;try{simple=proposeCameras(location,list);}catch(_){throw first;}
+      const panels=simple.panels.map(p=>({key:p.key,role:p.role||"",label:tidy(p.label||"a view of the space",90),...(p.pose&&p.pose.target?{targetId:p.pose.target}:{}),pose:kept[p.key]||p.pose}));
+      if(Object.keys(cameraProblemsIn(location,list,input.plan,input.spaces,input.family,input.owner,panels)).length)throw first;
+      return {key,panels,auto:false,simple:true,warnings:[
+        "This space is too tight for a checked, unobstructed fit, so the four cameras were placed by the simpler rule: inside the room, clear of its walls and its sized objects. Review the four previews before saving; your current cameras are unchanged."]};
+    };
+    let result;
+    try{result=root.KinolotCameraCoverage.plan(T,root.KinolotAnglePreview,input.scene,input.space,{subjects:input.subjects,keep:kept});}
+    catch(first){return tight(first);}
     const panels=result.panels.map(p=>({key:p.key,role:p.role,label:tidy(p.label,90),...(p.targetId?{targetId:p.targetId}:{}),
       pose:kept[p.key]||{position:p.pose.position,yaw:p.pose.yaw,pitch:p.pose.pitch,lensMm:p.pose.lensMm,...(p.targetId?{target:p.targetId}:{}),basis:"design"}}));
     const problems=cameraProblemsIn(location,list,input.plan,input.spaces,input.family,input.owner,panels);
-    if(Object.keys(problems).length)throw Error("A proposed camera did not fit the room. Check the footprint and object sizes in step 2.");
+    if(Object.keys(problems).length)return tight(Error("A proposed camera did not fit the room. Check the footprint and object sizes in step 2."));
     const placed=panels.filter(p=>!kept[p.key]);
     return {key,panels,auto:true,warnings:[
       "Automatic coverage: "+placed.map(p=>p.label).join(", ")+". Each view was checked against the set as it will be built, for a clear and unobstructed frame. Review the four previews before saving; your current cameras are unchanged."]};
@@ -514,6 +529,7 @@
     if(plan.anchors.some(a=>a.sizeBasis==="design"))notes.push("Object sizes marked proposed design are working estimates. Unsupported grouped dressing is represented by a single simplified proxy; its repeated units and fine details are not modelled in this preview.");
     if(!spaces.some(s=>s.id===location.id&&s.footprint.length>=3))throw new Error("Add this space's footprint to the floor plan first.");
     const family=root.locationSpatialFamily(owner,list);let baseNote=false;const outsides=[];
+    const movingIds=new Set((typeof root.normalizeLocationMovingParts==="function"?root.normalizeLocationMovingParts(location&&location.movingParts):[]).map(p=>p.anchorId).filter(Boolean));
     const add=(id,name,position,size,rotation=[0,0,0],extra={})=>objects.push({id,name:tidy(name),position,size,rotation,kind:"box",material:"wall",...extra});
     spaces.forEach((s,si)=>{
       const poly=C().polygon(s.footprint),xs=poly.map(p=>p[0]),ys=poly.map(p=>p[1]);
@@ -558,7 +574,13 @@
     plan.anchors.forEach((anchor,i)=>{
       const room=root.locationAnchorSpaceOf(anchor,family)||owner,sp=spaces.find(s=>s.id===room.id);
       if(!sp)throw new Error("Add the footprint for "+(room.name||"each object's room")+".");
-      if(isOpening(anchor,sp)){
+      /* A MOVING PART IS A THING, EVEN WHEN IT CLOSES AN OPENING (2026-11-21). A ramp, a shutter or a door that the story
+         moves is saved as an object AND, often, under the same name as the opening it closes ("Stern ramp"). Since the
+         floor plan's openings became authoritative (d3c144f6) such an object was taken for the opening alone and left
+         out of the set: the ramp was never raised, never lowered. A part the card lists under Moving parts, with a
+         position and a size, is built; its opening stays an opening in the wall behind it. */
+      const movingThing=movingIds.has(anchor.id)&&!!anchor.xy&&!!anchor.size;
+      if(isOpening(anchor,sp)&&!movingThing){
         if(!savedOpening(anchor,sp))throw new Error("Add "+anchor.name+" to its room's floor-plan openings, with its dimensions.");
         return;
       }

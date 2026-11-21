@@ -41,6 +41,11 @@ await test("1 Prepare this place, first half: the description when it is missing
 
 await test("2 a floor plan is confirmed by a person: while one waits, or is being drafted, the run only points to it",()=>{
   const box=harness();
+  // (2026-11-21) a place that is not drawn on its own floor plan (only its rooms are): it used to end in a silent "done"
+  const off=copy(box.locationPreparePlan({id:"h",name:"Hussain House",rooms:2,drafted:true,planReady:true,onPlan:false,hasImage:false,imageKnown:true,lacking:[],undressed:[]}));
+  assert.equal(off.stage,"blocked"); assert.equal(off.steps.length,0);
+  assert.equal(off.text,"Hussain House itself is not drawn on its floor plan, only its rooms are, so no image of it can be made yet. Add its own outline in 2 \u00b7 Floor plan.");
+  assert.equal(copy(box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:true,onPlan:true,hasImage:true,imageKnown:true})).stage,"done","a place with its image is still done");
   const pending=box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:false,planEmpty:true,planPending:true});
   assert.equal(pending.stage,"review");assert.equal(pending.steps.length,0);assert.match(pending.text,/Check it in 2 · Floor plan and confirm it/);
   // a saved plan that is not confirmed is never drafted over: it waits for the check
@@ -79,8 +84,10 @@ await test("4 a draft that waits is the user's turn: the run makes no second one
   assert.deepEqual(dress.steps.map(s=>s.kind),["dress"]);assert.equal(dress.image,0);assert.equal(dress.total,6);
   // not known yet whether the place has an image (the film's images are still arriving): no image is offered
   assert.equal(copy(box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:true,hasImage:false,imageKnown:false,imageCredits:14,roomsToDraw:[{id:"r",name:"R"}]})).stage,"done");
-  // a place with no outline of its own on the plan has no image to make from the set
-  assert.equal(copy(box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:true,hasImage:false,onPlan:false,imageCredits:14})).stage,"done");
+  // a place with no outline of its own on the plan has no image to make from the set: no image step, and (since
+  // 2026-11-21) it says what is missing instead of ending in a silent "done"
+  const noOutline=copy(box.locationPreparePlan({id:"h",name:"H",drafted:true,planReady:true,hasImage:false,onPlan:false,imageCredits:14}));
+  assert.equal(noOutline.stage,"blocked");assert.equal(noOutline.steps.length,0);assert.match(noOutline.text,/is not drawn on its floor plan, only its rooms are/);
 });
 
 await test("5 once the place has its image: a draft for each room that has none, and nothing when all is made",()=>{
@@ -268,7 +275,7 @@ await test("14 Frances knows, and the changed files have new cache keys",()=>{
   assert.ok(!ai.includes("generated at the top of the card"));
   const html=read("TURN.html");
   for(const f of ["ai.jsx","script.jsx","locations.jsx","locations-ui.jsx","chrome.jsx","artroom.jsx","app.jsx","shots-ui.jsx","breakdown.jsx","agents.jsx","props.jsx","styles.css"])
-    assert.ok(["20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1"].some(k=>html.includes("app/"+f+"?v="+k+"\"")),"cache key of "+f);
+    assert.ok(["20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1"].some(k=>html.includes("app/"+f+"?v="+k+"\"")),"cache key of "+f);
 });
 
 /* THE RUN ITSELF, on the card's own code, with the writing engine, the camera fit and the image engine as stubs.

@@ -235,10 +235,17 @@ box.cropRegionAsDataUrl=async(url,rect,max)=>{crops.push({url,rect,max});return 
 // owner prompt unchanged until its cameras are set
 const genericViews={layout:"exactly 4 views in a 2x2 grid",
   top_left:"wide establishing THREE-QUARTER view at eye level from a front corner, looking diagonally across the space so two walls meet and the floor's depth and the ways in read \u2014 not a flat, straight-on symmetrical front view",
-  top_right:"high-angle three-quarter overview shot from an elevated corner perspective looking down into the space showing depth and spatial layout",
-  bottom_left:"close-up of the space's primary, most story-relevant feature",bottom_right:"close-up of a signature material detail of the space",
+  // (2026-11-06, "Guide location grids toward complementary wide and close views": each view says what it must NOT repeat;
+  // this check was left on the older wording that day and failed from then on. Brought up to date 2026-11-21.)
+  top_right:"high-angle three-quarter overview shot from an elevated corner perspective looking down into the space showing depth and spatial layout; when no camera is fixed, prefer the opposite end or reverse direction from top left, at a plausible height inside the real space, not another copy of the establishing view",
+  bottom_left:"close-up of the space's primary, most story-relevant feature; frame this landmark tightly enough to inspect its construction and details, with only nearby context, not another full-room or long-aisle establishing view",
+  bottom_right:"close-up of a signature material detail of the space; show this distinct station or material detail at useful inspection distance, with its fixed surroundings, not a repeat of the bottom-left landmark or either wide view",
   rule:"each view a distinctly different camera angle and composition — the SAME identical space, consistent architecture, scale, materials and light across all views"};
-deq(specOf(furnace).views,genericViews,"an owner without set cameras: the views are exactly as before");
+{ const {frame_format,coverage_guidance,...four}=json(specOf(furnace).views);
+  deq(four,genericViews,"an owner without set cameras: the four generic views");
+  // the sheet's own shape and the three coverage rules ride with the views
+  assert.match(frame_format,/four equal 16:9 camera frames in a regular 2x2 grid/);
+  assert.equal(coverage_guidance.length,3); assert.match(coverage_guidance[1],/preserve that camera rather than fabricate a new position/); }
 // a crop that can't be read stops before anything is sent
 metas.furnace=furnaceRecord({TR:{yaw:180,lensMm:18}});
 box.cropRegionAsDataUrl=async()=>"";
