@@ -341,7 +341,7 @@
           wides.push(item);
         }
       });
-      if(!wides.length)throw Error("No clear wide view of this room could be found. Check the footprint and object sizes in step 2.");
+      if(!wides.length)throw Error("No clear wide view of this room could be found. Check the footprint and object sizes in Floor plan.");
       const gain=item=>groups.reduce((n,g)=>n+g.weight*Math.max(0,item.c.get(g.id).value-best.get(g.id)),0)/total;
       const free=KEYS.filter(k=>!chosen[k]);
       const others=()=>Object.values(chosen).map(c=>c.pose);
@@ -356,7 +356,7 @@
         const pick=rank(wides.filter(c=>apart(c.pose,first)>=s.diag*.3&&turn(c.pose,first)<=.2))
           ||rank(wides.filter(c=>apart(c.pose,first)>=s.diag*.2&&turn(c.pose,first)<=.7))
           ||rank(wides.filter(c=>apart(c.pose,first)>=s.diag*.12||turn(c.pose,first)<=.5));
-        if(!pick)throw Error("This room has no second clear wide view. Check the footprint and object sizes in step 2.");
+        if(!pick)throw Error("This room has no second clear wide view. Check the footprint and object sizes in Floor plan.");
         take("TR",pick,"reverse","Reverse room view");
       }
       // ── details: for each standing object, the frames that feature it; choose by what a frame adds overall
@@ -413,7 +413,7 @@
         if(pick){taken.push(pick.primary);take(key,pick,"detail",pick.primary.name+" detail",pick.primary);continue;}
         // A sparse room: the next most useful different view of the room, rather than a forced close-up.
         const extra=wides.filter(distinct).sort((a,b)=>(gain(b)*2+b.score*.4)-(gain(a)*2+a.score*.4))[0];
-        if(!extra)throw Error("Four different clear views could not be found in this room. Check the footprint and object sizes in step 2.");
+        if(!extra)throw Error("Four different clear views could not be found in this room. Check the footprint and object sizes in Floor plan.");
         take(key,extra,"wide","Another room view");
       }
       const unseen=groups.filter(g=>best.get(g.id)<.3).map(g=>g.name);

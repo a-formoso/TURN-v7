@@ -11,9 +11,9 @@
   function live(id){const l=(root.turnContinuity?.locations||[]).find(x=>x.id===id);if(!l)throw Error("This location is no longer in the film.");return l;}
   function input(id){
     const l=live(id),list=root.turnContinuity?.locations||[],st=root.locationSpatialPlanState(l,list);
-    if(!st.ready)throw Error("Confirm the floor plan in step 2 before generating camera ideas.");
+    if(!st.ready)throw Error("Confirm the floor plan before generating camera ideas.");
     const visual=root.locVisualDefaults(l),plan=st.plan;
-    if(!(plan.coordinates?.spaces||[]).some(s=>s.id===id&&s.footprint?.length>=3))throw Error("Add this location's room footprint in step 2 before generating camera ideas.");
+    if(!(plan.coordinates?.spaces||[]).some(s=>s.id===id&&s.footprint?.length>=3))throw Error("Add this location's room footprint in Floor plan before generating camera ideas.");
     // Deliberately omit images, coverageViews, measured camera poses, and generation history.
     return {targetRoomId:id,name:l.name||"Location",architecture:l.architecture||"",materials:l.materials||"",lighting:l.lighting||"",
       fixtures:l.fixtures||"",continuityAnchors:l.continuityAnchors||"",topology:l.topology||"",exclusions:l.negativePrompt||"",

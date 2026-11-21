@@ -140,7 +140,7 @@ try{
   vm.runInContext(readFileSync(new URL("../app/blender-render-ui.jsx",import.meta.url),"utf8"),box);
   const ui=JSON.stringify(box.LocationCloudRender({location:room}));
   check(ui.includes("Render notes")&&ui.includes("Prototype dimensions require review.")&&ui.includes("Before you can build")
-    &&ui.includes("Check the opening height.")&&ui.includes("Go to 2 · Floor plan")&&ui.includes("an earlier floor plan"),true,
+    &&ui.includes("Check the opening height.")&&ui.includes("Go to Floor plan")&&ui.includes("an earlier floor plan"),true,
     "Saved render assumptions stay visible; what stops a build is listed with the step that fixes it");
   console.log("PASS cloud render: "+checks+" protocol, SQL permission, persistence and geometry checks");
 }finally{await h.pg.close();}

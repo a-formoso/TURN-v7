@@ -172,7 +172,7 @@ await box.generateLocationVariant(office,{id:"night",time:"Night",state:"Lights 
 assert.match(commits[0].meta.plateLayoutSig,/^pl1:/,"a room's state plate records the layout too");
 const ui=read("app/locations-ui.jsx");
 assert.match(ui,/locationPlateChangeReasons\(meta,l\)/);
-assert.ok(ui.includes("2 · Floor plan changed")&&ui.includes("3 · Cameras changed"));
+assert.ok(ui.includes("Floor plan changed")&&ui.includes("Cameras changed"));
 // (2026-10-14) wrapped by the copy check, which adds its result to the same meta — on the state and room & time cards;
 // an extra space (a main location's only, no parent plate to compare with) stamps it without one (headless paths)
 assert.equal((ui.match(/metaExtra:async \(\{mode,url,iso\}\)=> _withCopyCheck\(l,url,iso,_withLayoutStamp\(l,mode,gen,/g)||[]).length,2,"the state and room & time cards stamp it");

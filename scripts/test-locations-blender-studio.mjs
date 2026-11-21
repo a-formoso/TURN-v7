@@ -99,63 +99,79 @@ assert.ok(sheetBody,"LocationSheet has a sheet-body producer");
 const unwrapShown=n=>n&&n.type==="LogicalExpression"&&n.operator==="&&"?unwrapShown(n.right):n;
 const bodyChildren=sheetBody.arguments.slice(2).map(unwrapShown);
 // 2026-11-15 (owner: one road, "remove Blender"): a location card has no Blender hand-off any more. Its set is drawn
-// in 4 · Previs; Blender Studio is opened from the Art Room toolbar, which builds the same production package itself.
+// in Previs; Blender Studio is opened from the Art Room toolbar, which builds the same production package itself.
 assert.equal(astCalls.find(n=>firstName(n)==="LocationBlenderStudioSection"),undefined,"LocationSheet no longer produces the contextual launcher");
 const childIndex=n=>bodyChildren.indexOf(n);
 const directClass=needle=>bodyChildren.find(n=>createElement(n)&&
   String(propValue(n.arguments[1],"className")||"").split(/\s+/).includes(needle));
 const directFold=label=>bodyChildren.find(n=>firstName(n)==="CardFold"&&propValue(n.arguments[1],"label")===label);
-// a section whose number follows the card (owner 2026-11-13: every section numbered, no gap): label:sectionNo.<key>+" · <name>"
-const numberedFold=(key,name)=>bodyChildren.find(n=>{
-  if(firstName(n)!=="CardFold")return false;
+// FIVE SECTIONS, NO NUMBERS (owner 2026-11-21, "build the 5 sections, no numbers"; they were eight, numbered): The place, Floor plan,
+// The set in 3D (a group: Cameras, Previs), Variants, Advanced (a group: Look & exclusions, Quick image & image check, Generation prompt),
+// and Rooms on a place that has rooms. A group is a CardGroup; its parts are CardFolds inside it.
+const directGroup=label=>bodyChildren.find(n=>firstName(n)==="CardGroup"&&propValue(n.arguments[1],"label")===label);
+const partsOf=group=>group?group.arguments.slice(2).map(unwrapShown).filter(n=>firstName(n)==="CardFold"):[];
+const partOf=(group,label)=>partsOf(group).find(n=>propValue(n.arguments[1],"label")===label);
+const setGroup=directGroup("The set in 3D"),advanced=directGroup("Advanced");
+assert.ok(setGroup&&advanced,"LocationSheet has its two groups of parts");
+assert.deepEqual(partsOf(setGroup).map(n=>propValue(n.arguments[1],"label")),["Cameras","Previs"]);
+assert.deepEqual(partsOf(advanced).map(n=>propValue(n.arguments[1],"label")),["Look & exclusions","Quick image & image check","Generation prompt"]);
+// no section's name is built from a number any more
+assert.ok(!/sectionNo|locationSectionNumbers/.test(source),"no section number is computed");
+for(const n of bodyChildren.filter(n=>["CardFold","CardGroup"].includes(firstName(n)))){
   const prop=n.arguments[1].properties.find(p=>p.key&&p.key.name==="label");
-  return !!prop&&source.slice(prop.value.start,prop.value.end)==='sectionNo.'+key+'+" \\u00b7 '+name+'"';
-});
+  assert.ok(prop&&!/\d \\u00b7 |\d · /.test(source.slice(prop.value.start,prop.value.end)),"no number on a section");
+}
 const headIndex=childIndex(directClass("sheet-head")),
   styleIndex=childIndex(directClass("char-style-row")),scenesIndex=childIndex(directClass("location-scenes")),
-  // one numbered path per card (owner 2026-11-01), every section numbered in order (owner 2026-11-13): the prompt is the last section
-  viewsIndex=childIndex(directFold("2 \u00b7 Floor plan")),
-  promptIndex=childIndex(numberedFold("prompt","Generation Prompt"));
+  // the prompt is the last part of the last section (Advanced)
+  viewsIndex=childIndex(directFold("Floor plan")),
+  promptIndex=childIndex(advanced);
 for(const [name,index] of [["header",headIndex],["render style",styleIndex],["scene chips",scenesIndex],
-  ["2 · Floor plan",viewsIndex],["Generation Prompt",promptIndex]])
+  ["Floor plan",viewsIndex],["Generation prompt (in Advanced)",promptIndex]])
   assert.ok(index>=0,`LocationSheet retains ${name}`);
-const spatialFold=directFold("2 \u00b7 Floor plan");
+// the sections in the order of the work
+const roomsFold=bodyChildren.find(n=>firstName(n)==="CardFold"&&/hasRooms\?"Rooms":"Extra spaces"/.test(source.slice(n.arguments[1].start,n.arguments[1].end)));
+assert.ok(roomsFold,"Rooms (it was Subspaces) is a section of its own, on a place with rooms");
+const order=[directFold("The place"),directFold("Floor plan"),setGroup,directFold("Variants"),roomsFold,advanced].map(childIndex);
+assert.ok(order.every((x,i)=>x>=0&&(i===0||x>order[i-1])),"The place, Floor plan, The set in 3D, Variants, Rooms, Advanced");
+const spatialFold=directFold("Floor plan");
 assert.equal(directFold("More"),undefined,"the More section is gone (owner 2026-11-13)");
 const within=(fold,name)=>{const src=source.slice(fold.start,fold.end);return new RegExp("\\b"+name+"\\b").test(src);};
 assert.equal(directFold("Blender Studio"),undefined,"no section without a number");
 assert.equal(bodyChildren.find(n=>firstName(n)==="CardFold"&&/Build the set|Style it/.test(String(propValue(n.arguments[1],"label")||""))),undefined,"no Build the set or Style it section");
 assert.ok(!/studioHandoff|loc-own-blender|BlenderStudioLaunch/.test(source.slice(locationSheet.start,locationSheet.end)),"no hand-off box anywhere on the card");
-const promptFold=numberedFold("prompt","Generation Prompt");
-assert.ok(promptFold&&childIndex(promptFold)===bodyChildren.length-1,
-  "Generation Prompt is its own section, the last one");
-const imageFold=numberedFold("image","Location image");
-assert.ok(imageFold&&within(imageFold,"QaCheckButton")&&!within(promptFold,"QaCheckButton"),"the QA check sits in the image's own section");
+const promptFold=partOf(advanced,"Generation prompt");
+assert.ok(promptFold&&childIndex(advanced)===bodyChildren.length-1&&partsOf(advanced).indexOf(promptFold)===partsOf(advanced).length-1,
+  "Generation prompt is its own part, the last one of the last section");
+const imageFold=partOf(advanced,"Quick image & image check");
+assert.ok(imageFold&&within(imageFold,"QaCheckButton")&&!within(promptFold,"QaCheckButton"),"the QA check sits with the quick image");
 assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   n.start>spatialFold.start&&n.end<spatialFold.end),
-  "2 · Floor plan has no standalone help icon or empty help row");
-const unitsFold=numberedFold("variants","Variants");   // Rooms & times (owner 2026-10-03) until the tree (owner 2026-11-13)
+  "Floor plan has no standalone help icon or empty help row");
+const unitsFold=directFold("Variants");   // Rooms & times (owner 2026-10-03) until the tree (owner 2026-11-13); no number since 2026-11-21
 assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   n.start>unitsFold.start&&n.end<unitsFold.end),
   "Variants has no standalone help icon or empty help row");
 assert.ok(viewsIndex<promptIndex,"set preparation still precedes Generation Prompt");
 // 2026-10-05 (owner): the editable style settings moved ON the card (collapsed), before the read-only Generation Prompt
-// …and since 2026-11-15 (owner) as The look (Look Dev from 2026-11-13 until then): the look of the image, so in the image's own numbered
-// section (Location image), after the set steps and before Variants and Generation Prompt
-const describeFold=directFold("1 \u00b7 The Space");
-const lookFold=imageFold;
-assert.ok(lookFold&&describeFold&&childIndex(describeFold)<viewsIndex&&viewsIndex<childIndex(lookFold)&&
-  childIndex(lookFold)<childIndex(unitsFold)&&childIndex(lookFold)<promptIndex,
-  "The look is in Location image: after the set steps, before Variants and Generation Prompt");
-assert.ok(astCalls.some(n=>stringValue(n.arguments[0])==="h4"&&stringValue(n.arguments[2])==="The look"&&n.start>lookFold.start&&n.end<lookFold.end),
-  "The look is a heading inside the section");
+// …as The look, in the Location image section, from 2026-11-15; since 2026-11-21 (five sections) as Look & exclusions, the
+// first part of Advanced: after the set and the variants, before the quick image and the prompt
+const describeFold=directFold("The place");
+const lookFold=partOf(advanced,"Look & exclusions");
+assert.ok(lookFold&&describeFold&&childIndex(describeFold)<viewsIndex&&viewsIndex<childIndex(setGroup)&&
+  childIndex(unitsFold)<childIndex(advanced)&&lookFold.start<imageFold.start&&imageFold.start<promptFold.start,
+  "Look & exclusions is in Advanced: after the set and the variants, before the quick image and the prompt");
+assert.ok(!astCalls.some(n=>stringValue(n.arguments[0])==="h4"&&stringValue(n.arguments[2])==="The look"),
+  "the part's own name says it: no second heading inside");
 assert.ok(!source.slice(locationSheet.start,locationSheet.end).includes('"Look Dev"'),"the old name is gone from the card");
-assert.equal(directFold("Look & exclusions"),undefined);
-assert.equal(directFold("The look"),undefined,"no section without a number");
-assert.ok(lookFold.arguments[1].properties.some(p=>p.key&&p.key.name==="defaultOpen"&&p.value&&p.value.value===false),"Location image starts collapsed");
+assert.equal(directFold("Look & exclusions"),undefined,"it is a part of Advanced, not a section of its own");
+assert.equal(directFold("The look"),undefined);
+assert.ok(lookFold.arguments[1].properties.some(p=>p.key&&p.key.name==="defaultOpen"&&p.value&&p.value.value===false),"Look & exclusions starts collapsed");
+assert.ok(!advanced.arguments[1].properties.some(p=>p.key&&p.key.name==="defaultOpen"),"Advanced starts closed, as on a character or a prop card");
 const styleDetails=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
   propValue(n.arguments[1],"className")==="loc-render-style-details");
 assert.ok(styleDetails&&styleDetails.start>lookFold.start&&styleDetails.end<lookFold.end,
-  "render style details are inside Location image, under The look");
+  "render style details are inside Look & exclusions");
 const styleField=astCalls.find(n=>firstName(n)==="SheetField"&&
   propValue(n.arguments[1],"label")==="Render style instructions");
 assert.ok(styleField&&styleField.start>styleDetails.start&&styleField.end<styleDetails.end,

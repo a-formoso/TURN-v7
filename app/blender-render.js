@@ -61,7 +61,7 @@
   // Each camera must stand inside its own room, clear of the walls (0.15 m thick, centred on the footprint edge),
   // between floor and ceiling, and outside every object, or the frame shows the inside of a wall or a box.
   const CAMERA_WALL_CLEARANCE=0.25;
-  // Per camera: what is wrong with where it stands (no entry = fine). Step 3 · Cameras shows these beside each camera.
+  // Per camera: what is wrong with where it stands (no entry = fine). Step Cameras shows these beside each camera.
   function cameraProblemsIn(location,list,plan,spaces,family,owner,proposed){
     // Only a location with its own room on the floor plan places cameras in it (a whole location's plate doesn't).
     const out={},poses=proposed||root.locationPanelPoses(location,list);
@@ -106,11 +106,11 @@
   function proposeCameras(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
     const state=root.locationSpatialPlanState(location,list);
-    if(!state.ready)throw Error(state.reason||"Review the floor plan in step 2 first.");
+    if(!state.ready)throw Error(state.reason||"Review the floor plan first.");
     const {owner,plan}=state,spaces=renderSpaces(plan),sp=spaces.find(s=>s.id===location.id);
-    if(!sp)throw Error("Add this room's footprint in step 2 first.");
+    if(!sp)throw Error("Add this room's footprint in Floor plan first.");
     const poly=C().polygon(sp.footprint),family=root.locationSpatialFamily(owner,list);
-    if(!sp.openSky&&!finite(sp.ceilingH))throw Error("Set this room's ceiling height in step 2 first.");
+    if(!sp.openSky&&!finite(sp.ceilingH))throw Error("Set this room's ceiling height in Floor plan first.");
     const xs=poly.map(p=>p[0]),ys=poly.map(p=>p[1]),x0=Math.min(...xs),y0=Math.min(...ys),w=Math.max(...xs)-x0,d=Math.max(...ys)-y0;
     const inside=(x,y)=>{let yes=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){
       const a=poly[i],b=poly[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])yes=!yes;}return yes;};
@@ -207,7 +207,7 @@
         return !Object.keys(cameraProblemsIn(location,list,plan,spaces,family,owner,[{key:keys[i],pose:{position:p}}])).length;
       });
       let candidates=clear.filter(p=>used.every(a=>Math.hypot(a[0]-p[0],a[1]-p[1])>=spacing));
-      if(!candidates.length)throw Error("There isn't enough clear space for four camera positions. Check the room footprint and object sizes in step 2.");
+      if(!candidates.length)throw Error("There isn't enough clear space for four camera positions. Check the room footprint and object sizes in Floor plan.");
       let feature=null,preferred=[x0+Math.min(.65,Math.max(.35,w*.1)),y0+Math.min(.65,Math.max(.35,d*.1))];
       if(i===1){
         preferred=d>=w?[used[0][0],y0+d*(used[0][1]<centre[1]?.8:.2)]
@@ -287,7 +287,7 @@
           if(!choices[0].visible)warnings.push("A wide frame has no clear saved landmarks; review its camera before building.");}
       }
       const targets=clear.filter(p=>Math.hypot(p[0]-at[0],p[1]-at[1])>.1&&sight(at,p));
-      if(!targets.length)throw Error("A clear view across this room couldn't be proposed. Check the footprint in step 2.");
+      if(!targets.length)throw Error("A clear view across this room couldn't be proposed. Check the footprint in Floor plan.");
       const aimScore=p=>Math.hypot((p[0]-centre[0])/w,(p[1]-centre[1])/d)-.12*Math.hypot((p[0]-at[0])/w,(p[1]-at[1])/d);
       targets.sort((a,b)=>aimScore(a)-aimScore(b));const aim=feature?.point||targets[0];
       const distance=Math.hypot(aim[0]-at[0],aim[1]-at[1]);
@@ -311,10 +311,10 @@
      objects saved with the same dimensions are one kind. No model, account or render call. */
   function coverageInputs(location,list){
     const state=root.locationSpatialPlanState(location,list);
-    if(!state.ready)throw Error(state.reason||"Review the floor plan in step 2 first.");
+    if(!state.ready)throw Error(state.reason||"Review the floor plan first.");
     const {owner,plan}=state,spaces=renderSpaces(plan),space=spaces.find(s=>s.id===location.id);
-    if(!space||(space.footprint||[]).length<3)throw Error("Add this room's footprint in step 2 first.");
-    if(!space.openSky&&!finite(space.ceilingH))throw Error("Set this room's ceiling height in step 2 first.");
+    if(!space||(space.footprint||[]).length<3)throw Error("Add this room's footprint in Floor plan first.");
+    if(!space.openSky&&!finite(space.ceilingH))throw Error("Set this room's ceiling height in Floor plan first.");
     const family=root.locationSpatialFamily(owner,list);
     const centre=[0,1].map(i=>space.footprint.reduce((n,p)=>n+p[i],0)/space.footprint.length);
     const hold={position:[centre[0],centre[1],space.floorZ+1.5],yaw:0,pitch:0,lensMm:24};
@@ -359,7 +359,7 @@
     const panels=result.panels.map(p=>({key:p.key,role:p.role,label:tidy(p.label,90),...(p.targetId?{targetId:p.targetId}:{}),
       pose:kept[p.key]||{position:p.pose.position,yaw:p.pose.yaw,pitch:p.pose.pitch,lensMm:p.pose.lensMm,...(p.targetId?{target:p.targetId}:{}),basis:"design"}}));
     const problems=cameraProblemsIn(location,list,input.plan,input.spaces,input.family,input.owner,panels);
-    if(Object.keys(problems).length)return tight(Error("A proposed camera did not fit the room. Check the footprint and object sizes in step 2."));
+    if(Object.keys(problems).length)return tight(Error("A proposed camera did not fit the room. Check the footprint and object sizes in Floor plan."));
     const placed=panels.filter(p=>!kept[p.key]);
     return {key,panels,auto:true,warnings:[
       "Automatic coverage: "+placed.map(p=>p.label).join(", ")+". Each view was checked against the set as it will be built, for a clear and unobstructed frame. Review the four previews before saving; your current cameras are unchanged."]};
@@ -399,7 +399,7 @@
   async function proposeCamerasForPlace(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
     const state=root.locationSpatialPlanState(location,list);
-    if(!state.ready)throw Error(state.reason||"Review the floor plan in step 2 first.");
+    if(!state.ready)throw Error(state.reason||"Review the floor plan first.");
     const spaces=renderSpaces(state.plan),rows=[];
     for(const m of root.locationSpatialFamily(state.owner,list)){
       if(!m)continue;
@@ -424,11 +424,11 @@
     rows=rows||[];
     const set=rows.filter(r=>r.views),failed=rows.filter(r=>r.error),outside=rows.filter(r=>r.outside);
     if(!set.length&&!failed.length)return "";
-    return [set.length?"Cameras set, free: "+set.map(r=>r.name+" ("+r.set.length+(r.set.length===1?" view":" views")+")").join(", ")+". See them in 4 \u00b7 Previs; change any in 3 \u00b7 Cameras.":"",
+    return [set.length?"Cameras set, free: "+set.map(r=>r.name+" ("+r.set.length+(r.set.length===1?" view":" views")+")").join(", ")+". See them in Previs; change any in Cameras.":"",
       failed.length?"Could not be set: "+failed.map(r=>r.name+" ("+r.error.replace(/[.]+$/,"")+")").join("; ")+".":"",
       outside.length?"Not on the floor plan yet: "+outside.map(r=>r.name).join(", ")+".":""].filter(Boolean).join(" ");
   }
-  // Each issue names the card step that fixes it: 2 · Floor plan or 3 · Cameras.
+  // Each issue names the card step that fixes it: Floor plan or Cameras.
   function inputIssueList(location,list){
     list=list||((root.turnContinuity||{}).locations)||[];
     const state=root.locationSpatialPlanState(location,list);
@@ -451,9 +451,9 @@
         const length=Math.hypot(b[0]-a[0],b[1]-a[1]),u=[(b[0]-a[0])/length,(b[1]-a[1])/length];
         const x=(o.centre[0]-a[0])*u[0]+(o.centre[1]-a[1])*u[1],distance=Math.abs((o.centre[0]-a[0])*u[1]-(o.centre[1]-a[1])*u[0]);
         const metres=n=>Math.round(n*100)/100+" m";
-        if(o.sillZ<s.floorZ)issues.push((o.name||"This opening")+": its bottom is at "+metres(o.sillZ)+", below the room floor at "+metres(s.floorZ)+". Correct Opening bottom in step 2.");
-        if(o.headZ>s.floorZ+s.ceilingH)issues.push((o.name||"This opening")+": its top is at "+metres(o.headZ)+", above the ceiling at "+metres(s.floorZ+s.ceilingH)+". Correct Opening top or the room ceiling height in step 2.");
-        if(o.headZ<=o.sillZ)issues.push((o.name||"This opening")+": its top must be higher than its bottom. Correct Opening top and Opening bottom in step 2.");
+        if(o.sillZ<s.floorZ)issues.push((o.name||"This opening")+": its bottom is at "+metres(o.sillZ)+", below the room floor at "+metres(s.floorZ)+". Correct Opening bottom in Floor plan.");
+        if(o.headZ>s.floorZ+s.ceilingH)issues.push((o.name||"This opening")+": its top is at "+metres(o.headZ)+", above the ceiling at "+metres(s.floorZ+s.ceilingH)+". Correct Opening top or the room ceiling height in Floor plan.");
+        if(o.headZ<=o.sillZ)issues.push((o.name||"This opening")+": its top must be higher than its bottom. Correct Opening top and Opening bottom in Floor plan.");
         if(distance>0.25||x-o.width/2<0||x+o.width/2>length)
           issues.push("Check the dimensions and wall placement of "+(o.name||"this opening")+".");
       }
@@ -648,7 +648,7 @@
     const proxies=detailed.objects.filter(o=>o.anchorId&&o.kind==="box"&&o.material==="dressing"
       &&!plan.anchors.find(a=>a.id===o.anchorId)?.renderShape);
     if(proxies.length)detailed.notes.push("Simplified solid blocks: "+proxies.slice(0,4).map(o=>tidy(o.name,65)).join(", ")
-      +(proxies.length>4?" and "+(proxies.length-4)+" more":"")+". These show object bounds, not confirmed shapes. Review Set shape in step 2; a block cannot represent mesh, openings or detailed furniture.");
+      +(proxies.length>4?" and "+(proxies.length-4)+" more":"")+". These show object bounds, not confirmed shapes. Review Set shape in Floor plan; a block cannot represent mesh, openings or detailed furniture.");
     return C().validateScene(detailed);
   }
   function endpoint(){

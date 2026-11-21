@@ -1,5 +1,5 @@
 /* Offline UI regression. ONE ROAD (owner 2026-11-15: "yes, and remove Blender"): the location card no longer mounts the
-   cloud build (Build the set) or its styling step (Style it); old links to them open 4 · Previs, and a place's rooms
+   cloud build (Build the set) or its styling step (Style it); old links to them open Previs, and a place's rooms
    open their Previs from Subspaces. The two components are kept in their file, unmounted, and their own behaviour
    (connection recovery is read-only and works for read-only film members) is still checked here. */
 import assert from "node:assert/strict";
@@ -47,14 +47,27 @@ assert.ok(!/LocationCloudRender|LocationStyleStep|LocationBlenderStudioSection,\
 const folds=descendants.filter(n=>n.type==="CallExpression"&&n.arguments?.[0]?.name==="CardFold");
 const labels=folds.map(n=>{const p=n.arguments[1].properties.find(p=>p.key.name==="label");return source.slice(p.value.start,p.value.end);});
 assert.ok(!labels.some(t=>/Build the set|Style it/.test(t)),"no Build the set or Style it section");
-assert.deepEqual(labels.slice(0,5),['"1 \\u00b7 The Space"','"2 \\u00b7 Floor plan"','"3 \\u00b7 Cameras"','"4 \\u00b7 Previs"','sectionNo.image+" \\u00b7 Location image"']);
+// (2026-11-21, owner: "build the 5 sections, no numbers") every section and part of the card, in order, with no number;
+// Cameras and Previs are the parts of The set in 3D, and the last three the parts of Advanced
+assert.deepEqual(labels,['"The place"','"Floor plan"','"Cameras"','"Previs"','"Variants"','hasRooms?"Rooms":"Extra spaces"',
+  '"Look & exclusions"','"Quick image & image check"','"Generation prompt"']);
+const groups=descendants.filter(n=>n.type==="CallExpression"&&n.arguments?.[0]?.name==="CardGroup");
+assert.deepEqual(groups.map(n=>n.arguments[1].properties.find(p=>p.key.name==="label").value.value),["The set in 3D","Advanced"]);
+assert.ok(!/sectionNo|locationSectionNumbers/.test(source),"no section number is computed any more");
 // an old link to the build or to styling opens Previs, where the image is made now
-const previs=folds.find(n=>n.arguments[1].properties.some(p=>p.key.name==="label"&&p.value.value==="4 \u00b7 Previs"));
+const previs=folds.find(n=>n.arguments[1].properties.some(p=>p.key.name==="label"&&p.value.value==="Previs"));
 const opens=previs.arguments[1].properties.find(p=>p.key.name==="defaultOpen");
-for(const [section,open] of [["previs",true],["build",true],["style",true],["layout",false]])
+const setOpens=groups[0].arguments[1].properties.find(p=>p.key.name==="defaultOpen");
+for(const [section,open] of [["previs",true],["build",true],["style",true],["layout",false]]){
   assert.equal(vm.runInNewContext(source.slice(opens.value.start,opens.value.end),{initialSection:section}),open,section);
+  // Previs is a part of The set in 3D: the section that holds it opens with it
+  assert.equal(vm.runInNewContext(source.slice(setOpens.value.start,setOpens.value.end),{initialSection:section}),open,"The set in 3D, "+section);
+}
+// a link to Cameras or to Previs opens the section that holds them
+const setIds=groups[0].arguments[1].properties.find(p=>p.key.name==="foldIds");
+assert.equal(source.slice(setIds.value.start,setIds.value.end),"[locationStepFoldId(l,3),locationStepFoldId(l,4)]");
 const ids=vm.runInNewContext(read("app/locations.jsx").match(/function locationStepFoldId\(l,step\)\{[\s\S]*?\n\}/)[0]+";[4,5,6].map(n=>locationStepFoldId({id:'k'},n))");
-assert.deepEqual([...ids],["loc-step4-k","loc-image-k","loc-step4-k"],"step 5 is the Location image now; the old styling step leads to Previs");
+assert.deepEqual([...ids],["loc-step4-k","loc-image-k","loc-step4-k"],"step 5 is the quick image's part of Advanced (it keeps the image section's id); the old styling step leads to Previs");
 
 let refreshes=0,requests=0;
 const state={api:{},show:true,scope:{},scene:{objects:[]},issues:[],scopeKey:"test",sceneKey:"scene",

@@ -1425,7 +1425,7 @@ function shotLocationReferenceChoices(loc,sh,scene,drafts){
   return selected.concat(sceneCatalog.filter(s=>!seen.has(String(s.id))).map(s=>({...s})));
 }
 /* A MOVING PART'S STATE IMAGE (2026-11-01): when the shot's moment has parts out of their usual state and that state
-   has its own image ("Stern ramp lowered", made in the location's 4 · Previs), it stands in for this location's plate,
+   has its own image ("Stern ramp lowered", made in the location's Previs), it stands in for this location's plate,
    room & time and time-of-day references, which show the usual state. Without the image nothing changes (the prompt
    still states the part). The parts can sit on a ROOM of the scene's location (the CAR Deck of the ship
    "Marmorica"), so every location a reference belongs to is checked, not only the scene's. */

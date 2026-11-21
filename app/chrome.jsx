@@ -290,7 +290,7 @@ function ViewNav({ room, view, setView, artView, setArtView, railOpen, inspOpen,
               : (stale && React.createElement("span",{className:"seg-stale-dot"})));
         });
   // (the Art Room's "Blender Studio" button was here until 2026-11-16: owner, "Remove it now". Locations are built in
-  // 3D in the browser, in each card's 4 · Previs. The workspace's code and its server side are untouched.)
+  // 3D in the browser, in each card's Previs. The workspace's code and its server side are untouched.)
   const studioBtn = null;
   // the 1st-AD pass: the script read into the cast sheets, then every Art Room layer
   // held to the script. Open to a Writer too (its script cards are theirs to apply).

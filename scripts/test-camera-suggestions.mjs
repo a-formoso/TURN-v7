@@ -132,7 +132,7 @@ verify(room([[0,0],[3,0],[3,2],[0,2]],{openSky:true,ceilingH:null}));
   ok(inspection(render()).props.open===false,"Applying the proposal folds the optional inspection map");
   l.coverageViews=writes[0].patch.coverageViews;
   b.turnContinuity.locations=[l];let destination=null;b.goToLocationStep=(location,step)=>destination={location,step};
-  tree=render();button(tree,"Go to 4 \u00b7 Previs").props.onClick();
+  tree=render();button(tree,"Go to Previs").props.onClick();
   ok(destination?.location===l&&destination.step===4&&writes.length===1,"Ready cameras offer a direct route to Previs without saving or drafting notes (2026-11-15: the build step is gone)");
   nodes(tree).find(n=>n.type===b.LocationFloorPlanMap).props.onSelect(l.id+":TR");tree=render();
   ok(nodes(tree).find(n=>n.type===b.LocationCameraAngleWorkbench).props.previewRequest.panel==="TR"&&writes.length===1,

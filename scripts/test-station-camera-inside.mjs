@@ -1,5 +1,5 @@
 // A STATION CAMERA STAYS IN ITS ROOM (2026-11-03, test film "Slack Water"): the lantern room's suggested key-station
-// camera stood 1.8 m back from the central burner — exactly on the octagonal room's north wall, so step 3 · Cameras
+// camera stood 1.8 m back from the central burner — exactly on the octagonal room's north wall, so step Cameras
 // said "It stands outside Light Tower Lantern Room". The back-off now stops 0.3 m inside the walls.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";

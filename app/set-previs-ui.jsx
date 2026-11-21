@@ -189,7 +189,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
          inside or against part of the set" whatever is done, and Fix cameras put them back where they were and said
          nothing: the same red list, press after press. It now says that this is as clear as the space allows. */
       if(alive.current&&proposal.simple)setTightNote("This space is too tight for clearer views: the cameras now stand as clear of the set as it allows. The image can still be made from them. To change a view yourself, use Move a camera.");
-      else if(alive.current)setFixNote("Cameras updated: "+proposal.panels.filter(x=>!keep.includes(x.key)).map(x=>PANEL_NAMES[x.key]+" is now \u201c"+x.label+"\u201d").join("; ")+". You can review them in 3 \u00b7 Cameras.");
+      else if(alive.current)setFixNote("Cameras updated: "+proposal.panels.filter(x=>!keep.includes(x.key)).map(x=>PANEL_NAMES[x.key]+" is now \u201c"+x.label+"\u201d").join("; ")+". You can review them in Cameras.");
     }catch(e){if(alive.current)setFail((e&&e.message)||"The cameras could not be fixed.");}
     finally{if(alive.current)setFixing(false);}
   }
@@ -212,8 +212,8 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
       E("div",{className:"loc-step-actions"},
         // a room with no cameras of its own yet (or one standing in a wall): four clear ones in one press
         fixStep===3&&!readOnly&&onUpdate&&E("button",{type:"button",className:"art-draftall",disabled:fixing,"data-testid":"previs-set-cameras",onClick:()=>fixCameras(true),
-          title:"Fits four cameras to this space, each checked for a clear view, and saves them. Free. You can change them in 3 \u00b7 Cameras."},fixing?"Finding clear views\u2026":"Set 4 clear cameras (free)"),
-        E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(fixStep)},fixStep===3?"Go to 3 \u00b7 Cameras":"Go to 2 \u00b7 Floor plan")),
+          title:"Fits four cameras to this space, each checked for a clear view, and saves them. Free. You can change them in Cameras."},fixing?"Finding clear views\u2026":"Set 4 clear cameras (free)"),
+        E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(fixStep)},fixStep===3?"Go to Cameras":"Go to Floor plan")),
       fail&&E("p",{className:"loc-spatial-error",role:"alert"},fail)));
   // ONE RULE: a draft can be used while it still matches the set and the look it was made from
   const stale=d=>!nowKeys||d.meta.setKey!==nowKeys.setKey||d.meta.lookKey!==nowKeys.lookKey;
@@ -241,7 +241,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     small?E("span",null,draftLine(d)):null);
   return E(React.Fragment,null,
     E("p",{className:"loc-layer-note","data-testid":"previs-intro"},
-      "The set in 3D, drawn in your browser from 2 \u00b7 Floor plan and 3 \u00b7 Cameras. It is free and redraws at once. Check where everything stands, dress the set for this film, then make the location image from it."),
+      "The set in 3D, drawn in your browser from Floor plan and Cameras. It is free and redraws at once. Check where everything stands, dress the set for this film, then make the location image from it."),
     E("div",{className:"loc-sub previs-view","data-testid":"previs-sheet"},
       E("h4",{className:"loc-step-sub"},"The set from its four cameras"),
       E("div",{className:"previs-sheet"+(drawing?" drawing":""),"aria-busy":drawing?"true":"false"},
@@ -257,11 +257,11 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
         E("div",{className:"loc-step-actions"},
           !readOnly&&onUpdate&&E("button",{type:"button",className:"art-draftall",disabled:fixing||!!busy,"data-testid":"camera-check-fix",onClick:fixCameras,
             title:"Moves only the cameras named above to clear views of this set and keeps the others. Free."},fixing?"Finding clear views\u2026":"Fix cameras"),
-          E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(3)},"Go to 3 \u00b7 Cameras"))),
+          E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(3)},"Go to Cameras"))),
       fixNote&&!faulty.length&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-fixed"},fixNote),
       tightNote&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-tight"},tightNote),
       // MOVE A CAMERA (owner 2026-11-16: a live camera on the dressed set, opened from here): the camera tool of
-      // 3 \u00b7 Cameras, drawing this same lit, dressed set; saving a view redraws the sheet above
+      // Cameras, drawing this same lit, dressed set; saving a view redraws the sheet above
       sheet&&!readOnly&&typeof onUpdate==="function"&&window.LocationCameraAngleWorkbench&&E("div",{className:"loc-step-actions previs-move-camera","data-testid":"previs-move-camera"},
         E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,inline:true,label:"Move a camera"})),
       // a set with moving parts: which story moment it is drawn at
@@ -384,7 +384,7 @@ function LocationPrevisOverview({location:l}){
     E("h4",{className:"loc-step-sub"},"The whole place from above"),
     E("p",{className:"loc-layer-note"},"One set for "+(l.name||"this place")+" and every room in it, drawn from the floor plan with the ceilings off. Check that the rooms meet where they should and that each door leads where it should. Every room\u2019s four views are taken inside this same set."),
     error&&!shot?E("div",{className:"loc-step-fixes"},E("p",{className:"loc-step-fixes-head"},"The place cannot be drawn yet."),E("p",{style:{margin:"0 0 8px"}},error),
-        E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Go to 2 \u00b7 Floor plan"))
+        E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Go to Floor plan"))
       :E("div",{className:"previs-sheet"+(drawing?" drawing":""),"aria-busy":drawing?"true":"false"},
         shot?E("img",{src:shot.dataUrl,alt:"The whole of "+(l.name||"this place")+" from above: "+(shot.spaces||[]).join(", "),draggable:false})
           :E("span",{className:"previs-sheet-wait"},drawing?"Drawing the place\u2026":"")),
@@ -513,7 +513,7 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
     outside.length>0&&E("div",{className:"loc-step-fixes","data-testid":"previs-rooms-outside"},
       E("p",{className:"loc-step-fixes-head"},"Not on the floor plan yet: "+outside.map(r=>r.name).join(", ")+"."),
       E("p",{style:{margin:"0 0 8px"}},"A room is drawn here once it stands on "+(l.name||"this place")+"\u2019s floor plan."),
-      E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Add it in 2 \u00b7 Floor plan")),
+      E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Add it in Floor plan")),
     view==="all"?E(React.Fragment,null,E(LocationPrevisOverview,{location:l}),E(LocationPrevisDressAll,{location:l,rooms:list,project,readOnly,onUpdate}))
       :room?E(LocationPrevisStep,{key:room.id,location:room,project,readOnly,onUpdate,hasImage:!!got(room.id),imageMeta:got(room.id)?metaOf(room.id):null,asRoom:true,
         onOpenCard:typeof onSelectLocation==="function"?section=>onSelectLocation(room.id,section):undefined})
@@ -622,7 +622,7 @@ function LocationPrevisVariant({location:l,variantKey,asset,label,time,notes,met
       error&&!from?E("div",{className:"loc-step-fixes","data-testid":"previs-variant-not-ready"},
           E("p",{className:"loc-step-fixes-head"},"Choose the location image first."),
           E("p",{style:{margin:"0 0 8px"}},"A variant is the location image itself "+what+", so "+(l.name||"this place")+" needs its image before its variants. "+error),
-          E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,4)},"Go to 4 \u00b7 Previs"))
+          E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,4)},"Go to Previs"))
       :E(React.Fragment,null,
         E("p",{className:"loc-layer-note"},"This variant is made from the location image itself: "+(from&&from.sheet?"one of its four views":"the same picture")+", redrawn "+what+". Only the light and the state change; nothing is drawn again from the 3D set. One frame, as every variant is."),
         from&&from.sheet&&E("label",{className:"loc-cam-field previs-engine"},E("span",null,"View"),

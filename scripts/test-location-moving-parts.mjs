@@ -151,7 +151,7 @@ R.setBuildMoment("deck","");check(R.buildMoment(fixture)===null,"Usual state aga
 
 // 5 · the card
 const ui=read("app/locations-ui.jsx"),cloud=read("app/blender-render-ui.jsx");
-// since 2026-11-13 at the end of 2 · Floor plan (each part is tied to an object of the floor plan), not a section of its own
+// since 2026-11-13 at the end of Floor plan (each part is tied to an object of the floor plan), not a section of its own
 check(/function LocationMovingParts/.test(ui)&&/id:"loc-parts-"\+l\.id,"data-testid":"location-moving-parts-section"\},\s*React\.createElement\("summary",null,"Moving parts \(optional\)"/.test(ui),"The location card has Moving parts, in its floor plan step");
 check(/Find them in the screenplay \(writing credits\)/.test(ui)&&/"Add one by hand"/.test(ui)&&/"Keep"\)/.test(ui)&&/"Discard"\)/.test(ui),"The read is reviewed before anything is saved, and its price is named");
 check(/momentPicker\(location,api,/.test(cloud)&&/E\("span",null,"Build at"\)/.test(cloud),"Step 5 builds the set at a chosen moment");

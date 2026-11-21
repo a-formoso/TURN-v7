@@ -37,14 +37,18 @@ function harness(){
  flat(tree).find(n=>n.props['aria-label']==='Close help').props.onClick();tree=h.render();ok(!flat(tree).some(n=>n.type==='portal'),'The explicit close control dismisses the overlay');
 }
 {
- const h=harness(),steps=[{n:2,name:'Floor plan',next:true,todo:'The opening top is above the ceiling. Correct the measurements.'}];
+ // (2026-11-21) the tracker is given the card's five steps and shows four (The place, Floor plan, The set in 3D, Location image);
+ // the first that is not done is the one to do next
+ const h=harness(),steps=[{n:1,name:'The place',done:true},{n:2,name:'Floor plan',next:true,todo:'The opening top is above the ceiling. Correct the measurements.'},
+   {n:3,name:'Cameras',todo:'Confirm the floor plan first.'},{n:4,key:'previs',name:'Previs',optional:true},{n:5,key:'image',name:'Location image',todo:'Make the image.'}];
  let go=0;h.b.goToLocationStep=()=>go++;
  const tree=h.b.LocationStepGuide({l:{id:'room'},steps});
  // (owner 2026-11-17: "the tracker alone is enough") the Next row with its help trigger and Go button left the card:
  // the step to do next is marked in the tracker, says what to do in its tooltip, and opens its section
  ok(!flat(tree).some(n=>n.props.className==='loc-steps-next')&&!flat(tree).some(n=>n.type===h.b.LocationHelpPopover),'The tracker stands alone: no second next-step row');
  const step=flat(tree).find(n=>n.type==='button'&&n.props.className==='loc-step next');
- ok(step.props['aria-current']==='step'&&step.props.title==='Next \u2014 '+steps[0].todo,'The step to do next carries the full instruction');
+ ok(step.props['aria-current']==='step'&&step.props.title==='Next \u2014 '+steps[1].todo,'The step to do next carries the full instruction');
+ ok(flat(tree).filter(n=>n.type==='button').map(n=>n.children.map(c=>(c.children||[]).join('')).join(' ')).join(' | ')==='\u2713 The place | 2 Floor plan | 3 The set in 3D | 4 Location image','The tracker shows four steps, the done one ticked');
  step.props.onClick();ok(go===1,'The step opens the required repair section');
 }
 console.log('PASS location help: '+checks+' overlay, hover, tap, keyboard, compactness and repair-route checks');

@@ -37,11 +37,11 @@ check(issues([{position:[3.4,1.5,6]},good[1],good[2],good[3]]).length===0,"A cam
   const l=office([{position:[5,1.5,6]},good[1],good[2],good[3]]);
   assert.throws(()=>box.KinolotCloudRender.buildScene(l),/stands outside/);checks++;
   const tagged=box.KinolotCloudRender.inputIssueList(l);
-  check(tagged.length===1&&tagged[0].step===3&&tagged[0].panel==="TL","A camera problem is tagged for step 3 · Cameras, with its panel");
+  check(tagged.length===1&&tagged[0].step===3&&tagged[0].panel==="TL","A camera problem is tagged for step Cameras, with its panel");
   const per=box.KinolotCloudRender.cameraProblems(l);
   check(Object.keys(per).join()==="TL"&&/^It stands outside Ferry - Office/.test(per.TL),"Each camera's own problem is available for its row in step 3");
   const noFloor={...l,spatialPlan:{...l.spatialPlan,status:"draft"}};box.turnContinuity={locations:[noFloor]};
-  check(box.KinolotCloudRender.inputIssueList(noFloor).every(i=>i.step===2),"An unconfirmed floor plan is a step 2 · Floor plan issue");
+  check(box.KinolotCloudRender.inputIssueList(noFloor).every(i=>i.step===2),"An unconfirmed floor plan is a step Floor plan issue");
 }
 
 // Render time estimate: the worker's measured runs, or this location's own last render.
@@ -77,6 +77,8 @@ const job=(status,extra={})=>({id:"j1",status,progress:status==="running"?"rende
 }
 const ui=read("app/blender-render-ui.jsx");
 check(/running&&renderProgress\(/.test(ui)&&/job&&!running&&job\.status!=="completed"&&E\("p",\{role:"status"/.test(ui),"The panel shows the progress while queued or running, and a failure or cancellation otherwise");
-check(ui.includes("(blockedViews?otherIssues:issues).length>0&&cloudFixList(location,blockedViews?otherIssues:issues)")&&/"Go to "\+issue\.step\+" · "\+LOCATION_STEP_NAMES\[issue\.step\]/.test(ui),"What stops the build is listed, each with a Go to step button");
+check(ui.includes("(blockedViews?otherIssues:issues).length>0&&cloudFixList(location,blockedViews?otherIssues:issues)")&&ui.includes('"Go to "+LOCATION_STEP_NAMES[issue.step])))),')&&!/"Go to "\+issue\.step\+/.test(ui)
+  &&ui.includes('const LOCATION_STEP_NAMES={1:"The place",2:"Floor plan",3:"Cameras",4:"Previs",5:"Quick image & image check"};'),
+  "What stops the build is listed, each with a Go to button that names the section (no number since 2026-11-21)");
 check(!/layout issues above/.test(ui),"No more 'the layout issues above'");
 console.log(`PASS cloud render cameras and progress: ${checks} camera-placement, estimate and progress checks`);

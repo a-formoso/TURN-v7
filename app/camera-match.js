@@ -166,7 +166,7 @@
     active.add(k);
     try{
       const api=root.KinolotCloudRender,{l,list}=location(id),state=root.locationSpatialPlanState(l,list);
-      if(!state.ready)throw Error("Confirm the floor plan in step 2 before matching cameras.");
+      if(!state.ready)throw Error("Confirm the floor plan before matching cameras.");
       const key=api.cameraProposalKey(l,list),source=await root.KinolotCameraInspiration.load(id,s);
       scopeGuard(s);if(!source)throw Error("Generate view ideas before matching cameras.");
       const stamp=sourceKey(source),defaults=api.proposeCameras(l,list),views=api.cameraProposalViews(l,defaults,list),proposed={...l,coverageViews:views};

@@ -1532,9 +1532,9 @@ function locationPreparePlan(f){
   const names=list=>list.map(x=>String((x&&x.name)||"Room")).join(", ");
   if(!f.planReady){
     if(f.planPending)return {stage:"review",steps:[],writing:0,image:0,total:0,
-      text:"The floor plan is being drafted, or its draft is waiting for you. Check it in 2 \u00b7 Floor plan and confirm it."};
+      text:"The floor plan is being drafted, or its draft is waiting for you. Check it in Floor plan and confirm it."};
     if(!f.planEmpty)return {stage:"review",steps:[],writing:0,image:0,total:0,
-      text:"The floor plan is waiting for your check. Confirm it in 2 \u00b7 Floor plan."};
+      text:"The floor plan is waiting for your check. Confirm it in Floor plan."};
     const steps=[];
     if(!f.drafted)steps.push({kind:"describe",text:"Write the description of "+place+" (a writing call)"});
     steps.push({kind:"plan",text:"Draft the floor plan"+(rooms?", with its "+count(rooms,"room","rooms"):"")+" (a writing call)"});
@@ -1568,13 +1568,13 @@ function locationPreparePlan(f){
   // drafts that already wait: the user's turn, nothing for the run (the place's own, and each room's)
   const waiting=!f.hasImage&&!!f.hasDraft;
   const waitingList=(waiting?[{id:f.id,name:place}]:[]).concat((f.roomDrafts||[]).filter(Boolean).map(r=>({id:r.id,name:String(r.name||"Room")})));
-  const waitingText=!waitingList.length?"":waitingList.length===1&&waiting?"A draft of the image is waiting in 4 \u00b7 Previs. Use it as the location image, or delete it."
-    :"Drafts are waiting in 4 \u00b7 Previs: "+names(waitingList)+". Use each as its image, or delete it.";
+  const waitingText=!waitingList.length?"":waitingList.length===1&&waiting?"A draft of the image is waiting in Previs. Use it as the location image, or delete it."
+    :"Drafts are waiting in Previs: "+names(waitingList)+". Use each as its image, or delete it.";
   /* A PLACE THAT IS NOT DRAWN ON ITS OWN FLOOR PLAN (2026-11-21: a house whose plan holds only its rooms). It has no
      outline to stand four cameras in, so no image of it can be drafted, and its rooms wait for that image: the run
      had nothing to do and said nothing ("done", the button gone). It now says what is missing and where to add it. */
   const offPlan=!f.hasImage&&!f.hasDraft&&f.onPlan===false&&f.imageKnown!==false;
-  const offPlanText=offPlan?place+" itself is not drawn on its floor plan, only its rooms are, so no image of it can be made yet. Add its own outline in 2 \u00b7 Floor plan.":"";
+  const offPlanText=offPlan?place+" itself is not drawn on its floor plan, only its rooms are, so no image of it can be made yet. Add its own outline in Floor plan.":"";
   if(!steps.length)return offPlan?{stage:"blocked",steps:[],writing:0,image:0,total:0,text:offPlanText}
     :{stage:"done",steps:[],writing:0,image:0,total:0,waitingDraft:waiting,waiting:waitingList,text:waitingText};
   const writing=steps.filter(s=>s.kind==="dress").reduce((n,s)=>n+s.credits,0),image=steps.filter(s=>s.kind==="image").reduce((n,s)=>n+s.credits,0);

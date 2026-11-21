@@ -286,7 +286,7 @@ assert.ok(flat(tree).some((n) => n.type === "select" && n.props.className === "p
 locations.splice(locations.indexOf(nook), 1);
 // the room's card says where to fix an unknown facing, and that an outdoor part's cameras stand on it
 hooks = []; t = text(render({ ...props, l: sub, plateMeta: null }));
-assert.match(t, /Fondamenta's image was made before its cameras were recorded, so its panels' facings are unknown — set them \(free\) or read them from the image under The four cameras, in 3 · Cameras on Fondamenta's card\./);
+assert.match(t, /Fondamenta's image was made before its cameras were recorded, so its panels' facings are unknown — set them \(free\) or read them from the image under The four cameras, in Cameras on Fondamenta's card\./);
 assert.match(t, /Each panel of Fondamenta DEI Vetrai's image is a camera standing on Fondamenta DEI Vetrai, part of Fondamenta, at eye level/);
 assert.match(t, /Camera standing on Fondamenta DEI Vetrai, part of Fondamenta, at x -7\.2 m, y -2\.7 m, 1\.6 m up, facing east \(90°\)/);
 assert.match(t, /one panel cut out of Fondamenta's image, never its whole sheet \(on some engines each reference adds a little to the price\)/);

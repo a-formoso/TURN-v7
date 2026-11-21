@@ -19,7 +19,9 @@ t("the switch is gone from the code (nothing reads it)", ()=>{
 t("every card has its prompt as a folded section", ()=>{
   assert.ok(art.includes('React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},'));
   assert.ok(props.includes('React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},'));
-  assert.ok(locs.includes('React.createElement(CardFold,{label:sectionNo.prompt+" \\u00b7 Generation Prompt",defaultOpen:false},') /* numbered since 2026-11-13 */);
+  // (2026-11-21, five sections with no numbers) on a location card it is the last part of Advanced, named as on the other cards
+  assert.ok(locs.includes('React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},'));
+  assert.ok(locs.indexOf('React.createElement(CardFold,{label:"Generation prompt",defaultOpen:false},')>locs.indexOf('React.createElement(CardGroup,{label:"Advanced",foldIds:["loc-image-"+l.id]},'));
   assert.ok(look.includes('React.createElement(CardFold,{label:"Preview prompt",defaultOpen:false},'));
   assert.ok(crowds.includes('React.createElement(CardFold,{label:"Image prompt",defaultOpen:false},'));
   assert.ok(shots.includes('_el(CardFold,{label:"Shot prompt",defaultOpen:false},'));

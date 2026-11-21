@@ -12592,3 +12592,8 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
   .loc-prepare-work,.loc-viewer-pic,.loc-viewer-empty{animation:none}
   .loc-work-bar.unknown > span{animation:none;width:100%;opacity:.45}
 }
+/* THE LOCATION CARD'S FIVE SECTIONS READ AS PEERS (owner 2026-11-21, "build the 5 sections, no numbers"): a section's
+   heading looks the same whether it holds parts (The set in 3D, Advanced) or not; the parts inside keep the small one */
+[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-head{min-height:46px;box-sizing:border-box}
+[data-location-card] > .sheet-body > .sheet-fold > .sheet-fold-head > .sheet-sec{font-family:var(--f-ui);font-size:13px;line-height:16px;
+  font-weight:600;letter-spacing:0;text-transform:none;color:var(--txt-0)}

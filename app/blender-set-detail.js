@@ -130,7 +130,7 @@
       if(!saved&&Object.values(source.cameras).some(p=>{
         const dx=p.position[0]-base.position[0],dy=p.position[1]-base.position[1],a=base.rotation[2];
         return Math.abs(dx*Math.cos(a)+dy*Math.sin(a))<base.size[0]/2&&Math.abs(-dx*Math.sin(a)+dy*Math.cos(a))<base.size[1]/2&&Math.abs(p.position[2]-base.position[2])<base.size[2]/2;
-      }))throw Error("A saved camera stands inside a repeated bus bench. Adjust that camera in step 3 before building.");
+      }))throw Error("A saved camera stands inside a repeated bus bench. Adjust that camera in Cameras before building.");
       bench(base);
     }
     const roomPrefix=(space.name||"Space")+" ",ceiling=space.floorZ+space.ceilingH;

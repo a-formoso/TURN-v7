@@ -458,7 +458,7 @@ assert.match(read("app/ai.jsx"), /SAME PLACE, TWO NAMES: when a scene's card slu
     useImageGen: () => ({ genUrl: "", genMeta: null, gening: false, generate: noop, slotHasRef: false }),
     PagerBar: "PagerBar", NbKeyBar: "NbKeyBar", NbControls: "NbControls", BatchBar: "BatchBar", ImageLightbox: "ImageLightbox", InfoTip: "InfoTip",
     RecentlyDeleted: "RecentlyDeleted", RenderStylePicker: "RenderStylePicker", EditText: "EditText", SheetField: "SheetField", SheetFrame: "SheetFrame",
-    CardFold: "CardFold", CopyBox: "CopyBox", SceneChipPager: "SceneChipPager", renderStyleText: () => "Photoreal",
+    CardFold: "CardFold", CardGroup: "CardGroup" /* The set in 3D and Advanced are groups of parts (2026-11-21) */, CopyBox: "CopyBox", SceneChipPager: "SceneChipPager", renderStyleText: () => "Photoreal",
     scenesInStoryOrder: (x) => (x || []).slice().sort((a, b) => (a.no || 0) - (b.no || 0)), searchWordMatch: (t, q) => !q || String(t).toLowerCase().includes(q) };
   cb.window = cb; vm.createContext(cb);
   vm.runInContext(read("app/locations.jsx"), cb); vm.runInContext(read("app/locations-ui.jsx"), cb);

@@ -8,7 +8,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
   const [viewLabel,setViewLabel]=React.useState(null);
   const base=React.useRef(null),dialog=React.useRef(null),candidate=React.useRef(null),thumbs=React.useRef({}),viewer=React.useRef(null),lastRendered=React.useRef("");
   /* THE SET AS IT IS DRESSED (owner 2026-11-16: "the camera tool shows the set as dressed"): the views are drawn as
-     4 \u00b7 Previs draws them (lit, with the dressing of every card of the place), so a camera is aimed at the real thing.
+     Previs draws them (lit, with the dressing of every card of the place), so a camera is aimed at the real thing.
      The plain preview stays underneath: it names what is clicked, and it is what is shown if the lit view cannot
      start (or in the compatibility preview). */
   const lit=React.useRef(null),[dressedView,setDressedView]=React.useState(null);
@@ -108,7 +108,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
         coverageViews=coverageViews.map(v=>v.panel===destination?{...v,staging:{...v.staging,cameraSig:sig}}:v);
       }
       onUpdate(location.id,{coverageViews},{kind:"angle-assigned"});setOpen(false);
-      setNotice(labels[destination]+" now uses this camera angle. 4 \u00b7 Previs redraws the set from it.");
+      setNotice(labels[destination]+" now uses this camera angle. Previs redraws the set from it.");
     }catch(e){setError(e.message);}
   }
   function chooseStart(value){
@@ -138,12 +138,12 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
   const copying=destination!==editing;
   return <div className={"loc-angle-entry"+(inline?" loc-angle-entry-inline":"")}>
     <span className="loc-camera-control"><button type="button" className="art-draftall ghost" data-testid="camera-workbench-open" onClick={()=>begin()}>{label||"Preview & choose camera angles"}</button>
-      {window.InfoTip&&<window.InfoTip label="About camera previews" text="Free and live: move a camera and see the set as 4 · Previs draws it, lit and with its dressing on. The set itself is never changed. A camera changes only when you save it; 4 · Previs then redraws from it."/>}</span>
+      {window.InfoTip&&<window.InfoTip label="About camera previews" text="Free and live: move a camera and see the set as Previs draws it, lit and with its dressing on. The set itself is never changed. A camera changes only when you save it; Previs then redraws from it."/>}</span>
     {!open&&error&&<p role="alert" className="loc-spatial-error">{error}</p>}
     {!open&&notice&&<p role="status" className="loc-layer-note">{notice}</p>}
     {open&&spec&&pose&&<dialog ref={dialog} className="loc-angle-dialog" onCancel={()=>setOpen(false)} aria-label="Preview and choose a camera angle">
       <div className="loc-cloud-render-head"><h3>Edit {labels[editing].toLowerCase()} camera</h3><button type="button" className="art-draftall ghost" onClick={()=>setOpen(false)}>Close preview</button></div>
-      <p className="loc-layer-note">{l.name||"This location"} · choose a camera, adjust its view, then save. These previews are free; changes stay unsaved until you save the camera.{dressedView&&<span data-testid="camera-workbench-dressed">{dressedView.dressed?" Shown as 4 · Previs draws it: lit and dressed ("+dressedView.parts+" shapes).":" Shown as 4 · Previs draws it: lit, in plain blocks until the set is dressed."}</span>}</p>
+      <p className="loc-layer-note">{l.name||"This location"} · choose a camera, adjust its view, then save. These previews are free; changes stay unsaved until you save the camera.{dressedView&&<span data-testid="camera-workbench-dressed">{dressedView.dressed?" Shown as Previs draws it: lit and dressed ("+dressedView.parts+" shapes).":" Shown as Previs draws it: lit, in plain blocks until the set is dressed."}</span>}</p>
       <div className="loc-angle-compare">
         <figure><figcaption><strong>{labels[editing]} · {unchanged?"saved view":"unsaved preview"}</strong><span>{viewLabel?.key===window.KinolotRenderContract.canonical(pose)?viewLabel.text:"Updating view…"} · {pose.lensMm} mm lens{start.startsWith("extra:")?" · using "+name:""}</span></figcaption><canvas ref={candidate} width={640} height={360} tabIndex={0} role="button" aria-label="Identify an object in the candidate preview; press Enter to inspect the centre" onClick={e=>identify(e)} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();identify(null);}}}/></figure>
         <div className="loc-angle-destinations"><p><strong>Choose a camera to edit</strong><span>The highlighted camera matches the large preview.</span></p><div className="loc-angle-panels" role="group" aria-label="Camera to edit">
@@ -244,7 +244,7 @@ function LocationSuggestedCameraPreviews({l,proposal,locations,previewRequest=nu
     return ()=>{live=false;rendered.current=null;instance?.dispose();};
   },[l,proposal,locations,attempt]);
   return <section className="loc-suggested-camera-previews" aria-label="Suggested camera views">
-    <p className="loc-layer-note">Proposed 3D views · review before saving {window.InfoTip&&<window.InfoTip label="About proposed views" text="These free views use saved set geometry with simplified materials and lighting. Check framing and obstructions before choosing Use these cameras. 4 · Previs shows the set lit and dressed from them."/>}</p>
+    <p className="loc-layer-note">Proposed 3D views · review before saving {window.InfoTip&&<window.InfoTip label="About proposed views" text="These free views use saved set geometry with simplified materials and lighting. Check framing and obstructions before choosing Use these cameras. Previs shows the set lit and dressed from them."/>}</p>
     <div className="loc-angle-panels">
       {proposal.panels.map(panel=><figure key={panel.key} className="loc-angle-panel" style={{margin:0}}>
         <figcaption>{labels[panel.key]} · {panel.label}</figcaption>

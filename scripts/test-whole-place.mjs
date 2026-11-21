@@ -154,7 +154,7 @@ await test("4 on the card: the floor plan names the rooms outside it, with Add a
       'const result=await aiPlaceLocationRoom(card,scenes,project,distinctFrom?{distinctFrom}:undefined);','if(result.sameAs){setSameRoom({id:room.id,name:room.name,twin:result.sameAs});return;}',
       'draftBasis.current={original,notes,epoch};setCandidate(result.plan);','"data-testid":"floor-plan-room-added"',
       'onMergeRooms:typeof onMergeLocations==="function"?(a,b)=>onMergeLocations(a,b,{}):undefined}),',
-      'function LocationSubspaceList({rooms,units,onSelectLocation,outside,onAddToPlan,blocks}){','"data-testid":"subspace-outside"','"Add it in 2 \\u00b7 Floor plan"'])
+      'function LocationSubspaceList({rooms,units,onSelectLocation,outside,onAddToPlan,blocks}){','"data-testid":"subspace-outside"','"Add it in Floor plan"'])
     assert.ok(ui.includes(t),t);
   // adding a room never saves by itself: it becomes the draft that Confirm floor plan saves
   const add=ui.slice(ui.indexOf("const addRoom=async(room,distinctFrom)=>{"),ui.indexOf("const revealGroup=selector=>{"));
@@ -192,7 +192,7 @@ await test("5 cameras for the whole place: every room with none gets four clear 
   assert.equal(JSON.stringify(b.turnContinuity),before,"proposing saves nothing");
   assert.equal(rows.map(r=>r.id).join(),"flat,bed,attic");
   assert.ok(rows[0].views&&rows[1].views&&rows[2].outside===true);
-  assert.equal(api.placeCamerasText(rows),"Cameras set, free: Flat (4 views), Bedroom (4 views). See them in 4 \u00b7 Previs; change any in 3 \u00b7 Cameras. Not on the floor plan yet: Attic.");
+  assert.equal(api.placeCamerasText(rows),"Cameras set, free: Flat (4 views), Bedroom (4 views). See them in Previs; change any in Cameras. Not on the floor plan yet: Attic.");
   // saved as the card saves them: each card's four cameras stand clear in its own room, all in the one set
   const saved=[{...place,coverageViews:rows[0].views},{...bedroom,coverageViews:rows[1].views},attic];b.turnContinuity={locations:saved};
   for(const m of saved.slice(0,2)){
@@ -228,7 +228,7 @@ await test("6 on the card: confirming the floor plan sets the place's cameras; P
       'if(measured&&!issues.length){finishEditing(planOwner.id,shown.epoch);fitPlaceCameras(planOwner.id,list,locationSpatialPlanSig(reviewed),shown.epoch);}','"data-testid":"floor-plan-cameras-set"'])
     assert.ok(ui.includes(t),t);
   for(const t of ['api.camerasMissingForPlace(l)','"data-testid":"previs-set-all-cameras"','"Set cameras for every room (free)"','"No usable cameras yet: "','rows=await api.proposeCamerasForPlace(now,all);',
-      '"data-testid":"previs-rooms-outside"','"Add it in 2 \\u00b7 Floor plan"','error:"its cameras changed meanwhile"'])
+      '"data-testid":"previs-rooms-outside"','"Add it in Floor plan"','error:"its cameras changed meanwhile"'])
     assert.ok(step.includes(t),t);
 });
 
@@ -244,7 +244,7 @@ await test("7 the camera tool draws the set as Previs does, lit and dressed; Pre
       'if(!softwareOnly&&P&&typeof P.viewer==="function"&&typeof P.scene==="function")try{','if(lit.current)try{lit.current.render(canvas,camera,width,height);return;}catch(_){',
       'instance.render(canvas,camera,width,height);','paint(instance,thumbs.current[panel],spec.cameras[panel],320,180);','paint(viewer.current,candidate.current,pose);',
       'if(lighted){if(lit.current===lighted)lit.current=null;lighted.dispose();}','data-testid="camera-workbench-dressed"','{label||"Preview & choose camera angles"}',
-      'see the set as 4 \u00b7 Previs draws it, lit and with its dressing on'])assert.ok(tool.includes(t),t);
+      'see the set as Previs draws it, lit and with its dressing on'])assert.ok(tool.includes(t),t);
   // saving still goes through the tool's own guard (the film, the floor plan and the cameras unchanged)
   assert.ok(tool.includes("window.KinolotRenderContract.canonical(api.buildScene(location))!==base.current.key"));
   // Previs: beside the four views, for the place and for a room shown in its place
@@ -306,14 +306,14 @@ await test("9 a room's card points to its place at Floor plan, Cameras and Previ
   assert.equal(box.LocationPartOfPlace({l:house,place:house,step:2,onSelectLocation:go}),null);
   const two=box.LocationPartOfPlace({l:hall,place:house,step:2,onSelectLocation:go});
   assert.ok(text(two).startsWith("This room is part of Ellis House\u2019s set. One floor plan holds the whole place and every room in it"));
-  assert.ok(text(box.LocationPartOfPlace({l:hall,place:house,step:3,onSelectLocation:go})).includes("4 \u00b7 Previs sets the cameras of every room in one press"));
+  assert.ok(text(box.LocationPartOfPlace({l:hall,place:house,step:3,onSelectLocation:go})).includes("Previs sets the cameras of every room in one press"));
   assert.ok(text(box.LocationPartOfPlace({l:hall,place:house,step:4,onSelectLocation:go})).startsWith("This room is drawn inside Ellis House\u2019s set."));
   for(const step of [2,3,4]){const node=box.LocationPartOfPlace({l:hall,place:house,step,onSelectLocation:go});assert.equal(text(node.children[1]),"Open Ellis House");node.children[1].props.onClick();}
   assert.deepEqual(opened,[["card","house","layout"],["card","house",""],["step","house",3],["card","house","previs"]]);
   for(const t of ["React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:2,onSelectLocation,inside:asSection}),","React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:3,onSelectLocation,inside:asSection}),","React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:4,onSelectLocation,inside:asSection}),"])assert.ok(ui.includes(t),t);
   // ONE CARD (owner 2026-11-21): a room shown inside its place's card points to the place's own sections, by name
   const inTwo=box.LocationPartOfPlace({l:hall,place:house,step:2,onSelectLocation:go,inside:true});
-  assert.equal(text(inTwo.children[0]),"This room is part of Ellis House\u2019s set. One floor plan holds the whole place and every room in it; it is in 2 \u00b7 Floor plan of Ellis House, above.");
+  assert.equal(text(inTwo.children[0]),"This room is part of Ellis House\u2019s set. One floor plan holds the whole place and every room in it; it is in Floor plan of Ellis House, above.");
   assert.deepEqual([2,3,4].map(step=>text(box.LocationPartOfPlace({l:hall,place:house,step,onSelectLocation:go,inside:true}).children[1])),
     ["Go to Ellis House\u2019s floor plan","Go to Ellis House\u2019s cameras","Go to Ellis House\u2019s Previs"]);
   // ...and the one floor plan is edited once, on the place: a room inside the card has no editor of its own
@@ -347,7 +347,7 @@ await test("10 Frances knows the whole-place road; the changed files have new ca
       "'Same room: merge the two cards'","'A different room: add it anyway' places it as a room of its own","CAMERAS FOR THE WHOLE PLACE, FREE","'Set cameras for every room (free)'","'Move a camera' opens the camera tool","lit and with the dressing of every card of the place on",
       "'Dress the whole place' (or 'Dress the rest of the place' when some spaces are dressed)","you are asked before anything is sent","'Stop after this space'","'Open [place]'"])assert.ok(entry.includes(t),t);
   for(const f of ["ai.jsx","script.jsx","locations.jsx","locations-ui.jsx","blender-render.js","set-previs.js","set-previs-ui.jsx","camera-angle-preview-ui.jsx","styles.css"])
-    assert.ok(["20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f);
+    assert.ok(["20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1", "20261121-back2", "20261121-five1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f);
 });
 
 console.log("\n"+passed+" passed, "+failed+" failed");

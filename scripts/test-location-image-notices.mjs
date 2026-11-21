@@ -24,7 +24,9 @@ const reasons=l=>{live(l);return J(b.locationPlateChangeReasons(meta,l));};
 ok(notice(base)===null,'A current image has no freshness notice');
 ok(Object.values(reasons(base)).every(x=>!x),'Current inputs have no change reason');
 const described={...base,architecture:'Same room, blue paint'};let tree=notice(described);
-ok(text(tree).includes('1 · Description or look changed')&&!text(tree).includes('2 ·'),'Description-only edits name section 1 without blaming the floor plan');
+// (2026-11-21, no numbers on the card's sections) a notice names what changed, with no section number
+ok(text(tree).includes('Description or look changed')&&!text(tree).includes('Floor plan changed')&&!/\d ·/.test(text(tree)),'Description-only edits name the description without blaming the floor plan');
+ok(flat(tree).find(n=>n.type==='button').props.title==='The description or render style differs from this image. Review The place before regenerating.','Its tooltip names the section by its name');
 flat(tree).find(n=>n.type==='button').props.onClick();ok(routes.at(-1).step===1,'Description notice opens Describe');
 const moved={...base,spatialPlan:{...base.spatialPlan,anchors:base.spatialPlan.anchors.map(a=>({...a,placement:'Front wall',xy:[0,-3]}))}};
 ok(reasons(moved).floorPlan&&!reasons(moved).cameras,'Object movement is attributed to Floor plan only');tree=notice(moved);
@@ -42,7 +44,7 @@ ok(!reasons(reviewed).floorPlan&&!reasons(reviewed).cameras,'Approval and source
 const nudge={...base,coverageViews:b.locationCoverageViewsWithPose(base,'TR',{...base.coverageViews[1].pose,yaw:90.1})};
 ok(!reasons(nudge).cameras,'The existing half-degree camera tolerance is preserved');
 const older={...meta};delete older.platePanels;tree=notice(moved,older);
-ok(text(tree).includes('cannot be identified precisely')&&text(tree).includes('2 · Review floor plan')&&text(tree).includes('3 · Review cameras'),'Older ambiguous records are labelled honestly with both review routes');
+ok(text(tree).includes('cannot be identified precisely')&&text(tree).includes('Review floor plan')&&text(tree).includes('Review cameras')&&!/\d ·/.test(text(tree)),'Older ambiguous records are labelled honestly with both review routes');
 ok(!text(tree).includes('Floor plan changed')&&!text(tree).includes('Cameras changed'),'An older combined fingerprint is not assigned a guessed cause');
 ok(notice(moved,{iso:'old'})===null,'Images predating fingerprints do not acquire invented change reasons');
 ok(b.LocationImageChangeContent({l:moved,meta,hasImage:false})===null,'A location with no image shows no image freshness notices');

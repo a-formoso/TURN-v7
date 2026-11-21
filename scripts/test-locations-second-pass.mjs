@@ -249,7 +249,11 @@ await test("F2 Storyboards show the plates the frames attached; Clear counts wha
   assert.ok(rm.includes("await nbLoadImage(assetId)") && rm.includes("if(sharesUnit) has = false;"));
 });
 await test("F3 copy: the About tip and button titles say what spends; no vendor names", ()=>{
-  assert.ok(ui.includes("Then come the floor plan (review and confirm it)") && ui.includes("Images spend image credits; drafting specs, floor plans and dressing spend writing credits"));   // (2026-11-17) Surprise me is no longer offered   // (2026-11-17) "plates" until then
+  // (2026-11-21, five sections with no numbers) the tip names the card's sections as they are now
+  assert.ok(ui.includes("Each card has five sections, in the order you work, with a tracker of its four steps at the top, and the picture at the top can show the image, the set in 3D or the floor plan."));
+  assert.ok(ui.includes("Advanced, closed until you open it, holds Look & exclusions, Quick image & image check (the quick image is made from the description alone, without the 3D set) and Generation prompt."));
+  assert.ok(ui.includes("On a place that has rooms, Rooms holds them: each opens there, inside the place's card, with its own image, cameras, Previs and variants."));
+  assert.ok(ui.includes("Floor plan is where you review and confirm the plan.") && ui.includes("Images spend image credits; drafting specs, floor plans and dressing spend writing credits"));   // (2026-11-17) Surprise me is no longer offered   // (2026-11-17) "plates" until then
   assert.ok(!ui.includes("Render style details"));
   assert.ok(!/Nano Banana|image-proxy/.test(ui) && !/"Nano Banana"/.test(locs));
   assert.ok(art.includes("Fills the text spec from the script first (writing credits), then generates the sheet in one step (image credits)"));

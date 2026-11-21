@@ -191,17 +191,17 @@ commitField(metrics(),"Ceiling height","2.4");commitField(flowEditor(),"Object d
 tree=flowEditor();assert.ok(button(tree,"Confirm floor plan"),"Editing leaves a visible confirmation action");button(tree,"Confirm floor plan").props.onClick();
 assert.equal(flow.spatialPlan.status,"reviewed");
 assert.equal(box.KinolotCloudRender.inputIssueList(flow).filter(i=>i.step===2).length,0,"The saved plan now passes the actual measurement validator");
-tree=flowEditor();assert.ok(button(tree,"Continue to 3 · Cameras"),"A measured, confirmed plan leads directly to cameras");
-assert.ok(flat(cls(tree,"loc-spatial-review")).includes(button(tree,"Continue to 3 · Cameras")),"Cameras is the top-level next action, not buried inside the editor");
-assert.equal(flat(cls(tree,"loc-plan-editor")).includes(button(tree,"Continue to 3 · Cameras")),false);
+tree=flowEditor();assert.ok(button(tree,"Continue to Cameras"),"A measured, confirmed plan leads directly to cameras");
+assert.ok(flat(cls(tree,"loc-spatial-review")).includes(button(tree,"Continue to Cameras")),"Cameras is the top-level next action, not buried inside the editor");
+assert.equal(flat(cls(tree,"loc-plan-editor")).includes(button(tree,"Continue to Cameras")),false);
 assert.equal(button(tree,"Back to 5 · Build the set"),undefined,"Step 2 does not skip over camera review");
 assert.equal(flowSteps().find(s=>s.n===2).done,true);assert.equal(flowSteps().find(s=>s.n===3).done,false);
 const proposal=box.KinolotCloudRender.proposeCameras(flow);flowUpdate(flow.id,{coverageViews:box.KinolotCloudRender.cameraProposalViews(flow,proposal)});
-// 4 · Previs is optional, so the next step is 5 · Location image (2026-11-15: one road, the cloud build's steps are gone),
+// Previs is optional, so the next step is 5 · Location image (2026-11-15: one road, the cloud build's steps are gone),
 // and its Go button opens Previs, where the image is made from the set
 assert.equal(flowSteps().find(s=>s.n===3).done,true);assert.equal(flowSteps().find(s=>s.n===4).optional,true);
 const imageStep=flowSteps().find(s=>s.n===5);
-assert.equal(imageStep.key,"image");assert.equal(imageStep.next,true);assert.equal(imageStep.goTo,4);assert.match(imageStep.todo,/Open 4 · Previs, choose Make the location image, then Use as location image on the draft/);
+assert.equal(imageStep.key,"image");assert.equal(imageStep.next,true);assert.equal(imageStep.goTo,4);assert.match(imageStep.todo,/Open Previs, choose Make the location image, then Use as location image on the draft/);
 assert.equal(flowSteps().length,5);
 const scene=box.KinolotCloudRender.buildScene(flow);box.KinolotRenderContract.validateScene(scene);
 assert.equal(Object.keys(scene.cameras).length,4);assert.ok(scene.objects.some(o=>o.anchorId==="seat"),"The saved fixture reaches the 3D set with its existing object");
@@ -213,7 +213,7 @@ button(readonlyOutline,"Create rectangular outline").props.onClick();assert.equa
 reset();timers=[];tree=flowEditor();button(tree,"Floor plan confirmed").props.onClick();tree=flowEditor();
 assert.equal(cls(tree,"loc-plan-editor").props.hidden,false,"The checked status remains an edit action");
 assert.match(button(tree,"Floor plan confirmed").props.className,/ghost/,"The confirmed status is secondary");
-assert.doesNotMatch(button(tree,"Continue to 3 · Cameras").props.className,/ghost/,"Cameras is the primary next action");
+assert.doesNotMatch(button(tree,"Continue to Cameras").props.className,/ghost/,"Cameras is the primary next action");
 const unchangedPlan=JSON.stringify(flow);button(tree,"Done editing").props.onClick();tree=flowEditor();
 assert.equal(JSON.stringify(flow),unchangedPlan,"Done editing closes without writing another approval");assert.equal(cls(tree,"loc-plan-editor").props.hidden,true);
 button(tree,"Floor plan confirmed").props.onClick();tree=flowEditor();commitField(tree,"Object dimensions","0.5, 0.8, 0.9");tree=flowEditor();
@@ -229,7 +229,7 @@ assert.match(text(cls(tree,"loc-confirm-result")),/Ready for cameras/);
 assert.match(text(cls(tree,"loc-confirm-status")),/Confirmed · ready for cameras/,"The edit area reflects the saved confirmation state");
 assert.equal(cls(tree,"loc-plan-editor").props.hidden,true);assert.ok(openGroups.every(g=>!g.open),"All editor subsections fold after success");
 timers.splice(0).forEach(fn=>fn());assert.equal(returnedTop,1);assert.equal(returnedFocus,1,"The user lands at the confirmed floor-plan controls");
-button(tree,"Continue to 3 · Cameras").props.onClick();assert.equal(navigation.at(-1).detail,"loc-step3-"+flow.id,"Continue opens the current location's Cameras section");
+button(tree,"Continue to Cameras").props.onClick();assert.equal(navigation.at(-1).detail,"loc-step3-"+flow.id,"Continue opens the current location's Cameras section");
 commitField(flowEditor(),"Object dimensions","0.5, 0.8, 1");tree=flowEditor();
 assert.match(text(cls(tree,"loc-confirm-status")),/Unconfirmed edits/);assert.equal(cls(tree,"loc-confirm-result"),undefined,"A later edit clears the old successful confirmation");
 button(tree,"Confirm floor plan").props.onClick();tree=flowEditor();
@@ -246,7 +246,7 @@ const repairMetric={open:false,scrollIntoView:noop,querySelector:()=>({focus:noo
 flat(tree).find(n=>n.type==="fieldset").props.ref.current={querySelector:selector=>selector===".loc-plan-metrics"?repairMetric:null};
 button(tree,"Edit measurements manually").props.onClick();assert.equal(repairMetric.open,true,"The repair action opens the actual measurement fields");
 
-assert.equal(button(tree,"Continue to 3 · Cameras"),undefined,"Approval must not hide an invalid measurement");
+assert.equal(button(tree,"Continue to Cameras"),undefined,"Approval must not hide an invalid measurement");
 // A repair preview must show real before/after values, write nothing, and apply only on explicit confirmation.
 const savedBeforeRepair=JSON.stringify(flow);button(tree,"Suggest measurement fixes").props.onClick();tree=flowEditor();
 assert.equal(JSON.stringify(flow),savedBeforeRepair,"Opening a repair preview does not save changes");

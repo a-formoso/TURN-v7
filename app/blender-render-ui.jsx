@@ -66,7 +66,7 @@ function goToLocationStep(location,step){
   if(id)window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:id}));
   if(step===2)window.dispatchEvent(new CustomEvent("kinolot-edit-floor-plan",{detail:{locationId:location.id}}));
 }
-const LOCATION_STEP_NAMES={1:"The Space",2:"Floor plan",3:"Cameras",4:"Previs",5:"Location image"};
+const LOCATION_STEP_NAMES={1:"The place",2:"Floor plan",3:"Cameras",4:"Previs",5:"Quick image & image check"};
 // What stops the build, each with the step that fixes it.
 function cloudFixList(location,issues){
   const E=React.createElement;
@@ -75,7 +75,7 @@ function cloudFixList(location,issues){
     E("ul",null,issues.slice(0,6).map((issue,i)=>E("li",{key:i},
       E("span",null,issue.text),
       E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,issue.step)},
-        "Go to "+issue.step+" · "+LOCATION_STEP_NAMES[issue.step])))),
+        "Go to "+LOCATION_STEP_NAMES[issue.step])))),
     issues.length>6&&E("p",{className:"loc-layer-note"},"…and "+(issues.length-6)+" more."));
 }
 /* THE CAMERA CHECK (2026-11-11, owner: a useful first result — no paid build with a blocked view). Before a build,
@@ -122,7 +122,7 @@ function LocationCloudRender({location,readOnly=false,onUpdate}){
       const views=api.cameraProposalViews(still,proposal,latest);
       buildAfterFix.current=!!thenBuild;
       onUpdate(location.id,{coverageViews:views},{kind:"suggested-cameras"});
-      setFixNote("Cameras updated: "+proposal.panels.filter(p=>!keep.includes(p.key)).map(p=>CAMERA_PANEL_NAMES[p.key]+" is now \u201c"+p.label+"\u201d").join("; ")+". You can review them in step 3.");
+      setFixNote("Cameras updated: "+proposal.panels.filter(p=>!keep.includes(p.key)).map(p=>CAMERA_PANEL_NAMES[p.key]+" is now \u201c"+p.label+"\u201d").join("; ")+". You can review them in Cameras.");
     }catch(e){buildAfterFix.current=false;if(current.current.scopeKey===key)c.setMessage(e.message);}
     finally{if(current.current.scopeKey===key)setFixing(false);}
   }
@@ -169,8 +169,8 @@ function LocationCloudRender({location,readOnly=false,onUpdate}){
     title:"≈ "+credits+" generation credits a build — held when it's queued, charged when the four views arrive, given back if it fails or you cancel"},typeof window.nbCreditMark==="function"?window.nbCreditMark():null,String(credits));
   return E("section",{className:"loc-cloud-render","data-testid":"location-cloud-render"},
     E("p",{className:"loc-layer-note"},paid
-      ?"The same set as 4 · Previs, from the same floor plan and cameras, built and rendered by Blender in the cloud: finer light and shadow on plain shapes, without the Previs dressing. It takes a few minutes. 6 · Style it then repaints these four views. Separate from the location image."
-      :"The same set as 4 · Previs, from the same floor plan and cameras, built and rendered by Blender in the cloud. Free during the pilot; separate from the location image."),
+      ?"The same set as Previs, from the same floor plan and cameras, built and rendered by Blender in the cloud: finer light and shadow on plain shapes, without the Previs dressing. It takes a few minutes. 6 · Style it then repaints these four views. Separate from the location image."
+      :"The same set as Previs, from the same floor plan and cameras, built and rendered by Blender in the cloud. Free during the pilot; separate from the location image."),
     !canBuild&&E("p",{className:"loc-layer-note","data-testid":"set-build-role"},"The film's owner or its Art director builds the set; you can see what they built."),
     (blockedViews?otherIssues:issues).length>0&&cloudFixList(location,blockedViews?otherIssues:issues),
     // the camera check: which views would come back blocked or empty, and the one-press fix
@@ -183,7 +183,7 @@ function LocationCloudRender({location,readOnly=false,onUpdate}){
           fixing?"Finding clear views\u2026":"Fix cameras and build",!fixing&&chip),
         !readOnly&&onUpdate&&E("button",{type:"button",className:"art-draftall ghost",disabled:fixing||busy,"data-testid":"camera-check-fix",
           title:"Moves only the cameras named above to clear views of this set. Free; nothing is built.",onClick:()=>fixCameras(false)},"Fix cameras only"),
-        E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,3)},"Go to 3 \u00b7 Cameras"),
+        E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>goToLocationStep(location,3)},"Go to Cameras"),
         !readOnly&&!cameraOnly&&E("button",{type:"button",className:"art-draftall ghost",disabled:fixing||busy,"data-testid":"camera-check-anyway",
           title:"Builds with the cameras exactly as they are set",onClick:()=>setAnyway(sceneKey)},"Keep these cameras"))),
     fixNote&&!blockedViews&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-fixed"},fixNote),
