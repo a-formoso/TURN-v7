@@ -122,13 +122,12 @@ await test("5 once the place has its image: a draft for each room that has none,
 
 await test("6 the run on the card: asks first every time, saves each result, and never chooses an image for the user",()=>{
   // on the place's own card: it is the card's Next, under the picture and above the four tabs (picture first, 2026-11-21)
-  assert.ok(sheet.includes("const prepareEl = showPrevis&&React.createElement(LocationPreparePlace,{l,rooms:roomLocations,project,drafted,spatialState,hasImage:!!gen.genUrl,onDraft,onUpdate,readOnly});"));
-  assert.match(sheet,/noticesEl,\s*React\.createElement\("div",\{className:"sheet-body"\},\s*prepareEl,\s*React\.createElement\(LocationTabs,\{l,initial:startTab,tabs:\[/);
-  assert.match(read("app/styles.css"),/\[data-card-layout="picture-first"\] \.loc-prepare::before\{content:"Next";/);
-  assert.match(read("app/styles.css"),/\.loc-prepare\[data-prepare-stage="blocked"\]::before\{content:"Your turn";/);
-  assert.match(prepare,/if\(readOnly\|\|l\.parentLocation\|\|!api\|\|!D\|\|!P\|\|typeof locationPreparePlan!=="function"\)return null;/);
+  assert.ok(sheet.includes("const prepareEl = showPrevis&&React.createElement(LocationPreparePlace,{l,rooms:roomLocations,project,drafted,spatialState,hasImage:!!gen.genUrl,onDraft,onUpdate,readOnly,\n    nextLook:nextLookOf?{id:nextLookOf.id,name:nextLookOf.name,shots:nextLookOf.shots||0}:null,onLook:pickLook});"));
+  assert.match(sheet,/spacesNav\|\|null,\s*prepareEl,\s*React\.createElement\(LocationTabs,\{l,initial:startTab,tabs:\[/);
+  assert.match(read("app/styles.css"),/\.loc-prepare\.loc-next\.yours\{background:color-mix\(in srgb,var\(--pos\) 15%,transparent\)\}/);
+  assert.match(prepare,/if\(readOnly\|\|l\.parentLocation\|\|!api\|\|!D\|\|!P\|\|typeof locationPreparePlan!=="function"\)\{delete _locPrepareActs\[l\.id\];return null;\}/);
   // each half starts only on a yes
-  assert.match(prepare,/const ok=await ask\(\{title:"Prepare "\+name\+"\?",[\s\S]{0,700}?if\(ok\)await runPlan\(plan\.steps\);/);
+  assert.match(prepare,/const ok=await ask\(one\?\{title:"Draft the floor plan of "\+name\+"\?",[\s\S]{0,1100}?if\(ok\)await runPlan\(plan\.steps,!one\);/);
   assert.match(prepare,/items:exact\.steps\.map\(s=>s\.text\),confirmLabel:"Start",cancelLabel:"Not now"\}\);\s*if\(ok\)await runSet\(exact\);/);
   assert.equal((prepare.match(/runPlan\(/g)||[]).length,2,"runPlan: defined once, called once");
   assert.equal((prepare.match(/runSet\(/g)||[]).length,2,"runSet: defined once, called once");
@@ -136,7 +135,9 @@ await test("6 the run on the card: asks first every time, saves each result, and
   // (a draft that was used is that space's image, not one that waits; since 2026-11-21 the place and every room are read)
   assert.match(prepare,/const known=gather\(\),ids=\(known\.hasImage\?\[\]:\[l\.id\]\)\.concat\(\(known\.roomsToDraw\|\|\[\]\)\.map\(r=>r\.id\)\),drafts=\{\};/);
   assert.match(prepare,/const d=await P\.drafts\(id\);drafts\[id\]=!!\(d&&d\.current&&!d\.current\.used\);/);
-  assert.match(prepare,/const exact=\{\.\.\.locationPreparePlan\(gather\(drafts\)\),placeHasImage:!!known\.hasImage\};/);
+  assert.match(prepare,/const whole=\{\.\.\.locationPreparePlan\(gather\(drafts\)\),placeHasImage:!!known\.hasImage\};/);
+  // the next step alone is a part of that same exact plan: the set, else one image (locationPrepareFirst)
+  assert.match(prepare,/const exact=one\?locationPrepareFirst\(whole,l\.id,name\):whole;/);
   // ...and so are the film's images: an image is offered only where one is known to be missing
   assert.match(prepare,/try\{if\(typeof window\.nbPrefetchAll==="function"\)await window\.nbPrefetchAll\(\);\}catch\(_\)\{\}\s*(?:\/\/[^\n]*\n\s*)?const known=gather\(\)/);
   assert.match(prepare,/f\.hasImage=!!hasImage\|\|got\(l\.id\);f\.imageKnown=f\.hasImage\|\|lacksImage\(l\.id\);/);
@@ -149,8 +150,9 @@ await test("6 the run on the card: asks first every time, saves each result, and
   const runs=prepare.slice(prepare.indexOf("async function runPlan("),prepare.indexOf("async function start("));
   assert.ok(runs.length>2000&&!/P\.use\(/.test(runs),"the run never uses a draft: the user does");
   assert.equal((prepare.match(/P\.use\(/g)||[]).length,1);
-  assert.match(prepare,/async function useAll\(\)\{[\s\S]{0,900}?await P\.use\(w\.id,d\.current\.meta\.iso\);done\.push\(w\.name\);/);
-  assert.match(prepare,/"data-testid":"location-prepare-use-all",onClick:useAll,/);
+  assert.match(prepare,/async function useAll\(only\)\{[\s\S]{0,900}?await P\.use\(w\.id,d\.current\.meta\.iso\);done\.push\(w\.name\);/);
+  assert.match(prepare,/"data-testid":"location-prepare-use-all",onClick:\(\)=>useAll\(\),/);
+  assert.match(prepare,/button:"Use it",act:\(\)=>useAll\(\[waitFirst\]\),/);
   assert.ok(!/P\.remove\(|P\.discard\(/.test(prepare),"the run deletes nothing");
   // it stops between two steps, and on a change of film
   assert.match(prepare,/if\(epochNow\(\)!==epoch\|\|!writable\(\)\)throw new Error\("The open film changed\. Nothing more was saved\."\)/);
@@ -196,34 +198,47 @@ await test("7 the top of a card shows the image; the quick image is made in 5 . 
 await test("8 one progress display: the To do list; the folds say facts, not the list's words again",()=>{
   // (2026-11-21, picture first) the tracker's five chips are the To do tab's rows, each with where it stands and one
   // way in; a look with no image yet has its row after them. There is no second "Next ... Go" line saying it again.
-  const guide=part("function LocationTodoList({l,steps,looks,onLook}){","/* SCENES: every scene that plays here");
+  const guide=part("function locationTodoRows({l,steps,looks,spatialState,previs}){","/* THE NEXT STEP ALONE");
   assert.ok(!/loc-steps-next|LocationHelpPopover|Every step is done/.test(guide),"no second row saying what is next");
   assert.ok(!/function LocationStepGuide\(/.test(ui),"the chip tracker is gone: one list");
   assert.match(guide,/E\("ol",\{className:"loc-todo","data-testid":"location-step-guide","aria-label":"Steps for this location"\}/);
-  assert.match(guide,/"aria-current":st\.next\?"step":undefined/);
-  assert.match(guide,/to=st\.key==="image"&&st\.goTo\?st\.goTo:n;/);
+  assert.match(guide,/"aria-current":r\.next\?"step":undefined/);
   {
-    const box=harness();const went=[],looked=[];
+    const box=harness();const went=[],looked=[];box.acted=[];
     box.goToLocationStep=(l,n)=>went.push(n);
-    box.React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!=null&&x!==false)})};
-    vm.runInContext(guide.replace(/\/\*[\s\S]*$/,""),box);
+    box.React={createElement:(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(x=>x!=null&&x!==false)}),useReducer:(f,i)=>[i,()=>{}],useEffect:()=>{}};
+    vm.runInContext(guide,box);
     const flat=n=>n&&typeof n==="object"?[n,...(n.children||[]).flatMap(flat)]:[];
     const text=n=>n==null?"":typeof n==="string"||typeof n==="number"?String(n):(n.children||[]).map(text).join("");
-    const steps=[{n:1,name:"The Space",done:true},{n:2,name:"Floor plan",next:true,todo:"Check the floor plan and confirm it."},{n:3,name:"Cameras",todo:"Complete and confirm the floor plan in step 2 first."},
-      {n:4,key:"previs",name:"Previs",optional:true,todo:"Optional and free."},{n:5,key:"image",name:"Location image",goTo:4,todo:"Open 4 · Previs."}];
-    const tree=box.LocationTodoList({l:{id:"x"},steps,onLook:id=>looked.push(id),
-      looks:[{id:"main",name:"Location",has:false},{id:"u:night",name:"Night",has:false,scenes:"Sc 01, 03"},{id:"u:day",name:"Day",has:true},{id:"u:old",name:"Dusk",has:false,orphan:true}]});
-    const rows=flat(tree).filter(n=>n.type==="li");
-    assert.deepEqual(rows.map(r=>text(r)),["✓The SpaceDoneOpen","2Floor planCheck the floor plan and confirm it.Go","3CamerasLaterOpen","4PrevisOptionalOpen","5Location imageLaterOpen",
-      "·NightNo image yet · Sc 01, 03Open","✓DayHas its imageOpen"],"the five steps, then each look of the screenplay; a look no scene uses any more has no row");
-    assert.deepEqual(rows.map(r=>r.props.className),["loc-todo-row done","loc-todo-row next","loc-todo-row","loc-todo-row","loc-todo-row","loc-todo-row","loc-todo-row done"]);
-    rows.forEach(r=>flat(r).find(n=>n.type==="button").props.onClick());
-    assert.deepEqual(went,[1,2,3,4,4],"the image step opens Previs when the set is ready");assert.deepEqual(looked,["u:night","u:day"]);
+    const steps=[{n:1,done:true},{n:2},{n:3},{n:4},{n:5}];
+    const looks=[{id:"main",name:"Location",has:false,known:true},{id:"u:night",name:"Night",has:false,known:true,shots:8},{id:"u:day",name:"Day",has:false,known:true,shots:12}];
+    const rows=box.locationTodoRows({l:{id:"x"},steps,looks,spatialState:{ready:false,plan:{frame:"",anchors:[]}},previs:true});
+    const list=()=>flat(box.LocationTodoList({l:{id:"x"},rows,onLook:id=>looked.push(id)})).filter(n=>n.type==="li");
+    // a card with no run of its own (a room): the stage to do next opens its section; nothing else has a button
+    assert.deepEqual(list().map(r=>text(r)),["✓DescriptionWritten from the screenplay","2Floor planNot drawn yetOpen","3The set in 3DAfter the floor plan",
+      "4Location imageAfter the set","5NightAfter the location image","6DayAfter the location image"],"the list as the owner's picture shows it");
+    assert.deepEqual(list().map(r=>r.props.className),["loc-todo-row done","loc-todo-row next","loc-todo-row","loc-todo-row","loc-todo-row","loc-todo-row"]);
+    flat(list()[1]).find(n=>n.type==="button").props.onClick();assert.deepEqual(went,[2]);
+    // a place: the row to act on carries the card's Next button, the same action and the same price
+    vm.runInContext('_locPrepareActs.x={kind:"todo",row:"road",button:"Draft it",cost:0,act:()=>acted.push("next"),title:"Asks first."}',box);
+    assert.deepEqual(list().map(r=>flat(r).filter(n=>n.type==="button").map(text).join()),["","Draft it","","","",""],"one button, on the row that can be acted on");
+    flat(list()[1]).find(n=>n.type==="button").props.onClick();assert.deepEqual(Array.from(box.acted),["next"]);
+    // with the location image made, a look that waits can be opened; a draft that waits is said on its row
+    const later=box.locationTodoRows({l:{id:"x"},steps:steps.map(s=>({...s,done:s.n<5})),looks:looks.map(k=>k.id==="main"?{...k,has:false}:k),spatialState:{ready:true,plan:{}},previs:true});
+    vm.runInContext('_locPrepareActs.x={kind:"yours",row:"road",button:"Use it",cost:0,act:()=>acted.push("use"),title:""}',box);
+    const waitingRow=flat(box.LocationTodoList({l:{id:"x"},rows:later,onLook:()=>{}})).filter(n=>n.type==="li")[3];
+    assert.equal(text(waitingRow),"4Location imageA draft waits for youUse it");
+    const made=box.locationTodoRows({l:{id:"x"},steps:steps.map(s=>({...s,done:true})),looks:looks.map(k=>k.id==="main"?{...k,has:true}:k),spatialState:{ready:true,plan:{}},previs:true});
+    vm.runInContext('_locPrepareActs.x={kind:"todo",row:"look:u:night",button:"Open",cost:0,act:()=>acted.push("look"),title:""}',box);
+    const lookRows=flat(box.LocationTodoList({l:{id:"x"},rows:made,onLook:id=>looked.push(id)})).filter(n=>n.type==="li").slice(4);
+    assert.deepEqual(lookRows.map(text),["5Night8 shots waitOpen","6Day12 shots waitOpen"]);
+    lookRows.forEach(r=>flat(r).find(n=>n.type==="button").props.onClick());
+    assert.deepEqual(Array.from(box.acted).slice(-1),["look"]);assert.deepEqual(looked,["u:day"]);
   }
   assert.ok(!/stepCount/.test(sheet),"no fold repeats done / next / optional");
   assert.ok(!/layout needs review|drafts on first render/.test(sheet));
   assert.match(sheet,/count:\(outsideRooms\.length\?outsideRooms\.length\+\(outsideRooms\.length===1\?" room to add":" rooms to add"\):""\)\|\|\(locStaged&&/);
-  assert.match(read("app/styles.css"),/\.loc-todo-row\.next \.loc-todo-go\{background:var\(--accent\);border-color:var\(--accent\);color:var\(--ink-on-accent\)\}/);
+  assert.match(read("app/styles.css"),/\.loc-todo-row\.next \.loc-todo-mark\{border-color:var\(--pos\);color:var\(--pos-ink\)\}/);
 });
 
 await test("9 the Show list: where each place stands, the most used first; the count says what it counts",()=>{
@@ -325,7 +340,7 @@ await test("14 Frances knows, and the changed files have new cache keys",()=>{
   assert.ok(!ai.includes("generated at the top of the card"));
   const html=read("TURN.html");
   for(const f of ["ai.jsx","script.jsx","locations.jsx","locations-ui.jsx","chrome.jsx","artroom.jsx","app.jsx","shots-ui.jsx","breakdown.jsx","agents.jsx","props.jsx","styles.css"])
-    assert.ok(["20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1"].some(k=>html.includes("app/"+f+"?v="+k+"\"")),"cache key of "+f);
+    assert.ok(["20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1", "20261121-cardb2"].some(k=>html.includes("app/"+f+"?v="+k+"\"")),"cache key of "+f);
 });
 
 /* THE RUN ITSELF, on the card's own code, with the writing engine, the camera fit and the image engine as stubs.
@@ -369,7 +384,8 @@ function runner(opts){
   const flat=n=>n&&typeof n==="object"?[n,...(n.children||[]).flatMap(flat)]:[];
   const text=n=>n==null?"":typeof n==="string"||typeof n==="number"?String(n):(n.children||[]).map(text).join("");
   const render=()=>box.LocationPreparePlace(props);
-  const press=async()=>{const tree=render(),b=flat(tree).find(n=>n.props&&n.props["data-testid"]==="location-prepare-go");assert.ok(b,"the button is on the card");await b.props.onClick();};
+  const press=async(which)=>{const tree=render(),by=id=>flat(tree).find(n=>n.props&&n.props["data-testid"]===id);
+    const b=which==="one"?by("location-prepare-one"):(by("location-prepare-go")||by("location-prepare-one"));assert.ok(b,"the button is on the card");await b.props.onClick();};
   const state=()=>copy(vm.runInContext("_locPrepareRuns.house||{}",box));
   return {box,calls,asked,saved,events,props,render,press,state,flat,text,drafts,images};
 }
@@ -380,7 +396,13 @@ await test("15 a run, start to end: asked once with its steps, then cameras, eac
   const before=r.render();
   assert.equal(before.props["data-prepare-stage"],"set");
   assert.equal(r.text(r.flat(before).find(n=>n.props["data-testid"]==="location-prepare-cost")),"44","two dressings at 8 and two images at 14");
-  assert.match(r.text(r.flat(before).find(n=>n.props["data-testid"]==="location-prepare-next")),/^Does what is left, in order: set the cameras of Hallway \(free\); dress Ellis House, Hallway \(about 16 writing credits\); make the first image of Ellis House and of its room \(Hallway\), as drafts \(28 image credits\)\.$/);
+  // NEXT (the card as drawn, owner 2026-11-21): one thing to do, with its own button and price; then Do all N steps
+  const by=(t,id)=>r.flat(t).find(n=>n.props&&n.props["data-testid"]===id);
+  assert.equal(before.props["data-next"],"todo");
+  assert.equal(r.text(by(before,"location-prepare-next")),"Make the set in 3D");
+  assert.equal(r.text(by(before,"location-prepare-one")),"Make16");assert.equal(r.text(by(before,"location-prepare-one-cost")),"16");
+  assert.equal(r.text(by(before,"location-prepare-go")),"Do all 3 steps44","the set, then the image of the place and of its room");
+  assert.match(r.text(before),/Or let it run\. It stops only where you have to look: the floor plan, and each draft\./);
   assert.deepEqual(r.calls,[],"looking costs nothing and reads nothing");
   await r.press();
   // asked once, after reading what is already made, with every step and the total
@@ -396,6 +418,22 @@ await test("15 a run, start to end: asked once with its steps, then cameras, eac
   assert.match(r.state().note,/^Done: cameras set for Hallway; Ellis House dressed \(12 shapes\); Hallway dressed \(12 shapes\); a draft of Ellis House; a draft of Hallway\. Each draft is in 4 · Previs: it becomes the image only when you choose to use it\.$/);
   assert.deepEqual(r.state().drafts,{house:true,hall:true},"the run remembers every draft it made");
   assert.ok(r.events.includes("nb-open-fold"),"Previs opens on the draft");
+  // THE NEXT STEP ALONE: the set (its cameras and its dressing), asked first with its own price; no image is made
+  const one=runner();await one.press("one");
+  assert.equal(one.asked.length,1);assert.equal(one.asked[0].title,"Make the set of Ellis House in 3D?");
+  assert.deepEqual(copy(one.asked[0].items),["Set the cameras of Hallway (free)","Dress Ellis House, Hallway (about 16 writing credits)"]);
+  assert.match(one.asked[0].body,/About 16 credits in all \(the writing part is an estimate/);
+  assert.deepEqual(one.calls,["read the film's images","read drafts house","read drafts hall","fit cameras","dress house","dress hall"]);
+  assert.match(one.state().note,/^Done: cameras set for Hallway; Ellis House dressed \(12 shapes\); Hallway dressed \(12 shapes\)\.$/);
+  // ...then the place's image alone
+  const img=runner({lacking:false,dressed:true});
+  img.box.turnContinuity.locations=img.box.turnContinuity.locations.map(x=>({...x,previs:{v:1}}));img.props.rooms=[{...img.props.rooms[0],previs:{v:1}}];
+  const imgTree=img.render();
+  assert.equal(img.text(img.flat(imgTree).find(n=>n.props["data-testid"]==="location-prepare-next")),"Make the first image");
+  assert.equal(img.text(img.flat(imgTree).find(n=>n.props["data-testid"]==="location-prepare-one")),"Make14");
+  await img.press("one");
+  assert.equal(img.asked[0].title,"Make this image?");assert.deepEqual(copy(img.asked[0].items),["Make the first image of Ellis House, as a draft (14 image credits)"]);
+  assert.deepEqual(img.calls.filter(c=>c.startsWith("image ")),["image house as house"]);
 });
 
 await test("16 no is no; a draft that waits is not made twice; a failure keeps what was saved; a room is drawn from its place's look",async()=>{
@@ -430,7 +468,14 @@ await test("16 no is no; a draft that waits is not made twice; a failure keeps w
   // ...and a room that has its image, or whose draft waits, is left alone: nothing to do, no button
   const all=runner({images:["house","hall"],lacking:false,dressed:true});
   all.box.turnContinuity.locations=all.box.turnContinuity.locations.map(x=>({...x,previs:{v:1}}));all.props.rooms=[{...all.props.rooms[0],previs:{v:1}}];
-  assert.equal(all.render(),null);
+  const idle=all.render();
+  assert.equal(idle.props["data-next"],"done");assert.equal(all.text(all.flat(idle).find(n=>n.props["data-testid"]==="location-prepare-next")),"Nothing is left to make here.");
+  assert.equal(all.flat(idle).filter(n=>n.type==="button").length,0,"nothing to press");
+  // ...and then the card's Next is the next look that can be made: it opens that look
+  const opened=[];all.props.nextLook={id:"u:night",name:"Night",shots:8};all.props.onLook=id=>opened.push(id);
+  const look=all.render();
+  assert.equal(all.text(all.flat(look).find(n=>n.props["data-testid"]==="location-prepare-next")),"Make Night \u00b7 8 shots wait");
+  all.flat(look).find(n=>n.props["data-testid"]==="location-prepare-one").props.onClick();assert.deepEqual(opened,["u:night"]);
 });
 
 await test("17 the first half: the description when missing, then the floor plan asked of the place's own editor; a room's card has no run",async()=>{
@@ -456,7 +501,10 @@ await test("17 the first half: the description when missing, then the floor plan
   // a plan that waits for its check: the button only opens it
   const review=runner({props:{spatialState:{ready:false,plan:{frame:"Facing the door.",anchors:[{}]}}}});
   const tree=review.render();assert.equal(tree.props["data-prepare-stage"],"review");
-  assert.equal(review.text(review.flat(tree).find(n=>n.props["data-testid"]==="location-prepare-go")),"Open 2 · Floor plan");
+  assert.equal(tree.props["data-next"],"yours");
+  assert.equal(review.text(review.flat(tree).find(n=>n.props["data-testid"]==="location-prepare-next")),"Check the floor plan, then confirm it");
+  assert.equal(review.text(review.flat(tree).find(n=>n.props["data-testid"]==="location-prepare-one")),"Open it");
+  assert.equal(review.flat(tree).find(n=>n.props["data-testid"]==="location-prepare-go"),undefined,"nothing runs past a plan that waits for its check");
   await review.press();assert.equal(review.asked.length,0);assert.deepEqual(review.calls,[]);
   // a room's card, and a read-only film: no run
   const room=runner();assert.equal(room.box.LocationPreparePlace({...room.props,l:room.props.rooms[0],rooms:[]}),null);
@@ -476,7 +524,9 @@ await test("18 after a run the button knows its own drafts; waiting drafts are r
   const after=r.render();
   assert.equal(after.props["data-prepare-stage"],"done");
   assert.ok(!r.flat(after).some(n=>n.props&&n.props["data-testid"]==="location-prepare-go"),"no button offering a second first image");
-  assert.equal(r.text(r.flat(after).find(n=>n.props["data-testid"]==="location-prepare-next")),"Drafts are waiting in 4 · Previs: Ellis House, Hallway. Use each as its image, or delete it.");
+  assert.equal(after.props["data-next"],"yours");
+  assert.equal(r.text(r.flat(after).find(n=>n.props["data-testid"]==="location-prepare-next")),"Use the draft as the location image?");
+  assert.match(r.text(after),/2 drafts wait: Ellis House, Hallway\./);
   // USE THEM ALL (owner 2026-11-21): the user's own press; the place first; nothing is generated
   const useAll=r.flat(after).find(n=>n.props&&n.props["data-testid"]==="location-prepare-use-all");
   assert.equal(r.text(useAll),"Use all 2 drafts as the images");
@@ -492,11 +542,15 @@ await test("18 after a run the button knows its own drafts; waiting drafts are r
   await part.flat(waitingTree).find(n=>n.props&&n.props["data-testid"]==="location-prepare-use-all").props.onClick();
   assert.equal(part.state().note,"Now the image of: Ellis House. Each is in its own section of this card.");
   assert.equal(part.state().fail,"Not used: Hallway (This draft is out of date).");
-  // a single waiting draft reads as one
+  // a single waiting draft: the card's Next is "Use it", and it uses that draft alone
   const one=runner({drafts:["house"],lacking:false,dressed:true,props:{rooms:[]}});
   one.box.KinolotSetDressing.place=()=>({spaces:[{id:"house"}]});
   vm.runInContext("_locPrepareRuns.house={drafts:{house:true}}",one.box);
-  assert.equal(one.text(one.flat(one.render()).find(n=>n.props&&n.props["data-testid"]==="location-prepare-use-all")),"Use it as the image");
+  const oneTree=one.render();
+  assert.equal(one.flat(oneTree).find(n=>n.props&&n.props["data-testid"]==="location-prepare-use-all"),undefined);
+  assert.equal(one.text(one.flat(oneTree).find(n=>n.props&&n.props["data-testid"]==="location-prepare-one")),"Use it");
+  await one.flat(oneTree).find(n=>n.props&&n.props["data-testid"]==="location-prepare-one").props.onClick();
+  assert.deepEqual(one.calls,["read drafts house","USE house iso-house"]);
   // a run that failed after its image: the draft it made is still known
   const src=read("app/locations-ui.jsx");
   assert.equal((src.match(/drafts:known\(\)/g)||[]).length,2,"at the end of a run and when it stops on a failure");
@@ -516,6 +570,14 @@ await test("18 after a run the button knows its own drafts; waiting drafts are r
   assert.equal(first.state().carryOn,true);
   assert.match(first.state().note,/Check it there and confirm it\. The run then carries on by itself: it asks once more, with the price, then sets the cameras, dresses the set and makes the first image of the place and of each room\.$/);
   assert.ok(src.includes('if(!c||!r.carryOn||r.busy||c.stage!=="set")return;')&&src.includes('_locPrepareRuns[l.id]={...r,carryOn:false};')&&src.includes('carry.current={stage:plan.stage,start};'));
+  // the next step alone (Draft it) stops at the plan: nothing carries on by itself
+  const alone=runner({props:{drafted:true,spatialState:{ready:false,plan:{frame:"",anchors:[],sightlines:"",unresolved:""}}}});
+  assert.equal(alone.text(alone.flat(alone.render()).find(n=>n.props["data-testid"]==="location-prepare-next")),"Draft the floor plan");
+  assert.equal(alone.text(alone.flat(alone.render()).find(n=>n.props["data-testid"]==="location-prepare-one")),"Draft it");
+  assert.equal(alone.text(alone.flat(alone.render()).find(n=>n.props["data-testid"]==="location-prepare-go")),"Do all 3 steps");
+  await alone.press("one");
+  assert.equal(alone.asked[0].title,"Draft the floor plan of Ellis House?");assert.equal(alone.state().carryOn,false);
+  assert.equal(alone.state().note,"The floor plan is being drafted in 2 \u00b7 Floor plan. Check it there and confirm it.");
   const note=t=>first.flat(t).find(n=>n.props&&n.props["data-testid"]==="location-prepare-note");
   first.props.spatialState={ready:false,plan:{frame:"Facing the door.",anchors:[{}]}};
   assert.ok(note(first.render()),"while the plan waits for its check");

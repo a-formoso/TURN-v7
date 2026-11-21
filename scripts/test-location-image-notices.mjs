@@ -56,7 +56,7 @@ function find(n,p){if(!n||typeof n!=='object')return null;if(p(n))return n;for(c
 const isElement=n=>n.type==='CallExpression'&&n.callee.property?.name==='createElement';
 const cls=n=>n.arguments?.[1]?.properties?.find(p=>p.key?.name==='className')?.value?.value;
 const sheet=ast.program.body.find(n=>n.type==='FunctionDeclaration'&&n.id.name==='LocationSheet');
-const body=find(sheet,n=>isElement(n)&&cls(n)==='sheet-body');
+const body=find(sheet,n=>isElement(n)&&/^sheet-body( |$)/.test(cls(n)||''));
 ok(!body.arguments.slice(2).some(n=>isElement(n)&&n.arguments[0]?.name==='LocationImageChangeNotices'),'Freshness messages no longer add a row above the step guide');
 // the heading is made as a part of its own since the picture-first card (2026-11-21)
 const heading=find(sheet,n=>isElement(n)&&cls(n)==='sheet-head');

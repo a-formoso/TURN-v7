@@ -230,7 +230,7 @@ const numbered=(key,name)=>'label:sectionNo.'+key+'+" \\u00b7 '+name+'"';
 ok("location folds use the approved filmmaker-facing names",
   // the owner's own names (2026-11-13): Rooms & times → Variants, Screenplay evidence → Screenplay Coverage, Look & exclusions → Look Dev → The look (2026-11-15)
   // (2026-11-21, picture first) Variants are the card's looks; Subspaces and Generation Prompt carry no number
-  [step("1 · The Space"),'"Narrative Significance \\u2014 what this place means in the story"','"The look"','"Screenplay Coverage"','E("span",{className:"loc-look-name"},"Add a variant")',step("2 · Floor plan"),
+  [step("1 · The Space"),'"Narrative Significance \\u2014 what this place means in the story"','"The look"','"Screenplay Coverage"','[{ label:"Add a variant", icon:Icon.plus,',step("2 · Floor plan"),
     step("3 · Cameras"),step("4 · Previs"),numbered("image","Location image"),'CardFold,{label:"Subspaces"','CardFold,{label:"Generation Prompt"'].every(token=>ui.includes(token))&&
   ['label:"More"','label:"Rooms & times"','label:"Screenplay evidence"','label:"Look & exclusions"','"Additional environment states"',
     '"Scene dressing & blocking"',

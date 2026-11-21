@@ -53,8 +53,13 @@ assert.deepEqual(rendered.map(r=>r.l.id),["house"]);assert.deepEqual(spaces(tree
 assert.equal(all(tree,n=>n.type==="select").length,0,"no picker: the top row names the spaces");
 // the top row names the place and each room; a room's own name is short on its place's card
 const isChip=n=>!!(n.props&&String(n.props.className||"").split(" ").includes("loc-space-chip"));
-const chips=()=>all(tree,isChip);
-assert.deepEqual(chips().map(text),["House","Kitchen","Living Room"]);
+// the row is made by the workspace and drawn INSIDE the card, under its looks (the card as drawn, owner 2026-11-21):
+// every space of the card is given the same row; the place is "Whole place"
+const chips=()=>all(rendered[0].options.spacesNav,isChip);
+assert.equal(all(tree,isChip).length,0,"no row above the card");
+assert.deepEqual(chips().map(text),["Whole place","Kitchen","Living Room"]);
+assert.equal(chips()[0].props.title,"The whole place: House");
+assert.ok(rendered.every(r=>r.options.spacesNav===rendered[0].options.spacesNav));
 assert.deepEqual(chips().map(n=>n.props["aria-pressed"]),["true","false","false"]);
 assert.equal(box.locationRoomShortName({name:"Minicab Rank"},{name:"Minicab"}),"Minicab Rank","only a dash sets a room's own name apart");
 assert.equal(of("house").options.embedded,true);assert.equal(of("house").options.asSection,undefined);assert.equal(of("house").options.roomBlocks,undefined,"no card inside the card");
@@ -95,7 +100,7 @@ assert.equal(spaces(tree)[1],"kitchen","clearing filters keeps what is shown");
 const lone={root:office,members:[office]};
 rendered=[];state=undefined;effectDeps.length=0;
 const loneTree=box.LocationWorkspace({...props,group:lone,matchingIds:["office"]});
-assert.equal(all(loneTree,isChip).length,0);
+assert.equal(all(loneTree,isChip).length,0);assert.equal(rendered[0].options.spacesNav,null,"a place with no rooms has no row");
 assert.deepEqual(spaces(loneTree),["office"]);assert.equal(rendered[0].options.roomBlocks,undefined);
 
 const evidence=box.LocationScreenplayEvidence({units:[

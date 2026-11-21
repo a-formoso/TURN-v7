@@ -92,7 +92,7 @@ const walk=node=>{
 };
 walk(locationSheet.body);
 const sheetBody=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
-  String(propValue(n.arguments[1],"className")||"")==="sheet-body");
+  String(propValue(n.arguments[1],"className")||"").split(/\s+/).includes("sheet-body"));
 assert.ok(sheetBody,"LocationSheet has a sheet-body producer");
 // a fold shown on demand ("showPrevis && CardFold(…)") still counts as that fold
 const unwrapShown=n=>n&&n.type==="LogicalExpression"&&n.operator==="&&"?unwrapShown(n.right):n;
@@ -128,7 +128,7 @@ assert.equal(labelSource(parts.foldImage),'sectionNo.image+" \\u00b7 Location im
 assert.equal(labelSource(parts.foldSubspaces),'"Subspaces"');
 assert.equal(labelSource(parts.foldPrompt),'"Generation Prompt"');
 // the four tabs, and what each holds, in order: the set's steps in Set; the description, the look and the prompt in About
-assert.ok(sheetSource.includes('{id:"todo",name:"To do",render:()=>React.createElement(LocationTodoList,{l,steps:cardSteps,looks,onLook:pickLook})},'));
+assert.ok(sheetSource.includes('{id:"todo",name:"To do",render:()=>React.createElement(LocationTodoList,{l,rows:todoRows,onLook:pickLook})},'));
 assert.ok(sheetSource.includes('{id:"set",name:"Set",render:()=>React.createElement(React.Fragment,null,foldPlan,foldCameras,foldPrevis,foldSubspaces)},'));
 assert.ok(sheetSource.includes('{id:"about",name:"About",render:()=>React.createElement(React.Fragment,null,foldSpace,styleRowEl,foldImage,foldPrompt)}]})));'),
   "Generation Prompt is its own section, the last one");
@@ -144,7 +144,7 @@ assert.ok(!astCalls.some(n=>firstName(n)==="LocationSectionHelp"&&
   "2 · Floor plan has no standalone help icon or empty help row");
 // Variants are the card's LOOKS now (a row of them under the name), no longer a section
 assert.equal(cardFolds.find(n=>/Variants/.test(labelSource(n))),undefined,"no Variants section: they are the looks");
-assert.ok(sheetSource.includes('React.createElement(LocationLooks,{looks,selected:lookNow,onSelect:pickLook,onAdd:addVariant,readOnly}),'));
+assert.ok(sheetSource.includes('React.createElement(LocationLooks,{looks,selected:lookNow,onSelect:pickLook,'));
 // 2026-10-05 (owner): the editable style settings moved ON the card (collapsed), before the read-only Generation Prompt
 // …and since 2026-11-15 (owner) as The look (Look Dev from 2026-11-13 until then): the look of the image, so in the image's own numbered
 // section (Location image), before Generation Prompt
