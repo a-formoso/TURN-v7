@@ -151,7 +151,7 @@ await test("6 the card: three boxes as the location card's, no row per passage, 
 });
 
 await test("7 Frances knows it; the page loads the new files", () => {
-  const f = between(ai, 'APP_FEATURES.push({ name:"Prop sheets have three views, and Screenplay evidence fits in one screen (Props, Art Room)"', "/* a billing entry:");
+  const f = between(ai, 'APP_FEATURES.push({ name:"Prop sheets have three views, and Screenplay evidence fits in one screen (Props, Art Room)"', '" });\n');
   for (const w of ["THREE TIMES", "a straight front view", "a side view, turned a full quarter turn", "never a bare line", "a close-up, zoomed far in", "keep working exactly as they are",
     "An edit keeps the layout the sheet already has", "'Where it comes from'", "'Reviewed passages'", "ONE passage at a time", "'Go to the scene'"]) assert.ok(f.includes(w), w);
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic|Gemini|GPT/.test(f) && !/credit/i.test(f));   // "turn" the verb is fine
