@@ -124,7 +124,7 @@ await test("6 the read: one writing call, asked first; proposals only; the owner
   assert.ok(apply.includes('onPlaceDecision(r.id, r.placeId, "part");'),"a room is applied with the Part of decision");
   assert.ok(ui.includes('"data-testid":"location-families-find"')&&ui.includes('families.busy?"Reading the screenplay\\u2026":"Find rooms of places"'));
   // by hand, and undone, from a card's menu
-  assert.ok(ui.includes('label:"A room of\\u2026"')&&ui.includes('onApply:()=>{ const place = roomPick.placeId; if(!place || typeof onPlaceDecision!=="function") return; setRoomPick(null); onPlaceDecision(l.id, place, "part"); } })'));
+  assert.ok(ui.includes('label:"A room of\\u2026"')&&ui.includes('onApply:()=>{ const place = roomPick.placeId; if(!place || typeof onPlaceDecision!=="function") return; setRoomPick(null); onPlaceDecision(l.id, place, "part"); } }),'));
   assert.ok(ui.includes('label:"Make it a place of its own"')&&ui.includes('onClick:()=>onPlaceDecision(l.id, l.parentLocation.id, "separate") }'));
   assert.ok(ui.includes("placeChoices:(l.parentKey?[]:list.filter(x=>x.id!==l.id&&!x.parentKey&&x.rootLocationId!==l.id)"),"a place is never offered itself, a room, or one of its own rooms");
 });
@@ -188,7 +188,7 @@ await test("8 one pass: a room takes its look from its place's image, or from th
 await test("9 Frances knows; the styles are in",()=>{
   const ai=read("app/ai.jsx"),css=read("app/styles.css");
   const fact=ai.slice(ai.indexOf('name:"Locations: one card for a place and its rooms, one run for all of it, and finding the rooms of each place"'));
-  for(const t of ["ONE CARD FOR A PLACE AND ITS ROOMS:","ONE RUN FOR ALL OF IT:","FIND ROOMS OF PLACES:","Put N rooms in their places","A room of\\u2026","Make it a place of its own","Use all N drafts as the images","and the card shows that room in the place's place","There is no Whole location picker."])
+  for(const t of ["ONE CARD FOR A PLACE AND ITS ROOMS:","ONE RUN FOR ALL OF IT:","FIND ROOMS OF PLACES:","Put N rooms in their places","A room of\\u2026","Make it a place of its own","Use all N drafts as the images","the Whole location picker at the top of the card is gone"])
     assert.ok(fact.slice(0,6000).includes(t),"Frances is not told: "+t);
   assert.ok(!/Whole location \/ room picker|Its space selector opens Whole location/.test(ai),"the picker that is gone is no longer described");
   for(const c of [".loc-space-chip{",".loc-space-chip.on{",".loc-room-thumb{",".loc-room-body{",".loc-room-sheet{",".loc-copy-check.loc-families{",".loc-family-room{"]) assert.ok(css.includes(c),c);

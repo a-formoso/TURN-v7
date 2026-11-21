@@ -423,10 +423,7 @@ const runEffects = async () => { const list = effects.slice(); list.forEach((e) 
       .forEach((w) => w.props.group.members.forEach((m) => { if (m.id === SUB) props = w.props.renderLocation(m, {}).props; }));
     assert.ok(props && props.l.parentLocation, "the room card, with its parent (as the Locations tab builds it)");
     const card = cb.LocationSheet(props);
-    // (2026-11-21, picture first) a variant is a look: the card makes each look's own card when that look is shown
-    const panels = findAll(card, (n) => n.type === cb.LocationLookPanels)[0].props;
-    const made = panels.looks.filter((k) => k.id !== "main").map((k) => panels.render(k));
-    const unitCards = made.flatMap((el) => findAll(el, (n) => n.type === cb.SluglineUnitCard)), stateCards = made.flatMap((el) => findAll(el, (n) => n.type === cb.LocationVariant));
+    const unitCards = findAll(card, (n) => n.type === cb.SluglineUnitCard), stateCards = findAll(card, (n) => n.type === cb.LocationVariant);
     assert.ok(unitCards.length >= 2, "its rooms & times: " + unitCards.map((n) => n.props.u.key).join(", "));
     assert.equal(stateCards.length, 1, "its environment state");
     for (const n of unitCards.concat(stateCards)) assert.equal(n.props.readOnly, readOnly, "the card is told the viewer's role");

@@ -33,6 +33,9 @@ function WritingDock({ task }){
   const pick = (typeof window.getWritingPick==="function") ? window.getWritingPick() : null;
   const recStory = (typeof window.recommendedWritingModelId==="function") ? window.recommendedWritingModelId("story") : "";
   const recSpecs = (typeof window.recommendedWritingModelId==="function") ? window.recommendedWritingModelId("specs") : "";
+  // location work has its own recommendation (owner 2026-11-21); said only when it differs from the Art Room's
+  const recLocs = (typeof window.recommendedWritingModelId==="function") ? window.recommendedWritingModelId("locations") : "";
+  const locsOwn = !!recLocs && recLocs!==recSpecs;
   const SHORT = { "claude-opus-5-5":"OPUS5.5", "claude-fable-5-2":"FABLE5.2", "gemini-3.8-flash":"GEM3.8", "gemini-4-argon":"ARGON",
     "gpt-6-astra":"ASTRA", "gpt-6.1-sol":"SOL" };
   // resolve the engine for THIS room's task (Art Room → specs, Writers' Room → story) so
@@ -62,9 +65,9 @@ function WritingDock({ task }){
         React.createElement("span",{className:"nb-ctl-lab"},"Mode"),
         React.createElement("div",{className:"nb-seg"},
           React.createElement("button",{className:"nb-seg-btn "+(pick?"":"on"),
-            title:"Follow the per-task recommendation — story prose runs on "+labelOf(recStory)+", Art-Room specs on "+labelOf(recSpecs),
+            title:"Follow the per-task recommendation — story prose runs on "+labelOf(recStory)+", Art-Room specs on "+labelOf(recSpecs)+(locsOwn?", location work on "+labelOf(recLocs):""),
             onClick:()=>choose("")},"Auto · per task")),
-        !pick && React.createElement("div",{className:"write-dock-note"},"story → "+labelOf(recStory)+" · specs → "+labelOf(recSpecs))),
+        !pick && React.createElement("div",{className:"write-dock-note"},"story → "+labelOf(recStory)+" · specs → "+labelOf(recSpecs)+(locsOwn?" · locations → "+labelOf(recLocs):""))),
       // MODELS — grouped by provider, compact segmented buttons like the image models
       (()=>{
         // grouped by what the engines are good at — never by the company that makes them (2026-10-09:
@@ -77,11 +80,11 @@ function WritingDock({ task }){
           React.createElement("div",{className:"nb-seg"},
             g.items.map(m=>React.createElement("button",{key:m.id,
               className:"nb-seg-btn "+(pick===m.id?"on":""),
-              title:(m.note||"")+((m.id===recStory)?" · recommended for story":"")+((m.id===recSpecs)?" · recommended for specs":""),
+              title:(m.note||"")+((m.id===recStory)?" · recommended for story":"")+((m.id===recSpecs)?" · recommended for specs":"")+((locsOwn&&m.id===recLocs)?" · recommended for locations":""),
               onClick:()=>choose(m.id)},
               m.label,
-              (m.id===recStory||m.id===recSpecs) && React.createElement("span",{className:"write-seg-rec",
-                title:(m.id===recStory?"story":"specs")+" recommendation"},"★"))))));
+              (m.id===recStory||m.id===recSpecs||(locsOwn&&m.id===recLocs)) && React.createElement("span",{className:"write-seg-rec",
+                title:(m.id===recStory?"story":m.id===recSpecs?"specs":"locations")+" recommendation"},"★"))))));
       })(),
       // the ACTIVE engine's note, so the pick is informed without hovering
       pick && React.createElement("div",{className:"write-dock-note sel"},

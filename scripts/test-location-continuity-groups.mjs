@@ -229,32 +229,28 @@ const step=t=>'label:"'+t.replace("·","\\u00b7")+'"';
 const numbered=(key,name)=>'label:sectionNo.'+key+'+" \\u00b7 '+name+'"';
 ok("location folds use the approved filmmaker-facing names",
   // the owner's own names (2026-11-13): Rooms & times → Variants, Screenplay evidence → Screenplay Coverage, Look & exclusions → Look Dev → The look (2026-11-15)
-  // (2026-11-21, picture first) Variants are the card's looks; Subspaces and Generation Prompt carry no number
-  [step("1 · The Space"),'"Narrative Significance \\u2014 what this place means in the story"','"The look"','"Screenplay Coverage"','[{ label:"Add a variant", icon:Icon.plus,',step("2 · Floor plan"),
-    step("3 · Cameras"),step("4 · Previs"),numbered("image","Location image"),'CardFold,{label:"Subspaces"','CardFold,{label:"Generation Prompt"'].every(token=>ui.includes(token))&&
+  [step("1 · The Space"),'"Narrative Significance \\u2014 what this place means in the story"','"The look"','"Screenplay Coverage"',numbered("variants","Variants"),step("2 · Floor plan"),
+    step("3 · Cameras"),step("4 · Previs"),numbered("image","Location image"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")].every(token=>ui.includes(token))&&
   ['label:"More"','label:"Rooms & times"','label:"Screenplay evidence"','label:"Look & exclusions"','"Additional environment states"',
     '"Scene dressing & blocking"',
     // sections without a number (until 2026-11-13, second pass)
     'label:"5 \\u00b7 Build the set"','label:"6 \\u00b7 Style it"','"Look Dev"',
     'CardFold,{label:"Narrative Significance"','CardFold,{label:"The look"','CardFold,{label:"Screenplay Coverage"','CardFold,{label:"Moving parts"',
-    'CardFold,{label:"Blender Studio"','CardFold,{label:"Variants"','CardFold,{label:sectionNo.variants','LocationGroupHead'].every(token=>!ui.includes(token)));
-ok("location folds follow the order of the work: the space, floor plan (with moving parts), cameras, previs, the image (The look), subspaces and the prompt",
+    'CardFold,{label:"Blender Studio"','CardFold,{label:"Variants"','CardFold,{label:"Subspaces"','CardFold,{label:"Generation Prompt"','LocationGroupHead'].every(token=>!ui.includes(token)));
+ok("location folds follow the order of the work: the space, floor plan (with moving parts), cameras, previs, the image (The look), variants, subspaces and the prompt",
   [step("1 · The Space"),'summary",null,"Screenplay Coverage"','field:"architecture"','"Narrative Significance \\u2014 what this place means in the story"',step("2 · Floor plan"),
     '"Moving parts (optional)"',step("3 · Cameras"),step("4 · Previs"),numbered("image","Location image"),'"The look"',
-    'CardFold,{label:"Subspaces"','CardFold,{label:"Generation Prompt"',
-    // then where they are shown: the set's steps in the Set tab, the description, the look and the prompt in About
-    '{id:"set",name:"Set",render:()=>React.createElement(React.Fragment,null,foldPlan,foldCameras,foldPrevis,foldSubspaces)},',
-    '{id:"about",name:"About",render:()=>React.createElement(React.Fragment,null,foldSpace,styleRowEl,foldImage,foldPrompt)}]})));']
+    numbered("variants","Variants"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")]
     .map(token=>ui.indexOf(token,ui.indexOf(step("1 · The Space")))).every((at,i,all)=>at>=0&&(i===0||at>all[i-1])));
-ok("the five steps of the card have a number; Subspaces and Generation Prompt are not steps",
+ok("every fold of the card has a number",
   (()=>{ const sheet=ui.slice(ui.indexOf("// THE CARD IN ORDER (owner 2026-11-13)"),ui.indexOf("function locationCardSteps("));
     const labels=sheet.match(/CardFold,\{label:[^,]+/g)||[];
-    return labels.length===7&&labels.every(x=>/label:"[1-4] \\u00b7 |label:sectionNo\.image\+" \\u00b7 |label:"Subspaces"|label:"Generation Prompt"/.test(x)); })());
+    return labels.length===8&&labels.every(x=>/label:"[1-4] \\u00b7 |label:sectionNo\.(image|variants|subspaces|prompt)\+" \\u00b7 /.test(x)); })());
 ok("location style fine-tuning is under The look in the Location image section (before Generation Prompt), the one place for it",
   (ui.match(/"The look"/g)||[]).length===1&&
   ui.indexOf('className:"loc-render-style-details"')>ui.indexOf('"The look"')&&
   ui.indexOf('"The look"')>ui.indexOf(numbered("image","Location image"))&&
-  ui.indexOf('className:"loc-render-style-details"')<ui.indexOf('CardFold,{label:"Subspaces"')&&
+  ui.indexOf('className:"loc-render-style-details"')<ui.indexOf(numbered("variants","Variants"))&&
   ui.includes('label:"Render style instructions"'));
 ok("topology and anchors stay in the space, inside 1 · The Space",
   ui.indexOf('field:"topology",label:"How the rooms connect"')>ui.indexOf(step("1 · The Space"))&&
@@ -265,7 +261,7 @@ ok("location folds provide concise definitions without expanding the headings",
   ui.includes("function LocationSectionHelp")&&
   ui.includes('label:"About The Space"')&&ui.includes("persistent physical location")&&
   ui.includes("Narrative Significance, the last field, says what the place means in the story.")&&
-  ui.includes("The looks are each time of day or state the space is seen in (read from the screenplay's sluglines)")&&ui.includes("Lighting & environment"));
+  ui.includes("Variants lists each time of day or state the space is seen in (read from the screenplay's sluglines)")&&ui.includes("Lighting & environment"));
 ok("script evidence and reusable staging have separate roles",
   ui.includes("reusable camera views with their view compositions")&&
   ui.includes("function LocationScreenplayEvidence")&&

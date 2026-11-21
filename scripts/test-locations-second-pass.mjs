@@ -249,7 +249,7 @@ await test("F2 Storyboards show the plates the frames attached; Clear counts wha
   assert.ok(rm.includes("await nbLoadImage(assetId)") && rm.includes("if(sharesUnit) has = false;"));
 });
 await test("F3 copy: the About tip and button titles say what spends; no vendor names", ()=>{
-  assert.ok(ui.includes("Set holds the floor plan (review and confirm it)") && ui.includes("Images spend image credits; drafting specs, floor plans and dressing spend writing credits"));   // (2026-11-17) Surprise me is no longer offered   // (2026-11-17) "plates" until then
+  assert.ok(ui.includes("Then come the floor plan (review and confirm it)") && ui.includes("Images spend image credits; drafting specs, floor plans and dressing spend writing credits"));   // (2026-11-17) Surprise me is no longer offered   // (2026-11-17) "plates" until then
   assert.ok(!ui.includes("Render style details"));
   assert.ok(!/Nano Banana|image-proxy/.test(ui) && !/"Nano Banana"/.test(locs));
   assert.ok(art.includes("Fills the text spec from the script first (writing credits), then generates the sheet in one step (image credits)"));

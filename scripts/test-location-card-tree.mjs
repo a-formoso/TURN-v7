@@ -14,12 +14,6 @@
      n · Generation Prompt  read-only, the last section
 
    No section without a number and no gap: the last four take the numbers that follow the build steps.
-
-   PICTURE FIRST (owner 2026-11-21, "I like B": one of three clickable designs). The sections are the same and keep
-   their order; where they are SHOWN changed again. Steps 1 to 5 keep their numbers. Variants are the card's LOOKS (a
-   row under the name; the look that is on takes the picture's place), Subspaces and Generation Prompt carry no number,
-   and the sections sit in tabs: Set (2 Floor plan, 3 Cameras, 4 Previs, Subspaces) and About (1 The Space, Render
-   style, 5 Location image, Generation Prompt), beside To do and Scenes.
    Only where things are SHOWN changed. Nothing stored was renamed or moved, so the Blender package and the cloud set
    build read what they read before (pinned at the end). */
 import assert from "node:assert/strict";
@@ -45,70 +39,15 @@ const sheet=ui.slice(ui.indexOf("function LocationSheet("),ui.indexOf("function 
 const at=t=>{ const i=sheet.indexOf(t); assert.ok(i>=0,"the card has "+t); return i; };
 const numbered=(key,name)=>'label:sectionNo.'+key+'+" \\u00b7 '+name+'"';
 
-test("1 the card's sections, in the order of the work; the five steps numbered; four tabs hold them", ()=>{
+test("1 the card's sections, in the order of the work, every one numbered", ()=>{
   const order=['label:"1 \\u00b7 The Space"','summary",null,"Screenplay Coverage"','field:"architecture"','"Narrative Significance \\u2014 what this place means in the story"',
     'label:"2 \\u00b7 Floor plan"','"Moving parts (optional)"','label:"3 \\u00b7 Cameras"','label:"4 \\u00b7 Previs"',
-    numbered("image","Location image"),'"The look"','label:"Subspaces"','label:"Generation Prompt"'].map(at);
+    numbered("image","Location image"),'"The look"',numbered("variants","Variants"),numbered("subspaces","Subspaces"),numbered("prompt","Generation Prompt")].map(at);
   order.forEach((x,i)=>assert.ok(i===0||x>order[i-1],"section "+i+" follows the one before it"));
-  // the five steps carry their numbers; Subspaces and Generation Prompt are not steps and carry none (2026-11-21)
+  // every fold of the card carries a number: the first four their own, the rest the next ones (5 on)
   const labels=sheet.slice(at("// THE CARD IN ORDER (owner 2026-11-13)")).match(/CardFold,\{label:[^,]+/g)||[];
-  assert.equal(labels.length,7);
-  for(const x of labels) assert.match(x,/label:"[1-4] \\u00b7 |label:sectionNo\.image\+" \\u00b7 |label:"Subspaces"|label:"Generation Prompt"/);
-  // THE CARD AS DRAWN (owner 2026-11-21, with a picture of it: "Use the exact same structure"): the name with its
-  // status and the menu; the picture, with Image / 3D set / Floor plan on it; the looks; In this card; Next; four tabs
-  const shown=sheet.slice(at('"data-card-layout":"picture-first"'));
-  const parts=['className:"loc-b-headrow"','React.createElement(LocationStatusPill,{l,status})','className:"loc-b-menu",ref:setMenuHost,"data-testid":"location-menu"',
-    '"data-testid":"location-viewer"','React.createElement(LocationSegment,{label:"What the picture shows",value:modeNow,options:viewModes,onChange:setMode})',
-    'className:"loc-viewer-image",hidden:!(lookNow==="main"&&modeNow==="image")},frameEl)','React.createElement(LocationSetPicture,{l})','React.createElement(LocationPlanPicture,{l,spatialState})',
-    'React.createElement(LocationLookPanels,{looks,shown:lookNow,seen:lookSeen,render:lookPanel})','noticesEl,',
-    'React.createElement(LocationLooks,{looks,selected:lookNow,onSelect:pickLook,','spacesNav||null,','prepareEl,',
-    '{id:"todo",name:"To do",render:()=>React.createElement(LocationTodoList,{l,rows:todoRows,onLook:pickLook})},',
-    '{id:"scenes",name:"Scenes",count:locScenes.length||undefined,',
-    '{id:"set",name:"Set",render:()=>React.createElement(React.Fragment,null,foldPlan,foldCameras,foldPrevis,foldSubspaces)},',
-    '{id:"about",name:"About",render:()=>React.createElement(React.Fragment,null,foldSpace,styleRowEl,foldImage,foldPrompt)}]})));'].map(t=>{const i=shown.indexOf(t);assert.ok(i>=0,"the card shows "+t);return i;});
-  parts.forEach((x,i)=>assert.ok(i===0||x>parts[i-1],"part "+i+" of the card follows the one before it"));
-  // the image's menu is drawn beside the name (so it is there whatever the picture shows), and Add a variant is in it
-  assert.ok(sheet.includes('noun:"location image", noGenerate:true, toolsHost:menuHost,')&&sheet.includes('slotPlaceholder:"No image yet"'));
-  assert.ok(sheet.includes('...(!readOnly ? [{ label:"Add a variant", icon:Icon.plus,'));
-  const frame=read("app/artroom.jsx");
-  assert.ok(frame.includes('((tools)=>(tools&&toolsHost&&window.ReactDOM&&window.ReactDOM.createPortal)?window.ReactDOM.createPortal(tools,toolsHost):tools)('));
-  assert.ok(frame.includes('className:"sheet-gen-tools"+(toolsHost?" hosted":""),style:toolsHost?undefined:{top:8,right:8}}')&&frame.includes('dropSub||"or click to browse files"'));
-  assert.ok(css.includes(".loc-viewer-bar{position:absolute;left:20px;top:20px;z-index:6;")&&css.includes(".loc-b-menu .sheet-gen-tools.hosted{position:static;"));
-  // the three ways to look at the place; 3D only where the 3D view loaded
-  assert.ok(sheet.includes('const viewModes=[{id:"image",name:"Image",title:"The location image"}]')&&sheet.includes('.concat(showPrevis?[{id:"set",name:"3D set",')&&sheet.includes('.concat([{id:"plan",name:"Floor plan",title:"The floor plan, from above"}]);'));
-  // asking for a section opens its tab first; a tab mounts when first opened and stays
-  assert.equal(box.locationTabOfFold({id:"k"},"loc-layout-k"),"set");assert.equal(box.locationTabOfFold({id:"k"},"loc-step3-k"),"set");
-  assert.equal(box.locationTabOfFold({id:"k"},"loc-step4-k"),"set");assert.equal(box.locationTabOfFold({id:"k"},"loc-subspaces-k"),"set");
-  assert.equal(box.locationTabOfFold({id:"k"},"loc-step1-k"),"about");assert.equal(box.locationTabOfFold({id:"k"},"loc-image-k"),"about");
-  assert.equal(box.locationTabOfFold({id:"k"},"loc-units-k"),"","the looks are not in a tab");assert.equal(box.locationTabOfFold({id:"k"},"loc-layout-other"),"");
-  assert.ok(ui.includes('(now===t.id||seen[t.id])?t.render():null)')&&ui.includes('className:"loc-tabpanel","data-tab":t.id,hidden:now!==t.id}'));
-  assert.ok(ui.includes('const again=new window.CustomEvent("nb-open-fold",{detail:e.detail});again.locTabAgain=true;window.dispatchEvent(again);},90);'));
-  assert.ok(sheet.includes('const startTab=(initialSection==="layout"||initialSection==="previs"||initialSection==="build"||initialSection==="style")?"set"'));
-  // TO DO: four stages, then each look, numbered down the list; only what is left says what it waits for
-  const st=(done,more)=>[1,2,3,4,5].map(n=>({n,done:done.includes(n),...(more&&more[n]||{})}));
-  const looks0=[{id:"main",has:false,known:true},{id:"u:n",name:"Night",has:false,known:true,shots:8},{id:"u:d",name:"Day",has:false,known:true,shots:12},{id:"u:old",name:"Dusk",orphan:true}];
-  const fresh=box.locationTodoRows({l:{},steps:st([1]),looks:looks0,spatialState:{ready:false,plan:{frame:"",anchors:[]}},previs:true});
-  assert.deepEqual(Array.from(fresh.map(r=>r.n+" "+r.title+": "+r.sub+(r.next?" <next>":""))),["1 Description: Written from the screenplay","2 Floor plan: Not drawn yet <next>","3 The set in 3D: After the floor plan",
-    "4 Location image: After the set","5 Night: After the location image","6 Day: After the location image"],"the list as the owner's picture shows it; a look no scene uses has no row");
-  assert.deepEqual(Array.from(fresh.map(r=>r.done)),[true,false,false,false,false,false]);
-  const review=box.locationTodoRows({l:{},steps:st([1]),looks:looks0,spatialState:{ready:false,plan:{frame:"Facing the door.",anchors:[{}]}},previs:true});
-  assert.equal(review[1].sub,"Waiting for your check");
-  const built=box.locationTodoRows({l:{manual:true},steps:st([1,2,3,4],{5:{goTo:4}}),looks:looks0,spatialState:{ready:true,plan:{frame:"f",anchors:[{}]}},previs:true});
-  assert.deepEqual(Array.from(built.map(r=>r.sub)),["Written","Confirmed","Four cameras, dressed","Not made yet","After the location image","After the location image"]);
-  assert.equal(built[3].step,4,"the image is made in Previs when the set is ready");assert.equal(built[2].step,4);
-  const undressed=box.locationTodoRows({l:{},steps:st([1,2,3]),looks:[],spatialState:{ready:true,plan:{}},previs:true});
-  assert.equal(undressed[2].sub,"Not dressed yet");assert.equal(undressed[2].done,false);
-  const made=box.locationTodoRows({l:{},steps:st([1,2,3,4,5]),looks:[{id:"main",has:true,known:true},{id:"u:n",name:"Night",has:false,known:true,shots:8},{id:"u:d",name:"Day",has:true,known:true,shots:1},{id:"u:x",name:"Dawn",has:false,known:false}],spatialState:{ready:true,plan:{}},previs:true});
-  assert.deepEqual(Array.from(made.slice(4).map(r=>r.title+": "+r.sub+(r.ready?" <ready>":""))),["Night: 8 shots wait <ready>","Day: In use · 1 shot","Dawn: Checking… <ready>"]);
-  // one line of status beside the name: how much is left
-  const status=rows=>{const r=box.locationCardStatus({rows});return r.kind+": "+r.text;};
-  assert.equal(status(fresh),"todo: 5 steps left","as in the owner's picture");
-  assert.equal(status(review),"yours: Your turn");
-  assert.equal(status(made),"todo: Checking…");
-  assert.equal(status(made.slice(0,6)),"todo: 1 step left");
-  assert.equal(status(made.filter(r=>r.done)),"done: Ready for shots");
-  // what the card's Next knows comes first: a draft that waits is Your turn, a run at work is Working
-  assert.ok(ui.includes('const now=act&&act.kind==="busy"&&act.working?{kind:"todo",text:"Working\\u2026"}:act&&act.kind==="yours"?{kind:"yours",text:"Your turn"}:status;'));
+  assert.equal(labels.length,8);
+  for(const x of labels) assert.match(x,/label:"[1-4] \\u00b7 |label:sectionNo\.(image|variants|subspaces|prompt)\+" \\u00b7 /);
   // gone: the flat list, the two nested lists, More, the sections without a number and the group headings over them;
   // and since 2026-11-15 (one road) the cloud build's two steps, the Blender hand-off and the name Look Dev
   for(const t of ['label:"More"','label:"Rooms & times"','label:"1 \\u00b7 Describe the place"','label:"Screenplay evidence"','label:"Look & exclusions"',
@@ -162,46 +101,20 @@ test("4 a variant's name is its time; the side comes first only when the space i
   assert.deepEqual(Array.from(box.locationVariantNames([{time:"Dusk",orphan:true}],[])),[],"a room & time no longer in the script is not counted");
 });
 
-test("5 Variants are the card's looks: each room & time with its scenes under it; a look of your own is one too", ()=>{
-  // (2026-11-21, picture first) a row of looks under the name; the look that is on takes the picture's place, with
-  // everything that was its own in the Variants section
-  const panel=sheet.slice(at("const lookPanel=k=>{"),at("const status=locationCardStatus("));
-  const unit=panel.indexOf("React.createElement(SluglineUnitCard,"), used=panel.indexOf("React.createElement(LocationVariantUsedIn,");
-  const extra=panel.indexOf("return React.createElement(LocationVariant,{l,v,project,scenes,drafts,units,readOnly,");
-  assert.ok(unit>0&&used>unit&&extra>used,"room & time, its Used in, then a look of your own");
-  assert.ok(panel.includes("setups:sceneSetups.filter(s=>s.unitKey===u.key),onUpdateSetup:updateSceneSetup"),"each variant gets its own scenes' notes");
-  assert.ok(panel.includes('"data-location-variant":u.key'));
+test("5 Variants: each room & time with its scenes under it; a look of your own is a variant too", ()=>{
+  const fold=sheet.slice(at(numbered("variants","Variants")),at(numbered("subspaces","Subspaces")));
+  // the same fold id the Shots tab opens (a shot's missing view), and the same openers
+  assert.ok(fold.includes('foldId:"loc-units-"+l.id,count:variantCount||undefined,'));
+  assert.ok(fold.includes('defaultOpen:initialSection==="units"||initialSection==="environments"'));
+  const unit=fold.indexOf("React.createElement(SluglineUnitCard,"), used=fold.indexOf("React.createElement(LocationVariantUsedIn,");
+  const extra=fold.indexOf("environment.additional.map(v=>React.createElement(LocationVariant,"), add=fold.indexOf('"Add a variant"');
+  assert.ok(unit>0&&used>unit&&extra>used&&add>extra,"room & time, its Used in, then your own variants, then Add a variant");
+  assert.ok(fold.includes("setups:sceneSetups.filter(s=>s.unitKey===u.key),onUpdateSetup:updateSceneSetup"),"each variant gets its own scenes' notes");
+  assert.ok(fold.includes('"data-location-variant":u.key'));
   assert.ok(sheet.includes("const variantCount=units.filter(u=>!u.orphan).length+environment.additional.length;"));
-  // the same id the Shots tab asks for (a shot's missing view), and the same openers: the first look with no image is shown
-  assert.ok(sheet.includes('const h=e=>{ if(e&&e.detail==="loc-units-"+l.id) showVariants(); };'));
-  assert.ok(sheet.includes('React.useEffect(()=>{ if(initialSection==="units"||initialSection==="environments") showVariants(); },[initialSection]);'));
-  assert.ok(sheet.includes('const want=list.find(k=>!k.has&&!k.orphan)||list[0];'));
-  // the row itself: the location image first, then each look with its picture and what it waits for
-  const picked=[];
-  const row=box.LocationLooks({label:"Looks · the image, and one per time of day",looks:[{id:"main",name:"Location",url:"img:place",sub:"In use"},{id:"u:night",name:"Night",url:"",sub:"8 shots wait",scenes:"Sc 01, 03"},
-    {id:"v:storm",name:"Storm",url:"img:storm",sub:"In use"}],selected:"u:night",onSelect:id=>picked.push(id)});
-  assert.equal(text(nodes(row).find(n=>n.props&&n.props.className==="loc-b-lab")),"Looks · the image, and one per time of day");
-  const tiles=nodes(row).filter(n=>n.type==="button");
-  assert.deepEqual(tiles.map(b=>nodes(b).filter(n=>n.type==="span"&&/loc-look-(name|sub)/.test(n.props.className)).map(text).join(" / ")),
-    ["Location / In use","Night / 8 shots wait","Storm / In use"]);
-  assert.deepEqual(tiles.map(b=>b.props["aria-pressed"]),["false","true","false"]);
-  assert.deepEqual(tiles.map(b=>nodes(b).filter(n=>n.type==="img").map(n=>n.props.src).join()),["img:place","","img:storm"]);
-  assert.equal(tiles[1].props.title,"Night · Sc 01, 03");
-  tiles.forEach(b=>b.props.onClick());assert.deepEqual(picked,["main","u:night","v:storm"]);
-  // under a look with no image: how many shots wait for it, counted the way a shot picks its own reference
-  assert.ok(sheet.includes('sub:url?"In use":!known?"Checking\\u2026":shots?shots+(shots===1?" shot waits":" shots wait"):"Not made"};'));
-  assert.ok(ui.includes('specs.forEach(sp=>{const k=sp&&sp.category==="unit"?ids[sp.id||sp.baseId]:"";if(k)out[k]=(out[k]||0)+1;});'));
-  // a look of your own is added from the card's menu
-  assert.ok(sheet.includes('...(!readOnly ? [{ label:"Add a variant", icon:Icon.plus,')&&sheet.includes("onClick:()=>addVariant() }] : []),"));
-  // each look's image is read from the film when the card comes on the page: "Not made" is never said of one that exists
-  assert.ok(ui.includes("try{ if(!nbGetImage(id)) got=!!(await nbLoadImage(id)); }catch(_){ }"));
-  // ...and "Not made" is said only of an image the film is KNOWN not to hold (a complete check of the film, asked for
-  // here too, and asked again when it fails): never from a read that came back empty. Until then a look says Checking
-  assert.ok(ui.includes("if(r&&r.ok===false&&tries<4){ tries++; timer=setTimeout(ask,8000); }"));
-  assert.ok(sheet.includes("const url=lookImage(assetId),known=!!url||knownMissing(assetId);")&&sheet.includes("const mainKnown=!!gen.genUrl||knownMissing(l.id);"));
-  assert.ok(sheet.includes('const knownMissing=id=>{try{return typeof nbImageKnownMissing==="function"&&!!nbImageKnownMissing(id);}catch(_){return false;}};'));
-  // what a look is, behind the row's info button; and where its rooms' looks are when the place itself has none
-  assert.match(sheet,/Its rooms(\\u2019|’) looks are on each room\./);
+  // what a variant is, in one line; and where its rooms' variants are when the place itself has none
+  assert.ok(fold.includes("a variant uses the description above and changes only its light and environment. Each has its own image."));
+  assert.ok(fold.includes("Its rooms' variants are under Subspaces."));
   // the wording that went with the old name
   assert.ok(ui.includes('title:"Remove this variant?",')&&ui.includes('|| "New variant";')&&!ui.includes("Remove this environment state?"));
   assert.ok(ui.includes("a scene's dressing and blocking go under Used in, below."));
@@ -252,8 +165,7 @@ test("7 Subspaces: each room with its variants and scenes; a row opens the room,
   assert.deepEqual(buttons.map(b=>text(b).replace(/Variants:.*/,"")),["Kitchen","Floor plan","Variants","Previs"]);
   buttons.forEach(b=>b.props.onClick());
   assert.deepEqual(went,[["kit",""],["kit","layout"],["kit","units"],["kit","previs"]]);
-  // the list can also open a room in place (blocks). The picture-first card does not use it: a room takes the card's
-  // place (LocationWorkspace, test-location-workspaces), so its row is a link; its image shows on the row either way
+  // ONE CARD (owner 2026-11-21): on the place's card a room opens in place, with its own sections; its row shows its image
   const toggled=[],planOpened=[];
   box.nbGetImage=id=>id==="kit"?"img:kit":"";
   const blocks={open:{kit:true},toggle:id=>toggled.push(id),render:room=>({type:"room-sheet",props:{id:room.id},children:[]})};
@@ -277,8 +189,8 @@ test("7 Subspaces: each room with its variants and scenes; a row opens the room,
   assert.deepEqual(planOpened,["place plan"]);assert.deepEqual(went,[["liv","units"],["liv","previs"]]);
   delete box.nbGetImage;
   // on the card: a main location only, open when it has rooms, with its extra spaces in the same section
-  const fold=sheet.slice(at('label:"Subspaces"'),at('label:"Generation Prompt"'));
-  assert.ok(sheet.includes('showSubspaces&&React.createElement(CardFold,{label:"Subspaces",foldId:"loc-subspaces-"+l.id,'));
+  const fold=sheet.slice(at(numbered("subspaces","Subspaces")),at(numbered("prompt","Generation Prompt")));
+  assert.ok(sheet.includes('showSubspaces&&React.createElement(CardFold,{label:sectionNo.subspaces+" \\u00b7 Subspaces",foldId:"loc-subspaces-"+l.id,'));
   assert.ok(fold.includes("count:hasRooms?roomLocations.length:undefined,defaultOpen:hasRooms}"));
   assert.ok(fold.includes("React.createElement(LocationSubspaceList,{rooms:roomLocations,units:sluglineUnits,onSelectLocation,\n          outside:outsideRooms,blocks:roomBlocks,\n          onAddToPlan:()=>window.goToLocationStep&&window.goToLocationStep(l,2)}),"));
   // (2026-11-16, the whole place first) a room with no outline on the place's floor plan says so on its row
@@ -306,10 +218,10 @@ test("8 one road: the step guide ends at the image, whose Go opens Previs when t
   assert.equal(image({...ready,previs:false}).goTo,0);assert.equal(image({...ready,previs:false}).todo,"Open 5 · Location image and make a quick image from the description.");
   assert.equal(image({previs:true}).goTo,0,"not before the floor plan and the cameras are done");
   assert.equal(guide({...ready,previs:true}).find(s=>s.key==="previs").optional,true,"Previs never holds up the guide");
-  assert.ok(ui.includes('{key:"image",step:s(5).goTo||5,title:"Location image",done:d5,'),"the image step opens Previs when the set is ready, else its own section (the quick image)");
-  assert.ok(ui.includes('if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,n);'));
+  assert.ok(ui.includes('const st=steps.find(x=>x.n===n)||{},to=st.key==="image"&&st.goTo?st.goTo:n;'),"the image step opens Previs when the set is ready, else its own section (the quick image)");
+  assert.ok(ui.includes('if(typeof window.goToLocationStep==="function")window.goToLocationStep(l,to);'));
   // the image's own section: The look (the same two saved fields) and the check; the prompt is read-only and last
-  const section=sheet.slice(at(numbered("image","Location image")),at('label:"Subspaces"'));
+  const section=sheet.slice(at(numbered("image","Location image")),at(numbered("variants","Variants")));
   assert.ok(section.includes('foldId:"loc-image-"+l.id,defaultOpen:false}'),"the image section keeps its own fold id, which step 5 opens");
   assert.ok(section.includes('React.createElement("h4",{className:"loc-step-sub"},"The look")')&&section.includes('className:"loc-render-style-details"'));
   assert.ok(section.includes('React.createElement(SheetField,{label:"Leave out",value:l.negativePrompt||d.negativePrompt,multiline:true,'),"Leave out: the same saved field, a plain name");
@@ -318,7 +230,7 @@ test("8 one road: the step guide ends at the image, whose Go opens Previs when t
   const note=box.locationImageStepNote;
   assert.equal(note({previs:true}),"The finished image of this place, shown at the top of the card. Make it in 4 \u00b7 Previs, from the set in 3D (make a draft, then choose Use as location image): that image keeps to the floor plan and the cameras. A quick image, from the description alone, can be made below. The look set here is used whichever way it is made.");
   assert.equal(note({previs:false}),"The finished image of this place, shown at the top of the card. A quick image, from the description in 1 \u00b7 The Space alone, can be made below. The look set here is used whichever way it is made.");
-  const prompt=sheet.slice(at('label:"Generation Prompt"'));
+  const prompt=sheet.slice(at(numbered("prompt","Generation Prompt")));
   assert.ok(!prompt.includes("window.QaCheckButton")&&prompt.includes('"data-testid":"loc-prompt-built-from"'));
   const built=l=>vm.runInNewContext(sheet.slice(sheet.indexOf("const promptBuiltFrom="),sheet.indexOf("// the time of day beside each scene"))+";promptBuiltFrom",{l});
   assert.equal(built({name:"Kitchen",parentLocation:{name:"House"}}),
@@ -445,7 +357,7 @@ test("13 a button is as big as the level it sits at (every Art Room card)", ()=>
   // the two that were the biggest buttons on the card
   assert.ok(css.includes(".loc-spatial-plan .loc-spatial-confirm{justify-content:center;width:100%;min-height:44px;"),"the floor plan's main button, before the level rule");
   assert.ok(!sheet.includes('"data-testid":"loc-own-blender"'),"the card has no Blender hand-off box any more (2026-11-15)");
-  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1", "20261121-cardb2", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1", "20261121-cardb2"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  assert.ok(["20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
 });
 
 test("14 the other tabs point at the new name; Frances knows the card; the styles and cache keys are in", ()=>{
@@ -453,12 +365,12 @@ test("14 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(shots.includes('" \\u2192 Variants, in the Art Room\'s Locations tab"')&&!shots.includes("\\u2192 Rooms & times, in the Art Room"));
   const s=ai.slice(ai.indexOf('APP_FEATURES.push({ name:"Location card structure (the card as a tree)"'));
   const entry=s.slice(0,s.indexOf("\n"));
-  for(const re of [/keeps its sections in the order you work, the five steps numbered 1 to 5, and shows them in four tabs under the card's picture \(To do, Scenes, Set, About\)/,/1 \\u00b7 The Space/,
+  for(const re of [/one numbered list, top to bottom, in the order you work: every section has a number and there is no gap/,/1 \\u00b7 The Space/,
       /Screenplay Coverage, at its top, is read from the screenplay and read-only/,/Narrative Significance, its last field/,
       /2 \\u00b7 Floor plan, with Moving parts \(optional\) at its end\. 3 \\u00b7 Cameras\./,/4 \\u00b7 Previs: the set in 3D, on every card \(optional\), where the location image is made from the set/,
-      /5 \\u00b7 LOCATION IMAGE: The look \(render style instructions and the Leave out field\) and the QA check/,/each time of day the screenplay's sluglines give the space/,/Add a variant/,/Sc 02 \(Pre-dawn\)/,
-      /SUBSPACES \(a main location only\)/,/GENERATION PROMPT: read-only, the last section/,/THE NUMBERS: the five steps keep their numbers, 1 \\u00b7 The Space to 5 \\u00b7 Location image; the looks \(the variants\), Subspaces and Generation Prompt are not steps and carry no number/,/Its fields are plain text boxes/,
-      /WHERE TO START: the To do tab of the card lists what is left, and Next, above the tabs, does the next thing \(the description first, where Draft specification writes it\) or everything that is left in order \(Do all N steps\)\./,/VARIANTS \(the card's row of looks, under the name\)/,/Nothing saved moved/])
+      /5 \\u00b7 LOCATION IMAGE: The look \(render style instructions and the Leave out field\) and the QA check/,/VARIANTS: each time of day/,/Add a variant/,/Sc 02 \(Pre-dawn\)/,
+      /SUBSPACES \(a main location only\)/,/GENERATION PROMPT: read-only, the last section/,/5 \\u00b7 Location image, 6 \\u00b7 Variants, 7 \\u00b7 Subspaces and 8 \\u00b7 Generation Prompt/,/Its fields are plain text boxes/,
+      /WHERE TO START: the tracker at the top of the card marks the step to do next and opens it \(1 \\u00b7 The Space first, where Draft specification writes the description\); Prepare this place, under the tracker, does what is left in order\./,/so its Generation Prompt is 7/,/Nothing saved moved/])
     assert.ok(re.test(entry),String(re));
   assert.ok(!/TURN|McKee|Claude|Anthropic|MUSE|Cinema Machine/.test(entry));
   assert.ok(!/Blender Studio section|Space and staging|SPACE AND STAGING/.test(ai),"Frances is not told about sections that are gone");
@@ -470,15 +382,15 @@ test("14 the other tabs point at the new name; Frances knows the card; the style
   assert.ok(ai.includes("'Rooms & times' is now the card's 'Variants' section")&&ai.includes("the 'More' section is gone"));
   for(const c of [".loc-parts-section{",".loc-used-in{",".loc-subspaces{",".loc-subspace-link{",".loc-variant-group{"]) assert.ok(css.includes(c),c);
   for(const f of ["locations-ui.jsx","blender-render-ui.jsx","shots-ui.jsx","ai.jsx","script.jsx","app.jsx"])
-    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1", "20261121-cardb2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
-  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1", "20261121-cardb2"].some(k=>html.includes("app/styles.css?v="+k+'"')));
-  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1", "20261121-cardb2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
+    assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its new cache key");
+  assert.ok(["20261113-tree1", "20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1"].some(k=>html.includes("app/styles.css?v="+k+'"')));
+  for(const f of ["locations-ui.jsx","ai.jsx","script.jsx"]) assert.ok(["20261113-order1", "20261113-step1", "20261113-rhythm1", "20261113-buttons1", "20261113-cards1", "20261113-bar1", "20261113-capture1", "20261115-previs2", "20261115-previs3", "20261115-drafts1", "20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" was re-keyed for the numbered sections");
 });
 
 test("15 Previs: step 4 on every card; optional; the camera check, the drafts under the button and the one rule", ()=>{
   // on every card, where the 3D view loaded; the fold draws only while it is open (CardFold mounts its body when open)
   assert.ok(sheet.includes("const showPrevis=!!(window.LocationPrevisStep&&window.KinolotPrevis&&window.KinolotSetDressing&&window.KinolotCloudRender);"));
-  assert.ok(sheet.includes('showPrevis&&React.createElement(CardFold,{label:"4 \\u00b7 Previs",foldId:locationStepFoldId(l,4),\n          defaultOpen:initialSection==="previs"||initialSection==="build"||initialSection==="style"},\n        React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:4,onSelectLocation,inside:asSection}),\n        // a place with rooms shows them here too, each inside the place\'s one 3D set (LocationPrevisPlace)\n        React.createElement(window.LocationPrevisPlace||window.LocationPrevisStep,{location:l,rooms:roomLocations,project,readOnly,onUpdate,hasImage:!!gen.genUrl,\n          imageMeta:gen.genUrl?gen.genMeta:null,imageN:sectionNo.image,onSelectLocation}))'));
+  assert.ok(sheet.includes('showPrevis&&React.createElement(CardFold,{label:"4 \\u00b7 Previs",foldId:locationStepFoldId(l,4),\n          defaultOpen:initialSection==="previs"||initialSection==="build"||initialSection==="style"},\n        React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:4,onSelectLocation,inside:asSection}),\n        // a place with rooms shows them here too, each inside the place\'s one 3D set (LocationPrevisPlace)\n        React.createElement(window.LocationPrevisPlace||window.LocationPrevisStep,{location:l,rooms:roomLocations,project,readOnly,onUpdate,hasImage:!!gen.genUrl,\n          imageMeta:gen.genUrl?gen.genMeta:null,imageN:sectionNo.image,onSelectLocation})),'));
   assert.ok(at('label:"4 \\u00b7 Previs"')>at('label:"3 \\u00b7 Cameras"')&&at('label:"4 \\u00b7 Previs"')<at(numbered("image","Location image")));
   // the step guide: optional (it never holds up the next step), done once the set is dressed
   const guide=o=>box.locationCardSteps({l:{id:"x"},drafted:true,spatialState:{ready:false,reason:"r"},gen:{},...o});
@@ -541,7 +453,7 @@ test("15 Previs: step 4 on every card; optional; the camera check, the drafts un
   const ai=read("app/ai.jsx"),html=read("TURN.html");
   assert.ok(ai.includes('name:"Previs (the set in 3D on a location card)"')&&ai.includes("DRESS THE SET")&&ai.includes("MAKE THE LOCATION IMAGE")&&ai.includes("THE RESULT IS A DRAFT")&&ai.includes("ONE RULE FOR USING A DRAFT"));
   for(const f of ["set-previs.js","set-previs-ui.jsx","locations-ui.jsx","locations.jsx","ai.jsx"])
-    assert.ok(["20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1", "20261121-cardb2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
+    assert.ok(["20261115-oneroad1", "20261116-place2", "20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
   assert.ok(html.indexOf("app/set-previs.js")>html.indexOf("app/camera-angle-preview.js")&&html.indexOf("app/set-dressing.js")>html.indexOf("app/blender-render.js"));
   assert.ok(css.includes(".previs-sheet{aspect-ratio:16/9;")&&read("app/blender-preview.css").includes(".style-draft-thumb{"));
 });
@@ -590,7 +502,7 @@ test("17 variants from the location image: one of its views at another hour, the
     assert.ok(card.includes("window.LocationPrevisVariant"),name);
   }
   const frame=read("app/artroom.jsx");
-  assert.ok(frame.includes('draftNote, noGenerate=false, toolsHost=null, dropSub="" }){')&&frame.includes('(!noGenerate || gening || gen.pendingSave) && React.createElement("div",{className:"sheet-gen-row"},'));
+  assert.ok(frame.includes("draftNote, noGenerate=false }){")&&frame.includes('(!noGenerate || gening || gen.pendingSave) && React.createElement("div",{className:"sheet-gen-row"},'));
   assert.ok(ui.includes("onRegenerate, variant=false }){")&&ui.includes('(variant ? ". Make a new draft from the location image below, or keep this one." : " \u2014 regenerate?")')
     &&ui.includes('!variant && React.createElement("button",{type:"button",className:"art-draftall",'));
   // the box is open while the variant has no image yet
@@ -615,7 +527,7 @@ test("17 variants from the location image: one of its views at another hour, the
   // Frances knows
   assert.ok(ai.includes("VARIANTS FROM THE LOCATION IMAGE (2026-11-16)")&&ai.includes("has ONE road to its image: the box 'Make this variant's image' under its frame")&&ai.includes("no 'Generate image' button and no Reference images strip any more")&&ai.includes("A variant's image is one frame, as before, never a grid.")&&!ai.includes("VARIANTS FROM THE 3D SET")&&ai.includes("BLENDER IS NOT OFFERED IN THE APP AT PRESENT"));
   for(const f of ["set-previs.js","set-previs-ui.jsx","locations-ui.jsx","shots-ui.jsx","ai.jsx"])
-    assert.ok(["20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1", "20261121-cardb2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
+    assert.ok(["20261116-variants1", "20261116-cancel1", "20261116-shell1", "20261116-delete1", "20261116-relight1", "20261116-variants2", "20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f+" has its cache key");
 });
 
 console.log(pass+" passed, "+fail+" failed");

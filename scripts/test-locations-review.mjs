@@ -190,7 +190,7 @@ await test("E3 the prompt is a section of the card; one view is edited, and a qu
   // (owner 2026-10-28) the prompt is a folded section of the card, no longer a ⋯ menu item
   assert.ok(!card.includes('"Show the generation prompt"'));
   assert.equal((card.match(/menuExtra:/g)||[]).length, 1, "one menu list (a second key would drop Same place as)");
-  assert.ok(/React\.createElement\(CardFold,\{label:"Generation Prompt",defaultOpen:false\},/.test(card) /* in the About tab since 2026-11-21 */);
+  assert.ok(/React\.createElement\(CardFold,\{label:sectionNo\.prompt\+" \\u00b7 Generation Prompt",defaultOpen:false\},/.test(card) /* numbered since 2026-11-13 */);
   // the quick image says when it writes the view composition first (it was the top Generate's tooltip)
   assert.ok(card.includes('const quickWritesFirst=!locStaged && !gen.slotHasRef && typeof aiAvailable==="function" && aiAvailable();'));
   assert.ok(card.includes("quickWritesFirst?\"Writes this place's view composition first (a small writing charge), then makes the image from it. \""));
@@ -199,7 +199,7 @@ await test("E3 the prompt is a section of the card; one view is edited, and a qu
 
 /* ═══ F ═══ */
 await test("F1 plainer names on screen; model-facing prompts keep their terms", ()=>{
-  for(const t of ['const h=e=>{ if(e&&e.detail==="loc-units-"+l.id) showVariants(); };' /* Rooms & times until 2026-11-13, then the Variants section; the card's looks since 2026-11-21 */, 'label:"How the rooms connect"', '"Fixed landmarks"', '"Extra spaces"', '"Add extra view notes"', 'label:"Visible fixed landmarks"'])
+  for(const t of ['CardFold,{label:sectionNo.variants+" \\u00b7 Variants",foldId:"loc-units-"+l.id,' /* Rooms & times until 2026-11-13; numbered the same day */, 'label:"How the rooms connect"', '"Fixed landmarks"', '"Extra spaces"', '"Add extra view notes"', 'label:"Visible fixed landmarks"'])
     assert.ok(ui.includes(t), t);
   for(const t of ['CardFold,{label:"Rooms & times"', 'CardFold,{label:"Slugline Units"', 'label:"Spatial topology"', 'React.createElement("span",null,"Continuity anchors")', '"Additional space plates"', '"Add coverage view"'])
     assert.ok(!ui.includes(t), t);

@@ -10441,7 +10441,8 @@ function App(){
     // the floating WRITING-engine dock (mirror of the Art Room's image dock) —
     // wherever text models run: the Writers' Room and the Art Room
     (room==="writers"||room==="art") && scenes.length>0 && (typeof window.WritingDock==="function")
-      && React.createElement(window.WritingDock, { task: room==="art" ? "specs" : "story" }),
+      && // on the Art Room's Locations tab the engine shown is the one location work runs on (Fable 5.2 unless picked)
+      React.createElement(window.WritingDock, { task: room==="art" ? (artView==="locations" ? "locations" : "specs") : "story" }),
 
     // Undo affordance — persists whether the Writers' Room is open or closed.
     // Suppressed for Adaptation (full build-from-scratch): the toast is easy to miss

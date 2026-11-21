@@ -5901,7 +5901,7 @@ if(typeof document!=="undefined" && typeof document.addEventListener==="function
 }
 window.frameFitImage = frameFitImage;
 
-function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs, draftNote, noGenerate=false, toolsHost=null, dropSub="" }){
+function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, drafting, onDraft, entity, onView, slotPlaceholder, noun, onDelete, deleteLabel, specGate, extraMeta, menuExtra, dropToImport, hideUploadButton, onStop, generateDisabled, generateDisabledLabel, generateDisabledTitle, generateTitle, onResolveGenerationBlock, referenceControls, editPropRefs, editSuggestions, generateRefs, attachRefs, draftNote, noGenerate=false }){
   const { genUrl, genMeta, genTier, gening, genErr, retrying, slotHasRef,
     editMode, setEditMode, editText, setEditText, generate, cancelGen, clearGen, importSheet, relatedClearCount, relatedClearIdsOf, relatedClearLabel, revertPrevious, layers, allModels } = gen;
   // Resolution ALWAYS shows on the caption. Prefer the stored size; if it's missing
@@ -6070,7 +6070,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
             title:"Drop a finished "+noun+" here, or click to browse \u2014 it's imported at full resolution and becomes this "+noun},
             React.createElement(Icon.image,{s:26}),
             React.createElement("div",{className:"sheet-dropzone-cap"}, slotPlaceholder||("Drop a "+noun)),
-            React.createElement("div",{className:"sheet-dropzone-sub"}, dropSub||"or click to browse files"))
+            React.createElement("div",{className:"sheet-dropzone-sub"}, "or click to browse files"))
         : React.createElement(React.Fragment,null,
             React.createElement("image-slot",{id:slotId,className:"sheet-slot",
               shape:"rounded",radius:"10",placeholder:slotPlaceholder||"Drop reference art"}),
@@ -6084,11 +6084,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
       React.createElement("div",{className:"sheet-busy-cap"},
         gen.saving ? "Saving the image\u2026" : pendingGenerate ? "Drafting the spec first\u2026"
           : retrying ? "Retrying with a simpler prompt\u2026" : "Generating the image\u2026")),
-    /* THE \u22ee MENU CAN LIVE ELSEWHERE ON THE CARD (2026-11-21, the picture-first location card: its menu is beside the
-       name, and stays there while the picture shows the 3D set, the floor plan or a look). toolsHost: the element it is
-       drawn in; without one it sits on the image, top right, as on every other card. */
-    ((tools)=>(tools&&toolsHost&&window.ReactDOM&&window.ReactDOM.createPortal)?window.ReactDOM.createPortal(tools,toolsHost):tools)(
-    (genUrl || onDelete || importSheet || canOpenDetails) && React.createElement("div",{className:"sheet-gen-tools"+(toolsHost?" hosted":""),style:toolsHost?undefined:{top:8,right:8}},
+    (genUrl || onDelete || importSheet || canOpenDetails) && React.createElement("div",{className:"sheet-gen-tools",style:{top:8,right:8}},
       React.createElement("div",{className:"sheet-tools-menu",ref:menuRef},
         React.createElement("button",{className:"sheet-gen-tool",onClick:()=>setMenuOpen(m=>!m),title:"Options"},
           React.createElement(Icon.moreV,{s:14})),
@@ -6222,7 +6218,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
               }
               onDelete();
             }},
-            React.createElement(Icon.trash,{s:14}),deleteLabel||"Delete")))))),
+            React.createElement(Icon.trash,{s:14}),deleteLabel||"Delete"))))),
     editMode && React.createElement("div",{className:"sheet-edit-panel"},
       React.createElement("input",{className:"sheet-edit-input",type:"text",autoFocus:true,
         placeholder:"Describe changes\u2026  e.g. "+(noun==="prop sheet"?"make the metal brushed steel":"change jacket to black, add glasses"),
@@ -9403,6 +9399,9 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
   },[]);
   const midLabel = ((window.WRITING_MODELS||[]).find(m=>m.id===mid)||{}).label || mid || "the default model";
   const midRec = !!mid && typeof window.recommendedWritingModelId==="function" && window.recommendedWritingModelId("specs")===mid;
+  // location work has its own default engine (owner 2026-11-21); said when it is not the run's own
+  const locMid = (typeof window.getWritingModelId==="function") ? window.getWritingModelId("locations") : "";
+  const locLabel = (locMid && locMid!==mid) ? (((window.WRITING_MODELS||[]).find(m=>m.id===locMid)||{}).label || "") : "";
   const hasWork = totalGen>0;
   const note = (icon, text, cls)=> React.createElement("div",{className:"cc-note"+(cls?" "+cls:"")},
     React.createElement(Icon[icon]||Icon.alert,{s:12}), React.createElement("span",null,text));
@@ -9434,6 +9433,7 @@ function CoordConfirm({ project, characters, props, locations, shots, scenes, dr
       React.createElement("div",{className:"cc-model"},
         React.createElement(Icon.sparkles,{s:12}),
         React.createElement("span",null,"Writes with ",React.createElement("b",null,midLabel+(midRec?" · recommended":"")),
+          locLabel ? " (location work with "+locLabel+")" : "",
           " — switch it under the writing engine in the top bar (Engines on a phone) before you run. The run starts as soon as you press Run.")),
       React.createElement("div",{className:"cc-foot"},
         React.createElement("button",{className:"ns-btn ghost",onClick:onCancel},"Cancel"),

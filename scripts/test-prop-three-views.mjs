@@ -157,7 +157,7 @@ await test("7 Frances knows it; the page loads the new files", () => {
   assert.ok(!/\bTURN\b|MUSE|McKee|Claude|Anthropic|Gemini|GPT/.test(f) && !/credit/i.test(f));   // "turn" the verb is fine
   assert.ok(!ai.includes("same 4-panel layout (hero, front, side, detail)") && ai.includes("the same 3-view layout (front, side, close-up)"));
   assert.ok(!ai.includes("expands to every match and the full passage"));
-  for (const file of ["props.jsx", "ai.jsx", "styles.css"]) assert.ok(["20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-cardb1", "20261121-cardb2"].some(k => html.includes(file + "?v=" + k + '"')), file + " has a current key");
+  for (const file of ["props.jsx", "ai.jsx", "styles.css"]) assert.ok(["20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1"].some(k => html.includes(file + "?v=" + k + '"')), file + " has a current key");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");
