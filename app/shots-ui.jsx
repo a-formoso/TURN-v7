@@ -156,6 +156,13 @@ function AdvancedCameraSettings({ sh, onUpdate }){
    render — chain-staleness audits included. prevShot/laterShots are recomputed
    here from sceneShots with the exact seedShotOf logic the shot list uses.
    ctx must be the Shots-tab shape: { scene, location, charById, propById, project, locations }. */
+/* THE SHOT PROMPT PREVIEW, built only while its section is open (2026-11-22). It reflects what WILL generate: a
+   non-head shot chains from the previous frame (continuity_anchor present); the head renders fresh from the sheets. */
+function ShotPromptBox({ pack, isHead }){
+  return _el(CopyBox,{label: isHead ? "Final frame prompt \u2014 master + grade + references" : "Final frame prompt \u2014 master + grade + reference frame + sheets",
+    text: isHead ? pack.finalPrompt : pack.chainPrompt});
+}
+
 function shotFrameGenOpts(sh, sceneShots, ctx){
   const ordered = Array.isArray(sceneShots) ? sceneShots : [];
   const runEpoch = (typeof nbEpoch==="function") ? nbEpoch() : null;
@@ -175,8 +182,13 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     carriedForward:(renderPlan&&renderPlan.carriedForward)||[],
     carriedTextOnly:(renderPlan&&renderPlan.carriedTextOnly)||[],
     sceneContext:(renderPlan&&renderPlan.sceneContext)||null };
-  const finalPrompt = combinedShotPrompt(sh, promptCtx);
-  const chainPrompt = (typeof buildShotPrompt==="function") ? buildShotPrompt(sh, { ...promptCtx, prevFrameRole:true }) : finalPrompt;
+  /* BUILT WHEN ASKED FOR, AND ONCE (2026-11-22). Both prompts used to be built for every card on every draw: 34 builds
+     for a 17-shot scene, about 80 ms each, so each redraw of the scene took seconds. Only a render, the Stage's
+     composer and an open "Shot prompt" section read them; what they are built from is fixed when this runs. */
+  let _final, _chain;
+  const getFinal = ()=> _final!==undefined ? _final : (_final = combinedShotPrompt(sh, promptCtx));
+  const getChain = ()=> _chain!==undefined ? _chain
+    : (_chain = (typeof buildShotPrompt==="function") ? buildShotPrompt(sh, { ...promptCtx, prevFrameRole:true }) : getFinal());
   const assertSceneContext = ()=>{
     if(!renderPlan || !renderPlan.sceneContext || typeof shotSceneContextStillCurrent!=="function") return true;
     const stale = msg=>{
@@ -246,7 +258,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
   const opts = {
     id: sh.id, slotId: "shot-"+sh.id,
     entity: sh,
-    buildFinal: ()=>{ assertSceneContext(); return finalPrompt; },
+    buildFinal: ()=>{ assertSceneContext(); return getFinal(); },
     // the "no image" recovery path must speak the SAME language as the main render —
     // a fresh plan supplies carriedForward so the numbered image map still matches
     // the refs the unified resolver attached (review finding: this fallback was the
@@ -261,7 +273,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
           simpleMode:true });
     },
     referenceFallback: deriveBase,
-    buildFromBase: ()=>{ assertSceneContext(); return chainPrompt; },
+    buildFromBase: ()=>{ assertSceneContext(); return getChain(); },
     attachments: collectShotRefs,
     // Required manual location references must survive every Art Room mode,
     // including a simplified retry and the Stage composer.
@@ -426,7 +438,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
        });
     },
   };
-  return { opts, finalPrompt, chainPrompt, renderPlan, prevShot, laterShots };
+  return { opts, get finalPrompt(){ return getFinal(); }, get chainPrompt(){ return getChain(); }, renderPlan, prevShot, laterShots };
 }
 window.shotFrameGenOpts = shotFrameGenOpts;
 
@@ -566,11 +578,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   const characterReferenceSpecs=(renderPlan&&Array.isArray(renderPlan.castSpec))
     ?renderPlan.castSpec
     :subjects.map(c=>({id:c.id,baseId:c.id,entityId:c.id,label:c.name,referenceKind:"character",version:1}));
-  const finalPrompt = framePack.finalPrompt;
-  const chainPrompt = framePack.chainPrompt;
-  // the "Shot prompt" preview reflects what WILL generate: a non-head shot chains from the
-  // previous frame (continuity_anchor present); the head renders fresh from the sheets.
-  const previewPrompt = isHead ? finalPrompt : chainPrompt;
+  // (the "Shot prompt" preview is built by ShotPromptBox, only while its section is open)
 
   const gen = useImageGen(framePack.opts);
   const frameSourceStatus = gen.genUrl && typeof shotAssetProvenanceStatus==="function"
@@ -1461,7 +1469,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
               onApplySpec:(patch)=>onUpdate(sh.id, (patch && patch.action!=null && spOpening) ? { ...patch, actionByHand:true } : patch) })))),
       // the shot prompt has its own section (owner 2026-11-02), read-only, before the tools
       _el(CardFold,{label:"Shot prompt",defaultOpen:false},
-        _el(CopyBox,{label: isHead ? "Final frame prompt \u2014 master + grade + references" : "Final frame prompt \u2014 master + grade + reference frame + sheets",text:previewPrompt})),
+        _el(ShotPromptBox,{pack:framePack,isHead})),
       // (the shot card's last section, "More tools \u00b7 Blender", went on 2026-11-16, owner: "that should go too": first
       // its "Open this shot in Blender" button, then "Blender preview \u00b7 rough blockout". BlenderPreviewPanel stays in its file.)
       ));
@@ -2187,10 +2195,10 @@ function ScenePlanBlock({ scene, bm, ordered, ctx, characters, planning, failed,
           typeof LocationRunProgress==="function" ? _el(LocationRunProgress,{work:mine}) : _el("span",{className:"ns-spin"}))
         : _el(React.Fragment,null,
           window.InfoTip && _el(window.InfoTip,{label:"About the scene plan",
-            text:"One writing pass reads the whole scene, then every beat. It writes where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends. It asks first, and it replaces this scene’s drafted shots as Re-draft does. The checks are worked out by the app and make no call."}),
+            text:"A few short writing passes read the whole scene, then every beat: the staging first, then the shots a few beats at a time. They write where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends. It asks first, and it replaces this scene’s drafted shots as Re-draft does. The checks are worked out by the app and make no call."}),
           (!readOnly && onPlan) && _el("button",{type:"button",className:"char-draft-btn ghost","data-testid":"scene-plan-run",disabled:!!blocked,
-            title:plan ? "Write this scene’s plan again in one writing pass (writing credits). It asks first and says what it replaces."
-              : "Plan this scene in one writing pass (writing credits): blocking, the line, the things, and the shots with how each starts and ends. It asks first.",
+            title:plan ? "Write this scene’s plan again (writing credits). It asks first and says what it replaces."
+              : "Plan this scene (writing credits): blocking, the line, the things, and the shots with how each starts and ends. It asks first.",
             onClick:()=>onPlan(scene)},_el(Icon.sparkles,{s:12}),plan?"Plan again":"Plan this scene"))),
     fail && _el("div",{className:"ssx-plan-fail",role:"alert","data-testid":"scene-plan-failed"},fail),
     outdated && !mine && _el("div",{className:"bc-stale"},"The screenplay changed since this plan was made. Plan again to bring it up to date."),
@@ -2243,7 +2251,7 @@ function ScenePlanBlock({ scene, bm, ordered, ctx, characters, planning, failed,
 function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, pager, onUpdate, onDelete, onView,
   onDeleteShotReference, onAddShot, onSplitBeat, splittingBeat, onSplitMoments, onJoinMoments, onRefineBeat, refiningBeat, onDraftScene, draftingScene, draftingBlocked, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
   onRenderScene, renderBusy, queueMode, onStopChain, scenePlan, onMakeSceneNeeds, readOnly=false,
-  // the scene plan (2026-11-22; `scenePlan` above is the render plan): one writing pass, and its things as prop cards
+  // the scene plan (2026-11-22; `scenePlan` above is the render plan): a few short writing passes, and its things as prop cards
   onPlanScene, planningScene, scenePlanFailed, onAddScenePlanProps }){
   const loc = ctx.location;
   // WHAT THIS SCENE NEEDS (2026-10-03, owner — Shots review): the reference images its frames

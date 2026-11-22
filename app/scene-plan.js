@@ -3,7 +3,8 @@
    scene ... we need these props listed in the props tab ... assign them to each character ... and ... to their
    particular scenes ... How do we ensure this happens for every project?").
 
-   One writing pass reads the whole scene, then every beat, and answers with:
+   A few short writing passes (the staging from the whole scene, then the shots a few beats at a time: no single call
+   may run past the ~150 s the server waits) read the whole scene, then every beat, and answer with:
      blocking     where each person stands in each beat, in the set's own terms
      the line     which side the camera keeps to
      things       every prop, what people wear and each door, beat by beat (the THINGS TRACKER)
@@ -757,19 +758,49 @@
 
   /* ---- WORDS THE APP SAYS -------------------------------------------------------------- */
   // how long the writing pass usually takes: it grows with the beats
-  function estimateSeconds(beatCount){ return Math.min(360,60+25*Math.max(1,Math.round(Number(beatCount))||1)); }
+  /* THE SHOTS ARE WRITTEN A FEW BEATS AT A TIME (2026-11-22): whole beats while a group stays within `max` moments; a
+     beat longer than that is cut into runs of `max`. Each group is one short writing call. A unit is {n, from, to}:
+     a beat and its moments, counted from 0. */
+  const SHOT_GROUP_MOMENTS=6;
+  function shotGroups(beatNos,momentCount,max){
+    max=Math.max(1,Math.round(Number(max))||SHOT_GROUP_MOMENTS);
+    const out=[]; let cur=[],n=0;
+    const flush=()=>{ if(cur.length){ out.push(cur); cur=[]; n=0; } };
+    (Array.isArray(beatNos)?beatNos:[]).forEach(b=>{
+      const c=Math.max(1,Math.round(Number((momentCount||{})[b]))||1);
+      if(c>max){ flush(); for(let f=0;f<c;f+=max) out.push([{n:b,from:f,to:Math.min(c,f+max)-1,part:true}]); return; }
+      if(n+c>max) flush();
+      cur.push({n:b,from:0,to:c-1}); n+=c;
+    });
+    flush(); return out;
+  }
+  // "beat 3", "beats 1 and 2", "beats 1 to 3", "beat 4, moments 7 to 12"
+  function groupLabel(units){
+    units=Array.isArray(units)?units:[];
+    if(!units.length) return "";
+    if(units.length===1){ const u=units[0]; return "beat "+u.n+(u.part ? ", moments "+(u.from+1)+" to "+(u.to+1) : ""); }
+    const a=units[0].n,z=units[units.length-1].n;
+    return units.length===2 ? "beats "+a+" and "+z : "beats "+a+" to "+z;
+  }
+  /* how long a plan takes, for the progress line: the staging, then each group of shots. Before the groups are known
+     (calls not given), about one group for every two beats. */
+  function estimateSeconds(beatCount,calls){
+    const beats=Math.max(1,Math.round(Number(beatCount))||1);
+    const groups=Number(calls)>1 ? Math.round(Number(calls))-1 : Math.max(1,Math.ceil(beats/2));
+    return Math.min(1200,80+70*groups);
+  }
   function confirmText(o){
     o=o||{};
     const no=String(o.sceneNo==null?"":o.sceneNo).padStart(2,"0");
     const body="Reads the whole scene, then every beat, and writes: where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends."
-      +" One writing pass"+(o.engine?" on "+o.engine:"")+"; no image is made."
+      +" A few short writing passes"+(o.engine?" on "+o.engine:"")+" (the staging, then the shots a few beats at a time); no image is made."
       +(o.hasShots ? " It replaces this scene's drafted shots as Re-draft does: each beat's opening shot keeps its ID and its images, changed frames need making again, and extra shots move to Recently deleted, where you can restore them."+(o.replaces||"") : "");
     return {title:(o.again?"Plan Scene "+no+" again":"Plan Scene "+no)+" (writing credits)?",body,
       confirmLabel:o.again?"Plan again":"Plan this scene",cancelLabel:"Cancel"};
   }
 
   const api={SIZES,ANGLES,MOVES,HANDOFFS,sizeId,angleId,moveId,lensId,handoffType,sets,beatSets,brief,normalize,shotRows,applyToShots,
-    linkPropToShots,unplan,PLAN_FIELDS,stateText,namesOf,wordsFor,exact,OLD_PLAN_NOTE,handoffText,checks,thingProp,thingCard,originLabel,ownerItems,estimateSeconds,confirmText,sameText,snapLine,parseHeading};
+    linkPropToShots,unplan,PLAN_FIELDS,stateText,namesOf,wordsFor,exact,OLD_PLAN_NOTE,handoffText,checks,thingProp,thingCard,originLabel,ownerItems,estimateSeconds,shotGroups,groupLabel,SHOT_GROUP_MOMENTS,confirmText,sameText,snapLine,parseHeading};
   root.ScenePlan=api;
   root.scenePlanChecks=checks;
 })(typeof window!=="undefined"?window:globalThis);

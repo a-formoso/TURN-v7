@@ -468,7 +468,7 @@ test("7 the scene plan runs on Fable 5.2 by default; a pick wins; a trial stays 
   b.pick("claude-opus-5-5"); assert.equal(b.get("scenePlan"),"claude-opus-5-5"); b.pick(null);
   b.window.turnOnFreeTier=()=>true;
   assert.equal(b.rec("scenePlan"),"gemini-3.8-flash");
-  // the call itself runs under that task, in ONE writing pass, and what it asks for is checked in code
+  // the call itself runs under that task (one place makes every call), and what it asks for is checked in code
   assert.ok(ai.includes('if(typeof fn === "function") window.aiPlanScene = (...a)=> window.turnWithWritingTask("scenePlan", ()=> fn(...a)); }'));
   const fn=ai.slice(ai.indexOf("async function aiPlanScene("),ai.indexOf("window.aiPlanScene = aiPlanScene;"));
   assert.equal((fn.match(/window\.claude\.complete\(/g)||[]).length,1);
@@ -489,10 +489,10 @@ test("7 the scene plan runs on Fable 5.2 by default; a pick wins; a trial stays 
 test("8 it asks first, says what it replaces as Re-draft does, shows its progress where it was pressed, and a failure changes nothing", ()=>{
   const q=SP.confirmText({sceneNo:5,engine:"Engine X",hasShots:true,replaces:" It replaces 1 approved frame (unapproved where the shot changes)."});
   assert.equal(q.title,"Plan Scene 05 (writing credits)?"); assert.equal(q.confirmLabel,"Plan this scene"); assert.equal(q.cancelLabel,"Cancel");
-  assert.match(q.body,/^Reads the whole scene, then every beat, and writes: where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends\. One writing pass on Engine X; no image is made\./);
+  assert.match(q.body,/^Reads the whole scene, then every beat, and writes: where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends\. A few short writing passes on Engine X \(the staging, then the shots a few beats at a time\); no image is made\./);
   assert.match(q.body,/It replaces this scene's drafted shots as Re-draft does: each beat's opening shot keeps its ID and its images, changed frames need making again, and extra shots move to Recently deleted, where you can restore them\. It replaces 1 approved frame/);
   const first=SP.confirmText({sceneNo:12,engine:"",hasShots:false});
-  assert.ok(!/replaces/.test(first.body)&&/One writing pass; no image is made\./.test(first.body));
+  assert.ok(!/replaces/.test(first.body)&&/A few short writing passes \(the staging, then the shots a few beats at a time\); no image is made\./.test(first.body));
   assert.equal(SP.confirmText({sceneNo:5,again:true,hasShots:true}).title,"Plan Scene 05 again (writing credits)?");
   // the run: the question before the call, the same road as Re-draft for the shots, the plan saved with the film
   const fn=app.slice(app.indexOf("const planSceneShots = async (scene)=>{"),app.indexOf("const addScenePlanProps = (scene, keys)=>{"));
@@ -514,7 +514,7 @@ test("8 it asks first, says what it replaces as Re-draft does, shows its progres
   assert.ok(fn.includes("const { shots:_planShots, ...planBody } = res.plan;"));
   assert.ok(fn.includes('screenplayRev:res.screenplayRev||"", sets:res.sets, beats:beatNos, shotCount:(res.plan.shots||[]).length, checks:found };'));
   // the usual time grows with the beats
-  assert.equal(SP.estimateSeconds(1),85); assert.equal(SP.estimateSeconds(6),210); assert.equal(SP.estimateSeconds(40),360);
+  assert.equal(SP.estimateSeconds(1),150); assert.equal(SP.estimateSeconds(6),290); assert.equal(SP.estimateSeconds(40),1200);
   // the block: the button, or the progress line where the button was (text, bar, clock, engine), or the failure
   const block=ui.slice(ui.indexOf("function ScenePlanBlock("),ui.indexOf("function SceneShotGroup("));
   for(const t of ['_el("span",{className:"ssx-brief-lab"},"Scene plan")','mine ? _el("div",{className:"ssx-plan-work","data-testid":"scene-plan-work",role:"status"},',
@@ -560,7 +560,7 @@ test("9 the brief, Frances's fact, the pipeline and the keys", ()=>{
   assert.ok(told&&told.what.length>1500);
   assert.equal(b.sent(told.what).length,b.sent(fact.what.replace(/\s+/g," ")).length,"no sentence is dropped as billing, plan or vendor talk");
   assert.ok(!/Anthropic|Claude|OpenAI|Google|Gemini|GPT|Fable|Opus|Sonnet|McKee|\bTURN\b|Cinema Machine|MUSE/.test(fact.name+" "+fact.what));
-  for(const t of ["press Plan this scene. It asks first.","one writing pass reads the whole scene first","MARKS: the named standing places of each set","BLOCKING: the mark each person is on in each beat",
+  for(const t of ["press Plan this scene. It asks first.","it reads the whole scene first","It works in a few short steps, the staging first and then the shots a few beats at a time, and the row says which step it is on.","MARKS: the named standing places of each set","BLOCKING: the mark each person is on in each beat",
     "WHO IS IN FRAME is the plan's own answer for that shot: nobody for an insert or an empty street","They compare marks, holders and doors, never wording","A row marked Note is a difference of a few words only",
     "The count on the Scene plan row (3 to fix) counts the rows to fix only","it says Plan again to get exact checks","how it STARTS and how it ENDS","each beat's opening shot keeps its ID and its images",
     "THE CHECKS are worked out by the app itself","how many tracked things have no prop card","Add to Props; Add all N adds every one of the scene at once","From the scene plan, with the scene's number",
@@ -578,7 +578,35 @@ test("9 the brief, Frances's fact, the pipeline and the keys", ()=>{
   assert.ok(at('<script src="app/scene-plan.js?v=')<at('src="app/props.jsx?v=')&&at('<script src="app/scene-plan.js?v=')<at('src="app/shots.jsx?v='));
   assert.ok(at('src="app/locations-ui.jsx?v=')<at('src="app/shots-ui.jsx?v='),"the progress line's own file comes before the Shots tab");
   for(const f of ["scene-plan.js","shots.jsx","shots-ui.jsx","props.jsx","artroom.jsx","ai.jsx","script.jsx","app.jsx","styles.css"])
-    assert.ok(["20261122-plan1", "20261122-plan2"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-plan1", "20261122-plan2", "20261122-plan3"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+});
+
+test("9b the shots are written a few beats at a time: whole beats up to six moments, a long beat in runs of six", ()=>{
+  const g=(bn,mc,max)=>plain(SP.shotGroups(bn,mc,max));
+  assert.equal(SP.SHOT_GROUP_MOMENTS,6);
+  assert.deepEqual(g([1,2,3,4,5],{1:3,2:3,3:4,4:5,5:2}),[[{n:1,from:0,to:2},{n:2,from:0,to:2}],[{n:3,from:0,to:3}],[{n:4,from:0,to:4}],[{n:5,from:0,to:1}]]);
+  assert.deepEqual(g([1,2,3],{1:1,2:1,3:1}),[[{n:1,from:0,to:0},{n:2,from:0,to:0},{n:3,from:0,to:0}]]);
+  assert.deepEqual(g([1,2],{1:14,2:2}),[[{n:1,from:0,to:5,part:true}],[{n:1,from:6,to:11,part:true}],[{n:1,from:12,to:13,part:true}],[{n:2,from:0,to:1}]]);
+  assert.deepEqual(g([4],{}),[[{n:4,from:0,to:0}]]); assert.deepEqual(g([],{}),[]);
+  // every moment is in exactly one group, in order
+  const flat=plain(SP.shotGroups([1,2,3,4],{1:7,2:2,3:6,4:1})).flat().flatMap(u=>Array.from({length:u.to-u.from+1},(_,i)=>u.n+"."+(u.from+i+1)));
+  assert.deepEqual(flat,["1.1","1.2","1.3","1.4","1.5","1.6","1.7","2.1","2.2","3.1","3.2","3.3","3.4","3.5","3.6","4.1"]);
+  assert.equal(SP.groupLabel([{n:3,from:0,to:2}]),"beat 3"); assert.equal(SP.groupLabel([{n:1,from:0,to:1},{n:2,from:0,to:0}]),"beats 1 and 2");
+  assert.equal(SP.groupLabel([{n:1,from:0,to:0},{n:2,from:0,to:0},{n:3,from:0,to:0}]),"beats 1 to 3"); assert.equal(SP.groupLabel([{n:4,from:6,to:11,part:true}]),"beat 4, moments 7 to 12");
+  assert.equal(SP.groupLabel([{n:4,from:0,to:5,part:true}]),"beat 4, moments 1 to 6"); assert.equal(SP.groupLabel([]),"");
+  // the progress line's estimate: the staging and each group; a guess from the beats until the groups are known
+  assert.equal(SP.estimateSeconds(5),290); assert.equal(SP.estimateSeconds(5,4),290); assert.equal(SP.estimateSeconds(5,2),150); assert.equal(SP.estimateSeconds(1),150);
+  assert.equal(SP.estimateSeconds(60),1200);
+  // no single call may wait past the server's limit, and the run says which step it is on
+  const fn=ai.slice(ai.indexOf("const SCENE_PLAN_CALL_MS"),ai.indexOf("window.aiPlanScene = aiPlanScene;"));
+  assert.ok(fn.startsWith("const SCENE_PLAN_CALL_MS = 140000;")&&fn.includes("maxTokens:16000, timeoutMs:SCENE_PLAN_CALL_MS,"));
+  assert.ok(fn.includes("const groups = SP.shotGroups(beatNos, momentCount);")&&fn.includes('step(2+g, "the shots of "+SP.groupLabel(units));'));
+  assert.ok(app.includes('const onStep = (st)=> setPlanningScene(cur=> (cur && cur.id===scene.id) ? { ...cur, est:SP.estimateSeconds(beatRows.length, st.of),')
+    &&app.includes('text:"Planning Scene "+no+", step "+st.step+" of "+st.of+": "+st.text+"\\u2026" } : cur);'));
+  assert.ok(app.includes('+(res.stopped ? "The writing engine stopped answering part of the way; press Plan again to finish it. " : "")'));
+  // a gateway time-out is said in plain words, as a time-out
+  assert.ok(ai.includes('if(status===504 || status===546){')&&ai.includes('const msg = "The writing engine didn\'t answer in time, so the server stopped waiting for it. Try again in a few minutes.";'));
+  assert.ok(/took too long to answer|didn[’']t answer in time/i.test("The writing engine didn't answer in time, so the server stopped waiting for it."));
 });
 
 /* the writing pass itself, with a stand-in for the engine: what it is told, that it is asked once, and what comes back */
@@ -601,9 +629,22 @@ await (async ()=>{
     const args=[scene,beatsMap.s5,blocks,{project:{title:"Slack Water",logline:"A brother leaves."},characters:[{...characters[0],pronouns:"she/her"},characters[1]],
       locations:[{...locations[0],architecture:"A narrow galley kitchen with one window over the sink."},locations[1]],props,scenes,drafts,beatsMap}];
     const res=await b.aiPlanScene(...args);
-    assert.equal(asked.length,1,"ONE writing pass for the whole scene");
-    assert.equal(asked[0].maxTokens,32768); assert.equal(asked[0].effort,"medium");
-    const told=asked[0].messages[0].content;
+    // SHORT CALLS: the staging from the whole scene, then the shots (four moments here: one group), each under the server's limit
+    assert.equal(asked.length,3,"the staging (two calls at the same time: the places, the things), then one group of shots");
+    for(const a of asked){ assert.equal(a.maxTokens,16000); assert.equal(a.effort,"medium"); assert.equal(a.timeoutMs,140000); assert.equal(a.quietTimeout,true); }
+    assert.equal(res.calls,2); assert.equal(res.stopped,"");
+    const told=asked[0].messages[0].content, toldThings=asked[1].messages[0].content, toldShots=asked[2].messages[0].content;
+    assert.ok(told.includes("SCREENPLAY \u2014 THE WHOLE SCENE, BY BEAT AND MOMENT. This is canon")&&told.includes("Return four things:\n1. marks: ")&&told.includes("\n4. cameraIdea: ")&&!told.includes("EXACTLY ONE shot for each MOMENT")&&!told.includes("THINGS TRACKER"));
+    assert.ok(toldThings.includes("SCREENPLAY \u2014 THE WHOLE SCENE, BY BEAT AND MOMENT. This is canon")&&toldThings.includes("Return one thing:\nthings: the THINGS TRACKER.")&&!toldThings.includes("1. marks: "));
+    assert.ok(toldThings.includes("- prop-keys: \u201cCar keys\u201d (carried by Yusuf Hussain)")&&/Return ONLY compact JSON: \{"things":\[.*\]\}$/.test(toldThings),"the things call has the prop cards and asks for the tracker only");
+    assert.ok(/Return ONLY compact JSON: \{"marks":.*"cameraIdea":"\.\.\."\}$/.test(told),"the staging asks for no shot");
+    for(const t of ["FILM: Slack Water. Logline: A brother leaves.","- amira: Amira Hussain (she/her)","BEAT TABLE","THE STAGING OF THIS SCENE (settled: use its mark ids, its thing keys and its line exactly as given; never rename or move them):\n{\"marks\":[",
+      "These are the scene's first shots.","SCREENPLAY \u2014 THE MOMENTS TO SHOOT NOW, BY BEAT AND MOMENT. This is canon","===== BEAT 3 \u2014 set set2 =====","These are the scene's last moments.",
+      "shots: EXACTLY ONE shot for each MOMENT of each beat given here, in order.","A shot's end state is the next shot's start state, across beats too",
+      "A mark or a tracked thing a moment needs and the staging lacks may be added"]) assert.ok(toldShots.includes(t),"the shots call is told: "+t.slice(0,60));
+    assert.ok(/Return ONLY compact JSON: \{"shots":\[.*\],"marks":\[\],"things":\[\]\}$/.test(toldShots));
+    assert.ok(!/Anthropic|Claude|OpenAI|Gemini|GPT|McKee|Fable|Opus|\bTURN\b/.test(toldShots),"a vendor's name in the staging answer is not passed on to the next call");
+    assert.ok(toldShots.includes("As the writing engine would: hold wide, then close in."));
     for(const t of ["FILM: Slack Water. Logline: A brother leaves.","SCENE #5 “The Lunch Box” (INT. HUSSAIN KITCHEN - NIGHT)","Value turn: Trust (positive) → Distance (negative)",
       "Driver: Amira Hussain — objective: To keep Yusuf at home.","Reactor: Yusuf — obstacle: He means to leave tonight.","Turning point (beat 2): He puts the keys down and says he will walk.",
       "Just before this scene (scene 4): Yusuf is told the job is his.","The next scene opens at: EXT. COAST ROAD - DAY","- amira: Amira Hussain (she/her)\n- yusuf: Yusuf Hussain",
@@ -643,10 +684,44 @@ await (async ()=>{
     // an answer that cannot be read, or that names no shot, is a failure with nothing changed (never a made-up plan)
     b.__answer="not json"; b.claude.complete=async()=>"I cannot do that.";
     await assert.rejects(()=>b.aiPlanScene(...args),/could not be read\. Nothing was changed/);
-    b.claude.complete=async()=>JSON.stringify({shots:[{beat:9,size:"WS"}]});
+    b.claude.complete=async o=>JSON.stringify(/THE STAGING OF THIS SCENE/.test(o.messages[0].content) ? {shots:[{beat:9,size:"WS"}]} : {marks:[],blocking:[],things:[]});
     await assert.rejects(()=>b.aiPlanScene(...args),/named no shot for this scene's beats\. Nothing was changed/);
-    b.claude.complete=async()=>{ throw new Error("The writing engine took too long to answer."); };
-    await assert.rejects(()=>b.aiPlanScene(...args),/took too long/);
+    // an answer that cannot be read is asked for once more, then it is a failure
+    let tries=0; b.claude.complete=async()=>{ tries++; return "I cannot do that."; };
+    await assert.rejects(()=>b.aiPlanScene(...args),/could not be read\. Nothing was changed/); assert.equal(tries,4,"each of the two staging calls is asked twice");
+    // a call that runs out of time is asked once more; any other failure (credits, plan) is said once
+    tries=0; b.turnIsWritingTimeout=e=>/took too long|didn.t answer in time/.test(String(e&&e.message||e));
+    b.claude.complete=async()=>{ tries++; throw new Error("The writing engine took too long to answer."); };
+    await assert.rejects(()=>b.aiPlanScene(...args),/took too long/); assert.equal(tries,4);
+    tries=0; b.claude.complete=async()=>{ tries++; throw new Error("Not enough credits."); };
+    await assert.rejects(()=>b.aiPlanScene(...args),/Not enough credits/); assert.equal(tries,2,"one try each, no second");
+    /* A FEW BEATS AT A TIME: with groups of two moments this scene is three calls. Each shots call gets the staging, its
+       own moments only, how the shot before it ended, and what comes next; each step is reported as it starts. */
+    const groupsOf=b.ScenePlan.shotGroups; b.ScenePlan.shotGroups=(bn,mc)=>groupsOf(bn,mc,2);
+    const full=answer(); asked=[]; const stepsSeen=[];
+    const shotsFor=o=>{ const c=o.messages[0].content, part=c.slice(c.indexOf("THE MOMENTS TO SHOOT NOW")); const beats=[...part.matchAll(/===== BEAT (\d+)/g)].map(m=>Number(m[1]));
+      return {shots:full.shots.filter(x=>beats.includes(x.beat)),marks:[{id:"m-new",set:"set2",name:"by the step"},{id:"m-rail",set:"set2",name:"renamed"}],things:[{key:"new-thing",name:"A cup",kind:"prop",beats:[{n:3,state:"on the rail"}]}]}; };
+    b.claude.complete=async o=>{ asked.push(o); const c=o.messages[0].content; return JSON.stringify(/THE STAGING OF THIS SCENE/.test(c) ? shotsFor(o) : {marks:full.marks,blocking:full.blocking,line:full.line,things:full.things,cameraIdea:full.cameraIdea}); };
+    const three=await b.aiPlanScene(args[0],args[1],args[2],{...args[3],onStep:st=>stepsSeen.push(st.step+"/"+st.of+" "+st.text)});
+    assert.equal(asked.length,4); assert.equal(three.calls,3);
+    assert.deepEqual(stepsSeen,["1/3 the staging","2/3 the shots of beat 1","3/3 the shots of beats 2 and 3"]);
+    const g1=asked[2].messages[0].content, g2=asked[3].messages[0].content;
+    assert.ok(g1.includes("===== BEAT 1 \u2014 set set1 =====")&&!g1.includes("===== BEAT 2")&&!g1.includes("===== BEAT 3"),"a group is told its own moments only");
+    assert.ok(/WHAT COMES NEXT \(for your last hand-off only; do not shoot it\): \S/.test(g1)&&g1.includes("These are the scene's first shots."));
+    assert.ok(g2.includes("THE SHOT JUST BEFORE THESE (beat 1, moment 2) ENDS LIKE THIS, and your first shot starts from it:\n{\"end\":{\"people\":{\"yusuf\":"),"the next group starts from how the last shot ended");
+    assert.ok(g2.includes("===== BEAT 2 ")&&g2.includes("===== BEAT 3 ")&&!g2.includes("===== BEAT 1 ")&&g2.includes("These are the scene's last moments."));
+    assert.ok(g2.includes('"id":"m-new"'),"a mark an earlier group added is part of the staging the next group is given");
+    assert.deepEqual(plain(three.plan.shots.map(x=>[x.beat,x.moment])),[[1,1],[1,2],[2,1],[3,1]]);
+    assert.ok(three.plan.marks.some(m=>m.id==="m-new")&&three.plan.marks.find(m=>m.id==="m-rail").name==="at the terrace rail","a group may add a mark, never rename one");
+    assert.ok(three.plan.things.some(t=>t.key==="new-thing"));
+    // a group that fails twice ends the run there: what was written is kept, and the result says it stopped
+    let n3=0; b.claude.complete=async o=>{ const c=o.messages[0].content; if(c.includes("THE SHOT JUST BEFORE THESE")){ n3++; throw new Error("The writing engine took too long to answer."); }
+      return JSON.stringify(/THE STAGING OF THIS SCENE/.test(c) ? shotsFor(o) : {marks:full.marks,blocking:full.blocking,line:full.line,things:full.things,cameraIdea:full.cameraIdea}); };
+    const partPlan=await b.aiPlanScene(...args);
+    assert.equal(n3,2); assert.match(partPlan.stopped,/took too long/);
+    assert.deepEqual(plain(partPlan.plan.shots.filter(x=>!x.filled).map(x=>[x.beat,x.moment])),[[1,1],[1,2]]);
+    assert.ok(partPlan.missingBeats.includes(2)&&partPlan.missingBeats.includes(3),"the beats after it keep the shots they have");
+    b.ScenePlan.shotGroups=groupsOf;
     // a beat with no screenplay is asked for before any call is made
     let calls=0; b.claude.complete=async()=>{ calls++; return "{}"; };
     await assert.rejects(()=>b.aiPlanScene(scene,beatsMap.s5,[],{...args[3],drafts:{s5:{blocks:[]}}}),/Write (?:this scene's screenplay|the screenplay for beat 1) before planning/);
@@ -754,6 +829,25 @@ test("11 what the Shots tab shows: the plan in the scene's card, its progress wh
    any more, and the next image event logs "Cannot update a component while rendering a different component
    (ShotCard)". There was no setState in ShotCard's render; the render was too long. A shot's cast is now read once
    and kept while nothing it is read from changes, and a scene's ledger is worked out once for a list of shots. */
+test("11b a shot card builds its image prompt only when asked: a render, the Stage, or an open Shot prompt section", ()=>{
+  const from=ui.indexOf("function shotFrameGenOpts("), to=ui.indexOf("\nwindow.shotFrameGenOpts",from);
+  const b={console,JSON,Math,Date,Object,Array,String,Number}; b.window=b; vm.createContext(b);
+  let built=[];
+  Object.assign(b,{combinedShotPrompt:(sh,c)=>{ built.push("final"); return "FINAL "+sh.id; },buildShotPrompt:(sh,c)=>{ built.push(c.simpleMode?"simple":"chain"); return "CHAIN "+sh.id; }});
+  vm.runInContext(ui.slice(from,to)+"\nglobalThis.shotFrameGenOpts=shotFrameGenOpts;",b,{filename:"shots-ui#shotFrameGenOpts"});
+  const sh={id:"s1",sceneId:"sc"}; const pack=b.shotFrameGenOpts(sh,[sh],{scene:{id:"sc"},charById:{},propById:{},project:{},locations:[]});
+  assert.deepEqual(built,[],"drawing a card builds no prompt");
+  assert.equal(pack.opts.buildFinal(),"FINAL s1"); assert.equal(pack.opts.buildFinal(),"FINAL s1"); assert.equal(pack.finalPrompt,"FINAL s1");
+  assert.deepEqual(built,["final"],"the final prompt is built once, when a render or the preview asks");
+  assert.equal(pack.chainPrompt,"CHAIN s1"); assert.equal(pack.opts.buildFromBase(),"CHAIN s1");
+  assert.deepEqual(built,["final","chain"]);
+  // the card's preview is its own small part, drawn only while the section is open
+  assert.ok(ui.includes('_el(CardFold,{label:"Shot prompt",defaultOpen:false},\n        _el(ShotPromptBox,{pack:framePack,isHead})),'));
+  assert.ok(ui.includes("text: isHead ? pack.finalPrompt : pack.chainPrompt});"));
+  const card=ui.slice(ui.indexOf("function ShotCard("),ui.indexOf("function ScenePlanBlock("));
+  assert.ok(card.length>1000&&!/framePack\.(finalPrompt|chainPrompt)/.test(card),"the card itself never reads a prompt while drawing");
+});
+
 test("12 a scene of many shots is read once: a shot's cast is kept while its inputs are the same, the ledger once for a list", ()=>{
   const N=17;
   const big={id:"big",no:9,title:"Hall",loc:"INT. HALL - DAY",driver:"amira"};

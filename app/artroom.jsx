@@ -9767,7 +9767,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,readOnly,
           wardrobeIds:wardrobeIds||[],
           onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,
-          // the scene plan (2026-11-22): one writing pass for a scene, and its tracked things as prop cards
+          // the scene plan (2026-11-22): a few short writing passes for a scene, and its tracked things as prop cards
           onPlanScene:readOnly?null:onPlanScene,planningScene,scenePlanFailed,onAddScenePlanProps:readOnly?null:onAddScenePlanProps,
           trashItems:(trash&&trash.shots)||[],onRestore:readOnly?null:onRestoreShot,onPurge:readOnly?null:onPurgeShot,
           lookbookStale:!!_stale.shots,

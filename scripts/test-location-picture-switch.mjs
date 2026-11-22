@@ -203,9 +203,9 @@ test("6 the top bar names the engine on the Locations tab; the pre-production wi
   // nothing in it names an engine or a vendor, or reads as billing
   assert.ok(!/Fable|Opus|Claude|Anthropic|Gemini|GPT|credit|price/i.test(what));
   for(const f of ["locations-ui.jsx","ai.jsx","styles.css","aiwriter.jsx","app.jsx","artroom.jsx"])
-    assert.ok(["20261121-back1", "20261121-back2", "20261121-five1", "20261121-five2", "20261121-five3", "20261122-plan1", "20261122-plan2"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the new key");
+    assert.ok(["20261121-back1", "20261121-back2", "20261121-five1", "20261121-five2", "20261121-five3", "20261122-plan1", "20261122-plan2", "20261122-plan3"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the new key");
   // the five sections changed the card and what Frances is told: both carry the newest key
-  for(const f of ["locations-ui.jsx","ai.jsx"]) assert.ok(["20261121-five1", "20261121-five2", "20261121-five3", "20261122-plan1", "20261122-plan2"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the five-sections key");
+  for(const f of ["locations-ui.jsx","ai.jsx"]) assert.ok(["20261121-five1", "20261121-five2", "20261121-five3", "20261122-plan1", "20261122-plan2", "20261122-plan3"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the five-sections key");
 });
 
 test("7 the film's images are asked for again when the first read failed (an empty picture on a slow connection)", ()=>{

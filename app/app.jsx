@@ -6924,7 +6924,10 @@ function App(){
       const beatRows = typeof window.shotScreenplayBeatRows==="function" ? window.shotScreenplayBeatRows(scene,{drafts:D,beatsMap:bmap}) : (((bmap||{})[scene.id]||{}).rows||[]);
       setScenePlanFailed(null);
       setPlanningScene({ id:scene.id, since:Date.now(), est:SP.estimateSeconds(beatRows.length), engine, text:"Planning Scene "+no+"\u2026" });
-      const res = await window.aiPlanScene(scene, (bmap||{})[scene.id], draft.blocks, { project:lbProject("shots"),
+      // each short call says where it is (the staging, then the shots a few beats at a time), on the same line
+      const onStep = (st)=> setPlanningScene(cur=> (cur && cur.id===scene.id) ? { ...cur, est:SP.estimateSeconds(beatRows.length, st.of),
+        text:"Planning Scene "+no+", step "+st.step+" of "+st.of+": "+st.text+"\u2026" } : cur);
+      const res = await window.aiPlanScene(scene, (bmap||{})[scene.id], draft.blocks, { project:lbProject("shots"), onStep,
         characters:charactersRef.current||characters, locations:L.locations||locations, props:L.props||props,
         scenes:scenesRef.current||scenes, drafts:D, beatsMap:bmap });
       assertCurrent();
@@ -6965,7 +6968,8 @@ function App(){
       say("Scene "+no+" is planned: "+applied.patched+" shot"+(applied.patched!==1?"s":"")+" with how each starts and ends. "
         +(fixes ? fixes+" to fix in the scene plan. " : "")
         +(k.leftAlone.length ? "Beat"+(k.leftAlone.length!==1?"s ":" ")+k.leftAlone.join(", ")+" got no answer and keep"+(k.leftAlone.length!==1?"":"s")+" the shot "+(k.leftAlone.length!==1?"they have":"it has")+". " : "")
-        +"No image was made.", fixes||k.leftAlone.length ? "info" : "success");
+        +(res.stopped ? "The writing engine stopped answering part of the way; press Plan again to finish it. " : "")
+        +"No image was made.", fixes||k.leftAlone.length||res.stopped ? "info" : "success");
     }catch(e){
       const msg = String((e && e.message) || "The scene plan failed.");
       setScenePlanFailed({ id:scene.id, text:/Nothing was (?:changed|replaced)/.test(msg) ? msg : msg.replace(/\s*$/,"")+" Nothing was changed." });
