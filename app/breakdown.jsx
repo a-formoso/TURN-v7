@@ -172,7 +172,7 @@ function bdSceneRow({ scene, slug, todKind, ordered, C, props, locations, sceneS
       chain.forEach(sh=>{ const st = shotFrameState(sh, sceneShots, drafts, project, img);
         if(!st.done){ toRender++; will.add(sh.id); if(st.rendered && st.current && !st.approved) toApprove++; }
         else { const seed = (typeof seedShotOf==="function") ? seedShotOf(sh, sceneShots) : null;
-          if(seed && will.has(seed.id)){ will.add(sh.id); cascade++; } else done++; }
+          if(seed && will.has(seed.endFrameOf||seed.id)){ will.add(sh.id); cascade++; } else done++; }
         // an approved frame that is no longer current — the export says how many (2026-10-09)
         if(st.rendered && st.approved && !st.current) approvedOld++;
         if(st.rendered || st.done){ if(st.oldLook) oldLook++; if(st.locChanged) locChanged++; if(st.charChanged) charChanged++; if(st.propChanged) propChanged++; } });

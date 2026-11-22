@@ -451,6 +451,8 @@ function shotBeatLabel(sh){
 function shotBeatRoleLabel(sh,beatShots){
   const list=Array.isArray(beatShots) ? beatShots : (sh ? [sh] : []);
   const primary=shotPrimaryOf(list);
+  // a beat's end frame is named as one (2026-11-22)
+  if(sh && sh.endFrameOf) return "End frame";
   // a split beat names its shots by moment ("Moment 2"), never "Alternative" (2026-11-01)
   if(sh && sh.keyframeMode==="moment" && sh.moment && sh.moment.n) return "Moment "+sh.moment.n;
   if(!primary || shotSameIdentity(primary,sh)) return primary ? (primary.moment&&primary.moment.of>1 ? "Moment 1" : "Opening") : "";
@@ -540,6 +542,74 @@ function shotBeatGroups(ord){
   return groups;
 }
 
+/* ---- THE END FRAME OF A BEAT (owner 2026-11-22: "end frames per beat"; scene plan, stage 2) ----------------------
+   A planned shot knows how it ENDS (sh.endState, from the scene plan). The last shot of each planned beat gets a second
+   picture: the same shot, same camera, as it ends. The first shot of the NEXT beat is seeded from that picture, so a
+   beat starts where the one before it really finished (it used to start from the earlier beat's OPENING frame).
+   The end frame is never a row of the shot list: it is the picture "<shot id>-end", and wherever the app needs a
+   shot to stand for it (its seed, its stamps, its turn in an ordered run) shotEndShot() makes one from its owner. So
+   every rule a frame already follows (seed lineage, out of date, approval, order) holds for it unchanged; its
+   approval is its shot's own. */
+function shotEndFrameId(id){ return String(id==null?"":id)+"-end"; }
+// the id of the shot an end-frame id belongs to ("" for any other id)
+function shotEndOwnerId(id){ const t=String(id==null?"":id); return /.-end$/.test(t) ? t.slice(0,-4) : ""; }
+function shotIsKeyShot(sh){ return !!sh && (sh.keyframeMode==="beat-opening" || sh.keyframeMode==="moment"); }
+// the last opening / moment shot of a beat, in the order the beat plays
+function shotBeatLastOf(beatShots){
+  const keys=(Array.isArray(beatShots)?beatShots:[]).filter(shotIsKeyShot);
+  if(!keys.length) return null;
+  const n=sh=>sh.keyframeMode==="moment" ? (Number(sh.moment&&sh.moment.n)||1) : 1;
+  return keys.slice().sort((a,b)=>n(a)-n(b) || (a.order||0)-(b.order||0))[keys.length-1];
+}
+function shotHasEndState(sh){
+  const es=sh && sh.endState;
+  return !!(es && typeof es==="object" && ((es.people && Object.keys(es.people).length) || (es.things && Object.keys(es.things).length)
+    || (Array.isArray(es.doors) && es.doors.length)));
+}
+// does this shot carry its beat's end frame? (a planned shot that ends its beat and knows how it ends)
+function shotEndFrameWanted(sh, sceneShots){
+  if(!sh || sh.endFrameOf || !sh.planned || !shotIsKeyShot(sh) || !shotHasEndState(sh)) return false;
+  const key=shotBeatKeyOf(sh); if(key==null) return false;
+  const tail=shotBeatLastOf((Array.isArray(sceneShots)?sceneShots:[]).filter(x=>x && shotBeatKeyOf(x)===key));
+  return !!tail && shotSameIdentity(tail,sh);
+}
+/* the end frame as a shot of its own, made from its owner each time (never saved): same camera, lens and set, the
+   people the end state puts in frame, no line spoken. Its specification stamp is its owner's, so a changed shot
+   puts its end frame out of date too. */
+function shotEndShot(owner){
+  if(!owner) return null;
+  const es=(owner.endState && typeof owner.endState==="object") ? owner.endState : null;
+  const who=es && es.people && typeof es.people==="object" ? Object.keys(es.people) : null;
+  const out={ ...owner, id:shotEndFrameId(owner.id), endFrameOf:owner.id, keyframeMode:"beat-end", anchor:false,
+    startState:es||owner.startState, dialogue:"", sourceOverride:undefined, seedOverride:undefined,
+    // what it is staged from, in its specification stamp: another end state is another end frame
+    endStateSig:es ? JSON.stringify(es) : "" };
+  if(who && owner.subjectsByPlan){ out.subjects=who.slice(); out.referenceCharacterIds=who.slice(); }
+  return out;
+}
+// the end frames a scene's shots carry, each as a shot (in the order the scene plays)
+function shotEndShotsOf(sceneShots){
+  const list=Array.isArray(sceneShots)?sceneShots:[];
+  return sceneShotsOrdered(list).filter(sh=>shotEndFrameWanted(sh,list)).map(shotEndShot);
+}
+// how a planned state reads in words, with the scene plan's own names (people, marks, things)
+function shotEndStateText(sh, ctx){
+  const SP=(typeof window!=="undefined") ? window.ScenePlan : null;
+  const es=sh && (sh.endState || sh.startState);
+  if(!SP || typeof SP.stateText!=="function" || !es) return "";
+  const plan=(((ctx&&ctx.project)||{}).scenePlans||{})[sh.sceneId] || null;
+  const cast=Object.values((ctx&&ctx.charById)||{}).map(c=>({ id:c.id, name:c.name }));
+  try{ return String(SP.stateText(sh.endState||es, typeof SP.namesOf==="function" ? SP.namesOf(plan,cast) : null)||"").replace(/\s+/g," ").trim(); }
+  catch(e){ return ""; }
+}
+window.shotEndFrameId = shotEndFrameId;
+window.shotEndOwnerId = shotEndOwnerId;
+window.shotBeatLastOf = shotBeatLastOf;
+window.shotEndFrameWanted = shotEndFrameWanted;
+window.shotEndShot = shotEndShot;
+window.shotEndShotsOf = shotEndShotsOf;
+window.shotEndStateText = shotEndStateText;
+
 /* the shot a given shot CHAINS FROM — its immediate predecessor in render order,
    whose approved frame seeds this one. null = a chain HEAD: the scene's first shot,
    or any shot explicitly flagged a fresh start (.anchor — a hard cut mid-scene).
@@ -559,6 +629,8 @@ window.prevShotOf = prevShotOf;
 function seedShotOf(sh, sceneShots){
   if(!sh || sh.anchor) return null;
   const ord = sceneShotsOrdered(sceneShots);
+  // an END FRAME builds on its own shot's frame (2026-11-22)
+  if(sh.endFrameOf) return ord.find(x=>x && String(x.id)===String(sh.endFrameOf)) || null;
   const i = shotIndexOf(sh,ord);
   if(i<0) return null;
   const beatKey=shotBeatKeyOf(sh);
@@ -577,6 +649,10 @@ function seedShotOf(sh, sceneShots){
   if(ownPrimary && !shotSameIdentity(ownPrimary,sh)) return ownPrimary;
   if(i<=0) return null;
   if(groupIndex>0){
+    // A PLANNED BEAT ENDS ON ITS END FRAME, and the next beat starts from it (2026-11-22): the same rule whether that
+    // picture is made yet or not, so the order of a run and what counts as out of date never depend on a cache
+    const tail=shotBeatLastOf(groups[groupIndex-1].shots);
+    if(tail && !shotSameIdentity(tail,sh) && shotEndFrameWanted(tail,ord)) return shotEndShot(tail);
     const priorPrimary=shotPrimaryOf(groups[groupIndex-1].shots);
     if(priorPrimary && !shotSameIdentity(priorPrimary,sh)) return priorPrimary;
   }
@@ -2534,8 +2610,12 @@ function buildShotPrompt(sh, ctx){
   if(cameraSettings) stage.push(cameraSettings);
     // an Action written BY HAND on the card wins over the screenplay's opening (owner 2026-10-05 —
     // Shots review: the edit used to mark the frame out of date and then be ignored)
-    const actionByHand = !!(sh && sh.actionByHand && clean(sh.action));
-    const openingAction=(screenplaySource&&screenplaySource.hasSource && !actionByHand)
+    // an END FRAME stages how its shot ends, in the scene plan's own words (2026-11-22)
+    const _isEndFrame = !!(sh && sh.endFrameOf);
+    const _endText = _isEndFrame ? clean(shotEndStateText(sh, ctx)) : "";
+    const actionByHand = !_isEndFrame && !!(sh && sh.actionByHand && clean(sh.action));
+    const openingAction=_isEndFrame ? (_endText ? "As the shot ends: "+_endText : "")
+      : (screenplaySource&&screenplaySource.hasSource && !actionByHand)
       ? String(screenplaySource.openingAction||"").replace(/\s+/g," ").trim() : clean(sh.action);
    if(openingAction)         stage.push(cap(openingAction.replace(/\.$/,"")));
   if(clean(screenDir.composition)) stage.push(cap(clean(screenDir.composition)));
@@ -2612,11 +2692,13 @@ function buildShotPrompt(sh, ctx){
   // FIRST-FRAME BIAS: this still seeds the beat's VIDEO clip, so stage its opening
   // instant, not its peak — and never freeze a mouth mid-vowel (bad start frame,
   // bad lip-sync anchor; the audio drives the mouth once the clip moves).
-  stage.push(screenplaySource&&screenplaySource.moment&&screenplaySource.moment.of>1
+  stage.push(_isEndFrame
+    ? "Stage the LAST instant of this shot — its action finished, everyone and everything where the shot leaves them; this frame ends the moving clip"
+    : screenplaySource&&screenplaySource.moment&&screenplaySource.moment.of>1
     ? "Stage the OPENING instant of moment "+screenplaySource.moment.n+" of "+screenplaySource.moment.of+" in this beat — this moment's action just beginning, not its peak, and nothing from the beat's other moments; this frame starts the moving clip"
     : "Stage the beat's OPENING instant — the action just beginning, not its peak; this frame starts the moving clip");
-   let openingDialogue=clean(sh.dialogue);
-   if(screenplaySource&&screenplaySource.hasSource){
+   let openingDialogue=_isEndFrame ? "" : clean(sh.dialogue);
+   if(!_isEndFrame && screenplaySource&&screenplaySource.hasSource){
      const openingIds=new Set(screenplaySource.openingCharacterIds||[]);
      // a line spoken after the opening moment is not this frame's (2026-11-01: the headlights frame of "Final Ramp"
      // was told Ottavio is about to say "Last one, Bassi", which comes three paragraphs later)
@@ -2636,7 +2718,11 @@ function buildShotPrompt(sh, ctx){
   // approved frame) leads as Image 1 when present, then the sheets by location weight
   // (wide → set first; tight → cast first), then props, then carried-forward. ----
   const imgs = [];
-  if(ctx.prevFrameRole) imgs.push("the REFERENCE frame — carry its colour grade, lighting and every established physical state (wardrobe wear, wetness, dirt, damage) forward exactly, but do NOT copy its framing");
+  // AN END FRAME (2026-11-22) is its own shot a moment later: unlike a chained shot, it KEEPS the reference's framing
+  const _refFrameNote = _isEndFrame
+    ? "THIS SAME SHOT AS IT BEGINS — keep its camera position, framing, lens, set, light, colour grade, faces and wardrobe exactly; change only what has changed by the END of the shot, as the staging says"
+    : "the REFERENCE frame — carry its colour grade, lighting and every established physical state (wardrobe wear, wetness, dirt, damage) forward exactly, but do NOT copy its framing";
+  if(ctx.prevFrameRole) imgs.push(_refFrameNote);
   // user-unticked reference sheets (sh.refOff) drop out of the image map ONLY — the
   // entity stays in the staging text; just its sheet isn't attached (labels must
   // mirror the real attachment list or the numbered map mislabels the files)
@@ -2702,7 +2788,7 @@ function buildShotPrompt(sh, ctx){
    if(Array.isArray(ctx.resolvedRefs)){
      imgs.length=0;
      if(ctx.prevFrameRole)
-       imgs.push("the REFERENCE frame — carry its colour grade, lighting and every established physical state (wardrobe wear, wetness, dirt, damage) forward exactly, but do NOT copy its framing");
+       imgs.push(_refFrameNote);
      ctx.resolvedRefs.forEach((r,ri)=>{
        if(!r) return;
        if(r.assetRole==="screenplay_context"){
@@ -2746,10 +2832,14 @@ function buildShotPrompt(sh, ctx){
   // remains the framing & cast authority.
    const _slice = (typeof shotScreenplaySlice==="function") ? shotScreenplaySlice(scene, sh.beatN, ctx) : "";
     if(_slice){
-      const byHand = !!(sh && sh.actionByHand && clean(sh.action));
+      const byHand = !_isEndFrame && !!(sh && sh.actionByHand && clean(sh.action));
       const openingSourceText=byHand ? clean(sh.action) : String(screenplaySource&&screenplaySource.hasSource
         ? (screenplaySource.openingAction||"") : _slice).trim();
-      if(openingSourceText) out += (byHand
+      if(_isEndFrame){
+        if(_endText) out += "\n\nEND STATE (how this shot ends, from the scene plan; this is the shot's LAST frame, not its first): "
+          + _endText + (/[.!?]$/.test(_endText)?"":".") + " Show this finished state; nothing from the beats that follow.";
+      }
+      else if(openingSourceText) out += (byHand
           ? "\n\nOPENING ACTION (the director's own wording for this first frame — it replaces the screenplay's opening): "
           : "\n\nSCREENPLAY OPENING SOURCE (exact text; first frame only): ")
         + openingSourceText + (/[.!?]$/.test(openingSourceText)?"":".")

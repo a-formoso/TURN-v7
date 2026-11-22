@@ -578,7 +578,7 @@ test("9 the brief, Frances's fact, the pipeline and the keys", ()=>{
   assert.ok(at('<script src="app/scene-plan.js?v=')<at('src="app/props.jsx?v=')&&at('<script src="app/scene-plan.js?v=')<at('src="app/shots.jsx?v='));
   assert.ok(at('src="app/locations-ui.jsx?v=')<at('src="app/shots-ui.jsx?v='),"the progress line's own file comes before the Shots tab");
   for(const f of ["scene-plan.js","shots.jsx","shots-ui.jsx","props.jsx","artroom.jsx","ai.jsx","script.jsx","app.jsx","styles.css"])
-    assert.ok(["20261122-plan1", "20261122-plan2", "20261122-plan3"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 test("9b the shots are written a few beats at a time: whole beats up to six moments, a long beat in runs of six", ()=>{
@@ -846,6 +846,25 @@ test("11b a shot card builds its image prompt only when asked: a render, the Sta
   assert.ok(ui.includes("text: isHead ? pack.finalPrompt : pack.chainPrompt});"));
   const card=ui.slice(ui.indexOf("function ShotCard("),ui.indexOf("function ScenePlanBlock("));
   assert.ok(card.length>1000&&!/framePack\.(finalPrompt|chainPrompt)/.test(card),"the card itself never reads a prompt while drawing");
+});
+
+test("11c who is in frame on a planned shot stays the plan's answer: the old re-anchor pass skips it, and gives back what it changed", ()=>{
+  const from=ui.indexOf("  const subjFixed = React.useRef(false);"), to=ui.indexOf("  },[(shots||[]).length]);",from);
+  assert.ok(from>0&&to>from);
+  const body=ui.slice(ui.indexOf("(shots||[]).forEach(sh=>{",from),to);
+  const run=(list)=>{ const out={}; const b={out,shots:list,beatsMap:{},characters:[{id:"liaqat",name:"Liaqat"},{id:"darren",name:"Darren"},{id:"eshita",name:"Eshita"}],
+      scanTextForChars:(t,cs)=>cs.filter(c=>new RegExp("\\b"+c.name+"\\b","i").test(t)).map(c=>c.id),onUpdateShot:(id,patch)=>{ out[id]=patch; },
+      beatActionOf:()=>""};
+    vm.createContext(b); vm.runInContext(body.replace(/\}\);\s*$/,"});"),b); return plain(out); };
+  const planned={subjectsByPlan:true,referenceCharactersSet:true,referenceCharactersAuto:true};
+  const got=run([
+    {id:"a",...planned,action:"Liaqat lifts the keys off the hook.",subjects:["liaqat","darren","eshita"],referenceCharacterIds:["liaqat","darren","eshita"]},   // untouched: left alone
+    {id:"b",...planned,action:"Darren watches the laces.",subjects:["darren"],referenceCharacterIds:["liaqat"]},                                              // changed before: given back
+    {id:"c",...planned,referenceCharactersAuto:false,action:"Darren watches.",subjects:["liaqat"],referenceCharacterIds:["eshita"]},                            // the list was set by hand: left alone
+    {id:"d",...planned,action:"The empty hook.",subjects:[],referenceCharacterIds:[]},                                                                         // nobody in frame is an answer
+    {id:"e",action:"Darren watches.",subjects:["liaqat"]},                                                                                                      // not planned: the old rule
+    {id:"f",subjectsSet:true,action:"Darren watches.",subjects:["liaqat"]}]);                                                                                   // set by hand: left alone
+  assert.deepEqual(got,{b:{subjects:["liaqat"]},e:{subjects:["darren"]}});
 });
 
 test("12 a scene of many shots is read once: a shot's cast is kept while its inputs are the same, the ledger once for a list", ()=>{

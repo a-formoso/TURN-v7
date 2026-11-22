@@ -57,7 +57,9 @@ await test("A4 Regenerate downstream: asks with the price, only the shots built 
   assert.ok(rd.includes("await window.appConfirm({ title:\"Regenerate the \"+targets.length+\" shot\"") && rd.includes("nbImageCostText(targets.length)"));
   assert.ok(rd.includes("stepChain(targets, 0, true, true);") && !rd.includes("ids.slice(at+1).forEach(id=> onUpdateShot(id,{ locked:false }));"));
   assert.ok(rd.includes("window.__turnShotRunPropChoice = propChoice;"));
-  assert.ok(ui.includes("if(unlock && shotById[ids[i]] && shotById[ids[i]].locked) onUpdateShot(ids[i], { locked:false });"));
+  // (2026-11-22) every approval a run writes goes through lockStep: an end frame is approved with its shot
+  assert.ok(ui.includes("if(unlock && shotById[ids[i]] && shotById[ids[i]].locked) lockStep(ids[i], false);")
+    && ui.includes("const lockStep = (id, on)=>{ if(!isEndStep(id)) onUpdateShot(id, { locked:!!on }); };"));
 });
 await test("A5 'Check each frame' leaves a single manual render for you to approve", ()=>{
   assert.ok(ui.includes('if(checkEachRef.current && c.ids.length===1){ setChain(null); batch.setMsg("Frame made \\u2014 check it, then approve it on its card."); return; }'));

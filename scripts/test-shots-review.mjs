@@ -33,7 +33,8 @@ await test("A1 the run's reach is what isn't approved and current; re-renders ar
   assert.ok(list.includes("const redo = toRender.filter(id=>shotHasFrame(id));") && list.includes("return { toRender, redo, cascade, approvedRedo:"));
 });
 await test("A2 'Generate N shots' shows the count and price and always asks; nothing left → 'Every shot approved'", ()=>{
-  assert.ok(list.includes('("Generate "+filmPlan.toRender.length+" shot"+(filmPlan.toRender.length!==1?"s":""))'));
+  // (2026-11-22) the button names shots; its price is every frame (a planned beat's end frame is one too)
+  assert.ok(list.includes('("Generate "+filmShotN+" shot"+(filmShotN!==1?"s":""))') && list.includes("const filmShotN = filmPlan.toRender.filter(id=>!isEndStep(id)).length || filmPlan.toRender.length;"));
   assert.ok(list.includes("window.nbCostChip(filmPlan.toRender.length)"));
   assert.ok(list.includes('if(!(await confirmRun(ids, "across the film", true))) return;'));
   assert.ok(list.includes('"Every shot approved"') && !list.includes('"Generate all shots", typeof window.nbCostChip==="function" && window.nbCostChip(1)'));
@@ -76,12 +77,12 @@ await test("C1 'Check each frame' is on by default, remembered, and pauses a mul
   assert.ok(list.includes('localStorage.getItem("turn_shots_check_each")!=="0"'));
   const done = between(list, "const handleBatchDone = (id, opts)=>{", "  // Stop: abort the frame");
   const pause = done.indexOf("if(checkEachRef.current && c.ids.length>1 && (c.idx+1) < c.ids.length){");
-  assert.ok(pause > 0 && pause < done.indexOf("onUpdateShot(id, { locked:true });"), "paused before it's approved");
+  assert.ok(pause > 0 && pause < done.indexOf("lockStep(id, true);"), "paused before it's approved");
   assert.ok(done.includes("setChain({ ...c, paused:true });"));
   assert.ok(list.includes("if(!chain || batchActiveId || chain.paused) return;"), "a paused run isn't 'stuck'");
 });
 await test("C2 the pause bar: Approve & continue / Regenerate this one / Stop", ()=>{
-  assert.ok(list.includes("onUpdateShot(c.ids[c.idx], { locked:true }); stepChain(c.ids, c.idx+1, c.force, c.unlock); };"));
+  assert.ok(list.includes("lockStep(c.ids[c.idx], true); stepChain(c.ids, c.idx+1, c.force, c.unlock); };"));
   assert.ok(list.includes("setChain({ ...c, paused:false, preFrame:"));
   assert.ok(list.includes('"Approve & continue"') && list.includes('"Regenerate this one"') && list.includes("stopPaused"));
   assert.ok(list.includes('"Check each frame"'));

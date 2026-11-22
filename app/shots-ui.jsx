@@ -15,6 +15,11 @@ function shotCardReferenceLabel(sh, sceneShots){
   return sh&&Number(sh.beatN)>0 ? "Beat "+Number(sh.beatN) : "Unnumbered shot";
 }
 
+/* is this card the one a run's step belongs to? Its own frame, or its beat's end frame (2026-11-22) */
+function shotRunsHere(sh, activeId){
+  return !!(sh && activeId) && (sh.id===activeId || (typeof shotEndFrameId==="function" && shotEndFrameId(sh.id)===activeId));
+}
+
 /* a labelled grammar dropdown (size / angle / move / lens) */
 function GrammarSelect({ label, value, options, onChange }){
   // a value outside the list (a lens set to any mm in the Blender preview) shows as itself (2026-10-05)
@@ -632,7 +637,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     for(const s of dependencyOrder){
       if(!s || s.id===sh.id) continue;
       const sd = seedShotOf(s, sceneShots);
-      if(sd && dep.has(sd.id)){ dep.add(s.id); n++; }
+      if(sd && dep.has(sd.endFrameOf||sd.id)){ dep.add(s.id); n++; }   // (a beat opener seeded from an end frame follows that frame's shot)
     }
     return n;
   })();
@@ -1289,7 +1294,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           (continuityNeedsRefresh?" · ":"")+"Director override — rendered from an unapproved continuity frame.")));
 
 
-  return _el("div",{className:"sheet-card shot-card"+(batchActiveId===sh.id?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id},
+  return _el("div",{className:"sheet-card shot-card"+(shotRunsHere(sh,batchActiveId)?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id},
     _el(SheetFrame,{ gen:genGuarded, slotId:"shot-"+sh.id, name:beatLabel, avatarColor:"linear-gradient(135deg,#7a6cae,#2a2440)",
       initials, drafted:true, drafting:false, onDraft:()=>{}, entity:sh, onView,
       slotPlaceholder:"Generate or drop a frame", noun:"frame", dropToImport:true, onStop:onStopChain,
@@ -1351,6 +1356,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         _el(ShotPurpose,{sh}))),
       // a shot the scene plan wrote: what it is for, how it starts, how it ends, how it hands off (2026-11-22)
       sh.planned && _el(ShotPlanLines,{sh,ctx}),
+      // where a beat's first shot starts from (2026-11-22): the end frame of the beat before it
+      (prevShot && prevShot.endFrameOf) && _el("div",{className:"shot-plan-from","data-testid":"shot-starts-from"},
+        "Starts from the end frame of beat "+prevShot.beatN+": the picture of how that beat ended."),
       // the shot's TEXT layer, folded shut by default so the card reads compact —
       // SheetField commits on blur, so collapsing loses only uncommitted drafts.
       // The dropped-subjects warning forces the fold open: a warning hidden behind
@@ -1470,9 +1478,63 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       // the shot prompt has its own section (owner 2026-11-02), read-only, before the tools
       _el(CardFold,{label:"Shot prompt",defaultOpen:false},
         _el(ShotPromptBox,{pack:framePack,isHead})),
+      // the beat's end frame, on its last planned shot (2026-11-22)
+      (typeof shotEndFrameWanted==="function" && shotEndFrameWanted(sh, sceneShots||[]))
+        && _el(ShotEndFrame,{key:"end-"+sh.id,sh,sceneShots,ctx,onView,batchActiveId,onBatchDone,onGenerateShot,onStopChain,beatLabel,readOnly}),
       // (the shot card's last section, "More tools \u00b7 Blender", went on 2026-11-16, owner: "that should go too": first
       // its "Open this shot in Blender" button, then "Blender preview \u00b7 rough blockout". BlenderPreviewPanel stays in its file.)
       ));
+}
+
+/* THE END FRAME OF A BEAT, on the card of the beat's last shot (owner 2026-11-22: "end frames per beat"; scene plan,
+   stage 2). A second picture of the same shot, as it ENDS: made from the shot's own frame (same camera, same framing),
+   staged from the end state the scene plan wrote. The first shot of the next beat is seeded from it. It goes through
+   the same factory as a shot's frame (shotFrameGenOpts on shotEndShot(sh)), so its sheets, its stamps and what makes
+   it out of date are a frame's own; in an ordered run it has its own turn, right after its shot. Its approval is its
+   shot's. The picture is kept at "<shot id>-end". Always mounted with its card (its generator must be there when its
+   turn comes); only what it shows sits in the fold. */
+function ShotEndFrame({ sh, sceneShots, ctx, onView, batchActiveId, onBatchDone, onGenerateShot, onStopChain, beatLabel, readOnly=false }){
+  const end = shotEndShot(sh);
+  const pack = shotFrameGenOpts(end, sceneShots||[], ctx);
+  const gen = useImageGen(pack.opts);
+  const how = (typeof shotEndStateText==="function") ? shotEndStateText(sh, ctx) : "";
+  const meta = (id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
+  const ownerFrame = (typeof nbGetImage==="function") ? nbGetImage(sh.id) : "";
+  const chainStatus = gen.genUrl && typeof shotChainStatus==="function" ? shotChainStatus(end, sceneShots||[], meta) : "";
+  // its turn in an ordered run: the same watch a shot card keeps for its own frame
+  const started = React.useRef(batchActiveId===end.id && gen.gening);
+  const was = React.useRef(gen.gening);
+  React.useEffect(()=>{
+    const mine = batchActiveId===end.id;
+    if(!mine){ started.current=false; was.current=gen.gening; return; }
+    if(!started.current && !gen.gening){
+      started.current=true; was.current=false;
+      // a render that never starts (its shot's frame is missing, a reference failed) ends this step, never stalls the run
+      const settle = ()=> setTimeout(()=>{ if(started.current && !was.current){ started.current=false; onBatchDone && onBatchDone(end.id); } }, 1500);
+      Promise.resolve().then(()=>gen.generate({})).then(settle, settle);
+      return; }
+    if(started.current && was.current && !gen.gening){ started.current=false; onBatchDone && onBatchDone(end.id); }
+    was.current = gen.gening;
+  },[batchActiveId, gen.gening, end.id]);
+  // Make / Make again goes through the scene's runner, as a shot's own Generate does; an edit reworks it in place
+  const guarded = Object.assign({}, gen, { generate:(gopts)=> (gopts && gopts.editInstruction) || !onGenerateShot ? gen.generate(gopts) : onGenerateShot(end.id) });
+  const waiting = !!(batchActiveId && batchActiveId!==end.id);
+  const state = gen.gening ? "making\u2026" : !gen.genUrl ? "not made yet" : chainStatus==="stale" ? "out of date" : "made";
+  return _el(CardFold,{label:"End frame",count:state,defaultOpen:false,foldId:"shot-end-"+sh.id},
+    _el("div",{className:"shot-end","data-testid":"shot-end-frame"},
+      _el("div",{className:"shot-end-head"},
+        _el("span",{className:"shot-end-lab"},"How this shot ends"),
+        window.InfoTip && _el(window.InfoTip,{label:"About the end frame",
+          text:"The last frame of this beat: the same shot, same camera, as it ends. It is made from this shot's frame and from how the scene plan says the shot ends. The first shot of the next beat starts from it, so the beats join up. Render Scene in order makes it right after this shot; it is approved with this shot."})),
+      how && _el("div",{className:"shot-end-how"},how),
+      chainStatus==="stale" && _el("div",{className:"shot-end-note"},"This shot's frame changed after its end frame was made. Make the end frame again so the next beat starts from the right picture."),
+      _el(SheetFrame,{ gen:guarded, slotId:pack.opts.slotId, name:(beatLabel?beatLabel+" \u00b7 ":"")+"end frame", avatarColor:"linear-gradient(135deg,#7a6cae,#2a2440)",
+        initials:"E", drafted:true, drafting:false, onDraft:()=>{}, entity:end, onView,
+        slotPlaceholder:ownerFrame ? "Make the end frame" : "Make this shot's frame first", noun:"end frame", onStop:onStopChain, hideUploadButton:true,
+        generateDisabled:readOnly || waiting || !ownerFrame,
+        generateDisabledLabel:!ownerFrame ? "Make this shot's frame first" : "Wait for current shot",
+        generateDisabledTitle:!ownerFrame ? "The end frame is made from this shot's own frame. Make that one first."
+          : "Another frame is generating. Wait for it to finish before making this one." })));
 }
 
 const CONF_LABELS = ["Inner","Personal","Extra-personal"];
@@ -1975,7 +2037,7 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
         _el("div",{className:"bc-sec-lab"},"Shots \u00b7 "+L.shots.length),
         L.shots.map((sh,i)=> _el(React.Fragment,{key:sh.id},
           _el(BeatShotRow,{sh,letter:letterOf(i),open:openShotId===sh.id,selected:previewShotId===sh.id,isNext:(sh.id===nextShotId),
-            live:(sh.id===batchActiveId),
+            live:shotRunsHere(sh,batchActiveId),
             liveText:(typeof window.shotLiveText==="function") ? window.shotLiveText(scene, sh) : null,
             onToggle:()=>selectAndToggle(sh)}),
           openShotId===sh.id && _el("div",{className:"bc-shot-expand"},
@@ -2007,7 +2069,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
     : L.shots.find(sh=>sh.keyframeMode==="beat-opening")||L.shots[0]||null;
   const extras=L.shots.filter(sh=>!primary||sh.id!==primary.id);
   const [selectedId,setSelectedId]=React.useState(primary&&primary.id);
-  const batchShot=L.shots.find(sh=>sh.id===batchActiveId)||null;
+  const batchShot=L.shots.find(sh=>shotRunsHere(sh,batchActiveId))||null;
   const selected=L.shots.find(sh=>sh.id===selectedId)||primary||null;
   // The queued frame owns the sole mounted generator driver. This makes a queued
   // legacy alternative visible instead of mounting a second hidden ShotCard.
@@ -2061,7 +2123,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
     beatText:(source&&source.openingAction)||text,sceneShots:ordered,plan:sh.beatPlan,
     prevShot,laterShots:(shotIndex>=0?ordered.slice(shotIndex+1):[]),
      isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,
-      onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext,scriptedContent,redraftControl:refineControl,shotMenuExtra,readOnly}); };
+      onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId:(shotRunsHere(sh,batchActiveId)?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext,scriptedContent,redraftControl:refineControl,shotMenuExtra,readOnly}); };
   return _el(React.Fragment,null,
     displayed ? editor(displayed,displayed.id===primary.id?null:"Alternative "+(extras.findIndex(sh=>sh.id===displayed.id)+1)) :
       _el("div",{className:"sheet-card shot-card opening-beat-empty"},
@@ -2111,7 +2173,7 @@ function MomentShotCard({ sh, L, scene, ctx, characters, propsAvail, ordered, fi
   return _el(ShotCard,{key:sh.id,sh,scene,ctx,characters,propsAvail,beatText:(source&&source.openingAction)||sh.action,
     sceneShots:ordered,plan:null,prevShot,laterShots:(shotIndex>=0?ordered.slice(shotIndex+1):[]),
     isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,onUpdate,onDelete,onView,onDeleteShotReference,
-    batchActiveId:(sh.id===batchActiveId?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
+    batchActiveId:(shotRunsHere(sh,batchActiveId)?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
     subLabel:label,beatContext,scriptedContent,readOnly});
 }
 
@@ -2372,7 +2434,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
   // Collapsing a scene must not strand a running queue. In that one state only,
   // retain exactly the active card as an invisible owner; when open, its visible
   // beat card owns the same id and this node is absent.
-  const collapsedActive = !open && batchMode && batchActiveId ? ordered.find(sh=>sh.id===batchActiveId) : null;
+  const collapsedActive = !open && batchMode && batchActiveId ? ordered.find(sh=>shotRunsHere(sh,batchActiveId)) : null;
   const collapsedDriver = collapsedActive ? (()=>{
     const lane=lanes.find(L=>L.shots.some(sh=>sh.id===collapsedActive.id))||{n:collapsedActive.beatN,shots:[collapsedActive]};
     const prior=(typeof seedShotOf==="function")?seedShotOf(collapsedActive,ordered)
@@ -2474,7 +2536,11 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
           if(typeof shotChainStatus==="function" && shotChainStatus(s, ordered, meta)==="stale") staleSeed++;
         });
         const unrendered=ordered.length-framed-loading, refresh=staleSeed+staleSrc;
-        const todo=[unrendered>0 && unrendered+" to render", loading>0 && loading+" loading", refresh>0 && refresh+" to refresh", oldLook>0 && oldLook+" earlier look"].filter(Boolean);
+        // a planned beat's end frame not made yet (2026-11-22); one still downloading on an approved shot is not counted
+        const endTodo=(typeof shotEndShotsOf==="function" ? shotEndShotsOf(ordered) : []).filter(e=>{
+          if(typeof nbGetImage==="function" && nbGetImage(e.id)) return false;
+          return !(e.locked && typeof window.nbImageKnownMissing==="function" && !window.nbImageKnownMissing(e.id)); }).length;
+        const todo=[unrendered>0 && unrendered+" to render", endTodo>0 && endTodo+" end frame"+(endTodo!==1?"s":"")+" to make", loading>0 && loading+" loading", refresh>0 && refresh+" to refresh", oldLook>0 && oldLook+" earlier look"].filter(Boolean);
         const why=[unrendered>0 && unrendered+" with no frame yet — 'Render Scene in order' renders them in chain order",
           staleSeed>0 && staleSeed+" frame"+(staleSeed===1?" needs":"s need")+" continuity refresh: its continuity source changed, moved or was removed (re-rendered by 'Render Scene in order')",
           staleSrc>0 && staleSrc+" frame"+(staleSrc===1?" needs":"s need")+" source refresh: rendered before its shot specification or screenplay beat changed",
@@ -2707,7 +2773,10 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
 
   const charById = React.useMemo(()=>{ const m={}; (characters||[]).forEach(c=>m[c.id]=c); return m; },[characters]);
   const propById = React.useMemo(()=>{ const m={}; (props||[]).forEach(p=>m[p.id]=p); return m; },[props]);
-  const shotById = React.useMemo(()=>{ const m={}; (shots||[]).forEach(s=>m[s.id]=s); return m; },[shots]);
+  // every shot by id, and each beat's end frame as a shot of its own (shots.jsx shotEndShot), for the ordered runs
+  const shotById = React.useMemo(()=>{ const m={}, by={}; (shots||[]).forEach(s=>{ m[s.id]=s; (by[s.sceneId]=by[s.sceneId]||[]).push(s); });
+    if(typeof shotEndShotsOf==="function") Object.keys(by).forEach(sid=> shotEndShotsOf(by[sid]).forEach(e=>{ m[e.id]=e; }));
+    return m; },[shots]);
 
   // one-time sanity pass: re-anchor each shot's subjects to the cast NAMED in its
   // action/composition text (earlier drafts could drift to background cast — e.g. a
@@ -2726,8 +2795,17 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       // backfill an empty action from its originating beat (a draft can leave it blank)
       let action = sh.action;
       if(!String(action||"").trim()){ const ba = beatActionOf(sh); if(ba){ action = ba; patch.action = ba; } }
+      /* WHO IS IN FRAME ON A PLANNED SHOT IS THE SCENE PLAN'S ANSWER (2026-11-22): never re-anchored from the action
+         text. This pass used to rewrite it on every visit to the tab (a close-up of one man's laces came back
+         listing the other man, a three-person frame came back with one). A planned shot it already changed gets
+         the plan's answer back, from the reference list the plan set with it (untouched by hand while it is Auto). */
+      if(sh.subjectsByPlan){
+        const planWho = (sh.referenceCharactersSet && sh.referenceCharactersAuto && Array.isArray(sh.referenceCharacterIds)) ? sh.referenceCharacterIds : null;
+        const cur = sh.subjects||[];
+        if(planWho && !(planWho.length===cur.length && planWho.every(id=>cur.indexOf(id)>=0))) patch.subjects = planWho.slice();
+      }
       // re-anchor subjects to the (possibly backfilled) action text, unless set by hand
-      if(!sh.subjectsSet){
+      else if(!sh.subjectsSet){
         const named = scanTextForChars((action||"")+" "+(sh.composition||""), characters);
         if(named.length){ const cur = sh.subjects||[];
           const same = named.length===cur.length && named.every(id=>cur.indexOf(id)>=0);
@@ -2805,8 +2883,13 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
   // (approved) shot is treated as done \u2014 it seeds the next but isn't re-rendered. Gate ON \u2192
   // pause after each shot for approval; OFF \u2192 auto-lock and continue. Drives the existing
   // sequential batch one shot at a time (useBatchGen is shared, so it isn't modified).
+  // (2026-11-22) a planned beat's END FRAME has its turn right after the shot it ends, before the next beat opens
   const chainOrderIds = (list)=> ((typeof sceneShotsDependencyOrdered==="function")?sceneShotsDependencyOrdered(list)
-    :(typeof sceneShotsOrdered==="function")?sceneShotsOrdered(list):(list||[])).map(s=>s.id);
+    :(typeof sceneShotsOrdered==="function")?sceneShotsOrdered(list):(list||[]))
+    .flatMap(s=> (typeof shotEndFrameWanted==="function" && shotEndFrameWanted(s, list||[])) ? [s.id, shotEndFrameId(s.id)] : [s.id]);
+  const isEndStep = (id)=> typeof shotEndOwnerId==="function" && !!shotEndOwnerId(id) && !!(shotById[id] && shotById[id].endFrameOf);
+  // an end frame is approved with its shot: its own step never writes an approval
+  const lockStep = (id, on)=>{ if(!isEndStep(id)) onUpdateShot(id, { locked:!!on }); };
   const chainKeyOk = ()=> !(typeof nbHasKeyForCurrent==="function") || nbHasKeyForCurrent();
   // A shot counts as DONE (skipped on a non-forced run) only if it's locked AND actually has a
   // committed frame. A locked-but-FRAMELESS shot \u2014 e.g. one whose generation errored or timed
@@ -2841,7 +2924,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     let i = fromIdx;
     while(i<ids.length){ const s=shotById[ids[i]]; if(s && (force || !shotIsDone(s))) break; i++; }
     if(i>=ids.length){ setChain(null); batch.setMsg("Chain complete \u2014 every shot rendered in order."); return; }
-    if(unlock && shotById[ids[i]] && shotById[ids[i]].locked) onUpdateShot(ids[i], { locked:false });
+    if(unlock && shotById[ids[i]] && shotById[ids[i]].locked) lockStep(ids[i], false);
     // remember what frame (if any) the shot had BEFORE this run — the self-heal below can
     // then tell "the run committed a NEW frame" apart from "the old frame is still there".
     const preFrame = (typeof nbGetImage==="function") ? (nbGetImage(ids[i])||"") : "";
@@ -2888,12 +2971,12 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     // a single manual render with "Check each frame" on is left for you to approve (2026-10-09 — it was
     // approved on its own, as if checked)
     if(checkEachRef.current && c.ids.length===1){ setChain(null); batch.setMsg("Frame made \u2014 check it, then approve it on its card."); return; }
-    onUpdateShot(id, { locked:true });            // it's the approved seed for the next shot
+    lockStep(id, true);                           // it's the approved seed for the next shot
     stepChain(c.ids, c.idx+1, c.force, c.unlock);
   };
   // the pause bar's three answers
   const approveAndContinue = ()=>{ const c = chainRef.current; if(!c || !c.paused) return;
-    onUpdateShot(c.ids[c.idx], { locked:true }); stepChain(c.ids, c.idx+1, c.force, c.unlock); };
+    lockStep(c.ids[c.idx], true); stepChain(c.ids, c.idx+1, c.force, c.unlock); };
   const regeneratePaused = ()=>{ const c = chainRef.current; if(!c || !c.paused) return;
     const id = c.ids[c.idx];
     setChain({ ...c, paused:false, preFrame:(typeof nbGetImage==="function") ? (nbGetImage(id)||"") : "",
@@ -2955,6 +3038,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
           +(price?" \u2014 about "+price+" credit"+(price==="1"?"":"s")+".":".")
           +(plan.approvedRedo && plan.approvedRedo.length ? " "+plan.approvedRedo.length+" of them "+(plan.approvedRedo.length!==1?"are frames":"is a frame")+" you approved that went out of date." : "")
           +(plan.cascade && plan.cascade.length ? " "+plan.cascade.length+" approved frame"+(plan.cascade.length!==1?"s follow":" follows")+" one of those in the chain, so "+(plan.cascade.length!==1?"they re-render":"it re-renders")+" too." : "")
+          +(plan.toRender.some(isEndStep) ? (n=>" "+n+" of the "+plan.toRender.length+" "+(n!==1?"are end frames":"is an end frame")+": the last frame of a beat, which the next beat starts from.")(plan.toRender.filter(isEndStep).length) : "")
           +" Other approved, up-to-date frames are kept."+(checkEachRef.current ? " The run pauses after each frame so you can check it." : ""),
         confirmLabel:"Render "+plan.toRender.length, cancelLabel:"Cancel" });
       if(!ok) return null;
@@ -3001,6 +3085,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     setCollapsed({});   // expand all so each card is mounted as the chain reaches it
     stepChain(ids, 0, false); };
   const filmPlan = runPlanFor(scenesWithShots.flatMap(s=>chainOrderIds(shotsByScene[s.id])));
+  const filmShotN = filmPlan.toRender.filter(id=>!isEndStep(id)).length || filmPlan.toRender.length;   // the button names shots; its price is every frame
   const startSceneRef = React.useRef(null); startSceneRef.current = startScene;
   // re-run a scene's chain from the shot AFTER `sh` \u2014 used after re-rolling a frame so the
   // propagated state stays current. Unlocks the downstream shots so they actually re-render.
@@ -3062,7 +3147,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       const target=shotById[id];
       if(!target){ setNotice("That shot can't be found any more \u2014 the shot list may have changed. Refresh and try again."); return; }
       const orderedShots=(typeof sceneShotsOrdered==="function")?sceneShotsOrdered(shotsByScene[target.sceneId]):(shotsByScene[target.sceneId]||[]);
-      const at=orderedShots.findIndex(s=>s.id===id);
+      const at=target.endFrameOf ? orderedShots.findIndex(s=>s.id===target.endFrameOf) : orderedShots.findIndex(s=>s.id===id);
       if(at<0){ setNotice("That shot isn't in its scene's running order \u2014 refresh and try again."); return; }
       const startEpoch=typeof nbEpoch==="function"?nbEpoch():null;
       const startShots=JSON.stringify(orderedShots);
@@ -3212,7 +3297,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
           filmPlan.toRender.length>0
             ? _el("button",{className:"art-draftall",disabled:!!batchActiveId||!!chain,onClick:startAll,
                 title:"Render every shot in the film that isn't approved and up to date, in chain order \u2014 asks first with the total. Approved, current frames are kept and used as seeds."},
-                _el(Icon.sparkles,{s:14}), (batchActiveId||chain)?"Rendering\u2026":("Generate "+filmPlan.toRender.length+" shot"+(filmPlan.toRender.length!==1?"s":"")),
+                _el(Icon.sparkles,{s:14}), (batchActiveId||chain)?"Rendering\u2026":("Generate "+filmShotN+" shot"+(filmShotN!==1?"s":"")),
                 typeof window.nbCostChip==="function" && window.nbCostChip(filmPlan.toRender.length))
             : _el("span",{className:"shot-all-done"},_el(Icon.check,{s:14}),"Every shot approved")))),
     // CHECK EACH FRAME — the paused run waits here

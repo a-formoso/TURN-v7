@@ -69,10 +69,10 @@ await test("A4 nothing flags at once: a shot without the new field hashes as bef
 
 /* ═══ B ═══ */
 await test("B1 the frame prompt uses an Action written by hand instead of the screenplay's opening", ()=>{
-  const f = between(shots, "    const actionByHand = !!(sh && sh.actionByHand && clean(sh.action));", "if(openingAction)");
+  const f = between(shots, "    const actionByHand = !_isEndFrame && !!(sh && sh.actionByHand && clean(sh.action));", "if(openingAction)");   // (2026-11-22: an end frame stages how its shot ends)
   assert.ok(f.includes("(screenplaySource&&screenplaySource.hasSource && !actionByHand)"));
   assert.ok(shots.includes('"\\n\\nOPENING ACTION (the director\'s own wording for this first frame — it replaces the screenplay\'s opening): "'));
-  assert.ok(read("app/scene-order.js").includes('"actionByHand"];'));
+  assert.ok(read("app/scene-order.js").includes('"actionByHand",'));   // (2026-11-22: the end frame's field follows it in the list)
 });
 await test("B2 a re-draft drops the hand-written flag without un-approving a shot that didn't change", ()=>{
   const prior = { id:"s1", sceneId:"sc", beatN:1, keyframeMode:"beat-opening", action:"Mara crosses", locked:true, specRev:2, actionByHand:true };

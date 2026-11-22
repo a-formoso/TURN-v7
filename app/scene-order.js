@@ -36,10 +36,13 @@ const SHOT_SPEC_FIELDS = ["beatN","size","angle","move","lens","composition","su
   "focalDistance","movementSpeed",
   // (2026-10-05, owner — Shots review) an Action written by hand replaces the screenplay's opening in
   // the frame prompt; a shot without the flag hashes as before
-  "actionByHand"];
+  "actionByHand",
+  // (2026-11-22) a beat's END FRAME is staged from its shot's end state (shots.jsx shotEndShot sets this on the shot
+  // that stands for it; no saved shot has it, so every saved shot hashes as before)
+  "endStateSig"];
 /* fields only the FRAME reads — a change re-renders the frame, never a Stage take (the video prompt
    doesn't read them). Takes stamped since 2026-10-05 carry a `videoHash` without them. */
-const SHOT_FRAME_ONLY_FIELDS = ["negativePrompt"];
+const SHOT_FRAME_ONLY_FIELDS = ["negativePrompt","endStateSig"];
 function shotSpecFingerprint(shot){
   const spec={}; SHOT_SPEC_FIELDS.forEach(k=>{ if(shot&&shot[k]!==undefined) spec[k]=shot[k]; });
   // a shot that only moved with its beat (beatRemapShots) keeps the number its frames and takes were made under

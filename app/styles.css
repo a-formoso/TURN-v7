@@ -12663,6 +12663,13 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .ssx-plan-by{font-size:11px;color:var(--txt-3)}
 .shot-plan{margin:6px 0 4px;padding:8px 10px;border:1px solid var(--line-1);border-radius:var(--r-m);font-size:11.5px;line-height:1.45;color:var(--txt-1)}
 .shot-plan-head{margin-bottom:4px;font:400 9px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3)}
+/* the beat's end frame, on its last planned shot (2026-11-22) */
+.shot-end{display:flex;flex-direction:column;gap:8px}
+.shot-end-head{display:flex;align-items:center;gap:6px}
+.shot-end-lab{font:400 9px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3)}
+.shot-end-how{font-size:11.5px;line-height:1.45;color:var(--txt-1)}
+.shot-plan-from{margin:0 0 4px;font-size:11.5px;line-height:1.4;color:var(--txt-2)}
+.shot-end-note{padding:6px 9px;border:1px solid var(--line-1);border-radius:var(--r-m);font-size:11.5px;line-height:1.4;color:var(--txt-2)}
 .shot-plan-row{display:flex;gap:8px;align-items:baseline}
 .shot-plan-k{flex:none;min-width:64px;color:var(--txt-3)}
 @media (max-width:760px){
