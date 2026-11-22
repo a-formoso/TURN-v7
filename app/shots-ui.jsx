@@ -365,7 +365,9 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
         if(typeof nbLoadImage==="function") await Promise.all(_ids.map(id=> Promise.resolve(nbLoadImage(id)).catch(()=>null))); }catch(e){}
       // an EDIT reworks this frame in place: it keeps what the frame was made from (its spec, sheets, plates,
       // props) — it used to restamp them as current, so an out-of-date frame became current after a small edit
-      const _priorMeta = (gopts && gopts.editInstruction && typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||null) : null;
+      // (an END FRAME is MADE as an edit of its shot's frame, gopts.endFrameMake: that is a new frame, stamped as one)
+      const _reworks = !!(gopts && gopts.editInstruction && !gopts.endFrameMake);
+      const _priorMeta = (_reworks && typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||null) : null;
       const _keep = (k, now)=> (_priorMeta && _priorMeta[k]!==undefined) ? _priorMeta[k] : now;
       const base = {
         shotSource:_keep("shotSource", (typeof shotSourceStamp==="function")
@@ -393,7 +395,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
       if(typeof shotSeedStamp!=="function") return base;
       // an EDIT reworks THIS frame in place — its chain position is unchanged, so the
       // prior lineage carries forward (the hook builds meta fresh; without this it'd drop)
-      if(gopts && gopts.editInstruction){
+      if(_reworks){
         const prior = (typeof nbGetMeta==="function") ? (nbGetMeta(sh.id)||{}).seedSource : null;
         return prior ? { ...base, seedSource:prior } : base;
       }
@@ -1501,6 +1503,17 @@ function ShotEndFrame({ sh, sceneShots, ctx, onView, batchActiveId, onBatchDone,
   const meta = (id)=> (typeof nbGetMeta==="function") ? nbGetMeta(id) : null;
   const ownerFrame = (typeof nbGetImage==="function") ? nbGetImage(sh.id) : "";
   const chainStatus = gen.genUrl && typeof shotChainStatus==="function" ? shotChainStatus(end, sceneShots||[], meta) : "";
+  /* MADE AS AN EDIT OF ITS SHOT'S OWN FRAME (2026-11-22, after the first real run on Scene 5: composed as a new frame
+     from the sheets and the location image, the end frame came back wider and from another angle, with the door the
+     other way). An edit keeps the picture it starts from, so the camera, the framing and the set stay; only what the
+     end state says has changed is asked for. It is still a new frame of its own: its stamps are a frame's (the
+     factory reads endFrameMake). With no words for the end state (no scene plan at hand) it is composed as before. */
+  const makeOpts = ()=>{
+    const from = (typeof nbGetImage==="function") ? nbGetImage(sh.id) : "";
+    return (from && how) ? { endFrameMake:true, editBaseUrl:from,
+      editInstruction:"show this SAME shot a few seconds later, as it ENDS. The camera has not moved: same position, same framing, same lens, same set and light. By then: "
+        +how.replace(/\.$/,"")+". People and things have moved only as far as this says; everything else is exactly as in the frame" } : {};
+  };
   // its turn in an ordered run: the same watch a shot card keeps for its own frame
   const started = React.useRef(batchActiveId===end.id && gen.gening);
   const was = React.useRef(gen.gening);
@@ -1511,7 +1524,7 @@ function ShotEndFrame({ sh, sceneShots, ctx, onView, batchActiveId, onBatchDone,
       started.current=true; was.current=false;
       // a render that never starts (its shot's frame is missing, a reference failed) ends this step, never stalls the run
       const settle = ()=> setTimeout(()=>{ if(started.current && !was.current){ started.current=false; onBatchDone && onBatchDone(end.id); } }, 1500);
-      Promise.resolve().then(()=>gen.generate({})).then(settle, settle);
+      Promise.resolve().then(()=>gen.generate(makeOpts())).then(settle, settle);
       return; }
     if(started.current && was.current && !gen.gening){ started.current=false; onBatchDone && onBatchDone(end.id); }
     was.current = gen.gening;
@@ -3216,7 +3229,11 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         }
         const ok = await window.appConfirm({
           title:"Seed frame isn't approved yet",
-          body:shotLab(target)+" chains from "+shotLab(unapproved)+", whose frame is rendered but not approved. “Approve frame as seed” in its image Options menu is the continuity gate — or continue now and deliberately use the unapproved frame as this render's seed. The new frame will record that choice on its card.",
+          // (2026-11-22) an end frame is approved with its shot: the question says which frame to approve
+          body:shotLab(target)+" chains from "+shotLab(unapproved)+", whose frame is rendered but not approved. "
+            +(unapproved.endFrameOf ? "An end frame is approved with its shot: “Approve frame as seed” in that shot's image Options menu is the continuity gate"
+              : "“Approve frame as seed” in its image Options menu is the continuity gate")
+            +" — or continue now and deliberately use the unapproved frame as this render's seed. The new frame will record that choice on its card.",
           confirmLabel:"Use unapproved seed", cancelLabel:"Cancel" });
         if(!ok) return;
         if(!stillCurrent()) return;

@@ -166,6 +166,16 @@ await (async ()=>{
     assert.ok(chain.includes("THIS SAME SHOT AS IT BEGINS")&&chain.includes("As the shot ends: AMIRA HUSSAIN at the counter, standing, holding the Tupperware")&&chain.includes("Stage the LAST instant of this shot"));
     const meta=await pack.opts.metaStart({});
     assert.deepEqual(plain(meta.seedSource),{seedShotId:"b1m2",seedVersion:4,seedIso:"t4"},"its lineage is its shot's frame (an approved shot: no unapproved mark)");
+    // MADE AS AN EDIT of its shot's frame (it keeps the camera): still stamped as a new frame, with its seed; a later
+    // edit by hand reworks it in place and keeps what it was made from
+    const made=await pack.opts.metaStart({gopts:{editInstruction:"show this SAME shot a few seconds later",endFrameMake:true,editBaseUrl:"img://b1m2"}});
+    assert.deepEqual(plain(made.seedSource),{seedShotId:"b1m2",seedVersion:4,seedIso:"t4"});
+    metas["b1m2-end"]={version:2,iso:"t9",seedSource:{seedShotId:"b1m2",seedVersion:3,seedIso:"t3"},shotSource:{shotId:"b1m2-end",specHash:"old"}};
+    const reworked=await pack.opts.metaStart({gopts:{editInstruction:"brighten the hall"}});
+    assert.deepEqual(plain(reworked.seedSource),{seedShotId:"b1m2",seedVersion:3,seedIso:"t3"}); assert.equal(plain(reworked.shotSource).specHash,"old");
+    metas["b1m2-end"]={version:2,iso:"t9"};
+    const editPrompt=pack.opts.buildEdit("show this SAME shot a few seconds later, as it ENDS",[],undefined);
+    assert.ok(editPrompt.startsWith("Edit this film frame. Apply ONLY this change: show this SAME shot a few seconds later, as it ENDS. Keep the same shot size, lens, staging,"));
     assert.equal(plain(meta.shotSource).shotId,"b1m2-end"); // its specification stamp is worked out from its shot's own fields: a changed shot puts its end frame out of date
     const stampOf=sh=>plain(box.shotSourceStamp(box.shotEndShot(sh),ctx.drafts.s5)).specHash;
     assert.equal(plain(meta.shotSource).specHash,stampOf(owner)); assert.notEqual(stampOf({...owner,size:"WS"}),stampOf(owner));
@@ -194,8 +204,13 @@ test("5 the card, the ordered run and what it asks", ()=>{
     'const mine = batchActiveId===end.id;','onBatchDone && onBatchDone(end.id)','onGenerateShot(end.id)',
     '_el(CardFold,{label:"End frame",count:state,defaultOpen:false,foldId:"shot-end-"+sh.id},','"How this shot ends"',
     'const state = gen.gening ? "making\\u2026" : !gen.genUrl ? "not made yet" : chainStatus==="stale" ? "out of date" : "made";',
+    "Promise.resolve().then(()=>gen.generate(makeOpts())).then(settle, settle);","return (from && how) ? { endFrameMake:true, editBaseUrl:from,",
+    'editInstruction:"show this SAME shot a few seconds later, as it ENDS. The camera has not moved: same position, same framing, same lens, same set and light. By then: "',
     "generateDisabled:readOnly || waiting || !ownerFrame,",'"Make this shot\'s frame first"','noun:"end frame"',"hideUploadButton:true"])
     assert.ok(comp.includes(t),"the end frame part has "+t);
+  // the image hook takes the handed-over base as the picture to edit, on a slot that has no image yet
+  assert.ok(read("app/artroom.jsx").includes("const isEditMode = !!(gopts.editInstruction && (genUrl || gopts.editBaseUrl));")
+    && read("app/artroom.jsx").includes('if(isEditMode){ refImage = gopts.editBaseUrl || genUrl; mode = "edit"; }'));
   assert.ok(comp.indexOf("useImageGen(pack.opts)")<comp.indexOf("_el(CardFold,"),"its generator is mounted with the card, outside the fold");
   assert.ok(!/Fable|Opus|Claude|Nano|\bTURN\b|MUSE/.test(comp.replace(/owner 2026[^\n]*/g,"")));
   // a run's step belongs to a card for its own frame or its end frame, wherever cards are matched to the step
@@ -213,6 +228,8 @@ test("5 the card, the ordered run and what it asks", ()=>{
   assert.equal(run.split("lockStep(").length-1,3);
   assert.ok(ui.includes('": the last frame of a beat, which the next beat starts from.")(plan.toRender.filter(isEndStep).length)'));
   assert.ok(ui.includes('const at=target.endFrameOf ? orderedShots.findIndex(s=>s.id===target.endFrameOf) : orderedShots.findIndex(s=>s.id===id);'));
+  // the unapproved-seed question names the right frame to approve when the seed is an end frame
+  assert.ok(ui.includes('(unapproved.endFrameOf ? "An end frame is approved with its shot: \u201cApprove frame as seed\u201d in that shot\'s image Options menu is the continuity gate"'));
   // the film button names shots, its price is every frame; the scene's To do counts end frames still to make
   assert.ok(ui.includes('("Generate "+filmShotN+" shot"+(filmShotN!==1?"s":""))')&&ui.includes("window.nbCostChip(filmPlan.toRender.length)"));
   assert.ok(ui.includes('endTodo>0 && endTodo+" end frame"+(endTodo!==1?"s":"")+" to make",'));
@@ -246,7 +263,7 @@ test("6 what Frances is told, the pipeline and the keys", ()=>{
   assert.equal((pipe.match(/^### \d+\. /gm)||[]).length,11,"no step was added or removed");
   assert.ok(html.includes('app/scene-order.js?v=20261122-end1"'));
   for(const f of ["shots.jsx","shots-ui.jsx","breakdown.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-end1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-end1", "20261122-end2"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 console.log("\n"+pass+" passed, "+fail+" failed");

@@ -2966,7 +2966,9 @@ async function nbRunSheetGeneration(env, gopts){
       nbSetModel(overrideModel);
       try{ window.dispatchEvent(new CustomEvent("nb-model-changed")); }catch(_){}
     }
-    const isEditMode = !!(gopts.editInstruction && genUrl);
+    // an edit reworks this slot's own image, or (2026-11-22: a beat's end frame is made from its shot's frame) the
+    // image the caller hands over as the base, on a slot that has none yet
+    const isEditMode = !!(gopts.editInstruction && (genUrl || gopts.editBaseUrl));
     const useSimple = !!gopts.simple;
 
     /* reference image: existing sheet (edit) or dropped reference art.
