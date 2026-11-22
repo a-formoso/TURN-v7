@@ -6591,6 +6591,12 @@ function App(){
         if(out.removed&&out.removed.length) merged.archived=[...merged.archived,...out.removed];
       });
     }
+    // a beat drafted again WITHOUT a plan no longer says how its shot starts and ends (2026-11-22, app/scene-plan.js)
+    if(window.ScenePlan && typeof window.ScenePlan.unplan==="function"){
+      const plain=new Set((made||[]).filter(sh=>sh&&!sh.planned).map(sh=>String(sh.sceneId)+"#"+String(sh.beatN)));
+      const redone=new Set((merged.updated||[]).filter(sh=>sh&&plain.has(String(sh.sceneId)+"#"+String(sh.beatN))).map(sh=>sh.id));
+      if(redone.size) merged.shots=merged.shots.map(sh=>redone.has(sh.id) ? window.ScenePlan.unplan(sh) : sh);
+    }
     if(merged.archived.length) setTrash(t=>({...t,shots:[
       ...merged.archived.map(_trashStamp),
       ...(t.shots||[]).filter(sh=>!merged.archived.some(a=>a.id===sh.id))
@@ -6851,6 +6857,170 @@ function App(){
           ? "Opening keyframes updated \u2014 except Beat"+(out.leftAlone.length!==1?"s ":" ")+out.leftAlone.join(", ")+": the answer stopped before "+(out.leftAlone.length!==1?"them":"it")+", so "+(out.leftAlone.length!==1?"they keep their":"it keeps its")+" shot. Re-draft to try again."
           : "Opening keyframes updated.")+" Previous images are retained; additional shots are restorable in Recently deleted.", out.leftAlone && out.leftAlone.length ? "info" : "success");
     }
+  };
+  /* THE SCENE PLAN (owner 2026-11-22: "tackle scenes beat by beat"; app/scene-plan.js, ai.jsx aiPlanScene). One writing
+     pass plans the whole scene. Its shots replace the scene's drafted ones exactly as Re-draft does (commitBeatKeyframes:
+     each beat's opening shot keeps its ID and its images, extra shots go to Recently deleted, a changed frame is
+     unapproved); then every opening and moment shot takes how it starts and how it ends, and the plan is saved with the
+     film (project.scenePlans[scene.id]). It ALWAYS asks first. While it runs the scene's own card shows the progress
+     (planningScene: what is being done, a bar, the clock, the engine): no busy window, and the page does not move. A
+     failure changes nothing and says so where the button is (scenePlanFailed). */
+  const [planningScene, setPlanningScene] = React.useState(null);     // {id, since, est, engine, text} while a plan is written
+  const [scenePlanFailed, setScenePlanFailed] = React.useState(null); // {id, text} the last plan that failed
+  const scenePlanAskingRef = React.useRef(false);
+  /* WHAT MUST NOT HAVE CHANGED while a plan was written (a pass of several minutes): the film, this scene, its
+     screenplay, its beats and its shots. Unlike a shot draft's check (keyframeScope), an edit somewhere else in the film
+     (another character's card, a prop, a location) does not throw the plan away: the plan's ids are checked again in
+     code when it is read, and its own checks name what no longer fits. */
+  const scenePlanScope = (scene)=>{
+    const projectId = projIdRef.current;
+    const epoch = typeof nbEpoch==="function" ? nbEpoch() : null;
+    const sig = (d)=> (typeof window.screenplayDraftSig==="function") ? window.screenplayDraftSig(d) : JSON.stringify(d||null);
+    const beatsOf = ()=> JSON.stringify(((keyframeInputsRef.current||{}).beatsMap||{})[scene.id]||null);
+    const select = (ss)=> (ss||[]).filter(sh=>sh && sh.sceneId===scene.id);
+    const screenplay = sig(draftsRef.current[scene.id]), beats0 = beatsOf(), signature = JSON.stringify(select(shotsLiveRef.current));
+    return ()=>{
+      if(!canDesignShots()) throw new Error("You no longer have permission to change this film's shots.");
+      if(shotReferenceDeleteBusyRef.current) throw new Error("Wait for reference image deletion to finish before planning a scene.");
+      if(projIdRef.current!==projectId
+        || (epoch!==null && (typeof nbEpoch!=="function" || nbEpoch()!==epoch))
+        || !scenesRef.current.some(x=>x.id===scene.id)
+        || sig(draftsRef.current[scene.id])!==screenplay || beatsOf()!==beats0
+        || JSON.stringify(select(shotsLiveRef.current))!==signature)
+        throw new Error("The film, this scene's screenplay, its beats or its shots changed while the scene was being planned. Nothing was replaced; plan it again with the current version.");
+      if(shotsLiveRef.current.some(sh=>sh.sceneId===scene.id &&
+        ((window.__nbGenInflight&&window.__nbGenInflight[sh.id]) || (window.__nbShotPhase&&window.__nbShotPhase[sh.id]))))
+        throw new Error("Finish or stop this scene's frame generation before planning it. Nothing was replaced.");
+    };
+  };
+  const planSceneShots = async (scene)=>{
+    const SP = window.ScenePlan;
+    const say = (m,t)=>{ if(typeof window.appToast==="function") window.appToast(m,t||"info"); };
+    if(!scene || !SP || typeof window.aiPlanScene!=="function") return;
+    if(planningScene || scenePlanAskingRef.current || draftingSceneShots || sceneShotsAskingRef.current) return;
+    if(!canDesignShots()) return;
+    if(keyframeBusyRef.current.size){ say("A shot specification is already being drafted. Wait for it to finish before planning a scene."); return; }
+    const no = String(scene.no||"").padStart(2,"0");
+    let started = false;
+    try{
+      const D = draftsRef.current||drafts;
+      const draft = D[scene.id];
+      if(!draft || !Array.isArray(draft.blocks) || !draft.blocks.length){ say("Write this scene's screenplay in the Writers' Room before planning it."); return; }
+      const assertCurrent = scenePlanScope(scene);
+      const live = shotsLiveRef.current.filter(sh=>sh && sh.sceneId===scene.id);
+      const engine = (typeof window.writingModelInfo==="function" && window.writingModelInfo("scenePlan").label) || "";
+      const had = !!((project && project.scenePlans)||{})[scene.id];
+      // ASKS FIRST: what it does, the engine by its name in the engine list, and what it replaces (as Re-draft says it)
+      const q = SP.confirmText({ sceneNo:scene.no, engine, hasShots:live.length>0, replaces:redraftReplaces(live), again:had });
+      scenePlanAskingRef.current = true;
+      let ok = false;
+      try{ ok = typeof window.appConfirm==="function" ? await window.appConfirm(q) : window.confirm(q.title+"\n\n"+q.body); }
+      finally{ scenePlanAskingRef.current = false; }
+      if(!ok) return;
+      assertCurrent();
+      keyframeBusyRef.current.add(scene.id); started = true;
+      const L = keyframeInputsRef.current || {};
+      const bmap = L.beatsMap||beatsMap;
+      const beatRows = typeof window.shotScreenplayBeatRows==="function" ? window.shotScreenplayBeatRows(scene,{drafts:D,beatsMap:bmap}) : (((bmap||{})[scene.id]||{}).rows||[]);
+      setScenePlanFailed(null);
+      setPlanningScene({ id:scene.id, since:Date.now(), est:SP.estimateSeconds(beatRows.length), engine, text:"Planning Scene "+no+"\u2026" });
+      const res = await window.aiPlanScene(scene, (bmap||{})[scene.id], draft.blocks, { project:lbProject("shots"),
+        characters:charactersRef.current||characters, locations:L.locations||locations, props:L.props||props,
+        scenes:scenesRef.current||scenes, drafts:D, beatsMap:bmap });
+      assertCurrent();
+      if(typeof normalizeShot!=="function") throw new Error("Shot drafting is unavailable.");
+      const L2 = keyframeInputsRef.current || {};
+      const before = {}; live.forEach(sh=>{ before[sh.id] = sh; });
+      // the plan's shots as the shot draft's rows: a beat's first shot is its opening shot, the later ones its moments
+      const rows = SP.shotRows(res.plan, { missingBeats:res.missingBeats, sets:res.sets }).map(r=>({ ...r, writingProvenance:res.by }));
+      let made = rows.map((r,i)=>normalizeShot(r, scene, i, L2.locations||locations, L2.props||props, charactersRef.current||characters, L2.beatsMap||beatsMap));
+      snapShotDialogue(scene, made);
+      made = completeDraftedShotCoverage(scene, made);
+      // a beat the plan did not answer keeps the shot it has (as a re-draft does)
+      const k = keepUnansweredBeats(scene, rows, made); made = k.made;
+      if(made.length) commitBeatKeyframes(made, assertCurrent);
+      // how each shot starts and ends, on the scene's opening and moment shots
+      const propsNow = propsRef.current||props;
+      const propIdOf = (key)=>{ const t = (res.plan.things||[]).find(x=>x.key===key); const c = (t && t.kind==="prop") ? SP.thingProp(t, propsNow) : null; return c ? c.id : ""; };
+      const propKind = (id)=> ((propsNow.find(p=>p && p.id===id)||{}).kind)||"";
+      const applied = SP.applyToShots(shotsLiveRef.current.filter(sh=>sh && sh.sceneId===scene.id), res.plan, { sets:res.sets, propIdOf, propKind });
+      const byId = {}; applied.shots.forEach(sh=>{ byId[sh.id] = sh; });
+      const print = (sh)=> (typeof shotSpecFingerprint==="function") ? shotSpecFingerprint(sh) : "";
+      // a shot whose specification changed is a new revision, and its approval no longer stands (as a re-draft does)
+      const settle = (sh)=>{ const h = print(sh), was = before[sh.id];
+        if(!was || print(was)===h) return { ...sh, specHash:h };
+        return { ...sh, specHash:h, specRev:Math.max(Number(sh.specRev)||1, (Number(was.specRev)||1)+1), locked:false, approved:false }; };
+      const next = shotsLiveRef.current.map(sh=> byId[sh.id] ? settle(byId[sh.id]) : sh);
+      shotsLiveRef.current = next; setShots(next);
+      // the plan itself, saved with the film (its shots live on the shot cards)
+      const sceneNow = next.filter(sh=>sh && sh.sceneId===scene.id);
+      const cast = (charactersRef.current||characters||[]).map(c=>({ id:c.id, name:c.name }));
+      const beatNos = Array.from(new Set((res.plan.shots||[]).map(x=>Number(x.beat))));
+      const found = SP.checks(res.plan, sceneNow, { beats:beatNos, sets:res.sets, cast, props:propsNow });
+      const { shots:_planShots, ...planBody } = res.plan;
+      const doc = { ...planBody, at:new Date().toISOString(), by:{ id:(res.by&&res.by.modelId)||"", label:(res.by&&res.by.model)||"" },
+        screenplayRev:res.screenplayRev||"", sets:res.sets, beats:beatNos, shotCount:(res.plan.shots||[]).length, checks:found };
+      setProject(p=>({ ...p, scenePlans:{ ...((p && p.scenePlans)||{}), [scene.id]:doc } }));
+      const fixes = found.filter(c=>c.level==="fix").length;
+      say("Scene "+no+" is planned: "+applied.patched+" shot"+(applied.patched!==1?"s":"")+" with how each starts and ends. "
+        +(fixes ? fixes+" to fix in the scene plan. " : "")
+        +(k.leftAlone.length ? "Beat"+(k.leftAlone.length!==1?"s ":" ")+k.leftAlone.join(", ")+" got no answer and keep"+(k.leftAlone.length!==1?"":"s")+" the shot "+(k.leftAlone.length!==1?"they have":"it has")+". " : "")
+        +"No image was made.", fixes||k.leftAlone.length ? "info" : "success");
+    }catch(e){
+      const msg = String((e && e.message) || "The scene plan failed.");
+      setScenePlanFailed({ id:scene.id, text:/Nothing was (?:changed|replaced)/.test(msg) ? msg : msg.replace(/\s*$/,"")+" Nothing was changed." });
+    }finally{
+      if(started) keyframeBusyRef.current.delete(scene.id);
+      setPlanningScene(null);
+    }
+  };
+  /* TRACKED THINGS BECOME PROPS (owner 2026-11-22: "we need these props listed in the props tab ... assign them to each
+     character like we have in the character sheet, and assign them to their particular scenes"). Each tracked object
+     with no card becomes an ordinary prop card: in this scene, KEPT (a later screenplay read never drops it), owned by
+     the character who carries it and named in that character's carried list (the tie the character card reads), and
+     marked as coming from the scene plan. Nothing is drafted or drawn here. The planned shots that show the thing take
+     its sheet as a reference. keys: the things to add (none = every one of the scene that has no card). Returns how many. */
+  const addScenePlanProps = (scene, keys)=>{
+    const SP = window.ScenePlan;
+    if(!scene || !SP || !canMutateSharedFilm()) return 0;
+    const plan = ((project && project.scenePlans)||{})[scene.id];
+    if(!plan) return 0;
+    const live = propsRef.current||props||[];
+    const want = (Array.isArray(keys) && keys.length) ? new Set(keys) : null;
+    const todo = (plan.things||[]).filter(t=>t && t.kind==="prop" && (!want || want.has(t.key)) && !SP.thingProp(t, live));
+    if(!todo.length) return 0;
+    const stamp = Date.now().toString(36);
+    const cast = charactersRef.current||characters||[];
+    const cards = [], links = {}, items = {};
+    todo.forEach((t,i)=>{
+      const owner = t.carriedBy ? (cast.find(c=>c && c.id===t.carriedBy)||null) : null;
+      const card = SP.thingCard(t, scene, owner, { stamp:stamp+i });
+      if(!card || SP.thingProp({ name:card.name }, cards)) return;
+      cards.push(withEpisodeSceneRefs(card, card.scenes, scenesRef.current||scenes)); links[t.key] = card.id;
+      if(owner) (items[owner.id] = items[owner.id]||[]).push(card.name);
+    });
+    if(!cards.length) return 0;
+    setProps(ps=>[...ps, ...cards.filter(c=>!ps.some(x=>x.id===c.id))]);
+    // tied to the character as the character card ties an item to its prop card: the item, by the card's name, in their carried list
+    Object.keys(items).forEach(cid=>{
+      const c = cast.find(x=>x && x.id===cid); if(!c) return;
+      let list = c.props;
+      items[cid].forEach(name=>{ const nextList = SP.ownerItems(list, name, { split:(typeof splitListItems==="function") ? splitListItems : null, join:(typeof joinListItems==="function") ? joinListItems : null });
+        if(nextList!=null) list = nextList; });
+      if(list!==c.props) updateCharacter(cid, { props:list });
+    });
+    setProject(p=>{ const cur = ((p && p.scenePlans)||{})[scene.id]; if(!cur) return p;
+      return { ...p, scenePlans:{ ...p.scenePlans, [scene.id]:{ ...cur, things:(cur.things||[]).map(t=>links[t.key] ? { ...t, propId:links[t.key] } : t) } } }; });
+    // the planned shots that show the thing take its sheet (a reference, never part of the shot's fingerprint)
+    if(!shotsReadOnlyRef.current && !shotsStageOnlyRef.current) setShots(ss=>(ss||[]).map(sh=>{
+      if(!sh || sh.sceneId!==scene.id) return sh;
+      let out = sh;
+      Object.keys(links).forEach(key=>{ out = SP.linkPropToShots([out], key, links[key]).shots[0]; });
+      return out;
+    }));
+    if(typeof window.appToast==="function") window.appToast(cards.length+" prop card"+(cards.length!==1?"s":"")+" added to the Props tab from Scene "+String(scene.no||"").padStart(2,"0")
+      +"\u2019s plan. Nothing was drawn: write each card\u2019s design and make its sheet there when you are ready.","success");
+    return cards.length;
   };
   const [draftingAllShots, setDraftingAllShots] = React.useState(false);
   const draftAllShots = async ()=>{
@@ -10156,7 +10326,8 @@ function App(){
             onRefineBeat:refineBeatFromScreenplay,refiningBeat,onRemoveMicroBeatShots:removeMicroBeatShots,onMakeSceneNeeds:makeSceneNeeds,
             onOpenStage:()=>guardedSetRoom("stage"), wardrobeIds,
             onDeleteShotReference:deleteShotReference,
-            onDraftSceneShots:draftSceneShots,draftingSceneShots,onDraftAllShots:draftAllShots,draftingAllShots})),
+            onDraftSceneShots:draftSceneShots,draftingSceneShots,onDraftAllShots:draftAllShots,draftingAllShots,
+            onPlanScene:planSceneShots,planningScene,scenePlanFailed,onAddScenePlanProps:addScenePlanProps})),
 
     // Agents — Writers' Room modal
     agentsOpen && !writersRoomBlocked && React.createElement(AgentsPanel,{

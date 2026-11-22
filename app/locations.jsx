@@ -2255,11 +2255,18 @@ function locationPlanWithRoom(saved,room,addition,family){
     target.openings.push({...o,id,centre,connectsTo:room.id,basis:"design"});doorways++;
   });
   const note=String(a.unresolved||"").replace(/\s+/g," ").trim();
-  const next=normalizeLocationSpatialPlan({...plan,anchors:plan.anchors.concat(fresh),coordinates:{...coords,spaces:spaces.concat(space)},
-    unresolved:[plan.unresolved,note?(room.name||"Room")+": "+note:""].filter(Boolean).join(" "),status:"draft"});
+  /* THE ROOM IS MADE TO FIT (2026-11-22). A plan near its length limit refused the whole room, after the writing call
+     for it had been made: Hussain Flat, with 19 objects, could not take the street outside its door. What the set in
+     3D needs is the room's outline and its doorway; the room's new objects are extra. So the objects that do not fit
+     are left out, last first, then the room's note, before the room itself is refused. `left` says how many. */
+  const build=(objects,withNote)=>normalizeLocationSpatialPlan({...plan,anchors:plan.anchors.concat(objects),coordinates:{...coords,spaces:spaces.concat(space)},
+    unresolved:[plan.unresolved,withNote&&note?(room.name||"Room")+": "+note:""].filter(Boolean).join(" "),status:"draft"});
+  let kept=fresh.slice(),next=build(kept,true);
+  while(locationSpatialPlanTooLarge(next)&&kept.length){kept=kept.slice(0,-1);next=build(kept,true);}
+  if(locationSpatialPlanTooLarge(next)&&note)next=build(kept,false);
   if(locationSpatialPlanTooLarge(next))throw new Error("The floor plan is too long to take another room. Remove an object it does not need, then add the room again.");
   if(!((next.coordinates||{}).spaces||[]).some(s=>s.id===room.id&&s.footprint.length>=3))throw new Error("The room could not be added to the floor plan. Nothing was changed.");
-  return {plan:next,added:{id:room.id,name:room.name||"Room",objects:fresh.length,doorways,left:offered.length-fresh.length}};
+  return {plan:next,added:{id:room.id,name:room.name||"Room",objects:kept.length,doorways,left:offered.length-kept.length}};
 }
 function locationAddedRoomText(added){
   if(!added||!added.name)return "";
@@ -2267,7 +2274,7 @@ function locationAddedRoomText(added){
   if(added.objects)parts.push(added.objects+" fixed object"+(added.objects===1?"":"s"));
   if(added.doorways)parts.push(added.doorways+" doorway"+(added.doorways===1?"":"s")+" cut in the room"+(added.doorways===1?"":"s")+" it opens from");
   return "Added to the saved floor plan: "+added.name+" ("+parts.join(", ")+"). Nothing else on the plan was changed."
-    +(added.left?" "+added.left+" more object"+(added.left===1?"":"s")+" did not fit: a floor plan holds 24.":"")
+    +(added.left?" "+added.left+" more object"+(added.left===1?"":"s")+" did not fit: the floor plan is full (it holds 24 objects, and only so much text).":"")
     +" Check it on the map below, then confirm.";
 }
 /* MOVING PARTS (owner 2026-11-01 — "Headlights crawl up the ramp into the hold" came out with the ramp shut): a part of

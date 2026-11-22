@@ -9664,7 +9664,7 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
   onSuggestStates, suggestingStatesId, onBuildWornProps, onRemoveOwnedItem, onRenameOwnedItem, onDeleteCharacter,
   onUpdateProp, onDraftProp, onDraftAllProps, onAddProp, onImportProps, onDeleteProp, draftingPropIds, draftingPropId, draftingAllProps, onMergeProps, castHasProps,
   onUpdateCrowd, locations, onUpdateLocation, onDraftLocation, onDraftAllLocs, onDeleteLocation, onMergeLocations, onLocationPlaceDecision, onSharedHeadDecision, draftingLocIds, draftingAllLocs, scriptHasLocs, onSetCapture, onSetFilmStock, onUpdatePreset, onDeletePreset, onSetStyleRefs, onSetScenePreset, onAddStyleRefImages, onRemoveStyleRefImage, onDraftStaging, draftingStageId, sluglineUnits, onUpdateUnit, onRemoveUnit,
-  shots, beatsMap, onMakeSceneNeeds, onOpenStage, wardrobeIds, colorRefsOwned, onUseLookbookColorRefs, onKeepColorRefs, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onSplitMoments, onJoinMoments, onSplitAllMoments, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onColorist, onCast,
+  shots, beatsMap, onMakeSceneNeeds, onOpenStage, wardrobeIds, colorRefsOwned, onUseLookbookColorRefs, onKeepColorRefs, onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onSplitMoments, onJoinMoments, onSplitAllMoments, onRefineBeat, refiningBeat, onRemoveMicroBeatShots, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots, onPlanScene, planningScene, scenePlanFailed, onAddScenePlanProps, onColorist, onCast,
   lookbook, lookbookNote, onUpdateLookbook, onAddLookbook, onDeleteLookbook, onSetLookbookNote, onResearch,
   onResearchFresh, onRestoreLookbook, onPurgeLookbook, onSuggestLookbookNote, suggestingLookbookId, onLookbookNoteFromImage, readingLookbookImageId,
   staleTabs, onApplyLookbook, onSourceClick, canReview=false, onReviewLookbook, readOnly=false, projectLoading=false, hidden=false }){
@@ -9767,6 +9767,8 @@ function ArtRoom({ artView, setArtView, project, characters, scenes, props, draf
           onRemoveMicroBeatShots:readOnly?null:onRemoveMicroBeatShots,onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,readOnly,
           wardrobeIds:wardrobeIds||[],
           onDraftSceneShots,draftingSceneShots,onDraftAllShots,draftingAllShots,
+          // the scene plan (2026-11-22): one writing pass for a scene, and its tracked things as prop cards
+          onPlanScene:readOnly?null:onPlanScene,planningScene,scenePlanFailed,onAddScenePlanProps:readOnly?null:onAddScenePlanProps,
           trashItems:(trash&&trash.shots)||[],onRestore:readOnly?null:onRestoreShot,onPurge:readOnly?null:onPurgeShot,
           lookbookStale:!!_stale.shots,
           onReviewLookbook:canReview?()=>onReviewLookbook&&onReviewLookbook("shots"):null})

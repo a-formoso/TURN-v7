@@ -99,7 +99,27 @@ await test("2 one room merged into the saved plan: its outline, objects and door
   const full=copy(house.spatialPlan);for(let i=0;i<22;i++)full.anchors.push({id:"x"+i,space:"Ellis House",name:"Thing "+i,placement:"somewhere"});
   const packed=box.locationPlanWithRoom(full,kitchen,addition,family);
   assert.equal(packed.added.objects,0);assert.equal(packed.added.left,2);assert.equal(packed.plan.anchors.length,24);
-  assert.ok(box.locationAddedRoomText(packed.added).includes("2 more objects did not fit: a floor plan holds 24."));
+  // THE ROOM IS MADE TO FIT (2026-11-22): a plan near its LENGTH limit (not its object count) used to refuse the whole
+  // room after the writing call; now the room's outline and doorway are kept and the objects that do not fit are left out
+  const realLimit=box.locationSpatialPlanTooLarge,base=house.spatialPlan.anchors.length;
+  const bigAdd={...addition,anchors:[1,2,3,4].map(n=>({name:"Kitchen thing "+n,placement:"By the wall",xy:[0.5,6+n*0.3],z:0.5,facing:0,size:[0.5,0.5,0.5]}))};
+  try{
+    box.locationSpatialPlanTooLarge=p=>(p.anchors||[]).length>base+2;   // stands in for the length limit: room for two more
+    const fitted=box.locationPlanWithRoom(house.spatialPlan,kitchen,bigAdd,family);
+    assert.ok(fitted.plan.coordinates.spaces.some(sp=>sp.id===kitchen.id&&sp.footprint.length>=3),"the room is on the plan");
+    assert.equal(fitted.added.objects,2);assert.equal(fitted.added.left,2,"the two that do not fit are left out and counted");
+    assert.equal(fitted.plan.anchors.length,base+2);
+    // with no room even for the note, the note goes before the room is refused
+    box.locationSpatialPlanTooLarge=p=>(p.anchors||[]).length>base||/back window/i.test(String(p.unresolved||""));
+    const bare=box.locationPlanWithRoom(house.spatialPlan,kitchen,bigAdd,family);
+    assert.equal(bare.added.objects,0);assert.equal(bare.added.left,4);
+    assert.ok(!/back window/i.test(String(bare.plan.unresolved||""))&&bare.plan.coordinates.spaces.some(sp=>sp.id===kitchen.id));
+    // and a plan that cannot take even the bare room still says so
+    box.locationSpatialPlanTooLarge=()=>true;
+    assert.throws(()=>box.locationPlanWithRoom(house.spatialPlan,kitchen,bigAdd,family),/too long to take another room/);
+  }finally{box.locationSpatialPlanTooLarge=realLimit;}
+  assert.ok(read("app/locations.jsx").includes("while(locationSpatialPlanTooLarge(next)&&kept.length){kept=kept.slice(0,-1);next=build(kept,true);}"));
+  assert.ok(box.locationAddedRoomText(packed.added).includes("2 more objects did not fit: the floor plan is full (it holds 24 objects, and only so much text)."));
 });
 
 await test("3 the writing call: the saved plan goes in as data and is never rewritten; a same room is said, not placed",async()=>{
@@ -347,7 +367,7 @@ await test("10 Frances knows the whole-place road; the changed files have new ca
       "'Same room: merge the two cards'","'A different room: add it anyway' places it as a room of its own","CAMERAS FOR THE WHOLE PLACE, FREE","'Set cameras for every room (free)'","'Move a camera' opens the camera tool","lit and with the dressing of every card of the place on",
       "'Dress the whole place' (or 'Dress the rest of the place' when some spaces are dressed)","you are asked before anything is sent","'Stop after this space'","'Open [place]'"])assert.ok(entry.includes(t),t);
   for(const f of ["ai.jsx","script.jsx","locations.jsx","locations-ui.jsx","blender-render.js","set-previs.js","set-previs-ui.jsx","camera-angle-preview-ui.jsx","styles.css"])
-    assert.ok(["20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1", "20261121-back2", "20261121-five1", "20261121-five2", "20261121-five3"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f);
+    assert.ok(["20261116-place3", "20261116-onetime1", "20261116-headroom1", "20261117-oneroad1", "20261117-innerwall1", "20261117-innerwall2", "20261117-likeness1", "20261117-likeness2", "20261117-qalook1", "20261117-tips1", "20261117-cast1", "20261117-cast2", "20261117-menu1", "20261117-tips2", "20261117-look1", "20261117-styles1", "20261117-styles2", "20261117-details1", "20261117-details2", "20261117-nosurprise1", "20261117-badge1", "20261118-items1", "20261118-popup1", "20261118-popup2", "20261118-idphoto1", "20261118-desc1", "20261118-desc2", "20261118-update1", "20261118-update2", "20261119-photo1", "20261119-keep1", "20261120-areas1", "20261120-lock1", "20261120-anchor1", "20261120-final1", "20261120-shots1", "20261120-guide1", "20261120-code1", "20261120-detail1", "20261120-gta1", "20261120-charge1", "20261120-charge2", "20261120-tidy1", "20261120-views1", "20261120-views2", "20261120-size1", "20261120-size2", "20261120-nohead1", "20261120-detail2", "20261120-versions1", "20261120-numbers1", "20261121-record1", "20261121-places1", "20261121-places2", "20261121-onecard1", "20261121-back1", "20261121-back2", "20261121-five1", "20261121-five2", "20261121-five3", "20261122-plan1", "20261122-plan2"].some(k=>html.includes("app/"+f+"?v="+k+'"')),f);
 });
 
 console.log("\n"+passed+" passed, "+failed+" failed");

@@ -12623,3 +12623,49 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
   [data-location-card] .sheet-fold-body .loc-map-segbtn{min-height:28px}
   [data-location-card] .sheet-fold-body .loc-map-chip{min-height:28px;padding:3px 11px}
 }
+
+/* ============================ THE SCENE PLAN (owner 2026-11-22) ============================
+   A row in a scene's card on the Shots tab, under the Scene brief: the button (or, while the plan is written, its
+   progress where the button was), then the plan: the brief, the line, the camera idea, the blocking, the things and
+   the checks. And, on a planned shot's card, how the shot starts and ends. */
+.ssx-plan{border-top:1px solid var(--hs-line,var(--line))}
+.ssx-plan-head{display:flex;align-items:center;gap:8px;padding-right:16px;min-width:0}
+.ssx-plan-head .ssx-brief-toggle{border-top:0;flex:1 1 auto;width:auto}
+.ssx-plan-head .ssx-brief-toggle[disabled]{cursor:default}
+.ssx-plan-head .char-draft-btn{flex:none}
+.ssx-plan-work{display:flex;align-items:center;gap:10px;flex:1 1 260px;min-width:0;font-size:12px;color:var(--txt-1)}
+.ssx-plan-work-text{flex:none;white-space:nowrap}
+.ssx-plan-fail{margin:0 16px 10px;padding:8px 10px;border-radius:var(--r-m);border:1px solid var(--line-1);font-size:11.5px;line-height:1.45;color:var(--alert)}
+.ssx-plan > .bc-stale{margin:0 16px 10px}
+.ssx-plan-body{display:flex;flex-direction:column;gap:8px;padding:0 16px 12px;font-size:12px;line-height:1.5;color:var(--txt-1)}
+.ssx-plan-brief p{margin:0 0 3px;color:var(--txt-2)}
+.ssx-plan-row{display:flex;gap:8px;align-items:baseline;min-width:0}
+.ssx-plan-k{flex:none;min-width:86px;font:400 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3)}
+.ssx-plan-v{min-width:0}
+.ssx-plan-part{border:1px solid var(--line-1);border-radius:var(--r-m)}
+.ssx-plan-part > summary{display:flex;align-items:center;gap:8px;min-height:34px;padding:4px 10px;cursor:pointer;font-weight:600;color:var(--txt-0);list-style:none}
+.ssx-plan-part > summary::-webkit-details-marker{display:none}
+.ssx-plan-count{font-weight:400;color:var(--txt-3)}
+.ssx-plan-part > summary .char-draft-btn{margin-left:auto}
+.ssx-plan-list{display:flex;flex-direction:column;gap:5px;margin:0;padding:0 10px 8px;list-style:none}
+.ssx-plan-part > .loc-layer-note{padding:0 10px 8px}
+.ssx-plan-thing{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.ssx-plan-thing b{font-weight:600;color:var(--txt-0)}
+.ssx-plan-meta{color:var(--txt-3)}
+.ssx-plan-card{margin-left:auto;color:var(--txt-2)}
+.ssx-plan-thing .char-draft-btn{margin-left:auto}
+.ssx-plan-check{display:flex;gap:8px;align-items:baseline;width:100%;padding:4px 6px;border:0;border-radius:6px;background:none;text-align:left;font:inherit;color:var(--txt-1);cursor:pointer}
+.ssx-plan-check:hover{background:var(--bg-3)}
+.ssx-plan-check[disabled]{cursor:default}
+.ssx-plan-check[disabled]:hover{background:none}
+.ssx-plan-level{flex:none;font:400 10px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--alert)}
+.ssx-plan-check.note .ssx-plan-level{color:var(--txt-3)}
+.ssx-plan-by{font-size:11px;color:var(--txt-3)}
+.shot-plan{margin:6px 0 4px;padding:8px 10px;border:1px solid var(--line-1);border-radius:var(--r-m);font-size:11.5px;line-height:1.45;color:var(--txt-1)}
+.shot-plan-head{margin-bottom:4px;font:400 9px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3)}
+.shot-plan-row{display:flex;gap:8px;align-items:baseline}
+.shot-plan-k{flex:none;min-width:64px;color:var(--txt-3)}
+@media (max-width:760px){
+  .ssx-plan-head{flex-wrap:wrap;padding-right:10px}
+  .ssx-plan-work{flex-basis:100%;padding:0 0 10px 16px}
+}

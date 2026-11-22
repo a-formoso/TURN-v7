@@ -1341,6 +1341,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         _el("span",{className:"shot-beat-script-lab"},"Scripted"),
         beatText&&_el("span",{className:"shot-beat-script-body"},beatText),
         _el(ShotPurpose,{sh}))),
+      // a shot the scene plan wrote: what it is for, how it starts, how it ends, how it hands off (2026-11-22)
+      sh.planned && _el(ShotPlanLines,{sh,ctx}),
       // the shot's TEXT layer, folded shut by default so the card reads compact —
       // SheetField commits on blur, so collapsing loses only uncommitted drafts.
       // The dropped-subjects warning forces the fold open: a warning hidden behind
@@ -2105,9 +2107,144 @@ function MomentShotCard({ sh, L, scene, ctx, characters, propsAvail, ordered, fi
     subLabel:label,beatContext,scriptedContent,readOnly});
 }
 
+/* THE SCENE PLAN ON A SHOT CARD (owner 2026-11-22; app/scene-plan.js). A shot the plan wrote says, in step 1, what it
+   is for, where the camera stands, how it STARTS, how it ENDS and how it hands off to the next shot. Read-only: the
+   plan writes them (Plan again in the scene's card), and no image reads them yet. */
+function ShotPlanLines({ sh, ctx }){
+  const SP = window.ScenePlan;
+  if(!sh || !sh.planned || !SP) return null;
+  const plan = ((((ctx||{}).project||{}).scenePlans)||{})[sh.sceneId] || null;
+  // marks, fixed objects, people and things are shown by name, never by id
+  const names = SP.namesOf(plan, Object.values(((ctx||{}).charById)||{}));
+  const row = (k,v)=> v ? _el("div",{className:"shot-plan-row"},_el("span",{className:"shot-plan-k"},k),_el("span",{className:"shot-plan-v"},v)) : null;
+  return _el("div",{className:"shot-plan","data-testid":"shot-plan-lines"},
+    _el("div",{className:"shot-plan-head"},"From the scene plan"),
+    row("Purpose",sh.purpose),
+    row("Camera",sh.cameraPosition),
+    row("Starts",SP.stateText(sh.startState,names)),
+    row("Ends",SP.stateText(sh.endState,names)),
+    row("Hands off",SP.handoffText(sh.handoff)));
+}
+
+/* THE SCENE PLAN, IN THE SCENE'S CARD (owner 2026-11-22: "tackle scenes beat by beat"). One row under the Scene brief:
+   with no plan, "Plan this scene" (it asks first); while the plan is written, the progress where the button was (what
+   is being done, a bar against the usual time, the clock, the engine's name) and nothing on the page moves; with a
+   plan, the brief, the line, the camera idea, the MARKS (the named standing places), the blocking by beat, the THINGS
+   (each a prop card, or "Add to Props") and the CHECKS (worked out by the app, free; pressing one goes to its shot).
+   The row counts what is TO FIX only; a note is shown and is not work. */
+function scenePlanBeatList(ns){
+  const list = Array.from(new Set((ns||[]).map(Number).filter(n=>Number.isFinite(n)&&n>0))).sort((a,b)=>a-b);
+  const out = []; let from = null, to = null;
+  list.forEach(n=>{ if(from===null){ from = to = n; return; } if(n===to+1){ to = n; return; } out.push(from===to ? ""+from : from+"–"+to); from = to = n; });
+  if(from!==null) out.push(from===to ? ""+from : from+"–"+to);
+  return out.join(", ");
+}
+function ScenePlanBlock({ scene, bm, ordered, ctx, characters, planning, failed, onPlan, onAddProps, blocked, readOnly=false }){
+  const SP = window.ScenePlan;
+  const [open, setOpen] = React.useState(false);
+  if(!SP) return null;
+  const plan = ((((ctx||{}).project||{}).scenePlans)||{})[scene.id] || null;
+  const mine = planning && planning.id===scene.id ? planning : null;
+  const fail = (!mine && failed && failed.id===scene.id) ? failed.text : "";
+  const allProps = Object.values((ctx && ctx.propById)||{});
+  const drafts = (ctx && ctx.drafts) || ((window.turnContinuity||{}).drafts) || {};
+  const outdated = !!(plan && plan.screenplayRev && typeof window.screenplayDraftSig==="function"
+    && window.screenplayDraftSig(drafts[scene.id])!==plan.screenplayRev);
+  const cast = (characters||[]).map(c=>({ id:c.id, name:c.name }));
+  const nameOf = (id)=> ((cast.find(c=>c.id===id)||{}).name) || "";
+  const rows = typeof window.shotScreenplayBeatRows==="function"
+    ? window.shotScreenplayBeatRows(scene,{drafts,beatsMap:{[scene.id]:bm||{}}}) : (Array.isArray(bm && bm.rows) ? bm.rows : []);
+  const beats = rows.map((r,i)=>Number(r && r.n)||i+1);
+  const found = plan ? SP.checks(plan, ordered||[], { beats, sets:plan.sets||[], cast, props:allProps }) : [];
+  const fixes = found.filter(c=>c.level==="fix").length;
+  const things = (plan && plan.things) || [];
+  const cardOf = (t)=> t.kind==="prop" ? SP.thingProp(t, allProps) : null;
+  const noCard = things.filter(t=>t.kind==="prop" && !cardOf(t));
+  const planned = (ordered||[]).filter(sh=>sh && sh.planned).length;
+  const goShot = (id)=>{ if(id==null) return;
+    const card = document.querySelector('[data-shot-card="'+String(id).replace(/"/g,"")+'"]');
+    if(card){ try{ card.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} } };
+  const turn = (typeof sceneTurnText==="function") ? sceneTurnText(scene) : String(scene.turningPoint||"");
+  const driver = scene.driver ? nameOf(scene.driver) : "";
+  const row = (k,v)=> v ? _el("div",{className:"ssx-plan-row"},_el("span",{className:"ssx-plan-k"},k),_el("span",{className:"ssx-plan-v"},v)) : null;
+  const notes = found.length-fixes;
+  const summary = mine ? "" : plan
+    ? [planned+" shot"+(planned!==1?"s":"")+" planned", fixes ? fixes+" to fix" : "nothing to fix", noCard.length ? noCard.length+" thing"+(noCard.length!==1?"s":"")+" with no prop card" : ""].filter(Boolean).join(" · ")
+    : "Not planned yet";
+  const W = SP.wordsFor(SP.namesOf(plan, cast));
+  const marks = (plan && plan.marks) || [];
+  const setName = (id)=>{ const st = ((plan && plan.sets)||[]).find(x=>x && x.id===id); return st ? st.heading : ""; };
+  return _el("div",{className:"ssx-plan","data-testid":"scene-plan"},
+    _el("div",{className:"ssx-plan-head"},
+      _el("button",{type:"button",className:"ssx-brief-toggle ssx-plan-toggle","aria-expanded":(open&&plan)?"true":"false",disabled:!plan,
+        onClick:()=>setOpen(o=>!o)},
+        _el((open&&plan)?Icon.chevD:Icon.chevR,{s:12}),
+        _el("span",{className:"ssx-brief-lab"},"Scene plan"),
+        summary && _el("span",{className:"ssx-brief-sum"},summary)),
+      // while it is written: what is being done, a bar against the usual time, the clock and the engine, where the button was
+      mine ? _el("div",{className:"ssx-plan-work","data-testid":"scene-plan-work",role:"status"},
+          _el("span",{className:"ssx-plan-work-text"},mine.text),
+          typeof LocationRunProgress==="function" ? _el(LocationRunProgress,{work:mine}) : _el("span",{className:"ns-spin"}))
+        : _el(React.Fragment,null,
+          window.InfoTip && _el(window.InfoTip,{label:"About the scene plan",
+            text:"One writing pass reads the whole scene, then every beat. It writes where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends. It asks first, and it replaces this scene’s drafted shots as Re-draft does. The checks are worked out by the app and make no call."}),
+          (!readOnly && onPlan) && _el("button",{type:"button",className:"char-draft-btn ghost","data-testid":"scene-plan-run",disabled:!!blocked,
+            title:plan ? "Write this scene’s plan again in one writing pass (writing credits). It asks first and says what it replaces."
+              : "Plan this scene in one writing pass (writing credits): blocking, the line, the things, and the shots with how each starts and ends. It asks first.",
+            onClick:()=>onPlan(scene)},_el(Icon.sparkles,{s:12}),plan?"Plan again":"Plan this scene"))),
+    fail && _el("div",{className:"ssx-plan-fail",role:"alert","data-testid":"scene-plan-failed"},fail),
+    outdated && !mine && _el("div",{className:"bc-stale"},"The screenplay changed since this plan was made. Plan again to bring it up to date."),
+    (open && plan) && _el("div",{className:"ssx-plan-body"},
+      _el("div",{className:"ssx-plan-brief"},SP.brief(scene,bm,{driver,reactor:bm&&bm.reactorLabel,turn}).slice(0,3).map((t,i)=>_el("p",{key:i},t))),
+      row("The line",[plan.line&&plan.line.axis, plan.line&&plan.line.cameraSide ? "The camera keeps to "+String(plan.line.cameraSide).replace(/^the camera keeps to\s*/i,"") : "", plan.line&&plan.line.note]
+        .filter(Boolean).map(x=>String(x).replace(/\.$/,"")+".").join(" ")),
+      row("Camera idea",plan.cameraIdea),
+      marks.length>0 && _el("details",{className:"ssx-plan-part","data-testid":"scene-plan-marks"},
+        _el("summary",null,"Marks",_el("span",{className:"ssx-plan-count"},marks.length+" standing place"+(marks.length!==1?"s":""))),
+        _el("ul",{className:"ssx-plan-list"},marks.map(m=>_el("li",{key:m.id,className:"ssx-plan-thing"},
+          _el("b",null,String(m.name||m.id).replace(/^\w/,c=>c.toUpperCase())),
+          _el("span",{className:"ssx-plan-meta"},[m.near ? "near "+String(m.near).replace(/^near\s+/i,"") : "",
+            ((plan.sets||[]).length>1 && setName(m.set)) || "",
+            Array.isArray(m.xy) ? "x "+m.xy[0]+" m, y "+m.xy[1]+" m" : ""].filter(Boolean).join(" · ")))))),
+      _el("details",{className:"ssx-plan-part"},
+        _el("summary",null,"Blocking by beat",_el("span",{className:"ssx-plan-count"},(plan.blocking||[]).length+" beat"+((plan.blocking||[]).length!==1?"s":""))),
+        _el("ul",{className:"ssx-plan-list"},(plan.blocking||[]).map(b=>_el("li",{key:b.beat,className:"ssx-plan-row"},
+          _el("span",{className:"ssx-plan-k"},"Beat "+b.beat),
+          _el("span",{className:"ssx-plan-v"},[(b.people||[]).map(p=>(nameOf(p.id)||p.id)+(p.where?" "+W.spot(p.where):"")+(p.pose?", "+p.pose:"")+(p.facing?", facing "+String(p.facing).replace(/^facing\s+/i,""):"")).join(" · "), b.note].filter(Boolean).join(". ")))))),
+      _el("details",{className:"ssx-plan-part","data-testid":"scene-plan-things",open:noCard.length>0},
+        _el("summary",null,"Things",_el("span",{className:"ssx-plan-count"},things.length+(noCard.length ? " · "+noCard.length+" with no prop card" : "")),
+          (!readOnly && onAddProps && noCard.length>1) && _el("button",{type:"button",className:"char-draft-btn","data-testid":"scene-plan-add-all",
+            title:"Add a prop card for each of these to the Props tab, in this scene and with the character who carries it. Nothing is drawn.",
+            onClick:(e)=>{ e.preventDefault(); onAddProps(scene); }},"Add all "+noCard.length)),
+        things.length ? _el("ul",{className:"ssx-plan-list"},things.map(t=>{
+          const card = cardOf(t);
+          return _el("li",{key:t.key,className:"ssx-plan-thing",title:t.why||undefined},
+            _el("b",null,t.name),
+            _el("span",{className:"ssx-plan-meta"},[t.carriedBy && nameOf(t.carriedBy) ? "carried by "+nameOf(t.carriedBy) : "",
+              (t.beats||[]).length ? "beat"+((t.beats||[]).length!==1?"s ":" ")+scenePlanBeatList(t.beats.map(b=>b.n)) : ""].filter(Boolean).join(" · ")),
+            t.kind!=="prop" ? _el("span",{className:"ssx-plan-card"},t.kind==="wardrobe" ? "Wardrobe" : "Part of the set")
+              : card ? _el("span",{className:"ssx-plan-card"},"Prop card: "+(card.name||t.name))
+              : (!readOnly && onAddProps) ? _el("button",{type:"button",className:"char-draft-btn ghost","data-testid":"scene-plan-add-prop",
+                  title:"Add a prop card for this to the Props tab, in this scene"+(t.carriedBy && nameOf(t.carriedBy) ? " and with "+nameOf(t.carriedBy)+" as its owner" : "")+". Nothing is drawn.",
+                  onClick:()=>onAddProps(scene,[t.key])},"Add to Props")
+              : _el("span",{className:"ssx-plan-card"},"No prop card"));
+        })) : _el("p",{className:"loc-layer-note"},"The plan tracks no thing in this scene.")),
+      _el("details",{className:"ssx-plan-part","data-testid":"scene-plan-checks",open:fixes>0},
+        _el("summary",null,"Checks",_el("span",{className:"ssx-plan-count"},found.length ? [fixes ? fixes+" to fix" : "nothing to fix", notes ? notes+" note"+(notes!==1?"s":"") : ""].filter(Boolean).join(" · ") : "all clear")),
+        found.length ? _el("ul",{className:"ssx-plan-list"},found.map((c,i)=>_el("li",{key:i},
+          _el("button",{type:"button",className:"ssx-plan-check"+(c.level==="note"?" note":""),disabled:c.shot==null,
+            title:c.shot==null ? undefined : "Go to this shot",onClick:()=>goShot(c.shot)},
+            _el("span",{className:"ssx-plan-level"},c.level==="note"?"Note":"Fix"),_el("span",null,c.text)))))
+          : _el("p",{className:"loc-layer-note"},"Every shot ends where the next one starts, each is in its own set, and every tracked thing has a prop card.")),
+      (plan && !SP.exact(plan)) && _el("p",{className:"loc-layer-note","data-testid":"scene-plan-old"},"This plan has no marks. Plan again to get exact checks."),
+      (plan.by && plan.by.label) && _el("div",{className:"ssx-plan-by"},"Written by "+plan.by.label+(plan.at ? " · "+String(plan.at).slice(0,10) : ""))));
+}
+
 function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, pager, onUpdate, onDelete, onView,
   onDeleteShotReference, onAddShot, onSplitBeat, splittingBeat, onSplitMoments, onJoinMoments, onRefineBeat, refiningBeat, onDraftScene, draftingScene, draftingBlocked, batchActiveId, onBatchDone, open, onToggle, onGenerateShot, onRegenDownstream,
-  onRenderScene, renderBusy, queueMode, onStopChain, scenePlan, onMakeSceneNeeds, readOnly=false }){
+  onRenderScene, renderBusy, queueMode, onStopChain, scenePlan, onMakeSceneNeeds, readOnly=false,
+  // the scene plan (2026-11-22; `scenePlan` above is the render plan): one writing pass, and its things as prop cards
+  onPlanScene, planningScene, scenePlanFailed, onAddScenePlanProps }){
   const loc = ctx.location;
   // WHAT THIS SCENE NEEDS (2026-10-03, owner — Shots review): the reference images its frames
   // attach (character sheets, location / room & time plates, prop sheets) that don't exist yet,
@@ -2303,7 +2440,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
           _el(Icon.sparkles,{s:12}), renderBusy?"Rendering\u2026":("Render Scene "+String(scene.no).padStart(2,"0")+" in order"),
           (scenePlan && typeof window.nbCostChip==="function") && window.nbCostChip(scenePlan.toRender.length)),
         (onRenderScene && scenePlan && !scenePlan.toRender.length) && _el("span",{className:"shot-all-done"},_el(Icon.check,{s:12}),"Scene approved"),
-        !readOnly && _el("button",{className:"char-draft-btn ghost"+(draftingScene?" busy":""),disabled:!!draftingScene||!!renderBusy,onClick:()=>onDraftScene(scene),
+        !readOnly && _el("button",{className:"char-draft-btn ghost"+(draftingScene?" busy":""),disabled:!!draftingScene||!!renderBusy||!!planningScene,onClick:()=>onDraftScene(scene),
           title:"Re-draft this scene's opening keyframes from its screenplay (writing credits) \u2014 asks first, says what it replaces, and moves extra shots to Recently deleted; no images are deleted."},
           _el(Icon.layers,{s:12}), draftingScene?"Drafting\u2026":"Re-draft")),
       pager && _el("button",{className:"scene-pager-arrow",disabled:pager.idx>=pager.total-1,onClick:pager.onNext,
@@ -2378,7 +2515,12 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
           _el("div",{className:"ssx-conf"},
             confLab && _el("span",{className:"ssx-conf-lab"},confLab),
             _el("div",{className:"ssx-pips"},
-              [1,2,3].map(i=>_el("span",{key:i,className:"ssx-pip"+(i<=scene.conf?" on":"")})))))))),
+              [1,2,3].map(i=>_el("span",{key:i,className:"ssx-pip"+(i<=scene.conf?" on":"")}))))))),
+    // THE SCENE PLAN (owner 2026-11-22): a row of the scene's own card, directly under Scene brief and drawn as that
+    // row is; its progress shows here, where it was pressed
+    open && _el(ScenePlanBlock,{scene,bm,ordered,ctx,characters,planning:planningScene,failed:scenePlanFailed,
+      onPlan:onPlanScene,onAddProps:onAddScenePlanProps,readOnly,
+      blocked:!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat||!!renderBusy||!!planningScene})),
     // BEAT CARDS — one card per beat (all beats listed), kept through queue renders
     // too (user ruling 2026-08-01: "Render Scene in order" must NOT swap the grid back
     // to the legacy full-card lanes). The chain runner still needs the ACTIVE shot's
@@ -2405,7 +2547,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
               onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, openShotId, setOpenShotId,
               sceneStart:(!_sceneRendered && Li===0), onRenderScene, renderBusy, nextShotId:_nextShotId,
               onRefineBeat,refiningBeat:refiningBeat===scene.id+"#"+L.n,
-               draftingBlocked:!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat,readOnly,
+               draftingBlocked:!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat||!!planningScene,readOnly,
                momentShots, onSplitMoments, onJoinMoments }),
                 momentShots.map(sh=>_el(MomentShotCard,{key:sh.id, sh, L, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
                   onUpdate, onDelete, onView, onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, readOnly})));
@@ -2415,6 +2557,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
 
 function ShotList({ project, scenes, characters, props, locations, shots, beatsMap,
   onUpdateShot, onAddShot, onDeleteShot, onDeleteShotReference, onSplitBeat, splittingBeat, onSplitMoments, onJoinMoments, onSplitAllMoments, onRefineBeat, refiningBeat, onDraftSceneShots, draftingSceneShots, onDraftAllShots, draftingAllShots,
+  onPlanScene, planningScene, scenePlanFailed, onAddScenePlanProps,
   trashItems, onRestore, onPurge, lookbookStale, onReviewLookbook,
   onRemoveMicroBeatShots, onMakeSceneNeeds, wardrobeIds, readOnly=false }){
   const [view, setView] = React.useState(null);
@@ -3105,6 +3248,7 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       batchActiveId,onBatchDone:handleBatchDone,onGenerateShot:startShot,onRegenDownstream,
       onRenderScene:startScene,renderBusy,queueMode,onStopChain:stopChain,scenePlan:scenePlanFor(scene),
       onMakeSceneNeeds:readOnly?null:onMakeSceneNeeds,
+      onPlanScene:readOnly?null:onPlanScene,planningScene,scenePlanFailed,onAddScenePlanProps:readOnly?null:onAddScenePlanProps,
        open:true,onToggle:()=>toggleScene(scene.id),readOnly})),
     // Keep only the active runner mounted when the user browses away. display:none
     // preserves its generation/completion effects without showing a second scene.

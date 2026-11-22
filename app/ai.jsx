@@ -48,6 +48,10 @@ const WRITING_MODELS = [
    the moving parts, the view composition and the location bible. A pick in the top bar still wins for the session,
    and a trial or no-plan account stays on its own lightest default (below). */
 const WRITING_TASK_DEFAULTS = { story:"claude-opus-5-5", specs:"claude-opus-5-5", locations:"claude-fable-5-2" };
+/* THE SCENE PLAN DEFAULTS TO FABLE 5.2 TOO (owner 2026-11-22: one writing pass reads a whole scene and plans its
+   blocking, its things and its shots, so it runs on the deepest engine). Same rules: a pick in the top bar wins for
+   the session, and a trial or no-plan account stays on its own lightest default. */
+WRITING_TASK_DEFAULTS.scenePlan = "claude-fable-5-2";
 /* FREE-TIER DEFAULT (billing repair 2026-09-30): a trial or no-plan account (window.turnOnFreeTier,
    app/plans.jsx) starts on the LIGHTEST default engine, Gemini 3.8 Flash — "Auto" and every
    "· recommended" mark pick it for them. Opus 5.5 holds about 35 credits per call up front (its
@@ -4054,6 +4058,7 @@ APP_FEATURES.push({ name:"Locations: a dressing that takes too long, a waiting d
 /* a billing entry: "credits" in its name keeps the whole entry out of what Frances is told (the protocol, section 3) */
 APP_FEATURES.push({ name:"Credits: which changes made in code are free and which are charged (Characters, Props, Art Room)", what:"(2026-11-20) Most changes the app makes to an image in code are FREE beyond what they already use. FREE: Resize to any size, smaller or larger, and back to the original size; the keeping step of an edit (Edit, Select area & edit, the QA check's fixes, 'Update sheet with new wardrobe': you pay for the image the engine draws and for the reading, nothing more); the detail step of '4K \u2014 larger, with detail' (you pay for its 4K image, nothing more); the step guide, locking and unlocking, and opening a saved QA result. ONE HAS A SMALL PRICE, because code does there what used to take a whole image edit: Remaster, 6 credits; it also uses one reading of the two pictures. WHEN IT IS CHARGED: after the change has been worked out and before it is saved, so a change that could not be made costs nothing; if the credits cannot be taken, nothing is saved and a message says why. On a shared film the owner pays, as for images." });
 APP_FEATURES.push({ name:"Location card: its five sections, what the picture shows, progress while a step runs, and the engine for location work", what:"(2026-11-21) This entry is the newest word on how a location card is laid out: where an older note names a section differently or gives it a number, this one holds. THE CARD HAS FIVE SECTIONS, WITH NO NUMBERS, like a character or a prop card (it had eight numbered ones): THE PLACE (the description: Screenplay Coverage at its top, architecture, materials, light, dressing, how the rooms connect, sizes, fixed landmarks, and Narrative Significance last; Draft specification writes it; it was called The Space). FLOOR PLAN (the plan, its check and its confirmation, with Moving parts at its end). THE SET IN 3D, which holds two parts: Cameras (the four cameras) and Previs (the set in 3D, its dressing, and the location image made from it as drafts). VARIANTS (each time of day or state, with its image and, under Used in, each scene's dressing and blocking). ADVANCED, closed until you open it, which holds Look & exclusions (the render style's own instructions and Leave out), Quick image & image check (the quick image from the description alone, Edit one view, and the check of the image against the description; it was the Location image section) and Generation prompt (read-only). A place that has rooms has one more section, ROOMS, between Variants and Advanced (it was called Subspaces): each room opens there with what is its own, and the extra spaces whose images are kept are listed there; on a place with no room but with such images it is called Extra spaces. A message or a button that names Cameras, Previs, Floor plan or the quick image opens the right section and the right part of it by itself. THE TRACKER under the name has four steps: The place, Floor plan, The set in 3D (done when the four cameras are usable and the set is dressed) and Location image; each opens its section, and the next one to do is marked. THE PREPARE THIS PLACE BOX LEFT THE CARD (2026-11-21): where an older note says Prepare this place does the steps in a row, that button is no longer on a card. Press a step of the tracker and the card opens that section and brings it into view; you do the step there with the section's own button (Draft specification in The place, Draft floor plan in Floor plan, the cameras and Dress the set and Make the location image in The set in 3D). Nothing stored was renamed: only where things sit changed. HISTORY: for a few hours on 2026-11-21 the card was drawn picture first, with a row of looks, a Next box and four tabs (To do, Scenes, Set, About); that design was taken back the same day, so there are no such tabs. ONE THING WAS KEPT FROM IT, on the picture at the top of the card, top left: Image, 3D set and Floor plan choose what the picture shows. Image is the location image. 3D set is the set from its four cameras, drawn in your browser from the floor plan, the cameras and the dressing; looking is free and nothing is made. Floor plan is the saved plan from above, to look at; it is edited in the Floor plan section. Each of the two has a link that opens its section. WHILE A STEP RUNS: beside Draft floor plan while the floor plan is being drafted (a place with many rooms takes several minutes), and under Draft specification in The place while the description is written, a line shows a bar that runs against the time the step usually takes, the clock (0:12 of about 0:45; Longer than usual when it passes that) and the name of the engine doing it. THE ENGINE FOR LOCATION WORK: the writing for locations (the description, the floor plan, a room's place on it, the rooms of places, the moving parts and the view composition) has a writing engine of its own by default, the studio's deepest one, unless you pick another writing engine in the top bar; on the Locations tab the top bar names the engine in use." });
+APP_FEATURES.push({ name:"Shots: the scene plan, its checks, and tracked things becoming props", what:"(2026-11-22) A SCENE PLAN stages a whole scene before its frames are made. WHERE: the Shots tab, in a scene's card, the row named Scene plan under the Scene brief; press Plan this scene. It asks first. WHAT IT DOES: one writing pass reads the whole scene first (its summary, its value turn, who drives it and what they want, who or what stands in the way), then every beat and the full screenplay, and writes six things. MARKS: the named standing places of each set (by the hall shelf, in the kitchen doorway), put on the set's floor plan when the place has one. BLOCKING: the mark each person is on in each beat. THE LINE: the side of the action the camera keeps to. THINGS: a tracker of every object people handle, what they wear where it matters, and each door or other part of the set that changes, beat by beat. CAMERA IDEA: how the camera follows the value turn. THE SHOTS: one for each moment of each beat, each with what it is for, its size, angle, lens and move, where the camera stands, who is in frame, and how it STARTS and how it ENDS, so one shot hands off to the next (a cut, a match cut, or a time cut that says what changed). WHO IS IN FRAME is the plan's own answer for that shot: nobody for an insert or an empty street, one person for a close-up, never everyone who is in the beat. A START or an END says the mark each person is on, what each holds, where each thing is (in a hand, worn, at a mark or a fixed object of the set, or inside another thing) and which doors are open or shut. WHAT IT REPLACES: the scene's drafted shots, as Re-draft does: each beat's opening shot keeps its ID and its images, a changed frame needs making again, and extra shots move to Recently deleted, where you can restore them. No image is made. WHILE IT RUNS: a line where you pressed shows what is being done, a bar against the usual time (longer for a scene with more beats), the clock and the name of the engine; the page does not move. If it fails, a message says so and nothing is changed. ON EACH SHOT CARD, in 1 \u00b7 What this frame shows: From the scene plan, with Purpose, Camera, Starts, Ends and Hands off. THE CHECKS are worked out by the app itself, with no writing pass, and listed in the plan; press one to go to its shot. They compare marks, holders and doors, never wording, so the same place said in other words is not a fault. A row marked Fix is a real break: another mark, another hand, a door the other way, with no time cut that says so. A row marked Note is a difference of a few words only (sealed against sealed, hanging): it is shown and is not counted. The count on the Scene plan row (3 to fix) counts the rows to fix only. They say when a shot ends one way and the next starts another (the mug on the shelf, then in a hand), when a shot points at the wrong set (a moment under an EXT heading inside the scene is another location), when someone in frame is not placed in that beat's blocking, when someone holding something is not listed in frame, when a shot crosses the line without saying why, when a beat has no shot, when a shot shows a thing the tracker does not have, and how many tracked things have no prop card. THINGS BECOME PROPS: each tracked object shows its name, who carries it and the beats it is in, and either Prop card: its name (it is already a card) or Add to Props; Add all N adds every one of the scene at once. Adding makes an ordinary prop card in the Props tab: its name, this scene among its scenes, a short note of what it is and how the scene uses it, and the character who carries it as its owner; the item is also added to that character's Props, carried list on their character card, so the two are tied. The card is kept as a story prop, so a later reading of the screenplay never removes it, and it says where it came from: From the scene plan, with the scene's number. Nothing is drawn by adding: write the card's design and make its sheet in the Props tab when you are ready. The planned shots that show the thing then take its sheet as a reference when their frames are made. What people wear and parts of the set are listed in the tracker but are not offered as props. AN OLDER PLAN: a plan made before marks existed has no marks; it is still shown and checked, by its words, every such row is a Note, and it says Plan again to get exact checks. THE SCREENPLAY CHANGED: a plan made before the scene was rewritten says so; press Plan again. A shot drafted after the plan is named in the checks as not checked. Plan again writes a new plan and asks first. LIMITS: a scene needs shots already (Draft all shots) for its card and its Scene plan row to show; the plan writes shots and their start and end states only, and the frames are still made one by one or in order as before." });
 function appBrief(){
   const facts = museFacts();
   return "\n\nABOUT THIS APP (use ONLY these facts to answer product/how-to questions; never invent features or behaviour — if a question isn't covered here, say you're not sure rather than guess):\n"
@@ -8778,6 +8783,200 @@ async function aiDraftOpeningKeyframes(scene, beats, drafts, locations, props, c
 }
 window.aiDraftShots = aiDraftOpeningKeyframes;
 
+/* ---- ART ROOM ▸ SHOTS: THE SCENE PLAN (owner 2026-11-22: "tackle scenes beat by beat"; "yes, go with it").
+   ONE writing pass for the whole scene: it reads the scene's facts from the Writers' Room (summary, value turn, driver
+   and objective, reactor and obstacle), the beat table and the full screenplay by beat and moment, the cast present,
+   the scene's sets (each slugline inside the scene, with its location card's own description and layout) and its
+   prop cards, and answers with the MARKS (the named standing places of each set, at an [x, y] of its floor plan when it
+   has one), the blocking, the line, the THINGS TRACKER (every prop, what people wear, each door, beat by beat), a
+   camera idea and the shots: one per screenplay moment, each with how it starts, how it ends (by ids: a person is on
+   a mark, a thing is held, worn, at a mark or a fixed object, or in another thing, a door is open or shut) and how it
+   hands off to the next. The answer is made safe in code (app/scene-plan.js ScenePlan.normalize): unknown ids are
+   dropped, the camera words are the app's own, the dialogue is the screenplay's exact line.
+     scene   the scene            beats   the scene's beat map (beatsMap[scene.id])
+     blocks  the scene's screenplay blocks (drafts[scene.id].blocks)
+     ctx     {project, characters, locations, props, scenes, drafts, beatsMap}
+   Returns {plan (with shots), rows (the shot draft's rows, ScenePlan.shotRows), sets, missingBeats, filled, dropped,
+   by, screenplayRev, truncated}. Throws when the engine fails or the scene has no screenplay; nothing is saved here. */
+function scenePlanSetFacts(loc, locations){
+  if(!loc) return "";
+  const one = (v,n)=> String(v||"").replace(/\s+/g," ").trim().slice(0,n);
+  const bits = [one(loc.architecture,360), one(loc.permanentDressing,260), one(loc.topology,220), one(loc.continuityAnchors,220)].filter(Boolean);
+  // the place's own layout, in words (the floor plan's objects and where each stands), when it has one
+  try{
+    if(typeof window.locationSpatialImageContract==="function"){
+      const lay = window.locationSpatialImageContract(loc, locations) || {};
+      const objs = (Array.isArray(lay.anchors) ? lay.anchors : []).filter(a=>a && a.name).slice(0,24)
+        .map(a=> one(a.name,60)+(a.space?" ("+one(a.space,40)+")":"")+(a.where?": "+one(a.where,120):""));
+      if(lay.frame) bits.push("Layout: "+one(lay.frame,300));
+      if(objs.length) bits.push("Fixed objects: "+objs.join("; ").slice(0,1500));
+    }
+  }catch(e){}
+  return bits.join(" ");
+}
+/* THE FLOOR PLAN OF A SET, FOR THE PLAN'S MARKS (2026-11-22). When the set's place has a floor plan with numbers, the
+   writing pass gets its spaces (outlines in metres), its openings and its fixed objects with their ids and positions, so
+   it can put each mark at an [x, y] of that same frame (stage 3 composes frames from the 3D set with them). A thing
+   may be AT a fixed object's id and a door IS an opening's id. Returns {text, fixed:[{id,name,kind}], hasPlan}. */
+function scenePlanSetLayout(loc, locations){
+  const out = { text:"", fixed:[], hasPlan:false };
+  if(!loc || typeof window.locationSpatialContract!=="function") return out;
+  let lay = null;
+  try{ lay = window.locationSpatialContract(loc, locations); }catch(e){ lay = null; }
+  if(!lay) return out;
+  const one = (v,n)=> String(v||"").replace(/\s+/g," ").trim().slice(0,n);
+  const pt = (p)=> Array.isArray(p) && p.length>=2 ? "["+(Math.round(p[0]*100)/100)+", "+(Math.round(p[1]*100)/100)+"]" : "";
+  const spaces = ((lay.coordinates && lay.coordinates.spaces) || []).filter(sp=>sp && Array.isArray(sp.footprint) && sp.footprint.length>=3);
+  const seen = new Set();
+  const take = (id, name, kind)=>{ let x = one(id,64); if(!x) return ""; if(seen.has(x)) x = x+"-"+(seen.size+1); seen.add(x); out.fixed.push({ id:x, name:one(name,80)||x, kind }); return x; };
+  const lines = [];
+  if(spaces.length){
+    out.hasPlan = true;
+    lines.push("Spaces: "+spaces.map(sp=>one(sp.name||sp.id,60)+" outline ["+sp.footprint.map(pt).join(", ")+"]").join("; ").slice(0,1400));
+    const doors = [];
+    spaces.forEach(sp=>(sp.openings||[]).forEach(o=>{ if(!o) return;
+      const id = take(o.id, o.name||o.kind, "opening"); if(!id) return;
+      doors.push(id+" \u201c"+(one(o.name,60)||o.kind)+"\u201d ("+o.kind+", "+one(sp.name||sp.id,40)+")"+(pt(o.centre)?" at "+pt(o.centre):"")+(o.width?", "+o.width+" wide":"")+(o.connectsTo?", to "+one(o.connectsTo,60):"")); }));
+    if(doors.length) lines.push("Openings: "+doors.join("; ").slice(0,1600));
+  }
+  const objs = (Array.isArray(lay.anchors) ? lay.anchors : []).filter(a=>a && a.name).slice(0,24).map(a=>{
+    const id = take(a.id, a.name, "object"); if(!id) return "";
+    return id+" \u201c"+one(a.name,60)+"\u201d"+(a.space?" ("+one(a.space,40)+")":"")+(spaces.length && pt(a.xy)?" at "+pt(a.xy):"")+(a.placement?": "+one(a.placement,110):""); }).filter(Boolean);
+  if(objs.length) lines.push("Fixed objects: "+objs.join("; ").slice(0,2600));
+  if(lines.length) out.text = (spaces.length ? "FLOOR PLAN (metres; x and y in the plan's own frame"+(lay.targetSpace && lay.ownerName && lay.targetSpace!==lay.ownerName ? "; this set is the space named "+one(lay.targetSpace,60) : "")+"). " : "")+lines.join(". ")+".";
+  return out;
+}
+async function aiPlanScene(scene, beats, blocks, ctx){
+  ctx = ctx || {};
+  const SP = window.ScenePlan;
+  if(!scene) throw new Error("The scene plan needs a scene.");
+  if(!SP || typeof window.shotBeatScreenplay!=="function" || typeof window.shotBeatMoments!=="function")
+    throw new Error("The scene plan is unavailable. Nothing was changed.");
+  if(!aiAvailable()) throw new Error("The scene plan needs the writing engine.");
+  const P = writingProjectOf(ctx.project);
+  const draft = Array.isArray(blocks) ? { blocks } : ((blocks && Array.isArray(blocks.blocks)) ? blocks : { blocks:[] });
+  const drafts = (ctx.drafts && ctx.drafts[scene.id]) ? ctx.drafts : { ...(ctx.drafts||{}), [scene.id]:draft };
+  const bm = beats || (ctx.beatsMap||{})[scene.id] || {};
+  const beatsMap = (ctx.beatsMap && ctx.beatsMap[scene.id]) ? ctx.beatsMap : { ...(ctx.beatsMap||{}), [scene.id]:bm };
+  const charList = (Array.isArray(ctx.characters) ? ctx.characters : []).filter(c=>c && c.id);
+  const locations = Array.isArray(ctx.locations) ? ctx.locations : [];
+  const sopts = { drafts, characters:charList, beatsMap };
+  const rows = typeof window.shotScreenplayBeatRows==="function" ? window.shotScreenplayBeatRows(scene, { drafts, beatsMap }) : (Array.isArray(bm.rows) ? bm.rows : []);
+  const beatNos = Array.from(new Set(rows.map((r,i)=>Number(r && r.n)||i+1))).sort((a,b)=>a-b);
+  if(!beatNos.length) throw new Error("Write this scene's screenplay before planning it.");
+  const sources = {}, momentsBy = {}, momentCount = {};
+  beatNos.forEach(n=>{
+    let src = null, ms = [];
+    try{ src = window.shotBeatScreenplay(scene, n, sopts); }catch(e){ src = null; }
+    if(!src || !src.hasSource) throw new Error("Write the screenplay for beat "+n+" before planning this scene.");
+    try{ ms = window.shotBeatMoments(scene, n, sopts) || []; }catch(e){ ms = []; }
+    sources[n] = src; momentsBy[n] = ms.length ? ms : [{ moment:{n:1,of:1}, text:src.text||"" }]; momentCount[n] = momentsBy[n].length;
+  });
+  // who is there: everyone the screenplay puts in the room, and the driver; people only heard are named apart
+  const has = (id)=> charList.some(c=>c.id===id);
+  const present = [], remote = [];
+  const put = (list,id)=>{ if(id && has(id) && list.indexOf(id)<0) list.push(id); };
+  if(scene.driver) put(present, scene.driver);
+  beatNos.forEach(n=>{ const s = sources[n]; (s.physicalCharacterIds||[]).concat(s.openingCharacterIds||[]).forEach(id=>put(present,id)); });
+  beatNos.forEach(n=>{ (sources[n].remoteCharacterIds||[]).forEach(id=>{ if(present.indexOf(id)<0) put(remote,id); }); });
+  const cast = present.map(id=>charList.find(c=>c.id===id));
+  const sceneLoc = (typeof locationForScene==="function") ? locationForScene(locations, scene.id) : null;
+  const sets = SP.sets(scene, drafts[scene.id], { locations, sceneLocation:sceneLoc,
+    parseSlugline:(typeof window.parseSlugline==="function") ? window.parseSlugline : null,
+    timeOf:(typeof window.normalizeTOD==="function") ? window.normalizeTOD : null });
+  // each set's floor plan (when its place has one with numbers): what the marks are placed on
+  const layouts = {}, fixed = [];
+  sets.forEach(st=>{ const loc = st.locationId ? locations.find(l=>l && String(l.id)===st.locationId) : null;
+    const lay = scenePlanSetLayout(loc, locations); layouts[st.id] = lay; st.hasPlan = !!lay.hasPlan;
+    lay.fixed.forEach(f=>{ if(!fixed.some(x=>x.id===f.id)) fixed.push({ ...f, set:st.id }); }); });
+  // the prop cards the tracker may point at: the scene's own, and what the people present own
+  const allProps = (Array.isArray(ctx.props) ? ctx.props : []).filter(p=>p && p.id && p.name);
+  const here = (typeof propsForScene==="function") ? propsForScene(allProps, scene.id) : allProps.filter(p=>Array.isArray(p.scenes) && p.scenes.indexOf(scene.id)>=0);
+  const propCards = Array.from(new Set(here.concat(allProps.filter(p=>p.ownerId && present.indexOf(p.ownerId)>=0)))).slice(0,40);
+  const lines = []; { let last = 0;
+    ((drafts[scene.id]||{}).blocks||[]).forEach(b=>{ if(!b) return; const n = Number(b.beat); if(Number.isFinite(n) && n>0) last = n;
+      if(String(b.type||"").toLowerCase()==="dia" && String(b.text||"").trim()) lines.push({ beat:last, text:String(b.text).replace(/\s+/g," ").trim() }); }); }
+  const nameOf = (id)=> (charList.find(c=>c.id===id)||{}).name || String(id||"");
+  const charge = (c)=>{ const n = Number(c); return n>0 ? "positive" : n<0 ? "negative" : "neutral"; };
+  const one = (v)=> String(v==null?"":v).replace(/\s+/g," ").trim();
+
+  let p = "FILM: "+(P.title||"Untitled")+genreTag(P)+". Logline: "+writingLoglineOf(P)+"\n";
+  const covBrief = (typeof formatOf==="function") ? (formatOf(P).coverageBrief||"") : "";
+  if(covBrief) p += "FORMAT: "+covBrief+".\n";
+  const lbBrief = one(P && P._lookbookBrief);
+  if(lbBrief) p += "LOOKBOOK (the film's lens, framing and light; translate the look, never its story): "+lbBrief+"\n";
+  p += "\nSCENE #"+(scene.no==null?"":scene.no)+" \u201c"+(scene.title||"")+"\u201d"+(scene.loc?" ("+scene.loc+")":"")+"\n";
+  if(scene.summary) p += "Summary: "+one(scene.summary)+"\n";
+  if(scene.openValue || scene.closeValue) p += "Value turn: "+one(scene.openValue||"?")+" ("+charge(scene.openCharge)+") \u2192 "+one(scene.closeValue||"?")+" ("+charge(scene.closeCharge)+")\n";
+  p += "Driver: "+(scene.driver ? nameOf(scene.driver) : one(bm.driverLabel)||"?")+(scene.objective ? " \u2014 objective: "+one(scene.objective) : (bm.desire ? " \u2014 wants: "+one(bm.desire) : ""))+"\n";
+  if(bm.reactorLabel || bm.obstacle) p += "Reactor: "+(one(bm.reactorLabel)||"?")+(bm.obstacle ? " \u2014 obstacle: "+one(bm.obstacle) : "")+"\n";
+  if(turnTextOf(scene)) p += "Turning point"+(bm.turnAt ? " (beat "+bm.turnAt+")" : "")+": "+one(turnTextOf(scene))+"\n";
+  if(bm.result) p += "Result: "+one(bm.result)+"\n";
+  const ordered = (typeof scenesInStoryOrder==="function") ? scenesInStoryOrder(ctx.scenes||[]) : (ctx.scenes||[]);
+  const at = ordered.findIndex(s=>s && s.id===scene.id);
+  const before = at>0 ? ordered[at-1] : null, after = at>=0 ? ordered[at+1] : null;
+  if(before){ const r = one(((ctx.beatsMap||{})[before.id]||{}).result) || one(turnTextOf(before)) || one(before.summary);
+    if(r) p += "Just before this scene (scene "+(before.no==null?"":before.no)+"): "+r.slice(0,300)+"\n"; }
+  if(after && after.loc) p += "The next scene opens at: "+one(after.loc)+"\n";
+
+  p += "\nCAST PRESENT (use these ids exactly):\n"+cast.map(c=>"- "+c.id+": "+c.name+(c.pronouns?" ("+c.pronouns+")":"")).join("\n")+"\n";
+  if(remote.length) p += "HEARD ONLY (phone, radio, voice-over; never in frame, never in blocking or subjects): "+remote.map(nameOf).join(", ")+"\n";
+  const identityCtx = { scenes:[scene], drafts, cast:charList };
+  const pron = (typeof castPronounBlock==="function") ? castPronounBlock(cast, identityCtx) : "";
+  if(pron) p += pron+"\n";
+  p += "\nSETS IN THIS SCENE (each slugline inside the scene is a set of its own; use these ids exactly):\n"+sets.map(s=>{
+    const loc = s.locationId ? locations.find(l=>l && String(l.id)===s.locationId) : null;
+    const lay = layouts[s.id] || {};
+    // with a floor plan the set is given by its plan (ids and positions); without one, by its description
+    const facts = lay.text ? [String(loc.architecture||"").replace(/\s+/g," ").trim().slice(0,300), lay.text].filter(Boolean).join(" ") : scenePlanSetFacts(loc, locations);
+    return "- "+s.id+": "+s.heading+(s.beats.length?" \u2014 beat"+(s.beats.length>1?"s ":" ")+s.beats.join(", "):"")
+      +(loc ? " \u2014 location card \u201c"+(loc.name||"")+"\u201d"+(facts ? ". "+facts : "") : " \u2014 no location card yet")
+      +(lay.hasPlan ? "" : " (no floor plan: give its marks no xy)"); }).join("\n")+"\n";
+  p += "\nPROP CARDS ("+(propCards.length ? "a tracked thing that is one of these carries its propId" : "none yet")+"):\n"
+    +propCards.map(c=>"- "+c.id+": \u201c"+one(c.name)+"\u201d"+(c.ownerName ? " ("+(c.kind==="worn"?"worn by ":"carried by ")+c.ownerName+")" : "")).join("\n")+"\n";
+  p += "\nBEAT TABLE (the Writers' Room's map of the scene):\n";
+  if(bm.desire) p += "Desire: "+one(bm.desire)+"\n";
+  if(bm.obstacle) p += "Obstacle: "+one(bm.obstacle)+"\n";
+  (Array.isArray(bm.rows) ? bm.rows : []).forEach((r,i)=>{ if(!r) return; const n = Number(r.n)||i+1;
+    p += "Beat "+n+(String(bm.turnAt||"")===String(n)?" (the turning point)":"")+": "+one(bm.driverLabel||"Driver")+" \u2014 "+one(r.drive && r.drive.a)+": "+one(r.drive && r.drive.d)
+      +" / "+one(bm.reactorLabel||"Reactor")+" \u2014 "+one(r.react && r.react.a)+": "+one(r.react && r.react.d)+"\n"; });
+  p += "\nSCREENPLAY \u2014 THE WHOLE SCENE, BY BEAT AND MOMENT. This is canon: never change, add to or paraphrase it.\n";
+  beatNos.forEach(n=>{
+    const setsHere = SP.beatSets(sets, n);
+    p += "\n===== BEAT "+n+(setsHere.length ? " \u2014 set "+setsHere.map(s=>s.id).join(" then ") : "")+" =====\n"
+      +momentsBy[n].map((m,i)=>"[Moment "+(i+1)+" of "+momentsBy[n].length+"]\n"+String(m.text||"").trim()).join("\n")+"\n";
+  });
+  p += "\nTASK: Plan how this scene is staged and shot, as a director and a script supervisor would before the shoot. Read the WHOLE scene first (what turns, who drives it, who or what stands in the way), then go beat by beat, so that each shot flows out of the one before it and the last shot of a beat hands off to the first shot of the next.\n"
+    +"Return six things:\n"
+    +"1. marks: the named standing places this scene uses in each set (a doorway, a chair, a spot at the counter), as few as the scene needs. For each: id (short and lowercase, like m-door); set (the set's id); name (how you would say where a person is, starting with a preposition: \"by the hall shelf\", \"in the kitchen doorway\", \"at the kettle\"); near (the fixed object, wall, door or window it is beside, in the set's own terms); xy ([x, y] in metres in the floor plan's frame, inside the right space's outline and clear of its fixed objects: ONLY for a set whose FLOOR PLAN is given, leave it out otherwise). The same place is the same mark every time.\n"
+    +"2. blocking: for EACH beat, each person present: where (a MARK ID, never words), facing (who or what they face) and pose (standing, sitting, crouched: a word or two). A person who has not entered yet, or has left, is not in that beat.\n"
+    +"3. line: the axis the scene plays across (between whom, or between a person and a thing) and the side of it the camera keeps to for the whole scene, in the set's own terms.\n"
+    +"4. things: the THINGS TRACKER. Every object a person handles, carries, gives, takes, puts down or uses (kind \"prop\"); what a person wears where it matters or changes (kind \"wardrobe\"); every door, window, lamp or other part of the set that changes state (kind \"set\"). For each: a short name; carriedBy (the id of the person who carries it, or \"\"); propId (when it is one of the PROP CARDS, that card's id, else \"\"); beats (for every beat it is present in, its state in a few words: where it is, in whose hand, open or shut, full or empty); why (what it is and how the scene uses it, one line). Only what the screenplay shows: never invent an object, never leave out one that is handled.\n"
+    +"5. cameraIdea: two or three sentences on how the camera's distance, height and movement follow the value turn: where it holds back, where it closes in, what changes at the turning point.\n"
+    +"6. shots: EXACTLY ONE shot for each MOMENT of each beat, in order. For each shot: beat; moment; purpose (what the shot is for); size (EWS, WS, FS, MWS, MS, MCU, CU, ECU or INSERT); angle (eye, high, low, top, dutch, ots or pov); lens (in mm); move (static, pan, tilt, push, pull, track, handheld, crane or steadi); cameraPosition (where the camera stands and what it looks at, in the set's own terms); composition (the framing in one line: who is where in the frame, foreground and background; body language you can see, never an emotion word); set (the id of the set this moment plays in); subjects (the ids of the people actually IN THIS FRAME as the shot opens: nobody for an insert or an empty street, never the whole room for a close-up, never someone heard only); props (the keys of the tracked things in frame); action (the moment's opening action, from the screenplay); dialogue (the first line spoken in this moment, word for word, or \"\"); start and end (the state as the shot begins and as it ends, by ids: people, for each person in frame: where (a MARK ID), pose and holding (the keys of what is in their hands); things, for each tracked thing in frame, EXACTLY ONE place: heldBy (a cast id), or at (a mark id, or the id of a fixed object of the set), or worn (a cast id), or in (another thing's key), with an optional state of a few words (\"sealed\", \"open\", \"on, heating\"); doors, a list of {id, open}: id is an opening's id from the floor plan or the key of a tracked thing of kind \"set\", open is true or false); handoff (how it gives way to the NEXT shot: type \"cut\", \"match\" for a match on action or eyeline, or \"time-cut\" when time has passed or people and things have moved unseen, with a note saying what changed); cameraSide (\"same\" when the camera is on the line's side, \"other\" when this shot crosses the line, \"on-line\" for a shot on the axis or an insert) and crossNote (why, when it crosses).\n"
+    +"RULES: A shot's end state is the next shot's start state, across beats too: the same mark for each person, the same place for each thing, each door the same way. When they differ because time passed or someone moved unseen, the hand-off is a time-cut and its note says what changed. A person's where is always a mark id; when a person moves during a shot, its end state has the new mark. What a person holds stays in that hand until the screenplay has them put it down or pass it on; what is put on is worn from then on. A moment under an EXT heading plays in that EXT set and on that set's marks, never in the interior. A thing's key is one or two lowercase words joined by a hyphen, the same everywhere it appears. Use the cast ids, set ids, prop card ids, opening ids and fixed object ids exactly as given. Keep every text field to one short line.\n"
+    +'Return ONLY compact JSON: {"marks":[{"id":"m-door","set":"set1","name":"in the doorway","near":"...","xy":[1.2,0.4]}],"blocking":[{"beat":1,"people":[{"id":"<cast id>","where":"m-door","facing":"...","pose":"standing"}],"note":"..."}],"line":{"axis":"...","cameraSide":"...","note":"..."},"things":[{"key":"mug","name":"...","kind":"prop","carriedBy":"<cast id or empty>","propId":"<prop card id or empty>","beats":[{"n":1,"state":"..."}],"why":"..."}],"cameraIdea":"...","shots":[{"beat":1,"moment":1,"purpose":"...","size":"MS","angle":"eye","lens":"50","move":"static","cameraPosition":"...","composition":"...","set":"set1","subjects":["<cast id>"],"props":["mug"],"action":"...","dialogue":"","start":{"people":{"<cast id>":{"where":"m-door","pose":"standing","holding":["mug"]}},"things":{"mug":{"heldBy":"<cast id>","state":"full"}},"doors":[{"id":"<opening id>","open":false}]},"end":{"people":{"<cast id>":{"where":"m-door","pose":"standing","holding":[]}},"things":{"mug":{"at":"m-door"}},"doors":[{"id":"<opening id>","open":false}]},"handoff":{"type":"cut","note":""},"cameraSide":"same","crossNote":""}]}';
+
+  // a long structured answer: the largest answer the server allows; its thinking runs at medium effort, as Art Room drafting does
+  const info = (typeof window.writingModelInfo==="function") ? window.writingModelInfo("scenePlan") : null;
+  const engine = info && WRITING_MODELS.find(m=>m.id===info.id);
+  let response = await window.claude.complete({ messages:[{ role:"user", content:p }], maxTokens:32768,
+    ...(engine && engine.provider==="anthropic" ? { effort:"medium" } : {}) });
+  const truncated = !!window.__lastWritingTruncated;
+  if(response && typeof response==="object" && typeof response.text==="string") response = response.text;
+  const parsed = extractJSON(response);
+  if(!parsed || !Array.isArray(parsed.shots) || !parsed.shots.length)
+    throw new Error(truncated ? "The scene plan was cut off before it finished. Nothing was changed; try again." : "The scene plan could not be read. Nothing was changed; try again.");
+  let scrubbed = parsed;
+  try{ scrubbed = JSON.parse(scrubBrand(JSON.stringify(parsed))); }catch(e){ scrubbed = parsed; }
+  const out = SP.normalize(scrubbed, { beats:beatNos, moments:momentCount, cast:cast.map(c=>({ id:c.id, name:c.name })), sets, fixed, props:propCards, lines });
+  const answered = out.plan.shots.filter(s=>!s.filled).length;
+  if(!answered) throw new Error("The scene plan named no shot for this scene's beats. Nothing was changed; try again.");
+  return { ...out, sets, rows:SP.shotRows(out.plan, { missingBeats:out.missingBeats }), by:writingStamp("Scene plan"),
+    screenplayRev:(typeof window.screenplayDraftSig==="function") ? window.screenplayDraftSig(drafts[scene.id]) : "", truncated };
+}
+window.aiPlanScene = aiPlanScene;
+
 /* Task-default routing — the ART-ROOM structured drafters (JSON specs, bibles,
    staging, lookbook, shots) run on the "specs" default engine unless the user has
    picked one; every story/prose function keeps the "story" default. Wrapped at the
@@ -8798,3 +8997,6 @@ LOCATION_WRITING_FNS.forEach(n=>{
   if(typeof fn === "function") window[n] = (...a)=> window.turnWithWritingTask("locations", ()=> fn(...a));
 });
 window.LOCATION_WRITING_FNS = LOCATION_WRITING_FNS;
+// THE SCENE PLAN runs on its own default (Fable 5.2, owner 2026-11-22) unless the user has picked an engine
+{ const fn = window.aiPlanScene;
+  if(typeof fn === "function") window.aiPlanScene = (...a)=> window.turnWithWritingTask("scenePlan", ()=> fn(...a)); }

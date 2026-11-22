@@ -418,6 +418,8 @@ function propOriginLabel(prop){
     if(o.kind==="set-decoration") return "Set Decoration department design proposal";
     if(o.kind==="design") return "Design proposal from a selected item in "+(o.sourceName||"an Art Room image");
     if(o.kind==="manual") return "Added manually in Props";
+    // a tracked thing of a scene plan, added from the Shots tab (2026-11-22): "From the scene plan · Sc 05"
+    if(o.kind==="scene-plan") return (window.ScenePlan && window.ScenePlan.originLabel(p)) || "From the scene plan";
     return "Origin not recorded";
   }
   // Legacy `fromCast` did not retain whether the item came from Accessories or Props,

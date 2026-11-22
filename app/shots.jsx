@@ -3557,12 +3557,50 @@ window.scanTextForChars = scanTextForChars;
    only as a last resort. This is the single source the references + prompt read, so an
    under-tagged shot can no longer drop a character's identity anchor — nor over-attach a
    character who isn't in the frame. */
+/* ONE READING OF A SHOT'S CAST (2026-11-22, the Shots tab went dead on a scene of 17 shots). Who is in a frame is read
+   from the screenplay, and every card asked again for every shot of its scene (the continuity ledger, the render
+   plan, the prompt, the card itself): about 1,300 readings of the same pages to draw one scene, several seconds in
+   which the page could do nothing. The answer for a shot is now kept while nothing it is read from has changed: the
+   shot's own words, the scene's screenplay and beats, and the cast (each compared by identity, never by guess). */
+const _shotCastKept = (typeof WeakMap==="function") ? new WeakMap() : null;
+function _sameList(a,b){ if(a===b) return true; if(!a||!b||a.length!==b.length) return false; for(let i=0;i<a.length;i++) if(a[i]!==b[i]) return false; return true; }
+function _shotCastInputs(sh, scene, characters, ctx){
+  const own = !!ctx && Object.prototype.hasOwnProperty.call(ctx,"drafts");
+  const C = window.turnContinuity || {};
+  const D = own ? ctx.drafts : C.drafts;
+  const draft = (Array.isArray(D) || (D && Array.isArray(D.blocks))) ? D : ((D && scene) ? D[scene.id] : null);
+  const bmap = own ? (ctx.beatsMap||null) : (C.beatsMap||null);
+  return { draft:draft||null, beats:(bmap && scene) ? (bmap[scene.id]||null) : null,
+    // the cast the screenplay is read with (the caller's, else the film's) and the cast an id must belong to
+    readers: own ? (characters || Object.values((ctx&&ctx.charById)||{})) : (C.characters||[]), cast:characters||[],
+    text:[scene.id, scene.loc, sh.id, sh.keyframeMode, sh.moment&&sh.moment.n, sh.moment&&sh.moment.of, sh.beatN, sh.action, sh.composition,
+      (sh.subjects||[]).join(","), sh.subjectsByPlan?1:0, sh.referenceCharactersSet?1:0, sh.referenceCharactersAuto?1:0,
+      Array.isArray(sh.referenceCharacterIds)?sh.referenceCharacterIds.join(","):""].join("\u0001") };
+}
 function inFrameCast(sh, scene, characters, ctx){
+  if(!_shotCastKept || !sh || typeof sh!=="object" || !scene) return inFrameCastRead(sh, scene, characters, ctx);
+  const now = _shotCastInputs(sh, scene, characters, ctx), was = _shotCastKept.get(sh);
+  if(was && was.text===now.text && was.draft===now.draft && was.beats===now.beats && _sameList(was.readers,now.readers) && _sameList(was.cast,now.cast))
+    return was.ids.slice();
+  const ids = inFrameCastRead(sh, scene, characters, ctx);
+  _shotCastKept.set(sh, { ...now, readers:now.readers.slice(), cast:now.cast.slice(), ids:ids.slice() });
+  return ids;
+}
+function inFrameCastRead(sh, scene, characters, ctx){
   const valid = id=>(characters||[]).some(c=>c&&c.id===id);
   const source=(typeof shotMomentSource==="function")
     ? shotMomentSource(scene,sh,ctx,characters) : null;
   // a moment shot (a split beat) is an opening keyframe of its own moment
   const opening=!!sh && (sh.keyframeMode==="beat-opening" || sh.keyframeMode==="moment");
+  /* A SHOT THE SCENE PLAN WROTE SHOWS THE PEOPLE THE PLAN PUT IN IT (2026-11-22, the first real plan: the street wide
+     listed all four people of its beat, the insert of the empty key hook listed Pike, the close-up on the laces listed
+     two). The plan answers shot by shot; the beat's opening cast is only what the screenplay has in the room. An empty
+     list is an answer (an insert, an empty street). Never someone the screenplay only lets us hear; a pick made by
+     hand on the card still wins. */
+  if(sh && sh.subjectsByPlan && Array.isArray(sh.subjects) && !(sh.referenceCharactersSet && !sh.referenceCharactersAuto)){
+    const heard=new Set((source&&source.hasSource&&source.remoteCharacterIds)||[]);
+    return Array.from(new Set(sh.subjects.filter(id=>valid(id)&&!heard.has(id))));
+  }
   if(source&&source.hasSource){
     const physical=new Set((opening
       ? source.openingCharacterIds : source.physicalCharacterIds)||[]);
@@ -3723,7 +3761,19 @@ function propLeavesFrameInText(p, text){
    returns, per shot, the prop ids to CARRY FORWARD (established earlier by someone in this
    frame, not already named here). Deterministic — no AI. Scoped to the scene so a prop set
    down in a later scene doesn't leak. Both the Shot List and Storyboard read it. */
+/* the ledger of a scene is worked out once for a list of shots, not once by each of its cards (2026-11-22): kept while
+   the list, the cast, the props and the film's continuity are the very same objects */
+const _sceneLedgerKept = (typeof WeakMap==="function") ? new WeakMap() : null;
 function sceneContinuityLedger(scene, sceneShots, charById, propById){
+  if(!_sceneLedgerKept || !Array.isArray(sceneShots)) return sceneContinuityLedgerRead(scene, sceneShots, charById, propById);
+  const C = window.turnContinuity || null, was = _sceneLedgerKept.get(sceneShots);
+  if(was && was.scene===scene && was.charById===charById && was.propById===propById && was.C===C
+    && was.drafts===(C&&C.drafts) && was.props===(C&&C.props)) return was.ledger;
+  const ledger = sceneContinuityLedgerRead(scene, sceneShots, charById, propById);
+  _sceneLedgerKept.set(sceneShots, { scene, charById, propById, C, drafts:C&&C.drafts, props:C&&C.props, ledger });
+  return ledger;
+}
+function sceneContinuityLedgerRead(scene, sceneShots, charById, propById){
   const ordered = (sceneShots||[]).slice().sort((a,b)=>(a.order||0)-(b.order||0) || (a.beatN||0)-(b.beatN||0));
   const chars = Object.values(charById||{});
   const held = {};   // charId -> Set(propId) established in this scene so far
@@ -3860,7 +3910,8 @@ function normalizeShot(raw, scene, idx, locations, props, characters, beats, dra
     lens: pick(raw.lens, lensIds, "50"),
     composition: specText(raw.composition,240),
     subjects: requestedSubjects,
-    locationId: loc?loc.id:"",
+    // a planned shot plays in the set its plan gave it (an EXT heading inside the scene is another location card)
+    locationId: (raw && raw.planned && raw.locationId && (locations||[]).some(l=>l && l.id===raw.locationId)) ? raw.locationId : (loc?loc.id:""),
     props: resolveProps(raw.props),
     locationSide: /^(INT|EXT|BOTH)$/.test(sideRaw) ? sideRaw : undefined,
     referenceLocationsSet: !!raw.referenceLocationsSet,
@@ -3894,6 +3945,15 @@ function normalizeShot(raw, scene, idx, locations, props, characters, beats, dra
       ? { ...raw.writingProvenance } : undefined,
     // the camera the writing call drafted for the beat's later moments (beatMomentShots reads it, then drops it)
     momentSpecs: Array.isArray(raw.momentSpecs) && raw.momentSpecs.length ? raw.momentSpecs.slice(0,12) : undefined,
+    /* THE SCENE PLAN'S OWN FIELDS (owner 2026-11-22, app/scene-plan.js): where the camera stands, how the shot starts,
+       how it ends and how it hands off to the next one. Only a planned row carries them, and none is part of the
+       frame's fingerprint (scene-order.js SHOT_SPEC_FIELDS): stage 1 writes and checks them, no image reads them yet. */
+    ...(raw && raw.planned ? { planned:true,
+      cameraPosition: specText(raw.cameraPosition,240),
+      startState: (raw.startState && typeof raw.startState==="object") ? raw.startState : undefined,
+      endState: (raw.endState && typeof raw.endState==="object") ? raw.endState : undefined,
+      handoff: (raw.handoff && typeof raw.handoff==="object")
+        ? { type:/^(cut|match|time-cut)$/.test(String(raw.handoff.type||"")) ? String(raw.handoff.type) : "cut", note:specText(raw.handoff.note,200) } : undefined } : {}),
     // no dur: a drafted shot stays on AUTO — its length can't be predicted, only
     // budgeted (dialogue-anchored estimate via shotDur); the user pins by hand
     negativePrompt:"",
