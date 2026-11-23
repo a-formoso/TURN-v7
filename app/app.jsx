@@ -6893,9 +6893,64 @@ function App(){
         throw new Error("Finish or stop this scene's frame generation before planning it. Nothing was replaced.");
     };
   };
-  const planSceneShots = async (scene)=>{
+  /* THE CAMERAS OF A PLANNED SCENE, IN NUMBERS (owner 2026-11-22: sets, props and frames are built in code first; "lock
+     in the cameras considering the composition for the shot"). One short writing pass (ai.jsx aiPlanCameras) gives each
+     planned shot a camera on the floor plan; it is saved WITH THE PLAN (project.scenePlans[scene.id].cameras, by beat
+     and moment), never on the shots: no shot's specification, frame or approval changes. The app checks each camera
+     against the set in 3D when it draws the shot (shot-previs.js), free. Alone (the Scene plan row's button) it asks
+     first and shows its progress where the plan's does; as the last step of a plan (opts.plan = the plan just saved)
+     it asks nothing more, and a failure there leaves the plan as it is and says so. Returns how many were placed. */
+  const placeSceneCameras = async (scene, opts)=>{
+    opts = opts || {};
     const SP = window.ScenePlan;
     const say = (m,t)=>{ if(typeof window.appToast==="function") window.appToast(m,t||"info"); };
+    if(!scene || !SP || typeof window.aiPlanCameras!=="function" || !canDesignShots()) return 0;
+    const alone = !opts.plan;
+    if(alone && (planningScene || scenePlanAskingRef.current || draftingSceneShots || sceneShotsAskingRef.current)) return 0;
+    const plan = opts.plan || ((project && project.scenePlans)||{})[scene.id];
+    const no = String(scene.no||"").padStart(2,"0");
+    if(!plan){ if(alone) say("Plan Scene "+no+" first: the cameras stand on the plan's marks."); return 0; }
+    const engine = (typeof window.writingModelInfo==="function" && window.writingModelInfo("scenePlan").label) || "";
+    const projectId = projIdRef.current;
+    try{
+      if(alone){
+        const q = SP.camerasConfirmText({ sceneNo:scene.no, engine, again:!!(plan.cameras && Object.keys(plan.cameras).length) });
+        scenePlanAskingRef.current = true;
+        let ok = false;
+        try{ ok = typeof window.appConfirm==="function" ? await window.appConfirm(q) : window.confirm(q.title+"\n\n"+q.body); }
+        finally{ scenePlanAskingRef.current = false; }
+        if(!ok) return 0;
+        setScenePlanFailed(null);
+        setPlanningScene({ id:scene.id, since:Date.now(), est:90, engine, text:"Placing the cameras of Scene "+no+"\u2026" });
+      }else setPlanningScene(cur=> (cur && cur.id===scene.id) ? { ...cur, text:"Planning Scene "+no+", last step: the cameras\u2026" } : cur);
+      const L = keyframeInputsRef.current || {};
+      const res = await window.aiPlanCameras(scene, { project:lbProject("shots"), plan,
+        shots:shotsLiveRef.current.filter(sh=>sh && sh.sceneId===scene.id),
+        characters:charactersRef.current||characters, locations:L.locations||locations });
+      if(projIdRef.current!==projectId || !canDesignShots()) throw new Error("The film changed while the cameras were being placed. Nothing was changed.");
+      const count = Object.keys(res.cameras||{}).length;
+      // saved with the plan it was made for: a plan written again in the meantime keeps its own
+      setProject(p=>{ const cur = ((p && p.scenePlans)||{})[scene.id];
+        if(!cur || cur.at!==plan.at) return p;
+        return { ...p, scenePlans:{ ...p.scenePlans, [scene.id]:{ ...cur, cameras:res.cameras, camerasAt:new Date().toISOString(),
+          camerasBy:{ id:(res.by&&res.by.modelId)||"", label:(res.by&&res.by.model)||"" } } } }; });
+      if(alone) say("Scene "+no+": "+count+" camera"+(count!==1?"s":"")+" placed on the floor plan"
+        +(res.missing && res.missing.length ? "; "+res.missing.length+" shot"+(res.missing.length!==1?"s":"")+" got none and "+(res.missing.length!==1?"are":"is")+" placed by the app" : "")
+        +". Open a shot\u2019s Previs to see it. No image was made.","success");
+      return count;
+    }catch(e){
+      const msg = String((e && e.message) || "Placing the cameras failed.");
+      if(alone) setScenePlanFailed({ id:scene.id, text:/Nothing was (?:changed|replaced)/.test(msg) ? msg : msg.replace(/\s*$/,"")+" Nothing was changed." });
+      else say("Scene "+no+" is planned, but its cameras could not be placed: "+msg.replace(/\s*Nothing was changed.*$/,"")+" Press Place the cameras in the Scene plan to try again.","info");
+      return 0;
+    }finally{
+      if(alone) setPlanningScene(null);
+    }
+  };
+  const planSceneShots = async (scene, opts)=>{
+    const SP = window.ScenePlan;
+    const say = (m,t)=>{ if(typeof window.appToast==="function") window.appToast(m,t||"info"); };
+    if(opts && opts.cameras) return placeSceneCameras(scene);
     if(!scene || !SP || typeof window.aiPlanScene!=="function") return;
     if(planningScene || scenePlanAskingRef.current || draftingSceneShots || sceneShotsAskingRef.current) return;
     if(!canDesignShots()) return;
@@ -6964,11 +7019,14 @@ function App(){
       const doc = { ...planBody, at:new Date().toISOString(), by:{ id:(res.by&&res.by.modelId)||"", label:(res.by&&res.by.model)||"" },
         screenplayRev:res.screenplayRev||"", sets:res.sets, beats:beatNos, shotCount:(res.plan.shots||[]).length, checks:found };
       setProject(p=>({ ...p, scenePlans:{ ...((p && p.scenePlans)||{}), [scene.id]:doc } }));
+      // the last step: each shot's camera in numbers, on the floor plan (its failure leaves the plan as it is)
+      const cams = SP.exact(doc) ? await placeSceneCameras(scene, { plan:doc }) : 0;
       const fixes = found.filter(c=>c.level==="fix").length;
       say("Scene "+no+" is planned: "+applied.patched+" shot"+(applied.patched!==1?"s":"")+" with how each starts and ends. "
         +(fixes ? fixes+" to fix in the scene plan. " : "")
         +(k.leftAlone.length ? "Beat"+(k.leftAlone.length!==1?"s ":" ")+k.leftAlone.join(", ")+" got no answer and keep"+(k.leftAlone.length!==1?"":"s")+" the shot "+(k.leftAlone.length!==1?"they have":"it has")+". " : "")
         +(res.stopped ? "The writing engine stopped answering part of the way; press Plan again to finish it. " : "")
+        +(cams ? cams+" camera"+(cams!==1?"s":"")+" placed on the floor plan. " : "")
         +"No image was made.", fixes||k.leftAlone.length||res.stopped ? "info" : "success");
     }catch(e){
       const msg = String((e && e.message) || "The scene plan failed.");

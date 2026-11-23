@@ -4067,6 +4067,7 @@ APP_FEATURES.push({ name:"Credits: which changes made in code are free and which
 APP_FEATURES.push({ name:"Location card: its five sections, what the picture shows, progress while a step runs, and the engine for location work", what:"(2026-11-21) This entry is the newest word on how a location card is laid out: where an older note names a section differently or gives it a number, this one holds. THE CARD HAS FIVE SECTIONS, WITH NO NUMBERS, like a character or a prop card (it had eight numbered ones): THE PLACE (the description: Screenplay Coverage at its top, architecture, materials, light, dressing, how the rooms connect, sizes, fixed landmarks, and Narrative Significance last; Draft specification writes it; it was called The Space). FLOOR PLAN (the plan, its check and its confirmation, with Moving parts at its end). THE SET IN 3D, which holds two parts: Cameras (the four cameras) and Previs (the set in 3D, its dressing, and the location image made from it as drafts). VARIANTS (each time of day or state, with its image and, under Used in, each scene's dressing and blocking). ADVANCED, closed until you open it, which holds Look & exclusions (the render style's own instructions and Leave out), Quick image & image check (the quick image from the description alone, Edit one view, and the check of the image against the description; it was the Location image section) and Generation prompt (read-only). A place that has rooms has one more section, ROOMS, between Variants and Advanced (it was called Subspaces): each room opens there with what is its own, and the extra spaces whose images are kept are listed there; on a place with no room but with such images it is called Extra spaces. A message or a button that names Cameras, Previs, Floor plan or the quick image opens the right section and the right part of it by itself. THE TRACKER under the name has four steps: The place, Floor plan, The set in 3D (done when the four cameras are usable and the set is dressed) and Location image; each opens its section, and the next one to do is marked. THE PREPARE THIS PLACE BOX LEFT THE CARD (2026-11-21): where an older note says Prepare this place does the steps in a row, that button is no longer on a card. Press a step of the tracker and the card opens that section and brings it into view; you do the step there with the section's own button (Draft specification in The place, Draft floor plan in Floor plan, the cameras and Dress the set and Make the location image in The set in 3D). Nothing stored was renamed: only where things sit changed. HISTORY: for a few hours on 2026-11-21 the card was drawn picture first, with a row of looks, a Next box and four tabs (To do, Scenes, Set, About); that design was taken back the same day, so there are no such tabs. ONE THING WAS KEPT FROM IT, on the picture at the top of the card, top left: Image, 3D set and Floor plan choose what the picture shows. Image is the location image. 3D set is the set from its four cameras, drawn in your browser from the floor plan, the cameras and the dressing; looking is free and nothing is made. Floor plan is the saved plan from above, to look at; it is edited in the Floor plan section. Each of the two has a link that opens its section. WHILE A STEP RUNS: beside Draft floor plan while the floor plan is being drafted (a place with many rooms takes several minutes), and under Draft specification in The place while the description is written, a line shows a bar that runs against the time the step usually takes, the clock (0:12 of about 0:45; Longer than usual when it passes that) and the name of the engine doing it. THE ENGINE FOR LOCATION WORK: the writing for locations (the description, the floor plan, a room's place on it, the rooms of places, the moving parts and the view composition) has a writing engine of its own by default, the studio's deepest one, unless you pick another writing engine in the top bar; on the Locations tab the top bar names the engine in use." });
 APP_FEATURES.push({ name:"Shots: the scene plan, its checks, and tracked things becoming props", what:"(2026-11-22) A SCENE PLAN stages a whole scene before its frames are made. WHERE: the Shots tab, in a scene's card, the row named Scene plan under the Scene brief; press Plan this scene. It asks first. WHAT IT DOES: it reads the whole scene first (its summary, its value turn, who drives it and what they want, who or what stands in the way), then every beat and the full screenplay, and writes six things. It works in a few short steps, the staging first and then the shots a few beats at a time, and the row says which step it is on. MARKS: the named standing places of each set (by the hall shelf, in the kitchen doorway), put on the set's floor plan when the place has one. BLOCKING: the mark each person is on in each beat. THE LINE: the side of the action the camera keeps to. THINGS: a tracker of every object people handle, what they wear where it matters, and each door or other part of the set that changes, beat by beat. CAMERA IDEA: how the camera follows the value turn. THE SHOTS: one for each moment of each beat, each with what it is for, its size, angle, lens and move, where the camera stands, who is in frame, and how it STARTS and how it ENDS, so one shot hands off to the next (a cut, a match cut, or a time cut that says what changed). WHO IS IN FRAME is the plan's own answer for that shot: nobody for an insert or an empty street, one person for a close-up, never everyone who is in the beat. A START or an END says the mark each person is on, what each holds, where each thing is (in a hand, worn, at a mark or a fixed object of the set, or inside another thing) and which doors are open or shut. WHAT IT REPLACES: the scene's drafted shots, as Re-draft does: each beat's opening shot keeps its ID and its images, a changed frame needs making again, and extra shots move to Recently deleted, where you can restore them. No image is made. WHILE IT RUNS: a line where you pressed shows what is being done, a bar against the usual time (longer for a scene with more beats), the clock and the name of the engine; the page does not move. If it fails, a message says so and nothing is changed. ON EACH SHOT CARD, in 1 \u00b7 What this frame shows: From the scene plan, with Purpose, Camera, Starts, Ends and Hands off. THE CHECKS are worked out by the app itself, with no writing pass, and listed in the plan; press one to go to its shot. They compare marks, holders and doors, never wording, so the same place said in other words is not a fault. A row marked Fix is a real break: another mark, another hand, a door the other way, with no time cut that says so. A row marked Note is a difference of a few words only (sealed against sealed, hanging): it is shown and is not counted. The count on the Scene plan row (3 to fix) counts the rows to fix only. They say when a shot ends one way and the next starts another (the mug on the shelf, then in a hand), when a shot points at the wrong set (a moment under an EXT heading inside the scene is another location), when someone in frame is not placed in that beat's blocking, when someone holding something is not listed in frame, when a shot crosses the line without saying why, when a beat has no shot, when a shot shows a thing the tracker does not have, and how many tracked things have no prop card. THINGS BECOME PROPS: each tracked object shows its name, who carries it and the beats it is in, and either Prop card: its name (it is already a card) or Add to Props; Add all N adds every one of the scene at once. Adding makes an ordinary prop card in the Props tab: its name, this scene among its scenes, a short note of what it is and how the scene uses it, and the character who carries it as its owner; the item is also added to that character's Props, carried list on their character card, so the two are tied. The card is kept as a story prop, so a later reading of the screenplay never removes it, and it says where it came from: From the scene plan, with the scene's number. Nothing is drawn by adding: write the card's design and make its sheet in the Props tab when you are ready. The planned shots that show the thing then take its sheet as a reference when their frames are made. What people wear and parts of the set are listed in the tracker but are not offered as props. AN OLDER PLAN: a plan made before marks existed has no marks; it is still shown and checked, by its words, every such row is a Note, and it says Plan again to get exact checks. THE SCREENPLAY CHANGED: a plan made before the scene was rewritten says so; press Plan again. A shot drafted after the plan is named in the checks as not checked. Plan again writes a new plan and asks first. LIMITS: a scene needs shots already (Draft all shots) for its card and its Scene plan row to show; the plan writes shots and their start and end states only, and the frames are still made one by one or in order as before." });
 APP_FEATURES.push({ name:"Shots: a beat's end frame (the scene plan)", what:"(2026-11-22) AN END FRAME is the last picture of a beat. WHERE: the Shots tab, on the card of the last shot of each beat of a planned scene, the section named End frame. WHAT IT IS: the same shot, with the same camera and framing, as it ends: everyone and everything where the scene plan says the shot leaves them. It is made from that shot's own frame, so that frame comes first. WHY: the first shot of the next beat starts from the end frame, so a beat begins where the one before it really finished; before, it started from the earlier beat's opening frame. IN A RUN: Render Scene in order makes each end frame right after its shot and before the next beat opens, and its question says how many of the frames are end frames. BY HAND: open End frame on the card and press its generate button. OUT OF DATE: when the shot's frame is made again, its end frame says out of date; make it again so the next beat starts from the right picture. APPROVAL: an end frame is approved with its shot and has no approval of its own. The scene's To do line counts the end frames still to make. A scene that has no scene plan has no end frames and works as before." });
+APP_FEATURES.push({ name:"Shots: the previs of a shot, and its camera on the floor plan", what:"(2026-11-22) THE PREVIS is a shot drawn in code, before any image is made. WHERE: the Shots tab, on every shot card of a planned scene, the section named Previs, under Camera. WHAT IT SHOWS: two pictures from one camera, how it starts and how it ends, drawn from the place's own 3D set (the one in the Locations tab). Each block is a person, at their real height, on the mark the scene plan gave them and facing who the plan says; each red box is a prop at the size on its card; each door is open or shut as the plan has it at that moment. A shot where nothing moves has one picture. Under the pictures a line says how far the camera stands, how high and with what lens, and plain notes say what the app had to change. WHAT IT NEEDS: a scene plan with marks, and a floor plan for the place; without a floor plan the section says so. It draws when the section is opened, changes nothing in the film and is not saved; it is drawn again when the plan, the set or the shot changes. THE CAMERAS: in the scene's Scene plan, the Cameras row has Place the cameras. One short writing pass gives each planned shot a camera on the floor plan: where it stands, how high, what it looks at and its lens. It asks first, changes no shot and makes no image. A new plan places them as its last step. THE CHECK: the app checks every camera against the set in 3D: it must stand on the floor plan, outside every wall and piece of furniture, clear of the people, and see every face it frames. When it cannot, the app moves it to the nearest spot that works and says why; when the lens would show much more or much less than the planned shot size from there, the app sets the lens that shows it. Until cameras are placed, each Previs uses a camera found by the app. A prop with no measurements on its card is drawn at a guessed size, and the note names it. A FRAME FROM THE PREVIS: under the pictures, Make the frame from this previs makes this shot's frame from the drawing. The drawing goes to the image engine as the layout it must follow: the set, the camera, where each person stands and how big each prop is come from the drawing; the image engine adds the people from their character sheets, the props from their sheets, the surfaces and the light, and is told to add nothing built. The frame is kept on the card like any other frame, with its earlier versions, and still needs approving. The shot's ordinary Generate button works as before. THE CHECK AGAINST THE PREVIS: the QA check of a frame made this way also reads it beside its drawing and reports, as findings that start with Layout, a door, window or piece of furniture that was added or removed, a person or prop in another place, and a prop drawn clearly too big or too small. END FRAME: when a shot's frame was made from its previs, its End frame is also given the drawing of how the shot ends, through the same camera, so people and things move to exactly where the plan leaves them." });
 function appBrief(){
   const facts = museFacts();
   return "\n\nABOUT THIS APP (use ONLY these facts to answer product/how-to questions; never invent features or behaviour — if a question isn't covered here, say you're not sure rather than guess):\n"
@@ -5282,6 +5283,10 @@ async function aiImageQA(item){
   const facts = Array.isArray(item.facts) ? item.facts.slice(0,24) : [];
   const img = await turnDownscaleDataUrl(item.url, 896);
   if(!img) throw new Error("The current image could not be prepared for QA. Reload the card and try again.");
+  // the previs a shot frame was made from, read beside it (a drawing that cannot be prepared is left out, never guessed)
+  let lay = null;
+  if(item.layout && item.layout.url){ try{ lay = await turnDownscaleDataUrl(item.layout.url, 896); }catch(e){ lay = null; }
+    if(lay && !Array.isArray(item.layout.legend)) item = { ...item, layout:{ ...item.layout, legend:[] } }; }
   // TRUE SIZES (2026-10-28, scale plan step 4): who and what is how big, so the read can flag "the frog is drawn smaller
   // than the firefly" — reported as a deviation that starts with "Size:"
   const sizes = (Array.isArray(item.sizes) ? item.sizes : []).filter(x=>x && x.name && x.size).slice(0,10);
@@ -5333,6 +5338,20 @@ async function aiImageQA(item){
         +"Where the image clearly CONTRADICTS these words (a gold ring drawn silver, a navy strap drawn red, one stud where the words say a pair), report it as a deviation whose 'what' starts with '"+(String(item.ownerSays.who||"").trim().split(/\s+/)[0]||"Owner")+"\u2019s card:' "
         +"and says what the card writes and what the image shows. Words the image simply cannot show, or adds detail to without contradicting, are not faults.\n"
       : "")
+    /* THE LAYOUT (2026-11-23, code-first frames, step 2; owner: "check with code that the image model didn't add
+       anything it shouldn't"). A shot frame made from its previs is read BESIDE that drawing: the second image. */
+    +(lay
+      ? "\nTHE LAYOUT (binding, part of the contract): the SECOND attached image is the 3D previs this frame was made from, drawn to scale from the set's own model through the same camera. "
+        +"It fixes where everything is; its flat colours, block figures and boxes are stand-ins, never the look. "
+        +(item.layout.legend.length ? "Its stand-ins: "+item.layout.legend.map(x=>String(x||"").replace(/\s+/g," ").trim()).filter(Boolean).slice(0,16).join(" ")+" The pale panel on a figure's head is its face. " : "")
+        +"Compare the candidate with it, thing by thing: "
+        +"(a) every door, doorway, window, wall, step and piece of furniture in the candidate is in the layout, at the same place in the frame; one the layout does not have was ADDED; one it has that is gone was REMOVED; a shut door drawn open, or an open one drawn shut, is wrong; "
+        +"(b) the room is as wide and as deep as the layout draws it, and the camera looks from the same place; "
+        +"(c) each person stands where their block figure stands, about as tall in the frame, facing the same way; a person with no block figure was ADDED, a block figure with no person is MISSING; "
+        +"(d) each object a red box stands for is where the box is and about the same size in the frame as the box (a clear difference, half as big again or more, or two thirds or less, is a size error). "
+        +"Each difference is a deviation whose 'what' starts with 'Layout:' and says what the layout has and what the candidate shows, with its box ON THE CANDIDATE. An added or removed door, window or wall, a person or prop in another place, and a clear size error are MAJOR. "
+        +"What the layout cannot show is never a fault: faces, clothes, materials, texture, light, small wear, a natural pose in place of a block. Never box the layout image.\n"
+      : "")
     +(facts.length
       ? "\nSECOND, SEPARATELY: the SCREENPLAY. Below, numbered, is what the screenplay states about "+(item.name||"this character")
         +(item.variant ? " (this is their \u201c"+item.variant+"\u201d appearance variant)" : "")+", each with its verbatim quote, and the card's WRITTEN SPEC the image was made from. "
@@ -5342,7 +5361,7 @@ async function aiImageQA(item){
       : "")
     +'Return ONLY compact JSON: {"verdict":"pass|minor|major","deviations":[{"what":"...","where":"...","severity":"minor|major","box":[x0,y0,x1,y1]}],"inventions":["..."],"action":"keep|edit|regenerate","editInstruction":"...","promptFix":"..."'
     +(facts.length ? ',"script":{"results":[{"n":1,"status":"ok|mismatch|unclear","issue":"","specOk":true,"specFix":"","box":[x0,y0,x1,y1]}]}' : '')+'}';
-  const res = await aiVisionComplete([{ role:"user", content:prompt }], [img]);
+  const res = await aiVisionComplete([{ role:"user", content:prompt }], lay ? [img, lay] : [img]);
   if(!res.vision) return { unsupported:true };
   const j = extractJSON(res.text);
   if(!j || !j.verdict) return null;
@@ -5362,6 +5381,7 @@ async function aiImageQA(item){
     action: /^(keep|edit|regenerate)$/.test(String(j.action).toLowerCase()) ? String(j.action).toLowerCase() : "keep",
     editInstruction: W(j.editInstruction,220),
     promptFix: W(j.promptFix,260),
+    ...(lay ? { layoutRead:true } : {}),
     script: facts.length ? ((j.script && Array.isArray(j.script.results)) ? _fidelityParse(j.script.results, facts, W) : { failed:true, checked:facts.length }) : null };
 }
 window.aiImageQA = aiImageQA;
@@ -9071,6 +9091,99 @@ async function aiPlanScene(scene, beats, blocks, ctx){
 }
 window.aiPlanScene = aiPlanScene;
 
+/* THE CAMERAS OF A PLANNED SCENE, IN NUMBERS (2026-11-22, owner: "lock in the cameras considering the composition for
+   the shot ... then bring image model to support with rendering"). One short writing pass (five shots a call, the
+   calls at the same time) reads the floor plan, the staging and the shots the plan already wrote, and gives each shot
+   a camera on the floor plan: where it stands, how high, what it looks at, its lens, and who or what each person
+   faces. Nothing here draws or checks: ScenePlan.normalizeCameras reads the answer safely, and the app checks each
+   camera against the set in 3D when it draws the shot (shot-previs.js). ctx: {project, plan, shots (the scene's saved
+   shots), characters, locations, onStep}. Returns {cameras, missing, dropped, by, calls}. */
+const SCENE_CAMERAS_GROUP = 5;   // a dozen shots a call ran past the server's ~150 s on its first real scene (2026-11-22)
+async function aiPlanCameras(scene, ctx){
+  ctx = ctx || {};
+  const SP = window.ScenePlan;
+  if(!scene || !SP || typeof SP.normalizeCameras!=="function") throw new Error("Placing the cameras is unavailable. Nothing was changed.");
+  if(!aiAvailable()) throw new Error("Placing the cameras needs the writing engine.");
+  const plan = ctx.plan;
+  if(!plan || !SP.exact(plan)) throw new Error("Plan this scene first: the cameras stand on the plan's marks. Nothing was changed.");
+  const P = writingProjectOf(ctx.project);
+  const locations = Array.isArray(ctx.locations) ? ctx.locations : [];
+  const charList = (Array.isArray(ctx.characters) ? ctx.characters : []).filter(c=>c && c.id);
+  const one = (v,n)=> String(v==null?"":v).replace(/\s+/g," ").trim().slice(0,n||400);
+  const sets = (Array.isArray(plan.sets) ? plan.sets : []).filter(s=>s && s.id);
+  const layouts = {};
+  sets.forEach(st=>{ const loc = st.locationId ? locations.find(l=>l && String(l.id)===String(st.locationId)) : null; layouts[st.id] = scenePlanSetLayout(loc, locations); });
+  const drawn = sets.filter(st=>layouts[st.id] && layouts[st.id].hasPlan);
+  if(!drawn.length) throw new Error("None of this scene's places has a floor plan yet. Draw one in Locations first. Nothing was changed.");
+  const inSet = new Set(drawn.map(s=>s.id));
+  const shots = (Array.isArray(ctx.shots) ? ctx.shots : []).filter(sh=>sh && sh.planned && SP.isKeyShot(sh) && sh.startState && inSet.has(String(sh.planSet||"")));
+  if(!shots.length) throw new Error("This scene has no planned shot in a place with a floor plan. Nothing was changed.");
+  const present = new Set(); shots.forEach(sh=>Object.keys((sh.startState||{}).people||{}).concat(Object.keys((sh.endState||{}).people||{})).forEach(id=>present.add(id)));
+  const cast = charList.filter(c=>present.has(c.id));
+  const heightOf = (c)=> (window.ShotPrevis && typeof window.ShotPrevis.heightOf==="function") ? window.ShotPrevis.heightOf(c) : 1.7;
+  const where = (st)=>{ const o = {}; Object.keys((st||{}).people||{}).forEach(id=>{ const p = st.people[id]||{}; o[id] = [p.where||"", one(p.pose,60)].filter(Boolean).join(", "); }); return o; };
+  const rows = shots.map(sh=>{
+    const a = where(sh.startState), b = where(sh.endState);
+    const doors = (((sh.startState||{}).doors)||[]).filter(d=>d && d.open).map(d=>d.id);
+    return { key:SP.shotCameraKey(sh), row:{ beat:Number(sh.beatN), moment:SP.momentOf(sh), set:sh.planSet, size:sh.size, angle:sh.angle, lens:sh.lens, move:sh.move,
+      purpose:one(sh.purpose,160), camera:one(sh.cameraPosition,240), composition:one(sh.composition,240), inFrame:(sh.subjects||[]).slice(),
+      start:a, ...(JSON.stringify(a)!==JSON.stringify(b) ? { end:b } : {}), ...(doors.length ? { openDoors:doors } : {}),
+      ...(sh.lineSide && sh.lineSide!=="same" ? { line:sh.lineSide } : {}) } };
+  });
+  const clean = (t)=>{ try{ return scrubBrand(t); }catch(e){ return t; } };
+  let p = "FILM: "+(P.title||"Untitled")+genreTag(P)+".\n";
+  p += "SCENE #"+(scene.no==null?"":scene.no)+" “"+(scene.title||"")+"”"+(scene.loc?" ("+scene.loc+")":"")+"\n";
+  p += "\nTHE SETS (each with its floor plan; x and y in metres, +y is north, +x is east):\n"+drawn.map(s=>"- "+s.id+": "+s.heading+". "+layouts[s.id].text).join("\n")+"\n";
+  p += "\nTHE PEOPLE (ids and heights):\n"+cast.map(c=>"- "+c.id+": "+c.name+", "+heightOf(c).toFixed(2)+" m").join("\n")+"\n";
+  p += "\nTHE STAGING OF THIS SCENE (settled; never change it):\n"+clean(JSON.stringify({ marks:(plan.marks||[]).filter(m=>m && inSet.has(String(m.set||""))).map(m=>({ id:m.id, set:m.set, name:m.name, xy:m.xy })),
+    line:plan.line||{}, cameraIdea:plan.cameraIdea||"", things:(plan.things||[]).map(t=>({ key:t.key, name:t.name, kind:t.kind })) }))+"\n";
+  p += "\nTHE SHOTS (already written; never change them). Each has its size, angle and lens, where the camera stands in words, and where each person is as it starts (a mark id and a pose):\n"+clean(JSON.stringify(rows.map(r=>r.row)))+"\n";
+  const TASK = "\nTASK: Give each shot asked for below its camera IN NUMBERS, as a director of photography walking the floor plan before the shoot. For each shot: beat; moment; at ([x, y], where the camera stands, in metres in the floor plan's frame); height (the lens above the floor in metres: about 1.5 at eye level, lower for a low angle or for seated or kneeling people, higher for a high angle); aim (the ids the frame is centred on: cast ids, or a tracked thing's key, a fixed object's id, an opening's id or a mark's id for an insert or an empty frame); lens (in mm); faces (for each person in the shot's start: the id of who or what they face, a cast id, a fixed object's id, an opening's id or a mark's id, or \"camera\" when they look into the lens); why (one short line: what standing there gives the shot).\n"
+    +"RULES:\n"
+    +"- The camera stands INSIDE a space's outline, at least 0.3 m from every wall and fixed object, and never on a mark where a person stands in that shot. Work out each position from the outline's own numbers.\n"
+    +"- The straight line from the camera to each face it frames crosses no wall and no fixed object. It may pass through an opening: a doorway, or a door that is open in that shot. No other person stands on that line. For an over-the-shoulder shot the camera is behind and to one side of the near person, about 0.6 m from them.\n"
+    +"- Distance decides the size: distance in metres = the height shown x the lens in mm / 20. Heights shown: ECU 0.22, CU 0.42, MCU 0.68, MS 1.05, MWS 1.5, FS 2.1, WS 3.2. So a medium shot on a 35 mm lens needs 1.8 m, on a 50 mm lens 2.6 m. When the room is too narrow for that, shoot along its length, or stand in the next room and shoot through a doorway, or take a wider lens and stand closer: say which in why.\n"
+    +"- Two people facing each other: stand off the line between them so both faces are seen, never straight behind one of them (unless it is an over-the-shoulder shot).\n"
+    +"- Keep to the line's side for the whole scene; only a shot marked as crossing the line may stand on the other side.\n"
+    +"- Follow the shot's own words for where the camera stands whenever the floor plan allows it; where it does not, take the nearest position that works.\n"
+    +"- Two shots in a row of the same people differ clearly in size or in angle (thirty degrees or more), unless the second one repeats the first on purpose.\n"
+    +"Use the ids exactly as given. Return ONLY compact JSON: {\"cameras\":[{\"beat\":1,\"moment\":1,\"at\":[1.2,0.8],\"height\":1.5,\"aim\":[\"<cast id>\"],\"lens\":35,\"faces\":{\"<cast id>\":\"<id>\"},\"why\":\"...\"}]}";
+  const groups = []; for(let i=0;i<rows.length;i+=SCENE_CAMERAS_GROUP) groups.push(rows.slice(i,i+SCENE_CAMERAS_GROUP));
+  const info = (typeof window.writingModelInfo==="function") ? window.writingModelInfo("scenePlan") : null;
+  const engine = info && WRITING_MODELS.find(m=>m.id===info.id);
+  const ask = async (content)=>{
+    let err = null;
+    for(let go=0; go<2; go++){
+      let response = null;
+      try{
+        response = await window.claude.complete({ messages:[{ role:"user", content }], maxTokens:8000, timeoutMs:SCENE_PLAN_CALL_MS,
+          ...(go ? {} : { quietTimeout:true }), ...(engine && engine.provider==="anthropic" ? { effort:"medium" } : {}) });
+      }catch(e){
+        err = e;
+        if(typeof window.turnIsWritingTimeout==="function" && window.turnIsWritingTimeout(e)) continue;
+        throw e;
+      }
+      if(response && typeof response==="object" && typeof response.text==="string") response = response.text;
+      const parsed = extractJSON(response);
+      if(parsed && Array.isArray(parsed.cameras) && parsed.cameras.length) return parsed;
+      err = new Error("The cameras could not be read. Nothing was changed; try again.");
+    }
+    throw err;
+  };
+  if(typeof ctx.onStep==="function"){ try{ ctx.onStep({ step:1, of:1, text:"the cameras" }); }catch(e){} }
+  const got = await Promise.all(groups.map(g=> ask(p+TASK+(groups.length>1 ? "\nGIVE THE CAMERAS OF THESE SHOTS ONLY (beat.moment): "+g.map(r=>r.key).join(", ") : "")).then(j=>j, e=>({ failed:e }))));
+  const all = []; let failed = null;
+  got.forEach(j=>{ if(j && j.failed){ failed = failed || j.failed; return; } (j.cameras||[]).forEach(c=>{ if(c && typeof c==="object") all.push(c); }); });
+  if(!all.length) throw (failed || new Error("The cameras could not be read. Nothing was changed; try again."));
+  let scrubbed = { cameras:all };
+  try{ scrubbed = JSON.parse(scrubBrand(JSON.stringify(scrubbed))); }catch(e){ scrubbed = { cameras:all }; }
+  const ids = (plan.marks||[]).map(m=>m.id).concat((plan.fixed||[]).map(f=>f.id), (plan.things||[]).map(t=>t.key));
+  const out = SP.normalizeCameras(scrubbed, { keys:rows.map(r=>r.key), cast:cast.map(c=>({ id:c.id, name:c.name })), ids });
+  if(!Object.keys(out.cameras).length) throw new Error("The cameras named no shot of this scene. Nothing was changed; try again.");
+  return { ...out, by:writingStamp("Scene cameras"), calls:groups.length, stopped:failed ? String(failed.message||"") : "" };
+}
+window.aiPlanCameras = aiPlanCameras;
+
 /* Task-default routing — the ART-ROOM structured drafters (JSON specs, bibles,
    staging, lookbook, shots) run on the "specs" default engine unless the user has
    picked one; every story/prose function keeps the "story" default. Wrapped at the
@@ -9092,5 +9205,5 @@ LOCATION_WRITING_FNS.forEach(n=>{
 });
 window.LOCATION_WRITING_FNS = LOCATION_WRITING_FNS;
 // THE SCENE PLAN runs on its own default (Fable 5.2, owner 2026-11-22) unless the user has picked an engine
-{ const fn = window.aiPlanScene;
-  if(typeof fn === "function") window.aiPlanScene = (...a)=> window.turnWithWritingTask("scenePlan", ()=> fn(...a)); }
+["aiPlanScene","aiPlanCameras"].forEach(n=>{ const fn = window[n];
+  if(typeof fn === "function") window[n] = (...a)=> window.turnWithWritingTask("scenePlan", ()=> fn(...a)); });

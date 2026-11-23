@@ -787,20 +787,59 @@
   function estimateSeconds(beatCount,calls){
     const beats=Math.max(1,Math.round(Number(beatCount))||1);
     const groups=Number(calls)>1 ? Math.round(Number(calls))-1 : Math.max(1,Math.ceil(beats/2));
-    return Math.min(1200,80+70*groups);
+    return Math.min(1200,80+70*groups+50);   // the staging, each group of shots, then the cameras
   }
+  /* ---- THE CAMERAS, IN NUMBERS (2026-11-22, owner: "lock in the cameras considering the composition for the
+     shot" before any image engine) ----
+     One more short writing pass gives each planned shot a camera on the floor plan: where it stands, how high, what
+     it looks at, its lens, and who or what each person faces. This reads that answer safely: a camera for a shot the
+     scene does not have, or without two numbers for its place, is dropped; ids are the cast's, the tracked things',
+     the fixed objects', the openings' or the marks'. The app then checks every camera against the set in 3D
+     (shot-previs.js planCamera). ctx: {keys:["beat.moment"], cast, ids:[thing keys, fixed ids, mark ids]}
+     → {cameras:{"beat.moment":{at:[x,y], height?, aim:[ids], lens?, faces:{cast id → id}, why}}, dropped, missing:[keys]} */
+  function cameraKey(beat,moment){ const b=Number(beat), m=Math.round(Number(moment)); return (Number.isFinite(b)&&b>0?b:0)+"."+(Number.isFinite(m)&&m>0?m:1); }
+  const shotCameraKey=sh=>cameraKey(sh&&sh.beatN,momentOf(sh));
+  function normalizeCameras(raw,ctx){
+    ctx=ctx||{};
+    const keys=uniq(arr(ctx.keys).map(String)), who=resolver(ctx.cast), ids=new Set(arr(ctx.ids).map(String));
+    const r2=n=>Math.round(n*100)/100;
+    const idOf=t=>{ const s=String(t==null?"":t).trim(); if(!s) return ""; if(ids.has(s)) return s; const p=who(s); if(p) return p.id; return ids.has(slug(s))?slug(s):""; };
+    const out={}; let dropped=0;
+    arr(obj(raw).cameras).slice(0,200).forEach(c=>{
+      c=obj(c);
+      const key=cameraKey(c.beat,c.moment), at=arr(c.at);
+      if(keys.indexOf(key)<0||out[key]||at.length!==2||!at.every(n=>typeof n==="number"&&Number.isFinite(n)&&Math.abs(n)<=500)){ dropped++; return; }
+      const h=Number(c.height), lens=Number(String(c.lens==null?"":c.lens).replace(/[^\d.]/g,""));
+      const aim=uniq(arr(typeof c.aim==="string"?[c.aim]:c.aim).map(idOf).filter(Boolean)).slice(0,6);
+      const faces={};
+      Object.keys(obj(c.faces)).forEach(k=>{ const p=who(k); if(!p) return; const said=String(c.faces[k]==null?"":c.faces[k]).trim();
+        const t=/^(the )?(camera|lens)$/i.test(said)?"camera":idOf(said); if(t&&t!==p.id) faces[p.id]=t; });
+      out[key]={at:[r2(at[0]),r2(at[1])],...(h>=0.1&&h<=4?{height:r2(h)}:{}),aim,...(lens>=10&&lens<=300?{lens:Math.round(lens)}:{}),faces,why:text(c.why||c.note,200)};
+    });
+    return {cameras:out,dropped,missing:keys.filter(k=>!out[k])};
+  }
+  function camerasConfirmText(o){
+    o=o||{};
+    const no=String(o.sceneNo==null?"":o.sceneNo).padStart(2,"0");
+    return {title:"Place the cameras of Scene "+no+" (writing credits)?",
+      body:"One short writing pass"+(o.engine?" on "+o.engine:"")+" gives each planned shot a camera on the floor plan: where it stands, how high, what it looks at and its lens. The app then checks each one against the set in 3D and moves any that cannot stand there. No shot is changed and no image is made."
+        +(o.again?" It replaces the cameras this scene has now.":""),
+      confirmLabel:"Place the cameras",cancelLabel:"Cancel"};
+  }
+
   function confirmText(o){
     o=o||{};
     const no=String(o.sceneNo==null?"":o.sceneNo).padStart(2,"0");
     const body="Reads the whole scene, then every beat, and writes: where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends."
-      +" A few short writing passes"+(o.engine?" on "+o.engine:"")+" (the staging, then the shots a few beats at a time); no image is made."
+      +" A few short writing passes"+(o.engine?" on "+o.engine:"")+" (the staging, then the shots a few beats at a time, then each shot's camera on the floor plan); no image is made."
       +(o.hasShots ? " It replaces this scene's drafted shots as Re-draft does: each beat's opening shot keeps its ID and its images, changed frames need making again, and extra shots move to Recently deleted, where you can restore them."+(o.replaces||"") : "");
     return {title:(o.again?"Plan Scene "+no+" again":"Plan Scene "+no)+" (writing credits)?",body,
       confirmLabel:o.again?"Plan again":"Plan this scene",cancelLabel:"Cancel"};
   }
 
   const api={SIZES,ANGLES,MOVES,HANDOFFS,sizeId,angleId,moveId,lensId,handoffType,sets,beatSets,brief,normalize,shotRows,applyToShots,
-    linkPropToShots,unplan,PLAN_FIELDS,stateText,namesOf,wordsFor,exact,OLD_PLAN_NOTE,handoffText,checks,thingProp,thingCard,originLabel,ownerItems,estimateSeconds,shotGroups,groupLabel,SHOT_GROUP_MOMENTS,confirmText,sameText,snapLine,parseHeading};
+    linkPropToShots,unplan,PLAN_FIELDS,stateText,namesOf,wordsFor,exact,OLD_PLAN_NOTE,handoffText,checks,thingProp,thingCard,originLabel,ownerItems,estimateSeconds,shotGroups,groupLabel,SHOT_GROUP_MOMENTS,confirmText,sameText,snapLine,parseHeading,
+    isKeyShot,momentOf,cameraKey,shotCameraKey,normalizeCameras,camerasConfirmText};
   root.ScenePlan=api;
   root.scenePlanChecks=checks;
 })(typeof window!=="undefined"?window:globalThis);

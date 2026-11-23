@@ -227,6 +227,8 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
   // the reference frame often isn't in the sync cache
   // right after a reload — falling back to nbLoadImage keeps the chain intact.
   const deriveBase = async (gopts)=>{
+    // MADE FROM ITS PREVIS (2026-11-23): the shot drawn in code leads as Image 1, the layout the frame must follow
+    if(gopts && gopts.previs && gopts.previs.url && !gopts.editInstruction) return gopts.previs.url;
     if(!prevShot || (gopts && (gopts.fresh || gopts.editInstruction))) return null;
     let u = (typeof nbGetImage==="function") ? nbGetImage(prevShot.id) : "";
     if(!u && typeof nbLoadImage==="function"){ try{ u = await nbLoadImage(prevShot.id); }catch(e){} }
@@ -256,10 +258,19 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     if(renderPlan && p.sceneContext) renderPlan.sceneContext = p.sceneContext;
     assertSceneContext();
     const ranked = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(out) : out;
+    /* made from its previs: the previs is Image 1, so the frame this shot chains from (which a chained shot sends as
+       Image 1) goes last, for its LOOK only: the grade, the light, the faces and what has happened to people and things */
+    if(gopts && gopts.previs && gopts.previs.url && !gopts.editInstruction && !gopts.fresh && prevShot){
+      let seedU = (typeof nbGetImage==="function") ? nbGetImage(prevShot.id) : "";
+      if(!seedU && typeof nbLoadImage==="function"){ try{ seedU = await nbLoadImage(prevShot.id); }catch(e){} }
+      if(seedU) return ranked.concat([{ url:seedU, kind:"frame", refId:prevShot.id, maxDim:640,
+        note:"the finished frame of the shot before this one \u2014 take ONLY its look from it: the colour grade, the light, the faces, the wardrobe and every established physical state (wear, wetness, dirt, damage); never its framing, its camera or where anything stands" }]);
+    }
     return ranked;
   };
 
   let _seedEarlierLook = "";   // set by metaStart when the seed frame was made with an earlier look
+  let _previsUsed = null;      // set by metaStart when this run is made from (or guided by) the shot's previs
   const opts = {
     id: sh.id, slotId: "shot-"+sh.id,
     entity: sh,
@@ -291,7 +302,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     // buildShotPrompt now names the reference stack in-prose (the spine + staging + References
     // block), so we don't append a second reference sentence here — that would just duplicate it.
     attachmentsText: ()=> "",
-    buildEdit: (instr, resolvedRefs, model)=>{
+    buildEdit: (instr, resolvedRefs, model, gopts)=>{
       assertSceneContext();
        let out = "Edit this film frame. Apply ONLY this change: "+instr+". Keep the same shot size, lens, staging, "
          +"the same characters (identical faces & wardrobe), the same location and the same colour grade. Do not re-imagine the frame.";
@@ -313,6 +324,17 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
              : (r.note||r.assetRoleLabel||"a canonical reference")
                +(r.referenceKind==="character" ? " (identity only: take the face, build, hair and wardrobe from it; never copy its background, pose, lighting or panel layout)" : ""))+".").join(" ");
        }
+       /* AN END FRAME GUIDED BY ITS PREVIS (2026-11-23): the shot's last instant drawn in code through the same camera
+          rides after the sheets. It says WHERE everyone and everything is by then; the frame being edited keeps the look. */
+       const ep = gopts && gopts.endPrevis;
+       if(ep && ep.url){
+         const n = (Array.isArray(resolvedRefs) ? resolvedRefs.length : 0)+2;
+         const lg = (Array.isArray(ep.legend) ? ep.legend : []).map(x=>String(x||"").replace(/\s+/g," ").trim()).filter(Boolean).slice(0,16);
+         out += "\n\nImage "+n+" is a 3D LAYOUT of this SAME shot as it ENDS, drawn to scale through the same camera: it shows where each person and each thing is by then, and each door as it stands. "
+           +(lg.length ? "ITS STAND-INS: "+lg.join(" ")+" " : "")
+           +"The pale panel on a figure's head is its face. Move each person and each thing to where Image "+n+" puts it, at that size in the frame and facing that way, and set each door as it shows; someone it no longer shows has left the frame. "
+           +"Take ONLY positions from it: never its flat colours, its block figures or its boxes. Everything Image "+n+" leaves where it was stays exactly as in Image 1.";
+       }
        return out;
     },
     rebuildPromptAfterAttachments: (resolvedRefs, mode, gopts)=>{
@@ -322,9 +344,11 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
       const runModel = (gopts && gopts.model) || undefined;
       if(mode==="simple") return buildShotPrompt(sh,{ ...promptCtx, simpleMode:true,resolvedRefs:refs,
         sceneContext:(renderPlan&&renderPlan.sceneContext)||null, ...(runModel?{model:runModel}:{}) });
-      if(mode==="edit") return opts.buildEdit ? opts.buildEdit(gopts&&gopts.editInstruction||"",refs,runModel) : "";
+      if(mode==="edit") return opts.buildEdit ? opts.buildEdit(gopts&&gopts.editInstruction||"",refs,runModel,gopts) : "";
       const base = { ...promptCtx, resolvedRefs:refs,
         sceneContext:(renderPlan&&renderPlan.sceneContext)||null, ...(runModel?{model:runModel}:{}) };
+      // made from its previs: Image 1 is the layout (never the chained frame, which rides last for its look)
+      if(mode==="base" && gopts && gopts.previs && gopts.previs.url) return buildShotPrompt(sh,{...base,previs:gopts.previs});
       return (mode==="base" ? buildShotPrompt(sh,{...base,prevFrameRole:true}) : combinedShotPrompt(sh,base));
     },
     /* Art Room skips its normal beforeGenerate gate for edits, batches, and
@@ -358,6 +382,9 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     referenceMaxDim: 640,
     metaStart: async ({gopts}={})=>{
       assertSceneContext();
+      // made from its previs (or, an end frame, guided by one): the camera it was drawn through, kept with the frame
+      { const pv = gopts && (gopts.previs || gopts.endPrevis);
+        _previsUsed = (pv && pv.pose) ? { which:pv.which||"start", pose:pv.pose, source:pv.source||"" } : null; }
       // (2026-10-09, owner — Shots review) the sheets and plates this frame attaches are LOADED before their
       // versions are stamped — on a cold cache the stamp read "missing", and the new frame later showed
       // "Character sheet changed" / "Location changed" for the very sheet it used
@@ -441,7 +468,8 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
       // the reference sheets ticked OFF when this frame was made — ticking one on/off later marks it out of date (2026-10-05)
       refOffSig:(typeof shotRefOffSig==="function") ? shotRefOffSig(sh) : undefined,
       writingSources:(typeof shotWritingSources==="function") ? shotWritingSources(sh,ctx) : [],
-       promptCompiler:"Kinolot prompt compiler"
+       promptCompiler:"Kinolot prompt compiler",
+       ...(_previsUsed ? { previs:_previsUsed } : {})
        });
     },
   };
@@ -699,7 +727,18 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
   // window — during it nothing is in __nbGenInflight yet, so a remount could otherwise
   // start the whole sequence twice.
   const generateWithProps = async (gopts)=>{
-    const g = gopts||{};
+    let g = gopts||{};
+    /* FROM ITS PREVIS (2026-11-23): the Previs fold's button marks this shot's next Generate; the drawing is made here,
+       at the moment of the render, and goes with it as the layout. A drawing that cannot be made stops the render:
+       the person asked for a frame from the previs, never for another kind. */
+    if(!(g.editInstruction || g.simple) && typeof window.shotPrevisTakeNext==="function" && window.shotPrevisTakeNext(sh.id)){
+      let pv = null;
+      try{ pv = await window.shotPrevisForFrame(sh, ctx, "start"); }
+      catch(e){ if(typeof window.appToast==="function") window.appToast((e&&e.message)||"The previs could not be drawn. No frame was made.","error"); return "aborted"; }
+      if(!pv){ if(typeof window.appToast==="function") window.appToast("This shot has no previs to make a frame from. No frame was made.","info"); return "aborted"; }
+      g = { ...g, previs:pv, baseMaxDim:1536 };
+      gopts = g;
+    }
     // This fallback path is also used outside the ordered runner. Verify
     // required, included location attachments before the carried-prop staging
     // phase, which can itself prepare paid work. Deliberately excluded refs and
@@ -1442,6 +1481,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         _el(GrammarSelect,{label:"Lens",value:sh.lens,options:SHOT_LENSES,onChange:v=>onUpdate(sh.id,{lens:v})})),
       _el(ShotPovPicker,{sh,characters:characters||(((window.turnContinuity||{}).characters)||[]),onUpdate}),
       _el(AdvancedCameraSettings,{sh,onUpdate})),
+      // the shot drawn in code from the place's 3D set, before any image (2026-11-22; app/shot-previs-ui.jsx)
+      window.ShotPrevisFold && _el(window.ShotPrevisFold,{key:"previs-"+sh.id,sh,ctx,onView,beatLabel,
+        // step 2: this shot's next Generate is made from the drawing; it goes through the scene's runner like any other
+        onMake:readOnly ? null : ()=>{ if(typeof window.shotPrevisAskNext==="function") window.shotPrevisAskNext(sh.id); return genGuarded.generate(); },
+        makeDisabled:!!gen.gening || !!(batchActiveId && batchActiveId!==sh.id)}),
       refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
           (typeof locationUsesParentPlate==="function" && locationUsesParentPlate(loc))
@@ -1473,6 +1517,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             redraftControl,
             // its repair buttons go through the shot rules (order, seeds, prop sheets, approval) — 2026-10-09
             window.QaCheckButton && _el(window.QaCheckButton,{ gen:genGuarded, name:beatLabel, noun:"shot frame", className:"shot-lock-btn",
+              // a frame made from its previs is also held against it: the same drawing, through the camera it was made with
+              layout:(gen.genMeta && gen.genMeta.previs && gen.genMeta.previs.pose && typeof window.shotPrevisForFrame==="function")
+                ? ()=>window.shotPrevisForFrame(sh, ctx, gen.genMeta.previs.which||"start", gen.genMeta.previs.pose, 896) : null,
               specFields:()=>({ action:(sh.action||""), composition:(sh.composition||"") }),
               // who is how big in this frame (scale plan step 4, 2026-10-28) — nothing for same-size human casts
               sizes:()=> (typeof qaTrueSizes==="function") ? qaTrueSizes(subjects) : [],
@@ -1508,11 +1555,22 @@ function ShotEndFrame({ sh, sceneShots, ctx, onView, batchActiveId, onBatchDone,
      other way). An edit keeps the picture it starts from, so the camera, the framing and the set stay; only what the
      end state says has changed is asked for. It is still a new frame of its own: its stamps are a frame's (the
      factory reads endFrameMake). With no words for the end state (no scene plan at hand) it is composed as before. */
-  const makeOpts = ()=>{
+  const makeOpts = async ()=>{
     const from = (typeof nbGetImage==="function") ? nbGetImage(sh.id) : "";
-    return (from && how) ? { endFrameMake:true, editBaseUrl:from,
+    if(!(from && how)) return {};
+    const base = { endFrameMake:true, editBaseUrl:from,
       editInstruction:"show this SAME shot a few seconds later, as it ENDS. The camera has not moved: same position, same framing, same lens, same set and light. By then: "
-        +how.replace(/\.$/,"")+". People and things have moved only as far as this says; everything else is exactly as in the frame" } : {};
+        +how.replace(/\.$/,"")+". People and things have moved only as far as this says; everything else is exactly as in the frame" };
+    /* GUIDED BY ITS PREVIS (2026-11-23, code-first frames, step 2). When the shot's own frame was made from its previs,
+       the end frame also gets the shot's LAST instant drawn in code, through that same camera: the words say what
+       changed, the drawing says exactly where everyone and everything is by then. A shot that ends as it starts, or a
+       drawing that cannot be made, leaves the end frame to the words alone. */
+    const pm = (typeof nbGetMeta==="function") ? nbGetMeta(sh.id) : null;
+    if(pm && pm.previs && pm.previs.pose && typeof window.shotPrevisForFrame==="function"){
+      try{ const pv = await window.shotPrevisForFrame(sh, ctx, "end", pm.previs.pose, 1280);
+        if(pv && pv.moves) return { ...base, endPrevis:pv, editRefImages:[pv.url] }; }catch(e){}
+    }
+    return base;
   };
   // its turn in an ordered run: the same watch a shot card keeps for its own frame
   const started = React.useRef(batchActiveId===end.id && gen.gening);
@@ -1524,7 +1582,7 @@ function ShotEndFrame({ sh, sceneShots, ctx, onView, batchActiveId, onBatchDone,
       started.current=true; was.current=false;
       // a render that never starts (its shot's frame is missing, a reference failed) ends this step, never stalls the run
       const settle = ()=> setTimeout(()=>{ if(started.current && !was.current){ started.current=false; onBatchDone && onBatchDone(end.id); } }, 1500);
-      Promise.resolve().then(()=>gen.generate(makeOpts())).then(settle, settle);
+      Promise.resolve().then(()=>makeOpts()).then(o=>gen.generate(o)).then(settle, settle);
       return; }
     if(started.current && was.current && !gen.gening){ started.current=false; onBatchDone && onBatchDone(end.id); }
     was.current = gen.gening;
@@ -2257,6 +2315,7 @@ function ScenePlanBlock({ scene, bm, ordered, ctx, characters, planning, failed,
   const W = SP.wordsFor(SP.namesOf(plan, cast));
   const marks = (plan && plan.marks) || [];
   const setName = (id)=>{ const st = ((plan && plan.sets)||[]).find(x=>x && x.id===id); return st ? st.heading : ""; };
+  const camCount = Object.keys((plan && plan.cameras)||{}).length;
   return _el("div",{className:"ssx-plan","data-testid":"scene-plan"},
     _el("div",{className:"ssx-plan-head"},
       _el("button",{type:"button",className:"ssx-brief-toggle ssx-plan-toggle","aria-expanded":(open&&plan)?"true":"false",disabled:!plan,
@@ -2270,7 +2329,7 @@ function ScenePlanBlock({ scene, bm, ordered, ctx, characters, planning, failed,
           typeof LocationRunProgress==="function" ? _el(LocationRunProgress,{work:mine}) : _el("span",{className:"ns-spin"}))
         : _el(React.Fragment,null,
           window.InfoTip && _el(window.InfoTip,{label:"About the scene plan",
-            text:"A few short writing passes read the whole scene, then every beat: the staging first, then the shots a few beats at a time. They write where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends. It asks first, and it replaces this scene’s drafted shots as Re-draft does. The checks are worked out by the app and make no call."}),
+            text:"A few short writing passes read the whole scene, then every beat: the staging first, then the shots a few beats at a time. They write where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends; a last short pass places each shot’s camera on the floor plan. It asks first, and it replaces this scene’s drafted shots as Re-draft does. The checks are worked out by the app and make no call."}),
           (!readOnly && onPlan) && _el("button",{type:"button",className:"char-draft-btn ghost","data-testid":"scene-plan-run",disabled:!!blocked,
             title:plan ? "Write this scene’s plan again (writing credits). It asks first and says what it replaces."
               : "Plan this scene (writing credits): blocking, the line, the things, and the shots with how each starts and ends. It asks first.",
@@ -2282,6 +2341,17 @@ function ScenePlanBlock({ scene, bm, ordered, ctx, characters, planning, failed,
       row("The line",[plan.line&&plan.line.axis, plan.line&&plan.line.cameraSide ? "The camera keeps to "+String(plan.line.cameraSide).replace(/^the camera keeps to\s*/i,"") : "", plan.line&&plan.line.note]
         .filter(Boolean).map(x=>String(x).replace(/\.$/,"")+".").join(" ")),
       row("Camera idea",plan.cameraIdea),
+      // each shot's camera in numbers, on the floor plan (2026-11-22): one short pass; the app checks each against the set
+      SP.exact(plan) && _el("div",{className:"ssx-plan-row","data-testid":"scene-plan-cameras"},
+        _el("span",{className:"ssx-plan-k"},"Cameras"),
+        _el("span",{className:"ssx-plan-v ssx-plan-cams"},
+          _el("span",null,camCount ? camCount+" placed on the floor plan"+((plan.camerasBy && plan.camerasBy.label) ? " by "+plan.camerasBy.label : "")+". Each shot\u2019s Previs shows its own."
+            : "Not placed yet: each shot\u2019s Previs uses a camera found by the app."),
+          window.InfoTip && _el(window.InfoTip,{label:"About the cameras",
+            text:"One short writing pass gives each planned shot a camera on the floor plan: where it stands, how high, what it looks at and its lens. The app then checks each one against the set in 3D and moves any that cannot stand there. A new plan places them as its last step."}),
+          (!readOnly && onPlan) && _el("button",{type:"button",className:"char-draft-btn ghost","data-testid":"scene-plan-cameras-run",disabled:!!blocked||!!mine,
+            title:"Place this scene\u2019s cameras on the floor plan (writing credits). It asks first. No shot is changed and no image is made.",
+            onClick:()=>onPlan(scene,{cameras:true})},_el(Icon.sparkles,{s:12}),camCount?"Place again":"Place the cameras"))),
       marks.length>0 && _el("details",{className:"ssx-plan-part","data-testid":"scene-plan-marks"},
         _el("summary",null,"Marks",_el("span",{className:"ssx-plan-count"},marks.length+" standing place"+(marks.length!==1?"s":""))),
         _el("ul",{className:"ssx-plan-list"},marks.map(m=>_el("li",{key:m.id,className:"ssx-plan-thing"},

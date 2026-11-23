@@ -2722,7 +2722,16 @@ function buildShotPrompt(sh, ctx){
   const _refFrameNote = _isEndFrame
     ? "THIS SAME SHOT AS IT BEGINS — keep its camera position, framing, lens, set, light, colour grade, faces and wardrobe exactly; change only what has changed by the END of the shot, as the staging says"
     : "the REFERENCE frame — carry its colour grade, lighting and every established physical state (wardrobe wear, wetness, dirt, damage) forward exactly, but do NOT copy its framing";
-  if(ctx.prevFrameRole) imgs.push(_refFrameNote);
+  /* MADE FROM ITS PREVIS (2026-11-23, code-first frames, step 2). ctx.previs = {legend:[sentences]}: Image 1 is the
+     shot drawn in code from the place's 3D set (shot-previs.js), with the shot's own camera. It is the LAYOUT and wins
+     wherever it and anything else disagree about where a thing is or how big; the sheets and the location image give
+     the look. The image engine adds people, surfaces and light, and nothing built. */
+  const _previs = (ctx.previs && typeof ctx.previs==="object" && !_isEndFrame) ? ctx.previs : null;
+  const _previsNote = "a 3D PREVIS of this exact shot, drawn to scale from the set's own model through this shot's real camera — the LAYOUT to follow: "
+    +"keep its camera position, lens and perspective, every wall, floor, ceiling, door, doorway, window and piece of furniture at the same place and the same size in the frame, "
+    +"and each person and each thing exactly where it stands; its flat colours, block figures and boxes are stand-ins, never the look";
+  if(_previs) imgs.push(_previsNote);
+  else if(ctx.prevFrameRole) imgs.push(_refFrameNote);
   // user-unticked reference sheets (sh.refOff) drop out of the image map ONLY — the
   // entity stays in the staging text; just its sheet isn't attached (labels must
   // mirror the real attachment list or the numbered map mislabels the files)
@@ -2787,7 +2796,8 @@ function buildShotPrompt(sh, ctx){
       a canvas/provider may return none, and a canonical sheet may be cold. */
    if(Array.isArray(ctx.resolvedRefs)){
      imgs.length=0;
-     if(ctx.prevFrameRole)
+     if(_previs) imgs.push(_previsNote);
+     else if(ctx.prevFrameRole)
        imgs.push(_refFrameNote);
      ctx.resolvedRefs.forEach((r,ri)=>{
        if(!r) return;
@@ -2803,8 +2813,20 @@ function buildShotPrompt(sh, ctx){
       fictitious canonical/page map in a prompt whose provider input is empty. */
   if(ctx.simpleMode && !_retainRequiredSimpleMap) imgs.length=0;
   let MAP = imgs.length
-    ? ("Compose a new cinematic still. " + imgs.map((m,i)=>"Image "+(i+1)+" is "+m+".").join(" "))
+    ? ((_previs ? "Render Image 1 as the finished cinematic still. " : "Compose a new cinematic still. ") + imgs.map((m,i)=>"Image "+(i+1)+" is "+m+".").join(" "))
     : "Compose a new cinematic still.";
+  if(_previs && !ctx.simpleMode){
+    const _legend = (Array.isArray(_previs.legend) ? _previs.legend : []).map(clean).filter(Boolean).slice(0,16).map(x=>x+".");
+    MAP += "\n\nTHE LAYOUT IS IMAGE 1 (binding: where Image 1 and any other image or any word below disagree about where something is, how big it is or which way it faces, Image 1 is right). "
+      +(_legend.length ? "ITS STAND-INS: "+_legend.join(" ")+" " : "")
+      +"The pale panel on a figure's head is its face: the person looks that way. "
+      +"Draw each person as themselves from their character sheet, a real body in a natural pose for this moment, on the same spot, as tall in the frame as their block and facing the same way. "
+      +"Draw each thing a red box stands for from its prop sheet, where the box is and the same size in the frame as the box. "
+      +"ADD NOTHING BUILT: no door, doorway, window, wall, step, furniture or fixture that Image 1 does not show, and none moved, widened, narrowed or removed; "
+      +"a door shut in Image 1 is shut, an open one is open at that same angle; the room is as wide and as deep as Image 1 draws it. "
+      +"No person and no object that Image 1 does not show. "
+      +"Surfaces that are plain in Image 1 take their real materials, wear and light from the location view.";
+  }
   // who holds it AT this moment — after a handover, not the original owner (2026-10-08, owner — Props review)
   const _holderOf = (p)=>{ try{ const rs = (typeof propStateAt==="function")
       ? propStateAt(p,(ctx.scene&&ctx.scene.id)||sh.sceneId,sh.beatN,sh.microBeatId,sh.id,window.turnContinuity||{}) : null;
@@ -2818,12 +2840,14 @@ function buildShotPrompt(sh, ctx){
       + textProps.map(p=>{ const h=_holderOf(p); return p.name+[p.form,p.material].map(x=>String(x||"").trim()).filter(Boolean).map(x=>" \u2014 "+x).join("")
         +(h?(" ("+h+"'s)"):""); }).join("; ")+".";
   }
-  if(_locLabels.length && (!ctx.simpleMode || _retainRequiredSimpleMap)){
+  if(_locLabels.length && !_previs && (!ctx.simpleMode || _retainRequiredSimpleMap)){
     MAP += " If the framing crosses between attached location views, preserve the exact threshold/sightline relationship between them; otherwise extend the SAME set consistently from the attached view.";
   }
   // the plate gives the SET, the scene's look gives the COLOUR (2026-10-08, owner — Color review): a location
   // plate drawn in a styled render can carry its own tint
-  if(_locLabels.length) MAP += " Take the set's architecture, materials, layout and light direction from the location view; its colour grade and palette come from this scene's look, not from the view.";
+  if(_locLabels.length) MAP += _previs
+    ? " Take the set's materials, surfaces and light direction from the location view and its geometry from Image 1 alone; its colour grade and palette come from this scene's look, not from the view."
+    : " Take the set's architecture, materials, layout and light direction from the location view; its colour grade and palette come from this scene's look, not from the view.";
 
   // ---- ASSEMBLE: image map, then the style spine, then the staging line, then constraints ----
   let out = MAP + "\n\n" + STYLE_SPINE + "\n\n— " + STAGING;
@@ -2859,7 +2883,7 @@ function buildShotPrompt(sh, ctx){
       and while the whole prompt is longer than its engine takes (shotPromptBudget), the scene's text is cut to an
       excerpt around the target beat, then left out. The image map, the style spine, the camera / staging line and
       the TARGET BEAT OPENING are never cut. */
-   const _pagesAttached = shotScreenplayPagesSent(ctx.resolvedRefs, ctx.model, (ctx.prevFrameRole || ctx.prevShot) ? 1 : 0);
+   const _pagesAttached = shotScreenplayPagesSent(ctx.resolvedRefs, ctx.model, (ctx.prevFrameRole || ctx.prevShot || _previs) ? 1 : 0);
    const _constraints = "\n\nConstraints: " + shotNegativePrompt(sh, _styleKey) + ".";
    const _shotBudget = shotPromptBudget(ctx);
    let _sceneContextPrompt = "";

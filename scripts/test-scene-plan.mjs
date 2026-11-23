@@ -469,7 +469,7 @@ test("7 the scene plan runs on Fable 5.2 by default; a pick wins; a trial stays 
   b.window.turnOnFreeTier=()=>true;
   assert.equal(b.rec("scenePlan"),"gemini-3.8-flash");
   // the call itself runs under that task (one place makes every call), and what it asks for is checked in code
-  assert.ok(ai.includes('if(typeof fn === "function") window.aiPlanScene = (...a)=> window.turnWithWritingTask("scenePlan", ()=> fn(...a)); }'));
+  assert.ok(ai.includes('["aiPlanScene","aiPlanCameras"].forEach(n=>{ const fn = window[n];\n  if(typeof fn === "function") window[n] = (...a)=> window.turnWithWritingTask("scenePlan", ()=> fn(...a)); });'));
   const fn=ai.slice(ai.indexOf("async function aiPlanScene("),ai.indexOf("window.aiPlanScene = aiPlanScene;"));
   assert.equal((fn.match(/window\.claude\.complete\(/g)||[]).length,1);
   assert.ok(fn.includes("const out = SP.normalize(scrubbed, { beats:beatNos, moments:momentCount, cast:cast.map(c=>({ id:c.id, name:c.name })), sets, fixed, props:propCards, lines });"));
@@ -489,13 +489,13 @@ test("7 the scene plan runs on Fable 5.2 by default; a pick wins; a trial stays 
 test("8 it asks first, says what it replaces as Re-draft does, shows its progress where it was pressed, and a failure changes nothing", ()=>{
   const q=SP.confirmText({sceneNo:5,engine:"Engine X",hasShots:true,replaces:" It replaces 1 approved frame (unapproved where the shot changes)."});
   assert.equal(q.title,"Plan Scene 05 (writing credits)?"); assert.equal(q.confirmLabel,"Plan this scene"); assert.equal(q.cancelLabel,"Cancel");
-  assert.match(q.body,/^Reads the whole scene, then every beat, and writes: where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends\. A few short writing passes on Engine X \(the staging, then the shots a few beats at a time\); no image is made\./);
+  assert.match(q.body,/^Reads the whole scene, then every beat, and writes: where each person stands, the side the camera keeps to, a tracker of every prop, what people wear and each door, and the shots, each with how it starts and how it ends\. A few short writing passes on Engine X \(the staging, then the shots a few beats at a time, then each shot's camera on the floor plan\); no image is made\./);
   assert.match(q.body,/It replaces this scene's drafted shots as Re-draft does: each beat's opening shot keeps its ID and its images, changed frames need making again, and extra shots move to Recently deleted, where you can restore them\. It replaces 1 approved frame/);
   const first=SP.confirmText({sceneNo:12,engine:"",hasShots:false});
-  assert.ok(!/replaces/.test(first.body)&&/A few short writing passes \(the staging, then the shots a few beats at a time\); no image is made\./.test(first.body));
+  assert.ok(!/replaces/.test(first.body)&&/A few short writing passes \(the staging, then the shots a few beats at a time, then each shot's camera on the floor plan\); no image is made\./.test(first.body));
   assert.equal(SP.confirmText({sceneNo:5,again:true,hasShots:true}).title,"Plan Scene 05 again (writing credits)?");
   // the run: the question before the call, the same road as Re-draft for the shots, the plan saved with the film
-  const fn=app.slice(app.indexOf("const planSceneShots = async (scene)=>{"),app.indexOf("const addScenePlanProps = (scene, keys)=>{"));
+  const fn=app.slice(app.indexOf("const planSceneShots = async (scene, opts)=>{"),app.indexOf("const addScenePlanProps = (scene, keys)=>{"));
   const order=['const q = SP.confirmText({ sceneNo:scene.no, engine, hasShots:live.length>0, replaces:redraftReplaces(live), again:had });',
     'ok = typeof window.appConfirm==="function" ? await window.appConfirm(q)','if(!ok) return;','setPlanningScene({ id:scene.id, since:Date.now(), est:SP.estimateSeconds(beatRows.length), engine, text:"Planning Scene "+no+"\\u2026" });',
     'const res = await window.aiPlanScene(scene,','assertCurrent();\n      if(typeof normalizeShot','const k = keepUnansweredBeats(scene, rows, made); made = k.made;','if(made.length) commitBeatKeyframes(made, assertCurrent);',
@@ -514,7 +514,7 @@ test("8 it asks first, says what it replaces as Re-draft does, shows its progres
   assert.ok(fn.includes("const { shots:_planShots, ...planBody } = res.plan;"));
   assert.ok(fn.includes('screenplayRev:res.screenplayRev||"", sets:res.sets, beats:beatNos, shotCount:(res.plan.shots||[]).length, checks:found };'));
   // the usual time grows with the beats
-  assert.equal(SP.estimateSeconds(1),150); assert.equal(SP.estimateSeconds(6),290); assert.equal(SP.estimateSeconds(40),1200);
+  assert.equal(SP.estimateSeconds(1),200); assert.equal(SP.estimateSeconds(6),340); assert.equal(SP.estimateSeconds(40),1200);
   // the block: the button, or the progress line where the button was (text, bar, clock, engine), or the failure
   const block=ui.slice(ui.indexOf("function ScenePlanBlock("),ui.indexOf("function SceneShotGroup("));
   for(const t of ['_el("span",{className:"ssx-brief-lab"},"Scene plan")','mine ? _el("div",{className:"ssx-plan-work","data-testid":"scene-plan-work",role:"status"},',
@@ -578,7 +578,7 @@ test("9 the brief, Frances's fact, the pipeline and the keys", ()=>{
   assert.ok(at('<script src="app/scene-plan.js?v=')<at('src="app/props.jsx?v=')&&at('<script src="app/scene-plan.js?v=')<at('src="app/shots.jsx?v='));
   assert.ok(at('src="app/locations-ui.jsx?v=')<at('src="app/shots-ui.jsx?v='),"the progress line's own file comes before the Shots tab");
   for(const f of ["scene-plan.js","shots.jsx","shots-ui.jsx","props.jsx","artroom.jsx","ai.jsx","script.jsx","app.jsx","styles.css"])
-    assert.ok(["20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1", "20261122-end2"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1", "20261122-end2", "20261122-previs1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 test("9b the shots are written a few beats at a time: whole beats up to six moments, a long beat in runs of six", ()=>{
@@ -595,7 +595,7 @@ test("9b the shots are written a few beats at a time: whole beats up to six mome
   assert.equal(SP.groupLabel([{n:1,from:0,to:0},{n:2,from:0,to:0},{n:3,from:0,to:0}]),"beats 1 to 3"); assert.equal(SP.groupLabel([{n:4,from:6,to:11,part:true}]),"beat 4, moments 7 to 12");
   assert.equal(SP.groupLabel([{n:4,from:0,to:5,part:true}]),"beat 4, moments 1 to 6"); assert.equal(SP.groupLabel([]),"");
   // the progress line's estimate: the staging and each group; a guess from the beats until the groups are known
-  assert.equal(SP.estimateSeconds(5),290); assert.equal(SP.estimateSeconds(5,4),290); assert.equal(SP.estimateSeconds(5,2),150); assert.equal(SP.estimateSeconds(1),150);
+  assert.equal(SP.estimateSeconds(5),340); assert.equal(SP.estimateSeconds(5,4),340); assert.equal(SP.estimateSeconds(5,2),200); assert.equal(SP.estimateSeconds(1),200);   // the staging, the shots, then the cameras (50 s)
   assert.equal(SP.estimateSeconds(60),1200);
   // no single call may wait past the server's limit, and the run says which step it is on
   const fn=ai.slice(ai.indexOf("const SCENE_PLAN_CALL_MS"),ai.indexOf("window.aiPlanScene = aiPlanScene;"));

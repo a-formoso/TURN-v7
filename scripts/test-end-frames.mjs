@@ -204,7 +204,7 @@ test("5 the card, the ordered run and what it asks", ()=>{
     'const mine = batchActiveId===end.id;','onBatchDone && onBatchDone(end.id)','onGenerateShot(end.id)',
     '_el(CardFold,{label:"End frame",count:state,defaultOpen:false,foldId:"shot-end-"+sh.id},','"How this shot ends"',
     'const state = gen.gening ? "making\\u2026" : !gen.genUrl ? "not made yet" : chainStatus==="stale" ? "out of date" : "made";',
-    "Promise.resolve().then(()=>gen.generate(makeOpts())).then(settle, settle);","return (from && how) ? { endFrameMake:true, editBaseUrl:from,",
+    "Promise.resolve().then(()=>makeOpts()).then(o=>gen.generate(o)).then(settle, settle);","const base = { endFrameMake:true, editBaseUrl:from,",
     'editInstruction:"show this SAME shot a few seconds later, as it ENDS. The camera has not moved: same position, same framing, same lens, same set and light. By then: "',
     "generateDisabled:readOnly || waiting || !ownerFrame,",'"Make this shot\'s frame first"','noun:"end frame"',"hideUploadButton:true"])
     assert.ok(comp.includes(t),"the end frame part has "+t);
@@ -263,7 +263,7 @@ test("6 what Frances is told, the pipeline and the keys", ()=>{
   assert.equal((pipe.match(/^### \d+\. /gm)||[]).length,11,"no step was added or removed");
   assert.ok(html.includes('app/scene-order.js?v=20261122-end1"'));
   for(const f of ["shots.jsx","shots-ui.jsx","breakdown.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-end1", "20261122-end2"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-end1", "20261122-end2", "20261122-previs1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 console.log("\n"+pass+" passed, "+fail+" failed");

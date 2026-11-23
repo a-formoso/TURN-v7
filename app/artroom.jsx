@@ -3077,6 +3077,8 @@ async function nbRunSheetGeneration(env, gopts){
     // fidelity (identity sheets keep the smaller cap); 640px bases were visibly
     // softening edited frames
     if(isEditMode) genOpts.baseMaxDim = 1536;
+    // a base the caller asks to send large (2026-11-23: a shot's previs is the layout the frame follows; at 640 px its doors and props blur)
+    else if(refImage && Number(gopts.baseMaxDim)>0) genOpts.baseMaxDim = Math.min(1536, Number(gopts.baseMaxDim));
     // web grounding is a GEMINI-only feature — GPT Image has no such mode, so never
     // request it there (the proxy used to echo grounded:true off the bare request
     // flag, mis-badging GPT Image renders "Grounded" when nothing had grounded)
@@ -5101,7 +5103,7 @@ function RoadStepGuide({ steps, cardSel, noun, label }){
         E("span",{className:"loc-step-n"},st.done?"✓":st.n),E("span",{className:"loc-step-name"},st.name))))));
 }
 window.roadSteps = roadSteps; window.roadStepTitle = roadStepTitle; window.RoadStepGuide = RoadStepGuide;
-function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes, ownerSays, wornItems }){
+function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, showWhenEmpty, script, sizes, ownerSays, wornItems, layout }){
   const [busy, setBusy] = React.useState(false);
   const [report, setReport] = React.useState(null);
   // Apply-to-spec REGENERATES immediately (user ruling 2026-07-18: the current sheet
@@ -5173,7 +5175,12 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
       const sf = scriptFacts();
       // the true sizes it is measured against (scale plan step 4, 2026-10-28): a list, or made from the contract
       let sz = []; try{ sz = typeof sizes==="function" ? (sizes(contract)||[]) : (Array.isArray(sizes) ? sizes : []); }catch(e){ sz = []; }
+      /* THE LAYOUT IT WAS MADE FROM (2026-11-23, code-first frames): a shot frame made from its previs is read beside
+         that drawing, in the same look, for what was added, moved or drawn at another size. Drawn again here (free);
+         when it cannot be drawn the check runs without it and the report says nothing of the layout. */
+      let lay = null; if(typeof layout==="function"){ try{ lay = await layout(); }catch(e){ lay = null; } }
       rep = await window.aiImageQA({ kind:noun||"sheet", name, url:gen.genUrl, prompt:contract, ...(sz.length ? { sizes:sz } : {}),
+        ...((lay && lay.url) ? { layout:{ url:lay.url, legend:Array.isArray(lay.legend) ? lay.legend : [] } } : {}),
         // the road, step 6: a sheet that wears its items is also read for each of them
         ...(()=>{ let wi = []; try{ wi = typeof wornItems==="function" ? (wornItems()||[]) : (Array.isArray(wornItems) ? wornItems : []); }catch(e){ wi = []; }
           wi = wi.filter(x=> x && x.name).slice(0,8); return wi.length ? { items:wi } : {}; })(),
@@ -5210,6 +5217,7 @@ function QaCheckButton({ gen, name, noun, className, specFields, onApplySpec, sh
         +((script && script.c) ? "; and against what the screenplay states about "+(script.c.name||"them")+", with the line each mismatch breaks" : "")
         +((ownerSays && ownerSays.text) ? "; and against how "+(ownerSays.who||"its owner")+"\u2019s card describes it" : "")
         +(wornItems ? "; and for each worn item the sheet wears" : "")
+        +(layout ? "; and against the previs it was made from: anything added, moved or drawn at another size" : "")
         +". One vision read (writing-model credits, no image spend).",
       onClick:()=>{ if(kept && !busy) setReport({ ...kept.report, kept:true, checkedAt:kept.at }); else run(); }},
       busy ? React.createElement("span",{className:"ns-spin"})

@@ -36,7 +36,7 @@ await test("A1 only a NEW frame is success: an old frame that survived a failed 
   assert.equal(ok("url-b","url-a","",""), true); assert.equal(ok("","", "",""), false);
 });
 await test("A2 a step that never starts ends the run at once (no 7-minute wait)", ()=>{
-  assert.ok(ui.includes('return "aborted";') && (ui.match(/return "aborted";/g)||[]).length===2 && ui.includes('return "deferred";'));
+  assert.ok(ui.includes('return "aborted";') && (ui.match(/return "aborted";/g)||[]).length===4   /* + a frame asked from its previs whose drawing cannot be made (2026-11-23) */ && ui.includes('return "deferred";'));
   assert.ok(ui.includes('Promise.resolve(generateWithProps()).then(r=>{ if(r==="aborted"){ batchStarted.current=false; onBatchDone && onBatchDone(sh.id); } }, ()=>{});'));
 });
 await test("A3 the price counts the cascade; unverified approved frames are done; scene runs always ask", ()=>{
