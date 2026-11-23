@@ -659,7 +659,7 @@
   }
   const sameState=(a,b)=>JSON.stringify(a||null)===JSON.stringify(b||null);
   /* A PLANNED SHOT, DRAWN: how it starts and how it ends, from ONE camera. o: {cam (the plan's camera for this shot,
-     in numbers), cast, props, width, side}. The camera is worked out from how the shot STARTS and kept for how it
+     in numbers), cast, props, width, side, look ("clay" | "depth": the same drawing in that look)}. The camera is worked out from how the shot STARTS and kept for how it
      ends, so the two pictures differ only by what moved. Returns {start:{dataUrl}, end:{dataUrl}|null (null when the
      shot ends as it starts; with o.words each also has words: the camera and what its frame holds, read from the
      set), width, height, pose, source ("plan" | "moved" | "app"), fits, notes[], missing[],
@@ -699,7 +699,8 @@
     first.people.filter(p=>p.unseen).forEach(p=>out.notes.push(p.name+" is on the other side of the shut "+lowName(p.door.name)+" as this shot starts, so the picture starts without them."));
     const width=Math.max(320,Math.min(1920,Math.round(o.width||1280))), height=Math.round(width*9/16);
     out.width=width; out.height=height;
-    const draw=async(scene)=>{ const view=await P.viewer(scene,built.light), canvas=root.document.createElement("canvas");
+    // o.look: the same drawing as "clay" or "depth" (KinolotPrevis); none = the Colour drawing, which a frame is made from
+    const draw=async(scene)=>{ const view=await P.viewer(scene,built.light,{look:o.look}), canvas=root.document.createElement("canvas");
       try{ view.render(canvas,found.pose,width,height); }finally{ view.dispose(); }
       return canvas.toDataURL("image/jpeg",0.9); };
     out.start={dataUrl:await draw(first.scene)};
@@ -793,7 +794,7 @@
         if(!loc) throw new Error("This shot has no location card yet.");
         const mid=midState(st.start,st.end,plan);
         const got=await pair(loc,o.list||[],plan,sh,{cam:typeof o.cameraOf==="function"?o.cameraOf(sh):null,cast:o.cast,props:o.props,width:o.width||640,
-          startState:st.start,endState:st.end,midState:mid});
+          startState:st.start,endState:st.end,midState:mid,look:o.look});
         Object.assign(row,got);
         row.differs=st.differs.map(id=>((arr(o.cast).find(c=>c&&String(c.id)===String(id))||{}).name)||id);
       }catch(e){ row.error=String((e&&e.message)||"This shot could not be drawn."); }

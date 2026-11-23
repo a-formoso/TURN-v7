@@ -5,7 +5,7 @@
    ... a floor plan section ... the exact same level of detail we have on the demo ... make it look much better,
    more realistic, so it doesn't look like a lazy, boring 3D set ... I don't want just a bunch of boxes".
    So a place's card opens with the set card: the chosen camera's view (MASTER SET, CAM n), the name and a chip per
-   space, the facts and what the camera is for, Blockout / Clay / Depth; then sections that fold like the other
+   space, the facts and what the camera is for, Colour / Clay / Depth; then sections that fold like the other
    cards': Location sheet, Floor plan (walls, doors, windows, the chosen room lit with its size, the camera and what
    it takes in, two stand-ins to drag, their place in metres, and the plan's own tools), Connects to, Reference
    pack, Location image. The set is drawn with painted surfaces and two jointed stand-ins (set-surfaces.js), for
@@ -161,23 +161,22 @@ test("6b the plan, ready to draw: the whole place with the chosen space lit, wal
   assert.equal(K.planModel({spaces:[]},FLAT,"TL",null,440),null); assert.equal(K.planModel(null,FLAT,"TL",null,440),null);
 });
 
-test("7 the looks and the pack: Blockout, Clay, Depth, drawn by the viewer's own looks; the stand-ins stand in the view", ()=>{
-  assert.deepEqual(K.LOOKS.map(x=>x.name),["Blockout","Clay","Depth"]); assert.deepEqual(K.LOOKS.map(x=>x.look),["","clay","depth"]);
-  assert.deepEqual(K.PACK.map(x=>x.name),["Blockout","Clay","Depth"]); assert.deepEqual(K.PACK.map(x=>x.look),["","clay","depth"]);
+test("7 the looks and the pack: Colour, Clay, Depth, drawn by the viewer's own looks; the stand-ins stand in the view", ()=>{
+  assert.deepEqual(K.LOOKS.map(x=>x.name),["Colour","Clay","Depth"]); assert.deepEqual(K.LOOKS.map(x=>x.look),["","clay","depth"]);
+  assert.deepEqual(K.PACK.map(x=>x.name),["Colour","Clay","Depth"]); assert.deepEqual(K.PACK.map(x=>x.look),["","clay","depth"]);
   assert.deepEqual(K.PEOPLE.map(k=>[k.id,k.colour,k.height]),[["A",0xD08A2E,1.66],["B",0x3E73B8,1.72]]);
   // the viewer: surfaces on request, a look and a cast per drawing; the set itself is put back as it was
-  assert.ok(previs.includes("async function viewer(scene,light,options){")&&previs.includes("build(T,scene,light||null,options&&options.surfaces?{surfaces:true,renderer}:null)"));
+  // (the looks themselves are tested in test-previs-looks.mjs)
+  assert.ok(previs.includes("async function viewer(scene,light,options){")&&previs.includes("const rig=build(T,scene,light||null,{look:options&&options.look,surfaces:!!(options&&options.surfaces),renderer});"));
   assert.ok(previs.includes("render(canvas,pose,width,height,look,cast){"));
-  assert.ok(previs.includes('if(look==="clay"){')&&previs.includes("rig.meshes.forEach(m=>{swapped.push([m,m.material]);m.material=clay;});"),"clay: the set in white, the stand-ins as they are");
+  assert.ok(previs.includes("rig.meshes.forEach(m=>{if(m.userData.own)return;swapped.push([m,m.material]);m.material=clay;});"),"clay: the set in white, what stands in it as it is");
   assert.ok(previs.includes("rig.three.overrideMaterial=depth;"));
-  assert.ok(previs.includes("finally{rig.three.overrideMaterial=null;rig.three.background=sky;rig.three.fog=fog;renderer.toneMappingExposure=1;"));
-  assert.ok(previs.includes("return Math.max(4,Math.min(40,seen[Math.floor((seen.length-1)*0.9)]*1.12));"),"depth runs from the camera to the far end of what it looks at");
+  assert.ok(previs.includes("finally{rig.three.overrideMaterial=null;rig.three.background=sky;renderer.toneMappingExposure=exposure;"));
   assert.ok(previs.includes("renderer.shadowMap.needsUpdate=true;"),"a stand-in that moved casts its shadow again");
   assert.ok(previs.includes("renderer.render(rig.three,root.KinolotAnglePreview.cameraFor(T,pose));"),"the plain view is drawn as it always was");
   assert.ok(previs.includes("if(clay)clay.dispose();if(depth)depth.dispose();")&&previs.includes("actors.forEach(g=>root.KinolotSetSurfaces.disposeMannequin(g));"));
   // the Previs sheet and the shot drawings keep their plain look: only a view that asks gets surfaces
-  assert.ok(previs.includes("const rig=build(T,scene,light||null);"),"the sheet builds the set plain");
-  assert.ok(previs.includes("const S=opts&&opts.surfaces&&root.KinolotSetSurfaces||null;"));
+  assert.ok(previs.includes("const S=!look&&opts&&opts.surfaces&&root.KinolotSetSurfaces||null;"));
 });
 
 /* the surfaces: which one a material gets, and where it is laid */
@@ -232,7 +231,7 @@ test("8 the card is laid out top to bottom as designed, then in sections that fo
   assert.ok(t.includes("MASTER SET")&&t.includes("CAM 1 \u00b7 18 MM")&&t.includes("Whole room"));
   assert.ok(t.includes("Build reference pack for House, camera 1"));
   assert.deepEqual(flat(el).filter(x=>x.props.className==="lsc-chip").map(x=>[x.children.join(""),x.props["aria-pressed"]]),[["House","true"],["Kitchen","false"]]);
-  assert.deepEqual(flat(el).find(x=>x.props.className==="lsc-seg").children.map(b=>b.children.join("")),["Blockout","Clay","Depth"]);
+  assert.deepEqual(flat(el).find(x=>x.props.className==="lsc-seg").children.map(b=>b.children.join("")),["Colour","Clay","Depth"]);
   // a place with no rooms has no chips; with no floor plan the plan says so
   const alone=tree({place:{id:"p",name:"Cab"},rooms:[],project:{},scenes:[]}).el;
   assert.ok(!flat(alone).some(x=>x.props.className==="lsc-chips"));
@@ -269,7 +268,7 @@ test("8c the chips are the rooms: a chip changes the whole card when the card sa
   assert.deepEqual(flat(el).filter(x=>x.props.className==="lsc-chip").map(x=>[x.children.join(""),x.props["aria-pressed"]]),[["House","false"],["Kitchen","true"]]);
   assert.ok(text(el).includes("The kitchen")&&text(el).includes("Build reference pack for Kitchen, camera 1"));
   assert.ok(face.includes('const choose = id=>{ if(typeof onSpace==="function") onSpace(id); else setPick(p=>({ ...p, space:id, cam:0 })); };'));
-  assert.ok(face.includes("const kept = lscKept[place.id] || (lscKept[place.id] = { look:\"blockout\", moved:{} });"),"the look and the stand-ins are kept from one space's card to the next");
+  assert.ok(face.includes("const kept = lscKept[place.id] || (lscKept[place.id] = { look:\"colour\", moved:{} });"),"the look and the stand-ins are kept from one space's card to the next");
   // the workspace: the chosen space's own card is the one shown
   assert.ok(ui.includes("const shown=group.members.find(l=>l.id===view.chosen)||root;"));
   assert.ok(ui.includes('renderLocation(shown,{...common,initialSection:view.sections[shown.id]||"",faceGroup:{place:root,rooms,select:id=>select(id)}}));'));
@@ -348,13 +347,13 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   assert.ok(i("app/set-surfaces.js?v=")>0&&i("app/set-surfaces.js?v=")<i("app/set-previs.js?v=")&&i("app/set-previs.js?v=")<i("app/location-set-card.js?v=")
     &&i("app/location-set-card.js?v=")<i("app/location-set-card-ui.jsx?v=")&&i("app/location-set-card-ui.jsx?v=")<i("app/locations-ui.jsx?v="));
   for(const f of ["app/set-surfaces.js","app/location-set-card.js","app/location-set-card-ui.jsx","app/set-previs.js","app/locations-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-setcard1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-setcard1", "20261123-looks1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 test("12 Frances knows the set card, in plain words", ()=>{
   const at=ai.indexOf('name:"Location card: the set card on top (one card per set)"'); assert.ok(at>0);
   const fact=ai.slice(at,ai.indexOf("\n",at));
-  for(const s of ["THE SET CARD is the top of every place's card","BLOCKOUT, CLAY, DEPTH","THEN SECTIONS THAT FOLD","LOCATION SHEET","THE PLACE","FLOOR PLAN","Drag A or B","Connects to","REFERENCE PACK","LOCATION IMAGE",
+  for(const s of ["THE SET CARD is the top of every place's card","COLOUR, CLAY, DEPTH","THEN SECTIONS THAT FOLD","LOCATION SHEET","THE PLACE","FLOOR PLAN","Drag A or B","Connects to","REFERENCE PACK","LOCATION IMAGE",
     "pressing a chip turns the whole card into that space's","There is no Rooms section and no Cameras section","The render style is chosen there too","DRESSING RUNS BY ITSELF","It adds nothing loose and nothing invented",
     "nothing is saved and nothing is sent anywhere","a space too low to stand in, like the inside of a car, has none","The Previs sheet and the drawings of shots keep their plain look"]) assert.ok(fact.includes(s),s);
   assert.ok(!/credit|\bTURN\b|MUSE|Claude|Anthropic|three\.js|WebGL/i.test(fact));

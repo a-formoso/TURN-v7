@@ -4,7 +4,7 @@
    able to do for other tab cards ... a floor plan section ... the exact same level of detail we have on the demo").
    Top to bottom, as designed:
      the chosen camera's view (MASTER SET, CAM n) · the name, and a chip for the place and each room · the facts and
-     what the camera is for · Blockout / Clay / Depth
+     what the camera is for · Colour / Clay / Depth
    then sections that fold, as on a character or a prop card:
      Location sheet (four views, tap one, and what the space connects to) · The place (its description, the card's
      own section) · Floor plan (the walls, the doors and windows, the chosen room lit, the camera and what it takes
@@ -139,7 +139,7 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   const K = window.KinolotSetCard;
   const ref = React.useRef(null), onScreen = useLscOnScreen(ref);
   const all = K.spaces(place, rooms);
-  const kept = lscKept[place.id] || (lscKept[place.id] = { look:"blockout", moved:{} });
+  const kept = lscKept[place.id] || (lscKept[place.id] = { look:"colour", moved:{} });
   const [pick, setPickNow] = React.useState({ space:spaceId || place.id, cam:0, look:kept.look });
   const setPick = fn=>setPickNow(p=>{ const next = fn(p); kept.look = next.look; return next; });
   // space = the card's own space when the card says which (the chips then change the card), else the one picked here
@@ -181,14 +181,20 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   const [pics, setPics] = React.useState({ thumbs:null, thumbsOf:"", hero:"", heroOf:"", space:"", error:"", drawing:false });
   const thumbKey = sig+"|"+settled, heroKey = sig+"|"+(view?view.key:"")+"|"+look.look+"|"+castKey;
   const latest = React.useRef(""); latest.current = heroKey;
+  // EACH LOOK IS KEPT APART: a view drawn as colour, clay or depth stays as drawn, so going back to one is at once
+  const heroes = React.useRef(new Map());
   React.useEffect(()=>{
     if(!onScreen || !view) return undefined;
     const needThumbs = pics.thumbsOf!==thumbKey;
     if(pics.heroOf===heroKey && !needThumbs) return undefined;
+    if(!needThumbs && heroes.current.has(heroKey)){ setPics(p=>({ ...p, hero:heroes.current.get(heroKey), heroOf:heroKey, space:space.id, error:"", drawing:false })); return undefined; }
     let live = true;
     const jobs = (needThumbs ? K.KEYS.map(key=>({ key, w:320, h:180, look:"" })) : []).concat([{ key:view.key, w:960, h:540, look:look.look }]);
     setPics(p=>({ ...p, drawing:true, error:"" }));
-    lscDraw(space.location, jobs, cast, ()=>!live || latest.current!==heroKey).then(res=>{ if(!live || !res) return;
+    lscDraw(space.location, jobs, cast, ()=>!live || latest.current!==heroKey).then(res=>{ if(!res) return;
+      heroes.current.set(heroKey, res.urls[res.urls.length-1]);
+      if(heroes.current.size>18) heroes.current.delete(heroes.current.keys().next().value);
+      if(!live) return;
       setPics(p=>({ thumbs:needThumbs ? Object.fromEntries(K.KEYS.map((key,i)=>[key, res.urls[i]])) : p.thumbs, thumbsOf:thumbKey,
         hero:res.urls[res.urls.length-1], heroOf:heroKey, space:space.id, error:"", drawing:false }));
     }, e=>{ if(live) setPics(p=>({ ...p, hero:"", heroOf:heroKey, space:space.id, drawing:false, error:(e&&e.message)||"The set could not be drawn." })); });

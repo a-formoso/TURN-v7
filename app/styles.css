@@ -12814,3 +12814,10 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 /* a set being dressed by itself: what it is doing, where the set is shown */
 .previs-auto{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--bg-2);font:12.5px/1.45 var(--f-ui);color:var(--txt-1)}
 .previs-auto.failed{flex-direction:row;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border-color:var(--line-3)}
+/* Colour / Clay / Depth on a shot card's Previs: the same switch as the location card's */
+.shot-previs-looks{display:flex;border:1px solid var(--line-3);border-radius:var(--r-m);overflow:hidden;margin:0 0 10px;max-width:340px}
+.shot-previs-looks button{flex:1;min-height:30px;border:0;border-right:1px solid var(--line-3);background:transparent;color:var(--txt-0);font:500 12px/1 var(--f-ui);cursor:pointer;transition:.12s}
+.shot-previs-looks button:last-child{border-right:0}
+.shot-previs-looks button[aria-pressed="true"]{background:var(--hs-amber,var(--pos));color:var(--hs-on-amber,#2C2722)}
+.shot-previs-looks button:hover:not([aria-pressed="true"]){background:var(--bg-2)}
+.shot-previs-looks button:focus-visible{outline:2px solid var(--pos);outline-offset:-2px}

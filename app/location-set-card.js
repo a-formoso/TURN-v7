@@ -212,14 +212,15 @@
   const planMetres=(model,px,py)=>[model.origin[0]+(px-model.W/2)/model.scale,model.origin[1]-(py-model.H/2)/model.scale];
 
   // The three pictures of a reference pack, in order: what each is called, its look in the viewer and its one line.
+  // The three looks of a view (KinolotPrevis: colour, clay, depth) and the three pictures of a reference pack.
+  const LOOKS=[
+    {id:"colour",look:"",name:"Colour",title:"The set with its surfaces: brick, floor, glass, furniture"},
+    {id:"clay",look:"clay",name:"Clay",title:"The set in one matt white: only shape and light. The stand-ins keep their colours."},
+    {id:"depth",look:"depth",name:"Depth",title:"How far each thing is from the camera: near is light, far is dark"}];
   const PACK=[
-    {id:"set",look:"",name:"Blockout",text:"This camera, the set with its surfaces and the two stand-ins."},
+    {id:"colour",look:"",name:"Colour",text:"This camera, the set with its surfaces and the two stand-ins."},
     {id:"clay",look:"clay",name:"Clay",text:"The set in one matt white, so only shape and light are left. The stand-ins keep their colours."},
     {id:"depth",look:"depth",name:"Depth",text:"How far each thing is from the camera. Near is light."}];
-  const LOOKS=[
-    {id:"blockout",look:"",name:"Blockout",title:"The set with its surfaces: brick, floor, glass, furniture"},
-    {id:"clay",look:"clay",name:"Clay",title:"The set in one matt white: only shape and light"},
-    {id:"depth",look:"depth",name:"Depth",title:"How far each thing is from the camera: near is light, far is dark"}];
 
   root.KinolotSetCard={KEYS,PACK,LOOKS,PEOPLE,spaces,views,camTag,sizeText,facts,connections,marks,marksLine,standIns,keepInside,peopleLine,planModel,planMetres};
 })(typeof window!=="undefined"?window:globalThis);

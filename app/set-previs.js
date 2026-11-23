@@ -7,14 +7,61 @@
   const SKY={day:"#9fb6c9",dusk:"#6f6a86",night:"#0b1220"};
   const FILL={day:1.15,dusk:0.7,night:0.28};
 
-  /* opts.surfaces (the location card's set card, owner 2026-11-23): each material gets the surface it names (brick,
-     planks, tile, grass, glass that mirrors the sky ...), laid at real size, under a sky dome (set-surfaces.js).
-     Without it the set is drawn in its plain colours, as the Previs sheet and the shot drawings are. */
+  /* THREE LOOKS OF ONE SET (owner 2026-11-23, the Previs look brief, step 1): the same set through the same camera,
+     as COLOUR (the set as built: what the image engine follows), CLAY or DEPTH. Only the materials and the ground
+     colour differ, so the three agree shape for shape.
+       clay   every surface in one matt white (#e9e7e2, roughness 0.95, no metal) on a pale ground (#d4d2cd), in even
+              daylight whatever the hour, with the sun and its shadows kept: only form and light are left. The people
+              and the props standing in the set (objects whose id starts "fig-" or "prop-") keep their own colours,
+              so they are still told apart.
+       depth  every surface drawn by its distance from the camera: white at 0.4 m, black at the set's far end and
+              beyond, on black. The far end is one number for the whole set (depthFar), so every camera of a place
+              is drawn on the same scale. */
+  const CLAY={colour:0xe9e7e2,roughness:0.95,ground:0xd4d2cd,exposure:0.82},DEPTH={near:0.4,min:3,max:40,backdrop:80};
+  const LOOKS=["clay","depth"],lookOf=v=>LOOKS.includes(v)?v:"";
+  // an object that stands in the set rather than being part of it: a person or a prop placed for a shot
+  const standsIn=item=>/^(fig|prop)-/.test(String(item&&item.id||""));
+  /* HOW FAR THE DARK END OF A DEPTH DRAWING IS: from the set's cameras to the farthest corner of the set, never under
+     3 m or over 40 m. A backdrop (anything over 80 m in one direction: a sky, a far ground) is not part of it. With
+     no camera, the set's own length. Plain numbers, the same on every draw. */
+  function depthFar(scene){
+    let lo=null,hi=null;
+    ((scene&&scene.objects)||[]).forEach(item=>{
+      if(!item||!Array.isArray(item.size)||!Array.isArray(item.position))return;
+      const size=item.size.map(n=>Math.abs(Number(n)||0));
+      if(Math.max(...size)>DEPTH.backdrop)return;
+      // its four corners on the floor, turned as it is turned, and its bottom and top
+      const p=item.position.map(Number),turn=Number((item.rotation||[])[2])||0,c=Math.cos(turn),n=Math.sin(turn),h=size[2]/2;
+      [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(k=>{
+        const x=k[0]*size[0]/2,y=k[1]*size[1]/2,at=[p[0]+x*c-y*n,p[1]+x*n+y*c];
+        const a=[at[0],at[1],p[2]-h],b=[at[0],at[1],p[2]+h];
+        lo=lo?lo.map((v,i)=>Math.min(v,a[i])):a;hi=hi?hi.map((v,i)=>Math.max(v,b[i])):b;
+      });
+    });
+    if(!lo)return DEPTH.min;
+    const corners=[];for(let i=0;i<8;i++)corners.push([i&1?hi[0]:lo[0],i&2?hi[1]:lo[1],i&4?hi[2]:lo[2]]);
+    const cams=Object.values((scene&&scene.cameras)||{}).filter(c=>c&&Array.isArray(c.position)).map(c=>c.position.map(Number));
+    const far=cams.length?Math.max(...cams.map(c=>Math.max(...corners.map(k=>Math.hypot(k[0]-c[0],k[1]-c[1],k[2]-c[2])))))
+      :Math.hypot(hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2]);
+    return Math.round(Math.max(DEPTH.min,Math.min(DEPTH.max,far))*100)/100;
+  }
+  const depthMaterial=(T,far)=>new T.ShaderMaterial({side:T.DoubleSide,uniforms:{near:{value:DEPTH.near},far:{value:far}},
+    vertexShader:"varying float vz; void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); vz=-mv.z; gl_Position=projectionMatrix*mv; }",
+    fragmentShader:"uniform float near; uniform float far; varying float vz; void main(){ float d=clamp((vz-near)/(far-near),0.0,1.0); gl_FragColor=vec4(vec3(1.0-d),1.0); }"});
+  const clayMaterial=T=>new T.MeshStandardMaterial({color:CLAY.colour,roughness:CLAY.roughness,metalness:0,side:T.DoubleSide});
+  /* opts.look = "clay" or "depth" (above); opts.surfaces (the location card's set card): each material gets the
+     surface it names (brick, planks, tile, grass, glass that mirrors the sky ...), laid at real size, under a sky
+     dome (set-surfaces.js). With neither, the set is drawn in its plain colours: the Colour drawing of the Previs
+     sheet and of a shot, which the image engine follows. */
   function build(T,scene,light,opts){
     const three=new T.Scene(),disposables=[],materials=new Map(),meshes=[];
+    const look=lookOf(opts&&opts.look);
+    // clay is always in even daylight, with a sun to cast its shadows, whatever hour the set is lit for
+    if(look==="clay")light={...(light||{}),time:"day",sky:undefined,lamps:[],sun:light&&light.sun&&light.sun.power>0?light.sun:undefined};
     const time=light&&light.time||"day";
-    three.background=new T.Color(light&&light.sky||SKY[time]);
-    const S=opts&&opts.surfaces&&root.KinolotSetSurfaces||null;
+    three.background=new T.Color(look==="clay"?CLAY.ground:look==="depth"?0x000000:light&&light.sky||SKY[time]);
+    const S=!look&&opts&&opts.surfaces&&root.KinolotSetSurfaces||null;
+    const clay=look==="clay"?clayMaterial(T):null;if(clay)disposables.push(clay);
     let dome=null;
     if(S){
       try{dome=S.sky(T,opts.renderer,light&&light.sky||SKY[time]);three.add(dome.dome);disposables.push(dome);}catch(_){dome=null;}
@@ -29,8 +76,10 @@
     });
     const box=new T.Box3();
     scene.objects.forEach(item=>{
-      const geometry=root.KinolotAnglePreview.geometry(T,item),mesh=new T.Mesh(geometry,materials.get(item.material));
+      const own=standsIn(item);
+      const geometry=root.KinolotAnglePreview.geometry(T,item),mesh=new T.Mesh(geometry,clay&&!own?clay:materials.get(item.material));
       disposables.push(geometry);
+      mesh.userData.own=own;
       if(S)S.layUV(T,geometry,item.size);
       mesh.position.set(...item.position);mesh.scale.set(...item.size);
       const [x,y,z]=item.rotation;
@@ -65,7 +114,9 @@
     (time==="day"?[]:light&&light.lamps||[]).forEach(l=>{
       const p=new T.PointLight(new T.Color(l.colour),l.power*16,0,1.7);p.position.set(...l.at);three.add(p);
     });
-    return {three,meshes,dispose:()=>disposables.forEach(d=>d.dispose())};
+    const far=depthFar(scene);
+    if(look==="depth"){const depth=depthMaterial(T,far);disposables.push(depth);three.overrideMaterial=depth;}
+    return {three,meshes,look,far,dispose:()=>disposables.forEach(d=>d.dispose())};
   }
   /* WHAT EACH PANEL SHOWS (2026-11-16: the owner's first draft from plain blocks did not follow the sheet, because
      nothing told the image engine which block is which thing). Rays through each camera's frame name what is seen,
@@ -151,10 +202,11 @@
     let renderer;
     try{renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,alpha:false});}
     catch(_){throw new Error("This browser could not start the 3D view. Turn on graphics acceleration and try again.");}
-    const rig=build(T,scene,light||null);
+    // options.look: the sheet as clay or as depth (the Colour sheet, with no look, is what the image engine follows)
+    const rig=build(T,scene,light||null,{look:options.look});
     try{
       renderer.setPixelRatio(1);renderer.setSize(w,h,false);renderer.outputColorSpace=T.SRGBColorSpace;
-      renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=options.exposure||1;
+      renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=options.exposure||(rig.look==="clay"?CLAY.exposure:1);
       renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
       // options.only: one camera alone, as a single 16:9 frame (a variant is one frame, 2026-11-16)
       const only=PANELS.includes(options.only)?options.only:"",shown=only?[only]:PANELS,cols=only?1:2;
@@ -183,30 +235,17 @@
     let renderer;
     try{renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,alpha:false});}
     catch(_){throw new Error("This browser could not start the 3D view. Turn on graphics acceleration and try again.");}
-    const rig=build(T,scene,light||null,options&&options.surfaces?{surfaces:true,renderer}:null);
+    // options.look: the whole view built as clay or depth (a shot's Previs); options.surfaces: painted surfaces
+    const rig=build(T,scene,light||null,{look:options&&options.look,surfaces:!!(options&&options.surfaces),renderer});
     let w=0,h=0,dead=false,drawn=false;
+    const exposure=rig.look==="clay"?CLAY.exposure:1;
     renderer.setPixelRatio(1);renderer.outputColorSpace=T.SRGBColorSpace;
-    renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
+    renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=exposure;
     renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
-    /* THE SAME VIEW IN TWO PLAIN LOOKS (owner 2026-11-23, the location card's Blockout / Clay / Depth switch):
-       "clay" draws every shape of the set in one matt white, lit as the set is, so only form and light are left (the
-       stand-in people keep their colours, so they are still told apart); "depth" draws how far each point is from
-       the camera, near light and far dark. Both leave the set itself untouched. */
+    /* A LOOK FOR ONE DRAWING (the location card's Colour / Clay / Depth switch): a view built in colour draws one
+       frame as clay or depth and is put back as it was, so the card keeps a single 3D view for all three. The same
+       clay, the same depth and the same far end as a view built in that look. */
     let clay=null,depth=null;
-    const farOf=camera=>{
-      /* how far the dark end is: what this camera really looks at (a grid of rays through its frame), taken at the
-         far end of most of it, so a room fills the whole range from light to dark and a glimpse of the street
-         through a window does not wash the room out. Never under 4 m, never past 40 m. */
-      const ray=new T.Raycaster(),seen=[],COLS=16,ROWS=9;
-      camera.updateMatrixWorld(true);
-      for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
-        ray.setFromCamera(new T.Vector2((c+0.5)/COLS*2-1,1-(r+0.5)/ROWS*2),camera);
-        const hit=ray.intersectObjects(rig.meshes,false)[0];if(hit)seen.push(hit.distance);
-      }
-      if(!seen.length)return 12;
-      seen.sort((x,y)=>x-y);
-      return Math.max(4,Math.min(40,seen[Math.floor((seen.length-1)*0.9)]*1.12));
-    };
     /* THE STAND-IN PEOPLE (the set card's A and B): cast = [{xy, z, to:[x,y], colour, height}], each a jointed figure
        standing at xy on the floor at height z, turned to face `to`. They are part of the view, never of the set. */
     const actors=[];let castKey="";
@@ -226,29 +265,27 @@
       renderer.shadowMap.needsUpdate=true;   // someone moved: the sun's shadows are worked out again, once
     };
     return {
+      look:rig.look,far:rig.far,
       render(canvas,pose,width,height,look,cast){
         if(dead)throw new Error("This view was closed.");
         width=Math.max(16,Math.round(width||canvas.width||640));height=Math.max(9,Math.round(height||canvas.height||360));
         if(width!==w||height!==h){renderer.setSize(width,height,false);w=width;h=height;}
         place(cast);
-        if(look==="clay"||look==="depth"){
-          const camera=root.KinolotAnglePreview.cameraFor(T,pose),sky=rig.three.background,fog=rig.three.fog,swapped=[],hidden=[];
+        look=rig.look?"":lookOf(look);   // a view built in a look is that look already
+        if(look){
+          const camera=root.KinolotAnglePreview.cameraFor(T,pose),sky=rig.three.background,swapped=[],hidden=[];
           rig.three.traverse(o=>{if(o.userData&&o.userData.sky&&o.visible){o.visible=false;hidden.push(o);}});
           if(look==="clay"){
-            if(!clay)clay=new T.MeshStandardMaterial({color:0xe9e7e2,roughness:0.95,metalness:0,side:T.DoubleSide});
-            rig.meshes.forEach(m=>{swapped.push([m,m.material]);m.material=clay;});
-            // (white shapes under the set's own sun burn out: the clay look is drawn a little darker)
-            rig.three.background=new T.Color(0xd4d2cd);renderer.toneMappingExposure=0.82;
+            if(!clay)clay=clayMaterial(T);
+            // the set in clay; what stands in it (a stand-in person, a placed prop) keeps its colours
+            rig.meshes.forEach(m=>{if(m.userData.own)return;swapped.push([m,m.material]);m.material=clay;});
+            rig.three.background=new T.Color(CLAY.ground);renderer.toneMappingExposure=CLAY.exposure;
           }else{
-            if(!depth)depth=new T.ShaderMaterial({side:T.DoubleSide,uniforms:{near:{value:0.3},far:{value:10}},
-              vertexShader:"varying float vz; void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); vz=-mv.z; gl_Position=projectionMatrix*mv; }",
-              fragmentShader:"uniform float near; uniform float far; varying float vz; void main(){ float d=clamp((vz-near)/(far-near),0.0,1.0); gl_FragColor=vec4(vec3(1.0-d),1.0); }"});
-            depth.uniforms.far.value=farOf(camera);
+            if(!depth)depth=depthMaterial(T,rig.far);
             rig.three.overrideMaterial=depth;rig.three.background=new T.Color(0x000000);
           }
-          rig.three.fog=null;
           try{renderer.render(rig.three,camera);}
-          finally{rig.three.overrideMaterial=null;rig.three.background=sky;rig.three.fog=fog;renderer.toneMappingExposure=1;
+          finally{rig.three.overrideMaterial=null;rig.three.background=sky;renderer.toneMappingExposure=exposure;
             swapped.forEach(q=>{q[0].material=q[1];});hidden.forEach(o=>{o.visible=true;});}
         }else{
           renderer.render(rig.three,root.KinolotAnglePreview.cameraFor(T,pose));
@@ -673,5 +710,5 @@
       return result;
     });
   }
-  root.KinolotPrevis={PANELS,OUT_OF_DATE,specFromSet,sheet,viewer,scene,dressingSig,overview,look,relightPrompt,variantSource,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,remove,restore,retrySave,discardUnsaved,pending};
+  root.KinolotPrevis={PANELS,OUT_OF_DATE,LOOKS,CLAY,DEPTH,depthFar,specFromSet,sheet,viewer,scene,dressingSig,overview,look,relightPrompt,variantSource,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,remove,restore,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);

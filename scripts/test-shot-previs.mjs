@@ -518,7 +518,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */
@@ -700,7 +700,7 @@ test("17c. the beat strip: above each beat's cards, every planned shot of the be
     assert.ok(ui.includes(t),t);
   assert.ok(ui.includes("if(!plan || !SP.exact(plan)) return null;")&&ui.includes("if(!list.length) return null;"),"only a planned beat of a plan with marks");
   const at=src.indexOf("async function beat(plan,shots,o){"), body=src.slice(at,src.indexOf("// one drawn frame of a planned shot",at));
-  assert.ok(body.includes("const own=o.states?null:beatStates(shots), states=arr(shots).map((sh,i)=>own?own[i]:(obj(o.states)[sh.id]||beatStates([sh])[0])), out=[];")&&body.includes("startState:st.start,endState:st.end,midState:mid});"));
+  assert.ok(body.includes("const own=o.states?null:beatStates(shots), states=arr(shots).map((sh,i)=>own?own[i]:(obj(o.states)[sh.id]||beatStates([sh])[0])), out=[];")&&body.includes("startState:st.start,endState:st.end,midState:mid,look:o.look});"));
   assert.ok(body.includes('}catch(e){ row.error=String((e&&e.message)||"This shot could not be drawn."); }'),"one shot that cannot be drawn does not stop the others");
   const fa=ai.indexOf('APP_FEATURES.push({ name:"Shots: the beat in code (the beat strip)"'); assert.ok(fa>0,"Frances is told");
   const fact=ai.slice(fa,ai.indexOf("\n",fa));

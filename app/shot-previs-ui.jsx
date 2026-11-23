@@ -42,7 +42,20 @@ function shotPrevisSig(sh, plan, cam, loc, ctx){
 }
 const shotPrevisNum = (n,d)=>{ const v = Number(n); return Number.isFinite(v) ? String(Math.round(v*Math.pow(10,d||0))/Math.pow(10,d||0)) : ""; };
 
-function ShotPrevisBody({ sh, plan, cam, loc, ctx, sig, onView, beatLabel, onMake, makeDisabled, staged }){
+/* COLOUR, CLAY, DEPTH (owner 2026-11-23, the Previs look brief, step 1): the same drawing of the shot three ways.
+   Colour is the set as built, and the one a frame is made from; Clay is the set in one matt white, the people and
+   props in their colours; Depth is how far each thing is from the camera. Each look is drawn when it is first asked
+   for and kept apart from the others for the session; a shot remembers the look it was left on. */
+const SHOT_PREVIS_LOOKS = [
+  { id:"", name:"Colour", title:"The set as built. A frame is made from this drawing." },
+  { id:"clay", name:"Clay", title:"The set in one matt white: only shape and light. People and props keep their colours." },
+  { id:"depth", name:"Depth", title:"How far each thing is from the camera: near is light, far is dark." }];
+const SHOT_PREVIS_LOOK = new Map();          // shot id → the look it was left on (this session)
+function ShotPrevisBody({ sh, plan, cam, loc, ctx, sig:colourSig, onView, beatLabel, onMake, makeDisabled, staged }){
+  const [look, setLookNow] = React.useState(()=> SHOT_PREVIS_LOOK.get(sh.id) || "");
+  const setLook = id=>{ SHOT_PREVIS_LOOK.set(sh.id, id); setLookNow(id); };
+  // what a drawing was made from, with its look: a look never replaces another's drawing
+  const sig = colourSig+(look ? "|look:"+look : "");
   const [state, setState] = React.useState(()=> SHOT_PREVIS_KEPT.has(sig) ? { res:SHOT_PREVIS_KEPT.get(sig) } : { busy:true });
   React.useEffect(()=>{
     if(SHOT_PREVIS_KEPT.has(sig)){ setState({ res:SHOT_PREVIS_KEPT.get(sig) }); return; }
@@ -50,6 +63,7 @@ function ShotPrevisBody({ sh, plan, cam, loc, ctx, sig, onView, beatLabel, onMak
     setState({ busy:true });
     const cast = Object.values(((ctx||{}).charById)||{}), props = Object.values(((ctx||{}).propById)||{});
     const run = ()=> live ? window.ShotPrevis.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width:960,
+      ...(look ? { look } : {}),
       ...(staged ? { startState:staged.start, endState:staged.end } : {}) }) : null;
     const turn = shotPrevisLine.then(run, run);
     shotPrevisLine = turn.then(()=>{}, ()=>{});
@@ -61,8 +75,10 @@ function ShotPrevisBody({ sh, plan, cam, loc, ctx, sig, onView, beatLabel, onMak
     }, e=>{ if(live) setState({ err:String((e && e.message) || "The previs could not be drawn.") }); });
     return ()=>{ live = false; };
   },[sig]);
-  if(state.busy) return SPV_E("div",{className:"shot-previs-wait",role:"status","data-testid":"shot-previs-wait"},SPV_E("span",{className:"ns-spin"}),"Drawing this shot from the set in 3D…");
-  if(state.err) return SPV_E("p",{className:"shot-previs-note","data-testid":"shot-previs-none"},state.err);
+  const looks = SPV_E("div",{className:"shot-previs-looks",role:"group","aria-label":"How the previs is drawn","data-testid":"shot-previs-looks"},
+    SHOT_PREVIS_LOOKS.map(x=>SPV_E("button",{key:x.id||"colour",type:"button","aria-pressed":x.id===look?"true":"false",title:x.title,onClick:()=>setLook(x.id)},x.name)));
+  if(state.busy) return SPV_E(React.Fragment,null,looks,SPV_E("div",{className:"shot-previs-wait",role:"status","data-testid":"shot-previs-wait"},SPV_E("span",{className:"ns-spin"}),"Drawing this shot from the set in 3D…"));
+  if(state.err) return SPV_E(React.Fragment,null,looks,SPV_E("p",{className:"shot-previs-note","data-testid":"shot-previs-none"},state.err));
   const res = state.res||{};
   if(!res.start) return SPV_E("div",{className:"shot-previs","data-testid":"shot-previs"},
     (res.notes||[]).concat(res.missing||[]).map((t,i)=>SPV_E("p",{key:i,className:"shot-previs-note"},t)));
@@ -85,13 +101,16 @@ function ShotPrevisBody({ sh, plan, cam, loc, ctx, sig, onView, beatLabel, onMak
   if(moving) notes.push("The camera moves in this shot: both pictures are from where it starts.");
   if(res.source==="app" && !cam) notes.push("Place the cameras, in the Scene plan, lets the writing engine compose each shot's camera.");
   const base = (beatLabel ? beatLabel+" · " : "")+"previs";
-  return SPV_E("div",{className:"shot-previs","data-testid":"shot-previs","data-source":res.source||""},
+  return SPV_E("div",{className:"shot-previs","data-testid":"shot-previs","data-source":res.source||"","data-look":look||"colour"},
+    looks,
     SPV_E("div",{className:"shot-previs-pics"+(res.end?"":" one")},
       pic(res.start, res.end ? "How it starts" : "Start and end", base+(res.end?", start":"")),
       res.end && pic(res.end, "How it ends", base+", end")),
     !res.end && SPV_E("p",{className:"shot-previs-line"},"Nothing moves in this shot: it ends as it starts."),
     SPV_E("p",{className:"shot-previs-line","data-testid":"shot-previs-camera"},line),
     notes.map((t,i)=>SPV_E("p",{key:i,className:"shot-previs-note"},t)),
+    // (a frame is always made from the Colour drawing: said while another look is on)
+    onMake && look && SPV_E("p",{className:"shot-previs-note","data-testid":"shot-previs-look-note"},"A frame is made from the Colour drawing, not from this one."),
     // step 2: the frame made FROM this drawing (the image engine only adds the people, the surfaces and the light)
     onMake && SPV_E("div",{className:"shot-previs-make"},
       SPV_E("button",{type:"button",className:"char-draft-btn","data-testid":"shot-previs-make",disabled:!!makeDisabled,
