@@ -159,16 +159,25 @@ async function shotPrevisMakeBeat(list, endOwnerId, onStep){
     onStep && onStep(label);
     try{ press(); }catch(e){ return false; }
     let started = false;
+    const asking = ()=> !!document.querySelector('[role="dialog"],[role="alertdialog"]');
+    const waiting = ()=> !!(window.__shotPrevisNext && window.__shotPrevisNext[id]);   // marked, and its card has not taken it yet
     for(let t=0; t<1800; t++){            // up to 15 minutes a frame, checked twice a second
       await shotPrevisWait(500);
       const busy = shotPrevisBusy(id);
       if(busy) started = true;
       else if(started) break;
       else if(t>360) return false;       // three minutes and it never started
+      /* PRESSED TOO SOON (the first real run, 2026-11-23): the scene's runner was still closing the frame before, so
+         it let this press go by and nothing started. While nothing has started and no question is on screen, a shot
+         whose card has not taken its mark is pressed again every ten seconds; an end frame (it has no mark) once,
+         ten seconds on. Never while it may already be on its way: a second press would make a second frame. */
+      else if(t>0 && t%20===0 && !asking() && (/-end$/.test(id) ? t===20 : waiting())){ try{ press(); }catch(e){} }
     }
     const iso1 = (typeof nbGetMeta==="function") ? String((nbGetMeta(id)||{}).iso||"") : "";
     if(!iso1 || iso1===iso0) return false;
-    made++; return true;
+    made++;
+    await shotPrevisWait(2500);          // the runner closes this frame before the next is asked for
+    return true;
   };
   for(let i=0; i<list.length; i++){
     const sh = list[i], m = window.ScenePlan.momentOf(sh);
@@ -191,7 +200,11 @@ function BeatStripBody({ list, plan, ctx, sig, onView, beatN, staged, readOnly, 
     ["nb-gen-done","nb-meta-changed","nb-prefetched"].forEach(ev=>window.addEventListener(ev,h));
     const t = setInterval(h, 2000);
     // what each frame was made from is read with the frame itself: ask for both once (the picture alone may be at hand)
-    if(typeof nbLoadImage==="function") list.map(sh=>sh.id).concat(endOwnerId?[endOwnerId+"-end"]:[]).forEach(id=>{ try{ Promise.resolve(nbLoadImage(id)).then(h,()=>{}); }catch(e){} });
+    // (the picture's own loader can answer from a picture already at hand, without its record: the one that reads the row does)
+    list.map(sh=>sh.id).concat(endOwnerId?[endOwnerId+"-end"]:[]).forEach(id=>{
+      if(typeof nbGetMeta==="function" && nbGetMeta(id)) return;
+      const load = (typeof window.nbRemoteImageUrl==="function") ? window.nbRemoteImageUrl : (typeof nbLoadImage==="function" ? nbLoadImage : null);
+      if(load){ try{ Promise.resolve(load(id)).then(h,()=>{}); }catch(e){} } });
     return ()=>{ ["nb-gen-done","nb-meta-changed","nb-prefetched"].forEach(ev=>window.removeEventListener(ev,h)); clearInterval(t); }; },[]);
   const [state, setState] = React.useState(()=> BEAT_STRIP_KEPT.has(sig) ? { rows:BEAT_STRIP_KEPT.get(sig) } : { busy:true });
   React.useEffect(()=>{
@@ -353,8 +366,45 @@ async function shotPrevisForFrame(sh, ctx, which, pose, width, sceneShots){
   const people = (end && res.end && res.end.people) || res.people, things = (end && res.end && res.end.things) || res.things;
   return { url:pic.dataUrl, which:end?"end":"start", legend:SPv.legend(people, things), words:pic.words||"", pose:res.pose, source:res.source||"", moves:!!res.end };
 }
+/* THE LOOK OF THE FRAME BEFORE, WITHOUT ITS LAYOUT (2026-11-23, after the first whole beat made from the strip: every
+   frame came back framed like the one before it, because that frame rode along whole "for its look" and the image
+   engine took its composition too). The frame is cut into a grid of twelve pieces, the pieces are moved to other
+   places and every other one is mirrored: a sheet of SWATCHES. It still shows the colour grade, the light, skin and
+   cloth, and every surface at its real grain; it is no longer a picture of the room, so it cannot say where the
+   camera stands. Drawn in the browser, no engine. Returns a JPEG data URL, or "" when the picture cannot be read
+   (the caller then sends no look reference at all, never the whole frame). */
+const SHOT_SWATCH_ORDER = [7,2,10,5,0,11,3,8,1,6,9,4];   // where each piece of the 4 x 3 grid goes: none stays in its place
+function shotLookSwatches(url){
+  return new Promise(resolve=>{
+    if(!url || typeof Image==="undefined" || typeof document==="undefined"){ resolve(""); return; }
+    const im = new Image();
+    let done = false; const end = (v)=>{ if(!done){ done = true; resolve(v); } };
+    setTimeout(()=>end(""), 20000);
+    if(!/^(data|blob):/.test(url)) im.crossOrigin = "anonymous";
+    im.onerror = ()=>end("");
+    im.onload = ()=>{
+      try{
+        const COLS = 4, ROWS = 3, W = 960, H = 540, tw = W/COLS, th = H/ROWS;
+        const sw = im.naturalWidth/COLS, sh = im.naturalHeight/ROWS;
+        if(!(sw>8 && sh>8)){ end(""); return; }
+        const c = document.createElement("canvas"); c.width = W; c.height = H;
+        const g = c.getContext("2d"); if(!g){ end(""); return; }
+        g.fillStyle = "#111"; g.fillRect(0,0,W,H);
+        SHOT_SWATCH_ORDER.forEach((to, from)=>{
+          const sx = (from%COLS)*sw, sy = Math.floor(from/COLS)*sh, dx = (to%COLS)*tw, dy = Math.floor(to/COLS)*th;
+          g.save();
+          if(from%2){ g.translate(dx+tw, dy); g.scale(-1,1); g.drawImage(im, sx, sy, sw, sh, 0, 0, tw-4, th-4); }
+          else g.drawImage(im, sx, sy, sw, sh, dx, dy, tw-4, th-4);
+          g.restore();
+        });
+        end(c.toDataURL("image/jpeg", 0.88));
+      }catch(e){ end(""); }
+    };
+    im.src = url;
+  });
+}
 // a frame "made from its previs": the next Generate of this shot takes it (set by the Previs fold's button, read once by the card)
 // (the mark lasts ten minutes: a run the person then cancels must not turn a later, ordinary Generate into this one)
 function shotPrevisAskNext(id){ window.__shotPrevisNext = window.__shotPrevisNext || {}; window.__shotPrevisNext[id] = Date.now(); }
 function shotPrevisTakeNext(id){ const m = window.__shotPrevisNext, at = m && m[id]; if(!at) return false; delete m[id]; return Date.now()-at < 600000; }
-Object.assign(window, { ShotPrevisFold, BeatStrip, beatStripShots, shotPrevisStaged, shotPrevisMaker, shotPrevisMakeBeat, shotPrevisPlace, shotPrevisCamera, shotPrevisSig, shotPrevisForFrame, shotPrevisAskNext, shotPrevisTakeNext });
+Object.assign(window, { ShotPrevisFold, BeatStrip, shotLookSwatches, SHOT_SWATCH_ORDER, beatStripShots, shotPrevisStaged, shotPrevisMaker, shotPrevisMakeBeat, shotPrevisPlace, shotPrevisCamera, shotPrevisSig, shotPrevisForFrame, shotPrevisAskNext, shotPrevisTakeNext });

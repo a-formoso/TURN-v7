@@ -263,8 +263,13 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     if(gopts && gopts.previs && gopts.previs.url && !gopts.editInstruction && !gopts.fresh && prevShot){
       let seedU = (typeof nbGetImage==="function") ? nbGetImage(prevShot.id) : "";
       if(!seedU && typeof nbLoadImage==="function"){ try{ seedU = await nbLoadImage(prevShot.id); }catch(e){} }
-      if(seedU) return ranked.concat([{ url:seedU, kind:"frame", refId:prevShot.id, maxDim:640,
-        note:"the finished frame of the shot before this one \u2014 take ONLY its look from it: the colour grade, the light, the faces, the wardrobe and every established physical state (wear, wetness, dirt, damage); never its framing, its camera or where anything stands" }]);
+      /* …AS SWATCHES, NEVER WHOLE (2026-11-23, after the first beat made from the strip: with the whole frame riding
+         along, every frame came back framed like the one before it). The frame is cut up and shuffled
+         (shotLookSwatches): its grade, light and surfaces are all there, its layout is not. When it cannot be cut,
+         no look reference goes at all. */
+      const sw = (seedU && typeof window.shotLookSwatches==="function") ? await window.shotLookSwatches(seedU) : "";
+      if(sw) return ranked.concat([{ url:sw, kind:"frame", refId:prevShot.id, maxDim:960, ephemeral:true, persist:false,
+        note:"a sheet of SWATCHES cut from the finished frame of the shot before this one and shuffled \u2014 for the colour grade, the light, skin and cloth tones and the grain of every surface ONLY; it is not a picture of the scene: take no layout, no camera, no position and no object from it" }]);
     }
     return ranked;
   };

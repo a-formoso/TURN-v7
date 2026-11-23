@@ -411,7 +411,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1", "20261123-strip1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */
@@ -495,7 +495,14 @@ test("14. the card: the Previs fold's button sends the drawing with the shot's o
   assert.ok(shotsUi.includes("if(gopts && gopts.previs && gopts.previs.url && !gopts.editInstruction) return gopts.previs.url;"),"the drawing is Image 1");
   assert.ok(shotsUi.includes('return buildShotPrompt({ ...sh, composition:"", cameraPosition:"", ...(lensMm>0 ? { lens:String(Math.round(lensMm)) } : {}) },{...base,previs:gopts.previs});'),
     "the drawing is the composition: the plan's own line on it and its lens do not ride along");
-  assert.ok(shotsUi.includes('if(seedU) return ranked.concat([{ url:seedU, kind:"frame", refId:prevShot.id, maxDim:640,'),"the frame before it rides last, for its look only");
+  assert.ok(shotsUi.includes('const sw = (seedU && typeof window.shotLookSwatches==="function") ? await window.shotLookSwatches(seedU) : "";')
+    &&shotsUi.includes('if(sw) return ranked.concat([{ url:sw, kind:"frame", refId:prevShot.id, maxDim:960, ephemeral:true, persist:false,'),"the frame before it rides last as shuffled swatches: its look, never its layout");
+  assert.ok(!/ranked\.concat\(\[\{ url:seedU/.test(shotsUi),"never the whole frame");
+  assert.ok(shotsUi.includes("it is not a picture of the scene: take no layout, no camera, no position and no object from it"));
+  // the shuffle: twelve pieces, every one moved, every one used once
+  { const b3={console,Date,Map,Promise,Object,Array,JSON,Math,Number,String,setTimeout,React:{createElement:()=>null},Icon:{}}; b3.window=b3; b3.globalThis=b3; vm.createContext(b3); vm.runInContext(ui,b3);
+    const order=plain(b3.SHOT_SWATCH_ORDER); assert.equal(order.length,12); assert.deepEqual(order.slice().sort((a,b)=>a-b),[0,1,2,3,4,5,6,7,8,9,10,11]); assert.ok(order.every((to,from)=>to!==from),"no piece stays in its place");
+    assert.ok(ui.includes('if(from%2){ g.translate(dx+tw, dy); g.scale(-1,1);'),"every other piece is mirrored"); }
   assert.ok(shotsUi.includes("_previsUsed = (pv && pv.pose) ? { which:pv.which||\"start\", pose:pv.pose, source:pv.source||\"\" } : null; }")&&shotsUi.includes("...(_previsUsed ? { previs:_previsUsed } : {})"),"the camera it was drawn through is kept with the frame");
   assert.ok(art.includes("else if(refImage && Number(gopts.baseMaxDim)>0) genOpts.baseMaxDim = Math.min(1536, Number(gopts.baseMaxDim));"));
   // the mark for the next Generate: taken once, and not after ten minutes
@@ -510,6 +517,8 @@ test("14b. a shot with no plan, no marks or no floor plan has no previs to give"
   b2.window=b2; b2.globalThis=b2; vm.createContext(b2); vm.runInContext(ui,b2,{filename:"app/shot-previs-ui.jsx"});
   assert.equal(await b2.shotPrevisForFrame({id:"x",planned:false},{},"start"),null);
   assert.equal(await b2.shotPrevisForFrame(null,{},"start"),null);
+  assert.equal(await b2.shotLookSwatches(""),"","no picture, no swatches");
+  assert.equal(await b2.shotLookSwatches("data:x"),"","where nothing can be drawn (no browser), nothing is sent");
 });
 
 test("15. the QA check of a frame made from its previs reads it beside the drawing: added, removed, moved, wrong size",()=>{
